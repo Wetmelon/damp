@@ -34,7 +34,10 @@ struct SeriesMathBackend {
     static constexpr T atan(T x) { return detail::atan(x); }
     static constexpr T atan2(T y, T x) { return detail::atan2(y, x); }
 
-    static constexpr damp::pair<T, T> sincos(T x) { return detail::sincos(x); }
+    static constexpr damp::pair<T, T> sincos(T x) {
+        const auto sc = detail::sincos(x);
+        return {sc.sin, sc.cos};
+    }
 
     static constexpr T sqrt(T x) { return detail::sqrt(x); }
     static constexpr T abs(T x) { return detail::abs(x); }

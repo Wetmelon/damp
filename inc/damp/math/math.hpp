@@ -199,7 +199,8 @@ constexpr T sin(T x) {
 template<typename T>
 constexpr damp::pair<T, T> sincos(T x) {
     if (std::is_constant_evaluated()) {
-        return detail::sincos(x);
+        const auto sc = detail::sincos(x);
+        return {sc.sin, sc.cos};
     }
     return MathBackend<T>::sincos(x);
 }
@@ -333,9 +334,11 @@ constexpr T ceil(T x) {
 }
 
 /**
- * @brief Round to nearest integer. Runtime follows the backend (round half to
- *        even); the compile-time path rounds ties away from zero — immaterial for
- *        range reduction.
+ * @brief Round to nearest integer; ties to even (IEEE default / `FE_TONEAREST`).
+ *
+ * Compile-time path and freestanding series backend use the same policy as the
+ * hosted runtime backends (`std::nearbyint`, `fast_nearbyint`).
+ *
  * @tparam T Numeric type (floating-point)
  */
 template<typename T>
@@ -437,7 +440,7 @@ template<typename T>
 }
 
 /**
- * @brief True if @p x is finite and non-negative (@f$ x \ge 0 @f$).
+ * @brief True if @p x is finite and non-negative (x ≥ 0).
  *
  * @tparam T Numeric type (floating-point)
  */
@@ -512,8 +515,8 @@ constexpr T wrap(T x, T min, T max) {
     // the dispatcher still reaches that fast path at runtime via MathBackend<float>.
     T y = x - (range * damp::nearbyint<T>((x - midpoint) / range));
 
-    // Half-period ties (e.g. wrap(0, 0, 2π) → nearbyint(−½) = −1 → 2π) can land on
-    // max or just outside [min, max). Fold once more so the result is half-open.
+    // Rounding ties or floating error can land on max or just outside [min, max).
+    // Fold once more so the result is half-open.
     if (y < min) {
         y += range;
     }
@@ -524,7 +527,7 @@ constexpr T wrap(T x, T min, T max) {
 }
 
 /**
- * @brief Wrap an angle to @f$ [-\pi,\pi) @f$
+ * @brief Wrap an angle to [−π, π)
  *
  * Shortest-arc residual / signed phase error: heading innovation, PLL angle
  * error, joint nearest-branch, motor electrical angle when a bipolar wrap is
@@ -534,7 +537,7 @@ constexpr T wrap(T x, T min, T max) {
  * @note Compare with MATLAB®'s wrapToPi(θ).
  * @tparam T Numeric type (floating-point)
  * @param theta Angle [rad]
- * @return θ folded into @f$ [-\pi,\pi) @f$
+ * @return θ folded into [−π, π)
  */
 template<typename T = double>
     requires std::is_floating_point_v<T>
@@ -543,7 +546,7 @@ template<typename T = double>
 }
 
 /**
- * @brief Wrap an angle to @f$ [0, 2\pi) @f$
+ * @brief Wrap an angle to [0, 2π)
  *
  * Natural range for a PLL / VCO phase integrator that locks about 0: noise near
  * lock does not flicker across a wrap seam, and split-phase 180° is interior to
@@ -552,7 +555,7 @@ template<typename T = double>
  * @note Compare with MATLAB®'s wrapTo2Pi(θ).
  * @tparam T Numeric type (floating-point)
  * @param theta Angle [rad]
- * @return θ folded into @f$ [0, 2\pi) @f$
+ * @return θ folded into [0, 2π)
  */
 template<typename T = double>
     requires std::is_floating_point_v<T>

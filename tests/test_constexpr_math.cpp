@@ -246,6 +246,43 @@ TEST_SUITE("constexpr_math") {
         CHECK(damp::fmod(1.0, 0.0) == doctest::Approx(0.0)); // guarded
     }
 
+    TEST_CASE("floor/ceil/nearbyint/fmod full range (beyond long long)") {
+        // Regression: these used static_cast<long long> with no range check — UB for
+        // |x| ≳ 2⁶³. Every finite binary float/double that large is already integral.
+        constexpr double big = 1.0e20; // > 2⁶³ ≈ 9e18
+        constexpr double huge = 1.0e300;
+        constexpr float  bigf = 1.0e30f;
+
+        CHECK(damp::floor(big) == std::floor(big));
+        CHECK(damp::ceil(big) == std::ceil(big));
+        CHECK(damp::nearbyint(big) == std::nearbyint(big));
+        CHECK(damp::floor(-big) == std::floor(-big));
+        CHECK(damp::ceil(-big) == std::ceil(-big));
+        CHECK(damp::nearbyint(-big) == std::nearbyint(-big));
+        CHECK(damp::floor(huge) == std::floor(huge));
+        CHECK(damp::ceil(-huge) == std::ceil(-huge));
+        CHECK(damp::floor(bigf) == std::floor(bigf));
+        CHECK(damp::ceil(bigf) == std::ceil(bigf));
+
+        // Constexpr path (forces detail::, not the runtime backend).
+        static_assert(damp::floor(big) == big);
+        static_assert(damp::ceil(big) == big);
+        static_assert(damp::nearbyint(big) == big);
+        static_assert(damp::floor(-big) == -big);
+        static_assert(damp::ceil(-big) == -big);
+        static_assert(damp::floor(3.7) == 3.0);
+        static_assert(damp::floor(-3.7) == -4.0);
+        static_assert(damp::ceil(3.2) == 4.0);
+        static_assert(damp::ceil(-3.2) == -3.0);
+        static_assert(damp::floor(bigf) == bigf);
+
+        // Quotient x/y also used to overflow the long-long cast inside fmod.
+        CHECK(damp::fmod(big, 3.0) == doctest::Approx(std::fmod(big, 3.0)));
+        CHECK(damp::fmod(-big, 3.0) == doctest::Approx(std::fmod(-big, 3.0)));
+        constexpr double fmod_big = damp::fmod(1.0e20, 3.0);
+        CHECK(fmod_big == doctest::Approx(std::fmod(1.0e20, 3.0)));
+    }
+
     TEST_CASE("damp::copysign matches std::copysign") {
         CHECK(damp::copysign(3.0, -2.0) == std::copysign(3.0, -2.0));
         CHECK(damp::copysign(3.0, 2.0) == std::copysign(3.0, 2.0));
@@ -299,6 +336,9 @@ TEST_SUITE("constexpr_math") {
 
         // float specialization stays finite/zero past its narrower range
         CEXPR_APPROX(damp::exp(10.0f), std::exp(10.0), 1e-5);
+        // Type-scaled saturation (float overflows ~88.7, not at the double 709 gate)
+        static_assert(damp::exp(100.0f) == std::numeric_limits<float>::max());
+        static_assert(damp::exp(-120.0f) == 0.0f);
     }
 
     TEST_CASE("constexpr log / pow / log10 match std") {
@@ -449,22 +489,29 @@ TEST_SUITE("constexpr_math") {
         CHECK(finite_val);
     }
 
-    TEST_CASE("damp::nearbyint dispatch: runtime ties-to-even, compile-time ties-away") {
+    TEST_CASE("damp::nearbyint ties to even (compile-time and runtime)") {
         // Non-tie values agree on every path and with std::nearbyint.
         for (double x : {-3.4, -1.6, -0.2, 0.2, 1.6, 3.4, 100.7, -100.7}) {
             CHECK(damp::nearbyint(x) == std::nearbyint(x));
         }
 
-        // Runtime path follows the backend rounding mode (round half to even).
+        // Half-integer ties → even integer (IEEE default / FE_TONEAREST).
+        CHECK(damp::nearbyint(0.5) == 0.0);
+        CHECK(damp::nearbyint(1.5) == 2.0);
         CHECK(damp::nearbyint(2.5) == 2.0);
         CHECK(damp::nearbyint(3.5) == 4.0);
+        CHECK(damp::nearbyint(-0.5) == 0.0);
+        CHECK(damp::nearbyint(-1.5) == -2.0);
         CHECK(damp::nearbyint(-2.5) == -2.0);
 
-        // Compile-time path rounds ties away from zero — a documented divergence
-        // from the runtime backend, immaterial for range reduction where exact
-        // half-integer quotients are measure-zero.
-        static_assert(damp::nearbyint(2.5) == 3.0);
-        static_assert(damp::nearbyint(-2.5) == -3.0);
+        // Compile-time path matches the same policy (detail::nearbyint).
+        static_assert(damp::nearbyint(0.5) == 0.0);
+        static_assert(damp::nearbyint(1.5) == 2.0);
+        static_assert(damp::nearbyint(2.5) == 2.0);
+        static_assert(damp::nearbyint(3.5) == 4.0);
+        static_assert(damp::nearbyint(-0.5) == 0.0);
+        static_assert(damp::nearbyint(-1.5) == -2.0);
+        static_assert(damp::nearbyint(-2.5) == -2.0);
         static_assert(damp::nearbyint(2.4) == 2.0);
         static_assert(damp::nearbyint(2.6) == 3.0);
     }
