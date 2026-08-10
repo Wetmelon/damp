@@ -1,17 +1,17 @@
 # Examples
 
-Examples are the primary user surface for this public tree: fork a DiD demo under
-`control/` or `estimation/` and adjust nameplate / plant / rates.
+Examples are the main entry point for this public tree: fork a design-is-deploy
+demo under `control/` or `estimation/` and adjust nameplate / plant / rates.
 
 Host demos and hybrid SILs. Basenames are unique across folders so the tup
 build drops everything in `build/obj/` and `build/*.exe`. Consumers do not need
-tup — open the product folder as a reference and build with your own tree;
+tup — open an example folder as a reference and build with your own tree;
 `make examples` is for Damp maintainers.
 
 ## Start here
 
-| Domain | Folder | Gold product |
-| ------ | ------ | ------------ |
+| Domain | Folder | Reference layout |
+| ------ | ------ | ---------------- |
 | Classical pendulum / PID / LQR | `control/` | [`control/cart_pole/`](control/cart_pole/) |
 | IMU / INS / ESKF | `estimation/` | [`estimation/eskf/`](estimation/eskf/) |
 
@@ -20,7 +20,7 @@ Also useful: [`control/pid/`](control/pid/), [`control/pendulum/`](control/pendu
 
 Motor, power, and full motion pack demos are not in this public tree.
 
-## Product DiD layout
+## Design-is-deploy layout
 
 Fence = file split between flashable deploy and host-only SIL:
 
@@ -49,19 +49,19 @@ SIL validates the same objects that flash:
    single period API (`control_period`, `estimate_period`, …).
 2. Sketch includes the deploy header; thin `setup`/`loop` with mock I/O only.
 3. SIL includes the same deploy header and calls that period API — never a second
-   cascade or copy-pasted law “for the sim.”
+   cascade or copy-pasted law for the sim.
 4. Plant may differ from the design model; document both in `*_derivation.md` when they do.
 5. Boundary is the sensor/actuator cast (double plant ↔ float control) when host
    numerics stay double.
 
-Smell: `*_sil.cpp` re-derives `Kp`/`Ki` without calling the header tick.
-Reference patterns: `control/cart_pole/`, `estimation/eskf/`.
+Anti-pattern: `*_sil.cpp` re-derives `Kp`/`Ki` without calling the header tick.
+Reference layouts: `control/cart_pole/`, `estimation/eskf/`.
 
 ## Layout
 
 | Folder | Content |
 | ------ | ------- |
-| `control/` | Classic control product folders (`cart_pole/`, `pid/`, …) |
+| `control/` | Classic control example folders (`cart_pole/`, `pid/`, …) |
 | `estimation/` | `eskf/`, `ins_navigator/`, `ins_eskf/`, … |
 | *(root)* | Shared helpers (`animate_*.hpp`, `damp_profile.hpp`) + small utilities |
 

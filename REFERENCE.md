@@ -2,9 +2,9 @@
 
 Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `python tools/gen_reference.py`. Flat A→Z view: [REFERENCE_INDEX.md](REFERENCE_INDEX.md).
 
-**Product:** compile-time control design that ships in the firmware tree (variant gains as `constexpr`); same runtime objects in SIL. Scope: [docs/known_limitations.md](docs/known_limitations.md).
+Compile-time (or init-time) control design in the firmware tree (variant gains as `constexpr`); same runtime objects in SIL. Scope: [docs/known_limitations.md](docs/known_limitations.md).
 
-**`damp::design::`** is the design-time / **not PWM-rate** shelf (heavy solvers, rich Results). Domain packs (motor / power / full motion kits) are not assumed present in the public core tree.
+`damp::design::` is the design-time shelf (not for PWM-rate): heavy solvers and Result structs. Domain packs (motor / power / full motion kits) are not assumed present in the public core tree.
 
 
 - [API Reference](#api-reference)
@@ -483,7 +483,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`RlsVectorResult`](inc/damp/estimation/rls.hpp#L125) | Vector RLS design payload for N parameters |
 | [`RlsVectorState`](inc/damp/estimation/rls.hpp#L111) | Vector RLS runtime state for N parameters |
 | [`StateJacobian`](inc/damp/estimation/ekf.hpp#L41) | State prediction result from the user's dynamics function |
-| [`SteadyStateKalmanFilter`](inc/damp/estimation/kalman.hpp#L426) | Steady-state (fixed-gain) Kalman estimator for LQG-class products |
+| [`SteadyStateKalmanFilter`](inc/damp/estimation/kalman.hpp#L426) | Steady-state (fixed-gain) Kalman estimator for LQG-class designs |
 | [`Step`](inc/damp/estimation/excitation/step.hpp#L108) | Single step with optional \|dy/dt\| settle detection |
 | [`StepConfig`](inc/damp/estimation/excitation/step.hpp#L35) | Configuration for a single step with optional settle detection |
 | [`SteppedSine`](inc/damp/estimation/excitation/stepped_sine.hpp#L125) | Stepped-sine excitation — one pure tone at a time across a frequency table |

@@ -7,13 +7,12 @@
  * @file ins_eskf_sketch.cpp
  * @brief InsNavigator thin smoke — same design as ins_eskf_sil (float deploy)
  *
- * Full 3D SIL: ins_eskf_sil.cpp. Firmware product sketch also lives at
+ * Full 3D SIL: ins_eskf_sil.cpp. Firmware sketch also lives at
  * estimation/ins_navigator/ (same densities).
  */
 
 #include "damp/estimation/ins_eskf.hpp"
 #include "damp/estimation/ins_mechanization.hpp"
-#include "damp/math/geometry.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "ins_eskf_estimator.hpp"
 

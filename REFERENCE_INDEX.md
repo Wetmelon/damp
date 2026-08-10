@@ -694,7 +694,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`StateJacobian`](inc/damp/estimation/ekf.hpp#L41) | block | Observers & estimators | State prediction result from the user's dynamics function |
 | [`StateSpace`](inc/damp/systems/state_space.hpp#L125) | block | LTI systems (SS / TF / ZPK / discretize) | State-space representation for linear time-invariant systems (discrete or continuous) |
 | [`StateSpaceZPKResult`](inc/damp/systems/zpk.hpp#L570) | block | LTI systems (SS / TF / ZPK / discretize) | SISO state-space → ZPK conversion result with runtime zero count |
-| [`SteadyStateKalmanFilter`](inc/damp/estimation/kalman.hpp#L426) | block | Observers & estimators | Steady-state (fixed-gain) Kalman estimator for LQG-class products |
+| [`SteadyStateKalmanFilter`](inc/damp/estimation/kalman.hpp#L426) | block | Observers & estimators | Steady-state (fixed-gain) Kalman estimator for LQG-class designs |
 | [`steer_map`](inc/damp/toolbox/io.hpp#L452) | function | Embedded helpers (controls-adjacent utilities) | Curve-driven steering map — arbitrary `(throttle, turn)` geometry |
 | [`steinhart_hart`](inc/damp/toolbox/thermistor.hpp#L118) | function | Embedded helpers (controls-adjacent utilities) | Fit the Steinhart-Hart coefficients from three calibration points |
 | [`step`](inc/damp/analysis/time_response.hpp#L153) | function | Frequency-domain analysis (host) | Step response of a (MIMO) state-space system (+1 more overload) |

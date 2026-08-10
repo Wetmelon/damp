@@ -33,9 +33,9 @@
  *
  * Control laws follow three tiers:
  *
- * 1. **Design** — `design::…` produce gains / Results, often `constexpr`.
- * 2. **Result** — pure data with `.as<U>()` and `bool success`.
- * 3. **Runtime** — light objects with `.control()` / `.estimate()` for the tick.
+ * 1. Design — `design::…` produce gains / Results, often `constexpr`.
+ * 2. Result — pure data with `.as<U>()` and `bool success`.
+ * 3. Runtime — light objects with `.control()` / `.estimate()` for the tick.
  *
  * Keep iterative solvers out of the PWM-rate path. Prefer `mat::solve` over forming inverses.
  *

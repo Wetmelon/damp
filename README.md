@@ -2,23 +2,17 @@
 
 Compile-time controls for embedded C++. Header-only, C++20.
 
-v0.1.0 (alpha) · [CHANGELOG](CHANGELOG.md) · [limitations](docs/known_limitations.md) ·
-BSL-1.0 ([LICENSE](LICENSE))
+v0.1.0 (alpha) · [CHANGELOG](CHANGELOG.md) · BSL-1.0 ([LICENSE](LICENSE))
 
 After enough years writing firmware for control systems, one will see the same issues:
 
 1. Everyone reimplements the same algorithms on every project (often incorrectly).
-2. Model-based control (LQR, ESKF, …) is what people want, but the jump from a hand-tuned
-   PID to something that actually ships is huge.
-3. Real products are a variant mess — different hardware, rates, nameplates — and the
-   design tools do not live next to the code that runs.
+2. Model-based control (LQR, ESKF, …) is desirable, but the integration effort involved in shipping real model-based controls is huge
+3. Every real controls project turns into a variant management problem.  Maintaining one source of truth across many variants, engineers, and tools over several years is difficult.
 
-**Damp** keeps design and deploy in one tree. Heavy synthesis runs at compile time (or once
-at init); the MCU keeps thin runtime objects. Plant models and controllers can live in
-the same headers, with hardware variants as `constexpr` parameters rather than a MATLAB®
-export pasted in later.
+Damp addresses these by keeping design and deploy in one tree. Heavy synthesis runs at compile time, the MCU keeps thin runtime objects. Plant models and controllers can live in the same headers with hardware variants as `constexpr` parameters rather than generated code hand-copied or awkwardly wired into the build system.
 
-Inverted-pendulum LQR in the shape that lands on target:
+Example: Inverted-pendulum LQR in the shape that lands on target:
 
 ```cpp
 #include "damp/control.hpp"
@@ -44,16 +38,16 @@ constinit LQR<2, 1> pendulum_controller{result.as<float>()};
 // ColVec<1, float> u = pendulum_controller.control(x);
 ```
 
-That is the usual design-to-deploy path (PID, LQR, ESKF, and most other laws look the
+That is the usual design-is-deploy path (PID, LQR, ESKF, and most other laws look the
 same). Worked examples: [`examples/control/cart_pole/`](examples/control/cart_pole/),
 [`examples/control/pid/`](examples/control/pid/),
 [`examples/estimation/eskf/`](examples/estimation/eskf/).
 
-| Habit | Why it matters |
-| ----- | -------------- |
+| Habit | What it does |
+| ----- | ------------ |
 | `constexpr` on design | Plants, gains, and `design::…` results evaluate at compile time (or init). Pair with `static_assert(result.success)` so a failed design is a build failure, not a silent wrong gain. |
 | `.as<float>()` | Design stays in `double` for numerics; deploy is `float` for the MCU. Convert once at the boundary instead of mixing precisions on every tick. |
-| `constinit` on the runtime object | Controllers and estimators in static storage with **constant initialization**: state lands in the binary image (`.hex` / load image), not via a dynamic constructor during `__start`. No heap and no first-use setup in the interrupt. |
+| `constinit` on the runtime object | Controllers and estimators in static storage with constant initialization: state lands in the binary image (`.hex` / load image), not via a dynamic constructor during `__start`. No heap and no first-use setup in the interrupt. |
 | `StateSpace` / `TransferFunction` / `ZPK` | Shared LTI types for plants and interconnections (series `*`, feedback `/`, `discretize`, …). Prefer these over ad-hoc `A`/`B` arrays local to one module. |
 | `damp::` math (and aliases), not `std::` on target | `damp::sin` / `sqrt` / `exp` / … go through `MathBackend<T>` (constexpr-friendly at design time, swappable on target). Same for `damp::array`, `optional`, `clamp`, and the other backed aliases — raw `std::` skips that path and freestanding builds. |
 
@@ -76,7 +70,7 @@ g++ -std=c++20 -I path/to/inc your_firmware.cpp
 
 | Include | When |
 | ------- | ---- |
-| `damp/control.hpp` | MCU / product core — slim heap-free umbrella |
+| `damp/control.hpp` | MCU / embeddable core — heap-free umbrella |
 | `damp/workbench.hpp` | Host analysis and simulation (do not pull into firmware) |
 
 Small utilities (timers, scaling, bounds, …) live under `toolbox/` and ride along with
@@ -97,7 +91,7 @@ GCC 10+, Clang 12+, MSVC 2022+.
 
 ## Examples
 
-Copy a product folder rather than starting from a blank `main`. This release ships
+Copy an example folder rather than starting from a blank `main`. This release ships
 classical control and estimation demos.
 
 | Want | Example | Headers |
@@ -119,17 +113,17 @@ SIL should call the deploy tick — not reimplement the controller for the sim. 
 ## What’s in the tree
 
 Embeddable core: stack matrices, `constexpr` math, LTI types (SS / TF / ZPK) and
-discretize, DiD controllers and estimators (PID, LQR family, ADRC, SMC, KF/EKF/UKF,
-ESKF, …), filters, fixed-step integrators, geometry, toolbox helpers.
+discretize, design-is-deploy controllers and estimators (PID, LQR family, ADRC, SMC,
+KF/EKF/UKF, ESKF, …), filters, fixed-step integrators, geometry, toolbox helpers.
 
 Host (via `workbench.hpp`): Bode/margins, ODE solvers, closed-loop simulate, and a
-daily set of MATLAB®-style short names in `matlab.hpp` (not full toolbox parity).
+set of MATLAB®-style short names in `matlab.hpp` (not full toolbox parity).
 
 Full name dump: [REFERENCE.md](REFERENCE.md).
 
 ```text
 inc/damp/
-  control.hpp       # slim embeddable core
+  control.hpp       # embeddable core
   workbench.hpp     # host extras
   math/  matrix/  systems/  controllers/  design/
   estimation/  filters/  toolbox/  simulation/  analysis/

@@ -21,16 +21,16 @@ and [known limitations](docs/known_limitations.md)).
 ## [0.1.0] — 2026-08-09
 
 First public release of Damp: header-only C++20 control design that ships in the
-same tree as firmware (Design Is Deploy: same types in SIL and on the MCU).
+same tree as firmware (design-is-deploy: same types in SIL and on the MCU).
 
 License: Boost Software License 1.0. Third-party host-only components are listed
 in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
-### Product surface
+### Entry points
 
 | Include | Role |
 | ------- | ---- |
-| `damp/control.hpp` | Slim embeddable core: matrix, systems, `design::`, core DiD controllers/estimators (incl. ESKF), filters, fixed-step integrators, toolbox |
+| `damp/control.hpp` | Embeddable core: matrix, systems, `design::`, core design-is-deploy controllers/estimators (incl. ESKF), filters, fixed-step integrators, toolbox |
 | `damp/workbench.hpp` | Host: control plus Bode/margins, ODE solvers, closed-loop `simulate`, `matlab::` short names |
 
 Drop `inc/` into an existing firmware tree, or use CMake (`find_package` / FetchContent).
@@ -40,9 +40,9 @@ Drop `inc/` into an existing firmware tree, or use CMake (`find_package` / Fetch
 - Matrix / math: fixed-size stack `Matrix`, views, decompositions, solve; pluggable math backend; geometry (quaternion / DCM)
 - LTI systems: `StateSpace`, transfer functions, ZPK, discretization (ZOH / Tustin / Euler), interconnections
 - Design (not PWM-rate): place, Riccati / DARE, PID rules, minreal / model reduction, stability, synthesis bundles → Result + `.as<U>()`
-- Core DiD controllers: PID, PR, LQR / LQI / LQG / LQGI, lead-lag, ADRC, SMC / STSMC, Smith predictor, action governor
-- Core DiD estimators: Kalman, EKF, UKF, ESKF + attitude fusion, Luenberger, DOB, RLS
-- Filters: biquad family and daily signal blocks; robust differentiator
+- Core design-is-deploy controllers: PID, PR, LQR / LQI / LQG / LQGI, lead-lag, ADRC, SMC / STSMC, Smith predictor, action governor
+- Core design-is-deploy estimators: Kalman, EKF, UKF, ESKF + attitude fusion, Luenberger, DOB, RLS
+- Filters: biquad family and common signal blocks; robust exact differentiator
 - Simulation: fixed-step integrators on-target; host ODE solvers and closed-loop simulate via workbench
 - Host analysis: Bode, Nyquist, margins, step/impulse/lsim, poles; MATLAB®-style aliases
 
@@ -50,7 +50,7 @@ Runtime controllers and estimators default to `float`; design synthesis defaults
 
 ### Examples and validation
 
-- Product-folder DiD layout under `examples/control/` and `examples/estimation/`
+- Design-is-deploy folder layout under `examples/control/` and `examples/estimation/`
 - Unit tests and embedded/freestanding contracts for the core surface
 
 ### Documentation

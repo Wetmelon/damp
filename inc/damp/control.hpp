@@ -7,24 +7,23 @@
 
 /**
  * @file control.hpp
- * @brief Embeddable product core — matrix, math, DiD control/estimation, CST design.
+ * @brief Embeddable core — matrix, math, design-is-deploy control/estimation, CST design.
  *
- * Primary product promise: compile-time control design that ships in the same
- * tree as firmware (variant gains as @c constexpr), with the same runtime
- * objects usable in SIL.
+ * Compile-time control design in the same tree as firmware
+ * (variant gains as @c constexpr), with the same runtime objects usable in SIL.
  *
- * This umbrella is the slim embeddable surface:
+ * This umbrella is the embeddable surface:
  * - linear algebra + pluggable math backend (via matrix / math includes)
  * - LTI systems (SS / TF / ZPK) + @c design:: synthesis
- * - core DiD controllers and estimators (including ESKF / attitude fusion)
- * - daily filters, fixed-step ODE integrators, geometry, toolbox helpers
+ * - core design-is-deploy controllers and estimators (including ESKF / attitude fusion)
+ * - common filters, fixed-step ODE integrators, geometry, toolbox helpers
  *
  * Nothing reachable from this header allocates on the heap or pulls a
  * third-party dependency. Host tools — frequency-domain analysis, ODE solvers,
  * closed-loop simulation, MATLAB®-style aliases — live behind @ref workbench.hpp.
  *
  * @code
- * #include "damp/control.hpp"          // one include, embedded-safe
+ * #include "damp/control.hpp"          // MCU / embeddable path
  * using namespace damp;
  *
  * constexpr auto art = design::lqi_bundle(sys_d, Q_aug, R);
@@ -74,7 +73,7 @@
 #include "damp/controllers/smith_predictor.hpp" // IWYU pragma: export
 #include "damp/controllers/stsmc.hpp"           // IWYU pragma: export
 
-// --- Core DiD estimators (ESKF = attitude SoTA) -----------------------------
+// --- Core design-is-deploy estimators ---------------------------------------
 #include "damp/estimation/dob.hpp"           // IWYU pragma: export
 #include "damp/estimation/ekf.hpp"           // IWYU pragma: export
 #include "damp/estimation/eskf.hpp"          // IWYU pragma: export
@@ -84,7 +83,7 @@
 #include "damp/estimation/sensor_fusion.hpp" // IWYU pragma: export
 #include "damp/estimation/ukf.hpp"           // IWYU pragma: export
 
-// --- Daily filters + fixed-step ODE integrators -----------------------------
+// --- Filters + fixed-step ODE integrators -----------------------------------
 #include "damp/filters/differentiator.hpp" // IWYU pragma: export
 #include "damp/filters/filters.hpp"        // IWYU pragma: export
 #include "damp/simulation/integrator.hpp"  // IWYU pragma: export

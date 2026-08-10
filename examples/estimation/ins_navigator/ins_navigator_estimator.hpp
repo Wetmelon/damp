@@ -7,7 +7,7 @@
  * @file ins_navigator_estimator.hpp
  * @brief 15-state INS navigator — flashable design + tick (single source of truth)
  *
- * Folder layout (Arduino-style product demo):
+ * Folder layout (Arduino-style example):
  *
  *   ins_navigator_estimator.hpp  — this file (nameplate, design::ins_eskf_design, estimate_period)
  *   ins_navigator_sketch.cpp     — thin setup/loop smoke (float deploy)

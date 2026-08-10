@@ -24,7 +24,7 @@
  * Design results default to @c double; runtime LQR / StateFeedback default to @c float.
  *
  * @see examples/control/cart_pole/ for Design Is Deploy (deploy.hpp + sketch + sil)
- * @see examples/control/pendulum/ for a 2-state pendulum DiD product folder
+ * @see examples/control/pendulum/ for a 2-state pendulum design-is-deploy example
  */
 
 #include <cstddef>

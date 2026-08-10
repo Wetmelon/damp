@@ -7,7 +7,7 @@
  * @file eskf_estimator.hpp
  * @brief MARG attitude ESKF — flashable design + tick (single source of truth)
  *
- * Folder layout (Arduino-style product demo):
+ * Folder layout (Arduino-style example):
  *
  *   eskf_estimator.hpp  — this file (nameplate, design::eskf_marg, estimate_period)
  *   eskf_sketch.cpp     — thin setup/loop smoke (float deploy)
@@ -22,7 +22,6 @@
 
 #include "damp/estimation/eskf.hpp"
 #include "damp/estimation/sensor_fusion.hpp"
-#include "damp/math/geometry.hpp"
 #include "damp/matrix/matrix.hpp"
 
 namespace damp::examples_eskf {

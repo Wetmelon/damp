@@ -8,7 +8,7 @@ Design Is Deploy fence: the controller header linearizes about upright, designs
 discrete LQR, and exposes `control_period`. SIL integrates the nonlinear plant
 with the same `controller.control(x)` path.
 
-Related full product path (4-state cart–pole): [`../cart_pole/`](../cart_pole/)
+Related full design-is-deploy path (4-state cart–pole): [`../cart_pole/`](../cart_pole/)
 ([`cart_pole_derivation.md`](../cart_pole/cart_pole_derivation.md)).
 
 ---
@@ -209,7 +209,7 @@ Tuning tip: raise $`Q_{11}`$ for tighter upright recovery; raise $`R`$ if torque
 | [`pendulum_controller.hpp`](pendulum_controller.hpp) | Nameplate + design + tick |
 | [`pendulum_sketch.cpp`](pendulum_sketch.cpp) | Float deploy smoke |
 | [`pendulum_sil.cpp`](pendulum_sil.cpp) | Nonlinear SIL + plots + host redesign |
-| [`../cart_pole/`](../cart_pole/) | 4-state cart–pole DiD product path |
+| [`../cart_pole/`](../cart_pole/) | 4-state cart–pole design-is-deploy path |
 
 Host plots: `examples/plots/control/pendulum_sim.html`,
 `pendulum_sim_high_q.html`, `pendulum_phase.html`.

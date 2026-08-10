@@ -406,7 +406,7 @@ private:
 };
 
 /**
- * @brief Steady-state (fixed-gain) Kalman estimator for LQG-class products
+ * @brief Steady-state (fixed-gain) Kalman estimator for LQG-class designs
  *
  * Uses the designed gain L from design::kalman and never updates P online:
  *

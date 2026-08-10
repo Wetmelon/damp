@@ -14,15 +14,15 @@
  *   ins_eskf_sil.cpp        — primary host 3D animation (truth / free-run / aided)
  *   ins_eskf_derivation.md  — plant / filter notes
  *
- * Densities match estimation/ins_navigator/ (DiD parity). Flashable product path
- * for deploy is also documented there; this folder’s sketch is a smoke twin.
+ * Densities match estimation/ins_navigator/ (design-is-deploy parity). The
+ * flashable path for deploy is also documented there; this folder's sketch is a
+ * smoke twin.
  */
 
 #pragma once
 
 #include "damp/estimation/ins_eskf.hpp"
 #include "damp/estimation/ins_mechanization.hpp"
-#include "damp/math/geometry.hpp"
 #include "damp/matrix/matrix.hpp"
 
 namespace damp::examples_ins_eskf {

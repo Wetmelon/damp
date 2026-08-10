@@ -7,9 +7,9 @@
 
 /**
  * @file workbench.hpp
- * @brief Host product surface — CST analysis, ODE solvers, closed-loop sim.
+ * @brief Host umbrella — CST analysis, ODE solvers, closed-loop sim.
  *
- * Includes the slim embeddable @ref control.hpp plus workstation tools:
+ * Includes the embeddable @ref control.hpp plus workstation tools:
  * frequency-domain analysis (Bode, Nyquist, margins, sweeps), ODE solvers on
  * top of the integrators in @c simulation/integrator.hpp, closed-loop
  * @c simulate helpers, and MATLAB®-style aliases.
@@ -32,7 +32,7 @@
  * auto traj = fixed_solve\<RK4\>(f, x0, {0.0, 1.0}, 1e-3);
  * @endcode
  *
- * @see control.hpp for the slim embeddable core
+ * @see control.hpp for the embeddable core
  */
 
 #include "damp/control.hpp" // IWYU pragma: export

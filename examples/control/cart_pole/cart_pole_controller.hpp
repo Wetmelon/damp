@@ -7,7 +7,7 @@
  * @file cart_pole_controller.hpp
  * @brief Cart-pole LQR — flashable design + tick (single source of truth)
  *
- * Folder layout (Arduino-style product demo):
+ * Folder layout (Arduino-style example):
  *
  *   cart_pole_controller.hpp  — this file (nameplate, design::, control_period)
  *   cart_pole_sketch.cpp      — thin setup/loop smoke (float deploy)

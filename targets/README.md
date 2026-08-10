@@ -1,10 +1,10 @@
 # Target compile-smoke (PlatformIO®)
 
-Design Is Deploy means the same C++ types run on MCU. These envs compile a
-product sketch from `examples/` against real Arduino® cores (C++20 required).
+Design-is-deploy means the same C++ types run on MCU. These envs compile a
+sketch from `examples/` against real Arduino® cores (C++20 required).
 
 There is no parallel `targets/sketches/` tree — board smoke uses the same
-`*_sketch.cpp` files you fork for product work.
+`*_sketch.cpp` files you fork for firmware work.
 
 ## Requirements
 
@@ -14,7 +14,8 @@ There is no parallel `targets/sketches/` tree — board smoke uses the same
 - Runtime-oriented compile flags (see `platformio.ini`): `-O3`, `-ffast-math`,
   `-fno-rtti`, `-fno-exceptions`, `-fomit-frame-pointer`, section GC, `-DNDEBUG`.
   Framework `-Os`/`-O2` are unflagged so our `-O3` wins. No LTO (header-only
-  library + single sketch TU; LTO is framework/toolchain friction for little gain).
+  library + single sketch TU; LTO is framework/toolchain friction with little
+  payoff in this setup).
 - First build per platform downloads toolchains (can take several minutes)
 
 ## Default profile
@@ -44,10 +45,10 @@ Primary pair for CI-ish smoke: `teensy41` + `nucleo_g474re`.
 
 ## Which sketch is built?
 
-`platformio.ini` points `src_dir` at a product folder and builds only the
+`platformio.ini` points `src_dir` at an example folder and builds only the
 `*_sketch.cpp` (not the SIL):
 
-| Default | Product folder | Source |
+| Default | Example folder | Source |
 | ------- | -------------- | ------ |
 | PID | [`examples/control/pid/`](../examples/control/pid/) | `pid_sketch.cpp` |
 | LQR (optional) | [`examples/control/cart_pole/`](../examples/control/cart_pole/) | set `src_dir` + `build_src_filter` as commented in `platformio.ini` |
@@ -57,7 +58,7 @@ Primary pair for CI-ish smoke: `teensy41` + `nucleo_g474re`.
 ```bash
 cd targets
 
-# Full green matrix (same as make targets) — PID product sketch
+# Full board matrix (same as make targets) — PID sketch
 pio run
 
 # Primary smoke pair only

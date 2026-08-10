@@ -407,7 +407,7 @@ public:
      * @brief Default MARG design (NY=6 only)
      *
      * Uses modest default noise densities and @c dt = 0.01. Prefer constructing
-     * from design::eskf_marg for production tuning.
+     * from design::eskf_marg when tuning for a real sensor.
      */
     constexpr ESKFOrientationFilter()
         requires(NY == 6)
@@ -418,7 +418,7 @@ public:
     /**
      * @brief Default IMU design (NY=3 only)
      *
-     * Prefer constructing from design::eskf_imu for production tuning.
+     * Prefer constructing from design::eskf_imu when tuning for a real sensor.
      */
     constexpr ESKFOrientationFilter()
         requires(NY == 3)

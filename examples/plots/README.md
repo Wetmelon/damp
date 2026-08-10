@@ -2,7 +2,7 @@
 
 Interactive Plotly HTML written by example SILs (maintainer runs: `make examples`).
 Paths are relative to `examples/` CWD. Gitignored — regenerate locally; this
-index lists the default plot names so you can jump from plot → product folder.
+index lists the default plot names so you can jump from plot → example folder.
 
 ```bash
 make examples          # build + run stale examples (writes plots/)
@@ -13,7 +13,7 @@ Open a file in a browser after generation. Shared Plotly JS: `js/plotly.min.js`.
 
 ## control/
 
-| Plot | Product folder |
+| Plot | Example folder |
 | ---- | -------------- |
 | `cart_pole_lqr.html` | [`../control/cart_pole/`](../control/cart_pole/) |
 | `pendulum_sim.html`, `pendulum_phase.html`, `pendulum_sim_high_q.html` | [`../control/pendulum/`](../control/pendulum/) |
@@ -23,7 +23,7 @@ Open a file in a browser after generation. Shared Plotly JS: `js/plotly.min.js`.
 
 ## estimation/
 
-| Plot | Product folder |
+| Plot | Example folder |
 | ---- | -------------- |
 | `imu_pose_3d.html` | [`../estimation/imu_pose/`](../estimation/imu_pose/) |
 | `ins_eskf_3d.html` | [`../estimation/ins_eskf/`](../estimation/ins_eskf/) |

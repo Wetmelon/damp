@@ -6,7 +6,7 @@ Read this before forking the sketch. Code numbers must match the equations here.
 
 Related external reading (different $`I`$-based parameterization, continuous design):
 [UMich CTMS — Inverted Pendulum](https://ctms.engin.umich.edu/CTMS/index.php?example=InvertedPendulum&section=SystemModeling).
-This folder is the product path (discrete LQR, nonlinear SIL, flashable sketch).
+This folder is the design-is-deploy path (discrete LQR, nonlinear SIL, flashable sketch).
 
 ---
 

@@ -17,7 +17,9 @@ Also requires every header to contain exactly one @file tag.
   scope**, multi-word phrases, section labels. State the fact without markup.
 
 Usage (from repo root):
-  py -3 tools/doxygen_style_check.py
+  python3 tools/doxygen_style_check.py
+  # Windows without python3 on PATH:  py -3 tools/doxygen_style_check.py
+  # Or:  make doxygen-style-check
 """
 from __future__ import annotations
 

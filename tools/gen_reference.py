@@ -201,11 +201,11 @@ out = [
     "Auto-generated from `@brief` doc comments in `inc/damp/`. "
     "Regenerate with `python tools/gen_reference.py`. "
     "Flat A→Z view: [REFERENCE_INDEX.md](REFERENCE_INDEX.md).\n",
-    "**Product:** compile-time control design that ships in the firmware tree "
+    "Compile-time (or init-time) control design in the firmware tree "
     "(variant gains as `constexpr`); same runtime objects in SIL. "
     "Scope: [docs/known_limitations.md](docs/known_limitations.md).\n",
-    "**`damp::design::`** is the design-time / **not PWM-rate** shelf (heavy solvers, "
-    "rich Results). Domain packs (motor / power / full motion kits) are not assumed "
+    "`damp::design::` is the design-time shelf (not for PWM-rate): heavy solvers and "
+    "Result structs. Domain packs (motor / power / full motion kits) are not assumed "
     "present in the public core tree.\n",
 ]
 

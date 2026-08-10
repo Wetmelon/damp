@@ -323,7 +323,7 @@ struct ErrorStateKalmanFilter {
     constexpr void predict(const PredictFn& propagate_nominal, const T dt) {
         ErrorStateJacobian<T, NDX> ej = propagate_nominal(dt);
         // P ← F P Fᵀ + G Q Gᵀ with exact symmetry (quadratic_form).
-        // Production IMU/INS paths use G = I (additive discrete Q).
+        // Typical IMU/INS paths use G = I (additive discrete Q).
         P = quadratic_form(ej.F, P);
         bool g_is_I = true;
         for (size_t i = 0; i < NDX && g_is_I; ++i) {

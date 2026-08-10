@@ -7,7 +7,7 @@
  * @file pendulum_controller.hpp
  * @brief Upright 2-state pendulum LQR — flashable design + tick
  *
- * Folder layout (Arduino-style product demo):
+ * Folder layout (Arduino-style example):
  *
  *   pendulum_controller.hpp  — this file (nameplate, design::, control_period)
  *   pendulum_sketch.cpp      — thin setup/loop smoke (float deploy)
