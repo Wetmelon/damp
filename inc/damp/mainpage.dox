@@ -1,0 +1,228 @@
+/**
+ * @mainpage Damp
+ *
+ * Header-only C++20 controls library for embedded targets. Design and deploy
+ * share one tree: heavy synthesis runs at compile time (or init); the MCU keeps
+ * only small runtime objects. Host tools for Bode, ODE integration, and
+ * closed-loop simulation sit behind a separate umbrella.
+ *
+ * @section main_start Getting started
+ *
+ * @code{.cpp}
+ * #include "damp/control.hpp"
+ * using namespace damp;
+ *
+ * constexpr auto result = design::lqrd(A, B, Q, R, Ts);
+ * static_assert(result.success);
+ * constinit LQR<2, 1> controller{result.as<float>()};
+ * // ISR: auto u = controller.control(x);
+ * @endcode
+ *
+ * | Include | Role |
+ * | ------- | ---- |
+ * | `damp/control.hpp` | Embeddable core (matrix, systems, design, controllers, estimators, filters, toolbox) |
+ * | `damp/workbench.hpp` | Host extras (analysis, solvers, simulate, `matlab::`) — not for firmware |
+ *
+ * Point the compiler at `inc/` (`-I path/to/inc`). No library to link for the core.
+ * Default math/container backend is the hosted C++ standard library.
+ *
+ * Vertical domain packs (motor / power / motion) are not in this public tree;
+ * they may ship later as opt-in modules.
+ *
+ * @section main_did Design Is Deploy
+ *
+ * Control laws follow three tiers:
+ *
+ * 1. **Design** — `design::…` produce gains / Results, often `constexpr`.
+ * 2. **Result** — pure data with `.as<U>()` and `bool success`.
+ * 3. **Runtime** — light objects with `.control()` / `.estimate()` for the tick.
+ *
+ * Keep iterative solvers out of the PWM-rate path. Prefer `mat::solve` over forming inverses.
+ *
+ * @section main_layout Library layout
+ *
+ * Browse by Topics (module groups), Namespaces, or Files (directory tree).
+ * Folders under `inc/damp/` map to the core rings (math, systems, design, runtime, host).
+ *
+ * @section main_more Further reading
+ *
+ * - Repository README and `REFERENCE.md` (generated API tables)
+ * - `docs/known_limitations.md` — 0.x scope notes
+ * - `examples/control/`, `examples/estimation/` — DiD teaching paths
+ *
+ * @section main_license License
+ *
+ * Boost Software License 1.0. Third-party host-only components are listed in
+ * `THIRD_PARTY_NOTICES.md`.
+ */
+
+/* ========================================================================== */
+/* Namespaces (core only — no deferred packs)                                  */
+/* ========================================================================== */
+
+/**
+ * @namespace damp
+ * @brief Root namespace for the library.
+ *
+ * Embeddable core types (matrices, LTI systems, controllers, estimators, filters,
+ * toolbox helpers) and free functions live here or in nested namespaces. Prefer
+ * `#include "damp/control.hpp"` on target; use `damp/workbench.hpp` only on host.
+ */
+
+/**
+ * @namespace damp::analysis
+ * @brief Host-side LTI analysis (Bode, margins, poles, time response).
+ *
+ * Allocates (`std::vector` sweeps). Reach via `workbench.hpp` or the analysis
+ * headers directly — not part of the embeddable `control.hpp` surface.
+ */
+
+/**
+ * @namespace damp::design
+ * @brief Design-time synthesis (not for PWM-rate).
+ *
+ * Place, Riccati / DARE, PID rules, model reduction, linearization, QP helpers,
+ * and Result-producing synthesizers. Deploy gains with `.as<float>()` into runtime
+ * objects under `damp`.
+ */
+
+/**
+ * @namespace damp::estimation
+ * @brief Observers, filters for state estimation, and commissioning helpers.
+ *
+ * Kalman / EKF / UKF / ESKF, Luenberger, DOB, RLS, excitation generators, and
+ * related design entry points used by the estimation DiD path.
+ */
+
+/**
+ * @namespace damp::io
+ * @brief I/O mapping helpers used by toolbox and field interfaces.
+ */
+
+/**
+ * @namespace damp::mat
+ * @brief Free functions for matrix algorithms (solve, decompositions, expm, …).
+ *
+ * Prefer `mat::solve` / `mat::cholesky_solve` over explicit inverses when forming
+ * @f$ A^{-1}b @f$.
+ */
+
+/**
+ * @namespace damp::matlab
+ * @brief Host-only MATLAB®-style short names (`tf`, `ss`, `dlqr`, `bode`, …).
+ *
+ * Thin aliases over the canonical `damp::` / `design::` APIs. Included by
+ * `workbench.hpp`. Not a full toolbox port.
+ */
+
+/**
+ * @namespace damp::numbers
+ * @brief Backend-neutral numeric constants (stdlib or freestanding).
+ */
+
+/**
+ * @namespace damp::plc
+ * @brief IEC 61131-3 style function blocks for embedded logic.
+ */
+
+/**
+ * @namespace damp::plot
+ * @brief Host Plotly figure builders for analysis and simulation traces.
+ *
+ * Requires plotlypp (and typically json) on the include path. Not pulled by
+ * `workbench.hpp` automatically — include `plot_plotly.hpp` when needed.
+ */
+
+/**
+ * @namespace damp::sim
+ * @brief Simulation: integrators (embeddable) and host solvers / harnesses.
+ *
+ * Fixed-step integrator methods may ship on target; adaptive solvers, hybrid /
+ * multi-rate harnesses, and closed-loop `simulate` allocate and stay host-only.
+ */
+
+/**
+ * @namespace damp::stability
+ * @brief Controllability, observability, and related structural checks.
+ */
+
+/* ========================================================================== */
+/* Directories (Files view)                                                    */
+/* ========================================================================== */
+
+/**
+ * @dir .
+ * @brief Root of the Damp public headers (`inc/damp/`).
+ *
+ * Add the parent of this tree as `-I` and include as `"damp/…"`. Umbrellas:
+ * `control.hpp` (embeddable), `workbench.hpp` (host).
+ */
+
+/**
+ * @dir analysis
+ * @brief Host LTI analysis: frequency response, poles, time response, sweeps.
+ */
+
+/**
+ * @dir controllers
+ * @brief Runtime controller classes and controller design entry points.
+ *
+ * PID, PR, LQR/LQI/LQG/LQGI, ADRC, SMC, Smith, governors, MPC-related types.
+ */
+
+/**
+ * @dir design
+ * @brief Design-time synthesis only (place, Riccati, PID rules, QP, reduction).
+ *
+ * Not intended for the PWM ISR; use Results to construct runtime objects.
+ */
+
+/**
+ * @dir estimation
+ * @brief State estimators, sensor fusion, excitation, and related design APIs.
+ */
+
+/**
+ * @dir estimation/excitation
+ * @brief Allocation-free excitation generators (chirp, PRBS, multi-sine, …).
+ */
+
+/**
+ * @dir filters
+ * @brief Signal filters: biquad/IIR design, FIR, MA, SOGI/PLL-related blocks.
+ */
+
+/**
+ * @dir kinematics
+ * @brief Pose types used by estimation and geometry.
+ */
+
+/**
+ * @dir math
+ * @brief Constexpr scalar math, complex, geometry, and pluggable math backends.
+ */
+
+/**
+ * @dir matrix
+ * @brief Fixed-size `Matrix` / `ColVec` / views, decompositions, and solves.
+ */
+
+/**
+ * @dir simulation
+ * @brief Integrators, ODE solvers, closed-loop simulate, hybrid/multi-rate SIL.
+ */
+
+/**
+ * @dir systems
+ * @brief LTI systems: `StateSpace`, transfer functions, ZPK, discretization.
+ */
+
+/**
+ * @dir toolbox
+ * @brief Embedded helpers: bounds, scaling, encoder, timing, IEC 61131, thermal.
+ */
+
+/**
+ * @dir trajectory
+ * @brief Shared trajectory value types used by examples and higher layers.
+ */

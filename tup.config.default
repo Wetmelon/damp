@@ -1,0 +1,15 @@
+# Copy to tup.config (gitignored) for local overrides.
+# See Tuprules.lua for the full list of keys.
+
+# When y, this repo's Tupfiles (tests/examples/checks) are active.
+# Leave unset when Damp is a git submodule under another tup project
+# (docs/submodule_tup.md).
+CONFIG_DAMP_SELF_BUILD=y
+
+# Host build driver. Leave COMPILER_PATH empty to use g++ on PATH.
+# Examples:
+#   CONFIG_COMPILER_PATH=C:/Tools/gcc-14.2.0-2/bin
+#   CONFIG_COMPILER_PREFIX=arm-none-eabi-     # cross: arm-none-eabi-g++
+#   CONFIG_CXX=clang++                       # full override (wins over path/prefix)
+CONFIG_COMPILER_PATH=
+CONFIG_COMPILER_PREFIX=

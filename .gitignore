@@ -1,0 +1,42 @@
+# --- Tooling / caches --------------------------------------------------------
+.cache/
+.tup/
+__pycache__/
+*.pyc
+
+# --- Build outputs -----------------------------------------------------------
+build/
+**/build/
+*.o
+*.exe
+*.dll
+*.log
+compile_commands.json
+docs/html/
+targets/.pio/
+examples/build/
+examples/servo_drive/servo_sim.dll
+
+# --- Local / machine config --------------------------------------------------
+# Copy from tup.config.default for host compiler paths, etc.
+tup.config
+
+# --- Generated plots (Plotly) ------------------------------------------------
+# Unit-test dumps (plot_check.hpp) and example teaching plots.
+# Keep examples/plots/README.md tracked.
+tests/plots/
+examples/plots/**/*.html
+examples/plots/**/*.npy
+examples/plots/js/
+
+# --- HTML --------------------------------------------------------------------
+# Default: ignore generated HTML. Live demo shells for pack SILs are source
+# assets (loaded by drive_governor / excavator SILs), not gallery plots.
+*.html
+!examples/drive_governor_live.html
+!examples/excavator_live.html
+
+# --- Scratch / personal ------------------------------------------------------
+PDFs/
+COPILOT_LOG.md
+docs_doxygen_warn.txt

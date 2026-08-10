@@ -1,0 +1,81 @@
+﻿---
+BasedOnStyle: Google
+IndentWidth: 4
+ColumnLimit: 0
+
+SortIncludes: CaseSensitive
+IncludeBlocks: Regroup
+
+# Format function arguments and parameters
+BinPackArguments: true
+BinPackParameters: true
+AllowAllArgumentsOnNextLine: false
+AllowAllParametersOfDeclarationOnNextLine: false
+AlignAfterOpenBracket: BlockIndent
+SpaceBeforeParens: ControlStatements
+
+# Constructor Formatting
+PackConstructorInitializers: CurrentLine
+IndentAccessModifiers: false
+AccessModifierOffset: "-4"
+SpaceBeforeCtorInitializerColon: true
+BreakConstructorInitializers: BeforeColon
+LambdaBodyIndentation: OuterScope
+
+AllowShortCaseLabelsOnASingleLine: true
+AllowShortBlocksOnASingleLine: false
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AllowShortEnumsOnASingleLine: true
+AllowShortFunctionsOnASingleLine: true
+AllowShortLambdasOnASingleLine: true
+
+# Switch / Case
+IndentCaseLabels: true
+IndentCaseBlocks: false
+
+# Preprocessor stuff
+AlignConsecutiveMacros: false
+AlignEscapedNewlines: true
+AlignTrailingComments: true
+SpacesBeforeTrailingComments: 1
+
+# Alignment of procedural code
+AlignConsecutiveAssignments: false
+AlignConsecutiveDeclarations: true
+AlignConsecutiveBitFields: Consecutive
+
+AlignOperands: AlignAfterOperator
+# BreakBeforeTernaryOperators: 'false'
+BreakBeforeBinaryOperators: true
+
+# Pointers and East/West Const
+DerivePointerAlignment: false
+PointerAlignment: Left
+QualifierAlignment: Leave
+# QualifierOrder: ['volatile', 'constexpr', 'static', 'inline', 'type', 'const']
+
+Cpp11BracedListStyle: true
+
+# Vertical Whitespace
+SeparateDefinitionBlocks: Leave
+EmptyLineBeforeAccessModifier: Always
+EmptyLineAfterAccessModifier: Never
+
+# AlignArrayOfStructures: Right
+# InsertTrailingCommas: 'Wrapped'
+
+InsertBraces: true
+
+AlwaysBreakAfterReturnType: None
+PenaltyReturnTypeOnItsOwnLine: 9999 # We really hate breaking after return types
+PenaltyBreakAssignment: 999 # Prefer not to break around =
+
+SpaceAfterTemplateKeyword: false
+
+MaxEmptyLinesToKeep: 2
+
+FixNamespaceComments: true
+#IndentPPDirectives: BeforeHash
+# NamespaceIndentation: All
+KeepEmptyLinesAtTheStartOfBlocks: true

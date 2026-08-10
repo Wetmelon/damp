@@ -1,0 +1,16 @@
+---
+CompileFlags:
+    Remove: [-fcoroutines, -fconcepts-diagnostics-depth=3, -fconstexpr-ops-limit=*]
+    Add:
+      - '-fconstexpr-steps=100000000'
+      # Match Makefile tidy / profile.py: large Matrix fold packs (if any) need
+      # more than clang's default 2048 nesting depth.
+      - '-fbracket-depth=16384'
+
+Diagnostics:
+    UnusedIncludes: Strict
+    MissingIncludes: Strict
+    Suppress: ['constexpr_var_requires_const_init', 'invalid_consteval_call']
+
+Documentation:
+  CommentFormat: Doxygen
