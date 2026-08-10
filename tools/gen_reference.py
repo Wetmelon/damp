@@ -52,9 +52,42 @@ BACKEND_FILES = {"trig.hpp", "math_backend.hpp", "damp_backend.hpp",
                  "series_backend.hpp", "std_fallback.hpp", "constexpr_math.hpp"}
 
 
+def doxygen_math_to_md(t):
+    """Doxygen formula mode → markdown math $`...`$ (KaTeX-friendly tables).
+
+    @f$...@f$ (inline) and @f[...@f] (display) become $`...`$ so REFERENCE.md
+    renders in GFM viewers that accept that form. Collapse internal newlines so
+    table cells stay single-line. Escape | inside the math body once for tables.
+    """
+    def squash(m):
+        body = re.sub(r"\s+", " ", m.group(1).strip())
+        # Table-safe: escape bare | only (keep LaTeX \| norms as single backslash).
+        body = re.sub(r"(?<!\\)\|", r"\\|", body)
+        return f"$`{body}`$"
+
+    # Display before inline so nested edge cases don't double-match.
+    t = re.sub(r"@f\[\s*(.*?)\s*@f\]", squash, t, flags=re.S)
+    t = re.sub(r"@f\$\s*(.*?)\s*@f\$", squash, t, flags=re.S)
+    return t
+
+
+def escape_table_pipes(t):
+    """Escape | outside $`...`$ segments (math bodies are already escaped)."""
+    parts = re.split(r"(\$`.*?`\$)", t, flags=re.S)
+    out = []
+    for p in parts:
+        if p.startswith("$`") and p.endswith("`$"):
+            out.append(p)
+        else:
+            out.append(p.replace("|", "\\|"))
+    return "".join(out)
+
+
 def clean_brief(t):
-    t = re.sub(r"@(?:ref|c|p|a)\s+", "", t.strip().rstrip("."))  # drop Doxygen inline tags
-    return t.replace("|", "\\|")                                 # don't break the md table
+    t = t.strip().rstrip(".")
+    t = doxygen_math_to_md(t)
+    t = re.sub(r"@(?:ref|c|p|a)\s+", "", t)  # drop Doxygen inline tags
+    return escape_table_pipes(t)
 
 
 def brief_text(body):
