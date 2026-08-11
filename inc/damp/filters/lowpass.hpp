@@ -29,7 +29,7 @@ namespace damp {
  *
  * @param y       Filter state at segment start
  * @param u       Held input over the segment
- * @param omega_c Cutoff [rad/s] (@f$ 2\pi f_c @f$)
+ * @param omega_c Cutoff [rad/s] (2pi f_c)
  * @param h       Segment duration [s]
  * @return        State at segment end
  */

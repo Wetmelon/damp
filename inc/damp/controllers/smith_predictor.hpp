@@ -312,7 +312,7 @@ public:
      * @param pid            Discretized primary controller gains
      * @param a              Discrete FO pole
      * @param b              Discrete FO gain
-     * @param delay_samples  Integer pure delay (@f$<@f$ MaxDelay)
+     * @param delay_samples  Integer pure delay (< MaxDelay)
      */
     constexpr SmithPredictor(
         const design::DiscretePIDResult<T>& pid,
@@ -340,7 +340,7 @@ public:
      * @param primary        Primary controller instance
      * @param a              Discrete FO pole
      * @param b              Discrete FO gain
-     * @param delay_samples  Integer pure delay (@f$<@f$ MaxDelay)
+     * @param delay_samples  Integer pure delay (< MaxDelay)
      */
     constexpr SmithPredictor(const Primary& primary, T a, T b, size_t delay_samples)
         : primary_(primary),

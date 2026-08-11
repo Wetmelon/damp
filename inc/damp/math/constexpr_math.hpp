@@ -15,7 +15,7 @@
  * continued fraction (`tan`), Cody–Waite two-part argument reduction,
  * cast-based `floor`/`ceil`/`fmod`, and a bit-pattern `isfinite`.
  *
- * **No damp backend coupling:** this header includes only freestanding standard
+ * No damp backend coupling: this header includes only freestanding standard
  * headers (`<bit>`, `<cstdint>`, `<limits>`, `<type_traits>`). It does not pull
  * `damp/backend.hpp` (std/ETL vocabulary) or `MathBackend` / libm. π and the
  * `sincos` result type are local; public wrappers map them to `damp::numbers` /

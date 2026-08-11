@@ -155,8 +155,7 @@ TEST_SUITE("Transforms") {
         CHECK(p_ab.p == doctest::Approx(1.5f).epsilon(1e-5f));
         CHECK(p_ab.q == doctest::Approx(0.0f).epsilon(1e-5f));
 
-        const auto p_dq =
-            instantaneous_power<float>(clarke_park_transform<float>(v, th), clarke_park_transform<float>(i, th));
+        const auto p_dq = instantaneous_power<float>(clarke_park_transform<float>(v, th), clarke_park_transform<float>(i, th));
         CHECK(p_dq.p == doctest::Approx(p_ab.p).epsilon(1e-5f));
         CHECK(p_dq.q == doctest::Approx(p_ab.q).epsilon(1e-5f));
     }

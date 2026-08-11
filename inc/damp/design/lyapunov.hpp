@@ -29,7 +29,7 @@ namespace detail {
  * (row-major vectorization), then solved by dense LU.
  *
  * @param Q     Right-hand side (NX × NX).
- * @param apply Callable returning @f$ L(E) @f$ for a basis matrix @f$ E @f$.
+ * @param apply Callable returning L(E) for a basis matrix E.
  * @return X (NX × NX), or damp::nullopt if the system is singular (the operator
  *         has a zero eigenvalue — e.g. @f$ \lambda_i + \lambda_j = 0 @f$ for lyap,
  *         @f$ \lambda_i \lambda_j = 1 @f$ for dlyap — so no unique solution exists).

@@ -553,7 +553,7 @@ public:
      * @brief Configure length and step size
      * @param n_taps Active taps (clamped to [1, MaxTaps])
      * @param mu     Step size, typically in (0, 2) for NLMS stability
-     * @param eps    Regularization @f$ \varepsilon > 0 @f$ (avoids /0)
+     * @param eps    Regularization ε > 0 (avoids /0)
      */
     constexpr void init(size_t n_taps, T mu = static_cast<T>(0.5), T eps = static_cast<T>(1e-6)) {
         n_taps_ = damp::clamp(n_taps, size_t{1}, MaxTaps);

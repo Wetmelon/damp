@@ -116,7 +116,11 @@ Plant builders and host sim are not this ladder.
 ### Docs (Doxygen)
 
 - Public surfaces need `@brief` (feeds `REFERENCE.md`). `@file` once per header.
-- Math: `@f$...@f$` / `@f[...@f]`.
+- **Math placement**
+  - `@brief` / `@param` / `@return` / `@retval` / `@tparam` / `///<` one-liners:
+    **Unicode** (α, ω, ≤, Kᵢ, L_g h, [0,1], …) — no `@f$...@f$` on those tags
+    (keeps REFERENCE and IDE hovers readable).
+  - Detailed description body: LaTeX fine — `@f$...@f$` / `@f[...@f]`.
 - **Citations:** primary source on the algorithm with
   `@see "Title" (Author, Year), §…`. Doxygen owns the bibliography — no separate
   reference list in repo prose. Match `@see` style on nearby headers of the same

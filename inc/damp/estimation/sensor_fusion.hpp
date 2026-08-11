@@ -453,7 +453,7 @@ public:
      * @f$ \bigl|\,\|a_{\mathrm{meas}}\|/\|g_n\| - 1\bigr| > \gamma @f$.
      * Zero (default) disables the gate. Mag updates (NY=6) are never gated by this.
      *
-     * @param gate  @f$ \gamma \ge 0 @f$
+     * @param gate  γ ≥ 0
      */
     constexpr void set_accel_gate(T gate) { accel_gate_ = gate; }
 
@@ -490,7 +490,7 @@ public:
      * @param accel  specific force [m/s²] (body)
      * @param gyro   angular rate [rad/s] (body)
      * @param dt     sample period [s]
-     * @param g_nav  gravity in nav frame (default ENU @f$ (0,0,-g) @f$)
+     * @param g_nav  gravity in nav frame (default ENU (0,0,-g))
      */
     constexpr void update(
         const Vec3<T>& accel,
@@ -514,8 +514,8 @@ public:
      * @param gyro   angular rate [rad/s] (body)
      * @param mag    magnetic field in body (same units as @p m_nav)
      * @param dt     sample period [s]
-     * @param g_nav  gravity in nav (default ENU @f$ (0,0,-g) @f$)
-     * @param m_nav  magnetic reference in nav (default @f$ (0,1,0) @f$)
+     * @param g_nav  gravity in nav (default ENU (0,0,-g))
+     * @param m_nav  magnetic reference in nav (default (0,1,0))
      */
     constexpr void update(
         const Vec3<T>& accel,

@@ -724,7 +724,7 @@ struct Quaternion : public Matrix<4, 1, T> {
      * @brief Spherical linear interpolation on the unit sphere (shortest arc)
      * @param a Start orientation
      * @param b End orientation
-     * @param t Blend in @f$ [0,1] @f$ (clamped)
+     * @param t Blend in [0,1] (clamped)
      */
     [[nodiscard]] static constexpr Quaternion slerp(const Quaternion& a, const Quaternion& b, T t) {
         T tt = t;

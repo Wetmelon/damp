@@ -165,7 +165,7 @@ struct InsState {
  * @param omega body-frame angular rate [rad/s] (bias-corrected)
  * @param a_b   body-frame specific force [m/s²] (bias-corrected)
  * @param dt    [s] step (must be > 0 for a useful step; dt ≤ 0 returns @p x)
- * @param frame local-level frame for @f$ g_n @f$ and for interpreting @c v, @c p
+ * @param frame local-level frame for g_n and for interpreting @c v, @c p
  * @param g     gravity magnitude [m/s²]
  * @return state at the end of the interval
  */

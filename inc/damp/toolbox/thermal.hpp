@@ -124,7 +124,7 @@ template<std::size_t N, typename T>
  * @note Compare with the rise-form cauer_thermal_ss (NU = 1, reference at 0).
  *
  * @tparam N     Number of thermal nodes / states.
- * @tparam YNode Measured node index in @f$ [0, N) @f$ (default 0 = junction).
+ * @tparam YNode Measured node index in [0, N) (default 0 = junction).
  * @tparam T     Scalar type.
  * @param R [K/W] stage resistances (R[N-1] to ambient; each > 0).
  * @param C [J/K] node capacitances (each > 0).
@@ -184,7 +184,7 @@ template<std::size_t N, typename T = double>
  * Requires @f$ N_W = N_X @f$ (the ambient Cauer default). @f$ H @f$ is left
  * unchanged (identity for the single/multi-NTC models).
  *
- * @param discrete_sys Discretized thermal StateSpace (@f$ T_s > 0 @f$).
+ * @param discrete_sys Discretized thermal StateSpace (T_s > 0).
  * @return Copy with G = I for discrete process noise.
  *
  * @see design::kalman
@@ -275,7 +275,7 @@ public:
 
     /**
      * @brief Time update with the full input vector.
-     * @param u Control input (ambient Cauer: @f$ [P,\, T_{\mathrm{amb}}] @f$).
+     * @param u Control input (ambient Cauer: [P, T_amb]).
      */
     constexpr void predict(const ColVec<NU, T>& u) { filt_.predict(u); }
 

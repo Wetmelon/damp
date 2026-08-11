@@ -795,7 +795,7 @@ pi_pole_placement_first_order(T a1, T a0, T omega_bw, T zeta = T{1}, T b = T{1})
  *       the rest of this header's unchecked formulas, the guard is here because
  *       @f$ b_0 @f$ is a caller-supplied plant property that is easy to leave unset.
  *
- * @param plant    First-order plant @f$ b_0/(a_1 s + a_0) @f$
+ * @param plant    First-order plant b₀/(a₁ s + a₀)
  * @param omega_bw [rad/s]  Desired closed-loop bandwidth
  * @param zeta     [-]      Closed-loop damping ratio (default 1)
  * @param b        [-]      Proportional setpoint weight (default 1 = PI)
@@ -824,7 +824,7 @@ pi_pole_placement_first_order(const TransferFunction<1, 2, T>& plant, T omega_bw
  * @param omega_i  [rad/s] current-loop bandwidth (> 0)
  * @param Ts       [s] control / PWM period (> 0)
  * @param R_L      [ohm] series resistance (default 0)
- * @param v_limit  [V] |v*| PI clamp (0 → loose default @f$ L\,\omega_i\cdot 100 @f$)
+ * @param v_limit  [V] |v*| PI clamp (0 → loose default L·ωᵢ·100)
  * @param zeta     damping of pole placement (default 1)
  * @return @c InductorCurrentPIResult with discrete PID and @c success
  *

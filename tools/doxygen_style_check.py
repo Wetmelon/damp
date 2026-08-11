@@ -6,15 +6,23 @@ Fails (exit 1) if any of the following appear in inc/damp/**/*.hpp:
   - //! < member-doc dialect (use ///<)
   - Markdown **bold** used as *editorial emphasis* (not math symbols)
   - @note Equivalent to MATLAB… / @note Mirrors MATLAB… (use Compare with)
+  - LaTeX @f$ / @f[ on one-line API tags (@brief / @param / @return /
+    @retval / @tparam) or on ///< member one-liners — use Unicode there;
+    LaTeX is fine in the detailed description body
 
 Also requires every header to contain exactly one @file tag.
 
 **bold** policy
   Allowed — math symbols / vectors / short notation tokens, e.g. **v**, **x**,
-  **R0**, **i_q**, a single Greek letter. Prefer @f$\\mathbf{v}@f$ for real
-  display math; markdown bold is fine for a short symbol in prose.
+  **R0**, **i_q**, a single Greek letter. Display math in detailed docs may use
+  @f$\\mathbf{v}@f$; markdown bold is fine for a short symbol in prose.
   Forbidden — emphasis on English prose: **not**, **Host-only.**, **out of
   scope**, multi-word phrases, section labels. State the fact without markup.
+
+Math placement
+  One-liners that feed REFERENCE / IDE hover (@brief, @param, @return, @retval,
+  @tparam, ///< …): Unicode (α, ≤, Kᵢ, L_g h, …). Detailed description blocks
+  may use @f$...@f$ / @f[...@f].
 
 Usage (from repo root):
   python3 tools/doxygen_style_check.py
@@ -35,6 +43,11 @@ NOTE_EQUIV = re.compile(r"@note\s+Equivalent to MATLAB")
 NOTE_MIRROR = re.compile(r"@note\s+Mirrors MATLAB")
 # **bold** that is not the /** comment opener or **/ closer
 BOLD = re.compile(r"(?<!/)\*\*(?!\*)([^*\n]+)\*\*")
+
+# One-line API / member tags that must stay Unicode-friendly for REFERENCE + hover.
+ONE_LINE_TAG = re.compile(r"@(?:brief|param|return|retval|tparam)\b")
+MEMBER_ONE_LINE = re.compile(r"///(?:/)?<")  # ///< or ////<
+LATEX_INLINE = re.compile(r"@f[\$\[]")
 
 # Math-symbol shapes (no spaces, no sentence punctuation):
 #   v, x, A, R0, x1, i_q, v_d, ω (single Greek)
@@ -62,6 +75,16 @@ def is_math_bold(inner: str) -> bool:
     return _MATH_SYMBOL.fullmatch(s) is not None
 
 
+def is_one_line_api_doc(line: str) -> bool:
+    """True if this line is a brief/param/return/… tag or a ///< one-liner."""
+    if ONE_LINE_TAG.search(line):
+        return True
+    # Member docs: "///< text" on the same line as the tag
+    if MEMBER_ONE_LINE.search(line):
+        return True
+    return False
+
+
 def check_file(path: Path) -> list[str]:
     text = path.read_text(encoding="utf-8")
     rel = path.relative_to(ROOT).as_posix()
@@ -80,6 +103,11 @@ def check_file(path: Path) -> list[str]:
             issues.append(f"{rel}:{i}: use '@note Compare with MATLAB' not 'Equivalent to'")
         if NOTE_MIRROR.search(line):
             issues.append(f"{rel}:{i}: use '@note Compare with MATLAB' not 'Mirrors'")
+        if is_one_line_api_doc(line) and LATEX_INLINE.search(line):
+            issues.append(
+                f"{rel}:{i}: use Unicode math on @brief/@param/@return/@tparam/member one-liners "
+                f"(LaTeX @f$ ok in detailed body only)"
+            )
         # strip /** and **/ noise for bold search
         stripped = line.replace("/**", "").replace("**/", "")
         for m in BOLD.finditer(stripped):

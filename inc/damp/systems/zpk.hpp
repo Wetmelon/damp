@@ -109,7 +109,7 @@ struct PolyRootsResult {
 /**
  * @brief Compute roots of an ascending-power real polynomial
  *
- * @param c   Coefficients @f$ c_0 + c_1 x + \cdots + c_{N-1} x^{N-1} @f$
+ * @param c   Coefficients c₀ + c₁ x + ·s + c_N-1 x^N-1
  * @param tol Leading-coefficient magnitude floor (default: default_tol)
  * @return @ref PolyRootsResult
  */
@@ -321,7 +321,7 @@ struct ZPK {
      *
      * @note Compare with MATLAB®'s minreal on a zpk model (factored form only;
      *       does not perform SS uncontrollable/unobservable reduction).
-     * @param tol Match tolerance on @f$ |z - p| @f$ (default: default_tol)
+     * @param tol Match tolerance on |z - p| (default: default_tol)
      * @return @ref CancelResult
      */
     [[nodiscard]] constexpr CancelResult cancel_matching(T tol = default_tol<T>()) const {

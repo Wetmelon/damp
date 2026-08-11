@@ -221,7 +221,7 @@ namespace design {
  * @see solve_qp, Ames et al. (ECC 2019), Gurriet et al.
  *
  * @param u_des  Desired command (NU)
- * @param A      Inequality matrix (NI × NU), rows @f$a_i^\top u \le b_i@f$
+ * @param A      Inequality matrix (NI × NU), rows aᵢᵀ u ≤ bᵢ
  * @param b      Inequality bounds (NI)
  * @param max_iterations  Active-set budget (default 10·(NU+NI))
  * @return CommandProjectionResult with projected @c u and status
@@ -288,10 +288,10 @@ struct CBFConstraint {
 /**
  * @brief Build a relative-degree-1 CBF inequality row
  *
- * @param Lg_h   Control Lie derivative @f$L_g h@f$ (NU); @f$(L_g h)_i = \nabla h^\top g_{\cdot i}@f$
- * @param Lf_h   Drift Lie derivative @f$L_f h = \nabla h^\top f@f$
- * @param h      Barrier value @f$h(x)@f$ (safe when @f$\ge 0@f$)
- * @param alpha  Class-@f$\mathcal{K}@f$ gain @f$\alpha > 0@f$ (default 1)
+ * @param Lg_h   Control Lie derivative L_g h (NU); (L_g h)ᵢ = ∇hᵀ g_·i
+ * @param Lf_h   Drift Lie derivative L_f h = ∇hᵀ f
+ * @param h      Barrier value h(x) (safe when ≥ 0)
+ * @param alpha  Class-𝒦 gain α > 0 (default 1)
  * @return CBFConstraint with @c A and @c b ready for @ref project_affine
  */
 template<size_t NU, typename T = double>

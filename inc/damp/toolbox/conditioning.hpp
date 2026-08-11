@@ -120,7 +120,7 @@ template<typename T>
  *
  * @param x         Desired command (after planner).
  * @param band      Asymptotic boost magnitude (same units as @p x).
- * @param eps       Softness of the sign (same units); @f$\sim 0.01\cdot\mathrm{scale}@f$.
+ * @param eps       Softness of the sign (same units); ∼ 0.01·scale.
  * @param threshold Magnitude below which output is forced to 0 (default 0).
  * @see soft_sign, inverse_deadband, inverse_deadband_sine
  */
@@ -145,7 +145,7 @@ template<typename T>
  * @param x         Desired command.
  * @param band      Full boost once past @p width.
  * @param width     Half-width of the sine ramp (must be > 0).
- * @param threshold Center hold; output 0 when @f$|x|\le@f$ threshold.
+ * @param threshold Center hold; output 0 when |x| ≤ threshold.
  * @see inverse_deadband_soft, inverse_deadband
  */
 template<typename T>
@@ -169,8 +169,8 @@ template<typename T>
  * can track @f$u^{\star}@f$ in steady state. Purely algebraic — no internal state.
  *
  * @param cmd      Desired command / velocity proxy.
- * @param coulomb  Coulomb magnitude @f$F_c \ge 0@f$.
- * @param viscous  Viscous coefficient @f$b@f$ (default 0).
+ * @param coulomb  Coulomb magnitude F_c ≥ 0.
+ * @param viscous  Viscous coefficient b (default 0).
  * @param eps      Soft-sign scale (default: machine-ish from @p coulomb).
  * @see compensate_stribeck, soft_sign, inverse_deadband_soft
  */
@@ -193,11 +193,11 @@ template<typename T>
  * @f$ u = u^{\star} + F(u^{\star}) @f$. Captures higher breakaway (@p static_f)
  * that falls to Coulomb as speed rises. Still massless / memoryless.
  *
- * @param cmd       Desired command / velocity proxy @f$v@f$.
- * @param coulomb   Sliding Coulomb @f$F_c \ge 0@f$.
- * @param static_f  Breakaway / static level @f$F_s \ge F_c@f$.
- * @param v_stribeck Stribeck velocity scale @f$v_s > 0@f$.
- * @param viscous   Viscous @f$b@f$ (default 0).
+ * @param cmd       Desired command / velocity proxy v.
+ * @param coulomb   Sliding Coulomb F_c ≥ 0.
+ * @param static_f  Breakaway / static level F_s ≥ F_c.
+ * @param v_stribeck Stribeck velocity scale v_s > 0.
+ * @param viscous   Viscous b (default 0).
  * @param eps       Soft-sign scale (default from Coulomb).
  * @see compensate_coulomb_viscous
  */
@@ -556,8 +556,8 @@ struct AnalogCrossResult {
  * @param eng_b   Channel B in engineering units.
  * @param status_b Channel B range/fault class.
  * @param mode    @ref AnalogCrossMode::SameSlope or @ref AnalogCrossMode::OppositeSlope.
- * @param tol     Allowed absolute mismatch (@f$ |a-b| @f$ or @f$ |a+b-S| @f$).
- * @param span    Expected @f$ a+b @f$ for opposite-slope mode (ignored for same-slope).
+ * @param tol     Allowed absolute mismatch (|a-b| or |a+b-S|).
+ * @param span    Expected a+b for opposite-slope mode (ignored for same-slope).
  * @return Cross-check result with optional fused value.
  *
  * @code
