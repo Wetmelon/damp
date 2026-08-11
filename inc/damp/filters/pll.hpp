@@ -14,7 +14,7 @@
 #include "damp/filters/sogi.hpp"
 #include "damp/math/math.hpp"
 #include "damp/matrix/colvec.hpp"
-#include "damp/transforms.hpp"
+#include "damp/math/transforms.hpp"
 
 namespace damp {
 

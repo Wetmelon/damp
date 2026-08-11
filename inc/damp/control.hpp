@@ -16,7 +16,7 @@
  * - linear algebra + pluggable math backend (via matrix / math includes)
  * - LTI systems (SS / TF / ZPK) + @c design:: synthesis
  * - core design-is-deploy controllers and estimators (including ESKF / attitude fusion)
- * - common filters, fixed-step ODE integrators, geometry, toolbox helpers
+ * - common filters, fixed-step ODE integrators, geometry / Clarke-Park, toolbox helpers
  *
  * Nothing reachable from this header allocates on the heap or pulls a
  * third-party dependency. Host tools — frequency-domain analysis, ODE solvers,
@@ -88,8 +88,9 @@
 #include "damp/filters/filters.hpp"        // IWYU pragma: export
 #include "damp/simulation/integrator.hpp"  // IWYU pragma: export
 
-// --- 3D math (quaternion / DCM — ESKF and fusion) ---------------------------
-#include "damp/math/geometry.hpp" // IWYU pragma: export
+// --- Frame math (3D attitude + three-phase Clarke/Park) ---------------------
+#include "damp/math/geometry.hpp"   // IWYU pragma: export
+#include "damp/math/transforms.hpp" // IWYU pragma: export
 
 // --- Embed helpers (controls-adjacent; pair with ETL for generic plumbing) --
 #include "damp/toolbox/actuator.hpp"     // IWYU pragma: export

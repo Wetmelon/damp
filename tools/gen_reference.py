@@ -10,7 +10,7 @@ ROOT = pathlib.Path("inc/damp")
 CATS = [
     # --- Substrate ---
     ("",            "Core, configuration & backend vocabulary"),
-    ("math",        "Scalar math & complex"),
+    ("math",        "Scalar math, complex & frames"),
     ("matrix",      "Linear algebra"),
     ("systems",     "LTI systems (SS / TF / ZPK / discretize)"),
     # --- Design-time (not PWM-rate) ---
@@ -153,9 +153,6 @@ def category(path):
     # TODO(D20/D25): prefer declared domain namespace over folder when migration is done.
     if path.name == "matlab.hpp":
         return "matlab"  # all thin wrappers — keep them out of the core tables
-    if path.name == "transforms.hpp":
-        return "motor"  # generic three-phase (damp:: root) but readers expect
-                        # Clarke/Park grouped next to FOC; regrouped by namespace later
     rel = path.relative_to(ROOT)
     top = rel.parts[0] if len(rel.parts) > 1 else ""
     # Grade B/C plant builders (D25) — folder plants/ or legacy filenames
