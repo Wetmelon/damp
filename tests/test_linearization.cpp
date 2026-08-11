@@ -31,7 +31,7 @@ TEST_SUITE("Linearization") {
         const ColVec<2> x_op{0.0, 0.0};
         const ColVec<1> u_op{0.0};
 
-        const auto lin = linearize<2, 1, 1>(dynamics, output, x_op, u_op, 1e-6);
+        const auto lin = design::linearize<2, 1, 1>(dynamics, output, x_op, u_op, 1e-6);
 
         CHECK(lin.A(0, 0) == doctest::Approx(0.0).epsilon(1e-6));
         CHECK(lin.A(0, 1) == doctest::Approx(1.0).epsilon(1e-6));
@@ -61,7 +61,7 @@ TEST_SUITE("Linearization") {
         const ColVec<2> x_op{0.3, 0.0};
         const ColVec<1> u_op{0.0};
 
-        const auto lin = linearize<2, 1, 1>(dynamics, output, x_op, u_op, 1e-6);
+        const auto lin = design::linearize<2, 1, 1>(dynamics, output, x_op, u_op, 1e-6);
 
         CHECK(lin.A(1, 0) == doctest::Approx(std::cos(0.3)).epsilon(1e-6));
         CHECK(lin.C(0, 0) == doctest::Approx(1.0).epsilon(1e-6));
@@ -76,7 +76,7 @@ TEST_SUITE("Linearization") {
         const ColVec<2> x_op{0.0, 0.0};
         const ColVec<1> u_op{0.0};
 
-        const auto lin = linearize<2, 1>(dynamics, x_op, u_op, 1e-6);
+        const auto lin = design::linearize<2, 1>(dynamics, x_op, u_op, 1e-6);
         const auto sys = lin.to_state_space();
 
         CHECK(lin.C(0, 0) == doctest::Approx(1.0).epsilon(1e-6));

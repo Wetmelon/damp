@@ -236,7 +236,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`JordanObjective`](inc/damp/design/pole_placement.hpp#L1165) | Robustness objective for place_jordan_optimal (the paper's two methods) |
 | [`LeadLagResult`](inc/damp/controllers/lead_lag.hpp#L59) | Lead-lag compensator design result |
 | [`LeadLagSeriesResult`](inc/damp/controllers/lead_lag.hpp#L204) | Cascaded lead+lag design result (2nd-order StateSpace + success) |
-| [`LinearizationResult`](inc/damp/design/linearization.hpp#L41) | Result of nonlinear operating-point linearization |
+| [`LinearizationResult`](inc/damp/design/linearization.hpp#L45) | Result of nonlinear operating-point linearization |
 | [`LQGAnalysisModels`](inc/damp/design/synthesis.hpp#L39) | Analysis-oriented models produced from an LQG design |
 | [`LQGArtifacts`](inc/damp/design/synthesis.hpp#L89) | Synthesis artifact bundle: design + analysis models + runtime bundle |
 | [`LQGIAnalysisModels`](inc/damp/design/synthesis.hpp#L152) | Analysis-oriented models produced from an LQGI design |
@@ -314,7 +314,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`lead`](inc/damp/controllers/lead_lag.hpp#L132) | Design a lead compensator from desired phase boost at a target frequency |
 | [`lead_lag`](inc/damp/controllers/lead_lag.hpp#L234) | Design a lead-lag compensator (cascade of lead + lag sections) |
 | [`lead_lag_direct`](inc/damp/controllers/lead_lag.hpp#L264) | Direct lead-lag specification from zero/pole locations |
-| [`linearize`](inc/damp/design/linearization.hpp#L135) | Linearize nonlinear dynamics and output maps about an operating point (+1 more overload) |
+| [`linearize`](inc/damp/design/linearization.hpp#L139) | Linearize nonlinear dynamics and output maps about an operating point (+1 more overload) |
 | [`lqg_bundle`](inc/damp/design/synthesis.hpp#L322) | Synthesize the full LQG artifact bundle in one call |
 | [`lqg_from_parts`](inc/damp/controllers/lqg.hpp#L149) | Assemble an LQG design from separately computed Kalman and LQR results |
 | [`lqg_pr_bundle`](inc/damp/design/synthesis.hpp#L349) | Synthesize a SISO LQG + PR design with internal-model compensation |

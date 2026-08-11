@@ -39,7 +39,7 @@ using namespace damp::examples_workflow_e2e;
 // Design + host SIL (plant / kTs / ops from workflow_end_to_end_controller.hpp)
 
 int main() {
-    const auto lin = linearize<2, 1, 1>(plant_nonlinear, plant_output, kXop, kUop);
+    const auto lin = design::linearize<2, 1, 1>(plant_nonlinear, plant_output, kXop, kUop);
 
     StateSpace<2, 1, 1, double, 2, 1> sys_c{
         .A = lin.A,

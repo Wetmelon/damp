@@ -349,8 +349,8 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`LeverrierResult`](inc/damp/systems/zpk.hpp#L500) | block | LTI systems (SS / TF / ZPK / discretize) | Faddeev–LeVerrier characteristic polynomial and adjoint coefficient matrices |
 | [`LIMIT`](inc/damp/toolbox/iec61131.hpp#L598) | function | Embedded helpers (controls-adjacent utilities) | LIMIT (IEC 61131-3 selection function): clamp in to [mn, mx] |
 | [`linear_screw`](inc/damp/toolbox/actuator.hpp#L166) | function | Embedded helpers (controls-adjacent utilities) | Build a ServoAxis for a linear axis driven by a leadscrew/belt |
-| [`LinearizationResult`](inc/damp/design/linearization.hpp#L41) | block | Design-time synthesis (not PWM-rate) | Result of nonlinear operating-point linearization |
-| [`linearize`](inc/damp/design/linearization.hpp#L135) | function | Design-time synthesis (not PWM-rate) | Linearize nonlinear dynamics and output maps about an operating point (+1 more overload) |
+| [`LinearizationResult`](inc/damp/design/linearization.hpp#L45) | block | Design-time synthesis (not PWM-rate) | Result of nonlinear operating-point linearization |
+| [`linearize`](inc/damp/design/linearization.hpp#L139) | function | Design-time synthesis (not PWM-rate) | Linearize nonlinear dynamics and output maps about an operating point (+1 more overload) |
 | [`linmod`](inc/damp/matlab.hpp#L329) | function | MATLAB®-style aliases (host) | MATLAB®-style nonlinear linearization about an operating point |
 | [`locate_zero_crossing_exact`](inc/damp/simulation/hybrid.hpp#L335) | function | Simulation / SIL harness (host) | Locate a state zero-crossing of g(x) on an Exact LTI segment |
 | [`log`](inc/damp/matrix/functions.hpp#L511) | function | Linear algebra | Principal matrix logarithm via inverse scaling and squaring |

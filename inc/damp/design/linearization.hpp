@@ -7,9 +7,10 @@
 
 /**
  * @file linearization.hpp
- * @brief Nonlinear model linearization
+ * @brief Nonlinear model linearization (design-time)
  *
  * @defgroup linearization Nonlinear Model Linearization
+ * @ingroup design
  * @brief Finite-difference Jacobian linearization to continuous A/B/C/D at an operating point
  *
  * Provides numerical linearization for nonlinear plants:
@@ -22,6 +23,8 @@
  *   A = ∂f/∂x,  B = ∂f/∂u,  C = ∂h/∂x,  D = ∂h/∂u
  *
  * using central finite differences.
+ *
+ * Primary API: @c damp::design::linearize (same pattern as @c design::pid, @c design::place).
  */
 
 #include <concepts>
@@ -33,6 +36,7 @@
 #include "damp/systems/state_space.hpp"
 
 namespace damp {
+namespace design {
 
 /**
  * @brief Result of nonlinear operating-point linearization
@@ -213,4 +217,5 @@ template<size_t NX, size_t NU, typename T = double, typename Dynamics>
     return linearize<NX, NU, NX, T>(dynamics, output, x_op, u_op, epsilon);
 }
 
+} // namespace design
 } // namespace damp

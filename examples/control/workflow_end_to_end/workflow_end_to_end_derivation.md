@@ -93,7 +93,7 @@ C
 D = 0
 ```
 
-Code uses `linearize<2,1,1>(f,h,x_op,u_op)` (central finite differences); analytic
+Code uses `design::linearize<2,1,1>(f,h,x_op,u_op)` (central finite differences); analytic
 Jacobians match the above at the origin. Noise embedding for Kalman design:
 
 ```math
