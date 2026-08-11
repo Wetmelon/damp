@@ -32,7 +32,7 @@ namespace damp {
  * @brief Free-running elapsed-time accumulator.
  *
  * Accumulates `dt` each @ref tick and reports the total since the last
- * @ref reset. A measurement aid (not a periodic source); reset it when you
+ * @ref reset. A stopwatch for elapsed-time measurements; reset it when you
  * start timing something. With the default `uint32_t` the total wraps modulo
  * 2³² like a hardware tick counter — reset it, or take wrapped differences, for
  * spans longer than the counter range.

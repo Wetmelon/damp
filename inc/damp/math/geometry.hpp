@@ -71,7 +71,7 @@ struct DCM : public Mat3<T> {
     constexpr DCM& operator=(DCM&&) = default;
     constexpr ~DCM() = default;
 
-    /// Construct from a raw @ref Mat3 (not orthonormalized).
+    /// Construct from a raw @ref Mat3 (entries used as-is).
     constexpr explicit DCM(const Mat3<T>& m) : Mat3<T>(m) {}
 
     /// Row-nested initializer list (prvalue / RVO-friendly).
@@ -163,7 +163,7 @@ struct DCM : public Mat3<T> {
      *
      * @p eps is a linear tolerance on the axis length: the axis is normalized
      * internally, so any nonzero axis is valid. The guard rejects a near-zero
-     * axis via @f$ \|a\|^2 \le \varepsilon^2 @f$ (not @f$ \|a\|^2 \le \varepsilon @f$),
+     * axis via @f$ \|a\|^2 \le \varepsilon^2 @f$,
      * so short axes from iterative solvers are kept (see @c kinematics/stewart.hpp).
      *
      * @param axis  Rotation axis (normalized internally)
@@ -407,7 +407,7 @@ struct Quaternion : public Matrix<4, 1, T> {
     constexpr Quaternion& operator=(Quaternion&&) = default;
     constexpr ~Quaternion() = default;
 
-    /// Construct from components (w, x, y, z) (not normalized).
+    /// Construct from components (w, x, y, z); call @ref normalize if needed.
     constexpr Quaternion(T w_, T x_, T y_, T z_) : Matrix<4, 1, T>() {
         w() = w_;
         x() = x_;

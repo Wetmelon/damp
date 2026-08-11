@@ -550,7 +550,7 @@ template<typename T = double>
  *
  * Natural range for a PLL / VCO phase integrator that locks about 0: noise near
  * lock does not flicker across a wrap seam, and split-phase 180° is interior to
- * the interval (not on the ±π edge of @ref wrap_pi).
+ * the open interval of @ref wrap_pi.
  *
  * @note Compare with MATLAB®'s wrapTo2Pi(θ).
  * @tparam T Numeric type (floating-point)

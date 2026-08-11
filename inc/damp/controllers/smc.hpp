@@ -112,7 +112,7 @@ template<typename T = double>
  *
  * @note `ė` is estimated by backward difference `(e − e_prev)/Ts`, so a noisy `y`
  *       feeds noise straight into the surface — filter the measurement (or its
- *       derivative) on a real sensor. `Ts` is passed per call (not stored), so
+ *       derivative) on a real sensor. `Ts` is a per-call argument, so
  *       the same controller works at any/varying loop rate.
  *
  * Example — regulate a position with a boundary layer to avoid actuator buzz:

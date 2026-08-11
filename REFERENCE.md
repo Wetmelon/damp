@@ -227,7 +227,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`BalancedRealizationResult`](inc/damp/design/model_reduction.hpp#L74) | Balanced realization result (Moore square-root method) |
 | [`BalancedReductionResult`](inc/damp/design/model_reduction.hpp#L100) | Reduced-order model from balanced truncation or residualization |
 | [`CommandProjectionResult`](inc/damp/controllers/action_governor.hpp#L185) | Result of an affine command projection |
-| [`DiscretePIDResult`](inc/damp/controllers/pid.hpp#L43) | Fixed-rate discrete PID coefficients (canonical deploy form) |
+| [`DiscretePIDResult`](inc/damp/controllers/pid.hpp#L44) | Fixed-rate discrete PID coefficients (canonical deploy form) |
 | [`ESCResult`](inc/damp/controllers/esc.hpp#L103) | Design result for the extremum-seeking controller |
 | [`HarmonicSuppressorResult`](inc/damp/controllers/harmonic_suppression.hpp#L45) | Design result for a multi-resonant harmonic suppressor |
 | [`InductorCurrentPIResult`](inc/damp/design/pid_design.hpp#L835) | Fixed-rate inductor current-loop PI (topology-agnostic) |
@@ -254,7 +254,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`ModelReductionMethod`](inc/damp/design/model_reduction.hpp#L58) | Method for eliminating states in modred |
 | [`OptimalJordanPlacement`](inc/damp/design/pole_placement.hpp#L1172) | Result of optimized arbitrary pole placement (place_jordan_optimal) |
 | [`PIDPerformanceSpec`](inc/damp/design/pid_design.hpp#L585) | Time-domain performance targets for quick PID synthesis |
-| [`PIDResult`](inc/damp/controllers/pid.hpp#L97) | 2-DOF continuous-time PID controller design result |
+| [`PIDResult`](inc/damp/controllers/pid.hpp#L98) | 2-DOF continuous-time PID controller design result |
 | [`PIDType`](inc/damp/design/pid_design.hpp#L47) | PID controller type selection for tuning methods |
 | [`PRResult`](inc/damp/controllers/pr.hpp#L72) | Proportional-Resonant controller design result |
 | [`QPResult`](inc/damp/design/qp.hpp#L82) | Result of a dense QP solve |
@@ -333,7 +333,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`OffsetFreeMPC`](inc/damp/controllers/offset_free_mpc.hpp#L258) | Deduce the runtime from its artifacts: OffsetFreeMPC controller{art}; |
 | [`phase_margin_from_damping_ratio`](inc/damp/design/pid_design.hpp#L540) | Approximate phase margin from damping ratio |
 | [`pi_pole_placement_first_order`](inc/damp/design/pid_design.hpp#L769) | PI gains that place the closed-loop poles of a first-order plant (+1 more overload) |
-| [`pid`](inc/damp/controllers/pid.hpp#L222) | 2-DOF continuous PID controller design |
+| [`pid`](inc/damp/controllers/pid.hpp#L218) | 2-DOF continuous PID controller design |
 | [`pid_from_bandwidth`](inc/damp/design/pid_design.hpp#L432) | Design PID from desired bandwidth and phase margin |
 | [`pid_from_performance_spec`](inc/damp/design/pid_design.hpp#L603) | Design PID directly from settling-time and overshoot targets |
 | [`pid_pole_placement`](inc/damp/design/pid_design.hpp#L640) | Direct PID pole placement for a first-order-plus-dead-time model (+1 more overload) |
@@ -382,7 +382,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`BoxCommandFilter`](inc/damp/controllers/action_governor.hpp#L119) | Runtime box command filter — closed-form clamp per tick |
 | [`Cascade`](inc/damp/controllers/composition.hpp#L49) | Series cascade of two SISO controllers: outer → inner reference |
 | [`CBFConstraint`](inc/damp/controllers/action_governor.hpp#L283) | One affine row from a relative-degree-1 CBF condition |
-| [`ContinuousPID`](inc/damp/controllers/pid.hpp#L633) | Continuous-gain PID with per-tick sample time (variable-rate secondary form) |
+| [`ContinuousPID`](inc/damp/controllers/pid.hpp#L628) | Continuous-gain PID with per-tick sample time (variable-rate secondary form) |
 | [`ESCConfig`](inc/damp/controllers/esc.hpp#L59) | Extremum-seeking controller configuration (discrete realization) |
 | [`ExtremumSeekingController`](inc/damp/controllers/esc.hpp#L238) | Extremum-seeking controller runtime (model-free online optimizer) |
 | [`ExtremumType`](inc/damp/controllers/esc.hpp#L47) | Whether ESC climbs to a maximum or descends to a minimum of the objective |
@@ -401,9 +401,9 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`MultiPRController`](inc/damp/controllers/pr.hpp#L369) | Multi-harmonic PR Controller |
 | [`OffsetFreeMPC`](inc/damp/controllers/offset_free_mpc.hpp#L196) | Runtime offset-free MPC: constrained MPC + disturbance-augmented Kalman filter |
 | [`OffsetFreeMPCArtifacts`](inc/damp/controllers/offset_free_mpc.hpp#L84) | Combined MPC + disturbance-augmented Kalman design, consumed by damp::OffsetFreeMPC |
-| [`PIDController`](inc/damp/controllers/pid.hpp#L312) | Fixed-rate discrete 2-DOF PID (canonical runtime) (+2 more overloads) |
-| [`PIDMode`](inc/damp/controllers/pid.hpp#L247) | Compile-time selection of the PID control-law structure |
-| [`PIDRuntimeMode`](inc/damp/controllers/pid.hpp#L271) | Runtime operating mode for PIDController / ContinuousPID |
+| [`PIDController`](inc/damp/controllers/pid.hpp#L308) | Fixed-rate discrete 2-DOF PID (canonical runtime) (+2 more overloads) |
+| [`PIDMode`](inc/damp/controllers/pid.hpp#L243) | Compile-time selection of the PID control-law structure |
+| [`PIDRuntimeMode`](inc/damp/controllers/pid.hpp#L267) | Runtime operating mode for PIDController / ContinuousPID |
 | [`PRController`](inc/damp/controllers/pr.hpp#L222) | Discrete Proportional-Resonant Controller |
 | [`RepetitiveConfig`](inc/damp/controllers/repetitive.hpp#L70) | Repetitive-controller tuning + period (with optional zero-phase FIR Q) |
 | [`RepetitiveController`](inc/damp/controllers/repetitive.hpp#L273) | Plug-in repetitive controller runtime (fixed-size internal model) |
@@ -942,28 +942,28 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 
 | Name | Description |
 | ---- | ----------- |
-| [`AllMarginResult`](inc/damp/matlab.hpp#L916) | All classical margins including delay margin (superset of margin) |
-| [`MarginResult`](inc/damp/matlab.hpp#L868) | Gain/phase margins and their crossover frequencies |
+| [`AllMarginResult`](inc/damp/matlab.hpp#L915) | All classical margins including delay margin (superset of margin) |
+| [`MarginResult`](inc/damp/matlab.hpp#L867) | Gain/phase margins and their crossover frequencies |
 
 **Functions**
 
 | Name | Description |
 | ---- | ----------- |
 | [`acker`](inc/damp/matlab.hpp#L554) | Pole placement for state-feedback control |
-| [`allmargin`](inc/damp/matlab.hpp#L937) | Gain, phase, and delay margins of a SISO loop over a frequency grid |
-| [`bandwidth`](inc/damp/matlab.hpp#L1042) | -3 dB bandwidth of a SISO system over a frequency grid |
+| [`allmargin`](inc/damp/matlab.hpp#L936) | Gain, phase, and delay margins of a SISO loop over a frequency grid |
+| [`bandwidth`](inc/damp/matlab.hpp#L1041) | -3 dB bandwidth of a SISO system over a frequency grid |
 | [`blkdiag`](inc/damp/matlab.hpp#L349) | Block diagonal matrix construction |
 | [`c2d`](inc/damp/matlab.hpp#L296) | MATLAB® interface function c2d to discretize a continuous-time state-space system (+1 more overload) |
 | [`ctrb`](inc/damp/matlab.hpp#L258) | MATLAB® short alias for controllability_matrix (+1 more overload) |
 | [`diag`](inc/damp/matlab.hpp#L372) | Returns a square diagonal matrix from the given array (+1 more overload) |
 | [`dlqr`](inc/damp/matlab.hpp#L618) | Discrete-time Linear-Quadratic Regulator design |
-| [`dlyap`](inc/damp/matlab.hpp#L1062) | MATLAB® alias for the discrete Lyapunov solve AXAᵀ−X+Q=0 |
+| [`dlyap`](inc/damp/matlab.hpp#L1061) | MATLAB® alias for the discrete Lyapunov solve AXAᵀ−X+Q=0 |
 | [`eig`](inc/damp/matlab.hpp#L473) | MATLAB® short alias for the eigenvalues of a square matrix |
 | [`estim`](inc/damp/matlab.hpp#L490) | Form state estimator from system and estimator gain |
 | [`eye`](inc/damp/matlab.hpp#L413) | Create an identity matrix of size n x n |
-| [`gram`](inc/damp/matlab.hpp#L1109) | MATLAB® alias for the controllability/observability Gramian of a system |
-| [`hinfnorm`](inc/damp/matlab.hpp#L1131) | MATLAB® alias for the H∞ system norm norm(sys,Inf) / hinfnorm(sys) |
-| [`isstable`](inc/damp/matlab.hpp#L956) | Continuous-time stability predicate on a state matrix (+2 more overloads) |
+| [`gram`](inc/damp/matlab.hpp#L1108) | MATLAB® alias for the controllability/observability Gramian of a system |
+| [`hinfnorm`](inc/damp/matlab.hpp#L1130) | MATLAB® alias for the H∞ system norm norm(sys,Inf) / hinfnorm(sys) |
+| [`isstable`](inc/damp/matlab.hpp#L955) | Continuous-time stability predicate on a state matrix (+2 more overloads) |
 | [`linmod`](inc/damp/matlab.hpp#L329) | MATLAB®-style nonlinear linearization about an operating point |
 | [`lqg`](inc/damp/matlab.hpp#L737) | Linear-Quadratic-Gaussian regulator design |
 | [`lqgreg`](inc/damp/matlab.hpp#L753) | Combine separate Kalman filter and LQR designs into an LQG controller |
@@ -972,16 +972,16 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`lqr`](inc/damp/matlab.hpp#L603) | Continuous-time LQR design (MATLAB®'s lqr) |
 | [`lqrd`](inc/damp/matlab.hpp#L633) | Design discrete LQR from continuous-time system via discretization (+1 more overload) |
 | [`lqry`](inc/damp/matlab.hpp#L680) | Output-weighted continuous LQR (state cost Q = Cᵀ Q_y C) (+1 more overload) |
-| [`lyap`](inc/damp/matlab.hpp#L1052) | MATLAB® alias for the continuous Lyapunov solve AX+XAᵀ+Q=0 |
+| [`lyap`](inc/damp/matlab.hpp#L1051) | MATLAB® alias for the continuous Lyapunov solve AX+XAᵀ+Q=0 |
 | [`make1DOF`](inc/damp/matlab.hpp#L220) | Force 1-DOF setpoint weights on a PID design result (b=c=1) |
 | [`make2DOF`](inc/damp/matlab.hpp#L236) | Apply 2-DOF setpoint weights on a PID design result |
-| [`margin`](inc/damp/matlab.hpp#L889) | Gain and phase margins of a SISO loop over a frequency grid |
+| [`margin`](inc/damp/matlab.hpp#L888) | Gain and phase margins of a SISO loop over a frequency grid |
 | [`minreal`](inc/damp/matlab.hpp#L250) | MATLAB® short alias for design::minreal |
-| [`norm`](inc/damp/matlab.hpp#L1122) | MATLAB® alias for the H2 system norm norm(sys,2) |
+| [`norm`](inc/damp/matlab.hpp#L1121) | MATLAB® alias for the H2 system norm norm(sys,2) |
 | [`null`](inc/damp/matlab.hpp#L459) | MATLAB® short alias for an orthonormal null-space basis |
 | [`obsv`](inc/damp/matlab.hpp#L274) | MATLAB® short alias for observability_matrix (+1 more overload) |
-| [`pade`](inc/damp/matlab.hpp#L998) | First-order Padé approximation of pure delay e^{−sT} (+1 more overload) |
-| [`pade2`](inc/damp/matlab.hpp#L1020) | Second-order Padé approximation of pure delay e^{−sT} (+1 more overload) |
+| [`pade`](inc/damp/matlab.hpp#L997) | First-order Padé approximation of pure delay e^{−sT} (+1 more overload) |
+| [`pade2`](inc/damp/matlab.hpp#L1019) | Second-order Padé approximation of pure delay e^{−sT} (+1 more overload) |
 | [`pid`](inc/damp/matlab.hpp#L161) | MATLAB®-style parallel-form continuous PID constructor |
 | [`pidstd`](inc/damp/matlab.hpp#L189) | Standard-form continuous PID constructor (1-DOF) |
 | [`pidstd2`](inc/damp/matlab.hpp#L207) | Standard-form continuous 2-DOF PID constructor |
@@ -989,7 +989,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`pinv`](inc/damp/matlab.hpp#L446) | MATLAB® short alias for the Moore–Penrose pseudoinverse |
 | [`place`](inc/damp/matlab.hpp#L582) | Robust multi-input pole placement (MATLAB®'s place) |
 | [`pole`](inc/damp/matlab.hpp#L853) | MATLAB® short alias for the open-loop poles of a system |
-| [`quadprog`](inc/damp/matlab.hpp#L1073) | MATLAB® alias for the dense inequality-constrained QP solve (+1 more overload) |
+| [`quadprog`](inc/damp/matlab.hpp#L1072) | MATLAB® alias for the dense inequality-constrained QP solve (+1 more overload) |
 | [`reg`](inc/damp/matlab.hpp#L519) | Form dynamic regulator from system, state-feedback gain, and estimator gain |
 | [`ss`](inc/damp/matlab.hpp#L97) | MATLAB®-style state-space model constructor |
 | [`svd`](inc/damp/matlab.hpp#L437) | MATLAB® short alias for the singular value decomposition |

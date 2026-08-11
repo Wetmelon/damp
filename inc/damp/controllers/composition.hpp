@@ -154,7 +154,7 @@ public:
     }
 
     /**
-     * @brief Override the command when the experiment is external (not a SisoController).
+     * @brief Override the command when the experiment is an external command source.
      *
      * Only applied in Experiment mode; stores @p u as last command.
      */

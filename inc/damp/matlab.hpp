@@ -568,7 +568,7 @@ constexpr damp::optional<Matrix<NU, NX, T>> acker(
  *
  * Thin alias for design::place — Kautsky–Nichols–Van Dooren robust eigenvalue
  * assignment, spending the multi-input freedom to minimize eigenvector
- * conditioning. Use this (not acker) for multi-input systems; acker remains the
+ * conditioning. Prefer this for multi-input systems; acker remains the
  * single-input Ackermann path.
  *
  * @param A State matrix
@@ -858,10 +858,9 @@ template<size_t NX, typename T = double>
  * @brief Gain/phase margins and their crossover frequencies.
  *
  * @note Compare with MATLAB®'s [Gm, Pm, Wcg, Wcp] = margin(...). Gm is a linear
- *       ratio (not dB), matching MATLAB®; +inf marks a missing crossover.
+ *       ratio; +inf marks a missing crossover.
  *
- * Field naming follows the historical Damp margin layout (not MATLAB®'s Wcg/Wcp
- * swap): @c Wcg is the phase-crossover frequency (GM site), @c Wcp is the
+ * @c Wcg is the phase-crossover frequency (GM site); @c Wcp is the
  * gain-crossover frequency (PM site).
  */
 template<typename T = double>

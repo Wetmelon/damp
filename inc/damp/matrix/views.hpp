@@ -251,7 +251,7 @@ public:
  * @brief Non-owning column view of a matrix
  *
  * Lightweight slice: pointer to parent + column index. Strided in row-major
- * storage (not a contiguous span). @c MatrixLike (Rows × 1).
+ * storage (strided / non-contiguous). @c MatrixLike (Rows × 1).
  */
 template<size_t Rows, size_t Cols, typename T>
 struct ColView {

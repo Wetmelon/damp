@@ -456,7 +456,7 @@ public:
             const T error_norm = weighted_rms_error(x, step_result.x, step_result.error, opts_.atol, opts_.rtol);
 
             const bool within_tol = error_norm <= T{1};
-            // "At min step" only for a full h_min attempt (not the final partial step).
+            // "At min step" only for a full h_min attempt.
             const bool at_min_step = target_step <= h_min * (T{1} + T{10} * std::numeric_limits<T>::epsilon()) && remaining > h_min;
 
             if (!within_tol && at_min_step && opts_.fail_on_min_step) {

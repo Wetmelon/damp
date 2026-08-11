@@ -79,7 +79,7 @@ namespace design {
 /**
  * @brief Fit one underdamped second-order mode from a step / ring-down capture.
  *
- * Log-decrement on residual about steady state. Peak-only (not valleys).
+ * Log-decrement on residual about steady state from successive peaks.
  */
 template<std::size_t N, typename T = float>
 [[nodiscard]] constexpr ResonantMode<T> fit_second_order_step(

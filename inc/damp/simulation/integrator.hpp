@@ -806,7 +806,7 @@ struct DP45 {
         constexpr T e1 = 71.0 / 57600.0, e3 = -71.0 / 16695.0, e4 = 71.0 / 1920.0,
                     e5 = -17253.0 / 339200.0, e6 = 22.0 / 525.0, e7 = -1.0 / 40.0;
 
-        // Stages are locals (not mutable members). Returning views of member
+        // Stages are locals. Returning views of member
         // stages was implicated in intermittent AVs under g++ 14 MinGW -O3 when
         // multiple adaptive_solve instantiations shared a TU; locals keep each
         // evolve() fully re-entrant and copy-clean.

@@ -175,7 +175,7 @@ inline void write_html(
 
     fig.writeHtml(path, false);
 
-    // Read via rdbuf (not istreambuf_iterator): GCC 14 -Wnull-dereference false
+    // Read via rdbuf: GCC 14 -Wnull-dereference false
     // positives inside libstdc++ when the iterator form is inlined here.
     std::ifstream      in(path, std::ios::binary);
     std::ostringstream oss;
@@ -258,7 +258,7 @@ std::vector<double> to_double_vector(const std::vector<T>& v) {
 //      wider right gutter for long legend labels.
 //   5. Legend x = panel_x_right + 0.01 (just past the plot column).
 //
-// HTML shell: use plot::write_html (not Figure::writeHtml) so damp's full-window
+// HTML shell: use plot::write_html so damp's full-window
 // responsive shell applies without patching the plotlypp submodule.
 // ---------------------------------------------------------------------------
 

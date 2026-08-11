@@ -279,7 +279,7 @@ template<size_t N, typename T, typename Scalar>
     return result;
 }
 
-// RowVec * Matrix returns RowVec (not Matrix<1,N>)
+// RowVec * Matrix returns RowVec
 template<size_t N, size_t Cols, typename T, typename U>
 [[nodiscard]] constexpr RowVec<Cols, T> operator*(const RowVec<N, T>& vec, const Matrix<N, Cols, U>& mat) {
     RowVec<Cols, T> result;

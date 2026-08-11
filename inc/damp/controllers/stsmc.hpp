@@ -109,8 +109,8 @@ template<typename T = double>
  * @brief Super-twisting controller from gains you specify directly.
  *
  * Bypasses the disturbance-bound formula for users who tune k₁/k₂ themselves.
- * Named @c stsmc_gains (not an overload of @ref stsmc) so a two-arg call is not
- * ambiguous with @ref stsmc's `(L, λ)` form under default arguments.
+ * Separate name from @ref stsmc so a two-arg call resolves cleanly against that
+ * API's defaulted `(L, λ)` form.
  *
  * @param k1 Continuous gain on |s|^½·sign(s) (> 0)
  * @param k2 Integral gain on sign(s) (> 0)

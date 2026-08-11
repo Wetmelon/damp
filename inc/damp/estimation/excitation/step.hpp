@@ -166,7 +166,7 @@ public:
         return !valid_ || finished_;
     }
 
-    /// true if completion was via settle band (not max-hold timeout / timed end).
+    /// true if completion was via settle band.
     [[nodiscard]] constexpr bool settled() const { return settled_ok_; }
 
     constexpr void reset() {

@@ -58,7 +58,7 @@ struct StdMathFallback {
     static T pow(T base, T exponent) { return std::pow(base, exponent); }
     static T fmod(T x, T y) { return std::fmod(x, y); }
     static T copysign(T mag, T sgn) { return std::copysign(mag, sgn); }
-    /// Bit-pattern IEEE test (not `std::isfinite` — that can be a no-op under -ffast-math).
+    /// Bit-pattern IEEE finite test (safe under -ffast-math).
     static bool isfinite(T x) { return detail::isfinite(x); }
 };
 

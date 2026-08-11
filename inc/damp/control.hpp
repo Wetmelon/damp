@@ -46,7 +46,7 @@
 #include "damp/systems/transfer_function.hpp" // IWYU pragma: export
 #include "damp/systems/zpk.hpp"               // IWYU pragma: export
 
-// --- Design / CST synthesis (not PWM-rate) ----------------------------------
+// --- Design / CST synthesis (init / offline) --------------------------------
 #include "damp/design/linearization.hpp"   // IWYU pragma: export
 #include "damp/design/lyapunov.hpp"        // IWYU pragma: export
 #include "damp/design/minreal.hpp"         // IWYU pragma: export

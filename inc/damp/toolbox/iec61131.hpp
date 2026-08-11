@@ -148,7 +148,7 @@ struct R_TRIG {
  * corresponds to a *previous* clock of 1 — so the standard's NOTE specifies that
  * an F_TRIG whose CLK is FALSE produces `Q = 1` on its first execution after a
  * cold restart. We store the previous raw clock in `CLK`, so it is initialized
- * to `true` (not `false`) to reproduce that conforming cold-start behavior.
+ * to `true` to reproduce that conforming cold-start behavior.
  */
 struct F_TRIG {
     bool CLK{true}; ///< Previous clock state; init true so cold start matches IEC (M=0).

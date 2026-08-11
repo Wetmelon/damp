@@ -50,7 +50,7 @@
  * @endcode
  *
  * @note Compare with MATLAB®'s minreal(sys).
- * @see balreal(), balred(), modred() for Hankel-based order reduction (not the same)
+ * @see balreal(), balred(), modred() for Hankel-based order reduction
  * @see stability::controllability_matrix(), stability::observability_matrix()
  * @see Kailath, "Linear Systems" (1980), §6.4 (Kalman decomposition)
  * @see Chen, "Linear System Theory and Design" (3rd ed.), §6.4–6.5

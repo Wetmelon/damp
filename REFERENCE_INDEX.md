@@ -24,8 +24,8 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`ADRCController`](inc/damp/controllers/adrc.hpp#L148) | block | Runtime controllers | Active Disturbance Rejection Control (ADRC) |
 | [`ADRCResult`](inc/damp/controllers/adrc.hpp#L33) | block | Design-time synthesis (not PWM-rate) | Active Disturbance Rejection Control design result |
 | [`AffineCal`](inc/damp/toolbox/scaling.hpp#L83) | block | Embedded helpers (controls-adjacent utilities) | Affine sensor calibration `y = gain·x + offset` |
-| [`allmargin`](inc/damp/matlab.hpp#L937) | function | MATLAB®-style aliases (host) | Gain, phase, and delay margins of a SISO loop over a frequency grid |
-| [`AllMarginResult`](inc/damp/matlab.hpp#L916) | block | MATLAB®-style aliases (host) | All classical margins including delay margin (superset of margin) |
+| [`allmargin`](inc/damp/matlab.hpp#L936) | function | MATLAB®-style aliases (host) | Gain, phase, and delay margins of a SISO loop over a frequency grid |
+| [`AllMarginResult`](inc/damp/matlab.hpp#L915) | block | MATLAB®-style aliases (host) | All classical margins including delay margin (superset of margin) |
 | [`AlphaBeta`](inc/damp/math/transforms.hpp#L152) | block | Scalar math, complex & frames | Alpha-beta (stationary-frame) component pair |
 | [`amigo_kappa_tau`](inc/damp/design/pid_design.hpp#L237) | function | Design-time synthesis (not PWM-rate) | AMIGO PI from ultimate gain/period and static gain Kₛ |
 | [`AnalogCrossMode`](inc/damp/toolbox/conditioning.hpp#L498) | enum | Embedded helpers (controls-adjacent utilities) | How two redundant analog channels should relate in engineering units |
@@ -50,7 +50,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`balreal`](inc/damp/design/model_reduction.hpp#L383) | function | Design-time synthesis (not PWM-rate) | Balanced realization via the square-root (Moore / Laub) method |
 | [`balred`](inc/damp/design/model_reduction.hpp#L471) | function | Design-time synthesis (not PWM-rate) | Balanced truncation to NR states |
 | [`bandpass`](inc/damp/filters/iir_design.hpp#L661) | function | Filters & signal conditioning | Second-order band-pass filter (constant 0 dB peak gain) |
-| [`bandwidth`](inc/damp/matlab.hpp#L1042) | function | MATLAB®-style aliases (host) | -3 dB bandwidth of a SISO system over a frequency grid |
+| [`bandwidth`](inc/damp/matlab.hpp#L1041) | function | MATLAB®-style aliases (host) | -3 dB bandwidth of a SISO system over a frequency grid |
 | [`bandwidth_from_settling_time`](inc/damp/design/pid_design.hpp#L571) | function | Design-time synthesis (not PWM-rate) | Map settling-time and damping-ratio targets to a bandwidth estimate |
 | [`BDF2`](inc/damp/simulation/integrator.hpp#L366) | block | Simulation / SIL harness (host) | Backward Differentiation Formula 2 (BDF2) integrator |
 | [`beta`](inc/damp/toolbox/thermistor.hpp#L77) | function | Embedded helpers (controls-adjacent utilities) | Fit NTC coefficients from the Beta-parameter model |
@@ -114,7 +114,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`ConstantInertiaFeedforward`](inc/damp/toolbox/actuator.hpp#L197) | block | Embedded helpers (controls-adjacent utilities) | Per-axis decoupled torque feedforward: `τ = J·a + b·v + τ_c·sign(v) + g` |
 | [`continuous_lpf_exact_step`](inc/damp/filters/lowpass.hpp#L37) | function | Filters & signal conditioning | Exact step of continuous first-order LPF ẏ = −ω_c (y − u) |
 | [`continuous_lqr`](inc/damp/controllers/lqr.hpp#L377) | function | Design-time synthesis (not PWM-rate) | Continuous-time Linear-Quadratic Regulator design (+1 more overload) |
-| [`ContinuousPID`](inc/damp/controllers/pid.hpp#L633) | block | Runtime controllers | Continuous-gain PID with per-tick sample time (variable-rate secondary form) |
+| [`ContinuousPID`](inc/damp/controllers/pid.hpp#L628) | block | Runtime controllers | Continuous-gain PID with per-tick sample time (variable-rate secondary form) |
 | [`controllability_gramian`](inc/damp/design/stability.hpp#L118) | function | Design-time synthesis (not PWM-rate) | Continuous/discrete controllability Gramian W_c |
 | [`controllability_matrix`](inc/damp/design/stability.hpp#L52) | function | Design-time synthesis (not PWM-rate) | Compute the controllability matrix [B, AB, A²B, ..., A^(N-1)B] |
 | [`Convention`](inc/damp/math/transforms.hpp#L69) | enum | Scalar math, complex & frames | Scaling convention for the Clarke/Park family |
@@ -152,7 +152,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`discrete_lqi`](inc/damp/controllers/lqi.hpp#L93) | function | Design-time synthesis (not PWM-rate) | Discrete Linear-Quadratic-Integral (LQI) design for output tracking |
 | [`discrete_lqr`](inc/damp/controllers/lqr.hpp#L115) | function | Design-time synthesis (not PWM-rate) | Discrete-time Linear-Quadratic Regulator design |
 | [`discrete_lqr_from_continuous`](inc/damp/controllers/lqr.hpp#L253) | function | Design-time synthesis (not PWM-rate) | Design discrete LQR from continuous-time system via discretization (+1 more overload) |
-| [`DiscretePIDResult`](inc/damp/controllers/pid.hpp#L43) | block | Design-time synthesis (not PWM-rate) | Fixed-rate discrete PID coefficients (canonical deploy form) |
+| [`DiscretePIDResult`](inc/damp/controllers/pid.hpp#L44) | block | Design-time synthesis (not PWM-rate) | Fixed-rate discrete PID coefficients (canonical deploy form) |
 | [`DiscretizationMethod`](inc/damp/systems/discretization.hpp#L26) | enum | LTI systems (SS / TF / ZPK / discretize) | Discretization methods for continuous-time state-space systems |
 | [`discretize`](inc/damp/systems/discretization.hpp#L218) | function | LTI systems (SS / TF / ZPK / discretize) | Discretize a continuous-time state-space system |
 | [`discretize_lqr_cost`](inc/damp/controllers/lqr.hpp#L181) | function | Design-time synthesis (not PWM-rate) | Discretize a continuous LQR cost integral over one sample (Van Loan) |
@@ -160,7 +160,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`dlqr`](inc/damp/controllers/lqr.hpp#L298) | function | Design-time synthesis (not PWM-rate) | Discrete-time LQR design (MATLAB®-style short name) |
 | [`dlqr`](inc/damp/matlab.hpp#L618) | function | MATLAB®-style aliases (host) | Discrete-time Linear-Quadratic Regulator design |
 | [`dlyap`](inc/damp/design/lyapunov.hpp#L130) | function | Design-time synthesis (not PWM-rate) | Solve the discrete-time Lyapunov (Stein) equation A X Aᵀ − X + Q = 0 |
-| [`dlyap`](inc/damp/matlab.hpp#L1062) | function | MATLAB®-style aliases (host) | MATLAB® alias for the discrete Lyapunov solve AXAᵀ−X+Q=0 |
+| [`dlyap`](inc/damp/matlab.hpp#L1061) | function | MATLAB®-style aliases (host) | MATLAB® alias for the discrete Lyapunov solve AXAᵀ−X+Q=0 |
 | [`dob`](inc/damp/estimation/dob.hpp#L128) | function | Observers & estimators | Validate and package DOB configuration into a runtime-ready design result |
 | [`DOB`](inc/damp/estimation/dob.hpp#L153) | block | Observers & estimators | Lightweight SISO disturbance observer runtime |
 | [`DOBConfig`](inc/damp/estimation/dob.hpp#L31) | block | Observers & estimators | Configuration for a first-order disturbance observer |
@@ -249,7 +249,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`gain_margin_unwrapped`](inc/damp/analysis/frequency.hpp#L202) | function | Frequency-domain analysis (host) | Find gain margin using unwrapped phase trajectory |
 | [`geomspace`](inc/damp/analysis/linspace.hpp#L88) | function | Frequency-domain analysis (host) | Geometric sequence from start to end (endpoint values, not exponents) |
 | [`Goertzel`](inc/damp/filters/spectral.hpp#L46) | block | Filters & signal conditioning | Generalized Goertzel single-bin DFT — amplitude/phase at one frequency |
-| [`gram`](inc/damp/matlab.hpp#L1109) | function | MATLAB®-style aliases (host) | MATLAB® alias for the controllability/observability Gramian of a system |
+| [`gram`](inc/damp/matlab.hpp#L1108) | function | MATLAB®-style aliases (host) | MATLAB® alias for the controllability/observability Gramian of a system |
 | [`gravity_nav`](inc/damp/estimation/ins_mechanization.hpp#L93) | function | Observers & estimators | Gravity vector in the local-level frame [m/s²] |
 | [`h_pattern`](inc/damp/toolbox/io.hpp#L377) | function | Embedded helpers (controls-adjacent utilities) | H-pattern (dual-lever / tank) drive: one lever per track, no mixing |
 | [`hankel_singular_values`](inc/damp/design/model_reduction.hpp#L596) | function | Design-time synthesis (not PWM-rate) | Descriptive alias for hankelsv |
@@ -264,7 +264,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`highpass_1st`](inc/damp/filters/iir_design.hpp#L169) | function | Filters & signal conditioning | First-order high-pass filter design (Tustin / bilinear) |
 | [`highpass_2nd`](inc/damp/filters/iir_design.hpp#L684) | function | Filters & signal conditioning | Second-order high-pass filter (RBJ) |
 | [`highshelf`](inc/damp/filters/iir_design.hpp#L765) | function | Filters & signal conditioning | High-shelf EQ filter: boost or cut everything above fc |
-| [`hinfnorm`](inc/damp/matlab.hpp#L1131) | function | MATLAB®-style aliases (host) | MATLAB® alias for the H∞ system norm norm(sys,Inf) / hinfnorm(sys) |
+| [`hinfnorm`](inc/damp/matlab.hpp#L1130) | function | MATLAB®-style aliases (host) | MATLAB® alias for the H∞ system norm norm(sys,Inf) / hinfnorm(sys) |
 | [`holonomic_drive`](inc/damp/toolbox/io.hpp#L495) | function | Embedded helpers (controls-adjacent utilities) | Four-wheel holonomic drive mixer (mecanum / omni) |
 | [`HolonomicOutput`](inc/damp/toolbox/io.hpp#L463) | block | Embedded helpers (controls-adjacent utilities) | Four-wheel actuator set (mecanum/holonomic drive output), X-config |
 | [`HybridEventAction`](inc/damp/simulation/hybrid.hpp#L102) | block | Simulation / SIL harness (host) | Action applied when an event fires (after Exact advance to the event time) |
@@ -329,7 +329,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`isfinite`](inc/damp/math/math.hpp#L425) | function | Scalar math, complex & frames | Finiteness test — false for NaN and ±∞ |
 | [`iso_c_drive`](inc/damp/toolbox/io.hpp#L412) | function | Embedded helpers (controls-adjacent utilities) | ISO-C (single-stick, coordinated / curvature) drive |
 | [`iso_s_drive`](inc/damp/toolbox/io.hpp#L393) | function | Embedded helpers (controls-adjacent utilities) | ISO-S (single-stick, speed-summed) drive — arcade travel stick |
-| [`isstable`](inc/damp/matlab.hpp#L956) | function | MATLAB®-style aliases (host) | Continuous-time stability predicate on a state matrix (+2 more overloads) |
+| [`isstable`](inc/damp/matlab.hpp#L955) | function | MATLAB®-style aliases (host) | Continuous-time stability predicate on a state matrix (+2 more overloads) |
 | [`Jet`](inc/damp/trajectory/trajectory_types.hpp#L95) | block | Trajectory value types | Truncated jet of a scalar motion sample: d[k] = s⁽ᵏ⁾ |
 | [`JordanBlock`](inc/damp/design/pole_placement.hpp#L831) | block | Design-time synthesis (not PWM-rate) | One Jordan mini-block of a desired closed-loop spectrum |
 | [`JordanObjective`](inc/damp/design/pole_placement.hpp#L1165) | enum | Design-time synthesis (not PWM-rate) | Robustness objective for place_jordan_optimal (the paper's two methods) |
@@ -414,14 +414,14 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`Lut3D`](inc/damp/toolbox/lookup.hpp#L274) | block | Embedded helpers (controls-adjacent utilities) | 3-D trilinear interpolating lookup table over a regular grid |
 | [`lut_segment`](inc/damp/toolbox/lookup.hpp#L63) | function | Embedded helpers (controls-adjacent utilities) | Index of the interpolation segment containing x |
 | [`lyap`](inc/damp/design/lyapunov.hpp#L105) | function | Design-time synthesis (not PWM-rate) | Solve the continuous-time Lyapunov equation A X + X Aᵀ + Q = 0 |
-| [`lyap`](inc/damp/matlab.hpp#L1052) | function | MATLAB®-style aliases (host) | MATLAB® alias for the continuous Lyapunov solve AX+XAᵀ+Q=0 |
+| [`lyap`](inc/damp/matlab.hpp#L1051) | function | MATLAB®-style aliases (host) | MATLAB® alias for the continuous Lyapunov solve AX+XAᵀ+Q=0 |
 | [`MadgwickFilter`](inc/damp/estimation/sensor_fusion.hpp#L105) | block | Observers & estimators | Madgwick gradient-descent AHRS filter |
 | [`mag2db`](inc/damp/math/math.hpp#L459) | function | Scalar math, complex & frames | Magnitude to decibels, 20·log10(mag) |
 | [`MahonyFilter`](inc/damp/estimation/sensor_fusion.hpp#L163) | block | Observers & estimators | Mahony nonlinear complementary filter with PI correction |
 | [`make1DOF`](inc/damp/matlab.hpp#L220) | function | MATLAB®-style aliases (host) | Force 1-DOF setpoint weights on a PID design result (b=c=1) |
 | [`make2DOF`](inc/damp/matlab.hpp#L236) | function | MATLAB®-style aliases (host) | Apply 2-DOF setpoint weights on a PID design result |
-| [`margin`](inc/damp/matlab.hpp#L889) | function | MATLAB®-style aliases (host) | Gain and phase margins of a SISO loop over a frequency grid |
-| [`MarginResult`](inc/damp/matlab.hpp#L868) | block | MATLAB®-style aliases (host) | Gain/phase margins and their crossover frequencies |
+| [`margin`](inc/damp/matlab.hpp#L888) | function | MATLAB®-style aliases (host) | Gain and phase margins of a SISO loop over a frequency grid |
+| [`MarginResult`](inc/damp/matlab.hpp#L867) | block | MATLAB®-style aliases (host) | Gain/phase margins and their crossover frequencies |
 | [`margins_from_frf`](inc/damp/estimation/frequency_response.hpp#L771) | function | Observers & estimators | Gain / phase margins from a fixed on-target FRF table |
 | [`Matrix`](inc/damp/matrix/core.hpp#L74) | block | Linear algebra | Fixed-size, stack-allocated matrix for linear algebra operations |
 | [`MatrixLike`](inc/damp/matrix/matrix_traits.hpp#L70) | concept | Linear algebra | Concept for any type that provides 2D matrix-like element access |
@@ -474,7 +474,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`NicholsPoint`](inc/damp/analysis/frequency.hpp#L654) | block | Frequency-domain analysis (host) | Single-point Nichols chart sample (open-loop phase vs magnitude) |
 | [`NicholsResult`](inc/damp/analysis/frequency.hpp#L666) | block | Frequency-domain analysis (host) | Nichols chart locus across a frequency sweep |
 | [`NlmsFilter`](inc/damp/filters/fir.hpp#L546) | block | Filters & signal conditioning | Normalized LMS adaptive FIR filter |
-| [`norm`](inc/damp/matlab.hpp#L1122) | function | MATLAB®-style aliases (host) | MATLAB® alias for the H2 system norm norm(sys,2) |
+| [`norm`](inc/damp/matlab.hpp#L1121) | function | MATLAB®-style aliases (host) | MATLAB® alias for the H2 system norm norm(sys,2) |
 | [`norm_h2`](inc/damp/analysis/norms.hpp#L76) | function | Frequency-domain analysis (host) | H2 norm of a state-space system |
 | [`norm_hinf`](inc/damp/analysis/norms.hpp#L134) | function | Frequency-domain analysis (host) | H∞ norm of a state-space system: sup_ω σ̄(G(jω)) |
 | [`notch`](inc/damp/filters/iir_design.hpp#L639) | function | Filters & signal conditioning | Second-order band-reject (notch) filter |
@@ -497,8 +497,8 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`one_norm`](inc/damp/matrix/functions.hpp#L64) | function | Linear algebra | One-norm ‖A‖₁: maximum absolute column sum |
 | [`OptimalJordanPlacement`](inc/damp/design/pole_placement.hpp#L1172) | block | Design-time synthesis (not PWM-rate) | Result of optimized arbitrary pole placement (place_jordan_optimal) |
 | [`OutputFeedbackController`](inc/damp/concepts.hpp#L88) | concept | Core, configuration & backend vocabulary | Vector output-feedback controller: u = control(r, y), self-contained tick |
-| [`pade`](inc/damp/matlab.hpp#L998) | function | MATLAB®-style aliases (host) | First-order Padé approximation of pure delay e^{−sT} (+1 more overload) |
-| [`pade2`](inc/damp/matlab.hpp#L1020) | function | MATLAB®-style aliases (host) | Second-order Padé approximation of pure delay e^{−sT} (+1 more overload) |
+| [`pade`](inc/damp/matlab.hpp#L997) | function | MATLAB®-style aliases (host) | First-order Padé approximation of pure delay e^{−sT} (+1 more overload) |
+| [`pade2`](inc/damp/matlab.hpp#L1019) | function | MATLAB®-style aliases (host) | Second-order Padé approximation of pure delay e^{−sT} (+1 more overload) |
 | [`pade_delay_1st`](inc/damp/filters/iir_design.hpp#L378) | function | Filters & signal conditioning | First-order Pade approximation of time delay (+1 more overload) |
 | [`pade_delay_2nd`](inc/damp/filters/iir_design.hpp#L422) | function | Filters & signal conditioning | Second-order Pade approximation of time delay (+1 more overload) |
 | [`panel_color`](inc/damp/simulation/plot_plotly.hpp#L314) | function | Simulation / SIL harness (host) | Plotly default colorway entry for index i within a single subplot |
@@ -514,16 +514,16 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`phase_margin_from_damping_ratio`](inc/damp/design/pid_design.hpp#L540) | function | Design-time synthesis (not PWM-rate) | Approximate phase margin from damping ratio |
 | [`phase_margin_unwrapped`](inc/damp/analysis/frequency.hpp#L166) | function | Frequency-domain analysis (host) | Find phase margin using unwrapped phase trajectory |
 | [`pi_pole_placement_first_order`](inc/damp/design/pid_design.hpp#L769) | function | Design-time synthesis (not PWM-rate) | PI gains that place the closed-loop poles of a first-order plant (+1 more overload) |
-| [`pid`](inc/damp/controllers/pid.hpp#L222) | function | Design-time synthesis (not PWM-rate) | 2-DOF continuous PID controller design |
+| [`pid`](inc/damp/controllers/pid.hpp#L218) | function | Design-time synthesis (not PWM-rate) | 2-DOF continuous PID controller design |
 | [`pid`](inc/damp/matlab.hpp#L161) | function | MATLAB®-style aliases (host) | MATLAB®-style parallel-form continuous PID constructor |
 | [`pid_from_bandwidth`](inc/damp/design/pid_design.hpp#L432) | function | Design-time synthesis (not PWM-rate) | Design PID from desired bandwidth and phase margin |
 | [`pid_from_performance_spec`](inc/damp/design/pid_design.hpp#L603) | function | Design-time synthesis (not PWM-rate) | Design PID directly from settling-time and overshoot targets |
 | [`pid_pole_placement`](inc/damp/design/pid_design.hpp#L640) | function | Design-time synthesis (not PWM-rate) | Direct PID pole placement for a first-order-plus-dead-time model (+1 more overload) |
-| [`PIDController`](inc/damp/controllers/pid.hpp#L312) | block | Runtime controllers | Fixed-rate discrete 2-DOF PID (canonical runtime) (+2 more overloads) |
-| [`PIDMode`](inc/damp/controllers/pid.hpp#L247) | enum | Runtime controllers | Compile-time selection of the PID control-law structure |
+| [`PIDController`](inc/damp/controllers/pid.hpp#L308) | block | Runtime controllers | Fixed-rate discrete 2-DOF PID (canonical runtime) (+2 more overloads) |
+| [`PIDMode`](inc/damp/controllers/pid.hpp#L243) | enum | Runtime controllers | Compile-time selection of the PID control-law structure |
 | [`PIDPerformanceSpec`](inc/damp/design/pid_design.hpp#L585) | block | Design-time synthesis (not PWM-rate) | Time-domain performance targets for quick PID synthesis |
-| [`PIDResult`](inc/damp/controllers/pid.hpp#L97) | block | Design-time synthesis (not PWM-rate) | 2-DOF continuous-time PID controller design result |
-| [`PIDRuntimeMode`](inc/damp/controllers/pid.hpp#L271) | enum | Runtime controllers | Runtime operating mode for PIDController / ContinuousPID |
+| [`PIDResult`](inc/damp/controllers/pid.hpp#L98) | block | Design-time synthesis (not PWM-rate) | 2-DOF continuous-time PID controller design result |
+| [`PIDRuntimeMode`](inc/damp/controllers/pid.hpp#L267) | enum | Runtime controllers | Runtime operating mode for PIDController / ContinuousPID |
 | [`pidstd`](inc/damp/matlab.hpp#L189) | function | MATLAB®-style aliases (host) | Standard-form continuous PID constructor (1-DOF) |
 | [`pidstd2`](inc/damp/matlab.hpp#L207) | function | MATLAB®-style aliases (host) | Standard-form continuous 2-DOF PID constructor |
 | [`pidtune`](inc/damp/matlab.hpp#L787) | function | MATLAB®-style aliases (host) | PID controller tuning using frequency domain method |
@@ -575,7 +575,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`qr_decompose`](inc/damp/matrix/decomposition.hpp#L223) | function | Linear algebra | Thin QR via modified Gram–Schmidt |
 | [`QRDecomposition`](inc/damp/matrix/decomposition.hpp#L191) | block | Linear algebra | Thin QR factorization A = QR (modified Gram–Schmidt) |
 | [`QuadMode`](inc/damp/toolbox/encoder.hpp#L47) | enum | Embedded helpers (controls-adjacent utilities) | Quadrature decode resolution (edges counted per A/B cycle) |
-| [`quadprog`](inc/damp/matlab.hpp#L1073) | function | MATLAB®-style aliases (host) | MATLAB® alias for the dense inequality-constrained QP solve (+1 more overload) |
+| [`quadprog`](inc/damp/matlab.hpp#L1072) | function | MATLAB®-style aliases (host) | MATLAB® alias for the dense inequality-constrained QP solve (+1 more overload) |
 | [`quadratic_form`](inc/damp/matrix/core.hpp#L924) | function | Linear algebra | Symmetric congruence (quadratic) form  S = M X Mᵀ |
 | [`QuadratureDecoder`](inc/damp/toolbox/encoder.hpp#L69) | block | Embedded helpers (controls-adjacent utilities) | Software A/B quadrature decoder with optional index |
 | [`Quaternion`](inc/damp/math/geometry.hpp#L381) | block | Scalar math, complex & frames | Unit quaternion rotation (w, x, y, z) (Hamilton product) |

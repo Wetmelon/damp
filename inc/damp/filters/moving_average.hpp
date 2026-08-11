@@ -82,7 +82,7 @@ public:
         idx_ = (idx_ + 1) % n_;
         if (idx_ == 0) {
             // Exact resum once per full window bounds float round-off drift to a
-            // single window. A plain sum (not Kahan, which -ffast-math defeats);
+            // single window. Plain sum (stable under -ffast-math);
             // O(N) here is amortized O(1) and the WCET is O(N) either way.
             T s = T{0};
             for (size_t i = 0; i < n_; ++i) {

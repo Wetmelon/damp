@@ -259,7 +259,7 @@ struct ColVec : public Matrix<N, 1, T> {
 };
 
 /**
- * @brief Matrix * ColVec returns ColVec (not Matrix<N,1>)
+ * @brief Matrix * ColVec returns ColVec
  */
 template<size_t Rows, size_t Cols, typename T, typename U>
 [[nodiscard]] constexpr ColVec<Rows, T> operator*(const Matrix<Rows, Cols, T>& mat, const ColVec<Cols, U>& vec) {

@@ -196,10 +196,10 @@ template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, si
  * @param C  Output matrix (NY × NX)
  * @param Q  Process noise covariance (NW × NW)
  * @param R  Measurement noise covariance (NY × NY)
- * @return KalmanResult with steady-state L and P (not closed-loop poles like MATLAB E)
+ * @return KalmanResult with steady-state L and P
  *
  * @note Compare with MATLAB®'s [L,P,Z,E] = dlqe(A, G, C, Q, R) — Damp returns L and P
- *       on @ref KalmanResult (not Z/E).
+ *       on @ref KalmanResult.
  * @see discrete_lqe(sys, Q, R), kalman, discrete_lqr
  */
 template<size_t NX, size_t NW, size_t NY, typename T = double>
@@ -469,7 +469,7 @@ struct SteadyStateKalmanFilter {
 
     [[nodiscard]] constexpr const auto& model() const { return sys; }
     [[nodiscard]] constexpr const auto& gain() const { return L; }
-    /// Steady-state design covariance P∞ (not updated online).
+    /// Steady-state design covariance P∞.
     [[nodiscard]] constexpr const auto& covariance() const { return P_ss; }
     [[nodiscard]] constexpr const auto& innovation() const { return innov; }
     [[nodiscard]] constexpr const auto& state() const { return x; }
@@ -486,7 +486,7 @@ struct SteadyStateKalmanFilter {
 private:
     StateSpace<NX, NU, NY, T, NW, NV> sys{};
     Matrix<NX, NY, T>                 L{};
-    Matrix<NX, NX, T>                 P_ss{}; ///< Design P∞ only (not recursed)
+    Matrix<NX, NX, T>                 P_ss{}; ///< Design P∞
     ColVec<NX, T>                     x{};
     ColVec<NY, T>                     innov{};
 };

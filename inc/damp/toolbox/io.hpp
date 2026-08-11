@@ -212,7 +212,7 @@ public:
     constexpr void               set_scale(T s) { scale_ = s; }
     constexpr void               set_invert(bool inv) { invert_ = inv; }
     [[nodiscard]] constexpr T    deadzone() const { return deadzone_; }
-    [[nodiscard]] constexpr T    expo_k() const { return expo_; } ///< expo factor (not damp::expo)
+    [[nodiscard]] constexpr T    expo_k() const { return expo_; } ///< stored expo factor
     [[nodiscard]] constexpr T    scale() const { return scale_; }
     [[nodiscard]] constexpr bool invert() const { return invert_; }
 
