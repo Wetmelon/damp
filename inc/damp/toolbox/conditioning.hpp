@@ -90,7 +90,7 @@ template<typename T>
 }
 
 /**
- * @brief Smooth unit direction @f$ x / \sqrt{x^{2}+\varepsilon^{2}} \in (-1,1) @f$
+ * @brief Smooth unit direction x / √(x²+ε²) ∈ (−1,1)
  *
  * Algebraic soft-sign (C∞, no transcendental overflow). As @f$\varepsilon \to 0@f$
  * this approaches @f$\mathrm{sgn}(x)@f$; larger @p eps softens the transition.
@@ -133,7 +133,7 @@ template<typename T>
 }
 
 /**
- * @brief Sine-shaped inverse dead zone (full boost once @f$|x|\ge w@f$)
+ * @brief Sine-shaped inverse dead zone (full boost once |x|≥w)
  *
  * @f[
  *   y = x + b\,\sin\bigl(\tfrac{\pi}{2}\,\mathrm{sat}(x/w)\bigr)
@@ -496,8 +496,8 @@ private:
  * report the same engineering direction) use SameSlope after calibration.
  */
 enum class AnalogCrossMode : std::uint8_t {
-    SameSlope,     ///< @f$ a \approx b @f$
-    OppositeSlope, ///< @f$ a + b \approx \mathrm{span} @f$
+    SameSlope,     ///< a ≈ b
+    OppositeSlope, ///< a + b ≈ span
 };
 
 /**

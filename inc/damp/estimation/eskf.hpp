@@ -7,15 +7,24 @@
 
 /**
  * @file eskf.hpp
- * @brief Error-State Kalman Filter (ESKF) for attitude estimation
+ * @brief Error-state Kalman filter (ESKF) for attitude — design + runtime core
  *
- * Implements the indirect (error-state) Kalman filter formulation where
- * the filter estimates small error states δx rather than the full state.
- * This avoids singularities in quaternion-based attitude estimation and
- * provides better linearization accuracy for small errors.
+ * Indirect (error-state) filter: the estimator tracks a small correction δx
+ * while the full nominal state (quaternion, biases) is integrated outside the
+ * KF. That avoids quaternion singularities and keeps the linearization valid
+ * for small errors.
+ *
+ * Typical 6-state attitude error (Solà):
+ * @f[
+ *   \delta x = \bigl[\delta\theta^\top,\; \delta b_g^\top\bigr]^\top
+ *   \in \mathbb{R}^{6}
+ * @f]
+ * with right-multiplicative attitude error on the body.
  *
  * @see Solà et al., "Quaternion kinematics for the error-state Kalman filter" (2017)
  * @see "Optimal State Estimation" (Simon, 2006), §14.2
+ * @see ESKFOrientationFilter for a turnkey IMU/MARG runtime
+ * @see ins_eskf.hpp for the 15-state navigation ESKF
  */
 
 #include <concepts>
@@ -29,17 +38,21 @@ namespace damp {
 namespace design {
 /**
  * @struct ESKFResult
- * @brief Error-State Kalman Filter design result
+ * @brief Design payload for an ESKF: Q, R, P₀, and success
+ *
+ * Pure data for @ref ErrorStateKalmanFilter / @ref ESKFOrientationFilter.
+ * Use @c .as\<float\>() before embedding on target.
  *
  * @tparam NDX Error-state size (6 for attitude + gyro bias)
  * @tparam NY  Measurement size (3 = IMU accel, 6 = MARG accel+mag)
  */
 template<size_t NDX, size_t NY, typename T = double>
 struct ESKFResult {
-    Matrix<NDX, NDX, T> Q{};            ///< Process noise covariance
-    Matrix<NY, NY, T>   R{};            ///< Measurement noise covariance
-    Matrix<NDX, NDX, T> P0{};           ///< Initial error covariance
-    bool                success{false}; ///< Indicates design success
+    Matrix<NDX, NDX, T> Q{};            ///< Process noise covariance Q
+    Matrix<NY, NY, T>   R{};            ///< Measurement noise covariance R
+    Matrix<NDX, NDX, T> P0{};           ///< Initial error covariance P₀
+    bool                success{false}; ///< true if densities/dt were valid
+
 
     template<typename U>
     [[nodiscard]] constexpr auto as() const {
@@ -61,7 +74,7 @@ template<typename T>
 }
 
 /**
- * Discrete process Q for attitude + gyro-bias RW (6×6, δθ then δb_g).
+ * Discrete process Q for attitude + gyro-bias RW (6×6: δθ then δb_g).
  *
  * First-order continuous–discrete form (σ_g [rad/s/√Hz], σ_bg [rad/s^{3/2}]):
  * @f[
@@ -69,7 +82,7 @@ template<typename T>
  *   Q_{\theta b}=-\sigma_{bg}^2\Delta t^2/2,\;
  *   Q_{bb}=\sigma_{bg}^2\Delta t
  * @f]
- * (matches @f$ \dot{\delta\theta}=-\delta b_g+\ldots @f$ integrated over fixed Δt).
+ * Matches @f$ \dot{\delta\theta}=-\delta b_g+\ldots @f$ integrated over fixed Δt.
  */
 template<typename T>
 constexpr void fill_attitude_bias_q(
@@ -138,30 +151,28 @@ template<size_t NY, typename T>
 } // namespace detail
 
 /**
- * @brief 6-state attitude ESKF design for IMU only (gyro + accel)
+ * @brief Design Q, R, P₀ for a 6-state IMU attitude ESKF (gyro + accel)
  *
- * Builds discrete process noise @f$ Q @f$, measurement noise @f$ R @f$ (3×3 specific
- * force), and prior @f$ P_0 @f$ for the error state
- * @f$ \delta x = [\delta\theta;\, \delta b_g] @f$.
+ * Error state is δx = [δθ; δb_g]. Builds discrete process noise Q, 3×3
+ * specific-force measurement noise R, and prior P₀.
  *
  * Observability: pitch/roll from gravity (specific force); yaw is free without
- * a heading aid. Typical for steel structures / excavator base attitude where
- * magnetometers are unreliable.
+ * a heading aid (e.g. steel structures / excavator bases where mag is unreliable).
  *
- * Discrete @f$ Q @f$ uses the continuous–discrete bias random-walk form
- * (@ref detail::fill_attitude_bias_q). Measurement @f$ R @f$ is
+ * Discrete Q uses the continuous–discrete bias random-walk form
+ * (@ref detail::fill_attitude_bias_q). Measurement R is
  * @f$ \sigma_a^2 / \Delta t @f$ from accel density [m/s²/√Hz] at sample period @p dt.
  *
  * @param gyro_noise_density   Gyroscope noise density [rad/s/√Hz]
  * @param accel_noise_density  Accelerometer noise density [m/s²/√Hz]
  * @param gyro_bias_rw         Gyro bias random walk [rad/s^{3/2}]
- * @param dt                   Sample period [s] (used to form discrete @f$ Q @f$, @f$ R @f$)
+ * @param dt                   Sample period [s] (forms discrete Q and R)
  * @param initial_attitude_uncertainty  Initial attitude 1-σ [rad]
  * @param initial_bias_uncertainty      Initial bias 1-σ [rad/s]
  * @return @c ESKFResult<6, 3, T> for @ref ESKFOrientationFilter with NY=3
  *
  * @note Compare with Madgwick's 6-DOF IMU filter; Solà IMU kinematics + accel aid.
- * @see eskf_marg for accel + magnetometer (9-axis / MARG)
+ * @see eskf_marg for accel + magnetometer (MARG)
  * @see ESKFOrientationFilter
  */
 template<typename T = double>
@@ -184,23 +195,23 @@ template<typename T = double>
 }
 
 /**
- * @brief 6-state attitude ESKF design for MARG (gyro + accel + mag)
+ * @brief Design Q, R, P₀ for a 6-state MARG attitude ESKF (gyro + accel + mag)
  *
  * Same error state as @ref eskf_imu; measurement covariance is 6×6
- * (specific force 3 + magnetometer 3). Magnetometer observes yaw when the
- * local field is usable.
+ * (specific force 3 + magnetometer 3). Mag observes yaw when the local field
+ * is usable.
  *
  * @param gyro_noise_density   Gyroscope noise density [rad/s/√Hz]
  * @param accel_noise_density  Accelerometer noise density [m/s²/√Hz]
  * @param mag_noise_density    Magnetometer noise density [1/√Hz] (same units as mag meas)
- * @param gyro_bias_rw         Gyro bias random walk [rad/s^1.5]
+ * @param gyro_bias_rw         Gyro bias random walk [rad/s^{3/2}]
  * @param dt                   Sample period [s]
  * @param initial_attitude_uncertainty  Initial attitude 1-σ [rad]
  * @param initial_bias_uncertainty      Initial bias 1-σ [rad/s]
  * @return @c ESKFResult<6, 6, T> for @ref ESKFOrientationFilter with NY=6
  *
  * @note Compare with Madgwick MARG / a 9-axis AHRS; Solà ESKF + vector aids.
- * @see eskf_imu for mag-free (6-axis) mounts
+ * @see eskf_imu for mag-free (IMU-only) mounts
  * @see ESKFOrientationFilter
  */
 template<typename T = double>
@@ -227,23 +238,22 @@ template<typename T = double>
 } // namespace design
 
 /**
- * @brief Error-state prediction Jacobians (nominal state updated externally)
+ * @brief ESKF prediction Jacobians F and G (nominal state updated outside)
  *
  * @tparam T   Scalar type
  * @tparam NDX Error state dimension
  */
 template<typename T, size_t NDX>
 struct ErrorStateJacobian {
-    Matrix<NDX, NDX, T> F{}; ///< Error state transition Jacobian ∂(δx[k+1])/∂(δx[k])
-    Matrix<NDX, NDX, T> G{}; ///< Process noise Jacobian (maps Q to error covariance)
+    Matrix<NDX, NDX, T> F{}; ///< δx transition: ∂(δx[k+1])/∂(δx[k])
+    Matrix<NDX, NDX, T> G{}; ///< Process-noise input (often I for additive Q)
 };
 
 /**
- * @brief Concept for ESKF predict functions
+ * @brief Callable that returns @ref ErrorStateJacobian for one predict step
  *
- * Takes dt (timestep) and returns the error-state propagation Jacobians.
- * The nominal state is updated externally by the user (e.g., quaternion
- * integration from gyro), so only Jacobians are needed here.
+ * Signature: (dt) → ErrorStateJacobian. Nominal integration (e.g. gyro on q)
+ * is the caller's job; only F, G are returned here.
  */
 template<typename Fn, typename T, size_t NDX>
 concept ESKFPredictFn = requires(Fn&& fn, T dt) {
@@ -251,10 +261,10 @@ concept ESKFPredictFn = requires(Fn&& fn, T dt) {
 };
 
 /**
- * @brief Concept for ESKF measurement functions
+ * @brief Callable that returns a measurement linearization for one update
  *
- * Takes no arguments (captures nominal state externally) and returns
- * a MeasJacobian with predicted measurement and linearization.
+ * Signature: () → MeasJacobian (captures nominal state). Yields predicted
+ * measurement and H (and optional M).
  */
 template<typename Fn, typename T, size_t NDX, size_t NY>
 concept ESKFMeasFn = requires(Fn&& fn) {
@@ -262,26 +272,23 @@ concept ESKFMeasFn = requires(Fn&& fn) {
 };
 
 /**
- * @brief Error-State Kalman Filter for attitude estimation
+ * @brief Runtime error-state KF: tracks δx and P, not the full nominal state
  *
- * Estimates small error states δx rather than the full state. The nominal
- * state (quaternion, biases) is tracked externally by the user and updated
- * via standard integration. The ESKF only estimates the error δx and its
- * covariance P, then injects corrections into the nominal state.
- *
- * Typical error state: δx = [δθ(3), δb_gyro(3), δb_accel(3), ...]
+ * Estimates a small error δx; the user keeps the nominal quaternion/biases
+ * and injects corrections after @ref update. Typical layout:
+ * δx = [δθ (3), δb_g (3), …].
  *
  * Workflow:
- *   1. User integrates nominal state (e.g., q ← q ⊗ Δq from gyro)
- *   2. predict() propagates error covariance: P = F·P·Fᵀ + G·Q·Gᵀ
- *   3. update() computes correction: δx = K·(y − h(x_nom))
- *   4. User injects δx into nominal state and calls reset_error_state()
+ * 1. Integrate nominal state (e.g. q ← q ⊗ Δq from gyro).
+ * 2. @ref predict — @f$ P \leftarrow F P F^\top + G Q G^\top @f$.
+ * 3. @ref update — @f$ \delta x = K(y - h(x_{\mathrm{nom}})) @f$.
+ * 4. Inject δx into the nominal state and @ref reset_error_state.
  *
  * @see Solà et al., "Quaternion kinematics for the error-state Kalman filter" (2017), §5–6
  *
  * @tparam NDX Error state dimension
- * @tparam NY  Measurement dimension
- * @tparam T   Scalar type (default: float — embedded runtime)
+ * @tparam NY  Default measurement dimension for @ref update
+ * @tparam T   Scalar (default float for embedded runtime)
  */
 template<size_t NDX, size_t NY, typename T = float>
 struct ErrorStateKalmanFilter {
@@ -345,16 +352,16 @@ struct ErrorStateKalmanFilter {
     }
 
     /**
-     * @brief Joseph-form update from an explicit innovation (any measurement size)
+     * @brief Joseph-form update from a precomputed innovation (any NY2)
      *
-     * Used when the measurement dimension differs from the filter's default @p NY
-     * (e.g. scalar heading on a filter whose stored R is 3×3 for position).
+     * Use when this update's size differs from the filter's default NY
+     * (e.g. scalar heading while stored R is 3×3 for position).
      *
      * @tparam NY2 Measurement dimension for this update
-     * @param innovation  y − h(x) (already formed; wrap angles before calling)
+     * @param innovation  y − h(x) (form and wrap angles before calling)
      * @param H           ∂h/∂δx (NY2 × NDX)
      * @param R_meas      measurement covariance for this update
-     * @return false if the innovation covariance is not SPD / Cholesky fails
+     * @return false if the innovation covariance is not SPD / solve fails
      */
     template<size_t NY2>
     [[nodiscard]] constexpr bool update_innovation(

@@ -176,7 +176,7 @@ eval_frf(const StateSpace<NX, NU, NY, T, NW, NV>& sys, damp::complex<T> s) {
 }
 
 /**
- * @brief Series connection: @p sys2 follows @p sys1 (@f$ u \to \mathrm{sys1} \to \mathrm{sys2} \to y @f$)
+ * @brief Series connection: @p sys2 follows @p sys1 (u → sys1 → sys2 → y)
  *
  * @f[
  *   A = \begin{bmatrix} A_1 & 0 \\ B_2 C_1 & A_2 \end{bmatrix},\;
@@ -295,7 +295,7 @@ template<
 }
 
 /**
- * @brief Negative feedback: @f$ y = \mathrm{sys1}(u - \mathrm{sys2}(y)) @f$
+ * @brief Negative feedback: y = sys1(u − sys2(y))
  *
  * With @f$ V=(I+D_2 D_1)^{-1} @f$, @f$ W=(I+D_1 D_2)^{-1} @f$ (solved via LU, not explicit inverse).
  * Returns @c nullopt if sample times differ or either matrix is singular (ill-posed algebraic loop).
@@ -382,7 +382,7 @@ template<
 }
 
 /**
- * @brief Differencing connection: outputs @f$ y = y_1 - y_2 @f$
+ * @brief Differencing connection: outputs y = y₁ − y₂
  *
  * @return Composed system, or @c nullopt if sample times differ
  */

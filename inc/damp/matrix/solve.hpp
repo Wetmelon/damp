@@ -26,7 +26,7 @@ namespace damp {
 namespace mat {
 
 /**
- * @brief Forward substitution for @f$ L x = b @f$
+ * @brief Forward substitution for Lx = b
  *
  * Assumes a nonsingular lower-triangular @f$ L @f$ (unit diagonal from LU, or
  * positive diagonal from Cholesky). Does not check pivots — use the
@@ -50,7 +50,7 @@ constexpr ColVec<N, T> forward_substitute(const Matrix<N, N, T>& L, const ColVec
 }
 
 /**
- * @brief Backward substitution for @f$ L^\top x = b @f$ (real) / @f$ L^{\mathrm{H}} x = b @f$ layout
+ * @brief Backward substitution for Lᵀx = b (real) / Lᴴx = b layout
  *
  * Solves using the lower factor stored in @p L by walking the transpose pattern
  * (@c L(j,i) for @c j > i). Caller must ensure nonzero diagonal (post-Cholesky).
@@ -72,7 +72,7 @@ constexpr ColVec<N, T> backward_substitute_transpose(const Matrix<N, N, T>& L, c
 }
 
 /**
- * @brief Solve lower-triangular system @f$ L X = B @f$ via forward substitution
+ * @brief Solve lower-triangular system LX = B via forward substitution
  *
  * Requires nonsingular lower-triangular @p L. Returns damp::nullopt if any
  * diagonal magnitude is below default_tol.
@@ -110,7 +110,7 @@ solve(const LowerTriangle<N, T>& L, const Matrix<N, M, std::remove_const_t<T>>& 
 }
 
 /**
- * @brief Solve upper-triangular system @f$ U X = B @f$ via backward substitution
+ * @brief Solve upper-triangular system UX = B via backward substitution
  *
  * Returns damp::nullopt if any diagonal magnitude is below default_tol.
  */
@@ -147,7 +147,7 @@ solve(const UpperTriangle<N, T>& U, const Matrix<N, M, std::remove_const_t<T>>& 
 }
 
 /**
- * @brief Solve @f$ A X = B @f$ via Cholesky (@f$ A = L L^{\mathrm{H}} @f$)
+ * @brief Solve AX = B via Cholesky (A = LLᴴ)
  *
  * @p A must be Hermitian positive definite. Returns damp::nullopt if Cholesky
  * fails or a triangular solve hits a zero diagonal.
@@ -176,7 +176,7 @@ constexpr damp::optional<Matrix<N, M, T>> cholesky_solve(const Matrix<N, N, T>& 
 }
 
 /**
- * @brief Solve @f$ A X = B @f$ via LU with partial pivoting
+ * @brief Solve AX = B via LU with partial pivoting
  *
  * Returns damp::nullopt if the factorization or a triangular solve fails.
  *
@@ -211,12 +211,12 @@ constexpr damp::optional<Matrix<N, M, T>> lu_solve(const Matrix<N, N, T>& A, con
 }
 
 /**
- * @brief Solve @f$ A X = B @f$ — Cholesky when Hermitian, else LU
+ * @brief Solve AX = B — Cholesky when Hermitian, else LU
  *
  * Primary entry for linear solves. Prefer this over Matrix::inverse when
  * the goal is @f$ A^{-1} B @f$ rather than the inverse matrix itself.
  *
- * @return Solution @f$ X @f$, or damp::nullopt if @p A is singular / not PD under Cholesky
+ * @return Solution X, or damp::nullopt if @p A is singular / not PD under Cholesky
  * @note Compare with MATLAB®'s A \\ B.
  * @see cholesky_solve(), lu_solve()
  */
@@ -235,7 +235,7 @@ constexpr damp::optional<Matrix<N, M, T>> solve(const Matrix<N, N, T>& A, const 
 } // namespace mat
 
 /**
- * @brief Matrix inverse @f$ A^{-1} @f$ via mat::solve(@f$ A, I @f$)
+ * @brief Matrix inverse A⁻¹ via mat::solve(A, I)
  *
  * Use only when the inverse matrix itself is the deliverable. For
  * @f$ A^{-1} b @f$ / @f$ A^{-1} B @f$, call mat::solve directly.

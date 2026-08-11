@@ -37,7 +37,7 @@
  * @defgroup discrete_controllers Discrete controllers
  * @brief Sampled-data runtime controllers (PID, PR, LQR family, ADRC, SMC, Smith, …).
  *
- * Typically constructed from `design::` Results via `.as<float>()`
+ * Typically constructed from `design::` Results (or pack maps) via `.as<float>()`
  * and driven with `.control()` in the ISR or RTOS loop.
  */
 

@@ -82,7 +82,7 @@ struct TrajectoryState {
 };
 
 /**
- * @brief Truncated jet of a scalar motion sample: @f$ d[k] = s^{(k)} @f$.
+ * @brief Truncated jet of a scalar motion sample: d[k] = s⁽ᵏ⁾.
  *
  * @f$ d[0] @f$ is position, @f$ d[1] @f$ velocity, @f$ d[2] @f$ acceleration, …
  * Scales with @p N so septic/nonic (and cam parameter maps) can carry snap and

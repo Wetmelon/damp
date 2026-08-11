@@ -707,7 +707,7 @@ public:
     }
 
     /**
-     * @brief Matrix inverse @f$ A^{-1} @f$ via mat::solve(@f$ A, I @f$)
+     * @brief Matrix inverse A⁻¹ via mat::solve(A, I)
      *
      * Solves @f$ A X = I @f$ (Cholesky when Hermitian PD, else LU with partial
      * pivoting). Prefer mat::solve / @ref mat::cholesky_solve when the

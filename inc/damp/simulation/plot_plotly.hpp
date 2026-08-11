@@ -138,7 +138,7 @@ namespace plot {
  * @brief Write a plotlypp figure to HTML with damp's shell (prefer over writeHtml)
  *
  * @param fig                  Figure to write
- * @param path                 Output .html path (e.g. plots/control/cart_pole_lqr.html)
+ * @param path                 Output .html path (e.g. plots/power/buck_sil.html)
  * @param include_js_resources If true, emit shared plotly.min.js only when missing
  *                             under the plots/ tree (or next to the HTML if outside)
  */

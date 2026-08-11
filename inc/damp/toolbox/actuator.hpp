@@ -10,8 +10,8 @@
  * @brief Bridge from motion-profile output to drive-native servoactuator commands.
  *
  * The trajectory generators (@ref damp::TrajectoryState, the bank in
- * @c damp/trajectory/polynomial.hpp, and the task-space planners in
- * @c damp/trajectory/cartesian_move.hpp / @c damp/trajectory/topp.hpp) all emit
+ * @ref damp/trajectory/polynomial.hpp, and the task-space planners in
+ * @ref damp/trajectory/cartesian_move.hpp / @ref damp/trajectory/topp.hpp) all emit
  * motion in SI joint units — position in rad (or m for a prismatic/linear axis),
  * velocity in rad/s, acceleration in rad/s². A field servo drive instead wants a
  * per-axis setpoint triple in its own mechanical units: `input_pos` [turns],

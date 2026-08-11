@@ -7,11 +7,11 @@
 
 /**
  * @file damp/estimation/ins_eskf.hpp
- * @brief 15-state error-state KF for loosely-coupled strapdown INS aiding (#26)
+ * @brief 15-state navigation ESKF for loosely-coupled strapdown INS aiding
  *
- * Nominal navigation state lives in InsState and is integrated by
- * mechanize_step. This header supplies the error dynamics, injection,
- * sparse absolute updates, and the Tier-3 InsNavigator runtime.
+ * Nominal nav state lives in @ref InsState and is integrated by
+ * @c mechanize_step. This header adds error dynamics, injection, sparse
+ * absolute updates, and the Tier-3 @ref InsNavigator runtime.
  *
  * ## Error state (15)
  *
@@ -21,11 +21,13 @@
  *    \delta b_g^\top,\; \delta b_a^\top]^\top
  * @f]
  *
- * Right-multiplicative attitude error (body frame): @f$ q_{\mathrm{true}} =
- * q \otimes \exp(\delta\theta) @f$. Flat Earth (no transport rate / Earth rate).
+ * Right-multiplicative attitude error (body frame):
+ * @f$ q_{\mathrm{true}} = q \otimes \exp(\delta\theta) @f$.
+ * Flat Earth (no transport rate / Earth rate).
  *
- * Continuous error model (Solà local ESKF; @f$ \omega = \omega_m - b_g @f$,
- * @f$ a_b = a_m - b_a @f$, @f$ R = R(q) @f$ body→nav):
+ * Continuous error model (Solà local ESKF;
+ * @f$ \omega = \omega_m - b_g @f$, @f$ a_b = a_m - b_a @f$,
+ * @f$ R = R(q) @f$ body→nav):
  *
  * @f[
  *   \dot{\delta\theta} = -[\omega]_\times \delta\theta - \delta b_g,\quad
@@ -41,18 +43,19 @@
  *
  * | Function | Measurement | Notes |
  * | -------- | ----------- | ----- |
- * | ins_update_position | @f$ p @f$ (3) | optional body lever-arm |
- * | ins_update_velocity / ins_update_zupt | @f$ v @f$ (3) | |
- * | ins_update_heading | yaw @f$ \psi @f$ (1) | dual-antenna / magnetometer yaw |
- * | ins_update_orientation | @f$ q @f$ (3 as rotvec) | mocap attitude |
- * | ins_update_pose | @f$ p @f$ then @f$ q @f$ | sequential sparse updates |
+ * | ins_update_position | p (3) | optional body lever-arm |
+ * | ins_update_velocity / ins_update_zupt | v (3) | |
+ * | ins_update_heading | yaw ψ (1) | dual-antenna / mag yaw |
+ * | ins_update_orientation | q (3 as rotvec) | mocap attitude |
+ * | ins_update_pose | p then q | sequential sparse updates |
  *
- * Do not form a dense 15-row zero-padded @f$ H @f$; each update uses a small selector.
+ * Prefer small selector H rows over a dense 15-row zero-padded Jacobian.
  *
  * @see Solà, "Quaternion kinematics for the error-state Kalman filter," arXiv:1711.02508
  * @see Groves, Principles of GNSS, Inertial, and Multisensor Integrated Navigation, 2nd ed.
+ * @see eskf.hpp for the 6-state attitude ESKF core
  *
- * Example (Design → Deploy):
+ * Example (design → deploy):
  * @code
  * constexpr auto d = design::ins_eskf_design(1e-3, 1e-2, 1e-4, 1e-3, 0.01).as<float>();
  * static constinit InsNavigator<float> nav(d, NavFrame::ENU);
@@ -78,19 +81,19 @@ inline constexpr std::size_t kInsErrorDim = 15;
 inline constexpr std::size_t kInsMeasDim = 3;
 
 /**
- * @brief Index of the first component of each error block in @f$ \delta x \in \mathbb{R}^{15} @f$
+ * @brief Start indices of each 3-vector block in the 15-state error δx
  */
 namespace ins_err {
-inline constexpr std::size_t dtheta = 0; ///< attitude error [rad] (3)
-inline constexpr std::size_t dv = 3;     ///< velocity error [m/s] (3)
-inline constexpr std::size_t dp = 6;     ///< position error [m] (3)
-inline constexpr std::size_t dbg = 9;    ///< gyro bias error [rad/s] (3)
-inline constexpr std::size_t dba = 12;   ///< accel bias error [m/s²] (3)
+inline constexpr std::size_t dtheta = 0; ///< attitude error δθ [rad] (3)
+inline constexpr std::size_t dv = 3;     ///< velocity error δv [m/s] (3)
+inline constexpr std::size_t dp = 6;     ///< position error δp [m] (3)
+inline constexpr std::size_t dbg = 9;    ///< gyro bias error δb_g [rad/s] (3)
+inline constexpr std::size_t dba = 12;   ///< accel bias error δb_a [m/s²] (3)
 } // namespace ins_err
 
 namespace detail {
 
-/// Skew-symmetric @f$ [v]_\times @f$ so @f$ [v]_\times w = v \times w @f$.
+/// Skew-symmetric [v]× so [v]× w = v × w.
 template<typename T>
 [[nodiscard]] constexpr Matrix<3, 3, T> skew_sym(const Vec3<T>& v) {
     Matrix<3, 3, T> m = Matrix<3, 3, T>::zeros();
@@ -335,7 +338,7 @@ template<typename T = double>
 }
 
 /**
- * @brief Sparse @f$ y = F x @f$ for the 15-state INS first-order structure (G = I path)
+ * @brief Sparse y = F x for the 15-state INS first-order structure (G = I path)
  *
  * @p x may be any 15×1 @c MatrixLike (e.g. @c ColVec, @c ColView) or 1×15
  * row-shaped view; elements are read in storage order of the 15-vector.
@@ -419,7 +422,7 @@ constexpr void ins_propagate_covariance(
 }
 
 /**
- * @brief Inject @f$ \delta x @f$ into the nominal INS state (right-multiplicative @f$ q @f$)
+ * @brief Inject δx into the nominal INS state (right-multiplicative q)
  *
  * @param x   nominal state (modified)
  * @param dx  error state from the filter
@@ -535,7 +538,7 @@ template<typename T = double>
 }
 
 /**
- * @brief Sparse position update: @f$ y = p + R\ell @f$
+ * @brief Sparse position update: y = p + Rℓ
  *
  * @param eskf        filter
  * @param x           nominal state (corrected on success)
@@ -586,7 +589,7 @@ template<typename T = double>
 }
 
 /**
- * @brief Sparse velocity update: @f$ y = v @f$ at the IMU origin (no lever-arm)
+ * @brief Sparse velocity update: y = v at the IMU origin (no lever-arm)
  *
  * @f$ H @f$ selects @f$ \delta v @f$ only. Body-lever / @f$ \omega\times R\ell @f$ is not modeled.
  */

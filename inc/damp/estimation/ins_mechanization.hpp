@@ -75,8 +75,8 @@ namespace damp {
  * (MATLAB-style option; default documentation uses NED).
  */
 enum class NavFrame : std::uint8_t {
-    NED, ///< North-East-Down — @f$ g_n = (0,0,+g) @f$
-    ENU, ///< East-North-Up — @f$ g_n = (0,0,-g) @f$
+    NED, ///< North-East-Down — g_n = (0,0,+g)
+    ENU, ///< East-North-Up — g_n = (0,0,-g)
 };
 
 /// Standard gravity magnitude [m/s²] (CGPM conventional value).

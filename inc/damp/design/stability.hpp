@@ -96,7 +96,7 @@ observability_matrix(const Matrix<NX, NX, T>& A, const Matrix<NY, NX, T>& C) noe
 }
 
 /**
- * @brief Continuous/discrete controllability Gramian @f$ W_c @f$.
+ * @brief Continuous/discrete controllability Gramian W_c.
  *
  * Solves the Lyapunov equation whose solution measures how strongly each state
  * direction is excited by the input:
@@ -112,7 +112,7 @@ observability_matrix(const Matrix<NX, NX, T>& A, const Matrix<NY, NX, T>& C) noe
  * @param A        State matrix (NX × NX).
  * @param B        Input matrix (NX × NU).
  * @param discrete false → continuous-time, true → discrete-time.
- * @return @f$ W_c @f$ (NX × NX), or damp::nullopt if the Lyapunov solve is singular.
+ * @return W_c (NX × NX), or damp::nullopt if the Lyapunov solve is singular.
  */
 template<size_t NX, size_t NU, typename T = double>
 [[nodiscard]] constexpr damp::optional<Matrix<NX, NX, T>> controllability_gramian(
@@ -125,7 +125,7 @@ template<size_t NX, size_t NU, typename T = double>
 }
 
 /**
- * @brief Continuous/discrete observability Gramian @f$ W_o @f$.
+ * @brief Continuous/discrete observability Gramian W_o.
  *
  * Solves the dual Lyapunov equation measuring how strongly each state direction
  * shows up in the output:
@@ -140,7 +140,7 @@ template<size_t NX, size_t NU, typename T = double>
  * @param A        State matrix (NX × NX).
  * @param C        Output matrix (NY × NX).
  * @param discrete false → continuous-time, true → discrete-time.
- * @return @f$ W_o @f$ (NX × NX), or damp::nullopt if the Lyapunov solve is singular.
+ * @return W_o (NX × NX), or damp::nullopt if the Lyapunov solve is singular.
  */
 template<size_t NX, size_t NY, typename T = double>
 [[nodiscard]] constexpr damp::optional<Matrix<NX, NX, T>> observability_gramian(

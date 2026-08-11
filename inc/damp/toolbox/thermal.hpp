@@ -185,7 +185,7 @@ template<std::size_t N, typename T = double>
  * unchanged (identity for the single/multi-NTC models).
  *
  * @param discrete_sys Discretized thermal StateSpace (@f$ T_s > 0 @f$).
- * @return Copy with @f$ G = I @f$ for discrete process noise.
+ * @return Copy with G = I for discrete process noise.
  *
  * @see design::kalman
  * @see cauer_thermal_ss_ambient
@@ -280,7 +280,7 @@ public:
     constexpr void predict(const ColVec<NU, T>& u) { filt_.predict(u); }
 
     /**
-     * @brief Time update for the ambient-Cauer input shape @f$ u = [P,\, T_{\mathrm{amb}}] @f$.
+     * @brief Time update for the ambient-Cauer input shape u = [P, T_amb].
      * @param power Power injected at the modelled heat-source node [W].
      * @param t_amb Ambient (or coolant / case-reference) temperature [°C or K].
      */

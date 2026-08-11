@@ -228,7 +228,7 @@ template<size_t Nnum1, size_t Nden1, size_t Nnum2, size_t Nden2, typename T>
 }
 
 /**
- * @brief Negative feedback of two TFs: @f$ G/(1+GH) @f$ (polynomial form)
+ * @brief Negative feedback of two TFs: G/(1+GH) (polynomial form)
  *
  * Expands without cancellation; pair with ZPK cancel / design::minreal after
  * realization when a minimal order is needed.

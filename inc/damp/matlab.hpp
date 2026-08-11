@@ -212,7 +212,7 @@ pidstd2(T Kp, T Ti, T Td = T{0}, T N = T{10}, T b = T{1}, T c = T{0}) noexcept {
 }
 
 /**
- * @brief Force 1-DOF setpoint weights on a PID design result (@f$b=c=1@f$).
+ * @brief Force 1-DOF setpoint weights on a PID design result (b=c=1).
  *
  * @note Compare with MATLAB®'s make1DOF (Control System Toolbox).
  */
@@ -662,7 +662,7 @@ template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, si
 // are already discrete intensities. See roadmap #29.
 
 /**
- * @brief Output-weighted continuous LQR (state cost @f$Q = C^\top Q_y C@f$).
+ * @brief Output-weighted continuous LQR (state cost Q = Cᵀ Q_y C).
  *
  * Builds the equivalent state-feedback LQR problem from output weights:
  * @f[
@@ -986,7 +986,7 @@ template<size_t Nnum, size_t Nden, typename T = double>
 }
 
 /**
- * @brief First-order Padé approximation of pure delay @f$e^{-sT}@f$.
+ * @brief First-order Padé approximation of pure delay e^{−sT}.
  *
  * Thin alias for @ref design::pade_delay_1st.
  *
@@ -1009,7 +1009,7 @@ template<typename T = double>
 }
 
 /**
- * @brief Second-order Padé approximation of pure delay @f$e^{-sT}@f$.
+ * @brief Second-order Padé approximation of pure delay e^{−sT}.
  *
  * Thin alias for @ref design::pade_delay_2nd.
  *
@@ -1044,7 +1044,7 @@ template<size_t NX, size_t NW, size_t NV, typename T>
 }
 
 /**
- * @brief MATLAB® alias for the continuous Lyapunov solve @f$ AX+XA^\top+Q=0 @f$.
+ * @brief MATLAB® alias for the continuous Lyapunov solve AX+XAᵀ+Q=0.
  * @note Compare with MATLAB®'s @c X=lyap(A,Q). Returns nullopt if no unique solution.
  */
 template<size_t NX, typename T = double>
@@ -1054,7 +1054,7 @@ lyap(const Matrix<NX, NX, T>& A, const Matrix<NX, NX, T>& Q) {
 }
 
 /**
- * @brief MATLAB® alias for the discrete Lyapunov solve @f$ AXA^\top-X+Q=0 @f$.
+ * @brief MATLAB® alias for the discrete Lyapunov solve AXAᵀ−X+Q=0.
  * @note Compare with MATLAB®'s @c X=dlyap(A,Q). Returns nullopt if no unique solution.
  */
 template<size_t NX, typename T = double>

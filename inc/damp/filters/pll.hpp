@@ -13,8 +13,8 @@
 #include "damp/controllers/pid.hpp"
 #include "damp/filters/sogi.hpp"
 #include "damp/math/math.hpp"
-#include "damp/matrix/colvec.hpp"
 #include "damp/math/transforms.hpp"
+#include "damp/matrix/colvec.hpp"
 
 namespace damp {
 
@@ -197,7 +197,7 @@ private:
 
 /**
  * @brief Instantaneous positive-sequence αβ from a quadrature signal pair
- * @ingroup filters
+ * @ingroup transforms
  *
  * The αβ-domain analogue of the (phasor) Fortescue transform. Given the αβ vector
  * @p v and its 90°-lagged quadrature @p qv (the `q = e^{-j\pi/2}` operator,
@@ -226,7 +226,7 @@ template<typename T = float>
 
 /**
  * @brief Instantaneous negative-sequence αβ from a quadrature signal pair
- * @ingroup filters
+ * @ingroup transforms
  *
  * Companion to positive_sequence_ab():
  * @f[

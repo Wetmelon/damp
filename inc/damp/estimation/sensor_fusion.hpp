@@ -348,35 +348,33 @@ constexpr void eskf_tick_marg(
 } // namespace detail
 
 /**
- * @brief Attitude + gyro-bias ESKF runtime (Tier 3)
+ * @brief Turnkey 6-state attitude ESKF: owns q, b_g, and the error filter
  *
- * Owns the nominal state and the 6-state error ESKF:
- *
+ * Nominal state and error ESKF in one object:
  * @f[
  *   x = \bigl\{ q,\; b_g \bigr\},
  *   \qquad
  *   \delta x = \bigl[ \delta\theta;\; \delta b_g \bigr] \in \mathbb{R}^{6}
  * @f]
- *
  * with body→world quaternion @f$ q @f$ and gyro bias @f$ b_g @f$. Each update:
  *
- * 1. Predict — integrate body rates @f$ \omega = \omega_{\mathrm{meas}} - b_g @f$
- *    (right-multiplicative, same as @c Quaternion::integrate_body_rates); propagate
+ * 1. Predict — integrate @f$ \omega = \omega_{\mathrm{meas}} - b_g @f$
+ *    (right-multiplicative, @c Quaternion::integrate_body_rates); propagate
  *    @f$ P @f$ with
  *    @f$ \delta\theta^+ \approx \bigl(I - [\omega]\times\Delta t\bigr)\delta\theta
  *        - \Delta t\,\delta b_g @f$
- *    (aligned with the attitude block of @ref ins_error_jacobian).
+ *    (same attitude block as @ref ins_error_jacobian).
  * 2. Accel (tilt) — specific-force residual
  *    @f$ a_b \approx -R(q)^{\top} g_n @f$ (INS convention; matches
- *    specific_force_at_rest). Right-multiplicative Jacobian
- *    @f$ H = [a_{\mathrm{pred}}]\times @f$. Skipped when the magnitude gate
- *    @f$ \bigl|\,\|a\|/\|g_n\| - 1\bigr| > \gamma @f$ fires (@ref set_accel_gate;
- *    default @f$ \gamma = 0 @f$ = always update).
+ *    specific_force_at_rest). Jacobian @f$ H = [a_{\mathrm{pred}}]\times @f$.
+ *    Skipped when the magnitude gate
+ *    @f$ \bigl|\,\|a\|/\|g_n\| - 1\bigr| > \gamma @f$ fires
+ *    (@ref set_accel_gate; default @f$ \gamma = 0 @f$ = always update).
  * 3. Mag (MARG only, NY=6) — body field residual
- *    @f$ m_b \approx R(q)^{\top} m_n @f$, applied independently of the accel
- *    gate so heading can still correct under motion.
- * 4. Inject — right-multiply @f$ q \leftarrow q \otimes \exp(\delta\theta) @f$,
- *    add @f$ \delta b_g @f$ into @f$ b_g @f$, reset the error state (Solà).
+ *    @f$ m_b \approx R(q)^{\top} m_n @f$, independent of the accel gate so
+ *    heading can still correct under motion.
+ * 4. Inject — @f$ q \leftarrow q \otimes \exp(\delta\theta) @f$, add
+ *    @f$ \delta b_g @f$ into @f$ b_g @f$, reset the error state (Solà).
  *
  * @tparam T  Scalar (default float on target)
  * @tparam NY 3 = IMU (pitch/roll; yaw free), 6 = MARG (full attitude with mag)
@@ -389,7 +387,7 @@ constexpr void eskf_tick_marg(
  * @see ErrorStateKalmanFilter
  * @see Solà et al., "Quaternion kinematics for the error-state Kalman filter" (2017), §5–6
  *
- * Example (DiD one-liner):
+ * Example (design-is-deploy):
  * @code
  * static constinit ESKFOrientationFilter<float, 6> filt =
  *     design::eskf_marg(0.003f, 0.03f, 0.3f, 0.0001f, 0.01f);
@@ -429,7 +427,7 @@ public:
     /**
      * @brief Construct from design payload
      *
-     * Non-explicit so DiD copy-init works:
+     * Non-explicit so design-is-deploy copy-init works:
      * @code
      * static constinit ESKFOrientationFilter<float, 6> filt = design::eskf_marg(...);
      * @endcode

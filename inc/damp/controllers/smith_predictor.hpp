@@ -85,9 +85,9 @@ template<typename T = double>
 struct SmithPredictorResult {
     DiscretePIDResult<T> pid{}; ///< Convenience primary (delay-free design, discretized)
 
-    T      a{T{0}};          ///< Discrete FO model pole @f$a = e^{-T_s/\tau}@f$
-    T      b{T{0}};          ///< Discrete FO model gain @f$b = K(1-a)@f$ (ZOH)
-    size_t delay_samples{0}; ///< Integer delay @f$d = \mathrm{round}(L/T_s)@f$
+    T      a{T{0}};          ///< Discrete FO model pole a = e^{−T_s/τ}
+    T      b{T{0}};          ///< Discrete FO model gain b = K(1−a) (ZOH)
+    size_t delay_samples{0}; ///< Integer delay d = round(L/T_s)
     T      Ts{T{0}};         ///< Sample period [s]
     T      K{T{0}};          ///< Continuous plant static gain
     T      tau{T{0}};        ///< Continuous plant time constant [s]
@@ -385,7 +385,7 @@ public:
      *
      * @param r Reference
      * @param y Plant measurement (includes true dead time)
-     * @return Control command @f$u@f$ (zero if the design was invalid)
+     * @return Control command u (zero if the design was invalid)
      */
     [[nodiscard]] constexpr T control(T r, T y) {
         if (!valid_) {

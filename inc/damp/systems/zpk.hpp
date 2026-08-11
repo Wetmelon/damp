@@ -177,13 +177,13 @@ template<size_t Nz, size_t Np, typename T = double>
 struct ZPK {
     damp::array<damp::complex<T>, Nz> zeros{}; ///< Zeros of the transfer function
     damp::array<damp::complex<T>, Np> poles{}; ///< Poles of the transfer function
-    T                                 gain{1}; ///< Gain @f$k@f$ of the monic factored form
+    T                                 gain{1}; ///< Gain k of the monic factored form
 
     /**
      * @brief Result of @ref cancel_matching (factored minreal)
      */
     struct CancelResult {
-        ZPK    zpk{};          ///< Model with cancelled pairs re-appended as identical @f$z=p@f$
+        ZPK    zpk{};          ///< Model with cancelled pairs re-appended as identical z=p
         size_t n_cancelled{0}; ///< Number of pole-zero pairs cancelled
     };
 
@@ -258,7 +258,7 @@ struct ZPK {
     }
 
     /**
-     * @brief Evaluate @f$ H(s) = k \prod(s-z_i)/\prod(s-p_j) @f$
+     * @brief Evaluate H(s) = k ∏(s−zᵢ)/∏(s−pⱼ)
      *
      * @param s   Complex frequency (s or z)
      * @param tol Pole-coincidence tolerance
@@ -281,7 +281,7 @@ struct ZPK {
     }
 
     /**
-     * @brief Continuous-time DC gain @f$ H(0) @f$
+     * @brief Continuous-time DC gain H(0)
      *
      * @return Real DC gain, or nullopt if a pole is at the origin
      * @note Compare with MATLAB®'s dcgain for continuous zpk models.
@@ -295,7 +295,7 @@ struct ZPK {
     }
 
     /**
-     * @brief Discrete-time DC gain @f$ H(1) @f$
+     * @brief Discrete-time DC gain H(1)
      *
      * @return Real DC gain, or nullopt if a pole is at z = 1
      * @note Compare with MATLAB®'s dcgain for discrete zpk models.

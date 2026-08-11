@@ -210,7 +210,7 @@ public:
     /**
      * @brief Update estimate using one regression sample y = phi * theta + noise.
      *
-     * @return false if config invalid or information @f$\lambda + \phi^* P \phi@f$
+     * @return false if config invalid or information λ + φᴴ P φ
      *         is degenerate (no PE this sample). State is left unchanged on false.
      */
     [[nodiscard]] constexpr bool update(T phi, T y) {
@@ -303,7 +303,7 @@ public:
      * @brief Update estimate using one sample y = phi^H * theta + noise.
      *
      * @return false if config invalid or information
-     *         @f$\lambda + \phi^\top P \phi@f$ is degenerate. On false the prior
+     *         λ + φᵀ P φ is degenerate. On false the prior
      *         (theta, P) is left unchanged — not a PE claim of success.
      */
     [[nodiscard]] constexpr bool update(const ColVec<NP, T>& phi, T y) {

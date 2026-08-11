@@ -19,7 +19,7 @@ namespace damp {
 
 namespace mat {
 /**
- * @brief Infinity norm @f$ \|A\|_\infty @f$: maximum absolute row sum
+ * @brief Infinity norm ‖A‖∞: maximum absolute row sum
  *
  * Always returns a real scalar (@c scalar_type_t&lt;T&gt;), including for complex
  * element types where each entry contributes @f$ |a_{ij}| @f$.
@@ -48,7 +48,7 @@ template<typename T, size_t N>
 }
 
 /**
- * @brief One-norm @f$ \|A\|_1 @f$: maximum absolute column sum
+ * @brief One-norm ‖A‖₁: maximum absolute column sum
  *
  * Always returns a real scalar (@c scalar_type_t&lt;T&gt;), including for complex
  * element types where each entry contributes @f$ |a_{ij}| @f$.
@@ -77,9 +77,13 @@ template<typename T, size_t N>
 }
 
 /**
- * @brief Frobenius norm @f$ \|A\|_F = \sqrt{\sum_{ij} |a_{ij}|^2} @f$
+ * @brief Frobenius norm ‖A‖F = √(Σᵢⱼ |aᵢⱼ|²)
  *
  * Always returns a real scalar (@c scalar_type_t&lt;T&gt;), including for complex matrices.
+ *
+ * @f[
+ *   \|A\|_F = \sqrt{\sum_{ij} |a_{ij}|^2}
+ * @f]
  *
  * @note Compare with MATLAB®'s norm(A, 'fro').
  *
@@ -102,9 +106,11 @@ template<typename T, size_t N>
 }
 
 /**
- * @brief Spectral norm (2-norm): largest singular value of @f$ A @f$
+ * @brief Spectral norm ‖A‖₂ = σₘₐₓ(A)
  *
- * @f$ \|A\|_2 = \sigma_{\max}(A) = \sqrt{\lambda_{\max}(A^{\mathrm{H}} A)} @f$,
+ * @f[
+ *   \|A\|_2 = \sigma_{\max}(A) = \sqrt{\lambda_{\max}(A^{\mathrm{H}} A)}
+ * @f]
  * where @f$ A^{\mathrm{H}} @f$ is the conjugate transpose.
  *
  * Computed via power iteration on @f$ A^{\mathrm{H}} A @f$ (geometric rate
@@ -159,11 +165,11 @@ template<typename T, size_t N>
 }
 
 /**
- * @brief Matrix determinant @f$ \det(A) @f$
+ * @brief Matrix determinant det(A)
  *
  * Cofactor expansion for @f$ N \le 4 @f$ (exact, fast); LU for larger @f$ N @f$
- * (@f$ \det(A) = \mathrm{sign}(P)\prod_i U_{ii} @f$). Returns @f$ 0 @f$ if LU
- * reports singularity.
+ * (@f$ \det(A) = \mathrm{sign}(P)\prod_i U_{ii} @f$). Returns 0 if LU reports
+ * singularity.
  *
  * @note Compare with MATLAB®'s det(A).
  *
@@ -310,7 +316,7 @@ template<size_t R, size_t C, typename T>
  * @tparam T Element type
  * @tparam N Matrix dimension
  * @param A Square matrix
- * @return @f$ \exp(A) @f$, or @f$ I @f$ if the Padé linear solve fails
+ * @return exp(A), or I if the Padé linear solve fails
  */
 
 template<typename T, size_t N>
@@ -434,7 +440,7 @@ template<typename T, size_t N>
  * @tparam T Element type
  * @tparam N Matrix dimension
  * @param A Square matrix (no real negative eigenvalues)
- * @return Principal @f$ \sqrt{A} @f$, or damp::nullopt on failure
+ * @return Principal √A, or damp::nullopt on failure
  */
 template<typename T, size_t N>
 [[nodiscard]] constexpr damp::optional<Matrix<N, N, T>> sqrt(const Matrix<N, N, T>& A) {
@@ -499,7 +505,7 @@ template<typename T, size_t N>
  * @tparam T Element type
  * @tparam N Matrix dimension
  * @param A Square matrix
- * @return Principal @f$ \log(A) @f$, or damp::nullopt on failure
+ * @return Principal log(A), or damp::nullopt on failure
  */
 template<typename T, size_t N>
 [[nodiscard]] constexpr damp::optional<Matrix<N, N, T>> log(const Matrix<N, N, T>& A) {
@@ -558,7 +564,7 @@ template<typename T, size_t N>
  * @tparam N Matrix dimension
  * @param A Square matrix
  * @param p Integer exponent
- * @return @f$ A^p @f$, or damp::nullopt if a required inverse is singular
+ * @return Aᵖ, or damp::nullopt if a required inverse is singular
  */
 template<typename T, size_t N>
 [[nodiscard]] constexpr damp::optional<Matrix<N, N, T>> pow(const Matrix<N, N, T>& A, int p) {
@@ -590,10 +596,13 @@ template<typename T, size_t N>
 }
 
 /**
- * @brief Real matrix power via @f$ A^p = \exp\bigl(p\,\log(A)\bigr) @f$
+ * @brief Real matrix power Aᵖ via exp(p log(A))
  *
  * Near-integer exponents reduce to the integer @ref pow path. Non-integer
- * exponents require a successful principal logarithm.
+ * exponents require a successful principal logarithm:
+ * @f[
+ *   A^p = \exp\bigl(p\,\log(A)\bigr)
+ * @f]
  *
  * @note Compare with MATLAB®'s mpower(A, p).
  * @see log(), expm()
@@ -602,7 +611,7 @@ template<typename T, size_t N>
  * @tparam N Matrix dimension
  * @param A Square matrix
  * @param p Real exponent
- * @return @f$ A^p @f$, or damp::nullopt if @ref log fails (or integer inverse fails)
+ * @return Aᵖ, or damp::nullopt if @ref log fails (or integer inverse fails)
  */
 template<typename T, size_t N>
 [[nodiscard]] constexpr damp::optional<Matrix<N, N, T>> pow(const Matrix<N, N, T>& A, T p) {
@@ -772,13 +781,13 @@ template<typename T, size_t N>
 }
 
 /**
- * @brief Matrix hyperbolic sine @f$ \sinh(A) = \bigl(\exp(A) - \exp(-A)\bigr)/2 @f$
+ * @brief Matrix hyperbolic sine sinh(A) = (exp(A) − exp(−A))/2
  *
  * @note Compare with MATLAB®'s funm(A, @@sinh).
  * @see expm(), cosh()
  *
  * @param A Square matrix
- * @return @f$ \sinh(A) @f$
+ * @return sinh(A)
  */
 template<typename T, size_t N>
 [[nodiscard]] constexpr Matrix<N, N, T> sinh(const Matrix<N, N, T>& A) {
@@ -788,13 +797,13 @@ template<typename T, size_t N>
 }
 
 /**
- * @brief Matrix hyperbolic cosine @f$ \cosh(A) = \bigl(\exp(A) + \exp(-A)\bigr)/2 @f$
+ * @brief Matrix hyperbolic cosine cosh(A) = (exp(A) + exp(−A))/2
  *
  * @note Compare with MATLAB®'s funm(A, @@cosh).
  * @see expm(), sinh()
  *
  * @param A Square matrix
- * @return @f$ \cosh(A) @f$
+ * @return cosh(A)
  */
 template<typename T, size_t N>
 [[nodiscard]] constexpr Matrix<N, N, T> cosh(const Matrix<N, N, T>& A) {

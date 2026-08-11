@@ -799,7 +799,7 @@ pi_pole_placement_first_order(T a1, T a0, T omega_bw, T zeta = T{1}, T b = T{1})
  * @param omega_bw [rad/s]  Desired closed-loop bandwidth
  * @param zeta     [-]      Closed-loop damping ratio (default 1)
  * @param b        [-]      Proportional setpoint weight (default 1 = PI)
- * @return PIDResult with the placed PI gains, or all-zero gains if @f$ b_0 = 0 @f$
+ * @return PIDResult with the placed PI gains, or all-zero gains if b₀ = 0
  */
 template<typename T = double>
 [[nodiscard]] constexpr PIDResult<T>

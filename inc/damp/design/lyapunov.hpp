@@ -82,7 +82,7 @@ solve_lyapunov_kron(const Matrix<NX, NX, T>& Q, Op apply) {
 } // namespace detail
 
 /**
- * @brief Solve the continuous-time Lyapunov equation @f$ A X + X A^\top + Q = 0 @f$.
+ * @brief Solve the continuous-time Lyapunov equation A X + X Aᵀ + Q = 0.
  *
  * The unique solution exists iff @f$ A @f$ and @f$ -A @f$ share no eigenvalue
  * (i.e. @f$ \lambda_i + \lambda_j \neq 0 @f$ for all @f$ i,j @f$). For a Hurwitz
@@ -109,7 +109,7 @@ lyap(const Matrix<NX, NX, T>& A, const Matrix<NX, NX, T>& Q) {
 }
 
 /**
- * @brief Solve the discrete-time Lyapunov (Stein) equation @f$ A X A^\top - X + Q = 0 @f$.
+ * @brief Solve the discrete-time Lyapunov (Stein) equation A X Aᵀ − X + Q = 0.
  *
  * The unique solution exists iff no product of eigenvalues satisfies
  * @f$ \lambda_i \lambda_j = 1 @f$. For a Schur-stable @f$ A @f$ (all
@@ -123,7 +123,7 @@ lyap(const Matrix<NX, NX, T>& A, const Matrix<NX, NX, T>& Q) {
  *
  * @param A State transition matrix (NX × NX).
  * @param Q Symmetric right-hand side (NX × NX).
- * @return Solution X (NX × NX), or damp::nullopt if some @f$ \lambda_i\lambda_j = 1 @f$.
+ * @return Solution X (NX × NX), or damp::nullopt if some λᵢλⱼ = 1.
  */
 template<size_t NX, typename T = double>
 [[nodiscard]] constexpr damp::optional<Matrix<NX, NX, T>>

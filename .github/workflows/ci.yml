@@ -1,0 +1,84 @@
+# Lean host CI gate. Reproduce locally with: make ci
+# Does not fail on clang-format drift (local `make` still formats).
+#
+# make ci covers:
+#   doxygen-style-check, REFERENCE drift, test suites (main + damp/ETL backends),
+#   embedded.ok / freestanding.ok, target-smoke (host g++ of product *_sketch.cpp).
+#
+# Still deferred (not in this workflow): full examples/ plot runs, PlatformIO board
+# smoke, Windows runner, multi-compiler matrix.
+name: ci
+
+on:
+  push:
+    branches: [master, develop, main, 'feature/stack-*']
+  pull_request:
+    # Include stack bases so stacked PRs (base ≠ develop) still run host CI.
+    branches: [master, develop, main, 'feature/stack-*']
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  host:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      # Workspace-local install so the binary can be cached without writing
+      # under /usr/local (cache restore has no sudo).
+      TUP_PREFIX: ${{ github.workspace }}/.ci/tup
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          submodules: recursive
+
+      - name: Install packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            g++ \
+            pkg-config \
+            zlib1g-dev \
+            python3 \
+            git
+
+      # GHA runners cannot run fuse3's user-namespace master_fork
+      # (/proc/.../setgroups: Permission denied). Build stage-1 only with
+      # TUP_SERVER=ldpreload via build.sh — do not run bootstrap.sh's second
+      # self-build (needs FUSE namespaces). Pin to v0.8 (~local series).
+      - name: Cache tup
+        id: cache-tup
+        uses: actions/cache@v5
+        with:
+          path: ${{ env.TUP_PREFIX }}
+          key: tup-v0.8-ldpreload-${{ runner.os }}-v1
+
+      - name: Install tup
+        if: steps.cache-tup.outputs.cache-hit != 'true'
+        run: |
+          git clone --depth 1 --branch v0.8 https://github.com/gittup/tup.git /tmp/tup
+          cd /tmp/tup
+          TUP_SERVER=ldpreload ./build.sh
+          mkdir -p "$TUP_PREFIX/bin" "$TUP_PREFIX/lib"
+          install -m 755 build/tup "$TUP_PREFIX/bin/tup"
+          install -m 755 build/tup-ldpreload.so "$TUP_PREFIX/lib/tup-ldpreload.so"
+          ln -sf "$TUP_PREFIX/lib/tup-ldpreload.so" "$TUP_PREFIX/bin/tup-ldpreload.so"
+
+      - name: Add tup to PATH
+        run: |
+          echo "$TUP_PREFIX/bin" >> "$GITHUB_PATH"
+          # ldpreload server looks for the .so next to the binary or via this link.
+          test -x "$TUP_PREFIX/bin/tup"
+          "$TUP_PREFIX/bin/tup" --version
+
+      - name: Init tup
+        run: |
+          test -d .tup || tup init
+          # Makefile copies tup.config.default when tup.config is missing.
+          test -f tup.config || cp tup.config.default tup.config
+
+      - name: Host CI gate
+        run: make ci

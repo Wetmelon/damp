@@ -22,7 +22,7 @@
 
 namespace damp {
 /**
- * @brief Exact step of continuous first-order LPF @f$ \dot y = -\omega_c (y - u) @f$
+ * @brief Exact step of continuous first-order LPF ẏ = −ω_c (y − u)
  *
  * With @p u held over @p h: @f$ y(h) = u + (y_0 - u)\,e^{-\omega_c h} @f$.
  * Use on event-driven SILs (PWM edges) where sample time is irregular.

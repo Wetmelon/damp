@@ -120,7 +120,7 @@ constexpr std::vector<T> geomspace(const damp::pair<T, T>& span, size_t num) {
 }
 
 /**
- * @brief Half-open arithmetic range @f$ [\mathrm{start},\,\mathrm{stop}) @f$ with step @p step
+ * @brief Half-open arithmetic range [start, stop) with step @p step
  *
  * Returns values @f$ \mathrm{start} + k\cdot\mathrm{step} @f$ for integer @f$ k \ge 0 @f$
  * while the result stays strictly before @p stop when @p step > 0 (strictly after

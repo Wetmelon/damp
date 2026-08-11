@@ -56,7 +56,7 @@ template<typename T, EulerOrder Order>
 struct Euler;
 
 /**
- * @brief Direction cosine matrix — @f$ 3 \times 3 @f$ rotation (SO(3) wrapper over @ref Mat3)
+ * @brief Direction cosine matrix — 3×3 rotation (SO(3) wrapper over @ref Mat3)
  * @tparam T Floating-point scalar
  */
 template<typename T>
@@ -110,7 +110,7 @@ struct DCM : public Mat3<T> {
         };
     }
 
-    /// Compose rotations: @f$ R_{\mathrm{this}} R_{\mathrm{rhs}} @f$.
+    /// Compose rotations: R_this R_rhs.
     [[nodiscard]] constexpr DCM operator*(const DCM& rhs) const {
         return DCM(static_cast<const Mat3<T>&>(*this) * static_cast<const Mat3<T>&>(rhs));
     }
@@ -120,7 +120,7 @@ struct DCM : public Mat3<T> {
         return *this = *this * rhs;
     }
 
-    /// Rotate a 3-vector: @f$ R v @f$.
+    /// Rotate a 3-vector: R v.
     [[nodiscard]] constexpr Vec3<T> operator*(const Vec3<T>& v) const {
         return Vec3<T>(static_cast<const Mat3<T>&>(*this) * static_cast<const Matrix<3, 1, T>&>(v));
     }
@@ -361,7 +361,7 @@ struct Euler {
     [[nodiscard]] static constexpr Euler from_quaternion(const Quaternion<T>& q);
 };
 
-/// Aerospace yaw-pitch-roll (@f$ \psi, \theta, \phi @f$); do not conflate with @ref EulerXYZ.
+/// Aerospace yaw-pitch-roll (ψ, θ, φ); do not conflate with @ref EulerXYZ.
 template<typename T>
 using EulerZYX = Euler<T, EulerOrder::ZYX>;
 
@@ -370,7 +370,7 @@ template<typename T>
 using EulerXYZ = Euler<T, EulerOrder::XYZ>;
 
 /**
- * @brief Unit quaternion rotation @f$ (w, x, y, z) @f$ (Hamilton product)
+ * @brief Unit quaternion rotation (w, x, y, z) (Hamilton product)
  *
  * Stored as a 4×1 matrix with scalar part @c w first. Prefer @ref Pose for
  * rigid-body frames; use this type for pure orientation.
@@ -386,20 +386,20 @@ struct Quaternion : public Matrix<4, 1, T> {
     constexpr T& w() { return this->data_[0]; }
     /// Scalar (real) part.
     constexpr const T& w() const { return this->data_[0]; }
-    /// Vector part @f$ x @f$.
+    /// Vector part x.
     constexpr T& x() { return this->data_[1]; }
-    /// Vector part @f$ x @f$.
+    /// Vector part x.
     constexpr const T& x() const { return this->data_[1]; }
-    /// Vector part @f$ y @f$.
+    /// Vector part y.
     constexpr T& y() { return this->data_[2]; }
-    /// Vector part @f$ y @f$.
+    /// Vector part y.
     constexpr const T& y() const { return this->data_[2]; }
-    /// Vector part @f$ z @f$.
+    /// Vector part z.
     constexpr T& z() { return this->data_[3]; }
-    /// Vector part @f$ z @f$.
+    /// Vector part z.
     constexpr const T& z() const { return this->data_[3]; }
 
-    /// Identity quaternion @f$ (1,0,0,0) @f$.
+    /// Identity quaternion (1, 0, 0, 0).
     constexpr Quaternion() : Matrix<4, 1, T>() { w() = T{1}; }
     constexpr Quaternion(const Quaternion&) = default;
     constexpr Quaternion& operator=(const Quaternion&) = default;
@@ -407,7 +407,7 @@ struct Quaternion : public Matrix<4, 1, T> {
     constexpr Quaternion& operator=(Quaternion&&) = default;
     constexpr ~Quaternion() = default;
 
-    /// Construct from components @f$ (w,x,y,z) @f$ (not normalized).
+    /// Construct from components (w, x, y, z) (not normalized).
     constexpr Quaternion(T w_, T x_, T y_, T z_) : Matrix<4, 1, T>() {
         w() = w_;
         x() = x_;
@@ -415,7 +415,7 @@ struct Quaternion : public Matrix<4, 1, T> {
         z() = z_;
     }
 
-    /// Construct from up to four elements in @f$ (w,x,y,z) @f$ order.
+    /// Construct from up to four elements in (w, x, y, z) order.
     constexpr Quaternion(std::initializer_list<T> values) : Matrix<4, 1, T>() {
         size_t i = 0;
         for (const auto& val : values) {
@@ -426,7 +426,7 @@ struct Quaternion : public Matrix<4, 1, T> {
         }
     }
 
-    /// Construct from a span of up to four elements in @f$ (w,x,y,z) @f$ order.
+    /// Construct from a span of up to four elements in (w, x, y, z) order.
     template<typename SpanType>
         requires std::is_same_v<SpanType, std::span<const T>>
     constexpr explicit Quaternion(SpanType values) : Matrix<4, 1, T>() {
@@ -443,11 +443,11 @@ struct Quaternion : public Matrix<4, 1, T> {
     template<typename U>
     constexpr explicit Quaternion(const Quaternion<U>& other) : Matrix<4, 1, T>(other) {}
 
-    /// Convert from a 4×1 matrix viewed as @f$ (w,x,y,z) @f$.
+    /// Convert from a 4×1 matrix viewed as (w, x, y, z).
     template<typename U>
     constexpr explicit Quaternion(const Matrix<4, 1, U>& other) : Matrix<4, 1, T>(other) {}
 
-    /// Assign from a 4×1 matrix viewed as @f$ (w,x,y,z) @f$.
+    /// Assign from a 4×1 matrix viewed as (w, x, y, z).
     template<typename U>
     constexpr Quaternion& operator=(const Matrix<4, 1, U>& other) {
         Matrix<4, 1, T>::operator=(other);
@@ -457,13 +457,13 @@ struct Quaternion : public Matrix<4, 1, T> {
     /// Identity (no rotation).
     [[nodiscard]] static constexpr Quaternion identity() { return Quaternion{T{1}, T{0}, T{0}, T{0}}; }
 
-    /// Squared Euclidean norm @f$ \|q\|^2 @f$.
+    /// Squared Euclidean norm ‖q‖².
     [[nodiscard]] constexpr T norm_squared() const { return (w() * w()) + (x() * x()) + (y() * y()) + (z() * z()); }
-    /// Euclidean norm @f$ \|q\| @f$.
+    /// Euclidean norm ‖q‖.
     [[nodiscard]] constexpr T norm() const { return damp::sqrt(norm_squared()); }
 
     /**
-     * @brief Unit quaternion, or nullopt if @f$ \|q\|^2 \le \varepsilon @f$
+     * @brief Unit quaternion, or nullopt if ‖q‖² ≤ ε
      * @param eps Squared-norm floor for the near-zero test
      */
     [[nodiscard]] constexpr damp::optional<Quaternion> normalized_safe(T eps = static_cast<T>(1e-9)) const {
@@ -498,11 +498,11 @@ struct Quaternion : public Matrix<4, 1, T> {
         return n.value_or(*this);
     }
 
-    /// Conjugate @f$ (w, -x, -y, -z) @f$ (inverse for unit quaternions).
+    /// Conjugate (w, −x, −y, −z) (inverse for unit quaternions).
     [[nodiscard]] constexpr Quaternion conjugate() const { return Quaternion{w(), -x(), -y(), -z()}; }
 
     /**
-     * @brief Multiplicative inverse @f$ q^{-1} = \bar q / \|q\|^2 @f$
+     * @brief Multiplicative inverse q⁻¹ = q̄ / ‖q‖²
      * @return Inverse, or nullopt if near zero
      */
     [[nodiscard]] constexpr damp::optional<Quaternion> inverse(T eps = static_cast<T>(1e-9)) const {
@@ -710,7 +710,7 @@ struct Quaternion : public Matrix<4, 1, T> {
     }
 
     /**
-     * @brief First-order body-rate integration: @f$ q \leftarrow q \otimes (1, \tfrac12 \omega \Delta t) @f$
+     * @brief First-order body-rate integration: q ← q ⊗ (1, ½ ω Δt)
      * @param omega Body angular rate [rad/s]
      * @param dt    Step [s]
      */
@@ -815,7 +815,7 @@ constexpr Euler<T, Order> Euler<T, Order>::from_quaternion(const Quaternion<T>& 
 }
 
 /**
- * @brief @f$ 4 \times 4 @f$ homogeneous transform (SE(3) interop / DH export)
+ * @brief 4×4 homogeneous transform (SE(3) interop / DH export)
  *
  * Not the working pose representation — use @ref Pose (@c Quaternion + translation)
  * for composition. Convert with @c Pose::to_transform4 / @c Pose::from_transform4.
@@ -864,7 +864,7 @@ struct Transform4 : public Mat4<T> {
         return from_rotation_translation(e.to_dcm(), t);
     }
 
-    /// Upper-left @f$ 3 \times 3 @f$ rotation block as a @ref DCM.
+    /// Upper-left 3×3 rotation block as a @ref DCM.
     [[nodiscard]] constexpr DCM<T> rotation() const {
         return DCM<T>{
             {this->data_[(0 * 4) + 0], this->data_[(0 * 4) + 1], this->data_[(0 * 4) + 2]},
@@ -873,12 +873,12 @@ struct Transform4 : public Mat4<T> {
         };
     }
 
-    /// Translation column @f$ (t_x, t_y, t_z) @f$.
+    /// Translation column (t_x, t_y, t_z).
     [[nodiscard]] constexpr Vec3<T> translation() const {
         return Vec3<T>{this->data_[(0 * 4) + 3], this->data_[(1 * 4) + 3], this->data_[(2 * 4) + 3]};
     }
 
-    /// Compose transforms: @f$ T_{\mathrm{this}} T_{\mathrm{rhs}} @f$.
+    /// Compose transforms: T_this T_rhs.
     [[nodiscard]] constexpr Transform4 operator*(const Transform4& rhs) const {
         return Transform4(static_cast<const Mat4<T>&>(*this) * static_cast<const Mat4<T>&>(rhs));
     }
@@ -915,7 +915,7 @@ struct Transform4 : public Mat4<T> {
     }
 
     /**
-     * @brief Rigid inverse @f$ [R\,t;\,0\,1]^{-1} = [R^\top\,{-}R^\top t;\,0\,1] @f$
+     * @brief Rigid inverse [R t; 0 1]⁻¹ = [Rᵀ, −Rᵀt; 0 1]
      *
      * Analytic for a rigid transform (no 4×4 LU). Wrapped in @c optional so the
      * signature matches @c Mat4::inverse(); always succeeds for finite input.

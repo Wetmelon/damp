@@ -42,9 +42,9 @@ namespace design {
 template<typename T = double>
 struct DiscretePIDResult {
     T Kp{};
-    T Ki{};  ///< Discrete integral gain @f$K_i T_s@f$; @f$I \mathrel{+}= e@f$, @f$u_I = K_i I@f$
-    T Kd{};  ///< Continuous @f$K_d@f$ (documentation / re-discretize); runtime uses @ref d_a / @ref d_b
-    T d_a{}; ///< Filtered-derivative pole: @f$D \leftarrow d_a D + d_b\,\Delta x@f$
+    T Ki{};  ///< Discrete integral gain Kᵢ T_s; I += e, u_I = Kᵢ I
+    T Kd{};  ///< Continuous K_d (documentation / re-discretize); runtime uses @ref d_a / @ref d_b
+    T d_a{}; ///< Filtered-derivative pole: D ← d_a D + d_b Δx
     T d_b{}; ///< Filtered-derivative input gain
     T u_min = -std::numeric_limits<T>::max();
     T u_max = std::numeric_limits<T>::max();
@@ -311,9 +311,9 @@ struct PIDController;
 template<typename T>
 struct PIDController<T, PIDMode::PID> {
     T Kp{};
-    T Ki{};  ///< Discrete integral gain @f$K_i T_s@f$
+    T Ki{};  ///< Discrete integral gain Kᵢ T_s
     T Kd{};  ///< Continuous Kd (unused in the tick; retained for inspection)
-    T d_a{}; ///< @f$D \leftarrow d_a D + d_b \Delta x@f$
+    T d_a{}; ///< D ← d_a D + d_b Δx
     T d_b{};
     T u_min = -std::numeric_limits<T>::max();
     T u_max = std::numeric_limits<T>::max();
@@ -455,7 +455,7 @@ struct PIDController<T, PIDMode::PID> {
 template<typename T>
 struct PIDController<T, PIDMode::PI> {
     T Kp{};
-    T Ki{}; ///< Discrete integral gain @f$K_i T_s@f$
+    T Ki{}; ///< Discrete integral gain Kᵢ T_s
     T u_min = -std::numeric_limits<T>::max();
     T u_max = std::numeric_limits<T>::max();
     T i_min = -std::numeric_limits<T>::max();

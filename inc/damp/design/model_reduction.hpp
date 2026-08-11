@@ -74,7 +74,7 @@ template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, si
 struct BalancedRealizationResult {
     StateSpace<NX, NU, NY, T, NW, NV> balanced{};     ///< Balanced state-space model
     ColVec<NX, T>                     sigma{};        ///< Hankel singular values (descending)
-    Matrix<NX, NX, T>                 transform{};    ///< Balancing transform: @f$ x = T x_b @f$
+    Matrix<NX, NX, T>                 transform{};    ///< Balancing transform: x = T x_b
     bool                              success{false}; ///< true if Gramians, Cholesky, SVD all OK
 
     template<typename U>
@@ -100,7 +100,7 @@ template<size_t NR, size_t NU, size_t NY, typename T = double, size_t NW = 0, si
 struct BalancedReductionResult {
     StateSpace<NR, NU, NY, T, NW, NV> reduced{};         ///< Reduced-order model
     ColVec<NR, T>                     sigma_kept{};      ///< Hankel SV of retained states
-    T                                 error_bound{T{0}}; ///< @f$ 2\sum \sigma_{\mathrm{discarded}} @f$ (truncation a-priori ‖·‖_∞ bound)
+    T                                 error_bound{T{0}}; ///< 2 Σ σ_discarded (truncation a-priori ‖·‖∞ bound)
     bool                              success{false};    ///< true if balancing and reduction succeeded
 
     template<typename U>

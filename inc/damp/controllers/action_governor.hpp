@@ -202,7 +202,7 @@ struct CommandProjectionResult {
 namespace design {
 
 /**
- * @brief Project @p u_des onto the polyhedron @f$A u \le b@f$ (Euclidean)
+ * @brief Project @p u_des onto the polyhedron A u ≤ b (Euclidean)
  *
  * Solves
  * @f[
@@ -281,8 +281,8 @@ template<size_t NU, size_t NI, typename T = double>
  */
 template<size_t NU, typename T = double>
 struct CBFConstraint {
-    Matrix<1, NU, T> A{}; ///< Single row: @f$(-L_g h)\, u \le b@f$
-    T                b{}; ///< @f$L_f h + \alpha h@f$
+    Matrix<1, NU, T> A{}; ///< Single row: (−L_g h) u ≤ b
+    T                b{}; ///< L_f h + α h
 };
 
 /**
@@ -313,7 +313,7 @@ template<size_t NU, typename T = double>
 } // namespace design
 
 /**
- * @brief Runtime action governor — QP projection of @f$u_{\mathrm{des}}@f$ onto @f$A u \le b@f$
+ * @brief Runtime action governor — QP projection of u_des onto A u ≤ b
  *
  * Stores a fixed (or tick-updated) inequality set and projects each call via
  * @ref design::project_affine. Default scalar type is @c float for embedded
@@ -380,7 +380,7 @@ public:
     }
 
     /**
-     * @brief Project with full @f$(A,b)@f$ for this tick only
+     * @brief Project with full (A,b) for this tick only
      */
     [[nodiscard]] constexpr CommandProjectionResult<NU, T> filter(
         const ColVec<NU, T>&     u_des,

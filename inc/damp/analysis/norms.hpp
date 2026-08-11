@@ -69,8 +69,8 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
  * @note Compare with MATLAB®'s @c norm(sys,2). Requires @f$ A @f$ stable.
  * @see norm_hinf(), stability::controllability_gramian().
  *
- * @return @f$ \lVert G \rVert_2 @f$, or damp::nullopt if the Gramian solve fails or
- *         the continuous norm is infinite (@f$ D \neq 0 @f$).
+ * @return ‖G‖₂, or damp::nullopt if the Gramian solve fails or
+ *         the continuous norm is infinite (D != 0).
  */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
 [[nodiscard]] constexpr damp::optional<T> norm_h2(
@@ -109,7 +109,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
 }
 
 /**
- * @brief H∞ norm of a state-space system: @f$ \sup_\omega \bar\sigma\,G(j\omega) @f$.
+ * @brief H∞ norm of a state-space system: sup_ω σ̄(G(jω)).
  *
  * The peak of the largest singular value of the frequency response over all
  * frequencies (continuous: @f$ s=j\omega @f$; discrete: @f$ z=e^{j\theta} @f$ over
@@ -128,7 +128,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
  *
  * @param sys      State-space system (continuous or discrete), assumed stable.
  * @param n_points Number of log-spaced frequency samples (default 1024).
- * @return Estimated @f$ \lVert G \rVert_\infty @f$.
+ * @return Estimated ‖G‖∞.
  */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
 [[nodiscard]] T norm_hinf(

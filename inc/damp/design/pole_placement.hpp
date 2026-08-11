@@ -1171,9 +1171,9 @@ enum class JordanObjective : std::uint8_t {
 template<size_t NU, size_t NX, typename T = double>
 struct OptimalJordanPlacement {
     Matrix<NU, NX, T> gain{};           ///< K, with the A − B·K convention.
-    T                 cond_fro{};       ///< Achieved @f$ \kappa_F(V) = \|V\|_F\cdot\|V^{-1}\|_F @f$ (eigenvalue robustness).
-    T                 gain_fro{};       ///< Achieved @f$ \|K\|_F @f$ (control effort).
-    T                 departure_fro{};  ///< Achieved @f$ \delta_F(A - B\cdot K) @f$ (departure from normality).
+    T                 cond_fro{};       ///< Achieved κ_F(V) = ‖V‖F · ‖V⁻¹‖F (eigenvalue robustness).
+    T                 gain_fro{};       ///< Achieved ‖K‖F (control effort).
+    T                 departure_fro{};  ///< Achieved δ_F(A − B·K) (departure from normality).
     size_t            iterations{};     ///< Gradient-descent iterations taken.
     bool              converged{false}; ///< Search reached a stationary point.
 

@@ -179,7 +179,7 @@ lu_decomposition(const Matrix<N, N, T>& A) {
 }
 
 /**
- * @brief Thin QR factorization @f$ A = Q R @f$ (modified Gram–Schmidt)
+ * @brief Thin QR factorization A = QR (modified Gram–Schmidt)
  *
  * @f$ Q @f$ is @f$ N \times M @f$ with orthonormal columns (when full column
  * rank); @f$ R @f$ is @f$ M \times M @f$ upper-triangular.
@@ -193,7 +193,7 @@ struct QRDecomposition {
     Matrix<M, M, T> R{}; ///< Upper-triangular factor
 
     /**
-     * @brief True if every diagonal entry of @f$ R @f$ exceeds default_tol
+     * @brief True if every diagonal entry of R exceeds default_tol
      */
     [[nodiscard]] constexpr bool is_valid() const {
         constexpr auto tol = default_tol<T>();
