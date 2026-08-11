@@ -63,12 +63,12 @@ namespace damp {
  *
  * A 3-arg variable-rate control(r, y, Ts) overload stays *outside* the concept
  * and is allowed only where the sample time enters the law linearly at runtime
- * (ContinuousPID: `integral += e*Ts`, `deriv = Δ/Ts`), so a measured dt is
- * exact and free. Canonical fixed-rate controllers bake Ts at design time
- * (PIDController via discretize, Kalman F/Q, LQG, PR) and must NOT expose
- * a runtime Ts: that would be a lie unless the coeffs are re-discretized every
- * tick. Multirate = several blocks each storing their own fixed Ts, not one
- * block driven at two rates.
+ * (ContinuousPID: `I += Ki*e*Ts` with I the integral term, `deriv = Δ/Ts`), so
+ * a measured dt is exact and free. Canonical fixed-rate controllers bake Ts at
+ * design time (PIDController via discretize, Kalman F/Q, LQG, PR) and must NOT
+ * expose a runtime Ts: that would be a lie unless the coeffs are re-discretized
+ * every tick. Multirate = several blocks each storing their own fixed Ts, not
+ * one block driven at two rates.
  */
 template<typename C, typename T>
 concept SisoController = std::is_floating_point_v<T> && requires(C c, T r, T y) {
@@ -79,7 +79,7 @@ concept SisoController = std::is_floating_point_v<T> && requires(C c, T r, T y) 
 /**
  * @brief Vector output-feedback controller: u = control(r, y), self-contained tick.
  *
- * The semantic contract (not expressible in the syntax): one call performs the
+ * Semantic contract beyond the requires-clause: one call performs the
  * complete tick, including any internal estimator. OffsetFreeMPC satisfies
  * both syntax and semantics; LQGI satisfies only the syntax (its filter is
  * caller-sequenced).

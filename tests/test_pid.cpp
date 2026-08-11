@@ -85,7 +85,7 @@ TEST_SUITE("PID Mode Control") {
 
     TEST_CASE("PID: tracking-mode integrator preload respects i_min/i_max") {
         constexpr float Ts = 0.01f;
-        // Continuous i limits ±2 → discrete error-sum limits ±2/Ts
+        // i limits are on the integral term (same units as u); pass through discretize
         PIDController<float> pid{design::pid(
                                      1.0f,
                                      1.0f,
@@ -97,14 +97,13 @@ TEST_SUITE("PID Mode Control") {
         )
                                      .discretize(Ts)};
 
-        const float i_max_d = 2.0f / Ts;
         pid.disable(100.0f);
         (void)pid.control(0.0f, 0.0f);
-        CHECK(pid.integral == doctest::Approx(i_max_d));
+        CHECK(pid.integral == doctest::Approx(2.0f));
 
         pid.disable(-100.0f);
         (void)pid.control(0.0f, 0.0f);
-        CHECK(pid.integral == doctest::Approx(-i_max_d));
+        CHECK(pid.integral == doctest::Approx(-2.0f));
     }
 
     TEST_CASE("P: tracking mode is degenerate but API works for generic code") {
@@ -143,8 +142,8 @@ TEST_SUITE("PID Mode Control") {
                                    0.0f,
                                    -1.0f,
                                    1.0f,
-                                   -std::numeric_limits<float>::infinity(),
-                                   std::numeric_limits<float>::infinity(),
+                                   -std::numeric_limits<float>::max(),
+                                   std::numeric_limits<float>::max(),
                                    0.5f
         )
                                    .discretize(Ts)};
@@ -169,7 +168,8 @@ TEST_SUITE("PID Mode Control") {
 
         const double u0 = pid.control(1.0, 0.0, 0.0);
         CHECK(pid.integral == doctest::Approx(integ));
-        CHECK(u0 == doctest::Approx((2.0 * 1.0) + (5.0 * integ)));
+        // Integral state is the term (already includes Ki history)
+        CHECK(u0 == doctest::Approx((2.0 * 1.0) + integ));
 
         (void)pid.control(1.0, 0.0, -0.5);
         CHECK(pid.integral == doctest::Approx(integ));
@@ -250,18 +250,34 @@ TEST_SUITE("PID Mode Control") {
         CHECK(std::abs(step(0.1)) < std::abs(step(0.0)));
     }
 
-    TEST_CASE("discretize scales Ki and integrator limits") {
+    TEST_CASE("discretize scales Ki; integral-term limits pass through") {
         constexpr double Ts = 0.01;
         const auto       cont = design::pid(1.0, 20.0, 0.0, -1.0, 1.0, -0.5, 0.5);
         const auto       disc = cont.discretize(Ts);
 
         CHECK(disc.Kp == doctest::Approx(1.0));
         CHECK(disc.Ki == doctest::Approx(20.0 * Ts));
-        CHECK(disc.i_min == doctest::Approx(-0.5 / Ts));
-        CHECK(disc.i_max == doctest::Approx(0.5 / Ts));
+        CHECK(disc.i_min == doctest::Approx(-0.5));
+        CHECK(disc.i_max == doctest::Approx(0.5));
         CHECK(disc.Ts == doctest::Approx(Ts));
         CHECK(disc.d_a == doctest::Approx(0.0));
         CHECK(disc.d_b == doctest::Approx(0.0));
+    }
+
+    TEST_CASE("integral term I is independent of later Ki edits") {
+        constexpr double     Ts = 0.01;
+        PIController<double> pi{design::pid(0.0, 10.0, 0.0).discretize(Ts)};
+        for (int k = 0; k < 50; ++k) {
+            (void)pi.control(1.0, 0.0); // e = 1 each tick
+        }
+        const double I_before = pi.integral;
+        REQUIRE(I_before != doctest::Approx(0.0));
+        const double u_before = pi.control(0.0, 0.0); // e = 0: u = I (Kp=0)
+        pi.Ki *= 2.0;
+        const double u_after = pi.control(0.0, 0.0);
+        CHECK(pi.integral == doctest::Approx(I_before));
+        CHECK(u_after == doctest::Approx(u_before));
+        CHECK(u_after == doctest::Approx(I_before));
     }
 
     TEST_CASE("discretize keeps default unbounded I limits for constinit") {

@@ -28,13 +28,14 @@ namespace design {
  * pure `control(r, y)` tick with no per-call `Ts`.
  *
  * Discretization (backward Euler integrator, filtered derivative):
- * - @f$K_{i,d} = K_i T_s@f$ with error-sum state @f$I \leftarrow I + e@f$,
- *   contribution @f$K_{i,d}\,I@f$
+ * - Integral term: @f$K_{i,d} = K_i T_s@f$, @f$I \leftarrow I + K_{i,d}\,e@f$,
+ *   @f$u_I = I@f$ (same units as @f$u@f$)
  * - @f$D = a_d D + b_d\,\Delta x@f$ with
  *   @f$a_d = T_f/(T_s+T_f)@f$, @f$b_d = K_d/(T_s+T_f)@f$
  *   (@f$T_f=0@f$ ⇒ raw @f$K_d/T_s@f$ difference)
- * - Integrator limits scale as @f$i_{\min}/T_s@f$ (same units as the error sum)
- * - Back-calculation: @f$\Delta I = (u-u_{\mathrm{unsat}})/K_{bc}@f$ (Ts already in I)
+ * - Integrator limits clamp @f$I@f$ (same units as @f$u@f$), copied from the
+ *   continuous design result
+ * - Back-calculation: @f$\Delta I = K_{i,d}(u-u_{\mathrm{unsat}})/K_{bc}@f$
  *
  * @see PIDResult::discretize
  * @see Åström & Hägglund, "Advanced PID Control" (2006), Sec. 3.3
@@ -42,15 +43,15 @@ namespace design {
 template<typename T = double>
 struct DiscretePIDResult {
     T Kp{};
-    T Ki{};  ///< Discrete integral gain Kᵢ T_s; I += e, u_I = Kᵢ I
+    T Ki{};  ///< Discrete integral gain Kᵢ T_s (I += Ki·e)
     T Kd{};  ///< Continuous K_d (documentation / re-discretize); runtime uses @ref d_a / @ref d_b
     T d_a{}; ///< Filtered-derivative pole: D ← d_a D + d_b Δx
     T d_b{}; ///< Filtered-derivative input gain
     T u_min = -std::numeric_limits<T>::max();
     T u_max = std::numeric_limits<T>::max();
-    T i_min = -std::numeric_limits<T>::max(); ///< Limit on discrete error-sum state
+    T i_min = -std::numeric_limits<T>::max(); ///< Clamp on integral term I (same units as u)
     T i_max = std::numeric_limits<T>::max();
-    T Kbc = T{0}; ///< Back-calculation coefficient (continuous units); 0 = clamp-only
+    T Kbc = T{0}; ///< Back-calculation coefficient; 0 = output clamp only
     T b = T{1};   ///< Proportional setpoint weight
     T c = T{1};   ///< Derivative setpoint weight
     T Tf = T{0};  ///< Continuous derivative filter time constant (documentation)
@@ -100,11 +101,11 @@ struct PIDResult {
     T Kd{};
     T u_min = -std::numeric_limits<T>::max();
     T u_max = std::numeric_limits<T>::max();
-    T i_min = -std::numeric_limits<T>::max(); ///< Continuous integrator limit (∫e)
+    T i_min = -std::numeric_limits<T>::max(); ///< Clamp on integral term I (same units as u)
     T i_max = std::numeric_limits<T>::max();
-    T Kbc = T{0}; ///< Back-calculation coefficient (not a pure time): ΔI += (Ts/Kbc)(u−u_unsat).
-                  ///< Tracking time constant T_t = Kbc/Ki (parallel form). Kbc = Kp ⇒ T_t = T_i.
-                  ///< Larger Kbc → slower unwind; 0 = clamp-only (no back-calculation).
+    T Kbc = T{0}; ///< Back-calculation coefficient: ΔI += Ki·(Ts/Kbc)(u−u_unsat).
+                  ///< Tracking time T_t = Kbc/Ki (parallel form); Kbc = Kp ⇒ T_t = T_i.
+                  ///< Larger Kbc → slower unwind; 0 = output clamp only.
     T b = T{1};   ///< Proportional setpoint weight (0=I-PD, 1=standard PID)
     T c = T{1};   ///< Derivative setpoint weight   (0=PI-D, 1=standard PID)
     T Tf = T{0};  ///< Derivative filter time constant (0 = unfiltered)
@@ -148,21 +149,15 @@ struct PIDResult {
         d.c = c;
         d.Tf = Tf;
         d.Ts = ts;
+        d.i_min = i_min;
+        d.i_max = i_max;
         if (ts > T{0}) {
             d.Ki = Ki * ts;
-            // Scale finite integrator limits only. ±max stays ±max so constinit
-            // deploy paths (default unbounded I) remain constant-expression-safe
-            // (max/Ts is not representable).
-            constexpr T lim = std::numeric_limits<T>::max();
-            d.i_min = (i_min > -lim) ? (i_min / ts) : -lim;
-            d.i_max = (i_max < lim) ? (i_max / ts) : lim;
             const T den = ts + Tf;
             d.d_a = Tf / den;
             d.d_b = Kd / den;
         } else {
             d.Ki = T{0};
-            d.i_min = i_min;
-            d.i_max = i_max;
             d.d_a = T{0};
             d.d_b = T{0};
         }
@@ -194,7 +189,8 @@ struct PIDResult {
  *
  * The control law is:
  *
- *     u = Kp(b*r - y) + Ki*integral(r-y)dt + Kd*d/dt(c*r - y)
+ *     u = Kp(b*r - y) + I + Kd*d/dt(c*r - y)
+ *     dI/dt = Ki·(r - y)
  *
  * Preferred deploy construction:
  *
@@ -208,9 +204,9 @@ struct PIDResult {
  * @param Kd    Derivative gain
  * @param u_min Minimum control output
  * @param u_max Maximum control output
- * @param i_min Minimum continuous integrator value (∫e)
- * @param i_max Maximum continuous integrator value
- * @param Kbc   Back-calculation coefficient: ΔI += (Ts/Kbc)(u−u_unsat); T_t = Kbc/Ki
+ * @param i_min Minimum integral term (same units as u)
+ * @param i_max Maximum integral term
+ * @param Kbc   Back-calculation coefficient: ΔI += Ki·(Ts/Kbc)(u−u_unsat); T_t = Kbc/Ki
  *              (set Kbc = Kp for T_t = T_i). 0 = clamping only
  * @param b     Proportional setpoint weight (default: 1 - standard PID)
  * @param c     Derivative setpoint weight   (default: 1 - standard PID)
@@ -285,11 +281,11 @@ struct PIDController;
  * argument. Matches the library-wide pre-discretized controller model
  * (LQR, Kalman, PR, lead-lag).
  *
- * Control law (error-sum integrator, filtered derivative):
+ * Control law:
  * @f[
- *   I \leftarrow I + e,\quad
+ *   I \leftarrow I + K_{i,d}\,e,\quad
  *   D \leftarrow a_d D + b_d\,\Delta(c r - y),\quad
- *   u = K_p(b r - y) + K_{i,d} I + D
+ *   u = K_p(b r - y) + I + D
  * @f]
  *
  * @code
@@ -311,20 +307,20 @@ struct PIDController;
 template<typename T>
 struct PIDController<T, PIDMode::PID> {
     T Kp{};
-    T Ki{};  ///< Discrete integral gain Kᵢ T_s
-    T Kd{};  ///< Continuous Kd (unused in the tick; retained for inspection)
+    T Ki{};  ///< Discrete integral gain Kᵢ T_s (I += Ki·e)
+    T Kd{};  ///< Continuous Kd retained for inspection; tick uses d_a / d_b
     T d_a{}; ///< D ← d_a D + d_b Δx
     T d_b{};
     T u_min = -std::numeric_limits<T>::max();
     T u_max = std::numeric_limits<T>::max();
     T i_min = -std::numeric_limits<T>::max();
     T i_max = std::numeric_limits<T>::max();
-    T Kbc = T{0}; ///< Back-calculation coefficient; ΔI += (u−u_unsat)/Kbc
+    T Kbc = T{0}; ///< Back-calculation: ΔI += Ki·(u−u_unsat)/Kbc
     T b = T{1};
     T c = T{1};
-    T Ts = T{0}; ///< Sample period baked at discretize (documentation)
+    T Ts = T{0}; ///< Sample period from discretize (documentation)
 
-    T    integral = T{0};        ///< Discrete error-sum state (∑e)
+    T    integral = T{0};        ///< Integral term I (same units as u)
     T    prev_cr_minus_y = T{0}; ///< Previous (c*r − y) for derivative
     T    deriv = T{0};           ///< Filtered derivative term
     bool first_ = true;
@@ -395,22 +391,20 @@ struct PIDController<T, PIDMode::PID> {
         const T e = r - y;
 
         if (runtime_mode == PIDRuntimeMode::Tracking) {
-            // Auto does I += e before the output; store the pre-integration value.
-            if (Ki != T{0}) {
-                const T target = ((u_track - (Kp * ((b * r) - y)) - deriv) / Ki) - e;
-                integral = damp::clamp(target, i_min, i_max);
-            }
+            // Preload I so next Auto tick with the same (r,y) yields u_track.
+            const T target = u_track - (Kp * ((b * r) - y)) - deriv - (Ki * e);
+            integral = damp::clamp(target, i_min, i_max);
             return damp::clamp(u_track, u_min, u_max);
         }
 
-        integral += e;
+        integral += Ki * e;
         integral = damp::clamp(integral, i_min, i_max);
-        const T u_unsat = (Kp * ((b * r) - y)) + (Ki * integral) + deriv;
+        const T u_unsat = (Kp * ((b * r) - y)) + integral + deriv;
         const T u = damp::clamp(u_unsat, u_min, u_max);
 
-        // Back-calculation: ΔI += (u − u_unsat)/Kbc (Ts already in discrete I)
-        if (Kbc != T{0}) {
-            integral += (u - u_unsat) / Kbc;
+        // Back-calculation on the term state: ΔI = Ki·(u − u_unsat)/Kbc
+        if (Kbc != T{0} && Ki != T{0}) {
+            integral += Ki * ((u - u_unsat) / Kbc);
             integral = damp::clamp(integral, i_min, i_max);
         }
 
@@ -436,14 +430,14 @@ struct PIDController<T, PIDMode::PID> {
     /**
      * @brief Anti-windup hook driven by a downstream stage
      *
-     * Winds the discrete integrator by `(u_sat - u_unsat) / Kbc`. No-op when
-     * `Kbc == 0`. Sample time is already baked into the integrator units.
+     * Winds the integral term by `Ki * (u_sat - u_unsat) / Kbc`. No-op when
+     * `Kbc == 0` or `Ki == 0`.
      */
     constexpr void back_calculate(T u_unsat, T u_sat) {
-        if (Kbc == T{0} || u_unsat == u_sat) {
+        if (Kbc == T{0} || Ki == T{0} || u_unsat == u_sat) {
             return;
         }
-        integral += (u_sat - u_unsat) / Kbc;
+        integral += Ki * ((u_sat - u_unsat) / Kbc);
         integral = damp::clamp(integral, i_min, i_max);
     }
 };
@@ -455,7 +449,7 @@ struct PIDController<T, PIDMode::PID> {
 template<typename T>
 struct PIDController<T, PIDMode::PI> {
     T Kp{};
-    T Ki{}; ///< Discrete integral gain Kᵢ T_s
+    T Ki{}; ///< Discrete integral gain Kᵢ T_s (I += Ki·e)
     T u_min = -std::numeric_limits<T>::max();
     T u_max = std::numeric_limits<T>::max();
     T i_min = -std::numeric_limits<T>::max();
@@ -464,7 +458,7 @@ struct PIDController<T, PIDMode::PI> {
     T b = T{1};
     T Ts = T{0};
 
-    T integral = T{0}; ///< Discrete error-sum state (∑e)
+    T integral = T{0}; ///< Integral term I (same units as u)
 
     PIDRuntimeMode runtime_mode{PIDRuntimeMode::Auto};
     T              u_track{T{0}};
@@ -501,20 +495,18 @@ struct PIDController<T, PIDMode::PI> {
         const T e = r - y;
 
         if (runtime_mode == PIDRuntimeMode::Tracking) {
-            if (Ki != T{0}) {
-                const T target = ((u_track - (Kp * ((b * r) - y))) / Ki) - e;
-                integral = damp::clamp(target, i_min, i_max);
-            }
+            const T target = u_track - (Kp * ((b * r) - y)) - (Ki * e);
+            integral = damp::clamp(target, i_min, i_max);
             return damp::clamp(u_track, u_min, u_max);
         }
 
-        integral += e;
+        integral += Ki * e;
         integral = damp::clamp(integral, i_min, i_max);
-        const T u_unsat = (Kp * ((b * r) - y)) + (Ki * integral);
+        const T u_unsat = (Kp * ((b * r) - y)) + integral;
         const T u = damp::clamp(u_unsat, u_min, u_max);
 
-        if (Kbc != T{0}) {
-            integral += (u - u_unsat) / Kbc;
+        if (Kbc != T{0} && Ki != T{0}) {
+            integral += Ki * ((u - u_unsat) / Kbc);
             integral = damp::clamp(integral, i_min, i_max);
         }
         return u;
@@ -539,10 +531,10 @@ struct PIDController<T, PIDMode::PI> {
     }
 
     constexpr void back_calculate(T u_unsat, T u_sat) {
-        if (Kbc == T{0} || u_unsat == u_sat) {
+        if (Kbc == T{0} || Ki == T{0} || u_unsat == u_sat) {
             return;
         }
-        integral += (u_sat - u_unsat) / Kbc;
+        integral += Ki * ((u_sat - u_unsat) / Kbc);
         integral = damp::clamp(integral, i_min, i_max);
     }
 
@@ -618,6 +610,9 @@ using PIController = PIDController<T, PIDMode::PI>;
  * `control(r, y, Ts)`. Use this when the loop period is not fixed at design
  * time (jitter, multi-rate motor loops, PLL step periods).
  *
+ * Integral term @f$I@f$ with @f$\dot I = K_i e@f$ and @f$u_I = I@f$, matching
+ * the discrete form after @ref design::PIDResult::discretize.
+ *
  * For fixed-rate embedded deploy, prefer
  * `design::pid(...).discretize(Ts)` → PIDController.
  *
@@ -638,12 +633,12 @@ struct ContinuousPID {
     T u_max = std::numeric_limits<T>::max();
     T i_min = -std::numeric_limits<T>::max();
     T i_max = std::numeric_limits<T>::max();
-    T Kbc = T{0}; ///< Back-calculation: ΔI += (Ts/Kbc)(u−u_unsat); T_t = Kbc/Ki
+    T Kbc = T{0}; ///< Back-calculation: ΔI += Ki·(Ts/Kbc)(u−u_unsat)
     T b = T{1};
     T c = T{1};
     T Tf = T{0};
 
-    T    integral = T{0}; ///< Continuous integrator state (∫e dt)
+    T    integral = T{0}; ///< Integral term I (same units as u)
     T    prev_cr_minus_y = T{0};
     T    deriv = T{0};
     bool first_ = true;
@@ -697,7 +692,7 @@ struct ContinuousPID {
             if (runtime_mode == PIDRuntimeMode::Tracking) {
                 return damp::clamp(u_track, u_min, u_max);
             }
-            return damp::clamp((Kp * ((b * r) - y)) + (Ki * integral), u_min, u_max);
+            return damp::clamp((Kp * ((b * r) - y)) + integral + deriv, u_min, u_max);
         }
 
         const T cr_minus_y = (c * r) - y;
@@ -714,20 +709,18 @@ struct ContinuousPID {
         const T e = r - y;
 
         if (runtime_mode == PIDRuntimeMode::Tracking) {
-            if (Ki != T{0}) {
-                const T target = ((u_track - (Kp * ((b * r) - y)) - deriv) / Ki) - (e * Ts);
-                integral = damp::clamp(target, i_min, i_max);
-            }
+            const T target = u_track - (Kp * ((b * r) - y)) - deriv - (Ki * e * Ts);
+            integral = damp::clamp(target, i_min, i_max);
             return damp::clamp(u_track, u_min, u_max);
         }
 
-        integral += e * Ts;
+        integral += Ki * e * Ts;
         integral = damp::clamp(integral, i_min, i_max);
-        const T u_unsat = (Kp * ((b * r) - y)) + (Ki * integral) + deriv;
+        const T u_unsat = (Kp * ((b * r) - y)) + integral + deriv;
         const T u = damp::clamp(u_unsat, u_min, u_max);
 
-        if (Kbc != T{0}) {
-            integral += (Ts / Kbc) * (u - u_unsat);
+        if (Kbc != T{0} && Ki != T{0}) {
+            integral += Ki * (Ts / Kbc) * (u - u_unsat);
             integral = damp::clamp(integral, i_min, i_max);
         }
 
@@ -759,13 +752,13 @@ struct ContinuousPID {
     [[nodiscard]] constexpr bool is_enabled() const { return runtime_mode == PIDRuntimeMode::Auto; }
 
     /**
-     * @brief Anti-windup hook: ΔI += (u_sat − u_unsat) * Ts / Kbc
+     * @brief Anti-windup hook: ΔI += Ki · (u_sat − u_unsat) · Ts / Kbc
      */
     constexpr void back_calculate(T u_unsat, T u_sat, T Ts) {
-        if (Kbc == T{0} || u_unsat == u_sat) {
+        if (Kbc == T{0} || Ki == T{0} || u_unsat == u_sat) {
             return;
         }
-        integral += Ts * ((u_sat - u_unsat) / Kbc);
+        integral += Ki * Ts * ((u_sat - u_unsat) / Kbc);
         integral = damp::clamp(integral, i_min, i_max);
     }
 };
