@@ -649,19 +649,15 @@ pid_pole_placement(T K, T tau, T p1, T p2, T Ts) {
         return PIDResult<T>{};
     }
 
-    // PI controller: C(z) = Kp + Ki*Ts/(z-1)
-    // Closed-loop characteristic equation: (z - a)(z - 1) + b*(Kp*(z-1) + Ki*Ts) = 0
-    // Expanding: z² - (a+1)z + a + b*Kp*z - b*Kp + b*Ki*Ts = 0
-    // = z² + (b*Kp - a - 1)*z + (a - b*Kp + b*Ki*Ts) = 0
-    //
-    // Desired: (z - p1)(z - p2) = z² - (p1+p2)*z + p1*p2 = 0
-    //
-    // Matching coefficients:
-    // b*Kp - a - 1 = -(p1 + p2)    => Kp = (a + 1 - p1 - p2) / b
-    // a - b*Kp + b*Ki*Ts = p1*p2   => Ki = (p1*p2 - a + b*Kp) / (b*Ts)
+    // Deploy is PIDResult::discretize + PIDController: I ← I + (Ki Ts) e[k],
+    // so C(z) = Kp + Ki Ts · z/(z−1) (backward Euler). Match
+    //   (z−a)(z−1) + b (Kp (z−1) + Ki Ts z) = (z−p1)(z−p2).
+    // z² + (b Kp + b Ki Ts − a − 1) z + (a − b Kp) = z² − (p1+p2) z + p1 p2
+    //   a − b Kp = p1 p2                 => Kp = (a − p1 p2) / b
+    //   b Kp + b Ki Ts = 1+a − (p1+p2)   => Ki from the leftover.
 
-    T Kp = (a + T{1} - p1 - p2) / b;
-    T Ki = ((p1 * p2) - a + (b * Kp)) / (b * Ts);
+    const T Kp = (a - (p1 * p2)) / b;
+    const T Ki = ((T{1} + a) - (p1 + p2) - (b * Kp)) / (b * Ts);
 
     return PIDResult<T>{Kp, Ki, T{0}};
 }
@@ -694,30 +690,22 @@ pid_pole_placement(T K, T tau, T p1, T p2, T p3, T Ts) {
         return PIDResult<T>{};
     }
 
-    // PID controller in z-domain: C(z) = (Kp*(z-1) + Ki*Ts + Kd*(z-1)²/Ts) / (z-1)
-    // = (Kd/Ts * z² + (Kp - 2*Kd/Ts)*z + (-Kp + Kd/Ts + Ki*Ts)) / (z*(z-1))
-    //
-    // Open-loop: C(z)*G(z) = b * (Kd/Ts*z² + (Kp-2Kd/Ts)*z + (-Kp+Kd/Ts+Ki*Ts)) / (z*(z-1)*(z-a))
-    //
-    // Closed-loop char poly: z*(z-1)*(z-a) + b*(Kd/Ts*z² + (Kp-2Kd/Ts)*z + (-Kp+Kd/Ts+Ki*Ts)) = 0
-    // = z³ - (1+a)*z² + a*z + b*Kd/Ts*z² + b*(Kp-2Kd/Ts)*z + b*(-Kp+Kd/Ts+Ki*Ts)
-    // = z³ + (b*Kd/Ts - 1 - a)*z² + (a + b*Kp - 2*b*Kd/Ts)*z + b*(-Kp + Kd/Ts + Ki*Ts)
-    //
-    // Desired: (z-p1)(z-p2)(z-p3) = z³ - (p1+p2+p3)*z² + (p1p2+p1p3+p2p3)*z - p1*p2*p3
-    //
-    // Matching coefficients:
-    T sum_p = p1 + p2 + p3;
-    T sum_pp = (p1 * p2) + (p1 * p3) + (p2 * p3);
-    T prod_p = p1 * p2 * p3;
+    // Deploy (Tf = 0): C(z) = Kp + Ki Ts z/(z−1) + (Kd/Ts)(z−1)/z.
+    // Closed-loop:
+    //   z(z−1)(z−a) + b [Kp z(z−1) + Ki Ts z² + (Kd/Ts)(z−1)²]
+    //     = z³ + (−(1+a) + b Kp + b Ki Ts + b Kd/Ts) z²
+    //         + (a − b Kp − 2 b Kd/Ts) z + b Kd/Ts
+    // Desired: (z−p1)(z−p2)(z−p3) = z³ − σ z² + ρ z − π
+    const T sigma = p1 + p2 + p3;
+    const T rho = (p1 * p2) + (p1 * p3) + (p2 * p3);
+    const T prod = p1 * p2 * p3;
 
-    // b*Kd/Ts - 1 - a = -sum_p => Kd = (1 + a - sum_p) * Ts / b
-    T Kd = (T{1} + a - sum_p) * Ts / b;
-
-    // a + b*Kp - 2*b*Kd/Ts = sum_pp => Kp = (sum_pp - a + 2*b*Kd/Ts) / b
-    T Kp = (sum_pp - a + (T{2} * b * Kd / Ts)) / b;
-
-    // b*(-Kp + Kd/Ts + Ki*Ts) = -prod_p => Ki = (-prod_p/b + Kp - Kd/Ts) / Ts
-    T Ki = ((-prod_p / b) + Kp - (Kd / Ts)) / Ts;
+    // b Kd/Ts = −π
+    const T Kd = -(prod * Ts) / b;
+    // b Kp + 2 b Kd/Ts = a − ρ
+    const T Kp = (a - rho - (T{2} * b * Kd / Ts)) / b;
+    // b Kp + b Ki Ts + b Kd/Ts = 1 + a − σ
+    const T Ki = ((T{1} + a - sigma) - (b * Kp) - (b * Kd / Ts)) / (b * Ts);
 
     return PIDResult<T>{Kp, Ki, Kd};
 }

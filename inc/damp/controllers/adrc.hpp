@@ -39,8 +39,8 @@ struct ADRCResult {
 
     damp::array<T, NX + 1> beta{}; ///< ESO gains
 
-    T Kp{}; ///< Proportional gain
-    T Kd{}; ///< Derivative gain
+    T Kp{}; ///< Unscaled proportional gain (wc or wc²); tick divides by b0
+    T Kd{}; ///< Unscaled derivative gain (0 or 2·wc); tick divides by b0
 
     bool success{false}; ///< true if wc, wo, b0 are finite and strictly positive
 
@@ -63,9 +63,10 @@ struct ADRCResult {
  *
  * Designs ESO gains using pole placement for observer poles at -wo.
  * Places all poles at -wo for the extended system.
- * Controller gains are computed based on system order:
- * - 1st order: Kp = wc/b0, Kd = 0
- * - 2nd order: Kp = wc²/b0, Kd = 2*wc/b0
+ * Controller gains are unscaled (b0 is applied only in the runtime law
+ * u = (u0 − f̂)/b0):
+ * - 1st order: Kp = wc, Kd = 0
+ * - 2nd order: Kp = wc², Kd = 2·wc
  *
  * Only plant orders NX = 1 and NX = 2 are supported (same surface as typical
  * linear ADRC toolboxes / MATLAB® discrete ADRC). Higher-order ADRC is out of
@@ -109,7 +110,7 @@ template<size_t NX, typename T = double>
             .wo = wo,
             .b0 = b0,
             .beta = beta,
-            .Kp = wc / b0,
+            .Kp = wc,
             .Kd = T{0},
             .success = true,
         };
@@ -120,8 +121,8 @@ template<size_t NX, typename T = double>
             .wo = wo,
             .b0 = b0,
             .beta = beta,
-            .Kp = (wc * wc) / b0,
-            .Kd = (T{2} * wc) / b0,
+            .Kp = wc * wc,
+            .Kd = T{2} * wc,
             .success = true,
         };
     }

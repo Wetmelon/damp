@@ -42,14 +42,14 @@ inline constexpr double Ts = 0.01;    // 100 Hz control
  */
 [[nodiscard]] constexpr auto linearize_upright() {
     // Jacobian of cart_pole_sil nonlinear ODE at (x,u)=0 (θ from upright).
-    // ẍ gets gravity coupling −(m g / M) θ; θ̈ uses ẍ cosθ / ℓ so a43 = g/ℓ.
+    // θ̈ = (g sinθ − ẍ cosθ)/ℓ ⇒ a42 = +b/(Mℓ), a43 = (M+m)g/(Mℓ), b4 = −1/(Mℓ).
     const double denom = M;
     const double a22 = -b_fric / denom;
     const double a23 = -(m_pole * g) / denom;
-    const double a42 = a22 / L; // = −b/(M ℓ)
-    const double a43 = g / L;   // = (M+m)g/(M ℓ) + a23/ℓ
+    const double a42 = -a22 / L;                        // = +b/(M ℓ)
+    const double a43 = ((M + m_pole) * g) / (denom * L); // = (M+m)g/(M ℓ)
     const double b2 = 1.0 / denom;
-    const double b4 = b2 / L; // = 1/(M ℓ)
+    const double b4 = -b2 / L; // = −1/(M ℓ)
 
     Matrix<4, 4> A{
         {0.0, 1.0, 0.0, 0.0},

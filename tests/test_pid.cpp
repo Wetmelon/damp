@@ -142,8 +142,8 @@ TEST_SUITE("PID Mode Control") {
                                    0.0f,
                                    -1.0f,
                                    1.0f,
-                                   -std::numeric_limits<float>::max(),
-                                   std::numeric_limits<float>::max(),
+                                   -std::numeric_limits<float>::infinity(),
+                                   std::numeric_limits<float>::infinity(),
                                    0.5f
         )
                                    .discretize(Ts)};

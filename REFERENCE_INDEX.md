@@ -20,8 +20,8 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`AdaptOutOfRange`](inc/damp/toolbox/lookup.hpp#L48) | enum | Embedded helpers (controls-adjacent utilities) | How AdaptiveLut1D / AdaptiveLut2D treat samples outside the breakpoint span |
 | [`AdmmSettings`](inc/damp/design/qp.hpp#L713) | block | Design-time synthesis (not PWM-rate) | Tuning parameters for the ADMM QP solver |
 | [`AdmmSolver`](inc/damp/design/qp.hpp#L752) | block | Design-time synthesis (not PWM-rate) | ADMM (OSQP-style) QP solver policy — warm-started, fixed-cost iterations |
-| [`adrc`](inc/damp/controllers/adrc.hpp#L86) | function | Design-time synthesis (not PWM-rate) | Active Disturbance Rejection Control design |
-| [`ADRCController`](inc/damp/controllers/adrc.hpp#L148) | block | Runtime controllers | Active Disturbance Rejection Control (ADRC) |
+| [`adrc`](inc/damp/controllers/adrc.hpp#L87) | function | Design-time synthesis (not PWM-rate) | Active Disturbance Rejection Control design |
+| [`ADRCController`](inc/damp/controllers/adrc.hpp#L149) | block | Runtime controllers | Active Disturbance Rejection Control (ADRC) |
 | [`ADRCResult`](inc/damp/controllers/adrc.hpp#L33) | block | Design-time synthesis (not PWM-rate) | Active Disturbance Rejection Control design result |
 | [`AffineCal`](inc/damp/toolbox/scaling.hpp#L83) | block | Embedded helpers (controls-adjacent utilities) | Affine sensor calibration `y = gain·x + offset` |
 | [`allmargin`](inc/damp/matlab.hpp#L936) | function | MATLAB®-style aliases (host) | Gain, phase, and delay margins of a SISO loop over a frequency grid |
@@ -281,7 +281,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`impulseplot`](inc/damp/simulation/plot_plotly.hpp#L733) | function | Simulation / SIL harness (host) | Plot an impulse response, one trace per input/output pair |
 | [`ImpulseResult`](inc/damp/estimation/excitation/impulse.hpp#L52) | block | Observers & estimators | Impulse design payload |
 | [`ImuSample`](inc/damp/estimation/ins_mechanization.hpp#L125) | block | Observers & estimators | IMU sample in the body frame |
-| [`InductorCurrentPIResult`](inc/damp/design/pid_design.hpp#L835) | block | Design-time synthesis (not PWM-rate) | Fixed-rate inductor current-loop PI (topology-agnostic) |
+| [`InductorCurrentPIResult`](inc/damp/design/pid_design.hpp#L823) | block | Design-time synthesis (not PWM-rate) | Fixed-rate inductor current-loop PI (topology-agnostic) |
 | [`infinity_norm`](inc/damp/matrix/functions.hpp#L35) | function | Linear algebra | Infinity norm ‖A‖∞: maximum absolute row sum |
 | [`initial`](inc/damp/analysis/time_response.hpp#L219) | function | Frequency-domain analysis (host) | Initial-condition (free) response of a (MIMO) state-space system |
 | [`ins_aid_position`](inc/damp/estimation/ins_eskf.hpp#L503) | function | Observers & estimators | Predicted antenna / marker position with body lever-arm |
@@ -513,7 +513,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`Periodic`](inc/damp/toolbox/timing.hpp#L125) | block | Embedded helpers (controls-adjacent utilities) | Periodic trigger — fires once per elapsed period |
 | [`phase_margin_from_damping_ratio`](inc/damp/design/pid_design.hpp#L540) | function | Design-time synthesis (not PWM-rate) | Approximate phase margin from damping ratio |
 | [`phase_margin_unwrapped`](inc/damp/analysis/frequency.hpp#L166) | function | Frequency-domain analysis (host) | Find phase margin using unwrapped phase trajectory |
-| [`pi_pole_placement_first_order`](inc/damp/design/pid_design.hpp#L769) | function | Design-time synthesis (not PWM-rate) | PI gains that place the closed-loop poles of a first-order plant (+1 more overload) |
+| [`pi_pole_placement_first_order`](inc/damp/design/pid_design.hpp#L757) | function | Design-time synthesis (not PWM-rate) | PI gains that place the closed-loop poles of a first-order plant (+1 more overload) |
 | [`pid`](inc/damp/controllers/pid.hpp#L218) | function | Design-time synthesis (not PWM-rate) | 2-DOF continuous PID controller design |
 | [`pid`](inc/damp/matlab.hpp#L161) | function | MATLAB®-style aliases (host) | MATLAB®-style parallel-form continuous PID constructor |
 | [`pid_from_bandwidth`](inc/damp/design/pid_design.hpp#L432) | function | Design-time synthesis (not PWM-rate) | Design PID from desired bandwidth and phase margin |

@@ -280,9 +280,10 @@ TEST_SUITE("PID Design - Pole Placement") {
         double a = std::exp(-Ts / tau);
         double b = K * (1.0 - a);
 
-        // Closed-loop char poly: z² + (b*Kp - a - 1)*z + (a - b*Kp + b*Ki*Ts)
-        double c1 = (b * result.Kp) - a - 1.0;
-        double c0 = a - (b * result.Kp) + (b * result.Ki * Ts);
+        // Backward-Euler PI: (z−a)(z−1) + b (Kp (z−1) + Ki Ts z)
+        // = z² + (b Kp + b Ki Ts − a − 1) z + (a − b Kp)
+        double c1 = (b * result.Kp) + (b * result.Ki * Ts) - a - 1.0;
+        double c0 = a - (b * result.Kp);
 
         // Should equal desired: z² - (p1+p2)*z + p1*p2
         CHECK(c1 == doctest::Approx(-(p1 + p2)).epsilon(1e-10));
@@ -301,6 +302,16 @@ TEST_SUITE("PID Design - Pole Placement") {
         CHECK(result.Kp != 0.0);
         CHECK(result.Ki != 0.0);
         CHECK(result.Kd != 0.0);
+
+        // Deploy C(z) = Kp + Ki Ts z/(z−1) + (Kd/Ts)(z−1)/z
+        const double a = std::exp(-Ts / tau);
+        const double b = K * (1.0 - a);
+        const double c2 = -(1.0 + a) + (b * result.Kp) + (b * result.Ki * Ts) + (b * result.Kd / Ts);
+        const double c1 = a - (b * result.Kp) - (2.0 * b * result.Kd / Ts);
+        const double c0 = b * result.Kd / Ts;
+        CHECK(c2 == doctest::Approx(-(p1 + p2 + p3)).epsilon(1e-10));
+        CHECK(c1 == doctest::Approx((p1 * p2) + (p1 * p3) + (p2 * p3)).epsilon(1e-10));
+        CHECK(c0 == doctest::Approx(-(p1 * p2 * p3)).epsilon(1e-10));
     }
 
     TEST_CASE("Pole placement at origin gives deadbeat") {
@@ -313,8 +324,8 @@ TEST_SUITE("PID Design - Pole Placement") {
 
         double a = std::exp(-Ts / tau);
         double b = K * (1.0 - a);
-        double c1 = (b * result.Kp) - a - 1.0;
-        double c0 = a - (b * result.Kp) + (b * result.Ki * Ts);
+        double c1 = (b * result.Kp) + (b * result.Ki * Ts) - a - 1.0;
+        double c0 = a - (b * result.Kp);
 
         // Both poles at 0: z² - 0*z + 0 → c1 = 0, c0 = 0
         CHECK(c1 == doctest::Approx(0.0).epsilon(1e-10));

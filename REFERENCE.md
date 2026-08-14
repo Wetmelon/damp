@@ -230,7 +230,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`DiscretePIDResult`](inc/damp/controllers/pid.hpp#L44) | Fixed-rate discrete PID coefficients (canonical deploy form) |
 | [`ESCResult`](inc/damp/controllers/esc.hpp#L103) | Design result for the extremum-seeking controller |
 | [`HarmonicSuppressorResult`](inc/damp/controllers/harmonic_suppression.hpp#L45) | Design result for a multi-resonant harmonic suppressor |
-| [`InductorCurrentPIResult`](inc/damp/design/pid_design.hpp#L835) | Fixed-rate inductor current-loop PI (topology-agnostic) |
+| [`InductorCurrentPIResult`](inc/damp/design/pid_design.hpp#L823) | Fixed-rate inductor current-loop PI (topology-agnostic) |
 | [`InteriorPointSolver`](inc/damp/design/qp.hpp#L1163) | Interior-point QP solver policy for damp::MPC |
 | [`JordanBlock`](inc/damp/design/pole_placement.hpp#L831) | One Jordan mini-block of a desired closed-loop spectrum |
 | [`JordanObjective`](inc/damp/design/pole_placement.hpp#L1165) | Robustness objective for place_jordan_optimal (the paper's two methods) |
@@ -270,7 +270,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | Name | Description |
 | ---- | ----------- |
 | [`ackermann`](inc/damp/design/pole_placement.hpp#L1582) | Single-input pole placement via Ackermann's formula |
-| [`adrc`](inc/damp/controllers/adrc.hpp#L86) | Active Disturbance Rejection Control design |
+| [`adrc`](inc/damp/controllers/adrc.hpp#L87) | Active Disturbance Rejection Control design |
 | [`amigo_kappa_tau`](inc/damp/design/pid_design.hpp#L237) | AMIGO PI from ultimate gain/period and static gain Kₛ |
 | [`balanced_realization`](inc/damp/design/model_reduction.hpp#L569) | Descriptive alias for balreal |
 | [`balanced_truncation`](inc/damp/design/model_reduction.hpp#L586) | Descriptive alias for balred |
@@ -332,7 +332,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`observability_matrix`](inc/damp/design/stability.hpp#L82) | Compute the observability matrix [C; CA; CA²; ...; CA^(N-1)] |
 | [`OffsetFreeMPC`](inc/damp/controllers/offset_free_mpc.hpp#L258) | Deduce the runtime from its artifacts: OffsetFreeMPC controller{art}; |
 | [`phase_margin_from_damping_ratio`](inc/damp/design/pid_design.hpp#L540) | Approximate phase margin from damping ratio |
-| [`pi_pole_placement_first_order`](inc/damp/design/pid_design.hpp#L769) | PI gains that place the closed-loop poles of a first-order plant (+1 more overload) |
+| [`pi_pole_placement_first_order`](inc/damp/design/pid_design.hpp#L757) | PI gains that place the closed-loop poles of a first-order plant (+1 more overload) |
 | [`pid`](inc/damp/controllers/pid.hpp#L218) | 2-DOF continuous PID controller design |
 | [`pid_from_bandwidth`](inc/damp/design/pid_design.hpp#L432) | Design PID from desired bandwidth and phase margin |
 | [`pid_from_performance_spec`](inc/damp/design/pid_design.hpp#L603) | Design PID directly from settling-time and overshoot targets |
@@ -378,7 +378,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | Name | Description |
 | ---- | ----------- |
 | [`ActionGovernor`](inc/damp/controllers/action_governor.hpp#L331) | Runtime action governor — QP projection of u_des onto A u ≤ b |
-| [`ADRCController`](inc/damp/controllers/adrc.hpp#L148) | Active Disturbance Rejection Control (ADRC) |
+| [`ADRCController`](inc/damp/controllers/adrc.hpp#L149) | Active Disturbance Rejection Control (ADRC) |
 | [`BoxCommandFilter`](inc/damp/controllers/action_governor.hpp#L119) | Runtime box command filter — closed-form clamp per tick |
 | [`Cascade`](inc/damp/controllers/composition.hpp#L49) | Series cascade of two SISO controllers: outer → inner reference |
 | [`CBFConstraint`](inc/damp/controllers/action_governor.hpp#L283) | One affine row from a relative-degree-1 CBF condition |

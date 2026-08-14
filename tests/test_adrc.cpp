@@ -35,8 +35,8 @@ TEST_SUITE("Active Disturbance Rejection Control (ADRC)") {
             CHECK(adrc_result.beta[i] == doctest::Approx(expected_beta[i]).epsilon(1e-6));
         }
 
-        // Check Kp and Kd gains for 1st order
-        double expected_Kp = wc / b0;
+        // Unscaled PD: b0 is applied only in the runtime law (u0 − f̂)/b0
+        double expected_Kp = wc;
         double expected_Kd = 0.0;
 
         CHECK(adrc_result.Kp == doctest::Approx(expected_Kp).epsilon(1e-6));
@@ -65,9 +65,9 @@ TEST_SUITE("Active Disturbance Rejection Control (ADRC)") {
             CHECK(adrc_result.beta[i] == doctest::Approx(expected_beta[i]).epsilon(1e-6));
         }
 
-        // Check Kp and Kd gains
-        double expected_Kp = (wc * wc) / b0;
-        double expected_Kd = (2 * wc) / b0;
+        // Unscaled PD: b0 is applied only in the runtime law (u0 − f̂)/b0
+        double expected_Kp = wc * wc;
+        double expected_Kd = 2 * wc;
 
         CHECK(adrc_result.Kp == doctest::Approx(expected_Kp).epsilon(1e-6));
         CHECK(adrc_result.Kd == doctest::Approx(expected_Kd).epsilon(1e-6));
@@ -143,6 +143,30 @@ TEST_SUITE("Active Disturbance Rejection Control (ADRC)") {
         }
         CHECK(y == doctest::Approx(r).epsilon(0.01));   // converged to setpoint
         CHECK(v == doctest::Approx(0.0).epsilon(1e-3)); // and settled (no residual velocity)
+    }
+
+    TEST_CASE("2nd-order runtime: b0 != 1 scales the first command as 1/b0") {
+        const double Ts = 1e-3;
+        const double wc = 10.0;
+        const double wo = 50.0;
+        auto         c1 = ADRCController<2, double>(design::adrc<2>(wc, wo, 1.0));
+        auto         c2 = ADRCController<2, double>(design::adrc<2>(wc, wo, 2.0));
+        const double u1 = c1.control(1.0, 0.0, Ts);
+        const double u2 = c2.control(1.0, 0.0, Ts);
+        // Fresh ESO: z = 0, so u = Kp r / b0 = wc² r / b0 (no extra 1/b0).
+        CHECK(u1 == doctest::Approx(wc * wc).epsilon(1e-12));
+        CHECK(u2 == doctest::Approx(u1 / 2.0).epsilon(1e-12));
+
+        double y = 0.0, v = 0.0;
+        const double b = 2.0, d = 0.3, r = 1.0;
+        auto         ctrl = ADRCController<2, double>(design::adrc<2>(wc, wo, b));
+        for (int k = 0; k < 30000; ++k) {
+            const double u = ctrl.control(r, y, Ts);
+            v += (b * u + d) * Ts;
+            y += v * Ts;
+        }
+        CHECK(y == doctest::Approx(r).epsilon(0.01));
+        CHECK(v == doctest::Approx(0.0).epsilon(1e-3));
     }
 
     TEST_CASE("reset clears the observer state") {

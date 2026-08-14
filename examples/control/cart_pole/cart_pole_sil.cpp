@@ -45,8 +45,8 @@ static ColVec<4, double> cart_pole_f(double /*t*/, const ColVec<4, double>& x, c
 
     // ẍ = (u − b ẋ + m sin(θ) (L θ̇² − g cos(θ))) / denom
     const double x_ddot = (force - (b_fric * x_dot) + (m_pole * s * ((L * theta_dot * theta_dot) - (g * c)))) / denom;
-    // θ̈ = (ẍ cos(θ))/L + (M+m) g sin(θ) / (L denom)
-    const double theta_ddot = ((x_ddot * c) / L) + (((M + m_pole) * g * s) / (L * denom));
+    // θ̈ = (g sin(θ) − ẍ cos(θ)) / L
+    const double theta_ddot = ((g * s) - (x_ddot * c)) / L;
 
     return ColVec<4, double>{x_dot, x_ddot, theta_dot, theta_ddot};
 }

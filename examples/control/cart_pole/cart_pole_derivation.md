@@ -68,11 +68,13 @@ D = M + m\, s^2
 \\
 \ddot\theta
 &=
-\frac{\ddot p\, c}{\ell}
-+
-\frac{(M+m)\, g\, s}{\ell\, D}
+\frac{g\, s - \ddot p\, c}{\ell}
 \end{aligned}
 ```
+
+The $`\ddot\theta`$ identity is the point-mass moment balance
+($`x_p = p + \ell\sin\theta`$, $`\theta = 0`$ upright). $`\ddot p`$ already
+substitutes that identity into the cart force balance.
 
 First-order form for integration: $`\dot x = f(x,u)`$ with $`\dot p = x_2`$, $`\dot\theta = x_4`$.
 
@@ -83,9 +85,8 @@ First-order form for integration: $`\dot x = f(x,u)`$ with $`\dot p = x_2`$, $`\
 At the origin $`x = 0`$, $`u = 0`$: $`s \approx \theta`$, $`c \approx 1`$, $`\dot\theta = 0`$, $`D \to M`$.
 
 Jacobian of the nonlinear plant at the origin (matches `linearize_upright()`).
-Gravity couples into cart acceleration ($`a_{23}`$); pole-rate row inherits that
-through $`\ddot\theta \supset \ddot p\, c/\ell`$, which simplifies $`a_{43}`$ to
-$`g/\ell`$:
+$`\ddot\theta = (g\theta - \ddot p)/\ell`$ at the origin, so the pole row inherits
+$`-\ddot p/\ell`$ (force-to-$`\theta`$ is opposite the cart acceleration):
 
 ```math
 \begin{aligned}
@@ -99,10 +100,10 @@ $`g/\ell`$:
 \\
 \ddot\theta
 &=
--\frac{b}{M \ell}\,\dot p
+\frac{b}{M \ell}\,\dot p
 +
-\frac{g}{\ell}\,\theta
-+
+\frac{(M+m) g}{M \ell}\,\theta
+-
 \frac{1}{M \ell}\, F
 \end{aligned}
 ```
@@ -115,7 +116,7 @@ A =
 0 & 1 & 0 & 0 \\
 0 & -b/M & -m g/M & 0 \\
 0 & 0 & 0 & 1 \\
-0 & -b/(M\ell) & g/\ell & 0
+0 & b/(M\ell) & (M+m)g/(M\ell) & 0
 \end{bmatrix}
 ,\qquad
 B =
@@ -123,7 +124,7 @@ B =
 0 \\
 1/M \\
 0 \\
-1/(M\ell)
+-1/(M\ell)
 \end{bmatrix}
 ```
 
@@ -135,12 +136,12 @@ A =
 0 & 1 & 0 & 0 \\
 0 & -0.1 & -0.981 & 0 \\
 0 & 0 & 0 & 1 \\
-0 & -0.2 & 19.62 & 0
+0 & 0.2 & 21.582 & 0
 \end{bmatrix}
 ,\qquad
 B =
 \begin{bmatrix}
-0 \\ 1 \\ 0 \\ 2
+0 \\ 1 \\ 0 \\ -2
 \end{bmatrix}
 ```
 
@@ -154,11 +155,11 @@ a_{23}
 \\
 a_{43}
 &=
-g/\ell
+(M+m)g/(M\ell)
 =
-9.81 / 0.5
+1.1 \times 9.81 / 0.5
 =
-19.62
+21.582
 \end{aligned}
 ```
 
@@ -188,7 +189,7 @@ SISO maps $`p(s)/F(s)`$ and $`\theta(s)/F(s)`$ are the corresponding rows of
 G(s) = C(sI - A)^{-1} B
 ```
 
-with the $`A,B,C`$ above (fourth-order, one RHP pole from upright $`a_{43}=g/\ell`$).
+with the $`A,B,C`$ above (fourth-order, one RHP pole from upright $`a_{43}=(M+m)g/(M\ell)`$).
 LQR design uses the state-space form directly; expand $`G(s)`$ only if you need Bode
 slices of a single output.
 

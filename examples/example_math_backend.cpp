@@ -52,31 +52,34 @@
 #include <cstdio>
 #include <numbers>
 
-#include "damp/math/math.hpp"
+#include "damp/math/transforms.hpp"
 #include "damp/matrix/colvec.hpp"
 
 using namespace damp;
 
 int main() {
-    // Runtime transcendentals go through MathBackend<float>. With
-    // DAMP_MATH_BACKEND_DAMP (or a custom DAMP_MATH_BACKEND_HEADER), runtime math
-    // uses that backend; this example's damp_profile keeps the default std:: path.
-    constexpr float theta = std::numbers::pi_v<float> / 4.0f; // 45°
+    // Park/Clarke transforms — these call damp::sin and damp::cos at runtime,
+    // so they dispatch through MathBackend<float>. With DAMP_MATH_BACKEND_DAMP
+    // (or a custom DAMP_MATH_BACKEND_HEADER), runtime math uses that backend;
+    // this example's damp_profile keeps the default std:: path.
+    float theta = std::numbers::pi_v<float> / 4.0f; // 45° rotor angle
 
-    const float s = damp::sin(theta);
-    const float c = damp::cos(theta);
-    const float r = damp::sqrt(s * s + c * c);
+    // Simulate three-phase motor currents
+    damp::ColVec<3, float> iabc = {1.0f, -0.5f, -0.5f};
 
-    // Small matrix product also exercises backend float arithmetic end-to-end.
-    const ColVec<2, float> v{{s, c}};
-    const float            n = v.norm();
+    // ABC → αβ (Clarke) → dq (Park)
+    auto [alpha, beta] = clarke_transform(iabc);
+    auto [id, iq] = park_transform({alpha, beta}, theta);
 
-    std::printf("\n=== MathBackend dispatch (damp::sin / cos / sqrt) ===\n");
-    std::printf("theta = %.4f rad\n", double(theta));
-    std::printf("sin   = %.4f\n", double(s));
-    std::printf("cos   = %.4f\n", double(c));
-    std::printf("hypot = %.4f  (expect 1)\n", double(r));
-    std::printf("||v|| = %.4f  (expect 1)\n", double(n));
+    // dq → αβ (inverse Park) → ABC (inverse Clarke)
+    auto [alpha2, beta2] = inverse_park_transform({id, iq}, theta);
+    auto iabc2 = inverse_clarke_transform<float>({alpha2, beta2});
+
+    std::printf("\n=== FOC transforms (uses damp::sin, damp::cos → MathBackend) ===\n");
+    std::printf("ABC in:  [%.4f, %.4f, %.4f]\n", double(iabc[0]), double(iabc[1]), double(iabc[2]));
+    std::printf("αβ:      [%.4f, %.4f]\n", double(alpha), double(beta));
+    std::printf("dq:      [%.4f, %.4f]\n", double(id), double(iq));
+    std::printf("ABC out: [%.4f, %.4f, %.4f]\n", double(iabc2[0]), double(iabc2[1]), double(iabc2[2]));
 
     return 0;
 }
