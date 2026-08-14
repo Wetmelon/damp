@@ -39,6 +39,7 @@ local product_dirs = {
     'control/pid',
     'control/lpf',
     'control/workflow_end_to_end',
+    'control/adrc',
     'estimation/eskf',
     'estimation/ins_navigator',
     'estimation/ins_eskf',
@@ -82,6 +83,9 @@ local plot_outputs = {
     ins_mechanization_sil = {'plots/estimation/ins_mechanization_3d.html'},
     cart_pole_sil = {
         'plots/control/cart_pole_lqr.html',
+    },
+    adrc_sil = {
+        'plots/control/adrc_vs_pid.html',
     },
     pendulum_sil = {
         'plots/control/pendulum_sim.html',

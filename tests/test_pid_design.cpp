@@ -346,6 +346,43 @@ TEST_SUITE("PID Design - Pole Placement") {
     }
 }
 
+TEST_SUITE("PID Design - Double-integrator pole placement") {
+    TEST_CASE("PD places a critically-damped pair on 1/(J s^2)") {
+        constexpr double J = 0.05;
+        constexpr double w = 8.0;
+        constexpr auto   r = design::pid_pole_placement_double_integrator(J, w);
+        static_assert(r.Ki == 0.0);
+        CHECK(r.Kp == doctest::Approx(J * w * w));
+        CHECK(r.Kd == doctest::Approx(2.0 * J * w));
+        CHECK(r.Ki == doctest::Approx(0.0));
+        CHECK(r.c == doctest::Approx(0.0));
+        CHECK(r.Kbc == doctest::Approx(r.Kp));
+        CHECK(r.Tf == doctest::Approx(1.0 / (10.0 * w)));
+    }
+
+    TEST_CASE("PID places (s^2 + 2ζω s + ω^2)(s + ωi)") {
+        constexpr double J = 0.05;
+        constexpr double w = 8.0;
+        constexpr double z = 1.0;
+        constexpr double wi = w / 8.0;
+        constexpr auto   r = design::pid_pole_placement_double_integrator(J, w, z, wi);
+        CHECK(r.Kd == doctest::Approx(J * (2.0 * z * w + wi)));
+        CHECK(r.Kp == doctest::Approx(J * ((w * w) + (2.0 * z * w * wi))));
+        CHECK(r.Ki == doctest::Approx(J * w * w * wi));
+        // Characteristic J s³ + Kd s² + Kp s + Ki
+        CHECK(r.Kd / J == doctest::Approx(2.0 * z * w + wi));
+        CHECK(r.Kp / J == doctest::Approx(w * w + 2.0 * z * w * wi));
+        CHECK(r.Ki / J == doctest::Approx(w * w * wi));
+    }
+
+    TEST_CASE("bad J / bandwidth / zeta / omega_i return zeros") {
+        CHECK(design::pid_pole_placement_double_integrator(0.0, 8.0).Kp == 0.0);
+        CHECK(design::pid_pole_placement_double_integrator(0.05, -1.0).Kp == 0.0);
+        CHECK(design::pid_pole_placement_double_integrator(0.05, 8.0, 0.0).Kp == 0.0);
+        CHECK(design::pid_pole_placement_double_integrator(0.05, 8.0, 1.0, -0.1).Kp == 0.0);
+    }
+}
+
 TEST_SUITE("PID Design - Type Conversion") {
     TEST_CASE("Design result converts to PIDController via discretize") {
         constexpr double Ts = 0.01;

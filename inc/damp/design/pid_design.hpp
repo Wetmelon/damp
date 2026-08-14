@@ -27,6 +27,7 @@
  * - Lambda tuning (setpoint tracking, robustness-focused)
  * - Bandwidth-based design (specify desired closed-loop bandwidth)
  * - Direct pole placement (specify desired closed-loop poles for discretized PID)
+ * - Double-integrator / inertia PID (bandwidth + optional I pole)
  * - SIMC (Skogestad IMC) rules for FOPDT/SOPDT models
  * - Tyreus-Luyben (conservative Ziegler-Nichols variant)
  */
@@ -797,6 +798,72 @@ pi_pole_placement_first_order(const TransferFunction<1, 2, T>& plant, T omega_bw
         return PIDResult<T>{}; // degenerate plant (no input gain) -> inert PI
     }
     return pi_pole_placement_first_order(plant.den[1] / b0, plant.den[0] / b0, omega_bw, zeta, b);
+}
+
+/**
+ * @brief PID (or PD) pole placement for a rigid inertia @f$ G(s) = 1/(J s^2) @f$
+ *
+ * Sibling of @ref pi_pole_placement_first_order for the other everyday motion
+ * plant: a double integrator (position loop on a flywheel / mass, no rate
+ * measurement). A PD has two free gains, so it can place the two closed-loop
+ * poles of @f$ J\ddot\theta = u @f$. Matching
+ * @f$ s^2 + (K_d/J)s + K_p/J @f$ to @f$ s^2 + 2\zeta\omega s + \omega^2 @f$
+ * gives
+ * @f[
+ *   K_p = J\omega^2,\qquad K_d = 2\zeta\omega J .
+ * @f]
+ * Optional @p omega_i > 0 adds an integrator and places the third pole at
+ * @f$ -\omega_i @f$:
+ * @f[
+ *   (s^2 + 2\zeta\omega s + \omega^2)(s + \omega_i).
+ * @f]
+ * A common load-holding choice is @p omega_i = @p omega_bw / 8 (I a decade
+ * slower than the PD pair). @p omega_i = 0 is pure PD.
+ *
+ * Derivative is on the measurement (@f$ c = 0 @f$, no D kick on a reference
+ * step). @f$ T_f = 1/(10\omega) @f$ when there is a D term. Back-calculation
+ * is seeded to @f$ K_p @f$ (same @f$ T_t = T_i @f$ default as the first-order
+ * PI helper).
+ *
+ * @note Compare with MATLAB®'s pidtune on tf(1,[J 0 0]) for the PD part.
+ * @see pi_pole_placement_first_order — velocity / current (one integrator)
+ * @see "Feedback Control of Dynamic Systems" (Franklin et al.), PD on 1/s²
+ *
+ * @param J        [kg·m²] inertia (> 0)
+ * @param omega_bw [rad/s] desired PD-pair frequency (> 0)
+ * @param zeta     [-]     PD-pair damping (default 1, critically damped)
+ * @param omega_i  [rad/s] integrator pole; 0 = PD only (default)
+ * @return PIDResult with Kp, Ki, Kd, Kbc, c, Tf; zeros if J, ω, or ζ is not
+ *         strictly positive, or if ωᵢ < 0
+ */
+template<typename T = double>
+[[nodiscard]] constexpr PIDResult<T> pid_pole_placement_double_integrator(
+    T J, T omega_bw, T zeta = T{1}, T omega_i = T{0}
+) {
+    if (!(J > T{0}) || !(omega_bw > T{0}) || !(zeta > T{0}) || omega_i < T{0}) {
+        return PIDResult<T>{};
+    }
+
+    const T w = omega_bw;
+    const T two_zw = T{2} * zeta * w;
+    T       Kp = J * (w * w);
+    T       Kd = J * two_zw;
+    T       Ki = T{0};
+    if (omega_i > T{0}) {
+        // (s² + 2ζω s + ω²)(s + ωᵢ) = s³ + (2ζω+ωᵢ)s² + (ω²+2ζω ωᵢ)s + ω² ωᵢ
+        Kp = J * ((w * w) + (two_zw * omega_i));
+        Kd = J * (two_zw + omega_i);
+        Ki = J * (w * w) * omega_i;
+    }
+
+    PIDResult<T> r{};
+    r.Kp = Kp;
+    r.Ki = Ki;
+    r.Kd = Kd;
+    r.Kbc = Kp;
+    r.c = T{0}; // PI-D / PD on measurement
+    r.Tf = (Kd > T{0}) ? (T{1} / (T{10} * w)) : T{0};
+    return r;
 }
 
 /**

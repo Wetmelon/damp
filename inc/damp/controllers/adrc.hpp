@@ -208,24 +208,26 @@ public:
      */
     [[nodiscard]] constexpr T control(T r, T y, T Ts) {
         // Invalid design or non-positive b0 would divide-by-zero in the control law.
-        // Hold the ESO and emit no correction (same gate pattern as SMC).
+        // Hold the ESO and emit no correction.
         if (!valid_ || !(b0 > T{0})) {
             return T{0};
         }
 
         // --- Linear ESO, explicit-Euler update using the last applied command.
         // Plant model: y^(NX) = f + b0·u, with z = [ŷ, ŷ̇, …, ŷ^(NX-1), f̂].
+        // Ts <= 0: hold the observer but still form u from z.
         const T e = z[0] - y; // estimation error (ŷ − y)
+        if (Ts > T{0}) {
+            damp::array<T, NX + 1> dz{};
+            for (size_t i = 0; i < NX; ++i) {
+                dz[i] = z[i + 1] - (beta[i] * e); // ż_i = ẑ_{i+1} − β_i·e
+            }
+            dz[NX - 1] += b0 * u_prev_; // b0·u enters the highest derivative state
+            dz[NX] = -(beta[NX] * e);   // ḟ̂ = −β_{NX+1}·e
 
-        damp::array<T, NX + 1> dz{};
-        for (size_t i = 0; i < NX; ++i) {
-            dz[i] = z[i + 1] - (beta[i] * e); // ż_i = ẑ_{i+1} − β_i·e
-        }
-        dz[NX - 1] += b0 * u_prev_; // b0·u enters the highest derivative state
-        dz[NX] = -(beta[NX] * e);   // ḟ̂ = −β_{NX+1}·e
-
-        for (size_t i = 0; i <= NX; ++i) {
-            z[i] += Ts * dz[i];
+            for (size_t i = 0; i <= NX; ++i) {
+                z[i] += Ts * dz[i];
+            }
         }
 
         // --- Control law: PD on the estimated state, minus the disturbance.
@@ -260,6 +262,12 @@ public:
     }
 
     [[nodiscard]] constexpr bool valid() const { return valid_; }
+
+    /// ESO state [ŷ, (ŷ̇,) f̂] — plot these when commissioning.
+    [[nodiscard]] constexpr const ColVec<NX + 1, T>& observer() const { return z; }
+
+    /// Command the ESO used last tick (post-`back_calculate` if you called it).
+    [[nodiscard]] constexpr T last_command() const { return u_prev_; }
 
     constexpr void reset() {
         z = ColVec<NX + 1, T>{};

@@ -16,6 +16,7 @@ tup — open an example folder as a reference and build with your own tree;
 | IMU / INS / ESKF | `estimation/` | [`estimation/eskf/`](estimation/eskf/) |
 
 Also useful: [`control/pid/`](control/pid/), [`control/pendulum/`](control/pendulum/),
+[`control/adrc/`](control/adrc/) (ADRC vs PI-D SIL),
 [`estimation/ins_navigator/`](estimation/ins_navigator/).
 
 Motor, power, and full motion pack demos are not in this public tree.

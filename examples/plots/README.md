@@ -16,6 +16,7 @@ Open a file in a browser after generation. Shared Plotly JS: `js/plotly.min.js`.
 | Plot | Example folder |
 | ---- | -------------- |
 | `cart_pole_lqr.html` | [`../control/cart_pole/`](../control/cart_pole/) |
+| `adrc_vs_pid.html` | [`../control/adrc/`](../control/adrc/) |
 | `pendulum_sim.html`, `pendulum_phase.html`, `pendulum_sim_high_q.html` | [`../control/pendulum/`](../control/pendulum/) |
 | `input_shaper_resonance.html` | [`../control/input_shaper/`](../control/input_shaper/) |
 | `multirate_rig.html` | [`../control/multirate_rig/`](../control/multirate_rig/) |
