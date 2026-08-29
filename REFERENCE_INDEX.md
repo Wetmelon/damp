@@ -111,6 +111,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`ComplementaryFilter`](inc/damp/estimation/sensor_fusion.hpp#L64) | block | Observers & estimators | Simple complementary filter for orientation estimation |
 | [`complex`](inc/damp/math/complex.hpp#L38) | block | Scalar math, complex & frames | Constexpr complex number class for compile-time computations |
 | [`compute_eigenvalues`](inc/damp/matrix/eigen.hpp#L382) | function | Linear algebra | Compute the eigenvalues (and Schur vectors) of a real square matrix |
+| [`constant_power_torque_limit`](inc/damp/motor/foc.hpp#L41) | function | Motor control pack (if present) | Constant-power torque ceiling Tₘₐₓ = P_rated / \|ω\| |
 | [`ConstantInertiaFeedforward`](inc/damp/toolbox/actuator.hpp#L197) | block | Embedded helpers (controls-adjacent utilities) | Per-axis decoupled torque feedforward: `τ = J·a + b·v + τ_c·sign(v) + g` |
 | [`continuous_lpf_exact_step`](inc/damp/filters/lowpass.hpp#L37) | function | Filters & signal conditioning | Exact step of continuous first-order LPF ẏ = −ω_c (y − u) |
 | [`continuous_lqr`](inc/damp/controllers/lqr.hpp#L377) | function | Design-time synthesis (not PWM-rate) | Continuous-time Linear-Quadratic Regulator design (+1 more overload) |
@@ -136,6 +137,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`DCM`](inc/damp/math/geometry.hpp#L63) | block | Scalar math, complex & frames | Direction cosine matrix — 3×3 rotation (SO(3) wrapper over Mat3) |
 | [`deadband`](inc/damp/toolbox/conditioning.hpp#L47) | function | Embedded helpers (controls-adjacent utilities) | Dead zone over `[lower, upper]`, matching Simulink®'s Dead Zone block (+1 more overload) |
 | [`Debounce`](inc/damp/toolbox/logic.hpp#L213) | block | Embedded helpers (controls-adjacent utilities) | Debounce: the output adopts in only after in differs from the current output continuously for stable_time. Rejects contact bounce and brief glitches. (Not an IEC block — the one everyone hand-rolls.) |
+| [`decoupling_feedforward`](inc/damp/motor/foc.hpp#L69) | function | Motor control pack (if present) | Decoupling + back-EMF feedforward at R = 0 (reference currents) |
 | [`default_tol`](inc/damp/matrix/matrix_traits.hpp#L86) | function | Linear algebra | Type-appropriate default tolerance for floating-point comparisons. float  ~7 decimal digits  → 1e-6 double ~15 decimal digits → 1e-12 |
 | [`deg2rad`](inc/damp/math/math.hpp#L492) | function | Scalar math, complex & frames | Degrees to radians, deg·π/180 |
 | [`Delay`](inc/damp/filters/delay.hpp#L27) | block | Filters & signal conditioning | Discrete-time delay buffer |
@@ -165,8 +167,11 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`DOB`](inc/damp/estimation/dob.hpp#L153) | block | Observers & estimators | Lightweight SISO disturbance observer runtime |
 | [`DOBConfig`](inc/damp/estimation/dob.hpp#L31) | block | Observers & estimators | Configuration for a first-order disturbance observer |
 | [`DP45`](inc/damp/simulation/integrator.hpp#L757) | block | Simulation / SIL harness (host) | Dormand-Prince 5(4) adaptive integrator — the ode45 pair |
+| [`dpwm_zero_sequence`](inc/damp/motor/modulation.hpp#L265) | function | Motor control pack (if present) | DPWM zero-sequence for a chosen discontinuous scheme |
+| [`DqCommand`](inc/damp/motor/foc.hpp#L83) | block | Motor control pack (if present) | Clamped dq voltage command from FOController::current_controller |
 | [`DrivePair`](inc/damp/toolbox/io.hpp#L315) | block | Embedded helpers (controls-adjacent utilities) | Left/right actuator pair (differential/arcade drive output) |
 | [`DsogiPll`](inc/damp/filters/pll.hpp#L282) | block | Filters & signal conditioning | Dual-SOGI three-phase positive-sequence PLL (DSOGI-PLL) |
+| [`duties_from_phase_voltages`](inc/damp/motor/modulation.hpp#L357) | function | Motor control pack (if present) | Map phase voltages + zero-sequence to clamped half-bridge duties |
 | [`eig`](inc/damp/matlab.hpp#L473) | function | MATLAB®-style aliases (host) | MATLAB® short alias for the eigenvalues of a square matrix |
 | [`EigenResult`](inc/damp/matrix/eigen.hpp#L34) | block | Linear algebra | Eigenvalue computation result |
 | [`EKFMeasFn`](inc/damp/estimation/ekf.hpp#L82) | concept | Observers & estimators | Concept for EKF measurement functions |
@@ -230,7 +235,10 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`fixed_solve`](inc/damp/simulation/solver.hpp#L243) | function | Simulation / SIL harness (host) | Fixed-step solve in one call |
 | [`FixedStepSolver`](inc/damp/simulation/solver.hpp#L118) | block | Simulation / SIL harness (host) | Fixed-step ODE solver (+1 more overload) |
 | [`floor`](inc/damp/math/math.hpp#L317) | function | Scalar math, complex & frames | Floor — largest integer ≤ x |
+| [`flux_from_Kv`](inc/damp/motor/spm.hpp#L55) | function | Motor control pack (if present) | λ from Kᵥ via torque_constant_from_Kv |
+| [`flux_from_torque_constant`](inc/damp/motor/spm.hpp#L37) | function | Motor control pack (if present) | λ from datasheet Kₜ (amplitude / peak-per-phase convention) |
 | [`fmod`](inc/damp/math/math.hpp#L361) | function | Scalar math, complex & frames | Floating-point remainder, x − y·trunc(x/y) (sign of x), matching std::fmod's truncated-quotient convention |
+| [`FOController`](inc/damp/motor/foc.hpp#L98) | block | Motor control pack (if present) | dq current regulator: PI + decoupling FF → clamped Vdq |
 | [`forward_substitute`](inc/damp/matrix/solve.hpp#L37) | function | Linear algebra | Forward substitution for Lx = b |
 | [`ForwardEuler`](inc/damp/simulation/integrator.hpp#L169) | block | Simulation / SIL harness (host) | Forward Euler integrator |
 | [`FrequencyPoint`](inc/damp/analysis/frequency.hpp#L38) | block | Frequency-domain analysis (host) | Single-point frequency response result |
@@ -316,6 +324,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`inverse_park_clarke_transform`](inc/damp/math/transforms.hpp#L405) | function | Scalar math, complex & frames | Fused inverse Park-Clarke transform (dq → abc) |
 | [`inverse_park_transform`](inc/damp/math/transforms.hpp#L358) | function | Scalar math, complex & frames | Inverse Park transform (dq → αβ) |
 | [`inverse_symmetrical_components`](inc/damp/math/transforms.hpp#L551) | function | Scalar math, complex & frames | Inverse symmetrical-component transform (012 → abc) |
+| [`iq_from_torque`](inc/damp/motor/spm.hpp#L71) | function | Motor control pack (if present) | i_q = T_e / Kₜ for id = 0 |
 | [`is_closed_loop_stable_discrete`](inc/damp/design/stability.hpp#L245) | function | Design-time synthesis (not PWM-rate) | Check closed-loop stability for discrete system with state feedback |
 | [`is_controllable`](inc/damp/design/stability.hpp#L176) | function | Design-time synthesis (not PWM-rate) | Check if a system is controllable |
 | [`is_fault`](inc/damp/toolbox/conditioning.hpp#L382) | function | Embedded helpers (controls-adjacent utilities) | True for a wire fault (FaultLow/FaultHigh) — i.e. not a real reading at all |
@@ -348,6 +357,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`lerp`](inc/damp/toolbox/scaling.hpp#L35) | function | Embedded helpers (controls-adjacent utilities) | Linear interpolation between a and b by fraction t |
 | [`LeverrierResult`](inc/damp/systems/zpk.hpp#L500) | block | LTI systems (SS / TF / ZPK / discretize) | Faddeev–LeVerrier characteristic polynomial and adjoint coefficient matrices |
 | [`LIMIT`](inc/damp/toolbox/iec61131.hpp#L598) | function | Embedded helpers (controls-adjacent utilities) | LIMIT (IEC 61131-3 selection function): clamp in to [mn, mx] |
+| [`linear_modulation_voltage`](inc/damp/motor/modulation.hpp#L127) | function | Motor control pack (if present) | Peak phase voltage at the linear SVPWM hexagon limit |
 | [`linear_screw`](inc/damp/toolbox/actuator.hpp#L166) | function | Embedded helpers (controls-adjacent utilities) | Build a ServoAxis for a linear axis driven by a leadscrew/belt |
 | [`LinearizationResult`](inc/damp/design/linearization.hpp#L45) | block | Design-time synthesis (not PWM-rate) | Result of nonlinear operating-point linearization |
 | [`linearize`](inc/damp/design/linearization.hpp#L139) | function | Design-time synthesis (not PWM-rate) | Linearize nonlinear dynamics and output maps about an operating point (+1 more overload) |
@@ -427,6 +437,8 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`MatrixLike`](inc/damp/matrix/matrix_traits.hpp#L70) | concept | Linear algebra | Concept for any type that provides 2D matrix-like element access |
 | [`MatrixLikeOf`](inc/damp/matrix/matrix_traits.hpp#L80) | concept | Linear algebra | Concept for a MatrixLike type with specific dimensions |
 | [`max`](inc/damp/matrix/core.hpp#L823) | function | Linear algebra | Addition of two MatrixLike types (with broadcasting support) (+1 more overload) |
+| [`max_iq`](inc/damp/motor/spm.hpp#L111) | function | Motor control pack (if present) | Max positive i_q for an SPM (i_d = 0) at electrical speed |
+| [`max_torque_at_speed`](inc/damp/motor/spm.hpp#L172) | function | Motor control pack (if present) | SPM max-torque point at a mechanical speed (i_d = 0 only) |
 | [`MeasJacobian`](inc/damp/estimation/ekf.hpp#L69) | block | Observers & estimators | Measurement prediction result from the user's observation function |
 | [`mecanum_drive`](inc/damp/toolbox/io.hpp#L514) | function | Embedded helpers (controls-adjacent utilities) | Mecanum (H-layout, 45° rollers) mixer — alias for holonomic_drive |
 | [`mechanize_step_from_corrected`](inc/damp/estimation/ins_mechanization.hpp#L173) | function | Observers & estimators | One dead-reckoning step from an IMU sample (strapdown mechanization) |
@@ -447,6 +459,11 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`ModeExtractorResult`](inc/damp/estimation/frequency_response.hpp#L428) | block | Observers & estimators | Result of reducing an FRF table to at most MaxModes peaks (resonances) |
 | [`ModelReductionMethod`](inc/damp/design/model_reduction.hpp#L58) | enum | Design-time synthesis (not PWM-rate) | Method for eliminating states in modred |
 | [`modred`](inc/damp/design/model_reduction.hpp#L518) | function | Design-time synthesis (not PWM-rate) | Model reduction by truncation or DC-matched residualization |
+| [`modulation_duty_cycles`](inc/damp/motor/modulation.hpp#L396) | function | Motor control pack (if present) | Carrier-based VSI duty cycles from an αβ voltage command |
+| [`modulation_index`](inc/damp/motor/modulation.hpp#L165) | function | Motor control pack (if present) | Modulation index relative to the linear SVPWM circle |
+| [`modulation_zero_sequence`](inc/damp/motor/modulation.hpp#L323) | function | Motor control pack (if present) | Zero-sequence for any PwmScheme |
+| [`Modulator`](inc/damp/motor/modulation.hpp#L493) | block | Motor control pack (if present) | Thin scheme-holding wrapper for FOC / deploy paths |
+| [`motor_constant`](inc/damp/motor/spm.hpp#L63) | function | Motor control pack (if present) | Motor constant Kₘ = Kₜ / √R [Nm/√W] |
 | [`MovingAverage`](inc/damp/filters/moving_average.hpp#L62) | block | Filters & signal conditioning | Moving-average (boxcar) filter — also a DC-preserving harmonic-notch comb |
 | [`MPC`](inc/damp/controllers/mpc.hpp#L907) | function | Design-time synthesis (not PWM-rate) | Deduce the runtime from its artifacts: MPC controller{art}; (+1 more overload) |
 | [`mpc`](inc/damp/controllers/offset_free_mpc.hpp#L132) | function | Design-time synthesis (not PWM-rate) | Synthesize an offset-free constrained MPC (controller + estimator) |
@@ -569,6 +586,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`PRResult`](inc/damp/controllers/pr.hpp#L72) | block | Design-time synthesis (not PWM-rate) | Proportional-Resonant controller design result |
 | [`pseudo_inverse`](inc/damp/matrix/svd.hpp#L303) | function | Linear algebra | Moore–Penrose pseudoinverse A⁺ via SVD |
 | [`PulseTimer`](inc/damp/toolbox/logic.hpp#L170) | block | Embedded helpers (controls-adjacent utilities) | Pulse timer (non-retriggerable): a rising edge of in emits a fixed |
+| [`PwmScheme`](inc/damp/motor/modulation.hpp#L79) | enum | Motor control pack (if present) | Carrier-based three-phase VSI modulation scheme |
 | [`pzmap`](inc/damp/analysis/poles.hpp#L154) | function | Frequency-domain analysis (host) | Pole-zero map of a SISO transfer function (MATLAB® `pzmap(tf)`) (+2 more overloads) |
 | [`pzplot`](inc/damp/simulation/plot_plotly.hpp#L848) | function | Simulation / SIL harness (host) | Plot a pole-zero map on the complex plane (poles as ×, zeros as ○) |
 | [`QPResult`](inc/damp/design/qp.hpp#L82) | block | Design-time synthesis (not PWM-rate) | Result of a dense QP solve |
@@ -672,6 +690,8 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`siso_ref`](inc/damp/simulation/simulate.hpp#L90) | function | Simulation / SIL harness (host) | Build a SisoReferenceAdapter for a SISO `control(r,y)` controller |
 | [`SisoController`](inc/damp/concepts.hpp#L74) | concept | Core, configuration & backend vocabulary | Scalar output-feedback controller: u = control(r, y), fixed rate |
 | [`SisoReferenceAdapter`](inc/damp/simulation/simulate.hpp#L71) | block | Simulation / SIL harness (host) | Adapt a SISO `control(r, y)` controller for callables that want `u = f(y)` or `u = f(t, y)` (the older simulate contracts) |
+| [`six_step_duty_cycles`](inc/damp/motor/modulation.hpp#L462) | function | Motor control pack (if present) | Classical six-step (full-wave) duty pattern from the αβ angle |
+| [`six_step_fundamental_voltage`](inc/damp/motor/modulation.hpp#L146) | function | Motor control pack (if present) | Six-step (square-wave) fundamental peak phase voltage |
 | [`SlewLimiter`](inc/damp/toolbox/conditioning.hpp#L268) | block | Embedded helpers (controls-adjacent utilities) | Slew-rate limiter: bound how fast the output may follow the target |
 | [`smc`](inc/damp/controllers/smc.hpp#L59) | function | Design-time synthesis (not PWM-rate) | Bundle hand-picked SMC parameters into an SMCResult |
 | [`SMCController`](inc/damp/controllers/smc.hpp#L136) | block | Runtime controllers | First-order sliding-mode controller (SMC) for a SISO plant |
@@ -708,6 +728,8 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`StateJacobian`](inc/damp/estimation/ekf.hpp#L41) | block | Observers & estimators | State prediction result from the user's dynamics function |
 | [`StateSpace`](inc/damp/systems/state_space.hpp#L125) | block | LTI systems (SS / TF / ZPK / discretize) | State-space representation for linear time-invariant systems (discrete or continuous) |
 | [`StateSpaceZPKResult`](inc/damp/systems/zpk.hpp#L570) | block | LTI systems (SS / TF / ZPK / discretize) | SISO state-space → ZPK conversion result with runtime zero count |
+| [`steady_state_vdq`](inc/damp/motor/spm.hpp#L79) | function | Motor control pack (if present) | Steady-state Vdq (rotor frame) |
+| [`steady_state_voltage_magnitude`](inc/damp/motor/spm.hpp#L92) | function | Motor control pack (if present) | \|Vdq\| at a steady-state operating point |
 | [`SteadyStateKalmanFilter`](inc/damp/estimation/kalman.hpp#L426) | block | Observers & estimators | Steady-state (fixed-gain) Kalman estimator for LQG-class designs |
 | [`steer_map`](inc/damp/toolbox/io.hpp#L452) | function | Embedded helpers (controls-adjacent utilities) | Curve-driven steering map — arbitrary `(throttle, turn)` geometry |
 | [`steinhart_hart`](inc/damp/toolbox/thermistor.hpp#L118) | function | Embedded helpers (controls-adjacent utilities) | Fit the Steinhart-Hart coefficients from three calibration points |
@@ -740,6 +762,9 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`svd`](inc/damp/matrix/svd.hpp#L246) | function | Linear algebra | Full singular value decomposition A = U·Σ·Vᴴ (one-sided Jacobi) |
 | [`svd`](inc/damp/matlab.hpp#L437) | function | MATLAB®-style aliases (host) | MATLAB® short alias for the singular value decomposition |
 | [`SVDResult`](inc/damp/matrix/svd.hpp#L228) | block | Linear algebra | Result of a full singular value decomposition A = U·Σ·Vᴴ |
+| [`svm_duty_cycles`](inc/damp/motor/modulation.hpp#L439) | function | Motor control pack (if present) | Space-vector PWM duty cycles from an αβ voltage command |
+| [`SvmDuties`](inc/damp/motor/modulation.hpp#L103) | block | Motor control pack (if present) | Result of a duty-map: half-bridge duties plus an over-modulation flag |
+| [`svpwm_zero_sequence`](inc/damp/motor/modulation.hpp#L200) | function | Motor control pack (if present) | Min-max zero-sequence injection for space-vector PWM |
 | [`Switch`](inc/damp/toolbox/io.hpp#L282) | block | Embedded helpers (controls-adjacent utilities) | Debounced maintained switch (toggle/selector contact) with change flag |
 | [`SwitchedController`](inc/damp/controllers/composition.hpp#L117) | block | Runtime controllers | Bumpless-ish switch between normal, experiment, and backup SISO laws |
 | [`SwitchMode`](inc/damp/controllers/composition.hpp#L94) | enum | Runtime controllers | Which path owns the plant command |
@@ -754,6 +779,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`ThermalKalmanObserver`](inc/damp/toolbox/thermal.hpp#L248) | block | Embedded helpers (controls-adjacent utilities) | Runtime thermal-network Kalman observer |
 | [`Thermistor`](inc/damp/toolbox/thermistor.hpp#L166) | block | Embedded helpers (controls-adjacent utilities) | NTC thermistor linearization (resistance → temperature) |
 | [`ThermistorCoeffs`](inc/damp/toolbox/thermistor.hpp#L41) | block | Embedded helpers (controls-adjacent utilities) | Fitted NTC coefficients in Steinhart-Hart form |
+| [`thipwm_zero_sequence`](inc/damp/motor/modulation.hpp#L226) | function | Motor control pack (if present) | Third-harmonic injection (THIPWM) zero-sequence — 1/6 of fundamental |
 | [`ThreePhasePLL`](inc/damp/filters/pll.hpp#L141) | block | Filters & signal conditioning | Synchronous-reference-frame (SRF) PLL for balanced three-phase input |
 | [`Timeout`](inc/damp/toolbox/timing.hpp#L78) | block | Embedded helpers (controls-adjacent utilities) | One-shot timeout |
 | [`TimeResponse`](inc/damp/analysis/time_response.hpp#L51) | block | Frequency-domain analysis (host) | Multi-channel time-domain response sampled on a time grid |
@@ -766,6 +792,11 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`Toggle`](inc/damp/toolbox/logic.hpp#L245) | block | Embedded helpers (controls-adjacent utilities) | Toggle (T flip-flop): output flips on each rising edge of in |
 | [`TON`](inc/damp/toolbox/iec61131.hpp#L183) | block | Embedded helpers (controls-adjacent utilities) | TON Timer (Timer On Delay) |
 | [`Tone`](inc/damp/estimation/excitation/multi_sine.hpp#L29) | block | Observers & estimators | One sinusoidal component in a multi-sine excitation |
+| [`torque`](inc/damp/motor/spm.hpp#L103) | function | Motor control pack (if present) | Electromagnetic torque of an SPM (i_d = 0): T_e = Kₜ i_q |
+| [`torque_constant_from_flux`](inc/damp/motor/spm.hpp#L29) | function | Motor control pack (if present) | Kₜ = 1½ p λ [Nm/A] (amplitude-invariant) |
+| [`torque_constant_from_Kv`](inc/damp/motor/spm.hpp#L46) | function | Motor control pack (if present) | Kₜ from hobby Kᵥ [RPM/V] (peak line-to-line / bus-volt sense) |
+| [`torque_speed_envelope`](inc/damp/motor/spm.hpp#L203) | function | Motor control pack (if present) | Fixed table of SPM torque–speed envelope samples (host / LUT bake) |
+| [`TorqueSpeedPoint`](inc/damp/motor/spm.hpp#L144) | block | Motor control pack (if present) | One sample of the SPM torque–speed envelope (MTPA i_d=0 branch) |
 | [`TP`](inc/damp/toolbox/iec61131.hpp#L271) | block | Embedded helpers (controls-adjacent utilities) | TP Timer (Timer Pulse) |
 | [`TrajectoryBoundary`](inc/damp/trajectory/trajectory_types.hpp#L178) | block | Trajectory value types | Boundary conditions at one endpoint of a polynomial trajectory: a position and its time derivatives through jerk |
 | [`TrajectoryLimits`](inc/damp/trajectory/trajectory_types.hpp#L45) | block | Trajectory value types | Asymmetric kinematic limits for a trapezoidal or S-curve motion profile |
@@ -787,6 +818,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`UnscentedParams`](inc/damp/estimation/ukf.hpp#L81) | block | Observers & estimators | Tuning parameters for the scaled unscented transform |
 | [`unwrap_phase_deg`](inc/damp/analysis/frequency.hpp#L125) | function | Frequency-domain analysis (host) | Unwrap phase data in degrees to avoid +/-180 discontinuities |
 | [`UpperTriangle`](inc/damp/matrix/views.hpp#L114) | block | Linear algebra | Upper triangular view of a square matrix |
+| [`voltage_circle_radius`](inc/damp/motor/foc.hpp#L57) | function | Motor control pack (if present) | SVPWM voltage-circle radius Vₘₐₓ = m · Vdc / √3 |
 | [`WarmStartActiveSetSolver`](inc/damp/design/qp.hpp#L654) | block | Design-time synthesis (not PWM-rate) | Warm-started active-set solver policy — the damp::MPC default |
 | [`with_schroeder_phases`](inc/damp/estimation/excitation/multi_sine.hpp#L160) | function | Observers & estimators | Assign Schroeder low-crest-factor phases to a multi-sine tone table |
 | [`wrap`](inc/damp/math/math.hpp#L509) | function | Scalar math, complex & frames | Wrap x into the half-open interval [min, max) (period max − min) |

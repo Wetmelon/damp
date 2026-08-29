@@ -18,6 +18,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
   - [Filters \& signal conditioning](#filters--signal-conditioning)
   - [Trajectory value types](#trajectory-value-types)
   - [Kinematics / pose](#kinematics--pose)
+  - [Motor control pack (if present)](#motor-control-pack-if-present)
   - [Embedded helpers (controls-adjacent utilities)](#embedded-helpers-controls-adjacent-utilities)
   - [Frequency-domain analysis (host)](#frequency-domain-analysis-host)
   - [Simulation / SIL harness (host)](#simulation--sil-harness-host)
@@ -663,6 +664,50 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`Pose`](inc/damp/kinematics/pose.hpp#L60) | Rigid-body pose: a translation and an orientation (unit quaternion) |
 | [`Translation3`](inc/damp/kinematics/pose.hpp#L37) | A 3-D translation — a thin Vec3 with domain-named conveniences |
 
+## Motor control pack (if present)
+
+**Blocks (structs, classes, enums, concepts)**
+
+| Name | Description |
+| ---- | ----------- |
+| [`DqCommand`](inc/damp/motor/foc.hpp#L83) | Clamped dq voltage command from FOController::current_controller |
+| [`FOController`](inc/damp/motor/foc.hpp#L98) | dq current regulator: PI + decoupling FF → clamped Vdq |
+| [`Modulator`](inc/damp/motor/modulation.hpp#L493) | Thin scheme-holding wrapper for FOC / deploy paths |
+| [`PwmScheme`](inc/damp/motor/modulation.hpp#L79) | Carrier-based three-phase VSI modulation scheme |
+| [`SvmDuties`](inc/damp/motor/modulation.hpp#L103) | Result of a duty-map: half-bridge duties plus an over-modulation flag |
+| [`TorqueSpeedPoint`](inc/damp/motor/spm.hpp#L144) | One sample of the SPM torque–speed envelope (MTPA i_d=0 branch) |
+
+**Functions**
+
+| Name | Description |
+| ---- | ----------- |
+| [`constant_power_torque_limit`](inc/damp/motor/foc.hpp#L41) | Constant-power torque ceiling Tₘₐₓ = P_rated / \|ω\| |
+| [`decoupling_feedforward`](inc/damp/motor/foc.hpp#L69) | Decoupling + back-EMF feedforward at R = 0 (reference currents) |
+| [`dpwm_zero_sequence`](inc/damp/motor/modulation.hpp#L265) | DPWM zero-sequence for a chosen discontinuous scheme |
+| [`duties_from_phase_voltages`](inc/damp/motor/modulation.hpp#L357) | Map phase voltages + zero-sequence to clamped half-bridge duties |
+| [`flux_from_Kv`](inc/damp/motor/spm.hpp#L55) | λ from Kᵥ via torque_constant_from_Kv |
+| [`flux_from_torque_constant`](inc/damp/motor/spm.hpp#L37) | λ from datasheet Kₜ (amplitude / peak-per-phase convention) |
+| [`iq_from_torque`](inc/damp/motor/spm.hpp#L71) | i_q = T_e / Kₜ for id = 0 |
+| [`linear_modulation_voltage`](inc/damp/motor/modulation.hpp#L127) | Peak phase voltage at the linear SVPWM hexagon limit |
+| [`max_iq`](inc/damp/motor/spm.hpp#L111) | Max positive i_q for an SPM (i_d = 0) at electrical speed |
+| [`max_torque_at_speed`](inc/damp/motor/spm.hpp#L172) | SPM max-torque point at a mechanical speed (i_d = 0 only) |
+| [`modulation_duty_cycles`](inc/damp/motor/modulation.hpp#L396) | Carrier-based VSI duty cycles from an αβ voltage command |
+| [`modulation_index`](inc/damp/motor/modulation.hpp#L165) | Modulation index relative to the linear SVPWM circle |
+| [`modulation_zero_sequence`](inc/damp/motor/modulation.hpp#L323) | Zero-sequence for any PwmScheme |
+| [`motor_constant`](inc/damp/motor/spm.hpp#L63) | Motor constant Kₘ = Kₜ / √R [Nm/√W] |
+| [`six_step_duty_cycles`](inc/damp/motor/modulation.hpp#L462) | Classical six-step (full-wave) duty pattern from the αβ angle |
+| [`six_step_fundamental_voltage`](inc/damp/motor/modulation.hpp#L146) | Six-step (square-wave) fundamental peak phase voltage |
+| [`steady_state_vdq`](inc/damp/motor/spm.hpp#L79) | Steady-state Vdq (rotor frame) |
+| [`steady_state_voltage_magnitude`](inc/damp/motor/spm.hpp#L92) | \|Vdq\| at a steady-state operating point |
+| [`svm_duty_cycles`](inc/damp/motor/modulation.hpp#L439) | Space-vector PWM duty cycles from an αβ voltage command |
+| [`svpwm_zero_sequence`](inc/damp/motor/modulation.hpp#L200) | Min-max zero-sequence injection for space-vector PWM |
+| [`thipwm_zero_sequence`](inc/damp/motor/modulation.hpp#L226) | Third-harmonic injection (THIPWM) zero-sequence — 1/6 of fundamental |
+| [`torque`](inc/damp/motor/spm.hpp#L103) | Electromagnetic torque of an SPM (i_d = 0): T_e = Kₜ i_q |
+| [`torque_constant_from_flux`](inc/damp/motor/spm.hpp#L29) | Kₜ = 1½ p λ [Nm/A] (amplitude-invariant) |
+| [`torque_constant_from_Kv`](inc/damp/motor/spm.hpp#L46) | Kₜ from hobby Kᵥ [RPM/V] (peak line-to-line / bus-volt sense) |
+| [`torque_speed_envelope`](inc/damp/motor/spm.hpp#L203) | Fixed table of SPM torque–speed envelope samples (host / LUT bake) |
+| [`voltage_circle_radius`](inc/damp/motor/foc.hpp#L57) | SVPWM voltage-circle radius Vₘₐₓ = m · Vdc / √3 |
+
 > **Embedded helpers — controls-adjacent utilities (not ETL)**
 
 ## Embedded helpers (controls-adjacent utilities)
@@ -1012,7 +1057,7 @@ Internal, compile-time-selected implementations of the `damp::` scalar-math surf
 
 ## Examples
 
-Runnable programs in `examples/` (29 total). Build with `make` (or `tup --quiet examples`); outputs go to `examples/build/`.
+Runnable programs in `examples/` (31 total). Build with `make` (or `tup --quiet examples`); outputs go to `examples/build/`.
 
 | Example | Description |
 | ------- | ----------- |
@@ -1027,6 +1072,8 @@ Runnable programs in `examples/` (29 total). Build with `make` (or `tup --quiet 
 | [`example_math_backend.cpp`](examples/example_math_backend.cpp) | Pluggable math backend example |
 | [`fo_plant_inertia_sil.cpp`](examples/estimation/fo_plant_inertia/fo_plant_inertia_sil.cpp) | Online J,b from FirstOrderPlantEstimator — host identification demo |
 | [`fo_plant_inertia_sketch.cpp`](examples/estimation/fo_plant_inertia/fo_plant_inertia_sketch.cpp) | FO plant inertia ID — thin deploy-shaped smoke |
+| [`foc_sil.cpp`](examples/motor/foc/foc_sil.cpp) | Host teaching plot: FOC current-loop PI vs I-P (calls foc_controller.hpp) |
+| [`foc_sketch.cpp`](examples/motor/foc/foc_sketch.cpp) | FOC current-loop — thin smoke sketch (host teaching demo) |
 | [`imu_pose_sil.cpp`](examples/estimation/imu_pose/imu_pose_sil.cpp) | Animated body-frame triad from gyro integration (IMU attitude only) |
 | [`imu_pose_sketch.cpp`](examples/estimation/imu_pose/imu_pose_sketch.cpp) | Open-loop gyro attitude — thin smoke (teaching) |
 | [`ins_eskf_sil.cpp`](examples/estimation/ins_eskf/ins_eskf_sil.cpp) | Animated INS: free-run bias vs InsNavigator (position + dual-antenna heading) |

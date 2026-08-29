@@ -96,8 +96,8 @@ int main() {
         plant_adrc.J = inertia_at(tk);
         plant_pid.J = inertia_at(tk);
 
-        double ua = control_period_adrc(adrc, rk, plant_adrc.theta);
-        double up = control_period_pid(pid, rk, plant_pid.theta);
+        double       ua = control_period_adrc(adrc, rk, plant_adrc.theta);
+        double       up = control_period_pid(pid, rk, plant_pid.theta);
         const double ua_sat = damp::clamp(ua, -u_max, u_max);
         const double up_sat = damp::clamp(up, -u_max, u_max);
         adrc.back_calculate(ua, ua_sat);

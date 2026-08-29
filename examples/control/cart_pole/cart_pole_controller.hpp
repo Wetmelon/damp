@@ -46,7 +46,7 @@ inline constexpr double Ts = 0.01;    // 100 Hz control
     const double denom = M;
     const double a22 = -b_fric / denom;
     const double a23 = -(m_pole * g) / denom;
-    const double a42 = -a22 / L;                        // = +b/(M ℓ)
+    const double a42 = -a22 / L;                         // = +b/(M ℓ)
     const double a43 = ((M + m_pole) * g) / (denom * L); // = (M+m)g/(M ℓ)
     const double b2 = 1.0 / denom;
     const double b4 = -b2 / L; // = −1/(M ℓ)

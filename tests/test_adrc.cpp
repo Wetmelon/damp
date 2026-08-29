@@ -158,7 +158,7 @@ TEST_SUITE("Active Disturbance Rejection Control (ADRC)") {
         CHECK(u1 == doctest::Approx(wc * wc).epsilon(1e-12));
         CHECK(u2 == doctest::Approx(u1 / 2.0).epsilon(1e-12));
 
-        double y = 0.0, v = 0.0;
+        double       y = 0.0, v = 0.0;
         const double b = 2.0, d = 0.3, r = 1.0;
         auto         ctrl = ADRCController<2, double>(design::adrc<2>(wc, wo, b));
         for (int k = 0; k < 30000; ++k) {
@@ -228,8 +228,8 @@ TEST_SUITE("Active Disturbance Rejection Control (ADRC)") {
         const double a = 3.0, b = 2.5, d = -0.8, r = 1.25;
         auto         ctrl = ADRCController<1, double>(design::adrc<1>(wc, wo, b));
 
-        double y = 0.0;
-        double u = 0.0;
+        double    y = 0.0;
+        double    u = 0.0;
         const int N = 20000; // 10 s
         for (int k = 0; k < N; ++k) {
             u = ctrl.control(r, y, Ts);
@@ -304,8 +304,8 @@ TEST_SUITE("Active Disturbance Rejection Control (ADRC)") {
         const double Ts = 5e-4;
         const double wc = 10.0, r = 1.0, a = 1.0;
         const auto   peak_after_load = [&](double wo) {
-            auto   ctrl = ADRCController<1, double>(design::adrc<1>(wc, wo, 1.0));
-            double y = 0.0, d = 0.0;
+            auto      ctrl = ADRCController<1, double>(design::adrc<1>(wc, wo, 1.0));
+            double    y = 0.0, d = 0.0;
             const int warm = static_cast<int>(1.2 / Ts);
             for (int k = 0; k < warm; ++k) {
                 const double u = ctrl.control(r, y, Ts);
@@ -313,7 +313,7 @@ TEST_SUITE("Active Disturbance Rejection Control (ADRC)") {
             }
             REQUIRE(damp::abs(y - r) < 0.03);
             d = 4.0;
-            double peak = 0.0;
+            double    peak = 0.0;
             const int N = static_cast<int>(1.0 / Ts);
             for (int k = 0; k < N; ++k) {
                 const double u = ctrl.control(r, y, Ts);
@@ -408,7 +408,7 @@ TEST_SUITE("Active Disturbance Rejection Control (ADRC)") {
     }
 
     TEST_CASE("float deploy of a 2nd-order design tracks the same plant") {
-        const float Ts = 1e-3f;
+        const float    Ts = 1e-3f;
         constexpr auto art = design::adrc<2>(12.0, 60.0, 2.0);
         static_assert(art.success);
         ADRCController<2, float> ctrl{art.as<float>()};

@@ -29,8 +29,7 @@ tup.foreach_rule(fmt_sources, '^j^'..CXX..' -c %f '..CXXFLAGS..' '..INCLUDES..' 
 -- Compile every example .cpp: root demos + nested product folders.
 -- Basenames must stay unique across the tree (cart_pole_sketch.cpp, …).
 -- tup.glob hard-errors on a missing directory (cannot pcall-skip), so this list
--- is only product folders present in *this* tree. Public v0.1: control +
--- estimation (no motor/power/motion/PMAC packs). Append when adding a demo.
+-- is only product folders present in *this* tree. Append when adding a demo.
 sources = tup.glob('*.cpp')
 local product_dirs = {
     'control/cart_pole',
@@ -47,6 +46,7 @@ local product_dirs = {
     'estimation/imu_pose',
     'estimation/encoder_velocity',
     'estimation/fo_plant_inertia',
+    'motor/foc',
 }
 for _, dir in ipairs(product_dirs) do
     for _, f in ipairs(tup.glob(dir .. '/*.cpp')) do
@@ -91,6 +91,10 @@ local plot_outputs = {
         'plots/control/pendulum_sim.html',
         'plots/control/pendulum_sim_high_q.html',
         'plots/control/pendulum_phase.html',
+    },
+    foc_sil = {
+        'plots/motor/foc_current_loop.html',
+        'plots/motor/foc_id_iq.html',
     },
 }
 
