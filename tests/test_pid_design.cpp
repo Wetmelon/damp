@@ -378,6 +378,35 @@ TEST_SUITE("PID Design - Plant pidtune") {
         CHECK(bw1 == doctest::Approx(wc).epsilon(0.35));
     }
 
+    TEST_CASE("PI-D pidtune on LC does not sign-flip") {
+        constexpr double L = 100e-6;
+        constexpr double C = 100e-6;
+        constexpr double R = 4.0;
+        const StateSpace<2, 1, 1> sys{
+            .A = Matrix<2, 2>{{0.0, -1.0 / L}, {1.0 / C, -1.0 / (R * C)}},
+            .B = Matrix<2, 1>{{1.0 / L}, {0.0}},
+            .C = Matrix<1, 2>{{0.0, 1.0}},
+            .D = Matrix<1, 1>{{0.0}},
+        };
+        constexpr double wc = 27650.638614364343;
+        design::PidTuneSpec<double> spec{};
+        spec.wc = wc;
+        spec.type = design::PIDType::PID;
+        spec.b = 1.0;
+        spec.c = 0.0;
+        for (int k = 600; k <= 955; k += 5) {
+            spec.phase_margin_deg = static_cast<double>(k) / 10.0;
+            const auto tuned = design::pidtune(sys, spec);
+            REQUIRE(tuned.has_value());
+            CHECK(tuned->Kp > 0.0);
+        }
+        // Direct fit is already slightly negative. The search used to return Kp ≈ −3000.
+        spec.phase_margin_deg = 96.0;
+        const auto past = design::pidtune(sys, spec);
+        REQUIRE(past.has_value());
+        CHECK(past->Kp > -1.0);
+    }
+
     TEST_CASE("PIDResult to_tf_ff equals to_tf when b=c=1") {
         constexpr auto r = design::pid(2.0, 3.0, 0.5, -std::numeric_limits<double>::max(), std::numeric_limits<double>::max(), -std::numeric_limits<double>::max(), std::numeric_limits<double>::max(), 0.0, 1.0, 1.0, 0.1);
         const auto     fb = r.to_tf();

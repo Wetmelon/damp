@@ -646,6 +646,82 @@ fit_at_crossover(const damp::StateSpace<NX, 1, 1, T>& sys, const PidTuneSpec<T>&
     return res;
 }
 
+/**
+ * @brief Raise the loop crossover so T −3 dB matches the 1-DOF target
+ *
+ * Keeps the sample whose bandwidth is closest to @p target. Each step is
+ * clamped to [½, 2] so one update cannot jump the positive-gain ridge. A
+ * sample that is negative, and more so than the direct fit, is rejected.
+ */
+template<size_t NX, typename T>
+[[nodiscard]] constexpr PIDResult<T> raise_loop_for_tracking(
+    const damp::StateSpace<NX, 1, 1, T>& sys,
+    const PidTuneSpec<T>&                spec,
+    PIDResult<T>                         fitted,
+    T                                    target
+) noexcept {
+    T            w = spec.wc;
+    PIDResult<T> best = fitted;
+    bool         scored = false;
+    T            best_rel = T{0};
+    const auto   bw0 = tracking_bandwidth(sys, fitted, spec.wc);
+    if (bw0 && (target > T{0})) {
+        best_rel = damp::abs(*bw0 - target) / target;
+        scored = true;
+    }
+    const T wmin = spec.wc / T{4};
+    const T wmax = spec.wc * T{64};
+    for (int i = 0; i < 8; ++i) {
+        PidTuneSpec<T> s = spec;
+        s.wc = w;
+        const auto r = fit_at_crossover(sys, s);
+        if (!r) {
+            break;
+        }
+        // Stop at a gain that is negative and more so than the direct fit.
+        // A positive fit must not become negative, and a small negative fit
+        // must not run away to a huge one.
+        const bool worse_neg = ((r->Kp < T{0}) && (r->Kp < fitted.Kp)) ||
+                               ((r->Ki < T{0}) && (r->Ki < fitted.Ki)) ||
+                               ((r->Kd < T{0}) && (r->Kd < fitted.Kd));
+        if (worse_neg) {
+            break;
+        }
+        const auto bw = tracking_bandwidth(sys, *r, spec.wc);
+        if (!bw || !(target > T{0})) {
+            break;
+        }
+        const T rel = damp::abs(*bw - target) / target;
+        if (!scored || (rel < best_rel)) {
+            best = *r;
+            best_rel = rel;
+            scored = true;
+        }
+        if (rel < static_cast<T>(0.03)) {
+            break;
+        }
+        T step = target / *bw;
+        if (step > T{2}) {
+            step = T{2};
+        }
+        if (step < T{0.5}) {
+            step = T{0.5};
+        }
+        T next = w * step;
+        if (next < wmin) {
+            next = wmin;
+        }
+        if (next > wmax) {
+            next = wmax;
+        }
+        if (!(damp::abs(next - w) > (w * static_cast<T>(1e-4)))) {
+            break;
+        }
+        w = next;
+    }
+    return best;
+}
+
 } // namespace pidtune_detail
 
 /**
@@ -655,7 +731,9 @@ fit_at_crossover(const damp::StateSpace<NX, 1, 1, T>& sys, const PidTuneSpec<T>&
  * requested law (Ti = 4 Td for PID). For 1-DOF (b = c = 1) that frequency is
  * spec.wc. When b or c is not 1, the loop crossover is raised so the tracking
  * map T_yr = C_ff P / (1 + C_fb P) has the same −3 dB bandwidth as the 1-DOF
- * design at spec.wc. Tf is copied onto the result and used in C_ff / C_fb.
+ * design at spec.wc. The search keeps the closest match, steps by at most 2x,
+ * and does not replace a non-negative fit with a negative-gain sample.
+ * Tf is copied onto the result and used in C_ff / C_fb.
  * Returns nullopt if ωc ≤ 0 or P(jωc) is missing / 0.
  *
  * @note Compare with MATLAB®'s pidtune(sys, wc) (that call is 60° 1-DOF PID).
@@ -682,35 +760,7 @@ pidtune(const damp::StateSpace<NX, 1, 1, T>& sys, const PidTuneSpec<T>& spec) no
     if (!target) {
         target = spec.wc;
     }
-    T            w = spec.wc;
-    PIDResult<T> best = *fitted;
-    for (int i = 0; i < 6; ++i) {
-        PidTuneSpec<T> s = spec;
-        s.wc = w;
-        const auto r = pidtune_detail::fit_at_crossover(sys, s);
-        if (!r) {
-            break;
-        }
-        best = *r;
-        const auto bw = pidtune_detail::tracking_bandwidth(sys, best, spec.wc);
-        if (!bw || !(*target > T{0})) {
-            break;
-        }
-        const T rel = damp::abs(*bw - *target) / *target;
-        if (rel < static_cast<T>(0.03)) {
-            break;
-        }
-        w *= *target / *bw;
-        const T wmin = spec.wc / T{4};
-        const T wmax = spec.wc * T{64};
-        if (w < wmin) {
-            w = wmin;
-        }
-        if (w > wmax) {
-            w = wmax;
-        }
-    }
-    return best;
+    return pidtune_detail::raise_loop_for_tracking(sys, spec, *fitted, *target);
 }
 
 /// @overload ωc only (60° PID).
