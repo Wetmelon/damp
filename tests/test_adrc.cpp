@@ -4,10 +4,14 @@
 // (See accompanying file LICENSE or copy at http://www.boost.org/LICENSE_1_0.txt)
 
 #include <cstddef>
+#include <cstdlib>
 #include <limits>
 
 #include "damp/backend.hpp"
 #include "damp/controllers/adrc.hpp"
+#include "damp/math/complex.hpp"
+#include "damp/math/math.hpp"
+#include "damp/systems/state_space.hpp"
 
 #define DOCTEST_CONFIG_INCLUDE_TYPE_TRAITS
 #include "doctest.h"
@@ -441,5 +445,54 @@ TEST_SUITE("Active Disturbance Rejection Control (ADRC)") {
         CHECK_FALSE(design::adrc<1>(std::numeric_limits<double>::infinity(), 10.0, 1.0).success);
         CHECK_FALSE(design::adrc<2>(10.0, std::numeric_limits<double>::quiet_NaN(), 1.0).success);
         CHECK_FALSE(design::adrc<1>(10.0, 10.0, -2.0).success);
+    }
+
+    TEST_CASE("1st-order to_tf is (Kp β2 + (Kp β1 + β2)s) / (b0 s (s + β1 + Kp))") {
+        constexpr auto r = design::adrc<1>(8.0, 40.0, 2.0);
+        static_assert(r.success);
+        const auto   tf = r.to_tf();
+        const double Kp = r.Kp;
+        const double b0 = r.b0;
+        const double b1 = r.beta[0];
+        const double b2 = r.beta[1];
+        // Leverrier returns a monic denominator.
+        CHECK(tf.den[2] == doctest::Approx(1.0));
+        CHECK(std::abs(tf.den[0]) < 1e-12);
+        CHECK(tf.den[1] == doctest::Approx(b1 + Kp));
+        CHECK(tf.num[0] == doctest::Approx((Kp * b2) / b0));
+        CHECK(tf.num[1] == doctest::Approx(((Kp * b1) + b2) / b0));
+    }
+
+    TEST_CASE("to_ss matches to_tf FRF; 2-DOF y-channel is −C") {
+        constexpr auto              r = design::adrc<2>(12.0, 60.0, 1.5);
+        const auto                  C = r.to_ss();
+        const auto                  tf = r.to_tf();
+        const auto                  full = r.to_ss_2dof();
+        const damp::complex<double> s{0.0, 7.0};
+        const auto                  Gc = *eval_frf(C, s);
+        const auto                  Gy = *eval_frf(full, s);
+        CHECK(Gc(0, 0).real() == doctest::Approx(-Gy(0, 1).real()).epsilon(1e-9));
+        CHECK(Gc(0, 0).imag() == doctest::Approx(-Gy(0, 1).imag()).epsilon(1e-9));
+        damp::complex<double> num{tf.num[0], 0.0};
+        damp::complex<double> den{tf.den[0], 0.0};
+        damp::complex<double> sk{1.0, 0.0};
+        for (size_t k = 1; k < 4; ++k) {
+            sk = sk * s;
+            num = num + (tf.num[k] * sk);
+            den = den + (tf.den[k] * sk);
+        }
+        const auto H = num / den;
+        CHECK(Gc(0, 0).real() == doctest::Approx(H.real()).epsilon(1e-8));
+        CHECK(Gc(0, 0).imag() == doctest::Approx(H.imag()).epsilon(1e-8));
+    }
+
+    TEST_CASE("failed ADRC to_ss / to_tf are zero") {
+        constexpr auto bad = design::adrc<1>(0.0, 10.0, 1.0);
+        CHECK_FALSE(bad.success);
+        const auto ss = bad.to_ss();
+        CHECK(ss.A(0, 0) == 0.0);
+        CHECK(ss.B(0, 0) == 0.0);
+        CHECK(ss.C(0, 0) == 0.0);
+        CHECK(ss.D(0, 0) == 0.0);
     }
 }

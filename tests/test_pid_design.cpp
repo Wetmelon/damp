@@ -10,6 +10,10 @@
 #include "damp/backend.hpp"
 #include "damp/controllers/pid.hpp"
 #include "damp/design/pid_design.hpp"
+#include "damp/math/complex.hpp"
+#include "damp/matlab.hpp"
+#include "damp/matrix/core.hpp"
+#include "damp/systems/state_space.hpp"
 #include "damp/systems/transfer_function.hpp"
 
 #define DOCTEST_CONFIG_INCLUDE_TYPE_TRAITS
@@ -260,6 +264,163 @@ TEST_SUITE("PID Design - Bandwidth") {
     }
 }
 
+TEST_SUITE("PID Design - Plant pidtune") {
+    TEST_CASE("PI at ωc on 1/(s+1)") {
+        constexpr StateSpace<1, 1, 1> sys{
+            .A = Matrix<1, 1>{{-1.0}},
+            .B = Matrix<1, 1>{{1.0}},
+            .C = Matrix<1, 1>{{1.0}},
+            .D = Matrix<1, 1>{{0.0}},
+        };
+        const auto pi = design::pidtune(sys, 2.0, 60.0, design::PIDType::PI);
+        REQUIRE(pi.has_value());
+        CHECK(pi->Kp > 0.0);
+        CHECK(pi->Ki > 0.0);
+        CHECK(pi->Kd == doctest::Approx(0.0));
+        CHECK(pi->b == doctest::Approx(1.0));
+        CHECK(pi->c == doctest::Approx(1.0));
+    }
+
+    TEST_CASE("PidTuneSpec copies Tf and 2-DOF weights") {
+        constexpr StateSpace<1, 1, 1> sys{
+            .A = Matrix<1, 1>{{-1.0}},
+            .B = Matrix<1, 1>{{1.0}},
+            .C = Matrix<1, 1>{{1.0}},
+            .D = Matrix<1, 1>{{0.0}},
+        };
+        design::PidTuneSpec<double> spec{};
+        spec.wc = 2.0;
+        spec.phase_margin_deg = 70.0;
+        spec.type = design::PIDType::PI;
+        spec.Tf = 1e-3;
+        spec.b = 0.0;
+        spec.c = 0.0;
+        const auto r = design::pidtune(sys, spec);
+        REQUIRE(r.has_value());
+        CHECK(r->Tf == doctest::Approx(1e-3));
+        CHECK(r->b == doctest::Approx(0.0));
+        CHECK(r->c == doctest::Approx(0.0));
+        CHECK(r->Ki > 0.0);
+    }
+
+    TEST_CASE("1-DOF pidtune is unchanged when b=c=1") {
+        constexpr StateSpace<1, 1, 1> sys{
+            .A = Matrix<1, 1>{{-1.0}},
+            .B = Matrix<1, 1>{{1.0}},
+            .C = Matrix<1, 1>{{1.0}},
+            .D = Matrix<1, 1>{{0.0}},
+        };
+        const auto                  a = design::pidtune(sys, 2.0, 60.0, design::PIDType::PI);
+        design::PidTuneSpec<double> spec{};
+        spec.wc = 2.0;
+        spec.phase_margin_deg = 60.0;
+        spec.type = design::PIDType::PI;
+        spec.b = 1.0;
+        spec.c = 1.0;
+        const auto b = design::pidtune(sys, spec);
+        REQUIRE(a.has_value());
+        REQUIRE(b.has_value());
+        CHECK(a->Kp == doctest::Approx(b->Kp));
+        CHECK(a->Ki == doctest::Approx(b->Ki));
+        CHECK(a->Kd == doctest::Approx(b->Kd));
+    }
+
+    TEST_CASE("I-P pidtune matches 1-DOF T −3 dB") {
+        constexpr StateSpace<1, 1, 1> sys{
+            .A = Matrix<1, 1>{{-1.0}},
+            .B = Matrix<1, 1>{{1.0}},
+            .C = Matrix<1, 1>{{1.0}},
+            .D = Matrix<1, 1>{{0.0}},
+        };
+        constexpr double            wc = 2.0;
+        design::PidTuneSpec<double> one{};
+        one.wc = wc;
+        one.phase_margin_deg = 60.0;
+        one.type = design::PIDType::PI;
+        one.b = 1.0;
+        one.c = 1.0;
+        design::PidTuneSpec<double> ip = one;
+        ip.b = 0.0;
+        ip.c = 0.0;
+        const auto r1 = design::pidtune(sys, one);
+        const auto r0 = design::pidtune(sys, ip);
+        REQUIRE(r1.has_value());
+        REQUIRE(r0.has_value());
+        CHECK(r0->Kp > r1->Kp);
+        CHECK(r0->Ki > r1->Ki);
+
+        const auto t_mag = [&](const design::PIDResult<double>& pid, double w) {
+            const auto Gopt = eval_frf(sys, complex<double>{0.0, w});
+            REQUIRE(Gopt.has_value());
+            const auto P = (*Gopt)(0, 0);
+            const auto L = pid.eval_fb(w) * P;
+            const auto den = complex<double>{1.0, 0.0} + L;
+            return abs((pid.eval_ff(w) * P) / den);
+        };
+        const auto t_bw = [&](const design::PIDResult<double>& pid) {
+            const double dc = t_mag(pid, wc * 1e-3);
+            const double thresh = dc / std::sqrt(2.0);
+            double       lo = wc * 1e-3;
+            double       hi = wc * 1e3;
+            for (int k = 0; k < 20; ++k) {
+                const double mid = std::sqrt(lo * hi);
+                if (t_mag(pid, mid) >= thresh) {
+                    lo = mid;
+                } else {
+                    hi = mid;
+                }
+            }
+            return std::sqrt(lo * hi);
+        };
+        const double bw1 = t_bw(*r1);
+        const double bw0 = t_bw(*r0);
+        CHECK(bw0 == doctest::Approx(bw1).epsilon(0.08));
+        CHECK(bw1 == doctest::Approx(wc).epsilon(0.35));
+    }
+
+    TEST_CASE("PIDResult to_tf_ff equals to_tf when b=c=1") {
+        constexpr auto r = design::pid(2.0, 3.0, 0.5, -std::numeric_limits<double>::max(), std::numeric_limits<double>::max(), -std::numeric_limits<double>::max(), std::numeric_limits<double>::max(), 0.0, 1.0, 1.0, 0.1);
+        const auto     fb = r.to_tf();
+        const auto     ff = r.to_tf_ff();
+        for (size_t i = 0; i < 3; ++i) {
+            CHECK(ff.num[i] == doctest::Approx(fb.num[i]));
+            CHECK(ff.den[i] == doctest::Approx(fb.den[i]));
+        }
+        CHECK(abs(r.eval_ff(4.0) - r.eval_fb(4.0)) < 1e-12);
+    }
+
+    TEST_CASE("matlab::pidtune(sys, wc) is 60° PID") {
+        constexpr StateSpace<2, 1, 1> sys{
+            .A = Matrix<2, 2>{{0.0, 1.0}, {-1.0, -0.5}},
+            .B = Matrix<2, 1>{{0.0}, {1.0}},
+            .C = Matrix<1, 2>{{1.0, 0.0}},
+            .D = Matrix<1, 1>{{0.0}},
+        };
+        const auto a = matlab::pidtune(sys, 1.0);
+        const auto b = design::pidtune(sys, 1.0, 60.0, design::PIDType::PID);
+        REQUIRE(a.has_value());
+        REQUIRE(b.has_value());
+        CHECK(a->Kp == doctest::Approx(b->Kp));
+        CHECK(a->Ki == doctest::Approx(b->Ki));
+        CHECK(a->Kd == doctest::Approx(b->Kd));
+    }
+
+    TEST_CASE("PIDResult::to_ss is Kp + Ki/s") {
+        constexpr auto res = design::pid(2.0, 4.0, 0.0);
+        constexpr auto C = res.to_ss();
+        static_assert(C.A(0, 0) == 0.0);
+        static_assert(C.B(0, 0) == 1.0);
+        static_assert(C.C(0, 0) == 4.0);
+        static_assert(C.D(0, 0) == 2.0);
+        constexpr auto L = *series(C, StateSpace<1, 1, 1>{
+                                          .A = {{-1.0}},
+                                          .B = {{1.0}},
+                                          .C = {{1.0}},
+                                      });
+        CHECK(L.A.rows() == 2);
+    }
+}
+
 TEST_SUITE("PID Design - Pole Placement") {
     TEST_CASE("PI pole placement for first-order plant") {
         // Plant: G(s) = 1/(s+1), K=1, tau=1
@@ -497,7 +658,7 @@ TEST_SUITE("PID Design - PI Pole Placement (first-order plant)") {
         CHECK(z == doctest::Approx(zeta));
     }
 
-    // (current_loop_pi's delegation to this kernel is checked in test_foc.cpp,
+    // (FOController::tune's use of this kernel is checked in test_foc.cpp,
     //  where foc.hpp is in scope.)
 
     // TF overload: b0/(a1 s + a0) reduces to monic by dividing den by b0.

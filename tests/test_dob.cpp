@@ -170,6 +170,10 @@ TEST_SUITE("Classical DOB") {
         CHECK(d.fy_den[0] == doctest::Approx(beta));        // Qd[0]*Bn[0] = 1*beta
         CHECK(d.fy_den[1] == doctest::Approx(-rho * beta)); // Qd[1]*Bn[0]
         CHECK(d.fu_num[0] == doctest::Approx(1.0 - rho));   // Fu = Q
+        CHECK(d.q_tf().num[0] == doctest::Approx(d.fu_num[0]));
+        CHECK(d.q_tf().den[1] == doctest::Approx(d.fu_den[1]));
+        CHECK(d.fy_tf().num[0] == doctest::Approx(d.fy_num[0]));
+        CHECK(d.fy_tf().den[0] == doctest::Approx(d.fy_den[0]));
 
         // Non-invertible nominal plant (Bn[0] == 0) is rejected.
         const damp::array<double, 2> Bn_delay{0.0, beta};

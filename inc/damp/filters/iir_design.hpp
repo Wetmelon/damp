@@ -7,7 +7,7 @@
 
 /**
  * @file iir_design.hpp
- * @brief IIR coefficient design (lowpass/highpass/RBJ/Butterworth) and to_coeffs
+ * @brief IIR coefficient design (analog TFs, Tustin/RBJ/Butterworth) and to_coeffs
  */
 
 
@@ -293,6 +293,156 @@ lowpass_2nd_continuous(T fc, T zeta = static_cast<T>(0.7071067811865476)) {
 template<typename T = double>
 [[nodiscard]] constexpr TransferFunction<3, 3, T> lowpass_2nd(T fc) {
     return lowpass_2nd_continuous(fc);
+}
+
+/**
+ * @brief First-order high-pass filter design (continuous-time)
+ *
+ * H(s) = s / (s + ωc) with ωc = 2π fc (DC gain 0, high-frequency gain 1).
+ * Coefficients are ascending powers of s (den[0] constant).
+ * Invalid @p fc (≤ 0) returns the zero TF (no NaN pole).
+ *
+ * @param fc Cutoff frequency [Hz] (must be > 0)
+ * @return TransferFunction<2, 2, T> continuous-time transfer function
+ * @note Compare with MATLAB®'s butter(1, 2*pi*fc, 'high', 's').
+ * @see highpass_1st(fc, Ts) for the discrete Tustin coefficient form
+ */
+template<typename T = double>
+[[nodiscard]] constexpr TransferFunction<2, 2, T> highpass_1st(T fc) {
+    if (!(fc > T{0})) {
+        // Zero gain, monic pole at −1 (realizable companion; no NaN ωc)
+        return TransferFunction<2, 2, T>{{T{0}, T{0}}, {T{1}, T{1}}};
+    }
+    const T omega_c = T{2} * damp::numbers::pi_v<T> * fc;
+    // num = s, den = ωc + s  →  H = s/(s+ωc)
+    return TransferFunction<2, 2, T>{{T{0}, T{1}}, {omega_c, T{1}}};
+}
+
+/**
+ * @brief Second-order high-pass filter design (continuous-time)
+ *
+ * H(s) = s² / (s² + (ω₀/Q) s + ω₀²), ω₀ = 2π fc.
+ * Coefficients are ascending powers of s (den[0] constant, den[2] monic s²).
+ *
+ * Named `*_continuous` so it does not overload-clash with the discrete
+ * `highpass_2nd(fc, Ts, Q)` (both would otherwise match a two-argument call).
+ * One-argument `highpass_2nd(fc)` is the default-Q Butterworth convenience.
+ *
+ * @param fc Cutoff frequency [Hz]
+ * @param Q  Quality factor (1/√2 for 2nd-order Butterworth)
+ * @return TransferFunction<3, 3, T> continuous-time transfer function
+ * @note Compare with MATLAB®'s butter(2, 2*pi*fc, 'high', 's') (Q = 1/√2).
+ * @see highpass_2nd(fc, Ts, Q) for the discrete RBJ coefficient form
+ */
+template<typename T = double>
+[[nodiscard]] constexpr TransferFunction<3, 3, T> highpass_2nd_continuous(T fc, T Q) {
+    if (!(fc > T{0}) || !detail::valid_Q(Q)) {
+        // Degenerate: return monic s² den with zero num (no NaN poles).
+        return TransferFunction<3, 3, T>{{T{0}, T{0}, T{0}}, {T{0}, T{0}, T{1}}};
+    }
+    const T omega_0 = T{2} * damp::numbers::pi_v<T> * fc;
+    const T omega_0_sq = omega_0 * omega_0;
+    const T omega_over_Q = omega_0 / Q;
+
+    return TransferFunction<3, 3, T>{
+        {T{0}, T{0}, T{1}},              // num: s²
+        {omega_0_sq, omega_over_Q, T{1}} // den: ω₀² + (ω₀/Q) s + s²
+    };
+}
+
+/**
+ * @brief Second-order continuous high-pass at default Butterworth Q (1/√2)
+ *
+ * @see highpass_2nd_continuous for a custom quality factor
+ * @see highpass_2nd(fc, Ts, Q) for the discrete coefficient form
+ */
+template<typename T = double>
+[[nodiscard]] constexpr TransferFunction<3, 3, T> highpass_2nd(T fc) {
+    return highpass_2nd_continuous(fc, damp::numbers::inv_sqrt2_v<T>);
+}
+
+/**
+ * @brief Second-order band-pass filter design (continuous-time)
+ *
+ * H(s) = (ω₀/Q) s / (s² + (ω₀/Q) s + ω₀²), ω₀ = 2π f0 (unit gain at ω₀).
+ * Coefficients are ascending powers of s (den[0] constant, den[2] monic s²).
+ * Named `*_continuous` so the discrete `bandpass(f0, Q, Ts)` stays three-arg.
+ *
+ * @param f0 Center frequency [Hz]
+ * @param Q  Quality factor (higher = narrower band)
+ * @return TransferFunction<3, 3, T> continuous-time transfer function
+ * @note Compare with MATLAB®'s iirpeak analog prototype (constant 0 dB peak).
+ * @see bandpass(f0, Q, Ts) for the discrete RBJ coefficient form
+ */
+template<typename T = double>
+[[nodiscard]] constexpr TransferFunction<3, 3, T> bandpass_continuous(T f0, T Q) {
+    if (!(f0 > T{0}) || !detail::valid_Q(Q)) {
+        return TransferFunction<3, 3, T>{{T{0}, T{0}, T{0}}, {T{0}, T{0}, T{1}}};
+    }
+    const T omega_0 = T{2} * damp::numbers::pi_v<T> * f0;
+    const T omega_0_sq = omega_0 * omega_0;
+    const T omega_over_Q = omega_0 / Q;
+
+    return TransferFunction<3, 3, T>{
+        {T{0}, omega_over_Q, T{0}},      // num: (ω₀/Q) s
+        {omega_0_sq, omega_over_Q, T{1}} // den: ω₀² + (ω₀/Q) s + s²
+    };
+}
+
+/**
+ * @brief Second-order band-reject (notch) filter design (continuous-time)
+ *
+ * H(s) = (s² + ω₀²) / (s² + (ω₀/Q) s + ω₀²), ω₀ = 2π f0 (null at ω₀, unit DC/HF).
+ * Coefficients are ascending powers of s (den[0] constant, den[2] monic s²).
+ * Named `*_continuous` so the discrete `notch(f0, Q, Ts)` stays three-arg.
+ *
+ * @param f0 Notch (center) frequency [Hz]
+ * @param Q  Quality factor (higher = narrower notch)
+ * @return TransferFunction<3, 3, T> continuous-time transfer function
+ * @note Compare with MATLAB®'s iirnotch analog prototype.
+ * @see notch(f0, Q, Ts) for the discrete RBJ coefficient form
+ */
+template<typename T = double>
+[[nodiscard]] constexpr TransferFunction<3, 3, T> notch_continuous(T f0, T Q) {
+    if (!(f0 > T{0}) || !detail::valid_Q(Q)) {
+        return TransferFunction<3, 3, T>{{T{0}, T{0}, T{0}}, {T{0}, T{0}, T{1}}};
+    }
+    const T omega_0 = T{2} * damp::numbers::pi_v<T> * f0;
+    const T omega_0_sq = omega_0 * omega_0;
+    const T omega_over_Q = omega_0 / Q;
+
+    return TransferFunction<3, 3, T>{
+        {omega_0_sq, T{0}, T{1}},        // num: ω₀² + s²
+        {omega_0_sq, omega_over_Q, T{1}} // den: ω₀² + (ω₀/Q) s + s²
+    };
+}
+
+/**
+ * @brief Second-order all-pass filter design (continuous-time)
+ *
+ * H(s) = (s² − (ω₀/Q) s + ω₀²) / (s² + (ω₀/Q) s + ω₀²), ω₀ = 2π f0.
+ * |H(jω)| = 1 for all ω; phase lags through 180° around ω₀ (Q sets the slope).
+ * Coefficients are ascending powers of s (den[0] constant, den[2] monic s²).
+ *
+ * @param f0 Center frequency [Hz]
+ * @param Q  Quality factor (higher = steeper phase around ω₀)
+ * @return TransferFunction<3, 3, T> continuous-time transfer function
+ * @note Compare with MATLAB®'s tf([1, −ω₀/Q, ω₀²], [1, ω₀/Q, ω₀²]) (descending powers).
+ * @see allpass(f0, Q, Ts) for the discrete Tustin coefficient form
+ */
+template<typename T = double>
+[[nodiscard]] constexpr TransferFunction<3, 3, T> allpass_2nd_continuous(T f0, T Q) {
+    if (!(f0 > T{0}) || !detail::valid_Q(Q)) {
+        return TransferFunction<3, 3, T>{{T{0}, T{0}, T{0}}, {T{0}, T{0}, T{1}}};
+    }
+    const T omega_0 = T{2} * damp::numbers::pi_v<T> * f0;
+    const T omega_0_sq = omega_0 * omega_0;
+    const T omega_over_Q = omega_0 / Q;
+
+    return TransferFunction<3, 3, T>{
+        {omega_0_sq, -omega_over_Q, T{1}}, // num: ω₀² − (ω₀/Q) s + s²
+        {omega_0_sq, omega_over_Q, T{1}}   // den: ω₀² + (ω₀/Q) s + s²
+    };
 }
 
 /**
@@ -692,6 +842,26 @@ template<typename T = float>
     // Normalize a0; DC identity H(1) = 0 holds independent of -ffast-math.
     const T b0 = (T{1} + c) / T{2};
     return detail::normalize_biquad<T>(b0, -(T{1} + c), b0, T{1} + alpha, T{-2} * c, T{1} - alpha);
+}
+
+/**
+ * @brief Second-order all-pass filter (Tustin of the analog prototype).
+ *
+ * Discrete bilinear of @ref allpass_2nd_continuous. |H| ≈ 1 across the band;
+ * phase wraps around f0. Invalid @p f0 / @p Q / @p Ts → zero coeffs.
+ *
+ * @param f0 Center frequency [Hz] (0 < f0 < Nyquist)
+ * @param Q  Quality factor (higher = steeper phase around f0)
+ * @param Ts Sample time [s] (> 0)
+ * @return SecondOrderCoeffs\<T\> DSP coefficients
+ * @see allpass_2nd_continuous
+ */
+template<typename T = float>
+[[nodiscard]] constexpr SecondOrderCoeffs<T> allpass(T f0, T Q, T Ts) {
+    if (!detail::valid_cutoff(f0, Ts) || !detail::valid_Q(Q)) {
+        return SecondOrderCoeffs<T>{};
+    }
+    return to_coeffs(allpass_2nd_continuous<T>(f0, Q), Ts);
 }
 
 /**

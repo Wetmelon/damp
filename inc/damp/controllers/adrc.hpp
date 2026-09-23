@@ -15,6 +15,9 @@
 #include "damp/backend.hpp"
 #include "damp/math/math.hpp"
 #include "damp/matrix/matrix.hpp"
+#include "damp/systems/state_space.hpp"
+#include "damp/systems/transfer_function.hpp"
+#include "damp/systems/zpk.hpp"
 
 namespace damp {
 
@@ -55,6 +58,73 @@ struct ADRCResult {
             static_cast<U>(Kd),
             success,
         };
+    }
+
+    /**
+     * @brief Linear ADRC as a 2-DOF compensator: u from [r; y]
+     *
+     * Continuous ESO + PD (unsaturated). State is the ESO [ẑ₁, (ẑ₂,) f̂].
+     * Failed designs return a zero system.
+     */
+    [[nodiscard]] constexpr StateSpace<NX + 1, 2, 1, T> to_ss_2dof() const {
+        StateSpace<NX + 1, 2, 1, T> sys{};
+        if (!success || !(b0 > T{0})) {
+            return sys;
+        }
+        if constexpr (NX == 1) {
+            sys.A(0, 0) = -(beta[0] + Kp);
+            sys.A(1, 0) = -beta[1];
+            sys.B(0, 0) = Kp;
+            sys.B(0, 1) = beta[0];
+            sys.B(1, 1) = beta[1];
+            sys.C(0, 0) = -Kp / b0;
+            sys.C(0, 1) = -T{1} / b0;
+            sys.D(0, 0) = Kp / b0;
+        } else {
+            sys.A(0, 0) = -beta[0];
+            sys.A(0, 1) = T{1};
+            sys.A(1, 0) = -(beta[1] + Kp);
+            sys.A(1, 1) = -Kd;
+            sys.A(2, 0) = -beta[2];
+            sys.B(1, 0) = Kp;
+            sys.B(0, 1) = beta[0];
+            sys.B(1, 1) = beta[1];
+            sys.B(2, 1) = beta[2];
+            sys.C(0, 0) = -Kp / b0;
+            sys.C(0, 1) = -Kd / b0;
+            sys.C(0, 2) = -T{1} / b0;
+            sys.D(0, 0) = Kp / b0;
+        }
+        return sys;
+    }
+
+    /**
+     * @brief SISO loop map C(s) = −U/Y at r = 0
+     *
+     * Unity-negative-feedback convention (same as PID / lead / PR `to_ss`):
+     * u = C(s)(r − y). Bode / `series` / `feedback` consume this map.
+     */
+    [[nodiscard]] constexpr StateSpace<NX + 1, 1, 1, T> to_ss() const {
+        const auto                  full = to_ss_2dof();
+        StateSpace<NX + 1, 1, 1, T> sys{};
+        sys.A = full.A;
+        for (size_t i = 0; i < NX + 1; ++i) {
+            sys.B(i, 0) = full.B(i, 1);
+        }
+        for (size_t j = 0; j < NX + 1; ++j) {
+            sys.C(0, j) = -full.C(0, j);
+        }
+        sys.D(0, 0) = -full.D(0, 1);
+        return sys;
+    }
+
+    /**
+     * @brief Transfer function of @ref to_ss (Leverrier)
+     *
+     * NX = 1: C(s) = (K_p β₂ + (K_p β₁ + β₂)s) / (b₀ s (s + β₁ + K_p)).
+     */
+    [[nodiscard]] constexpr TransferFunction<NX + 2, NX + 2, T> to_tf() const {
+        return ::damp::to_transfer_function(to_ss());
     }
 };
 

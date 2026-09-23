@@ -33,6 +33,7 @@
 #include "damp/controllers/pid.hpp"
 #include "damp/design/linearization.hpp"
 #include "damp/design/minreal.hpp"
+#include "damp/design/pid_design.hpp"
 #include "damp/design/pole_placement.hpp"
 #include "damp/design/qp.hpp"
 #include "damp/estimation/kalman.hpp"
@@ -143,8 +144,14 @@ using damp::zpk2tf;
  * @brief MATLAB®-style SISO SS → ZPK / SS → TF.
  * @note Compare with MATLAB®'s ss2zpk, ss2tf.
  */
+using damp::feedback_read;
+using damp::mix;
+using damp::mix_outputs;
+using damp::select;
 using damp::ss2tf;
 using damp::ss2zpk;
+using damp::ss_gain;
+using damp::ss_integrator;
 
 /**
  * @brief MATLAB®-style parallel-form continuous PID constructor.
@@ -773,51 +780,34 @@ template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, si
 }
 
 /**
- * @brief PID controller tuning using frequency domain method
+ * @brief Plant-aware PID tune (MATLAB® pidtune spelling)
  *
- * Tunes a PID controller for a given plant to achieve a specified crossover frequency wc.
- * Uses the method similar to MATLAB®'s pidtune, aiming for 60 degrees phase margin.
+ * Forwards to @ref design::pidtune. The one-argument form is 60° PID.
+ * Pass a @ref design::PidTuneSpec for PM, law, Tf, and 2-DOF weights.
  *
- * @param sys Plant state-space system (SISO, continuous-time)
- * @param wc Desired crossover frequency (rad/s)
- * @return PIDResult with tuned gains
+ * @note Compare with MATLAB®'s pidtune(sys, wc).
  */
 template<size_t NX, typename T = double>
 [[nodiscard]] constexpr damp::optional<damp::design::PIDResult<T>>
 pidtune(const StateSpace<NX, 1, 1, T>& sys, T wc) noexcept {
-    using Cplx = damp::complex<T>;
-    constexpr T pi = damp::numbers::pi_v<T>;
-    Cplx        jwc{0, wc};
-    auto        G_frf_opt = eval_frf(sys, jwc);
-    if (!G_frf_opt) {
-        return damp::nullopt;
-    }
-    Cplx G = (*G_frf_opt)(0, 0);
-    T    mag_G = damp::abs(G);
-    if (!(mag_G > T{0})) {
-        return damp::nullopt;
-    }
-    T arg_G = damp::arg(G);
-    // Desired phase margin: 60 degrees = pi/3 radians
-    T desired_phase = -pi + pi / 3 - arg_G;
-    T mag_C = T{1} / mag_G;
-    const auto [s, c] = damp::sincos(desired_phase);
-    T real_C = mag_C * c;
-    T imag_C = mag_C * s;
-    T Kp = real_C;
-    T Ki = -imag_C * wc; // imag_C = -Ki/wc for PI
-    // For PID, set Td = Ti/4
-    T Ti = Kp / Ki;
-    T Td = Ti / T{4};
-    T Kd = Kp * Td;
-    T Kbc = Ki; // Back-calculation gain
+    return design::pidtune(sys, wc);
+}
 
-    return damp::design::PIDResult<T>{
-        Kp, Ki, Kd, T{0},
-        -std::numeric_limits<T>::max(), std::numeric_limits<T>::max(),
-        -std::numeric_limits<T>::max(), std::numeric_limits<T>::max(),
-        Kbc
-    };
+template<size_t NX, typename T = double>
+[[nodiscard]] constexpr damp::optional<damp::design::PIDResult<T>>
+pidtune(
+    const StateSpace<NX, 1, 1, T>& sys,
+    T                              wc,
+    T                              phase_margin_deg,
+    design::PIDType                type = design::PIDType::PID
+) noexcept {
+    return design::pidtune(sys, wc, phase_margin_deg, type);
+}
+
+template<size_t NX, typename T = double>
+[[nodiscard]] constexpr damp::optional<damp::design::PIDResult<T>>
+pidtune(const StateSpace<NX, 1, 1, T>& sys, const design::PidTuneSpec<T>& spec) noexcept {
+    return design::pidtune(sys, spec);
 }
 
 // ===========================================================================

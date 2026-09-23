@@ -432,3 +432,54 @@ TEST_CASE("series and parallel preserve process/measurement noise G/H") {
     CHECK(par.H(0, 0) == doctest::Approx(0.3));
     CHECK(par.H(0, 1) == doctest::Approx(0.5));
 }
+
+TEST_CASE("select slices a MIMO plant") {
+    constexpr StateSpace<1, 1, 2> P{
+        .A = {{-1.0}},
+        .B = {{1.0}},
+        .C = {{1.0}, {2.0}},
+        .D = {{0.0}, {0.5}},
+    };
+    constexpr auto G0 = *select(P, 0, 0);
+    constexpr auto G1 = *select(P, 1, 0);
+    static_assert(G0.C(0, 0) == 1.0);
+    static_assert(G1.D(0, 0) == 0.5);
+    CHECK(G1.C(0, 0) == doctest::Approx(2.0));
+    CHECK_FALSE(select(P, 2, 0).has_value());
+}
+
+TEST_CASE("mix of y into u is G/(1-G)") {
+    // G = 1/(s+1), two identical outputs. v = u + y0 ⇒ y0/u = 1/s.
+    constexpr StateSpace<1, 1, 2> P{
+        .A = {{-1.0}},
+        .B = {{1.0}},
+        .C = {{1.0}, {1.0}},
+        .D = {{0.0}, {0.0}},
+    };
+    constexpr damp::array<SsFeed<double>, 1> ff{SsFeed<double>{0, 1.0}};
+    constexpr auto                           mixed = *mix(P, 0, 1.0, ff);
+    constexpr auto                           Gid = *select(mixed, 0, 0);
+    static_assert(Gid.A(0, 0) == 0.0);
+    CHECK(Gid.B(0, 0) == doctest::Approx(1.0));
+    CHECK(Gid.C(0, 0) == doctest::Approx(1.0));
+    CHECK(Gid.D(0, 0) == doctest::Approx(0.0));
+}
+
+TEST_CASE("ss_gain / ss_integrator / mix_outputs are constexpr") {
+    constexpr auto K = ss_gain(3.0);
+    constexpr auto I = ss_integrator(2.0);
+    static_assert(K.D(0, 0) == 3.0);
+    static_assert(I.C(0, 0) == 2.0);
+    constexpr StateSpace<1, 1, 2> P{
+        .A = {{-1.0}},
+        .B = {{1.0}},
+        .C = {{1.0}, {4.0}},
+        .D = {{0.0}, {0.0}},
+    };
+    constexpr damp::array<SsFeed<double>, 2> terms{
+        SsFeed<double>{0, 1.0},
+        SsFeed<double>{1, -0.25},
+    };
+    constexpr auto y = *mix_outputs(P, terms);
+    CHECK(y.C(0, 0) == doctest::Approx(0.0));
+}

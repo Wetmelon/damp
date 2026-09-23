@@ -9,7 +9,9 @@
 
 #include "damp/controllers/harmonic_suppression.hpp"
 #include "damp/controllers/pr.hpp"
+#include "damp/math/complex.hpp"
 #include "damp/math/math.hpp"
+#include "damp/systems/state_space.hpp"
 
 #define DOCTEST_CONFIG_INCLUDE_TYPE_TRAITS
 #include "doctest.h"
@@ -125,5 +127,19 @@ TEST_SUITE("harmonic_suppression") {
         }();
         static_assert(ok, "harmonic suppressor must work at compile time");
         CHECK(ok);
+    }
+
+    TEST_CASE("to_ss / to_tf DC gain is the fundamental Kp") {
+        const double                 w0 = 2.0 * pi * 50.0;
+        const double                 Ts = 1.0 / 6000.0;
+        const damp::array<size_t, 2> harmonics{1, 5};
+        const auto                   d = design::harmonic_suppressor(0.5, 200.0, w0, 5.0, Ts, harmonics);
+        REQUIRE(d.success);
+        const auto ss = d.to_ss();
+        const auto tf = d.to_tf();
+        CHECK(ss.D(0, 0) == doctest::Approx(0.5));
+        CHECK(tf.num[0] / tf.den[0] == doctest::Approx(0.5).epsilon(1e-8));
+        const auto G0 = *eval_frf(ss, damp::complex<double>{0.0, 0.0});
+        CHECK(G0(0, 0).real() == doctest::Approx(0.5).epsilon(1e-8));
     }
 }

@@ -34,8 +34,10 @@
 
 #include <limits>
 
+#include "damp/backend.hpp"
 #include "damp/controllers/pid.hpp"
 #include "damp/math/math.hpp"
+#include "damp/systems/state_space.hpp"
 #include "damp/systems/transfer_function.hpp"
 
 namespace damp {
@@ -496,6 +498,251 @@ pid_from_bandwidth(T wbw, T phase_margin, [[maybe_unused]] T Ts, PIDType type = 
 }
 
 /**
+ * @brief Knobs for plant-aware @ref pidtune
+ *
+ * Crossover, phase margin, law, derivative filter Tf, and 2-DOF weights b / c.
+ * Defaults match a 1-DOF PID at 60°.
+ * When b or c is not 1, the loop crossover is raised so T (r→y) −3 dB matches
+ * the 1-DOF design at wc.
+ */
+template<typename T = double>
+struct PidTuneSpec {
+    T       wc{};                     ///< 1-DOF loop crossover ωc [rad/s]; 2-DOF matches T r→y −3 dB to this 1-DOF design
+    T       phase_margin_deg = T{60}; ///< Phase margin at the loop crossover [deg]
+    PIDType type = PIDType::PID;      ///< P / PI / PD / PID
+    T       Tf = T{0};                ///< Derivative filter Tf [s]; 0 = off
+    T       b = T{1};                 ///< P setpoint weight (0 = I-PD, 1 = on error)
+    T       c = T{1};                 ///< D setpoint weight (0 = PI-D, 1 = on error)
+};
+
+namespace pidtune_detail {
+
+template<typename T>
+[[nodiscard]] constexpr bool weights_move_tracking(const PIDResult<T>& r) {
+    const T    eps = static_cast<T>(1e-6);
+    const bool p_w = (damp::abs(r.b - T{1}) > eps) && (damp::abs(r.Kp) > T{0});
+    const bool d_w = (damp::abs(r.c - T{1}) > eps) && (damp::abs(r.Kd) > T{0});
+    if (!p_w && !d_w) {
+        return false;
+    }
+    // I-P / I-PD with no integrator cannot hold a setpoint.
+    if (!(damp::abs(r.Ki) > T{0}) && p_w && !(damp::abs(r.b) > eps)) {
+        return false;
+    }
+    return true;
+}
+
+template<size_t NX, typename T>
+[[nodiscard]] constexpr damp::optional<T>
+tracking_mag(const damp::StateSpace<NX, 1, 1, T>& sys, const PIDResult<T>& pid, T w) {
+    using Cplx = damp::complex<T>;
+    if (!(w > T{0})) {
+        return damp::nullopt;
+    }
+    const auto Gopt = damp::eval_frf(sys, Cplx{T{0}, w});
+    if (!Gopt) {
+        return damp::nullopt;
+    }
+    const Cplx P = (*Gopt)(0, 0);
+    const Cplx L = pid.eval_fb(w) * P;
+    const Cplx den = Cplx{T{1}, T{0}} + L;
+    if (!(den.norm() > static_cast<T>(1e-30))) {
+        return damp::nullopt;
+    }
+    return damp::abs((pid.eval_ff(w) * P) / den);
+}
+
+template<size_t NX, typename T>
+[[nodiscard]] constexpr damp::optional<T>
+tracking_bandwidth(const damp::StateSpace<NX, 1, 1, T>& sys, const PIDResult<T>& pid, T w_hint) {
+    const T    w_ref = (w_hint > T{0}) ? w_hint : T{1};
+    const auto mag_dc = tracking_mag(sys, pid, w_ref * static_cast<T>(1e-3));
+    if (!mag_dc || !(*mag_dc > T{0})) {
+        return damp::nullopt;
+    }
+    const T thresh = *mag_dc / damp::sqrt(T{2});
+    T       lo = w_ref * static_cast<T>(1e-3);
+    T       hi = w_ref * static_cast<T>(1e3);
+    auto    mag_hi = tracking_mag(sys, pid, hi);
+    for (int k = 0; k < 8 && mag_hi && (*mag_hi >= thresh); ++k) {
+        hi *= T{4};
+        mag_hi = tracking_mag(sys, pid, hi);
+        if (hi > (w_ref * static_cast<T>(1e6))) {
+            return damp::nullopt;
+        }
+    }
+    if (!mag_hi || (*mag_hi >= thresh)) {
+        return damp::nullopt;
+    }
+    for (int k = 0; k < 16; ++k) {
+        const T    mid = damp::sqrt(lo * hi);
+        const auto m = tracking_mag(sys, pid, mid);
+        if (!m || (*m >= thresh)) {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    return damp::sqrt(lo * hi);
+}
+
+template<size_t NX, typename T>
+[[nodiscard]] constexpr damp::optional<PIDResult<T>>
+fit_at_crossover(const damp::StateSpace<NX, 1, 1, T>& sys, const PidTuneSpec<T>& spec) noexcept {
+    using Cplx = damp::complex<T>;
+    constexpr T pi = damp::numbers::pi_v<T>;
+    if (!(spec.wc > T{0})) {
+        return damp::nullopt;
+    }
+    const auto Gopt = damp::eval_frf(sys, Cplx{T{0}, spec.wc});
+    if (!Gopt) {
+        return damp::nullopt;
+    }
+    const Cplx G = (*Gopt)(0, 0);
+    const T    mag_G = damp::abs(G);
+    if (!(mag_G > T{0})) {
+        return damp::nullopt;
+    }
+    const T pm = spec.phase_margin_deg * pi / T{180};
+    const T want = -pi + pm - damp::arg(G);
+    const T mag_C = T{1} / mag_G;
+    const auto [s, c] = damp::sincos(want);
+    const T      Cr = mag_C * c;
+    const T      Ci = mag_C * s;
+    const T      wc = spec.wc;
+    PIDResult<T> res{};
+    switch (spec.type) {
+        case PIDType::P:
+            res.Kp = Cr;
+            break;
+        case PIDType::PI:
+            res.Kp = Cr;
+            res.Ki = -Ci * wc;
+            break;
+        case PIDType::PD:
+            res.Kp = Cr;
+            res.Kd = Ci / wc;
+            break;
+        case PIDType::PID: {
+            res.Kp = Cr;
+            const T a = T{4} * wc * wc;
+            const T bb = -T{4} * wc * Ci;
+            const T cc = -(Cr * Cr);
+            const T disc = (bb * bb) - (T{4} * a * cc);
+            if (!(disc >= T{0}) || !(a > T{0})) {
+                res.Ki = -Ci * wc;
+                break;
+            }
+            const T Kd = (-bb + damp::sqrt(disc)) / (T{2} * a);
+            const T Ki = (Cr != T{0} && Kd > T{0}) ? (Cr * Cr) / (T{4} * Kd) : -Ci * wc;
+            res.Ki = Ki > T{0} ? Ki : T{0};
+            res.Kd = Kd > T{0} ? Kd : T{0};
+        } break;
+    }
+    res.Kbc = res.Ki;
+    res.Tf = spec.Tf;
+    res.b = spec.b;
+    res.c = spec.c;
+    return res;
+}
+
+} // namespace pidtune_detail
+
+/**
+ * @brief Plant-aware PID tune at a crossover
+ *
+ * Chooses C_fb(jω) so |C_fb P|=1 and arg(C_fb P)= −π + PM, then maps onto the
+ * requested law (Ti = 4 Td for PID). For 1-DOF (b = c = 1) that frequency is
+ * spec.wc. When b or c is not 1, the loop crossover is raised so the tracking
+ * map T_yr = C_ff P / (1 + C_fb P) has the same −3 dB bandwidth as the 1-DOF
+ * design at spec.wc. Tf is copied onto the result and used in C_ff / C_fb.
+ * Returns nullopt if ωc ≤ 0 or P(jωc) is missing / 0.
+ *
+ * @note Compare with MATLAB®'s pidtune(sys, wc) (that call is 60° 1-DOF PID).
+ * @see PidTuneSpec
+ */
+template<size_t NX, typename T = double>
+[[nodiscard]] constexpr damp::optional<PIDResult<T>>
+pidtune(const damp::StateSpace<NX, 1, 1, T>& sys, const PidTuneSpec<T>& spec) noexcept {
+    const auto fitted = pidtune_detail::fit_at_crossover(sys, spec);
+    if (!fitted) {
+        return fitted;
+    }
+    if (!pidtune_detail::weights_move_tracking(*fitted)) {
+        return fitted;
+    }
+    PidTuneSpec<T> spec1 = spec;
+    spec1.b = T{1};
+    spec1.c = T{1};
+    const auto one = pidtune_detail::fit_at_crossover(sys, spec1);
+    if (!one) {
+        return fitted;
+    }
+    auto target = pidtune_detail::tracking_bandwidth(sys, *one, spec.wc);
+    if (!target) {
+        target = spec.wc;
+    }
+    T            w = spec.wc;
+    PIDResult<T> best = *fitted;
+    for (int i = 0; i < 6; ++i) {
+        PidTuneSpec<T> s = spec;
+        s.wc = w;
+        const auto r = pidtune_detail::fit_at_crossover(sys, s);
+        if (!r) {
+            break;
+        }
+        best = *r;
+        const auto bw = pidtune_detail::tracking_bandwidth(sys, best, spec.wc);
+        if (!bw || !(*target > T{0})) {
+            break;
+        }
+        const T rel = damp::abs(*bw - *target) / *target;
+        if (rel < static_cast<T>(0.03)) {
+            break;
+        }
+        w *= *target / *bw;
+        const T wmin = spec.wc / T{4};
+        const T wmax = spec.wc * T{64};
+        if (w < wmin) {
+            w = wmin;
+        }
+        if (w > wmax) {
+            w = wmax;
+        }
+    }
+    return best;
+}
+
+/// @overload ωc only (60° PID).
+template<size_t NX, typename T = double>
+[[nodiscard]] constexpr damp::optional<PIDResult<T>>
+pidtune(const damp::StateSpace<NX, 1, 1, T>& sys, T wc) noexcept {
+    return pidtune(sys, PidTuneSpec<T>{.wc = wc});
+}
+
+/// @overload ωc and phase margin (PID law).
+template<size_t NX, typename T = double>
+[[nodiscard]] constexpr damp::optional<PIDResult<T>>
+pidtune(const damp::StateSpace<NX, 1, 1, T>& sys, T wc, T phase_margin_deg) noexcept {
+    return pidtune(sys, PidTuneSpec<T>{.wc = wc, .phase_margin_deg = phase_margin_deg});
+}
+
+/// @overload ωc, phase margin, and law.
+template<size_t NX, typename T = double>
+[[nodiscard]] constexpr damp::optional<PIDResult<T>>
+pidtune(
+    const damp::StateSpace<NX, 1, 1, T>& sys,
+    T                                    wc,
+    T                                    phase_margin_deg,
+    PIDType                              type
+) noexcept {
+    return pidtune(
+        sys,
+        PidTuneSpec<T>{.wc = wc, .phase_margin_deg = phase_margin_deg, .type = type}
+    );
+}
+
+/**
  * @brief Map percent overshoot target to equivalent damping ratio
  *
  * Uses the standard second-order relation:
@@ -730,7 +977,7 @@ pid_pole_placement(T K, T tau, T p1, T p2, T p3, T Ts) {
  * so @p omega_bw is the closed-loop bandwidth and @f$ \zeta = 1 @f$ (default)
  * places a critically damped double pole at @f$ -\omega_n @f$. This is the kernel
  * every loop in a motion cascade shares — only the plant changes:
- * @f$ (a_1,a_0)=(L,R) @f$ for a dq current axis (see current_loop_pi),
+ * @f$ (a_1,a_0)=(L,R) @f$ for a dq current axis,
  * @f$ (J,b_{visc}) @f$ for a velocity loop on the inertia plant.
  *
  * Equivalent to running Ackermann (@ref place) on the *(plant + integrator)*

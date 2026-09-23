@@ -52,6 +52,11 @@
  * C = [1 0; 0 1], NY = 2, r = [r_pos; 0], Qy = diag(q_pos, q_vel). There is
  * deliberately no separate state weight (MATLAB®'s linear MPC has none either).
  *
+ * r already is the tracking reference (NY). There is no LQR-style
+ * `control(x_ref, x)` overload: the QP has no ‖x − x_ref‖ term (it does not
+ * force x → 0 except as a consequence of a feasible y → r), and that
+ * two-argument signature would collide with `control(r, x)` whenever NY = NX.
+ *
  * Synthesis condenses the problem: predictions @f$ Y = \Phi \tilde x_0 +
  * \Gamma Z @f$ over the horizon give a dense strictly convex QP in
  * @f$ [Z; \varepsilon] @f$, @f$ Z = [\Delta u_0; \dots; \Delta u_{NC-1}] @f$,
@@ -760,7 +765,8 @@ template<size_t NP, size_t NC, size_t NX, size_t NU, size_t NY, size_t ND, size_
  * slack actually used is reported by last_slack().
  *
  * Full state feedback; pair with an observer/Kalman filter when x is not
- * measured.
+ * measured. @p r is the output reference (NY), not a state x_ref — the cost
+ * is ‖y − r‖²_Qy plus move / input-target terms, with no ‖x − x_ref‖ term.
  *
  * @note Compare with MATLAB®'s mpcmove(mpcobj, xc, ym, r, v).
  * @see design::state_mpc
@@ -784,7 +790,14 @@ public:
     /**
      * @brief Compute the control move for the current tick (no measured disturbance)
      *
-     * @param r  Output reference (held constant over the horizon)
+     * @p r is the output tracking reference (held constant over the horizon), not a
+     * state reference. The condensed QP has no ‖x − x_ref‖ term, so this is not
+     * u = −K(x − x_ref) and there is no LQR-style control(x_ref, x) overload
+     * (that signature would collide with this one whenever NY = NX). To weight
+     * or track a state that is not an output, add an extra C row and a matching
+     * channel of r / Qy (see the file comment).
+     *
+     * @param r  Output reference r (NY), held over the horizon; not a state x_ref
      * @param x  Measured/estimated plant state
      * @return Input command u (clamped to the configured u and Δu boxes)
      */
@@ -795,7 +808,10 @@ public:
     /**
      * @brief Compute the control move with a measured disturbance
      *
-     * @param r  Output reference (held constant over the horizon)
+     * Same reference meaning as control(const ColVec<NY,T>&, const ColVec<NX,T>&):
+     * @p r is the NY output reference, not x_ref.
+     *
+     * @param r  Output reference r (NY), held over the horizon; not a state x_ref
      * @param x  Measured/estimated plant state
      * @param d  Measured disturbance (held constant over the horizon)
      * @return Input command u (clamped to the configured u and Δu boxes)

@@ -19,6 +19,7 @@
 #include "damp/design/pid_design.hpp"
 #include "damp/filters/delay.hpp"
 #include "damp/math/math.hpp"
+#include "damp/systems/transfer_function.hpp"
 
 #define DOCTEST_CONFIG_INCLUDE_TYPE_TRAITS
 #include "doctest.h"
@@ -337,5 +338,21 @@ TEST_SUITE("Smith Predictor") {
         // Runtime controller is not fully constexpr-friendly (Delay buffer), but
         // the design/result path used at compile time is.
         (void)disc;
+    }
+
+    TEST_CASE("to_tf recovers SIMC primary; plant_tf is K/(τs+1)") {
+        constexpr auto sp = design::smith_predictor_from_fopdt(2.0, 5.0, 1.0, 0.1, 2.0);
+        REQUIRE(sp.success);
+        const auto C = design::simc(2.0, 0.0, 5.0, 2.0, design::PIDType::PI);
+        const auto tf = sp.to_tf();
+        const auto cref = C.to_tf();
+        CHECK(tf.num[0] == doctest::Approx(cref.num[0]));
+        CHECK(tf.num[1] == doctest::Approx(cref.num[1]));
+        CHECK(tf.den[1] == doctest::Approx(cref.den[1]));
+        const auto Ghat = sp.plant_tf();
+        CHECK(Ghat.num[0] == doctest::Approx(2.0));
+        CHECK(Ghat.den[0] == doctest::Approx(1.0));
+        CHECK(Ghat.den[1] == doctest::Approx(5.0));
+        CHECK(sp.to_ss().D(0, 0) == doctest::Approx(C.to_ss().D(0, 0)));
     }
 }

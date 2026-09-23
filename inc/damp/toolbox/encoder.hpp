@@ -181,8 +181,8 @@ public:
  * for a wrap period @p full_scale @f$ S @f$ — 1.0 for turns, @f$ 2\pi @f$ for radians, or the
  * counts-per-revolution for a raw integer-scaled reading. Valid while the true motion between
  * samples is under half a period (the same Nyquist limit as wrapped_delta, its integer
- * sibling). No filtering or dynamics — pair with a velocity estimator or LPF if
- * you need a smoothed rate as well as continuous position.
+ * sibling). No filtering or dynamics — for a tracked (filtered) angle plus speed use
+ * @ref damp::motor::EncoderTracker instead.
  *
  * @tparam T Scalar type (default: float).
  */

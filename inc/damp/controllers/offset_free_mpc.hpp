@@ -186,7 +186,9 @@ template<size_t NP, size_t NC = NP, size_t NX, size_t NU, size_t NY, typename T,
  * and `control(r, y)` runs the whole tick from the output measurement alone —
  * predict with the previously applied input, update with y, then solve the MPC
  * at the estimated state with the estimated disturbance on the feedforward
- * channel.
+ * channel. @p r is the output tracking reference (NY), the same as
+ * MPC::control; there is no x_ref overload (the estimator reconstructs x,
+ * and control(x_ref) would collide with control(r) whenever NX = NY).
  *
  * @note Compare with MATLAB®'s mpcmove(mpcobj, xc, ym, r) with the default
  *       built-in estimator.
@@ -209,7 +211,7 @@ struct OffsetFreeMPC {
     /// Correct the estimator with a measurement (caller-sequenced use)
     constexpr bool update(const ColVec<NY, T>& y, const ColVec<NU, T>& u = ColVec<NU, T>{}) { return kf.update(y, u); }
 
-    /// MPC move at the current estimate (call predict/update first)
+    /// MPC move at the current estimate (call predict/update first). @p r is the NY output reference, not x_ref.
     [[nodiscard]] constexpr ColVec<NU, T> control(const ColVec<NY, T>& r) {
         return mpc.control(r, state_estimate(), disturbance_estimate());
     }
@@ -219,9 +221,10 @@ struct OffsetFreeMPC {
      *
      * Runs predict (with the previously applied input), update (with y), then
      * the MPC solve. Equivalent to the caller-sequenced predict/update/control
-     * cycle.
+     * cycle. @p r is the output tracking reference (same as MPC::control) —
+     * not a state x_ref; the estimator reconstructs x internally.
      *
-     * @param r  Output reference
+     * @param r  Output reference r (NY); not a state x_ref
      * @param y  Measured plant output
      * @return Input command u (clamped to the configured boxes)
      */

@@ -11,6 +11,7 @@
  */
 
 #include "damp/math/math.hpp"
+#include "damp/systems/transfer_function.hpp"
 
 namespace damp {
 
@@ -39,6 +40,25 @@ struct SMCResult {
     template<typename U>
     [[nodiscard]] constexpr auto as() const {
         return SMCResult<U>{static_cast<U>(lambda), static_cast<U>(k), static_cast<U>(b0), success};
+    }
+
+    /**
+     * @brief Boundary-layer linearization C(s) = (k / (b₀ φ)) (s + λ)
+     *
+     * Inside |s| < φ the relay is sat(s/φ), so u = −(k/b₀φ)(λ e + ė).
+     * Improper (relative degree −1). Requires φ > 0; otherwise a zero TF.
+     *
+     * @param phi Boundary-layer thickness (same units as s)
+     */
+    [[nodiscard]] constexpr TransferFunction<2, 1, T> to_tf(T phi) const {
+        TransferFunction<2, 1, T> tf{};
+        if (!success || !(phi > T{0}) || !(b0 > T{0})) {
+            return tf;
+        }
+        const T g = k / (b0 * phi);
+        tf.num = {g * lambda, g};
+        tf.den = {T{1}};
+        return tf;
     }
 };
 

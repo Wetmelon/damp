@@ -117,4 +117,15 @@ TEST_SUITE("Sliding Mode Control (SMC)") {
         CHECK(gf.k == doctest::Approx(5.0f));
         CHECK(gf.b0 == doctest::Approx(1.0f));
     }
+
+    TEST_CASE("boundary-layer to_tf is (k/(b0 φ))(s + λ)") {
+        constexpr auto g = design::smc(20.0, 5.0, 2.0);
+        const double   phi = 0.05;
+        const auto     tf = g.to_tf(phi);
+        const double   gn = 5.0 / (2.0 * phi);
+        CHECK(tf.num[0] == doctest::Approx(gn * 20.0));
+        CHECK(tf.num[1] == doctest::Approx(gn));
+        CHECK(tf.den[0] == doctest::Approx(1.0));
+        CHECK(g.to_tf(0.0).num[1] == doctest::Approx(0.0));
+    }
 }

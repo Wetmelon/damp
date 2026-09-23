@@ -112,6 +112,46 @@ struct SmithPredictorResult {
             success,
         };
     }
+
+    /**
+     * @brief Continuous primary C(s) recovered from the packed discrete PID
+     *
+     * The delay is not in this rational map (Smith hides L from C). Failed
+     * designs return a zero PID.
+     */
+    [[nodiscard]] constexpr PIDResult<T> primary_pid() const {
+        PIDResult<T> c{};
+        if (!success || !(Ts > T{0})) {
+            return c;
+        }
+        c.Kp = pid.Kp;
+        c.Ki = pid.Ki / Ts;
+        c.Kd = pid.Kd;
+        c.Tf = pid.Tf;
+        c.b = pid.b;
+        c.c = pid.c;
+        return c;
+    }
+
+    /**
+     * @brief Delay-free primary transfer function (SIMC / packed PID)
+     */
+    [[nodiscard]] constexpr TransferFunction<3, 3, T> to_tf() const { return primary_pid().to_tf(); }
+
+    /**
+     * @brief PI state-space of the primary (same map as PIDResult::to_ss)
+     */
+    [[nodiscard]] constexpr StateSpace<1, 1, 1, T> to_ss() const { return primary_pid().to_ss(); }
+
+    /**
+     * @brief Delay-free FOPDT model Ĝ(s) = K / (τ s + 1)
+     */
+    [[nodiscard]] constexpr TransferFunction<1, 2, T> plant_tf() const {
+        return TransferFunction<1, 2, T>{
+            .num = {K},
+            .den = {T{1}, tau},
+        };
+    }
 };
 
 /**

@@ -20,6 +20,9 @@
  * | @c sys2 * sys1 | @c sys2*sys1 | same as @c series(sys1,sys2) |
  * | @c parallel / @c + | @c parallel / @c + | shared @f$u@f$, sum outputs |
  * | @c feedback / @c / | @c feedback | negative feedback @f$ y = \mathrm{sys1}(r - \mathrm{sys2}(y)) @f$ |
+ * | @c select(sys,iy,iu) | @c sys(iy+1,iu+1) | SISO slice |
+ * | @c mix | — | @f$ v = g u + \sum k_i y_i @f$ on one input column |
+ * | @c ss_gain / @c ss_integrator | — | D-only gain; @f$ k/s @f$ |
  *
  * Mismatched sample times or a singular algebraic loop return
  * @c damp::nullopt (MATLAB® errors in those cases).
@@ -485,6 +488,220 @@ template<
     const StateSpace<NX2, NU2, NY2, T, NW2, NV2>& sys2
 ) {
     return feedback(sys1, sys2);
+}
+
+/**
+ * @brief One term of a linear output mix: @f$ k \cdot y_{\mathrm{iy}} @f$
+ *
+ * Used by @ref mix (u-path feedforward of a plant output) and @ref mix_outputs.
+ */
+template<typename T = double>
+struct SsFeed {
+    std::size_t iy{};
+    T           k{T{1}};
+};
+
+/**
+ * @brief Static gain @f$ y = k u @f$ (no states)
+ *
+ * Use as the second argument of @ref feedback for unity (or weighted) loops.
+ */
+template<typename T = double>
+[[nodiscard]] constexpr StateSpace<0, 1, 1, T> ss_gain(T k) {
+    StateSpace<0, 1, 1, T> sys{};
+    sys.D(0, 0) = k;
+    return sys;
+}
+
+/**
+ * @brief Integrator @f$ y = (k/s)\, u @f$
+ */
+template<typename T = double>
+[[nodiscard]] constexpr StateSpace<1, 1, 1, T> ss_integrator(T k = T{1}) {
+    return StateSpace<1, 1, 1, T>{
+        .A = {{T{0}}},
+        .B = {{T{1}}},
+        .C = {{k}},
+        .D = {{T{0}}},
+    };
+}
+
+/**
+ * @brief SISO channel slice @f$ y_{\mathrm{iy}} / u_{\mathrm{iu}} @f$
+ *
+ * @return Sliced system, or @c nullopt if @p iy / @p iu is out of range
+ * @note Compare with MATLAB®'s @c sys(iy+1, iu+1) (1-based).
+ */
+template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
+[[nodiscard]] constexpr damp::optional<StateSpace<NX, 1, 1, T, NW, NV>> select(
+    const StateSpace<NX, NU, NY, T, NW, NV>& sys,
+    std::size_t                              iy,
+    std::size_t                              iu
+) {
+    if (iy >= NY || iu >= NU) {
+        return damp::nullopt;
+    }
+    StateSpace<NX, 1, 1, T, NW, NV> out{};
+    out.A = sys.A;
+    out.G = sys.G;
+    out.Ts = sys.Ts;
+    for (size_t i = 0; i < NX; ++i) {
+        out.B(i, 0) = sys.B(i, iu);
+    }
+    for (size_t j = 0; j < NX; ++j) {
+        out.C(0, j) = sys.C(iy, j);
+    }
+    out.D(0, 0) = sys.D(iy, iu);
+    if constexpr (NV > 0) {
+        for (size_t v = 0; v < NV; ++v) {
+            out.H(0, v) = sys.H(iy, v);
+        }
+    }
+    return out;
+}
+
+/**
+ * @brief Fold plant outputs into one input: @f$ v = g u + \sum k_i y_i @f$
+ *
+ * Example: a summer on a command,
+ * @f$ v_{\mathrm{sw}} = u + V_{\mathrm{out}} @f$. Returns NU=1, same NY.
+ * Algebraic loops (@f$ 1 - k^\top D_{\cdot,\mathrm{iu}} \approx 0 @f$) are
+ * @c nullopt.
+ */
+template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NF>
+[[nodiscard]] constexpr damp::optional<StateSpace<NX, 1, NY, T, NW, NV>> mix(
+    const StateSpace<NX, NU, NY, T, NW, NV>& sys,
+    std::size_t                              iu,
+    T                                        path_gain,
+    const damp::array<SsFeed<T>, NF>&        feeds
+) {
+    if (iu >= NU) {
+        return damp::nullopt;
+    }
+    damp::array<T, NY> kvec{};
+    for (size_t f = 0; f < NF; ++f) {
+        if (feeds[f].iy >= NY) {
+            return damp::nullopt;
+        }
+        kvec[feeds[f].iy] += feeds[f].k;
+    }
+    T den = T{1};
+    for (size_t i = 0; i < NY; ++i) {
+        den -= kvec[i] * sys.D(i, iu);
+    }
+    if (!(damp::abs(den) > default_tol<T>())) {
+        return damp::nullopt;
+    }
+    const T inv = T{1} / den;
+
+    damp::array<T, NX> Ck{};
+    for (size_t i = 0; i < NY; ++i) {
+        for (size_t j = 0; j < NX; ++j) {
+            Ck[j] += kvec[i] * sys.C(i, j);
+        }
+    }
+
+    StateSpace<NX, 1, NY, T, NW, NV> out{};
+    out.A = sys.A;
+    out.G = sys.G;
+    out.H = sys.H;
+    out.Ts = sys.Ts;
+    for (size_t i = 0; i < NX; ++i) {
+        const T bi = sys.B(i, iu);
+        out.B(i, 0) = inv * path_gain * bi;
+        for (size_t j = 0; j < NX; ++j) {
+            out.A(i, j) += inv * bi * Ck[j];
+        }
+    }
+    for (size_t i = 0; i < NY; ++i) {
+        const T Di = sys.D(i, iu);
+        for (size_t j = 0; j < NX; ++j) {
+            out.C(i, j) = sys.C(i, j) + Di * inv * Ck[j];
+        }
+        out.D(i, 0) = Di * inv * path_gain;
+    }
+    return out;
+}
+
+/// @overload no feedforward terms
+template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
+[[nodiscard]] constexpr auto mix(
+    const StateSpace<NX, NU, NY, T, NW, NV>& sys,
+    std::size_t                              iu,
+    T                                        path_gain = T{1}
+) {
+    return mix(sys, iu, path_gain, damp::array<SsFeed<T>, 0>{});
+}
+
+/**
+ * @brief Linear combination of outputs: @f$ y = \sum \alpha_j y_j @f$
+ */
+template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NT>
+[[nodiscard]] constexpr damp::optional<StateSpace<NX, NU, 1, T, NW, NV>> mix_outputs(
+    const StateSpace<NX, NU, NY, T, NW, NV>& sys,
+    const damp::array<SsFeed<T>, NT>&        terms
+) {
+    if constexpr (NT == 0) {
+        return damp::nullopt;
+    }
+    for (size_t t = 0; t < NT; ++t) {
+        if (terms[t].iy >= NY) {
+            return damp::nullopt;
+        }
+    }
+    StateSpace<NX, NU, 1, T, NW, NV> out{};
+    out.A = sys.A;
+    out.B = sys.B;
+    out.G = sys.G;
+    out.Ts = sys.Ts;
+    for (size_t t = 0; t < NT; ++t) {
+        const T      k = terms[t].k;
+        const size_t iy = terms[t].iy;
+        for (size_t j = 0; j < NX; ++j) {
+            out.C(0, j) += k * sys.C(iy, j);
+        }
+        for (size_t j = 0; j < NU; ++j) {
+            out.D(0, j) += k * sys.D(iy, j);
+        }
+        if constexpr (NV > 0) {
+            for (size_t v = 0; v < NV; ++v) {
+                out.H(0, v) += k * sys.H(iy, v);
+            }
+        }
+    }
+    return out;
+}
+
+/**
+ * @brief Unity (or weighted) negative feedback around @p G_loop, read @p G_out
+ *
+ * @p G_loop and @p G_out must share A, B (same realization, different C/D) —
+ * typically @c series(C, P_i) and @c series(C, P_v) from one mixed plant.
+ * Returns @c nullopt if the loop is singular.
+ */
+template<size_t NX, typename T, size_t NW, size_t NV>
+[[nodiscard]] constexpr damp::optional<StateSpace<NX, 1, 1, T, NW, NV>> feedback_read(
+    const StateSpace<NX, 1, 1, T, NW, NV>& G_loop,
+    const StateSpace<NX, 1, 1, T, NW, NV>& G_out,
+    T                                      k = T{1}
+) {
+    const auto cl = feedback(G_loop, ss_gain(k));
+    if (!cl) {
+        return damp::nullopt;
+    }
+    const T Dloop = G_loop.D(0, 0);
+    const T den = T{1} + k * Dloop;
+    if (!(damp::abs(den) > default_tol<T>())) {
+        return damp::nullopt;
+    }
+    const T inv = T{1} / den;
+    const T Dout = G_out.D(0, 0);
+    auto    out = *cl;
+    for (size_t j = 0; j < NX; ++j) {
+        out.C(0, j) = G_out.C(0, j) - Dout * inv * k * G_loop.C(0, j);
+    }
+    out.D(0, 0) = Dout * inv;
+    return out;
 }
 
 } // namespace damp

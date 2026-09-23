@@ -9,12 +9,13 @@
 #include <numbers>
 
 #include "damp/backend.hpp"
+#include "damp/motor/estimators/encoder_tracker.hpp"
 #include "damp/toolbox/encoder.hpp"
-
 #define DOCTEST_CONFIG_INCLUDE_TYPE_TRAITS
 #include "doctest.h"
 
 using namespace damp;
+using namespace damp::motor;
 
 namespace {
 // Quadrature cycles in (A, B), each starting and ending at state 00 so repeated
@@ -107,5 +108,57 @@ TEST_SUITE("Quadrature encoder & tachometer") {
             pos = unwrap.update(std::fmod(static_cast<double>(i) * step, 2.0 * std::numbers::pi_v<double>));
         }
         CHECK(pos == doctest::Approx(10.0 * step)); // 20 rad continuous, several wraps
+    }
+}
+
+TEST_SUITE("EncoderTracker") {
+    TEST_CASE("ctor seeds omega from x0 like reset") {
+        const ColVec<2, double> x0{{0.25}, {12.5}}; // [turns, turns/s]
+        EncoderTracker<double>  obs{2000.0, x0};
+        CHECK(obs.theta() == doctest::Approx(0.25));
+        CHECK(obs.omega() == doctest::Approx(12.5));
+        CHECK(obs.state()[0] == doctest::Approx(obs.theta()));
+        CHECK(obs.state()[1] == doctest::Approx(obs.omega()));
+
+        // Default x0 leaves omega at 0
+        EncoderTracker<double> zeroed{1000.0};
+        CHECK(zeroed.omega() == doctest::Approx(0.0));
+
+        // Config path and reset() agree with ctor seed
+        EncoderTrackerConfig<double> cfg{.bandwidth = 1500.0, .x0 = ColVec<2, double>{{-0.1}, {-3.0}}};
+        EncoderTracker<double>       from_cfg{cfg};
+        CHECK(from_cfg.theta() == doctest::Approx(-0.1));
+        CHECK(from_cfg.omega() == doctest::Approx(-3.0));
+
+        zeroed.reset(x0);
+        CHECK(zeroed.theta() == doctest::Approx(0.25));
+        CHECK(zeroed.omega() == doctest::Approx(12.5));
+    }
+
+    TEST_CASE("predict advances theta with seeded omega") {
+        EncoderTracker<double> obs{2000.0, ColVec<2, double>{{0.0}, {10.0}}}; // 10 turns/s
+        const auto             x = obs.predict(0.01);                         // 0.1 turns
+        CHECK(x[0] == doctest::Approx(0.1));
+        CHECK(x[1] == doctest::Approx(10.0));
+        CHECK(obs.theta() == doctest::Approx(0.1));
+    }
+
+    TEST_CASE("update tracks constant speed and multi-turn position") {
+        // Critically-damped tracker: predict (free run) then update (encoder sample).
+        EncoderTracker<double> obs{100.0};
+        const double           dt = 0.001;
+        const double           omega = 0.5; // turns/s
+        double                 true_pos = 0.0;
+
+        for (int k = 0; k < 3000; ++k) { // 3 s → 1.5 turns
+            true_pos += omega * dt;
+            const double meas = true_pos - std::floor(true_pos + 0.5);
+            (void)obs.predict(dt);
+            (void)obs.update(meas, dt);
+        }
+        CHECK(obs.omega() == doctest::Approx(omega).epsilon(0.05));
+        CHECK(obs.position() == doctest::Approx(true_pos).epsilon(0.02));
+        // Crossed at least one ±0.5 seam → multi-turn position > 1 turn
+        CHECK(obs.position() > 1.0);
     }
 }

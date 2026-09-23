@@ -14,6 +14,39 @@
 
 using namespace damp;
 
+namespace {
+
+// |H(jω)| for a first-order analog TF (ascending powers).
+[[nodiscard]] double mag_jw(const TransferFunction<2, 2, double>& tf, double w) {
+    const double nr = tf.num[0];
+    const double ni = tf.num[1] * w;
+    const double dr = tf.den[0];
+    const double di = tf.den[1] * w;
+    return damp::hypot(nr, ni) / damp::hypot(dr, di);
+}
+
+// |H(jω)| for a second-order analog TF (ascending powers).
+[[nodiscard]] double mag_jw(const TransferFunction<3, 3, double>& tf, double w) {
+    const double w2 = w * w;
+    const double nr = tf.num[0] - (tf.num[2] * w2);
+    const double ni = tf.num[1] * w;
+    const double dr = tf.den[0] - (tf.den[2] * w2);
+    const double di = tf.den[1] * w;
+    return damp::hypot(nr, ni) / damp::hypot(dr, di);
+}
+
+template<size_t Nnum, size_t Nden>
+void check_tf_finite(const TransferFunction<Nnum, Nden, double>& tf) {
+    for (size_t i = 0; i < Nnum; ++i) {
+        CHECK(damp::isfinite(tf.num[i]));
+    }
+    for (size_t i = 0; i < Nden; ++i) {
+        CHECK(damp::isfinite(tf.den[i]));
+    }
+}
+
+} // namespace
+
 /**
  * @brief Tests for filter design and runtime implementations
  */
@@ -209,6 +242,136 @@ TEST_SUITE("Filter Design") {
         CHECK(y_ss(0, 0) == doctest::Approx(1.0).epsilon(1e-9));
     }
 
+    TEST_CASE("Continuous first-order high-pass TF is s/(s+ωc)") {
+        constexpr double fc = 10.0;
+        constexpr auto   tf = design::highpass_1st<double>(fc);
+        const double     omega = 2.0 * damp::numbers::pi_v<double> * fc;
+
+        // Ascending powers: num = s, den = ωc + s
+        CHECK(tf.num[0] == doctest::Approx(0.0));
+        CHECK(tf.num[1] == doctest::Approx(1.0));
+        CHECK(tf.den[0] == doctest::Approx(omega));
+        CHECK(tf.den[1] == doctest::Approx(1.0));
+
+        CHECK(mag_jw(tf, 0.0) == doctest::Approx(0.0).epsilon(1e-12));          // DC = 0
+        CHECK(mag_jw(tf, 100.0 * omega) == doctest::Approx(1.0).epsilon(1e-4)); // HF → 1
+        CHECK(mag_jw(tf, omega) == doctest::Approx(damp::numbers::inv_sqrt2_v<double>).epsilon(1e-12));
+    }
+
+    TEST_CASE("Continuous second-order high-pass TF is s²/(s²+(ω/Q)s+ω²)") {
+        constexpr double fc = 25.0;
+        constexpr double Q = 2.0;
+        constexpr auto   tf = design::highpass_2nd_continuous<double>(fc, Q);
+        const double     omega = 2.0 * damp::numbers::pi_v<double> * fc;
+        const double     w2 = omega * omega;
+
+        CHECK(tf.num[0] == doctest::Approx(0.0));
+        CHECK(tf.num[1] == doctest::Approx(0.0));
+        CHECK(tf.num[2] == doctest::Approx(1.0));
+        CHECK(tf.den[0] == doctest::Approx(w2));
+        CHECK(tf.den[1] == doctest::Approx(omega / Q));
+        CHECK(tf.den[2] == doctest::Approx(1.0));
+
+        CHECK(mag_jw(tf, 0.0) == doctest::Approx(0.0).epsilon(1e-12));          // DC = 0
+        CHECK(mag_jw(tf, 100.0 * omega) == doctest::Approx(1.0).epsilon(1e-4)); // HF → 1
+
+        // One-arg convenience matches Butterworth Q = 1/√2
+        const auto def = design::highpass_2nd<double>(fc);
+        const auto exp = design::highpass_2nd_continuous<double>(fc, damp::numbers::inv_sqrt2_v<double>);
+        CHECK(def.den[0] == doctest::Approx(exp.den[0]));
+        CHECK(def.den[1] == doctest::Approx(exp.den[1]));
+        CHECK(def.num[2] == doctest::Approx(exp.num[2]));
+    }
+
+    TEST_CASE("Continuous band-pass TF peaks at unity at ω0") {
+        constexpr double f0 = 40.0;
+        constexpr double Q = 5.0;
+        constexpr auto   tf = design::bandpass_continuous<double>(f0, Q);
+        const double     omega = 2.0 * damp::numbers::pi_v<double> * f0;
+
+        CHECK(tf.num[0] == doctest::Approx(0.0));
+        CHECK(tf.num[1] == doctest::Approx(omega / Q));
+        CHECK(tf.num[2] == doctest::Approx(0.0));
+        CHECK(tf.den[2] == doctest::Approx(1.0));
+
+        CHECK(mag_jw(tf, 0.0) == doctest::Approx(0.0).epsilon(1e-12));   // DC = 0
+        CHECK(mag_jw(tf, omega) == doctest::Approx(1.0).epsilon(1e-12)); // peak
+        CHECK(mag_jw(tf, 100.0 * omega) < 0.01);                         // HF → 0
+    }
+
+    TEST_CASE("Continuous notch TF nulls ω0 and is unity at DC/HF") {
+        constexpr double f0 = 50.0;
+        constexpr double Q = 8.0;
+        constexpr auto   tf = design::notch_continuous<double>(f0, Q);
+        const double     omega = 2.0 * damp::numbers::pi_v<double> * f0;
+        const double     w2 = omega * omega;
+
+        CHECK(tf.num[0] == doctest::Approx(w2));
+        CHECK(tf.num[1] == doctest::Approx(0.0));
+        CHECK(tf.num[2] == doctest::Approx(1.0));
+        CHECK(tf.den[0] == doctest::Approx(w2));
+        CHECK(tf.den[1] == doctest::Approx(omega / Q));
+        CHECK(tf.den[2] == doctest::Approx(1.0));
+
+        CHECK(mag_jw(tf, 0.0) == doctest::Approx(1.0).epsilon(1e-12));          // DC = 1
+        CHECK(mag_jw(tf, omega) == doctest::Approx(0.0).epsilon(1e-12));        // |H(jω0)| ≈ 0
+        CHECK(mag_jw(tf, 100.0 * omega) == doctest::Approx(1.0).epsilon(1e-4)); // HF → 1
+    }
+
+    TEST_CASE("Continuous all-pass TF has |H(jω)| = 1") {
+        constexpr double f0 = 30.0;
+        constexpr double Q = 0.7;
+        constexpr auto   tf = design::allpass_2nd_continuous<double>(f0, Q);
+        const double     omega = 2.0 * damp::numbers::pi_v<double> * f0;
+
+        CHECK(tf.num[0] == doctest::Approx(tf.den[0]));
+        CHECK(tf.num[1] == doctest::Approx(-tf.den[1]));
+        CHECK(tf.num[2] == doctest::Approx(tf.den[2]));
+        CHECK(tf.den[2] == doctest::Approx(1.0));
+
+        CHECK(mag_jw(tf, 0.0) == doctest::Approx(1.0).epsilon(1e-12));
+        CHECK(mag_jw(tf, omega) == doctest::Approx(1.0).epsilon(1e-12));
+        CHECK(mag_jw(tf, 0.3 * omega) == doctest::Approx(1.0).epsilon(1e-12));
+        CHECK(mag_jw(tf, 10.0 * omega) == doctest::Approx(1.0).epsilon(1e-12));
+    }
+
+    TEST_CASE("Invalid analog designers return zero num, monic den, no NaN") {
+        const auto hp1 = design::highpass_1st<double>(0.0);
+        check_tf_finite(hp1);
+        CHECK(hp1.num[0] == doctest::Approx(0.0));
+        CHECK(hp1.num[1] == doctest::Approx(0.0));
+        CHECK(hp1.den[0] == doctest::Approx(1.0));
+        CHECK(hp1.den[1] == doctest::Approx(1.0));
+
+        const auto hp1n = design::highpass_1st<double>(-5.0);
+        check_tf_finite(hp1n);
+        CHECK(hp1n.num[0] == doctest::Approx(0.0));
+
+        const auto hp2 = design::highpass_2nd_continuous<double>(10.0, 0.0);
+        check_tf_finite(hp2);
+        CHECK(hp2.num[0] == doctest::Approx(0.0));
+        CHECK(hp2.num[1] == doctest::Approx(0.0));
+        CHECK(hp2.num[2] == doctest::Approx(0.0));
+        CHECK(hp2.den[0] == doctest::Approx(0.0));
+        CHECK(hp2.den[1] == doctest::Approx(0.0));
+        CHECK(hp2.den[2] == doctest::Approx(1.0));
+
+        const auto bp = design::bandpass_continuous<double>(-1.0, 2.0);
+        check_tf_finite(bp);
+        CHECK(bp.num[2] == doctest::Approx(0.0));
+        CHECK(bp.den[2] == doctest::Approx(1.0));
+
+        const auto nch = design::notch_continuous<double>(50.0, -1.0);
+        check_tf_finite(nch);
+        CHECK(nch.num[0] == doctest::Approx(0.0));
+        CHECK(nch.den[2] == doctest::Approx(1.0));
+
+        const auto ap = design::allpass_2nd_continuous<double>(0.0, 1.0);
+        check_tf_finite(ap);
+        CHECK(ap.num[0] == doctest::Approx(0.0));
+        CHECK(ap.den[2] == doctest::Approx(1.0));
+    }
+
 } // TEST_SUITE
 
 TEST_SUITE("Runtime Filters") {
@@ -337,6 +500,21 @@ TEST_SUITE("Discrete designer guards") {
         CHECK(n.b0 == doctest::Approx(0.0));
         const auto bp = design::bandpass<double>(600.0, 5.0, 0.001); // above Nyquist
         CHECK(bp.b0 == doctest::Approx(0.0));
+    }
+
+    TEST_CASE("discrete allpass is Tustin of analog and rejects invalid") {
+        const auto c = design::allpass<double>(50.0, 0.7, 0.001);
+        CHECK(damp::isfinite(c.b0));
+        CHECK(damp::isfinite(c.a1));
+        // Analog allpass H(0) = 1 maps to z = 1 under Tustin
+        const double dc = (c.b0 + c.b1 + c.b2) / (1.0 + c.a1 + c.a2);
+        CHECK(dc == doctest::Approx(1.0).epsilon(1e-9));
+
+        const auto bad = design::allpass<double>(50.0, 0.0, 0.001);
+        CHECK(bad.b0 == doctest::Approx(0.0));
+        CHECK(bad.a1 == doctest::Approx(0.0));
+        const auto nyq = design::allpass<double>(600.0, 1.0, 0.001);
+        CHECK(nyq.b0 == doctest::Approx(0.0));
     }
 
     TEST_CASE("LowPass(tf,Ts) N=1 uses to_coeffs path") {

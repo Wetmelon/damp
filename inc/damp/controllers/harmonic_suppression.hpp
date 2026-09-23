@@ -31,6 +31,9 @@
 
 #include "damp/backend.hpp" // damp::array, damp::numbers
 #include "damp/controllers/pr.hpp"
+#include "damp/systems/state_space.hpp"
+#include "damp/systems/transfer_function.hpp"
+#include "damp/systems/zpk.hpp"
 
 namespace damp {
 
@@ -57,6 +60,36 @@ struct HarmonicSuppressorResult {
         out.w_fund = static_cast<std::remove_const_t<U>>(w_fund);
         out.success = success;
         return out;
+    }
+
+    /**
+     * @brief Parallel bank of PR resonators as one SISO C(s)
+     *
+     * State dimension 2N. Failed designs return a zero system.
+     */
+    [[nodiscard]] constexpr StateSpace<2 * N, 1, 1, T> to_ss() const {
+        static_assert(N >= 1, "HarmonicSuppressorResult needs at least one harmonic");
+        if (!success) {
+            return {};
+        }
+        return pr_parallel_ss<N - 1>();
+    }
+
+    /**
+     * @brief Transfer function of @ref to_ss (Leverrier)
+     */
+    [[nodiscard]] constexpr TransferFunction<2 * N + 1, 2 * N + 1, T> to_tf() const {
+        return ::damp::to_transfer_function(to_ss());
+    }
+
+private:
+    template<size_t I>
+    [[nodiscard]] constexpr StateSpace<2 * (I + 1), 1, 1, T> pr_parallel_ss() const {
+        if constexpr (I == 0) {
+            return gains[0].to_ss();
+        } else {
+            return *::damp::parallel(pr_parallel_ss<I - 1>(), gains[I].to_ss());
+        }
     }
 };
 

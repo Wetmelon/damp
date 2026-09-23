@@ -16,6 +16,7 @@
 #include "damp/backend.hpp" // damp::array
 #include "damp/math/math.hpp"
 #include "damp/matrix/matrix_traits.hpp"
+#include "damp/systems/transfer_function.hpp"
 
 namespace damp::estimation {
 
@@ -321,6 +322,20 @@ struct ClassicalDobResult {
         }
         out.success = success;
         return out;
+    }
+
+    /**
+     * @brief Q-filter Fu = Q as a discrete TF in z⁻¹ (same coefficients as the IIR)
+     */
+    [[nodiscard]] constexpr TransferFunction<NQn, NQd, T> q_tf() const {
+        return TransferFunction<NQn, NQd, T>{.num = fu_num, .den = fu_den};
+    }
+
+    /**
+     * @brief Measurement filter Fy = Q·Pₙ⁻¹ as a discrete TF in z⁻¹
+     */
+    [[nodiscard]] constexpr TransferFunction<NFyNum, NFyDen, T> fy_tf() const {
+        return TransferFunction<NFyNum, NFyDen, T>{.num = fy_num, .den = fy_den};
     }
 };
 

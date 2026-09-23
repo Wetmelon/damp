@@ -14,6 +14,8 @@
 #include <limits>
 
 #include "damp/backend.hpp"
+#include "damp/math/complex.hpp"
+#include "damp/systems/state_space.hpp"
 #include "damp/systems/transfer_function.hpp"
 
 namespace damp {
@@ -165,18 +167,73 @@ struct PIDResult {
     }
 
     /**
-     * @brief Continuous-time controller transfer function C(s).
+     * @brief Error-channel C(s) = Kp + Ki/s + Kd s/(1 + Tf s)
      *
-     * Returns @f$C(s) = K_p + K_i/s + K_d s/(1 + T_f s)@f$ as a 2nd-order TF in
-     * ascending powers of s, so PID drops into the analysis tooling (Bode,
-     * `series`/`feedback`, `discretize`) like the lead-lag / PR design results.
-     * `Tf = 0` gives the ideal form @f$(K_d s^2 + K_p s + K_i)/s@f$.
+     * Feedback law (y → −u at r = 0). Bode / series / feedback of L use this
+     * map. Setpoint weights b, c do not appear. Tf = 0 is the ideal
+     * (Kd s² + Kp s + Ki)/s.
      */
     [[nodiscard]] constexpr TransferFunction<3, 3, T> to_tf() const {
         return TransferFunction<3, 3, T>{
             .num = {Ki, Kp + (Ki * Tf), (Kp * Tf) + Kd},
             .den = {T{0}, T{1}, Tf},
         };
+    }
+
+    /**
+     * @brief Setpoint-channel C_ff(s) = b Kp + Ki/s + c Kd s/(1 + Tf s)
+     *
+     * Tracking is T_yr = C_ff P / (1 + C_fb P). Equals @ref to_tf when b = c = 1.
+     */
+    [[nodiscard]] constexpr TransferFunction<3, 3, T> to_tf_ff() const {
+        return TransferFunction<3, 3, T>{
+            .num = {Ki, (b * Kp) + (Ki * Tf), (b * Kp * Tf) + (c * Kd)},
+            .den = {T{0}, T{1}, Tf},
+        };
+    }
+
+    /**
+     * @brief Error-channel C_fb(jω) for L = C_fb P
+     */
+    [[nodiscard]] constexpr damp::complex<T> eval_fb(T w) const {
+        return eval_channel(w, T{1}, T{1});
+    }
+
+    /**
+     * @brief Setpoint-channel C_ff(jω) (P weight b, D weight c)
+     */
+    [[nodiscard]] constexpr damp::complex<T> eval_ff(T w) const {
+        return eval_channel(w, b, c);
+    }
+
+    /**
+     * @brief Error-channel PI realization @f$ C(s) = K_p + K_i/s @f$
+     *
+     * One integrator. @f$ K_d @f$ / @f$ T_f @f$ are not in this map — use
+     * @ref to_tf for the full (possibly improper) C(s). This is the LTI
+     * composed into cascade and feedforward plants.
+     */
+    [[nodiscard]] constexpr StateSpace<1, 1, 1, T> to_ss() const {
+        return StateSpace<1, 1, 1, T>{
+            .A = {{T{0}}},
+            .B = {{T{1}}},
+            .C = {{Ki}},
+            .D = {{Kp}},
+        };
+    }
+
+private:
+    [[nodiscard]] constexpr damp::complex<T> eval_channel(T w, T bp, T cd) const {
+        using Cplx = damp::complex<T>;
+        Cplx out{bp * Kp, T{0}};
+        if ((w > T{0}) && (Ki != T{0})) {
+            out = out + (Cplx{Ki, T{0}} / Cplx{T{0}, w});
+        }
+        if ((w > T{0}) && (Kd != T{0}) && (cd != T{0})) {
+            const Cplx s{T{0}, w};
+            out = out + ((cd * Kd) * s) / (Cplx{T{1}, T{0}} + (Tf * s));
+        }
+        return out;
     }
 };
 
