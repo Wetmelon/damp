@@ -379,7 +379,10 @@ struct ErrorStateKalmanFilter {
             return false;
         }
         const Matrix K = K_opt.value().transpose(); // NDX × NY2
-        delta_x = ColVec(K * innovation);
+        // Stack on any correction not yet injected. A single update after
+        // reset_error_state (δx = 0) matches δx = K (y − h).
+        const ColVec<NY2, T> innov_bar = innovation - (H * delta_x);
+        delta_x = delta_x + (K * innov_bar);
         // Joseph form: P = (I − KH) P (I − KH)ᵀ + K R Kᵀ (exact P symmetry)
         const auto I_KH = Matrix<NDX, NDX, T>::identity() - K * H;
         P = quadratic_form(I_KH, P) + quadratic_form(K, R_meas);

@@ -118,22 +118,9 @@ template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, si
     const auto Q_eff = sys.G * Q * sys.G.t();
     const auto R_eff = sys.H * R * sys.H.t();
 
-    // Fast path: R_eff ≈ 0 with square, invertible C → L = C⁻¹ (solve C L = I).
-    // The inverse itself is the gain deliverable; use LU solve (no bare .inverse()).
-    const T r_eps = std::is_same_v<T, float> ? static_cast<T>(1e-6) : static_cast<T>(1e-10);
-    if (R_eff.norm() < r_eps) {
-        if constexpr (NY == NX) {
-            const auto L_opt = mat::lu_solve(sys.C, Matrix<NX, NX, T>::identity());
-            if (L_opt) {
-                result.P = static_cast<T>(0.5) * (Q_eff + Q_eff.transpose()); // keep P symmetric
-                result.L = L_opt.value();
-                result.success = true;
-                return result;
-            }
-        }
-    }
-
     // Solve filter DARE: P = A*P*A' + Q_eff - A*P*C'*(C*P*C' + R_eff)^{-1}*C*P*A'
+    // No deadbeat shortcut on a small absolute R: a precise sensor is not a
+    // perfect measurement, and L = C⁻¹ would ship with success == true.
     // dare() handles R ≥ 0 (falls back to RDE iteration when R is singular)
     const auto dare_opt = dare(sys.A.transpose(), sys.C.transpose(), Q_eff, R_eff);
     if (!dare_opt) {

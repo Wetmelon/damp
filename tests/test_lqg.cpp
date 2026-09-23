@@ -190,10 +190,9 @@ TEST_SUITE("LQG") {
         CHECK(xhat[1] == doctest::Approx(result.kalman.L(1, 0) * 1.0));
     }
 
-    TEST_CASE("LQGResult::to_ss regulator state-space stabilizes the plant") {
-        // Validates the prediction-form realization (steady-state L) by closing the
-        // loop: y -> compensator -> u -> plant. A correct realization regulates the
-        // plant to zero from a displaced start.
+    TEST_CASE("LQGResult::to_ss matches step and regulates") {
+        // Current-estimator realization: one ss step equals LQG::step, and the
+        // closed loop regulates a displaced plant.
         const auto sys = make_plant();
         const auto result = design::discrete_lqg(
             sys, Matrix<2, 2>::identity(), Matrix<1, 1>{{0.1}},
@@ -201,12 +200,25 @@ TEST_SUITE("LQG") {
         );
         REQUIRE(result.success);
 
-        const auto ss = result.to_ss();            // StateSpace<2,1,1>: in y, out u, state x̂
-        CHECK(ss.D(0, 0) == doctest::Approx(0.0)); // strictly proper compensator
+        const auto ss = result.to_ss();
+        const auto direct = -(result.lqr.K * result.kalman.L);
+        CHECK(ss.D(0, 0) == doctest::Approx(direct(0, 0)));
         CHECK(ss.Ts == doctest::Approx(sys.Ts));
 
-        ColVec<2> xc{{0.0}, {0.0}}; // compensator (estimator) state
-        ColVec<2> xp{{1.0}, {0.0}}; // true plant, displaced
+        LQG<2, 1, 1, double, 2, 1> runtime{result};
+        ColVec<2>                  xc{{0.0}, {0.0}};
+        ColVec<2>                  xp{{1.0}, {0.0}};
+        ColVec<2>                  xp_rt = xp;
+        for (int k = 0; k < 8; ++k) {
+            const ColVec<1> y{{xp[0]}};
+            const ColVec<1> u = ss.C * xc + ss.D * y;
+            const ColVec<1> u_rt = runtime.step(ColVec<1>{{xp_rt[0]}});
+            CHECK(u[0] == doctest::Approx(u_rt[0]));
+            xp = sys.A * xp + sys.B * u;
+            xp_rt = sys.A * xp_rt + sys.B * u_rt;
+            xc = ss.A * xc + ss.B * y;
+        }
+
         for (int k = 0; k < 200; ++k) {
             const ColVec<1> y{{xp[0]}};
             const ColVec<1> u = ss.C * xc + ss.D * y;

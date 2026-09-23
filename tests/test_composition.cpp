@@ -43,15 +43,8 @@ TEST_SUITE("Cascade and SwitchedController") {
         // r=1, y_o=0 → u_o = 2; y_i=0 → u = 3*2 = 6
         CHECK(cas.control(1.0, 0.0, 0.0) == doctest::Approx(6.0));
         cas.reset();
-        static_assert(SisoController<decltype(cas), double>);
-    }
-
-    TEST_CASE("Cascade 2-arg control uses y for both loops") {
-        GainController<double>                                          outer{2.0};
-        GainController<double>                                          inner{3.0};
-        Cascade<GainController<double>, GainController<double>, double> cas{outer, inner};
-        // Same y for outer and inner: u_o = 2*(1-0)=2; u = 3*(2-0)=6
-        CHECK(cas.control(1.0, 0.0) == doctest::Approx(6.0));
+        // Two measurements: not a SisoController (that contract is one y).
+        static_assert(!SisoController<decltype(cas), double>);
     }
 
     TEST_CASE("SwitchedController modes") {

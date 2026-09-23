@@ -37,6 +37,7 @@
 
 #include <concepts>
 #include <cstddef>
+#include <type_traits>
 
 #include "damp/backend.hpp"
 #include "damp/matrix/matrix.hpp"
@@ -79,7 +80,9 @@ concept UKFMeasFn = requires(Fn&& fn, const ColVec<NX, T>& x, const ColVec<NU, T
  */
 template<typename T = double>
 struct UnscentedParams {
-    T alpha{static_cast<T>(1e-3)};
+    /// Spread of the sigma points. 1e-3 is a double-precision recipe; in float
+    /// it makes n+λ ~ 1e-6 n and a center weight ~ 1/α².
+    T alpha{std::is_same_v<T, float> ? T{0.5} : static_cast<T>(1e-3)};
     T beta{static_cast<T>(2)};
     T kappa{static_cast<T>(0)};
 };

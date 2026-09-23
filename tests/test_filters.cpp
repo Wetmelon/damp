@@ -6,6 +6,7 @@
 #include "damp/backend.hpp"
 #include "damp/filters/filters.hpp"
 #include "damp/matrix/matrix.hpp"
+#include "damp/systems/discretization.hpp"
 #include "damp/systems/state_space.hpp"
 #include "damp/systems/transfer_function.hpp"
 
@@ -525,6 +526,22 @@ TEST_SUITE("Discrete designer guards") {
 
         // Same first sample on a unit step (both start from zero state)
         CHECK(via_tf(1.0) == doctest::Approx(via_c(1.0)));
+    }
+
+    TEST_CASE("LowPass N=3 matches Tustin state space on a step") {
+        // 1/(s+1)^3. Orders above 2 recover b from the impulse response.
+        TransferFunction<4, 4> tf{.num = {1.0, 0.0, 0.0, 0.0}, .den = {1.0, 3.0, 3.0, 1.0}};
+        const double           Ts = 0.01;
+        LowPass<3, double>     lpf(tf, Ts);
+        const auto             sd = *discretize(tf.to_state_space().value(), Ts, DiscretizationMethod::Tustin);
+        ColVec<3>              x{};
+        const ColVec<1>        u{{1.0}};
+        for (int k = 0; k < 30; ++k) {
+            const double y_lpf = lpf(1.0);
+            const double y_ss = (sd.C * x + sd.D * u)(0, 0);
+            CHECK(y_lpf == doctest::Approx(y_ss).epsilon(1e-6));
+            x = sd.A * x + sd.B * u;
+        }
     }
 }
 

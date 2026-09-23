@@ -25,6 +25,7 @@
  */
 
 #include <cstddef>
+#include <limits>
 #include <type_traits>
 
 #include "damp/math/math.hpp"
@@ -248,9 +249,10 @@ public:
                 }
             }
 
-            // Keep scalar covariance non-negative (finite-precision Joseph residual).
-            if (state_.covariance < T{0}) {
-                state_.covariance = T{0};
+            // Floor above zero. A covariance of exactly 0 freezes the gain at 0.
+            const T cov_floor = std::numeric_limits<T>::epsilon() * (damp::abs(static_cast<T>(config_.p0)) + T{1});
+            if (state_.covariance < cov_floor) {
+                state_.covariance = cov_floor;
             }
         }
 

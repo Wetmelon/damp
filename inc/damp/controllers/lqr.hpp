@@ -58,6 +58,7 @@ struct LQRResult {
     Matrix<NX, NX, T>            S{};            ///< DARE solution (positive semidefinite)
     ColVec<NX, damp::complex<T>> e{};            ///< Closed-loop poles (eigenvalues of A − BK)
     bool                         success{false}; ///< true if DARE converged
+    bool                         discrete{true}; ///< false: @c e are s-plane poles (continuous_lqr)
 
     template<typename U>
     [[nodiscard]] constexpr auto as() const {
@@ -65,7 +66,8 @@ struct LQRResult {
             K.template as<U>(),
             S.template as<U>(),
             e.template as<damp::complex<U>>(),
-            success
+            success,
+            discrete
         };
     }
 
@@ -78,7 +80,11 @@ struct LQRResult {
      */
     [[nodiscard]] constexpr bool is_stable() const {
         for (size_t i = 0; i < NX; ++i) {
-            if (e[i].abs() >= static_cast<T>(1.0)) {
+            if (discrete) {
+                if (e[i].abs() >= static_cast<T>(1.0)) {
+                    return false;
+                }
+            } else if (e[i].real() >= static_cast<T>(0)) {
                 return false;
             }
         }
@@ -358,9 +364,8 @@ template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, si
  *
  * @note Compare with MATLAB®'s [K,S,e] = lqr(A, B, Q, R, N).
  * @note Unlike @ref discrete_lqr, the returned `e` are continuous-time
- *       (s-plane) closed-loop poles of @f$ (A - BK) @f$; stability is
- *       @f$ \mathrm{Re}(e) < 0 @f$, so LQRResult::is_stable (a unit-circle
- *       test) does not apply here.
+ *       (s-plane) closed-loop poles of @f$ (A - BK) @f$ and @c discrete is
+ *       false, so @c is_stable tests @f$ \mathrm{Re}(e) < 0 @f$.
  *
  * @see care() for the underlying Riccati solver
  * @see discrete_lqr_from_continuous() for the sampled-data (digital) design
@@ -395,7 +400,7 @@ template<size_t NX, size_t NU, typename T = double>
         return LQRResult<NX, NU, T>{};
     }
     const Matrix<NU, NX, T> K = K_opt.value();
-    return LQRResult<NX, NU, T>{K, S, stability::closed_loop_poles(A, B, K), true};
+    return LQRResult<NX, NU, T>{K, S, stability::closed_loop_poles(A, B, K), true, false};
 }
 
 /// @brief Continuous LQR from a continuous-time StateSpace (uses A, B).
@@ -410,6 +415,24 @@ template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, si
 }
 
 } // namespace design
+
+namespace detail {
+
+/// Failed design:: result passed to a runtime law. Not constexpr, so a
+/// constant-evaluated constructor becomes ill-formed; at runtime it traps.
+[[noreturn]] inline void refuse_failed_design() noexcept {
+#if defined(__GNUC__) || defined(__clang__)
+    __builtin_trap();
+#elif defined(_MSC_VER)
+    __fastfail(7);
+#else
+    for (;;) {
+    }
+#endif
+}
+
+} // namespace detail
+
 /**
  * @ingroup discrete_controllers
  * @brief Runtime full-state feedback law u = −Kx
@@ -434,10 +457,19 @@ struct StateFeedback {
     constexpr StateFeedback() = default;
     constexpr explicit StateFeedback(const Matrix<NU, NX, T>& K_) : K(K_) {}
 
-    /// From design result (any scalar); converts K via @c .as\<T\>().
+    /// From a successful design result (any scalar); converts K via @c .as\<T\>().
+    ///
+    /// A failed design must not become a law. Constant evaluation of a failed
+    /// result is ill-formed. A runtime failed result does not return.
     template<typename U>
     constexpr StateFeedback(const design::LQRResult<NX, NU, U>& result) // NOLINT
-        : K(result.K.template as<T>()) {}
+        : K{} {
+        if (result.success) {
+            K = result.K.template as<T>();
+        } else {
+            detail::refuse_failed_design();
+        }
+    }
 
     template<typename U>
     constexpr StateFeedback(const StateFeedback<NX, NU, U>& other) : K(other.getK().template as<T>()) {} // NOLINT

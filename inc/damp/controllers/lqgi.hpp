@@ -48,51 +48,60 @@ struct LQGIResult {
     /**
      * @brief Convert the LQGI compensator to a discrete state-space block
      *
-     * Realizes the dynamic compensator mapping the exogenous inputs [r; y] to the
-     * control u, with internal state [x̂; xi] (estimator state stacked on the
-     * integral-of-error state). Lets the closed loop drop into Bode/`feedback`/
-     * `series` analysis. The prediction-form estimator uses the steady-state
-     * Kalman gain L; the integrator advances xi[k+1] = xi[k] + (r − y).
+     * Current-estimator realization of @ref LQGI::step. State is the runtime
+     * registers at the start of the tick, @f$ [\hat x(k|k-1);\; \xi_i;\; u_{\mathrm{prev}}] @f$:
+     * measurement update with the previous applied input, then
+     * @f$ u = -[K_x\; K_i][\hat x(k|k);\; \xi_i] @f$, then @f$ \xi_i \leftarrow \xi_i + (r-y) @f$
+     * and predict. Inputs are @f$ [r; y] @f$.
      *
-     * Partition K = [Kx | Ki]. With Bl = B − L·D:
-     * @f[
-     *   A_c = \begin{bmatrix} A - LC - B_l K_x & -B_l K_i \\ 0 & I \end{bmatrix},\;
-     *   B_c = \begin{bmatrix} 0 & L \\ I & -I \end{bmatrix},\;
-     *   C_c = [-K_x\; -K_i],\; D_c = 0.
-     * @f]
-     *
-     * @return StateSpace with NX+NY states, 2·NY inputs ([r; y]), NU outputs (u)
+     * @return StateSpace with NX+NY+NU states, 2·NY inputs ([r; y]), NU outputs (u)
      */
-    [[nodiscard]] constexpr StateSpace<NX + NY, 2 * NY, NU, T> to_ss() const {
-        const auto& A = kalman.sys.A;
-        const auto& B = kalman.sys.B;
-        const auto& C = kalman.sys.C;
-        const auto& D = kalman.sys.D;
-        const auto& L = kalman.L;
+    [[nodiscard]] constexpr StateSpace<NX + NY + NU, 2 * NY, NU, T> to_ss() const {
+        constexpr size_t NS = NX + NY + NU;
+        const auto&      A = kalman.sys.A;
+        const auto&      B = kalman.sys.B;
+        const auto&      C = kalman.sys.C;
+        const auto&      D = kalman.sys.D;
+        const auto&      L = kalman.L;
 
         const Matrix<NU, NX, T> Kx = lqi.K.template block<NU, NX>(0, 0);
         const Matrix<NU, NY, T> Ki = lqi.K.template block<NU, NY>(0, NX);
-        const Matrix<NX, NU, T> Bl = B - (L * D);
 
-        Matrix<NX + NY, NX + NY, T> Ac{};
-        Ac.template block<NX, NX>(0, 0) = A - (L * C) - (Bl * Kx);
-        Ac.template block<NX, NY>(0, NX) = -(Bl * Ki);
+        const auto I = Matrix<NX, NX, T>::identity();
+        const auto ImLC = I - (L * C);
+        const auto LD = L * D;
+        const auto KxImLC = Kx * ImLC;
+        const auto AmBKx = A - (B * Kx);
+        const auto KxL = Kx * L;
+
+        Matrix<NS, NS, T> Ac{};
+        Ac.template block<NX, NX>(0, 0) = AmBKx * ImLC;
+        Ac.template block<NX, NY>(0, NX) = -(B * Ki);
+        Ac.template block<NX, NU>(0, NX + NY) = -(AmBKx * LD);
         Ac.template block<NY, NY>(NX, NX) = Matrix<NY, NY, T>::identity();
+        Ac.template block<NU, NX>(NX + NY, 0) = -KxImLC;
+        Ac.template block<NU, NY>(NX + NY, NX) = -Ki;
+        Ac.template block<NU, NU>(NX + NY, NX + NY) = Kx * LD;
 
-        Matrix<NX + NY, 2 * NY, T> Bc{};
-        Bc.template block<NX, NY>(0, NY) = L;                               // y → x̂
-        Bc.template block<NY, NY>(NX, 0) = Matrix<NY, NY, T>::identity();   // r → xi
-        Bc.template block<NY, NY>(NX, NY) = -Matrix<NY, NY, T>::identity(); // y → xi
+        Matrix<NS, 2 * NY, T> Bc{};
+        Bc.template block<NY, NY>(NX, 0) = Matrix<NY, NY, T>::identity();
+        Bc.template block<NX, NY>(0, NY) = AmBKx * L;
+        Bc.template block<NY, NY>(NX, NY) = -Matrix<NY, NY, T>::identity();
+        Bc.template block<NU, NY>(NX + NY, NY) = -KxL;
 
-        Matrix<NU, NX + NY, T> Cc{};
-        Cc.template block<NU, NX>(0, 0) = -Kx;
+        Matrix<NU, NS, T> Cc{};
+        Cc.template block<NU, NX>(0, 0) = -KxImLC;
         Cc.template block<NU, NY>(0, NX) = -Ki;
+        Cc.template block<NU, NU>(0, NX + NY) = Kx * LD;
 
-        return StateSpace<NX + NY, 2 * NY, NU, T>{
+        Matrix<NU, 2 * NY, T> Dc{};
+        Dc.template block<NU, NY>(0, NY) = -KxL;
+
+        return StateSpace<NS, 2 * NY, NU, T>{
             .A = Ac,
             .B = Bc,
             .C = Cc,
-            .D = Matrix<NU, 2 * NY, T>{},
+            .D = Dc,
             .Ts = kalman.sys.Ts,
         };
     }
@@ -201,9 +210,8 @@ struct LQGI {
      * u = -[Kx Ki]·[x̂; xi], then xi advances by (r − y).
      *
      * @warning This does NOT advance the estimator — call predict(u) and
-     *          update(y) first each tick (caller-sequenced). It matches the
-     *          OutputFeedbackController concept's syntax but not its
-     *          self-contained-tick semantics; step is the self-contained
+     *          update(y) first each tick (caller-sequenced). It is not an
+     *          OutputFeedbackController tick; @ref step is the self-contained
      *          counterpart, and @ref feedback / commit the saturation-aware one.
      *
      * @param r Output reference

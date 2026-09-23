@@ -56,6 +56,73 @@ struct ColView;
 template<size_t Rows, size_t Cols, typename T>
 struct TransposeView;
 
+namespace detail {
+
+/// Inclusive address ranges. Relational `<` is defined inside one array, which
+/// is the only case where two views can share an element. Different objects
+/// never alias; a spurious overlap there only costs a snapshot.
+template<typename T>
+[[nodiscard]] constexpr bool address_ranges_overlap(const T* a_first, const T* a_last, const T* b_first, const T* b_last) {
+    const T* const a_lo = (a_last < a_first) ? a_last : a_first;
+    const T* const a_hi = (a_last < a_first) ? a_first : a_last;
+    const T* const b_lo = (b_last < b_first) ? b_last : b_first;
+    const T* const b_hi = (b_last < b_first) ? b_first : b_last;
+    return !(a_hi < b_lo) && !(b_hi < a_lo);
+}
+
+/// Element overlap of two row-major rectangles. Bounding spans reject the
+/// disjoint case; the address walk rejects a strided gap that the span still covers.
+template<typename T>
+[[nodiscard]] constexpr bool rects_share_element(
+    const T* a, size_t a_rows, size_t a_cols, size_t a_stride,
+    const T* b, size_t b_rows, size_t b_cols, size_t b_stride
+) {
+    if (a_rows == 0 || a_cols == 0 || b_rows == 0 || b_cols == 0) {
+        return false;
+    }
+    const T* const a_last = a + ((a_rows - 1) * a_stride) + (a_cols - 1);
+    const T* const b_last = b + ((b_rows - 1) * b_stride) + (b_cols - 1);
+    if (!address_ranges_overlap(a, a_last, b, b_last)) {
+        return false;
+    }
+    for (size_t i = 0; i < a_rows; ++i) {
+        for (size_t j = 0; j < a_cols; ++j) {
+            const T* const p = a + (i * a_stride) + j;
+            for (size_t u = 0; u < b_rows; ++u) {
+                const T* const row = b + (u * b_stride);
+                for (size_t v = 0; v < b_cols; ++v) {
+                    if (p == (row + v)) {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    return false;
+}
+
+/// True when @p src's backing elements intersect [dest_first, dest_last].
+/// Types without storage_first/storage_last are treated as aliasing so the
+/// caller snapshots. A strided view's span includes the gaps between its rows,
+/// so a non-overlapping column of the same parent can still look like an alias.
+template<typename T, typename Src>
+[[nodiscard]] constexpr bool storage_overlaps(const T* dest_first, const T* dest_last, const Src& src) {
+    if constexpr (requires { src.storage_first(); src.storage_last(); }) {
+        using SrcElem = std::remove_cv_t<std::remove_pointer_t<decltype(src.storage_first())>>;
+        if constexpr (!std::is_same_v<std::remove_cv_t<T>, SrcElem>) {
+            return false;
+        } else {
+            const T* const src_first = static_cast<const T*>(src.storage_first());
+            const T* const src_last = static_cast<const T*>(src.storage_last());
+            return address_ranges_overlap(dest_first, dest_last, src_first, src_last);
+        }
+    } else {
+        return true;
+    }
+}
+
+} // namespace detail
+
 /**
  * @ingroup linear_algebra
  * @brief Fixed-size, stack-allocated matrix for linear algebra operations
@@ -234,7 +301,7 @@ public:
      * @return a Block view of the specified submatrix
      */
     template<size_t Brows, size_t Bcols>
-    constexpr Block<Brows, Bcols, Cols, T> block(size_t start_row, size_t start_col) {
+    constexpr Block<Brows, Bcols, Cols, T> block(size_t start_row, size_t start_col) & {
         if constexpr (Brows == 0 || Bcols == 0) {
             return Block<Brows, Bcols, Cols, T>{nullptr, 0};
         } else {
@@ -243,12 +310,24 @@ public:
     }
 
     template<size_t Brows, size_t Bcols>
-    constexpr Block<Brows, Bcols, Cols, const T> block(size_t start_row, size_t start_col) const {
+    constexpr Block<Brows, Bcols, Cols, const T> block(size_t start_row, size_t start_col) const& {
         if constexpr (Brows == 0 || Bcols == 0) {
             return Block<Brows, Bcols, Cols, const T>{nullptr, 0};
         } else {
             return Block<Brows, Bcols, Cols, const T>{data_.data(), (start_row * Cols) + start_col};
         }
+    }
+
+    /// Owning copy. An rvalue's view would dangle at the end of the full expression.
+    template<size_t Brows, size_t Bcols>
+    constexpr Matrix<Brows, Bcols, T> block(size_t start_row, size_t start_col) && {
+        return static_cast<const Matrix&>(*this).template block<Brows, Bcols>(start_row, start_col);
+    }
+
+    template<size_t Brows, size_t Bcols>
+    constexpr Matrix<Brows, Bcols, T> block(size_t start_row, size_t start_col) const&& {
+        const auto view = static_cast<const Matrix&>(*this).template block<Brows, Bcols>(start_row, start_col);
+        return Matrix<Brows, Bcols, T>{view};
     }
 
     /**
@@ -296,12 +375,20 @@ public:
      * @param row_index The index of the row to view
      * @return RowView of the specified row
      */
-    constexpr RowView<Rows, Cols, T> row(size_t row_index) {
+    constexpr RowView<Rows, Cols, T> row(size_t row_index) & {
         return RowView<Rows, Cols, T>{*this, row_index};
     }
 
-    constexpr RowView<Rows, Cols, const T> row(size_t row_index) const {
+    constexpr RowView<Rows, Cols, const T> row(size_t row_index) const& {
         return RowView<Rows, Cols, const T>{*this, row_index};
+    }
+
+    [[nodiscard]] constexpr Matrix<1, Cols, T> row(size_t row_index) && {
+        return row_vector(row_index);
+    }
+
+    [[nodiscard]] constexpr Matrix<1, Cols, T> row(size_t row_index) const&& {
+        return row_vector(row_index);
     }
 
     /**
@@ -310,12 +397,20 @@ public:
      * @param col_index The index of the column to view
      * @return ColView of the specified column
      */
-    constexpr ColView<Rows, Cols, T> col(size_t col_index) {
+    constexpr ColView<Rows, Cols, T> col(size_t col_index) & {
         return ColView<Rows, Cols, T>{*this, col_index};
     }
 
-    constexpr ColView<Rows, Cols, const T> col(size_t col_index) const {
+    constexpr ColView<Rows, Cols, const T> col(size_t col_index) const& {
         return ColView<Rows, Cols, const T>{*this, col_index};
+    }
+
+    [[nodiscard]] constexpr Matrix<Rows, 1, T> col(size_t col_index) && {
+        return col_vector(col_index);
+    }
+
+    [[nodiscard]] constexpr Matrix<Rows, 1, T> col(size_t col_index) const&& {
+        return col_vector(col_index);
     }
 
     /**
@@ -349,9 +444,24 @@ public:
     template<MatrixLike M>
         requires(M::rows() == Rows && M::cols() == Cols)
     constexpr Matrix& operator=(const M& other) {
-        for (size_t r = 0; r < Rows; ++r) {
-            for (size_t c = 0; c < Cols; ++c) {
-                data_[(r * Cols) + c] = static_cast<T>(other(r, c));
+        if constexpr (Rows == 0 || Cols == 0) {
+            return *this;
+        }
+        // Owning the elements is one copy. A second copy is only for A = A.t()
+        // and any other source that reads this storage while we write it.
+        if (detail::storage_overlaps(data_.data(), data_.data() + (Rows * Cols - 1), other)) {
+            Matrix tmp{};
+            for (size_t r = 0; r < Rows; ++r) {
+                for (size_t c = 0; c < Cols; ++c) {
+                    tmp.data_[(r * Cols) + c] = static_cast<T>(other(r, c));
+                }
+            }
+            copy_from(tmp);
+        } else {
+            for (size_t r = 0; r < Rows; ++r) {
+                for (size_t c = 0; c < Cols; ++c) {
+                    data_[(r * Cols) + c] = static_cast<T>(other(r, c));
+                }
             }
         }
         return *this;
@@ -429,6 +539,17 @@ public:
      * @brief Get const pointer to data in row-major order
      */
     [[nodiscard]] constexpr const T* data() const { return data_.data(); }
+
+    /// First backing element. Pair with @ref storage_last for alias checks.
+    [[nodiscard]] constexpr const T* storage_first() const { return data_.data(); }
+
+    /// Last backing element (inclusive). Equal to @ref storage_first when empty.
+    [[nodiscard]] constexpr const T* storage_last() const {
+        if constexpr (Rows == 0 || Cols == 0) {
+            return data_.data();
+        }
+        return data_.data() + (Rows * Cols - 1);
+    }
 
     /**
      * @brief Get pointer to data in row-major order
@@ -577,13 +698,17 @@ public:
      * @brief Non-owning transpose view (zero-copy)
      * @return TransposeView that swaps row/column indexing
      */
-    [[nodiscard]] constexpr TransposeView<Rows, Cols, T> t() {
+    [[nodiscard]] constexpr TransposeView<Rows, Cols, T> t() & {
         return TransposeView<Rows, Cols, T>{*this};
     }
 
-    [[nodiscard]] constexpr TransposeView<Rows, Cols, const T> t() const {
+    [[nodiscard]] constexpr TransposeView<Rows, Cols, const T> t() const& {
         return TransposeView<Rows, Cols, const T>{*this};
     }
+
+    [[nodiscard]] constexpr Matrix<Cols, Rows, T> t() && { return transpose(); }
+
+    [[nodiscard]] constexpr Matrix<Cols, Rows, T> t() const&& { return transpose(); }
 
     /**
      * @brief Conjugate transpose (Hermitian adjoint, concrete copy)
@@ -753,9 +878,14 @@ public:
      * @return Block view with the first NewRows rows
      */
     template<size_t NewRows>
-    [[nodiscard]] constexpr Block<NewRows, Cols, Cols, T> head() {
+    [[nodiscard]] constexpr Block<NewRows, Cols, Cols, T> head() & {
         static_assert(NewRows <= Rows, "head<NewRows> called with NewRows > Rows");
         return Block<NewRows, Cols, Cols, T>(data_.data(), 0);
+    }
+
+    template<size_t NewRows>
+    [[nodiscard]] constexpr Matrix<NewRows, Cols, T> head() && {
+        return static_cast<const Matrix&&>(*this).template head<NewRows>();
     }
 
     /**
@@ -764,9 +894,15 @@ public:
      * @return Const Block view with the first NewRows rows
      */
     template<size_t NewRows>
-    [[nodiscard]] constexpr Block<NewRows, Cols, Cols, const T> head() const {
+    [[nodiscard]] constexpr Block<NewRows, Cols, Cols, const T> head() const& {
         static_assert(NewRows <= Rows, "head<NewRows> called with NewRows > Rows");
         return Block<NewRows, Cols, Cols, const T>(data_.data(), 0);
+    }
+
+    template<size_t NewRows>
+    [[nodiscard]] constexpr Matrix<NewRows, Cols, T> head() const&& {
+        static_assert(NewRows <= Rows, "head<NewRows> called with NewRows > Rows");
+        return Matrix<NewRows, Cols, T>{Block<NewRows, Cols, Cols, const T>(data_.data(), 0)};
     }
 
     /**
@@ -775,9 +911,14 @@ public:
      * @return Block view with the last NewRows rows
      */
     template<size_t NewRows>
-    [[nodiscard]] constexpr Block<NewRows, Cols, Cols, T> tail() {
+    [[nodiscard]] constexpr Block<NewRows, Cols, Cols, T> tail() & {
         static_assert(NewRows <= Rows, "tail<NewRows> called with NewRows > Rows");
         return Block<NewRows, Cols, Cols, T>(&data_[(Rows - NewRows) * Cols]);
+    }
+
+    template<size_t NewRows>
+    [[nodiscard]] constexpr Matrix<NewRows, Cols, T> tail() && {
+        return static_cast<const Matrix&&>(*this).template tail<NewRows>();
     }
 
     /**
@@ -786,9 +927,15 @@ public:
      * @return Const Block view with the last NewRows rows
      */
     template<size_t NewRows>
-    [[nodiscard]] constexpr Block<NewRows, Cols, Cols, const T> tail() const {
+    [[nodiscard]] constexpr Block<NewRows, Cols, Cols, const T> tail() const& {
         static_assert(NewRows <= Rows, "tail<NewRows> called with NewRows > Rows");
         return Block<NewRows, Cols, Cols, const T>(&data_[(Rows - NewRows) * Cols]);
+    }
+
+    template<size_t NewRows>
+    [[nodiscard]] constexpr Matrix<NewRows, Cols, T> tail() const&& {
+        static_assert(NewRows <= Rows, "tail<NewRows> called with NewRows > Rows");
+        return Matrix<NewRows, Cols, T>{Block<NewRows, Cols, Cols, const T>(&data_[(Rows - NewRows) * Cols])};
     }
 };
 

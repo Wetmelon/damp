@@ -79,7 +79,15 @@ public:
     [[nodiscard]] constexpr auto* data() {
         return detail::view_data<is_const>(mat_ptr->data());
     }
-    [[nodiscard]] constexpr const T*      data() const { return mat_ptr->data(); }
+    [[nodiscard]] constexpr const T* data() const { return mat_ptr->data(); }
+
+    [[nodiscard]] constexpr const value_type* storage_first() const { return mat_ptr->data(); }
+    [[nodiscard]] constexpr const value_type* storage_last() const {
+        if constexpr (N == 0) {
+            return mat_ptr->data();
+        }
+        return mat_ptr->data() + (N * N - 1);
+    }
     [[nodiscard]] static constexpr size_t size() { return N; }
     // Convert to ColVec
     [[nodiscard]] constexpr ColVec<N, std::remove_const_t<T>> to_vector() const {
@@ -126,6 +134,14 @@ public:
 
     [[nodiscard]] static constexpr size_t rows() { return N; }
     [[nodiscard]] static constexpr size_t cols() { return N; }
+
+    [[nodiscard]] constexpr const value_type* storage_first() const { return mat_ptr->data(); }
+    [[nodiscard]] constexpr const value_type* storage_last() const {
+        if constexpr (N == 0) {
+            return mat_ptr->data();
+        }
+        return mat_ptr->data() + (N * N - 1);
+    }
 };
 
 /**
@@ -153,6 +169,14 @@ public:
 
     [[nodiscard]] static constexpr size_t rows() { return N; }
     [[nodiscard]] static constexpr size_t cols() { return N; }
+
+    [[nodiscard]] constexpr const value_type* storage_first() const { return mat_ptr->data(); }
+    [[nodiscard]] constexpr const value_type* storage_last() const {
+        if constexpr (N == 0) {
+            return mat_ptr->data();
+        }
+        return mat_ptr->data() + (N * N - 1);
+    }
 };
 
 /**
@@ -193,8 +217,16 @@ public:
         return operator()(c);
     }
 
-    [[nodiscard]] constexpr auto*         data() { return detail::view_data<is_const>(mat_ptr->data() + row_index * Cols); }
-    [[nodiscard]] constexpr const T*      data() const { return mat_ptr->data() + row_index * Cols; }
+    [[nodiscard]] constexpr auto*    data() { return detail::view_data<is_const>(mat_ptr->data() + row_index * Cols); }
+    [[nodiscard]] constexpr const T* data() const { return mat_ptr->data() + row_index * Cols; }
+
+    [[nodiscard]] constexpr const value_type* storage_first() const { return mat_ptr->data() + row_index * Cols; }
+    [[nodiscard]] constexpr const value_type* storage_last() const {
+        if constexpr (Cols == 0) {
+            return storage_first();
+        }
+        return storage_first() + (Cols - 1);
+    }
     [[nodiscard]] static constexpr size_t size() { return Cols; }
     [[nodiscard]] static constexpr size_t rows() { return 1; }
     [[nodiscard]] static constexpr size_t cols() { return Cols; }
@@ -289,6 +321,14 @@ public:
     [[nodiscard]] static constexpr size_t rows() { return Rows; }
     [[nodiscard]] static constexpr size_t cols() { return 1; }
 
+    [[nodiscard]] constexpr const value_type* storage_first() const { return mat_ptr->data() + col_index; }
+    [[nodiscard]] constexpr const value_type* storage_last() const {
+        if constexpr (Rows == 0) {
+            return storage_first();
+        }
+        return mat_ptr->data() + ((Rows - 1) * Cols) + col_index;
+    }
+
     /// Owning @c ColVec copy of this column
     [[nodiscard]] constexpr ColVec<Rows, value_type> to_vector() const {
         ColVec<Rows, value_type> result;
@@ -375,13 +415,41 @@ public:
         return result;
     }
 
+    [[nodiscard]] constexpr const value_type* storage_first() const { return mat_ptr->data(); }
+    [[nodiscard]] constexpr const value_type* storage_last() const {
+        if constexpr (Rows == 0 || Cols == 0) {
+            return mat_ptr->data();
+        }
+        return mat_ptr->data() + (Rows * Cols - 1);
+    }
+
     /// Assignment from any MatrixLike with transposed dimensions
     template<MatrixLike M>
         requires(M::rows() == Cols && M::cols() == Rows)
     constexpr TransposeView& operator=(const M& mat) {
-        for (size_t r = 0; r < Cols; ++r) {
-            for (size_t c = 0; c < Rows; ++c) {
-                (*this)(r, c) = static_cast<value_type>(mat(r, c));
+        if constexpr (Rows == 0 || Cols == 0) {
+            return *this;
+        }
+        // A.t() = B writes through. A.t() = A shares this storage, so snapshot.
+        const value_type* const dest_first = mat_ptr->data();
+        const value_type* const dest_last = storage_last();
+        if (detail::storage_overlaps(dest_first, dest_last, mat)) {
+            Matrix<Cols, Rows, value_type> tmp{};
+            for (size_t r = 0; r < Cols; ++r) {
+                for (size_t c = 0; c < Rows; ++c) {
+                    tmp(r, c) = static_cast<value_type>(mat(r, c));
+                }
+            }
+            for (size_t r = 0; r < Cols; ++r) {
+                for (size_t c = 0; c < Rows; ++c) {
+                    (*this)(r, c) = tmp(r, c);
+                }
+            }
+        } else {
+            for (size_t r = 0; r < Cols; ++r) {
+                for (size_t c = 0; c < Rows; ++c) {
+                    (*this)(r, c) = static_cast<value_type>(mat(r, c));
+                }
             }
         }
         return *this;

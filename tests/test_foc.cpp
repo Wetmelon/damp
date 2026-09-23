@@ -214,6 +214,26 @@ TEST_SUITE("FOC Controller") {
         CHECK(vq_ip == doctest::Approx(ip.qctrl.Ki * Ts));             // I-P: only the integral acts
     }
 
+    TEST_CASE("back-EMF saturation does not charge the current integrator") {
+        damp::motor::FOController<float> foc({.d = 200e-6f, .q = 200e-6f}, 0.5f, 0.1f);
+        foc.tune(1000.0f);
+        damp::DirectQuadrature<float> idq{};
+        const auto                    cmd = foc.current_controller(idq, idq, 8000.0f, Ts, 10.0f);
+        CHECK(cmd.is_saturated);
+        CHECK(cmd.Vdq.abs() == doctest::Approx(10.0f).epsilon(1e-4f));
+        CHECK(std::abs(foc.qctrl.integral) < 1.0f);
+        CHECK(std::abs(foc.dctrl.integral) < 1.0f);
+    }
+
+    TEST_CASE("non-positive Vmax forces zero voltage") {
+        damp::motor::FOController<float> foc({.d = 200e-6f, .q = 200e-6f}, 0.5f, 0.0f);
+        damp::DirectQuadrature<float>    ref{.d = 0.0f, .q = 5.0f};
+        const auto                       cmd = foc.current_controller(ref, {}, 0.0f, Ts, 0.0f);
+        CHECK(cmd.is_saturated);
+        CHECK(cmd.Vdq.d == doctest::Approx(0.0f));
+        CHECK(cmd.Vdq.q == doctest::Approx(0.0f));
+    }
+
     TEST_CASE("SPM datasheet constant conversions") {
         using namespace damp::motor;
         using damp::motor::spm::flux_from_Kv;

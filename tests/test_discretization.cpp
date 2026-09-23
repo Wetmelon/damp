@@ -174,4 +174,23 @@ TEST_SUITE("Control Design: Discretization") {
         CHECK(passthrough.A(0, 0) == doctest::Approx(-0.5));
         CHECK(passthrough.B(0, 0) == doctest::Approx(0.1));
     }
+
+    TEST_CASE("ZOH of a double integrator uses the singular-A integral") {
+        // A is nilpotent, so A⁻¹(e^{ATs}−I) is unavailable. Exact ZOH:
+        // Ad = [1, Ts; 0, 1], Bd = [Ts²/2; Ts].
+        const double Ts = 0.1;
+        StateSpace   sys{
+              .A = Matrix<2, 2>{{0.0, 1.0}, {0.0, 0.0}},
+              .B = Matrix<2, 1>{{0.0}, {1.0}},
+              .C = Matrix<1, 2>{{1.0, 0.0}},
+        };
+        const auto sys_d = discretize(sys, Ts, DiscretizationMethod::ZOH);
+        REQUIRE(sys_d);
+        CHECK(sys_d->A(0, 0) == doctest::Approx(1.0));
+        CHECK(sys_d->A(0, 1) == doctest::Approx(Ts));
+        CHECK(sys_d->A(1, 0) == doctest::Approx(0.0));
+        CHECK(sys_d->A(1, 1) == doctest::Approx(1.0));
+        CHECK(sys_d->B(0, 0) == doctest::Approx(0.5 * Ts * Ts));
+        CHECK(sys_d->B(1, 0) == doctest::Approx(Ts));
+    }
 }

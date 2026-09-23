@@ -16,7 +16,7 @@
  * | Role                     | Per-tick shape                    | Examples                          |
  * |--------------------------|-----------------------------------|-----------------------------------|
  * | SisoController           | `u = control(r, y)`               | PID, ADRC, SMC, lead-lag, PR      |
- * | OutputFeedbackController | `u = control(r, y)` (vector)      | OffsetFreeMPC, LQGI               |
+ * | OutputFeedbackController | `u = control(r, y)` (vector)      | OffsetFreeMPC                    |
  * | StateFeedbackController  | `u = control(r, x)`               | LQR (r = x_ref), MPC (r = y_ref)  |
  * | StateEstimator           | `x̂ = estimate(y, u)`, `state()`   | KalmanFilter, Luenberger, MHE       |
  * | SignalSource             | `u = step()`, `done()`            | Chirp, PRBS, StepTrain, Ramp, MultiSine, SteppedSine, Impulse, Step |
@@ -36,11 +36,11 @@
  *   controller-switch consumer exists.
  * - EKF/UKF/ESKF: their per-tick model-callback API is an intentional,
  *   different shape.
- * - LQG/LQGI: law + estimator *pairs*. Prefer @c step for a self-contained
- *   tick (LQG::step(y), LQGI::step(r, y)). The split predict/update/control
- *   path remains for multirate use and post-saturation commit; LQGI::control(r, y)
- *   matches OutputFeedbackController syntax but does NOT advance its Kalman
- *   filter — see the note on that method.
+ * - LQG/LQGI: law + estimator *pairs*. The self-contained tick is @c step
+ *   (LQG::step(y), LQGI::step(r, y)). @c control on those types evaluates the
+ *   gain at the current estimate and does not advance the filter, so neither
+ *   models OutputFeedbackController. The split predict/update/feedback/commit
+ *   path remains for multirate use and post-saturation commit.
  *
  * Conformance is enforced by static_asserts in tests/test_concepts.cpp: any
  * runtime API drift becomes a compile error there.
@@ -79,15 +79,15 @@ concept SisoController = std::is_floating_point_v<T> && requires(C c, T r, T y) 
 /**
  * @brief Vector output-feedback controller: u = control(r, y), self-contained tick.
  *
- * Semantic contract beyond the requires-clause: one call performs the
- * complete tick, including any internal estimator. OffsetFreeMPC satisfies
- * both syntax and semantics; LQGI satisfies only the syntax (its filter is
- * caller-sequenced).
+ * One call performs the complete tick, including any internal estimator.
+ * Syntax alone is not enough: LQGI::control(r, y) has this shape and does not
+ * advance its filter. A type opts in with @c output_feedback_tick.
  */
 template<typename C, size_t NU, size_t NY, typename T>
 concept OutputFeedbackController = requires(C c, const ColVec<NY, T>& r, const ColVec<NY, T>& y) {
     { c.control(r, y) } -> std::convertible_to<ColVec<NU, T>>;
     c.reset();
+    requires C::output_feedback_tick;
 };
 
 /**

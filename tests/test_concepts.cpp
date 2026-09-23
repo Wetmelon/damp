@@ -62,10 +62,8 @@ static_assert(!SisoController<RelayAutotuner<double>, double>);            // an
 
 // --- OutputFeedbackController: u = control(r, y), self-contained tick -------
 static_assert(OutputFeedbackController<OffsetFreeMPC<2, 1, 1, 10, 4, double>, 1, 1, double>);
-// LQGI::control(r, y) matches the syntax only — its Kalman filter is caller-sequenced
-// (see the @warning on it). LQGI::step(r, y) is the self-contained tick, and
-// feedback/commit the saturation-aware split. Pinned here so the trap stays visible.
-static_assert(OutputFeedbackController<LQGI<2, 1, 1, double, 2, 1>, 1, 1, double>);
+// LQGI::control(r, y) does not advance the Kalman filter. step(r, y) is the tick.
+static_assert(!OutputFeedbackController<LQGI<2, 1, 1, double, 2, 1>, 1, 1, double>);
 static_assert(!OutputFeedbackController<LQG<2, 1, 1, double, 2, 1>, 1, 1, double>);     // law+estimator pair
 static_assert(!OutputFeedbackController<MPC<2, 1, 1, 10, 4, 0, double>, 1, 1, double>); // needs x, not y
 

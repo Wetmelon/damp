@@ -75,9 +75,9 @@ public:
      * @brief Discretize a continuous TF and load IIR coefficients.
      *
      * Orders N = 1 and N = 2 use @ref design::to_coeffs (exact Tustin path).
-     * Higher orders fall back to impulse-response / Hankel re-ID; if the Hankel
-     * matrix is singular, coefficients are cleared to zero (safe no-op filter)
-     * rather than leaving a partial / garbage denominator.
+     * Higher orders recover direct-form coefficients from the impulse response
+     * (Prony for a, then b[n] = h[n] + Σ a_k h[n−k]). A singular Hankel clears
+     * both coefficient vectors (safe zero output).
      *
      * @param tf        Continuous transfer function (ascending powers of s)
      * @param Ts_sample Sample time [s] (must be > 0 for a meaningful design)
@@ -115,11 +115,6 @@ public:
                 A_pow = A_pow * sys_d.A;
             }
 
-            // Set b coefficients
-            for (size_t i = 0; i <= N; ++i) {
-                b[i] = h[i];
-            }
-
             // Compute a coefficients via Hankel / Prony
             Matrix<N, N, T> M{};
             Matrix<N, 1, T> v{};
@@ -134,6 +129,15 @@ public:
             if (const auto a_vec = mat::solve(M, v)) {
                 for (size_t j = 0; j < N; ++j) {
                     a[j] = (*a_vec)(j, 0);
+                }
+                // Direct form: h[n] = b[n] − Σ a_k h[n−k], so
+                // b[n] = h[n] + Σ a_k h[n−k]. a[k−1] stores a_k.
+                for (size_t n = 0; n <= N; ++n) {
+                    T bn = h[n];
+                    for (size_t k = 1; k <= n; ++k) {
+                        bn += a[k - 1] * h[n - k];
+                    }
+                    b[n] = bn;
                 }
             } else {
                 b = {};

@@ -196,6 +196,7 @@ template<size_t NP, size_t NC = NP, size_t NX, size_t NU, size_t NY, typename T,
  */
 template<size_t NX, size_t NU, size_t NY, size_t NP, size_t NC, typename T = float>
 struct OffsetFreeMPC {
+    static constexpr bool   output_feedback_tick = true;
     static constexpr size_t NXK = NX + NU;
     using Artifacts = design::OffsetFreeMPCArtifacts<NX, NU, NY, NP, NC, T>;
 

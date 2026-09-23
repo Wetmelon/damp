@@ -122,7 +122,7 @@ struct FOController {
      */
     constexpr FOController(DQ Ldq_in, T R_in, T lambda_in, T current_bw = T{1000}, T b = T{1})
         : Ldq(Ldq_in), R(R_in), lambda(lambda_in) {
-        tune(current_bw, b);
+        tune(current_bw, T{1}, b);
     }
 
     /**
@@ -173,7 +173,8 @@ struct FOController {
      * @param Idq     [A] measured dq current
      * @param omega_e [rad/s] electrical speed
      * @param Ts      [s] sample time
-     * @param Vmax    [V] voltage-circle radius (default ∞ = no limit)
+     * @param Vmax    [V] voltage-circle radius (default: no limit). Non-positive
+     *                forces zero voltage and unwinds the PI (collapsed bus).
      * @return Clamped Vdq plus saturation flags
      */
     [[nodiscard]] DqCommand<T> current_controller(
@@ -183,34 +184,45 @@ struct FOController {
         const T   Ts,
         const T   Vmax = std::numeric_limits<T>::max()
     ) {
-        DQ Vdq = decoupling_feedforward(omega_e, Ldq, lambda, Idq_ref);
+        DQ Vff = decoupling_feedforward(omega_e, Ldq, lambda, Idq_ref);
 
         if (plant_inversion_ff) {
-            Vdq.d += R * Idq.d;
-            Vdq.q += R * Idq.q;
+            Vff.d += R * Idq.d;
+            Vff.q += R * Idq.q;
             if (Ts > T{0}) {
-                Vdq.d += Ldq.d * (Idq_ref.d - Idq.d) / Ts;
-                Vdq.q += Ldq.q * (Idq_ref.q - Idq.q) / Ts;
+                Vff.d += Ldq.d * (Idq_ref.d - Idq.d) / Ts;
+                Vff.q += Ldq.q * (Idq_ref.q - Idq.q) / Ts;
             }
         }
 
-        Vdq.d += dctrl.control(Idq_ref.d, Idq.d, Ts);
-        Vdq.q += qctrl.control(Idq_ref.q, Idq.q, Ts);
-
-        const T Vmag = Vdq.abs();
+        const T ud = dctrl.control(Idq_ref.d, Idq.d, Ts);
+        const T uq = qctrl.control(Idq_ref.q, Idq.q, Ts);
+        DQ      Vdq{Vff.d + ud, Vff.q + uq};
 
         DqCommand<T> cmd;
-        cmd.is_saturated = (Vmax > T{0}) && (Vmag > Vmax);
-        if (cmd.is_saturated) {
+        // Non-positive ceiling: the bus cannot support a voltage. Unwind the PI
+        // toward zero; do not treat it as "no limit".
+        if (!(Vmax > T{0})) {
+            dctrl.back_calculate(ud, T{0}, Ts);
+            qctrl.back_calculate(uq, T{0}, Ts);
+            cmd.is_saturated = true;
+            cmd.Vdq = {};
+            return cmd;
+        }
+
+        const T Vmag = Vdq.abs();
+        const T Vcap = std::numeric_limits<T>::max();
+        if (Vmag > Vmax) {
+            const T scale = Vmax / Vmag;
+            // Scale the summed command onto the circle, but charge the integrator
+            // only for the PI's own scaled output. Feedforward (back-EMF) saturation
+            // belongs to field weakening, not the current integrator.
+            dctrl.back_calculate(ud, scale * ud, Ts);
+            qctrl.back_calculate(uq, scale * uq, Ts);
+            Vdq = Vdq * scale;
+            cmd.is_saturated = true;
             cmd.v_excess = Vmag / Vmax;
-            const T  scale = Vmax / Vmag;
-            const DQ Vsat = Vdq * scale;
-
-            dctrl.back_calculate(Vdq.d, Vsat.d, Ts);
-            qctrl.back_calculate(Vdq.q, Vsat.q, Ts);
-
-            Vdq = Vsat;
-        } else if (Vmax > T{0} && Vmax < std::numeric_limits<T>::max() && Vmag > T{0}) {
+        } else if (Vmax < Vcap && Vmag > T{0}) {
             cmd.v_excess = Vmag / Vmax;
         }
 

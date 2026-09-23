@@ -124,20 +124,32 @@ TEST_SUITE("LQGI") {
         const auto result = design::discrete_lqgi(sys, make_Q_aug(), Matrix<1, 1>{{0.1}}, Matrix<2, 2>{{0.01, 0.0}, {0.0, 0.01}}, Matrix<1, 1>{{0.1}});
         REQUIRE(result.success);
 
-        const auto ss = result.to_ss(); // StateSpace<3, 2, 1>: in [r;y], out u, state [x̂;xi]
-        CHECK(ss.D(0, 0) == doctest::Approx(0.0));
+        const auto ss = result.to_ss();            // [x̂⁻; xi; u_prev], in [r; y], out u
+        CHECK(ss.D(0, 0) == doctest::Approx(0.0)); // no direct term from r
         CHECK(ss.Ts == doctest::Approx(sys.Ts));
 
-        ColVec<3>    xc{0.0, 0.0, 0.0}; // [x̂; xi]
-        ColVec<2>    xp{0.0, 0.0};      // plant
-        const double ref = 1.0;
+        LQGI<2, 1, 1, double, 2, 1> runtime{result};
+        ColVec<4>                   xc{}; // NX + NY + NU
+        ColVec<2>                   xp{0.0, 0.0};
+        ColVec<2>                   xp_rt = xp;
+        const ColVec<1>             r{1.0};
+        for (int k = 0; k < 8; ++k) {
+            const ColVec<2> in{r[0], xp[0]};
+            const ColVec<1> u = ss.C * xc + ss.D * in;
+            const ColVec<1> u_rt = runtime.step(r, ColVec<1>{{xp_rt[0]}});
+            CHECK(u[0] == doctest::Approx(u_rt[0]));
+            xp = sys.A * xp + sys.B * u;
+            xp_rt = sys.A * xp_rt + sys.B * u_rt;
+            xc = ss.A * xc + ss.B * in;
+        }
+
         for (int k = 0; k < 600; ++k) {
-            const ColVec<2> in{ref, xp[0]}; // [r; y]
+            const ColVec<2> in{r[0], xp[0]};
             const ColVec<1> u = ss.C * xc + ss.D * in;
             xp = sys.A * xp + sys.B * u;
             xc = ss.A * xc + ss.B * in;
         }
-        CHECK(xp[0] == doctest::Approx(ref).epsilon(0.02));
+        CHECK(xp[0] == doctest::Approx(r[0]).epsilon(0.02));
     }
 
     TEST_CASE("LQGIResult::as<float>() preserves the design") {

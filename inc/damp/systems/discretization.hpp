@@ -11,6 +11,7 @@
  */
 
 #include <cstddef>
+#include <limits>
 
 #include "damp/backend.hpp"
 #include "damp/matrix/matrix.hpp"
@@ -59,13 +60,68 @@ template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, si
 }
 
 /**
+ * @brief φ₁(Z) = ∫₀¹ e^{Z s} ds by scaling and squaring
+ *
+ * @return nullopt if the scaled Taylor series does not converge
+ */
+template<size_t NX, typename T>
+[[nodiscard]] constexpr damp::optional<Matrix<NX, NX, T>> phi1_expm(const Matrix<NX, NX, T>& Z) {
+    using real_t = scalar_type_t<T>;
+    const Matrix<NX, NX, T> I = Matrix<NX, NX, T>::identity();
+    const real_t            norm = mat::infinity_norm(Z);
+    size_t                  s = 0;
+    real_t                  scaled = norm;
+    constexpr real_t        theta = real_t(0.5);
+    while (scaled > theta) {
+        scaled *= real_t(0.5);
+        ++s;
+        if (s > 16) {
+            return damp::nullopt;
+        }
+    }
+
+    T scale = T{1};
+    for (size_t i = 0; i < s; ++i) {
+        scale *= T{0.5};
+    }
+    const Matrix<NX, NX, T> Zs = Z * scale;
+
+    Matrix<NX, NX, T> E = I;
+    Matrix<NX, NX, T> P = I;
+    Matrix<NX, NX, T> term_e = I;
+    const T           eps = static_cast<T>(std::numeric_limits<real_t>::epsilon()) * T{32};
+    bool              converged = (norm == real_t{0});
+    for (size_t k = 1; k <= 24 && !converged; ++k) {
+        term_e = (term_e * Zs) * (T{1} / static_cast<T>(k));
+        const Matrix<NX, NX, T> term_p = term_e * (T{1} / static_cast<T>(k + 1));
+        E = E + term_e;
+        P = P + term_p;
+        if (mat::infinity_norm(term_p) <= eps) {
+            converged = true;
+        }
+    }
+    if (!converged) {
+        return damp::nullopt;
+    }
+
+    for (size_t i = 0; i < s; ++i) {
+        P = (P * (I + E)) * T{0.5};
+        E = E * E;
+    }
+    return P;
+}
+
+/**
  * @brief ZOH integral map M ↦ ∫₀^{Ts} e^{Aτ} M dτ
  *
- * Equals A⁻¹(e^{A Ts} − I)M when A is invertible; otherwise uses the
- * truncated series (I Ts + A Ts²/2! + A² Ts³/3! + ⋯)M. Shared by B_d and G_d.
+ * Equals A⁻¹(e^{A Ts} − I)M when A is invertible. A singular A (an integrator)
+ * uses φ₁(A Ts) with scaling and squaring — the same family as @ref mat::expm,
+ * not a fixed-length Taylor polynomial. Shared by B_d and G_d.
+ *
+ * @return nullopt if the φ₁ series does not converge
  */
 template<size_t NX, size_t NC, typename T>
-[[nodiscard]] constexpr Matrix<NX, NC, T> zoh_integrate_input(
+[[nodiscard]] constexpr damp::optional<Matrix<NX, NC, T>> zoh_integrate_input(
     const Matrix<NX, NX, T>& A,
     const Matrix<NX, NC, T>& M,
     const Matrix<NX, NX, T>& exp_A_Ts,
@@ -83,27 +139,18 @@ template<size_t NX, size_t NC, typename T>
         return X_opt.value();
     }
 
-    // Series fallback when A is singular: ∫ e^{Aτ} dτ · M
-    Matrix<NX, NC, T> X = M * sampling_time;
-    Matrix            A_power = A;
-    for (size_t n = 2; n <= 10; ++n) {
-        T coeff = T{1};
-        for (size_t i = 1; i <= n; ++i) {
-            coeff *= (sampling_time / static_cast<T>(i));
-        }
-        X += A_power * M * coeff;
-        if (n < 10) {
-            A_power = A_power * A;
-        }
+    const auto phi = phi1_expm(A * sampling_time);
+    if (!phi) {
+        return damp::nullopt;
     }
-    return X;
+    return ((*phi) * sampling_time) * M;
 }
 
 /**
  * @brief Discretize using Zero-Order Hold (ZOH)
  *
  *     A_d = e^(ATs)
- *     B_d = ∫₀^{Ts} e^{Aτ} B dτ = A⁻¹(e^(ATs) − I)B   [series if A singular]
+ *     B_d = ∫₀^{Ts} e^{Aτ} B dτ = A⁻¹(e^(ATs) − I)B   [φ₁ if A singular]
  *     G_d = ∫₀^{Ts} e^{Aτ} G dτ   (same map as B; process-noise input)
  *
  * Exact discretization assuming piecewise-constant input between samples.
@@ -113,7 +160,7 @@ template<size_t NX, size_t NC, typename T>
  * @see "Feedback Control of Dynamic Systems" (Franklin et al., 2015), §8.3
  */
 template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, size_t NV = 0>
-[[nodiscard]] constexpr StateSpace<NX, NU, NY, T, NW, NV> discretize_zoh_impl(
+[[nodiscard]] constexpr damp::optional<StateSpace<NX, NU, NY, T, NW, NV>> discretize_zoh_impl(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     T                                        sampling_time
 ) {
@@ -121,15 +168,18 @@ template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, si
     const Matrix A_scaled = sys.A * sampling_time;
     const Matrix exp_A_Ts = mat::expm(A_scaled);
 
-    const Matrix B_d = zoh_integrate_input(sys.A, sys.B, exp_A_Ts, sampling_time);
-    const Matrix G_d = zoh_integrate_input(sys.A, sys.G, exp_A_Ts, sampling_time);
+    const auto B_d = zoh_integrate_input(sys.A, sys.B, exp_A_Ts, sampling_time);
+    const auto G_d = zoh_integrate_input(sys.A, sys.G, exp_A_Ts, sampling_time);
+    if (!B_d || !G_d) {
+        return damp::nullopt;
+    }
 
     //! C_d = C, D_d = D (output equation is the same); H_d = H (direct)
     const Matrix C_d = sys.C;
     const Matrix D_d = sys.D;
     const Matrix H_d = sys.H;
 
-    return StateSpace{exp_A_Ts, B_d, C_d, D_d, G_d, H_d, sampling_time};
+    return StateSpace{exp_A_Ts, B_d.value(), C_d, D_d, G_d.value(), H_d, sampling_time};
 }
 
 /**

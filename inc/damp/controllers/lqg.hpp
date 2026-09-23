@@ -60,12 +60,13 @@ struct LQGResult {
     /**
      * @brief Convert the LQG regulator to a discrete state-space block
      *
-     * Realizes the dynamic output-feedback compensator mapping measurement y to
-     * control u, with estimator state x̂. Lets the regulator drop into Bode/
-     * `feedback`/`series` analysis. Prediction-form estimator with the
-     * steady-state Kalman gain L and feedback u = −K·x̂:
+     * Current-estimator realization of @ref LQG::step: measurement update, then
+     * @f$ u = -K \hat x(k|k) @f$, then predict. The compensator state is the
+     * previous filtered estimate @f$ \hat x(k-1|k-1) @f$ (zero at start, matching
+     * a zero predicted state and @f$ u_{\mathrm{prev}} = 0 @f$). Direct term
+     * @f$ D_c = -KL @f$ is the current-estimator feedthrough.
      * @f[
-     *   A_c = A - BK - LC + LDK,\quad B_c = L,\quad C_c = -K,\quad D_c = 0.
+     *   A_c = (I-LC)(A-BK) + LDK,\quad B_c = L,\quad C_c = -K A_c,\quad D_c = -KL.
      * @f]
      *
      * @return StateSpace with NX states, NY inputs (y), NU outputs (u)
@@ -78,11 +79,15 @@ struct LQGResult {
         const auto& L = kalman.L;
         const auto& K = lqr.K;
 
+        const auto I = Matrix<NX, NX, T>::identity();
+        const auto ImLC = I - (L * C);
+        const auto AmBK = A - (B * K);
+        const auto Ac = (ImLC * AmBK) + ((L * D) * K);
         return StateSpace<NX, NY, NU, T>{
-            .A = A - (B * K) - (L * C) + (L * D * K),
+            .A = Ac,
             .B = L,
-            .C = -K,
-            .D = Matrix<NU, NY, T>{},
+            .C = -(K * Ac),
+            .D = -(K * L),
             .Ts = kalman.sys.Ts,
         };
     }

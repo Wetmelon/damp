@@ -39,7 +39,7 @@ template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = NX, s
 struct LQGAnalysisModels {
     StateSpace<NX, NU, NY, T, NW, NV> plant{};                      ///< Original plant model
     StateSpace<NX, NU, NY, T, NW, NV> state_feedback_closed_loop{}; ///< A_cl = A - B*K
-    Matrix<NX, NX, T>                 observer_error_dynamics{};    ///< A_e = A - L*C
+    Matrix<NX, NX, T>                 observer_error_dynamics{};    ///< Predicted-error map A(I − LC)
     StateSpace<2 * NX, NU, NY, T>     augmented_closed_loop{};      ///< [x; xhat] closed-loop model
 };
 
@@ -152,7 +152,7 @@ template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = NX, s
 struct LQGIAnalysisModels {
     StateSpace<NX, NU, NY, T, NW, NV> plant{};                       ///< Original plant model
     StateSpace<NX + NY, NU, NY, T>    augmented_servo_closed_loop{}; ///< [x; xi] servo closed-loop model
-    Matrix<NX, NX, T>                 observer_error_dynamics{};     ///< A_e = A - L*C
+    Matrix<NX, NX, T>                 observer_error_dynamics{};     ///< Predicted-error map A(I − LC)
 };
 
 /**
@@ -212,16 +212,23 @@ template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = NX, s
     const StateSpace<NX, NU, NY, T, NW, NV>&        sys,
     const design::LQGResult<NX, NU, NY, T, NW, NV>& lqg
 ) {
-    const Matrix<NX, NX, T> A_sf = sys.A - (sys.B * lqg.lqr.K);
+    const auto&             K = lqg.lqr.K;
+    const auto&             L = lqg.kalman.L;
+    const Matrix<NX, NX, T> I = Matrix<NX, NX, T>::identity();
+    const Matrix<NX, NX, T> ImLC = I - (L * sys.C);
+    const Matrix<NX, NX, T> AmBK = sys.A - (sys.B * K);
+    const Matrix<NX, NX, T> A_sf = AmBK;
 
     Matrix<2 * NX, 2 * NX, T> A_aug{};
     Matrix<2 * NX, NU, T>     B_aug{};
     Matrix<NY, 2 * NX, T>     C_aug{};
 
-    A_aug.template block<NX, NX>(0, 0) = sys.A;
-    A_aug.template block<NX, NX>(0, NX) = -(sys.B * lqg.lqr.K);
-    A_aug.template block<NX, NX>(NX, 0) = lqg.kalman.L * sys.C;
-    A_aug.template block<NX, NX>(NX, NX) = sys.A - (sys.B * lqg.lqr.K) - (lqg.kalman.L * sys.C);
+    // Current estimator, D = 0 in the joint state (u = −K x̂(k|k), then predict).
+    // External input is added to the applied u on both the plant and the predictor.
+    A_aug.template block<NX, NX>(0, 0) = sys.A - ((sys.B * (K * L)) * sys.C);
+    A_aug.template block<NX, NX>(0, NX) = -(sys.B * (K * ImLC));
+    A_aug.template block<NX, NX>(NX, 0) = (AmBK * L) * sys.C;
+    A_aug.template block<NX, NX>(NX, NX) = AmBK * ImLC;
 
     B_aug.template block<NX, NU>(0, 0) = sys.B;
     B_aug.template block<NX, NU>(NX, 0) = sys.B;
@@ -239,7 +246,7 @@ template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = NX, s
             .H = sys.H,
             .Ts = sys.Ts,
         },
-        .observer_error_dynamics = sys.A - (lqg.kalman.L * sys.C),
+        .observer_error_dynamics = sys.A * ImLC,
         .augmented_closed_loop = StateSpace<2 * NX, NU, NY, T>{
             .A = A_aug,
             .B = B_aug,
@@ -311,7 +318,7 @@ template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = NX, s
             .H = Matrix<NY, 0, T>{},
             .Ts = sys.Ts,
         },
-        .observer_error_dynamics = sys.A - (lqgi.kalman.L * sys.C),
+        .observer_error_dynamics = sys.A * (Matrix<NX, NX, T>::identity() - (lqgi.kalman.L * sys.C)),
     };
 }
 

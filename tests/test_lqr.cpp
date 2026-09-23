@@ -146,6 +146,8 @@ TEST_CASE("continuous_lqr reproduces the CTMS inverted-pendulum gain") {
     CHECK(res.K(0, 3) == doctest::Approx(20.9238).epsilon(1e-3));
 
     // Continuous-time stability: every closed-loop pole has negative real part.
+    CHECK_FALSE(res.discrete);
+    CHECK(res.is_stable());
     for (size_t i = 0; i < 4; ++i) {
         CHECK(res.e[i].real() < 0.0);
     }

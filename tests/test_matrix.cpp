@@ -558,6 +558,46 @@ TEST_CASE("Matrix reshape") {
     CHECK(reshaped(2, 1) == 6);
 }
 
+TEST_CASE("Transpose assignment does not drop the lower triangle") {
+    Matrix<2, 2> A{{1.0, 2.0}, {3.0, 4.0}};
+    A.t() = A;
+    CHECK(A(0, 0) == doctest::Approx(1.0));
+    CHECK(A(0, 1) == doctest::Approx(3.0));
+    CHECK(A(1, 0) == doctest::Approx(2.0));
+    CHECK(A(1, 1) == doctest::Approx(4.0));
+}
+
+TEST_CASE("Overlapping block assignment copies through a temporary") {
+    Matrix<3, 3> A{{1.0, 2.0, 3.0}, {4.0, 5.0, 6.0}, {7.0, 8.0, 9.0}};
+    A.block<2, 2>(0, 0) = A.block<2, 2>(1, 0);
+    CHECK(A(0, 0) == doctest::Approx(4.0));
+    CHECK(A(0, 1) == doctest::Approx(5.0));
+    CHECK(A(1, 0) == doctest::Approx(7.0));
+    CHECK(A(1, 1) == doctest::Approx(8.0));
+}
+
+TEST_CASE("Disjoint blocks of one matrix assign in place") {
+    Matrix<2, 4> A{{1.0, 2.0, 3.0, 4.0}, {5.0, 6.0, 7.0, 8.0}};
+    A.block<2, 2>(0, 0) = A.block<2, 2>(0, 2);
+    CHECK(A(0, 0) == doctest::Approx(3.0));
+    CHECK(A(0, 1) == doctest::Approx(4.0));
+    CHECK(A(1, 0) == doctest::Approx(7.0));
+    CHECK(A(1, 1) == doctest::Approx(8.0));
+    CHECK(A(0, 2) == doctest::Approx(3.0));
+    CHECK(A(1, 3) == doctest::Approx(8.0));
+}
+
+TEST_CASE("View of a temporary owns its elements") {
+    Matrix<2, 2> A{{1.0, 2.0}, {3.0, 4.0}};
+    Matrix<2, 2> B{{5.0, 6.0}, {7.0, 8.0}};
+    const auto   block = (A + B).block<2, 2>(0, 0);
+    CHECK(block(0, 0) == doctest::Approx(6.0));
+    CHECK(block(1, 1) == doctest::Approx(12.0));
+    const auto row = (A + B).row(1);
+    CHECK(row(0, 0) == doctest::Approx(10.0));
+    CHECK(row(0, 1) == doctest::Approx(12.0));
+}
+
 TEST_CASE("Block span-like methods") {
     Matrix<3, 3> mat = {{1, 2, 3}, {4, 5, 6}, {7, 8, 9}};
 

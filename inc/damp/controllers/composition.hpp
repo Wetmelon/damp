@@ -12,8 +12,11 @@
  * - Cascade — outer.control(r, y_outer) → inner.control(outer_u, y_inner)
  * - SwitchedController — Normal | Experiment | Backup ownership of u
  *
- * Both stay on the SisoController concept so they nest and drop into
- * simulate_sampled / multi-rate harnesses. Experiments (relay, FRF drivers)
+ * SwitchedController stays on the SisoController concept so it nests and drops
+ * into simulate_sampled / multi-rate harnesses. Cascade takes a distinct
+ * measurement for each loop (control(r, y_outer, y_inner)) and is not a
+ * SisoController — one shared y would regulate the inner loop to the outer
+ * measurement. Experiments (relay, FRF drivers)
  * that are not SisoControllers are not stored inside SwitchedController;
  * call SwitchedController::set_mode and feed the experiment yourself, or
  * wrap a thin SisoController adapter that holds the experiment output.
@@ -63,9 +66,6 @@ public:
         const T r_inner = outer_.control(r, y_outer);
         return inner_.control(r_inner, y_inner);
     }
-
-    /// SisoController-shaped tick when outer and inner share the same y (rare).
-    [[nodiscard]] constexpr T control(T r, T y) { return control(r, y, y); }
 
     constexpr void reset() {
         outer_.reset();
