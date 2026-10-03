@@ -60,6 +60,81 @@ TEST_SUITE("Matrix Functions") {
         CHECK(doctest::Approx(exp_A(1, 1)).epsilon(1e-3) == std::cos(theta));
     }
 
+    TEST_CASE("Matrix exponential - wide nilpotent") {
+        // exp([[0, 1e16], [0, 0]]) = I + A. Scaling must not drop the off-diagonal.
+        Matrix<2, 2> A{{0.0, 1.0e16}, {0.0, 0.0}};
+        auto         E = mat::expm(A);
+        CHECK(E(0, 0) == doctest::Approx(1.0).epsilon(1e-12));
+        CHECK(E(0, 1) == doctest::Approx(1.0e16).epsilon(1e-12));
+        CHECK(E(1, 0) == doctest::Approx(0.0).epsilon(1e-12));
+        CHECK(E(1, 1) == doctest::Approx(1.0).epsilon(1e-12));
+    }
+
+    TEST_CASE("Matrix exponential - wide triangular entries") {
+        // Closed form: t_12 * (e^{λ1} − e^{λ2}) / (λ1 − λ2). Infinity-norm
+        // scaling of this matrix drops the diagonal; the triangular rewrite keeps it.
+        const double e1 = std::exp(-1.0);
+        const double e2 = std::exp(-2.0);
+        const double off = 1.0e16 * (e1 - e2);
+
+        Matrix<2, 2> upper{{-1.0, 1.0e16}, {0.0, -2.0}};
+        auto         Eu = mat::expm(upper);
+        CHECK(Eu(0, 0) == doctest::Approx(e1).epsilon(1e-8));
+        CHECK(Eu(0, 1) == doctest::Approx(off).epsilon(1e-8));
+        CHECK(Eu(1, 0) == doctest::Approx(0.0).epsilon(1e-12));
+        CHECK(Eu(1, 1) == doctest::Approx(e2).epsilon(1e-8));
+
+        Matrix<2, 2> lower{{-1.0, 0.0}, {1.0e16, -2.0}};
+        auto         El = mat::expm(lower);
+        CHECK(El(0, 0) == doctest::Approx(e1).epsilon(1e-8));
+        CHECK(El(0, 1) == doctest::Approx(0.0).epsilon(1e-12));
+        CHECK(El(1, 0) == doctest::Approx(off).epsilon(1e-8));
+        CHECK(El(1, 1) == doctest::Approx(e2).epsilon(1e-8));
+    }
+
+    TEST_CASE("Matrix exponential - diagonal similarity with wide entries") {
+        // A = D M D^{-1}, D = diag(1e16, 1). Digits from scipy.linalg.expm.
+        constexpr double d = 1.0e16;
+        Matrix<2, 2>     M{{-0.5, 0.2}, {0.1, -0.3}};
+        Matrix<2, 2>     A{{M(0, 0), M(0, 1) * d}, {M(1, 0) / d, M(1, 1)}};
+        auto             E = mat::expm(A);
+
+        const double ref00 = 0.613032341;
+        const double ref01 = 1.34735335e15;
+        const double ref10 = 6.73676677e-18;
+        const double ref11 = 0.747767677;
+        CHECK(E(0, 0) == doctest::Approx(ref00).epsilon(1e-8));
+        CHECK(E(0, 1) == doctest::Approx(ref01).epsilon(1e-8));
+        CHECK(std::abs(E(1, 0) - ref10) <= 1e-6 * std::abs(ref10));
+        CHECK(E(1, 1) == doctest::Approx(ref11).epsilon(1e-8));
+    }
+
+    TEST_CASE("Matrix exponential - wide triangular entries, float") {
+        Matrix<2, 2, float> A{{-1.0f, 1.0e8f}, {0.0f, -2.0f}};
+        auto                E = mat::expm(A);
+        const float         e1 = std::exp(-1.0f);
+        const float         e2 = std::exp(-2.0f);
+        const float         off = 1.0e8f * (e1 - e2);
+        CHECK(E(0, 0) == doctest::Approx(e1).epsilon(1e-5));
+        CHECK(E(0, 1) == doctest::Approx(off).epsilon(1e-5));
+        CHECK(E(1, 0) == doctest::Approx(0.0f).epsilon(1e-6));
+        CHECK(E(1, 1) == doctest::Approx(e2).epsilon(1e-5));
+    }
+
+    TEST_CASE("Matrix exponential - complex diagonal") {
+        using C = damp::complex<double>;
+        Matrix<2, 2, C> A{{C{0.0, 1.0}, C{0.0, 0.0}}, {C{0.0, 0.0}, C{0.0, -1.0}}};
+        auto            E = mat::expm(A);
+        const double    c = std::cos(1.0);
+        const double    s = std::sin(1.0);
+        CHECK(E(0, 0).real() == doctest::Approx(c).epsilon(1e-12));
+        CHECK(E(0, 0).imag() == doctest::Approx(s).epsilon(1e-12));
+        CHECK(E(1, 1).real() == doctest::Approx(c).epsilon(1e-12));
+        CHECK(E(1, 1).imag() == doctest::Approx(-s).epsilon(1e-12));
+        CHECK(E(0, 1).real() == doctest::Approx(0.0).epsilon(1e-12));
+        CHECK(E(1, 0).imag() == doctest::Approx(0.0).epsilon(1e-12));
+    }
+
     TEST_CASE("Matrix trig identity: sin^2 + cos^2 = I") {
         Matrix<2, 2> A{{0.3, 0.1}, {-0.1, 0.4}};
 

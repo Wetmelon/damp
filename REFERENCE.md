@@ -147,37 +147,37 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`cholesky`](inc/damp/matrix/decomposition.hpp#L82) | Cholesky decomposition for positive-definite matrices |
 | [`cholesky_solve`](inc/damp/matrix/solve.hpp#L159) | Solve AX = B via Cholesky (A = LLᴴ) |
 | [`compute_eigenvalues`](inc/damp/matrix/eigen.hpp#L382) | Compute the eigenvalues (and Schur vectors) of a real square matrix |
-| [`cos`](inc/damp/matrix/functions.hpp#L738) | Matrix cosine via scaling and double-angle reconstruction |
-| [`cosh`](inc/damp/matrix/functions.hpp#L809) | Matrix hyperbolic cosine cosh(A) = (exp(A) + exp(−A))/2 |
+| [`cos`](inc/damp/matrix/functions.hpp#L1095) | Matrix cosine via scaling and double-angle reconstruction |
+| [`cosh`](inc/damp/matrix/functions.hpp#L1166) | Matrix hyperbolic cosine cosh(A) = (exp(A) + exp(−A))/2 |
 | [`default_tol`](inc/damp/matrix/matrix_traits.hpp#L86) | Type-appropriate default tolerance for floating-point comparisons. float  ~7 decimal digits  → 1e-6 double ~15 decimal digits → 1e-12 |
-| [`det`](inc/damp/matrix/functions.hpp#L182) | Matrix determinant det(A) |
-| [`expm`](inc/damp/matrix/functions.hpp#L323) | Matrix exponential via scaling and squaring with Padé approximant of degree 13 |
+| [`det`](inc/damp/matrix/functions.hpp#L184) | Matrix determinant det(A) |
+| [`expm`](inc/damp/matrix/functions.hpp#L755) | Matrix exponential by scaling and squaring (Al-Mohy & Higham 2009) |
 | [`forward_substitute`](inc/damp/matrix/solve.hpp#L37) | Forward substitution for Lx = b |
-| [`frobenius_norm`](inc/damp/matrix/functions.hpp#L96) | Frobenius norm ‖A‖F = √(Σᵢⱼ \|aᵢⱼ\|²) |
+| [`frobenius_norm`](inc/damp/matrix/functions.hpp#L98) | Frobenius norm ‖A‖F = √(Σᵢⱼ \|aᵢⱼ\|²) |
 | [`full_qr`](inc/damp/matrix/decomposition.hpp#L291) | Full QR factorization via Householder reflections (real or complex T) |
-| [`infinity_norm`](inc/damp/matrix/functions.hpp#L35) | Infinity norm ‖A‖∞: maximum absolute row sum |
+| [`infinity_norm`](inc/damp/matrix/functions.hpp#L37) | Infinity norm ‖A‖∞: maximum absolute row sum |
 | [`inverse`](inc/damp/matrix/solve.hpp#L248) | Matrix inverse A⁻¹ via mat::solve(A, I) |
-| [`log`](inc/damp/matrix/functions.hpp#L511) | Principal matrix logarithm via inverse scaling and squaring |
-| [`logm`](inc/damp/matrix/functions.hpp#L550) | @brief MATLAB®-style alias for log |
+| [`log`](inc/damp/matrix/functions.hpp#L868) | Principal matrix logarithm via inverse scaling and squaring |
+| [`logm`](inc/damp/matrix/functions.hpp#L907) | @brief MATLAB®-style alias for log |
 | [`lu_decomposition`](inc/damp/matrix/decomposition.hpp#L131) | LU decomposition with partial pivoting |
 | [`lu_solve`](inc/damp/matrix/solve.hpp#L187) | Solve AX = B via LU with partial pivoting |
 | [`max`](inc/damp/matrix/core.hpp#L970) | Addition of two MatrixLike types (with broadcasting support) (+1 more overload) |
 | [`null_space`](inc/damp/matrix/svd.hpp#L350) | Orthonormal basis for the null space {x : A·x = 0} via SVD |
-| [`one_norm`](inc/damp/matrix/functions.hpp#L64) | One-norm ‖A‖₁: maximum absolute column sum |
-| [`pow`](inc/damp/matrix/functions.hpp#L570) | Integer matrix power via binary exponentiation (+1 more overload) |
+| [`one_norm`](inc/damp/matrix/functions.hpp#L66) | One-norm ‖A‖₁: maximum absolute column sum |
+| [`pow`](inc/damp/matrix/functions.hpp#L927) | Integer matrix power via binary exponentiation (+1 more overload) |
 | [`pseudo_inverse`](inc/damp/matrix/svd.hpp#L303) | Moore–Penrose pseudoinverse A⁺ via SVD |
 | [`qr_decompose`](inc/damp/matrix/decomposition.hpp#L223) | Thin QR via modified Gram–Schmidt |
 | [`quadratic_form`](inc/damp/matrix/core.hpp#L1071) | Symmetric congruence (quadratic) form  S = M X Mᵀ |
-| [`rank`](inc/damp/matrix/functions.hpp#L259) | Matrix rank via Gaussian elimination with partial pivoting |
+| [`rank`](inc/damp/matrix/functions.hpp#L261) | Matrix rank via Gaussian elimination with partial pivoting |
 | [`rank_from_svd`](inc/damp/matrix/svd.hpp#L271) | Numerical rank from a precomputed SVD result |
-| [`sin`](inc/damp/matrix/functions.hpp#L723) | Matrix sine via scaling and double-angle reconstruction |
-| [`sincos`](inc/damp/matrix/functions.hpp#L653) | Compute sin(A) and cos(A) together via scaling and double-angle reconstruction |
-| [`sinh`](inc/damp/matrix/functions.hpp#L793) | Matrix hyperbolic sine sinh(A) = (exp(A) − exp(−A))/2 |
+| [`sin`](inc/damp/matrix/functions.hpp#L1080) | Matrix sine via scaling and double-angle reconstruction |
+| [`sincos`](inc/damp/matrix/functions.hpp#L1010) | Compute sin(A) and cos(A) together via scaling and double-angle reconstruction |
+| [`sinh`](inc/damp/matrix/functions.hpp#L1150) | Matrix hyperbolic sine sinh(A) = (exp(A) − exp(−A))/2 |
 | [`solve`](inc/damp/matrix/solve.hpp#L82) | Solve lower-triangular system LX = B via forward substitution (+2 more overloads) |
-| [`sqrt`](inc/damp/matrix/functions.hpp#L446) | Matrix square root via Denman–Beavers iteration |
-| [`sqrtm`](inc/damp/matrix/functions.hpp#L483) | @brief MATLAB®-style alias for sqrt |
+| [`sqrt`](inc/damp/matrix/functions.hpp#L803) | Matrix square root via Denman–Beavers iteration |
+| [`sqrtm`](inc/damp/matrix/functions.hpp#L840) | @brief MATLAB®-style alias for sqrt |
 | [`svd`](inc/damp/matrix/svd.hpp#L246) | Full singular value decomposition A = U·Σ·Vᴴ (one-sided Jacobi) |
-| [`two_norm`](inc/damp/matrix/functions.hpp#L128) | Spectral norm ‖A‖₂ = σₘₐₓ(A) |
+| [`two_norm`](inc/damp/matrix/functions.hpp#L130) | Spectral norm ‖A‖₂ = σₘₐₓ(A) |
 
 ## LTI systems (SS / TF / ZPK / discretize)
 

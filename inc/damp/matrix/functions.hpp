@@ -10,6 +10,8 @@
  * @brief Matrix functions (expm, sqrtm, funm, ...)
  */
 
+#include <limits>
+
 #include "core.hpp"
 #include "damp/backend.hpp"
 #include "solve.hpp" // expm()/sqrtm() use mat::solve; include directly so this
@@ -289,11 +291,442 @@ template<size_t R, size_t C, typename T>
     return r;
 }
 
+namespace detail {
+
+// Al-Mohy & Higham 2009 scaling-and-squaring. Degree and the power-of-two
+// scale come from ||A^k||_1^{1/k}. Triangular arguments rewrite the diagonal
+// (and the first off-diagonal) from the scalar exponential while squaring
+// (Higham 2008, §10.3, eq. 10.42; paper Code Fragment 2.1).
+
+enum class ExpmTriangle { none,
+                          upper,
+                          lower,
+                          diagonal };
+
+struct ExpmScale {
+    int    degree;
+    size_t s;
+};
+
+template<typename T>
+[[nodiscard]] constexpr T expm_log2(T x) {
+    return damp::log(x) * damp::numbers::log2e_v<T>;
+}
+
+// Unit roundoff u = 2^{-digits}: 2^{-53} for double, 2^{-24} for float.
+template<typename T>
+[[nodiscard]] constexpr T expm_log2_u() {
+    return -static_cast<T>(std::numeric_limits<T>::digits);
+}
+
+// log2(c_m) for the coefficients in Higham 2005, (2.2) and (2.6). The 2009
+// algorithm's ell() bound divides by these.
+template<typename T>
+[[nodiscard]] constexpr T expm_log2_coeff(int m) {
+    if (m == 3) {
+        return static_cast<T>(16.621136113274641);
+    }
+    if (m == 5) {
+        return static_cast<T>(33.227772656854164);
+    }
+    if (m == 7) {
+        return static_cast<T>(51.994974307382165);
+    }
+    if (m == 9) {
+        return static_cast<T>(72.324718098934952);
+    }
+    return static_cast<T>(116.447004251763005);
+}
+
+template<typename T>
+[[nodiscard]] constexpr T expm_entry_exp(T x) {
+    if constexpr (is_complex_v<T>) {
+        const auto e = damp::exp(x.real());
+        return T{e * damp::cos(x.imag()), e * damp::sin(x.imag())};
+    } else {
+        return damp::exp(x);
+    }
+}
+
+template<typename T, size_t N>
+[[nodiscard]] constexpr Matrix<N, N, T> expm_div_pow2(Matrix<N, N, T> A, size_t s) {
+    const T half = static_cast<T>(0.5);
+    for (size_t i = 0; i < s; ++i) {
+        A = A * half;
+    }
+    return A;
+}
+
+template<typename T>
+[[nodiscard]] constexpr T expm_pow2(size_t e) {
+    T v = T{1};
+    for (size_t i = 0; i < e; ++i) {
+        if (!damp::isfinite(v * T{2})) {
+            return std::numeric_limits<T>::max();
+        }
+        v *= T{2};
+    }
+    return v;
+}
+
+template<typename T, size_t N>
+[[nodiscard]] constexpr Matrix<N, N, T> expm_pow(Matrix<N, N, T> base, int exponent) {
+    Matrix<N, N, T> result = Matrix<N, N, T>::identity();
+    unsigned        expn = static_cast<unsigned>(exponent);
+    while (expn > 0U) {
+        if ((expn & 1U) != 0U) {
+            result = result * base;
+        }
+        base = base * base;
+        expn >>= 1U;
+    }
+    return result;
+}
+
+template<typename T, size_t N>
+[[nodiscard]] constexpr Matrix<N, N, scalar_type_t<T>> expm_abs(const Matrix<N, N, T>& A) {
+    using real_t = scalar_type_t<T>;
+    Matrix<N, N, real_t> out = Matrix<N, N, real_t>::zeros();
+    for (size_t i = 0; i < N; ++i) {
+        for (size_t j = 0; j < N; ++j) {
+            out(i, j) = damp::abs(A(i, j));
+        }
+    }
+    return out;
+}
+
+// || |A|^{2m+1} ||_1 is formed on |A| / 2^e so the product cannot overflow.
+// The power of two is added back in the log2 domain.
+template<typename T, size_t N>
+[[nodiscard]] constexpr size_t expm_ell(const Matrix<N, N, T>& A, int m) {
+    using real_t = scalar_type_t<T>;
+    const Matrix<N, N, real_t> Abs = expm_abs(A);
+    const real_t               nrm = one_norm(Abs);
+    if (!(nrm > real_t{0}) || !damp::isfinite(nrm)) {
+        return 0;
+    }
+
+    size_t e = 0;
+    real_t scaled = nrm;
+    while (scaled > real_t{1}) {
+        scaled *= real_t{0.5};
+        ++e;
+    }
+    const Matrix<N, N, real_t> B = expm_div_pow2(Abs, e);
+    const int                  p = (2 * m) + 1;
+    const real_t               np = one_norm(expm_pow(B, p));
+    if (!(np > real_t{0}) || !damp::isfinite(np)) {
+        return 0;
+    }
+
+    const real_t two_m = static_cast<real_t>(2 * m);
+    const real_t acc = (expm_log2(np) + (static_cast<real_t>(e) * static_cast<real_t>(p)) - expm_log2(nrm) - expm_log2_coeff<real_t>(m) - expm_log2_u<real_t>()) / two_m;
+    if (!damp::isfinite(acc) || acc <= real_t{0}) {
+        return 0;
+    }
+    const real_t up = damp::ceil(acc);
+    if (up > static_cast<real_t>(1024)) {
+        return 1024;
+    }
+    return static_cast<size_t>(up);
+}
+
+template<typename T>
+[[nodiscard]] constexpr T expm_root(T nrm, int k) {
+    if (!damp::isfinite(nrm) || !(nrm > T{0})) {
+        return T{0};
+    }
+    return damp::pow(nrm, T{1} / static_cast<T>(k));
+}
+
+// ||A^k||_1^{1/k}, with A scaled to unit 1-norm before the power.
+template<typename T, size_t N>
+struct ExpmRoots {
+    scalar_type_t<T> d4;
+    scalar_type_t<T> d6;
+    scalar_type_t<T> d8;
+    scalar_type_t<T> d10;
+};
+
+template<typename T, size_t N>
+[[nodiscard]] constexpr ExpmRoots<T, N> expm_power_roots(const Matrix<N, N, T>& A) {
+    using real_t = scalar_type_t<T>;
+    ExpmRoots<T, N> roots{real_t{0}, real_t{0}, real_t{0}, real_t{0}};
+    const real_t    nrm = one_norm(A);
+    if (!(nrm > real_t{0}) || !damp::isfinite(nrm)) {
+        return roots;
+    }
+
+    size_t e = 0;
+    real_t scaled = nrm;
+    while (scaled > real_t{1}) {
+        scaled *= real_t{0.5};
+        ++e;
+    }
+    const Matrix<N, N, T> B = expm_div_pow2(A, e);
+    const Matrix<N, N, T> B2 = B * B;
+    const Matrix<N, N, T> B4 = B2 * B2;
+    const Matrix<N, N, T> B6 = B4 * B2;
+    const Matrix<N, N, T> B8 = B6 * B2;
+    const Matrix<N, N, T> B10 = B8 * B2;
+    const real_t          two_e = expm_pow2<real_t>(e);
+    const real_t          cap = std::numeric_limits<real_t>::max();
+    const auto            lift = [two_e, cap](const Matrix<N, N, T>& M, int k) {
+        const real_t root = expm_root(one_norm(M), k) * two_e;
+        return damp::isfinite(root) ? root : cap;
+    };
+    roots.d4 = lift(B4, 4);
+    roots.d6 = lift(B6, 6);
+    roots.d8 = lift(B8, 8);
+    roots.d10 = lift(B10, 10);
+    return roots;
+}
+
+template<typename T, size_t N>
+[[nodiscard]] constexpr ExpmScale expm_scale(const Matrix<N, N, T>& A) {
+    using real_t = scalar_type_t<T>;
+    // Θ_m from Al-Mohy & Higham 2009 (the same table SciPy uses for float and double).
+    constexpr real_t theta3 = static_cast<real_t>(1.495585217958292e-2);
+    constexpr real_t theta5 = static_cast<real_t>(2.539398330063230e-1);
+    constexpr real_t theta7 = static_cast<real_t>(9.504178996162932e-1);
+    constexpr real_t theta9 = static_cast<real_t>(2.097847961257068e+0);
+    constexpr real_t theta13 = static_cast<real_t>(4.25);
+
+    const ExpmRoots<T, N> roots = expm_power_roots(A);
+    const real_t          eta1 = damp::max(roots.d4, roots.d6);
+    if (eta1 < theta3 && expm_ell(A, 3) == 0) {
+        return {3, 0};
+    }
+    if (eta1 < theta5 && expm_ell(A, 5) == 0) {
+        return {5, 0};
+    }
+    const real_t eta3 = damp::max(roots.d6, roots.d8);
+    if (eta3 < theta7 && expm_ell(A, 7) == 0) {
+        return {7, 0};
+    }
+    if (eta3 < theta9 && expm_ell(A, 9) == 0) {
+        return {9, 0};
+    }
+
+    const real_t eta5 = damp::min(eta3, damp::max(roots.d8, roots.d10));
+    size_t       s = 0;
+    if (eta5 > theta13 && damp::isfinite(eta5)) {
+        const real_t lg = expm_log2(eta5 / theta13);
+        if (lg > real_t{0}) {
+            s = static_cast<size_t>(damp::ceil(lg));
+        }
+    } else if (!damp::isfinite(eta5)) {
+        const real_t nrm = one_norm(A);
+        if (nrm > theta13 && damp::isfinite(nrm)) {
+            s = static_cast<size_t>(damp::ceil(expm_log2(nrm / theta13)));
+        }
+    }
+    s += expm_ell(expm_div_pow2(A, s), 13);
+    if (s > 2048U) {
+        s = 2048U;
+    }
+    return {13, s};
+}
+
+template<typename T>
+[[nodiscard]] constexpr damp::array<T, 10> expm_pade_coeff(int m) {
+    damp::array<T, 10> b{};
+    if (m == 3) {
+        b[0] = static_cast<T>(120.0);
+        b[1] = static_cast<T>(60.0);
+        b[2] = static_cast<T>(12.0);
+        b[3] = T{1};
+    } else if (m == 5) {
+        b[0] = static_cast<T>(30240.0);
+        b[1] = static_cast<T>(15120.0);
+        b[2] = static_cast<T>(3360.0);
+        b[3] = static_cast<T>(420.0);
+        b[4] = static_cast<T>(30.0);
+        b[5] = T{1};
+    } else if (m == 7) {
+        b[0] = static_cast<T>(17297280.0);
+        b[1] = static_cast<T>(8648640.0);
+        b[2] = static_cast<T>(1995840.0);
+        b[3] = static_cast<T>(277200.0);
+        b[4] = static_cast<T>(25200.0);
+        b[5] = static_cast<T>(1512.0);
+        b[6] = static_cast<T>(56.0);
+        b[7] = T{1};
+    } else {
+        b[0] = static_cast<T>(17643225600.0);
+        b[1] = static_cast<T>(8821612800.0);
+        b[2] = static_cast<T>(2075673600.0);
+        b[3] = static_cast<T>(302702400.0);
+        b[4] = static_cast<T>(30270240.0);
+        b[5] = static_cast<T>(2162160.0);
+        b[6] = static_cast<T>(110880.0);
+        b[7] = static_cast<T>(3960.0);
+        b[8] = static_cast<T>(90.0);
+        b[9] = T{1};
+    }
+    return b;
+}
+
+template<typename T, size_t N>
+[[nodiscard]] constexpr damp::optional<Matrix<N, N, T>> expm_pade_low(const Matrix<N, N, T>& B, int m) {
+    const damp::array<T, 10> coeff = expm_pade_coeff<T>(m);
+    const Matrix<N, N, T>    ident = Matrix<N, N, T>::identity();
+    const Matrix<N, N, T>    B2 = B * B;
+    Matrix<N, N, T>          power = ident;
+    Matrix<N, N, T>          odd = ident * coeff[1];
+    Matrix<N, N, T>          even = ident * coeff[0];
+    for (int k = 1; k <= m / 2; ++k) {
+        power = power * B2;
+        even = even + (power * coeff[static_cast<size_t>(2 * k)]);
+        if ((2 * k) + 1 <= m) {
+            odd = odd + (power * coeff[static_cast<size_t>((2 * k) + 1)]);
+        }
+    }
+    const Matrix<N, N, T> U = B * odd;
+    const Matrix<N, N, T> V = even;
+    return solve(V - U, V + U);
+}
+
+template<typename T, size_t N>
+[[nodiscard]] constexpr damp::optional<Matrix<N, N, T>> expm_pade13(const Matrix<N, N, T>& B) {
+    constexpr T b0 = static_cast<T>(64764752532480000.0);
+    constexpr T b1 = static_cast<T>(32382376266240000.0);
+    constexpr T b2 = static_cast<T>(7771770303897600.0);
+    constexpr T b3 = static_cast<T>(1187353796428800.0);
+    constexpr T b4 = static_cast<T>(129060195264000.0);
+    constexpr T b5 = static_cast<T>(10559470521600.0);
+    constexpr T b6 = static_cast<T>(670442572800.0);
+    constexpr T b7 = static_cast<T>(33522128640.0);
+    constexpr T b8 = static_cast<T>(1323241920.0);
+    constexpr T b9 = static_cast<T>(40840800.0);
+    constexpr T b10 = static_cast<T>(960960.0);
+    constexpr T b11 = static_cast<T>(16380.0);
+    constexpr T b12 = static_cast<T>(182.0);
+    constexpr T b13 = T{1};
+
+    const Matrix<N, N, T> ident = Matrix<N, N, T>::identity();
+    const Matrix<N, N, T> B2 = B * B;
+    const Matrix<N, N, T> B4 = B2 * B2;
+    const Matrix<N, N, T> B6 = B4 * B2;
+    const Matrix<N, N, T> U2 = B6 * ((B6 * b13) + (B4 * b11) + (B2 * b9));
+    const Matrix<N, N, T> U = B * (U2 + (B6 * b7) + (B4 * b5) + (B2 * b3) + (ident * b1));
+    const Matrix<N, N, T> V2 = B6 * ((B6 * b12) + (B4 * b10) + (B2 * b8));
+    const Matrix<N, N, T> V = V2 + (B6 * b6) + (B4 * b4) + (B2 * b2) + (ident * b0);
+    return solve(V - U, V + U);
+}
+
+template<typename T, size_t N>
+[[nodiscard]] constexpr damp::optional<Matrix<N, N, T>> expm_pade(const Matrix<N, N, T>& B, int degree) {
+    if (degree == 13) {
+        return expm_pade13(B);
+    }
+    return expm_pade_low(B, degree);
+}
+
+template<typename T, size_t N>
+[[nodiscard]] constexpr ExpmTriangle expm_triangle(const Matrix<N, N, T>& A) {
+    bool upper = true;
+    bool lower = true;
+    for (size_t i = 0; i < N; ++i) {
+        for (size_t j = 0; j < N; ++j) {
+            if (!(damp::abs(A(i, j)) > scalar_type_t<T>{0})) {
+                continue;
+            }
+            if (i > j) {
+                upper = false;
+            }
+            if (i < j) {
+                lower = false;
+            }
+        }
+    }
+    if (upper && lower) {
+        return ExpmTriangle::diagonal;
+    }
+    if (upper) {
+        return ExpmTriangle::upper;
+    }
+    if (lower) {
+        return ExpmTriangle::lower;
+    }
+    return ExpmTriangle::none;
+}
+
+template<typename T, size_t N>
+[[nodiscard]] constexpr Matrix<N, N, T> expm_diagonal(const Matrix<N, N, T>& A) {
+    Matrix<N, N, T> out = Matrix<N, N, T>::zeros();
+    for (size_t i = 0; i < N; ++i) {
+        out(i, i) = expm_entry_exp(A(i, i));
+    }
+    return out;
+}
+
+// exp(a) * sinh(x) / x. Taylor when x is small so equal eigenvalues do not cancel.
+template<typename T>
+[[nodiscard]] constexpr T expm_sinch(T a, T x) {
+    using real_t = scalar_type_t<T>;
+    if (damp::abs(x) < static_cast<real_t>(0.0135)) {
+        const T x2 = x * x;
+        const T series = T{1} + ((x2 / static_cast<T>(6)) * (T{1} + ((x2 / static_cast<T>(20)) * (T{1} + (x2 / static_cast<T>(42))))));
+        return expm_entry_exp(a) * series;
+    }
+    return (expm_entry_exp(a + x) - expm_entry_exp(a - x)) / (x * static_cast<T>(2));
+}
+
+template<typename T, size_t N>
+constexpr void expm_write_band(Matrix<N, N, T>& X, const Matrix<N, N, T>& A, size_t shift, ExpmTriangle tri, bool with_off) {
+    Matrix<N, N, T> scaled = expm_div_pow2(A, shift);
+    for (size_t k = 0; k < N; ++k) {
+        X(k, k) = expm_entry_exp(scaled(k, k));
+    }
+    if (!with_off) {
+        return;
+    }
+    for (size_t k = 0; k + 1 < N; ++k) {
+        const size_t row = (tri == ExpmTriangle::upper) ? k : k + 1;
+        const size_t col = (tri == ExpmTriangle::upper) ? k + 1 : k;
+        const T      lam1 = scaled(k, k);
+        const T      lam2 = scaled(k + 1, k + 1);
+        const T      half = static_cast<T>(0.5);
+        X(row, col) = scaled(row, col) * expm_sinch((lam1 + lam2) * half, (lam1 - lam2) * half);
+    }
+}
+
+template<typename T, size_t N>
+[[nodiscard]] constexpr Matrix<N, N, T> expm_square(Matrix<N, N, T> R, size_t s) {
+    for (size_t i = 0; i < s; ++i) {
+        R = R * R;
+    }
+    return R;
+}
+
+template<typename T, size_t N>
+[[nodiscard]] constexpr Matrix<N, N, T> expm_square_triangular(Matrix<N, N, T> X, const Matrix<N, N, T>& A, size_t s, ExpmTriangle tri) {
+    expm_write_band(X, A, s, tri, false);
+    for (size_t i = s; i-- > 0;) {
+        X = X * X;
+        expm_write_band(X, A, i, tri, true);
+    }
+    for (size_t i = 0; i < N; ++i) {
+        for (size_t j = 0; j < N; ++j) {
+            const bool clear = (tri == ExpmTriangle::upper) ? (i > j) : (i < j);
+            if (clear) {
+                X(i, j) = T{0};
+            }
+        }
+    }
+    return X;
+}
+
+} // namespace detail
+
 /**
- * @brief Matrix exponential via scaling and squaring with Padé approximant of degree 13
+ * @brief Matrix exponential by scaling and squaring (Al-Mohy & Higham 2009)
  *
- * Computes @f$ \exp(A) = \bigl(\exp(A/2^s)\bigr)^{2^s} @f$ where @f$ s @f$ is
- * chosen so @f$ \|A/2^s\|_\infty @f$ is below the Padé-13 threshold (Higham 2005).
+ * Chooses a Padé degree m ∈ {3, 5, 7, 9, 13} and a power-of-two scale s from
+ * ‖Aᵏ‖₁^{1/k}, then forms exp(A) = (r_m(A/2ˢ))^{2ˢ}. A triangular argument
+ * rewrites its diagonal from the scalar exponential while squaring, so a huge
+ * off-diagonal does not erase a small diagonal.
  *
  * Series definition:
  * @f[
@@ -304,117 +737,41 @@ template<size_t R, size_t C, typename T>
  * @f$ x(t) = \exp(A t)\, x(0) @f$. Used by ZOH discretization and exact LTI steps.
  *
  * The Padé step solves @f$ (V-U) R = V+U @f$ with mat::solve (no explicit
- * inverse). On solve failure (pathologically singular @f$ V-U @f$), returns the
- * identity — a total function for the common discretize / integrator call sites.
- * Well-scaled control matrices do not hit this path.
+ * inverse). On a failed solve, or a non-finite input, returns the identity —
+ * a total function for the common discretize / integrator call sites.
  *
  * @note Compare with MATLAB®'s expm(A).
- * @see Higham, "The Scaling and Squaring Method for the Matrix Exponential"
- *      (SIAM J. Matrix Anal. Appl., 2005)
- * @see Higham, "Functions of Matrices" (2008), §10
+ * @see Al-Mohy and Higham, "A New Scaling and Squaring Algorithm for the
+ *      Matrix Exponential" (SIAM J. Matrix Anal. Appl., 2009)
+ * @see Higham, "Functions of Matrices" (2008), §10.3
  *
  * @tparam T Element type
  * @tparam N Matrix dimension
  * @param A Square matrix
- * @return exp(A), or I if the Padé linear solve fails
+ * @return exp(A), or I if the input is non-finite or the Padé solve fails
  */
 
 template<typename T, size_t N>
 [[nodiscard]] constexpr Matrix<N, N, T> expm(const Matrix<N, N, T>& A) {
-    using real_t = scalar_type_t<T>;
-    Matrix<N, N, T> I = Matrix<N, N, T>::identity();
-
-    // Compute infinity norm (always real)
-    const real_t norm = mat::infinity_norm(A);
-
-    // Tiny/nilpotent matrix shortcut (Taylor series)
-    if (norm <= default_tol<T>()) {
-        Matrix A2 = A * A;
-        Matrix A3 = A2 * A;
-        Matrix A4 = A3 * A;
-        Matrix A5 = A4 * A;
-        Matrix A6 = A5 * A;
-        return I + A
-             + A2 * (T{1} / T{2})
-             + A3 * (T{1} / T{6})
-             + A4 * (T{1} / T{24})
-             + A5 * (T{1} / T{120})
-             + A6 * (T{1} / T{720});
+    if (!damp::isfinite(one_norm(A))) {
+        return Matrix<N, N, T>::identity();
     }
 
-    // Scaling for Padé-13
-    constexpr real_t theta13 = real_t(2.097847961257068); // from Higham 2005
-    size_t           s = 0;
-    real_t           scaled_norm = norm;
-    while (scaled_norm > theta13) {
-        scaled_norm *= real_t(0.5);
-        ++s;
+    const detail::ExpmTriangle tri = detail::expm_triangle(A);
+    if (tri == detail::ExpmTriangle::diagonal) {
+        return detail::expm_diagonal(A);
     }
 
-    T scale = T(1);
-    for (size_t i = 0; i < s; ++i) {
-        scale *= T(0.5);
+    const detail::ExpmScale               scale = detail::expm_scale(A);
+    const Matrix<N, N, T>                 scaled = detail::expm_div_pow2(A, scale.s);
+    const damp::optional<Matrix<N, N, T>> R = detail::expm_pade(scaled, scale.degree);
+    if (!R) {
+        return Matrix<N, N, T>::identity();
     }
-
-    Matrix<N, N, T> A_scaled = A;
-    for (size_t i = 0; i < N; ++i) {
-        for (size_t j = 0; j < N; ++j) {
-            A_scaled(i, j) *= scale;
-        }
+    if (tri == detail::ExpmTriangle::none) {
+        return detail::expm_square(R.value(), scale.s);
     }
-
-    // Precompute powers
-    Matrix<N, N, T> A2 = A_scaled * A_scaled;
-    Matrix<N, N, T> A4 = A2 * A2;
-    Matrix<N, N, T> A6 = A4 * A2;
-    Matrix<N, N, T> A8 = A6 * A2;
-    Matrix<N, N, T> A10 = A8 * A2;
-    Matrix<N, N, T> A12 = A10 * A2;
-
-    // Padé-13 coefficients
-    constexpr T b0 = T(64764752532480000.0);
-    constexpr T b1 = T(32382376266240000.0);
-    constexpr T b2 = T(7771770303897600.0);
-    constexpr T b3 = T(1187353796428800.0);
-    constexpr T b4 = T(129060195264000.0);
-    constexpr T b5 = T(10559470521600.0);
-    constexpr T b6 = T(670442572800.0);
-    constexpr T b7 = T(33522128640.0);
-    constexpr T b8 = T(1323241920.0);
-    constexpr T b9 = T(40840800.0);
-    constexpr T b10 = T(960960.0);
-    constexpr T b11 = T(16380.0);
-    constexpr T b12 = T(182.0);
-    constexpr T b13 = T(1.0);
-
-    // Compute U and V
-    Matrix<N, N, T> U = A_scaled * (b1 * I + b3 * A2 + b5 * A4 + b7 * A6 + b9 * A8 + b11 * A10 + b13 * A12);
-    Matrix<N, N, T> V = b0 * I + b2 * A2 + b4 * A4 + b6 * A6 + b8 * A8 + b10 * A10 + b12 * A12;
-
-    // Solve (V-U) * R = V+U
-    auto R_opt = solve(V - U, V + U);
-    if (!R_opt) {
-        // Documented fallback: Padé denominator singular / ill-conditioned.
-        return I;
-    }
-    Matrix<N, N, T> R = R_opt.value();
-
-    // Iterative refinement: solve for residual, apply two refinements
-    for (int iter = 0; iter < 2; ++iter) {
-        Matrix<N, N, T> residual = (V + U) - (V - U) * R;
-        auto            delta_opt = solve(V - U, residual);
-        if (!delta_opt) {
-            break;
-        }
-        R = R + delta_opt.value();
-    }
-
-    // 7️⃣ Squaring phase
-    for (size_t i = 0; i < s; ++i) {
-        R = R * R;
-    }
-
-    return R;
+    return detail::expm_square_triangular(R.value(), A, scale.s, tri);
 }
 
 /**
