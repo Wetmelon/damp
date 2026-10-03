@@ -681,9 +681,9 @@ template<size_t NX, typename T>
         // Stop at a gain that is negative and more so than the direct fit.
         // A positive fit must not become negative, and a small negative fit
         // must not run away to a huge one.
-        const bool worse_neg = ((r->Kp < T{0}) && (r->Kp < fitted.Kp)) ||
-                               ((r->Ki < T{0}) && (r->Ki < fitted.Ki)) ||
-                               ((r->Kd < T{0}) && (r->Kd < fitted.Kd));
+        const bool worse_neg = ((r->Kp < T{0}) && (r->Kp < fitted.Kp))
+                            || ((r->Ki < T{0}) && (r->Ki < fitted.Ki))
+                            || ((r->Kd < T{0}) && (r->Kd < fitted.Kd));
         if (worse_neg) {
             break;
         }

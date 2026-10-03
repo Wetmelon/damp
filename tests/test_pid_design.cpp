@@ -379,16 +379,16 @@ TEST_SUITE("PID Design - Plant pidtune") {
     }
 
     TEST_CASE("PI-D pidtune on LC does not sign-flip") {
-        constexpr double L = 100e-6;
-        constexpr double C = 100e-6;
-        constexpr double R = 4.0;
+        constexpr double          L = 100e-6;
+        constexpr double          C = 100e-6;
+        constexpr double          R = 4.0;
         const StateSpace<2, 1, 1> sys{
             .A = Matrix<2, 2>{{0.0, -1.0 / L}, {1.0 / C, -1.0 / (R * C)}},
             .B = Matrix<2, 1>{{1.0 / L}, {0.0}},
             .C = Matrix<1, 2>{{0.0, 1.0}},
             .D = Matrix<1, 1>{{0.0}},
         };
-        constexpr double wc = 27650.638614364343;
+        constexpr double            wc = 27650.638614364343;
         design::PidTuneSpec<double> spec{};
         spec.wc = wc;
         spec.type = design::PIDType::PID;
