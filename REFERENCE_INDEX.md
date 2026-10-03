@@ -54,7 +54,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`bandpass`](inc/damp/filters/iir_design.hpp#L811) | function | Filters & signal conditioning | Second-order band-pass filter (constant 0 dB peak gain) |
 | [`bandpass_continuous`](inc/damp/filters/iir_design.hpp#L378) | function | Filters & signal conditioning | Second-order band-pass filter design (continuous-time) |
 | [`bandwidth`](inc/damp/matlab.hpp#L1031) | function | MATLAB®-style aliases (host) | -3 dB bandwidth of a SISO system over a frequency grid |
-| [`bandwidth_from_settling_time`](inc/damp/design/pid_design.hpp#L819) | function | Design-time synthesis (not PWM-rate) | Map settling-time and damping-ratio targets to a bandwidth estimate |
+| [`bandwidth_from_settling_time`](inc/damp/design/pid_design.hpp#L869) | function | Design-time synthesis (not PWM-rate) | Map settling-time and damping-ratio targets to a bandwidth estimate |
 | [`BDF2`](inc/damp/simulation/integrator.hpp#L366) | block | Simulation / SIL harness (host) | Backward Differentiation Formula 2 (BDF2) integrator |
 | [`beta`](inc/damp/toolbox/thermistor.hpp#L77) | function | Embedded helpers (controls-adjacent utilities) | Fit NTC coefficients from the Beta-parameter model |
 | [`Biquad`](inc/damp/filters/biquad.hpp#L34) | block | Filters & signal conditioning | Second-order IIR (biquad) section runtime |
@@ -133,7 +133,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`CTU`](inc/damp/toolbox/iec61131.hpp#L324) | block | Embedded helpers (controls-adjacent utilities) | CTU Counter (Count Up) |
 | [`CTUD`](inc/damp/toolbox/iec61131.hpp#L404) | block | Embedded helpers (controls-adjacent utilities) | CTUD Counter (Count Up Down) |
 | [`damp`](inc/damp/analysis/poles.hpp#L90) | function | Frequency-domain analysis (host) | Compute natural frequency and damping for each pole |
-| [`damping_ratio_from_overshoot_percent`](inc/damp/design/pid_design.hpp#L758) | function | Design-time synthesis (not PWM-rate) | Map percent overshoot target to equivalent damping ratio |
+| [`damping_ratio_from_overshoot_percent`](inc/damp/design/pid_design.hpp#L808) | function | Design-time synthesis (not PWM-rate) | Map percent overshoot target to equivalent damping ratio |
 | [`dare`](inc/damp/design/riccati.hpp#L634) | function | Design-time synthesis (not PWM-rate) | Solve the Discrete Algebraic Riccati Equation (DARE) |
 | [`db2mag`](inc/damp/math/math.hpp#L470) | function | Scalar math, complex & frames | Decibels to magnitude, 10^(db/20) |
 | [`dcgain`](inc/damp/analysis/norms.hpp#L40) | function | Frequency-domain analysis (host) | Compute DC gain of a continuous-time system |
@@ -294,7 +294,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`impulseplot`](inc/damp/simulation/plot_plotly.hpp#L733) | function | Simulation / SIL harness (host) | Plot an impulse response, one trace per input/output pair |
 | [`ImpulseResult`](inc/damp/estimation/excitation/impulse.hpp#L52) | block | Observers & estimators | Impulse design payload |
 | [`ImuSample`](inc/damp/estimation/ins_mechanization.hpp#L125) | block | Observers & estimators | IMU sample in the body frame |
-| [`InductorCurrentPIResult`](inc/damp/design/pid_design.hpp#L1137) | block | Design-time synthesis (not PWM-rate) | Fixed-rate inductor current-loop PI (topology-agnostic) |
+| [`InductorCurrentPIResult`](inc/damp/design/pid_design.hpp#L1187) | block | Design-time synthesis (not PWM-rate) | Fixed-rate inductor current-loop PI (topology-agnostic) |
 | [`infinity_norm`](inc/damp/matrix/functions.hpp#L35) | function | Linear algebra | Infinity norm ‖A‖∞: maximum absolute row sum |
 | [`initial`](inc/damp/analysis/time_response.hpp#L219) | function | Frequency-domain analysis (host) | Initial-condition (free) response of a (MIMO) state-space system |
 | [`ins_aid_position`](inc/damp/estimation/ins_eskf.hpp#L503) | function | Observers & estimators | Predicted antenna / marker position with body lever-arm |
@@ -536,23 +536,23 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`park_transform`](inc/damp/math/transforms.hpp#L331) | function | Scalar math, complex & frames | Park transform (αβ → dq) |
 | [`peaking`](inc/damp/filters/iir_design.hpp#L878) | function | Filters & signal conditioning | Peaking (bell) EQ filter: boost or cut a band around f0 |
 | [`Periodic`](inc/damp/toolbox/timing.hpp#L125) | block | Embedded helpers (controls-adjacent utilities) | Periodic trigger — fires once per elapsed period |
-| [`phase_margin_from_damping_ratio`](inc/damp/design/pid_design.hpp#L788) | function | Design-time synthesis (not PWM-rate) | Approximate phase margin from damping ratio |
+| [`phase_margin_from_damping_ratio`](inc/damp/design/pid_design.hpp#L838) | function | Design-time synthesis (not PWM-rate) | Approximate phase margin from damping ratio |
 | [`phase_margin_unwrapped`](inc/damp/analysis/frequency.hpp#L166) | function | Frequency-domain analysis (host) | Find phase margin using unwrapped phase trajectory |
-| [`pi_pole_placement_first_order`](inc/damp/design/pid_design.hpp#L1005) | function | Design-time synthesis (not PWM-rate) | PI gains that place the closed-loop poles of a first-order plant (+1 more overload) |
+| [`pi_pole_placement_first_order`](inc/damp/design/pid_design.hpp#L1055) | function | Design-time synthesis (not PWM-rate) | PI gains that place the closed-loop poles of a first-order plant (+1 more overload) |
 | [`pid`](inc/damp/controllers/pid.hpp#L275) | function | Design-time synthesis (not PWM-rate) | 2-DOF continuous PID controller design |
 | [`pid`](inc/damp/matlab.hpp#L168) | function | MATLAB®-style aliases (host) | MATLAB®-style parallel-form continuous PID constructor |
 | [`pid_from_bandwidth`](inc/damp/design/pid_design.hpp#L435) | function | Design-time synthesis (not PWM-rate) | Design PID from desired bandwidth and phase margin |
-| [`pid_from_performance_spec`](inc/damp/design/pid_design.hpp#L851) | function | Design-time synthesis (not PWM-rate) | Design PID directly from settling-time and overshoot targets |
-| [`pid_pole_placement`](inc/damp/design/pid_design.hpp#L888) | function | Design-time synthesis (not PWM-rate) | Direct PID pole placement for a first-order-plus-dead-time model (+1 more overload) |
-| [`pid_pole_placement_double_integrator`](inc/damp/design/pid_design.hpp#L1087) | function | Design-time synthesis (not PWM-rate) | PID (or PD) pole placement for a rigid inertia $`G(s) = 1/(J s^2)`$ |
+| [`pid_from_performance_spec`](inc/damp/design/pid_design.hpp#L901) | function | Design-time synthesis (not PWM-rate) | Design PID directly from settling-time and overshoot targets |
+| [`pid_pole_placement`](inc/damp/design/pid_design.hpp#L938) | function | Design-time synthesis (not PWM-rate) | Direct PID pole placement for a first-order-plus-dead-time model (+1 more overload) |
+| [`pid_pole_placement_double_integrator`](inc/damp/design/pid_design.hpp#L1137) | function | Design-time synthesis (not PWM-rate) | PID (or PD) pole placement for a rigid inertia $`G(s) = 1/(J s^2)`$ |
 | [`PIDController`](inc/damp/controllers/pid.hpp#L365) | block | Runtime controllers | Fixed-rate discrete 2-DOF PID (canonical runtime) (+2 more overloads) |
 | [`PIDMode`](inc/damp/controllers/pid.hpp#L300) | enum | Runtime controllers | Compile-time selection of the PID control-law structure |
-| [`PIDPerformanceSpec`](inc/damp/design/pid_design.hpp#L833) | block | Design-time synthesis (not PWM-rate) | Time-domain performance targets for quick PID synthesis |
+| [`PIDPerformanceSpec`](inc/damp/design/pid_design.hpp#L883) | block | Design-time synthesis (not PWM-rate) | Time-domain performance targets for quick PID synthesis |
 | [`PIDResult`](inc/damp/controllers/pid.hpp#L100) | block | Design-time synthesis (not PWM-rate) | 2-DOF continuous-time PID controller design result |
 | [`PIDRuntimeMode`](inc/damp/controllers/pid.hpp#L324) | enum | Runtime controllers | Runtime operating mode for PIDController / ContinuousPID |
 | [`pidstd`](inc/damp/matlab.hpp#L196) | function | MATLAB®-style aliases (host) | Standard-form continuous PID constructor (1-DOF) |
 | [`pidstd2`](inc/damp/matlab.hpp#L214) | function | MATLAB®-style aliases (host) | Standard-form continuous 2-DOF PID constructor |
-| [`pidtune`](inc/damp/design/pid_design.hpp#L666) | function | Design-time synthesis (not PWM-rate) | Plant-aware PID tune at a crossover (+3 more overloads) |
+| [`pidtune`](inc/damp/design/pid_design.hpp#L744) | function | Design-time synthesis (not PWM-rate) | Plant-aware PID tune at a crossover (+3 more overloads) |
 | [`pidtune`](inc/damp/matlab.hpp#L792) | function | MATLAB®-style aliases (host) | Plant-aware PID tune (MATLAB® pidtune spelling) |
 | [`PidTuneSpec`](inc/damp/design/pid_design.hpp#L509) | block | Design-time synthesis (not PWM-rate) | Knobs for plant-aware pidtune |
 | [`PIDType`](inc/damp/design/pid_design.hpp#L50) | enum | Design-time synthesis (not PWM-rate) | PID controller type selection for tuning methods |
@@ -610,6 +610,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`Quaternion`](inc/damp/math/geometry.hpp#L381) | block | Scalar math, complex & frames | Unit quaternion rotation (w, x, y, z) (Hamilton product) |
 | [`R_TRIG`](inc/damp/toolbox/iec61131.hpp#L118) | block | Embedded helpers (controls-adjacent utilities) | R_TRIG (Rising Edge Trigger) |
 | [`rad2deg`](inc/damp/math/math.hpp#L481) | function | Scalar math, complex & frames | Radians to degrees, rad·180/π |
+| [`raise_loop_for_tracking`](inc/damp/design/pid_design.hpp#L657) | function | Design-time synthesis (not PWM-rate) | Raise the loop crossover so T −3 dB matches the 1-DOF target |
 | [`ramp`](inc/damp/estimation/excitation/ramp.hpp#L94) | function | Observers & estimators | Build a ramp design payload from a configuration |
 | [`Ramp`](inc/damp/estimation/excitation/ramp.hpp#L110) | block | Observers & estimators | Rate-limited ramp runtime generator |
 | [`RampConfig`](inc/damp/estimation/excitation/ramp.hpp#L32) | block | Observers & estimators | Configuration for a slew-rate-limited ramp excitation |

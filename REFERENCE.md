@@ -238,7 +238,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`DiscretePIDResult`](inc/damp/controllers/pid.hpp#L46) | Fixed-rate discrete PID coefficients (canonical deploy form) |
 | [`ESCResult`](inc/damp/controllers/esc.hpp#L103) | Design result for the extremum-seeking controller |
 | [`HarmonicSuppressorResult`](inc/damp/controllers/harmonic_suppression.hpp#L48) | Design result for a multi-resonant harmonic suppressor |
-| [`InductorCurrentPIResult`](inc/damp/design/pid_design.hpp#L1137) | Fixed-rate inductor current-loop PI (topology-agnostic) |
+| [`InductorCurrentPIResult`](inc/damp/design/pid_design.hpp#L1187) | Fixed-rate inductor current-loop PI (topology-agnostic) |
 | [`InteriorPointSolver`](inc/damp/design/qp.hpp#L1163) | Interior-point QP solver policy for damp::MPC |
 | [`JordanBlock`](inc/damp/design/pole_placement.hpp#L831) | One Jordan mini-block of a desired closed-loop spectrum |
 | [`JordanObjective`](inc/damp/design/pole_placement.hpp#L1165) | Robustness objective for place_jordan_optimal (the paper's two methods) |
@@ -261,7 +261,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`MinimalRealizationResult`](inc/damp/design/minreal.hpp#L84) | Minimal realization result |
 | [`ModelReductionMethod`](inc/damp/design/model_reduction.hpp#L58) | Method for eliminating states in modred |
 | [`OptimalJordanPlacement`](inc/damp/design/pole_placement.hpp#L1172) | Result of optimized arbitrary pole placement (place_jordan_optimal) |
-| [`PIDPerformanceSpec`](inc/damp/design/pid_design.hpp#L833) | Time-domain performance targets for quick PID synthesis |
+| [`PIDPerformanceSpec`](inc/damp/design/pid_design.hpp#L883) | Time-domain performance targets for quick PID synthesis |
 | [`PIDResult`](inc/damp/controllers/pid.hpp#L100) | 2-DOF continuous-time PID controller design result |
 | [`PidTuneSpec`](inc/damp/design/pid_design.hpp#L509) | Knobs for plant-aware pidtune |
 | [`PIDType`](inc/damp/design/pid_design.hpp#L50) | PID controller type selection for tuning methods |
@@ -285,7 +285,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`balanced_truncation`](inc/damp/design/model_reduction.hpp#L586) | Descriptive alias for balred |
 | [`balreal`](inc/damp/design/model_reduction.hpp#L383) | Balanced realization via the square-root (Moore / Laub) method |
 | [`balred`](inc/damp/design/model_reduction.hpp#L471) | Balanced truncation to NR states |
-| [`bandwidth_from_settling_time`](inc/damp/design/pid_design.hpp#L819) | Map settling-time and damping-ratio targets to a bandwidth estimate |
+| [`bandwidth_from_settling_time`](inc/damp/design/pid_design.hpp#L869) | Map settling-time and damping-ratio targets to a bandwidth estimate |
 | [`build_lqg_analysis_models`](inc/damp/design/synthesis.hpp#L211) | Build analysis models from an LQG design |
 | [`build_lqgi_analysis_models`](inc/damp/design/synthesis.hpp#L297) | Build analysis models from an LQGI servo design |
 | [`build_lqi_analysis_models`](inc/damp/design/synthesis.hpp#L266) | Build analysis models from an LQI servo design |
@@ -297,7 +297,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`continuous_lqr`](inc/damp/controllers/lqr.hpp#L382) | Continuous-time Linear-Quadratic Regulator design (+1 more overload) |
 | [`controllability_gramian`](inc/damp/design/stability.hpp#L118) | Continuous/discrete controllability Gramian W_c |
 | [`controllability_matrix`](inc/damp/design/stability.hpp#L52) | Compute the controllability matrix [B, AB, A²B, ..., A^(N-1)B] |
-| [`damping_ratio_from_overshoot_percent`](inc/damp/design/pid_design.hpp#L758) | Map percent overshoot target to equivalent damping ratio |
+| [`damping_ratio_from_overshoot_percent`](inc/damp/design/pid_design.hpp#L808) | Map percent overshoot target to equivalent damping ratio |
 | [`dare`](inc/damp/design/riccati.hpp#L634) | Solve the Discrete Algebraic Riccati Equation (DARE) |
 | [`discrete_lqg`](inc/damp/controllers/lqg.hpp#L125) | Discrete Linear-Quadratic-Gaussian regulator design |
 | [`discrete_lqgi`](inc/damp/controllers/lqgi.hpp#L133) | Discrete LQG with integral action (LQI + Kalman) for output tracking |
@@ -340,14 +340,14 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`observability_gramian`](inc/damp/design/stability.hpp#L146) | Continuous/discrete observability Gramian W_o |
 | [`observability_matrix`](inc/damp/design/stability.hpp#L82) | Compute the observability matrix [C; CA; CA²; ...; CA^(N-1)] |
 | [`OffsetFreeMPC`](inc/damp/controllers/offset_free_mpc.hpp#L262) | Deduce the runtime from its artifacts: OffsetFreeMPC controller{art}; |
-| [`phase_margin_from_damping_ratio`](inc/damp/design/pid_design.hpp#L788) | Approximate phase margin from damping ratio |
-| [`pi_pole_placement_first_order`](inc/damp/design/pid_design.hpp#L1005) | PI gains that place the closed-loop poles of a first-order plant (+1 more overload) |
+| [`phase_margin_from_damping_ratio`](inc/damp/design/pid_design.hpp#L838) | Approximate phase margin from damping ratio |
+| [`pi_pole_placement_first_order`](inc/damp/design/pid_design.hpp#L1055) | PI gains that place the closed-loop poles of a first-order plant (+1 more overload) |
 | [`pid`](inc/damp/controllers/pid.hpp#L275) | 2-DOF continuous PID controller design |
 | [`pid_from_bandwidth`](inc/damp/design/pid_design.hpp#L435) | Design PID from desired bandwidth and phase margin |
-| [`pid_from_performance_spec`](inc/damp/design/pid_design.hpp#L851) | Design PID directly from settling-time and overshoot targets |
-| [`pid_pole_placement`](inc/damp/design/pid_design.hpp#L888) | Direct PID pole placement for a first-order-plus-dead-time model (+1 more overload) |
-| [`pid_pole_placement_double_integrator`](inc/damp/design/pid_design.hpp#L1087) | PID (or PD) pole placement for a rigid inertia $`G(s) = 1/(J s^2)`$ |
-| [`pidtune`](inc/damp/design/pid_design.hpp#L666) | Plant-aware PID tune at a crossover (+3 more overloads) |
+| [`pid_from_performance_spec`](inc/damp/design/pid_design.hpp#L901) | Design PID directly from settling-time and overshoot targets |
+| [`pid_pole_placement`](inc/damp/design/pid_design.hpp#L938) | Direct PID pole placement for a first-order-plus-dead-time model (+1 more overload) |
+| [`pid_pole_placement_double_integrator`](inc/damp/design/pid_design.hpp#L1137) | PID (or PD) pole placement for a rigid inertia $`G(s) = 1/(J s^2)`$ |
+| [`pidtune`](inc/damp/design/pid_design.hpp#L744) | Plant-aware PID tune at a crossover (+3 more overloads) |
 | [`place`](inc/damp/design/pole_placement.hpp#L88) | Robust multi-input pole placement (Kautsky–Nichols–Van Dooren, real poles) (+5 more overloads) |
 | [`place_discrete`](inc/damp/design/pole_placement.hpp#L581) | Discrete plant + z-plane poles → discrete \(K\) (+3 more overloads) |
 | [`place_jordan`](inc/damp/design/pole_placement.hpp#L1138) | Exact pole placement with an arbitrary Jordan structure (Schmid–Ntogramatzidis–Nguyen–Pandey / Klein–Moore parametric form) |
@@ -358,6 +358,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`pr_harmonics`](inc/damp/controllers/pr.hpp#L185) | Design multiple-harmonic PR controller gains |
 | [`project_affine`](inc/damp/controllers/action_governor.hpp#L231) | Project u_des onto the polyhedron A u ≤ b (Euclidean) |
 | [`project_box`](inc/damp/controllers/action_governor.hpp#L78) | Euclidean projection of u onto the axis-aligned box [umin, umax] (+1 more overload) |
+| [`raise_loop_for_tracking`](inc/damp/design/pid_design.hpp#L657) | Raise the loop crossover so T −3 dB matches the 1-DOF target |
 | [`rank`](inc/damp/design/stability.hpp#L163) | Compute rank of a matrix via Gaussian elimination with partial pivoting |
 | [`repetitive`](inc/damp/controllers/repetitive.hpp#L171) | Synthesize a repetitive controller with a scalar robustness filter Q |
 | [`repetitive_binomial`](inc/damp/controllers/repetitive.hpp#L223) | Synthesize a repetitive controller with a binomial zero-phase FIR Q |
