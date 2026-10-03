@@ -290,7 +290,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`build_lqgi_analysis_models`](inc/damp/design/synthesis.hpp#L297) | Build analysis models from an LQGI servo design |
 | [`build_lqi_analysis_models`](inc/damp/design/synthesis.hpp#L266) | Build analysis models from an LQI servo design |
 | [`build_mpc_analysis_models`](inc/damp/controllers/mpc.hpp#L695) | Build the unconstrained-MPC LTI analysis models |
-| [`care`](inc/damp/design/riccati.hpp#L763) | Solve the Continuous-time Algebraic Riccati Equation (CARE) |
+| [`care`](inc/damp/design/riccati.hpp#L1232) | Solve the Continuous-time Algebraic Riccati Equation (CARE) |
 | [`cbf_relative_degree_1`](inc/damp/controllers/action_governor.hpp#L299) | Build a relative-degree-1 CBF inequality row |
 | [`closed_loop_poles`](inc/damp/design/stability.hpp#L335) | Compute closed-loop poles (eigenvalues) with state feedback |
 | [`cohen_coon`](inc/damp/design/pid_design.hpp#L283) | Cohen-Coon tuning from first-order-plus-dead-time model |
@@ -298,7 +298,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`controllability_gramian`](inc/damp/design/stability.hpp#L118) | Continuous/discrete controllability Gramian W_c |
 | [`controllability_matrix`](inc/damp/design/stability.hpp#L52) | Compute the controllability matrix [B, AB, A²B, ..., A^(N-1)B] |
 | [`damping_ratio_from_overshoot_percent`](inc/damp/design/pid_design.hpp#L808) | Map percent overshoot target to equivalent damping ratio |
-| [`dare`](inc/damp/design/riccati.hpp#L634) | Solve the Discrete Algebraic Riccati Equation (DARE) |
+| [`dare`](inc/damp/design/riccati.hpp#L1102) | Solve the Discrete Algebraic Riccati Equation (DARE) |
 | [`discrete_lqg`](inc/damp/controllers/lqg.hpp#L125) | Discrete Linear-Quadratic-Gaussian regulator design |
 | [`discrete_lqgi`](inc/damp/controllers/lqgi.hpp#L133) | Discrete LQG with integral action (LQI + Kalman) for output tracking |
 | [`discrete_lqi`](inc/damp/controllers/lqi.hpp#L93) | Discrete Linear-Quadratic-Integral (LQI) design for output tracking |
@@ -316,7 +316,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`is_closed_loop_stable_discrete`](inc/damp/design/stability.hpp#L245) | Check closed-loop stability for discrete system with state feedback |
 | [`is_controllable`](inc/damp/design/stability.hpp#L176) | Check if a system is controllable |
 | [`is_observable`](inc/damp/design/stability.hpp#L194) | Check if a system is observable |
-| [`is_stabilizable`](inc/damp/design/riccati.hpp#L44) | Check if (A, B) is a stabilizable pair |
+| [`is_stabilizable`](inc/damp/design/riccati.hpp#L45) | Check if (A, B) is a stabilizable pair |
 | [`is_stable_discrete`](inc/damp/design/stability.hpp#L215) | Check if a discrete-time system matrix A is stable |
 | [`lag`](inc/damp/controllers/lead_lag.hpp#L181) | Design a lag compensator from desired low-frequency gain boost |
 | [`lambda_tuning`](inc/damp/design/pid_design.hpp#L401) | Lambda tuning for FOPDT model |
@@ -329,7 +329,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`lqg_pr_bundle`](inc/damp/design/synthesis.hpp#L356) | Synthesize a SISO LQG + PR design with internal-model compensation |
 | [`lqgi_bundle`](inc/damp/design/synthesis.hpp#L403) | Synthesize the full LQGI servo artifact bundle in one call |
 | [`lqi_bundle`](inc/damp/design/synthesis.hpp#L385) | Synthesize the full LQI servo artifact bundle in one call |
-| [`lqr_gain`](inc/damp/design/riccati.hpp#L714) | Optimal LQR state-feedback gain from a Riccati solution |
+| [`lqr_gain`](inc/damp/design/riccati.hpp#L1182) | Optimal LQR state-feedback gain from a Riccati solution |
 | [`lqrd`](inc/damp/controllers/lqr.hpp#L323) | Sampled-data LQR from continuous plant (MATLAB®-style short name) (+1 more overload) |
 | [`lyap`](inc/damp/design/lyapunov.hpp#L105) | Solve the continuous-time Lyapunov equation A X + X Aᵀ + Q = 0 |
 | [`minimal_realization`](inc/damp/design/minreal.hpp#L428) | Descriptive alias for minreal |

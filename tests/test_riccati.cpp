@@ -67,6 +67,132 @@ TEST_SUITE("Riccati Solvers") {
         static_assert(P.has_value(), "scalar CARE must converge at compile time");
     }
 
+    TEST_CASE("CARE scalar cross-term has the stabilizing root") {
+        // (X + N)² = Q with N = 1/2, Q = R = 1 ⇒ X = 1/2 (closed loop pole −1).
+        // X = −3/2 also has a zero residual and an unstable closed loop.
+        constexpr Matrix<1, 1> A{{0.0}};
+        constexpr Matrix<1, 1> B{{1.0}};
+        constexpr Matrix<1, 1> Q{{1.0}};
+        constexpr Matrix<1, 1> R{{1.0}};
+        constexpr Matrix<1, 1> N{{0.5}};
+        const auto             P = care(A, B, Q, R, N);
+        REQUIRE(P.has_value());
+        CHECK(P.value()(0, 0) == doctest::Approx(0.5));
+    }
+
+    TEST_CASE("CARE tiny input weight matches the analytic double integrator") {
+        // q1 = q2 = 1, r = 1e−8. Stabilizing root:
+        //   p12 = √(q1 r),  p22 = √(r (q2 + 2 p12)),  p11 = p12 p22 / r.
+        constexpr Matrix<2, 2> A{{0.0, 1.0}, {0.0, 0.0}};
+        constexpr Matrix<2, 1> B{{0.0}, {1.0}};
+        constexpr auto         Q = Matrix<2, 2>::identity();
+        constexpr double       r = 1e-8;
+        constexpr Matrix<1, 1> R{{r}};
+        const auto             P = care(A, B, Q, R);
+        REQUIRE(P.has_value());
+        const double p12 = damp::sqrt(r);
+        const double p22 = damp::sqrt(r * (1.0 + 2.0 * p12));
+        const double p11 = p12 * p22 / r;
+        CHECK(P.value()(0, 0) == doctest::Approx(p11).epsilon(1e-8));
+        CHECK(P.value()(0, 1) == doctest::Approx(p12).epsilon(1e-8));
+        CHECK(P.value()(1, 0) == doctest::Approx(p12).epsilon(1e-8));
+        CHECK(P.value()(1, 1) == doctest::Approx(p22).epsilon(1e-8));
+    }
+
+    // CAREX cases from Benner, Laub, Mehrmann, SPC 95_23. Reference solutions are
+    // scipy.linalg.solve_continuous_are (1.17, balanced). A returned X must also
+    // have a small relative residual; CAREX #12 is refused because even the
+    // balanced residual sits near 3×10⁻⁴, above the certificate.
+
+    TEST_CASE("CARE CAREX 7 matches the balanced reference") {
+        constexpr Matrix<2, 2> A{{1.0, 0.0}, {0.0, -2.0}};
+        constexpr Matrix<2, 1> B{{1e-6}, {0.0}};
+        constexpr Matrix<2, 2> Q{{1.0, 1.0}, {1.0, 1.0}};
+        constexpr Matrix<1, 1> R{{1.0}};
+        const auto             P = care(A, B, Q, R);
+        REQUIRE(P.has_value());
+        CHECK(P.value()(0, 0) == doctest::Approx(2e12).epsilon(1e-8));
+        CHECK(P.value()(0, 1) == doctest::Approx(1.0 / 3.0).epsilon(1e-6));
+        CHECK(P.value()(1, 1) == doctest::Approx(0.25).epsilon(1e-8));
+    }
+
+    TEST_CASE("CARE CAREX 9 matches the balanced reference") {
+        constexpr Matrix<2, 2> A{{0.0, 1e6}, {0.0, 0.0}};
+        constexpr Matrix<2, 1> B{{0.0}, {1.0}};
+        constexpr auto         Q = Matrix<2, 2>::identity();
+        constexpr Matrix<1, 1> R{{1.0}};
+        const auto             P = care(A, B, Q, R);
+        REQUIRE(P.has_value());
+        const double s = damp::sqrt(2.0);
+        CHECK(P.value()(0, 0) == doctest::Approx(s * 1e-3).epsilon(1e-6));
+        CHECK(P.value()(0, 1) == doctest::Approx(1.0).epsilon(1e-8));
+        CHECK(P.value()(1, 1) == doctest::Approx(s * 1e3).epsilon(1e-6));
+    }
+
+    TEST_CASE("CARE CAREX 13 matches the balanced reference") {
+        constexpr Matrix<4, 4> A{{0.0, 0.4, 0.0, 0.0}, {0.0, 0.0, 0.345, 0.0}, {0.0, -5.24e5, -4.65e5, 2.62e5}, {0.0, 0.0, 0.0, -1e6}};
+        constexpr Matrix<4, 1> B{{0.0}, {0.0}, {0.0}, {1e6}};
+        Matrix<4, 4>           Q = Matrix<4, 4>::zeros();
+        Q(0, 0) = 1.0;
+        Q(2, 2) = 1.0;
+        constexpr Matrix<1, 1> R{{1.0}};
+        const auto             P = care(A, B, Q, R);
+        REQUIRE(P.has_value());
+        constexpr Matrix<4, 4> Xref{{7.38402467, 5.90476206, 3.99308234e-6, 1.00000000e-6}, {5.90476206, 7.15160630, 3.79969886e-6, 8.61234718e-7}, {3.99308234e-6, 3.79969886e-6, 1.04029358e-6, 1.80359619e-7}, {1.00000000e-6, 8.61234718e-7, 1.80359619e-7, 4.61875742e-8}};
+        CHECK((P.value() - Xref).norm() / Xref.norm() < 1e-7);
+    }
+
+    TEST_CASE("CARE CAREX 14 stays near the identity with a tiny residual") {
+        // Eigenvalues sit on the imaginary axis. The residual is flat, so X
+        // agrees with SciPy to about 3×10⁻⁴; a false subspace used to return
+        // a residual of 0.46.
+        constexpr Matrix<4, 4> A{{-1e-6, 1.0, 0.0, 0.0}, {-1.0, -1e-6, 0.0, 0.0}, {0.0, 0.0, 1e-6, 1.0}, {0.0, 0.0, -1.0, 1e-6}};
+        constexpr Matrix<4, 1> B{{1.0}, {1.0}, {1.0}, {1.0}};
+        constexpr Matrix<4, 4> Q{{1, 1, 1, 1}, {1, 1, 1, 1}, {1, 1, 1, 1}, {1, 1, 1, 1}};
+        constexpr Matrix<1, 1> R{{1.0}};
+        const auto             P = care(A, B, Q, R);
+        REQUIRE(P.has_value());
+        const Matrix<4, 4> G = B * B.transpose();
+        const auto         AtX = A.transpose() * P.value();
+        const auto         XA = P.value() * A;
+        const auto         XGX = P.value() * G * P.value();
+        const auto         Res = AtX + XA - XGX + Q;
+        const double       rel = Res.norm() / (AtX.norm() + XA.norm() + XGX.norm() + Q.norm());
+        CHECK(rel < 1e-8);
+        for (size_t i = 0; i < 4; ++i) {
+            CHECK(P.value()(i, i) == doctest::Approx(1.0).epsilon(1e-3));
+            for (size_t j = 0; j < 4; ++j) {
+                if (i != j) {
+                    CHECK(damp::abs(P.value()(i, j)) < 1e-2);
+                }
+            }
+        }
+    }
+
+    TEST_CASE("float CARE succeeds on a double integrator") {
+        constexpr Matrix<2, 2, float> A{{0.0f, 1.0f}, {0.0f, 0.0f}};
+        constexpr Matrix<2, 1, float> B{{0.0f}, {1.0f}};
+        constexpr auto                Q = Matrix<2, 2, float>::identity();
+        constexpr auto                R = Matrix<1, 1, float>::identity();
+        const auto                    P = care(A, B, Q, R);
+        REQUIRE(P.has_value());
+        CHECK(P.value()(0, 0) == doctest::Approx(damp::sqrt(3.0f)).epsilon(1e-4));
+        CHECK(P.value()(0, 1) == doctest::Approx(1.0f).epsilon(1e-4));
+    }
+
+    TEST_CASE("CARE CAREX 12 is refused when the residual cannot be certified") {
+        constexpr Matrix<3, 3> A{{7000000.0 / 3.0, 2000000.0 / 3.0, 0.0}, {2000000.0 / 3.0, 6000000.0 / 3.0, -2000000.0 / 3.0}, {0.0, -2000000.0 / 3.0, 5000000.0 / 3.0}};
+        constexpr auto         B = Matrix<3, 3>::identity();
+        constexpr Matrix<3, 3> M{{1.0, -2.0, -2.0}, {-2.0, 1.0, -2.0}, {-2.0, -2.0, 1.0}};
+        Matrix<3, 3>           D = Matrix<3, 3>::zeros();
+        D(0, 0) = 1e-6;
+        D(1, 1) = 1.0;
+        D(2, 2) = 1e6;
+        const Matrix<3, 3> Q = (M * D * M) * (1.0 / 9.0);
+        constexpr auto     R = Matrix<3, 3>::identity() * 1e6;
+        CHECK_FALSE(care(A, B, Q, R).has_value());
+    }
+
     // ---- Discrete-time algebraic Riccati equation ----
     // AᵀPA − P − AᵀPB(R + BᵀPB)⁻¹BᵀPA + Q = 0
 

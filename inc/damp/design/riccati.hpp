@@ -15,6 +15,7 @@
 #include <limits>
 
 #include "damp/backend.hpp"
+#include "damp/design/lyapunov.hpp"
 #include "damp/math/complex.hpp"
 #include "damp/matrix/eigen.hpp"
 #include "damp/matrix/matrix.hpp"
@@ -366,6 +367,18 @@ constexpr void split_real_2x2(Matrix<M, M, T>& Tm, Matrix<M, M, T>& Z, size_t i)
         Z(k, i + 1) = (-z0 * sn) + (z1 * cs);
     }
     Tm(i + 1, i) = T{0};
+    //! The rotation touches only rows/columns i:i+1. Entries more than one
+    //! below the diagonal in those columns are structural zeros of the Schur
+    //! form; flush the roundoff, or the next pass treats it as a new 2×2 block
+    //! and mixes unrelated eigenvalues. Entries above the diagonal stay.
+    if (i > 0) {
+        Tm(i, i - 1) = T{0};
+        Tm(i + 1, i - 1) = T{0};
+    }
+    for (size_t r = i + 2; r < M; ++r) {
+        Tm(r, i) = T{0};
+        Tm(r, i + 1) = T{0};
+    }
 }
 
 /**
@@ -433,6 +446,24 @@ constexpr bool swap_schur_blocks(Matrix<M, M, T>& Tm, Matrix<M, M, T>& Z, size_t
 }
 
 /**
+ * @brief True when T(i+1, i) is a genuine Schur subdiagonal, not roundoff.
+ *
+ * Compares against the local row scale. A global eps·‖diag‖₁ test treats the
+ * 1e-14 fill left by a Givens rotation as a 2×2 block and then mixes unrelated
+ * eigenvalues.
+ */
+template<size_t M, typename T>
+constexpr bool schur_subdiagonal(const Matrix<M, M, T>& Tm, size_t i) {
+    if (i + 1 >= M) {
+        return false;
+    }
+    const T scale = damp::abs(Tm(i, i)) + damp::abs(Tm(i + 1, i + 1)) + damp::abs(Tm(i, i + 1))
+                  + damp::abs(Tm(i + 1, i));
+    const T tol = (std::numeric_limits<T>::epsilon() * T{1024}) * damp::max(scale, T{1});
+    return damp::abs(Tm(i + 1, i)) > tol;
+}
+
+/**
  * @brief Reorder a real Schur form so eigenvalues satisfying @p in_front lead.
  *
  * First standardizes the form (split_real_2x2) so every remaining 2×2 block is a
@@ -440,47 +471,47 @@ constexpr bool swap_schur_blocks(Matrix<M, M, T>& Tm, Matrix<M, M, T>& Z, size_t
  * satisfies the predicate to the top-left via adjacent-block swaps, keeping the
  * Schur vectors @p Z orthogonal. For the CARE Hamiltonian the predicate selects
  * the stable spectrum (Re λ < 0), collecting the stabilizing invariant subspace
- * into the leading columns. Best-effort: a singular swap is skipped (the caller's
- * subsequent solve detects the resulting rank deficiency).
+ * into the leading columns.
+ *
+ * @return Number of eigenvalues (counting a complex pair as two) that actually
+ *         reached the leading block. A swap that fails, or that would reach back
+ *         into the already settled prefix, leaves the block where it is and does
+ *         not count it — the caller must not treat a short prefix as the invariant
+ *         subspace.
  *
  * @see LAPACK dtrsen / dtrexc
  */
 template<size_t M, typename T, typename Pred>
-constexpr void reorder_schur(Matrix<M, M, T>& Tm, Matrix<M, M, T>& Z, Pred in_front) {
-    constexpr T eps = std::numeric_limits<T>::epsilon();
-    T           anorm = T{0};
-    for (size_t i = 0; i < M; ++i) {
-        anorm += damp::abs(Tm(i, i));
-    }
-    const T tol = eps * damp::max(anorm, T{1});
-
-    const auto is_2x2 = [&](size_t i) {
-        return (i + 1 < M) && (damp::abs(Tm(i + 1, i)) > tol);
-    };
-
+constexpr size_t reorder_schur(Matrix<M, M, T>& Tm, Matrix<M, M, T>& Z, Pred in_front) {
     //! Pass 1: standardize — split real 2×2 blocks into 1×1 blocks.
     for (size_t i = 0; i + 1 < M;) {
-        if (is_2x2(i)) {
+        if (schur_subdiagonal(Tm, i)) {
             split_real_2x2(Tm, Z, i);
-            i += is_2x2(i) ? size_t{2} : size_t{1};
+            i += schur_subdiagonal(Tm, i) ? size_t{2} : size_t{1};
         } else {
             ++i;
         }
     }
 
-    //! Pass 2: bubble selected eigenvalues to the front. Invariant: [top, i) holds
-    //! the already-passed unselected blocks.
+    //! Pass 2: bubble selected eigenvalues to the front. Invariant: [0, top) holds
+    //! the selected blocks that reached the front; [top, i) holds blocks already
+    //! passed that were not selected.
     size_t top = 0;
     size_t i = 0;
     while (i < M) {
-        const size_t b = is_2x2(i) ? 2 : 1;
+        const size_t b = schur_subdiagonal(Tm, i) ? 2 : 1;
         const T      re = (b == 2) ? (static_cast<T>(0.5) * (Tm(i, i) + Tm(i + 1, i + 1))) : Tm(i, i);
         if (in_front(re)) {
             size_t cur = i;
+            bool   reached = true;
             while (cur > top) {
-                const size_t pa = (cur >= 2 && damp::abs(Tm(cur - 1, cur - 2)) > tol) ? 2 : 1;
+                const size_t pa = (cur >= 2 && schur_subdiagonal(Tm, cur - 2)) ? 2 : 1;
                 const size_t jj = cur - pa;
-                bool         ok = true;
+                if (jj < top) {
+                    reached = false;
+                    break;
+                }
+                bool ok = true;
                 if (pa == 1 && b == 1) {
                     ok = swap_schur_blocks<1, 1>(Tm, Z, jj);
                 } else if (pa == 1 && b == 2) {
@@ -491,18 +522,436 @@ constexpr void reorder_schur(Matrix<M, M, T>& Tm, Matrix<M, M, T>& Z, Pred in_fr
                     ok = swap_schur_blocks<2, 2>(Tm, Z, jj);
                 }
                 if (!ok) {
+                    reached = false;
                     break;
                 }
                 cur = jj;
             }
-            top += b;
+            if (reached) {
+                top += b;
+            }
         }
         i += b;
     }
+    return top;
 }
 
 /**
- * @brief Solve CARE via the ordered real-Schur method (Laub's method).
+ * @brief Multiply @p x by 2^@p exp.
+ *
+ * Balancing scales are exact powers of two (LAPACK xGEBAL). Repeated doubling
+ * keeps the factor exact inside the exponent range of @c T.
+ */
+template<typename T>
+[[nodiscard]] constexpr T scale_by_pow2(T x, int exp) {
+    if (exp > 0) {
+        for (int k = 0; k < exp; ++k) {
+            x *= T{2};
+        }
+    } else if (exp < 0) {
+        for (int k = 0; k < -exp; ++k) {
+            x *= static_cast<T>(0.5);
+        }
+    }
+    return x;
+}
+
+/**
+ * @brief One Parlett–Reinsch radix step on a row/column pair.
+ *
+ * @p c and @p r are the 2-norms of the column and the row, @p ca and @p ra the
+ * matching max-norms. The returned exponent is log2(F) for the diagonal
+ * similarity that multiplies the column by F and the row by 1/F. @c apply is
+ * false when the step would not shrink c + r by the LAPACK factor 0.95.
+ *
+ * @see LAPACK xGEBAL (scale-only), Parlett & Reinsch (1969)
+ */
+template<typename T>
+struct GebalStep {
+    int  exp{0};
+    bool apply{false};
+};
+
+template<typename T>
+[[nodiscard]] constexpr GebalStep<T> gebal_step(T c, T r, T ca, T ra) {
+    GebalStep<T> step;
+    if (!(c > T{0}) || !(r > T{0}) || !damp::isfinite(c + ca + r + ra)) {
+        return step;
+    }
+    const T s = c + r;
+    const T sfmin1 = std::numeric_limits<T>::min() / std::numeric_limits<T>::epsilon();
+    const T sfmin2 = sfmin1 * T{2};
+    const T sfmax2 = T{1} / sfmin2;
+
+    T   f = T{1};
+    T   g = r * static_cast<T>(0.5);
+    int f_exp = 0;
+    int guard = 0;
+    while (c < g && damp::max(damp::max(f, c), ca) < sfmax2 && damp::min(damp::min(r, g), ra) > sfmin2
+           && guard < 4096) {
+        f *= T{2};
+        c *= T{2};
+        ca *= T{2};
+        r *= static_cast<T>(0.5);
+        g *= static_cast<T>(0.5);
+        ra *= static_cast<T>(0.5);
+        ++f_exp;
+        ++guard;
+    }
+    g = c * static_cast<T>(0.5);
+    guard = 0;
+    while (g >= r && damp::max(r, ra) < sfmax2 && damp::min(damp::min(f, c), damp::min(g, ca)) > sfmin2
+           && guard < 4096) {
+        f *= static_cast<T>(0.5);
+        c *= static_cast<T>(0.5);
+        g *= static_cast<T>(0.5);
+        ca *= static_cast<T>(0.5);
+        r *= T{2};
+        ra *= T{2};
+        --f_exp;
+        ++guard;
+    }
+    //! (c + r) still within 5% of its original value: xGEBAL skips the update.
+    if ((c + r) >= static_cast<T>(0.95) * s || f_exp == 0) {
+        return step;
+    }
+    step.exp = f_exp;
+    step.apply = true;
+    return step;
+}
+
+/**
+ * @brief log2 of the xGEBAL scale factors of @p A.
+ *
+ * @p A is overwritten by D⁻¹ A D with D = diag(2^exp). Diagonal entries are
+ * ignored by the caller (they are zero), matching the Benner / SciPy recipe
+ * of clearing diag(|H|) before balancing. Returns false if a norm overflows.
+ *
+ * @see LAPACK xGEBAL, JOB='S'
+ */
+template<size_t M, typename T>
+[[nodiscard]] constexpr bool gebal_log2_scale(Matrix<M, M, T>& A, damp::array<int, M>& exp) {
+    const T sfmin1 = std::numeric_limits<T>::min() / std::numeric_limits<T>::epsilon();
+    const T sfmax1 = T{1} / sfmin1;
+
+    for (int sweep = 0; sweep < 64; ++sweep) {
+        bool noconv = false;
+        for (size_t i = 0; i < M; ++i) {
+            T c2 = T{0};
+            T r2 = T{0};
+            T ca = T{0};
+            T ra = T{0};
+            for (size_t j = 0; j < M; ++j) {
+                const T aij = damp::abs(A(i, j));
+                const T aji = damp::abs(A(j, i));
+                r2 += aij * aij;
+                c2 += aji * aji;
+                if (aij > ra) {
+                    ra = aij;
+                }
+                if (aji > ca) {
+                    ca = aji;
+                }
+            }
+            const T    c = damp::sqrt(c2);
+            const T    r = damp::sqrt(r2);
+            const auto step = gebal_step(c, r, ca, ra);
+            if (!step.apply) {
+                continue;
+            }
+            const int f_exp = step.exp;
+            if (f_exp < 0 && exp[i] < 0) {
+                const T scale_now = scale_by_pow2(T{1}, exp[i]);
+                const T f = scale_by_pow2(T{1}, f_exp);
+                if (f * scale_now <= sfmin1) {
+                    continue;
+                }
+            }
+            if (f_exp > 0 && exp[i] > 0) {
+                const T scale_now = scale_by_pow2(T{1}, exp[i]);
+                const T f = scale_by_pow2(T{1}, f_exp);
+                if (scale_now >= sfmax1 / f) {
+                    continue;
+                }
+            }
+            exp[i] += f_exp;
+            noconv = true;
+            for (size_t j = 0; j < M; ++j) {
+                if (j == i) {
+                    continue;
+                }
+                A(i, j) = scale_by_pow2(A(i, j), -f_exp);
+                A(j, i) = scale_by_pow2(A(j, i), f_exp);
+            }
+        }
+        if (!noconv) {
+            break;
+        }
+    }
+    return true;
+}
+
+/**
+ * @brief Symplectic diagonal balance of a 2n×2n Hamiltonian.
+ *
+ * Scale-only xGEBAL on |H| with a zero diagonal, then the Benner projection
+ * sᵢ = round((e_{n+i} − eᵢ) / 2) so the similarity is D = diag(2^s, 2^{−s})
+ * and stays symplectic. H is replaced by D H D⁻¹. @p s receives the state
+ * exponents; the original CARE solution is recovered by Xᵢⱼ *= 2^{sᵢ+sⱼ}.
+ * A non-finite scaled entry leaves H untouched and @p s zero.
+ *
+ * @see Benner, "Symplectic Balancing of Hamiltonian Matrices," SIAM J. Sci.
+ *      Comput. 22(5), 2001, https://doi.org/10.1137/S1064827500367993
+ */
+template<size_t NX, typename T>
+constexpr void balance_hamiltonian(Matrix<2 * NX, 2 * NX, T>& H, damp::array<int, NX>& s) {
+    constexpr size_t M = 2 * NX;
+    Matrix<M, M, T>  Mag = Matrix<M, M, T>::zeros();
+    for (size_t i = 0; i < M; ++i) {
+        for (size_t j = 0; j < M; ++j) {
+            if (i != j) {
+                Mag(i, j) = damp::abs(H(i, j));
+            }
+        }
+    }
+    damp::array<int, M> e{};
+    if (!gebal_log2_scale(Mag, e)) {
+        return;
+    }
+    constexpr int kCap = 60;
+    bool          any = false;
+    for (size_t i = 0; i < NX; ++i) {
+        T half = static_cast<T>(e[NX + i] - e[i]) * static_cast<T>(0.5);
+        if (half > T{60}) {
+            half = T{60};
+        } else if (half < T{-60}) {
+            half = T{-60};
+        }
+        int si = static_cast<int>(damp::nearbyint(half));
+        if (si > kCap) {
+            si = kCap;
+        } else if (si < -kCap) {
+            si = -kCap;
+        }
+        s[i] = si;
+        if (si != 0) {
+            any = true;
+        }
+    }
+    if (!any) {
+        return;
+    }
+    Matrix<M, M, T> Hb = H;
+    for (size_t i = 0; i < M; ++i) {
+        const int er = (i < NX) ? s[i] : -s[i - NX];
+        for (size_t j = 0; j < M; ++j) {
+            const int ec = (j < NX) ? s[j] : -s[j - NX];
+            const T   v = scale_by_pow2(H(i, j), er - ec);
+            if (!damp::isfinite(v)) {
+                for (size_t k = 0; k < NX; ++k) {
+                    s[k] = 0;
+                }
+                return;
+            }
+            Hb(i, j) = v;
+        }
+    }
+    H = Hb;
+}
+
+/**
+ * @brief True when the leading @p n eigenvalues of a real Schur form are stable.
+ *
+ * A block that crosses the cut, or whose real part is positive by more than a
+ * few ulps, means the stable subspace was not isolated.
+ */
+template<size_t M, typename T>
+[[nodiscard]] constexpr bool schur_prefix_stable(const Matrix<M, M, T>& Tm, size_t n) {
+    size_t i = 0;
+    while (i < n) {
+        const size_t b = schur_subdiagonal(Tm, i) ? size_t{2} : size_t{1};
+        if (i + b > n) {
+            return false;
+        }
+        const T re = (b == 2) ? (static_cast<T>(0.5) * (Tm(i, i) + Tm(i + 1, i + 1))) : Tm(i, i);
+        const T scale = damp::max(T{1}, damp::abs(re));
+        const T margin = (std::numeric_limits<T>::epsilon() * T{1024}) * scale;
+        if (re > margin) {
+            return false;
+        }
+        i += b;
+    }
+    return true;
+}
+
+/**
+ * @brief Laub's symmetry test on the stabilizing basis: U₁₁ᵀ U₂₁ ≈ symmetric.
+ *
+ * A large skew part means the selected subspace is not Lagrangian (the stable
+ * eigenvalues were not separated from their unstable mirrors). The threshold
+ * matches SciPy's: max(1000 ε, 0.1 ‖U₁₁ᵀ U₂₁‖), with the Frobenius norm in
+ * place of the 1-norm.
+ *
+ * @see Laub (1979), Theorem 5; SciPy linalg.solve_continuous_are
+ */
+template<size_t NX, typename T>
+[[nodiscard]] constexpr bool care_basis_symmetric(const Matrix<NX, NX, T>& U11, const Matrix<NX, NX, T>& U21) {
+    const Matrix<NX, NX, T> gram = U11.transpose() * U21;
+    const Matrix<NX, NX, T> skew = gram - gram.transpose();
+    const T                 tol = damp::max(std::numeric_limits<T>::epsilon() * T{1000}, static_cast<T>(0.1) * gram.norm());
+    return skew.norm() <= tol;
+}
+
+/**
+ * @brief X = U₂₁ U₁₁⁻¹ with rows of U₁₁ᵀ equilibrated before the LU solve.
+ *
+ * lu_decomposition rejects pivots below an absolute tolerance. A stabilizing
+ * basis whose entries are all ~1e−14 can be well conditioned and still fail
+ * that test. Row scaling leaves X unchanged and brings a uniform basis up to
+ * unit row size; a genuinely singular U₁₁ still has a zero row.
+ */
+template<size_t NX, typename T>
+[[nodiscard]] constexpr damp::optional<Matrix<NX, NX, T>>
+care_basis_solve(const Matrix<NX, NX, T>& U11, const Matrix<NX, NX, T>& U21) {
+    Matrix<NX, NX, T> Ut = U11.transpose();
+    Matrix<NX, NX, T> Rt = U21.transpose();
+    for (size_t i = 0; i < NX; ++i) {
+        T row_max = T{0};
+        for (size_t j = 0; j < NX; ++j) {
+            row_max = damp::max(row_max, damp::abs(Ut(i, j)));
+        }
+        if (!(row_max > T{0}) || !damp::isfinite(row_max)) {
+            return damp::nullopt;
+        }
+        const T inv = T{1} / row_max;
+        for (size_t j = 0; j < NX; ++j) {
+            Ut(i, j) *= inv;
+            Rt(i, j) *= inv;
+            if (!damp::isfinite(Ut(i, j)) || !damp::isfinite(Rt(i, j))) {
+                return damp::nullopt;
+            }
+        }
+    }
+    const auto Xt = mat::lu_solve(Ut, Rt);
+    if (!Xt) {
+        return damp::nullopt;
+    }
+    return Xt.value().transpose();
+}
+
+/**
+ * @brief ‖AᵀX + XA − XGX + Q‖_F / (‖AᵀX‖_F + ‖XA‖_F + ‖XGX‖_F + ‖Q‖_F).
+ */
+template<size_t NX, typename T>
+[[nodiscard]] constexpr T care_relative_residual(
+    const Matrix<NX, NX, T>& A,
+    const Matrix<NX, NX, T>& G,
+    const Matrix<NX, NX, T>& Q,
+    const Matrix<NX, NX, T>& X
+) {
+    const Matrix<NX, NX, T> AtX = A.transpose() * X;
+    const Matrix<NX, NX, T> XA = X * A;
+    const Matrix<NX, NX, T> XGX = X * G * X;
+    const Matrix<NX, NX, T> Res = AtX + XA - XGX + Q;
+    const T                 den = AtX.norm() + XA.norm() + XGX.norm() + Q.norm();
+    if (!(den > T{0}) || !damp::isfinite(den)) {
+        return Res.norm();
+    }
+    return Res.norm() / den;
+}
+
+/**
+ * @brief Map a balanced CARE solution back to the original coordinates.
+ *
+ * X = D₁ X_b D₁ with D₁ = diag(2^s), then symmetrized.
+ */
+template<size_t NX, typename T>
+[[nodiscard]] constexpr Matrix<NX, NX, T> care_unscale(Matrix<NX, NX, T> X, const damp::array<int, NX>& s) {
+    for (size_t i = 0; i < NX; ++i) {
+        for (size_t j = 0; j < NX; ++j) {
+            X(i, j) = scale_by_pow2(X(i, j), s[i] + s[j]);
+        }
+    }
+    return (X + X.transpose()) * static_cast<T>(0.5);
+}
+
+/**
+ * @brief Relative-residual certificate for a CARE solution.
+ *
+ * About 100 √ε (≈ 1.5×10⁻⁶ in double). This is a residual of the Riccati
+ * equation, so it scales with √ε rather than with default_tol (an absolute
+ * pivot floor). A larger residual is a failed solve.
+ */
+template<typename T>
+[[nodiscard]] constexpr T care_accept_tol() {
+    return T{100} * damp::sqrt(std::numeric_limits<T>::epsilon());
+}
+
+/**
+ * @brief Up to two Newton steps while the residual is moderate.
+ *
+ * The step solves (A − GX)ᵀ dX + dX (A − GX) = −R(X) via lyap. It runs only
+ * when the subspace checks have already passed and the residual is below 10⁻²,
+ * so it polishes a stabilizing solution and does not iterate a corrupted one.
+ * A step that fails to decrease the residual is discarded.
+ */
+template<size_t NX, typename T>
+[[nodiscard]] constexpr Matrix<NX, NX, T> care_newton_polish(
+    const Matrix<NX, NX, T>& A,
+    const Matrix<NX, NX, T>& G,
+    const Matrix<NX, NX, T>& Q,
+    Matrix<NX, NX, T>        X
+) {
+    const T accept = care_accept_tol<T>();
+    const T polish_below = static_cast<T>(1e-2);
+    for (int step = 0; step < 2; ++step) {
+        const T rel = care_relative_residual(A, G, Q, X);
+        if (!damp::isfinite(rel) || !(rel > accept) || !(rel < polish_below)) {
+            break;
+        }
+        const Matrix<NX, NX, T> Acl = A - (G * X);
+        const Matrix<NX, NX, T> Res = (A.transpose() * X) + (X * A) - (X * G * X) + Q;
+        const auto              dX = lyap(Acl.transpose(), Res);
+        if (!dX) {
+            break;
+        }
+        const Matrix<NX, NX, T> stepped = X + dX.value();
+        const Matrix<NX, NX, T> trial = (stepped + stepped.transpose()) * static_cast<T>(0.5);
+        const T                 trial_rel = care_relative_residual(A, G, Q, trial);
+        if (!damp::isfinite(trial_rel) || !(trial_rel < rel)) {
+            break;
+        }
+        X = trial;
+    }
+    return X;
+}
+
+/**
+ * @brief True when every eigenvalue of A − GX has real part within a few ulps of ≤ 0.
+ *
+ * The anti-stabilizing Riccati solution also has a tiny residual; its closed-loop
+ * poles are the negatives of the stabilizing ones and fail this test.
+ */
+template<size_t NX, typename T>
+[[nodiscard]] constexpr bool care_closed_loop_hurwitz(const Matrix<NX, NX, T>& Acl) {
+    const auto ev = mat::compute_eigenvalues(Acl);
+    if (!ev.converged) {
+        return false;
+    }
+    const T scale = damp::max(T{1}, Acl.norm());
+    //! 10⁻⁶ ε · ‖A‖: roundoff on a near-imaginary pole stays inside; an
+    //! anti-stabilizing pole (order-1 positive real part) does not.
+    const T margin = (std::numeric_limits<T>::epsilon() * T{1000000}) * scale;
+    for (size_t i = 0; i < NX; ++i) {
+        if (ev.values[i].real() > margin) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/**
+ * @brief Solve CARE via an ordered real Schur method (Laub), symplectically balanced.
  *
  * Solves AᵀX + XA − (XB + N)R⁻¹(BᵀX + Nᵀ) + Q = 0 from the stable invariant
  * subspace of the Hamiltonian
@@ -510,19 +959,20 @@ constexpr void reorder_schur(Matrix<M, M, T>& Tm, Matrix<M, M, T>& Z, Pred in_fr
  *     H = ⎡  A   −G  ⎤,   G = B R⁻¹ Bᵀ   (cross-term N folded into A, Q first)
  *         ⎣ −Q   −Aᵀ ⎦
  *
- * H is reduced to real Schur form Zᵀ H Z = T (Hessenberg + Francis double-shift
- * QR), the spectrum is reordered so the NX stable eigenvalues (Re λ < 0) lead, and
- * the leading NX Schur vectors [U₁₁; U₂₁] span the stabilizing subspace. The
- * solution is X = U₂₁ U₁₁⁻¹ (obtained as the transpose of U₁₁ᵀ Xᵀ = U₂₁ᵀ).
+ * H is symplectically balanced, reduced to real Schur form Zᵀ H Z = T
+ * (Hessenberg + Francis double-shift QR), and reordered so the NX stable
+ * eigenvalues (Re λ < 0) lead. The leading Schur vectors [U₁₁; U₂₁] span the
+ * stabilizing subspace and X = U₂₁ U₁₁⁻¹, mapped back from the balanced scaling.
  *
- * Built entirely from orthogonal transforms, so unlike the matrix-sign-function
- * iteration it stays accurate near the imaginary axis. No precondition checks —
- * use care() for the validated entry point. Returns nullopt if the QR iteration
- * fails to converge or the stabilizing subspace is rank-deficient (e.g. H has
- * eigenvalues on the imaginary axis, i.e. no stabilizing solution exists).
+ * Returns damp::nullopt unless the reorder isolates exactly NX stable
+ * eigenvalues, U₁₁ᵀ U₂₁ passes Laub's symmetry test, U₁₁ is nonsingular, the
+ * closed loop A − GX is Hurwitz, and the relative residual is at most about
+ * 100 √ε. Q and R definiteness are checked by care().
  *
  * @see Laub, "A Schur method for solving algebraic Riccati equations," IEEE TAC
  *      1979, https://doi.org/10.1109/TAC.1979.1102178
+ * @see Benner, "Symplectic Balancing of Hamiltonian Matrices," SIAM J. Sci.
+ *      Comput. 22(5), 2001, https://doi.org/10.1137/S1064827500367993
  * @see Golub & Van Loan, "Matrix Computations" §7.6 (ordered Schur form)
  */
 template<size_t NX, size_t NU, typename T = double>
@@ -547,40 +997,58 @@ template<size_t NX, size_t NU, typename T = double>
     const Matrix<NX, NX, T> A_eff = A - B * Rinv_Nt_opt.value();
     const Matrix<NX, NX, T> Q_eff = Q - N * Rinv_Nt_opt.value();
 
-    //! Assemble the 2NX×2NX Hamiltonian H = [[A_eff, −G], [−Q_eff, −A_effᵀ]].
-    constexpr size_t M = 2 * NX;
-    Matrix<M, M, T>  H = Matrix<M, M, T>::zeros();
+    //! Assemble the 2NX×2NX Hamiltonian H = [[A_eff, −G], [−Q_eff, −A_effᵀ]]
+    //! and balance it before the Schur reduction.
+    constexpr size_t     M = 2 * NX;
+    Matrix<M, M, T>      H = Matrix<M, M, T>::zeros();
+    damp::array<int, NX> scale{};
     H.template block<NX, NX>(0, 0) = A_eff;
     H.template block<NX, NX>(0, NX) = G * T{-1};
     H.template block<NX, NX>(NX, 0) = Q_eff * T{-1};
     H.template block<NX, NX>(NX, NX) = A_eff.transpose() * T{-1};
+    balance_hamiltonian(H, scale);
 
     //! Real Schur form Zᵀ H Z = T, accumulating Schur vectors in Z.
-    Matrix<M, M, T> T_schur = H;
-    Matrix<M, M, T> Z;
-    mat::detail::hessenberg_reduce(T_schur, Z);
+    Matrix<M, M, T>   T_schur = H;
+    Matrix<M, M, T>   Z;
     damp::array<T, M> wr{};
     damp::array<T, M> wi{};
+    mat::detail::hessenberg_reduce(T_schur, Z);
     if (!mat::detail::francis_qr(T_schur, Z, wr, wi)) {
         return damp::nullopt;
     }
 
-    //! Reorder the NX stable eigenvalues (Re λ < 0) into the leading block, so the
-    //! first NX Schur vectors span the stabilizing invariant subspace.
-    reorder_schur(T_schur, Z, [](T re) { return re < T{0}; });
+    //! Reorder the NX stable eigenvalues (Re λ < 0) into the leading block. A
+    //! short count, or a leading block whose real part is positive, means the
+    //! stable spectrum was not separated.
+    if (reorder_schur(T_schur, Z, [](T re) { return re < T{0}; }) != NX) {
+        return damp::nullopt;
+    }
+    if (!schur_prefix_stable(T_schur, NX)) {
+        return damp::nullopt;
+    }
 
     const Matrix<NX, NX, T> U11 = Z.template block<NX, NX>(0, 0);
     const Matrix<NX, NX, T> U21 = Z.template block<NX, NX>(NX, 0);
-
-    //! X = U₂₁ U₁₁⁻¹, solved as the transpose of U₁₁ᵀ Xᵀ = U₂₁ᵀ (no explicit inverse).
-    const auto Xt_opt = mat::lu_solve(U11.transpose(), U21.transpose());
-    if (!Xt_opt) {
+    if (!care_basis_symmetric(U11, U21)) {
         return damp::nullopt;
     }
-    const Matrix<NX, NX, T> X = Xt_opt.value().transpose();
+    const auto Xb = care_basis_solve(U11, U21);
+    if (!Xb) {
+        return damp::nullopt;
+    }
 
-    //! Symmetrize for numerical cleanup.
-    return (X + X.t()) * static_cast<T>(0.5);
+    //! Undo the symplectic scaling, polish a moderate residual, then certify.
+    Matrix<NX, NX, T> X = care_unscale(Xb.value(), scale);
+    X = care_newton_polish(A_eff, G, Q_eff, X);
+    const T rel = care_relative_residual(A_eff, G, Q_eff, X);
+    if (!damp::isfinite(rel) || rel > care_accept_tol<T>()) {
+        return damp::nullopt;
+    }
+    if (!care_closed_loop_hurwitz(A_eff - (G * X))) {
+        return damp::nullopt;
+    }
+    return X;
 }
 
 } // namespace detail
@@ -741,13 +1209,14 @@ template<size_t NX, size_t NU, typename T = double>
  * Existence of the stabilizing solution additionally requires (A, B)
  * stabilizable and (A, Q) detectable; those are not pre-screened here (the
  * continuous stabilizability/detectability tests differ from the discrete
- * is_stabilizable() used by dare()). Instead, infeasibility surfaces as the
- * Schur reduction failing to converge or the stabilizing subspace being
- * rank-deficient, in which case care() returns damp::nullopt.
+ * is_stabilizable() used by dare()). care() returns damp::nullopt when the
+ * Schur reduction does not converge, the stable subspace cannot be isolated,
+ * or the computed X fails the residual or closed-loop certificate. A matrix
+ * that does not solve the equation is not returned.
  *
  * @note Compare with MATLAB®'s icare(A, B, Q, R) / care(A, B, Q, R).
  *
- * @see care_schur() — the underlying ordered-Schur (Laub's method) solver
+ * @see care_schur() — ordered Schur (Laub) with symplectic balancing (Benner)
  * @see dare() — the discrete-time counterpart
  * @see "Optimal Control" (Anderson & Moore, 1990), §3.3
  *

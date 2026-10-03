@@ -78,7 +78,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`c2d`](inc/damp/matlab.hpp#L303) | function | MATLAB®-style aliases (host) | MATLAB® interface function c2d to discretize a continuous-time state-space system (+1 more overload) |
 | [`CachedZoh`](inc/damp/simulation/cached_zoh.hpp#L62) | block | Simulation / SIL harness (host) | Cached discrete ZOH maps Ad, Bd for step size h |
 | [`canonical_phase_margin`](inc/damp/analysis/frequency.hpp#L148) | function | Frequency-domain analysis (host) | Normalize phase margin to (-180, 180] |
-| [`care`](inc/damp/design/riccati.hpp#L763) | function | Design-time synthesis (not PWM-rate) | Solve the Continuous-time Algebraic Riccati Equation (CARE) |
+| [`care`](inc/damp/design/riccati.hpp#L1232) | function | Design-time synthesis (not PWM-rate) | Solve the Continuous-time Algebraic Riccati Equation (CARE) |
 | [`Cascade`](inc/damp/controllers/composition.hpp#L52) | block | Runtime controllers | Series cascade of two SISO controllers: outer → inner reference |
 | [`catmull_1d`](inc/damp/toolbox/lookup.hpp#L339) | function | Embedded helpers (controls-adjacent utilities) | 1-D non-uniform Catmull-Rom (cubic Hermite) evaluation |
 | [`cauer_thermal_ss_ambient`](inc/damp/toolbox/thermal.hpp#L135) | function | Embedded helpers (controls-adjacent utilities) | Continuous Cauer RC ladder in absolute temperature with ambient input |
@@ -134,7 +134,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`CTUD`](inc/damp/toolbox/iec61131.hpp#L404) | block | Embedded helpers (controls-adjacent utilities) | CTUD Counter (Count Up Down) |
 | [`damp`](inc/damp/analysis/poles.hpp#L90) | function | Frequency-domain analysis (host) | Compute natural frequency and damping for each pole |
 | [`damping_ratio_from_overshoot_percent`](inc/damp/design/pid_design.hpp#L808) | function | Design-time synthesis (not PWM-rate) | Map percent overshoot target to equivalent damping ratio |
-| [`dare`](inc/damp/design/riccati.hpp#L634) | function | Design-time synthesis (not PWM-rate) | Solve the Discrete Algebraic Riccati Equation (DARE) |
+| [`dare`](inc/damp/design/riccati.hpp#L1102) | function | Design-time synthesis (not PWM-rate) | Solve the Discrete Algebraic Riccati Equation (DARE) |
 | [`db2mag`](inc/damp/math/math.hpp#L470) | function | Scalar math, complex & frames | Decibels to magnitude, 10^(db/20) |
 | [`dcgain`](inc/damp/analysis/norms.hpp#L40) | function | Frequency-domain analysis (host) | Compute DC gain of a continuous-time system |
 | [`DCM`](inc/damp/math/geometry.hpp#L63) | block | Scalar math, complex & frames | Direction cosine matrix — 3×3 rotation (SO(3) wrapper over Mat3) |
@@ -335,7 +335,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`is_fault`](inc/damp/toolbox/conditioning.hpp#L382) | function | Embedded helpers (controls-adjacent utilities) | True for a wire fault (FaultLow/FaultHigh) — i.e. not a real reading at all |
 | [`is_matrix_element`](inc/damp/matrix/matrix_traits.hpp#L41) | block | Linear algebra | True if T may be a Matrix element type |
 | [`is_observable`](inc/damp/design/stability.hpp#L194) | function | Design-time synthesis (not PWM-rate) | Check if a system is observable |
-| [`is_stabilizable`](inc/damp/design/riccati.hpp#L44) | function | Design-time synthesis (not PWM-rate) | Check if (A, B) is a stabilizable pair |
+| [`is_stabilizable`](inc/damp/design/riccati.hpp#L45) | function | Design-time synthesis (not PWM-rate) | Check if (A, B) is a stabilizable pair |
 | [`is_stable_continuous`](inc/damp/analysis/poles.hpp#L58) | function | Frequency-domain analysis (host) | Check continuous-time stability |
 | [`is_stable_discrete`](inc/damp/design/stability.hpp#L215) | function | Design-time synthesis (not PWM-rate) | Check if a discrete-time system matrix A is stable |
 | [`is_usable`](inc/damp/toolbox/conditioning.hpp#L539) | function | Embedded helpers (controls-adjacent utilities) | True when a channel reading may still be used (in-span or saturated) |
@@ -408,7 +408,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`LQIArtifacts`](inc/damp/design/synthesis.hpp#L165) | block | Design-time synthesis (not PWM-rate) | Synthesis artifact bundle: LQI servo design + analysis + ready-to-run controller |
 | [`LQIResult`](inc/damp/controllers/lqi.hpp#L48) | block | Design-time synthesis (not PWM-rate) | LQI design result |
 | [`lqr`](inc/damp/matlab.hpp#L610) | function | MATLAB®-style aliases (host) | Continuous-time LQR design (MATLAB®'s lqr) |
-| [`lqr_gain`](inc/damp/design/riccati.hpp#L714) | function | Design-time synthesis (not PWM-rate) | Optimal LQR state-feedback gain from a Riccati solution |
+| [`lqr_gain`](inc/damp/design/riccati.hpp#L1182) | function | Design-time synthesis (not PWM-rate) | Optimal LQR state-feedback gain from a Riccati solution |
 | [`LQRCost`](inc/damp/controllers/lqr.hpp#L148) | block | Runtime controllers | Discretized LQR cost weights (Q, R, N) for a sampled-data problem |
 | [`lqrd`](inc/damp/controllers/lqr.hpp#L323) | function | Design-time synthesis (not PWM-rate) | Sampled-data LQR from continuous plant (MATLAB®-style short name) (+1 more overload) |
 | [`lqrd`](inc/damp/matlab.hpp#L640) | function | MATLAB®-style aliases (host) | Design discrete LQR from continuous-time system via discretization (+1 more overload) |
