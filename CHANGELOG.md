@@ -9,6 +9,10 @@ and [known limitations](docs/known_limitations.md)).
 
 ## [Unreleased]
 
+### Added
+
+- `design::discrete_oflqg` / `OFLQG`: offset-free LQG (discrete LQR, input-disturbance Kalman filter, DC target).
+
 ### Changed
 
 - Prefer prvalue returns when assembling `StateSpace` / design results and geometry

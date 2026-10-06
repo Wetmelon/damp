@@ -157,6 +157,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`discrete_lqi`](inc/damp/controllers/lqi.hpp#L93) | function | Design-time synthesis (not PWM-rate) | Discrete Linear-Quadratic-Integral (LQI) design for output tracking |
 | [`discrete_lqr`](inc/damp/controllers/lqr.hpp#L121) | function | Design-time synthesis (not PWM-rate) | Discrete-time Linear-Quadratic Regulator design |
 | [`discrete_lqr_from_continuous`](inc/damp/controllers/lqr.hpp#L259) | function | Design-time synthesis (not PWM-rate) | Design discrete LQR from continuous-time system via discretization (+1 more overload) |
+| [`discrete_oflqg`](inc/damp/controllers/offset_free_lqg.hpp#L99) | function | Design-time synthesis (not PWM-rate) | Discrete offset-free LQG (LQR + bias-augmented Kalman) |
 | [`DiscretePIDResult`](inc/damp/controllers/pid.hpp#L46) | block | Design-time synthesis (not PWM-rate) | Fixed-rate discrete PID coefficients (canonical deploy form) |
 | [`DiscretizationMethod`](inc/damp/systems/discretization.hpp#L27) | enum | LTI systems (SS / TF / ZPK / discretize) | Discretization methods for continuous-time state-space systems |
 | [`discretize`](inc/damp/systems/discretization.hpp#L268) | function | LTI systems (SS / TF / ZPK / discretize) | Discretize a continuous-time state-space system |
@@ -517,6 +518,8 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`OffsetFreeMPC`](inc/damp/controllers/offset_free_mpc.hpp#L262) | function | Design-time synthesis (not PWM-rate) | Deduce the runtime from its artifacts: OffsetFreeMPC controller{art}; |
 | [`OffsetFreeMPC`](inc/damp/controllers/offset_free_mpc.hpp#L198) | block | Runtime controllers | Runtime offset-free MPC: constrained MPC + disturbance-augmented Kalman filter |
 | [`OffsetFreeMPCArtifacts`](inc/damp/controllers/offset_free_mpc.hpp#L84) | block | Runtime controllers | Combined MPC + disturbance-augmented Kalman design, consumed by damp::OffsetFreeMPC |
+| [`OFLQG`](inc/damp/controllers/offset_free_lqg.hpp#L155) | block | Runtime controllers | Offset-free LQG: u = u_t − K(x̂ − x_t) with ŵ in the DC target |
+| [`OFLQGResult`](inc/damp/controllers/offset_free_lqg.hpp#L62) | block | Design-time synthesis (not PWM-rate) | Offset-free LQG design: LQR on the plant, Kalman on [x; w] |
 | [`omniwheel_drive`](inc/damp/toolbox/io.hpp#L520) | function | Embedded helpers (controls-adjacent utilities) | Omni-wheel (X-layout) mixer — alias for holonomic_drive |
 | [`OnDelayTimer`](inc/damp/toolbox/logic.hpp#L96) | block | Embedded helpers (controls-adjacent utilities) | On-delay timer: output goes true once in has been held true continuously for delay; drops immediately when in goes false |
 | [`one_norm`](inc/damp/matrix/functions.hpp#L66) | function | Linear algebra | One-norm ‖A‖₁: maximum absolute column sum |

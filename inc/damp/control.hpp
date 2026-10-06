@@ -67,6 +67,7 @@
 #include "damp/controllers/lqgi.hpp"            // IWYU pragma: export
 #include "damp/controllers/lqi.hpp"             // IWYU pragma: export
 #include "damp/controllers/lqr.hpp"             // IWYU pragma: export
+#include "damp/controllers/offset_free_lqg.hpp" // IWYU pragma: export
 #include "damp/controllers/pid.hpp"             // IWYU pragma: export
 #include "damp/controllers/pr.hpp"              // IWYU pragma: export
 #include "damp/controllers/smc.hpp"             // IWYU pragma: export

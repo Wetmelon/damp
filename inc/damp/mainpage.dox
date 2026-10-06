@@ -167,7 +167,7 @@
  * @dir controllers
  * @brief Runtime controller classes and controller design entry points.
  *
- * PID, PR, LQR/LQI/LQG/LQGI, ADRC, SMC, Smith, governors, MPC-related types.
+ * PID, PR, LQR/LQI/LQG/LQGI/OFLQG, ADRC, SMC, Smith, governors, MPC-related types.
  */
 
 /**

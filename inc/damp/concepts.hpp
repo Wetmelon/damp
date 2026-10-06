@@ -16,7 +16,7 @@
  * | Role                     | Per-tick shape                    | Examples                          |
  * |--------------------------|-----------------------------------|-----------------------------------|
  * | SisoController           | `u = control(r, y)`               | PID, ADRC, SMC, lead-lag, PR      |
- * | OutputFeedbackController | `u = control(r, y)` (vector)      | OffsetFreeMPC                    |
+ * | OutputFeedbackController | `u = control(r, y)` (vector)      | OffsetFreeMPC, OFLQG              |
  * | StateFeedbackController  | `u = control(r, x)`               | LQR (r = x_ref), MPC (r = y_ref)  |
  * | StateEstimator           | `x̂ = estimate(y, u)`, `state()`   | KalmanFilter, Luenberger, MHE       |
  * | SignalSource             | `u = step()`, `done()`            | Chirp, PRBS, StepTrain, Ramp, MultiSine, SteppedSine, Impulse, Step |

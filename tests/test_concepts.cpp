@@ -15,6 +15,7 @@
 #include "damp/controllers/lqi.hpp"
 #include "damp/controllers/lqr.hpp"
 #include "damp/controllers/mpc.hpp"
+#include "damp/controllers/offset_free_lqg.hpp"
 #include "damp/controllers/offset_free_mpc.hpp"
 #include "damp/controllers/pid.hpp"
 #include "damp/controllers/pr.hpp"
@@ -62,6 +63,7 @@ static_assert(!SisoController<RelayAutotuner<double>, double>);            // an
 
 // --- OutputFeedbackController: u = control(r, y), self-contained tick -------
 static_assert(OutputFeedbackController<OffsetFreeMPC<2, 1, 1, 10, 4, double>, 1, 1, double>);
+static_assert(OutputFeedbackController<OFLQG<2, 1, 1, double>, 1, 1, double>);
 // LQGI::control(r, y) does not advance the Kalman filter. step(r, y) is the tick.
 static_assert(!OutputFeedbackController<LQGI<2, 1, 1, double, 2, 1>, 1, 1, double>);
 static_assert(!OutputFeedbackController<LQG<2, 1, 1, double, 2, 1>, 1, 1, double>);     // law+estimator pair

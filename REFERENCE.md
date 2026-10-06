@@ -260,6 +260,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`LQRResult`](inc/damp/controllers/lqr.hpp#L56) | Linear-Quadratic Regulator design result |
 | [`MinimalRealizationResult`](inc/damp/design/minreal.hpp#L84) | Minimal realization result |
 | [`ModelReductionMethod`](inc/damp/design/model_reduction.hpp#L58) | Method for eliminating states in modred |
+| [`OFLQGResult`](inc/damp/controllers/offset_free_lqg.hpp#L62) | Offset-free LQG design: LQR on the plant, Kalman on [x; w] |
 | [`OptimalJordanPlacement`](inc/damp/design/pole_placement.hpp#L1172) | Result of optimized arbitrary pole placement (place_jordan_optimal) |
 | [`PIDPerformanceSpec`](inc/damp/design/pid_design.hpp#L883) | Time-domain performance targets for quick PID synthesis |
 | [`PIDResult`](inc/damp/controllers/pid.hpp#L100) | 2-DOF continuous-time PID controller design result |
@@ -304,6 +305,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`discrete_lqi`](inc/damp/controllers/lqi.hpp#L93) | Discrete Linear-Quadratic-Integral (LQI) design for output tracking |
 | [`discrete_lqr`](inc/damp/controllers/lqr.hpp#L121) | Discrete-time Linear-Quadratic Regulator design |
 | [`discrete_lqr_from_continuous`](inc/damp/controllers/lqr.hpp#L259) | Design discrete LQR from continuous-time system via discretization (+1 more overload) |
+| [`discrete_oflqg`](inc/damp/controllers/offset_free_lqg.hpp#L99) | Discrete offset-free LQG (LQR + bias-augmented Kalman) |
 | [`discretize_lqr_cost`](inc/damp/controllers/lqr.hpp#L187) | Discretize a continuous LQR cost integral over one sample (Van Loan) |
 | [`dlqr`](inc/damp/controllers/lqr.hpp#L304) | Discrete-time LQR design (MATLAB®-style short name) |
 | [`dlyap`](inc/damp/design/lyapunov.hpp#L130) | Solve the discrete-time Lyapunov (Stein) equation A X Aᵀ − X + Q = 0 |
@@ -413,6 +415,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`MultiPRController`](inc/damp/controllers/pr.hpp#L369) | Multi-harmonic PR Controller |
 | [`OffsetFreeMPC`](inc/damp/controllers/offset_free_mpc.hpp#L198) | Runtime offset-free MPC: constrained MPC + disturbance-augmented Kalman filter |
 | [`OffsetFreeMPCArtifacts`](inc/damp/controllers/offset_free_mpc.hpp#L84) | Combined MPC + disturbance-augmented Kalman design, consumed by damp::OffsetFreeMPC |
+| [`OFLQG`](inc/damp/controllers/offset_free_lqg.hpp#L155) | Offset-free LQG: u = u_t − K(x̂ − x_t) with ŵ in the DC target |
 | [`PIDController`](inc/damp/controllers/pid.hpp#L365) | Fixed-rate discrete 2-DOF PID (canonical runtime) (+2 more overloads) |
 | [`PIDMode`](inc/damp/controllers/pid.hpp#L300) | Compile-time selection of the PID control-law structure |
 | [`PIDRuntimeMode`](inc/damp/controllers/pid.hpp#L324) | Runtime operating mode for PIDController / ContinuousPID |
