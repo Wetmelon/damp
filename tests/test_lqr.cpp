@@ -163,7 +163,7 @@ TEST_CASE("matlab::lqr alias returns the same gain as continuous_lqr") {
     };
     const Matrix<1, 1> R{{1.0}};
 
-    const auto K = matlab::lqr(sys.A, sys.B, Q, R);
+    const auto K = *matlab::lqr(sys.A, sys.B, Q, R);
     const auto K2 = design::continuous_lqr(sys.A, sys.B, Q, R).K;
     for (size_t j = 0; j < 4; ++j) {
         CHECK(K(0, j) == doctest::Approx(K2(0, j)));

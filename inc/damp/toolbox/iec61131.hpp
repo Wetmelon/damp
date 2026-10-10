@@ -15,6 +15,7 @@
 #include <limits>
 
 #include "damp/backend.hpp"
+#include "damp/toolbox/timing.hpp" // detail::timer_advance / timer_reached
 
 namespace damp::plc {
 
@@ -194,12 +195,7 @@ public:
      */
     constexpr bool operator()(bool IN, T dt) {
         if (IN) {
-            if (ET < PT) {
-                ET += dt;
-                if (ET >= PT) {
-                    ET = PT; // clamp: ET saturates at PT, never grows unbounded
-                }
-            }
+            ET = detail::timer_advance(ET, dt, PT); // saturates exactly at PT
             Q = (ET >= PT);
         } else {
             ET = 0;
@@ -220,7 +216,9 @@ public:
 /**
  * @brief TOF Timer (Timer Off Delay)
  *
- * Off-delay timer that deactivates output after specified time.
+ * Off-delay timer that deactivates output after specified time. ET runs only
+ * while Q is held after IN falls; it stays 0 at cold start and holds PT after
+ * expiry until IN rises again.
  */
 template<typename T = float>
 class TOF {
@@ -239,16 +237,9 @@ public:
         if (IN) {
             ET = 0;
             Q = true;
-        } else {
-            if (ET < PT) {
-                ET += dt;
-                if (ET >= PT) {
-                    ET = PT; // clamp: ET saturates at PT, never grows unbounded
-                }
-            }
-            if (ET >= PT) {
-                Q = false;
-            }
+        } else if (Q) {
+            ET = detail::timer_advance(ET, dt, PT); // saturates exactly at PT
+            Q = (ET < PT);
         }
         return Q;
     }
@@ -281,19 +272,18 @@ public:
      * @return Timer output
      */
     constexpr bool operator()(bool IN, T dt) {
-        // Start a pulse only on a rising edge while idle. The pulse is
+        // Start a pulse on a rising edge while idle. The pulse is
         // non-retriggerable: once running (Q true) IN is ignored until PT
-        // elapses, and re-arming requires the input to return low (ET back to 0).
-        if (IN && !prev_IN && !Q && ET == T{0}) {
+        // elapses. A rising edge implies IN was low on the previous call, so
+        // any finished pulse has been released and may re-arm.
+        if (IN && !prev_IN && !Q) {
             Q = true;
+            ET = T{0};
         }
 
         if (Q) {
-            ET += dt;
-            if (ET >= PT) {
-                ET = PT; // clamp: ET saturates at PT, never grows unbounded
-                Q = false;
-            }
+            ET = detail::timer_advance(ET, dt, PT); // saturates exactly at PT
+            Q = (ET < PT);
         } else if (!IN) {
             ET = T{0}; // input released after the pulse -> ET returns to 0 (idle)
         }
@@ -350,7 +340,7 @@ public:
      */
     constexpr void reset() {
         CV = 0;
-        Q = false;
+        Q = (CV >= PV);
         CU = false;
     }
 };
@@ -390,7 +380,7 @@ public:
      */
     constexpr void reset() {
         CV = 0;
-        Q = false;
+        Q = true; // CV == 0
         CD = false;
     }
 };
@@ -446,7 +436,7 @@ public:
      */
     constexpr void reset() {
         CV = 0;
-        QU = false;
+        QU = (CV >= PV);
         QD = true; // CV == 0
         CU = CD = false;
     }
@@ -542,7 +532,9 @@ struct TFF {
  *
  * Generates a periodic boolean while enabled, with independent on/off times so
  * the duty cycle is arbitrary (status LEDs, audible-alarm cadence, test
- * stimulus). Holds output false and resets its phase when disabled.
+ * stimulus). Holds output false and resets its phase when disabled. The
+ * overshoot past each phase boundary carries into the next phase, so the
+ * average period is time_on + time_off even when dt does not divide them.
  *
  * @tparam T Time scalar type (default: float).
  */
@@ -572,9 +564,12 @@ public:
         }
         elapsed_ += dt;
         const T phase_time = Q ? time_on : time_off;
-        if (elapsed_ >= phase_time) {
+        if (detail::timer_reached(elapsed_, phase_time)) {
             Q = !Q;
-            elapsed_ = T{0};
+            // Carry the overshoot, bounded by the next phase so a zero-length
+            // phase cannot make it grow without limit.
+            const T next_phase = Q ? time_on : time_off;
+            elapsed_ = damp::min(elapsed_ - phase_time, next_phase);
         }
         return Q;
     }

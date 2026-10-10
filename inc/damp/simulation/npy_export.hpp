@@ -18,6 +18,7 @@
  * @note Not part of `control.hpp`. No HDF5/MF4 dependency.
  */
 
+#include <bit>
 #include <cstddef>
 #include <cstdint>
 #include <fstream>
@@ -35,13 +36,17 @@ namespace damp::sim {
  * @param path   Output path (e.g. "buck_trace.npy")
  * @param shape  Dimension sizes (e.g. {N, C} for N samples × C channels)
  * @param data   Row-major (C-order) length = product(shape)
- * @return true on success
+ * @return true on success (false on a shape/size mismatch, I/O error, or a big-endian host)
  */
 [[nodiscard]] inline bool write_npy_f64(
     std::string_view                path,
     const std::vector<std::size_t>& shape,
     const std::vector<double>&      data
 ) {
+    // '<f8' is little-endian; the payload is written in host byte order.
+    if constexpr (std::endian::native != std::endian::little) {
+        return false;
+    }
     if (shape.empty()) {
         return false;
     }
@@ -62,19 +67,14 @@ namespace damp::sim {
         } else if (shape.size() == 1) {
             dict += ","; // (N,) singleton tuple
         }
-        // multi-dim: (N, C) no trailing comma after last — numpy accepts both
-    }
-    if (shape.size() > 1) {
-        // remove trailing style: we produced (N, C) without trailing comma — good
     }
     dict += "), }";
 
-    // Pad header so magic+version+hdr_len+dict is 64-byte aligned (npy 1.0)
+    // Pad with spaces so magic+version+hdr_len+dict+'\n' is a multiple of 64 bytes
+    // (the .npy format spec's alignment for the data block).
     constexpr std::size_t preamble = 10; // magic(6)+ver(2)+hdrlen(2)
-    std::size_t           pad = 16 - ((preamble + dict.size() + 1) % 16);
-    if (pad == 16) {
-        pad = 0;
-    }
+    constexpr std::size_t align = 64;
+    const std::size_t     pad = (align - ((preamble + dict.size() + 1) % align)) % align;
     dict.append(pad, ' ');
     dict.push_back('\n');
 

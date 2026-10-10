@@ -55,7 +55,10 @@ namespace matlab {
 /**
  * @brief MATLAB®-style transfer function constructor
  *
- * Coefficients are in ascending powers of s or z.
+ * Coefficients are in ascending powers of s or z (Damp's convention).
+ *
+ * @warning MATLAB®'s tf takes *descending* powers: MATLAB® tf([1 2], [1 3 2]) is
+ *          matlab::tf({2.0, 1.0}, {2.0, 3.0, 1.0}) here.
  */
 template<size_t Nnum, size_t Nden, typename T = double>
 [[nodiscard]] constexpr TransferFunction<Nnum, Nden, T>
@@ -68,6 +71,8 @@ tf(const damp::array<T, Nnum>& num, const damp::array<T, Nden>& den) noexcept {
  *
  * Enables calls like: tf({1.0, 2.0}, {3.0, 4.0, 5.0})
  * Coefficients are in ascending powers of s or z.
+ *
+ * @warning Reversed from MATLAB®'s descending-power tf (see the array overload).
  */
 template<typename TNum, size_t Nnum, typename TDen, size_t Nden>
 [[nodiscard]] constexpr TransferFunction<Nnum, Nden, std::common_type_t<TNum, TDen>>
@@ -183,17 +188,17 @@ template<typename T = double>
  * @f]
  * to the shipped parallel @ref design::PIDResult with
  * @f$K_i = K_p/T_i@f$, @f$K_d = K_p T_d@f$, @f$T_f = T_d/N@f$ when @p N > 0
- * (else unfiltered). Default @p N = 10 matches MATLAB®'s pidstd when @p Td > 0.
- * @p Ti <= 0 yields @f$K_i = 0@f$ (P/PD). Pass @p N = 0 for unfiltered D.
+ * (else unfiltered). @p N = 0 (the default) means no derivative filter, matching
+ * MATLAB®'s default N = ∞. @p Ti <= 0 yields @f$K_i = 0@f$ (P/PD).
  *
  * Deploy with `.discretize(Ts)` → PIDController, same as other PID designs.
  *
- * @note Compare with MATLAB®'s C = pidstd(Kp, Ti, Td, N) (default N = 10).
+ * @note Compare with MATLAB®'s C = pidstd(Kp, Ti, Td, N) (default N = ∞, spelled 0 here).
  * @see design::pid for the parallel-form constructor
  * @see pidstd2 for the 2-DOF standard-form variant
  */
 template<typename T = double>
-[[nodiscard]] constexpr design::PIDResult<T> pidstd(T Kp, T Ti, T Td = T{0}, T N = T{10}) noexcept {
+[[nodiscard]] constexpr design::PIDResult<T> pidstd(T Kp, T Ti, T Td = T{0}, T N = T{0}) noexcept {
     const T Ki = (Ti > T{0}) ? (Kp / Ti) : T{0};
     const T Kd = Kp * Td;
     const T Tf = (N > T{0} && Td > T{0}) ? (Td / N) : T{0};
@@ -211,7 +216,7 @@ template<typename T = double>
  */
 template<typename T = double>
 [[nodiscard]] constexpr design::PIDResult<T>
-pidstd2(T Kp, T Ti, T Td = T{0}, T N = T{10}, T b = T{1}, T c = T{0}) noexcept {
+pidstd2(T Kp, T Ti, T Td = T{0}, T N = T{0}, T b = T{1}, T c = T{0}) noexcept {
     auto r = pidstd(Kp, Ti, Td, N);
     r.b = b;
     r.c = c;
@@ -421,9 +426,12 @@ template<size_t N, typename T = double>
     return Matrix<N, N, T>::identity();
 }
 
+/**
+ * @brief N×N matrix of ones
+ * @note Compare with MATLAB®'s ones(N).
+ */
 template<size_t N, typename T = double>
-[[nodiscard]]
-constexpr auto ones() noexcept {
+[[nodiscard]] constexpr auto ones() noexcept {
     Matrix<N, N, T> result;
     for (auto& row : result.data_) {
         row.fill(T{1});
@@ -506,46 +514,39 @@ constexpr auto estim(const StateSpace<NX, NU, NY, T, NW, NV>& sys, const Matrix<
 }
 
 /**
- * @brief Form dynamic regulator from system, state-feedback gain, and estimator gain
+ * @brief Form the observer-based compensator y → u from a plant, K and L
  *
- * rsys = reg(sys,K,L) forms a dynamic regulator or compensator rsys given a state-space model sys of the plant,
- *         a state-feedback gain matrix K, and an estimator gain matrix L.
- *         The gains K and L are typically designed using pole placement or LQG techniques.
- *         The function reg handles both continuous- and discrete-time cases.
+ * rsys = reg(sys, K, L) connects the state-feedback law u = −K x̂ with the
+ * full-order estimator of gain L (see estim). All plant inputs are controls and
+ * all outputs are measured, so the regulator's input is y and its output is u:
  *
- *    This syntax assumes that all inputs of sys are controls, and all outputs are measured.
- *    The regulator rsys is obtained by connecting the state-feedback law u = –Kx and the state estimator with gain matrix L (see estim).
+ * @f[
+ *   \dot{\hat x} = (A - BK - LC + LDK)\,\hat x + L y, \qquad u = -K \hat x .
+ * @f]
  *
- * @param sys State-space system (discrete or continuous)
- * @param K   State-feedback gain matrix
- * @param L   Estimator gain matrix
+ * Closing the loop with the plant places the poles at eig(A − BK) ∪ eig(A − LC)
+ * (separation principle), in continuous or discrete time alike.
  *
- * @return StateSpace<2*NX, NW+NV, NY, T>
+ * @note Compare with MATLAB®'s rsys = reg(sys, K, L).
+ *
+ * @param sys State-space plant (discrete or continuous)
+ * @param K   State-feedback gain (u = −K x̂)
+ * @param L   Estimator gain
+ * @return Compensator StateSpace<NX, NY, NU> (input y, output u), with sys.Ts
  */
 template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, size_t NV = 0>
-constexpr auto reg(const StateSpace<NX, NU, NY, T, NW, NV>& sys, const Matrix<NU, NX, T>& K, const Matrix<NX, NY, T>& L) noexcept {
-    constexpr size_t N_reg = 2 * NX;
-    constexpr size_t M_reg = NW + NV;
-    constexpr size_t P_reg = NY;
-
-    Matrix<N_reg, N_reg, T> A_reg = Matrix<N_reg, N_reg, T>::zeros();
-    A_reg.template block<NX, NX>(0, 0) = sys.A;
-    A_reg.template block<NX, NX>(0, NX) = -sys.B * K;
-    A_reg.template block<NX, NX>(NX, 0) = L * sys.C;
-    A_reg.template block<NX, NX>(NX, NX) = sys.A - L * sys.C - L * sys.D * K;
-
-    Matrix<N_reg, M_reg, T> B_reg = Matrix<N_reg, M_reg, T>::zeros();
-    B_reg.template block<NX, NW>(0, 0) = sys.G;
-    B_reg.template block<NX, NV>(NX, NW) = L * sys.H;
-
-    Matrix<P_reg, N_reg, T> C_reg = Matrix<P_reg, N_reg, T>::zeros();
-    C_reg.template block<NY, NX>(0, 0) = sys.C;
-    C_reg.template block<NY, NX>(0, NX) = -sys.D * K;
-
-    Matrix<P_reg, M_reg, T> D_reg = Matrix<P_reg, M_reg, T>::zeros();
-    D_reg.template block<NY, NV>(0, NW) = sys.H;
-
-    return StateSpace<N_reg, M_reg, P_reg, T>{A_reg, B_reg, C_reg, D_reg};
+[[nodiscard]] constexpr StateSpace<NX, NY, NU, T> reg(
+    const StateSpace<NX, NU, NY, T, NW, NV>& sys,
+    const Matrix<NU, NX, T>&                 K,
+    const Matrix<NX, NY, T>&                 L
+) noexcept {
+    return StateSpace<NX, NY, NU, T>{
+        .A = sys.A - (sys.B * K) - (L * sys.C) + (L * sys.D * K),
+        .B = L,
+        .C = -K,
+        .D = Matrix<NU, NY, T>::zeros(),
+        .Ts = sys.Ts,
+    };
 }
 
 /**
@@ -603,18 +604,23 @@ template<size_t NX, size_t NU, typename T = double>
  * Thin alias for design::continuous_lqr — the optimal gain K for u = −Kx
  * minimizing ∫(xᵀQx + uᵀRu + 2xᵀNu) dt via the continuous ARE (care()).
  *
+ * @return K, or @c nullopt when the design fails (MATLAB® raises an error there).
  * @note Compare with MATLAB®'s K = lqr(A, B, Q, R, N). For the Riccati solution
  *       S and the closed-loop poles, call design::continuous_lqr directly.
  */
 template<size_t NX, size_t NU, typename T = double>
-[[nodiscard]] constexpr Matrix<NU, NX, T> lqr(
+[[nodiscard]] constexpr damp::optional<Matrix<NU, NX, T>> lqr(
     const Matrix<NX, NX, T>& A,
     const Matrix<NX, NU, T>& B,
     const Matrix<NX, NX, T>& Q,
     const Matrix<NU, NU, T>& R,
     const Matrix<NX, NU, T>& N = Matrix<NX, NU, T>{}
 ) {
-    return design::continuous_lqr(A, B, Q, R, N).K; // Only return K
+    const auto res = design::continuous_lqr(A, B, Q, R, N);
+    if (!res.success) {
+        return damp::nullopt;
+    }
+    return res.K;
 }
 
 /**
@@ -725,6 +731,10 @@ template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, si
 
 /**
  * @brief Linear-Quadratic Integral design for tracking
+ *
+ * Discrete plants only (@p sys.Ts > 0): a continuous @p sys returns a result
+ * with `success == false` rather than a DARE solution of the wrong problem.
+ *
  * @note Alias for design::discrete_lqi. Compare with MATLAB®'s lqi(sys, Q, R).
  */
 template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, size_t NV = 0>
@@ -733,11 +743,17 @@ template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, si
     const Matrix<NX + NY, NX + NY, T>&       Q,
     const Matrix<NU, NU, T>&                 R
 ) {
+    if (!sys.is_discrete()) {
+        return decltype(design::discrete_lqi(sys, Q, R)){}; // discrete design only; success = false
+    }
     return design::discrete_lqi(sys, Q, R);
 }
 
 /**
  * @brief Linear-Quadratic-Gaussian regulator design
+ *
+ * Discrete plants only (@p sys.Ts > 0); a continuous @p sys returns `success == false`.
+ *
  * @note Alias for design::discrete_lqg. Compare with MATLAB®'s lqg(sys, ...).
  */
 template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, size_t NV = 0>
@@ -749,6 +765,9 @@ template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, si
     const Matrix<NV, NV, T>&                 R_kf,
     const Matrix<NX, NU, T>&                 N = Matrix<NX, NU, T>{}
 ) {
+    if (!sys.is_discrete()) {
+        return decltype(design::discrete_lqg(sys, Q_lqr, R_lqr, Q_kf, R_kf, N)){}; // discrete design only; success = false
+    }
     return design::discrete_lqg(sys, Q_lqr, R_lqr, Q_kf, R_kf, N);
 }
 
@@ -766,6 +785,9 @@ template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = NX, s
 
 /**
  * @brief Linear-Quadratic-Gaussian design with integral action for tracking
+ *
+ * Discrete plants only (@p sys.Ts > 0); a continuous @p sys returns `success == false`.
+ *
  * @note Alias for design::discrete_lqgi. Compare with MATLAB®'s lqgtrack(...).
  */
 template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, size_t NV = 0>
@@ -776,6 +798,9 @@ template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, si
     const Matrix<NW, NW, T>&                 Q_kf,
     const Matrix<NV, NV, T>&                 R_kf
 ) {
+    if (!sys.is_discrete()) {
+        return decltype(design::discrete_lqgi(sys, Q_aug, R, Q_kf, R_kf)){}; // discrete design only; success = false
+    }
     return design::discrete_lqgi(sys, Q_aug, R, Q_kf, R_kf);
 }
 
@@ -848,7 +873,8 @@ template<size_t NX, typename T = double>
  * @brief Gain/phase margins and their crossover frequencies.
  *
  * @note Compare with MATLAB®'s [Gm, Pm, Wcg, Wcp] = margin(...). Gm is a linear
- *       ratio; +inf marks a missing crossover.
+ *       ratio; numeric_limits<T>::max() (the
+ *       library's finite stand-in for +inf under -ffast-math) marks a missing crossover.
  *
  * @c Wcg is the phase-crossover frequency (GM site); @c Wcp is the
  * gain-crossover frequency (PM site).
@@ -1055,26 +1081,31 @@ dlyap(const Matrix<NX, NX, T>& A, const Matrix<NX, NX, T>& Q) {
 /**
  * @brief MATLAB® alias for the dense inequality-constrained QP solve.
  * @note Compare with MATLAB®'s @c x=quadprog(H,f,A,b). Returns only the
- *       minimizer; for multipliers, objective, and status call
- *       design::solve_qp directly.
+ *       minimizer (@c nullopt unless the solve succeeded); for multipliers,
+ *       objective, and status call design::solve_qp directly.
  */
 template<size_t NV, size_t NI, typename T = double>
-[[nodiscard]] constexpr ColVec<NV, T> quadprog(
+[[nodiscard]] constexpr damp::optional<ColVec<NV, T>> quadprog(
     const Matrix<NV, NV, T>& H,
     const ColVec<NV, T>&     f,
     const Matrix<NI, NV, T>& A,
     const ColVec<NI, T>&     b
 ) {
-    return design::solve_qp(H, f, A, b).x; // Only return x
+    const auto res = design::solve_qp(H, f, A, b);
+    if (!res.success) {
+        return damp::nullopt;
+    }
+    return res.x;
 }
 
 /**
  * @brief MATLAB® alias for the equality-constrained QP solve.
  * @note Compare with MATLAB®'s @c x=quadprog(H,f,A,b,Aeq,beq). Returns only the
- *       minimizer; call design::solve_qp directly for multipliers and status.
+ *       minimizer (@c nullopt unless the solve succeeded); call design::solve_qp
+ *       directly for multipliers and status.
  */
 template<size_t NV, size_t NI, size_t NE, typename T = double>
-[[nodiscard]] constexpr ColVec<NV, T> quadprog(
+[[nodiscard]] constexpr damp::optional<ColVec<NV, T>> quadprog(
     const Matrix<NV, NV, T>& H,
     const ColVec<NV, T>&     f,
     const Matrix<NI, NV, T>& A,
@@ -1082,7 +1113,11 @@ template<size_t NV, size_t NI, size_t NE, typename T = double>
     const Matrix<NE, NV, T>& Aeq,
     const ColVec<NE, T>&     beq
 ) {
-    return design::solve_qp(H, f, A, b, Aeq, beq).x; // Only return x
+    const auto res = design::solve_qp(H, f, A, b, Aeq, beq);
+    if (!res.success) {
+        return damp::nullopt;
+    }
+    return res.x;
 }
 
 /**

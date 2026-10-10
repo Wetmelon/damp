@@ -46,6 +46,33 @@
 
 namespace damp::sim {
 
+namespace detail {
+
+/**
+ * @brief Number of steps of size @p h that cover [t0, tf]
+ *
+ * A trailing partial step counts once; a remainder within 64·eps·n of a whole
+ * step count (the rounding of (tf − t0)/h, e.g. 0.3/0.1 = 2.9999999999999996)
+ * does not add a sliver step. Callers place step k at t0 + k·h (not a running
+ * sum) and land the last one exactly on tf, so time labels do not drift.
+ */
+template<typename T>
+[[nodiscard]] constexpr size_t step_count(T t0, T tf, T h) {
+    const T n = (tf - t0) / h;
+    if (!(n > T{0})) {
+        return 0;
+    }
+    return static_cast<size_t>(damp::ceil(n - (T{64} * eps<T>() * n)));
+}
+
+/// Time of step @p k of @p n on the uniform grid t0 + k·h, with the last step exactly at tf.
+template<typename T>
+[[nodiscard]] constexpr T grid_time(T t0, T tf, T h, size_t k, size_t n) {
+    return (k >= n) ? tf : t0 + (static_cast<T>(k) * h);
+}
+
+} // namespace detail
+
 /**
  * @brief Result of an ODE solve operation
  *
@@ -60,8 +87,8 @@ struct SolveResult {
     std::vector<T>             t; ///< Time points
     std::vector<ColVec<NX, T>> x; ///< State vectors at each time point
 
-    bool   success = true;
-    size_t nfev = 0;       ///< Number of integrator evolve() calls (accepted + rejected)
+    bool   success = true; ///< false on invalid input (h ≤ 0, tf < t0) or adaptive-control failure
+    size_t nfev = 0;       ///< Number of integrator evolve() calls (accepted + rejected + event location)
     size_t n_accepted = 0; ///< Accepted steps (adaptive solvers only)
     size_t n_rejected = 0; ///< Rejected steps (adaptive solvers only)
 
@@ -136,29 +163,29 @@ public:
         }
 
         SolveResult<NX, T> result;
-        T                  t0 = t_span.first;
-        T                  tf = t_span.second;
+        const T            t0 = t_span.first;
+        const T            tf = t_span.second;
         T                  t = t0;
         ColVec<NX, T>      x = x0;
 
-        result.success = true;
-        size_t n_steps = static_cast<size_t>((tf - t0) / h_) + 2;
-        result.t.reserve(n_steps);
-        result.x.reserve(n_steps);
-
         result.t.push_back(t);
         result.x.push_back(x);
+        if (!(h_ > T{0}) || !(tf >= t0)) {
+            result.success = false; // forward integration with a positive step only
+            return result;
+        }
 
-        while (t < tf - T(1e-15)) {
-            T step = h_;
-            if (t + step > tf) {
-                step = tf - t;
-            }
+        // Step k lands on t0 + k·h (no running-sum drift); the last lands exactly on tf.
+        const size_t n_steps = detail::step_count(t0, tf, h_);
+        result.t.reserve(n_steps + 1);
+        result.x.reserve(n_steps + 1);
 
-            IntegrationResult<NX, T> step_result = integrator_.evolve(f, x, t, step);
+        for (size_t k = 1; k <= n_steps; ++k) {
+            const T                  t_next = detail::grid_time(t0, tf, h_, k, n_steps);
+            IntegrationResult<NX, T> step_result = integrator_.evolve(f, x, t, t_next - t);
             ++result.nfev;
 
-            t += step;
+            t = t_next;
             x = step_result.x;
             result.t.push_back(t);
             result.x.push_back(x);
@@ -307,7 +334,7 @@ struct AdaptiveOptions {
     ErrorTolerance<NX, T> atol{static_cast<T>(1e-6)};               ///< Absolute local-error tolerance (scalar or ColVec)
     ErrorTolerance<NX, T> rtol{static_cast<T>(1e-3)};               ///< Relative local-error tolerance (scalar or ColVec)
     T                     first_step = T{0};                        ///< Initial h; 0 → Hairer select_initial_step
-    T                     min_step = T{0};                          ///< Floor on h; 0 → 10·ε·max(1, |t0|, |tf−t0|)
+    T                     min_step = T{0};                          ///< Floor on h; 0 → 10·ε·max(|t0|, |tf|)
     T                     max_step = std::numeric_limits<T>::max(); ///< Ceiling on h (SciPy: inf)
     T                     safety = static_cast<T>(0.9);             ///< Step-size safety factor
     T                     min_factor = static_cast<T>(0.2);         ///< Min h shrink/grow factor per attempt
@@ -332,7 +359,10 @@ struct AdaptiveOptions {
  *   `factor ∝ err^{-0.7/k} · err_prev^{0.4/k}` (k = error_order).
  * - On reject / first step: pure I-control `factor ∝ err^{-1/k}`.
  *
- * Supports zero-crossing detection via bisection. Fixed-step integrators
+ * Zero crossings are located by bisection on the integrated trajectory (each
+ * probe is one integrator step from the start of the accepted step); the
+ * earliest crossing among all registered functions ends the step, at the first
+ * bisection point past the sign change. Fixed-step integrators
  * (RK4, …) are rejected at compile time — their `error` is always zero and
  * would freeze h at the initial guess.
  *
@@ -386,14 +416,20 @@ public:
         SolveResult<NX, T> result;
         const T            t0 = t_span.first;
         const T            tf = t_span.second;
-        const T            span = damp::abs(tf - t0);
         T                  t = t0;
         ColVec<NX, T>      x = x0;
 
-        // Auto min-step matches a few ULPs of the largest |t| scale in the span.
-        T h_min = (opts_.min_step > T{0})
-                    ? opts_.min_step
-                    : T{10} * std::numeric_limits<T>::epsilon() * damp::max({T{1}, damp::abs(t0), span});
+        result.t.push_back(t);
+        result.x.push_back(x);
+        if (!(tf >= t0)) {
+            result.success = false; // forward integration only
+            return result;
+        }
+        const T span = tf - t0;
+
+        // Auto min-step: a few ULPs of the largest |t| in the span (relative, so the
+        // floor scales with the time units).
+        T h_min = (opts_.min_step > T{0}) ? opts_.min_step : T{10} * eps<T>() * damp::max(damp::abs(t0), damp::abs(tf));
         T h_max = opts_.max_step;
         // std::clamp is UB when lo > hi — swap rather than poison the controller.
         if (h_min > h_max) {
@@ -409,11 +445,31 @@ public:
         }
         h = damp::clamp(h, h_min, h_max);
 
-        result.success = true;
         result.t.reserve(1000);
         result.x.reserve(1000);
-        result.t.push_back(t);
-        result.x.push_back(x);
+
+        // Record an accepted point and run the callbacks; true ⇒ stop requested.
+        const auto accept = [&](T t_new, const ColVec<NX, T>& x_new) {
+            t = t_new;
+            x = x_new;
+            result.t.push_back(t);
+            result.x.push_back(x);
+            ++result.n_accepted;
+            if (on_step_) {
+                on_step_(t, x);
+            }
+            if (event_detector_) {
+                auto [triggered, new_state, stop] = event_detector_(t, x);
+                if (triggered) {
+                    x = new_state;
+                    result.x.back() = x;
+                }
+                if (stop) {
+                    return true;
+                }
+            }
+            return stop_condition_ && stop_condition_(t, x);
+        };
 
         constexpr size_t max_consecutive_rejections = 100;
         // Local error ~ O(h^{error_order}); error_norm is tol-scaled (target 1).
@@ -424,7 +480,7 @@ public:
         T           error_old = T{-1}; // < 0 ⇒ no previous accepted error (use pure I)
         bool        last_rejected = false;
 
-        while (t < tf - T(1e-15)) {
+        while (t < tf) {
             if (result.nfev >= opts_.max_nfev) {
                 result.success = false;
                 return result;
@@ -433,122 +489,62 @@ public:
             const T remaining = tf - t;
             // Propose h, never smaller than h_min while there is a full min-step
             // of room left; always finish exactly at tf on the last partial step.
-            T target_step = h;
-            if (remaining <= h_min) {
+            T target_step = damp::min(h, remaining);
+            if (remaining > h_min && target_step < h_min) {
+                target_step = h_min;
+            }
+            const bool last_step = !(target_step < remaining);
+            if (last_step) {
                 target_step = remaining;
-            } else {
-                target_step = damp::min(target_step, remaining);
-                if (target_step < h_min) {
-                    target_step = h_min;
-                }
-                if (target_step > remaining) {
-                    target_step = remaining;
-                }
             }
             if (!(target_step > T{0})) {
                 result.success = false;
                 return result;
             }
+            const T t_end = last_step ? tf : t + target_step;
 
             IntegrationResult<NX, T> step_result = integrator_.evolve(f, x, t, target_step);
             ++result.nfev;
 
             const T error_norm = weighted_rms_error(x, step_result.x, step_result.error, opts_.atol, opts_.rtol);
-
-            const bool within_tol = error_norm <= T{1};
+            // A non-finite estimate (stage overflow, f undefined) is a rejection that must shrink h.
+            const bool finite = damp::isfinite(error_norm);
+            const bool within_tol = finite && error_norm <= T{1};
             // "At min step" only for a full h_min attempt.
-            const bool at_min_step = target_step <= h_min * (T{1} + T{10} * std::numeric_limits<T>::epsilon()) && remaining > h_min;
+            const bool at_min_step = target_step <= h_min * (T{1} + T{10} * eps<T>()) && remaining > h_min;
 
-            if (!within_tol && at_min_step && opts_.fail_on_min_step) {
+            if (!within_tol && at_min_step && (opts_.fail_on_min_step || !finite)) {
                 result.success = false;
                 return result;
             }
 
             const T factor = step_factor(error_norm, error_old, within_tol, last_rejected, inv_k);
 
-            // Accept if within tol, or force-accept at min step when fail_on_min_step is false
-            if (within_tol || at_min_step) {
-                bool step_accepted = false;
-                if (!zero_crossings_.empty()) {
-                    auto crossing = detect_zero_crossing(f, x, t, step_result.x, t + target_step);
-                    if (crossing.found) {
-                        T                        dt_cross = crossing.time - t;
-                        IntegrationResult<NX, T> cross_result = integrator_.evolve(f, x, t, dt_cross);
-                        ++result.nfev;
-
-                        t = crossing.time;
-                        x = cross_result.x;
-                        step_accepted = true;
-
-                        result.t.push_back(t);
-                        result.x.push_back(x);
-                        ++result.n_accepted;
-
-                        if (on_step_) {
-                            on_step_(t, x);
-                        }
-
-                        if (event_detector_) {
-                            auto [triggered, new_state, stop] = event_detector_(t, x);
-                            if (triggered) {
-                                x = new_state;
-                                result.x.back() = x;
-                            }
-                            if (stop) {
-                                return result;
-                            }
-                        }
-
-                        if (stop_condition_ && stop_condition_(t, x)) {
-                            return result;
-                        }
-                    }
-                }
-
-                if (!step_accepted) {
-                    t += target_step;
-                    x = step_result.x;
-                    result.t.push_back(t);
-                    result.x.push_back(x);
-                    ++result.n_accepted;
-
-                    if (on_step_) {
-                        on_step_(t, x);
-                    }
-                }
-
-                consecutive_rejections = 0;
-                last_rejected = false;
-                if (error_norm > T{0} && damp::isfinite(error_norm)) {
-                    error_old = error_norm;
-                }
-                h = damp::clamp(target_step * factor, h_min, h_max);
-
-                if (event_detector_ && !step_accepted) {
-                    auto [triggered, new_state, stop] = event_detector_(t, x);
-                    if (triggered) {
-                        x = new_state;
-                        result.x.back() = x;
-                    }
-                    if (stop) {
-                        return result;
-                    }
-                }
-
-                if (stop_condition_ && !step_accepted && stop_condition_(t, x)) {
-                    return result;
-                }
-            } else {
-                // Reject step, retry with smaller step (keep error_old for next accept)
+            if (!(within_tol || at_min_step)) {
+                // Reject: retry with a smaller step (keep error_old for the next accept).
                 h = damp::clamp(target_step * factor, h_min, h_max);
                 ++consecutive_rejections;
                 ++result.n_rejected;
                 last_rejected = true;
-
                 if (consecutive_rejections >= max_consecutive_rejections) {
                     result.success = false;
                     return result;
                 }
+                continue;
+            }
+
+            // Accept (within tol, or forced at min step when fail_on_min_step is false).
+            consecutive_rejections = 0;
+            last_rejected = false;
+            if (error_norm > T{0}) {
+                error_old = error_norm;
+            }
+            h = damp::clamp(target_step * factor, h_min, h_max);
+
+            const CrossingResult crossing = earliest_crossing(f, x, t, step_result.x, t_end, result.nfev);
+            const bool           stop = crossing.found ? accept(crossing.time, crossing.x) : accept(t_end, step_result.x);
+            if (stop) {
+                return result;
             }
         }
 
@@ -589,8 +585,9 @@ public:
 
 private:
     struct CrossingResult {
-        bool found = false;
-        T    time = T(0);
+        bool          found = false;
+        T             time = T(0);
+        ColVec<NX, T> x{};
     };
 
     /// Hairer §II.4 / SciPy select_initial_step — order-aware h0 from f(t0,y0).
@@ -645,17 +642,22 @@ private:
         if (d1 <= static_cast<T>(1e-15) && d2 <= static_cast<T>(1e-15)) {
             h1 = damp::max(static_cast<T>(1e-6), h0 * static_cast<T>(1e-3));
         } else {
-            // SciPy: (0.01 / max(d1,d2)) ** (1/(order+1)) with order = error_estimator_order+1
-            h1 = damp::pow(static_cast<T>(0.01) / damp::max(d1, d2), T{1} / static_cast<T>(order + 1));
+            // Hairer: h1^p · max(d1, d2) = 0.01 with p the local-error order. SciPy
+            // writes 1/(error_estimator_order + 1), which is the same p (5 for DP45).
+            h1 = damp::pow(static_cast<T>(0.01) / damp::max(d1, d2), T{1} / static_cast<T>(order));
         }
 
         return damp::min({T{100} * h0, h1, span, h_max});
     }
 
-    /// Gustafsson PI on accept (with prior error); pure I on reject / first step.
+    /// Gustafsson PI on accept (with prior error); pure I on reject / first step;
+    /// the minimum factor after a non-finite error estimate.
     [[nodiscard]] T step_factor(T error_norm, T error_old, bool within_tol, bool last_rejected, T inv_k) const {
+        if (!damp::isfinite(error_norm)) {
+            return opts_.min_factor;
+        }
         T factor = opts_.max_factor;
-        if (error_norm > T{0} && damp::isfinite(error_norm)) {
+        if (error_norm > T{0}) {
             if (within_tol && error_old > T{0} && damp::isfinite(error_old)) {
                 // PI: safety · err^{-0.7/k} · err_old^{0.4/k}
                 factor = opts_.safety * damp::pow(error_norm, -static_cast<T>(0.7) * inv_k) * damp::pow(error_old, static_cast<T>(0.4) * inv_k);
@@ -691,43 +693,69 @@ private:
         return damp::sqrt(sum_sq / T{NX});
     }
 
-    template<typename F>
-    CrossingResult detect_zero_crossing(const F& /*f*/, const ColVec<NX, T>& x_start, T t_start, const ColVec<NX, T>& x_end, T t_end) const {
-        for (const auto& zcf : zero_crossings_) {
-            T z_start = zcf(t_start, x_start);
-            T z_end = zcf(t_end, x_end);
-
-            if ((z_start > T(0) && z_end < T(0)) || (z_start < T(0) && z_end > T(0))) {
-                T crossing_time = locate_zero_crossing(zcf, t_start, x_start, t_end, x_end);
-                return {true, crossing_time};
-            }
-        }
-        return {};
+    [[nodiscard]] static constexpr bool opposite_signs(T a, T b) {
+        return (a > T{0} && b < T{0}) || (a < T{0} && b > T{0});
     }
 
-    T locate_zero_crossing(const std::function<T(T, const ColVec<NX, T>&)>& zc, T t_a, const ColVec<NX, T>& x_a, T t_b, const ColVec<NX, T>& x_b) const {
-        T t_left = t_a, t_right = t_b;
-        T z_left = zc(t_a, x_a);
-
-        for (int iter = 0; iter < 50; ++iter) {
-            T    t_mid = (t_left + t_right) / T(2);
-            T    alpha = (t_mid - t_a) / (t_b - t_a);
-            auto x_mid = (T(1) - alpha) * x_a + alpha * x_b;
-            T    z_mid = zc(t_mid, x_mid);
-
-            if ((z_left > T(0) && z_mid > T(0)) || (z_left < T(0) && z_mid < T(0))) {
-                t_left = t_mid;
-                z_left = z_mid;
-            } else {
-                t_right = t_mid;
+    /// Earliest sign change of any registered zero-crossing function over the step [t_a, t_b].
+    template<typename F>
+    [[nodiscard]] CrossingResult earliest_crossing(
+        const F&             f,
+        const ColVec<NX, T>& x_a,
+        T                    t_a,
+        const ColVec<NX, T>& x_b,
+        T                    t_b,
+        size_t&              nfev
+    ) const {
+        CrossingResult best{};
+        for (const auto& zcf : zero_crossings_) {
+            const T z_a = zcf(t_a, x_a);
+            if (!opposite_signs(z_a, zcf(t_b, x_b))) {
+                continue;
             }
-
-            if (damp::abs(z_mid) < T(1e-12)) {
-                break;
+            const CrossingResult c = locate_crossing(f, zcf, x_a, t_a, z_a, x_b, t_b, nfev);
+            if (!best.found || c.time < best.time) {
+                best = c;
             }
         }
+        return best;
+    }
 
-        return (t_left + t_right) / T(2);
+    /// Bisection on the integrated trajectory x(τ) = evolve(f, x_a, t_a, τ − t_a).
+    /// Keeps z(lo) on z_a's side and returns hi — the first point at or past the
+    /// crossing — so the recorded state has crossed and is not re-detected.
+    template<typename F>
+    [[nodiscard]] CrossingResult locate_crossing(
+        const F&                                         f,
+        const std::function<T(T, const ColVec<NX, T>&)>& zcf,
+        const ColVec<NX, T>&                             x_a,
+        T                                                t_a,
+        T                                                z_a,
+        const ColVec<NX, T>&                             x_b,
+        T                                                t_b,
+        size_t&                                          nfev
+    ) const {
+        T             lo = t_a;
+        T             hi = t_b;
+        ColVec<NX, T> x_hi = x_b;
+        // Resolve the time to a few ULPs of the step's end-point magnitude.
+        const T t_tol = T{4} * eps<T>() * damp::max(damp::abs(t_a), damp::abs(t_b));
+        for (int iter = 0; iter < 200 && (hi - lo) > t_tol; ++iter) {
+            const T mid = lo + ((hi - lo) / T{2});
+            if (!(mid > lo && mid < hi)) {
+                break;
+            }
+            const ColVec<NX, T> x_mid = integrator_.evolve(f, x_a, t_a, mid - t_a).x;
+            ++nfev;
+            const T z_mid = zcf(mid, x_mid);
+            if (z_mid != T{0} && !opposite_signs(z_a, z_mid)) {
+                lo = mid;
+            } else {
+                hi = mid;
+                x_hi = x_mid;
+            }
+        }
+        return {true, hi, x_hi};
     }
 
     mutable IntegratorType integrator_;

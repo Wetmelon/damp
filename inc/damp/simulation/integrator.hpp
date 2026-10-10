@@ -20,6 +20,32 @@
 
 namespace damp::sim {
 
+namespace detail {
+
+/**
+ * @brief Fixed-point iteration y ← g(y) for the implicit nonlinear steps
+ *
+ * Stops when the update falls below NX·64·eps·‖y‖ — relative, so the result
+ * does not depend on the units of the state — or after @p max_iter sweeps.
+ * Converges only while the step is contractive (h·Lipschitz(f) times the
+ * method's implicit weight < 1); it is not a stiff (Newton) solver.
+ */
+template<size_t NX, typename T, typename G>
+[[nodiscard]] constexpr ColVec<NX, T> fixed_point(const G& g, ColVec<NX, T> y, size_t max_iter = 50) {
+    const T rel_tol = static_cast<T>(NX) * T{64} * eps<T>();
+    for (size_t i = 0; i < max_iter; ++i) {
+        const ColVec<NX, T> y_next = g(y);
+        const bool          converged = (y_next - y).norm() <= rel_tol * y_next.norm();
+        y = y_next;
+        if (converged) {
+            break;
+        }
+    }
+    return y;
+}
+
+} // namespace detail
+
 /**
  * @struct IntegrationResult
  * @brief Result of an integration step
@@ -179,8 +205,7 @@ struct ForwardEuler {
      * @return      Next state and estimated error (always 0)
      */
     constexpr IntegrationResult<NX, T> evolve(const auto& f, const ColVec<NX, T>& x, T t, T h) const {
-        k1 = f(t, x);
-        return {x + h * k1, {}};
+        return {x + h * f(t, x), {}};
     }
 
     /**
@@ -196,12 +221,8 @@ struct ForwardEuler {
      */
     template<size_t NU>
     constexpr IntegrationResult<NX, T> evolve(const Matrix<NX, NX, T>& A, const Matrix<NX, NU, T>& B, const ColVec<NX, T>& x, const ColVec<NU, T>& u, T h) const {
-        x_next = x + h * (A * x + B * u);
-        return {x_next, {}};
+        return {x + h * (A * x + B * u), {}};
     }
-
-private:
-    mutable ColVec<NX, T> k1, x_next;
 };
 
 /**
@@ -259,8 +280,8 @@ struct SymplecticEuler {
      */
     template<typename F>
     constexpr IntegrationResult<NX, T> evolve(const F& f, const ColVec<NX, T>& x, T t, T h) const {
-        fx = f(t, x);
-        x_next = x;
+        const ColVec<NX, T> fx = f(t, x);
+        ColVec<NX, T>       x_next = x;
         for (size_t i = 0; i < NQ; ++i) {
             x_next[NQ + i] = x[NQ + i] + h * fx[NQ + i]; // v ← v + h a
         }
@@ -269,9 +290,6 @@ struct SymplecticEuler {
         }
         return {x_next, {}};
     }
-
-private:
-    mutable ColVec<NX, T> fx, x_next;
 };
 
 /**
@@ -281,9 +299,11 @@ private:
  *
  *     x_{n+1} = x_n + h f(t_{n+1}, x_{n+1})
  *
- * A-stable, so it remains stable at large step sizes for stiff systems where
- * Forward Euler would diverge, at the cost of a linear solve (LTI case) or
- * fixed-point iteration (nonlinear case) per step.
+ * A-stable, so the LTI overload remains stable at large step sizes for stiff
+ * systems where Forward Euler would diverge, at the cost of a linear solve per
+ * step. The nonlinear overload solves the implicit equation by fixed-point
+ * iteration, which converges only while h·Lipschitz(f) < 1 — it does not
+ * inherit A-stability on stiff problems (use the LTI overload or TRBDF2 there).
  *
  * @note Compare with MATLAB®/Simulink®'s ode1be() / implicit Euler fixed-step solver.
  * @see "Solving Ordinary Differential Equations II: Stiff and Differential-Algebraic Problems" (Hairer & Wanner, 1996)
@@ -307,10 +327,9 @@ struct BackwardEuler {
      */
     template<size_t NU>
     constexpr IntegrationResult<NX, T> evolve(const Matrix<NX, NX, T>& A, const Matrix<NX, NU, T>& B, const ColVec<NX, T>& x, const ColVec<NU, T>& u, T h) const {
-        Matrix I = Matrix<NX, NX, T>::identity();
+        const Matrix I = Matrix<NX, NX, T>::identity();
         // (I − hA)·x_next = x + hBu  (Backward Euler implicit step).
-        x_next = *mat::solve(I - h * A, x + h * B * u);
-        return {x_next, {}};
+        return {*mat::solve(I - h * A, x + h * B * u), {}};
     }
 
     /**
@@ -325,24 +344,10 @@ struct BackwardEuler {
      * @return      Next state and estimated error (always 0)
      */
     constexpr IntegrationResult<NX, T> evolve(const auto& f, const ColVec<NX, T>& x, T t, T h) const {
-        const size_t max_iter = 10;
-        const double tol = 1e-10;
-
-        // Initial guess: explicit Euler
-        ColVec<NX, T> y = x + h * f(t, x);
-        for (size_t i = 0; i < max_iter; ++i) {
-            y_next = x + h * f(t + h, y);
-            if ((y_next - y).norm() <= tol) {
-                y = y_next;
-                break;
-            }
-            y = y_next;
-        }
-        return {y, {}};
+        // Explicit-Euler predictor, then iterate y = x + h f(t+h, y).
+        const auto g = [&](const ColVec<NX, T>& y) { return ColVec<NX, T>(x + h * f(t + h, y)); };
+        return {detail::fixed_point<NX, T>(g, x + h * f(t, x)), {}};
     }
-
-private:
-    mutable ColVec<NX, T> y_next, x_next;
 };
 
 /**
@@ -354,7 +359,10 @@ private:
  *
  * A-stable multistep method; more accurate than Backward Euler for the same
  * step size on stiff problems, at the cost of keeping one step of history.
- * The first step has no x_{n-1} yet and falls back to Backward Euler.
+ * The first step has no x_{n-1} yet and falls back to Backward Euler. The
+ * coefficients assume a constant step h — call reset() after changing h or
+ * after a discontinuity in x. The nonlinear overload uses fixed-point
+ * iteration (contractive only while (2/3)h·Lipschitz(f) < 1).
  *
  * @note Compare with MATLAB®'s ode15s() in fixed-order-2, fixed-step mode.
  * @see "Solving Ordinary Differential Equations II: Stiff and Differential-Algebraic Problems" (Hairer & Wanner, 1996)
@@ -364,12 +372,12 @@ private:
  */
 template<size_t NX, typename T = double>
 struct BDF2 {
-    BDF2() : first_step(true) {}
+    constexpr BDF2() = default;
 
     // BDF2 coefficients: x_{n+1} = (4/3)*x_n - (1/3)*x_{n-1} + (2/3)*h*f(t_{n+1}, x_{n+1})
-    static constexpr double c0 = 4.0 / 3.0;  // Coefficient for x_n
-    static constexpr double c1 = -1.0 / 3.0; // Coefficient for x_{n-1}
-    static constexpr double c2 = 2.0 / 3.0;  // Coefficient for h*f
+    static constexpr T c0 = T{4} / T{3};  ///< Coefficient for x_n
+    static constexpr T c1 = T{-1} / T{3}; ///< Coefficient for x_{n-1}
+    static constexpr T c2 = T{2} / T{3};  ///< Coefficient for h·f
 
     /**
      * @brief Evolve LTI system state using BDF2
@@ -422,40 +430,18 @@ struct BDF2 {
      */
     template<typename F>
     constexpr IntegrationResult<NX, T> evolve(const F& f, const ColVec<NX, T>& x, T t, T h) const {
-        constexpr size_t max_iter = 20;
-        constexpr double tol = 1e-10;
-
         if (first_step) {
-            // Use Backward Euler for first step
-            ColVec y = x + h * f(t, x); // Initial guess
-            for (size_t i = 0; i < max_iter; ++i) {
-                ColVec y_next = x + h * f(t + h, y);
-                if ((y_next - y).norm() <= tol) {
-                    y = y_next;
-                    break;
-                }
-                y = y_next;
-            }
+            // Backward Euler for the first step (no x_{n-1} yet).
             x_prev = x;
             first_step = false;
-            return {y, {}};
+            return BackwardEuler<NX, T>{}.evolve(f, x, t, h);
         }
 
-        // BDF2: x_{n+1} = (4/3)*x_n - (1/3)*x_{n-1} + (2/3)*h*f(t_{n+1}, x_{n+1})
-        // Solve using fixed-point iteration
-        ColVec y = c0 * x + c1 * x_prev; // Initial guess without implicit term
-
-        for (size_t i = 0; i < max_iter; ++i) {
-            ColVec y_next = c0 * x + c1 * x_prev + c2 * h * f(t + h, y);
-            if ((y_next - y).norm() <= tol) {
-                y = y_next;
-                break;
-            }
-            y = y_next;
-        }
-
+        // BDF2: y = (4/3)x_n − (1/3)x_{n−1} + (2/3)h f(t_{n+1}, y), by fixed-point iteration.
+        const ColVec<NX, T> base = c0 * x + c1 * x_prev;
+        const auto          g = [&](const ColVec<NX, T>& y) { return ColVec<NX, T>(base + c2 * h * f(t + h, y)); };
         x_prev = x;
-        return {y, {}};
+        return {detail::fixed_point<NX, T>(g, base), {}};
     }
 
     /**
@@ -467,14 +453,16 @@ struct BDF2 {
     }
 
 private:
-    mutable ColVec<NX, T> x_prev;     // Previous state (for multistep)
-    mutable bool          first_step; // Track if this is the first step
+    mutable ColVec<NX, T> x_prev{};         // Previous state (for multistep)
+    mutable bool          first_step{true}; // Track if this is the first step
 };
 
 /**
  * @brief TR-BDF2 composite integrator — the stiff adaptive pair (ode23tb)
  *
- * One-step, 2nd-order, L-stable (γ = 2 − √2). Stage 1 advances to t_n + γh by
+ * One-step, 2nd-order, L-stable (γ = 2 − √2) in the LTI overload; the nonlinear
+ * overload solves each stage by fixed-point iteration (contractive only while
+ * (γh/2)·Lipschitz(f) < 1). Stage 1 advances to t_n + γh by
  * the trapezoidal rule; stage 2 finishes with BDF2 on {x_n, x_γ, x_{n+1}}.
  * Both stages share the iteration matrix I − (γh/2)A (two LTI solves, same
  * LHS). No multistep history — no `reset()` after discontinuities (unlike
@@ -546,9 +534,6 @@ struct TRBDF2 {
      */
     template<typename F>
     constexpr IntegrationResult<NX, T> evolve(const F& f, const ColVec<NX, T>& x, T t, T h) const {
-        constexpr size_t max_iter = 20;
-        constexpr T      tol = static_cast<T>(1e-10);
-
         const T g = T{2} - damp::sqrt(T{2});
         const T gh2 = g * h * static_cast<T>(0.5);
         const T c_g = T{1} / (g * (T{2} - g));
@@ -557,29 +542,15 @@ struct TRBDF2 {
 
         // Working vectors are locals (see DP45) so evolve() stays re-entrant.
         const ColVec<NX, T> f0 = f(t, x);
-        // Stage 1 — trapezoidal fixed-point: y = x + (γh/2)(f(t,x) + f(t_γ,y))
-        ColVec<NX, T> y = x + (g * h) * f0; // explicit-Euler predictor over γh
-        for (size_t i = 0; i < max_iter; ++i) {
-            const ColVec<NX, T> y_next = x + gh2 * (f0 + f(t_g, y));
-            if ((y_next - y).norm() <= tol) {
-                y = y_next;
-                break;
-            }
-            y = y_next;
-        }
-        const ColVec<NX, T> x_gamma = y;
+        // Stage 1 — trapezoidal fixed-point: y = x + (γh/2)(f(t,x) + f(t_γ,y)),
+        // explicit-Euler predictor over γh.
+        const auto          g1 = [&](const ColVec<NX, T>& y) { return ColVec<NX, T>(x + gh2 * (f0 + f(t_g, y))); };
+        const ColVec<NX, T> x_gamma = detail::fixed_point<NX, T>(g1, x + (g * h) * f0);
 
         // Stage 2 — BDF2 fixed-point: y = c_g x_γ + c_n x + (γh/2) f(t+h, y)
-        y = c_g * x_gamma + c_n * x;
-        for (size_t i = 0; i < max_iter; ++i) {
-            const ColVec<NX, T> y_next = c_g * x_gamma + c_n * x + gh2 * f(t + h, y);
-            if ((y_next - y).norm() <= tol) {
-                y = y_next;
-                break;
-            }
-            y = y_next;
-        }
-        const ColVec<NX, T> x_next = y;
+        const ColVec<NX, T> base = c_g * x_gamma + c_n * x;
+        const auto          g2 = [&](const ColVec<NX, T>& y) { return ColVec<NX, T>(base + gh2 * f(t + h, y)); };
+        const ColVec<NX, T> x_next = detail::fixed_point<NX, T>(g2, base);
 
         const ColVec<NX, T> fg = f(t_g, x_gamma);
         const ColVec<NX, T> f1 = f(t + h, x_next);
@@ -610,8 +581,8 @@ private:
  *     x_{n+1} = x_n + (h/2)(f(t_n, x_n) + f(t_{n+1}, x_{n+1}))
  *
  * Averages the slope at the start and end of the step; good accuracy and
- * stability across a wide range of problems, including stiff ones, without
- * the numerical damping Backward Euler introduces.
+ * (in the LTI overload) stability across a wide range of problems, including
+ * stiff ones, without the numerical damping Backward Euler introduces.
  *
  * @note Compare with MATLAB®'s c2d(sys, h, 'tustin') applied per step.
  * @see "Feedback Control of Dynamic Systems" (Franklin et al., 2015), §8.3
@@ -635,19 +606,19 @@ struct Trapezoidal {
      */
     template<size_t NU>
     constexpr IntegrationResult<NX, T> evolve(const Matrix<NX, NX, T>& A, const Matrix<NX, NU, T>& B, const ColVec<NX, T>& x, const ColVec<NU, T>& u, T h) const {
-        Matrix I = Matrix<NX, NX, T>::identity();
+        const Matrix I = Matrix<NX, NX, T>::identity();
+        const T      h2 = h / T{2};
         // (I − ½hA)·x_next = (I + ½hA)·x + hBu  (trapezoidal / Tustin implicit step).
-        x_next = *mat::solve(I - 0.5 * h * A, (I + 0.5 * h * A) * x + h * B * u);
-        return {x_next, {}};
+        return {*mat::solve(I - h2 * A, (I + h2 * A) * x + h * B * u), {}};
     }
 
     /**
-     * @brief Evolve nonlinear system state using the trapezoidal rule
+     * @brief Evolve nonlinear system state using the (implicit) trapezoidal rule
      *
-     * Predictor-corrector form (equivalent to Heun's method applied as a
-     * fixed-point step rather than solved implicitly):
-     *
-     *     x_{n+1} = x_n + (h/2)(f(t_n, x_n) + f(t_n+h, x_n + h f(t_n, x_n)))
+     * Solves x_{n+1} = x_n + (h/2)(f(t_n, x_n) + f(t_n+h, x_{n+1})) by
+     * fixed-point iteration from an explicit-Euler predictor, so it agrees with
+     * the LTI overload. Contractive only while (h/2)·Lipschitz(f) < 1 (use
+     * Heun for the explicit predictor-corrector variant).
      *
      * @param f     Right-hand side function: dx/dt = f(t, x)
      * @param x     Current state
@@ -658,14 +629,11 @@ struct Trapezoidal {
      */
     template<typename F>
     constexpr IntegrationResult<NX, T> evolve(const F& f, const ColVec<NX, T>& x, T t, T h) const {
-        k1 = f(t, x);
-        xp = x + h * k1;
-        k2 = f(t + h, xp);
-        return {x + 0.5 * h * (k1 + k2), {}};
+        const T             h2 = h / T{2};
+        const ColVec<NX, T> f0 = f(t, x);
+        const auto          g = [&](const ColVec<NX, T>& y) { return ColVec<NX, T>(x + h2 * (f0 + f(t + h, y))); };
+        return {detail::fixed_point<NX, T>(g, x + h * f0), {}};
     }
-
-private:
-    mutable ColVec<NX, T> k1, k2, xp, x_next;
 };
 
 /**
@@ -695,8 +663,8 @@ struct RK4 {
     template<size_t NU>
     constexpr IntegrationResult<NX, T> evolve(const Matrix<NX, NX, T>& A, const Matrix<NX, NU, T>& B, const ColVec<NX, T>& x, const ColVec<NU, T>& u, T h) const {
         // RK4 for LTI system
-        auto f = [&](double, const ColVec<NX, T>& xk) { return A * xk + B * u; };
-        return evolve(f, x, 0.0, h);
+        auto f = [&](T, const ColVec<NX, T>& xk) { return A * xk + B * u; };
+        return evolve(f, x, T{0}, h);
     }
 
     /**
@@ -717,17 +685,13 @@ struct RK4 {
      */
     template<typename F>
     constexpr IntegrationResult<NX, T> evolve(const F& f, const ColVec<NX, T>& x, T t, T h) const {
-        k1 = f(t, x);
-        k2 = f(t + 0.5 * h, x + 0.5 * h * k1);
-        k3 = f(t + 0.5 * h, x + 0.5 * h * k2);
-        k4 = f(t + h, x + h * k3);
-
-        x_next = x + (h / 6.0) * (k1 + 2 * k2 + 2 * k3 + k4);
-        return {x_next, {}};
+        const T             h2 = h / T{2};
+        const ColVec<NX, T> k1 = f(t, x);
+        const ColVec<NX, T> k2 = f(t + h2, x + h2 * k1);
+        const ColVec<NX, T> k3 = f(t + h2, x + h2 * k2);
+        const ColVec<NX, T> k4 = f(t + h, x + h * k3);
+        return {x + (h / T{6}) * (k1 + T{2} * k2 + T{2} * k3 + k4), {}};
     }
-
-private:
-    mutable ColVec<NX, T> k1, k2, k3, k4, x_next;
 };
 
 /**
@@ -775,7 +739,7 @@ struct DP45 {
     constexpr IntegrationResult<NX, T> evolve(const Matrix<NX, NX, T>& A, const Matrix<NX, NU, T>& B, const ColVec<NX, T>& x, const ColVec<NU, T>& u, T h) const {
         // Evolution of LTI system is a special case of generic ODE solver
         auto f = [&](T, const ColVec<NX, T>& xk) { return A * xk + B * u; };
-        return evolve(f, x, 0.0, h);
+        return evolve(f, x, T{0}, h);
     }
 
     /**
@@ -852,7 +816,7 @@ struct Heun {
     template<size_t NU>
     constexpr IntegrationResult<NX, T> evolve(const Matrix<NX, NX, T>& A, const Matrix<NX, NU, T>& B, const ColVec<NX, T>& x, const ColVec<NU, T>& u, T h) const {
         auto f = [&](T, const ColVec<NX, T>& xk) { return A * xk + B * u; };
-        return evolve(f, x, 0.0, h);
+        return evolve(f, x, T{0}, h);
     }
 
     /**
@@ -871,18 +835,11 @@ struct Heun {
      */
     template<typename F>
     constexpr IntegrationResult<NX, T> evolve(const F& f, const ColVec<NX, T>& x, T t, T h) const {
-        // Heun's method (Improved Euler, RK2)
-        // Predictor-corrector: first estimate then correct
-        constexpr double c2 = 1.0;
-        constexpr double b1 = 0.5, b2 = 0.5;
-
-        k1 = f(t, x);
-        k2 = f(t + c2 * h, x + h * k1);
-        return {x + h * (b1 * k1 + b2 * k2), {}};
+        // Euler predictor, then average the start and predicted end slopes.
+        const ColVec<NX, T> k1 = f(t, x);
+        const ColVec<NX, T> k2 = f(t + h, x + h * k1);
+        return {x + (h / T{2}) * (k1 + k2), {}};
     }
-
-private:
-    mutable ColVec<NX, T> k1, k2;
 };
 
 /**
@@ -918,8 +875,8 @@ struct RK23 {
      */
     template<size_t NU>
     constexpr IntegrationResult<NX, T> evolve(const Matrix<NX, NX, T>& A, const Matrix<NX, NU, T>& B, const ColVec<NX, T>& x, const ColVec<NU, T>& u, T h) const {
-        auto f = [&](double, const ColVec<NX, T>& xk) { return A * xk + B * u; };
-        return evolve(f, x, 0.0, h);
+        auto f = [&](T, const ColVec<NX, T>& xk) { return A * xk + B * u; };
+        return evolve(f, x, T{0}, h);
     }
 
     /**
@@ -980,8 +937,8 @@ struct RK3 {
      */
     template<size_t NU>
     constexpr IntegrationResult<NX, T> evolve(const Matrix<NX, NX, T>& A, const Matrix<NX, NU, T>& B, const ColVec<NX, T>& x, const ColVec<NU, T>& u, T h) const {
-        auto f = [&](double, const ColVec<NX, T>& xk) { return A * xk + B * u; };
-        return evolve(f, x, 0.0, h);
+        auto f = [&](T, const ColVec<NX, T>& xk) { return A * xk + B * u; };
+        return evolve(f, x, T{0}, h);
     }
 
     /**
@@ -1001,20 +958,13 @@ struct RK3 {
      */
     template<typename F>
     constexpr IntegrationResult<NX, T> evolve(const F& f, const ColVec<NX, T>& x, T t, T h) const {
-        // Classical 3rd order Runge-Kutta
-        constexpr double c2 = 0.5;
-        constexpr double a21 = 0.5;
-        constexpr double a31 = -1.0, a32 = 2.0;
-        constexpr double b1 = 1.0 / 6.0, b2 = 4.0 / 6.0, b3 = 1.0 / 6.0;
-
-        k1 = f(t, x);
-        k2 = f(t + c2 * h, x + h * a21 * k1);
-        k3 = f(t + h, x + h * (a31 * k1 + a32 * k2));
-        return {x + h * (b1 * k1 + b2 * k2 + b3 * k3), {}};
+        // Kutta's classical 3rd-order tableau.
+        const T             h2 = h / T{2};
+        const ColVec<NX, T> k1 = f(t, x);
+        const ColVec<NX, T> k2 = f(t + h2, x + h2 * k1);
+        const ColVec<NX, T> k3 = f(t + h, x + h * (T{2} * k2 - k1));
+        return {x + (h / T{6}) * (k1 + T{4} * k2 + k3), {}};
     }
-
-private:
-    mutable ColVec<NX, T> k1, k2, k3;
 };
 
 } // namespace damp::sim

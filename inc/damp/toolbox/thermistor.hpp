@@ -39,16 +39,15 @@ namespace design {
  */
 template<typename T = float>
 struct ThermistorCoeffs {
-    T a{}; ///< Steinhart-Hart a.
-    T b{}; ///< Steinhart-Hart b.
-    T c{}; ///< Steinhart-Hart c (0 for a Beta-model fit).
+    T    a{};           ///< Steinhart-Hart a.
+    T    b{};           ///< Steinhart-Hart b.
+    T    c{};           ///< Steinhart-Hart c (0 for a Beta-model fit).
+    bool success{true}; ///< false when the inputs were non-physical or the fit was singular.
 
     /// Re-cast the coefficients to a different scalar type.
     template<typename U>
     [[nodiscard]] constexpr ThermistorCoeffs<U> as() const {
-        return ThermistorCoeffs<U>{
-            static_cast<U>(a), static_cast<U>(b), static_cast<U>(c)
-        };
+        return ThermistorCoeffs<U>{static_cast<U>(a), static_cast<U>(b), static_cast<U>(c), success};
     }
 };
 
@@ -66,7 +65,8 @@ struct ThermistorCoeffs {
  * @param r0   Reference resistance [Ω] at temperature t0.
  * @param t0_K Reference temperature [K] (e.g. 298.15 for 25 °C).
  * @param beta Material constant β [K].
- * @return ThermistorCoeffs in Steinhart-Hart form.
+ * @return ThermistorCoeffs in Steinhart-Hart form; `success` is false (and the
+ *         coefficients zero) unless r0, t0_K and beta are all positive.
  *
  * @code
  * // 10 kΩ NTC, β = 3950, 25 °C reference:
@@ -75,11 +75,14 @@ struct ThermistorCoeffs {
  */
 template<typename T = float>
 [[nodiscard]] constexpr ThermistorCoeffs<T> beta(T r0, T t0_K, T beta) {
+    if (!(r0 > T{0}) || !(t0_K > T{0}) || !(beta > T{0})) {
+        return ThermistorCoeffs<T>{.success = false};
+    }
     const T b = T{1} / beta;
     return ThermistorCoeffs<T>{
-        (T{1} / t0_K) - (b * damp::log(r0)), // a
-        b,                                   // b
-        T{0}                                 // c
+        .a = (T{1} / t0_K) - (b * damp::log(r0)),
+        .b = b,
+        .c = T{0},
     };
 }
 
@@ -99,12 +102,13 @@ template<typename T = float>
  *
  * solved here with the library's mat::solve. Pick the calibration points
  * spread across the operating range — e.g. low, mid, high — for the best
- * wide-range accuracy. Resistances must be distinct (singular fit → zero coeffs).
+ * wide-range accuracy. Resistances must be distinct and positive, temperatures
+ * positive; otherwise `success` is false and the coefficients are zero.
  *
  * @param p1 Calibration point {resistance [Ω], temperature [K]}.
  * @param p2 Calibration point {resistance [Ω], temperature [K]}.
  * @param p3 Calibration point {resistance [Ω], temperature [K]}.
- * @return Fitted ThermistorCoeffs.
+ * @return Fitted ThermistorCoeffs (check `success`).
  *
  * @code
  * // Three datasheet points: 32650 Ω @ 0 °C, 10000 Ω @ 25 °C, 3603 Ω @ 50 °C.
@@ -116,6 +120,11 @@ template<typename T = float>
 template<typename T = float>
 [[nodiscard]] constexpr ThermistorCoeffs<T>
 steinhart_hart(damp::pair<T, T> p1, damp::pair<T, T> p2, damp::pair<T, T> p3) {
+    for (const auto& p : {p1, p2, p3}) {
+        if (!(p.first > T{0}) || !(p.second > T{0})) {
+            return ThermistorCoeffs<T>{.success = false};
+        }
+    }
     const T l1 = damp::log(p1.first);
     const T l2 = damp::log(p2.first);
     const T l3 = damp::log(p3.first);
@@ -133,9 +142,11 @@ steinhart_hart(damp::pair<T, T> p1, damp::pair<T, T> p2, damp::pair<T, T> p3) {
         {T{1} / p3.second},
     };
 
-    const auto x = mat::solve(V, y).value_or(Matrix<3, 1, T>{});
-
-    return ThermistorCoeffs<T>{x(0, 0), x(1, 0), x(2, 0)};
+    const auto x = mat::solve(V, y);
+    if (!x) {
+        return ThermistorCoeffs<T>{.success = false};
+    }
+    return ThermistorCoeffs<T>{(*x)(0, 0), (*x)(1, 0), (*x)(2, 0)};
 }
 
 } // namespace design

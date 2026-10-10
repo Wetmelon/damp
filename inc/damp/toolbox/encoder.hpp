@@ -15,7 +15,7 @@
  * are computed in the unsigned domain and reinterpreted as signed so a rollover
  * never produces a spurious jump.
  *
- * @see motor_control.hpp for the Clarke/Park transforms these feed.
+ * @see math/transforms.hpp for the Clarke/Park transforms these feed.
  */
 
 #include <cstdint>
@@ -54,11 +54,17 @@ enum class QuadMode {
  * @brief Software A/B quadrature decoder with optional index.
  *
  * Feed the raw A and B channel levels each sample; the decoder tracks the
- * 2-bit Gray-coded state and accumulates a signed position. Direction follows
- * the standard quadrature convention (A leading B counts up). Invalid
- * transitions (both bits changing at once — a missed sample) are ignored rather
- * than corrupting the count. The position is a fixed-width signed integer and
- * wraps modulo its range by design; use wrapped_delta on it for rates.
+ * 2-bit Gray-coded state and accumulates a signed position. B leading A
+ * (AB: 00 → 01 → 11 → 10) counts up; A leading B counts down — swap the A/B
+ * arguments to flip the sense. Invalid transitions (both bits changing at
+ * once — a missed sample) are ignored rather than corrupting the count. The
+ * position is a fixed-width signed integer and wraps modulo 2³² by design
+ * (computed in unsigned arithmetic, so no signed overflow); use wrapped_delta
+ * on it for rates.
+ *
+ * X1 counts forward steps on the rising A edge and reverse steps on the
+ * falling A edge — the same physical edge in both directions — so dithering
+ * across one edge cannot accumulate counts.
  *
  * @code
  * QuadratureDecoder dec{QuadMode::X4};
@@ -79,22 +85,25 @@ public:
         const uint8_t idx = static_cast<uint8_t>((prev_ << 2) | state);
         const int8_t  step = kTransition[idx];
 
+        const bool a_changed = ((prev_ ^ state) & 0b10) != 0;
+        const bool a_rising = a_changed && (state & 0b10) != 0;
+        bool       count = false;
         switch (mode_) {
             case QuadMode::X4:
-                position_ += step;
+                count = true;
                 break;
             case QuadMode::X2:
-                // Count only transitions of A (the high bit changed).
-                if (((prev_ ^ state) & 0b10) != 0) {
-                    position_ += step;
-                }
+                count = a_changed; // only transitions of A (the high bit)
                 break;
             case QuadMode::X1:
-                // Count one detent: a rising A edge.
-                if ((prev_ & 0b10) == 0 && (state & 0b10) != 0) {
-                    position_ += step;
-                }
+                // One count per cycle at the same physical A edge in either
+                // direction: forward on its rise, reverse on its fall.
+                count = a_changed && ((step > 0) == a_rising);
                 break;
+        }
+        if (count) {
+            // Modular add in uint32 (well-defined wrap; int32 += would be UB at the limit).
+            position_ = static_cast<int32_t>(static_cast<uint32_t>(position_) + static_cast<uint32_t>(static_cast<int32_t>(step)));
         }
         prev_ = state;
         return position_;
@@ -181,8 +190,9 @@ public:
  * for a wrap period @p full_scale @f$ S @f$ — 1.0 for turns, @f$ 2\pi @f$ for radians, or the
  * counts-per-revolution for a raw integer-scaled reading. Valid while the true motion between
  * samples is under half a period (the same Nyquist limit as wrapped_delta, its integer
- * sibling). No filtering or dynamics — for a tracked (filtered) angle plus speed use
- * @ref damp::motor::EncoderTracker instead.
+ * sibling). No filtering or dynamics. The accumulated position loses resolution
+ * as it grows (a float position 10⁶ turns out resolves ~0.06 turn); use double or
+ * re-zero periodically for long multi-turn runs.
  *
  * @tparam T Scalar type (default: float).
  */

@@ -259,7 +259,7 @@ public:
 
     /// Precision rebind.
     template<typename U>
-    [[nodiscard]] constexpr ServoBank<NAxes, U> rebind() const {
+    [[nodiscard]] constexpr ServoBank<NAxes, U> as() const {
         damp::array<ServoAxis<U>, NAxes> a{};
         for (size_t i = 0; i < NAxes; ++i) {
             a[i] = axes_[i].template as<U>();

@@ -14,10 +14,6 @@
  * KalmanFilter for predict/update with @f$ u = [P,\,T_{\mathrm{amb}}] @f$
  * and measured NTC node(s).
  *
- * FET-specific loss models and open-loop junction estimators remain in
- * @ref damp/motor/thermal.hpp (design::foster_thermal_ss,
- * design::cauer_thermal_ss, JunctionEstimator).
- *
  * Example: absolute Cauer ladder + steady-state Kalman design
  * @code
  * #include "damp/toolbox/thermal.hpp"
@@ -40,7 +36,6 @@
  * // float tj = obs.junction();
  * @endcode
  *
- * @see design::cauer_thermal_ss for the rise-above-reference (NU = 1) form
  * @see "Heat Transfer" (Incropera & DeWitt) for RC thermal-network modelling
  */
 
@@ -121,14 +116,12 @@ template<std::size_t N, typename T>
  * Continuous (@f$ T_s = 0 @f$); discretize with discretize (ZOH is exact
  * for piecewise-constant power and ambient).
  *
- * @note Compare with the rise-form cauer_thermal_ss (NU = 1, reference at 0).
- *
  * @tparam N     Number of thermal nodes / states.
  * @tparam YNode Measured node index in [0, N) (default 0 = junction).
  * @tparam T     Scalar type.
  * @param R [K/W] stage resistances (R[N-1] to ambient; each > 0).
  * @param C [J/K] node capacitances (each > 0).
- * @return Continuous StateSpace<N, 2, 1, double, N, 1>. Zeroed if any R or C is non-positive.
+ * @return Continuous StateSpace<N, 2, 1, T, N, 1>. All-zero if any R or C is non-positive.
  */
 template<std::size_t N, std::size_t YNode = 0, typename T = double>
     requires(YNode < N)
@@ -156,7 +149,7 @@ template<std::size_t N, std::size_t YNode = 0, typename T = double>
  * @tparam T Scalar type.
  * @param R [K/W] stage resistances (each > 0).
  * @param C [J/K] node capacitances (each > 0).
- * @return Continuous StateSpace<N, 2, N, double, N, N>. Zeroed if any R or C is non-positive.
+ * @return Continuous StateSpace<N, 2, N, T, N, N>. All-zero if any R or C is non-positive.
  */
 template<std::size_t N, typename T = double>
 [[nodiscard]] constexpr StateSpace<N, 2, N, T, N, N> cauer_thermal_ss_ambient_mimo(

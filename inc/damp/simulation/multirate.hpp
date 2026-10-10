@@ -92,13 +92,13 @@ struct MultiRateConfig {
  */
 template<size_t NX, size_t NU, size_t NY, size_t NR, typename T = double>
 struct TwoRateSimulationResult {
-    std::vector<T>             t{};
-    std::vector<ColVec<NX, T>> x{};
-    std::vector<ColVec<NY, T>> y{};
-    std::vector<ColVec<NU, T>> u{};
-    std::vector<ColVec<NR, T>> r{}; ///< Held outer → inner reference
-    bool                       truncated{false};
-    std::size_t                base_tick_count{0};
+    std::vector<T>             t{};                ///< Time points
+    std::vector<ColVec<NX, T>> x{};                ///< State history
+    std::vector<ColVec<NY, T>> y{};                ///< Output history
+    std::vector<ColVec<NU, T>> u{};                ///< Held plant input
+    std::vector<ColVec<NR, T>> r{};                ///< Held outer → inner reference
+    bool                       truncated{false};   ///< Stopped at max_base_ticks before tf
+    std::size_t                base_tick_count{0}; ///< Base ticks executed
 };
 
 /**
@@ -140,16 +140,19 @@ template<
     }
 
     ColVec<NX, T>     x = x0;
-    T                 t = t_span.first;
+    const T           t0 = t_span.first;
+    const T           tf = t_span.second;
     const std::size_t stride = (config.log_stride == 0) ? 1 : config.log_stride;
-    std::size_t       k = 0;
+    // Base tick k at t0 + k·Ts_base (no running-sum drift, no sliver tick at tf).
+    const std::size_t n_ticks = detail::step_count(t0, tf, config.Ts_base);
 
-    while (t < t_span.second - static_cast<T>(1e-12)) {
+    for (std::size_t k = 0; k < n_ticks; ++k) {
         if (config.max_base_ticks != 0 && k >= config.max_base_ticks) {
             break;
         }
 
-        const T             t_next = (t + config.Ts_base < t_span.second) ? t + config.Ts_base : t_span.second;
+        const T             t = detail::grid_time(t0, tf, config.Ts_base, k, n_ticks);
+        const T             t_next = detail::grid_time(t0, tf, config.Ts_base, k + 1, n_ticks);
         const ColVec<NY, T> y = output(x);
         const ColVec<NU, T> u = control_step(k, t, y);
 
@@ -173,8 +176,6 @@ template<
             sim.u.push_back(u);
         }
         x = seg.x.back();
-        t = t_next;
-        ++k;
     }
     return sim;
 }
@@ -264,17 +265,20 @@ template<
     ColVec<NX, T>     x = x0;
     ColVec<NR, T>     r{};
     ColVec<NU, T>     u{};
-    T                 t = t_span.first;
+    const T           t0 = t_span.first;
+    const T           tf = t_span.second;
     const std::size_t stride = (config.log_stride == 0) ? 1 : config.log_stride;
+    const std::size_t n_ticks = detail::step_count(t0, tf, config.Ts_base);
     std::size_t       k = 0;
 
-    while (t < t_span.second - static_cast<T>(1e-12)) {
+    for (; k < n_ticks; ++k) {
         if (config.max_base_ticks != 0 && k >= config.max_base_ticks) {
             sim.truncated = true;
             break;
         }
 
-        const T             t_next = (t + config.Ts_base < t_span.second) ? t + config.Ts_base : t_span.second;
+        const T             t = detail::grid_time(t0, tf, config.Ts_base, k, n_ticks);
+        const T             t_next = detail::grid_time(t0, tf, config.Ts_base, k + 1, n_ticks);
         const ColVec<NY, T> y = output(x);
 
         // Slow → fast: outer reference first, then inner plant command.
@@ -307,8 +311,6 @@ template<
             sim.r.push_back(r);
         }
         x = seg.x.back();
-        t = t_next;
-        ++k;
     }
     sim.base_tick_count = k;
     return sim;

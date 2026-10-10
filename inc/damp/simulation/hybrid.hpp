@@ -48,6 +48,7 @@
 #include "damp/matrix/colvec.hpp"
 #include "damp/simulation/cached_zoh.hpp"
 #include "damp/simulation/integrator.hpp"
+#include "damp/simulation/solver.hpp" // detail::step_count / grid_time
 #include "damp/systems/state_space.hpp"
 
 namespace damp::sim {
@@ -65,10 +66,9 @@ enum class LogPolicy : std::uint8_t {
  */
 template<typename T = double>
 struct EventSimConfig {
-    LogPolicy   log = LogPolicy::EventsOnly;
-    T           h_fine = T{0};   ///< Used when log == FixedStride; must be > 0
-    T           min_step = T{0}; ///< Skip / clamp steps smaller than this (0 = none)
-    std::size_t max_events = 1'000'000;
+    LogPolicy   log = LogPolicy::EventsOnly; ///< Sampling density
+    T           h_fine = T{0};               ///< Used when log == FixedStride; must be > 0
+    std::size_t max_events = 1'000'000;      ///< Stop (truncated) after this many events
 };
 
 /**
@@ -78,13 +78,13 @@ struct EventSimConfig {
  */
 template<size_t NX, size_t NU, size_t NY, typename T = double>
 struct HybridSimulationResult {
-    std::vector<T>             t{};
-    std::vector<ColVec<NX, T>> x{};
-    std::vector<ColVec<NY, T>> y{};
-    std::vector<ColVec<NU, T>> u{};
-    std::vector<std::uint32_t> mode{};
-    bool                       truncated{false}; ///< Hit max_events before tf
-    std::size_t                event_count{0};
+    std::vector<T>             t{};              ///< Sample times
+    std::vector<ColVec<NX, T>> x{};              ///< State at each sample
+    std::vector<ColVec<NY, T>> y{};              ///< Output at each sample
+    std::vector<ColVec<NU, T>> u{};              ///< Held input at each sample
+    std::vector<std::uint32_t> mode{};           ///< Active mode at each sample
+    bool                       truncated{false}; ///< Stopped before tf (max_events, invalid mode, or a non-advancing schedule)
+    std::size_t                event_count{0};   ///< Events applied
 };
 
 /**
@@ -92,7 +92,7 @@ struct HybridSimulationResult {
  */
 template<size_t NModes, size_t NX, size_t NU, size_t NY, typename T = double>
 struct PiecewiseLTI {
-    damp::array<StateSpace<NX, NU, NY, T>, NModes> modes{};
+    damp::array<StateSpace<NX, NU, NY, T>, NModes> modes{}; ///< One continuous LTI model per mode
 };
 
 /**
@@ -157,7 +157,8 @@ template<size_t NX, size_t NU, typename T>
  * @tparam T       Scalar
  * @tparam Schedule  (T t, size_t mode, ColVec x, ColVec u) -> T t_next
  *                   Absolute time of the next event; must satisfy t_next > t
- *                   (or >= tf to finish). Clamped to tf.
+ *                   (or >= tf to finish). Clamped to tf. A non-advancing time
+ *                   stops the run at t with `truncated` set.
  * @tparam OnEvent   (T t, size_t mode, ColVec x, ColVec y, ColVec u)
  *                   -> HybridEventAction  applied at each event at time t
  *                   (after the Exact advance onto t).
@@ -218,16 +219,9 @@ template<
             t_next = tf;
         }
         if (!(t_next > t)) {
-            // Schedule returned a non-advancing time — stop cleanly at tf if we can
-            if (t < tf) {
-                // Last open segment to tf with current mode
-                const auto& sys = plant.modes[mode];
-                x = hybrid_detail::exact_step(exact, sys.A, sys.B, x, u, tf - t);
-                t = tf;
-                hybrid_detail::push_sample(
-                    tr, t, x, hybrid_detail::output_of(sys, x, u), u, static_cast<std::uint32_t>(mode)
-                );
-            }
+            // A non-advancing schedule cannot be honoured: report it instead of
+            // silently integrating the rest of the run open-loop in one mode.
+            tr.truncated = true;
             break;
         }
 
@@ -235,37 +229,23 @@ template<
         const T     h_seg = t_next - t;
 
         if (config.log == LogPolicy::FixedStride && config.h_fine > T{0}) {
-            // Full fine steps share one CachedZoh (expm once per segment stride);
-            // any remainder shorter than h_fine still uses Exact.
-            const auto    zoh = CachedZoh<NX, NU, T>::from(sys.A, sys.B, config.h_fine);
-            T             t_cursor = t;
-            ColVec<NX, T> x_cursor = x;
-            while (t_cursor < t_next) {
-                T h = config.h_fine;
-                if (t_cursor + h > t_next) {
-                    h = t_next - t_cursor;
-                }
-                if (config.min_step > T{0} && h < config.min_step && t_cursor + h < t_next) {
-                    h = (config.min_step < (t_next - t_cursor)) ? config.min_step : (t_next - t_cursor);
-                }
-                if (h == config.h_fine) {
-                    x_cursor = zoh.step(x_cursor, u);
-                } else {
-                    x_cursor = hybrid_detail::exact_step(exact, sys.A, sys.B, x_cursor, u, h);
-                }
-                t_cursor += h;
-                if (t_cursor < t_next) {
+            // Fine samples at t + k·h_fine (no running-sum drift). Full fine steps
+            // share one CachedZoh; a shorter final remainder uses Exact.
+            const auto        zoh = CachedZoh<NX, NU, T>::from(sys.A, sys.B, config.h_fine);
+            const std::size_t n_fine = detail::step_count(t, t_next, config.h_fine);
+            T                 t_cursor = t;
+            for (std::size_t k = 1; k <= n_fine; ++k) {
+                const T t_k = detail::grid_time(t, t_next, config.h_fine, k, n_fine);
+                const T h = t_k - t_cursor;
+                x = (k < n_fine || h == config.h_fine) ? zoh.step(x, u)
+                                                       : hybrid_detail::exact_step(exact, sys.A, sys.B, x, u, h);
+                t_cursor = t_k;
+                if (k < n_fine) {
                     hybrid_detail::push_sample(
-                        tr,
-                        t_cursor,
-                        x_cursor,
-                        hybrid_detail::output_of(sys, x_cursor, u),
-                        u,
-                        static_cast<std::uint32_t>(mode)
+                        tr, t_cursor, x, hybrid_detail::output_of(sys, x, u), u, static_cast<std::uint32_t>(mode)
                     );
                 }
             }
-            x = x_cursor;
             t = t_next;
         } else {
             x = hybrid_detail::exact_step(exact, sys.A, sys.B, x, u, h_seg);
@@ -327,9 +307,13 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
  *
  * Advances from @p x0 under constant @p u with the given continuous LTI system.
  * Assumes g(x0) and g(x(t1)) have opposite signs (or a root in between). Returns
- * the time in (t0, t1] where g crosses zero (bisection on Exact evaluations).
+ * the time in (t0, t1] where g crosses zero (bisection on Exact evaluations),
+ * or @p t1 if there is no sign change.
  *
  * @tparam G Callable (ColVec<NX,T> const&) -> T
+ * @param tol      [s] Bracket width to stop at; 0 (default) → 4·eps·max(|t0|, |t1|),
+ *                 i.e. resolved to a few ULPs of the segment's own time scale.
+ * @param max_iter Bisection cap.
  */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename G>
 [[nodiscard]] T locate_zero_crossing_exact(
@@ -339,35 +323,33 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
     T                                        t0,
     T                                        t1,
     G&&                                      g,
-    T                                        tol = static_cast<T>(1e-12),
-    int                                      max_iter = 60
+    T                                        tol = T{0},
+    int                                      max_iter = 200
 ) {
-    Exact<NX, T>  exact{};
-    T             ta = t0;
-    T             tb = t1;
-    ColVec<NX, T> xa = x0;
-    T             ga = g(xa);
-    ColVec<NX, T> xb = hybrid_detail::exact_step(exact, sys.A, sys.B, x0, u, t1 - t0);
-    T             gb = g(xb);
-    if (ga * gb > T{0}) {
+    // Sign tests, not products: ga·gb under/overflows for tiny or huge g.
+    const auto same_side = [](T a, T b) { return (a > T{0} && b > T{0}) || (a < T{0} && b < T{0}); };
+    const T    t_tol = (tol > T{0}) ? tol : T{4} * eps<T>() * damp::max(damp::abs(t0), damp::abs(t1));
+
+    Exact<NX, T> exact{};
+    T            ta = t0;
+    T            tb = t1;
+    const T      ga = g(x0);
+    if (same_side(ga, g(hybrid_detail::exact_step(exact, sys.A, sys.B, x0, u, t1 - t0)))) {
         return t1; // no sign change — return endpoint
     }
-    for (int i = 0; i < max_iter; ++i) {
-        const T tm = static_cast<T>(0.5) * (ta + tb);
-        if (tb - ta <= tol) {
-            return tm;
+    for (int i = 0; i < max_iter && (tb - ta) > t_tol; ++i) {
+        const T tm = ta + ((tb - ta) / T{2});
+        if (!(tm > ta && tm < tb)) {
+            break;
         }
-        const ColVec<NX, T> xm = hybrid_detail::exact_step(exact, sys.A, sys.B, x0, u, tm - t0);
-        const T             gm = g(xm);
-        if (ga * gm <= T{0}) {
-            tb = tm;
-            gb = gm;
-        } else {
+        const T gm = g(hybrid_detail::exact_step(exact, sys.A, sys.B, x0, u, tm - t0));
+        if (same_side(ga, gm)) {
             ta = tm;
-            ga = gm;
+        } else {
+            tb = tm;
         }
     }
-    return static_cast<T>(0.5) * (ta + tb);
+    return ta + ((tb - ta) / T{2});
 }
 
 } // namespace damp::sim

@@ -220,7 +220,7 @@ TEST_CASE("matlab::quadprog equality overload returns the same minimizer") {
     const Matrix<1, 3> Aeq{{1.0, 1.0, 1.0}};
     const ColVec<1>    beq{1.0};
 
-    const auto x = matlab::quadprog(H, f, A, b, Aeq, beq);
+    const auto x = *matlab::quadprog(H, f, A, b, Aeq, beq);
     for (size_t v = 0; v < 3; ++v) {
         CHECK(x(v) == doctest::Approx(1.0 / 3.0).epsilon(1e-9));
     }
@@ -228,7 +228,7 @@ TEST_CASE("matlab::quadprog equality overload returns the same minimizer") {
 
 TEST_CASE("matlab::quadprog alias returns the same minimizer") {
     const QuadprogExample qp;
-    const auto            x = matlab::quadprog(qp.H, qp.f, qp.A, qp.b);
+    const auto            x = *matlab::quadprog(qp.H, qp.f, qp.A, qp.b);
     const auto            ref = design::solve_qp(qp.H, qp.f, qp.A, qp.b).x;
     CHECK(x(0) == doctest::Approx(ref(0)));
     CHECK(x(1) == doctest::Approx(ref(1)));

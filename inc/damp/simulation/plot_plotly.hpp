@@ -861,7 +861,7 @@ namespace detail {
  * @brief Sample an M-circle (constant closed-loop |T|) in the G-plane and map to Nichols axes
  *
  * For @f$ |G/(1+G)| = M @f$ with @f$ M \ne 1 @f$, the locus is a circle of center
- * @f$ -M^2/(1-M^2) @f$ and radius @f$ |M/(1-M^2)| @f$. Samples outside a
+ * @f$ M^2/(1-M^2) @f$ and radius @f$ |M/(1-M^2)| @f$. Samples outside a
  * magnitude window are dropped so the grid stays readable.
  */
 inline void add_nichols_m_circle(
@@ -878,7 +878,7 @@ inline void add_nichols_m_circle(
     }
     const double M2 = M_lin * M_lin;
     const double den = 1.0 - M2;
-    const double cx = -M2 / den;
+    const double cx = M2 / den;
     const double r = damp::abs(M_lin / den);
 
     std::vector<double> phase_deg;

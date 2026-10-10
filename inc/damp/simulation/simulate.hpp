@@ -51,6 +51,7 @@
 
 #include "damp/backend.hpp"
 #include "damp/matrix/colvec.hpp"
+#include "damp/simulation/solver.hpp" // detail::step_count / grid_time
 #include "damp/systems/state_space.hpp"
 
 namespace damp::sim {
@@ -214,11 +215,15 @@ SimulationResult<NX, NU, NY, T> simulate_sampled(
 ) {
     SimulationResult<NX, NU, NY, T> sim;
     ColVec<NX, T>                   x = x0;
-    T                               t = t_span.first;
+    const T                         t0 = t_span.first;
+    const T                         tf = t_span.second;
     const std::size_t               stride = (log_stride == 0) ? 1 : log_stride;
+    // Control tick k at t0 + k·Ts (no running-sum drift, no sliver tick at tf).
+    const std::size_t n_ticks = (Ts > T{0}) ? detail::step_count(t0, tf, Ts) : 0;
 
-    while (t < t_span.second - T(1e-12)) {
-        const T             t_next = (t + Ts < t_span.second) ? t + Ts : t_span.second;
+    for (std::size_t k = 0; k < n_ticks; ++k) {
+        const T             t = detail::grid_time(t0, tf, Ts, k, n_ticks);
+        const T             t_next = detail::grid_time(t0, tf, Ts, k + 1, n_ticks);
         const ColVec<NY, T> y = output(x);
         const ColVec<NU, T> u = controller(t, y); // zero-order hold across this period
 
@@ -242,7 +247,6 @@ SimulationResult<NX, NU, NY, T> simulate_sampled(
             sim.u.push_back(u);
         }
         x = seg.x.back();
-        t = t_next;
     }
     return sim;
 }
@@ -365,6 +369,10 @@ SimulationResult<NX, NU, NY, T> simulate_lti(
  * `control(r, y)` (ZOH on u); @p fine_solver integrates the plant between
  * ticks. Same controller object as on target — Design Is Deploy / gate-and-validate.
  *
+ * The sampled measurement is y = Cx + D·u with the input held from the previous
+ * period (zero before the first tick); recorded samples inside a period use
+ * that period's u.
+ *
  * @param sys          Continuous plant (SISO: NU = NY = 1)
  * @param controller   Object with `control(T r, T y) -> T` (e.g. PIDController after discretize)
  * @param r            Constant reference
@@ -390,11 +398,16 @@ template<size_t NX, size_t NW, size_t NV, typename T, typename Controller, typen
     auto plant = [&](T /*t*/, const ColVec<NX, T>& x, const ColVec<1, T>& u) -> ColVec<NX, T> {
         return sys.A * x + sys.B * u;
     };
-    auto output = [&](const ColVec<NX, T>& x) -> ColVec<1, T> {
-        return ColVec<1, T>{sys.C * x};
+    ColVec<1, T> u_held{}; // input currently applied to the plant (feeds D)
+    auto         output = [&](const ColVec<NX, T>& x) -> ColVec<1, T> {
+        return ColVec<1, T>{sys.C * x + sys.D * u_held};
     };
     auto adapted = siso_ref(controller, r, Ts);
-    return simulate_sampled<NX, 1, 1, T>(plant, output, adapted, fine_solver, Ts, x0, t_span);
+    auto held = [&](T t, const ColVec<1, T>& y) {
+        u_held = adapted(t, y);
+        return u_held;
+    };
+    return simulate_sampled<NX, 1, 1, T>(plant, output, held, fine_solver, Ts, x0, t_span);
 }
 
 /**
@@ -441,20 +454,18 @@ SimulationResult<NX, NU, NY, T> simulate_discrete_nonlinear(
     sim.u.reserve(n_steps + 1);
 
     ColVec<NX, T> x = x0;
-    T             t = T(0);
 
     for (size_t k = 0; k <= n_steps; ++k) {
         ColVec<NY, T> y = output(x);
         ColVec<NU, T> u = controller(y);
 
-        sim.t.push_back(t);
+        sim.t.push_back(static_cast<T>(k) * Ts);
         sim.x.push_back(x);
         sim.y.push_back(y);
         sim.u.push_back(u);
 
         if (k < n_steps) {
             x = plant(k, x, u); // x[k+1] = f(k, x[k], u[k])
-            t += Ts;
         }
     }
 
@@ -489,21 +500,19 @@ SimulationResult<NX, NU, NY, T> simulate_discrete(
 
     ColVec<NX, T> x = x0;
     ColVec<NU, T> u{};
-    T             t = T(0);
 
     for (size_t k = 0; k <= n_steps; ++k) {
         ColVec<NY, T> y = sys.C * x + sys.D * u;
         u = controller(y);
         y = sys.C * x + sys.D * u;
 
-        sim.t.push_back(t);
+        sim.t.push_back(static_cast<T>(k) * sys.Ts);
         sim.x.push_back(x);
         sim.y.push_back(y);
         sim.u.push_back(u);
 
         if (k < n_steps) {
             x = sys.A * x + sys.B * u;
-            t += sys.Ts;
         }
     }
 

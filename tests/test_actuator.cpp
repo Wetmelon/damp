@@ -105,7 +105,7 @@ TEST_SUITE("Actuator") {
         CHECK(static_cast<double>(faxis.turns_per_unit) == doctest::Approx(axis.turns_per_unit));
 
         ServoBank<1, double> servos{{axis}};
-        const auto           fservos = servos.rebind<float>();
+        const auto           fservos = servos.as<float>();
         CHECK(static_cast<double>(fservos.axis(0).turns_per_unit) == doctest::Approx(axis.turns_per_unit));
     }
 }

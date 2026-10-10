@@ -60,9 +60,9 @@ namespace damp::sim {
  */
 template<size_t NX, size_t NU, typename T = double>
 struct CachedZoh {
-    Matrix<NX, NX, T> Ad{}; ///< Discrete A: e^{A h}
-    Matrix<NX, NU, T> Bd{}; ///< Discrete B: ∫₀ʰ e^{A τ} B dτ
-    T                 h{T{0}};
+    Matrix<NX, NX, T> Ad{};    ///< Discrete A: e^{A h}
+    Matrix<NX, NU, T> Bd{};    ///< Discrete B: ∫₀ʰ e^{A τ} B dτ
+    T                 h{T{0}}; ///< [s] Step size the maps were built for
 
     /**
      * @brief Build Ad, Bd from continuous A, B and step @p step
@@ -161,15 +161,13 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
     sim.u.reserve(n_steps + 1);
 
     ColVec<NX, T> x = x0;
-    T             t = t0;
     for (size_t k = 0; k <= n_steps; ++k) {
-        sim.t.push_back(t);
+        sim.t.push_back(t0 + (static_cast<T>(k) * h)); // grid time, no running-sum drift
         sim.x.push_back(x);
         sim.y.push_back(sys.C * x + sys.D * u);
         sim.u.push_back(u);
         if (k < n_steps) {
             x = zoh.step(x, u);
-            t += h;
         }
     }
     return sim;
@@ -178,9 +176,10 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
 /**
  * @brief Simulate continuous LTI over @p t_span with fixed sample period @p h
  *
- * Same as the n_steps overload; step count is derived from the span. The final
- * sample is at or just before @c tf (partial last step is not taken — use
- * Exact / @ref exact_lti_step for a remainder shorter than @p h).
+ * Same as the n_steps overload; step count is the number of whole steps that fit
+ * in the span (a span within rounding of n·h counts n). The final sample is at or
+ * before @c tf — the partial last step is not taken; use @ref exact_lti_step for
+ * a remainder shorter than @p h.
  *
  * @param sys    Continuous plant
  * @param x0     Initial state
@@ -205,7 +204,8 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
         sim.u.push_back(u);
         return sim;
     }
-    const size_t n_steps = static_cast<size_t>(span / h + static_cast<T>(0.5)); // nearest count of full steps
+    const T      n_real = span / h;
+    const size_t n_steps = static_cast<size_t>(damp::floor(n_real + (T{64} * eps<T>() * n_real))); // whole steps that fit
     return simulate_cached_zoh(sys, x0, u, h, n_steps, t_span.first);
 }
 
@@ -219,7 +219,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
  * @param sys      Continuous plant
  * @param x0       Initial state
  * @param u_ctrl   One input vector per control period (held for n_fine fine steps)
- * @param h_fine   [s] Fine sample period (must match CachedZoh construction)
+ * @param h_fine   [s] Fine sample period (the ZOH map is built for it here)
  * @param n_fine   Fine steps per control hold ( ≥ 1 )
  * @param t0       [s] Start time
  */
@@ -244,9 +244,9 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
     sim.u.reserve(n_total + 1);
 
     ColVec<NX, T> x = x0;
-    T             t = t0;
+    size_t        k_fine = 0;
     ColVec<NU, T> u0 = u_ctrl.empty() ? ColVec<NU, T>{} : u_ctrl.front();
-    sim.t.push_back(t);
+    sim.t.push_back(t0);
     sim.x.push_back(x);
     sim.y.push_back(sys.C * x + sys.D * u0);
     sim.u.push_back(u0);
@@ -255,8 +255,8 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
         const ColVec<NU, T>& u = u_ctrl[k];
         for (size_t m = 0; m < n_fine; ++m) {
             x = zoh.step(x, u);
-            t += h_fine;
-            sim.t.push_back(t);
+            ++k_fine;
+            sim.t.push_back(t0 + (static_cast<T>(k_fine) * h_fine)); // grid time, no drift
             sim.x.push_back(x);
             sim.y.push_back(sys.C * x + sys.D * u);
             sim.u.push_back(u);

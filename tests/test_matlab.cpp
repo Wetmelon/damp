@@ -243,11 +243,11 @@ TEST_SUITE("matlab") {
         CHECK(r.b == doctest::Approx(1.0));
         CHECK(r.c == doctest::Approx(1.0));
 
-        // Ti <= 0 → no integral; default N=10 → Tf = Td/10
+        // Ti <= 0 → no integral; default N is MATLAB®'s ∞ → unfiltered D (Tf = 0)
         const auto pd = matlab::pidstd(Kp, 0.0, Td);
         CHECK(pd.Ki == doctest::Approx(0.0));
         CHECK(pd.Kd == doctest::Approx(Kp * Td));
-        CHECK(pd.Tf == doctest::Approx(Td / 10.0));
+        CHECK(pd.Tf == doctest::Approx(0.0));
 
         // Explicit N = 0 → unfiltered D
         const auto unf = matlab::pidstd(Kp, Ti, Td, 0.0);
@@ -413,10 +413,12 @@ TEST_SUITE("MATLAB®-Style Control Design API") {
 
     // Test lqi: LQI controller design
     TEST_CASE("lqi: LQI controller design") {
+        // lqi is a discrete design: ZOH double integrator at Ts = 0.1.
         StateSpace<2, 1, 1, double, 2, 1> sys{
-            Matrix<2, 2>{{0.0, 1.0}, {0.0, 0.0}}, // double integrator
-            Matrix<2, 1>{{0.0}, {1.0}},
-            Matrix<1, 2>{{1.0, 0.0}} // position output
+            .A = Matrix<2, 2>{{1.0, 0.1}, {0.0, 1.0}},
+            .B = Matrix<2, 1>{{0.005}, {0.1}},
+            .C = Matrix<1, 2>{{1.0, 0.0}}, // position output
+            .Ts = 0.1,
         };
 
         // Augmented cost: [state; integral]
@@ -443,6 +445,7 @@ TEST_SUITE("MATLAB®-Style Control Design API") {
             .D = Matrix<1, 1>::zeros(),
             .G = Matrix<2, 2>::identity(),
             .H = Matrix<1, 1>::identity(),
+            .Ts = 0.1,
         };
 
         Matrix<2, 2> Q_lqr = Matrix<2, 2>::identity();
@@ -466,6 +469,7 @@ TEST_SUITE("MATLAB®-Style Control Design API") {
             Matrix<1, 1>::zeros(),
             Matrix<2, 2>::identity(),
             Matrix<1, 1>::identity(),
+            0.1, // Ts: discrete double integrator
         };
 
         Matrix<3, 3> Q_aug{};

@@ -93,17 +93,27 @@ template<typename T>
  * @brief Smooth unit direction x / √(x²+ε²) ∈ (−1,1)
  *
  * Algebraic soft-sign (C∞, no transcendental overflow). As @f$\varepsilon \to 0@f$
- * this approaches @f$\mathrm{sgn}(x)@f$; larger @p eps softens the transition.
- * Used for smooth Coulomb / stiction maps (tanh-like shape).
+ * this approaches @f$\mathrm{sgn}(x)@f$ (@p eps = 0 is exactly the hard sign,
+ * with soft_sign(0, 0) = 0); larger @p eps softens the transition. Evaluated in
+ * scaled form so x² never overflows. Used for smooth Coulomb / stiction maps
+ * (tanh-like shape).
  *
  * @param x   Input (velocity or command).
- * @param eps Softness scale (same units as @p x); use a small positive value.
+ * @param eps Softness scale (same units as @p x); ≥ 0.
  */
 template<typename T>
 [[nodiscard]] constexpr T soft_sign(T x, T eps) {
-    // Floor eps so we never divide by zero under finite-math builds
-    const T e = damp::max(damp::abs(eps), std::numeric_limits<T>::epsilon());
-    return x / damp::sqrt((x * x) + (e * e));
+    const T ax = damp::abs(x);
+    const T ae = damp::abs(eps);
+    if (ax == T{0}) {
+        return T{0};
+    }
+    if (ax >= ae) {
+        const T r = ae / ax; // ≤ 1
+        return damp::copysign(T{1} / damp::sqrt(T{1} + (r * r)), x);
+    }
+    const T r = x / ae; // |r| < 1
+    return r / damp::sqrt(T{1} + (r * r));
 }
 
 /**
@@ -144,7 +154,7 @@ template<typename T>
  *
  * @param x         Desired command.
  * @param band      Full boost once past @p width.
- * @param width     Half-width of the sine ramp (must be > 0).
+ * @param width     Half-width of the sine ramp (0 = hard step, as @ref inverse_deadband).
  * @param threshold Center hold; output 0 when |x| ≤ threshold.
  * @see inverse_deadband_soft, inverse_deadband
  */
@@ -153,8 +163,8 @@ template<typename T>
     if (damp::abs(x) <= threshold) {
         return T{0};
     }
-    const T w = damp::max(damp::abs(width), std::numeric_limits<T>::epsilon());
-    const T s = damp::clamp(x / w, T{-1}, T{1});
+    const T w = damp::abs(width);
+    const T s = (w > T{0}) ? damp::clamp(x / w, T{-1}, T{1}) : damp::copysign(T{1}, x);
     const T offset = damp::abs(band) * damp::sin(static_cast<T>(0.5) * damp::numbers::pi_v<T> * s);
     return x + offset;
 }
@@ -196,7 +206,7 @@ template<typename T>
  * @param cmd       Desired command / velocity proxy v.
  * @param coulomb   Sliding Coulomb F_c ≥ 0.
  * @param static_f  Breakaway / static level F_s ≥ F_c.
- * @param v_stribeck Stribeck velocity scale v_s > 0.
+ * @param v_stribeck Stribeck velocity scale v_s (0 = no Stribeck hump: pure Coulomb).
  * @param viscous   Viscous b (default 0).
  * @param eps       Soft-sign scale (default from Coulomb).
  * @see compensate_coulomb_viscous
@@ -212,10 +222,10 @@ template<typename T>
 ) {
     const T fc = damp::max(coulomb, T{0});
     const T fs = damp::max(static_f, fc);
-    const T vs = damp::max(damp::abs(v_stribeck), std::numeric_limits<T>::epsilon());
+    const T vs = damp::abs(v_stribeck);
     const T e = (eps > T{0}) ? eps : (static_cast<T>(1e-3) * (T{1} + fc));
-    const T r = cmd / vs;
-    const T stribeck = fc + ((fs - fc) * damp::exp(-(r * r)));
+    const T r = (vs > T{0}) ? cmd / vs : T{0};
+    const T stribeck = (vs > T{0}) ? fc + ((fs - fc) * damp::exp(-(r * r))) : fc;
     return cmd + (stribeck * soft_sign(cmd, e)) + (viscous * cmd);
 }
 
@@ -518,11 +528,11 @@ enum class AnalogCrossStatus : std::uint8_t {
  */
 template<typename T = float>
 struct AnalogCrossResult {
-    T                 value{};          ///< fused or single-channel engineering value when @ref has_value
-    bool              has_value{false}; ///< true when a usable value is provided
-    AnalogCrossStatus status{AnalogCrossStatus::BothUnusable};
-    SignalStatus      status_a{SignalStatus::Valid};
-    SignalStatus      status_b{SignalStatus::Valid};
+    T                 value{};                                 ///< fused or single-channel engineering value when @ref has_value
+    bool              has_value{false};                        ///< true when a usable value is provided
+    AnalogCrossStatus status{AnalogCrossStatus::BothUnusable}; ///< voting outcome
+    SignalStatus      status_a{SignalStatus::Valid};           ///< channel A range/fault class
+    SignalStatus      status_b{SignalStatus::Valid};           ///< channel B range/fault class
 
     [[nodiscard]] constexpr bool agree() const { return status == AnalogCrossStatus::Agree; }
     [[nodiscard]] constexpr bool degraded() const {
@@ -545,8 +555,9 @@ struct AnalogCrossResult {
  *
  * Validity is decided first (per-channel @ref SignalStatus); only then is the
  * same-slope or opposite-slope relationship tested. When both channels are usable
- * and agree, the returned value is the average (same-slope) or channel A (opposite
- * slope, equivalent to @f$ (a + (S-b))/2 @f$ when they agree). When they disagree,
+ * and agree, the returned value is the average of the two estimates of the
+ * quantity: @f$ (a + b)/2 @f$ (same slope) or @f$ (a + (S-b))/2 @f$ (opposite
+ * slope). When they disagree,
  * @ref AnalogCrossResult::has_value is false — the caller must not treat a mid-point
  * of disagreeing sensors as truth. When only one channel is usable, that channel's
  * value is returned with a degraded status.

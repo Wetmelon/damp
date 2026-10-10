@@ -96,8 +96,9 @@ template<size_t N, typename T, typename Yf>
  * policy (clamp or linear extrapolation).
  *
  * @code
- * // NTC: resistance (kΩ) -> temperature (°C), falling curve.
- * constexpr Lut1D<3, float> ntc{{32.6f, 10.0f, 3.6f}, {0.0f, 25.0f, 50.0f}};
+ * // NTC: resistance (kΩ) -> temperature (°C). Breakpoints must increase, so a
+ * // falling curve is tabulated from low to high resistance.
+ * constexpr Lut1D<3, float> ntc{{3.6f, 10.0f, 32.6f}, {50.0f, 25.0f, 0.0f}};
  * float t = ntc(measured_kohm);
  * @endcode
  *
@@ -427,17 +428,17 @@ template<size_t N, typename T = float>
 struct AdaptiveLut1D {
     static_assert(N >= 1, "AdaptiveLut1D needs at least one breakpoint");
 
-    ColVec<N, T>    xs{};
-    ColVec<N, T>    ys{};
-    ColVec<N, T>    ys_init{}; ///< Snapshot for @ref reset
-    ColVec<N, T>    n{};       ///< Sample counts (running-mean mode)
-    ColVec<N, T>    locked{};  ///< nonzero ⇒ cell does not adapt
-    Extrapolation   oob{Extrapolation::Clamp};
-    Interpolation   interp{Interpolation::Linear};
-    AdaptOutOfRange adapt_oob{AdaptOutOfRange::Ignore};
-    T               alpha{T{1}}; ///< Forgetting gain ∈ (0, 1]; ignored if !forgetting
-    bool            forgetting{false};
-    bool            enabled{true};
+    ColVec<N, T>    xs{};                               ///< Strictly increasing breakpoints (fixed).
+    ColVec<N, T>    ys{};                               ///< Adapted value at each breakpoint.
+    ColVec<N, T>    ys_init{};                          ///< Snapshot for @ref reset
+    ColVec<N, T>    n{};                                ///< Sample counts (running-mean mode)
+    ColVec<N, T>    locked{};                           ///< nonzero ⇒ cell does not adapt
+    Extrapolation   oob{Extrapolation::Clamp};          ///< Query out-of-range policy.
+    Interpolation   interp{Interpolation::Linear};      ///< Query interpolant.
+    AdaptOutOfRange adapt_oob{AdaptOutOfRange::Ignore}; ///< Out-of-range sample policy.
+    T               alpha{T{1}};                        ///< Forgetting gain ∈ (0, 1]; ignored if !forgetting
+    bool            forgetting{false};                  ///< true: exponential forgetting; false: running mean.
+    bool            enabled{true};                      ///< false freezes adaptation.
 
     /// Build from a static table (initial ys copied for reset).
     [[nodiscard]] static constexpr AdaptiveLut1D from_lut(const Lut1D<N, T>& lut) {
@@ -470,21 +471,19 @@ struct AdaptiveLut1D {
         if (!enabled) {
             return;
         }
-        if constexpr (N >= 1) {
-            if ((x < xs[0] || x > xs[N - 1]) && adapt_oob == AdaptOutOfRange::Ignore) {
-                return;
-            }
-            const size_t i = Lut1D<N, T>{.xs = xs, .ys = ys}.nearest_index(x);
-            if (is_locked(i)) {
-                return;
-            }
-            if (forgetting) {
-                const T a = damp::clamp(alpha, T{0}, T{1});
-                ys[i] = ((T{1} - a) * ys[i]) + (a * measured);
-            } else {
-                n[i] += T{1};
-                ys[i] += (measured - ys[i]) / n[i];
-            }
+        if ((x < xs[0] || x > xs[N - 1]) && adapt_oob == AdaptOutOfRange::Ignore) {
+            return;
+        }
+        const size_t i = Lut1D<N, T>{.xs = xs, .ys = ys}.nearest_index(x);
+        if (is_locked(i)) {
+            return;
+        }
+        if (forgetting) {
+            const T a = damp::clamp(alpha, T{0}, T{1});
+            ys[i] = ((T{1} - a) * ys[i]) + (a * measured);
+        } else {
+            n[i] += T{1};
+            ys[i] += (measured - ys[i]) / n[i];
         }
     }
 };
@@ -502,18 +501,17 @@ template<size_t R, size_t C, typename T = float>
 struct AdaptiveLut2D {
     static_assert(R >= 1 && C >= 1, "AdaptiveLut2D needs at least one breakpoint per axis");
 
-    ColVec<R, T>    rows{};
-    ColVec<C, T>    cols{};
-    Matrix<R, C, T> z{};
-    Matrix<R, C, T> z_init{};
-    Matrix<R, C, T> n{}; ///< counts
-    // lock packed as 0/1 in a matrix of T to stay POD-friendly
-    Matrix<R, C, T> lock{}; ///< nonzero ⇒ locked
-    Extrapolation   oob{Extrapolation::Clamp};
-    AdaptOutOfRange adapt_oob{AdaptOutOfRange::Ignore};
-    T               alpha{T{1}};
-    bool            forgetting{false};
-    bool            enabled{true};
+    ColVec<R, T>    rows{};                             ///< Strictly increasing row breakpoints (fixed).
+    ColVec<C, T>    cols{};                             ///< Strictly increasing column breakpoints (fixed).
+    Matrix<R, C, T> z{};                                ///< Adapted grid values.
+    Matrix<R, C, T> z_init{};                           ///< Snapshot for @ref reset
+    Matrix<R, C, T> n{};                                ///< Sample counts (running-mean mode)
+    Matrix<R, C, T> lock{};                             ///< nonzero ⇒ locked (0/1 in T keeps it POD-friendly)
+    Extrapolation   oob{Extrapolation::Clamp};          ///< Query out-of-range policy.
+    AdaptOutOfRange adapt_oob{AdaptOutOfRange::Ignore}; ///< Out-of-range sample policy.
+    T               alpha{T{1}};                        ///< Forgetting gain ∈ (0, 1]; ignored if !forgetting
+    bool            forgetting{false};                  ///< true: exponential forgetting; false: running mean.
+    bool            enabled{true};                      ///< false freezes adaptation.
 
     [[nodiscard]] static constexpr AdaptiveLut2D from_lut(const Lut2D<R, C, T>& lut) {
         return AdaptiveLut2D{

@@ -25,8 +25,55 @@
  */
 
 #include <cstdint>
+#include <type_traits>
+
+#include "damp/math/math.hpp"
+#include "damp/matrix/matrix_traits.hpp"
 
 namespace damp {
+
+namespace detail {
+
+/**
+ * @brief Slack for comparing an accumulated time against a preset
+ *
+ * A floating-point sum of n steps of dt misses n·dt by up to O(n·eps) — 0.1
+ * summed eight times is 0.7999999999999999, not 0.8 — so an exact
+ * `elapsed >= preset` test fires a tick late. The slack √eps·|preset| absorbs
+ * that drift for any practical tick count while staying far below one tick.
+ * Integral time types count exactly and get zero slack.
+ */
+template<typename T>
+[[nodiscard]] constexpr T timer_slack(T preset) {
+    if constexpr (std::is_floating_point_v<T>) {
+        return damp::sqrt(eps<T>()) * damp::abs(preset);
+    } else {
+        return T{0};
+    }
+}
+
+/// True once @p elapsed has reached @p preset (up to the accumulation slack).
+template<typename T>
+[[nodiscard]] constexpr bool timer_reached(T elapsed, T preset) {
+    return elapsed >= preset - timer_slack(preset);
+}
+
+/**
+ * @brief Advance @p elapsed by @p dt toward @p preset, saturating exactly at it
+ *
+ * Overflow-safe for unsigned/integral time types (never forms elapsed + dt past
+ * the preset) and snaps a floating sum within the slack onto @p preset, so the
+ * caller's `elapsed >= preset` check is exact. Assumes `elapsed ≤ preset`.
+ */
+template<typename T>
+[[nodiscard]] constexpr T timer_advance(T elapsed, T dt, T preset) {
+    if (!(elapsed < preset) || dt >= (preset - elapsed) - timer_slack(preset)) {
+        return preset;
+    }
+    return elapsed + dt;
+}
+
+} // namespace detail
 
 /**
  * @brief Free-running elapsed-time accumulator.
@@ -84,12 +131,7 @@ public:
 
     /// Advance by @p dt; returns whether the timeout has now expired.
     constexpr bool tick(T dt) {
-        if (elapsed_ < duration) {
-            elapsed_ += dt;
-            if (elapsed_ > duration) {
-                elapsed_ = duration; // clamp: bounded accumulator
-            }
-        }
+        elapsed_ = detail::timer_advance(elapsed_, dt, duration); // saturates at duration, overflow-safe
         return expired();
     }
 
@@ -135,7 +177,9 @@ public:
             return false;
         }
         phase_ += dt;
-        if (phase_ >= period) {
+        if (detail::timer_reached(phase_, period)) {
+            // Carry the remainder; a within-slack shortfall leaves a tiny
+            // negative phase rather than firing a tick late.
             phase_ -= period;
             return true;
         }

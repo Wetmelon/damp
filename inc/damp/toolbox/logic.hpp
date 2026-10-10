@@ -24,6 +24,10 @@
  * @see toolbox/conditioning.hpp for the analog signal-shaping siblings.
  */
 
+#include <limits>
+
+#include "damp/toolbox/timing.hpp" // detail::timer_advance
+
 namespace damp {
 
 /// Rising-edge detector: true on the tick @p x goes false → true.
@@ -103,10 +107,9 @@ public:
             elapsed_ = T{0};
             out_ = false;
         } else if (!out_) {
-            elapsed_ += dt;
-            if (elapsed_ >= delay_) {
-                out_ = true; // latch; stop accumulating so integral T can't overflow
-            }
+            // Saturates at delay_ (overflow-safe for integral T, rounding-safe for floats).
+            elapsed_ = detail::timer_advance(elapsed_, dt, delay_);
+            out_ = (elapsed_ >= delay_);
         }
         return out_;
     }
@@ -140,10 +143,8 @@ public:
             out_ = true;
             elapsed_ = T{0};
         } else if (out_) {
-            elapsed_ += dt;
-            if (elapsed_ >= delay_) {
-                out_ = false;
-            }
+            elapsed_ = detail::timer_advance(elapsed_, dt, delay_);
+            out_ = (elapsed_ < delay_);
         }
         return out_;
     }
@@ -180,10 +181,8 @@ public:
             elapsed_ = T{0};
         }
         if (out_) {
-            elapsed_ += dt;
-            if (elapsed_ >= width_) {
-                out_ = false;
-            }
+            elapsed_ = detail::timer_advance(elapsed_, dt, width_);
+            out_ = (elapsed_ < width_);
         }
         return out_;
     }
@@ -220,7 +219,7 @@ public:
         if (in == state_) {
             elapsed_ = T{0}; // no pending change
         } else {
-            elapsed_ += dt;
+            elapsed_ = detail::timer_advance(elapsed_, dt, stable_);
             if (elapsed_ >= stable_) {
                 state_ = in;
                 elapsed_ = T{0};
@@ -266,7 +265,8 @@ private:
 
 /**
  * @brief Edge-counting up/down counter: increments on each rising edge of @p up,
- *        decrements on each rising edge of @p down. Returns the running count.
+ *        decrements on each rising edge of @p down. Returns the running count,
+ *        saturating at the limits of @p T (no wrap / signed overflow).
  * @tparam T integer count type.
  */
 template<typename T = int>
@@ -276,10 +276,10 @@ public:
     constexpr explicit Counter(T initial) : count_(initial) {}
 
     constexpr T operator()(bool up, bool down) {
-        if (up && !prev_up_) {
+        if (up && !prev_up_ && count_ < std::numeric_limits<T>::max()) {
             ++count_;
         }
-        if (down && !prev_down_) {
+        if (down && !prev_down_ && count_ > std::numeric_limits<T>::lowest()) {
             --count_;
         }
         prev_up_ = up;
