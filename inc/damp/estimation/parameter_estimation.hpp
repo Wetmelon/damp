@@ -272,8 +272,12 @@ public:
 
     /// Recent-to-baseline residual ratio (≈1 = model still explains the data)
     [[nodiscard]] constexpr T drift_score() const {
-        constexpr T floor_eps = std::numeric_limits<T>::epsilon() * T{100};
-        return fast_ / ((slow_ > floor_eps) ? slow_ : floor_eps);
+        // Scale-invariant guard: a zero baseline with any recent residual reads
+        // as a very large ratio, never a division by zero.
+        if (!(fast_ > T{0})) {
+            return T{0};
+        }
+        return fast_ / damp::max(slow_, eps<T>() * fast_);
     }
 
     /// True once the baseline exists (≥ 2/slow_alpha samples) and the score crosses the threshold

@@ -17,8 +17,7 @@
  * @note The callable returns a struct containing the function value and its
  *       Jacobians — it is NOT the Jacobian function itself.
  *
- * @see "Optimal State Estimation" (Simon, 2006), Chapter 13
- * @see Solà et al., "Quaternion kinematics for the error-state Kalman filter" (2017)
+ * @see "Optimal State Estimation" (Simon, 2006), §13.2.3
  */
 
 #include <concepts>
@@ -101,7 +100,7 @@ concept EKFMeasFn = requires(Fn&& fn, const ColVec<NX, T>& x, const ColVec<NU, T
  *
  * The covariance update uses the Joseph form for numerical stability.
  *
- * @see "Optimal State Estimation" (Simon, 2006), §13.3
+ * @see "Optimal State Estimation" (Simon, 2006), §13.2.3
  *
  * @tparam NX Number of states
  * @tparam NU Number of inputs
@@ -145,7 +144,7 @@ struct ExtendedKalmanFilter {
      * @brief Update step: correct state estimate from measurement
      *
      *     S = H·P·Hᵀ + M·R·Mᵀ
-     *     K = P·Hᵀ·S⁻¹  (Cholesky; LU fallback if S is only semi-definite)
+     *     K = P·Hᵀ·S⁻¹  (via mat::solve: Cholesky, LU fallback)
      *     x[k|k] = x[k|k−1] + K·(y − ŷ)
      *     P[k|k] = (I − KH)·P·(I − KH)ᵀ + K·M·R·Mᵀ·Kᵀ  [Joseph form]
      *
@@ -164,10 +163,7 @@ struct ExtendedKalmanFilter {
         const Matrix<NY, NY, T> S = quadratic_form(mj.H, P) + quadratic_form(mj.M, R);
 
         // K = PHᵀS⁻¹ → solve S Kᵀ = H P (fail closed if S is singular)
-        auto K_opt = mat::cholesky_solve(S, mj.H * P);
-        if (!K_opt) {
-            K_opt = mat::lu_solve(S, mj.H * P);
-        }
+        const auto K_opt = mat::solve(S, mj.H * P);
         if (!K_opt) {
             return false;
         }

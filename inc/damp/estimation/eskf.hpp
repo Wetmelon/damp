@@ -21,8 +21,7 @@
  * @f]
  * with right-multiplicative attitude error on the body.
  *
- * @see Solà et al., "Quaternion kinematics for the error-state Kalman filter" (2017)
- * @see "Optimal State Estimation" (Simon, 2006), §14.2
+ * @see "Quaternion kinematics for the error-state Kalman filter" (Solà, 2017), §5–6
  * @see ESKFOrientationFilter for a turnkey IMU/MARG runtime
  * @see ins_eskf.hpp for the 15-state navigation ESKF
  */
@@ -30,11 +29,46 @@
 #include <concepts>
 #include <cstddef>
 
+#include "damp/math/geometry.hpp"
 #include "damp/math/math.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "ekf.hpp"
 
 namespace damp {
+
+namespace detail {
+
+/// Skew-symmetric (cross-product) matrix [v]×, so that [v]× w = v × w.
+template<typename T>
+[[nodiscard]] constexpr Matrix<3, 3, T> skew_sym(const Vec3<T>& v) {
+    return Matrix<3, 3, T>{
+        {T{0}, -v[2], v[1]},
+        {v[2], T{0}, -v[0]},
+        {-v[1], v[0], T{0}},
+    };
+}
+
+/// Right-multiplicative attitude perturbation exp(δθ) as a unit quaternion.
+template<typename T>
+[[nodiscard]] constexpr Quaternion<T> exp_delta_theta(const Vec3<T>& dth) {
+    const T n = dth.norm();
+    if (!(n > T{0})) {
+        return Quaternion<T>::identity();
+    }
+    return Quaternion<T>::from_axis_angle(dth, n, T{0}).value_or(Quaternion<T>::identity());
+}
+
+/**
+ * Error-state reset Jacobian for a right-multiplicative attitude error after
+ * injecting δθ: G_θθ = I − ½[δθ]× (Solà 2017, §6.3).
+ */
+template<typename T>
+[[nodiscard]] constexpr Matrix<3, 3, T> attitude_reset_jacobian(const Vec3<T>& dth) {
+    return Matrix<3, 3, T>::identity() - (skew_sym(dth) * T{0.5});
+}
+
+} // namespace detail
+
 namespace design {
 /**
  * @struct ESKFResult
@@ -284,7 +318,7 @@ concept ESKFMeasFn = requires(Fn&& fn) {
  * 3. @ref update — @f$ \delta x = K(y - h(x_{\mathrm{nom}})) @f$.
  * 4. Inject δx into the nominal state and @ref reset_error_state.
  *
- * @see Solà et al., "Quaternion kinematics for the error-state Kalman filter" (2017), §5–6
+ * @see "Quaternion kinematics for the error-state Kalman filter" (Solà, 2017), §5–6
  *
  * @tparam NDX Error state dimension
  * @tparam NY  Default measurement dimension for @ref update
@@ -320,15 +354,19 @@ struct ErrorStateKalmanFilter {
           R(result.R.template as<T>()),
           delta_x(ColVec<NDX, T>{}) {}
 
-    // Predict: Propagate error covariance (nominal state updated externally by user)
+    // Predict: propagate the error mean and covariance (nominal state is
+    // integrated externally by the user).
     // User provides: (dt) -> ErrorStateJacobian{F, G}
     //   F = error state transition Jacobian (∂δx_next/∂δx)
     //   G = process noise Jacobian (maps Q to error covariance)
-    // P[k+1|k] = F * P[k|k] * F' + G * Q * G'
+    // δx[k+1|k] = F δx[k|k];  P[k+1|k] = F P[k|k] Fᵀ + G Q Gᵀ
     template<typename PredictFn>
         requires ESKFPredictFn<PredictFn, T, NDX>
     constexpr void predict(const PredictFn& propagate_nominal, const T dt) {
         ErrorStateJacobian<T, NDX> ej = propagate_nominal(dt);
+        // After an inject δx = 0 and this is a no-op; a correction that has not
+        // been injected yet must still be carried through the error dynamics.
+        delta_x = ej.F * delta_x;
         // P ← F P Fᵀ + G Q Gᵀ with exact symmetry (quadratic_form).
         // Typical IMU/INS paths use G = I (additive discrete Q).
         P = quadratic_form(ej.F, P);
@@ -348,7 +386,6 @@ struct ErrorStateKalmanFilter {
         } else {
             P = P + quadratic_form(ej.G, Q);
         }
-        // After inject, δx ≈ 0; multi-predict without inject leaves δx unpropagated by design.
     }
 
     /**
@@ -371,10 +408,7 @@ struct ErrorStateKalmanFilter {
     ) {
         // S = HPHᵀ + R with exact symmetry (quadratic_form); fail closed if singular.
         const Matrix<NY2, NY2, T> S = quadratic_form(H, P) + R_meas;
-        auto                      K_opt = mat::cholesky_solve(S, H * P);
-        if (!K_opt) {
-            K_opt = mat::lu_solve(S, H * P);
-        }
+        const auto                K_opt = mat::solve(S, H * P);
         if (!K_opt) {
             return false;
         }
@@ -404,16 +438,17 @@ struct ErrorStateKalmanFilter {
         MeasJacobian<T, NY, NDX> mj = meas_fn();
 
         innov = y - mj.y_pred; // Innovation
-        const Matrix<NY, NY, T> R_eff = mj.M * R * mj.M.t();
+        const Matrix<NY, NY, T> R_eff = quadratic_form(mj.M, R);
         return update_innovation(innov, mj.H, R_eff);
     }
 
-    // Reset error state after applying corrections to nominal state
-    // Call this after you've updated the nominal quaternion/biases with delta_x
-    // Optionally provide a G matrix to adjust covariance (e.g., for attitude reset)
+    // Reset error state after applying corrections to nominal state.
+    // Call this after you've updated the nominal quaternion/biases with delta_x.
+    // G is the reset Jacobian (P ← G P Gᵀ); for a right-multiplicative attitude
+    // error its attitude block is detail::attitude_reset_jacobian(δθ).
     constexpr void reset_error_state(const Matrix<NDX, NDX, T>& G = Matrix<NDX, NDX, T>::identity()) {
         delta_x = ColVec<NDX, T>{};
-        P = G * P * G.t();
+        P = quadratic_form(G, P);
     }
 
     // Accessors

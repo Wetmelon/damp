@@ -33,10 +33,14 @@
  * The QP is fixed-size and allocation-free (Hessian and constraint rows are
  * constant; only the gradient changes with data), solved by the warm-started
  * active-set solver — at steady state the active constraint set barely changes
- * between ticks, so solves are a few iterations. Approximations vs. the exact
- * (full-information) estimator, both standard practice: the arrival weight is
- * held at the steady-state @f$ P_\infty^{-1} @f$ rather than propagated, and
- * the arrival mean is updated with the previous solve's smoothed estimate.
+ * between ticks, so solves are a few iterations. Approximation vs. the exact
+ * (full-information) estimator, standard practice: the arrival weight is held
+ * at the steady-state a-priori @f$ P_\infty^{-1} @f$ rather than propagated.
+ * The arrival mean is the matching a-priori prediction, advanced each tick by
+ * one steady-state Kalman step over the sample leaving the window,
+ * @f$ \bar x \leftarrow A\bigl(\bar x + L(y_0 - C\bar x)\bigr) + B u_0 @f$
+ * (the filtering prior of Rao et al.). Using the previous solve's smoothed
+ * estimate instead would count the measurements still inside the window twice.
  *
  * Feedthrough is not supported (D = 0), matching the MPC. Bounds use the
  * `numeric_limits` sentinels (never infinity; -ffinite-math-only).
@@ -46,10 +50,10 @@
  * @see estimation/kalman.hpp for the unconstrained recursive equivalent,
  *      design/qp.hpp for the solver, controllers/mpc.hpp for the control-side
  *      mirror of this formulation
- * @see Rao, Rawlings & Mayne, "Constrained State Estimation for Nonlinear
- *      Discrete-Time Systems: Stability and Moving Horizon Approximations,"
- *      IEEE TAC 48(2), 2003, https://doi.org/10.1109/TAC.2003.812777
- * @see Rawlings, Mayne & Diehl, "Model Predictive Control," 2nd ed., 2017, ch. 4
+ * @see "Constrained State Estimation for Nonlinear Discrete-Time Systems:
+ *      Stability and Moving Horizon Approximations" (Rao, Rawlings & Mayne, 2003)
+ * @see "Model Predictive Control: Theory, Computation, and Design"
+ *      (Rawlings, Mayne & Diehl, 2017), ch. 4
  *
  * @code
  * // Level estimator that can never report a negative level:
@@ -118,6 +122,9 @@ struct MHEArtifacts {
     Matrix<NX, NY, T>     M_cy{};              ///< 2·CᵀR⁻¹ (measurement gradient map)
     Matrix<NX, NU, T>     M_qu{};              ///< 2·Q⁻¹B (process gradient map, next state)
     Matrix<NX, NU, T>     M_aqu{};             ///< 2·AᵀQ⁻¹B (process gradient map, current state)
+    Matrix<NX, NX, T>     Ap_x{};              ///< A(I − LC) (arrival-prior update, prior term)
+    Matrix<NX, NY, T>     Ap_y{};              ///< A·L (arrival-prior update, measurement term)
+    Matrix<NX, NU, T>     Ap_u{};              ///< B (arrival-prior update, input term)
     MHEConstraints<NX, T> constraints{};       ///< Original limits
     size_t                max_qp_iterations{}; ///< Per-tick QP iteration budget
     bool                  success{false};      ///< true if the synthesis validated
@@ -132,6 +139,9 @@ struct MHEArtifacts {
             M_cy.template as<U>(),
             M_qu.template as<U>(),
             M_aqu.template as<U>(),
+            Ap_x.template as<U>(),
+            Ap_y.template as<U>(),
+            Ap_u.template as<U>(),
             constraints.template as<U>(),
             max_qp_iterations,
             success,
@@ -184,7 +194,7 @@ template<size_t NH, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size
     }
     for (size_t r = 0; r < NY; ++r) {
         for (size_t c = 0; c < NU; ++c) {
-            if (damp::abs(sys.D(r, c)) > damp::default_tol<T>()) {
+            if (sys.D(r, c) != T{0}) {
                 return art; // feedthrough unsupported
             }
         }
@@ -241,6 +251,11 @@ template<size_t NH, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size
     art.M_cy = T{2} * (sys.C.transpose() * Wr);
     art.M_qu = T{2} * (Wq * sys.B);
     art.M_aqu = T{2} * (sys.A.transpose() * (Wq * sys.B));
+
+    // Arrival prior: one steady-state Kalman step over the sample leaving the window.
+    art.Ap_x = sys.A * (Matrix<NX, NX, T>::identity() - (kf.L * sys.C));
+    art.Ap_y = sys.A * kf.L;
+    art.Ap_u = sys.B;
 
     // Box rows: x_k ≤ x_max and −x_k ≤ −x_min for every window state.
     for (size_t v = 0; v < NV; ++v) {
@@ -317,6 +332,9 @@ public:
             }
             primed = true;
         } else {
+            // The window start advances by one: carry its a-priori mean through
+            // one steady-state Kalman step over the departing sample (y₀, u₀).
+            x_bar = (art.Ap_x * x_bar) + (art.Ap_y * ys[0]) + (art.Ap_u * us[0]);
             for (size_t k = 0; k < NH; ++k) {
                 ys[k] = ys[k + 1];
             }
@@ -325,11 +343,6 @@ public:
                 us[k] = us[k + 1];
             }
             us[NH - 1] = u;
-            // The window start advanced by one: its prior mean is the previous
-            // solve's (smoothed) estimate of that state.
-            for (size_t i = 0; i < NX; ++i) {
-                x_bar(i) = z(NX + i);
-            }
         }
 
         // Gradient from the ring buffers (Hessian and bounds are constant).

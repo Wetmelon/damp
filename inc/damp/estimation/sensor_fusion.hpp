@@ -19,9 +19,11 @@
  * runtime tick is ESKFOrientationFilter::update (not free functions that
  * take a bare @c ErrorStateKalmanFilter).
  *
- * @see Madgwick, "An efficient orientation filter" (2010)
- * @see Mahony et al., "Nonlinear Complementary Filters on SO(3)" (2008)
- * @see Solà et al., "Quaternion kinematics for the error-state Kalman filter" (2017)
+ * @see "An efficient orientation filter for inertial and inertial/magnetic
+ *      sensor arrays" (Madgwick, 2010)
+ * @see "Nonlinear Complementary Filters on the Special Orthogonal Group"
+ *      (Mahony et al., 2008)
+ * @see "Quaternion kinematics for the error-state Kalman filter" (Solà, 2017)
  */
 
 #include <cstddef>
@@ -31,32 +33,22 @@
 #include "damp/matrix/colvec.hpp"
 #include "damp/matrix/core.hpp"
 #include "eskf.hpp"
+#include "ins_mechanization.hpp"
 
 namespace damp {
-
-namespace detail {
-
-/// Negative skew-symmetric (cross-product) matrix: skew_neg(v)·u = -(v × u) = u × v.
-/// Used for the small-angle attitude Jacobian -[v]× and Solà reset I − ½[δθ]×.
-template<typename T>
-[[nodiscard]] constexpr Matrix<3, 3, T> skew_neg(const Vec3<T>& v) {
-    Matrix<3, 3, T> m = Matrix<3, 3, T>::zeros();
-    m(0, 1) = v[2];
-    m(0, 2) = -v[1];
-    m(1, 0) = -v[2];
-    m(1, 2) = v[0];
-    m(2, 0) = v[1];
-    m(2, 1) = -v[0];
-    return m;
-}
-
-} // namespace detail
 
 /**
  * @brief Simple complementary filter for orientation estimation
  *
  * Blends gyroscope integration (high-frequency) with accelerometer tilt
- * (low-frequency) using a tunable alpha parameter.
+ * (low-frequency) using a tunable alpha parameter. Yaw is carried by the gyro
+ * alone (the accelerometer does not observe it).
+ *
+ * Conventions (shared by @ref MadgwickFilter and @ref MahonyFilter):
+ * @c orientation() is body → world (@c q.rotate(v_body) is in the world frame,
+ * z up), the same as @ref ESKFOrientationFilter and @ref InsState; @p accel is
+ * the gravity direction in the body frame — at rest and level it reads
+ * (0, 0, −g), i.e. the negated specific force.
  *
  * @tparam T Scalar type (default: float)
  */
@@ -69,35 +61,52 @@ public:
     constexpr ComplementaryFilter(T alpha_gain = static_cast<T>(0.98)) : alpha(alpha_gain), q(Quaternion<T>::identity()) {}
 
     constexpr void update(const Vec3<T>& accel, const Vec3<T>& gyro, T dt) {
-        Vec3<T> a_norm = accel.normalized();
-
-        // Body gravity for attitude q (world→body) is R(q)·[0,0,-g] = g·[…],
-        // giving a_norm = [-sinθ, sinφ·cosθ, -cosφ·cosθ]. Invert for roll/pitch.
-        // The pitch denominator is the horizontal (y,z) magnitude, not the full
-        // vector norm (which is 1 after normalization and would collapse the tilt).
-        T roll = damp::atan2(a_norm[1], -a_norm[2]);
-        T pitch = damp::atan2(-a_norm[0], damp::hypot(a_norm[1], a_norm[2]));
-
-        Euler<T, EulerOrder::ZYX> euler(T{0}, pitch, roll);
-
-        Quaternion<T> q_accel = Quaternion<T>::from_euler(euler);
-
         q = q.integrate_body_rates(gyro, dt);
-        q = Quaternion<T>::slerp(q, q_accel, T{1} - alpha);
-        q = q.normalized();
+
+        // Gravity direction in body for body→world ZYX attitude (ψ, θ, φ):
+        // Rᵀ·[0,0,−1] = [sinθ, −sinφ·cosθ, −cosφ·cosθ]. Invert for roll/pitch;
+        // the pitch denominator is the horizontal (y,z) magnitude.
+        const Vec3<T> a_norm = accel.normalized();
+        const T       roll = damp::atan2(-a_norm[1], -a_norm[2]);
+        const T       pitch = damp::atan2(a_norm[0], damp::hypot(a_norm[1], a_norm[2]));
+
+        // Keep the gyro-integrated yaw: the accelerometer carries no heading.
+        const T             yaw = Euler<T, EulerOrder::ZYX>::from_quaternion(q).yaw();
+        const Quaternion<T> q_accel = Quaternion<T>::from_euler(Euler<T, EulerOrder::ZYX>(yaw, pitch, roll));
+
+        q = Quaternion<T>::slerp(q, q_accel, T{1} - alpha).normalized();
     }
 
-    [[nodiscard]] constexpr const Quaternion<T>& orientation() const { return q; }
+    [[nodiscard]] constexpr const Quaternion<T>& orientation() const { return q; } ///< body→world
 };
+
+namespace detail {
+
+/**
+ * Mahony-style field-alignment error (measured × estimated, body frame) for a
+ * body→world @p q: gravity from @p a_norm (gravity direction) and heading from
+ * @p m_norm, whose world-frame reference is flattened to north = +Y.
+ */
+template<typename T>
+[[nodiscard]] constexpr Vec3<T> attitude_field_error(const Quaternion<T>& q, const Vec3<T>& a_norm, const Vec3<T>& m_norm) {
+    const Vec3<T> up_meas = -a_norm;
+    const Vec3<T> up_est = q.conjugate().rotate(Vec3<T>{T{0}, T{0}, T{1}});
+    const Vec3<T> h = q.rotate(m_norm);
+    const Vec3<T> m_est = q.conjugate().rotate(Vec3<T>{T{0}, damp::hypot(h[0], h[1]), h[2]});
+    return up_meas.cross(up_est) + m_norm.cross(m_est);
+}
+
+} // namespace detail
 
 /**
  * @brief Madgwick gradient-descent AHRS filter
  *
  * Fuses gyroscope, accelerometer, and magnetometer using a gradient-descent
- * algorithm to minimize orientation error.
+ * algorithm to minimize orientation error. Conventions as
+ * @ref ComplementaryFilter (body → world, gravity-direction accel).
  *
- * @see Madgwick, "An efficient orientation filter for inertial and
- *      inertial/magnetic sensor arrays" (2010)
+ * @see "An efficient orientation filter for inertial and inertial/magnetic
+ *      sensor arrays" (Madgwick, 2010)
  *
  * @tparam T Scalar type (default: float)
  */
@@ -110,59 +119,42 @@ public:
     constexpr MadgwickFilter(T beta_gain = static_cast<T>(0.1)) : beta(beta_gain), q(Quaternion<T>::identity()) {}
 
     constexpr void update(const Vec3<T>& accel, const Vec3<T>& gyro, const Vec3<T>& mag, T dt) {
-        Vec3<T> a_norm = accel.normalized();
-        Vec3<T> m_norm = mag.normalized();
-
-        // Field-alignment error in the body frame (gravity + magnetometer), the
-        // gradient the filter descends. Gravity: measured field crossed with the
-        // estimated world-up axis in body, R(q)·[0,0,1] (antiparallel at the fixed
-        // point). Magnetometer: refer the field to the world frame, flatten to the
-        // horizontal reference (north = +Y), rotate the estimate back to body, and
-        // cross (estimate × meas) — opposite order to gravity since the mag
-        // estimate is parallel to the measurement at the fixed point.
-        const Vec3<T> v = q.rotate(Vec3<T>{T{0}, T{0}, T{1}});
-        Vec3<T>       e = a_norm.cross(v);
-
-        const Vec3<T> h = q.conjugate().rotate(m_norm);
-        const T       b_horizontal = damp::hypot(h[0], h[1]);
-        const Vec3<T> w = q.rotate(Vec3<T>{T{0}, b_horizontal, h[2]});
-        e += w.cross(m_norm);
+        const Vec3<T> e = detail::attitude_field_error(q, accel.normalized(), mag.normalized());
 
         // q̇_gyro = ½ q ⊗ ω
         const Quaternion<T> q_dot_gyro = static_cast<T>(0.5) * q * Quaternion<T>{T{0}, gyro[0], gyro[1], gyro[2]};
 
         // Gradient-descent correction: ½ q ⊗ [0, e], normalized so the step size
         // is fixed at β regardless of error magnitude (the Madgwick characteristic).
-        // +e drives the error toward zero, so the term is added to the gyro rate.
         Quaternion<T> grad = static_cast<T>(0.5) * q * Quaternion<T>{T{0}, e[0], e[1], e[2]};
         const T       grad_norm = grad.norm();
-        if (grad_norm > static_cast<T>(1e-9)) {
+        if (grad_norm > T{0}) {
             grad = grad / grad_norm;
         }
 
         const Quaternion<T> q_dot = Quaternion<T>(q_dot_gyro + beta * grad);
-        q = q + q_dot * dt;
-        q = q.normalized();
+        q = (q + q_dot * dt).normalized();
     }
 
-    [[nodiscard]] constexpr const Quaternion<T>& orientation() const { return q; }
+    [[nodiscard]] constexpr const Quaternion<T>& orientation() const { return q; } ///< body→world
 };
 
 /**
  * @brief Mahony nonlinear complementary filter with PI correction
  *
  * Uses a proportional-integral controller on the orientation error
- * to correct gyroscope drift.
+ * to correct gyroscope drift. Conventions as @ref ComplementaryFilter
+ * (body → world, gravity-direction accel).
  *
- * @see Mahony et al., "Nonlinear Complementary Filters on the Special
- *      Orthogonal Group" (2008)
+ * @see "Nonlinear Complementary Filters on the Special Orthogonal Group"
+ *      (Mahony et al., 2008)
  *
  * @tparam T Scalar type (default: float)
  */
 template<typename T = float>
 class MahonyFilter {
     T             Kp, Ki;
-    Vec3<T>       integral_error;
+    Vec3<T>       integral_error{};
     Quaternion<T> q;
 
 public:
@@ -170,36 +162,14 @@ public:
         : Kp(Kp_gain), Ki(Ki_gain), q(Quaternion<T>::identity()) {}
 
     constexpr void update(const Vec3<T>& accel, const Vec3<T>& gyro, const Vec3<T>& mag, T dt) {
-        Vec3<T> a_norm = accel.normalized();
-        Vec3<T> m_norm = mag.normalized();
-
-        // Gravity (accelerometer) correction: measured field crossed with the
-        // estimated world-up axis in body, R(q)·[0,0,1]. (At the fixed point
-        // a_norm is antiparallel to this axis, which is the stable equilibrium.)
-        Vec3<T> v = q.rotate(Vec3<T>{T{0}, T{0}, T{1}});
-        Vec3<T> error = a_norm.cross(v);
-
-        // Magnetometer correction (yaw): refer the measured field to the world
-        // frame, flatten it to the horizontal reference direction (north = +Y,
-        // matching this file's world frame), rotate that estimate back to body,
-        // and cross it with the measurement. The estimate is parallel to the
-        // measurement at the fixed point, so the cross order is (estimate × meas)
-        // — opposite to gravity — to keep the same (stable) sign. Without this
-        // term yaw drift is uncorrected.
-        const Vec3<T> h = q.conjugate().rotate(m_norm);
-        const T       b_horizontal = damp::hypot(h[0], h[1]);
-        const Vec3<T> w = q.rotate(Vec3<T>{T{0}, b_horizontal, h[2]});
-        error += w.cross(m_norm);
-
+        // Without the magnetometer term yaw drift is uncorrected.
+        const Vec3<T> error = detail::attitude_field_error(q, accel.normalized(), mag.normalized());
         integral_error += error * dt;
-        Vec3<T> feedback = Kp * error + Ki * integral_error;
-
-        Vec3<T> omega = gyro + feedback;
+        const Vec3<T> omega = gyro + Kp * error + Ki * integral_error;
         q = q.integrate_body_rates(omega, dt);
-        q = q.normalized();
     }
 
-    [[nodiscard]] constexpr const Quaternion<T>& orientation() const { return q; }
+    [[nodiscard]] constexpr const Quaternion<T>& orientation() const { return q; } ///< body→world
 };
 
 namespace detail {
@@ -219,9 +189,8 @@ constexpr void eskf_attitude_predict(
     const Vec3<T> omega = gyro_meas - b_g_nom;
     q_nom = q_nom.integrate_body_rates(omega, dt);
 
-    // [ω]× = −skew_neg(ω);  I − [ω]×dt = I + skew_neg(ω)·dt
     Matrix<6, 6, T> F = Matrix<6, 6, T>::identity();
-    F.template block<3, 3>(0, 0) = Matrix<3, 3, T>::identity() + (skew_neg(omega) * dt);
+    F.template block<3, 3>(0, 0) = Matrix<3, 3, T>::identity() - (skew_sym(omega) * dt);
     F(0, 3) = -dt;
     F(1, 4) = -dt;
     F(2, 5) = -dt;
@@ -238,17 +207,10 @@ template<size_t NY, typename T>
 constexpr void eskf_attitude_inject(ErrorStateKalmanFilter<6, NY, T>& eskf, Quaternion<T>& q_nom, Vec3<T>& b_g_nom) {
     const auto    dx = eskf.error_state();
     const Vec3<T> dth{dx[0], dx[1], dx[2]};
-    const T       n = dth.norm();
-    if (n > static_cast<T>(1e-12)) {
-        const auto dq = Quaternion<T>::from_axis_angle(dth, n).value_or(Quaternion<T>::identity());
-        q_nom = (q_nom * dq).normalized();
-    }
+    q_nom = (q_nom * exp_delta_theta(dth)).normalized();
     b_g_nom = b_g_nom + Vec3<T>{dx[3], dx[4], dx[5]};
-    // Solà right-multiplicative reset: G_θθ ≈ I − ½[δθ]×  (arXiv:1711.02508 §5.4)
     Matrix<6, 6, T> G_reset = Matrix<6, 6, T>::identity();
-    if (n > static_cast<T>(1e-12)) {
-        G_reset.template block<3, 3>(0, 0) = Matrix<3, 3, T>::identity() + (skew_neg(dth) * static_cast<T>(0.5));
-    }
+    G_reset.template block<3, 3>(0, 0) = attitude_reset_jacobian(dth);
     eskf.reset_error_state(G_reset);
 }
 
@@ -279,11 +241,8 @@ constexpr void eskf_apply_accel(
     innov[1] = accel_meas[1] - a_pred[1];
     innov[2] = accel_meas[2] - a_pred[2];
     Matrix<3, 6, T> H = Matrix<3, 6, T>::zeros();
-    H.template block<3, 3>(0, 0) = skew_neg(a_pred) * T{-1};
-    Matrix<3, 3, T> R_a = Matrix<3, 3, T>::zeros();
-    for (size_t i = 0; i < 3; ++i) {
-        R_a(i, i) = eskf.measurement_noise_covariance()(i, i);
-    }
+    H.template block<3, 3>(0, 0) = skew_sym(a_pred);
+    const Matrix<3, 3, T> R_a = eskf.measurement_noise_covariance().template block<3, 3>(0, 0);
     if (!eskf.update_innovation(innov, H, R_a)) {
         return;
     }
@@ -335,11 +294,8 @@ constexpr void eskf_tick_marg(
     innov_m[1] = mag_meas[1] - m_pred[1];
     innov_m[2] = mag_meas[2] - m_pred[2];
     Matrix<3, 6, T> Hm = Matrix<3, 6, T>::zeros();
-    Hm.template block<3, 3>(0, 0) = skew_neg(m_pred) * T{-1};
-    Matrix<3, 3, T> R_m = Matrix<3, 3, T>::zeros();
-    for (size_t i = 0; i < 3; ++i) {
-        R_m(i, i) = eskf.measurement_noise_covariance()(i + 3, i + 3);
-    }
+    Hm.template block<3, 3>(0, 0) = skew_sym(m_pred);
+    const Matrix<3, 3, T> R_m = eskf.measurement_noise_covariance().template block<3, 3>(3, 3);
     if (eskf.update_innovation(innov_m, Hm, R_m)) {
         eskf_attitude_inject(eskf, q_nom, b_g_nom);
     }
@@ -385,7 +341,7 @@ constexpr void eskf_tick_marg(
  * @see design::eskf_imu
  * @see design::eskf_marg
  * @see ErrorStateKalmanFilter
- * @see Solà et al., "Quaternion kinematics for the error-state Kalman filter" (2017), §5–6
+ * @see "Quaternion kinematics for the error-state Kalman filter" (Solà, 2017), §5–6
  *
  * Example (design-is-deploy):
  * @code
@@ -496,7 +452,7 @@ public:
         const Vec3<T>& accel,
         const Vec3<T>& gyro,
         T              dt,
-        const Vec3<T>& g_nav = Vec3<T>{T{0}, T{0}, static_cast<T>(-9.81)}
+        const Vec3<T>& g_nav = gravity_nav(NavFrame::ENU, kStandardGravity<T>)
     )
         requires(NY == 3)
     {
@@ -522,7 +478,7 @@ public:
         const Vec3<T>& gyro,
         const Vec3<T>& mag,
         T              dt,
-        const Vec3<T>& g_nav = Vec3<T>{T{0}, T{0}, static_cast<T>(-9.81)},
+        const Vec3<T>& g_nav = gravity_nav(NavFrame::ENU, kStandardGravity<T>),
         const Vec3<T>& m_nav = Vec3<T>{T{0}, T{1}, T{0}}
     )
         requires(NY == 6)

@@ -252,17 +252,18 @@ TEST_SUITE("Sensor Fusion Filters") {
 
     TEST_CASE("Complementary filter recovers a static tilt") {
         // Body rotated 25 deg about X relative to the world.
-        auto        q_true = Quaternion<float>::from_axis_angle(Vec3<float>{1.0f, 0.0f, 0.0f}, 0.4363f).value();
-        Vec3<float> accel = q_true.rotate(Vec3<float>{0.0f, 0.0f, -9.81f});
+        auto q_true = Quaternion<float>::from_axis_angle(Vec3<float>{1.0f, 0.0f, 0.0f}, 0.4363f).value();
+        // Body-frame gravity direction for a body→world attitude.
+        Vec3<float> accel = q_true.conjugate().rotate(Vec3<float>{0.0f, 0.0f, -9.81f});
 
         ComplementaryFilter<float> filter(0.9f);
         for (int i = 0; i < 4000; ++i) {
             filter.update(accel, Vec3<float>{0.0f, 0.0f, 0.0f}, 0.005f);
         }
 
-        // Predicted up axis must align with the true up axis.
-        Vec3<float> up_est = filter.orientation().rotate(Vec3<float>{0.0f, 0.0f, 1.0f});
-        Vec3<float> up_true = q_true.rotate(Vec3<float>{0.0f, 0.0f, 1.0f});
+        // World up seen in the body must match (tilt only; yaw is unobserved).
+        Vec3<float> up_est = filter.orientation().conjugate().rotate(Vec3<float>{0.0f, 0.0f, 1.0f});
+        Vec3<float> up_true = q_true.conjugate().rotate(Vec3<float>{0.0f, 0.0f, 1.0f});
         CHECK((up_est - up_true).norm() < 3e-2f);
     }
 
@@ -272,8 +273,8 @@ TEST_SUITE("Sensor Fusion Filters") {
         auto              qz = Quaternion<float>::from_axis_angle(Vec3<float>{0.0f, 0.0f, 1.0f}, 0.6981f).value();
         Quaternion<float> q_true = (qz * qx).normalized();
 
-        Vec3<float> accel = q_true.rotate(Vec3<float>{0.0f, 0.0f, -9.81f});
-        Vec3<float> mag = q_true.rotate(Vec3<float>{0.0f, 1.0f, 0.0f}); // north = +Y
+        Vec3<float> accel = q_true.conjugate().rotate(Vec3<float>{0.0f, 0.0f, -9.81f});
+        Vec3<float> mag = q_true.conjugate().rotate(Vec3<float>{0.0f, 1.0f, 0.0f}); // north = +Y
 
         MahonyFilter<float> filter(8.0f, 0.0f); // strong proportional gain for the test
         for (int i = 0; i < 6000; ++i) {
@@ -291,8 +292,8 @@ TEST_SUITE("Sensor Fusion Filters") {
         auto              qz = Quaternion<float>::from_axis_angle(Vec3<float>{0.0f, 0.0f, 1.0f}, 0.5236f).value(); // 30 deg
         Quaternion<float> q_true = (qz * qx).normalized();
 
-        Vec3<float> accel = q_true.rotate(Vec3<float>{0.0f, 0.0f, -9.81f});
-        Vec3<float> mag = q_true.rotate(Vec3<float>{0.0f, 1.0f, 0.0f});
+        Vec3<float> accel = q_true.conjugate().rotate(Vec3<float>{0.0f, 0.0f, -9.81f});
+        Vec3<float> mag = q_true.conjugate().rotate(Vec3<float>{0.0f, 1.0f, 0.0f});
 
         MadgwickFilter<float> filter(5.0f); // large beta for fast test convergence
         for (int i = 0; i < 8000; ++i) {

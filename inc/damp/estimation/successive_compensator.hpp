@@ -149,7 +149,7 @@ template<std::size_t N, typename T = float>
 
     const T wd = (T{2} * damp::numbers::pi_v<T>) / Td;
     T       delta = T{0};
-    if (A2 > default_tol<T>() && A1 > A2) {
+    if (A1 > A2) {
         delta = damp::log(A1 / A2);
     }
     if (delta < T{0}) {
@@ -158,7 +158,7 @@ template<std::size_t N, typename T = float>
 
     const T two_pi = T{2} * damp::numbers::pi_v<T>;
     const T den = damp::sqrt((two_pi * two_pi) + (delta * delta));
-    T       zeta = (den > default_tol<T>()) ? (delta / den) : T{0};
+    T       zeta = delta / den; // den ≥ 2π
     if (zeta >= T{1}) {
         zeta = static_cast<T>(0.99);
     }

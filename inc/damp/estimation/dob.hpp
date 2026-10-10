@@ -112,12 +112,19 @@ template<typename T>
     if (magnitude <= max_magnitude) {
         return value;
     }
-    if (magnitude <= default_tol<T>()) {
-        return T{};
-    }
-
     const auto scale = max_magnitude / magnitude;
     return value * scale;
+}
+
+/// True if p[0] is zero to rounding relative to the polynomial's largest
+/// coefficient (scale-invariant: a plant gain in other units is not "zero").
+template<size_t N, typename T>
+[[nodiscard]] constexpr bool leading_coefficient_negligible(const damp::array<T, N>& p) {
+    scalar_type_t<T> scale{0};
+    for (size_t i = 0; i < N; ++i) {
+        scale = damp::max(scale, damp::abs(p[i]));
+    }
+    return !(damp::abs(p[0]) > static_cast<scalar_type_t<T>>(N) * eps<T>() * scale);
 }
 
 } // namespace detail
@@ -356,8 +363,8 @@ template<size_t NBn, size_t NAn, size_t NQn, size_t NQd, typename T = double>
     const damp::array<T, NQn>& Qn,
     const damp::array<T, NQd>& Qd
 ) {
-    const T tol = default_tol<T>();
-    if (damp::abs(Bn[0]) <= tol || damp::abs(An[0]) <= tol || damp::abs(Qd[0]) <= tol) {
+    if (detail::leading_coefficient_negligible(Bn) || detail::leading_coefficient_negligible(An)
+        || detail::leading_coefficient_negligible(Qd)) {
         return ClassicalDobResult<NBn, NAn, NQn, NQd, T>{}; // not causally realizable
     }
     return ClassicalDobResult<NBn, NAn, NQn, NQd, T>{

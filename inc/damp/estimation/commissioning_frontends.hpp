@@ -204,7 +204,7 @@ template<std::size_t NFreq, typename T = float>
             found = true;
         }
     }
-    if (found && mag > default_tol<T>()) {
+    if (found && mag > T{0}) {
         const T scale = T{1} / mag;
         out.pid.Kp *= scale;
         out.pid.Ki *= scale;

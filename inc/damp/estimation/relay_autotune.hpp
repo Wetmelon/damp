@@ -20,7 +20,8 @@
  *     u[k] = u_bias − d   if (y[k] − r) > +ε
  *     u[k] = u[k−1]       otherwise   (hysteresis hold)
  *
- * Once the limit cycle settles (consecutive half-period durations within
+ * Once the limit cycle settles (full-period durations — consecutive half-period
+ * pairs, so an asymmetric relay's unequal halves still converge — within
  * RelayAutotuneConfig::period_tolerance of one another):
  *
  *     Tᵤ = 2 · mean(half_period)
@@ -111,7 +112,7 @@ namespace design {
  * Symmetric (default): `u = u_bias ± amplitude` when @c amplitude_neg <= 0.
  * Asymmetric / biased: positive half uses @c amplitude, negative half uses
  * @c amplitude_neg (> 0). Asymmetry yields a nonzero mean command so static
- * gain Kₛ ≈ ū / ȳ (deviations about bias/setpoint) can be estimated for AMIGO.
+ * gain Kₛ ≈ ȳ / ū (deviations about bias/setpoint) can be estimated for AMIGO.
  *
  * Hysteresis ε around the setpoint rejects measurement noise: the relay flips
  * only when |y − setpoint| exceeds ε.
@@ -126,7 +127,7 @@ struct RelayAutotuneConfig {
     T u_max{std::numeric_limits<T>::max()};  ///< Output saturation (upper)
 
     std::size_t warmup_cycles{2};  ///< Half-periods discarded as transient
-    std::size_t measure_cycles{6}; ///< Half-periods averaged for Tᵤ (≥ 2)
+    std::size_t measure_cycles{6}; ///< Half-periods averaged for Tᵤ (≥ 2; rounded up to even)
 
     T period_tolerance{static_cast<T>(0.05)}; ///< Convergence: (max − min) / mean ≤ tol
     T max_duration{T{30}};                    ///< Safety timeout (seconds, > 0)
@@ -280,6 +281,7 @@ public:
         period_sum_ = T{0};
         period_min_ = std::numeric_limits<T>::max();
         period_max_ = T{0};
+        previous_half_ = T{0};
         peak_pos_ = -std::numeric_limits<T>::max();
         peak_neg_ = std::numeric_limits<T>::max();
         cycle_peak_pos_ = -std::numeric_limits<T>::max();
@@ -411,22 +413,28 @@ private:
             }
 
             period_sum_ += half_period;
-            if (half_period < period_min_) {
-                period_min_ = half_period;
-            }
-            if (half_period > period_max_) {
-                period_max_ = half_period;
-            }
             ++measure_count_;
+            // Spread is judged on full periods (half-period pairs): an asymmetric
+            // relay's positive and negative halves differ by design.
+            if (measure_count_ % 2 == 0) {
+                const T full_period = previous_half_ + half_period;
+                if (full_period < period_min_) {
+                    period_min_ = full_period;
+                }
+                if (full_period > period_max_) {
+                    period_max_ = full_period;
+                }
+            }
+            previous_half_ = half_period;
 
             cycle_peak_pos_ = y;
             cycle_peak_neg_ = y;
 
-            if (measure_count_ >= config_.measure_cycles) {
-                const T mean = period_sum_ / static_cast<T>(measure_count_);
-                const T spread = (period_max_ - period_min_) / mean;
+            if (measure_count_ >= config_.measure_cycles && measure_count_ % 2 == 0) {
+                const T mean_half = period_sum_ / static_cast<T>(measure_count_);
+                const T spread = (period_max_ - period_min_) / (T{2} * mean_half);
                 if (spread <= config_.period_tolerance) {
-                    finalize(mean);
+                    finalize(mean_half);
                 } else {
                     // Window did not settle; restart accumulation. The
                     // max_duration safety net catches stuck experiments.
@@ -442,6 +450,7 @@ private:
         period_sum_ = T{0};
         period_min_ = std::numeric_limits<T>::max();
         period_max_ = T{0};
+        previous_half_ = T{0};
         peak_pos_ = -std::numeric_limits<T>::max();
         peak_neg_ = std::numeric_limits<T>::max();
         cycle_peak_pos_ = y;
@@ -454,10 +463,10 @@ private:
     constexpr void finalize(T half_period_mean) {
         Tu_ = T{2} * half_period_mean;
         const T a = (peak_pos_ - peak_neg_) / T{2};
-        const T eps = config_.hysteresis;
+        const T hyst = config_.hysteresis;
         // Use (a − ε)(a + ε) rather than a² − ε² so the cancellation-prone
         // subtraction never sits under the square root directly.
-        const T arg = (a - eps) * (a + eps);
+        const T arg = (a - hyst) * (a + hyst);
         if (arg <= T{0}) {
             status_ = RelayAutotuneStatus::Failed;
             return;
@@ -467,8 +476,10 @@ private:
         if (n_avg_ > 0) {
             const T y_bar = sum_y_ / static_cast<T>(n_avg_);
             const T u_bar = sum_u_ / static_cast<T>(n_avg_);
-            if (damp::abs(y_bar) > default_tol<T>()) {
-                Ks_ = u_bar / y_bar;
+            // Process static gain y/u from the biased cycle (needs ū ≠ 0, i.e.
+            // an asymmetric relay; relative to the relay amplitude).
+            if (damp::abs(u_bar) > eps<T>() * effective_d()) {
+                Ks_ = y_bar / u_bar;
             } else {
                 Ks_ = T{0};
             }
@@ -491,6 +502,7 @@ private:
     T period_sum_{T{0}};
     T period_min_{std::numeric_limits<T>::max()};
     T period_max_{T{0}};
+    T previous_half_{T{0}};
 
     T peak_pos_{-std::numeric_limits<T>::max()};
     T peak_neg_{std::numeric_limits<T>::max()};

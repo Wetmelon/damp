@@ -51,8 +51,8 @@
  *
  * Prefer small selector H rows over a dense 15-row zero-padded Jacobian.
  *
- * @see Solà, "Quaternion kinematics for the error-state Kalman filter," arXiv:1711.02508
- * @see Groves, Principles of GNSS, Inertial, and Multisensor Integrated Navigation, 2nd ed.
+ * @see "Quaternion kinematics for the error-state Kalman filter" (Solà, 2017), §5–6
+ * @see "Principles of GNSS, Inertial, and Multisensor Integrated Navigation Systems" (Groves, 2013)
  * @see eskf.hpp for the 6-state attitude ESKF core
  *
  * Example (design → deploy):
@@ -93,32 +93,6 @@ inline constexpr std::size_t dba = 12;   ///< accel bias error δb_a [m/s²] (3)
 
 namespace detail {
 
-/// Skew-symmetric [v]× so [v]× w = v × w.
-template<typename T>
-[[nodiscard]] constexpr Matrix<3, 3, T> skew_sym(const Vec3<T>& v) {
-    Matrix<3, 3, T> m = Matrix<3, 3, T>::zeros();
-    m(0, 1) = -v[2];
-    m(0, 2) = v[1];
-    m(1, 0) = v[2];
-    m(1, 2) = -v[0];
-    m(2, 0) = -v[1];
-    m(2, 1) = v[0];
-    return m;
-}
-
-/// Small-angle right-multiplicative quaternion @f$ \exp(\delta\theta) @f$.
-template<typename T>
-[[nodiscard]] constexpr Quaternion<T> exp_delta_theta(const Vec3<T>& dth, T eps = static_cast<T>(1e-12)) {
-    const T n2 = dth[0] * dth[0] + dth[1] * dth[1] + dth[2] * dth[2];
-    if (n2 <= eps * eps) {
-        // First-order: [1, δθ/2]
-        return Quaternion<T>{T{1}, static_cast<T>(0.5) * dth[0], static_cast<T>(0.5) * dth[1], static_cast<T>(0.5) * dth[2]}.normalized();
-    }
-    const T    n = damp::sqrt(n2);
-    const auto q = Quaternion<T>::from_axis_angle(dth, n, eps);
-    return q.value_or(Quaternion<T>::identity());
-}
-
 /// Fill a 3×15 measurement Jacobian with @f$ I_3 @f$ at column @p col0.
 template<typename T>
 [[nodiscard]] constexpr Matrix<kInsMeasDim, kInsErrorDim, T> selector_H(std::size_t col0) {
@@ -139,31 +113,27 @@ template<typename T>
     return damp::atan2(f[0], f[1]); // E, N with (E,N,U)
 }
 
-/// ∂ψ/∂f (1×3) for the heading convention of @p frame (horizontal only).
+/**
+ * ∂ψ/∂f (1×3) for the heading convention of @p frame (horizontal only).
+ *
+ * Zero when @p f is (numerically) vertical: the horizontal projection is then
+ * below √ε·‖f‖ and ψ carries no information.
+ */
 template<typename T>
 [[nodiscard]] constexpr Matrix<1, 3, T> dheading_dforward(const Vec3<T>& f, NavFrame frame) {
     Matrix<1, 3, T> J = Matrix<1, 3, T>::zeros();
-    if (frame == NavFrame::NED) {
-        // ψ = atan2(E, N) = atan2(f1, f0)
-        const T n = f[0];
-        const T e = f[1];
-        const T r2 = n * n + e * e;
-        if (r2 > static_cast<T>(1e-24)) {
-            const T inv = T{1} / r2;
-            J(0, 0) = -e * inv;
-            J(0, 1) = n * inv;
-        }
-    } else {
-        // ψ = atan2(E, N) = atan2(f0, f1)
-        const T e = f[0];
-        const T n = f[1];
-        const T r2 = e * e + n * n;
-        if (r2 > static_cast<T>(1e-24)) {
-            const T inv = T{1} / r2;
-            J(0, 0) = n * inv;
-            J(0, 1) = -e * inv;
-        }
+    // ψ = atan2(E, N); NED stores (N, E, ·), ENU stores (E, N, ·).
+    const bool ned = (frame == NavFrame::NED);
+    const T    n = ned ? f[0] : f[1];
+    const T    e = ned ? f[1] : f[0];
+    const T    r2 = n * n + e * e;
+    if (!(r2 > eps<T>() * (r2 + f[2] * f[2]))) {
+        return J;
     }
+    const T dpsi_dn = -e / r2;
+    const T dpsi_de = n / r2;
+    J(0, 0) = ned ? dpsi_dn : dpsi_de;
+    J(0, 1) = ned ? dpsi_de : dpsi_dn;
     return J;
 }
 
@@ -203,10 +173,14 @@ struct InsEskfResult {
  * @f$ Q_{pv}=\sigma_a^2\Delta t^2/2 @f$ from double integration of white accel.
  * Default @p R is isotropic position std (m), not a density.
  *
+ * @note The δv–δb_a cross term is exact only for a level, north-aligned body
+ *       (R(q) = I): the true term is @f$ -R(q)\,\sigma_{ba}^2\Delta t^2/2 @f$,
+ *       which a constant design-time Q cannot carry.
+ *
  * @param gyro_noise_density   [rad/s/√Hz]
  * @param accel_noise_density  [m/s²/√Hz]
  * @param gyro_bias_rw         [rad/s^{3/2}] gyro bias random walk
- * @param accel_bias_rw        [m/s²^{3/2}] accel bias random walk
+ * @param accel_bias_rw        [m/s^{5/2}] accel bias random walk
  * @param dt                   [s] sample period used to discretize Q
  * @param pos_noise_std        [m] 1-σ position measurement (default R)
  * @param init_att_std         [rad] initial attitude 1-σ
@@ -414,9 +388,13 @@ constexpr void ins_propagate_covariance(
     for (std::size_t i = 0; i < kInsErrorDim; ++i) {
         P.row(i) = ins_F_mul(ej, W.row(i));
     }
+    // The two passes round (i,j) and (j,i) differently; mirror the average so P
+    // stays exactly symmetric (quadratic_form in the update reads one triangle).
     for (std::size_t i = 0; i < kInsErrorDim; ++i) {
-        for (std::size_t j = 0; j < kInsErrorDim; ++j) {
-            P(i, j) += Q(i, j);
+        for (std::size_t j = 0; j <= i; ++j) {
+            const T pij = T{0.5} * ((P(i, j) + Q(i, j)) + (P(j, i) + Q(j, i)));
+            P(i, j) = pij;
+            P(j, i) = pij;
         }
     }
 }
@@ -443,12 +421,8 @@ ins_inject(InsState<T>& x, const ColVec<kInsErrorDim, T>& dx) {
     x.b_g = x.b_g + dbg;
     x.b_a = x.b_a + dba;
 
-    // Solà right-multiplicative reset: G_θθ ≈ I − ½[δθ]×  (arXiv:1711.02508 §5.4)
     Matrix<kInsErrorDim, kInsErrorDim, T> G = Matrix<kInsErrorDim, kInsErrorDim, T>::identity();
-    const T                               n2 = dth[0] * dth[0] + dth[1] * dth[1] + dth[2] * dth[2];
-    if (n2 > static_cast<T>(1e-24)) {
-        G.template block<3, 3>(ins_err::dtheta, ins_err::dtheta) = Matrix<3, 3, T>::identity() - (detail::skew_sym(dth) * static_cast<T>(0.5));
-    }
+    G.template block<3, 3>(ins_err::dtheta, ins_err::dtheta) = detail::attitude_reset_jacobian(dth);
     return G;
 }
 
@@ -564,11 +538,8 @@ template<typename T = double>
 
     // H_p = I on δp; H_θ = −R[ℓ]× for right-multiplicative attitude error
     Matrix<kInsMeasDim, kInsErrorDim, T> H = detail::selector_H<T>(ins_err::dp);
-    const T                              ell2 = lever_body[0] * lever_body[0] + lever_body[1] * lever_body[1] + lever_body[2] * lever_body[2];
-    if (ell2 > static_cast<T>(1e-24)) {
-        const Mat3<T> R = x.q.to_dcm().matrix();
-        H.template block<3, 3>(0, ins_err::dtheta) = (R * detail::skew_sym(lever_body)) * (-T{1});
-    }
+    const Mat3<T>                        R = x.q.to_dcm().matrix();
+    H.template block<3, 3>(0, ins_err::dtheta) = (R * detail::skew_sym(lever_body)) * (-T{1});
 
     if (!eskf.update_innovation(innov, H, R_pos)) {
         return false;

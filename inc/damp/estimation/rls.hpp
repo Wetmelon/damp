@@ -11,8 +11,14 @@
  *
  * Scalar and vector RLS for linear-in-parameters regression
  * @f$ y = \phi^\top \theta + e @f$. Updates fail closed (return false) when
- * the configuration is invalid or the instantaneous information is degenerate
- * (@f$ \lambda + \phi^\top P \phi \approx 0 @f$ — zero / collinear regressor).
+ * the configuration is invalid or @f$ \lambda + \phi^\top P \phi \le 0 @f$
+ * (P has lost positive semi-definiteness). A zero regressor is a valid sample
+ * that carries no information: θ is unchanged.
+ *
+ * Forgetting (λ < 1) divides P by λ every sample, so without persistent
+ * excitation P grows without bound (estimator windup). The covariance is
+ * therefore capped at its prior: P ≤ p₀ (scalar), tr P ≤ N·p₀ (vector, by
+ * uniform rescaling — the bounded-trace algorithm).
  *
  * Persistent excitation (PE) is the caller's responsibility: without rich
  * @f$\phi@f$ the covariance stays large and @c valid() alone is not a
@@ -20,12 +26,11 @@
  * external PE gate before acting on @c theta.
  *
  * @note Compare with MATLAB®'s recursiveLS / dsp.RLSFilter (forgetting form).
- * @see Ljung, "System Identification," 2nd ed., 1999, ch. 11
+ * @see "System Identification: Theory for the User" (Ljung, 1999), §11.2
  * @see parameter_estimation.hpp for grey-box extraction + AdaptationGate
  */
 
 #include <cstddef>
-#include <limits>
 #include <type_traits>
 
 #include "damp/math/math.hpp"
@@ -33,6 +38,20 @@
 #include "damp/matrix/matrix_traits.hpp"
 
 namespace damp::estimation {
+
+namespace detail {
+
+/// Real part of a real or complex scalar.
+template<typename T>
+[[nodiscard]] constexpr scalar_type_t<T> real_part(const T& x) {
+    if constexpr (is_complex_v<T>) {
+        return x.real();
+    } else {
+        return x;
+    }
+}
+
+} // namespace detail
 
 /**
  * @brief Common RLS configuration.
@@ -225,9 +244,9 @@ public:
         // for real T.
         const T phi_h = damp::conj(phi);
         const T denom = static_cast<T>(config_.lambda) + phi_h * state_.covariance * phi;
-        // Degenerate information: zero regressor with tiny P, or λ≈0 misconfig.
-        // Do not touch theta/P — honest "no update" rather than a NaN gain.
-        if (damp::abs(denom) <= default_tol<T>()) {
+        // denom ≥ λ > 0 while P ≥ 0; otherwise P is corrupt. Do not touch
+        // theta/P — honest "no update" rather than a NaN gain.
+        if (!(detail::real_part(denom) > scalar_type{0})) {
             return false;
         }
 
@@ -238,6 +257,11 @@ public:
 
         const T one_over_lambda = T{1} / static_cast<T>(config_.lambda);
         state_.covariance = (state_.covariance - state_.gain * phi_h * state_.covariance) * one_over_lambda;
+
+        // Anti-windup ceiling (forgetting without excitation): P ≤ p₀.
+        if (damp::abs(state_.covariance) > config_.p0) {
+            state_.covariance = static_cast<T>(config_.p0);
+        }
 
         if constexpr (!is_complex_v<T>) {
             if (config_.projection_enabled) {
@@ -250,7 +274,7 @@ public:
             }
 
             // Floor above zero. A covariance of exactly 0 freezes the gain at 0.
-            const T cov_floor = std::numeric_limits<T>::epsilon() * (damp::abs(static_cast<T>(config_.p0)) + T{1});
+            const T cov_floor = eps<T>() * static_cast<T>(config_.p0);
             if (state_.covariance < cov_floor) {
                 state_.covariance = cov_floor;
             }
@@ -288,6 +312,8 @@ private:
 template<size_t NP, typename T = float>
 class RlsVector {
 public:
+    using scalar_type = scalar_type_t<T>;
+
     constexpr RlsVector() = default;
 
     constexpr explicit RlsVector(const RlsConfig<T>& config)
@@ -316,8 +342,9 @@ public:
 
         const ColVec<NP, T> p_phi = state_.covariance * phi;
         const T             denom = static_cast<T>(config_.lambda) + dot(phi, p_phi);
-        // No instantaneous PE (e.g. phi = 0): skip without poisoning P or theta.
-        if (damp::abs(denom) <= default_tol<T>()) {
+        // denom ≥ λ > 0 while P ≥ 0; otherwise P is corrupt: skip without
+        // poisoning P or theta.
+        if (!(detail::real_part(denom) > scalar_type{0})) {
             return false;
         }
 
@@ -345,6 +372,14 @@ public:
 
         // Keep covariance numerically symmetric/Hermitian after finite-precision updates.
         state_.covariance = (state_.covariance + state_.covariance.conjugate_transpose()) * static_cast<T>(0.5);
+
+        // Anti-windup (bounded trace): forgetting without excitation must not
+        // let P grow past its prior, tr P ≤ N·p₀.
+        const scalar_type tr = detail::real_part(state_.covariance.trace());
+        const scalar_type tr_max = static_cast<scalar_type>(NP) * config_.p0;
+        if (tr > tr_max) {
+            state_.covariance = state_.covariance * static_cast<T>(tr_max / tr);
+        }
         state_.initialized = true;
         valid_ = true;
         return true;

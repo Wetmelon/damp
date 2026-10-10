@@ -318,8 +318,8 @@ private:
     constexpr void finalize_point(std::size_t index, T freq_hz) {
         FrfPoint<T> p{};
         p.freq_hz = freq_hz;
-        const T floor = default_tol<T>() * default_tol<T>();
-        if (suu_ <= floor) {
+        // Exact-zero guards only: an absolute floor would depend on the units of u, y.
+        if (!(suu_ > T{0})) {
             p.valid = false;
             table_[index] = p;
             return;
@@ -330,7 +330,7 @@ private:
         p.phase_rad = damp::atan2(gim, gre);
         const T num = (syu_re_ * syu_re_) + (syu_im_ * syu_im_);
         const T den = suu_ * syy_;
-        if (den > floor) {
+        if (den > T{0}) {
             T coh = num / den;
             if (coh < T{0}) {
                 coh = T{0};
@@ -589,7 +589,7 @@ template<std::size_t NFreq, typename T>
                              : (a.magnitude >= level && b.magnitude <= level);
         if (cross) {
             const T denom = b.magnitude - a.magnitude;
-            const T t = (damp::abs(denom) > default_tol<T>()) ? ((level - a.magnitude) / denom) : T{0};
+            const T t = (denom != T{0}) ? ((level - a.magnitude) / denom) : T{0};
             f_lo = a.freq_hz + t * (b.freq_hz - a.freq_hz);
             found_lo = true;
             break;
@@ -609,7 +609,7 @@ template<std::size_t NFreq, typename T>
                              : (a.magnitude <= level && b.magnitude >= level);
         if (cross) {
             const T denom = b.magnitude - a.magnitude;
-            const T t = (damp::abs(denom) > default_tol<T>()) ? ((level - a.magnitude) / denom) : T{0};
+            const T t = (denom != T{0}) ? ((level - a.magnitude) / denom) : T{0};
             f_hi = a.freq_hz + t * (b.freq_hz - a.freq_hz);
             found_hi = true;
             break;
@@ -759,8 +759,9 @@ template<std::size_t NFreq, std::size_t MaxPeaks, std::size_t MaxValleys, typena
  * - Gain crossover: |G| crosses 1 (descending). PM = 180° + ∠G at that f.
  * - Phase crossover: ∠G crosses −π. GM_dB = −20 log₁₀(|G|) at that f.
  *
- * Phase is used as stored (rad); unwrap is not applied — prefer stepped-sine
- * tables that do not jump ±π between bins.
+ * Stored phases may be wrapped to (−π, π]: consecutive valid bins are unwrapped
+ * on the fly (each step taken as the shortest arc), so bins must be dense
+ * enough that the true phase moves less than π between neighbours.
  *
  * @tparam NFreq Table length
  * @tparam T     Scalar type
@@ -775,40 +776,52 @@ template<std::size_t NFreq, typename T = float>
     }
 
     const T pi = damp::numbers::pi_v<T>;
+    // Linear interpolation parameter of `level` between a and b (a ≠ b by the crossing test).
+    const auto lerp_t = [](T a, T b, T level) { return (b != a) ? ((level - a) / (b - a)) : T{0}; };
 
+    // Unwrapped phase of the previous valid bin; atan2-wrapped measurements jump
+    // ±2π near −180°, exactly where the phase crossover sits.
+    T ph_a = T{0};
     for (std::size_t i = 1; i < NFreq; ++i) {
         const auto& a = table[i - 1];
         const auto& b = table[i];
         if (!a.valid || !b.valid) {
             continue;
         }
+        if (i == 1 || !table[i - 2].valid) {
+            ph_a = a.phase_rad;
+        }
+        const T ph_b = ph_a + damp::wrap_pi(b.phase_rad - a.phase_rad);
 
         // Gain crossover: |G| from ≥1 to <1
         if (!m.has_phase_margin && a.magnitude >= T{1} && b.magnitude < T{1}) {
-            const T denom = a.magnitude - b.magnitude;
-            const T t = (damp::abs(denom) > default_tol<T>()) ? ((a.magnitude - T{1}) / denom) : T{0};
-            const T f = a.freq_hz + t * (b.freq_hz - a.freq_hz);
-            const T ph = a.phase_rad + t * (b.phase_rad - a.phase_rad);
-            m.gain_crossover_hz = f;
+            const T t = lerp_t(a.magnitude, b.magnitude, T{1});
+            const T ph = damp::wrap_pi(ph_a + t * (ph_b - ph_a));
+            m.gain_crossover_hz = a.freq_hz + t * (b.freq_hz - a.freq_hz);
             m.phase_margin_deg = (T{180} / pi) * (pi + ph);
             m.has_phase_margin = true;
         }
 
-        // Phase crossover: phase from > −π to ≤ −π (or reverse)
+        // Phase crossover: unwrapped phase crosses −π (modulo 2π) between a and b.
         if (!m.has_gain_margin) {
-            const bool cross = (a.phase_rad > -pi && b.phase_rad <= -pi) || (a.phase_rad < -pi && b.phase_rad >= -pi);
-            if (cross) {
-                const T denom = b.phase_rad - a.phase_rad;
-                const T t = (damp::abs(denom) > default_tol<T>()) ? ((-pi - a.phase_rad) / denom) : T{0};
-                const T f = a.freq_hz + t * (b.freq_hz - a.freq_hz);
+            // Shift both so a lies in (−π, π]: the step (< π) can then only
+            // cross −π going down or +π (≡ −π) going up.
+            const T    shift = ph_a - damp::wrap_pi(ph_a);
+            const T    pa = ph_a - shift;
+            const T    pb = ph_b - shift;
+            const bool down = (pb <= -pi);
+            const bool up = (pa < pi && pb >= pi);
+            if (down || up) {
+                const T t = lerp_t(pa, pb, down ? -pi : pi);
                 const T mag = a.magnitude + t * (b.magnitude - a.magnitude);
-                m.phase_crossover_hz = f;
-                if (mag > default_tol<T>()) {
+                m.phase_crossover_hz = a.freq_hz + t * (b.freq_hz - a.freq_hz);
+                if (mag > T{0}) {
                     m.gain_margin_db = -T{20} * damp::log10(mag);
                 }
                 m.has_gain_margin = true;
             }
         }
+        ph_a = ph_b;
     }
 
     m.success = m.has_phase_margin || m.has_gain_margin;

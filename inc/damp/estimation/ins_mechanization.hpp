@@ -25,8 +25,8 @@
  * from gyro + accel. mechanize_step is one discrete sample of that recipe.
  *
  * There is no aiding here. Biases and noise make position drift without bound;
- * absolute corrections (GPS, camera/mocap pose, ZUPT, dual-antenna heading, …) are
- * the ESKF half of roadmap #26 and live outside this header.
+ * absolute corrections (GPS, camera/mocap pose, ZUPT, dual-antenna heading, …)
+ * live in ins_eskf.hpp.
  *
  * ## Model
  *
@@ -47,8 +47,8 @@
  * (Up), NED @f$ a_b \approx (0,0,-g) @f$ (Up in NED is −Down). Do not feed
  * @f$ -g_n @f$ as body accel without that rotation.
  *
- * @see Solà, "Quaternion kinematics for the error-state Kalman filter," 2017
- * @see Groves, Principles of GNSS, Inertial, and Multisensor Integrated Navigation, 2nd ed.
+ * @see "Quaternion kinematics for the error-state Kalman filter" (Solà, 2017), §5.4
+ * @see "Principles of GNSS, Inertial, and Multisensor Integrated Navigation Systems" (Groves, 2013)
  *
  * Example:
  * @code
@@ -157,6 +157,8 @@ struct InsState {
  *   p^+ = p + v\,\Delta t + \tfrac12 a_n (\Delta t)^2,\quad
  *   q^+ = q \otimes \Delta q(\omega\,\Delta t)
  * @f]
+ * with the first-order, renormalized @f$ \Delta q = (1, \tfrac12\omega\Delta t) @f$
+ * (@c Quaternion::integrate_body_rates); @f$ a_n @f$ uses the start-of-step @c q.
  *
  * Specific force: at rest @f$ a_b = -R^\top g_n @f$ (specific_force_at_rest).
  * With @c q = I: ENU @f$ a_b \approx (0,0,+g) @f$; NED @f$ a_b \approx (0,0,-g) @f$.
@@ -191,6 +193,19 @@ template<typename T = double>
     };
 }
 
+/**
+ * @brief One dead-reckoning step from a raw IMU sample (subtracts the state's biases)
+ *
+ * Equivalent to @ref mechanize_step_from_corrected with
+ * @f$ \omega = \omega_m - b_g @f$ and @f$ a_b = a_m - b_a @f$.
+ *
+ * @param x     state at the start of the interval (biases taken from it)
+ * @param imu   raw body-frame IMU sample
+ * @param dt    [s] step (dt ≤ 0 returns @p x)
+ * @param frame NED or ENU
+ * @param g     gravity magnitude [m/s²]
+ * @return state at the end of the interval
+ */
 template<typename T = double>
 [[nodiscard]] constexpr InsState<T> mechanize_step(
     const InsState<T>&  x,

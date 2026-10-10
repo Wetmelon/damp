@@ -79,18 +79,18 @@ struct KalmanResult {
  * then computing L = PCᵀ(CPCᵀ + HRHᵀ)⁻¹.
  *
  * Taxonomy. This is the design product (L, P, plant). The underlying
- * Riccati solve is the control-form design::dare on the dual:
+ * Riccati solve is the control-form dare on the dual:
  *
  *     P = dare(Aᵀ, Cᵀ, GQGᵀ, HRHᵀ)
  *
- * Use design::dare with that dual only when P alone is required; use this
+ * Use dare with that dual only when P alone is required; use this
  * function when the estimator gain L (or LQG’s estimator half) is the goal.
  * Requires a discrete plant (Ts > 0).
  *
  * @note Compare with MATLAB®'s kalman(sys, Q, R) or dlqe(A, G, C, Q, R).
  *
  * @see design::discrete_lqe — dual-of-LQR spelling (same implementation)
- * @see design::dare — control-form DARE solver; filter form via dual (Aᵀ, Cᵀ, …)
+ * @see dare — control-form DARE solver; filter form via dual (Aᵀ, Cᵀ, …)
  * @see design::discrete_lqg — pairs this L with LQR’s K
  * @see "Optimal State Estimation" (Simon, 2006), §5.3–5.4
  *
@@ -134,11 +134,7 @@ template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, si
 
     // Compute Kalman gain: L = PCᵀS⁻¹ → solve S Lᵀ = CP (Cholesky, LU if S semi-def)
     const Matrix<NY, NY, T> S = sys.C * result.P * sys.C.t() + R_eff;
-    const Matrix<NY, NX, T> CP = sys.C * result.P;
-    auto                    L_opt = mat::cholesky_solve(S, CP);
-    if (!L_opt) {
-        L_opt = mat::lu_solve(S, CP);
-    }
+    const auto              L_opt = mat::solve(S, Matrix<NY, NX, T>(sys.C * result.P));
     if (!L_opt) {
         return result; // singular innovation covariance S
     }
@@ -273,31 +269,7 @@ struct KalmanFilter {
 
     // Measurement update: returns false if innovation covariance is singular
     constexpr bool update(const ColVec<NY, T>& y, const ColVec<NU, T>& u = ColVec<NU, T>{}) {
-        const auto y_pred = sys.C * x + sys.D * u;
-        innov = y - y_pred;
-
-        // S = CPCᵀ + HRHᵀ
-        const auto S = quadratic_form(sys.C, P) + quadratic_form(sys.H, R);
-
-        // K = PCᵀS⁻¹ → solve S Kᵀ = C P (Cholesky; S must be SPD). Fail closed if singular.
-        auto K_opt = mat::cholesky_solve(S, sys.C * P);
-        if (!K_opt) {
-            K_opt = mat::lu_solve(S, sys.C * P);
-        }
-        if (!K_opt) {
-            return false;
-        }
-
-        const Matrix<NX, NY, T> K = K_opt.value().transpose();
-        x = x + K * innov;
-
-        // Joseph form via quadratic_form: exact P symmetry under finite precision
-        //     P = (I − KC) P (I − KC)ᵀ + (KH) R (KH)ᵀ
-        const auto I_KC = Matrix<NX, NX, T>::identity() - (K * sys.C);
-        const auto KH = K * sys.H;
-        P = quadratic_form(I_KC, P) + quadratic_form(KH, R);
-
-        return true;
+        return update(y, sys.C, sys.D, R, u);
     }
 
     // Measurement update with an explicit measurement model (C, D, R), for a sensor
@@ -317,10 +289,8 @@ struct KalmanFilter {
 
         const auto S = quadratic_form(C_meas, P) + quadratic_form(sys.H, R_meas);
 
-        auto K_opt = mat::cholesky_solve(S, C_meas * P);
-        if (!K_opt) {
-            K_opt = mat::lu_solve(S, C_meas * P);
-        }
+        // K = PCᵀS⁻¹ → solve S Kᵀ = C P (Cholesky, LU if S is not SPD). Fail closed if singular.
+        const auto K_opt = mat::solve(S, C_meas * P);
         if (!K_opt) {
             return false;
         }

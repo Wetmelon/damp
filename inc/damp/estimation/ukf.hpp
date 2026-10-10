@@ -25,13 +25,11 @@
  * \f$(\alpha,\beta,\kappa)\f$ parameterization of the scaled unscented
  * transform.
  *
- * MATLAB® equivalent: `unscentedKalmanFilter` (Control System / Sensor Fusion
- * toolboxes). The short alias UKF is provided.
+ * The short alias UKF is provided.
  *
- * @see Julier & Uhlmann, "Unscented Filtering and Nonlinear Estimation,"
- *      Proc. IEEE 92(3), 2004. https://doi.org/10.1109/JPROC.2003.823141
- * @see Wan & van der Merwe, "The Unscented Kalman Filter for Nonlinear
- *      Estimation," IEEE AS-SPCC, 2000. https://doi.org/10.1109/ASSPCC.2000.882463
+ * @note Compare with MATLAB®'s unscentedKalmanFilter.
+ * @see "Unscented Filtering and Nonlinear Estimation" (Julier & Uhlmann, 2004)
+ * @see "The Unscented Kalman Filter for Nonlinear Estimation" (Wan & van der Merwe, 2000)
  * @see "Optimal State Estimation" (Simon, 2006), §14.3
  */
 
@@ -118,7 +116,7 @@ struct UnscentedParams {
  * ukf.update(h, y_meas, R);
  * @endcode
  *
- * @see Wan & van der Merwe (2000); Julier & Uhlmann (2004); Simon (2006) §14.3.
+ * @see "The Unscented Kalman Filter for Nonlinear Estimation" (Wan & van der Merwe, 2000)
  *
  * @tparam NX Number of states
  * @tparam NU Number of inputs
@@ -240,12 +238,9 @@ struct UnscentedKalmanFilter {
         // Re-symmetrize Pyy before the SPD solve (sigma-point sum can skew off-diagonals).
         Pyy = static_cast<T>(0.5) * (Pyy + Pyy.transpose());
 
-        // K = Pxy Pyy⁻¹ → solve Pyy Kᵀ = Pxyᵀ (Cholesky; LU if Pyy only semi-definite).
+        // K = Pxy Pyy⁻¹ → solve Pyy Kᵀ = Pxyᵀ.
         // Fail closed if Pyy is singular (return false; state/P unchanged by early return).
-        auto Kt_opt = mat::cholesky_solve(Pyy, Pxy.transpose());
-        if (!Kt_opt) {
-            Kt_opt = mat::lu_solve(Pyy, Pxy.transpose());
-        }
+        const auto Kt_opt = mat::solve(Pyy, Pxy.transpose());
         if (!Kt_opt) {
             return false;
         }
@@ -253,8 +248,8 @@ struct UnscentedKalmanFilter {
 
         innov = y - y_pred;
         x = x + K * innov;
-        // Joseph form: P − K Pxyᵀ − Pxy Kᵀ + K Pyy Kᵀ
-        // (equiv. to P − K Pyy Kᵀ when K = Pxy Pyy⁻¹; better PD under float)
+        // P − K Pxyᵀ − Pxy Kᵀ + K Pyy Kᵀ: equal to P − K Pyy Kᵀ when K = Pxy Pyy⁻¹,
+        // but (like the Joseph form) only second-order sensitive to rounding in K.
         const Matrix<NX, NX, T> P_post = P - (K * Pxy.t()) - (Pxy * K.t()) + quadratic_form(K, Pyy);
         P = static_cast<T>(0.5) * (P_post + P_post.transpose());
         return true;
@@ -346,7 +341,7 @@ private:
  *
  * @see UnscentedKalmanFilter
  */
-template<size_t NX, size_t NU, size_t NY, typename T = double>
+template<size_t NX, size_t NU, size_t NY, typename T = float>
 using UKF = UnscentedKalmanFilter<NX, NU, NY, T>;
 
 } // namespace damp
