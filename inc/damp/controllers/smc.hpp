@@ -33,7 +33,7 @@ template<typename T = double>
 struct SMCResult {
     T    lambda{};       ///< Sliding-surface slope λ in s = λ·e + ė [1/s]. Larger = faster but noisier.
     T    k{};            ///< Switching gain (must exceed the disturbance/uncertainty bound) [output units].
-    T    b0{};           ///< Control effectiveness ṡ = b0·u + … ; the nominal plant input gain.
+    T    b0{};           ///< Nominal plant input gain, y⁽ⁿ⁾ = f + b0·u (> 0).
     bool success{false}; ///< true if λ, k, b0 are all > 0 (b0 = 0 would divide-by-zero at runtime).
 
     /// Re-cast the parameters to a different scalar type (e.g. double → float).
@@ -45,7 +45,7 @@ struct SMCResult {
     /**
      * @brief Boundary-layer linearization C(s) = (k / (b₀ φ)) (s + λ)
      *
-     * Inside |s| < φ the relay is sat(s/φ), so u = −(k/b₀φ)(λ e + ė).
+     * Inside |s| < φ the relay is sat(s/φ), so u = (k/b₀φ)(λ e + ė) with e = r − y.
      * Improper (relative degree −1). Requires φ > 0; otherwise a zero TF.
      *
      * @param phi Boundary-layer thickness (same units as s)
@@ -108,9 +108,13 @@ template<typename T = double>
  *
  * `s = 0` is a line through the origin with slope `−λ`; on it the error decays as
  * `e(t) = e(0)\,\mathrm{e}^{-\lambda t}`, so λ sets the closed-loop speed once
- * sliding. The control drives `s` to zero with a relay (bang-bang) term:
+ * sliding. With the plant input gain @f$ b_0 > 0 @f$ (@f$ y^{(n)} = f + b_0 u @f$) the
+ * surface obeys @f$ \dot s = -b_0 u + \ldots @f$, so the relay (bang-bang) term that
+ * drives `s` to zero is
  *
- * @f[ u = -\frac{k}{b_0}\,\operatorname{sign}(s) @f]
+ * @f[ u = +\frac{k}{b_0}\,\operatorname{sign}(s) @f]
+ *
+ * — positive error gives a positive command, the same sign as a PID on @f$ r - y @f$.
  *
  * As long as the switching gain `k` exceeds the worst-case lumped disturbance,
  * `s` reaches 0 in finite time and stays there. The price of the hard `sign()`
@@ -127,7 +131,7 @@ template<typename T = double>
  *    amplifies measurement noise through `ė`.
  *  - `k` — increase until disturbances are rejected; if it buzzes, that's
  *    chattering — add a `phi` boundary layer rather than dropping `k`.
- *  - `b0` — your plant's input gain (how much `ṡ` moves per unit `u`); if unsure,
+ *  - `b0` — your plant's input gain (y⁽ⁿ⁾ = f + b0·u, > 0); if unsure,
  *    set 1 and fold the scaling into `k`.
  *
  * @note `ė` is estimated by backward difference `(e − e_prev)/Ts`, so a noisy `y`
@@ -178,7 +182,7 @@ public:
         : lambda(static_cast<T>(other.lambda)), k(static_cast<T>(other.k)), b0(static_cast<T>(other.b0)), error_prev(static_cast<T>(other.error_prev)), Ts_(static_cast<T>(other.Ts_)), phi_(static_cast<T>(other.phi_)), first_(other.first_), valid_(other.valid_) {}
 
     /**
-     * @brief Run one control step: u = −(k/b0)·sign(λ·e + ė).
+     * @brief Run one control step: u = (k/b0)·sign(λ·e + ė), e = r − y.
      *
      * @param r   Reference (setpoint).
      * @param y   Measurement (plant output).
@@ -213,9 +217,9 @@ public:
         // phi <= 0: hard relay. phi > 0: saturation boundary layer sat(s/phi) — a
         // linear ramp through |s| < phi, full ±1 switching gain restored beyond it.
         if (phi <= T{0}) {
-            return -(k / b0) * static_cast<T>(damp::sgn(s));
+            return (k / b0) * static_cast<T>(damp::sgn(s));
         }
-        return -(k / b0) * damp::clamp(s / phi, T{-1}, T{1});
+        return (k / b0) * damp::clamp(s / phi, T{-1}, T{1});
     }
 
     /**

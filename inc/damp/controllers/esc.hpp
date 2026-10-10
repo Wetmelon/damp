@@ -228,9 +228,10 @@ template<typename T = double>
  * double u_opt = esc.estimate();          // converged operating point û
  * @endcode
  *
- * `step(J, measurement_valid)` *freezes* the integrator when the measurement is
- * flagged bad (sensor fault / transient), holding û while still dithering — the
- * "freeze on degraded measurement" safety behavior.
+ * `step(J, measurement_valid)` *freezes* the estimator when the measurement is
+ * flagged bad (sensor fault / transient): û and the high-/low-pass states hold
+ * (the bad J never enters them) while the dither keeps running — the "freeze on
+ * degraded measurement" safety behavior.
  *
  * @tparam T Scalar type (float or double)
  */
@@ -263,11 +264,18 @@ public:
     /**
      * @brief Feed back the measured objective; returns the next input to apply.
      * @param objective         Measured J at the previously applied input.
-     * @param measurement_valid If false, freeze the integrator (hold û) this tick.
+     * @param measurement_valid If false, ignore @p objective: hold û and the
+     *                          filter states, advance only the dither.
      */
     [[nodiscard]] constexpr T step(T objective, bool measurement_valid = true) {
         if (!valid_) {
             return uhat_;
+        }
+        // A flagged sample is not evidence: keep it out of the filter states too,
+        // or it reappears as a spurious gradient once measurements recover.
+        if (!measurement_valid) {
+            phase_ = damp::fmod(phase_ + (config_.dither_omega * config_.Ts), two_pi());
+            return input();
         }
         // Seed the DC estimate to the first objective so the high-pass starts at 0
         // instead of dumping the full operating-point level through as a spurious
@@ -286,12 +294,10 @@ public:
         grad_state_ += config_.lp_alpha * (raw_grad - grad_state_);
         gradient_ = grad_state_;
 
-        // Integrate the gradient toward the extremum (frozen on bad measurement).
-        if (measurement_valid) {
-            uhat_ += config_.direction * config_.gain * gradient_ * config_.Ts;
-            if (config_.u_min < config_.u_max) {
-                uhat_ = damp::clamp(uhat_, config_.u_min, config_.u_max);
-            }
+        // Integrate the gradient toward the extremum.
+        uhat_ += config_.direction * config_.gain * gradient_ * config_.Ts;
+        if (config_.u_min < config_.u_max) {
+            uhat_ = damp::clamp(uhat_, config_.u_min, config_.u_max);
         }
 
         // Advance the dither phase and form the next perturbed input.

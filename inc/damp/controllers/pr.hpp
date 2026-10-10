@@ -225,7 +225,7 @@ struct PRController {
     T    w0{};
     T    wc{};
     T    Ts{};
-    T    Kbc{T{0}};     ///< Back-calculation coefficient (same law as PID); larger = slower unwind (0 = unit-rate fallback)
+    T    Kbc{T{0}};     ///< Back-calculation time constant [s]: ΔR = (Ts/Kbc)(u_sat − u_unsat); 0 = none
     bool valid_{false}; ///< From the design's success flag; gates control()
 
     //! Discretized resonant term (Direct Form I biquad, inert until designed).
@@ -287,10 +287,10 @@ struct PRController {
      *
      * Damped unwind: adds `(u_sat - u_unsat) * Ts / Kbc` to the most recent
      * resonant output so the next tick's resonant contribution is pulled back
-     * toward the realizable command. Same shape and sign convention as
-     * `ContinuousPID::back_calculate` (Ts per call). Discrete
-     * `PIDController::back_calculate` bakes Ts into the integrator units and
-     * takes only (u_unsat, u_sat). No-op when `Kbc == 0`.
+     * toward the realizable command. Same sign convention and per-call Ts as
+     * `ContinuousPID::back_calculate`, but with no Ki factor: the resonant
+     * output is already in command units, so Kbc here is a time constant [s].
+     * No-op when `Kbc == 0`.
      *
      * @param u_unsat Command this controller requested.
      * @param u_sat   Command actually applied after downstream clamping.

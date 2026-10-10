@@ -79,13 +79,13 @@ namespace damp::motor {
 enum class PwmScheme : std::uint8_t {
     Spwm,    ///< Sinusoidal PWM — zero-sequence v₀ = 0
     Svpwm,   ///< Continuous SVPWM — min-max centering
-    Thipwm,  ///< Third-harmonic injection v₀ = (V/6) cos 3θ
+    Thipwm,  ///< Third-harmonic injection v₀ = −(V/6) cos 3θ
     DpwmMax, ///< Clamp largest phase high (120°/phase)
     DpwmMin, ///< Clamp smallest phase low (120°/phase)
-    Dpwm0,   ///< 60° DPWM, windows lag DPWM1 by 30°
+    Dpwm0,   ///< 60° DPWM, windows lead DPWM1 by 30°
     Dpwm1,   ///< 60° DPWM, clamps centered on phase peaks
-    Dpwm2,   ///< 60° DPWM, windows lead DPWM1 by 30°
-    Dpwm3,   ///< 30° DPWM (split clamp windows)
+    Dpwm2,   ///< 60° DPWM, windows lag DPWM1 by 30° (lagging-PF loads)
+    Dpwm3,   ///< Complement of DPWM1: two 30° clamp windows per half-cycle
 };
 
 /**
@@ -209,10 +209,13 @@ template<typename T = float>
  *
  * Classical THIPWM adds a third harmonic of amplitude @f$ V/6 @f$ to the phase
  * references, where @f$ V = \|v_{\alpha\beta}\| @f$ is the fundamental peak
- * (amplitude-invariant αβ) and @f$ \theta = \mathrm{atan2}(v_\beta, v_\alpha) @f$:
+ * (amplitude-invariant αβ) and @f$ \theta = \mathrm{atan2}(v_\beta, v_\alpha) @f$.
+ * Phase a is @f$ V\cos\theta @f$, so the injection that flattens its peak is
  * @f[
- *   v_0 = \frac{V}{6}\,\cos 3\theta
+ *   v_0 = -\frac{V}{6}\,\cos 3\theta,
  * @f]
+ * giving a phase-reference peak of @f$ (\sqrt3/2)\,V @f$ (linear up to
+ * @f$ V = V_{dc}/\sqrt3 @f$, the same limit as SVPWM).
  * Extends the linear range toward the SVPWM hexagon while remaining continuous
  * (all legs switch every carrier period). Does not depend on @f$ V_{dc} @f$.
  *
@@ -229,7 +232,7 @@ template<typename T = float>
         return T{0};
     }
     const T th = damp::atan2(v_ab.beta, v_ab.alpha);
-    return (mag / T{6}) * damp::cos(T{3} * th);
+    return -(mag / T{6}) * damp::cos(T{3} * th);
 }
 
 /**
@@ -248,14 +251,15 @@ template<typename T = float>
  * Scheme selection (Hava DPWM taxonomy):
  * - DpwmMax — always high clamp; DpwmMin — always low clamp
  * - Dpwm1 — high when @f$ |v_{\max}| \ge |v_{\min}| @f$ (60° windows on peaks)
- * - Dpwm0 / Dpwm2 — same as Dpwm1 on angle @f$ \theta \pm 30^\circ @f$ via
- *   @f$ \mathrm{sign}\cos 3(\theta \pm \pi/6) @f$
- * - Dpwm3 — 30° windows via @f$ \mathrm{sign}\cos 6\theta @f$
+ * - Dpwm0 / Dpwm2 — Dpwm1 decision on angle @f$ \theta \pm 30^\circ @f$ via
+ *   @f$ \mathrm{sign}\cos 3(\theta \pm \pi/6) @f$ (Dpwm0 windows lead, Dpwm2 lag)
+ * - Dpwm3 — complement of Dpwm1: high when @f$ |v_{\max}| < |v_{\min}| @f$, so
+ *   each phase clamps for two 30° windows 30°–60° either side of its peak
  *
  * @param v_abc Phase voltages [V] used for min/max rail clamp
  * @param v_dc  DC bus voltage [V] (must be positive for a meaningful clamp)
  * @param scheme Discontinuous scheme (DpwmMax … Dpwm3)
- * @param v_ab  αβ command used for angle-based schemes (Dpwm0/2/3); ignored for Max/Min/1
+ * @param v_ab  αβ command used for angle-based schemes (Dpwm0/2); ignored for Max/Min/1/3
  * @return Zero-sequence offset [V]
  *
  * @see Hava et al., IEEE T-IA 34(5), 1998 (DPWM0–3)
@@ -284,18 +288,18 @@ template<typename T = float>
                 return high();
             }
             return low();
-        case PwmScheme::Dpwm0:
-        case PwmScheme::Dpwm2:
-        case PwmScheme::Dpwm3: {
-            const T th = damp::atan2(v_ab.beta, v_ab.alpha);
-            T       arg = th;
-            if (scheme == PwmScheme::Dpwm0) {
-                arg = th + damp::numbers::pi_v<T> / T{6};
-            } else if (scheme == PwmScheme::Dpwm2) {
-                arg = th - damp::numbers::pi_v<T> / T{6};
+        case PwmScheme::Dpwm3:
+            // Opposite rail to Dpwm1: clamp the phase of smaller |voltage|.
+            if (damp::abs(v_max) < damp::abs(v_min)) {
+                return high();
             }
-            const T harm = (scheme == PwmScheme::Dpwm3) ? damp::cos(T{6} * th) : damp::cos(T{3} * arg);
-            if (harm >= T{0}) {
+            return low();
+        case PwmScheme::Dpwm0:
+        case PwmScheme::Dpwm2: {
+            const T shift = damp::numbers::pi_v<T> / T{6};
+            const T th = damp::atan2(v_ab.beta, v_ab.alpha);
+            const T arg = (scheme == PwmScheme::Dpwm0) ? (th + shift) : (th - shift);
+            if (damp::cos(T{3} * arg) >= T{0}) {
                 return high();
             }
             return low();

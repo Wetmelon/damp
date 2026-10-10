@@ -13,7 +13,7 @@
  * LQR on the original plant, a Kalman filter on the input-disturbance
  * augment
  * @f[
- *   x_{k+1} = A x_k + B(u_k + w_k),\qquad w_{k+1} = w_k,\qquad y_k = C x_k,
+ *   x_{k+1} = A x_k + B(u_k + w_k),\qquad w_{k+1} = w_k,\qquad y_k = C x_k + D u_k,
  * @f]
  * and a DC solve that uses @f$ \hat w @f$ so @f$ y \to r @f$ under a constant
  * load. @f$ K @f$ stays @f$ N_U \times N_X @f$; the bias never enters the
@@ -83,7 +83,9 @@ struct OFLQGResult {
  *
  * LQR is designed on @p sys (Q on x only). The filter is designed on the
  * input-disturbance augment used by design::mpc (OffsetFreeMPC). Fails if
- * the Pannocchia–Rawlings rank test fails or either DARE fails.
+ * the Pannocchia–Rawlings rank test fails or either DARE fails. A feedthrough D
+ * is carried into both the filter's output model and the DC target, so the
+ * two agree and y → r holds with D ≠ 0.
  *
  * Square plants (NU = NY) are required so the DC target (x_t, u_t) is unique.
  *
@@ -131,6 +133,7 @@ template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, si
     sys_aug.A.template block<NU, NU>(NX, NX) = Matrix<NU, NU, T>::identity();
     sys_aug.B.template block<NX, NU>(0, 0) = sys.B;
     sys_aug.C.template block<NY, NX>(0, 0) = sys.C;
+    sys_aug.D = sys.D; // same output model as the DC target (y = Cx + Du)
     sys_aug.Ts = (sys.Ts > T{0}) ? sys.Ts : T{1};
 
     Matrix<NXK, NXK, T> Q_aug{};

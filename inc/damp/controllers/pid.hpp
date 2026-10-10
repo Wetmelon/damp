@@ -207,7 +207,7 @@ struct PIDResult {
     }
 
     /**
-     * @brief Error-channel PI realization @f$ C(s) = K_p + K_i/s @f$
+     * @brief Error-channel PI realization C(s) = Kₚ + Kᵢ/s
      *
      * One integrator. @f$ K_d @f$ / @f$ T_f @f$ are not in this map — use
      * @ref to_tf for the full (possibly improper) C(s). This is the LTI
@@ -293,13 +293,14 @@ template<typename T = double>
 /**
  * @brief Compile-time selection of the PID control-law structure.
  *
- * Picks which specialization of PIDController is instantiated. Distinct
- * from @ref PIDRuntimeMode, which selects runtime behavior (Auto vs Tracking)
- * at each tick.
+ * Picks which specialization of PIDController is instantiated, so each mode
+ * stores and computes only its own terms. Distinct from @ref PIDRuntimeMode,
+ * which selects runtime behavior (Auto vs Tracking) at each tick.
  */
 enum class PIDMode : std::uint8_t {
     P,
     PI,
+    PD,
     PID,
 };
 
@@ -326,6 +327,64 @@ enum class PIDRuntimeMode : std::uint8_t {
     Tracking,
 };
 
+namespace detail {
+
+// Integral + output stage shared by PIDController and ContinuousPID. Free
+// functions over the controller's public fields, so neither type needs a base.
+
+/// I ← clamp(v, i_min, i_max)
+template<typename C, typename T>
+constexpr void pid_set_integral(C& c, T v) {
+    c.integral = damp::clamp(v, c.i_min, c.i_max);
+}
+
+/// Back-calculation ΔI = gain·(u_sat − u_unsat)/Kbc. No-op when Kbc or gain is zero.
+template<typename C, typename T>
+constexpr void pid_wind_back(C& c, T gain, T u_sat, T u_unsat) {
+    if (c.Kbc == T{0} || gain == T{0} || u_sat == u_unsat) {
+        return;
+    }
+    pid_set_integral(c, c.integral + (gain * ((u_sat - u_unsat) / c.Kbc)));
+}
+
+/**
+ * @brief One tick: Tracking holds u_track, Auto integrates and saturates.
+ *
+ * @param dI       Integral increment this tick
+ * @param pd       Proportional + derivative terms this tick
+ * @param pd_next  P + D the next tick would produce at the same (r, y)
+ * @param gain     Back-calculation gain (Ki, or Ki·Ts for a measured period)
+ *
+ * Tracking preloads I = u_track − pd_next − dI, so the next Auto tick at the
+ * same (r, y) emits exactly u_track.
+ */
+template<typename C, typename T>
+[[nodiscard]] constexpr T pid_step(C& c, T dI, T pd, T pd_next, T gain) {
+    if (c.runtime_mode == PIDRuntimeMode::Tracking) {
+        pid_set_integral(c, c.u_track - pd_next - dI);
+        return damp::clamp(c.u_track, c.u_min, c.u_max);
+    }
+    pid_set_integral(c, c.integral + dI);
+    const T u_unsat = pd + c.integral;
+    const T u = damp::clamp(u_unsat, c.u_min, c.u_max);
+    pid_wind_back(c, gain, u, u_unsat);
+    return u;
+}
+
+/// Δ(c·r − y) since the last tick; zero on the first (no derivative kick).
+template<typename C, typename T>
+[[nodiscard]] constexpr T pid_delta(C& c, T x) {
+    if (c.first) {
+        c.prev_x = x;
+        c.first = false;
+    }
+    const T dx = x - c.prev_x;
+    c.prev_x = x;
+    return dx;
+}
+
+} // namespace detail
+
 template<typename T = float, PIDMode Mode = PIDMode::PID>
 struct PIDController;
 
@@ -337,6 +396,11 @@ struct PIDController;
  * @ref design::PIDResult::discretize. One tick is `control(r, y)` — no `Ts`
  * argument. Matches the library-wide pre-discretized controller model
  * (LQR, Kalman, PR, lead-lag).
+ *
+ * @ref PIDMode picks the specialization (P, PI, PD, PID); each stores and
+ * computes only its own terms. A design result whose gains the mode cannot
+ * realize is refused at construction: ill-formed under constant evaluation
+ * (`constinit` deploy), a trap at runtime.
  *
  * Control law:
  * @f[
@@ -370,109 +434,94 @@ struct PIDController<T, PIDMode::PID> {
     T d_b{};
     T u_min = -std::numeric_limits<T>::max();
     T u_max = std::numeric_limits<T>::max();
-    T i_min = -std::numeric_limits<T>::max();
+    T i_min = -std::numeric_limits<T>::max(); ///< Clamp on integral term I (same units as u)
     T i_max = std::numeric_limits<T>::max();
-    T Kbc = T{0}; ///< Back-calculation: ΔI += Ki·(u−u_unsat)/Kbc
-    T b = T{1};
-    T c = T{1};
-    T Ts = T{0}; ///< Sample period from discretize (documentation)
+    T Kbc = T{0}; ///< Back-calculation: ΔI += Ki·(u−u_unsat)/Kbc; 0 = output clamp only
+    T b = T{1};   ///< Proportional setpoint weight
+    T c = T{1};   ///< Derivative setpoint weight
+    T Ts = T{0};  ///< Sample period from discretize (documentation)
 
-    T    integral = T{0};        ///< Integral term I (same units as u)
-    T    prev_cr_minus_y = T{0}; ///< Previous (c*r − y) for derivative
-    T    deriv = T{0};           ///< Filtered derivative term
-    bool first_ = true;
+    T    integral = T{0}; ///< Integral term I (same units as u)
+    T    prev_x = T{0};   ///< Previous c·r − y
+    T    deriv = T{0};    ///< Filtered derivative term D
+    bool first = true;    ///< Next tick seeds prev_x (no derivative kick)
 
     PIDRuntimeMode runtime_mode{PIDRuntimeMode::Auto};
     T              u_track{T{0}};
 
-    constexpr PIDController() = default;
+    constexpr PIDController() noexcept = default;
 
     /// From discrete design result. Non-explicit for assign-from-design:
-    /// `PIController c = design::pid(...).discretize(Ts).as<float>();`
-    constexpr PIDController(const design::DiscretePIDResult<T>& result)
-        : Kp(result.Kp),
-          Ki(result.Ki),
-          Kd(result.Kd),
-          d_a(result.d_a),
-          d_b(result.d_b),
-          u_min(result.u_min),
-          u_max(result.u_max),
-          i_min(result.i_min),
-          i_max(result.i_max),
-          Kbc(result.Kbc),
-          b(result.b),
-          c(result.c),
-          Ts(result.Ts) {}
+    /// `PIDController c = design::pid(...).discretize(Ts).as<float>();`
+    constexpr PIDController(const design::DiscretePIDResult<T>& r)
+        : Kp(r.Kp),
+          Ki(r.Ki),
+          Kd(r.Kd),
+          d_a(r.d_a),
+          d_b(r.d_b),
+          u_min(r.u_min),
+          u_max(r.u_max),
+          i_min(r.i_min),
+          i_max(r.i_max),
+          Kbc(r.Kbc),
+          b(r.b),
+          c(r.c),
+          Ts(r.Ts) {}
 
     template<typename U>
-    constexpr explicit PIDController(const PIDController<U, PIDMode::PID>& other)
-        : Kp(static_cast<T>(other.Kp)),
-          Ki(static_cast<T>(other.Ki)),
-          Kd(static_cast<T>(other.Kd)),
-          d_a(static_cast<T>(other.d_a)),
-          d_b(static_cast<T>(other.d_b)),
-          u_min(static_cast<T>(other.u_min)),
-          u_max(static_cast<T>(other.u_max)),
-          i_min(static_cast<T>(other.i_min)),
-          i_max(static_cast<T>(other.i_max)),
-          Kbc(static_cast<T>(other.Kbc)),
-          b(static_cast<T>(other.b)),
-          c(static_cast<T>(other.c)),
-          Ts(static_cast<T>(other.Ts)),
-          integral(static_cast<T>(other.integral)),
-          prev_cr_minus_y(static_cast<T>(other.prev_cr_minus_y)),
-          deriv(static_cast<T>(other.deriv)),
-          first_(other.first_),
-          runtime_mode(other.runtime_mode),
-          u_track(static_cast<T>(other.u_track)) {}
+    constexpr explicit PIDController(const PIDController<U, PIDMode::PID>& o)
+        : Kp(static_cast<T>(o.Kp)),
+          Ki(static_cast<T>(o.Ki)),
+          Kd(static_cast<T>(o.Kd)),
+          d_a(static_cast<T>(o.d_a)),
+          d_b(static_cast<T>(o.d_b)),
+          u_min(static_cast<T>(o.u_min)),
+          u_max(static_cast<T>(o.u_max)),
+          i_min(static_cast<T>(o.i_min)),
+          i_max(static_cast<T>(o.i_max)),
+          Kbc(static_cast<T>(o.Kbc)),
+          b(static_cast<T>(o.b)),
+          c(static_cast<T>(o.c)),
+          Ts(static_cast<T>(o.Ts)),
+          integral(static_cast<T>(o.integral)),
+          prev_x(static_cast<T>(o.prev_x)),
+          deriv(static_cast<T>(o.deriv)),
+          first(o.first),
+          runtime_mode(o.runtime_mode),
+          u_track(static_cast<T>(o.u_track)) {}
 
     /**
      * @brief One fixed-rate discrete PID tick
      *
      * In Auto mode runs the 2-DOF law with back-calculation anti-windup.
      * In Tracking mode the output is `clamp(u_track, u_min, u_max)` and the
-     * integrator (plus derivative state) is pre-loaded for bumpless re-enable.
+     * integrator is pre-loaded for bumpless re-enable.
      */
     [[nodiscard]] constexpr T control(T r, T y) {
-        const T cr_minus_y = (c * r) - y;
-        if (first_) {
-            prev_cr_minus_y = cr_minus_y;
-            first_ = false;
-        }
-        const T dX = cr_minus_y - prev_cr_minus_y;
-        prev_cr_minus_y = cr_minus_y;
-
-        // Filtered (or raw when d_a = 0) derivative on (c*r − y)
-        deriv = (d_a * deriv) + (d_b * dX);
-
-        const T e = r - y;
-
-        if (runtime_mode == PIDRuntimeMode::Tracking) {
-            // Preload I so next Auto tick with the same (r,y) yields u_track.
-            const T target = u_track - (Kp * ((b * r) - y)) - deriv - (Ki * e);
-            integral = damp::clamp(target, i_min, i_max);
-            return damp::clamp(u_track, u_min, u_max);
-        }
-
-        integral += Ki * e;
-        integral = damp::clamp(integral, i_min, i_max);
-        const T u_unsat = (Kp * ((b * r) - y)) + integral + deriv;
-        const T u = damp::clamp(u_unsat, u_min, u_max);
-
-        // Back-calculation on the term state: ΔI = Ki·(u − u_unsat)/Kbc
-        if (Kbc != T{0} && Ki != T{0}) {
-            integral += Ki * ((u - u_unsat) / Kbc);
-            integral = damp::clamp(integral, i_min, i_max);
-        }
-
-        return u;
+        deriv = (d_a * deriv) + (d_b * detail::pid_delta(*this, (c * r) - y));
+        const T p = Kp * ((b * r) - y);
+        return detail::pid_step(*this, Ki * (r - y), p + deriv, p + (d_a * deriv), Ki);
     }
 
+    /**
+     * @brief Hold in Tracking mode, preloading the integrator to emit @p u_track bumplessly
+     * @param u_track_ Output value to follow
+     * @param y        Current measurement (preload assumes r = y, zero error)
+     */
+    constexpr void track(T u_track_, T y) {
+        disable(u_track_);
+        (void)control(y, y);
+    }
+
+    /// Anti-windup hook driven by a downstream stage: ΔI = Ki·(u_sat − u_unsat)/Kbc.
+    constexpr void back_calculate(T u_unsat, T u_sat) { detail::pid_wind_back(*this, Ki, u_sat, u_unsat); }
+
+    /// Clear integral and derivative state; keeps gains and runtime mode.
     constexpr void reset() {
         integral = T{0};
-        prev_cr_minus_y = T{0};
+        prev_x = T{0};
         deriv = T{0};
-        first_ = true;
+        first = true;
     }
 
     constexpr void enable() { runtime_mode = PIDRuntimeMode::Auto; }
@@ -483,25 +532,15 @@ struct PIDController<T, PIDMode::PID> {
     }
 
     [[nodiscard]] constexpr bool is_enabled() const { return runtime_mode == PIDRuntimeMode::Auto; }
-
-    /**
-     * @brief Anti-windup hook driven by a downstream stage
-     *
-     * Winds the integral term by `Ki * (u_sat - u_unsat) / Kbc`. No-op when
-     * `Kbc == 0` or `Ki == 0`.
-     */
-    constexpr void back_calculate(T u_unsat, T u_sat) {
-        if (Kbc == T{0} || Ki == T{0} || u_unsat == u_sat) {
-            return;
-        }
-        integral += Ki * ((u_sat - u_unsat) / Kbc);
-        integral = damp::clamp(integral, i_min, i_max);
-    }
 };
 
 /**
  * @ingroup discrete_controllers
  * @brief Fixed-rate discrete 2-DOF PI controller specialization
+ *
+ * Constructing from a design with a derivative term (Kd ≠ 0) is refused: a
+ * compile error under constant evaluation (`constinit` deploy), a trap at
+ * runtime.
  */
 template<typename T>
 struct PIDController<T, PIDMode::PI> {
@@ -509,90 +548,159 @@ struct PIDController<T, PIDMode::PI> {
     T Ki{}; ///< Discrete integral gain Kᵢ T_s (I += Ki·e)
     T u_min = -std::numeric_limits<T>::max();
     T u_max = std::numeric_limits<T>::max();
-    T i_min = -std::numeric_limits<T>::max();
+    T i_min = -std::numeric_limits<T>::max(); ///< Clamp on integral term I (same units as u)
     T i_max = std::numeric_limits<T>::max();
-    T Kbc = T{0};
-    T b = T{1};
-    T Ts = T{0};
+    T Kbc = T{0}; ///< Back-calculation: ΔI += Ki·(u−u_unsat)/Kbc; 0 = output clamp only
+    T b = T{1};   ///< Proportional setpoint weight
+    T Ts = T{0};  ///< Sample period from discretize (documentation)
 
     T integral = T{0}; ///< Integral term I (same units as u)
 
     PIDRuntimeMode runtime_mode{PIDRuntimeMode::Auto};
     T              u_track{T{0}};
 
-    constexpr PIDController() = default;
+    constexpr PIDController() noexcept = default;
 
-    constexpr PIDController(const design::DiscretePIDResult<T>& result)
-        : Kp(result.Kp),
-          Ki(result.Ki),
-          u_min(result.u_min),
-          u_max(result.u_max),
-          i_min(result.i_min),
-          i_max(result.i_max),
-          Kbc(result.Kbc),
-          b(result.b),
-          Ts(result.Ts) {}
-
-    template<typename U>
-    constexpr explicit PIDController(const PIDController<U, PIDMode::PI>& other)
-        : Kp(static_cast<T>(other.Kp)),
-          Ki(static_cast<T>(other.Ki)),
-          u_min(static_cast<T>(other.u_min)),
-          u_max(static_cast<T>(other.u_max)),
-          i_min(static_cast<T>(other.i_min)),
-          i_max(static_cast<T>(other.i_max)),
-          Kbc(static_cast<T>(other.Kbc)),
-          b(static_cast<T>(other.b)),
-          Ts(static_cast<T>(other.Ts)),
-          integral(static_cast<T>(other.integral)),
-          runtime_mode(other.runtime_mode),
-          u_track(static_cast<T>(other.u_track)) {}
-
-    [[nodiscard]] constexpr T control(T r, T y) {
-        const T e = r - y;
-
-        if (runtime_mode == PIDRuntimeMode::Tracking) {
-            const T target = u_track - (Kp * ((b * r) - y)) - (Ki * e);
-            integral = damp::clamp(target, i_min, i_max);
-            return damp::clamp(u_track, u_min, u_max);
+    constexpr PIDController(const design::DiscretePIDResult<T>& r)
+        : Kp(r.Kp),
+          Ki(r.Ki),
+          u_min(r.u_min),
+          u_max(r.u_max),
+          i_min(r.i_min),
+          i_max(r.i_max),
+          Kbc(r.Kbc),
+          b(r.b),
+          Ts(r.Ts) {
+        if (r.Kd != T{0}) {
+            detail::refuse_failed_design(); // a PI cannot realize the D term
         }
-
-        integral += Ki * e;
-        integral = damp::clamp(integral, i_min, i_max);
-        const T u_unsat = (Kp * ((b * r) - y)) + integral;
-        const T u = damp::clamp(u_unsat, u_min, u_max);
-
-        if (Kbc != T{0} && Ki != T{0}) {
-            integral += Ki * ((u - u_unsat) / Kbc);
-            integral = damp::clamp(integral, i_min, i_max);
-        }
-        return u;
     }
 
-    constexpr void reset() { integral = T{0}; }
+    template<typename U>
+    constexpr explicit PIDController(const PIDController<U, PIDMode::PI>& o)
+        : Kp(static_cast<T>(o.Kp)),
+          Ki(static_cast<T>(o.Ki)),
+          u_min(static_cast<T>(o.u_min)),
+          u_max(static_cast<T>(o.u_max)),
+          i_min(static_cast<T>(o.i_min)),
+          i_max(static_cast<T>(o.i_max)),
+          Kbc(static_cast<T>(o.Kbc)),
+          b(static_cast<T>(o.b)),
+          Ts(static_cast<T>(o.Ts)),
+          integral(static_cast<T>(o.integral)),
+          runtime_mode(o.runtime_mode),
+          u_track(static_cast<T>(o.u_track)) {}
 
-    constexpr void enable() { runtime_mode = PIDRuntimeMode::Auto; }
-    constexpr void disable(T track) {
-        runtime_mode = PIDRuntimeMode::Tracking;
-        u_track = track;
+    [[nodiscard]] constexpr T control(T r, T y) {
+        const T p = Kp * ((b * r) - y);
+        return detail::pid_step(*this, Ki * (r - y), p, p, Ki);
     }
 
     /**
      * @brief Hold in Tracking mode, preloading the integrator to emit @p u_track bumplessly
      * @param u_track_ Output value to follow
-     * @param y       Current measurement (preload assumes r = y, zero error)
+     * @param y        Current measurement (preload assumes r = y, zero error)
      */
     constexpr void track(T u_track_, T y) {
         disable(u_track_);
         (void)control(y, y);
     }
 
-    constexpr void back_calculate(T u_unsat, T u_sat) {
-        if (Kbc == T{0} || Ki == T{0} || u_unsat == u_sat) {
-            return;
+    /// Anti-windup hook driven by a downstream stage: ΔI = Ki·(u_sat − u_unsat)/Kbc.
+    constexpr void back_calculate(T u_unsat, T u_sat) { detail::pid_wind_back(*this, Ki, u_sat, u_unsat); }
+
+    /// Clear the integral; keeps gains and runtime mode.
+    constexpr void reset() { integral = T{0}; }
+
+    constexpr void enable() { runtime_mode = PIDRuntimeMode::Auto; }
+
+    constexpr void disable(T track) {
+        runtime_mode = PIDRuntimeMode::Tracking;
+        u_track = track;
+    }
+
+    [[nodiscard]] constexpr bool is_enabled() const { return runtime_mode == PIDRuntimeMode::Auto; }
+};
+
+/**
+ * @ingroup discrete_controllers
+ * @brief Fixed-rate discrete 2-DOF PD controller specialization
+ *
+ * P plus filtered derivative on (c·r − y). With no integrator there is nothing
+ * to preload, so Tracking holds u_track and re-enable resumes the plain law.
+ * Constructing from a design with an integral term (Ki ≠ 0) is refused.
+ */
+template<typename T>
+struct PIDController<T, PIDMode::PD> {
+    T Kp{};
+    T Kd{};  ///< Continuous Kd retained for inspection; tick uses d_a / d_b
+    T d_a{}; ///< D ← d_a D + d_b Δx
+    T d_b{};
+    T u_min = -std::numeric_limits<T>::max();
+    T u_max = std::numeric_limits<T>::max();
+    T b = T{1};  ///< Proportional setpoint weight
+    T c = T{1};  ///< Derivative setpoint weight
+    T Ts = T{0}; ///< Sample period from discretize (documentation)
+
+    T    prev_x = T{0}; ///< Previous c·r − y
+    T    deriv = T{0};  ///< Filtered derivative term D
+    bool first = true;  ///< Next tick seeds prev_x (no derivative kick)
+
+    PIDRuntimeMode runtime_mode{PIDRuntimeMode::Auto};
+    T              u_track{T{0}};
+
+    constexpr PIDController() noexcept = default;
+
+    constexpr PIDController(const design::DiscretePIDResult<T>& r)
+        : Kp(r.Kp),
+          Kd(r.Kd),
+          d_a(r.d_a),
+          d_b(r.d_b),
+          u_min(r.u_min),
+          u_max(r.u_max),
+          b(r.b),
+          c(r.c),
+          Ts(r.Ts) {
+        if (r.Ki != T{0}) {
+            detail::refuse_failed_design(); // a PD cannot realize the I term
         }
-        integral += Ki * ((u_sat - u_unsat) / Kbc);
-        integral = damp::clamp(integral, i_min, i_max);
+    }
+
+    template<typename U>
+    constexpr explicit PIDController(const PIDController<U, PIDMode::PD>& o)
+        : Kp(static_cast<T>(o.Kp)),
+          Kd(static_cast<T>(o.Kd)),
+          d_a(static_cast<T>(o.d_a)),
+          d_b(static_cast<T>(o.d_b)),
+          u_min(static_cast<T>(o.u_min)),
+          u_max(static_cast<T>(o.u_max)),
+          b(static_cast<T>(o.b)),
+          c(static_cast<T>(o.c)),
+          Ts(static_cast<T>(o.Ts)),
+          prev_x(static_cast<T>(o.prev_x)),
+          deriv(static_cast<T>(o.deriv)),
+          first(o.first),
+          runtime_mode(o.runtime_mode),
+          u_track(static_cast<T>(o.u_track)) {}
+
+    [[nodiscard]] constexpr T control(T r, T y) {
+        deriv = (d_a * deriv) + (d_b * detail::pid_delta(*this, (c * r) - y));
+        const T u = (runtime_mode == PIDRuntimeMode::Tracking) ? u_track : (Kp * ((b * r) - y)) + deriv;
+        return damp::clamp(u, u_min, u_max);
+    }
+
+    /// Clear derivative state; keeps gains and runtime mode.
+    constexpr void reset() {
+        prev_x = T{0};
+        deriv = T{0};
+        first = true;
+    }
+
+    constexpr void enable() { runtime_mode = PIDRuntimeMode::Auto; }
+
+    constexpr void disable(T track) {
+        runtime_mode = PIDRuntimeMode::Tracking;
+        u_track = track;
     }
 
     [[nodiscard]] constexpr bool is_enabled() const { return runtime_mode == PIDRuntimeMode::Auto; }
@@ -601,52 +709,54 @@ struct PIDController<T, PIDMode::PI> {
 /**
  * @ingroup discrete_controllers
  * @brief Discrete proportional controller specialization
+ *
+ * Constructing from a design with an integral or derivative term is refused.
  */
 template<typename T>
 struct PIDController<T, PIDMode::P> {
     T Kp{};
     T u_min = -std::numeric_limits<T>::max();
     T u_max = std::numeric_limits<T>::max();
-    T b = T{1};
+    T b = T{1}; ///< Proportional setpoint weight
 
     PIDRuntimeMode runtime_mode{PIDRuntimeMode::Auto};
     T              u_track{T{0}};
 
-    constexpr PIDController() = default;
+    constexpr PIDController() noexcept = default;
 
-    constexpr explicit PIDController(T Kp_)
+    constexpr explicit PIDController(T Kp_) noexcept
         : Kp(Kp_) {}
 
-    constexpr PIDController(const design::DiscretePIDResult<T>& result)
-        : Kp(result.Kp), u_min(result.u_min), u_max(result.u_max), b(result.b) {}
-
-    /// From continuous design (P has no rate-dependent term)
-    constexpr PIDController(const design::PIDResult<T>& result)
-        : Kp(result.Kp), u_min(result.u_min), u_max(result.u_max), b(result.b) {}
+    constexpr PIDController(const design::DiscretePIDResult<T>& r)
+        : Kp(r.Kp), u_min(r.u_min), u_max(r.u_max), b(r.b) {
+        if (r.Ki != T{0} || r.Kd != T{0}) {
+            detail::refuse_failed_design(); // a P cannot realize the I or D term
+        }
+    }
 
     template<typename U>
-    constexpr explicit PIDController(const PIDController<U, PIDMode::P>& other)
-        : Kp(static_cast<T>(other.Kp)),
-          u_min(static_cast<T>(other.u_min)),
-          u_max(static_cast<T>(other.u_max)),
-          b(static_cast<T>(other.b)),
-          runtime_mode(other.runtime_mode),
-          u_track(static_cast<T>(other.u_track)) {}
+    constexpr explicit PIDController(const PIDController<U, PIDMode::P>& o)
+        : Kp(static_cast<T>(o.Kp)),
+          u_min(static_cast<T>(o.u_min)),
+          u_max(static_cast<T>(o.u_max)),
+          b(static_cast<T>(o.b)),
+          runtime_mode(o.runtime_mode),
+          u_track(static_cast<T>(o.u_track)) {}
 
     [[nodiscard]] constexpr T control(T r, T y) {
-        if (runtime_mode == PIDRuntimeMode::Tracking) {
-            return damp::clamp(u_track, u_min, u_max);
-        }
-        return damp::clamp(Kp * ((b * r) - y), u_min, u_max);
+        const T u = (runtime_mode == PIDRuntimeMode::Tracking) ? u_track : Kp * ((b * r) - y);
+        return damp::clamp(u, u_min, u_max);
     }
 
     constexpr void reset() {}
 
     constexpr void enable() { runtime_mode = PIDRuntimeMode::Auto; }
+
     constexpr void disable(T track) {
         runtime_mode = PIDRuntimeMode::Tracking;
         u_track = track;
     }
+
     [[nodiscard]] constexpr bool is_enabled() const { return runtime_mode == PIDRuntimeMode::Auto; }
 };
 
@@ -658,6 +768,9 @@ using PController = PIDController<T, PIDMode::P>;
 
 template<typename T = float>
 using PIController = PIDController<T, PIDMode::PI>;
+
+template<typename T = float>
+using PDController = PIDController<T, PIDMode::PD>;
 
 /**
  * @brief Continuous-gain PID with per-tick sample time (variable-rate secondary form)
@@ -684,59 +797,59 @@ using PIController = PIDController<T, PIDMode::PI>;
 template<typename T = float>
 struct ContinuousPID {
     T Kp{};
-    T Ki{};
+    T Ki{}; ///< Continuous integral gain (I += Ki·e·Ts)
     T Kd{};
+    T Tf = T{0}; ///< Derivative filter time constant (0 = unfiltered)
     T u_min = -std::numeric_limits<T>::max();
     T u_max = std::numeric_limits<T>::max();
-    T i_min = -std::numeric_limits<T>::max();
+    T i_min = -std::numeric_limits<T>::max(); ///< Clamp on integral term I (same units as u)
     T i_max = std::numeric_limits<T>::max();
-    T Kbc = T{0}; ///< Back-calculation: ΔI += Ki·(Ts/Kbc)(u−u_unsat)
-    T b = T{1};
-    T c = T{1};
-    T Tf = T{0};
+    T Kbc = T{0}; ///< Back-calculation: ΔI += Ki·(Ts/Kbc)(u−u_unsat); 0 = output clamp only
+    T b = T{1};   ///< Proportional setpoint weight
+    T c = T{1};   ///< Derivative setpoint weight
 
     T    integral = T{0}; ///< Integral term I (same units as u)
-    T    prev_cr_minus_y = T{0};
-    T    deriv = T{0};
-    bool first_ = true;
+    T    prev_x = T{0};   ///< Previous c·r − y
+    T    deriv = T{0};    ///< Filtered derivative term D
+    bool first = true;    ///< Next tick seeds prev_x (no derivative kick)
 
     PIDRuntimeMode runtime_mode{PIDRuntimeMode::Auto};
     T              u_track{T{0}};
 
-    constexpr ContinuousPID() = default;
+    constexpr ContinuousPID() noexcept = default;
 
-    constexpr ContinuousPID(const design::PIDResult<T>& result)
-        : Kp(result.Kp),
-          Ki(result.Ki),
-          Kd(result.Kd),
-          u_min(result.u_min),
-          u_max(result.u_max),
-          i_min(result.i_min),
-          i_max(result.i_max),
-          Kbc(result.Kbc),
-          b(result.b),
-          c(result.c),
-          Tf(result.Tf) {}
+    constexpr ContinuousPID(const design::PIDResult<T>& r) noexcept
+        : Kp(r.Kp),
+          Ki(r.Ki),
+          Kd(r.Kd),
+          Tf(r.Tf),
+          u_min(r.u_min),
+          u_max(r.u_max),
+          i_min(r.i_min),
+          i_max(r.i_max),
+          Kbc(r.Kbc),
+          b(r.b),
+          c(r.c) {}
 
     template<typename U>
-    constexpr explicit ContinuousPID(const ContinuousPID<U>& other)
-        : Kp(static_cast<T>(other.Kp)),
-          Ki(static_cast<T>(other.Ki)),
-          Kd(static_cast<T>(other.Kd)),
-          u_min(static_cast<T>(other.u_min)),
-          u_max(static_cast<T>(other.u_max)),
-          i_min(static_cast<T>(other.i_min)),
-          i_max(static_cast<T>(other.i_max)),
-          Kbc(static_cast<T>(other.Kbc)),
-          b(static_cast<T>(other.b)),
-          c(static_cast<T>(other.c)),
-          Tf(static_cast<T>(other.Tf)),
-          integral(static_cast<T>(other.integral)),
-          prev_cr_minus_y(static_cast<T>(other.prev_cr_minus_y)),
-          deriv(static_cast<T>(other.deriv)),
-          first_(other.first_),
-          runtime_mode(other.runtime_mode),
-          u_track(static_cast<T>(other.u_track)) {}
+    constexpr explicit ContinuousPID(const ContinuousPID<U>& o)
+        : Kp(static_cast<T>(o.Kp)),
+          Ki(static_cast<T>(o.Ki)),
+          Kd(static_cast<T>(o.Kd)),
+          Tf(static_cast<T>(o.Tf)),
+          u_min(static_cast<T>(o.u_min)),
+          u_max(static_cast<T>(o.u_max)),
+          i_min(static_cast<T>(o.i_min)),
+          i_max(static_cast<T>(o.i_max)),
+          Kbc(static_cast<T>(o.Kbc)),
+          b(static_cast<T>(o.b)),
+          c(static_cast<T>(o.c)),
+          integral(static_cast<T>(o.integral)),
+          prev_x(static_cast<T>(o.prev_x)),
+          deriv(static_cast<T>(o.deriv)),
+          first(o.first),
+          runtime_mode(o.runtime_mode),
+          u_track(static_cast<T>(o.u_track)) {}
 
     /**
      * @brief Compute 2-DOF PID control output with measured sample period
@@ -745,50 +858,36 @@ struct ContinuousPID {
      * division by zero on the derivative path).
      */
     [[nodiscard]] constexpr T control(T r, T y, T Ts) {
+        const T p = Kp * ((b * r) - y);
         if (Ts <= T{0}) {
-            if (runtime_mode == PIDRuntimeMode::Tracking) {
-                return damp::clamp(u_track, u_min, u_max);
-            }
-            return damp::clamp((Kp * ((b * r) - y)) + integral + deriv, u_min, u_max);
+            return damp::clamp(runtime_mode == PIDRuntimeMode::Tracking ? u_track : p + integral + deriv, u_min, u_max);
         }
-
-        const T cr_minus_y = (c * r) - y;
-        if (first_) {
-            prev_cr_minus_y = cr_minus_y;
-            first_ = false;
-        }
-        const T dX = cr_minus_y - prev_cr_minus_y;
-        prev_cr_minus_y = cr_minus_y;
 
         // Filtered derivative D = Kd*s/(1 + Tf*s) on (c*r − y), backward Euler
-        deriv = ((Tf * deriv) + (Kd * dX)) / (Ts + Tf);
-
-        const T e = r - y;
-
-        if (runtime_mode == PIDRuntimeMode::Tracking) {
-            const T target = u_track - (Kp * ((b * r) - y)) - deriv - (Ki * e * Ts);
-            integral = damp::clamp(target, i_min, i_max);
-            return damp::clamp(u_track, u_min, u_max);
-        }
-
-        integral += Ki * e * Ts;
-        integral = damp::clamp(integral, i_min, i_max);
-        const T u_unsat = (Kp * ((b * r) - y)) + integral + deriv;
-        const T u = damp::clamp(u_unsat, u_min, u_max);
-
-        if (Kbc != T{0} && Ki != T{0}) {
-            integral += Ki * (Ts / Kbc) * (u - u_unsat);
-            integral = damp::clamp(integral, i_min, i_max);
-        }
-
-        return u;
+        const T decay = Tf / (Ts + Tf);
+        deriv = (decay * deriv) + ((Kd / (Ts + Tf)) * detail::pid_delta(*this, (c * r) - y));
+        return detail::pid_step(*this, Ki * (r - y) * Ts, p + deriv, p + (decay * deriv), Ki * Ts);
     }
 
+    /**
+     * @brief Hold in Tracking mode, preloading the integrator to emit @p u_track bumplessly
+     *
+     * The preload assumes the next tick has the same @p Ts.
+     */
+    constexpr void track(T u_track_, T y, T Ts) {
+        disable(u_track_);
+        (void)control(y, y, Ts);
+    }
+
+    /// Anti-windup hook: ΔI = Ki·Ts·(u_sat − u_unsat)/Kbc.
+    constexpr void back_calculate(T u_unsat, T u_sat, T Ts) { detail::pid_wind_back(*this, Ki * Ts, u_sat, u_unsat); }
+
+    /// Clear integral and derivative state; keeps gains and runtime mode.
     constexpr void reset() {
         integral = T{0};
-        prev_cr_minus_y = T{0};
+        prev_x = T{0};
         deriv = T{0};
-        first_ = true;
+        first = true;
     }
 
     constexpr void enable() { runtime_mode = PIDRuntimeMode::Auto; }
@@ -798,26 +897,7 @@ struct ContinuousPID {
         u_track = track;
     }
 
-    /**
-     * @brief Hold in Tracking mode, preloading the integrator to emit @p u_track bumplessly
-     */
-    constexpr void track(T u_track_, T y, T Ts) {
-        disable(u_track_);
-        (void)control(y, y, Ts);
-    }
-
     [[nodiscard]] constexpr bool is_enabled() const { return runtime_mode == PIDRuntimeMode::Auto; }
-
-    /**
-     * @brief Anti-windup hook: ΔI += Ki · (u_sat − u_unsat) · Ts / Kbc
-     */
-    constexpr void back_calculate(T u_unsat, T u_sat, T Ts) {
-        if (Kbc == T{0} || Ki == T{0} || u_unsat == u_sat) {
-            return;
-        }
-        integral += Ki * Ts * ((u_sat - u_unsat) / Kbc);
-        integral = damp::clamp(integral, i_min, i_max);
-    }
 };
 
 } // namespace damp

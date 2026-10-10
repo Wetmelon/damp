@@ -116,6 +116,7 @@
 #include "damp/matrix/block.hpp"
 #include "damp/matrix/decomposition.hpp"
 #include "damp/matrix/eigen.hpp"
+#include "damp/matrix/functions.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "damp/systems/state_space.hpp"
 
@@ -308,7 +309,9 @@ template<size_t NP, size_t NC, size_t ND, size_t NX, size_t NU, size_t NY, typen
 
     for (size_t r = 0; r < NY; ++r) {
         for (size_t c = 0; c < NU; ++c) {
-            if (damp::abs(sys.D(r, c)) > damp::default_tol<T>()) {
+            // Any nonzero entry is feedthrough the condensed model would drop; an
+            // absolute threshold would wave it through once u or y change units.
+            if (sys.D(r, c) != T{0}) {
                 return art; // feedthrough unsupported
             }
         }
@@ -593,7 +596,12 @@ template<typename T>
         return s;
     }
     const T steps = settling_time / Ts;
-    auto    np = static_cast<size_t>(steps);
+    // NP is a template argument: anything near size_t range is not a usable
+    // suggestion, and the cast below would be UB past it.
+    if (!(steps < static_cast<T>(std::numeric_limits<size_t>::max() / 2))) {
+        return s;
+    }
+    auto np = static_cast<size_t>(steps);
     if (static_cast<T>(np) < steps) {
         ++np;
     }
@@ -631,15 +639,17 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
         return s;
     }
 
-    const auto  eig = mat::compute_eigenvalues(sys.A);
-    constexpr T stable_edge = T{1} - static_cast<T>(1e-9); // |λ| beyond this has no finite settling time
-    constexpr T origin_tol = static_cast<T>(1e-12);        // deadbeat poles contribute no timescale
+    const auto eig = mat::compute_eigenvalues(sys.A);
+    // A defective unit eigenvalue (integrator chain) is only computed to
+    // O(√(eps·‖A‖)), so |λ| within that band of 1 is an integrator, not a slow
+    // stable pole — reading it as one suggests an absurd NP.
+    const T stable_edge = T{1} - (T{4} * static_cast<T>(NX) * damp::sqrt(eps<T>() * mat::frobenius_norm(sys.A)));
 
     T tau_max = T{0};
     for (size_t i = 0; i < NX; ++i) {
         const T mag = damp::abs(eig.values(i));
-        if (mag <= origin_tol || mag >= stable_edge) {
-            continue;
+        if (!(mag > T{0}) || mag >= stable_edge) {
+            continue; // deadbeat poles contribute no timescale
         }
         const T tau = -sys.Ts / damp::log(mag);
         tau_max = (tau > tau_max) ? tau : tau_max;

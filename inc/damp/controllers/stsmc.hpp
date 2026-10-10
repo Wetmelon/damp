@@ -30,7 +30,7 @@ template<typename T = double>
 struct STSMCResult {
     T    k1{};           ///< Continuous gain on |s|^½·sign(s)
     T    k2{};           ///< Integral gain on sign(s)
-    T    lambda{};       ///< Sliding-surface slope for the (r, y) convenience form (s = λe + ė)
+    T    lambda{};       ///< Sliding-surface slope for the (r, y) convenience form (σ = −(λe + ė), e = r − y)
     T    k_lin{};        ///< Generalized-STA linear gain (0 = classic super-twisting)
     T    epsilon{};      ///< Boundary-layer thickness for the sign function (0 = true sign)
     bool success{false}; ///< true if gains are valid (k1, k2 > 0)
@@ -154,8 +154,9 @@ stsmc_gains(T k1, T k2, T lambda = T{0}, T k_lin = T{0}, T epsilon = T{0}) {
  *
  * Two entry points per step:
  *  - `control(s, Ts)`    — canonical: you form the sliding variable s yourself.
- *  - `control(r, y, Ts)` — convenience: builds s = λ·e + ė (ė by backward
- *                          difference), matching `SMCController`'s surface.
+ *  - `control(r, y, Ts)` — convenience: builds σ = −(λ·e + ė) on e = r − y (ė by
+ *                          backward difference) — `SMCController`'s surface,
+ *                          signed so that σ̇ = u + d for ÿ = u + d.
  *
  * The integral state is updated by explicit Euler. The output is the
  * sliding-mode control contribution; add any equivalent/feedforward control
@@ -227,11 +228,13 @@ public:
     /// Sliding-variable form using the stored sample time (set at construction).
     [[nodiscard]] constexpr T control_sliding(T s) { return control_sliding(s, Ts_); }
 
-    /// Convenience: build s = λ·e + ė (ė via backward difference) then apply STA.
-    /// @note Assumes the control enters the surface dynamics with the canonical
-    ///       sign (ṡ = u + d). If your plant gives ṡ = −u + d, negate the output
-    ///       (or your λ/s), or use the `control_sliding(s, Ts)` form with a surface
-    ///       you sign yourself.
+    /// Convenience: build σ = −(λ·e + ė), e = r − y (ė via backward difference),
+    /// then apply STA to σ.
+    /// @note For a unit-gain plant ÿ = u + d the surface on the output error
+    ///       y − r obeys σ̇ = u + (d − λė − r̈), the canonical sign control_sliding
+    ///       assumes — so positive tracking error gives a positive command, as
+    ///       for PID / SMC. Scale u for a non-unit input gain, or use
+    ///       `control_sliding(s, Ts)` with a surface you sign yourself.
     [[nodiscard]] constexpr T control(T r, T y, T Ts) {
         // Guard the backward-difference divide; a non-positive Ts holds and emits nothing.
         if (!valid_ || Ts <= T{0}) {
@@ -244,7 +247,7 @@ public:
         }
         const T de = (e - e_prev_) / Ts;
         e_prev_ = e;
-        return control_sliding((lambda_ * e) + de, Ts);
+        return control_sliding(-((lambda_ * e) + de), Ts);
     }
 
     /**

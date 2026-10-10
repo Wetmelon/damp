@@ -26,7 +26,7 @@ namespace spm {
  * @brief Kₜ = 1½ p λ [Nm/A] (amplitude-invariant).
  */
 template<typename T = double>
-[[nodiscard]] constexpr T torque_constant_from_flux(T pole_pairs, T lambda) {
+[[nodiscard]] constexpr T torque_constant_from_flux(T pole_pairs, T lambda) noexcept {
     return static_cast<T>(1.5) * pole_pairs * lambda;
 }
 
@@ -179,7 +179,7 @@ max_torque_at_speed(T omega_mech, T Vmax, T Imax, T Lq, T R, T lambda, T pole_pa
     const T Vmag = steady_state_voltage_magnitude(
         omega_elec, DirectQuadrature<T>{Lq, Lq}, R, lambda, DirectQuadrature<T>{T{0}, iq}
     );
-    const bool current_limited = (iq >= (Imax * (T{1} - static_cast<T>(1e-9))));
+    const bool current_limited = (iq >= Imax); // max_iq returns min(Imax, ·) exactly
     bool       voltage_limited = !current_limited && (iq > T{0});
     if (!(iq > T{0}) && (omega_elec > T{0})) {
         voltage_limited = true;

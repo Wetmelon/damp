@@ -41,7 +41,7 @@ namespace damp {
  *     u       = inner.control(u_outer, y_inner)
  *
  * Typical use: outer position / voltage loop, inner velocity / current.
- * Alias CascadePPI for PI+PI when both are PIDController PI modes.
+ * Alias CascadePPI for PI+PI when both loops are PIController.
  *
  * @tparam Outer Outer controller type (SisoController)
  * @tparam Inner Inner controller type (SisoController)

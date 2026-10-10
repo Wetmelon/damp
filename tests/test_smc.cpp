@@ -45,13 +45,13 @@ TEST_SUITE("Sliding Mode Control (SMC)") {
         r = 1.0f;
         y = 0.0f;
         u = controller.control(r, y, Ts);
-        CHECK(u == doctest::Approx(-k / b0).epsilon(1e-6)); // s > 0, u = -k/b0
+        CHECK(u == doctest::Approx(k / b0).epsilon(1e-6)); // s > 0, u = +k/b0
 
         // Test control with negative error
         r = 0.0f;
         y = 1.0f;
         u = controller.control(r, y, Ts);
-        CHECK(u == doctest::Approx(k / b0).epsilon(1e-6)); // s < 0, u = k/b0
+        CHECK(u == doctest::Approx(-k / b0).epsilon(1e-6)); // s < 0, u = -k/b0
     }
 
     TEST_CASE("SMC boundary layer: continuous, saturates to the relay magnitude") {
@@ -64,7 +64,7 @@ TEST_SUITE("Sliding Mode Control (SMC)") {
 
         // Large surface -> sat() clamps to the full relay magnitude k/b0.
         const float u_big = ctrl.control(100.0f, 0.0f, Ts, phi);
-        CHECK(u_big == doctest::Approx(-5.0f).epsilon(1e-4));
+        CHECK(u_big == doctest::Approx(5.0f).epsilon(1e-4));
 
         // Small surface -> proportional region, |u| strictly below the relay, but nonzero.
         SMCController<float> c2(g);
@@ -80,8 +80,8 @@ TEST_SUITE("Sliding Mode Control (SMC)") {
         (void)ctrl.control(0.5, 0.0, 0.01);
         ctrl.reset();
         // First post-reset tick re-seeds: e_dot = 0, s = lambda*error = 10 > 0, so
-        // the relay gives exactly -k/b0 with no derivative kick carried from history.
-        CHECK(ctrl.control(1.0, 0.0, 0.01) == doctest::Approx(-5.0));
+        // the relay gives exactly +k/b0 with no derivative kick carried from history.
+        CHECK(ctrl.control(1.0, 0.0, 0.01) == doctest::Approx(5.0));
     }
 
     TEST_CASE("SMC: non-positive Ts and invalid design are inert (no divide-by-zero)") {

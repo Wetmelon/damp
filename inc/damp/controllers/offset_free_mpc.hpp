@@ -6,7 +6,7 @@
 #pragma once
 
 /**
- * @file mpc.hpp
+ * @file offset_free_mpc.hpp
  * @brief Offset-free constrained MPC: the damp::MPC controller bundled with a
  *        disturbance-augmented Kalman estimator (`design::mpc`
  *        + `damp::OffsetFreeMPC`).

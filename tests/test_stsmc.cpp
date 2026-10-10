@@ -134,7 +134,7 @@ TEST_SUITE("stsmc") {
         CHECK(worst_du < 0.05); // still continuous
     }
 
-    TEST_CASE("(r,y) overload builds s = lambda*e + e_dot then applies the STA") {
+    TEST_CASE("(r,y) overload builds sigma = -(lambda*e + e_dot) then applies the STA") {
         // The (r, y) form is a surface-builder over control(s). The first call
         // seeds e_prev = e (no derivative kick), so e_dot = 0 and s = lambda*e;
         // the next call exercises the backward difference.
@@ -145,11 +145,11 @@ TEST_SUITE("stsmc") {
 
         const double e1 = 1.0;         // r=1, y=0
         const double s1 = lambda * e1; // first call: e_dot = 0 (seeded)
-        CHECK(via_ry.control(1.0, 0.0, Ts) == doctest::Approx(via_s.control_sliding(s1, Ts)));
+        CHECK(via_ry.control(1.0, 0.0, Ts) == doctest::Approx(via_s.control_sliding(-s1, Ts)));
 
         const double e2 = 1.5 - 0.2;                        // r=1.5, y=0.2
         const double s2 = (lambda * e2) + ((e2 - e1) / Ts); // e_dot from backward difference
-        CHECK(via_ry.control(1.5, 0.2, Ts) == doctest::Approx(via_s.control_sliding(s2, Ts)));
+        CHECK(via_ry.control(1.5, 0.2, Ts) == doctest::Approx(via_s.control_sliding(-s2, Ts)));
     }
 
     TEST_CASE("cross-precision converting ctor preserves gains and integral state") {

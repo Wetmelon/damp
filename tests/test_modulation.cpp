@@ -212,11 +212,11 @@ TEST_SUITE("Transforms & Modulation") {
     TEST_CASE("THIPWM 1/6 injection and line-line identity vs SVPWM") {
         const float Vdc = 100.0f;
         const float Vpk = 40.0f; // linear for both THIPWM and SVPWM
-        // θ = 0 → v0 = Vpk/6
+        // θ = 0 → v0 = −Vpk/6 (flattens phase a peak)
         {
             const AlphaBeta<float> v = {.alpha = Vpk, .beta = 0.0f};
             const float            v0 = thipwm_zero_sequence(v);
-            CHECK(v0 == doctest::Approx(Vpk / 6.0f).epsilon(1e-5f));
+            CHECK(v0 == doctest::Approx(-Vpk / 6.0f).epsilon(1e-5f));
 
             const auto thi = modulation_duty_cycles<float>(v, Vdc, PwmScheme::Thipwm);
             const auto svm = modulation_duty_cycles<float>(v, Vdc, PwmScheme::Svpwm);
@@ -231,12 +231,12 @@ TEST_SUITE("Transforms & Modulation") {
             const AlphaBeta<float> v = {.alpha = 0.0f, .beta = Vpk};
             CHECK(thipwm_zero_sequence(v) == doctest::Approx(0.0f).epsilon(1e-5f));
         }
-        // θ = 60° → cos(180°) = -1 → v0 = -Vpk/6
+        // θ = 60° → cos(180°) = -1 → v0 = +Vpk/6
         {
             const float            c60 = 0.5f;
             const float            s60 = std::numbers::sqrt3_v<float> / 2.0f;
             const AlphaBeta<float> v = {.alpha = Vpk * c60, .beta = Vpk * s60};
-            CHECK(thipwm_zero_sequence(v) == doctest::Approx(-Vpk / 6.0f).epsilon(1e-5f));
+            CHECK(thipwm_zero_sequence(v) == doctest::Approx(Vpk / 6.0f).epsilon(1e-5f));
         }
     }
 

@@ -47,6 +47,7 @@
  */
 
 #include <cstddef>
+#include <limits>
 #include <type_traits>
 
 #include "damp/backend.hpp"              // damp::array
@@ -101,7 +102,9 @@ struct RepetitiveConfig {
             return false; // window must fit inside the period delay (N > M)
         }
         const scalar dc = q_dc_gain();
-        if (dc <= scalar{0} || dc > scalar{1} + default_tol<scalar>()) {
+        // Allow the rounding of summing 2M+1 taps (each ≤ 1) to unity, no more.
+        const scalar dc_slack = scalar{4} * static_cast<scalar>((2 * q_half) + 1) * eps<scalar>();
+        if (dc <= scalar{0} || dc > scalar{1} + dc_slack) {
             return false; // a robustness filter must not amplify (DC gain ≤ 1)
         }
         if (lead >= period) {
@@ -142,6 +145,31 @@ struct RepetitiveResult {
     }
 };
 
+namespace detail {
+/// N = round(fs / f0), or 0 (an invalid period) when the rates are out of range.
+template<typename T>
+[[nodiscard]] constexpr size_t repetitive_period(T fs_hz, T f0_hz) {
+    // !(a < b) also rejects NaN; the cap keeps the size_t cast defined.
+    if (!(fs_hz > T{0}) || !(f0_hz > T{0}) || !(f0_hz < fs_hz)) {
+        return 0;
+    }
+    const T ratio = fs_hz / f0_hz;
+    if (!(ratio < static_cast<T>(std::numeric_limits<size_t>::max() / 2))) {
+        return 0;
+    }
+    return static_cast<size_t>(ratio + static_cast<T>(0.5)); // round to nearest
+}
+
+/// Binomial coefficient C(n, k) (small n; double is exact in range).
+[[nodiscard]] constexpr double binomial(size_t n, size_t k) {
+    double c = 1.0;
+    for (size_t i = 0; i < k; ++i) {
+        c = c * static_cast<double>(n - i) / static_cast<double>(i + 1);
+    }
+    return c;
+}
+} // namespace detail
+
 /**
  * @brief Synthesize a repetitive controller with a scalar robustness filter Q.
  *
@@ -175,14 +203,8 @@ template<typename T = double>
     T      q = T{1},
     size_t lead = 0
 ) {
-    if (fs_hz <= T{0} || f0_hz <= T{0} || f0_hz >= fs_hz) {
-        return RepetitiveResult<T, 0>{}; // success stays false
-    }
-    const T      ratio = fs_hz / f0_hz;
-    const size_t period = static_cast<size_t>(ratio + static_cast<T>(0.5)); // round to nearest
-
     const RepetitiveConfig<T, 0> config{
-        .period = period,
+        .period = detail::repetitive_period(fs_hz, f0_hz),
         .gain = static_cast<scalar_type_t<T>>(gain),
         .q_filter = static_cast<scalar_type_t<T>>(q),
         .lead = lead,
@@ -194,16 +216,6 @@ template<typename T = double>
     };
 }
 
-namespace detail {
-/// Binomial coefficient C(n, k) (small n; double is exact in range).
-[[nodiscard]] constexpr double binomial(size_t n, size_t k) {
-    double c = 1.0;
-    for (size_t i = 0; i < k; ++i) {
-        c = c * static_cast<double>(n - i) / static_cast<double>(i + 1);
-    }
-    return c;
-}
-} // namespace detail
 
 /**
  * @brief Synthesize a repetitive controller with a binomial zero-phase FIR Q.
@@ -226,11 +238,6 @@ template<size_t M, typename T = double>
     T      gain = T{1},
     size_t lead = 0
 ) {
-    if (fs_hz <= T{0} || f0_hz <= T{0} || f0_hz >= fs_hz) {
-        return RepetitiveResult<T, M>{};
-    }
-    const size_t period = static_cast<size_t>((fs_hz / f0_hz) + static_cast<T>(0.5));
-
     using scalar = scalar_type_t<T>;
     // Normalize to unity DC gain: Σ row of C(2M,·) = 2^{2M} = 4^M.
     double norm = 1.0;
@@ -239,7 +246,7 @@ template<size_t M, typename T = double>
     }
 
     RepetitiveConfig<T, M> config{
-        .period = period,
+        .period = detail::repetitive_period(fs_hz, f0_hz),
         .gain = static_cast<scalar>(gain),
         .q_filter = static_cast<scalar>(detail::binomial(2 * M, M) / norm),
         .lead = lead,

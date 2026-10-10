@@ -188,6 +188,9 @@ template<typename T>
     return {lo, hi};
 }
 
+/**
+ * @brief Element-wise static_cast of a damp::array to scalar type U (precision rebind).
+ */
 template<typename U, typename T, size_t N>
 [[nodiscard]] constexpr damp::array<U, N> array_as(const damp::array<T, N>& in) {
     damp::array<U, N> out{};
@@ -196,4 +199,21 @@ template<typename U, typename T, size_t N>
     }
     return out;
 }
+
+namespace detail {
+
+/// Failed design:: result passed to a runtime law. Not constexpr, so a
+/// constant-evaluated constructor becomes ill-formed; at runtime it traps.
+[[noreturn]] inline void refuse_failed_design() noexcept {
+#if defined(__GNUC__) || defined(__clang__)
+    __builtin_trap();
+#elif defined(_MSC_VER)
+    __fastfail(7);
+#else
+    for (;;) {
+    }
+#endif
+}
+
+} // namespace detail
 } // namespace damp

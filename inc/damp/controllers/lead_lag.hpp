@@ -57,7 +57,7 @@ namespace design {
  */
 template<typename T = double>
 struct LeadLagResult {
-    T    K{};            ///< DC gain of the compensator
+    T    K{};            ///< High-frequency gain (DC gain is K·z/p)
     T    z{};            ///< Zero location (rad/s, positive value; actual zero at s = -z)
     T    p{};            ///< Pole location (rad/s, positive value; actual pole at s = -p)
     T    Ts{};           ///< Sampling time (seconds), 0 = continuous

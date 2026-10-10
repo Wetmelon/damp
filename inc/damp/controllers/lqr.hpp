@@ -264,10 +264,18 @@ template<size_t NX, size_t NU, typename T = double>
     T                        Ts,
     const Matrix<NX, NU, T>& N = Matrix<NX, NU, T>{}
 ) {
+    // Ts ≤ 0 would hand the continuous A to the discrete DARE (discretize passes
+    // it through unchanged); a failed ZOH must not be dereferenced.
+    if (!(Ts > T{0})) {
+        return LQRResult<NX, NU, T>{};
+    }
     StateSpace<NX, NU, NX, T, NX, NX> sys_c{A, B, Matrix<NX, NX, T>::identity()};
-    const auto                        sys_d = *discretize(sys_c, Ts, DiscretizationMethod::ZOH);
-    const auto                        cost = discretize_lqr_cost(A, B, Q, R, Ts, N);
-    return discrete_lqr(sys_d.A, sys_d.B, cost.Q, cost.R, cost.N);
+    const auto                        sys_d = discretize(sys_c, Ts, DiscretizationMethod::ZOH);
+    if (!sys_d) {
+        return LQRResult<NX, NU, T>{};
+    }
+    const auto cost = discretize_lqr_cost(A, B, Q, R, Ts, N);
+    return discrete_lqr(sys_d->A, sys_d->B, cost.Q, cost.R, cost.N);
 }
 
 /**
@@ -415,23 +423,6 @@ template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, si
 }
 
 } // namespace design
-
-namespace detail {
-
-/// Failed design:: result passed to a runtime law. Not constexpr, so a
-/// constant-evaluated constructor becomes ill-formed; at runtime it traps.
-[[noreturn]] inline void refuse_failed_design() noexcept {
-#if defined(__GNUC__) || defined(__clang__)
-    __builtin_trap();
-#elif defined(_MSC_VER)
-    __fastfail(7);
-#else
-    for (;;) {
-    }
-#endif
-}
-
-} // namespace detail
 
 /**
  * @ingroup discrete_controllers

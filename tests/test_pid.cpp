@@ -20,6 +20,12 @@ using namespace damp;
  *        Auto / Tracking mode and bumpless-transfer behavior.
  */
 
+template<typename C>
+concept has_integral = requires(C c) { c.integral; };
+
+template<typename C>
+concept has_derivative = requires(C c) { c.deriv; };
+
 TEST_SUITE("PID Mode Control") {
     TEST_CASE("PI: disable returns clamped u_track from control()") {
         constexpr float Ts = 0.01f;
@@ -83,6 +89,55 @@ TEST_SUITE("PID Mode Control") {
         CHECK(u_after == doctest::Approx(u_track).epsilon(1e-5f));
     }
 
+    TEST_CASE("PID: bumpless with a filtered derivative still decaying at hand-off") {
+        constexpr double Ts = 0.01;
+        auto             gains = design::pid(1.5, 3.0, 0.05);
+        gains.Tf = 0.05; // d_a = Tf/(Ts+Tf) ≈ 0.83: D carries over into the first Auto tick
+        PIDController<double> pid{gains.discretize(Ts)};
+        ContinuousPID<double> cont{gains};
+
+        pid.disable(-1.2);
+        cont.disable(-1.2);
+        double y = 0.0;
+        for (int i = 0; i < 20; ++i) {
+            y = 0.5 + (0.02 * static_cast<double>(i)); // moving y keeps D nonzero
+            CHECK(pid.control(1.0, y) == doctest::Approx(-1.2));
+            CHECK(cont.control(1.0, y, Ts) == doctest::Approx(-1.2));
+        }
+        REQUIRE(pid.deriv != doctest::Approx(0.0));
+
+        // Same (r, y) as the last tracking tick: the first Auto tick must emit u_track.
+        pid.enable();
+        cont.enable();
+        CHECK(pid.control(1.0, y) == doctest::Approx(-1.2).epsilon(1e-12));
+        CHECK(cont.control(1.0, y, Ts) == doctest::Approx(-1.2).epsilon(1e-12));
+    }
+
+    TEST_CASE("PD: P + filtered D, Tracking holds u_track") {
+        constexpr double Ts = 0.01;
+        auto             gains = design::pid(2.0, 0.0, 0.1);
+        gains.Tf = 0.02;
+        PDController<double> pd{gains.discretize(Ts)};
+
+        CHECK(pd.control(1.0, 0.0) == doctest::Approx(2.0)); // first tick: no derivative kick
+        const double u = pd.control(1.0, 0.1);               // y moved 0.1: D = d_b·(−0.1)
+        CHECK(u == doctest::Approx((2.0 * 0.9) - ((0.1 / (Ts + 0.02)) * 0.1)));
+
+        pd.disable(-3.0);
+        CHECK(pd.control(1.0, 0.1) == doctest::Approx(-3.0));
+    }
+
+    TEST_CASE("each mode stores only its own terms") {
+        // RAM is per mode: no integrator state without I, no derivative state without D.
+        static_assert(has_integral<PIDController<float>> && has_derivative<PIDController<float>>);
+        static_assert(has_integral<PIController<float>> && !has_derivative<PIController<float>>);
+        static_assert(!has_integral<PDController<float>> && has_derivative<PDController<float>>);
+        static_assert(!has_integral<PController<float>> && !has_derivative<PController<float>>);
+        static_assert(sizeof(PController<float>) < sizeof(PIController<float>));
+        static_assert(sizeof(PIController<float>) < sizeof(PIDController<float>));
+        static_assert(sizeof(PDController<float>) < sizeof(PIDController<float>));
+    }
+
     TEST_CASE("PID: tracking-mode integrator preload respects i_min/i_max") {
         constexpr float Ts = 0.01f;
         // i limits are on the integral term (same units as u); pass through discretize
@@ -108,7 +163,7 @@ TEST_SUITE("PID Mode Control") {
 
     TEST_CASE("P: tracking mode is degenerate but API works for generic code") {
         // P accepts continuous PIDResult (no rate-dependent term)
-        PController<float> p{design::pid(2.0f, 0.0f, 0.0f, -10.0f, 10.0f)};
+        PController<float> p{design::pid(2.0f, 0.0f, 0.0f, -10.0f, 10.0f).discretize(0.01f)};
 
         REQUIRE(p.is_enabled());
         p.disable(4.2f);
@@ -211,7 +266,7 @@ TEST_SUITE("PID Mode Control") {
         CHECK(f.d_a == doctest::Approx(static_cast<float>(d.d_a)));
         CHECK(f.d_b == doctest::Approx(static_cast<float>(d.d_b)));
         CHECK(f.integral == doctest::Approx(static_cast<float>(d.integral)));
-        CHECK(f.prev_cr_minus_y == doctest::Approx(static_cast<float>(d.prev_cr_minus_y)));
+        CHECK(f.prev_x == doctest::Approx(static_cast<float>(d.prev_x)));
         CHECK(f.deriv == doctest::Approx(static_cast<float>(d.deriv)));
         CHECK(f.is_enabled() == d.is_enabled());
     }

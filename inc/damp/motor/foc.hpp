@@ -111,7 +111,7 @@ struct FOController {
     ContinuousPID<T> dctrl = {};
     ContinuousPID<T> qctrl = {};
 
-    constexpr FOController() = default;
+    constexpr FOController() noexcept = default;
 
     /**
      * @brief Construct from R–L–λ and seed current-loop bandwidth.
@@ -119,8 +119,9 @@ struct FOController {
      * @param R_in       [ohm] phase resistance
      * @param lambda_in  [Wb] FF flux
      * @param current_bw [rad/s] closed-loop current bandwidth for @ref tune
+     * @param b          [-] PI setpoint weight (1 = PI, 0 = I-P)
      */
-    constexpr FOController(DQ Ldq_in, T R_in, T lambda_in, T current_bw = T{1000}, T b = T{1})
+    constexpr FOController(DQ Ldq_in, T R_in, T lambda_in, T current_bw = T{1000}, T b = T{1}) noexcept
         : Ldq(Ldq_in), R(R_in), lambda(lambda_in) {
         tune(current_bw, T{1}, b);
     }
@@ -131,7 +132,7 @@ struct FOController {
      * @param zeta     [-] damping (default 1)
      * @param b        [-] setpoint weight: 1 = PI, 0 = I-P
      */
-    constexpr void tune(T omega_bw, T zeta = T{1}, T b = T{1}) {
+    constexpr void tune(T omega_bw, T zeta = T{1}, T b = T{1}) noexcept {
         const auto d = ::damp::design::pi_pole_placement_first_order(Ldq.d, R, omega_bw, zeta, b);
         const auto q = ::damp::design::pi_pole_placement_first_order(Ldq.q, R, omega_bw, zeta, b);
 

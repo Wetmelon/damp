@@ -43,9 +43,9 @@ using namespace damp;
 // ============================================================================
 
 // --- SisoController: u = control(r, y) --------------------------------------
-static_assert(SisoController<PIDController<double, PIDMode::PID>, double>);
-static_assert(SisoController<PIDController<double, PIDMode::PI>, double>);
-static_assert(SisoController<PIDController<float, PIDMode::P>, float>);
+static_assert(SisoController<PIDController<double>, double>);
+static_assert(SisoController<PIController<double>, double>);
+static_assert(SisoController<PController<float>, float>);
 static_assert(SisoController<ADRCController<2, float>, float>);
 static_assert(SisoController<SMCController<double>, double>);
 static_assert(SisoController<STSMCController<float>, float>);
@@ -109,8 +109,8 @@ TEST_CASE("stored-Ts 2-arg control equals the explicit 3-arg form") {
         gains.Ki = 10.0;
         gains.Kd = 0.05;
 
-        PIDController<double, PIDMode::PID> disc{gains.discretize(Ts)};
-        ContinuousPID<double>               cont{gains};
+        PIDController<double> disc{gains.discretize(Ts)};
+        ContinuousPID<double> cont{gains};
         for (int k = 0; k < 50; ++k) {
             const double r = 1.0;
             const double y = 0.1 * k * Ts;
