@@ -296,15 +296,16 @@ constexpr T pow(T base, int up) {
     if (base == T{0}) {
         return T{0};
     }
-    T   result = T{1};
-    T   b = base;
-    int exponent = up >= 0 ? up : -up;
-    while (exponent > 0) {
-        if (exponent % 2 == 1) {
+    T result = T{1};
+    T b = base;
+    // |up| in unsigned arithmetic: −INT_MIN overflows int.
+    unsigned exponent = up >= 0 ? static_cast<unsigned>(up) : 0U - static_cast<unsigned>(up);
+    while (exponent > 0U) {
+        if ((exponent & 1U) != 0U) {
             result *= b;
         }
         b *= b;
-        exponent /= 2;
+        exponent >>= 1U;
     }
     return up >= 0 ? result : T{1} / result;
 }
@@ -506,7 +507,7 @@ constexpr T deg2rad(T deg) {
  */
 template<typename T>
     requires std::is_floating_point_v<T>
-constexpr T wrap(T x, T min, T max) {
+constexpr T wrap(T x, T min, T max) noexcept {
     const T range = max - min;
     const T midpoint = min + (range / T{2});
 

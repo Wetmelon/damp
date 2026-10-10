@@ -262,6 +262,9 @@ public:
     template<MatrixLike M>
         requires(M::rows() == 1 && M::cols() == Cols)
     constexpr RowView& operator=(const M& vec) {
+        if (detail::may_alias(storage_first(), storage_last(), vec)) {
+            return *this = Matrix<1, Cols, value_type>(vec);
+        }
         for (size_t i = 0; i < Cols; ++i) {
             (*this)(i) = static_cast<value_type>(vec(0, i));
         }
@@ -272,6 +275,9 @@ public:
     template<MatrixLike M>
         requires(M::rows() == Cols && M::cols() == 1 && !(M::rows() == 1 && M::cols() == Cols))
     constexpr RowView& operator=(const M& col) {
+        if (detail::may_alias(storage_first(), storage_last(), col)) {
+            return *this = Matrix<Cols, 1, value_type>(col); // e.g. A.row(2) = A.col(0)
+        }
         for (size_t i = 0; i < Cols; ++i) {
             (*this)(i) = static_cast<value_type>(col(i, 0));
         }
@@ -351,6 +357,9 @@ public:
     template<MatrixLike M>
         requires(M::rows() == Rows && M::cols() == 1)
     constexpr ColView& operator=(const M& vec) {
+        if (detail::may_alias(storage_first(), storage_last(), vec)) {
+            return *this = Matrix<Rows, 1, value_type>(vec);
+        }
         for (size_t i = 0; i < Rows; ++i) {
             (*this)(i) = static_cast<value_type>(vec(i, 0));
         }
@@ -361,6 +370,9 @@ public:
     template<MatrixLike M>
         requires(M::rows() == 1 && M::cols() == Rows && !(M::rows() == Rows && M::cols() == 1))
     constexpr ColView& operator=(const M& row) {
+        if (detail::may_alias(storage_first(), storage_last(), row)) {
+            return *this = Matrix<1, Rows, value_type>(row); // e.g. A.col(2) = A.row(0)
+        }
         for (size_t i = 0; i < Rows; ++i) {
             (*this)(i) = static_cast<value_type>(row(0, i));
         }

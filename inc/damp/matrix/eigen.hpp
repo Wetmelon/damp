@@ -11,7 +11,6 @@
  */
 
 #include <cstddef>
-#include <limits>
 
 #include "core.hpp"
 #include "damp/backend.hpp"
@@ -24,17 +23,19 @@ namespace mat {
  * @brief Eigenvalue computation result.
  *
  * Returned by compute_eigenvalues(). Eigenvalues are fully resolved complex
- * values; @c vectors holds the eigenvectors as columns (the orthogonal Schur
- * basis, which coincides with the true eigenvectors for symmetric/normal A).
+ * values; @c vectors holds the orthogonal real Schur basis as columns. For
+ * symmetric A the Schur form is diagonal, so these are the eigenvectors; for a
+ * general A only the first column is an eigenvector (complex pairs span a
+ * 2-D invariant subspace).
  *
  * @tparam N Number of states
  * @tparam T Numeric type (default: double)
  */
 template<size_t N, typename T = double>
 struct EigenResult {
-    ColVec<N, damp::complex<T>>    values{};  ///< Eigenvalues
-    Matrix<N, N, damp::complex<T>> vectors{}; ///< Eigenvectors (columns)
-    bool                           converged{true};
+    ColVec<N, damp::complex<T>>    values{};        ///< Eigenvalues
+    Matrix<N, N, damp::complex<T>> vectors{};       ///< Eigenvectors (columns)
+    bool                           converged{true}; ///< Every eigenvalue deflated within the budget
 };
 
 namespace detail {
@@ -116,6 +117,43 @@ constexpr void hessenberg_reduce(Matrix<N, N, T>& H, Matrix<N, N, T>& Z) {
 }
 
 /**
+ * @brief Rotate a deflated 2×2 block with real eigenvalues to upper-triangular form.
+ *
+ * Applies the Givens rotation of EISPACK `hqr2` to rows/columns @p n−1, @p n of
+ * @p H and to the Schur vectors @p Z, so @c H(n,n−1) → 0 and the leading
+ * eigenvalue moves to @c H(n−1,n−1). @p z is the stable root offset
+ * @f$ p + \operatorname{sign}(p)\sqrt{p^2 + w} @f$ of the block.
+ */
+template<typename T, size_t N>
+constexpr void triangularize_real_block(Matrix<N, N, T>& H, Matrix<N, N, T>& Z, size_t n, T z) {
+    const T sub = H(n, n - 1);
+    const T s = damp::abs(sub) + damp::abs(z);
+    if (s == T{0}) {
+        return;
+    }
+    T       p = sub / s;
+    T       q = z / s;
+    const T r = damp::sqrt((p * p) + (q * q));
+    p /= r;
+    q /= r;
+    for (size_t j = n - 1; j < N; ++j) {
+        const T h = H(n - 1, j);
+        H(n - 1, j) = (q * h) + (p * H(n, j));
+        H(n, j) = (q * H(n, j)) - (p * h);
+    }
+    for (size_t i = 0; i <= n; ++i) {
+        const T h = H(i, n - 1);
+        H(i, n - 1) = (q * h) + (p * H(i, n));
+        H(i, n) = (q * H(i, n)) - (p * h);
+    }
+    for (size_t i = 0; i < N; ++i) {
+        const T v = Z(i, n - 1);
+        Z(i, n - 1) = (q * v) + (p * Z(i, n));
+        Z(i, n) = (q * Z(i, n)) - (p * v);
+    }
+}
+
+/**
  * @brief Francis double-shift QR on an upper Hessenberg matrix.
  *
  * Reduces @p H to real Schur (quasi-triangular) form in place, accumulating the
@@ -143,7 +181,7 @@ constexpr bool francis_qr(
     damp::array<T, N>& wr,
     damp::array<T, N>& wi
 ) {
-    constexpr T  eps = std::numeric_limits<T>::epsilon();
+    constexpr T  eps = damp::eps<T>();
     const size_t max_its = (30 * N) + 30;
 
     T anorm = T{0};
@@ -196,6 +234,10 @@ constexpr bool francis_qr(
                 T q = (p * p) + w;
                 T z = damp::sqrt(damp::abs(q));
                 x += t;
+                // Restore the accumulated shift to the block diagonal so H stays
+                // a valid real Schur form (off-diagonals are shift-invariant).
+                H(nn - 1, nn - 1) = y + t;
+                H(nn, nn) = x;
                 if (q >= T{0}) {
                     // Real eigenvalue pair.
                     z = p + damp::copysign(z, p);
@@ -203,6 +245,7 @@ constexpr bool francis_qr(
                     wr[nn] = (z != T{0}) ? (x - (w / z)) : (x + z);
                     wi[nn - 1] = T{0};
                     wi[nn] = T{0};
+                    triangularize_real_block(H, Z, static_cast<size_t>(nn), z);
                 } else {
                     // Complex conjugate pair.
                     wr[nn - 1] = x + p;
@@ -210,10 +253,6 @@ constexpr bool francis_qr(
                     wi[nn - 1] = z;
                     wi[nn] = -z;
                 }
-                // Restore the accumulated shift to the block diagonal so H stays
-                // a valid real Schur form (off-diagonals are shift-invariant).
-                H(nn - 1, nn - 1) = y + t;
-                H(nn, nn) = x;
                 nn -= 2;
                 deflated = true;
                 break;
@@ -362,10 +401,10 @@ constexpr bool francis_qr(
  * @brief Compute the eigenvalues (and Schur vectors) of a real square matrix.
  *
  * Resolves both real and complex-conjugate eigenvalues for any N, returned as
- * fully-resolved complex values. 1×1 and 2×2 use the closed-form characteristic
- * polynomial; larger matrices use the Hessenberg + Francis double-shift QR
- * algorithm. The @c vectors field holds the orthogonal Schur basis, which
- * coincides with the true eigenvectors for symmetric/normal A.
+ * fully-resolved complex values. 1×1 is trivial; larger matrices use the
+ * Hessenberg + Francis double-shift QR algorithm (a 2×2 deflates at once via
+ * the cancellation-free quadratic). The @c vectors field holds the orthogonal
+ * real Schur basis, which coincides with the eigenvectors for symmetric A.
  *
  * @note Compare with MATLAB®'s eig(A) — the algorithm is selected internally.
  * @warning QR is iterative (data-dependent iteration count). Suitable for
@@ -388,30 +427,9 @@ template<size_t N, typename T = double>
         result.values[0] = Cplx{A(0, 0), T{0}};
         result.vectors(0, 0) = Cplx{T{1}, T{0}};
         result.converged = true;
-    } else if constexpr (N == 2) {
-        // A 2×2 is already its own real Schur form (Schur vectors = I); solve the
-        // characteristic quadratic λ² − tr·λ + det = 0 directly. Handling N ≤ 2
-        // here keeps the Hessenberg + Francis core instantiated only for N ≥ 3,
-        // where its bulge-chase index arithmetic is provably in bounds.
-        const T a = A(0, 0);
-        const T b = A(0, 1);
-        const T c = A(1, 0);
-        const T d = A(1, 1);
-        const T trace = a + d;
-        const T det = (a * d) - (b * c);
-        const T disc = (trace * trace) - (T{4} * det);
-        if (disc >= T{0}) {
-            const T s = damp::sqrt(disc);
-            result.values[0] = Cplx{(trace + s) / T{2}, T{0}};
-            result.values[1] = Cplx{(trace - s) / T{2}, T{0}};
-        } else {
-            const T s = damp::sqrt(-disc);
-            result.values[0] = Cplx{trace / T{2}, s / T{2}};
-            result.values[1] = Cplx{trace / T{2}, -s / T{2}};
-        }
-        result.vectors = Matrix<2, 2, Cplx>::identity();
-        result.converged = true;
     } else {
+        // N == 2 deflates immediately through the stable 2×2 branch of
+        // francis_qr (its bulge chase is compiled only for N ≥ 3).
         Matrix<N, N, T> H = A;
         Matrix<N, N, T> Z;
         detail::hessenberg_reduce(H, Z);

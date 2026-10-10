@@ -106,8 +106,18 @@ struct complex {
      * @return Quotient of this and other
      */
     constexpr complex operator/(const complex& other) const {
-        T denom = (other.real_ * other.real_) + (other.imag_ * other.imag_);
-        return {((real_ * other.real_) + (imag_ * other.imag_)) / denom, ((imag_ * other.real_) - (real_ * other.imag_)) / denom};
+        // Smith's algorithm: divide through by the larger denominator component
+        // so |c|² + |d|² is never formed (no overflow/underflow for |z| ≷ 1e±154).
+        const T c = other.real_;
+        const T d = other.imag_;
+        if (damp::abs(c) >= damp::abs(d)) {
+            const T r = d / c;
+            const T den = c + (d * r);
+            return {(real_ + (imag_ * r)) / den, (imag_ - (real_ * r)) / den};
+        }
+        const T r = c / d;
+        const T den = (c * r) + d;
+        return {((real_ * r) + imag_) / den, ((imag_ * r) - real_) / den};
     }
 
     /**
@@ -151,12 +161,7 @@ struct complex {
      * @return Reference to this
      */
     constexpr complex& operator/=(const complex& other) {
-        T denom = (other.real_ * other.real_) + (other.imag_ * other.imag_);
-        T new_real = ((real_ * other.real_) + (imag_ * other.imag_)) / denom;
-        T new_imag = ((imag_ * other.real_) - (real_ * other.imag_)) / denom;
-        real_ = new_real;
-        imag_ = new_imag;
-        return *this;
+        return *this = *this / other;
     }
 
     /**
@@ -230,10 +235,10 @@ struct complex {
     /**
      * @brief Compute magnitude (absolute value)
      *
-     * @return |z| = sqrt(real² + imag²)
+     * @return |z| = sqrt(real² + imag²), without intermediate overflow
      */
     constexpr T abs() const {
-        return sqrt(norm());
+        return damp::hypot(real_, imag_);
     }
 
     /**
@@ -312,15 +317,16 @@ constexpr complex<T> operator-(T scalar, const complex<T>& c) {
  */
 template<typename T>
 constexpr complex<T> operator/(T scalar, const complex<T>& c) {
-    T denom = c.real_ * c.real_ + c.imag_ * c.imag_;
-    return {scalar * c.real_ / denom, -scalar * c.imag_ / denom};
+    return complex<T>{scalar, T{0}} / c;
 }
 
 /**
  * @brief Compute complex square root (constexpr)
  *
- * Computes the principal square root of a complex number z.
- * Uses the formula: sqrt(z) = sqrt((|z| + Re(z))/2) + i*sign(Im(z))*sqrt((|z| - Re(z))/2)
+ * Computes the principal square root of a complex number z. The larger
+ * component comes from @f$ \sqrt{(|z| + |\mathrm{Re}\,z|)/2} @f$ (no
+ * cancellation); the smaller one is @f$ |\mathrm{Im}\,z| / (2 \cdot \text{larger}) @f$.
+ * The imaginary part takes the sign of Im(z).
  *
  * @tparam T Underlying floating-point type
  * @param z  Complex number to compute square root of
@@ -336,27 +342,25 @@ constexpr complex<T> sqrt(const complex<T>& z) {
         return complex<T>{T{0}, T{0}};
     }
 
-    T mag = damp::hypot(re, im);
-    T r = sqrt((mag + re) / T{2});
-    T i = sqrt((mag - re) / T{2});
-
-    // Sign of imaginary part matches sign of input imaginary part
-    if (im < T{0}) {
-        i = -i;
+    // (|z| + |re|)/2 computed as |z|/2 + |re|/2 so it cannot overflow.
+    const T big = damp::sqrt((damp::hypot(re, im) / T{2}) + (damp::abs(re) / T{2}));
+    const T small = damp::abs(im) / (T{2} * big);
+    const T im_sign = (im < T{0}) ? T{-1} : T{1};
+    if (re >= T{0}) {
+        return complex<T>{big, im_sign * small};
     }
-
-    return complex<T>{r, i};
+    return complex<T>{small, im_sign * big};
 }
 
 /**
  * @brief Compute magnitude (absolute value) of a complex number
  * @tparam T Underlying floating-point type
  * @param z Complex number
- * @return |z| = sqrt(real² + imag²)
+ * @return |z| = sqrt(real² + imag²), without intermediate overflow
  */
 template<typename T>
 constexpr T abs(const complex<T>& z) {
-    return sqrt(z.norm());
+    return z.abs();
 }
 
 /**

@@ -16,6 +16,7 @@
  */
 
 #include "constexpr_math.hpp" // damp::detail::* (series; freestanding)
+#include "damp/backend.hpp"   // damp::pair (sincos return type)
 #include "math_backend.hpp"   // MathBackend<T> primary
 
 namespace damp {

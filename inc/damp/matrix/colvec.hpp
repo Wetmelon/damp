@@ -158,30 +158,11 @@ struct ColVec : public Matrix<N, 1, T> {
     }
 
     /**
-     * @brief Euclidean norm (magnitude) of the vector
-     *
-     * ||v|| = sqrt( sum |v_i|^2 )
-     *
-     * Always returns a real value, even for complex-valued vectors.
-     *
-     * @return Vector magnitude (real scalar)
-     */
-    [[nodiscard]] constexpr scalar_type_t<T> norm() const {
-        using real_t = scalar_type_t<T>;
-        real_t sum_sq = real_t{0};
-        for (size_t i = 0; i < N; ++i) {
-            auto abs_val = damp::abs(this->data_[i]);
-            sum_sq += abs_val * abs_val;
-        }
-        return damp::sqrt(sum_sq);
-    }
-
-    /**
-     * @brief Normalized vector (unit length)
+     * @brief Normalized vector (unit length; Euclidean norm() is inherited)
      * @return Normalized vector
      */
     [[nodiscard]] constexpr ColVec normalized() const {
-        auto n = norm();
+        auto n = this->norm();
         if (n == scalar_type_t<T>{0}) {
             return *this;
         }

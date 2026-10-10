@@ -10,9 +10,10 @@
  * @brief Compile-time scalar math for the damp:: dispatch layer.
  *
  * Bodies used when `std::is_constant_evaluated()` is true (and by the freestanding
- * `SeriesMathBackend`): Newton–Raphson (`sqrt`, `cbrt`, `log`), Taylor series
- * (`sin`/`cos`/`exp`), fdlibm-style multi-interval atan (asin/acos via atan2),
- * continued fraction (`tan`), Cody–Waite two-part argument reduction,
+ * `SeriesMathBackend`): Newton–Raphson (`sqrt`, `cbrt` after exact power-of-two
+ * scaling), atanh series `log` after exact power-of-two scaling, Taylor kernels on |r| ≤ π/4 after π/2 quadrant reduction
+ * (`sin`/`cos`/`sincos`/`tan`), Taylor `exp`, fdlibm-style multi-interval atan
+ * (asin/acos via atan2), Cody–Waite two-part argument reduction,
  * cast-based `floor`/`ceil`/`fmod`, and a bit-pattern `isfinite`.
  *
  * No damp backend coupling: this header includes only freestanding standard
@@ -113,49 +114,111 @@ constexpr long long lround_away(T x) {
     return static_cast<long long>(y);
 }
 
+/// Keep @p v as computed: stops `-ffast-math` from reassociating a Cody–Waite
+/// reduction `(x − k·hi) − k·lo` into `x − k·(hi + lo)` when the series run at
+/// runtime (constant evaluation is never reassociated).
+template<typename T>
+constexpr T assoc_barrier(T v) {
+#if defined(__has_builtin)
+#if __has_builtin(__builtin_assoc_barrier)
+    return __builtin_assoc_barrier(v);
+#endif
+#endif
+    return v;
+}
+
 /// |x|.
 template<typename T>
 constexpr T abs(T x) {
     return x >= T{0} ? x : -x;
 }
 
-/// Square root via Newton–Raphson. Domain @p x < 0 → 0 (library policy under
-/// `-ffinite-math-only` / constant evaluation — no NaN).
+template<typename T>
+constexpr bool isfinite(T x); // bit-pattern test, defined at the end of this header
+
+/// Argument and scale of @ref reduce_for_root.
+template<typename T, int Root>
+struct RootReduced {
+    T x;     ///< Reduced argument in [1, 2^Root)
+    T scale; ///< 2^k with root(input) = scale · root(x)
+};
+
+/**
+ * @brief Exact power-of-two range reduction for the Newton root kernels.
+ *
+ * Rescales finite @p x > 0 by 2^(Root·k) into [1, 2^Root) and returns the
+ * matching 2^k in @c scale, so root(x_in) = scale · root(x). Every multiply is
+ * by a power of two (exact, subnormals included), and coarse 2^(±16·Root) steps
+ * bound the loop count over the whole float/double exponent range.
+ */
+template<typename T, int Root>
+constexpr RootReduced<T, Root> reduce_for_root(T x) {
+    constexpr T big = static_cast<T>(1ULL << (Root * 16)); // 2^(16·Root)
+    constexpr T big_root = T{65536};                       // 2^16
+    constexpr T step = static_cast<T>(1ULL << Root);       // 2^Root
+    T           scale = T{1};
+    while (x >= big) {
+        x /= big;
+        scale *= big_root;
+    }
+    while (x < T{1} / big) {
+        x *= big;
+        scale /= big_root;
+    }
+    while (x >= step) {
+        x /= step;
+        scale *= T{2};
+    }
+    while (x < T{1}) {
+        x *= step;
+        scale /= T{2};
+    }
+    return {x, scale};
+}
+
+/// Square root via Newton–Raphson after exact power-of-four reduction into
+/// [1, 4) (converges in a handful of steps for any finite @p x). Domain
+/// @p x < 0 → 0 (library policy under `-ffinite-math-only` / constant
+/// evaluation — no NaN).
 template<typename T>
 constexpr T sqrt(T x) {
     if (x <= T{0}) {
         return T{0};
     }
-    T guess = x > T{1} ? x / T{2} : T{1};
+    if (!isfinite(x)) {
+        return x; // +inf / NaN pass through (the reduction loops need a finite x)
+    }
+    const auto red = reduce_for_root<T, 2>(x);
+    T          guess = (red.x + T{1}) / T{2}; // ≥ √x: Newton decreases monotonically
     for (int i = 0; i < 50; ++i) {
-        T next = (guess + (x / guess)) / T{2};
-        if (next == guess) {
+        const T next = (guess + (red.x / guess)) / T{2};
+        if (next >= guess) {
             break;
         }
         guess = next;
     }
-    return guess;
+    return guess * red.scale;
 }
 
-/// Cube root via Newton-Raphson; preserves sign for negative x.
+/// Cube root via Newton–Raphson after exact power-of-eight reduction into
+/// [1, 8); preserves sign for negative x.
 template<typename T>
 constexpr T cbrt(T x) {
-    if (x == T{0}) {
-        return T{0};
+    if (x == T{0} || !isfinite(x)) {
+        return x; // ±0, ±inf, NaN pass through
     }
-    bool neg = x < T{0};
-    if (neg) {
-        x = -x;
-    }
-    T guess = x > T{1} ? x / T{3} : T{1};
+    const bool neg = x < T{0};
+    const auto red = reduce_for_root<T, 3>(neg ? -x : x);
+    T          guess = (red.x + T{2}) / T{3}; // ≥ ∛x: Newton decreases monotonically
     for (int i = 0; i < 50; ++i) {
-        T next = ((T{2} * guess) + (x / (guess * guess))) / T{3};
-        if (next == guess) {
+        const T next = ((T{2} * guess) + (red.x / (guess * guess))) / T{3};
+        if (next >= guess) {
             break;
         }
         guess = next;
     }
-    return neg ? -guess : guess;
+    const T r = guess * red.scale;
+    return neg ? -r : r;
 }
 
 /**
@@ -290,110 +353,93 @@ constexpr T acos(T x) {
     return atan2(sqrt((T{1} - x) * (T{1} + x)), x);
 }
 
-/// Cody–Waite reduction of @p x mod 2π into [−π, π] (two-part 2π).
+/**
+ * @brief Quadrant reduction: x = k·π/2 + r with |r| ≲ π/4 (Cody–Waite, two-part π/2).
+ *
+ * The high word has its low mantissa bits cleared so k·hi is exact for
+ * |k| < 2²⁰; accuracy degrades gracefully beyond |x| ~ 10⁶ rad.
+ */
 template<typename T>
-constexpr T reduce_two_pi(T x) {
-    constexpr T two_pi_hi = static_cast<T>(6.28318530693650245668);
-    constexpr T two_pi_lo = static_cast<T>(2.43084020260247689728e-10);
-    constexpr T inv_two_pi = static_cast<T>(0.15915494309189533577);
-    const T     kreal = static_cast<T>(lround_away(x * inv_two_pi));
-    return (x - (kreal * two_pi_hi)) - (kreal * two_pi_lo);
+struct QuadrantReduced {
+    T   r;        ///< Remainder in about [−π/4, π/4]
+    int quadrant; ///< k mod 4, in {0, 1, 2, 3}
+};
+
+template<typename T>
+constexpr QuadrantReduced<T> reduce_half_pi(T x) {
+    constexpr T     half_pi_hi = static_cast<T>(1.57079632673412561417);
+    constexpr T     half_pi_lo = static_cast<T>(6.07710050650619224932e-11);
+    constexpr T     two_over_pi = static_cast<T>(0.63661977236758134308);
+    const long long k = lround_away(x * two_over_pi);
+    const T         kreal = static_cast<T>(k);
+    return {assoc_barrier(x - (kreal * half_pi_hi)) - (kreal * half_pi_lo), static_cast<int>(k & 3LL)};
 }
 
-/// Cosine via Taylor series after Cody–Waite 2π reduction to [−π, π].
+/// Taylor sine on |r| ≤ π/4 (truncation < 10⁻²² there).
 template<typename T>
-constexpr T cos(T x) {
-    x = reduce_two_pi(x);
-
-    T x2 = x * x;
-    T result = T{1};
-    T term = T{1};
-    for (int n = 1; n <= 12; ++n) {
-        term *= -x2 / T(2 * n * ((2 * n) - 1));
+constexpr T sin_kernel(T r) {
+    const T r2 = r * r;
+    T       result = r;
+    T       term = r;
+    for (int n = 1; n <= 10; ++n) {
+        term *= -r2 / T((2 * n) * ((2 * n) + 1));
         result += term;
     }
     return result;
 }
 
-/// Sine via Taylor series after Cody–Waite 2π reduction to [−π, π].
+/// Taylor cosine on |r| ≤ π/4 (truncation < 10⁻²² there).
 template<typename T>
-constexpr T sin(T x) {
-    x = reduce_two_pi(x);
-
-    T x2 = x * x;
-    T result = x;
-    T term = x;
-    for (int n = 1; n <= 12; ++n) {
-        term *= -x2 / T((2 * n) * ((2 * n) + 1));
+constexpr T cos_kernel(T r) {
+    const T r2 = r * r;
+    T       result = T{1};
+    T       term = T{1};
+    for (int n = 1; n <= 10; ++n) {
+        term *= -r2 / T((2 * n) * ((2 * n) - 1));
         result += term;
     }
     return result;
 }
 
-/// {sin(x), cos(x)} with a single 2π reduction (shared remainder).
+/// {sin(x), cos(x)} from one quadrant reduction and the |r| ≤ π/4 kernels.
 template<typename T>
 constexpr sincos_result<T> sincos(T x) {
-    x = reduce_two_pi(x);
-
-    T x2 = x * x;
-
-    T cos_r = T{1};
-    T cos_term = T{1};
-    for (int n = 1; n <= 12; ++n) {
-        cos_term *= -x2 / T(2 * n * ((2 * n) - 1));
-        cos_r += cos_term;
+    const auto red = reduce_half_pi(x);
+    const T    s = sin_kernel(red.r);
+    const T    c = cos_kernel(red.r);
+    switch (red.quadrant) {
+        case 0:
+            return {s, c};
+        case 1:
+            return {c, -s};
+        case 2:
+            return {-s, -c};
+        default:
+            return {-c, s};
     }
-
-    T sin_r = x;
-    T sin_term = x;
-    for (int n = 1; n <= 12; ++n) {
-        sin_term *= -x2 / T((2 * n) * ((2 * n) + 1));
-        sin_r += sin_term;
-    }
-    return {sin_r, cos_r};
 }
 
-/// Tangent via continued fraction after π reduction to [−π/2, π/2], with a
-/// complementary-angle identity when |r| is near π/2 (slow CF convergence).
-/// @see Cuyt et al., "Handbook of Continued Fractions for Special Functions" §12.1
+/// Sine (quadrant reduction + Taylor kernel; ~1 ulp absolute).
+template<typename T>
+constexpr T sin(T x) {
+    return sincos(x).sin;
+}
+
+/// Cosine (quadrant reduction + Taylor kernel; ~1 ulp absolute).
+template<typename T>
+constexpr T cos(T x) {
+    return sincos(x).cos;
+}
+
+/// Tangent as a kernel ratio after quadrant reduction: sin r / cos r for even
+/// k, −cos r / sin r for odd k. The reduced r keeps relative accuracy next to
+/// the poles, so tan stays relatively accurate there.
 template<typename T>
 constexpr T tan(T x) {
-    constexpr T half_pi = pi_v<T> / T{2};
-
-    constexpr T pi_hi = static_cast<T>(3.14159265346825122834);
-    constexpr T pi_lo = static_cast<T>(1.21542010130123844986e-10);
-    constexpr T inv_pi = static_cast<T>(0.31830988618379067154);
-    const T     kreal = static_cast<T>(lround_away(x * inv_pi));
-    T           r = (x - (kreal * pi_hi)) - (kreal * pi_lo);
-
-    // Near ±π/2 the continued fraction converges slowly. Work with the
-    // complementary angle via the cotangent identity, valid for r ∈ (0, π/2):
-    //     tan(r) = cot(π/2 − r) = 1 / tan(π/2 − r)
-    // The result's sign follows the sign of r (tan is odd), applied at the end.
-    T abs_r = r >= T{0} ? r : -r;
-    if (abs_r > static_cast<T>(1.2)) {
-        T             comp = half_pi - abs_r;
-        constexpr int N = 20;
-
-        T x2 = comp * comp;
-        T cf = T((2 * N) + 1);
-        for (int i = N - 1; i >= 0; --i) {
-            cf = T((2 * i) + 1) - (x2 / cf);
-        }
-        T tan_comp = comp / cf;
-        T result = T{1} / tan_comp;
-        return r >= T{0} ? result : -result;
-    }
-
-    constexpr int N = 20;
-
-    T x2 = r * r;
-    T cf = T((2 * N) + 1);
-    for (int i = N - 1; i >= 0; --i) {
-        cf = T((2 * i) + 1) - (x2 / cf);
-    }
-
-    return r / cf;
+    const auto red = reduce_half_pi(x);
+    const T    s = sin_kernel(red.r);
+    const T    c = cos_kernel(red.r);
+    return ((red.quadrant & 1) == 0) ? (s / c) : (-c / s);
 }
 
 /// exp via ln2 argument reduction (@f$ e^x = 2^k e^r @f$, |r| ≤ ln2/2) and a
@@ -413,13 +459,16 @@ constexpr T exp(T x) {
     if (x < underflow_x) {
         return T{0};
     }
+    if (!isfinite(x)) {
+        return x; // NaN (±inf were saturated above)
+    }
 
     constexpr T     ln2_hi = static_cast<T>(6.93147180369123816490e-01);
     constexpr T     ln2_lo = static_cast<T>(1.90821492927058770002e-10);
     constexpr T     inv_ln2 = static_cast<T>(1.44269504088896340736);
     const long long k = lround_away(x * inv_ln2);
     const T         kreal = static_cast<T>(k);
-    const T         r = (x - (kreal * ln2_hi)) - (kreal * ln2_lo);
+    const T         r = assoc_barrier(x - (kreal * ln2_hi)) - (kreal * ln2_lo);
 
     T result = T{1};
     T term = T{1};
@@ -444,38 +493,54 @@ constexpr T exp(T x) {
     return result;
 }
 
-/// Natural log via Newton–Raphson on @f$ e^y = x @f$, after reducing @p x into
-/// roughly [1/e, e] by multiplying/dividing by e. Domain @p x ≤ 0 → 0.
+/**
+ * @brief Natural log: exact power-of-two reduction, then an atanh series.
+ *
+ * @f$ x = 2^m y @f$ with @f$ y \in [1/\sqrt2, \sqrt2) @f$ (exact scaling, so
+ * subnormals and 1e±300 cost a few steps and lose nothing), then
+ * @f$ \ln y = 2\,\mathrm{atanh}\,s @f$, @f$ s = (y-1)/(y+1) @f$, |s| < 0.172,
+ * and @f$ \ln x = m \ln 2 + \ln y @f$ with a two-part ln 2.
+ * Domain @p x ≤ 0 → 0; +inf / NaN pass through.
+ */
 template<typename T>
 constexpr T log(T x) {
     if (x <= T{0}) {
         return T{0};
     }
-
-    constexpr T e_val = static_cast<T>(2.718281828459045235360287);
-    constexpr T e_inv = static_cast<T>(0.367879441171442321595524);
-
-    T k = T{0};
-    T y = x;
-    while (y > e_val) {
-        y *= e_inv;
-        k += T{1};
+    if (!isfinite(x)) {
+        return x;
     }
-    while (y < e_inv) {
-        y *= e_val;
-        k -= T{1};
+    constexpr T big = static_cast<T>(1ULL << 32);
+    constexpr T sqrt2 = static_cast<T>(1.41421356237309504880);
+    T           m = T{0};
+    while (x >= big) {
+        x /= big;
+        m += T{32};
+    }
+    while (x < T{1} / big) {
+        x *= big;
+        m -= T{32};
+    }
+    while (x >= sqrt2) {
+        x /= T{2};
+        m += T{1};
+    }
+    while (x < sqrt2 / T{2}) {
+        x *= T{2};
+        m -= T{1};
     }
 
-    T guess = y - T{1};
-    for (int i = 0; i < 50; ++i) {
-        T e_guess = exp(guess);
-        T next = guess - ((e_guess - y) / e_guess);
-        if (abs(next - guess) < static_cast<T>(1e-15)) {
-            break;
-        }
-        guess = next;
+    const T s = (x - T{1}) / (x + T{1});
+    const T s2 = s * s;
+    T       term = s;
+    T       sum = s;
+    for (int n = 1; n <= 12; ++n) { // s^25/25 < 1e-20
+        term *= s2;
+        sum += term / T((2 * n) + 1);
     }
-    return guess + k;
+    constexpr T ln2_hi = static_cast<T>(6.93147180369123816490e-01);
+    constexpr T ln2_lo = static_cast<T>(1.90821492927058770002e-10);
+    return (m * ln2_hi) + ((m * ln2_lo) + (T{2} * sum));
 }
 
 /// @f$ \mathrm{base}^{\mathrm{exponent}} = \exp(\mathrm{exponent}\cdot\ln\mathrm{base}) @f$.

@@ -25,6 +25,7 @@
  */
 
 #include <cstddef>
+#include <limits>
 
 #include "core.hpp"
 #include "damp/backend.hpp"
@@ -41,11 +42,17 @@ namespace detail {
 /// Result of a one-sided Jacobi SVD of a tall matrix (P ≥ Q).
 template<size_t P, size_t Q, typename T>
 struct TallSVD {
-    Matrix<P, P, T>                  U{}; ///< Left singular vectors (P×P unitary).
-    damp::array<scalar_type_t<T>, Q> s{}; ///< Singular values, descending, ≥ 0.
-    Matrix<Q, Q, T>                  V{}; ///< Right singular vectors (Q×Q unitary).
-    bool                             converged = false;
+    Matrix<P, P, T>                  U{};               ///< Left singular vectors (P×P unitary).
+    damp::array<scalar_type_t<T>, Q> s{};               ///< Singular values, descending, ≥ 0.
+    Matrix<Q, Q, T>                  V{};               ///< Right singular vectors (Q×Q unitary).
+    bool                             converged = false; ///< A sweep finished with no rotation.
 };
+
+/// Default relative rank threshold max(M, N)·eps (MATLAB® rank / pinv / null).
+template<size_t M, size_t N, typename T>
+[[nodiscard]] constexpr scalar_type_t<T> svd_default_rel_tol() {
+    return static_cast<scalar_type_t<T>>(M > N ? M : N) * damp::eps<T>();
+}
 
 /**
  * @brief One-sided Jacobi SVD of a tall/square matrix A (P×Q, P ≥ Q).
@@ -55,21 +62,35 @@ struct TallSVD {
  * the (economy) left vectors, and the accumulated rotations the right vectors.
  * The left factor is then completed to a full P×P unitary by Gram–Schmidt so
  * the result is a genuine full SVD even when A is rank-deficient.
+ *
+ * A pair of columns is rotated while its cosine |⟨a_p, a_q⟩| / (‖a_p‖‖a_q‖)
+ * exceeds P·eps (Demmel–Veselić), so every nonzero column — however small —
+ * ends orthogonal to working precision and becomes its own left vector. A is
+ * pre-scaled by its largest entry so the Gram sums neither overflow nor
+ * underflow; the singular values are scaled back at the end.
  */
 template<size_t P, size_t Q, typename T>
 [[nodiscard]] constexpr TallSVD<P, Q, T> jacobi_svd_tall(const Matrix<P, Q, T>& A) {
     static_assert(P >= Q, "jacobi_svd_tall requires P >= Q (transpose wide inputs)");
     using real_t = scalar_type_t<T>;
-    constexpr real_t eps = default_tol<T>();
+    const real_t tol = static_cast<real_t>(P) * damp::eps<T>();
+    const real_t underflow_floor = std::numeric_limits<real_t>::min() / damp::eps<T>();
 
-    Matrix<P, Q, T> W = A;
+    real_t amax = real_t{0};
+    for (size_t i = 0; i < P; ++i) {
+        for (size_t j = 0; j < Q; ++j) {
+            amax = damp::max(amax, damp::abs(A(i, j)));
+        }
+    }
+    const real_t    inv_amax = (amax > real_t{0}) ? real_t{1} / amax : real_t{1};
+    Matrix<P, Q, T> W = A * T{inv_amax};
     Matrix<Q, Q, T> V = Matrix<Q, Q, T>::identity();
 
     // Sweep over column pairs, rotating each pair to mutual orthogonality.
     constexpr size_t max_sweeps = 60;
     bool             converged = false;
     for (size_t sweep = 0; sweep < max_sweeps; ++sweep) {
-        real_t off = real_t{0};
+        bool rotated = false;
         for (size_t p = 0; p < Q; ++p) {
             for (size_t q = p + 1; q < Q; ++q) {
                 // 2×2 Hermitian Gram block of columns p, q.
@@ -85,15 +106,20 @@ template<size_t P, size_t Q, typename T>
                     beta += aiq * aiq;
                     gamma += damp::conj(wip) * wiq;
                 }
+                // A column whose squared norm has reached the subnormal range
+                // (‖w‖ ≲ 1e-146 after pre-scaling, in double) is roundoff
+                // residue of a rank-deficient A: its Gram sums carry no
+                // relative precision, so its cosine is noise and rotating it
+                // never converges. Treat it as zero.
+                if (alpha < underflow_floor || beta < underflow_floor) {
+                    continue;
+                }
                 const real_t gmag = damp::abs(gamma);
-                const real_t scale = damp::sqrt(alpha * beta);
-                if (scale == real_t{0} || gmag <= eps * scale) {
+                const real_t scale = damp::sqrt(alpha) * damp::sqrt(beta);
+                if (gmag <= tol * scale) {
                     continue; // already orthogonal
                 }
-                const real_t rel = gmag / scale;
-                if (rel > off) {
-                    off = rel;
-                }
+                rotated = true;
 
                 // Real Jacobi angle that zeros the off-diagonal of the
                 // phase-aligned block [[alpha, gmag], [gmag, beta]]. The smaller
@@ -124,7 +150,7 @@ template<size_t P, size_t Q, typename T>
                 }
             }
         }
-        if (off <= eps) {
+        if (!rotated) {
             converged = true;
             break;
         }
@@ -134,7 +160,6 @@ template<size_t P, size_t Q, typename T>
     TallSVD<P, Q, T> out;
     out.V = V;
     out.converged = converged;
-    real_t smax = real_t{0};
     for (size_t j = 0; j < Q; ++j) {
         real_t nrm_sq = real_t{0};
         for (size_t i = 0; i < P; ++i) {
@@ -142,9 +167,6 @@ template<size_t P, size_t Q, typename T>
             nrm_sq += a * a;
         }
         out.s[j] = damp::sqrt(nrm_sq);
-        if (out.s[j] > smax) {
-            smax = out.s[j];
-        }
     }
 
     // Sort singular values descending, permuting Ue (= W) and V columns with them.
@@ -166,11 +188,17 @@ template<size_t P, size_t Q, typename T>
         }
     }
 
-    // Normalize the reliable (nonzero) singular columns into U.
-    const real_t sv_tol = smax * eps;
-    size_t       rank = 0;
+    // Every nonzero column is orthogonal to the others in the relative sense,
+    // so it normalizes into a left singular vector (sorted: zeros trail).
+    // Residue columns skipped by the sweep (see underflow_floor) are not
+    // orthogonal to the others; report them as exact zeros so the completion
+    // below supplies their left vectors.
+    size_t rank = 0;
     for (size_t j = 0; j < Q; ++j) {
-        if (out.s[j] > sv_tol) {
+        if (out.s[j] * out.s[j] < underflow_floor) {
+            out.s[j] = real_t{0};
+        }
+        if (out.s[j] > real_t{0}) {
             for (size_t i = 0; i < P; ++i) {
                 out.U(i, j) = W(i, j) / out.s[j];
             }
@@ -212,6 +240,9 @@ template<size_t P, size_t Q, typename T>
         }
     }
 
+    for (size_t j = 0; j < Q; ++j) {
+        out.s[j] *= amax > real_t{0} ? amax : real_t{1};
+    }
     return out;
 }
 
@@ -229,7 +260,7 @@ struct SVDResult {
     Matrix<M, M, T>                                singular_U{};      ///< Left singular vectors.
     damp::array<scalar_type_t<T>, (M < N ? M : N)> singular_values{}; ///< Descending, ≥ 0.
     Matrix<N, N, T>                                singular_V{};      ///< Right singular vectors.
-    bool                                           converged = false;
+    bool                                           converged = false; ///< Jacobi sweeps converged.
 };
 
 /**
@@ -265,12 +296,12 @@ template<size_t M, size_t N, typename T>
 /**
  * @brief Numerical rank from a precomputed SVD result.
  * @param result SVD of the matrix.
- * @param rel_tol Singular values ≤ rel_tol·σ_max are treated as zero.
+ * @param rel_tol Singular values ≤ rel_tol·σ_max are treated as zero (default max(M, N)·eps, as MATLAB®).
  */
 template<size_t M, size_t N, typename T>
 [[nodiscard]] constexpr size_t rank_from_svd(
     const SVDResult<M, N, T>& result,
-    scalar_type_t<T>          rel_tol = default_tol<T>()
+    scalar_type_t<T>          rel_tol = detail::svd_default_rel_tol<M, N, T>()
 ) {
     constexpr size_t       K = (M < N) ? M : N;
     const scalar_type_t<T> smax = (K > 0) ? result.singular_values[0] : scalar_type_t<T>{0};
@@ -294,7 +325,7 @@ template<size_t M, size_t N, typename T>
  * nonsingular.
  *
  * @param A Input matrix (any shape).
- * @param rel_tol Singular values ≤ rel_tol·σ_max are treated as zero.
+ * @param rel_tol Singular values ≤ rel_tol·σ_max are treated as zero (default max(M, N)·eps, as MATLAB®).
  * @return Pseudoinverse (N×M).
  *
  * @note Compare with MATLAB®'s pinv(A).
@@ -302,7 +333,7 @@ template<size_t M, size_t N, typename T>
 template<size_t M, size_t N, typename T>
 [[nodiscard]] constexpr Matrix<N, M, T> pseudo_inverse(
     const Matrix<M, N, T>& A,
-    scalar_type_t<T>       rel_tol = default_tol<T>()
+    scalar_type_t<T>       rel_tol = detail::svd_default_rel_tol<M, N, T>()
 ) {
     using real_t = scalar_type_t<T>;
     constexpr size_t K = (M < N) ? M : N;
@@ -341,7 +372,7 @@ struct NullSpace {
  * columns of V — so the basis is the last `dim` columns of the returned matrix.
  *
  * @param A Input matrix (any shape).
- * @param rel_tol Singular values ≤ rel_tol·σ_max are treated as zero.
+ * @param rel_tol Singular values ≤ rel_tol·σ_max are treated as zero (default max(M, N)·eps, as MATLAB®).
  * @return NullSpace whose last `dim` columns form an orthonormal kernel basis.
  *
  * @note Compare with MATLAB®'s null(A) (which returns those columns directly).
@@ -349,7 +380,7 @@ struct NullSpace {
 template<size_t M, size_t N, typename T>
 [[nodiscard]] constexpr NullSpace<N, T> null_space(
     const Matrix<M, N, T>& A,
-    scalar_type_t<T>       rel_tol = default_tol<T>()
+    scalar_type_t<T>       rel_tol = detail::svd_default_rel_tol<M, N, T>()
 ) {
     const auto      s = svd(A);
     const size_t    r = rank_from_svd(s, rel_tol);

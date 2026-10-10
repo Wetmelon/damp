@@ -75,13 +75,12 @@ constexpr ColVec<N, T> backward_substitute_transpose(const Matrix<N, N, T>& L, c
  * @brief Solve lower-triangular system LX = B via forward substitution
  *
  * Requires nonsingular lower-triangular @p L. Returns damp::nullopt if any
- * diagonal magnitude is below default_tol.
+ * diagonal entry is exactly zero.
  */
 template<size_t N, size_t M, typename T>
 constexpr damp::optional<Matrix<N, M, std::remove_const_t<T>>>
 solve(const LowerTriangle<N, T>& L, const Matrix<N, M, std::remove_const_t<T>>& B) {
     using VT = std::remove_const_t<T>;
-    constexpr auto tol = default_tol<VT>();
 
     Matrix<N, M, VT> X;
     for (size_t col = 0; col < M; ++col) {
@@ -92,7 +91,7 @@ solve(const LowerTriangle<N, T>& L, const Matrix<N, M, std::remove_const_t<T>>& 
 
         ColVec<N, VT> x;
         for (size_t i = 0; i < N; ++i) {
-            if (damp::abs(L(i, i)) < tol) {
+            if (!(damp::abs(L(i, i)) > 0)) {
                 return damp::nullopt;
             }
             VT sum = b(i);
@@ -112,13 +111,12 @@ solve(const LowerTriangle<N, T>& L, const Matrix<N, M, std::remove_const_t<T>>& 
 /**
  * @brief Solve upper-triangular system UX = B via backward substitution
  *
- * Returns damp::nullopt if any diagonal magnitude is below default_tol.
+ * Returns damp::nullopt if any diagonal entry is exactly zero.
  */
 template<size_t N, size_t M, typename T>
 constexpr damp::optional<Matrix<N, M, std::remove_const_t<T>>>
 solve(const UpperTriangle<N, T>& U, const Matrix<N, M, std::remove_const_t<T>>& B) {
     using VT = std::remove_const_t<T>;
-    constexpr auto tol = default_tol<VT>();
 
     Matrix<N, M, VT> X;
     for (size_t col = 0; col < M; ++col) {
@@ -129,7 +127,7 @@ solve(const UpperTriangle<N, T>& U, const Matrix<N, M, std::remove_const_t<T>>& 
 
         ColVec<N, VT> x;
         for (size_t i = N; i-- > 0;) {
-            if (damp::abs(U(i, i)) < tol) {
+            if (!(damp::abs(U(i, i)) > 0)) {
                 return damp::nullopt;
             }
             VT sum = b(i);

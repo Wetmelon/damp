@@ -12,6 +12,7 @@
 
 #include <concepts>
 #include <cstddef>
+#include <limits>
 #include <type_traits>
 
 #include "damp/math/complex.hpp"
@@ -78,6 +79,13 @@ concept MatrixLike = requires(const M& m, size_t i, size_t j) {
  */
 template<typename M, size_t R, size_t C>
 concept MatrixLikeOf = MatrixLike<M> && (M::rows() == R) && (M::cols() == C);
+
+/// Machine epsilon of T's real scalar (MATLAB® eps). Scale it by problem size and
+/// magnitude to build a relative tolerance.
+template<typename T>
+constexpr scalar_type_t<std::remove_const_t<T>> eps() {
+    return std::numeric_limits<scalar_type_t<std::remove_const_t<T>>>::epsilon();
+}
 
 /// Type-appropriate default tolerance for floating-point comparisons.
 /// float  ~7 decimal digits  → 1e-6

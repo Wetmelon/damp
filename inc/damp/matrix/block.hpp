@@ -78,13 +78,9 @@ public:
     }
 
     constexpr Block(Block&& other) noexcept : data_ptr(other.data_ptr), offset(other.offset) {}
+    /// Writes through like copy assignment (a temporary block still views live storage).
     constexpr Block& operator=(Block&& other) noexcept {
-        for (size_t i = 0; i < Rows; ++i) {
-            for (size_t j = 0; j < Cols; ++j) {
-                (*this)(i, j) = other(i, j);
-            }
-        }
-        return *this;
+        return *this = static_cast<const Block&>(other);
     }
 
     [[nodiscard]] constexpr T& operator()(size_t r, size_t c) {
@@ -112,7 +108,7 @@ public:
     constexpr Block& operator=(const M& other) {
         if constexpr (Rows == 0 || Cols == 0) {
             return *this;
-        } else if (detail::storage_overlaps(storage_first(), storage_last(), other)) {
+        } else if (aliases(other)) {
             Matrix<Rows, Cols, value_type> tmp{};
             for (size_t i = 0; i < Rows; ++i) {
                 for (size_t j = 0; j < Cols; ++j) {
@@ -153,6 +149,16 @@ public:
         }
         return data_ptr + offset + ((Rows - 1) * ParentCols) + (Cols - 1);
     }
+    /// True when @p other may read this block's storage (conservative span test).
+    template<typename M>
+    [[nodiscard]] constexpr bool aliases(const M& other) const {
+        if constexpr (Rows == 0 || Cols == 0) {
+            return false;
+        } else {
+            return detail::may_alias(storage_first(), storage_last(), other);
+        }
+    }
+
     [[nodiscard]] static constexpr size_t size() { return Rows * Cols; }
     [[nodiscard]] static constexpr size_t rows() { return Rows; }
     [[nodiscard]] static constexpr size_t cols() { return Cols; }
@@ -189,6 +195,9 @@ public:
     template<MatrixLike M>
         requires(M::rows() == Rows && M::cols() == Cols)
     constexpr Block& operator+=(const M& other) {
+        if (aliases(other)) {
+            return *this += Matrix<Rows, Cols, value_type>(other);
+        }
         for (size_t i = 0; i < Rows; ++i) {
             for (size_t j = 0; j < Cols; ++j) {
                 (*this)(i, j) += static_cast<T>(other(i, j));
@@ -203,6 +212,9 @@ public:
     template<MatrixLike M>
         requires(M::rows() == Rows && M::cols() == Cols)
     constexpr Block& operator-=(const M& other) {
+        if (aliases(other)) {
+            return *this -= Matrix<Rows, Cols, value_type>(other);
+        }
         for (size_t i = 0; i < Rows; ++i) {
             for (size_t j = 0; j < Cols; ++j) {
                 (*this)(i, j) -= static_cast<T>(other(i, j));

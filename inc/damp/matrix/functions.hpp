@@ -15,6 +15,7 @@
 #include "core.hpp"
 #include "damp/backend.hpp"
 #include "solve.hpp" // expm()/sqrtm() use mat::solve; include directly so this
+#include "svd.hpp"
 // does not depend on aggregation order (formatter sorts includes)
 
 namespace damp {
@@ -115,9 +116,10 @@ template<typename T, size_t N>
  * @f]
  * where @f$ A^{\mathrm{H}} @f$ is the conjugate transpose.
  *
- * Computed via power iteration on @f$ A^{\mathrm{H}} A @f$ (geometric rate
- * @f$ \sigma_1/\sigma_2 @f$). Intended for the small fixed-size matrices typical
- * in control design (@f$ n \lesssim 20 @f$). Always returns a real scalar.
+ * Computed as the largest singular value from mat::svd. Power iteration from a
+ * fixed start vector fails when that vector is orthogonal to the dominant
+ * singular vector (e.g. returns 0 for [[1, −1], [0, 0]]). Always returns a real
+ * scalar.
  *
  * @note Compare with MATLAB®'s norm(A, 2).
  *
@@ -128,42 +130,7 @@ template<typename T, size_t N>
  */
 template<typename T, size_t N>
 [[nodiscard]] constexpr scalar_type_t<T> two_norm(const Matrix<N, N, T>& A) {
-    using real_t = scalar_type_t<T>;
-    constexpr real_t tol = default_tol<T>();
-    constexpr size_t max_iter = 100;
-
-    // AᴴA (conjugate transpose) — required for complex matrices; equals AᵀA when real.
-    Matrix<N, N, T> AtA = A.conjugate_transpose() * A;
-
-    // Initial vector: all ones, then normalize
-    ColVec<N, T> v;
-    for (size_t i = 0; i < N; ++i) {
-        v[i] = T{1};
-    }
-
-    {
-        const real_t n = v.norm();
-        if (n > tol) {
-            v = v * (T{1} / static_cast<T>(n));
-        }
-    }
-
-    real_t lambda = real_t{0};
-    for (size_t iter = 0; iter < max_iter; ++iter) {
-        ColVec<N, T> w = AtA * v;
-        const real_t new_lambda = w.norm();
-        if (new_lambda < tol) {
-            return real_t{0};
-        }
-
-        v = w * (T{1} / static_cast<T>(new_lambda));
-
-        if (damp::abs(new_lambda - lambda) < tol * damp::abs(new_lambda)) {
-            return damp::sqrt(new_lambda);
-        }
-        lambda = new_lambda;
-    }
-    return damp::sqrt(lambda);
+    return svd(A).singular_values[0];
 }
 
 /**
@@ -244,51 +211,30 @@ template<typename T, size_t N>
 }
 
 /**
- * @brief Matrix rank via Gaussian elimination with partial pivoting
+ * @brief Numerical rank: the number of singular values above rel_tol·σₘₐₓ
  *
- * Works for rectangular and square matrices, real or complex scalars (the
- * pivot magnitude uses damp::abs, which is defined for both). Single source for
- * the structural rank tests in stability.hpp and riccati.hpp.
+ * Uses the SVD, the only rank-revealing factorization here; Gaussian
+ * elimination with partial pivoting can miss a near-dependency. The threshold
+ * is relative to @f$ \sigma_{\max} @f$, so scaling @p M never changes the result.
+ * The default @f$ \max(R, C)\,\varepsilon @f$ matches MATLAB®. Works for
+ * rectangular and complex matrices. Single source for the structural rank
+ * tests in stability.hpp and riccati.hpp.
+ *
+ * @note Compare with MATLAB®'s rank(A).
  *
  * @tparam R   Rows
  * @tparam C   Columns
  * @tparam T   Element type (float/double or damp::complex thereof)
- * @param M    Input matrix
- * @param tol  Magnitude below which a pivot is treated as zero
+ * @param M        Input matrix
+ * @param rel_tol  Singular values ≤ rel_tol·σₘₐₓ count as zero (default max(R, C)·eps)
  * @return Rank of the matrix (number of linearly independent rows/columns)
  */
 template<size_t R, size_t C, typename T>
-[[nodiscard]] constexpr size_t rank(const Matrix<R, C, T>& M, scalar_type_t<T> tol = default_tol<T>()) {
-    Matrix<R, C, T> work = M;
-    size_t          r = 0;
-    for (size_t col = 0; col < C && r < R; ++col) {
-        // Find the largest-magnitude pivot in this column at or below row r.
-        size_t pivot = r;
-        auto   max_val = damp::abs(work(r, col));
-        for (size_t i = r + 1; i < R; ++i) {
-            const auto val = damp::abs(work(i, col));
-            if (val > max_val) {
-                max_val = val;
-                pivot = i;
-            }
-        }
-        if (max_val < tol) {
-            continue; // column is dependent on the ones already pivoted
-        }
-        if (pivot != r) {
-            for (size_t j = 0; j < C; ++j) {
-                damp::swap(work(r, j), work(pivot, j));
-            }
-        }
-        for (size_t i = r + 1; i < R; ++i) {
-            const T factor = work(i, col) / work(r, col);
-            for (size_t j = col; j < C; ++j) {
-                work(i, j) -= factor * work(r, j);
-            }
-        }
-        ++r;
-    }
-    return r;
+[[nodiscard]] constexpr size_t rank(
+    const Matrix<R, C, T>& M,
+    scalar_type_t<T>       rel_tol = static_cast<scalar_type_t<T>>(R > C ? R : C) * eps<T>()
+) {
+    return rank_from_svd(svd(M), rel_tol);
 }
 
 namespace detail {
@@ -804,6 +750,7 @@ template<typename T, size_t N>
     using real_t = scalar_type_t<T>;
     Matrix<N, N, T> Y = A;
     Matrix<N, N, T> Z = Matrix<N, N, T>::identity();
+    real_t          prev_diff = std::numeric_limits<real_t>::max();
 
     for (int iter = 0; iter < 50; ++iter) {
         // Inverse is the deliverable of each Denman–Beavers half-step.
@@ -818,18 +765,24 @@ template<typename T, size_t N>
         Matrix<N, N, T> Z_next = (Z + Y_inv.value()) * static_cast<T>(0.5);
 
         real_t diff = real_t{0};
+        real_t size = real_t{0};
         for (size_t i = 0; i < N; ++i) {
             for (size_t j = 0; j < N; ++j) {
                 diff += damp::abs(Y_next(i, j) - Y(i, j));
+                size += damp::abs(Y_next(i, j));
             }
         }
 
         Y = Y_next;
         Z = Z_next;
 
-        if (diff < default_tol<T>()) {
+        //! Relative stop at roundoff level; quadratic convergence then stalls,
+        //! so a step that no longer shrinks below √eps·‖Y‖ is converged too.
+        if (diff <= static_cast<real_t>(N) * real_t{64} * eps<T>() * size
+            || (diff <= damp::sqrt(eps<T>()) * size && diff >= prev_diff)) {
             return Y;
         }
+        prev_diff = diff;
     }
 
     return damp::nullopt;
@@ -845,12 +798,14 @@ template<typename T, size_t N>
  * @brief Principal matrix logarithm via inverse scaling and squaring
  *
  * Computes @f$ X = \log(A) @f$ such that @f$ \exp(X) = A @f$ (principal branch).
- * Scales by repeated square roots until @f$ \|A_{\mathrm{scaled}} - I\|_\infty @f$
- * is small, evaluates the series
+ * Scales by repeated square roots until @f$ \|A_{\mathrm{scaled}} - I\|_\infty < 1/2 @f$,
+ * evaluates the Gregory (atanh) series
  * @f[
- *   \log(I + X) = X - \frac{X^2}{2} + \frac{X^3}{3} - \cdots
+ *   \log(A) = 2 \sum_{k\ \mathrm{odd}} \frac{Z^k}{k},\quad Z = (A + I)^{-1}(A - I)
  * @f]
- * and multiplies by @f$ 2^s @f$.
+ * and multiplies by @f$ 2^s @f$. With @f$ \|Z\| \lesssim 1/3 @f$ the odd-power
+ * series reaches double precision in about 15 terms; the plain
+ * @f$ \log(I + X) @f$ Taylor series at @f$ \|X\| = 1/2 @f$ stalls near 10⁻⁸.
  *
  * @p A must be invertible with no eigenvalues on the closed negative real axis.
  * Returns damp::nullopt if a square-root step fails (singular iterate / bad spectrum).
@@ -880,16 +835,20 @@ template<typename T, size_t N>
         ++s;
     }
 
-    // log(I + X) series, X = A_scaled - I
-    Matrix X = A_scaled - I;
-    Matrix result = X;
-    Matrix X_power = X;
-
-    for (size_t n = 2; n <= 20; ++n) {
-        X_power = X_power * X;
-        T sign = (n % 2 == 0) ? T{-1} : T{1};
-        result = result + X_power * (sign / static_cast<T>(n));
+    // Gregory series, Z = (A + I)⁻¹(A − I) (A and its rational functions commute)
+    const auto Zopt = mat::solve(Matrix(A_scaled + I), Matrix(A_scaled - I));
+    if (!Zopt) {
+        return damp::nullopt;
     }
+    const Matrix Z = Zopt.value();
+    const Matrix Z2 = Z * Z;
+    Matrix       Z_power = Z;
+    Matrix       result = Z;
+    for (size_t k = 3; k <= 41; k += 2) {
+        Z_power = Z_power * Z2;
+        result = result + Z_power * (T{1} / static_cast<T>(k));
+    }
+    result = result * T{2};
 
     // log(A) = 2^s * log(A^(1/2^s))
     T scale = static_cast<T>(size_t{1} << s);
@@ -929,20 +888,19 @@ template<typename T, size_t N>
         return Matrix<N, N, T>::identity();
     }
 
-    bool negate = p < 0;
-    if (negate) {
-        p = -p;
-    }
+    const bool negate = p < 0;
+    // Magnitude in unsigned arithmetic: −INT_MIN overflows int.
+    unsigned int e = negate ? (0u - static_cast<unsigned int>(p)) : static_cast<unsigned int>(p);
 
     Matrix<N, N, T> result = Matrix<N, N, T>::identity();
     Matrix<N, N, T> base = A;
 
-    while (p > 0) {
-        if (p & 1) {
+    while (e > 0u) {
+        if ((e & 1u) != 0u) {
             result = result * base;
         }
         base = base * base;
-        p >>= 1;
+        e >>= 1u;
     }
 
     if (negate) {
@@ -972,7 +930,16 @@ template<typename T, size_t N>
  */
 template<typename T, size_t N>
 [[nodiscard]] constexpr damp::optional<Matrix<N, N, T>> pow(const Matrix<N, N, T>& A, T p) {
-    // Integer case (constexpr-safe, no std::modf)
+    // Integer case (constexpr-safe, no std::modf). Casting an out-of-range
+    // value to int is UB, so only exponents inside int's range take this path.
+    constexpr T int_limit = static_cast<T>(std::numeric_limits<int>::max());
+    if (!(damp::abs(p) < int_limit)) {
+        auto L = log(A);
+        if (!L) {
+            return damp::nullopt;
+        }
+        return expm(L.value() * p);
+    }
     int p_int = static_cast<int>(p);
     T   p_frac = p - static_cast<T>(p_int);
     if (damp::abs(p_frac) < default_tol<T>()) {

@@ -151,7 +151,7 @@ template<size_t NX, size_t NU, typename T = double>
         // complement of the others (trailing column of their full-Q); the new
         // x_j is q⊥ projected onto S_j and normalized.
         constexpr size_t max_sweeps = 40;
-        const T          tol = T{64} * std::numeric_limits<T>::epsilon();
+        const T          tol = T{64} * eps<T>();
         for (size_t sweep = 0; sweep < max_sweeps; ++sweep) {
             T max_change = T{0};
             for (size_t j = 0; j < NX; ++j) {
@@ -217,6 +217,13 @@ template<size_t NX, size_t NU, typename T = double>
                 break;
             }
         }
+    }
+
+    // X has unit-norm columns, so an absolute eps floor is a relative one: a
+    // dependent basis (uncontrollable mode, multiplicity > NU) shows up as a
+    // roundoff-sized pivot that LU alone would accept.
+    if (mat::rank(X, static_cast<T>(NX) * T{64} * eps<T>()) < NX) {
+        return damp::nullopt;
     }
 
     // Recover the gain. A − B·K = X·Λ·X⁻¹, so B·K = A − X·Λ·X⁻¹.
@@ -426,6 +433,13 @@ template<size_t NX, size_t NU, typename T = double>
                 }
                 j += 2;
             }
+        }
+
+        // Columns of X come from orthonormal QR factors, so an absolute eps floor
+        // is a relative one: a dependent basis (unobservable / uncontrollable
+        // mode) shows up as a roundoff-sized pivot that LU alone would accept.
+        if (mat::rank(X, static_cast<T>(NX) * T{64} * eps<T>()) < NX) {
+            return damp::nullopt; // eigenvectors dependent
         }
 
         // M = X·Λ·X⁻¹ ⇔ M·X = X·Λ: solve Xᵀ Mᵀ = (X·Λ)ᵀ rather than forming X⁻¹.

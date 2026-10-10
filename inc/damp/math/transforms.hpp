@@ -318,8 +318,8 @@ template<typename T = float, Convention C = Convention::AmplitudeInvariant>
  * αβ space vector at angle @p theta maps to `(d, q) = (|v|, 0)`. The q-axis
  * leads d by +90° electrical (standard FOC / IEEE d–q). With
  * amplitude-invariant scaling, a constant positive @f$ q @f$ (and @f$ d = 0 @f$)
- * produces a positive-sequence abc set whose phase-a peak lags the d-axis by
- * 90°.
+ * produces a positive-sequence abc set that leads the d-axis by 90° (for
+ * θ = ωt, phase a = q·cos(ωt + 90°)).
  *
  * MATLAB®: `park()`
  *

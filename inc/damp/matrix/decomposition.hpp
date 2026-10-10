@@ -25,40 +25,32 @@ namespace damp {
 
 namespace mat {
 
+/**
+ * @brief True if A equals its transpose (real) or conjugate transpose (complex)
+ *
+ * Each pair may differ by N·64·eps times its own scale
+ * max(|aᵢⱼ|, |aⱼᵢ|, √|aᵢᵢ aⱼⱼ|), so the test is invariant to scaling A and to
+ * graded (diagonally scaled) matrices.
+ */
 template<size_t N, typename T>
 constexpr bool is_symmetric_or_hermitian(const Matrix<N, N, T>& A) {
-    if constexpr (std::is_floating_point_v<T>) {
-        constexpr auto tol = default_tol<T>();
-        for (size_t i = 0; i < N; ++i) {
-            for (size_t j = i + 1; j < N; ++j) {
-                if (damp::abs(A(i, j) - A(j, i)) > tol) {
-                    return false;
-                }
-            }
-        }
-        return true;
-    } else {
-        constexpr auto tol = default_tol<T>();
-        constexpr auto tol_sq = tol * tol;
-        // Hermitian requires real diagonal elements
-        for (size_t i = 0; i < N; ++i) {
-            auto imag_diag = damp::imag(A(i, i));
-            if (imag_diag * imag_diag > tol_sq) {
+    using real_t = scalar_type_t<T>;
+    constexpr real_t rel = static_cast<real_t>(N) * real_t{64} * eps<T>();
+    for (size_t i = 0; i < N; ++i) {
+        if constexpr (!std::is_floating_point_v<T>) {
+            // Hermitian requires a real diagonal
+            if (damp::abs(damp::imag(A(i, i))) > rel * damp::abs(A(i, i))) {
                 return false;
             }
         }
-        // Off-diagonal: A(i,j) == conj(A(j,i))
-        for (size_t i = 0; i < N; ++i) {
-            for (size_t j = i + 1; j < N; ++j) {
-                auto diff = A(i, j) - damp::conj(A(j, i));
-                auto mag_sq = damp::real(diff * damp::conj(diff));
-                if (mag_sq > tol_sq) {
-                    return false;
-                }
+        for (size_t j = i + 1; j < N; ++j) {
+            const real_t scale = damp::max({damp::abs(A(i, j)), damp::abs(A(j, i)), damp::sqrt(damp::abs(A(i, i)) * damp::abs(A(j, j)))});
+            if (damp::abs(A(i, j) - damp::conj(A(j, i))) > rel * scale) {
+                return false;
             }
         }
-        return true;
     }
+    return true;
 }
 
 /**
@@ -120,20 +112,29 @@ constexpr damp::optional<Matrix<N, N, T>> cholesky(const Matrix<N, N, T>& A) {
  * @f$ U @f$ is upper-triangular, and @f$ P @f$ is encoded by the pivot vector
  * (@c piv[i] is the original row moved into position @c i).
  *
- * Returns damp::nullopt if a pivot magnitude falls below default_tol
- * (numerically singular).
+ * Returns damp::nullopt when the chosen pivot is zero or lost to cancellation:
+ * below N·64·eps times the magnitude |aᵢⱼ| + Σₖ|lᵢₖ||uₖⱼ| of the terms that
+ * formed it. The test is invariant to row and column scaling, so graded but
+ * well-posed systems such as [[1, 10¹⁶], [0, 1]] still factor.
  *
  * @note Compare with MATLAB®'s [L,U,P] = lu(A) (row-permutation form).
- * @see Golub & Van Loan, "Matrix Computations" (4th ed., 2013), §3.2
+ * @see Golub & Van Loan, "Matrix Computations" (4th ed., 2013), §3.2, §3.3.1
  */
 template<size_t N, typename T>
 constexpr damp::optional<damp::tuple<Matrix<N, N, T>, Matrix<N, N, T>, damp::array<size_t, N>>>
 lu_decomposition(const Matrix<N, N, T>& A) {
+    using real_t = scalar_type_t<T>;
+    constexpr real_t rel = static_cast<real_t>(N) * real_t{64} * eps<T>();
+
     Matrix<N, N, T>        L = Matrix<N, N, T>::identity();
     Matrix<N, N, T>        U = A;
+    Matrix<N, N, real_t>   mag; // |A| + Σ|l||u|: the size of the terms behind each U entry
     damp::array<size_t, N> piv;
     for (size_t i = 0; i < N; ++i) {
         piv[i] = i;
+        for (size_t j = 0; j < N; ++j) {
+            mag(i, j) = damp::abs(A(i, j));
+        }
     }
 
     for (size_t i = 0; i < N; ++i) {
@@ -148,14 +149,15 @@ lu_decomposition(const Matrix<N, N, T>& A) {
             }
         }
 
-        if (max_val < default_tol<T>()) {
+        if (!(max_val > rel * mag(max_row, i))) {
             return damp::nullopt;
         }
 
         if (max_row != i) {
-            // Swap rows in U
+            // Swap rows in U and its magnitude bound
             for (size_t col = 0; col < N; ++col) {
                 damp::swap(U(i, col), U(max_row, col));
+                damp::swap(mag(i, col), mag(max_row, col));
             }
             // Swap previous columns in L
             for (size_t col = 0; col < i; ++col) {
@@ -171,6 +173,7 @@ lu_decomposition(const Matrix<N, N, T>& A) {
             L(j, i) = factor;
             for (size_t k = i; k < N; ++k) {
                 U(j, k) -= factor * U(i, k);
+                mag(j, k) += damp::abs(factor) * damp::abs(U(i, k));
             }
         }
     }
@@ -193,12 +196,11 @@ struct QRDecomposition {
     Matrix<M, M, T> R{}; ///< Upper-triangular factor
 
     /**
-     * @brief True if every diagonal entry of R exceeds default_tol
+     * @brief True if A had full column rank (no column was zeroed as rank loss)
      */
     [[nodiscard]] constexpr bool is_valid() const {
-        constexpr auto tol = default_tol<T>();
         for (size_t i = 0; i < M; ++i) {
-            if (damp::abs(R(i, i)) < tol) {
+            if (R(i, i) == T{0}) {
                 return false;
             }
         }
@@ -215,29 +217,46 @@ struct QRDecomposition {
  * @tparam T   Element type
  * @tparam N   Rows
  * @tparam M   Columns
- * @param A    Input matrix
- * @param eps  Column-norm floor treated as rank loss (default_tol by default)
+ * A column whose norm after orthogonalization falls to rel_tol times its
+ * original norm is dependent on the earlier ones (scale-invariant). Its Q
+ * column and R(j, j) are set to zero, so QR still reconstructs A and
+ * is_valid() reports the rank loss.
+ *
+ * @param A        Input matrix
+ * @param rel_tol  Relative column-norm floor treated as rank loss (default N·64·eps)
  * @return Thin QR factors
  */
 template<typename T, size_t N, size_t M>
 [[nodiscard]] constexpr QRDecomposition<T, N, M> qr_decompose(
     const Matrix<N, M, T>& A,
-    scalar_type_t<T>       eps = default_tol<T>()
+    scalar_type_t<T>       rel_tol = static_cast<scalar_type_t<T>>(N) * scalar_type_t<T>{64} * eps<T>()
 ) {
     using real_t = scalar_type_t<T>;
     QRDecomposition<T, N, M> result;
     result.Q = A;
 
-    for (size_t j = 0; j < M; ++j) {
-        real_t col_norm_sq = real_t{0};
+    const auto column_norm = [](const Matrix<N, M, T>& X, size_t j) {
+        real_t sq = real_t{0};
         for (size_t i = 0; i < N; ++i) {
-            const real_t a = damp::abs(result.Q(i, j));
-            col_norm_sq += a * a;
+            const real_t a = damp::abs(X(i, j));
+            sq += a * a;
         }
-        const real_t col_norm = damp::sqrt(col_norm_sq);
+        return damp::sqrt(sq);
+    };
+
+    for (size_t j = 0; j < M; ++j) {
+        const real_t col_norm = column_norm(result.Q, j);
+        if (!(col_norm > rel_tol * column_norm(A, j))) {
+            // Rank loss: what is left of the column is roundoff.
+            for (size_t i = 0; i < N; ++i) {
+                result.Q(i, j) = T{0};
+            }
+            result.R(j, j) = T{0};
+            continue;
+        }
         result.R(j, j) = static_cast<T>(col_norm);
 
-        if (col_norm > eps) {
+        {
             for (size_t i = 0; i < N; ++i) {
                 result.Q(i, j) /= result.R(j, j);
             }

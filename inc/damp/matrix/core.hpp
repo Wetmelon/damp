@@ -80,6 +80,9 @@ template<typename T>
     if (a_rows == 0 || a_cols == 0 || b_rows == 0 || b_cols == 0) {
         return false;
     }
+    if (std::is_constant_evaluated()) {
+        return true; // `<` across objects is not a constant expression; snapshot instead
+    }
     const T* const a_last = a + ((a_rows - 1) * a_stride) + (a_cols - 1);
     const T* const b_last = b + ((b_rows - 1) * b_stride) + (b_cols - 1);
     if (!address_ranges_overlap(a, a_last, b, b_last)) {
@@ -111,6 +114,8 @@ template<typename T, typename Src>
         using SrcElem = std::remove_cv_t<std::remove_pointer_t<decltype(src.storage_first())>>;
         if constexpr (!std::is_same_v<std::remove_cv_t<T>, SrcElem>) {
             return false;
+        } else if (std::is_constant_evaluated()) {
+            return true; // `<` across objects is not a constant expression; snapshot instead
         } else {
             const T* const src_first = static_cast<const T*>(src.storage_first());
             const T* const src_last = static_cast<const T*>(src.storage_last());
@@ -118,6 +123,19 @@ template<typename T, typename Src>
         }
     } else {
         return true;
+    }
+}
+
+/// True when writing [dest_first, dest_last] element-wise from @p src may read
+/// an element already overwritten. An owning (Matrix-derived) source can only
+/// share storage by being the destination itself, element (r,c) onto (r,c), so
+/// it never needs a snapshot.
+template<typename T, typename Src>
+[[nodiscard]] constexpr bool may_alias(const T* dest_first, const T* dest_last, const Src& src) {
+    if constexpr (std::is_base_of_v<Matrix<Src::rows(), Src::cols(), typename Src::value_type>, Src>) {
+        return false;
+    } else {
+        return storage_overlaps(dest_first, dest_last, src);
     }
 }
 
@@ -449,7 +467,7 @@ public:
         }
         // Owning the elements is one copy. A second copy is only for A = A.t()
         // and any other source that reads this storage while we write it.
-        if (detail::storage_overlaps(data_.data(), data_.data() + (Rows * Cols - 1), other)) {
+        if (aliases(other)) {
             Matrix tmp{};
             for (size_t r = 0; r < Rows; ++r) {
                 for (size_t c = 0; c < Cols; ++c) {
@@ -551,6 +569,16 @@ public:
         return data_.data() + (Rows * Cols - 1);
     }
 
+    /// True when @p other is not this object but reads this storage (a view of it).
+    template<typename M>
+    [[nodiscard]] constexpr bool aliases(const M& other) const {
+        if constexpr (Rows == 0 || Cols == 0) {
+            return false;
+        } else {
+            return detail::may_alias(storage_first(), storage_last(), other);
+        }
+    }
+
     /**
      * @brief Get pointer to data in row-major order
      */
@@ -617,6 +645,9 @@ public:
     template<MatrixLike M>
         requires(M::rows() == Rows && M::cols() == Cols)
     constexpr Matrix& operator+=(const M& other) {
+        if (aliases(other)) {
+            return *this += Matrix(other); // A += A.t(): read before writing
+        }
         for (size_t r = 0; r < Rows; ++r) {
             for (size_t c = 0; c < Cols; ++c) {
                 data_[(r * Cols) + c] += static_cast<T>(other(r, c));
@@ -631,6 +662,9 @@ public:
     template<MatrixLike M>
         requires(M::rows() == Rows && M::cols() == Cols)
     constexpr Matrix& operator-=(const M& other) {
+        if (aliases(other)) {
+            return *this -= Matrix(other);
+        }
         for (size_t r = 0; r < Rows; ++r) {
             for (size_t c = 0; c < Cols; ++c) {
                 data_[(r * Cols) + c] -= static_cast<T>(other(r, c));
@@ -774,20 +808,28 @@ public:
      * a measure of overall magnitude, analogous to the Euclidean norm but
      * applied to all entries.
      *
-     * Always returns a real value, even for complex-valued matrices.
+     * Always returns a real value, even for complex-valued matrices. Entries are
+     * scaled by the largest magnitude before squaring, so the result neither
+     * overflows nor underflows for any finite input.
      *
      * @return Frobenius norm (real scalar)
      */
     [[nodiscard]] constexpr scalar_type_t<T> norm() const {
         using real_t = scalar_type_t<T>;
-        real_t sum_sq = real_t{0};
-        for (size_t r = 0; r < Rows; ++r) {
-            for (size_t c = 0; c < Cols; ++c) {
-                auto abs_val = damp::abs(data_[(r * Cols) + c]);
-                sum_sq += abs_val * abs_val;
-            }
+        real_t amax = real_t{0};
+        for (size_t i = 0; i < Rows * Cols; ++i) {
+            amax = damp::max(amax, damp::abs(data_[i]));
         }
-        return damp::sqrt(sum_sq);
+        if (amax == real_t{0}) {
+            return real_t{0};
+        }
+        const real_t inv = real_t{1} / amax;
+        real_t       sum_sq = real_t{0};
+        for (size_t i = 0; i < Rows * Cols; ++i) {
+            const real_t a = damp::abs(data_[i]) * inv;
+            sum_sq += a * a;
+        }
+        return amax * damp::sqrt(sum_sq);
     }
 
     /**

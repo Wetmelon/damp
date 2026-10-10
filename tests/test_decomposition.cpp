@@ -3,6 +3,7 @@
 // Distributed under the Boost Software License, Version 1.0.
 // (See accompanying file LICENSE or copy at http://www.boost.org/LICENSE_1_0.txt)
 
+#include <cmath>
 #include <cstddef>
 
 #include "damp/backend.hpp"
@@ -740,5 +741,83 @@ TEST_SUITE("full_qr") {
             CHECK(worst(qr.Q * qr.R, A) < 1e-9);
             CHECK(worst(qr.Q.conjugate_transpose() * qr.Q, Matrix<3, 3, Cplx>::identity()) < 1e-9);
         }
+    }
+}
+
+TEST_SUITE("scale-invariant singularity and symmetry") {
+    TEST_CASE("solve does not mistake a tiny non-symmetric matrix for symmetric") {
+        // An absolute 1e-12 symmetry tolerance sent this to Cholesky, which reads
+        // only the lower triangle and returned a residual of 0.5.
+        const Matrix<2, 2> A{{2e-13, 1e-13}, {0.0, 2e-13}};
+        const Matrix<2, 1> b{{1.0}, {1.0}};
+        CHECK_FALSE(is_symmetric_or_hermitian(A));
+        const auto x = solve(A, b);
+        REQUIRE(x.has_value());
+        const auto r = A * x.value() - b;
+        CHECK(damp::abs(r(0, 0)) < 1e-12);
+        CHECK(damp::abs(r(1, 0)) < 1e-12);
+    }
+
+    TEST_CASE("lu_solve accepts a well-posed system at any scale") {
+        for (const double s : {1e-20, 1.0, 1e20}) {
+            const Matrix<2, 2> A{{2.0 * s, 1.0 * s}, {1.0 * s, 3.0 * s}};
+            const Matrix<2, 1> b{{s}, {2.0 * s}};
+            const auto         x = lu_solve(A, b);
+            REQUIRE(x.has_value());
+            CHECK(x.value()(0, 0) == doctest::Approx(0.2));
+            CHECK(x.value()(1, 0) == doctest::Approx(0.6));
+        }
+    }
+
+    TEST_CASE("lu_decomposition rejects roundoff-singular input at any scale") {
+        for (const double s : {1e-20, 1.0, 1e20}) {
+            const Matrix<3, 3> A = Matrix<3, 3>{{1.0, 2.0, 3.0}, {4.0, 5.0, 6.0}, {7.0, 8.0, 9.0}} * s;
+            CHECK_FALSE(lu_decomposition(A).has_value());
+        }
+    }
+}
+
+TEST_SUITE("rank, two_norm and QR are scale-invariant") {
+    TEST_CASE("rank uses relative SVD threshold at any scale") {
+        for (const double s : {1e-20, 1.0, 1e20}) {
+            const Matrix<3, 3> A = Matrix<3, 3>{{1.0, 2.0, 3.0}, {4.0, 5.0, 6.0}, {7.0, 8.0, 9.0}} * s;
+            CHECK(rank(A) == 2);
+            CHECK(rank(Matrix<3, 3>::identity() * s) == 3);
+        }
+        CHECK(rank(Matrix<2, 3>{}) == 0);
+    }
+
+    TEST_CASE("two_norm when the all-ones vector is a null vector") {
+        CHECK(two_norm(Matrix<2, 2>{{1.0, -1.0}, {0.0, 0.0}}) == doctest::Approx(std::sqrt(2.0)));
+        CHECK(two_norm(Matrix<2, 2>::identity() * 1e-9) == doctest::Approx(1e-9));
+    }
+
+    TEST_CASE("qr_decompose rank loss is relative to each column") {
+        const Matrix<3, 2> tiny{{1e-14, 2e-14}, {0.0, 1e-14}, {0.0, 0.0}};
+        CHECK(qr_decompose(tiny).is_valid());
+        const Matrix<3, 2> dep{{1.0, 2.0}, {1.0, 2.0}, {1.0, 2.0}};
+        CHECK_FALSE(qr_decompose(dep).is_valid());
+    }
+}
+
+TEST_SUITE("svd on rank-deficient input") {
+    TEST_CASE("Jacobi SVD converges when a column collapses to roundoff") {
+        // Controllability matrix of a system with an uncontrollable mode: the zero
+        // middle row leaves a ~1e-159 residue column whose Gram sums underflow.
+        const Matrix<3, 3> Co{{1.0, -1.0 / 3.0, 1.0 / 9.0}, {0.0, 0.0, 0.0}, {1.0, -1.0, 1.0}};
+        const auto         s = svd(Co);
+        CHECK(s.converged);
+        CHECK(rank(Co) == 2);
+        CHECK(s.singular_values[2] < 1e-15 * s.singular_values[0]);
+    }
+
+    TEST_CASE("constexpr complex SVD matches runtime (wide [λI − A, B])") {
+        using C = damp::complex<double>;
+        constexpr Matrix<2, 3, C> M{{C(1.0e-3, 0.0), C(-1.0e-3, 0.0), C(5.0e-7, 0.0)}, {C(-1.0e-3, 0.0), C(1.0e-3, 0.0), C(1.0e-3, 0.0)}};
+        constexpr auto            ce = svd(M);
+        static_assert(ce.converged);
+        const auto rt = svd(M);
+        CHECK(ce.singular_values[0] == doctest::Approx(rt.singular_values[0]).epsilon(1e-12));
+        CHECK(ce.singular_values[1] == doctest::Approx(rt.singular_values[1]).epsilon(1e-12));
     }
 }

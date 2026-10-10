@@ -142,10 +142,9 @@ struct DCM : public Mat3<T> {
 
     /**
      * @brief Convert to a unit quaternion
-     * @param eps Normalization guard forwarded to @ref Quaternion::from_dcm
-     * @return Unit quaternion, or nullopt if the conversion is ill-conditioned
+     * @return Unit quaternion, or nullopt if this is not a rotation (see @ref Quaternion::from_dcm)
      */
-    [[nodiscard]] constexpr damp::optional<Quaternion<T>> to_quaternion(T eps = static_cast<T>(1e-6)) const;
+    [[nodiscard]] constexpr damp::optional<Quaternion<T>> to_quaternion() const;
 
     /// Convert to Euler angles in sequence @p Order.
     template<EulerOrder Order>
@@ -161,17 +160,18 @@ struct DCM : public Mat3<T> {
     /**
      * @brief Rodrigues formula from axis-angle
      *
-     * @p eps is a linear tolerance on the axis length: the axis is normalized
-     * internally, so any nonzero axis is valid. The guard rejects a near-zero
-     * axis via @f$ \|a\|^2 \le \varepsilon^2 @f$,
-     * so short axes from iterative solvers are kept (see @c kinematics/stewart.hpp).
+     * The axis is normalized internally, so any nonzero axis is valid — its
+     * length carries no meaning and short axes (e.g. small rotation vectors
+     * from iterative solvers) are kept. @p eps is an optional linear floor in
+     * the caller's units (@f$ \|a\| \le \varepsilon @f$ rejected); the default 0
+     * rejects only a zero axis.
      *
      * @param axis  Rotation axis (normalized internally)
      * @param angle Rotation angle [rad]
-     * @param eps   Linear axis-length floor
-     * @return DCM, or nullopt if the axis is (near) zero
+     * @param eps   Linear axis-length floor (default 0)
+     * @return DCM, or nullopt if ‖axis‖ ≤ eps
      */
-    [[nodiscard]] static constexpr damp::optional<DCM> from_axis_angle(const Vec3<T>& axis, T angle, T eps = static_cast<T>(1e-9)) {
+    [[nodiscard]] static constexpr damp::optional<DCM> from_axis_angle(const Vec3<T>& axis, T angle, T eps = T{0}) {
         T axis_norm2 = (axis[0] * axis[0]) + (axis[1] * axis[1]) + (axis[2] * axis[2]);
         if (axis_norm2 <= (eps * eps)) {
             return damp::nullopt;
@@ -295,65 +295,44 @@ struct Euler {
     /**
      * @brief Extract Euler angles from a DCM (sequence @p Order)
      *
-     * Near gimbal lock the third angle is set to 0 and the first absorbs the
-     * remaining freedom.
+     * One Tait–Bryan formula for all six sequences. With axes (i, j, k) and
+     * s = +1 for a cyclic order (XYZ, YZX, ZXY), −1 otherwise:
+     * @f$ \theta_2 = \operatorname{atan2}(s R_{ik}, \sqrt{R_{jk}^2 + R_{kk}^2}) @f$
+     * (no asin cancellation near ±π/2), @f$ \theta_1 = \operatorname{atan2}(-s R_{jk}, R_{kk}) @f$,
+     * @f$ \theta_3 = \operatorname{atan2}(-s R_{ij}, R_{ii}) @f$.
+     * At gimbal lock (cos θ₂ ≤ √ε, where θ₁ and θ₃ lose their separate
+     * meaning) θ₃ is set to 0 and θ₁ absorbs the remaining freedom.
      */
     [[nodiscard]] static constexpr Euler from_dcm(const DCM<T>& R) {
-        const auto clamp_unit = [](T sp) {
-            if (sp > T{1}) {
-                return T{1};
-            }
-            if (sp < T{-1}) {
-                return T{-1};
-            }
-            return sp;
-        };
-        const T gimbal = T{1} - static_cast<T>(1e-6);
+        constexpr auto   axes = euler_axes();
+        constexpr size_t i = axes[0];
+        constexpr size_t j = axes[1];
+        constexpr size_t k = axes[2];
+        constexpr T      s = ((j == (i + 1) % 3) ? T{1} : T{-1}); // cyclic order
 
-        if constexpr (Order == EulerOrder::ZYX) {
-            // Yaw-Pitch-Roll
-            const T sp = clamp_unit(-R(2, 0));
-            const T pitch = damp::asin(sp);
-            if (damp::abs(sp) < gimbal) {
-                return Euler{damp::atan2(R(1, 0), R(0, 0)), pitch, damp::atan2(R(2, 1), R(2, 2))};
-            }
-            return Euler{damp::atan2(-R(0, 1), R(1, 1)), pitch, T{0}};
-        } else if constexpr (Order == EulerOrder::XYZ) {
-            // Roll-Pitch-Yaw
-            const T sp = clamp_unit(R(0, 2));
-            const T pitch = damp::asin(sp);
-            if (damp::abs(sp) < gimbal) {
-                return Euler{damp::atan2(-R(1, 2), R(2, 2)), pitch, damp::atan2(-R(0, 1), R(0, 0))};
-            }
-            return Euler{damp::atan2(R(2, 1), R(1, 1)), pitch, T{0}};
-        } else if constexpr (Order == EulerOrder::ZXY) {
-            const T sp = clamp_unit(R(2, 1));
-            const T a2 = damp::asin(sp);
-            if (damp::abs(sp) < gimbal) {
-                return Euler{damp::atan2(-R(0, 1), R(1, 1)), a2, damp::atan2(-R(2, 0), R(2, 2))};
-            }
-            return Euler{damp::atan2(R(1, 0), R(0, 0)), a2, T{0}};
-        } else if constexpr (Order == EulerOrder::YXZ) {
-            const T sp = clamp_unit(-R(1, 2));
-            const T a2 = damp::asin(sp);
-            if (damp::abs(sp) < gimbal) {
-                return Euler{damp::atan2(R(0, 2), R(2, 2)), a2, damp::atan2(R(1, 0), R(1, 1))};
-            }
-            return Euler{damp::atan2(-R(2, 0), R(0, 0)), a2, T{0}};
-        } else if constexpr (Order == EulerOrder::YZX) {
-            const T sp = clamp_unit(R(1, 0));
-            const T a2 = damp::asin(sp);
-            if (damp::abs(sp) < gimbal) {
-                return Euler{damp::atan2(-R(2, 0), R(0, 0)), a2, damp::atan2(-R(1, 2), R(1, 1))};
-            }
-            return Euler{damp::atan2(R(0, 2), R(2, 2)), a2, T{0}};
-        } else if constexpr (Order == EulerOrder::XZY) {
-            const T sp = clamp_unit(-R(0, 1));
-            const T a2 = damp::asin(sp);
-            if (damp::abs(sp) < gimbal) {
-                return Euler{damp::atan2(R(2, 1), R(1, 1)), a2, damp::atan2(R(0, 2), R(0, 0))};
-            }
-            return Euler{damp::atan2(-R(1, 2), R(2, 2)), a2, T{0}};
+        const T cos2 = damp::hypot(R(j, k), R(k, k));
+        const T a2 = damp::atan2(s * R(i, k), cos2);
+        if (cos2 > damp::sqrt(damp::eps<T>())) {
+            return Euler{damp::atan2(-s * R(j, k), R(k, k)), a2, damp::atan2(-s * R(i, j), R(i, i))};
+        }
+        return Euler{damp::atan2(s * R(k, j), R(j, j)), a2, T{0}};
+    }
+
+    /// Axis indices (0 = X, 1 = Y, 2 = Z) of the three rotations in @p Order.
+    [[nodiscard]] static constexpr damp::array<size_t, 3> euler_axes() {
+        switch (Order) {
+            case EulerOrder::XYZ:
+                return {0, 1, 2};
+            case EulerOrder::ZYX:
+                return {2, 1, 0};
+            case EulerOrder::ZXY:
+                return {2, 0, 1};
+            case EulerOrder::YXZ:
+                return {1, 0, 2};
+            case EulerOrder::YZX:
+                return {1, 2, 0};
+            default: // XZY
+                return {0, 2, 1};
         }
     }
 
@@ -463,55 +442,49 @@ struct Quaternion : public Matrix<4, 1, T> {
     [[nodiscard]] constexpr T norm() const { return damp::sqrt(norm_squared()); }
 
     /**
-     * @brief Unit quaternion, or nullopt if ‖q‖² ≤ ε
-     * @param eps Squared-norm floor for the near-zero test
+     * @brief Unit quaternion, or nullopt if q = 0
+     *
+     * Direction is defined for any nonzero q, so only a zero (or underflowed)
+     * squared norm is rejected — the result does not depend on q's scale.
      */
-    [[nodiscard]] constexpr damp::optional<Quaternion> normalized_safe(T eps = static_cast<T>(1e-9)) const {
-        T n2 = norm_squared();
-        if (n2 <= eps) {
+    [[nodiscard]] constexpr damp::optional<Quaternion> normalized_safe() const {
+        const T n2 = norm_squared();
+        if (n2 <= T{0}) {
             return damp::nullopt;
         }
-        T inv_n = T{1} / damp::sqrt(n2);
+        const T inv_n = T{1} / damp::sqrt(n2);
         return Quaternion{w() * inv_n, x() * inv_n, y() * inv_n, z() * inv_n};
     }
 
     /**
      * @brief Normalize in place
-     * @return false if the quaternion is near zero (left unchanged)
+     * @return false if q = 0 (left unchanged)
      */
-    constexpr bool normalize_in_place(T eps = static_cast<T>(1e-9)) {
-        T n2 = norm_squared();
-        if (n2 <= eps) {
+    constexpr bool normalize_in_place() {
+        const auto n = normalized_safe();
+        if (!n) {
             return false;
         }
-        T inv_n = T{1} / damp::sqrt(n2);
-        w() *= inv_n;
-        x() *= inv_n;
-        y() *= inv_n;
-        z() *= inv_n;
+        *this = *n;
         return true;
     }
 
-    /// Unit quaternion, or @c *this unchanged if near zero.
-    [[nodiscard]] constexpr Quaternion normalized(T eps = static_cast<T>(1e-9)) const {
-        auto n = normalized_safe(eps);
-        return n.value_or(*this);
-    }
+    /// Unit quaternion, or @c *this unchanged if q = 0.
+    [[nodiscard]] constexpr Quaternion normalized() const { return normalized_safe().value_or(*this); }
 
     /// Conjugate (w, −x, −y, −z) (inverse for unit quaternions).
     [[nodiscard]] constexpr Quaternion conjugate() const { return Quaternion{w(), -x(), -y(), -z()}; }
 
     /**
      * @brief Multiplicative inverse q⁻¹ = q̄ / ‖q‖²
-     * @return Inverse, or nullopt if near zero
+     * @return Inverse, or nullopt if q = 0
      */
-    [[nodiscard]] constexpr damp::optional<Quaternion> inverse(T eps = static_cast<T>(1e-9)) const {
-        T n2 = norm_squared();
-        if (n2 <= eps) {
+    [[nodiscard]] constexpr damp::optional<Quaternion> inverse() const {
+        const T n2 = norm_squared();
+        if (n2 <= T{0}) {
             return damp::nullopt;
         }
-        T inv_n2 = T{1} / n2;
-        return Quaternion{w() * inv_n2, -x() * inv_n2, -y() * inv_n2, -z() * inv_n2};
+        return Quaternion{w() / n2, -x() / n2, -y() / n2, -z() / n2};
     }
 
     /// Hamilton product.
@@ -539,7 +512,7 @@ struct Quaternion : public Matrix<4, 1, T> {
         return Quaternion{w() / scalar, x() / scalar, y() / scalar, z() / scalar};
     }
 
-    /// Rotate a 3-vector by this orientation (efficient sandwich form).
+    /// Rotate a 3-vector by this orientation (sandwich q v q̄; assumes a unit quaternion).
     [[nodiscard]] constexpr Vec3<T> rotate(const Vec3<T>& v) const {
         const Vec3<T> qv{x(), y(), z()};
         const T       t0 = T{2} * ((qv[1] * v[2]) - (qv[2] * v[1]));
@@ -576,11 +549,14 @@ struct Quaternion : public Matrix<4, 1, T> {
 
     /**
      * @brief Build a unit quaternion from a DCM (Shepperd / largest-component branch)
-     * @param R   Rotation matrix
-     * @param eps Normalization / branch floor
-     * @return Unit quaternion, or nullopt if a branch is singular
+     *
+     * For any rotation the chosen branch has s ≥ 1, so no tolerance is needed;
+     * nullopt means @p R is not (close to) a rotation (non-positive radicand).
+     *
+     * @param R Rotation matrix
+     * @return Unit quaternion, or nullopt if @p R is not a rotation
      */
-    [[nodiscard]] static constexpr damp::optional<Quaternion> from_dcm(const DCM<T>& R, T eps = static_cast<T>(1e-6)) {
+    [[nodiscard]] static constexpr damp::optional<Quaternion> from_dcm(const DCM<T>& R) {
         const T half = static_cast<T>(0.5);
         const T trace = R(0, 0) + R(1, 1) + R(2, 2);
         if (trace > T{0}) {
@@ -592,11 +568,11 @@ struct Quaternion : public Matrix<4, 1, T> {
                 (R(0, 2) - R(2, 0)) * inv_s,
                 (R(1, 0) - R(0, 1)) * inv_s,
             }
-                .normalized_safe(eps);
+                .normalized_safe();
         }
         if (R(0, 0) > R(1, 1) && R(0, 0) > R(2, 2)) {
             const T s = damp::sqrt(T{1} + R(0, 0) - R(1, 1) - R(2, 2));
-            if (s <= eps) {
+            if (s <= T{0}) {
                 return damp::nullopt;
             }
             const T inv_s = half / s;
@@ -606,11 +582,11 @@ struct Quaternion : public Matrix<4, 1, T> {
                 (R(0, 1) + R(1, 0)) * inv_s,
                 (R(0, 2) + R(2, 0)) * inv_s,
             }
-                .normalized_safe(eps);
+                .normalized_safe();
         }
         if (R(1, 1) > R(2, 2)) {
             const T s = damp::sqrt(T{1} + R(1, 1) - R(0, 0) - R(2, 2));
-            if (s <= eps) {
+            if (s <= T{0}) {
                 return damp::nullopt;
             }
             const T inv_s = half / s;
@@ -620,10 +596,10 @@ struct Quaternion : public Matrix<4, 1, T> {
                 half * s,
                 (R(1, 2) + R(2, 1)) * inv_s,
             }
-                .normalized_safe(eps);
+                .normalized_safe();
         }
         const T s = damp::sqrt(T{1} + R(2, 2) - R(0, 0) - R(1, 1));
-        if (s <= eps) {
+        if (s <= T{0}) {
             return damp::nullopt;
         }
         const T inv_s = half / s;
@@ -633,7 +609,7 @@ struct Quaternion : public Matrix<4, 1, T> {
             (R(1, 2) + R(2, 1)) * inv_s,
             half * s,
         }
-            .normalized_safe(eps);
+            .normalized_safe();
     }
 
     /// Build from Euler angles (identity if the DCM conversion fails).
@@ -646,15 +622,15 @@ struct Quaternion : public Matrix<4, 1, T> {
     /**
      * @brief Unit quaternion from axis-angle
      *
-     * @p eps is a linear axis-length floor (@f$ \|a\|^2 \le \varepsilon^2 @f$);
-     * see @ref DCM::from_axis_angle for the squared-norm rationale.
+     * Same axis convention as @ref DCM::from_axis_angle: any nonzero axis is
+     * valid; @p eps is an optional linear floor (default 0 → reject only zero).
      *
      * @param axis  Rotation axis (normalized internally)
      * @param angle Rotation angle [rad]
-     * @param eps   Linear axis-length floor
-     * @return Unit quaternion, or nullopt if the axis is (near) zero
+     * @param eps   Linear axis-length floor (default 0)
+     * @return Unit quaternion, or nullopt if ‖axis‖ ≤ eps
      */
-    [[nodiscard]] static constexpr damp::optional<Quaternion> from_axis_angle(const Vec3<T>& axis, T angle, T eps = static_cast<T>(1e-9)) {
+    [[nodiscard]] static constexpr damp::optional<Quaternion> from_axis_angle(const Vec3<T>& axis, T angle, T eps = T{0}) {
         T axis_norm2 = (axis[0] * axis[0]) + (axis[1] * axis[1]) + (axis[2] * axis[2]);
         if (axis_norm2 <= (eps * eps)) {
             return damp::nullopt;
@@ -672,11 +648,11 @@ struct Quaternion : public Matrix<4, 1, T> {
      * Returns a unit axis and angle in @f$ [0, \pi] @f$ via
      * @f$ 2 \operatorname{atan2}(\|v\|, w) @f$ (no prior normalize required).
      * @c q and @c -q are the same rotation; @c w is forced non-negative first.
-     * Near-zero rotation defaults the axis to @f$ (1,0,0) @f$ with angle 0.
-     *
-     * @param eps Linear floor on the vector-part length
+     * Any nonzero vector part gives its own axis (so tiny rotations keep their
+     * axis and angle); only an exactly zero vector part defaults the axis to
+     * @f$ (1,0,0) @f$ with angle 0.
      */
-    [[nodiscard]] constexpr damp::pair<Vec3<T>, T> to_axis_angle(T eps = static_cast<T>(1e-9)) const {
+    [[nodiscard]] constexpr damp::pair<Vec3<T>, T> to_axis_angle() const {
         // q and -q are the same rotation; canonicalize to w ≥ 0 so angle ∈ [0, π].
         T qw = w();
         T qx = x();
@@ -689,7 +665,7 @@ struct Quaternion : public Matrix<4, 1, T> {
             qz = -qz;
         }
         T v2 = (qx * qx) + (qy * qy) + (qz * qz);
-        if (v2 <= (eps * eps)) {
+        if (v2 <= T{0}) {
             return {Vec3<T>{T{1}, T{0}, T{0}}, T{0}};
         }
         T vnorm = damp::sqrt(v2);
@@ -704,8 +680,8 @@ struct Quaternion : public Matrix<4, 1, T> {
      * Inverse of the axis-angle construction used by @ref from_axis_angle.
      * @f$ \exp(\log q) = \pm q @f$ (same rotation).
      */
-    [[nodiscard]] constexpr Vec3<T> log(T eps = static_cast<T>(1e-9)) const {
-        auto [axis, angle] = to_axis_angle(eps);
+    [[nodiscard]] constexpr Vec3<T> log() const {
+        auto [axis, angle] = to_axis_angle();
         return Vec3<T>{axis[0] * angle, axis[1] * angle, axis[2] * angle};
     }
 
@@ -783,8 +759,8 @@ template<typename T>
 // Out-of-line members defined after all rotation types are complete.
 
 template<typename T>
-constexpr damp::optional<Quaternion<T>> DCM<T>::to_quaternion(T eps) const {
-    return Quaternion<T>::from_dcm(*this, eps);
+constexpr damp::optional<Quaternion<T>> DCM<T>::to_quaternion() const {
+    return Quaternion<T>::from_dcm(*this);
 }
 
 template<typename T>

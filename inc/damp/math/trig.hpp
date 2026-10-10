@@ -131,19 +131,17 @@ struct Reduced {
 };
 
 template<typename T>
-static inline Reduced<T> reduce(T x);
+inline Reduced<T> reduce(T x);
 template<typename T>
-static inline T sin_poly(T frac);
+inline T sin_poly(T frac);
 template<typename T>
-static inline T cos_poly(T frac);
+inline T cos_poly(T frac);
 
 template<typename T, size_t N>
-static inline T horner_eval(T x, const T (&coeffs)[N]);
-template<typename T, size_t N>
-static inline T estrin_eval(T x, const T (&coeffs)[N]);
+inline T estrin_eval(T x, const T (&coeffs)[N]);
 
 template<typename T>
-static inline T reassoc_barrier(T v);
+inline T reassoc_barrier(T v);
 
 // --- Fast scalar math (bound by MathBackend when DAMP_MATH_BACKEND_DAMP) ---
 
@@ -380,7 +378,7 @@ inline float fast_atan2(float y, float x) {
     float           ax = __builtin_fabsf(x);
     float           ay = __builtin_fabsf(y);
     float           lo = damp::min(ax, ay);
-    float           hi = damp::max(ax, ay) + min_normal;
+    float           hi = damp::max(damp::max(ax, ay), min_normal); // 0/0 guard, exact ratio otherwise
     float           t = estrin_eval(lo / hi, detail::atan_coeffs_f);
     float           r = (ay > ax) ? ((damp::numbers::pi_v<float> / 2.0f) - t) : t;
     r = (x >= 0.0f) ? r : (damp::numbers::pi_v<float> - r);
@@ -395,7 +393,7 @@ inline double fast_atan2(double y, double x) {
     double           ax = __builtin_fabs(x);
     double           ay = __builtin_fabs(y);
     double           lo = damp::min(ax, ay);
-    double           hi = damp::max(ax, ay) + min_normal;
+    double           hi = damp::max(damp::max(ax, ay), min_normal);
     double           t = estrin_eval(lo / hi, detail::atan_coeffs_d);
     double           r = (ay > ax) ? ((damp::numbers::pi_v<double> / 2.0) - t) : t;
     r = (x >= 0.0) ? r : (damp::numbers::pi_v<double> - r);
@@ -403,7 +401,7 @@ inline double fast_atan2(double y, double x) {
 }
 
 template<typename T>
-static inline T reassoc_barrier(T v) {
+inline T reassoc_barrier(T v) {
 #if defined(__has_builtin)
 #if __has_builtin(__builtin_assoc_barrier)
     return __builtin_assoc_barrier(v);
@@ -427,7 +425,7 @@ static inline T reassoc_barrier(T v) {
  * Double: two π words (low part exact after HI truncation), large-arg path.
  */
 template<typename T>
-static inline Reduced<T> reduce(T x) {
+inline Reduced<T> reduce(T x) {
     constexpr T inv_pi = damp::numbers::inv_pi_v<T>;
 
     T   n = fast_nearbyint(x * inv_pi);
@@ -453,7 +451,7 @@ static inline Reduced<T> reduce(T x) {
 }
 
 template<typename T>
-static inline T sin_poly(T frac) {
+inline T sin_poly(T frac) {
     const T u = frac * frac;
     if constexpr (std::is_same_v<T, float>) {
         const T u2 = u * u;
@@ -477,7 +475,7 @@ static inline T sin_poly(T frac) {
 }
 
 template<typename T>
-static inline T cos_poly(T frac) {
+inline T cos_poly(T frac) {
     const T u = frac * frac;
     if constexpr (std::is_same_v<T, float>) {
         const T u2 = u * u;
@@ -500,21 +498,11 @@ static inline T cos_poly(T frac) {
     }
 }
 
-template<typename T, size_t N>
-static inline T horner_eval(T x, const T (&coeffs)[N]) {
-    static_assert(N >= 1, "horner_eval requires at least one coefficient");
-    T p = coeffs[N - 1];
-    for (int i = static_cast<int>(N) - 2; i >= 0; --i) {
-        p = coeffs[i] + (x * p);
-    }
-    return p;
-}
-
 /**
  * @brief Estrin polynomial evaluation (float or double)
  */
 template<typename T, size_t N>
-static inline T estrin_eval(T x, const T (&coeffs)[N]) {
+inline T estrin_eval(T x, const T (&coeffs)[N]) {
     static_assert(N >= 1, "estrin_eval requires at least one coefficient");
     T b[N];
     for (size_t i = 0; i < N; ++i) {
