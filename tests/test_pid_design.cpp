@@ -720,7 +720,8 @@ TEST_SUITE("PID Design - PI Pole Placement (first-order plant)") {
     }
 
     TEST_CASE("amigo_kappa_tau matches FOPDT formula golden") {
-        // Ks=1, Ku=2, Tu=1 → τ,L,Kp,Ti from Åström & Hägglund AMIGO κ–τ map
+        // Ks=1, Ku=2, Tu=1 → τ,L from the ultimate point, then the AMIGO PI rule
+        // (Åström & Hägglund, Advanced PID Control, 2006, §7.6)
         constexpr double Ks = 1.0;
         constexpr double Ku = 2.0;
         constexpr double Tu = 1.0;
@@ -728,8 +729,8 @@ TEST_SUITE("PID Design - PI Pole Placement (first-order plant)") {
         const double     prod = Ks * Ku;
         const double     tau = std::sqrt((prod * prod) - 1.0) / wu;
         const double     L = (damp::numbers::pi_v<double> - std::atan(wu * tau)) / wu;
-        const double     Kp_exp = (0.25 + (0.45 * tau / L)) / Ks;
-        const double     Ti_exp = ((0.4 * L) + (0.8 * tau)) / (L + (0.1 * tau)) * L;
+        const double     Kp_exp = (0.15 / Ks) + ((0.35 - (L * tau / ((L + tau) * (L + tau)))) * tau / (Ks * L));
+        const double     Ti_exp = (0.35 * L) + (13.0 * L * tau * tau / ((tau * tau) + (12.0 * L * tau) + (7.0 * L * L)));
         const double     Ki_exp = Kp_exp / Ti_exp;
 
         const auto pid = design::amigo_kappa_tau(Ks, Ku, Tu);

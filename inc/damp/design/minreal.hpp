@@ -276,12 +276,12 @@ template<size_t NY, size_t N, typename T>
  * @tparam NW Process-noise columns (passed through the same basis)
  * @tparam NV Measurement-noise columns (unchanged)
  * @param sys State-space model (continuous if Ts == 0, else discrete)
- * @param tol Relative singular-value tolerance (default: default_tol\<T\>())
+ * @param tol Relative singular-value tolerance (default √eps, as MATLAB®'s minreal)
  * @return MinimalRealizationResult with reduced model, order, success flag
  */
 template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, size_t NV = 0>
 [[nodiscard]] constexpr MinimalRealizationResult<NX, NU, NY, T, NW, NV>
-minreal(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T tol = default_tol<T>()) {
+minreal(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T tol = damp::sqrt(eps<T>())) {
     if constexpr (NX == 0) {
         return MinimalRealizationResult<NX, NU, NY, T, NW, NV>{
             .system = sys,
@@ -291,8 +291,14 @@ minreal(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T tol = default_tol<T>()) 
         };
     }
 
+    // Krylov subspaces are invariant to scaling A, so build them from A/‖A‖∞:
+    // column k of the controllability matrix otherwise grows as ‖A‖ᵏ and the
+    // relative SV test would depend on the time unit.
+    const T a_norm = mat::infinity_norm(sys.A);
+    const T a_scale = (a_norm > T{0}) ? (T{1} / a_norm) : T{1};
+
     // --- Controllable subspace via SVD of the controllability matrix --------
-    const auto Co = stability::controllability_matrix(sys.A, sys.B);
+    const auto Co = stability::controllability_matrix(Matrix<NX, NX, T>{sys.A * a_scale}, sys.B);
     const auto svd_c = mat::svd(Co);
     if (!svd_c.converged) {
         return MinimalRealizationResult<NX, NU, NY, T, NW, NV>{};
@@ -337,7 +343,7 @@ minreal(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T tol = default_tol<T>()) 
         }
     }
 
-    const auto Ob = stability::observability_matrix(Ac_pad, Cc_pad);
+    const auto Ob = stability::observability_matrix(Matrix<NX, NX, T>{Ac_pad * a_scale}, Cc_pad);
     const auto svd_o = mat::svd(Ob);
     if (!svd_o.converged) {
         return MinimalRealizationResult<NX, NU, NY, T, NW, NV>{};
@@ -425,7 +431,7 @@ minreal(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T tol = default_tol<T>()) 
  */
 template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, size_t NV = 0>
 [[nodiscard]] constexpr MinimalRealizationResult<NX, NU, NY, T, NW, NV>
-minimal_realization(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T tol = default_tol<T>()) {
+minimal_realization(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T tol = damp::sqrt(eps<T>())) {
     return minreal(sys, tol);
 }
 

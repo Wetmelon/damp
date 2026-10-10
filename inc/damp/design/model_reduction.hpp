@@ -306,8 +306,9 @@ square_root_balance_factors(const StateSpace<NX, NU, NY, T, NW, NV>& sys) {
         out.sigma(i) = static_cast<T>(svd_r.singular_values[i]);
     }
 
-    // Reject non-positive singular values (non-minimal / numerically singular).
-    const T tol = default_tol<T>();
+    // Reject singular values lost to roundoff relative to σ_max (non-minimal /
+    // numerically singular): Σ^{-1/2} in the balancing transform would amplify noise.
+    const T tol = static_cast<T>(NX) * T{64} * eps<T>();
     const T smax = out.sigma(0);
     if (!(smax > T{0})) {
         return out;

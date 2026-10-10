@@ -48,8 +48,8 @@ struct LQGAnalysisModels {
  */
 template<size_t NX, size_t NU, size_t NY, typename T = float, size_t NW = NX, size_t NV = NY>
 struct LQGRuntimeBundle {
-    design::LQGResult<NX, NU, NY, T, NW, NV> design{};
-    LQG<NX, NU, NY, T, NW, NV>               controller{};
+    design::LQGResult<NX, NU, NY, T, NW, NV> design{};     ///< Design at runtime precision
+    LQG<NX, NU, NY, T, NW, NV>               controller{}; ///< Runtime LQG built from @c design
 
     /**
      * @brief One discrete control tick: update estimator, compute control, predict next
@@ -87,10 +87,10 @@ struct LQGRuntimeBundle {
  */
 template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = NX, size_t NV = NY, typename TRuntime = float>
 struct LQGArtifacts {
-    design::LQGResult<NX, NU, NY, T, NW, NV>       design{};
-    LQGAnalysisModels<NX, NU, NY, T, NW, NV>       models{};
-    LQGRuntimeBundle<NX, NU, NY, TRuntime, NW, NV> runtime{};
-    bool                                           success{false};
+    design::LQGResult<NX, NU, NY, T, NW, NV>       design{};       ///< Design-precision LQG result
+    LQGAnalysisModels<NX, NU, NY, T, NW, NV>       models{};       ///< Closed-loop analysis models
+    LQGRuntimeBundle<NX, NU, NY, TRuntime, NW, NV> runtime{};      ///< Ready-to-run controller
+    bool                                           success{false}; ///< Mirrors design.success
 };
 
 /**
@@ -98,10 +98,10 @@ struct LQGArtifacts {
  */
 template<size_t NX, size_t NW = NX, size_t NV = 1, typename T = float>
 struct LQGPRRuntimeBundle {
-    design::LQGResult<NX, 1, 1, T, NW, NV> lqg_design{};
-    design::PRResult<T>                    pr_design{};
-    LQG<NX, 1, 1, T, NW, NV>               lqg{};
-    PRController<T>                        pr{};
+    design::LQGResult<NX, 1, 1, T, NW, NV> lqg_design{}; ///< LQG design at runtime precision
+    design::PRResult<T>                    pr_design{};  ///< PR design at runtime precision
+    LQG<NX, 1, 1, T, NW, NV>               lqg{};        ///< Runtime LQG
+    PRController<T>                        pr{};         ///< Runtime PR internal model
 
     /**
      * @brief One control tick with PR internal model on tracking error
@@ -131,9 +131,9 @@ struct LQGPRRuntimeBundle {
  */
 template<size_t NX, size_t NW = NX, size_t NV = 1, typename T = double, typename TRuntime = float>
 struct LQGPRArtifacts {
-    LQGArtifacts<NX, 1, 1, T, NW, NV, TRuntime> base{};
-    LQGPRRuntimeBundle<NX, NW, NV, TRuntime>    runtime_pr{};
-    bool                                        success{false};
+    LQGArtifacts<NX, 1, 1, T, NW, NV, TRuntime> base{};         ///< LQG design, models, runtime
+    LQGPRRuntimeBundle<NX, NW, NV, TRuntime>    runtime_pr{};   ///< LQG + PR runtime
+    bool                                        success{false}; ///< LQG and PR designs both succeeded
 };
 
 /**
@@ -163,10 +163,10 @@ struct LQGIAnalysisModels {
  */
 template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, size_t NV = 0, typename TRuntime = float>
 struct LQIArtifacts {
-    design::LQIResult<NX, NU, NY, T>         design{};
-    LQIAnalysisModels<NX, NU, NY, T, NW, NV> models{};
-    LQI<NX, NU, NY, TRuntime>                runtime{};
-    bool                                     success{false};
+    design::LQIResult<NX, NU, NY, T>         design{};       ///< Design-precision LQI result
+    LQIAnalysisModels<NX, NU, NY, T, NW, NV> models{};       ///< Servo closed-loop model
+    LQI<NX, NU, NY, TRuntime>                runtime{};      ///< Ready-to-run controller
+    bool                                     success{false}; ///< Mirrors design.success
 };
 
 /**
@@ -178,10 +178,10 @@ struct LQIArtifacts {
  */
 template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = NX, size_t NV = NY, typename TRuntime = float>
 struct LQGIArtifacts {
-    design::LQGIResult<NX, NU, NY, T, NW, NV> design{};
-    LQGIAnalysisModels<NX, NU, NY, T, NW, NV> models{};
-    LQGI<NX, NU, NY, TRuntime, NW, NV>        runtime{};
-    bool                                      success{false};
+    design::LQGIResult<NX, NU, NY, T, NW, NV> design{};       ///< Design-precision LQGI result
+    LQGIAnalysisModels<NX, NU, NY, T, NW, NV> models{};       ///< Servo / observer analysis models
+    LQGI<NX, NU, NY, TRuntime, NW, NV>        runtime{};      ///< Ready-to-run controller
+    bool                                      success{false}; ///< Mirrors design.success
 };
 
 namespace detail {
@@ -206,6 +206,9 @@ template<size_t NX, size_t NU, size_t NY, typename T>
 
 /**
  * @brief Build analysis models from an LQG design
+ *
+ * The augmented [x; x̂] model assumes a strictly proper plant (D = 0): the
+ * estimator update uses y = C x. Its D field is copied for reference only.
  */
 template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = NX, size_t NV = NY>
 [[nodiscard]] constexpr LQGAnalysisModels<NX, NU, NY, T, NW, NV> build_lqg_analysis_models(

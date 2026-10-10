@@ -53,7 +53,9 @@ constexpr bool is_stabilizable(
         return false;
     }
 
-    const T tol = std::is_same_v<T, float> ? static_cast<T>(1e-5) : static_cast<T>(1e-10);
+    // Relative √eps: an uncontrollable eigenvalue is only known to O(√eps) when
+    // defective, so a tighter floor would call it controllable.
+    const T tol = damp::sqrt(eps<T>());
 
     for (size_t i = 0; i < NX; ++i) {
         // Only check unstable eigenvalues (|λ| >= 1)
@@ -204,11 +206,10 @@ template<size_t NX, size_t NU, typename T = double>
     Matrix<NX, NX, T> A_eff = A;
     Matrix<NX, NX, T> Q_eff = Q;
 
-    const T n_tol = default_tol<T>();
-    bool    n_is_zero = true;
+    bool n_is_zero = true;
     for (size_t i = 0; i < NX && n_is_zero; ++i) {
         for (size_t j = 0; j < NU; ++j) {
-            if (damp::abs(N(i, j)) > n_tol) {
+            if (N(i, j) != T{0}) {
                 n_is_zero = false;
                 break;
             }
@@ -459,7 +460,7 @@ constexpr bool schur_subdiagonal(const Matrix<M, M, T>& Tm, size_t i) {
     }
     const T scale = damp::abs(Tm(i, i)) + damp::abs(Tm(i + 1, i + 1)) + damp::abs(Tm(i, i + 1))
                   + damp::abs(Tm(i + 1, i));
-    const T tol = (std::numeric_limits<T>::epsilon() * T{1024}) * damp::max(scale, T{1});
+    const T tol = (eps<T>() * T{1024}) * damp::max(scale, T{1});
     return damp::abs(Tm(i + 1, i)) > tol;
 }
 
@@ -579,7 +580,7 @@ template<typename T>
         return step;
     }
     const T s = c + r;
-    const T sfmin1 = std::numeric_limits<T>::min() / std::numeric_limits<T>::epsilon();
+    const T sfmin1 = std::numeric_limits<T>::min() / eps<T>();
     const T sfmin2 = sfmin1 * T{2};
     const T sfmax2 = T{1} / sfmin2;
 
@@ -631,7 +632,7 @@ template<typename T>
  */
 template<size_t M, typename T>
 [[nodiscard]] constexpr bool gebal_log2_scale(Matrix<M, M, T>& A, damp::array<int, M>& exp) {
-    const T sfmin1 = std::numeric_limits<T>::min() / std::numeric_limits<T>::epsilon();
+    const T sfmin1 = std::numeric_limits<T>::min() / eps<T>();
     const T sfmax1 = T{1} / sfmin1;
 
     for (int sweep = 0; sweep < 64; ++sweep) {
@@ -775,7 +776,7 @@ template<size_t M, typename T>
         }
         const T re = (b == 2) ? (static_cast<T>(0.5) * (Tm(i, i) + Tm(i + 1, i + 1))) : Tm(i, i);
         const T scale = damp::max(T{1}, damp::abs(re));
-        const T margin = (std::numeric_limits<T>::epsilon() * T{1024}) * scale;
+        const T margin = (eps<T>() * T{1024}) * scale;
         if (re > margin) {
             return false;
         }
@@ -798,7 +799,7 @@ template<size_t NX, typename T>
 [[nodiscard]] constexpr bool care_basis_symmetric(const Matrix<NX, NX, T>& U11, const Matrix<NX, NX, T>& U21) {
     const Matrix<NX, NX, T> gram = U11.transpose() * U21;
     const Matrix<NX, NX, T> skew = gram - gram.transpose();
-    const T                 tol = damp::max(std::numeric_limits<T>::epsilon() * T{1000}, static_cast<T>(0.1) * gram.norm());
+    const T                 tol = damp::max(eps<T>() * T{1000}, static_cast<T>(0.1) * gram.norm());
     return skew.norm() <= tol;
 }
 
@@ -884,7 +885,7 @@ template<size_t NX, typename T>
  */
 template<typename T>
 [[nodiscard]] constexpr T care_accept_tol() {
-    return T{100} * damp::sqrt(std::numeric_limits<T>::epsilon());
+    return T{100} * damp::sqrt(eps<T>());
 }
 
 /**
@@ -939,9 +940,10 @@ template<size_t NX, typename T>
         return false;
     }
     const T scale = damp::max(T{1}, Acl.norm());
-    //! 10⁻⁶ ε · ‖A‖: roundoff on a near-imaginary pole stays inside; an
-    //! anti-stabilizing pole (order-1 positive real part) does not.
-    const T margin = (std::numeric_limits<T>::epsilon() * T{1000000}) * scale;
+    //! √ε · ‖A‖: roundoff on a near-imaginary pole stays inside; an
+    //! anti-stabilizing pole (order-1 positive real part) does not. (10⁶ ε
+    //! was 0.12‖A‖ in float.)
+    const T margin = damp::sqrt(eps<T>()) * scale;
     for (size_t i = 0; i < NX; ++i) {
         if (ev.values[i].real() > margin) {
             return false;
@@ -1053,6 +1055,60 @@ template<size_t NX, size_t NU, typename T = double>
 
 } // namespace detail
 
+namespace detail {
+
+/**
+ * @brief Positive semidefinite test: Cholesky of M + δI with δ = N·64·eps·max|mᵢᵢ|.
+ *
+ * The shift is relative to M's own scale, so a uniformly tiny M is judged the
+ * same as a unit one; the floor at the smallest normal keeps M = 0 PSD.
+ */
+template<size_t N, typename T>
+[[nodiscard]] constexpr bool is_psd(const Matrix<N, N, T>& M) {
+    T diag_max = T{0};
+    for (size_t i = 0; i < N; ++i) {
+        diag_max = damp::max(diag_max, damp::abs(M(i, i)));
+    }
+    const T shift = (static_cast<T>(N) * T{64} * eps<T>() * diag_max) + std::numeric_limits<T>::min();
+    return mat::cholesky(M + Matrix<N, N, T>::identity() * shift).has_value();
+}
+
+/**
+ * @brief True when A − BK is Schur stable for K = (R + BᵀXB)⁻¹(BᵀXA + Nᵀ).
+ *
+ * The certificate that X is the stabilizing DARE solution. SDA and RDE both
+ * converge to a non-stabilizing fixed point when (A, Q) has an unstable
+ * unobservable mode (e.g. Q = 0 with unstable A gives X = 0); the residual
+ * alone cannot tell them apart.
+ */
+template<size_t NX, size_t NU, typename T>
+[[nodiscard]] constexpr bool dare_closed_loop_schur(
+    const Matrix<NX, NX, T>& A,
+    const Matrix<NX, NU, T>& B,
+    const Matrix<NX, NX, T>& X,
+    const Matrix<NU, NU, T>& R,
+    const Matrix<NX, NU, T>& N
+) {
+    const auto K = mat::solve(Matrix<NU, NU, T>(R + B.t() * X * B), Matrix<NU, NX, T>(B.t() * X * A + N.t()));
+    if (!K) {
+        return false;
+    }
+    const auto ev = mat::compute_eigenvalues(Matrix<NX, NX, T>(A - B * K.value()));
+    if (!ev.converged) {
+        return false;
+    }
+    //! √eps slack keeps a lightly damped pole near |z| = 1 from failing on roundoff.
+    const T limit = T{1} + damp::sqrt(eps<T>());
+    for (size_t i = 0; i < NX; ++i) {
+        if (!(ev.values[i].abs() < limit)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+} // namespace detail
+
 enum class DareMethod : uint8_t { Auto,
                                   SDA,
                                   RDE };
@@ -1076,9 +1132,12 @@ enum class DareMethod : uint8_t { Auto,
  * call this dual form only when the Riccati matrix itself is the goal.
  *
  * Preconditions (checked internally):
- * - Q symmetric positive semidefinite
+ * - Q symmetric positive semidefinite (Q − N R⁻¹ Nᵀ when R > 0)
  * - R symmetric (positive definite for SDA, positive semidefinite for RDE)
  * - (A, B) stabilizable
+ *
+ * The result is certified: A − BK must be Schur stable, so a non-stabilizing
+ * fixed point (e.g. Q = 0 with unstable A) returns damp::nullopt.
  *
  * @note Compare with MATLAB®'s idare(A, B, Q, R, N).
  *
@@ -1107,54 +1166,48 @@ template<size_t NX, size_t NU, typename T = double>
     const Matrix<NX, NU, T>& N = Matrix<NX, NU, T>{},
     DareMethod               method = DareMethod::Auto
 ) {
-    //! Check R is symmetric
-    if (!mat::is_symmetric_or_hermitian(R)) {
+    //! R and Q must be symmetric
+    if (!mat::is_symmetric_or_hermitian(R) || !mat::is_symmetric_or_hermitian(Q)) {
         return damp::nullopt;
     }
-
-    //! Check Q is symmetric
-    if (!mat::is_symmetric_or_hermitian(Q)) {
-        return damp::nullopt;
-    }
-
-    //! Check Q is positive semidefinite via Cholesky of (Q + εI)
-    //! If Q is PSD, Q + εI is PD for any ε > 0, so Cholesky succeeds.
-    //! If Q has a negative eigenvalue, Q + εI will still fail for small ε.
-    const T eps = default_tol<T>();
-    {
-        const Matrix<NX, NX, T> Q_shifted = Q + Matrix<NX, NX, T>::identity() * eps;
-        if (!mat::cholesky(Q_shifted)) {
-            return damp::nullopt;
-        }
-    }
-
-    //! Check (A, B) is stabilizable
-    if (!is_stabilizable(A, B)) {
+    if (!detail::is_psd(Q) || !is_stabilizable(A, B)) {
         return damp::nullopt;
     }
 
     const bool r_is_pd = mat::cholesky(R).has_value();
-    const bool r_is_psd = r_is_pd || mat::cholesky(R + Matrix<NU, NU, T>::identity() * eps).has_value();
-
-    if (!r_is_psd) {
+    if (!r_is_pd && !detail::is_psd(R)) {
         return damp::nullopt;
     }
 
+    //! With a cross term the cost is PSD only if Q − N R⁻¹ Nᵀ is (Schur
+    //! complement of the joint weight [[Q, N], [Nᵀ, R]]).
+    if (r_is_pd) {
+        const auto Rinv_Nt = mat::cholesky_solve(R, N.transpose());
+        if (!Rinv_Nt || !detail::is_psd(Matrix<NX, NX, T>(Q - N * Rinv_Nt.value()))) {
+            return damp::nullopt;
+        }
+    }
+
+    damp::optional<Matrix<NX, NX, T>> X;
     switch (method) {
         case DareMethod::SDA:
-            if (!r_is_pd) {
-                return damp::nullopt;
+            if (r_is_pd) {
+                X = detail::dare_sda(A, B, Q, R, N);
             }
-            return detail::dare_sda(A, B, Q, R, N);
+            break;
         case DareMethod::RDE:
-            return detail::dare_rde(A, B, Q, R, N);
+            X = detail::dare_rde(A, B, Q, R, N);
+            break;
         case DareMethod::Auto:
         default:
-            if (r_is_pd) {
-                return detail::dare_sda(A, B, Q, R, N);
-            }
-            return detail::dare_rde(A, B, Q, R, N);
+            X = r_is_pd ? detail::dare_sda(A, B, Q, R, N) : detail::dare_rde(A, B, Q, R, N);
+            break;
     }
+
+    if (!X || !detail::dare_closed_loop_schur(A, B, X.value(), R, N)) {
+        return damp::nullopt;
+    }
+    return X;
 }
 
 /**
@@ -1244,13 +1297,9 @@ template<size_t NX, size_t NU, typename T = double>
         return damp::nullopt;
     }
 
-    //! Q positive semidefinite via Cholesky of (Q + εI) — same trick as dare().
-    const T eps = default_tol<T>();
-    {
-        const Matrix<NX, NX, T> Q_shifted = Q + Matrix<NX, NX, T>::identity() * eps;
-        if (!mat::cholesky(Q_shifted)) {
-            return damp::nullopt;
-        }
+    //! Q positive semidefinite — same scale-free test as dare().
+    if (!detail::is_psd(Q)) {
+        return damp::nullopt;
     }
 
     //! R must be positive definite (G = B R⁻¹ Bᵀ).

@@ -71,8 +71,10 @@ namespace damp {
  * @brief Roots of a real polynomial given in ascending powers
  *
  * For coefficients @f$ c_0 + c_1 x + \cdots + c_{N-1} x^{N-1} @f$, returns the
- * @f$ N-1 @f$ roots as eigenvalues of the companion matrix. Requires
- * @f$ |c_{N-1}| @f$ above @p tol (nonzero leading coefficient).
+ * @f$ N-1 @f$ roots as eigenvalues of the companion matrix. Requires a nonzero
+ * leading coefficient @f$ c_{N-1} @f$ (only an exact zero is rejected: the
+ * coefficients scale as powers of the variable's unit, so no magnitude floor
+ * on them is unit-invariant).
  *
  * - Degree 0 (@c N == 1): empty root set, @c success = true
  * - Degree 1–2: closed form
@@ -109,20 +111,16 @@ struct PolyRootsResult {
 /**
  * @brief Compute roots of an ascending-power real polynomial
  *
- * @param c   Coefficients c₀ + c₁ x + ·s + c_N-1 x^N-1
- * @param tol Leading-coefficient magnitude floor (default: default_tol)
- * @return @ref PolyRootsResult
+ * @param c Coefficients c₀ + c₁ x + … + c_{N−1} x^{N−1}
+ * @return @ref PolyRootsResult; @c success = false if c_{N−1} = 0
  */
 template<size_t N, typename T = double>
     requires std::is_floating_point_v<T>
-[[nodiscard]] constexpr PolyRootsResult<N, T> poly_roots(
-    const damp::array<T, N>& c,
-    T                        tol = default_tol<T>()
-) {
+[[nodiscard]] constexpr PolyRootsResult<N, T> poly_roots(const damp::array<T, N>& c) {
     if constexpr (N <= 1) {
         return PolyRootsResult<N, T>{.success = true};
     } else if constexpr (N == 2) {
-        if (!(damp::abs(c[1]) > tol)) {
+        if (c[1] == T{0}) {
             return PolyRootsResult<N, T>{};
         }
         return PolyRootsResult<N, T>{
@@ -130,7 +128,7 @@ template<size_t N, typename T = double>
             .success = true,
         };
     } else {
-        if (!(damp::abs(c[N - 1]) > tol)) {
+        if (c[N - 1] == T{0}) {
             return PolyRootsResult<N, T>{};
         }
         constexpr size_t M = N - 1;
@@ -245,11 +243,10 @@ struct ZPK {
     /**
      * @brief Convert ZPK to state-space (companion realization of the TF)
      *
+     * The expanded denominator is monic, so the companion realization always exists.
+     *
      * @note Compare with MATLAB®'s ss(zpk_sys).
      * @return Continuous StateSpace (Ts = 0) with NX = Np
-     */
-    /**
-     * @brief Companion realization via TF (leading den is monic after expansion)
      */
     [[nodiscard]] constexpr StateSpace<Np, 1, 1, T> to_state_space() const {
         auto ss = to_transfer_function().to_state_space();
@@ -261,10 +258,11 @@ struct ZPK {
      * @brief Evaluate H(s) = k ∏(s−zᵢ)/∏(s−pⱼ)
      *
      * @param s   Complex frequency (s or z)
-     * @param tol Pole-coincidence tolerance
+     * @param tol Pole-coincidence distance |s − pⱼ| (default 0: only an exact hit; an
+     *            absolute default would refuse slow-but-nonzero poles)
      * @return H(s), or nullopt if any pole lies within @p tol of @p s
      */
-    [[nodiscard]] constexpr damp::optional<damp::complex<T>> eval(damp::complex<T> s, T tol = default_tol<T>()) const {
+    [[nodiscard]] constexpr damp::optional<damp::complex<T>> eval(damp::complex<T> s, T tol = T{0}) const {
         damp::complex<T> num{gain, T{0}};
         damp::complex<T> den{T{1}, T{0}};
         for (size_t i = 0; i < Nz; ++i) {
@@ -286,7 +284,7 @@ struct ZPK {
      * @return Real DC gain, or nullopt if a pole is at the origin
      * @note Compare with MATLAB®'s dcgain for continuous zpk models.
      */
-    [[nodiscard]] constexpr damp::optional<T> dcgain(T tol = default_tol<T>()) const {
+    [[nodiscard]] constexpr damp::optional<T> dcgain(T tol = T{0}) const {
         const auto h = eval(damp::complex<T>{T{0}, T{0}}, tol);
         if (!h) {
             return damp::nullopt;
@@ -300,7 +298,7 @@ struct ZPK {
      * @return Real DC gain, or nullopt if a pole is at z = 1
      * @note Compare with MATLAB®'s dcgain for discrete zpk models.
      */
-    [[nodiscard]] constexpr damp::optional<T> dcgain_discrete(T tol = default_tol<T>()) const {
+    [[nodiscard]] constexpr damp::optional<T> dcgain_discrete(T tol = T{0}) const {
         const auto h = eval(damp::complex<T>{T{1}, T{0}}, tol);
         if (!h) {
             return damp::nullopt;
@@ -312,7 +310,9 @@ struct ZPK {
      * @brief Cancel matching pole-zero pairs within tolerance (SISO minreal on factors)
      *
      * Greedy one-to-one matching: each zero cancels at most one pole with
-     * @f$ |z-p| \le tol @f$. Survivors are compacted to the front of the arrays;
+     * @f$ |z-p| \le \mathrm{tol} \cdot \max(|z|, |p|) @f$ (relative, so the
+     * test is invariant to the frequency unit; a root pair near the origin is
+     * not cancelled just for being small). Survivors are compacted to the front of the arrays;
      * each cancelled value is re-appended as an identical @f$ z = p @f$ pair so
      * to_transfer_function remains algebraically equivalent (common factors),
      * while @c n_cancelled reports how many pairs were cancelled.
@@ -321,10 +321,11 @@ struct ZPK {
      *
      * @note Compare with MATLAB®'s minreal on a zpk model (factored form only;
      *       does not perform SS uncontrollable/unobservable reduction).
-     * @param tol Match tolerance on |z - p| (default: default_tol)
+     * @param tol Relative match tolerance (default √eps: computed roots of a common
+     *            factor agree to about that, more for repeated roots)
      * @return @ref CancelResult
      */
-    [[nodiscard]] constexpr CancelResult cancel_matching(T tol = default_tol<T>()) const {
+    [[nodiscard]] constexpr CancelResult cancel_matching(T tol = damp::sqrt(eps<T>())) const {
         CancelResult out{};
         out.zpk.gain = gain;
 
@@ -338,7 +339,9 @@ struct ZPK {
                 if (z_gone[i] || p_gone[j]) {
                     continue;
                 }
-                if (damp::abs(zeros[i] - poles[j]) <= tol) {
+                const T zm = damp::abs(zeros[i]);
+                const T pm = damp::abs(poles[j]);
+                if (damp::abs(zeros[i] - poles[j]) <= tol * ((zm > pm) ? zm : pm)) {
                     z_gone[i] = true;
                     p_gone[j] = true;
                     cancelled[n_cancel] = zeros[i];
@@ -377,7 +380,7 @@ struct ZPK {
      * @brief Factored minreal: same as @ref cancel_matching but returns only the ZPK
      * @note Compare with MATLAB®'s minreal(zpk_sys).
      */
-    [[nodiscard]] constexpr ZPK minreal(T tol = default_tol<T>()) const {
+    [[nodiscard]] constexpr ZPK minreal(T tol = damp::sqrt(eps<T>())) const {
         return cancel_matching(tol).zpk;
     }
 };
@@ -413,20 +416,20 @@ struct ZPKResult {
  * The ZPK gain is @f$ k = a_{\mathrm{num,lead}} / a_{\mathrm{den,lead}} @f$ so
  * @f$ G(s) = k \prod(s-z)/\prod(s-p) @f$ with monic factors.
  *
- * Requires nonzero leading coefficients. Degree ≥ 3 uses iterative QR (design-time).
+ * Requires nonzero leading coefficients (a zero-padded array has fewer roots
+ * than its fixed size and is rejected). Degree ≥ 3 uses iterative QR (design-time).
  *
  * @note Compare with MATLAB®'s tf2zpk / zpk(tf_sys).
  * @see ZPK::to_transfer_function for the inverse map
  * @see poly_roots
  *
- * @param tf  Ascending-power transfer function
- * @param tol Leading-coefficient floor and root-solver tolerance
+ * @param tf Ascending-power transfer function
  * @return ZPKResult with success flag
  */
 template<size_t Nnum, size_t Nden, typename T = double>
     requires std::is_floating_point_v<T>
 [[nodiscard]] constexpr ZPKResult<(Nnum > 0 ? Nnum - 1 : 0), (Nden > 0 ? Nden - 1 : 0), T>
-to_zpk(const TransferFunction<Nnum, Nden, T>& tf, T tol = default_tol<T>()) {
+to_zpk(const TransferFunction<Nnum, Nden, T>& tf) {
     constexpr size_t     Nz = (Nnum > 0 ? Nnum - 1 : 0);
     constexpr size_t     Np = (Nden > 0 ? Nden - 1 : 0);
     ZPKResult<Nz, Np, T> art{};
@@ -435,15 +438,8 @@ to_zpk(const TransferFunction<Nnum, Nden, T>& tf, T tol = default_tol<T>()) {
         return art;
     }
 
-    if (!(damp::abs(tf.den[Nden - 1]) > tol)) {
-        return art;
-    }
-    if (!(damp::abs(tf.num[Nnum - 1]) > tol)) {
-        return art;
-    }
-
-    const auto zr = poly_roots(tf.num, tol);
-    const auto pr = poly_roots(tf.den, tol);
+    const auto zr = poly_roots(tf.num);
+    const auto pr = poly_roots(tf.den);
     if (!zr.success || !pr.success) {
         return art;
     }
@@ -468,8 +464,8 @@ to_zpk(const TransferFunction<Nnum, Nden, T>& tf, T tol = default_tol<T>()) {
  * @note Compare with MATLAB®'s tf2zpk.
  */
 template<size_t Nnum, size_t Nden, typename T = double>
-[[nodiscard]] constexpr auto tf2zpk(const TransferFunction<Nnum, Nden, T>& tf, T tol = default_tol<T>()) {
-    return to_zpk(tf, tol);
+[[nodiscard]] constexpr auto tf2zpk(const TransferFunction<Nnum, Nden, T>& tf) {
+    return to_zpk(tf);
 }
 
 /**
@@ -556,6 +552,32 @@ ss_to_tf_full(const StateSpace<NX, 1, 1, T>& sys) {
     }
 }
 
+/**
+ * @brief Magnitude scale of each strictly proper Leverrier numerator coefficient
+ *
+ * scale[NX−1−j] = Σᵣ |C|ᵣ (|M_{j+1}| |B|)ᵣ — the size of the terms whose sum forms
+ * the coefficient, so a coefficient far below it is cancellation residue.
+ */
+template<size_t NX, typename T>
+[[nodiscard]] constexpr damp::array<T, NX + 1> leverrier_num_scale(const StateSpace<NX, 1, 1, T>& sys) {
+    damp::array<T, NX + 1> scale{};
+    if constexpr (NX > 0) {
+        const auto lev = leverrier(sys.A);
+        for (size_t j = 0; j < NX; ++j) {
+            T s = T{0};
+            for (size_t r = 0; r < NX; ++r) {
+                T row = T{0};
+                for (size_t c = 0; c < NX; ++c) {
+                    row += damp::abs(lev.M[j](r, c)) * damp::abs(sys.B(c, 0));
+                }
+                s += damp::abs(sys.C(0, r)) * row;
+            }
+            scale[NX - 1 - j] = s;
+        }
+    }
+    return scale;
+}
+
 } // namespace zpk_detail
 
 /**
@@ -568,11 +590,11 @@ ss_to_tf_full(const StateSpace<NX, 1, 1, T>& sys) {
  */
 template<size_t NX, typename T = double>
 struct StateSpaceZPKResult {
-    damp::array<damp::complex<T>, NX> poles{};
-    damp::array<damp::complex<T>, NX> zeros{}; ///< First @ref n_zeros entries valid
-    size_t                            n_zeros{0};
-    T                                 gain{T{1}};
-    bool                              success{false};
+    damp::array<damp::complex<T>, NX> poles{};        ///< Eigenvalues of A
+    damp::array<damp::complex<T>, NX> zeros{};        ///< First @ref n_zeros entries valid
+    size_t                            n_zeros{0};     ///< Number of finite zeros
+    T                                 gain{T{1}};     ///< Gain k of the monic factored form
+    bool                              success{false}; ///< true if the eigen/root solves converged
 
     template<typename U>
     [[nodiscard]] constexpr StateSpaceZPKResult<NX, U> as() const {
@@ -610,17 +632,13 @@ struct StateSpaceZPKResult {
 namespace zpk_detail {
 
 template<size_t Deg, size_t NX, typename T>
-[[nodiscard]] constexpr bool fill_zeros_from_num(
-    const damp::array<T, NX + 1>& num,
-    StateSpaceZPKResult<NX, T>&   art,
-    T                             tol
-) {
+[[nodiscard]] constexpr bool fill_zeros_from_num(const damp::array<T, NX + 1>& num, StateSpaceZPKResult<NX, T>& art) {
     static_assert(Deg >= 1 && Deg <= NX);
     damp::array<T, Deg + 1> coeffs{};
     for (size_t i = 0; i <= Deg; ++i) {
         coeffs[i] = num[i];
     }
-    const auto zr = poly_roots(coeffs, tol);
+    const auto zr = poly_roots(coeffs);
     if (!zr.success) {
         return false;
     }
@@ -631,79 +649,75 @@ template<size_t Deg, size_t NX, typename T>
 }
 
 template<size_t NX, typename T>
-[[nodiscard]] constexpr bool fill_zeros_dispatch(
-    size_t                        deg,
-    const damp::array<T, NX + 1>& num,
-    StateSpaceZPKResult<NX, T>&   art,
-    T                             tol
-) {
+[[nodiscard]] constexpr bool
+fill_zeros_dispatch(size_t deg, const damp::array<T, NX + 1>& num, StateSpaceZPKResult<NX, T>& art) {
     if (deg == 0) {
         return true;
     }
     // Explicit ladder keeps constexpr-friendly fixed sizes (typical plant orders).
     if constexpr (NX >= 1) {
         if (deg == 1) {
-            return fill_zeros_from_num<1, NX, T>(num, art, tol);
+            return fill_zeros_from_num<1, NX, T>(num, art);
         }
     }
     if constexpr (NX >= 2) {
         if (deg == 2) {
-            return fill_zeros_from_num<2, NX, T>(num, art, tol);
+            return fill_zeros_from_num<2, NX, T>(num, art);
         }
     }
     if constexpr (NX >= 3) {
         if (deg == 3) {
-            return fill_zeros_from_num<3, NX, T>(num, art, tol);
+            return fill_zeros_from_num<3, NX, T>(num, art);
         }
     }
     if constexpr (NX >= 4) {
         if (deg == 4) {
-            return fill_zeros_from_num<4, NX, T>(num, art, tol);
+            return fill_zeros_from_num<4, NX, T>(num, art);
         }
     }
     if constexpr (NX >= 5) {
         if (deg == 5) {
-            return fill_zeros_from_num<5, NX, T>(num, art, tol);
+            return fill_zeros_from_num<5, NX, T>(num, art);
         }
     }
     if constexpr (NX >= 6) {
         if (deg == 6) {
-            return fill_zeros_from_num<6, NX, T>(num, art, tol);
+            return fill_zeros_from_num<6, NX, T>(num, art);
         }
     }
     if constexpr (NX >= 7) {
         if (deg == 7) {
-            return fill_zeros_from_num<7, NX, T>(num, art, tol);
+            return fill_zeros_from_num<7, NX, T>(num, art);
         }
     }
     if constexpr (NX >= 8) {
         if (deg == 8) {
-            return fill_zeros_from_num<8, NX, T>(num, art, tol);
+            return fill_zeros_from_num<8, NX, T>(num, art);
         }
     }
     if constexpr (NX >= 9) {
         if (deg == 9) {
-            return fill_zeros_from_num<9, NX, T>(num, art, tol);
+            return fill_zeros_from_num<9, NX, T>(num, art);
         }
     }
     if constexpr (NX >= 10) {
         if (deg == 10) {
-            return fill_zeros_from_num<10, NX, T>(num, art, tol);
+            return fill_zeros_from_num<10, NX, T>(num, art);
         }
     }
     if constexpr (NX >= 11) {
         if (deg == 11) {
-            return fill_zeros_from_num<11, NX, T>(num, art, tol);
+            return fill_zeros_from_num<11, NX, T>(num, art);
         }
     }
     if constexpr (NX >= 12) {
         if (deg == 12) {
-            return fill_zeros_from_num<12, NX, T>(num, art, tol);
+            return fill_zeros_from_num<12, NX, T>(num, art);
         }
     }
     // deg == NX (any size): use full-order poly_roots on NX+1 coeffs
     if (deg == NX) {
-        return fill_zeros_from_num<NX, NX, T>(num, art, tol);
+        return fill_zeros_from_num<NX, NX, T>(num, art);
     }
     return false;
 }
@@ -714,21 +728,24 @@ template<size_t NX, typename T>
  * @brief Convert a SISO state-space model to zero-pole-gain form
  *
  * - Poles: eigenvalues of @f$ A @f$
- * - Biproper (@f$ |D| > tol @f$): @f$ k = D @f$, zeros = eig(@f$ A - B D^{-1} C @f$)
+ * - Biproper (@f$ D \neq 0 @f$): @f$ k = D @f$, zeros = eig(@f$ A - B D^{-1} C @f$)
  * - Strictly proper: zeros and @f$ k @f$ from the Leverrier numerator (finite
- *   zeros only; @c n_zeros ≤ NX−1). Effective zero degrees above 12 require
+ *   zeros only; @c n_zeros ≤ NX−1). A numerator coefficient counts as zero when
+ *   it is below @p tol times the magnitude of the terms that formed it
+ *   (cancellation residue), so the zero count is invariant to scaling B, C or
+ *   the time unit. Effective zero degrees above 12 require
  *   @c n_zeros == NX (full-order path) or use the TF→ZPK path with an explicit
  *   TransferFunction of the correct size
  *
  * @note Compare with MATLAB®'s zpk(sys) for SISO ss.
  * @param sys SISO plant (NU = NY = 1)
- * @param tol Magnitude floor for D and poly leads
+ * @param tol Relative cancellation tolerance for numerator coefficients (default √eps)
  * @return StateSpaceZPKResult
  */
 template<size_t NX, typename T = double, size_t NW = 0, size_t NV = 0>
     requires std::is_floating_point_v<T>
 [[nodiscard]] constexpr StateSpaceZPKResult<NX, T>
-to_zpk(const StateSpace<NX, 1, 1, T, NW, NV>& sys, T tol = default_tol<T>()) {
+to_zpk(const StateSpace<NX, 1, 1, T, NW, NV>& sys, T tol = damp::sqrt(eps<T>())) {
     StateSpaceZPKResult<NX, T> art{};
 
     if constexpr (NX == 0) {
@@ -756,7 +773,7 @@ to_zpk(const StateSpace<NX, 1, 1, T, NW, NV>& sys, T tol = default_tol<T>()) {
     }
 
     const T D0 = core.D(0, 0);
-    if (damp::abs(D0) > tol) {
+    if (D0 != T{0}) {
         Matrix<NX, NX, T> Abar = core.A;
         const T           invD = T{1} / D0;
         for (size_t i = 0; i < NX; ++i) {
@@ -777,15 +794,13 @@ to_zpk(const StateSpace<NX, 1, 1, T, NW, NV>& sys, T tol = default_tol<T>()) {
         return art;
     }
 
-    const auto tf = zpk_detail::ss_to_tf_full(core);
-    if (!(damp::abs(tf.den[NX]) > tol)) {
-        return art;
-    }
+    const auto tf = zpk_detail::ss_to_tf_full(core); // monic: den[NX] = 1
+    const auto scale = zpk_detail::leverrier_num_scale(core);
 
     size_t deg_num = 0;
     bool   found = false;
     for (size_t k = NX; k > 0; --k) {
-        if (damp::abs(tf.num[k]) > tol) {
+        if (damp::abs(tf.num[k]) > tol * scale[k]) {
             deg_num = k;
             found = true;
             break;
@@ -800,7 +815,7 @@ to_zpk(const StateSpace<NX, 1, 1, T, NW, NV>& sys, T tol = default_tol<T>()) {
 
     art.gain = tf.num[deg_num] / tf.den[NX];
     art.n_zeros = deg_num;
-    art.success = zpk_detail::fill_zeros_dispatch(deg_num, tf.num, art, tol);
+    art.success = zpk_detail::fill_zeros_dispatch(deg_num, tf.num, art);
     return art;
 }
 
@@ -810,7 +825,7 @@ to_zpk(const StateSpace<NX, 1, 1, T, NW, NV>& sys, T tol = default_tol<T>()) {
  */
 template<size_t NX, typename T = double, size_t NW = 0, size_t NV = 0>
 [[nodiscard]] constexpr StateSpaceZPKResult<NX, T>
-ss2zpk(const StateSpace<NX, 1, 1, T, NW, NV>& sys, T tol = default_tol<T>()) {
+ss2zpk(const StateSpace<NX, 1, 1, T, NW, NV>& sys, T tol = damp::sqrt(eps<T>())) {
     return to_zpk(sys, tol);
 }
 
@@ -864,7 +879,7 @@ using damp::zpk2tf;
  */
 template<size_t Nz, size_t Np, typename T = double>
 [[nodiscard]] constexpr typename ZPK<Nz, Np, T>::CancelResult
-minreal_zpk(const ZPK<Nz, Np, T>& sys, T tol = default_tol<T>()) {
+minreal_zpk(const ZPK<Nz, Np, T>& sys, T tol = damp::sqrt(eps<T>())) {
     return sys.cancel_matching(tol);
 }
 

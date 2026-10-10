@@ -94,8 +94,12 @@ struct TransferFunction {
      * @c Nden−1 states. Requires a proper TF (@c Nnum ≤ Nden) and nonzero leading
      * denominator coefficient. Biproper systems set @f$ D = n_n/d_n @f$ and reduce C.
      *
+     * Only an exactly zero leading coefficient is rejected: polynomial
+     * coefficients scale as powers of the frequency unit, so no magnitude
+     * threshold on them is unit-invariant.
+     *
      * @return Continuous realization (@c Ts = 0), or @c nullopt if
-     *         @f$ |\mathrm{den}[\mathrm{end}]| @f$ is below default_tol
+     *         @f$ \mathrm{den}[\mathrm{end}] = 0 @f$ (padded / improper array)
      * @note Compare with MATLAB®'s ss(tf(...)) / tf2ss (companion form).
      */
     [[nodiscard]] constexpr damp::optional<StateSpace<Nden - 1, 1, 1, T>> to_state_space() const {
@@ -105,7 +109,7 @@ struct TransferFunction {
 
         if constexpr (Nden == 1) {
             if constexpr (Nnum == 1) {
-                if (!(damp::abs(den[0]) > default_tol<T>())) {
+                if (den[0] == T{0}) {
                     return damp::nullopt;
                 }
                 sys.D(0, 0) = num[0] / den[0];
@@ -114,7 +118,7 @@ struct TransferFunction {
         }
 
         const T a_lead = den[Nden - 1];
-        if (!(damp::abs(a_lead) > default_tol<T>())) {
+        if (a_lead == T{0}) {
             return damp::nullopt;
         }
 

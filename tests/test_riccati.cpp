@@ -327,6 +327,29 @@ TEST_SUITE("DARE: Cross-Term N Support") {
         // Non-zero N must change the solution
         CHECK(P != doctest::Approx(P0.value()(0, 0)));
     }
+
+    TEST_CASE("dare rejects a cross term that makes the joint cost indefinite") {
+        // Q − N R⁻¹ Nᵀ = 1 − 4 < 0 although Q and R are each positive definite.
+        const Matrix<1, 1> A{{0.9}}, B{{1.0}}, Q{{1.0}}, R{{1.0}}, N{{2.0}};
+        CHECK_FALSE(dare(A, B, Q, R, N).has_value());
+    }
+}
+
+TEST_SUITE("DARE: stabilizing certificate") {
+    TEST_CASE("Q = 0 with unstable A fails closed instead of returning X = 0") {
+        // SDA and RDE both sit at the non-stabilizing fixed point X = 0 (K = 0,
+        // closed-loop pole 2). The stabilizing solution is X = 3.
+        const Matrix<1, 1> A{{2.0}}, B{{1.0}}, Q{{0.0}}, R{{1.0}};
+        CHECK_FALSE(dare(A, B, Q, R).has_value());
+        CHECK_FALSE(dare(A, B, Q, R, Matrix<1, 1>{}, DareMethod::RDE).has_value());
+        CHECK_FALSE(design::discrete_lqr(A, B, Q, R).success);
+    }
+
+    TEST_CASE("a uniformly tiny Q is judged like a unit one") {
+        const Matrix<1, 1> A{{0.9}}, B{{1.0}}, R{{1.0}};
+        CHECK(dare(A, B, Matrix<1, 1>{{1e-14}}, R).has_value());
+        CHECK_FALSE(dare(A, B, Matrix<1, 1>{{-1e-14}}, R).has_value());
+    }
 }
 
 TEST_SUITE("DARE: R=0 (Positive Semidefinite R)") {

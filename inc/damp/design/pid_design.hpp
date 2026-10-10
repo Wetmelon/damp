@@ -32,8 +32,6 @@
  * - Tyreus-Luyben (conservative Ziegler-Nichols variant)
  */
 
-#include <limits>
-
 #include "damp/backend.hpp"
 #include "damp/controllers/pid.hpp"
 #include "damp/math/math.hpp"
@@ -120,13 +118,15 @@ ziegler_nichols(T Ku, T Tu, [[maybe_unused]] T Ts, PIDType type = PIDType::PID) 
  * @param tau  Time constant (seconds)
  * @param Ts   Sample period [s]; unused by the continuous formulas (API parity)
  * @param type Controller type (P, PI, or PID)
- * @return PIDResult with tuned gains; zeros if K = 0 or L ≤ 0
+ * @return PIDResult with tuned gains; zeros if K = 0, L ≤ 0, or tau ≤ 0
+ *
+ * @see "Optimum settings for automatic controllers" (Ziegler & Nichols, 1942)
  */
 template<typename T = double>
 [[nodiscard]] constexpr PIDResult<T>
 ziegler_nichols_step(T K, T L, T tau, [[maybe_unused]] T Ts, PIDType type = PIDType::PID) {
-    // a = tau/(K·L); Ki/Kd formulas also divide by L.
-    if (K == T{0} || !(L > T{0})) {
+    // a = tau/(K·L); Ki/Kd formulas also divide by L. tau ≤ 0 would flip the gain sign.
+    if (K == T{0} || !(L > T{0}) || !(tau > T{0})) {
         return PIDResult<T>{};
     }
 
@@ -219,10 +219,10 @@ tyreus_luyben(T Ku, T Tu, T Ts, PIDType type = PIDType::PID) {
  *     T = √((Kₛ Kᵤ)² − 1) / ωᵤ
  *     L = (π − atan(ωᵤ T)) / ωᵤ
  *
- * AMIGO PI (Advanced PID Control / JPC 2004 family):
+ * AMIGO PI (Advanced PID Control, §7.6):
  *
- *     Kp = (0.25 + 0.45 T/L) / Kₛ
- *     Ti = (0.4 L + 0.8 T) / (L + 0.1 T) · L
+ *     Kp = 0.15/Kₛ + (0.35 − L T/(L + T)²) · T/(Kₛ L)
+ *     Ti = 0.35 L + 13 L T²/(T² + 12 L T + 7 L²)
  *     Ki = Kp / Ti
  *
  * @param Ks Static process gain (from biased relay or step)
@@ -231,9 +231,7 @@ tyreus_luyben(T Ku, T Tu, T Ts, PIDType type = PIDType::PID) {
  * @param Ts Sample period [s]; unused by the continuous formulas (API parity)
  * @return PIDResult PI gains (Kd = 0); zeros if inputs are non-physical
  *
- * @see "Revisiting the Ziegler-Nichols step response method" (Åström & Hägglund,
- *      J. Process Control 14, 2004)
- * @see "Advanced PID Control" (Åström & Hägglund, 2006), ch. 6 & 8
+ * @see "Advanced PID Control" (Åström & Hägglund, 2006), §7.6 (AMIGO PI)
  */
 template<typename T = double>
 [[nodiscard]] constexpr PIDResult<T>
@@ -252,8 +250,10 @@ amigo_kappa_tau(T Ks, T Ku, T Tu, [[maybe_unused]] T Ts = T{0}) {
     if (!(L > T{0}) || !(tau > T{0})) {
         return PIDResult<T>{};
     }
-    const T Kp = (static_cast<T>(0.25) + (static_cast<T>(0.45) * tau / L)) / Ks;
-    const T Ti = ((static_cast<T>(0.4) * L) + (static_cast<T>(0.8) * tau)) / (L + (static_cast<T>(0.1) * tau)) * L;
+    const T LpT = L + tau;
+    const T Kp = (static_cast<T>(0.15) / Ks) + ((static_cast<T>(0.35) - (L * tau / (LpT * LpT))) * tau / (Ks * L));
+    const T Ti = (static_cast<T>(0.35) * L)
+               + (T{13} * L * tau * tau / ((tau * tau) + (T{12} * L * tau) + (T{7} * L * L)));
     if (!(Ti > T{0}) || !(Kp > T{0})) {
         return PIDResult<T>{};
     }
@@ -277,6 +277,8 @@ amigo_kappa_tau(T Ks, T Ku, T Tu, [[maybe_unused]] T Ts = T{0}) {
  * @param Ts   Sample period [s]; unused by the continuous formulas (API parity)
  * @param type Controller type (P, PI, PD, or PID)
  * @return PIDResult with tuned gains; zeros if K = 0, L ≤ 0, or tau ≤ 0
+ *
+ * @see "Theoretical consideration of retarded control" (Cohen & Coon, 1953)
  */
 template<typename T = double>
 [[nodiscard]] constexpr PIDResult<T>
@@ -303,8 +305,8 @@ cohen_coon(T K, T L, T tau, [[maybe_unused]] T Ts, PIDType type = PIDType::PID) 
             Ki = Kp / Ti;
         } break;
         case PIDType::PD: {
-            Kp = a * (static_cast<T>(1.24) + (r / T{5}));
-            T Td = L * T{6} / (T{22} + (T{3} * r));
+            Kp = a * (static_cast<T>(1.25) + (r / T{6}));
+            T Td = L * (T{6} - (T{2} * r)) / (T{22} + (T{3} * r));
             Kd = Kp * Td;
         } break;
         case PIDType::PID: {
@@ -428,14 +430,17 @@ lambda_tuning(T K, T L, T tau, T lambda, [[maybe_unused]] T Ts) {
  * @param phase_margin Desired phase margin (degrees, default: 60°)
  * @param Ts           Sampling time (seconds)
  * @param type         Controller type (PI or PID)
- * @return PIDResult with tuned gains
+ * @return PIDResult with tuned gains; zeros if ωbw ≤ 0
  */
 template<typename T = double>
 [[nodiscard]] constexpr PIDResult<T>
 pid_from_bandwidth(T wbw, T phase_margin, [[maybe_unused]] T Ts, PIDType type = PIDType::PID) {
     constexpr T pi = damp::numbers::pi_v<T>;
-    T           phi = phase_margin * pi / T{180}; // Convert to radians
-    T           desired_phase = phi - pi;         // Phase of C(jω) at crossover
+    if (!(wbw > T{0})) {
+        return PIDResult<T>{}; // the PI/PD/PID formulas divide by ωbw
+    }
+    T phi = phase_margin * pi / T{180}; // Convert to radians
+    T desired_phase = phi - pi;         // Phase of C(jω) at crossover
 
     T Kp{};
     T Ki{};
@@ -463,7 +468,8 @@ pid_from_bandwidth(T wbw, T phase_margin, [[maybe_unused]] T Ts, PIDType type = 
                 Kp = T{1} / damp::sqrt(T{1} + (r * r));
                 Ki = Kp * r * wbw;
             } else {
-                // Phase margin > 90°: PI alone overshoots; use simple heuristic
+                // Phase margin ≤ 90° is unreachable by a PI on a unit plant (its
+                // phase lies in [−90°, 0°]); fall back to a heuristic split.
                 const auto [s, c] = damp::sincos(phi);
                 Kp = c;
                 Ki = s * wbw;
@@ -519,14 +525,14 @@ namespace pidtune_detail {
 
 template<typename T>
 [[nodiscard]] constexpr bool weights_move_tracking(const PIDResult<T>& r) {
-    const T    eps = static_cast<T>(1e-6);
-    const bool p_w = (damp::abs(r.b - T{1}) > eps) && (damp::abs(r.Kp) > T{0});
-    const bool d_w = (damp::abs(r.c - T{1}) > eps) && (damp::abs(r.Kd) > T{0});
+    const T    tol = T{64} * eps<T>(); // b, c are dimensionless weights
+    const bool p_w = (damp::abs(r.b - T{1}) > tol) && (damp::abs(r.Kp) > T{0});
+    const bool d_w = (damp::abs(r.c - T{1}) > tol) && (damp::abs(r.Kd) > T{0});
     if (!p_w && !d_w) {
         return false;
     }
     // I-P / I-PD with no integrator cannot hold a setpoint.
-    if (!(damp::abs(r.Ki) > T{0}) && p_w && !(damp::abs(r.b) > eps)) {
+    if (!(damp::abs(r.Ki) > T{0}) && p_w && !(damp::abs(r.b) > tol)) {
         return false;
     }
     return true;
@@ -546,7 +552,7 @@ tracking_mag(const damp::StateSpace<NX, 1, 1, T>& sys, const PIDResult<T>& pid, 
     const Cplx P = (*Gopt)(0, 0);
     const Cplx L = pid.eval_fb(w) * P;
     const Cplx den = Cplx{T{1}, T{0}} + L;
-    if (!(den.norm() > static_cast<T>(1e-30))) {
+    if (!(den.norm() > T{0})) { // closed-loop pole exactly on jω
         return damp::nullopt;
     }
     return damp::abs((pid.eval_ff(w) * P) / den);
@@ -816,9 +822,6 @@ template<typename T = double>
     if (os >= T{1}) {
         os = static_cast<T>(0.999);
     }
-    if (os <= T{0}) {
-        os = std::numeric_limits<T>::min();
-    }
 
     const T log_os = damp::log(os);
     return -log_os / damp::sqrt((pi * pi) + (log_os * log_os));
@@ -827,30 +830,27 @@ template<typename T = double>
 /**
  * @brief Approximate phase margin from damping ratio
  *
- * Uses the standard second-order approximation:
+ * Exact for the standard second-order loop L(s) = ωₙ²/(s(s + 2ζωₙ)):
  *
- *   PM ≈ atan(2*zeta / sqrt(sqrt(1 + 4*zeta^4) - 2*zeta^2))
+ *   PM = atan(2*zeta / sqrt(sqrt(1 + 4*zeta^4) - 2*zeta^2))
+ *
+ * valid for every ζ > 0 (PM → 90° as ζ → ∞). The inner difference is evaluated
+ * as 1/(√(1+4ζ⁴) + 2ζ²) to avoid cancellation at large ζ.
  *
  * @param zeta Damping ratio
- * @return Approximate phase margin in degrees
+ * @return Phase margin in degrees; 30° fallback for ζ ≤ 0
  */
 template<typename T = double>
 [[nodiscard]] constexpr T phase_margin_from_damping_ratio(T zeta) {
     constexpr T pi = damp::numbers::pi_v<T>;
 
-    if (zeta <= T{0}) {
+    if (!(zeta > T{0})) {
         return T{30};
-    }
-    if (zeta >= T{1}) {
-        return T{85};
     }
 
     const T z2 = zeta * zeta;
-    const T inner = damp::sqrt(T{1} + (T{4} * z2 * z2)) - (T{2} * z2);
-    if (inner <= T{0}) {
-        return T{60};
-    }
-
+    // √(1+4ζ⁴) − 2ζ² rewritten without the subtraction.
+    const T inner = T{1} / (damp::sqrt(T{1} + (T{4} * z2 * z2)) + (T{2} * z2));
     const T pm_rad = damp::atan2(T{2} * zeta, damp::sqrt(inner));
     return pm_rad * T{180} / pi;
 }
@@ -910,21 +910,15 @@ template<typename T = double>
 // ============================================================================
 
 /**
- * @brief Direct PID pole placement for a first-order-plus-dead-time model
+ * @brief Direct discrete PI pole placement for a first-order plant
  *
  * Places the closed-loop poles at the specified locations by computing PID
  * gains for a discretized FOPDT plant model.
  *
- * The FOPDT model is: G(s) = K * exp(-Ls) / (tau*s + 1)
- * Discretized with ZOH: G(z) = K*(1 - a) / (z - a)  where a = exp(-Ts/tau)
- * Dead time approximated as d = round(L/Ts) pure delays: G(z) = K*(1-a)*z^{-d} / (z - a)
- *
- * For a PI controller with one integrator pole at z=1, the closed-loop
- * characteristic polynomial is degree 2+d. The user specifies the desired
- * closed-loop poles and the gains are computed.
- *
- * This function handles the d=0 (no dead-time) case, placing closed-loop
- * poles for the 2nd-order closed-loop system (plant pole + integrator).
+ * The plant is first order without dead time, G(s) = K / (tau*s + 1),
+ * discretized with ZOH: G(z) = b / (z - a), a = exp(-Ts/tau), b = K(1 - a).
+ * A PI adds one integrator pole at z = 1, so the closed loop is second order
+ * and both of its poles are placed exactly.
  *
  * @param K     Static gain
  * @param tau   Time constant (seconds)
@@ -963,8 +957,9 @@ pid_pole_placement(T K, T tau, T p1, T p2, T Ts) {
 /**
  * @brief PID pole placement for first-order plant with 3 desired poles
  *
- * For PID control of a first-order plant (no dead time), the closed-loop
- * has 3 poles (plant + integrator + derivative filter).
+ * For PID control of a first-order plant (no dead time), the closed loop
+ * has 3 poles (plant + integrator + the backward-difference derivative's pole
+ * at z = 0).
  *
  * @param K     Static gain
  * @param tau   Time constant (seconds)
@@ -1052,7 +1047,7 @@ pid_pole_placement(T K, T tau, T p1, T p2, T p3, T Ts) {
  */
 template<typename T = double>
 [[nodiscard]] constexpr PIDResult<T>
-pi_pole_placement_first_order(T a1, T a0, T omega_bw, T zeta = T{1}, T b = T{1}) {
+pi_pole_placement_first_order(T a1, T a0, T omega_bw, T zeta = T{1}, T b = T{1}) noexcept {
     // Parallel form: T_t = Kbc/Ki. Setting Kbc = Kp ⇒ T_t = Kp/Ki = T_i (Åström default).
     // b: 1 = PI (P on error), 0 = I-P (P on measurement)
     const T Kp = (T{2} * zeta * omega_bw * a1) - a0;
@@ -1098,7 +1093,7 @@ pi_pole_placement_first_order(const TransferFunction<1, 2, T>& plant, T omega_bw
 }
 
 /**
- * @brief PID (or PD) pole placement for a rigid inertia @f$ G(s) = 1/(J s^2) @f$
+ * @brief PID (or PD) pole placement for a rigid inertia G(s) = 1/(J s²)
  *
  * Sibling of @ref pi_pole_placement_first_order for the other everyday motion
  * plant: a double integrator (position loop on a flywheel / mass, no rate
@@ -1164,13 +1159,26 @@ template<typename T = double>
 }
 
 /**
+ * @brief Result of inductor_current_pi(): discrete PI gains plus success flag
+ */
+template<typename T = double>
+struct InductorCurrentPIResult {
+    DiscretePIDResult<T> pid{};          ///< Discrete PI ready for PIController
+    bool                 success{false}; ///< true if placement and discretize succeeded
+
+    template<typename U>
+    [[nodiscard]] constexpr InductorCurrentPIResult<U> as() const {
+        return InductorCurrentPIResult<U>{pid.template as<U>(), success};
+    }
+};
+
+/**
  * @brief Fixed-rate inductor current-loop PI (topology-agnostic)
  *
  * Places a continuous PI on residual plant @f$ 1/(sL + R_L) @f$ after volt-second
  * feedforward, clamps the continuous voltage command limits, and discretizes at
  * @p Ts. Shared by every DC–DC / PFC average-current stage — not named for a
- * topology. Pair the discrete PID with @ref power::CurrentStage and a map
- * (@ref power::BoostMap, @ref power::BuckMap, …).
+ * topology.
  *
  * @param L        [H] inductance (> 0)
  * @param omega_i  [rad/s] current-loop bandwidth (> 0)
@@ -1181,19 +1189,7 @@ template<typename T = double>
  * @return @c InductorCurrentPIResult with discrete PID and @c success
  *
  * @see pi_pole_placement_first_order
- * @see power::CurrentStage
  */
-template<typename T = double>
-struct InductorCurrentPIResult {
-    DiscretePIDResult<T> pid{};          ///< Discrete PI ready for PIController / CurrentStage
-    bool                 success{false}; ///< true if placement and discretize succeeded
-
-    template<typename U>
-    [[nodiscard]] constexpr InductorCurrentPIResult<U> as() const {
-        return InductorCurrentPIResult<U>{pid.template as<U>(), success};
-    }
-};
-
 template<typename T = double>
 [[nodiscard]] constexpr InductorCurrentPIResult<T> inductor_current_pi(
     T L, T omega_i, T Ts, T R_L = T{0}, T v_limit = T{0}, T zeta = T{1}

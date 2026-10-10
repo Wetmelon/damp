@@ -85,8 +85,8 @@ template<typename T>
         return true;
     }
     if (ts1 > T{0} && ts2 > T{0}) {
-        const T scale = damp::max(T{1}, damp::max(ts1, ts2));
-        return damp::abs(ts1 - ts2) <= default_tol<T>() * scale;
+        // Relative: an absolute floor would merge distinct sub-unit sample times.
+        return damp::abs(ts1 - ts2) <= T{64} * eps<T>() * damp::max(ts1, ts2);
     }
     return false;
 }
@@ -188,6 +188,11 @@ eval_frf(const StateSpace<NX, NU, NY, T, NW, NV>& sys, damp::complex<T> s) {
  *   D = D_2 D_1
  * @f]
  *
+ * Noise: @f$ G = \mathrm{blkdiag}(G_1, G_2) @f$, @f$ H = [D_2 H_1 \;\; H_2] @f$.
+ * The path of sys1's measurement noise into sys2's states (@f$ B_2 H_1 v_1 @f$)
+ * is not representable in the (G, H) split, where only @f$ w @f$ drives states,
+ * and is dropped; model it as an extra process-noise input if it matters.
+ *
  * @return Composed system, or @c nullopt if sample times differ
  * @note Compare with MATLAB®'s series(sys1,sys2) (≡ @c sys2*sys1).
  */
@@ -233,7 +238,6 @@ template<
     D = sys2.D * sys1.D;
 
     G.template block<n1, nw1>(0, 0) = sys1.G;
-    G.template block<n2, nw1>(n1, 0) = sys2.B * sys1.H;
     G.template block<n2, nw2>(n1, nw1) = sys2.G;
 
     H.template block<p, nv1>(0, 0) = sys2.D * sys1.H;
@@ -303,7 +307,12 @@ template<
  * With @f$ V=(I+D_2 D_1)^{-1} @f$, @f$ W=(I+D_1 D_2)^{-1} @f$ (solved via LU, not explicit inverse).
  * Returns @c nullopt if sample times differ or either matrix is singular (ill-posed algebraic loop).
  *
- * @note Process/measurement noise (G, H) use the D=0 structural placement through the loop.
+ * Noise: @f$ G = \mathrm{blkdiag}(G_1, G_2) @f$ and
+ * @f$ H = [W H_1 \;\; -W D_1 H_2] @f$ (the exact output map of @f$ v @f$). The
+ * paths of measurement noise into states around the loop (@f$ v_1 @f$ through
+ * @f$ B_2 @f$, @f$ v_2 @f$ through @f$ B_1 @f$) are not representable in the (G, H)
+ * split, where only @f$ w @f$ drives states, and are dropped.
+ *
  * @note Compare with MATLAB®'s feedback(sys1,sys2) (negative feedback).
  */
 template<
@@ -372,13 +381,12 @@ template<
 
     G.template block<n1, nw1>(0, 0) = sys1.G;
     if constexpr (n2 > 0) {
-        G.template block<n2, nw1>(n1, 0) = sys2.B * sys1.H;
         G.template block<n2, nw2>(n1, nw1) = sys2.G;
     }
 
-    H.template block<p, nv1>(0, 0) = sys1.H;
+    H.template block<p, nv1>(0, 0) = W * sys1.H;
     if constexpr (nv2 > 0) {
-        H.template block<p, nv2>(0, nv1) = sys2.H;
+        H.template block<p, nv2>(0, nv1) = -W_D1 * sys2.H;
     }
 
     return StateSpace<n1 + n2, m, p, T, nw1 + nw2, nv1 + nv2>{A, B, C, D, G, H, sys1.Ts};
@@ -491,18 +499,18 @@ template<
 }
 
 /**
- * @brief One term of a linear output mix: @f$ k \cdot y_{\mathrm{iy}} @f$
+ * @brief One term of a linear output mix: k · y_iy
  *
  * Used by @ref mix (u-path feedforward of a plant output) and @ref mix_outputs.
  */
 template<typename T = double>
 struct SsFeed {
-    std::size_t iy{};
-    T           k{T{1}};
+    std::size_t iy{};    ///< Output index (0-based)
+    T           k{T{1}}; ///< Weight on that output
 };
 
 /**
- * @brief Static gain @f$ y = k u @f$ (no states)
+ * @brief Static gain y = k u (no states)
  *
  * Use as the second argument of @ref feedback for unity (or weighted) loops.
  */
@@ -514,7 +522,7 @@ template<typename T = double>
 }
 
 /**
- * @brief Integrator @f$ y = (k/s)\, u @f$
+ * @brief Integrator y = (k/s) u
  */
 template<typename T = double>
 [[nodiscard]] constexpr StateSpace<1, 1, 1, T> ss_integrator(T k = T{1}) {
@@ -527,7 +535,7 @@ template<typename T = double>
 }
 
 /**
- * @brief SISO channel slice @f$ y_{\mathrm{iy}} / u_{\mathrm{iu}} @f$
+ * @brief SISO channel slice y_iy / u_iu
  *
  * @return Sliced system, or @c nullopt if @p iy / @p iu is out of range
  * @note Compare with MATLAB®'s @c sys(iy+1, iu+1) (1-based).
@@ -561,12 +569,12 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
 }
 
 /**
- * @brief Fold plant outputs into one input: @f$ v = g u + \sum k_i y_i @f$
+ * @brief Fold plant outputs into one input: v = g u + Σ kᵢ yᵢ
  *
  * Example: a summer on a command,
  * @f$ v_{\mathrm{sw}} = u + V_{\mathrm{out}} @f$. Returns NU=1, same NY.
- * Algebraic loops (@f$ 1 - k^\top D_{\cdot,\mathrm{iu}} \approx 0 @f$) are
- * @c nullopt.
+ * An ill-posed algebraic loop (@f$ 1 - k^\top D_{\cdot,\mathrm{iu}} @f$ lost to
+ * cancellation, relative to the terms forming it) is @c nullopt.
  */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NF>
 [[nodiscard]] constexpr damp::optional<StateSpace<NX, 1, NY, T, NW, NV>> mix(
@@ -586,10 +594,12 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size
         kvec[feeds[f].iy] += feeds[f].k;
     }
     T den = T{1};
+    T den_scale = T{1};
     for (size_t i = 0; i < NY; ++i) {
         den -= kvec[i] * sys.D(i, iu);
+        den_scale += damp::abs(kvec[i] * sys.D(i, iu));
     }
-    if (!(damp::abs(den) > default_tol<T>())) {
+    if (!(damp::abs(den) > static_cast<T>(NY + 1) * T{64} * eps<T>() * den_scale)) {
         return damp::nullopt;
     }
     const T inv = T{1} / den;
@@ -634,7 +644,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
 }
 
 /**
- * @brief Linear combination of outputs: @f$ y = \sum \alpha_j y_j @f$
+ * @brief Linear combination of outputs: y = Σ αⱼ yⱼ
  */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NT>
 [[nodiscard]] constexpr damp::optional<StateSpace<NX, NU, 1, T, NW, NV>> mix_outputs(
@@ -691,7 +701,7 @@ template<size_t NX, typename T, size_t NW, size_t NV>
     }
     const T Dloop = G_loop.D(0, 0);
     const T den = T{1} + k * Dloop;
-    if (!(damp::abs(den) > default_tol<T>())) {
+    if (!(damp::abs(den) > T{64} * eps<T>() * (T{1} + damp::abs(k * Dloop)))) {
         return damp::nullopt;
     }
     const T inv = T{1} / den;

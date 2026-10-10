@@ -95,6 +95,48 @@ observability_matrix(const Matrix<NX, NX, T>& A, const Matrix<NY, NX, T>& C) noe
     return Ob;
 }
 
+namespace detail {
+
+/// Gramian Lyapunov solve, refused unless A is Hurwitz (continuous) / Schur (discrete).
+/// For an unstable A the Lyapunov equation can still have a unique solution, but it
+/// is not the (divergent) Gramian integral/sum.
+template<size_t NX, typename T>
+[[nodiscard]] constexpr damp::optional<Matrix<NX, NX, T>>
+gramian_lyapunov(const Matrix<NX, NX, T>& A, const Matrix<NX, NX, T>& Q, bool discrete) {
+    const auto eig = mat::compute_eigenvalues(A);
+    if (!eig.converged) {
+        return damp::nullopt;
+    }
+    for (size_t i = 0; i < NX; ++i) {
+        const bool stable = discrete ? (damp::abs(eig.values[i]) < T{1}) : (eig.values[i].real() < T{0});
+        if (!stable) {
+            return damp::nullopt;
+        }
+    }
+    return discrete ? dlyap(A, Q) : lyap(A, Q);
+}
+
+/// Scale each column of M to unit 2-norm (zero columns stay zero). Column scaling
+/// preserves rank and removes the unit / time-scale growth of Krylov columns.
+template<size_t R, size_t C, typename T>
+[[nodiscard]] constexpr Matrix<R, C, T> normalize_columns(Matrix<R, C, T> M) {
+    for (size_t c = 0; c < C; ++c) {
+        T sumsq = T{0};
+        for (size_t r = 0; r < R; ++r) {
+            sumsq += M(r, c) * M(r, c);
+        }
+        if (sumsq > T{0}) {
+            const T inv = T{1} / damp::sqrt(sumsq);
+            for (size_t r = 0; r < R; ++r) {
+                M(r, c) *= inv;
+            }
+        }
+    }
+    return M;
+}
+
+} // namespace detail
+
 /**
  * @brief Continuous/discrete controllability Gramian W_c.
  *
@@ -103,8 +145,9 @@ observability_matrix(const Matrix<NX, NX, T>& A, const Matrix<NY, NX, T>& C) noe
  * - continuous: @f$ A W_c + W_c A^\top + B B^\top = 0 @f$
  * - discrete:   @f$ A W_c A^\top - W_c + B B^\top = 0 @f$
  *
- * @f$ W_c \succ 0 @f$ iff @f$ (A,B) @f$ is controllable. Requires @f$ A @f$ stable
- * (Hurwitz / Schur) for the Gramian to be finite.
+ * @f$ W_c \succ 0 @f$ iff @f$ (A,B) @f$ is controllable. The Gramian is finite only
+ * for a stable @f$ A @f$ (Hurwitz / Schur); an unstable @f$ A @f$ returns
+ * damp::nullopt even when the Lyapunov equation itself is solvable.
  *
  * @note Compare with MATLAB®'s @c gram(sys,'c').
  * @see observability_gramian(), damp::lyap(), damp::dlyap().
@@ -112,7 +155,7 @@ observability_matrix(const Matrix<NX, NX, T>& A, const Matrix<NY, NX, T>& C) noe
  * @param A        State matrix (NX × NX).
  * @param B        Input matrix (NX × NU).
  * @param discrete false → continuous-time, true → discrete-time.
- * @return W_c (NX × NX), or damp::nullopt if the Lyapunov solve is singular.
+ * @return W_c (NX × NX), or damp::nullopt if A is not stable or the solve is singular.
  */
 template<size_t NX, size_t NU, typename T = double>
 [[nodiscard]] constexpr damp::optional<Matrix<NX, NX, T>> controllability_gramian(
@@ -120,8 +163,7 @@ template<size_t NX, size_t NU, typename T = double>
     const Matrix<NX, NU, T>& B,
     bool                     discrete = false
 ) {
-    const Matrix<NX, NX, T> BBt = B * B.transpose();
-    return discrete ? dlyap(A, BBt) : lyap(A, BBt);
+    return detail::gramian_lyapunov(A, Matrix<NX, NX, T>{B * B.transpose()}, discrete);
 }
 
 /**
@@ -132,7 +174,8 @@ template<size_t NX, size_t NU, typename T = double>
  * - continuous: @f$ A^\top W_o + W_o A + C^\top C = 0 @f$
  * - discrete:   @f$ A^\top W_o A - W_o + C^\top C = 0 @f$
  *
- * @f$ W_o \succ 0 @f$ iff @f$ (A,C) @f$ is observable. Requires @f$ A @f$ stable.
+ * @f$ W_o \succ 0 @f$ iff @f$ (A,C) @f$ is observable. The Gramian is finite only
+ * for a stable @f$ A @f$; an unstable @f$ A @f$ returns damp::nullopt.
  *
  * @note Compare with MATLAB®'s @c gram(sys,'o').
  * @see controllability_gramian(), damp::lyap(), damp::dlyap().
@@ -140,7 +183,7 @@ template<size_t NX, size_t NU, typename T = double>
  * @param A        State matrix (NX × NX).
  * @param C        Output matrix (NY × NX).
  * @param discrete false → continuous-time, true → discrete-time.
- * @return W_o (NX × NX), or damp::nullopt if the Lyapunov solve is singular.
+ * @return W_o (NX × NX), or damp::nullopt if A is not stable or the solve is singular.
  */
 template<size_t NX, size_t NY, typename T = double>
 [[nodiscard]] constexpr damp::optional<Matrix<NX, NX, T>> observability_gramian(
@@ -148,56 +191,56 @@ template<size_t NX, size_t NY, typename T = double>
     const Matrix<NY, NX, T>& C,
     bool                     discrete = false
 ) {
-    const Matrix<NX, NX, T> CtC = C.transpose() * C;
-    return discrete ? dlyap(A.transpose(), CtC) : lyap(A.transpose(), CtC);
+    return detail::gramian_lyapunov(A.transpose(), Matrix<NX, NX, T>{C.transpose() * C}, discrete);
 }
 
 /**
- * @brief Compute rank of a matrix via Gaussian elimination with partial pivoting
+ * @brief Numerical rank of a matrix (forwards to mat::rank)
  *
- * @param M  Input matrix
- * @param tol Tolerance for zero detection (default: 1e-10)
+ * @param M   Input matrix
+ * @param tol Relative tolerance: singular values ≤ tol·σ_max count as zero
+ *            (default: mat::rank's eps-based default)
  * @return size_t rank of the matrix
  */
 template<size_t R, size_t C, typename T>
-[[nodiscard]] constexpr size_t rank(const Matrix<R, C, T>& M, T tol = static_cast<T>(1e-10)) noexcept {
+[[nodiscard]] constexpr size_t rank(const Matrix<R, C, T>& M) {
+    return mat::rank(M);
+}
+
+/// @overload explicit relative tolerance
+template<size_t R, size_t C, typename T>
+[[nodiscard]] constexpr size_t rank(const Matrix<R, C, T>& M, T tol) {
     return mat::rank(M, tol);
 }
 
 /**
  * @brief Check if a system is controllable
  *
+ * Rank test on the controllability matrix with each column scaled to unit norm,
+ * so the answer is invariant to the signal and time units (Krylov columns
+ * otherwise grow as ‖A‖ᵏ).
+ *
  * @param A State matrix
  * @param B Input matrix
- * @param tol Rank tolerance
  * @return true if the controllability matrix has full rank (NX)
  */
 template<size_t NX, size_t NU, typename T = double>
-[[nodiscard]] constexpr bool is_controllable(
-    const Matrix<NX, NX, T>& A,
-    const Matrix<NX, NU, T>& B,
-    T                        tol = static_cast<T>(1e-10)
-) noexcept {
-    auto Co = controllability_matrix(A, B);
-    return rank(Co, tol) == NX;
+[[nodiscard]] constexpr bool is_controllable(const Matrix<NX, NX, T>& A, const Matrix<NX, NU, T>& B) {
+    return mat::rank(detail::normalize_columns(controllability_matrix(A, B))) == NX;
 }
 
 /**
  * @brief Check if a system is observable
  *
+ * Dual of is_controllable(): rank of the row-normalized observability matrix.
+ *
  * @param A State matrix
  * @param C Output matrix
- * @param tol Rank tolerance
  * @return true if the observability matrix has full rank (NX)
  */
 template<size_t NX, size_t NY, typename T = double>
-[[nodiscard]] constexpr bool is_observable(
-    const Matrix<NX, NX, T>& A,
-    const Matrix<NY, NX, T>& C,
-    T                        tol = static_cast<T>(1e-10)
-) noexcept {
-    auto Ob = observability_matrix(A, C);
-    return rank(Ob, tol) == NX;
+[[nodiscard]] constexpr bool is_observable(const Matrix<NX, NX, T>& A, const Matrix<NY, NX, T>& C) {
+    return mat::rank(detail::normalize_columns(observability_matrix(A, C).transpose())) == NX;
 }
 
 /**

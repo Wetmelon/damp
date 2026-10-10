@@ -151,15 +151,23 @@ template<typename T>
     return floor_scalar(v + static_cast<T>(0.5));
 }
 
+/// Relative pivot floor for the active-set Gram factor: a pivot below this
+/// fraction of its diagonal entry means the new normal is (numerically) in the
+/// span of the active ones. Relative, so it is invariant to scaling H, f, A, b.
+template<size_t KMAX, typename T>
+[[nodiscard]] constexpr T gram_pivot_tol() {
+    return static_cast<T>(KMAX + 1) * T{64} * eps<T>();
+}
+
 /**
  * @brief Cholesky-factor the leading k×k block of M into L
  *
- * Returns false if a pivot falls below tolerance (numerically dependent
- * normals in the active-set method).
+ * Returns false if a pivot falls below gram_pivot_tol() of its diagonal entry
+ * (numerically dependent normals in the active-set method).
  */
 template<size_t KMAX, typename T>
 constexpr bool cholesky_leading(const Matrix<KMAX, KMAX, T>& M, Matrix<KMAX, KMAX, T>& L, size_t k) {
-    constexpr T tol = damp::default_tol<T>();
+    constexpr T tol = gram_pivot_tol<KMAX, T>();
 
     k = (k < KMAX) ? k : KMAX; // provable index bound for the optimizer
     for (size_t i = 0; i < k; ++i) {
@@ -169,7 +177,7 @@ constexpr bool cholesky_leading(const Matrix<KMAX, KMAX, T>& M, Matrix<KMAX, KMA
                 sum -= L(i, c) * L(j, c);
             }
             if (i == j) {
-                if (sum <= tol) {
+                if (!(sum > tol * M(i, i))) {
                     return false;
                 }
                 L(i, i) = damp::sqrt(sum);
@@ -207,11 +215,11 @@ constexpr void factored_solve_leading(const Matrix<KMAX, KMAX, T>& L, ColVec<KMA
  *
  * L holds the factor of the leading k×k block; col carries the new matrix
  * column (off-diagonal entries in col(0..k−1), diagonal in col(k)). Returns
- * false if the new pivot falls below tolerance (dependent normal).
+ * false if the new pivot falls below gram_pivot_tol() of col(k) (dependent normal).
  */
 template<size_t KMAX, typename T>
 constexpr bool cholesky_append(Matrix<KMAX, KMAX, T>& L, const ColVec<KMAX, T>& col, size_t k) {
-    constexpr T tol = damp::default_tol<T>();
+    constexpr T tol = gram_pivot_tol<KMAX, T>();
 
     if (k >= KMAX) {
         return false; // row k would fall outside the fixed-size factor
@@ -226,7 +234,7 @@ constexpr bool cholesky_append(Matrix<KMAX, KMAX, T>& L, const ColVec<KMAX, T>& 
         L(k, j) = sum / L(j, j);
         diag_sq -= L(k, j) * L(k, j);
     }
-    if (diag_sq <= tol) {
+    if (!(diag_sq > tol * col(k))) {
         return false;
     }
     L(k, k) = damp::sqrt(diag_sq);
@@ -261,9 +269,13 @@ template<size_t NV, size_t NI, typename T>
     size_t                                          hint_count
 ) {
     constexpr size_t KMAX = (NV < NI) ? NV : NI;
-    constexpr T      tol = damp::default_tol<T>();
-    constexpr T      big = unbounded_bound<T>();
-    constexpr T      skip_threshold = big / T{4};
+    // All tests below are relative to the magnitudes that form the tested
+    // quantity, so scaling H, f, or a constraint row (aᵢ, bᵢ) never changes the
+    // active-set path.
+    constexpr T pivot_tol = gram_pivot_tol<KMAX, T>();
+    constexpr T slack_tol = static_cast<T>(NV + 1) * T{64} * eps<T>();
+    constexpr T big = unbounded_bound<T>();
+    constexpr T skip_threshold = big / T{4};
 
     QPResult<NV, NI, T> result{};
 
@@ -292,9 +304,13 @@ template<size_t NV, size_t NI, typename T>
         if (b(i) >= skip_threshold) {
             return false;
         }
-        const T tol_i = tol * (T{1} + damp::abs(b(i)));
+        // Roundoff scale of sᵢ = bᵢ − aᵢᵀx.
+        T mag = damp::abs(b(i));
+        for (size_t c = 0; c < NV; ++c) {
+            mag += damp::abs(A(i, c) * x(c));
+        }
         s_out = slack(i);
-        return s_out < -tol_i;
+        return s_out < -(slack_tol * mag);
     };
 
     // Active set: indices, multipliers, cached wⱼ = H⁻¹nⱼ, and the Gram matrix
@@ -393,13 +409,18 @@ template<size_t NV, size_t NI, typename T>
                 kappa += n_p(v) * d(v);
             }
 
+            // κ = nₚᵀ(I − projection)H⁻¹nₚ is the Schur complement of the new
+            // Gram column: ≈ 0 relative to nₚᵀH⁻¹nₚ means nₚ is dependent on the
+            // active normals, so only a dual (drop) step is possible.
             const T s_p = slack(p);
-            const T t2 = (kappa > tol) ? (-s_p / kappa) : big;
+            const T t2 = (kappa > T{2} * pivot_tol * npup) ? (-s_p / kappa) : big;
 
             T      t1 = big;
             size_t drop = KMAX;
             for (size_t a = 0; a < k; ++a) {
-                if (r(a) > tol && lam[a] / r(a) < t1) {
+                // r_a carries units ‖nₚ‖/‖n_a‖ (H⁻¹ metric); compare in those units.
+                const T r_floor = pivot_tol * damp::sqrt(npup / M(a, a));
+                if (r(a) > r_floor && lam[a] / r(a) < t1) {
                     t1 = lam[a] / r(a);
                     drop = a;
                 }
@@ -968,7 +989,8 @@ template<size_t NV, size_t NI, typename T = double>
     constexpr T skip_threshold = big / T{4};
     constexpr T sigma = static_cast<T>(0.1); // centering
     constexpr T tau = static_cast<T>(0.995); // fraction to boundary
-    constexpr T tol = static_cast<T>(1.0e-9);
+    // Residuals are tested relative to the terms that form them (scale-invariant).
+    const T tol = damp::sqrt(eps<T>());
 
     QPResult<NV, NI, T> result{};
 
@@ -1022,38 +1044,46 @@ template<size_t NV, size_t NI, typename T = double>
     for (size_t it = 0; it < max_iterations; ++it) {
         // Residuals and duality measure.
         ColVec<NV, T> r_d = f;
+        bool          dual_ok = true;
+        T             gap_scale = T{0}; // magnitude of the objective and of λᵀ(b − Ax)
         for (size_t v = 0; v < NV; ++v) {
+            T mag = damp::abs(f(v));
+            T hx = T{0};
             for (size_t c = 0; c < NV; ++c) {
-                r_d(v) += H(v, c) * x(c);
+                hx += H(v, c) * x(c);
+                mag += damp::abs(H(v, c) * x(c));
             }
+            r_d(v) += hx;
             for (size_t i = 0; i < NI; ++i) {
                 if (active[i]) {
                     r_d(v) += A(i, v) * lam(i);
+                    mag += damp::abs(A(i, v) * lam(i));
                 }
             }
+            dual_ok = dual_ok && (damp::abs(r_d(v)) <= tol * mag);
+            gap_scale += damp::abs(x(v) * hx) + damp::abs(f(v) * x(v));
         }
         ColVec<NI, T> r_p{};
         T             mu = T{0};
-        T             r_p_norm = T{0};
+        bool          primal_ok = true;
         for (size_t i = 0; i < NI; ++i) {
             if (!active[i]) {
                 continue;
             }
             T ax = T{0};
+            T mag = damp::abs(s(i)) + damp::abs(b(i));
             for (size_t v = 0; v < NV; ++v) {
                 ax += A(i, v) * x(v);
+                mag += damp::abs(A(i, v) * x(v));
             }
             r_p(i) = ax + s(i) - b(i);
-            r_p_norm = (damp::abs(r_p(i)) > r_p_norm) ? damp::abs(r_p(i)) : r_p_norm;
+            primal_ok = primal_ok && (damp::abs(r_p(i)) <= tol * mag);
+            gap_scale += lam(i) * mag; // λᵢ(|bᵢ| + |aᵢᵀx| + sᵢ) bounds the gap term λᵢsᵢ
             mu += s(i) * lam(i);
         }
         mu /= static_cast<T>(m);
-        T r_d_norm = T{0};
-        for (size_t v = 0; v < NV; ++v) {
-            r_d_norm = (damp::abs(r_d(v)) > r_d_norm) ? damp::abs(r_d(v)) : r_d_norm;
-        }
 
-        if (r_d_norm <= tol && r_p_norm <= tol && mu <= tol) {
+        if (dual_ok && primal_ok && (static_cast<T>(m) * mu <= tol * gap_scale)) {
             result.status = QPStatus::Success;
             result.success = true;
             break;
@@ -1268,7 +1298,11 @@ template<size_t MaxNodes = 64, size_t NV, size_t NI, typename T>
         const auto relaxed = solve_qp(H, f, A_ext, b_ext);
         ++result.iterations;
         if (!relaxed.success) {
-            continue; // infeasible (or degenerate) subtree — prune
+            // Only a proven-infeasible relaxation prunes soundly; a budget or
+            // degeneracy stop leaves the subtree unexplored, so the result can no
+            // longer claim optimality (or infeasibility).
+            truncated = truncated || (relaxed.status != QPStatus::Infeasible);
+            continue;
         }
         if (relaxed.objective >= best_obj) {
             continue; // bound — cannot beat the incumbent
