@@ -132,11 +132,11 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`Matrix`](inc/damp/matrix/core.hpp#L159) | Fixed-size, stack-allocated matrix for linear algebra operations |
 | [`MatrixLike`](inc/damp/matrix/matrix_traits.hpp#L71) | Concept for any type that provides 2D matrix-like element access |
 | [`MatrixLikeOf`](inc/damp/matrix/matrix_traits.hpp#L81) | Concept for a MatrixLike type with specific dimensions |
-| [`NullSpace`](inc/damp/matrix/svd.hpp#L362) | Orthonormal basis for the null space (kernel) of a matrix |
+| [`NullSpace`](inc/damp/matrix/svd.hpp#L366) | Orthonormal basis for the null space (kernel) of a matrix |
 | [`QRDecomposition`](inc/damp/matrix/decomposition.hpp#L194) | Thin QR factorization A = QR (modified Gram–Schmidt) |
 | [`RowVec`](inc/damp/matrix/rowvec.hpp#L29) | Row vector specialization of Matrix<1, N, T> |
 | [`RowView`](inc/damp/matrix/views.hpp#L189) | Non-owning row view of a matrix |
-| [`SVDResult`](inc/damp/matrix/svd.hpp#L259) | Result of a full singular value decomposition A = U·Σ·Vᴴ |
+| [`SVDResult`](inc/damp/matrix/svd.hpp#L263) | Result of a full singular value decomposition A = U·Σ·Vᴴ |
 | [`TransposeView`](inc/damp/matrix/views.hpp#L396) | Non-owning transpose view of a matrix (zero-copy) |
 | [`UpperTriangle`](inc/damp/matrix/views.hpp#L122) | Upper triangular view of a square matrix |
 
@@ -165,21 +165,21 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`lu_decomposition`](inc/damp/matrix/decomposition.hpp#L125) | LU decomposition with partial pivoting |
 | [`lu_solve`](inc/damp/matrix/solve.hpp#L185) | Solve AX = B via LU with partial pivoting |
 | [`max`](inc/damp/matrix/core.hpp#L1012) | Addition of two MatrixLike types (with broadcasting support) (+1 more overload) |
-| [`null_space`](inc/damp/matrix/svd.hpp#L381) | Orthonormal basis for the null space {x : A·x = 0} via SVD |
+| [`null_space`](inc/damp/matrix/svd.hpp#L385) | Orthonormal basis for the null space {x : A·x = 0} via SVD |
 | [`one_norm`](inc/damp/matrix/functions.hpp#L67) | One-norm ‖A‖₁: maximum absolute column sum |
 | [`pow`](inc/damp/matrix/functions.hpp#L886) | Integer matrix power via binary exponentiation (+1 more overload) |
-| [`pseudo_inverse`](inc/damp/matrix/svd.hpp#L334) | Moore–Penrose pseudoinverse A⁺ via SVD |
+| [`pseudo_inverse`](inc/damp/matrix/svd.hpp#L338) | Moore–Penrose pseudoinverse A⁺ via SVD |
 | [`qr_decompose`](inc/damp/matrix/decomposition.hpp#L230) | Thin QR via modified Gram–Schmidt |
 | [`quadratic_form`](inc/damp/matrix/core.hpp#L1113) | Symmetric congruence (quadratic) form  S = M X Mᵀ |
 | [`rank`](inc/damp/matrix/functions.hpp#L233) | Numerical rank: the number of singular values above rel_tol·σₘₐₓ |
-| [`rank_from_svd`](inc/damp/matrix/svd.hpp#L302) | Numerical rank from a precomputed SVD result |
+| [`rank_from_svd`](inc/damp/matrix/svd.hpp#L306) | Numerical rank from a precomputed SVD result |
 | [`sin`](inc/damp/matrix/functions.hpp#L1047) | Matrix sine via scaling and double-angle reconstruction |
 | [`sincos`](inc/damp/matrix/functions.hpp#L977) | Compute sin(A) and cos(A) together via scaling and double-angle reconstruction |
 | [`sinh`](inc/damp/matrix/functions.hpp#L1117) | Matrix hyperbolic sine sinh(A) = (exp(A) − exp(−A))/2 |
 | [`solve`](inc/damp/matrix/solve.hpp#L82) | Solve lower-triangular system LX = B via forward substitution (+2 more overloads) |
 | [`sqrt`](inc/damp/matrix/functions.hpp#L749) | Matrix square root via Denman–Beavers iteration |
 | [`sqrtm`](inc/damp/matrix/functions.hpp#L793) | @brief MATLAB®-style alias for sqrt |
-| [`svd`](inc/damp/matrix/svd.hpp#L277) | Full singular value decomposition A = U·Σ·Vᴴ (one-sided Jacobi) |
+| [`svd`](inc/damp/matrix/svd.hpp#L281) | Full singular value decomposition A = U·Σ·Vᴴ (one-sided Jacobi) |
 | [`two_norm`](inc/damp/matrix/functions.hpp#L132) | Spectral norm ‖A‖₂ = σₘₐₓ(A) |
 
 ## LTI systems (SS / TF / ZPK / discretize)

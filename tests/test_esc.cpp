@@ -3,6 +3,7 @@
 // Distributed under the Boost Software License, Version 1.0.
 // (See accompanying file LICENSE or copy at http://www.boost.org/LICENSE_1_0.txt)
 
+#include <algorithm>
 #include <cmath>
 #include <numbers>
 
@@ -140,5 +141,28 @@ TEST_SUITE("esc") {
         }();
         static_assert(u_opt > 0.9 && u_opt < 1.1, "ESC must converge at compile time");
         CHECK(u_opt == doctest::Approx(1.0).epsilon(0.05));
+    }
+
+    TEST_CASE("dither phasor keeps phase and amplitude over a long run") {
+        // Frozen estimator: only the dither advances, so input() − û = a·sin(kωTs).
+        constexpr double                  a = 0.1;
+        const auto                        art = design::esc(a, 50.0, 20.0, 1e-3, ExtremumType::Maximize);
+        ExtremumSeekingController<double> esc(art);
+        constexpr int                     N = 1000000;
+        for (int k = 1; k <= N; ++k) {
+            (void)esc.step(0.0, false);
+        }
+        const double phase = std::fmod(2.0 * std::numbers::pi * 50.0 * 1e-3 * N, 2.0 * std::numbers::pi);
+        CHECK(esc.input() - esc.estimate() == doctest::Approx(a * std::sin(phase)).epsilon(1e-9).scale(a));
+
+        ExtremumSeekingController<float> escf(art.as<float>());
+        float                            peak = 0.0f;
+        for (int k = 1; k <= N; ++k) {
+            (void)escf.step(0.0f, false);
+            if (k > N - 100) { // last few cycles
+                peak = std::max(peak, std::abs(escf.input() - escf.estimate()));
+            }
+        }
+        CHECK(peak == doctest::Approx(0.1f).epsilon(1e-4));
     }
 }

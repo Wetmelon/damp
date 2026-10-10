@@ -513,8 +513,8 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`notch`](inc/damp/filters/iir_design.hpp#L830) | function | Filters & signal conditioning | Second-order band-reject (notch) filter |
 | [`notch_continuous`](inc/damp/filters/iir_design.hpp#L434) | function | Filters & signal conditioning | Second-order band-reject (notch) filter design (continuous-time) |
 | [`null`](inc/damp/matlab.hpp#L474) | function | MATLAB®-style aliases (host) | MATLAB® short alias for an orthonormal null-space basis |
-| [`null_space`](inc/damp/matrix/svd.hpp#L381) | function | Linear algebra | Orthonormal basis for the null space {x : A·x = 0} via SVD |
-| [`NullSpace`](inc/damp/matrix/svd.hpp#L362) | block | Linear algebra | Orthonormal basis for the null space (kernel) of a matrix |
+| [`null_space`](inc/damp/matrix/svd.hpp#L385) | function | Linear algebra | Orthonormal basis for the null space {x : A·x = 0} via SVD |
+| [`NullSpace`](inc/damp/matrix/svd.hpp#L366) | block | Linear algebra | Orthonormal basis for the null space (kernel) of a matrix |
 | [`nyquist`](inc/damp/analysis/frequency.hpp#L510) | function | Frequency-domain analysis (host) | Compute Nyquist data for a SISO state-space system (+1 more overload) |
 | [`nyquistplot`](inc/damp/simulation/plot_plotly.hpp#L821) | function | Simulation / SIL harness (host) | Plot a Nyquist locus with the -1 critical point marked |
 | [`NyquistPoint`](inc/damp/analysis/frequency.hpp#L382) | block | Frequency-domain analysis (host) | Single-point Nyquist response data |
@@ -606,7 +606,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`project_box`](inc/damp/controllers/action_governor.hpp#L78) | function | Design-time synthesis (not PWM-rate) | Euclidean projection of u onto the axis-aligned box [umin, umax] (+1 more overload) |
 | [`ProportionalCurrentMap`](inc/damp/toolbox/io.hpp#L139) | block | Embedded helpers (controls-adjacent utilities) | Affine map from a normalized command to a proportional current (mA) |
 | [`PRResult`](inc/damp/controllers/pr.hpp#L72) | block | Design-time synthesis (not PWM-rate) | Proportional-Resonant controller design result |
-| [`pseudo_inverse`](inc/damp/matrix/svd.hpp#L334) | function | Linear algebra | Moore–Penrose pseudoinverse A⁺ via SVD |
+| [`pseudo_inverse`](inc/damp/matrix/svd.hpp#L338) | function | Linear algebra | Moore–Penrose pseudoinverse A⁺ via SVD |
 | [`PulseTimer`](inc/damp/toolbox/logic.hpp#L171) | block | Embedded helpers (controls-adjacent utilities) | Pulse timer (non-retriggerable): a rising edge of in emits a fixed |
 | [`PwmScheme`](inc/damp/motor/modulation.hpp#L79) | enum | Motor control pack (if present) | Carrier-based three-phase VSI modulation scheme |
 | [`pzmap`](inc/damp/analysis/poles.hpp#L188) | function | Frequency-domain analysis (host) | Pole-zero map of a SISO transfer function (MATLAB® `pzmap(tf)`) (+2 more overloads) |
@@ -630,7 +630,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`RangeMonitor`](inc/damp/toolbox/conditioning.hpp#L440) | block | Embedded helpers (controls-adjacent utilities) | Analog-input range/fault monitor (NAMUR NE43 pattern) |
 | [`rank`](inc/damp/design/stability.hpp#L206) | function | Design-time synthesis (not PWM-rate) | Numerical rank of a matrix (forwards to mat::rank) (+1 more overload) |
 | [`rank`](inc/damp/matrix/functions.hpp#L233) | function | Linear algebra | Numerical rank: the number of singular values above rel_tol·σₘₐₓ |
-| [`rank_from_svd`](inc/damp/matrix/svd.hpp#L302) | function | Linear algebra | Numerical rank from a precomputed SVD result |
+| [`rank_from_svd`](inc/damp/matrix/svd.hpp#L306) | function | Linear algebra | Numerical rank from a precomputed SVD result |
 | [`reduced_luenberger`](inc/damp/estimation/luenberger.hpp#L271) | function | Observers & estimators | Design a reduced-order (Gopinath) observer by pole placement (matrix form) (+3 more overloads) |
 | [`ReducedLuenberger`](inc/damp/estimation/luenberger.hpp#L507) | block | Observers & estimators | Reduced-order (Gopinath) state observer (runtime) |
 | [`ReducedLuenbergerResult`](inc/damp/estimation/luenberger.hpp#L217) | block | Observers & estimators | Reduced-order (Gopinath) observer design result |
@@ -786,9 +786,9 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`SuccessiveCompensatorConfig`](inc/damp/estimation/successive_compensator.hpp#L50) | block | Observers & estimators | Configuration for successive compensator commissioning |
 | [`suggest_mpc_horizon`](inc/damp/controllers/mpc.hpp#L593) | function | Design-time synthesis (not PWM-rate) | Suggest MPC horizons from an explicit settling-time target (+1 more overload) |
 | [`summarize_loop_response`](inc/damp/analysis/frequency.hpp#L473) | function | Frequency-domain analysis (host) | Summarize loop_response() results into one compact metrics struct |
-| [`svd`](inc/damp/matrix/svd.hpp#L277) | function | Linear algebra | Full singular value decomposition A = U·Σ·Vᴴ (one-sided Jacobi) |
+| [`svd`](inc/damp/matrix/svd.hpp#L281) | function | Linear algebra | Full singular value decomposition A = U·Σ·Vᴴ (one-sided Jacobi) |
 | [`svd`](inc/damp/matlab.hpp#L452) | function | MATLAB®-style aliases (host) | MATLAB® short alias for the singular value decomposition |
-| [`SVDResult`](inc/damp/matrix/svd.hpp#L259) | block | Linear algebra | Result of a full singular value decomposition A = U·Σ·Vᴴ |
+| [`SVDResult`](inc/damp/matrix/svd.hpp#L263) | block | Linear algebra | Result of a full singular value decomposition A = U·Σ·Vᴴ |
 | [`svm_duty_cycles`](inc/damp/motor/modulation.hpp#L443) | function | Motor control pack (if present) | Space-vector PWM duty cycles from an αβ voltage command |
 | [`SvmDuties`](inc/damp/motor/modulation.hpp#L103) | block | Motor control pack (if present) | Result of a duty-map: half-bridge duties plus an over-modulation flag |
 | [`svpwm_zero_sequence`](inc/damp/motor/modulation.hpp#L200) | function | Motor control pack (if present) | Min-max zero-sequence injection for space-vector PWM |

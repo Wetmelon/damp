@@ -38,7 +38,7 @@
 
 #include <type_traits>
 
-#include "damp/math/math.hpp"            // damp::sin, damp::fmod, damp::clamp, numbers
+#include "damp/math/math.hpp"            // damp::sin/cos, damp::clamp, numbers
 #include "damp/matrix/matrix_traits.hpp" // scalar_type_t, default_tol
 
 namespace damp {
@@ -241,12 +241,16 @@ public:
     constexpr ExtremumSeekingController() = default;
 
     constexpr explicit ExtremumSeekingController(const design::ESCConfig<T>& config)
-        : config_(config), uhat_(config.u_init), valid_(config.valid()) {}
+        : config_(config), uhat_(config.u_init), valid_(config.valid()) {
+        init_phasors();
+    }
 
     constexpr explicit ExtremumSeekingController(const design::ESCResult<T>& design)
-        : config_(design.config), uhat_(design.config.u_init), valid_(design.success && design.config.valid()) {}
+        : config_(design.config), uhat_(design.config.u_init), valid_(design.success && design.config.valid()) {
+        init_phasors();
+    }
 
-    /// Current perturbed input to apply, û + a·sin(phase).
+    /// Current perturbed input to apply, û + a·sin φ.
     ///
     /// When a clamp band is configured (`u_min < u_max`) the *applied* command is
     /// clamped to it: the estimate û is bounded, but û + dither could otherwise
@@ -254,7 +258,7 @@ public:
     /// clips the perturbation asymmetrically (a small, benign gradient bias) in
     /// exchange for never commanding past the limit.
     [[nodiscard]] constexpr T input() const {
-        const T u = uhat_ + (config_.dither_amplitude * damp::sin(phase_));
+        const T u = uhat_ + (config_.dither_amplitude * dither_s_);
         if (config_.u_min < config_.u_max) {
             return damp::clamp(u, config_.u_min, config_.u_max);
         }
@@ -274,7 +278,7 @@ public:
         // A flagged sample is not evidence: keep it out of the filter states too,
         // or it reappears as a spurious gradient once measurements recover.
         if (!measurement_valid) {
-            phase_ = damp::fmod(phase_ + (config_.dither_omega * config_.Ts), two_pi());
+            advance_dither();
             return input();
         }
         // Seed the DC estimate to the first objective so the high-pass starts at 0
@@ -288,8 +292,9 @@ public:
         const T hp = objective - hp_state_;
         hp_state_ += config_.hp_alpha * (objective - hp_state_);
 
-        // Demodulate with the dither that produced this objective (phase_).
-        const T demod = damp::sin(phase_ - config_.demod_phase);
+        // Demodulate with the dither that produced this objective:
+        // sin(φ − d) = sin φ cos d − cos φ sin d.
+        const T demod = (dither_s_ * demod_c_) - (dither_c_ * demod_s_);
         const T raw_grad = hp * demod;
         grad_state_ += config_.lp_alpha * (raw_grad - grad_state_);
         gradient_ = grad_state_;
@@ -301,7 +306,7 @@ public:
         }
 
         // Advance the dither phase and form the next perturbed input.
-        phase_ = damp::fmod(phase_ + (config_.dither_omega * config_.Ts), two_pi());
+        advance_dither();
         return input();
     }
 
@@ -311,7 +316,8 @@ public:
 
     constexpr void reset() {
         uhat_ = config_.u_init;
-        phase_ = T{0};
+        dither_s_ = T{0};
+        dither_c_ = T{1};
         hp_state_ = T{0};
         grad_state_ = T{0};
         gradient_ = T{0};
@@ -319,12 +325,36 @@ public:
     }
 
 private:
-    static constexpr T two_pi() { return T{2} * damp::numbers::pi_v<T>; }
+    // The dither phase φ advances by a fixed ωTs each tick, so it is carried as a
+    // unit phasor (sin φ, cos φ) rotated by precomputed cos/sin(ωTs): the tick
+    // path needs no trig and no fmod. Trig runs once, at construction.
+    constexpr void init_phasors() {
+        const T step = config_.dither_omega * config_.Ts;
+        rot_c_ = damp::cos(step);
+        rot_s_ = damp::sin(step);
+        demod_c_ = damp::cos(config_.demod_phase);
+        demod_s_ = damp::sin(config_.demod_phase);
+    }
+
+    // φ ← φ + ωTs, then pull |phasor| back to 1 with one Newton step of
+    // 1/√(s² + c²) (no sqrt; holds the norm at 1 to roundoff indefinitely).
+    constexpr void advance_dither() {
+        const T s = (dither_s_ * rot_c_) + (dither_c_ * rot_s_);
+        const T c = (dither_c_ * rot_c_) - (dither_s_ * rot_s_);
+        const T k = (T{3} - ((s * s) + (c * c))) * static_cast<T>(0.5);
+        dither_s_ = s * k;
+        dither_c_ = c * k;
+    }
 
     design::ESCConfig<T> config_{};
 
-    T    uhat_{T{0}}; // Converged operating point estimate û (the optimizer's answer).
-    T    phase_{T{0}};
+    T    uhat_{T{0}};     // Converged operating point estimate û (the optimizer's answer).
+    T    dither_s_{T{0}}; // sin φ of the current dither phase
+    T    dither_c_{T{1}}; // cos φ
+    T    rot_c_{T{1}};    // cos(ωTs), sin(ωTs): one-tick phase rotation
+    T    rot_s_{T{0}};
+    T    demod_c_{T{1}}; // cos d, sin d of the demodulation phase offset
+    T    demod_s_{T{0}};
     T    hp_state_{T{0}};
     T    grad_state_{T{0}};
     T    gradient_{T{0}}; // Most recent (filtered) gradient estimate.
