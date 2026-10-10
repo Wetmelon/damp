@@ -25,10 +25,12 @@ namespace damp {
  */
 template<size_t MaxDelay, typename T = float>
 class Delay {
+    static_assert(MaxDelay >= 1, "Delay needs MaxDelay >= 1");
+
 private:
-    damp::array<T, MaxDelay> buffer_{};         ///< Circular buffer for delayed samples
-    size_t                   write_idx_{0};     ///< Current write position
-    size_t                   delay_samples_{1}; ///< Number of samples to delay (≤ MaxDelay−1)
+    damp::array<T, MaxDelay> buffer_{};                            ///< Circular buffer for delayed samples
+    size_t                   write_idx_{0};                        ///< Current write position
+    size_t                   delay_samples_{MaxDelay > 1 ? 1 : 0}; ///< Number of samples to delay (≤ MaxDelay−1)
 
 public:
     /**
@@ -37,7 +39,7 @@ public:
      */
     constexpr void init(size_t delay_samples) {
         // d == MaxDelay makes read_idx == write_idx (zero delay after write).
-        constexpr size_t max_d = MaxDelay > 0 ? MaxDelay - 1 : 0;
+        constexpr size_t max_d = MaxDelay - 1;
         delay_samples_ = delay_samples > max_d ? max_d : delay_samples;
         reset();
     }
@@ -45,7 +47,8 @@ public:
     /**
      * @brief Process input sample and return delayed output
      * @param input Current input sample
-     * @return Sample from @c delay_samples ticks ago (0-delay returns previous write path)
+     * @return Sample from @c delay_samples ticks ago (zero before that many inputs;
+     *         a 0-sample delay returns @p input)
      */
     constexpr T operator()(T input) {
         // Store current input

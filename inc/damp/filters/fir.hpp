@@ -28,6 +28,7 @@
 
 #include "damp/backend.hpp"
 #include "damp/math/math.hpp"
+#include "damp/matrix/matrix_traits.hpp" // eps
 
 namespace damp {
 namespace design {
@@ -158,6 +159,28 @@ template<size_t MaxTaps, typename T>
     return g;
 }
 
+/**
+ * @brief Scale taps b[0…N−1] so a measured gain @p g becomes 1
+ *
+ * Fails (taps untouched) when @p g is lost in round-off, i.e. not above
+ * N·eps·Σ|b| — the scale-invariant "gain is numerically zero" test.
+ */
+template<size_t MaxTaps, typename T>
+[[nodiscard]] constexpr bool scale_to_unit_gain(damp::array<T, MaxTaps>& b, size_t N, T g) {
+    T abs_sum = T{0};
+    for (size_t n = 0; n < N; ++n) {
+        abs_sum += damp::abs(b[n]);
+    }
+    if (!(damp::abs(g) > static_cast<T>(N) * eps<T>() * abs_sum)) {
+        return false;
+    }
+    const T inv_g = T{1} / g;
+    for (size_t n = 0; n < N; ++n) {
+        b[n] *= inv_g;
+    }
+    return true;
+}
+
 template<typename T>
 [[nodiscard]] constexpr bool valid_fc(T fc) {
     return (fc > T{0}) && (fc < static_cast<T>(0.5));
@@ -189,7 +212,7 @@ template<typename T>
 /**
  * @brief Window-method FIR design (normalized frequency, single cutoff)
  *
- * Designs an equiripple-free FIR by truncating the ideal impulse response and
+ * Designs a linear-phase FIR by truncating the ideal impulse response and
  * multiplying by a window. Cutoff @p fc is in cycles per sample on
  * @f$ (0,\,0.5) @f$ (Nyquist = 0.5). Equivalent Hz form:
  * @f$ f_c = f_{\mathrm{Hz}} / f_s @f$.
@@ -245,18 +268,12 @@ template<size_t MaxTaps, typename T = double>
     }
 
     // Unit DC gain on the low-pass prototype (exact spectral inversion needs this)
-    {
-        T s = T{0};
-        for (size_t n = 0; n < N; ++n) {
-            s += result.b[n];
-        }
-        if (damp::abs(s) < static_cast<T>(1e-30)) {
-            return result;
-        }
-        const T inv_s = T{1} / s;
-        for (size_t n = 0; n < N; ++n) {
-            result.b[n] *= inv_s;
-        }
+    T dc_sum = T{0};
+    for (size_t n = 0; n < N; ++n) {
+        dc_sum += result.b[n];
+    }
+    if (!detail::scale_to_unit_gain(result.b, N, dc_sum)) {
+        return result;
     }
 
     if (type == FirType::Highpass) {
@@ -269,12 +286,8 @@ template<size_t MaxTaps, typename T = double>
 
         // Unit gain at Nyquist (preserves the DC null)
         const T g = detail::fir_passband_gain<MaxTaps, T>(result.b, N, static_cast<T>(0.5));
-        if (damp::abs(g) < static_cast<T>(1e-30)) {
+        if (!detail::scale_to_unit_gain(result.b, N, g)) {
             return result;
-        }
-        const T inv_g = T{1} / g;
-        for (size_t n = 0; n < N; ++n) {
-            result.b[n] *= inv_g;
         }
     }
 
@@ -344,12 +357,8 @@ template<size_t MaxTaps, typename T = double>
 
     const T f_pb = (type == FirType::Bandpass) ? ((f_lo + f_hi) / T{2}) : T{0};
     const T g = detail::fir_passband_gain<MaxTaps, T>(result.b, N, f_pb);
-    if (damp::abs(g) < static_cast<T>(1e-30)) {
+    if (!detail::scale_to_unit_gain(result.b, N, g)) {
         return result;
-    }
-    const T inv_g = T{1} / g;
-    for (size_t n = 0; n < N; ++n) {
-        result.b[n] *= inv_g;
     }
 
     result.n_taps = N;
@@ -457,7 +466,9 @@ public:
     }
 
     /// Construct from a design result (no-op if !success — leaves identity)
-    constexpr explicit FirFilter(const design::FirDesignResult<MaxTaps, T>& des) { init(des); }
+    constexpr explicit FirFilter(const design::FirDesignResult<MaxTaps, T>& des) : FirFilter() {
+        (void)init(des);
+    }
 
     /**
      * @brief Load coefficients from a design result

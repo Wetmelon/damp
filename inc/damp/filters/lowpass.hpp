@@ -59,7 +59,7 @@ public:
     /**
      * @brief Simple constructor with cutoff frequency and sample time
      *
-     * Fast online design of 1st order filter using ZOH method.
+     * First-order design via @ref design::lowpass_1st (prewarped Tustin).
      *
      * @param fc Cutoff frequency [Hz]
      * @param Ts_sample Sample time [s]
@@ -76,8 +76,9 @@ public:
      *
      * Orders N = 1 and N = 2 use @ref design::to_coeffs (exact Tustin path).
      * Higher orders recover direct-form coefficients from the impulse response
-     * (Prony for a, then b[n] = h[n] + Σ a_k h[n−k]). A singular Hankel clears
-     * both coefficient vectors (safe zero output).
+     * (Prony for a, then b[n] = h[n] + Σ a_k h[n−k]). A failed realization /
+     * discretization or a singular Hankel clears both coefficient vectors (safe
+     * zero output).
      *
      * @param tf        Continuous transfer function (ascending powers of s)
      * @param Ts_sample Sample time [s] (must be > 0 for a meaningful design)
@@ -97,8 +98,14 @@ public:
             b = {c.b0, c.b1, c.b2};
             a = {c.a1, c.a2};
         } else {
-            auto sys_c = tf.to_state_space().value();
-            auto sys_d = *discretize(sys_c, Ts_sample, DiscretizationMethod::Tustin);
+            const auto sys_c_opt = tf.to_state_space();
+            const auto sys_d_opt = sys_c_opt ? discretize(*sys_c_opt, Ts_sample, DiscretizationMethod::Tustin) : damp::nullopt;
+            if (!sys_d_opt) {
+                b = {};
+                a = {};
+                return;
+            }
+            const auto& sys_d = *sys_d_opt;
 
             // Compute impulse response
             constexpr size_t MaxK = 2 * N;

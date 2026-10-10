@@ -67,11 +67,14 @@ template<typename T = double>
  * @param w0 Fundamental frequency [rad/s]
  * @param alpha Damping gain (typically 1.0-2.0)
  * @param Ts Sample time [s]
- * @return StateSpace<2, 1, 2, T> Discrete-time SOGI system
+ * @return StateSpace<2, 1, 2, T> Discrete-time SOGI system; the continuous model
+ *         (Ts = 0) if @p Ts ≤ 0 or the discretization fails
  */
 template<typename T = float>
 [[nodiscard]] constexpr StateSpace<2, 1, 2, T> sogi(T w0, T alpha, T Ts) {
-    return *discretize(sogi(w0, alpha), Ts, DiscretizationMethod::ZOH);
+    const auto sys_c = sogi(w0, alpha);
+    const auto sys_d = discretize(sys_c, Ts, DiscretizationMethod::ZOH);
+    return sys_d ? *sys_d : sys_c;
 }
 
 /**
@@ -148,26 +151,33 @@ template<typename T = double>
  * @param w0 Fundamental frequency [rad/s]
  * @param alpha Damping gain
  * @param Ts Sample time [s]
- * @return StateSpace<3, 1, 2, T> Discrete-time MSTOGI system
+ * @return StateSpace<3, 1, 2, T> Discrete-time MSTOGI system; the continuous model
+ *         (Ts = 0) if @p Ts ≤ 0 or the discretization fails
  */
 template<typename T = float>
 [[nodiscard]] constexpr StateSpace<3, 1, 2, T> mstogi(T w0, T alpha, T Ts) {
-    return *discretize(mstogi(w0, alpha), Ts, DiscretizationMethod::ZOH);
+    const auto sys_c = mstogi(w0, alpha);
+    const auto sys_d = discretize(sys_c, Ts, DiscretizationMethod::ZOH);
+    return sys_d ? *sys_d : sys_c;
 }
 
 } // namespace design
 
 /**
- * @brief Runtime SOGI wrapper around design::sogi(w0, alpha, Ts)
+ * @brief Runtime SOGI quadrature-signal generator (live-frequency resonator)
  *
- * This minimal runtime object stores state and performs one-step updates using
- * the discrete design realization each call:
+ * This minimal runtime object stores state and performs one-step updates each
+ * call:
  *
  *   y = Cx
- *   x = Ax + Bu
+ *   x = Ax + Bu,   u = alpha·(in − v′)
  *
- * where A/B/C come from `design::sogi(w0, alpha, Ts)` and
- * `w0 = 2*pi*freq`.
+ * where A = [[cos ω₀Ts, sin ω₀Ts], [−sin ω₀Ts, cos ω₀Ts]] and B = [1 − cos ω₀Ts, sin ω₀Ts]
+ * are the exact ZOH step of the undamped resonator at `w0 = 2*pi*freq`, rebuilt
+ * each tick so @p freq may track a PLL/FLL estimate. The damping term enters
+ * through u, held over the step (so this is not the same realization as
+ * `design::sogi(w0, alpha, Ts)`, which discretizes the damped system).
+ * Returns {v′ (band-pass), qv′ (quadrature, 90° lag)}.
  *
  * @see "Understanding Digital Signal Processing" (Lyons, 2011), §13.36
  *
@@ -364,8 +374,8 @@ public:
 
         const T bandpass = x1_; // in-phase v′
         const T quad = x0_;     // quadrature qv′
-        const T eps = in - bandpass;
-        const T u = eps * k_;
+        const T err = in - bandpass;
+        const T u = err * k_;
 
         // Exact discrete SOGI resonator step (same A,B as the fixed-ω SOGI).
         const T x0n = (c * x0_) + (s * x1_) + ((T{1} - c) * u);
@@ -373,11 +383,14 @@ public:
         x0_ = x0n;
         x1_ = x1n;
 
-        // Amplitude-normalized FLL: ω̇ = −Γ·ω·(ε·qv′)/(v′²+qv′²).
+        // Amplitude-normalized FLL: ω̇ = −Γ·ω·(ε·qv′)/(v′²+qv′²). The ratio is
+        // scale-free; skip only the exact-zero state (no signal yet, 0/0).
         const T amp_sq = (bandpass * bandpass) + (quad * quad);
-        const T eps_f = eps * quad;
-        omega_ -= Ts_ * gamma_ * omega_ * eps_f / (amp_sq + tiny());
-        omega_ = damp::clamp(omega_, omega_min_, omega_max_);
+        if (amp_sq > T{0}) {
+            const T eps_f = err * quad;
+            omega_ -= Ts_ * gamma_ * omega_ * eps_f / amp_sq;
+            omega_ = damp::clamp(omega_, omega_min_, omega_max_);
+        }
     }
 
     /// Locked frequency [Hz].
@@ -407,7 +420,6 @@ public:
 
 private:
     static constexpr T two_pi() { return T{2} * damp::numbers::pi_v<T>; }
-    static constexpr T tiny() { return static_cast<T>(1e-12); }
 
     T    Ts_{T{1}};
     T    k_{damp::numbers::sqrt2_v<T>};

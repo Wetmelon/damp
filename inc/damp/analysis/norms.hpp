@@ -153,25 +153,40 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
             return mat::svd(G).singular_values[0];
         }
     };
+    const auto sigma_max_real = [](const Matrix<NY, NU, T>& M) -> T {
+        if constexpr (NY == 1 && NU == 1) {
+            return damp::abs(M(0, 0));
+        } else {
+            return mat::svd(M).singular_values[0];
+        }
+    };
 
-    T peak = T{0};
+    const auto eig = mat::compute_eigenvalues(sys.A);
+    T          peak = T{0};
 
     if (discrete) {
-        // Sweep the upper unit circle z = e^{jθ}, θ ∈ (0, π].
+        // Sweep the upper unit circle z = e^{jθ}, θ ∈ [0, π] (θ = 0 is DC, where a
+        // low-pass peaks), plus each pole's angle (resonances sit there).
         const T pi = std::numbers::pi_v<T>;
-        for (size_t k = 1; k <= n_points; ++k) {
+        for (size_t k = 0; k <= n_points; ++k) {
             const T theta = pi * static_cast<T>(k) / static_cast<T>(n_points);
+            const auto [s, c] = damp::sincos(theta);
+            peak = damp::max(peak, sigma_max(Cplx(c, s)));
+        }
+        for (size_t i = 0; i < NX; ++i) {
+            const T theta = damp::abs(damp::atan2(eig.values[i].imag(), eig.values[i].real()));
             const auto [s, c] = damp::sincos(theta);
             peak = damp::max(peak, sigma_max(Cplx(c, s)));
         }
         return peak;
     }
 
-    // Continuous: log-spaced ω grid spanning the pole frequencies, plus the pole
-    // natural frequencies themselves as explicit samples (peaks live near them).
-    const auto eig = mat::compute_eigenvalues(sys.A);
-    T          w_min = std::numeric_limits<T>::max();
-    T          w_max = T{0};
+    // Continuous: DC and ω → ∞ (σ̄(D)) endpoints, a log-spaced ω grid spanning the
+    // pole frequencies, plus the pole natural frequencies themselves as explicit
+    // samples (peaks live near them).
+    peak = damp::max(sigma_max(Cplx(T{0}, T{0})), sigma_max_real(sys.D));
+    T w_min = std::numeric_limits<T>::max();
+    T w_max = T{0};
     for (size_t i = 0; i < NX; ++i) {
         const T w = eig.values[i].abs();
         if (w > T{0}) {

@@ -21,7 +21,12 @@ namespace damp {
 /**
  * @brief Single-Phase PLL
  *
- * Uses a Second-Order Generalized Integrator (SOGI) for quadrature signal generation.
+ * SOGI-PLL: a DC-rejecting SOGI (@ref MSTOGI) builds the quadrature pair
+ * (v′, qv′) of the input, which is Park-projected onto the phase estimate; the
+ * q-axis component @f$ v_q = A\sin(\theta - \hat\theta) @f$ is the phase error.
+ * At lock @ref phase is θ for an input @f$ A\cos\theta @f$ (same convention as
+ * @ref ThreePhasePLL). The phase-detector gain is the input amplitude A, so the
+ * default loop gains assume a unit-amplitude (per-unit) input.
  *
  * The loop filter is a @ref ContinuousPID acting on the phase error and
  * producing a frequency *offset* about nominal; the inverter-style output clamp
@@ -68,16 +73,11 @@ struct SinglePhasePLL {
     }
 
     constexpr void step(T input, const T Ts) {
-        // Generate bandpass and quadrature signals using SOGI.
-        const auto [_, quadrature] = mstogi(input, frequency_estimate, damp::numbers::sqrt2_v<T>, Ts);
-
-        // Phase error from the SOGI quadrature mixer. qv' lags the input by 90° at
-        // the SOGI centre, so for an input above the current estimate the DC of
-        // input·qv' is negative — the loop must move the estimate by −(input·qv')
-        // to chase it (same sign convention as the SOGI-FLL's ω̇ = −Γ·ε·qv', see
-        // SogiFll). The earlier +input·qv' was positive feedback and ran the
-        // estimate to a frequency rail.
-        const T phase_error = -(input * quadrature);
+        // SOGI quadrature pair: for input A·cos θ, v′ → A·cos θ and qv′ → A·sin θ
+        // (90° lag). Treat (v′, qv′) as a stationary αβ vector and Park it onto the
+        // current estimate: v_q = A·sin(θ − θ̂) is the phase detector (SOGI-PLL).
+        const auto [in_phase, quadrature] = mstogi(input, frequency_estimate, damp::numbers::sqrt2_v<T>, Ts);
+        const T phase_error = park_transform(AlphaBeta<T>{in_phase, quadrature}, phase_estimate).q;
 
         // Optional leaky integrator: bleed any parked offset toward zero (skip on a
         // non-positive Ts, which would bleed with the wrong sign).

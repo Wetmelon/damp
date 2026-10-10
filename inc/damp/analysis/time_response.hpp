@@ -15,8 +15,8 @@
  * Ts consistency. Continuous plants are ZOH-discretized onto the uniform
  * grid spacing @c dt = time[1]-time[0]. Discrete plants (@c sys.Ts > 0) are
  * iterated with their own sample time; the time vector must match that period
- * (within default_tol) or the response is empty. Do not mix a discrete
- * model with an unrelated host grid.
+ * (to √eps relative) or the response is empty. A non-uniform grid also yields an
+ * empty response. Do not mix a discrete model with an unrelated host grid.
  */
 
 #include <cstddef>
@@ -75,9 +75,8 @@ namespace detail {
  * @brief ZOH-discretize a continuous system onto a uniform time grid.
  *
  * Pass-through if already discrete and the grid spacing matches @c sys.Ts.
- * Returns @c nullopt when the grid is empty, @c dt ≤ 0, discrete @c Ts
- * disagrees with the grid, or (Tustin-only path) discretization fails — ZOH
- * always succeeds for finite matrices.
+ * Returns @c nullopt when the grid is empty, @c dt ≤ 0, the grid is not
+ * uniform, discrete @c Ts disagrees with the grid, or discretization fails.
  */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
 [[nodiscard]] damp::optional<StateSpace<NX, NU, NY, T, NW, NV>> discretize_on_grid(
@@ -96,9 +95,17 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
     if (!(dt > T{0})) {
         return damp::nullopt;
     }
+    // Uniform grid: every spacing matches dt to O(√eps) relative, plus the
+    // round-off of forming t[k] itself (O(eps·|t[k]|)).
+    const T rel = damp::sqrt(eps<T>());
+    for (size_t k = 2; k < time.size(); ++k) {
+        const T tol = (rel * dt) + (T{4} * eps<T>() * damp::abs(time[k]));
+        if (!(damp::abs((time[k] - time[k - 1]) - dt) <= tol)) {
+            return damp::nullopt; // non-uniform grid
+        }
+    }
     if (sys.is_discrete()) {
-        const T tol = default_tol<T>() * (T{1} + damp::abs(sys.Ts));
-        if (damp::abs(dt - sys.Ts) > tol) {
+        if (!(damp::abs(dt - sys.Ts) <= rel * sys.Ts)) {
             return damp::nullopt; // host grid ≠ plant Ts
         }
         return sys;
@@ -173,9 +180,11 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
 /**
  * @brief Impulse response of a (MIMO) state-space system
  *
- * For each input channel j, computes the free response from initial state
- * x₀ = B(:,j), giving y(t) = C·e^{At}·B(:,j) (the strictly-proper part; the
- * D·δ(t) feedthrough term is not plotted). MATLAB® equivalent: `impulse(sys, t)`.
+ * Continuous systems: for each input channel j, the free response from initial
+ * state x₀ = B(:,j), giving y(t) = C·e^{At}·B(:,j) (the strictly-proper part;
+ * the D·δ(t) feedthrough term is not plotted). Discrete systems: the response to
+ * the unit pulse u[0] = 1, i.e. y[0] = D(:,j), y[k] = C·A^{k−1}·B(:,j). MATLAB®
+ * equivalent: `impulse(sys, t)` (which scales the discrete pulse by 1/Ts).
  *
  * @param sys  State-space system
  * @param time Uniformly spaced time vector
@@ -195,11 +204,25 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
     r.t = time;
     r.y.assign(time.size(), Matrix<NY, NU, T>{});
     for (size_t j = 0; j < NU; ++j) {
-        ColVec<NX, T> x0j{};
-        for (size_t i = 0; i < NX; ++i) {
-            x0j[i] = sys.B(i, j);
+        std::vector<ColVec<NY, T>> yj;
+        if (sys.is_discrete()) {
+            // Kronecker pulse u[0] = e_j: y[0] = D(:,j), then free response from x[1] = B(:,j).
+            ColVec<NU, T> uj{};
+            uj[j] = T{1};
+            yj.push_back(ColVec<NY, T>(dsys.D * uj));
+            if (time.size() > 1) {
+                const auto tail = detail::const_input_response(dsys, ColVec<NX, T>(dsys.B * uj), ColVec<NU, T>{}, time.size() - 1);
+                yj.insert(yj.end(), tail.begin(), tail.end());
+            }
+        } else {
+            // Dirac δ: x(0⁺) = B(:,j), then free response (D·δ not representable).
+            ColVec<NX, T> x0j{};
+            for (size_t i = 0; i < NX; ++i) {
+                x0j[i] = sys.B(i, j);
+            }
+            yj = detail::const_input_response(dsys, x0j, ColVec<NU, T>{}, time.size());
         }
-        detail::set_column(r, j, detail::const_input_response(dsys, x0j, ColVec<NU, T>{}, time.size()));
+        detail::set_column(r, j, yj);
     }
     return r;
 }
@@ -352,21 +375,22 @@ template<size_t Nnum, size_t Nden, typename T>
  */
 template<typename T = double>
 struct StepInfo {
-    T rise_time{};     ///< Time to go from 10% to 90% of the total change
-    T settling_time{}; ///< Last time the response stays within the settling band of yfinal
-    T settling_min{};  ///< Minimum value once the response first enters the settling band
-    T settling_max{};  ///< Maximum value once the response first enters the settling band
-    T overshoot{};     ///< Percent overshoot beyond yfinal (0 if none)
-    T undershoot{};    ///< Percent undershoot below the initial value (0 if none)
-    T peak{};          ///< Peak absolute value of the response
-    T peak_time{};     ///< Time of the peak absolute value
+    bool risen{false};    ///< true if the response reached 90% of the change (rise_time valid)
+    T    rise_time{};     ///< Time to go from 10% to 90% of the total change (0 unless risen)
+    T    settling_time{}; ///< Last time the response stays within the settling band of yfinal
+    T    settling_min{};  ///< Minimum value once the response first enters the settling band
+    T    settling_max{};  ///< Maximum value once the response first enters the settling band
+    T    overshoot{};     ///< Percent overshoot beyond yfinal (0 if none)
+    T    undershoot{};    ///< Percent undershoot below the initial value (0 if none)
+    T    peak{};          ///< Peak absolute value of the response
+    T    peak_time{};     ///< Time of the peak absolute value
 };
 
 /**
  * @brief Compute step-response characteristics from an output/time signal
  *
  * @param y           Output samples
- * @param t           Matching time samples (same length as y)
+ * @param t           Matching time samples (same length as y; else empty result)
  * @param yfinal      Steady-state value the response settles to
  * @param settle_frac Settling band as a fraction of |yfinal - y0| (default 0.02 → ±2%)
  */
@@ -378,7 +402,7 @@ template<typename T = double>
     T                     settle_frac = T(0.02)
 ) {
     StepInfo<T> info;
-    if (y.empty()) {
+    if (y.empty() || (t.size() != y.size())) {
         return info;
     }
     const T y0 = y.front();
@@ -393,8 +417,8 @@ template<typename T = double>
     bool    got_lo = false;
     bool    got_hi = false;
     for (size_t k = 0; k < y.size(); ++k) {
-        const T reach_lo = (span >= T(0)) ? (y[k] >= lo) : (y[k] <= lo);
-        const T reach_hi = (span >= T(0)) ? (y[k] >= hi) : (y[k] <= hi);
+        const bool reach_lo = (span >= T(0)) ? (y[k] >= lo) : (y[k] <= lo);
+        const bool reach_hi = (span >= T(0)) ? (y[k] >= hi) : (y[k] <= hi);
         if (!got_lo && reach_lo) {
             t_lo = t[k];
             got_lo = true;
@@ -405,7 +429,8 @@ template<typename T = double>
             break;
         }
     }
-    info.rise_time = t_hi - t_lo;
+    info.risen = got_hi;
+    info.rise_time = got_hi ? (t_hi - t_lo) : T(0);
 
     // Settling time: last instant the response is outside the ±settle_frac band.
     const T band = settle_frac * aspan;
@@ -495,9 +520,10 @@ struct LsimInfo {
  * @brief Compute transient characteristics from an output/time signal
  *
  * @param y           Output samples
- * @param t           Matching time samples
+ * @param t           Matching time samples (same length as y; else empty result)
  * @param yfinal      Reference value for the settling band
- * @param settle_frac Settling band as a fraction of |yfinal| (default 0.02)
+ * @param settle_frac Settling band as a fraction of the peak error max|y − yfinal|
+ *                    (default 0.02)
  */
 template<typename T = double>
 [[nodiscard]] LsimInfo<T> lsiminfo(
@@ -507,10 +533,16 @@ template<typename T = double>
     T                     settle_frac = T(0.02)
 ) {
     LsimInfo<T> info;
-    if (y.empty()) {
+    if (y.empty() || (t.size() != y.size())) {
         return info;
     }
-    const T band = settle_frac * damp::abs(yfinal);
+    // Band relative to the peak error max|y − yfinal| (MATLAB® lsiminfo), so a
+    // regulation response decaying to yfinal = 0 still has a finite band.
+    T peak_err = T{0};
+    for (const T yk : y) {
+        peak_err = damp::max(peak_err, damp::abs(yk - yfinal));
+    }
+    const T band = settle_frac * peak_err;
 
     info.min = y.front();
     info.max = y.front();

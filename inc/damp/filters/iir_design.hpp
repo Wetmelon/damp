@@ -120,29 +120,54 @@ template<typename T>
 [[nodiscard]] constexpr bool valid_Q(T Q) {
     return Q > T{0};
 }
+
+/**
+ * @brief Prewarped bilinear gain k = ω / tan(ω·Ts/2), ω = 2π·f
+ *
+ * With s ← k·(1 − z⁻¹)/(1 + z⁻¹) the analog response at ω lands exactly on the
+ * digital frequency ω (plain Tustin, k = 2/Ts, compresses it toward DC). Requires
+ * valid_cutoff(f, Ts).
+ */
+template<typename T>
+[[nodiscard]] constexpr T prewarped_bilinear_gain(T f, T Ts) {
+    const T omega = T{2} * damp::numbers::pi_v<T> * f;
+    return omega / damp::tan(omega * Ts / T{2});
+}
+
+/**
+ * @brief Analog design frequency that Tustin (k = 2/Ts) maps onto digital @p f
+ *
+ * f_a = tan(π·f·Ts)/(π·Ts). Requires valid_cutoff(f, Ts).
+ */
+template<typename T>
+[[nodiscard]] constexpr T prewarped_frequency(T f, T Ts) {
+    const T pi_Ts = damp::numbers::pi_v<T> * Ts;
+    return damp::tan(pi_Ts * f) / pi_Ts;
+}
 } // namespace detail
 
 /**
  * @brief First-order low-pass filter design
  *
- * Designs a discrete-time first-order low-pass filter with given cutoff frequency.
- * Returns DSP coefficients ready for runtime use.
+ * Bilinear (Tustin) discretization of H(s) = ωc/(s + ωc), prewarped so the
+ * −3 dB corner sits exactly at @p fc. Returns DSP coefficients ready for runtime use.
  *
  * @param fc Cutoff frequency [Hz] (must satisfy 0 < fc < 1/(2·Ts))
  * @param Ts Sample time [s] (must be > 0)
- *  * @return FirstOrderCoeffs\<T\> DSP coefficients; all zero if @p fc / @p Ts invalid
+ * @return FirstOrderCoeffs\<T\> DSP coefficients; all zero if @p fc / @p Ts invalid
+ * @note Compare with MATLAB®'s butter(1, 2*fc*Ts).
  */
 template<typename T = float>
 [[nodiscard]] constexpr FirstOrderCoeffs<T> lowpass_1st(T fc, T Ts) {
     if (!detail::valid_cutoff(fc, Ts)) {
         return FirstOrderCoeffs<T>{};
     }
-    // Bilinear / Tustin: s ← k (1 − z⁻¹)/(1 + z⁻¹), k = 2/Ts.
+    // Bilinear: s ← k (1 − z⁻¹)/(1 + z⁻¹), k prewarped to ωc.
     // Pole gives a1; numerator is forced to unit DC by construction so
     // (b0 + b1) = (1 + a1) holds under -ffast-math reassociation (same pattern
     // as lowpass_2nd).
     const T omega_c = T{2} * damp::numbers::pi_v<T> * fc;
-    const T k = T{2} / Ts;
+    const T k = detail::prewarped_bilinear_gain(fc, Ts);
     const T denom = omega_c + k;
 
     const T a1 = (omega_c - k) / denom;
@@ -157,12 +182,14 @@ template<typename T = float>
 /**
  * @brief First-order high-pass filter design (Tustin / bilinear)
  *
- * Discrete form of H(s) = s / (s + ωc), ωc = 2π·fc. Pair with @ref HighPass
- * or a first-order difference equation. Invalid @p fc / @p Ts → zero coeffs.
+ * Discrete form of H(s) = s / (s + ωc), ωc = 2π·fc, prewarped so the −3 dB
+ * corner sits exactly at @p fc. Pair with @ref HighPass or a first-order
+ * difference equation. Invalid @p fc / @p Ts → zero coeffs.
  *
  * @param fc Cutoff frequency [Hz] (0 < fc < Nyquist)
  * @param Ts Sample time [s] (> 0)
  * @return FirstOrderCoeffs\<T\> DSP coefficients
+ * @note Compare with MATLAB®'s butter(1, 2*fc*Ts, 'high').
  * @see lowpass_1st()
  */
 template<typename T = float>
@@ -170,11 +197,11 @@ template<typename T = float>
     if (!detail::valid_cutoff(fc, Ts)) {
         return FirstOrderCoeffs<T>{};
     }
-    // Bilinear of H(s) = s/(s+ωc). Pin a1 from the pole; force exact DC null
-    // (b1 = −b0) and unit Nyquist gain H(−1) = 1 by construction:
+    // Prewarped bilinear of H(s) = s/(s+ωc). Pin a1 from the pole; force exact
+    // DC null (b1 = −b0) and unit Nyquist gain H(−1) = 1 by construction:
     //   (b0 − b1)/(1 − a1) = 1 with b1 = −b0  ⇒  b0 = (1 − a1)/2.
     const T omega_c = T{2} * damp::numbers::pi_v<T> * fc;
-    const T k = T{2} / Ts;
+    const T k = detail::prewarped_bilinear_gain(fc, Ts);
     const T denom = omega_c + k;
     const T a1 = (omega_c - k) / denom;
     const T b0 = (T{1} - a1) / T{2};
@@ -209,25 +236,26 @@ template<typename T = double>
 /**
  * @brief Second-order low-pass filter design
  *
- * Designs a discrete-time second-order low-pass filter with given cutoff frequency and damping.
- * Returns DSP coefficients ready for runtime use.
+ * Bilinear discretization of H(s) = ω₀² / (s² + 2ζω₀s + ω₀²), prewarped at
+ * @p fc so the digital response at fc equals the analog one (−3 dB for the
+ * Butterworth ζ = 1/√2). Equivalent to the RBJ cookbook low-pass with Q = 1/(2ζ).
  *
  * @param fc Cutoff frequency [Hz] (0 < fc < Nyquist)
  * @param Ts Sample time [s] (> 0)
- * @param zeta Damping ratio (0.707 for Butterworth); must be > 0
- *  * @return SecondOrderCoeffs\<T\> DSP coefficients; all zero if arguments invalid
+ * @param zeta Damping ratio (default 1/√2 = Butterworth); must be > 0
+ * @return SecondOrderCoeffs\<T\> DSP coefficients; all zero if arguments invalid
  */
 template<typename T = float>
-[[nodiscard]] constexpr SecondOrderCoeffs<T> lowpass_2nd(T fc, T Ts, T zeta = static_cast<T>(0.707)) {
+[[nodiscard]] constexpr SecondOrderCoeffs<T> lowpass_2nd(T fc, T Ts, T zeta = damp::numbers::inv_sqrt2_v<T>) {
     if (!detail::valid_cutoff(fc, Ts) || !(zeta > T{0})) {
         return SecondOrderCoeffs<T>{};
     }
     // Discretize H(s) = ω₀² / (s² + 2ζω₀s + ω₀²) with the bilinear transform
-    // s ← k·(1 − z⁻¹)/(1 + z⁻¹), k = 2/Ts. Clearing (1 + z⁻¹)² gives a numerator
-    // proportional to (1 + z⁻¹)² (tap shape 1 : 2 : 1) over a denominator with
-    //   a0 = k² + 2ζω₀k + ω₀².
+    // s ← k·(1 − z⁻¹)/(1 + z⁻¹), k prewarped to ω₀. Clearing (1 + z⁻¹)² gives a
+    // numerator proportional to (1 + z⁻¹)² (tap shape 1 : 2 : 1) over a
+    // denominator with a0 = k² + 2ζω₀k + ω₀².
     const T omega_0 = T{2} * damp::numbers::pi_v<T> * fc;
-    const T k = T{2} / Ts; // bilinear gain (no extra pre-warp; fc already gated vs Nyquist)
+    const T k = detail::prewarped_bilinear_gain(fc, Ts);
     const T k_sq = k * k;
     const T omega_0_sq = omega_0 * omega_0;
     const T two_zeta_omega = T{2} * zeta * omega_0;
@@ -494,20 +522,24 @@ template<size_t Order, typename T = double>
  *
  * Creates a discrete-time Butterworth low-pass filter of specified order.
  * Butterworth filters have maximally flat magnitude response in passband.
+ * The analog prototype is prewarped so the −3 dB corner lands exactly on @p fc
+ * after the Tustin step.
  *
- * @param fc Cutoff frequency [Hz]
+ * @param fc Cutoff frequency [Hz] (0 < fc < Nyquist)
  * @param Ts Sample time [s]
- *  *  * @return StateSpace system representing the discrete-time filter
+ * @return StateSpace system representing the discrete-time filter; on invalid
+ *         @p fc / @p Ts the continuous prototype (Ts = 0) — check is_discrete()
+ * @note Compare with MATLAB®'s butter(Order, 2*fc*Ts).
  */
 template<size_t Order, typename T = float>
     requires(Order >= 1 && Order <= 4)
 [[nodiscard]] constexpr auto butterworth_lowpass(T fc, T Ts) {
     // Fail closed on invalid rates: return continuous companion with Ts = 0
     // rather than UB from *nullopt on a failed Tustin step.
-    if (!(Ts > T{0}) || !(fc > T{0}) || !((T{2} * fc * Ts) < T{1})) {
+    if (!detail::valid_cutoff(fc, Ts)) {
         return butterworth_lowpass<Order, T>(fc);
     }
-    auto sys_c = butterworth_lowpass<Order, T>(fc);
+    auto sys_c = butterworth_lowpass<Order, T>(detail::prewarped_frequency(fc, Ts));
     auto sys_d = discretize(sys_c, Ts, DiscretizationMethod::Tustin);
     if (!sys_d) {
         return sys_c;
@@ -522,7 +554,7 @@ template<size_t Order, typename T = float>
  * H(s) = (1 - sT/2) / (1 + sT/2)
  *
  * @param T_delay Time delay [s]
- *  * @return TransferFunction<2, 2, T> representing the delay approximation
+ * @return TransferFunction<2, 2, T> representing the delay approximation
  */
 template<typename T = double>
 [[nodiscard]] constexpr TransferFunction<2, 2, T> pade_delay_1st(T T_delay) {
@@ -540,7 +572,7 @@ template<typename T = double>
  *
  * @param T_delay Time delay [s]
  * @param Ts Sample time [s]
- *  * @return TransferFunction<2, 2, T> discrete-time delay approximation
+ * @return TransferFunction<2, 2, T> discrete-time delay approximation
  */
 template<typename T = float>
 [[nodiscard]] constexpr TransferFunction<2, 2, T> pade_delay_1st(T T_delay, T Ts) {
@@ -566,7 +598,7 @@ template<typename T = float>
  * H(s) = (1 - sT/2 + (sT)²/12) / (1 + sT/2 + (sT)²/12)
  *
  * @param T_delay Time delay [s]
- *  * @return TransferFunction<3, 3, T> representing the delay approximation
+ * @return TransferFunction<3, 3, T> representing the delay approximation
  */
 template<typename T = double>
 [[nodiscard]] constexpr TransferFunction<3, 3, T> pade_delay_2nd(T T_delay) {
@@ -585,7 +617,7 @@ template<typename T = double>
  *
  * @param T_delay Time delay [s]
  * @param Ts Sample time [s]
- *  * @return TransferFunction<3, 3, T> discrete-time delay approximation
+ * @return TransferFunction<3, 3, T> discrete-time delay approximation
  */
 template<typename T = float>
 [[nodiscard]] constexpr TransferFunction<3, 3, T> pade_delay_2nd(T T_delay, T Ts) {
@@ -611,7 +643,7 @@ template<typename T = float>
  *
  * @param sys State-space system
  * @param Ts Sample time (only used if sys is continuous)
- *  * @return FirstOrderCoeffs\<T\> DSP coefficients
+ * @return FirstOrderCoeffs\<T\> DSP coefficients
  */
 template<typename T = float>
 [[nodiscard]] constexpr FirstOrderCoeffs<T> to_coeffs(const StateSpace<1, 1, 1, T>& sys, T Ts = T{0}) {
@@ -641,7 +673,7 @@ template<typename T = float>
  *
  * @param tf Transfer function
  * @param Ts Sample time
- *  * @return FirstOrderCoeffs\<T\> DSP coefficients
+ * @return FirstOrderCoeffs\<T\> DSP coefficients
  */
 template<typename T = float>
 [[nodiscard]] constexpr FirstOrderCoeffs<T> to_coeffs(const TransferFunction<1, 2, T>& tf, T Ts) {
@@ -659,6 +691,13 @@ template<typename T = float>
     return to_coeffs(*sys_d);
 }
 
+/**
+ * @brief Convert a proper first-order TransferFunction to DSP coefficients (Tustin)
+ *
+ * @param tf Transfer function (ascending powers of s)
+ * @param Ts Sample time [s]
+ * @return FirstOrderCoeffs\<T\> DSP coefficients; zero if @p Ts ≤ 0 or realization fails
+ */
 template<typename T = float>
 [[nodiscard]] constexpr FirstOrderCoeffs<T> to_coeffs(const TransferFunction<2, 2, T>& tf, T Ts) {
     if (!(Ts > T{0})) {
@@ -682,7 +721,7 @@ template<typename T = float>
  *
  * @param sys State-space system
  * @param Ts Sample time (only used if sys is continuous)
- *  * @return SecondOrderCoeffs\<T\> DSP coefficients
+ * @return SecondOrderCoeffs\<T\> DSP coefficients
  */
 template<typename T = float>
 [[nodiscard]] constexpr SecondOrderCoeffs<T> to_coeffs(const StateSpace<2, 1, 1, T>& sys, T Ts = T{0}) {
@@ -730,7 +769,7 @@ template<typename T = float>
  *
  * @param tf Transfer function
  * @param Ts Sample time
- *  * @return SecondOrderCoeffs\<T\> DSP coefficients
+ * @return SecondOrderCoeffs\<T\> DSP coefficients
  */
 template<typename T = float>
 [[nodiscard]] constexpr SecondOrderCoeffs<T> to_coeffs(const TransferFunction<3, 3, T>& tf, T Ts) {
@@ -761,8 +800,9 @@ template<typename T = float>
 namespace detail {
 template<typename T>
 [[nodiscard]] constexpr SecondOrderCoeffs<T> normalize_biquad(T b0, T b1, T b2, T a0, T a1, T a2) {
-    // Guard a0 ≈ 0 (degenerate Q/freq) — return zero section, not ±∞ coeffs.
-    if (!(damp::abs(a0) > default_tol<T>())) {
+    // Every caller's a0 is a sum of positive terms (> 0 for valid f/Q/gain); guard
+    // only the degenerate zero — return a zero section, not ±∞ coeffs.
+    if (!(damp::abs(a0) > T{0})) {
         return SecondOrderCoeffs<T>{};
     }
     const T inv = T{1} / a0;
@@ -776,7 +816,8 @@ template<typename T>
  * Rejects a narrow band around f0 (gain → 0 at f0) while passing the rest
  * (gain → 1). Transfer function:
  *
- *     H(z) = (1 − 2cosω₀ z⁻¹ + z⁻²) / (1 + α) / (… z⁻¹ …),  α = sinω₀ / (2Q)
+ *     H(z) = (1 − 2cosω₀ z⁻¹ + z⁻²) / ((1 + α) − 2cosω₀ z⁻¹ + (1 − α) z⁻²),
+ *     ω₀ = 2π·f0·Ts,  α = sinω₀ / (2Q)
  *
  * @note Compare with MATLAB®'s iirnotch(w0, bw).
  * @param f0 Notch (center) frequency [Hz]

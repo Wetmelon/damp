@@ -202,11 +202,14 @@ public:
             return T{0};
         }
 
+        // Reduce modulo the period in floating point first so the size_t cast is
+        // in range for any t (a raw floor(t/clock) can exceed SIZE_MAX).
         const T           tc = damp::max(t, T{0});
         const std::size_t period = period_bits();
-        auto              chips = static_cast<std::size_t>(damp::floor(tc / config_.clock_period_s));
-        if (period > 0) {
-            chips %= period;
+        const T           chip_pos = damp::fmod(damp::floor(tc / config_.clock_period_s), static_cast<T>(period));
+        auto              chips = static_cast<std::size_t>(chip_pos);
+        if (chips >= period) {
+            chips = 0; // fmod round-off at the period boundary
         }
 
         std::uint32_t state = seeded_state();

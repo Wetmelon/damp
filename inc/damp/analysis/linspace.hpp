@@ -26,6 +26,13 @@
 namespace damp {
 namespace analysis {
 
+/**
+ * @brief @p num evenly spaced values from @p start to @p end inclusive
+ *
+ * @p num = 1 returns {start}; @p num = 0 returns an empty vector.
+ *
+ * @note Compare with NumPy's numpy.linspace(start, stop, num).
+ */
 template<typename T = double>
     requires std::is_floating_point_v<T>
 constexpr std::vector<T> linspace(T start, T end, size_t num) {
@@ -42,12 +49,21 @@ constexpr std::vector<T> linspace(T start, T end, size_t num) {
     return result;
 }
 
+/// @brief @c linspace(span.first, span.second, num)
 template<typename T = double>
     requires std::is_floating_point_v<T>
 constexpr std::vector<T> linspace(const damp::pair<T, T>& span, size_t num) {
     return linspace(span.first, span.second, num);
 }
 
+/**
+ * @brief @p num logarithmically spaced values from @p start to @p end (endpoint values)
+ *
+ * x_i = base^(log_b(start) + i·step); @p start and @p end must be > 0. @p num = 1
+ * returns {start}; @p num = 0 returns an empty vector.
+ *
+ * @note Compare with NumPy's numpy.geomspace (value endpoints, not exponents).
+ */
 template<typename T = double>
     requires std::is_floating_point_v<T>
 constexpr std::vector<T> logspace(T start, T end, size_t num, T base = T{10}) {
@@ -68,6 +84,7 @@ constexpr std::vector<T> logspace(T start, T end, size_t num, T base = T{10}) {
     return result;
 }
 
+/// @brief @c logspace(span.first, span.second, num, base)
 template<typename T = double>
     requires std::is_floating_point_v<T>
 constexpr std::vector<T> logspace(const damp::pair<T, T>& span, size_t num, T base = T{10}) {

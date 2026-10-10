@@ -12,10 +12,10 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <limits>
 
 #include "damp/backend.hpp"
 #include "damp/math/math.hpp"
+#include "damp/matrix/matrix_traits.hpp" // eps
 
 namespace damp {
 namespace design {
@@ -222,11 +222,14 @@ private:
     }
 
     [[nodiscard]] constexpr T log_phase(T t) const {
-        const T ratio = config_.f_end_hz / config_.f_start_hz;
-        const T beta = damp::log(ratio) / config_.duration_s;
-        if (damp::abs(beta) <= std::numeric_limits<T>::epsilon()) {
+        // f(t) = f0·e^{βt}, β = ln(f1/f0)/T  ⇒  φ(t) = 2π·f0·(e^{βt} − 1)/β.
+        // Test the dimensionless ln(f1/f0) (not β, which carries 1/s): when it is
+        // within round-off of 0 the sweep is a constant tone.
+        const T log_ratio = damp::log(config_.f_end_hz / config_.f_start_hz);
+        if (damp::abs(log_ratio) <= eps<T>()) {
             return T{2} * damp::numbers::pi_v<T> * config_.f_start_hz * t;
         }
+        const T beta = log_ratio / config_.duration_s;
         const T phase_cycles = (config_.f_start_hz / beta) * (damp::exp(beta * t) - T{1});
         return T{2} * damp::numbers::pi_v<T> * phase_cycles;
     }

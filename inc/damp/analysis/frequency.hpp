@@ -91,7 +91,9 @@ struct BodeResult {
     /**
      * @brief Find -3dB bandwidth
      *
-     * The frequency at which the magnitude drops 3 dB below the DC (or peak) value.
+     * The first frequency at which the magnitude drops 3 dB below its value at the
+     * first (lowest-frequency) sample, taken as the DC gain; linear interpolation
+     * between the bracketing samples.
      *
      * @return Bandwidth in rad/s, or nullopt if not found
      */
@@ -193,10 +195,10 @@ template<typename T>
 /**
  * @brief Find gain margin using unwrapped phase trajectory
  *
- * Finds the first -180 deg crossing on the unwrapped phase trajectory and
+ * Finds the first crossing of -180 deg (mod 360) on the unwrapped phase trajectory and
  * computes gain margin as -|L|_dB at that crossing.
  *
- * @return {gain_margin_dB, crossover_frequency} or nullopt if no -180 crossing
+ * @return {gain_margin_dB, crossover_frequency} or nullopt if no -180 (mod 360) crossing
  */
 template<typename T>
 [[nodiscard]] constexpr damp::optional<damp::pair<T, T>> gain_margin_unwrapped(const BodeResult<T>& result) {
@@ -212,8 +214,14 @@ template<typename T>
     const auto unwrapped = unwrap_phase_deg(wrapped_phase);
 
     for (size_t i = 1; i < result.points.size(); ++i) {
-        const T p0 = unwrapped[i - 1] + T{180};
-        const T p1 = unwrapped[i] + T{180};
+        // Phase crossover: the unwrapped trajectory crosses −180° + k·360° for any
+        // integer k (e.g. a loop starting at −270° crosses +180°). Shift so the
+        // nearest such line sits at 0 for this segment.
+        const T p0_raw = unwrapped[i - 1] + T{180};
+        const T p1_raw = unwrapped[i] + T{180};
+        const T line = T{360} * damp::floor(damp::max(p0_raw, p1_raw) / T{360});
+        const T p0 = p0_raw - line;
+        const T p1 = p1_raw - line;
 
         if ((p0 >= T{0} && p1 < T{0}) || (p0 <= T{0} && p1 > T{0})) {
             const T frac = (T{0} - p0) / (p1 - p0);
@@ -279,8 +287,8 @@ template<size_t NX, size_t NW, size_t NV, typename T>
  * @brief Compute Bode plot data for a SISO transfer function
  *
  * Evaluates H(jω) = num(jω)/den(jω) over a vector of frequencies.
- * Samples where |den(jω)| is below default_tol (jω-axis poles) are
- * omitted — same honest skip policy as the state-space overload.
+ * Samples where den(jω) vanishes to round-off relative to Σ|den_i|·|ω|^i
+ * (jω-axis poles) are omitted — same honest skip policy as the state-space overload.
  *
  * @param num   Numerator coefficients (ascending powers of s)
  * @param den   Denominator coefficients (ascending powers of s)
@@ -308,16 +316,21 @@ template<size_t Nnum, size_t Nden, typename T>
             jw_power = jw_power * jw;
         }
 
-        // Evaluate denominator polynomial at jw (ascending powers)
+        // Evaluate denominator polynomial at jw (ascending powers), tracking the
+        // magnitude of its terms Σ|den_i|·|ω|^i for a scale-invariant zero test.
         Cplx den_val{T{0}, T{0}};
+        T    den_scale = T{0};
+        T    w_power = T{1};
         jw_power = Cplx{T{1}, T{0}};
         for (size_t i = 0; i < Nden; ++i) {
             den_val = den_val + den[i] * jw_power;
+            den_scale += damp::abs(den[i]) * w_power;
             jw_power = jw_power * jw;
+            w_power *= damp::abs(w);
         }
 
-        // Skip jω-axis poles (den ≈ 0) — no Inf/NaN samples.
-        if (!(damp::abs(den_val) > default_tol<T>())) {
+        // Skip jω-axis poles (den lost in round-off) — no Inf/NaN samples.
+        if (!(damp::abs(den_val) > static_cast<T>(Nden) * eps<T>() * den_scale)) {
             continue;
         }
 
@@ -1142,7 +1155,8 @@ template<size_t NX_S, size_t NW_S, size_t NV_S, size_t NX_L, size_t NW_L, size_t
  * @brief Middlebrook analysis from pre-computed impedance data
  *
  * For cases where Z_s and Z_L are already known (e.g., from measurement
- * or from separate impedance models).
+ * or from separate impedance models). Samples are paired by equal ω (both
+ * results in the same grid order); a frequency present in only one is dropped.
  *
  * @param Z_source  Source impedance frequency response
  * @param Z_load    Load impedance frequency response
@@ -1157,12 +1171,21 @@ template<typename T>
     result.source_impedance = Z_source;
     result.load_impedance = Z_load;
 
-    size_t n = damp::min(Z_source.points.size(), Z_load.points.size());
-    result.minor_loop_gain.points.reserve(n);
+    result.minor_loop_gain.points.reserve(damp::min(Z_source.points.size(), Z_load.points.size()));
 
-    for (size_t i = 0; i < n; ++i) {
-        auto& zs = Z_source.points[i];
-        auto& zl = Z_load.points[i];
+    // Pair samples by frequency, not by index: impedance() skips contour poles, so
+    // two sweeps of the same grid can differ in length. Both keep grid order.
+    size_t j = 0;
+    for (const auto& zs : Z_source.points) {
+        size_t k = j;
+        while (k < Z_load.points.size() && Z_load.points[k].omega != zs.omega) {
+            ++k;
+        }
+        if (k == Z_load.points.size()) {
+            continue; // no load sample at this frequency
+        }
+        j = k + 1;
+        const auto& zl = Z_load.points[k];
 
         // T_m = Z_s / Z_L
         auto Tm = zs.Z / zl.Z;

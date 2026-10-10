@@ -67,6 +67,7 @@ public:
             cos_ = T{1};
             sin_ = T{0};
             coeff_ = T{0};
+            amp_scale_ = T{0};
             return;
         }
         const T omega = (T{2} * damp::numbers::pi_v<T> * freq_hz) / fs_hz;
@@ -74,6 +75,12 @@ public:
         cos_ = c;
         sin_ = s;
         coeff_ = T{2} * cos_;
+        // The recurrence ends on e^{jω(N−1)}·X(ω); undo that rotation once per block.
+        const auto [rs, rc] = damp::sincos(omega * static_cast<T>(block_size - 1));
+        rot_cos_ = rc;
+        rot_sin_ = rs;
+        // A DC bin carries the full level in |X|/N; any other bin splits it with −ω.
+        amp_scale_ = ((freq_hz > T{0}) ? T{2} : T{1}) / static_cast<T>(block_size);
     }
 
     /**
@@ -95,8 +102,11 @@ public:
         s2_ = s1_;
         s1_ = s;
         if (++count_ >= n_) {
-            real_ = s1_ - (s2_ * cos_);
-            imag_ = s2_ * sin_;
+            // y = s[N−1] − e^{−jω}·s[N−2] = e^{jω(N−1)}·X(ω); X = y·e^{−jω(N−1)}.
+            const T yr = s1_ - (s2_ * cos_);
+            const T yi = s2_ * sin_;
+            real_ = (yr * rot_cos_) + (yi * rot_sin_);
+            imag_ = (yi * rot_cos_) - (yr * rot_sin_);
             complete_ = true;
             return true;
         }
@@ -112,21 +122,18 @@ public:
     /// Power, |X_k|².
     [[nodiscard]] constexpr T power() const { return (real_ * real_) + (imag_ * imag_); }
 
-    /// Peak amplitude of a sinusoid at the bin frequency (2·|X_k| / N). Zero if N = 0.
-    [[nodiscard]] constexpr T amplitude() const {
-        if (n_ == 0) {
-            return T{0};
-        }
-        return (T{2} * magnitude()) / static_cast<T>(n_);
-    }
+    /// Peak amplitude of a sinusoid at the bin frequency (2·|X_k| / N; the DC level
+    /// |X₀| / N for a 0 Hz bin). Zero if N = 0.
+    [[nodiscard]] constexpr T amplitude() const { return amp_scale_ * magnitude(); }
 
-    /// Phase of the bin [rad] (Goertzel convention; consistent across harmonics).
+    /// Phase of the bin [rad]: φ for x[n] = A·cos(ωn + φ) on a coherent block,
+    /// with n = 0 at the first sample of the block.
     [[nodiscard]] constexpr T phase() const { return damp::atan2(imag_, real_); }
 
-    /// Real part of the DFT bin X_k (valid after @ref complete).
+    /// Real part of the DFT bin X(ω) = Σ x[n]·e^{−jωn} (valid after @ref complete).
     [[nodiscard]] constexpr T real() const { return real_; }
 
-    /// Imaginary part of the DFT bin X_k (valid after @ref complete).
+    /// Imaginary part of the DFT bin X(ω) (valid after @ref complete).
     [[nodiscard]] constexpr T imag() const { return imag_; }
 
     /// Discard the in-progress block and start over.
@@ -145,6 +152,9 @@ private:
     T      coeff_{T{0}};
     T      cos_{T{1}};
     T      sin_{T{0}};
+    T      rot_cos_{T{1}};   ///< cos(ω(N−1)): end-of-block phase rotation
+    T      rot_sin_{T{0}};   ///< sin(ω(N−1))
+    T      amp_scale_{T{1}}; ///< 2/N (1/N for the DC bin); 0 when inert
     size_t n_{1};
 
     T      s1_{T{0}};
@@ -190,9 +200,11 @@ public:
      * @return true when the block just completed (results valid until next push).
      */
     constexpr bool push(T x) {
-        bool done = false;
-        for (size_t h = 0; h < K; ++h) {
-            done = bins_[h].push(x);
+        // Every live bin shares the block length, so the fundamental's flag is the
+        // block flag (a harmonic at/above Nyquist is inert and never completes).
+        const bool done = bins_[0].push(x);
+        for (size_t h = 1; h < K; ++h) {
+            (void)bins_[h].push(x);
         }
         return done;
     }
@@ -228,18 +240,13 @@ public:
         return damp::sqrt(sum_sq) / damp::numbers::sqrt2_v<T>;
     }
 
-    /// Total harmonic distortion, √(Σ_{h≥2} Aₕ²) / A₁ (0 if the fundamental is ~0).
+    /// Total harmonic distortion, √(Σ_{h≥2} Aₕ²) / A₁ (0 if the fundamental is 0).
     [[nodiscard]] constexpr T thd() const {
         const T fundamental = bins_[0].amplitude();
-        if (fundamental <= default_tol<T>()) {
+        if (!(fundamental > T{0})) {
             return T{0};
         }
-        T sum_sq = T{0};
-        for (size_t h = 1; h < K; ++h) {
-            const T a = bins_[h].amplitude();
-            sum_sq += a * a;
-        }
-        return damp::sqrt(sum_sq) / fundamental;
+        return (total_harmonic_rms() * damp::numbers::sqrt2_v<T>) / fundamental;
     }
 
     [[nodiscard]] constexpr bool complete() const { return bins_[0].complete(); }

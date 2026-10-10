@@ -82,14 +82,20 @@ struct PoleInfo {
 /**
  * @brief Compute natural frequency and damping for each pole
  *
+ * Continuous-time interpretation (s-plane poles of A).
+ *
  * @param A State matrix
- * @return Array of PoleInfo with ωn, ζ, τ for each pole
+ * @return Array of PoleInfo with ωn, ζ, τ for each pole; all zero if the
+ *         eigensolver does not converge (same posture as @ref poles)
  */
 template<size_t NX, typename T = double>
 [[nodiscard]] constexpr damp::array<PoleInfo<T>, NX>
 damp(const Matrix<NX, NX, T>& A) {
     auto                         eigen = mat::compute_eigenvalues(A);
     damp::array<PoleInfo<T>, NX> info{};
+    if (!eigen.converged) {
+        return info;
+    }
     for (size_t i = 0; i < NX; ++i) {
         auto p = eigen.values[i];
         T    wn = damp::abs(p);
@@ -117,30 +123,58 @@ struct PoleZeroMap {
     std::vector<damp::complex<T>> zeros; ///< Zero locations
 };
 
+namespace detail {
+
+/**
+ * @brief Append the roots of the degree-@p m polynomial c[0…m] (c[m] ≠ 0), m ≤ M
+ *
+ * Recurses on the compile-time companion size down to the runtime degree.
+ */
+template<size_t M, size_t N, typename T>
+void append_poly_roots(const damp::array<T, N>& c, size_t m, std::vector<damp::complex<T>>& out) {
+    if constexpr (M >= 1) {
+        if (m < M) {
+            append_poly_roots<M - 1>(c, m, out);
+            return;
+        }
+        Matrix<M, M, T> companion{};
+        for (size_t i = 0; i + 1 < M; ++i) {
+            companion(i, i + 1) = T{1};
+        }
+        for (size_t j = 0; j < M; ++j) {
+            companion(M - 1, j) = -c[j] / c[M];
+        }
+        const auto eig = mat::compute_eigenvalues(companion);
+        if (!eig.converged) {
+            return;
+        }
+        for (size_t i = 0; i < M; ++i) {
+            out.push_back(eig.values[i]);
+        }
+    }
+}
+
+} // namespace detail
+
 /**
  * @brief Roots of a polynomial given in ascending powers (MATLAB® `roots`, reversed order)
  *
- * For coefficients c[0] + c[1]·x + … + c[N-1]·x^{N-1}, returns the N-1 roots as
- * the eigenvalues of the companion matrix. The highest-order coefficient
- * c[N-1] must be nonzero (no trailing-zero padding).
+ * For coefficients c[0] + c[1]·x + … + c[N-1]·x^{N-1}, returns the roots as the
+ * eigenvalues of the companion matrix. Trailing zero coefficients (fixed-size
+ * padding, e.g. a TF numerator of lower degree than its array) are dropped, so
+ * a degree-m polynomial yields m roots. An all-zero polynomial, or an eigensolver
+ * that does not converge, yields no roots.
  */
 template<size_t N, typename T>
 [[nodiscard]] std::vector<damp::complex<T>> poly_roots(const damp::array<T, N>& c) {
     std::vector<damp::complex<T>> out;
     if constexpr (N >= 2) {
-        constexpr size_t M = N - 1;
-        Matrix<M, M, T>  companion{};
-        for (size_t i = 0; i + 1 < M; ++i) {
-            companion(i, i + 1) = T{1};
+        size_t m = N - 1; // effective degree: highest nonzero coefficient
+        while (m > 0 && c[m] == T{0}) {
+            --m;
         }
-        for (size_t j = 0; j < M; ++j) {
-            companion(M - 1, j) = -c[j] / c[N - 1];
-        }
-        const auto eig = mat::compute_eigenvalues(companion);
-        out.reserve(M);
-        for (size_t i = 0; i < M; ++i) {
-            out.push_back(eig.values[i]);
-        }
+        out.reserve(m);
+        detail::append_poly_roots<N - 1>(c, m, out);
     }
     return out;
 }
@@ -277,12 +311,12 @@ template<size_t NX, size_t NW, size_t NV, typename T>
     }
 
     const T d = sys.D(0, 0);
-    const T eps = damp::default_tol<T>() * (T{1} + damp::abs(d));
 
     std::vector<damp::complex<T>> prev;
     for (const T k : gains) {
+        // 1 + k·D is dimensionless: "zero" means lost to round-off in that sum.
         const T den = T{1} + k * d;
-        if (damp::abs(den) < eps) {
+        if (!(damp::abs(den) > T{4} * eps<T>() * (T{1} + damp::abs(k * d)))) {
             continue; // direct-feedthrough singularity
         }
         const T scale = k / den;
