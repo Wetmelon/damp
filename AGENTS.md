@@ -33,6 +33,23 @@ make tests        # build tests, then run
 tup --quiet tests # compile tests only
 ```
 
+**Final check: always run `make`.** Before reporting work as done, run plain
+`make` and confirm it exits 0. It is the only command that covers everything:
+formatting, the test runner, both backend runners, examples (built *and* run),
+the embedded/freestanding contract checks, and the `REFERENCE.md` regen.
+`tup tests`, `test_runner`, or a hand-built subset are for iterating, not a
+substitute.
+
+**Windows: run `make` from PowerShell or cmd, not Git Bash.** Under Git Bash,
+Git's MSYS `sh` comes first on PATH. MSYS tools write `*-pipe-nt-*` files that
+tup rejects ("was written to, but is not in .tup/db"). The coreutils also go
+missing inside tup jobs (`basename: command not found`). From PowerShell, `sh`
+resolves to `C:\Tools\binutils\bin\sh.exe` (busybox), which works.
+
+**Worktrees go outside the repo** (e.g. `C:/workspace/damp-<name>`). tup treats
+any nested directory containing `tup.config` as a variant and refuses to build
+the main tree.
+
 **Test runner** (path is OS-specific; tup writes under `tests/build/`):
 
 ```bash
