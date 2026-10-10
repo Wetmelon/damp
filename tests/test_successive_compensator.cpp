@@ -10,6 +10,7 @@
 #include "damp/backend.hpp"
 #include "damp/estimation/frequency_response.hpp"
 #include "damp/estimation/successive_compensator.hpp"
+#include "damp/math/math.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "damp/systems/discretization.hpp"
 #include "damp/systems/state_space.hpp"
@@ -27,7 +28,7 @@ TEST_SUITE("Second-order step fit") {
         constexpr double       fn = 20.0;
         constexpr double       wn = 2.0 * damp::numbers::pi_v<double> * fn;
         constexpr double       zeta = 0.08;
-        constexpr double       wd = wn * std::sqrt(1.0 - (zeta * zeta));
+        constexpr double       wd = wn * damp::sqrt(1.0 - (zeta * zeta));
         constexpr double       Ts = 0.001;
         constexpr std::size_t  N = 800;
         damp::array<double, N> y{};
