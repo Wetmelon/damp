@@ -86,73 +86,77 @@ template<size_t P, size_t Q, typename T>
     Matrix<P, Q, T> W = A * T{inv_amax};
     Matrix<Q, Q, T> V = Matrix<Q, Q, T>::identity();
 
-    // Sweep over column pairs, rotating each pair to mutual orthogonality.
+    // Sweep over column pairs, rotating each pair to mutual orthogonality. A
+    // single column has no pairs and is already orthogonal; skipping the sweep
+    // at compile time also keeps its out-of-range W(i, q) out of the instance.
     constexpr size_t max_sweeps = 60;
-    bool             converged = false;
-    for (size_t sweep = 0; sweep < max_sweeps; ++sweep) {
-        bool rotated = false;
-        for (size_t p = 0; p < Q; ++p) {
-            for (size_t q = p + 1; q < Q; ++q) {
-                // 2×2 Hermitian Gram block of columns p, q.
-                real_t alpha = real_t{0};
-                real_t beta = real_t{0};
-                T      gamma = T{0};
-                for (size_t i = 0; i < P; ++i) {
-                    const T      wip = W(i, p);
-                    const T      wiq = W(i, q);
-                    const real_t aip = damp::abs(wip);
-                    const real_t aiq = damp::abs(wiq);
-                    alpha += aip * aip;
-                    beta += aiq * aiq;
-                    gamma += damp::conj(wip) * wiq;
-                }
-                // A column whose squared norm has reached the subnormal range
-                // (‖w‖ ≲ 1e-146 after pre-scaling, in double) is roundoff
-                // residue of a rank-deficient A: its Gram sums carry no
-                // relative precision, so its cosine is noise and rotating it
-                // never converges. Treat it as zero.
-                if (alpha < underflow_floor || beta < underflow_floor) {
-                    continue;
-                }
-                const real_t gmag = damp::abs(gamma);
-                const real_t scale = damp::sqrt(alpha) * damp::sqrt(beta);
-                if (gmag <= tol * scale) {
-                    continue; // already orthogonal
-                }
-                rotated = true;
+    bool             converged = (Q < 2);
+    if constexpr (Q > 1) {
+        for (size_t sweep = 0; sweep < max_sweeps; ++sweep) {
+            bool rotated = false;
+            for (size_t p = 0; p < Q; ++p) {
+                for (size_t q = p + 1; q < Q; ++q) {
+                    // 2×2 Hermitian Gram block of columns p, q.
+                    real_t alpha = real_t{0};
+                    real_t beta = real_t{0};
+                    T      gamma = T{0};
+                    for (size_t i = 0; i < P; ++i) {
+                        const T      wip = W(i, p);
+                        const T      wiq = W(i, q);
+                        const real_t aip = damp::abs(wip);
+                        const real_t aiq = damp::abs(wiq);
+                        alpha += aip * aip;
+                        beta += aiq * aiq;
+                        gamma += damp::conj(wip) * wiq;
+                    }
+                    // A column whose squared norm has reached the subnormal range
+                    // (‖w‖ ≲ 1e-146 after pre-scaling, in double) is roundoff
+                    // residue of a rank-deficient A: its Gram sums carry no
+                    // relative precision, so its cosine is noise and rotating it
+                    // never converges. Treat it as zero.
+                    if (alpha < underflow_floor || beta < underflow_floor) {
+                        continue;
+                    }
+                    const real_t gmag = damp::abs(gamma);
+                    const real_t scale = damp::sqrt(alpha) * damp::sqrt(beta);
+                    if (gmag <= tol * scale) {
+                        continue; // already orthogonal
+                    }
+                    rotated = true;
 
-                // Real Jacobi angle that zeros the off-diagonal of the
-                // phase-aligned block [[alpha, gmag], [gmag, beta]]. The smaller
-                // root t = -sign(zeta)/(|zeta|+sqrt(zeta²+1)) keeps the rotation
-                // near identity for stability.
-                const real_t zeta = (beta - alpha) / (real_t{2} * gmag);
-                const real_t zsign = (zeta >= real_t{0}) ? real_t{1} : real_t{-1};
-                const real_t t = -zsign / (damp::abs(zeta) + damp::sqrt((zeta * zeta) + real_t{1}));
-                const real_t c = real_t{1} / damp::sqrt(real_t{1} + (t * t));
-                const real_t s = c * t;
-                // ph = e^{-i·arg(gamma)} folds the complex phase into the
-                // rotation; for real T it is simply ±1.
-                const T ph = damp::conj(gamma) / gmag;
-                const T phs = ph * s;
-                const T phc = ph * c;
+                    // Real Jacobi angle that zeros the off-diagonal of the
+                    // phase-aligned block [[alpha, gmag], [gmag, beta]]. The smaller
+                    // root t = -sign(zeta)/(|zeta|+sqrt(zeta²+1)) keeps the rotation
+                    // near identity for stability.
+                    const real_t zeta = (beta - alpha) / (real_t{2} * gmag);
+                    const real_t zsign = (zeta >= real_t{0}) ? real_t{1} : real_t{-1};
+                    const real_t t = -zsign / (damp::abs(zeta) + damp::sqrt((zeta * zeta) + real_t{1}));
+                    const real_t c = real_t{1} / damp::sqrt(real_t{1} + (t * t));
+                    const real_t s = c * t;
+                    // ph = e^{-i·arg(gamma)} folds the complex phase into the
+                    // rotation; for real T it is simply ±1.
+                    const T ph = damp::conj(gamma) / gmag;
+                    const T phs = ph * s;
+                    const T phc = ph * c;
 
-                for (size_t i = 0; i < P; ++i) {
-                    const T wip = W(i, p);
-                    const T wiq = W(i, q);
-                    W(i, p) = (c * wip) + (phs * wiq);
-                    W(i, q) = (-s * wip) + (phc * wiq);
-                }
-                for (size_t i = 0; i < Q; ++i) {
-                    const T vip = V(i, p);
-                    const T viq = V(i, q);
-                    V(i, p) = (c * vip) + (phs * viq);
-                    V(i, q) = (-s * vip) + (phc * viq);
+                    for (size_t i = 0; i < P; ++i) {
+                        const T wip = W(i, p);
+                        const T wiq = W(i, q);
+                        W(i, p) = (c * wip) + (phs * wiq);
+                        W(i, q) = (-s * wip) + (phc * wiq);
+                    }
+                    for (size_t i = 0; i < Q; ++i) {
+                        const T vip = V(i, p);
+                        const T viq = V(i, q);
+                        V(i, p) = (c * vip) + (phs * viq);
+                        V(i, q) = (-s * vip) + (phc * viq);
+                    }
                 }
             }
-        }
-        if (!rotated) {
-            converged = true;
-            break;
+            if (!rotated) {
+                converged = true;
+                break;
+            }
         }
     }
 

@@ -821,3 +821,15 @@ TEST_SUITE("svd on rank-deficient input") {
         CHECK(ce.singular_values[1] == doctest::Approx(rt.singular_values[1]).epsilon(1e-12));
     }
 }
+
+TEST_SUITE("svd of a single column") {
+    TEST_CASE("one column is its own left vector; sigma is its norm") {
+        using C = damp::complex<double>;
+        const Matrix<2, 1, C> a{{C(3.0, 0.0)}, {C(0.0, 4.0)}};
+        const auto            s = svd(a);
+        CHECK(s.converged);
+        CHECK(s.singular_values[0] == doctest::Approx(5.0));
+        CHECK(rank(a) == 1);
+        CHECK(rank(Matrix<2, 1, C>{}) == 0);
+    }
+}
