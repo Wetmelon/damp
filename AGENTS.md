@@ -125,7 +125,9 @@ Plant builders and host sim are not this ladder.
 - Braces always on `if`/`for`/`while`. ~One-screen functions (~50 lines).
 - Templated literals: `T{1}` / `T{0.5}`; non-dyadic decimals
   `static_cast<T>(0.98)`.
-- Tolerances: `default_tol<T>()`. Always `damp::` math and backed aliases in
+- Tolerances: scale `eps<T>()` to the data (size and magnitude) so results don't
+  depend on units; `default_tol<T>()` only for convergence of an
+  already-relative quantity. Always `damp::` math and backed aliases in
   `inc/damp` and tests (tests may use `std::` math as an oracle only).
 - No virtuals, heap, exceptions, or global mutable state in core.
 - No backwards-compat burden: clarity over API stability.
@@ -156,6 +158,46 @@ re-derive the cascade “for the sim.”
 Host tests and PIO target smoke use `-ffast-math`. Design `constexpr` stays
 abstract IEEE; runtime hardens around fast-math (`damp::isfinite` is bit-pattern
 based; no fragile cancellations; no ±Inf sentinels).
+
+### Safety profile
+
+Inspired by MISRA C++, AUTOSAR C++14, JSF AV C++ and the C++ Core Guidelines;
+not a compliance target. Core = everything reachable from `damp/control.hpp`.
+Host headers (`analysis/`, `simulation/`, `matlab.hpp`, `workbench.hpp`) are
+exempt.
+
+**Enforced by the build** — keep it that way: `-fno-exceptions -fno-rtti` in
+`checks/`; the `Tuprules.lua` warning set (conversions, double promotion, casts,
+fallthrough, shadowing); clang-tidy.
+
+**Runtime ticks** (`control()`, `update()`, `step()`, …)
+
+- No allocation, no exceptions, no recursion, no unbounded loops.
+- Bounded worst-case time: every loop bound is a template size or a fixed cap.
+- No undefined behavior: no signed overflow, no out-of-range float→int casts, no
+  out-of-bounds indexing. Guard, or use unsigned/modular arithmetic.
+
+**Design functions**
+
+- Iterative solvers carry an iteration cap and report non-convergence through
+  `success` / `optional`. Never return an unconverged value as a success.
+- Certify outputs where a cheap check exists (residual, closed-loop stability).
+- Tolerances are relative to the data (scaled `eps<T>()`); no absolute literals.
+
+**Types and initialization**
+
+- Every member has a default member initializer.
+- Single-argument constructors are `explicit`, except documented
+  assign-from-design constructors.
+- No virtuals, no RTTI, no type erasure on the product path.
+
+**Annotations — only where they carry meaning**
+
+- `constexpr` wherever possible. `[[nodiscard]]` on value-returning functions and
+  on Result structs (`struct [[nodiscard]] FooResult`).
+- `noexcept` on user-declared move operations and `swap`. Elsewhere optional:
+  `-fno-exceptions` is the guarantee.
+- No `final` / `override` (there are no virtuals). `[[noreturn]]` on trap paths.
 
 ### Scope
 
