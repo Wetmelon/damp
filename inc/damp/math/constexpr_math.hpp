@@ -11,7 +11,7 @@
  *
  * Bodies used when `std::is_constant_evaluated()` is true (and by the freestanding
  * `SeriesMathBackend`): Newton–Raphson (`sqrt`, `cbrt` after exact power-of-two
- * scaling), atanh series `log` after exact power-of-two scaling, Taylor kernels on |r| ≤ π/4 after π/2 quadrant reduction
+ * scaling), atanh series `log` after exact power-of-two scaling, fdlibm polynomial kernels on |r| ≤ π/4 after π/2 quadrant reduction
  * (`sin`/`cos`/`sincos`/`tan`), Taylor `exp`, fdlibm-style multi-interval atan
  * (asin/acos via atan2), Cody–Waite two-part argument reduction,
  * cast-based `floor`/`ceil`/`fmod`, and a bit-pattern `isfinite`.
@@ -189,7 +189,9 @@ constexpr T sqrt(T x) {
         return x; // +inf / NaN pass through (the reduction loops need a finite x)
     }
     const auto red = reduce_for_root<T, 2>(x);
-    T          guess = (red.x + T{1}) / T{2}; // ≥ √x: Newton decreases monotonically
+    // Tangent of √ at 9/4: lies above the concave √ (so Newton decreases
+    // monotonically) and is within 8.4% on [1, 4) — about one step saved over (x+1)/2.
+    T guess = (red.x / T{3}) + static_cast<T>(0.75);
     for (int i = 0; i < 50; ++i) {
         const T next = (guess + (red.x / guess)) / T{2};
         if (next >= guess) {
@@ -209,7 +211,8 @@ constexpr T cbrt(T x) {
     }
     const bool neg = x < T{0};
     const auto red = reduce_for_root<T, 3>(neg ? -x : x);
-    T          guess = (red.x + T{2}) / T{3}; // ≥ ∛x: Newton decreases monotonically
+    // Tangent of ∛ at 27/8: above the concave ∛ (monotone Newton), within 15% on [1, 8).
+    T guess = (red.x / static_cast<T>(6.75)) + T{1};
     for (int i = 0; i < 50; ++i) {
         const T next = ((T{2} * guess) + (red.x / (guess * guess))) / T{3};
         if (next >= guess) {
@@ -367,6 +370,9 @@ struct QuadrantReduced {
 
 template<typename T>
 constexpr QuadrantReduced<T> reduce_half_pi(T x) {
+    if (abs(x) <= static_cast<T>(0.785398163397448309616)) { // |x| ≤ π/4: already reduced
+        return {x, 0};
+    }
     constexpr T     half_pi_hi = static_cast<T>(1.57079632673412561417);
     constexpr T     half_pi_lo = static_cast<T>(6.07710050650619224932e-11);
     constexpr T     two_over_pi = static_cast<T>(0.63661977236758134308);
@@ -375,30 +381,33 @@ constexpr QuadrantReduced<T> reduce_half_pi(T x) {
     return {assoc_barrier(x - (kreal * half_pi_hi)) - (kreal * half_pi_lo), static_cast<int>(k & 3LL)};
 }
 
-/// Taylor sine on |r| ≤ π/4 (truncation < 10⁻²² there).
+/// Sine kernel on |r| ≤ π/4: fdlibm's minimax polynomial in r² (error < 2⁻⁵⁸).
+/// Straight-line Horner keeps constant evaluation cheap.
 template<typename T>
 constexpr T sin_kernel(T r) {
-    const T r2 = r * r;
-    T       result = r;
-    T       term = r;
-    for (int n = 1; n <= 10; ++n) {
-        term *= -r2 / T((2 * n) * ((2 * n) + 1));
-        result += term;
-    }
-    return result;
+    constexpr T S1 = static_cast<T>(-1.66666666666666324348e-01);
+    constexpr T S2 = static_cast<T>(8.33333333332248946124e-03);
+    constexpr T S3 = static_cast<T>(-1.98412698298579493134e-04);
+    constexpr T S4 = static_cast<T>(2.75573137070700676789e-06);
+    constexpr T S5 = static_cast<T>(-2.50507602534068634195e-08);
+    constexpr T S6 = static_cast<T>(1.58969099521155010221e-10);
+    const T     z = r * r;
+    const T     p = S2 + (z * (S3 + (z * (S4 + (z * (S5 + (z * S6)))))));
+    return r + ((z * r) * (S1 + (z * p)));
 }
 
-/// Taylor cosine on |r| ≤ π/4 (truncation < 10⁻²² there).
+/// Cosine kernel on |r| ≤ π/4: fdlibm's minimax polynomial in r² (error < 2⁻⁵⁸).
 template<typename T>
 constexpr T cos_kernel(T r) {
-    const T r2 = r * r;
-    T       result = T{1};
-    T       term = T{1};
-    for (int n = 1; n <= 10; ++n) {
-        term *= -r2 / T((2 * n) * ((2 * n) - 1));
-        result += term;
-    }
-    return result;
+    constexpr T C1 = static_cast<T>(4.16666666666666019037e-02);
+    constexpr T C2 = static_cast<T>(-1.38888888888741095749e-03);
+    constexpr T C3 = static_cast<T>(2.48015872894767294178e-05);
+    constexpr T C4 = static_cast<T>(-2.75573143513906633035e-07);
+    constexpr T C5 = static_cast<T>(2.08757232129817482790e-09);
+    constexpr T C6 = static_cast<T>(-1.13596475577881948265e-11);
+    const T     z = r * r;
+    const T     p = z * (C1 + (z * (C2 + (z * (C3 + (z * (C4 + (z * (C5 + (z * C6))))))))));
+    return T{1} - ((static_cast<T>(0.5) * z) - (z * p));
 }
 
 /// {sin(x), cos(x)} from one quadrant reduction and the |r| ≤ π/4 kernels.
@@ -419,16 +428,36 @@ constexpr sincos_result<T> sincos(T x) {
     }
 }
 
-/// Sine (quadrant reduction + Taylor kernel; ~1 ulp absolute).
+/// Sine (quadrant reduction + polynomial kernel; ~1 ulp absolute).
 template<typename T>
 constexpr T sin(T x) {
-    return sincos(x).sin;
+    const auto red = reduce_half_pi(x); // one kernel per quadrant, not both
+    switch (red.quadrant) {
+        case 0:
+            return sin_kernel(red.r);
+        case 1:
+            return cos_kernel(red.r);
+        case 2:
+            return -sin_kernel(red.r);
+        default:
+            return -cos_kernel(red.r);
+    }
 }
 
-/// Cosine (quadrant reduction + Taylor kernel; ~1 ulp absolute).
+/// Cosine (quadrant reduction + polynomial kernel; ~1 ulp absolute).
 template<typename T>
 constexpr T cos(T x) {
-    return sincos(x).cos;
+    const auto red = reduce_half_pi(x);
+    switch (red.quadrant) {
+        case 0:
+            return cos_kernel(red.r);
+        case 1:
+            return -sin_kernel(red.r);
+        case 2:
+            return -cos_kernel(red.r);
+        default:
+            return sin_kernel(red.r);
+    }
 }
 
 /// Tangent as a kernel ratio after quadrant reduction: sin r / cos r for even
