@@ -157,13 +157,19 @@ tidy: compiledb
 		$(subst --extra-arg,-extra-arg,$(CLANG_ARGS)) '\.cpp$$'
 
 # Include hygiene with clang-include-cleaner; IWYU keep/export pragmas apply.
-# Scope: every inc/ header (analyzed on its own) plus tests/*.cpp. Excluded: the
-# alternative math backends, which a profile swaps in for the default and so
-# clash with it when parsed alone.
+# Scope: every inc/ header (analyzed on its own), tests/*.cpp and every example
+# source. Excluded: the alternative math backends, which a profile swaps in for
+# the default and so clash with it when parsed alone.
+#
+# The file lists use make's own recursive wildcard, not $(shell find …): from
+# PowerShell, make's shell resolves `find` to Windows' find.exe (a text search),
+# which silently returns nothing.
+rwildcard = $(foreach d,$(wildcard $(1:=/*)),$(call rwildcard,$d,$2) $(filter $(subst *,%,$2),$d))
 INCLUDE_CLEANER       = clang-include-cleaner -p . $(CLANG_ARGS)
 INCLUDE_CLEANER_FILES = $(filter-out inc/damp/math/damp_backend.hpp inc/damp/math/series_backend.hpp, \
-                            $(shell find inc -name '*.hpp')) \
-                        $(wildcard tests/*.cpp)
+                            $(call rwildcard,inc,*.hpp)) \
+                        $(wildcard tests/*.cpp) \
+                        $(filter-out %/build/%,$(call rwildcard,examples,*.cpp))
 
 # Print suggested include changes, one file per call (--print takes a single input).
 iwyu: compiledb
