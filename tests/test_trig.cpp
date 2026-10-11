@@ -7,7 +7,8 @@
 #include <cmath>
 #include <initializer_list>
 #include <numbers>
-#include <utility>
+
+#include "damp/backend.hpp"
 
 // Product path: public damp::sin/cos via MathBackend → detail::fast_* kernels.
 #define DAMP_MATH_BACKEND_DAMP

@@ -16,7 +16,6 @@
 #include "damp/estimation/kalman.hpp"
 #include "damp/filters/iir_design.hpp"
 #include "damp/math/complex.hpp"
-#include "damp/math/math.hpp"
 #include "damp/matlab.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "damp/systems/discretization.hpp"

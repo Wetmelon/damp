@@ -45,7 +45,6 @@
 #include "damp/backend.hpp"
 #include "damp/filters/spectral.hpp"
 #include "damp/math/math.hpp"
-#include "damp/matrix/matrix_traits.hpp"
 
 namespace damp {
 

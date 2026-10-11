@@ -6,11 +6,14 @@
 #include <cmath>
 #include <cstddef>
 
+#include "damp/backend.hpp"
+#include "damp/design/pid_design.hpp"
 #include "damp/estimation/commissioning_frontends.hpp"
 #include "damp/estimation/experiment_safety.hpp"
 #include "damp/estimation/frequency_response.hpp"
 #include "damp/estimation/successive_compensator.hpp"
 #include "damp/math/math.hpp"
+#include "damp/toolbox/bounds.hpp"
 
 #define DOCTEST_CONFIG_INCLUDE_TYPE_TRAITS
 #include "doctest.h"

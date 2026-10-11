@@ -6,6 +6,7 @@
 #include <array>
 #include <numbers>
 
+#include "damp/backend.hpp"
 #include "damp/toolbox/actuator.hpp"
 #include "damp/trajectory/trajectory_types.hpp"
 #define DOCTEST_CONFIG_INCLUDE_TYPE_TRAITS

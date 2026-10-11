@@ -11,9 +11,10 @@
  * estimation/ins_eskf/ins_eskf_sil.cpp (same sensor densities).
  */
 
+#include <fmt/base.h>
+
 #include "damp/estimation/ins_eskf.hpp"
 #include "damp/estimation/ins_mechanization.hpp"
-#include "damp/math/geometry.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "fmt/core.h"
 #include "ins_navigator_estimator.hpp"

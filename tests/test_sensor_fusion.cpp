@@ -8,7 +8,6 @@
 #include "damp/backend.hpp"
 #include "damp/estimation/sensor_fusion.hpp"
 #include "damp/math/geometry.hpp"
-#include "damp/math/math.hpp"
 #include "damp/matrix/matrix.hpp"
 
 #define DOCTEST_CONFIG_INCLUDE_TYPE_TRAITS

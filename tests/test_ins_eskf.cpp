@@ -4,6 +4,7 @@
 // (See accompanying file LICENSE or copy at http://www.boost.org/LICENSE_1_0.txt)
 
 #include "damp/backend.hpp"
+#include "damp/estimation/eskf.hpp"
 #include "damp/estimation/ins_eskf.hpp"
 #include "damp/estimation/ins_mechanization.hpp"
 #include "damp/math/geometry.hpp"

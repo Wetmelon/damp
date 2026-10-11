@@ -5,7 +5,6 @@
 
 #include "damp/backend.hpp"
 #include "damp/controllers/lqi.hpp"
-#include "damp/math/math.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "damp/systems/state_space.hpp"
 

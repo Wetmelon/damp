@@ -26,6 +26,7 @@
  */
 
 #include "damp/math/geometry.hpp" // Quaternion, Vec3, Transform4
+#include "damp/matrix/colvec.hpp"
 
 namespace damp {
 

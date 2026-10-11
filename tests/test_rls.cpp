@@ -3,10 +3,8 @@
 // Distributed under the Boost Software License, Version 1.0.
 // (See accompanying file LICENSE or copy at http://www.boost.org/LICENSE_1_0.txt)
 
-#include <algorithm>
 
 #include "damp/estimation/rls.hpp"
-#include "damp/math/complex.hpp"
 #include "damp/math/math.hpp"
 #include "damp/matrix/matrix.hpp"
 

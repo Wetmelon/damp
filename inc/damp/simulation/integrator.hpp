@@ -12,7 +12,6 @@
 
 #include <concepts>
 #include <cstddef>
-#include <type_traits>
 
 #include "damp/matrix/colvec.hpp"
 #include "damp/matrix/functions.hpp"

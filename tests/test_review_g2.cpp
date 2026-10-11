@@ -12,9 +12,7 @@
 
 #include "damp/backend.hpp"
 #include "damp/design/linearization.hpp"
-#include "damp/design/lyapunov.hpp"
 #include "damp/design/minreal.hpp"
-#include "damp/design/model_reduction.hpp"
 #include "damp/design/pid_design.hpp"
 #include "damp/design/qp.hpp"
 #include "damp/design/stability.hpp"

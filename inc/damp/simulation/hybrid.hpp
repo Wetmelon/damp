@@ -40,12 +40,11 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <type_traits>
-#include <utility>
 #include <vector>
 
 #include "damp/backend.hpp"
 #include "damp/matrix/colvec.hpp"
+#include "damp/matrix/core.hpp"
 #include "damp/simulation/cached_zoh.hpp"
 #include "damp/simulation/integrator.hpp"
 #include "damp/simulation/solver.hpp" // detail::step_count / grid_time

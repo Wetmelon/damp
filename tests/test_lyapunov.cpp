@@ -8,7 +8,6 @@
 
 #include "damp/backend.hpp"
 #include "damp/design/lyapunov.hpp"
-#include "damp/design/stability.hpp"
 #include "damp/matlab.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "damp/systems/state_space.hpp"

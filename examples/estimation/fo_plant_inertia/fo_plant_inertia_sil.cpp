@@ -10,8 +10,11 @@
  * Calls fo_plant_inertia_estimator.hpp for config, discrete plant, tick, and map.
  */
 
+#include <fmt/base.h>
+
+#include <cstddef>
+
 #include "damp/estimation/parameter_estimation.hpp"
-#include "damp/math/math.hpp"
 #include "fmt/core.h"
 #include "fo_plant_inertia_estimator.hpp"
 

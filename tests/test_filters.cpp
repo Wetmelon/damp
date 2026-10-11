@@ -5,6 +5,7 @@
 
 #include "damp/backend.hpp"
 #include "damp/filters/filters.hpp"
+#include "damp/math/math.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "damp/systems/discretization.hpp"
 #include "damp/systems/state_space.hpp"

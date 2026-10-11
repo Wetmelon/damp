@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "damp/backend.hpp"
 #include "damp/estimation/excitation.hpp"
 
 #define DOCTEST_CONFIG_INCLUDE_TYPE_TRAITS

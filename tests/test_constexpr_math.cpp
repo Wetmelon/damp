@@ -8,7 +8,6 @@
 #include <initializer_list>
 #include <limits>
 #include <numbers>
-#include <utility>
 
 #include "damp/math/complex.hpp"
 #include "damp/math/math.hpp"

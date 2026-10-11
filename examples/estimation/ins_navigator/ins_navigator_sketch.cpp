@@ -15,7 +15,6 @@
 
 #include "damp/estimation/ins_eskf.hpp"
 #include "damp/estimation/ins_mechanization.hpp"
-#include "damp/math/geometry.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "ins_navigator_estimator.hpp"
 

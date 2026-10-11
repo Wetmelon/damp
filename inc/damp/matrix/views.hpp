@@ -10,7 +10,11 @@
  * @brief Matrix view types (transpose, diagonal, triangles)
  */
 
+#include <cstddef>
+#include <type_traits>
+
 #include "core.hpp"
+#include "damp/matrix/matrix_traits.hpp"
 
 namespace damp {
 

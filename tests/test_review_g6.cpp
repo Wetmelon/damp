@@ -5,14 +5,20 @@
 
 // Regression tests for the g6 review (simulation + toolbox + matlab aliases).
 
+#include <algorithm>
 #include <cmath>
 #include <complex>
 #include <cstdint>
 #include <cstdio>
 #include <limits>
+#include <numbers>
+#include <plotlypp/figure.hpp>
 #include <vector>
 
 #include "damp/matlab.hpp"
+#include "damp/matrix/colvec.hpp"
+#include "damp/matrix/core.hpp"
+#include "damp/matrix/eigen.hpp"
 #include "damp/simulation/cached_zoh.hpp"
 #include "damp/simulation/hybrid.hpp"
 #include "damp/simulation/integrator.hpp"
@@ -21,6 +27,7 @@
 #include "damp/simulation/plot_plotly.hpp"
 #include "damp/simulation/simulate.hpp"
 #include "damp/simulation/solver.hpp"
+#include "damp/systems/state_space.hpp"
 #include "damp/toolbox/conditioning.hpp"
 #include "damp/toolbox/encoder.hpp"
 #include "damp/toolbox/iec61131.hpp"

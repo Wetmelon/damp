@@ -12,6 +12,8 @@
  * (folded from the former example_lqr_pendulum gain-print demo).
  */
 
+#include <vector>
+
 #include "damp/backend.hpp"
 #include "damp/controllers/lqr.hpp"
 #include "damp/math/math.hpp"

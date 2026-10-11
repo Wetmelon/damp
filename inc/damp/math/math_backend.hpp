@@ -15,7 +15,6 @@
  * std:: implementation lives in std_fallback.hpp.
  */
 
-#include "damp/config.hpp" // pulls the profile's backend-selection macros
 
 namespace damp {
 

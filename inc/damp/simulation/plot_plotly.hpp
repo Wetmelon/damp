@@ -34,12 +34,14 @@
 #include <cstddef>
 #include <filesystem>
 #include <fstream>
+#include <ios>
 #include <limits>
 #include <plotlypp/figure.hpp>
 #include <plotlypp/layout/layout.hpp>
 #include <plotlypp/traces/scatter.hpp>
 #include <sstream>
 #include <string>
+#include <system_error>
 #include <vector>
 
 #include "damp/analysis/analysis.hpp"

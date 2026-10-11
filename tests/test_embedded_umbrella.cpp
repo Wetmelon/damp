@@ -11,7 +11,6 @@
 // from this header, which is the embedded (no-heap) guarantee.
 #include "damp/backend.hpp"
 #include "damp/control.hpp"
-#include "damp/math/math.hpp"
 
 #define DOCTEST_CONFIG_INCLUDE_TYPE_TRAITS
 #include "doctest.h"

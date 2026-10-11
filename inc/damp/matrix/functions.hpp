@@ -14,6 +14,7 @@
 
 #include "core.hpp"
 #include "damp/backend.hpp"
+#include "damp/matrix/matrix_traits.hpp"
 #include "solve.hpp" // expm()/sqrtm() use mat::solve; include directly so this
 #include "svd.hpp"
 // does not depend on aggregation order (formatter sorts includes)

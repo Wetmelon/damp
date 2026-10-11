@@ -24,7 +24,6 @@
 #include <cstddef>
 
 #include "damp/backend.hpp"
-#include "damp/math/math.hpp"
 #include "damp/toolbox/bounds.hpp"
 #include "damp/toolbox/timing.hpp"
 

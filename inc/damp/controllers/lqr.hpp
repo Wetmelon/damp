@@ -29,6 +29,7 @@
 
 #include <cstddef>
 
+#include "damp/backend.hpp"
 #include "damp/design/riccati.hpp"
 #include "damp/design/stability.hpp"
 #include "damp/math/complex.hpp"

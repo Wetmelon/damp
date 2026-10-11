@@ -20,7 +20,7 @@
 #include "animate_3d.hpp"
 #include "damp/backend.hpp"
 #include "damp/math/geometry.hpp"
-#include "damp/math/math.hpp"
+#include "damp/matrix/colvec.hpp"
 #include "fmt/base.h"
 #include "fmt/core.h"
 #include "imu_pose_estimator.hpp"

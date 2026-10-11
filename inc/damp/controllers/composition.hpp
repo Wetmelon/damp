@@ -25,7 +25,6 @@
  * @see experimental/experiment_safety.hpp for arm/protect/rollback around a switch
  */
 
-#include <cstddef>
 #include <cstdint>
 
 #include "damp/concepts.hpp"

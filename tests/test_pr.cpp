@@ -10,6 +10,7 @@
 
 #include "damp/controllers/pr.hpp"
 #include "damp/filters/filters.hpp"
+#include "damp/math/math.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "damp/systems/state_space.hpp"
 #include "damp/systems/transfer_function.hpp"

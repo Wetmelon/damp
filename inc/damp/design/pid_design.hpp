@@ -34,6 +34,7 @@
 
 #include "damp/backend.hpp"
 #include "damp/controllers/pid.hpp"
+#include "damp/math/complex.hpp"
 #include "damp/math/math.hpp"
 #include "damp/systems/state_space.hpp"
 #include "damp/systems/transfer_function.hpp"

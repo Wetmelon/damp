@@ -9,7 +9,6 @@
 
 #include "damp/backend.hpp"
 #include "damp/math/complex.hpp"
-#include "damp/math/math.hpp"
 #include "damp/math/transforms.hpp"
 #include "damp/matrix/colvec.hpp"
 

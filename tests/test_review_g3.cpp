@@ -15,7 +15,7 @@
 #include "damp/controllers/repetitive.hpp"
 #include "damp/controllers/smc.hpp"
 #include "damp/controllers/stsmc.hpp"
-#include "damp/math/math.hpp"
+#include "damp/math/transforms.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "damp/motor/modulation.hpp"
 #include "damp/systems/state_space.hpp"

@@ -19,6 +19,8 @@
  * Open plots/estimation/ins_eskf_3d.html → Play.
  */
 
+#include <fmt/base.h>
+
 #include <algorithm>
 #include <cstddef>
 #include <vector>
@@ -29,6 +31,8 @@
 #include "damp/estimation/ins_mechanization.hpp"
 #include "damp/math/geometry.hpp"
 #include "damp/math/math.hpp"
+#include "damp/matrix/colvec.hpp"
+#include "damp/matrix/core.hpp"
 #include "fmt/core.h"
 #include "ins_eskf_estimator.hpp"
 

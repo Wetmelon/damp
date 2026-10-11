@@ -13,6 +13,7 @@
 #include "damp/backend.hpp"
 #include "damp/math/math.hpp"
 #include "damp/matrix/colvec.hpp"
+#include "damp/matrix/core.hpp"
 #include "damp/systems/discretization.hpp"
 #include "damp/systems/state_space.hpp"
 

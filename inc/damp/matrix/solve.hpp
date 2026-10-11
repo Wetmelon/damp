@@ -19,7 +19,6 @@
 #include "damp/backend.hpp"
 #include "damp/math/complex.hpp"
 #include "decomposition.hpp"
-#include "matrix_traits.hpp"
 
 namespace damp {
 

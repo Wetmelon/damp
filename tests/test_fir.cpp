@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstddef>
 
+#include "damp/backend.hpp"
 #include "damp/filters/fir.hpp"
 
 #define DOCTEST_CONFIG_INCLUDE_TYPE_TRAITS

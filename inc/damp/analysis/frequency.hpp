@@ -12,7 +12,6 @@
 
 #include <cstddef>
 #include <limits>
-#include <numbers>
 #include <vector>
 
 #include "damp/backend.hpp"

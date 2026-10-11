@@ -11,6 +11,7 @@
  * Sketch shows the per-tick shape once gains are baked.
  */
 
+#include "damp/backend.hpp"
 #include "damp/controllers/pr.hpp"
 #include "workflow_end_to_end_controller.hpp"
 

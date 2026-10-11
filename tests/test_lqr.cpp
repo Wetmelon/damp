@@ -9,7 +9,6 @@
 #include "damp/backend.hpp"
 #include "damp/controllers/lqr.hpp"
 #include "damp/math/complex.hpp"
-#include "damp/math/math.hpp"
 #include "damp/matlab.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "damp/systems/discretization.hpp"

@@ -54,7 +54,6 @@
  */
 
 #include <cstddef>
-#include <utility>
 #include <vector>
 
 #include "damp/backend.hpp"

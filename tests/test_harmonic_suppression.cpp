@@ -7,8 +7,8 @@
 #include <cmath>
 #include <cstddef>
 
+#include "damp/backend.hpp"
 #include "damp/controllers/harmonic_suppression.hpp"
-#include "damp/controllers/pr.hpp"
 #include "damp/math/complex.hpp"
 #include "damp/math/math.hpp"
 #include "damp/systems/state_space.hpp"

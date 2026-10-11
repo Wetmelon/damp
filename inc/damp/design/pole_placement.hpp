@@ -51,7 +51,6 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <limits>
 
 #include "damp/backend.hpp"
 #include "damp/design/stability.hpp"

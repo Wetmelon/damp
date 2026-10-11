@@ -6,8 +6,10 @@
 // Regression tests for the estimation-header review (group g4).
 
 #include <cmath>
+#include <cstddef>
 #include <type_traits>
 
+#include "damp/backend.hpp"
 #include "damp/estimation/dob.hpp"
 #include "damp/estimation/eskf.hpp"
 #include "damp/estimation/frequency_response.hpp"
@@ -22,6 +24,7 @@
 #include "damp/math/geometry.hpp"
 #include "damp/math/math.hpp"
 #include "damp/matrix/matrix.hpp"
+#include "damp/systems/state_space.hpp"
 
 #define DOCTEST_CONFIG_INCLUDE_TYPE_TRAITS
 #include "doctest.h"

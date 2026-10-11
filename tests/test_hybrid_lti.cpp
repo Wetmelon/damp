@@ -11,6 +11,7 @@
  */
 
 #include <cmath>
+#include <vector>
 
 #include "damp/matrix/colvec.hpp"
 #include "damp/matrix/matrix.hpp"

@@ -5,7 +5,6 @@
 
 #include <cmath>
 #include <cstddef>
-#include <utility>
 
 #include "damp/filters/spectral.hpp"
 #include "damp/math/math.hpp"

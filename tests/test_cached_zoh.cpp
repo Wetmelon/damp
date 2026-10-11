@@ -9,6 +9,7 @@
  */
 
 #include <cmath>
+#include <cstddef>
 #include <vector>
 
 #include "damp/matrix/colvec.hpp"

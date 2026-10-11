@@ -7,6 +7,7 @@
 #include <random>
 #include <vector>
 
+#include "damp/backend.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "fmt/core.h"
 

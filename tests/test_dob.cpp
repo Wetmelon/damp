@@ -6,6 +6,7 @@
 #include <array>
 #include <cmath>
 
+#include "damp/backend.hpp"
 #include "damp/estimation/dob.hpp"
 
 #define DOCTEST_CONFIG_INCLUDE_TYPE_TRAITS

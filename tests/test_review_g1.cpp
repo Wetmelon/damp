@@ -11,6 +11,7 @@
 #include <numbers>
 
 #include "damp/math/complex.hpp"
+#include "damp/math/constexpr_math.hpp"
 #include "damp/math/geometry.hpp"
 #include "damp/math/math.hpp"
 #include "damp/math/trig.hpp"

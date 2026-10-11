@@ -8,6 +8,7 @@
 #include <cmath>
 #include <complex>
 #include <cstddef>
+#include <cstdint>
 #include <numbers>
 #include <vector>
 
@@ -18,6 +19,9 @@
 #include "damp/filters/pll.hpp"
 #include "damp/filters/sogi.hpp"
 #include "damp/filters/spectral.hpp"
+#include "damp/matrix/core.hpp"
+#include "damp/systems/state_space.hpp"
+#include "damp/systems/transfer_function.hpp"
 
 #define DOCTEST_CONFIG_INCLUDE_TYPE_TRAITS
 #include "doctest.h"

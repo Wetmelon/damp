@@ -6,7 +6,6 @@
 #include <algorithm>
 #include <cmath>
 #include <numbers>
-#include <type_traits>
 
 #include "damp/filters/differentiator.hpp"
 #include "damp/math/math.hpp"

@@ -28,7 +28,6 @@
 #include "damp/estimation/frequency_response.hpp"
 #include "damp/filters/filters.hpp"
 #include "damp/math/math.hpp"
-#include "damp/matrix/matrix_traits.hpp"
 
 namespace damp {
 

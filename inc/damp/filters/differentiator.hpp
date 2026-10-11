@@ -44,7 +44,6 @@
  * @see controllers/smc.hpp for the super-twisting controller it pairs with
  */
 
-#include <type_traits>
 
 #include "damp/math/math.hpp" // damp::sqrt, damp::abs, damp::sgn
 

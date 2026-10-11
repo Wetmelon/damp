@@ -10,8 +10,6 @@
  * @brief Ramp excitation — design payload and runtime generator
  */
 
-#include <cstddef>
-#include <cstdint>
 
 #include "damp/backend.hpp"
 #include "damp/math/math.hpp"

@@ -10,6 +10,8 @@
  * Host SIL with true plant + print: fo_plant_inertia_sil.cpp.
  */
 
+#include <cstddef>
+
 #include "damp/estimation/parameter_estimation.hpp"
 #include "fo_plant_inertia_estimator.hpp"
 

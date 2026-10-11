@@ -10,7 +10,6 @@
  * @brief Chirp excitation — design payload and runtime generator
  */
 
-#include <cstddef>
 #include <cstdint>
 
 #include "damp/backend.hpp"

@@ -10,9 +10,7 @@
 #include "damp/controllers/lqgi.hpp"
 #include "damp/controllers/lqi.hpp"
 #include "damp/controllers/pr.hpp"
-#include "damp/design/riccati.hpp"
 #include "damp/design/synthesis.hpp"
-#include "damp/math/math.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "damp/systems/state_space.hpp"
 

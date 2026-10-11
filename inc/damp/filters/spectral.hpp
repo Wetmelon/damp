@@ -25,9 +25,8 @@
 
 #include <cstddef>
 
-#include "damp/backend.hpp"              // damp::array, damp::numbers
-#include "damp/math/math.hpp"            // damp::sin/cos/sqrt/atan2
-#include "damp/matrix/matrix_traits.hpp" // scalar_type_t
+#include "damp/backend.hpp"   // damp::array, damp::numbers
+#include "damp/math/math.hpp" // damp::sin/cos/sqrt/atan2
 
 namespace damp {
 
