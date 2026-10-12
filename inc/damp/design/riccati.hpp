@@ -22,6 +22,97 @@
 
 namespace damp {
 
+namespace detail {
+
+using mat::detail::gebal_log2_scale;
+using mat::detail::scale_by_pow2;
+
+/// (A, B) in balanced coordinates: (D⁻¹ A D, D⁻¹ B), D = diag(2^e) from mat::detail::balance_exponents(A).
+template<size_t NX, size_t NU, typename T>
+struct BalancedPair {
+    damp::array<int, NX> e{}; ///< the scaling exponents
+    Matrix<NX, NX, T>    A{}; ///< D⁻¹ A D
+    Matrix<NX, NU, T>    B{}; ///< D⁻¹ B
+};
+
+/// @copybrief BalancedPair
+template<size_t NX, size_t NU, typename T>
+[[nodiscard]] constexpr BalancedPair<NX, NU, T> balanced_pair(const Matrix<NX, NX, T>& A, const Matrix<NX, NU, T>& B) {
+    BalancedPair<NX, NU, T> out{.e = mat::detail::balance_exponents(A)};
+    out.A = mat::detail::balanced(A, out.e);
+    for (size_t r = 0; r < NX; ++r) {
+        for (size_t c = 0; c < NU; ++c) {
+            out.B(r, c) = scale_by_pow2(B(r, c), -out.e[r]);
+        }
+    }
+    return out;
+}
+
+/**
+ * @brief PBH test at one eigenvalue of a balanced pair: true when rank([λI − A, B]) < n
+ *        (λ is uncontrollable).
+ *
+ * @p lambda must come from mat::compute_eigenvalues (which balances the same way): a
+ * diagonal similarity does not move an eigenvalue, but it does rescale the roundoff in a
+ * computed one, and that roundoff is what the rank tolerance has to absorb.
+ *
+ * The rank tolerance is relative to the largest singular value, so the test matrix is
+ * conditioned first, by operations that do not change its rank. Balancing (a delay
+ * register that copies a 10⁵-gain accelerometer row into A otherwise puts that row next
+ * to rows of 10⁻³, and the tolerance reads the small ones as zero). Then every B column is
+ * brought to A's scale: a large-magnitude input (or, for the dual, a large-gain sensor row)
+ * cannot hide the others. Then every row is brought to unit size. Row scaling alone, on an
+ * unbalanced pair, amplifies the eigenvalue's roundoff on the small rows by the scale
+ * spread and calls an uncontrollable mode controllable. The tolerance is a relative √eps:
+ * an uncontrollable eigenvalue is only known to O(√eps) when defective, so a tighter
+ * floor would call it controllable.
+ */
+template<size_t NX, size_t NU, typename T>
+[[nodiscard]] constexpr bool uncontrollable_at(const BalancedPair<NX, NU, T>& pair, damp::complex<T> lambda) {
+    using Cplx = damp::complex<T>;
+    const auto& A = pair.A;
+    const auto& B = pair.B;
+    T           a_scale{0};
+    for (size_t r = 0; r < NX; ++r) {
+        for (size_t c = 0; c < NX; ++c) {
+            a_scale = damp::max(a_scale, damp::abs(A(r, c)));
+        }
+    }
+    a_scale = damp::max(a_scale, T{1});
+
+    Matrix<NX, NX + NU, Cplx> test_mat{};
+    for (size_t r = 0; r < NX; ++r) {
+        for (size_t c = 0; c < NX; ++c) {
+            test_mat(r, c) = Cplx(-A(r, c), T{0});
+        }
+        test_mat(r, r) = test_mat(r, r) + lambda;
+    }
+    for (size_t c = 0; c < NU; ++c) {
+        T col{0};
+        for (size_t r = 0; r < NX; ++r) {
+            col = damp::max(col, damp::abs(B(r, c)));
+        }
+        const T gain = (col > T{0}) ? (a_scale / col) : T{1};
+        for (size_t r = 0; r < NX; ++r) {
+            test_mat(r, NX + c) = Cplx(B(r, c) * gain, T{0});
+        }
+    }
+    for (size_t r = 0; r < NX; ++r) {
+        T row{0};
+        for (size_t c = 0; c < NX + NU; ++c) {
+            row = damp::max(row, test_mat(r, c).abs());
+        }
+        if (row > T{0}) {
+            for (size_t c = 0; c < NX + NU; ++c) {
+                test_mat(r, c) = test_mat(r, c) / Cplx(row, T{0});
+            }
+        }
+    }
+    return mat::rank(test_mat, damp::sqrt(eps<T>())) < NX;
+}
+
+} // namespace detail
+
 /**
  * @brief Check if (A, B) is a stabilizable pair
  *
@@ -31,6 +122,11 @@ namespace damp {
  *
  * Stabilizability is weaker than controllability — it permits uncontrollable
  * modes as long as they are already stable (|λ| < 1).
+ *
+ * The pair is balanced first (mat::detail::balance_exponents), so the verdict does not
+ * depend on the units of the states. An eigenvalue within √eps of the unit circle counts as
+ * unstable: one on the circle (an integrator, a random-walk disturbance) is computed to
+ * roundoff on either side, and the DARE certificate uses the same band.
  *
  * @see "Optimal Control" (Anderson & Moore, 1990), §2.4
  *
@@ -46,47 +142,23 @@ constexpr bool is_stabilizable(
     const Matrix<NX, NX, T>& A,
     const Matrix<NX, NU, T>& B
 ) {
-    using Cplx = damp::complex<T>;
-
-    auto eigen = mat::compute_eigenvalues(A);
+    const auto eigen = mat::compute_eigenvalues(A); // balanced internally
+    const auto bal = detail::balanced_pair(A, B);
     if (!eigen.converged) {
         return false;
     }
-
-    // Relative √eps: an uncontrollable eigenvalue is only known to O(√eps) when
-    // defective, so a tighter floor would call it controllable.
-    const T tol = damp::sqrt(eps<T>());
-
+    const T slack = damp::sqrt(eps<T>());
     for (size_t i = 0; i < NX; ++i) {
-        // Only check unstable eigenvalues (|λ| >= 1)
-        if (eigen.values[i].abs() < T{1}) {
+        // Only unstable eigenvalues (|λ| ≥ 1 − √eps) matter. The conjugate of a complex
+        // eigenvalue gives the same rank, so test one of each pair.
+        const auto lambda = eigen.values[i];
+        if (lambda.abs() < T{1} - slack || lambda.imag() < T{0}) {
             continue;
         }
-
-        // Form [λI - A, B] in complex arithmetic and check rank.
-        Matrix<NX, NX + NU, Cplx> test_mat{};
-
-        // λI - A
-        for (size_t r = 0; r < NX; ++r) {
-            for (size_t c = 0; c < NX; ++c) {
-                test_mat(r, c) = Cplx(-A(r, c), T{0});
-            }
-            test_mat(r, r) = test_mat(r, r) + eigen.values[i];
-        }
-
-        // B
-        for (size_t r = 0; r < NX; ++r) {
-            for (size_t c = 0; c < NU; ++c) {
-                test_mat(r, NX + c) = Cplx(B(r, c), T{0});
-            }
-        }
-
-        // Uncontrollable unstable mode ⇒ not stabilizable.
-        if (mat::rank(test_mat, tol) < NX) {
-            return false;
+        if (detail::uncontrollable_at(bal, lambda)) {
+            return false; // uncontrollable unstable mode
         }
     }
-
     return true;
 }
 
@@ -143,29 +215,33 @@ template<size_t NX, size_t NU, typename T = double>
     Matrix<NX, NX, T> Gk = B * R_inv_Bt_opt.value();
     Matrix<NX, NX, T> Hk = Q_eff;
 
-    const T   tol = default_tol<T>(); // 1e-6f / 1e-12 — float DARE must be able to succeed
+    const T   tol = default_tol<T>(); // relative: 1e-6f / 1e-12 of ‖X‖, so a covariance in m² converges like one in counts²
     const int max_iter = 100;         //! Quadratic convergence needs far fewer iterations
     bool      converged = false;
 
     for (int iter = 0; iter < max_iter; ++iter) {
-        //! Solve (I + Gk Hk) Vk = I via LU decomposition (recommended by SDA paper)
-        const Matrix Vk_arg = Matrix<NX, NX, T>::identity() + Gk * Hk;
-        const auto   Vk_opt = mat::lu_solve(Vk_arg, Matrix<NX, NX, T>::identity());
-        if (!Vk_opt) {
+        //! Wk = I + Gk Hk, solved for Wk⁻¹Ak and Wk⁻¹Gk — never Wk⁻¹ itself
+        //! (six products per step, not ten).
+        const Matrix<NX, NX, T> Wk = Matrix<NX, NX, T>::identity() + (Gk * Hk);
+        const auto              WinvA_opt = mat::lu_solve(Wk, Ak);
+        const auto              WinvG_opt = mat::lu_solve(Wk, Gk);
+        if (!WinvA_opt || !WinvG_opt) {
             return damp::nullopt;
         }
-        const Matrix Vk = Vk_opt.value();
+        const Matrix<NX, NX, T>& WinvA = WinvA_opt.value();
+        const Matrix<NX, NX, T>& WinvG = WinvG_opt.value();
+        const Matrix<NX, NX, T>  AkT = Ak.t();
 
-        const Matrix Ak_next = Ak * Vk * Ak;
-        const Matrix Gk_next = Gk + Ak * Vk * Gk * Ak.t();
-        const Matrix Hk_next = Hk + Ak.t() * Hk * Vk * Ak;
+        const Matrix Ak_next = Ak * WinvA;
+        const Matrix Gk_next = Gk + ((Ak * WinvG) * AkT);
+        const Matrix Hk_next = Hk + ((AkT * Hk) * WinvA);
 
         const T diff = (Hk_next - Hk).norm();
         Ak = Ak_next;
         Gk = Gk_next;
         Hk = Hk_next;
 
-        if (diff < tol * damp::max(T{1}, Hk.norm())) {
+        if (diff <= tol * Hk.norm()) {
             converged = true;
             break;
         }
@@ -228,7 +304,7 @@ template<size_t NX, size_t NU, typename T = double>
 
     //! Riccati Difference Equation iteration
     Matrix<NX, NX, T> X = Q_eff;
-    const T           tol = default_tol<T>(); // 1e-6f / 1e-12
+    const T           tol = default_tol<T>(); // relative to ‖X‖ (see dare_sda)
     const int         max_iter = 500;
     // Type-safe ceiling: float cannot represent 1e150 (narrowing under -Wnarrowing).
     const T guard = std::numeric_limits<T>::max() / T{100};
@@ -297,7 +373,7 @@ template<size_t NX, size_t NU, typename T = double>
 
         X = X_next;
 
-        if (damp::sqrt(diff_norm_sq) < tol * damp::max(T{1}, damp::sqrt(x_norm_sq))) {
+        if (damp::sqrt(diff_norm_sq) <= tol * damp::sqrt(x_norm_sq)) {
             converged = true;
             break;
         }
@@ -535,161 +611,6 @@ constexpr size_t reorder_schur(Matrix<M, M, T>& Tm, Matrix<M, M, T>& Z, Pred in_
         i += b;
     }
     return top;
-}
-
-/**
- * @brief Multiply @p x by 2^@p exp.
- *
- * Balancing scales are exact powers of two (LAPACK xGEBAL). Repeated doubling
- * keeps the factor exact inside the exponent range of @c T.
- */
-template<typename T>
-[[nodiscard]] constexpr T scale_by_pow2(T x, int exp) {
-    if (exp > 0) {
-        for (int k = 0; k < exp; ++k) {
-            x *= T{2};
-        }
-    } else if (exp < 0) {
-        for (int k = 0; k < -exp; ++k) {
-            x *= static_cast<T>(0.5);
-        }
-    }
-    return x;
-}
-
-/**
- * @brief One Parlett–Reinsch radix step on a row/column pair.
- *
- * @p c and @p r are the 2-norms of the column and the row, @p ca and @p ra the
- * matching max-norms. The returned exponent is log2(F) for the diagonal
- * similarity that multiplies the column by F and the row by 1/F. @c apply is
- * false when the step would not shrink c + r by the LAPACK factor 0.95.
- *
- * @see LAPACK xGEBAL (scale-only), Parlett & Reinsch (1969)
- */
-template<typename T>
-struct GebalStep {
-    int  exp{0};
-    bool apply{false};
-};
-
-template<typename T>
-[[nodiscard]] constexpr GebalStep<T> gebal_step(T c, T r, T ca, T ra) {
-    GebalStep<T> step;
-    if (!(c > T{0}) || !(r > T{0}) || !damp::isfinite(c + ca + r + ra)) {
-        return step;
-    }
-    const T s = c + r;
-    const T sfmin1 = std::numeric_limits<T>::min() / eps<T>();
-    const T sfmin2 = sfmin1 * T{2};
-    const T sfmax2 = T{1} / sfmin2;
-
-    T   f = T{1};
-    T   g = r * static_cast<T>(0.5);
-    int f_exp = 0;
-    int guard = 0;
-    while (c < g && damp::max(damp::max(f, c), ca) < sfmax2 && damp::min(damp::min(r, g), ra) > sfmin2
-           && guard < 4096) {
-        f *= T{2};
-        c *= T{2};
-        ca *= T{2};
-        r *= static_cast<T>(0.5);
-        g *= static_cast<T>(0.5);
-        ra *= static_cast<T>(0.5);
-        ++f_exp;
-        ++guard;
-    }
-    g = c * static_cast<T>(0.5);
-    guard = 0;
-    while (g >= r && damp::max(r, ra) < sfmax2 && damp::min(damp::min(f, c), damp::min(g, ca)) > sfmin2
-           && guard < 4096) {
-        f *= static_cast<T>(0.5);
-        c *= static_cast<T>(0.5);
-        g *= static_cast<T>(0.5);
-        ca *= static_cast<T>(0.5);
-        r *= T{2};
-        ra *= T{2};
-        --f_exp;
-        ++guard;
-    }
-    //! (c + r) still within 5% of its original value: xGEBAL skips the update.
-    if ((c + r) >= static_cast<T>(0.95) * s || f_exp == 0) {
-        return step;
-    }
-    step.exp = f_exp;
-    step.apply = true;
-    return step;
-}
-
-/**
- * @brief log2 of the xGEBAL scale factors of @p A.
- *
- * @p A is overwritten by D⁻¹ A D with D = diag(2^exp). Diagonal entries are
- * ignored by the caller (they are zero), matching the Benner / SciPy recipe
- * of clearing diag(|H|) before balancing. Returns false if a norm overflows.
- *
- * @see LAPACK xGEBAL, JOB='S'
- */
-template<size_t M, typename T>
-[[nodiscard]] constexpr bool gebal_log2_scale(Matrix<M, M, T>& A, damp::array<int, M>& exp) {
-    const T sfmin1 = std::numeric_limits<T>::min() / eps<T>();
-    const T sfmax1 = T{1} / sfmin1;
-
-    for (int sweep = 0; sweep < 64; ++sweep) {
-        bool noconv = false;
-        for (size_t i = 0; i < M; ++i) {
-            T c2 = T{0};
-            T r2 = T{0};
-            T ca = T{0};
-            T ra = T{0};
-            for (size_t j = 0; j < M; ++j) {
-                const T aij = damp::abs(A(i, j));
-                const T aji = damp::abs(A(j, i));
-                r2 += aij * aij;
-                c2 += aji * aji;
-                if (aij > ra) {
-                    ra = aij;
-                }
-                if (aji > ca) {
-                    ca = aji;
-                }
-            }
-            const T    c = damp::sqrt(c2);
-            const T    r = damp::sqrt(r2);
-            const auto step = gebal_step(c, r, ca, ra);
-            if (!step.apply) {
-                continue;
-            }
-            const int f_exp = step.exp;
-            if (f_exp < 0 && exp[i] < 0) {
-                const T scale_now = scale_by_pow2(T{1}, exp[i]);
-                const T f = scale_by_pow2(T{1}, f_exp);
-                if (f * scale_now <= sfmin1) {
-                    continue;
-                }
-            }
-            if (f_exp > 0 && exp[i] > 0) {
-                const T scale_now = scale_by_pow2(T{1}, exp[i]);
-                const T f = scale_by_pow2(T{1}, f_exp);
-                if (scale_now >= sfmax1 / f) {
-                    continue;
-                }
-            }
-            exp[i] += f_exp;
-            noconv = true;
-            for (size_t j = 0; j < M; ++j) {
-                if (j == i) {
-                    continue;
-                }
-                A(i, j) = scale_by_pow2(A(i, j), -f_exp);
-                A(j, i) = scale_by_pow2(A(j, i), f_exp);
-            }
-        }
-        if (!noconv) {
-            break;
-        }
-    }
-    return true;
 }
 
 /**
@@ -1069,7 +990,8 @@ template<size_t N, typename T>
     for (size_t i = 0; i < N; ++i) {
         diag_max = damp::max(diag_max, damp::abs(M(i, i)));
     }
-    const T shift = (static_cast<T>(N) * T{64} * eps<T>() * diag_max) + std::numeric_limits<T>::min();
+    //! Four times cholesky's relative pivot floor, so a shifted zero pivot clears it.
+    const T shift = (static_cast<T>(N) * T{256} * eps<T>() * diag_max) + std::numeric_limits<T>::min();
     return mat::cholesky(M + Matrix<N, N, T>::identity() * shift).has_value();
 }
 
@@ -1093,14 +1015,25 @@ template<size_t NX, size_t NU, typename T>
     if (!K) {
         return false;
     }
+    //! compute_eigenvalues balances the closed loop, so the poles are computed to a relative
+    //! accuracy independent of the states' units; the PBH test below runs on the pair
+    //! balanced the same way.
     const auto ev = mat::compute_eigenvalues(Matrix<NX, NX, T>(A - B * K.value()));
     if (!ev.converged) {
         return false;
     }
     //! √eps slack keeps a lightly damped pole near |z| = 1 from failing on roundoff.
-    const T limit = T{1} + damp::sqrt(eps<T>());
+    //! An uncontrollable mode is invariant under feedback, so one on the unit circle
+    //! shows up here; inside the slack band the PBH test tells it from a slow
+    //! controllable pole.
+    const T    slack = damp::sqrt(eps<T>());
+    const auto pair = detail::balanced_pair(A, B);
     for (size_t i = 0; i < NX; ++i) {
-        if (!(ev.values[i].abs() < limit)) {
+        const T mag = ev.values[i].abs();
+        if (!(mag < T{1} + slack)) {
+            return false;
+        }
+        if (mag >= T{1} - slack && detail::uncontrollable_at(pair, ev.values[i])) {
             return false;
         }
     }
@@ -1137,7 +1070,10 @@ enum class DareMethod : uint8_t { Auto,
  * - (A, B) stabilizable
  *
  * The result is certified: A − BK must be Schur stable, so a non-stabilizing
- * fixed point (e.g. Q = 0 with unstable A) returns damp::nullopt.
+ * fixed point (e.g. Q = 0 with unstable A) returns damp::nullopt. A Schur-stable
+ * A − BK is itself the proof that (A, B) is stabilizable; only a closed-loop pole
+ * on the unit circle (within √eps) gets the PBH rank test, so an uncontrollable
+ * marginal mode is still rejected without an eigen/rank pass per open-loop pole.
  *
  * @note Compare with MATLAB®'s idare(A, B, Q, R, N).
  *
@@ -1170,7 +1106,7 @@ template<size_t NX, size_t NU, typename T = double>
     if (!mat::is_symmetric_or_hermitian(R) || !mat::is_symmetric_or_hermitian(Q)) {
         return damp::nullopt;
     }
-    if (!detail::is_psd(Q) || !is_stabilizable(A, B)) {
+    if (!detail::is_psd(Q)) {
         return damp::nullopt;
     }
 

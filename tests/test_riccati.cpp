@@ -4,12 +4,16 @@
 // (See accompanying file LICENSE or copy at http://www.boost.org/LICENSE_1_0.txt)
 
 #include <cmath>
+#include <type_traits>
 
 #include "damp/backend.hpp"
+#include "damp/controllers/lqi.hpp"
 #include "damp/controllers/lqr.hpp"
 #include "damp/design/riccati.hpp"
+#include "damp/estimation/kalman.hpp"
 #include "damp/math/math.hpp"
 #include "damp/matrix/matrix.hpp"
+#include "damp/systems/state_space.hpp"
 #define DOCTEST_CONFIG_INCLUDE_TYPE_TRAITS
 #include "doctest.h"
 
@@ -452,5 +456,196 @@ TEST_SUITE("DARE: R=0 (Positive Semidefinite R)") {
         CHECK(doctest::Approx(P.value()(0, 0)).epsilon(1e-6) == 4.201439333611463);
         CHECK(doctest::Approx(P.value()(0, 1)).epsilon(1e-6) == 0.5954889098912259);
         CHECK(doctest::Approx(P.value()(1, 1)).epsilon(1e-6) == 2.543807455993601);
+    }
+}
+
+TEST_SUITE("is_stabilizable") {
+    TEST_CASE("one large-gain input does not hide the others (column scaling)") {
+        // Double integrator in each of two axes. Input 0 drives axis 0 only, with a gain 10⁸
+        // times input 1's, which drives axis 1 only. Scaling a column of B cannot change
+        // stabilizability, so this pair is stabilizable whatever the gains.
+        Matrix<4, 4> A = Matrix<4, 4>::identity();
+        A(0, 1) = 1.0;
+        A(2, 3) = 1.0;
+        Matrix<4, 2> B{};
+        B(1, 0) = 1.0e8;
+        B(3, 1) = 1.0;
+        CHECK(is_stabilizable(A, B));
+        Matrix<4, 2> B_axis0_only{};
+        B_axis0_only(1, 0) = 1.0e8;
+        CHECK_FALSE(is_stabilizable(A, B_axis0_only)); // axis 1 has no input at all
+    }
+
+    TEST_CASE("a badly scaled change of coordinates does not change the verdict (balancing)") {
+        // T = diag(1, 1e6, 1, 1e-4) mixes scales across A's rows the way a delay register copying an
+        // accelerometer row does. Stabilizability is invariant under it.
+        Matrix<4, 4> A = Matrix<4, 4>::identity();
+        A(0, 1) = 1.0;
+        A(2, 3) = 1.0;
+        Matrix<4, 2> B{};
+        B(1, 0) = 1.0;
+        B(3, 1) = 1.0;
+        const double s[4] = {1.0, 1.0e6, 1.0, 1.0e-4};
+        Matrix<4, 4> As{};
+        Matrix<4, 2> Bs{};
+        for (size_t r = 0; r < 4; ++r) {
+            for (size_t c = 0; c < 4; ++c) {
+                As(r, c) = s[r] * A(r, c) / s[c];
+            }
+            for (size_t c = 0; c < 2; ++c) {
+                Bs(r, c) = s[r] * B(r, c);
+            }
+        }
+        CHECK(is_stabilizable(As, Bs));
+        Matrix<4, 2> Bs_axis0{};
+        Bs_axis0(1, 0) = Bs(1, 0);
+        CHECK_FALSE(is_stabilizable(As, Bs_axis0)); // axis 1 still has no input
+    }
+
+    TEST_CASE_TEMPLATE("an accelerometer register next to an integrator disturbance: the dual is detectable", T, float, double) {
+        // Mass-spring at 1 kHz with k/m = 1e5. A register copies the accelerometer row −k/m·x₁ + d one
+        // sample late (entries of 1e5 next to rows of 1e-3); d is an integrator disturbance. Outputs: the
+        // position and the register. Row scaling alone called the dual not detectable; the pair itself is
+        // not stabilizable (d has no input) in either precision.
+        const T         dt = static_cast<T>(1e-3);
+        const T         km = static_cast<T>(1e5);
+        Matrix<4, 4, T> A{};
+        A(0, 0) = T{1};
+        A(0, 1) = dt;
+        A(1, 0) = -dt * km;
+        A(1, 1) = T{1};
+        A(1, 3) = dt;
+        A(2, 0) = -km;
+        A(2, 3) = T{1};
+        A(3, 3) = T{1};
+        Matrix<4, 1, T> B{};
+        B(1, 0) = dt;
+        Matrix<2, 4, T> C{};
+        C(0, 0) = T{1};
+        C(1, 2) = T{1};
+        CHECK(is_stabilizable(Matrix<4, 4, T>(A.t()), Matrix<4, 2, T>(C.t())));
+        CHECK_FALSE(is_stabilizable(A, B));
+        A(3, 3) = T{0}; // without the disturbance the plant alone is stabilizable
+        A(1, 3) = T{0};
+        A(2, 3) = T{0};
+        CHECK(is_stabilizable(A, B));
+    }
+
+    TEST_CASE_TEMPLATE("an undamped mode with no input is never skipped as stable", T, float, double) {
+        // |λ| = 1 exactly; the computed magnitude lands on either side of 1 by roundoff. Within √eps of the
+        // unit circle counts as unstable, so every angle gives the same verdict.
+        for (int k = 1; k <= 20; ++k) {
+            const T         th = static_cast<T>(0.05 * k);
+            Matrix<3, 3, T> A{};
+            A(0, 0) = damp::cos(th);
+            A(0, 1) = -damp::sin(th);
+            A(1, 0) = damp::sin(th);
+            A(1, 1) = damp::cos(th);
+            A(2, 2) = static_cast<T>(0.5);
+            Matrix<3, 1, T> B{};
+            B(2, 0) = T{1};
+            CHECK_FALSE(is_stabilizable(A, B));
+        }
+    }
+}
+
+TEST_SUITE("DARE stabilizability certificate") {
+    TEST_CASE("an uncontrollable mode on the unit circle is refused after the solve") {
+        // Axis 1 is a double integrator with no input; Q does not weight it, so a
+        // Riccati fixed point exists with that mode left at z = 1 in A − BK. The
+        // closed-loop PBH test must still refuse the pair.
+        Matrix<4, 4> A = Matrix<4, 4>::identity();
+        A(0, 1) = 0.1;
+        A(2, 3) = 0.1;
+        Matrix<4, 1> B{};
+        B(1, 0) = 0.1;
+        Matrix<4, 4> Q{};
+        Q(0, 0) = 1.0;
+        Q(1, 1) = 1.0;
+        CHECK_FALSE(dare(A, B, Q, Matrix<1, 1>{{1.0}}).has_value());
+        CHECK_FALSE(dare(A, B, Matrix<4, 4>::identity(), Matrix<1, 1>{{1.0}}).has_value());
+
+        // An uncontrollable but stable mode is fine.
+        Matrix<4, 4> A_stable = A;
+        A_stable(2, 2) = 0.5;
+        A_stable(3, 3) = 0.5;
+        CHECK(dare(A_stable, B, Matrix<4, 4>::identity(), Matrix<1, 1>{{1.0}}).has_value());
+    }
+}
+
+namespace {
+// Chain of five unit masses on springs (10 states), forward-Euler at 10 ms; forces on
+// the end masses, their positions measured. Lightly damped, so every open-loop pole
+// sits near the unit circle — the costly case for the design-time checks.
+constexpr StateSpace<10, 2, 2> mass_chain() {
+    StateSpace<10, 2, 2> s{};
+    const double         Ts = 0.01;
+    const double         k = 50.0;
+    for (size_t i = 0; i < 10; ++i) {
+        s.A(i, i) = 1.0;
+    }
+    for (size_t m = 0; m < 5; ++m) {
+        s.A(2 * m, (2 * m) + 1) = Ts;
+        double kk = 0.0;
+        if (m > 0) {
+            s.A((2 * m) + 1, 2 * (m - 1)) += Ts * k;
+            kk += k;
+        }
+        if (m + 1 < 5) {
+            s.A((2 * m) + 1, 2 * (m + 1)) += Ts * k;
+            kk += k;
+        }
+        s.A((2 * m) + 1, 2 * m) -= Ts * kk;
+        s.A((2 * m) + 1, (2 * m) + 1) -= Ts * 0.2;
+    }
+    s.B(1, 0) = Ts;
+    s.B(9, 1) = Ts;
+    s.C(0, 0) = 1.0;
+    s.C(1, 8) = 1.0;
+    s.Ts = Ts;
+    return s;
+}
+} // namespace
+
+TEST_CASE("10-state LQI and steady-state Kalman designs fit the default constexpr budget") {
+    // Tripwire for -fconstexpr-ops-limit (2^25): both must stay designable at compile time.
+    constexpr auto sys = mass_chain();
+    constexpr auto lqi = design::discrete_lqi(sys, Matrix<12, 12>::identity(), Matrix<2, 2>::identity());
+    static_assert(lqi.success);
+    constexpr StateSpace<10, 2, 2, double, 10, 2> noisy{.A = sys.A, .B = sys.B, .C = sys.C, .G = Matrix<10, 10>::identity(), .H = Matrix<2, 2>::identity(), .Ts = sys.Ts};
+    constexpr auto                                kf = design::kalman(noisy, Matrix<10, 10>::identity() * 1e-4, Matrix<2, 2>::identity() * 1e-2);
+    static_assert(kf.success);
+    CHECK(lqi.success);
+    CHECK(kf.success);
+}
+
+TEST_SUITE("DARE scale invariance") {
+    // Scaling Q and R together scales X and leaves K unchanged. A stop test with an absolute
+    // floor (tol · max(1, ‖X‖)) declared a covariance-sized X (‖X‖ ≪ 1) converged after one
+    // iteration and returned a gain five orders of magnitude off.
+    TEST_CASE_TEMPLATE("a solution far below unit size converges to the same gain", T, float, double) {
+        Matrix<4, 4, T> A = Matrix<4, 4, T>::identity();
+        A(0, 1) = static_cast<T>(1e-3);
+        A(2, 3) = static_cast<T>(1e-3);
+        Matrix<4, 2, T> B{};
+        B(1, 0) = static_cast<T>(1e-3);
+        B(3, 1) = static_cast<T>(1e-3);
+        const Matrix<4, 4, T> Q0 = Matrix<4, 4, T>::identity();
+        const Matrix<2, 2, T> R0 = Matrix<2, 2, T>::identity() * static_cast<T>(0.1);
+        const auto            X0 = dare(A, B, Q0, R0);
+        REQUIRE(X0.has_value());
+        const auto K0 = lqr_gain(A, B, *X0, R0);
+        REQUIRE(K0.has_value());
+        const T    scale = std::is_same_v<T, float> ? static_cast<T>(1e-8) : static_cast<T>(1e-16);
+        const auto X = dare(A, B, Matrix<4, 4, T>(Q0 * scale), Matrix<2, 2, T>(R0 * scale));
+        REQUIRE(X.has_value());
+        const auto K = lqr_gain(A, B, *X, Matrix<2, 2, T>(R0 * scale));
+        REQUIRE(K.has_value());
+        for (size_t r = 0; r < 2; ++r) {
+            for (size_t c = 0; c < 4; ++c) {
+                CHECK((*K)(r, c) == doctest::Approx((*K0)(r, c)).epsilon(static_cast<double>(T{100} * damp::sqrt(eps<T>()))));
+            }
+        }
+        CHECK(X->norm() / scale == doctest::Approx(X0->norm()).epsilon(1e-6));
     }
 }
