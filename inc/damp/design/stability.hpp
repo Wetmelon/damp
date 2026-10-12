@@ -27,6 +27,7 @@
 #include "damp/math/complex.hpp"
 #include "damp/matrix/eigen.hpp"
 #include "damp/matrix/matrix.hpp"
+#include "damp/matrix/svd.hpp"
 
 namespace damp {
 namespace stability {
@@ -116,23 +117,90 @@ gramian_lyapunov(const Matrix<NX, NX, T>& A, const Matrix<NX, NX, T>& Q, bool di
     return discrete ? dlyap(A, Q) : lyap(A, Q);
 }
 
-/// Scale each column of M to unit 2-norm (zero columns stay zero). Column scaling
-/// preserves rank and removes the unit / time-scale growth of Krylov columns.
-template<size_t R, size_t C, typename T>
-[[nodiscard]] constexpr Matrix<R, C, T> normalize_columns(Matrix<R, C, T> M) {
-    for (size_t c = 0; c < C; ++c) {
-        T sumsq = T{0};
-        for (size_t r = 0; r < R; ++r) {
-            sumsq += M(r, c) * M(r, c);
-        }
-        if (sumsq > T{0}) {
-            const T inv = T{1} / damp::sqrt(sumsq);
-            for (size_t r = 0; r < R; ++r) {
-                M(r, c) *= inv;
+/// Orthonormal basis of the controllable subspace of (A, B) and its dimension.
+template<size_t NX, typename T>
+struct ControllableSubspace {
+    Matrix<NX, NX, T> basis{};         ///< leading `dim` columns: an orthonormal basis of the subspace
+    size_t            dim{0};          ///< its dimension (NX when (A, B) is controllable)
+    bool              converged{true}; ///< every SVD converged
+};
+
+/**
+ * @brief Controllable subspace by the block-Arnoldi staircase (the ctrbf construction).
+ *
+ * Stair 0 is range(B). Stair k adds the directions of A·(stair k−1) that are new: the
+ * block is projected against the basis found so far (twice, so it is orthogonal to working
+ * precision) and its left singular vectors above the tolerance are appended. A is scaled by
+ * 1/‖A‖∞ and the basis columns have unit norm, so the test σ > @p tol is unit-free: a
+ * direction counts when it is reached with a coupling of at least @p tol relative to the
+ * plant's fastest rate; stair 0 is tested against tol·σₘₐₓ(B).
+ *
+ * The rank of the Krylov matrix [B, AB, …, Aⁿ⁻¹B] answers the same question in exact
+ * arithmetic, but its columns align with the dominant mode and the matrix loses rank
+ * numerically from n ≈ 10, or sooner when the modes spread over decades. Each stair here is
+ * tested on its own, so the verdict does not degrade with n.
+ *
+ * @see Van Dooren, "The generalized eigenstructure problem in linear system theory,"
+ *      IEEE TAC 26(1), 1981
+ * @note Compare with MATLAB®'s ctrbf.
+ */
+template<size_t NX, size_t NU, typename T>
+[[nodiscard]] constexpr ControllableSubspace<NX, T>
+controllable_subspace(const Matrix<NX, NX, T>& A, const Matrix<NX, NU, T>& B, T tol) {
+    constexpr size_t            K = (NX < NU) ? NX : NU;
+    ControllableSubspace<NX, T> out{};
+    const T                     a_norm = mat::infinity_norm(A);
+    const Matrix<NX, NX, T>     As = (a_norm > T{0}) ? Matrix<NX, NX, T>(A * (T{1} / a_norm)) : A;
+    Matrix<NX, NU, T>           W = B;
+    for (size_t stair = 0; stair < NX && out.dim < NX; ++stair) {
+        for (int pass = 0; pass < 2; ++pass) { // classical Gram–Schmidt, twice
+            for (size_t j = 0; j < out.dim; ++j) {
+                for (size_t c = 0; c < NU; ++c) {
+                    T dot{0};
+                    for (size_t i = 0; i < NX; ++i) {
+                        dot += out.basis(i, j) * W(i, c);
+                    }
+                    for (size_t i = 0; i < NX; ++i) {
+                        W(i, c) -= dot * out.basis(i, j);
+                    }
+                }
             }
         }
+        const auto s = mat::svd(W);
+        if (!s.converged) {
+            out.converged = false;
+            return out;
+        }
+        const T floor = tol * ((stair == 0) ? s.singular_values[0] : T{1});
+        size_t  r = 0;
+        for (size_t k = 0; k < K; ++k) {
+            if (s.singular_values[k] > floor) {
+                ++r;
+            }
+        }
+        if (r == 0) {
+            break;
+        }
+        r = damp::min(r, NX - out.dim);
+        for (size_t k = 0; k < r; ++k) {
+            for (size_t i = 0; i < NX; ++i) {
+                out.basis(i, out.dim + k) = s.singular_U(i, k);
+            }
+        }
+        Matrix<NX, NU, T> next{};
+        for (size_t k = 0; k < r; ++k) {
+            for (size_t i = 0; i < NX; ++i) {
+                T acc{0};
+                for (size_t m = 0; m < NX; ++m) {
+                    acc += As(i, m) * out.basis(m, out.dim + k);
+                }
+                next(i, k) = acc;
+            }
+        }
+        W = next;
+        out.dim += r;
     }
-    return M;
+    return out;
 }
 
 } // namespace detail
@@ -216,31 +284,31 @@ template<size_t R, size_t C, typename T>
 /**
  * @brief Check if a system is controllable
  *
- * Rank test on the controllability matrix with each column scaled to unit norm,
- * so the answer is invariant to the signal and time units (Krylov columns
- * otherwise grow as ‖A‖ᵏ).
+ * The controllable subspace (detail::controllable_subspace, the staircase construction)
+ * has dimension NX. The tolerance NX·64·eps is relative to the plant's fastest rate and
+ * to B, so the answer is invariant to the signal and time units.
  *
  * @param A State matrix
  * @param B Input matrix
- * @return true if the controllability matrix has full rank (NX)
+ * @return true if (A, B) is controllable
  */
 template<size_t NX, size_t NU, typename T = double>
 [[nodiscard]] constexpr bool is_controllable(const Matrix<NX, NX, T>& A, const Matrix<NX, NU, T>& B) {
-    return mat::rank(detail::normalize_columns(controllability_matrix(A, B))) == NX;
+    return detail::controllable_subspace(A, B, static_cast<T>(NX) * T{64} * eps<T>()).dim == NX;
 }
 
 /**
  * @brief Check if a system is observable
  *
- * Dual of is_controllable(): rank of the row-normalized observability matrix.
+ * Dual of is_controllable(): the controllable subspace of (Aᵀ, Cᵀ) has dimension NX.
  *
  * @param A State matrix
  * @param C Output matrix
- * @return true if the observability matrix has full rank (NX)
+ * @return true if (A, C) is observable
  */
 template<size_t NX, size_t NY, typename T = double>
 [[nodiscard]] constexpr bool is_observable(const Matrix<NX, NX, T>& A, const Matrix<NY, NX, T>& C) {
-    return mat::rank(detail::normalize_columns(observability_matrix(A, C).transpose())) == NX;
+    return detail::controllable_subspace(Matrix<NX, NX, T>(A.transpose()), Matrix<NX, NY, T>(C.transpose()), static_cast<T>(NX) * T{64} * eps<T>()).dim == NX;
 }
 
 /**

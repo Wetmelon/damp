@@ -16,16 +16,20 @@
  * (balreal / balred / modred).
  *
  * Algorithm (fixed-size, stack-only):
- * 1. Controllability matrix @f$ \mathcal{C} = [B\ AB\ \cdots\ A^{n-1}B] @f$;
- *    left singular vectors of significant singular values span the controllable
- *    subspace (rank via relative SV threshold).
+ * 1. Controllable subspace of @f$ (A, B) @f$ by the block-Arnoldi staircase
+ *    (stability::detail::controllable_subspace): each stair adds the new directions
+ *    of @f$ A @f$ applied to the previous one, tested against the relative tolerance.
  * 2. Orthogonal change of basis that places that subspace first; form the
  *    controllable subsystem @f$ (A_c, B_c, C_c) @f$.
- * 3. Observability matrix of @f$ (A_c, C_c) @f$; right singular vectors of
- *    significant singular values span the observable subspace of the
- *    controllable dynamics.
+ * 3. Observable subspace of @f$ (A_c, C_c) @f$: the same staircase on the dual
+ *    @f$ (A_c^\top, C_c^\top) @f$.
  * 4. Project @f$ (A,B,C,D) @f$ onto that CO subspace. The I/O map is preserved;
  *    eliminated modes do not contribute to @f$ C(sI-A)^{-1}B + D @f$.
+ *
+ * The rank of the Krylov matrices @f$ [B, AB, \dots] @f$ would answer 1 and 3 in exact
+ * arithmetic, but their columns align with the dominant mode and the matrices lose
+ * rank numerically from about ten states, or sooner for modes spread over decades,
+ * which dropped genuine modes. The staircase tests each stair on its own.
  *
  * The reduced model is returned both as a typed extract (when the order is
  * known at compile time) and embedded in the original state dimension (leading
@@ -145,32 +149,6 @@ struct MinimalRealizationResult {
 
 namespace detail {
 
-/// Number of singular values strictly above @p rel_tol · σ_max (descending array).
-template<size_t K, typename T>
-[[nodiscard]] constexpr size_t count_significant_sv(
-    const damp::array<T, K>& singular_values,
-    T                        rel_tol
-) noexcept {
-    if constexpr (K == 0) {
-        return 0;
-    } else {
-        const T smax = singular_values[0];
-        if (!(smax > T{0})) {
-            return 0;
-        }
-        const T thresh = rel_tol * smax;
-        size_t  r = 0;
-        for (size_t i = 0; i < K; ++i) {
-            if (singular_values[i] > thresh) {
-                ++r;
-            } else {
-                break;
-            }
-        }
-        return r;
-    }
-}
-
 /// Y = M(:, 0:ncols)' * X  (left-multiply by basis columns transpose).
 template<size_t N, size_t C, typename T>
 [[nodiscard]] constexpr Matrix<N, C, T> mul_basis_cols_t(
@@ -276,7 +254,7 @@ template<size_t NY, size_t N, typename T>
  * @tparam NW Process-noise columns (passed through the same basis)
  * @tparam NV Measurement-noise columns (unchanged)
  * @param sys State-space model (continuous if Ts == 0, else discrete)
- * @param tol Relative singular-value tolerance (default √eps, as MATLAB®'s minreal)
+ * @param tol Relative tolerance on each stair's singular values (default √eps, as MATLAB®'s minreal)
  * @return MinimalRealizationResult with reduced model, order, success flag
  */
 template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, size_t NV = 0>
@@ -291,25 +269,13 @@ minreal(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T tol = damp::sqrt(eps<T>(
         };
     }
 
-    // Krylov subspaces are invariant to scaling A, so build them from A/‖A‖∞:
-    // column k of the controllability matrix otherwise grows as ‖A‖ᵏ and the
-    // relative SV test would depend on the time unit.
-    const T a_norm = mat::infinity_norm(sys.A);
-    const T a_scale = (a_norm > T{0}) ? (T{1} / a_norm) : T{1};
-
-    // --- Controllable subspace via SVD of the controllability matrix --------
-    const auto Co = stability::controllability_matrix(Matrix<NX, NX, T>{sys.A * a_scale}, sys.B);
-    const auto svd_c = mat::svd(Co);
-    if (!svd_c.converged) {
+    // --- Controllable subspace (staircase) -------------------------------------
+    const auto cs = stability::detail::controllable_subspace(sys.A, sys.B, tol);
+    if (!cs.converged) {
         return MinimalRealizationResult<NX, NU, NY, T, NW, NV>{};
     }
-    constexpr size_t   Kc = (NX < NX * NU) ? NX : (NX * NU);
-    damp::array<T, Kc> sc{};
-    for (size_t i = 0; i < Kc; ++i) {
-        sc[i] = static_cast<T>(svd_c.singular_values[i]);
-    }
-    const size_t            nc = detail::count_significant_sv(sc, tol);
-    const Matrix<NX, NX, T> Uc = svd_c.singular_U; // left vectors: range(Co)
+    const size_t             nc = cs.dim;
+    const Matrix<NX, NX, T>& Uc = cs.basis; // leading nc columns: orthonormal basis
 
     if (nc == 0) {
         // No controllable dynamics: I/O is pure feedthrough.
@@ -325,36 +291,19 @@ minreal(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T tol = damp::sqrt(eps<T>(
         };
     }
 
-    // Transform to coordinates with controllable subspace first:
-    //   A1 = Uc' A Uc, C1 = C Uc  (B1 not needed for the observability test)
-    const Matrix<NX, NX, T> A1 = Uc.transpose() * sys.A * Uc;
-    const Matrix<NY, NX, T> C1 = sys.C * Uc;
-
     // --- Observable subspace of the controllable subsystem ------------------
-    // Pad (Ac, Cc) into NX-sized matrices so observability_matrix stays fixed-size.
-    Matrix<NX, NX, T> Ac_pad{};
-    Matrix<NY, NX, T> Cc_pad{};
-    for (size_t i = 0; i < nc; ++i) {
-        for (size_t j = 0; j < nc; ++j) {
-            Ac_pad(i, j) = A1(i, j);
-        }
-        for (size_t r = 0; r < NY; ++r) {
-            Cc_pad(r, i) = C1(r, i);
-        }
-    }
-
-    const auto Ob = stability::observability_matrix(Matrix<NX, NX, T>{Ac_pad * a_scale}, Cc_pad);
-    const auto svd_o = mat::svd(Ob);
-    if (!svd_o.converged) {
+    // (Ac, Cc) = (Ucᵀ A Uc, C Uc) in the leading nc coordinates; the dual staircase on
+    // (Acᵀ, Ccᵀ) stays inside them because the padding is zero.
+    const Matrix<NX, NX, T> Ac_pad = detail::restrict_A(sys.A, Uc, nc);
+    const Matrix<NY, NX, T> Cc_pad = detail::restrict_C(sys.C, Uc, nc);
+    const auto              os = stability::detail::controllable_subspace(
+        Matrix<NX, NX, T>(Ac_pad.transpose()), Matrix<NX, NY, T>(Cc_pad.transpose()), tol
+    );
+    if (!os.converged) {
         return MinimalRealizationResult<NX, NU, NY, T, NW, NV>{};
     }
-    constexpr size_t   Ko = (NX * NY < NX) ? (NX * NY) : NX;
-    damp::array<T, Ko> so{};
-    for (size_t i = 0; i < Ko; ++i) {
-        so[i] = static_cast<T>(svd_o.singular_values[i]);
-    }
-    const size_t            no = detail::count_significant_sv(so, tol);
-    const Matrix<NX, NX, T> Vo = svd_o.singular_V; // right vectors of Ob
+    const size_t             no = os.dim;
+    const Matrix<NX, NX, T>& Vo = os.basis;
 
     if (no == 0) {
         return MinimalRealizationResult<NX, NU, NY, T, NW, NV>{

@@ -257,3 +257,59 @@ TEST_SUITE("minreal") {
         static_assert(mr.eliminated == 1);
     }
 }
+
+TEST_SUITE("minreal and controllability with a spread spectrum") {
+    // Krylov columns [B, AB, A²B, …] align with the dominant mode, so the rank test on them
+    // dropped genuine modes: twelve modes at 1 … 12 rad/s came back as ten, six modes spread
+    // over five decades as five, and six float modes as five. Diagonal A with B = C = ones is
+    // controllable and observable for any size and spread.
+    template<size_t N, typename T>
+    StateSpace<N, 1, 1, T> spread_plant(T ratio) {
+        StateSpace<N, 1, 1, T> sys{};
+        T                      lam = T{1};
+        for (size_t i = 0; i < N; ++i) {
+            sys.A(i, i) = -lam;
+            lam *= ratio;
+            sys.B(i, 0) = T{1};
+            sys.C(0, i) = T{1};
+        }
+        return sys;
+    }
+
+    TEST_CASE("twelve modes, all kept") {
+        StateSpace<12, 1, 1> sys{};
+        for (size_t i = 0; i < 12; ++i) {
+            sys.A(i, i) = -static_cast<double>(i + 1);
+            sys.B(i, 0) = 1.0;
+            sys.C(0, i) = 1.0;
+        }
+        CHECK(stability::is_controllable(sys.A, sys.B));
+        CHECK(stability::is_observable(sys.A, sys.C));
+        CHECK(minreal(sys).order == 12);
+    }
+
+    TEST_CASE("six modes over five decades, all kept") {
+        const auto sys = spread_plant<6, double>(10.0);
+        CHECK(stability::is_controllable(sys.A, sys.B));
+        CHECK(stability::is_observable(sys.A, sys.C));
+        CHECK(minreal(sys).order == 6);
+    }
+
+    TEST_CASE("float: six modes at 1 … 6 rad/s, all kept") {
+        StateSpace<6, 1, 1, float> sys{};
+        for (size_t i = 0; i < 6; ++i) {
+            sys.A(i, i) = -static_cast<float>(i + 1);
+            sys.B(i, 0) = 1.0f;
+            sys.C(0, i) = 1.0f;
+        }
+        CHECK(stability::is_controllable(sys.A, sys.B));
+        CHECK(minreal(sys).order == 6);
+    }
+
+    TEST_CASE("a genuinely uncontrollable mode is still removed among spread modes") {
+        auto sys = spread_plant<6, double>(10.0);
+        sys.B(3, 0) = 0.0; // the 1e3 rad/s mode has no input
+        CHECK_FALSE(stability::is_controllable(sys.A, sys.B));
+        CHECK(minreal(sys).order == 5);
+    }
+}
