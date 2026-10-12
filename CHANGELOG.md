@@ -12,9 +12,18 @@ and [known limitations](docs/known_limitations.md)).
 ### Added
 
 - `design::discrete_oflqg` / `OFLQG`: offset-free LQG (discrete LQR, input-disturbance Kalman filter, DC target).
+- `discretize` takes an input and output delay; every LQ / MPC / estimator design accepts plant-sized weights on delayed models.
+- Tustin pre-warping: `discretize(sys, Ts, Tustin, w0)` (and `c2d`) matches the discrete frequency response exactly at ω₀.
+- `mat::ldlt` / `mat::ldlt_solve`: LDLᵀ without pivoting for symmetric indefinite matrices (quasi-definite KKT included).
+- `TransferFunction::to_observable_canonical_form` (and `to_controllable_canonical_form` as the named twin of `to_state_space`).
+- LQI / LQGI integrate a chosen subset of outputs; saturation-aware `feedback` / `commit` across LQI, LQGI, MPC and OffsetFreeMPC.
 
 ### Changed
 
+- `OffsetFreeMPC` takes `OffsetFreeModel` and its noise in OFLQG's order (`Q_process`, `R_measurement`, `Q_disturbance`); `mpc` likewise takes `R` before the input weight.
+- Numerics: DARE convergence relative to the solution, Cholesky refuses pivots below the roundoff of their terms, `compute_eigenvalues` balances its argument, `is_stabilizable` equilibrates before PBH, `minreal` uses the staircase controllable subspace.
+- NaN/Inf audit: finite inputs and failed designs give finite output across controllers, filters and toolbox.
+- Host builds use `-mtune=native` instead of `-march=native` (g++ 14 MinGW misaligned AVX-512 stack stores).
 - Prefer prvalue returns when assembling `StateSpace` / design results and geometry
   values (style; same behavior under optimization).
 - Matrix: `ColVec`/`RowVec` `segment`, richer `RowView`/`ColView` assign and indexing;
