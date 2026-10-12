@@ -141,7 +141,7 @@ inline constexpr design::MPCConstraints<NU, NY> mpc_limits{
 };
 
 inline constexpr auto mpc_art = design::mpc<10, 4>(
-    sysd, mpc_weights, mpc_limits, Q_kf, Matrix<NU, NU>{{1e-2}}, R_kf
+    sysd, mpc_weights, mpc_limits, Q_kf, R_kf, Matrix<NU, NU>{{1e-2}}
 );
 static_assert(mpc_art.success);
 

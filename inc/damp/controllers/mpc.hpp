@@ -67,9 +67,9 @@
  *
  * Feedthrough is not supported: plants must have @f$ D = 0 @f$ (synthesis
  * fails otherwise). Offset-free tracking under plant/model mismatch or
- * *unmeasured* disturbances additionally needs the disturbance-model
- * augmentation planned in roadmap #14 — the velocity form alone rejects only
- * what its integral action sees through the measured state.
+ * *unmeasured* disturbances additionally needs a disturbance model and an
+ * estimator (OffsetFreeMPC, controllers/offset_free_mpc.hpp) — the velocity
+ * form alone rejects only what its integral action sees through the measured state.
  *
  * Unbounded constraint entries use the `numeric_limits` sentinels
  * (`lowest()`/`max()`, never infinity — the library builds with
@@ -812,7 +812,9 @@ public:
      * @return Input command u (clamped to the configured u and Δu boxes)
      */
     constexpr ColVec<NU, T> control(const ColVec<NY, T>& r, const ColVec<NX, T>& x) {
-        return control_impl(r, x, ColVec<ND, T>{});
+        const ColVec<NU, T> u = feedback(r, x);
+        commit(u);
+        return u;
     }
 
     /**
@@ -829,8 +831,36 @@ public:
     constexpr ColVec<NU, T> control(const ColVec<NY, T>& r, const ColVec<NX, T>& x, const ColVec<ND, T>& d)
         requires(ND > 0)
     {
+        const ColVec<NU, T> u = feedback(r, x, d);
+        commit(u);
+        return u;
+    }
+
+    /**
+     * @brief First half of a saturation-aware tick: this tick's move, not yet committed
+     *
+     * Same solve as control(), but the held input (the base of the next Δu) is left
+     * alone until commit. Use the pair when a downstream stage can clamp or override the
+     * command, so the next move starts from the input the plant actually received.
+     *
+     * @param r  Output reference r (NY), held over the horizon; not a state x_ref
+     * @param x  Measured/estimated plant state
+     * @return Input command u (clamped to the configured u and Δu boxes)
+     */
+    [[nodiscard]] constexpr ColVec<NU, T> feedback(const ColVec<NY, T>& r, const ColVec<NX, T>& x) {
+        return control_impl(r, x, ColVec<ND, T>{});
+    }
+
+    /// @copydoc feedback(const ColVec<NY,T>&, const ColVec<NX,T>&)
+    /// @param d  Measured disturbance (held constant over the horizon)
+    [[nodiscard]] constexpr ColVec<NU, T> feedback(const ColVec<NY, T>& r, const ColVec<NX, T>& x, const ColVec<ND, T>& d)
+        requires(ND > 0)
+    {
         return control_impl(r, x, d);
     }
+
+    /// Second half of the tick: hold the input the plant actually received (post-clamp).
+    constexpr void commit(const ColVec<NU, T>& u_applied) { u_prev = u_applied; }
 
     /// Reset controller memory (held input returns to zero)
     constexpr void reset() {
@@ -859,6 +889,10 @@ public:
 
 private:
     constexpr ColVec<NU, T> control_impl(const ColVec<NY, T>& r, const ColVec<NX, T>& x, const ColVec<ND, T>& d) {
+        // A failed (or default) design has zero scale factors: hold the last input.
+        if (!art.success) {
+            return u_prev;
+        }
         constexpr T sentinel = design::unbounded_bound<T>();
         constexpr T skip_threshold = sentinel / T{4};
 
@@ -915,7 +949,6 @@ private:
             du(j) = damp::clamp(du(j), art.constraints.du_min(j), art.constraints.du_max(j));
             u(j) = damp::clamp(u_prev(j) + du(j), art.constraints.u_min(j), art.constraints.u_max(j));
         }
-        u_prev = u;
         return u;
     }
 

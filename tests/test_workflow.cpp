@@ -3,7 +3,9 @@
 // Distributed under the Boost Software License, Version 1.0.
 // (See accompanying file LICENSE or copy at http://www.boost.org/LICENSE_1_0.txt)
 
+#include <cstddef>
 #include <numbers>
+#include <type_traits>
 
 #include "damp/backend.hpp"
 #include "damp/controllers/lqg.hpp"
@@ -208,5 +210,67 @@ TEST_SUITE("Workflow Glue") {
 
         static_assert(artifacts.success, "LQI workflow must synthesize at compile time");
         CHECK(artifacts.success);
+    }
+
+    TEST_CASE("lqi_bundle / lqgi_bundle integrate a subset of the outputs, same argument as discrete_lqi") {
+        // Position and velocity sensors on a double integrator; integrate the position only.
+        constexpr StateSpace<2, 1, 2, double, 2, 2> sys{
+            .A = Matrix<2, 2>{{1.0, 0.1}, {0.0, 1.0}},
+            .B = Matrix<2, 1>{{0.005}, {0.1}},
+            .C = Matrix<2, 2>::identity(),
+            .G = Matrix<2, 2>::identity(),
+            .H = Matrix<2, 2>::identity(),
+            .Ts = 0.1,
+        };
+        constexpr Matrix<3, 3> Q_aug{{1.0, 0.0, 0.0}, {0.0, 1.0, 0.0}, {0.0, 0.0, 10.0}};
+        constexpr Matrix<1, 1> R{{0.1}};
+        constexpr Matrix<1, 2> pick_position{{1.0, 0.0}};
+
+        constexpr auto by_index = design::lqi_bundle(sys, Q_aug, R, {0});
+        static_assert(by_index.success);
+        static_assert(std::is_same_v<std::remove_cvref_t<decltype(by_index.runtime)>, LQI<2, 1, 2, float, 1>>);
+        const auto by_selector = design::lqi_bundle(sys, Q_aug, R, pick_position);
+        const auto direct = design::discrete_lqi(sys, Q_aug, R, {0});
+        REQUIRE(by_selector.success);
+        for (size_t j = 0; j < 3; ++j) {
+            CHECK(by_index.design.K(0, j) == doctest::Approx(direct.K(0, j)));
+            CHECK(by_selector.design.K(0, j) == doctest::Approx(direct.K(0, j)));
+        }
+        // The servo model integrates r − y₀ only: the integrator row reads −C₀ = [−1, 0].
+        const auto& servo = by_index.models.augmented_servo_closed_loop;
+        CHECK(servo.A(2, 0) == doctest::Approx(-1.0));
+        CHECK(servo.A(2, 1) == doctest::Approx(0.0));
+        CHECK(servo.A(2, 2) == doctest::Approx(1.0));
+
+        // The bundled runtime takes one reference and both measurements, and holds y₀ at r.
+        auto             lqi = by_index.runtime;
+        ColVec<2, float> x{};
+        for (int k = 0; k < 600; ++k) {
+            const auto u = lqi.control(ColVec<1, float>{1.0F}, x, x);
+            x = sys.A.as<float>() * x + sys.B.as<float>() * u;
+        }
+        CHECK(x(0) == doctest::Approx(1.0F).epsilon(1e-3));
+
+        // LQGI: the same argument, an estimator underneath.
+        const Matrix<2, 2> Q_kf{{0.01, 0.0}, {0.0, 0.01}};
+        const Matrix<2, 2> R_kf{{0.1, 0.0}, {0.0, 0.1}};
+        const auto         lqgi_index = design::lqgi_bundle(sys, Q_aug, R, Q_kf, R_kf, {0});
+        const auto         lqgi_selector = design::lqgi_bundle(sys, Q_aug, R, Q_kf, R_kf, pick_position);
+        REQUIRE(lqgi_index.success);
+        REQUIRE(lqgi_selector.success);
+        CHECK(lqgi_index.design.lqi.K(0, 2) == doctest::Approx(direct.K(0, 2)));
+        CHECK(lqgi_selector.design.lqi.K(0, 2) == doctest::Approx(direct.K(0, 2)));
+        CHECK(lqgi_index.models.augmented_servo_closed_loop.A(2, 1) == doctest::Approx(0.0));
+        auto      lqgi = lqgi_index.runtime;
+        ColVec<2> xp{};
+        for (int k = 0; k < 600; ++k) {
+            const auto u = lqgi.step(ColVec<1, float>{1.0F}, (sys.C * xp).as<float>());
+            xp = sys.A * xp + sys.B * u.as<double>();
+        }
+        CHECK(xp(0) == doctest::Approx(1.0).epsilon(0.02));
+
+        // An index past the last output is an invalid configuration, in either bundle.
+        CHECK_FALSE(design::lqi_bundle(sys, Q_aug, R, {2}).success);
+        CHECK_FALSE(design::lqgi_bundle(sys, Q_aug, R, Q_kf, R_kf, {2}).success);
     }
 }

@@ -71,8 +71,10 @@
 #include "damp/backend.hpp"
 #include "damp/design/qp.hpp"
 #include "damp/estimation/kalman.hpp"
+#include "damp/math/math.hpp"
 #include "damp/matrix/block.hpp"
 #include "damp/matrix/matrix.hpp"
+#include "damp/matrix/matrix_traits.hpp"
 #include "damp/matrix/solve.hpp"
 #include "damp/systems/state_space.hpp"
 
@@ -150,6 +152,27 @@ struct MHEArtifacts {
     }
 };
 
+namespace detail {
+
+/// Q on the plant states; the delay states that follow (commands already sent, past outputs)
+/// are deterministic, but the window weights Q⁻¹: give them √ε of the largest plant variance.
+template<size_t NX, size_t NXQ, typename T>
+[[nodiscard]] constexpr Matrix<NX, NX, T> pad_process_covariance(const Matrix<NXQ, NXQ, T>& Qp) {
+    Matrix<NX, NX, T> Q{};
+    Q.template block<NXQ, NXQ>(0, 0) = Qp;
+    T q_max{0};
+    for (size_t i = 0; i < NXQ; ++i) {
+        q_max = damp::max(q_max, damp::abs(Qp(i, i)));
+    }
+    const T tiny = damp::sqrt(eps<T>()) * q_max;
+    for (size_t i = NXQ; i < NX; ++i) {
+        Q(i, i) = tiny;
+    }
+    return Q;
+}
+
+} // namespace detail
+
 /**
  * @brief Synthesize a constrained moving-horizon estimator
  *
@@ -167,21 +190,25 @@ struct MHEArtifacts {
  *
  * @tparam NH  Estimation horizon (window covers NH+1 states / measurements)
  * @param sys                Discrete-time plant (Ts > 0, D = 0)
- * @param Q_process          Process-noise covariance (NX × NX, positive definite)
+ * @param Q_process_plant    Process-noise covariance (positive definite), NX × NX, or sized
+ *                           to the plant on a model with delay states (discretize with
+ *                           InputDelay / OutputDelay): those are deterministic and get only
+ *                           √ε of the largest plant variance, which keeps the window solvable
  * @param R_measurement      Measurement-noise covariance (NY × NY, positive definite)
  * @param constraints        State box limits (default: unbounded)
  * @param max_qp_iterations  Per-tick QP budget (0 → 10·(NV + NIB))
  * @return MHEArtifacts for damp::MHE
  */
-template<size_t NH, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV_SS>
+template<size_t NH, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV_SS, size_t NXQ>
 [[nodiscard]] constexpr MHEArtifacts<NX, NU, NY, NH, T> mhe(
     const StateSpace<NX, NU, NY, T, NW, NV_SS>& sys,
-    const Matrix<NX, NX, T>&                    Q_process,
+    const Matrix<NXQ, NXQ, T>&                  Q_process_plant,
     const Matrix<NY, NY, T>&                    R_measurement,
     const MHEConstraints<NX, T>&                constraints = {},
     size_t                                      max_qp_iterations = 0
 ) {
     static_assert(NH >= 1, "The estimation window must cover at least two states.");
+    static_assert(NXQ <= NX, "Q_process covers the plant: the leading states of sys.");
 
     constexpr size_t NV = NX * (NH + 1);
     constexpr size_t NIB = 2 * NV;
@@ -202,8 +229,9 @@ template<size_t NH, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size
     }
 
     // Weights: W_q = Q⁻¹, W_r = R⁻¹, W_a = P∞⁻¹ (steady-state Kalman covariance).
-    const auto Wq_opt = mat::solve(Q_process, Matrix<NX, NX, T>::identity());
-    const auto Wr_opt = mat::solve(R_measurement, Matrix<NY, NY, T>::identity());
+    const Matrix<NX, NX, T> Q_process = detail::pad_process_covariance<NX>(Q_process_plant);
+    const auto              Wq_opt = mat::solve(Q_process, Matrix<NX, NX, T>::identity());
+    const auto              Wr_opt = mat::solve(R_measurement, Matrix<NY, NY, T>::identity());
     if (!Wq_opt || !Wr_opt) {
         return art;
     }

@@ -162,4 +162,72 @@ TEST_SUITE("LQGI") {
         CHECK(rf.lqi.K(0, 0) == doctest::Approx(static_cast<float>(result.lqi.K(0, 0))));
         CHECK(rf.kalman.L(0, 0) == doctest::Approx(static_cast<float>(result.kalman.L(0, 0))));
     }
+
+    TEST_CASE("integrating a subset of the sensors: same argument shape as discrete_lqi") {
+        // Position and velocity sensors; integrate the position only.
+        constexpr StateSpace<2, 1, 2, double, 2, 2> sys2{
+            Matrix<2, 2>{{1.0, 0.1}, {0.0, 1.0}}, Matrix<2, 1>{{0.005}, {0.1}},
+            Matrix<2, 2>::identity(), Matrix<2, 1>{}, Matrix<2, 2>::identity(), Matrix<2, 2>::identity()
+        };
+        const Matrix<2, 2> Q_kf{{0.01, 0.0}, {0.0, 0.01}};
+        const Matrix<2, 2> R_kf{{0.1, 0.0}, {0.0, 0.1}};
+        const auto         res = design::discrete_lqgi(sys2, make_Q_aug(), Matrix<1, 1>{{0.1}}, Q_kf, R_kf, {0});
+        REQUIRE(res.success);
+        const auto lqi_only = design::discrete_lqi(sys2, make_Q_aug(), Matrix<1, 1>{{0.1}}, {0});
+        CHECK(res.lqi.K(0, 2) == doctest::Approx(lqi_only.K(0, 2)));
+
+        // The compensator realization takes [r (NI); y (NY)] and matches the runtime.
+        const auto      ss = res.to_ss();
+        LQGI            runtime{res};
+        ColVec<4>       xc{}; // NX + NI + NU
+        ColVec<2>       xp{};
+        const ColVec<1> r{1.0};
+        for (int k = 0; k < 600; ++k) {
+            const ColVec<2> y = sys2.C * xp;
+            const ColVec<3> in{r[0], y[0], y[1]};
+            const ColVec<1> u = ss.C * xc + ss.D * in;
+            const ColVec<1> u_rt = runtime.step(r.as<float>(), y.as<float>()).as<double>();
+            if (k < 8) {
+                CHECK(u[0] == doctest::Approx(u_rt[0]).epsilon(1e-4));
+            }
+            xp = sys2.A * xp + sys2.B * u;
+            xc = ss.A * xc + ss.B * in;
+        }
+        CHECK(xp[0] == doctest::Approx(1.0).epsilon(0.02));
+
+        const auto bad = design::discrete_lqgi(sys2, make_Q_aug(), Matrix<1, 1>{{0.1}}, Q_kf, R_kf, {5});
+        CHECK_FALSE(bad.success);
+    }
+
+    TEST_CASE("commit holds the integrator against the clamp") {
+        const auto result = design::discrete_lqgi(make_plant(), make_Q_aug(), Matrix<1, 1>{{0.1}}, Matrix<2, 2>{{0.01, 0.0}, {0.0, 0.01}}, Matrix<1, 1>{{0.1}});
+        REQUIRE(result.success);
+        const auto   sys = make_plant();
+        const double u_max = 0.2;
+        const auto   run = [&](bool aware) {
+            LQGI<2, 1, 1, double, 2, 1> ctrl{result};
+            ColVec<2>                   x{};
+            double                      peak = 0.0;
+            for (int k = 0; k < 2000; ++k) {
+                const ColVec<1> y{{x[0]}};
+                const ColVec<1> u_req = ctrl.feedback(ColVec<1>{{1.0}}, y);
+                const ColVec<1> u{{damp::clamp(u_req[0], -u_max, u_max)}};
+                // The unaware loop hides the clamp from the integrator (it still feeds the estimator u).
+                if (aware) {
+                    ctrl.commit(u);
+                } else {
+                    ctrl.lqi.commit(u_req);
+                    ctrl.kf.predict(u);
+                    ctrl.u_prev = u;
+                }
+                x = sys.A * x + sys.B * u;
+                peak = damp::max(peak, x[0]);
+            }
+            return damp::array<double, 2>{peak, x[0]};
+        };
+        const auto naive = run(false);
+        const auto aware = run(true);
+        CHECK(aware[0] < naive[0]);
+        CHECK(aware[1] == doctest::Approx(1.0).epsilon(1e-3));
+    }
 }

@@ -142,6 +142,26 @@ template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, si
 }
 
 /**
+ * @brief Discrete LQG on a model with delay states, LQR weights sized to the plant
+ *
+ * For a model from discretize with InputDelay / OutputDelay: @p Q_lqr (and @p N) cover the
+ * NQ plant states, which lead; the delay states get no cost. @p Q_kf is already plant-sized
+ * through G, which discretize keeps off the delay states.
+ */
+template<size_t NX, size_t NU, size_t NY, size_t NQ, typename T = double, size_t NW = 0, size_t NV = 0>
+    requires(NQ < NX)
+[[nodiscard]] constexpr LQGResult<NX, NU, NY, T, NW, NV> discrete_lqg(
+    const StateSpace<NX, NU, NY, T, NW, NV>& sys,
+    const Matrix<NQ, NQ, T>&                 Q_lqr,
+    const Matrix<NU, NU, T>&                 R_lqr,
+    const Matrix<NW, NW, T>&                 Q_kf,
+    const Matrix<NV, NV, T>&                 R_kf,
+    const Matrix<NQ, NU, T>&                 N = Matrix<NQ, NU, T>{}
+) {
+    return discrete_lqg(sys, damp::detail::pad_leading<NX, NX>(Q_lqr), R_lqr, Q_kf, R_kf, damp::detail::pad_leading<NX, NU>(N));
+}
+
+/**
  * @brief Assemble an LQG design from separately computed Kalman and LQR results
  *
  * @note Compare with MATLAB®'s lqgreg(kest, k) — exposed as the lqgreg() alias in matlab.hpp.
@@ -180,8 +200,9 @@ template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = NX, s
 template<size_t NX, size_t NU, size_t NY, typename T = float, size_t NW = NX, size_t NV = NY>
 struct LQG {
     StateFeedback<NX, NU, T>                       lqr{};
-    SteadyStateKalmanFilter<NX, NU, NY, T, NW, NV> kf{};     ///< Fixed-L estimator (designed L)
-    ColVec<NU, T>                                  u_prev{}; ///< Last applied input, for the estimator's predict step
+    SteadyStateKalmanFilter<NX, NU, NY, T, NW, NV> kf{};         ///< Fixed-L estimator (designed L)
+    ColVec<NU, T>                                  u_prev{};     ///< Last applied input, for the estimator's predict step
+    ColVec<NX, T>                                  x_ref_prev{}; ///< Last full state reference, to extend a plant-sized one over delay states
 
     constexpr LQG() = default;
 
@@ -198,7 +219,7 @@ struct LQG {
 
     template<typename U>
     constexpr LQG(const LQG<NX, NU, NY, U, NW, NV>& other)
-        : lqr(other.lqr), kf(other.kf), u_prev(other.u_prev.template as<T>()) {} // NOLINT
+        : lqr(other.lqr), kf(other.kf), u_prev(other.u_prev.template as<T>()), x_ref_prev(other.x_ref_prev.template as<T>()) {} // NOLINT
 
     constexpr void predict(const ColVec<NU, T>& u = ColVec<NU, T>{}) { kf.predict(u); }
     constexpr bool update(const ColVec<NY, T>& y, const ColVec<NU, T>& u = ColVec<NU, T>{}) {
@@ -235,7 +256,22 @@ struct LQG {
     /// @param x_ref State reference the feedback regulates toward.
     [[nodiscard]] constexpr ColVec<NU, T> feedback(const ColVec<NY, T>& y, const ColVec<NX, T>& x_ref) {
         kf.update(y, u_prev);
+        x_ref_prev = x_ref;
         return control(x_ref);
+    }
+
+    /**
+     * @brief Measurement update + servo law on a model with delay states (discretize with
+     *        InputDelay / OutputDelay): @p x_ref covers the NR plant states only.
+     *
+     * The delay states that follow are filled in from the reference history with no
+     * feedforward input (this law has none): past inputs regulate toward zero, past outputs
+     * toward those the reference produced.
+     */
+    template<size_t NR>
+        requires(NR < NX)
+    [[nodiscard]] constexpr ColVec<NU, T> feedback(const ColVec<NY, T>& y, const ColVec<NR, T>& x_ref) {
+        return feedback(y, detail::extend_reference<NX>(kf.model().A, kf.model().B, x_ref_prev, ColVec<NU, T>{}, x_ref));
     }
 
     /**
@@ -270,8 +306,20 @@ struct LQG {
         return u;
     }
 
-    /// Clear the applied-input memory (the estimator state is left untouched).
-    constexpr void reset() { u_prev = ColVec<NU, T>{}; }
+    /// One self-contained servo tick, @p x_ref on the plant states only (see feedback).
+    template<size_t NR>
+        requires(NR < NX)
+    [[nodiscard]] constexpr ColVec<NU, T> step(const ColVec<NY, T>& y, const ColVec<NR, T>& x_ref) {
+        const auto u = feedback(y, x_ref);
+        commit(u);
+        return u;
+    }
+
+    /// Clear the applied-input and reference memory (the estimator state is left untouched).
+    constexpr void reset() {
+        u_prev = ColVec<NU, T>{};
+        x_ref_prev = ColVec<NX, T>{};
+    }
 };
 
 } // namespace damp

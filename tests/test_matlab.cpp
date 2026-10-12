@@ -487,6 +487,50 @@ TEST_SUITE("MATLAB®-Style Control Design API") {
         CHECK(servo_result.lqi.K(0, 2) != 0.0);
     }
 
+    TEST_CASE("lqi / lqgtrack integrate a subset of the outputs, same argument as the design calls") {
+        // Position and velocity sensors; integrate the position only.
+        const StateSpace<2, 1, 2, double, 2, 2> sys{
+            .A = Matrix<2, 2>{{1.0, 0.1}, {0.0, 1.0}},
+            .B = Matrix<2, 1>{{0.005}, {0.1}},
+            .C = Matrix<2, 2>::identity(),
+            .G = Matrix<2, 2>::identity(),
+            .H = Matrix<2, 2>::identity(),
+            .Ts = 0.1,
+        };
+        const Matrix<3, 3> Q_aug{{1.0, 0.0, 0.0}, {0.0, 1.0, 0.0}, {0.0, 0.0, 10.0}};
+        const Matrix<1, 1> R{{0.1}};
+        const Matrix<2, 2> Q_kf{{0.01, 0.0}, {0.0, 0.01}};
+        const Matrix<2, 2> R_kf{{0.1, 0.0}, {0.0, 0.1}};
+        const Matrix<1, 2> pick_position{{1.0, 0.0}};
+
+        const auto direct = design::discrete_lqi(sys, Q_aug, R, {0});
+        const auto by_index = matlab::lqi(sys, Q_aug, R, {0});
+        const auto by_selector = matlab::lqi(sys, Q_aug, R, pick_position);
+        const auto track_index = matlab::lqgtrack(sys, Q_aug, R, Q_kf, R_kf, {0});
+        const auto track_selector = matlab::lqgtrack(sys, Q_aug, R, Q_kf, R_kf, pick_position);
+        REQUIRE(direct.success);
+        REQUIRE(by_index.success);
+        REQUIRE(by_selector.success);
+        REQUIRE(track_index.success);
+        REQUIRE(track_selector.success);
+        for (size_t j = 0; j < 3; ++j) {
+            CHECK(by_index.K(0, j) == doctest::Approx(direct.K(0, j)));
+            CHECK(by_selector.K(0, j) == doctest::Approx(direct.K(0, j)));
+            CHECK(track_index.lqi.K(0, j) == doctest::Approx(direct.K(0, j)));
+            CHECK(track_selector.lqi.K(0, j) == doctest::Approx(direct.K(0, j)));
+        }
+        CHECK(by_index.Ci(0, 1) == 0.0);
+        CHECK(track_index.lqi.Ci(0, 0) == 1.0);
+        CHECK_FALSE(matlab::lqi(sys, Q_aug, R, {2}).success);
+        CHECK_FALSE(matlab::lqgtrack(sys, Q_aug, R, Q_kf, R_kf, {2}).success);
+
+        // Continuous plants are refused, with the subset as without it.
+        auto cont = sys;
+        cont.Ts = 0.0;
+        CHECK_FALSE(matlab::lqi(cont, Q_aug, R, {0}).success);
+        CHECK_FALSE(matlab::lqgtrack(cont, Q_aug, R, Q_kf, R_kf, pick_position).success);
+    }
+
     // Test lqgreg: Form LQG from Kalman and LQR results
     TEST_CASE("lqgreg: combine Kalman result and LQR result") {
         StateSpace sys{

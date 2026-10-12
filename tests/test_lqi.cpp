@@ -100,4 +100,82 @@ TEST_SUITE("LQI") {
         ctrl.reset();
         CHECK(ctrl.xi[0] == doctest::Approx(0.0));
     }
+
+    TEST_CASE("integrating a subset of outputs matches a hand-built single-output model") {
+        // Same double integrator, two sensors (position, velocity); integrate position only.
+        constexpr StateSpace<2, 1, 2, double> sys2{
+            Matrix<2, 2>{{1.0, 0.1}, {0.0, 1.0}}, Matrix<2, 1>{{0.005}, {0.1}},
+            Matrix<2, 2>::identity(), Matrix<2, 1>{}
+        };
+        constexpr Matrix<3, 3> Q{{10.0, 0.0, 0.0}, {0.0, 1.0, 0.0}, {0.0, 0.0, 5.0}};
+        constexpr auto         picked = design::discrete_lqi(sys2, Q, Matrix<1, 1>{{1.0}}, {0});
+        constexpr auto         by_hand = design_lqi(); // C = [1 0]
+        static_assert(picked.success);
+        for (size_t j = 0; j < 3; ++j) {
+            CHECK(picked.K(0, j) == doctest::Approx(by_hand.K(0, j)).epsilon(1e-12));
+        }
+        CHECK(picked.Ci(0, 0) == 1.0);
+        CHECK(picked.Ci(0, 1) == 0.0);
+
+        // The selector form takes the reference for the integrated output and the full measurement.
+        LQI             ctrl{picked.as<float>()};
+        ColVec<2>       x{};
+        const ColVec<1> r{{1.0}};
+        for (int k = 0; k < 500; ++k) {
+            const ColVec<2, float> y{static_cast<float>(x[0]), static_cast<float>(x[1])};
+            const ColVec<1, float> u = ctrl.control(r.as<float>(), y, y);
+            x = sys2.A * x + sys2.B * u.as<double>();
+        }
+        CHECK(x[0] == doctest::Approx(1.0).epsilon(1e-3));
+
+        // An index past the last output is an invalid configuration.
+        constexpr auto bad = design::discrete_lqi(sys2, Q, Matrix<1, 1>{{1.0}}, {2});
+        static_assert(!bad.success);
+        // Integrating both outputs of a single-input plant cannot be held apart: not stabilizable.
+        const auto both = design::discrete_lqi(sys2, Matrix<4, 4>::identity(), Matrix<1, 1>{{1.0}}, {0, 1});
+        CHECK_FALSE(both.success);
+        LQI<2, 1, 2, double, 2> idle{both};
+        CHECK(idle.control(ColVec<2>{{1.0}, {1.0}}, ColVec<2>{}, ColVec<2>{})[0] == 0.0); // failed design: zero output
+    }
+
+    TEST_CASE("feedback / commit hold the integrator while the actuator is clamped") {
+        const auto sys = make_plant();
+        const auto r = design_lqi();
+        REQUIRE(r.success);
+        const double u_max = 0.2;
+        const auto   clamp_u = [&](const ColVec<1>& u) { return ColVec<1>{{damp::clamp(u[0], -u_max, u_max)}}; };
+
+        const auto run = [&](bool aware) {
+            LQI<2, 1, 1, double> ctrl{r};
+            ColVec<2>            x{};
+            double               peak = 0.0;
+            double               xi_peak = 0.0;
+            for (int k = 0; k < 2000; ++k) {
+                const ColVec<1> y{{x[0]}};
+                const ColVec<1> u_req = ctrl.feedback(ColVec<1>{{1.0}}, y, x);
+                const ColVec<1> u = clamp_u(u_req);
+                ctrl.commit(aware ? u : u_req); // the unaware loop reports the unclamped command
+                x = sys.A * x + sys.B * u;
+                peak = damp::max(peak, x[0]);
+                xi_peak = damp::max(xi_peak, damp::abs(ctrl.xi[0]));
+            }
+            return damp::array<double, 3>{peak, xi_peak, x[0]};
+        };
+        const auto naive = run(false);
+        const auto aware = run(true);
+        CHECK(aware[0] < naive[0]);                            // less overshoot
+        CHECK(aware[1] < naive[1]);                            // the integral stays smaller
+        CHECK(aware[2] == doctest::Approx(1.0).epsilon(1e-3)); // still offset-free
+
+        // Feedforward before the clamp is not mistaken for saturation.
+        LQI<2, 1, 1, double> a{r};
+        LQI<2, 1, 1, double> b{r};
+        const ColVec<1>      y{{0.1}};
+        const ColVec<2>      x{{0.1}, {0.0}};
+        const ColVec<1>      u_ff{{0.05}};
+        (void)a.control(ColVec<1>{{0.2}}, y, x);
+        const ColVec<1> ub = b.feedback(ColVec<1>{{0.2}}, y, x);
+        b.commit(ub + u_ff, u_ff);
+        CHECK(b.xi[0] == doctest::Approx(a.xi[0]));
+    }
 }

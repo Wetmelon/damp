@@ -298,9 +298,10 @@ template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, si
 /**
  * @brief MATLAB® interface function c2d to discretize a continuous-time state-space system
  *
- * @param sys           Continuous-time state-space model (Ts should be 0)
- * @param sampling_time Desired sampling period for discrete system
- * @param method        Discretization method (ZOH or Tustin)
+ * @param sys               Continuous-time state-space model (Ts should be 0)
+ * @param sampling_time     Desired sampling period for discrete system
+ * @param method            Discretization method (ZOH or Tustin)
+ * @param prewarp_frequency [rad/s] Tustin pre-warp frequency (c2dOptions 'PrewarpFrequency'); 0 for none
  *
  * @return Discrete StateSpace, or @c nullopt if the method fails (e.g. singular Tustin)
  */
@@ -308,9 +309,10 @@ template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, si
 [[nodiscard]] constexpr damp::optional<StateSpace<NX, NU, NY, T, NW, NV>> c2d(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     T                                        sampling_time,
-    DiscretizationMethod                     method = DiscretizationMethod::ZOH
+    DiscretizationMethod                     method = DiscretizationMethod::ZOH,
+    T                                        prewarp_frequency = T{0}
 ) {
-    return discretize(sys, sampling_time, method);
+    return discretize(sys, sampling_time, method, prewarp_frequency);
 }
 
 /**
@@ -735,18 +737,51 @@ template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, si
  * Discrete plants only (@p sys.Ts > 0): a continuous @p sys returns a result
  * with `success == false` rather than a DARE solution of the wrong problem.
  *
+ * Integrates every output. To integrate a subset, add the last argument
+ * design::discrete_lqi takes: an index list, `lqi(sys, Q, R, {0, 3})`, or an NI×NY
+ * selector Ci; Q is then (NX+NI)×(NX+NI). On a model with delay states Q may be sized
+ * to the plant, (NX_plant+NI)×(NX_plant+NI).
+ *
  * @note Alias for design::discrete_lqi. Compare with MATLAB®'s lqi(sys, Q, R).
  */
-template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, size_t NV = 0>
+template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, size_t NV = 0, size_t NQA = NX + NY>
 [[nodiscard]] constexpr auto lqi(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
-    const Matrix<NX + NY, NX + NY, T>&       Q,
+    const Matrix<NQA, NQA, T>&               Q,
     const Matrix<NU, NU, T>&                 R
 ) {
     if (!sys.is_discrete()) {
         return decltype(design::discrete_lqi(sys, Q, R)){}; // discrete design only; success = false
     }
     return design::discrete_lqi(sys, Q, R);
+}
+
+/// LQI integrating the outputs @p Ci selects (NI×NY). Discrete plants only.
+template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NI, size_t NQA = NX + NI>
+[[nodiscard]] constexpr auto lqi(
+    const StateSpace<NX, NU, NY, T, NW, NV>& sys,
+    const Matrix<NQA, NQA, T>&               Q,
+    const Matrix<NU, NU, T>&                 R,
+    const Matrix<NI, NY, T>&                 Ci
+) {
+    if (!sys.is_discrete()) {
+        return decltype(design::discrete_lqi(sys, Q, R, Ci)){}; // discrete design only; success = false
+    }
+    return design::discrete_lqi(sys, Q, R, Ci);
+}
+
+/// LQI integrating the listed outputs, e.g. `lqi(sys, Q, R, {0, 3})`. Discrete plants only.
+template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NI, size_t NQA = NX + NI>
+[[nodiscard]] constexpr auto lqi(
+    const StateSpace<NX, NU, NY, T, NW, NV>& sys,
+    const Matrix<NQA, NQA, T>&               Q,
+    const Matrix<NU, NU, T>&                 R,
+    const size_t (&outputs)[NI]
+) {
+    if (!sys.is_discrete()) {
+        return decltype(design::discrete_lqi(sys, Q, R, outputs)){}; // discrete design only; success = false
+    }
+    return design::discrete_lqi(sys, Q, R, outputs);
 }
 
 /**
@@ -788,12 +823,17 @@ template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = NX, s
  *
  * Discrete plants only (@p sys.Ts > 0); a continuous @p sys returns `success == false`.
  *
+ * Integrates every output. To integrate a subset, add the last argument
+ * design::discrete_lqgi takes: an index list, `lqgtrack(sys, Q_aug, R, Q_kf, R_kf, {0, 3})`,
+ * or an NI×NY selector Ci; Q_aug is then (NX+NI)×(NX+NI). On a model with delay states
+ * Q_aug may be sized to the plant, (NX_plant+NI)×(NX_plant+NI).
+ *
  * @note Alias for design::discrete_lqgi. Compare with MATLAB®'s lqgtrack(...).
  */
-template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, size_t NV = 0>
+template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, size_t NV = 0, size_t NQA = NX + NY>
 [[nodiscard]] constexpr auto lqgtrack(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
-    const Matrix<NX + NY, NX + NY, T>&       Q_aug,
+    const Matrix<NQA, NQA, T>&               Q_aug,
     const Matrix<NU, NU, T>&                 R,
     const Matrix<NW, NW, T>&                 Q_kf,
     const Matrix<NV, NV, T>&                 R_kf
@@ -802,6 +842,39 @@ template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, si
         return decltype(design::discrete_lqgi(sys, Q_aug, R, Q_kf, R_kf)){}; // discrete design only; success = false
     }
     return design::discrete_lqgi(sys, Q_aug, R, Q_kf, R_kf);
+}
+
+/// LQG servo integrating the outputs @p Ci selects (NI×NY). Discrete plants only.
+template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NI, size_t NQA = NX + NI>
+[[nodiscard]] constexpr auto lqgtrack(
+    const StateSpace<NX, NU, NY, T, NW, NV>& sys,
+    const Matrix<NQA, NQA, T>&               Q_aug,
+    const Matrix<NU, NU, T>&                 R,
+    const Matrix<NW, NW, T>&                 Q_kf,
+    const Matrix<NV, NV, T>&                 R_kf,
+    const Matrix<NI, NY, T>&                 Ci
+) {
+    if (!sys.is_discrete()) {
+        return decltype(design::discrete_lqgi(sys, Q_aug, R, Q_kf, R_kf, Ci)){}; // discrete design only; success = false
+    }
+    return design::discrete_lqgi(sys, Q_aug, R, Q_kf, R_kf, Ci);
+}
+
+/// LQG servo integrating the listed outputs, e.g. `lqgtrack(sys, Q_aug, R, Q_kf, R_kf, {0, 3})`.
+/// Discrete plants only.
+template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NI, size_t NQA = NX + NI>
+[[nodiscard]] constexpr auto lqgtrack(
+    const StateSpace<NX, NU, NY, T, NW, NV>& sys,
+    const Matrix<NQA, NQA, T>&               Q_aug,
+    const Matrix<NU, NU, T>&                 R,
+    const Matrix<NW, NW, T>&                 Q_kf,
+    const Matrix<NV, NV, T>&                 R_kf,
+    const size_t (&outputs)[NI]
+) {
+    if (!sys.is_discrete()) {
+        return decltype(design::discrete_lqgi(sys, Q_aug, R, Q_kf, R_kf, outputs)){}; // discrete design only; success = false
+    }
+    return design::discrete_lqgi(sys, Q_aug, R, Q_kf, R_kf, outputs);
 }
 
 /**

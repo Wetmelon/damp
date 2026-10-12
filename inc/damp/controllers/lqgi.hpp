@@ -30,15 +30,15 @@ namespace design {
  * @see "Optimal Control" (Anderson & Moore, 1990), §8
  * @see "Optimal State Estimation" (Simon, 2006), §5–7
  */
-template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = NX, size_t NV = NY>
+template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = NX, size_t NV = NY, size_t NI = NY>
 struct LQGIResult {
-    LQIResult<NX, NU, NY, T>            lqi{};
+    LQIResult<NX, NU, NY, T, NI>        lqi{};
     KalmanResult<NX, NU, NY, T, NW, NV> kalman{};
     bool                                success{false};
 
     template<typename U>
     [[nodiscard]] constexpr auto as() const {
-        return LQGIResult<NX, NU, NY, U, NW, NV>{
+        return LQGIResult<NX, NU, NY, U, NW, NV, NI>{
             lqi.template as<U>(),
             kalman.template as<U>(),
             success
@@ -51,13 +51,13 @@ struct LQGIResult {
      * Current-estimator realization of @ref LQGI::step. State is the runtime
      * registers at the start of the tick, @f$ [\hat x(k|k-1);\; \xi_i;\; u_{\mathrm{prev}}] @f$:
      * measurement update with the previous applied input, then
-     * @f$ u = -[K_x\; K_i][\hat x(k|k);\; \xi_i] @f$, then @f$ \xi_i \leftarrow \xi_i + (r-y) @f$
-     * and predict. Inputs are @f$ [r; y] @f$.
+     * @f$ u = -[K_x\; K_i][\hat x(k|k);\; \xi_i] @f$, then @f$ \xi_i \leftarrow \xi_i + (r - C_i y) @f$
+     * and predict. Inputs are @f$ [r; y] @f$ (r for the NI integrated outputs).
      *
-     * @return StateSpace with NX+NY+NU states, 2·NY inputs ([r; y]), NU outputs (u)
+     * @return StateSpace with NX+NI+NU states, NI+NY inputs ([r; y]), NU outputs (u)
      */
-    [[nodiscard]] constexpr StateSpace<NX + NY + NU, 2 * NY, NU, T> to_ss() const {
-        constexpr size_t NS = NX + NY + NU;
+    [[nodiscard]] constexpr StateSpace<NX + NI + NU, NI + NY, NU, T> to_ss() const {
+        constexpr size_t NS = NX + NI + NU;
         const auto&      A = kalman.sys.A;
         const auto&      B = kalman.sys.B;
         const auto&      C = kalman.sys.C;
@@ -65,7 +65,7 @@ struct LQGIResult {
         const auto&      L = kalman.L;
 
         const Matrix<NU, NX, T> Kx = lqi.K.template block<NU, NX>(0, 0);
-        const Matrix<NU, NY, T> Ki = lqi.K.template block<NU, NY>(0, NX);
+        const Matrix<NU, NI, T> Ki = lqi.K.template block<NU, NI>(0, NX);
 
         const auto I = Matrix<NX, NX, T>::identity();
         const auto ImLC = I - (L * C);
@@ -76,28 +76,28 @@ struct LQGIResult {
 
         Matrix<NS, NS, T> Ac{};
         Ac.template block<NX, NX>(0, 0) = AmBKx * ImLC;
-        Ac.template block<NX, NY>(0, NX) = -(B * Ki);
-        Ac.template block<NX, NU>(0, NX + NY) = -(AmBKx * LD);
-        Ac.template block<NY, NY>(NX, NX) = Matrix<NY, NY, T>::identity();
-        Ac.template block<NU, NX>(NX + NY, 0) = -KxImLC;
-        Ac.template block<NU, NY>(NX + NY, NX) = -Ki;
-        Ac.template block<NU, NU>(NX + NY, NX + NY) = Kx * LD;
+        Ac.template block<NX, NI>(0, NX) = -(B * Ki);
+        Ac.template block<NX, NU>(0, NX + NI) = -(AmBKx * LD);
+        Ac.template block<NI, NI>(NX, NX) = Matrix<NI, NI, T>::identity();
+        Ac.template block<NU, NX>(NX + NI, 0) = -KxImLC;
+        Ac.template block<NU, NI>(NX + NI, NX) = -Ki;
+        Ac.template block<NU, NU>(NX + NI, NX + NI) = Kx * LD;
 
-        Matrix<NS, 2 * NY, T> Bc{};
-        Bc.template block<NY, NY>(NX, 0) = Matrix<NY, NY, T>::identity();
-        Bc.template block<NX, NY>(0, NY) = AmBKx * L;
-        Bc.template block<NY, NY>(NX, NY) = -Matrix<NY, NY, T>::identity();
-        Bc.template block<NU, NY>(NX + NY, NY) = -KxL;
+        Matrix<NS, NI + NY, T> Bc{};
+        Bc.template block<NI, NI>(NX, 0) = Matrix<NI, NI, T>::identity();
+        Bc.template block<NX, NY>(0, NI) = AmBKx * L;
+        Bc.template block<NI, NY>(NX, NI) = -lqi.Ci;
+        Bc.template block<NU, NY>(NX + NI, NI) = -KxL;
 
         Matrix<NU, NS, T> Cc{};
         Cc.template block<NU, NX>(0, 0) = -KxImLC;
-        Cc.template block<NU, NY>(0, NX) = -Ki;
-        Cc.template block<NU, NU>(0, NX + NY) = Kx * LD;
+        Cc.template block<NU, NI>(0, NX) = -Ki;
+        Cc.template block<NU, NU>(0, NX + NI) = Kx * LD;
 
-        Matrix<NU, 2 * NY, T> Dc{};
-        Dc.template block<NU, NY>(0, NY) = -KxL;
+        Matrix<NU, NI + NY, T> Dc{};
+        Dc.template block<NU, NY>(0, NI) = -KxL;
 
-        return StateSpace<NS, 2 * NY, NU, T>{
+        return StateSpace<NS, NI + NY, NU, T>{
             .A = Ac,
             .B = Bc,
             .C = Cc,
@@ -111,8 +111,14 @@ struct LQGIResult {
  * @brief Discrete LQG with integral action (LQI + Kalman) for output tracking
  *
  * Combines @ref discrete_lqi on the plant with @ref kalman for state estimation.
- * Runtime law: u = −K [x̂; xi] with xi integrating (r − y). Separation applies
+ * Runtime law: u = −K [x̂; xi] with xi integrating (r − Ci·y). Separation applies
  * between the LQI gain on the true augmented plant and the Kalman estimator.
+ * Ci selects the integrated outputs exactly as in @ref discrete_lqi: pass a
+ * selector matrix or a list of output indices as the last argument, or leave it
+ * out to integrate every output. On a model with delay states (discretize with
+ * InputDelay / OutputDelay) Q_aug may be sized to the plant,
+ * (NX_plant+NI)×(NX_plant+NI), as in @ref discrete_lqi; Q_kf is already
+ * plant-sized through G.
  *
  * @note Compare with MATLAB®'s lqgtrack(...) — exposed as the lqgtrack() alias in matlab.hpp.
  *
@@ -123,21 +129,23 @@ struct LQGIResult {
  * @see "Optimal State Estimation" (Simon, 2006), §5.3–5.4
  *
  * @param sys      Discrete-time state-space plant
- * @param Q_aug    Augmented state cost ((NX+NY)×(NX+NY), positive semidefinite)
+ * @param Q_aug    Augmented state cost ((NX+NI)×(NX+NI), or plant-sized on a delayed model; positive semidefinite)
  * @param R        Input cost (NU×NU, positive definite)
  * @param Q_kf     Process noise covariance (NW×NW, positive semidefinite)
  * @param R_kf     Measurement noise covariance (NV×NV, positive definite)
+ * @param Ci       Integrated-output selector (NI×NY)
  * @return LQGIResult with success = both LQI and Kalman designs succeeded
  */
-template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, size_t NV = 0>
-[[nodiscard]] constexpr LQGIResult<NX, NU, NY, T, NW, NV> discrete_lqgi(
+template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NI, size_t NQA = NX + NI>
+[[nodiscard]] constexpr LQGIResult<NX, NU, NY, T, NW, NV, NI> discrete_lqgi(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
-    const Matrix<NX + NY, NX + NY, T>&       Q_aug,
+    const Matrix<NQA, NQA, T>&               Q_aug,
     const Matrix<NU, NU, T>&                 R,
     const Matrix<NW, NW, T>&                 Q_kf,
-    const Matrix<NV, NV, T>&                 R_kf
+    const Matrix<NV, NV, T>&                 R_kf,
+    const Matrix<NI, NY, T>&                 Ci
 ) {
-    const auto lqi_result = discrete_lqi(sys, Q_aug, R);
+    const auto lqi_result = discrete_lqi(sys, Q_aug, R, Ci);
     // design::kalman requires Ts > 0; hand-discretized plants often leave Ts = 0.
     auto sys_d = sys;
     if (!(sys_d.Ts > T{0})) {
@@ -145,7 +153,37 @@ template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, si
     }
     auto kalman_result = kalman(sys_d, Q_kf, R_kf);
     kalman_result.sys.Ts = sys.Ts; // keep caller's sample-time tag on the result model
-    return LQGIResult<NX, NU, NY, T, NW, NV>{lqi_result, kalman_result, lqi_result.success && kalman_result.success};
+    return LQGIResult<NX, NU, NY, T, NW, NV, NI>{lqi_result, kalman_result, lqi_result.success && kalman_result.success};
+}
+
+/// Every output integrated (Ci = I); see the selector overload.
+template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, size_t NV = 0, size_t NQA = NX + NY>
+[[nodiscard]] constexpr LQGIResult<NX, NU, NY, T, NW, NV> discrete_lqgi(
+    const StateSpace<NX, NU, NY, T, NW, NV>& sys,
+    const Matrix<NQA, NQA, T>&               Q_aug,
+    const Matrix<NU, NU, T>&                 R,
+    const Matrix<NW, NW, T>&                 Q_kf,
+    const Matrix<NV, NV, T>&                 R_kf
+) {
+    return discrete_lqgi(sys, Q_aug, R, Q_kf, R_kf, Matrix<NY, NY, T>::identity());
+}
+
+/// Integrate the listed outputs only, e.g. `discrete_lqgi(sys, Q_aug, R, Q_kf, R_kf, {0, 3})`.
+/// An index outside [0, NY) reports success = false.
+template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NI, size_t NQA = NX + NI>
+[[nodiscard]] constexpr LQGIResult<NX, NU, NY, T, NW, NV, NI> discrete_lqgi(
+    const StateSpace<NX, NU, NY, T, NW, NV>& sys,
+    const Matrix<NQA, NQA, T>&               Q_aug,
+    const Matrix<NU, NU, T>&                 R,
+    const Matrix<NW, NW, T>&                 Q_kf,
+    const Matrix<NV, NV, T>&                 R_kf,
+    const size_t (&outputs)[NI]
+) {
+    const auto Ci = damp::detail::output_selector<NI, NY, T>(outputs);
+    if (!Ci) {
+        return LQGIResult<NX, NU, NY, T, NW, NV, NI>{};
+    }
+    return discrete_lqgi(sys, Q_aug, R, Q_kf, R_kf, Ci.value());
 }
 } // namespace design
 
@@ -162,29 +200,31 @@ template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, si
  * @tparam NW Number of process noise inputs (default: NX)
  * @tparam NV Number of measurement noise inputs (default: NY)
  * @tparam T  Scalar type (default: float — embedded runtime)
+ * @tparam NI Number of integrated outputs (default: NY)
  */
-template<size_t NX, size_t NU, size_t NY, typename T = float, size_t NW = NX, size_t NV = NY>
+template<size_t NX, size_t NU, size_t NY, typename T = float, size_t NW = NX, size_t NV = NY, size_t NI = NY>
 struct LQGI {
-    LQI<NX, NU, NY, T>                             lqi{};
-    SteadyStateKalmanFilter<NX, NU, NY, T, NW, NV> kf{};     ///< Fixed-L estimator (designed L)
-    ColVec<NU, T>                                  u_prev{}; ///< Last applied input, for the estimator's predict step
+    LQI<NX, NU, NY, T, NI>                         lqi{};
+    SteadyStateKalmanFilter<NX, NU, NY, T, NW, NV> kf{};         ///< Fixed-L estimator (designed L)
+    ColVec<NU, T>                                  u_prev{};     ///< Last applied input, for the estimator's predict step
+    ColVec<NX, T>                                  x_ref_prev{}; ///< Last full state reference, to extend a plant-sized one over delay states
 
     constexpr LQGI() = default;
 
     constexpr LQGI(
-        const LQI<NX, NU, NY, T>&                             lqi_,
+        const LQI<NX, NU, NY, T, NI>&                         lqi_,
         const SteadyStateKalmanFilter<NX, NU, NY, T, NW, NV>& kf_
     )
         : lqi(lqi_), kf(kf_) {}
 
     /// From design result (any scalar); converts via nested runtime ctors.
     template<typename U>
-    constexpr LQGI(const design::LQGIResult<NX, NU, NY, U, NW, NV>& result) // NOLINT
+    constexpr LQGI(const design::LQGIResult<NX, NU, NY, U, NW, NV, NI>& result) // NOLINT
         : lqi(result.lqi), kf(result.kalman) {}
 
     template<typename U>
-    constexpr LQGI(const LQGI<NX, NU, NY, U, NW, NV>& other)
-        : lqi(other.lqi), kf(other.kf), u_prev(other.u_prev.template as<T>()) {} // NOLINT
+    constexpr LQGI(const LQGI<NX, NU, NY, U, NW, NV, NI>& other)
+        : lqi(other.lqi), kf(other.kf), u_prev(other.u_prev.template as<T>()), x_ref_prev(other.x_ref_prev.template as<T>()) {} // NOLINT
 
     constexpr void predict(const ColVec<NU, T>& u = ColVec<NU, T>{}) { kf.predict(u); }
     constexpr bool update(const ColVec<NY, T>& y, const ColVec<NU, T>& u = ColVec<NU, T>{}) {
@@ -195,10 +235,10 @@ struct LQGI {
      * @brief Compute control with integral action from the augmented state.
      *
      * @param x_aug Augmented state [x̂; xi] — estimated plant state stacked on
-     *              the integral-of-tracking-error state (size NX + NY).
+     *              the integral-of-tracking-error state (size NX + NI).
      * @return Control input u = −K·x_aug
      */
-    [[nodiscard]] constexpr ColVec<NU, T> control(const ColVec<NX + NY, T>& x_aug) const {
+    [[nodiscard]] constexpr ColVec<NU, T> control(const ColVec<NX + NI, T>& x_aug) const {
         return lqi.control(x_aug);
     }
 
@@ -207,25 +247,25 @@ struct LQGI {
      *
      * Pulls the plant estimate from the Kalman filter and the integral state from
      * the embedded LQI, so the caller only supplies the reference and measurement:
-     * u = -[Kx Ki]·[x̂; xi], then xi advances by (r − y).
+     * u = -[Kx Ki]·[x̂; xi], then xi advances by (r − Ci·y).
      *
      * @warning This does NOT advance the estimator — call predict(u) and
      *          update(y) first each tick (caller-sequenced). It is not an
      *          OutputFeedbackController tick; @ref step is the self-contained
      *          counterpart, and @ref feedback / commit the saturation-aware one.
      *
-     * @param r Output reference
+     * @param r Reference for the integrated outputs
      * @param y Measured output
      * @return Control input u
      */
-    [[nodiscard]] constexpr ColVec<NU, T> control(const ColVec<NY, T>& r, const ColVec<NY, T>& y) {
+    [[nodiscard]] constexpr ColVec<NU, T> control(const ColVec<NI, T>& r, const ColVec<NY, T>& y) {
         return lqi.control(r, y, kf.state());
     }
 
-    /// @copydoc control(const ColVec<NY,T>&, const ColVec<NY,T>&)
+    /// @copydoc control(const ColVec<NI,T>&, const ColVec<NY,T>&)
     /// @param x_ref State reference the feedback regulates toward (see LQI::control).
     [[nodiscard]] constexpr ColVec<NU, T>
-    control(const ColVec<NY, T>& r, const ColVec<NY, T>& y, const ColVec<NX, T>& x_ref) {
+    control(const ColVec<NI, T>& r, const ColVec<NY, T>& y, const ColVec<NX, T>& x_ref) {
         return lqi.control(r, y, kf.state(), x_ref);
     }
 
@@ -235,38 +275,53 @@ struct LQGI {
      * Runs the steady-state Kalman measurement update with the previously applied input,
      * then the LQI control law at the estimate. The tick is not complete until commit
      * is called with the input the plant actually received (post-saturation, including any
-     * feedforward) — splitting the tick is what keeps the estimator consistent with a
-     * clamped actuator, which a monolithic step cannot do. For conditional-integration
-     * anti-windup, subtract this tick's error from `lqi.xi` before committing:
+     * feedforward): commit propagates the estimator with it and advances the integrators
+     * except those that would wind up against the clamp (see LQI::commit).
      * @code
-     * const T u_req = ctrl.feedback(r, y)[0] + u_ff;
-     * const T u     = damp::clamp(u_req, -ceiling, ceiling);
-     * if (u != u_req) { ctrl.lqi.xi[0] -= r - y; } // conditional integration
-     * ctrl.commit(u);
+     * const auto u_req = ctrl.feedback(r, y);
+     * const auto u     = clamp_each(u_req + u_ff);
+     * ctrl.commit(u, u_ff);
      * @endcode
      *
-     * @param r Output reference
+     * @param r Reference for the integrated outputs
      * @param y Measured output
      * @return Raw control input u (pre-saturation)
      */
-    [[nodiscard]] constexpr ColVec<NU, T> feedback(const ColVec<NY, T>& r, const ColVec<NY, T>& y) {
+    [[nodiscard]] constexpr ColVec<NU, T> feedback(const ColVec<NI, T>& r, const ColVec<NY, T>& y) {
         kf.update(y, u_prev);
-        return lqi.control(r, y, kf.state());
+        return lqi.feedback(r, y, kf.state());
     }
 
-    /// @copydoc feedback(const ColVec<NY,T>&, const ColVec<NY,T>&)
+    /// @copydoc feedback(const ColVec<NI,T>&, const ColVec<NY,T>&)
     /// @param x_ref State reference the feedback regulates toward (see LQI::control).
     [[nodiscard]] constexpr ColVec<NU, T>
-    feedback(const ColVec<NY, T>& r, const ColVec<NY, T>& y, const ColVec<NX, T>& x_ref) {
+    feedback(const ColVec<NI, T>& r, const ColVec<NY, T>& y, const ColVec<NX, T>& x_ref) {
         kf.update(y, u_prev);
-        return lqi.control(r, y, kf.state(), x_ref);
+        x_ref_prev = x_ref;
+        return lqi.feedback(r, y, kf.state(), x_ref);
     }
 
     /**
-     * @brief Complete the tick: propagate the estimator with the input the plant actually received.
-     * @param u_applied The realized plant input (post-saturation, including feedforward).
+     * @brief Measurement update + LQI law on a model with delay states (discretize with
+     *        InputDelay / OutputDelay): @p x_ref covers the NR plant states only.
+     *
+     * The delay states that follow are filled in from the reference history with no
+     * feedforward input (the integrator supplies it): past inputs regulate toward zero, past
+     * outputs toward those the reference produced.
      */
-    constexpr void commit(const ColVec<NU, T>& u_applied) {
+    template<size_t NR>
+        requires(NR < NX)
+    [[nodiscard]] constexpr ColVec<NU, T> feedback(const ColVec<NI, T>& r, const ColVec<NY, T>& y, const ColVec<NR, T>& x_ref) {
+        return feedback(r, y, detail::extend_reference<NX>(kf.model().A, kf.model().B, x_ref_prev, ColVec<NU, T>{}, x_ref));
+    }
+
+    /**
+     * @brief Complete the tick: integrate (anti-windup) and propagate the estimator with the applied input.
+     * @param u_applied The realized plant input (post-saturation, including feedforward).
+     * @param u_ff      Feedforward added to the command before the clamp (default: none).
+     */
+    constexpr void commit(const ColVec<NU, T>& u_applied, const ColVec<NU, T>& u_ff = ColVec<NU, T>{}) {
+        lqi.commit(u_applied, u_ff);
         kf.predict(u_applied);
         u_prev = u_applied;
     }
@@ -277,7 +332,7 @@ struct LQGI {
      * Convenience for plants without actuator limits. If the command can saturate, use the
      * split @ref feedback / commit pair so the estimator sees the applied input.
      */
-    [[nodiscard]] constexpr ColVec<NU, T> step(const ColVec<NY, T>& r, const ColVec<NY, T>& y) {
+    [[nodiscard]] constexpr ColVec<NU, T> step(const ColVec<NI, T>& r, const ColVec<NY, T>& y) {
         const auto u = feedback(r, y);
         commit(u);
         return u;
@@ -292,16 +347,26 @@ struct LQGI {
      * @param y     Measured output
      * @param x_ref State reference the feedback regulates toward (see LQI::control)
      */
-    [[nodiscard]] constexpr ColVec<NU, T> step(const ColVec<NY, T>& r, const ColVec<NY, T>& y, const ColVec<NX, T>& x_ref) {
+    [[nodiscard]] constexpr ColVec<NU, T> step(const ColVec<NI, T>& r, const ColVec<NY, T>& y, const ColVec<NX, T>& x_ref) {
         const auto u = feedback(r, y, x_ref);
         commit(u);
         return u;
     }
 
-    /// Clear the integral state and the applied-input memory (the estimator state is left untouched).
+    /// One self-contained tick, @p x_ref on the plant states only (see feedback).
+    template<size_t NR>
+        requires(NR < NX)
+    [[nodiscard]] constexpr ColVec<NU, T> step(const ColVec<NI, T>& r, const ColVec<NY, T>& y, const ColVec<NR, T>& x_ref) {
+        const auto u = feedback(r, y, x_ref);
+        commit(u);
+        return u;
+    }
+
+    /// Clear the integral state and the applied-input and reference memory (the estimator state is left untouched).
     constexpr void reset() {
         lqi.reset();
         u_prev = ColVec<NU, T>{};
+        x_ref_prev = ColVec<NX, T>{};
     }
 };
 

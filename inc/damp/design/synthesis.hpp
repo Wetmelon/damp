@@ -138,20 +138,22 @@ struct LQGPRArtifacts {
 
 /**
  * @brief Analysis-oriented models produced from an LQI design
+ * @tparam NI Integrated outputs (default: every output)
  */
-template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, size_t NV = 0>
+template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, size_t NV = 0, size_t NI = NY>
 struct LQIAnalysisModels {
     StateSpace<NX, NU, NY, T, NW, NV> plant{};                       ///< Original plant model
-    StateSpace<NX + NY, NU, NY, T>    augmented_servo_closed_loop{}; ///< [x; xi] servo closed-loop model
+    StateSpace<NX + NI, NU, NY, T>    augmented_servo_closed_loop{}; ///< [x; xi] servo closed-loop model
 };
 
 /**
  * @brief Analysis-oriented models produced from an LQGI design
+ * @tparam NI Integrated outputs (default: every output)
  */
-template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = NX, size_t NV = NY>
+template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = NX, size_t NV = NY, size_t NI = NY>
 struct LQGIAnalysisModels {
     StateSpace<NX, NU, NY, T, NW, NV> plant{};                       ///< Original plant model
-    StateSpace<NX + NY, NU, NY, T>    augmented_servo_closed_loop{}; ///< [x; xi] servo closed-loop model
+    StateSpace<NX + NI, NU, NY, T>    augmented_servo_closed_loop{}; ///< [x; xi] servo closed-loop model
     Matrix<NX, NX, T>                 observer_error_dynamics{};     ///< Predicted-error map A(I − LC)
 };
 
@@ -160,13 +162,14 @@ struct LQGIAnalysisModels {
  *
  * The runtime is a plain LQI at @p TRuntime precision — it owns the integral state, so
  * the tick is `controller.control(r, y, x)` (or the `x_ref` overload for trajectory tracking).
+ * @tparam NI Integrated outputs (default: every output)
  */
-template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, size_t NV = 0, typename TRuntime = float>
+template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, size_t NV = 0, typename TRuntime = float, size_t NI = NY>
 struct LQIArtifacts {
-    design::LQIResult<NX, NU, NY, T>         design{};       ///< Design-precision LQI result
-    LQIAnalysisModels<NX, NU, NY, T, NW, NV> models{};       ///< Servo closed-loop model
-    LQI<NX, NU, NY, TRuntime>                runtime{};      ///< Ready-to-run controller
-    bool                                     success{false}; ///< Mirrors design.success
+    design::LQIResult<NX, NU, NY, T, NI>         design{};       ///< Design-precision LQI result
+    LQIAnalysisModels<NX, NU, NY, T, NW, NV, NI> models{};       ///< Servo closed-loop model
+    LQI<NX, NU, NY, TRuntime, NI>                runtime{};      ///< Ready-to-run controller
+    bool                                         success{false}; ///< Mirrors design.success
 };
 
 /**
@@ -175,31 +178,42 @@ struct LQIArtifacts {
  * The runtime is a plain @ref LQGI at @p TRuntime precision — estimator, integral state, and
  * applied-input memory all live in it, so the tick is `controller.step(r, y)`, or the
  * saturation-aware `feedback` / `commit` pair when the actuator can clamp.
+ * @tparam NI Integrated outputs (default: every output)
  */
-template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = NX, size_t NV = NY, typename TRuntime = float>
+template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = NX, size_t NV = NY, typename TRuntime = float, size_t NI = NY>
 struct LQGIArtifacts {
-    design::LQGIResult<NX, NU, NY, T, NW, NV> design{};       ///< Design-precision LQGI result
-    LQGIAnalysisModels<NX, NU, NY, T, NW, NV> models{};       ///< Servo / observer analysis models
-    LQGI<NX, NU, NY, TRuntime, NW, NV>        runtime{};      ///< Ready-to-run controller
-    bool                                      success{false}; ///< Mirrors design.success
+    design::LQGIResult<NX, NU, NY, T, NW, NV, NI> design{};       ///< Design-precision LQGI result
+    LQGIAnalysisModels<NX, NU, NY, T, NW, NV, NI> models{};       ///< Servo / observer analysis models
+    LQGI<NX, NU, NY, TRuntime, NW, NV, NI>        runtime{};      ///< Ready-to-run controller
+    bool                                          success{false}; ///< Mirrors design.success
 };
 
 namespace detail {
 
-template<size_t NX, size_t NU, size_t NY, typename T>
-[[nodiscard]] constexpr Matrix<NX + NY, NX + NY, T> lqi_augmented_A(const Matrix<NX, NX, T>& A, const Matrix<NY, NX, T>& C) {
-    Matrix<NX + NY, NX + NY, T> A_aug{};
-    A_aug.template block<NX, NX>(0, 0) = A;
-    A_aug.template block<NY, NX>(NX, 0) = -C;
-    A_aug.template block<NY, NY>(NX, NX) = Matrix<NY, NY, T>::identity();
-    return A_aug;
-}
-
-template<size_t NX, size_t NU, size_t NY, typename T>
-[[nodiscard]] constexpr Matrix<NX + NY, NU, T> lqi_augmented_B(const Matrix<NX, NU, T>& B) {
-    Matrix<NX + NY, NU, T> B_aug{};
-    B_aug.template block<NX, NU>(0, 0) = B;
-    return B_aug;
+/// LQI servo closed loop on [x; xi]: xi integrates r − Ci·y, the external input adds to u.
+template<size_t NX, size_t NU, size_t NY, size_t NI, typename T, size_t NW, size_t NV>
+[[nodiscard]] constexpr StateSpace<NX + NI, NU, NY, T> lqi_servo_closed_loop(
+    const StateSpace<NX, NU, NY, T, NW, NV>& sys,
+    const Matrix<NU, NX + NI, T>&            K,
+    const Matrix<NI, NY, T>&                 Ci
+) {
+    Matrix<NX + NI, NX + NI, T> A_aug{};
+    A_aug.template block<NX, NX>(0, 0) = sys.A;
+    A_aug.template block<NI, NX>(NX, 0) = -(Ci * sys.C);
+    A_aug.template block<NI, NI>(NX, NX) = Matrix<NI, NI, T>::identity();
+    Matrix<NX + NI, NU, T> B_aug{};
+    B_aug.template block<NX, NU>(0, 0) = sys.B;
+    Matrix<NY, NX + NI, T> C_aug{};
+    C_aug.template block<NY, NX>(0, 0) = sys.C;
+    return StateSpace<NX + NI, NU, NY, T>{
+        .A = A_aug - (B_aug * K),
+        .B = B_aug,
+        .C = C_aug,
+        .D = sys.D,
+        .G = Matrix<NX + NI, 0, T>{},
+        .H = Matrix<NY, 0, T>{},
+        .Ts = sys.Ts,
+    };
 }
 
 } // namespace detail
@@ -263,64 +277,30 @@ template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = NX, s
 }
 
 /**
- * @brief Build analysis models from an LQI servo design
+ * @brief Build analysis models from an LQI servo design (its Ci picks the integrated outputs)
  */
-template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, size_t NV = 0>
-[[nodiscard]] constexpr LQIAnalysisModels<NX, NU, NY, T, NW, NV> build_lqi_analysis_models(
-    const StateSpace<NX, NU, NY, T, NW, NV>& sys,
-    const design::LQIResult<NX, NU, NY, T>&  lqi
+template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, size_t NV = 0, size_t NI = NY>
+[[nodiscard]] constexpr LQIAnalysisModels<NX, NU, NY, T, NW, NV, NI> build_lqi_analysis_models(
+    const StateSpace<NX, NU, NY, T, NW, NV>&    sys,
+    const design::LQIResult<NX, NU, NY, T, NI>& lqi
 ) {
-    const auto                   A_aug = detail::lqi_augmented_A<NX, NU, NY, T>(sys.A, sys.C);
-    const auto                   B_aug = detail::lqi_augmented_B<NX, NU, NY, T>(sys.B);
-    const Matrix<NY, NX + NY, T> C_aug = [&]() {
-        Matrix<NY, NX + NY, T> C{};
-        C.template block<NY, NX>(0, 0) = sys.C;
-        return C;
-    }();
-
-    const auto A_cl = A_aug - (B_aug * lqi.K);
-    return LQIAnalysisModels<NX, NU, NY, T, NW, NV>{
+    return LQIAnalysisModels<NX, NU, NY, T, NW, NV, NI>{
         .plant = sys,
-        .augmented_servo_closed_loop = StateSpace<NX + NY, NU, NY, T>{
-            .A = A_cl,
-            .B = B_aug,
-            .C = C_aug,
-            .D = sys.D,
-            .G = Matrix<NX + NY, 0, T>{},
-            .H = Matrix<NY, 0, T>{},
-            .Ts = sys.Ts,
-        },
+        .augmented_servo_closed_loop = detail::lqi_servo_closed_loop(sys, lqi.K, lqi.Ci),
     };
 }
 
 /**
- * @brief Build analysis models from an LQGI servo design
+ * @brief Build analysis models from an LQGI servo design (its Ci picks the integrated outputs)
  */
-template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = NX, size_t NV = NY>
-[[nodiscard]] constexpr LQGIAnalysisModels<NX, NU, NY, T, NW, NV> build_lqgi_analysis_models(
-    const StateSpace<NX, NU, NY, T, NW, NV>&         sys,
-    const design::LQGIResult<NX, NU, NY, T, NW, NV>& lqgi
+template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = NX, size_t NV = NY, size_t NI = NY>
+[[nodiscard]] constexpr LQGIAnalysisModels<NX, NU, NY, T, NW, NV, NI> build_lqgi_analysis_models(
+    const StateSpace<NX, NU, NY, T, NW, NV>&             sys,
+    const design::LQGIResult<NX, NU, NY, T, NW, NV, NI>& lqgi
 ) {
-    const auto                   A_aug = detail::lqi_augmented_A<NX, NU, NY, T>(sys.A, sys.C);
-    const auto                   B_aug = detail::lqi_augmented_B<NX, NU, NY, T>(sys.B);
-    const Matrix<NY, NX + NY, T> C_aug = [&]() {
-        Matrix<NY, NX + NY, T> C{};
-        C.template block<NY, NX>(0, 0) = sys.C;
-        return C;
-    }();
-
-    const auto A_cl = A_aug - (B_aug * lqgi.lqi.K);
-    return LQGIAnalysisModels<NX, NU, NY, T, NW, NV>{
+    return LQGIAnalysisModels<NX, NU, NY, T, NW, NV, NI>{
         .plant = sys,
-        .augmented_servo_closed_loop = StateSpace<NX + NY, NU, NY, T>{
-            .A = A_cl,
-            .B = B_aug,
-            .C = C_aug,
-            .D = sys.D,
-            .G = Matrix<NX + NY, 0, T>{},
-            .H = Matrix<NY, 0, T>{},
-            .Ts = sys.Ts,
-        },
+        .augmented_servo_closed_loop = detail::lqi_servo_closed_loop(sys, lqgi.lqi.K, lqgi.lqi.Ci),
         .observer_error_dynamics = sys.A * (Matrix<NX, NX, T>::identity() - (lqgi.kalman.L * sys.C)),
     };
 }
@@ -381,44 +361,137 @@ template<size_t NX, size_t NW = NX, size_t NV = 1, typename T = double, typename
     };
 }
 
-/**
- * @brief Synthesize the full LQI servo artifact bundle in one call
- */
-template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, size_t NV = 0, typename TRuntime = float>
-[[nodiscard]] constexpr LQIArtifacts<NX, NU, NY, T, NW, NV, TRuntime> lqi_bundle(
-    const StateSpace<NX, NU, NY, T, NW, NV>& sys,
-    const Matrix<NX + NY, NX + NY, T>&       Q_aug,
-    const Matrix<NU, NU, T>&                 R
+namespace detail {
+
+/// Wrap an LQI design with its analysis models and the runtime at @p TRuntime.
+template<typename TRuntime, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NI>
+[[nodiscard]] constexpr LQIArtifacts<NX, NU, NY, T, NW, NV, TRuntime, NI> lqi_artifacts(
+    const StateSpace<NX, NU, NY, T, NW, NV>&    sys,
+    const design::LQIResult<NX, NU, NY, T, NI>& design_r
 ) {
-    const auto design_r = design::discrete_lqi(sys, Q_aug, R);
-    return LQIArtifacts<NX, NU, NY, T, NW, NV, TRuntime>{
+    return LQIArtifacts<NX, NU, NY, T, NW, NV, TRuntime, NI>{
         .design = design_r,
         .models = build_lqi_analysis_models(sys, design_r),
-        .runtime = LQI<NX, NU, NY, TRuntime>{design_r.template as<TRuntime>()},
+        .runtime = LQI<NX, NU, NY, TRuntime, NI>{design_r.template as<TRuntime>()},
         .success = design_r.success,
     };
 }
 
+/// Wrap an LQGI design with its analysis models and the runtime at @p TRuntime.
+template<typename TRuntime, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NI>
+[[nodiscard]] constexpr LQGIArtifacts<NX, NU, NY, T, NW, NV, TRuntime, NI> lqgi_artifacts(
+    const StateSpace<NX, NU, NY, T, NW, NV>&             sys,
+    const design::LQGIResult<NX, NU, NY, T, NW, NV, NI>& design_r
+) {
+    // LQGI's converting constructor seeds the filter from the design (steady-state P, or
+    // identity if the DARE did not converge) and takes the LQI gain as-is.
+    return LQGIArtifacts<NX, NU, NY, T, NW, NV, TRuntime, NI>{
+        .design = design_r,
+        .models = build_lqgi_analysis_models(sys, design_r),
+        .runtime = LQGI<NX, NU, NY, TRuntime, NW, NV, NI>{design_r.template as<TRuntime>()},
+        .success = design_r.success,
+    };
+}
+
+} // namespace detail
+
+/**
+ * @brief Synthesize the full LQI servo artifact bundle in one call
+ *
+ * Integrates every output. To integrate a subset, add the last argument @ref discrete_lqi
+ * takes: an index list, `lqi_bundle(sys, Q_aug, R, {0, 3})`, or an NI×NY selector Ci; Q_aug
+ * is then (NX+NI)×(NX+NI) and the runtime takes NI references. On a model with delay states
+ * Q_aug may be sized to the plant, (NX_plant+NI)×(NX_plant+NI), as in @ref discrete_lqi.
+ */
+template<
+    size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, size_t NV = 0, typename TRuntime = float,
+    size_t NQA = NX + NY>
+[[nodiscard]] constexpr LQIArtifacts<NX, NU, NY, T, NW, NV, TRuntime> lqi_bundle(
+    const StateSpace<NX, NU, NY, T, NW, NV>& sys,
+    const Matrix<NQA, NQA, T>&               Q_aug,
+    const Matrix<NU, NU, T>&                 R
+) {
+    return detail::lqi_artifacts<TRuntime>(sys, design::discrete_lqi(sys, Q_aug, R));
+}
+
+/// LQI bundle integrating the outputs @p Ci selects (NI×NY): integrator i follows r_i − (Ci·y)_i.
+template<
+    size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename TRuntime = float, size_t NI,
+    size_t NQA = NX + NI>
+[[nodiscard]] constexpr LQIArtifacts<NX, NU, NY, T, NW, NV, TRuntime, NI> lqi_bundle(
+    const StateSpace<NX, NU, NY, T, NW, NV>& sys,
+    const Matrix<NQA, NQA, T>&               Q_aug,
+    const Matrix<NU, NU, T>&                 R,
+    const Matrix<NI, NY, T>&                 Ci
+) {
+    return detail::lqi_artifacts<TRuntime>(sys, design::discrete_lqi(sys, Q_aug, R, Ci));
+}
+
+/// LQI bundle integrating the listed outputs, e.g. `lqi_bundle(sys, Q_aug, R, {0, 3})`.
+/// An index outside [0, NY) reports success = false.
+template<
+    size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename TRuntime = float, size_t NI,
+    size_t NQA = NX + NI>
+[[nodiscard]] constexpr LQIArtifacts<NX, NU, NY, T, NW, NV, TRuntime, NI> lqi_bundle(
+    const StateSpace<NX, NU, NY, T, NW, NV>& sys,
+    const Matrix<NQA, NQA, T>&               Q_aug,
+    const Matrix<NU, NU, T>&                 R,
+    const size_t (&outputs)[NI]
+) {
+    return detail::lqi_artifacts<TRuntime>(sys, design::discrete_lqi(sys, Q_aug, R, outputs));
+}
+
 /**
  * @brief Synthesize the full LQGI servo artifact bundle in one call
+ *
+ * Integrates every output. To integrate a subset, add the last argument @ref discrete_lqgi
+ * takes: an index list, `lqgi_bundle(sys, Q_aug, R, Q_kf, R_kf, {0, 3})`, or an NI×NY
+ * selector Ci; Q_aug is then (NX+NI)×(NX+NI) and the runtime takes NI references. On a model
+ * with delay states Q_aug may be sized to the plant, (NX_plant+NI)×(NX_plant+NI), as in
+ * @ref discrete_lqgi.
  */
-template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = NX, size_t NV = NY, typename TRuntime = float>
+template<
+    size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = NX, size_t NV = NY, typename TRuntime = float,
+    size_t NQA = NX + NY>
 [[nodiscard]] constexpr LQGIArtifacts<NX, NU, NY, T, NW, NV, TRuntime> lqgi_bundle(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
-    const Matrix<NX + NY, NX + NY, T>&       Q_aug,
+    const Matrix<NQA, NQA, T>&               Q_aug,
     const Matrix<NU, NU, T>&                 R,
     const Matrix<NW, NW, T>&                 Q_kf,
     const Matrix<NV, NV, T>&                 R_kf
 ) {
-    const auto design_r = design::discrete_lqgi(sys, Q_aug, R, Q_kf, R_kf);
-    // LQGI's converting constructor seeds the filter from the design (steady-state P, or
-    // identity if the DARE did not converge) and takes the LQI gain as-is.
-    return LQGIArtifacts<NX, NU, NY, T, NW, NV, TRuntime>{
-        .design = design_r,
-        .models = build_lqgi_analysis_models(sys, design_r),
-        .runtime = LQGI<NX, NU, NY, TRuntime, NW, NV>{design_r.template as<TRuntime>()},
-        .success = design_r.success,
-    };
+    return detail::lqgi_artifacts<TRuntime>(sys, design::discrete_lqgi(sys, Q_aug, R, Q_kf, R_kf));
+}
+
+/// LQGI bundle integrating the outputs @p Ci selects (NI×NY).
+template<
+    size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename TRuntime = float, size_t NI,
+    size_t NQA = NX + NI>
+[[nodiscard]] constexpr LQGIArtifacts<NX, NU, NY, T, NW, NV, TRuntime, NI> lqgi_bundle(
+    const StateSpace<NX, NU, NY, T, NW, NV>& sys,
+    const Matrix<NQA, NQA, T>&               Q_aug,
+    const Matrix<NU, NU, T>&                 R,
+    const Matrix<NW, NW, T>&                 Q_kf,
+    const Matrix<NV, NV, T>&                 R_kf,
+    const Matrix<NI, NY, T>&                 Ci
+) {
+    return detail::lqgi_artifacts<TRuntime>(sys, design::discrete_lqgi(sys, Q_aug, R, Q_kf, R_kf, Ci));
+}
+
+/// LQGI bundle integrating the listed outputs, e.g. `lqgi_bundle(sys, Q_aug, R, Q_kf, R_kf, {0, 3})`.
+/// An index outside [0, NY) reports success = false.
+template<
+    size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename TRuntime = float, size_t NI,
+    size_t NQA = NX + NI>
+[[nodiscard]] constexpr LQGIArtifacts<NX, NU, NY, T, NW, NV, TRuntime, NI> lqgi_bundle(
+    const StateSpace<NX, NU, NY, T, NW, NV>& sys,
+    const Matrix<NQA, NQA, T>&               Q_aug,
+    const Matrix<NU, NU, T>&                 R,
+    const Matrix<NW, NW, T>&                 Q_kf,
+    const Matrix<NV, NV, T>&                 R_kf,
+    const size_t (&outputs)[NI]
+) {
+    return detail::lqgi_artifacts<TRuntime>(sys, design::discrete_lqgi(sys, Q_aug, R, Q_kf, R_kf, outputs));
 }
 
 } // namespace design

@@ -28,6 +28,7 @@
  */
 
 #include <cstddef>
+#include <type_traits>
 
 #include "damp/backend.hpp"
 #include "damp/design/riccati.hpp"
@@ -139,6 +140,24 @@ template<size_t NX, size_t NU, typename T = double>
 
     const Matrix<NU, NX, T> K = K_opt.value();
     return LQRResult<NX, NU, T>{K, S, stability::closed_loop_poles(A, B, K), true};
+}
+
+/**
+ * @brief Discrete LQR on a model with delay states, weights sized to the plant
+ *
+ * For a model from discretize with InputDelay / OutputDelay: @p Q (and @p N) cover the NQ
+ * plant states, which lead; the delay states that follow get no cost.
+ */
+template<size_t NX, size_t NU, size_t NQ, typename T = double>
+    requires(NQ < NX)
+[[nodiscard]] constexpr LQRResult<NX, NU, T> discrete_lqr(
+    const Matrix<NX, NX, T>& A,
+    const Matrix<NX, NU, T>& B,
+    const Matrix<NQ, NQ, T>& Q,
+    const Matrix<NU, NU, T>& R,
+    const Matrix<NQ, NU, T>& N = Matrix<NQ, NU, T>{}
+) {
+    return discrete_lqr(A, B, damp::detail::pad_leading<NX, NX>(Q), R, damp::detail::pad_leading<NX, NU>(N));
 }
 
 /**
@@ -452,13 +471,13 @@ struct StateFeedback {
     /// From a successful design result (any scalar); converts K via @c .as\<T\>().
     ///
     /// A failed design must not become a law. Constant evaluation of a failed
-    /// result is ill-formed. A runtime failed result does not return.
+    /// result is ill-formed; at run time it leaves K = 0 (zero output).
     template<typename U>
     constexpr StateFeedback(const design::LQRResult<NX, NU, U>& result) // NOLINT
         : K{} {
         if (result.success) {
             K = result.K.template as<T>();
-        } else {
+        } else if (std::is_constant_evaluated()) {
             detail::refuse_failed_design();
         }
     }
@@ -497,6 +516,20 @@ struct StateFeedback {
      */
     [[nodiscard]] constexpr ColVec<NU, T> control(const ColVec<NX, T>& x_ref, const ColVec<NX, T>& x) const {
         return ColVec<NU, T>(-K * (x - x_ref));
+    }
+
+    /**
+     * @brief Servo law on a model with delay states: @p x_ref covers the NR plant states only.
+     *
+     * @p x is still the whole state, the plant's plus the delay states (the commands already
+     * sent, which the caller has). The delay states' reference is the past u*, zero for this
+     * law with no feedforward; the gain on past-output states (OutputDelay) is zero, since they
+     * steer nothing. Same rule as LQG::feedback.
+     */
+    template<size_t NR>
+        requires(NR < NX)
+    [[nodiscard]] constexpr ColVec<NU, T> control(const ColVec<NR, T>& x_ref, const ColVec<NX, T>& x) const {
+        return control(detail::zero_extend<NX>(x_ref), x);
     }
 
     /// No internal state; provided so StateFeedback models the StateFeedbackController concept.
