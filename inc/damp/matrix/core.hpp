@@ -184,6 +184,77 @@ protected:
         }(damp::make_index_sequence<Rows>{});
     }
 
+    /*
+     * Constructors build the elements in a local and hand it to the data_
+     * mem-initializer. GCC rejects a constructor body that stores into data_
+     * when the Matrix is a member of a const aggregate under constant
+     * evaluation ("modifying a const object").
+     */
+
+    /// Elements of any (r, c)-indexable source, cast to T.
+    template<typename Src>
+    [[nodiscard]] static constexpr damp::array<T, Rows * Cols> elements_of(const Src& src) {
+        damp::array<T, Rows * Cols> out{};
+        for (size_t r = 0; r < Rows; ++r) {
+            for (size_t c = 0; c < Cols; ++c) {
+                out[(r * Cols) + c] = static_cast<T>(src(r, c));
+            }
+        }
+        return out;
+    }
+
+    /// Elements of a nested initializer list; missing entries are zero, extras ignored.
+    [[nodiscard]] static constexpr damp::array<T, Rows * Cols> elements_of(
+        std::initializer_list<std::initializer_list<T>> init
+    ) {
+        damp::array<T, Rows * Cols> out{};
+        size_t                      r = 0;
+        for (const auto& row : init) {
+            size_t c = 0;
+            for (const auto& val : row) {
+                if (r < Rows && c < Cols) {
+                    out[(r * Cols) + c] = val;
+                }
+                ++c;
+            }
+            ++r;
+        }
+        return out;
+    }
+
+    /// Elements of a flat row-major list (vectors); missing entries are zero, extras ignored.
+    [[nodiscard]] static constexpr damp::array<T, Rows * Cols> flat_elements_of(std::initializer_list<T> init) {
+        damp::array<T, Rows * Cols> out{};
+        size_t                      i = 0;
+        for (const auto& val : init) {
+            if (i < Rows * Cols) {
+                out[i] = val;
+            }
+            ++i;
+        }
+        return out;
+    }
+
+    /// Elements of a sized C array (vectors).
+    template<size_t M>
+        requires(M == Rows * Cols)
+    [[nodiscard]] static constexpr damp::array<T, Rows * Cols> flat_elements_of(const T (&arr)[M]) {
+        damp::array<T, Rows * Cols> out{};
+        for (size_t i = 0; i < M; ++i) {
+            out[i] = arr[i];
+        }
+        return out;
+    }
+
+    /// Copy-constructor seed: the whole array under constant evaluation; at run
+    /// time zeros, overwritten by the constant-index folds that GCC can SROA.
+    [[nodiscard]] static constexpr damp::array<T, Rows * Cols> copy_seed(const Matrix& other) {
+        if (std::is_constant_evaluated()) {
+            return other.data_;
+        }
+        return {};
+    }
+
 public:
     typedef T value_type;
 
@@ -206,7 +277,11 @@ public:
      * GCC SROA of small locals). Arity is Cols rather than Rows*Cols, which
      * keeps g++ frontend cost reasonable for typical matrix shapes.
      */
-    constexpr Matrix(const Matrix& other) { copy_from(other); }
+    constexpr Matrix(const Matrix& other) : data_(copy_seed(other)) {
+        if (!std::is_constant_evaluated()) {
+            copy_from(other);
+        }
+    }
 
     constexpr Matrix& operator=(const Matrix& other) {
         if (this != &other) {
@@ -274,39 +349,17 @@ public:
      * @brief Type conversion constructor from another matrix with different element type
      */
     template<typename U>
-    explicit constexpr Matrix(const Matrix<Rows, Cols, U>& other) : Matrix() {
-        for (size_t r = 0; r < Rows; ++r) {
-            for (size_t c = 0; c < Cols; ++c) {
-                data_[(r * Cols) + c] = static_cast<T>(other.data_[(r * Cols) + c]);
-            }
-        }
-    }
+    explicit constexpr Matrix(const Matrix<Rows, Cols, U>& other) : data_(elements_of(other)) {}
 
     /**
      * @brief Constructor from nested initializer list
      */
-    constexpr Matrix(std::initializer_list<std::initializer_list<T>> init) : Matrix() {
-        size_t r = 0;
-        for (const auto& row : init) {
-            size_t c = 0;
-            for (const auto& val : row) {
-                if (r < Rows && c < Cols) {
-                    data_[(r * Cols) + c] = val;
-                }
-                ++c;
-            }
-            ++r;
-        }
-    }
+    constexpr Matrix(std::initializer_list<std::initializer_list<T>> init) : data_(elements_of(init)) {}
 
     /**
      * @brief Constructor from damp::array, enables class template argument deduction
      */
-    constexpr Matrix(const damp::array<T, Rows * Cols>& arr) : Matrix() {
-        for (size_t i = 0; i < Rows * Cols; ++i) {
-            data_[i] = arr[i];
-        }
-    }
+    constexpr Matrix(const damp::array<T, Rows * Cols>& arr) : data_(arr) {}
 
     /**
      * @brief Returns a view over a sub-block of the matrix
@@ -435,26 +488,14 @@ public:
      * @brief Constructor from a compatible Block (copies data)
      */
     template<size_t ParentCols, typename U>
-    constexpr Matrix(const Block<Rows, Cols, ParentCols, U>& block) : Matrix() {
-        for (size_t r = 0; r < Rows; ++r) {
-            for (size_t c = 0; c < Cols; ++c) {
-                data_[(r * Cols) + c] = static_cast<T>(block(r, c));
-            }
-        }
-    }
+    constexpr Matrix(const Block<Rows, Cols, ParentCols, U>& block) : data_(elements_of(block)) {}
 
     /**
      * @brief Constructor from any MatrixLike type with matching dimensions (copies data)
      */
     template<MatrixLike M>
         requires(M::rows() == Rows && M::cols() == Cols && !std::is_same_v<std::remove_cvref_t<M>, Matrix<Rows, Cols, T>>)
-    constexpr Matrix(const M& other) : Matrix() {
-        for (size_t r = 0; r < Rows; ++r) {
-            for (size_t c = 0; c < Cols; ++c) {
-                data_[(r * Cols) + c] = static_cast<T>(other(r, c));
-            }
-        }
-    }
+    constexpr Matrix(const M& other) : data_(elements_of(other)) {}
 
     /**
      * @brief Assignment from any MatrixLike type with matching dimensions
@@ -1078,6 +1119,30 @@ template<MatrixLike A, MatrixLike B>
 [[nodiscard]] constexpr auto operator*(const A& a, const B& b) {
     using T = typename A::value_type;
     Matrix<A::rows(), B::cols(), T> result;
+    if constexpr (std::is_base_of_v<Matrix<A::rows(), A::cols(), T>, A> && std::is_base_of_v<Matrix<B::rows(), B::cols(), T>, B>
+                  && A::rows() * A::cols() * B::cols() > 0) {
+        // Owning operands: walk the storage directly. Same arithmetic as the view
+        // path; it only spares constant evaluation the per-element accessor calls,
+        // and there skips the zero entries that block-structured design matrices
+        // are full of.
+        const T* const ap = a.data();
+        const T* const bp = b.data();
+        T* const       rp = result.data();
+        for (size_t i = 0; i < A::rows(); ++i) {
+            for (size_t k = 0; k < A::cols(); ++k) {
+                const T aik = ap[(i * A::cols()) + k];
+                if (std::is_constant_evaluated() && aik == T{0}) {
+                    continue;
+                }
+                const T* const brow = bp + (k * B::cols());
+                T* const       rrow = rp + (i * B::cols());
+                for (size_t j = 0; j < B::cols(); ++j) {
+                    rrow[j] += aik * brow[j];
+                }
+            }
+        }
+        return result;
+    }
     for (size_t i = 0; i < A::rows(); ++i) {
         for (size_t k = 0; k < A::cols(); ++k) {
             T aik = static_cast<T>(a(i, k));

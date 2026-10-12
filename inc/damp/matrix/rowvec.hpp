@@ -12,6 +12,7 @@
 
 #include <cstddef>
 #include <initializer_list>
+#include <type_traits>
 
 #include "core.hpp"
 #include "damp/backend.hpp"
@@ -50,20 +51,17 @@ struct RowVec : public Matrix<1, N, T> {
     /**
      * @brief Constructor from initializer list
      */
-    constexpr RowVec(std::initializer_list<T> values) : Matrix<1, N, T>() {
-        size_t i = 0;
-        for (const auto& val : values) {
-            if (i < N) {
-                this->data_[i] = val;
-            }
-            ++i;
-        }
-    }
+    constexpr RowVec(std::initializer_list<T> values) : Matrix<1, N, T>(Matrix<1, N, T>::flat_elements_of(values)) {}
 
     // Same-precision wrap of a 1×N matrix is a no-op (identical shape and
     // storage), so it is implicit. Cross-precision conversions stay explicit
     // below, matching the library's "no silent float↔double" rule (use .as\<U\>()).
     constexpr RowVec(const Matrix<1, N, T>& other) : Matrix<1, N, T>(other) {}
+
+    // Same-precision 1×N view (block, row view, …) copies implicitly too.
+    template<MatrixLike V>
+        requires(V::rows() == 1 && V::cols() == N && std::is_same_v<typename V::value_type, T> && !std::is_base_of_v<Matrix<1, N, T>, V>)
+    constexpr RowVec(const V& view) : Matrix<1, N, T>(view) {}
 
     template<typename U>
     explicit constexpr RowVec(const RowVec<N, U>& other) : Matrix<1, N, T>(other) {}

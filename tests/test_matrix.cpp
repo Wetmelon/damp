@@ -5,6 +5,7 @@
 
 #include <cstddef>
 #include <random>
+#include <type_traits>
 #include <vector>
 
 #include "damp/backend.hpp"
@@ -998,4 +999,63 @@ TEST_CASE("Matrix inverse 9x9") {
             CHECK(actual_inv(i, j) == doctest::Approx(expected_inv(i, j)).epsilon(1e-10));
         }
     }
+}
+
+namespace {
+// A const aggregate of matrices built by designated initializers from other
+// matrices, under constant evaluation (GCC used to reject the copy into it).
+struct MatrixBundle {
+    Matrix<2, 2, double> A{};
+    Matrix<2, 1, double> B{};
+    ColVec<2, double>    x{};
+    RowVec<2, double>    k{};
+    Matrix<2, 2, double> A_from_float{};
+    double               Ts{0.0};
+};
+
+constexpr double bundle_checksum() {
+    const Matrix<2, 2, double> A{{1.0, 2.0}, {3.0, 4.0}};
+    const Matrix<2, 3, double> wide{{5.0, 6.0, 7.0}, {8.0, 9.0, 10.0}};
+    const ColVec<3, double>    v{11.0, 12.0, 13.0};
+    const Matrix<2, 2, float>  Af{{1.0f, 0.0f}, {0.0f, 1.0f}};
+    const MatrixBundle         b{
+                .A = A,
+                .B = wide.block<2, 1>(0, 2),
+                .x = v.block<2, 1>(1, 0),
+                .k = wide.block<1, 2>(1, 0),
+                .A_from_float = Matrix<2, 2, double>(Af),
+                .Ts = 0.5,
+    };
+    return b.A(1, 0) + b.B(1, 0) + b.x(1) + b.k(1) + b.A_from_float(1, 1) + b.Ts; // 3 + 10 + 13 + 9 + 1 + 0.5
+}
+static_assert(bundle_checksum() == 36.5);
+
+constexpr MatrixBundle kBundle{.A = Matrix<2, 2, double>::identity(), .x = ColVec<2, double>{1.0, 2.0}};
+static_assert(kBundle.A(1, 1) == 1.0 && kBundle.x(1) == 2.0 && kBundle.B(0, 0) == 0.0);
+} // namespace
+
+TEST_CASE("ColVec / RowVec copy-initialize from a same-precision view") {
+    const ColVec<10, float> v{1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f, 9.0f, 10.0f};
+    const ColVec<8, float>  head = v.template block<8, 1>(0, 0);
+    const ColVec<3, float>  tail = v.template block<3, 1>(7, 0);
+    CHECK(head(7) == 8.0f);
+    CHECK(tail(0) == 8.0f);
+    CHECK(tail(2) == 10.0f);
+
+    const Matrix<2, 3, double> M{{1.0, 2.0, 3.0}, {4.0, 5.0, 6.0}};
+    const ColVec<2, double>    c = M.col(1);
+    const RowVec<3, double>    r = M.row(1);
+    const RowVec<2, double>    rb = M.block<1, 2>(0, 1);
+    CHECK(c(1) == 5.0);
+    CHECK(r(2) == 6.0);
+    CHECK(rb(0) == 2.0);
+
+    // Mutable-parent views and a result passed straight into a ColVec parameter.
+    ColVec<4, double> w{1.0, 2.0, 3.0, 4.0};
+    const auto        sum2 = [](const ColVec<2, double>& p) { return p(0) + p(1); };
+    CHECK(sum2(w.block<2, 1>(2, 0)) == 7.0);
+
+    // Cross-precision stays explicit.
+    static_assert(!std::is_convertible_v<Block<2, 1, 1, const double>, ColVec<2, float>>);
+    static_assert(std::is_convertible_v<Block<2, 1, 1, const double>, ColVec<2, double>>);
 }

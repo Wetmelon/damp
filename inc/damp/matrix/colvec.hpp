@@ -10,6 +10,8 @@
  * @brief Column vector type
  */
 
+#include <type_traits>
+
 #include "core.hpp"
 #include "damp/backend.hpp"
 #include "matrix_traits.hpp"
@@ -48,22 +50,10 @@ struct ColVec : public Matrix<N, 1, T> {
     /**
      * @brief Constructor from initializer list
      */
-    constexpr ColVec(std::initializer_list<T> values) : Matrix<N, 1, T>() {
-        size_t i = 0;
-        for (const auto& val : values) {
-            if (i < N) {
-                this->data_[i] = val;
-            }
-            ++i;
-        }
-    }
+    constexpr ColVec(std::initializer_list<T> values) : Matrix<N, 1, T>(Matrix<N, 1, T>::flat_elements_of(values)) {}
 
     // Constructor from damp::array<T, N> - enables CTAD
-    constexpr ColVec(const damp::array<T, N>& arr) : Matrix<N, 1, T>() {
-        for (size_t i = 0; i < N; ++i) {
-            this->data_[i] = arr[i];
-        }
-    }
+    constexpr ColVec(const damp::array<T, N>& arr) : Matrix<N, 1, T>(arr) {}
 
     /**
      * @brief Construct from a sized C array (reference keeps @p N in the type).
@@ -76,17 +66,19 @@ struct ColVec : public Matrix<N, 1, T> {
     // the ill-formed zero-length array type T[0] (ISO C++ / -Wpedantic).
     template<size_t M>
         requires(M == N && M > 0)
-    constexpr ColVec(const T (&arr)[M]) : Matrix<N, 1, T>() {
-        for (size_t i = 0; i < N; ++i) {
-            this->data_[i] = arr[i];
-        }
-    }
+    constexpr ColVec(const T (&arr)[M]) : Matrix<N, 1, T>(Matrix<N, 1, T>::flat_elements_of(arr)) {}
 
     // Same-precision wrap of an N×1 matrix is a no-op (identical shape and
     // storage), so it is implicit — matrix expressions like A*x + B*u flow back
     // into a ColVec naturally. Cross-precision conversions stay explicit below,
     // matching the library's "no silent float↔double" rule (use .as\<U\>()).
     constexpr ColVec(const Matrix<N, 1, T>& other) : Matrix<N, 1, T>(other) {}
+
+    // Same-precision N×1 view (block, column view, …) copies implicitly too, so
+    // `ColVec<3> p = x.block<3, 1>(0, 0);` reads like the matrix expression.
+    template<MatrixLike V>
+        requires(V::rows() == N && V::cols() == 1 && std::is_same_v<typename V::value_type, T> && !std::is_base_of_v<Matrix<N, 1, T>, V>)
+    constexpr ColVec(const V& view) : Matrix<N, 1, T>(view) {}
 
     template<typename U>
     explicit constexpr ColVec(const ColVec<N, U>& other) : Matrix<N, 1, T>(other) {}
