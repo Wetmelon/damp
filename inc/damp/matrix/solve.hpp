@@ -8,7 +8,7 @@
 /**
  * @file solve.hpp
  * @brief Linear-system solvers built on the factorizations in decomposition.hpp:
- *        triangular substitution, Cholesky/LU solves, the SPD-aware generic
+ *        triangular substitution, Cholesky/LDLᵀ/LU solves, the SPD-aware generic
  *        solve(), and the Matrix::inverse() definition.
  */
 
@@ -170,6 +170,39 @@ constexpr damp::optional<Matrix<N, M, T>> cholesky_solve(const Matrix<N, N, T>& 
     // Backward substitution: solve Lᴴ * X = Y
     const auto Lh = L.conjugate_transpose();
     return solve(Lh.upper_triangle(), Y_opt.value());
+}
+
+/**
+ * @brief Solve AX = B via LDLᴴ (A = L D Lᴴ, symmetric indefinite)
+ *
+ * For the symmetric matrices cholesky_solve() refuses: saddle-point / KKT systems
+ * @f$ \begin{bmatrix} H & A^\top \\ A & -E \end{bmatrix} @f$ and other quasi-definite
+ * forms. Returns damp::nullopt if ldlt() meets a vanishing pivot.
+ *
+ * @note Prefer this over forming @f$ A^{-1} @f$ then multiplying.
+ * @see ldlt(), solve()
+ */
+template<size_t N, size_t M, typename T>
+constexpr damp::optional<Matrix<N, M, T>> ldlt_solve(const Matrix<N, N, T>& A, const Matrix<N, M, T>& B) {
+    const auto f = ldlt(A);
+    if (!f) {
+        return damp::nullopt;
+    }
+    // L Y = B
+    auto Y_opt = solve(f->L.lower_triangle(), B);
+    if (!Y_opt) {
+        return damp::nullopt;
+    }
+    // D Z = Y
+    Matrix<N, M, T> Z = Y_opt.value();
+    for (size_t i = 0; i < N; ++i) {
+        for (size_t c = 0; c < M; ++c) {
+            Z(i, c) = Z(i, c) / T{f->d[i]};
+        }
+    }
+    // Lᴴ X = Z
+    const auto Lh = f->L.conjugate_transpose();
+    return solve(Lh.upper_triangle(), Z);
 }
 
 /**

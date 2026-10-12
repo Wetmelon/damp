@@ -5,6 +5,7 @@
 
 #include <cmath>
 #include <cstddef>
+#include <random>
 
 #include "damp/backend.hpp"
 #include "damp/math/complex.hpp"
@@ -831,5 +832,105 @@ TEST_SUITE("svd of a single column") {
         CHECK(s.singular_values[0] == doctest::Approx(5.0));
         CHECK(rank(a) == 1);
         CHECK(rank(Matrix<2, 1, C>{}) == 0);
+    }
+}
+
+TEST_SUITE("cholesky rank deficiency") {
+    // The Gram matrix of N−1 vectors in Rᴺ is singular. Its last pivot is roundoff of either
+    // sign; a positivity-only test accepted the positive half (about 50 % of draws) and factored
+    // it into entries of 1/√eps, so mat::solve (Cholesky first for symmetric input) returned x of
+    // size 10¹⁹ instead of nullopt. The relative floor leaves the few draws whose roundoff
+    // exceeds N·64·eps of the pivot's terms (about 1 %, the same leak LU has without a rank test).
+    TEST_CASE_TEMPLATE("a singular Gram matrix is refused", T, float, double) {
+        std::mt19937_64                   gen(7);
+        std::uniform_real_distribution<T> U(T{-1}, T{1});
+        constexpr int                     trials = 1000;
+        int                               accepted = 0;
+        for (int trial = 0; trial < trials; ++trial) {
+            Matrix<5, 4, T> V{};
+            for (size_t i = 0; i < 5; ++i) {
+                for (size_t j = 0; j < 4; ++j) {
+                    V(i, j) = U(gen);
+                }
+            }
+            const Matrix<5, 5, T> G = V * V.t();
+            if (cholesky(G).has_value()) {
+                ++accepted;
+            }
+        }
+        CHECK(accepted <= trials / 40);
+    }
+
+    TEST_CASE_TEMPLATE("a well-conditioned SPD matrix with graded diagonal still factors", T, float, double) {
+        // diag(1, 1e-4, 1e-8) plus a small coupling: the pivots are small relative to each other
+        // but not relative to their own diagonal entries.
+        Matrix<3, 3, T> A{};
+        A(0, 0) = T{1};
+        A(1, 1) = static_cast<T>(1e-4);
+        A(2, 2) = static_cast<T>(1e-8);
+        A(0, 1) = A(1, 0) = static_cast<T>(1e-3);
+        A(1, 2) = A(2, 1) = static_cast<T>(1e-7);
+        REQUIRE(cholesky(A).has_value());
+        const auto            L = *cholesky(A);
+        const Matrix<3, 3, T> back = L * L.t();
+        for (size_t i = 0; i < 3; ++i) {
+            for (size_t j = 0; j < 3; ++j) {
+                CHECK(back(i, j) == doctest::Approx(A(i, j)).epsilon(static_cast<double>(T{16} * eps<T>())).scale(static_cast<double>(A(i, i))));
+            }
+        }
+    }
+}
+
+TEST_SUITE("ldlt") {
+    TEST_CASE("a KKT saddle-point matrix factors and solves where Cholesky cannot") {
+        // [[H, Aᵀ], [A, 0]] with H = diag(2, 3), A = [1, 1]: indefinite (one negative pivot)
+        Matrix<3, 3> K{{2.0, 0.0, 1.0}, {0.0, 3.0, 1.0}, {1.0, 1.0, 0.0}};
+        CHECK_FALSE(cholesky(K).has_value());
+        const auto f = ldlt(K);
+        REQUIRE(f.has_value());
+        CHECK(f->d[0] == doctest::Approx(2.0));
+        CHECK(f->d[1] == doctest::Approx(3.0));
+        CHECK(f->d[2] == doctest::Approx(-(1.0 / 2.0 + 1.0 / 3.0))); // Schur complement −A H⁻¹ Aᵀ
+        Matrix<3, 3> D{};
+        for (size_t i = 0; i < 3; ++i) {
+            D(i, i) = f->d[i];
+        }
+        const Matrix<3, 3> back = f->L * D * f->L.t();
+        for (size_t i = 0; i < 3; ++i) {
+            for (size_t j = 0; j < 3; ++j) {
+                CHECK(back(i, j) == doctest::Approx(K(i, j)).scale(1.0));
+            }
+        }
+        const Matrix<3, 1> b{{1.0}, {2.0}, {0.5}};
+        const auto         x = ldlt_solve(K, b);
+        const auto         x_lu = lu_solve(K, b);
+        REQUIRE(x.has_value());
+        REQUIRE(x_lu.has_value());
+        for (size_t i = 0; i < 3; ++i) {
+            CHECK((*x)(i, 0) == doctest::Approx((*x_lu)(i, 0)).epsilon(1e-12));
+        }
+    }
+
+    TEST_CASE("a singular symmetric matrix is refused") {
+        const Matrix<2, 2> S{{1.0, 2.0}, {2.0, 4.0}};
+        CHECK_FALSE(ldlt(S).has_value());
+    }
+
+    TEST_CASE("Hermitian: complex off-diagonal, real pivots") {
+        const Matrix<2, 2, complex<double>> A{
+            {complex<double>{4.0, 0.0}, complex<double>{1.0, -2.0}},
+            {complex<double>{1.0, 2.0}, complex<double>{3.0, 0.0}},
+        };
+        const auto f = ldlt(A);
+        REQUIRE(f.has_value());
+        CHECK(f->d[0] == doctest::Approx(4.0));
+        CHECK(f->d[1] == doctest::Approx(3.0 - 5.0 / 4.0)); // 3 − |1+2i|²/4
+        const Matrix<2, 1, complex<double>> b{{complex<double>{1.0, 0.0}}, {complex<double>{0.0, 1.0}}};
+        const auto                          x = ldlt_solve(A, b);
+        REQUIRE(x.has_value());
+        const auto r = A * (*x);
+        for (size_t i = 0; i < 2; ++i) {
+            CHECK((r(i, 0) - b(i, 0)).abs() <= 1e-12);
+        }
     }
 }

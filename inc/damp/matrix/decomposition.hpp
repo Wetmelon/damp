@@ -7,7 +7,7 @@
 
 /**
  * @file decomposition.hpp
- * @brief Matrix factorizations: Cholesky, LU (partial pivoting), and QR
+ * @brief Matrix factorizations: Cholesky, LDLᵀ, LU (partial pivoting), and QR
  *        (modified Gram-Schmidt), plus the symmetry/Hermitian predicate used to
  *        choose between them. Linear-system solvers built on these live in
  *        solve.hpp; the eigensolver in eigen.hpp.
@@ -61,8 +61,13 @@ constexpr bool is_symmetric_or_hermitian(const Matrix<N, N, T>& A) {
  *
  * Reads only the lower triangle and assumes the upper mirrors it; symmetry is
  * not checked. Callers that may pass a non-symmetric matrix should gate on
- * is_symmetric_or_hermitian() first, as solve() does. The pivot-positivity test
- * is the PD guard, so non-PD input is still rejected via nullopt.
+ * is_symmetric_or_hermitian() first, as solve() does.
+ *
+ * Returns damp::nullopt when a pivot aᵢᵢ − Σₖ|lᵢₖ|² is not positive by more than
+ * N·64·eps times |aᵢᵢ| + Σₖ|lᵢₖ|², the magnitude of the terms that formed it: a singular
+ * positive-semidefinite matrix leaves a roundoff-sized pivot of either sign, and
+ * a positive one would factor into entries of 1/√eps. The test is invariant to
+ * scaling A (LAPACK xPSTRF uses the same floor).
  *
  * @note Compare with MATLAB®'s chol(A, 'lower').
  * @see Golub & Van Loan, "Matrix Computations" (4th ed., 2013), §4.2
@@ -72,7 +77,9 @@ constexpr bool is_symmetric_or_hermitian(const Matrix<N, N, T>& A) {
  */
 template<size_t N, typename T>
 constexpr damp::optional<Matrix<N, N, T>> cholesky(const Matrix<N, N, T>& A) {
-    Matrix<N, N, T> L = Matrix<N, N, T>::zeros();
+    using real_t = scalar_type_t<T>;
+    constexpr real_t rel = static_cast<real_t>(N) * real_t{64} * eps<T>();
+    Matrix<N, N, T>  L = Matrix<N, N, T>::zeros();
 
     for (size_t i = 0; i < N; ++i) {
         for (size_t j = 0; j <= i; ++j) {
@@ -83,19 +90,21 @@ constexpr damp::optional<Matrix<N, N, T>> cholesky(const Matrix<N, N, T>& A) {
             }
 
             if (i == j) {
-                if constexpr (std::is_floating_point_v<T>) {
-                    auto diag_val = sum;
-                    if (diag_val <= 0) {
-                        return damp::nullopt;
-                    }
-                    L(i, j) = damp::sqrt(diag_val);
-                } else {
-                    auto diag_val = damp::real(sum);
-                    if (diag_val <= 0) {
-                        return damp::nullopt;
-                    }
-                    L(i, j) = damp::sqrt(diag_val);
+                real_t diag_val{};
+                real_t mag = damp::abs(A(i, i)); // size of the terms that formed the pivot
+                for (size_t k = 0; k < j; ++k) {
+                    const real_t l = damp::abs(L(i, k));
+                    mag += l * l;
                 }
+                if constexpr (std::is_floating_point_v<T>) {
+                    diag_val = sum;
+                } else {
+                    diag_val = damp::real(sum);
+                }
+                if (!(diag_val > rel * mag)) {
+                    return damp::nullopt;
+                }
+                L(i, j) = damp::sqrt(diag_val);
             } else {
                 L(i, j) = sum / L(j, j);
             }
@@ -103,6 +112,73 @@ constexpr damp::optional<Matrix<N, N, T>> cholesky(const Matrix<N, N, T>& A) {
     }
 
     return L;
+}
+
+/// LDLᴴ factors: A = L D Lᴴ with L unit lower-triangular and D real diagonal.
+template<size_t N, typename T>
+struct LDLT {
+    Matrix<N, N, T>                  L{}; ///< Unit lower-triangular factor
+    damp::array<scalar_type_t<T>, N> d{}; ///< Diagonal of D (real; may carry negative entries)
+};
+
+/**
+ * @brief LDLᴴ decomposition of a symmetric (Hermitian) matrix, no pivoting
+ *
+ * A = L D Lᴴ with L unit lower-triangular and D real diagonal. No square roots, and
+ * D may carry negative entries, so this covers the symmetric indefinite matrices whose
+ * leading principal minors are all nonzero: in particular the quasi-definite KKT
+ * matrices @f$ \begin{bmatrix} H & A^\top \\ A & -E \end{bmatrix} @f$ with
+ * @f$ H \succ 0,\; E \succeq 0 @f$, which factor in any symmetric ordering
+ * (Vanderbei). A general indefinite matrix needs Bunch–Kaufman pivoting, which this does
+ * not do: a pivot below N·64·eps of the terms that formed it returns damp::nullopt
+ * (the floor cholesky() and lu_decomposition() use) rather than dividing by roundoff.
+ *
+ * Reads only the lower triangle and assumes the upper mirrors it.
+ *
+ * @note Compare with MATLAB®'s ldl(A) (which pivots).
+ * @see Golub & Van Loan, "Matrix Computations" (4th ed., 2013), §4.1.2
+ * @see Vanderbei, "Symmetric Quasidefinite Matrices," SIAM J. Optim. 5(1), 1995
+ * @see ldlt_solve(), cholesky()
+ *
+ * @param A Symmetric (real) or Hermitian (complex) matrix
+ * @return L and d, or damp::nullopt on a vanishing pivot
+ */
+template<size_t N, typename T>
+constexpr damp::optional<LDLT<N, T>> ldlt(const Matrix<N, N, T>& A) {
+    using real_t = scalar_type_t<T>;
+    constexpr real_t rel = static_cast<real_t>(N) * real_t{64} * eps<T>();
+    const auto       real_part = [](const T& x) -> real_t {
+        if constexpr (std::is_floating_point_v<T>) {
+            return x;
+        } else {
+            return damp::real(x);
+        }
+    };
+
+    LDLT<N, T> out{};
+    out.L = Matrix<N, N, T>::identity();
+    for (size_t j = 0; j < N; ++j) {
+        // dⱼ = aⱼⱼ − Σₖ |lⱼₖ|² dₖ, tested against the size of those terms
+        real_t dj = real_part(A(j, j));
+        real_t mag = damp::abs(dj);
+        for (size_t k = 0; k < j; ++k) {
+            const real_t l = damp::abs(out.L(j, k));
+            dj -= l * l * out.d[k];
+            mag += l * l * damp::abs(out.d[k]);
+        }
+        if (!(damp::abs(dj) > rel * mag)) {
+            return damp::nullopt;
+        }
+        out.d[j] = dj;
+        for (size_t i = j + 1; i < N; ++i) {
+            T sum = A(i, j);
+            for (size_t k = 0; k < j; ++k) {
+                sum -= out.L(i, k) * damp::conj(out.L(j, k)) * out.d[k];
+            }
+            out.L(i, j) = sum / dj;
+        }
+    }
+    return out;
 }
 
 /**
