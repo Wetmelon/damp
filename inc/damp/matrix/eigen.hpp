@@ -11,6 +11,7 @@
  */
 
 #include <cstddef>
+#include <limits>
 
 #include "core.hpp"
 #include "damp/backend.hpp"
@@ -40,6 +41,201 @@ struct EigenResult {
 };
 
 namespace detail {
+
+/**
+ * @brief Multiply @p x by 2^@p exp.
+ *
+ * Balancing scales are exact powers of two (LAPACK xGEBAL). Repeated doubling
+ * keeps the factor exact inside the exponent range of @c T.
+ */
+template<typename T>
+[[nodiscard]] constexpr T scale_by_pow2(T x, int exp) {
+    if (exp > 0) {
+        for (int k = 0; k < exp; ++k) {
+            x *= T{2};
+        }
+    } else if (exp < 0) {
+        for (int k = 0; k < -exp; ++k) {
+            x *= static_cast<T>(0.5);
+        }
+    }
+    return x;
+}
+
+/**
+ * @brief One Parlett–Reinsch radix step on a row/column pair.
+ *
+ * @p c and @p r are the 2-norms of the column and the row, @p ca and @p ra the
+ * matching max-norms. The returned exponent is log2(F) for the diagonal
+ * similarity that multiplies the column by F and the row by 1/F. @c apply is
+ * false when the step would not shrink c + r by the LAPACK factor 0.95.
+ *
+ * @see LAPACK xGEBAL (scale-only), Parlett & Reinsch (1969)
+ */
+template<typename T>
+struct GebalStep {
+    int  exp{0};
+    bool apply{false};
+};
+
+template<typename T>
+[[nodiscard]] constexpr GebalStep<T> gebal_step(T c, T r, T ca, T ra) {
+    GebalStep<T> step;
+    if (!(c > T{0}) || !(r > T{0}) || !damp::isfinite(c + ca + r + ra)) {
+        return step;
+    }
+    const T s = c + r;
+    const T sfmin1 = std::numeric_limits<T>::min() / eps<T>();
+    const T sfmin2 = sfmin1 * T{2};
+    const T sfmax2 = T{1} / sfmin2;
+
+    T   f = T{1};
+    T   g = r * static_cast<T>(0.5);
+    int f_exp = 0;
+    int guard = 0;
+    while (c < g && damp::max(damp::max(f, c), ca) < sfmax2 && damp::min(damp::min(r, g), ra) > sfmin2
+           && guard < 4096) {
+        f *= T{2};
+        c *= T{2};
+        ca *= T{2};
+        r *= static_cast<T>(0.5);
+        g *= static_cast<T>(0.5);
+        ra *= static_cast<T>(0.5);
+        ++f_exp;
+        ++guard;
+    }
+    g = c * static_cast<T>(0.5);
+    guard = 0;
+    while (g >= r && damp::max(r, ra) < sfmax2 && damp::min(damp::min(f, c), damp::min(g, ca)) > sfmin2
+           && guard < 4096) {
+        f *= static_cast<T>(0.5);
+        c *= static_cast<T>(0.5);
+        g *= static_cast<T>(0.5);
+        ca *= static_cast<T>(0.5);
+        r *= T{2};
+        ra *= T{2};
+        --f_exp;
+        ++guard;
+    }
+    //! (c + r) still within 5% of its original value: xGEBAL skips the update.
+    if ((c + r) >= static_cast<T>(0.95) * s || f_exp == 0) {
+        return step;
+    }
+    step.exp = f_exp;
+    step.apply = true;
+    return step;
+}
+
+/**
+ * @brief log2 of the xGEBAL scale factors of @p A.
+ *
+ * @p A is overwritten by D⁻¹ A D with D = diag(2^exp). Diagonal entries are
+ * ignored by the caller (they are zero), matching the Benner / SciPy recipe
+ * of clearing diag(|H|) before balancing. Returns false if a norm overflows.
+ *
+ * @see LAPACK xGEBAL, JOB='S'
+ */
+template<size_t M, typename T>
+[[nodiscard]] constexpr bool gebal_log2_scale(Matrix<M, M, T>& A, damp::array<int, M>& exp) {
+    const T sfmin1 = std::numeric_limits<T>::min() / eps<T>();
+    const T sfmax1 = T{1} / sfmin1;
+
+    for (int sweep = 0; sweep < 64; ++sweep) {
+        bool noconv = false;
+        for (size_t i = 0; i < M; ++i) {
+            T c2 = T{0};
+            T r2 = T{0};
+            T ca = T{0};
+            T ra = T{0};
+            for (size_t j = 0; j < M; ++j) {
+                const T aij = damp::abs(A(i, j));
+                const T aji = damp::abs(A(j, i));
+                r2 += aij * aij;
+                c2 += aji * aji;
+                if (aij > ra) {
+                    ra = aij;
+                }
+                if (aji > ca) {
+                    ca = aji;
+                }
+            }
+            const T    c = damp::sqrt(c2);
+            const T    r = damp::sqrt(r2);
+            const auto step = gebal_step(c, r, ca, ra);
+            if (!step.apply) {
+                continue;
+            }
+            const int f_exp = step.exp;
+            if (f_exp < 0 && exp[i] < 0) {
+                const T scale_now = scale_by_pow2(T{1}, exp[i]);
+                const T f = scale_by_pow2(T{1}, f_exp);
+                if (f * scale_now <= sfmin1) {
+                    continue;
+                }
+            }
+            if (f_exp > 0 && exp[i] > 0) {
+                const T scale_now = scale_by_pow2(T{1}, exp[i]);
+                const T f = scale_by_pow2(T{1}, f_exp);
+                if (scale_now >= sfmax1 / f) {
+                    continue;
+                }
+            }
+            exp[i] += f_exp;
+            noconv = true;
+            for (size_t j = 0; j < M; ++j) {
+                if (j == i) {
+                    continue;
+                }
+                A(i, j) = scale_by_pow2(A(i, j), -f_exp);
+                A(j, i) = scale_by_pow2(A(j, i), f_exp);
+            }
+        }
+        if (!noconv) {
+            break;
+        }
+    }
+    return true;
+}
+
+/**
+ * @brief xGEBAL scaling exponents of @p A: D = diag(2^e) with D⁻¹ A D balanced.
+ *
+ * Row and column norms of the balanced matrix agree to within a factor of two
+ * (the diagonal is ignored, as in LAPACK). A similarity transform, so the
+ * eigenvalues are unchanged, but the QR iteration then computes them to a
+ * relative accuracy that does not depend on the units of each state.
+ *
+ * @see "Balancing a Matrix for Calculation of Eigenvalues and Eigenvectors" (Parlett & Reinsch, 1969)
+ * @see LAPACK xGEBAL (JOB = 'S'); MATLAB®'s balance
+ */
+template<size_t N, typename T>
+[[nodiscard]] constexpr damp::array<int, N> balance_exponents(const Matrix<N, N, T>& A) {
+    Matrix<N, N, T> mag = Matrix<N, N, T>::zeros();
+    for (size_t i = 0; i < N; ++i) {
+        for (size_t j = 0; j < N; ++j) {
+            if (i != j) {
+                mag(i, j) = damp::abs(A(i, j));
+            }
+        }
+    }
+    damp::array<int, N> e{};
+    if (!gebal_log2_scale(mag, e)) {
+        return damp::array<int, N>{}; // a norm overflowed: leave A unscaled
+    }
+    return e;
+}
+
+/// D⁻¹ A D for D = diag(2^e); exact (powers of two).
+template<size_t N, typename T>
+[[nodiscard]] constexpr Matrix<N, N, T> balanced(const Matrix<N, N, T>& A, const damp::array<int, N>& e) {
+    Matrix<N, N, T> out{};
+    for (size_t i = 0; i < N; ++i) {
+        for (size_t j = 0; j < N; ++j) {
+            out(i, j) = scale_by_pow2(A(i, j), e[j] - e[i]);
+        }
+    }
+    return out;
+}
 
 /**
  * @brief Reduce a square matrix to upper Hessenberg form by Householder reflections.
@@ -402,10 +598,15 @@ constexpr bool francis_qr(
  * @brief Compute the eigenvalues (and Schur vectors) of a real square matrix.
  *
  * Resolves both real and complex-conjugate eigenvalues for any N, returned as
- * fully-resolved complex values. 1×1 is trivial; larger matrices use the
- * Hessenberg + Francis double-shift QR algorithm (a 2×2 deflates at once via
- * the cancellation-free quadratic). The @c vectors field holds the orthogonal
- * real Schur basis, which coincides with the eigenvectors for symmetric A.
+ * fully-resolved complex values. 1×1 is trivial; larger matrices are balanced
+ * (detail::balance_exponents, a diagonal similarity by powers of two) and then
+ * reduced by Hessenberg + Francis double-shift QR (a 2×2 deflates at once via
+ * the cancellation-free quadratic). Balancing makes the computed eigenvalues
+ * accurate relative to the balanced norm, not to the largest entry of A, so a
+ * state in metres next to one in counts does not cost the small eigenvalues
+ * their digits. The @c vectors field holds the real Schur basis of the balanced
+ * matrix mapped back (x = D x_b) with unit columns: nested invariant subspaces of
+ * A, orthogonal when A needed no balancing, and the eigenvectors for symmetric A.
  *
  * @note Compare with MATLAB®'s eig(A) — the algorithm is selected internally.
  * @warning QR is iterative (data-dependent iteration count). Suitable for
@@ -431,7 +632,8 @@ template<size_t N, typename T = double>
     } else {
         // N == 2 deflates immediately through the stable 2×2 branch of
         // francis_qr (its bulge chase is compiled only for N ≥ 3).
-        Matrix<N, N, T> H = A;
+        const auto      e = detail::balance_exponents(A);
+        Matrix<N, N, T> H = detail::balanced(A, e);
         Matrix<N, N, T> Z;
         detail::hessenberg_reduce(H, Z);
 
@@ -441,8 +643,16 @@ template<size_t N, typename T = double>
 
         for (size_t i = 0; i < N; ++i) {
             result.values[i] = Cplx{wr[i], wi[i]};
+            // Schur vectors of A are D·Z; renormalize each column.
+            T nrm_sq = T{0};
             for (size_t j = 0; j < N; ++j) {
-                result.vectors(j, i) = Cplx{Z(j, i), T{0}};
+                const T v = detail::scale_by_pow2(Z(j, i), e[j]);
+                result.vectors(j, i) = Cplx{v, T{0}};
+                nrm_sq += v * v;
+            }
+            const T inv = (nrm_sq > T{0}) ? (T{1} / damp::sqrt(nrm_sq)) : T{1};
+            for (size_t j = 0; j < N; ++j) {
+                result.vectors(j, i) = result.vectors(j, i) * inv;
             }
         }
     }

@@ -3,6 +3,7 @@
 // Distributed under the Boost Software License, Version 1.0.
 // (See accompanying file LICENSE or copy at http://www.boost.org/LICENSE_1_0.txt)
 
+#include <algorithm>
 #include <cmath>
 #include <cstdlib>
 #include <numbers>
@@ -493,5 +494,45 @@ TEST_CASE("compute_eigenvalues - 4x4 symmetric matches known spectrum") {
     for (size_t i = 0; i < 4; ++i) {
         CHECK(got[i].first == doctest::Approx(want[i]).epsilon(1e-6));
         CHECK(std::abs(got[i].second) < 1e-6); // symmetric => real spectrum
+    }
+}
+
+TEST_SUITE("compute_eigenvalues balancing") {
+    // T = diag(1, 1e6, 1e-6) applied as a similarity leaves the spectrum alone but puts entries
+    // of 1e12 next to entries of 1e-12. Without balancing the QR iteration's backward error
+    // eps·‖A‖ ≈ 2e-4 lands on eigenvalues of size 1; with it the eigenvalues come back to
+    // relative precision, and the first Schur vector is still an eigenvector.
+    TEST_CASE("a badly scaled similarity keeps the eigenvalues and the leading eigenvector") {
+        const Matrix<3, 3> A0{{2.0, 1.0, 0.0}, {0.0, 3.0, 1.0}, {0.5, 0.0, 5.0}}; // real spectrum
+        const double       s[3] = {1.0, 1.0e6, 1.0e-6};
+        Matrix<3, 3>       A{};
+        for (size_t i = 0; i < 3; ++i) {
+            for (size_t j = 0; j < 3; ++j) {
+                A(i, j) = s[i] * A0(i, j) / s[j];
+            }
+        }
+        const auto ref = compute_eigenvalues(A0);
+        const auto got = compute_eigenvalues(A);
+        REQUIRE(ref.converged);
+        REQUIRE(got.converged);
+        for (size_t i = 0; i < 3; ++i) {
+            // match each eigenvalue of A to the nearest of A0
+            double best = 1e300;
+            for (size_t k = 0; k < 3; ++k) {
+                best = std::min(best, (got.values[i] - ref.values[k]).abs());
+            }
+            CHECK(best <= 1e-10 * ref.values[i].abs());
+        }
+        // The first Schur vector is an eigenvector of A: ‖A v − λ v‖ small relative to ‖A v‖.
+        ColVec<3, double> v{got.vectors(0, 0).real(), got.vectors(1, 0).real(), got.vectors(2, 0).real()};
+        const auto        Av = A * v;
+        const double      lam = got.values[0].real();
+        double            res = 0.0;
+        double            scale = 0.0;
+        for (size_t i = 0; i < 3; ++i) {
+            res = std::max(res, std::fabs(Av[i] - (lam * v[i])));
+            scale = std::max(scale, std::fabs(Av[i]));
+        }
+        CHECK(res <= 1e-9 * scale);
     }
 }
