@@ -287,6 +287,11 @@ private:
     constexpr void compute_weights() {
         const T n = static_cast<T>(NX);
         lambda = (p.alpha * p.alpha * (n + p.kappa)) - n;
+        // n + λ = α²(n + κ) must be positive (α = 0 or κ ≤ −n divides by zero):
+        // fall back to the plain unscented transform, λ = 0.
+        if (!(n + lambda > T{0})) {
+            lambda = T{0};
+        }
         const T denom = n + lambda;
         Wm[0] = lambda / denom;
         Wc[0] = (lambda / denom) + (static_cast<T>(1) - (p.alpha * p.alpha) + p.beta);

@@ -242,7 +242,7 @@ template<typename T>
 template<typename T>
 [[nodiscard]] constexpr T scaled_deadband(T x, T deadzone) {
     const T m = damp::abs(x);
-    if (m <= deadzone) {
+    if (m <= deadzone || !(deadzone < T{1})) { // a dead zone of the whole span passes nothing
         return T{0};
     }
     return damp::copysign((m - deadzone) / (T{1} - deadzone), x);

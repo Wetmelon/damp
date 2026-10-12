@@ -44,7 +44,8 @@ public:
             init_ = true;
             return y_;
         }
-        const T alpha = tau_ / (tau_ + dt);
+        const T den = tau_ + dt;
+        const T alpha = (den > T{0}) ? (tau_ / den) : T{0}; // τ = dt = 0: follow the measurement
         y_ = (alpha * (y_ + (rate * dt))) + ((T{1} - alpha) * measurement);
         return y_;
     }

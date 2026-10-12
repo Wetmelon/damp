@@ -22,6 +22,7 @@
  * @see math_backend.hpp for backend selection via damp_profile.hpp
  */
 
+#include <limits>
 #include <type_traits>
 
 #include "constexpr_math.hpp"
@@ -224,7 +225,7 @@ constexpr T tan(T x) {
  *
  * Compile time: ln2 argument reduction + Taylor series, with over/underflow
  * saturated to max() / 0 (no ±inf — the library builds under -ffinite-math-only).
- * Runtime: MathBackend\<T\>::exp.
+ * Runtime: MathBackend\<T\>::exp, with overflow saturated to max() the same way.
  *
  * @tparam T Numeric type (floating-point)
  */
@@ -233,7 +234,8 @@ constexpr T exp(T x) {
     if (std::is_constant_evaluated()) {
         return detail::exp(x);
     }
-    return MathBackend<T>::exp(x);
+    const T r = MathBackend<T>::exp(x);
+    return detail::isfinite(r) ? r : std::numeric_limits<T>::max();
 }
 
 /**
@@ -260,7 +262,8 @@ constexpr T log(T x) {
  * @brief Power function, base^exponent.
  *
  * Domain guards (before dispatch, both paths): exponent == 0 → 1; base ≤ 0 → 0.
- * For base > 0: compile-time exp(exponent · ln(base)), runtime MathBackend\<T\>::pow.
+ * For base > 0: compile-time exp(exponent · ln(base)), runtime MathBackend\<T\>::pow
+ * with overflow saturated to max().
  *
  * @tparam T Numeric type (floating-point)
  */
@@ -275,7 +278,8 @@ constexpr T pow(T base, T exponent) {
     if (std::is_constant_evaluated()) {
         return detail::pow(base, exponent);
     }
-    return MathBackend<T>::pow(base, exponent);
+    const T r = MathBackend<T>::pow(base, exponent);
+    return detail::isfinite(r) ? r : std::numeric_limits<T>::max();
 }
 
 /**
@@ -283,7 +287,8 @@ constexpr T pow(T base, T exponent) {
  *
  * Exact and backend-independent (the same implementation at compile and run
  * time), so it is not routed through MathBackend. base == 0 returns 0 for any
- * exponent (including negative — no ±inf under -ffinite-math-only).
+ * exponent (including negative — no ±inf under -ffinite-math-only); a result
+ * past the finite range saturates to ±max().
  *
  * @param base Base value
  * @param up   Integer exponent
@@ -307,7 +312,11 @@ constexpr T pow(T base, int up) {
         b *= b;
         exponent >>= 1U;
     }
-    return up >= 0 ? result : T{1} / result;
+    const T out = up >= 0 ? result : T{1} / result;
+    if (!detail::isfinite(out)) {
+        return ((base < T{0}) && ((up % 2) != 0)) ? -std::numeric_limits<T>::max() : std::numeric_limits<T>::max();
+    }
+    return out;
 }
 
 /**
@@ -397,6 +406,30 @@ constexpr T log10(T x) {
 template<typename T>
 constexpr int sgn(T val) {
     return (T(0) < val) - (val < T(0));
+}
+
+/**
+ * @brief Smoothed sign: an odd quintic through ±@p width, exactly ±1 outside it.
+ *
+ * @f$ s(u) = \tfrac{u}{8}(15 - 10u^2 + 3u^4) @f$ on @f$ u = x/w \in [-1, 1] @f$: value ±1 and
+ * zero first and second derivatives at the band edges (C²), slope 15/(8w) through zero.
+ * Unlike tanh or x/(|x|+ε) it reaches ±1 exactly, so outside the band it is the true sign,
+ * and it costs a few multiplies. @p width ≤ 0 gives the plain sign.
+ */
+template<typename T>
+[[nodiscard]] constexpr T smooth_sign(T x, T width) {
+    if (!(width > T{0})) {
+        return static_cast<T>(sgn(x));
+    }
+    if (x >= width) {
+        return T{1};
+    }
+    if (x <= -width) {
+        return T{-1};
+    }
+    const T u = x / width;
+    const T u2 = u * u;
+    return u * (T{15} - (T{10} * u2) + (T{3} * u2 * u2)) / T{8};
 }
 
 /**

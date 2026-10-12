@@ -18,6 +18,8 @@
  * @see filters/blocks.hpp for the rest of the everyday signal-conditioning blocks.
  */
 
+#include <limits>
+
 #include "damp/backend.hpp"
 #include "damp/math/math.hpp"
 #include "damp/matrix/matrix.hpp"
@@ -186,10 +188,18 @@ public:
     constexpr explicit Thermistor(const design::ThermistorCoeffs<T>& coeffs)
         : a_(coeffs.a), b_(coeffs.b), c_(coeffs.c) {}
 
-    /// Temperature in kelvin for a measured resistance [Ω].
+    /// Temperature in kelvin for a measured resistance [Ω]. A resistance past the
+    /// model's hot end (R ≤ 0 or 1/T ≤ 0, e.g. a shorted sensor) reads as the largest finite
+    /// temperature, so over-temperature protection trips instead of seeing ±∞.
     [[nodiscard]] constexpr T kelvin(T resistance) const {
+        if (!(resistance > T{0})) {
+            return std::numeric_limits<T>::max(); // a dead short: hottest reading
+        }
         const T ln_r = damp::log(resistance);
         const T inv_t = a_ + (b_ * ln_r) + (c_ * ln_r * ln_r * ln_r);
+        if (!(inv_t > std::numeric_limits<T>::min())) {
+            return std::numeric_limits<T>::max();
+        }
         return T{1} / inv_t;
     }
 

@@ -428,7 +428,14 @@ template<typename T>
 inline Reduced<T> reduce(T x) {
     constexpr T inv_pi = damp::numbers::inv_pi_v<T>;
 
-    T   n = fast_nearbyint(x * inv_pi);
+    T n = fast_nearbyint(x * inv_pi);
+    // Past 2³⁰ half-turns the int cast would overflow (UB) and the reduction has no
+    // digits left; report the angle as a multiple of π (frac 0) with n's parity.
+    constexpr T int_safe = static_cast<T>(1 << 30);
+    if (!((n < int_safe) && (n > -int_safe))) {
+        const T parity = n - (T{2} * fast_nearbyint(n * static_cast<T>(0.5)));
+        return {.frac = T{0}, .period_index = (parity != T{0}) ? 1 : 0};
+    }
     int period_index = static_cast<int>(n);
 
     T r;

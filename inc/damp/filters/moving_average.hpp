@@ -35,7 +35,11 @@ template<typename T>
     if (fs_hz <= T{0} || f_notch_hz <= T{0} || f_notch_hz >= fs_hz) {
         return 0;
     }
-    return static_cast<size_t>((fs_hz / f_notch_hz) + static_cast<T>(0.5)); // round to nearest
+    const T n = (fs_hz / f_notch_hz) + static_cast<T>(0.5);
+    if (!(n < static_cast<T>(size_t{1} << 31U))) {
+        return 0; // no window that long; the cast would overflow
+    }
+    return static_cast<size_t>(n); // round to nearest
 }
 
 /**

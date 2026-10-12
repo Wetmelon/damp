@@ -87,8 +87,8 @@ struct AffineCal {
     /// Raw → engineering: `gain·x + offset`.
     [[nodiscard]] constexpr T apply(T x) const { return (gain * x) + offset; }
 
-    /// Engineering → raw: `(y − offset) / gain` (requires `gain != 0`).
-    [[nodiscard]] constexpr T invert(T y) const { return (y - offset) / gain; }
+    /// Engineering → raw: `(y − offset) / gain`; 0 when `gain == 0` (no inverse).
+    [[nodiscard]] constexpr T invert(T y) const { return (gain != T{0}) ? ((y - offset) / gain) : T{0}; }
 
     /// Re-cast the coefficients to a different scalar type.
     template<typename U>
@@ -104,11 +104,15 @@ struct AffineCal {
  * @param eng0 Engineering value at the first point.
  * @param raw1 Raw reading at the second point.
  * @param eng1 Engineering value at the second point.
- * @return AffineCal reproducing both points (requires `raw0 != raw1`).
+ * @return AffineCal reproducing both points; with `raw0 == raw1` (no slope to
+ *         fit) the constant `eng0` (gain 0).
  */
 template<typename T>
     requires std::is_floating_point_v<T>
 [[nodiscard]] constexpr AffineCal<T> two_point_cal(T raw0, T eng0, T raw1, T eng1) {
+    if (raw1 == raw0) {
+        return AffineCal<T>{T{0}, eng0};
+    }
     const T gain = (eng1 - eng0) / (raw1 - raw0);
     return AffineCal<T>{gain, eng0 - (gain * raw0)};
 }
