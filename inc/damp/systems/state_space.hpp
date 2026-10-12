@@ -91,6 +91,86 @@ template<typename T>
     return false;
 }
 
+/**
+ * @brief Extend a state reference given for the leading NR states over all NX states.
+ *
+ * The trailing states (the delay line discretize appends) are not the caller's to choose:
+ * they follow the model from the previous full reference, x*ᵢ(k) = Aᵢ x*(k−1) + Bᵢ u*(k−1)
+ * for i ≥ NR. Only the leading NX × NX block of @p A (and NX rows of @p B) is read, so a
+ * model with further states after the plant (a disturbance augment) works too.
+ */
+template<size_t NX, size_t NR, size_t NA, size_t NU, typename T>
+[[nodiscard]] constexpr ColVec<NX, T> extend_reference(
+    const Matrix<NA, NA, T>& A,
+    const Matrix<NA, NU, T>& B,
+    const ColVec<NX, T>&     x_prev,
+    const ColVec<NU, T>&     u_prev,
+    const ColVec<NR, T>&     x_lead
+) {
+    static_assert(NR <= NX && NX <= NA, "The reference covers the leading states of the model.");
+    ColVec<NX, T> x{};
+    for (size_t i = 0; i < NR; ++i) {
+        x(i) = x_lead(i);
+    }
+    for (size_t i = NR; i < NX; ++i) {
+        T acc{0};
+        for (size_t j = 0; j < NX; ++j) {
+            acc += A(i, j) * x_prev(j);
+        }
+        for (size_t j = 0; j < NU; ++j) {
+            acc += B(i, j) * u_prev(j);
+        }
+        x(i) = acc;
+    }
+    return x;
+}
+
+/// A weight (or cross term) sized to the plant, placed on the leading rows and columns of an
+/// NX-state model; the delay states that follow get none.
+template<size_t NX, size_t NXC, size_t NQ, size_t NC, typename T>
+[[nodiscard]] constexpr Matrix<NX, NXC, T> pad_leading(const Matrix<NQ, NC, T>& W) {
+    static_assert(NQ <= NX && NC <= NXC, "The weight covers the leading states of the model.");
+    Matrix<NX, NXC, T> out{};
+    out.template block<NQ, NC>(0, 0) = W;
+    return out;
+}
+
+/// An LQI weight on [x_plant; ∫e] (NQA = plant states + NI integrators) spread onto [x; ∫e] of
+/// an NX-state model: the plant block leads, the integral block stays last, the delay states get
+/// none. A weight already sized to the model (NQA = NX + NI) comes back as it is.
+template<size_t NX, size_t NI, size_t NQA, typename T>
+[[nodiscard]] constexpr Matrix<NX + NI, NX + NI, T> pad_integral_weight(const Matrix<NQA, NQA, T>& Q) {
+    static_assert(
+        NQA > NI && NQA - NI <= NX,
+        "The weight on [x; ∫e] is (NX + NI)² or, on a delayed model, (plant states + NI)²."
+    );
+    constexpr size_t            NQ = NQA - NI;
+    constexpr size_t            shift = NX - NQ;
+    Matrix<NX + NI, NX + NI, T> out{};
+    for (size_t i = 0; i < NQA; ++i) {
+        for (size_t j = 0; j < NQA; ++j) {
+            out(i < NQ ? i : i + shift, j < NQ ? j : j + shift) = Q(i, j);
+        }
+    }
+    return out;
+}
+
+/**
+ * @brief Extend a state reference given for the leading NR states with zeros.
+ *
+ * For a law with no feedforward input on a delay-augmented model: the past-input states'
+ * reference is the past u*, which is zero.
+ */
+template<size_t NX, size_t NR, typename T>
+[[nodiscard]] constexpr ColVec<NX, T> zero_extend(const ColVec<NR, T>& x_lead) {
+    static_assert(NR <= NX, "The reference covers the leading states of the model.");
+    ColVec<NX, T> x{};
+    for (size_t i = 0; i < NR; ++i) {
+        x(i) = x_lead(i);
+    }
+    return x;
+}
+
 } // namespace detail
 
 /**

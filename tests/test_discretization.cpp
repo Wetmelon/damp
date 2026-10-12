@@ -4,8 +4,10 @@
 // (See accompanying file LICENSE or copy at http://www.boost.org/LICENSE_1_0.txt)
 
 #include <cmath>
+#include <numbers>
 
 #include "damp/backend.hpp"
+#include "damp/design/stability.hpp"
 #include "damp/math/complex.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "damp/systems/discretization.hpp"
@@ -193,5 +195,56 @@ TEST_SUITE("Control Design: Discretization") {
         CHECK(sys_d->A(1, 1) == doctest::Approx(1.0));
         CHECK(sys_d->B(0, 0) == doctest::Approx(0.5 * Ts * Ts));
         CHECK(sys_d->B(1, 0) == doctest::Approx(Ts));
+    }
+}
+
+TEST_SUITE("Tustin pre-warping") {
+    // Second-order plant with ω₀ = 50 rad/s sampled at 50 Hz: ω₀Ts = 1, so the plain
+    // bilinear map evaluates the continuous response at (2/Ts)·tan(0.5) = 54.6 rad/s instead
+    // of 50 and misses the resonance. Pre-warped at ω₀ the two responses agree there exactly.
+    TEST_CASE("the discrete response matches the continuous one at the pre-warp frequency") {
+        constexpr double    w0 = 50.0;
+        constexpr double    zeta = 0.1;
+        constexpr double    Ts = 0.02;
+        StateSpace<2, 1, 1> sys{};
+        sys.A(0, 1) = 1.0;
+        sys.A(1, 0) = -w0 * w0;
+        sys.A(1, 1) = -2.0 * zeta * w0;
+        sys.B(1, 0) = w0 * w0;
+        sys.C(0, 0) = 1.0;
+
+        const auto plain = discretize(sys, Ts, DiscretizationMethod::Tustin);
+        const auto warped = discretize(sys, Ts, DiscretizationMethod::Tustin, w0);
+        REQUIRE(plain.has_value());
+        REQUIRE(warped.has_value());
+        CHECK(warped->Ts == Ts);
+
+        const auto Gc = eval_frf(sys, damp::complex<double>{0.0, w0});
+        const auto z = damp::complex<double>{std::cos(w0 * Ts), std::sin(w0 * Ts)};
+        const auto Gp = eval_frf(*plain, z);
+        const auto Gw = eval_frf(*warped, z);
+        REQUIRE(Gc.has_value());
+        REQUIRE(Gp.has_value());
+        REQUIRE(Gw.has_value());
+        const double ref = (*Gc)(0, 0).abs();
+        CHECK(((*Gw)(0, 0) - (*Gc)(0, 0)).abs() <= 1e-9 * ref);
+        CHECK(((*Gp)(0, 0) - (*Gc)(0, 0)).abs() > 1e-2 * ref); // the warping the option removes
+
+        // Both maps keep the DC gain (z = 1 ↔ s = 0) and stability.
+        const auto dc_w = eval_frf(*warped, damp::complex<double>{1.0, 0.0});
+        REQUIRE(dc_w.has_value());
+        CHECK((*dc_w)(0, 0).real() == doctest::Approx(1.0).epsilon(1e-9));
+        CHECK(stability::is_stable_discrete(warped->A));
+    }
+
+    TEST_CASE("a pre-warp frequency at or past Nyquist is refused") {
+        StateSpace<1, 1, 1> sys{};
+        sys.A(0, 0) = -1.0;
+        sys.B(0, 0) = 1.0;
+        sys.C(0, 0) = 1.0;
+        const double Ts = 0.01;
+        CHECK_FALSE(discretize(sys, Ts, DiscretizationMethod::Tustin, std::numbers::pi / Ts).has_value());
+        CHECK(discretize(sys, Ts, DiscretizationMethod::Tustin, 0.9 * std::numbers::pi / Ts).has_value());
+        CHECK(discretize(sys, Ts, DiscretizationMethod::ZOH, 1e9).has_value()); // ignored by other methods
     }
 }
