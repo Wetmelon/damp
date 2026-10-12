@@ -21,11 +21,9 @@ INCLUDES += '-isystem../libs/json/single_include'
 -- fail on the next build. Drop the flag here to spot-check strict-IEEE runtime
 -- behavior, or lower -O for precision investigations.
 --
--- Drop -march=native for tests: g++ 14 (xPack MinGW) miscompiles multi-call
--- adaptive ODE paths under -O3 -march=native (intermittent 0xC0000005). Clang
--- and plain -O3 without -march=native are fine. Keep -mtune=native for scheduling.
-TEST_CXXFLAGS = (CXXFLAGS:gsub('%-march=native', '-mtune=native'))..' -ffast-math'
-TEST_LDFLAGS = (LDFLAGS:gsub('%-march=native', '-mtune=native'))
+-- CXXFLAGS tune for the host (-mtune=native) rather than target it: see Tuprules.lua.
+TEST_CXXFLAGS = CXXFLAGS..' -ffast-math'
+TEST_LDFLAGS = LDFLAGS
 
 -- Compile all .cpp files in the tests directory
 objs = tup.foreach_rule('*.cpp', '^j^'..CXX..' -c %f '..TEST_CXXFLAGS..' '..INCLUDES..' '..WARNINGS..' -o %o', 'build/objs/%B.o')

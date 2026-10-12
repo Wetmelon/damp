@@ -51,13 +51,18 @@ else
     WARNINGS = WARNINGS_COMMON .. " " .. WARNINGS_GCC
 end
 
-CXXFLAGS = "-O3 -std=c++20 -march=native -ffunction-sections -fdata-sections "
+-- Tune for the host (-mtune=native), never target it (-march=native): on an AVX-512 host
+-- (znver4), g++ 14 (xPack MinGW) under -O3 -march=native stores structs passed by value
+-- with 64-byte-aligned vmovdqa64 onto a stack Windows x64 only aligns to 16 bytes. The
+-- process dies (0xC0000005) whenever ASLR leaves the slot misaligned: the adaptive ODE
+-- tests hit it. Clang is clean either way; -mtune keeps the host scheduling without that instruction selection.
+CXXFLAGS = "-O3 -std=c++20 -mtune=native -ffunction-sections -fdata-sections "
 -- clang: raise fold-expression nesting (default 2048). Matrix copy historically
 -- used an index_sequence fold over Rows*Cols; large fixed-N LU copies exceed that.
 if string.find(CXX, "clang", 1, true) then
     CXXFLAGS = CXXFLAGS .. "-fbracket-depth=16384 "
 end
-LDFLAGS = "-O3 -march=native -ffunction-sections -fdata-sections -Wl,--gc-sections"
+LDFLAGS = "-O3 -mtune=native -ffunction-sections -fdata-sections -Wl,--gc-sections"
 -- example_drive_governor --live needs Winsock (and joy optional); unused on other exes
 local plat = tup.getconfig("TUP_PLATFORM")
 if plat == "win32" or plat == "win64" then
