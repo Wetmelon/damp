@@ -99,6 +99,7 @@ struct TransferFunction {
      * @return Continuous realization (@c Ts = 0), or @c nullopt if
      *         @f$ \mathrm{den}[\mathrm{end}] = 0 @f$ (padded / improper array)
      * @note Compare with MATLAB®'s ss(tf(...)) / tf2ss (companion form).
+     * @see to_observable_canonical_form for the dual realization
      */
     [[nodiscard]] constexpr damp::optional<StateSpace<Nden - 1, 1, 1, T>> to_state_space() const {
         static_assert(Nnum <= Nden, "TransferFunction must be proper (deg num <= deg den)");
@@ -137,6 +138,38 @@ struct TransferFunction {
             sys.C(0, k) = (n_k - d_val * den[k]) / a_lead;
         }
 
+        return sys;
+    }
+
+    /// @copybrief to_state_space
+    /// The controllable companion form by its canonical name; see @ref to_state_space.
+    [[nodiscard]] constexpr damp::optional<StateSpace<Nden - 1, 1, 1, T>> to_controllable_canonical_form() const {
+        return to_state_space();
+    }
+
+    /**
+     * @brief Observable companion-form state-space realization
+     *
+     * The dual of @ref to_state_space: @f$ A_o = A_c^\top,\; B_o = C_c^\top,\; C_o = B_c^\top @f$,
+     * @f$ D @f$ unchanged, so the denominator coefficients sit in the last column of A and
+     * the numerator coefficients in B. Same transfer function and poles; (A, C) is observable
+     * by construction, which suits an observer or Kalman design the way the controllable
+     * form suits state feedback.
+     *
+     * @return Continuous realization (@c Ts = 0), or @c nullopt as @ref to_state_space
+     * @note Compare with MATLAB®'s canon(sys, 'companion') on the transposed system.
+     * @see "Linear System Theory and Design" (Chen, 1999), §7.2
+     */
+    [[nodiscard]] constexpr damp::optional<StateSpace<Nden - 1, 1, 1, T>> to_observable_canonical_form() const {
+        const auto ccf = to_state_space();
+        if (!ccf) {
+            return damp::nullopt;
+        }
+        StateSpace<Nden - 1, 1, 1, T> sys{};
+        sys.A = ccf->A.transpose();
+        sys.B = ccf->C.transpose();
+        sys.C = ccf->B.transpose();
+        sys.D = ccf->D;
         return sys;
     }
 };

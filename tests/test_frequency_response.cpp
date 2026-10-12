@@ -18,6 +18,7 @@
 #include "damp/systems/transfer_function.hpp"
 
 #define DOCTEST_CONFIG_INCLUDE_TYPE_TRAITS
+#include "damp/design/stability.hpp"
 #include "doctest.h"
 
 using namespace damp;
@@ -293,5 +294,48 @@ TEST_SUITE("Goertzel FRF accessors") {
         REQUIRE(g.complete());
         CHECK(std::hypot(g.real(), g.imag()) == doctest::Approx(g.magnitude()).epsilon(1e-12));
         CHECK(std::atan2(g.imag(), g.real()) == doctest::Approx(g.phase()).epsilon(1e-12));
+    }
+}
+
+TEST_SUITE("observable canonical form") {
+    TEST_CASE("the dual realization has the same response and is observable") {
+        // G(s) = (s + 2) / (s³ + 3s² + 3s + 1), strictly proper
+        const TransferFunction<2, 4> G{.num = {2.0, 1.0}, .den = {1.0, 3.0, 3.0, 1.0}};
+        const auto                   ccf = G.to_controllable_canonical_form();
+        const auto                   ocf = G.to_observable_canonical_form();
+        REQUIRE(ccf.has_value());
+        REQUIRE(ocf.has_value());
+        // structure: A_o = A_cᵀ, B_o = C_cᵀ, C_o = B_cᵀ
+        for (size_t i = 0; i < 3; ++i) {
+            for (size_t j = 0; j < 3; ++j) {
+                CHECK(ocf->A(i, j) == ccf->A(j, i));
+            }
+            CHECK(ocf->B(i, 0) == ccf->C(0, i));
+            CHECK(ocf->C(0, i) == ccf->B(i, 0));
+        }
+        CHECK(ocf->A(0, 2) == doctest::Approx(-1.0)); // −den[0]/den[3] in the last column
+        CHECK(ocf->A(1, 0) == 1.0);                   // shift structure below the diagonal
+        CHECK(stability::is_observable(ocf->A, ocf->C));
+        CHECK(stability::is_controllable(ccf->A, ccf->B));
+        for (double w : {0.1, 0.7, 3.0}) {
+            const auto gc = eval_frf(*ccf, damp::complex<double>{0.0, w});
+            const auto go = eval_frf(*ocf, damp::complex<double>{0.0, w});
+            REQUIRE(gc.has_value());
+            REQUIRE(go.has_value());
+            CHECK(((*go)(0, 0) - (*gc)(0, 0)).abs() <= 1e-12 * (*gc)(0, 0).abs());
+        }
+    }
+
+    TEST_CASE("biproper: feedthrough and reduced numerator carry over") {
+        const TransferFunction<3, 3> G{.num = {1.0, 0.5, 2.0}, .den = {4.0, 1.0, 1.0}}; // (2s² + 0.5s + 1)/(s² + s + 4)
+        const auto                   ocf = G.to_observable_canonical_form();
+        REQUIRE(ocf.has_value());
+        CHECK(ocf->D(0, 0) == doctest::Approx(2.0));
+        const auto g = eval_frf(*ocf, damp::complex<double>{0.0, 1.5});
+        REQUIRE(g.has_value());
+        // direct evaluation of the rational function at s = 1.5j
+        const damp::complex<double> s{0.0, 1.5};
+        const auto                  ref = (s * s * 2.0 + s * 0.5 + 1.0) / (s * s + s + 4.0);
+        CHECK(((*g)(0, 0) - ref).abs() <= 1e-12 * ref.abs());
     }
 }
