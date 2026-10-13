@@ -78,7 +78,6 @@ inline constexpr auto R = Matrix<1, 1>{{1.0}};
 
 // 4×4 DARE at compile time — may need a higher -fconstexpr-ops-limit on some hosts
 inline constexpr auto lqr_d = design::discrete_lqr_from_continuous(sys.A, sys.B, Q, R, Ts);
-static_assert(lqr_d.success);
 
 /**
  * @brief One control period: full-state feedback u = −Kx

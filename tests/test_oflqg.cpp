@@ -36,7 +36,7 @@ TEST_SUITE("OFLQG") {
         constexpr auto sys = make_plant();
         constexpr auto result = design::discrete_oflqg(
             sys, Matrix<2, 2>::identity(), Matrix<1, 1>{{0.1}},
-            Matrix<2, 2>{{0.01, 0.0}, {0.0, 0.01}}, Matrix<1, 1>{{0.1}}
+            {.process = Matrix<2, 2>{{0.01, 0.0}, {0.0, 0.01}}, .measurement = Matrix<1, 1>{{0.1}}}
         );
         static_assert(result.success);
         CHECK(result.success);
@@ -48,8 +48,7 @@ TEST_SUITE("OFLQG") {
         const auto sys = make_plant();
         const auto result = design::discrete_oflqg(
             sys, Matrix<2, 2>::identity(), Matrix<1, 1>{{0.1}},
-            Matrix<2, 2>{{0.05, 0.0}, {0.0, 0.05}}, Matrix<1, 1>{{0.05}},
-            Matrix<1, 1>{{1.0}}
+            design::OffsetFreeNoise{Matrix<2, 2>{{0.05, 0.0}, {0.0, 0.05}}, Matrix<1, 1>{{0.05}}, Matrix<1, 1>{{1.0}}}
         );
         REQUIRE(result.success);
 
@@ -69,7 +68,7 @@ TEST_SUITE("OFLQG") {
     TEST_CASE("as<float> preserves success") {
         constexpr auto result = design::discrete_oflqg(
             make_plant(), Matrix<2, 2>::identity(), Matrix<1, 1>{{0.1}},
-            Matrix<2, 2>{{0.01, 0.0}, {0.0, 0.01}}, Matrix<1, 1>{{0.1}}
+            {.process = Matrix<2, 2>{{0.01, 0.0}, {0.0, 0.01}}, .measurement = Matrix<1, 1>{{0.1}}}
         );
         constexpr auto f = result.as<float>();
         static_assert(f.success);
@@ -114,8 +113,7 @@ TEST_SUITE("OFLQG") {
         Matrix<4, 4> Q = Matrix<4, 4>::identity();
         Q(2, 2) = 1.0e4;
         const auto res = design::discrete_oflqg(
-            sys, model, Q, Matrix<1, 1>{{1.0e-4}}, Matrix<4, 4>::identity() * 1.0e-8,
-            Matrix<3, 3>{{1.0e-8, 0.0, 0.0}, {0.0, 1.0e-8, 0.0}, {0.0, 0.0, 1.0e-2}}, Matrix<1, 1>{{1.0}}
+            sys, model, Q, Matrix<1, 1>{{1.0e-4}}, design::OffsetFreeNoise{Matrix<4, 4>::identity() * 1.0e-8, Matrix<3, 3>{{1.0e-8, 0.0, 0.0}, {0.0, 1.0e-8, 0.0}, {0.0, 0.0, 1.0e-2}}, Matrix<1, 1>{{1.0}}}
         );
         REQUIRE(res.success);
 
@@ -137,8 +135,7 @@ TEST_SUITE("OFLQG") {
         // produce exactly the inputs control(r = 1, y) does (re-anchoring makes the two filters equal).
         const auto sys = make_plant();
         const auto result = design::discrete_oflqg(
-            sys, Matrix<2, 2>::identity(), Matrix<1, 1>{{0.1}}, Matrix<2, 2>{{0.05, 0.0}, {0.0, 0.05}}, Matrix<1, 1>{{0.05}},
-            Matrix<1, 1>{{1.0}}
+            sys, Matrix<2, 2>::identity(), Matrix<1, 1>{{0.1}}, design::OffsetFreeNoise{Matrix<2, 2>{{0.05, 0.0}, {0.0, 0.05}}, Matrix<1, 1>{{0.05}}, Matrix<1, 1>{{1.0}}}
         );
         REQUIRE(result.success);
         OFLQG<2, 1, 1, double> setpoint{result};
@@ -159,8 +156,7 @@ TEST_SUITE("OFLQG") {
     TEST_CASE("tracks a moving reference under a constant load") {
         const auto sys = make_plant();
         const auto result = design::discrete_oflqg(
-            sys, Matrix<2, 2>{{100.0, 0.0}, {0.0, 1.0}}, Matrix<1, 1>{{0.01}}, Matrix<2, 2>{{0.05, 0.0}, {0.0, 0.05}},
-            Matrix<1, 1>{{0.01}}, Matrix<1, 1>{{1.0}}
+            sys, Matrix<2, 2>{{100.0, 0.0}, {0.0, 1.0}}, Matrix<1, 1>{{0.01}}, design::OffsetFreeNoise{Matrix<2, 2>{{0.05, 0.0}, {0.0, 0.05}}, Matrix<1, 1>{{0.01}}, Matrix<1, 1>{{1.0}}}
         );
         REQUIRE(result.success);
         OFLQG<2, 1, 1, double> ctrl{result};

@@ -53,9 +53,7 @@
  *
  * // Place observer error poles inside the unit circle (faster than the plant).
  * constexpr auto result = design::luenberger(sys, ColVec<2>{0.3, 0.4});
- * static_assert(result.success);
- *
- * Luenberger observer(sys, result.as<float>());   // deploy in float
+ * static constinit Luenberger observer{sys, result.as<float>()};  // deploy in float; a failed design does not compile
  * // In the loop: observer.step(y, u); auto xhat = observer.state();
  * @endcode
  *
@@ -64,6 +62,7 @@
  */
 
 #include <cstddef>
+#include <type_traits>
 
 #include "damp/backend.hpp"
 #include "damp/design/pole_placement.hpp" // design::place (dual placement)
@@ -425,7 +424,11 @@ public:
           C_(sys.C),
           D_(sys.D),
           L_(result.success ? result.L : Matrix<NX, NY, T>{}),
-          valid_(result.success) {}
+          valid_(result.success) {
+        if (!result.success && std::is_constant_evaluated()) {
+            ::damp::detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed design does not compile
+        }
+    }
 
     /**
      * @brief One observer recursion (predictor form):
@@ -511,7 +514,11 @@ public:
     constexpr ReducedLuenberger() = default;
 
     constexpr explicit ReducedLuenberger(const design::ReducedLuenbergerResult<NX, NU, T>& result)
-        : F_(result.F), L_(result.L), Gy_(result.Gy), Gu_(result.Gu), Tinv_(result.Tinv) {}
+        : F_(result.F), L_(result.L), Gy_(result.Gy), Gu_(result.Gu), Tinv_(result.Tinv) {
+        if (!result.success && std::is_constant_evaluated()) {
+            ::damp::detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed design does not compile
+        }
+    }
 
     /**
      * @brief One observer recursion.

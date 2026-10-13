@@ -3,6 +3,7 @@
 // Distributed under the Boost Software License, Version 1.0.
 // (See accompanying file LICENSE or copy at http://www.boost.org/LICENSE_1_0.txt)
 
+#include <algorithm>
 #include <cmath>
 #include <type_traits>
 
@@ -186,7 +187,12 @@ TEST_SUITE("Riccati Solvers") {
         CHECK(P.value()(0, 1) == doctest::Approx(1.0f).epsilon(1e-4));
     }
 
-    TEST_CASE("CARE CAREX 12 is refused when the residual cannot be certified") {
+    // A = V·diag(1, 2, 3)·10⁶·V and Q = V·diag(10⁻⁶, 1, 10⁶)·V share the eigenvectors of the
+    // reflection V = M/3, so with B = I and R = 10⁶·I the equation decouples into three scalar
+    // ones: xᵢ = r(λᵢ + √(λᵢ² + qᵢ/r)). Until the Schur form deflated by Ahues–Tisseur this
+    // example came back with a residual the certificate refused; SciPy's solve_continuous_are
+    // is off by 5e-4 relative here.
+    TEST_CASE("CARE CAREX 12 matches its closed form") {
         constexpr Matrix<3, 3> A{{7000000.0 / 3.0, 2000000.0 / 3.0, 0.0}, {2000000.0 / 3.0, 6000000.0 / 3.0, -2000000.0 / 3.0}, {0.0, -2000000.0 / 3.0, 5000000.0 / 3.0}};
         constexpr auto         B = Matrix<3, 3>::identity();
         constexpr Matrix<3, 3> M{{1.0, -2.0, -2.0}, {-2.0, 1.0, -2.0}, {-2.0, -2.0, 1.0}};
@@ -196,7 +202,21 @@ TEST_SUITE("Riccati Solvers") {
         D(2, 2) = 1e6;
         const Matrix<3, 3> Q = (M * D * M) * (1.0 / 9.0);
         constexpr auto     R = Matrix<3, 3>::identity() * 1e6;
-        CHECK_FALSE(care(A, B, Q, R).has_value());
+        const auto         X = care(A, B, Q, R);
+        REQUIRE(X.has_value());
+        const Matrix<3, 3> V = M * (1.0 / 3.0);
+        Matrix<3, 3>       Xd = Matrix<3, 3>::zeros();
+        const double       lam[3] = {1e6, 2e6, 3e6};
+        const double       q[3] = {1e-6, 1.0, 1e6};
+        for (size_t i = 0; i < 3; ++i) {
+            Xd(i, i) = 1e6 * (lam[i] + std::sqrt((lam[i] * lam[i]) + (q[i] / 1e6)));
+        }
+        const Matrix<3, 3> exact = V * Xd * V;
+        for (size_t i = 0; i < 3; ++i) {
+            for (size_t j = 0; j < 3; ++j) {
+                CHECK(std::fabs((*X)(i, j) - exact(i, j)) <= 1e-5 * 6e12);
+            }
+        }
     }
 
     // ---- Discrete-time algebraic Riccati equation ----
@@ -647,5 +667,143 @@ TEST_SUITE("DARE scale invariance") {
             }
         }
         CHECK(X->norm() / scale == doctest::Approx(X0->norm()).epsilon(1e-6));
+    }
+}
+
+TEST_SUITE("real Schur block swap") {
+    // A standardized quasi-triangular window: P×P block (eigenvalue re or re ± i·im), Q×Q
+    // block at re + gap, coupling of size beta.
+    template<size_t P, size_t Q>
+    Matrix<P + Q, P + Q> window(double re, double gap, double im, double beta, double skew, unsigned& seed) {
+        auto rnd = [&seed]() {
+            seed = (seed * 1103515245U) + 12345U;
+            return (static_cast<double>((seed >> 8) & 0xFFFFU) / 32768.0) - 1.0;
+        };
+        Matrix<P + Q, P + Q> W{};
+        const auto           put = [&W](size_t o, double r, double i, double k) {
+            W(o, o) = r;
+            W(o + 1, o + 1) = r;
+            W(o, o + 1) = i * k;
+            W(o + 1, o) = -i / k;
+        };
+        if constexpr (P == 2) {
+            put(0, re, im, skew);
+        } else {
+            W(0, 0) = re;
+        }
+        if constexpr (Q == 2) {
+            put(P, re + gap, im, 1.0 / skew);
+        } else {
+            W(P, P) = re + gap;
+        }
+        for (size_t r = 0; r < P; ++r) {
+            for (size_t c = P; c < P + Q; ++c) {
+                W(r, c) = beta * rnd();
+            }
+        }
+        return W;
+    }
+
+    // An accepted swap is an orthogonal similarity that puts the Q block first, stores the
+    // vanished block as exact zeros and leaves standardized 2×2 blocks; a refused one leaves
+    // the form and the Schur vectors as they were.
+    template<size_t P, size_t Q>
+    void check_swaps() {
+        constexpr size_t S = P + Q;
+        unsigned         seed = 99U;
+        int              accepted = 0;
+        for (int trial = 0; trial < 400; ++trial) {
+            const double gap = std::pow(10.0, -static_cast<double>(trial % 13));
+            const double beta = std::pow(10.0, static_cast<double>(trial % 7));
+            const double skew = std::pow(10.0, static_cast<double>((trial % 5) - 2));
+            const auto   T0 = window<P, Q>(0.3, gap, 0.8, beta, skew, seed);
+            auto         Tm = T0;
+            auto         Z = Matrix<S, S>::identity();
+            if (!damp::detail::swap_schur_blocks<P, Q>(Tm, Z, 0)) {
+                for (size_t r = 0; r < S; ++r) {
+                    for (size_t c = 0; c < S; ++c) {
+                        CHECK(Tm(r, c) == T0(r, c));
+                        CHECK(Z(r, c) == (r == c ? 1.0 : 0.0));
+                    }
+                }
+                continue;
+            }
+            ++accepted;
+            double tmax = 0.0;
+            for (size_t r = 0; r < S; ++r) {
+                for (size_t c = 0; c < S; ++c) {
+                    tmax = std::max(tmax, std::fabs(T0(r, c)));
+                }
+            }
+            const Matrix<S, S> back = Z * Tm * Z.transpose();
+            const Matrix<S, S> ztz = Z.transpose() * Z;
+            for (size_t r = 0; r < S; ++r) {
+                for (size_t c = 0; c < S; ++c) {
+                    CHECK(std::fabs(back(r, c) - T0(r, c)) <= 100.0 * damp::eps<double>() * tmax);
+                    CHECK(std::fabs(ztz(r, c) - (r == c ? 1.0 : 0.0)) <= 100.0 * damp::eps<double>());
+                }
+            }
+            for (size_t r = Q; r < S; ++r) {
+                for (size_t c = 0; c < Q; ++c) {
+                    CHECK(Tm(r, c) == 0.0);
+                }
+            }
+            CHECK(Tm(0, 0) == doctest::Approx(0.3 + gap).epsilon(1e-9)); // the Q block now leads
+            if constexpr (Q == 2) {
+                CHECK(Tm(0, 0) == Tm(1, 1));
+                CHECK(Tm(0, 1) * Tm(1, 0) < 0.0);
+            }
+            if constexpr (P == 2) {
+                CHECK(Tm(Q, Q) == Tm(Q + 1, Q + 1));
+                CHECK(Tm(Q, Q + 1) * Tm(Q + 1, Q) < 0.0);
+            }
+        }
+        CHECK(accepted > 300);
+    }
+
+    TEST_CASE("1×1 with 1×1") {
+        check_swaps<1, 1>();
+    }
+    TEST_CASE("1×1 with 2×2") {
+        check_swaps<1, 2>();
+    }
+    TEST_CASE("2×2 with 1×1") {
+        check_swaps<2, 1>();
+    }
+    TEST_CASE("2×2 with 2×2") {
+        check_swaps<2, 2>();
+    }
+
+    // A window that is not block upper triangular has no swap: the similarity built from the
+    // Sylvester solution leaves the old coupling in the block that should vanish. The weak
+    // stability test refuses it instead of storing a zero over it.
+    TEST_CASE("a swap that would not leave a Schur form is refused and changes nothing") {
+        unsigned seed = 5U;
+        auto     T0 = window<2, 2>(0.3, 0.5, 0.8, 1.0, 1.0, seed);
+        T0(2, 0) = 1e-3; // not a Schur form
+        auto Tm = T0;
+        auto Z = Matrix<4, 4>::identity();
+        CHECK_FALSE(damp::detail::swap_schur_blocks<2, 2>(Tm, Z, 0));
+        for (size_t r = 0; r < 4; ++r) {
+            for (size_t c = 0; c < 4; ++c) {
+                CHECK(Tm(r, c) == T0(r, c));
+            }
+        }
+    }
+
+    // The block test once used max(scale, 1) as its scale, an absolute floor: a complex pair
+    // with entries of 1e-20 read as two 1×1 blocks. It is now relative to the block.
+    TEST_CASE("a 2×2 block is recognized at any scale") {
+        for (const double s : {1e-20, 1.0, 1e20}) {
+            Matrix<3, 3> T{};
+            T(0, 0) = s * 0.5;
+            T(0, 1) = s * 2.0;
+            T(1, 0) = -s * 0.5;
+            T(1, 1) = s * 0.5;
+            T(2, 2) = -s;
+            T(0, 2) = s;
+            CHECK(damp::detail::schur_subdiagonal(T, 0));
+            CHECK_FALSE(damp::detail::schur_subdiagonal(T, 1));
+        }
     }
 }

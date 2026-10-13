@@ -801,9 +801,9 @@ template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, si
     const Matrix<NX, NU, T>&                 N = Matrix<NX, NU, T>{}
 ) {
     if (!sys.is_discrete()) {
-        return decltype(design::discrete_lqg(sys, Q_lqr, R_lqr, Q_kf, R_kf, N)){}; // discrete design only; success = false
+        return decltype(design::discrete_lqg(sys, Q_lqr, R_lqr, design::KalmanNoise{Q_kf, R_kf}, N)){}; // discrete design only; success = false
     }
-    return design::discrete_lqg(sys, Q_lqr, R_lqr, Q_kf, R_kf, N);
+    return design::discrete_lqg(sys, Q_lqr, R_lqr, design::KalmanNoise{Q_kf, R_kf}, N);
 }
 
 /**
@@ -839,9 +839,9 @@ template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, si
     const Matrix<NV, NV, T>&                 R_kf
 ) {
     if (!sys.is_discrete()) {
-        return decltype(design::discrete_lqgi(sys, Q_aug, R, Q_kf, R_kf)){}; // discrete design only; success = false
+        return decltype(design::discrete_lqgi(sys, Q_aug, R, design::KalmanNoise{Q_kf, R_kf})){}; // discrete design only; success = false
     }
-    return design::discrete_lqgi(sys, Q_aug, R, Q_kf, R_kf);
+    return design::discrete_lqgi(sys, Q_aug, R, design::KalmanNoise{Q_kf, R_kf});
 }
 
 /// LQG servo integrating the outputs @p Ci selects (NI×NY). Discrete plants only.
@@ -855,9 +855,9 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size
     const Matrix<NI, NY, T>&                 Ci
 ) {
     if (!sys.is_discrete()) {
-        return decltype(design::discrete_lqgi(sys, Q_aug, R, Q_kf, R_kf, Ci)){}; // discrete design only; success = false
+        return decltype(design::discrete_lqgi(sys, Q_aug, R, design::KalmanNoise{Q_kf, R_kf}, Ci)){}; // discrete design only; success = false
     }
-    return design::discrete_lqgi(sys, Q_aug, R, Q_kf, R_kf, Ci);
+    return design::discrete_lqgi(sys, Q_aug, R, design::KalmanNoise{Q_kf, R_kf}, Ci);
 }
 
 /// LQG servo integrating the listed outputs, e.g. `lqgtrack(sys, Q_aug, R, Q_kf, R_kf, {0, 3})`.
@@ -872,9 +872,9 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size
     const size_t (&outputs)[NI]
 ) {
     if (!sys.is_discrete()) {
-        return decltype(design::discrete_lqgi(sys, Q_aug, R, Q_kf, R_kf, outputs)){}; // discrete design only; success = false
+        return decltype(design::discrete_lqgi(sys, Q_aug, R, design::KalmanNoise{Q_kf, R_kf}, outputs)){}; // discrete design only; success = false
     }
-    return design::discrete_lqgi(sys, Q_aug, R, Q_kf, R_kf, outputs);
+    return design::discrete_lqgi(sys, Q_aug, R, design::KalmanNoise{Q_kf, R_kf}, outputs);
 }
 
 /**
@@ -1149,6 +1149,26 @@ template<size_t NX, typename T = double>
 [[nodiscard]] constexpr damp::optional<Matrix<NX, NX, T>>
 dlyap(const Matrix<NX, NX, T>& A, const Matrix<NX, NX, T>& Q) {
     return damp::dlyap(A, Q);
+}
+
+/**
+ * @brief MATLAB® alias for the Cholesky factor of the continuous Lyapunov solution (X = RᵀR).
+ * @note Compare with MATLAB®'s @c R=lyapchol(A,B). Returns nullopt unless A is Hurwitz.
+ */
+template<size_t NX, size_t NU, typename T>
+[[nodiscard]] constexpr damp::optional<Matrix<NX, NX, T>>
+lyapchol(const Matrix<NX, NX, T>& A, const Matrix<NX, NU, T>& B) {
+    return damp::lyapunov_cholesky(A, B);
+}
+
+/**
+ * @brief MATLAB® alias for the Cholesky factor of the discrete Lyapunov solution (X = RᵀR).
+ * @note Compare with MATLAB®'s @c R=dlyapchol(A,B). Returns nullopt unless A is Schur stable.
+ */
+template<size_t NX, size_t NU, typename T>
+[[nodiscard]] constexpr damp::optional<Matrix<NX, NX, T>>
+dlyapchol(const Matrix<NX, NX, T>& A, const Matrix<NX, NU, T>& B) {
+    return damp::discrete_lyapunov_cholesky(A, B);
 }
 
 /**

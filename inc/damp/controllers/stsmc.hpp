@@ -5,12 +5,15 @@
 
 #pragma once
 
+#include <type_traits>
+
 /**
  * @file stsmc.hpp
  * @brief Super-twisting (second-order sliding-mode) controller — continuous
  *        finite-time rejection of a Lipschitz matched disturbance.
  */
 
+#include "damp/backend.hpp"
 #include "damp/math/math.hpp"
 namespace damp {
 
@@ -167,8 +170,7 @@ stsmc_gains(T k1, T k2, T lambda = T{0}, T k_lin = T{0}, T epsilon = T{0}) {
  * using namespace damp;
  * // |ḋ| ≤ 2, 1 kHz loop; supply s directly.
  * constexpr auto art = design::stsmc(2.0);
- * static_assert(art.success);
- * STSMCController u_st(art.as<float>());
+ * static constinit STSMCController u_st{art.as<float>()}; // a failed design does not compile
  * // In the loop: float u = u_st.control_sliding(s, 1e-3f);  // s = your sliding variable
  * @endcode
  *
@@ -182,7 +184,11 @@ public:
     constexpr STSMCController() = default;
 
     constexpr STSMCController(const design::STSMCResult<T>& result, T Ts = T{0})
-        : k1_(result.k1), k2_(result.k2), lambda_(result.lambda), k_lin_(result.k_lin), epsilon_(result.epsilon), Ts_(Ts), valid_(result.success) {}
+        : k1_(result.k1), k2_(result.k2), lambda_(result.lambda), k_lin_(result.k_lin), epsilon_(result.epsilon), Ts_(Ts), valid_(result.success) {
+        if (!result.success && std::is_constant_evaluated()) {
+            ::damp::detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed design does not compile
+        }
+    }
 
     template<typename U>
     constexpr STSMCController(const STSMCController<U>& other)

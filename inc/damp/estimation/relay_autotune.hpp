@@ -32,7 +32,8 @@
  *
  * Example: relay autotune for a discrete plant, then apply Ziegler-Nichols.
  * @code
- * #include "damp/estimation/relay_autotune.hpp"
+ * #include "damp/backend.hpp"
+#include "damp/estimation/relay_autotune.hpp"
  * #include "damp/design/pid_design.hpp"
  *
  * using namespace damp;
@@ -50,9 +51,7 @@
  * };
  *
  * constexpr auto autotune = design::relay_autotune(cfg);
- * static_assert(autotune.success);
- *
- * RelayAutotuner<float> tuner(autotune, Ts);
+ * static constinit RelayAutotuner<float> tuner{autotune, Ts}; // a failed design does not compile
  *
  * // In the control loop, replace the controller with the tuner:
  * RelayAutotuneOutput<float> out = tuner.step(y);
@@ -98,6 +97,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <limits>
+#include <type_traits>
 
 #include "damp/math/math.hpp"
 #include "damp/matrix/matrix_traits.hpp"
@@ -266,7 +266,11 @@ public:
      * @param Ts     Sample time in seconds (> 0).
      */
     constexpr RelayAutotuner(const design::RelayAutotuneResult<T>& design, T Ts)
-        : config_(design.config), Ts_(Ts), valid_design_(design.success && Ts > T{0}), status_(valid_design_ ? RelayAutotuneStatus::Idle : RelayAutotuneStatus::Failed) {}
+        : config_(design.config), Ts_(Ts), valid_design_(design.success && Ts > T{0}), status_(valid_design_ ? RelayAutotuneStatus::Idle : RelayAutotuneStatus::Failed) {
+        if (!design.success && std::is_constant_evaluated()) {
+            ::damp::detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed design does not compile
+        }
+    }
 
     /**
      * @brief Reset to the Idle state, discarding all collected data.

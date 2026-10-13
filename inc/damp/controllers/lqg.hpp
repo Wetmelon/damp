@@ -12,15 +12,16 @@
  * @code
  * using namespace damp;
  * constexpr auto res = design::discrete_lqg(
- *     sys, Q_lqr, R_lqr, Q_kf, R_kf);
- * static_assert(res.success);
- * LQG ctrl(res);
+ *     sys, Q_lqr, R_lqr, {.process = Qn, .measurement = Rn});
+ * static constinit LQG ctrl{res};  // a failed design does not compile
  * auto u = ctrl.step(y); // update + control + predict
  * @endcode
  */
 
 #include <cstddef>
+#include <type_traits>
 
+#include "damp/backend.hpp"
 #include "damp/estimation/kalman.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "damp/systems/state_space.hpp"
@@ -102,7 +103,7 @@ struct LQGResult {
  *     x[k+1] = A x[k] + B u[k] + G w[k]
  *     y[k]   = C x[k] + D u[k] + H v[k]
  *
- * with w ~ N(0, Q_kf), v ~ N(0, R_kf). Separation applies: u = −K x̂ with x̂ from
+ * with w ~ N(0, noise.process), v ~ N(0, noise.measurement). Separation applies: u = −K x̂ with x̂ from
  * the filter using L. Control cost is the discrete LQR criterion with weights
  * Q_lqr, R_lqr, and optional cross-term N.
  *
@@ -116,8 +117,8 @@ struct LQGResult {
  * @param sys     Discrete-time state-space plant (Ts > 0)
  * @param Q_lqr   State cost (NX × NX, positive semidefinite)
  * @param R_lqr   Input cost (NU × NU, positive definite)
- * @param Q_kf    Process noise covariance (NW × NW, positive semidefinite)
- * @param R_kf    Measurement noise covariance (NV × NV, positive definite)
+ * @param noise   Process (NW × NW, positive semidefinite) and measurement (NV × NV, positive
+ *                definite) noise covariances (default I)
  * @param N       Cross-term cost (NX × NU, default zero)
  * @return LQGResult with lqr, kalman, and success = both designs succeeded
  */
@@ -126,8 +127,7 @@ template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, si
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     const Matrix<NX, NX, T>&                 Q_lqr,
     const Matrix<NU, NU, T>&                 R_lqr,
-    const Matrix<NW, NW, T>&                 Q_kf,
-    const Matrix<NV, NV, T>&                 R_kf,
+    const KalmanNoise<NW, NV, T>&            noise = {},
     const Matrix<NX, NU, T>&                 N = Matrix<NX, NU, T>{}
 ) {
     const auto lqr_result = discrete_lqr(sys.A, sys.B, Q_lqr, R_lqr, N);
@@ -136,7 +136,7 @@ template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, si
     if (!(sys_d.Ts > T{0})) {
         sys_d.Ts = T{1};
     }
-    auto kalman_result = kalman(sys_d, Q_kf, R_kf);
+    auto kalman_result = kalman(sys_d, noise.process, noise.measurement);
     kalman_result.sys.Ts = sys.Ts; // keep caller's sample-time tag on the result model
     return LQGResult<NX, NU, NY, T, NW, NV>{lqr_result, kalman_result, lqr_result.success && kalman_result.success};
 }
@@ -145,8 +145,8 @@ template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, si
  * @brief Discrete LQG on a model with delay states, LQR weights sized to the plant
  *
  * For a model from discretize with InputDelay / OutputDelay: @p Q_lqr (and @p N) cover the
- * NQ plant states, which lead; the delay states get no cost. @p Q_kf is already plant-sized
- * through G, which discretize keeps off the delay states.
+ * NQ plant states, which lead; the delay states get no cost. The process noise is already
+ * plant-sized through G, which discretize keeps off the delay states.
  */
 template<size_t NX, size_t NU, size_t NY, size_t NQ, typename T = double, size_t NW = 0, size_t NV = 0>
     requires(NQ < NX)
@@ -154,11 +154,10 @@ template<size_t NX, size_t NU, size_t NY, size_t NQ, typename T = double, size_t
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     const Matrix<NQ, NQ, T>&                 Q_lqr,
     const Matrix<NU, NU, T>&                 R_lqr,
-    const Matrix<NW, NW, T>&                 Q_kf,
-    const Matrix<NV, NV, T>&                 R_kf,
+    const KalmanNoise<NW, NV, T>&            noise = {},
     const Matrix<NQ, NU, T>&                 N = Matrix<NQ, NU, T>{}
 ) {
-    return discrete_lqg(sys, damp::detail::pad_leading<NX, NX>(Q_lqr), R_lqr, Q_kf, R_kf, damp::detail::pad_leading<NX, NU>(N));
+    return discrete_lqg(sys, damp::detail::pad_leading<NX, NX>(Q_lqr), R_lqr, noise, damp::detail::pad_leading<NX, NU>(N));
 }
 
 /**
@@ -215,7 +214,11 @@ struct LQG {
     /// From design result (any scalar); converts via nested runtime ctors.
     template<typename U>
     constexpr LQG(const design::LQGResult<NX, NU, NY, U, NW, NV>& result) // NOLINT
-        : lqr(result.lqr), kf(result.kalman) {}
+        : lqr(result.lqr), kf(result.kalman) {
+        if (!result.success && std::is_constant_evaluated()) {
+            ::damp::detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed design does not compile
+        }
+    }
 
     template<typename U>
     constexpr LQG(const LQG<NX, NU, NY, U, NW, NV>& other)

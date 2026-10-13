@@ -16,9 +16,7 @@
  *
  * constexpr auto des = design::fir1<64, double>(
  *     31, 0.1, design::FirType::Lowpass, design::FirWindow::Hamming);
- * static_assert(des.success);
- *
- * FirFilter<64, float> fir(des.as<float>());
+ * static constinit FirFilter<64, float> fir{des.as<float>()}; // a failed design does not compile
  * // In ISR: float y = fir(x);
  * @endcode
  */
@@ -465,8 +463,11 @@ public:
         b_[0] = T{1};
     }
 
-    /// Construct from a design result (no-op if !success — leaves identity)
+    /// Construct from a design result (at run time a no-op if !success — leaves identity; constant-evaluated, a failed design does not compile)
     constexpr explicit FirFilter(const design::FirDesignResult<MaxTaps, T>& des) : FirFilter() {
+        if (!des.success && std::is_constant_evaluated()) {
+            ::damp::detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed design does not compile
+        }
         (void)init(des);
     }
 

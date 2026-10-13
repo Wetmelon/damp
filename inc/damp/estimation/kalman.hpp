@@ -12,16 +12,15 @@
  * @code
  * using namespace damp;
  * constexpr auto res = design::kalman(sys, Q, R);
- * static_assert(res.success);
- * KalmanFilter filt(res);
- * filt.predict(u);
- * filt.update(y, u);
- * auto xhat = filt.state();
+ * static constinit KalmanFilter filt{res};  // a failed design does not compile
+ * // each tick: filt.predict(u); filt.update(y, u); auto xhat = filt.state();
  * @endcode
  */
 
 #include <cstddef>
+#include <type_traits>
 
+#include "damp/backend.hpp"
 #include "damp/design/riccati.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "damp/matrix/solve.hpp"
@@ -30,6 +29,21 @@
 namespace damp {
 
 namespace design {
+
+/**
+ * @brief The estimator's noise for the LQG designs: process noise on the plant's noise inputs
+ *        (through G), measurement noise on the sensors (through H).
+ * @tparam NW Process-noise inputs (columns of G); NV Measurement-noise inputs (columns of H).
+ */
+template<size_t NW, size_t NV, typename T = double>
+struct KalmanNoise {
+    Matrix<NW, NW, T> process = Matrix<NW, NW, T>::identity();     ///< process-noise covariance (NW × NW)
+    Matrix<NV, NV, T> measurement = Matrix<NV, NV, T>::identity(); ///< measurement-noise covariance (NV × NV)
+};
+
+/// Sizes from the matrices: `KalmanNoise{Qn, Rn}`.
+template<size_t NW, size_t NV, typename T>
+KalmanNoise(Matrix<NW, NW, T>, Matrix<NV, NV, T>) -> KalmanNoise<NW, NV, T>;
 
 /**
  * @struct KalmanResult
@@ -249,7 +263,11 @@ struct KalmanFilter {
           x(ColVec<NX, T>{}),
           P(result.success ? result.P.template as<T>() : Matrix<NX, NX, T>::identity()),
           Q(result.Q.template as<T>()),
-          R(result.R.template as<T>()) {}
+          R(result.R.template as<T>()) {
+        if (!result.success && std::is_constant_evaluated()) {
+            ::damp::detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed design does not compile
+        }
+    }
 
     // Type conversion constructor
     template<typename U>
@@ -397,7 +415,11 @@ struct SteadyStateKalmanFilter {
         : sys(result.sys.template as<T>()),
           L(result.success ? result.L.template as<T>() : Matrix<NX, NY, T>{}),
           P_ss(result.success ? result.P.template as<T>() : Matrix<NX, NX, T>::identity()),
-          x(ColVec<NX, T>{}) {}
+          x(ColVec<NX, T>{}) {
+        if (!result.success && std::is_constant_evaluated()) {
+            ::damp::detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed design does not compile
+        }
+    }
 
     template<typename U>
     constexpr SteadyStateKalmanFilter(const SteadyStateKalmanFilter<NX, NU, NY, U, NW, NV>& other)

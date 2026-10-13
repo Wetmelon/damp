@@ -11,6 +11,7 @@
  */
 
 #include <cstddef>
+#include <type_traits>
 
 #include "damp/backend.hpp"
 #include "damp/math/math.hpp"
@@ -89,7 +90,11 @@ public:
     constexpr explicit Impulse(const design::ImpulseResult<T>& design, T /*Ts*/ = T{0})
         : amplitude_(design.config.amplitude),
           width_(design.config.width_samples),
-          valid_(design.success) {}
+          valid_(design.success) {
+        if (!design.success && std::is_constant_evaluated()) {
+            ::damp::detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed design does not compile
+        }
+    }
 
     /**
      * @brief Emit the next impulse sample and advance the sample count.

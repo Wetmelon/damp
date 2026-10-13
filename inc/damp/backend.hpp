@@ -215,5 +215,11 @@ namespace detail {
 #endif
 }
 
+/// A brace initializer with more rows, columns or elements than the Matrix it initializes.
+/// Not constexpr, so a constant-evaluated initialization becomes ill-formed; at runtime it traps.
+[[noreturn]] inline void refuse_initializer_overflow() noexcept {
+    refuse_failed_design();
+}
+
 } // namespace detail
 } // namespace damp

@@ -11,6 +11,7 @@
  */
 
 #include <cstddef>
+#include <type_traits>
 
 #include "damp/backend.hpp"
 #include "damp/math/math.hpp"
@@ -133,6 +134,9 @@ public:
      */
     constexpr explicit SteppedSine(const design::SteppedSineResult<NFreq, T>& design, T Ts = T{0})
         : config_(design.config), Ts_(Ts), valid_(design.success) {
+        if (!design.success && std::is_constant_evaluated()) {
+            ::damp::detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed design does not compile
+        }
         if (valid_) {
             start_frequency(0);
         }

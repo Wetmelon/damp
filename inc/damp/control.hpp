@@ -27,8 +27,7 @@
  * using namespace damp;
  *
  * constexpr auto art = design::lqi_bundle(sys_d, Q_aug, R);
- * static_assert(art.success);
- * constinit LQI controller{art.runtime.controller};
+ * constinit LQI controller{art.runtime.controller}; // a failed design does not compile
  * @endcode
  *
  * @see workbench.hpp for host analysis / solvers / simulate / matlab::
@@ -62,6 +61,7 @@
 #include "damp/controllers/action_governor.hpp" // IWYU pragma: export
 #include "damp/controllers/adrc.hpp"            // IWYU pragma: export
 #include "damp/controllers/composition.hpp"     // IWYU pragma: export
+#include "damp/controllers/delay_predictor.hpp" // IWYU pragma: export
 #include "damp/controllers/lead_lag.hpp"        // IWYU pragma: export
 #include "damp/controllers/lqg.hpp"             // IWYU pragma: export
 #include "damp/controllers/lqgi.hpp"            // IWYU pragma: export

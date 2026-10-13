@@ -63,11 +63,17 @@ constexpr bool is_symmetric_or_hermitian(const Matrix<N, N, T>& A) {
  * not checked. Callers that may pass a non-symmetric matrix should gate on
  * is_symmetric_or_hermitian() first, as solve() does.
  *
- * Returns damp::nullopt when a pivot aᵢᵢ − Σₖ|lᵢₖ|² is not positive by more than
- * N·64·eps times |aᵢᵢ| + Σₖ|lᵢₖ|², the magnitude of the terms that formed it: a singular
- * positive-semidefinite matrix leaves a roundoff-sized pivot of either sign, and
- * a positive one would factor into entries of 1/√eps. The test is invariant to
- * scaling A (LAPACK xPSTRF uses the same floor).
+ * Returns damp::nullopt when a pivot aᵢᵢ − Σₖ|lᵢₖ|² does not exceed 16·(i+1)·eps times
+ * |aᵢᵢ| + Σₖ|lᵢₖ|², the magnitude of the i+1 terms that formed it. A singular
+ * positive-semidefinite matrix leaves a roundoff-sized last pivot of either sign, and a
+ * positive one would factor into entries of 1/√eps. The floor grows with each pivot's own
+ * term count, not with N: the early pivots of a large graded matrix (an MPC Hessian, whose
+ * first-move diagonal is 10⁴ times the last) carry only a few terms' roundoff, and an
+ * N-wide floor refused them in float. No floor separates singular from positive definite
+ * exactly, since the last pivot of a singular matrix also carries the forward error of the
+ * leading block: about 3 % of random singular Gram matrices clear this one, against half
+ * for a positivity test. Decide rank with mat::rank. The test is invariant to scaling A.
+ * LAPACK's xPOTRF tests only positivity.
  *
  * @note Compare with MATLAB®'s chol(A, 'lower').
  * @see Golub & Van Loan, "Matrix Computations" (4th ed., 2013), §4.2
@@ -78,8 +84,7 @@ constexpr bool is_symmetric_or_hermitian(const Matrix<N, N, T>& A) {
 template<size_t N, typename T>
 constexpr damp::optional<Matrix<N, N, T>> cholesky(const Matrix<N, N, T>& A) {
     using real_t = scalar_type_t<T>;
-    constexpr real_t rel = static_cast<real_t>(N) * real_t{64} * eps<T>();
-    Matrix<N, N, T>  L = Matrix<N, N, T>::zeros();
+    Matrix<N, N, T> L = Matrix<N, N, T>::zeros();
 
     for (size_t i = 0; i < N; ++i) {
         for (size_t j = 0; j <= i; ++j) {
@@ -101,7 +106,7 @@ constexpr damp::optional<Matrix<N, N, T>> cholesky(const Matrix<N, N, T>& A) {
                 } else {
                     diag_val = damp::real(sum);
                 }
-                if (!(diag_val > rel * mag)) {
+                if (!(diag_val > real_t{16} * static_cast<real_t>(i + 1) * eps<T>() * mag)) {
                     return damp::nullopt;
                 }
                 L(i, j) = damp::sqrt(diag_val);
@@ -130,8 +135,8 @@ struct LDLT {
  * matrices @f$ \begin{bmatrix} H & A^\top \\ A & -E \end{bmatrix} @f$ with
  * @f$ H \succ 0,\; E \succeq 0 @f$, which factor in any symmetric ordering
  * (Vanderbei). A general indefinite matrix needs Bunch–Kaufman pivoting, which this does
- * not do: a pivot below N·64·eps of the terms that formed it returns damp::nullopt
- * (the floor cholesky() and lu_decomposition() use) rather than dividing by roundoff.
+ * not do: a pivot |dⱼ| at or below 16·(j+1)·eps of the terms that formed it (the floor
+ * cholesky() uses) returns damp::nullopt rather than dividing by roundoff.
  *
  * Reads only the lower triangle and assumes the upper mirrors it.
  *
@@ -146,8 +151,7 @@ struct LDLT {
 template<size_t N, typename T>
 constexpr damp::optional<LDLT<N, T>> ldlt(const Matrix<N, N, T>& A) {
     using real_t = scalar_type_t<T>;
-    constexpr real_t rel = static_cast<real_t>(N) * real_t{64} * eps<T>();
-    const auto       real_part = [](const T& x) -> real_t {
+    const auto real_part = [](const T& x) -> real_t {
         if constexpr (std::is_floating_point_v<T>) {
             return x;
         } else {
@@ -166,7 +170,7 @@ constexpr damp::optional<LDLT<N, T>> ldlt(const Matrix<N, N, T>& A) {
             dj -= l * l * out.d[k];
             mag += l * l * damp::abs(out.d[k]);
         }
-        if (!(damp::abs(dj) > rel * mag)) {
+        if (!(damp::abs(dj) > real_t{16} * static_cast<real_t>(j + 1) * eps<T>() * mag)) {
             return damp::nullopt;
         }
         out.d[j] = dj;
@@ -257,14 +261,71 @@ lu_decomposition(const Matrix<N, N, T>& A) {
     return damp::make_tuple(L, U, piv);
 }
 
+namespace detail {
+
 /**
- * @brief Thin QR factorization A = QR (modified Gram–Schmidt)
+ * @brief Householder vector that zeroes X(k+1…N−1, k) when applied as H = I − β·v·vᴴ.
  *
- * @f$ Q @f$ is @f$ N \times M @f$ with orthonormal columns (when full column
- * rank); @f$ R @f$ is @f$ M \times M @f$ upper-triangular.
+ * Reflects X(k…, k) onto α·e_k with |α| = ‖X(k…, k)‖ and the phase of α opposite to that
+ * of X(k, k), so v[k] = X(k, k) − α never cancels; for real T that is the usual sign choice.
+ * Entries of @p v below k are left as they were (the reflector acts on rows k…N−1 only).
  *
- * @see Golub & Van Loan, "Matrix Computations" (4th ed., 2013), §5.2.8
- * @see full_qr() for the Householder full unitary factor
+ * @see "Matrix Computations" (Golub & Van Loan, 2013), §5.1.2–5.1.3 and §5.1.13 (complex)
+ *
+ * @return β = 2/‖v‖², or 0 when the column is already zero from row k down (no reflection).
+ */
+template<typename T, size_t N, size_t M>
+[[nodiscard]] constexpr scalar_type_t<T> householder_vector(const Matrix<N, M, T>& X, size_t k, damp::array<T, N>& v) {
+    using real_t = scalar_type_t<T>;
+    real_t norm_sq = real_t{0};
+    for (size_t i = k; i < N; ++i) {
+        const real_t a = damp::abs(X(i, k));
+        norm_sq += a * a;
+    }
+    const real_t nrm = damp::sqrt(norm_sq);
+    if (nrm == real_t{0}) {
+        return real_t{0};
+    }
+    const real_t r0 = damp::abs(X(k, k));
+    const T      phase = (r0 > real_t{0}) ? (X(k, k) / r0) : T{1};
+    const T      alpha = -(phase * nrm);
+    v[k] = X(k, k) - alpha;
+    for (size_t i = k + 1; i < N; ++i) {
+        v[i] = X(i, k);
+    }
+    real_t vhv = real_t{0};
+    for (size_t i = k; i < N; ++i) {
+        const real_t a = damp::abs(v[i]);
+        vhv += a * a;
+    }
+    return (vhv == real_t{0}) ? real_t{0} : (real_t{2} / vhv);
+}
+
+/// X ← (I − β·v·vᴴ)·X on rows k…N−1, columns c0…C−1.
+template<typename T, size_t N, size_t C>
+constexpr void apply_householder_left(Matrix<N, C, T>& X, const damp::array<T, N>& v, scalar_type_t<T> beta, size_t k, size_t c0) {
+    for (size_t j = c0; j < C; ++j) {
+        T dot = T{0};
+        for (size_t i = k; i < N; ++i) {
+            dot += damp::conj(v[i]) * X(i, j);
+        }
+        const T s = beta * dot;
+        for (size_t i = k; i < N; ++i) {
+            X(i, j) -= s * v[i];
+        }
+    }
+}
+
+} // namespace detail
+
+/**
+ * @brief Thin QR factorization A = QR (Householder)
+ *
+ * @f$ Q @f$ is @f$ N \times M @f$ with orthonormal columns; @f$ R @f$ is
+ * @f$ M \times M @f$ upper-triangular with a real, non-negative diagonal.
+ *
+ * @see Golub & Van Loan, "Matrix Computations" (4th ed., 2013), §5.2.1–5.2.2
+ * @see full_qr() for the full unitary factor
  */
 template<typename T, size_t N, size_t M>
 struct QRDecomposition {
@@ -272,7 +333,7 @@ struct QRDecomposition {
     Matrix<M, M, T> R{}; ///< Upper-triangular factor
 
     /**
-     * @brief True if A had full column rank (no column was zeroed as rank loss)
+     * @brief True if A had full column rank (no diagonal of R was zeroed as rank loss)
      */
     [[nodiscard]] constexpr bool is_valid() const {
         for (size_t i = 0; i < M; ++i) {
@@ -285,19 +346,30 @@ struct QRDecomposition {
 };
 
 /**
- * @brief Thin QR via modified Gram–Schmidt
+ * @brief Thin QR via Householder reflections
+ *
+ * Reduces A to upper-triangular form by reflections H₀…H_{s−1}, s = min(M, N−1), and forms
+ * the thin Q = H₀⋯H_{s−1}·[I; 0] by backward accumulation. Q is orthonormal to working
+ * precision whatever the conditioning of A: ‖QᴴQ − I‖ is a modest multiple of ε. Modified
+ * Gram–Schmidt, used here before, loses orthogonality in proportion to κ(A)·ε, so a
+ * conditioning of 10⁸ left columns of Q 10⁻⁸ away from orthogonal.
+ *
+ * Each column of Q and row of R is then rotated by the phase of its diagonal entry, so R has
+ * a real, non-negative diagonal (the convention Gram–Schmidt produces) and QR is unchanged.
+ *
+ * Rank loss is scale-invariant per column: when |R(j, j)|, the part of column j orthogonal to
+ * the columns before it, is at most rel_tol times ‖A(:, j)‖, it is roundoff and R(j, j) is
+ * stored as zero, which is what is_valid() reports. Q keeps an orthonormal column there, so
+ * QR reconstructs A to within that dropped roundoff. Columns past N (M > N) have R(j, j) = 0
+ * and a zero Q column.
  *
  * @note Compare with MATLAB®'s [Q,R] = qr(A, 0) (economy size).
- * @see Golub & Van Loan, "Matrix Computations" (4th ed., 2013), §5.2.8
+ * @see Golub & Van Loan, "Matrix Computations" (4th ed., 2013), §5.1.6 (backward accumulation) and §5.2.2
+ * @see "Accuracy and Stability of Numerical Algorithms" (Higham, 2002), §19.3 (Householder QR) and §19.8 (MGS orthogonality loss)
  *
  * @tparam T   Element type
  * @tparam N   Rows
  * @tparam M   Columns
- * A column whose norm after orthogonalization falls to rel_tol times its
- * original norm is dependent on the earlier ones (scale-invariant). Its Q
- * column and R(j, j) are set to zero, so QR still reconstructs A and
- * is_valid() reports the rank loss.
- *
  * @param A        Input matrix
  * @param rel_tol  Relative column-norm floor treated as rank loss (default N·64·eps)
  * @return Thin QR factors
@@ -308,50 +380,63 @@ template<typename T, size_t N, size_t M>
     scalar_type_t<T>       rel_tol = static_cast<scalar_type_t<T>>(N) * scalar_type_t<T>{64} * eps<T>()
 ) {
     using real_t = scalar_type_t<T>;
-    QRDecomposition<T, N, M> result;
-    result.Q = A;
+    constexpr size_t steps = (M < N) ? M : (N - 1); // reflections; the last row needs none
+    constexpr size_t K = (M < N) ? M : N;           // diagonal entries R can carry
 
-    const auto column_norm = [](const Matrix<N, M, T>& X, size_t j) {
-        real_t sq = real_t{0};
-        for (size_t i = 0; i < N; ++i) {
-            const real_t a = damp::abs(X(i, j));
-            sq += a * a;
-        }
-        return damp::sqrt(sq);
-    };
-
-    for (size_t j = 0; j < M; ++j) {
-        const real_t col_norm = column_norm(result.Q, j);
-        if (!(col_norm > rel_tol * column_norm(A, j))) {
-            // Rank loss: what is left of the column is roundoff.
-            for (size_t i = 0; i < N; ++i) {
-                result.Q(i, j) = T{0};
-            }
-            result.R(j, j) = T{0};
-            continue;
-        }
-        result.R(j, j) = static_cast<T>(col_norm);
-
-        {
-            for (size_t i = 0; i < N; ++i) {
-                result.Q(i, j) /= result.R(j, j);
-            }
-
-            for (size_t k = j + 1; k < M; ++k) {
-                // Hermitian inner product for complex T
-                T dot_prod = T{0};
-                for (size_t i = 0; i < N; ++i) {
-                    dot_prod += damp::conj(result.Q(i, j)) * result.Q(i, k);
-                }
-                result.R(j, k) = dot_prod;
-
-                for (size_t i = 0; i < N; ++i) {
-                    result.Q(i, k) -= result.R(j, k) * result.Q(i, j);
-                }
-            }
+    Matrix<N, M, T>                                         W = A;
+    damp::array<damp::array<T, N>, (steps > 0 ? steps : 1)> vs{};
+    damp::array<real_t, (steps > 0 ? steps : 1)>            betas{};
+    for (size_t k = 0; k < steps; ++k) {
+        betas[k] = detail::householder_vector(W, k, vs[k]);
+        if (betas[k] != real_t{0}) {
+            detail::apply_householder_left(W, vs[k], betas[k], k, k);
         }
     }
 
+    // Thin Q = H₀⋯H_{s−1}·[I; 0], applying the reflections from the last to the first.
+    QRDecomposition<T, N, M> result;
+    for (size_t j = 0; j < K; ++j) {
+        result.Q(j, j) = T{1};
+    }
+    for (size_t kk = steps; kk-- > 0;) {
+        if (betas[kk] != real_t{0}) {
+            detail::apply_householder_left(result.Q, vs[kk], betas[kk], kk, kk);
+        }
+    }
+
+    for (size_t i = 0; i < K; ++i) {
+        for (size_t j = i; j < M; ++j) {
+            result.R(i, j) = W(i, j);
+        }
+    }
+
+    // Real, non-negative diagonal: Q(:, i) ·= φ, R(i, :) ·= φ̄ with φ the phase of R(i, i).
+    for (size_t i = 0; i < K; ++i) {
+        const real_t r = damp::abs(result.R(i, i));
+        if (r == real_t{0}) {
+            continue;
+        }
+        const T phase = result.R(i, i) / r;
+        for (size_t j = i; j < M; ++j) {
+            result.R(i, j) = damp::conj(phase) * result.R(i, j);
+        }
+        result.R(i, i) = T{r};
+        for (size_t row = 0; row < N; ++row) {
+            result.Q(row, i) = result.Q(row, i) * phase;
+        }
+    }
+
+    // Rank loss, relative to each column of A.
+    for (size_t j = 0; j < K; ++j) {
+        real_t sq = real_t{0};
+        for (size_t i = 0; i < N; ++i) {
+            const real_t a = damp::abs(A(i, j));
+            sq += a * a;
+        }
+        if (!(damp::abs(result.R(j, j)) > rel_tol * damp::sqrt(sq))) {
+            result.R(j, j) = T{0};
+        }
+    }
     return result;
 }
 
@@ -359,8 +444,8 @@ template<typename T, size_t N, size_t M>
  * @brief Result of a full (complete) QR factorization.
  *
  * A = Q·R with Q an N×N unitary (orthogonal, for real T) matrix and R N×M
- * upper-triangular. Unlike qr_decompose (thin modified-Gram-Schmidt, N×M Q),
- * this retains the *full* unitary factor: its leading rank columns span the
+ * upper-triangular. Unlike qr_decompose (thin, N×M Q), this retains the *full*
+ * unitary factor: its leading rank columns span the
  * range of A and its trailing columns span the orthogonal complement (the kernel
  * of Aᴴ). Those complement columns are what robust pole placement needs.
  */
@@ -391,49 +476,14 @@ template<typename T, size_t N, size_t M>
 
     constexpr size_t steps = (M < N) ? M : (N - 1); // columns to reflect
     for (size_t k = 0; k < steps; ++k) {
-        // Householder vector v that zeroes R(k+1.., k). The reflector is the
-        // Hermitian unitary H = I − β·v·vᴴ with real β = 2/‖v‖².
-        real_t norm_sq = real_t{0};
-        for (size_t i = k; i < N; ++i) {
-            const real_t a = damp::abs(out.R(i, k));
-            norm_sq += a * a;
-        }
-        const real_t nrm = damp::sqrt(norm_sq);
-        if (nrm == real_t{0}) {
+        // Householder vector v that zeroes R(k+1.., k); H = I − β·v·vᴴ is Hermitian unitary.
+        damp::array<T, N> v{};
+        const real_t      beta = detail::householder_vector(out.R, k, v);
+        if (beta == real_t{0}) {
             continue; // column already zero below the diagonal
         }
-        // Reflect R(k,k) onto α·e_k with |α| = ‖x‖; the phase −R(k,k)/|R(k,k)|
-        // maximizes |v[k]| (avoids cancellation). For real T this is the sign.
-        const real_t r0 = damp::abs(out.R(k, k));
-        const T      phase = (r0 > real_t{0}) ? (out.R(k, k) / r0) : T{1};
-        const T      alpha = -(phase * nrm);
-
-        damp::array<T, N> v{};
-        v[k] = out.R(k, k) - alpha;
-        for (size_t i = k + 1; i < N; ++i) {
-            v[i] = out.R(i, k);
-        }
-        real_t vhv = real_t{0};
-        for (size_t i = k; i < N; ++i) {
-            const real_t a = damp::abs(v[i]);
-            vhv += a * a;
-        }
-        if (vhv == real_t{0}) {
-            continue;
-        }
-        const real_t beta = real_t{2} / vhv;
-
         // Apply H from the left: R −= β·v·(vᴴR).
-        for (size_t j = 0; j < M; ++j) {
-            T dot = T{0};
-            for (size_t i = k; i < N; ++i) {
-                dot += damp::conj(v[i]) * out.R(i, j);
-            }
-            const T s = beta * dot;
-            for (size_t i = k; i < N; ++i) {
-                out.R(i, j) -= s * v[i];
-            }
-        }
+        detail::apply_householder_left(out.R, v, beta, k, 0);
         // Accumulate Q = Q·H from the right: Q −= β·(Q·v)·vᴴ.
         for (size_t i = 0; i < N; ++i) {
             T dot = T{0};

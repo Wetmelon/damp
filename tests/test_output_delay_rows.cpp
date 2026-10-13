@@ -230,7 +230,7 @@ TEST_SUITE("Output delay on selected outputs") {
         constexpr int      n = 2500;
 
         SUBCASE("LQG regulates") {
-            const auto art = design::discrete_lqg(kBoth, Q, R, Qn, Rn);
+            const auto art = design::discrete_lqg(kBoth, Q, R, {.process = Qn, .measurement = Rn});
             REQUIRE(art.success);
             LQG<10, 2, 2, double, 4, 2> c{art};
             Truth<10>                   t{kBoth, ColVec<10>{0.3, 0.0, -0.2}};
@@ -247,7 +247,7 @@ TEST_SUITE("Output delay on selected outputs") {
             Qi(2, 2) = 1e3;
             Qi(4, 4) = 1e2;
             Qi(5, 5) = 1e2;
-            const auto art = design::discrete_lqgi(kBoth, Qi, R, Qn, Rn);
+            const auto art = design::discrete_lqgi(kBoth, Qi, R, {.process = Qn, .measurement = Rn});
             REQUIRE(art.success);
             LQGI<10, 2, 2, double, 4, 2> c{art};
             Truth<10>                    t{kBoth};
@@ -264,7 +264,7 @@ TEST_SUITE("Output delay on selected outputs") {
             design::OffsetFreeModel<4, 2, 2, 2, 2> model{};
             model.Bd = kPlain.B; // a load at the plant input, after the delay
             model.Cz = kPlain.C;
-            const auto art = design::discrete_oflqg(kBoth, model, Q, R, Qn, Rn, Matrix<2, 2>::identity() * 1e-2);
+            const auto art = design::discrete_oflqg(kBoth, model, Q, R, design::OffsetFreeNoise{Qn, Rn, Matrix<2, 2>::identity() * 1e-2});
             REQUIRE(art.success);
             OFLQG<10, 2, 2, double, 2, 2> c{art};
             Truth<10>                     t{kBoth};
@@ -282,7 +282,7 @@ TEST_SUITE("Output delay on selected outputs") {
             design::MPCWeights<2, 2> w{};
             w.Qy = Matrix<2, 2>::identity() * 1e3;
             w.Rdu = Matrix<2, 2>::identity() * 1e-6;
-            const auto art = design::mpc<40, 10>(kBoth, w, {}, Qn, Rn, Matrix<2, 2>::identity() * 1e-2); // Q_process, R_measurement, Q_disturbance
+            const auto art = design::mpc<40, 10>(kBoth, w, {}, design::OffsetFreeNoise{Qn, Rn, Matrix<2, 2>::identity() * 1e-2}); // Q_process, R_measurement, Q_disturbance
             REQUIRE(art.success);
             OffsetFreeMPC   c{art};
             Truth<10>       t{kBoth};

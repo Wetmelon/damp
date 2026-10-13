@@ -43,7 +43,6 @@ inline constexpr double b0 = 1.0 / J_nom;
 }
 
 inline constexpr auto adrc_d = make_adrc();
-static_assert(adrc_d.success);
 
 /// Critically-damped PD at wc plus an I pole at wc/8 (load hold).
 [[nodiscard]] constexpr design::PIDResult<double> make_pid() {

@@ -51,6 +51,7 @@
  */
 
 #include <cstddef>
+#include <type_traits>
 
 #include "damp/backend.hpp"
 #include "damp/filters/filters.hpp"
@@ -235,6 +236,9 @@ struct PRController {
 
     constexpr PRController(const design::PRResult<T>& result)
         : Kp(result.Kp), Ki(result.Ki), w0(result.w0), wc(result.wc), Ts(result.Ts), valid_(result.success) {
+        if (!result.success && std::is_constant_evaluated()) {
+            ::damp::detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed design does not compile
+        }
         if (valid_) {
             compute_coefficients();
         }

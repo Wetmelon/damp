@@ -11,7 +11,9 @@
  */
 
 #include <cstddef>
+#include <type_traits>
 
+#include "damp/backend.hpp"
 #include "damp/estimation/kalman.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "damp/systems/state_space.hpp"
@@ -117,7 +119,7 @@ struct LQGIResult {
  * selector matrix or a list of output indices as the last argument, or leave it
  * out to integrate every output. On a model with delay states (discretize with
  * InputDelay / OutputDelay) Q_aug may be sized to the plant,
- * (NX_plant+NI)×(NX_plant+NI), as in @ref discrete_lqi; Q_kf is already
+ * (NX_plant+NI)×(NX_plant+NI), as in @ref discrete_lqi; the process noise is already
  * plant-sized through G.
  *
  * @note Compare with MATLAB®'s lqgtrack(...) — exposed as the lqgtrack() alias in matlab.hpp.
@@ -131,8 +133,8 @@ struct LQGIResult {
  * @param sys      Discrete-time state-space plant
  * @param Q_aug    Augmented state cost ((NX+NI)×(NX+NI), or plant-sized on a delayed model; positive semidefinite)
  * @param R        Input cost (NU×NU, positive definite)
- * @param Q_kf     Process noise covariance (NW×NW, positive semidefinite)
- * @param R_kf     Measurement noise covariance (NV×NV, positive definite)
+ * @param noise    Process (NW×NW, positive semidefinite) and measurement (NV×NV, positive
+ *                 definite) noise covariances
  * @param Ci       Integrated-output selector (NI×NY)
  * @return LQGIResult with success = both LQI and Kalman designs succeeded
  */
@@ -141,8 +143,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     const Matrix<NQA, NQA, T>&               Q_aug,
     const Matrix<NU, NU, T>&                 R,
-    const Matrix<NW, NW, T>&                 Q_kf,
-    const Matrix<NV, NV, T>&                 R_kf,
+    const KalmanNoise<NW, NV, T>&            noise,
     const Matrix<NI, NY, T>&                 Ci
 ) {
     const auto lqi_result = discrete_lqi(sys, Q_aug, R, Ci);
@@ -151,7 +152,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size
     if (!(sys_d.Ts > T{0})) {
         sys_d.Ts = T{1};
     }
-    auto kalman_result = kalman(sys_d, Q_kf, R_kf);
+    auto kalman_result = kalman(sys_d, noise.process, noise.measurement);
     kalman_result.sys.Ts = sys.Ts; // keep caller's sample-time tag on the result model
     return LQGIResult<NX, NU, NY, T, NW, NV, NI>{lqi_result, kalman_result, lqi_result.success && kalman_result.success};
 }
@@ -162,28 +163,26 @@ template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, si
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     const Matrix<NQA, NQA, T>&               Q_aug,
     const Matrix<NU, NU, T>&                 R,
-    const Matrix<NW, NW, T>&                 Q_kf,
-    const Matrix<NV, NV, T>&                 R_kf
+    const KalmanNoise<NW, NV, T>&            noise = {}
 ) {
-    return discrete_lqgi(sys, Q_aug, R, Q_kf, R_kf, Matrix<NY, NY, T>::identity());
+    return discrete_lqgi(sys, Q_aug, R, noise, Matrix<NY, NY, T>::identity());
 }
 
-/// Integrate the listed outputs only, e.g. `discrete_lqgi(sys, Q_aug, R, Q_kf, R_kf, {0, 3})`.
+/// Integrate the listed outputs only, e.g. `discrete_lqgi(sys, Q_aug, R, {.process = Qn, .measurement = Rn}, {0, 3})`.
 /// An index outside [0, NY) reports success = false.
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NI, size_t NQA = NX + NI>
 [[nodiscard]] constexpr LQGIResult<NX, NU, NY, T, NW, NV, NI> discrete_lqgi(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     const Matrix<NQA, NQA, T>&               Q_aug,
     const Matrix<NU, NU, T>&                 R,
-    const Matrix<NW, NW, T>&                 Q_kf,
-    const Matrix<NV, NV, T>&                 R_kf,
+    const KalmanNoise<NW, NV, T>&            noise,
     const size_t (&outputs)[NI]
 ) {
     const auto Ci = damp::detail::output_selector<NI, NY, T>(outputs);
     if (!Ci) {
         return LQGIResult<NX, NU, NY, T, NW, NV, NI>{};
     }
-    return discrete_lqgi(sys, Q_aug, R, Q_kf, R_kf, Ci.value());
+    return discrete_lqgi(sys, Q_aug, R, noise, Ci.value());
 }
 } // namespace design
 
@@ -220,7 +219,11 @@ struct LQGI {
     /// From design result (any scalar); converts via nested runtime ctors.
     template<typename U>
     constexpr LQGI(const design::LQGIResult<NX, NU, NY, U, NW, NV, NI>& result) // NOLINT
-        : lqi(result.lqi), kf(result.kalman) {}
+        : lqi(result.lqi), kf(result.kalman) {
+        if (!result.success && std::is_constant_evaluated()) {
+            ::damp::detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed design does not compile
+        }
+    }
 
     template<typename U>
     constexpr LQGI(const LQGI<NX, NU, NY, U, NW, NV, NI>& other)

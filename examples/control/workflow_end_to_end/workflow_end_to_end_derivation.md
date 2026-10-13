@@ -110,7 +110,7 @@ Discrete plant: `discretize(sys_c, Ts, ZOH)`.
 
 1. PID seed (optional side path): `pid_from_performance_spec` with
    $`t_s=0.20`$, overshoot 10%, PI, $`T_s`$.
-2. LQGI: `design::lqgi_bundle(sys_d, Q_aug, R, Q_kf, R_kf)` with
+2. LQGI: `design::lqgi_bundle(sys_d, Q_aug, R, {.process = Q_kf, .measurement = R_kf})` with
 
 ```math
 Q_{\mathrm{aug}}

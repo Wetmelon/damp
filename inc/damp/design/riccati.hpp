@@ -387,78 +387,6 @@ template<size_t NX, size_t NU, typename T = double>
 }
 
 /**
- * @brief Split a real-eigenvalue 2×2 Schur block into two 1×1 blocks.
- *
- * Francis QR leaves any 2×2 diagonal block with @e real eigenvalues
- * untriangularized (it only records the eigenvalues). This applies the Givens
- * rotation whose first column is the dominant eigenvector, driving the
- * subdiagonal to zero and accumulating the transform into the Schur vectors
- * @p Z. Genuine complex-conjugate pairs (negative discriminant) are left intact.
- *
- * The block is @f$ \bigl[\begin{smallmatrix} a & b \\ c & d \end{smallmatrix}\bigr] @f$
- * at diagonal offset @p i; its eigenvalues are real iff
- * @f$ ((a-d)/2)^2 + bc \ge 0 @f$.
- *
- * @see LAPACK dlanv2 (the standardization step of the real Schur form)
- */
-template<size_t M, typename T>
-constexpr void split_real_2x2(Matrix<M, M, T>& Tm, Matrix<M, M, T>& Z, size_t i) {
-    const T a = Tm(i, i);
-    const T b = Tm(i, i + 1);
-    const T c = Tm(i + 1, i);
-    const T d = Tm(i + 1, i + 1);
-    const T p = static_cast<T>(0.5) * (a - d);
-    const T disc = (p * p) + (b * c);
-    if (disc <= T{0}) {
-        return; //! Complex conjugate pair — keep the 2×2 block.
-    }
-    //! Dominant eigenvalue and its eigenvector v ∝ [b, λ−a] (fall back to [λ−d, c]).
-    const T lambda = (static_cast<T>(0.5) * (a + d)) + damp::copysign(damp::sqrt(disc), p);
-    T       v0 = b;
-    T       v1 = lambda - a;
-    if ((damp::abs(v0) + damp::abs(v1)) == T{0}) {
-        v0 = lambda - d;
-        v1 = c;
-    }
-    const T nrm = damp::sqrt((v0 * v0) + (v1 * v1));
-    if (nrm == T{0}) {
-        return;
-    }
-    const T cs = v0 / nrm;
-    const T sn = v1 / nrm;
-    //! Givens G = [[cs,−sn],[sn,cs]] with first column = eigenvector ⇒ GᵀTmG upper-triangular.
-    for (size_t k = 0; k < M; ++k) {
-        const T r0 = Tm(i, k);
-        const T r1 = Tm(i + 1, k);
-        Tm(i, k) = (cs * r0) + (sn * r1);
-        Tm(i + 1, k) = (-sn * r0) + (cs * r1);
-    }
-    for (size_t k = 0; k < M; ++k) {
-        const T c0 = Tm(k, i);
-        const T c1 = Tm(k, i + 1);
-        Tm(k, i) = (c0 * cs) + (c1 * sn);
-        Tm(k, i + 1) = (-c0 * sn) + (c1 * cs);
-        const T z0 = Z(k, i);
-        const T z1 = Z(k, i + 1);
-        Z(k, i) = (z0 * cs) + (z1 * sn);
-        Z(k, i + 1) = (-z0 * sn) + (z1 * cs);
-    }
-    Tm(i + 1, i) = T{0};
-    //! The rotation touches only rows/columns i:i+1. Entries more than one
-    //! below the diagonal in those columns are structural zeros of the Schur
-    //! form; flush the roundoff, or the next pass treats it as a new 2×2 block
-    //! and mixes unrelated eigenvalues. Entries above the diagonal stay.
-    if (i > 0) {
-        Tm(i, i - 1) = T{0};
-        Tm(i + 1, i - 1) = T{0};
-    }
-    for (size_t r = i + 2; r < M; ++r) {
-        Tm(r, i) = T{0};
-        Tm(r, i + 1) = T{0};
-    }
-}
-
-/**
  * @brief Swap two adjacent diagonal blocks of a real Schur form.
  *
  * Exchanges the P×P block A immediately above-left of the Q×Q block C at diagonal
@@ -469,14 +397,65 @@ constexpr void split_real_2x2(Matrix<M, M, T>& Tm, Matrix<M, M, T>& Z, size_t i)
  * orthonormalizing it by QR and using it as the leading columns performs the swap.
  * The Sylvester system is tiny (≤ 4×4 via a Kronecker expansion). P,Q ∈ {1,2}.
  *
- * @return false if the Sylvester solve is singular (the blocks share an eigenvalue).
- * @see Golub & Van Loan §7.6.2; Bai & Demmel, "On swapping diagonal blocks" (1993)
+ * Two 1×1 blocks swap by the Givens rotation whose first column is [b, c − a], which is
+ * unconditionally stable. A swap involving a 2×2 block is computed on a copy of the S×S
+ * window and kept only if it passes Bai and Demmel's two stability tests: the block that
+ * must vanish, rows Q… by columns …Q of GᵀWG, is at most τ (weak), and so is the window
+ * rebuilt from the swapped form with that block zeroed, ‖W − G·W′·Gᵀ‖ (strong), entrywise.
+ * τ = max(10·S·ε·max|W|, smallest normal): forming G·W′·Gᵀ to check it costs about
+ * 2S·ε·max|W| by itself, so a 10·ε threshold would refuse sound swaps on its own rounding.
+ * Nearly equal eigenvalues with a large coupling make X huge and the swap inaccurate; it is
+ * then refused and the form is left as it was. An accepted swap stores the vanished block
+ * as zero and re-standardizes its 2×2 blocks (mat::detail::standardize_schur_block).
+ *
+ * @return false if the Sylvester solve is singular (the blocks share an eigenvalue) or the
+ *         swap fails a stability test; @p Tm and @p Z are then unchanged.
+ * @see Golub & Van Loan §7.6.2
+ * @see "On swapping diagonal blocks in real Schur form" (Bai & Demmel, 1993), §3 (stability tests)
  */
 template<size_t P, size_t Q, size_t M, typename T>
 constexpr bool swap_schur_blocks(Matrix<M, M, T>& Tm, Matrix<M, M, T>& Z, size_t j) {
     constexpr size_t S = P + Q;
     constexpr size_t PQ = P * Q;
-
+    if constexpr (P == 1 && Q == 1) {
+        //! [[a, b], [0, c]] → [[c, b], [0, a]] by the rotation with first column ∝ [b, c − a].
+        const T a = Tm(j, j);
+        const T b = Tm(j, j + 1);
+        const T c = Tm(j + 1, j + 1);
+        if (a == c) {
+            return false; //! equal eigenvalues: nothing to order
+        }
+        const T x0 = b;
+        const T x1 = c - a;
+        const T r = damp::sqrt((x0 * x0) + (x1 * x1));
+        if (!(r > T{0}) || !damp::isfinite(r)) {
+            return false;
+        }
+        const T cs = x0 / r;
+        const T sn = x1 / r;
+        for (size_t k = j; k < M; ++k) {
+            const T r0 = Tm(j, k);
+            const T r1 = Tm(j + 1, k);
+            Tm(j, k) = (cs * r0) + (sn * r1);
+            Tm(j + 1, k) = (cs * r1) - (sn * r0);
+        }
+        for (size_t k = 0; k <= j + 1; ++k) {
+            const T c0 = Tm(k, j);
+            const T c1 = Tm(k, j + 1);
+            Tm(k, j) = (cs * c0) + (sn * c1);
+            Tm(k, j + 1) = (cs * c1) - (sn * c0);
+        }
+        for (size_t k = 0; k < M; ++k) {
+            const T z0 = Z(k, j);
+            const T z1 = Z(k, j + 1);
+            Z(k, j) = (cs * z0) + (sn * z1);
+            Z(k, j + 1) = (cs * z1) - (sn * z0);
+        }
+        Tm(j, j) = c;
+        Tm(j + 1, j + 1) = a;
+        Tm(j + 1, j) = T{0};
+        return true;
+    }
     const Matrix<P, P, T> A = Tm.template block<P, P>(j, j);
     const Matrix<Q, Q, T> C = Tm.template block<Q, Q>(j + P, j + P);
     const Matrix<P, Q, T> B = Tm.template block<P, Q>(j, j + P);
@@ -501,6 +480,11 @@ constexpr bool swap_schur_blocks(Matrix<M, M, T>& Tm, Matrix<M, M, T>& Z, size_t
     if (!x_opt) {
         return false;
     }
+    for (size_t k = 0; k < PQ; ++k) {
+        if (!damp::isfinite(x_opt.value()(k, 0))) {
+            return false;
+        }
+    }
 
     //! Orthonormal basis of the C-invariant subspace [[X];[I_Q]] (S×Q) via QR.
     Matrix<S, Q, T> Mq{};
@@ -512,6 +496,33 @@ constexpr bool swap_schur_blocks(Matrix<M, M, T>& Tm, Matrix<M, M, T>& Z, size_t
     }
     const Matrix<S, S, T> G = mat::full_qr(Mq).Q;
 
+    //! Bai–Demmel: try the swap on the window before touching Tm and Z.
+    const Matrix<S, S, T> W = Tm.template block<S, S>(j, j).to_matrix();
+    T                     wmax = T{0};
+    for (size_t r = 0; r < S; ++r) {
+        for (size_t c = 0; c < S; ++c) {
+            wmax = damp::max(wmax, damp::abs(W(r, c)));
+        }
+    }
+    const T         tau = damp::max(T{10} * static_cast<T>(S) * eps<T>() * wmax, std::numeric_limits<T>::min());
+    Matrix<S, S, T> Ws = G.transpose() * W * G;
+    for (size_t r = Q; r < S; ++r) {
+        for (size_t c = 0; c < Q; ++c) {
+            if (!(damp::abs(Ws(r, c)) <= tau)) {
+                return false; //! weak stability: the swapped form is not block upper triangular
+            }
+            Ws(r, c) = T{0};
+        }
+    }
+    const Matrix<S, S, T> back = G * Ws * G.transpose();
+    for (size_t r = 0; r < S; ++r) {
+        for (size_t c = 0; c < S; ++c) {
+            if (!(damp::abs(back(r, c) - W(r, c)) <= tau)) {
+                return false; //! strong stability: the zeroed form is not similar to the window
+            }
+        }
+    }
+
     //! Apply the similarity Gᵀ(·)G to the affected rows/columns, and G to Z.
     const Matrix<S, M, T> row_blk = Tm.template block<S, M>(j, 0).to_matrix();
     Tm.template block<S, M>(j, 0) = G.transpose() * row_blk;
@@ -519,32 +530,42 @@ constexpr bool swap_schur_blocks(Matrix<M, M, T>& Tm, Matrix<M, M, T>& Z, size_t
     Tm.template block<M, S>(0, j) = col_blk * G;
     const Matrix<M, S, T> z_blk = Z.template block<M, S>(0, j).to_matrix();
     Z.template block<M, S>(0, j) = z_blk * G;
+    for (size_t r = Q; r < S; ++r) {
+        for (size_t c = 0; c < Q; ++c) {
+            Tm(j + r, j + c) = T{0};
+        }
+    }
+    if constexpr (Q == 2) {
+        static_cast<void>(mat::detail::standardize_schur_block(Tm, Z, j));
+    }
+    if constexpr (P == 2) {
+        static_cast<void>(mat::detail::standardize_schur_block(Tm, Z, j + Q));
+    }
     return true;
 }
 
 /**
  * @brief True when T(i+1, i) is a genuine Schur subdiagonal, not roundoff.
  *
- * Compares against the local row scale. A global eps·‖diag‖₁ test treats the
- * 1e-14 fill left by a Givens rotation as a 2×2 block and then mixes unrelated
- * eigenvalues.
+ * Compares against the block's own entries, so the answer does not depend on the units:
+ * the Francis iteration, the 2×2 standardization and the block swap all store a vanished
+ * subdiagonal as an exact zero, and what remains is either zero or part of a 2×2 block.
  */
 template<size_t M, typename T>
 constexpr bool schur_subdiagonal(const Matrix<M, M, T>& Tm, size_t i) {
     if (i + 1 >= M) {
         return false;
     }
-    const T scale = damp::abs(Tm(i, i)) + damp::abs(Tm(i + 1, i + 1)) + damp::abs(Tm(i, i + 1))
-                  + damp::abs(Tm(i + 1, i));
-    const T tol = (eps<T>() * T{1024}) * damp::max(scale, T{1});
-    return damp::abs(Tm(i + 1, i)) > tol;
+    const T sub = damp::abs(Tm(i + 1, i));
+    const T scale = damp::abs(Tm(i, i)) + damp::abs(Tm(i + 1, i + 1)) + damp::abs(Tm(i, i + 1));
+    return sub > eps<T>() * scale || (scale == T{0} && sub > T{0});
 }
 
 /**
  * @brief Reorder a real Schur form so eigenvalues satisfying @p in_front lead.
  *
- * First standardizes the form (split_real_2x2) so every remaining 2×2 block is a
- * genuine complex pair, then bubbles each block whose eigenvalue real part
+ * First standardizes the form (mat::detail::standardize_schur_block) so every remaining
+ * 2×2 block is a genuine complex pair, then bubbles each block whose eigenvalue real part
  * satisfies the predicate to the top-left via adjacent-block swaps, keeping the
  * Schur vectors @p Z orthogonal. For the CARE Hamiltonian the predicate selects
  * the stable spectrum (Re λ < 0), collecting the stabilizing invariant subspace
@@ -560,10 +581,10 @@ constexpr bool schur_subdiagonal(const Matrix<M, M, T>& Tm, size_t i) {
  */
 template<size_t M, typename T, typename Pred>
 constexpr size_t reorder_schur(Matrix<M, M, T>& Tm, Matrix<M, M, T>& Z, Pred in_front) {
-    //! Pass 1: standardize — split real 2×2 blocks into 1×1 blocks.
+    //! Pass 1: standardize — real 2×2 blocks become two 1×1 blocks.
     for (size_t i = 0; i + 1 < M;) {
         if (schur_subdiagonal(Tm, i)) {
-            split_real_2x2(Tm, Z, i);
+            static_cast<void>(mat::detail::standardize_schur_block(Tm, Z, i));
             i += schur_subdiagonal(Tm, i) ? size_t{2} : size_t{1};
         } else {
             ++i;
@@ -684,20 +705,25 @@ constexpr void balance_hamiltonian(Matrix<2 * NX, 2 * NX, T>& H, damp::array<int
 /**
  * @brief True when the leading @p n eigenvalues of a real Schur form are stable.
  *
- * A block that crosses the cut, or whose real part is positive by more than a
- * few ulps, means the stable subspace was not isolated.
+ * A block that crosses the cut, or whose real part is positive by more than a few
+ * ulps of the largest entry of the form, means the stable subspace was not isolated.
  */
 template<size_t M, typename T>
 [[nodiscard]] constexpr bool schur_prefix_stable(const Matrix<M, M, T>& Tm, size_t n) {
-    size_t i = 0;
+    T tmax = T{0};
+    for (size_t r = 0; r < M; ++r) {
+        for (size_t c = 0; c < M; ++c) {
+            tmax = damp::max(tmax, damp::abs(Tm(r, c)));
+        }
+    }
+    const T margin = (eps<T>() * T{1024}) * tmax;
+    size_t  i = 0;
     while (i < n) {
         const size_t b = schur_subdiagonal(Tm, i) ? size_t{2} : size_t{1};
         if (i + b > n) {
             return false;
         }
         const T re = (b == 2) ? (static_cast<T>(0.5) * (Tm(i, i) + Tm(i + 1, i + 1))) : Tm(i, i);
-        const T scale = damp::max(T{1}, damp::abs(re));
-        const T margin = (eps<T>() * T{1024}) * scale;
         if (re > margin) {
             return false;
         }
@@ -990,7 +1016,7 @@ template<size_t N, typename T>
     for (size_t i = 0; i < N; ++i) {
         diag_max = damp::max(diag_max, damp::abs(M(i, i)));
     }
-    //! Four times cholesky's relative pivot floor, so a shifted zero pivot clears it.
+    //! Above cholesky's pivot floor (16·(i+1)·eps of the pivot's terms, i < N), so a shifted zero pivot clears it.
     const T shift = (static_cast<T>(N) * T{256} * eps<T>() * diag_max) + std::numeric_limits<T>::min();
     return mat::cholesky(M + Matrix<N, N, T>::identity() * shift).has_value();
 }

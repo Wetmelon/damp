@@ -28,7 +28,9 @@
 
 #include <concepts>
 #include <cstddef>
+#include <type_traits>
 
+#include "damp/backend.hpp"
 #include "damp/math/geometry.hpp"
 #include "damp/math/math.hpp"
 #include "damp/matrix/matrix.hpp"
@@ -352,7 +354,11 @@ struct ErrorStateKalmanFilter {
         : P(result.P0.template as<T>()),
           Q(result.Q.template as<T>()),
           R(result.R.template as<T>()),
-          delta_x(ColVec<NDX, T>{}) {}
+          delta_x(ColVec<NDX, T>{}) {
+        if (!result.success && std::is_constant_evaluated()) {
+            ::damp::detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed design does not compile
+        }
+    }
 
     // Predict: propagate the error mean and covariance (nominal state is
     // integrated externally by the user).

@@ -216,8 +216,8 @@ TEST_SUITE("Delay-aware design") {
         const Matrix<1, 1> R{{1e-4}};
         const Matrix<2, 2> Qn = Matrix<2, 2>::identity();
         const Matrix<1, 1> Rn{{1e-6}};
-        const auto         aware = design::discrete_lqg(kBoth, Q, R, Qn, Rn);
-        const auto         naive = design::discrete_lqg(kUndelayed, Q, R, Qn, Rn);
+        const auto         aware = design::discrete_lqg(kBoth, Q, R, {.process = Qn, .measurement = Rn});
+        const auto         naive = design::discrete_lqg(kUndelayed, Q, R, {.process = Qn, .measurement = Rn});
         REQUIRE(aware.success);
         REQUIRE(naive.success);
         LQG<5, 1, 1, double, 2, 1> ca{aware};
@@ -244,8 +244,8 @@ TEST_SUITE("Delay-aware design") {
         const Matrix<1, 1> R{{1e-4}};
         const Matrix<2, 2> Qn = Matrix<2, 2>::identity();
         const Matrix<1, 1> Rn{{1e-6}};
-        const auto         aware = design::discrete_lqgi(kDelay2, Qp, R, Qn, Rn);
-        const auto         naive = design::discrete_lqgi(kUndelayed, Qp, R, Qn, Rn);
+        const auto         aware = design::discrete_lqgi(kDelay2, Qp, R, {.process = Qn, .measurement = Rn});
+        const auto         naive = design::discrete_lqgi(kUndelayed, Qp, R, {.process = Qn, .measurement = Rn});
         REQUIRE(aware.success);
         REQUIRE(naive.success);
         LQGI<4, 1, 1, double, 2, 1> ca{aware};
@@ -287,19 +287,19 @@ TEST_SUITE("Delay-aware design") {
         const auto exact = [&](const auto& K) { return (K - by_hand.K).norm() == 0.0; };
         CHECK(exact(design::discrete_lqi(kBothTwoSensors, Qp, R, {0}).K));
         CHECK(exact(design::discrete_lqi(kBothTwoSensors, Qp, R, pick_position).K));
-        CHECK(exact(design::discrete_lqgi(kBothTwoSensors, Qp, R, Qn, Rn, {0}).lqi.K));
-        CHECK(exact(design::discrete_lqgi(kBothTwoSensors, Qp, R, Qn, Rn, pick_position).lqi.K));
+        CHECK(exact(design::discrete_lqgi(kBothTwoSensors, Qp, R, {.process = Qn, .measurement = Rn}, {0}).lqi.K));
+        CHECK(exact(design::discrete_lqgi(kBothTwoSensors, Qp, R, {.process = Qn, .measurement = Rn}, pick_position).lqi.K));
         CHECK(exact(design::lqi_bundle(kBothTwoSensors, Qp, R, {0}).design.K));
         CHECK(exact(design::lqi_bundle(kBothTwoSensors, Qp, R, pick_position).design.K));
-        CHECK(exact(design::lqgi_bundle(kBothTwoSensors, Qp, R, Qn, Rn, {0}).design.lqi.K));
-        CHECK(exact(design::lqgi_bundle(kBothTwoSensors, Qp, R, Qn, Rn, pick_position).design.lqi.K));
+        CHECK(exact(design::lqgi_bundle(kBothTwoSensors, Qp, R, {.process = Qn, .measurement = Rn}, {0}).design.lqi.K));
+        CHECK(exact(design::lqgi_bundle(kBothTwoSensors, Qp, R, {.process = Qn, .measurement = Rn}, pick_position).design.lqi.K));
         CHECK(exact(matlab::lqi(kBothTwoSensors, Qp, R, {0}).K));
         CHECK(exact(matlab::lqi(kBothTwoSensors, Qp, R, pick_position).K));
         CHECK(exact(matlab::lqgtrack(kBothTwoSensors, Qp, R, Qn, Rn, {0}).lqi.K));
         CHECK(exact(matlab::lqgtrack(kBothTwoSensors, Qp, R, Qn, Rn, pick_position).lqi.K));
 
         // From the two delayed readings alone, under an input load, the position settles on r.
-        const auto aware = design::discrete_lqgi(kBothTwoSensors, Qp, R, Qn, Rn, {0});
+        const auto aware = design::discrete_lqgi(kBothTwoSensors, Qp, R, {.process = Qn, .measurement = Rn}, {0});
         REQUIRE(aware.success);
         LQGI<6, 1, 2, double, 2, 2, 1> ctrl{aware};
         ColVec<6>                      x{};
@@ -348,8 +348,8 @@ TEST_SUITE("Delay-aware design") {
         const Matrix<2, 2> Qp{{1e-4, 0.0}, {0.0, 1e-2}};
         const Matrix<1, 1> Qd{{1e-2}};
         const Matrix<1, 1> Rn{{1e-6}};
-        const auto         aware = design::mpc<40, 10>(kBoth, w, {}, Qp, Rn, Qd); // Q_process sized to the plant
-        const auto         naive = design::mpc<40, 10>(kUndelayed, w, {}, Qp, Rn, Qd);
+        const auto         aware = design::mpc<40, 10>(kBoth, w, {}, design::OffsetFreeNoise{Qp, Rn, Qd}); // Q_process sized to the plant
+        const auto         naive = design::mpc<40, 10>(kUndelayed, w, {}, design::OffsetFreeNoise{Qp, Rn, Qd});
         REQUIRE(aware.success);
         REQUIRE(naive.success);
         OffsetFreeMPC   ca{aware};
@@ -383,8 +383,8 @@ TEST_SUITE("Delay-aware design") {
         const Matrix<2, 2> Qp{{1e-4, 0.0}, {0.0, 1e-2}};
         const Matrix<1, 1> Qd{{1e-2}};
         const Matrix<1, 1> Rn{{1e-6}};
-        const auto         aware = design::mpc<40, 10>(kBoth, model, w, {}, Qp, Rn, Qd);
-        const auto         naive = design::mpc<40, 10>(kUndelayed, model, w, {}, Qp, Rn, Qd);
+        const auto         aware = design::mpc<40, 10>(kBoth, model, w, {}, design::OffsetFreeNoise{Qp, Rn, Qd});
+        const auto         naive = design::mpc<40, 10>(kUndelayed, model, w, {}, design::OffsetFreeNoise{Qp, Rn, Qd});
         REQUIRE(aware.success);
         REQUIRE(naive.success);
         OffsetFreeMPC   ca{aware};
@@ -418,8 +418,8 @@ TEST_SUITE("Delay-aware design") {
         const Matrix<2, 2> Qn{{1e-4, 0.0}, {0.0, 1e-2}};
         const Matrix<1, 1> Rn{{1e-6}};
         const Matrix<1, 1> Qd{{1e-2}};
-        const auto         aware = design::discrete_oflqg(kBoth, model, Q, R, Qn, Rn, Qd);
-        const auto         naive = design::discrete_oflqg(kUndelayed, model, Q, R, Qn, Rn, Qd);
+        const auto         aware = design::discrete_oflqg(kBoth, model, Q, R, design::OffsetFreeNoise{Qn, Rn, Qd});
+        const auto         naive = design::discrete_oflqg(kUndelayed, model, Q, R, design::OffsetFreeNoise{Qn, Rn, Qd});
         REQUIRE(aware.success);
         REQUIRE(naive.success);
 
@@ -501,7 +501,7 @@ TEST_SUITE("Delay-aware design") {
         CHECK(lqi_a.control(ColVec<1>{{0.2}}, ColVec<1>{{0.1}}, xi, x_ref)[0] == lqi_b.control(ColVec<1>{{0.2}}, ColVec<1>{{0.1}}, xi, ColVec<4>{0.2, 0.1, 0.0, 0.0})[0]);
 
         const Matrix<2, 2>         Qn = Matrix<2, 2>::identity();
-        const auto                 lqg = design::discrete_lqg(kBoth, Q, R, Qn, Matrix<1, 1>{{1e-6}});
+        const auto                 lqg = design::discrete_lqg(kBoth, Q, R, {.process = Qn, .measurement = Matrix<1, 1>{{1e-6}}});
         LQG<5, 1, 1, double, 2, 1> g_plant{lqg};
         LQG<5, 1, 1, double, 2, 1> g_full{lqg};
         double                     worst = 0.0;

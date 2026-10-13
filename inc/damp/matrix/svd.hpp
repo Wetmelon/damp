@@ -65,16 +65,30 @@ template<size_t M, size_t N, typename T>
  *
  * A pair of columns is rotated while its cosine |⟨a_p, a_q⟩| / (‖a_p‖‖a_q‖)
  * exceeds P·eps (Demmel–Veselić), so every nonzero column — however small —
- * ends orthogonal to working precision and becomes its own left vector. A is
- * pre-scaled by its largest entry so the Gram sums neither overflow nor
- * underflow; the singular values are scaled back at the end.
+ * ends orthogonal to working precision and becomes its own left vector.
+ *
+ * Nothing is squared. Each column is held as a unit vector times its norm (a scaled norm,
+ * damp::detail::scaled_norm2), the cosine is the inner product of the unit vectors, and the
+ * Jacobi angle comes from the norm ratio ρ = min/max and the cosine c: @f$ |\zeta| = (1-\rho^2)/(2\rho|c|) @f$,
+ * with @f$ t = 1/(|\zeta| + \sqrt{\zeta^2+1}) @f$ for |ζ| ≤ 1 and
+ * @f$ t = u/(1 + \sqrt{1+u^2}) @f$, @f$ u = 1/|\zeta| @f$, beyond. A Gram sum ‖a‖² flushes
+ * a column 10⁻²⁰ below the largest to zero in float, which cost a graded matrix its small
+ * singular values. A is rescaled by its largest entry only when every entry is below one
+ * or the column norms could overflow, so graded entries stay where they are; a column
+ * whose norm falls below min/eps (absolute) is roundoff residue and is reported as zero.
+ *
+ * @see "Jacobi's method is more accurate than QR" (Demmel & Veselić, 1992), SIAM J. Matrix Anal. Appl. 13(4)
+ * @see "New fast and accurate Jacobi SVD algorithm I" (Drmač & Veselić, 2008), SIAM J. Matrix Anal. Appl. 29(4)
  */
 template<size_t P, size_t Q, typename T>
 [[nodiscard]] constexpr TallSVD<P, Q, T> jacobi_svd_tall(const Matrix<P, Q, T>& A) {
     static_assert(P >= Q, "jacobi_svd_tall requires P >= Q (transpose wide inputs)");
     using real_t = scalar_type_t<T>;
     const real_t tol = static_cast<real_t>(P) * damp::eps<T>();
-    const real_t underflow_floor = std::numeric_limits<real_t>::min() / damp::eps<T>();
+    // Below min/eps a column norm has lost relative precision: its direction is noise.
+    const real_t tiny = std::numeric_limits<real_t>::min() / damp::eps<T>();
+    // A column norm can reach √P·max|a|; past this, rescale before taking norms.
+    const real_t big = std::numeric_limits<real_t>::max() / (real_t{2} * static_cast<real_t>(P));
 
     real_t amax = real_t{0};
     for (size_t i = 0; i < P; ++i) {
@@ -82,9 +96,36 @@ template<size_t P, size_t Q, typename T>
             amax = damp::max(amax, damp::abs(A(i, j)));
         }
     }
-    const real_t    inv_amax = (amax > real_t{0}) ? real_t{1} / amax : real_t{1};
+    // Rescale only when needed: up when every entry is below one (none is pushed toward
+    // underflow), down when a norm could overflow. Otherwise a graded A keeps its entries.
+    const bool      rescale = (amax > real_t{0}) && (amax < real_t{1} || amax > big);
+    const real_t    inv_amax = rescale ? real_t{1} / amax : real_t{1};
     Matrix<P, Q, T> W = A * T{inv_amax};
     Matrix<Q, Q, T> V = Matrix<Q, Q, T>::identity();
+
+    // Column j of the working matrix is W(:, j)·d[j] with W(:, j) a unit vector (Drmač–Veselić):
+    // cosines are plain inner products of unit vectors, with no reciprocal norms that fast-math
+    // could hoist out of the sum as one overflowing or flushing product.
+    damp::array<real_t, Q> d{};
+    const auto             renormalize = [&](size_t j, real_t scale) {
+        const real_t n = damp::detail::scaled_norm2<real_t>(P, [&](size_t i) { return damp::abs(W(i, j)); });
+        const real_t dj = scale * n;
+        if (!(n > real_t{0}) || dj < tiny) {
+            for (size_t i = 0; i < P; ++i) {
+                W(i, j) = T{0};
+            }
+            d[j] = real_t{0};
+            return;
+        }
+        const real_t inv = real_t{1} / n;
+        for (size_t i = 0; i < P; ++i) {
+            W(i, j) = W(i, j) * T{inv};
+        }
+        d[j] = dj;
+    };
+    for (size_t j = 0; j < Q; ++j) {
+        renormalize(j, real_t{1});
+    }
 
     // Sweep over column pairs, rotating each pair to mutual orthogonality. A
     // single column has no pairs and is already orthogonal; skipping the sweep
@@ -96,60 +137,67 @@ template<size_t P, size_t Q, typename T>
             bool rotated = false;
             for (size_t p = 0; p < Q; ++p) {
                 for (size_t q = p + 1; q < Q; ++q) {
-                    // 2×2 Hermitian Gram block of columns p, q.
-                    real_t alpha = real_t{0};
-                    real_t beta = real_t{0};
-                    T      gamma = T{0};
-                    for (size_t i = 0; i < P; ++i) {
-                        const T      wip = W(i, p);
-                        const T      wiq = W(i, q);
-                        const real_t aip = damp::abs(wip);
-                        const real_t aiq = damp::abs(wiq);
-                        alpha += aip * aip;
-                        beta += aiq * aiq;
-                        gamma += damp::conj(wip) * wiq;
-                    }
-                    // A column whose squared norm has reached the subnormal range
-                    // (‖w‖ ≲ 1e-146 after pre-scaling, in double) is roundoff
-                    // residue of a rank-deficient A: its Gram sums carry no
-                    // relative precision, so its cosine is noise and rotating it
-                    // never converges. Treat it as zero.
-                    if (alpha < underflow_floor || beta < underflow_floor) {
+                    // A zero column (or roundoff residue below min/eps) has no direction.
+                    if (d[p] == real_t{0} || d[q] == real_t{0}) {
                         continue;
                     }
-                    const real_t gmag = damp::abs(gamma);
-                    const real_t scale = damp::sqrt(alpha) * damp::sqrt(beta);
-                    if (gmag <= tol * scale) {
+                    T cosine = T{0};
+                    for (size_t i = 0; i < P; ++i) {
+                        cosine += damp::conj(W(i, p)) * W(i, q);
+                    }
+                    const real_t gmag = damp::abs(cosine);
+                    if (gmag <= tol) {
                         continue; // already orthogonal
+                    }
+                    const bool   p_big = d[p] > d[q];
+                    const real_t rho = p_big ? (d[q] / d[p]) : (d[p] / d[q]);
+                    if (rho == real_t{0}) {
+                        continue; // norm ratio below the range: no representable rotation moves either column
                     }
                     rotated = true;
 
-                    // Real Jacobi angle that zeros the off-diagonal of the
-                    // phase-aligned block [[alpha, gmag], [gmag, beta]]. The smaller
-                    // root t = -sign(zeta)/(|zeta|+sqrt(zeta²+1)) keeps the rotation
-                    // near identity for stability.
-                    const real_t zeta = (beta - alpha) / (real_t{2} * gmag);
-                    const real_t zsign = (zeta >= real_t{0}) ? real_t{1} : real_t{-1};
-                    const real_t t = -zsign / (damp::abs(zeta) + damp::sqrt((zeta * zeta) + real_t{1}));
+                    // Real Jacobi angle that zeros the off-diagonal of the phase-aligned
+                    // Gram block [[d_p², d_p d_q |c|], [d_p d_q |c|, d_q²]]:
+                    // ζ = (d_q² − d_p²)/(2 d_p d_q |c|), smaller root t = −sign(ζ)/(|ζ| + √(ζ²+1)),
+                    // written in ρ = min/max so nothing is squared or overflows.
+                    const real_t zsign = p_big ? real_t{-1} : real_t{1};
+                    const real_t gap = (real_t{1} - rho) * (real_t{1} + rho); // 1 − ρ²
+                    const real_t two_rc = real_t{2} * rho * gmag;
+                    real_t       t_abs = real_t{0};
+                    if (gap <= two_rc) {
+                        const real_t az = gap / two_rc; // |ζ| ≤ 1
+                        t_abs = real_t{1} / (az + damp::sqrt((az * az) + real_t{1}));
+                    } else {
+                        const real_t u = two_rc / gap; // 1/|ζ| < 1
+                        t_abs = u / (real_t{1} + damp::sqrt(real_t{1} + (u * u)));
+                    }
+                    const real_t t = -zsign * t_abs;
                     const real_t c = real_t{1} / damp::sqrt(real_t{1} + (t * t));
-                    const real_t s = c * t;
-                    // ph = e^{-i·arg(gamma)} folds the complex phase into the
-                    // rotation; for real T it is simply ±1.
-                    const T ph = damp::conj(gamma) / gmag;
-                    const T phs = ph * s;
-                    const T phc = ph * c;
+                    const real_t sn = c * t;
+                    // ph = e^{-i·arg(cosine)} folds the complex phase into the rotation;
+                    // for real T it is simply ±1.
+                    const T ph = damp::conj(cosine) / gmag;
 
+                    // w_p ← c·w_p + ph·s·w_q, w_q ← −s·w_p + ph·c·w_q on w = W·d: in unit-vector
+                    // form the cross terms carry s·d_q/d_p and s·d_p/d_q, both bounded by |c|·…
+                    // since |s| ≈ ρ|c| whenever ρ is small.
+                    const real_t sq_over_p = p_big ? (sn * rho) : (sn / rho); // s·d_q/d_p
+                    const real_t sp_over_q = p_big ? (sn / rho) : (sn * rho); // s·d_p/d_q
+                    const T      phs = ph * T{sq_over_p};
+                    const T      phc = ph * T{c};
                     for (size_t i = 0; i < P; ++i) {
                         const T wip = W(i, p);
                         const T wiq = W(i, q);
                         W(i, p) = (c * wip) + (phs * wiq);
-                        W(i, q) = (-s * wip) + (phc * wiq);
+                        W(i, q) = (-sp_over_q * wip) + (phc * wiq);
                     }
+                    renormalize(p, d[p]);
+                    renormalize(q, d[q]);
                     for (size_t i = 0; i < Q; ++i) {
                         const T vip = V(i, p);
                         const T viq = V(i, q);
-                        V(i, p) = (c * vip) + (phs * viq);
-                        V(i, q) = (-s * vip) + (phc * viq);
+                        V(i, p) = (c * vip) + ((ph * T{sn}) * viq);
+                        V(i, q) = (-sn * vip) + (phc * viq);
                     }
                 }
             }
@@ -160,17 +208,12 @@ template<size_t P, size_t Q, typename T>
         }
     }
 
-    // Singular values = orthogonalized column norms; economy U = W normalized.
+    // Singular values = column norms; economy U = the unit columns.
     TallSVD<P, Q, T> out;
     out.V = V;
     out.converged = converged;
     for (size_t j = 0; j < Q; ++j) {
-        real_t nrm_sq = real_t{0};
-        for (size_t i = 0; i < P; ++i) {
-            const real_t a = damp::abs(W(i, j));
-            nrm_sq += a * a;
-        }
-        out.s[j] = damp::sqrt(nrm_sq);
+        out.s[j] = d[j];
     }
 
     // Sort singular values descending, permuting Ue (= W) and V columns with them.
@@ -194,17 +237,13 @@ template<size_t P, size_t Q, typename T>
 
     // Every nonzero column is orthogonal to the others in the relative sense,
     // so it normalizes into a left singular vector (sorted: zeros trail).
-    // Residue columns skipped by the sweep (see underflow_floor) are not
-    // orthogonal to the others; report them as exact zeros so the completion
-    // below supplies their left vectors.
+    // Residue columns (norm below min/eps) were zeroed by renormalize and are not
+    // orthogonal to the others; the completion below supplies their left vectors.
     size_t rank = 0;
     for (size_t j = 0; j < Q; ++j) {
-        if (out.s[j] * out.s[j] < underflow_floor) {
-            out.s[j] = real_t{0};
-        }
         if (out.s[j] > real_t{0}) {
             for (size_t i = 0; i < P; ++i) {
-                out.U(i, j) = W(i, j) / out.s[j];
+                out.U(i, j) = W(i, j);
             }
             ++rank;
         }
@@ -244,8 +283,10 @@ template<size_t P, size_t Q, typename T>
         }
     }
 
-    for (size_t j = 0; j < Q; ++j) {
-        out.s[j] *= amax > real_t{0} ? amax : real_t{1};
+    if (rescale) {
+        for (size_t j = 0; j < Q; ++j) {
+            out.s[j] *= amax;
+        }
     }
     return out;
 }

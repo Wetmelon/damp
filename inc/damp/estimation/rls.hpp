@@ -33,6 +33,7 @@
 #include <cstddef>
 #include <type_traits>
 
+#include "damp/backend.hpp"
 #include "damp/math/math.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "damp/matrix/matrix_traits.hpp"
@@ -223,6 +224,9 @@ public:
 
     constexpr explicit Rls(const RlsResult<T>& design)
         : config_(design.config), valid_(design.success) {
+        if (!design.success && std::is_constant_evaluated()) {
+            ::damp::detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed design does not compile
+        }
         state_.theta = design.theta0;
         state_.covariance = design.covariance0;
     }
@@ -323,6 +327,9 @@ public:
 
     constexpr explicit RlsVector(const RlsVectorResult<NP, T>& design)
         : config_(design.config), valid_(design.success) {
+        if (!design.success && std::is_constant_evaluated()) {
+            ::damp::detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed design does not compile
+        }
         state_.theta = design.theta0;
         state_.covariance = design.covariance0;
     }

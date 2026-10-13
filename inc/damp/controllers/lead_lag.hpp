@@ -5,6 +5,8 @@
 
 #pragma once
 
+#include <type_traits>
+
 /**
  * @file lead_lag.hpp
  * @brief Lead-lag compensator design and runtime
@@ -41,6 +43,7 @@
  * - Cascade compensator design (lead + lag sections)
  */
 
+#include "damp/backend.hpp"
 #include "damp/math/math.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "damp/systems/discretization.hpp"
@@ -296,6 +299,9 @@ struct LeadLagController {
 
     constexpr LeadLagController(const design::LeadLagResult<T>& result)
         : K(result.K), z(result.z), p(result.p), valid_(result.success && result.z > T{0} && result.p > T{0}) {
+        if (!result.success && std::is_constant_evaluated()) {
+            ::damp::detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed design does not compile
+        }
         if (valid_) {
             compute_coefficients(result.Ts);
         }

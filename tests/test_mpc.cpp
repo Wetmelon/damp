@@ -63,7 +63,7 @@ TEST_CASE("unconstrained MPC with a DARE terminal weight reproduces the LQR law"
     weights.Rdu = Matrix<1, 1>{}; // no move penalty: pure LQ cost
     weights.Ru = R;
 
-    const auto art = design::state_mpc<8>(double_integrator_full, weights);
+    const auto art = design::state_mpc<8, 8>(double_integrator_full, weights); // a free move every step: equals LQR
     REQUIRE(art.success);
 
     MPC             controller{art};
@@ -250,7 +250,7 @@ TEST_CASE("input target pulls the input when tracking is indifferent") {
     weights.Rdu = Matrix<1, 1>{{0.1}};
     weights.u_target = ColVec<1>{0.3};
 
-    const auto art = design::state_mpc<5>(double_integrator, weights);
+    const auto art = design::state_mpc<5, 5>(double_integrator, weights);
     REQUIRE(art.success);
 
     MPC             controller{art};
@@ -348,27 +348,27 @@ TEST_CASE("mpc rejects invalid plants") {
     // Continuous-time (Ts = 0): must be discretized first.
     StateSpace<2, 1, 1> continuous = double_integrator;
     continuous.Ts = 0.0;
-    CHECK(!design::state_mpc<5>(continuous).success);
+    CHECK(!design::state_mpc<5, 5>(continuous).success);
 
     // Feedthrough (D != 0) is unsupported.
     StateSpace<2, 1, 1> feedthrough = double_integrator;
     feedthrough.D = Matrix<1, 1>{{1.0}};
-    CHECK(!design::state_mpc<5>(feedthrough).success);
+    CHECK(!design::state_mpc<5, 5>(feedthrough).success);
 
     // Non-positive slack penalty cannot keep the Hessian PD.
     design::MPCWeights<1, 1> weights{};
     weights.ecr_weight = 0.0;
-    CHECK(!design::state_mpc<5>(double_integrator, weights).success);
+    CHECK(!design::state_mpc<5, 5>(double_integrator, weights).success);
 }
 
 TEST_CASE("mpc is constexpr") {
-    constexpr auto art = design::state_mpc<3>(double_integrator);
+    constexpr auto art = design::state_mpc<3, 3>(double_integrator);
     static_assert(art.success);
     static_assert(art.max_qp_iterations > 0);
 }
 
 TEST_CASE("artifact float conversion maps the unbounded sentinels safely") {
-    constexpr auto art = design::state_mpc<3>(double_integrator);
+    constexpr auto art = design::state_mpc<3, 3>(double_integrator);
     constexpr auto art_f = art.as<float>();
     static_assert(art_f.success);
 
@@ -493,7 +493,7 @@ TEST_CASE("unconstrained analysis gain matches the LQR-equivalent design") {
     weights.Rdu = Matrix<1, 1>{};
     weights.Ru = R;
 
-    const auto art = design::state_mpc<8>(double_integrator_full, weights);
+    const auto art = design::state_mpc<8, 8>(double_integrator_full, weights); // a free move every step: equals LQR
     REQUIRE(art.success);
 
     const auto models = design::build_mpc_analysis_models(double_integrator_full, art);
@@ -528,7 +528,7 @@ TEST_CASE("unconstrained closed-loop model is stable with unit DC gain") {
 }
 
 TEST_CASE("MPC reset and bumpless seeding") {
-    const auto art = design::state_mpc<5>(double_integrator);
+    const auto art = design::state_mpc<5, 5>(double_integrator);
     REQUIRE(art.success);
 
     MPC controller{art};

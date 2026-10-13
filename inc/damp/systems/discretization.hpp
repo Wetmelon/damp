@@ -321,6 +321,52 @@ template<typename T>
     return (ratio - static_cast<T>(whole) > tol) ? whole + 1 : whole;
 }
 
+/// An input delay split for the predictor form (InputDelayPredictor): @ref whole samples for
+/// the predictor, and the remainder @ref fraction [s] (0 ≤ fraction < Ts) for the design model.
+template<typename T>
+struct InputDelaySplit {
+    size_t whole{0};       ///< whole samples: InputDelayPredictor's D
+    T      fraction{T{0}}; ///< [s] the rest: discretize(sys, Ts, InputDelay<1>{fraction}) when nonzero, discretize(sys, Ts) when zero
+};
+
+/**
+ * @brief Split an input delay into whole samples and a remainder below one sample.
+ *
+ * The predictor form keeps the whole part out of the model (InputDelayPredictor) and gives
+ * the design only the remainder, as one register state: `discretize(sys, Ts, InputDelay<1>{s.fraction})`.
+ * A delay that is a whole number of samples (to 16·eps) has fraction 0 and needs no register.
+ */
+template<typename T>
+[[nodiscard]] constexpr InputDelaySplit<T> split_input_delay(T delay, T sampling_time) {
+    InputDelaySplit<T> out{};
+    if (!(delay > T{0}) || !(sampling_time > T{0})) {
+        return out;
+    }
+    const T ratio = delay / sampling_time;
+    const T tol = T{16} * eps<T>() * damp::max(T{1}, ratio);
+    out.whole = static_cast<size_t>(ratio + tol);
+    out.fraction = (ratio - static_cast<T>(out.whole) > tol) ? (delay - (static_cast<T>(out.whole) * sampling_time)) : T{0};
+    return out;
+}
+
+namespace detail {
+
+/// Whole periods of an input delay given in periods, as the design calls take it (2.5 → 2).
+[[nodiscard]] constexpr size_t whole_periods(double periods) {
+    return split_input_delay(periods, 1.0).whole;
+}
+
+/// Whether an input delay given in periods has a fraction of a period left over (2.5: yes, 3.0: no).
+[[nodiscard]] constexpr bool has_fractional_period(double periods) {
+    return split_input_delay(periods, 1.0).fraction > 0.0;
+}
+
+/// Always false: a design call given its delay as an integer (a static_assert names the fix).
+template<auto>
+inline constexpr bool integer_delay = false;
+
+} // namespace detail
+
 /**
  * @brief An input delay for discretize. @p D past-input blocks become states, so D is part of
  *        the type. `InputDelay<2>{}` is exactly two samples; give @ref seconds only for a
@@ -347,6 +393,11 @@ struct InputDelay {
  * no process noise, and their reference is filled in (the past u*, the outputs the reference
  * produced). A state-feedback law still needs the whole state: the plant's plus the commands
  * already sent.
+ *
+ * The model grows by D·NU states. The predictor form, discretize with PredictedInputDelay plus
+ * OFLQG / OffsetFreeMPC with their delay parameter, is the same law at NX + NU states for any
+ * delay and is the default; this register form stays for OFLQG trajectory tracking and for
+ * models that other designs consume as plain state space.
  *
  * Write the delay as @f$ d\,T_s + \tau @f$, @f$ 0 \le \tau < T_s @f$. A whole delay (τ = 0)
  * is a shift of the discretized input and works with any @p method, and on a model that is
@@ -408,6 +459,71 @@ template<size_t D, size_t NX, size_t NU, size_t NY, typename T = double, size_t 
     const auto              tail = detail::discretize_zoh_impl(sys, Ts - tau); // e^{A(Ts−τ)}, ∫₀^{Ts−τ} e^{Aη}dη B
     const Matrix<NX, NU, T> gamma1 = tail.A * head.B;
     return detail::delay_line<D>(full, tail.B, d, gamma1, sys.D, d + 1);
+}
+
+/**
+ * @brief An input delay for discretize in the predictor form (the default for a delay of any
+ *        length): the D whole samples stay out of the model and in the runtime's
+ *        InputDelayPredictor; the model keeps one register state for the remainder below a
+ *        sample. `PredictedInputDelay<2>{}` is exactly two samples; give @ref seconds for a
+ *        fractional delay, with D = split_input_delay(seconds, Ts).whole. The design calls take
+ *        the delay in periods instead and build this themselves (design::mpc<NP, NC, θ / Ts>).
+ */
+template<size_t D, typename T = double>
+struct PredictedInputDelay {
+    T seconds{T{0}}; ///< [s] delay between a command and the plant receiving it; 0: exactly D samples
+};
+
+/**
+ * @brief Discretize for the predictor form: NX + NU states, whatever the delay.
+ *
+ * Write the delay as @f$ d\,T_s + \tau @f$, @f$ 0 \le \tau < T_s @f$. The d whole samples
+ * are handled at run time by InputDelayPredictor (OFLQG and OffsetFreeMPC with D = d), which
+ * applies the delay-free law to the state the command will meet. The model carries only the
+ * remainder, as one register state:
+ * @f[
+ *   x_{k+1} = \Phi x_k + \Gamma_0 v_k + \Gamma_1 v_{k-1},
+ * @f]
+ * with @f$ v @f$ the command stream delayed by the d whole samples and @f$ \Gamma_1 = 0 @f$
+ * when the delay is a whole number of samples. The same law as discretize with
+ * InputDelay<D> (tests/test_delay_predictor.cpp), at NX + NU states instead of NX + D·NU.
+ *
+ * @code
+ * constexpr PredictedInputDelay<2> delay{5.0};                  // 2 whole periods + 1 s at Ts = 2 s
+ * constexpr auto model = discretize(plant, 2.0, delay);         // NX + NU states
+ * @endcode
+ * The design calls take the continuous plant and the delay directly and do this themselves:
+ * `design::mpc<NP, NC, kDeadTime / kTs>(plant, Ts, ...)`.
+ *
+ * @return The model, or nullopt if Ts ≤ 0, the delay is negative or NaN, D is not its whole
+ *         samples, a fractional remainder is asked of a non-ZOH method or of a discrete model,
+ *         or a discrete model's Ts differs.
+ */
+template<size_t D, size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, size_t NV = 0>
+[[nodiscard]] constexpr damp::optional<StateSpace<NX + NU, NU, NY, T, NW, NV>> discretize(
+    const StateSpace<NX, NU, NY, T, NW, NV>& sys,
+    T                                        sampling_time,
+    PredictedInputDelay<D, T>                delay,
+    DiscretizationMethod                     method = DiscretizationMethod::ZOH
+) {
+    if (delay.seconds == T{0}) {
+        delay.seconds = static_cast<T>(D) * sampling_time; // unspecified: exactly D samples
+    }
+    if (!(sampling_time > T{0}) || !(delay.seconds >= T{0})) {
+        return damp::nullopt;
+    }
+    const auto split = split_input_delay(delay.seconds, sampling_time);
+    if (split.whole != D) {
+        return damp::nullopt;
+    }
+    if (split.fraction > T{0}) {
+        return discretize(sys, sampling_time, InputDelay<1, T>{split.fraction}, method);
+    }
+    const auto base = discretize(sys, sampling_time, method);
+    if (!base) {
+        return damp::nullopt;
+    }
+    return detail::delay_line<1>(*base, base->B, 0, Matrix<NX, NU, T>{}, base->D, 0); // the tap carries nothing: Γ₁ = 0
 }
 
 // ---- Output delay -----------------------------------------------------------

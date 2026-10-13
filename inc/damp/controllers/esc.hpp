@@ -38,6 +38,7 @@
 
 #include <type_traits>
 
+#include "damp/backend.hpp"
 #include "damp/math/math.hpp"            // damp::sin/cos, damp::clamp, numbers
 #include "damp/matrix/matrix_traits.hpp" // scalar_type_t, default_tol
 
@@ -247,6 +248,9 @@ public:
 
     constexpr explicit ExtremumSeekingController(const design::ESCResult<T>& design)
         : config_(design.config), uhat_(design.config.u_init), valid_(design.success && design.config.valid()) {
+        if (!design.success && std::is_constant_evaluated()) {
+            ::damp::detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed design does not compile
+        }
         init_phasors();
     }
 

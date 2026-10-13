@@ -288,7 +288,11 @@ public:
         : config_(config), valid_(config.valid() && config.period + config.q_half <= MaxPeriod) {}
 
     constexpr explicit RepetitiveController(const design::RepetitiveResult<T, MaxQHalf>& design)
-        : config_(design.config), valid_(design.success && design.config.period + design.config.q_half <= MaxPeriod) {}
+        : config_(design.config), valid_(design.success && design.config.period + design.config.q_half <= MaxPeriod) {
+        if (!design.success && std::is_constant_evaluated()) {
+            ::damp::detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed design does not compile
+        }
+    }
 
     /// Convert across scalar precision, preserving the learned internal model.
     template<typename U>

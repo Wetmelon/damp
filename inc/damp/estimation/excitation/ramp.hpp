@@ -5,6 +5,8 @@
 
 #pragma once
 
+#include <type_traits>
+
 /**
  * @file ramp.hpp
  * @brief Ramp excitation — design payload and runtime generator
@@ -115,7 +117,11 @@ public:
      * @param Ts     Optional sample period for internal `step()` mode.
      */
     constexpr explicit Ramp(const design::RampResult<T>& design, T Ts = T{0})
-        : config_(design.config), Ts_(Ts), valid_(design.success) {}
+        : config_(design.config), Ts_(Ts), valid_(design.success) {
+        if (!design.success && std::is_constant_evaluated()) {
+            ::damp::detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed design does not compile
+        }
+    }
 
     /**
      * @brief Evaluate ramp at absolute time.

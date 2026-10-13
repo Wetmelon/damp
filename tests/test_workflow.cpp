@@ -38,7 +38,7 @@ TEST_SUITE("Workflow Glue") {
         const Matrix<2, 2> Q_kf{{0.01, 0.0}, {0.0, 0.01}};
         const Matrix<1, 1> R_kf{{0.1}};
 
-        const auto artifacts = design::lqg_bundle(sys, Q_lqr, R_lqr, Q_kf, R_kf);
+        const auto artifacts = design::lqg_bundle(sys, Q_lqr, R_lqr, {.process = Q_kf, .measurement = R_kf});
 
         CHECK(artifacts.success);
         CHECK(artifacts.design.success);
@@ -75,7 +75,7 @@ TEST_SUITE("Workflow Glue") {
             0.001
         );
 
-        const auto artifacts = design::lqg_pr_bundle(sys, Q_lqr, R_lqr, Q_kf, R_kf, pr);
+        const auto artifacts = design::lqg_pr_bundle(sys, Q_lqr, R_lqr, {.process = Q_kf, .measurement = R_kf}, pr);
 
         CHECK(artifacts.success);
         CHECK(artifacts.runtime_pr.pr_design.Ki == doctest::Approx(10.0f));
@@ -134,7 +134,7 @@ TEST_SUITE("Workflow Glue") {
         const Matrix<2, 2> Q_kf{{0.01, 0.0}, {0.0, 0.01}};
         const Matrix<1, 1> R_kf{{0.1}};
 
-        const auto artifacts = design::lqgi_bundle(sys, Q_aug, R, Q_kf, R_kf);
+        const auto artifacts = design::lqgi_bundle(sys, Q_aug, R, {.process = Q_kf, .measurement = R_kf});
 
         CHECK(artifacts.success);
         CHECK(artifacts.design.success);
@@ -254,8 +254,8 @@ TEST_SUITE("Workflow Glue") {
         // LQGI: the same argument, an estimator underneath.
         const Matrix<2, 2> Q_kf{{0.01, 0.0}, {0.0, 0.01}};
         const Matrix<2, 2> R_kf{{0.1, 0.0}, {0.0, 0.1}};
-        const auto         lqgi_index = design::lqgi_bundle(sys, Q_aug, R, Q_kf, R_kf, {0});
-        const auto         lqgi_selector = design::lqgi_bundle(sys, Q_aug, R, Q_kf, R_kf, pick_position);
+        const auto         lqgi_index = design::lqgi_bundle(sys, Q_aug, R, {.process = Q_kf, .measurement = R_kf}, {0});
+        const auto         lqgi_selector = design::lqgi_bundle(sys, Q_aug, R, {.process = Q_kf, .measurement = R_kf}, pick_position);
         REQUIRE(lqgi_index.success);
         REQUIRE(lqgi_selector.success);
         CHECK(lqgi_index.design.lqi.K(0, 2) == doctest::Approx(direct.K(0, 2)));
@@ -271,6 +271,6 @@ TEST_SUITE("Workflow Glue") {
 
         // An index past the last output is an invalid configuration, in either bundle.
         CHECK_FALSE(design::lqi_bundle(sys, Q_aug, R, {2}).success);
-        CHECK_FALSE(design::lqgi_bundle(sys, Q_aug, R, Q_kf, R_kf, {2}).success);
+        CHECK_FALSE(design::lqgi_bundle(sys, Q_aug, R, {.process = Q_kf, .measurement = R_kf}, {2}).success);
     }
 }

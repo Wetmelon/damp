@@ -59,14 +59,14 @@
  * // Level estimator that can never report a negative level:
  * constexpr design::MHEConstraints<1> limits{.x_min = ColVec<1>{0.0}};
  * constexpr auto art = design::mhe<8>(tank, Q, R, limits);
- * static_assert(art.success);
- * MHE estimator{art.as<float>()};
+ * static constinit MHE estimator{art.as<float>()}; // a failed design does not compile
  * // each tick: x_hat = estimator.update(y, u_previous);
  * @endcode
  */
 
 #include <cstddef>
 #include <limits>
+#include <type_traits>
 
 #include "damp/backend.hpp"
 #include "damp/design/qp.hpp"
@@ -333,7 +333,11 @@ public:
     constexpr MHE() = default;
     /// Failed artifacts: valid_ = false; update holds last estimate and skips the QP.
     constexpr explicit MHE(const Artifacts& artifacts)
-        : art(artifacts), valid_(artifacts.success) {}
+        : art(artifacts), valid_(artifacts.success) {
+        if (!artifacts.success && std::is_constant_evaluated()) {
+            ::damp::detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed design does not compile
+        }
+    }
 
     /// Seed the arrival-state prior (call before the first update)
     constexpr void set_initial_state(const ColVec<NX, T>& x0) { x_bar = x0; }

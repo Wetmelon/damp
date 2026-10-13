@@ -131,36 +131,37 @@ template<typename T>
  *
  * @p A is overwritten by D⁻¹ A D with D = diag(2^exp). Diagonal entries are
  * ignored by the caller (they are zero), matching the Benner / SciPy recipe
- * of clearing diag(|H|) before balancing. Returns false if a norm overflows.
+ * of clearing diag(|H|) before balancing. Row and column norms are scaled
+ * (damp::detail::scaled_norm2), so entries anywhere in the finite range balance:
+ * a plain sum of squares overflows past √max and flushes small rows to zero.
  *
+ * @return false, with @p A and @p exp untouched, if @p A holds a non-finite entry.
  * @see LAPACK xGEBAL, JOB='S'
+ * @see "Balancing a Matrix for Calculation of Eigenvalues and Eigenvectors" (Parlett & Reinsch, 1969)
  */
 template<size_t M, typename T>
 [[nodiscard]] constexpr bool gebal_log2_scale(Matrix<M, M, T>& A, damp::array<int, M>& exp) {
+    for (size_t i = 0; i < M; ++i) {
+        for (size_t j = 0; j < M; ++j) {
+            if (!damp::isfinite(A(i, j))) {
+                return false;
+            }
+        }
+    }
     const T sfmin1 = std::numeric_limits<T>::min() / eps<T>();
     const T sfmax1 = T{1} / sfmin1;
 
     for (int sweep = 0; sweep < 64; ++sweep) {
         bool noconv = false;
         for (size_t i = 0; i < M; ++i) {
-            T c2 = T{0};
-            T r2 = T{0};
             T ca = T{0};
             T ra = T{0};
             for (size_t j = 0; j < M; ++j) {
-                const T aij = damp::abs(A(i, j));
-                const T aji = damp::abs(A(j, i));
-                r2 += aij * aij;
-                c2 += aji * aji;
-                if (aij > ra) {
-                    ra = aij;
-                }
-                if (aji > ca) {
-                    ca = aji;
-                }
+                ra = damp::max(ra, damp::abs(A(i, j)));
+                ca = damp::max(ca, damp::abs(A(j, i)));
             }
-            const T    c = damp::sqrt(c2);
-            const T    r = damp::sqrt(r2);
+            const T    c = damp::detail::scaled_norm2<T>(M, [&](size_t j) { return damp::abs(A(j, i)); });
+            const T    r = damp::detail::scaled_norm2<T>(M, [&](size_t j) { return damp::abs(A(i, j)); });
             const auto step = gebal_step(c, r, ca, ra);
             if (!step.apply) {
                 continue;
@@ -220,7 +221,7 @@ template<size_t N, typename T>
     }
     damp::array<int, N> e{};
     if (!gebal_log2_scale(mag, e)) {
-        return damp::array<int, N>{}; // a norm overflowed: leave A unscaled
+        return damp::array<int, N>{}; // a non-finite entry: leave A unscaled
     }
     return e;
 }
@@ -313,41 +314,137 @@ constexpr void hessenberg_reduce(Matrix<N, N, T>& H, Matrix<N, N, T>& Z) {
     }
 }
 
+/// Eigenvalues of a standardized 2×2 Schur block (wi = 0 for a real pair).
+template<typename T>
+struct SchurBlockEigenvalues {
+    T wr0{T{0}}; ///< Real part, leading position
+    T wi0{T{0}}; ///< Imaginary part, leading position (positive for a complex pair)
+    T wr1{T{0}}; ///< Real part, trailing position
+    T wi1{T{0}}; ///< Imaginary part, trailing position
+};
+
 /**
- * @brief Rotate a deflated 2×2 block with real eigenvalues to upper-triangular form.
+ * @brief Apply the rotation G = [[c, −s], [s, c]] as Gᵀ·H·G on rows/columns i, i+1.
  *
- * Applies the Givens rotation of EISPACK `hqr2` to rows/columns @p n−1, @p n of
- * @p H and to the Schur vectors @p Z, so @c H(n,n−1) → 0 and the leading
- * eigenvalue moves to @c H(n−1,n−1). @p z is the stable root offset
- * @f$ p + \operatorname{sign}(p)\sqrt{p^2 + w} @f$ of the block.
+ * H is upper quasi-triangular outside the 2×2 block at i, so the rows are rotated from
+ * column i on and the columns down to row i+1. The Schur vectors take Z·G.
  */
 template<typename T, size_t N>
-constexpr void triangularize_real_block(Matrix<N, N, T>& H, Matrix<N, N, T>& Z, size_t n, T z) {
-    const T sub = H(n, n - 1);
-    const T s = damp::abs(sub) + damp::abs(z);
-    if (s == T{0}) {
-        return;
+constexpr void rotate_schur_pair(Matrix<N, N, T>& H, Matrix<N, N, T>& Z, size_t i, T c, T s) {
+    for (size_t j = i; j < N; ++j) {
+        const T h0 = H(i, j);
+        const T h1 = H(i + 1, j);
+        H(i, j) = (c * h0) + (s * h1);
+        H(i + 1, j) = (c * h1) - (s * h0);
     }
-    T       p = sub / s;
-    T       q = z / s;
-    const T r = damp::sqrt((p * p) + (q * q));
-    p /= r;
-    q /= r;
-    for (size_t j = n - 1; j < N; ++j) {
-        const T h = H(n - 1, j);
-        H(n - 1, j) = (q * h) + (p * H(n, j));
-        H(n, j) = (q * H(n, j)) - (p * h);
+    for (size_t r = 0; r <= i + 1; ++r) {
+        const T h0 = H(r, i);
+        const T h1 = H(r, i + 1);
+        H(r, i) = (c * h0) + (s * h1);
+        H(r, i + 1) = (c * h1) - (s * h0);
     }
-    for (size_t i = 0; i <= n; ++i) {
-        const T h = H(i, n - 1);
-        H(i, n - 1) = (q * h) + (p * H(i, n));
-        H(i, n) = (q * H(i, n)) - (p * h);
+    for (size_t r = 0; r < N; ++r) {
+        const T z0 = Z(r, i);
+        const T z1 = Z(r, i + 1);
+        Z(r, i) = (c * z0) + (s * z1);
+        Z(r, i + 1) = (c * z1) - (s * z0);
     }
-    for (size_t i = 0; i < N; ++i) {
-        const T v = Z(i, n - 1);
-        Z(i, n - 1) = (q * v) + (p * Z(i, n));
-        Z(i, n) = (q * Z(i, n)) - (p * v);
+}
+
+/**
+ * @brief Bring the 2×2 diagonal block at @p i to the standard real Schur form.
+ *
+ * A block with real eigenvalues is triangularized; one with a complex pair is rotated to
+ * equal diagonal entries with off-diagonal entries of opposite sign, so its eigenvalues are
+ * @f$ m \pm i\sqrt{|b|}\sqrt{|c|} @f$. Both are orthogonal similarities on rows and columns
+ * i, i+1, accumulated into @p Z.
+ *
+ * For @f$ \bigl[\begin{smallmatrix} a & b \\ c & d \end{smallmatrix}\bigr] @f$ the
+ * eigenvalues are real when @f$ p^2 + bc \ge 0 @f$, @f$ p = (a-d)/2 @f$, evaluated on the
+ * entries divided by @f$ \max(|p|, |b|, |c|) @f$ so it cannot overflow. A real pair comes
+ * from the root @f$ z = p + \operatorname{sign}(p)\sqrt{p^2+bc} @f$, which never cancels:
+ * @f$ \lambda_0 = d + z @f$, @f$ \lambda_1 = d - (b/z)c @f$, and the rotation whose first
+ * column is the eigenvector @f$ [z, c] @f$ zeroes c. Taking @f$ (a+d)/2 \pm \sqrt{\cdot} @f$
+ * instead would lose a small eigenvalue next to a large one. A complex pair takes the
+ * rotation by θ with @f$ (\cos 2\theta, \sin 2\theta) \propto (b+c,\, d-a) @f$, chosen with
+ * @f$ \cos 2\theta \ge 0 @f$ so @f$ \cos\theta \ge 1/\sqrt 2 @f$; it equalizes the diagonal
+ * and leaves @f$ b - c @f$, the skew part, unchanged.
+ *
+ * @see "Matrix Computations" (Golub & Van Loan, 2013), §7.4.1 (real Schur form)
+ * @see "On swapping diagonal blocks in real Schur form" (Bai & Demmel, 1993), §2 (standardized blocks)
+ *
+ * @return The block's eigenvalues; a complex pair has wi0 > 0 and wi1 = −wi0.
+ */
+template<typename T, size_t N>
+constexpr SchurBlockEigenvalues<T> standardize_schur_block(Matrix<N, N, T>& H, Matrix<N, N, T>& Z, size_t i) {
+    SchurBlockEigenvalues<T> ev{};
+    const T                  a = H(i, i);
+    const T                  b = H(i, i + 1);
+    const T                  c = H(i + 1, i);
+    const T                  d = H(i + 1, i + 1);
+    if (c == T{0}) {
+        ev.wr0 = a;
+        ev.wr1 = d;
+        return ev;
     }
+    const T p = static_cast<T>(0.5) * (a - d);
+    const T scale = damp::max(damp::abs(p), damp::max(damp::abs(b), damp::abs(c)));
+    const T ps = p / scale;
+    const T disc = (ps * ps) + ((b / scale) * (c / scale)); // (p² + bc) / scale²
+    if (disc >= T{0}) {
+        const T root = scale * damp::sqrt(disc);
+        const T z = p + damp::copysign(root, p);
+        const T l0 = d + z;
+        const T l1 = (z != T{0}) ? (d - ((b / z) * c)) : a; // z = 0 only when a = d and b = 0
+        const T r = damp::sqrt((z * z) + (c * c));
+        rotate_schur_pair(H, Z, i, z / r, c / r);
+        H(i, i) = l0;
+        H(i + 1, i + 1) = l1;
+        H(i + 1, i) = T{0};
+        ev.wr0 = l0;
+        ev.wr1 = l1;
+        return ev;
+    }
+    // Complex pair: equalize the diagonal.
+    T       c2 = b + c;
+    T       s2 = d - a;
+    const T r2 = damp::sqrt((c2 * c2) + (s2 * s2));
+    if (r2 > T{0}) {
+        if (c2 < T{0}) {
+            c2 = -c2;
+            s2 = -s2;
+        }
+        const T cs = damp::sqrt(static_cast<T>(0.5) * (T{1} + (c2 / r2)));
+        const T sn = (s2 / r2) / (T{2} * cs);
+        rotate_schur_pair(H, Z, i, cs, sn);
+    }
+    const T m = static_cast<T>(0.5) * (H(i, i) + H(i + 1, i + 1));
+    H(i, i) = m;
+    H(i + 1, i + 1) = m;
+    const T b1 = H(i, i + 1);
+    const T c1 = H(i + 1, i);
+    if ((b1 > T{0} && c1 < T{0}) || (b1 < T{0} && c1 > T{0})) {
+        const T im = damp::sqrt(damp::abs(b1)) * damp::sqrt(damp::abs(c1));
+        ev.wr0 = m;
+        ev.wr1 = m;
+        ev.wi0 = im;
+        ev.wi1 = -im;
+        return ev;
+    }
+    // Rounding left a (nearly) double real eigenvalue: triangularize about m with the
+    // eigenvector [√|b₁|, sign(c₁)√|c₁|] of m + √|b₁c₁|.
+    const T sb = damp::sqrt(damp::abs(b1));
+    const T sc = damp::sqrt(damp::abs(c1));
+    const T r = damp::sqrt((sb * sb) + (sc * sc));
+    if (r > T{0}) {
+        rotate_schur_pair(H, Z, i, sb / r, damp::copysign(sc, c1) / r);
+    }
+    H(i, i) = m + (sb * sc);
+    H(i + 1, i + 1) = m - (sb * sc);
+    H(i + 1, i) = T{0};
+    ev.wr0 = H(i, i);
+    ev.wr1 = H(i + 1, i + 1);
+    return ev;
 }
 
 /**
@@ -360,8 +457,18 @@ constexpr void triangularize_real_block(Matrix<N, N, T>& H, Matrix<N, N, T>& Z, 
  * this robust for complex and equal-magnitude spectra that unshifted QR cannot
  * deflate.
  *
+ * A subdiagonal entry is taken as zero by the Ahues–Tisseur criterion: the usual
+ * @f$ |h_{k,k-1}| \le \epsilon(|h_{k-1,k-1}| + |h_{kk}|) @f$, and then also
+ * @f$ |h_{k,k-1}|\,|h_{k-1,k}| \le \epsilon\,|h_{kk}|\,|h_{k-1,k-1} - h_{kk}| @f$, the
+ * product that actually moves the eigenvalue. The first test alone deflates too early on a
+ * graded matrix and costs a small eigenvalue all its digits. Exceptional shifts come every
+ * ten sweeps on the current eigenvalue (the count restarts at each deflation); a separate
+ * count bounds the total work. A converged 2×2 block is standardized
+ * (standardize_schur_block).
+ *
  * @return true if every eigenvalue deflated within the iteration budget.
  * @see EISPACK `hqr2`; Golub & Van Loan, "Matrix Computations" §7.5
+ * @see "A New Deflation Criterion for the QR Algorithm" (Ahues & Tisseur, 1997), LAPACK Working Note 122
  *
  * Indexing: EISPACK/Golub–Van Loan use a signed active-block cursor that
  * counts down through −1 as the exit condition. Accesses cast to size_t; the
@@ -379,6 +486,7 @@ constexpr bool francis_qr(
     damp::array<T, N>& wi
 ) {
     constexpr T  eps = damp::eps<T>();
+    constexpr T  smlnum = std::numeric_limits<T>::min() * (static_cast<T>(N) / eps);
     const size_t max_its = (30 * N) + 30;
 
     T anorm = T{0};
@@ -391,7 +499,43 @@ constexpr bool francis_qr(
     int    nn = static_cast<int>(N) - 1;
     T      t = T{0}; // accumulated shift
     bool   converged = true;
-    size_t its = 0;
+    size_t its = 0;      // total sweeps: the budget
+    size_t its_here = 0; // sweeps on the current eigenvalue: the exceptional-shift schedule
+
+    // Ahues–Tisseur: may H(l, l−1) be taken as zero? Diagonal entries carry −t.
+    const auto negligible = [&](int l, int last) {
+        const T h = damp::abs(H(l, l - 1));
+        if (h <= smlnum) {
+            return true;
+        }
+        const T hll = H(l, l) + t;
+        const T hpp = H(l - 1, l - 1) + t;
+        T       tst = damp::abs(hpp) + damp::abs(hll);
+        if constexpr (N >= 3) {
+            if (tst == T{0}) {
+                if (l >= 2) {
+                    tst += damp::abs(H(l - 1, l - 2));
+                }
+                if (l + 1 <= last) {
+                    tst += damp::abs(H(l + 1, l));
+                }
+            }
+        }
+        if (tst == T{0}) {
+            tst = anorm;
+        }
+        if (h > eps * tst) {
+            return false;
+        }
+        const T up = damp::abs(H(l - 1, l));
+        const T ab = damp::max(h, up);
+        const T ba = damp::min(h, up);
+        const T gap = damp::abs(hpp - hll);
+        const T aa = damp::max(damp::abs(hll), gap);
+        const T bb = damp::min(damp::abs(hll), gap);
+        const T sc = aa + ab;
+        return ba * (ab / sc) <= damp::max(smlnum, eps * (bb * (aa / sc)));
+    };
 
     while (nn >= 0) {
         bool deflated = false;
@@ -399,11 +543,7 @@ constexpr bool francis_qr(
             // Locate the first small subdiagonal element (deflation point).
             int l = nn;
             while (l > 0) {
-                T s = damp::abs(H(l - 1, l - 1)) + damp::abs(H(l, l));
-                if (s == T{0}) {
-                    s = anorm;
-                }
-                if (damp::abs(H(l, l - 1)) <= eps * s) {
+                if (negligible(l, nn)) {
                     H(l, l - 1) = T{0};
                     break;
                 }
@@ -419,6 +559,7 @@ constexpr bool francis_qr(
                 wr[nn] = x + t;
                 wi[nn] = T{0};
                 --nn;
+                its_here = 0;
                 deflated = true;
                 break;
             }
@@ -426,31 +567,17 @@ constexpr bool francis_qr(
             T y = H(nn - 1, nn - 1);
             T w = H(nn, nn - 1) * H(nn - 1, nn);
             if (l == nn - 1) {
-                // A 2×2 block has converged: solve its characteristic quadratic.
-                T p = static_cast<T>(0.5) * (y - x);
-                T q = (p * p) + w;
-                T z = damp::sqrt(damp::abs(q));
-                x += t;
-                // Restore the accumulated shift to the block diagonal so H stays
-                // a valid real Schur form (off-diagonals are shift-invariant).
+                // A 2×2 block has converged. Restore the accumulated shift to its diagonal
+                // (off-diagonals are shift-invariant), then bring it to standard form.
                 H(nn - 1, nn - 1) = y + t;
-                H(nn, nn) = x;
-                if (q >= T{0}) {
-                    // Real eigenvalue pair.
-                    z = p + damp::copysign(z, p);
-                    wr[nn - 1] = x + z;
-                    wr[nn] = (z != T{0}) ? (x - (w / z)) : (x + z);
-                    wi[nn - 1] = T{0};
-                    wi[nn] = T{0};
-                    triangularize_real_block(H, Z, static_cast<size_t>(nn), z);
-                } else {
-                    // Complex conjugate pair.
-                    wr[nn - 1] = x + p;
-                    wr[nn] = x + p;
-                    wi[nn - 1] = z;
-                    wi[nn] = -z;
-                }
+                H(nn, nn) = x + t;
+                const auto ev = standardize_schur_block(H, Z, static_cast<size_t>(nn - 1));
+                wr[nn - 1] = ev.wr0;
+                wi[nn - 1] = ev.wi0;
+                wr[nn] = ev.wr1;
+                wi[nn] = ev.wi1;
                 nn -= 2;
+                its_here = 0;
                 deflated = true;
                 break;
             }
@@ -473,8 +600,8 @@ constexpr bool francis_qr(
                     break;
                 }
 
-                // Exceptional shift every 10 iterations to break out of cycles.
-                if ((its % 10 == 9) && (its != 0)) {
+                // Exceptional shift every 10 sweeps on this eigenvalue to break out of cycles.
+                if (its_here > 0 && its_here % 10 == 0) {
                     t += x;
                     for (int i = 0; i <= nn; ++i) {
                         H(i, i) -= x;
@@ -485,6 +612,7 @@ constexpr bool francis_qr(
                     w = static_cast<T>(-0.4375) * s * s;
                 }
                 ++its;
+                ++its_here;
 
                 // Find two consecutive small subdiagonals to start the bulge.
                 int m = nn - 2;
@@ -584,6 +712,14 @@ constexpr bool francis_qr(
                     }
                 }
             }
+        }
+    }
+    // The bulge chase leaves entries below the subdiagonal that the reflections annihilated
+    // in exact arithmetic but never stored as zero (EISPACK clears them only at the start of
+    // the next sweep). The Schur form has structural zeros there.
+    for (size_t i = 2; i < N; ++i) {
+        for (size_t j = 0; j + 1 < i; ++j) {
+            H(i, j) = T{0};
         }
     }
     return converged;

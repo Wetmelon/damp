@@ -27,7 +27,9 @@
  */
 
 #include <cstddef>
+#include <type_traits>
 
+#include "damp/backend.hpp"
 #include "damp/math/geometry.hpp"
 #include "damp/math/math.hpp"
 #include "damp/matrix/colvec.hpp"
@@ -391,7 +393,11 @@ public:
      * @param design  @ref design::ESKFResult from design::eskf_imu or design::eskf_marg
      */
     constexpr ESKFOrientationFilter(const design::ESKFResult<kNdx, kNy, T>& design)
-        : eskf_(design), q_nom_(Quaternion<T>::identity()), b_g_nom_{} {}
+        : eskf_(design), q_nom_(Quaternion<T>::identity()), b_g_nom_{} {
+        if (!design.success && std::is_constant_evaluated()) {
+            ::damp::detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed design does not compile
+        }
+    }
 
     [[nodiscard]] constexpr const Quaternion<T>&         orientation() const { return q_nom_; } ///< body→world
     [[nodiscard]] constexpr const Vec3<T>&               gyro_bias() const { return b_g_nom_; } ///< [rad/s]

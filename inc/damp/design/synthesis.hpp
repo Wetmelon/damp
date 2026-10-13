@@ -25,6 +25,7 @@
 #include "damp/controllers/lqgi.hpp"
 #include "damp/controllers/lqi.hpp"
 #include "damp/controllers/pr.hpp"
+#include "damp/estimation/kalman.hpp"
 #include "damp/matrix/colvec.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "damp/systems/state_space.hpp"
@@ -313,11 +314,10 @@ template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = NX, s
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     const Matrix<NX, NX, T>&                 Q_lqr,
     const Matrix<NU, NU, T>&                 R_lqr,
-    const Matrix<NW, NW, T>&                 Q_kf,
-    const Matrix<NV, NV, T>&                 R_kf,
+    const KalmanNoise<NW, NV, T>&            noise = {},
     const Matrix<NX, NU, T>&                 N = Matrix<NX, NU, T>{}
 ) {
-    const auto design_r = design::discrete_lqg(sys, Q_lqr, R_lqr, Q_kf, R_kf, N);
+    const auto design_r = design::discrete_lqg(sys, Q_lqr, R_lqr, noise, N);
     const auto models = build_lqg_analysis_models(sys, design_r);
     const auto runtime_design = design_r.template as<TRuntime>();
 
@@ -340,12 +340,11 @@ template<size_t NX, size_t NW = NX, size_t NV = 1, typename T = double, typename
     const StateSpace<NX, 1, 1, T, NW, NV>& sys,
     const Matrix<NX, NX, T>&               Q_lqr,
     const Matrix<1, 1, T>&                 R_lqr,
-    const Matrix<NW, NW, T>&               Q_kf,
-    const Matrix<NV, NV, T>&               R_kf,
+    const KalmanNoise<NW, NV, T>&          noise,
     const design::PRResult<T>&             pr,
     const Matrix<NX, 1, T>&                N = Matrix<NX, 1, T>{}
 ) {
-    const auto base = lqg_bundle<NX, 1, 1, T, NW, NV, TRuntime>(sys, Q_lqr, R_lqr, Q_kf, R_kf, N);
+    const auto base = lqg_bundle<NX, 1, 1, T, NW, NV, TRuntime>(sys, Q_lqr, R_lqr, noise, N);
     const auto lqg_design_rt = base.design.template as<TRuntime>();
     const auto pr_design_rt = pr.template as<TRuntime>();
 
@@ -445,7 +444,7 @@ template<
  * @brief Synthesize the full LQGI servo artifact bundle in one call
  *
  * Integrates every output. To integrate a subset, add the last argument @ref discrete_lqgi
- * takes: an index list, `lqgi_bundle(sys, Q_aug, R, Q_kf, R_kf, {0, 3})`, or an NI×NY
+ * takes: an index list, `lqgi_bundle(sys, Q_aug, R, noise, {0, 3})`, or an NI×NY
  * selector Ci; Q_aug is then (NX+NI)×(NX+NI) and the runtime takes NI references. On a model
  * with delay states Q_aug may be sized to the plant, (NX_plant+NI)×(NX_plant+NI), as in
  * @ref discrete_lqgi.
@@ -457,10 +456,9 @@ template<
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     const Matrix<NQA, NQA, T>&               Q_aug,
     const Matrix<NU, NU, T>&                 R,
-    const Matrix<NW, NW, T>&                 Q_kf,
-    const Matrix<NV, NV, T>&                 R_kf
+    const KalmanNoise<NW, NV, T>&            noise = {}
 ) {
-    return detail::lqgi_artifacts<TRuntime>(sys, design::discrete_lqgi(sys, Q_aug, R, Q_kf, R_kf));
+    return detail::lqgi_artifacts<TRuntime>(sys, design::discrete_lqgi(sys, Q_aug, R, noise));
 }
 
 /// LQGI bundle integrating the outputs @p Ci selects (NI×NY).
@@ -471,14 +469,13 @@ template<
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     const Matrix<NQA, NQA, T>&               Q_aug,
     const Matrix<NU, NU, T>&                 R,
-    const Matrix<NW, NW, T>&                 Q_kf,
-    const Matrix<NV, NV, T>&                 R_kf,
+    const KalmanNoise<NW, NV, T>&            noise,
     const Matrix<NI, NY, T>&                 Ci
 ) {
-    return detail::lqgi_artifacts<TRuntime>(sys, design::discrete_lqgi(sys, Q_aug, R, Q_kf, R_kf, Ci));
+    return detail::lqgi_artifacts<TRuntime>(sys, design::discrete_lqgi(sys, Q_aug, R, noise, Ci));
 }
 
-/// LQGI bundle integrating the listed outputs, e.g. `lqgi_bundle(sys, Q_aug, R, Q_kf, R_kf, {0, 3})`.
+/// LQGI bundle integrating the listed outputs, e.g. `lqgi_bundle(sys, Q_aug, R, noise, {0, 3})`.
 /// An index outside [0, NY) reports success = false.
 template<
     size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename TRuntime = float, size_t NI,
@@ -487,11 +484,10 @@ template<
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     const Matrix<NQA, NQA, T>&               Q_aug,
     const Matrix<NU, NU, T>&                 R,
-    const Matrix<NW, NW, T>&                 Q_kf,
-    const Matrix<NV, NV, T>&                 R_kf,
+    const KalmanNoise<NW, NV, T>&            noise,
     const size_t (&outputs)[NI]
 ) {
-    return detail::lqgi_artifacts<TRuntime>(sys, design::discrete_lqgi(sys, Q_aug, R, Q_kf, R_kf, outputs));
+    return detail::lqgi_artifacts<TRuntime>(sys, design::discrete_lqgi(sys, Q_aug, R, noise, outputs));
 }
 
 } // namespace design

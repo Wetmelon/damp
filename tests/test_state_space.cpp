@@ -484,3 +484,21 @@ TEST_CASE("ss_gain / ss_integrator / mix_outputs are constexpr") {
     constexpr auto y = *mix_outputs(P, terms);
     CHECK(y.C(0, 0) == doctest::Approx(0.0));
 }
+TEST_CASE("StateSpace deduces its sizes and scalar from braces") {
+    constexpr StateSpace first_order{.A = {{-1.0 / 30.0}}, .B = {{6.0 / 30.0}}, .C = {{1.0}}};
+    static_assert(std::is_same_v<decltype(first_order), const StateSpace<1, 1, 1, double>>);
+    static_assert(first_order.B(0, 0) == 6.0 / 30.0);
+
+    constexpr StateSpace with_d{.A = {{0.9, 0.1}, {0.0, 0.8}}, .B = {{1.0, 0.0}, {0.0, 1.0}}, .C = {{1.0, 0.0}}, .D = {{0.0, 0.5}}};
+    static_assert(std::is_same_v<decltype(with_d), const StateSpace<2, 2, 1, double>>);
+    static_assert(with_d.D(0, 1) == 0.5 && with_d.Ts == 0.0);
+
+    constexpr StateSpace discrete{.A = {{0.9f}}, .B = {{1.0f}}, .C = {{1.0f}}, .Ts = 0.01f};
+    static_assert(std::is_same_v<decltype(discrete), const StateSpace<1, 1, 1, float>>);
+    static_assert(discrete.Ts == 0.01f);
+
+    constexpr StateSpace all{.A = {{0.5}}, .B = {{1.0, 2.0}}, .C = {{1.0}, {3.0}}, .D = {{0.0, 0.0}, {0.0, 1.0}}, .Ts = 0.1};
+    static_assert(std::is_same_v<decltype(all), const StateSpace<1, 2, 2, double>>);
+    static_assert(all.C(1, 0) == 3.0 && all.D(1, 1) == 1.0 && all.Ts == 0.1);
+    CHECK(all.is_discrete());
+}

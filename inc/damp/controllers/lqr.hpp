@@ -15,9 +15,8 @@
  * constexpr Matrix<2,1> B{{0.0}, {0.01}};
  * constexpr auto res = design::discrete_lqr(
  *     A, B, Matrix<2,2>::identity(), Matrix<1,1>{{0.1}});
- * static_assert(res.success);
- * LQR ctrl(res.as<float>());  // runtime defaults to float
- * auto u = ctrl.control(x);   // u = -K x
+ * static constinit LQR ctrl{res.as<float>()};  // float runtime; a failed design does not compile
+ * // each tick: auto u = ctrl.control(x);     // u = -K x
  * @endcode
  *
  * Short MATLAB®-style aliases (embeddable): design::dlqr, design::lqrd.

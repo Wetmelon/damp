@@ -106,10 +106,8 @@ inline constexpr double wc_adrc = 8.0;
 inline constexpr double wo_adrc = 40.0;
 
 inline constexpr auto smc_res = design::smc(10.0, 8.0, b_u);
-static_assert(smc_res.success);
 
 inline constexpr auto stsmc_res = design::stsmc(4.0, 10.0);
-static_assert(stsmc_res.success);
 
 // Full-state linear design
 inline constexpr damp::array<double, NX> place_poles_s{-8.0, -12.0};
@@ -117,17 +115,13 @@ inline constexpr auto                    K_place = design::place(plant.A, plant.
 static_assert(K_place.has_value());
 
 inline constexpr auto lqr_res = design::discrete_lqr(sysd.A, sysd.B, Q, R);
-static_assert(lqr_res.success);
 
 inline constexpr auto lqi_res = design::discrete_lqi(sysd, Q_aug, R);
-static_assert(lqi_res.success);
 
 // Output feedback
-inline constexpr auto lqg_res = design::discrete_lqg(sysd, Q, R, Q_kf, R_kf);
-static_assert(lqg_res.success);
+inline constexpr auto lqg_res = design::discrete_lqg(sysd, Q, R, {.process = Q_kf, .measurement = R_kf});
 
-inline constexpr auto lqgi_res = design::discrete_lqgi(sysd, Q_aug, R, Q_kf, R_kf);
-static_assert(lqgi_res.success);
+inline constexpr auto lqgi_res = design::discrete_lqgi(sysd, Q_aug, R, {.process = Q_kf, .measurement = R_kf});
 
 // Offset-free MPC — synthesis only
 inline constexpr design::MPCWeights<NU, NY> mpc_weights{
@@ -141,9 +135,8 @@ inline constexpr design::MPCConstraints<NU, NY> mpc_limits{
 };
 
 inline constexpr auto mpc_art = design::mpc<10, 4>(
-    sysd, mpc_weights, mpc_limits, Q_kf, R_kf, Matrix<NU, NU>{{1e-2}}
+    sysd, mpc_weights, mpc_limits, {.process = Q_kf, .measurement = R_kf, .disturbance = {{1e-2}}}
 );
-static_assert(mpc_art.success);
 
 /**
  * One control period: outer θ → ω*, inner ω → u.

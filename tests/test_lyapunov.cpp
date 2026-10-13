@@ -133,3 +133,174 @@ TEST_CASE("H2 norm of a continuous system with feedthrough is infinite (nullopt)
     sys.Ts = 0.0;
     CHECK_FALSE(matlab::norm(sys).has_value());
 }
+
+TEST_SUITE("Lyapunov on the Schur form") {
+    template<size_t N>
+    double maxabs(const Matrix<N, N>& M) {
+        double m = 0.0;
+        for (size_t i = 0; i < N; ++i) {
+            for (size_t j = 0; j < N; ++j) {
+                m = damp::max(m, std::abs(M(i, j)));
+            }
+        }
+        return m;
+    }
+
+    // A random 6×6 with complex eigenvalues, shifted to be Hurwitz and scaled to be Schur
+    // stable, a nonsymmetric Q and a two-column B.
+    struct Case {
+        Matrix<6, 6> Ac{};
+        Matrix<6, 6> Ad{};
+        Matrix<6, 6> Q{};
+        Matrix<6, 2> B{};
+    };
+
+    Case make_case(unsigned& seed) {
+        auto rnd = [&seed]() {
+            seed = (seed * 1103515245U) + 12345U;
+            return (static_cast<double>((seed >> 8) & 0xFFFFU) / 32768.0) - 1.0;
+        };
+        Case         c;
+        Matrix<6, 6> A{};
+        for (size_t i = 0; i < 6; ++i) {
+            for (size_t j = 0; j < 6; ++j) {
+                A(i, j) = rnd();
+                c.Q(i, j) = rnd();
+            }
+            c.B(i, 0) = rnd();
+            c.B(i, 1) = rnd();
+        }
+        const auto e = mat::compute_eigenvalues(A);
+        double     shift = -1e300;
+        double     rho = 0.0;
+        for (size_t i = 0; i < 6; ++i) {
+            shift = damp::max(shift, e.values[i].real());
+            rho = damp::max(rho, e.values[i].abs());
+        }
+        c.Ac = A;
+        for (size_t i = 0; i < 6; ++i) {
+            c.Ac(i, i) -= shift + 0.1;
+        }
+        c.Ad = A * (0.95 / rho);
+        return c;
+    }
+
+    TEST_CASE("Bartels–Stewart residuals are at rounding level") {
+        unsigned seed = 3U;
+        for (int trial = 0; trial < 100; ++trial) {
+            const auto c = make_case(seed);
+            const auto Xc = lyap(c.Ac, c.Q);
+            const auto Xd = dlyap(c.Ad, c.Q);
+            REQUIRE(Xc.has_value());
+            REQUIRE(Xd.has_value());
+            const double sc = (maxabs(c.Ac) * maxabs(*Xc)) + maxabs(c.Q);
+            CHECK(cont_residual(c.Ac, *Xc, c.Q) <= 1e-13 * sc);
+            const double sd = maxabs(*Xd) + maxabs(c.Q);
+            CHECK(disc_residual(c.Ad, *Xd, c.Q) <= 1e-13 * sd);
+        }
+    }
+
+    // The Kronecker form this replaced held an NX²×NX² system: 1.3 MB of stack at NX = 20.
+    TEST_CASE("a 20-state Lyapunov equation solves in O(NX²) storage") {
+        Matrix<20, 20> A{};
+        Matrix<20, 20> Q{};
+        for (size_t i = 0; i < 20; ++i) {
+            A(i, i) = -1.0 - (0.1 * static_cast<double>(i));
+            if (i + 1 < 20) {
+                A(i, i + 1) = 1.0;
+                A(i + 1, i) = -0.5;
+            }
+            Q(i, i) = 1.0;
+        }
+        const auto X = lyap(A, Q);
+        REQUIRE(X.has_value());
+        CHECK(cont_residual(A, *X, Q) <= 1e-13 * ((maxabs(A) * maxabs(*X)) + 1.0));
+    }
+
+    TEST_CASE("Hammarling's factor reproduces the Bartels–Stewart solution") {
+        unsigned seed = 11U;
+        for (int trial = 0; trial < 100; ++trial) {
+            const auto         c = make_case(seed);
+            const Matrix<6, 6> BBt = c.B * c.B.transpose();
+            const auto         Rc = lyapunov_cholesky(c.Ac, c.B);
+            const auto         Rd = discrete_lyapunov_cholesky(c.Ad, c.B);
+            const auto         Xc = lyap(c.Ac, BBt);
+            const auto         Xd = dlyap(c.Ad, BBt);
+            REQUIRE(Rc.has_value());
+            REQUIRE(Rd.has_value());
+            REQUIRE(Xc.has_value());
+            REQUIRE(Xd.has_value());
+            CHECK(maxabs(Rc->transpose() * *Rc - *Xc) <= 1e-13 * maxabs(*Xc));
+            CHECK(maxabs(Rd->transpose() * *Rd - *Xd) <= 1e-13 * maxabs(*Xd));
+            for (size_t i = 0; i < 6; ++i) {
+                CHECK((*Rc)(i, i) >= 0.0);
+                CHECK((*Rd)(i, i) >= 0.0);
+                for (size_t j = 0; j < i; ++j) {
+                    CHECK((*Rc)(i, j) == 0.0);
+                    CHECK((*Rd)(i, j) == 0.0);
+                }
+            }
+        }
+    }
+
+    TEST_CASE("Hammarling takes a B wider than A and refuses an unstable A") {
+        Matrix<3, 3> A{{-0.1, 1.0, 0.0}, {0.0, -1.0, 0.0}, {0.0, 0.0, -2.0}};
+        Matrix<3, 5> B{};
+        for (size_t i = 0; i < 3; ++i) {
+            for (size_t j = 0; j < 5; ++j) {
+                B(i, j) = static_cast<double>((i + 1) * (j + 2) % 7) - 3.0;
+            }
+        }
+        const auto R = lyapunov_cholesky(A, B);
+        const auto X = lyap(A, B * B.transpose());
+        REQUIRE(R.has_value());
+        REQUIRE(X.has_value());
+        CHECK(maxabs(R->transpose() * *R - *X) <= 1e-13 * maxabs(*X));
+        A(0, 0) = 0.1;
+        CHECK_FALSE(lyapunov_cholesky(A, B).has_value());
+        CHECK_FALSE(discrete_lyapunov_cholesky(A * 10.0, B).has_value());
+        CHECK(matlab::lyapchol(Matrix<3, 3>{{-1.0, 0.0, 0.0}, {0.0, -2.0, 0.0}, {0.0, 0.0, -3.0}}, B).has_value());
+    }
+
+    // A = −diag(1, …, N), B = 1: the Gramian Wᵢⱼ = 1/(i + j) is a Cauchy matrix with Cholesky
+    // pivots dₖ = 1/(2k)·Π_{j<k} ((k − j)/(k + j))², so R(k,k) = √dₖ is known exactly. At
+    // N = 12 the factor of the computed Gramian has lost all but two digits of R's diagonal;
+    // at N = 14 the computed Gramian no longer factors. Hammarling never forms it.
+    template<size_t N>
+    double hammarling_diagonal_error() {
+        Matrix<N, N> A{};
+        Matrix<N, 1> B{};
+        for (size_t i = 0; i < N; ++i) {
+            A(i, i) = -static_cast<double>(i + 1);
+            B(i, 0) = 1.0;
+        }
+        const auto R = lyapunov_cholesky(A, B);
+        REQUIRE(R.has_value());
+        double worst = 0.0;
+        for (size_t k = 0; k < N; ++k) {
+            const double ak = static_cast<double>(k + 1);
+            double       d = 1.0 / (2.0 * ak);
+            for (size_t j = 0; j < k; ++j) {
+                const double aj = static_cast<double>(j + 1);
+                const double r = (ak - aj) / (ak + aj);
+                d *= r * r;
+            }
+            worst = damp::max(worst, std::abs((*R)(k, k) - std::sqrt(d)) / std::sqrt(d));
+        }
+        return worst;
+    }
+
+    TEST_CASE("Hammarling resolves a Gramian that cholesky(lyap) cannot") {
+        CHECK(hammarling_diagonal_error<12>() <= 1e-8);
+        CHECK(hammarling_diagonal_error<14>() <= 1e-6);
+        Matrix<14, 14> A{};
+        Matrix<14, 1>  B{};
+        for (size_t i = 0; i < 14; ++i) {
+            A(i, i) = -static_cast<double>(i + 1);
+            B(i, 0) = 1.0;
+        }
+        const auto X = lyap(A, B * B.transpose());
+        REQUIRE(X.has_value());
+        CHECK_FALSE(mat::cholesky(*X).has_value());
+    }
+}

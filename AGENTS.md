@@ -189,6 +189,10 @@ fallthrough, shadowing); clang-tidy.
 - Every member has a default member initializer.
 - Single-argument constructors are `explicit`, except documented
   assign-from-design constructors.
+- A runtime constructed from a design result refuses a failed one when
+  constant-evaluated: `if (!r.success && std::is_constant_evaluated())
+  ::damp::detail::refuse_failed_design();`. `static constinit Law law{res};`
+  then needs no separate `static_assert(res.success)`.
 - No virtuals, no RTTI, no type erasure on the product path.
 
 **Annotations — only where they carry meaning**

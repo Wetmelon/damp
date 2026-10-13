@@ -11,6 +11,7 @@
  */
 
 #include <cstddef>
+#include <type_traits>
 
 #include "damp/backend.hpp"
 #include "damp/math/math.hpp"
@@ -235,7 +236,11 @@ class ADRCController {
 public:
     constexpr ADRCController() = default;
     constexpr ADRCController(const design::ADRCResult<NX, T>& result, T Ts = T{0})
-        : b0(result.b0), Kp(result.Kp), Kd(result.Kd), beta(result.beta), Ts_(Ts), valid_(result.success && result.b0 > T{0}) {}
+        : b0(result.b0), Kp(result.Kp), Kd(result.Kd), beta(result.beta), Ts_(Ts), valid_(result.success && result.b0 > T{0}) {
+        if (!result.success && std::is_constant_evaluated()) {
+            ::damp::detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed design does not compile
+        }
+    }
 
     template<typename U>
     constexpr ADRCController(const ADRCController<NX, U>& other)

@@ -67,7 +67,7 @@ int main() {
     const Matrix<2, 2> Q_kf{{1e-3, 0.0}, {0.0, 1e-2}};
     const Matrix<1, 1> R_kf{{5e-3}};
 
-    const auto artifacts = design::lqgi_bundle(sys_d, Q_aug, R, Q_kf, R_kf);
+    const auto artifacts = design::lqgi_bundle(sys_d, Q_aug, R, {.process = Q_kf, .measurement = R_kf});
     if (!artifacts.success) {
         fmt::print("LQGI synthesis failed — aborting (do not run runtime on a bad design)\n");
         return 1;

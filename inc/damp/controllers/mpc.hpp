@@ -100,8 +100,7 @@
  *     .du_min = ColVec<1>{-0.2}, .du_max = ColVec<1>{0.2},
  * };
  * constexpr auto art = design::state_mpc<15, 5>(sys, weights, limits);
- * static_assert(art.success);
- * MPC controller{art.as<float>()};
+ * static constinit MPC controller{art.as<float>()}; // a failed design does not compile
  * // each tick: u = controller.control(r, x);
  * @endcode
  */
@@ -240,6 +239,7 @@ struct MPCConstraints {
 template<size_t NX, size_t NU, size_t NY, size_t NP, size_t NC, size_t ND = 0, typename T = double>
 struct MPCArtifacts {
     static constexpr size_t NXA = NX + NU + ND;            ///< Augmented state size [x; u'_prev; d]
+    static constexpr size_t NYS = NP * NY;                 ///< Stacked outputs over the prediction horizon
     static constexpr size_t NZ = NC * NU;                  ///< Move-increment decision variables
     static constexpr size_t NZ1 = NZ + 1;                  ///< QP decision size (moves + slack ε)
     static constexpr size_t NI = (4 * NZ) + (2 * NP * NY); ///< Box-constraint rows
@@ -247,11 +247,12 @@ struct MPCArtifacts {
 
     Matrix<NZ1, NZ1, T>       H{};                 ///< QP Hessian (positive definite)
     Matrix<NZ, NXA, T>        F_x{};               ///< Gradient state map
-    Matrix<NZ, NY, T>         F_r{};               ///< Gradient reference map (scaled reference)
-    Matrix<NZ, NU, T>         F_ut{};              ///< Gradient input-target map (scaled target)
+    Matrix<NZ, NYS, T>        F_r{};               ///< Gradient reference map, one scaled reference per prediction step (preview)
+    Matrix<NZ, NZ, T>         F_ut{};              ///< Gradient input-target map, one scaled target per move
     Matrix<NI1, NZ1, T>       A_con{};             ///< Constraint rows: A_con·[Z;ε] ≤ b_bound + B_map·x̃0
     ColVec<NI1, T>            b_bound{};           ///< Constant bound term (sentinel rows disabled)
     Matrix<NI1, NXA, T>       B_map{};             ///< State-dependent bound term
+    Matrix<NY, NX, T>         C{};                 ///< Output map of the prediction model (the target's output)
     ColVec<NU, T>             scale_u{};           ///< Input scale factors
     ColVec<NY, T>             scale_y{};           ///< Output scale factors
     ColVec<NU, T>             u_target{};          ///< Initial input target (physical units)
@@ -269,6 +270,7 @@ struct MPCArtifacts {
             A_con.template as<U>(),
             detail::convert_bounds<U>(b_bound),
             B_map.template as<U>(),
+            C.template as<U>(),
             ColVec<NU, U>{scale_u.template as<U>()},
             ColVec<NY, U>{scale_y.template as<U>()},
             ColVec<NU, U>{u_target.template as<U>()},
@@ -300,6 +302,7 @@ template<size_t NP, size_t NC, size_t ND, size_t NX, size_t NU, size_t NY, typen
 
     MPCArtifacts<NX, NU, NY, NP, NC, ND, T> art{};
     art.constraints = constraints;
+    art.C = sys.C;
     art.u_target = weights.u_target;
     art.max_qp_iterations = (max_qp_iterations == 0) ? 10 * (NZ1 + NI + 1) : max_qp_iterations;
 
@@ -381,12 +384,10 @@ template<size_t NP, size_t NC, size_t ND, size_t NX, size_t NU, size_t NY, typen
     // Q̄-weighted stacks (Qy on steps 1..NP−1, Qy_terminal on step NP).
     Matrix<NYS, NZ, T>  QG{};
     Matrix<NYS, NXA, T> QPhi{};
-    Matrix<NYS, NY, T>  Qstack{};
     for (size_t kb = 0; kb < NP; ++kb) {
         const Matrix<NY, NY, T>& Qk = (kb == NP - 1) ? weights.Qy_terminal : weights.Qy;
         QG.template block<NY, NZ>(kb * NY, 0) = Qk * Gamma.template block<NY, NZ>(kb * NY, 0).to_matrix();
         QPhi.template block<NY, NXA>(kb * NY, 0) = Qk * Phi.template block<NY, NXA>(kb * NY, 0).to_matrix();
-        Qstack.template block<NY, NY>(kb * NY, 0) = Qk;
     }
 
     // Hessian: 2(ΓᵀQ̄Γ + R̄Δu + TᵀR̄uT) plus the slack corner 2ρ_ε. With T the
@@ -403,16 +404,20 @@ template<size_t NP, size_t NC, size_t ND, size_t NX, size_t NU, size_t NY, typen
     art.H.template block<NZ, NZ>(0, 0) = T{2} * Hm;
     art.H(NZ, NZ) = T{2} * weights.ecr_weight;
 
-    // Gradient maps: f = F_x x̃0 − F_r r' − F_ut u'_target. The TᵀR̄uS term hits
-    // the u'_prev columns of x̃0 (S stacks [0 I 0] over the control horizon);
-    // the target map F_ut shares the same (NC−i)·Ru block-column structure.
+    // Gradient maps: f = F_x x̃0 − F_r R' − F_ut U'_target, with R' the scaled reference at
+    // every prediction step (a held setpoint stacks NP copies) and U'_target the scaled
+    // input target at every move. The TᵀR̄uS term hits the u'_prev columns of x̃0 (S stacks
+    // [0 I 0] over the control horizon); move i's target column collects 2Ru from every move
+    // j ≥ i, since u_j carries Δu_i.
     Matrix<NZ, NXA, T> Fx = Gamma.transpose() * QPhi;
     for (size_t i = 0; i < NC; ++i) {
         Fx.template block<NU, NU>(i * NU, NX) += static_cast<T>(NC - i) * weights.Ru;
-        art.F_ut.template block<NU, NU>(i * NU, 0) = T{2} * static_cast<T>(NC - i) * weights.Ru;
+        for (size_t j = i; j < NC; ++j) {
+            art.F_ut.template block<NU, NU>(i * NU, j * NU) = T{2} * weights.Ru;
+        }
     }
     art.F_x = T{2} * Fx;
-    art.F_r = T{2} * (Gamma.transpose() * Qstack);
+    art.F_r = T{2} * QG.transpose(); // (Q̄ Γ)ᵀ = Γᵀ Q̄
 
     // Constraint stack: A_con [Z; ε] ≤ b_bound + B_map x̃0.
     // Rows: [0,NZ) Δu' ≤ du'_max · [NZ,2NZ) −Δu' ≤ −du'_min ·
@@ -499,14 +504,14 @@ template<size_t NP, size_t NC, size_t ND, size_t NX, size_t NU, size_t NY, typen
  * @see Maciejowski, "Predictive Control with Constraints," 2002, ch. 2–3
  *
  * @tparam NP  Prediction horizon (steps)
- * @tparam NC  Control horizon (moves, NC ≤ NP; default NP)
+ * @tparam NC  Control horizon (moves, NC ≤ NP)
  * @param sys                Discrete-time plant (Ts > 0, D = 0)
  * @param weights            Cost weights (default: Qy = I, RΔu = I)
  * @param constraints        Box limits (default: unbounded)
  * @param max_qp_iterations  Per-tick QP budget (0 → 10·(NZ+1 + NI+1))
  * @return MPCArtifacts for damp::MPC
  */
-template<size_t NP, size_t NC = NP, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
+template<size_t NP, size_t NC, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
 [[nodiscard]] constexpr MPCArtifacts<NX, NU, NY, NP, NC, 0, T> state_mpc(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     const MPCWeights<NU, NY, T>&             weights = {},
@@ -531,7 +536,7 @@ template<size_t NP, size_t NC = NP, size_t NX, size_t NU, size_t NY, typename T,
  * @note Compare with MATLAB®'s measured-disturbance channels (setmpcsignals 'MD').
  *
  * @tparam NP  Prediction horizon (steps)
- * @tparam NC  Control horizon (moves, NC ≤ NP; default NP)
+ * @tparam NC  Control horizon (moves, NC ≤ NP)
  * @param sys  Discrete-time plant for the manipulated inputs (Ts > 0, D = 0)
  * @param Bd   Measured-disturbance input matrix (NX × ND)
  * @param weights            Cost weights (default: Qy = I, RΔu = I)
@@ -539,7 +544,7 @@ template<size_t NP, size_t NC = NP, size_t NX, size_t NU, size_t NY, typename T,
  * @param max_qp_iterations  Per-tick QP budget (0 → 10·(NZ+1 + NI+1))
  * @return MPCArtifacts for damp::MPC
  */
-template<size_t NP, size_t NC = NP, size_t NX, size_t NU, size_t NY, size_t ND, size_t NW, size_t NV, typename T>
+template<size_t NP, size_t NC, size_t NX, size_t NU, size_t NY, size_t ND, size_t NW, size_t NV, typename T>
 [[nodiscard]] constexpr MPCArtifacts<NX, NU, NY, NP, NC, ND, T> state_mpc(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     const Matrix<NX, ND, T>&                 Bd,
@@ -712,12 +717,23 @@ template<size_t NP, size_t NC, size_t NX, size_t NU, size_t NY, size_t ND, size_
         return MPCAnalysisModels<NX, NU, NY, T>{};
     }
 
-    // Unconstrained first move in the scaled frame: Δu'0 = −[H⁻¹F_x]₀ x̃ + [H⁻¹F_r]₀ r'.
+    // Unconstrained first move in the scaled frame: Δu'0 = −[H⁻¹F_x]₀ x̃ + [H⁻¹F_r]₀ R'.
+    // F_r maps one reference per prediction step; a held setpoint is the same r at every
+    // step, so its gain is the sum of the NP block-columns.
+    constexpr size_t        NYS = MPCArtifacts<NX, NU, NY, NP, NC, ND, T>::NYS;
     const Matrix<NZ, NZ, T> Hz = artifacts.H.template block<NZ, NZ>(0, 0).to_matrix();
     const auto              Gx_opt = mat::solve(Hz, artifacts.F_x);
-    const auto              Gr_opt = mat::solve(Hz, artifacts.F_r);
-    if (!Gx_opt || !Gr_opt) {
+    const auto              Grs_opt = mat::solve(Hz, artifacts.F_r);
+    if (!Gx_opt || !Grs_opt) {
         return MPCAnalysisModels<NX, NU, NY, T>{};
+    }
+    Matrix<NZ, NY, T> Gr_held{};
+    for (size_t i = 0; i < NZ; ++i) {
+        for (size_t j = 0; j < NY; ++j) {
+            for (size_t kb = 0; kb < NYS / NY; ++kb) {
+                Gr_held(i, j) += Grs_opt.value()(i, (kb * NY) + j);
+            }
+        }
     }
 
     // Back to physical units: Δu = Su·Δu'0, x̃ = [x; Su⁻¹u_prev; d], r' = Sy⁻¹r.
@@ -732,7 +748,7 @@ template<size_t NP, size_t NC, size_t NX, size_t NU, size_t NY, size_t ND, size_
             K(i, NX + j) = (su * Gx_opt.value()(i, NX + j)) / artifacts.scale_u(j);
         }
         for (size_t j = 0; j < NY; ++j) {
-            Kr(i, j) = (su * Gr_opt.value()(i, j)) / artifacts.scale_y(j);
+            Kr(i, j) = (su * Gr_held(i, j)) / artifacts.scale_y(j);
         }
     }
 
@@ -792,10 +808,24 @@ public:
     static constexpr size_t NI1 = Artifacts::NI1;
 
     constexpr MPC() = default;
-    constexpr explicit MPC(const Artifacts& artifacts) : art(artifacts), u_target_(artifacts.u_target) {}
+    /// The output reference over the prediction horizon, one value per step (MATLAB's `ref` with preview).
+    static constexpr size_t NYS = Artifacts::NYS;
+    using Preview = damp::array<ColVec<NY, T>, NP>;
+    /// The input target over the control horizon, one value per move (MATLAB's `mv.target` with preview).
+    using InputPreview = damp::array<ColVec<NU, T>, NC>;
+
+    constexpr explicit MPC(const Artifacts& artifacts) : art(artifacts), u_target_(held_target(artifacts.u_target)) {
+        if (!artifacts.success && std::is_constant_evaluated()) {
+            ::damp::detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed design does not compile
+        }
+    }
     /// Construct with a specific solver instance (for stateful solver policies)
     constexpr MPC(const Artifacts& artifacts, const Solver& solver)
-        : art(artifacts), qp_solver_(solver), u_target_(artifacts.u_target) {}
+        : art(artifacts), qp_solver_(solver), u_target_(held_target(artifacts.u_target)) {
+        if (!artifacts.success && std::is_constant_evaluated()) {
+            ::damp::detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed design does not compile
+        }
+    }
 
     /**
      * @brief Compute the control move for the current tick (no measured disturbance)
@@ -812,6 +842,24 @@ public:
      * @return Input command u (clamped to the configured u and Δu boxes)
      */
     constexpr ColVec<NU, T> control(const ColVec<NY, T>& r, const ColVec<NX, T>& x) {
+        const ColVec<NU, T> u = feedback(r, x);
+        commit(u);
+        return u;
+    }
+
+    /**
+     * @brief Compute the control move with the reference known over the horizon (preview)
+     *
+     * @p r holds the output reference at each of the NP prediction steps, so the plan sees a
+     * setpoint change before it happens and starts moving ahead of it; a trajectory generator
+     * hands in its next NP points each tick (repeat the last known value to fill). The single-
+     * reference overloads are this call with NP copies of r.
+     *
+     * @param r  Output reference at steps 1 … NP; not state references
+     * @param x  Measured/estimated plant state
+     * @return Input command u (clamped to the configured u and Δu boxes)
+     */
+    constexpr ColVec<NU, T> control(const Preview& r, const ColVec<NX, T>& x) {
         const ColVec<NU, T> u = feedback(r, x);
         commit(u);
         return u;
@@ -836,6 +884,16 @@ public:
         return u;
     }
 
+    /// @copydoc control(const Preview&, const ColVec<NX,T>&)
+    /// @param d  Measured disturbance (held constant over the horizon)
+    constexpr ColVec<NU, T> control(const Preview& r, const ColVec<NX, T>& x, const ColVec<ND, T>& d)
+        requires(ND > 0)
+    {
+        const ColVec<NU, T> u = feedback(r, x, d);
+        commit(u);
+        return u;
+    }
+
     /**
      * @brief First half of a saturation-aware tick: this tick's move, not yet committed
      *
@@ -848,7 +906,7 @@ public:
      * @return Input command u (clamped to the configured u and Δu boxes)
      */
     [[nodiscard]] constexpr ColVec<NU, T> feedback(const ColVec<NY, T>& r, const ColVec<NX, T>& x) {
-        return control_impl(r, x, ColVec<ND, T>{});
+        return control_impl(held(r), x, ColVec<ND, T>{});
     }
 
     /// @copydoc feedback(const ColVec<NY,T>&, const ColVec<NX,T>&)
@@ -856,7 +914,61 @@ public:
     [[nodiscard]] constexpr ColVec<NU, T> feedback(const ColVec<NY, T>& r, const ColVec<NX, T>& x, const ColVec<ND, T>& d)
         requires(ND > 0)
     {
+        return control_impl(held(r), x, d);
+    }
+
+    /// feedback with the reference known over the horizon (see control(const Preview&, x)).
+    [[nodiscard]] constexpr ColVec<NU, T> feedback(const Preview& r, const ColVec<NX, T>& x) {
+        return control_impl(r, x, ColVec<ND, T>{});
+    }
+
+    /// @copydoc feedback(const Preview&, const ColVec<NX,T>&)
+    /// @param d  Measured disturbance (held constant over the horizon)
+    [[nodiscard]] constexpr ColVec<NU, T> feedback(const Preview& r, const ColVec<NX, T>& x, const ColVec<ND, T>& d)
+        requires(ND > 0)
+    {
         return control_impl(r, x, d);
+    }
+
+    /**
+     * @brief feedback about a steady-state target: the same QP, posed in deviations
+     *
+     * @p x_t, @p u_t must be an equilibrium of the prediction model under @p d
+     * (A x_t + B u_t + B_d d = x_t); the reference then reduces to r − C x_t. In exact
+     * arithmetic this returns what feedback(r, x, d) returns. In float it keeps the gradient
+     * a sum of small terms where the absolute form subtracts two large ones and, with the
+     * plant far from the origin, turns the lost digits into chatter of the held input.
+     * OffsetFreeMPC computes the target from its disturbance estimate and calls this.
+     */
+    [[nodiscard]] constexpr ColVec<NU, T>
+    feedback(const ColVec<NY, T>& r, const ColVec<NX, T>& x, const ColVec<ND, T>& d, const ColVec<NX, T>& x_t, const ColVec<NU, T>& u_t) {
+        return control_impl(held(r), x, d, x_t, u_t, ColVec<NX, T>(x - x_t), true);
+    }
+
+    /// @copydoc feedback(const ColVec<NY,T>&, const ColVec<NX,T>&, const ColVec<ND,T>&, const ColVec<NX,T>&, const ColVec<NU,T>&)
+    /// With the reference known over the horizon.
+    [[nodiscard]] constexpr ColVec<NU, T>
+    feedback(const Preview& r, const ColVec<NX, T>& x, const ColVec<ND, T>& d, const ColVec<NX, T>& x_t, const ColVec<NU, T>& u_t) {
+        return control_impl(r, x, d, x_t, u_t, ColVec<NX, T>(x - x_t), true);
+    }
+
+    /**
+     * @brief feedback about a target from the deviation itself: @p x_dev = x − x_t as the
+     *        estimator holds it, so the difference is never formed from two large numbers.
+     *
+     * The absolute state, for the output and input bounds, is x_dev + x_t. Same QP as
+     * feedback(r, x, d, x_t, u_t); OffsetFreeMPC's error-state estimator calls this.
+     */
+    [[nodiscard]] constexpr ColVec<NU, T>
+    feedback_deviation(const ColVec<NY, T>& r, const ColVec<NX, T>& x_dev, const ColVec<ND, T>& d, const ColVec<NX, T>& x_t, const ColVec<NU, T>& u_t) {
+        return control_impl(held(r), ColVec<NX, T>(x_dev + x_t), d, x_t, u_t, x_dev, true);
+    }
+
+    /// @copydoc feedback_deviation(const ColVec<NY,T>&, const ColVec<NX,T>&, const ColVec<ND,T>&, const ColVec<NX,T>&, const ColVec<NU,T>&)
+    /// With the reference known over the horizon.
+    [[nodiscard]] constexpr ColVec<NU, T>
+    feedback_deviation(const Preview& r, const ColVec<NX, T>& x_dev, const ColVec<ND, T>& d, const ColVec<NX, T>& x_t, const ColVec<NU, T>& u_t) {
+        return control_impl(r, ColVec<NX, T>(x_dev + x_t), d, x_t, u_t, x_dev, true);
     }
 
     /// Second half of the tick: hold the input the plant actually received (post-clamp).
@@ -874,21 +986,47 @@ public:
     constexpr void set_previous_control(const ColVec<NU, T>& u) { u_prev = u; }
 
     /// Override the preferred input operating point (physical units)
-    constexpr void set_input_target(const ColVec<NU, T>& u_target) { u_target_ = u_target; }
+    constexpr void set_input_target(const ColVec<NU, T>& u_target) { u_target_ = held_target(u_target); }
+
+    /// Input target per move over the control horizon (MATLAB's mv.target with preview); weighted by Ru.
+    constexpr void set_input_target(const InputPreview& u_target) { u_target_ = u_target; }
 
     /// Access the solver policy (stateful solvers expose warm-start caches here)
     [[nodiscard]] constexpr Solver&       qp_solver() { return qp_solver_; }
     [[nodiscard]] constexpr const Solver& qp_solver() const { return qp_solver_; }
 
     [[nodiscard]] constexpr const ColVec<NU, T>& previous_control() const { return u_prev; }
-    [[nodiscard]] constexpr const ColVec<NU, T>& input_target() const { return u_target_; }
+    [[nodiscard]] constexpr const ColVec<NU, T>& input_target() const { return u_target_[0]; }
+    [[nodiscard]] constexpr const InputPreview&  input_target_preview() const { return u_target_; }
     [[nodiscard]] constexpr design::QPStatus     last_status() const { return last_status_; }
     [[nodiscard]] constexpr size_t               last_iterations() const { return last_iterations_; }
     /// Soft-constraint slack ε from the last solve (0 = no output bound was relaxed)
     [[nodiscard]] constexpr T last_slack() const { return last_slack_; }
 
 private:
-    constexpr ColVec<NU, T> control_impl(const ColVec<NY, T>& r, const ColVec<NX, T>& x, const ColVec<ND, T>& d) {
+
+public:
+    /// NP copies of one reference: the held-setpoint case of a preview. Built by copy-construction
+    /// (no element assignment), so it is a constant expression for a constinit controller.
+    [[nodiscard]] static constexpr Preview held(const ColVec<NY, T>& r) {
+        return [&]<size_t... I>(damp::index_sequence<I...>) { return Preview{{(static_cast<void>(I), r)...}}; }(damp::make_index_sequence<NP>{});
+    }
+
+    /// NC copies of one input target.
+    [[nodiscard]] static constexpr InputPreview held_target(const ColVec<NU, T>& u) {
+        return [&]<size_t... I>(damp::index_sequence<I...>) { return InputPreview{{(static_cast<void>(I), u)...}}; }(damp::make_index_sequence<NC>{});
+    }
+
+private:
+    constexpr ColVec<NU, T> control_impl(
+        const Preview&       r,
+        const ColVec<NX, T>& x,
+        const ColVec<ND, T>& d,
+        const ColVec<NX, T>& x_t = ColVec<NX, T>{},
+        const ColVec<NU, T>& u_t = ColVec<NU, T>{},
+        const ColVec<NX, T>& x_dev = ColVec<NX, T>{},
+        bool                 about_target = false
+    ) {
         // A failed (or default) design has zero scale factors: hold the last input.
         if (!art.success) {
             return u_prev;
@@ -907,16 +1045,43 @@ private:
             xa(NX + NU + j) = d(j);
         }
 
-        ColVec<NY, T> r_scaled{};
-        for (size_t i = 0; i < NY; ++i) {
-            r_scaled(i) = r(i) / art.scale_y(i);
+        // Scaled reference at every prediction step and scaled target at every move; about a
+        // target both are deviations (r − C x_t, u_target − u_t).
+        ColVec<NY, T> y_t{};
+        if (about_target) {
+            y_t = art.C * x_t;
         }
-        ColVec<NU, T> ut_scaled{};
-        for (size_t j = 0; j < NU; ++j) {
-            ut_scaled(j) = u_target_(j) / art.scale_u(j);
+        ColVec<NYS, T> r_dev{};
+        for (size_t kb = 0; kb < NP; ++kb) {
+            for (size_t i = 0; i < NY; ++i) {
+                r_dev((kb * NY) + i) = (r[kb](i) - y_t(i)) / art.scale_y(i);
+            }
+        }
+        ColVec<NZ, T> ut_dev{};
+        for (size_t jm = 0; jm < NC; ++jm) {
+            for (size_t j = 0; j < NU; ++j) {
+                ut_dev((jm * NU) + j) = (u_target_[jm](j) - (about_target ? u_t(j) : T{0})) / art.scale_u(j);
+            }
         }
 
-        const ColVec<NZ, T> f_z = art.F_x * xa - art.F_r * r_scaled - art.F_ut * ut_scaled;
+        // Gradient. About a target it is formed from deviations only: x − x_t, u_prev − u_t,
+        // r − C x_t, u_target − u_t. Exact arithmetic gives the same f as the absolute form
+        // (the target is an equilibrium of the prediction model, so its own free response
+        // contributes nothing), but the absolute form subtracts two large terms and in
+        // float loses the difference. The bounds below keep the absolute x̃0.
+        ColVec<NXA, T> xa_dev = xa;
+        if (about_target) {
+            for (size_t i = 0; i < NX; ++i) {
+                xa_dev(i) = x_dev(i);
+            }
+            for (size_t j = 0; j < NU; ++j) {
+                xa_dev(NX + j) = (u_prev(j) - u_t(j)) / art.scale_u(j);
+            }
+            for (size_t j = 0; j < ND; ++j) {
+                xa_dev(NX + NU + j) = T{0};
+            }
+        }
+        const ColVec<NZ, T> f_z = art.F_x * xa_dev - art.F_r * r_dev - art.F_ut * ut_dev;
         ColVec<NZ1, T>      f{};
         for (size_t i = 0; i < NZ; ++i) {
             f(i) = f_z(i);
@@ -955,7 +1120,7 @@ private:
     Artifacts        art{};
     Solver           qp_solver_{};
     ColVec<NU, T>    u_prev{};
-    ColVec<NU, T>    u_target_{};
+    InputPreview     u_target_{};
     design::QPStatus last_status_{design::QPStatus::Success};
     size_t           last_iterations_{0};
     T                last_slack_{0};

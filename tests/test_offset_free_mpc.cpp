@@ -11,6 +11,7 @@
 #include "damp/controllers/mpc.hpp"
 #include "damp/controllers/offset_free_lqg.hpp"
 #include "damp/controllers/offset_free_mpc.hpp"
+#include "damp/estimation/kalman.hpp"
 #include "damp/math/math.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "damp/systems/discretization.hpp"
@@ -52,7 +53,7 @@ TEST_CASE("offset-free MPC rejects an unknown input disturbance from output feed
 
     const auto art = design::mpc<15, 5>(
         double_integrator, weights, design::MPCConstraints<1, 1>{},
-        Matrix<2, 2>::identity(), Matrix<1, 1>{{0.01}}, Matrix<1, 1>{{1.0}}
+        design::OffsetFreeNoise{Matrix<2, 2>::identity(), Matrix<1, 1>{{0.01}}, Matrix<1, 1>{{1.0}}}
     );
     REQUIRE(art.success);
 
@@ -155,11 +156,11 @@ TEST_CASE("mpc rejects undetectable disturbance models") {
     plant.C = Matrix<1, 1>{{1.0}};
     plant.Ts = 0.1;
 
-    CHECK(!design::mpc<5>(plant).success);
+    CHECK(!design::mpc<5, 5>(plant).success);
 }
 
 TEST_CASE("mpc is constexpr") {
-    constexpr auto art = design::mpc<3>(double_integrator);
+    constexpr auto art = design::mpc<3, 3>(double_integrator);
     static_assert(art.success);
 }
 
@@ -189,7 +190,7 @@ TEST_CASE("feedback / commit: a downstream clamp reaches the held input and the 
     weights.Rdu = Matrix<1, 1>{{0.05}};
     const auto art = design::mpc<15, 5>(
         double_integrator, weights, design::MPCConstraints<1, 1>{},
-        Matrix<2, 2>::identity(), Matrix<1, 1>{{0.01}}, Matrix<1, 1>{{1.0}}
+        design::OffsetFreeNoise{Matrix<2, 2>::identity(), Matrix<1, 1>{{0.01}}, Matrix<1, 1>{{1.0}}}
     );
     REQUIRE(art.success);
 
@@ -302,8 +303,8 @@ TEST_CASE("offset-free MPC: a load force sensed by an accelerometer, the load he
     at_input.Bd = plant.sys.B;
     at_input.Cz = CompliantDrive::load_position();
 
-    const auto art_load = design::mpc<40, 8>(plant.sys, load_force_model(plant), load_weights(), {}, Qn, Rn, Qd);
-    const auto art_input = design::mpc<40, 8>(plant.sys, at_input, load_weights(), {}, Qn, Rn, Qd);
+    const auto art_load = design::mpc<40, 8>(plant.sys, load_force_model(plant), load_weights(), {}, design::OffsetFreeNoise{Qn, Rn, Qd});
+    const auto art_input = design::mpc<40, 8>(plant.sys, at_input, load_weights(), {}, design::OffsetFreeNoise{Qn, Rn, Qd});
     REQUIRE(art_load.success);
     REQUIRE(art_input.success);
     static_assert(std::is_same_v<decltype(OffsetFreeMPC{art_load}), OffsetFreeMPC<4, 1, 2, 40, 8, double, 1, 1>>);
@@ -333,8 +334,7 @@ TEST_CASE("offset-free MPC with a general disturbance model honours the input an
     limits.du_min = ColVec<1>{-0.05};
     limits.du_max = ColVec<1>{0.05};
     const auto art = design::mpc<40, 8>(
-        plant.sys, load_force_model(plant), load_weights(), limits, Matrix<4, 4>::identity() * 1.0e-8,
-        Matrix<2, 2>{{1.0e-8, 0.0}, {0.0, 1.0e-2}}, Matrix<1, 1>{{1.0}}
+        plant.sys, load_force_model(plant), load_weights(), limits, design::OffsetFreeNoise{Matrix<4, 4>::identity() * 1.0e-8, Matrix<2, 2>{{1.0e-8, 0.0}, {0.0, 1.0e-2}}, Matrix<1, 1>{{1.0}}}
     );
     REQUIRE(art.success);
 
@@ -393,4 +393,184 @@ TEST_CASE("offset-free MPC rejects an undetectable or unsupported general distur
     OffsetFreeMPC<4, 1, 2, 10, 4, double, 1, 1> idle{design::mpc<10, 4>(plant.sys, feedthrough)};
     const auto                                  u = idle.control(ColVec<1>{{0.01}}, ColVec<2>{{0.0}, {0.0}});
     CHECK(damp::isfinite(u(0)));
+}
+
+TEST_SUITE("OffsetFreeMPC float runtime") {
+    // At a 185-unit operating point the QP gradient F_x·x − F_r·r is a small difference of
+    // large terms, and in float the lost digits left the heater example's power chattering
+    // by 0.3 W every period at steady state. Posed about the steady-state target (x_t, u_t)
+    // the gradient is a sum of small terms and the held input is constant.
+    TEST_CASE("the held input does not chatter at a large operating point") {
+        // the heater example's plant: K = 6, τ = 30 s, 5 s dead time at Ts = 2 s
+        const StateSpace<1, 1, 1> block{.A = {{-1.0 / 30.0}}, .B = {{6.0 / 30.0}}, .C = {{1.0}}};
+        const auto                model = discretize(block, 2.0, InputDelay<3>{5.0});
+        REQUIRE(model.has_value());
+        design::MPCWeights<1, 1> w{};
+        w.Qy = Matrix<1, 1>{{1.0}};
+        w.Rdu = Matrix<1, 1>{{10.0}};
+        w.Qy_terminal = w.Qy;
+        design::MPCConstraints<1, 1> c{};
+        c.u_min = ColVec<1>{0.0};
+        c.u_max = ColVec<1>{40.0};
+        const auto art = design::mpc<30, 4>(*model, w, c, design::OffsetFreeNoise{Matrix<1, 1>{{0.01}}, Matrix<1, 1>{{0.01}}, Matrix<1, 1>{{0.05}}});
+        REQUIRE(art.success);
+        OffsetFreeMPC<4, 1, 1, 30, 4, float> mpc{art.as<float>()};
+
+        // the model itself as the plant, in double
+        ColVec<4>   x{};
+        const float r = 185.0f;
+        float       u_lo = 1e9f;
+        float       u_hi = -1e9f;
+        for (int k = 0; k < 400; ++k) {
+            const float y = static_cast<float>((model->C * x)(0, 0));
+            const float u = mpc.control(ColVec<1, float>{r}, ColVec<1, float>{y})[0];
+            x = model->A * x + model->B * ColVec<1>{static_cast<double>(u)};
+            if (k >= 300) {
+                u_lo = std::min(u_lo, u);
+                u_hi = std::max(u_hi, u);
+            }
+        }
+        CHECK(u_hi - u_lo < 5e-3f); // was ≈ 0.3 about the origin
+        CHECK(u_hi == doctest::Approx(185.0 / 6.0).epsilon(1e-3));
+    }
+
+    // A Δu-form Hessian is graded: the first move drives every later output, so its diagonal
+    // is 10⁴ times the last move's. Cholesky's pivot floor once scaled with the matrix size
+    // (N·64·eps); with 30 moves in float it refused the early pivots, which carry only a few
+    // terms' roundoff, every tick reported NotPositiveDefinite and the heater stayed at 0 W.
+    TEST_CASE("a float runtime factors the Hessian of a 30-move control horizon") {
+        const StateSpace<1, 1, 1> block{.A = {{-1.0 / 30.0}}, .B = {{6.0 / 30.0}}, .C = {{1.0}}};
+        const auto                model = discretize(block, 2.0, InputDelay<3>{5.0});
+        REQUIRE(model.has_value());
+        design::MPCWeights<1, 1> w{};
+        w.Qy = Matrix<1, 1>{{1.0}};
+        w.Rdu = Matrix<1, 1>{{10.0}};
+        design::MPCConstraints<1, 1> c{};
+        c.u_min = ColVec<1>{0.0};
+        c.u_max = ColVec<1>{40.0};
+        const auto art = design::mpc<30, 30>(*model, w, c, design::OffsetFreeNoise{Matrix<1, 1>{{0.01}}, Matrix<1, 1>{{0.01}}, Matrix<1, 1>{{0.05}}});
+        REQUIRE(art.success);
+        CHECK(mat::cholesky(art.mpc.H.as<float>()).has_value());
+
+        OffsetFreeMPC mpc{art.as<float>()};
+        ColVec<4>     x{};
+        float         u_peak = 0.0f;
+        float         u = 0.0f;
+        int           failed_solves = 0;
+        for (int k = 0; k < 300; ++k) {
+            const float y = static_cast<float>((model->C * x)(0, 0));
+            u = mpc.control(ColVec<1, float>{185.0f}, ColVec<1, float>{y})[0];
+            failed_solves += (mpc.mpc.last_status() != design::QPStatus::Success) ? 1 : 0;
+            u_peak = std::max(u_peak, u);
+            x = model->A * x + model->B * ColVec<1>{static_cast<double>(u)};
+        }
+        CHECK(failed_solves == 0);
+        CHECK(u_peak == doctest::Approx(40.0)); // full power during the heat-up
+        CHECK(u == doctest::Approx(185.0 / 6.0).epsilon(1e-3));
+    }
+}
+
+TEST_SUITE("OffsetFreeMPC error-state estimator") {
+    // The heater of examples/control/heater_ofmpc with its 2.5-sample dead time in the model.
+    static constexpr StateSpace<1, 1, 1> block{.A = {{-1.0 / 30.0}}, .B = {{6.0 / 30.0}}, .C = {{1.0}}};
+    static constexpr auto                model = discretize(block, 2.0, InputDelay<3>{5.0});
+
+    template<typename T>
+    design::OffsetFreeMPCArtifacts<4, 1, 1, 30, 4, T> heater_design(double u_max) {
+        design::MPCWeights<1, 1> w{};
+        w.Qy = Matrix<1, 1>{{1.0}};
+        w.Rdu = Matrix<1, 1>{{10.0}};
+        w.Qy_terminal = w.Qy;
+        design::MPCConstraints<1, 1> c{};
+        c.u_min = ColVec<1>{0.0};
+        c.u_max = ColVec<1>{u_max};
+        const auto art = design::mpc<30, 4>(*model, w, c, design::OffsetFreeNoise{Matrix<1, 1>{{0.01}}, Matrix<1, 1>{{0.01}}, Matrix<1, 1>{{0.05}}});
+        REQUIRE(art.success);
+        return art.template as<T>();
+    }
+
+    /// The absolute-coordinate tick this replaces, from public parts: steady-state filter on
+    /// [x; d], target from the maps, MPC about that target.
+    template<typename T>
+    struct AbsoluteReplica {
+        MPC<4, 1, 1, 30, 4, 1, T>                 mpc;
+        SteadyStateKalmanFilter<5, 1, 1, T, 5, 1> kf;
+        Matrix<5, 1, T>                           target_d;
+        Matrix<5, 1, T>                           target_r;
+        ColVec<1, T>                              u_prev{};
+        explicit AbsoluteReplica(const design::OffsetFreeMPCArtifacts<4, 1, 1, 30, 4, T>& a)
+            : mpc(a.mpc), kf(a.kalman), target_d(a.target_d), target_r(a.target_r) {}
+        T tick(T r, T y) {
+            kf.predict(u_prev);
+            kf.update(ColVec<1, T>{y}, u_prev);
+            ColVec<4, T> x{};
+            for (size_t i = 0; i < 4; ++i) {
+                x(i) = kf.state()(i);
+            }
+            const ColVec<1, T> d{kf.state()(4)};
+            const ColVec<5, T> s = (target_d * d) + (target_r * ColVec<1, T>{r});
+            ColVec<4, T>       x_t{};
+            for (size_t i = 0; i < 4; ++i) {
+                x_t(i) = s(i);
+            }
+            const ColVec<1, T> u_t{s(4)};
+            const ColVec<1, T> u = mpc.feedback(ColVec<1, T>{r}, x, d, x_t, u_t);
+            mpc.commit(u);
+            u_prev = u;
+            return u(0);
+        }
+    };
+
+    TEST_CASE("equal to the absolute-coordinate tick in double, through saturation and a load step") {
+        const auto                            art = heater_design<double>(40.0);
+        OffsetFreeMPC<4, 1, 1, 30, 4, double> esk{art};
+        AbsoluteReplica<double>               abs{art};
+        ColVec<4>                             xa{};
+        ColVec<4>                             xb{};
+        double                                worst = 0.0;
+        for (int k = 0; k < 400; ++k) {
+            const double w = (k >= 200) ? -0.8 : 0.0; // an unmeasured heat loss
+            const double ua = esk.control(ColVec<1>{185.0}, ColVec<1>{(model->C * xa)(0, 0)})[0];
+            const double ub = abs.tick(185.0, (model->C * xb)(0, 0));
+            worst = std::max(worst, std::abs(ua - ub));
+            xa = model->A * xa + model->B * ColVec<1>{ua + w};
+            xb = model->A * xb + model->B * ColVec<1>{ub + w};
+        }
+        CHECK(worst <= 1e-9 * 40.0);
+        CHECK(std::abs((model->C * xa)(0, 0) - 185.0) < 1e-6);
+        // the public estimates are absolute
+        CHECK(esk.state_estimate()(0) == doctest::Approx(185.0).epsilon(1e-6));
+        CHECK(esk.disturbance_estimate()(0) == doctest::Approx(-0.8).epsilon(1e-4));
+    }
+
+    TEST_CASE("float at a large operating point: the deviation form adds no jitter of its own") {
+        // Setpoint 1e5 (in whatever unit), input bound 5e4. A float holds 1e5 to 8e-3, and the
+        // measurement y arrives as a float, so that resolution is a floor both forms share. The
+        // deviation form removes the filter recursion's and the gradient's own rounding at that
+        // magnitude; the absolute form adds them on top. Measured: 0.21 vs 0.27 on a held input
+        // of 16667 (1.3e-5 relative). The gap widens with a measurement path that carries more
+        // than float, which the stored deviation then uses in full.
+        const auto                           art = heater_design<float>(5.0e4);
+        OffsetFreeMPC<4, 1, 1, 30, 4, float> esk{art};
+        AbsoluteReplica<float>               abs{art};
+        ColVec<4>                            xa{};
+        ColVec<4>                            xb{};
+        float                                lo_e = 1e30f, hi_e = -1e30f, lo_a = 1e30f, hi_a = -1e30f;
+        for (int k = 0; k < 600; ++k) {
+            const float ua = esk.control(ColVec<1, float>{1.0e5f}, ColVec<1, float>{static_cast<float>((model->C * xa)(0, 0))})[0];
+            const float ub = abs.tick(1.0e5f, static_cast<float>((model->C * xb)(0, 0)));
+            xa = model->A * xa + model->B * ColVec<1>{static_cast<double>(ua)};
+            xb = model->A * xb + model->B * ColVec<1>{static_cast<double>(ub)};
+            if (k >= 500) {
+                lo_e = std::min(lo_e, ua);
+                hi_e = std::max(hi_e, ua);
+                lo_a = std::min(lo_a, ub);
+                hi_a = std::max(hi_a, ub);
+            }
+        }
+        const float held = 1.0e5f / 6.0f;
+        CHECK(hi_e - lo_e <= 3e-5f * held); // within a few ulp(y)·gain: the measurement's floor
+        CHECK(hi_e - lo_e <= hi_a - lo_a);  // and no worse than the absolute form
+        CHECK(std::abs((model->C * xa)(0, 0) - 1.0e5) < 1.0);
+    }
 }

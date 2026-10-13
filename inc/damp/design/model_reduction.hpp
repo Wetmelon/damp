@@ -40,6 +40,7 @@
 #include <cstddef>
 
 #include "damp/backend.hpp"
+#include "damp/design/lyapunov.hpp"
 #include "damp/design/stability.hpp"
 #include "damp/math/math.hpp"
 #include "damp/matrix/matrix.hpp"
@@ -75,7 +76,7 @@ struct BalancedRealizationResult {
     StateSpace<NX, NU, NY, T, NW, NV> balanced{};     ///< Balanced state-space model
     ColVec<NX, T>                     sigma{};        ///< Hankel singular values (descending)
     Matrix<NX, NX, T>                 transform{};    ///< Balancing transform: x = T x_b
-    bool                              success{false}; ///< true if Gramians, Cholesky, SVD all OK
+    bool                              success{false}; ///< true if the Gramian factors and the SVD succeeded
 
     template<typename U>
     [[nodiscard]] constexpr BalancedRealizationResult<NX, NU, NY, U, NW, NV> as() const {
@@ -115,12 +116,6 @@ struct BalancedReductionResult {
 };
 
 namespace detail {
-
-/// Symmetrize (X + Xᵀ)/2 to clean Lyapunov residual asymmetry before Cholesky.
-template<size_t N, typename T>
-[[nodiscard]] constexpr Matrix<N, N, T> symmetrize(const Matrix<N, N, T>& X) {
-    return static_cast<T>(0.5) * (X + X.transpose());
-}
 
 /// Copy a fixed-size block out of a parent matrix into an owning Matrix.
 template<size_t BR, size_t BC, size_t R, size_t C, typename T>
@@ -265,7 +260,7 @@ residualize_states(const StateSpace<NX, NU, NY, T, NW, NV>& sys) {
  */
 template<size_t NX, size_t NU, size_t NY, typename T>
 struct SquareRootBalance {
-    Matrix<NX, NX, T> Lc{};    ///< Wc = Lc Lcᵀ (lower Cholesky)
+    Matrix<NX, NX, T> Lc{};    ///< Wc = Lc Lcᵀ (lower triangular, Hammarling)
     Matrix<NX, NX, T> Lo{};    ///< Wo = Lo Loᵀ
     Matrix<NX, NX, T> U{};     ///< left singular vectors of Loᵀ Lc
     Matrix<NX, NX, T> V{};     ///< right singular vectors of Loᵀ Lc
@@ -279,20 +274,19 @@ square_root_balance_factors(const StateSpace<NX, NU, NY, T, NW, NV>& sys) {
     SquareRootBalance<NX, NU, NY, T> out{};
     static_assert(NX > 0, "square_root_balance_factors requires NX > 0");
 
+    // Hammarling factors Wc = Rcᵀ Rc, Wo = Roᵀ Ro, computed without forming either Gramian:
+    // a Cholesky factorization of a computed Gramian loses its small eigenvalues, which are
+    // the Hankel singular values this method exists to resolve.
     const bool discrete = sys.is_discrete();
-    const auto Wc_opt = stability::controllability_gramian(sys.A, sys.B, discrete);
-    const auto Wo_opt = stability::observability_gramian(sys.A, sys.C, discrete);
-    if (!Wc_opt || !Wo_opt) {
+    const auto Rc = discrete ? discrete_lyapunov_cholesky(sys.A, sys.B) : lyapunov_cholesky(sys.A, sys.B);
+    const auto At = sys.A.transpose();
+    const auto Ct = sys.C.transpose();
+    const auto Ro = discrete ? discrete_lyapunov_cholesky(At, Ct) : lyapunov_cholesky(At, Ct);
+    if (!Rc || !Ro) {
         return out;
     }
-
-    const auto Lc_opt = mat::cholesky(symmetrize(*Wc_opt));
-    const auto Lo_opt = mat::cholesky(symmetrize(*Wo_opt));
-    if (!Lc_opt || !Lo_opt) {
-        return out;
-    }
-    out.Lc = *Lc_opt;
-    out.Lo = *Lo_opt;
+    out.Lc = Rc->transpose();
+    out.Lo = Ro->transpose();
 
     // Loᵀ Lc = U Σ Vᵀ  →  σ_i are the Hankel singular values
     const Matrix<NX, NX, T> product = out.Lo.transpose() * out.Lc;
@@ -362,8 +356,9 @@ template<size_t NX, typename T>
 /**
  * @brief Balanced realization via the square-root (Moore / Laub) method
  *
- * Computes controllability/observability Gramians, their Cholesky factors
- * @f$ W_c = L_c L_c^\top @f$, @f$ W_o = L_o L_o^\top @f$, the SVD
+ * Computes the Cholesky factors of the controllability/observability Gramians,
+ * @f$ W_c = L_c L_c^\top @f$, @f$ W_o = L_o L_o^\top @f$, directly by Hammarling's method
+ * (lyapunov_cholesky; the Gramians themselves are never formed), the SVD
  * @f$ L_o^\top L_c = U \Sigma V^\top @f$, and the balancing transform
  * @f$ T = L_c V \Sigma^{-1/2} @f$ so that in coordinates @f$ x = T x_b @f$
  * both Gramians equal @f$ \mathrm{diag}(\sigma) @f$.
@@ -433,7 +428,7 @@ balreal(const StateSpace<NX, NU, NY, T, NW, NV>& sys) {
  * @see balreal(), balred()
  *
  * @param sys Stable state-space system
- * @return σ vector, or damp::nullopt if Gramians/Cholesky/SVD fail
+ * @return σ vector, or damp::nullopt if the Gramian factors or the SVD fail
  */
 template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, size_t NV = 0>
 [[nodiscard]] constexpr damp::optional<ColVec<NX, T>>

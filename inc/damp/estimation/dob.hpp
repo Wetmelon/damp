@@ -168,7 +168,11 @@ public:
         : config_(config) {}
 
     constexpr explicit DOB(const DOBResult<T>& design)
-        : config_(design.config), valid_(design.success) {}
+        : config_(design.config), valid_(design.success) {
+        if (!design.success && std::is_constant_evaluated()) {
+            ::damp::detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed design does not compile
+        }
+    }
 
     /**
      * @brief Update disturbance estimate from predicted and measured outputs.

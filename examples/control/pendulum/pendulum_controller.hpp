@@ -55,7 +55,6 @@ inline constexpr auto Q = Matrix<2, 2>::identity() * 10.0;
 inline constexpr auto R = Matrix<1, 1>{{1.0}};
 
 inline constexpr auto lqr_d = design::discrete_lqr_from_continuous(sys.A, sys.B, Q, R, Ts);
-static_assert(lqr_d.success);
 
 /**
  * @brief One control period: full-state feedback u = −Kx

@@ -40,9 +40,7 @@
  * // Plant G(s) = 1/(5s+1) * e^{-2s}, sample at 10 Hz
  * constexpr auto sp = design::smith_predictor_from_fopdt(
  *     1.0, 5.0, 2.0, 0.1, 2.0); // K, tau, L, Ts, tau_c
- * static_assert(sp.success);
- *
- * SmithPredictor<64, float> ctrl(sp.as<float>());
+ * static constinit SmithPredictor<64, float> ctrl{sp.as<float>()}; // a failed design does not compile
  * // In loop: float u = ctrl.control(r, y);
  * @endcode
  *
@@ -60,6 +58,7 @@
 
 #include <concepts>
 #include <cstddef>
+#include <type_traits>
 
 #include "damp/backend.hpp"
 #include "damp/concepts.hpp"
@@ -340,6 +339,9 @@ public:
           b_(result.b),
           delay_samples_(result.delay_samples),
           valid_(result.success && result.delay_samples < MaxDelay) {
+        if (!result.success && std::is_constant_evaluated()) {
+            ::damp::detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed design does not compile
+        }
         if (valid_) {
             delay_.init(delay_samples_);
         }

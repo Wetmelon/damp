@@ -12,6 +12,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <type_traits>
 
 #include "damp/backend.hpp"
 #include "damp/math/math.hpp"
@@ -189,6 +190,9 @@ public:
      */
     constexpr explicit PRBS(const design::PRBSResult<T>& design, T Ts)
         : config_(design.config), Ts_(Ts), valid_(design.success && Ts > T{0}) {
+        if (!design.success && std::is_constant_evaluated()) {
+            ::damp::detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed design does not compile
+        }
         reset();
     }
 

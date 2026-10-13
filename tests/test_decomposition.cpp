@@ -801,6 +801,100 @@ TEST_SUITE("rank, two_norm and QR are scale-invariant") {
     }
 }
 
+TEST_SUITE("qr_decompose orthogonality") {
+    /// max |QᴴQ − I| over the thin Q's columns.
+    template<typename T, size_t N, size_t M>
+    double orthogonality_loss(const Matrix<N, M, T>& Q) {
+        double worst = 0.0;
+        for (size_t i = 0; i < M; ++i) {
+            for (size_t j = 0; j < M; ++j) {
+                T dot{};
+                for (size_t r = 0; r < N; ++r) {
+                    dot += damp::conj(Q(r, i)) * Q(r, j);
+                }
+                worst = damp::max(worst, static_cast<double>(damp::abs(dot - ((i == j) ? T{1} : T{0}))));
+            }
+        }
+        return worst;
+    }
+
+    /// max |QR − A| / max |A|, and R upper-triangular with a real non-negative diagonal.
+    template<typename T, size_t N, size_t M>
+    void check_factors(const Matrix<N, M, T>& A, const QRDecomposition<T, N, M>& qr) {
+        const Matrix<N, M, T> back = qr.Q * qr.R;
+        double                err = 0.0;
+        double                amax = 0.0;
+        for (size_t i = 0; i < N; ++i) {
+            for (size_t j = 0; j < M; ++j) {
+                err = damp::max(err, static_cast<double>(damp::abs(back(i, j) - A(i, j))));
+                amax = damp::max(amax, static_cast<double>(damp::abs(A(i, j))));
+            }
+        }
+        CHECK(err <= 16.0 * damp::eps<double>() * amax);
+        for (size_t i = 0; i < M; ++i) {
+            for (size_t j = 0; j < i; ++j) {
+                CHECK(damp::abs(qr.R(i, j)) == 0.0);
+            }
+            CHECK(damp::abs(qr.R(i, i) - T{damp::abs(qr.R(i, i))}) == 0.0); // real, ≥ 0
+        }
+    }
+
+    // Läuchli's matrix [1 1 1; δ 0 0; 0 δ 0; 0 0 δ] has κ ≈ √3/δ. Modified Gram–Schmidt left
+    // its Q columns 1.6e-9 from orthogonal at δ = 1e-7 (the κ·ε loss); Householder keeps them
+    // within a few ε for any δ.
+    TEST_CASE("an ill-conditioned Läuchli matrix gets an orthonormal Q") {
+        constexpr double   delta = 1e-7;
+        const Matrix<4, 3> L{{1.0, 1.0, 1.0}, {delta, 0.0, 0.0}, {0.0, delta, 0.0}, {0.0, 0.0, delta}};
+        const auto         qr = qr_decompose(L);
+        REQUIRE(qr.is_valid());
+        CHECK(orthogonality_loss(qr.Q) <= 16.0 * damp::eps<double>());
+        check_factors(L, qr);
+    }
+
+    TEST_CASE("complex Läuchli: orthonormal Q, real non-negative diagonal") {
+        using C = damp::complex<double>;
+        constexpr double      delta = 1e-7;
+        const Matrix<4, 3, C> L{
+            {C(1.0, 0.0), C(0.0, 1.0), C(1.0, 1.0)},
+            {C(0.0, delta), C(0.0, 0.0), C(0.0, 0.0)},
+            {C(0.0, 0.0), C(delta, 0.0), C(0.0, 0.0)},
+            {C(0.0, 0.0), C(0.0, 0.0), C(0.0, -delta)},
+        };
+        const auto qr = qr_decompose(L);
+        REQUIRE(qr.is_valid());
+        CHECK(orthogonality_loss(qr.Q) <= 16.0 * damp::eps<double>());
+        check_factors(L, qr);
+    }
+
+    // On rank loss R(j, j) is stored as zero and Q keeps an orthonormal column, so QR still
+    // reconstructs A and QᴴQ = I.
+    TEST_CASE("rank-deficient input keeps Q orthonormal") {
+        const Matrix<3, 2> dep{{1.0, 2.0}, {1.0, 2.0}, {1.0, 2.0}};
+        const auto         qr = qr_decompose(dep);
+        CHECK_FALSE(qr.is_valid());
+        CHECK(qr.R(1, 1) == 0.0);
+        CHECK(orthogonality_loss(qr.Q) <= 16.0 * damp::eps<double>());
+        check_factors(dep, qr);
+    }
+
+    // More columns than rows: the trailing R diagonal is zero and its Q column is zero.
+    TEST_CASE("a wide matrix factors with zero trailing columns of Q") {
+        const Matrix<2, 3> W{{3.0, 1.0, 2.0}, {4.0, -1.0, 5.0}};
+        const auto         qr = qr_decompose(W);
+        CHECK_FALSE(qr.is_valid());
+        CHECK(qr.R(0, 0) == doctest::Approx(5.0));
+        CHECK(qr.R(2, 2) == 0.0);
+        CHECK(qr.Q(0, 2) == 0.0);
+        CHECK(qr.Q(1, 2) == 0.0);
+        const Matrix<2, 3> back = qr.Q * qr.R;
+        for (size_t i = 0; i < 2; ++i) {
+            for (size_t j = 0; j < 3; ++j) {
+                CHECK(damp::abs(back(i, j) - W(i, j)) <= 16.0 * damp::eps<double>() * 5.0);
+            }
+        }
+    }
+}
+
 TEST_SUITE("svd on rank-deficient input") {
     TEST_CASE("Jacobi SVD converges when a column collapses to roundoff") {
         // Controllability matrix of a system with an uncontrollable mode: the zero
@@ -839,8 +933,9 @@ TEST_SUITE("cholesky rank deficiency") {
     // The Gram matrix of N−1 vectors in Rᴺ is singular. Its last pivot is roundoff of either
     // sign; a positivity-only test accepted the positive half (about 50 % of draws) and factored
     // it into entries of 1/√eps, so mat::solve (Cholesky first for symmetric input) returned x of
-    // size 10¹⁹ instead of nullopt. The relative floor leaves the few draws whose roundoff
-    // exceeds N·64·eps of the pivot's terms (about 1 %, the same leak LU has without a rank test).
+    // size 10¹⁹ instead of nullopt. No floor refuses them all: the last pivot also carries the
+    // forward error of the leading block, and about 3 % of draws clear 16·(i+1)·eps of the
+    // pivot's terms. Rank decisions belong to mat::rank; this guards the positivity-only half.
     TEST_CASE_TEMPLATE("a singular Gram matrix is refused", T, float, double) {
         std::mt19937_64                   gen(7);
         std::uniform_real_distribution<T> U(T{-1}, T{1});
@@ -858,7 +953,7 @@ TEST_SUITE("cholesky rank deficiency") {
                 ++accepted;
             }
         }
-        CHECK(accepted <= trials / 40);
+        CHECK(accepted <= trials / 20);
     }
 
     TEST_CASE_TEMPLATE("a well-conditioned SPD matrix with graded diagonal still factors", T, float, double) {

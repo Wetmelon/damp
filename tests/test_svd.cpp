@@ -238,3 +238,32 @@ TEST_SUITE("null_space") {
         CHECK(An.norm() < 1e-10);
     }
 }
+
+TEST_SUITE("svd scaling") {
+    // A = B·diag(1e19, 1, 0.1) in float: the two small columns sit 1e-19 and 1e-20 below the
+    // largest entry. The sweep used to scale A by its largest entry and test Gram sums ‖a‖²;
+    // for those columns the sums fell below min/eps and the columns were reported as zero, so
+    // σ₂ and σ₃ came back as 0. One-sided Jacobi gets the singular values of a column-graded
+    // matrix to relative precision (Demmel–Veselić); the double SVD of the same entries is the
+    // reference.
+    TEST_CASE("a float column-graded matrix keeps its small singular values") {
+        const Matrix<3, 3, double> B{{1.0, 0.3, -0.2}, {0.4, 1.1, 0.5}, {-0.1, 0.2, 0.9}};
+        const double               d[3] = {1e19, 1.0, 0.1};
+        Matrix<3, 3, float>        Af{};
+        Matrix<3, 3, double>       Ad{};
+        for (size_t i = 0; i < 3; ++i) {
+            for (size_t j = 0; j < 3; ++j) {
+                Af(i, j) = static_cast<float>(B(i, j) * d[j]);
+                Ad(i, j) = static_cast<double>(Af(i, j));
+            }
+        }
+        const auto sf = svd(Af);
+        const auto sd = svd(Ad);
+        REQUIRE(sd.singular_values[2] > 0.0);
+        for (size_t k = 0; k < 3; ++k) {
+            const double got = static_cast<double>(sf.singular_values[k]);
+            const double ref = sd.singular_values[k];
+            CHECK(damp::abs(got - ref) <= 1e-5 * ref);
+        }
+    }
+}

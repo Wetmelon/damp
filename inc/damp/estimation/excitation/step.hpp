@@ -5,12 +5,15 @@
 
 #pragma once
 
+#include <type_traits>
+
 /**
  * @file step.hpp
  * @brief Step excitation — design payload and runtime generator
  */
 
 
+#include "damp/backend.hpp"
 #include "damp/math/math.hpp"
 
 namespace damp {
@@ -107,7 +110,11 @@ public:
     constexpr Step() = default;
 
     constexpr explicit Step(const design::StepResult<T>& design, T Ts = T{0})
-        : config_(design.config), Ts_(Ts), valid_(design.success) {}
+        : config_(design.config), Ts_(Ts), valid_(design.success) {
+        if (!design.success && std::is_constant_evaluated()) {
+            ::damp::detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed design does not compile
+        }
+    }
 
     /**
      * @brief Return the step command and advance internal time by `Ts`.

@@ -31,8 +31,7 @@ static constexpr int OUTPUT = 1;
 
 // On target: constinit from design artifacts.as<float>() after offline/host design.
 // Smoke: PR only with a fixed design (LQGI runtime needs host synthesis).
-static constexpr auto kPr = design::pr(0.0, 10.0, 2.0 * damp::numbers::pi_v<double>, 6.0, kTs);
-static_assert(kPr.success);
+static constexpr auto                kPr = design::pr(0.0, 10.0, 2.0 * damp::numbers::pi_v<double>, 6.0, kTs);
 static constinit PRController<float> pr{kPr.as<float>()};
 static float                         y = 0.25f;
 static float                         reference = 0.5f;

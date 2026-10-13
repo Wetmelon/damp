@@ -11,6 +11,7 @@
  */
 
 #include <cstdint>
+#include <type_traits>
 
 #include "damp/backend.hpp"
 #include "damp/math/math.hpp"
@@ -139,7 +140,11 @@ public:
      *               `step()` evaluates at a fixed internal time.
      */
     constexpr explicit Chirp(const design::ChirpResult<T>& design, T Ts = T{0})
-        : config_(design.config), Ts_(Ts), valid_(design.success) {}
+        : config_(design.config), Ts_(Ts), valid_(design.success) {
+        if (!design.success && std::is_constant_evaluated()) {
+            ::damp::detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed design does not compile
+        }
+    }
 
     /**
      * @brief Evaluate chirp at absolute time.

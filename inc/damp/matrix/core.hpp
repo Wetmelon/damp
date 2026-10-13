@@ -139,6 +139,39 @@ template<typename T, typename Src>
     }
 }
 
+/**
+ * @brief Euclidean norm of n magnitudes mag(0) … mag(n−1), none of whose squares can overflow or underflow.
+ *
+ * The magnitudes are divided by the largest before squaring, so the sum lies in [1, n] and
+ * the result is accurate to rounding for any finite input; a plain sum of squares overflows
+ * past √max (1.8e19 in float) and flushes below √min (1.1e-19 in float, under flush-to-zero).
+ * Two passes: the largest magnitude, then the scaled sum.
+ *
+ * @see "A portable Fortran program to find the Euclidean norm of a vector" (Blue, 1978), ACM TOMS 4(1)
+ * @see "Algorithm 978: Safe Scaling in the Level 1 BLAS" (Anderson, 2017), ACM TOMS 44(1)
+ *
+ * @param n    Number of magnitudes
+ * @param mag  Callable size_t → R returning |x_k| (finite, ≥ 0)
+ * @return √(Σ mag(k)²)
+ */
+template<typename R, typename Mag>
+[[nodiscard]] constexpr R scaled_norm2(size_t n, Mag mag) {
+    R amax = R{0};
+    for (size_t k = 0; k < n; ++k) {
+        amax = damp::max(amax, mag(k));
+    }
+    if (!(amax > R{0})) {
+        return R{0};
+    }
+    const R inv = R{1} / amax;
+    R       ssq = R{0};
+    for (size_t k = 0; k < n; ++k) {
+        const R a = mag(k) * inv;
+        ssq += a * a;
+    }
+    return amax * damp::sqrt(ssq);
+}
+
 } // namespace detail
 
 /**
@@ -203,18 +236,23 @@ protected:
         return out;
     }
 
-    /// Elements of a nested initializer list; missing entries are zero, extras ignored.
+    /// Elements of a nested initializer list; missing entries are zero. More rows or columns
+    /// than the matrix has do not compile when constant-evaluated and trap at run time.
     [[nodiscard]] static constexpr damp::array<T, Rows * Cols> elements_of(
         std::initializer_list<std::initializer_list<T>> init
     ) {
         damp::array<T, Rows * Cols> out{};
-        size_t                      r = 0;
+        if (init.size() > Rows) {
+            ::damp::detail::refuse_initializer_overflow();
+        }
+        size_t r = 0;
         for (const auto& row : init) {
+            if (row.size() > Cols) {
+                ::damp::detail::refuse_initializer_overflow();
+            }
             size_t c = 0;
             for (const auto& val : row) {
-                if (r < Rows && c < Cols) {
-                    out[(r * Cols) + c] = val;
-                }
+                out[(r * Cols) + c] = val;
                 ++c;
             }
             ++r;
@@ -222,14 +260,16 @@ protected:
         return out;
     }
 
-    /// Elements of a flat row-major list (vectors); missing entries are zero, extras ignored.
+    /// Elements of a flat row-major list (vectors); missing entries are zero. More elements
+    /// than the vector has do not compile when constant-evaluated and trap at run time.
     [[nodiscard]] static constexpr damp::array<T, Rows * Cols> flat_elements_of(std::initializer_list<T> init) {
         damp::array<T, Rows * Cols> out{};
-        size_t                      i = 0;
+        if (init.size() > Rows * Cols) {
+            ::damp::detail::refuse_initializer_overflow();
+        }
+        size_t i = 0;
         for (const auto& val : init) {
-            if (i < Rows * Cols) {
-                out[i] = val;
-            }
+            out[i] = val;
             ++i;
         }
         return out;

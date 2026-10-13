@@ -234,6 +234,60 @@ struct StateSpace {
 };
 
 /**
+ * @brief Sizes and scalar type from the braces: `StateSpace{.A = {{…}}, .B = {{…}}, .C = {{…}}}`,
+ *        optionally `.D` and `.Ts`, with no template arguments.
+ *
+ * A braced list deduces the bounds of a C array, not the size of a Matrix, so each guide
+ * takes A, B, C (and D) as `const T (&)[R][C]`. The guides match by position: a model with
+ * noise inputs G / H names its sizes (`StateSpace<NX, NU, NY, T, NW, NV>{…}`); a G braced into
+ * the deduced NW = 0 is refused like any oversized Matrix initializer (a compile error when
+ * constant-evaluated). Literals must all be one floating type (`1.0`, not `1`).
+ */
+template<size_t NX, size_t NU, size_t NY, typename T>
+StateSpace(const T (&)[NX][NX], const T (&)[NX][NU], const T (&)[NY][NX]) -> StateSpace<NX, NU, NY, T>;
+
+/// @copydoc StateSpace(const T (&)[NX][NX], const T (&)[NX][NU], const T (&)[NY][NX])
+template<size_t NX, size_t NU, size_t NY, typename T>
+StateSpace(const T (&)[NX][NX], const T (&)[NX][NU], const T (&)[NY][NX], const T (&)[NY][NU]) -> StateSpace<NX, NU, NY, T>;
+
+/// @copydoc StateSpace(const T (&)[NX][NX], const T (&)[NX][NU], const T (&)[NY][NX])
+template<size_t NX, size_t NU, size_t NY, typename T>
+StateSpace(const T (&)[NX][NX], const T (&)[NX][NU], const T (&)[NY][NX], T) -> StateSpace<NX, NU, NY, T>;
+
+/// @copydoc StateSpace(const T (&)[NX][NX], const T (&)[NX][NU], const T (&)[NY][NX])
+template<size_t NX, size_t NU, size_t NY, typename T>
+StateSpace(const T (&)[NX][NX], const T (&)[NX][NU], const T (&)[NY][NX], const T (&)[NY][NU], T) -> StateSpace<NX, NU, NY, T>;
+
+// From matrices already sized: `StateSpace{.A = A, .B = B, .C = C}`. A user-declared guide
+// switches off the implicit aggregate deduction, so these restate it for the member lists in use.
+
+/// Sizes and scalar type from Matrix members (A, B, C).
+template<size_t NX, size_t NU, size_t NY, typename T>
+StateSpace(Matrix<NX, NX, T>, Matrix<NX, NU, T>, Matrix<NY, NX, T>) -> StateSpace<NX, NU, NY, T>;
+
+/// Sizes and scalar type from Matrix members (A, B, C, D).
+template<size_t NX, size_t NU, size_t NY, typename T>
+StateSpace(Matrix<NX, NX, T>, Matrix<NX, NU, T>, Matrix<NY, NX, T>, Matrix<NY, NU, T>) -> StateSpace<NX, NU, NY, T>;
+
+/// Sizes and scalar type from Matrix members (A, B, C) and Ts.
+template<size_t NX, size_t NU, size_t NY, typename T>
+StateSpace(Matrix<NX, NX, T>, Matrix<NX, NU, T>, Matrix<NY, NX, T>, T) -> StateSpace<NX, NU, NY, T>;
+
+/// Sizes and scalar type from Matrix members (A, B, C, D) and Ts.
+template<size_t NX, size_t NU, size_t NY, typename T>
+StateSpace(Matrix<NX, NX, T>, Matrix<NX, NU, T>, Matrix<NY, NX, T>, Matrix<NY, NU, T>, T) -> StateSpace<NX, NU, NY, T>;
+
+/// Sizes, noise inputs and scalar type from Matrix members (A, B, C, D, G, H).
+template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
+StateSpace(Matrix<NX, NX, T>, Matrix<NX, NU, T>, Matrix<NY, NX, T>, Matrix<NY, NU, T>, Matrix<NX, NW, T>, Matrix<NY, NV, T>)
+    -> StateSpace<NX, NU, NY, T, NW, NV>;
+
+/// Sizes, noise inputs and scalar type from Matrix members (A, B, C, D, G, H) and Ts.
+template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
+StateSpace(Matrix<NX, NX, T>, Matrix<NX, NU, T>, Matrix<NY, NX, T>, Matrix<NY, NU, T>, Matrix<NX, NW, T>, Matrix<NY, NV, T>, T)
+    -> StateSpace<NX, NU, NY, T, NW, NV>;
+
+/**
  * @brief Evaluate frequency response of a state-space system
  *
  * Continuous: @f$ G(s) = C(sI-A)^{-1}B + D @f$.

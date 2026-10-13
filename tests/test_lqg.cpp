@@ -47,7 +47,7 @@ TEST_SUITE("LQG") {
         constexpr Matrix<2, 2> Q_kf{{0.01, 0.0}, {0.0, 0.01}};
         constexpr Matrix<1, 1> R_kf{{0.1}};
 
-        constexpr auto result = design::discrete_lqg(sys, Q_lqr, R_lqr, Q_kf, R_kf);
+        constexpr auto result = design::discrete_lqg(sys, Q_lqr, R_lqr, {.process = Q_kf, .measurement = R_kf});
         static_assert(result.success, "LQG design must converge at compile time");
         static_assert(result.lqr.success);
         static_assert(result.kalman.success);
@@ -69,7 +69,7 @@ TEST_SUITE("LQG") {
         const Matrix<2, 2> Q_kf{{0.01, 0.0}, {0.0, 0.01}};
         const Matrix<1, 1> R_kf{{0.1}};
 
-        const auto result = design::discrete_lqg(sys, Q_lqr, R_lqr, Q_kf, R_kf);
+        const auto result = design::discrete_lqg(sys, Q_lqr, R_lqr, {.process = Q_kf, .measurement = R_kf});
         REQUIRE(result.success);
 
         // Built straight from the result — exercises kf(result.kalman).
@@ -93,7 +93,7 @@ TEST_SUITE("LQG") {
         const auto sys = make_plant();
         const auto result = design::discrete_lqg(
             sys, Matrix<2, 2>::identity(), Matrix<1, 1>{{0.1}},
-            Matrix<2, 2>{{0.01, 0.0}, {0.0, 0.01}}, Matrix<1, 1>{{0.1}}
+            {.process = Matrix<2, 2>{{0.01, 0.0}, {0.0, 0.01}}, .measurement = Matrix<1, 1>{{0.1}}}
         );
         REQUIRE(result.success);
 
@@ -118,7 +118,7 @@ TEST_SUITE("LQG") {
         const auto sys = make_plant();
         const auto result = design::discrete_lqg(
             sys, Matrix<2, 2>::identity(), Matrix<1, 1>{{0.1}},
-            Matrix<2, 2>{{0.01, 0.0}, {0.0, 0.01}}, Matrix<1, 1>{{0.1}}
+            {.process = Matrix<2, 2>{{0.01, 0.0}, {0.0, 0.01}}, .measurement = Matrix<1, 1>{{0.1}}}
         );
         REQUIRE(result.success);
 
@@ -146,7 +146,7 @@ TEST_SUITE("LQG") {
         const auto sys = make_plant();
         const auto result = design::discrete_lqg(
             sys, Matrix<2, 2>::identity(), Matrix<1, 1>{{0.1}},
-            Matrix<2, 2>{{0.01, 0.0}, {0.0, 0.01}}, Matrix<1, 1>{{0.1}}
+            {.process = Matrix<2, 2>{{0.01, 0.0}, {0.0, 0.01}}, .measurement = Matrix<1, 1>{{0.1}}}
         );
         REQUIRE(result.success);
 
@@ -174,7 +174,7 @@ TEST_SUITE("LQG") {
         const auto sys = make_plant();
         const auto result = design::discrete_lqg(
             sys, Matrix<2, 2>::identity(), Matrix<1, 1>{{0.1}},
-            Matrix<2, 2>{{0.01, 0.0}, {0.0, 0.01}}, Matrix<1, 1>{{0.1}}
+            {.process = Matrix<2, 2>{{0.01, 0.0}, {0.0, 0.01}}, .measurement = Matrix<1, 1>{{0.1}}}
         );
         REQUIRE(result.success);
 
@@ -197,7 +197,7 @@ TEST_SUITE("LQG") {
         const auto sys = make_plant();
         const auto result = design::discrete_lqg(
             sys, Matrix<2, 2>::identity(), Matrix<1, 1>{{0.1}},
-            Matrix<2, 2>{{0.01, 0.0}, {0.0, 0.01}}, Matrix<1, 1>{{0.1}}
+            {.process = Matrix<2, 2>{{0.01, 0.0}, {0.0, 0.01}}, .measurement = Matrix<1, 1>{{0.1}}}
         );
         REQUIRE(result.success);
 
@@ -243,7 +243,7 @@ TEST_SUITE("LQG") {
             StateSpace<2, 1, 1, double, 2, 1>{
                 A, B, C, Matrix<1, 1>::zeros(), Matrix<2, 2>::identity(), Matrix<1, 1>::identity(), 1.0
             },
-            Q_lqr, R_lqr, Q_kf, R_kf
+            Q_lqr, R_lqr, {.process = Q_kf, .measurement = R_kf}
         );
         static_assert(result.success);
         static_assert(result.lqr.success);
@@ -267,8 +267,7 @@ TEST_SUITE("LQG") {
             },
             Matrix<1, 1>{{1.0}},
             Matrix<1, 1>{{1.0}},
-            Matrix<1, 1>{{0.1}},
-            Matrix<1, 1>{{0.5}}
+            {.process = Matrix<1, 1>{{0.1}}, .measurement = Matrix<1, 1>{{0.5}}}
         );
         constexpr auto lqg_f = lqg_d.as<float>();
         static_assert(lqg_f.success);

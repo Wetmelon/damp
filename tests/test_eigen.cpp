@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
+#include <limits>
 #include <numbers>
 
 #include "damp/backend.hpp"
@@ -534,5 +535,146 @@ TEST_SUITE("compute_eigenvalues balancing") {
             scale = std::max(scale, std::fabs(Av[i]));
         }
         CHECK(res <= 1e-9 * scale);
+    }
+}
+
+TEST_SUITE("Francis QR on the Hessenberg form") {
+    // Run the Schur reduction without balancing, so the test sees the iteration itself.
+    template<size_t N>
+    struct Schur {
+        Matrix<N, N>           T{};
+        Matrix<N, N>           Z{};
+        damp::array<double, N> wr{};
+        damp::array<double, N> wi{};
+        bool                   converged{false};
+    };
+
+    template<size_t N>
+    Schur<N> schur(const Matrix<N, N>& A) {
+        Schur<N> s;
+        s.T = A;
+        mat::detail::hessenberg_reduce(s.T, s.Z);
+        s.converged = mat::detail::francis_qr(s.T, s.Z, s.wr, s.wi);
+        return s;
+    }
+
+    // h₃₂ = 1e-16 passes the classic test |h₃₂| ≤ ε(|h₂₂| + |h₃₃|) and used to be zeroed,
+    // returning h₃₃ = 1e-20 as an eigenvalue. The eigenvalue is 1e-20 − h₂₃h₃₂/(h₂₂ − h₃₃)
+    // ≈ −9e-20: the product h₂₃h₃₂ = 1e-19 is what moves it, and Ahues–Tisseur compares that
+    // product, not h₃₂ alone, against ε|h₃₃||h₂₂ − h₃₃|.
+    TEST_CASE("a graded Hessenberg matrix keeps its tiny eigenvalue (Ahues–Tisseur)") {
+        const Matrix<3, 3>     H{{2.0, 1.0, 1.0}, {0.0, 1.0, 1e-3}, {0.0, 1e-16, 1e-20}};
+        auto                   T = H;
+        auto                   Z = Matrix<3, 3>::identity();
+        damp::array<double, 3> wr{};
+        damp::array<double, 3> wi{};
+        REQUIRE(mat::detail::francis_qr(T, Z, wr, wi));
+        double smallest = wr[0];
+        for (const double w : wr) {
+            if (std::fabs(w) < std::fabs(smallest)) {
+                smallest = w;
+            }
+        }
+        const double exact = 1e-20 - (1e-19 / (1.0 - 1e-20 + 1e-19));
+        CHECK(std::fabs(smallest - exact) <= 1e-12 * std::fabs(exact)); // relative: Approx would add an absolute 1e-12
+    }
+
+    // A cyclic permutation has all its eigenvalues on the unit circle and stalls the Francis
+    // shift; only the exceptional shifts move it. Two cycles take the schedule once per
+    // eigenvalue (it passed before the count restarted at each deflation, too).
+    TEST_CASE("two permutation cycles converge through exceptional shifts") {
+        Matrix<6, 6> P{};
+        P(1, 0) = P(2, 1) = P(0, 2) = 1.0; // 3-cycle
+        P(4, 3) = P(5, 4) = P(3, 5) = 1.0; // 3-cycle
+        const auto s = schur(P);
+        REQUIRE(s.converged);
+        for (size_t i = 0; i < 6; ++i) {
+            CHECK(std::hypot(s.wr[i], s.wi[i]) == doctest::Approx(1.0).epsilon(1e-12));
+        }
+    }
+
+    // Every 2×2 block left by the iteration is in standard form: a complex pair with equal
+    // diagonals and off-diagonals of opposite sign; real pairs are triangular. Zᵀ A Z = T with
+    // Z orthogonal, and the returned eigenvalues are the ones T displays.
+    TEST_CASE("converged 2×2 blocks are standardized") {
+        unsigned seed = 12345U;
+        auto     rnd = [&seed]() {
+            seed = (seed * 1103515245U) + 12345U;
+            return (static_cast<double>((seed >> 8) & 0xFFFFU) / 32768.0) - 1.0;
+        };
+        for (int trial = 0; trial < 200; ++trial) {
+            Matrix<6, 6> A{};
+            for (size_t i = 0; i < 6; ++i) {
+                for (size_t j = 0; j < 6; ++j) {
+                    A(i, j) = rnd();
+                }
+            }
+            const auto s = schur(A);
+            REQUIRE(s.converged);
+            const Matrix<6, 6> back = s.Z.transpose() * A * s.Z;
+            const Matrix<6, 6> ztz = s.Z.transpose() * s.Z;
+            for (size_t i = 0; i < 6; ++i) {
+                for (size_t j = 0; j < 6; ++j) {
+                    CHECK(back(i, j) == doctest::Approx(s.T(i, j)).scale(1.0).epsilon(1e-12));
+                    CHECK(ztz(i, j) == doctest::Approx(i == j ? 1.0 : 0.0).scale(1.0).epsilon(1e-13));
+                    if (i > j + 1) {
+                        CHECK(s.T(i, j) == 0.0);
+                    }
+                }
+            }
+            for (size_t i = 0; i + 1 < 6; ++i) {
+                if (s.T(i + 1, i) == 0.0) {
+                    CHECK(s.wi[i] == 0.0);
+                    CHECK(s.wr[i] == s.T(i, i));
+                    continue;
+                }
+                CHECK(s.T(i, i) == s.T(i + 1, i + 1));
+                CHECK(s.T(i, i + 1) * s.T(i + 1, i) < 0.0);
+                CHECK(s.wr[i] == s.T(i, i));
+                CHECK(s.wi[i] == doctest::Approx(std::sqrt(-s.T(i, i + 1) * s.T(i + 1, i))));
+                CHECK(s.wi[i + 1] == -s.wi[i]);
+                if (i + 2 < 6) {
+                    CHECK(s.T(i + 2, i + 1) == 0.0); // blocks never overlap
+                }
+                ++i;
+            }
+        }
+    }
+}
+
+TEST_SUITE("compute_eigenvalues balancing in float") {
+    // The similarity diag(1, 1e10, 1e-10) puts entries of 1e20 next to entries of 1e-20. Their
+    // squares overflow and underflow float, so a balancing step built on plain sums of squares
+    // saw infinite row norms and left the matrix unbalanced: the QR iteration then carried a
+    // backward error of ε‖A‖ ≈ 1e14 onto eigenvalues of size 1. Scaled norms balance it.
+    TEST_CASE("entries whose squares overflow float are still balanced") {
+        const Matrix<3, 3, float> A0{{2.0f, 1.0f, 0.0f}, {0.0f, 3.0f, 1.0f}, {0.5f, 0.0f, 5.0f}};
+        const float               s[3] = {1.0f, 1.0e10f, 1.0e-10f};
+        Matrix<3, 3, float>       A{};
+        for (size_t i = 0; i < 3; ++i) {
+            for (size_t j = 0; j < 3; ++j) {
+                A(i, j) = s[i] * A0(i, j) / s[j];
+            }
+        }
+        const auto ref = compute_eigenvalues(A0);
+        const auto got = compute_eigenvalues(A);
+        REQUIRE(ref.converged);
+        REQUIRE(got.converged);
+        for (size_t i = 0; i < 3; ++i) {
+            float best = 1e30f;
+            for (size_t k = 0; k < 3; ++k) {
+                best = damp::min(best, (got.values[i] - ref.values[k]).abs());
+            }
+            CHECK(best <= 1e-4f * ref.values[i].abs());
+        }
+    }
+
+    TEST_CASE("a non-finite entry leaves the matrix unbalanced") {
+        Matrix<2, 2> A{{1.0, 2.0}, {3.0, 4.0}};
+        A(0, 1) = std::numeric_limits<double>::quiet_NaN();
+        damp::array<int, 2> e{};
+        CHECK_FALSE(mat::detail::gebal_log2_scale(A, e));
+        CHECK(e[0] == 0);
+        CHECK(e[1] == 0);
     }
 }

@@ -16,9 +16,8 @@
  *     sys,
  *     Matrix<NX + NY, NX + NY>::identity(), // Q on [x; xi]
  *     Matrix<NU, NU>::identity());          // R
- * static_assert(res.success);
- * LQI ctrl(res);
- * auto u = ctrl.control(r, y, x); // advances internal xi
+ * static constinit LQI ctrl{res};  // a failed design does not compile
+ * // each tick: auto u = ctrl.control(r, y, x); // advances internal xi
  *
  * // Integrate only sensors 0 and 3 of six: Q is on [x; xi] with two integrators.
  * constexpr auto res2 = design::discrete_lqi(sys6, Q_aug2, R, {0, 3});
@@ -30,6 +29,7 @@
  */
 
 #include <cstddef>
+#include <type_traits>
 
 #include "damp/backend.hpp"
 #include "damp/design/riccati.hpp"
@@ -239,7 +239,11 @@ struct LQI {
     /// From design result (any scalar); converts K and Ci via @c .as\<T\>().
     template<typename U>
     constexpr LQI(const design::LQIResult<NX, NU, NY, U, NI>& result) // NOLINT
-        : K(result.K.template as<T>()), Ci(result.Ci.template as<T>()) {}
+        : K(result.K.template as<T>()), Ci(result.Ci.template as<T>()) {
+        if (!result.success && std::is_constant_evaluated()) {
+            ::damp::detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed design does not compile
+        }
+    }
 
     template<typename U>
     constexpr LQI(const LQI<NX, NU, NY, U, NI>& other) // NOLINT

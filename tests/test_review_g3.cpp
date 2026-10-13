@@ -102,8 +102,7 @@ TEST_SUITE("Review g3") {
             0.1
         };
         const auto result = design::discrete_oflqg(
-            sys, Matrix<2, 2>::identity(), Matrix<1, 1>{{0.1}}, Matrix<2, 2>{{0.05, 0.0}, {0.0, 0.05}},
-            Matrix<1, 1>{{0.05}}, Matrix<1, 1>{{1.0}}
+            sys, Matrix<2, 2>::identity(), Matrix<1, 1>{{0.1}}, design::OffsetFreeNoise{Matrix<2, 2>{{0.05, 0.0}, {0.0, 0.05}}, Matrix<1, 1>{{0.05}}, Matrix<1, 1>{{1.0}}}
         );
         REQUIRE(result.success);
 

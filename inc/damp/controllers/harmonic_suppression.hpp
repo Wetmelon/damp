@@ -168,6 +168,9 @@ public:
 
     constexpr explicit HarmonicSuppressor(const design::HarmonicSuppressorResult<N, T>& design)
         : w_fund_(design.w_fund), valid_(design.success) {
+        if (!design.success && std::is_constant_evaluated()) {
+            ::damp::detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed design does not compile
+        }
         for (size_t i = 0; i < N; ++i) {
             resonators_[i] = PRController<T>(design.gains[i]);
         }

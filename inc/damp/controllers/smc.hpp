@@ -5,11 +5,14 @@
 
 #pragma once
 
+#include <type_traits>
+
 /**
  * @file smc.hpp
  * @brief Sliding-mode control design and runtime
  */
 
+#include "damp/backend.hpp"
 #include "damp/math/math.hpp"
 #include "damp/systems/transfer_function.hpp"
 
@@ -175,7 +178,11 @@ public:
     constexpr SMCController() = default;
 
     constexpr SMCController(const design::SMCResult<T>& result, T Ts = T{0}, T phi = T{0})
-        : lambda(result.lambda), k(result.k), b0(result.b0), Ts_(Ts), phi_(phi), valid_(result.success) {}
+        : lambda(result.lambda), k(result.k), b0(result.b0), Ts_(Ts), phi_(phi), valid_(result.success) {
+        if (!result.success && std::is_constant_evaluated()) {
+            ::damp::detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed design does not compile
+        }
+    }
 
     template<typename U>
     constexpr SMCController(const SMCController<U>& other)

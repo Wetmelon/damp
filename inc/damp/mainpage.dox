@@ -13,8 +13,7 @@
  * using namespace damp;
  *
  * constexpr auto result = design::lqrd(A, B, Q, R, Ts);
- * static_assert(result.success);
- * constinit LQR<2, 1> controller{result.as<float>()};
+ * constinit LQR<2, 1> controller{result.as<float>()}; // a failed design does not compile
  * // ISR: auto u = controller.control(x);
  * @endcode
  *

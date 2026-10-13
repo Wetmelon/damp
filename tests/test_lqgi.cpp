@@ -54,7 +54,7 @@ TEST_SUITE("LQGI") {
         constexpr Matrix<2, 2> Q_kf{{0.01, 0.0}, {0.0, 0.01}};
         constexpr Matrix<1, 1> R_kf{{0.1}};
 
-        constexpr auto result = design::discrete_lqgi(sys, Q_aug, R, Q_kf, R_kf);
+        constexpr auto result = design::discrete_lqgi(sys, Q_aug, R, {.process = Q_kf, .measurement = R_kf});
         static_assert(result.success);
         static_assert(result.lqi.success);
         static_assert(result.kalman.success);
@@ -71,7 +71,7 @@ TEST_SUITE("LQGI") {
         const Matrix<2, 2> Q_kf{{0.01, 0.0}, {0.0, 0.01}};
         const Matrix<1, 1> R_kf{{0.1}};
 
-        const auto result = design::discrete_lqgi(sys, Q_aug, R, Q_kf, R_kf);
+        const auto result = design::discrete_lqgi(sys, Q_aug, R, {.process = Q_kf, .measurement = R_kf});
         REQUIRE(result.success);
 
         LQGI<2, 1, 1, double, 2, 1> controller{result}; // exercises kf(result.kalman)
@@ -99,7 +99,7 @@ TEST_SUITE("LQGI") {
 
     TEST_CASE("runtime LQGI tracks via the controller's own integrator (control(r, y))") {
         const auto sys = make_plant();
-        const auto result = design::discrete_lqgi(sys, make_Q_aug(), Matrix<1, 1>{{0.1}}, Matrix<2, 2>{{0.01, 0.0}, {0.0, 0.01}}, Matrix<1, 1>{{0.1}});
+        const auto result = design::discrete_lqgi(sys, make_Q_aug(), Matrix<1, 1>{{0.1}}, {.process = Matrix<2, 2>{{0.01, 0.0}, {0.0, 0.01}}, .measurement = Matrix<1, 1>{{0.1}}});
         REQUIRE(result.success);
 
         LQGI<2, 1, 1, double, 2, 1> controller{result};
@@ -121,7 +121,7 @@ TEST_SUITE("LQGI") {
     TEST_CASE("LQGIResult::to_ss compensator tracks a reference") {
         // Validates the [r; y] -> u realization (steady-state L) by closing the loop.
         const auto sys = make_plant();
-        const auto result = design::discrete_lqgi(sys, make_Q_aug(), Matrix<1, 1>{{0.1}}, Matrix<2, 2>{{0.01, 0.0}, {0.0, 0.01}}, Matrix<1, 1>{{0.1}});
+        const auto result = design::discrete_lqgi(sys, make_Q_aug(), Matrix<1, 1>{{0.1}}, {.process = Matrix<2, 2>{{0.01, 0.0}, {0.0, 0.01}}, .measurement = Matrix<1, 1>{{0.1}}});
         REQUIRE(result.success);
 
         const auto ss = result.to_ss();            // [x̂⁻; xi; u_prev], in [r; y], out u
@@ -154,7 +154,7 @@ TEST_SUITE("LQGI") {
 
     TEST_CASE("LQGIResult::as<float>() preserves the design") {
         const auto sys = make_plant();
-        const auto result = design::discrete_lqgi(sys, make_Q_aug(), Matrix<1, 1>{{0.1}}, Matrix<2, 2>{{0.01, 0.0}, {0.0, 0.01}}, Matrix<1, 1>{{0.1}});
+        const auto result = design::discrete_lqgi(sys, make_Q_aug(), Matrix<1, 1>{{0.1}}, {.process = Matrix<2, 2>{{0.01, 0.0}, {0.0, 0.01}}, .measurement = Matrix<1, 1>{{0.1}}});
         REQUIRE(result.success);
 
         const auto rf = result.as<float>();
@@ -171,7 +171,7 @@ TEST_SUITE("LQGI") {
         };
         const Matrix<2, 2> Q_kf{{0.01, 0.0}, {0.0, 0.01}};
         const Matrix<2, 2> R_kf{{0.1, 0.0}, {0.0, 0.1}};
-        const auto         res = design::discrete_lqgi(sys2, make_Q_aug(), Matrix<1, 1>{{0.1}}, Q_kf, R_kf, {0});
+        const auto         res = design::discrete_lqgi(sys2, make_Q_aug(), Matrix<1, 1>{{0.1}}, {.process = Q_kf, .measurement = R_kf}, {0});
         REQUIRE(res.success);
         const auto lqi_only = design::discrete_lqi(sys2, make_Q_aug(), Matrix<1, 1>{{0.1}}, {0});
         CHECK(res.lqi.K(0, 2) == doctest::Approx(lqi_only.K(0, 2)));
@@ -195,12 +195,12 @@ TEST_SUITE("LQGI") {
         }
         CHECK(xp[0] == doctest::Approx(1.0).epsilon(0.02));
 
-        const auto bad = design::discrete_lqgi(sys2, make_Q_aug(), Matrix<1, 1>{{0.1}}, Q_kf, R_kf, {5});
+        const auto bad = design::discrete_lqgi(sys2, make_Q_aug(), Matrix<1, 1>{{0.1}}, {.process = Q_kf, .measurement = R_kf}, {5});
         CHECK_FALSE(bad.success);
     }
 
     TEST_CASE("commit holds the integrator against the clamp") {
-        const auto result = design::discrete_lqgi(make_plant(), make_Q_aug(), Matrix<1, 1>{{0.1}}, Matrix<2, 2>{{0.01, 0.0}, {0.0, 0.01}}, Matrix<1, 1>{{0.1}});
+        const auto result = design::discrete_lqgi(make_plant(), make_Q_aug(), Matrix<1, 1>{{0.1}}, {.process = Matrix<2, 2>{{0.01, 0.0}, {0.0, 0.01}}, .measurement = Matrix<1, 1>{{0.1}}});
         REQUIRE(result.success);
         const auto   sys = make_plant();
         const double u_max = 0.2;
