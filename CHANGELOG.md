@@ -11,6 +11,11 @@ and [known limitations](docs/known_limitations.md)).
 
 ### Added
 
+- Predictor form for input delays: `InputDelayPredictor` keeps the commands in flight and predicts the state the new command meets (Artstein's reduction); `split_input_delay`, `discretize(…, PredictedInputDelay<D>{θ})` give NX + NU states for any delay. Design calls take the delay in sampling periods, `design::mpc<NP, NC, θ / Ts>(plant, Ts, …)` and `discrete_oflqg<θ / Ts>(…)`, and the runtimes deduce it from the result. Equal to the register form to roundoff.
+- `OffsetFreeMPC` reference preview: the output reference over the prediction horizon and the input target per move.
+- Examples: `heater_ofmpc` (a hotend with a 2.5-period dead time under offset-free MPC: delay-aware vs delay-blind, and the setpoint known ahead) and `heater_oflqg` (the unconstrained offset-free LQG it reduces to, clamped at the actuator).
+- `lyapunov_cholesky` / `discrete_lyapunov_cholesky` (`lyapchol` / `dlyapchol`): the Cholesky factor of a stable Lyapunov solution by Hammarling's method, used by balanced realization, `hankelsv` and `balred`.
+- `StateSpace` deduces its sizes from brace initializers; Matrix / ColVec / RowVec braces refuse more entries than the type has.
 - `design::discrete_oflqg` / `OFLQG`: offset-free LQG (discrete LQR, input-disturbance Kalman filter, DC target).
 - `discretize` takes an input and output delay; every LQ / MPC / estimator design accepts plant-sized weights on delayed models.
 - Tustin pre-warping: `discretize(sys, Ts, Tustin, w0)` (and `c2d`) matches the discrete frequency response exactly at ω₀.
@@ -20,6 +25,10 @@ and [known limitations](docs/known_limitations.md)).
 
 ### Changed
 
+- `OffsetFreeMPC` regulates about its steady-state target with a fixed-gain filter in error coordinates, so a float runtime holds a constant input at a large operating point. LQG / LQGI / offset-free designs take their noise as one named struct.
+- `design::mpc` and `design::state_mpc` require the control horizon NC (no default NP).
+- Every runtime built from a design result refuses a failed one under constant evaluation, so `static constinit Law law{res};` needs no `static_assert(res.success)`.
+- Numerics: Cholesky's pivot floor grows with each pivot's term count (a float MPC with a 30-move horizon factors); Francis QR deflates by the Ahues–Tisseur criterion and standardizes 2×2 blocks; Schur block swaps pass the Bai–Demmel stability tests; `lyap` / `dlyap` use Bartels–Stewart on the complex Schur form (O(NX³), was an NX²×NX² system); thin QR uses Householder reflections; balancing and the Jacobi SVD take scaled norms.
 - `OffsetFreeMPC` takes `OffsetFreeModel` and its noise in OFLQG's order (`Q_process`, `R_measurement`, `Q_disturbance`); `mpc` likewise takes `R` before the input weight.
 - Numerics: DARE convergence relative to the solution, Cholesky refuses pivots below the roundoff of their terms, `compute_eigenvalues` balances its argument, `is_stabilizable` equilibrates before PBH, `minreal` uses the staircase controllable subspace.
 - NaN/Inf audit: finite inputs and failed designs give finite output across controllers, filters and toolbox.
