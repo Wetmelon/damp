@@ -39,6 +39,8 @@ local product_dirs = {
     'control/lpf',
     'control/workflow_end_to_end',
     'control/adrc',
+    'control/heater_ofmpc',
+    'control/heater_oflqg',
     'estimation/eskf',
     'estimation/ins_navigator',
     'estimation/ins_eskf',
@@ -86,6 +88,10 @@ local plot_outputs = {
     },
     adrc_sil = {
         'plots/control/adrc_vs_pid.html',
+    },
+    heater_ofmpc_sil = {
+        'plots/control/heater_ofmpc.html',
+        'plots/control/heater_ofmpc_preview.html',
     },
     pendulum_sil = {
         'plots/control/pendulum_sim.html',
