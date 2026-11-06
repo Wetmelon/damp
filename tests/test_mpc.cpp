@@ -8,9 +8,12 @@
 
 #include "damp/backend.hpp"
 #include "damp/controllers/mpc.hpp"
+#include "damp/controllers/ofmpc.hpp"
+#include "damp/design/disturbance.hpp"
 #include "damp/design/qp.hpp"
 #include "damp/design/riccati.hpp"
 #include "damp/design/status.hpp"
+#include "damp/estimation/kalman.hpp"
 #include "damp/math/complex.hpp"
 #include "damp/math/math.hpp"
 #include "damp/matrix/matrix.hpp"
@@ -998,6 +1001,56 @@ TEST_CASE("design::mpc refuses NaN or inverted limits, negative softness and ind
     asymmetric.Qy = Matrix<2, 2>{{1.0, 5.0}, {0.0, 1.0}};
     CHECK(design::mpc<6, 2>(double_integrator_full, asymmetric, {}).status == design::DesignStatus::bad_weights);
     CHECK(design::mpc<6, 2>(double_integrator, move_weight(1.0), {}).success);
+}
+
+TEST_CASE("a horizon no output sees an input's first move in is refused") {
+    //! It succeeded, and the law returned u = 0 at any error: no output in the horizon could
+    //! pay for a move, and the move weight charged for one.
+    const auto delayed = discretize(double_integrator, Ts, InputDelay{Ts}).value(); // [x; u(k−1)]
+    const auto blind = design::mpc<1, 1>(delayed, move_weight(0.05), {});
+    CHECK_FALSE(blind.success);
+    CHECK(blind.status == design::DesignStatus::invalid_parameter);
+
+    const auto sees = design::mpc<2, 1>(delayed, move_weight(0.05), {});
+    REQUIRE(sees.success);
+    MPC law{sees};
+    CHECK(law.step(ColVec<1>{1.0}, ColVec<3>{})(0) > 0.0);
+
+    SUBCASE("a terminal cost weights the register, so it sees past the horizon") {
+        design::MPCConstraints<1, 1> terminal{};
+        terminal.terminal = design::MPCTerminal::dare_cost;
+        const auto res = design::mpc<1, 1>(delayed, move_weight(0.05), terminal);
+        REQUIRE(res.success);
+        MPC with_terminal{res};
+        CHECK(with_terminal.step(ColVec<1>{1.0}, ColVec<3>{})(0) > 0.0);
+    }
+
+    SUBCASE("the plant's relative degree, with no delay at all") {
+        const StateSpace<2, 1, 1> euler{.A = double_integrator.A, .B = {{0.0}, {Ts}}, .C = double_integrator.C, .Ts = Ts}; // C·B = 0
+        CHECK(design::mpc<1, 1>(euler, move_weight(0.05), {}).status == design::DesignStatus::invalid_parameter);
+        CHECK(design::mpc<2, 1>(euler, move_weight(0.05), {}).success);
+    }
+
+    SUBCASE("one input of two: the other reaching the output does not save it") {
+        const StateSpace<2, 2, 1>      two{.A = {{0.9, 0.1}, {0.0, 0.0}}, .B = {{0.1, 0.0}, {0.0, 1.0}}, .C = {{1.0, 0.0}}, .Ts = Ts}; // u₁ a step behind u₀
+        const design::MPCWeights<2, 1> w{};
+        CHECK(design::mpc<1, 1>(two, w, {}).status == design::DesignStatus::invalid_parameter);
+        CHECK(design::mpc<2, 1>(two, w, {}).success);
+    }
+
+    SUBCASE("relative to the plant's size: a small gain is not a blind input") {
+        const StateSpace<2, 1, 1> tiny{.A = double_integrator.A, .B = double_integrator.B * 1e-9, .C = double_integrator.C, .Ts = Ts};
+        CHECK(design::mpc<1, 1>(tiny, move_weight(0.05), {}).success);
+    }
+
+    SUBCASE("the offset-free design too") {
+        const StateSpace<1, 1, 1, double, 1, 1>    lag{.A = {{0.9}}, .B = {{0.1}}, .C = {{1.0}}, .Ts = Ts};
+        const auto                                 model = discretize(lag, Ts, InputDelay{Ts}).value();
+        const design::KalmanNoise<1, 1, double, 1> noise{.process = 0.01, .measurement = 0.001, .disturbance = 0.01};
+        const design::MPCConstraints<1, 1>         none{};
+        CHECK(design::ofmpc<1, 1>(model, move_weight(0.05), none, noise, design::InputDisturbance{}).status == design::DesignStatus::invalid_parameter);
+        CHECK(design::ofmpc<2, 1>(model, move_weight(0.05), none, noise, design::InputDisturbance{}).success);
+    }
 }
 
 TEST_CASE("float MPC with soft output bounds, started outside them, converges") {

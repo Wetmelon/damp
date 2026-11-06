@@ -70,6 +70,9 @@ delay templates on OFLQG / MPC). v0.1.0 never shipped those names.
   outputs are soft. With a hard output row or a terminal set it is applied only
   if primal feasible (row scale |b_i| + Σ|A_ij z_j|); otherwise the tick holds.
   Holding does not make predicted outputs or a terminal set feasible.
+  A horizon too short for an input's first move to reach any output is refused
+  (`invalid_parameter`) unless a terminal cost sees past it; it used to succeed and
+  leave that input at rest.
 - Numerics: Riccati certificates, SciPy oracles, Schur / Lyapunov / QR, finite
   inputs give finite outputs.
 - Compilers: g++ 11+ and clang++ 19+. MSVC is not supported. Host CMake builds
