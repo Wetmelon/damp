@@ -12,6 +12,7 @@ project(damp
 
 # --- Header-only library target ---
 add_library(damp INTERFACE)
+add_library(wetmelon::damp ALIAS damp)
 
 target_include_directories(damp INTERFACE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/inc>

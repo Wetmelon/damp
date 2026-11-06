@@ -10,7 +10,7 @@
 # On Windows run make from PowerShell or cmd, not Git Bash (see AGENTS.md).
 
 .PHONY: all format compiledb build tests examples examples-force sils \
-        refs docs doxygen-style-check reference-check embedded-check freestanding-check ci \
+        refs docs doxygen-style-check reference-check embedded-check freestanding-check workbench-check ci \
         tidy iwyu fix_includes target-smoke targets
 
 # ---------------------------------------------------------------------------
@@ -126,9 +126,12 @@ embedded-check:
 freestanding-check:
 	@$(TUP) checks/build/freestanding.ok
 
+workbench-check:
+	@$(TUP) checks/build/workbench.ok
+
 # Lean gate: no formatting, no examples, no boards. Needs `tup init` on a fresh clone.
 ci: doxygen-style-check reference-check
-	@$(TUP) tests checks/build/embedded.ok checks/build/freestanding.ok
+	@$(TUP) tests checks/build/embedded.ok checks/build/freestanding.ok checks/build/workbench.ok
 	$(run_tests)
 	@$(MAKE) --no-print-directory target-smoke
 

@@ -4,6 +4,7 @@
 # Usage (any CWD):
 #   sh tools/contract_check.sh freestanding <g++> <stamp>
 #   sh tools/contract_check.sh embedded     <g++> <stamp>
+#   sh tools/contract_check.sh workbench    <g++> <stamp>
 #
 # freestanding: ETL + freestanding math must compile; no damp/ header reachable
 #               from control.hpp may unconditionally #include <hosted-std>.
@@ -15,7 +16,7 @@ GXX=$2
 OUT=$3
 
 if [ -z "$mode" ] || [ -z "$GXX" ] || [ -z "$OUT" ]; then
-    echo "usage: contract_check.sh <freestanding|embedded> <g++> <stamp>" >&2
+    echo "usage: contract_check.sh <freestanding|embedded|workbench> <g++> <stamp>" >&2
     exit 2
 fi
 
@@ -37,7 +38,7 @@ case "$OUT" in
 esac
 
 mkdir -p "$(dirname "$OUT")"
-probe="$(dirname "$OUT")/probe.cpp"
+probe="$(dirname "$OUT")/probe_$mode.cpp" # per mode: tup runs these checks in parallel
 
 case "$mode" in
 freestanding)
@@ -102,6 +103,21 @@ embedded)
 
     rm -f "$probe"
     echo "embedded-check OK: damp/control.hpp is allocation-free"
+    echo ok >"$OUT"
+    ;;
+
+workbench)
+    printf '%s\n' '#include "damp/workbench.hpp"' 'int main(){}' >"$probe"
+
+    if ! "$GXX" -std=c++20 -Iinc -fsyntax-only "$probe" 2>"${probe}.log"; then
+        cat "${probe}.log" >&2
+        rm -f "$probe" "${probe}.log"
+        echo "workbench-check FAILED: damp/workbench.hpp does not compile on its own" >&2
+        exit 1
+    fi
+
+    rm -f "$probe" "${probe}.log"
+    echo "workbench-check OK: damp/workbench.hpp is a self-contained host umbrella"
     echo ok >"$OUT"
     ;;
 
