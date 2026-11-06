@@ -637,8 +637,8 @@ TEST_SUITE("Active Disturbance Rejection Control (ADRC)") {
             CAPTURE(woTs);
             const auto r1 = design::adrc<1>(10.0, woTs / Ts, 2.0, Ts);
             const auto r2 = design::adrc<2>(10.0, woTs / Ts, 2.0, Ts);
-            const auto c1 = zpk_detail::leverrier(r1.F).den;
-            const auto c2 = zpk_detail::leverrier(r2.F).den;
+            const auto c1 = zpk_detail::leverrier(r1.as_eso().error_dynamics()).den;
+            const auto c2 = zpk_detail::leverrier(r2.as_eso().error_dynamics()).den;
             const auto e1 = repeated_root_poly<2>(lambda);
             const auto e2 = repeated_root_poly<3>(lambda);
             // Coefficients of order 1–3: rounding of a few products, 1e-12 absolute.
@@ -651,8 +651,17 @@ TEST_SUITE("Active Disturbance Rejection Control (ADRC)") {
         }
         // The design carries the matrices; a continuous design (Ts = 0) leaves them zero.
         constexpr auto rc = design::adrc<2>(10.0, 50.0, 1.0);
-        static_assert(rc.F(0, 0) == 0.0 && rc.Gy(0) == 0.0);
+        static_assert(rc.Phi(0, 0) == 0.0 && rc.L(0) == 0.0);
         constexpr auto rd = design::adrc<2>(10.0, 50.0, 1.0, 1e-3);
-        static_assert(rd.Gy(0) > 0.0 && rd.Gy(0) < 1.0);
+        static_assert(rd.L(0) > 0.0 && rd.L(0) < 1.0);
+    }
+
+    TEST_CASE("reset(z0) removes the first-command kick from ẑ = 0") {
+        const auto                res = design::adrc<2>(10.0, 50.0, 1.0, 1e-3);
+        ADRCController<2, double> cold{res};
+        ADRCController<2, double> warm{res};
+        warm.reset(ColVec<3>{1.0, 0.0, 0.0});
+        CHECK(damp::abs(cold.control(1.0, 1.0)) > 100.0);
+        CHECK(warm.control(1.0, 1.0) == doctest::Approx(0.0).scale(1.0));
     }
 }

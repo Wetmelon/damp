@@ -240,7 +240,8 @@ DOB(const DOBResult<T>&) -> DOB<T>;
 // existing controller. Estimates the input-referred lumped disturbance from a
 // nominal plant model and a low-pass Q-filter, and subtracts it from the
 // command. Complements the scalar innovation-based observer above (richer plant
-// model) and ADRC's ESO (this is a feed-around bolt-on, not a full controller).
+// model) and the extended-state observer (`design::eso` / `ESO`; ADRC is that
+// observer plus PD). This is a feed-around bolt-on, not a full controller.
 //
 //   plant:        y = P·(u + d)          (d = input-referred disturbance)
 //   estimate:     d_hat = Q·(Pn^-1·y − u) ≈ Q·d   (exact at DC when P = Pn)

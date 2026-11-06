@@ -18,7 +18,7 @@
  * | SisoController           | `u = control(r, y)`               | PID, ADRC, SMC, lead-lag, PR      |
  * | FeedbackRuntime          | `update(m)`, `predict()`, `back_calculate(u)` | LQR, LQI, LQG, LQGI, OFLQG, MPC, OFMPC (lifecycle) |
  * | FeedbackLaw              | FeedbackRuntime + `control(r)`, `step(r, m)` | LQI, LQGI, OFLQG, MPC, OFMPC, LQR/LQG with TrackedOutputs |
- * | StateEstimator           | `x̂ = step(y, u)`, `state()`       | Luenberger (fixed gain), KalmanFilter (recursive), MHE |
+ * | StateEstimator           | `x̂ = step(y, u)`, `state()`       | Luenberger (fixed gain), KalmanFilter (recursive), MHE, ESO |
  * | SignalSource             | `u = step()`, `done()`            | Chirp, PRBS, StepTrain, Ramp, MultiSine, SteppedSine, Impulse, Step |
  * | ParameterEstimator       | `parameters()`, `valid()`,        | FirstOrderPlantEstimator          |
  * |                          | `confidence()`                    |                                   |

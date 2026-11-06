@@ -261,7 +261,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`ActiveSetSolver`](inc/damp/design/qp.hpp#L703) | Default QP solver policy: the Goldfarb–Idnani active-set solve_qp() |
 | [`AdmmSettings`](inc/damp/design/qp.hpp#L804) | Tuning parameters for the ADMM QP solver |
 | [`AdmmSolver`](inc/damp/design/qp.hpp#L885) | ADMM (OSQP-style) QP solver policy — warm-started, fixed-cost iterations |
-| [`ADRCResult`](inc/damp/controllers/adrc.hpp#L50) | Active Disturbance Rejection Control design result |
+| [`ADRCResult`](inc/damp/controllers/adrc.hpp#L51) | Active Disturbance Rejection Control design result |
 | [`CommandProjectionResult`](inc/damp/controllers/action_governor.hpp#L91) | Result of an affine command projection |
 | [`DareMethod`](inc/damp/design/riccati.hpp#L1189) | DARE solver selection for dare() |
 | [`DesignStatus`](inc/damp/design/status.hpp#L35) | Why a design failed, one value per cause class (not per code branch) |
@@ -296,8 +296,8 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 
 | Name | Description |
 | ---- | ----------- |
-| [`adrc`](inc/damp/controllers/adrc.hpp#L259) | Active Disturbance Rejection Control design |
-| [`ADRCController`](inc/damp/controllers/adrc.hpp#L455) | Deduce the runtime from its design, keeping the result's scalar |
+| [`adrc`](inc/damp/controllers/adrc.hpp#L206) | Active Disturbance Rejection Control design |
+| [`ADRCController`](inc/damp/controllers/adrc.hpp#L376) | Deduce the runtime from its design, keeping the result's scalar |
 | [`amigo_kappa_tau`](inc/damp/design/pid_design.hpp#L253) | AMIGO PI from ultimate gain/period and static gain Kₛ |
 | [`balanced_realization`](inc/damp/design/model_reduction.hpp#L478) | Balanced realization via the square-root (Moore / Laub) method |
 | [`balanced_reduction`](inc/damp/design/model_reduction.hpp#L555) | Balanced reduction to NR states, by truncation or DC-matched residualization |
@@ -412,8 +412,8 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | Name | Description |
 | ---- | ----------- |
 | [`ActionGovernor`](inc/damp/controllers/action_governor.hpp#L237) | Runtime action governor — QP projection of u_des onto A u ≤ b |
-| [`ADRCController`](inc/damp/controllers/adrc.hpp#L320) | Active Disturbance Rejection Control (ADRC) |
-| [`Cascade`](inc/damp/controllers/composition.hpp#L51) | Series cascade of two SISO controllers: outer → inner reference |
+| [`ADRCController`](inc/damp/controllers/adrc.hpp#L257) | Active Disturbance Rejection Control (ADRC) |
+| [`Cascade`](inc/damp/controllers/composition.hpp#L50) | Series cascade of two SISO controllers: outer → inner reference |
 | [`CBFConstraint`](inc/damp/controllers/action_governor.hpp#L189) | One affine row from a relative-degree-1 CBF condition |
 | [`ContinuousPID`](inc/damp/controllers/pid.hpp#L941) | Continuous-gain PID with per-tick sample time (variable-rate secondary form) |
 | [`ESCSpec`](inc/damp/controllers/esc.hpp#L71) | The extremum-seeking design input: dither, gain, filter corners and clamp; Ts is passed beside it |
@@ -449,8 +449,8 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`SMCController`](inc/damp/controllers/smc.hpp#L182) | First-order sliding-mode controller (SMC) for a SISO plant |
 | [`SmithPredictor`](inc/damp/controllers/smith_predictor.hpp#L329) | Smith predictor runtime: SISO primary + FO model + pure delay |
 | [`STSMCController`](inc/damp/controllers/stsmc.hpp#L205) | Super-twisting controller (second-order sliding mode) |
-| [`SwitchedController`](inc/damp/controllers/composition.hpp#L116) | Bumpless-ish switch between normal, experiment, and backup SISO laws |
-| [`SwitchMode`](inc/damp/controllers/composition.hpp#L93) | Which path owns the plant command |
+| [`SwitchedController`](inc/damp/controllers/composition.hpp#L115) | Bumpless-ish switch between normal, experiment, and backup SISO laws |
+| [`SwitchMode`](inc/damp/controllers/composition.hpp#L92) | Which path owns the plant command |
 
 ## Observers & estimators
 
@@ -463,8 +463,8 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`ChirpConfig`](inc/damp/estimation/excitation/chirp.hpp#L41) | Configuration for a sine chirp excitation |
 | [`ChirpMode`](inc/damp/estimation/excitation/chirp.hpp#L27) | Chirp sweep law |
 | [`ChirpResult`](inc/damp/estimation/excitation/chirp.hpp#L84) | Chirp design payload |
-| [`ClassicalDOB`](inc/damp/estimation/dob.hpp#L438) | Classical Pn^-1·Q disturbance observer runtime (bolt-on compensator) (+1 more overload) |
-| [`ClassicalDobResult`](inc/damp/estimation/dob.hpp#L338) | Design result for the classical Pn^-1·Q disturbance observer |
+| [`ClassicalDOB`](inc/damp/estimation/dob.hpp#L439) | Classical Pn^-1·Q disturbance observer runtime (bolt-on compensator) (+1 more overload) |
+| [`ClassicalDobResult`](inc/damp/estimation/dob.hpp#L339) | Design result for the classical Pn^-1·Q disturbance observer |
 | [`ComplementaryFilter`](inc/damp/estimation/sensor_fusion.hpp#L61) | Simple complementary filter for orientation estimation |
 | [`DOB`](inc/damp/estimation/dob.hpp#L168) | Lightweight SISO disturbance observer runtime (+1 more overload) |
 | [`DOBConfig`](inc/damp/estimation/dob.hpp#L32) | Configuration for a first-order disturbance observer |
@@ -474,6 +474,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`ESKFOrientationFilter`](inc/damp/estimation/sensor_fusion.hpp#L380) | Turnkey 6-state attitude ESKF: owns q, b_g, and the error filter |
 | [`ESKFPredictFn`](inc/damp/estimation/eskf.hpp#L299) | Callable that returns damp::ErrorStateJacobian "ErrorStateJacobian" for one predict step |
 | [`ESKFResult`](inc/damp/estimation/eskf.hpp#L85) | Design payload for an ESKF: Q, R, P₀, and success |
+| [`ESO`](inc/damp/estimation/eso.hpp#L273) | Extended-state observer (ESO) (+1 more overload) |
 | [`ExtendedKalmanFilter`](inc/damp/estimation/ekf.hpp#L118) | Extended Kalman filter: continuous nonlinear dynamics, sampled measurements (+1 more overload) |
 | [`ExtendedKalmanFilterConfig`](inc/damp/estimation/ekf.hpp#L42) | Configuration of an ExtendedKalmanFilter: its sample time, the process noise and the initial estimate |
 | [`Filtered`](inc/damp/estimation/state_variable_filter.hpp#L67) | One signal after the state-variable filter: its filtered value and first two derivatives |
@@ -543,12 +544,13 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | Name | Description |
 | ---- | ----------- |
 | [`chirp`](inc/damp/estimation/excitation/chirp.hpp#L123) | Build a chirp design payload from a configuration |
-| [`classical_dob`](inc/damp/estimation/dob.hpp#L403) | Synthesize a classical disturbance observer from a nominal plant and Q-filter |
+| [`classical_dob`](inc/damp/estimation/dob.hpp#L404) | Synthesize a classical disturbance observer from a nominal plant and Q-filter |
 | [`discretize_process_noise`](inc/damp/estimation/kalman.hpp#L269) | Discretize continuous process noise over one sample (Van Loan) |
 | [`dob`](inc/damp/estimation/dob.hpp#L143) | Validate and package DOB configuration into a runtime-ready design result |
 | [`enu_from_ned`](inc/damp/estimation/ins_mechanization.hpp#L116) | Map a NED vector into ENU (axis permute) |
 | [`eskf_imu`](inc/damp/estimation/eskf.hpp#L219) | Design Q, R, P₀ for a 6-state IMU attitude ESKF (gyro + accel) |
 | [`eskf_marg`](inc/damp/estimation/eskf.hpp#L258) | Design Q, R, P₀ for a 6-state MARG attitude ESKF (gyro + accel + mag) |
+| [`eso`](inc/damp/estimation/eso.hpp#L207) | Extended-state observer: poles at −ω_o, plant gain b₀, optional sample time |
 | [`extract_frf_features`](inc/damp/estimation/frequency_response.hpp#L810) | Extract peaks and valleys in one pass over the FRF table |
 | [`extract_modes`](inc/damp/estimation/frequency_response.hpp#L785) | Extract resonant peaks (local \|G\| maxima) from an FRF table |
 | [`extract_valleys`](inc/damp/estimation/frequency_response.hpp#L799) | Extract anti-resonance valleys (local \|G\| minima) from an FRF table |

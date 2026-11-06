@@ -20,10 +20,10 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`AdaptOutOfRange`](inc/damp/toolbox/lookup.hpp#L48) | enum | Embedded helpers (controls-adjacent utilities) | How AdaptiveLut1D / AdaptiveLut2D treat samples outside the breakpoint span |
 | [`AdmmSettings`](inc/damp/design/qp.hpp#L804) | block | Design-time synthesis (not PWM-rate) | Tuning parameters for the ADMM QP solver |
 | [`AdmmSolver`](inc/damp/design/qp.hpp#L885) | block | Design-time synthesis (not PWM-rate) | ADMM (OSQP-style) QP solver policy — warm-started, fixed-cost iterations |
-| [`adrc`](inc/damp/controllers/adrc.hpp#L259) | function | Design-time synthesis (not PWM-rate) | Active Disturbance Rejection Control design |
-| [`ADRCController`](inc/damp/controllers/adrc.hpp#L455) | function | Design-time synthesis (not PWM-rate) | Deduce the runtime from its design, keeping the result's scalar |
-| [`ADRCController`](inc/damp/controllers/adrc.hpp#L320) | block | Runtime controllers | Active Disturbance Rejection Control (ADRC) |
-| [`ADRCResult`](inc/damp/controllers/adrc.hpp#L50) | block | Design-time synthesis (not PWM-rate) | Active Disturbance Rejection Control design result |
+| [`adrc`](inc/damp/controllers/adrc.hpp#L206) | function | Design-time synthesis (not PWM-rate) | Active Disturbance Rejection Control design |
+| [`ADRCController`](inc/damp/controllers/adrc.hpp#L376) | function | Design-time synthesis (not PWM-rate) | Deduce the runtime from its design, keeping the result's scalar |
+| [`ADRCController`](inc/damp/controllers/adrc.hpp#L257) | block | Runtime controllers | Active Disturbance Rejection Control (ADRC) |
+| [`ADRCResult`](inc/damp/controllers/adrc.hpp#L51) | block | Design-time synthesis (not PWM-rate) | Active Disturbance Rejection Control design result |
 | [`AffineCal`](inc/damp/toolbox/scaling.hpp#L83) | block | Embedded helpers (controls-adjacent utilities) | Affine sensor calibration `y = gain·x + offset` |
 | [`all_of`](inc/damp/matrix/core.hpp#L1421) | function | Linear algebra | Whether p holds for every entry of A: the matrix counterpart of std::all_of |
 | [`allmargin`](inc/damp/matlab.hpp#L1314) | function | MATLAB®-style aliases (host) | Gain, phase, and delay margins of a SISO loop over a frequency grid |
@@ -74,7 +74,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`canon`](inc/damp/matlab.hpp#L500) | function | MATLAB®-style aliases (host) | MATLAB® canon(sys) / canon(sys, 'modal'): real modal canonical form and its transform (+1 more overload) |
 | [`canonical_phase_margin`](inc/damp/analysis/frequency.hpp#L150) | function | Frequency-domain analysis (host) | Normalize phase margin to (-180, 180] |
 | [`care`](inc/damp/design/riccati.hpp#L1491) | function | Design-time synthesis (not PWM-rate) | Solve the Continuous-time Algebraic Riccati Equation (CARE) |
-| [`Cascade`](inc/damp/controllers/composition.hpp#L51) | block | Runtime controllers | Series cascade of two SISO controllers: outer → inner reference |
+| [`Cascade`](inc/damp/controllers/composition.hpp#L50) | block | Runtime controllers | Series cascade of two SISO controllers: outer → inner reference |
 | [`catmull_1d`](inc/damp/toolbox/lookup.hpp#L340) | function | Embedded helpers (controls-adjacent utilities) | 1-D non-uniform Catmull-Rom (cubic Hermite) evaluation |
 | [`cbf_relative_degree_1`](inc/damp/controllers/action_governor.hpp#L205) | function | Design-time synthesis (not PWM-rate) | Build a relative-degree-1 CBF inequality row |
 | [`CBFConstraint`](inc/damp/controllers/action_governor.hpp#L189) | block | Runtime controllers | One affine row from a relative-degree-1 CBF condition |
@@ -89,9 +89,9 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`cholesky_solve`](inc/damp/matrix/solve.hpp#L159) | function | Linear algebra | Solve AX = B via Cholesky (A = LLᴴ) |
 | [`clarke_park_transform`](inc/damp/math/transforms.hpp#L404) | function | Scalar math, complex & frames | Fused Clarke-Park transform (abc → dq) |
 | [`clarke_transform`](inc/damp/math/transforms.hpp#L277) | function | Scalar math, complex & frames | Clarke transform (abc → αβ) |
-| [`classical_dob`](inc/damp/estimation/dob.hpp#L403) | function | Observers & estimators | Synthesize a classical disturbance observer from a nominal plant and Q-filter |
-| [`ClassicalDOB`](inc/damp/estimation/dob.hpp#L438) | block | Observers & estimators | Classical Pn^-1·Q disturbance observer runtime (bolt-on compensator) (+1 more overload) |
-| [`ClassicalDobResult`](inc/damp/estimation/dob.hpp#L338) | block | Observers & estimators | Design result for the classical Pn^-1·Q disturbance observer |
+| [`classical_dob`](inc/damp/estimation/dob.hpp#L404) | function | Observers & estimators | Synthesize a classical disturbance observer from a nominal plant and Q-filter |
+| [`ClassicalDOB`](inc/damp/estimation/dob.hpp#L439) | block | Observers & estimators | Classical Pn^-1·Q disturbance observer runtime (bolt-on compensator) (+1 more overload) |
+| [`ClassicalDobResult`](inc/damp/estimation/dob.hpp#L339) | block | Observers & estimators | Design result for the classical Pn^-1·Q disturbance observer |
 | [`classify_range`](inc/damp/toolbox/conditioning.hpp#L369) | function | Embedded helpers (controls-adjacent utilities) | Classify x against the valid span and the wire-fault limits of range |
 | [`closed_loop_poles`](inc/damp/design/stability.hpp#L564) | function | Design-time synthesis (not PWM-rate) | Compute closed-loop poles (eigenvalues) with state feedback |
 | [`closed_loop_stable`](inc/damp/design/pid_design.hpp#L684) | function | Design-time synthesis (not PWM-rate) | Closed-loop certificate: den_P·den_C + num_P·num_C is Hurwitz for C_fb = Kp + Kᵢ/s + Kd s/(1 + Tf s) |
@@ -201,6 +201,8 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`ESKFOrientationFilter`](inc/damp/estimation/sensor_fusion.hpp#L380) | block | Observers & estimators | Turnkey 6-state attitude ESKF: owns q, b_g, and the error filter |
 | [`ESKFPredictFn`](inc/damp/estimation/eskf.hpp#L299) | concept | Observers & estimators | Callable that returns damp::ErrorStateJacobian "ErrorStateJacobian" for one predict step |
 | [`ESKFResult`](inc/damp/estimation/eskf.hpp#L85) | block | Observers & estimators | Design payload for an ESKF: Q, R, P₀, and success |
+| [`eso`](inc/damp/estimation/eso.hpp#L207) | function | Observers & estimators | Extended-state observer: poles at −ω_o, plant gain b₀, optional sample time |
+| [`ESO`](inc/damp/estimation/eso.hpp#L273) | block | Observers & estimators | Extended-state observer (ESO) (+1 more overload) |
 | [`estim`](inc/damp/matlab.hpp#L731) | function | MATLAB®-style aliases (host) | Form the state estimator from a plant and an estimator gain |
 | [`Euler`](inc/damp/math/geometry.hpp#L226) | block | Scalar math, complex & frames | Intrinsic Euler angles for sequence Order (default ZYX aerospace YPR) |
 | [`EulerOrder`](inc/damp/math/geometry.hpp#L55) | enum | Scalar math, complex & frames | Intrinsic Euler angle sequence (axis order of successive principal rotations) |
@@ -803,8 +805,8 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`svm_duty_cycles`](inc/damp/motor/modulation.hpp#L443) | function | Motor control pack (if present) | Space-vector PWM duty cycles from an αβ voltage command |
 | [`SvmDuties`](inc/damp/motor/modulation.hpp#L103) | block | Motor control pack (if present) | Result of a duty-map: half-bridge duties plus an over-modulation flag |
 | [`svpwm_zero_sequence`](inc/damp/motor/modulation.hpp#L200) | function | Motor control pack (if present) | Min-max zero-sequence injection for space-vector PWM |
-| [`SwitchedController`](inc/damp/controllers/composition.hpp#L116) | block | Runtime controllers | Bumpless-ish switch between normal, experiment, and backup SISO laws |
-| [`SwitchMode`](inc/damp/controllers/composition.hpp#L93) | enum | Runtime controllers | Which path owns the plant command |
+| [`SwitchedController`](inc/damp/controllers/composition.hpp#L115) | block | Runtime controllers | Bumpless-ish switch between normal, experiment, and backup SISO laws |
+| [`SwitchMode`](inc/damp/controllers/composition.hpp#L92) | enum | Runtime controllers | Which path owns the plant command |
 | [`symmetrical_components`](inc/damp/math/transforms.hpp#L542) | function | Scalar math, complex & frames | Forward symmetrical-component (Fortescue) transform (abc → 012) |
 | [`SymplecticEuler`](inc/damp/simulation/integrator.hpp#L278) | block | Simulation / SIL harness (host) | Semi-implicit (symplectic) Euler for mechanical systems |
 | [`tan`](inc/damp/math/math.hpp#L217) | function | Scalar math, complex & frames | Tangent |

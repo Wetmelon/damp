@@ -121,7 +121,7 @@ SIL should call the deploy tick — not reimplement the controller for the sim. 
 
 Embeddable core: stack matrices, `constexpr` math, LTI types (SS / TF / ZPK) and
 discretize, design-is-deploy controllers and estimators (PID, LQR family, OFLQG,
-MPC, ADRC, SMC, KF/EKF/UKF, ESKF, …), filters, encoders, fixed-step integrators,
+MPC, ADRC, ESO, SMC, KF/EKF/UKF, ESKF, …), filters, encoders, fixed-step integrators,
 geometry, toolbox helpers.
 
 Host (via `workbench.hpp`): Bode/margins, ODE solvers, closed-loop simulate, and a

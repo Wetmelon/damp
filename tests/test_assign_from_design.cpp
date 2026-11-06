@@ -21,6 +21,7 @@
 #include "damp/controllers/smc.hpp"
 #include "damp/controllers/stsmc.hpp"
 #include "damp/design/pid_design.hpp"
+#include "damp/estimation/eso.hpp"
 #include "damp/estimation/excitation/chirp.hpp"
 #include "damp/estimation/kalman.hpp"
 #include "damp/estimation/luenberger.hpp"
@@ -43,6 +44,7 @@ constexpr double kTs = 1e-3;
 // Double designs, deployed in float below with no .as<float>().
 constexpr auto kPid = design::pid(2.0, 5.0, 0.1).discretize(kTs);
 constexpr auto kAdrc = design::adrc<2>(10.0, 50.0, 1.0, kTs);
+constexpr auto kEso = design::eso<2>(50.0, 1.0, kTs);
 constexpr auto kSmc = design::smc(10.0, 8.0, 1.0, kTs);
 constexpr auto kStsmc = design::stsmc(4.0, kTs, 10.0);
 constexpr auto kPr = design::pr({.Kp = 0.0, .Ki = 10.0, .w0 = 2.0 * std::numbers::pi * 50.0, .wc = 6.0}, kTs);
@@ -66,6 +68,7 @@ constexpr auto kObserver = design::luenberger(
 static constinit PIDController<float>               pid = kPid;
 static constinit ContinuousPID<float>               cpid = design::pid(2.0, 5.0, 0.1);
 static constinit ADRCController<2, float>           adrc = kAdrc;
+static constinit ESO<2, float>                      eso = kEso;
 static constinit SMCController<float>               smc = kSmc;
 static constinit STSMCController<float>             stsmc = kStsmc;
 static constinit PRController<float>                pr = kPr;
@@ -91,6 +94,7 @@ TEST_SUITE("assign from design") {
         const Chirp chirp_d{kChirp}; // deduces Chirp<double>
         static_assert(std::is_same_v<std::remove_const_t<decltype(chirp_d)>, Chirp<double>>);
         CHECK(static_cast<double>(chirp.step(0.25f)) == doctest::Approx(chirp_d.step(0.25)).epsilon(1e-5));
+        CHECK(eso.valid());
         (void)adrc;
         (void)smc;
         (void)stsmc;
@@ -104,6 +108,7 @@ TEST_SUITE("assign from design") {
         PIDController             pd{kPid};
         ContinuousPID             cd{design::pid(1.0, 1.0, 0.0)};
         ADRCController            ad{kAdrc};
+        ESO                       es{kEso};
         SMCController             sd{kSmc};
         STSMCController           td{kStsmc};
         PRController              prd{kPr};
@@ -116,6 +121,7 @@ TEST_SUITE("assign from design") {
         static_assert(std::is_same_v<decltype(pd), PIDController<double>>);
         static_assert(std::is_same_v<decltype(cd), ContinuousPID<double>>);
         static_assert(std::is_same_v<decltype(ad), ADRCController<2, double>>);
+        static_assert(std::is_same_v<decltype(es), ESO<2, double>>);
         static_assert(std::is_same_v<decltype(sd), SMCController<double>>);
         static_assert(std::is_same_v<decltype(td), STSMCController<double>>);
         static_assert(std::is_same_v<decltype(prd), PRController<double>>);

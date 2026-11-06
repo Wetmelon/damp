@@ -102,6 +102,7 @@ types. Bode and friends return analysis grids. New code uses `design::` and
 | `pidtune`, Ziegler–Nichols            | `design::pidtune`, `design::ziegler_nichols_*`; then `.discretize(Ts)` → `PIDController`                         |
 | `kalman`, `lqe`, `dlqe`, `kalmd`      | `design::kalman` → `Luenberger` (fixed gain on the law) or `KalmanFilter` (P each tick)                          |
 | observer, Luenberger                  | `Luenberger{design::kalman(...)}`                                                                                |
+| ESO, ADRC                             | `design::eso` → `ESO` (observer only); `design::adrc` → `ADRCController` (ESO + PD)                              |
 | anti-windup, sat, `umax`              | `back_calculate(u_sat)` after the driver clamp; PID `u_lim` on `PIDGains`                                        |
 | `mpcmove`, constraints                | `design::mpc` / `ofmpc`, `MPC.step(r, y)`                                                                        |
 | `bode`, `nyquist`, `margin`, `rlocus` | `workbench.hpp`; `analysis::` or `matlab::bode`                                                                  |
@@ -142,6 +143,8 @@ PID: `design::pidtune` or `design::pid(Kp, Ki, Kd)` → `.discretize(Ts)` → `P
 | Hold listed outputs at r, trusting the model | `TrackedOutputs` + `design::lqr` / `lqg`                          | [`examples/control/cart_pole/`](../examples/control/cart_pole/)                                       |
 | Reject a constant disturbance / model offset | `design::lqi` / `lqgi`, or `design::oflqg`                        | [`examples/control/lqi/`](../examples/control/lqi/), [`heater_lqg/`](../examples/control/heater_lqg/) |
 | Estimate the state from y                    | `design::lqg` or `design::kalman` → `KalmanFilter` / `Luenberger` | [`examples/estimation/eskf/`](../examples/estimation/eskf/)                                           |
+| Estimate a lumped disturbance from y, u      | `design::eso` → `ESO` (no plant A, B, C)                          | [`inc/damp/estimation/eso.hpp`](../inc/damp/estimation/eso.hpp)                                       |
+| A SISO loop with ADRC (ESO + PD)             | `design::adrc` → `ADRCController`                                 | [`examples/control/adrc/`](../examples/control/adrc/)                                                 |
 | Enforce input or output limits               | `design::mpc` / `ofmpc`, `back_calculate` after a clamp           | [`examples/control/heater_ofmpc/`](../examples/control/heater_ofmpc/)                                 |
 | A SISO loop with a PID                       | `design::pidtune` → `PIDController`                               | [`examples/control/pid/`](../examples/control/pid/)                                                   |
 | A nonlinear plant                            | `Dynamics` / `Measurement`, `design::linearize`, EKF/UKF          | [`examples/control/cart_pole/`](../examples/control/cart_pole/) SIL                                   |

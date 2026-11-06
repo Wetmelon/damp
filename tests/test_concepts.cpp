@@ -24,6 +24,7 @@
 #include "damp/controllers/stsmc.hpp"
 #include "damp/design/qp.hpp"
 #include "damp/estimation/ekf.hpp"
+#include "damp/estimation/eso.hpp"
 #include "damp/estimation/excitation.hpp"
 #include "damp/estimation/kalman.hpp"
 #include "damp/estimation/luenberger.hpp"
@@ -153,6 +154,8 @@ static_assert(StateEstimator<Luenberger<2, 1, 1, double>, 2, 1, 1, double>);    
 static_assert(StateEstimator<Luenberger<3, 1, 1, double, 1>, 3, 1, 1, double>);      // fixed gain, anchored
 static_assert(StateEstimator<MHE<1, 1, 1, 4, double>, 1, 1, 1, double>);
 static_assert(StateEstimator<ReducedLuenberger<3, 1, double>, 3, 1, 1, double>); // reduced order
+static_assert(StateEstimator<ESO<1, double>, 2, 1, 1, double>);                  // 1st-order plant, z = [ŷ, f̂]
+static_assert(StateEstimator<ESO<2, double>, 3, 1, 1, double>);                  // 2nd-order plant, z = [ŷ, ẏ, f̂]
 struct ConstantVelocityModel {                                                   // ẋ = [v, 0]
     [[nodiscard]] ColVec<2> operator()(const ColVec<2>& x, const ColVec<1>& /*u*/) const { return ColVec<2>{x[1], 0.0}; }
 };
@@ -235,6 +238,24 @@ TEST_CASE("fused step(y, u) equals the manual predict/update sequence") {
             CHECK(xf(0) == manual.state()(0));
             CHECK(xf(1) == manual.state()(1));
             CHECK(xf(0) == fused.state()(0));
+        }
+    }
+
+    SUBCASE("ESO") {
+        const auto ed = design::eso<2>(8.0, 1.0, Ts);
+        REQUIRE(ed.success);
+        ESO<2, double> fused{ed};
+        ESO<2, double> manual{ed};
+        for (int k = 0; k < 30; ++k) {
+            const ColVec<1> y{0.1 * k};
+            const ColVec<1> u{0.5};
+            const auto      xf = fused.step(y, u);
+            manual.predict(u);
+            manual.update(y);
+            CHECK(xf[0] == doctest::Approx(manual.state()[0]).epsilon(1e-12));
+            CHECK(xf[1] == doctest::Approx(manual.state()[1]).epsilon(1e-12));
+            CHECK(xf[2] == doctest::Approx(manual.state()[2]).epsilon(1e-12));
+            CHECK(xf[0] == fused.state()[0]);
         }
     }
 
