@@ -9,12 +9,14 @@
  *        ahead is acted on before it happens; per-move input targets reach the cost.
  */
 
-#include <algorithm>
 #include <cmath>
 #include <cstddef>
 
+#include "damp/backend.hpp"
 #include "damp/controllers/mpc.hpp"
-#include "damp/controllers/offset_free_mpc.hpp"
+#include "damp/controllers/ofmpc.hpp"
+#include "damp/design/disturbance.hpp"
+#include "damp/estimation/kalman.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "damp/systems/discretization.hpp"
 #include "damp/systems/state_space.hpp"
@@ -29,16 +31,18 @@ constexpr auto        kModel = discretize(StateSpace<1, 1, 1>{.A = {{-1.0 / 30.0
 constexpr std::size_t NP = 20;
 constexpr std::size_t NC = 4;
 
-design::MPCArtifacts<1, 1, 1, NP, NC, 0, double> plain_design(double ru = 0.0) {
+auto plain_design(double ru = 0.0) {
     design::MPCWeights<1, 1> w{};
-    w.Qy = Matrix<1, 1>{{1.0}};
-    w.Rdu = Matrix<1, 1>{{1.0}};
-    w.Ru = Matrix<1, 1>{{ru}};
+    w.Qy = 1.0;
+    w.Rdu = 1.0;
+    w.Ru = ru;
     w.Qy_terminal = w.Qy;
     design::MPCConstraints<1, 1> c{};
-    c.u_min = ColVec<1>{0.0};
-    c.u_max = ColVec<1>{40.0};
-    const auto art = design::state_mpc<NP, NC>(*kModel, w, c);
+    c.u_lim = {
+        .lower = 0.0,
+        .upper = 40.0,
+    };
+    const auto art = design::mpc<NP, NC>(*kModel, w, c);
     REQUIRE(art.success);
     return art;
 }
@@ -47,6 +51,15 @@ design::MPCArtifacts<1, 1, 1, NP, NC, 0, double> plain_design(double ru = 0.0) {
 constexpr int kStep = 60;
 double        setpoint_at(int k) {
     return (k < kStep) ? 100.0 : 80.0;
+}
+
+/// NP copies of the reference @p r: the held setpoint written as a preview.
+damp::array<ColVec<1>, NP> held_preview(double r) {
+    damp::array<ColVec<1>, NP> preview{};
+    for (std::size_t j = 0; j < NP; ++j) {
+        preview[j] = ColVec<1>{r};
+    }
+    return preview;
 }
 
 } // namespace
@@ -60,8 +73,8 @@ TEST_SUITE("MPC reference preview") {
         double                          xb = 0.0;
         for (int k = 0; k < 120; ++k) {
             const double r = setpoint_at(k);
-            const double ua = a.control(ColVec<1>{r}, ColVec<1>{xa})[0];
-            const double ub = b.control(MPC<1, 1, 1, NP, NC, 0, double>::held(ColVec<1>{r}), ColVec<1>{xb})[0];
+            const double ua = a.step(ColVec<1>{r}, ColVec<1>{xa})[0];
+            const double ub = b.step(held_preview(r), ColVec<1>{xb})[0];
             CHECK(ua == ub);
             xa = kModel->A(0, 0) * xa + kModel->B(0, 0) * ua;
             xb = kModel->A(0, 0) * xb + kModel->B(0, 0) * ub;
@@ -83,8 +96,8 @@ TEST_SUITE("MPC reference preview") {
             for (std::size_t j = 0; j < NP; ++j) {
                 ahead[j] = ColVec<1>{setpoint_at(k + 1 + static_cast<int>(j))}; // the next NP setpoints
             }
-            const double u_a = with.control(ahead, ColVec<1>{x_with})[0];
-            const double u_b = without.control(ColVec<1>{setpoint_at(k)}, ColVec<1>{x_without})[0];
+            const double u_a = with.step(ahead, ColVec<1>{x_with})[0];
+            const double u_b = without.step(ColVec<1>{setpoint_at(k)}, ColVec<1>{x_without})[0];
             if (k == kStep - 2) {
                 u_with_before = u_a;
                 u_without_before = u_b;
@@ -118,38 +131,44 @@ TEST_SUITE("MPC reference preview") {
         ramp.set_input_target(rising);
         CHECK(same.input_target()(0) == 10.0);
         const ColVec<1> x{50.0};
-        const double    u_one = one.feedback(ColVec<1>{60.0}, x)[0];
-        const double    u_same = same.feedback(ColVec<1>{60.0}, x)[0];
-        const double    u_ramp = ramp.feedback(ColVec<1>{60.0}, x)[0];
+        one.update(x);
+        same.update(x);
+        ramp.update(x);
+        const double u_one = one.control(ColVec<1>{60.0})[0];
+        const double u_same = same.control(ColVec<1>{60.0})[0];
+        const double u_ramp = ramp.control(ColVec<1>{60.0})[0];
         CHECK(u_one == u_same);
         CHECK(u_ramp != u_one); // the later targets reach the first move through the shared Δu
         // The map itself: move i's column collects 2·Ru from every move j ≥ i.
         for (std::size_t i = 0; i < NC; ++i) {
             for (std::size_t j = 0; j < NC; ++j) {
-                CHECK(art.F_ut(i, j) == ((j >= i) ? 2.0 * 0.5 : 0.0));
+                CHECK(art.mpc.F_ut(i, j) == ((j >= i) ? 2.0 * 0.5 : 0.0));
             }
         }
     }
 
-    TEST_CASE("OffsetFreeMPC: a held preview is the single-reference tick through the estimator") {
+    TEST_CASE("offset-free: a held preview is the single-reference tick through the estimator") {
         design::MPCWeights<1, 1> w{};
-        w.Qy = Matrix<1, 1>{{1.0}};
-        w.Rdu = Matrix<1, 1>{{1.0}};
+        w.Qy = 1.0;
+        w.Rdu = 1.0;
         w.Qy_terminal = w.Qy;
         design::MPCConstraints<1, 1> c{};
-        c.u_min = ColVec<1>{0.0};
-        c.u_max = ColVec<1>{40.0};
-        const auto art = design::mpc<NP, NC>(*kModel, w, c, design::OffsetFreeNoise{Matrix<1, 1>{{0.01}}, Matrix<1, 1>{{0.01}}, Matrix<1, 1>{{0.05}}});
+        c.u_lim = {
+            .lower = 0.0,
+            .upper = 40.0,
+        };
+        StateSpace<1, 1, 1, double, 1, 1> plant{.A = kModel->A, .B = kModel->B, .C = kModel->C, .Ts = kModel->Ts}; // process noise on the state
+        const auto                        art = design::ofmpc<NP, NC>(plant, w, c, design::KalmanNoise{Matrix<1, 1>{{0.01}}, Matrix<1, 1>{{0.01}}, Matrix<1, 1>{{0.05}}}, design::InputDisturbance{});
         REQUIRE(art.success);
-        OffsetFreeMPC<1, 1, 1, NP, NC, double> a{art};
-        OffsetFreeMPC<1, 1, 1, NP, NC, double> b{art};
-        double                                 xa = 0.0;
-        double                                 xb = 0.0;
+        OFMPC  a{art};
+        OFMPC  b{art};
+        double xa = 0.0;
+        double xb = 0.0;
         for (int k = 0; k < 120; ++k) {
             const double r = setpoint_at(k);
             const double w_in = (k >= 90) ? 1.0 : 0.0;
-            const double ua = a.control(ColVec<1>{r}, ColVec<1>{xa})[0];
-            const double ub = b.control(MPC<1, 1, 1, NP, NC, 1, double>::held(ColVec<1>{r}), ColVec<1>{xb})[0];
+            const double ua = a.step(ColVec<1>{r}, ColVec<1>{xa})[0];
+            const double ub = b.step(held_preview(r), ColVec<1>{xb})[0];
             CHECK(ua == ub);
             xa = kModel->A(0, 0) * xa + kModel->B(0, 0) * (ua + w_in);
             xb = kModel->A(0, 0) * xb + kModel->B(0, 0) * (ub + w_in);

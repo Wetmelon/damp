@@ -7,7 +7,6 @@
 #include <cstddef>
 
 #include "damp/backend.hpp"
-#include "damp/controllers/lqr.hpp"
 #include "damp/design/riccati.hpp"
 #include "damp/design/stability.hpp"
 #include "damp/estimation/kalman.hpp"
@@ -37,7 +36,7 @@ TEST_SUITE("4x4 Eigenvalue Computation") {
         };
 
         auto result = compute_eigenvalues(D);
-        CHECK(result.converged);
+        CHECK(result.success);
 
         // Extract eigenvalues and sort
         std::array<double, 4> evs = {};
@@ -57,7 +56,7 @@ TEST_SUITE("4x4 Eigenvalue Computation") {
         auto I = Matrix<4, 4, double>::identity();
 
         auto result = compute_eigenvalues(I);
-        CHECK(result.converged);
+        CHECK(result.success);
 
         for (size_t i = 0; i < 4; ++i) {
             CHECK(result.values[i].real() == doctest::Approx(1.0).epsilon(1e-10));
@@ -75,7 +74,7 @@ TEST_SUITE("4x4 Eigenvalue Computation") {
         };
 
         auto result = compute_eigenvalues(A);
-        CHECK(result.converged);
+        CHECK(result.success);
 
         // All eigenvalues should be positive (SPD)
         for (size_t i = 0; i < 4; ++i) {
@@ -102,7 +101,7 @@ TEST_SUITE("4x4 Eigenvalue Computation") {
         };
 
         auto result = compute_eigenvalues(A);
-        CHECK(result.converged);
+        CHECK(result.success);
 
         // Should have complex conjugate pairs: ±i and ±2i
         // Count pairs with imaginary parts
@@ -132,7 +131,7 @@ TEST_SUITE("4x4 Eigenvalue Computation") {
         };
 
         auto result = compute_eigenvalues(A);
-        CHECK(result.converged);
+        CHECK(result.success);
 
         // Cart-pole at upright has one positive real eigenvalue (unstable)
         // and one negative real eigenvalue, plus two zeros
@@ -159,7 +158,7 @@ TEST_SUITE("4x4 Eigenvalue Computation") {
         };
 
         constexpr auto result = compute_eigenvalues(D);
-        static_assert(result.converged, "4x4 eigenvalue computation should converge");
+        static_assert(result.success, "4x4 eigenvalue computation should converge");
 
         // Verify at compile time that eigenvalues sum to trace (1+2+3+4=10)
         constexpr double sum_ev = result.values[0].real() + result.values[1].real() + result.values[2].real() + result.values[3].real();
@@ -192,7 +191,7 @@ TEST_SUITE("4x4 DARE and LQR") {
         if (result.success) {
             // Verify closed-loop stability
             Matrix<4, 4> A_cl = A_d - B_d * result.K;
-            CHECK(stability::is_stable_discrete(A_cl));
+            CHECK(stability::is_stable(StateSpace<4, 1, 1>{.A = A_cl, .Ts = 1.0}));
         }
     }
 
@@ -220,7 +219,7 @@ TEST_SUITE("4x4 DARE and LQR") {
         if (result.success) {
             // Verify closed-loop stability
             Matrix<4, 4> A_cl = A_d - B_d * result.K;
-            CHECK(stability::is_stable_discrete(A_cl));
+            CHECK(stability::is_stable(StateSpace<4, 1, 1>{.A = A_cl, .Ts = 1.0}));
         }
     }
 
@@ -255,7 +254,7 @@ TEST_SUITE("4x4 DARE and LQR") {
 
         // Verify P is positive definite (all eigenvalues > 0)
         auto P_eigen = compute_eigenvalues(P);
-        CHECK(P_eigen.converged);
+        CHECK(P_eigen.success);
         for (size_t i = 0; i < 4; ++i) {
             CHECK(P_eigen.values[i].real() > 0.0);
         }
@@ -322,7 +321,7 @@ TEST_SUITE("4x4 DARE and LQR") {
 
         // Verify closed-loop stability
         Matrix<4, 4> A_cl = A - B * result.K;
-        CHECK(stability::is_stable_discrete(A_cl));
+        CHECK(stability::is_stable(StateSpace<4, 1, 1>{.A = A_cl, .Ts = 1.0}));
     }
 }
 
@@ -349,14 +348,14 @@ TEST_SUITE("4x4 Kalman Filter Design") {
         Matrix<4, 4> Q = Matrix<4, 4>::identity() * 0.01;
         Matrix<2, 2> R = Matrix<2, 2>::identity() * 0.1;
 
-        auto result = design::kalman(sys, Q, R);
+        auto result = design::kalman(sys, {.process = Q, .measurement = R});
         CHECK(result.success);
 
         // Verify L is non-zero
         bool L_nonzero = false;
         for (size_t i = 0; i < 4; ++i) {
             for (size_t j = 0; j < 2; ++j) {
-                if (result.L(i, j) != 0.0) {
+                if (result.M(i, j) != 0.0) {
                     L_nonzero = true;
                     break;
                 }
@@ -439,7 +438,7 @@ TEST_SUITE("4x4 Matrix Inverse") {
 TEST_SUITE("4x4 Matrix Exponential") {
     TEST_CASE("4x4 zero matrix exponential is identity") {
         auto Z = Matrix<4, 4, double>::zeros();
-        auto exp_Z = mat::expm(Z);
+        auto exp_Z = mat::expm(Z).value();
 
         for (size_t i = 0; i < 4; ++i) {
             for (size_t j = 0; j < 4; ++j) {
@@ -457,7 +456,7 @@ TEST_SUITE("4x4 Matrix Exponential") {
             {0.0, 0.0, 0.0, 0.0}
         };
 
-        auto exp_D = mat::expm(D);
+        auto exp_D = mat::expm(D).value();
 
         // Improved Padé approximation should achieve ~1e-6 accuracy
         CHECK(exp_D(0, 0) == doctest::Approx(std::exp(1.0)).epsilon(1e-6));
@@ -475,7 +474,7 @@ TEST_SUITE("4x4 Matrix Exponential") {
             {0.0, 0.0, 0.0, 0.0}
         };
 
-        auto exp_N = mat::expm(N);
+        auto exp_N = mat::expm(N).value();
 
         // exp(N) = I + N + N²/2! + N³/3!
         // N² has ones on 2nd superdiagonal
@@ -491,7 +490,7 @@ TEST_CASE("Matrix exponential (exp) - compile-time and runtime verification") {
 
     // Test 1: exp(0) = I (identity matrix)
     constexpr Matrix<2, 2, double> A_zero = Matrix<2, 2, double>::zeros();
-    constexpr auto                 exp_zero = expm(A_zero);
+    constexpr auto                 exp_zero = expm(A_zero).value();
     CHECK(exp_zero(0, 0) == doctest::Approx(1.0).epsilon(1e-12));
     CHECK(exp_zero(0, 1) == doctest::Approx(0.0).epsilon(1e-12));
     CHECK(exp_zero(1, 0) == doctest::Approx(0.0).epsilon(1e-12));
@@ -501,7 +500,7 @@ TEST_CASE("Matrix exponential (exp) - compile-time and runtime verification") {
     // Test 2: exp(scalar * I) = scalar * I (for small scalar)
     constexpr double scalar = 0.1;
     constexpr Matrix A_scalar = Matrix<2, 2, double>::identity() * scalar;
-    constexpr auto   exp_scalar = expm(A_scalar);
+    constexpr auto   exp_scalar = expm(A_scalar).value();
     static_assert(exp_scalar(0, 0) - damp::exp(scalar) < 1e-12, "exp(scalar*I) diagonal should match scalar exp");
 
     // Test 3: Runtime test with 4x4 matrix (golden reference from scipy.linalg.expm)
@@ -513,7 +512,7 @@ TEST_CASE("Matrix exponential (exp) - compile-time and runtime verification") {
         {1.0, 0.0, 0.0, 0.0},
     };
 
-    auto exp_A_4x4 = expm(A_4x4);
+    auto exp_A_4x4 = expm(A_4x4).value();
 
     // Golden reference (computed via scipy.linalg.expm in Python)
     Matrix<4, 4, double> expected_exp_A_4x4 = {
@@ -535,8 +534,8 @@ TEST_CASE("Matrix exponential (exp) - compile-time and runtime verification") {
         {-0.05, 0.1}
     };
 
-    auto exp_A_small = expm(A_small);
-    auto exp_neg_A_small = expm(A_small * -1.0);
+    auto exp_A_small = expm(A_small).value();
+    auto exp_neg_A_small = expm(A_small * -1.0).value();
     auto product = exp_A_small * exp_neg_A_small;
     auto identity = Matrix<2, 2, double>::identity();
     for (size_t i = 0; i < 2; ++i) {
@@ -556,7 +555,7 @@ TEST_SUITE("4x4 Stability Analysis") {
             {0.0, 0.0, 0.0, 0.8},
         };
 
-        CHECK(stability::is_stable_discrete(A));
+        CHECK(stability::is_stable(StateSpace<4, 1, 1>{.A = A, .Ts = 1.0}));
     }
 
     TEST_CASE("4x4 discrete stability check - unstable system") {
@@ -568,7 +567,7 @@ TEST_SUITE("4x4 Stability Analysis") {
             {0.0, 0.0, 0.0, 0.5},
         };
 
-        CHECK_FALSE(stability::is_stable_discrete(A));
+        CHECK_FALSE(stability::is_stable(StateSpace<4, 1, 1>{.A = A, .Ts = 1.0}));
     }
 
     TEST_CASE("4x4 stability margin") {
@@ -579,7 +578,7 @@ TEST_SUITE("4x4 Stability Analysis") {
             {0.0, 0.0, 0.0, 0.8},
         };
 
-        double margin = stability::stability_margin_discrete(A);
+        double margin = stability::stability_margin(StateSpace<4, 1, 1>{.A = A, .Ts = 1.0});
         CHECK(margin > 0.0);                                 // Stable
         CHECK(margin == doctest::Approx(0.2).epsilon(0.01)); // 1 - 0.8 = 0.2
     }

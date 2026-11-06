@@ -18,8 +18,11 @@
 #include <vector>
 
 #include "damp/backend.hpp"
+#include "damp/controllers/ofmpc.hpp"
+#include "damp/design/disturbance.hpp"
 #include "damp/math/math.hpp"
 #include "damp/simulation/plot_plotly.hpp"
+#include "damp/systems/discretization.hpp"
 #include "fmt/base.h"
 #include "fmt/core.h"
 #include "heater_ofmpc_controller.hpp"
@@ -35,16 +38,16 @@ using plotlypp::Scatter;
 
 namespace {
 
-constexpr double kDt = 0.1;           // [s] plant integration step
-constexpr int    kSub = 20;           // plant steps per control period (kTs / kDt)
-constexpr int    kPlotEvery = 2;      // plant steps per plotted sample: 0.2 s, ten per control period
-constexpr int    kLag = 50;           // plant steps of dead time (kDeadTime / kDt)
-constexpr double kAmbientTrue = 22.0; // [°C] the room, colder than kAmbient
-constexpr double kSetpoint = 210.0;   // [°C]
-constexpr double kFanLoss = 5.0;      // [W] part-cooling fan, unmeasured
-constexpr double kFanOn = 240.0;      // [s]
-constexpr double kEnd = 480.0;        // [s]
-constexpr double kStepDownAt = 360.0; // [s] the profile run: setpoint 210 → 190 °C
+constexpr double kDt = 0.1;                                  // [s] plant integration step
+constexpr int    kSub = static_cast<int>((kTs / kDt) + 0.5); // plant steps per control period
+constexpr int    kPlotEvery = 2;                             // plant steps per plotted sample: 0.2 s
+constexpr int    kLag = 50;                                  // plant steps of dead time (kDeadTime / kDt)
+constexpr double kAmbientTrue = 22.0;                        // [°C] the room, colder than kAmbient
+constexpr double kSetpoint = 210.0;                          // [°C]
+constexpr double kFanLoss = 5.0;                             // [W] part-cooling fan, unmeasured
+constexpr double kFanOn = 240.0;                             // [s]
+constexpr double kEnd = 480.0;                               // [s]
+constexpr double kStepDownAt = 360.0;                        // [s] the profile run: setpoint 210 → 190 °C
 constexpr int    kPeriods = static_cast<int>(kEnd / kTs);
 
 /// The hotend: τ Ṫ = −(T − T_amb) + K (P(t − θ) − fan loss), exact over each plant step.
@@ -185,14 +188,14 @@ void write_preview_plot(const Trace& with, const Trace& without) {
     add_line(fig, t, without.power_fine, "P, held", 1, 2);
     const auto xd = plot::panel_x_domain();
     auto       layout = Layout()
-                      .title([](auto& tt) { tt.text("Hotend, 210 → 190 °C at 360 s: offset-free MPC with and without the setpoint known over its horizon"); })
-                      .xaxis(Layout::Xaxis().domain(xd).showticklabels(false).anchor("y"))
-                      .yaxis(Layout::Yaxis().title([](auto& tt) { tt.text("T [°C]"); }).domain({0.45, 1.0}))
-                      .xaxis(2, Layout::Xaxis().domain(xd).matches("x").title([](auto& tt) { tt.text("Time (s)"); }).anchor("y2"))
-                      .yaxis(2, Layout::Yaxis().title([](auto& tt) { tt.text("P [W]"); }).domain({0.0, 0.40}))
-                      .legend(plot::panel_legend(1.0))
-                      .legend(2, plot::panel_legend(0.40))
-                      .height(800);
+                            .title([](auto& tt) { tt.text("Hotend, 210 → 190 °C at 360 s: offset-free MPC with and without the setpoint known over its horizon"); })
+                            .xaxis(Layout::Xaxis().domain(xd).showticklabels(false).anchor("y"))
+                            .yaxis(Layout::Yaxis().title([](auto& tt) { tt.text("T [°C]"); }).domain({0.45, 1.0}))
+                            .xaxis(2, Layout::Xaxis().domain(xd).matches("x").title([](auto& tt) { tt.text("Time (s)"); }).anchor("y2"))
+                            .yaxis(2, Layout::Yaxis().title([](auto& tt) { tt.text("P [W]"); }).domain({0.0, 0.40}))
+                            .legend(plot::panel_legend(1.0))
+                            .legend(2, plot::panel_legend(0.40))
+                            .height(800);
     fig.setLayout(damp::move(layout));
     plot::write_html(fig, "plots/control/heater_ofmpc_preview.html");
 }
@@ -208,14 +211,14 @@ void write_plot(const Trace& aware, const Trace& naive) {
     add_line(fig, t, naive.power_fine, "P, ignoring the delay", 1, 2);
     const auto xd = plot::panel_x_domain();
     auto       layout = Layout()
-                      .title([](auto& tt) { tt.text("Hotend, 5 s dead time: offset-free MPC with and without the delay in its model"); })
-                      .xaxis(Layout::Xaxis().domain(xd).showticklabels(false).anchor("y"))
-                      .yaxis(Layout::Yaxis().title([](auto& tt) { tt.text("T [°C]"); }).domain({0.45, 1.0}))
-                      .xaxis(2, Layout::Xaxis().domain(xd).matches("x").title([](auto& tt) { tt.text("Time (s)"); }).anchor("y2"))
-                      .yaxis(2, Layout::Yaxis().title([](auto& tt) { tt.text("P [W]"); }).domain({0.0, 0.40}))
-                      .legend(plot::panel_legend(1.0))
-                      .legend(2, plot::panel_legend(0.40))
-                      .height(800);
+                            .title([](auto& tt) { tt.text("Hotend, 5 s dead time: offset-free MPC with and without the delay in its model"); })
+                            .xaxis(Layout::Xaxis().domain(xd).showticklabels(false).anchor("y"))
+                            .yaxis(Layout::Yaxis().title([](auto& tt) { tt.text("T [°C]"); }).domain({0.45, 1.0}))
+                            .xaxis(2, Layout::Xaxis().domain(xd).matches("x").title([](auto& tt) { tt.text("Time (s)"); }).anchor("y2"))
+                            .yaxis(2, Layout::Yaxis().title([](auto& tt) { tt.text("P [W]"); }).domain({0.0, 0.40}))
+                            .legend(plot::panel_legend(1.0))
+                            .legend(2, plot::panel_legend(0.40))
+                            .height(800);
     fig.setLayout(damp::move(layout));
     plot::write_html(fig, "plots/control/heater_ofmpc.html");
 }
@@ -223,13 +226,13 @@ void write_plot(const Trace& aware, const Trace& naive) {
 } // namespace
 
 int main() {
-    fmt::print("===== Hotend, offset-free MPC through a 2.5-period dead time (host SIL) =====\n\n");
-    constexpr auto naive_law = design_mpc<0.0>(); // the same design, blind to the dead time
+    fmt::print("===== Hotend, offset-free MPC through a one-period dead time (host SIL) =====\n\n");
+    constexpr auto naive_law = design::ofmpc<kHorizon, 4>(*discretize(kPlant, kTs), kWeights, kLimits, kNoise, design::InputDisturbance{}); // the same design, blind to the dead time
     static_assert(naive_law.success);
-    OffsetFreeMPC aware_mpc{kLaw.as<float>()};
-    OffsetFreeMPC naive_mpc{naive_law.as<float>()};
-    const Trace   aware = run(aware_mpc);
-    const Trace   naive = run(naive_mpc);
+    OFMPC       aware_mpc{kLaw.as<float>()};
+    OFMPC       naive_mpc{naive_law.as<float>()};
+    const Trace aware = run(aware_mpc);
+    const Trace naive = run(naive_mpc);
 
     const int fan = static_cast<int>(kFanOn / kTs);
     const int last_minute = kPeriods - static_cast<int>(60.0 / kTs);
@@ -251,12 +254,12 @@ int main() {
     fmt::print("\nPlot written to plots/control/heater_ofmpc.html\n");
 
     // The profile run: the same delay-aware MPC, told about the step down or not.
-    OffsetFreeMPC preview_mpc{kLaw.as<float>()};
-    OffsetFreeMPC held_mpc{kLaw.as<float>()};
-    const Trace   with = run_profile(preview_mpc, true);
-    const Trace   without = run_profile(held_mpc, false);
-    const double  err_with = profile_error(with, kStepDownAt - 60.0, kEnd);
-    const double  err_without = profile_error(without, kStepDownAt - 60.0, kEnd);
+    OFMPC        preview_mpc{kLaw.as<float>()};
+    OFMPC        held_mpc{kLaw.as<float>()};
+    const Trace  with = run_profile(preview_mpc, true);
+    const Trace  without = run_profile(held_mpc, false);
+    const double err_with = profile_error(with, kStepDownAt - 60.0, kEnd);
+    const double err_without = profile_error(without, kStepDownAt - 60.0, kEnd);
     fmt::print("\nSetpoint 210 → 190 °C at 360 s, ∫|e| dt over 300 … 480 s:  known 60 s ahead {:6.1f} °C·s   held {:6.1f} °C·s\n", err_with, err_without);
     write_preview_plot(with, without);
     fmt::print("Plot written to plots/control/heater_ofmpc_preview.html\n");

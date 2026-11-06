@@ -76,20 +76,6 @@ TEST_SUITE("Signal conditioning") {
         CHECK(inverse_deadband_sine(0.01, 0.3, 0.2, 0.05) == doctest::Approx(0.0));
     }
 
-    TEST_CASE("compensate_coulomb_viscous and stribeck boost breakaway") {
-        // Pure Coulomb: large |cmd| → cmd + sign(cmd)*Fc
-        CHECK(compensate_coulomb_viscous(1.0, 0.2, 0.0, 1e-6) == doctest::Approx(1.2).epsilon(1e-5));
-        CHECK(compensate_coulomb_viscous(-1.0, 0.2, 0.0, 1e-6) == doctest::Approx(-1.2).epsilon(1e-5));
-        // Viscous scales through
-        CHECK(compensate_coulomb_viscous(1.0, 0.0, 0.5, 1e-3) == doctest::Approx(1.5).epsilon(1e-12));
-
-        // Stribeck: near zero, static_f dominates; far away, coulomb
-        const double near = compensate_stribeck(0.01, 0.1, 0.4, 0.2, 0.0, 1e-4);
-        const double far = compensate_stribeck(2.0, 0.1, 0.4, 0.2, 0.0, 1e-4);
-        CHECK(std::abs(near) > std::abs(0.01 + 0.1));           // more than pure Coulomb near breakaway
-        CHECK(far == doctest::Approx(2.0 + 0.1).epsilon(1e-3)); // ~Coulomb at high speed
-    }
-
     TEST_CASE("scaled_deadband rescales surviving range to full span") {
         CHECK(scaled_deadband(0.05, 0.1) == doctest::Approx(0.0)); // inside dead zone
         CHECK(scaled_deadband(1.0, 0.1) == doctest::Approx(1.0));  // extreme stays at 1
@@ -140,17 +126,33 @@ TEST_SUITE("Signal conditioning") {
     }
 
     TEST_CASE("classify_range / RangeMonitor bands per NE43 [0.25 (0.5 4.5) 4.75]") {
-        // Pure kernel.
-        CHECK(classify_range(0.1, 0.25, 0.5, 4.5, 4.75) == SignalStatus::FaultLow);
-        CHECK(classify_range(0.3, 0.25, 0.5, 4.5, 4.75) == SignalStatus::UnderRange);
-        CHECK(classify_range(2.5, 0.25, 0.5, 4.5, 4.75) == SignalStatus::Valid);
-        CHECK(classify_range(4.6, 0.25, 0.5, 4.5, 4.75) == SignalStatus::OverRange);
-        CHECK(classify_range(4.9, 0.25, 0.5, 4.5, 4.75) == SignalStatus::FaultHigh);
+        // Pure kernel; a braced range takes its scalar from x.
+        const SignalRange<double> ne43{.valid = {
+                                           .lower = 0.5,
+                                           .upper = 4.5,
+                                       },
+                                       .fault = {
+                                           .lower = 0.25,
+                                           .upper = 4.75,
+                                       }};
+        CHECK(classify_range(0.1, {.valid = {
+                                       .lower = 0.5,
+                                       .upper = 4.5,
+                                   },
+                                   .fault = {
+                                       .lower = 0.25,
+                                       .upper = 4.75,
+                                   }})
+              == SignalStatus::FaultLow);
+        CHECK(classify_range(0.3, ne43) == SignalStatus::UnderRange);
+        CHECK(classify_range(2.5, ne43) == SignalStatus::Valid);
+        CHECK(classify_range(4.6, ne43) == SignalStatus::OverRange);
+        CHECK(classify_range(4.9, ne43) == SignalStatus::FaultHigh);
         // Band edges: valid span is inclusive, fault floor belongs to UnderRange.
-        CHECK(classify_range(0.5, 0.25, 0.5, 4.5, 4.75) == SignalStatus::Valid);
-        CHECK(classify_range(0.25, 0.25, 0.5, 4.5, 4.75) == SignalStatus::UnderRange);
+        CHECK(classify_range(0.5, ne43) == SignalStatus::Valid);
+        CHECK(classify_range(0.25, ne43) == SignalStatus::UnderRange);
 
-        RangeMonitor<double> ai{0.25, 0.5, 4.5, 4.75};
+        RangeMonitor<double> ai{ne43};
         CHECK(ai.faulted(0.1) == true);  // broken wire
         CHECK(ai.faulted(0.3) == false); // saturated low is NOT a wire fault
         CHECK(ai.valid(2.5) == true);
@@ -158,13 +160,21 @@ TEST_SUITE("Signal conditioning") {
     }
 
     TEST_CASE("RangeMonitor hysteresis suppresses boundary chatter") {
-        RangeMonitor<double> ai{0.25, 0.5, 4.5, 4.75, 0.05};
+        RangeMonitor<double> ai{{.valid = {
+                                     .lower = 0.5,
+                                     .upper = 4.5,
+                                 },
+                                 .fault = {
+                                     .lower = 0.25,
+                                     .upper = 4.75,
+                                 }},
+                                0.05};
         CHECK(ai(2.5) == SignalStatus::Valid);
-        // Just below valid_lo: without hysteresis this would flip to UnderRange,
+        // Just below valid.lower: without hysteresis this would flip to UnderRange,
         // but it must drop a further 0.05 (below 0.45) to leave Valid.
         CHECK(ai(0.48) == SignalStatus::Valid);
-        CHECK(ai(0.44) == SignalStatus::UnderRange); // crossed valid_lo - hyst
-        // And to recover it must rise back above valid_lo + hyst = 0.55.
+        CHECK(ai(0.44) == SignalStatus::UnderRange); // crossed valid.lower - hyst
+        // And to recover it must rise back above valid.lower + hyst = 0.55.
         CHECK(ai(0.52) == SignalStatus::UnderRange);
         CHECK(ai(0.56) == SignalStatus::Valid);
     }
@@ -178,5 +188,12 @@ TEST_SUITE("Signal conditioning") {
         CHECK(h(1.5) == true);  // holds in the band
         CHECK(h(0.5) == false); // releases below low
         CHECK(h(1.5) == false); // holds low again
+    }
+
+    TEST_CASE("soft_sign does not collapse to 0 when x² overflows") {
+        CHECK(soft_sign(1e20f, 1.0f) == doctest::Approx(1.0f));
+        CHECK(soft_sign(-1e200, 1.0) == doctest::Approx(-1.0));
+        CHECK(soft_sign(0.0, 0.0) == 0.0);
+        CHECK(soft_sign(1e-30, 0.0) == doctest::Approx(1.0)); // eps = 0 is the hard sign
     }
 }

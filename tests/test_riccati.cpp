@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <type_traits>
 
 #include "damp/backend.hpp"
@@ -14,6 +15,7 @@
 #include "damp/estimation/kalman.hpp"
 #include "damp/math/math.hpp"
 #include "damp/matrix/matrix.hpp"
+#include "damp/matrix/matrix_traits.hpp"
 #include "damp/systems/state_space.hpp"
 #define DOCTEST_CONFIG_INCLUDE_TYPE_TRAITS
 #include "doctest.h"
@@ -407,7 +409,7 @@ TEST_SUITE("DARE: R=0 (Positive Semidefinite R)") {
         auto        BtPB = BtP * B;
         auto        BtPA = BtP * A;
         auto        residual = A.transpose() * Pv * A - Pv
-                      - A.transpose() * Pv * B * (BtPA * (1.0 / BtPB(0, 0))) + Q;
+                             - A.transpose() * Pv * B * (BtPA * (1.0 / BtPB(0, 0))) + Q;
         CHECK(residual.norm() < 1e-8);
     }
 
@@ -479,6 +481,20 @@ TEST_SUITE("DARE: R=0 (Positive Semidefinite R)") {
     }
 }
 
+namespace {
+
+/** @brief stability::is_stabilizable on a discrete model of (A, B). */
+template<size_t NX, size_t NU, typename T>
+bool discrete_stabilizable(const Matrix<NX, NX, T>& A, const Matrix<NX, NU, T>& B) {
+    StateSpace<NX, NU, 1, T> sys{};
+    sys.A = A;
+    sys.B = B;
+    sys.Ts = T{1};
+    return stability::is_stabilizable(sys);
+}
+
+} // namespace
+
 TEST_SUITE("is_stabilizable") {
     TEST_CASE("one large-gain input does not hide the others (column scaling)") {
         // Double integrator in each of two axes. Input 0 drives axis 0 only, with a gain 10⁸
@@ -490,10 +506,10 @@ TEST_SUITE("is_stabilizable") {
         Matrix<4, 2> B{};
         B(1, 0) = 1.0e8;
         B(3, 1) = 1.0;
-        CHECK(is_stabilizable(A, B));
+        CHECK(discrete_stabilizable(A, B));
         Matrix<4, 2> B_axis0_only{};
         B_axis0_only(1, 0) = 1.0e8;
-        CHECK_FALSE(is_stabilizable(A, B_axis0_only)); // axis 1 has no input at all
+        CHECK_FALSE(discrete_stabilizable(A, B_axis0_only)); // axis 1 has no input at all
     }
 
     TEST_CASE("a badly scaled change of coordinates does not change the verdict (balancing)") {
@@ -516,10 +532,10 @@ TEST_SUITE("is_stabilizable") {
                 Bs(r, c) = s[r] * B(r, c);
             }
         }
-        CHECK(is_stabilizable(As, Bs));
+        CHECK(discrete_stabilizable(As, Bs));
         Matrix<4, 2> Bs_axis0{};
         Bs_axis0(1, 0) = Bs(1, 0);
-        CHECK_FALSE(is_stabilizable(As, Bs_axis0)); // axis 1 still has no input
+        CHECK_FALSE(discrete_stabilizable(As, Bs_axis0)); // axis 1 still has no input
     }
 
     TEST_CASE_TEMPLATE("an accelerometer register next to an integrator disturbance: the dual is detectable", T, float, double) {
@@ -543,12 +559,12 @@ TEST_SUITE("is_stabilizable") {
         Matrix<2, 4, T> C{};
         C(0, 0) = T{1};
         C(1, 2) = T{1};
-        CHECK(is_stabilizable(Matrix<4, 4, T>(A.t()), Matrix<4, 2, T>(C.t())));
-        CHECK_FALSE(is_stabilizable(A, B));
+        CHECK(discrete_stabilizable(Matrix<4, 4, T>(A.t()), Matrix<4, 2, T>(C.t())));
+        CHECK_FALSE(discrete_stabilizable(A, B));
         A(3, 3) = T{0}; // without the disturbance the plant alone is stabilizable
         A(1, 3) = T{0};
         A(2, 3) = T{0};
-        CHECK(is_stabilizable(A, B));
+        CHECK(discrete_stabilizable(A, B));
     }
 
     TEST_CASE_TEMPLATE("an undamped mode with no input is never skipped as stable", T, float, double) {
@@ -564,8 +580,61 @@ TEST_SUITE("is_stabilizable") {
             A(2, 2) = static_cast<T>(0.5);
             Matrix<3, 1, T> B{};
             B(2, 0) = T{1};
-            CHECK_FALSE(is_stabilizable(A, B));
+            CHECK_FALSE(discrete_stabilizable(A, B));
         }
+    }
+
+    TEST_CASE("a continuous model is judged against the imaginary axis, not the unit circle") {
+        // A stable uncontrollable mode at s = −2 is stabilizable; an unstable one at s = +0.5 is not.
+        // Read against the unit circle, both verdicts would flip.
+        StateSpace<2, 1, 1> sys{};
+        sys.B = Matrix<2, 1>{{0.0}, {1.0}};
+        sys.A = Matrix<2, 2>{{-2.0, 0.0}, {0.0, -1.0}};
+        CHECK(stability::is_stabilizable(sys));
+        sys.A = Matrix<2, 2>{{0.5, 0.0}, {0.0, -1.0}};
+        CHECK_FALSE(stability::is_stabilizable(sys));
+        sys.A = Matrix<2, 2>{{0.0, 0.0}, {0.0, -0.5}}; // an uncontrollable integrator: on the axis
+        CHECK_FALSE(stability::is_stabilizable(sys));
+        sys.Ts = 0.1; // the same matrices as a discrete model: |λ| < 1 for all, stabilizable
+        CHECK(stability::is_stabilizable(sys));
+    }
+
+    TEST_CASE("a mode with no input and no coupling is found whatever the roundoff in its eigenvalue") {
+        // x₁ keeps its value (or grows) with no input; x₂, x₃ are random. The PBH row of x₁ is
+        // [λ − a₁₁, 0, 0 | 0]: λ's roundoff, which a row scaled to unit size read as controllable in
+        // about half the draws.
+        std::uint32_t seed = 12345U;
+        const auto    draw = [&seed]() {
+            seed = (seed * 1664525U) + 1013904223U;
+            return (static_cast<double>(seed >> 8U) / 16777216.0) - 0.5;
+        };
+        for (int k = 0; k < 200; ++k) {
+            StateSpace<3, 1, 1> sys{};
+            sys.A = Matrix<3, 3>{{0.0, 0.0, 0.0}, {draw(), draw(), draw()}, {draw(), draw(), draw()}};
+            sys.B = Matrix<3, 1>{{0.0}, {draw()}, {draw()}};
+            sys.Ts = 0.01;
+            for (const double a11 : {1.0, 1.2}) {
+                sys.A(0, 0) = a11;
+                CHECK_FALSE(stability::is_stabilizable(sys));
+            }
+            sys.Ts = 0.0;
+            for (const double a11 : {0.0, 0.3}) {
+                sys.A(0, 0) = a11;
+                CHECK_FALSE(stability::is_stabilizable(sys));
+            }
+        }
+    }
+
+    TEST_CASE_TEMPLATE("a plant sampled far faster than it moves stays stabilizable and designable", T, float, double) {
+        // λI − A and B are O(h) next to |λ| = 1. Each PBH row with an entry besides λ − aᵣᵣ is
+        // brought to its own unit size, so real entries this small still count.
+        const T                h = std::is_same_v<T, float> ? static_cast<T>(1e-5) : static_cast<T>(1e-8);
+        StateSpace<2, 1, 1, T> sys{};
+        sys.A = Matrix<2, 2, T>{{T{1}, h}, {T{0}, T{1}}};
+        sys.B = Matrix<2, 1, T>{{h * h / T{2}}, {h}};
+        sys.Ts = h;
+        CHECK(stability::is_stabilizable(sys));
+        CHECK(design::discrete_lqr(sys.A, sys.B, Matrix<2, 2, T>::identity(), Matrix<1, 1, T>{{T{1}}}).success);
     }
 }
 
@@ -627,13 +696,15 @@ constexpr StateSpace<10, 2, 2> mass_chain() {
 }
 } // namespace
 
-TEST_CASE("10-state LQI and steady-state Kalman designs fit the default constexpr budget") {
-    // Tripwire for -fconstexpr-ops-limit (2^25): both must stay designable at compile time.
+TEST_CASE("10-state LQI and steady-state Kalman designs fit a 2^26 constexpr budget on GCC") {
+    // Tripwire for -fconstexpr-ops-limit=67108864 (2^26, set in Tuprules.lua for GCC): both
+    // must stay designable at compile time.
     constexpr auto sys = mass_chain();
-    constexpr auto lqi = design::discrete_lqi(sys, Matrix<12, 12>::identity(), Matrix<2, 2>::identity());
+    // A stiff integrator weight on ∫e: the budget tripwire needs a well-separated closed loop.
+    constexpr auto lqi = design::lqi(sys, {.Q = Matrix<10, 10>::identity(), .R = Matrix<2, 2>::identity(), .Q_integral = Matrix<2, 2>::identity() * (1.0 / (0.01 * 0.01))});
     static_assert(lqi.success);
     constexpr StateSpace<10, 2, 2, double, 10, 2> noisy{.A = sys.A, .B = sys.B, .C = sys.C, .G = Matrix<10, 10>::identity(), .H = Matrix<2, 2>::identity(), .Ts = sys.Ts};
-    constexpr auto                                kf = design::kalman(noisy, Matrix<10, 10>::identity() * 1e-4, Matrix<2, 2>::identity() * 1e-2);
+    constexpr auto                                kf = design::kalman(noisy, {.process = Matrix<10, 10>::identity() * 1e-4, .measurement = Matrix<2, 2>::identity() * 1e-2});
     static_assert(kf.success);
     CHECK(lqi.success);
     CHECK(kf.success);
@@ -667,6 +738,26 @@ TEST_SUITE("DARE scale invariance") {
             }
         }
         CHECK(X->norm() / scale == doctest::Approx(X0->norm()).epsilon(1e-6));
+    }
+
+    TEST_CASE("a float design does not depend on the unit of position") {
+        // Double integrator at 1 kHz with position in units s times smaller: the eigenvalues are the
+        // same, the unbalanced ‖A − BK‖_F grows with s. A certificate scaled by it refused s ≥ 3e6.
+        const auto design_at = [](float s) {
+            const float               Ts = 1e-3F;
+            const Matrix<2, 2, float> A{{1.0F, s * Ts}, {0.0F, 1.0F}};
+            const Matrix<2, 1, float> B{{s * Ts * Ts / 2.0F}, {Ts}};
+            const Matrix<2, 2, float> Q{{1.0F / (s * s), 0.0F}, {0.0F, 0.01F}};
+            return design::discrete_lqr(A, B, Q, Matrix<1, 1, float>{{1.0F}});
+        };
+        const auto ref = design_at(1.0F);
+        REQUIRE(ref.success);
+        const float ref_mag = damp::max(ref.e[0].abs(), ref.e[1].abs());
+        for (const float s : {1e3F, 1e6F, 3e6F, 1e7F}) {
+            const auto res = design_at(s);
+            REQUIRE(res.success);
+            CHECK(damp::max(res.e[0].abs(), res.e[1].abs()) == doctest::Approx(ref_mag).epsilon(1e-5));
+        }
     }
 }
 
@@ -804,6 +895,236 @@ TEST_SUITE("real Schur block swap") {
             T(0, 2) = s;
             CHECK(damp::detail::schur_subdiagonal(T, 0));
             CHECK_FALSE(damp::detail::schur_subdiagonal(T, 1));
+        }
+    }
+}
+
+TEST_SUITE("Riccati refusals") {
+    TEST_CASE("a controllable unit-circle mode that Q does not see is refused, not deployed") {
+        // A = 1, B = 1, Q = 0: the maximal DARE solution X = 0 leaves the pole at z = 1.
+        const auto scalar = design::discrete_lqr(Matrix<1, 1>{{1.0}}, Matrix<1, 1>{{1.0}}, Matrix<1, 1>{{0.0}}, Matrix<1, 1>{{1.0}});
+        CHECK_FALSE(scalar.success);
+        CHECK(scalar.status == design::DesignStatus::bad_weights);
+        // A position loop that weights only velocity: position is never regulated.
+        const Matrix<2, 2> A{{1.0, 0.1}, {0.0, 1.0}};
+        const Matrix<2, 1> B{{0.005}, {0.1}};
+        const Matrix<2, 2> Q_vel{{0.0, 0.0}, {0.0, 1.0}};
+        const auto         vel = design::discrete_lqr(A, B, Q_vel, Matrix<1, 1>{{1.0}});
+        CHECK_FALSE(vel.success);
+        CHECK(vel.status == design::DesignStatus::bad_weights);
+        CHECK_FALSE(vel.is_stable());
+        // The continuous analogue gets the same status.
+        const auto cont = design::continuous_lqr(Matrix<2, 2>{{0.0, 1.0}, {0.0, 0.0}}, Matrix<2, 1>{{0.0}, {1.0}}, Q_vel, Matrix<1, 1>{{1.0}});
+        CHECK_FALSE(cont.success);
+        CHECK(cont.status == design::DesignStatus::bad_weights);
+        // Weighting position as well designs normally.
+        CHECK(design::discrete_lqr(A, B, Matrix<2, 2>::identity(), Matrix<1, 1>{{1.0}}).success);
+    }
+
+    TEST_CASE("the velocity-only loop is refused in any coordinates, not only where its pole lands on the boundary") {
+        // The same problem in z = T·x: the maximal solution's pole at z = 1 is computed 2.4e-15 inside
+        // the circle (s = −5e-8 for the CARE), beyond the n·ε band. The cost's dual PBH test refuses it.
+        const double       h = 0.01;
+        const Matrix<2, 2> T{{1.0, 2.0}, {0.4, 1.0}};
+        const auto         Ti = mat::solve(T, Matrix<2, 2>::identity());
+        REQUIRE(Ti.has_value());
+        const Matrix<2, 2> Q0{{0.0, 0.0}, {0.0, 1.0}};
+        const Matrix<2, 2> Q = (Ti->t() * Q0) * (*Ti);
+        const Matrix<2, 2> Qs = (Q + Q.t()) * 0.5;
+        const Matrix<2, 2> Ad = (T * Matrix<2, 2>{{1.0, h}, {0.0, 1.0}}) * (*Ti);
+        const Matrix<2, 1> Bd = T * Matrix<2, 1>{{h * h / 2.0}, {h}};
+        const auto         disc = design::discrete_lqr(Ad, Bd, Qs, Matrix<1, 1>{{1.0}});
+        CHECK_FALSE(disc.success);
+        CHECK(disc.status == design::DesignStatus::bad_weights);
+        const Matrix<2, 2> Ac = (T * Matrix<2, 2>{{0.0, 1.0}, {0.0, 0.0}}) * (*Ti);
+        const Matrix<2, 1> Bc = T * Matrix<2, 1>{{0.0}, {1.0}};
+        const auto         cont = design::continuous_lqr(Ac, Bc, Qs, Matrix<1, 1>{{1.0}});
+        CHECK_FALSE(cont.success);
+        CHECK(cont.status == design::DesignStatus::bad_weights);
+
+        // The CARE's boundary pole is a defective double root of the Hamiltonian: in these
+        // coordinates it lands at s = −2.05e-8, 1.3× outside √ε·‖D⁻¹(A − BK)D‖_F, and the position
+        // gain comes out 2e-8. The continuous PBH band is 4√ε·‖·‖, so the dual PBH test still runs.
+        const Matrix<2, 2> T2{{0.79911688464871933, 0.4482679214500308}, {0.4648456983561382, 0.53133651872453869}};
+        const auto         T2i = mat::solve(T2, Matrix<2, 2>::identity());
+        REQUIRE(T2i.has_value());
+        const Matrix<2, 2> Q2 = (T2i->t() * Q0) * (*T2i);
+        const auto         rotated = design::continuous_lqr(
+            (T2 * Matrix<2, 2>{{0.0, 1.0}, {0.0, 0.0}}) * (*T2i), T2 * Matrix<2, 1>{{0.0}, {1.0}}, (Q2 + Q2.t()) * 0.5, Matrix<1, 1>{{1.0}}
+        );
+        CHECK_FALSE(rotated.success);
+        CHECK(rotated.status == design::DesignStatus::bad_weights);
+    }
+
+    TEST_CASE_TEMPLATE("a decoupled state with a small input gain is stabilizable whatever its unit", T, float, double) {
+        // x₁⁺ = x₁ + b·u, x₂⁺ = 0.5·x₂ + u: controllable for every b ≠ 0, and a new unit for x₁ changes
+        // only b. Each PBH row is brought to its own unit size, so b counts at any scale.
+        StateSpace<2, 1, 1, T> sys{};
+        sys.A = Matrix<2, 2, T>{{T{1}, T{0}}, {T{0}, T{0.5}}};
+        sys.Ts = static_cast<T>(0.01);
+        for (const double b : {1e-5, 1e-6, 3e-7, 1e-12, 1e-14}) {
+            if (std::is_same_v<T, float> && b < 1e-7) {
+                continue;
+            }
+            sys.B = Matrix<2, 1, T>{{static_cast<T>(b)}, {T{1}}};
+            CHECK(stability::is_stabilizable(sys));
+        }
+        sys.B = Matrix<2, 1, T>{{static_cast<T>(1e-5)}, {T{1}}};
+        CHECK(design::discrete_lqr(sys.A, sys.B, Matrix<2, 2, T>::identity(), Matrix<1, 1, T>{{T{1}}}).success);
+    }
+
+    TEST_CASE_TEMPLATE("a triple integrator whose Q does not see position is bad weights at any sample time", T, float, double) {
+        // (A, B) is controllable. The triple eigenvalue at z = 1 is computed only to O(∛ε), outside
+        // the √ε boundary band in some builds, but the position row of the dual (Aᵀ, Q) has no entry
+        // besides a₁₁ = 1, which makes z = 1 an unseen eigenvalue exactly.
+        for (const double hd : {0.1, 0.05, 0.01, 0.005, 0.001}) {
+            const T               h = static_cast<T>(hd);
+            const Matrix<3, 3, T> A{{T{1}, h, h * h / T{2}}, {T{0}, T{1}, h}, {T{0}, T{0}, T{1}}};
+            const Matrix<3, 1, T> B{{h * h * h / T{6}}, {h * h / T{2}}, {h}};
+            const Matrix<3, 3, T> Q{{T{0}, T{0}, T{0}}, {T{0}, T{1}, T{0}}, {T{0}, T{0}, static_cast<T>(0.1)}};
+            const auto            r = design::discrete_lqr(A, B, Q, Matrix<1, 1, T>{{T{1}}});
+            CAPTURE(hd);
+            CHECK_FALSE(r.success);
+            CHECK(r.status == design::DesignStatus::bad_weights);
+        }
+    }
+
+    TEST_CASE_TEMPLATE("an output-weighted cost with feedthrough is accepted (Q − N R⁻¹ Nᵀ = 0)", T, float, double) {
+        // z = C x + D u with D invertible: Q = CᵀC, N = CᵀD, R = DᵀD. The joint weight is PSD by
+        // construction and its Schur complement cancels to roundoff, so the PSD shift scales with Q.
+        for (int k = 0; k < 40; ++k) {
+            const double          th = 0.157 * static_cast<double>(k);
+            const Matrix<1, 2, T> C{{static_cast<T>(damp::cos(th) * (1.0 + (0.1 * k))), static_cast<T>(damp::sin(th))}};
+            const Matrix<1, 1, T> D{{static_cast<T>(0.3 + (0.05 * k))}};
+            const Matrix<2, 2, T> Q = C.t() * C;
+            const Matrix<2, 1, T> N = C.t() * D;
+            const Matrix<1, 1, T> R = D.t() * D;
+            const Matrix<2, 1, T> B{{T{1}}, {T{0.5}}};
+            const Matrix<2, 1, T> BDinv = B * (T{1} / D(0, 0));
+            const Matrix<2, 2, T> Ad = (Matrix<2, 2, T>::identity() * T{0.5}) + (BDinv * C); // A − B R⁻¹ Nᵀ = 0.5·I
+            const Matrix<2, 2, T> Ac = (Matrix<2, 2, T>::identity() * T{-0.5}) + (BDinv * C);
+            CAPTURE(k);
+            CHECK(design::discrete_lqr(Ad, B, Q, R, N).success);
+            CHECK(design::continuous_lqr(Ac, B, Q, R, N).success);
+            const Matrix<2, 1, T> N_over = N * static_cast<T>(1.01); // 1% past PSD: still refused
+            CHECK(design::discrete_lqr(Ad, B, Q, R, N_over).status == design::DesignStatus::bad_weights);
+            // Zero dynamics with a boundary mode (A − B R⁻¹ Nᵀ = diag(1, 0.5), or diag(0, −0.5)): z
+            // does not see it, so no stabilizing solution exists. The roundoff left in Q − N R⁻¹ Nᵀ
+            // and A − B R⁻¹ Nᵀ read as a weight and a coupling, giving success with a pole 3e-8
+            // inside, or not_stabilizable / not_converged.
+            const Matrix<2, 2, T> Ad_b = Matrix<2, 2, T>{{T{1}, T{0}}, {T{0}, T{0.5}}} + (BDinv * C);
+            const Matrix<2, 2, T> Ac_b = Matrix<2, 2, T>{{T{0}, T{0}}, {T{0}, T{-0.5}}} + (BDinv * C);
+            CHECK(design::discrete_lqr(Ad_b, B, Q, R, N).status == design::DesignStatus::bad_weights);
+            CHECK(design::continuous_lqr(Ac_b, B, Q, R, N).status == design::DesignStatus::bad_weights);
+        }
+    }
+
+    TEST_CASE("an unweighted integrator gets the same status in either domain, A = 0 included") {
+        // Continuous A = 0 makes the boundary band √ε·‖A‖ zero, with the eigenvalue exactly on it.
+        const auto cont = design::continuous_lqr(Matrix<1, 1>{{0.0}}, Matrix<1, 1>{{1.0}}, Matrix<1, 1>{{0.0}}, Matrix<1, 1>{{1.0}});
+        const auto disc = design::discrete_lqr(Matrix<1, 1>{{1.0}}, Matrix<1, 1>{{1.0}}, Matrix<1, 1>{{0.0}}, Matrix<1, 1>{{1.0}});
+        CHECK(cont.status == design::DesignStatus::bad_weights);
+        CHECK(disc.status == design::DesignStatus::bad_weights);
+        const auto cont2 = design::continuous_lqr(Matrix<2, 2>{}, Matrix<2, 2>::identity(), Matrix<2, 2>{{1.0, 0.0}, {0.0, 0.0}}, Matrix<2, 2>::identity());
+        CHECK(cont2.status == design::DesignStatus::bad_weights);
+    }
+
+    TEST_CASE("a controllable integrator that Q does not see is bad weights whatever the roundoff in its eigenvalue") {
+        // x₁ integrates x₂, x₃ and the input (z = 1, or s = 0) and feeds nothing back; Q weights only
+        // x₂ and x₃. In the dual (Aᵀ, Q) the PBH row of x₁ is [λ − a₁₁, 0, 0 | 0, 0, 0]: λ's roundoff,
+        // which a row scaled to unit size read as seen, giving not_stabilizable or not_converged in
+        // most draws.
+        std::uint32_t seed = 54321U;
+        const auto    draw = [&seed]() {
+            seed = (seed * 1664525U) + 1013904223U;
+            return (static_cast<double>(seed >> 8U) / 16777216.0) - 0.5;
+        };
+        const Matrix<3, 3> Q{{0.0, 0.0, 0.0}, {0.0, 1.0, 0.0}, {0.0, 0.0, 1.0}};
+        for (int k = 0; k < 100; ++k) {
+            Matrix<3, 3>       A{{1.0, draw(), draw()}, {0.0, draw(), draw()}, {0.0, draw(), draw()}};
+            const Matrix<3, 1> B{{draw()}, {draw()}, {draw()}};
+            CHECK(design::discrete_lqr(A, B, Q, Matrix<1, 1>{{1.0}}).status == design::DesignStatus::bad_weights);
+            A(0, 0) = 0.0;
+            CHECK(design::continuous_lqr(A, B, Q, Matrix<1, 1>{{1.0}}).status == design::DesignStatus::bad_weights);
+        }
+    }
+
+    TEST_CASE("discrete_lqr and design::lqr refuse an R that is not positive definite, as continuous_lqr does") {
+        const auto disc = design::discrete_lqr(Matrix<1, 1>{{0.95}}, Matrix<1, 1>{{1.0}}, Matrix<1, 1>{{1.0}}, Matrix<1, 1>{{0.0}});
+        CHECK(disc.status == design::DesignStatus::bad_weights);
+        const auto cont = design::continuous_lqr(Matrix<1, 1>{{0.95}}, Matrix<1, 1>{{1.0}}, Matrix<1, 1>{{1.0}}, Matrix<1, 1>{{0.0}});
+        CHECK(cont.status == design::DesignStatus::bad_weights);
+        const StateSpace<1, 1, 1> plant{.A = Matrix<1, 1>{{0.95}}, .B = Matrix<1, 1>{{1.0}}, .C = Matrix<1, 1>{{1.0}}, .Ts = 0.1};
+        CHECK(design::lqr(plant, {.Q = 1.0, .R = 0.0}).status == design::DesignStatus::bad_weights);
+        const StateSpace<1, 1, 1> plant_c{.A = Matrix<1, 1>{{-1.0}}, .B = Matrix<1, 1>{{1.0}}, .C = Matrix<1, 1>{{1.0}}};
+        CHECK(design::lqr(plant_c, 0.1, {.Q = 1.0, .R = 0.0}).status == design::DesignStatus::bad_weights);
+        // dare() itself keeps R ≥ 0 for the estimator dual.
+        CHECK(dare(Matrix<1, 1>{{0.95}}, Matrix<1, 1>{{1.0}}, Matrix<1, 1>{{1.0}}, Matrix<1, 1>{{0.0}}).has_value());
+    }
+
+    TEST_CASE("CARE refuses an indefinite joint cost, as the DARE does") {
+        // Q − N R⁻¹ Nᵀ = 1 − 4 = −3.
+        const auto stable = design::continuous_lqr(Matrix<1, 1>{{-1.0}}, Matrix<1, 1>{{1.0}}, Matrix<1, 1>{{1.0}}, Matrix<1, 1>{{1.0}}, Matrix<1, 1>{{2.0}});
+        CHECK(stable.status == design::DesignStatus::bad_weights);
+        const auto unstable = design::continuous_lqr(Matrix<1, 1>{{0.5}}, Matrix<1, 1>{{1.0}}, Matrix<1, 1>{{1.0}}, Matrix<1, 1>{{1.0}}, Matrix<1, 1>{{2.0}});
+        CHECK(unstable.status == design::DesignStatus::bad_weights);
+        const auto disc = design::discrete_lqr(Matrix<1, 1>{{0.5}}, Matrix<1, 1>{{1.0}}, Matrix<1, 1>{{1.0}}, Matrix<1, 1>{{1.0}}, Matrix<1, 1>{{2.0}});
+        CHECK(disc.status == design::DesignStatus::bad_weights);
+    }
+
+    TEST_CASE("CARE and DARE give the same status for an uncontrollable marginal mode") {
+        const auto cont = design::continuous_lqr(Matrix<1, 1>{{0.0}}, Matrix<1, 1>{{0.0}}, Matrix<1, 1>{{1.0}}, Matrix<1, 1>{{1.0}});
+        const auto disc = design::discrete_lqr(Matrix<1, 1>{{1.0}}, Matrix<1, 1>{{0.0}}, Matrix<1, 1>{{1.0}}, Matrix<1, 1>{{1.0}});
+        CHECK(cont.status == design::DesignStatus::not_stabilizable);
+        CHECK(disc.status == design::DesignStatus::not_stabilizable);
+    }
+
+    TEST_CASE("a singular R with a cross term is refused as bad weights") {
+        const auto sol = damp::detail::solve_dare(Matrix<1, 1>{{0.5}}, Matrix<1, 1>{{1.0}}, Matrix<1, 1>{{1.0}}, Matrix<1, 1>{{0.0}}, Matrix<1, 1>{{0.5}}, DareMethod::Auto);
+        CHECK(sol.status == design::DesignStatus::bad_weights);
+    }
+
+    TEST_CASE("a failed LQR design is not reported stable") {
+        // The unstable mode z = 1.2 has no input.
+        const auto res = design::discrete_lqr(Matrix<2, 2>{{1.2, 0.0}, {0.0, 0.5}}, Matrix<2, 1>{{0.0}, {1.0}}, Matrix<2, 2>::identity(), Matrix<1, 1>{{1.0}});
+        CHECK(res.status == design::DesignStatus::not_stabilizable);
+        CHECK_FALSE(res.is_stable());
+    }
+}
+
+TEST_SUITE("DARE: RDE with a slow closed loop") {
+    TEST_CASE_TEMPLATE("RDE past its step cap is finished by Hewer's iteration and matches SDA", T, float, double) {
+        // Double integrator at 100 Hz: ρ(A − BK) ≈ 0.99, so the RDE needs ~1200 steps to its tolerance.
+        const Matrix<2, 2, T> A{{T{1}, static_cast<T>(0.01)}, {T{0}, T{1}}};
+        const Matrix<2, 1, T> B{{static_cast<T>(5e-5)}, {static_cast<T>(0.01)}};
+        const Matrix<2, 2, T> Q = Matrix<2, 2, T>::identity();
+        for (const double r : {1.0, 1e-2, 1e-4}) {
+            const Matrix<1, 1, T> R{{static_cast<T>(r)}};
+            const auto            rde = dare(A, B, Q, R, Matrix<2, 1, T>{}, DareMethod::RDE);
+            const auto            sda = dare(A, B, Q, R, Matrix<2, 1, T>{}, DareMethod::SDA);
+            REQUIRE(rde.has_value());
+            REQUIRE(sda.has_value());
+            const T tol = std::is_same_v<T, float> ? static_cast<T>(1e-3) : static_cast<T>(1e-10);
+            CHECK(static_cast<double>((*rde - *sda).norm()) <= static_cast<double>(tol * sda->norm()));
+        }
+        // A singular R takes the same path.
+        CHECK(dare(A, B, Q, Matrix<1, 1, T>{{T{0}}}).has_value());
+    }
+
+    TEST_CASE("a Kalman filter with one noise-free sensor and a slowly observed state designs") {
+        // A = diag(1, 0.5), both states measured, process noise on the random walk only (H = [1; 0]):
+        // R_eff = H R Hᵀ is singular, so the filter DARE takes the RDE path.
+        for (const double q : {1e-4, 1e-6}) {
+            const StateSpace<2, 1, 2, double, 2, 1> sys{
+                .A = Matrix<2, 2>{{1.0, 0.0}, {0.0, 0.5}},
+                .B = Matrix<2, 1>{{1.0}, {0.0}},
+                .C = Matrix<2, 2>::identity(),
+                .G = Matrix<2, 2>::identity(),
+                .H = Matrix<2, 1>{{1.0}, {0.0}},
+                .Ts = 1.0,
+            };
+            const auto kf = design::kalman(sys, design::KalmanNoise{.process = Matrix<2, 2>{{q, 0.0}, {0.0, 1.0}}, .measurement = Matrix<1, 1>{{1.0}}});
+            CHECK(kf.success);
         }
     }
 }

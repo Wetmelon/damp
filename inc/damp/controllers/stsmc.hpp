@@ -14,6 +14,7 @@
  */
 
 #include "damp/backend.hpp"
+#include "damp/design/status.hpp"
 #include "damp/math/math.hpp"
 namespace damp {
 
@@ -31,18 +32,23 @@ namespace design {
  */
 template<typename T = double>
 struct STSMCResult {
-    T    k1{};           ///< Continuous gain on |s|^½·sign(s)
-    T    k2{};           ///< Integral gain on sign(s)
-    T    lambda{};       ///< Sliding-surface slope for the (r, y) convenience form (σ = −(λe + ė), e = r − y)
-    T    k_lin{};        ///< Generalized-STA linear gain (0 = classic super-twisting)
-    T    epsilon{};      ///< Boundary-layer thickness for the sign function (0 = true sign)
-    bool success{false}; ///< true if gains are valid (k1, k2 > 0)
+    T            k1{};                                ///< Continuous gain on |s|^½·sign(s)
+    T            k2{};                                ///< Integral gain on sign(s)
+    T            lambda{};                            ///< Sliding-surface slope for the (r, y) convenience form (σ = −(λe + ė), e = r − y)
+    T            k_lin{};                             ///< Generalized-STA linear gain (0 = classic super-twisting)
+    T            phi{};                               ///< Boundary-layer half-width φ of the smoothed sign (0 = true sign)
+    bool         success{false};                      ///< status == DesignStatus::ok
+    DesignStatus status{DesignStatus::not_converged}; ///< ok, or why the design failed
+    T            Ts{0};                               ///< [s] Sample time of the law: 0 continuous (analysis), > 0 the runtime's tick
+
+    /** @brief True when the design succeeded (success). */
+    [[nodiscard]] constexpr explicit operator bool() const { return success; }
 
     template<typename U>
     [[nodiscard]] constexpr auto as() const {
         return STSMCResult<U>{
             static_cast<U>(k1), static_cast<U>(k2), static_cast<U>(lambda), static_cast<U>(k_lin),
-            static_cast<U>(epsilon), success
+            static_cast<U>(phi), success, status, static_cast<U>(Ts)
         };
     }
 };
@@ -77,11 +83,14 @@ struct STSMCResult {
  *
  * @tparam T Scalar type
  * @param disturbance_bound L, the bound on |ḋ| (must be > 0)
- * @param lambda            Sliding-surface slope for the (r, y) form (0 if you supply s directly)
+ * @param Ts                [s] Sample time of the runtime's explicit-Euler integral (0 = continuous, analysis only)
+ * @param lambda            Sliding-surface slope for the (r, y) form (≥ 0; 0 if you supply s directly)
  * @param k_lin             Generalized-STA linear gain (≥ 0; 0 = classic super-twisting)
- * @param epsilon           Boundary-layer thickness for the sign function (≥ 0; 0 = true sign)
+ * @param phi               Boundary-layer half-width φ of the smoothed sign (≥ 0; 0 = true sign):
+ *                          the sign is exact for |s| ≥ φ, so |s| settles within about φ
  * @param gain_margin       Robustness multiplier on both gains (≥ 1)
- * @return STSMCResult with computed k₁, k₂ and the shaping parameters
+ * @return STSMCResult with computed k₁, k₂ and the shaping parameters; refused with
+ *         invalid_parameter for an out-of-range input, invalid_sample_time for a negative Ts
  *
  * @see "Sliding order and sliding accuracy in sliding mode control" (Levant, 2003)
  * @see smc() for the first-order (boundary-layer) sliding-mode controller
@@ -89,13 +98,18 @@ struct STSMCResult {
 template<typename T = double>
 [[nodiscard]] constexpr STSMCResult<T> stsmc(
     T disturbance_bound,
+    T Ts = T{0},
     T lambda = T{0},
     T k_lin = T{0},
-    T epsilon = T{0},
+    T phi = T{0},
     T gain_margin = T{1}
 ) {
-    if (disturbance_bound <= T{0} || gain_margin < T{1} || k_lin < T{0} || epsilon < T{0}) {
-        return STSMCResult<T>{};
+    if (!(damp::finite_positive(disturbance_bound) && damp::isfinite(gain_margin) && gain_margin >= T{1}
+          && damp::finite_non_negative(k_lin) && damp::finite_non_negative(phi) && damp::finite_non_negative(lambda))) {
+        return ::damp::detail::refused<STSMCResult<T>>(DesignStatus::invalid_parameter);
+    }
+    if (!damp::finite_non_negative(Ts)) {
+        return ::damp::detail::refused<STSMCResult<T>>(DesignStatus::invalid_sample_time);
     }
     const T L = disturbance_bound;
     return STSMCResult<T>{
@@ -103,8 +117,10 @@ template<typename T = double>
         .k2 = gain_margin * static_cast<T>(1.1) * L,
         .lambda = lambda,
         .k_lin = k_lin,
-        .epsilon = epsilon,
+        .phi = phi,
         .success = true,
+        .status = DesignStatus::ok,
+        .Ts = Ts,
     };
 }
 
@@ -113,27 +129,34 @@ template<typename T = double>
  *
  * Bypasses the disturbance-bound formula for users who tune k₁/k₂ themselves.
  * Separate name from @ref stsmc so a two-arg call resolves cleanly against that
- * API's defaulted `(L, λ)` form.
+ * API's defaulted `(L, Ts)` form.
  *
  * @param k1 Continuous gain on |s|^½·sign(s) (> 0)
  * @param k2 Integral gain on sign(s) (> 0)
- * @param lambda  Sliding-surface slope for the (r, y) form
- * @param k_lin      Generalized-STA linear gain (≥ 0)
- * @param epsilon Boundary-layer thickness (≥ 0)
+ * @param Ts      [s] Sample time of the runtime (0 = continuous, analysis only)
+ * @param lambda  Sliding-surface slope for the (r, y) form (≥ 0)
+ * @param k_lin   Generalized-STA linear gain (≥ 0)
+ * @param phi     Boundary-layer half-width φ of the smoothed sign (≥ 0)
  */
 template<typename T = double>
 [[nodiscard]] constexpr STSMCResult<T>
-stsmc_gains(T k1, T k2, T lambda = T{0}, T k_lin = T{0}, T epsilon = T{0}) {
-    if (!(k1 > T{0} && k2 > T{0} && k_lin >= T{0} && epsilon >= T{0})) {
-        return STSMCResult<T>{};
+stsmc_gains(T k1, T k2, T Ts = T{0}, T lambda = T{0}, T k_lin = T{0}, T phi = T{0}) {
+    if (!(damp::finite_positive(k1) && damp::finite_positive(k2) && damp::finite_non_negative(k_lin)
+          && damp::finite_non_negative(phi) && damp::finite_non_negative(lambda))) {
+        return ::damp::detail::refused<STSMCResult<T>>(DesignStatus::invalid_parameter);
+    }
+    if (!damp::finite_non_negative(Ts)) {
+        return ::damp::detail::refused<STSMCResult<T>>(DesignStatus::invalid_sample_time);
     }
     return STSMCResult<T>{
         .k1 = k1,
         .k2 = k2,
         .lambda = lambda,
         .k_lin = k_lin,
-        .epsilon = epsilon,
+        .phi = phi,
         .success = true,
+        .status = DesignStatus::ok,
+        .Ts = Ts,
     };
 }
 
@@ -156,8 +179,8 @@ stsmc_gains(T k1, T k2, T lambda = T{0}, T k_lin = T{0}, T epsilon = T{0}) {
  * generalized form adds linear damping for noisy / higher-order plants.
  *
  * Two entry points per step:
- *  - `control(s, Ts)`    — canonical: you form the sliding variable s yourself.
- *  - `control(r, y, Ts)` — convenience: builds σ = −(λ·e + ė) on e = r − y (ė by
+ *  - `control_sliding(s)` — canonical: you form the sliding variable s yourself.
+ *  - `control(r, y)`      — convenience: builds σ = −(λ·e + ė) on e = r − y (ė by
  *                          backward difference) — `SMCController`'s surface,
  *                          signed so that σ̇ = u + d for ÿ = u + d.
  *
@@ -169,9 +192,9 @@ stsmc_gains(T k1, T k2, T lambda = T{0}, T k_lin = T{0}, T epsilon = T{0}) {
  * @code
  * using namespace damp;
  * // |ḋ| ≤ 2, 1 kHz loop; supply s directly.
- * constexpr auto art = design::stsmc(2.0);
- * static constinit STSMCController u_st{art.as<float>()}; // a failed design does not compile
- * // In the loop: float u = u_st.control_sliding(s, 1e-3f);  // s = your sliding variable
+ * constexpr auto art = design::stsmc(2.0, 1e-3);
+ * static constinit STSMCController u_st{art.as<float>()}; // a failed or continuous design does not compile
+ * // In the loop: float u = u_st.control_sliding(s);  // s = your sliding variable
  * @endcode
  *
  * @tparam T Scalar type (default: float)
@@ -183,10 +206,22 @@ class STSMCController {
 public:
     constexpr STSMCController() = default;
 
-    constexpr STSMCController(const design::STSMCResult<T>& result, T Ts = T{0})
-        : k1_(result.k1), k2_(result.k2), lambda_(result.lambda), k_lin_(result.k_lin), epsilon_(result.epsilon), Ts_(Ts), valid_(result.success) {
-        if (!result.success && std::is_constant_evaluated()) {
-            ::damp::detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed design does not compile
+    /** @brief From a design result in another scalar: converts it with .as\<T\>() and builds from that. */
+    template<typename U>
+        requires(!std::is_same_v<U, T>)
+    constexpr STSMCController(const design::STSMCResult<U>& result) // NOLINT(google-explicit-constructor): assign-from-design
+        : STSMCController(result.template as<T>()) {}
+
+    /**
+     * @brief From the design result, which carries the sample time.
+     *
+     * A failed or continuous (Ts = 0) design is ill-formed under constant evaluation; at run
+     * time it leaves the controller invalid (valid() false, output 0 from both entry points).
+     */
+    constexpr STSMCController(const design::STSMCResult<T>& result) // NOLINT(google-explicit-constructor): assign-from-design
+        : k1_(result.k1), k2_(result.k2), lambda_(result.lambda), k_lin_(result.k_lin), phi_(result.phi), Ts_(result.Ts), valid_(result.success && result.Ts > T{0}) {
+        if ((!result.success || !(result.Ts > T{0})) && std::is_constant_evaluated()) {
+            ::damp::detail::refuse_failed_design(result.success ? design::DesignStatus::invalid_sample_time : result.status); // constant-evaluated (constinit / constexpr): a failed or continuous design does not compile
         }
     }
 
@@ -196,26 +231,28 @@ public:
           k2_(static_cast<T>(other.k2_)),
           lambda_(static_cast<T>(other.lambda_)),
           k_lin_(static_cast<T>(other.k_lin_)),
-          epsilon_(static_cast<T>(other.epsilon_)),
+          phi_(static_cast<T>(other.phi_)),
           Ts_(static_cast<T>(other.Ts_)),
           v_(static_cast<T>(other.v_)),
           e_prev_(static_cast<T>(other.e_prev_)),
           first_(other.first_),
           valid_(other.valid_) {}
 
-    /// Super-twisting control from the sliding variable @p s (canonical form).
-    /// Named distinctly from control(r, y) because both would otherwise be
-    /// two-scalar overloads.
-    /// @param s  Sliding variable
-    /// @param Ts Sample time [s] for the explicit-Euler integral state
-    [[nodiscard]] constexpr T control_sliding(T s, T Ts) {
+    /**
+     * @brief Super-twisting control from the sliding variable @p s (canonical form).
+     * Named distinctly from control(r, y) because both would otherwise be
+     * two-scalar overloads.
+     * The integral state advances by one explicit-Euler step of the design's Ts.
+     * @param s  Sliding variable
+     */
+    [[nodiscard]] constexpr T control_sliding(T s) {
         if (!valid_) {
             return T{0};
         }
         const T abs_s = damp::abs(s);
-        // sign(s), optionally softened by a boundary layer to trade a little
-        // accuracy for less numerical chatter near s = 0.
-        const T sign_s = (epsilon_ > T{0}) ? (s / (abs_s + epsilon_)) : static_cast<T>(damp::sgn(s));
+        // sign(s), optionally smoothed inside |s| < φ to trade a little accuracy for less
+        // numerical chatter near s = 0; exact ±1 outside, so the full k₂ acts beyond the layer.
+        const T sign_s = damp::smooth_sign(s, phi_);
         const T sqrt_s = damp::sqrt(abs_s);
 
         const T phi1 = (sqrt_s * sign_s) + (k_lin_ * s);
@@ -224,26 +261,22 @@ public:
         // φ₂ = sign(s) + 3·k_lin·|s|^½·sign(s) + 2·k_lin²·s  (= classic sign(s) when k_lin = 0,
         // keeping the k₁ = 1.5√L / k₂ = 1.1L formulas valid). Explicit-Euler integral.
         const T phi2 = sign_s + (T{3} * k_lin_ * sqrt_s * sign_s) + (T{2} * k_lin_ * k_lin_ * s);
-        if (Ts > T{0}) {
-            v_ += -k2_ * phi2 * Ts; // explicit-Euler integral; skip on a stalled/non-positive dt
-        }
+        v_ += -k2_ * phi2 * Ts_; // explicit-Euler integral
 
         return u;
     }
 
-    /// Sliding-variable form using the stored sample time (set at construction).
-    [[nodiscard]] constexpr T control_sliding(T s) { return control_sliding(s, Ts_); }
-
-    /// Convenience: build σ = −(λ·e + ė), e = r − y (ė via backward difference),
-    /// then apply STA to σ.
-    /// @note For a unit-gain plant ÿ = u + d the surface on the output error
-    ///       y − r obeys σ̇ = u + (d − λė − r̈), the canonical sign control_sliding
-    ///       assumes — so positive tracking error gives a positive command, as
-    ///       for PID / SMC. Scale u for a non-unit input gain, or use
-    ///       `control_sliding(s, Ts)` with a surface you sign yourself.
-    [[nodiscard]] constexpr T control(T r, T y, T Ts) {
-        // Guard the backward-difference divide; a non-positive Ts holds and emits nothing.
-        if (!valid_ || Ts <= T{0}) {
+    /**
+     * @brief Convenience: build σ = −(λ·e + ė), e = r − y (ė via backward difference),
+     * then apply STA to σ.
+     * @note For a unit-gain plant ÿ = u + d the surface on the output error
+     *       y − r obeys σ̇ = u + (d − λė − r̈), the canonical sign control_sliding
+     *       assumes — so positive tracking error gives a positive command, as
+     *       for PID / SMC. Scale u for a non-unit input gain, or use
+     *       `control_sliding(s)` with a surface you sign yourself.
+     */
+    [[nodiscard]] constexpr T control(T r, T y) {
+        if (!valid_) {
             return T{0};
         }
         const T e = r - y;
@@ -251,21 +284,12 @@ public:
             e_prev_ = e; // seed: no first-tick derivative kick into the surface
             first_ = false;
         }
-        const T de = (e - e_prev_) / Ts;
+        const T de = (e - e_prev_) / Ts_;
         e_prev_ = e;
-        return control_sliding(-((lambda_ * e) + de), Ts);
+        return control_sliding(-((lambda_ * e) + de));
     }
 
-    /**
-     * @brief 2-arg fixed-rate form using the stored sample time.
-     *
-     * The SisoController concept shape: construct with Ts and call
-     * control(r, y) each tick. With no stored Ts it emits zero and holds
-     * state, exactly like the 3-arg form with Ts = 0.
-     */
-    [[nodiscard]] constexpr T control(T r, T y) { return control(r, y, Ts_); }
-
-    /// Current value of the integral state v (the disturbance estimate, −d̂).
+    /** @brief Current value of the integral state v (the disturbance estimate, −d̂). */
     [[nodiscard]] constexpr T integral_state() const { return v_; }
 
     [[nodiscard]] constexpr bool valid() const { return valid_; }
@@ -284,12 +308,16 @@ private:
     T    k2_{T{0}};
     T    lambda_{T{0}};
     T    k_lin_{T{0}};
-    T    epsilon_{T{0}};
-    T    Ts_{T{0}}; ///< Stored sample time for the 2-arg control(r, y) / 1-arg control_sliding(s) forms [s]
+    T    phi_{T{0}}; ///< Boundary-layer half-width of the smoothed sign
+    T    Ts_{T{0}};  ///< [s] Sample time, from the design result
     T    v_{T{0}};
     T    e_prev_{T{0}};
     bool first_{true};
     bool valid_{false};
 };
+
+/** @brief Deduce the runtime from its design, keeping the result's scalar. */
+template<typename T>
+STSMCController(const design::STSMCResult<T>&) -> STSMCController<T>;
 
 } // namespace damp

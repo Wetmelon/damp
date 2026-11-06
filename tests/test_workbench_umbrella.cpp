@@ -6,7 +6,6 @@
 // Canary: the host workbench umbrella must be self-contained for design +
 // analysis + simulation on a workstation (heap OK). Complements
 // test_embedded_umbrella.cpp for damp/control.hpp.
-#include "damp/backend.hpp"
 #include "damp/workbench.hpp"
 
 #define DOCTEST_CONFIG_INCLUDE_TYPE_TRAITS
@@ -17,7 +16,7 @@ using namespace damp;
 TEST_SUITE("Workbench Umbrella") {
     TEST_CASE("damp/workbench.hpp alone supports FRF helpers + design + sim types") {
         // Analysis sweeps allocate on the host — that is intentional here.
-        const auto omega = analysis::logspace(1.0, 100.0, 8);
+        const auto omega = analysis::geomspace(1.0, 100.0, 8);
         CHECK(omega.size() == 8);
         CHECK(omega.front() == doctest::Approx(1.0));
         CHECK(omega.back() == doctest::Approx(100.0));

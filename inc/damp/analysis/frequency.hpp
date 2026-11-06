@@ -65,7 +65,7 @@ struct BodeResult {
      * Gain margin is 1/|G(jω)| at the frequency where phase crosses -180°.
      * Positive values indicate stability. Uses the unwrapped phase trajectory
      * (same as @ref gain_margin_unwrapped) so multi-wrap Bode data is handled
-     * correctly.
+     * correctly. With several phase crossovers, the one with the smallest |GM_dB|.
      *
      * @return {gain_margin_dB, crossover_frequency} or nullopt if no -180° crossing
      */
@@ -79,7 +79,8 @@ struct BodeResult {
      * Phase margin is 180° + phase(G(jω)) at the frequency where |G(jω)| = 1 (0 dB).
      * Positive values indicate stability. Uses the unwrapped phase trajectory
      * (same as @ref phase_margin_unwrapped) so multi-wrap Bode data is handled
-     * correctly; the result is mapped to (-180, 180].
+     * correctly; the result is mapped to (-180, 180]. With several gain crossovers,
+     * the one with the smallest |PM|.
      *
      * @return {phase_margin_deg, crossover_frequency} or nullopt if no 0dB crossing
      */
@@ -156,12 +157,13 @@ template<typename T>
 }
 
 /**
- * @brief Find phase margin using unwrapped phase trajectory
+ * @brief Find the phase margin using the unwrapped phase trajectory
  *
- * Uses 0 dB crossing from Bode magnitude and computes PM as 180 + phase(wc),
- * then maps to canonical range (-180, 180].
+ * Scans every 0 dB crossing of the Bode magnitude, downward and upward, computes 180° + phase(ωc)
+ * at each, maps it to (-180, 180], and keeps the crossing with the smallest |PM|: the critical
+ * one when the loop crosses 0 dB more than once (a resonance poking above 0 dB).
  *
- * @return {phase_margin_deg, crossover_frequency} or nullopt if no 0dB crossing
+ * @return {phase_margin_deg, crossover_frequency} or nullopt if no 0 dB crossing
  */
 template<typename T>
 [[nodiscard]] constexpr damp::optional<damp::pair<T, T>> phase_margin_unwrapped(const BodeResult<T>& result) {
@@ -176,28 +178,34 @@ template<typename T>
     }
     const auto unwrapped = unwrap_phase_deg(wrapped_phase);
 
+    damp::optional<damp::pair<T, T>> smallest{};
     for (size_t i = 1; i < result.points.size(); ++i) {
-        const T mag_prev = result.points[i - 1].magnitude_db;
-        const T mag_curr = result.points[i].magnitude_db;
-        if (mag_prev >= T{0} && mag_curr < T{0}) {
-            const T frac = (T{0} - mag_prev) / (mag_curr - mag_prev);
-            const T omega_cross = result.points[i - 1].omega + frac * (result.points[i].omega - result.points[i - 1].omega);
-            const T phase_cross = unwrapped[i - 1] + frac * (unwrapped[i] - unwrapped[i - 1]);
-            const T pm = canonical_phase_margin(T{180} + phase_cross);
-            return damp::pair{pm, omega_cross};
+        const T    mag_prev = result.points[i - 1].magnitude_db;
+        const T    mag_curr = result.points[i].magnitude_db;
+        const bool down = mag_prev >= T{0} && mag_curr < T{0};
+        const bool up = mag_prev < T{0} && mag_curr >= T{0};
+        if (!down && !up) {
+            continue;
+        }
+        const T frac = (T{0} - mag_prev) / (mag_curr - mag_prev);
+        const T omega_cross = result.points[i - 1].omega + frac * (result.points[i].omega - result.points[i - 1].omega);
+        const T phase_cross = unwrapped[i - 1] + frac * (unwrapped[i] - unwrapped[i - 1]);
+        const T pm = canonical_phase_margin(T{180} + phase_cross);
+        if (!smallest || damp::abs(pm) < damp::abs(smallest->first)) {
+            smallest = damp::pair{pm, omega_cross};
         }
     }
-
-    return damp::nullopt;
+    return smallest;
 }
 
 /**
- * @brief Find gain margin using unwrapped phase trajectory
+ * @brief Find the gain margin using the unwrapped phase trajectory
  *
- * Finds the first crossing of -180 deg (mod 360) on the unwrapped phase trajectory and
- * computes gain margin as -|L|_dB at that crossing.
+ * Scans every crossing of -180° (mod 360°) on the unwrapped phase trajectory, computes the gain
+ * margin −|L|_dB at each, and keeps the crossing with the smallest |GM_dB|: the critical one for a
+ * conditionally stable loop, where a gain increase and a gain decrease both destabilize.
  *
- * @return {gain_margin_dB, crossover_frequency} or nullopt if no -180 (mod 360) crossing
+ * @return {gain_margin_dB, crossover_frequency} or nullopt if no -180° (mod 360°) crossing
  */
 template<typename T>
 [[nodiscard]] constexpr damp::optional<damp::pair<T, T>> gain_margin_unwrapped(const BodeResult<T>& result) {
@@ -212,6 +220,7 @@ template<typename T>
     }
     const auto unwrapped = unwrap_phase_deg(wrapped_phase);
 
+    damp::optional<damp::pair<T, T>> smallest{};
     for (size_t i = 1; i < result.points.size(); ++i) {
         // Phase crossover: the unwrapped trajectory crosses −180° + k·360° for any
         // integer k (e.g. a loop starting at −270° crosses +180°). Shift so the
@@ -226,11 +235,12 @@ template<typename T>
             const T frac = (T{0} - p0) / (p1 - p0);
             const T omega_cross = result.points[i - 1].omega + frac * (result.points[i].omega - result.points[i - 1].omega);
             const T mag_cross = result.points[i - 1].magnitude_db + frac * (result.points[i].magnitude_db - result.points[i - 1].magnitude_db);
-            return damp::pair{-mag_cross, omega_cross};
+            if (!smallest || damp::abs(mag_cross) < damp::abs(smallest->first)) {
+                smallest = damp::pair{-mag_cross, omega_cross};
+            }
         }
     }
-
-    return damp::nullopt;
+    return smallest;
 }
 
 /**
@@ -289,8 +299,8 @@ template<size_t NX, size_t NW, size_t NV, typename T>
  * Samples where den(jω) vanishes to round-off relative to Σ|den_i|·|ω|^i
  * (jω-axis poles) are omitted — same honest skip policy as the state-space overload.
  *
- * @param num   Numerator coefficients (ascending powers of s)
- * @param den   Denominator coefficients (ascending powers of s)
+ * @param num   Numerator coefficients, highest power of s first
+ * @param den   Denominator coefficients, highest power of s first
  * @param omega Vector of frequencies (rad/s)
  * @return BodeResult with magnitude and phase at each successfully evaluated frequency
  */
@@ -307,23 +317,23 @@ template<size_t Nnum, size_t Nden, typename T>
     for (const auto& w : omega) {
         Cplx jw{T{0}, w};
 
-        // Evaluate numerator polynomial at jw (ascending powers)
+        // Evaluate numerator polynomial at jw (num[Nnum − 1 − i] multiplies (jω)^i)
         Cplx num_val{T{0}, T{0}};
         Cplx jw_power{T{1}, T{0}};
         for (size_t i = 0; i < Nnum; ++i) {
-            num_val = num_val + num[i] * jw_power;
+            num_val = num_val + num[Nnum - 1 - i] * jw_power;
             jw_power = jw_power * jw;
         }
 
-        // Evaluate denominator polynomial at jw (ascending powers), tracking the
+        // Evaluate denominator polynomial at jw the same way, tracking the
         // magnitude of its terms Σ|den_i|·|ω|^i for a scale-invariant zero test.
         Cplx den_val{T{0}, T{0}};
         T    den_scale = T{0};
         T    w_power = T{1};
         jw_power = Cplx{T{1}, T{0}};
         for (size_t i = 0; i < Nden; ++i) {
-            den_val = den_val + den[i] * jw_power;
-            den_scale += damp::abs(den[i]) * w_power;
+            den_val = den_val + den[Nden - 1 - i] * jw_power;
+            den_scale += damp::abs(den[Nden - 1 - i]) * w_power;
             jw_power = jw_power * jw;
             w_power *= damp::abs(w);
         }
@@ -352,26 +362,6 @@ template<size_t Nnum, size_t Nden, typename T>
     const std::vector<T>&                  omega
 ) {
     return bode(tf.num, tf.den, omega);
-}
-
-/**
- * @brief Compute Bode plot data for a discrete-time SISO state-space system
- *
- * Evaluates G(z) on the unit circle z = e^(j*omega*Ts), where omega is in rad/s.
- *
- * @note bode() now auto-dispatches on sys.is_discrete(); this alias is retained
- *       for discoverability and call sites that want to be explicit.
- *
- * @param sys   Discrete-time SISO state-space system
- * @param omega Vector of frequencies (rad/s)
- * @return BodeResult with magnitude and phase at each frequency
- */
-template<size_t NX, size_t NW, size_t NV, typename T>
-[[nodiscard]] constexpr BodeResult<T> bode_discrete(
-    const StateSpace<NX, 1, 1, T, NW, NV>& sys,
-    const std::vector<T>&                  omega
-) {
-    return bode(sys, omega);
 }
 
 /**
@@ -556,6 +546,29 @@ template<size_t Nnum, size_t Nden, typename T>
     return nyquist(*ss, omega);
 }
 
+namespace detail {
+
+/**
+ * @brief n / d, or nullopt when d is zero or the quotient is not finite
+ *
+ * A zero divisor on the grid is a pole of the quotient on the contour: the sample is skipped, as
+ * eval_frf() skips a pole of the model. damp::isfinite is a bit-pattern test, so the check holds
+ * under -ffast-math.
+ */
+template<typename T>
+[[nodiscard]] constexpr damp::optional<damp::complex<T>> frf_divide(const damp::complex<T>& n, const damp::complex<T>& d) {
+    if (d.real() == T{0} && d.imag() == T{0}) {
+        return damp::nullopt;
+    }
+    const damp::complex<T> q = n / d;
+    if (!damp::isfinite(q.real()) || !damp::isfinite(q.imag())) {
+        return damp::nullopt;
+    }
+    return q;
+}
+
+} // namespace detail
+
 /**
  * @brief Compute open-loop L, sensitivity S, complementary sensitivity T, and Nyquist data
  *
@@ -564,7 +577,8 @@ template<size_t Nnum, size_t Nden, typename T>
  *
  * Continuous-time systems use s = jω.
  * Discrete-time systems use z = e^{jωTs}.
- * Contour poles are omitted (same skip policy as bode() / nyquist()).
+ * Contour poles are omitted (same skip policy as bode() / nyquist()), and so is a closed-loop
+ * pole on the grid (1 + L = 0), where S and T are not finite.
  */
 template<size_t NX, size_t NW, size_t NV, typename T>
 [[nodiscard]] constexpr LoopResponseResult<T> loop_response(
@@ -592,8 +606,13 @@ template<size_t NX, size_t NW, size_t NV, typename T>
         }
         const Cplx L = (*L_frf_opt)(0, 0);
         const Cplx one{T{1}, T{0}};
-        const Cplx S = one / (one + L);
-        const Cplx Tresp = L / (one + L);
+        const auto S_opt = detail::frf_divide(one, one + L);
+        const auto T_opt = detail::frf_divide(L, one + L);
+        if (!S_opt || !T_opt) {
+            continue; // closed-loop pole on the contour — skip
+        }
+        const Cplx S = *S_opt;
+        const Cplx Tresp = *T_opt;
 
         const T L_mag = damp::abs(L);
         const T L_mag_db = L_mag > T{0} ? T{20} * damp::log10(L_mag) : T{-300};
@@ -801,7 +820,7 @@ struct SigmaResult {
  * @return SigmaResult with NS = min(NY, NU) singular values per frequency
  *
  * @note Compare with MATLAB®'s sigma(sys, w).
- * @see norm_hinf() for a peak estimate over an auto-seeded grid
+ * @see norm_hinf() for the peak of σ̄ over all frequencies
  * @see mat::svd() for the underlying decomposition
  */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
@@ -1001,14 +1020,15 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
  * Given a system G = I/V (admittance: current out per voltage in),
  * computes Z = 1/G = V/I at each frequency. Continuous systems use s = jω;
  * discrete systems (Ts > 0) evaluate on the unit circle z = e^{jωTs}, matching
- * bode().
+ * bode(). A zero of the admittance on the grid, where Z is not finite, is skipped,
+ * as eval_frf() skips a pole.
  *
  * @param admittance_sys  SISO state-space system where output = current, input = voltage
  * @param omega           Vector of frequencies (rad/s)
  * @return ImpedanceResult with Z at each frequency
  */
 template<size_t NX, size_t NW, size_t NV, typename T>
-[[nodiscard]] constexpr ImpedanceResult<T> impedance(
+[[nodiscard]] constexpr ImpedanceResult<T> impedance_from_admittance(
     const StateSpace<NX, 1, 1, T, NW, NV>& admittance_sys,
     const std::vector<T>&                  omega
 ) {
@@ -1022,9 +1042,11 @@ template<size_t NX, size_t NW, size_t NV, typename T>
         if (!G_opt) {
             continue;
         }
-        auto G = *G_opt;
-        Cplx Y = G(0, 0);              // Admittance Y = I/V
-        Cplx Z = Cplx{T{1}, T{0}} / Y; // Impedance Z = 1/Y
+        const auto Z_opt = detail::frf_divide(Cplx{T{1}, T{0}}, (*G_opt)(0, 0)); // Z = 1/Y
+        if (!Z_opt) {
+            continue; // admittance zero on the contour — skip
+        }
+        const Cplx Z = *Z_opt;
 
         T mag = damp::abs(Z);
         T phase_rad = damp::arg(Z);
@@ -1048,7 +1070,7 @@ template<size_t NX, size_t NW, size_t NV, typename T>
  * @return ImpedanceResult with Z at each frequency
  */
 template<size_t NX, size_t NW, size_t NV, typename T>
-[[nodiscard]] constexpr ImpedanceResult<T> impedance_direct(
+[[nodiscard]] constexpr ImpedanceResult<T> impedance(
     const StateSpace<NX, 1, 1, T, NW, NV>& impedance_sys,
     const std::vector<T>&                  omega
 ) {
@@ -1076,86 +1098,12 @@ template<size_t NX, size_t NW, size_t NV, typename T>
 }
 
 /**
- * @brief Middlebrook stability analysis for cascaded source-load systems
+ * @brief Middlebrook stability analysis of a cascaded source and load from their impedances
  *
- * Evaluates the minor loop gain T_m = Z_s / Z_L over a range of frequencies
- * and returns stability margins. Continuous systems use s = jω; discrete
- * systems evaluate z = e^{jωTs} (same dispatch as bode()).
- *
- * The source and load are specified as admittance systems (current/voltage):
- *   - source_admittance: G_s = I_s/V_s, so Z_s = 1/G_s
- *   - load_admittance:   G_L = I_L/V_L, so Z_L = 1/G_L
- *
- * @param source_admittance  Source admittance SISO system
- * @param load_admittance    Load admittance SISO system
- * @param omega              Vector of frequencies (rad/s)
- * @return MiddlebrookResult with minor loop gain Bode data and margins
- */
-template<size_t NX_S, size_t NW_S, size_t NV_S, size_t NX_L, size_t NW_L, size_t NV_L, typename T>
-[[nodiscard]] constexpr MiddlebrookResult<T> middlebrook(
-    const StateSpace<NX_S, 1, 1, T, NW_S, NV_S>& source_admittance,
-    const StateSpace<NX_L, 1, 1, T, NW_L, NV_L>& load_admittance,
-    const std::vector<T>&                        omega
-) {
-    using Cplx = damp::complex<T>;
-    MiddlebrookResult<T> result;
-    result.minor_loop_gain.points.reserve(omega.size());
-    result.source_impedance.points.reserve(omega.size());
-    result.load_impedance.points.reserve(omega.size());
-
-    for (const auto& w : omega) {
-        const Cplx s_or_z_s = frf_s_or_z(source_admittance, w);
-        const Cplx s_or_z_L = frf_s_or_z(load_admittance, w);
-
-        // Source impedance: Z_s = 1/Y_s
-        auto G_s_opt = eval_frf(source_admittance, s_or_z_s);
-        if (!G_s_opt) {
-            continue;
-        }
-        auto G_s = *G_s_opt;
-        Cplx Y_s = G_s(0, 0);
-        Cplx Z_s = Cplx{T{1}, T{0}} / Y_s;
-
-        // Load impedance: Z_L = 1/Y_L
-        auto G_L_opt = eval_frf(load_admittance, s_or_z_L);
-        if (!G_L_opt) {
-            continue;
-        }
-        auto G_L = *G_L_opt;
-        Cplx Y_L = G_L(0, 0);
-        Cplx Z_L = Cplx{T{1}, T{0}} / Y_L;
-
-        // Minor loop gain: T_m = Z_s / Z_L = Y_L / Y_s
-        Cplx Tm = Z_s / Z_L;
-
-        // Source impedance point
-        T zs_mag = damp::abs(Z_s);
-        T zs_phase = damp::arg(Z_s) * T{180} / damp::numbers::pi_v<T>;
-        T zs_db = zs_mag > T{0} ? T{20} * damp::log10(zs_mag) : T{-300};
-        result.source_impedance.points.push_back({w, Z_s, zs_mag, zs_db, zs_phase});
-
-        // Load impedance point
-        T zl_mag = damp::abs(Z_L);
-        T zl_phase = damp::arg(Z_L) * T{180} / damp::numbers::pi_v<T>;
-        T zl_db = zl_mag > T{0} ? T{20} * damp::log10(zl_mag) : T{-300};
-        result.load_impedance.points.push_back({w, Z_L, zl_mag, zl_db, zl_phase});
-
-        // Minor loop gain point
-        T tm_mag = damp::abs(Tm);
-        T tm_phase = damp::arg(Tm) * T{180} / damp::numbers::pi_v<T>;
-        T tm_db = tm_mag > T{0} ? T{20} * damp::log10(tm_mag) : T{-300};
-        result.minor_loop_gain.points.push_back({w, tm_mag, tm_db, tm_phase});
-    }
-
-    return result;
-}
-
-/**
- * @brief Middlebrook analysis from pre-computed impedance data
- *
- * For cases where Z_s and Z_L are already known (e.g., from measurement
- * or from separate impedance models). Samples are paired by equal ω (both
- * results in the same grid order); a frequency present in only one is dropped.
+ * Evaluates the minor loop gain T_m = Z_s / Z_L. Z_s and Z_L come from measurement, from
+ * impedance() of an impedance model (V/I), or from impedance_from_admittance() of an
+ * admittance model (I/V). Samples are paired by equal ω (both results in the same grid order);
+ * a frequency present in only one is dropped, and so is one where Z_L = 0 (T_m not finite).
  *
  * @param Z_source  Source impedance frequency response
  * @param Z_load    Load impedance frequency response
@@ -1186,11 +1134,14 @@ template<typename T>
         j = k + 1;
         const auto& zl = Z_load.points[k];
 
-        // T_m = Z_s / Z_L
-        auto Tm = zs.Z / zl.Z;
-        T    tm_mag = damp::abs(Tm);
-        T    tm_phase = damp::arg(Tm) * T{180} / damp::numbers::pi_v<T>;
-        T    tm_db = tm_mag > T{0} ? T{20} * damp::log10(tm_mag) : T{-300};
+        const auto Tm_opt = detail::frf_divide(zs.Z, zl.Z); // T_m = Z_s / Z_L
+        if (!Tm_opt) {
+            continue;
+        }
+        const auto Tm = *Tm_opt;
+        T          tm_mag = damp::abs(Tm);
+        T          tm_phase = damp::arg(Tm) * T{180} / damp::numbers::pi_v<T>;
+        T          tm_db = tm_mag > T{0} ? T{20} * damp::log10(tm_mag) : T{-300};
 
         result.minor_loop_gain.points.push_back({zs.omega, tm_mag, tm_db, tm_phase});
     }

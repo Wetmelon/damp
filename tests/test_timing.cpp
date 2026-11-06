@@ -4,6 +4,7 @@
 // (See accompanying file LICENSE or copy at http://www.boost.org/LICENSE_1_0.txt)
 
 #include <cstdint>
+#include <limits>
 
 #include "damp/toolbox/timing.hpp"
 #define DOCTEST_CONFIG_INCLUDE_TYPE_TRAITS
@@ -61,8 +62,26 @@ TEST_SUITE("Timing") {
         // A single big step is one fire; remainder carries so the next small
         // ticks fire again.
         CHECK(p(0.025)); // phase 0.025 -> fire, phase 0.015
-        CHECK(p(0.0));   // phase 0.015 -> fire, phase 0.005
+        CHECK(p(0.0));   // phase capped at one period -> fire, phase 0
         CHECK_FALSE(p(0.0));
+    }
+
+    TEST_CASE("Periodic carries at most one period of backlog and saturates an integral phase") {
+        // Regression: each fire removed one period from an unbounded phase, so a stall
+        // replayed one fire per lost period, and an integral add could wrap.
+        Periodic<double> p{0.01};
+        for (int i = 0; i < 1000; ++i) {
+            (void)p(0.03); // 3 periods per call: 2 more than it fires
+        }
+        int replayed = 0;
+        for (int i = 0; i < 5000; ++i) {
+            replayed += p(0.0) ? 1 : 0;
+        }
+        CHECK(replayed == 1);
+
+        Periodic<uint32_t> u{10u};
+        CHECK(u(25u));                                       // phase capped at 10
+        CHECK(u(std::numeric_limits<uint32_t>::max() - 3u)); // 10 + (max − 3) would wrap to 6
     }
 
     TEST_CASE("Periodic with period <= 0 never fires") {
@@ -78,5 +97,11 @@ TEST_SUITE("Timing") {
         Periodic<> def;
         CHECK_FALSE(def(1u));
         CHECK_FALSE(def(100u));
+    }
+
+    TEST_CASE("Timeout<uint32_t> expires when dt would wrap the accumulator") {
+        Timeout<uint32_t> to{4'000'000'000u};
+        CHECK_FALSE(to.tick(3'000'000'000u));
+        CHECK(to.tick(2'000'000'000u));
     }
 }

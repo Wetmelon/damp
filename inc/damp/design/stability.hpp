@@ -15,12 +15,13 @@
  * For continuous systems: stable if all eigenvalues have Re(λ) < 0 (left half plane)
  * For discrete systems: stable if all eigenvalues have |λ| < 1 (inside unit circle)
  *
- * @note The eigenvalue-based routines (is_stable_discrete, stability_margin_*,
+ * @note The eigenvalue-based routines (is_stable, stability_margin,
  *       closed_loop_poles) use mat::compute_eigenvalues, which resolves
  *       fully-complex eigenvalues for any N (closed form for N ≤ 2, Francis QR
  *       beyond).
  */
 #include <cstddef>
+#include <limits>
 
 #include "damp/backend.hpp"
 #include "damp/design/lyapunov.hpp"
@@ -28,6 +29,7 @@
 #include "damp/matrix/eigen.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "damp/matrix/svd.hpp"
+#include "damp/systems/state_space.hpp"
 
 namespace damp {
 namespace stability {
@@ -98,14 +100,16 @@ observability_matrix(const Matrix<NX, NX, T>& A, const Matrix<NY, NX, T>& C) noe
 
 namespace detail {
 
-/// Gramian Lyapunov solve, refused unless A is Hurwitz (continuous) / Schur (discrete).
-/// For an unstable A the Lyapunov equation can still have a unique solution, but it
-/// is not the (divergent) Gramian integral/sum.
+/**
+ * @brief Gramian Lyapunov solve, refused unless A is Hurwitz (continuous) / Schur (discrete).
+ * For an unstable A the Lyapunov equation can still have a unique solution, but it
+ * is not the (divergent) Gramian integral/sum.
+ */
 template<size_t NX, typename T>
 [[nodiscard]] constexpr damp::optional<Matrix<NX, NX, T>>
 gramian_lyapunov(const Matrix<NX, NX, T>& A, const Matrix<NX, NX, T>& Q, bool discrete) {
     const auto eig = mat::compute_eigenvalues(A);
-    if (!eig.converged) {
+    if (!eig.success) {
         return damp::nullopt;
     }
     for (size_t i = 0; i < NX; ++i) {
@@ -117,7 +121,7 @@ gramian_lyapunov(const Matrix<NX, NX, T>& A, const Matrix<NX, NX, T>& Q, bool di
     return discrete ? dlyap(A, Q) : lyap(A, Q);
 }
 
-/// Orthonormal basis of the controllable subspace of (A, B) and its dimension.
+/** @brief Orthonormal basis of the controllable subspace of (A, B) and its dimension. */
 template<size_t NX, typename T>
 struct ControllableSubspace {
     Matrix<NX, NX, T> basis{};         ///< leading `dim` columns: an orthonormal basis of the subspace
@@ -167,7 +171,7 @@ controllable_subspace(const Matrix<NX, NX, T>& A, const Matrix<NX, NU, T>& B, T 
             }
         }
         const auto s = mat::svd(W);
-        if (!s.converged) {
+        if (!s.success) {
             out.converged = false;
             return out;
         }
@@ -201,6 +205,155 @@ controllable_subspace(const Matrix<NX, NX, T>& A, const Matrix<NX, NU, T>& B, T 
         out.dim += r;
     }
     return out;
+}
+
+/** @brief (A, B) in balanced coordinates: (D⁻¹ A D, D⁻¹ B), D = diag(2^e) from mat::detail::balance_exponents(A). */
+template<size_t NX, size_t NU, typename T>
+struct BalancedPair {
+    damp::array<int, NX> e{}; ///< the scaling exponents
+    Matrix<NX, NX, T>    A{}; ///< D⁻¹ A D
+    Matrix<NX, NU, T>    B{}; ///< D⁻¹ B
+};
+
+/** @copybrief BalancedPair */
+template<size_t NX, size_t NU, typename T>
+[[nodiscard]] constexpr BalancedPair<NX, NU, T> balanced_pair(const Matrix<NX, NX, T>& A, const Matrix<NX, NU, T>& B) {
+    BalancedPair<NX, NU, T> out{.e = mat::detail::balance_exponents(A)};
+    out.A = mat::detail::balanced(A, out.e);
+    for (size_t r = 0; r < NX; ++r) {
+        for (size_t c = 0; c < NU; ++c) {
+            out.B(r, c) = mat::detail::scale_by_pow2(B(r, c), -out.e[r]);
+        }
+    }
+    return out;
+}
+
+/**
+ * @brief PBH test at one eigenvalue of a balanced pair: true when rank([λI − A, B]) < n
+ *        (λ is uncontrollable).
+ *
+ * @p lambda must come from mat::compute_eigenvalues (which balances the same way): a
+ * diagonal similarity does not move an eigenvalue, but it does rescale the roundoff in a
+ * computed one, and that roundoff is what the rank tolerance has to absorb.
+ *
+ * The rank tolerance is relative to the largest singular value, so the test matrix is
+ * conditioned first, by operations that do not change its rank. Balancing (a delay
+ * register that copies a 10⁵-gain accelerometer row into A otherwise puts that row next
+ * to rows of 10⁻³, and the tolerance reads the small ones as zero). Then every B column is
+ * brought to A's scale: a large-magnitude input (or, for the dual, a large-gain sensor row)
+ * cannot hide the others. Then every row is brought to unit size, so a decoupled state's
+ * input gain counts whatever the state's unit. The exception is a row whose off-diagonal and
+ * input entries are all exactly zero (a mode with no input and no coupling): there λ − a_rr
+ * cancels to λ's roundoff, and dividing by that would make it a unit entry and call the mode
+ * controllable, so that row is divided by max(‖A‖_max, |λ|, 1) instead. Row scaling alone, on
+ * an unbalanced pair, amplifies the eigenvalue's roundoff on the small rows by the scale
+ * spread and calls an uncontrollable mode controllable. The tolerance is a relative √eps:
+ * an uncontrollable eigenvalue is only known to O(√eps) when defective, so a tighter
+ * tolerance would call it controllable.
+ */
+template<size_t NX, size_t NU, typename T>
+[[nodiscard]] constexpr bool uncontrollable_at(const BalancedPair<NX, NU, T>& pair, damp::complex<T> lambda) {
+    using Cplx = damp::complex<T>;
+    const auto& A = pair.A;
+    const auto& B = pair.B;
+    T           a_scale{0};
+    for (size_t r = 0; r < NX; ++r) {
+        for (size_t c = 0; c < NX; ++c) {
+            a_scale = damp::max(a_scale, damp::abs(A(r, c)));
+        }
+    }
+    a_scale = damp::max(a_scale, T{1});
+
+    Matrix<NX, NX + NU, Cplx> test_mat{};
+    for (size_t r = 0; r < NX; ++r) {
+        for (size_t c = 0; c < NX; ++c) {
+            test_mat(r, c) = Cplx(-A(r, c), T{0});
+        }
+        test_mat(r, r) = test_mat(r, r) + lambda;
+    }
+    for (size_t c = 0; c < NU; ++c) {
+        T col{0};
+        for (size_t r = 0; r < NX; ++r) {
+            col = damp::max(col, damp::abs(B(r, c)));
+        }
+        const T gain = (col > T{0}) ? (a_scale / col) : T{1};
+        for (size_t r = 0; r < NX; ++r) {
+            test_mat(r, NX + c) = Cplx(B(r, c) * gain, T{0});
+        }
+    }
+    //! Each row to unit size. A row whose only entry is λ − a_rr (no coupling, no input) holds
+    //! λ's roundoff (~ε) there, which must not become a unit entry: it is divided by the
+    //! data's scale instead. a_scale ≥ 1, so no row is divided by 0.
+    for (size_t r = 0; r < NX; ++r) {
+        T data{0};
+        for (size_t c = 0; c < NX + NU; ++c) {
+            if (c != r) {
+                data = damp::max(data, test_mat(r, c).abs());
+            }
+        }
+        const T row = (data > T{0}) ? damp::max(data, test_mat(r, r).abs()) : damp::max(a_scale, lambda.abs());
+        for (size_t c = 0; c < NX + NU; ++c) {
+            test_mat(r, c) = test_mat(r, c) / Cplx(row, T{0});
+        }
+    }
+    return mat::rank(test_mat, damp::sqrt(eps<T>())) < NX;
+}
+
+
+/**
+ * @brief True when (A, B) has an uncontrollable eigenvalue at or beyond the stability boundary,
+ *        or, with @p boundary_only, one on the boundary.
+ *
+ * The boundary bands are relative, so the verdict does not depend on the states' units or the
+ * time unit: |λ| ≥ 1 − √ε (Discrete), Re λ ≥ −√ε·‖A‖ (continuous, A balanced); with
+ * @p boundary_only also |λ| ≤ 1 + √ε, or Re λ ≤ √ε·‖A‖. An eigenvalue on the boundary (an
+ * integrator, a random-walk disturbance) is computed only to roundoff on either side, and a
+ * defective one to O(√ε) (a 2×2 Jordan block), so it is tested whichever side it lands on. A
+ * row with no coupling and no input, eᵣᵀA = aᵣᵣ·eᵣᵀ and eᵣᵀB = 0, makes aᵣᵣ an uncontrollable
+ * eigenvalue exactly; it is tested at aᵣᵣ, so a larger Jordan block, computed only to
+ * O(ε^{1/k}), is still found there (a triple integrator whose Q does not see position). The
+ * dual, (Aᵀ, Q), asks whether Q sees each such mode. An eigenvalue computation that does not
+ * converge counts as such a mode.
+ *
+ * @see "Controllability and observability conditions of linear autonomous systems" (Hautus, 1969)
+ */
+template<bool Discrete, size_t NX, size_t NU, typename T>
+[[nodiscard]] constexpr bool uncontrollable_unstable_mode(const Matrix<NX, NX, T>& A, const Matrix<NX, NU, T>& B, bool boundary_only) {
+    const auto eigen = mat::compute_eigenvalues(A); // balanced internally
+    if (!eigen.success) {
+        return true;
+    }
+    const auto bal = balanced_pair(A, B);
+    const T    slack = damp::sqrt(eps<T>());
+    const T    band = Discrete ? slack : slack * bal.A.norm();
+    //! The band is closed: a continuous A = 0 has band = 0 and its eigenvalue exactly on the axis.
+    const auto skipped = [band, boundary_only](const damp::complex<T>& lambda) {
+        const T dist = Discrete ? (lambda.abs() - T{1}) : lambda.real(); // signed distance past the boundary
+        return dist < -band || (boundary_only && dist > band);
+    };
+    for (size_t r = 0; r < NX; ++r) {
+        bool isolated = true;
+        for (size_t c = 0; c < NX; ++c) {
+            isolated = isolated && (c == r || A(r, c) == T{0});
+        }
+        for (size_t c = 0; c < NU; ++c) {
+            isolated = isolated && (B(r, c) == T{0});
+        }
+        if (isolated && !skipped(damp::complex<T>(A(r, r), T{0}))) {
+            return true; // aᵣᵣ is an uncontrollable eigenvalue exactly
+        }
+    }
+    for (size_t i = 0; i < NX; ++i) {
+        // The conjugate of a complex eigenvalue gives the same rank, so test one of each pair.
+        const auto lambda = eigen.values[i];
+        if (skipped(lambda) || lambda.imag() < T{0}) {
+            continue;
+        }
+        if (uncontrollable_at(bal, lambda)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 } // namespace detail
@@ -266,8 +419,6 @@ template<size_t NX, size_t NY, typename T = double>
  * @brief Numerical rank of a matrix (forwards to mat::rank)
  *
  * @param M   Input matrix
- * @param tol Relative tolerance: singular values ≤ tol·σ_max count as zero
- *            (default: mat::rank's eps-based default)
  * @return size_t rank of the matrix
  */
 template<size_t R, size_t C, typename T>
@@ -275,7 +426,7 @@ template<size_t R, size_t C, typename T>
     return mat::rank(M);
 }
 
-/// @overload explicit relative tolerance
+/** @brief Numerical rank with an explicit relative tolerance: singular values ≤ tol·σ_max count as zero. */
 template<size_t R, size_t C, typename T>
 [[nodiscard]] constexpr size_t rank(const Matrix<R, C, T>& M, T tol) {
     return mat::rank(M, tol);
@@ -312,26 +463,49 @@ template<size_t NX, size_t NY, typename T = double>
 }
 
 /**
- * @brief Check if a discrete-time system matrix A is stable
+ * @brief Check if (A, B) of @p sys is a stabilizable pair, in the domain of @p sys
  *
- * A discrete system is stable if all eigenvalues have magnitude less than 1 (inside unit circle).
+ * (A, B) is stabilizable iff every uncontrollable eigenvalue of A is stable: |λ| < 1
+ * (discrete, sys.Ts > 0) or Re λ < 0 (continuous, sys.Ts = 0). An eigenvalue λ is
+ * uncontrollable when rank([λI − A, B]) < n (the PBH test).
  *
- * @tparam N   Number of states
- * @tparam T   Numeric type (default: double)
- * @param A    State matrix to check
+ * The pair is balanced first (mat::detail::balance_exponents), so the verdict does not
+ * depend on the units of the states. An eigenvalue within √ε of the boundary (relative to
+ * ‖A‖ when continuous) counts as unstable: one on it (an integrator, a random-walk
+ * disturbance) is computed to roundoff on either side, and the Riccati certificates use the
+ * same band.
  *
- * @return true if all eigenvalues satisfy |λ| < 1, false otherwise
+ * @see "Optimal Control" (Anderson & Moore, 1990), §2.4
+ *
+ * @param sys State-space model; only A, B and Ts are used
+ * @return true if (A, B) is stabilizable
  */
-template<size_t N, typename T = double>
-[[nodiscard]] constexpr bool is_stable_discrete(const Matrix<N, N, T>& A) {
-    auto eigen = mat::compute_eigenvalues(A);
-    if (!eigen.converged) {
+template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
+[[nodiscard]] constexpr bool is_stabilizable(const StateSpace<NX, NU, NY, T, NW, NV>& sys) {
+    return sys.Ts > T{0} ? !detail::uncontrollable_unstable_mode<true>(sys.A, sys.B, false)
+                         : !detail::uncontrollable_unstable_mode<false>(sys.A, sys.B, false);
+}
+
+/**
+ * @brief Stability of a state-space model, in the domain of @p sys
+ *
+ * Continuous (sys.Ts = 0): every eigenvalue of A has Re(λ) < 0. Discrete (sys.Ts > 0):
+ * every eigenvalue has |λ| < 1. An eigenvalue computation that does not converge
+ * reports unstable.
+ *
+ * @param sys State-space model; only A and Ts are used
+ * @return true if every pole is inside the domain's stability region
+ *
+ * @note Compare with MATLAB®'s isstable(sys).
+ */
+template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
+[[nodiscard]] constexpr bool is_stable(const StateSpace<NX, NU, NY, T, NW, NV>& sys) {
+    const auto eigen = mat::compute_eigenvalues(sys.A);
+    if (!eigen.success) {
         return false;
     }
-
-    for (size_t i = 0; i < N; ++i) {
-        T magnitude = damp::abs(eigen.values[i]);
-        if (magnitude >= T{1}) {
+    for (size_t i = 0; i < NX; ++i) {
+        if (sys.Ts > T{0} ? !(damp::abs(eigen.values[i]) < T{1}) : !(eigen.values[i].real() < T{0})) {
             return false;
         }
     }
@@ -339,86 +513,30 @@ template<size_t N, typename T = double>
 }
 
 /**
- * @brief Check closed-loop stability for discrete system with state feedback
+ * @brief Distance from the poles of @p sys to its domain's stability boundary
  *
- * Checks stability of the closed-loop system A_cl = A - B*K with feedback u = -K*x.
+ * Continuous (sys.Ts = 0): −max Re(λ), the distance to the imaginary axis. Discrete
+ * (sys.Ts > 0): 1 − max |λ|, the distance to the unit circle. Positive is stable; a
+ * non-converged eigenvalue computation returns −1. A system with no states (a static gain)
+ * returns 1 when discrete and the largest finite T when continuous.
  *
- * @tparam NX  Number of states
- * @tparam NU  Number of inputs
- * @tparam T   Numeric type (default: double)
- * @param A    State matrix
- * @param B    Control input matrix
- * @param K    State feedback gain matrix (u = -K*x)
- *
- * @return true if closed-loop system is stable, false otherwise
- */
-template<size_t NX, size_t NU, typename T = double>
-[[nodiscard]] constexpr bool is_closed_loop_stable_discrete(
-    const Matrix<NX, NX, T>& A,
-    const Matrix<NX, NU, T>& B,
-    const Matrix<NU, NX, T>& K
-) {
-    Matrix<NX, NX, T> A_cl = A - B * K;
-    return is_stable_discrete(A_cl);
-}
-
-/**
- * @brief Compute stability margin for continuous system
- *
- * Returns the distance to the stability boundary (imaginary axis).
- * Computed as the negative of the most positive real eigenvalue part.
- * Positive values indicate stability; larger values indicate more stability margin.
- *
- * @tparam N   Number of states
- * @tparam T   Numeric type (default: double)
- * @param A    State matrix
- *
+ * @param sys State-space model; only A and Ts are used
  * @return Stability margin (positive = stable, negative = unstable)
  */
-template<size_t N, typename T = double>
-[[nodiscard]] constexpr T stability_margin_continuous(const Matrix<N, N, T>& A) {
-    auto eigen = mat::compute_eigenvalues(A);
-    if (!eigen.converged) {
-        return T{-1}; // Negative margin signals "not provably stable"
+template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
+[[nodiscard]] constexpr T stability_margin(const StateSpace<NX, NU, NY, T, NW, NV>& sys) {
+    const auto eigen = mat::compute_eigenvalues(sys.A);
+    if (!eigen.success) {
+        return T{-1}; // negative margin signals "not provably stable"
     }
-
-    T max_real = eigen.values[0].real();
-    for (size_t i = 1; i < N; ++i) {
-        if (eigen.values[i].real() > max_real) {
-            max_real = eigen.values[i].real();
+    T worst = sys.Ts > T{0} ? T{0} : -std::numeric_limits<T>::max(); // finite sentinel: NX = 0 has no eigenvalue to start from
+    for (size_t i = 0; i < NX; ++i) {
+        const T v = sys.Ts > T{0} ? eigen.values[i].abs() : eigen.values[i].real();
+        if (v > worst) {
+            worst = v;
         }
     }
-    return -max_real; // Positive means stable, larger is more stable
-}
-
-/**
- * @brief Compute stability margin for discrete system
- *
- * Returns the distance to the stability boundary (unit circle).
- * Computed as 1 - (maximum magnitude eigenvalue).
- * Positive values indicate stability; larger values indicate more stability margin.
- *
- * @tparam N   Number of states
- * @tparam T   Numeric type (default: double)
- * @param A    State matrix
- *
- * @return Stability margin (positive = stable, negative = unstable)
- */
-template<size_t N, typename T = double>
-[[nodiscard]] constexpr T stability_margin_discrete(const Matrix<N, N, T>& A) {
-    auto eigen = mat::compute_eigenvalues(A);
-    if (!eigen.converged) {
-        return T{-1}; // Return unstable indicator
-    }
-
-    T max_mag = T{0};
-    for (size_t i = 0; i < N; ++i) {
-        const T magnitude = eigen.values[i].abs();
-        if (magnitude > max_mag) {
-            max_mag = magnitude;
-        }
-    }
-    return T{1} - max_mag; // Positive means stable, larger is more stable
+    return sys.Ts > T{0} ? (T{1} - worst) : -worst;
 }
 
 /**
@@ -443,17 +561,20 @@ template<size_t N, typename T = double>
  *         all zeros if eigenvalue computation does not converge
  */
 template<size_t NX, size_t NU, typename T = double>
-[[nodiscard]] constexpr ColVec<NX, damp::complex<T>> closed_loop_poles(
+[[nodiscard]] constexpr damp::array<damp::complex<T>, NX> closed_loop_poles(
     const Matrix<NX, NX, T>& A,
     const Matrix<NX, NU, T>& B,
     const Matrix<NU, NX, T>& K
 ) {
-    Matrix<NX, NX, T> A_cl = A - B * K;
-    auto              eigen = mat::compute_eigenvalues(A_cl);
-    if (!eigen.converged) {
-        return ColVec<NX, damp::complex<T>>{};
+    Matrix<NX, NX, T>                 A_cl = A - B * K;
+    auto                              eigen = mat::compute_eigenvalues(A_cl);
+    damp::array<damp::complex<T>, NX> poles{};
+    if (eigen.success) {
+        for (size_t i = 0; i < NX; ++i) {
+            poles[i] = eigen.values[i];
+        }
     }
-    return eigen.values;
+    return poles;
 }
 
 } // namespace stability

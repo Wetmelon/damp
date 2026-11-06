@@ -35,19 +35,19 @@ class MedianFilter {
 public:
     static_assert(MaxN >= 1, "MedianFilter needs MaxN >= 1");
 
-    /// Active window = MaxN.
+    /** @brief Active window = MaxN. */
     constexpr MedianFilter() = default;
 
-    /// Construct with an active window of @p window samples (clamped to [1, MaxN]).
+    /** @brief Construct with an active window of @p window samples (clamped to [1, MaxN]). */
     constexpr explicit MedianFilter(size_t window) { set_window(window); }
 
-    /// Set the active window length (clamped to [1, MaxN]) and clear state.
+    /** @brief Set the active window length (clamped to [1, MaxN]) and clear state. */
     constexpr void set_window(size_t window) {
         n_ = damp::clamp(window, size_t{1}, MaxN);
         reset();
     }
 
-    /// Push one sample, return the current windowed median.
+    /** @brief Push one sample, return the current windowed median. */
     constexpr T operator()(T x) {
         buffer_[idx_] = x;
         idx_ = (idx_ + 1) % n_;

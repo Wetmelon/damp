@@ -67,7 +67,7 @@ template<typename T = double>
 struct EventSimConfig {
     LogPolicy   log = LogPolicy::EventsOnly; ///< Sampling density
     T           h_fine = T{0};               ///< Used when log == FixedStride; must be > 0
-    std::size_t max_events = 1'000'000;      ///< Stop (truncated) after this many events
+    std::size_t max_events = 1'000'000;      ///< Stop (success false) after this many events
 };
 
 /**
@@ -77,13 +77,13 @@ struct EventSimConfig {
  */
 template<size_t NX, size_t NU, size_t NY, typename T = double>
 struct HybridSimulationResult {
-    std::vector<T>             t{};              ///< Sample times
-    std::vector<ColVec<NX, T>> x{};              ///< State at each sample
-    std::vector<ColVec<NY, T>> y{};              ///< Output at each sample
-    std::vector<ColVec<NU, T>> u{};              ///< Held input at each sample
-    std::vector<std::uint32_t> mode{};           ///< Active mode at each sample
-    bool                       truncated{false}; ///< Stopped before tf (max_events, invalid mode, or a non-advancing schedule)
-    std::size_t                event_count{0};   ///< Events applied
+    std::vector<T>             t{};            ///< Sample times
+    std::vector<ColVec<NX, T>> x{};            ///< State at each sample
+    std::vector<ColVec<NY, T>> y{};            ///< Output at each sample
+    std::vector<ColVec<NU, T>> u{};            ///< Held input at each sample
+    std::vector<std::uint32_t> mode{};         ///< Active mode at each sample
+    bool                       success{true};  ///< false when the run stopped before tf: max_events, an invalid mode or span, a non-finite mode, or a non-advancing schedule
+    std::size_t                event_count{0}; ///< Events applied
 };
 
 /**
@@ -96,12 +96,15 @@ struct PiecewiseLTI {
 
 /**
  * @brief Action applied when an event fires (after Exact advance to the event time)
+ *
+ * All three fields replace the current mode, input and state: a field left out is zero (mode 0,
+ * u = 0, x = 0). To keep one, copy the callback's argument, e.g. `.x = x`.
  */
-template<size_t NX, size_t NU, size_t NY, typename T = double>
+template<size_t NX, size_t NU, typename T = double>
 struct HybridEventAction {
-    std::size_t   mode{}; ///< Mode for the *next* segment
+    std::size_t   mode{}; ///< Mode for the next segment
     ColVec<NU, T> u{};    ///< Input held over the next segment (ZOH)
-    ColVec<NX, T> x{};    ///< State after optional projection / reset
+    ColVec<NX, T> x{};    ///< State for the next segment: the event's x, or its projection / reset
 };
 
 namespace hybrid_detail {
@@ -143,7 +146,7 @@ template<size_t NX, size_t NU, typename T>
     if (!(h > T{0})) {
         return x;
     }
-    return exact.evolve(A, B, x, u, h).x;
+    return exact.evolve(A, B, x, u, h).x; // finite modes (checked on entry): the exponential succeeds
 }
 
 } // namespace hybrid_detail
@@ -157,7 +160,7 @@ template<size_t NX, size_t NU, typename T>
  * @tparam Schedule  (T t, size_t mode, ColVec x, ColVec u) -> T t_next
  *                   Absolute time of the next event; must satisfy t_next > t
  *                   (or >= tf to finish). Clamped to tf. A non-advancing time
- *                   stops the run at t with `truncated` set.
+ *                   stops the run at t with `success` false.
  * @tparam OnEvent   (T t, size_t mode, ColVec x, ColVec y, ColVec u)
  *                   -> HybridEventAction  applied at each event at time t
  *                   (after the Exact advance onto t).
@@ -190,7 +193,13 @@ template<
     EventSimConfig<T>                          config = {}
 ) {
     HybridSimulationResult<NX, NU, NY, T> tr{};
-    if (!(t_span.second > t_span.first) || mode0 >= NModes) {
+    const auto                            finite = [](T v) { return damp::isfinite(v); };
+    bool                                  finite_modes = true;
+    for (const auto& m : plant.modes) {
+        finite_modes = finite_modes && mat::all_of(m.A, finite) && mat::all_of(m.B, finite);
+    }
+    if (!(t_span.second > t_span.first) || mode0 >= NModes || !finite_modes) {
+        tr.success = false; // a non-finite mode would fail its exponential
         return tr;
     }
 
@@ -209,7 +218,7 @@ template<
     std::size_t events = 0;
     while (t < tf) {
         if (events >= config.max_events) {
-            tr.truncated = true;
+            tr.success = false;
             break;
         }
 
@@ -220,7 +229,7 @@ template<
         if (!(t_next > t)) {
             // A non-advancing schedule cannot be honoured: report it instead of
             // silently integrating the rest of the run open-loop in one mode.
-            tr.truncated = true;
+            tr.success = false;
             break;
         }
 
@@ -259,9 +268,9 @@ template<
         }
 
         // Event at t: update mode / u / x for the next segment
-        HybridEventAction<NX, NU, NY, T> act = on_event(t, mode, x, y, u);
+        HybridEventAction<NX, NU, T> act = on_event(t, mode, x, y, u);
         if (act.mode >= NModes) {
-            tr.truncated = true;
+            tr.success = false;
             break;
         }
         mode = act.mode;
@@ -310,6 +319,12 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
  * or @p t1 if there is no sign change.
  *
  * @tparam G Callable (ColVec<NX,T> const&) -> T
+ * @param sys      Continuous LTI system advanced exactly over the segment
+ * @param x0       State at @p t0
+ * @param u        Input held constant over the segment
+ * @param t0       [s] Segment start
+ * @param t1       [s] Segment end
+ * @param g        Guard function g(x); the crossing is where it changes sign
  * @param tol      [s] Bracket width to stop at; 0 (default) → 4·eps·max(|t0|, |t1|),
  *                 i.e. resolved to a few ULPs of the segment's own time scale.
  * @param max_iter Bisection cap.

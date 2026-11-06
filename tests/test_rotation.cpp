@@ -5,16 +5,81 @@
 
 #include <cmath>
 #include <cstddef>
+#include <limits>
 #include <numbers>
 #include <optional>
 
 #include "damp/math/geometry.hpp"
 #include "damp/matrix/colvec.hpp"
+#include "damp/matrix/matrix.hpp"
 
 #define DOCTEST_CONFIG_INCLUDE_TYPE_TRAITS
 #include "doctest.h"
 
 using namespace damp;
+
+namespace {
+constexpr double kEps = std::numeric_limits<double>::epsilon();
+
+template<size_t R, size_t C>
+double max_abs_diff(const Matrix<R, C, double>& a, const Matrix<R, C, double>& b) {
+    double m = 0.0;
+    for (size_t i = 0; i < R; ++i) {
+        for (size_t j = 0; j < C; ++j) {
+            m = std::fmax(m, std::fabs(a(i, j) - b(i, j)));
+        }
+    }
+    return m;
+}
+
+template<EulerOrder Order>
+void check_euler_round_trip(double a1, double a2, double a3) {
+    const Euler<double, Order> e{a1, a2, a3};
+    const DCM<double>          R = e.to_dcm();
+    const DCM<double>          R_back = Euler<double, Order>::from_dcm(R).to_dcm();
+    CHECK(max_abs_diff<3, 3>(R, R_back) <= 64 * kEps);
+}
+
+template<EulerOrder Order>
+void check_euler_order() {
+    constexpr double half_pi = std::numbers::pi / 2.0;
+    // Generic, near gimbal lock (cos θ ≈ 1e-3 and 1e-6), and exactly at it.
+    for (const double a2 : {0.4, -1.1, half_pi - 1e-3, -(half_pi - 1e-3), half_pi - 1e-6, half_pi, -half_pi}) {
+        check_euler_round_trip<Order>(0.3, a2, 0.7);
+        check_euler_round_trip<Order>(-2.5, a2, -0.2);
+    }
+}
+
+// Round trip of DCMs built through a quaternion, which carry rounding of size ε
+// in every entry, including the cos θ₂-sized ones that set θ₃ near lock.
+template<typename T, EulerOrder Order>
+T max_euler_error_near_lock() {
+    const T half_pi = std::numbers::pi_v<T> / T{2};
+    T       worst = T{0};
+    for (const double c : {1e-2, 1e-3, 3e-4, 1e-4, 1e-5, 1e-6, 1e-8, 1e-9, 1e-12, 0.0}) {
+        for (const T sign : {T{1}, T{-1}}) {
+            for (const T a1 : {T{0.75}, T{-2.5}}) {
+                const Euler<T, Order> e{a1, sign * (half_pi - static_cast<T>(c)), T{-0.375}};
+                const DCM<T>          R = e.to_quaternion().to_dcm();
+                const DCM<T>          R_back = Euler<T, Order>::from_dcm(R).to_dcm();
+                for (size_t r = 0; r < 3; ++r) {
+                    for (size_t k = 0; k < 3; ++k) {
+                        worst = std::fmax(worst, std::fabs(R(r, k) - R_back(r, k)));
+                    }
+                }
+            }
+        }
+    }
+    return worst;
+}
+
+template<EulerOrder Order>
+void check_euler_near_lock() {
+    CHECK(max_euler_error_near_lock<float, Order>() <= 16.0f * std::numeric_limits<float>::epsilon());
+    CHECK(max_euler_error_near_lock<double, Order>() <= 16.0 * kEps);
+}
+
+} // namespace
 
 constexpr float kPi = std::numbers::pi_v<float>;
 
@@ -123,11 +188,11 @@ TEST_SUITE("Euler") {
         CHECK(e.angle3 == 0.3f);
     }
 
-    TEST_CASE("EulerXYZ construction and accessors") {
+    TEST_CASE("EulerXYZ construction and angles") {
         EulerXYZ<float> e(0.1f, 0.2f, 0.3f);
-        CHECK(e.roll_xyz() == 0.1f);
-        CHECK(e.pitch_xyz() == 0.2f);
-        CHECK(e.yaw_xyz() == 0.3f);
+        CHECK(e.angle1 == 0.1f);
+        CHECK(e.angle2 == 0.2f);
+        CHECK(e.angle3 == 0.3f);
     }
 
     TEST_CASE("EulerZYX to DCM and back") {
@@ -166,6 +231,44 @@ TEST_SUITE("Euler") {
                 CHECK(R(i, j) == doctest::Approx(R_expected(i, j)).epsilon(1e-6));
             }
         }
+    }
+
+    TEST_CASE("Euler extraction round-trips near and at gimbal lock, every order") {
+        check_euler_order<EulerOrder::ZYX>();
+        check_euler_order<EulerOrder::XYZ>();
+        check_euler_order<EulerOrder::ZXY>();
+        check_euler_order<EulerOrder::YXZ>();
+        check_euler_order<EulerOrder::YZX>();
+        check_euler_order<EulerOrder::XZY>();
+    }
+
+    TEST_CASE("Euler extraction reproduces quaternion-built DCMs to rounding near gimbal lock, float and double") {
+        check_euler_near_lock<EulerOrder::ZYX>();
+        check_euler_near_lock<EulerOrder::XYZ>();
+        check_euler_near_lock<EulerOrder::ZXY>();
+        check_euler_near_lock<EulerOrder::YXZ>();
+        check_euler_near_lock<EulerOrder::YZX>();
+        check_euler_near_lock<EulerOrder::XZY>();
+    }
+
+    TEST_CASE("Euler extraction sets theta3 to 0 at exact gimbal lock") {
+        // R = Rz(0.5) Ry(π/2) built exactly: R_ij = R_ii = 0 for ZYX.
+        const DCM<double> R{{0.0, -std::sin(0.5), std::cos(0.5)}, {0.0, std::cos(0.5), std::sin(0.5)}, {-1.0, 0.0, 0.0}};
+        const auto        e = EulerZYX<double>::from_dcm(R);
+        CHECK(e.roll() == 0.0);
+        CHECK(e.yaw() == doctest::Approx(0.5));
+        CHECK(max_abs_diff<3, 3>(R, e.to_dcm()) <= 4 * kEps);
+    }
+
+    TEST_CASE("EulerXYZ is intrinsic X-Y'-Z'' and URDF rpy is EulerZYX") {
+        const double r = 0.3;
+        const double p = -0.2;
+        const double y = 0.5;
+        const auto   Rx = DCM<double>::rotate_x(r);
+        const auto   Ry = DCM<double>::rotate_y(p);
+        const auto   Rz = DCM<double>::rotate_z(y);
+        CHECK(max_abs_diff<3, 3>(EulerXYZ<double>{r, p, y}.to_dcm(), Rx * Ry * Rz) <= 4 * kEps);
+        CHECK(max_abs_diff<3, 3>(EulerZYX<double>{y, p, r}.to_dcm(), Rz * Ry * Rx) <= 4 * kEps);
     }
 }
 
@@ -207,6 +310,16 @@ TEST_SUITE("Quaternion (rotation.hpp)") {
         CHECK(v_rot[0] == doctest::Approx(std::cos(kPi / 4)).epsilon(1e-5));
         CHECK(v_rot[1] == doctest::Approx(std::sin(kPi / 4)).epsilon(1e-5));
     }
+
+    TEST_CASE("Quaternion slerp keeps double precision for small separations") {
+        const Quatd a = Quatd::identity();
+        for (const double th : {1e-6, 1e-4, 2e-3, 2.8e-3}) {
+            const Quatd  b = Quatd::from_axis_angle(Vec3<double>{0.0, 0.0, 1.0}, th).value();
+            const Quatd  q = Quatd::slerp(a, b, 0.3);
+            const double got = 2.0 * std::atan2(std::hypot(q.x(), q.y(), q.z()), q.w());
+            CHECK(std::fabs(got - (0.3 * th)) <= 8 * kEps * 0.3 * th);
+        }
+    }
 }
 
 TEST_SUITE("Cross-conversions") {
@@ -216,9 +329,7 @@ TEST_SUITE("Cross-conversions") {
         auto q_orig = q_orig_opt.value();
 
         auto R = q_orig.to_dcm();
-        auto q_back_opt = R.to_quaternion();
-        REQUIRE(q_back_opt.has_value());
-        auto q_back = q_back_opt.value();
+        auto q_back = R.to_quaternion();
 
         // Quaternions may differ by sign, check rotation is same
         Vec3<float> v{1.0f, 2.0f, 3.0f};
@@ -268,11 +379,10 @@ TEST_SUITE("Cross-conversions") {
     // Python-generated golden test values
     // import numpy as np
     // from scipy.spatial.transform import Rotation
-    // # My EulerZYX(yaw, pitch, roll) = ZYX intrinsic = 'zyx' extrinsic = 'xyz' intrinsic
-    // # scipy 'ZYX' with [a,b,c] means: rotate c about X, then b about Y, then a about Z
+    // # EulerZYX(yaw, pitch, roll) = intrinsic 'ZYX' [yaw, pitch, roll]
+    // #   = extrinsic (lowercase) 'xyz' [roll, pitch, yaw] = URDF / ROS rpy
     // # So EulerZYX(0.3, -0.2, 0.5) means yaw=0.3, pitch=-0.2, roll=0.5
-    // # This corresponds to scipy: r = Rotation.from_euler('xyz', [0.5, -0.2, 0.3])
-    // r = Rotation.from_euler('xyz', [0.5, -0.2, 0.3])  # roll, pitch, yaw -> intrinsic xyz
+    // r = Rotation.from_euler('xyz', [0.5, -0.2, 0.3])  # roll, pitch, yaw -> extrinsic xyz
     // print("quat (w,x,y,z):", r.as_quat()[[3,0,1,2]])
     // print("dcm:", r.as_matrix())
     TEST_CASE("Golden test: EulerZYX(0.3, -0.2, 0.5) to Quaternion") {

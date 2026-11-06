@@ -202,8 +202,10 @@ template<typename U, typename T, size_t N>
 
 namespace detail {
 
-/// Failed design:: result passed to a runtime law. Not constexpr, so a
-/// constant-evaluated constructor becomes ill-formed; at runtime it traps.
+/**
+ * @brief Failed design:: result passed to a runtime law. Not constexpr, so a
+ * constant-evaluated constructor becomes ill-formed; at runtime it traps.
+ */
 [[noreturn]] inline void refuse_failed_design() noexcept {
 #if defined(__GNUC__) || defined(__clang__)
     __builtin_trap();
@@ -215,11 +217,14 @@ namespace detail {
 #endif
 }
 
-/// A brace initializer with more rows, columns or elements than the Matrix it initializes.
-/// Not constexpr, so a constant-evaluated initialization becomes ill-formed; at runtime it traps.
+/**
+ * @brief A brace initializer with more rows, columns or elements than the Matrix it initializes.
+ * Not constexpr, so a constant-evaluated initialization becomes ill-formed; at runtime it traps.
+ */
 [[noreturn]] inline void refuse_initializer_overflow() noexcept {
     refuse_failed_design();
 }
 
 } // namespace detail
+
 } // namespace damp

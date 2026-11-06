@@ -9,14 +9,15 @@
  * @file transfer_function.hpp
  * @brief SISO polynomial transfer function G(s) or G(z) = num/den
  *
- * Coefficients are in ascending powers (constant first), matching the rest of Damp.
+ * Coefficients are highest power first, as MATLAB® writes them and as a characteristic
+ * equation reads: num = {b_m, …, b_1, b_0} is b_m s^m + … + b_1 s + b_0.
  * There is no @c Ts field: continuous vs discrete is the caller's convention
  * (same as ZPK). Realize with to_state_space then discretize for c2d.
  *
  * Algebra (@c *, @c +, @c feedback) expands polynomials without cancellation —
  * use design::minreal or ZPK @c cancel_matching when degree growth matters.
  *
- * @note Compare with MATLAB®'s tf (note: MATLAB® uses descending powers by default).
+ * @note Compare with MATLAB®'s tf.
  * @see TransferFunction::to_state_space, systems/state_space.hpp, systems/zpk.hpp
  */
 
@@ -24,17 +25,20 @@
 #include <type_traits>
 
 #include "damp/backend.hpp"
+#include "damp/math/math.hpp"
+#include "damp/matrix/matrix_traits.hpp"
 #include "state_space.hpp"
 
 namespace damp {
 
 namespace tf_detail {
 
+/** @brief dst += scale·src, aligned on the constant term (the last entry: coefficients are highest power first). */
 template<size_t Nres, size_t Nsrc, typename T>
 constexpr void accumulate_poly(damp::array<T, Nres>& dst, const damp::array<T, Nsrc>& src, T scale = T{1}) {
     constexpr size_t N = (Nsrc < Nres) ? Nsrc : Nres;
     for (size_t i = 0; i < N; ++i) {
-        dst[i] += scale * src[i];
+        dst[Nres - 1 - i] += scale * src[Nsrc - 1 - i];
     }
 }
 
@@ -49,6 +53,31 @@ template<size_t Na, size_t Nb, typename T>
     return result;
 }
 
+/**
+ * @brief True if every root of z^(N−1)·p(z⁻¹) lies strictly inside the unit circle (Schur–Cohn).
+ *
+ * Step-down recursion on the reflection coefficients kₙ = aₙ/a₀: the polynomial is Schur-stable
+ * iff every |kₙ| < 1. A root on the unit circle (|kₙ| = 1 to rounding) is refused. kₙ is
+ * dimensionless, so the margin N·ε does not depend on the coefficients' units.
+ */
+template<size_t N, typename T>
+[[nodiscard]] constexpr bool schur_stable(const damp::array<T, N>& p) {
+    using R = scalar_type_t<T>;
+    damp::array<T, N> a = p;
+    const R           margin = static_cast<R>(N) * eps<T>();
+    for (size_t n = N; n-- > 1;) {
+        const T k = a[n] / a[0];
+        if (!(damp::abs(k) < R{1} - margin)) {
+            return false;
+        }
+        const damp::array<T, N> prev = a;
+        for (size_t i = 0; i < n; ++i) {
+            a[i] = prev[i] - (k * prev[n - i]);
+        }
+    }
+    return true;
+}
+
 } // namespace tf_detail
 
 template<typename TNum, typename TDen>
@@ -60,8 +89,9 @@ using transfer_function_scalar_t = std::conditional_t<
 /**
  * @brief SISO polynomial transfer function G(s) = num(s)/den(s)
  *
- * Coefficients are in ascending powers of s (or z): den[0] is the constant
- * term, den[Nden-1] the highest power. Same convention for num.
+ * Coefficients are highest power first, as in MATLAB®'s tf: den[0] multiplies the highest
+ * power, den[Nden-1] is the constant term. Same convention for num, so
+ * `{.num = {1, 2}, .den = {1, 3, 2}}` is (s + 2)/(s² + 3s + 2).
  *
  * @tparam Nnum Number of numerator coefficients
  * @tparam Nden Number of denominator coefficients
@@ -70,8 +100,8 @@ using transfer_function_scalar_t = std::conditional_t<
 template<size_t Nnum, size_t Nden, typename T = double>
     requires std::is_floating_point_v<T>
 struct TransferFunction {
-    damp::array<T, Nnum> num{}; ///< Numerator coefficients, ascending powers of s
-    damp::array<T, Nden> den{}; ///< Denominator coefficients, ascending powers of s
+    damp::array<T, Nnum> num{}; ///< Numerator coefficients, highest power of s first
+    damp::array<T, Nden> den{}; ///< Denominator coefficients, highest power of s first
 
     template<typename U>
     [[nodiscard]] constexpr TransferFunction<Nnum, Nden, U> as() const {
@@ -90,14 +120,14 @@ struct TransferFunction {
      *
      * Realizes @f$ G = \mathrm{num}/\mathrm{den} @f$ as SISO StateSpace with
      * @c Nden−1 states. Requires a proper TF (@c Nnum ≤ Nden) and nonzero leading
-     * denominator coefficient. Biproper systems set @f$ D = n_n/d_n @f$ and reduce C.
+     * denominator coefficient. Biproper systems set @f$ D = \mathrm{num}[0]/\mathrm{den}[0] @f$ and reduce C.
      *
      * Only an exactly zero leading coefficient is rejected: polynomial
      * coefficients scale as powers of the frequency unit, so no magnitude
      * threshold on them is unit-invariant.
      *
      * @return Continuous realization (@c Ts = 0), or @c nullopt if
-     *         @f$ \mathrm{den}[\mathrm{end}] = 0 @f$ (padded / improper array)
+     *         @f$ \mathrm{den}[0] = 0 @f$ (padded / improper array)
      * @note Compare with MATLAB®'s ss(tf(...)) / tf2ss (companion form).
      * @see to_observable_canonical_form for the dual realization
      */
@@ -116,33 +146,45 @@ struct TransferFunction {
             return sys;
         }
 
-        const T a_lead = den[Nden - 1];
+        const T a_lead = den[0];
         if (a_lead == T{0}) {
             return damp::nullopt;
+        }
+
+        // The companion form indexes by power: a[k] and b[k] multiply s^k (num aligned on its
+        // constant term, zero above its degree).
+        damp::array<T, Nden> a{};
+        damp::array<T, Nden> b{};
+        for (size_t k = 0; k < Nden; ++k) {
+            a[k] = den[Nden - 1 - k];
+        }
+        for (size_t k = 0; k < Nnum; ++k) {
+            b[k] = num[Nnum - 1 - k];
         }
 
         for (size_t i = 0; i < Nden - 2; ++i) {
             sys.A(i, i + 1) = T{1};
         }
         for (size_t j = 0; j < Nden - 1; ++j) {
-            sys.A(Nden - 2, j) = -den[j] / a_lead;
+            sys.A(Nden - 2, j) = -a[j] / a_lead;
         }
 
         sys.B(Nden - 2, 0) = T{1};
 
-        const T d_val = (Nnum == Nden) ? (num[Nden - 1] / a_lead) : T{0};
+        const T d_val = (Nnum == Nden) ? (b[Nden - 1] / a_lead) : T{0};
         sys.D(0, 0) = d_val;
 
         for (size_t k = 0; k < Nden - 1; ++k) {
-            const T n_k = (k < Nnum) ? num[k] : T{0};
-            sys.C(0, k) = (n_k - d_val * den[k]) / a_lead;
+            sys.C(0, k) = (b[k] - d_val * a[k]) / a_lead;
         }
 
         return sys;
     }
 
-    /// @copybrief to_state_space
-    /// The controllable companion form by its canonical name; see @ref to_state_space.
+    /**
+     * @copybrief to_state_space
+     * The controllable companion form by its canonical name; see @ref to_state_space.
+     */
     [[nodiscard]] constexpr damp::optional<StateSpace<Nden - 1, 1, 1, T>> to_controllable_canonical_form() const {
         return to_state_space();
     }
@@ -150,7 +192,7 @@ struct TransferFunction {
     /**
      * @brief Observable companion-form state-space realization
      *
-     * The dual of @ref to_state_space: @f$ A_o = A_c^\top,\; B_o = C_c^\top,\; C_o = B_c^\top @f$,
+     * The dual of @ref to_state_space(): @f$ A_o = A_c^\top,\; B_o = C_c^\top,\; C_o = B_c^\top @f$,
      * @f$ D @f$ unchanged, so the denominator coefficients sit in the last column of A and
      * the numerator coefficients in B. Same transfer function and poles; (A, C) is observable
      * by construction, which suits an observer or Kalman design the way the controllable
@@ -290,14 +332,6 @@ template<size_t Nnum1, size_t Nden1, size_t Nnum2, size_t Nden2, typename T>
     tf_detail::accumulate_poly(den, den_r);
 
     return TransferFunction<Nnum_res, Nden_res, T>{num, den};
-}
-
-template<size_t Nnum1, size_t Nden1, size_t Nnum2, size_t Nden2, typename T>
-[[nodiscard]] constexpr auto operator/(
-    const TransferFunction<Nnum1, Nden1, T>& sys1,
-    const TransferFunction<Nnum2, Nden2, T>& sys2
-) {
-    return feedback(sys1, sys2);
 }
 
 } // namespace damp

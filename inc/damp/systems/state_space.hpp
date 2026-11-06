@@ -20,9 +20,10 @@
  * | @c sys2 * sys1 | @c sys2*sys1 | same as @c series(sys1,sys2) |
  * | @c parallel / @c + | @c parallel / @c + | shared @f$u@f$, sum outputs |
  * | @c feedback / @c / | @c feedback | negative feedback @f$ y = \mathrm{sys1}(r - \mathrm{sys2}(y)) @f$ |
+ * | @c lft(P,K) | @c lft(P,K) | K closes P's last outputs to its last inputs (u = K y); w → z open |
  * | @c select(sys,iy,iu) | @c sys(iy+1,iu+1) | SISO slice |
  * | @c mix | — | @f$ v = g u + \sum k_i y_i @f$ on one input column |
- * | @c ss_gain / @c ss_integrator | — | D-only gain; @f$ k/s @f$ |
+ * | @c ss_gain | — | D-only gain |
  *
  * Mismatched sample times or a singular algebraic loop return
  * @c damp::nullopt (MATLAB® errors in those cases).
@@ -41,7 +42,7 @@
  * @see discretize() in systems/discretization.hpp
  * @see TransferFunction::to_state_space()
  * @see "Feedback Control of Dynamic Systems" (Franklin, Powell & Emami-Naeini)
- * @note Compare with MATLAB®'s ss, series, parallel, feedback, and * / + operators.
+ * @note Compare with MATLAB®'s ss, series, parallel, feedback, lft, and * / + operators.
  */
 
 #include <cstddef>
@@ -92,83 +93,13 @@ template<typename T>
 }
 
 /**
- * @brief Extend a state reference given for the leading NR states over all NX states.
- *
- * The trailing states (the delay line discretize appends) are not the caller's to choose:
- * they follow the model from the previous full reference, x*ᵢ(k) = Aᵢ x*(k−1) + Bᵢ u*(k−1)
- * for i ≥ NR. Only the leading NX × NX block of @p A (and NX rows of @p B) is read, so a
- * model with further states after the plant (a disturbance augment) works too.
+ * @brief ‖ |A|·|B| ‖_F, entrywise magnitudes: the size of the terms that form A·B, so a product
+ *        with structural zeros (channels that do not interact) has no roundoff scale there.
  */
-template<size_t NX, size_t NR, size_t NA, size_t NU, typename T>
-[[nodiscard]] constexpr ColVec<NX, T> extend_reference(
-    const Matrix<NA, NA, T>& A,
-    const Matrix<NA, NU, T>& B,
-    const ColVec<NX, T>&     x_prev,
-    const ColVec<NU, T>&     u_prev,
-    const ColVec<NR, T>&     x_lead
-) {
-    static_assert(NR <= NX && NX <= NA, "The reference covers the leading states of the model.");
-    ColVec<NX, T> x{};
-    for (size_t i = 0; i < NR; ++i) {
-        x(i) = x_lead(i);
-    }
-    for (size_t i = NR; i < NX; ++i) {
-        T acc{0};
-        for (size_t j = 0; j < NX; ++j) {
-            acc += A(i, j) * x_prev(j);
-        }
-        for (size_t j = 0; j < NU; ++j) {
-            acc += B(i, j) * u_prev(j);
-        }
-        x(i) = acc;
-    }
-    return x;
-}
-
-/// A weight (or cross term) sized to the plant, placed on the leading rows and columns of an
-/// NX-state model; the delay states that follow get none.
-template<size_t NX, size_t NXC, size_t NQ, size_t NC, typename T>
-[[nodiscard]] constexpr Matrix<NX, NXC, T> pad_leading(const Matrix<NQ, NC, T>& W) {
-    static_assert(NQ <= NX && NC <= NXC, "The weight covers the leading states of the model.");
-    Matrix<NX, NXC, T> out{};
-    out.template block<NQ, NC>(0, 0) = W;
-    return out;
-}
-
-/// An LQI weight on [x_plant; ∫e] (NQA = plant states + NI integrators) spread onto [x; ∫e] of
-/// an NX-state model: the plant block leads, the integral block stays last, the delay states get
-/// none. A weight already sized to the model (NQA = NX + NI) comes back as it is.
-template<size_t NX, size_t NI, size_t NQA, typename T>
-[[nodiscard]] constexpr Matrix<NX + NI, NX + NI, T> pad_integral_weight(const Matrix<NQA, NQA, T>& Q) {
-    static_assert(
-        NQA > NI && NQA - NI <= NX,
-        "The weight on [x; ∫e] is (NX + NI)² or, on a delayed model, (plant states + NI)²."
-    );
-    constexpr size_t            NQ = NQA - NI;
-    constexpr size_t            shift = NX - NQ;
-    Matrix<NX + NI, NX + NI, T> out{};
-    for (size_t i = 0; i < NQA; ++i) {
-        for (size_t j = 0; j < NQA; ++j) {
-            out(i < NQ ? i : i + shift, j < NQ ? j : j + shift) = Q(i, j);
-        }
-    }
-    return out;
-}
-
-/**
- * @brief Extend a state reference given for the leading NR states with zeros.
- *
- * For a law with no feedforward input on a delay-augmented model: the past-input states'
- * reference is the past u*, which is zero.
- */
-template<size_t NX, size_t NR, typename T>
-[[nodiscard]] constexpr ColVec<NX, T> zero_extend(const ColVec<NR, T>& x_lead) {
-    static_assert(NR <= NX, "The reference covers the leading states of the model.");
-    ColVec<NX, T> x{};
-    for (size_t i = 0; i < NR; ++i) {
-        x(i) = x_lead(i);
-    }
-    return x;
+template<size_t R, size_t K, size_t C, typename T>
+[[nodiscard]] constexpr T abs_product_norm(const Matrix<R, K, T>& A, const Matrix<K, C, T>& B) {
+    const auto mag = [](T v) { return damp::abs(v); };
+    return (mat::transform(A, mag) * mat::transform(B, mag)).norm();
 }
 
 } // namespace detail
@@ -246,43 +177,43 @@ struct StateSpace {
 template<size_t NX, size_t NU, size_t NY, typename T>
 StateSpace(const T (&)[NX][NX], const T (&)[NX][NU], const T (&)[NY][NX]) -> StateSpace<NX, NU, NY, T>;
 
-/// @copydoc StateSpace(const T (&)[NX][NX], const T (&)[NX][NU], const T (&)[NY][NX])
+/** @copydoc StateSpace(const T (&)[NX][NX], const T (&)[NX][NU], const T (&)[NY][NX]) */
 template<size_t NX, size_t NU, size_t NY, typename T>
 StateSpace(const T (&)[NX][NX], const T (&)[NX][NU], const T (&)[NY][NX], const T (&)[NY][NU]) -> StateSpace<NX, NU, NY, T>;
 
-/// @copydoc StateSpace(const T (&)[NX][NX], const T (&)[NX][NU], const T (&)[NY][NX])
+/** @copydoc StateSpace(const T (&)[NX][NX], const T (&)[NX][NU], const T (&)[NY][NX]) */
 template<size_t NX, size_t NU, size_t NY, typename T>
 StateSpace(const T (&)[NX][NX], const T (&)[NX][NU], const T (&)[NY][NX], T) -> StateSpace<NX, NU, NY, T>;
 
-/// @copydoc StateSpace(const T (&)[NX][NX], const T (&)[NX][NU], const T (&)[NY][NX])
+/** @copydoc StateSpace(const T (&)[NX][NX], const T (&)[NX][NU], const T (&)[NY][NX]) */
 template<size_t NX, size_t NU, size_t NY, typename T>
 StateSpace(const T (&)[NX][NX], const T (&)[NX][NU], const T (&)[NY][NX], const T (&)[NY][NU], T) -> StateSpace<NX, NU, NY, T>;
 
 // From matrices already sized: `StateSpace{.A = A, .B = B, .C = C}`. A user-declared guide
 // switches off the implicit aggregate deduction, so these restate it for the member lists in use.
 
-/// Sizes and scalar type from Matrix members (A, B, C).
+/** @brief Sizes and scalar type from Matrix members (A, B, C). */
 template<size_t NX, size_t NU, size_t NY, typename T>
 StateSpace(Matrix<NX, NX, T>, Matrix<NX, NU, T>, Matrix<NY, NX, T>) -> StateSpace<NX, NU, NY, T>;
 
-/// Sizes and scalar type from Matrix members (A, B, C, D).
+/** @brief Sizes and scalar type from Matrix members (A, B, C, D). */
 template<size_t NX, size_t NU, size_t NY, typename T>
 StateSpace(Matrix<NX, NX, T>, Matrix<NX, NU, T>, Matrix<NY, NX, T>, Matrix<NY, NU, T>) -> StateSpace<NX, NU, NY, T>;
 
-/// Sizes and scalar type from Matrix members (A, B, C) and Ts.
+/** @brief Sizes and scalar type from Matrix members (A, B, C) and Ts. */
 template<size_t NX, size_t NU, size_t NY, typename T>
 StateSpace(Matrix<NX, NX, T>, Matrix<NX, NU, T>, Matrix<NY, NX, T>, T) -> StateSpace<NX, NU, NY, T>;
 
-/// Sizes and scalar type from Matrix members (A, B, C, D) and Ts.
+/** @brief Sizes and scalar type from Matrix members (A, B, C, D) and Ts. */
 template<size_t NX, size_t NU, size_t NY, typename T>
 StateSpace(Matrix<NX, NX, T>, Matrix<NX, NU, T>, Matrix<NY, NX, T>, Matrix<NY, NU, T>, T) -> StateSpace<NX, NU, NY, T>;
 
-/// Sizes, noise inputs and scalar type from Matrix members (A, B, C, D, G, H).
+/** @brief Sizes, noise inputs and scalar type from Matrix members (A, B, C, D, G, H). */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
 StateSpace(Matrix<NX, NX, T>, Matrix<NX, NU, T>, Matrix<NY, NX, T>, Matrix<NY, NU, T>, Matrix<NX, NW, T>, Matrix<NY, NV, T>)
     -> StateSpace<NX, NU, NY, T, NW, NV>;
 
-/// Sizes, noise inputs and scalar type from Matrix members (A, B, C, D, G, H) and Ts.
+/** @brief Sizes, noise inputs and scalar type from Matrix members (A, B, C, D, G, H) and Ts. */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
 StateSpace(Matrix<NX, NX, T>, Matrix<NX, NU, T>, Matrix<NY, NX, T>, Matrix<NY, NU, T>, Matrix<NX, NW, T>, Matrix<NY, NV, T>, T)
     -> StateSpace<NX, NU, NY, T, NW, NV>;
@@ -439,7 +370,11 @@ template<
  * @brief Negative feedback: y = sys1(u − sys2(y))
  *
  * With @f$ V=(I+D_2 D_1)^{-1} @f$, @f$ W=(I+D_1 D_2)^{-1} @f$ (solved via LU, not explicit inverse).
- * Returns @c nullopt if sample times differ or either matrix is singular (ill-posed algebraic loop).
+ * Returns @c nullopt if sample times differ or the algebraic loop is ill-posed: either matrix
+ * singular, or so close to it that @f$ \|V\|_F (\|I\|_F + \|\,|D_2|\,|D_1|\,\|_F) @f$ (likewise W,
+ * entrywise magnitudes), its condition relative to the terms that form it, reaches
+ * 1/(64·n·eps), as in lft. Channels that do not interact (D₂D₁ = 0 by structure) add nothing to
+ * those terms, whatever their gains.
  *
  * Noise: @f$ G = \mathrm{blkdiag}(G_1, G_2) @f$ and
  * @f$ H = [W H_1 \;\; -W D_1 H_2] @f$ (the exact output map of @f$ v @f$). The
@@ -489,6 +424,11 @@ template<
     }
     const Matrix<m, m, T> V = *V_opt;
     const Matrix<p, p, T> W = *W_opt;
+    const T               cond_V = V.norm() * (I_m.norm() + detail::abs_product_norm(sys2.D, sys1.D)) * static_cast<T>(m) * T{64} * eps<T>();
+    const T               cond_W = W.norm() * (I_p.norm() + detail::abs_product_norm(sys1.D, sys2.D)) * static_cast<T>(p) * T{64} * eps<T>();
+    if (!damp::isfinite(cond_V) || !damp::isfinite(cond_W) || !(cond_V < T{1}) || !(cond_W < T{1})) {
+        return damp::nullopt; // lost to cancellation relative to the terms that form the loop
+    }
 
     const Matrix B1_V = sys1.B * V;
     const Matrix W_C1 = W * sys1.C;
@@ -527,6 +467,115 @@ template<
 }
 
 /**
+ * @brief Lower linear fractional transformation: K closes the loop from P's last outputs to its last inputs
+ *
+ * Closes the measured / controlled channels of a MIMO plant while the disturbance → performance
+ * channels stay open for analysis. @p P maps [w; u] → [z; y]: its last NYK inputs are the controls
+ * u, its last NUK outputs the measurements y, the rest the exogenous inputs w and performance
+ * outputs z. @p K maps y → u, and the result maps w → z:
+ * @f[
+ *   F_l(P, K) = P_{11} + P_{12} K (I - P_{22} K)^{-1} P_{21}.
+ * @f]
+ * The loop is u = K y with no sign change, as MATLAB®'s lft: pass the controller negated for
+ * u = −K y. With @f$ W = (I - D_{22} D_K)^{-1} @f$ (solved via LU, not an explicit inverse) the
+ * measurement is @f$ y = W (C_2 x + D_{22} C_K x_K + D_{21} w) @f$ and the state is
+ * @f$ [x; x_K] @f$.
+ *
+ * Returns @c nullopt if sample times differ or the loop is ill-posed: @f$ I - D_{22} D_K @f$
+ * singular, or so close to it that @f$ \|W\|_F (\|I\|_F + \|\,|D_{22}|\,|D_K|\,\|_F) @f$
+ * (entrywise magnitudes), its condition relative to the terms that form it, reaches
+ * 1/(64·NUK·eps).
+ *
+ * Noise: @f$ G = \mathrm{blkdiag}(G_P, G_K) @f$; H is the exact map of P's and K's measurement
+ * noise to z. Their paths into the states around the loop are not representable in the (G, H)
+ * split, where only w drives states, and are dropped (as in feedback).
+ *
+ * @note Compare with MATLAB®'s lft(P, K) (K's sizes set the partition).
+ * @see "Robust and Optimal Control" (Zhou, Doyle & Glover, 1996), §10 (linear fractional transformations)
+ * @see "Multivariable Feedback Control" (Skogestad & Postlethwaite, 2005), Appendix A.7
+ *
+ * @param P Generalized plant, inputs [w; u], outputs [z; y]
+ * @param K Controller, NUK measurements in, NYK controls out
+ * @return The closed loop w → z (NXP + NXK states), or @c nullopt as above
+ */
+template<
+    size_t NXP, size_t NUP, size_t NYP, size_t NWP, size_t NVP,
+    size_t NXK, size_t NUK, size_t NYK, size_t NWK, size_t NVK,
+    typename T>
+    requires(NUK <= NYP) && (NYK <= NUP)
+[[nodiscard]] constexpr auto lft(
+    const StateSpace<NXP, NUP, NYP, T, NWP, NVP>& P,
+    const StateSpace<NXK, NUK, NYK, T, NWK, NVK>& K
+) -> damp::optional<StateSpace<NXP + NXK, NUP - NYK, NYP - NUK, T, NWP + NWK, NVP + NVK>> {
+    if (!detail::same_sample_time(P.Ts, K.Ts)) {
+        return damp::nullopt;
+    }
+
+    constexpr size_t nx = NXP;
+    constexpr size_t nk = NXK;
+    constexpr size_t nw = NUP - NYK; // exogenous inputs
+    constexpr size_t nu = NYK;       // controls
+    constexpr size_t nz = NYP - NUK; // performance outputs
+    constexpr size_t ny = NUK;       // measurements
+
+    const Matrix<nx, nw, T>  B1 = P.B.template block<nx, nw>(0, 0);
+    const Matrix<nx, nu, T>  B2 = P.B.template block<nx, nu>(0, nw);
+    const Matrix<nz, nx, T>  C1 = P.C.template block<nz, nx>(0, 0);
+    const Matrix<ny, nx, T>  C2 = P.C.template block<ny, nx>(nz, 0);
+    const Matrix<nz, nw, T>  D11 = P.D.template block<nz, nw>(0, 0);
+    const Matrix<nz, nu, T>  D12 = P.D.template block<nz, nu>(0, nw);
+    const Matrix<ny, nw, T>  D21 = P.D.template block<ny, nw>(nz, 0);
+    const Matrix<ny, nu, T>  D22 = P.D.template block<ny, nu>(nz, nw);
+    const Matrix<nz, NVP, T> H1 = P.H.template block<nz, NVP>(0, 0);
+    const Matrix<ny, NVP, T> H2 = P.H.template block<ny, NVP>(nz, 0);
+
+    // W = (I − D22 DK)⁻¹, refused when singular relative to the terms that form it.
+    const Matrix<ny, ny, T> I_y = Matrix<ny, ny, T>::identity();
+    const auto              W_opt = mat::lu_solve(I_y - D22 * K.D, I_y);
+    if (!W_opt) {
+        return damp::nullopt;
+    }
+    const Matrix<ny, ny, T> W = *W_opt;
+    const T                 condition = W.norm() * (I_y.norm() + detail::abs_product_norm(D22, K.D));
+    if (!damp::isfinite(condition) || !(condition * static_cast<T>(ny) * T{64} * eps<T>() < T{1})) {
+        return damp::nullopt;
+    }
+
+    // y = W·(C2 x + D22 CK xK + D21 w + H2 vP + D22 HK vK), u = CK xK + DK y + HK vK.
+    const Matrix<ny, nx, T>  Y_x = W * C2;
+    const Matrix<ny, nk, T>  Y_k = W * D22 * K.C;
+    const Matrix<ny, nw, T>  Y_w = W * D21;
+    const Matrix<nu, nx, T>  U_x = K.D * Y_x;
+    const Matrix<nu, nk, T>  U_k = K.C + K.D * Y_k;
+    const Matrix<nu, nw, T>  U_w = K.D * Y_w;
+    const Matrix<nu, NVP, T> U_vP = K.D * W * H2;
+    const Matrix<nu, NVK, T> U_vK = K.H + K.D * W * D22 * K.H;
+
+    StateSpace<nx + nk, nw, nz, T, NWP + NWK, NVP + NVK> out{};
+    out.G = Matrix<nx + nk, NWP + NWK, T>{}; // blkdiag, not the square default identity
+    out.H = Matrix<nz, NVP + NVK, T>{};
+    out.A.template block<nx, nx>(0, 0) = P.A + B2 * U_x;
+    out.B.template block<nx, nw>(0, 0) = B1 + B2 * U_w;
+    out.C.template block<nz, nx>(0, 0) = C1 + D12 * U_x;
+    out.G.template block<nx, NWP>(0, 0) = P.G;
+    if constexpr (nk > 0) {
+        out.A.template block<nx, nk>(0, nx) = B2 * U_k;
+        out.A.template block<nk, nx>(nx, 0) = K.B * Y_x;
+        out.A.template block<nk, nk>(nx, nx) = K.A + K.B * Y_k;
+        out.B.template block<nk, nw>(nx, 0) = K.B * Y_w;
+        out.C.template block<nz, nk>(0, nx) = D12 * U_k;
+        out.G.template block<nk, NWK>(nx, NWP) = K.G;
+    }
+    out.D = D11 + D12 * U_w;
+    out.H.template block<nz, NVP>(0, 0) = H1 + D12 * U_vP;
+    if constexpr (NVK > 0) {
+        out.H.template block<nz, NVK>(0, NVP) = D12 * U_vK;
+    }
+    out.Ts = P.Ts;
+    return out;
+}
+
+/**
  * @brief Differencing connection: outputs y = y₁ − y₂
  *
  * @return Composed system, or @c nullopt if sample times differ
@@ -540,44 +589,11 @@ template<
     const StateSpace<NX1, NU1, NY1, T, NW1, NV1>& sys1,
     const StateSpace<NX2, NU2, NY2, T, NW2, NV2>& sys2
 ) -> damp::optional<StateSpace<NX1 + NX2, NU1, NY1, T, NW1 + NW2, NV1 + NV2>> {
-    if (!detail::same_sample_time(sys1.Ts, sys2.Ts)) {
-        return damp::nullopt;
-    }
-
-    constexpr size_t n1 = NX1;
-    constexpr size_t n2 = NX2;
-    constexpr size_t m = NU1;
-    constexpr size_t p = NY1;
-    constexpr size_t nw1 = NW1;
-    constexpr size_t nw2 = NW2;
-    constexpr size_t nv1 = NV1;
-    constexpr size_t nv2 = NV2;
-
-    Matrix<n1 + n2, n1 + n2, T>   A{};
-    Matrix<n1 + n2, m, T>         B{};
-    Matrix<p, n1 + n2, T>         C{};
-    Matrix<p, m, T>               D{};
-    Matrix<n1 + n2, nw1 + nw2, T> G{};
-    Matrix<p, nv1 + nv2, T>       H{};
-
-    A.template block<n1, n1>(0, 0) = sys1.A;
-    A.template block<n2, n2>(n1, n1) = sys2.A;
-
-    B.template block<n1, m>(0, 0) = sys1.B;
-    B.template block<n2, m>(n1, 0) = sys2.B;
-
-    C.template block<p, n1>(0, 0) = sys1.C;
-    C.template block<p, n2>(0, n1) = -sys2.C;
-
-    D = sys1.D - sys2.D;
-
-    G.template block<n1, nw1>(0, 0) = sys1.G;
-    G.template block<n2, nw2>(n1, nw1) = sys2.G;
-
-    H.template block<p, nv1>(0, 0) = sys1.H;
-    H.template block<p, nv2>(0, nv1) = sys2.H;
-
-    return StateSpace<n1 + n2, m, p, T, nw1 + nw2, nv1 + nv2>{A, B, C, D, G, H, sys1.Ts};
+    StateSpace<NX2, NU2, NY2, T, NW2, NV2> negated = sys2; // −y₂: C, D and H change sign
+    negated.C = -sys2.C;
+    negated.D = -sys2.D;
+    negated.H = -sys2.H;
+    return parallel(sys1, negated);
 }
 
 // --- Operators (MATLAB®-compatible; return optional like the free functions) ---
@@ -621,17 +637,6 @@ template<
     return series(sys2, sys1);
 }
 
-template<
-    size_t NX1, size_t NU1, size_t NY1, size_t NW1, size_t NV1,
-    size_t NX2, size_t NU2, size_t NY2, size_t NW2, size_t NV2,
-    typename T>
-[[nodiscard]] constexpr auto operator/(
-    const StateSpace<NX1, NU1, NY1, T, NW1, NV1>& sys1,
-    const StateSpace<NX2, NU2, NY2, T, NW2, NV2>& sys2
-) {
-    return feedback(sys1, sys2);
-}
-
 /**
  * @brief One term of a linear output mix: k · y_iy
  *
@@ -653,19 +658,6 @@ template<typename T = double>
     StateSpace<0, 1, 1, T> sys{};
     sys.D(0, 0) = k;
     return sys;
-}
-
-/**
- * @brief Integrator y = (k/s) u
- */
-template<typename T = double>
-[[nodiscard]] constexpr StateSpace<1, 1, 1, T> ss_integrator(T k = T{1}) {
-    return StateSpace<1, 1, 1, T>{
-        .A = {{T{0}}},
-        .B = {{T{1}}},
-        .C = {{k}},
-        .D = {{T{0}}},
-    };
 }
 
 /**
@@ -705,10 +697,15 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
 /**
  * @brief Fold plant outputs into one input: v = g u + Σ kᵢ yᵢ
  *
- * Example: a summer on a command,
- * @f$ v_{\mathrm{sw}} = u + V_{\mathrm{out}} @f$. Returns NU=1, same NY.
+ * Example: a summer on a controlled-source command
+ * (@f$ v_{\mathrm{sw}} = u + V_{\mathrm{out}} @f$). Returns NU=1, same NY.
  * An ill-posed algebraic loop (@f$ 1 - k^\top D_{\cdot,\mathrm{iu}} @f$ lost to
  * cancellation, relative to the terms forming it) is @c nullopt.
+ *
+ * Noise: G is kept; H is the exact output map of v,
+ * @f$ H + D_{\cdot,\mathrm{iu}} (1 - k^\top D_{\cdot,\mathrm{iu}})^{-1} k^\top H @f$. The path of
+ * measurement noise into the states through B is not representable in the (G, H) split and is
+ * dropped (as in feedback).
  */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NF>
 [[nodiscard]] constexpr damp::optional<StateSpace<NX, 1, NY, T, NW, NV>> mix(
@@ -739,16 +736,19 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size
     const T inv = T{1} / den;
 
     damp::array<T, NX> Ck{};
+    damp::array<T, NV> Hk{};
     for (size_t i = 0; i < NY; ++i) {
         for (size_t j = 0; j < NX; ++j) {
             Ck[j] += kvec[i] * sys.C(i, j);
+        }
+        for (size_t v = 0; v < NV; ++v) {
+            Hk[v] += kvec[i] * sys.H(i, v);
         }
     }
 
     StateSpace<NX, 1, NY, T, NW, NV> out{};
     out.A = sys.A;
     out.G = sys.G;
-    out.H = sys.H;
     out.Ts = sys.Ts;
     for (size_t i = 0; i < NX; ++i) {
         const T bi = sys.B(i, iu);
@@ -762,12 +762,15 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size
         for (size_t j = 0; j < NX; ++j) {
             out.C(i, j) = sys.C(i, j) + Di * inv * Ck[j];
         }
+        for (size_t v = 0; v < NV; ++v) {
+            out.H(i, v) = sys.H(i, v) + Di * inv * Hk[v];
+        }
         out.D(i, 0) = Di * inv * path_gain;
     }
     return out;
 }
 
-/// @overload no feedforward terms
+/** @brief mix() with no feedforward terms. */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
 [[nodiscard]] constexpr auto mix(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
@@ -781,13 +784,11 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
  * @brief Linear combination of outputs: y = Σ αⱼ yⱼ
  */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NT>
+    requires(NT > 0)
 [[nodiscard]] constexpr damp::optional<StateSpace<NX, NU, 1, T, NW, NV>> mix_outputs(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     const damp::array<SsFeed<T>, NT>&        terms
 ) {
-    if constexpr (NT == 0) {
-        return damp::nullopt;
-    }
     for (size_t t = 0; t < NT; ++t) {
         if (terms[t].iy >= NY) {
             return damp::nullopt;
@@ -797,6 +798,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size
     out.A = sys.A;
     out.B = sys.B;
     out.G = sys.G;
+    out.H = Matrix<1, NV, T>{}; // not the 1×1 default identity: the sum starts from zero
     out.Ts = sys.Ts;
     for (size_t t = 0; t < NT; ++t) {
         const T      k = terms[t].k;
@@ -807,10 +809,8 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size
         for (size_t j = 0; j < NU; ++j) {
             out.D(0, j) += k * sys.D(iy, j);
         }
-        if constexpr (NV > 0) {
-            for (size_t v = 0; v < NV; ++v) {
-                out.H(0, v) += k * sys.H(iy, v);
-            }
+        for (size_t v = 0; v < NV; ++v) {
+            out.H(0, v) += k * sys.H(iy, v);
         }
     }
     return out;
@@ -819,9 +819,11 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size
 /**
  * @brief Unity (or weighted) negative feedback around @p G_loop, read @p G_out
  *
- * @p G_loop and @p G_out must share A, B (same realization, different C/D) —
- * typically @c series(C, P_i) and @c series(C, P_v) from one mixed plant.
- * Returns @c nullopt if the loop is singular.
+ * @p G_loop and @p G_out must share A, B and Ts (same realization, different C/D) —
+ * typically @c series(C, P_i) and @c series(C, P_v) from one mixed plant. G is that of
+ * @p G_loop; H is the exact map of v to the read output,
+ * @f$ H_{out} - D_{out} k H_{loop} / (1 + k D_{loop}) @f$.
+ * Returns @c nullopt if A, B or Ts differ, or the loop is ill-posed (as feedback).
  */
 template<size_t NX, typename T, size_t NW, size_t NV>
 [[nodiscard]] constexpr damp::optional<StateSpace<NX, 1, 1, T, NW, NV>> feedback_read(
@@ -829,22 +831,21 @@ template<size_t NX, typename T, size_t NW, size_t NV>
     const StateSpace<NX, 1, 1, T, NW, NV>& G_out,
     T                                      k = T{1}
 ) {
-    const auto cl = feedback(G_loop, ss_gain(k));
+    if (!(G_loop.A == G_out.A) || !(G_loop.B == G_out.B) || !detail::same_sample_time(G_loop.Ts, G_out.Ts)) {
+        return damp::nullopt; // not one realization read through two outputs
+    }
+    const auto cl = feedback(G_loop, ss_gain(k)); // refuses an ill-posed 1 + k·D_loop
     if (!cl) {
         return damp::nullopt;
     }
-    const T Dloop = G_loop.D(0, 0);
-    const T den = T{1} + k * Dloop;
-    if (!(damp::abs(den) > T{64} * eps<T>() * (T{1} + damp::abs(k * Dloop)))) {
-        return damp::nullopt;
-    }
-    const T inv = T{1} / den;
+    const T inv = T{1} / (T{1} + (k * G_loop.D(0, 0)));
     const T Dout = G_out.D(0, 0);
     auto    out = *cl;
     for (size_t j = 0; j < NX; ++j) {
         out.C(0, j) = G_out.C(0, j) - Dout * inv * k * G_loop.C(0, j);
     }
     out.D(0, 0) = Dout * inv;
+    out.H = G_out.H - (G_loop.H * (Dout * inv * k));
     return out;
 }
 

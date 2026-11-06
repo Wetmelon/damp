@@ -25,19 +25,24 @@ namespace mat {
  * @brief Eigenvalue computation result.
  *
  * Returned by compute_eigenvalues(). Eigenvalues are fully resolved complex
- * values; @c vectors holds the orthogonal real Schur basis as columns. For
- * symmetric A the Schur form is diagonal, so these are the eigenvectors; for a
- * general A only the first column is an eigenvector (complex pairs span a
- * 2-D invariant subspace).
+ * values. @c schur_vectors is not a matrix of eigenvectors: it is the real Schur
+ * basis D·Z of the balanced matrix mapped back to A, with unit columns. Its
+ * leading k columns span an invariant subspace of A whenever k does not split a
+ * 2×2 block (a complex pair); it is orthogonal only when A needed no balancing.
+ * Column 0 is an eigenvector only when values[0] is real, and every column is an
+ * eigenvector when A is symmetric (the Schur form is then diagonal).
  *
  * @tparam N Number of states
  * @tparam T Numeric type (default: double)
  */
 template<size_t N, typename T = double>
-struct EigenResult {
-    ColVec<N, damp::complex<T>>    values{};        ///< Eigenvalues
-    Matrix<N, N, damp::complex<T>> vectors{};       ///< Eigenvectors (columns)
-    bool                           converged{true}; ///< Every eigenvalue deflated within the budget
+struct [[nodiscard]] EigenResult {
+    ColVec<N, damp::complex<T>> values{};        ///< Eigenvalues
+    Matrix<N, N, T>             schur_vectors{}; ///< Real Schur basis D·Z with unit columns (nested invariant subspaces)
+    bool                        success{false};  ///< Every eigenvalue deflated within the budget, from finite input
+
+    /** @brief True when every eigenvalue deflated, from finite input. */
+    [[nodiscard]] constexpr explicit operator bool() const { return success; }
 };
 
 namespace detail {
@@ -141,12 +146,8 @@ template<typename T>
  */
 template<size_t M, typename T>
 [[nodiscard]] constexpr bool gebal_log2_scale(Matrix<M, M, T>& A, damp::array<int, M>& exp) {
-    for (size_t i = 0; i < M; ++i) {
-        for (size_t j = 0; j < M; ++j) {
-            if (!damp::isfinite(A(i, j))) {
-                return false;
-            }
-        }
+    if (!mat::all_of(A, [](T v) { return damp::isfinite(v); })) {
+        return false;
     }
     const T sfmin1 = std::numeric_limits<T>::min() / eps<T>();
     const T sfmax1 = T{1} / sfmin1;
@@ -226,7 +227,7 @@ template<size_t N, typename T>
     return e;
 }
 
-/// D⁻¹ A D for D = diag(2^e); exact (powers of two).
+/** @brief D⁻¹ A D for D = diag(2^e); exact (powers of two). */
 template<size_t N, typename T>
 [[nodiscard]] constexpr Matrix<N, N, T> balanced(const Matrix<N, N, T>& A, const damp::array<int, N>& e) {
     Matrix<N, N, T> out{};
@@ -314,7 +315,7 @@ constexpr void hessenberg_reduce(Matrix<N, N, T>& H, Matrix<N, N, T>& Z) {
     }
 }
 
-/// Eigenvalues of a standardized 2×2 Schur block (wi = 0 for a real pair).
+/** @brief Eigenvalues of a standardized 2×2 Schur block (wi = 0 for a real pair). */
 template<typename T>
 struct SchurBlockEigenvalues {
     T wr0{T{0}}; ///< Real part, leading position
@@ -740,31 +741,39 @@ constexpr bool francis_qr(
  * the cancellation-free quadratic). Balancing makes the computed eigenvalues
  * accurate relative to the balanced norm, not to the largest entry of A, so a
  * state in metres next to one in counts does not cost the small eigenvalues
- * their digits. The @c vectors field holds the real Schur basis of the balanced
- * matrix mapped back (x = D x_b) with unit columns: nested invariant subspaces of
- * A, orthogonal when A needed no balancing, and the eigenvectors for symmetric A.
+ * their digits. The @c schur_vectors field holds the real Schur basis of the
+ * balanced matrix mapped back (x = D x_b) with unit columns: nested invariant
+ * subspaces of A, orthogonal when A needed no balancing, and the eigenvectors for
+ * symmetric A. It does not hold eigenvectors of a general A.
  *
  * @note Compare with MATLAB®'s eig(A) — the algorithm is selected internally.
  * @warning QR is iterative (data-dependent iteration count). Suitable for
  *          design-time analysis; avoid in hard-real-time loops where WCET matters.
  *
- * The iteration budget scales with N internally and deflation uses the machine
- * epsilon relative to the matrix norm, so no tolerance or iteration cap is taken.
+ * The iteration budget scales with N internally and a subdiagonal entry deflates
+ * by the local Ahues–Tisseur criterion (see detail::francis_qr), so no tolerance
+ * or iteration cap is taken. A non-finite entry in A returns success = false.
  *
  * @param A input matrix
  * @return EigenResult with complex eigenvalues, Schur vectors, and an honest
  *         convergence flag.
  */
 template<size_t N, typename T = double>
+    requires std::is_floating_point_v<T> // the real Schur form: real A only
 [[nodiscard]] constexpr EigenResult<N, T> compute_eigenvalues(const Matrix<N, N, T>& A) {
     using Cplx = damp::complex<T>;
     EigenResult<N, T> result;
 
+    if (!mat::all_of(A, [](T v) { return damp::isfinite(v); })) {
+        result.success = false;
+        return result;
+    }
+
     if constexpr (N == 1) {
         // Scalar: the lone entry is the eigenvalue.
         result.values[0] = Cplx{A(0, 0), T{0}};
-        result.vectors(0, 0) = Cplx{T{1}, T{0}};
-        result.converged = true;
+        result.schur_vectors(0, 0) = T{1};
+        result.success = true;
     } else {
         // N == 2 deflates immediately through the stable 2×2 branch of
         // francis_qr (its bulge chase is compiled only for N ≥ 3).
@@ -775,7 +784,7 @@ template<size_t N, typename T = double>
 
         damp::array<T, N> wr{};
         damp::array<T, N> wi{};
-        result.converged = detail::francis_qr(H, Z, wr, wi);
+        result.success = detail::francis_qr(H, Z, wr, wi);
 
         for (size_t i = 0; i < N; ++i) {
             result.values[i] = Cplx{wr[i], wi[i]};
@@ -783,12 +792,12 @@ template<size_t N, typename T = double>
             T nrm_sq = T{0};
             for (size_t j = 0; j < N; ++j) {
                 const T v = detail::scale_by_pow2(Z(j, i), e[j]);
-                result.vectors(j, i) = Cplx{v, T{0}};
+                result.schur_vectors(j, i) = v;
                 nrm_sq += v * v;
             }
             const T inv = (nrm_sq > T{0}) ? (T{1} / damp::sqrt(nrm_sq)) : T{1};
             for (size_t j = 0; j < N; ++j) {
-                result.vectors(j, i) = result.vectors(j, i) * inv;
+                result.schur_vectors(j, i) *= inv;
             }
         }
     }

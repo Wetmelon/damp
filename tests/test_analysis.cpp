@@ -6,12 +6,14 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <limits>
 #include <numbers>
 #include <type_traits>
 #include <vector>
 
 #include "damp/analysis/analysis.hpp"
 #include "damp/design/stability.hpp"
+#include "damp/filters/iir_design.hpp"
 #include "damp/math/complex.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "damp/systems/state_space.hpp"
@@ -22,6 +24,11 @@
 
 using namespace damp;
 
+namespace {
+constexpr double pi = std::numbers::pi_v<double>;
+
+} // namespace
+
 TEST_CASE("poles() handles systems larger than 4 states") {
     // Diagonal A with known eigenvalues -1..-6 (6 states > old NX<=4 limit).
     Matrix<6, 6, double> A{};
@@ -29,12 +36,22 @@ TEST_CASE("poles() handles systems larger than 4 states") {
     for (size_t i = 0; i < 6; ++i) {
         A(i, i) = expected[i];
     }
-    auto p = analysis::poles(A);
+    const auto p = analysis::poles(A);
+    REQUIRE(p.has_value());
     for (size_t i = 0; i < 6; ++i) {
-        CHECK(p[i].real() == doctest::Approx(expected[i]).epsilon(1e-9));
-        CHECK(p[i].imag() == doctest::Approx(0.0).epsilon(1e-9));
+        CHECK((*p)[i].real() == doctest::Approx(expected[i]).epsilon(1e-9));
+        CHECK((*p)[i].imag() == doctest::Approx(0.0).epsilon(1e-9));
     }
-    CHECK(analysis::is_stable_continuous(A));
+    CHECK(stability::is_stable(StateSpace<6, 1, 1>{.A = A}));
+}
+
+TEST_CASE("poles(), damp() and pzmap(A) report a failed eigensolve, not zero poles") {
+    // Zero poles read as deadbeat-stable in discrete time; a NaN entry has no eigenvalues.
+    const Matrix<2, 2, double> A{{0.5, std::numeric_limits<double>::quiet_NaN()}, {0.0, 0.5}};
+    CHECK_FALSE(analysis::poles(A).has_value());
+    CHECK_FALSE(analysis::damp(A).has_value());
+    CHECK(analysis::pzmap(A).poles.empty());
+    CHECK(analysis::rlocus(StateSpace<2, 1, 1>{.A = A}, std::vector<double>{1.0}).open_loop_poles.empty());
 }
 
 TEST_CASE("step/impulse/initial response of 1/(s+1)") {
@@ -133,7 +150,7 @@ TEST_CASE("discrete step/lsim empty when host grid Ts disagrees with sys.Ts") {
 }
 
 TEST_CASE("TF step empty when companion realization fails") {
-    TransferFunction<1, 2, double> bad{{1.0}, {1.0, 0.0}}; // leading den = 0
+    TransferFunction<1, 2, double> bad{{1.0}, {0.0, 1.0}}; // leading den = 0
     const auto                     t = analysis::linspace(0.0, 1.0, 11);
     CHECK(analysis::step(bad, t).t.empty());
     CHECK(analysis::impulse(bad, t).t.empty());
@@ -185,7 +202,7 @@ TEST_CASE("lsiminfo reports extremes and settling of a signal") {
 
 TEST_CASE("pzmap of a transfer function finds poles and zeros") {
     // (s+2) / (s^2 + 3s + 2) = (s+2)/((s+1)(s+2)): zero at -2, poles at -1,-2.
-    TransferFunction<2, 3, double> tf{{2.0, 1.0}, {2.0, 3.0, 1.0}};
+    TransferFunction<2, 3, double> tf{{1.0, 2.0}, {1.0, 3.0, 2.0}};
     const auto                     pz = analysis::pzmap(tf);
 
     REQUIRE(pz.zeros.size() == 1);
@@ -199,21 +216,35 @@ TEST_CASE("pzmap of a transfer function finds poles and zeros") {
     CHECK(pmax == doctest::Approx(-1.0).epsilon(1e-9));
 }
 
-TEST_CASE("pzmap of a state-space system returns eigenvalue poles") {
+TEST_CASE("pzmap of a state matrix returns eigenvalue poles") {
     Matrix<2, 2, double> A{{0.0, 1.0}, {-2.0, -3.0}}; // char poly s^2+3s+2 → -1,-2
     const auto           pz = analysis::pzmap(A);
 
     REQUIRE(pz.poles.size() == 2);
-    CHECK(pz.zeros.empty()); // transmission zeros not computed
+    CHECK(pz.zeros.empty()); // a matrix alone has no zeros
     double pmin = std::min(pz.poles[0].real(), pz.poles[1].real());
     double pmax = std::max(pz.poles[0].real(), pz.poles[1].real());
     CHECK(pmin == doctest::Approx(-2.0).epsilon(1e-9));
     CHECK(pmax == doctest::Approx(-1.0).epsilon(1e-9));
 }
 
-TEST_CASE("linspace and logspace support float") {
+TEST_CASE("pzmap of a state-space system adds the transmission zeros") {
+    // (s + 4)/((s + 1)(s + 2)) in companion form
+    const StateSpace<2, 1, 1> sys{
+        .A = Matrix<2, 2>{{0.0, 1.0}, {-2.0, -3.0}},
+        .B = Matrix<2, 1>{{0.0}, {1.0}},
+        .C = Matrix<1, 2>{{4.0, 1.0}},
+    };
+    const auto pz = analysis::pzmap(sys);
+    REQUIRE(pz.poles.size() == 2);
+    REQUIRE(pz.zeros.size() == 1);
+    CHECK(pz.zeros[0].real() == doctest::Approx(-4.0).epsilon(1e-12));
+    CHECK(pz.zeros[0].imag() == 0.0);
+}
+
+TEST_CASE("linspace and geomspace support float") {
     const auto lin = analysis::linspace(0.0f, 1.0f, 5);
-    const auto log = analysis::logspace(1.0f, 100.0f, 3);
+    const auto log = analysis::geomspace(1.0f, 100.0f, 3);
 
     CHECK(std::is_same_v<typename decltype(lin)::value_type, float>);
     CHECK(std::is_same_v<typename decltype(log)::value_type, float>);
@@ -231,13 +262,6 @@ TEST_CASE("geomspace matches geometric progression and endpoints") {
     CHECK(g[1] == doctest::Approx(10.0).epsilon(1e-12));
     CHECK(g[2] == doctest::Approx(100.0).epsilon(1e-12));
     CHECK(g[3] == doctest::Approx(1000.0));
-
-    // Same span as damp logspace(value endpoints) for positive bases.
-    const auto lg = analysis::logspace(1.0, 1000.0, 4);
-    REQUIRE(lg.size() == g.size());
-    for (size_t i = 0; i < g.size(); ++i) {
-        CHECK(g[i] == doctest::Approx(lg[i]).epsilon(1e-12));
-    }
 
     CHECK(analysis::geomspace(-1.0, 1.0, 5).empty()); // mixed signs
     CHECK(analysis::geomspace(0.0, 10.0, 5).empty()); // zero endpoint
@@ -270,16 +294,26 @@ TEST_CASE("arange is half-open like NumPy") {
 TEST_SUITE("Stability Analysis") {
     TEST_CASE("Discrete stability check - stable system") {
         // Stable discrete system: eigenvalues inside unit circle
-        Matrix<2, 2> A{{0.5, 0.0}, {0.0, 0.8}};
-        CHECK(stability::is_stable_discrete(A) == true);
-        CHECK(stability::stability_margin_discrete(A) > 0.0);
+        Matrix<2, 2>              A{{0.5, 0.0}, {0.0, 0.8}};
+        const StateSpace<2, 1, 1> sys{.A = A, .Ts = 1.0};
+        CHECK(stability::is_stable(sys) == true);
+        CHECK(stability::stability_margin(sys) > 0.0);
     }
 
     TEST_CASE("Discrete stability check - unstable system") {
         // Unstable: eigenvalue outside unit circle
-        Matrix<2, 2> A{{1.5, 0.0}, {0.0, 0.5}};
-        CHECK(stability::is_stable_discrete(A) == false);
-        CHECK(stability::stability_margin_discrete(A) < 0.0);
+        Matrix<2, 2>              A{{1.5, 0.0}, {0.0, 0.5}};
+        const StateSpace<2, 1, 1> sys{.A = A, .Ts = 1.0};
+        CHECK(stability::is_stable(sys) == false);
+        CHECK(stability::stability_margin(sys) < 0.0);
+    }
+
+    TEST_CASE("stability_margin of a system with no states reads no eigenvalue") {
+        // A static gain (LQRResult::to_ss) has no poles: no eigenvalue to start the search from.
+        const StateSpace<0, 1, 1> continuous{};
+        CHECK(stability::stability_margin(continuous) == std::numeric_limits<double>::max());
+        const StateSpace<0, 1, 1> discrete{.Ts = 0.1};
+        CHECK(stability::stability_margin(discrete) == 1.0);
     }
 
     TEST_CASE("closed_loop_poles returns finite poles when eigen converges") {
@@ -302,4 +336,60 @@ TEST_SUITE("Stability Analysis") {
         CHECK(lo == doctest::Approx(0.5));
         CHECK(hi == doctest::Approx(0.8));
     }
+}
+
+TEST_CASE("pzmap ignores leading-zero padding of a TF numerator") {
+    const auto pz = analysis::pzmap(design::lowpass_2nd<double>(1.0).tf);
+    CHECK(pz.zeros.empty());
+    REQUIRE(pz.poles.size() == 2);
+    CHECK(pz.poles[0].abs() == doctest::Approx(2.0 * pi));
+
+    TransferFunction<3, 3, double> tf{{0.0, 1.0, 2.0}, {1.0, 3.0, 2.0}};
+    const auto                     pz2 = analysis::pzmap(tf);
+    REQUIRE(pz2.zeros.size() == 1);
+    CHECK(pz2.zeros[0].real() == doctest::Approx(-2.0));
+}
+
+TEST_CASE("Discrete impulse is the unit-pulse response") {
+    StateSpace<1, 1, 1, double> s{
+        .A = Matrix<1, 1>{{0.5}},
+        .B = Matrix<1, 1>{{1.0}},
+        .C = Matrix<1, 1>{{1.0}},
+        .D = Matrix<1, 1>{{0.25}},
+        .Ts = 1.0,
+    };
+    const auto r = analysis::impulse(s, analysis::linspace(0.0, 3.0, 4));
+    REQUIRE(r.y.size() == 4);
+    CHECK(r.y[0](0, 0) == doctest::Approx(0.25)); // D
+    CHECK(r.y[1](0, 0) == doctest::Approx(1.0));  // CB
+    CHECK(r.y[2](0, 0) == doctest::Approx(0.5));  // CAB
+    CHECK(r.y[3](0, 0) == doctest::Approx(0.25));
+}
+
+TEST_CASE("Non-uniform time grids are rejected") {
+    TransferFunction<1, 2, double> tf{{1.0}, {1.0, 1.0}};
+    const std::vector<double>      t{0.0, 0.1, 0.2, 0.5, 0.6};
+    CHECK(analysis::step(tf, t).t.empty());
+    // float linspace with a long horizon still counts as uniform
+    TransferFunction<1, 2, float> tff{{1.0f}, {1.0f, 1.0f}};
+    CHECK(analysis::step(tff, analysis::linspace(0.0f, 100.0f, 100001)).t.size() == 100001);
+}
+
+TEST_CASE("stepinfo flags a response that never reaches 90%") {
+    const std::vector<double> t{0.0, 1.0, 2.0, 3.0};
+    const std::vector<double> y{0.0, 0.2, 0.5, 0.6};
+    const auto                info = analysis::stepinfo(y, t, 1.0);
+    CHECK_FALSE(info.risen);
+    CHECK(info.rise_time == doctest::Approx(0.0));
+    CHECK(analysis::stepinfo(y, std::vector<double>{0.0, 1.0}, 1.0).peak == doctest::Approx(0.0));
+}
+
+TEST_CASE("lsiminfo settles a decay to zero") {
+    std::vector<double> t, y;
+    for (int k = 0; k <= 1000; ++k) {
+        t.push_back(k * 0.01);
+        y.push_back(std::exp(-k * 0.01));
+    }
+    const auto info = analysis::lsiminfo(y, t, 0.0);
+    CHECK(info.settling_time == doctest::Approx(std::log(50.0)).epsilon(1e-2));
 }

@@ -5,6 +5,7 @@
 
 #include <cmath>
 #include <numbers>
+#include <type_traits>
 
 #include "damp/backend.hpp"
 #include "damp/math/geometry.hpp"
@@ -67,11 +68,10 @@ TEST_SUITE("Quaternion") {
         CHECK(R(1, 1) == doctest::Approx(0.0).epsilon(1e-6));
 
         auto q_rt = R.to_quaternion();
-        REQUIRE(q_rt.has_value());
 
         Vec3<float> v{1.0f, 0.0f, 0.0f};
         auto        v_rot_mat = R * v;
-        auto        v_rot_q = q_rt->rotate(v);
+        auto        v_rot_q = q_rt.rotate(v);
         CHECK(v_rot_mat[0] == doctest::Approx(static_cast<double>(v_rot_q[0])).epsilon(1e-5));
         CHECK(v_rot_mat[1] == doctest::Approx(static_cast<double>(v_rot_q[1])).epsilon(1e-5));
         CHECK(v_rot_mat[2] == doctest::Approx(static_cast<double>(v_rot_q[2])).epsilon(1e-5));
@@ -176,15 +176,46 @@ TEST_SUITE("Quaternion") {
     TEST_CASE("DCM <-> Quaternion conversion") {
         EulerZYX<float> e(-0.45f, 0.35f, -0.25f); // yaw, pitch, roll
         auto            R = e.to_dcm();
-        auto            q_opt = R.to_quaternion();
-        REQUIRE(q_opt.has_value());
-        auto R_back = q_opt->to_dcm();
+        auto            q = R.to_quaternion();
+        auto            R_back = q.to_dcm();
 
         for (size_t r = 0; r < 3; ++r) {
             for (size_t c = 0; c < 3; ++c) {
                 CHECK(R_back(r, c) == doctest::Approx(static_cast<double>(R(r, c))).epsilon(1e-5));
             }
         }
+    }
+
+    TEST_CASE("DCM to quaternion returns a plain unit quaternion for any finite input") {
+        static_assert(std::is_same_v<decltype(DCMd{}.to_quaternion()), Quatd>);
+        static_assert(std::is_same_v<decltype(Quatd::from_dcm(DCMd{})), Quatd>);
+        // Not validated: a reflection still maps to some unit quaternion.
+        const DCMd reflection{{1.0, 0.0, 0.0}, {0.0, 1.0, 0.0}, {0.0, 0.0, -1.0}};
+        CHECK(reflection.to_quaternion().norm() == doctest::Approx(1.0));
+    }
+
+    TEST_CASE("quaternion normalization and inverse are scale-invariant") {
+        const Quatd small{1e-5, 0.0, 0.0, 0.0};
+        REQUIRE(small.normalized_safe().has_value());
+        CHECK(small.normalized().w() == doctest::Approx(1.0));
+        const auto inv = Quatd{0.0, 2e-5, 0.0, 0.0}.inverse();
+        REQUIRE(inv.has_value());
+        CHECK(inv->x() == doctest::Approx(-5e4));
+        CHECK_FALSE(Quatd{0.0, 0.0, 0.0, 0.0}.normalized_safe().has_value());
+        CHECK_FALSE(Quatd{0.0, 0.0, 0.0, 0.0}.inverse().has_value());
+    }
+
+    TEST_CASE("axis-angle accepts any nonzero axis and log keeps tiny rotations") {
+        const Vec3d tiny_axis{0.0, 1e-12, 0.0};
+        REQUIRE(Quatd::from_axis_angle(tiny_axis, 0.3).has_value());
+        REQUIRE(DCMd::from_axis_angle(tiny_axis, 0.3).has_value());
+        const auto q = Quatd::from_axis_angle(Vec3d{0.0, 0.0, 1.0}, 1e-9);
+        REQUIRE(q.has_value());
+        const Vec3d rv = q->log();
+        CHECK(rv[2] == doctest::Approx(1e-9));
+        const auto [axis, angle] = q->to_axis_angle();
+        CHECK(axis[2] == doctest::Approx(1.0));
+        CHECK(angle == doctest::Approx(1e-9));
     }
 }
 

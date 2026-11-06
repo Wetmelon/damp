@@ -10,8 +10,10 @@
  * @brief Balanced realization and model-order reduction (Moore / Glover)
  *
  * Square-root balanced realization from the controllability and observability
- * Gramians, balanced truncation (`balred`), and singular-perturbation
- * residualization (`modred` with DC matching). All fixed-size and stack-only.
+ * Gramians, balanced reduction (`balanced_reduction`, by truncation or DC-matched
+ * residualization), and elimination of chosen states in the model's own
+ * coordinates (`eliminate_states`). All fixed-size and stack-only. The MATLAB®
+ * spellings balreal / hankelsv / balred / modred are in matlab::.
  *
  * Example: balance a second-order lag and truncate the weak mode
  * @code
@@ -23,9 +25,9 @@
  *     .B = Matrix<2, 1>{{1.0}, {1.0}},
  *     .C = Matrix<1, 2>{{1.0, 0.1}},
  * };
- * constexpr auto bal = design::balreal(sys);
+ * constexpr auto bal = design::balanced_realization(sys);
  * static_assert(bal.success);
- * constexpr auto red = design::balred<1>(sys);
+ * constexpr auto red = design::balanced_reduction<1>(sys);
  * static_assert(red.success);
  * // a-priori bound: ‖G − G_r‖_∞ ≤ red.error_bound = 2·Σ σ_discarded
  * @endcode
@@ -41,7 +43,7 @@
 
 #include "damp/backend.hpp"
 #include "damp/design/lyapunov.hpp"
-#include "damp/design/stability.hpp"
+#include "damp/design/status.hpp"
 #include "damp/math/math.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "damp/matrix/matrix_traits.hpp"
@@ -51,13 +53,13 @@ namespace damp {
 namespace design {
 
 /**
- * @brief Method for eliminating states in modred
+ * @brief How balanced_reduction and eliminate_states eliminate states
  *
  * Truncate drops states outright. MatchDC residualizes them (singular
  * perturbation) so the reduced model matches the full-order DC gain.
  */
 enum class ModelReductionMethod {
-    Truncate, ///< Drop states; D unchanged (balanced truncation)
+    Truncate, ///< Drop states; D unchanged
     MatchDC   ///< Residualize (ẋ₂ = 0 or x₂⁺ = x₂); exact DC gain
 };
 
@@ -69,22 +71,28 @@ enum class ModelReductionMethod {
  * state maps as @f$ x = T x_b @f$.
  *
  * @note Compare with MATLAB®'s `[sysb, g] = balreal(sys)`.
- * @see balreal(), hankelsv(), balred(), modred()
+ * @see balanced_realization(), hankel_singular_values(), balanced_reduction(), eliminate_states()
  */
 template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, size_t NV = 0>
-struct BalancedRealizationResult {
-    StateSpace<NX, NU, NY, T, NW, NV> balanced{};     ///< Balanced state-space model
-    ColVec<NX, T>                     sigma{};        ///< Hankel singular values (descending)
-    Matrix<NX, NX, T>                 transform{};    ///< Balancing transform: x = T x_b
-    bool                              success{false}; ///< true if the Gramian factors and the SVD succeeded
+struct [[nodiscard]] BalancedRealizationResult {
+    StateSpace<NX, NU, NY, T, NW, NV> balanced{};                          ///< Balanced state-space model
+    ColVec<NX, T>                     sigma{};                             ///< Hankel singular values (descending)
+    Matrix<NX, NX, T>                 transform{};                         ///< Balancing transform: x = T x_b
+    bool                              success{false};                      ///< status == DesignStatus::ok
+    DesignStatus                      status{DesignStatus::not_converged}; ///< ok, or why the realization is refused
 
+    /** @brief True when the design succeeded (success). */
+    [[nodiscard]] constexpr explicit operator bool() const { return success; }
+
+    /** @brief The same realization in the scalar @p U. */
     template<typename U>
     [[nodiscard]] constexpr BalancedRealizationResult<NX, NU, NY, U, NW, NV> as() const {
         return BalancedRealizationResult<NX, NU, NY, U, NW, NV>{
             balanced.template as<U>(),
             sigma.template as<U>(),
             transform.template as<U>(),
-            success
+            success,
+            status
         };
     }
 };
@@ -94,30 +102,36 @@ struct BalancedRealizationResult {
  *
  * @tparam NR Reduced state dimension
  *
- * @note Compare with MATLAB®'s `balred` / `modred` output.
- * @see balred(), modred(), BalancedRealizationResult
+ * @note Compare with MATLAB®'s `balred` output.
+ * @see balanced_reduction(), BalancedRealizationResult
  */
 template<size_t NR, size_t NU, size_t NY, typename T = double, size_t NW = 0, size_t NV = 0>
-struct BalancedReductionResult {
-    StateSpace<NR, NU, NY, T, NW, NV> reduced{};         ///< Reduced-order model
-    ColVec<NR, T>                     sigma_kept{};      ///< Hankel SV of retained states
-    T                                 error_bound{T{0}}; ///< 2 Σ σ_discarded (truncation a-priori ‖·‖∞ bound)
-    bool                              success{false};    ///< true if balancing and reduction succeeded
+struct [[nodiscard]] BalancedReductionResult {
+    StateSpace<NR, NU, NY, T, NW, NV> reduced{};                           ///< Reduced-order model
+    ColVec<NR, T>                     sigma_kept{};                        ///< Hankel SV of retained states
+    T                                 error_bound{T{0}};                   ///< 2 Σ σ_discarded (truncation a-priori ‖·‖∞ bound)
+    bool                              success{false};                      ///< status == DesignStatus::ok
+    DesignStatus                      status{DesignStatus::not_converged}; ///< ok, or why the reduction is refused
 
+    /** @brief True when the design succeeded (success). */
+    [[nodiscard]] constexpr explicit operator bool() const { return success; }
+
+    /** @brief The same reduced model in the scalar @p U. */
     template<typename U>
     [[nodiscard]] constexpr BalancedReductionResult<NR, NU, NY, U, NW, NV> as() const {
         return BalancedReductionResult<NR, NU, NY, U, NW, NV>{
             reduced.template as<U>(),
             sigma_kept.template as<U>(),
             static_cast<U>(error_bound),
-            success
+            success,
+            status
         };
     }
 };
 
 namespace detail {
 
-/// Copy a fixed-size block out of a parent matrix into an owning Matrix.
+/** @brief Copy a fixed-size block out of a parent matrix into an owning Matrix. */
 template<size_t BR, size_t BC, size_t R, size_t C, typename T>
 [[nodiscard]] constexpr Matrix<BR, BC, T>
 take_block(const Matrix<R, C, T>& M, size_t r0, size_t c0) {
@@ -255,17 +269,77 @@ residualize_states(const StateSpace<NX, NU, NY, T, NW, NV>& sys) {
     }
 }
 
+/** @brief True when Elim lists at least one and fewer than NX distinct state indices, each below NX. */
+template<size_t NX, size_t... Elim>
+[[nodiscard]] constexpr bool valid_elimination() {
+    if constexpr (sizeof...(Elim) == 0 || sizeof...(Elim) >= NX) {
+        return false;
+    } else {
+        constexpr damp::array<size_t, sizeof...(Elim)> elim{Elim...};
+        for (size_t i = 0; i < elim.size(); ++i) {
+            if (elim[i] >= NX) {
+                return false;
+            }
+            for (size_t j = 0; j < i; ++j) {
+                if (elim[j] == elim[i]) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+}
+
+/** @brief State order with the kept states first (ascending) and the eliminated ones last. */
+template<size_t NX, size_t... Elim>
+[[nodiscard]] constexpr damp::array<size_t, NX> kept_then_eliminated() {
+    constexpr damp::array<size_t, sizeof...(Elim)> elim{Elim...};
+    damp::array<size_t, NX>                        order{};
+    size_t                                         n = 0;
+    for (size_t i = 0; i < NX; ++i) {
+        if (!((Elim == i) || ...)) {
+            order[n] = i;
+            ++n;
+        }
+    }
+    for (const size_t e : elim) {
+        order[n] = e;
+        ++n;
+    }
+    return order;
+}
+
+/** @brief The same system with state i of the result being state order[i] of @p sys. */
+template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
+[[nodiscard]] constexpr StateSpace<NX, NU, NY, T, NW, NV>
+permute_states(const StateSpace<NX, NU, NY, T, NW, NV>& sys, const damp::array<size_t, NX>& order) {
+    Matrix<NX, NX, T> P{}; // x = P x', exact in floating point
+    for (size_t i = 0; i < NX; ++i) {
+        P(order[i], i) = T{1};
+    }
+    auto out = sys;
+    out.A = P.transpose() * sys.A * P;
+    out.B = P.transpose() * sys.B;
+    out.C = sys.C * P;
+    if constexpr (NW > 0) {
+        out.G = P.transpose() * sys.G;
+    }
+    return out;
+}
+
 /**
- * @brief Square-root factors and Hankel singular values shared by balreal / hankelsv.
+ * @brief Square-root factors and Hankel singular values shared by balanced_realization /
+ *        hankel_singular_values / balanced_reduction.
  */
 template<size_t NX, size_t NU, size_t NY, typename T>
 struct SquareRootBalance {
-    Matrix<NX, NX, T> Lc{};    ///< Wc = Lc Lcᵀ (lower triangular, Hammarling)
-    Matrix<NX, NX, T> Lo{};    ///< Wo = Lo Loᵀ
-    Matrix<NX, NX, T> U{};     ///< left singular vectors of Loᵀ Lc
-    Matrix<NX, NX, T> V{};     ///< right singular vectors of Loᵀ Lc
-    ColVec<NX, T>     sigma{}; ///< Hankel singular values
-    bool              ok{false};
+    Matrix<NX, NX, T> Lc{};                                ///< Wc = Lc Lcᵀ (lower triangular, Hammarling)
+    Matrix<NX, NX, T> Lo{};                                ///< Wo = Lo Loᵀ
+    Matrix<NX, NX, T> U{};                                 ///< left singular vectors of Loᵀ Lc
+    Matrix<NX, NX, T> V{};                                 ///< right singular vectors of Loᵀ Lc
+    ColVec<NX, T>     sigma{};                             ///< Hankel singular values
+    size_t            rank{0};                             ///< leading σᵢ above NX·64·ε·σ₁: the states Σ^{-1/2} can scale
+    DesignStatus      status{DesignStatus::not_converged}; ///< ok when the factors and the SVD succeeded
 };
 
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
@@ -273,6 +347,11 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
 square_root_balance_factors(const StateSpace<NX, NU, NY, T, NW, NV>& sys) {
     SquareRootBalance<NX, NU, NY, T> out{};
     static_assert(NX > 0, "square_root_balance_factors requires NX > 0");
+    const auto finite = [](T v) { return damp::isfinite(v); };
+    if (!mat::all_of(sys.A, finite) || !mat::all_of(sys.B, finite) || !mat::all_of(sys.C, finite) || !mat::all_of(sys.D, finite)) {
+        out.status = DesignStatus::bad_weights;
+        return out;
+    }
 
     // Hammarling factors Wc = Rcᵀ Rc, Wo = Roᵀ Ro, computed without forming either Gramian:
     // a Cholesky factorization of a computed Gramian loses its small eigenvalues, which are
@@ -291,7 +370,7 @@ square_root_balance_factors(const StateSpace<NX, NU, NY, T, NW, NV>& sys) {
     // Loᵀ Lc = U Σ Vᵀ  →  σ_i are the Hankel singular values
     const Matrix<NX, NX, T> product = out.Lo.transpose() * out.Lc;
     const auto              svd_r = mat::svd(product);
-    if (!svd_r.converged) {
+    if (!svd_r.success) {
         return out;
     }
     out.U = svd_r.singular_U;
@@ -300,46 +379,63 @@ square_root_balance_factors(const StateSpace<NX, NU, NY, T, NW, NV>& sys) {
         out.sigma(i) = static_cast<T>(svd_r.singular_values[i]);
     }
 
-    // Reject singular values lost to roundoff relative to σ_max (non-minimal /
-    // numerically singular): Σ^{-1/2} in the balancing transform would amplify noise.
+    // The σᵢ are accurate to roundoff of σ₁ even when small (Hammarling factors, Jacobi SVD), but
+    // Σ^{-1/2} in a balancing transform amplifies the noise in the singular vectors of a σᵢ lost
+    // to roundoff: rank counts the leading states a transform can scale.
     const T tol = static_cast<T>(NX) * T{64} * eps<T>();
     const T smax = out.sigma(0);
-    if (!(smax > T{0})) {
-        return out;
+    while (out.rank < NX && smax > T{0} && out.sigma(out.rank) > tol * smax) {
+        ++out.rank;
     }
-    for (size_t i = 0; i < NX; ++i) {
-        if (!(out.sigma(i) > tol * smax)) {
-            return out;
-        }
-    }
-
-    out.ok = true;
+    out.status = DesignStatus::ok;
     return out;
 }
 
-/// Balancing transforms: T = Lc V Σ^{-1/2}, Tinv = Σ^{-1/2} Uᵀ Loᵀ.
-template<size_t NX, typename T>
+/**
+ * @brief The leading NR columns of the balancing transform and rows of its inverse:
+ *        T = Lc V₁ Σ₁^{-1/2}, Tinv = Σ₁^{-1/2} U₁ᵀ Loᵀ over the NR largest σ
+ *
+ * NR = NX is the full balancing transform; NR < NX is the square-root truncation, which needs
+ * only σ_NR above roundoff.
+ */
+template<size_t NR, size_t NX, typename T>
 struct BalancingTransforms {
-    Matrix<NX, NX, T> Tmat{};
-    Matrix<NX, NX, T> Tinv{};
+    Matrix<NX, NR, T> Tmat{}; ///< x = Tmat x_b
+    Matrix<NR, NX, T> Tinv{}; ///< x_b = Tinv x
 };
 
-template<size_t NX, typename T>
-[[nodiscard]] constexpr BalancingTransforms<NX, T> make_balancing_transforms(
-    const Matrix<NX, NX, T>& Lc,
-    const Matrix<NX, NX, T>& Lo,
-    const Matrix<NX, NX, T>& U,
-    const Matrix<NX, NX, T>& V,
-    const ColVec<NX, T>&     sigma
-) {
-    Matrix<NX, NX, T> Si{};
-    for (size_t i = 0; i < NX; ++i) {
-        Si(i, i) = T{1} / damp::sqrt(sigma(i));
+/** @copybrief BalancingTransforms */
+template<size_t NR, size_t NX, size_t NU, size_t NY, typename T>
+[[nodiscard]] constexpr BalancingTransforms<NR, NX, T> make_balancing_transforms(const SquareRootBalance<NX, NU, NY, T>& f) {
+    BalancingTransforms<NR, NX, T> out{};
+    const Matrix<NX, NX, T>        LcV = f.Lc * f.V;
+    const Matrix<NX, NX, T>        LoU = f.Lo * f.U;
+    for (size_t j = 0; j < NR; ++j) {
+        const T si = T{1} / damp::sqrt(f.sigma(j));
+        for (size_t i = 0; i < NX; ++i) {
+            out.Tmat(i, j) = LcV(i, j) * si;
+            out.Tinv(j, i) = LoU(i, j) * si;
+        }
     }
-    return BalancingTransforms<NX, T>{
-        Lc * V * Si,
-        Si * U.transpose() * Lo.transpose()
+    return out;
+}
+
+/** @brief The model in the coordinates x = T x_b of the leading NR balanced states. */
+template<size_t NR, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
+[[nodiscard]] constexpr StateSpace<NR, NU, NY, T, NW, NV>
+project_balanced(const StateSpace<NX, NU, NY, T, NW, NV>& sys, const BalancingTransforms<NR, NX, T>& tf) {
+    StateSpace<NR, NU, NY, T, NW, NV> out{
+        .A = tf.Tinv * sys.A * tf.Tmat,
+        .B = tf.Tinv * sys.B,
+        .C = sys.C * tf.Tmat,
+        .D = sys.D,
+        .H = sys.H,
+        .Ts = sys.Ts,
     };
+    if constexpr (NW > 0) {
+        out.G = tf.Tinv * sys.G;
+    }
+    return out;
 }
 
 template<size_t NX, typename T>
@@ -364,96 +460,89 @@ template<size_t NX, typename T>
  * both Gramians equal @f$ \mathrm{diag}(\sigma) @f$.
  *
  * Continuous or discrete is selected from @p sys.Ts. Requires a stable,
- * minimal realization (positive-definite Gramians).
+ * minimal realization (positive-definite Gramians). Refused with DesignStatus::bad_weights
+ * for a non-finite model, DesignStatus::not_converged when the Gramian factors (an unstable
+ * model) or the SVD fail, and DesignStatus::singular when a σᵢ is lost to roundoff of σ₁
+ * (a non-minimal model: balanced_reduction() by truncation still reduces it).
  *
  * @note Compare with MATLAB®'s `[sysb, g] = balreal(sys)`.
- * @see hankelsv(), balred(), modred(), minreal()
+ * @see hankel_singular_values(), balanced_reduction(), eliminate_states(), minreal()
  * @see Moore (1981); Laub et al., "Computation of system balancing
  *      transformations," IEEE TAC 32(2), 1987
  *
  * @param sys Stable state-space system (continuous if Ts == 0, else discrete)
- * @return Balanced model, Hankel singular values, transform T, success flag
+ * @return Balanced model, Hankel singular values, transform T, success and status
  */
 template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, size_t NV = 0>
 [[nodiscard]] constexpr BalancedRealizationResult<NX, NU, NY, T, NW, NV>
-balreal(const StateSpace<NX, NU, NY, T, NW, NV>& sys) {
+balanced_realization(const StateSpace<NX, NU, NY, T, NW, NV>& sys) {
+    using Result = BalancedRealizationResult<NX, NU, NY, T, NW, NV>;
     const auto factors = detail::square_root_balance_factors(sys);
-    if (!factors.ok) {
-        return BalancedRealizationResult<NX, NU, NY, T, NW, NV>{};
+    if (factors.status != DesignStatus::ok) {
+        return ::damp::detail::refused<Result>(factors.status);
     }
-
-    const auto tf = detail::make_balancing_transforms(
-        factors.Lc, factors.Lo, factors.U, factors.V, factors.sigma
-    );
-
-    if constexpr (NW > 0) {
-        return BalancedRealizationResult<NX, NU, NY, T, NW, NV>{
-            .balanced = StateSpace<NX, NU, NY, T, NW, NV>{
-                .A = tf.Tinv * sys.A * tf.Tmat,
-                .B = tf.Tinv * sys.B,
-                .C = sys.C * tf.Tmat,
-                .D = sys.D,
-                .G = tf.Tinv * sys.G,
-                .H = sys.H,
-                .Ts = sys.Ts,
-            },
-            .sigma = factors.sigma,
-            .transform = tf.Tmat,
-            .success = true,
-        };
-    } else {
-        return BalancedRealizationResult<NX, NU, NY, T, NW, NV>{
-            .balanced = StateSpace<NX, NU, NY, T, NW, NV>{
-                .A = tf.Tinv * sys.A * tf.Tmat,
-                .B = tf.Tinv * sys.B,
-                .C = sys.C * tf.Tmat,
-                .D = sys.D,
-                .H = sys.H,
-                .Ts = sys.Ts,
-            },
-            .sigma = factors.sigma,
-            .transform = tf.Tmat,
-            .success = true,
-        };
+    if (factors.rank < NX) {
+        return ::damp::detail::refused<Result>(DesignStatus::singular);
     }
+    const auto tf = detail::make_balancing_transforms<NX>(factors);
+    Result     out{.balanced = detail::project_balanced(sys, tf), .sigma = factors.sigma, .transform = tf.Tmat};
+    return ::damp::detail::set_status(out, DesignStatus::ok);
 }
 
 /**
  * @brief Hankel singular values of a stable state-space system
  *
- * Reuses the square-root Gramian path of balreal without forming the
- * balanced realization. Values are non-increasing and non-negative.
+ * Reuses the square-root Gramian path of balanced_realization without forming the
+ * balanced realization. Values are non-increasing and non-negative, small ones
+ * included: a non-minimal model has σᵢ at roundoff of σ₁.
  *
  * @note Compare with MATLAB®'s `hsv = hankelsv(sys)` / `hsvd(sys)`.
- * @see balreal(), balred()
+ * @see balanced_realization(), balanced_reduction()
  *
  * @param sys Stable state-space system
- * @return σ vector, or damp::nullopt if the Gramian factors or the SVD fail
+ * @return σ vector, or damp::nullopt for a non-finite model or when the Gramian factors
+ *         (an unstable model) or the SVD fail
  */
 template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, size_t NV = 0>
 [[nodiscard]] constexpr damp::optional<ColVec<NX, T>>
-hankelsv(const StateSpace<NX, NU, NY, T, NW, NV>& sys) {
+hankel_singular_values(const StateSpace<NX, NU, NY, T, NW, NV>& sys) {
     const auto factors = detail::square_root_balance_factors(sys);
-    if (!factors.ok) {
+    if (factors.status != DesignStatus::ok) {
         return damp::nullopt;
     }
     return factors.sigma;
 }
 
 /**
- * @brief Balanced truncation to @p NR states
+ * @brief Balanced reduction to @p NR states, by truncation or DC-matched residualization
  *
- * Balances @p sys then drops the states with the smallest Hankel singular
- * values. The a-priori error bound on the result is
- * @f$ \lVert G - G_r \rVert_\infty \le 2 \sum_{k=\mathrm{NR}+1}^{n} \sigma_k @f$
- * (stored in @c error_bound).
+ * Balances @p sys, which orders the states by descending Hankel singular value,
+ * then eliminates the trailing @f$ n - \mathrm{NR} @f$ states:
+ * - @ref ModelReductionMethod::Truncate (default) drops them. The a-priori error bound is
+ *   @f$ \lVert G - G_r \rVert_\infty \le 2 \sum_{k=\mathrm{NR}+1}^{n} \sigma_k @f$
+ *   (stored in @c error_bound). Only the leading NR singular vectors are used (square-root
+ *   truncation), so σ_NR must be above roundoff of σ₁ and the discarded σ need not be: a
+ *   non-minimal model reduces.
+ * - @ref ModelReductionMethod::MatchDC residualizes them (singular perturbation), so
+ *   the reduced DC gain equals the full-order one. It needs the full balanced
+ *   realization, so every σᵢ above roundoff (balanced_realization()).
+ *
+ * Balanced states mix the original ones. To eliminate chosen states and keep the
+ * others physical, use eliminate_states().
+ *
+ * Refused as balanced_realization(), plus DesignStatus::singular when σ_NR is lost to
+ * roundoff or MatchDC meets a singular A₂₂ (I − A₂₂ discrete).
  *
  * @tparam NR Reduced order (1 … NX)
- * @note Compare with MATLAB®'s `balred(sys, NR)` (truncation).
- * @see balreal(), modred(), hankelsv()
+ * @note Compare with MATLAB®'s `balred(sys, NR, balredOptions('StateElimMethod', …))`,
+ *       whose default is MatchDC.
+ * @see balanced_realization(), eliminate_states(), hankel_singular_values()
+ * @see "Singular perturbation approximation of balanced systems" (Liu & Anderson, 1989)
+ * @see "Truncated balanced realization of a stable non-minimal state-space system" (Tombs & Postlethwaite, 1987)
  *
- * @param sys Stable full-order system
- * @return Reduced model, kept σ, error bound, success
+ * @param sys    Stable full-order system
+ * @param method Truncate (default) or MatchDC
+ * @return Reduced model, kept σ, error bound (informative for MatchDC), success and status
  */
 template<
     size_t NR,
@@ -463,134 +552,88 @@ template<
     size_t NW = 0,
     size_t NV = 0,
     typename T = double>
-[[nodiscard]] constexpr BalancedReductionResult<NR, NU, NY, T, NW, NV>
-balred(const StateSpace<NX, NU, NY, T, NW, NV>& sys) {
-    static_assert(NR > 0 && NR <= NX, "balred: require 0 < NR <= NX");
+[[nodiscard]] constexpr BalancedReductionResult<NR, NU, NY, T, NW, NV> balanced_reduction(
+    const StateSpace<NX, NU, NY, T, NW, NV>& sys,
+    ModelReductionMethod                     method = ModelReductionMethod::Truncate
+) {
+    static_assert(NR > 0 && NR <= NX, "balanced_reduction: require 0 < NR <= NX");
+    using Result = BalancedReductionResult<NR, NU, NY, T, NW, NV>;
 
-    const auto bal = balreal(sys);
-    if (!bal.success) {
-        return BalancedReductionResult<NR, NU, NY, T, NW, NV>{};
+    const auto factors = detail::square_root_balance_factors(sys);
+    if (factors.status != DesignStatus::ok) {
+        return ::damp::detail::refused<Result>(factors.status);
+    }
+    const size_t needed = (method == ModelReductionMethod::Truncate) ? NR : NX;
+    if (factors.rank < needed) {
+        return ::damp::detail::refused<Result>(DesignStatus::singular);
     }
 
-    ColVec<NR, T> sigma_kept{};
+    Result out{};
     for (size_t i = 0; i < NR; ++i) {
-        sigma_kept(i) = bal.sigma(i);
+        out.sigma_kept(i) = factors.sigma(i);
     }
-    return BalancedReductionResult<NR, NU, NY, T, NW, NV>{
-        .reduced = detail::truncate_states<NR>(bal.balanced),
-        .sigma_kept = sigma_kept,
-        .error_bound = detail::discarded_error_bound(bal.sigma, NR),
-        .success = true,
-    };
+    out.error_bound = detail::discarded_error_bound(factors.sigma, NR);
+
+    if (method == ModelReductionMethod::Truncate) {
+        out.reduced = detail::project_balanced(sys, detail::make_balancing_transforms<NR>(factors));
+        return ::damp::detail::set_status(out, DesignStatus::ok);
+    }
+    const auto red = detail::residualize_states<NR>(detail::project_balanced(sys, detail::make_balancing_transforms<NX>(factors)));
+    if (!red) {
+        return ::damp::detail::set_status(out, DesignStatus::singular);
+    }
+    out.reduced = *red;
+    return ::damp::detail::set_status(out, DesignStatus::ok);
 }
 
 /**
- * @brief Model reduction by truncation or DC-matched residualization
+ * @brief Eliminate the listed states, by DC-matched residualization or truncation
  *
- * Balances @p sys (ordering states by descending Hankel singular value) then
- * eliminates the trailing @f$ n - \mathrm{NR} @f$ states:
- * - @ref ModelReductionMethod::Truncate — same as balred
- * - @ref ModelReductionMethod::MatchDC — singular perturbation so DC gain of
- *   the reduced model matches the full-order system
+ * Works in the coordinates of @p sys, so the kept states stay physical (currents,
+ * pressures, positions) and the reduced model still matches the sensors, weights and
+ * observers written for them. The reduced states are the kept ones in their original
+ * order.
  *
- * @tparam NR Number of states to keep
- * @note Compare with MATLAB®'s `modred(sys, elim, 'MatchDC'|'Truncate')`
- *       (elim = states NR…n−1 after balancing).
- * @see balred(), balreal()
+ * With @f$ x_1 @f$ kept and @f$ x_2 @f$ eliminated:
+ * - @ref ModelReductionMethod::MatchDC (default) sets @f$ \dot x_2 = 0 @f$ and
+ *   substitutes the solution for @f$ x_2 @f$, so the DC gain equals the full-order one:
+ *   @f[ A_r = A_{11} - A_{12} A_{22}^{-1} A_{21},\quad B_r = B_1 - A_{12} A_{22}^{-1} B_2, @f]
+ *   @f[ C_r = C_1 - C_2 A_{22}^{-1} A_{21},\quad D_r = D - C_2 A_{22}^{-1} B_2. @f]
+ *   A discrete model sets @f$ x_2^+ = x_2 @f$, which replaces @f$ -A_{22}^{-1} @f$
+ *   with @f$ (I - A_{22})^{-1} @f$.
+ * - @ref ModelReductionMethod::Truncate drops @f$ x_2 @f$ with its rows and columns.
  *
- * @param sys    Stable full-order system
- * @param method Truncate or MatchDC (default MatchDC)
- * @return Reduced model; @c error_bound is the truncation bound (informative for MatchDC)
+ * The approximation holds when the eliminated states are stable and much faster than
+ * the kept ones. That is the caller's judgment and is not checked.
+ *
+ * @code
+ * // x = [i, ω]: drop the electrical pole of a DC motor, keep the speed
+ * constexpr auto speed = design::eliminate_states<0>(motor);
+ * static_assert(speed.has_value());
+ * @endcode
+ *
+ * @tparam Elim Indices of the states to eliminate: distinct, each below NX, at least one state kept
+ * @note Compare with MATLAB®'s `modred(sys, elim, 'MatchDC'|'Truncate')`; MATLAB® indices are 1-based.
+ * @see balanced_reduction() to reduce by Hankel singular value instead
+ * @see "Singular Perturbation Methods in Control: Analysis and Design" (Kokotović, Khalil & O'Reilly, 1986)
+ *
+ * @param sys    Full-order system
+ * @param method MatchDC (default) or Truncate
+ * @return Reduced model, or nullopt when MatchDC meets a singular A₂₂ (I − A₂₂ discrete),
+ *         i.e. an integrator among the eliminated states
  */
-template<
-    size_t NR,
-    size_t NX,
-    size_t NU,
-    size_t NY,
-    size_t NW = 0,
-    size_t NV = 0,
-    typename T = double>
-[[nodiscard]] constexpr BalancedReductionResult<NR, NU, NY, T, NW, NV>
-modred(
+template<size_t... Elim, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
+    requires(detail::valid_elimination<NX, Elim...>())
+[[nodiscard]] constexpr damp::optional<StateSpace<NX - sizeof...(Elim), NU, NY, T, NW, NV>> eliminate_states(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     ModelReductionMethod                     method = ModelReductionMethod::MatchDC
 ) {
-    static_assert(NR > 0 && NR <= NX, "modred: require 0 < NR <= NX");
-
-    const auto bal = balreal(sys);
-    if (!bal.success) {
-        return BalancedReductionResult<NR, NU, NY, T, NW, NV>{};
-    }
-
-    ColVec<NR, T> sigma_kept{};
-    for (size_t i = 0; i < NR; ++i) {
-        sigma_kept(i) = bal.sigma(i);
-    }
-    const T error_bound = detail::discarded_error_bound(bal.sigma, NR);
-
+    constexpr size_t NR = NX - sizeof...(Elim);
+    const auto       reordered = detail::permute_states(sys, detail::kept_then_eliminated<NX, Elim...>());
     if (method == ModelReductionMethod::Truncate) {
-        return BalancedReductionResult<NR, NU, NY, T, NW, NV>{
-            .reduced = detail::truncate_states<NR>(bal.balanced),
-            .sigma_kept = sigma_kept,
-            .error_bound = error_bound,
-            .success = true,
-        };
+        return detail::truncate_states<NR>(reordered);
     }
-
-    const auto red = detail::residualize_states<NR>(bal.balanced);
-    if (!red) {
-        return BalancedReductionResult<NR, NU, NY, T, NW, NV>{
-            .sigma_kept = sigma_kept,
-            .error_bound = error_bound,
-        };
-    }
-    return BalancedReductionResult<NR, NU, NY, T, NW, NV>{
-        .reduced = *red,
-        .sigma_kept = sigma_kept,
-        .error_bound = error_bound,
-        .success = true,
-    };
-}
-
-// ---------------------------------------------------------------------------
-// Descriptive aliases (AGENTS.md primary-name style)
-// ---------------------------------------------------------------------------
-
-/**
- * @brief Descriptive alias for balreal
- * @see balreal()
- */
-template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, size_t NV = 0>
-[[nodiscard]] constexpr auto
-balanced_realization(const StateSpace<NX, NU, NY, T, NW, NV>& sys) {
-    return balreal(sys);
-}
-
-/**
- * @brief Descriptive alias for balred
- * @see balred()
- */
-template<
-    size_t NR,
-    size_t NX,
-    size_t NU,
-    size_t NY,
-    size_t NW = 0,
-    size_t NV = 0,
-    typename T = double>
-[[nodiscard]] constexpr auto
-balanced_truncation(const StateSpace<NX, NU, NY, T, NW, NV>& sys) {
-    return balred<NR>(sys);
-}
-
-/**
- * @brief Descriptive alias for @ref hankelsv
- * @see hankelsv()
- */
-template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, size_t NV = 0>
-[[nodiscard]] constexpr auto
-hankel_singular_values(const StateSpace<NX, NU, NY, T, NW, NV>& sys) {
-    return hankelsv(sys);
+    return detail::residualize_states<NR>(reordered);
 }
 
 } // namespace design

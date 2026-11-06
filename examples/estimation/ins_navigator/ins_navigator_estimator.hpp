@@ -24,7 +24,6 @@
 
 #include "damp/estimation/ins_eskf.hpp"
 #include "damp/estimation/ins_mechanization.hpp"
-#include "damp/math/geometry.hpp"
 #include "damp/matrix/matrix.hpp"
 
 namespace damp::examples_ins_navigator {
@@ -67,7 +66,7 @@ void estimate_period(
         (void)nav.update_position(p_gps);
     }
     if (have_heading) {
-        const Matrix<1, 1, T> R_psi{{static_cast<T>(kHeadingStd) * static_cast<T>(kHeadingStd)}};
+        const T R_psi = static_cast<T>(kHeadingStd) * static_cast<T>(kHeadingStd);
         (void)nav.update_heading(psi, R_psi, baseline_body);
     }
 }

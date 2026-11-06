@@ -7,6 +7,7 @@
 #include <numbers>
 
 #include "damp/backend.hpp"
+#include "damp/design/status.hpp"
 #include "damp/filters/sogi.hpp"
 #include "damp/math/math.hpp"
 #include "damp/matrix/matrix.hpp"
@@ -18,10 +19,15 @@
 
 using namespace damp;
 
+namespace {
+constexpr double pi = std::numbers::pi_v<double>;
+
+} // namespace
+
 TEST_CASE("SOGI design") {
     constexpr double omega_0 = 2 * std::numbers::pi * 50.0; // 50 Hz
     constexpr double alpha = 1.414;
-    constexpr auto   sogi_sys = design::sogi<double>(omega_0, alpha);
+    constexpr auto   sogi_sys = design::sogi<double>(50.0, alpha).sys;
 
     // Check matrix dimensions
     CHECK(sogi_sys.A.rows() == 2);
@@ -48,15 +54,23 @@ TEST_CASE("SOGI design") {
     CHECK(sogi_sys.C(1, 1) == doctest::Approx(1.0));
 }
 
+TEST_CASE("SOGI / MSTOGI designs refuse invalid inputs") {
+    CHECK(design::sogi<double>(-50.0).status == design::DesignStatus::invalid_parameter);
+    CHECK(design::sogi<double>(50.0, 0.0).status == design::DesignStatus::invalid_parameter);
+    CHECK(design::sogi<double>(50.0, 1.414, 0.0).status == design::DesignStatus::invalid_sample_time);
+    CHECK(design::mstogi<double>(50.0, 1.414, -1e-4).status == design::DesignStatus::invalid_sample_time);
+    CHECK(design::mstogi<double>(50.0, 1.414, 1e-4).success);
+}
+
 TEST_CASE("SOGI discrete design is the ZOH of the continuous SOGI and band-passes at w0") {
     constexpr double w0 = 2 * std::numbers::pi * 50.0;
     constexpr double alpha = 1.414;
     constexpr double Ts = 1.0 / 10000.0;
 
-    constexpr auto sys = design::sogi<double>(w0, alpha, Ts);
+    constexpr auto sys = design::sogi<double>(50.0, alpha, Ts).sys;
 
     // The discrete overload is exactly discretize(continuous, Ts, ZOH).
-    constexpr auto zoh = *discretize(design::sogi<double>(w0, alpha), Ts, DiscretizationMethod::ZOH);
+    constexpr auto zoh = *discretize(design::sogi<double>(50.0, alpha).sys, Ts, DiscretizationMethod::ZOH);
     CHECK(sys.A(0, 0) == doctest::Approx(zoh.A(0, 0)));
     CHECK(sys.A(1, 1) == doctest::Approx(zoh.A(1, 1)));
     CHECK(sys.B(0, 0) == doctest::Approx(zoh.B(0, 0)));
@@ -78,7 +92,7 @@ TEST_CASE("SOGI discrete design is the ZOH of the continuous SOGI and band-passe
 TEST_CASE("MSTOGI design - TOGI structure with DC-rejecting quadrature") {
     constexpr double omega_0 = 2 * std::numbers::pi * 50.0;
     constexpr double alpha = 1.414;
-    constexpr auto   mstogi_sys = design::mstogi<double>(omega_0, alpha);
+    constexpr auto   mstogi_sys = design::mstogi<double>(50.0, alpha).sys;
 
     // Check dimensions
     CHECK(mstogi_sys.A.rows() == 3);
@@ -113,10 +127,10 @@ TEST_CASE("MSTOGI discrete design is the ZOH of the continuous MSTOGI and band-p
     constexpr double alpha = 1.414;
     constexpr double Ts = 1.0 / 10000.0;
 
-    constexpr auto sys = design::mstogi<double>(w0, alpha, Ts);
+    constexpr auto sys = design::mstogi<double>(50.0, alpha, Ts).sys;
 
     // The discrete overload is exactly discretize(continuous, Ts, ZOH).
-    constexpr auto zoh = *discretize(design::mstogi<double>(w0, alpha), Ts, DiscretizationMethod::ZOH);
+    constexpr auto zoh = *discretize(design::mstogi<double>(50.0, alpha).sys, Ts, DiscretizationMethod::ZOH);
     CHECK(sys.A(0, 0) == doctest::Approx(zoh.A(0, 0)));
     CHECK(sys.A(2, 2) == doctest::Approx(zoh.A(2, 2)));
     CHECK(sys.B(0, 0) == doctest::Approx(zoh.B(0, 0)));
@@ -413,7 +427,7 @@ TEST_SUITE("sogi_fll") {
         SogiFll<double> fll(50.0, dt); // start 7 Hz low
 
         for (int k = 0; k < 6000; ++k) { // 3 s
-            fll.update(std::sin(2.0 * std::numbers::pi * f_true * (k * dt)));
+            fll.step(std::sin(2.0 * std::numbers::pi * f_true * (k * dt)));
         }
         CHECK(fll.frequency_hz() == doctest::Approx(f_true).epsilon(0.01)); // locked within 1%
     }
@@ -424,7 +438,7 @@ TEST_SUITE("sogi_fll") {
 
         SogiFll<double> fll(48.0, dt);
         for (int k = 0; k < 8000; ++k) {
-            fll.update(A * std::sin(2.0 * std::numbers::pi * f_true * (k * dt)));
+            fll.step(A * std::sin(2.0 * std::numbers::pi * f_true * (k * dt)));
         }
         CHECK(fll.frequency_hz() == doctest::Approx(f_true).epsilon(0.02));
         CHECK(fll.amplitude() == doctest::Approx(A).epsilon(0.05));
@@ -440,7 +454,7 @@ TEST_SUITE("sogi_fll") {
         for (int k = 0; k < 12000; ++k) {
             const double f = (k < 6000) ? 50.0 : 62.0;
             phase += 2.0 * std::numbers::pi * f * dt;
-            fll.update(std::sin(phase));
+            fll.step(std::sin(phase));
             f_final = f;
         }
         CHECK(f_final == 62.0);
@@ -456,7 +470,7 @@ TEST_SUITE("sogi_fll") {
         };
         for (int k = 0; k < 8000; ++k) {
             const double t = k * dt;
-            fll.update(std::sin(2.0 * std::numbers::pi * f_true * t) + noise(t));
+            fll.step(std::sin(2.0 * std::numbers::pi * f_true * t) + noise(t));
         }
         CHECK(fll.frequency_hz() == doctest::Approx(f_true).epsilon(0.02));
     }
@@ -464,9 +478,12 @@ TEST_SUITE("sogi_fll") {
     TEST_CASE("clamps the tracked frequency to the configured band") {
         const double fs = 2000.0, dt = 1.0 / fs;
         // Drive at 90 Hz but clamp the search to [40, 70] Hz.
-        SogiFll<double> fll(55.0, dt, damp::numbers::sqrt2_v<double>, 2.0, 40.0, 70.0);
+        SogiFll<double> fll(55.0, dt, damp::numbers::sqrt2_v<double>, 2.0, {
+                                                                               .lower = 40.0,
+                                                                               .upper = 70.0,
+                                                                           });
         for (int k = 0; k < 6000; ++k) {
-            fll.update(std::sin(2.0 * std::numbers::pi * 90.0 * (k * dt)));
+            fll.step(std::sin(2.0 * std::numbers::pi * 90.0 * (k * dt)));
         }
         CHECK(fll.frequency_hz() <= 70.0 + 1e-6);
         CHECK(fll.frequency_hz() >= 40.0 - 1e-6);
@@ -475,12 +492,12 @@ TEST_SUITE("sogi_fll") {
     TEST_CASE("invalid config is inert; reset re-seeds the guess") {
         SogiFll<double> bad(50.0, -1.0); // Ts <= 0
         CHECK_FALSE(bad.valid());
-        bad.update(1.0);
+        bad.step(1.0);
         CHECK(bad.frequency_hz() == doctest::Approx(50.0)); // unchanged
 
         SogiFll<double> fll(50.0, 1.0 / 2000.0);
         for (int k = 0; k < 3000; ++k) {
-            fll.update(std::sin(2.0 * std::numbers::pi * 58.0 * (k / 2000.0)));
+            fll.step(std::sin(2.0 * std::numbers::pi * 58.0 * (k / 2000.0)));
         }
         fll.reset(50.0);
         CHECK(fll.frequency_hz() == doctest::Approx(50.0));
@@ -490,7 +507,7 @@ TEST_SUITE("sogi_fll") {
     TEST_CASE("float specialization locks") {
         SogiFll<float> fll(50.0f, 1.0f / 2000.0f);
         for (int k = 0; k < 8000; ++k) {
-            fll.update(std::sin(2.0f * 3.14159265f * 56.0f * (static_cast<float>(k) / 2000.0f)));
+            fll.step(std::sin(2.0f * 3.14159265f * 56.0f * (static_cast<float>(k) / 2000.0f)));
         }
         CHECK(fll.frequency_hz() == doctest::Approx(56.0f).epsilon(0.03));
     }
@@ -499,11 +516,50 @@ TEST_SUITE("sogi_fll") {
         constexpr double f = []() consteval {
             SogiFll<double> fll(50.0, 1.0 / 2000.0);
             for (int k = 0; k < 6000; ++k) {
-                fll.update(damp::sin(2.0 * 3.14159265358979323846 * 55.0 * (k / 2000.0)));
+                fll.step(damp::sin(2.0 * 3.14159265358979323846 * 55.0 * (k / 2000.0)));
             }
             return fll.frequency_hz();
         }();
         static_assert(f > 54.0 && f < 56.0, "SOGI-FLL must lock at compile time");
         CHECK(f == doctest::Approx(55.0).epsilon(0.02));
+    }
+
+    TEST_CASE("SogiFll holds its band below the SOGI loop's stability bound") {
+        //! The SOGI loop is stable only for ω·Ts < 2·atan(1/k) (f/fs < 0.196 at k = √2); the clamp
+        //! used to reach Nyquist, and a 250 Hz tone at 1 kHz drove the frequency to NaN.
+        const double dt = 1e-3;
+        const double cap = 0.9 * 2.0 * std::atan(1.0 / std::sqrt(2.0)) / (2.0 * pi * dt);
+        CHECK_FALSE(SogiFll<double>(250.0, dt).valid()); // initial guess in the unstable band
+
+        SogiFll<double> fll(150.0, dt);
+        REQUIRE(fll.valid());
+        for (int k = 0; k < 4000; ++k) {
+            fll.step(std::sin(2.0 * pi * 260.0 * k * dt));
+        }
+        CHECK(damp::isfinite(fll.frequency_hz()));
+        CHECK(fll.frequency_hz() <= cap + 1e-9);
+        CHECK(damp::isfinite(fll.amplitude()));
+        CHECK(fll.amplitude() < 10.0);
+    }
+
+    TEST_CASE("SogiFll with an empty band or non-positive gain is invalid") {
+        // Inverted band: std::clamp(lo > hi) is undefined behaviour on every tick.
+        CHECK_FALSE(SogiFll<double>(55.0, 1e-3, damp::numbers::sqrt2_v<double>, 2.0, {.lower = 70.0, .upper = 40.0}).valid());
+        CHECK_FALSE(SogiFll<double>(55.0, 1e-3, damp::numbers::sqrt2_v<double>, 2.0, {.lower = 600.0, .upper = 0.0}).valid());
+        CHECK_FALSE(SogiFll<double>(55.0, 1e-3, 0.0).valid());
+        CHECK(SogiFll<double>(55.0, 1e-3, damp::numbers::sqrt2_v<double>, 2.0, {.lower = 40.0, .upper = 70.0}).valid());
+    }
+
+    TEST_CASE("SogiFll lock is independent of input amplitude") {
+        double f[2];
+        int    i = 0;
+        for (const double A : {1.0, 1e-6}) {
+            SogiFll<double> fll(45.0, 1e-4);
+            for (int k = 0; k < 2000; ++k) {
+                fll.step(A * std::sin(2.0 * pi * 50.0 * k * 1e-4));
+            }
+            f[i++] = fll.frequency_hz();
+        }
+        CHECK(f[1] == doctest::Approx(f[0]).epsilon(1e-9));
     }
 }

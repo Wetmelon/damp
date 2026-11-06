@@ -82,53 +82,64 @@ enum class Convention : std::uint8_t {
  */
 template<typename T = float, Convention C = Convention::AmplitudeInvariant>
 struct DirectQuadrature {
-    T d, q;
+    T d{}; ///< d-axis (direct) component
+    T q{}; ///< q-axis (quadrature) component
 
-    /// The scaling convention this quantity was produced with.
+    /** @brief The scaling convention this quantity was produced with. */
     static constexpr Convention convention = C;
 
-    /// Phase angle @f$ \operatorname{atan2}(q, d) @f$ [rad].
+    /** @brief Phase angle atan2(q, d) [rad]. */
     [[nodiscard]] constexpr T arg() const { return damp::atan2(q, d); }
 
-    /// Magnitude @f$ \sqrt{d^2 + q^2} @f$.
+    /** @brief Magnitude √(d² + q²). */
     [[nodiscard]] constexpr T abs() const { return damp::hypot(d, q); }
 
+    /** @brief Component-wise add. */
     constexpr DirectQuadrature& operator+=(const DirectQuadrature& o) {
         d += o.d;
         q += o.q;
         return *this;
     }
 
+    /** @brief Component-wise subtract. */
     constexpr DirectQuadrature& operator-=(const DirectQuadrature& o) {
         d -= o.d;
         q -= o.q;
         return *this;
     }
 
+    /** @brief Scale both components by @p s. */
     constexpr DirectQuadrature& operator*=(T s) {
         d *= s;
         q *= s;
         return *this;
     }
 
+    /** @brief Divide both components by @p s. */
     constexpr DirectQuadrature& operator/=(T s) {
         d /= s;
         q /= s;
         return *this;
     }
 
+    /** @brief Negation (d → −d, q → −q). */
     [[nodiscard]] constexpr DirectQuadrature operator-() const { return {-d, -q}; }
 
-    /// Complex conjugate @f$ d - jq @f$.
+    /** @brief Complex conjugate d − jq. */
     [[nodiscard]] constexpr DirectQuadrature conj() const { return {d, -q}; }
 
+    /** @brief Component-wise sum. */
     [[nodiscard]] friend constexpr DirectQuadrature operator+(DirectQuadrature a, const DirectQuadrature& b) { return a += b; }
+    /** @brief Component-wise difference. */
     [[nodiscard]] friend constexpr DirectQuadrature operator-(DirectQuadrature a, const DirectQuadrature& b) { return a -= b; }
+    /** @brief Scale by @p s. */
     [[nodiscard]] friend constexpr DirectQuadrature operator*(DirectQuadrature v, T s) { return v *= s; }
+    /** @brief Scale by @p s. */
     [[nodiscard]] friend constexpr DirectQuadrature operator*(T s, DirectQuadrature v) { return v *= s; }
+    /** @brief Divide by @p s. */
     [[nodiscard]] friend constexpr DirectQuadrature operator/(DirectQuadrature v, T s) { return v /= s; }
 
-    /// Complex product, treating both operands as @f$ d + jq @f$.
+    /** @brief Complex product, treating both operands as d + jq. */
     [[nodiscard]] friend constexpr DirectQuadrature operator*(const DirectQuadrature& x, const DirectQuadrature& y) {
         return {
             (x.d * y.d) - (x.q * y.q),
@@ -136,6 +147,7 @@ struct DirectQuadrature {
         };
     }
 
+    /** @brief Exact component-wise equality. */
     [[nodiscard]] friend constexpr bool operator==(const DirectQuadrature&, const DirectQuadrature&) = default;
 };
 
@@ -150,50 +162,61 @@ struct DirectQuadrature {
  */
 template<typename T = float, Convention C = Convention::AmplitudeInvariant>
 struct AlphaBeta {
-    T alpha, beta;
+    T alpha{}; ///< α-axis component (aligned with phase a)
+    T beta{};  ///< β-axis component (leads α by 90°)
 
-    /// The scaling convention this quantity was produced with.
+    /** @brief The scaling convention this quantity was produced with. */
     static constexpr Convention convention = C;
 
-    /// Phase angle @f$ \operatorname{atan2}(\beta, \alpha) @f$ [rad].
+    /** @brief Phase angle atan2(β, α) [rad]. */
     [[nodiscard]] constexpr T arg() const { return damp::atan2(beta, alpha); }
 
-    /// Magnitude @f$ \sqrt{\alpha^2 + \beta^2} @f$.
+    /** @brief Magnitude √(α² + β²). */
     [[nodiscard]] constexpr T abs() const { return damp::hypot(alpha, beta); }
 
+    /** @brief Component-wise add. */
     constexpr AlphaBeta& operator+=(const AlphaBeta& o) {
         alpha += o.alpha;
         beta += o.beta;
         return *this;
     }
+    /** @brief Component-wise subtract. */
     constexpr AlphaBeta& operator-=(const AlphaBeta& o) {
         alpha -= o.alpha;
         beta -= o.beta;
         return *this;
     }
+    /** @brief Scale both components by @p s. */
     constexpr AlphaBeta& operator*=(T s) {
         alpha *= s;
         beta *= s;
         return *this;
     }
+    /** @brief Divide both components by @p s. */
     constexpr AlphaBeta& operator/=(T s) {
         alpha /= s;
         beta /= s;
         return *this;
     }
 
+    /** @brief Negation (α → −α, β → −β). */
     [[nodiscard]] constexpr AlphaBeta operator-() const { return {-alpha, -beta}; }
 
-    /// Complex conjugate @f$ \alpha - j\beta @f$.
+    /** @brief Complex conjugate α − jβ. */
     [[nodiscard]] constexpr AlphaBeta conj() const { return {alpha, -beta}; }
 
+    /** @brief Component-wise sum. */
     [[nodiscard]] friend constexpr AlphaBeta operator+(AlphaBeta a, const AlphaBeta& b) { return a += b; }
+    /** @brief Component-wise difference. */
     [[nodiscard]] friend constexpr AlphaBeta operator-(AlphaBeta a, const AlphaBeta& b) { return a -= b; }
+    /** @brief Scale by @p s. */
     [[nodiscard]] friend constexpr AlphaBeta operator*(AlphaBeta v, T s) { return v *= s; }
+    /** @brief Scale by @p s. */
     [[nodiscard]] friend constexpr AlphaBeta operator*(T s, AlphaBeta v) { return v *= s; }
+    /** @brief Divide by @p s. */
     [[nodiscard]] friend constexpr AlphaBeta operator/(AlphaBeta v, T s) { return v /= s; }
 
-    /// Complex product, treating both operands as @f$ \alpha + j\beta @f$.
+    /** @brief Complex product, treating both operands as α + jβ. */
     [[nodiscard]] friend constexpr AlphaBeta operator*(const AlphaBeta& x, const AlphaBeta& y) {
         return {
             (x.alpha * y.alpha) - (x.beta * y.beta),
@@ -201,6 +224,7 @@ struct AlphaBeta {
         };
     }
 
+    /** @brief Exact component-wise equality. */
     [[nodiscard]] friend constexpr bool operator==(const AlphaBeta&, const AlphaBeta&) = default;
 };
 
@@ -243,7 +267,7 @@ template<typename T = float, Convention C = Convention::AmplitudeInvariant>
  * Common-mode content cancels from αβ; use @ref zero_sequence when the residual
  * is needed (four-wire, diagnostics).
  *
- * MATLAB®: `clarke()`
+ * @note Compare with MATLAB®'s Clarke Transform block (Motor Control Blockset).
  *
  * @tparam C  Scaling convention (default amplitude-invariant)
  * @param abc Phase quantities {a, b, c}
@@ -274,7 +298,7 @@ template<typename T = float, Convention C = Convention::AmplitudeInvariant>
  * Amplitude-invariant adds @p zero to every phase; power-invariant uses the
  * transpose of the orthonormal forward matrix.
  *
- * MATLAB®: `invclarke()`
+ * @note Compare with MATLAB®'s Inverse Clarke Transform block (Motor Control Blockset).
  *
  * @param ab   αβ components
  * @param zero Zero-sequence under the same convention as @p ab (default 0)
@@ -321,7 +345,7 @@ template<typename T = float, Convention C = Convention::AmplitudeInvariant>
  * produces a positive-sequence abc set that leads the d-axis by 90° (for
  * θ = ωt, phase a = q·cos(ωt + 90°)).
  *
- * MATLAB®: `park()`
+ * @note Compare with MATLAB®'s Park Transform block (Motor Control Blockset).
  *
  * @param ab    αβ components
  * @param theta Rotor / d-axis electrical angle [rad]
@@ -348,7 +372,7 @@ template<typename T = float, Convention C = Convention::AmplitudeInvariant>
  *   \beta  = d\sin\theta + q\cos\theta
  * @f]
  *
- * MATLAB®: `invpark()`
+ * @note Compare with MATLAB®'s Inverse Park Transform block (Motor Control Blockset).
  *
  * @param dq    dq components
  * @param theta Rotor / d-axis electrical angle [rad]
@@ -368,8 +392,8 @@ template<typename T = float, Convention C = Convention::AmplitudeInvariant>
  * @brief Fused Clarke-Park transform (abc → dq)
  * @ingroup transforms
  *
- * Maps three-phase stationary quantities directly to the rotor frame in a single
- * pass (one sincos() call); the usual measurement-side step of an FOC loop.
+ * Clarke then Park: maps three-phase stationary quantities to the rotor frame;
+ * the usual measurement-side step of an FOC loop.
  *
  * @tparam C  Scaling convention (default amplitude-invariant)
  * @param abc   Phase quantities {a, b, c}
@@ -378,21 +402,15 @@ template<typename T = float, Convention C = Convention::AmplitudeInvariant>
  */
 template<typename T = float, Convention C = Convention::AmplitudeInvariant>
 [[nodiscard]] constexpr DirectQuadrature<T, C> clarke_park_transform(const ColVec<3, T>& abc, T theta) {
-    const auto [s, c] = damp::sincos(theta);
-    const auto ab = clarke_transform<T, C>(abc);
-
-    return {
-        .d = (ab.alpha * c) + (ab.beta * s),
-        .q = (-ab.alpha * s) + (ab.beta * c),
-    };
+    return park_transform(clarke_transform<T, C>(abc), theta);
 }
 
 /**
  * @brief Fused inverse Park-Clarke transform (dq → abc)
  * @ingroup transforms
  *
- * Maps rotor-frame quantities directly to three phases in a single pass (one
- * sincos() call); the usual command-side step of an FOC loop. Convention taken
+ * Inverse Park then inverse Clarke: maps rotor-frame quantities to three
+ * phases; the usual command-side step of an FOC loop. Convention taken
  * from the input type. Optional @p zero is the same scalar as
  * @ref inverse_clarke_transform (default 0).
  *
@@ -425,6 +443,12 @@ template<typename T = float, Convention C = Convention::AmplitudeInvariant>
  * for power-invariant — and voltage and current must share that convention (the
  * type system enforces it).
  *
+ * @f$ q @f$ has the complex-power sign @f$ \operatorname{Im}(V I^*) @f$, positive
+ * for an inductive load. The 1984 paper defines @f$ q @f$ with the opposite sign;
+ * the sign here is the one used by Akagi, Watanabe and Aredes (2007).
+ *
+ * @see "Instantaneous Power Theory and Applications to Power Conditioning"
+ *      (Akagi, Watanabe, Aredes, 2007)
  * @see H. Akagi, Y. Kanazawa, A. Nabae, "Instantaneous reactive power
  *      compensators comprising switching devices without energy storage
  *      components," IEEE Trans. Ind. Appl., vol. IA-20, no. 3, pp. 625-630, 1984.
@@ -434,20 +458,20 @@ struct InstantaneousPower {
     T p = {}; ///< [W]   instantaneous active (real) power
     T q = {}; ///< [VAr] instantaneous reactive (Akagi imaginary) power
 
-    /// Apparent power @f$ S = \sqrt{p^2 + q^2} @f$ [VA] — the complex-power magnitude.
+    /** @brief Apparent power S = √(p² + q²) [VA] — the complex-power magnitude. */
     [[nodiscard]] constexpr T abs() const { return damp::hypot(p, q); }
 
-    /// Power-factor angle @f$ \varphi = \operatorname{atan2}(q, p) @f$ [rad].
+    /** @brief Power-factor angle φ = atan2(q, p) [rad]. */
     [[nodiscard]] constexpr T arg() const { return damp::atan2(q, p); }
 
-    /// Power factor @f$ \cos\varphi = p / S @f$ in [-1, 1] (0 when S = 0).
+    /** @brief Power factor cos φ = p / S in [-1, 1] (0 when S = 0). */
     [[nodiscard]] constexpr T power_factor() const {
         const T s = abs();
         return s > T{0} ? p / s : T{0};
     }
 };
 
-/// @copydoc InstantaneousPower
+/** @copydoc InstantaneousPower */
 template<typename T = float, Convention C = Convention::AmplitudeInvariant>
 [[nodiscard]] constexpr InstantaneousPower<T> instantaneous_power(const AlphaBeta<T, C>& v, const AlphaBeta<T, C>& i) {
     constexpr T k = (C == Convention::PowerInvariant) ? T{1} : static_cast<T>(1.5);
@@ -506,8 +530,6 @@ struct SequenceComponents {
  *   \begin{bmatrix} V_a \\ V_b \\ V_c \end{bmatrix}
  * @f]
  *
- * MATLAB®: `sequence()` / `fortescue([Va; Vb; Vc])`
- *
  * @param abc Three-phase phasors {Va, Vb, Vc}
  * @return Sequence components {zero, positive, negative}
  *
@@ -539,8 +561,6 @@ template<typename T = float>
  *   = \begin{bmatrix} 1 & 1 & 1 \\ 1 & a^2 & a \\ 1 & a & a^2 \end{bmatrix}
  *   \begin{bmatrix} V_0 \\ V_1 \\ V_2 \end{bmatrix}
  * @f]
- *
- * MATLAB®: `isequence()` / `[Va; Vb; Vc] = A * [V0; V1; V2]`
  *
  * @param s Sequence components {zero, positive, negative}
  * @return Three-phase phasors {Va, Vb, Vc}

@@ -7,8 +7,8 @@
 
 /**
  * @file decomposition.hpp
- * @brief Matrix factorizations: Cholesky, LDLᵀ, LU (partial pivoting), and QR
- *        (modified Gram-Schmidt), plus the symmetry/Hermitian predicate used to
+ * @brief Matrix factorizations: Cholesky, LDLᵀ, LU (partial pivoting), and thin
+ *        and full QR (Householder), plus the symmetry/Hermitian predicate used to
  *        choose between them. Linear-system solvers built on these live in
  *        solve.hpp; the eigensolver in eigen.hpp.
  */
@@ -25,17 +25,36 @@ namespace damp {
 
 namespace mat {
 
+namespace detail {
+
 /**
- * @brief True if A equals its transpose (real) or conjugate transpose (complex)
+ * @brief True if @p v is finite (both parts of a damp::complex), by the bit-pattern test.
  *
- * Each pair may differ by N·64·eps times its own scale
- * max(|aᵢⱼ|, |aⱼᵢ|, √|aᵢᵢ aⱼⱼ|), so the test is invariant to scaling A and to
- * graded (diagonally scaled) matrices.
+ * The parts are tested directly: damp::abs of a damp::complex with a NaN part and a zero
+ * part returns 0.
+ */
+template<typename T>
+[[nodiscard]] constexpr bool is_finite_entry(const T& v) {
+    if constexpr (std::is_floating_point_v<T>) {
+        return damp::isfinite(v);
+    } else {
+        return damp::isfinite(v.real()) && damp::isfinite(v.imag());
+    }
+}
+
+/**
+ * @brief True if each pair aᵢⱼ, conj(aⱼᵢ) agrees to @p rel times max(|aᵢⱼ|, |aⱼᵢ|, √|aᵢᵢ aⱼⱼ|); false for a non-finite entry.
+ *
+ * A NaN or ±Inf fails every comparison against the bound (and makes the bound itself
+ * infinite), so finiteness is tested first: a matrix with a non-finite strict-upper entry
+ * is not Hermitian, and cholesky(), which reads only the lower triangle, never sees it.
  */
 template<size_t N, typename T>
-constexpr bool is_symmetric_or_hermitian(const Matrix<N, N, T>& A) {
+[[nodiscard]] constexpr bool is_hermitian_within(const Matrix<N, N, T>& A, scalar_type_t<T> rel) {
     using real_t = scalar_type_t<T>;
-    constexpr real_t rel = static_cast<real_t>(N) * real_t{64} * eps<T>();
+    if (!mat::all_of(A, [](const T& v) { return is_finite_entry(v); })) {
+        return false;
+    }
     for (size_t i = 0; i < N; ++i) {
         if constexpr (!std::is_floating_point_v<T>) {
             // Hermitian requires a real diagonal
@@ -44,13 +63,33 @@ constexpr bool is_symmetric_or_hermitian(const Matrix<N, N, T>& A) {
             }
         }
         for (size_t j = i + 1; j < N; ++j) {
-            const real_t scale = damp::max({damp::abs(A(i, j)), damp::abs(A(j, i)), damp::sqrt(damp::abs(A(i, i)) * damp::abs(A(j, j)))});
+            // √(|aᵢᵢ||aⱼⱼ|) as hi·√(lo/hi): the product overflows past √max (1.8e19 in
+            // float), and -ffast-math folds √x·√y back into √(xy).
+            const real_t dhi = damp::max(damp::abs(A(i, i)), damp::abs(A(j, j)));
+            const real_t dlo = damp::min(damp::abs(A(i, i)), damp::abs(A(j, j)));
+            const real_t gmean = (dhi > real_t{0}) ? dhi * damp::sqrt(dlo / dhi) : real_t{0};
+            const real_t scale = damp::max({damp::abs(A(i, j)), damp::abs(A(j, i)), gmean});
             if (damp::abs(A(i, j) - damp::conj(A(j, i))) > rel * scale) {
                 return false;
             }
         }
     }
     return true;
+}
+
+} // namespace detail
+
+/**
+ * @brief True if A equals its transpose (real) or conjugate transpose (complex)
+ *
+ * Each pair may differ by N·64·eps times its own scale
+ * max(|aᵢⱼ|, |aⱼᵢ|, √|aᵢᵢ aⱼⱼ|), so the test is invariant to scaling A and to
+ * graded (diagonally scaled) matrices. A matrix with a NaN or ±Inf entry is not
+ * symmetric.
+ */
+template<size_t N, typename T>
+[[nodiscard]] constexpr bool is_symmetric_or_hermitian(const Matrix<N, N, T>& A) {
+    return detail::is_hermitian_within(A, static_cast<scalar_type_t<T>>(N) * scalar_type_t<T>{64} * eps<T>());
 }
 
 /**
@@ -119,9 +158,9 @@ constexpr damp::optional<Matrix<N, N, T>> cholesky(const Matrix<N, N, T>& A) {
     return L;
 }
 
-/// LDLᴴ factors: A = L D Lᴴ with L unit lower-triangular and D real diagonal.
+/** @brief LDLᴴ factors: A = L D Lᴴ with L unit lower-triangular and D real diagonal. */
 template<size_t N, typename T>
-struct LDLT {
+struct [[nodiscard]] LDLT {
     Matrix<N, N, T>                  L{}; ///< Unit lower-triangular factor
     damp::array<scalar_type_t<T>, N> d{}; ///< Diagonal of D (real; may carry negative entries)
 };
@@ -192,10 +231,20 @@ constexpr damp::optional<LDLT<N, T>> ldlt(const Matrix<N, N, T>& A) {
  * @f$ U @f$ is upper-triangular, and @f$ P @f$ is encoded by the pivot vector
  * (@c piv[i] is the original row moved into position @c i).
  *
- * Returns damp::nullopt when the chosen pivot is zero or lost to cancellation:
- * below N·64·eps times the magnitude |aᵢⱼ| + Σₖ|lᵢₖ||uₖⱼ| of the terms that
- * formed it. The test is invariant to row and column scaling, so graded but
- * well-posed systems such as [[1, 10¹⁶], [0, 1]] still factor.
+ * Each entry of the active column at step i is measured against the magnitude
+ * mᵢⱼ = |aᵢⱼ| + Σₖ|lᵢₖ||uₖⱼ| of the i+1 terms that formed it. An entry that does not exceed
+ * 16·(i+1)·eps·mᵢⱼ (the rounding bound of those terms, the floor cholesky() uses) is
+ * cancellation roundoff: it is not a pivot candidate, and when it is larger than the pivot
+ * it is taken as zero. The pivot is the largest entry that is not roundoff, eliminated with
+ * |lᵢⱼ| ≤ 1, and damp::nullopt is returned when it does not exceed N·64·eps·mᵢⱼ (the column
+ * is lost to cancellation, or an entry that still carries digits is too small to pivot on),
+ * or for a non-finite entry.
+ * The roundoff test is invariant to row and column scaling, so graded but well-posed systems
+ * such as [[1, 10¹⁶], [0, 1]] still factor when their cancellation residues stay within the
+ * 16·(i+1)·eps bound, and a row whose largest entry is cancellation roundoff does not hide a
+ * genuine pivot below it. The pivot choice by absolute size is not: in a row-graded matrix,
+ * an entry that carries a few digits and outranks a clean pivot in a smaller row is refused.
+ * U is stored exactly upper-triangular.
  *
  * @note Compare with MATLAB®'s [L,U,P] = lu(A) (row-permutation form).
  * @see Golub & Van Loan, "Matrix Computations" (4th ed., 2013), §3.2, §3.3.1
@@ -205,6 +254,9 @@ constexpr damp::optional<damp::tuple<Matrix<N, N, T>, Matrix<N, N, T>, damp::arr
 lu_decomposition(const Matrix<N, N, T>& A) {
     using real_t = scalar_type_t<T>;
     constexpr real_t rel = static_cast<real_t>(N) * real_t{64} * eps<T>();
+    if (!mat::all_of(A, [](const T& v) { return detail::is_finite_entry(v); })) {
+        return damp::nullopt; // an infinite entry would read as roundoff of its infinite magnitude and be zeroed
+    }
 
     Matrix<N, N, T>        L = Matrix<N, N, T>::identity();
     Matrix<N, N, T>        U = A;
@@ -217,19 +269,29 @@ lu_decomposition(const Matrix<N, N, T>& A) {
         }
     }
 
+    // Entry (r, i) is cancellation roundoff when it does not clear the rounding bound of its
+    // i+1 terms, 16·(i+1)·eps·mag(r, i).
+    const auto roundoff = [&](size_t r, size_t i) {
+        return !(damp::abs(U(r, i)) > real_t{16} * static_cast<real_t>(i + 1) * eps<T>() * mag(r, i));
+    };
+
     for (size_t i = 0; i < N; ++i) {
-        // Partial pivot
-        size_t max_row = i;
-        auto   max_val = damp::abs(U(i, i));
-        for (size_t r = i + 1; r < N; ++r) {
-            auto val = damp::abs(U(r, i));
-            if (val > max_val) {
+        // Partial pivot among the entries that are not roundoff; a row-graded matrix can
+        // put the largest entry of the column in a row where it is pure cancellation.
+        size_t max_row = N;
+        real_t max_val = real_t{0};
+        for (size_t r = i; r < N; ++r) {
+            const real_t val = damp::abs(U(r, i));
+            if (!roundoff(r, i) && (max_row == N || val > max_val)) {
                 max_val = val;
                 max_row = r;
             }
         }
 
-        if (!(max_val > rel * mag(max_row, i))) {
+        // The pivot must clear the N·64·eps floor. One below it either is lost to cancellation
+        // or still carries digits while being too small; skipping it for a smaller entry would
+        // perturb A by more than the pivot.
+        if (max_row == N || !(max_val > rel * mag(max_row, i))) {
             return damp::nullopt;
         }
 
@@ -247,11 +309,19 @@ lu_decomposition(const Matrix<N, N, T>& A) {
             damp::swap(piv[i], piv[max_row]);
         }
 
-        // Elimination
+        // Elimination. A roundoff entry larger than the pivot (one classical partial pivoting
+        // would have chosen) is taken as zero, a perturbation within its rounding bound that
+        // keeps |lⱼᵢ| ≤ 1; every other entry is eliminated as usual. Column i below the pivot
+        // is stored as the exact zero it is in U.
         for (size_t j = i + 1; j < N; ++j) {
-            auto factor = U(j, i) / U(i, i);
+            const bool zero = roundoff(j, i) && damp::abs(U(j, i)) > damp::abs(U(i, i));
+            const T    factor = zero ? T{0} : (U(j, i) / U(i, i));
+            U(j, i) = T{0};
             L(j, i) = factor;
-            for (size_t k = i; k < N; ++k) {
+            if (zero) {
+                continue;
+            }
+            for (size_t k = i + 1; k < N; ++k) {
                 U(j, k) -= factor * U(i, k);
                 mag(j, k) += damp::abs(factor) * damp::abs(U(i, k));
             }
@@ -270,38 +340,34 @@ namespace detail {
  * of X(k, k), so v[k] = X(k, k) − α never cancels; for real T that is the usual sign choice.
  * Entries of @p v below k are left as they were (the reflector acts on rows k…N−1 only).
  *
- * @see "Matrix Computations" (Golub & Van Loan, 2013), §5.1.2–5.1.3 and §5.1.13 (complex)
+ * v is normalized to v[k] = 1 (LAPACK xLARFG), so |v[i]| ≤ 1 and β = 1 + |X(k, k)|/‖X(k…, k)‖
+ * lies in [1, 2]. The norm is scaled (damp::detail::scaled_norm2) and no entry is squared, so
+ * columns anywhere in the finite range reflect: a plain sum of squares overflows past √max
+ * (1.8e19 in float) and flushes below √min.
  *
- * @return β = 2/‖v‖², or 0 when the column is already zero from row k down (no reflection).
+ * @see "Matrix Computations" (Golub & Van Loan, 2013), §5.1.2–5.1.3 and §5.1.13 (complex)
+ * @see LAPACK xLARFG
+ *
+ * @return β, or 0 when the column is already zero from row k down (no reflection).
  */
 template<typename T, size_t N, size_t M>
 [[nodiscard]] constexpr scalar_type_t<T> householder_vector(const Matrix<N, M, T>& X, size_t k, damp::array<T, N>& v) {
     using real_t = scalar_type_t<T>;
-    real_t norm_sq = real_t{0};
-    for (size_t i = k; i < N; ++i) {
-        const real_t a = damp::abs(X(i, k));
-        norm_sq += a * a;
-    }
-    const real_t nrm = damp::sqrt(norm_sq);
-    if (nrm == real_t{0}) {
+    const real_t nrm = damp::detail::scaled_norm2<real_t>(N - k, [&](size_t i) { return real_t{damp::abs(X(k + i, k))}; });
+    if (!(nrm > real_t{0})) {
         return real_t{0};
     }
     const real_t r0 = damp::abs(X(k, k));
     const T      phase = (r0 > real_t{0}) ? (X(k, k) / r0) : T{1};
-    const T      alpha = -(phase * nrm);
-    v[k] = X(k, k) - alpha;
+    const T      vk = phase * (r0 + nrm); // X(k, k) − α with α = −phase·‖x‖: no cancellation
+    v[k] = T{1};
     for (size_t i = k + 1; i < N; ++i) {
-        v[i] = X(i, k);
+        v[i] = X(i, k) / vk;
     }
-    real_t vhv = real_t{0};
-    for (size_t i = k; i < N; ++i) {
-        const real_t a = damp::abs(v[i]);
-        vhv += a * a;
-    }
-    return (vhv == real_t{0}) ? real_t{0} : (real_t{2} / vhv);
+    return real_t{1} + (r0 / nrm);
 }
 
-/// X ← (I − β·v·vᴴ)·X on rows k…N−1, columns c0…C−1.
+/** @brief X ← (I − β·v·vᴴ)·X on rows k…N−1, columns c0…C−1. */
 template<typename T, size_t N, size_t C>
 constexpr void apply_householder_left(Matrix<N, C, T>& X, const damp::array<T, N>& v, scalar_type_t<T> beta, size_t k, size_t c0) {
     for (size_t j = c0; j < C; ++j) {
@@ -328,14 +394,14 @@ constexpr void apply_householder_left(Matrix<N, C, T>& X, const damp::array<T, N
  * @see full_qr() for the full unitary factor
  */
 template<typename T, size_t N, size_t M>
-struct QRDecomposition {
+struct [[nodiscard]] QRDecomposition {
     Matrix<N, M, T> Q{}; ///< Orthonormal columns (thin Q)
     Matrix<M, M, T> R{}; ///< Upper-triangular factor
 
     /**
      * @brief True if A had full column rank (no diagonal of R was zeroed as rank loss)
      */
-    [[nodiscard]] constexpr bool is_valid() const {
+    [[nodiscard]] constexpr bool full_rank() const {
         for (size_t i = 0; i < M; ++i) {
             if (R(i, i) == T{0}) {
                 return false;
@@ -359,7 +425,7 @@ struct QRDecomposition {
  *
  * Rank loss is scale-invariant per column: when |R(j, j)|, the part of column j orthogonal to
  * the columns before it, is at most rel_tol times ‖A(:, j)‖, it is roundoff and R(j, j) is
- * stored as zero, which is what is_valid() reports. Q keeps an orthonormal column there, so
+ * stored as zero, which is what full_rank() reports. Q keeps an orthonormal column there, so
  * QR reconstructs A to within that dropped roundoff. Columns past N (M > N) have R(j, j) = 0
  * and a zero Q column.
  *
@@ -428,12 +494,8 @@ template<typename T, size_t N, size_t M>
 
     // Rank loss, relative to each column of A.
     for (size_t j = 0; j < K; ++j) {
-        real_t sq = real_t{0};
-        for (size_t i = 0; i < N; ++i) {
-            const real_t a = damp::abs(A(i, j));
-            sq += a * a;
-        }
-        if (!(damp::abs(result.R(j, j)) > rel_tol * damp::sqrt(sq))) {
+        const real_t col = damp::detail::scaled_norm2<real_t>(N, [&](size_t i) { return real_t{damp::abs(A(i, j))}; });
+        if (!(damp::abs(result.R(j, j)) > rel_tol * col)) {
             result.R(j, j) = T{0};
         }
     }
@@ -450,7 +512,7 @@ template<typename T, size_t N, size_t M>
  * of Aᴴ). Those complement columns are what robust pole placement needs.
  */
 template<typename T, size_t N, size_t M>
-struct FullQR {
+struct [[nodiscard]] FullQR {
     Matrix<N, N, T> Q{}; ///< Unitary factor (full N×N).
     Matrix<N, M, T> R{}; ///< Upper-triangular factor (N×M).
 };
@@ -482,8 +544,12 @@ template<typename T, size_t N, size_t M>
         if (beta == real_t{0}) {
             continue; // column already zero below the diagonal
         }
-        // Apply H from the left: R −= β·v·(vᴴR).
+        // Apply H from the left: R −= β·v·(vᴴR). Column k below the diagonal is zero by
+        // construction; store it as such.
         detail::apply_householder_left(out.R, v, beta, k, 0);
+        for (size_t i = k + 1; i < N; ++i) {
+            out.R(i, k) = T{0};
+        }
         // Accumulate Q = Q·H from the right: Q −= β·(Q·v)·vᴴ.
         for (size_t i = 0; i < N; ++i) {
             T dot = T{0};

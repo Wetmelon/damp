@@ -10,12 +10,13 @@
  * Not closed-loop plant SIL. Flashable cascade: reaction_wheel_sketch.cpp.
  */
 
+#include "damp/backend.hpp"
 #include "damp/controllers/adrc.hpp"
 #include "damp/controllers/lqg.hpp"
 #include "damp/controllers/lqgi.hpp"
 #include "damp/controllers/lqi.hpp"
 #include "damp/controllers/lqr.hpp"
-#include "damp/controllers/offset_free_mpc.hpp"
+#include "damp/controllers/ofmpc.hpp"
 #include "damp/controllers/pid.hpp"
 #include "damp/controllers/smc.hpp"
 #include "damp/controllers/stsmc.hpp"
@@ -27,17 +28,19 @@
 using namespace damp;
 using namespace damp::examples_reaction_wheel;
 
-static constinit PIController<float>                     rate_pi = rate_pi_design.discretize(Ts).as<float>();
-static constinit PIController<float>                     angle_pi = angle_pi_design.discretize(Ts).as<float>();
-static constinit ADRCController<2, float>                adrc{design::adrc<2>(wc_adrc, wo_adrc, b_u).as<float>(), static_cast<float>(Ts)};
-static constinit SMCController<float>                    smc{smc_res.as<float>(), static_cast<float>(Ts), 0.05f};
-static constinit STSMCController<float>                  stsmc{stsmc_res.as<float>(), static_cast<float>(Ts)};
-static constinit StateFeedback<NX, NU, float>            place_ctrl{K_place->as<float>()};
-static constinit LQR<NX, NU, float>                      lqr{lqr_res.as<float>()};
-static constinit LQI<NX, NU, NY, float>                  lqi{lqi_res.as<float>()};
-static constinit LQG<NX, NU, NY, float, NX, NY>          lqg{lqg_res.as<float>()};
-static constinit LQGI<NX, NU, NY, float, NX, NY>         lqgi{lqgi_res.as<float>()};
-static constinit OffsetFreeMPC<NX, NU, NY, 10, 4, float> of_mpc{mpc_art.as<float>()};
+static constinit PIController    rate_pi = rate_pi_design.discretize(Ts).as<float>();
+static constinit PIController    angle_pi = angle_pi_design.discretize(Ts).as<float>();
+static constinit ADRCController  adrc{adrc_res.as<float>()};
+static constinit SMCController   smc{smc_res.as<float>()};
+static constinit STSMCController stsmc{stsmc_res.as<float>()};
+static constinit LQR             place_ctrl{place_res.as<float>()};
+// Each design runs as the runtime named for it, its sizes deduced from the result: LQR on the measured
+// state (design::place, design::lqr), LQI with integrators, LQG with the Kalman estimator, LQGI with both.
+static constinit LQR   lqr{lqr_res.as<float>()};
+static constinit LQI   lqi{lqi_res.as<float>()};
+static constinit LQG   lqg{lqg_res.as<float>()};
+static constinit LQGI  lqgi{lqgi_res.as<float>()};
+static constinit OFMPC of_mpc{mpc_art.as<float>()};
 
 int main() {
     fmt::print("===== Reaction-wheel roll — controller synthesis =====\n\n");
@@ -57,16 +60,16 @@ int main() {
 
     fmt::print(
         "place_sampled (s=[{:.3g},{:.3g}], Ts={:.3g}) K = [{:.4g}, {:.4g}]\n",
-        place_poles_s[0],
-        place_poles_s[1],
+        place_poles_s[0].real(),
+        place_poles_s[1].real(),
         Ts,
         place_ctrl.K(0, 0),
         place_ctrl.K(0, 1)
     );
     fmt::print("LQR   K = [{:.4g}, {:.4g}]\n", lqr.K(0, 0), lqr.K(0, 1));
     fmt::print("LQI   K = [{:.4g}, {:.4g} | Ki={:.4g}]\n", lqi.K(0, 0), lqi.K(0, 1), lqi.K(0, 2));
-    fmt::print("LQG   K = [{:.4g}, {:.4g}]\n", lqg.lqr.K(0, 0), lqg.lqr.K(0, 1));
-    fmt::print("LQGI  Kx = [{:.4g}, {:.4g}]  Ki={:.4g}\n", lqgi.lqi.K(0, 0), lqgi.lqi.K(0, 1), lqgi.lqi.K(0, 2));
+    fmt::print("LQG   K = [{:.4g}, {:.4g}]\n", lqg.K(0, 0), lqg.K(0, 1));
+    fmt::print("LQGI  Kx = [{:.4g}, {:.4g}]  Ki={:.4g}\n", lqgi.K(0, 0), lqgi.K(0, 1), lqgi.K(0, 2));
     fmt::print("OF-MPC:  success={}  NP=10  NC=4  |u|≤{}\n", mpc_art.success, u_max);
 
     const ColVec<NX, float> x0{0.05f, 0.0f};
@@ -74,18 +77,28 @@ int main() {
     const float             omega0 = x0(1);
     const float             r0 = 0.0f;
 
-    const float u_cascade = cascade_period(angle_pi, rate_pi, r0, theta0, omega0);
-    const float u_adrc = adrc.control(r0, theta0);
-    const float u_smc = smc.control(r0, theta0);
-    const float u_st = stsmc.control(r0, theta0);
-    const float u_place = place_ctrl.control(x0)(0);
-    const float u_lqr = lqr.control(x0)(0);
-    const float u_lqi = lqi.control(ColVec<NY, float>{r0}, ColVec<NY, float>{theta0}, x0)(0);
-    const float u_lqg = lqg.step(ColVec<NY, float>{theta0})(0);
-    const float u_lqgi = lqgi.step(ColVec<NY, float>{r0}, ColVec<NY, float>{theta0})(0);
-    const float u_mpc = of_mpc.control(ColVec<NY, float>{r0}, ColVec<NY, float>{theta0})(0);
+    // Every law's command goes through the actuator limit; the laws that track the applied input
+    // (ADRC's observer, the state-feedback integrators and estimators) are told what went out.
+    const auto clamp_u = [](float u) { return damp::clamp(u, -u_max, u_max); };
+    const auto applied = [&](auto& law, const ColVec<NU, float>& u_req) {
+        const float u = clamp_u(u_req(0));
+        law.back_calculate(u);
+        return u;
+    };
 
-    fmt::print("\nOne tick from x=[{:.3g}, {:.3g}], r=0 (I/O differs — not a bake-off):\n", theta0, omega0);
+    const float u_cascade = cascade_period(angle_pi, rate_pi, r0, theta0, omega0); // clamps internally
+    const float u_adrc = clamp_u(adrc.control(r0, theta0));
+    adrc.back_calculate(u_adrc);
+    const float u_smc = clamp_u(smc.control(r0, theta0));
+    const float u_st = clamp_u(stsmc.control(r0, theta0));
+    const float u_place = applied(place_ctrl, place_ctrl.step(x0));
+    const float u_lqr = applied(lqr, lqr.step(x0));
+    const float u_lqi = applied(lqi, lqi.step(r0, x0));
+    const float u_lqg = applied(lqg, lqg.step(theta0));
+    const float u_lqgi = applied(lqgi, lqgi.step(r0, theta0));
+    const float u_mpc = applied(of_mpc, of_mpc.step(r0, theta0));
+
+    fmt::print("\nOne tick from x=[{:.3g}, {:.3g}], r=0, |u| ≤ {} (I/O differs — not a bake-off):\n", theta0, omega0, u_max);
     fmt::print("  cascade={:.4g}  adrc={:.4g}  smc={:.4g}  stsmc={:.4g}\n", u_cascade, u_adrc, u_smc, u_st);
     fmt::print(
         "  place={:.4g}  lqr={:.4g}  lqi={:.4g}  lqg={:.4g}  lqgi={:.4g}  of_mpc={:.4g}\n",

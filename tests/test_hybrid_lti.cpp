@@ -24,6 +24,11 @@
 using namespace damp;
 using namespace damp::sim;
 
+namespace {
+const StateSpace<1, 1, 1> integ{.A = Matrix<1, 1>{{0.0}}, .B = Matrix<1, 1>{{1.0}}, .C = Matrix<1, 1>{{1.0}}, .Ts = 0.0};
+
+} // namespace
+
 TEST_SUITE("Hybrid piecewise LTI") {
 
     TEST_CASE("Exact LTI step matches ZOH for scalar integrator ẋ = u") {
@@ -43,10 +48,10 @@ TEST_SUITE("Hybrid piecewise LTI") {
     TEST_CASE("Exact LTI step: stable scalar ẋ = -a x") {
         const double a = 2.0;
         StateSpace   sys{
-              .A = Matrix<1, 1>{{-a}},
-              .B = Matrix<1, 1>{{0.0}},
-              .C = Matrix<1, 1>{{1.0}},
-              .Ts = 0.0,
+            .A = Matrix<1, 1>{{-a}},
+            .B = Matrix<1, 1>{{0.0}},
+            .C = Matrix<1, 1>{{1.0}},
+            .Ts = 0.0,
         };
         ColVec<1>    x0{1.0};
         ColVec<1>    u{0.0};
@@ -82,7 +87,7 @@ TEST_SUITE("Hybrid piecewise LTI") {
         };
 
         auto on_event = [&](double /*t*/, std::size_t, const ColVec<1>& x, const ColVec<1>&, const ColVec<1>&) {
-            HybridEventAction<1, 1, 1> act{};
+            HybridEventAction<1, 1> act{};
             act.x = x;
             if (high) {
                 // falling edge → OFF
@@ -111,7 +116,7 @@ TEST_SUITE("Hybrid piecewise LTI") {
         CHECK(tr.event_count >= 90); // ~2 edges per period × 50
         CHECK(tr.t.size() == tr.x.size());
         CHECK(tr.mode.size() == tr.t.size());
-        CHECK_FALSE(tr.truncated);
+        CHECK(tr.success);
         CHECK(tr.t.back() == doctest::Approx(t_end).epsilon(1e-9));
 
         double       i_sum = 0.0;
@@ -150,7 +155,7 @@ TEST_SUITE("Hybrid piecewise LTI") {
             return next_edge;
         };
         auto on_event = [&](double, std::size_t, const ColVec<1>& x, const ColVec<1>&, const ColVec<1>&) {
-            HybridEventAction<1, 1, 1> act{};
+            HybridEventAction<1, 1> act{};
             act.x = x;
             if (high) {
                 high = false;
@@ -199,6 +204,36 @@ TEST_SUITE("Hybrid piecewise LTI") {
         const double t_zc = locate_zero_crossing_exact(sys, x0, u, 0.0, 1.0, g, 1e-14);
         CHECK(t_zc == doctest::Approx(0.1).epsilon(1e-9));
     }
+
+    TEST_CASE("A non-advancing schedule is reported, not integrated open-loop to tf") {
+        PiecewiseLTI<1, 1, 1, 1> plant{.modes = {integ}};
+        const auto               schedule = [](double t, std::size_t, const auto&, const auto&) { return t; };
+        const auto               on_event = [](double, std::size_t m, const auto& x, const auto&, const auto& u) {
+            return HybridEventAction<1, 1>{.mode = m, .u = u, .x = x};
+        };
+        const auto tr = simulate_piecewise_lti(plant, 0, ColVec<1>{0.0}, ColVec<1>{1.0}, {0.0, 1.0}, schedule, on_event);
+        CHECK_FALSE(tr.success);
+    }
+
+    TEST_CASE("FixedStride logs h_fine samples without drift duplicates") {
+        PiecewiseLTI<1, 1, 1, 1> plant{.modes = {integ}};
+        const auto               schedule = [](double, std::size_t, const auto&, const auto&) { return 1.0; };
+        const auto               on_event = [](double, std::size_t m, const auto& x, const auto&, const auto& u) {
+            return HybridEventAction<1, 1>{.mode = m, .u = u, .x = x};
+        };
+        EventSimConfig<> cfg{.log = LogPolicy::FixedStride, .h_fine = 0.1};
+        const auto       tr = simulate_piecewise_lti(plant, 0, ColVec<1>{0.0}, ColVec<1>{1.0}, {0.0, 1.0}, schedule, on_event, cfg);
+        CHECK(tr.t.size() == 11);
+        CHECK(tr.x.back()(0) == doctest::Approx(1.0));
+    }
+
+    TEST_CASE("locate_zero_crossing_exact default tolerance is relative to the segment") {
+        // ẋ = u = 1e12: x = 1e12 t crosses 3 at t = 3e-12, on a picosecond segment.
+        const ColVec<1> x0{0.0};
+        const ColVec<1> u{1e12};
+        const double    t = locate_zero_crossing_exact(integ, x0, u, 0.0, 1e-11, [](const ColVec<1>& x) { return x(0) - 3.0; });
+        CHECK(std::abs(t - 3e-12) <= 1e-9 * 3e-12);
+    }
 }
 
 // NPY export (host) — no plotly
@@ -222,5 +257,17 @@ TEST_SUITE("NPY export") {
         CHECK(magic[4] == 'P');
         CHECK(magic[5] == 'Y');
         std::fclose(f);
+    }
+
+    TEST_CASE("NPY header is padded to a 64-byte boundary") {
+        const char* path = "tests/build/test_review_g6.npy";
+        REQUIRE(write_npy_f64(path, {3}, {1.0, 2.0, 3.0}));
+        FILE* f = std::fopen(path, "rb");
+        REQUIRE(f != nullptr);
+        unsigned char pre[10]{};
+        REQUIRE(std::fread(pre, 1, 10, f) == 10);
+        std::fclose(f);
+        const std::size_t hdr_len = pre[8] | (pre[9] << 8);
+        CHECK((10 + hdr_len) % 64 == 0);
     }
 }

@@ -39,12 +39,13 @@
 #include <type_traits>
 
 #include "damp/backend.hpp"
-#include "damp/math/math.hpp"            // damp::sin/cos, damp::clamp, numbers
-#include "damp/matrix/matrix_traits.hpp" // scalar_type_t, default_tol
+#include "damp/design/status.hpp"
+#include "damp/math/math.hpp"      // damp::sin/cos, damp::clamp, numbers
+#include "damp/toolbox/bounds.hpp" // Bounds
 
 namespace damp {
 
-/// Whether ESC climbs to a maximum or descends to a minimum of the objective.
+/** @brief Whether ESC climbs to a maximum or descends to a minimum of the objective. */
 enum class ExtremumType {
     Maximize,
     Minimize
@@ -53,161 +54,156 @@ enum class ExtremumType {
 namespace design {
 
 /**
- * @brief Extremum-seeking controller configuration (discrete realization).
+ * @brief The extremum-seeking design input: dither, gain, filter corners and clamp; Ts is passed beside it
+ *
+ * The design input of @ref esc and @ref esc_mppt, in the caller's units (Hz, rad). The caller
+ * names every number:
+ * `design::esc({.dither_amplitude = 0.05, .dither_freq_hz = 40.0, .gain = 60.0, .lp_cutoff_hz = 8.0}, Ts)`.
+ * The design turns it into an @ref ESCResult (rad/s, filter coefficients), the runtime
+ * realization; the two are distinct types.
+ *
+ * dither_amplitude, dither_freq_hz and gain have no usable default: left at 0 the design is
+ * refused.
+ *
  * @tparam T Scalar type
  */
 template<typename T = double>
-struct ESCConfig {
-
-    using scalar = scalar_type_t<T>;
-
-    scalar dither_amplitude{static_cast<scalar>(0.01)}; ///< a, perturbation amplitude (input units)
-    scalar dither_omega{scalar{0}};                     ///< ω, perturbation frequency [rad/s]
-    scalar gain{scalar{0}};                             ///< k, integrator (adaptation) gain
-    scalar hp_alpha{scalar{0}};                         ///< high-pass coefficient (objective DC removal)
-    scalar lp_alpha{scalar{1}};                         ///< gradient low-pass coefficient (1 = no LPF)
-    scalar demod_phase{scalar{0}};                      ///< φ, demodulation phase offset [rad] (plant lag)
-    scalar direction{scalar{1}};                        ///< +1 maximize, −1 minimize
-    scalar Ts{scalar{0}};                               ///< sample time [s]
-    scalar u_init{scalar{0}};                           ///< initial operating point û₀
-    scalar u_min{scalar{0}};                            ///< lower clamp on û (active iff u_min < u_max)
-    scalar u_max{scalar{0}};                            ///< upper clamp on û
-
-    [[nodiscard]] constexpr bool valid() const {
-        if (dither_amplitude <= scalar{0} || dither_omega <= scalar{0} || Ts <= scalar{0}) {
-            return false;
-        }
-        if (gain <= scalar{0}) {
-            return false;
-        }
-        if (hp_alpha <= scalar{0} || hp_alpha > scalar{1}) {
-            return false;
-        }
-        if (lp_alpha <= scalar{0} || lp_alpha > scalar{1}) {
-            return false;
-        }
-        // The dither must be well-resolved by the sample rate — not merely below
-        // Nyquist. ESC needs the perturbation cleanly sampled to demodulate it, so
-        // require ≥ 8 samples per dither period (ω·Ts ≤ π/4). Below that the gradient
-        // estimate degrades and the scale separation (HPF < ω < Nyquist) collapses.
-        if (dither_omega * Ts > damp::numbers::pi_v<scalar> / scalar{4}) {
-            return false;
-        }
-        return true;
-    }
+struct ESCSpec {
+    T            dither_amplitude{};           ///< a, perturbation amplitude in input units (> 0)
+    T            dither_freq_hz{};             ///< Perturbation frequency [Hz] (> 0, at least 8 samples per period)
+    T            gain{};                       ///< k, adaptation (integrator) gain (> 0)
+    ExtremumType type{ExtremumType::Maximize}; ///< Maximize (climb) or Minimize (descend)
+    T            hp_cutoff_hz{T{0}};           ///< High-pass corner [Hz], below the dither; 0 = dither_freq_hz/5
+    T            lp_cutoff_hz{T{0}};           ///< Gradient low-pass corner [Hz]; 0 = no low-pass
+    T            u_init{T{0}};                 ///< Initial operating point û₀
+    Bounds<1, T> u_lim{};                      ///< Clamp on û (default unbounded; off when lower ≥ upper)
+    T            demod_phase{T{0}};            ///< Demodulation phase offset φ [rad] for plant lag
 };
 
 /**
- * @brief Design result for the extremum-seeking controller.
+ * @brief Extremum-seeking design result: the discrete realization the runtime runs
+ *
+ * Built by @ref esc from an @ref ESCSpec (Hz → rad/s, filter corners → coefficients).
+ *
+ * @tparam T Scalar type
  */
 template<typename T = double>
-struct ESCResult {
+struct [[nodiscard]] ESCResult {
+    T            dither_amplitude{};                  ///< a, perturbation amplitude (input units)
+    T            dither_omega{};                      ///< ω, perturbation frequency [rad/s]
+    T            gain{};                              ///< k, integrator (adaptation) gain
+    T            hp_alpha{};                          ///< High-pass coefficient (objective DC removal)
+    T            lp_alpha{T{1}};                      ///< Gradient low-pass coefficient (1 = no LPF)
+    T            demod_phase{};                       ///< φ, demodulation phase offset [rad] (plant lag)
+    T            direction{T{1}};                     ///< +1 maximize, −1 minimize
+    T            u_init{};                            ///< Initial operating point û₀
+    Bounds<1, T> u_lim{};                             ///< Clamp on û (default unbounded; off when lower ≥ upper)
+    T            Ts{};                                ///< Sample time [s]
+    bool         success{false};                      ///< status == DesignStatus::ok
+    DesignStatus status{DesignStatus::not_converged}; ///< ok, or why the design failed
 
-    ESCConfig<T> config{};
-    bool         success{false};
+    /** @brief True when the design succeeded (success). */
+    [[nodiscard]] constexpr explicit operator bool() const { return success; }
 
     template<typename U>
     [[nodiscard]] constexpr ESCResult<std::remove_const_t<U>> as() const {
         using out_t = std::remove_const_t<U>;
-        using os = scalar_type_t<out_t>;
-        ESCResult<out_t> out{};
-        out.config.dither_amplitude = static_cast<os>(config.dither_amplitude);
-        out.config.dither_omega = static_cast<os>(config.dither_omega);
-        out.config.gain = static_cast<os>(config.gain);
-        out.config.hp_alpha = static_cast<os>(config.hp_alpha);
-        out.config.lp_alpha = static_cast<os>(config.lp_alpha);
-        out.config.demod_phase = static_cast<os>(config.demod_phase);
-        out.config.direction = static_cast<os>(config.direction);
-        out.config.Ts = static_cast<os>(config.Ts);
-        out.config.u_init = static_cast<os>(config.u_init);
-        out.config.u_min = static_cast<os>(config.u_min);
-        out.config.u_max = static_cast<os>(config.u_max);
-        out.success = success;
-        return out;
+        return ESCResult<out_t>{
+            .dither_amplitude = static_cast<out_t>(dither_amplitude),
+            .dither_omega = static_cast<out_t>(dither_omega),
+            .gain = static_cast<out_t>(gain),
+            .hp_alpha = static_cast<out_t>(hp_alpha),
+            .lp_alpha = static_cast<out_t>(lp_alpha),
+            .demod_phase = static_cast<out_t>(demod_phase),
+            .direction = static_cast<out_t>(direction),
+            .u_init = static_cast<out_t>(u_init),
+            .u_lim = u_lim.template as<out_t>(),
+            .Ts = static_cast<out_t>(Ts),
+            .success = success,
+            .status = status,
+        };
     }
 };
 
-/// First-order discrete low-pass coefficient for corner @p wc [rad/s] at @p Ts.
+namespace detail {
+/** @brief First-order discrete low-pass coefficient for corner @p wc [rad/s] at @p Ts; 1 (pass-through) for wc = 0. */
 template<typename T>
 [[nodiscard]] constexpr T esc_lpf_alpha(T wc, T Ts) {
-    if (wc <= T{0}) {
-        return T{1}; // no filtering (pass-through)
+    if (!(wc > T{0})) {
+        return T{1};
     }
     return (wc * Ts) / (T{1} + (wc * Ts));
 }
+} // namespace detail
 
 /**
  * @brief Synthesize an extremum-seeking controller.
  *
- * @param dither_amplitude  a, perturbation amplitude in input units (> 0)
- * @param dither_freq_hz    perturbation frequency [Hz] (> 0, below Nyquist)
- * @param gain              k, adaptation/integrator gain (> 0)
- * @param Ts                sample time [s] (> 0)
- * @param type              Maximize (climb) or Minimize (descend)
- * @param hp_cutoff_hz      high-pass corner [Hz] (0 → dither_freq/5); below the dither
- * @param lp_cutoff_hz      gradient low-pass corner [Hz] (0 → no LPF)
- * @param u_init            initial operating point û₀
- * @param u_min,u_max       clamp on û (active iff u_min < u_max)
- * @param demod_phase       demodulation phase offset [rad] for plant lag (default 0)
+ * The scalar type follows @p Ts, so a braced spec needs no template argument.
+ *
+ * The dither must be well resolved by the sample rate, not merely below Nyquist: ESC needs the
+ * perturbation cleanly sampled to demodulate it, so the design requires ≥ 8 samples per dither
+ * period (ω·Ts ≤ π/4). Below that the gradient estimate degrades and the scale separation
+ * (HPF < ω < Nyquist) collapses.
+ *
+ * @param spec Dither amplitude, frequency and gain (each > 0), direction, filter corners (≥ 0),
+ *             initial operating point, clamp and demodulation phase
+ * @param Ts   Sample time [s] (> 0)
+ * @return ESCResult; refused with invalid_sample_time for a non-positive or non-finite Ts, and
+ *         with invalid_parameter for a spec entry outside its domain or a dither faster than Ts allows
  */
 template<typename T = double>
-[[nodiscard]] constexpr ESCResult<T> esc(
-    T            dither_amplitude,
-    T            dither_freq_hz,
-    T            gain,
-    T            Ts,
-    ExtremumType type = ExtremumType::Maximize,
-    T            hp_cutoff_hz = T{0},
-    T            lp_cutoff_hz = T{0},
-    T            u_init = T{0},
-    T            u_min = T{0},
-    T            u_max = T{0},
-    T            demod_phase = T{0}
-) {
-    if (dither_freq_hz <= T{0} || Ts <= T{0}) {
-        return ESCResult<T>{};
+[[nodiscard]] constexpr ESCResult<T> esc(const ESCSpec<T>& spec, T Ts) {
+    if (!damp::finite_positive(Ts)) {
+        return ::damp::detail::refused<ESCResult<T>>(DesignStatus::invalid_sample_time);
     }
-    const T two_pi = T{2} * damp::numbers::pi_v<T>;
-    const T hp_hz = (hp_cutoff_hz > T{0}) ? hp_cutoff_hz : dither_freq_hz / T{5};
-
-    using scalar = scalar_type_t<T>;
-    const ESCConfig<T> config{
-        .dither_amplitude = static_cast<scalar>(dither_amplitude),
-        .dither_omega = static_cast<scalar>(two_pi * dither_freq_hz),
-        .gain = static_cast<scalar>(gain),
-        .hp_alpha = static_cast<scalar>(esc_lpf_alpha(two_pi * hp_hz, Ts)),
-        .lp_alpha = static_cast<scalar>(esc_lpf_alpha(two_pi * lp_cutoff_hz, Ts)),
-        .demod_phase = static_cast<scalar>(demod_phase),
-        .direction = static_cast<scalar>((type == ExtremumType::Maximize) ? T{1} : T{-1}),
-        .Ts = static_cast<scalar>(Ts),
-        .u_init = static_cast<scalar>(u_init),
-        .u_min = static_cast<scalar>(u_min),
-        .u_max = static_cast<scalar>(u_max),
+    const bool in_domain = damp::finite_positive(spec.dither_amplitude) && damp::finite_positive(spec.dither_freq_hz)
+                        && damp::finite_positive(spec.gain) && damp::finite_non_negative(spec.hp_cutoff_hz)
+                        && damp::finite_non_negative(spec.lp_cutoff_hz) && damp::isfinite(spec.u_init)
+                        && damp::isfinite(spec.demod_phase);
+    if (!in_domain) {
+        return ::damp::detail::refused<ESCResult<T>>(DesignStatus::invalid_parameter);
+    }
+    const T      two_pi = T{2} * damp::numbers::pi_v<T>;
+    const T      omega = two_pi * spec.dither_freq_hz;
+    const T      hp_hz = (spec.hp_cutoff_hz > T{0}) ? spec.hp_cutoff_hz : spec.dither_freq_hz / T{5};
+    ESCResult<T> out{
+        .dither_amplitude = spec.dither_amplitude,
+        .dither_omega = omega,
+        .gain = spec.gain,
+        .hp_alpha = detail::esc_lpf_alpha(two_pi * hp_hz, Ts),
+        .lp_alpha = detail::esc_lpf_alpha(two_pi * spec.lp_cutoff_hz, Ts),
+        .demod_phase = spec.demod_phase,
+        .direction = (spec.type == ExtremumType::Maximize) ? T{1} : T{-1},
+        .u_init = spec.u_init,
+        .u_lim = spec.u_lim,
+        .Ts = Ts,
     };
-    return ESCResult<T>{
-        .config = config,
-        .success = config.valid(),
-    };
+    const bool resolved = (omega * Ts <= damp::numbers::pi_v<T> / T{4}) && damp::isfinite(out.hp_alpha)
+                       && damp::isfinite(out.lp_alpha);
+    ::damp::detail::set_status(out, resolved ? DesignStatus::ok : DesignStatus::invalid_parameter);
+    return out;
 }
 
 /**
  * @brief MPPT-flavored ESC: maximize a power measurement by perturbing the
  *        operating point (e.g. converter duty or reference voltage).
  *
- * Thin wrapper over @ref esc with Maximize and a clamp band — the
- * principled form of perturb-and-observe.
+ * @ref esc with two MPPT defaults: it always maximizes (spec.type is ignored), and the gradient
+ * low-pass sits at dither_freq_hz/5 unless spec.lp_cutoff_hz sets one. Set u_init and the clamp
+ * band u in the spec — the principled form of perturb-and-observe.
+ *
+ * @param spec Dither, gain, initial operating point and clamp band, as for @ref esc
+ * @param Ts   Sample time [s] (> 0)
  */
 template<typename T = double>
-[[nodiscard]] constexpr ESCResult<T> esc_mppt(
-    T dither_amplitude,
-    T dither_freq_hz,
-    T gain,
-    T Ts,
-    T u_init,
-    T u_min,
-    T u_max
-) {
-    return esc<T>(dither_amplitude, dither_freq_hz, gain, Ts, ExtremumType::Maximize, T{0}, dither_freq_hz / T{5}, u_init, u_min, u_max);
+[[nodiscard]] constexpr ESCResult<T> esc_mppt(const ESCSpec<T>& spec, T Ts) {
+    ESCSpec<T> mppt = spec;
+    mppt.type = ExtremumType::Maximize;
+    if (mppt.lp_cutoff_hz == T{0}) {
+        mppt.lp_cutoff_hz = spec.dither_freq_hz / T{5};
+    }
+    return esc(mppt, Ts);
 }
 
 } // namespace design
@@ -220,16 +216,16 @@ template<typename T = double>
  * objective, and feed it back to get the next input:
  *
  * @code
- * auto esc = ExtremumSeekingController(design::esc(...));
+ * auto esc = ExtremumSeekingController(design::esc({.dither_amplitude = 0.05, .dither_freq_hz = 40.0, .gain = 60.0}, Ts));
  * double u = esc.input();                 // first input (= û₀)
  * for (;;) {
  *     double J = measure_objective(u);    // apply u, read the objective
- *     u = esc.step(J);                    // -> next perturbed input
+ *     u = esc.control(J);                 // -> next perturbed input
  * }
- * double u_opt = esc.estimate();          // converged operating point û
+ * double u_opt = esc.operating_point();   // converged operating point û
  * @endcode
  *
- * `step(J, measurement_valid)` *freezes* the estimator when the measurement is
+ * `control(J, measurement_valid)` *freezes* the estimator when the measurement is
  * flagged bad (sensor fault / transient): û and the high-/low-pass states hold
  * (the bad J never enters them) while the dither keeps running — the "freeze on
  * degraded measurement" safety behavior.
@@ -241,30 +237,33 @@ class ExtremumSeekingController {
 public:
     constexpr ExtremumSeekingController() = default;
 
-    constexpr explicit ExtremumSeekingController(const design::ESCConfig<T>& config)
-        : config_(config), uhat_(config.u_init), valid_(config.valid()) {
-        init_phasors();
-    }
+    /** @brief From a design result in another scalar: converts it with .as\<T\>() and builds from that. */
+    template<typename U>
+        requires(!std::is_same_v<U, T>)
+    constexpr ExtremumSeekingController(const design::ESCResult<U>& result) // NOLINT(google-explicit-constructor): assign-from-design
+        : ExtremumSeekingController(result.template as<T>()) {}
 
-    constexpr explicit ExtremumSeekingController(const design::ESCResult<T>& design)
-        : config_(design.config), uhat_(design.config.u_init), valid_(design.success && design.config.valid()) {
-        if (!design.success && std::is_constant_evaluated()) {
-            ::damp::detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed design does not compile
+    constexpr ExtremumSeekingController(const design::ESCResult<T>& result) // NOLINT(google-explicit-constructor): assign-from-design
+        : config_(result), uhat_(result.u_init), valid_(result.success) {
+        if (!result.success && std::is_constant_evaluated()) {
+            ::damp::detail::refuse_failed_design(result.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
         init_phasors();
     }
 
-    /// Current perturbed input to apply, û + a·sin φ.
-    ///
-    /// When a clamp band is configured (`u_min < u_max`) the *applied* command is
-    /// clamped to it: the estimate û is bounded, but û + dither could otherwise
-    /// ride a full dither amplitude past a hard actuator limit. Near a bound this
-    /// clips the perturbation asymmetrically (a small, benign gradient bias) in
-    /// exchange for never commanding past the limit.
+    /**
+     * @brief Current perturbed input to apply, û + a·sin φ.
+     *
+     * When the clamp band is active (`u_lim.lower < u_lim.upper`) the *applied* command is
+     * clamped to it: the estimate û is bounded, but û + dither could otherwise
+     * ride a full dither amplitude past a hard actuator limit. Near a bound this
+     * clips the perturbation asymmetrically (a small, benign gradient bias) in
+     * exchange for never commanding past the limit.
+     */
     [[nodiscard]] constexpr T input() const {
         const T u = uhat_ + (config_.dither_amplitude * dither_s_);
-        if (config_.u_min < config_.u_max) {
-            return damp::clamp(u, config_.u_min, config_.u_max);
+        if (config_.u_lim.lower(0) < config_.u_lim.upper(0)) {
+            return config_.u_lim.saturate(u);
         }
         return u;
     }
@@ -275,7 +274,7 @@ public:
      * @param measurement_valid If false, ignore @p objective: hold û and the
      *                          filter states, advance only the dither.
      */
-    [[nodiscard]] constexpr T step(T objective, bool measurement_valid = true) {
+    [[nodiscard]] constexpr T control(T objective, bool measurement_valid = true) {
         if (!valid_) {
             return uhat_;
         }
@@ -305,8 +304,8 @@ public:
 
         // Integrate the gradient toward the extremum.
         uhat_ += config_.direction * config_.gain * gradient_ * config_.Ts;
-        if (config_.u_min < config_.u_max) {
-            uhat_ = damp::clamp(uhat_, config_.u_min, config_.u_max);
+        if (config_.u_lim.lower(0) < config_.u_lim.upper(0)) {
+            uhat_ = config_.u_lim.saturate(uhat_);
         }
 
         // Advance the dither phase and form the next perturbed input.
@@ -314,7 +313,11 @@ public:
         return input();
     }
 
-    [[nodiscard]] constexpr T    estimate() const { return uhat_; }
+    /** @brief Not a SISO law: control(r, y) would read y as the validity flag, so it does not compile. */
+    constexpr T control(T, T) = delete;
+
+    /** @brief The operating point û: the current estimate of the extremum's input, without the dither. */
+    [[nodiscard]] constexpr T    operating_point() const { return uhat_; }
     [[nodiscard]] constexpr T    gradient() const { return gradient_; }
     [[nodiscard]] constexpr bool valid() const { return valid_; }
 
@@ -350,7 +353,7 @@ private:
         dither_c_ = c * k;
     }
 
-    design::ESCConfig<T> config_{};
+    design::ESCResult<T> config_{}; ///< The design's realization
 
     T    uhat_{T{0}};     // Converged operating point estimate û (the optimizer's answer).
     T    dither_s_{T{0}}; // sin φ of the current dither phase
@@ -365,5 +368,9 @@ private:
     bool valid_{false};
     bool primed_{false}; // Whether hp_state_ has been seeded to the first objective.
 };
+
+/** @brief Deduce the runtime from its design, keeping the result's scalar. */
+template<typename T>
+ExtremumSeekingController(const design::ESCResult<T>&) -> ExtremumSeekingController<T>;
 
 } // namespace damp

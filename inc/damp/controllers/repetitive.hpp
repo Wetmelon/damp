@@ -21,12 +21,12 @@
  * It is a *plug-in*: it sits alongside any base controller and adds a correction.
  *
  *     e   = r - y;                 // tracking error
- *     u   = base.control(r, y) + rc.step(e);
+ *     u   = base.control(r, y) + rc.control(e);
  *
  * Standard discrete realization (robustness filter Q(z), integer phase lead m):
  *
- *     w[k]    = Q(z)·w[k-N] + e[k]      (internal-model memory, length-N buffer)
- *     u_rc[k] = k_rc · w[k - N + m]     (the learned, phase-advanced correction)
+ *     w[k]    = Q(z)·w[k-N] + e[k]          (internal-model memory, length-N buffer)
+ *     u_rc[k] = k_rc · Q(z)·w[k - N + m]    (the learned, phase-advanced correction)
  *
  * Robustness filter Q. A scalar Q ∈ (0,1] uniformly rolls the model gain off
  * the high harmonics (where plant phase is uncertain), trading some steady-state
@@ -35,8 +35,12 @@
  * near-unity gain on the low harmonics (full rejection) yet rolls off to ~0 near
  * Nyquist (robust stability), *without* adding phase. It is realizable inside the
  * loop because Q multiplies the N-delayed signal — the "future" taps z^{+i} read
- * already-buffered samples w[k−N+i] (available for i < N). The default family is
- * the unity-DC-gain binomial: M=1 → [1,2,1]/4, M=2 → [1,4,6,4,1]/16, …
+ * already-buffered samples w[k−N+m+i] (available for m + M < N). The default family
+ * is the unity-DC-gain binomial: M=1 → [1,2,1]/4, M=2 → [1,4,6,4,1]/16, …
+ *
+ * Q filters the output tap as well as the memory, so it multiplies the whole learning
+ * loop and the stability condition is ‖Q(1 − k_rc zᵐ G_o)‖∞ < 1, with G_o the base
+ * loop's map from u_rc to y: where Q rolls off, the plant-uncertainty term drops out.
  *
  * The integer phase-lead m pre-applies the correction a few samples early to
  * offset plant transport lag.
@@ -50,7 +54,9 @@
 #include <limits>
 #include <type_traits>
 
-#include "damp/backend.hpp"              // damp::array
+#include "damp/backend.hpp" // damp::array
+#include "damp/design/status.hpp"
+#include "damp/math/math.hpp"            // damp::finite_positive
 #include "damp/matrix/matrix_traits.hpp" // scalar_type_t
 
 namespace damp {
@@ -75,11 +81,11 @@ struct RepetitiveConfig {
     size_t                        period{0};           ///< N = round(fs / f0), samples per fundamental period
     scalar                        gain{scalar{1}};     ///< k_rc, repetitive (learning) gain — 0 < k_rc ≲ 2 (plant-dependent)
     scalar                        q_filter{scalar{1}}; ///< Q center tap q_0 (== scalar Q when q_half = 0)
-    size_t                        lead{0};             ///< m, phase-lead samples to offset plant lag (0 ≤ m < N)
+    size_t                        lead{0};             ///< m, phase-lead samples to offset plant lag (m + q_half < N)
     size_t                        q_half{0};           ///< FIR Q half-width M (0 = scalar); symmetric side taps below
     damp::array<scalar, MaxQHalf> q_side{};            ///< q_1 … q_M (each side; q_side[i-1] = q_i)
 
-    /// DC gain of the Q-filter, q_0 + 2·Σ q_i (1.0 for a unity-DC robustness filter).
+    /** @brief DC gain of the Q-filter, q_0 + 2·Σ q_i (1.0 for a unity-DC robustness filter). */
     [[nodiscard]] constexpr scalar q_dc_gain() const {
         scalar dc = q_filter;
         for (size_t i = 0; i < q_half; ++i) {
@@ -92,28 +98,25 @@ struct RepetitiveConfig {
         if (period < 2) {
             return false;
         }
-        if (gain <= scalar{0} || gain > scalar{2}) {
+        if (!damp::finite_positive(gain) || gain > scalar{2}) {
             return false;
         }
-        if (q_filter <= scalar{0}) {
+        if (!damp::finite_positive(q_filter)) {
             return false;
         }
-        if (q_half > MaxQHalf || q_half >= period) {
-            return false; // window must fit inside the period delay (N > M)
+        if (q_half > MaxQHalf || lead + q_half >= period) {
+            return false; // the output tap's window w[k−N+m−M … k−N+m+M] must be in the past (m + M < N)
         }
         const scalar dc = q_dc_gain();
         // Allow the rounding of summing 2M+1 taps (each ≤ 1) to unity, no more.
         const scalar dc_slack = scalar{4} * static_cast<scalar>((2 * q_half) + 1) * eps<scalar>();
-        if (dc <= scalar{0} || dc > scalar{1} + dc_slack) {
+        if (!damp::finite_positive(dc) || dc > scalar{1} + dc_slack) {
             return false; // a robustness filter must not amplify (DC gain ≤ 1)
-        }
-        if (lead >= period) {
-            return false;
         }
         return true;
     }
 
-    /// Convert the configuration to a different scalar precision.
+    /** @brief Convert the configuration to a different scalar precision. */
     template<typename U>
     [[nodiscard]] constexpr RepetitiveConfig<std::remove_const_t<U>, MaxQHalf> as() const {
         using out_scalar = scalar_type_t<std::remove_const_t<U>>;
@@ -134,23 +137,27 @@ struct RepetitiveConfig {
  * @brief Design result for the repetitive controller.
  */
 template<typename T = double, size_t MaxQHalf = 0>
-struct RepetitiveResult {
+struct [[nodiscard]] RepetitiveResult {
 
     RepetitiveConfig<T, MaxQHalf> config{};
-    bool                          success{false};
+    bool                          success{false};                      ///< status == DesignStatus::ok
+    DesignStatus                  status{DesignStatus::not_converged}; ///< ok, or why the design failed
+
+    /** @brief True when the design succeeded (success). */
+    [[nodiscard]] constexpr explicit operator bool() const { return success; }
 
     template<typename U>
     [[nodiscard]] constexpr RepetitiveResult<std::remove_const_t<U>, MaxQHalf> as() const {
-        return RepetitiveResult<std::remove_const_t<U>, MaxQHalf>{config.template as<U>(), success};
+        return RepetitiveResult<std::remove_const_t<U>, MaxQHalf>{config.template as<U>(), success, status};
     }
 };
 
 namespace detail {
-/// N = round(fs / f0), or 0 (an invalid period) when the rates are out of range.
+/** @brief N = round(fs / f0), or 0 (an invalid period) when the rates are out of range. */
 template<typename T>
 [[nodiscard]] constexpr size_t repetitive_period(T fs_hz, T f0_hz) {
-    // !(a < b) also rejects NaN; the cap keeps the size_t cast defined.
-    if (!(fs_hz > T{0}) || !(f0_hz > T{0}) || !(f0_hz < fs_hz)) {
+    // finite_positive rejects NaN under -ffast-math too; the cap keeps the size_t cast defined.
+    if (!damp::finite_positive(fs_hz) || !damp::finite_positive(f0_hz) || !(f0_hz < fs_hz)) {
         return 0;
     }
     const T ratio = fs_hz / f0_hz;
@@ -160,7 +167,7 @@ template<typename T>
     return static_cast<size_t>(ratio + static_cast<T>(0.5)); // round to nearest
 }
 
-/// Binomial coefficient C(n, k) (small n; double is exact in range).
+/** @brief Binomial coefficient C(n, k) (small n; double is exact in range). */
 [[nodiscard]] constexpr double binomial(size_t n, size_t k) {
     double c = 1.0;
     for (size_t i = 0; i < k; ++i) {
@@ -168,25 +175,33 @@ template<typename T>
     }
     return c;
 }
+
+/** @brief The result for @p config: ok when it is valid, refused with invalid_parameter otherwise. */
+template<typename T, size_t MaxQHalf>
+[[nodiscard]] constexpr RepetitiveResult<T, MaxQHalf> repetitive_result(const RepetitiveConfig<T, MaxQHalf>& config) {
+    RepetitiveResult<T, MaxQHalf> out{.config = config};
+    ::damp::detail::set_status(out, config.valid() ? DesignStatus::ok : DesignStatus::invalid_parameter);
+    return out;
+}
 } // namespace detail
 
 /**
  * @brief Synthesize a repetitive controller with a scalar robustness filter Q.
  *
- * Computes the period N = round(fs / f0) and validates the tuning. Returns
- * `success = false` (rather than asserting) on an invalid spec so it composes in
+ * Computes the period N = round(fs / f0) and validates the tuning. Refuses an
+ * invalid spec with invalid_parameter (rather than asserting) so it composes in
  * `constexpr` design code.
  *
  * @code
  * auto                             d = design::repetitive(10000.0, 50.0); // 10 kHz, 50 Hz
  * RepetitiveController<256, double> rc(d);
- * double                           u = base.control(r, y) + rc.step(r - y); // plug-in correction
+ * double                           u = base.control(r, y) + rc.control(r - y); // plug-in correction
  * @endcode
  *
  * MATLAB® equivalent (no single builtin — the internal model is a delay loop):
  * @code{.m}
  *   N = round(fs / f0);
- *   % w(k) = q*w(k-N) + e(k);   u_rc(k) = k_rc * w(k-N+m);
+ *   % w(k) = q*w(k-N) + e(k);   u_rc(k) = k_rc * q * w(k-N+m);
  * @endcode
  *
  * @param fs_hz Sample rate [Hz]
@@ -210,10 +225,7 @@ template<typename T = double>
         .lead = lead,
         .q_half = 0,
     };
-    return RepetitiveResult<T, 0>{
-        .config = config,
-        .success = config.valid(),
-    };
+    return detail::repetitive_result(config);
 }
 
 
@@ -255,10 +267,7 @@ template<size_t M, typename T = double>
     for (size_t i = 1; i <= M; ++i) {
         config.q_side[i - 1] = static_cast<scalar>(detail::binomial(2 * M, M + i) / norm);
     }
-    return RepetitiveResult<T, M>{
-        .config = config,
-        .success = config.valid(),
-    };
+    return detail::repetitive_result(config);
 }
 
 } // namespace design
@@ -268,9 +277,11 @@ template<size_t M, typename T = double>
  * @brief Plug-in repetitive controller runtime (fixed-size internal model).
  *
  * `MaxPeriod` bounds the internal-model buffer at compile time (allocation-free);
- * the active period N ≤ MaxPeriod is set from the design. `step(error)` returns
+ * the active period N ≤ MaxPeriod is set from the design. `control(e)` returns
  * the repetitive correction to add to the base controller's command. `MaxQHalf`
- * bounds the optional zero-phase FIR Q half-width (0 = scalar Q).
+ * bounds the optional zero-phase FIR Q half-width (0 = scalar Q). A failed design, or
+ * one whose period + q_half exceeds MaxPeriod, does not compile under constant
+ * evaluation; at run time it leaves the controller invalid (zero correction).
  *
  * @tparam MaxPeriod Buffer capacity (largest supported N + Q half-width)
  * @tparam T         Scalar type (float or double)
@@ -284,17 +295,20 @@ public:
 
     constexpr RepetitiveController() = default;
 
-    constexpr explicit RepetitiveController(const design::RepetitiveConfig<T, MaxQHalf>& config)
-        : config_(config), valid_(config.valid() && config.period + config.q_half <= MaxPeriod) {}
+    /** @brief From a design result in another scalar: converts it with .as\<T\>() and builds from that. */
+    template<typename U>
+        requires(!std::is_same_v<U, T>)
+    constexpr RepetitiveController(const design::RepetitiveResult<U, MaxQHalf>& result) // NOLINT(google-explicit-constructor): assign-from-design
+        : RepetitiveController(result.template as<T>()) {}
 
-    constexpr explicit RepetitiveController(const design::RepetitiveResult<T, MaxQHalf>& design)
-        : config_(design.config), valid_(design.success && design.config.period + design.config.q_half <= MaxPeriod) {
-        if (!design.success && std::is_constant_evaluated()) {
-            ::damp::detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed design does not compile
+    constexpr RepetitiveController(const design::RepetitiveResult<T, MaxQHalf>& result) // NOLINT(google-explicit-constructor): assign-from-design
+        : config_(result.config), valid_(result.success && result.config.period + result.config.q_half <= MaxPeriod) {
+        if (!valid_ && std::is_constant_evaluated()) {
+            ::damp::detail::refuse_failed_design(result.success ? design::DesignStatus::invalid_parameter : result.status); // constant-evaluated (constinit / constexpr): a failed design, or one MaxPeriod cannot hold, does not compile
         }
     }
 
-    /// Convert across scalar precision, preserving the learned internal model.
+    /** @brief Convert across scalar precision, preserving the learned internal model. */
     template<typename U>
     constexpr explicit RepetitiveController(const RepetitiveController<MaxPeriod, U, MaxQHalf>& other)
         : config_(other.config_.template as<T>()), write_idx_(other.write_idx_), valid_(other.valid_) {
@@ -304,49 +318,54 @@ public:
     }
 
     /**
-     * @brief Advance one tick with the current tracking error; returns the
+     * @brief Advance one tick with the tracking error @p e; returns the
      *        repetitive correction u_rc to add to the base command.
      */
-    [[nodiscard]] constexpr T step(T error) {
+    [[nodiscard]] constexpr T control(T e) {
         if (!valid_) {
             return T{0};
         }
         const size_t n = config_.period;
-        const size_t mq = config_.q_half; // FIR Q half-width (distinct from the doc's phase-lead m = config_.lead)
 
-        // Phase-advanced output tap w[k-N+lead].
-        const size_t read_out = (write_idx_ + MaxPeriod - n + config_.lead) % MaxPeriod;
-        const T      u_rc = static_cast<T>(config_.gain) * mem_[read_out];
+        // Phase-advanced output through the same zero-phase FIR: u_rc = k_rc·Q·w[k-N+lead].
+        const T u_rc = static_cast<T>(config_.gain) * filtered(n - config_.lead);
 
-        // Zero-phase FIR Q applied to the N-delayed signal:
-        //   Q·w[k-N] = q_0·w[k-N] + Σ_{i=1}^{M} q_i·(w[k-N-i] + w[k-N+i]).
-        T qw = static_cast<T>(config_.q_filter) * mem_[(write_idx_ + MaxPeriod - n) % MaxPeriod];
-        for (size_t i = 1; i <= mq; ++i) {
-            const T older = mem_[(write_idx_ + MaxPeriod - n - i) % MaxPeriod]; // w[k-N-i]
-            const T newer = mem_[(write_idx_ + MaxPeriod - n + i) % MaxPeriod]; // w[k-N+i]
-            qw += static_cast<T>(config_.q_side[i - 1]) * (older + newer);
-        }
-
-        mem_[write_idx_] = qw + error; // w[k] = Q·w[k-N] + e[k]
+        mem_[write_idx_] = filtered(n) + e; // w[k] = Q·w[k-N] + e[k]
         write_idx_ = (write_idx_ + 1) % MaxPeriod;
 
         return u_rc;
     }
 
-    /// Clear the learned internal model (buffer + write index); config preserved.
+    /** @brief Clear the learned internal model (buffer + write index); config preserved. */
     constexpr void reset() {
         mem_ = {};
         write_idx_ = 0;
     }
 
-    /// The active configuration (period, gain, Q taps, phase lead).
+    /** @brief The active configuration (period, gain, Q taps, phase lead). */
     [[nodiscard]] constexpr const auto& config() const { return config_; }
-    /// True if the design is valid and fit the buffer (period + q_half ≤ MaxPeriod).
+    /** @brief True if the design is valid and fit the buffer (period + q_half ≤ MaxPeriod). */
     [[nodiscard]] constexpr bool valid() const { return valid_; }
 
 private:
     template<size_t, typename, size_t>
     friend class RepetitiveController; // cross-precision converting ctor
+
+    /**
+     * @brief Q·w[k−d] = q₀·w[k−d] + Σᵢ qᵢ·(w[k−d−i] + w[k−d+i]), the zero-phase FIR on the memory d samples back
+     *
+     * Needs d > q_half (the newest tap is in the past) and d + q_half ≤ MaxPeriod (the oldest is
+     * still buffered), which valid() and the constructor's capacity check guarantee for d = N − m and d = N.
+     */
+    [[nodiscard]] constexpr T filtered(size_t d) const {
+        T qw = static_cast<T>(config_.q_filter) * mem_[(write_idx_ + MaxPeriod - d) % MaxPeriod];
+        for (size_t i = 1; i <= config_.q_half; ++i) {
+            const T older = mem_[(write_idx_ + MaxPeriod - d - i) % MaxPeriod]; // w[k-d-i]
+            const T newer = mem_[(write_idx_ + MaxPeriod - d + i) % MaxPeriod]; // w[k-d+i]
+            qw += static_cast<T>(config_.q_side[i - 1]) * (older + newer);
+        }
+        return qw;
+    }
 
     design::RepetitiveConfig<T, MaxQHalf> config_{};
     damp::array<T, MaxPeriod>             mem_{};

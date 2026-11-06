@@ -79,7 +79,7 @@ struct SR {
         return Q1;
     }
 
-    /// @brief Reset the latch to false.
+    /** @brief Reset the latch to false. */
     constexpr void reset() { Q1 = false; }
 };
 
@@ -107,7 +107,7 @@ struct RS {
         return Q1;
     }
 
-    /// @brief Reset the latch to false.
+    /** @brief Reset the latch to false. */
     constexpr void reset() { Q1 = false; }
 };
 
@@ -547,7 +547,7 @@ public:
 
     constexpr BLINK() = default;
 
-    /// @param t_on High duration [s]; @param t_off Low duration [s].
+    /** @param t_on High duration [s]; @param t_off Low duration [s]. */
     constexpr BLINK(T t_on, T t_off) : time_on(t_on), time_off(t_off) {}
 
     /**

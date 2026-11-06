@@ -34,6 +34,7 @@
  */
 
 #include <cstddef>
+#include <limits>
 #include <vector>
 
 #include "damp/backend.hpp"
@@ -70,6 +71,9 @@ struct CachedZoh {
      * @param A     Continuous system matrix (NX × NX)
      * @param B     Continuous input matrix (NX × NU)
      * @param step  [s] ZOH sample period (must be > 0)
+     *
+     * A non-finite entry (the exponential fails) gives NaN maps, so the failure shows in the
+     * simulated trajectory.
      */
     [[nodiscard]] static CachedZoh from(const Matrix<NX, NX, T>& A, const Matrix<NX, NU, T>& B, T step) {
         CachedZoh z{};
@@ -84,9 +88,14 @@ struct CachedZoh {
         Matrix<NX + NU, NX + NU, T> M = Matrix<NX + NU, NX + NU, T>::zeros();
         M.template block<NX, NX>(0, 0) = A;
         M.template block<NX, NU>(0, NX) = B;
-        const auto expM = mat::expm(M * step);
-        z.Ad = expM.template block<NX, NX>(0, 0);
-        z.Bd = expM.template block<NX, NU>(0, NX);
+        const auto expM = mat::expm(Matrix<NX + NU, NX + NU, T>(M * step));
+        if (!expM) {
+            z.Ad.fill(std::numeric_limits<T>::quiet_NaN());
+            z.Bd.fill(std::numeric_limits<T>::quiet_NaN());
+            return z;
+        }
+        z.Ad = expM->template block<NX, NX>(0, 0);
+        z.Bd = expM->template block<NX, NU>(0, NX);
         return z;
     }
 

@@ -23,6 +23,7 @@
 #include "damp/controllers/adrc.hpp"
 #include "damp/controllers/pid.hpp"
 #include "damp/design/pid_design.hpp"
+#include "damp/systems/transfer_function.hpp"
 
 namespace damp::examples_adrc {
 
@@ -39,18 +40,22 @@ inline constexpr double wo = 40.0;      // [rad/s] ESO (5× wc)
 inline constexpr double b0 = 1.0 / J_nom;
 
 [[nodiscard]] constexpr design::ADRCResult<2, double> make_adrc() {
-    return design::adrc<2>(wc, wo, b0);
+    return design::adrc<2>(wc, wo, b0, Ts);
 }
 
 inline constexpr auto adrc_d = make_adrc();
 
 /// Critically-damped PD at wc plus an I pole at wc/8 (load hold).
-[[nodiscard]] constexpr design::PIDResult<double> make_pid() {
-    auto r = design::pid_pole_placement_double_integrator(J_nom, wc, 1.0, wc / 8.0);
-    r.u_min = -u_max;
-    r.u_max = u_max;
-    r.i_min = -u_max;
-    r.i_max = u_max;
+[[nodiscard]] constexpr design::PIDGains<double> make_pid() {
+    auto r = design::pid_pole_placement(TransferFunction<1, 3>{.num = {1.0}, .den = {J_nom, 0.0, 0.0}}, {.omega = wc, .zeta = 1.0, .omega_i = wc / 8.0});
+    r.u_lim = {
+        .lower = -u_max,
+        .upper = u_max,
+    };
+    r.integral_lim = {
+        .lower = -u_max,
+        .upper = u_max,
+    };
     return r;
 }
 

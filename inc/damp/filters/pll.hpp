@@ -18,6 +18,17 @@
 
 namespace damp {
 
+namespace detail {
+
+/** @brief PLL phase error v_q / |v| = sin(θ − θ̂); 0 while the detected amplitude is exactly 0. */
+template<typename T>
+[[nodiscard]] constexpr T normalized_phase_error(const DirectQuadrature<T>& dq) {
+    const T amplitude = damp::hypot(dq.d, dq.q);
+    return (amplitude > T{0}) ? (dq.q / amplitude) : T{0};
+}
+
+} // namespace detail
+
 /**
  * @brief Single-Phase PLL
  *
@@ -25,8 +36,9 @@ namespace damp {
  * (v′, qv′) of the input, which is Park-projected onto the phase estimate; the
  * q-axis component @f$ v_q = A\sin(\theta - \hat\theta) @f$ is the phase error.
  * At lock @ref phase is θ for an input @f$ A\cos\theta @f$ (same convention as
- * @ref ThreePhasePLL). The phase-detector gain is the input amplitude A, so the
- * default loop gains assume a unit-amplitude (per-unit) input.
+ * @ref ThreePhasePLL). The phase error is @f$ v_q @f$ divided by the detected
+ * amplitude, @f$ \sin(\theta - \hat\theta) @f$, so the loop gains are per unit and
+ * the lock dynamics do not depend on the input level.
  *
  * The loop filter is a @ref ContinuousPID acting on the phase error and
  * producing a frequency *offset* about nominal; the inverter-style output clamp
@@ -46,14 +58,18 @@ namespace damp {
  */
 template<typename T>
 struct SinglePhasePLL {
-    /// PI loop filter (continuous gains; `step` supplies measured Ts). Output is
-    /// the frequency offset [Hz] about nominal; `u_min` / `u_max` bound that
-    /// offset and `Kbc` back-calculates the integrator out of saturation.
+    /**
+     * @brief PI loop filter (continuous gains; `step` supplies measured Ts). Output is
+     * the frequency offset [Hz] about nominal; the output limits `u` bound that
+     * offset and `Kbc` back-calculates the integrator out of saturation.
+     */
     ContinuousPID<T> loop_filter{};
 
-    /// [1/s] Integrator bleed rate (0 = pure integrator). The leak pulls the
-    /// accumulated frequency offset back toward zero with time constant 1/leak, so
-    /// a transient or biased phase error doesn't park a permanent offset.
+    /**
+     * @brief [1/s] Integrator bleed rate (0 = pure integrator). The leak pulls the
+     * accumulated frequency offset back toward zero with time constant 1/leak, so
+     * a transient or biased phase error doesn't park a permanent offset.
+     */
     T integrator_leak{};
 
     constexpr explicit SinglePhasePLL(T Fnom)
@@ -68,8 +84,10 @@ struct SinglePhasePLL {
         loop_filter.Kp = T{10};
         loop_filter.Ki = T{100};
         loop_filter.Kbc = loop_filter.Kp;
-        loop_filter.u_max = max_freq_deviation;
-        loop_filter.u_min = -max_freq_deviation;
+        loop_filter.u_lim = {
+            .lower = -max_freq_deviation,
+            .upper = max_freq_deviation,
+        };
     }
 
     constexpr void step(T input, const T Ts) {
@@ -77,7 +95,7 @@ struct SinglePhasePLL {
         // (90° lag). Treat (v′, qv′) as a stationary αβ vector and Park it onto the
         // current estimate: v_q = A·sin(θ − θ̂) is the phase detector (SOGI-PLL).
         const auto [in_phase, quadrature] = mstogi(input, frequency_estimate, damp::numbers::sqrt2_v<T>, Ts);
-        const T phase_error = park_transform(AlphaBeta<T>{in_phase, quadrature}, phase_estimate).q;
+        const T phase_error = detail::normalized_phase_error(park_transform(AlphaBeta<T>{in_phase, quadrature}, phase_estimate));
 
         // Optional leaky integrator: bleed any parked offset toward zero (skip on a
         // non-positive Ts, which would bleed with the wrong sign).
@@ -94,12 +112,12 @@ struct SinglePhasePLL {
         phase_estimate = damp::wrap_two_pi(phase_estimate + (T{2} * pi * frequency_estimate * Ts));
     }
 
-    /// Estimated frequency [Hz].
+    /** @brief Estimated frequency [Hz]. */
     [[nodiscard]] constexpr T frequency() const {
         return frequency_estimate;
     }
 
-    /// Estimated phase [rad], wrapped to [0, 2π).
+    /** @brief Estimated phase [rad], wrapped to [0, 2π). */
     [[nodiscard]] constexpr T phase() const {
         return phase_estimate;
     }
@@ -125,6 +143,7 @@ private:
  * The textbook three-phase PLL: Clarke-Park the input onto the current phase
  * estimate, then drive the q-axis projection to zero with a PI loop filter.
  * At lock @f$ v_q = |v|\sin(\varphi - \hat\theta) \to 0 @f$ and @f$ v_d \to +|v| @f$.
+ * The phase error is @f$ v_q / |v| @f$, so the loop gains are per unit.
  *
  * The loop filter is a @ref ContinuousPID (same proper-anti-windup and
  * wrapping-integrator treatment as @ref SinglePhasePLL).
@@ -139,8 +158,10 @@ private:
  */
 template<typename T>
 struct ThreePhasePLL {
-    /// PI loop filter; output is the frequency offset [Hz] about nominal. See
-    /// SinglePhasePLL::loop_filter.
+    /**
+     * @brief PI loop filter; output is the frequency offset [Hz] about nominal. See
+     * SinglePhasePLL::loop_filter.
+     */
     ContinuousPID<T> loop_filter{};
 
     /**
@@ -151,8 +172,10 @@ struct ThreePhasePLL {
         loop_filter.Kp = T{10};
         loop_filter.Ki = T{100};
         loop_filter.Kbc = loop_filter.Kp;
-        loop_filter.u_max = max_freq_deviation;
-        loop_filter.u_min = -max_freq_deviation;
+        loop_filter.u_lim = {
+            .lower = -max_freq_deviation,
+            .upper = max_freq_deviation,
+        };
     }
 
     /**
@@ -162,8 +185,8 @@ struct ThreePhasePLL {
      * @param Ts  [s] Sample time
      */
     constexpr void step(const damp::ColVec<3, T>& abc, const T Ts) {
-        // q-axis projection on the current phase estimate is the phase error.
-        const T phase_error = clarke_park_transform(abc, phase_estimate).q;
+        // q-axis projection on the current phase estimate, over |v|, is the phase error.
+        const T phase_error = detail::normalized_phase_error(clarke_park_transform(abc, phase_estimate));
 
         // PI loop filter (with anti-windup) → frequency estimate [Hz].
         frequency_estimate = nominal_frequency + loop_filter.control(phase_error, T{0}, Ts);
@@ -173,12 +196,12 @@ struct ThreePhasePLL {
         phase_estimate = damp::wrap_two_pi(phase_estimate + (T{2} * pi * frequency_estimate * Ts));
     }
 
-    /// Estimated frequency [Hz].
+    /** @brief Estimated frequency [Hz]. */
     [[nodiscard]] constexpr T frequency() const {
         return frequency_estimate;
     }
 
-    /// Estimated phase [rad], wrapped to [0, 2π).
+    /** @brief Estimated phase [rad], wrapped to [0, 2π). */
     [[nodiscard]] constexpr T phase() const {
         return phase_estimate;
     }
@@ -261,7 +284,8 @@ template<typename T = float>
  *   4. PI loop filter → frequency, integrated to phase.
  *
  * The loop filter is a @ref ContinuousPID and the phase a wrapping
- * integrator — the same treatment as @ref SinglePhasePLL.
+ * integrator — the same treatment as @ref SinglePhasePLL. The phase error is
+ * @f$ v_q^+ / |v^+| @f$, so the loop gains are per unit.
  *
  * The quadrature generator is a template parameter: the default SOGI is adequate
  * for clean inputs; substitute MSTOGI when the αβ signals carry DC offset (its
@@ -281,11 +305,13 @@ template<typename T = float>
 template<typename T = float, template<typename> class Resonator = SOGI>
 class DsogiPll {
 public:
-    /// PI loop filter; output is the frequency offset [Hz] about nominal. See
-    /// SinglePhasePLL::loop_filter.
+    /**
+     * @brief PI loop filter; output is the frequency offset [Hz] about nominal. See
+     * SinglePhasePLL::loop_filter.
+     */
     ContinuousPID<T> loop_filter{};
 
-    /// SOGI damping gain (√2 ≈ unity-Q).
+    /** @brief SOGI damping gain (√2 ≈ unity-Q). */
     T sogi_gain{damp::numbers::sqrt2_v<T>};
 
     /**
@@ -297,11 +323,13 @@ public:
         loop_filter.Kp = T{10};
         loop_filter.Ki = T{100};
         loop_filter.Kbc = loop_filter.Kp;
-        loop_filter.u_max = max_freq_deviation;
-        loop_filter.u_min = -max_freq_deviation;
+        loop_filter.u_lim = {
+            .lower = -max_freq_deviation,
+            .upper = max_freq_deviation,
+        };
     }
 
-    /// One synchronization step from the stationary-frame αβ grid vector.
+    /** @brief One synchronization step from the stationary-frame αβ grid vector. */
     constexpr void step(const AlphaBeta<T>& v_ab, const T Ts) {
         // Per-axis quadrature signal generation at the current frequency estimate.
         const auto [va, qva] = sogi_alpha(v_ab.alpha, frequency_estimate, sogi_gain, Ts);
@@ -315,7 +343,7 @@ public:
         // SRF-PLL: q-axis projection of the positive sequence is the phase error
         // (v_q = |v⁺|·sin(φ − θ̂) → 0 at lock, with v_d → +|v⁺|).
         positive_dq_ = park_transform(positive_ab_, phase_estimate);
-        const T phase_error = positive_dq_.q;
+        const T phase_error = detail::normalized_phase_error(positive_dq_);
 
         // PI loop filter (with anti-windup) → frequency estimate [Hz].
         frequency_estimate = nominal_frequency + loop_filter.control(phase_error, T{0}, Ts);
@@ -325,9 +353,9 @@ public:
         phase_estimate = damp::wrap_two_pi(phase_estimate + (T{2} * pi * frequency_estimate * Ts));
     }
 
-    /// Estimated frequency [Hz].
+    /** @brief Estimated frequency [Hz]. */
     [[nodiscard]] constexpr T frequency() const { return frequency_estimate; }
-    /// Estimated phase [rad], wrapped to [0, 2π).
+    /** @brief Estimated phase [rad], wrapped to [0, 2π). */
     [[nodiscard]] constexpr T                   phase() const { return phase_estimate; }
     [[nodiscard]] constexpr AlphaBeta<T>        positive_sequence() const { return positive_ab_; }
     [[nodiscard]] constexpr AlphaBeta<T>        negative_sequence() const { return negative_ab_; }

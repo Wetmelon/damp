@@ -105,12 +105,15 @@ TEST_CASE("H2 and Hinf norms of a first-order lag") {
     const auto h2 = matlab::norm(sys);
     REQUIRE(h2.has_value());
     CHECK(h2.value() == doctest::Approx(0.7071067812).epsilon(1e-6));
-    CHECK(matlab::hinfnorm(sys) == doctest::Approx(1.0).epsilon(1e-3));
+    const auto hinf = matlab::hinfnorm(sys);
+    REQUIRE(hinf.success);
+    CHECK(hinf.gain == doctest::Approx(1.0).epsilon(1e-12));
+    CHECK(hinf.frequency == 0.0);
 }
 
 TEST_CASE("Hinf norm captures a lightly-damped resonant peak") {
     // G(s) = wn² / (s² + 2ζwn s + wn²), wn=10, ζ=0.05.
-    // DC gain 1; resonant peak ≈ 1/(2ζ√(1−ζ²)) ≈ 10.01 near ω≈wn.
+    // DC gain 1; resonant peak 1/(2ζ√(1−ζ²)) ≈ 10.01 at ωn√(1−2ζ²).
     const double        wn = 10.0;
     const double        zeta = 0.05;
     StateSpace<2, 1, 1> sys; // controllable canonical form
@@ -119,9 +122,11 @@ TEST_CASE("Hinf norm captures a lightly-damped resonant peak") {
     sys.C = RowVec<2>{wn * wn, 0.0};
     sys.Ts = 0.0;
 
-    const double peak = matlab::hinfnorm(sys);
+    const auto   peak = matlab::hinfnorm(sys);
     const double expected = 1.0 / (2.0 * zeta * std::sqrt(1.0 - zeta * zeta));
-    CHECK(peak == doctest::Approx(expected).epsilon(2e-3));
+    REQUIRE(peak.success);
+    CHECK(peak.gain == doctest::Approx(expected).epsilon(1e-12));
+    CHECK(peak.frequency == doctest::Approx(wn * std::sqrt(1.0 - (2.0 * zeta * zeta))).epsilon(1e-6));
 }
 
 TEST_CASE("H2 norm of a continuous system with feedthrough is infinite (nullopt)") {

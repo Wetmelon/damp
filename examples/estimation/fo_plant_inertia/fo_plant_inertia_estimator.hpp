@@ -63,7 +63,7 @@ template<typename Est>
     double torque_cmd
 ) {
     omega = (a * omega) + (b_disc * torque_prev);
-    (void)est.update(torque_cmd, omega);
+    (void)est.update(omega, torque_cmd);
     return omega;
 }
 

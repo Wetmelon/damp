@@ -23,6 +23,7 @@
 #include "damp/simulation/simulate.hpp"
 #include "damp/simulation/solver.hpp"
 #include "damp/systems/state_space.hpp"
+#include "damp/systems/transfer_function.hpp"
 
 #define DOCTEST_CONFIG_INCLUDE_TYPE_TRAITS
 #include "doctest.h"
@@ -141,7 +142,7 @@ TEST_SUITE("Multi-rate harness") {
         );
 
         REQUIRE(tr.base_tick_count == 12);
-        REQUIRE(tr.truncated);
+        REQUIRE_FALSE(tr.success);
 
         const double r0 = tr.r.front()[0];
         CHECK(r0 == doctest::Approx(1.0).epsilon(1e-12));
@@ -194,7 +195,7 @@ TEST_SUITE("Multi-rate harness") {
             .Ts = 0.0,
         };
 
-        const auto           inner_d = design::pi_pole_placement_first_order(1.0, 1.0, 20.0).discretize(Ts_base);
+        const auto           inner_d = design::pid_pole_placement(TransferFunction<1, 2>{.num = {1.0}, .den = {1.0, 1.0}}, {.omega = 20.0}).discretize(Ts_base);
         PIController<double> inner_pi{inner_d};
 
         auto outer = [&](double, const ColVec<1>&) -> ColVec<1> { return ColVec<1>{r_cmd}; };
@@ -231,8 +232,8 @@ TEST_SUITE("Multi-rate harness") {
         auto output = [](const ColVec<2>& x) -> ColVec<2> { return x; }; // y = [pos, vel]
 
         // Treat velocity plant as 1/s (a1=1, a0=0) and position under tight velocity as 1/s
-        const auto           outer_d = design::pi_pole_placement_first_order(1.0, 0.0, 4.0).discretize(Ts_base * static_cast<double>(outer_div));
-        const auto           inner_d = design::pi_pole_placement_first_order(1.0, 0.0, 30.0).discretize(Ts_base);
+        const auto           outer_d = design::pid_pole_placement(TransferFunction<1, 2>{.num = {1.0}, .den = {1.0, 0.0}}, {.omega = 4.0}).discretize(Ts_base * static_cast<double>(outer_div));
+        const auto           inner_d = design::pid_pole_placement(TransferFunction<1, 2>{.num = {1.0}, .den = {1.0, 0.0}}, {.omega = 30.0}).discretize(Ts_base);
         PIController<double> outer_pi{outer_d};
         PIController<double> inner_pi{inner_d};
 
@@ -269,5 +270,61 @@ TEST_SUITE("Multi-rate harness") {
         );
         // 3 base periods of 0.1 → last time ≈ 0.3
         CHECK(tr.t.back() == doctest::Approx(0.3).epsilon(1e-9));
+        CHECK_FALSE(tr.success); // stopped before tf
+    }
+
+    TEST_CASE("simulate_two_rate_lti records y = Cx + Du, so a biproper plant logs its feedthrough") {
+        // ẋ = −x + u, y = x + 0.5u, u held at 2: every logged sample has y = x + 1.
+        const StateSpace<1, 1, 1> sys{.A = Matrix<1, 1>{{-1.0}}, .B = Matrix<1, 1>{{1.0}}, .C = Matrix<1, 1>{{1.0}}, .D = Matrix<1, 1>{{0.5}}};
+        auto                      outer = [](double, const ColVec<1>&) { return ColVec<1>{0.0}; };
+        auto                      inner = [](double, const ColVec<1>&, const ColVec<1>&) { return ColVec<1>{2.0}; };
+        RK4<1>                    rk4;
+        FixedStepSolver           fine(rk4, 0.01);
+        const auto                tr = simulate_two_rate_lti<1, 1, 1, 1>(sys, outer, 1, inner, 1, fine, 0.1, ColVec<1>{0.0}, {0.0, 1.0});
+        REQUIRE(tr.success);
+        REQUIRE(tr.t.size() > 2);
+        for (size_t j = 0; j < tr.t.size(); ++j) {
+            CHECK(tr.y[j][0] == doctest::Approx(tr.x[j][0] + (0.5 * tr.u[j][0])));
+        }
+    }
+
+    TEST_CASE("an invalid divisor or period is reported, not an empty success") {
+        auto            plant = [](double, const ColVec<1>& x, const ColVec<1>& u) -> ColVec<1> { return u - x; };
+        auto            output = [](const ColVec<1>& x) -> ColVec<1> { return x; };
+        auto            outer = [](double, const ColVec<1>&) { return ColVec<1>{0.0}; };
+        auto            inner = [](double, const ColVec<1>&, const ColVec<1>&) { return ColVec<1>{1.0}; };
+        RK4<1>          rk4;
+        FixedStepSolver fine(rk4, 0.01);
+        CHECK_FALSE(simulate_two_rate<1, 1, 1, 1, double>(plant, output, outer, 0, inner, 1, fine, 0.1, ColVec<1>{0.0}, {0.0, 1.0}).success);
+        auto law = [](double, const ColVec<1>&) { return ColVec<1>{1.0}; };
+        CHECK_FALSE(simulate_sampled<1, 1, 1, double>(plant, output, law, fine, 0.0, ColVec<1>{0.0}, {0.0, 1.0}).success);
+    }
+
+    TEST_CASE("simulate_sampled ticks the controller once per period, no drift sliver") {
+        int        calls = 0;
+        const auto plant = [](double, const ColVec<1>& x, const ColVec<1>& u) { return ColVec<1>{-x(0) + u(0)}; };
+        const auto output = [](const ColVec<1>& x) { return x; };
+        const auto ctrl = [&](double, const ColVec<1>&) {
+            ++calls;
+            return ColVec<1>{1.0};
+        };
+        FixedStepSolver solver(RK4<1>{}, 0.05);
+        const auto      sim = simulate_sampled<1, 1, 1, double>(plant, output, ctrl, solver, 0.1, ColVec<1>{0.0}, {0.0, 100.0});
+        CHECK(calls == 1000);
+        CHECK(sim.t.back() == 100.0);
+    }
+
+    TEST_CASE("simulate_multirate runs exactly one control step per base tick") {
+        std::size_t calls = 0;
+        const auto  plant = [](double, const ColVec<1>& x, const ColVec<1>& u) { return ColVec<1>{-x(0) + u(0)}; };
+        const auto  output = [](const ColVec<1>& x) { return x; };
+        const auto  step = [&](std::size_t, double, const ColVec<1>&) {
+            ++calls;
+            return ColVec<1>{1.0};
+        };
+        FixedStepSolver solver(RK4<1>{}, 0.05);
+        const auto      sim = simulate_multirate<1, 1, 1, double>(plant, output, step, solver, 0.1, ColVec<1>{0.0}, {0.0, 100.0});
+        CHECK(calls == 1000);
+        CHECK(sim.t.back() == 100.0);
     }
 }

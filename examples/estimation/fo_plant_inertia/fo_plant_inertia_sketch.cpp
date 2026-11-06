@@ -48,7 +48,7 @@ void setup() {}
 void loop() {
     const float torque = command_torque();
     // On target the plant is the motor; here we only update the estimator
-    (void)est.update(torque, read_omega());
+    (void)est.update(read_omega(), torque);
     ++k;
     delay(static_cast<int>(Ts * 1000.0));
 }

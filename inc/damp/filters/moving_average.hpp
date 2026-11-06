@@ -17,25 +17,26 @@
 namespace damp {
 /**
  * @brief Window length for a moving-average *comb* that notches @p f_notch and
- *        all its harmonics: N = round(fs / f_notch).
+ *        all its harmonics: N = round(1 / (f_notch·Ts)).
  *
- * An N-tap moving average has spectral nulls at every harmonic of fs/N and unity
- * gain at DC — so choosing N = fs/f_notch nulls f_notch, 2·f_notch, 3·f_notch, …
+ * An N-tap moving average has spectral nulls at every harmonic of 1/(N·Ts) and unity
+ * gain at DC — so choosing N = 1/(f_notch·Ts) nulls f_notch, 2·f_notch, 3·f_notch, …
  * while preserving the DC level. Example: a HV DC bus with 2f/4f/6f… rectifier
- * ripple is cleaned with `comb_notch_window(fs, 2*f_line)` (the ripple
+ * ripple is cleaned with `comb_notch_window(2*f_line, Ts)` (the ripple
  * fundamental), which nulls every even line harmonic and keeps the bus average.
  *
  * @tparam T Scalar type
- * @param fs_hz      Sample rate [Hz]
  * @param f_notch_hz Lowest frequency to null [Hz] (its harmonics are nulled too)
- * @return N (≥ 1); 0 if the arguments are invalid.
+ * @param Ts         Sample time [s]
+ * @return N (≥ 1); 0 if the arguments are invalid (f_notch_hz ≤ 0, Ts ≤ 0, or f_notch_hz·Ts ≥ 1).
  */
 template<typename T>
-[[nodiscard]] constexpr size_t comb_notch_window(T fs_hz, T f_notch_hz) {
-    if (fs_hz <= T{0} || f_notch_hz <= T{0} || f_notch_hz >= fs_hz) {
+[[nodiscard]] constexpr size_t comb_notch_window(T f_notch_hz, T Ts) {
+    const T cycles = f_notch_hz * Ts; // f_notch / fs
+    if (!(f_notch_hz > T{0}) || !(Ts > T{0}) || !(cycles > T{0}) || !(cycles < T{1})) {
         return 0;
     }
-    const T n = (fs_hz / f_notch_hz) + static_cast<T>(0.5);
+    const T n = (T{1} / cycles) + static_cast<T>(0.5);
     if (!(n < static_cast<T>(size_t{1} << 31U))) {
         return 0; // no window that long; the cast would overflow
     }
@@ -67,19 +68,19 @@ class MovingAverage {
 public:
     static_assert(MaxN >= 1, "MovingAverage needs MaxN >= 1");
 
-    /// Active window = MaxN.
+    /** @brief Active window = MaxN. */
     constexpr MovingAverage() = default;
 
-    /// Construct with an active window of @p window samples (clamped to [1, MaxN]).
+    /** @brief Construct with an active window of @p window samples (clamped to [1, MaxN]). */
     constexpr explicit MovingAverage(size_t window) { set_window(window); }
 
-    /// Set the active window length (clamped to [1, MaxN]) and clear state.
+    /** @brief Set the active window length (clamped to [1, MaxN]) and clear state. */
     constexpr void set_window(size_t window) {
         n_ = damp::clamp(window, size_t{1}, MaxN);
         reset();
     }
 
-    /// Push one sample, return the current N-sample average.
+    /** @brief Push one sample, return the current N-sample average. */
     constexpr T operator()(T x) {
         const T old = buffer_[idx_];
         buffer_[idx_] = x;

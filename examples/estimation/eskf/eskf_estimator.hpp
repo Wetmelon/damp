@@ -37,7 +37,7 @@ inline constexpr float kBgRw = 0.0001f;  // rad/s²/√Hz-class gyro bias RW
 inline constexpr auto kDesign = design::eskf_marg(kGyroNd, kAccelNd, kMagNd, kBgRw, dt);
 
 /**
- * @brief One estimation period: MARG update → orientation
+ * @brief One estimation period: MARG step → orientation
  *
  * On target, pass driver samples. SIL/sketch use mock sensors at rest.
  */
@@ -48,7 +48,7 @@ void estimate_period(
     const Vec3<T>&               gyro,
     const Vec3<T>&               mag
 ) {
-    filt.update(accel, gyro, mag, static_cast<T>(dt));
+    filt.step(accel, gyro, mag, static_cast<T>(dt));
 }
 
 } // namespace damp::examples_eskf

@@ -184,17 +184,17 @@ void run_scenario(const Scenario& s) {
 
     const auto xd = plot::panel_x_domain();
     auto       layout = Layout()
-                      .title([&](auto& t) { t.text(fmt::format("Encoder Velocity Estimation — {}", s.label)); })
-                      .xaxis(Layout::Xaxis().domain(xd).title([](auto& t) { t.text("Time (s) — zoom on a reversal"); }).anchor("y"))
-                      .yaxis(Layout::Yaxis().title([](auto& t) { t.text("Position (turns)"); }).domain({0.70, 1.0}))
-                      .xaxis(2, Layout::Xaxis().domain(xd).showticklabels(false).anchor("y2"))
-                      .yaxis(2, Layout::Yaxis().title([](auto& t) { t.text("Velocity (turns/s)"); }).domain({0.37, 0.63}))
-                      .xaxis(3, Layout::Xaxis().domain(xd).matches("x2").title([](auto& t) { t.text("Time (s)"); }).anchor("y3"))
-                      .yaxis(3, Layout::Yaxis().title([](auto& t) { t.text("Velocity error (turns/s)"); }).domain({0.0, 0.30}))
-                      .legend(plot::panel_legend(1.0))
-                      .legend(2, plot::panel_legend(0.63))
-                      .legend(3, plot::panel_legend(0.30))
-                      .height(1100);
+                            .title([&](auto& t) { t.text(fmt::format("Encoder Velocity Estimation — {}", s.label)); })
+                            .xaxis(Layout::Xaxis().domain(xd).title([](auto& t) { t.text("Time (s) — zoom on a reversal"); }).anchor("y"))
+                            .yaxis(Layout::Yaxis().title([](auto& t) { t.text("Position (turns)"); }).domain({0.70, 1.0}))
+                            .xaxis(2, Layout::Xaxis().domain(xd).showticklabels(false).anchor("y2"))
+                            .yaxis(2, Layout::Yaxis().title([](auto& t) { t.text("Velocity (turns/s)"); }).domain({0.37, 0.63}))
+                            .xaxis(3, Layout::Xaxis().domain(xd).matches("x2").title([](auto& t) { t.text("Time (s)"); }).anchor("y3"))
+                            .yaxis(3, Layout::Yaxis().title([](auto& t) { t.text("Velocity error (turns/s)"); }).domain({0.0, 0.30}))
+                            .legend(plot::panel_legend(1.0))
+                            .legend(2, plot::panel_legend(0.63))
+                            .legend(3, plot::panel_legend(0.30))
+                            .height(1100);
     fig.setLayout(damp::move(layout));
     plot::write_html(fig, s.plot_file);
     fmt::print("  Plot written to {}\n\n", s.plot_file);

@@ -15,11 +15,14 @@
  */
 
 #include <limits>
+#include <type_traits>
 
 #include "damp/backend.hpp"
 #include "damp/controllers/pid.hpp"
-#include "damp/design/pid_design.hpp" // ::damp::design::pi_pole_placement_first_order
+#include "damp/design/pid_design.hpp" // ::damp::design::current_loop_pi
+#include "damp/design/status.hpp"
 #include "damp/math/transforms.hpp"
+#include "damp/systems/transfer_function.hpp"
 
 namespace damp::motor {
 
@@ -90,7 +93,7 @@ struct DqCommand {
  * @brief dq current regulator: PI + decoupling FF → clamped Vdq.
  *
  * Park / inv-Park and modulation stay on the machine adapter. Tune with
- * @ref ::damp::design::pi_pole_placement_first_order via @ref tune.
+ * @ref ::damp::design::current_loop_pi via @ref tune.
  *
  * @tparam T Scalar type (embedded default float)
  */
@@ -102,10 +105,7 @@ struct FOController {
     T  R = {};
     T  lambda = {}; ///< [Wb] flux for back-EMF FF (PM λ or ACIM-referred λr)
 
-    /// Fraction of Vdc/√3 available to the regulator (1 = full linear SVPWM circle).
-    T max_modulation = T{1};
-
-    /// Optional R·i + L·Δi/Ts feedforward; retune PI if enabled (off by default).
+    /** @brief Optional R·i + L·Δi/Ts feedforward; retune PI if enabled (off by default). */
     bool plant_inversion_ff = false;
 
     ContinuousPID<T> dctrl = {};
@@ -128,13 +128,25 @@ struct FOController {
 
     /**
      * @brief Place both dq PI loops on the R–L plant.
+     *
+     * Below the plant pole R/L the PI cancels it instead of placing the pair
+     * (::damp::design::current_loop_pi). A refused placement (an out-of-range input) keeps
+     * the previous gains and returns false; under constant evaluation it does not compile.
+     *
      * @param omega_bw [rad/s] closed-loop bandwidth
      * @param zeta     [-] damping (default 1)
      * @param b        [-] setpoint weight: 1 = PI, 0 = I-P
+     * @return true if both loops were placed
      */
-    constexpr void tune(T omega_bw, T zeta = T{1}, T b = T{1}) noexcept {
-        const auto d = ::damp::design::pi_pole_placement_first_order(Ldq.d, R, omega_bw, zeta, b);
-        const auto q = ::damp::design::pi_pole_placement_first_order(Ldq.q, R, omega_bw, zeta, b);
+    constexpr bool tune(T omega_bw, T zeta = T{1}, T b = T{1}) noexcept {
+        const auto d = ::damp::design::current_loop_pi(Ldq.d, R, {.omega = omega_bw, .zeta = zeta, .b = b});
+        const auto q = ::damp::design::current_loop_pi(Ldq.q, R, {.omega = omega_bw, .zeta = zeta, .b = b});
+        if (!d.success || !q.success) {
+            if (std::is_constant_evaluated()) {
+                ::damp::detail::refuse_failed_design(d.success ? q.status : d.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
+            }
+            return false;
+        }
 
         dctrl.Kp = d.Kp;
         dctrl.Ki = d.Ki;
@@ -145,21 +157,22 @@ struct FOController {
         qctrl.Ki = q.Ki;
         qctrl.Kbc = q.Kbc;
         qctrl.b = q.b;
+        return true;
     }
 
-    /// Bumpless disable: integrators track @p Vdq_track.
+    /** @brief Bumpless disable: integrators track @p Vdq_track. */
     constexpr void disable(const DQ& Vdq_track = {}) {
         dctrl.disable(Vdq_track.d);
         qctrl.disable(Vdq_track.q);
     }
 
-    /// Resume Auto on both dq loops.
+    /** @brief Resume Auto on both dq loops. */
     constexpr void enable() {
         dctrl.enable();
         qctrl.enable();
     }
 
-    /// Clear both dq integrators.
+    /** @brief Clear both dq integrators. */
     constexpr void reset() {
         dctrl.reset();
         qctrl.reset();
@@ -178,7 +191,7 @@ struct FOController {
      *                forces zero voltage and unwinds the PI (collapsed bus).
      * @return Clamped Vdq plus saturation flags
      */
-    [[nodiscard]] DqCommand<T> current_controller(
+    [[nodiscard]] constexpr DqCommand<T> current_controller(
         const DQ& Idq_ref,
         const DQ& Idq,
         const T   omega_e,
@@ -204,8 +217,8 @@ struct FOController {
         // Non-positive ceiling: the bus cannot support a voltage. Unwind the PI
         // toward zero; do not treat it as "no limit".
         if (!(Vmax > T{0})) {
-            dctrl.back_calculate(ud, T{0}, Ts);
-            qctrl.back_calculate(uq, T{0}, Ts);
+            dctrl.back_calculate(T{0});
+            qctrl.back_calculate(T{0});
             cmd.is_saturated = true;
             cmd.Vdq = {};
             return cmd;
@@ -218,8 +231,8 @@ struct FOController {
             // Scale the summed command onto the circle, but charge the integrator
             // only for the PI's own scaled output. Feedforward (back-EMF) saturation
             // belongs to field weakening, not the current integrator.
-            dctrl.back_calculate(ud, scale * ud, Ts);
-            qctrl.back_calculate(uq, scale * uq, Ts);
+            dctrl.back_calculate(scale * ud);
+            qctrl.back_calculate(scale * uq);
             Vdq = Vdq * scale;
             cmd.is_saturated = true;
             cmd.v_excess = Vmag / Vmax;

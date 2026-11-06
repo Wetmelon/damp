@@ -16,6 +16,8 @@
  * - TrajectoryBoundary — fixed-size endpoint BCs (p…jerk) for common poly orders
  * - design::detail::factorial / design::detail::falling_factorial — shared
  *   polynomial-coefficient helpers used by both @ref polynomial.hpp and @ref spline.hpp
+ * - detail::segment_at — the bounded binary search the piecewise evaluators use
+ *   to find the segment that holds a time
  *
  * Include this header only when you need the shared types without pulling in a full
  * profile family. Normally just include the profile header you need (e.g.
@@ -23,6 +25,7 @@
  */
 
 #include <cstddef>
+#include <limits>
 #include <type_traits>
 
 #include "damp/backend.hpp"
@@ -36,7 +39,7 @@ namespace damp {
  * the approach-to-target ramp (they may differ). All three must be > 0.
  *
  * Units are consistent with the caller's length unit LU: velocity LU/s,
- * acceleration LU/s², jerk LU/s³. Profile times (`Ta`, `Tf`, `duration`, and
+ * acceleration LU/s², jerk LU/s³. Profile times (`Ta`, `duration`, and
  * runtime `step(dt)`) are in seconds. Use the same LU for position endpoints.
  *
  * @tparam T Scalar type
@@ -49,12 +52,12 @@ struct TrajectoryLimits {
     T max_deceleration{T{0}}; ///< decel-region bound Dmax [LU/s²] (> 0)
     T max_jerk{T{0}};         ///< |j| ≤ max_jerk [LU/s³] (> 0; S-curve only, ignored by trapezoidal)
 
-    /// Trapezoidal validity: positive v/a/d limits (jerk is not required).
+    /** @brief Trapezoidal validity: positive v/a/d limits (jerk is not required). */
     [[nodiscard]] constexpr bool valid() const {
         return (max_velocity > T{0}) && (max_acceleration > T{0}) && (max_deceleration > T{0});
     }
 
-    /// S-curve validity: additionally requires a positive jerk limit.
+    /** @brief S-curve validity: additionally requires a positive jerk limit. */
     [[nodiscard]] constexpr bool valid_jerk_limited() const { return valid() && (max_jerk > T{0}); }
 };
 
@@ -131,7 +134,7 @@ struct Jet {
         return T{0};
     }
 
-    /// Truncate or zero-pad into the time-domain command type (drops order ≥ 4).
+    /** @brief Truncate or zero-pad into the time-domain command type (drops order ≥ 4). */
     [[nodiscard]] constexpr TrajectoryState<T> as_trajectory_state() const {
         if constexpr (N > 3) {
             return TrajectoryState<T>{
@@ -181,7 +184,7 @@ struct TrajectoryBoundary {
     T acceleration{T{0}};
     T jerk{T{0}};
 
-    /// Pack into a jet of length @p N (extra slots stay zero; N > 4 ignores snap+).
+    /** @brief Pack into a jet of length @p N (extra slots stay zero; N > 4 ignores snap+). */
     template<size_t N>
     [[nodiscard]] constexpr Jet<N, T> as_jet() const {
         Jet<N, T> j{};
@@ -201,7 +204,7 @@ struct TrajectoryBoundary {
 
 namespace design::detail {
 
-/// k! (exact for modest k in float/double; used up through nonic BVP / jets).
+/** @brief k! (exact for modest k in float/double; used up through nonic BVP / jets). */
 template<typename T>
 constexpr T factorial(size_t k) {
     T f{1};
@@ -211,8 +214,10 @@ constexpr T factorial(size_t k) {
     return f;
 }
 
-/// Falling factorial i·(i−1)···(i−k+1) = i! / (i−k)! — the k-th derivative
-/// coefficient of tⁱ. Zero when i < k.
+/**
+ * @brief Falling factorial i·(i−1)···(i−k+1) = i! / (i−k)! — the k-th derivative
+ * coefficient of tⁱ. Zero when i < k.
+ */
 template<typename T>
 constexpr T falling_factorial(size_t i, size_t k) {
     if (i < k) {
@@ -226,5 +231,50 @@ constexpr T falling_factorial(size_t i, size_t k) {
 }
 
 } // namespace design::detail
+
+namespace detail {
+
+/** @brief ⌈log₂ n⌉, 0 for n ≤ 1: the halvings a binary search over n candidates needs. */
+[[nodiscard]] consteval size_t ceil_log2(size_t n) {
+    size_t bits = 0;
+    while (bits < std::numeric_limits<size_t>::digits && (size_t{1} << bits) < n) {
+        ++bits;
+    }
+    return bits;
+}
+
+/**
+ * @brief Index of the segment that holds @p t: the largest k < @p count with start(k) ≤ t,
+ *        or 0 when there is none.
+ *
+ * For non-decreasing segment starts this is the index the scan "advance k from 0 while
+ * start(k + 1) ≤ t" stops at, found by binary search in at most ⌈log₂ NMax⌉ halvings (a
+ * fixed bound: NMax is a template size). start(0) is never read, so segment 0 also holds
+ * every t before the first start. A NaN @p t compares false and returns 0.
+ *
+ * @tparam NMax  Most segments the caller can hold (≥ 1); @p count is clamped to it
+ * @param count  Segments in use
+ * @param t      Query time
+ * @param start  Callable `size_t k → T`, the start time of segment k (called for 1 ≤ k < count)
+ */
+template<size_t NMax, typename T, typename Start>
+[[nodiscard]] constexpr size_t segment_at(size_t count, T t, Start start) {
+    static_assert(NMax >= 1, "a piecewise evaluator holds at least one segment");
+    constexpr size_t kHalvings = ceil_log2(NMax);
+    const size_t     n = (count < NMax) ? count : NMax;
+    size_t           lo = 0;
+    size_t           hi = (n > 0) ? (n - 1) : 0;
+    for (size_t step = 0; step < kHalvings && lo < hi; ++step) {
+        const size_t mid = lo + ((hi - lo + 1) / 2); // upper middle: lo < mid ≤ hi
+        if (start(mid) <= t) {
+            lo = mid;
+        } else {
+            hi = mid - 1;
+        }
+    }
+    return lo;
+}
+
+} // namespace detail
 
 } // namespace damp

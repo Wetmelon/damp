@@ -25,6 +25,7 @@
  */
 
 #include <cstdint>
+#include <limits>
 #include <type_traits>
 
 #include "damp/math/math.hpp"
@@ -52,7 +53,7 @@ template<typename T>
     }
 }
 
-/// True once @p elapsed has reached @p preset (up to the accumulation slack).
+/** @brief True once @p elapsed has reached @p preset (up to the accumulation slack). */
 template<typename T>
 [[nodiscard]] constexpr bool timer_reached(T elapsed, T preset) {
     return elapsed >= preset - timer_slack(preset);
@@ -91,7 +92,7 @@ class Stopwatch {
 public:
     constexpr Stopwatch() = default;
 
-    /// Advance the clock by @p dt; returns the new elapsed total.
+    /** @brief Advance the clock by @p dt; returns the new elapsed total. */
     constexpr T tick(T dt) {
         elapsed_ += dt;
         return elapsed_;
@@ -129,7 +130,7 @@ public:
     constexpr Timeout() = default;
     constexpr explicit Timeout(T duration_) : duration(duration_) {}
 
-    /// Advance by @p dt; returns whether the timeout has now expired.
+    /** @brief Advance by @p dt; returns whether the timeout has now expired. */
     constexpr bool tick(T dt) {
         elapsed_ = detail::timer_advance(elapsed_, dt, duration); // saturates at duration, overflow-safe
         return expired();
@@ -151,10 +152,12 @@ private:
  *
  * The "do X every N seconds" idiom: feed it `dt` and it returns `true` on the
  * ticks where a full period has elapsed, carrying the remainder forward so the
- * average rate has no drift. If a single `dt` spans multiple periods the
- * remainder accumulates and it fires again on following calls (gradual
- * catch-up); the stored phase stays bounded by one period. A non-positive
- * @ref period never fires (avoids the `period == 0` infinite-fire trap).
+ * average rate has no drift. If a single `dt` spans several periods it fires
+ * once and carries at most one period, so it fires once more on the next call
+ * and drops the rest of the backlog (a stall does not replay a burst of fires);
+ * the stored phase stays bounded by one period. An integral phase saturates
+ * instead of wrapping. A non-positive @ref period never fires (avoids the
+ * `period == 0` infinite-fire trap).
  *
  * @code
  * Periodic<> telemetry{100};       // every 100 ticks; or Periodic<float>{0.1f} for 10 Hz
@@ -171,16 +174,23 @@ public:
     constexpr Periodic() = default;
     constexpr explicit Periodic(T period_) : period(period_) {}
 
-    /// Advance by @p dt; returns true once per elapsed period (never when period ≤ 0).
+    /** @brief Advance by @p dt; returns true once per elapsed period (never when period ≤ 0). */
     constexpr bool operator()(T dt) {
         if (!(period > T{0})) {
             return false;
         }
-        phase_ += dt;
+        if (std::is_integral_v<T> && phase_ > T{0} && dt > std::numeric_limits<T>::max() - phase_) {
+            phase_ = std::numeric_limits<T>::max(); // saturate instead of wrapping (or signed overflow)
+        } else {
+            phase_ += dt;
+        }
         if (detail::timer_reached(phase_, period)) {
-            // Carry the remainder; a within-slack shortfall leaves a tiny
-            // negative phase rather than firing a tick late.
+            // Carry the remainder, at most one period; a within-slack shortfall
+            // leaves a tiny negative phase rather than firing a tick late.
             phase_ -= period;
+            if (phase_ > period) {
+                phase_ = period;
+            }
             return true;
         }
         return false;

@@ -6,7 +6,7 @@ Read this before forking the sketch. Code numbers must match the equations here.
 
 Design Is Deploy fence: the controller header linearizes about upright, designs
 discrete LQR, and exposes `control_period`. SIL integrates the nonlinear plant
-with the same `controller.control(x)` path.
+with the same `controller.step(x)` path.
 
 Related full design-is-deploy path (4-state cart–pole): [`../cart_pole/`](../cart_pole/)
 ([`cart_pole_derivation.md`](../cart_pole/cart_pole_derivation.md)).
@@ -179,7 +179,7 @@ P(s)
 ## Control design (what the controller header does)
 
 1. Continuous plant $`(A,B)`$ as above.
-2. Discrete LQR via `design::discrete_lqr_from_continuous(A, B, Q, R, Ts)`.
+2. Discrete LQR via `design::lqr(sys, Ts, {.Q = Q, .R = R})` (ZOH dynamics + Van Loan cost, then DARE).
 3. Cost weights:
 
 | State / input | Weight | Intent |
@@ -190,8 +190,8 @@ P(s)
 
 ($`Q = 10\,I_2`$.)
 
-4. Law: $`u = -K x`$ (`LQR::control` / `control_period`).
-5. Host SIL keeps `double`; flash path: `lqr_d.as<float>()` into `LQR<2,1,float>`.
+4. Law: $`u = -K x`$, the regulator about the origin: `LQR::step(x)` in `control_period`.
+5. Host SIL keeps `double`; flash path: `static constinit LQR controller{lqr_d.as<float>()}` (the sizes and scalar are deduced from the result).
 
 Host redesign in SIL: same plant, $`Q = 50\,I`$ — stiffer recovery; phase
 portrait compares $`Q=10`$ vs $`Q=50`$. Also prints a redesign about

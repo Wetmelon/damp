@@ -20,8 +20,6 @@ Open a file in a browser after generation. Shared Plotly JS: `js/plotly.min.js`.
 | `heater_ofmpc.html` | [`../control/heater_ofmpc/`](../control/heater_ofmpc/) |
 | `heater_ofmpc_preview.html` | [`../control/heater_ofmpc/`](../control/heater_ofmpc/) (setpoint known ahead vs held) |
 | `pendulum_sim.html`, `pendulum_phase.html`, `pendulum_sim_high_q.html` | [`../control/pendulum/`](../control/pendulum/) |
-| `input_shaper_resonance.html` | [`../control/input_shaper/`](../control/input_shaper/) |
-| `multirate_rig.html` | [`../control/multirate_rig/`](../control/multirate_rig/) |
 
 
 ## estimation/

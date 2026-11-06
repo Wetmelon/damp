@@ -31,12 +31,14 @@
  *
  * Usage:
  * @code
- *   // Nonlinear plant: dx/dt = f(t, x, u)
- *   auto plant = [](double t, auto x, auto u) { return ...; };
+ *   // Nonlinear plant: a Dynamics dx/dt = f(x, u) (the model linearize and the EKF / UKF
+ *   // take), or a time-varying f(t, x, u)
+ *   auto plant = [](const ColVec<2>& x, const ColVec<1>& u) { return ...; };
  *   auto output = [](auto x) { return ...; };
  *   auto controller = [&](auto y) { return -K * y; };
  *
- *   auto result = simulate(plant, output, controller, solver, x0, {0.0, 10.0});
+ *   // NU and NY appear only in the callables' results, so the sizes are spelled out
+ *   auto result = simulate<2, 1, 2>(plant, output, controller, solver, x0, {0.0, 10.0});
  *
  *   // SISO PID (or any control(r,y) SisoController) with a constant reference:
  *   auto pid = PIController<double>{design::pid(2.0, 5.0, 0.0).discretize(Ts)};
@@ -50,11 +52,33 @@
 #include <vector>
 
 #include "damp/backend.hpp"
+#include "damp/concepts.hpp"
 #include "damp/matrix/colvec.hpp"
 #include "damp/simulation/solver.hpp" // detail::step_count / grid_time
 #include "damp/systems/state_space.hpp"
 
 namespace damp::sim {
+
+namespace detail {
+
+/**
+ * @brief A continuous plant as f(t, x, u): a Dynamics f(x, u) (concepts.hpp) gains an ignored
+ *        time argument, a time-varying f(t, x, u) passes through.
+ *
+ * So the one model object that design::linearize and the EKF / UKF take is also the SIL plant.
+ */
+template<size_t NX, size_t NU, typename T, typename Plant>
+[[nodiscard]] constexpr auto timed_plant(Plant& plant) {
+    return [&plant]([[maybe_unused]] T t, const ColVec<NX, T>& x, const ColVec<NU, T>& u) -> ColVec<NX, T> {
+        if constexpr (Dynamics<std::remove_cvref_t<Plant>, NX, NU, T>) {
+            return plant(x, u);
+        } else {
+            return plant(t, x, u);
+        }
+    };
+}
+
+} // namespace detail
 
 /**
  * @brief Adapt a SISO `control(r, y)` controller for callables that want
@@ -102,26 +126,28 @@ siso_ref(C& c, T r, T Ts) {
  */
 template<size_t NX, size_t NU, size_t NY, typename T = double>
 struct SimulationResult {
-    std::vector<T>             t; ///< Time points
-    std::vector<ColVec<NX, T>> x; ///< State history
-    std::vector<ColVec<NY, T>> y; ///< Output history
-    std::vector<ColVec<NU, T>> u; ///< Control input history
+    std::vector<T>             t;             ///< Time points
+    std::vector<ColVec<NX, T>> x;             ///< State history
+    std::vector<ColVec<NY, T>> y;             ///< Output history
+    std::vector<ColVec<NU, T>> u;             ///< Control input history
+    bool                       success{true}; ///< false when the run stopped before tf: a failed solve (nfev cap, min step, an implicit stage that did not converge), invalid input (a period ≤ 0, an empty span) or a tick cap
 };
 
 /**
  * @brief Simulate a nonlinear plant with a controller in closed loop
  *
- * The plant dynamics are dx/dt = plant(t, x, u), the output is y = output(x),
- * and the controller computes u = controller(y). At each solver step, the
- * controller output is computed from the current output, then held constant
- * for the duration of the integration step (zero-order hold).
+ * The plant dynamics are dx/dt = plant(x, u) (a Dynamics, concepts.hpp) or
+ * plant(t, x, u), the output is y = output(x), and the controller computes
+ * u = controller(y). At each solver step, the controller output is computed
+ * from the current output, then held constant for the duration of the
+ * integration step (zero-order hold).
  *
- * @tparam Plant      Callable: (T t, ColVec<NX,T> x, ColVec<NU,T> u) -> ColVec<NX,T>
+ * @tparam Plant      Callable: (ColVec<NX,T> x, ColVec<NU,T> u) or (T t, ColVec<NX,T> x, ColVec<NU,T> u) -> ColVec<NX,T>
  * @tparam Output     Callable: (ColVec<NX,T> x) -> ColVec<NY,T>
  * @tparam Controller Callable: (ColVec<NY,T> y) -> ColVec<NU,T>
  * @tparam Solver     FixedStepSolver or AdaptiveStepSolver
  *
- * @param plant      Plant dynamics: dx/dt = plant(t, x, u)
+ * @param plant      Plant dynamics: dx/dt = plant(x, u) or plant(t, x, u)
  * @param output     Output function: y = output(x)
  * @param controller Controller: u = controller(y)
  * @param solver     ODE solver instance
@@ -142,8 +168,9 @@ SimulationResult<NX, NU, NY, T> simulate(
     ColVec<NU, T> u_current{};
 
     // Wrap plant + controller into f(t, x) for the solver
-    auto f = [&](T t, const ColVec<NX, T>& x) -> ColVec<NX, T> {
-        return plant(t, x, u_current);
+    const auto rhs = detail::timed_plant<NX, NU, T>(plant);
+    auto       f = [&](T t, const ColVec<NX, T>& x) -> ColVec<NX, T> {
+        return rhs(t, x, u_current);
     };
 
     // Solve, but intercept each step to record outputs and update controller
@@ -171,8 +198,7 @@ SimulationResult<NX, NU, NY, T> simulate(
         sim.u.push_back(u_current);
     });
 
-    sim_solver.solve(f, x0, t_span);
-
+    sim.success = sim_solver.solve(f, x0, t_span).success;
     return sim;
 }
 
@@ -188,12 +214,12 @@ SimulationResult<NX, NU, NY, T> simulate(
  * continuously — and it decouples the integration rate from the control rate, unlike
  * @ref simulate where the controller fires on every solver step.
  *
- * @tparam Plant      (T t, ColVec\<NX\> x, ColVec\<NU\> u) -> ColVec\<NX\>   (dx/dt)
+ * @tparam Plant      (ColVec\<NX\> x, ColVec\<NU\> u) or (T t, ColVec\<NX\> x, ColVec\<NU\> u) -> ColVec\<NX\>   (dx/dt)
  * @tparam Output     (ColVec\<NX\> x) -> ColVec\<NY\>
  * @tparam Controller (T t, ColVec\<NY\> y) -> ColVec\<NU\>   (held across each period)
  * @tparam Solver     a FixedStepSolver whose step is the (fine) integration step
  *
- * @param plant        Continuous plant f(t, x, u) -> dx/dt
+ * @param plant        Continuous plant dx/dt = f(x, u) (a Dynamics) or f(t, x, u)
  * @param output       Measurement map y = g(x)
  * @param controller   Sampled law u = c(t, y), held for each control period
  * @param fine_solver  Fixed-step continuous solver (sub-step within Ts)
@@ -218,8 +244,13 @@ SimulationResult<NX, NU, NY, T> simulate_sampled(
     const T                         t0 = t_span.first;
     const T                         tf = t_span.second;
     const std::size_t               stride = (log_stride == 0) ? 1 : log_stride;
+    if (!(Ts > T{0}) || !(tf > t0)) {
+        sim.success = false;
+        return sim;
+    }
     // Control tick k at t0 + k·Ts (no running-sum drift, no sliver tick at tf).
-    const std::size_t n_ticks = (Ts > T{0}) ? detail::step_count(t0, tf, Ts) : 0;
+    const std::size_t n_ticks = detail::step_count(t0, tf, Ts);
+    const auto        rhs = detail::timed_plant<NX, NU, T>(plant);
 
     for (std::size_t k = 0; k < n_ticks; ++k) {
         const T             t = detail::grid_time(t0, tf, Ts, k, n_ticks);
@@ -227,14 +258,14 @@ SimulationResult<NX, NU, NY, T> simulate_sampled(
         const ColVec<NY, T> y = output(x);
         const ColVec<NU, T> u = controller(t, y); // zero-order hold across this period
 
-        if (sim.t.empty()) { // record the initial sample once
+        if (sim.t.empty()) { // record the initial sample once, measured with u applied (an output that reads u, as simulate_lti_siso's)
             sim.t.push_back(t);
             sim.x.push_back(x);
-            sim.y.push_back(y);
+            sim.y.push_back(output(x));
             sim.u.push_back(u);
         }
 
-        const auto f = [&](T tt, const ColVec<NX, T>& xx) { return plant(tt, xx, u); };
+        const auto f = [&](T tt, const ColVec<NX, T>& xx) { return rhs(tt, xx, u); };
         const auto seg = fine_solver.solve(f, x, {t, t_next});
         for (size_t j = 1; j < seg.size(); ++j) { // skip seg[0] (== current sample)
             const bool keep = (j % stride == 0) || (j + 1 == seg.size());
@@ -247,6 +278,10 @@ SimulationResult<NX, NU, NY, T> simulate_sampled(
             sim.u.push_back(u);
         }
         x = seg.x.back();
+        if (!seg.success) {
+            sim.success = false; // the segment stopped short of t_next
+            break;
+        }
     }
     return sim;
 }
@@ -257,7 +292,7 @@ SimulationResult<NX, NU, NY, T> simulate_sampled(
  * Convenience overload where the controller receives the full state x
  * rather than the output y. Output is computed for recording only.
  *
- * @param plant      dx/dt = plant(t, x, u)
+ * @param plant      dx/dt = plant(x, u) (a Dynamics) or plant(t, x, u)
  * @param output     y = output(x) — for recording only
  * @param controller u = controller(x) — state feedback
  * @param solver     ODE solver instance
@@ -275,8 +310,9 @@ SimulationResult<NX, NU, NY, T> simulate_state_feedback(
 ) {
     ColVec<NU, T> u_current{};
 
-    auto f = [&](T t, const ColVec<NX, T>& x) -> ColVec<NX, T> {
-        return plant(t, x, u_current);
+    const auto rhs = detail::timed_plant<NX, NU, T>(plant);
+    auto       f = [&](T t, const ColVec<NX, T>& x) -> ColVec<NX, T> {
+        return rhs(t, x, u_current);
     };
 
     SimulationResult<NX, NU, NY, T> sim;
@@ -300,7 +336,7 @@ SimulationResult<NX, NU, NY, T> simulate_state_feedback(
         sim.u.push_back(u_current);
     });
 
-    sim_solver.solve(f, x0, t_span);
+    sim.success = sim_solver.solve(f, x0, t_span).success;
 
     return sim;
 }
@@ -358,7 +394,7 @@ SimulationResult<NX, NU, NY, T> simulate_lti(
         sim.u.push_back(u_current);
     });
 
-    sim_solver.solve(f, x0, t_span);
+    sim.success = sim_solver.solve(f, x0, t_span).success;
     return sim;
 }
 

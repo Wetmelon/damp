@@ -27,7 +27,7 @@ design::eskf_marg(kGyroNd, kAccelNd, kMagNd, kBgRw, dt)
 
 Default initial 1-σ (not overridden in the sketch): attitude $`0.1`$ rad, gyro bias $`0.01`$ rad/s.
 
-Nav / body convention. Quaternion $`q`$ is body → world. Default gravity and field in the MARG `update`:
+Nav / body convention. Quaternion $`q`$ is body → world. Default gravity and field in the MARG `step`:
 
 ```math
 g_n = \begin{bmatrix} 0 \\ 0 \\ -g \end{bmatrix}

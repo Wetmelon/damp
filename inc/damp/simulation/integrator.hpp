@@ -12,6 +12,7 @@
 
 #include <concepts>
 #include <cstddef>
+#include <limits>
 
 #include "damp/matrix/colvec.hpp"
 #include "damp/matrix/functions.hpp"
@@ -25,22 +26,29 @@ namespace detail {
  * @brief Fixed-point iteration y ← g(y) for the implicit nonlinear steps
  *
  * Stops when the update falls below NX·64·eps·‖y‖ — relative, so the result
- * does not depend on the units of the state — or after @p max_iter sweeps.
- * Converges only while the step is contractive (h·Lipschitz(f) times the
- * method's implicit weight < 1); it is not a stiff (Newton) solver.
+ * does not depend on the units of the state. Converges only while the step is
+ * contractive (h·Lipschitz(f) times the method's implicit weight < 1); it is not
+ * a stiff (Newton) solver.
+ *
+ * @return The converged iterate, or nullopt after @p max_iter sweeps without
+ *         convergence or on a non-finite iterate
  */
 template<size_t NX, typename T, typename G>
-[[nodiscard]] constexpr ColVec<NX, T> fixed_point(const G& g, ColVec<NX, T> y, size_t max_iter = 50) {
+[[nodiscard]] constexpr damp::optional<ColVec<NX, T>> fixed_point(const G& g, ColVec<NX, T> y, size_t max_iter = 50) {
     const T rel_tol = static_cast<T>(NX) * T{64} * eps<T>();
     for (size_t i = 0; i < max_iter; ++i) {
         const ColVec<NX, T> y_next = g(y);
-        const bool          converged = (y_next - y).norm() <= rel_tol * y_next.norm();
+        const T             step = (y_next - y).norm();
+        const T             size = y_next.norm();
+        if (!damp::isfinite(step) || !damp::isfinite(size)) {
+            return damp::nullopt;
+        }
         y = y_next;
-        if (converged) {
-            break;
+        if (step <= rel_tol * size) {
+            return y;
         }
     }
-    return y;
+    return damp::nullopt;
 }
 
 } // namespace detail
@@ -54,9 +62,26 @@ template<size_t NX, typename T, typename G>
  */
 template<size_t NX, typename T = double>
 struct IntegrationResult {
-    ColVec<NX, T> x{};     ///< State at the end of the step
-    ColVec<NX, T> error{}; ///< Unscaled embedded local-error vector (zeros for fixed-step methods)
+    ColVec<NX, T> x{};           ///< State at the end of the step (the start state when !success)
+    ColVec<NX, T> error{};       ///< Unscaled embedded local-error vector (zeros for fixed-step methods)
+    bool          success{true}; ///< false when an implicit stage did not converge, I − αhA is singular, or the exponential failed
 };
+
+namespace detail {
+
+/** @brief The step that failed: the start state, success false. */
+template<size_t NX, typename T>
+[[nodiscard]] constexpr IntegrationResult<NX, T> failed_step(const ColVec<NX, T>& x) {
+    return IntegrationResult<NX, T>{x, {}, false};
+}
+
+/** @brief The implicit step from a fixed-point solve, or a failed step when it does not converge. */
+template<size_t NX, typename T>
+[[nodiscard]] constexpr IntegrationResult<NX, T> implicit_step(const damp::optional<ColVec<NX, T>>& y, const ColVec<NX, T>& x) {
+    return y ? IntegrationResult<NX, T>{*y, {}} : failed_step(x);
+}
+
+} // namespace detail
 
 /**
  * @brief Integrator that reports a genuine embedded local-error estimate
@@ -77,7 +102,7 @@ struct IntegrationResult {
  * |----------|------------------------------|--------|
  * | DP45     | Non-stiff default (order 5)  | ode45  |
  * | RK23     | Cheap non-stiff (order 3)    | ode23  |
- * | TRBDF2   | Stiff / L-stable (order 2)   | ode23tb|
+ * | TRBDF2   | L-stable in the LTI overload (order 2); fixed-point stages under the solvers | ode23tb|
  *
  * Prefer adaptive_solve for one-liners; AdaptiveStepSolver when you
  * need events, zero-crossings, or callbacks.
@@ -150,7 +175,8 @@ struct Exact {
      * @param u     Input (held constant over the duration of the step)
      * @param h     [s] Step size
      *
-     * @return      Next state and error estimate (always 0)
+     * @return      Next state and error estimate (always 0); success false, with the start
+     *              state, if the exponential fails (a non-finite entry)
      */
     template<size_t NU>
     constexpr IntegrationResult<NX, T> evolve(const Matrix<NX, NX, T>& A, const Matrix<NX, NU, T>& B, const ColVec<NX, T>& x, const ColVec<NU, T>& u, T h) const {
@@ -161,11 +187,14 @@ struct Exact {
         M.template block<NX, NU>(0, NX) = B;
 
         // Matrix exponential
-        auto expM = mat::expm(M * h);
+        const auto expM = mat::expm(Matrix<NX + NU, NX + NU, T>(M * h));
+        if (!expM) {
+            return detail::failed_step(x);
+        }
 
         // Extract blocks
-        auto expAh = expM.template block<NX, NX>(0, 0);
-        auto Gamma = expM.template block<NX, NU>(0, NX);
+        auto expAh = expM->template block<NX, NX>(0, 0);
+        auto Gamma = expM->template block<NX, NU>(0, NX);
 
         // Exact update
         ColVec<NX, T> x_next = expAh * x + Gamma * u;
@@ -302,7 +331,7 @@ struct SymplecticEuler {
  * systems where Forward Euler would diverge, at the cost of a linear solve per
  * step. The nonlinear overload solves the implicit equation by fixed-point
  * iteration, which converges only while h·Lipschitz(f) < 1 — it does not
- * inherit A-stability on stiff problems (use the LTI overload or TRBDF2 there).
+ * inherit A-stability on stiff problems (use the LTI overload there).
  *
  * @note Compare with MATLAB®/Simulink®'s ode1be() / implicit Euler fixed-step solver.
  * @see "Solving Ordinary Differential Equations II: Stiff and Differential-Algebraic Problems" (Hairer & Wanner, 1996)
@@ -328,7 +357,8 @@ struct BackwardEuler {
     constexpr IntegrationResult<NX, T> evolve(const Matrix<NX, NX, T>& A, const Matrix<NX, NU, T>& B, const ColVec<NX, T>& x, const ColVec<NU, T>& u, T h) const {
         const Matrix I = Matrix<NX, NX, T>::identity();
         // (I − hA)·x_next = x + hBu  (Backward Euler implicit step).
-        return {*mat::solve(I - h * A, x + h * B * u), {}};
+        const auto x_next = mat::solve(I - h * A, x + h * B * u);
+        return x_next ? IntegrationResult<NX, T>{*x_next, {}} : detail::failed_step(x);
     }
 
     /**
@@ -345,7 +375,7 @@ struct BackwardEuler {
     constexpr IntegrationResult<NX, T> evolve(const auto& f, const ColVec<NX, T>& x, T t, T h) const {
         // Explicit-Euler predictor, then iterate y = x + h f(t+h, y).
         const auto g = [&](const ColVec<NX, T>& y) { return ColVec<NX, T>(x + h * f(t + h, y)); };
-        return {detail::fixed_point<NX, T>(g, x + h * f(t, x)), {}};
+        return detail::implicit_step(detail::fixed_point<NX, T>(g, x + h * f(t, x)), x);
     }
 };
 
@@ -399,19 +429,24 @@ struct BDF2 {
 
         if (first_step) {
             // Use Backward Euler for first step
-            ColVec<NX, T> x_next = *mat::solve(I - h * A, x + h * B * u);
+            const auto x_next = mat::solve(I - h * A, x + h * B * u);
+            if (!x_next) {
+                return detail::failed_step(x);
+            }
             x_prev = x;
             first_step = false;
-            return {x_next, {}};
+            return {*x_next, {}};
         }
 
         // BDF2: (I - (2/3)*h*A)*x_{n+1} = (4/3)*x_n - (1/3)*x_{n-1} + (2/3)*h*B*u
-        Matrix        lhs = I - c2 * h * A;
-        ColVec        rhs = c0 * x + c1 * x_prev + c2 * h * B * u;
-        ColVec<NX, T> x_next = *mat::solve(lhs, rhs);
-
+        Matrix     lhs = I - c2 * h * A;
+        ColVec     rhs = c0 * x + c1 * x_prev + c2 * h * B * u;
+        const auto x_next = mat::solve(lhs, rhs);
+        if (!x_next) {
+            return detail::failed_step(x);
+        }
         x_prev = x;
-        return {x_next, {}};
+        return {*x_next, {}};
     }
 
     /**
@@ -431,16 +466,22 @@ struct BDF2 {
     constexpr IntegrationResult<NX, T> evolve(const F& f, const ColVec<NX, T>& x, T t, T h) const {
         if (first_step) {
             // Backward Euler for the first step (no x_{n-1} yet).
-            x_prev = x;
-            first_step = false;
-            return BackwardEuler<NX, T>{}.evolve(f, x, t, h);
+            const auto step = BackwardEuler<NX, T>{}.evolve(f, x, t, h);
+            if (step.success) {
+                x_prev = x;
+                first_step = false;
+            }
+            return step;
         }
 
         // BDF2: y = (4/3)x_n − (1/3)x_{n−1} + (2/3)h f(t_{n+1}, y), by fixed-point iteration.
         const ColVec<NX, T> base = c0 * x + c1 * x_prev;
         const auto          g = [&](const ColVec<NX, T>& y) { return ColVec<NX, T>(base + c2 * h * f(t + h, y)); };
-        x_prev = x;
-        return {detail::fixed_point<NX, T>(g, base), {}};
+        const auto          step = detail::implicit_step(detail::fixed_point<NX, T>(g, base), x);
+        if (step.success) {
+            x_prev = x;
+        }
+        return step;
     }
 
     /**
@@ -457,21 +498,23 @@ private:
 };
 
 /**
- * @brief TR-BDF2 composite integrator — the stiff adaptive pair (ode23tb)
+ * @brief TR-BDF2 composite integrator with an embedded error estimate (the ode23tb scheme)
  *
  * One-step, 2nd-order, L-stable (γ = 2 − √2) in the LTI overload; the nonlinear
- * overload solves each stage by fixed-point iteration (contractive only while
- * (γh/2)·Lipschitz(f) < 1). Stage 1 advances to t_n + γh by
+ * overload solves each stage by fixed-point iteration, which converges only while
+ * (γh/2)·Lipschitz(f) < 1. Stage 1 advances to t_n + γh by
  * the trapezoidal rule; stage 2 finishes with BDF2 on {x_n, x_γ, x_{n+1}}.
  * Both stages share the iteration matrix I − (γh/2)A (two LTI solves, same
  * LHS). No multistep history — no `reset()` after discontinuities (unlike
- * BDF2). Prefer this over Trapezoidal on very stiff modes (Trapezoidal only
- * A-stable and can ring) and over BDF2 when the plant switches.
+ * BDF2). In the LTI overload, prefer this over Trapezoidal on very stiff modes
+ * (Trapezoidal only A-stable and can ring) and over BDF2 when the plant switches.
  *
  * Embedded 3rd-order companion (Hosea–Shampine): reuses f at {t_n, t_γ, t_{n+1}}
  * so the error estimate is free of extra stages; local error ~ O(h³). Usable
- * fixed-step by ignoring `error`, or under AdaptiveStepSolver /
- * adaptive_solve for stiff adaptive integration.
+ * fixed-step by ignoring `error`, or under AdaptiveStepSolver / adaptive_solve.
+ * The solvers call the nonlinear overload, whose fixed-point stages bound the step
+ * by the stiffness as an explicit method's stability does: on a stiff problem it
+ * takes more steps than DP45, and the L-stability holds for the LTI overload only.
  *
  * @note Compare with MATLAB®'s ode23tb().
  * @see "Analysis and implementation of TR-BDF2" (Hosea & Shampine, 1996)
@@ -482,9 +525,9 @@ private:
  */
 template<size_t NX, typename T = double>
 struct TRBDF2 {
-    /// @brief Opt-in for @ref AdaptiveStepIntegrator
+    /** @brief Opt-in for @ref AdaptiveStepIntegrator */
     static constexpr bool provides_embedded_error = true;
-    /// @brief Local error scales as O(h³) (embedded 2/3 pair)
+    /** @brief Local error scales as O(h³) (embedded 2/3 pair) */
     static constexpr int error_order = 3;
 
     /**
@@ -510,10 +553,18 @@ struct TRBDF2 {
         const Matrix M = I - gh2 * A;
 
         // Stage 1 — trapezoidal over [t, t+γh]
-        const ColVec<NX, T> x_gamma = *mat::solve(M, (I + gh2 * A) * x + (g * h) * (B * u));
+        const auto x_gamma_opt = mat::solve(M, (I + gh2 * A) * x + (g * h) * (B * u));
+        if (!x_gamma_opt) {
+            return detail::failed_step(x);
+        }
+        const ColVec<NX, T> x_gamma = *x_gamma_opt;
 
         // Stage 2 — BDF2 to t+h
-        const ColVec<NX, T> x_next = *mat::solve(M, c_g * x_gamma + c_n * x + gh2 * (B * u));
+        const auto x_next_opt = mat::solve(M, c_g * x_gamma + c_n * x + gh2 * (B * u));
+        if (!x_next_opt) {
+            return detail::failed_step(x);
+        }
+        const ColVec<NX, T> x_next = *x_next_opt;
 
         const ColVec<NX, T> f0 = A * x + B * u;
         const ColVec<NX, T> fg = A * x_gamma + B * u;
@@ -543,13 +594,21 @@ struct TRBDF2 {
         const ColVec<NX, T> f0 = f(t, x);
         // Stage 1 — trapezoidal fixed-point: y = x + (γh/2)(f(t,x) + f(t_γ,y)),
         // explicit-Euler predictor over γh.
-        const auto          g1 = [&](const ColVec<NX, T>& y) { return ColVec<NX, T>(x + gh2 * (f0 + f(t_g, y))); };
-        const ColVec<NX, T> x_gamma = detail::fixed_point<NX, T>(g1, x + (g * h) * f0);
+        const auto g1 = [&](const ColVec<NX, T>& y) { return ColVec<NX, T>(x + gh2 * (f0 + f(t_g, y))); };
+        const auto x_gamma_opt = detail::fixed_point<NX, T>(g1, x + (g * h) * f0);
+        if (!x_gamma_opt) {
+            return detail::failed_step(x);
+        }
+        const ColVec<NX, T> x_gamma = *x_gamma_opt;
 
         // Stage 2 — BDF2 fixed-point: y = c_g x_γ + c_n x + (γh/2) f(t+h, y)
         const ColVec<NX, T> base = c_g * x_gamma + c_n * x;
         const auto          g2 = [&](const ColVec<NX, T>& y) { return ColVec<NX, T>(base + gh2 * f(t + h, y)); };
-        const ColVec<NX, T> x_next = detail::fixed_point<NX, T>(g2, base);
+        const auto          x_next_opt = detail::fixed_point<NX, T>(g2, base);
+        if (!x_next_opt) {
+            return detail::failed_step(x);
+        }
+        const ColVec<NX, T> x_next = *x_next_opt;
 
         const ColVec<NX, T> fg = f(t_g, x_gamma);
         const ColVec<NX, T> f1 = f(t + h, x_next);
@@ -557,7 +616,7 @@ struct TRBDF2 {
     }
 
 private:
-    /// Hosea–Shampine embedded 3rd-order companion: e = β − b on stages {0, γ, 1}.
+    /** @brief Hosea–Shampine embedded 3rd-order companion: e = β − b on stages {0, γ, 1}. */
     [[nodiscard]] static constexpr ColVec<NX, T> embedded_error(T h, T g, T c_g, const ColVec<NX, T>& f0, const ColVec<NX, T>& fg, const ColVec<NX, T>& f1) {
         // Order conditions Σb=1, Σb c=1/2, Σb c²=1/3 at c ∈ {0, γ, 1}.
         const T b2 = (T{-1} / T{6}) / (g * (g - T{1}));
@@ -608,7 +667,8 @@ struct Trapezoidal {
         const Matrix I = Matrix<NX, NX, T>::identity();
         const T      h2 = h / T{2};
         // (I − ½hA)·x_next = (I + ½hA)·x + hBu  (trapezoidal / Tustin implicit step).
-        return {*mat::solve(I - h2 * A, (I + h2 * A) * x + h * B * u), {}};
+        const auto x_next = mat::solve(I - h2 * A, (I + h2 * A) * x + h * B * u);
+        return x_next ? IntegrationResult<NX, T>{*x_next, {}} : detail::failed_step(x);
     }
 
     /**
@@ -631,7 +691,7 @@ struct Trapezoidal {
         const T             h2 = h / T{2};
         const ColVec<NX, T> f0 = f(t, x);
         const auto          g = [&](const ColVec<NX, T>& y) { return ColVec<NX, T>(x + h2 * (f0 + f(t + h, y))); };
-        return {detail::fixed_point<NX, T>(g, x + h * f0), {}};
+        return detail::implicit_step(detail::fixed_point<NX, T>(g, x + h * f0), x);
     }
 };
 
@@ -718,9 +778,9 @@ struct RK4 {
  */
 template<size_t NX, typename T = double>
 struct DP45 {
-    /// @brief Opt-in for @ref AdaptiveStepIntegrator
+    /** @brief Opt-in for @ref AdaptiveStepIntegrator */
     static constexpr bool provides_embedded_error = true;
-    /// @brief Local error scales as O(h⁵) (embedded 5(4) pair)
+    /** @brief Local error scales as O(h⁵) (embedded 5(4) pair) */
     static constexpr int error_order = 5;
 
     /**
@@ -856,9 +916,9 @@ struct Heun {
  */
 template<size_t NX, typename T = double>
 struct RK23 {
-    /// @brief Opt-in for @ref AdaptiveStepIntegrator
+    /** @brief Opt-in for @ref AdaptiveStepIntegrator */
     static constexpr bool provides_embedded_error = true;
-    /// @brief Local error scales as O(h³) (embedded 2(3) pair)
+    /** @brief Local error scales as O(h³) (embedded 2(3) pair) */
     static constexpr int error_order = 3;
 
     /**

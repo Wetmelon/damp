@@ -110,7 +110,11 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
         }
         return sys;
     }
-    return damp::discretize(sys, dt, DiscretizationMethod::ZOH);
+    const auto sampled = damp::discretize(sys, dt, DiscretizationMethod::ZOH);
+    if (!sampled) {
+        return damp::nullopt;
+    }
+    return *sampled;
 }
 
 //! Iterate a discrete system from x0 with constant input u, collecting y[k]=Cx+Du for n steps.

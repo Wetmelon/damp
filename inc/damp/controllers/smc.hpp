@@ -13,6 +13,7 @@
  */
 
 #include "damp/backend.hpp"
+#include "damp/design/status.hpp"
 #include "damp/math/math.hpp"
 #include "damp/systems/transfer_function.hpp"
 
@@ -34,32 +35,36 @@ namespace design {
  */
 template<typename T = double>
 struct SMCResult {
-    T    lambda{};       ///< Sliding-surface slope λ in s = λ·e + ė [1/s]. Larger = faster but noisier.
-    T    k{};            ///< Switching gain (must exceed the disturbance/uncertainty bound) [output units].
-    T    b0{};           ///< Nominal plant input gain, y⁽ⁿ⁾ = f + b0·u (> 0).
-    bool success{false}; ///< true if λ, k, b0 are all > 0 (b0 = 0 would divide-by-zero at runtime).
+    T            lambda{};                            ///< Sliding-surface slope λ in s = λ·e + ė [1/s]. Larger = faster but noisier.
+    T            k{};                                 ///< Switching gain (must exceed the lumped disturbance bound) [units of ÿ].
+    T            b0{};                                ///< Nominal plant input gain, ÿ = f + b0·u (> 0).
+    T            phi{};                               ///< Boundary-layer thickness (0 = hard sign()); > 0 softens the relay to sat(s/φ).
+    bool         success{false};                      ///< status == DesignStatus::ok
+    DesignStatus status{DesignStatus::not_converged}; ///< ok, or why the design failed
+    T            Ts{0};                               ///< [s] Sample time of the law: 0 continuous (analysis), > 0 the runtime's tick
 
-    /// Re-cast the parameters to a different scalar type (e.g. double → float).
+    /** @brief True when the design succeeded (success). */
+    [[nodiscard]] constexpr explicit operator bool() const { return success; }
+
+    /** @brief Re-cast the parameters to a different scalar type (e.g. double → float). */
     template<typename U>
     [[nodiscard]] constexpr auto as() const {
-        return SMCResult<U>{static_cast<U>(lambda), static_cast<U>(k), static_cast<U>(b0), success};
+        return SMCResult<U>{static_cast<U>(lambda), static_cast<U>(k), static_cast<U>(b0), static_cast<U>(phi), success, status, static_cast<U>(Ts)};
     }
 
     /**
      * @brief Boundary-layer linearization C(s) = (k / (b₀ φ)) (s + λ)
      *
      * Inside |s| < φ the relay is sat(s/φ), so u = (k/b₀φ)(λ e + ė) with e = r − y.
-     * Improper (relative degree −1). Requires φ > 0; otherwise a zero TF.
-     *
-     * @param phi Boundary-layer thickness (same units as s)
+     * Improper (relative degree −1). Requires the design's φ > 0; otherwise a zero TF.
      */
-    [[nodiscard]] constexpr TransferFunction<2, 1, T> to_tf(T phi) const {
+    [[nodiscard]] constexpr TransferFunction<2, 1, T> to_tf() const {
         TransferFunction<2, 1, T> tf{};
         if (!success || !(phi > T{0}) || !(b0 > T{0})) {
             return tf;
         }
         const T g = k / (b0 * phi);
-        tf.num = {g * lambda, g};
+        tf.num = {g, g * lambda}; // g s + g λ
         tf.den = {T{1}};
         return tf;
     }
@@ -74,21 +79,30 @@ struct SMCResult {
  * to pick them).
  *
  * @param lambda Sliding-surface slope λ [1/s] (> 0).
- * @param k      Switching gain (> the worst-case lumped disturbance).
- * @param b0     Control effectiveness / input gain (> 0).
- * @return SMCResult carrying the three parameters.
+ * @param k      Switching gain (> the worst-case lumped disturbance on ÿ) [units of ÿ].
+ * @param b0     Input gain of the relative-degree-2 plant ÿ = f + b0·u (> 0).
+ * @param Ts     [s] Sample time of the runtime's backward-difference rate (0 = continuous, analysis only).
+ * @param phi    Boundary-layer thickness (≥ 0; 0 = hard sign()).
+ * @return SMCResult carrying the parameters; refused with invalid_parameter for λ, k, b0 ≤ 0 or φ < 0,
+ *         and with invalid_sample_time for a negative or non-finite Ts.
  */
 template<typename T = double>
-[[nodiscard]] constexpr SMCResult<T> smc(T lambda, T k, T b0) {
+[[nodiscard]] constexpr SMCResult<T> smc(T lambda, T k, T b0, T Ts = T{0}, T phi = T{0}) {
     // reject λ/k ≤ 0 or b0 ≤ 0 rather than producing a divide-by-zero controller
-    if (!(lambda > T{0} && k > T{0} && b0 > T{0})) {
-        return SMCResult<T>{};
+    if (!(damp::finite_positive(lambda) && damp::finite_positive(k) && damp::finite_positive(b0) && damp::finite_non_negative(phi))) {
+        return ::damp::detail::refused<SMCResult<T>>(DesignStatus::invalid_parameter);
+    }
+    if (!damp::finite_non_negative(Ts)) {
+        return ::damp::detail::refused<SMCResult<T>>(DesignStatus::invalid_sample_time);
     }
     return SMCResult<T>{
         .lambda = lambda,
         .k = k,
         .b0 = b0,
+        .phi = phi,
         .success = true,
+        .status = DesignStatus::ok,
+        .Ts = Ts,
     };
 }
 
@@ -111,13 +125,17 @@ template<typename T = double>
  *
  * `s = 0` is a line through the origin with slope `−λ`; on it the error decays as
  * `e(t) = e(0)\,\mathrm{e}^{-\lambda t}`, so λ sets the closed-loop speed once
- * sliding. With the plant input gain @f$ b_0 > 0 @f$ (@f$ y^{(n)} = f + b_0 u @f$) the
- * surface obeys @f$ \dot s = -b_0 u + \ldots @f$, so the relay (bang-bang) term that
- * drives `s` to zero is
+ * sliding. The surface @f$ (d/dt + \lambda)\,e @f$ is the relative-degree-2 case of
+ * Slotine's @f$ (d/dt + \lambda)^{n-1} e @f$: for the plant @f$ \ddot y = f + b_0 u @f$
+ * with input gain @f$ b_0 > 0 @f$ it obeys @f$ \dot s = -b_0 u + \ldots @f$, so the
+ * relay (bang-bang) term that drives `s` to zero is
  *
  * @f[ u = +\frac{k}{b_0}\,\operatorname{sign}(s) @f]
  *
  * — positive error gives a positive command, the same sign as a PID on @f$ r - y @f$.
+ * On a first-order plant @f$ \dot y = f + b_0 u @f$ the surface itself contains
+ * @f$ -b_0 u @f$ and the relay settles off the reference; use @ref ADRCController
+ * (NX = 1) or a PID there.
  *
  * As long as the switching gain `k` exceeds the worst-case lumped disturbance,
  * `s` reaches 0 in finite time and stays there. The price of the hard `sign()`
@@ -134,21 +152,22 @@ template<typename T = double>
  *    amplifies measurement noise through `ė`.
  *  - `k` — increase until disturbances are rejected; if it buzzes, that's
  *    chattering — add a `phi` boundary layer rather than dropping `k`.
- *  - `b0` — your plant's input gain (y⁽ⁿ⁾ = f + b0·u, > 0); if unsure,
+ *  - `b0` — your plant's input gain (ÿ = f + b0·u, > 0); if unsure,
  *    set 1 and fold the scaling into `k`.
  *
  * @note `ė` is estimated by backward difference `(e − e_prev)/Ts`, so a noisy `y`
  *       feeds noise straight into the surface — filter the measurement (or its
- *       derivative) on a real sensor. `Ts` is a per-call argument, so
- *       the same controller works at any/varying loop rate.
+ *       derivative) on a real sensor. Ts comes from the design result: design
+ *       at the loop's period.
  *
  * Example — regulate a position with a boundary layer to avoid actuator buzz:
  * @code
  * using namespace damp;
- * constexpr auto gains = design::smc(20.0f, 5.0f, 1.0f); // λ, k, b0
- * SMCController<float> ctrl(gains);
- * // In the loop: Ts = 1 ms, phi = 0.05 boundary layer to avoid chatter.
- * float u = ctrl.control(r, y, 1e-3f, 0.05f);
+ * // λ, k, b0, Ts = 1 ms, phi = 0.05 boundary layer to avoid chatter
+ * constexpr auto gains = design::smc(20.0f, 5.0f, 1.0f, 1e-3f, 0.05f);
+ * static constinit SMCController ctrl{gains};
+ * // In the loop:
+ * float u = ctrl.control(r, y);
  * @endcode
  *
  * @tparam T Scalar type (default: float)
@@ -169,18 +188,30 @@ class SMCController {
     T b0{};     ///< Control effectiveness / input gain.
 
     T    error_prev{};  ///< Previous error, for the backward-difference rate ė.
-    T    Ts_{};         ///< Stored sample time for the 2-arg control(r, y) form [s].
-    T    phi_{};        ///< Stored boundary-layer thickness for the 2-arg form.
+    T    Ts_{};         ///< [s] Sample time, from the design result.
+    T    phi_{};        ///< Boundary-layer thickness, from the design result.
     bool first_{true};  ///< Seed error_prev on the first control() tick (no derivative kick).
     bool valid_{false}; ///< From the design's success flag; gates control().
 
 public:
     constexpr SMCController() = default;
 
-    constexpr SMCController(const design::SMCResult<T>& result, T Ts = T{0}, T phi = T{0})
-        : lambda(result.lambda), k(result.k), b0(result.b0), Ts_(Ts), phi_(phi), valid_(result.success) {
-        if (!result.success && std::is_constant_evaluated()) {
-            ::damp::detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed design does not compile
+    /** @brief From a design result in another scalar: converts it with .as\<T\>() and builds from that. */
+    template<typename U>
+        requires(!std::is_same_v<U, T>)
+    constexpr SMCController(const design::SMCResult<U>& result) // NOLINT(google-explicit-constructor): assign-from-design
+        : SMCController(result.template as<T>()) {}
+
+    /**
+     * @brief From the design result, which carries the sample time and boundary layer.
+     *
+     * A failed or continuous (Ts = 0) design is ill-formed under constant evaluation; at run
+     * time it leaves the controller invalid (valid() false, output 0).
+     */
+    constexpr SMCController(const design::SMCResult<T>& result) // NOLINT(google-explicit-constructor): assign-from-design
+        : lambda(result.lambda), k(result.k), b0(result.b0), Ts_(result.Ts), phi_(result.phi), valid_(result.success && result.Ts > T{0}) {
+        if ((!result.success || !(result.Ts > T{0})) && std::is_constant_evaluated()) {
+            ::damp::detail::refuse_failed_design(result.success ? design::DesignStatus::invalid_sample_time : result.status); // constant-evaluated (constinit / constexpr): a failed or continuous design does not compile
         }
     }
 
@@ -191,22 +222,17 @@ public:
     /**
      * @brief Run one control step: u = (k/b0)·sign(λ·e + ė), e = r − y.
      *
+     * The rate is the backward difference `ė = (e − e_prev)/Ts` over the design's Ts; the
+     * design's boundary layer φ > 0 softens the relay to sat(s/φ) (smoother command, larger
+     * steady-state error).
+     *
      * @param r   Reference (setpoint).
      * @param y   Measurement (plant output).
-     * @param Ts  Sample time [s] since the last call; used for the backward-
-     *            difference rate `ė = (e − e_prev)/Ts`. Pass your actual loop
-     *            period — it need not be constant.
-     * @param phi Boundary-layer thickness (default 0 = hard `sign()`). Set
-     *            `phi > 0` to soften the relay and suppress chattering; bigger
-     *            `phi` = smoother command but larger steady-state error.
-     *
      * @return Control command `u`.
      */
-    [[nodiscard]] constexpr T control(T r, T y, T Ts, T phi = T{0}) {
-        // A non-positive Ts (uninitialized / stalled dt) would divide-by-zero in the
-        // backward-difference rate; an invalid design has a zero/garbage b0. Either
-        // way emit no correction and hold the state.
-        if (!valid_ || Ts <= T{0}) {
+    [[nodiscard]] constexpr T control(T r, T y) {
+        // A failed or continuous design (no b0, no sampled rate): emit no correction, hold the state.
+        if (!valid_) {
             return T{0};
         }
 
@@ -215,7 +241,7 @@ public:
             error_prev = error; // seed: this tick's rate is 0, no derivative kick
             first_ = false;
         }
-        const T dot_e = (error - error_prev) / Ts;
+        const T dot_e = (error - error_prev) / Ts_;
         error_prev = error;
 
         // Sliding surface: λ weights the error against its rate.
@@ -223,20 +249,11 @@ public:
 
         // phi <= 0: hard relay. phi > 0: saturation boundary layer sat(s/phi) — a
         // linear ramp through |s| < phi, full ±1 switching gain restored beyond it.
-        if (phi <= T{0}) {
+        if (phi_ <= T{0}) {
             return (k / b0) * static_cast<T>(damp::sgn(s));
         }
-        return (k / b0) * damp::clamp(s / phi, T{-1}, T{1});
+        return (k / b0) * damp::clamp(s / phi_, T{-1}, T{1});
     }
-
-    /**
-     * @brief 2-arg fixed-rate form using the stored sample time and boundary layer.
-     *
-     * The SisoController concept shape: construct with Ts (and optionally phi)
-     * and call control(r, y) each tick. With no stored Ts it emits zero and
-     * holds state, exactly like the 4-arg form with Ts = 0.
-     */
-    [[nodiscard]] constexpr T control(T r, T y) { return control(r, y, Ts_, phi_); }
 
     [[nodiscard]] constexpr bool valid() const { return valid_; }
 
@@ -245,5 +262,9 @@ public:
         first_ = true;
     }
 };
+
+/** @brief Deduce the runtime from its design, keeping the result's scalar. */
+template<typename T>
+SMCController(const design::SMCResult<T>&) -> SMCController<T>;
 
 } // namespace damp

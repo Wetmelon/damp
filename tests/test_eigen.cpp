@@ -12,6 +12,7 @@
 #include "damp/backend.hpp"
 #include "damp/math/complex.hpp"
 #include "damp/math/math.hpp"
+#include "damp/matrix/eigen.hpp"
 #include "damp/matrix/matrix.hpp"
 
 #define DOCTEST_CONFIG_INCLUDE_TYPE_TRAITS
@@ -19,6 +20,24 @@
 
 using namespace damp;
 using namespace damp::mat;
+
+namespace {
+constexpr double kEps = std::numeric_limits<double>::epsilon();
+
+template<size_t N>
+double eigen_residual(const Matrix<N, N, double>& A, const mat::EigenResult<N, double>& r, size_t i) {
+    double res = 0.0;
+    for (size_t row = 0; row < N; ++row) {
+        double av = 0.0;
+        for (size_t k = 0; k < N; ++k) {
+            av += A(row, k) * r.schur_vectors(k, i);
+        }
+        res = std::fmax(res, std::fabs(av - (r.values[i].real() * r.schur_vectors(row, i))));
+    }
+    return res;
+}
+
+} // namespace
 
 TEST_CASE("Complex Matrix Support") {
     using Cplx = damp::complex<double>;
@@ -40,7 +59,7 @@ TEST_CASE("Eigen Decomposition") {
         Mat2 A = {{4.0, 1.0}, {1.0, 3.0}};
         auto result = compute_eigenvalues(A);
 
-        CHECK(result.converged);
+        CHECK(result.success);
 
         auto lambda1 = result.values[0];
         auto lambda2 = result.values[1];
@@ -67,13 +86,13 @@ TEST_CASE("Eigen Decomposition") {
             {0.5, 0.2, 2.0},
         };
         auto result = compute_eigenvalues(A);
-        REQUIRE(result.converged);
+        REQUIRE(result.success);
 
         for (size_t i = 0; i < 3; ++i) {
             ColVec<3, double> v{
-                result.vectors(0, i).real(),
-                result.vectors(1, i).real(),
-                result.vectors(2, i).real(),
+                result.schur_vectors(0, i),
+                result.schur_vectors(1, i),
+                result.schur_vectors(2, i),
             };
             const double nrm = std::sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
             REQUIRE(nrm > 1e-12);
@@ -90,7 +109,7 @@ TEST_CASE("Eigen Decomposition") {
         Mat3<double> D = {{2.0, 0.0, 0.0}, {0.0, 5.0, 0.0}, {0.0, 0.0, -3.0}};
 
         auto result = compute_eigenvalues(D);
-        CHECK(result.converged);
+        CHECK(result.success);
 
         std::array<double, 3> evs{};
         for (size_t i = 0; i < 3; ++i) {
@@ -111,7 +130,7 @@ TEST_CASE("Eigen Decomposition") {
         Mat2 A_cl = {{-3e4, -5e3}, {6.8e4, -6.8e3}};
 
         auto result = compute_eigenvalues(A_cl);
-        CHECK(result.converged);
+        CHECK(result.success);
 
         // Both eigenvalues should be computed (non-zero)
         double ev1 = result.values[0].real();
@@ -128,7 +147,7 @@ TEST_CASE("Eigen Decomposition") {
         constexpr Mat2 A_cl = {{-3e4, -5e3}, {6.8e4, -6.8e3}};
         constexpr auto result = compute_eigenvalues(A_cl);
 
-        static_assert(result.converged, "Eigenvalue computation should converge");
+        static_assert(result.success, "Eigenvalue computation should converge");
 
         constexpr double ev1 = result.values[0].real();
         constexpr double ev2 = result.values[1].real();
@@ -147,7 +166,7 @@ TEST_CASE("compute_eigenvalues - 1x1 matrix") {
 
     auto result = compute_eigenvalues(A);
 
-    CHECK(result.converged);
+    CHECK(result.success);
     CHECK(result.values[0].real() == doctest::Approx(5.0));
 }
 
@@ -159,7 +178,7 @@ TEST_CASE("compute_eigenvalues - 2x2 diagonal matrix") {
 
     auto result = compute_eigenvalues(A);
 
-    CHECK(result.converged);
+    CHECK(result.success);
     // Eigenvalues should be 3 and 7 (on diagonal)
     CHECK((result.values[0].real() == doctest::Approx(3.0) || result.values[0].real() == doctest::Approx(7.0)));
     CHECK((result.values[1].real() == doctest::Approx(7.0) || result.values[1].real() == doctest::Approx(3.0)));
@@ -174,7 +193,7 @@ TEST_CASE("compute_eigenvalues - 2x2 symmetric matrix") {
 
     auto result = compute_eigenvalues(A);
 
-    CHECK(result.converged);
+    CHECK(result.success);
     // Eigenvalues should be 3 and 5
     double lambda1 = result.values[0].real();
     double lambda2 = result.values[1].real();
@@ -192,7 +211,7 @@ TEST_CASE("compute_eigenvalues - 2x2 identity matrix") {
 
     auto result = compute_eigenvalues(A);
 
-    CHECK(result.converged);
+    CHECK(result.success);
     CHECK(result.values[0].real() == doctest::Approx(1.0));
     CHECK(result.values[1].real() == doctest::Approx(1.0));
 }
@@ -207,7 +226,7 @@ TEST_CASE("compute_eigenvalues - 3x3 symmetric matrix") {
 
     auto result = compute_eigenvalues(A);
 
-    CHECK(result.converged);
+    CHECK(result.success);
 
     // Sum of eigenvalues should equal trace
     double trace = A(0, 0) + A(1, 1) + A(2, 2);
@@ -224,7 +243,7 @@ TEST_CASE("compute_eigenvalues - positive definite matrix") {
 
     auto result = compute_eigenvalues(A);
 
-    CHECK(result.converged);
+    CHECK(result.success);
     CHECK(result.values[0].real() > 0.0);
     CHECK(result.values[1].real() > 0.0);
 }
@@ -238,7 +257,7 @@ TEST_CASE("compute_eigenvalues - negative eigenvalues") {
 
     auto result = compute_eigenvalues(A);
 
-    CHECK(result.converged);
+    CHECK(result.success);
     CHECK(result.values[0].real() == doctest::Approx(-3.0));
     CHECK(result.values[1].real() == doctest::Approx(-5.0));
 }
@@ -253,7 +272,7 @@ TEST_CASE("compute_eigenvalues - check for positive definiteness") {
 
         auto result = compute_eigenvalues(Q);
 
-        if (result.converged) {
+        if (result.success) {
             bool all_positive = true;
             for (size_t i = 0; i < 3; ++i) {
                 if (result.values[i].real() <= 0.0) {
@@ -273,7 +292,7 @@ TEST_CASE("compute_eigenvalues - check for positive definiteness") {
 
         auto result = compute_eigenvalues(Q);
 
-        if (result.converged) {
+        if (result.success) {
             // Should have eigenvalues 3 and -1
             double lambda1 = result.values[0].real();
             double lambda2 = result.values[1].real();
@@ -332,7 +351,7 @@ TEST_CASE("qr_decompose reconstructs A and Q is orthonormal") {
             {-4.0, 24.0, -41.0},
         };
         auto qr = qr_decompose(A);
-        REQUIRE(qr.is_valid());
+        REQUIRE(qr.full_rank());
 
         // Q * R == A
         CHECK(max_abs_diff(qr.Q * qr.R, A) < 1e-9);
@@ -355,12 +374,26 @@ TEST_CASE("qr_decompose reconstructs A and Q is orthonormal") {
             {7.0, 9.0},
         };
         auto qr = qr_decompose(A);
-        REQUIRE(qr.is_valid());
+        REQUIRE(qr.full_rank());
         CHECK(max_abs_diff(qr.Q * qr.R, A) < 1e-9);
         // Columns of Q orthonormal: QᵀQ == I_2
         Matrix<2, 2> QtQ = qr.Q.transpose() * qr.Q;
         CHECK(max_abs_diff(QtQ, Matrix<2, 2>::identity()) < 1e-9);
     }
+}
+
+template<typename M>
+concept has_real_eigensolver = requires(const M& m) { mat::compute_eigenvalues(m); mat::generalized_eigenvalues(m, m); };
+
+TEST_CASE("the real eigen solvers refuse a complex matrix at the signature, and a default result is not a success") {
+    // Regression: complex T compiled into the real QR / QZ and failed deep inside, and a
+    // default-constructed EigenResult claimed converged.
+    static_assert(has_real_eigensolver<Matrix<2, 2, double>>);
+    static_assert(has_real_eigensolver<Matrix<2, 2, float>>);
+    static_assert(!has_real_eigensolver<Matrix<2, 2, damp::complex<double>>>);
+    static_assert(!mat::EigenResult<2, double>{}.success);
+    static_assert(!mat::EigenResult<2, double>{});
+    CHECK(static_cast<bool>(compute_eigenvalues(Matrix<2, 2>{{1.0, 0.0}, {0.0, 2.0}})));
 }
 
 TEST_CASE("compute_eigenvalues resolves complex conjugate eigenvalues") {
@@ -370,7 +403,7 @@ TEST_CASE("compute_eigenvalues resolves complex conjugate eigenvalues") {
             {1.0, 0.0},
         };
         auto r = compute_eigenvalues(A);
-        REQUIRE(r.converged);
+        REQUIRE(r.success);
         CHECK(std::abs(r.values[0].real()) < 1e-9);
         CHECK(std::abs(r.values[1].real()) < 1e-9);
         CHECK(std::abs(std::abs(r.values[0].imag()) - 1.0) < 1e-9);
@@ -384,7 +417,7 @@ TEST_CASE("compute_eigenvalues resolves complex conjugate eigenvalues") {
             {2.0, -1.0},
         };
         auto r = compute_eigenvalues(A);
-        REQUIRE(r.converged);
+        REQUIRE(r.success);
         CHECK(r.values[0].real() == doctest::Approx(-1.0).epsilon(1e-9));
         CHECK(r.values[1].real() == doctest::Approx(-1.0).epsilon(1e-9));
         CHECK(std::abs(std::abs(r.values[0].imag()) - 2.0) < 1e-9);
@@ -398,7 +431,7 @@ TEST_CASE("compute_eigenvalues resolves complex conjugate eigenvalues") {
             {1.0, 0.0},
         };
         auto r = compute_eigenvalues(A);
-        REQUIRE(r.converged);
+        REQUIRE(r.success);
         CHECK(std::abs(r.values[0].real()) < 1e-9);
         CHECK(std::abs(r.values[1].real()) < 1e-9);
         CHECK(std::abs(std::abs(r.values[0].imag()) - 1.0) < 1e-9);
@@ -416,7 +449,7 @@ TEST_CASE("compute_eigenvalues resolves complex conjugate eigenvalues") {
             {0.0, 0.0, 0.0, 0.0, 5.0, 0.0},
         };
         auto r = compute_eigenvalues(A);
-        REQUIRE(r.converged);
+        REQUIRE(r.success);
         auto                                      got = eig_pairs(r);
         std::array<damp::pair<double, double>, 6> want = {{
             {-1.0, 0.0},
@@ -443,7 +476,7 @@ TEST_CASE("compute_eigenvalues resolves complex conjugate eigenvalues") {
             {0.0, 0.0, 0.0, 1.0, 0.0},
         };
         auto r = compute_eigenvalues(A);
-        REQUIRE(r.converged);
+        REQUIRE(r.success);
         auto got = eig_pairs(r);
         for (size_t i = 0; i < 5; ++i) {
             CHECK(got[i].first == doctest::Approx(static_cast<double>(i + 1)).epsilon(1e-6));
@@ -462,7 +495,7 @@ TEST_CASE("compute_eigenvalues is constexpr-evaluable") {
             {0.0, -1.0, 2.0},
         };
         auto r = compute_eigenvalues(A);
-        if (!r.converged) {
+        if (!r.success) {
             return false;
         }
         // trace is preserved: sum of eigenvalues == 6
@@ -483,7 +516,7 @@ TEST_CASE("compute_eigenvalues - 4x4 symmetric matches known spectrum") {
         {0.0, 0.0, -1.0, 2.0},
     };
     auto r = compute_eigenvalues(A);
-    REQUIRE(r.converged);
+    REQUIRE(r.success);
 
     std::array<double, 4> want{};
     for (size_t k = 1; k <= 4; ++k) {
@@ -514,8 +547,8 @@ TEST_SUITE("compute_eigenvalues balancing") {
         }
         const auto ref = compute_eigenvalues(A0);
         const auto got = compute_eigenvalues(A);
-        REQUIRE(ref.converged);
-        REQUIRE(got.converged);
+        REQUIRE(ref.success);
+        REQUIRE(got.success);
         for (size_t i = 0; i < 3; ++i) {
             // match each eigenvalue of A to the nearest of A0
             double best = 1e300;
@@ -525,7 +558,7 @@ TEST_SUITE("compute_eigenvalues balancing") {
             CHECK(best <= 1e-10 * ref.values[i].abs());
         }
         // The first Schur vector is an eigenvector of A: ‖A v − λ v‖ small relative to ‖A v‖.
-        ColVec<3, double> v{got.vectors(0, 0).real(), got.vectors(1, 0).real(), got.vectors(2, 0).real()};
+        ColVec<3, double> v{got.schur_vectors(0, 0), got.schur_vectors(1, 0), got.schur_vectors(2, 0)};
         const auto        Av = A * v;
         const double      lam = got.values[0].real();
         double            res = 0.0;
@@ -658,8 +691,8 @@ TEST_SUITE("compute_eigenvalues balancing in float") {
         }
         const auto ref = compute_eigenvalues(A0);
         const auto got = compute_eigenvalues(A);
-        REQUIRE(ref.converged);
-        REQUIRE(got.converged);
+        REQUIRE(ref.success);
+        REQUIRE(got.success);
         for (size_t i = 0; i < 3; ++i) {
             float best = 1e30f;
             for (size_t k = 0; k < 3; ++k) {
@@ -676,5 +709,40 @@ TEST_SUITE("compute_eigenvalues balancing in float") {
         CHECK_FALSE(mat::detail::gebal_log2_scale(A, e));
         CHECK(e[0] == 0);
         CHECK(e[1] == 0);
+    }
+}
+
+TEST_CASE("2x2 eigenvalues: small eigenvalue keeps relative accuracy") {
+    const auto   r = mat::compute_eigenvalues(Matrix<2, 2, double>{{1e8, 1.0}, {0.0, 1e-8}});
+    const double lo = std::fmin(r.values[0].real(), r.values[1].real());
+    CHECK(lo == doctest::Approx(1e-8).epsilon(1e-12));
+}
+
+TEST_CASE("a non-finite entry reports converged = false at every size") {
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+    const double inf = std::numeric_limits<double>::infinity();
+    CHECK_FALSE(mat::compute_eigenvalues(Matrix<1, 1>{{nan}}).success);
+    CHECK_FALSE(mat::compute_eigenvalues(Matrix<2, 2>{{nan, 0.0}, {1.0, 2.0}}).success);
+    CHECK_FALSE(mat::compute_eigenvalues(Matrix<3, 3>{{inf, 1.0, 0.0}, {1.0, 2.0, 0.0}, {0.0, 0.0, 3.0}}).success);
+    CHECK_FALSE(mat::compute_eigenvalues(Matrix<3, 3>{{nan, 0.0, 0.0}, {0.0, 2.0, 0.0}, {0.0, 0.0, 3.0}}).success);
+    CHECK(mat::compute_eigenvalues(Matrix<3, 3>{{1.0, 0.0, 0.0}, {0.0, 2.0, 0.0}, {0.0, 0.0, 3.0}}).success);
+}
+
+TEST_CASE("Schur vectors are eigenvectors of symmetric matrices") {
+    const Matrix<2, 2, double> A2{{2.0, 1.0}, {1.0, 2.0}};
+    const auto                 r2 = mat::compute_eigenvalues(A2);
+    for (size_t i = 0; i < 2; ++i) {
+        CHECK(eigen_residual<2>(A2, r2, i) <= 64 * kEps * 3.0);
+    }
+    const Matrix<4, 4, double> A4{
+        {4.0, 1.0, -2.0, 2.0},
+        {1.0, 2.0, 0.0, 1.0},
+        {-2.0, 0.0, 3.0, -2.0},
+        {2.0, 1.0, -2.0, -1.0},
+    };
+    const auto r4 = mat::compute_eigenvalues(A4);
+    REQUIRE(r4.success);
+    for (size_t i = 0; i < 4; ++i) {
+        CHECK(eigen_residual<4>(A4, r4, i) <= 64 * kEps * 8.0);
     }
 }

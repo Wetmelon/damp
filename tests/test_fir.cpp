@@ -7,6 +7,7 @@
 #include <cstddef>
 
 #include "damp/backend.hpp"
+#include "damp/design/status.hpp"
 #include "damp/filters/fir.hpp"
 
 #define DOCTEST_CONFIG_INCLUDE_TYPE_TRAITS
@@ -116,6 +117,19 @@ TEST_SUITE("FIR") {
         CHECK_FALSE(design::fir1<32, double>(15, 0.1, design::FirType::Bandpass).success);
     }
 
+    TEST_CASE("refusals carry a DesignStatus; two cutoffs refuse a one-cutoff type") {
+        CHECK(design::fir1<32, double>(15, 0.6).status == design::DesignStatus::invalid_parameter);
+        CHECK(design::fir1<32, double>(15, 0.1, design::FirType::Bandpass).status == design::DesignStatus::invalid_parameter);
+        CHECK(design::fir1<32, double>(15, 0.1).status == design::DesignStatus::ok);
+        // f_hi is not silently dropped: a low-pass / high-pass with two cutoffs is refused.
+        const auto lp2 = design::fir1<64, double>(31, 0.1, 0.25, design::FirType::Lowpass);
+        CHECK_FALSE(lp2.success);
+        CHECK(lp2.status == design::DesignStatus::invalid_parameter);
+        CHECK(design::fir1<64, double>(31, 0.1, 0.25, design::FirType::Highpass).status == design::DesignStatus::invalid_parameter);
+        CHECK(design::fir1_hz<32, double>(15, 100.0, 0.0).status == design::DesignStatus::invalid_sample_time);
+        CHECK(design::fir1<32, double>(15, 0.6).as<float>().status == design::DesignStatus::invalid_parameter);
+    }
+
     TEST_CASE("windows: rectangular, hann, hamming, blackman") {
         for (auto w : {design::FirWindow::Rectangular, design::FirWindow::Hann, design::FirWindow::Hamming, design::FirWindow::Blackman}) {
             const auto des = design::fir1<32, double>(17, 0.12, design::FirType::Lowpass, w);
@@ -130,9 +144,9 @@ TEST_SUITE("FIR") {
         CHECK(des.n_taps == 21); // bumped to odd
     }
 
-    TEST_CASE("fir1_hz matches normalized fir1") {
+    TEST_CASE("fir1_hz(n, fc, Ts) matches normalized fir1") {
         const auto a = design::fir1<32, double>(15, 100.0 / 1000.0);
-        const auto b = design::fir1_hz<32, double>(15, 100.0, 1000.0);
+        const auto b = design::fir1_hz<32, double>(15, 100.0, 1e-3);
         REQUIRE(a.success);
         REQUIRE(b.success);
         REQUIRE(a.n_taps == b.n_taps);
@@ -161,10 +175,10 @@ TEST_SUITE("FIR") {
         CHECK(g == doctest::Approx(1.0).epsilon(1e-9));
     }
 
-    TEST_CASE("FirFilter reset and identity default") {
+    TEST_CASE("FirFilter reset and zero default") {
         FirFilter<8, double> fir;
         CHECK(fir.n_taps() == 1);
-        CHECK(fir(4.0) == doctest::Approx(4.0));
+        CHECK(fir(4.0) == doctest::Approx(0.0));
 
         damp::array<double, 8> b{};
         b[0] = 0.5;
@@ -208,5 +222,48 @@ TEST_SUITE("FIR") {
         CHECK(nlms.coefficient(1) == doctest::Approx(b_true[1]).epsilon(0.02));
         CHECK(nlms.coefficient(2) == doctest::Approx(b_true[2]).epsilon(0.02));
         CHECK(err2 / 1000.0 < 1e-6); // mean-square residual over last 1000 samples
+    }
+
+    TEST_CASE("FirFilter from a failed design outputs zero") {
+        FirFilter<4, double> f(design::FirDesignResult<4, double>{});
+        CHECK(f(1.0) == doctest::Approx(0.0));
+        CHECK(f(2.0) == doctest::Approx(0.0));
+        FirFilter<64, double> refused(design::fir1<64, double>(31, 0.1, 0.25, design::FirType::Lowpass));
+        CHECK(refused(1.0) == doctest::Approx(0.0));
+    }
+
+    TEST_CASE("NLMS with the default ε identifies a plant at any input scale") {
+        for (const double A : {1.0, 1e-6}) {
+            const double b_true[3] = {0.5, 0.3, 0.1};
+            double       x_hist[3] = {0.0, 0.0, 0.0};
+
+            NlmsFilter<8, double> nlms;
+            nlms.init(3, 1.0);
+            CHECK(nlms(0.0, 0.0) == doctest::Approx(0.0)); // zero input: no update, no 0/0
+            CHECK(nlms.coefficient(0) == doctest::Approx(0.0));
+
+            unsigned state = 1u;
+            for (int k = 0; k < 2000; ++k) {
+                state = state * 1103515245u + 12345u;
+                const double x = (state & 0x10000u) ? A : -A;
+                x_hist[2] = x_hist[1];
+                x_hist[1] = x_hist[0];
+                x_hist[0] = x;
+                nlms(x, b_true[0] * x_hist[0] + b_true[1] * x_hist[1] + b_true[2] * x_hist[2]);
+            }
+            CHECK(nlms.coefficient(0) == doctest::Approx(b_true[0]).epsilon(1e-3));
+            CHECK(nlms.coefficient(1) == doctest::Approx(b_true[1]).epsilon(1e-3));
+            CHECK(nlms.coefficient(2) == doctest::Approx(b_true[2]).epsilon(1e-3));
+        }
+    }
+
+    TEST_CASE("FIR design normalization is scale-free (float lowpass still succeeds)") {
+        const auto des = design::fir1<31, float>(31, 0.1f, design::FirType::Highpass, design::FirWindow::Blackman);
+        REQUIRE(des.success);
+        float g = 0.0f;
+        for (size_t n = 0; n < des.n_taps; ++n) {
+            g += des.b[n];
+        }
+        CHECK(std::abs(g) < 1e-5f); // DC null
     }
 }

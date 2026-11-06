@@ -4,6 +4,7 @@
 // (See accompanying file LICENSE or copy at http://www.boost.org/LICENSE_1_0.txt)
 
 #include <cmath>
+#include <limits>
 #include <numbers>
 
 #include "damp/backend.hpp"
@@ -29,7 +30,7 @@ TEST_SUITE("Lead-Lag Compensator") {
     TEST_CASE("Lead design - 45 degree phase boost at wc=1000") {
         constexpr double phi = std::numbers::pi / 4.0; // 45 degrees
         constexpr double wc = 1000.0;
-        constexpr auto   result = design::lead(phi, wc);
+        constexpr auto   result = design::lead(phi, wc, 0.0);
 
         // Check zero, pole, gain against analytical values
         // alpha = (1-sin(45))/(1+sin(45)) = 0.17157...
@@ -45,7 +46,7 @@ TEST_SUITE("Lead-Lag Compensator") {
         // Phase at wc should be phi_max, magnitude should be 1.0
         constexpr double phi = std::numbers::pi / 4.0;
         constexpr double wc = 1000.0;
-        constexpr auto   r = design::lead(phi, wc);
+        constexpr auto   r = design::lead(phi, wc, 0.0);
 
         // Phase = atan(wc/z) - atan(wc/p)
         double phase_z = std::atan(wc / r.z);
@@ -61,7 +62,7 @@ TEST_SUITE("Lead-Lag Compensator") {
     TEST_CASE("Lead design - 30 degree boost at wc=500") {
         constexpr double phi = 30.0 * std::numbers::pi / 180.0;
         constexpr double wc = 500.0;
-        constexpr auto   r = design::lead(phi, wc);
+        constexpr auto   r = design::lead(phi, wc, 0.0);
 
         CHECK(r.z == doctest::Approx(288.6751345948128).epsilon(1e-12));
         CHECK(r.p == doctest::Approx(866.0254037844387).epsilon(1e-12));
@@ -80,7 +81,7 @@ TEST_SUITE("Lead-Lag Compensator") {
     TEST_CASE("Lag design - 10x DC gain boost") {
         constexpr double dc_boost = 10.0;
         constexpr double wc = 1000.0;
-        constexpr auto   r = design::lag(dc_boost, wc);
+        constexpr auto   r = design::lag(dc_boost, wc, 0.0);
 
         // z = wc/margin_factor = 1000/10 = 100
         // p = z/dc_gain_boost = 100/10 = 10
@@ -101,7 +102,7 @@ TEST_SUITE("Lead-Lag Compensator") {
     }
 
     TEST_CASE("Lead-lag direct specification") {
-        constexpr auto r = design::lead_lag_direct(2.0, 100.0, 500.0);
+        constexpr auto r = design::lead_lag_direct(2.0, 100.0, 500.0, 0.0);
         static_assert(r.K == 2.0);
         static_assert(r.z == 100.0);
         static_assert(r.p == 500.0);
@@ -109,18 +110,18 @@ TEST_SUITE("Lead-Lag Compensator") {
     }
 
     TEST_CASE("LeadLagResult to_tf") {
-        constexpr auto r = design::lead_lag_direct(2.0, 100.0, 500.0);
+        constexpr auto r = design::lead_lag_direct(2.0, 100.0, 500.0, 0.0);
         constexpr auto tf = r.to_tf();
 
-        // C(s) = 2*(s+100)/(s+500) = (200 + 2s)/(500 + s)
-        CHECK(tf.num[0] == doctest::Approx(200.0).epsilon(1e-12)); // K*z
-        CHECK(tf.num[1] == doctest::Approx(2.0).epsilon(1e-12));   // K
-        CHECK(tf.den[0] == doctest::Approx(500.0).epsilon(1e-12)); // p
-        CHECK(tf.den[1] == doctest::Approx(1.0).epsilon(1e-12));   // 1
+        // C(s) = 2*(s+100)/(s+500) = (2s + 200)/(s + 500)
+        CHECK(tf.num[0] == doctest::Approx(2.0).epsilon(1e-12));   // K
+        CHECK(tf.num[1] == doctest::Approx(200.0).epsilon(1e-12)); // K*z
+        CHECK(tf.den[0] == doctest::Approx(1.0).epsilon(1e-12));   // 1
+        CHECK(tf.den[1] == doctest::Approx(500.0).epsilon(1e-12)); // p
     }
 
     TEST_CASE("LeadLagResult to_ss") {
-        constexpr auto r = design::lead_lag_direct(2.0, 100.0, 500.0);
+        constexpr auto r = design::lead_lag_direct(2.0, 100.0, 500.0, 0.0);
         constexpr auto ss = r.to_ss();
 
         // A = [-p] = [-500], B = [1], C = [K*(z-p)] = [2*(100-500)] = [-800], D = [K] = [2]
@@ -171,13 +172,13 @@ TEST_SUITE("Lead-Lag Compensator") {
         // Lead: DC gain = K*z/p < 1 (attenuates DC)
         constexpr double phi = std::numbers::pi / 4.0;
         constexpr double wc = 1000.0;
-        constexpr auto   lead_r = design::lead(phi, wc);
+        constexpr auto   lead_r = design::lead(phi, wc, 0.0);
         double           dc_lead = lead_r.K * lead_r.z / lead_r.p;
         CHECK(dc_lead == doctest::Approx(0.4142135623730950).epsilon(1e-12));
         CHECK(dc_lead < 1.0); // Lead attenuates DC
 
         // Lag: DC gain = K*z/p > 1 (boosts DC)
-        constexpr auto lag_r = design::lag(10.0, wc);
+        constexpr auto lag_r = design::lag(10.0, wc, 0.0);
         double         dc_lag = lag_r.K * lag_r.z / lag_r.p;
         CHECK(dc_lag == doctest::Approx(10.0).epsilon(1e-12));
         CHECK(dc_lag > 1.0); // Lag boosts DC
@@ -203,8 +204,8 @@ TEST_SUITE("Lead-Lag Compensator") {
     TEST_CASE("Online lead design matches design") {
         constexpr double phi = std::numbers::pi / 4.0;
         constexpr double wc = 1000.0;
-        constexpr auto   design_r = design::lead(phi, wc);
-        auto             online_r = design::lead(phi, wc);
+        constexpr auto   design_r = design::lead(phi, wc, 0.0);
+        auto             online_r = design::lead(phi, wc, 0.0);
 
         CHECK(online_r.K == doctest::Approx(design_r.K).epsilon(1e-12));
         CHECK(online_r.z == doctest::Approx(design_r.z).epsilon(1e-12));
@@ -213,8 +214,8 @@ TEST_SUITE("Lead-Lag Compensator") {
 
     TEST_CASE("Online lag design matches design") {
         constexpr double wc = 1000.0;
-        constexpr auto   design_r = design::lag(10.0, wc);
-        auto             online_r = design::lag(10.0, wc);
+        constexpr auto   design_r = design::lag(10.0, wc, 0.0);
+        auto             online_r = design::lag(10.0, wc, 0.0);
 
         CHECK(online_r.K == doctest::Approx(design_r.K).epsilon(1e-12));
         CHECK(online_r.z == doctest::Approx(design_r.z).epsilon(1e-12));
@@ -225,7 +226,7 @@ TEST_SUITE("Lead-Lag Compensator") {
         // 45-degree lead + 10x lag at wc=1000, continuous
         constexpr double phi = std::numbers::pi / 4.0;
         constexpr double wc = 1000.0;
-        constexpr auto   result = design::lead_lag(phi, wc, 10.0);
+        constexpr auto   result = design::lead_lag(phi, wc, 10.0, 0.0);
         static_assert(result.success);
         constexpr auto ss = result.sys;
 
@@ -248,9 +249,9 @@ TEST_SUITE("Lead-Lag Compensator") {
 
     TEST_CASE("Lead-lag series propagates section failure") {
         // Invalid lead phi -> success false, zero system
-        static_assert(!design::lead_lag(0.0, 1000.0, 10.0).success);
-        static_assert(!design::lead_lag(std::numbers::pi / 4.0, 1000.0, 1.0).success); // lag needs boost > 1
-        constexpr auto bad = design::lead_lag(-1.0, 1000.0, 10.0);
+        static_assert(!design::lead_lag(0.0, 1000.0, 10.0, 0.0).success);
+        static_assert(!design::lead_lag(std::numbers::pi / 4.0, 1000.0, 1.0, 0.0).success); // lag needs boost > 1
+        constexpr auto bad = design::lead_lag(-1.0, 1000.0, 10.0, 0.0);
         static_assert(!bad.success);
         CHECK(bad.sys.A(0, 0) == doctest::Approx(0.0));
         CHECK(bad.sys.D(0, 0) == doctest::Approx(0.0));
@@ -283,18 +284,18 @@ TEST_SUITE("Lead-Lag Compensator") {
 
     TEST_CASE("Invalid specs report success = false") {
         // Lead requires 0 < phi < pi/2 and wc > 0.
-        static_assert(!design::lead(0.0, 1000.0).success);
-        static_assert(!design::lead(std::numbers::pi / 2.0, 1000.0).success);
-        static_assert(!design::lead(std::numbers::pi / 4.0, -1.0).success);
-        static_assert(design::lead(std::numbers::pi / 4.0, 1000.0).success);
+        static_assert(!design::lead(0.0, 1000.0, 0.0).success);
+        static_assert(!design::lead(std::numbers::pi / 2.0, 1000.0, 0.0).success);
+        static_assert(!design::lead(std::numbers::pi / 4.0, -1.0, 0.0).success);
+        static_assert(design::lead(std::numbers::pi / 4.0, 1000.0, 0.0).success);
 
         // Lag requires dc_gain_boost > 1, wc > 0, margin > 0.
-        static_assert(!design::lag(1.0, 1000.0).success);
-        static_assert(!design::lag(10.0, 0.0).success);
-        static_assert(design::lag(10.0, 1000.0).success);
+        static_assert(!design::lag(1.0, 1000.0, 0.0).success);
+        static_assert(!design::lag(10.0, 0.0, 0.0).success);
+        static_assert(design::lag(10.0, 1000.0, 0.0).success);
 
-        static_assert(!design::lead_lag_direct(1.0, -1.0, 5.0).success);
-        static_assert(design::lead_lag_direct(1.0, 100.0, 500.0).success);
+        static_assert(!design::lead_lag_direct(1.0, -1.0, 5.0, 0.0).success);
+        static_assert(design::lead_lag_direct(1.0, 100.0, 500.0, 0.0).success);
     }
 
     TEST_CASE("Failed design constructs fail-closed controller (emits zero)") {
@@ -356,5 +357,27 @@ TEST_SUITE("Lead-Lag Compensator") {
             CHECK(y_ss(0, 0) == doctest::Approx(y_ctrl).epsilon(1e-10));
             x = dss.A * x + dss.B * u;
         }
+    }
+
+    TEST_CASE("A continuous design leaves the runtime invalid; NaN specs and a misplaced Ts are refused") {
+        // Ts = 0 has no Tustin map: the runtime used to emit the bare gain K on every tick.
+        LeadLagController<double> lead_c{design::lead(0.5, 100.0, 0.0)};
+        CHECK_FALSE(lead_c.valid());
+        CHECK(lead_c.control(1.0) == 0.0);
+        LeadLagController<double> lag_c{design::lag(10.0, 100.0, 0.0)};
+        CHECK_FALSE(lag_c.valid());
+        CHECK(lag_c.control(1.0) == 0.0);
+
+        // Ts sits third in every member of the family.
+        constexpr auto lag_d = design::lag(10.0, 100.0, 1e-3);
+        static_assert(lag_d.success && lag_d.Ts == 1e-3 && lag_d.z == 10.0);
+
+        const double nan = std::numeric_limits<double>::quiet_NaN();
+        CHECK(design::lead(nan, 100.0, 1e-3).status == design::DesignStatus::invalid_parameter);
+        CHECK(design::lead(0.5, nan, 1e-3).status == design::DesignStatus::invalid_parameter);
+        CHECK(design::lead(0.5, 100.0, nan).status == design::DesignStatus::invalid_sample_time);
+        CHECK(design::lag(nan, 100.0, 1e-3).status == design::DesignStatus::invalid_parameter);
+        CHECK(design::lead_lag_direct(1.0, nan, 5.0, 1e-3).status == design::DesignStatus::invalid_parameter);
+        CHECK(design::lead_lag(0.5, 100.0, 10.0, -1.0).status == design::DesignStatus::invalid_sample_time);
     }
 }

@@ -15,7 +15,6 @@
  */
 
 #include <cstddef>
-#include <limits>
 
 #include "damp/backend.hpp"
 #include "damp/math/complex.hpp"
@@ -28,7 +27,7 @@ namespace damp {
 
 namespace detail {
 
-/// Complex Schur form of a balanced A: A = D·U·S·Uᴴ·D⁻¹ with D = diag(2^e).
+/** @brief Complex Schur form of a balanced A: A = D·U·S·Uᴴ·D⁻¹ with D = diag(2^e). */
 template<size_t N, typename T>
 struct ComplexSchur {
     Matrix<N, N, damp::complex<T>> S{};       ///< Upper triangular, the eigenvalues on its diagonal
@@ -112,7 +111,7 @@ template<size_t N, typename T>
     return out;
 }
 
-/// Uᴴ·D⁻¹·M·(D⁻¹ on the right when @p both): a real matrix into the Schur coordinates.
+/** @brief Uᴴ·D⁻¹·M·(D⁻¹ on the right when @p both): a real matrix into the Schur coordinates. */
 template<size_t N, size_t M, typename T>
 [[nodiscard]] constexpr Matrix<N, M, damp::complex<T>> to_schur_coordinates(const ComplexSchur<N, T>& cs, const Matrix<N, M, T>& X, bool both) {
     using C = damp::complex<T>;
@@ -208,7 +207,7 @@ schur_lyapunov(const ComplexSchur<N, T>& cs, const Matrix<N, N, damp::complex<T>
     return Y;
 }
 
-/// X = D·Re(U Y Uᴴ)·D, back from the Schur coordinates.
+/** @brief X = D·Re(U Y Uᴴ)·D, back from the Schur coordinates. */
 template<size_t N, typename T>
 [[nodiscard]] constexpr Matrix<N, N, T> from_schur_coordinates(const ComplexSchur<N, T>& cs, const Matrix<N, N, damp::complex<T>>& Y) {
     using C = damp::complex<T>;
@@ -373,7 +372,7 @@ hammarling(const ComplexSchur<N, T>& cs, Matrix<N, M, damp::complex<T>> Bw, bool
     return R;
 }
 
-/// The real upper triangular R with RᵀR = G Gᴴ, G = D·U·R̃, by QR of [Re Gᵀ; Im Gᵀ].
+/** @brief The real upper triangular R with RᵀR = G Gᴴ, G = D·U·R̃, by QR of [Re Gᵀ; Im Gᵀ]. */
 template<size_t N, typename T>
 [[nodiscard]] constexpr Matrix<N, N, T> real_cholesky_factor(const ComplexSchur<N, T>& cs, const Matrix<N, N, damp::complex<T>>& Rt) {
     using C = damp::complex<T>;

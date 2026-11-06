@@ -60,7 +60,7 @@ TEST_CASE("first-order gain and time constant are recovered from noiseless data"
     for (size_t k = 0; k < 1200; ++k) {
         y = (a * y) + (b * u_prev);
         const double u = excitation(k, 25); // hold ~tau/2: energy where the pole lives
-        (void)estimator.update(u, y);
+        (void)estimator.update(y, u);
         u_prev = u;
         if (k == 10) {
             confidence_early = estimator.confidence();
@@ -93,7 +93,7 @@ TEST_CASE("recovery holds within 10% under measurement noise") {
         y = (a * y) + (b * u_prev);
         const double u = excitation(k, 25);
         const double y_meas = y + (0.02 * pattern[(k + 5) % pattern.size()]); // deterministic "sensor noise"
-        (void)estimator.update(u, y_meas);
+        (void)estimator.update(y_meas, u);
         u_prev = u;
     }
 
@@ -140,7 +140,7 @@ TEST_CASE("first-order FO plant maps to mechanical J, b on a servo axis") {
     for (size_t k = 0; k < 1200; ++k) {
         omega = (a * omega) + (b_d * torque_prev);
         const double torque = 0.5 * excitation(k, 10);
-        (void)estimator.update(torque, omega);
+        (void)estimator.update(omega, torque);
         torque_prev = torque;
     }
 
@@ -172,6 +172,24 @@ TEST_CASE("drift monitor fires on a plant change and stays quiet otherwise") {
 
     monitor.reset();
     CHECK(!monitor.drift_detected());
+}
+
+TEST_CASE("drift monitor with an invalid configuration is inert") {
+    // slow_alpha = 0 made the warmup 2/0 → an out-of-range float→size_t cast every tick; swapped
+    // alphas left a detector that could never fire.
+    ParameterDriftMonitor<double> zero{0.05, 0.0, 3.0};
+    ParameterDriftMonitor<double> swapped{0.002, 0.05, 3.0};
+    bool                          fired = false;
+    for (size_t k = 0; k < 2000; ++k) {
+        const double r = (k < 1000) ? 0.01 : 1.0;
+        fired = zero.update(r) || swapped.update(r) || fired;
+    }
+    CHECK_FALSE(fired);
+    CHECK_FALSE(zero.drift_detected());
+
+    // A tiny slow_alpha caps the warmup instead of overflowing it.
+    ParameterDriftMonitor<float> slow{0.5f, 1e-30f, 3.0f};
+    CHECK_FALSE(slow.update(1.0f));
 }
 
 TEST_CASE("adaptation gate blocks invalid, unconfident, and wild updates") {
@@ -211,7 +229,7 @@ TEST_CASE("grey-box estimation is constexpr") {
         for (size_t k = 0; k < 600; ++k) {
             y = (a * y) + (b * u_prev);
             const double u = excitation(k, 25);
-            (void)estimator.update(u, y);
+            (void)estimator.update(y, u);
             u_prev = u;
         }
         return estimator.gain();

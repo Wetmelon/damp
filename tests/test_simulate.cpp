@@ -23,6 +23,15 @@
 using namespace damp;
 using namespace damp::sim;
 
+namespace {
+struct ConstController {
+    double u{2.0};
+    double control(double, double) { return u; }
+    void   reset() {}
+};
+
+} // namespace
+
 // Pendulum parameters for simulation tests
 constexpr double g_pend = 9.81;
 constexpr double L_pend = 1.0;
@@ -38,9 +47,9 @@ TEST_CASE("simulate_state_feedback - pendulum converges under LQR") {
     auto R = Matrix<1, 1>{{1.0}};
     auto Ts = 0.01;
 
-    auto lqr_result = design::discrete_lqr_from_continuous(A, B, Q, R, Ts);
+    auto lqr_result = design::lqr(StateSpace{.A = A, .B = B, .C = Matrix<1, 2>{{1.0, 0.0}}}, Ts, {.Q = Q, .R = R});
     CHECK(lqr_result.success);
-    LQR<2, 1, double> controller{lqr_result};
+    auto controller = LQR{lqr_result};
 
     // Nonlinear plant
     auto plant = [](double /*t*/, const ColVec<2>& x, const ColVec<1>& u) -> ColVec<2> {
@@ -56,7 +65,7 @@ TEST_CASE("simulate_state_feedback - pendulum converges under LQR") {
     };
 
     auto output = [](const ColVec<2>& x) -> ColVec<2> { return x; };
-    auto ctrl = [&](const ColVec<2>& x) -> ColVec<1> { return controller.control(x); };
+    auto ctrl = [&](const ColVec<2>& x) -> ColVec<1> { return controller.step(x); };
 
     RK4<2>          rk4;
     FixedStepSolver solver(rk4, 0.001);
@@ -101,10 +110,10 @@ TEST_CASE("SIL: PIDController tracks a step on a first-order plant (simulate_lti
     // Plant G(s) = 1/(s+1):  ẋ = -x + u, y = x.  PI designed for ~unit DC gain tracking.
     constexpr double Ts = 0.01;
     StateSpace       sys{
-              .A = Matrix<1, 1>{{-1.0}},
-              .B = Matrix<1, 1>{{1.0}},
-              .C = Matrix<1, 1>{{1.0}},
-              .Ts = 0.0,
+        .A = Matrix<1, 1>{{-1.0}},
+        .B = Matrix<1, 1>{{1.0}},
+        .C = Matrix<1, 1>{{1.0}},
+        .Ts = 0.0,
     };
 
     // design::… → discretize → controller (same shape as on target; double for SIL).
@@ -233,11 +242,11 @@ TEST_CASE("simulate_discrete - biproper plant includes D*u in y") {
     // Pure feedthrough biproper: A=B=C=0, D=2 → y = 2u for every sample.
     const double Ts = 0.1;
     StateSpace   sys{
-          .A = Matrix<1, 1>{{0.0}},
-          .B = Matrix<1, 1>{{0.0}},
-          .C = Matrix<1, 1>{{0.0}},
-          .D = Matrix<1, 1>{{2.0}},
-          .Ts = Ts,
+        .A = Matrix<1, 1>{{0.0}},
+        .B = Matrix<1, 1>{{0.0}},
+        .C = Matrix<1, 1>{{0.0}},
+        .D = Matrix<1, 1>{{2.0}},
+        .Ts = Ts,
     };
     auto ctrl = [](const ColVec<1>& /*y*/) -> ColVec<1> { return ColVec<1>{1.5}; };
 
@@ -269,4 +278,20 @@ TEST_CASE("simulate_lti - biproper plant includes D*u in y") {
     CHECK(sim.y.back()(0, 0) == doctest::Approx(3.0).epsilon(0.01));
     // Initial sample after control update: x=0, u=2 → y = 0 + 0.5*2 = 1
     CHECK(sim.y.front()(0, 0) == doctest::Approx(1.0).epsilon(1e-12));
+}
+
+TEST_CASE("simulate_lti_siso records y = Cx + Du") {
+    const StateSpace<1, 1, 1> sys{
+        .A = Matrix<1, 1>{{-1.0}},
+        .B = Matrix<1, 1>{{1.0}},
+        .C = Matrix<1, 1>{{0.0}},
+        .D = Matrix<1, 1>{{1.0}},
+        .Ts = 0.0,
+    };
+    ConstController c;
+    FixedStepSolver solver(RK4<1>{}, 0.01);
+    const auto      sim = simulate_lti_siso(sys, c, 1.0, solver, 0.1, ColVec<1>{0.0}, {0.0, 0.5});
+    for (std::size_t j = 0; j < sim.t.size(); ++j) { // the initial sample too: y after u₀ is applied
+        CHECK(sim.y[j](0) == doctest::Approx(sim.u[j](0)));
+    }
 }

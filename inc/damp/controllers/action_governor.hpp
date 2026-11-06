@@ -15,7 +15,7 @@
  * when @f$u_{\mathrm{des}}@f$ already satisfies the constraints.
  *
  * Two projection modes:
- * - Box @f$u_{\min} \le u \le u_{\max}@f$ — closed-form per-channel clamp
+ * - Box @f$\text{lower} \le u \le \text{upper}@f$ (a Bounds) — closed-form per-channel clamp
  *   (no solver; bounded per-tick cost).
  * - Affine @f$A u \le b@f$ — Euclidean projection
  *   @f$\min_u \tfrac12\|u - u_{\mathrm{des}}\|^2@f$ subject to the inequalities,
@@ -30,9 +30,8 @@
  * using namespace damp;
  *
  * // Box: clamp a 2-input command into [-1, 1] × [-2, 2]
- * constexpr BoxCommandFilter<2, float> box{
- *     Bounds<2, float>{{-1.f, -2.f}, {1.f, 2.f}}};
- * auto u = box.filter(ColVec<2, float>{1.5f, -3.f}); // → {1, -2}
+ * constexpr Bounds<2, float> box{.lower = {-1.f, -2.f}, .upper = {1.f, 2.f},};
+ * auto u = project_box(ColVec<2, float>{1.5f, -3.f}, box); // → {1, -2}
  *
  * // Affine half-space: u₀ + u₁ ≤ 1
  * constexpr Matrix<1, 2> A{{1.0, 1.0}};
@@ -63,113 +62,20 @@ namespace damp {
 // =============================================================================
 
 /**
- * @brief Euclidean projection of @p u onto the axis-aligned box [umin, umax]
+ * @brief Euclidean projection of @p u onto a Bounds box
  *
- * Per-channel clamp: @f$u_i \leftarrow \mathrm{clamp}(u_i, u_{\min,i}, u_{\max,i})@f$.
+ * Per-channel clamp: @f$u_i \leftarrow \mathrm{clamp}(u_i, \text{lower}_i, \text{upper}_i)@f$.
  * Identity when @p u already lies in the box.
  *
- * @param u     Desired command (NU)
- * @param umin  Lower bounds (NU)
- * @param umax  Upper bounds (NU)
+ * @param u      Desired command (NU)
+ * @param bounds Box [lower, upper] (NU)
  * @return Projected command
  */
 template<size_t NU, typename T = double>
     requires std::is_floating_point_v<T>
-[[nodiscard]] constexpr ColVec<NU, T> project_box(
-    const ColVec<NU, T>& u,
-    const ColVec<NU, T>& umin,
-    const ColVec<NU, T>& umax
-) {
-    ColVec<NU, T> out{};
-    for (size_t i = 0; i < NU; ++i) {
-        out(i) = damp::clamp(u(i), umin(i), umax(i));
-    }
-    return out;
-}
-
-/**
- * @brief Project @p u onto a Bounds box
- * @see project_box(const ColVec&, const ColVec&, const ColVec&)
- */
-template<size_t NU, typename T = double>
-    requires std::is_floating_point_v<T>
 [[nodiscard]] constexpr ColVec<NU, T> project_box(const ColVec<NU, T>& u, const Bounds<NU, T>& bounds) {
-    ColVec<NU, T> out{};
-    for (size_t i = 0; i < NU; ++i) {
-        out(i) = damp::clamp(u(i), bounds.lower[i], bounds.upper[i]);
-    }
-    return out;
+    return bounds.saturate(u);
 }
-
-/**
- * @brief Runtime box command filter — closed-form clamp per tick
- *
- * Stores hard input limits and projects @f$u_{\mathrm{des}}@f$ onto the box.
- * Always returns a value; never fails. Default scalar type is @c float for
- * embedded deployment.
- *
- * @tparam NU Number of inputs
- * @tparam T  Scalar type (default float)
- *
- * @see project_box
- * @see Gurriet et al., realizable command filters
- */
-template<size_t NU, typename T = float>
-    requires std::is_floating_point_v<T>
-class BoxCommandFilter {
-public:
-    constexpr BoxCommandFilter() = default;
-
-    constexpr explicit BoxCommandFilter(const Bounds<NU, T>& bounds) : bounds_(bounds) {}
-
-    constexpr BoxCommandFilter(const ColVec<NU, T>& umin, const ColVec<NU, T>& umax) {
-        for (size_t i = 0; i < NU; ++i) {
-            bounds_.lower[i] = umin(i);
-            bounds_.upper[i] = umax(i);
-        }
-    }
-
-    /// Replace the stored box limits.
-    constexpr void set_bounds(const Bounds<NU, T>& bounds) { bounds_ = bounds; }
-
-    [[nodiscard]] constexpr const Bounds<NU, T>& bounds() const { return bounds_; }
-
-    /**
-     * @brief Project @p u_des onto the stored box
-     * @return Safe command (identity when already inside the box)
-     */
-    [[nodiscard]] constexpr ColVec<NU, T> filter(const ColVec<NU, T>& u_des) const {
-        return project_box(u_des, bounds_);
-    }
-
-    /// Same as @ref filter.
-    [[nodiscard]] constexpr ColVec<NU, T> operator()(const ColVec<NU, T>& u_des) const {
-        return filter(u_des);
-    }
-
-    /// True iff every channel of @p u lies inside the box.
-    [[nodiscard]] constexpr bool is_safe(const ColVec<NU, T>& u) const {
-        for (size_t i = 0; i < NU; ++i) {
-            if (u(i) < bounds_.lower[i] || u(i) > bounds_.upper[i]) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    template<typename U>
-    [[nodiscard]] constexpr BoxCommandFilter<NU, U> as() const {
-        Bounds<NU, U> b{};
-        for (size_t i = 0; i < NU; ++i) {
-            b.lower[i] = static_cast<U>(bounds_.lower[i]);
-            b.upper[i] = static_cast<U>(bounds_.upper[i]);
-        }
-        return BoxCommandFilter<NU, U>{b};
-    }
-
-private:
-    Bounds<NU, T> bounds_{};
-};
 
 // =============================================================================
 // Affine projection (QP)
@@ -183,7 +89,7 @@ private:
  */
 template<size_t NU, typename T = double>
 struct CommandProjectionResult {
-    ColVec<NU, T>    u{};                                     ///< Safe command (projection, or @c u_des on failure)
+    ColVec<NU, T>    u{};                                     ///< Projected command; on failure, @c u_des from project_affine and the last safe command from ActionGovernor::filter
     bool             success{false};                          ///< true if the QP found a feasible minimizer
     bool             modified{false};                         ///< true if @c u differs from the desired command
     design::QPStatus status{design::QPStatus::MaxIterations}; ///< Underlying QP status
@@ -214,8 +120,8 @@ namespace design {
  * unbounded sentinel are ignored (see unbounded_bound).
  *
  * On failure (infeasible / non-convergence), @c u is left as @p u_des and
- * @c success is false. ActionGovernor::operator() is fail-closed:
- * it returns the last successful projection (zero until the first success).
+ * @c success is false. ActionGovernor's filter() and operator() are fail-closed:
+ * they return the last successful projection (zero until the first success).
  *
  * @note Compare with a one-step action governor / command filter.
  * @see solve_qp, Ames et al. (ECC 2019), Gurriet et al.
@@ -282,7 +188,7 @@ template<size_t NU, size_t NI, typename T = double>
 template<size_t NU, typename T = double>
 struct CBFConstraint {
     Matrix<1, NU, T> A{}; ///< Single row: (−L_g h) u ≤ b
-    T                b{}; ///< L_f h + α h
+    ColVec<1, T>     b{}; ///< L_f h + α h
 };
 
 /**
@@ -339,7 +245,7 @@ public:
         b_ = b;
     }
 
-    /// Update only the bound vector (state-dependent @f$b(x)@f$, fixed normals).
+    /** @brief Update only the bound vector (state-dependent b(x), fixed normals). */
     constexpr void set_bounds(const ColVec<NI, T>& b) { b_ = b; }
 
     [[nodiscard]] constexpr const Matrix<NI, NU, T>& A() const { return A_; }
@@ -347,17 +253,13 @@ public:
 
     /**
      * @brief Project @p u_des onto the stored polyhedron
-     * @return CommandProjectionResult; on failure @c u equals @p u_des and @c success is false
+     * @return CommandProjectionResult; on failure @c success is false and @c u is the last safe
+     *         command (@ref last_safe, zero until the first success), never the unprojected @p u_des
      *
      * Updates the fail-closed hold (@ref last_safe) when @c success is true.
      */
     [[nodiscard]] constexpr CommandProjectionResult<NU, T> filter(const ColVec<NU, T>& u_des) {
-        auto res = design::project_affine(u_des, A_, b_);
-        if (res.success) {
-            last_safe_ = res.u;
-            have_safe_ = true;
-        }
-        return res;
+        return hold(design::project_affine(u_des, A_, b_));
     }
 
     /**
@@ -365,64 +267,62 @@ public:
      *
      * Does not overwrite the stored @c b_. Useful when @f$b = b(x)@f$ changes
      * every tick (e.g. CBF) while @f$A@f$ is fixed or also passed via
-     * @ref set_constraints.
+     * @ref set_constraints. Fail-closed like filter(u_des).
      */
     [[nodiscard]] constexpr CommandProjectionResult<NU, T> filter(
         const ColVec<NU, T>& u_des,
         const ColVec<NI, T>& b
     ) {
-        auto res = design::project_affine(u_des, A_, b);
-        if (res.success) {
-            last_safe_ = res.u;
-            have_safe_ = true;
-        }
-        return res;
+        return hold(design::project_affine(u_des, A_, b));
     }
 
     /**
-     * @brief Project with full (A,b) for this tick only
+     * @brief Project with full (A,b) for this tick only; fail-closed like filter(u_des)
      */
     [[nodiscard]] constexpr CommandProjectionResult<NU, T> filter(
         const ColVec<NU, T>&     u_des,
         const Matrix<NI, NU, T>& A,
         const ColVec<NI, T>&     b
     ) {
-        auto res = design::project_affine(u_des, A, b);
+        return hold(design::project_affine(u_des, A, b));
+    }
+
+    /**
+     * @brief Fail-closed projection: the command of @ref filter (last successful @c u, else zero if none yet)
+     *
+     * Prefer @ref filter when the caller must observe QP failure.
+     */
+    [[nodiscard]] constexpr ColVec<NU, T> operator()(const ColVec<NU, T>& u_des) { return filter(u_des).u; }
+
+    /** @brief Last successful projection (zero until the first success). */
+    [[nodiscard]] constexpr const ColVec<NU, T>& last_safe() const { return last_safe_; }
+
+    /**
+     * @brief Convert constraint storage; fail-closed hold restarts empty (design-time convert)
+     *
+     * Disabled rows (b at or past the unbounded sentinel) map to the target type's sentinel
+     * rather than overflowing it.
+     */
+    template<typename U>
+    [[nodiscard]] constexpr ActionGovernor<NU, NI, U> as() const {
+        return ActionGovernor<NU, NI, U>{A_.template as<U>(), design::detail::convert_bounds<U>(b_)};
+    }
+
+private:
+    /** @brief Fail closed: record a successful projection, or replace a failed one's command with the hold. */
+    [[nodiscard]] constexpr CommandProjectionResult<NU, T> hold(CommandProjectionResult<NU, T> res) {
         if (res.success) {
             last_safe_ = res.u;
-            have_safe_ = true;
+        } else {
+            res.u = last_safe_;
+            res.modified = true;
         }
         return res;
     }
 
-    /**
-     * @brief fail-closed projection: last successful @c u, else zero if none yet
-     *
-     * Prefer @ref filter when the caller must observe QP failure. This operator
-     * never returns a failed-open @p u_des.
-     */
-    [[nodiscard]] constexpr ColVec<NU, T> operator()(const ColVec<NU, T>& u_des) {
-        const auto res = filter(u_des);
-        if (res.success) {
-            return res.u;
-        }
-        return have_safe_ ? last_safe_ : ColVec<NU, T>{};
-    }
-
-    /// Last successful projection (zero until the first success).
-    [[nodiscard]] constexpr const ColVec<NU, T>& last_safe() const { return last_safe_; }
-
-    /// Convert constraint storage; fail-closed hold restarts empty (design-time convert).
-    template<typename U>
-    [[nodiscard]] constexpr ActionGovernor<NU, NI, U> as() const {
-        return ActionGovernor<NU, NI, U>{A_.template as<U>(), b_.template as<U>()};
-    }
-
-private:
     Matrix<NI, NU, T> A_{};
     ColVec<NI, T>     b_{};
     ColVec<NU, T>     last_safe_{}; ///< fail-closed hold
-    bool              have_safe_{false};
 };
 
 } // namespace damp

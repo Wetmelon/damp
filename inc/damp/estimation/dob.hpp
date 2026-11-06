@@ -69,11 +69,16 @@ struct DOBResult {
 
     DOBConfig<T> config{};
 
-    /// Constant-innovation steady-state gain d_hat_ss/innovation = gain/leak.
-    /// Sentinel 0 means "no finite steady state": leak == 0 is a pure integrator
-    /// whose estimate grows without bound under constant innovation.
+    /**
+     * @brief Constant-innovation steady-state gain d_hat_ss/innovation = gain/leak.
+     * Sentinel 0 means "no finite steady state": leak == 0 is a pure integrator
+     * whose estimate grows without bound under constant innovation.
+     */
     T    steady_state_gain{};
     bool success{false};
+
+    /** @brief True when the design succeeded (success). */
+    [[nodiscard]] constexpr explicit operator bool() const { return success; }
 
     template<typename U>
     [[nodiscard]] constexpr auto as() const {
@@ -116,8 +121,10 @@ template<typename T>
     return value * scale;
 }
 
-/// True if p[0] is zero to rounding relative to the polynomial's largest
-/// coefficient (scale-invariant: a plant gain in other units is not "zero").
+/**
+ * @brief True if p[0] is zero to rounding relative to the polynomial's largest
+ * coefficient (scale-invariant: a plant gain in other units is not "zero").
+ */
 template<size_t N, typename T>
 [[nodiscard]] constexpr bool leading_coefficient_negligible(const damp::array<T, N>& p) {
     scalar_type_t<T> scale{0};
@@ -164,10 +171,13 @@ public:
 
     constexpr DOB() = default;
 
-    constexpr explicit DOB(const DOBConfig<T>& config)
-        : config_(config) {}
+    /** @brief From a design result in another scalar: converts it with .as\<T\>() and builds from that. */
+    template<typename U>
+        requires(!std::is_same_v<U, T>)
+    constexpr DOB(const DOBResult<U>& result) // NOLINT(google-explicit-constructor): assign-from-design
+        : DOB(result.template as<T>()) {}
 
-    constexpr explicit DOB(const DOBResult<T>& design)
+    constexpr DOB(const DOBResult<T>& design) // NOLINT(google-explicit-constructor): assign-from-design
         : config_(design.config), valid_(design.success) {
         if (!design.success && std::is_constant_evaluated()) {
             ::damp::detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed design does not compile
@@ -179,8 +189,7 @@ public:
      * @return true when update succeeded.
      */
     [[nodiscard]] constexpr bool update(T y_predicted, T y_measured) {
-        if (!config_.valid()) {
-            valid_ = false;
+        if (!valid_) {
             return false;
         }
 
@@ -200,7 +209,6 @@ public:
 
         state_.innovation = innovation;
         state_.initialized = true;
-        valid_ = true;
         return true;
     }
 
@@ -211,10 +219,7 @@ public:
         return u_nominal - state_.disturbance_hat;
     }
 
-    constexpr void reset() {
-        state_ = DOBState<T>{};
-        valid_ = true;
-    }
+    constexpr void reset() { state_ = DOBState<T>{}; }
 
     [[nodiscard]] constexpr const auto& config() const { return config_; }
     [[nodiscard]] constexpr const auto& state() const { return state_; }
@@ -225,6 +230,10 @@ private:
     DOBState<T>  state_{};
     bool         valid_{true};
 };
+
+/** @brief Deduce the runtime from its design, keeping the result's scalar. */
+template<typename T>
+DOB(const DOBResult<T>&) -> DOB<T>;
 
 // ===========================================================================
 // Classical Pn^-1 * Q disturbance observer (Ohnishi DOB) — bolt-on for an
@@ -238,9 +247,11 @@ private:
 //   compensate:   u = u_command − d_hat
 //
 // All polynomials are discrete z^-1 digital filters (c0 + c1·z^-1 + …), the
-// natural form for an embedded loop. Realizability needs the leading numerator
-// of Pn and the leading denominators nonzero (Pn must be causally invertible —
-// no pure input delay in the nominal model).
+// natural form for an embedded loop. Pn is the sampled plant with its
+// one-sample ZOH delay removed (y[k+1] = a·y[k] + b·u[k] gives Bn = {b},
+// An = {1, −a}); the runtime supplies that delay by feeding the previous
+// command to Q. Pn⁻¹ must be causal and stable: Bn[0] ≠ 0 and every zero of Bn
+// strictly inside the unit circle.
 //
 // @see "Disturbance Observer-Based Control" (S. Li et al., CRC Press, 2016)
 // @see "Robust Motion Control by Disturbance Observer" (Ohnishi et al., 1996)
@@ -248,7 +259,7 @@ private:
 
 namespace detail {
 
-/// Polynomial (z^-1) convolution = digital-filter series multiplication.
+/** @brief Polynomial (z^-1) convolution = digital-filter series multiplication. */
 template<size_t Na, size_t Nb, typename T>
 [[nodiscard]] constexpr damp::array<T, Na + Nb - 1> poly_conv(const damp::array<T, Na>& a, const damp::array<T, Nb>& b) {
     damp::array<T, Na + Nb - 1> r{};
@@ -260,7 +271,27 @@ template<size_t Na, size_t Nb, typename T>
     return r;
 }
 
-/// Direct-Form-II IIR for a digital filter H(z^-1) = num / den (den[0] ≠ 0).
+/**
+ * @brief The z⁻¹ filter (c₀ + c₁z⁻¹ + …)/(d₀ + d₁z⁻¹ + …) as a TransferFunction in z
+ *
+ * Multiplying both by z^(N−1), N the longer length, keeps each array's order: highest power of z
+ * first, as TransferFunction stores it. The shorter one is zero-padded at the end (its missing
+ * z⁻ᵏ terms are the lowest powers of z).
+ */
+template<size_t NN, size_t ND, typename T>
+[[nodiscard]] constexpr TransferFunction<(NN > ND ? NN : ND), (NN > ND ? NN : ND), T>
+zinv_to_tf(const damp::array<T, NN>& num, const damp::array<T, ND>& den) {
+    TransferFunction<(NN > ND ? NN : ND), (NN > ND ? NN : ND), T> tf{};
+    for (size_t i = 0; i < NN; ++i) {
+        tf.num[i] = num[i];
+    }
+    for (size_t i = 0; i < ND; ++i) {
+        tf.den[i] = den[i];
+    }
+    return tf;
+}
+
+/** @brief Direct-Form-II IIR for a digital filter H(z^-1) = num / den (den[0] ≠ 0). */
 template<size_t Nnum, size_t Nden, typename T>
 struct IirDF2 {
     static constexpr size_t Nstate = ((Nnum > Nden) ? Nnum : Nden) - 1;
@@ -315,6 +346,9 @@ struct ClassicalDobResult {
     damp::array<T, NQd>    fu_den{}; // = Qd
     bool                   success{false};
 
+    /** @brief True when the design succeeded (success). */
+    [[nodiscard]] constexpr explicit operator bool() const { return success; }
+
     template<typename U>
     [[nodiscard]] constexpr ClassicalDobResult<NBn, NAn, NQn, NQd, std::remove_const_t<U>> as() const {
         ClassicalDobResult<NBn, NAn, NQn, NQd, std::remove_const_t<U>> out{};
@@ -336,28 +370,33 @@ struct ClassicalDobResult {
     }
 
     /**
-     * @brief Q-filter Fu = Q as a discrete TF in z⁻¹ (same coefficients as the IIR)
+     * @brief Q-filter Fu = Q as a discrete TF in z (the IIR's coefficients, the shorter array zero-padded)
      */
-    [[nodiscard]] constexpr TransferFunction<NQn, NQd, T> q_tf() const {
-        return TransferFunction<NQn, NQd, T>{.num = fu_num, .den = fu_den};
-    }
+    [[nodiscard]] constexpr auto q_tf() const { return detail::zinv_to_tf(fu_num, fu_den); }
 
     /**
-     * @brief Measurement filter Fy = Q·Pₙ⁻¹ as a discrete TF in z⁻¹
+     * @brief Measurement filter Fy = Q·Pₙ⁻¹ as a discrete TF in z (as @ref q_tf)
      */
-    [[nodiscard]] constexpr TransferFunction<NFyNum, NFyDen, T> fy_tf() const {
-        return TransferFunction<NFyNum, NFyDen, T>{.num = fy_num, .den = fy_den};
-    }
+    [[nodiscard]] constexpr auto fy_tf() const { return detail::zinv_to_tf(fy_num, fy_den); }
 };
 
 /**
  * @brief Synthesize a classical disturbance observer from a nominal plant and Q-filter.
  *
- * Forms Fy = Q·Pn^-1 = (Qn·An)/(Qd·Bn) and Fu = Q = Qn/Qd. Validates causal
- * realizability: the leading coefficients Bn[0], An[0], Qd[0] must be nonzero
- * (the nominal plant must be causally invertible — no pure input delay).
+ * Forms Fy = Q·Pn^-1 = (Qn·An)/(Qd·Bn) and Fu = Q = Qn/Qd. Pn is the sampled
+ * plant with its one-sample ZOH delay removed: y[k+1] = a·y[k] + b·u[k] is
+ * Bn = {b}, An = {1, −a}.
  *
- * @param Bn,An Nominal plant Pn = Bn/An as z^-1 polynomials
+ * Refused (success = false) unless both filters are causal and stable: Bn[0],
+ * An[0] and Qd[0] nonzero, and Bn and Qd Schur-stable (every zero of Bn becomes
+ * a pole of Fy). A ZOH plant of relative degree two has a sampling zero near
+ * z = −1: on it for a pure double integrator (refused), just inside for
+ * 1/(s(s+1)) (−0.997 at Ts = 0.01, passes). Relative degree three or more puts
+ * one outside (refused). A zero z₀ just inside the circle passes, and Fy then
+ * amplifies noise near Nyquist by about 1/(1−|z₀|). Such a plant needs a stable
+ * approximate inverse in Bn, e.g. the single coefficient {Σbᵢ} (same DC gain).
+ *
+ * @param Bn,An Nominal plant Pn = Bn/An as z^-1 polynomials (delay removed)
  * @param Qn,Qd Low-pass Q-filter = Qn/Qd as z^-1 polynomials (DC gain ~1)
  */
 template<size_t NBn, size_t NAn, size_t NQn, size_t NQd, typename T = double>
@@ -370,6 +409,9 @@ template<size_t NBn, size_t NAn, size_t NQn, size_t NQd, typename T = double>
     if (detail::leading_coefficient_negligible(Bn) || detail::leading_coefficient_negligible(An)
         || detail::leading_coefficient_negligible(Qd)) {
         return ClassicalDobResult<NBn, NAn, NQn, NQd, T>{}; // not causally realizable
+    }
+    if (!tf_detail::schur_stable(Bn) || !tf_detail::schur_stable(Qd)) {
+        return ClassicalDobResult<NBn, NAn, NQn, NQd, T>{}; // Fy or Fu unstable
     }
     return ClassicalDobResult<NBn, NAn, NQn, NQd, T>{
         .fy_num = detail::poly_conv(Qn, An), // Q·Pn^-1 numerator
@@ -386,8 +428,8 @@ template<size_t NBn, size_t NAn, size_t NQn, size_t NQd, typename T = double>
  *
  * Drop it around an existing controller: feed it the measurement and your
  * controller's command each tick, and it returns the disturbance-compensated
- * command. The one-sample delay on the applied input breaks the algebraic loop
- * (standard discrete-DOB practice) and is exact at DC.
+ * command to apply. The Q·u path uses the command returned on the previous
+ * tick, which is the one-sample plant delay classical_dob removes from Pn.
  *
  * @tparam NBn,NAn,NQn,NQd Plant/Q sizes (must match the design result)
  * @tparam T Scalar type (float or double)
@@ -399,27 +441,31 @@ public:
 
     constexpr ClassicalDOB() = default;
 
-    constexpr explicit ClassicalDOB(const result_type& design)
-        : valid_(design.success) {
-        fy_.num = design.fy_num;
-        fy_.den = design.fy_den;
-        fu_.num = design.fu_num;
-        fu_.den = design.fu_den;
-    }
+    /** @brief From a design result in another scalar: converts it with .as\<T\>() and builds from that. */
+    template<typename U>
+        requires(!std::is_same_v<U, T>)
+    constexpr ClassicalDOB(const ClassicalDobResult<NBn, NAn, NQn, NQd, U>& design) // NOLINT(google-explicit-constructor): assign-from-design
+        : ClassicalDOB(design.template as<T>()) {}
 
-    /// Estimate the input-referred disturbance from measurement @p y and the
-    /// applied input @p u (advances the internal filters one step).
-    constexpr T estimate(T y, T u) {
-        if (!valid_) {
-            return T{0};
+    constexpr ClassicalDOB(const result_type& design) // NOLINT(google-explicit-constructor): assign-from-design
+        : fy_{.num = design.fy_num, .den = design.fy_den}, fu_{.num = design.fu_num, .den = design.fu_den}, valid_(design.success) {
+        if (!design.success && std::is_constant_evaluated()) {
+            ::damp::detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
-        d_hat_ = fy_.step(y) - fu_.step(u);
-        return d_hat_;
     }
 
-    /// Bolt-on: return the disturbance-compensated command u = u_command − d_hat,
-    /// using the previously applied command in the Q·u path (breaks the loop).
-    constexpr T compensate(T u_command, T y) {
+    /**
+     * @brief One tick: estimate d̂ from measurement @p y and return the command to apply,
+     * u = u_command − d̂.
+     *
+     * The Q·u path takes the command returned on the previous tick, so apply the returned
+     * value. d̂ is read back with @ref disturbance.
+     *
+     * @param y         Measurement this tick
+     * @param u_command Controller command this tick
+     * @return u_command − d̂ (u_command unchanged when the design failed)
+     */
+    [[nodiscard]] constexpr T step(T y, T u_command) {
         if (!valid_) {
             return u_command;
         }
@@ -447,5 +493,9 @@ private:
     T                           u_prev_{T{0}};
     bool                        valid_{false};
 };
+
+/** @brief Deduce the runtime from its design, keeping the result's scalar. */
+template<size_t NBn, size_t NAn, size_t NQn, size_t NQd, typename T>
+ClassicalDOB(const ClassicalDobResult<NBn, NAn, NQn, NQd, T>&) -> ClassicalDOB<NBn, NAn, NQn, NQd, T>;
 
 } // namespace damp::estimation

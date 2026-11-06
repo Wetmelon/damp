@@ -128,19 +128,19 @@ public:
     constexpr FirstOrderPlantEstimator() = default;
 
     constexpr explicit FirstOrderPlantEstimator(const design::FirstOrderPlantEstimatorConfig<T>& config)
-        : rls_(estimation::RlsConfig<T>{config.forgetting, config.initial_covariance}),
+        : rls_(estimation::rls_vector(estimation::RlsConfig<T, 2>{config.forgetting, config.initial_covariance})),
           Ts_(config.Ts),
           confidence_scale_(config.confidence_scale),
           config_valid_(config.valid()) {}
 
     /**
-     * @brief Feed one sample pair: the applied input and the resulting measurement
+     * @brief Feed one sample pair: the measurement and the input applied this tick
      *
-     * @param u Input applied this tick
      * @param y Output measured this tick
+     * @param u Input applied this tick
      * @return false if the regression update was rejected (degenerate regressor)
      */
-    constexpr bool update(T u, T y) {
+    constexpr bool update(T y, T u) {
         bool accepted = true;
         if (has_prev_) {
             const ColVec<2, T> phi{y_prev_, u_prev_};
@@ -152,7 +152,7 @@ public:
         return accepted;
     }
 
-    /// Discrete pole estimate a (y_k = a·y_{k-1} + b·u_{k-1}); raw RLS theta, not PE-gated
+    /** @brief Discrete pole estimate a (y_k = a·y_{k-1} + b·u_{k-1}); raw RLS theta, not PE-gated */
     [[nodiscard]] constexpr T pole() const { return rls_.state().theta(0); }
 
     /**
@@ -183,7 +183,7 @@ public:
         return -Ts_ / damp::log(rls_.state().theta(0));
     }
 
-    /// {K, τ} — the ParameterEstimator concept readout (physical units; zeros if !valid)
+    /** @brief {K, τ} — the ParameterEstimator concept readout (physical units; zeros if !valid) */
     [[nodiscard]] constexpr ColVec<2, T> parameters() const { return ColVec<2, T>{gain(), time_constant()}; }
 
     /**
@@ -213,7 +213,7 @@ public:
         return confidence_scale_ / (confidence_scale_ + trace);
     }
 
-    /// Latest one-step prediction residual (drives ParameterDriftMonitor)
+    /** @brief Latest one-step prediction residual (drives ParameterDriftMonitor) */
     [[nodiscard]] constexpr T residual() const { return rls_.state().residual; }
 
     constexpr void reset() {
@@ -254,23 +254,35 @@ public:
     constexpr ParameterDriftMonitor() = default;
 
     /**
+     * Outside 0 < slow_alpha < fast_alpha ≤ 1, threshold > 0 the monitor is inert: update() returns
+     * false and tracks nothing (and a constant-evaluated construction does not compile).
+     *
      * @param fast_alpha  EWMA weight of the recent-residual tracker (e.g. 0.05)
      * @param slow_alpha  EWMA weight of the baseline tracker (e.g. 0.002; must be < fast_alpha)
      * @param threshold   drift_score() level that flags drift (e.g. 3)
      */
     constexpr ParameterDriftMonitor(T fast_alpha, T slow_alpha, T threshold)
-        : fast_alpha_(fast_alpha), slow_alpha_(slow_alpha), threshold_(threshold) {}
+        : fast_alpha_(fast_alpha), slow_alpha_(slow_alpha), threshold_(threshold), valid_(T{0} < slow_alpha && slow_alpha < fast_alpha && fast_alpha <= T{1} && damp::finite_positive(threshold)), warmup_(valid_ ? warmup_samples(slow_alpha) : 0) {
+        if (!valid_ && std::is_constant_evaluated()) {
+            ::damp::detail::refuse_failed_design(); // constant-evaluated: an invalid configuration does not compile
+        }
+    }
 
-    /// Feed one residual sample; returns drift_detected() after the update
+    /** @brief Feed one residual sample; returns drift_detected() after the update (false when inert) */
     constexpr bool update(T residual) {
+        if (!valid_) {
+            return false;
+        }
         const T mag = damp::abs(residual);
         fast_ += fast_alpha_ * (mag - fast_);
         slow_ += slow_alpha_ * (mag - slow_);
-        ++samples_;
+        if (samples_ < warmup_) {
+            ++samples_;
+        }
         return drift_detected();
     }
 
-    /// Recent-to-baseline residual ratio (≈1 = model still explains the data)
+    /** @brief Recent-to-baseline residual ratio (≈1 = model still explains the data) */
     [[nodiscard]] constexpr T drift_score() const {
         // Scale-invariant guard: a zero baseline with any recent residual reads
         // as a very large ratio, never a division by zero.
@@ -280,10 +292,9 @@ public:
         return fast_ / damp::max(slow_, eps<T>() * fast_);
     }
 
-    /// True once the baseline exists (≥ 2/slow_alpha samples) and the score crosses the threshold
+    /** @brief True once the baseline exists (≥ 2/slow_alpha samples) and the score crosses the threshold */
     [[nodiscard]] constexpr bool drift_detected() const {
-        const auto warmup = static_cast<size_t>(T{2} / slow_alpha_);
-        return samples_ >= warmup && drift_score() > threshold_;
+        return valid_ && samples_ >= warmup_ && drift_score() > threshold_;
     }
 
     constexpr void reset() {
@@ -293,9 +304,18 @@ public:
     }
 
 private:
+    /** @brief ⌈2/slow_alpha⌉ samples, capped below half the size_t range (no out-of-range float→int cast). */
+    [[nodiscard]] static constexpr size_t warmup_samples(T slow_alpha) {
+        constexpr size_t cap = std::numeric_limits<size_t>::max() / 2;
+        const T          n = T{2} / slow_alpha;
+        return (n < static_cast<T>(cap)) ? static_cast<size_t>(n) : cap;
+    }
+
     T      fast_alpha_{static_cast<T>(0.05)};
     T      slow_alpha_{static_cast<T>(0.002)};
     T      threshold_{static_cast<T>(3)};
+    bool   valid_{true};
+    size_t warmup_{1000}; ///< 2/slow_alpha for the default slow_alpha
     T      fast_{};
     T      slow_{};
     size_t samples_{0};
@@ -318,7 +338,7 @@ template<size_t NPARAM, typename T = float>
     requires std::is_floating_point_v<T>
 class AdaptationGate {
 public:
-    /// Outcome of one evaluation
+    /** @brief Outcome of one evaluation */
     struct Decision {
         T    confidence{};   ///< The confidence the decision was based on
         bool allow_update{}; ///< true: apply the proposed parameters
@@ -334,7 +354,7 @@ public:
     constexpr AdaptationGate(T min_confidence, const ColVec<NPARAM, T>& max_step)
         : min_confidence_(min_confidence), max_step_(max_step) {}
 
-    /// Evaluate a proposed parameter set; remembers it as baseline when allowed
+    /** @brief Evaluate a proposed parameter set; remembers it as baseline when allowed */
     constexpr Decision evaluate(bool estimator_valid, T confidence, const ColVec<NPARAM, T>& proposed) {
         Decision decision{confidence, false};
         if (!estimator_valid || confidence < min_confidence_) {
@@ -353,7 +373,7 @@ public:
         return decision;
     }
 
-    /// Last parameter set that passed the gate
+    /** @brief Last parameter set that passed the gate */
     [[nodiscard]] constexpr const ColVec<NPARAM, T>& accepted_parameters() const { return accepted_; }
     [[nodiscard]] constexpr bool                     has_accepted() const { return has_accepted_; }
 

@@ -51,14 +51,14 @@ TEST_SUITE("Relay Autotune Design") {
     TEST_CASE("config validation accepts sensible defaults") {
         constexpr design::RelayAutotuneConfig<double> cfg{};
         static_assert(cfg.valid());
-        constexpr auto res = design::relay_autotune(cfg);
+        constexpr auto res = design::relay_autotune(cfg, 0.01);
         static_assert(res.success);
     }
 
     TEST_CASE("config validation rejects non-positive amplitude") {
         constexpr design::RelayAutotuneConfig<double> cfg{.amplitude = 0.0};
         static_assert(!cfg.valid());
-        constexpr auto res = design::relay_autotune(cfg);
+        constexpr auto res = design::relay_autotune(cfg, 0.01);
         static_assert(!res.success);
     }
 
@@ -72,10 +72,20 @@ TEST_SUITE("Relay Autotune Design") {
         static_assert(!cfg.valid());
     }
 
-    TEST_CASE("config validation rejects hysteresis >= amplitude") {
-        // ε ≥ d cannot sustain a limit cycle (Kᵤ = 4d/(π√(a²−ε²)) ill-defined).
-        constexpr design::RelayAutotuneConfig<double> cfg{.amplitude = 1.0, .hysteresis = 1.0};
-        static_assert(!cfg.valid());
+    TEST_CASE("config validation does not compare hysteresis (output units) with amplitude (input units)") {
+        // y in encoder counts, u in amps: ε = 5 counts with d = 1 A is the same experiment as ε = 0.005 kcounts.
+        static_assert(design::RelayAutotuneConfig<double>{.amplitude = 1.0, .hysteresis = 5.0}.valid());
+        static_assert(design::RelayAutotuneConfig<double>{.amplitude = 1.0, .hysteresis = 0.005}.valid());
+    }
+
+    TEST_CASE("config validation refuses relay levels that u_lim would clip") {
+        // A clipped level makes the applied amplitude smaller than d, and Kᵤ = 4d/(πa) reads high.
+        using Cfg = design::RelayAutotuneConfig<double>;
+        static_assert(!Cfg{.amplitude = 1.0, .u_lim = {.lower = -0.5, .upper = 0.5}}.valid());
+        static_assert(!Cfg{.amplitude = 0.6, .u_bias = 0.5, .u_lim = {.lower = 0.0, .upper = 1.0}}.valid());
+        static_assert(Cfg{.amplitude = 0.5, .u_bias = 0.5, .u_lim = {.lower = 0.0, .upper = 1.0}}.valid());
+        static_assert(!Cfg{.amplitude = 0.4, .u_bias = 0.5, .u_lim = {.lower = 0.2, .upper = 1.0}}.valid());
+        static_assert(!Cfg{.amplitude = 0.3, .u_bias = 0.5, .u_lim = {.lower = 0.0, .upper = 1.0}, .amplitude_neg = 0.6}.valid());
     }
 
     TEST_CASE(".as<float>() round-trips config values") {
@@ -89,7 +99,7 @@ TEST_SUITE("Relay Autotune Design") {
             .period_tolerance = 0.1,
             .max_duration = 20.0,
         };
-        constexpr auto res = design::relay_autotune(cfg);
+        constexpr auto res = design::relay_autotune(cfg, 0.01);
         constexpr auto res_f = res.template as<float>();
         static_assert(res_f.success);
         static_assert(res_f.config.amplitude == 2.5f);
@@ -102,9 +112,9 @@ TEST_SUITE("Relay Autotune Design") {
 TEST_SUITE("Relay Autotune Runtime") {
     TEST_CASE("invalid design starts in Failed state and stays there") {
         constexpr design::RelayAutotuneConfig<float> cfg{.amplitude = 0.0f};
-        constexpr auto                               res = design::relay_autotune(cfg);
+        constexpr auto                               res = design::relay_autotune(cfg, 0.01f);
 
-        RelayAutotuner<float> tuner(res, 0.01f);
+        RelayAutotuner<float> tuner(res);
         CHECK(tuner.status() == RelayAutotuneStatus::Failed);
 
         const auto out = tuner.step(0.0f);
@@ -113,9 +123,9 @@ TEST_SUITE("Relay Autotune Runtime") {
 
     TEST_CASE("non-positive Ts marks the design Failed") {
         constexpr design::RelayAutotuneConfig<float> cfg{};
-        constexpr auto                               res = design::relay_autotune(cfg);
+        constexpr auto                               res = design::relay_autotune(cfg, 0.0f);
 
-        RelayAutotuner<float> tuner(res, 0.0f);
+        RelayAutotuner<float> tuner(res);
         CHECK(tuner.status() == RelayAutotuneStatus::Failed);
     }
 
@@ -124,8 +134,8 @@ TEST_SUITE("Relay Autotune Runtime") {
             .amplitude = 1.0f,
             .warmup_cycles = 2,
         };
-        constexpr auto        res = design::relay_autotune(cfg);
-        RelayAutotuner<float> tuner(res, 0.01f);
+        constexpr auto        res = design::relay_autotune(cfg, 0.01f);
+        RelayAutotuner<float> tuner(res);
 
         REQUIRE(tuner.status() == RelayAutotuneStatus::Idle);
         const auto out = tuner.step(0.0f);
@@ -134,8 +144,8 @@ TEST_SUITE("Relay Autotune Runtime") {
 
     TEST_CASE("warmup_cycles = 0 skips straight to measuring") {
         constexpr design::RelayAutotuneConfig<float> cfg{.warmup_cycles = 0};
-        constexpr auto                               res = design::relay_autotune(cfg);
-        RelayAutotuner<float>                        tuner(res, 0.01f);
+        constexpr auto                               res = design::relay_autotune(cfg, 0.01f);
+        RelayAutotuner<float>                        tuner(res);
 
         const auto out = tuner.step(0.0f);
         CHECK(out.status == RelayAutotuneStatus::Measuring);
@@ -149,8 +159,8 @@ TEST_SUITE("Relay Autotune Runtime") {
             .hysteresis = 10.0f,   // huge band → never triggers
             .max_duration = 0.05f, // 5 ticks at Ts=0.01
         };
-        constexpr auto        res = design::relay_autotune(cfg);
-        RelayAutotuner<float> tuner(res, 0.01f);
+        constexpr auto        res = design::relay_autotune(cfg, 0.01f);
+        RelayAutotuner<float> tuner(res);
 
         RelayAutotuneOutput<float> out{};
         for (int i = 0; i < 100; ++i) {
@@ -187,8 +197,8 @@ TEST_SUITE("Relay Autotune Runtime") {
             .period_tolerance = 0.05,
             .max_duration = 60.0,
         };
-        constexpr auto         res = design::relay_autotune(cfg);
-        RelayAutotuner<double> tuner(res, Ts);
+        constexpr auto         res = design::relay_autotune(cfg, Ts);
+        RelayAutotuner<double> tuner(res);
 
         const auto out = run_autotune(plant_d, tuner, static_cast<int>(cfg.max_duration / Ts) + 100);
 
@@ -211,7 +221,7 @@ TEST_SUITE("Relay Autotune Runtime") {
 
         // Feed (Ku, Tu) into Tyreus-Luyben (the modern drop-in over the
         // original Ziegler-Nichols formulas) and sanity-check the gains.
-        const auto pid = design::tyreus_luyben(out.Ku, out.Tu, Ts);
+        const auto pid = design::tyreus_luyben(out.Ku, out.Tu);
         CHECK(pid.Kp > 0.0);
         CHECK(pid.Ki > 0.0);
         CHECK(pid.Kd > 0.0);
@@ -219,8 +229,8 @@ TEST_SUITE("Relay Autotune Runtime") {
 
     TEST_CASE("reset returns a finished tuner to Idle") {
         constexpr design::RelayAutotuneConfig<float> cfg{};
-        constexpr auto                               res = design::relay_autotune(cfg);
-        RelayAutotuner<float>                        tuner(res, 0.01f);
+        constexpr auto                               res = design::relay_autotune(cfg, 0.01f);
+        RelayAutotuner<float>                        tuner(res);
 
         (void)tuner.step(0.0f);
         REQUIRE(tuner.status() != RelayAutotuneStatus::Idle);
@@ -229,5 +239,36 @@ TEST_SUITE("Relay Autotune Runtime") {
         CHECK(tuner.status() == RelayAutotuneStatus::Idle);
         CHECK(tuner.Ku() == 0.0f);
         CHECK(tuner.Tu() == 0.0f);
+    }
+
+    TEST_CASE("Asymmetric relay estimates the process static gain y/u") {
+        // FOPDT plant, K = 2: the biased relay's mean output over whole limit
+        // cycles is K times its mean command, so Ks must come out near 2 (not 1/2).
+        constexpr double                    Ts = 0.01;
+        constexpr double                    K = 2.0;
+        constexpr double                    tau = 1.0;
+        constexpr size_t                    delay = 30;
+        design::RelayAutotuneConfig<double> cfg{};
+        cfg.amplitude = 1.0;
+        cfg.amplitude_neg = 0.5;
+        cfg.hysteresis = 0.02;
+        cfg.warmup_cycles = 4;
+        cfg.measure_cycles = 8;
+        cfg.max_duration = 200.0;
+        RelayAutotuner<double> tuner(design::relay_autotune(cfg, Ts));
+
+        damp::array<double, delay>  buf{};
+        size_t                      head = 0;
+        double                      y = 0.0;
+        RelayAutotuneOutput<double> out{};
+        for (int k = 0; k < 20000 && out.status != RelayAutotuneStatus::Done; ++k) {
+            out = tuner.step(y);
+            const double u_delayed = buf[head];
+            buf[head] = out.u;
+            head = (head + 1) % delay;
+            y += (Ts / tau) * (-y + K * u_delayed);
+        }
+        REQUIRE(out.status == RelayAutotuneStatus::Done);
+        CHECK(out.Ks == doctest::Approx(K).epsilon(0.15));
     }
 } // TEST_SUITE

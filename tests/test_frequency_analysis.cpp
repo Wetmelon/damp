@@ -4,6 +4,9 @@
 // (See accompanying file LICENSE or copy at http://www.boost.org/LICENSE_1_0.txt)
 
 #include <cmath>
+#include <complex>
+#include <numbers>
+#include <plotlypp/figure.hpp>
 #include <vector>
 
 #include "damp/analysis/analysis.hpp"
@@ -11,6 +14,7 @@
 #include "damp/design/stability.hpp"
 #include "damp/math/complex.hpp"
 #include "damp/matrix/matrix.hpp"
+#include "damp/simulation/plot_plotly.hpp"
 #include "damp/systems/state_space.hpp"
 #include "damp/systems/transfer_function.hpp"
 
@@ -115,7 +119,7 @@ TEST_SUITE("Analysis - Bode Response") {
             .D = Matrix<1, 1>{{0.0}}
         };
 
-        auto omega = analysis::logspace(0.01, 100.0, 200);
+        auto omega = analysis::geomspace(0.01, 100.0, 200);
         auto result = analysis::bode(sys, omega);
 
         // DC gain should be 0 dB
@@ -143,7 +147,7 @@ TEST_SUITE("Analysis - Bode Response") {
             .D = Matrix<1, 1>{{0.0}}
         };
 
-        auto omega = analysis::logspace(0.1, 1000.0, 500);
+        auto omega = analysis::geomspace(0.1, 1000.0, 500);
         auto result = analysis::bode(sys, omega);
 
         // DC gain should be 0 dB (unity)
@@ -158,15 +162,22 @@ TEST_SUITE("Analysis - Bode Response") {
     }
 
     TEST_CASE("Bode from transfer function coefficients") {
-        // G(s) = 10/(s+10), ascending powers: num = {10}, den = {10, 1}
+        // G(s) = 10/(s+10), highest power first: num = {10}, den = {1, 10}
         std::array<double, 1> num = {10.0};
-        std::array<double, 2> den = {10.0, 1.0};
+        std::array<double, 2> den = {1.0, 10.0};
 
-        auto omega = analysis::logspace(0.1, 1000.0, 200);
+        auto omega = analysis::geomspace(0.1, 1000.0, 200);
         auto result = analysis::bode(num, den, omega);
 
         // DC gain = 10/10 = 1 = 0 dB
         CHECK(result.points[0].magnitude_db == doctest::Approx(0.0).epsilon(0.1));
+    }
+
+    TEST_CASE("TF bode is invariant to scaling the denominator") {
+        TransferFunction<1, 2, double> tf{{1e-15}, {1e-15, 1e-15}};
+        const auto                     b = analysis::bode(tf, std::vector<double>{1.0});
+        REQUIRE(b.points.size() == 1);
+        CHECK(b.points[0].magnitude == doctest::Approx(1.0 / std::sqrt(2.0)));
     }
 }
 
@@ -181,7 +192,7 @@ TEST_SUITE("Analysis - Stability Margins") {
             .D = Matrix<1, 1>{{0.0}}
         };
 
-        auto omega = analysis::logspace(0.01, 1000.0, 1000);
+        auto omega = analysis::geomspace(0.01, 1000.0, 1000);
         auto result = analysis::bode(sys, omega);
 
         // Phase margin should exist (there is a 0 dB crossing)
@@ -206,13 +217,23 @@ TEST_SUITE("Analysis - Stability Margins") {
             .D = Matrix<1, 1>{{0.0}}
         };
 
-        auto omega = analysis::logspace(0.01, 1000.0, 2000);
+        auto omega = analysis::geomspace(0.01, 1000.0, 2000);
         auto result = analysis::bode(sys, omega);
 
         auto pm = result.phase_margin();
         REQUIRE(pm.has_value());
         // Pure integrator has -90° phase everywhere, so PM = 180 - 90 = 90°
         CHECK(pm->first == doctest::Approx(90.0).epsilon(2.0));
+    }
+
+    TEST_CASE("Gain margin finds a +180 deg phase crossover") {
+        // L = (s+1)^2 / s^3: phase -270 -> -90, crosses -180 (wrapped +180) at w = 1, |L| = 2.
+        TransferFunction<3, 4, double> tf{{1.0, 2.0, 1.0}, {1.0, 0.0, 0.0, 0.0}};
+        const auto                     b = analysis::bode(tf, analysis::geomspace(0.01, 100.0, 2000));
+        const auto                     gm = b.gain_margin();
+        REQUIRE(gm.has_value());
+        CHECK(gm->first == doctest::Approx(-20.0 * std::log10(2.0)).epsilon(1e-3));
+        CHECK(gm->second == doctest::Approx(1.0).epsilon(1e-2));
     }
 }
 
@@ -271,10 +292,11 @@ TEST_SUITE("Analysis - Pole Analysis") {
         double       zeta = 0.7;
         Matrix<2, 2> A{{0.0, 1.0}, {-wn * wn, -2 * zeta * wn}};
 
-        auto info = analysis::damp(A);
+        const auto info = analysis::damp(A);
+        REQUIRE(info.has_value());
 
         // Both poles should have natural frequency ≈ wn
-        for (const auto& p : info) {
+        for (const auto& p : *info) {
             CHECK(p.natural_freq == doctest::Approx(wn).epsilon(1e-6));
             CHECK(p.damping_ratio == doctest::Approx(zeta).epsilon(1e-6));
         }
@@ -283,20 +305,21 @@ TEST_SUITE("Analysis - Pole Analysis") {
     TEST_CASE("Continuous stability check") {
         // Stable: eigenvalues in LHP
         Matrix<2, 2> A_stable{{0.0, 1.0}, {-2.0, -3.0}};
-        CHECK(analysis::is_stable_continuous(A_stable));
+        CHECK(stability::is_stable(StateSpace<2, 1, 1>{.A = A_stable}));
 
         // Unstable: positive real eigenvalue
         Matrix<2, 2> A_unstable{{0.0, 1.0}, {2.0, -1.0}};
-        CHECK_FALSE(analysis::is_stable_continuous(A_unstable));
+        CHECK_FALSE(stability::is_stable(StateSpace<2, 1, 1>{.A = A_unstable}));
     }
 
     TEST_CASE("Pole computation") {
         Matrix<2, 2> A{{0.0, 1.0}, {-6.0, -5.0}};
-        auto         p = analysis::poles(A);
+        const auto   p = analysis::poles(A);
+        REQUIRE(p.has_value());
         // Poles at s = -2, -3
         // Sort by real part
-        auto r0 = p[0].real();
-        auto r1 = p[1].real();
+        auto r0 = (*p)[0].real();
+        auto r1 = (*p)[1].real();
         if (r0 > r1) {
             damp::swap(r0, r1);
         }
@@ -347,7 +370,7 @@ TEST_SUITE("Analysis - Unwrapped Margins and Discrete Bode") {
         };
 
         std::vector<double> omega{0.1, 10.0};
-        auto                result = analysis::bode_discrete(sys, omega);
+        auto                result = analysis::bode(sys, omega);
 
         REQUIRE(result.points.size() == omega.size());
         CHECK(result.points[0].magnitude_db == doctest::Approx(0.0).epsilon(0.1));
@@ -371,7 +394,7 @@ TEST_SUITE("Analysis - Loop and Nyquist Utilities") {
             .D = Matrix<1, 1>{{0.0}},
         };
 
-        auto omega = analysis::logspace(0.01, 1000.0, 200);
+        auto omega = analysis::geomspace(0.01, 1000.0, 200);
         auto resp = analysis::loop_response(loop, omega);
 
         REQUIRE(resp.open_loop.points.size() == omega.size());
@@ -427,7 +450,7 @@ TEST_SUITE("Analysis - Loop Summary Convenience") {
             .D = Matrix<1, 1>{{0.0}},
         };
 
-        const auto omega = analysis::logspace(0.01, 1000.0, 200);
+        const auto omega = analysis::geomspace(0.01, 1000.0, 200);
         const auto summary = analysis::loop_metrics(loop, omega);
 
         REQUIRE(summary.phase_margin.has_value());
@@ -457,7 +480,7 @@ TEST_SUITE("Analysis - Loop Summary Convenience") {
             .D = Matrix<1, 1>{{0.0}},
         };
 
-        const auto omega = analysis::logspace(0.05, 800.0, 180);
+        const auto omega = analysis::geomspace(0.05, 800.0, 180);
         const auto resp = analysis::loop_response(loop, omega);
         const auto summary = analysis::summarize_loop_response(resp);
 
@@ -484,7 +507,7 @@ TEST_SUITE("Analysis - Loop Summary Convenience") {
             .den = {1.0, 1.0},
         };
 
-        const auto omega = analysis::logspace(0.01, 1000.0, 200);
+        const auto omega = analysis::geomspace(0.01, 1000.0, 200);
         const auto resp = analysis::loop_response(loop_tf, omega);
         const auto summary = analysis::loop_metrics(loop_tf, omega);
 
@@ -505,7 +528,7 @@ TEST_SUITE("Analysis - Nichols") {
             .C = Matrix<1, 1>{{1.0}},
             .D = Matrix<1, 1>{{0.0}},
         };
-        const auto omega = analysis::logspace(0.01, 100.0, 100);
+        const auto omega = analysis::geomspace(0.01, 100.0, 100);
         const auto bd = analysis::bode(sys, omega);
         const auto nc = analysis::nichols(sys, omega);
 
@@ -523,11 +546,26 @@ TEST_SUITE("Analysis - Nichols") {
 
     TEST_CASE("Nichols from BodeResult conversion") {
         TransferFunction<1, 2, double> tf{{1.0}, {1.0, 1.0}};
-        const auto                     omega = analysis::logspace(0.1, 10.0, 20);
+        const auto                     omega = analysis::geomspace(0.1, 10.0, 20);
         const auto                     bd = analysis::bode(tf, omega);
         const auto                     nc = analysis::nichols(bd);
         REQUIRE(nc.points.size() == bd.points.size());
         CHECK(nc.points[0].magnitude_db == doctest::Approx(bd.points[0].magnitude_db));
+    }
+
+    TEST_CASE("Nichols M-circle samples satisfy |G/(1+G)| = M") {
+        plotlypp::Figure fig;
+        plot::detail::add_nichols_m_circle(fig, 2.0, "M=2");
+        const auto& data = fig.json()["data"][0];
+        const auto& xs = data["x"];
+        const auto& ys = data["y"];
+        REQUIRE(xs.size() > 10);
+        for (std::size_t i = 0; i < xs.size(); ++i) {
+            const double               ph = xs[i].get<double>() * std::numbers::pi / 180.0;
+            const double               mag = std::pow(10.0, ys[i].get<double>() / 20.0);
+            const std::complex<double> G = std::polar(mag, ph);
+            CHECK(std::abs(G / (1.0 + G)) == doctest::Approx(2.0).epsilon(1e-9));
+        }
     }
 }
 
@@ -540,7 +578,7 @@ TEST_SUITE("Analysis - Sigma") {
             .C = Matrix<1, 1>{{1.0}},
             .D = Matrix<1, 1>{{0.0}},
         };
-        const auto omega = analysis::logspace(0.01, 100.0, 80);
+        const auto omega = analysis::geomspace(0.01, 100.0, 80);
         const auto bd = analysis::bode(sys, omega);
         const auto sg = analysis::sigma(sys, omega);
 
@@ -567,7 +605,7 @@ TEST_SUITE("Analysis - Sigma") {
             .C = Matrix<2, 2>{{1.0, 0.0}, {0.0, 1.0}},
             .D = Matrix<2, 2>{{0.0, 0.0}, {0.0, 0.0}},
         };
-        const auto omega = analysis::logspace(0.001, 0.01, 5); // near DC
+        const auto omega = analysis::geomspace(0.001, 0.01, 5); // near DC
         const auto sg = analysis::sigma(sys, omega);
 
         REQUIRE(sg.points.size() == omega.size());
@@ -579,11 +617,25 @@ TEST_SUITE("Analysis - Sigma") {
     }
 
     TEST_CASE("Sigma from transfer function is SISO magnitude") {
-        TransferFunction<1, 2, double> tf{{10.0}, {10.0, 1.0}}; // 10/(s+10)
-        const auto                     omega = analysis::logspace(0.1, 1000.0, 50);
+        TransferFunction<1, 2, double> tf{{10.0}, {1.0, 10.0}}; // 10/(s+10)
+        const auto                     omega = analysis::geomspace(0.1, 1000.0, 50);
         const auto                     sg = analysis::sigma(tf, omega);
         REQUIRE(sg.points.size() == omega.size());
         CHECK(sg.points.front().sigma_db[0] == doctest::Approx(0.0).epsilon(0.1)); // DC = 1
+    }
+
+    TEST_CASE("Discrete H-infinity norm includes DC") {
+        StateSpace<1, 1, 1, double> s{
+            .A = Matrix<1, 1>{{0.999}},
+            .B = Matrix<1, 1>{{0.001}},
+            .C = Matrix<1, 1>{{1.0}},
+            .D = Matrix<1, 1>{{0.0}},
+            .Ts = 0.01,
+        };
+        const auto hinf = analysis::norm_hinf(s);
+        REQUIRE(hinf.success);
+        CHECK(hinf.gain == doctest::Approx(1.0).epsilon(1e-12));
+        CHECK(hinf.frequency == 0.0);
     }
 }
 
@@ -631,7 +683,7 @@ TEST_SUITE("Analysis - Root Locus") {
 
     TEST_CASE("rlocus TF path fills open-loop zeros") {
         // G(s) = (s+2)/(s+1)  — zero at -2, pole at -1
-        TransferFunction<2, 2, double> tf{{2.0, 1.0}, {1.0, 1.0}};
+        TransferFunction<2, 2, double> tf{{1.0, 2.0}, {1.0, 1.0}};
         const auto                     gains = analysis::linspace(0.0, 5.0, 11);
         const auto                     rl = analysis::rlocus(tf, gains);
 
@@ -697,9 +749,9 @@ TEST_SUITE("Analysis - Contour pole skip (optional FRF)") {
     }
 
     TEST_CASE("TF poly bode skips den(jω)≈0 poles") {
-        // G(s)=1/s → den = {0, 1} ascending; pole at ω=0
+        // G(s)=1/s → den = {1, 0}; pole at ω=0
         damp::array<double, 1> num{1.0};
-        damp::array<double, 2> den{0.0, 1.0};
+        damp::array<double, 2> den{1.0, 0.0};
         std::vector<double>    omega{0.0, 2.0};
 
         const auto bd = analysis::bode(num, den, omega);
@@ -710,8 +762,8 @@ TEST_SUITE("Analysis - Contour pole skip (optional FRF)") {
 
     TEST_CASE("bad TF realization yields empty FRF/rlocus packages") {
         // Zero leading den coefficient → to_state_space() nullopt
-        TransferFunction<1, 2, double> bad{{1.0}, {1.0, 0.0}};
-        const auto                     omega = analysis::logspace(0.1, 10.0, 5);
+        TransferFunction<1, 2, double> bad{{1.0}, {0.0, 1.0}};
+        const auto                     omega = analysis::geomspace(0.1, 10.0, 5);
         const auto                     gains = analysis::linspace(0.0, 1.0, 3);
 
         CHECK(analysis::nyquist(bad, omega).points.empty());
@@ -719,5 +771,52 @@ TEST_SUITE("Analysis - Contour pole skip (optional FRF)") {
         CHECK(analysis::loop_response(bad, omega).open_loop.points.empty());
         CHECK(analysis::rlocus(bad, gains).gains.empty());
         CHECK(analysis::rlocus(bad, gains).poles.empty());
+    }
+}
+
+TEST_SUITE("Analysis - Margins over several crossings") {
+    TEST_CASE("phase margin is the smallest over every 0 dB crossing") {
+        // L = 100/(s(s+1)(s² + 0.04s + 100)): the resonance at 10 rad/s pokes above 0 dB after
+        // the first crossover. python-control: PM = 51.68°, −17.62°, −150.27°; min −17.62° at 9.95.
+        const TransferFunction<1, 5, double> L{{100.0}, {1.0, 1.04, 100.04, 100.0, 0.0}};
+        const auto                           pm = analysis::bode(L, analysis::geomspace(0.01, 100.0, 20000)).phase_margin();
+        REQUIRE(pm.has_value());
+        CHECK(pm->first == doctest::Approx(-17.62).epsilon(0.01));
+        CHECK(pm->second == doctest::Approx(9.95).epsilon(0.005));
+    }
+
+    TEST_CASE("gain margin is the smallest |GM_dB| over every phase crossing") {
+        // Conditionally stable L = 30(s+1)²/(s³(s/20+1)²). python-control: GM = −33.65 dB at
+        // 1.12 rad/s and +0.58 dB at 17.88 rad/s; the critical one is 0.58 dB.
+        const TransferFunction<3, 6, double> L{{12000.0, 24000.0, 12000.0}, {1.0, 40.0, 400.0, 0.0, 0.0, 0.0}};
+        const auto                           gm = analysis::bode(L, analysis::geomspace(0.1, 1000.0, 20000)).gain_margin();
+        REQUIRE(gm.has_value());
+        CHECK(gm->first == doctest::Approx(0.58).epsilon(0.02));
+        CHECK(gm->second == doctest::Approx(17.88).epsilon(0.005));
+    }
+
+    TEST_CASE("a zero divisor on the grid is skipped, not reported as −300 dB") {
+        const std::vector<double> omega{0.0, 0.1, 1.0};
+        // Y = s/(s+1): Y(0) = 0, so Z = 1/Y is not finite at ω = 0.
+        const StateSpace<1, 1, 1> Y{.A = {{-1.0}}, .B = {{1.0}}, .C = {{-1.0}}, .D = {{1.0}}};
+        const auto                Z = analysis::impedance_from_admittance(Y, omega);
+        REQUIRE(Z.points.size() == 2);
+        CHECK(Z.points[0].omega == doctest::Approx(0.1));
+        // L = −1/(s+1): 1 + L = 0 at ω = 0, a closed-loop pole on the grid.
+        const StateSpace<1, 1, 1> L{.A = {{-1.0}}, .B = {{1.0}}, .C = {{-1.0}}};
+        const auto                lr = analysis::loop_response(L, omega);
+        REQUIRE(lr.sensitivity.points.size() == 2);
+        CHECK(lr.open_loop.points.size() == 2);
+        CHECK(lr.sensitivity.points[0].omega == doctest::Approx(0.1));
+        // Z_L = 0 at a sample: T_m = Z_s/Z_L is dropped there.
+        analysis::ImpedanceResult<double> zs;
+        analysis::ImpedanceResult<double> zl;
+        zs.points.push_back({1.0, {1.0, 0.0}, 1.0, 0.0, 0.0});
+        zs.points.push_back({2.0, {1.0, 0.0}, 1.0, 0.0, 0.0});
+        zl.points.push_back({1.0, {0.0, 0.0}, 0.0, -300.0, 0.0});
+        zl.points.push_back({2.0, {4.0, 0.0}, 4.0, 12.0, 0.0});
+        const auto mb = analysis::middlebrook(zs, zl);
+        REQUIRE(mb.minor_loop_gain.points.size() == 1);
+        CHECK(mb.minor_loop_gain.points[0].omega == doctest::Approx(2.0));
     }
 }

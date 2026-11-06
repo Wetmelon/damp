@@ -14,13 +14,13 @@ test on the first-order filter.
 | -------- | ---- | ----- |
 | Cutoff $`f_c`$ | `10.0f` | 10 Hz |
 | Sample time $`T_s`$ | `0.001f` | 1 ms (1 kHz) |
-| 2nd-order damping $`\zeta`$ | `0.707f` | Butterworth-ish |
+| 2nd-order damping $`\zeta`$ | $`1/\sqrt{2}`$ | Butterworth |
 
 Objects:
 
-- `design::lowpass_1st(fc, Ts)` → `LowPass<1, float>`
-- `design::lowpass_2nd(fc, Ts, zeta)` → `LowPass<2, float>` from $`(b_0,b_1,b_2),(a_1,a_2)`$
-- Convenience ctor `LowPass<1,float>{fc, Ts}` (same first-order design)
+- `design::lowpass<1>(fc, Ts)` → `LowPass<1, float>` (prewarped Tustin of the first-order section)
+- `design::lowpass<2>(fc, Ts)` → `LowPass<2, float>` (second-order Butterworth, $`(b_0,b_1,b_2),(a_1,a_2)`$)
+- Convenience ctor `LowPass<1, float>{fc, Ts}` (the same first-order design)
 
 ---
 

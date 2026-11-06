@@ -7,15 +7,19 @@
 
 /**
  * @file discretization.hpp
- * @brief Continuous-to-discrete state-space discretization
+ * @brief c2d / d2d: discretize a plant; InputDelay of at most one sample; Tustin pre-warp
  */
 
 #include <cstddef>
+#include <limits>
+#include <type_traits>
 
 #include "damp/backend.hpp"
+#include "damp/design/status.hpp"
 #include "damp/math/math.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "state_space.hpp"
+#include "transfer_function.hpp"
 
 namespace damp {
 
@@ -30,7 +34,89 @@ enum class DiscretizationMethod {
     Tustin,       ///< Bilinear transform: s → (2/Ts)(z−1)/(z+1), preserves stability; pre-warp with discretize's last argument
 };
 
+/**
+ * @brief A discretized or resampled model with its success / status, read like an optional
+ *
+ * `*r`, `r->A`, `r.value()`, `r.has_value()` and `if (r)` read it as they read a
+ * @c damp::optional, so code that needs only the model is unchanged; @c status names the cause
+ * when the model is refused. A refused result holds the zero model: `*r` returns it, and
+ * @c value() does not compile when constant-evaluated and traps at run time (as
+ * @c std::optional::value() does without exceptions).
+ *
+ * @tparam NX Number of states
+ * @tparam NU Number of inputs
+ * @tparam NY Number of outputs
+ * @tparam T  Scalar type
+ * @tparam NW Number of process-noise inputs
+ * @tparam NV Number of measurement-noise inputs
+ */
+template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, size_t NV = 0>
+struct [[nodiscard]] DiscretizationResult {
+    using value_type = StateSpace<NX, NU, NY, T, NW, NV>; ///< The model type, as std::optional::value_type
+
+    value_type           sys{};                                       ///< The discrete model (zero when refused)
+    bool                 success{false};                              ///< status == DesignStatus::ok
+    design::DesignStatus status{design::DesignStatus::not_converged}; ///< ok, or why the model was refused
+
+    template<typename U>
+    [[nodiscard]] constexpr DiscretizationResult<NX, NU, NY, U, NW, NV> as() const {
+        return DiscretizationResult<NX, NU, NY, U, NW, NV>{sys.template as<U>(), success, status};
+    }
+
+    /** @brief True when the model was produced (success). */
+    [[nodiscard]] constexpr bool has_value() const { return success; }
+
+    /** @brief Contextual test, as std::optional: `if (r)`, `!r`, `r && …`. */
+    [[nodiscard]] constexpr explicit operator bool() const { return success; }
+
+    /** @brief The model (the zero model when refused). */
+    [[nodiscard]] constexpr const value_type& operator*() const { return sys; }
+
+    /** @brief The model (the zero model when refused). */
+    [[nodiscard]] constexpr value_type& operator*() { return sys; }
+
+    /** @brief Member access to the model: `r->A`. */
+    [[nodiscard]] constexpr const value_type* operator->() const { return &sys; }
+
+    /** @brief Member access to the model: `r->A`. */
+    [[nodiscard]] constexpr value_type* operator->() { return &sys; }
+
+    /** @brief The model; a failed result does not compile when constant-evaluated and traps at run time. */
+    [[nodiscard]] constexpr const value_type& value() const {
+        if (!success) {
+            ::damp::detail::refuse_failed_design(status); // constant-evaluated: does not compile, naming the status; run time: traps
+        }
+        return sys;
+    }
+
+    /** @brief The model; a failed result does not compile when constant-evaluated and traps at run time. */
+    [[nodiscard]] constexpr value_type& value() {
+        if (!success) {
+            ::damp::detail::refuse_failed_design(status); // constant-evaluated: does not compile, naming the status; run time: traps
+        }
+        return sys;
+    }
+};
+
 namespace detail {
+
+/** @brief A successful DiscretizationResult holding @p sys. */
+template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
+[[nodiscard]] constexpr DiscretizationResult<NX, NU, NY, T, NW, NV> discretized(const StateSpace<NX, NU, NY, T, NW, NV>& sys) {
+    return DiscretizationResult<NX, NU, NY, T, NW, NV>{sys, true, design::DesignStatus::ok};
+}
+
+/**
+ * @brief True when every entry of A, B and G is finite and below the overflow bound.
+ *
+ * damp::exp saturates at the largest finite value instead of returning ∞, so an exponential
+ * that overflowed holds that value; it counts as not finite here.
+ */
+template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
+[[nodiscard]] constexpr bool finite_dynamics(const StateSpace<NX, NU, NY, T, NW, NV>& sys) {
+    const auto finite = [](T v) { return damp::isfinite(v) && damp::abs(v) < std::numeric_limits<T>::max(); };
+    return mat::all_of(sys.A, finite) && mat::all_of(sys.B, finite) && mat::all_of(sys.G, finite);
+}
 
 /**
  * @brief Discretize using Forward Euler (explicit Euler)
@@ -59,7 +145,7 @@ template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, si
     };
 }
 
-/// Copy the NX × NC block of M starting at column c0 (rows 0 … NX−1).
+/** @brief Copy the NX × NC block of M starting at column c0 (rows 0 … NX−1). */
 template<size_t NX, size_t NC, size_t N, typename T>
 [[nodiscard]] constexpr Matrix<NX, NC, T> leading_rows_block(const Matrix<N, N, T>& M, size_t c0) {
     Matrix<NX, NC, T> out{};
@@ -92,7 +178,7 @@ template<size_t NX, size_t NC, size_t N, typename T>
  * @see "Feedback Control of Dynamic Systems" (Franklin et al., 2015), §8.3
  */
 template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, size_t NV = 0>
-[[nodiscard]] constexpr StateSpace<NX, NU, NY, T, NW, NV> discretize_zoh_impl(
+[[nodiscard]] constexpr damp::optional<StateSpace<NX, NU, NY, T, NW, NV>> discretize_zoh_impl(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     T                                        sampling_time
 ) {
@@ -109,14 +195,17 @@ template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, si
             M(i, NX + NU + j) = sys.G(i, j) * sampling_time;
         }
     }
-    const Matrix<N, N, T> E = mat::expm(M);
+    const auto E = mat::expm(M);
+    if (!E) {
+        return damp::nullopt;
+    }
 
     return StateSpace<NX, NU, NY, T, NW, NV>{
-        .A = leading_rows_block<NX, NX>(E, 0),
-        .B = leading_rows_block<NX, NU>(E, NX),
+        .A = leading_rows_block<NX, NX>(*E, 0),
+        .B = leading_rows_block<NX, NU>(*E, NX),
         .C = sys.C,
         .D = sys.D,
-        .G = leading_rows_block<NX, NW>(E, NX + NU),
+        .G = leading_rows_block<NX, NW>(*E, NX + NU),
         .H = sys.H,
         .Ts = sampling_time,
     };
@@ -143,6 +232,9 @@ template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, si
  *      C_d:  solve Lᵀ · X = Cᵀ, then C_d = Xᵀ
  *      D_d = D + (Ts/2) · C_d · B
  *
+ *    The bilinear image also has a w → y feedthrough (Ts/2)·C·L⁻¹·G; the (G, H) noise split
+ *    has no slot for it, so it is dropped.
+ *
  * @note Compare with MATLAB®'s c2d(sys, Ts, c2dOptions('Method', 'tustin', 'PrewarpFrequency', w0)).
  * @see "Feedback Control of Dynamic Systems" (Franklin et al., 2015), §8.6
  * @see "Discrete-Time Signal Processing" (Oppenheim & Schafer, 2010), §7.3 (bilinear transform, frequency warping)
@@ -150,19 +242,24 @@ template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, si
  * @param sys               Continuous-time state-space model
  * @param sampling_time     Desired sampling period for discrete system
  * @param prewarp_frequency [rad/s] frequency at which the discrete response must match; 0 for none
- * @return Discretized state-space system, nullopt if L is singular or ω₀Ts ≥ π
+ * @return Discretized state-space system; refused with DesignStatus::singular if L is singular,
+ *         DesignStatus::invalid_parameter if ω₀ is negative or not finite, or ω₀Ts ≥ π
  */
 template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, size_t NV = 0>
-[[nodiscard]] constexpr damp::optional<StateSpace<NX, NU, NY, T, NW, NV>> discretize_tustin_impl(
+[[nodiscard]] constexpr DiscretizationResult<NX, NU, NY, T, NW, NV> discretize_tustin_impl(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     T                                        sampling_time,
     T                                        prewarp_frequency = T{0}
 ) {
+    using Result = DiscretizationResult<NX, NU, NY, T, NW, NV>;
     T ts_eff = sampling_time;
+    if (!damp::isfinite(prewarp_frequency) || prewarp_frequency < T{0}) {
+        return refused<Result>(design::DesignStatus::invalid_parameter);
+    }
     if (prewarp_frequency > T{0}) {
         const T half_angle = prewarp_frequency * sampling_time / T{2};
         if (!(half_angle < damp::numbers::pi_v<T> / T{2})) {
-            return damp::nullopt; // at or past Nyquist: tan has no finite value
+            return refused<Result>(design::DesignStatus::invalid_parameter); // at or past Nyquist: tan has no finite value
         }
         ts_eff = T{2} * damp::tan(half_angle) / prewarp_frequency;
     }
@@ -173,21 +270,21 @@ template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, si
     // A_d: solve L · A_d = (I + A·Ts/2)
     const auto A_d_opt = mat::lu_solve(L, I + sys.A * ts_half);
     if (!A_d_opt) {
-        return damp::nullopt;
+        return refused<Result>(design::DesignStatus::singular);
     }
     const Matrix A_d = A_d_opt.value();
 
     // B_d: solve L · X = B, then B_d = Ts · X
     const auto B_d_opt = mat::lu_solve(L, sys.B);
     if (!B_d_opt) {
-        return damp::nullopt;
+        return refused<Result>(design::DesignStatus::singular);
     }
     const Matrix B_d = B_d_opt.value() * ts_eff;
 
     // C_d = C · L⁻¹ → solve Lᵀ · X = Cᵀ, then C_d = Xᵀ
     const auto C_d_t_opt = mat::lu_solve(L.transpose(), sys.C.transpose());
     if (!C_d_t_opt) {
-        return damp::nullopt;
+        return refused<Result>(design::DesignStatus::singular);
     }
     const Matrix C_d = C_d_t_opt.value().transpose();
 
@@ -197,12 +294,12 @@ template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, si
     // G_d: same map as B
     const auto G_d_opt = mat::lu_solve(L, sys.G);
     if (!G_d_opt) {
-        return damp::nullopt;
+        return refused<Result>(design::DesignStatus::singular);
     }
     const Matrix G_d = G_d_opt.value() * ts_eff;
     const Matrix H_d = sys.H;
 
-    return StateSpace{A_d, B_d, C_d, D_d, G_d, H_d, sampling_time};
+    return discretized(StateSpace{A_d, B_d, C_d, D_d, G_d, H_d, sampling_time});
 }
 
 } // namespace detail
@@ -211,93 +308,303 @@ template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, si
  * @brief Discretize a continuous-time state-space system
  *
  * Converts @f$ \dot x = Ax + Bu @f$ to @f$ x[k+1] = A_d x[k] + B_d u[k] @f$.
- * Already-discrete models and non-positive @p sampling_time return @p sys unchanged.
- * Tustin returns @c nullopt if the bilinear factor @f$ I - A T_s/2 @f$ is singular
- * (no silent fallback to ZOH). Tustin warps the frequency axis; @p prewarp_frequency
- * ω₀ > 0 makes the discrete response exact at ω₀ (see detail::discretize_tustin_impl)
- * and is ignored by the other methods.
+ * A model already discrete at @p sampling_time is returned unchanged; resample changes the
+ * rate of a discrete model.
+ * Tustin warps the frequency axis; @p prewarp_frequency ω₀ > 0 makes the discrete response
+ * exact at ω₀ (see detail::discretize_tustin_impl) and is ignored by the other methods.
+ *
+ * Statuses: DesignStatus::invalid_sample_time when @p sampling_time is not finite and
+ * positive, or @p sys is discrete at another sample time (or its Ts is negative or not
+ * finite); DesignStatus::bad_weights when A, B or G has a non-finite entry;
+ * DesignStatus::singular when Tustin's bilinear factor @f$ I - A T_s/2 @f$ is singular (no
+ * silent fallback to ZOH); DesignStatus::invalid_parameter when ω₀ is negative or not finite,
+ * or ω₀Ts ≥ π; DesignStatus::not_converged when the discrete model overflows (an unstable
+ * mode grows past the range of T within one period).
  *
  * @note Compare with MATLAB®'s c2d(sys, Ts, method) and c2dOptions('PrewarpFrequency', w0).
  * @see "Feedback Control of Dynamic Systems" (Franklin et al., 2015), Chapter 8
  *
  * @param sys               Continuous-time state-space model (@c Ts = 0)
- * @param sampling_time     Desired sampling period [s]
+ * @param sampling_time     Desired sampling period [s], finite and positive
  * @param method            Discretization method (ForwardEuler, ZOH, or Tustin)
  * @param prewarp_frequency [rad/s] Tustin pre-warp frequency; 0 (default) for the plain bilinear map
- * @return Discrete system, or @c nullopt if the method cannot be applied
+ * @return Discrete system and status; reads like an optional (`*r`, `r->A`, `if (r)`)
  */
 template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, size_t NV = 0>
-[[nodiscard]] constexpr damp::optional<StateSpace<NX, NU, NY, T, NW, NV>> discretize(
+[[nodiscard]] constexpr DiscretizationResult<NX, NU, NY, T, NW, NV> discretize(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     T                                        sampling_time,
     DiscretizationMethod                     method = DiscretizationMethod::ZOH,
     T                                        prewarp_frequency = T{0}
 ) {
-    if (sampling_time <= T{0}) {
-        return sys;
+    using Result = DiscretizationResult<NX, NU, NY, T, NW, NV>;
+    using design::DesignStatus;
+    if (!damp::finite_positive(sampling_time)) {
+        return detail::refused<Result>(DesignStatus::invalid_sample_time);
+    }
+    if (sys.Ts != T{0} || !damp::isfinite(sys.Ts)) {
+        if (detail::same_sample_time(sys.Ts, sampling_time)) {
+            return detail::discretized(sys); // already discrete at this rate
+        }
+        return detail::refused<Result>(DesignStatus::invalid_sample_time); // another rate: resample, not discretize
+    }
+    if (!detail::finite_dynamics(sys)) {
+        return detail::refused<Result>(DesignStatus::bad_weights);
     }
 
-    if (sys.Ts > T{0}) {
-        return sys;
-    }
-
+    const auto checked = [](const Result& r) {
+        if (r && !detail::finite_dynamics(*r)) {
+            return detail::refused<Result>(DesignStatus::not_converged); // overflowed within one period
+        }
+        return r;
+    };
     switch (method) {
         case DiscretizationMethod::ForwardEuler:
-            return detail::discretize_forward_euler_impl(sys, sampling_time);
-        case DiscretizationMethod::ZOH:
-            return detail::discretize_zoh_impl(sys, sampling_time);
+            return checked(detail::discretized(detail::discretize_forward_euler_impl(sys, sampling_time)));
+        case DiscretizationMethod::ZOH: {
+            const auto d = detail::discretize_zoh_impl(sys, sampling_time);
+            if (!d) {
+                return detail::refused<Result>(DesignStatus::not_converged); // the exponential overflowed
+            }
+            return checked(detail::discretized(*d));
+        }
         case DiscretizationMethod::Tustin:
-            return detail::discretize_tustin_impl(sys, sampling_time, prewarp_frequency);
-        default:
-            return detail::discretize_forward_euler_impl(sys, sampling_time);
+            return checked(detail::discretize_tustin_impl(sys, sampling_time, prewarp_frequency));
     }
+    return detail::refused<Result>(DesignStatus::invalid_parameter); // not a DiscretizationMethod
+}
+
+// ---- Resampling a discrete model -------------------------------------------
+
+/**
+ * @brief Resample a ZOH-discrete model to a new sample time
+ *
+ * A model discretized by ZOH at @f$ T_s @f$ is the exponential of its continuous parent,
+ * @f$ M = \exp\!\left(\left[\begin{smallmatrix} A_c & B_c \\ 0 & 0 \end{smallmatrix}\right] T_s\right)
+ *   = \left[\begin{smallmatrix} A & B \\ 0 & I \end{smallmatrix}\right] @f$,
+ * so the same plant held at @f$ T_s' @f$ is @f$ M^{T_s'/T_s} @f$. An integer ratio (slower
+ * rate) is a plain matrix power and always exists. Any other ratio goes through the principal
+ * logarithm (the d2c step), which needs A free of eigenvalues on the closed negative real
+ * axis: a mode at z ≤ 0 has no continuous parent, and is refused. The noise input G is
+ * resampled with B (held, as in discretize); C, D and H do not depend on the rate.
+ *
+ * @note Compare with MATLAB®'s d2d(sys, Ts) (ZOH method); matlab::d2d is the alias.
+ * @see "Computing Integrals Involving the Matrix Exponential" (Van Loan, 1978)
+ * @see "Functions of Matrices: Theory and Computation" (Higham, 2008), §11 (logarithm)
+ *
+ * Statuses: DesignStatus::invalid_sample_time if @p sys is not discrete or the new rate is
+ * not finite and positive; DesignStatus::not_converged if a fractional ratio has no real
+ * logarithm (the matrix logarithm fails or does not reach a finite real parent).
+ *
+ * @param sys            Discrete model (Ts > 0), discretized by ZOH
+ * @param sampling_time  New sample time [s], finite and positive
+ * @return The model at the new rate and status; reads like an optional (`*r`, `r->A`, `if (r)`)
+ */
+template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
+[[nodiscard]] constexpr DiscretizationResult<NX, NU, NY, T, NW, NV> resample(
+    const StateSpace<NX, NU, NY, T, NW, NV>& sys,
+    std::type_identity_t<T>                  sampling_time
+) {
+    using Result = DiscretizationResult<NX, NU, NY, T, NW, NV>;
+    if (!finite_positive(sys.Ts) || !finite_positive(sampling_time)) {
+        return detail::refused<Result>(design::DesignStatus::invalid_sample_time);
+    }
+    constexpr size_t N = NX + NU + NW;
+    Matrix<N, N, T>  M = Matrix<N, N, T>::identity();
+    M.template block<NX, NX>(0, 0) = sys.A;
+    M.template block<NX, NU>(0, NX) = sys.B;
+    M.template block<NX, NW>(0, NX + NU) = sys.G;
+
+    //! An integer ratio is a power of M; anything else needs log(M).
+    const T    ratio = sampling_time / sys.Ts;
+    const T    whole = damp::floor(ratio + static_cast<T>(0.5));
+    const T    tol = T{16} * eps<T>() * damp::max(T{1}, ratio);
+    const bool integer = whole >= T{1} && whole < static_cast<T>(1 << 20) && damp::abs(ratio - whole) <= tol;
+    const auto E = integer ? mat::pow(M, static_cast<int>(whole)) : mat::pow(M, ratio);
+    if (!E) {
+        return detail::refused<Result>(design::DesignStatus::not_converged);
+    }
+    for (size_t i = 0; i < NX; ++i) {
+        for (size_t j = 0; j < N; ++j) {
+            if (!damp::isfinite((*E)(i, j))) {
+                return detail::refused<Result>(design::DesignStatus::not_converged); // the logarithm did not converge to a real parent
+            }
+        }
+    }
+    return detail::discretized(StateSpace<NX, NU, NY, T, NW, NV>{
+        .A = detail::leading_rows_block<NX, NX>(*E, 0),
+        .B = detail::leading_rows_block<NX, NU>(*E, NX),
+        .C = sys.C,
+        .D = sys.D,
+        .G = detail::leading_rows_block<NX, NW>(*E, NX + NU),
+        .H = sys.H,
+        .Ts = sampling_time,
+    });
+}
+
+/**
+ * @brief Upsample a discrete model by an integer factor: sys(z) → sys(zᴸ) at Ts / L
+ *
+ * The result runs @p L times faster and holds the original response between its samples by
+ * substituting @f$ z^L @f$ for @f$ z @f$: its impulse response is the original one with
+ * L − 1 zeros between samples. The realization chains L copies of the state,
+ * @f$ \xi_1^+ = A \xi_L + B u @f$, @f$ \xi_{i+1}^+ = \xi_i @f$, @f$ y = C \xi_L + D u @f$,
+ * so the order is L·NX; G enters with B, on the first copy only. Exact, with no matrix function
+ * and no failure mode. @p sys must be discrete: a continuous model (Ts = 0) gives a result that
+ * models nothing.
+ *
+ * @note Compare with MATLAB®'s upsample(sys, L); matlab::upsample is the alias.
+ *
+ * @tparam L  Upsampling factor (≥ 1)
+ * @param sys Discrete model (Ts > 0)
+ * @return Model of order L·NX at sample time sys.Ts / L
+ */
+template<size_t L, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
+    requires(L >= 1)
+[[nodiscard]] constexpr StateSpace<NX * L, NU, NY, T, NW, NV> upsample(const StateSpace<NX, NU, NY, T, NW, NV>& sys) {
+    StateSpace<NX * L, NU, NY, T, NW, NV> out{};
+    out.G = Matrix<NX * L, NW, T>{}; // not the square default identity: no noise on the chained copies
+    out.A.template block<NX, NX>(0, NX * (L - 1)) = sys.A;
+    for (size_t i = 1; i < L; ++i) {
+        for (size_t k = 0; k < NX; ++k) {
+            out.A((i * NX) + k, ((i - 1) * NX) + k) = T{1};
+        }
+    }
+    out.B.template block<NX, NU>(0, 0) = sys.B;
+    out.G.template block<NX, NW>(0, 0) = sys.G;
+    out.C.template block<NY, NX>(0, NX * (L - 1)) = sys.C;
+    out.D = sys.D;
+    out.H = sys.H;
+    out.Ts = sys.Ts / static_cast<T>(L);
+    return out;
 }
 
 // ---- Input delay ------------------------------------------------------------
 
+/**
+ * @brief Fractional-delay all-pass filter of order N (Thiran): z⁻ᴰ for a real D = delay / Ts
+ *
+ * The all-pass
+ * @f[
+ *   H(z) = \frac{a_N + a_{N-1} z^{-1} + \dots + z^{-N}}{1 + a_1 z^{-1} + \dots + a_N z^{-N}},\qquad
+ *   a_k = (-1)^k \binom{N}{k} \prod_{n=0}^{N} \frac{D - N + n}{D - N + k + n}
+ * @f]
+ * has unit gain at every frequency and a group delay that is maximally flat at DC, where it
+ * equals D exactly. It is stable for D > N − 1; the usual choice is N = ⌈D⌉, so the filter
+ * spends its N samples on the delay itself. A whole D = N gives the pure delay z⁻ᴺ.
+ *
+ * The result is a transfer function in z, highest power first as TransferFunction stores it
+ * (den = {1, a_1, …, a_N}, MATLAB® thiran's den); realize it with to_state_space and set Ts for a
+ * model.
+ *
+ * @note Compare with MATLAB®'s thiran(tau, Ts), which picks N = ⌈tau/Ts⌉; matlab::thiran is
+ *       the alias, with N a template argument.
+ * @see "Recursive digital filters with maximally flat group delay" (Thiran, 1971),
+ *      IEEE Trans. Circuit Theory 18(6), https://doi.org/10.1109/TCT.1971.1083363
+ * @see "Splitting the Unit Delay" (Laakso, Välimäki, Karjalainen & Laine, 1996),
+ *      IEEE Signal Processing Magazine 13(1) (all-pass fractional delay)
+ *
+ * @tparam N              Filter order (≥ 1)
+ * @param delay           Delay to approximate [s], ≥ 0
+ * @param sampling_time   Sample time [s], finite and positive
+ * @return The all-pass H(z), or @c nullopt if D = delay / Ts is not finite or D ≤ N − 1
+ *         (an unstable filter)
+ */
+template<size_t N, typename T>
+    requires(N >= 1)
+[[nodiscard]] constexpr damp::optional<TransferFunction<N + 1, N + 1, T>> fractional_delay(T delay, std::type_identity_t<T> sampling_time) {
+    if (!finite_positive(sampling_time) || !damp::isfinite(delay)) {
+        return damp::nullopt;
+    }
+    const T D = delay / sampling_time;
+    const T order = static_cast<T>(N);
+    if (!damp::isfinite(D) || !(D > order - T{1})) {
+        return damp::nullopt; // D ≤ N − 1: a pole on or outside the unit circle
+    }
+    damp::array<T, N + 1> a{};
+    a[0] = T{1};       // the product is 1 at k = 0 (0/0 term-wise when D is whole)
+    T binomial = T{1}; // C(N, k), built up term by term
+    for (size_t k = 1; k <= N; ++k) {
+        binomial = binomial * static_cast<T>(N - k + 1) / static_cast<T>(k);
+        T product = T{1};
+        for (size_t n = 0; n <= N; ++n) {
+            product *= (D - order + static_cast<T>(n)) / (D - order + static_cast<T>(k + n)); // denominator ≥ D − N + 1 > 0 for k ≥ 1
+        }
+        a[k] = ((k % 2 == 0) ? binomial : -binomial) * product;
+    }
+    TransferFunction<N + 1, N + 1, T> H{};
+    for (size_t k = 0; k <= N; ++k) {
+        H.num[k] = a[N - k]; // z^N · (a_N + … + z⁻ᴺ): coefficient of z^(N−k) is a_(N−k)
+        H.den[k] = a[k];     // z^N · (1 + a_1 z⁻¹ + … + a_N z⁻ᴺ): coefficient of z^(N−k) is a_k
+    }
+    return H;
+}
+
+/**
+ * @brief An input delay of θ = @ref seconds, at most one sample (0 ≤ θ ≤ Ts): one register state
+ *        v(k−1) in the model holds the input of the last period. `discretize(sys, Ts, InputDelay{theta})`
+ *        returns that model; design on it like any other.
+ *
+ * A longer delay does not fit: sample slower, so the delay is within one period, or, for the
+ * dead time of a single loop, use SmithPredictor.
+ */
+template<typename T = double>
+struct InputDelay {
+    T seconds{T{0}}; ///< [s] delay between a command and the plant receiving it, 0 ≤ θ ≤ Ts
+};
+
 namespace detail {
 
 /**
- * @brief Assemble a delay-line model: the plant state followed by D blocks of past inputs.
- *
- * State [x; u(k−1); …; u(k−D)]. @p Gamma0 multiplies u(k−lag0) and @p Gamma1 multiplies
- * u(k−lag0−1) (lag 0 is the current input, through B). The output feedthrough Dy reads the
- * input applied at the sample instant, u(k−lag_y).
+ * @brief The switch instant τ of the held input under a delay of @p seconds: θ itself, snapped to
+ *        0 or Ts within 16·eps·Ts.
+ * @return τ ∈ [0, Ts], or nullopt if the delay is negative, not finite or longer than one
+ *         sample, or Ts is not finite and positive.
  */
-template<size_t D, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
-[[nodiscard]] constexpr StateSpace<NX + (NU * D), NU, NY, T, NW, NV> delay_line(
+template<typename T>
+[[nodiscard]] constexpr damp::optional<T> register_delay(T seconds, T sampling_time) {
+    if (!damp::isfinite(seconds) || !(seconds >= T{0}) || !damp::finite_positive(sampling_time)) {
+        return damp::nullopt;
+    }
+    const T tol = T{16} * eps<T>() * sampling_time;
+    if (seconds > sampling_time + tol) {
+        return damp::nullopt;
+    }
+    if (seconds < tol) {
+        return T{0};
+    }
+    return (seconds > sampling_time - tol) ? sampling_time : seconds;
+}
+
+/**
+ * @brief The plant state followed by one register holding the input of the last period.
+ *
+ * State [x; v(k−1)], input v(k): x(k+1) = Φx + Γ₀v(k) + Γ₁v(k−1), the register loads v(k). The
+ * output feedthrough @p Dy reads the input held at the sample instant: v(k−1) when
+ * @p held_late (the switch falls inside the period), v(k) otherwise. The register is a
+ * command already sent: no process noise.
+ */
+template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
+[[nodiscard]] constexpr StateSpace<NX + NU, NU, NY, T, NW, NV> input_register(
     const StateSpace<NX, NU, NY, T, NW, NV>& base, // A, C, G, H, Ts of the plant
     const Matrix<NX, NU, T>&                 Gamma0,
-    size_t                                   lag0,
     const Matrix<NX, NU, T>&                 Gamma1,
     const Matrix<NY, NU, T>&                 Dy,
-    size_t                                   lag_y
+    bool                                     held_late
 ) {
-    constexpr size_t                  NA = NX + (NU * D);
-    StateSpace<NA, NU, NY, T, NW, NV> out{};
-    const auto                        place_gamma = [&](const Matrix<NX, NU, T>& g, size_t lag) {
-        if (lag == 0) {
-            out.B.template block<NX, NU>(0, 0) = g;
-        } else if (lag <= D) {
-            out.A.template block<NX, NU>(0, NX + (NU * (lag - 1))) = g;
-        }
-    };
+    StateSpace<NX + NU, NU, NY, T, NW, NV> out{};
+    out.G = Matrix<NX + NU, NW, T>{}; // not the square default identity: no noise on the register
     out.A.template block<NX, NX>(0, 0) = base.A;
-    place_gamma(Gamma0, lag0);
-    place_gamma(Gamma1, lag0 + 1);
-    if constexpr (D > 0) {
-        out.B.template block<NU, NU>(NX, 0) = Matrix<NU, NU, T>::identity(); // u(k) enters the line
-        for (size_t j = 1; j < D; ++j) {                                     // and shifts along it
-            out.A.template block<NU, NU>(NX + (NU * j), NX + (NU * (j - 1))) = Matrix<NU, NU, T>::identity();
-        }
-    }
+    out.A.template block<NX, NU>(0, NX) = Gamma1;
+    out.B.template block<NX, NU>(0, 0) = Gamma0;
+    out.B.template block<NU, NU>(NX, 0) = Matrix<NU, NU, T>::identity();
     out.C.template block<NY, NX>(0, 0) = base.C;
-    if (lag_y == 0) {
-        out.D = Dy;
+    if (held_late) {
+        out.C.template block<NY, NU>(0, NX) = Dy;
     } else {
-        out.C.template block<NY, NU>(0, NX + (NU * (lag_y - 1))) = Dy;
+        out.D = Dy;
     }
-    out.G.template block<NX, NW>(0, 0) = base.G; // the past inputs are known: no process noise
+    out.G.template block<NX, NW>(0, 0) = base.G;
     out.H = base.H;
     out.Ts = base.Ts;
     return out;
@@ -306,394 +613,85 @@ template<size_t D, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_
 } // namespace detail
 
 /**
- * @brief Number of past-input blocks a delay needs: ⌈delay / Ts⌉ (0 for no delay).
+ * @brief Discretize with an input delay of at most one sample: NX + NU states, whatever the delay.
  *
- * Sizes an InputDelay at compile time: `InputDelay<input_delay_steps(kDelay, kTs)>{kDelay}`.
- */
-template<typename T>
-[[nodiscard]] constexpr size_t input_delay_steps(T delay, T sampling_time) {
-    if (!(delay > T{0}) || !(sampling_time > T{0})) {
-        return 0;
-    }
-    const T      ratio = delay / sampling_time;
-    const T      tol = T{16} * eps<T>() * damp::max(T{1}, ratio);
-    const size_t whole = static_cast<size_t>(ratio + tol); // floor, tolerant of a delay that is a whole number of samples
-    return (ratio - static_cast<T>(whole) > tol) ? whole + 1 : whole;
-}
-
-/// An input delay split for the predictor form (InputDelayPredictor): @ref whole samples for
-/// the predictor, and the remainder @ref fraction [s] (0 ≤ fraction < Ts) for the design model.
-template<typename T>
-struct InputDelaySplit {
-    size_t whole{0};       ///< whole samples: InputDelayPredictor's D
-    T      fraction{T{0}}; ///< [s] the rest: discretize(sys, Ts, InputDelay<1>{fraction}) when nonzero, discretize(sys, Ts) when zero
-};
-
-/**
- * @brief Split an input delay into whole samples and a remainder below one sample.
- *
- * The predictor form keeps the whole part out of the model (InputDelayPredictor) and gives
- * the design only the remainder, as one register state: `discretize(sys, Ts, InputDelay<1>{s.fraction})`.
- * A delay that is a whole number of samples (to 16·eps) has fraction 0 and needs no register.
- */
-template<typename T>
-[[nodiscard]] constexpr InputDelaySplit<T> split_input_delay(T delay, T sampling_time) {
-    InputDelaySplit<T> out{};
-    if (!(delay > T{0}) || !(sampling_time > T{0})) {
-        return out;
-    }
-    const T ratio = delay / sampling_time;
-    const T tol = T{16} * eps<T>() * damp::max(T{1}, ratio);
-    out.whole = static_cast<size_t>(ratio + tol);
-    out.fraction = (ratio - static_cast<T>(out.whole) > tol) ? (delay - (static_cast<T>(out.whole) * sampling_time)) : T{0};
-    return out;
-}
-
-namespace detail {
-
-/// Whole periods of an input delay given in periods, as the design calls take it (2.5 → 2).
-[[nodiscard]] constexpr size_t whole_periods(double periods) {
-    return split_input_delay(periods, 1.0).whole;
-}
-
-/// Whether an input delay given in periods has a fraction of a period left over (2.5: yes, 3.0: no).
-[[nodiscard]] constexpr bool has_fractional_period(double periods) {
-    return split_input_delay(periods, 1.0).fraction > 0.0;
-}
-
-/// Always false: a design call given its delay as an integer (a static_assert names the fix).
-template<auto>
-inline constexpr bool integer_delay = false;
-
-} // namespace detail
-
-/**
- * @brief An input delay for discretize. @p D past-input blocks become states, so D is part of
- *        the type. `InputDelay<2>{}` is exactly two samples; give @ref seconds only for a
- *        fractional delay, with D = input_delay_steps(seconds, Ts).
- */
-template<size_t D, typename T = double>
-struct InputDelay {
-    T seconds{T{0}}; ///< [s] delay between a command and the plant receiving it; 0: exactly D samples
-};
-
-/**
- * @brief Discretize with an input delay, exactly; the past inputs become states.
- *
- * The returned model carries @f$ x_a = [x;\ u_{k-1};\ \dots;\ u_{k-D}] @f$, so any controller
- * or estimator designed on it plans around the delay. Those states are commands already
- * sent: they are known, and get no process noise (G is zero on them).
- *
- * G is not delayed: put a physical disturbance (a load force, friction) in G of the
- * continuous plant and the discrete G is its exact ZOH entry on the plant states, ready to be
- * an OffsetFreeModel's Bd; padding B with it would delay it with the command.
- *
- * The plant states come first, and every design and runtime reads a weight, covariance or
- * state reference sized to the plant as that leading block: the delay states get no cost and
- * no process noise, and their reference is filled in (the past u*, the outputs the reference
- * produced). A state-feedback law still needs the whole state: the plant's plus the commands
- * already sent.
- *
- * The model grows by D·NU states. The predictor form, discretize with PredictedInputDelay plus
- * OFLQG / OffsetFreeMPC with their delay parameter, is the same law at NX + NU states for any
- * delay and is the default; this register form stays for OFLQG trajectory tracking and for
- * models that other designs consume as plain state space.
- *
- * Write the delay as @f$ d\,T_s + \tau @f$, @f$ 0 \le \tau < T_s @f$. A whole delay (τ = 0)
- * is a shift of the discretized input and works with any @p method, and on a model that is
- * already discrete (same Ts). A fractional one needs ZOH: within each sample the plant holds
- * u(k−d−1) until τ, then u(k−d), so
+ * The model carries the delay τ (0 ≤ τ ≤ Ts) as one register state: within each period the
+ * plant holds v(k−1) until τ, then v(k), so
  * @f[
- *   x_{k+1} = \Phi x_k + \Gamma_0 u_{k-d} + \Gamma_1 u_{k-d-1},\qquad
+ *   x_{k+1} = \Phi x_k + \Gamma_0 v_k + \Gamma_1 v_{k-1},\qquad
  *   \Gamma_0 = \int_0^{T_s-\tau} e^{A\eta}\,d\eta\,B,\quad
  *   \Gamma_1 = e^{A(T_s-\tau)} \int_0^{\tau} e^{A\eta}\,d\eta\,B,
  * @f]
- * exact for a held input; no Padé approximation.
+ * exact for a held input (no Padé approximation): @f$ \Gamma_1 = 0 @f$ with no delay, and
+ * @f$ \Gamma_0 = 0 @f$, @f$ \Gamma_1 = \Gamma @f$ for a delay of one whole sample. A fraction
+ * of a sample needs ZOH and a continuous plant; 0 and Ts work with any @p method and on a model
+ * that is already discrete (same Ts).
+ *
+ * G is not delayed: a physical disturbance in G of the continuous plant (a load force,
+ * friction) gets its exact ZOH entry on the plant states, the B_d that design::PlantDisturbance
+ * takes from it.
  *
  * @code
- * auto a = discretize(plant, 1e-3, InputDelay<2>{});       // exactly two samples
- * auto b = discretize(plant, 1e-3, InputDelay<2>{1.4e-3}); // 1.4 ms CAN round trip at 1 kHz
+ * constexpr auto model = discretize(plant, 2.0, InputDelay{1.4}); // NX + NU states
  * @endcode
+ * The model has the same type for any delay up to one sample; design on it like any plant:
+ * `design::mpc<NP, NC>(model, weights, constraints)`.
  *
  * @note Compare with MATLAB®'s c2d on a model with InputDelay, then absorbDelay.
  * @see "Digital Control of Dynamic Systems" (Franklin, Powell, Workman, 1998), §4.3.3
  *
- * @return The augmented discrete model, or nullopt if D does not match the delay, the
- *         delay is negative, a fractional delay is asked of a non-ZOH method or of a
- *         discrete model, or a discrete model's Ts differs.
+ * Statuses: DesignStatus::invalid_sample_time if Ts is not finite and positive, a discrete
+ * model's Ts differs, or a fraction of a sample is asked of a discrete model;
+ * DesignStatus::invalid_parameter if the delay is negative, not finite or longer than one
+ * sample, or a fraction of a sample is asked of a non-ZOH method; otherwise the status of the
+ * plain discretize step (run at Ts for a fraction of a sample too).
+ *
+ * @return The model and status; reads like an optional (`*r`, `r->A`, `if (r)`)
  */
-template<size_t D, size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, size_t NV = 0>
-[[nodiscard]] constexpr damp::optional<StateSpace<NX + (NU * D), NU, NY, T, NW, NV>> discretize(
+template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, size_t NV = 0>
+[[nodiscard]] constexpr DiscretizationResult<NX + NU, NU, NY, T, NW, NV> discretize(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     T                                        sampling_time,
-    InputDelay<D, T>                         delay,
+    InputDelay<T>                            delay,
     DiscretizationMethod                     method = DiscretizationMethod::ZOH
 ) {
-    const T Ts = sampling_time;
-    if (delay.seconds == T{0}) {
-        delay.seconds = static_cast<T>(D) * Ts; // unspecified: exactly D samples
+    using Result = DiscretizationResult<NX + NU, NU, NY, T, NW, NV>;
+    using design::DesignStatus;
+    if (!damp::finite_positive(sampling_time)) {
+        return detail::refused<Result>(DesignStatus::invalid_sample_time);
     }
-    if (!(Ts > T{0}) || !(delay.seconds >= T{0}) || input_delay_steps(delay.seconds, Ts) != D) { // NaN refused too
-        return damp::nullopt;
+    const auto tau_opt = detail::register_delay(delay.seconds, sampling_time);
+    if (!tau_opt) {
+        return detail::refused<Result>(DesignStatus::invalid_parameter);
     }
-    const T    ratio = delay.seconds / Ts;
-    const T    tol = T{16} * eps<T>() * damp::max(T{1}, ratio);
-    const auto d = static_cast<size_t>(ratio + tol);
-    const T    tau = (ratio - static_cast<T>(d) > tol) ? (delay.seconds - (static_cast<T>(d) * Ts)) : T{0};
-
-    if (sys.Ts > T{0} || tau == T{0}) { // whole samples: shift the discretized input
-        if (sys.Ts > T{0} && (tau != T{0} || damp::abs(sys.Ts - Ts) > tol * Ts)) {
-            return damp::nullopt;
-        }
-        const auto base = discretize(sys, Ts, method);
+    const T tau = *tau_opt;
+    if (tau == T{0} || tau == sampling_time) { // a whole sample or none: Γ₁ = 0, or Γ₀ = 0 and Γ₁ = Γ
+        const auto base = discretize(sys, sampling_time, method);
         if (!base) {
-            return damp::nullopt;
+            return detail::refused<Result>(base.status);
         }
-        return detail::delay_line<D>(*base, base->B, d, Matrix<NX, NU, T>{}, base->D, d);
+        if (tau == T{0}) {
+            return detail::discretized(detail::input_register(*base, base->B, Matrix<NX, NU, T>{}, base->D, false));
+        }
+        return detail::discretized(detail::input_register(*base, Matrix<NX, NU, T>{}, base->B, base->D, true));
+    }
+    if (sys.Ts != T{0}) {
+        return detail::refused<Result>(DesignStatus::invalid_sample_time); // a fraction of a sample needs the continuous plant
     }
     if (method != DiscretizationMethod::ZOH) {
-        return damp::nullopt;
+        return detail::refused<Result>(DesignStatus::invalid_parameter); // a fraction of a sample needs ZOH
     }
-    const auto              full = detail::discretize_zoh_impl(sys, Ts);
-    const auto              head = detail::discretize_zoh_impl(sys, tau);      // ∫₀^τ e^{Aη}dη B
-    const auto              tail = detail::discretize_zoh_impl(sys, Ts - tau); // e^{A(Ts−τ)}, ∫₀^{Ts−τ} e^{Aη}dη B
-    const Matrix<NX, NU, T> gamma1 = tail.A * head.B;
-    return detail::delay_line<D>(full, tail.B, d, gamma1, sys.D, d + 1);
-}
-
-/**
- * @brief An input delay for discretize in the predictor form (the default for a delay of any
- *        length): the D whole samples stay out of the model and in the runtime's
- *        InputDelayPredictor; the model keeps one register state for the remainder below a
- *        sample. `PredictedInputDelay<2>{}` is exactly two samples; give @ref seconds for a
- *        fractional delay, with D = split_input_delay(seconds, Ts).whole. The design calls take
- *        the delay in periods instead and build this themselves (design::mpc<NP, NC, θ / Ts>).
- */
-template<size_t D, typename T = double>
-struct PredictedInputDelay {
-    T seconds{T{0}}; ///< [s] delay between a command and the plant receiving it; 0: exactly D samples
-};
-
-/**
- * @brief Discretize for the predictor form: NX + NU states, whatever the delay.
- *
- * Write the delay as @f$ d\,T_s + \tau @f$, @f$ 0 \le \tau < T_s @f$. The d whole samples
- * are handled at run time by InputDelayPredictor (OFLQG and OffsetFreeMPC with D = d), which
- * applies the delay-free law to the state the command will meet. The model carries only the
- * remainder, as one register state:
- * @f[
- *   x_{k+1} = \Phi x_k + \Gamma_0 v_k + \Gamma_1 v_{k-1},
- * @f]
- * with @f$ v @f$ the command stream delayed by the d whole samples and @f$ \Gamma_1 = 0 @f$
- * when the delay is a whole number of samples. The same law as discretize with
- * InputDelay<D> (tests/test_delay_predictor.cpp), at NX + NU states instead of NX + D·NU.
- *
- * @code
- * constexpr PredictedInputDelay<2> delay{5.0};                  // 2 whole periods + 1 s at Ts = 2 s
- * constexpr auto model = discretize(plant, 2.0, delay);         // NX + NU states
- * @endcode
- * The design calls take the continuous plant and the delay directly and do this themselves:
- * `design::mpc<NP, NC, kDeadTime / kTs>(plant, Ts, ...)`.
- *
- * @return The model, or nullopt if Ts ≤ 0, the delay is negative or NaN, D is not its whole
- *         samples, a fractional remainder is asked of a non-ZOH method or of a discrete model,
- *         or a discrete model's Ts differs.
- */
-template<size_t D, size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, size_t NV = 0>
-[[nodiscard]] constexpr damp::optional<StateSpace<NX + NU, NU, NY, T, NW, NV>> discretize(
-    const StateSpace<NX, NU, NY, T, NW, NV>& sys,
-    T                                        sampling_time,
-    PredictedInputDelay<D, T>                delay,
-    DiscretizationMethod                     method = DiscretizationMethod::ZOH
-) {
-    if (delay.seconds == T{0}) {
-        delay.seconds = static_cast<T>(D) * sampling_time; // unspecified: exactly D samples
+    const auto full = discretize(sys, sampling_time, DiscretizationMethod::ZOH); // checks A, B, G and the result
+    if (!full) {
+        return detail::refused<Result>(full.status);
     }
-    if (!(sampling_time > T{0}) || !(delay.seconds >= T{0})) {
-        return damp::nullopt;
+    const auto head = detail::discretize_zoh_impl(sys, tau);                 // ∫₀^τ e^{Aη}dη B
+    const auto tail = detail::discretize_zoh_impl(sys, sampling_time - tau); // e^{A(Ts−τ)}, ∫₀^{Ts−τ} e^{Aη}dη B
+    if (!head || !tail) {
+        return detail::refused<Result>(DesignStatus::not_converged); // the exponential overflowed
     }
-    const auto split = split_input_delay(delay.seconds, sampling_time);
-    if (split.whole != D) {
-        return damp::nullopt;
-    }
-    if (split.fraction > T{0}) {
-        return discretize(sys, sampling_time, InputDelay<1, T>{split.fraction}, method);
-    }
-    const auto base = discretize(sys, sampling_time, method);
-    if (!base) {
-        return damp::nullopt;
-    }
-    return detail::delay_line<1>(*base, base->B, 0, Matrix<NX, NU, T>{}, base->D, 0); // the tap carries nothing: Γ₁ = 0
-}
-
-// ---- Output delay -----------------------------------------------------------
-
-/**
- * @brief A sensor latency for discretize: the measurement read at sample k is the plant
- *        output of sample k − D. Whole samples; D is part of the type.
- *
- * By default every output is late. When only some sensors are (an encoder read over a field
- * bus next to a local scale), list them: `OutputDelay<2, 2>{{2, 3}}` delays outputs 2 and 3
- * and leaves the others current. Only the late outputs get register states.
- *
- * @tparam D  Delay in samples.
- * @tparam NS Number of late outputs listed in @ref rows; 0 (the default): every output.
- */
-template<size_t D, size_t NS = 0>
-struct OutputDelay {
-    damp::array<size_t, NS> rows{}; ///< indices of the late outputs into y, each listed once
-};
-
-namespace detail {
-
-/// Number of late outputs: the listed ones, or all NY when none are listed.
-template<size_t NS, size_t NY>
-inline constexpr size_t late_outputs = (NS == 0) ? NY : NS;
-
-/// The late output indices: the listed ones, checked (in range, each once), or 0 … NY−1.
-template<size_t NY, size_t D, size_t NS>
-[[nodiscard]] constexpr damp::optional<damp::array<size_t, late_outputs<NS, NY>>> late_rows(const OutputDelay<D, NS>& delay) {
-    static_cast<void>(delay); // only read when outputs are listed
-    damp::array<size_t, late_outputs<NS, NY>> rows{};
-    for (size_t i = 0; i < late_outputs<NS, NY>; ++i) {
-        if constexpr (NS == 0) {
-            rows[i] = i;
-        } else {
-            rows[i] = delay.rows[i];
-        }
-        if (rows[i] >= NY) {
-            return damp::nullopt;
-        }
-        for (size_t j = 0; j < i; ++j) {
-            if (rows[j] == rows[i]) {
-                return damp::nullopt;
-            }
-        }
-    }
-    return rows;
-}
-
-/**
- * @brief Append a D-deep shift register of the late outputs to a discrete model.
- *
- * State [x; y_L(k−1); …; y_L(k−D)] with y_L the NL late outputs of y = Cx + Du; each late
- * output now reads its register tail, the others read the plant as before. The register is
- * deterministic (no process noise); measurement noise stays on the reading.
- */
-template<size_t D, size_t NL, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
-[[nodiscard]] constexpr StateSpace<NX + (NL * D), NU, NY, T, NW, NV> output_delay_line(
-    const StateSpace<NX, NU, NY, T, NW, NV>& base,
-    const damp::array<size_t, NL>&           rows
-) {
-    if constexpr (D == 0 || NL == 0) {
-        return base;
-    } else {
-        StateSpace<NX + (NL * D), NU, NY, T, NW, NV> out{};
-        out.A.template block<NX, NX>(0, 0) = base.A;
-        out.B.template block<NX, NU>(0, 0) = base.B;
-        out.C.template block<NY, NX>(0, 0) = base.C; // current outputs read the plant
-        out.D = base.D;
-        constexpr size_t tail = NX + (NL * (D - 1));
-        for (size_t i = 0; i < NL; ++i) {
-            const size_t r = rows[i];
-            for (size_t j = 0; j < NX; ++j) { // y_r(k) = C_r x + D_r u enters the register
-                out.A(NX + i, j) = base.C(r, j);
-                out.C(r, j) = T{0};
-            }
-            for (size_t j = 0; j < NU; ++j) {
-                out.B(NX + i, j) = base.D(r, j);
-                out.D(r, j) = T{0};
-            }
-            out.C(r, tail + i) = T{1}; // and is read D samples later
-        }
-        for (size_t j = 1; j < D; ++j) { // shifts along it
-            out.A.template block<NL, NL>(NX + (NL * j), NX + (NL * (j - 1))) = Matrix<NL, NL, T>::identity();
-        }
-        out.G.template block<NX, NW>(0, 0) = base.G;
-        out.H = base.H;
-        out.Ts = base.Ts;
-        return out;
-    }
-}
-
-} // namespace detail
-
-/**
- * @brief Discretize with a sensor latency, exactly; the past outputs become states.
- *
- * The returned model carries @f$ x_a = [x;\ y_{L,k-1};\ \dots;\ y_{L,k-D}] @f$, where
- * @f$ y_L @f$ are the late outputs (all of them by default), and measures them D samples
- * late while the other outputs stay current:
- * @f[
- *   x_{k+1} = A x_k + B u_k,\qquad
- *   y_{L,k-j+1} \leftarrow y_{L,k-j},\qquad
- *   y_{L,k} = C_L x_k + D_L u_k \text{ enters the register.}
- * @f]
- * An estimator designed on it reconstructs the current state from stale readings, and a
- * controller plans on that estimate. The register is deterministic (no process noise);
- * measurement noise stays on the reading. Works with any @p method and on a model that is
- * already discrete (same Ts). Every design family reads the result the same way: weights,
- * covariances and state references sized to the plant are its leading block.
- *
- * @code
- * auto a = discretize(plant, 1e-3, OutputDelay<1>{});                        // every sensor one sample late
- * auto b = discretize(plant, 1e-3, OutputDelay<2, 2>{{2, 3}});               // outputs 2 and 3 over a field bus
- * auto c = discretize(plant, 1e-3, InputDelay<2>{1.4e-3}, OutputDelay<1>{}); // and a CAN command link
- * @endcode
- *
- * @note Compare with MATLAB®'s c2d on a model with OutputDelay, then absorbDelay.
- * @see "Digital Control of Dynamic Systems" (Franklin, Powell, Workman, 1998), §4.3.3
- *
- * @return The augmented discrete model, or nullopt if Ts ≤ 0, @p method fails, a discrete
- *         model's Ts differs, or a listed output is out of range or listed twice.
- */
-template<size_t D, size_t NS, size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, size_t NV = 0>
-[[nodiscard]] constexpr damp::optional<StateSpace<NX + (detail::late_outputs<NS, NY> * D), NU, NY, T, NW, NV>> discretize(
-    const StateSpace<NX, NU, NY, T, NW, NV>& sys,
-    T                                        sampling_time,
-    const OutputDelay<D, NS>&                delay,
-    DiscretizationMethod                     method = DiscretizationMethod::ZOH
-) {
-    const T    Ts = sampling_time;
-    const auto rows = detail::late_rows<NY>(delay);
-    if (!rows || !(Ts > T{0}) || (sys.Ts > T{0} && damp::abs(sys.Ts - Ts) > T{16} * eps<T>() * Ts)) {
-        return damp::nullopt;
-    }
-    const auto base = discretize(sys, Ts, method);
-    if (!base) {
-        return damp::nullopt;
-    }
-    return detail::output_delay_line<D>(*base, *rows);
-}
-
-/**
- * @brief Discretize with both an input delay and a sensor latency, exactly.
- *
- * State @f$ [x;\ u_{k-1};\ \dots;\ u_{k-D_i};\ y_{L,k-1};\ \dots;\ y_{L,k-D_o}] @f$: the
- * input delay as in discretize(sys, Ts, InputDelay), then the output register on that model
- * (all outputs, or the ones @p output_delay lists).
- *
- * @code
- * auto m = discretize(plant, 1e-3, InputDelay<2>{1.4e-3}, OutputDelay<1>{});
- * auto n = discretize(plant, 1e-3, InputDelay<2>{2e-3}, OutputDelay<2, 2>{{2, 3}}); // a CAN drive: torque out, encoder back
- * @endcode
- *
- * @return The augmented discrete model, or nullopt where either delay alone would be refused.
- */
-template<size_t DI, size_t DO, size_t NS, size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, size_t NV = 0>
-[[nodiscard]] constexpr damp::optional<StateSpace<NX + (NU * DI) + (detail::late_outputs<NS, NY> * DO), NU, NY, T, NW, NV>> discretize(
-    const StateSpace<NX, NU, NY, T, NW, NV>& sys,
-    T                                        sampling_time,
-    InputDelay<DI, T>                        input_delay,
-    const OutputDelay<DO, NS>&               output_delay,
-    DiscretizationMethod                     method = DiscretizationMethod::ZOH
-) {
-    const auto rows = detail::late_rows<NY>(output_delay);
-    const auto delayed = discretize(sys, sampling_time, input_delay, method);
-    if (!rows || !delayed) {
-        return damp::nullopt;
-    }
-    return detail::output_delay_line<DO>(*delayed, *rows);
+    const Matrix<NX, NU, T> gamma1 = tail->A * head->B;
+    return detail::discretized(detail::input_register(*full, tail->B, gamma1, sys.D, true));
 }
 
 } // namespace damp

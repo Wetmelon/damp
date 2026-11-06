@@ -4,15 +4,17 @@
 // (See accompanying file LICENSE or copy at http://www.boost.org/LICENSE_1_0.txt)
 
 #include <cstddef>
+#include <limits>
 #include <numbers>
-#include <type_traits>
 
 #include "damp/backend.hpp"
 #include "damp/controllers/lqg.hpp"
 #include "damp/controllers/lqgi.hpp"
 #include "damp/controllers/lqi.hpp"
 #include "damp/controllers/pr.hpp"
-#include "damp/design/synthesis.hpp"
+#include "damp/design/status.hpp"
+#include "damp/estimation/kalman.hpp"
+#include "damp/math/complex.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "damp/systems/state_space.hpp"
 
@@ -21,71 +23,102 @@
 
 using namespace damp;
 
-TEST_SUITE("Workflow Glue") {
-    TEST_CASE("lqg_bundle builds design analysis and runtime bundles") {
-        StateSpace<2, 1, 1, double, 2, 1> sys{
-            .A = Matrix<2, 2>{{1.0, 0.1}, {0.0, 1.0}},
-            .B = Matrix<2, 1>{{0.005}, {0.1}},
-            .C = Matrix<1, 2>{{1.0, 0.0}},
-            .D = Matrix<1, 1>::zeros(),
-            .G = Matrix<2, 2>::identity(),
-            .H = Matrix<1, 1>::identity(),
-            .Ts = 0.1
-        };
+namespace {
 
-        const Matrix<2, 2> Q_lqr = Matrix<2, 2>::identity();
-        const Matrix<1, 1> R_lqr{{0.1}};
-        const Matrix<2, 2> Q_kf{{0.01, 0.0}, {0.0, 0.01}};
-        const Matrix<1, 1> R_kf{{0.1}};
+// Unity positive feedback, v = r + w: closes a loop whose output w is the law's own input.
+template<size_t N>
+StateSpace<0, N, N> unity_positive(double Ts) {
+    StateSpace<0, N, N> s{.Ts = Ts};
+    s.D = -Matrix<N, N>::identity();
+    return s;
+}
 
-        const auto artifacts = design::lqg_bundle(sys, Q_lqr, R_lqr, {.process = Q_kf, .measurement = R_kf});
+// Every expected pole has its own closed-loop pole within tol.
+template<size_t NC, size_t NE>
+bool contains_poles(const ColVec<NC, complex<double>>& closed_loop, const ColVec<NE, complex<double>>& expected, double tol) {
+    damp::array<bool, NC> used{};
+    for (size_t i = 0; i < NE; ++i) {
+        size_t best = NC;
+        double nearest = std::numeric_limits<double>::max();
+        for (size_t j = 0; j < NC; ++j) {
+            const double d = (closed_loop[j] - expected[i]).abs();
+            if (!used[j] && d < nearest) {
+                nearest = d;
+                best = j;
+            }
+        }
+        if (best == NC || nearest > tol) {
+            return false;
+        }
+        used[best] = true;
+    }
+    return true;
+}
 
-        CHECK(artifacts.success);
-        CHECK(artifacts.design.success);
-        CHECK(artifacts.models.state_feedback_closed_loop.A(0, 0) != doctest::Approx(sys.A(0, 0)));
-        CHECK(artifacts.models.observer_error_dynamics(0, 0) != doctest::Approx(sys.A(0, 0)));
+constexpr StateSpace<2, 1, 1, double, 2, 1> make_plant(double Ts) {
+    return StateSpace<2, 1, 1, double, 2, 1>{
+        .A = Matrix<2, 2>{{1.0, Ts}, {0.0, 1.0}},
+        .B = Matrix<2, 1>{{0.5 * Ts * Ts}, {Ts}},
+        .C = Matrix<1, 2>{{1.0, 0.0}},
+        .D = Matrix<1, 1>::zeros(),
+        .G = Matrix<2, 2>::identity(),
+        .H = Matrix<1, 1>::identity(),
+        .Ts = Ts,
+    };
+}
 
-        auto                   runtime = artifacts.runtime;
-        const ColVec<1, float> y{1.0f};
-        const auto             u = runtime.step(y);
+constexpr Matrix<2, 2> kQx = Matrix<2, 2>::identity(); // on [x]
+constexpr Matrix<1, 1> kQInt{{10.0}};                  // on ∫e
+constexpr Matrix<1, 1> kR{{0.1}};
+constexpr Matrix<2, 2> kQKf{{0.01, 0.0}, {0.0, 0.01}};
+constexpr Matrix<1, 1> kRKf{{0.1}};
+
+} // namespace
+
+TEST_SUITE("Workflow: design, result, runtime") {
+    TEST_CASE("lqg: the runtime from the result ticks, and to_ss closed around the plant has the regulator and estimator poles") {
+        const auto sys = make_plant(0.1);
+        const auto res = design::lqg(sys, {.Q = Matrix<2, 2>::identity(), .R = kR}, design::KalmanNoise{.process = kQKf, .measurement = kRKf});
+        REQUIRE(res.success);
+
+        LQG runtime{res.as<float>()};
+        CHECK(runtime.step(ColVec<1, float>{1.0f})(0, 0) != doctest::Approx(0.0f));
+
+        // Separation: the loop's poles are those of A − BK and of the estimator error A(I − LC).
+        const auto loop = series(res.to_ss(), sys); // y → u → y
+        REQUIRE(loop.has_value());
+        const auto cl = feedback(*loop, unity_positive<1>(sys.Ts));
+        REQUIRE(cl.has_value());
+        const auto                 observer = mat::compute_eigenvalues(sys.A * (Matrix<2, 2>::identity() - (res.kalman.M * sys.C))).values;
+        ColVec<4, complex<double>> expected{};
+        for (size_t i = 0; i < 2; ++i) {
+            expected[i] = res.e[i];
+            expected[2 + i] = observer[i];
+        }
+        CHECK(contains_poles(mat::compute_eigenvalues(cl->A).values, expected, 1e-9));
+    }
+
+    TEST_CASE("lqg + PR: both runtimes from their results, the PR on the tracking error") {
+        const auto sys = make_plant(0.001);
+        const auto lqg = design::lqg(sys, {.Q = Matrix<2, 2>::identity(), .R = kR}, design::KalmanNoise{.process = kQKf, .measurement = kRKf});
+        const auto pr = design::pr({.Kp = 0.0, .Ki = 10.0, .w0 = 2.0 * std::numbers::pi, .wc = 5.0}, 0.001);
+        REQUIRE(lqg.success);
+        REQUIRE(pr.success);
+        CHECK(pr.as<float>().Ki == doctest::Approx(10.0f));
+
+        LQG                    regulator{lqg.as<float>()};
+        PRController<float>    internal_model{pr.as<float>()};
+        const float            r = 1.0f;
+        const ColVec<1, float> y{0.0f};
+        regulator.update(y);
+        ColVec<1, float> u = regulator.control();
+        u(0, 0) += internal_model.control(r - y(0, 0));
+        regulator.back_calculate(u);
+        regulator.predict();
         CHECK(u(0, 0) != doctest::Approx(0.0f));
     }
 
-    TEST_CASE("lqg_pr_bundle adds SISO PR internal model") {
-        StateSpace<2, 1, 1, double, 2, 1> sys{
-            .A = Matrix<2, 2>{{1.0, 0.1}, {0.0, 1.0}},
-            .B = Matrix<2, 1>{{0.005}, {0.1}},
-            .C = Matrix<1, 2>{{1.0, 0.0}},
-            .D = Matrix<1, 1>::zeros(),
-            .G = Matrix<2, 2>::identity(),
-            .H = Matrix<1, 1>::identity(),
-            .Ts = 0.001
-        };
-
-        const Matrix<2, 2> Q_lqr = Matrix<2, 2>::identity();
-        const Matrix<1, 1> R_lqr{{0.1}};
-        const Matrix<2, 2> Q_kf{{0.01, 0.0}, {0.0, 0.01}};
-        const Matrix<1, 1> R_kf{{0.1}};
-
-        const auto pr = design::pr(
-            0.0,
-            10.0,
-            2.0 * std::numbers::pi,
-            5.0,
-            0.001
-        );
-
-        const auto artifacts = design::lqg_pr_bundle(sys, Q_lqr, R_lqr, {.process = Q_kf, .measurement = R_kf}, pr);
-
-        CHECK(artifacts.success);
-        CHECK(artifacts.runtime_pr.pr_design.Ki == doctest::Approx(10.0f));
-
-        auto       runtime = artifacts.runtime_pr;
-        const auto u = runtime.step(1.0f, 0.0f);
-        CHECK(u(0, 0) != doctest::Approx(0.0f));
-    }
-
-    TEST_CASE("lqi_bundle builds servo artifacts and a ready-to-run LQI") {
+    TEST_CASE("lqi: the runtime from the result ticks") {
         StateSpace<2, 1, 1> sys{
             .A = Matrix<2, 2>{{1.0, 0.1}, {0.0, 1.0}},
             .B = Matrix<2, 1>{{0.005}, {0.1}},
@@ -93,54 +126,22 @@ TEST_SUITE("Workflow Glue") {
             .D = Matrix<1, 1>::zeros(),
             .Ts = 0.1
         };
+        const auto res = design::lqi(sys, {.Q = kQx, .R = kR, .Q_integral = kQInt});
+        REQUIRE(res.success);
 
-        Matrix<3, 3> Q_aug{};
-        Q_aug(0, 0) = 1.0;
-        Q_aug(1, 1) = 1.0;
-        Q_aug(2, 2) = 10.0;
-        const Matrix<1, 1> R{{0.1}};
-
-        const auto artifacts = design::lqi_bundle(sys, Q_aug, R);
-
-        CHECK(artifacts.success);
-        CHECK(artifacts.design.success);
-
-        auto                   runtime = artifacts.runtime;
+        auto                   runtime = LQI{res.as<float>()};
         const ColVec<2, float> x{1.0f, 0.0f};
         const ColVec<1, float> y{1.0f};
         const ColVec<1, float> r{0.0f};
-        const auto             u = runtime.control(r, y, x);
-
-        CHECK(u(0, 0) != doctest::Approx(0.0f));
+        CHECK(runtime.step(r, x)(0, 0) != doctest::Approx(0.0f));
     }
 
-    TEST_CASE("lqgi_bundle builds servo observer artifacts and a ready-to-run LQGI") {
-        StateSpace<2, 1, 1, double, 2, 1> sys{
-            .A = Matrix<2, 2>{{1.0, 0.1}, {0.0, 1.0}},
-            .B = Matrix<2, 1>{{0.005}, {0.1}},
-            .C = Matrix<1, 2>{{1.0, 0.0}},
-            .D = Matrix<1, 1>::zeros(),
-            .G = Matrix<2, 2>::identity(),
-            .H = Matrix<1, 1>::identity(),
-            .Ts = 0.1
-        };
+    TEST_CASE("lqgi: the runtime from the result ticks, and to_ss closed around the plant has the servo and estimator poles") {
+        const auto sys = make_plant(0.1);
+        const auto res = design::lqgi(sys, {.Q = kQx, .R = kR, .Q_integral = kQInt}, design::KalmanNoise{.process = kQKf, .measurement = kRKf});
+        REQUIRE(res.success);
 
-        Matrix<3, 3> Q_aug{};
-        Q_aug(0, 0) = 1.0;
-        Q_aug(1, 1) = 1.0;
-        Q_aug(2, 2) = 10.0;
-
-        const Matrix<1, 1> R{{0.1}};
-        const Matrix<2, 2> Q_kf{{0.01, 0.0}, {0.0, 0.01}};
-        const Matrix<1, 1> R_kf{{0.1}};
-
-        const auto artifacts = design::lqgi_bundle(sys, Q_aug, R, {.process = Q_kf, .measurement = R_kf});
-
-        CHECK(artifacts.success);
-        CHECK(artifacts.design.success);
-        CHECK(artifacts.models.observer_error_dynamics(0, 0) != doctest::Approx(sys.A(0, 0)));
-
-        auto                   runtime = artifacts.runtime;
+        LQGI                   runtime{res.as<float>()};
         const ColVec<1, float> y{0.0f};
         const ColVec<1, float> r{1.0f};
 
@@ -149,9 +150,30 @@ TEST_SUITE("Workflow Glue") {
         // xi picks up the error and the second tick drives the plant.
         CHECK(runtime.step(r, y)(0, 0) == doctest::Approx(0.0f));
         CHECK(runtime.step(r, y)(0, 0) != doctest::Approx(0.0f));
+
+        // The plant reports [0; y] so the law's inputs [r; y] close by unity positive feedback.
+        const StateSpace<2, 1, 2> plant_out{
+            .A = sys.A,
+            .B = sys.B,
+            .C = Matrix<2, 2>{{0.0, 0.0}, {1.0, 0.0}},
+            .Ts = sys.Ts,
+        };
+        const auto loop = series(res.to_ss(), plant_out);
+        REQUIRE(loop.has_value());
+        const auto cl = feedback(*loop, unity_positive<2>(sys.Ts));
+        REQUIRE(cl.has_value());
+        const auto                 observer = mat::compute_eigenvalues(sys.A * (Matrix<2, 2>::identity() - (res.kalman.M * sys.C))).values;
+        ColVec<5, complex<double>> expected{};
+        for (size_t i = 0; i < 3; ++i) {
+            expected[i] = res.e[i];
+        }
+        for (size_t i = 0; i < 2; ++i) {
+            expected[3 + i] = observer[i];
+        }
+        CHECK(contains_poles(mat::compute_eigenvalues(cl->A).values, expected, 1e-9));
     }
 
-    TEST_CASE("lqi_bundle drives steady-state tracking error to zero") {
+    TEST_CASE("lqi: the runtime drives the steady-state tracking error to zero") {
         StateSpace<2, 1, 1> sys{
             .A = Matrix<2, 2>{{1.0, 0.1}, {0.0, 1.0}},
             .B = Matrix<2, 1>{{0.005}, {0.1}},
@@ -159,40 +181,32 @@ TEST_SUITE("Workflow Glue") {
             .D = Matrix<1, 1>::zeros(),
             .Ts = 0.1
         };
-
-        Matrix<3, 3> Q_aug{};
-        Q_aug(0, 0) = 1.0;
-        Q_aug(1, 1) = 1.0;
-        Q_aug(2, 2) = 10.0;
-        const Matrix<1, 1> R{{0.1}};
-
-        const auto artifacts = design::lqi_bundle(sys, Q_aug, R);
-        REQUIRE(artifacts.success);
+        const auto res = design::lqi(sys, {.Q = kQx, .R = kR, .Q_integral = kQInt});
+        REQUIRE(res.success);
 
         // Closed-loop simulation against the (linear, discrete) design plant.
-        // The integral state uses a unit discrete integrator, so the runtime
-        // must accumulate xi += (r - y) with no Ts scaling; if it did not,
-        // integral action would be ~Ts-times too weak and y would never reach r.
+        // The runtime advances the integrator by xi += Ts·(r − y), the step the
+        // design's cost was taken with (IntegralDesign::step), and y reaches r.
         const auto Af = sys.A.as<float>();
         const auto Bf = sys.B.as<float>();
         const auto Cf = sys.C.as<float>();
 
-        auto             runtime = artifacts.runtime;
+        auto             runtime = LQI{res.as<float>()};
         ColVec<2, float> x{0.0f, 0.0f};
         const float      r = 1.0f;
         float            y = 0.0f;
 
         for (int k = 0; k < 5000; ++k) {
             y = (Cf * x)(0, 0);
-            const auto u = runtime.control(ColVec<1, float>{r}, ColVec<1, float>{y}, x);
+            const auto u = runtime.step(ColVec<1, float>{r}, x);
             x = Af * x + Bf * u;
         }
 
         CHECK(y == doctest::Approx(1.0f).epsilon(0.01));
     }
 
-    TEST_CASE("workflow artifacts synthesize at compile time") {
-        constexpr auto artifacts = [] {
+    TEST_CASE("lqi: design at compile time, constinit runtime") {
+        static constexpr auto res = [] {
             StateSpace<2, 1, 1> sys{
                 .A = Matrix<2, 2>{{1.0, 0.1}, {0.0, 1.0}},
                 .B = Matrix<2, 1>{{0.005}, {0.1}},
@@ -200,19 +214,15 @@ TEST_SUITE("Workflow Glue") {
                 .D = Matrix<1, 1>::zeros(),
                 .Ts = 0.1
             };
-            Matrix<3, 3> Q_aug{};
-            Q_aug(0, 0) = 1.0;
-            Q_aug(1, 1) = 1.0;
-            Q_aug(2, 2) = 10.0;
-            const Matrix<1, 1> R{{0.1}};
-            return design::lqi_bundle(sys, Q_aug, R);
+            return design::lqi(sys, {.Q = kQx, .R = kR, .Q_integral = kQInt});
         }();
+        static constinit LQI law{res.as<float>()}; // a failed design does not compile
 
-        static_assert(artifacts.success, "LQI workflow must synthesize at compile time");
-        CHECK(artifacts.success);
+        static_assert(res.success, "LQI must synthesize at compile time");
+        CHECK(law.K(0, 0) == doctest::Approx(static_cast<float>(res.K(0, 0))));
     }
 
-    TEST_CASE("lqi_bundle / lqgi_bundle integrate a subset of the outputs, same argument as discrete_lqi") {
+    TEST_CASE("lqi / lqgi integrate a subset of the outputs: the output list reaches to_ss and the runtime") {
         // Position and velocity sensors on a double integrator; integrate the position only.
         constexpr StateSpace<2, 1, 2, double, 2, 2> sys{
             .A = Matrix<2, 2>{{1.0, 0.1}, {0.0, 1.0}},
@@ -222,46 +232,34 @@ TEST_SUITE("Workflow Glue") {
             .H = Matrix<2, 2>::identity(),
             .Ts = 0.1,
         };
-        constexpr Matrix<3, 3> Q_aug{{1.0, 0.0, 0.0}, {0.0, 1.0, 0.0}, {0.0, 0.0, 10.0}};
-        constexpr Matrix<1, 1> R{{0.1}};
-        constexpr Matrix<1, 2> pick_position{{1.0, 0.0}};
 
-        constexpr auto by_index = design::lqi_bundle(sys, Q_aug, R, {0});
+        constexpr auto by_index = design::lqi(sys, {.Q = kQx, .R = kR, .Q_integral = kQInt}, design::IntegralAction<1>{{0}});
         static_assert(by_index.success);
-        static_assert(std::is_same_v<std::remove_cvref_t<decltype(by_index.runtime)>, LQI<2, 1, 2, float, 1>>);
-        const auto by_selector = design::lqi_bundle(sys, Q_aug, R, pick_position);
-        const auto direct = design::discrete_lqi(sys, Q_aug, R, {0});
-        REQUIRE(by_selector.success);
-        for (size_t j = 0; j < 3; ++j) {
-            CHECK(by_index.design.K(0, j) == doctest::Approx(direct.K(0, j)));
-            CHECK(by_selector.design.K(0, j) == doctest::Approx(direct.K(0, j)));
-        }
-        // The servo model integrates r − y₀ only: the integrator row reads −C₀ = [−1, 0].
-        const auto& servo = by_index.models.augmented_servo_closed_loop;
-        CHECK(servo.A(2, 0) == doctest::Approx(-1.0));
-        CHECK(servo.A(2, 1) == doctest::Approx(0.0));
-        CHECK(servo.A(2, 2) == doctest::Approx(1.0));
+        // The law integrates r − y₀ only: in [r; y; x], the integrator row reads [Ts, −Ts, 0, 0, 0] (xi += Ts·e).
+        const auto servo = by_index.to_ss();
+        CHECK(servo.B(0, 0) == doctest::Approx(sys.Ts));
+        CHECK(servo.B(0, 1) == doctest::Approx(-sys.Ts));
+        CHECK(servo.B(0, 2) == doctest::Approx(0.0));
 
-        // The bundled runtime takes one reference and both measurements, and holds y₀ at r.
-        auto             lqi = by_index.runtime;
+        // The runtime takes one reference and both measurements, and holds y₀ at r.
+        auto             lqi = LQI{by_index.as<float>()};
         ColVec<2, float> x{};
         for (int k = 0; k < 600; ++k) {
-            const auto u = lqi.control(ColVec<1, float>{1.0F}, x, x);
+            const auto u = lqi.step(ColVec<1, float>{1.0F}, x);
             x = sys.A.as<float>() * x + sys.B.as<float>() * u;
         }
         CHECK(x(0) == doctest::Approx(1.0F).epsilon(1e-3));
 
         // LQGI: the same argument, an estimator underneath.
-        const Matrix<2, 2> Q_kf{{0.01, 0.0}, {0.0, 0.01}};
         const Matrix<2, 2> R_kf{{0.1, 0.0}, {0.0, 0.1}};
-        const auto         lqgi_index = design::lqgi_bundle(sys, Q_aug, R, {.process = Q_kf, .measurement = R_kf}, {0});
-        const auto         lqgi_selector = design::lqgi_bundle(sys, Q_aug, R, {.process = Q_kf, .measurement = R_kf}, pick_position);
+        const auto         lqgi_index = design::lqgi(sys, {.Q = kQx, .R = kR, .Q_integral = kQInt}, design::KalmanNoise{.process = kQKf, .measurement = R_kf}, design::IntegralAction<1>{{0}});
         REQUIRE(lqgi_index.success);
-        REQUIRE(lqgi_selector.success);
-        CHECK(lqgi_index.design.lqi.K(0, 2) == doctest::Approx(direct.K(0, 2)));
-        CHECK(lqgi_selector.design.lqi.K(0, 2) == doctest::Approx(direct.K(0, 2)));
-        CHECK(lqgi_index.models.augmented_servo_closed_loop.A(2, 1) == doctest::Approx(0.0));
-        auto      lqgi = lqgi_index.runtime;
+        CHECK(lqgi_index.K(0, 2) == doctest::Approx(by_index.K(0, 2)));
+        // In [r; y], the integrator row (state NX) reads −Ts·y₀ only.
+        const auto lqgi_ss = lqgi_index.to_ss();
+        CHECK(lqgi_ss.B(2, 1) == doctest::Approx(-sys.Ts));
+        CHECK(lqgi_ss.B(2, 2) == doctest::Approx(0.0));
+        LQGI      lqgi{lqgi_index.as<float>()};
         ColVec<2> xp{};
         for (int k = 0; k < 600; ++k) {
             const auto u = lqgi.step(ColVec<1, float>{1.0F}, (sys.C * xp).as<float>());
@@ -269,8 +267,12 @@ TEST_SUITE("Workflow Glue") {
         }
         CHECK(xp(0) == doctest::Approx(1.0).epsilon(0.02));
 
-        // An index past the last output is an invalid configuration, in either bundle.
-        CHECK_FALSE(design::lqi_bundle(sys, Q_aug, R, {2}).success);
-        CHECK_FALSE(design::lqgi_bundle(sys, Q_aug, R, {.process = Q_kf, .measurement = R_kf}, {2}).success);
+        // An index past the last output is an inconsistent design input, in either design.
+        const auto lqi_bad = design::lqi(sys, {.Q = kQx, .R = kR, .Q_integral = kQInt}, design::IntegralAction<1>{{2}});
+        const auto lqgi_bad = design::lqgi(sys, {.Q = kQx, .R = kR, .Q_integral = kQInt}, design::KalmanNoise{.process = kQKf, .measurement = R_kf}, design::IntegralAction<1>{{2}});
+        CHECK_FALSE(lqi_bad.success);
+        CHECK(lqi_bad.status == design::DesignStatus::bad_weights);
+        CHECK_FALSE(lqgi_bad.success);
+        CHECK(lqgi_bad.status == design::DesignStatus::bad_weights);
     }
 }

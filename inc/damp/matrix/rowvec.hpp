@@ -12,6 +12,7 @@
 
 #include <cstddef>
 #include <initializer_list>
+#include <limits>
 #include <type_traits>
 
 #include "core.hpp"
@@ -58,10 +59,11 @@ struct RowVec : public Matrix<1, N, T> {
     // below, matching the library's "no silent float↔double" rule (use .as\<U\>()).
     constexpr RowVec(const Matrix<1, N, T>& other) : Matrix<1, N, T>(other) {}
 
-    // Same-precision 1×N view (block, row view, …) copies implicitly too.
+    // Same-precision 1×N view (block, row view, …) copies implicitly too; any
+    // other element type converts explicitly.
     template<MatrixLike V>
-        requires(V::rows() == 1 && V::cols() == N && std::is_same_v<typename V::value_type, T> && !std::is_base_of_v<Matrix<1, N, T>, V>)
-    constexpr RowVec(const V& view) : Matrix<1, N, T>(view) {}
+        requires(V::rows() == 1 && V::cols() == N && !std::is_base_of_v<Matrix<1, N, T>, V>)
+    explicit(!std::is_same_v<typename V::value_type, T>) constexpr RowVec(const V& view) : Matrix<1, N, T>(view) {}
 
     template<typename U>
     explicit constexpr RowVec(const RowVec<N, U>& other) : Matrix<1, N, T>(other) {}
@@ -70,6 +72,7 @@ struct RowVec : public Matrix<1, N, T> {
     explicit constexpr RowVec(const Matrix<1, N, U>& other) : Matrix<1, N, T>(other) {}
 
     template<typename U>
+        requires ConvertsExactly<U, T>
     constexpr RowVec& operator=(const Matrix<1, N, U>& other) {
         Matrix<1, N, T>::operator=(other);
         return *this;
@@ -125,7 +128,7 @@ struct RowVec : public Matrix<1, N, T> {
         return RowVec<3, T>{
             this->data_[1] * other.data_[2] - this->data_[2] * other.data_[1],
             this->data_[2] * other.data_[0] - this->data_[0] * other.data_[2],
-            this->data_[0] * other.data_[1] - this->data_[1] * other.data_[0]
+            this->data_[0] * other.data_[1] - this->data_[1] * other.data_[0],
         };
     }
 
@@ -134,11 +137,19 @@ struct RowVec : public Matrix<1, N, T> {
      * @return Normalized vector
      */
     [[nodiscard]] constexpr RowVec normalized() const {
-        auto n = this->norm();
-        if (n == scalar_type_t<T>{0}) {
+        using R = scalar_type_t<T>;
+        const R n = this->norm();
+        if (n == R{0}) {
             return *this;
         }
-        return *this * (T{1} / static_cast<T>(n));
+        // Under -freciprocal-math x / n is x · (1/n), and 1/n is subnormal (flushed) near max.
+        // Scale by ε (an exact power of two), then divide the copy by its own norm, whose
+        // reciprocal is normal. Dividing x·ε by n·ε instead lets the compiler cancel ε.
+        if (n > R{0.25} / std::numeric_limits<R>::min()) {
+            const RowVec y = *this * std::numeric_limits<R>::epsilon();
+            return y / static_cast<T>(y.norm());
+        }
+        return *this / static_cast<T>(n);
     }
 
     /**
@@ -152,7 +163,7 @@ struct RowVec : public Matrix<1, N, T> {
      * @return Mutable block view of shape 1 × Len
      */
     template<size_t Len>
-    [[nodiscard]] constexpr Block<1, Len, N, T> segment(size_t start) {
+    [[nodiscard]] constexpr Block<1, Len, N, T> segment(size_t start) & {
         static_assert(Len <= N, "segment length exceeds vector dimension");
         return Block<1, Len, N, T>(this->data_.data(), start);
     }
@@ -165,19 +176,27 @@ struct RowVec : public Matrix<1, N, T> {
      * @return Const block view of shape 1 × Len
      */
     template<size_t Len>
-    [[nodiscard]] constexpr Block<1, Len, N, const T> segment(size_t start) const {
+    [[nodiscard]] constexpr Block<1, Len, N, const T> segment(size_t start) const& {
         static_assert(Len <= N, "segment length exceeds vector dimension");
         return Block<1, Len, N, const T>(this->data_.data(), start);
     }
 
+    /** @brief Owning copy. An rvalue's view would dangle at the end of the full expression. */
+    template<size_t Len>
+    [[nodiscard]] constexpr RowVec<Len, T> segment(size_t start) const&& {
+        return RowVec<Len, T>{static_cast<const RowVec&>(*this).template segment<Len>(start)};
+    }
+
     // Type-preserving compound assignment (base returns Matrix&)
     template<MatrixLike M>
+        requires ConvertsExactly<typename M::value_type, T>
     constexpr RowVec& operator+=(const M& other) {
         Matrix<1, N, T>::operator+=(other);
         return *this;
     }
 
     template<MatrixLike M>
+        requires ConvertsExactly<typename M::value_type, T>
     constexpr RowVec& operator-=(const M& other) {
         Matrix<1, N, T>::operator-=(other);
         return *this;
@@ -204,68 +223,16 @@ struct RowVec : public Matrix<1, N, T> {
     }
 };
 
-// Type-preserving operators: RowVec op RowVec → RowVec
-template<size_t N, typename T>
-[[nodiscard]] constexpr RowVec<N, T> operator+(const RowVec<N, T>& a, const RowVec<N, T>& b) {
-    RowVec<N, T> result;
-    for (size_t i = 0; i < N; ++i) {
-        result[i] = a[i] + b[i];
-    }
-    return result;
-}
-
-template<size_t N, typename T>
-[[nodiscard]] constexpr RowVec<N, T> operator-(const RowVec<N, T>& a, const RowVec<N, T>& b) {
-    RowVec<N, T> result;
-    for (size_t i = 0; i < N; ++i) {
-        result[i] = a[i] - b[i];
-    }
-    return result;
-}
-
-template<size_t N, typename T>
-[[nodiscard]] constexpr RowVec<N, T> operator-(const RowVec<N, T>& a) {
-    RowVec<N, T> result;
-    for (size_t i = 0; i < N; ++i) {
-        result[i] = -a[i];
-    }
-    return result;
-}
-
-template<size_t N, typename T, typename Scalar>
-    requires(std::is_arithmetic_v<Scalar> || is_matrix_element_v<Scalar>)
-[[nodiscard]] constexpr RowVec<N, T> operator*(const RowVec<N, T>& a, Scalar s) {
-    RowVec<N, T> result;
-    for (size_t i = 0; i < N; ++i) {
-        result[i] = a[i] * static_cast<T>(s);
-    }
-    return result;
-}
-
-template<typename Scalar, size_t N, typename T>
-    requires(std::is_arithmetic_v<Scalar> || is_matrix_element_v<Scalar>)
-[[nodiscard]] constexpr RowVec<N, T> operator*(Scalar s, const RowVec<N, T>& a) {
-    return a * s;
-}
-
-template<size_t N, typename T, typename Scalar>
-    requires(std::is_arithmetic_v<Scalar> || is_matrix_element_v<Scalar>)
-[[nodiscard]] constexpr RowVec<N, T> operator/(const RowVec<N, T>& a, Scalar s) {
-    RowVec<N, T> result;
-    for (size_t i = 0; i < N; ++i) {
-        result[i] = a[i] / static_cast<T>(s);
-    }
-    return result;
-}
-
-// RowVec * Matrix returns RowVec
+// RowVec * Matrix of the same precision returns RowVec
 template<size_t N, size_t Cols, typename T, typename U>
-[[nodiscard]] constexpr RowVec<Cols, T> operator*(const RowVec<N, T>& vec, const Matrix<N, Cols, U>& mat) {
-    RowVec<Cols, T> result;
+    requires SamePrecision<T, U>
+[[nodiscard]] constexpr auto operator*(const RowVec<N, T>& vec, const Matrix<N, Cols, U>& mat) {
+    using R = detail::common_element_t<T, U>;
+    RowVec<Cols, R> result;
     for (size_t j = 0; j < Cols; ++j) {
-        T sum = 0;
+        R sum{};
         for (size_t k = 0; k < N; ++k) {
-            sum += vec[k] * static_cast<T>(mat(k, j));
+            sum += static_cast<R>(vec[k]) * static_cast<R>(mat(k, j));
         }
         result[j] = sum;
     }

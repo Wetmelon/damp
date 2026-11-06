@@ -19,6 +19,7 @@
  */
 
 #include <limits>
+#include <type_traits>
 
 #include "damp/backend.hpp"
 #include "damp/math/math.hpp"
@@ -30,7 +31,7 @@ namespace damp {
 namespace design {
 
 /**
- * @struct ThermistorCoeffs
+ * @struct ThermistorResult
  * @brief Fitted NTC coefficients in Steinhart-Hart form.
  *
  * Both the Beta model and a full Steinhart-Hart fit reduce to the same
@@ -40,16 +41,19 @@ namespace design {
  * @tparam T Scalar type (default: float)
  */
 template<typename T = float>
-struct ThermistorCoeffs {
-    T    a{};           ///< Steinhart-Hart a.
-    T    b{};           ///< Steinhart-Hart b.
-    T    c{};           ///< Steinhart-Hart c (0 for a Beta-model fit).
-    bool success{true}; ///< false when the inputs were non-physical or the fit was singular.
+struct [[nodiscard]] ThermistorResult {
+    T    a{};            ///< Steinhart-Hart a.
+    T    b{};            ///< Steinhart-Hart b.
+    T    c{};            ///< Steinhart-Hart c (0 for a Beta-model fit).
+    bool success{false}; ///< true when the inputs were finite and physical and the fit was not singular.
 
-    /// Re-cast the coefficients to a different scalar type.
+    /** @brief True when the fit succeeded. */
+    [[nodiscard]] constexpr explicit operator bool() const { return success; }
+
+    /** @brief Re-cast the coefficients to a different scalar type. */
     template<typename U>
-    [[nodiscard]] constexpr ThermistorCoeffs<U> as() const {
-        return ThermistorCoeffs<U>{static_cast<U>(a), static_cast<U>(b), static_cast<U>(c), success};
+    [[nodiscard]] constexpr ThermistorResult<U> as() const {
+        return ThermistorResult<U>{static_cast<U>(a), static_cast<U>(b), static_cast<U>(c), success};
     }
 };
 
@@ -67,24 +71,25 @@ struct ThermistorCoeffs {
  * @param r0   Reference resistance [Ω] at temperature t0.
  * @param t0_K Reference temperature [K] (e.g. 298.15 for 25 °C).
  * @param beta Material constant β [K].
- * @return ThermistorCoeffs in Steinhart-Hart form; `success` is false (and the
- *         coefficients zero) unless r0, t0_K and beta are all positive.
+ * @return ThermistorResult in Steinhart-Hart form; `success` is false (and the
+ *         coefficients zero) unless r0, t0_K and beta are all finite and positive.
  *
  * @code
  * // 10 kΩ NTC, β = 3950, 25 °C reference:
- * const auto coeffs = design::beta(10000.0f, 298.15f, 3950.0f);
+ * const auto coeffs = design::thermistor_beta(10000.0f, 298.15f, 3950.0f);
  * @endcode
  */
 template<typename T = float>
-[[nodiscard]] constexpr ThermistorCoeffs<T> beta(T r0, T t0_K, T beta) {
-    if (!(r0 > T{0}) || !(t0_K > T{0}) || !(beta > T{0})) {
-        return ThermistorCoeffs<T>{.success = false};
+[[nodiscard]] constexpr ThermistorResult<T> thermistor_beta(T r0, T t0_K, T beta) {
+    if (!(r0 > T{0}) || !(t0_K > T{0}) || !(beta > T{0}) || !damp::isfinite(r0 + t0_K + beta)) {
+        return ThermistorResult<T>{};
     }
     const T b = T{1} / beta;
-    return ThermistorCoeffs<T>{
+    return ThermistorResult<T>{
         .a = (T{1} / t0_K) - (b * damp::log(r0)),
         .b = b,
         .c = T{0},
+        .success = true,
     };
 }
 
@@ -104,13 +109,13 @@ template<typename T = float>
  *
  * solved here with the library's mat::solve. Pick the calibration points
  * spread across the operating range — e.g. low, mid, high — for the best
- * wide-range accuracy. Resistances must be distinct and positive, temperatures
- * positive; otherwise `success` is false and the coefficients are zero.
+ * wide-range accuracy. Resistances must be distinct, finite and positive, temperatures
+ * finite and positive; otherwise `success` is false and the coefficients are zero.
  *
  * @param p1 Calibration point {resistance [Ω], temperature [K]}.
  * @param p2 Calibration point {resistance [Ω], temperature [K]}.
  * @param p3 Calibration point {resistance [Ω], temperature [K]}.
- * @return Fitted ThermistorCoeffs (check `success`).
+ * @return Fitted ThermistorResult (check `success`).
  *
  * @code
  * // Three datasheet points: 32650 Ω @ 0 °C, 10000 Ω @ 25 °C, 3603 Ω @ 50 °C.
@@ -120,11 +125,11 @@ template<typename T = float>
  * @endcode
  */
 template<typename T = float>
-[[nodiscard]] constexpr ThermistorCoeffs<T>
+[[nodiscard]] constexpr ThermistorResult<T>
 steinhart_hart(damp::pair<T, T> p1, damp::pair<T, T> p2, damp::pair<T, T> p3) {
     for (const auto& p : {p1, p2, p3}) {
-        if (!(p.first > T{0}) || !(p.second > T{0})) {
-            return ThermistorCoeffs<T>{.success = false};
+        if (!(p.first > T{0}) || !(p.second > T{0}) || !damp::isfinite(p.first + p.second)) {
+            return ThermistorResult<T>{};
         }
     }
     const T l1 = damp::log(p1.first);
@@ -146,9 +151,9 @@ steinhart_hart(damp::pair<T, T> p1, damp::pair<T, T> p2, damp::pair<T, T> p3) {
 
     const auto x = mat::solve(V, y);
     if (!x) {
-        return ThermistorCoeffs<T>{.success = false};
+        return ThermistorResult<T>{};
     }
-    return ThermistorCoeffs<T>{(*x)(0, 0), (*x)(1, 0), (*x)(2, 0)};
+    return ThermistorResult<T>{(*x)(0, 0), (*x)(1, 0), (*x)(2, 0), true};
 }
 
 } // namespace design
@@ -156,17 +161,17 @@ steinhart_hart(damp::pair<T, T> p1, damp::pair<T, T> p2, damp::pair<T, T> p3) {
 /**
  * @brief NTC thermistor linearization (resistance → temperature).
  *
- * Evaluates a fitted set of @ref design::ThermistorCoeffs to convert a measured
+ * Evaluates a fitted @ref design::ThermistorResult to convert a measured
  * thermistor resistance to temperature, using the Steinhart-Hart relation
  * 1/T = a + b·ln(R) + c·ln(R)³ (the Beta model is the special case c = 0).
  *
  * Temperatures are handled in kelvin internally; @ref celsius returns Celsius.
  * Either give the Steinhart-Hart coefficients directly, or obtain them from
- * @ref design::beta (Beta model) or @ref design::steinhart_hart (three-point fit).
+ * @ref design::thermistor_beta (Beta model) or @ref design::steinhart_hart (three-point fit).
  *
  * @code
  * // 10 kΩ NTC, β = 3950, 25 °C reference:
- * const Thermistor<float> ntc{design::beta(10000.0f, 298.15f, 3950.0f)};
+ * const Thermistor<float> ntc{design::thermistor_beta(10000.0f, 298.15f, 3950.0f)};
  * float temp_c = ntc.celsius(measured_ohms);
  *
  * // Or straight from datasheet Steinhart-Hart coefficients:
@@ -180,17 +185,24 @@ class Thermistor {
 public:
     constexpr Thermistor() = default;
 
-    /// Construct directly from Steinhart-Hart coefficients (c = 0 for a Beta model).
+    /** @brief Construct directly from Steinhart-Hart coefficients (c = 0 for a Beta model). */
     constexpr Thermistor(T a, T b, T c) : a_(a), b_(b), c_(c) {}
 
-    /// Construct from fitted coefficients (see @ref design::beta /
-    /// @ref design::steinhart_hart).
-    constexpr explicit Thermistor(const design::ThermistorCoeffs<T>& coeffs)
-        : a_(coeffs.a), b_(coeffs.b), c_(coeffs.c) {}
+    /**
+     * @brief Construct from a fit (see @ref design::thermistor_beta / @ref design::steinhart_hart);
+     * a failed fit does not compile when constant-evaluated.
+     */
+    constexpr explicit Thermistor(const design::ThermistorResult<T>& fit) : a_(fit.a), b_(fit.b), c_(fit.c) {
+        if (!fit.success && std::is_constant_evaluated()) {
+            ::damp::detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed fit does not compile
+        }
+    }
 
-    /// Temperature in kelvin for a measured resistance [Ω]. A resistance past the
-    /// model's hot end (R ≤ 0 or 1/T ≤ 0, e.g. a shorted sensor) reads as the largest finite
-    /// temperature, so over-temperature protection trips instead of seeing ±∞.
+    /**
+     * @brief Temperature in kelvin for a measured resistance [Ω]. A resistance past the
+     * model's hot end (R ≤ 0 or 1/T ≤ 0, e.g. a shorted sensor) reads as the largest finite
+     * temperature, so over-temperature protection trips instead of seeing ±∞.
+     */
     [[nodiscard]] constexpr T kelvin(T resistance) const {
         if (!(resistance > T{0})) {
             return std::numeric_limits<T>::max(); // a dead short: hottest reading
@@ -203,7 +215,7 @@ public:
         return T{1} / inv_t;
     }
 
-    /// Temperature in degrees Celsius for a measured resistance [Ω].
+    /** @brief Temperature in degrees Celsius for a measured resistance [Ω]. */
     [[nodiscard]] constexpr T celsius(T resistance) const {
         return kelvin(resistance) - static_cast<T>(273.15);
     }

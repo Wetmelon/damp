@@ -26,8 +26,12 @@
  *
  *   Scalar math (see math/math_backend.hpp):
  *     DAMP_MATH_BACKEND_DAMP          runtime float math → damp/math/trig.hpp
+ *     DAMP_MATH_BACKEND_FREESTANDING  constexpr series at run time, no \<cmath\> (series_backend.hpp)
  *     DAMP_MATH_BACKEND_HEADER "h"   include "h", which defines MathBackend\<T\>
- *     (neither set → the std:: math backend)
+ *     (none set → the std:: math backend; several set → HEADER, then FREESTANDING, then DAMP)
+ *
+ *   A target without libm sets DAMP_BACKEND_ETL and DAMP_MATH_BACKEND_FREESTANDING: the
+ *   std:: math backend includes \<cmath\> whatever the container backend.
  *
  * If no `damp_profile.hpp` is found, the library uses its host defaults — stdlib
  * containers and the std:: math backend — and emits a one-time warning so the

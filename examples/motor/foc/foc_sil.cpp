@@ -144,15 +144,15 @@ int main() {
 
     const auto xd = plot::panel_x_domain();
     auto       layout = Layout()
-                      .title([](auto& t) { t.text("PMSM FOC Current Loop — PI vs I-P (step + voltage disturbance)"); })
-                      .xaxis(Layout::Xaxis().domain(xd).showticklabels(false).anchor("y"))
-                      .yaxis(Layout::Yaxis().title([](auto& t) { t.text("q-axis current (A)"); }).domain({0.55, 1.0}))
-                      .xaxis(2, Layout::Xaxis().domain(xd).matches("x").title([](auto& t) { t.text("Time (ms)"); }).anchor("y2"))
-                      .yaxis(2, Layout::Yaxis().title([](auto& t) { t.text("|Vdq| (V)"); }).domain({0.0, 0.45}))
-                      .legend(plot::panel_legend(1.0))
-                      .legend(2, plot::panel_legend(0.45))
-                      .shapes(shapes)
-                      .height(800);
+                            .title([](auto& t) { t.text("PMSM FOC Current Loop — PI vs I-P (step + voltage disturbance)"); })
+                            .xaxis(Layout::Xaxis().domain(xd).showticklabels(false).anchor("y"))
+                            .yaxis(Layout::Yaxis().title([](auto& t) { t.text("q-axis current (A)"); }).domain({0.55, 1.0}))
+                            .xaxis(2, Layout::Xaxis().domain(xd).matches("x").title([](auto& t) { t.text("Time (ms)"); }).anchor("y2"))
+                            .yaxis(2, Layout::Yaxis().title([](auto& t) { t.text("|Vdq| (V)"); }).domain({0.0, 0.45}))
+                            .legend(plot::panel_legend(1.0))
+                            .legend(2, plot::panel_legend(0.45))
+                            .shapes(shapes)
+                            .height(800);
     fig.setLayout(damp::move(layout));
     plot::write_html(fig, "plots/motor/foc_current_loop.html");
     fmt::print("\n  Plot written to plots/motor/foc_current_loop.html\n");

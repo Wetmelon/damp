@@ -13,11 +13,11 @@
  *
  * | From → To | API | Notes |
  * | --------- | --- | ----- |
- * | ZPK → TF  | ZPK::to_transfer_function / zpk2tf | Always succeeds; expands factored form |
+ * | ZPK → TF  | ZPK::to_transfer_function | Always succeeds; expands factored form |
  * | ZPK → SS  | ZPK::to_state_space | Via TF companion realization |
- * | TF → ZPK  | to_zpk / tf2zpk | Poly roots via companion + eigen; @c success if leads ≠ 0 and QR converges |
- * | SS → ZPK  | to_zpk (SISO) / ss2zpk | Biproper: zeros = eig(@f$A-BD^{-1}C@f$), @f$k=D@f$. Strict: Leverrier num roots |
- * | SS → TF   | to_transfer_function / ss2tf | Faddeev–LeVerrier (SISO) |
+ * | TF → ZPK  | to_zpk | Poly roots via companion + eigen; @c success if leads ≠ 0 and QR converges |
+ * | SS → ZPK  | to_zpk (SISO) | Zeros: transmission_zeros (QZ on the reduced system pencil). @f$k@f$: the Markov parameter at the relative degree |
+ * | SS → TF   | to_transfer_function / ss2tf | Expands the SS → ZPK factors (SISO), numerator checked against the Markov parameters; Faddeev–LeVerrier only if QR / QZ does not converge |
  *
  * Domain (continuous vs discrete). Like TransferFunction, @c ZPK does not
  * store @c Ts. Factors are in @f$s@f$ or @f$z@f$ per the caller's convention. Use
@@ -28,19 +28,20 @@
  * Limits. Real polynomial roots use the companion-matrix eigenproblem
  * (mat::compute_eigenvalues): closed form for degree ≤ 2, Francis QR for
  * higher degree (design-time; non-convergence → @c success=false). Leading
- * numerator/denominator coefficients must be nonzero for TF→ZPK. Strictly
- * proper SS→ZPK recovers finite zeros into StateSpaceZPKResult (runtime
- * @c n_zeros); call StateSpaceZPKResult::as_zpk when the count is known at
- * compile time. High-order root finding (degree ≫ 8–12) is the same QR path as
- * the rest of the library — solid for typical plant orders, not a multiprecision
- * polynomial solver.
+ * numerator/denominator coefficients must be nonzero for TF→ZPK. SS→ZPK
+ * returns the finite zeros in StateSpaceZPKResult (runtime @c n_zeros); call
+ * StateSpaceZPKResult::as_zpk when the count is known at compile time. Its zeros
+ * come from the system pencil, not from the transfer-function numerator, so they
+ * do not carry the error of polynomial coefficients. High-order root finding
+ * (degree ≫ 8–12) for TF→ZPK is the same QR path as the rest of the library:
+ * solid for typical plant orders, not a multiprecision polynomial solver.
  *
  * Example: round-trip a lead compensator
  * @code
  * #include "damp/systems/zpk.hpp"
  * using namespace damp;
  *
- * constexpr TransferFunction<2, 2> tf{.num = {2.0, 1.0}, .den = {10.0, 1.0}}; // (s+2)/(s+10)
+ * constexpr TransferFunction<2, 2> tf{.num = {1.0, 2.0}, .den = {1.0, 10.0}}; // (s+2)/(s+10)
  * constexpr auto art = to_zpk(tf);
  * static_assert(art.success);
  * constexpr auto tf2 = art.zpk.to_transfer_function();
@@ -60,6 +61,7 @@
 #include "damp/matrix/matrix_traits.hpp"
 #include "state_space.hpp"
 #include "transfer_function.hpp"
+#include "zeros.hpp"
 
 namespace damp {
 
@@ -68,11 +70,11 @@ namespace damp {
 // ============================================================================
 
 /**
- * @brief Roots of a real polynomial given in ascending powers
+ * @brief Roots of a real polynomial given highest power first
  *
- * For coefficients @f$ c_0 + c_1 x + \cdots + c_{N-1} x^{N-1} @f$, returns the
+ * For coefficients @f$ c_0 x^{N-1} + c_1 x^{N-2} + \cdots + c_{N-1} @f$, returns the
  * @f$ N-1 @f$ roots as eigenvalues of the companion matrix. Requires a nonzero
- * leading coefficient @f$ c_{N-1} @f$ (only an exact zero is rejected: the
+ * leading coefficient @f$ c_0 @f$ (only an exact zero is rejected: the
  * coefficients scale as powers of the variable's unit, so no magnitude floor
  * on them is unit-invariant).
  *
@@ -81,7 +83,7 @@ namespace damp {
  * - Higher degree: Francis QR via mat::compute_eigenvalues; @c success
  *   mirrors the eigen convergence flag
  *
- * @note Compare with MATLAB®'s roots(flip(c)) for ascending @p c.
+ * @note Compare with MATLAB®'s roots(c).
  * @see to_zpk() for the TF factorization path that uses this
  *
  * @tparam N Number of coefficients (degree N−1 when N ≥ 1)
@@ -91,6 +93,9 @@ template<size_t N, typename T = double>
 struct PolyRootsResult {
     damp::array<damp::complex<T>, (N > 0 ? N - 1 : 0)> roots{};        ///< Roots (empty when N ≤ 1)
     bool                                               success{false}; ///< true if leading coeff OK and eigen converged
+
+    /** @brief True when the design succeeded (success). */
+    [[nodiscard]] constexpr explicit operator bool() const { return success; }
 
     template<typename U>
     [[nodiscard]] constexpr PolyRootsResult<N, U> as() const {
@@ -109,10 +114,10 @@ struct PolyRootsResult {
 };
 
 /**
- * @brief Compute roots of an ascending-power real polynomial
+ * @brief Compute roots of a real polynomial given highest power first
  *
- * @param c Coefficients c₀ + c₁ x + … + c_{N−1} x^{N−1}
- * @return @ref PolyRootsResult; @c success = false if c_{N−1} = 0
+ * @param c Coefficients c₀ x^{N−1} + c₁ x^{N−2} + … + c_{N−1}
+ * @return @ref PolyRootsResult; @c success = false if c₀ = 0
  */
 template<size_t N, typename T = double>
     requires std::is_floating_point_v<T>
@@ -120,15 +125,15 @@ template<size_t N, typename T = double>
     if constexpr (N <= 1) {
         return PolyRootsResult<N, T>{.success = true};
     } else if constexpr (N == 2) {
-        if (c[1] == T{0}) {
+        if (c[0] == T{0}) {
             return PolyRootsResult<N, T>{};
         }
         return PolyRootsResult<N, T>{
-            .roots = {damp::complex<T>{-c[0] / c[1], T{0}}},
+            .roots = {damp::complex<T>{-c[1] / c[0], T{0}}},
             .success = true,
         };
     } else {
-        if (c[N - 1] == T{0}) {
+        if (c[0] == T{0}) {
             return PolyRootsResult<N, T>{};
         }
         constexpr size_t M = N - 1;
@@ -136,19 +141,36 @@ template<size_t N, typename T = double>
         for (size_t i = 0; i + 1 < M; ++i) {
             companion(i, i + 1) = T{1};
         }
-        const T inv_lead = T{1} / c[N - 1];
+        // Last row −[c_N−1 … c_1]/c₀: column j multiplies x^j.
+        const T inv_lead = T{1} / c[0];
         for (size_t j = 0; j < M; ++j) {
-            companion(M - 1, j) = -c[j] * inv_lead;
+            companion(M - 1, j) = -c[N - 1 - j] * inv_lead;
         }
         const auto            eig = mat::compute_eigenvalues(companion);
         PolyRootsResult<N, T> result{};
         for (size_t i = 0; i < M; ++i) {
             result.roots[i] = eig.values[i];
         }
-        result.success = eig.converged;
+        result.success = eig.success;
         return result;
     }
 }
+
+namespace zpk_detail {
+
+/**
+ * @brief Multiply a polynomial of @p degree by (s − @p root) in place; poly[k] multiplies sᵏ.
+ */
+template<typename Poly, typename C>
+constexpr void mul_linear(Poly& poly, size_t degree, C root) {
+    poly[degree + 1] = poly[degree];
+    for (size_t j = degree; j > 0; --j) {
+        poly[j] = poly[j - 1] - root * poly[j];
+    }
+    poly[0] = -root * poly[0];
+}
+
+} // namespace zpk_detail
 
 // ============================================================================
 // ZPK type
@@ -163,6 +185,8 @@ template<size_t N, typename T = double>
  * @f]
  * with zeros @f$z_i@f$, poles @f$p_j@f$, and scalar gain @f$k@f$. The same form
  * holds in @f$z@f$ for discrete models (caller tracks the domain; no @c Ts field).
+ * A real model has its zeros and its poles each closed under conjugation; the conversions to
+ * TF and SS assume it.
  *
  * MATLAB® equivalent: `zpk(z, p, k)`.
  *
@@ -173,8 +197,8 @@ template<size_t N, typename T = double>
 template<size_t Nz, size_t Np, typename T = double>
     requires std::is_floating_point_v<T>
 struct ZPK {
-    damp::array<damp::complex<T>, Nz> zeros{}; ///< Zeros of the transfer function
-    damp::array<damp::complex<T>, Np> poles{}; ///< Poles of the transfer function
+    damp::array<damp::complex<T>, Nz> zeros{}; ///< Zeros of the transfer function, closed under conjugation
+    damp::array<damp::complex<T>, Np> poles{}; ///< Poles of the transfer function, closed under conjugation
     T                                 gain{1}; ///< Gain k of the monic factored form
 
     /**
@@ -201,9 +225,11 @@ struct ZPK {
     /**
      * @brief Convert ZPK representation to transfer function form
      *
-     * Expands @f$ k \prod(s - z_i) / \prod(s - p_j) @f$ into ascending-power real
-     * polynomials. Intermediate products use complex coefficients so conjugate
-     * pairs cancel imaginary parts; the returned TF stores the real parts.
+     * Expands @f$ k \prod(s - z_i) / \prod(s - p_j) @f$ into real polynomials,
+     * highest power first. Intermediate products use complex coefficients so conjugate
+     * pairs cancel imaginary parts; the returned TF stores the real parts. The zeros and the
+     * poles must each be closed under conjugation: a complex root without its conjugate has
+     * no real polynomial, and the imaginary parts it leaves are dropped.
      *
      * @note Compare with MATLAB®'s tf(zpk_sys) / zpk2tf.
      * @return Transfer function with Nnum = Nz+1, Nden = Np+1
@@ -211,30 +237,22 @@ struct ZPK {
     [[nodiscard]] constexpr TransferFunction<Nz + 1, Np + 1, T> to_transfer_function() const {
         TransferFunction<Nz + 1, Np + 1, T> tf{};
 
-        auto mul_linear = [](auto& poly, size_t degree, damp::complex<T> root) {
-            poly[degree + 1] = poly[degree];
-            for (size_t j = degree; j > 0; --j) {
-                poly[j] = poly[j - 1] - root * poly[j];
-            }
-            poly[0] = -root * poly[0];
-        };
-
         damp::array<damp::complex<T>, Nz + 1> num_c{};
         num_c[0] = damp::complex<T>{gain, T{0}};
         for (size_t i = 0; i < Nz; ++i) {
-            mul_linear(num_c, i, zeros[i]);
+            zpk_detail::mul_linear(num_c, i, zeros[i]);
         }
         for (size_t k = 0; k < Nz + 1; ++k) {
-            tf.num[k] = num_c[k].real();
+            tf.num[k] = num_c[Nz - k].real(); // num_c[k] multiplies s^k
         }
 
         damp::array<damp::complex<T>, Np + 1> den_c{};
         den_c[0] = damp::complex<T>{T{1}, T{0}};
         for (size_t i = 0; i < Np; ++i) {
-            mul_linear(den_c, i, poles[i]);
+            zpk_detail::mul_linear(den_c, i, poles[i]);
         }
         for (size_t k = 0; k < Np + 1; ++k) {
-            tf.den[k] = den_c[k].real();
+            tf.den[k] = den_c[Np - k].real();
         }
 
         return tf;
@@ -310,9 +328,12 @@ struct ZPK {
      * @brief Cancel matching pole-zero pairs within tolerance (SISO minreal on factors)
      *
      * Greedy one-to-one matching: each zero cancels at most one pole with
-     * @f$ |z-p| \le \mathrm{tol} \cdot \max(|z|, |p|) @f$ (relative, so the
-     * test is invariant to the frequency unit; a root pair near the origin is
-     * not cancelled just for being small). Survivors are compacted to the front of the arrays;
+     * @f$ |z-p| \le \mathrm{tol} \cdot \max(|z|, |p|) + 4 (N_z + N_p)\,\epsilon R @f$,
+     * R the largest root magnitude of the model. Both terms scale with the frequency unit, so
+     * the test is invariant to it. The first is relative to the pair, so two distinct slow
+     * roots are not cancelled just for being small; the second is the roundoff of roots
+     * computed from a model of size R, so a computed common factor at the origin (a zero at
+     * 1e-17 against a pole at 0) cancels. Survivors are compacted to the front of the arrays;
      * each cancelled value is re-appended as an identical @f$ z = p @f$ pair so
      * to_transfer_function remains algebraically equivalent (common factors),
      * while @c n_cancelled reports how many pairs were cancelled.
@@ -321,8 +342,10 @@ struct ZPK {
      *
      * @note Compare with MATLAB®'s minreal on a zpk model (factored form only;
      *       does not perform SS uncontrollable/unobservable reduction).
-     * @param tol Relative match tolerance (default √eps: computed roots of a common
-     *            factor agree to about that, more for repeated roots)
+     * @param tol Relative match tolerance (default √eps). The computed roots of a simple common
+     *            factor agree far closer than that; those of a k-fold factor spread by about
+     *            ε^(1/k) of their magnitude, so a double or triple factor needs a tol above
+     *            that spread (∛eps or more), at the risk of cancelling distinct roots as close)
      * @return @ref CancelResult
      */
     [[nodiscard]] constexpr CancelResult cancel_matching(T tol = damp::sqrt(eps<T>())) const {
@@ -334,6 +357,15 @@ struct ZPK {
         damp::array<damp::complex<T>, (Nz < Np ? Nz : Np)> cancelled{};
         size_t                                             n_cancel = 0;
 
+        T largest = T{0}; // R: the model's scale, for the roundoff floor of computed roots
+        for (size_t i = 0; i < Nz; ++i) {
+            largest = damp::max(largest, damp::abs(zeros[i]));
+        }
+        for (size_t j = 0; j < Np; ++j) {
+            largest = damp::max(largest, damp::abs(poles[j]));
+        }
+        const T roundoff = static_cast<T>(Nz + Np) * T{4} * eps<T>() * largest;
+
         for (size_t i = 0; i < Nz; ++i) {
             for (size_t j = 0; j < Np; ++j) {
                 if (z_gone[i] || p_gone[j]) {
@@ -341,7 +373,7 @@ struct ZPK {
                 }
                 const T zm = damp::abs(zeros[i]);
                 const T pm = damp::abs(poles[j]);
-                if (damp::abs(zeros[i] - poles[j]) <= tol * ((zm > pm) ? zm : pm)) {
+                if (damp::abs(zeros[i] - poles[j]) <= (tol * ((zm > pm) ? zm : pm)) + roundoff) {
                     z_gone[i] = true;
                     p_gone[j] = true;
                     cancelled[n_cancel] = zeros[i];
@@ -403,6 +435,9 @@ struct ZPKResult {
     ZPK<Nz, Np, T> zpk{};          ///< Factored model (valid when success)
     bool           success{false}; ///< true if both poly root solves succeeded
 
+    /** @brief True when the design succeeded (success). */
+    [[nodiscard]] constexpr explicit operator bool() const { return success; }
+
     template<typename U>
     [[nodiscard]] constexpr ZPKResult<Nz, Np, U> as() const {
         return ZPKResult<Nz, Np, U>{zpk.template as<U>(), success};
@@ -417,13 +452,16 @@ struct ZPKResult {
  * @f$ G(s) = k \prod(s-z)/\prod(s-p) @f$ with monic factors.
  *
  * Requires nonzero leading coefficients (a zero-padded array has fewer roots
- * than its fixed size and is rejected). Degree ≥ 3 uses iterative QR (design-time).
+ * than its fixed size and is rejected; a constant denominator of 0 is refused too). That
+ * includes the numerator to_transfer_function(StateSpace) returns for a strictly proper model,
+ * padded with leading zeros: to_zpk(StateSpace) is the direct route there. Degree ≥ 3 uses
+ * iterative QR (design-time).
  *
  * @note Compare with MATLAB®'s tf2zpk / zpk(tf_sys).
  * @see ZPK::to_transfer_function for the inverse map
  * @see poly_roots
  *
- * @param tf Ascending-power transfer function
+ * @param tf Transfer function (coefficients highest power first)
  * @return ZPKResult with success flag
  */
 template<size_t Nnum, size_t Nden, typename T = double>
@@ -437,6 +475,9 @@ to_zpk(const TransferFunction<Nnum, Nden, T>& tf) {
     if constexpr (Nden == 0 || Nnum == 0) {
         return art;
     }
+    if (tf.den[0] == T{0}) {
+        return art; // no leading denominator coefficient (a constant 0 has no gain)
+    }
 
     const auto zr = poly_roots(tf.num);
     const auto pr = poly_roots(tf.den);
@@ -444,7 +485,7 @@ to_zpk(const TransferFunction<Nnum, Nden, T>& tf) {
         return art;
     }
 
-    art.zpk.gain = tf.num[Nnum - 1] / tf.den[Nden - 1];
+    art.zpk.gain = tf.num[0] / tf.den[0];
     if constexpr (Nz > 0) {
         for (size_t i = 0; i < Nz; ++i) {
             art.zpk.zeros[i] = zr.roots[i];
@@ -459,24 +500,6 @@ to_zpk(const TransferFunction<Nnum, Nden, T>& tf) {
     return art;
 }
 
-/**
- * @brief MATLAB®-style alias for to_zpk (transfer function)
- * @note Compare with MATLAB®'s tf2zpk.
- */
-template<size_t Nnum, size_t Nden, typename T = double>
-[[nodiscard]] constexpr auto tf2zpk(const TransferFunction<Nnum, Nden, T>& tf) {
-    return to_zpk(tf);
-}
-
-/**
- * @brief MATLAB®-style alias for ZPK::to_transfer_function
- * @note Compare with MATLAB®'s zpk2tf / tf(zpk_sys).
- */
-template<size_t Nz, size_t Np, typename T = double>
-[[nodiscard]] constexpr TransferFunction<Nz + 1, Np + 1, T> zpk2tf(const ZPK<Nz, Np, T>& sys) {
-    return sys.to_transfer_function();
-}
-
 // ============================================================================
 // SS → TF / ZPK (SISO)
 // ============================================================================
@@ -486,7 +509,7 @@ namespace zpk_detail {
 /**
  * @brief Faddeev–LeVerrier characteristic polynomial and adjoint coefficient matrices
  *
- * Builds monic @f$ \det(sI-A) @f$ (ascending in @c den) and @f$ M_1,\ldots,M_n @f$
+ * Builds monic @f$ \det(sI-A) @f$ (@c den, highest power first) and @f$ M_1,\ldots,M_n @f$
  * with @f$ M_1 = I @f$ such that
  * @f$ \mathrm{adj}(sI-A) = \sum_{j=0}^{n-1} s^{n-1-j} M_{j+1} @f$.
  *
@@ -494,7 +517,7 @@ namespace zpk_detail {
  */
 template<size_t NX, typename T>
 struct LeverrierResult {
-    damp::array<T, NX + 1>             den{}; ///< Ascending monic char poly
+    damp::array<T, NX + 1>             den{}; ///< Monic char poly, highest power first
     damp::array<Matrix<NX, NX, T>, NX> M{};   ///< M_1 .. M_NX
 };
 
@@ -508,13 +531,13 @@ template<size_t NX, typename T>
         const auto        I = Matrix<NX, NX, T>::identity();
         Matrix<NX, NX, T> Mk = Matrix<NX, NX, T>::zeros();
         T                 c_prev = T{1};
-        r.den[NX] = T{1};
+        r.den[0] = T{1};
 
         for (size_t k = 1; k <= NX; ++k) {
             Mk = A * Mk + c_prev * I;
             r.M[k - 1] = Mk;
             const T ck = -(A * Mk).trace() / static_cast<T>(k);
-            r.den[NX - k] = ck;
+            r.den[k] = ck;
             c_prev = ck;
         }
         return r;
@@ -546,7 +569,7 @@ ss_to_tf_full(const StateSpace<NX, 1, 1, T>& sys) {
             for (size_t r = 0; r < NX; ++r) {
                 cMb += sys.C(0, r) * Mb[r];
             }
-            tf.num[NX - 1 - j] += cMb;
+            tf.num[j + 1] += cMb; // M_{j+1} multiplies s^{NX−1−j}
         }
         return tf;
     }
@@ -555,7 +578,7 @@ ss_to_tf_full(const StateSpace<NX, 1, 1, T>& sys) {
 /**
  * @brief Magnitude scale of each strictly proper Leverrier numerator coefficient
  *
- * scale[NX−1−j] = Σᵣ |C|ᵣ (|M_{j+1}| |B|)ᵣ — the size of the terms whose sum forms
+ * scale[j+1] = Σᵣ |C|ᵣ (|M_{j+1}| |B|)ᵣ — the size of the terms whose sum forms
  * the coefficient, so a coefficient far below it is cancellation residue.
  */
 template<size_t NX, typename T>
@@ -572,10 +595,58 @@ template<size_t NX, typename T>
                 }
                 s += damp::abs(sys.C(0, r)) * row;
             }
-            scale[NX - 1 - j] = s;
+            scale[j + 1] = s;
         }
     }
     return scale;
+}
+
+/**
+ * @brief @p num, or the numerator the Markov parameters give over @p den when @p num misses it
+ *
+ * Any realization satisfies num[k] = Σ_{j≤k} den[j]·h_{k−j}, h₀ = D, hᵢ = C·A^{i−1}·B. The sum's
+ * own roundoff is about (NX+1)·eps·sₖ, with sₖ = Σ_{j≤k} |den[j]|·|h_{k−j}|ₛ the size of its terms
+ * (|hᵢ|ₛ = |C|·|A|^{i−1}·|B| entrywise, |h₀|ₛ = |D|); a @p num that misses it by more than
+ * 8·(NX+1)·eps·sₖ is the less accurate of the two, and the sum replaces it. Zeros of a badly scaled pencil (a Tustin realization in float) miss it; the
+ * factors of a model whose poles spread over decades pass, as sₖ is large there. Markov
+ * parameters past the range of T keep @p num.
+ */
+template<size_t NX, typename T, size_t NW, size_t NV>
+[[nodiscard]] constexpr damp::array<T, NX + 1> markov_checked_numerator(
+    const StateSpace<NX, 1, 1, T, NW, NV>& sys,
+    const damp::array<T, NX + 1>&          den,
+    const damp::array<T, NX + 1>&          num
+) {
+    const auto             mag = [](T v) { return damp::abs(v); };
+    const auto             A_abs = mat::transform(sys.A, mag);
+    const auto             C_abs = mat::transform(sys.C, mag);
+    Matrix<NX, 1, T>       v = sys.B;                           // A^{i−1}·B
+    Matrix<NX, 1, T>       v_size = mat::transform(sys.B, mag); // |A|^{i−1}·|B|
+    damp::array<T, NX + 1> h{sys.D(0, 0)};
+    damp::array<T, NX + 1> h_size{damp::abs(sys.D(0, 0))};
+    for (size_t i = 1; i <= NX; ++i) {
+        h[i] = (sys.C * v)(0, 0);
+        h_size[i] = (C_abs * v_size)(0, 0);
+        v = sys.A * v;
+        v_size = A_abs * v_size;
+    }
+    damp::array<T, NX + 1> markov{};
+    bool                   missed = false;
+    for (size_t k = 0; k <= NX; ++k) {
+        T size = T{0};
+        for (size_t j = 0; j <= k; ++j) {
+            markov[k] += den[j] * h[k - j];
+            size += damp::abs(den[j]) * h_size[k - j];
+        }
+        const T bound = static_cast<T>(NX + 1) * T{8} * eps<T>() * size;
+        if (!damp::isfinite(bound) || !damp::isfinite(markov[k])) {
+            return num;
+        }
+        if (damp::abs(num[k] - markov[k]) > bound) {
+            missed = true;
+        }
+    }
+    return missed ? markov : num;
 }
 
 } // namespace zpk_detail
@@ -595,6 +666,9 @@ struct StateSpaceZPKResult {
     size_t                            n_zeros{0};     ///< Number of finite zeros
     T                                 gain{T{1}};     ///< Gain k of the monic factored form
     bool                              success{false}; ///< true if the eigen/root solves converged
+
+    /** @brief True when the design succeeded (success). */
+    [[nodiscard]] constexpr explicit operator bool() const { return success; }
 
     template<typename U>
     [[nodiscard]] constexpr StateSpaceZPKResult<NX, U> as() const {
@@ -629,123 +703,26 @@ struct StateSpaceZPKResult {
     }
 };
 
-namespace zpk_detail {
-
-template<size_t Deg, size_t NX, typename T>
-[[nodiscard]] constexpr bool fill_zeros_from_num(const damp::array<T, NX + 1>& num, StateSpaceZPKResult<NX, T>& art) {
-    static_assert(Deg >= 1 && Deg <= NX);
-    damp::array<T, Deg + 1> coeffs{};
-    for (size_t i = 0; i <= Deg; ++i) {
-        coeffs[i] = num[i];
-    }
-    const auto zr = poly_roots(coeffs);
-    if (!zr.success) {
-        return false;
-    }
-    for (size_t i = 0; i < Deg; ++i) {
-        art.zeros[i] = zr.roots[i];
-    }
-    return true;
-}
-
-template<size_t NX, typename T>
-[[nodiscard]] constexpr bool
-fill_zeros_dispatch(size_t deg, const damp::array<T, NX + 1>& num, StateSpaceZPKResult<NX, T>& art) {
-    if (deg == 0) {
-        return true;
-    }
-    // Explicit ladder keeps constexpr-friendly fixed sizes (typical plant orders).
-    if constexpr (NX >= 1) {
-        if (deg == 1) {
-            return fill_zeros_from_num<1, NX, T>(num, art);
-        }
-    }
-    if constexpr (NX >= 2) {
-        if (deg == 2) {
-            return fill_zeros_from_num<2, NX, T>(num, art);
-        }
-    }
-    if constexpr (NX >= 3) {
-        if (deg == 3) {
-            return fill_zeros_from_num<3, NX, T>(num, art);
-        }
-    }
-    if constexpr (NX >= 4) {
-        if (deg == 4) {
-            return fill_zeros_from_num<4, NX, T>(num, art);
-        }
-    }
-    if constexpr (NX >= 5) {
-        if (deg == 5) {
-            return fill_zeros_from_num<5, NX, T>(num, art);
-        }
-    }
-    if constexpr (NX >= 6) {
-        if (deg == 6) {
-            return fill_zeros_from_num<6, NX, T>(num, art);
-        }
-    }
-    if constexpr (NX >= 7) {
-        if (deg == 7) {
-            return fill_zeros_from_num<7, NX, T>(num, art);
-        }
-    }
-    if constexpr (NX >= 8) {
-        if (deg == 8) {
-            return fill_zeros_from_num<8, NX, T>(num, art);
-        }
-    }
-    if constexpr (NX >= 9) {
-        if (deg == 9) {
-            return fill_zeros_from_num<9, NX, T>(num, art);
-        }
-    }
-    if constexpr (NX >= 10) {
-        if (deg == 10) {
-            return fill_zeros_from_num<10, NX, T>(num, art);
-        }
-    }
-    if constexpr (NX >= 11) {
-        if (deg == 11) {
-            return fill_zeros_from_num<11, NX, T>(num, art);
-        }
-    }
-    if constexpr (NX >= 12) {
-        if (deg == 12) {
-            return fill_zeros_from_num<12, NX, T>(num, art);
-        }
-    }
-    // deg == NX (any size): use full-order poly_roots on NX+1 coeffs
-    if (deg == NX) {
-        return fill_zeros_from_num<NX, NX, T>(num, art);
-    }
-    return false;
-}
-
-} // namespace zpk_detail
-
 /**
  * @brief Convert a SISO state-space model to zero-pole-gain form
  *
  * - Poles: eigenvalues of @f$ A @f$
- * - Biproper (@f$ D \neq 0 @f$): @f$ k = D @f$, zeros = eig(@f$ A - B D^{-1} C @f$)
- * - Strictly proper: zeros and @f$ k @f$ from the Leverrier numerator (finite
- *   zeros only; @c n_zeros ≤ NX−1). A numerator coefficient counts as zero when
- *   it is below @p tol times the magnitude of the terms that formed it
- *   (cancellation residue), so the zero count is invariant to scaling B, C or
- *   the time unit. Effective zero degrees above 12 require
- *   @c n_zeros == NX (full-order path) or use the TF→ZPK path with an explicit
- *   TransferFunction of the correct size
+ * - Zeros: transmission_zeros, the finite zeros of the system pencil (QZ on the pencil reduced
+ *   by orthogonal transformations; no polynomial is formed and D is not inverted). A D at
+ *   roundoff level counts as zero, and the zeros it would put far out as infinite
+ * - Gain: the leading numerator coefficient, the Markov parameter at the relative degree
+ *   r = NX − n_zeros: @f$ k = D @f$ for r = 0, @f$ k = C A^{r-1} B @f$ otherwise
+ *
+ * The rank decisions are relative to the model scaled by powers of two, so @c n_zeros does not
+ * depend on the units of time, of the input, of the output or of the states.
  *
  * @note Compare with MATLAB®'s zpk(sys) for SISO ss.
  * @param sys SISO plant (NU = NY = 1)
- * @param tol Relative cancellation tolerance for numerator coefficients (default √eps)
  * @return StateSpaceZPKResult
  */
 template<size_t NX, typename T = double, size_t NW = 0, size_t NV = 0>
     requires std::is_floating_point_v<T>
-[[nodiscard]] constexpr StateSpaceZPKResult<NX, T>
-to_zpk(const StateSpace<NX, 1, 1, T, NW, NV>& sys, T tol = damp::sqrt(eps<T>())) {
+[[nodiscard]] constexpr StateSpaceZPKResult<NX, T> to_zpk(const StateSpace<NX, 1, 1, T, NW, NV>& sys) {
     StateSpaceZPKResult<NX, T> art{};
 
     if constexpr (NX == 0) {
@@ -753,100 +730,80 @@ to_zpk(const StateSpace<NX, 1, 1, T, NW, NV>& sys, T tol = damp::sqrt(eps<T>()))
         art.n_zeros = 0;
         art.success = true;
         return art;
-    }
-
-    // Drop noise dimensions: work on the core A,B,C,D
-    StateSpace<NX, 1, 1, T> core{
-        .A = sys.A,
-        .B = sys.B,
-        .C = sys.C,
-        .D = sys.D,
-        .Ts = sys.Ts
-    };
-
-    const auto pe = mat::compute_eigenvalues(core.A);
-    if (!pe.converged) {
-        return art;
-    }
-    for (size_t i = 0; i < NX; ++i) {
-        art.poles[i] = pe.values[i];
-    }
-
-    const T D0 = core.D(0, 0);
-    if (D0 != T{0}) {
-        Matrix<NX, NX, T> Abar = core.A;
-        const T           invD = T{1} / D0;
-        for (size_t i = 0; i < NX; ++i) {
-            for (size_t j = 0; j < NX; ++j) {
-                Abar(i, j) -= core.B(i, 0) * invD * core.C(0, j);
-            }
-        }
-        const auto ze = mat::compute_eigenvalues(Abar);
-        if (!ze.converged) {
+    } else {
+        const auto pe = mat::compute_eigenvalues(sys.A);
+        if (!pe.success) {
             return art;
         }
         for (size_t i = 0; i < NX; ++i) {
-            art.zeros[i] = ze.values[i];
+            art.poles[i] = pe.values[i];
         }
-        art.n_zeros = NX;
-        art.gain = D0;
+        const auto tz = transmission_zeros(sys);
+        if (!tz.success) {
+            return art;
+        }
+        art.zeros = tz.zeros;
+        art.n_zeros = tz.n_zeros;
+        const size_t relative_degree = NX - tz.n_zeros;
+        if (relative_degree == 0) {
+            art.gain = sys.D(0, 0);
+        } else {
+            Matrix<1, NX, T> row = sys.C; // C·A^(r−1)
+            for (size_t k = 1; k < relative_degree; ++k) {
+                row = row * sys.A;
+            }
+            art.gain = (row * sys.B)(0, 0);
+        }
         art.success = true;
         return art;
     }
-
-    const auto tf = zpk_detail::ss_to_tf_full(core); // monic: den[NX] = 1
-    const auto scale = zpk_detail::leverrier_num_scale(core);
-
-    size_t deg_num = 0;
-    bool   found = false;
-    for (size_t k = NX; k > 0; --k) {
-        if (damp::abs(tf.num[k]) > tol * scale[k]) {
-            deg_num = k;
-            found = true;
-            break;
-        }
-    }
-    if (!found) {
-        art.n_zeros = 0;
-        art.gain = tf.num[0] / tf.den[NX];
-        art.success = true;
-        return art;
-    }
-
-    art.gain = tf.num[deg_num] / tf.den[NX];
-    art.n_zeros = deg_num;
-    art.success = zpk_detail::fill_zeros_dispatch(deg_num, tf.num, art);
-    return art;
 }
 
 /**
- * @brief MATLAB®-style alias for SISO to_zpk (state-space)
- * @note Compare with MATLAB®'s ss2zpk / zpk(ss).
- */
-template<size_t NX, typename T = double, size_t NW = 0, size_t NV = 0>
-[[nodiscard]] constexpr StateSpaceZPKResult<NX, T>
-ss2zpk(const StateSpace<NX, 1, 1, T, NW, NV>& sys, T tol = damp::sqrt(eps<T>())) {
-    return to_zpk(sys, tol);
-}
-
-/**
- * @brief SISO state-space → transfer function (Leverrier), size NX+1 / NX+1
+ * @brief SISO state-space → transfer function, size NX+1 / NX+1
  *
- * Monic denominator. Leading numerator coefficient is @c D (zero when strictly proper).
+ * Monic denominator, highest power first. The leading numerator coefficient, num[0], is @c D (zero
+ * when strictly proper, so the numerator is padded with leading zeros, which to_zpk(TransferFunction)
+ * refuses: to_zpk(StateSpace) is the direct route to the factors).
+ *
+ * The polynomials are the expanded factors of to_zpk(StateSpace): den = ∏(s − pᵢ) over the
+ * eigenvalues of A, num = k·∏(s − zᵢ) over the transmission zeros, k the Markov parameter at
+ * the relative degree. Expanding factors loses no digits to cancellation when the poles spread
+ * over decades, which the Faddeev–LeVerrier trace recursion does (its coefficients come from
+ * cancelling terms that grow like |λ_max|ᵏ). The numerator is checked against the Markov
+ * parameters, num[k] = Σ_{j≤k} den[j]·h_{k−j} with h₀ = D and hᵢ = C·A^{i−1}·B: transmission
+ * zeros of a badly scaled pencil (a Tustin realization in float, B ~ 1e−9 against C ~ 1e6) can
+ * move by percents, and when the expanded factors miss that sum by more than its roundoff the
+ * sum is the numerator. Faddeev–LeVerrier is the fallback only when the eigenvalue or zero
+ * computation does not converge.
  *
  * @note Compare with MATLAB®'s tf(ss_sys) / ss2tf.
+ * @see "Computation of zeros of linear multivariable systems" (Emami-Naeini & Van Dooren, 1982)
  */
 template<size_t NX, typename T = double, size_t NW = 0, size_t NV = 0>
 [[nodiscard]] constexpr TransferFunction<NX + 1, NX + 1, T>
 to_transfer_function(const StateSpace<NX, 1, 1, T, NW, NV>& sys) {
-    StateSpace<NX, 1, 1, T> core{
-        .A = sys.A,
-        .B = sys.B,
-        .C = sys.C,
-        .D = sys.D,
-        .Ts = sys.Ts
-    };
-    return zpk_detail::ss_to_tf_full(core);
+    const StateSpaceZPKResult<NX, T> factors = to_zpk(sys);
+    if (!factors.success) {
+        return zpk_detail::ss_to_tf_full(StateSpace<NX, 1, 1, T>{.A = sys.A, .B = sys.B, .C = sys.C, .D = sys.D, .Ts = sys.Ts});
+    }
+    damp::array<damp::complex<T>, NX + 1> num_c{}; // num_c[k] multiplies sᵏ
+    damp::array<damp::complex<T>, NX + 1> den_c{};
+    num_c[0] = damp::complex<T>{factors.gain, T{0}};
+    den_c[0] = damp::complex<T>{T{1}, T{0}};
+    for (size_t i = 0; i < factors.n_zeros; ++i) {
+        zpk_detail::mul_linear(num_c, i, factors.zeros[i]);
+    }
+    for (size_t i = 0; i < NX; ++i) {
+        zpk_detail::mul_linear(den_c, i, factors.poles[i]);
+    }
+    TransferFunction<NX + 1, NX + 1, T> tf{};
+    for (size_t k = 0; k <= NX; ++k) {
+        tf.den[k] = den_c[NX - k].real();
+        tf.num[k] = (NX - k <= factors.n_zeros) ? num_c[NX - k].real() : T{0}; // right-aligned on the constant term
+    }
+    tf.num = zpk_detail::markov_checked_numerator(sys, tf.den, tf.num);
+    return tf;
 }
 
 /**
@@ -867,11 +824,8 @@ namespace design {
 
 using damp::poly_roots;
 using damp::ss2tf;
-using damp::ss2zpk;
-using damp::tf2zpk;
 using damp::to_transfer_function;
 using damp::to_zpk;
-using damp::zpk2tf;
 
 /**
  * @brief Cancel matching pole-zero pairs on a ZPK model

@@ -64,6 +64,10 @@ template<typename T = double>
 struct StepTrainResult {
     StepTrainConfig<T> config{};       ///< Validated step-train configuration
     bool               success{false}; ///< true if `config.valid()`
+    T                  Ts{0};          ///< [s] Sample period of the internal step() clock (0 = absolute-time step(t) only)
+
+    /** @brief True when the design succeeded (success). */
+    [[nodiscard]] constexpr explicit operator bool() const { return success; }
 
     /**
      * @brief Convert design payload to another scalar type.
@@ -79,6 +83,7 @@ struct StepTrainResult {
                 config.cycles,
             },
             success,
+            static_cast<U>(Ts),
         };
     }
 };
@@ -87,12 +92,13 @@ struct StepTrainResult {
  * @brief Build a step-train design payload from a configuration.
  *
  * @param config Step-train configuration.
- * @return StepTrainResult with `success = config.valid()`.
+ * @param Ts     [s] Sample period of the runtime's step() clock (0 = absolute-time step(t) only; < 0 refused)
+ * @return StepTrainResult with `success` = `config.valid()` and a valid Ts.
  */
 template<typename T = double>
 [[nodiscard]] constexpr StepTrainResult<T>
-step_train(const StepTrainConfig<T>& config) {
-    return StepTrainResult<T>{config, config.valid()};
+step_train(const StepTrainConfig<T>& config, T Ts = T{0}) {
+    return StepTrainResult<T>{config, config.valid() && (Ts >= T{0}) && damp::isfinite(Ts), Ts};
 }
 
 } // namespace design
@@ -111,13 +117,18 @@ class StepTrain {
 public:
     constexpr StepTrain() = default;
 
+    /** @brief From a design result in another scalar: converts it with .as\<T\>() and builds from that. */
+    template<typename U>
+        requires(!std::is_same_v<U, T>)
+    constexpr StepTrain(const design::StepTrainResult<U>& result) // NOLINT(google-explicit-constructor): assign-from-design
+        : StepTrain(result.template as<T>()) {}
+
     /**
      * @brief Construct from a step-train design payload.
      * @param design Validated design payload.
-     * @param Ts     Optional sample period for internal `step()` mode.
      */
-    constexpr explicit StepTrain(const design::StepTrainResult<T>& design, T Ts = T{0})
-        : config_(design.config), Ts_(Ts), valid_(design.success) {
+    constexpr StepTrain(const design::StepTrainResult<T>& design) // NOLINT(google-explicit-constructor): assign-from-design
+        : config_(design.config), Ts_(design.Ts), valid_(design.success) {
         if (!design.success && std::is_constant_evaluated()) {
             ::damp::detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
@@ -147,9 +158,9 @@ public:
      * @return Excitation value at current internal time.
      */
     [[nodiscard]] constexpr T step() {
-        const T out = step(t_);
+        const T out = step(elapsed());
         if (Ts_ > T{0} && !done()) {
-            t_ += Ts_;
+            ++k_;
         }
         return out;
     }
@@ -172,21 +183,28 @@ public:
      * @return true if internal sequence is complete.
      */
     [[nodiscard]] constexpr bool done() const {
-        return done(t_);
+        return done(elapsed());
     }
 
     /**
      * @brief Reset internal time to zero.
      */
     constexpr void reset() {
-        t_ = T{0};
+        k_ = 0;
     }
 
 private:
+    /** @brief Internal time k·Ts (a sample count, not a running sum of Ts). */
+    [[nodiscard]] constexpr T elapsed() const { return static_cast<T>(k_) * Ts_; }
+
     design::StepTrainConfig<T> config_{};
     T                          Ts_{T{0}};
-    T                          t_{T{0}};
+    std::size_t                k_{0}; ///< Samples emitted by step()
     bool                       valid_{false};
 };
+
+/** @brief Deduce the runtime from its design, keeping the result's scalar. */
+template<typename T>
+StepTrain(const design::StepTrainResult<T>&) -> StepTrain<T>;
 
 } // namespace damp

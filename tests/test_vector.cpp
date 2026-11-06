@@ -162,6 +162,17 @@ TEST_SUITE("ColVec") {
         CHECK(vec_norm[2] == 0.0f);
     }
 
+    TEST_CASE("ColVec normalized near max at run time") {
+        // volatile inputs: g++ folds constant ones exactly. At run time, -ffast-math multiplies
+        // by 1/n, which flushes to zero for n near max.
+        volatile float  a = 2e38f;
+        volatile float  b = 1e30f;
+        volatile double c = 1.7e308;
+        volatile double d = 1e300;
+        CHECK(ColVec<4, float>{a, b, b, b}.normalized()[0] == doctest::Approx(1.0f));
+        CHECK(ColVec<4, double>{c, d, d, d}.normalized()[0] == doctest::Approx(1.0));
+    }
+
     TEST_CASE("ColVec constexpr") {
         constexpr ColVec<3> vec = {1, 2, 3};
 
@@ -208,6 +219,13 @@ TEST_SUITE("ColVec") {
             return s(0, 0) + s(1, 0);
         }();
         CHECK(sum_mid == doctest::Approx(5.0));
+    }
+
+    TEST_CASE("ColVec segment of an rvalue is an owning copy") {
+        const auto make = [] { return ColVec<4>{1.0, 2.0, 3.0, 4.0}; };
+        const auto pos = make().template segment<2>(1);
+        static_assert(std::is_same_v<std::remove_cv_t<decltype(pos)>, ColVec<2>>);
+        CHECK(pos == ColVec<2>{2.0, 3.0});
     }
 }
 
@@ -265,6 +283,15 @@ TEST_SUITE("RowVec") {
         CHECK(vec_norm[2] == 0.0f);
     }
 
+    TEST_CASE("RowVec normalized of large and near-max entries at run time") {
+        // volatile inputs, so the suite's -ffast-math code runs (see the ColVec case).
+        volatile float  a = 2e38f;
+        volatile float  b = 1e30f;
+        volatile double big = 1e200;
+        CHECK(RowVec<4, float>{a, b, b, b}.normalized()[0] == doctest::Approx(1.0f));
+        CHECK(RowVec<1, double>{big}.normalized()[0] == doctest::Approx(1.0));
+    }
+
     TEST_CASE("RowVec segment view") {
         RowVec<5> r = {0.0, 1.0, 2.0, 3.0, 4.0};
 
@@ -279,5 +306,12 @@ TEST_SUITE("RowVec") {
         CHECK(r[2] == doctest::Approx(8.0));
         CHECK(r[3] == doctest::Approx(9.0));
         CHECK(r[4] == doctest::Approx(4.0));
+    }
+
+    TEST_CASE("RowVec segment of an rvalue is an owning copy") {
+        const auto make = [] { return RowVec<4>{1.0, 2.0, 3.0, 4.0}; };
+        const auto mid = make().template segment<2>(1);
+        static_assert(std::is_same_v<std::remove_cv_t<decltype(mid)>, RowVec<2>>);
+        CHECK(mid == RowVec<2>{2.0, 3.0});
     }
 }

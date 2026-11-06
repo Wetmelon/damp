@@ -11,15 +11,44 @@
  */
 
 #include "damp/backend.hpp"
+#include "damp/design/model_result.hpp"
+#include "damp/design/status.hpp"
 #include "damp/math/math.hpp"
 #include "damp/matrix/colvec.hpp"
 #include "damp/matrix/core.hpp"
 #include "damp/systems/discretization.hpp"
 #include "damp/systems/state_space.hpp"
+#include "damp/toolbox/bounds.hpp"
 
 namespace damp {
 
 namespace design {
+
+namespace detail {
+
+/** @brief A resonator needs f0 > 0 and alpha > 0, both finite. */
+template<typename T>
+[[nodiscard]] constexpr bool valid_resonator(T f0, T alpha) {
+    return (f0 > T{0}) && (alpha > T{0}) && damp::isfinite(f0) && damp::isfinite(alpha);
+}
+
+/** @brief The exact ZOH model at Ts of a continuous design result, or the reason it is refused. */
+template<size_t NX, typename T>
+[[nodiscard]] constexpr StateSpaceResult<NX, 1, 2, T> sampled(const StateSpaceResult<NX, 1, 2, T>& continuous, T Ts) {
+    if (!(Ts > T{0}) || !damp::isfinite(Ts)) {
+        return ::damp::detail::refused<StateSpaceResult<NX, 1, 2, T>>(DesignStatus::invalid_sample_time);
+    }
+    if (!continuous.success) {
+        return continuous;
+    }
+    const auto sys_d = discretize(continuous.sys, Ts, DiscretizationMethod::ZOH);
+    if (!sys_d) {
+        return ::damp::detail::refused<StateSpaceResult<NX, 1, 2, T>>(DesignStatus::singular);
+    }
+    return designed(*sys_d);
+}
+
+} // namespace detail
 
 /**
  * @brief Second-Order Generalized Integrator (SOGI) design
@@ -27,18 +56,22 @@ namespace design {
  * SOGI provides bandpass filtering for grid synchronization.
  * Produces quadrature signals (90° phase shift).
  *
- * Transfer functions:
+ * Transfer functions, ω₀ = 2π f0:
  * H_bp(s) = (alpha*ω₀*s) / (s² + alpha*ω₀*s + ω₀²)    [bandpass]
  * H_q(s) = (alpha*ω₀²) / (s² + alpha*ω₀*s + ω₀²)     [quadrature]
  * H_notch(s) = (s² + ω₀²) / (s² + alpha*ω₀*s + ω₀²) [notch]
  *
- * @param w0 Fundamental frequency [rad/s]
- * @param alpha Damping gain (typically 1.0-2.0)
- * @return StateSpace<2, 1, 2, T> SOGI system
+ * @param f0 Fundamental frequency [Hz] (> 0)
+ * @param alpha Damping gain (typically 1.0-2.0, > 0)
+ * @return StateSpaceResult with the SOGI system; refused (invalid_parameter) if f0 or alpha is not positive
  */
 template<typename T = double>
-[[nodiscard]] constexpr StateSpace<2, 1, 2, T> sogi(T w0, T alpha = damp::numbers::sqrt2_v<T>) {
-    return {
+[[nodiscard]] constexpr StateSpaceResult<2, 1, 2, T> sogi(T f0, T alpha = damp::numbers::sqrt2_v<T>) {
+    if (!detail::valid_resonator(f0, alpha)) {
+        return ::damp::detail::refused<StateSpaceResult<2, 1, 2, T>>(DesignStatus::invalid_parameter);
+    }
+    const T w0 = T{2} * damp::numbers::pi_v<T> * f0;
+    return detail::designed(StateSpace<2, 1, 2, T>{
         .A = Matrix<2, 2, T>{
             {-alpha * w0, -w0},
             {w0, T{0}},
@@ -55,7 +88,7 @@ template<typename T = double>
         },
 
         .D = Matrix<2, 1, T>::zeros(),
-    };
+    });
 }
 
 /**
@@ -65,17 +98,15 @@ template<typename T = double>
  * fixed sample rate. (The runtime @ref SOGI class rebuilds its own resonator each
  * tick from the live frequency and does not use this.)
  *
- * @param w0 Fundamental frequency [rad/s]
+ * @param f0 Fundamental frequency [Hz]
  * @param alpha Damping gain (typically 1.0-2.0)
  * @param Ts Sample time [s]
- * @return StateSpace<2, 1, 2, T> Discrete-time SOGI system; the continuous model
- *         (Ts = 0) if @p Ts ≤ 0 or the discretization fails
+ * @return StateSpaceResult with the discrete SOGI system; refused with invalid_sample_time if
+ *         Ts ≤ 0, invalid_parameter for f0 / alpha, singular if the discretization fails
  */
 template<typename T = float>
-[[nodiscard]] constexpr StateSpace<2, 1, 2, T> sogi(T w0, T alpha, T Ts) {
-    const auto sys_c = sogi(w0, alpha);
-    const auto sys_d = discretize(sys_c, Ts, DiscretizationMethod::ZOH);
-    return sys_d ? *sys_d : sys_c;
+[[nodiscard]] constexpr StateSpaceResult<2, 1, 2, T> sogi(T f0, T alpha, T Ts) {
+    return detail::sampled(sogi(f0, alpha), Ts);
 }
 
 /**
@@ -88,7 +119,7 @@ template<typename T = float>
  * signal therefore corrupts the quadrature estimate. The MSTOGI subtracts a
  * co-tuned TOGI estimate so the quadrature channel rejects DC.
  *
- * States `[v′, v″, v‴]` = [in-phase, quadrature, TOGI-tracker]. With the
+ * States `[v′, v″, v‴]` = [in-phase, quadrature, TOGI-tracker]. With ω₀ = 2π f0 and the
  * post-gain bus `w = alpha·ω₀·(v − v′)`:
  *
  *     v̇′  = alpha·ω₀·(v − v′) − ω₀·v″   (SOGI in-phase integrator)
@@ -113,15 +144,20 @@ template<typename T = float>
  *      generalized integrators for grid converters," IECON 2008,
  *      https://doi.org/10.1109/IECON.2008.4757983
  *
- * @param w0 Fundamental frequency [rad/s]
- * @param alpha Damping gain (typically √2 for ~unity-Q SOGI tuning)
- * @return StateSpace<3, 1, 2, T> MSTOGI system (outputs: v_o, q·v_o)
+ * @param f0 Fundamental frequency [Hz] (> 0)
+ * @param alpha Damping gain (typically √2 for ~unity-Q SOGI tuning, > 0)
+ * @return StateSpaceResult with the MSTOGI system (outputs: v_o, q·v_o); refused
+ *         (invalid_parameter) if f0 or alpha is not positive
  */
 template<typename T = double>
-[[nodiscard]] constexpr StateSpace<3, 1, 2, T> mstogi(T w0, T alpha = damp::numbers::sqrt2_v<T>) {
+[[nodiscard]] constexpr StateSpaceResult<3, 1, 2, T> mstogi(T f0, T alpha = damp::numbers::sqrt2_v<T>) {
+    if (!detail::valid_resonator(f0, alpha)) {
+        return ::damp::detail::refused<StateSpaceResult<3, 1, 2, T>>(DesignStatus::invalid_parameter);
+    }
+    const T w0 = T{2} * damp::numbers::pi_v<T> * f0;
     const T alpha_omega = alpha * w0;
 
-    return {
+    return detail::designed(StateSpace<3, 1, 2, T>{
         .A = Matrix<3, 3, T>{
             {-alpha_omega, -w0, T{0}},
             {w0, T{0}, T{0}},
@@ -140,7 +176,7 @@ template<typename T = double>
         },
 
         .D = Matrix<2, 1, T>::zeros(),
-    };
+    });
 }
 
 /**
@@ -149,17 +185,15 @@ template<typename T = double>
  * Exact ZOH discretization of the continuous MSTOGI for simulation/analysis at a
  * fixed sample rate (no Tustin frequency warping).
  *
- * @param w0 Fundamental frequency [rad/s]
+ * @param f0 Fundamental frequency [Hz]
  * @param alpha Damping gain
  * @param Ts Sample time [s]
- * @return StateSpace<3, 1, 2, T> Discrete-time MSTOGI system; the continuous model
- *         (Ts = 0) if @p Ts ≤ 0 or the discretization fails
+ * @return StateSpaceResult with the discrete MSTOGI system; refused with invalid_sample_time if
+ *         Ts ≤ 0, invalid_parameter for f0 / alpha, singular if the discretization fails
  */
 template<typename T = float>
-[[nodiscard]] constexpr StateSpace<3, 1, 2, T> mstogi(T w0, T alpha, T Ts) {
-    const auto sys_c = mstogi(w0, alpha);
-    const auto sys_d = discretize(sys_c, Ts, DiscretizationMethod::ZOH);
-    return sys_d ? *sys_d : sys_c;
+[[nodiscard]] constexpr StateSpaceResult<3, 1, 2, T> mstogi(T f0, T alpha, T Ts) {
+    return detail::sampled(mstogi(f0, alpha), Ts);
 }
 
 } // namespace design
@@ -177,8 +211,12 @@ template<typename T = float>
  * are the exact ZOH step of the undamped resonator at `w0 = 2*pi*freq`, rebuilt
  * each tick so @p freq may track a PLL/FLL estimate. The damping term enters
  * through u, held over the step (so this is not the same realization as
- * `design::sogi(w0, alpha, Ts)`, which discretizes the damped system).
+ * `design::sogi(freq, alpha, Ts)`, which discretizes the damped system).
  * Returns {v′ (band-pass), qv′ (quadrature, 90° lag)}.
+ *
+ * Feeding u back from the previous sample bounds the damping gain: the closed loop
+ * z² + (α sin ω₀Ts − 2 cos ω₀Ts) z + (1 − α sin ω₀Ts) is stable only while
+ * α < cot(ω₀Ts / 2), i.e. ω₀Ts < 2 atan(1/α) (f/fs < 0.196 for α = √2).
  *
  * @see "Understanding Digital Signal Processing" (Lyons, 2011), §13.36
  *
@@ -189,6 +227,13 @@ class SOGI {
 public:
     constexpr SOGI() = default;
 
+    /**
+     * @brief One tick: returns {v′ (band-pass), qv′ (quadrature)} and advances the resonator.
+     * @param in    Input sample
+     * @param freq  [Hz] Centre frequency f0 (stable while α < cot(π f0 Ts))
+     * @param alpha Damping gain α (> 0)
+     * @param Ts    [s] Sample time
+     */
     [[nodiscard]] constexpr damp::pair<T, T> operator()(T in, T freq, T alpha, T Ts) {
         const auto wT = freq * T{2} * damp::numbers::pi_v<T> * Ts;
         const auto [s, c] = damp::sincos(wT); // sin(wT), cos(wT)
@@ -218,7 +263,7 @@ public:
         return {y(0), y(1)};
     }
 
-    /// Clear the resonator state.
+    /** @brief Clear the resonator state. */
     constexpr void reset() { x = {}; }
 
 private:
@@ -242,7 +287,8 @@ private:
  *   x_t[k+1] = (1 - w0*Ts) * x_t[k] + alpha*w0*Ts * (u[k] - bp[k])
  *
  * This removes the per-sample exp() from the hot path while preserving DC
- * rejection behavior for practical sample rates (w0*Ts << 1).
+ * rejection behavior for practical sample rates (w0*Ts << 1). The resonator loop
+ * is the one of @ref SOGI, stable while alpha < cot(w0*Ts / 2).
  *
  * @see design::mstogi() for the discrete design model and transfer functions
  * @see Rodríguez et al., IECON 2008, https://doi.org/10.1109/IECON.2008.4757983
@@ -254,6 +300,13 @@ class MSTOGI {
 public:
     constexpr MSTOGI() = default;
 
+    /**
+     * @brief One tick: returns {v_o (band-pass), q·v_o (DC-rejecting quadrature)}.
+     * @param in    Input sample
+     * @param freq  [Hz] Centre frequency f0 (stable while α < cot(π f0 Ts))
+     * @param alpha Damping gain α (> 0)
+     * @param Ts    [s] Sample time
+     */
     [[nodiscard]] constexpr damp::pair<T, T> operator()(T in, T freq, T alpha, T Ts) {
         const T wT = freq * T{2} * damp::numbers::pi_v<T> * Ts;
         const auto [s, c] = damp::sincos(wT); // sin(wT), cos(wT)
@@ -288,7 +341,7 @@ public:
         return {y(0), y(1) - togi_state};
     }
 
-    /// Clear the resonator and washout state.
+    /** @brief Clear the resonator and washout state. */
     constexpr void reset() {
         x = {};
         togi_state = {};
@@ -328,9 +381,11 @@ private:
  *
  *     ω̇ = −Γ·ω·(ε·qv′) / (v′² + qv′²)
  *
- * @note The SOGI step uses the exact discrete resonator at the current ω each tick
- *       (stable for any ω·Ts < π); the FLL integrates ω by forward Euler. All
- *       constexpr, allocation-free.
+ * @note The SOGI step uses the exact discrete resonator at the current ω each tick,
+ *       with the damping fed back from the previous sample, which is stable only for
+ *       ω·Ts < 2·atan(1/k) (f/fs < 0.196 at k = √2). The upper clamp is held to 90 %
+ *       of that bound; the FLL integrates ω by forward Euler. All constexpr,
+ *       allocation-free.
  *
  * @see "Multiresonant Frequency-Locked Loops" (P. Rodriguez et al., IEEE TIE),
  *      https://doi.org/10.1109/TIE.2010.2042420
@@ -347,26 +402,32 @@ public:
      * @param Ts              Sample time [s]
      * @param sogi_gain       SOGI gain k (√2 ≈ 0.707 damping; default)
      * @param fll_gain        Normalized FLL gain Γ (larger = faster lock, less smooth)
-     * @param freq_min_hz     Lower clamp on the tracked frequency [Hz] (0 → 0.5 Hz)
-     * @param freq_max_hz     Upper clamp [Hz] (0 → Nyquist)
+     * @param freq_lim_hz     Clamp on the tracked frequency [Hz]; a lower end ≤ 0 means 0.5 Hz,
+     *                        an upper end ≤ 0 or past the stability cap means the cap,
+     *                        0.9·2·atan(1/k) / (2π·Ts) (default: both)
+     *
+     * valid() is false unless Ts > 0, k > 0, the band is non-empty and the initial guess
+     * is below its upper end.
      */
     constexpr SogiFll(
-        T initial_freq_hz,
-        T Ts,
-        T sogi_gain = damp::numbers::sqrt2_v<T>,
-        T fll_gain = T{2},
-        T freq_min_hz = T{0},
-        T freq_max_hz = T{0}
+        T            initial_freq_hz,
+        T            Ts,
+        T            sogi_gain = damp::numbers::sqrt2_v<T>,
+        T            fll_gain = T{2},
+        Bounds<1, T> freq_lim_hz = {}
     ) : Ts_(Ts),
         k_(sogi_gain),
         gamma_(fll_gain),
         omega_(two_pi() * initial_freq_hz),
-        omega_min_(two_pi() * (freq_min_hz > T{0} ? freq_min_hz : static_cast<T>(0.5))),
-        omega_max_(two_pi() * (freq_max_hz > T{0} ? freq_max_hz : T{1} / (T{2} * Ts))),
-        valid_(Ts > T{0} && initial_freq_hz > T{0}) {}
+        omega_min_(two_pi() * (freq_lim_hz.lower(0) > T{0} ? freq_lim_hz.lower(0) : static_cast<T>(0.5))),
+        omega_max_(two_pi() * upper_frequency(freq_lim_hz.upper(0), Ts, sogi_gain)),
+        valid_(
+            Ts > T{0} && damp::isfinite(Ts) && sogi_gain > T{0} && initial_freq_hz > T{0} && omega_min_ < omega_max_
+            && omega_ <= omega_max_
+        ) {}
 
-    /// Advance one step with a new input sample.
-    constexpr void update(T in) {
+    /** @brief One tick with a new input sample: advance the resonator, then the FLL frequency. */
+    constexpr void step(T in) {
         if (!valid_) {
             return;
         }
@@ -394,33 +455,46 @@ public:
         }
     }
 
-    /// Locked frequency [Hz].
+    /** @brief Locked frequency [Hz]. */
     [[nodiscard]] constexpr T frequency_hz() const { return omega_ / two_pi(); }
 
-    /// Locked frequency [rad/s].
+    /** @brief Locked frequency [rad/s]. */
     [[nodiscard]] constexpr T frequency_rad() const { return omega_; }
 
-    /// In-phase (band-pass) output — the input filtered to the locked frequency.
+    /** @brief In-phase (band-pass) output — the input filtered to the locked frequency. */
     [[nodiscard]] constexpr T in_phase() const { return x1_; }
 
-    /// Quadrature output (90° lag).
+    /** @brief Quadrature output (90° lag). */
     [[nodiscard]] constexpr T quadrature() const { return x0_; }
 
-    /// Estimated amplitude of the tracked tone.
+    /** @brief Estimated amplitude of the tracked tone. */
     [[nodiscard]] constexpr T amplitude() const { return damp::hypot(x0_, x1_); }
 
-    /// Estimated phase of the tracked tone [rad].
+    /** @brief Estimated phase of the tracked tone [rad]. */
     [[nodiscard]] constexpr T    phase() const { return damp::atan2(x0_, x1_); }
     [[nodiscard]] constexpr bool valid() const { return valid_; }
 
+    /** @brief Clear the resonator and re-seed the frequency, clamped to the band. */
     constexpr void reset(T initial_freq_hz) {
         x0_ = T{0};
         x1_ = T{0};
         omega_ = two_pi() * initial_freq_hz;
+        if (valid_) {
+            omega_ = damp::clamp(omega_, omega_min_, omega_max_);
+        }
     }
 
 private:
     static constexpr T two_pi() { return T{2} * damp::numbers::pi_v<T>; }
+
+    /** @brief Upper clamp [Hz]: @p hi when in (0, cap), else the cap, 90 % of the loop's stability bound 2·atan(1/k) / (2π·Ts). */
+    static constexpr T upper_frequency(T hi, T Ts, T k) {
+        if (!(k > T{0}) || !(Ts > T{0})) {
+            return T{0}; // no band: the constructor marks the tracker invalid
+        }
+        const T cap = static_cast<T>(0.9) * T{2} * damp::atan(T{1} / k) / (two_pi() * Ts);
+        return (hi > T{0} && hi < cap) ? hi : cap;
+    }
 
     T    Ts_{T{1}};
     T    k_{damp::numbers::sqrt2_v<T>};

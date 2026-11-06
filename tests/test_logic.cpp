@@ -3,6 +3,8 @@
 // Distributed under the Boost Software License, Version 1.0.
 // (See accompanying file LICENSE or copy at http://www.boost.org/LICENSE_1_0.txt)
 
+#include <limits>
+
 #include "damp/toolbox/logic.hpp"
 
 #define DOCTEST_CONFIG_INCLUDE_TYPE_TRAITS
@@ -101,5 +103,20 @@ TEST_SUITE("Logic & timing blocks") {
         CHECK(c(true, true) == 1); // simultaneous up+down edges net zero
         CHECK(c(false, false) == 1);
         CHECK(c(false, true) == 0); // down edge
+    }
+
+    TEST_CASE("OnDelayTimer<double> fires after exactly ten 0.1 s ticks") {
+        OnDelayTimer<double> t{1.0};
+        for (int i = 0; i < 9; ++i) {
+            CHECK_FALSE(t(true, 0.1));
+        }
+        CHECK(t(true, 0.1));
+    }
+
+    TEST_CASE("Counter saturates instead of overflowing") {
+        Counter<int> c{std::numeric_limits<int>::max()};
+        CHECK(c(true, false) == std::numeric_limits<int>::max());
+        Counter<int> d{std::numeric_limits<int>::min()};
+        CHECK(d(false, true) == std::numeric_limits<int>::min());
     }
 }

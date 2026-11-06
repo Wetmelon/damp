@@ -69,7 +69,7 @@ TEST_SUITE("Integration: Motor + Flexible Coupling + Mass System") {
             Matrix<3, 3, double> Q{{1.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 1.0}};
             Matrix<1, 1, double> R{{0.01}};
 
-            return design::discrete_lqr_from_continuous(sys_c, Q, R, Ts);
+            return design::lqr(sys_c, Ts, {.Q = Q, .R = R});
         }();
 
         // Step 2: Convert the double-precision controller to float for runtime use

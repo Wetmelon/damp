@@ -104,6 +104,10 @@ template<std::size_t NTones, typename T = double>
 struct MultiSineResult {
     MultiSineConfig<NTones, T> config{};       ///< Validated multi-sine configuration
     bool                       success{false}; ///< true if `config.valid()`
+    T                          Ts{0};          ///< [s] Sample period of the internal step() clock (0 = absolute-time step(t) only)
+
+    /** @brief True when the design succeeded (success). */
+    [[nodiscard]] constexpr explicit operator bool() const { return success; }
 
     /**
      * @brief Convert design payload to another scalar type.
@@ -116,7 +120,7 @@ struct MultiSineResult {
         for (std::size_t i = 0; i < NTones; ++i) {
             cfg_u.tones[i] = config.tones[i].template as<U>();
         }
-        return MultiSineResult<NTones, U>{cfg_u, success};
+        return MultiSineResult<NTones, U>{cfg_u, success, static_cast<U>(Ts)};
     }
 };
 
@@ -126,12 +130,18 @@ struct MultiSineResult {
  * @tparam NTones Number of tones.
  * @tparam T      Scalar type.
  * @param config  Multi-sine configuration.
- * @return MultiSineResult with `success = config.valid()`.
+ * @param Ts     [s] Sample period of the runtime's step() clock (0 = absolute-time step(t) only; < 0 refused)
+ * @return MultiSineResult with `success` = `config.valid()`, a valid Ts, and (for Ts > 0) every
+ *         tone below the Nyquist frequency 1/(2·Ts).
  */
 template<std::size_t NTones, typename T = double>
 [[nodiscard]] constexpr MultiSineResult<NTones, T>
-multi_sine(const MultiSineConfig<NTones, T>& config) {
-    return MultiSineResult<NTones, T>{config, config.valid()};
+multi_sine(const MultiSineConfig<NTones, T>& config, T Ts = T{0}) {
+    bool below_nyquist = true;
+    for (std::size_t i = 0; i < NTones; ++i) {
+        below_nyquist = below_nyquist && (T{2} * config.tones[i].freq_hz * Ts < T{1});
+    }
+    return MultiSineResult<NTones, T>{config, config.valid() && (Ts >= T{0}) && damp::isfinite(Ts) && below_nyquist, Ts};
 }
 
 /**
@@ -173,12 +183,15 @@ with_schroeder_phases(MultiSineConfig<NTones, T> config) {
 /**
  * @brief Build a multi-sine design payload with Schroeder phases applied.
  *
- * Equivalent to `multi_sine(with_schroeder_phases(config))`.
+ * Equivalent to `multi_sine(with_schroeder_phases(config), Ts)`.
+ *
+ * @param config Multi-sine configuration; its phases are replaced by the Schroeder phases.
+ * @param Ts     [s] Sample period of the runtime's step() clock (0 = absolute-time step(t) only; < 0 refused)
  */
 template<std::size_t NTones, typename T = double>
 [[nodiscard]] constexpr MultiSineResult<NTones, T>
-schroeder_multi_sine(const MultiSineConfig<NTones, T>& config) {
-    return multi_sine(with_schroeder_phases(config));
+schroeder_multi_sine(const MultiSineConfig<NTones, T>& config, T Ts = T{0}) {
+    return multi_sine(with_schroeder_phases(config), Ts);
 }
 
 } // namespace design
@@ -201,16 +214,25 @@ class MultiSine {
 public:
     constexpr MultiSine() = default;
 
+    /** @brief From a design result in another scalar: converts it with .as\<T\>() and builds from that. */
+    template<typename U>
+        requires(!std::is_same_v<U, T>)
+    constexpr MultiSine(const design::MultiSineResult<NTones, U>& result) // NOLINT(google-explicit-constructor): assign-from-design
+        : MultiSine(result.template as<T>()) {}
+
     /**
      * @brief Construct from a multi-sine design payload.
      * @param design Validated design payload.
-     * @param Ts     Optional sample period for internal `step()` mode.
      */
-    constexpr explicit MultiSine(const design::MultiSineResult<NTones, T>& design, T Ts = T{0})
-        : config_(design.config), Ts_(Ts), valid_(design.success) {
+    constexpr MultiSine(const design::MultiSineResult<NTones, T>& design) // NOLINT(google-explicit-constructor): assign-from-design
+        : config_(design.config), valid_(design.success) {
         if (!design.success && std::is_constant_evaluated()) {
             ::damp::detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
+        for (std::size_t i = 0; i < NTones; ++i) {
+            step_[i] = damp::wrap_pi(T{2} * damp::numbers::pi_v<T> * config_.tones[i].freq_hz * design.Ts);
+        }
+        reset();
     }
 
     /**
@@ -235,14 +257,22 @@ public:
 
     /**
      * @brief Evaluate multi-sine at internal time and advance by `Ts`.
+     *
+     * Each tone keeps its own phase, advanced by 2π·f·Ts per call and wrapped to [−π, π), so
+     * the sine argument stays bounded however long the generator runs.
+     *
      * @return Excitation value at current internal time.
      */
     [[nodiscard]] constexpr T step() {
-        const T out = step(t_);
-        if (Ts_ > T{0}) {
-            t_ += Ts_;
+        if (!valid_) {
+            return T{0};
         }
-        return out;
+        T y = T{0};
+        for (std::size_t i = 0; i < NTones; ++i) {
+            y += config_.tones[i].amplitude * damp::sin(phase_[i]);
+            phase_[i] = damp::wrap_pi(phase_[i] + step_[i]);
+        }
+        return y;
     }
 
     /**
@@ -267,14 +297,20 @@ public:
      * @brief Reset internal time to zero.
      */
     constexpr void reset() {
-        t_ = T{0};
+        for (std::size_t i = 0; i < NTones; ++i) {
+            phase_[i] = damp::wrap_pi(config_.tones[i].phase_rad);
+        }
     }
 
 private:
     design::MultiSineConfig<NTones, T> config_{};
-    T                                  Ts_{T{0}};
-    T                                  t_{T{0}};
+    damp::array<T, NTones>             phase_{}; ///< Tone phases at the next step() [rad]
+    damp::array<T, NTones>             step_{};  ///< Phase advance per step(), 2π·f·Ts wrapped [rad]
     bool                               valid_{false};
 };
+
+/** @brief Deduce the runtime from its design, keeping the result's scalar. */
+template<std::size_t NTones, typename T>
+MultiSine(const design::MultiSineResult<NTones, T>&) -> MultiSine<NTones, T>;
 
 } // namespace damp

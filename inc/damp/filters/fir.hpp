@@ -25,6 +25,7 @@
 #include <type_traits>
 
 #include "damp/backend.hpp"
+#include "damp/design/status.hpp"
 #include "damp/math/math.hpp"
 #include "damp/matrix/matrix_traits.hpp" // eps
 
@@ -63,10 +64,14 @@ enum class FirWindow {
  * @tparam T       Scalar type
  */
 template<size_t MaxTaps, typename T = double>
-struct FirDesignResult {
-    damp::array<T, MaxTaps> b{};            ///< FIR coefficients (only first n_taps used)
-    size_t                  n_taps{0};      ///< Active length (1…MaxTaps when success)
-    bool                    success{false}; ///< true if design completed
+struct [[nodiscard]] FirDesignResult {
+    damp::array<T, MaxTaps> b{};                                 ///< FIR coefficients (only first n_taps used)
+    size_t                  n_taps{0};                           ///< Active length (1…MaxTaps when success)
+    bool                    success{false};                      ///< status == DesignStatus::ok
+    DesignStatus            status{DesignStatus::not_converged}; ///< ok, or why the design failed
+
+    /** @brief True when the design succeeded (success). */
+    [[nodiscard]] constexpr explicit operator bool() const { return success; }
 
     /**
      * @brief Convert coefficients to a different scalar type
@@ -81,6 +86,7 @@ struct FirDesignResult {
         }
         out.n_taps = n_taps;
         out.success = success;
+        out.status = status;
         return out;
     }
 };
@@ -213,7 +219,7 @@ template<typename T>
  * Designs a linear-phase FIR by truncating the ideal impulse response and
  * multiplying by a window. Cutoff @p fc is in cycles per sample on
  * @f$ (0,\,0.5) @f$ (Nyquist = 0.5). Equivalent Hz form:
- * @f$ f_c = f_{\mathrm{Hz}} / f_s @f$.
+ * @f$ f_c = f_{\mathrm{Hz}} \cdot T_s @f$ (see @ref fir1_hz).
  *
  * For @ref FirType::Highpass, an even @p n_taps is adjusted to the nearest odd
  * length ≤ @p MaxTaps (Type I linear phase needs a centre tap for spectral
@@ -233,7 +239,8 @@ template<typename T>
  * @param fc       Cutoff frequency in cycles/sample, strictly in (0, 0.5)
  * @param type     Lowpass or Highpass (Bandpass/Bandstop require two cutoffs)
  * @param window   Window family (default Hamming)
- * @return FirDesignResult; success=false on invalid arguments
+ * @return FirDesignResult; refused (invalid_parameter) on an out-of-range length or cutoff or a
+ *         two-cutoff type, singular if the normalizing gain vanishes
  */
 template<size_t MaxTaps, typename T = double>
 [[nodiscard]] constexpr FirDesignResult<MaxTaps, T> fir1(
@@ -242,19 +249,20 @@ template<size_t MaxTaps, typename T = double>
     FirType   type = FirType::Lowpass,
     FirWindow window = FirWindow::Hamming
 ) {
-    FirDesignResult<MaxTaps, T> result{};
+    using Result = FirDesignResult<MaxTaps, T>;
+    Result result{};
     if (n_taps < 1 || n_taps > MaxTaps || !detail::valid_fc(fc)) {
-        return result;
+        return ::damp::detail::refused<Result>(DesignStatus::invalid_parameter);
     }
     if (type == FirType::Bandpass || type == FirType::Bandstop) {
-        return result; // need two cutoffs
+        return ::damp::detail::refused<Result>(DesignStatus::invalid_parameter); // need two cutoffs
     }
 
     size_t N = n_taps;
     if (type == FirType::Highpass) {
         N = detail::force_odd_length(n_taps, MaxTaps);
         if ((N % 2) == 0) {
-            return result;
+            return ::damp::detail::refused<Result>(DesignStatus::invalid_parameter);
         }
     }
 
@@ -271,7 +279,7 @@ template<size_t MaxTaps, typename T = double>
         dc_sum += result.b[n];
     }
     if (!detail::scale_to_unit_gain(result.b, N, dc_sum)) {
-        return result;
+        return ::damp::detail::refused<Result>(DesignStatus::singular);
     }
 
     if (type == FirType::Highpass) {
@@ -285,13 +293,12 @@ template<size_t MaxTaps, typename T = double>
         // Unit gain at Nyquist (preserves the DC null)
         const T g = detail::fir_passband_gain<MaxTaps, T>(result.b, N, static_cast<T>(0.5));
         if (!detail::scale_to_unit_gain(result.b, N, g)) {
-            return result;
+            return ::damp::detail::refused<Result>(DesignStatus::singular);
         }
     }
 
     result.n_taps = N;
-    result.success = true;
-    return result;
+    return ::damp::detail::set_status(result, DesignStatus::ok);
 }
 
 /**
@@ -306,9 +313,10 @@ template<size_t MaxTaps, typename T = double>
  * @param n_taps   Desired taps
  * @param f_lo     Lower cutoff (cycles/sample)
  * @param f_hi     Upper cutoff (cycles/sample)
- * @param type     Bandpass or Bandstop
+ * @param type     Bandpass or Bandstop (Lowpass/Highpass take one cutoff)
  * @param window   Window family
- * @return FirDesignResult; success=false on invalid arguments
+ * @return FirDesignResult; refused (invalid_parameter) on an out-of-range length or band or a
+ *         single-cutoff type, singular if the normalizing gain vanishes
  */
 template<size_t MaxTaps, typename T = double>
 [[nodiscard]] constexpr FirDesignResult<MaxTaps, T> fir1(
@@ -318,20 +326,20 @@ template<size_t MaxTaps, typename T = double>
     FirType   type = FirType::Bandpass,
     FirWindow window = FirWindow::Hamming
 ) {
-    FirDesignResult<MaxTaps, T> result{};
+    using Result = FirDesignResult<MaxTaps, T>;
+    Result result{};
     if (n_taps < 1 || n_taps > MaxTaps || !detail::valid_band(f_lo, f_hi)) {
-        return result;
+        return ::damp::detail::refused<Result>(DesignStatus::invalid_parameter);
     }
     if (type != FirType::Bandpass && type != FirType::Bandstop) {
-        // Single-cutoff types: use the first cutoff only
-        return fir1<MaxTaps, T>(n_taps, f_lo, type, window);
+        return ::damp::detail::refused<Result>(DesignStatus::invalid_parameter); // one-cutoff types
     }
 
     size_t N = n_taps;
     if (type == FirType::Bandstop) {
         N = detail::force_odd_length(n_taps, MaxTaps);
         if ((N % 2) == 0) {
-            return result;
+            return ::damp::detail::refused<Result>(DesignStatus::invalid_parameter);
         }
     }
 
@@ -356,55 +364,55 @@ template<size_t MaxTaps, typename T = double>
     const T f_pb = (type == FirType::Bandpass) ? ((f_lo + f_hi) / T{2}) : T{0};
     const T g = detail::fir_passband_gain<MaxTaps, T>(result.b, N, f_pb);
     if (!detail::scale_to_unit_gain(result.b, N, g)) {
-        return result;
+        return ::damp::detail::refused<Result>(DesignStatus::singular);
     }
 
     result.n_taps = N;
-    result.success = true;
-    return result;
+    return ::damp::detail::set_status(result, DesignStatus::ok);
 }
 
 /**
- * @brief Window-method FIR design from frequencies in Hz
+ * @brief Window-method FIR design from a cutoff in Hz and the sample time
  *
- * Converts @f$ f_c = f_{\mathrm{Hz}}/f_s @f$ then calls @ref fir1.
+ * Converts @f$ f_c = f_{\mathrm{Hz}} \cdot T_s @f$ then calls @ref fir1.
  *
  * @param n_taps  Number of taps
- * @param fc_hz   Cutoff [Hz]
- * @param fs_hz   Sample rate [Hz] (> 0); Nyquist = fs/2
+ * @param fc_hz   Cutoff [Hz] (0 < fc_hz < 1/(2·Ts))
+ * @param Ts      Sample time [s] (> 0)
  * @param type    Lowpass or Highpass
  * @param window  Window family
+ * @return FirDesignResult; refused with invalid_sample_time if Ts ≤ 0, otherwise as @ref fir1
  */
 template<size_t MaxTaps, typename T = double>
 [[nodiscard]] constexpr FirDesignResult<MaxTaps, T> fir1_hz(
     size_t    n_taps,
     T         fc_hz,
-    T         fs_hz,
+    T         Ts,
     FirType   type = FirType::Lowpass,
     FirWindow window = FirWindow::Hamming
 ) {
-    if (fs_hz <= T{0}) {
-        return FirDesignResult<MaxTaps, T>{};
+    if (!(Ts > T{0}) || !damp::isfinite(Ts)) {
+        return ::damp::detail::refused<FirDesignResult<MaxTaps, T>>(DesignStatus::invalid_sample_time);
     }
-    return fir1<MaxTaps, T>(n_taps, fc_hz / fs_hz, type, window);
+    return fir1<MaxTaps, T>(n_taps, fc_hz * Ts, type, window);
 }
 
 /**
- * @brief Two-cutoff Hz overload for bandpass / bandstop
+ * @brief Two-cutoff Hz overload for bandpass / bandstop, @p f_lo_hz and @p f_hi_hz [Hz] sampled every @p Ts [s]
  */
 template<size_t MaxTaps, typename T = double>
 [[nodiscard]] constexpr FirDesignResult<MaxTaps, T> fir1_hz(
     size_t    n_taps,
     T         f_lo_hz,
     T         f_hi_hz,
-    T         fs_hz,
+    T         Ts,
     FirType   type = FirType::Bandpass,
     FirWindow window = FirWindow::Hamming
 ) {
-    if (fs_hz <= T{0}) {
-        return FirDesignResult<MaxTaps, T>{};
+    if (!(Ts > T{0}) || !damp::isfinite(Ts)) {
+        return ::damp::detail::refused<FirDesignResult<MaxTaps, T>>(DesignStatus::invalid_sample_time);
     }
-    return fir1<MaxTaps, T>(n_taps, f_lo_hz / fs_hz, f_hi_hz / fs_hz, type, window);
+    return fir1<MaxTaps, T>(n_taps, f_lo_hz * Ts, f_hi_hz * Ts, type, window);
 }
 
 /**
@@ -458,15 +466,19 @@ class FirFilter {
 public:
     static_assert(MaxTaps >= 1, "FirFilter needs MaxTaps >= 1");
 
-    /// Identity (single tap b0 = 1) until @ref init
-    constexpr FirFilter() {
-        b_[0] = T{1};
-    }
+    /** @brief Zero output (single tap b0 = 0) until @ref init */
+    constexpr FirFilter() = default;
 
-    /// Construct from a design result (at run time a no-op if !success — leaves identity; constant-evaluated, a failed design does not compile)
-    constexpr explicit FirFilter(const design::FirDesignResult<MaxTaps, T>& des) : FirFilter() {
+    /** @brief From a design result in another scalar: converts it with .as\<T\>() and builds from that. */
+    template<typename U>
+        requires(!std::is_same_v<U, T>)
+    constexpr FirFilter(const design::FirDesignResult<MaxTaps, U>& result) // NOLINT(google-explicit-constructor): assign-from-design
+        : FirFilter(result.template as<T>()) {}
+
+    /** @brief Construct from a design result (at run time a failed design leaves zero taps, zero output; constant-evaluated, it does not compile) */
+    constexpr FirFilter(const design::FirDesignResult<MaxTaps, T>& des) : FirFilter() { // NOLINT(google-explicit-constructor): assign-from-design
         if (!des.success && std::is_constant_evaluated()) {
-            ::damp::detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed design does not compile
+            ::damp::detail::refuse_failed_design(des.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
         (void)init(des);
     }
@@ -503,7 +515,7 @@ public:
         return true;
     }
 
-    /// Process one sample
+    /** @brief Process one sample */
     constexpr T operator()(T x) {
         x_[write_] = x;
         T      y = T{0};
@@ -516,7 +528,7 @@ public:
         return y;
     }
 
-    /// Clear the delay line (coefficients unchanged)
+    /** @brief Clear the delay line (coefficients unchanged) */
     constexpr void reset() {
         x_ = {};
         write_ = 0;
@@ -524,7 +536,7 @@ public:
 
     [[nodiscard]] constexpr size_t n_taps() const { return n_taps_; }
 
-    /// Read coefficient b[k] (0 if k ≥ n_taps)
+    /** @brief Read coefficient b[k] (0 if k ≥ n_taps) */
     [[nodiscard]] constexpr T coefficient(size_t k) const {
         return (k < n_taps_) ? b_[k] : T{0};
     }
@@ -535,6 +547,10 @@ private:
     size_t                  n_taps_{1};
     size_t                  write_{0};
 };
+
+/** @brief Deduce the runtime from its design, keeping the result's scalar. */
+template<size_t MaxTaps, typename T>
+FirFilter(const design::FirDesignResult<MaxTaps, T>&) -> FirFilter<MaxTaps, T>;
 
 /**
  * @brief Normalized LMS adaptive FIR filter
@@ -547,7 +563,8 @@ private:
  * @f]
  * where @p d is the desired response and @p x is the tapped input vector.
  * Useful for system identification, adaptive noise cancellation, and line
- * enhancement.
+ * enhancement. With the default ε = 0 the update is independent of the input
+ * scale; a sample whose tapped input is all zero leaves the weights unchanged.
  *
  * @tparam MaxTaps Maximum taps
  * @tparam T       Scalar type
@@ -565,12 +582,12 @@ public:
      * @brief Configure length and step size
      * @param n_taps Active taps (clamped to [1, MaxTaps])
      * @param mu     Step size, typically in (0, 2) for NLMS stability
-     * @param eps    Regularization ε > 0 (avoids /0)
+     * @param eps    Regularization ε ≥ 0 in the input's units squared (default 0; a negative value means 0)
      */
-    constexpr void init(size_t n_taps, T mu = static_cast<T>(0.5), T eps = static_cast<T>(1e-6)) {
+    constexpr void init(size_t n_taps, T mu = static_cast<T>(0.5), T eps = T{0}) {
         n_taps_ = damp::clamp(n_taps, size_t{1}, MaxTaps);
         mu_ = mu;
-        eps_ = (eps > T{0}) ? eps : static_cast<T>(1e-6);
+        eps_ = (eps > T{0}) ? eps : T{0};
         reset();
     }
 
@@ -596,11 +613,14 @@ public:
         }
 
         const T e = d - y;
-        const T step = (mu_ * e) / (eps_ + power);
-        j = write_;
-        for (size_t k = 0; k < n_taps_; ++k) {
-            b_[k] += step * x_[j];
-            j = (j == 0) ? (n_taps_ - 1) : (j - 1);
+        const T denom = eps_ + power;
+        if (denom > T{0}) {
+            const T step = (mu_ * e) / denom;
+            j = write_;
+            for (size_t k = 0; k < n_taps_; ++k) {
+                b_[k] += step * x_[j];
+                j = (j == 0) ? (n_taps_ - 1) : (j - 1);
+            }
         }
 
         write_ = (write_ + 1) % n_taps_;
@@ -608,7 +628,7 @@ public:
         return y;
     }
 
-    /// Zero coefficients and delay line
+    /** @brief Zero coefficients and delay line */
     constexpr void reset() {
         b_ = {};
         x_ = {};
@@ -622,15 +642,14 @@ public:
         return (k < n_taps_) ? b_[k] : T{0};
     }
 
-    /// Copy coefficients into a fixed FIR (freeze adaptation)
+    /** @brief Copy coefficients into a fixed FIR (freeze adaptation) */
     [[nodiscard]] constexpr design::FirDesignResult<MaxTaps, T> coefficients() const {
         design::FirDesignResult<MaxTaps, T> out{};
         for (size_t i = 0; i < n_taps_; ++i) {
             out.b[i] = b_[i];
         }
         out.n_taps = n_taps_;
-        out.success = true;
-        return out;
+        return ::damp::detail::set_status(out, design::DesignStatus::ok);
     }
 
 private:
@@ -639,7 +658,7 @@ private:
     size_t                  n_taps_{MaxTaps};
     size_t                  write_{0};
     T                       mu_{static_cast<T>(0.5)};
-    T                       eps_{static_cast<T>(1e-6)};
+    T                       eps_{T{0}};
     T                       last_error_{T{0}};
 };
 

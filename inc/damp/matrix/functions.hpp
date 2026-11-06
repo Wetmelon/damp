@@ -7,17 +7,20 @@
 
 /**
  * @file functions.hpp
- * @brief Matrix functions (expm, sqrtm, funm, ...)
+ * @brief Matrix norms, determinant and rank, and matrix functions (expm, sqrt, log,
+ *        pow, sin/cos, sinh/cosh)
  */
 
+#include <cstdint>
 #include <limits>
+#include <type_traits>
 
 #include "core.hpp"
 #include "damp/backend.hpp"
 #include "damp/matrix/matrix_traits.hpp"
-#include "solve.hpp" // expm()/sqrtm() use mat::solve; include directly so this
-#include "svd.hpp"
-// does not depend on aggregation order (formatter sorts includes)
+#include "eigen.hpp" // sqrt() uses the real Schur form
+#include "solve.hpp" // expm() and log() use mat::solve
+#include "svd.hpp"   // two_norm() and rank() use the SVD
 
 namespace damp {
 
@@ -81,35 +84,6 @@ template<typename T, size_t N>
 }
 
 /**
- * @brief Frobenius norm ‖A‖F = √(Σᵢⱼ |aᵢⱼ|²)
- *
- * Always returns a real scalar (@c scalar_type_t&lt;T&gt;), including for complex matrices.
- *
- * @f[
- *   \|A\|_F = \sqrt{\sum_{ij} |a_{ij}|^2}
- * @f]
- *
- * @note Compare with MATLAB®'s norm(A, 'fro').
- *
- * @tparam T Element type (real or damp::complex)
- * @tparam N Matrix dimension
- * @param A Square matrix
- * @return Frobenius norm of the matrix
- */
-template<typename T, size_t N>
-[[nodiscard]] constexpr scalar_type_t<T> frobenius_norm(const Matrix<N, N, T>& A) {
-    using real_t = scalar_type_t<T>;
-    real_t sum_squares = real_t{0};
-    for (size_t i = 0; i < N; ++i) {
-        for (size_t j = 0; j < N; ++j) {
-            const real_t abs_val = damp::abs(A(i, j));
-            sum_squares += abs_val * abs_val;
-        }
-    }
-    return damp::sqrt(sum_squares);
-}
-
-/**
  * @brief Spectral norm ‖A‖₂ = σₘₐₓ(A)
  *
  * @f[
@@ -131,15 +105,61 @@ template<typename T, size_t N>
  */
 template<typename T, size_t N>
 [[nodiscard]] constexpr scalar_type_t<T> two_norm(const Matrix<N, N, T>& A) {
-    return svd(A).singular_values[0];
+    const auto s = svd(A);
+    return s.success ? s.singular_values[0] : std::numeric_limits<scalar_type_t<T>>::quiet_NaN();
 }
+
+namespace detail {
+
+/**
+ * @brief Gaussian elimination with partial pivoting on the leading n×n block of @p M, carrying @p b.
+ *
+ * On return @p M holds U in its leading block and @p b holds L⁻¹Pb, so U x = b solves M x = b.
+ * Returns det = sign(P)·Π uᵢᵢ, or 0 when a pivot column is exactly zero. Unlike
+ * lu_decomposition() there is no cancellation floor: an ill-conditioned but nonsingular
+ * matrix keeps its (small) determinant.
+ */
+template<typename T, size_t K>
+[[nodiscard]] constexpr T pivot_eliminate(Matrix<K, K, T>& M, ColVec<K, T>& b, size_t n) {
+    T d = T{1};
+    for (size_t i = 0; i < n; ++i) {
+        size_t p = i;
+        for (size_t r = i + 1; r < n; ++r) {
+            if (damp::abs(M(r, i)) > damp::abs(M(p, i))) {
+                p = r;
+            }
+        }
+        if (!(damp::abs(M(p, i)) > scalar_type_t<T>{0})) {
+            return T{0};
+        }
+        if (p != i) {
+            for (size_t c = 0; c < n; ++c) {
+                damp::swap(M(i, c), M(p, c));
+            }
+            damp::swap(b(i), b(p));
+            d = -d;
+        }
+        d *= M(i, i);
+        for (size_t r = i + 1; r < n; ++r) {
+            const T f = M(r, i) / M(i, i);
+            M(r, i) = T{0};
+            for (size_t c = i + 1; c < n; ++c) {
+                M(r, c) -= f * M(i, c);
+            }
+            b(r) -= f * b(i);
+        }
+    }
+    return d;
+}
+
+} // namespace detail
 
 /**
  * @brief Matrix determinant det(A)
  *
- * Cofactor expansion for @f$ N \le 4 @f$ (exact, fast); LU for larger @f$ N @f$
- * (@f$ \det(A) = \mathrm{sign}(P)\prod_i U_{ii} @f$). Returns 0 if LU reports
- * singularity.
+ * Cofactor expansion for @f$ N \le 4 @f$; Gaussian elimination with partial pivoting for
+ * larger @f$ N @f$ (@f$ \det(A) = \mathrm{sign}(P)\prod_i U_{ii} @f$), which returns 0 only on
+ * an exactly zero pivot column, so a nearly singular A keeps its small determinant.
  *
  * @note Compare with MATLAB®'s det(A).
  *
@@ -185,29 +205,9 @@ template<typename T, size_t N>
 
         return d;
     } else {
-        // General case: det(A) = det(P) * det(L) * det(U) = sign * product(U_ii)
-        auto lu = lu_decomposition(A);
-        if (!lu) {
-            return T{0}; // singular
-        }
-
-        const auto& [L, U, piv] = lu.value();
-
-        // Compute sign from permutation parity
-        auto   p = piv;
-        size_t swaps = 0;
-        for (size_t i = 0; i < N; ++i) {
-            while (p[i] != i) {
-                damp::swap(p[i], p[p[i]]);
-                ++swaps;
-            }
-        }
-
-        T d = (swaps % 2 == 0) ? T{1} : T{-1};
-        for (size_t i = 0; i < N; ++i) {
-            d *= U(i, i);
-        }
-        return d;
+        Matrix<N, N, T> U = A;
+        ColVec<N, T>    unused{};
+        return detail::pivot_eliminate(U, unused, N);
     }
 }
 
@@ -233,7 +233,7 @@ template<typename T, size_t N>
 template<size_t R, size_t C, typename T>
 [[nodiscard]] constexpr size_t rank(
     const Matrix<R, C, T>& M,
-    scalar_type_t<T>       rel_tol = static_cast<scalar_type_t<T>>(R > C ? R : C) * eps<T>()
+    scalar_type_t<T>       rel_tol = detail::svd_default_rel_tol<R, C, T>()
 ) {
     return rank_from_svd(svd(M), rel_tol);
 }
@@ -251,8 +251,8 @@ enum class ExpmTriangle { none,
                           diagonal };
 
 struct ExpmScale {
-    int    degree;
-    size_t s;
+    int    degree{0};
+    size_t s{0};
 };
 
 template<typename T>
@@ -389,10 +389,10 @@ template<typename T>
 // ||A^k||_1^{1/k}, with A scaled to unit 1-norm before the power.
 template<typename T, size_t N>
 struct ExpmRoots {
-    scalar_type_t<T> d4;
-    scalar_type_t<T> d6;
-    scalar_type_t<T> d8;
-    scalar_type_t<T> d10;
+    scalar_type_t<T> d4{};
+    scalar_type_t<T> d6{};
+    scalar_type_t<T> d8{};
+    scalar_type_t<T> d10{};
 };
 
 template<typename T, size_t N>
@@ -457,15 +457,10 @@ template<typename T, size_t N>
 
     const real_t eta5 = damp::min(eta3, damp::max(roots.d8, roots.d10));
     size_t       s = 0;
-    if (eta5 > theta13 && damp::isfinite(eta5)) {
+    if (eta5 > theta13) { // finite: expm_power_roots caps each root at max()
         const real_t lg = expm_log2(eta5 / theta13);
         if (lg > real_t{0}) {
             s = static_cast<size_t>(damp::ceil(lg));
-        }
-    } else if (!damp::isfinite(eta5)) {
-        const real_t nrm = one_norm(A);
-        if (nrm > theta13 && damp::isfinite(nrm)) {
-            s = static_cast<size_t>(damp::ceil(expm_log2(nrm / theta13)));
         }
     }
     s += expm_ell(expm_div_pow2(A, s), 13);
@@ -684,8 +679,8 @@ template<typename T, size_t N>
  * @f$ x(t) = \exp(A t)\, x(0) @f$. Used by ZOH discretization and exact LTI steps.
  *
  * The Padé step solves @f$ (V-U) R = V+U @f$ with mat::solve (no explicit
- * inverse). On a failed solve, or a non-finite input, returns the identity —
- * a total function for the common discretize / integrator call sites.
+ * inverse). A non-finite ‖A‖₁ (a NaN or ±Inf entry, or a column sum past the
+ * floating-point range) or a failed Padé solve returns damp::nullopt.
  *
  * @note Compare with MATLAB®'s expm(A).
  * @see Al-Mohy and Higham, "A New Scaling and Squaring Algorithm for the
@@ -695,13 +690,13 @@ template<typename T, size_t N>
  * @tparam T Element type
  * @tparam N Matrix dimension
  * @param A Square matrix
- * @return exp(A), or I if the input is non-finite or the Padé solve fails
+ * @return exp(A), or damp::nullopt if the input is non-finite or the Padé solve fails
  */
-
 template<typename T, size_t N>
-[[nodiscard]] constexpr Matrix<N, N, T> expm(const Matrix<N, N, T>& A) {
-    if (!damp::isfinite(one_norm(A))) {
-        return Matrix<N, N, T>::identity();
+[[nodiscard]] constexpr damp::optional<Matrix<N, N, T>> expm(const Matrix<N, N, T>& A) {
+    // one_norm's max skips a NaN column sum, so the entries are checked themselves.
+    if (!mat::all_of(A, [](const T& v) { return damp::isfinite(damp::abs(v)); }) || !damp::isfinite(one_norm(A))) {
+        return damp::nullopt;
     }
 
     const detail::ExpmTriangle tri = detail::expm_triangle(A);
@@ -713,7 +708,7 @@ template<typename T, size_t N>
     const Matrix<N, N, T>                 scaled = detail::expm_div_pow2(A, scale.s);
     const damp::optional<Matrix<N, N, T>> R = detail::expm_pade(scaled, scale.degree);
     if (!R) {
-        return Matrix<N, N, T>::identity();
+        return damp::nullopt;
     }
     if (tri == detail::ExpmTriangle::none) {
         return detail::expm_square(R.value(), scale.s);
@@ -721,33 +716,194 @@ template<typename T, size_t N>
     return detail::expm_square_triangular(R.value(), A, scale.s, tri);
 }
 
+namespace detail {
+
 /**
- * @brief Matrix square root via Denman–Beavers iteration
+ * @brief Solve R_ii·X + X·R_jj = C for the p×q block X (p, q ∈ {1, 2}) of a quasi-triangular square root.
  *
- * Computes the principal square root @f$ S = \sqrt{A} @f$ with @f$ S\cdot S = A @f$.
- *
- * Denman–Beavers iteration (inverses are the step deliverables, not
- * intermediate solves of @f$ Ax=b @f$):
- * @f[
- *   Y_{k+1} = \tfrac{1}{2}\bigl(Y_k + Z_k^{-1}\bigr),\quad
- *   Z_{k+1} = \tfrac{1}{2}\bigl(Z_k + Y_k^{-1}\bigr)
- * @f]
- * with @f$ Y_0 = A @f$, @f$ Z_0 = I @f$. Converges to
- * @f$ Y \to \sqrt{A} @f$, @f$ Z \to (\sqrt{A})^{-1} @f$.
- *
- * Returns damp::nullopt if a singular iterate appears or the iteration does not
- * converge (e.g. @f$ A @f$ has a real negative eigenvalue).
- *
- * @note Compare with MATLAB®'s sqrtm(A).
- * @see Higham, "Functions of Matrices" (2008), §6.3
- *
- * @tparam T Element type
- * @tparam N Matrix dimension
- * @param A Square matrix (no real negative eigenvalues)
- * @return Principal √A, or damp::nullopt on failure
+ * The Kronecker form (I_q ⊗ R_ii + R_jjᵀ ⊗ I_p)·vec(X) = vec(C), at most 4×4, by pivot_eliminate().
+ * @return false on an exactly singular system (two eigenvalues of R sum to zero).
  */
 template<typename T, size_t N>
-[[nodiscard]] constexpr damp::optional<Matrix<N, N, T>> sqrt(const Matrix<N, N, T>& A) {
+[[nodiscard]] constexpr bool sqrtm_block_solve(Matrix<N, N, T>& R, const Matrix<N, N, T>& C, size_t i0, size_t p, size_t j0, size_t q) {
+    Matrix<4, 4, T> K{};
+    ColVec<4, T>    rhs{};
+    const size_t    n = p * q;
+    for (size_t c = 0; c < q; ++c) {
+        for (size_t r = 0; r < p; ++r) {
+            const size_t row = r + (c * p);
+            rhs(row) = C(i0 + r, j0 + c);
+            for (size_t s = 0; s < p; ++s) {
+                K(row, s + (c * p)) += R(i0 + r, i0 + s);
+            }
+            for (size_t s = 0; s < q; ++s) {
+                K(row, r + (s * p)) += R(j0 + s, j0 + c);
+            }
+        }
+    }
+    if (pivot_eliminate(K, rhs, n) == T{0}) {
+        return false;
+    }
+    for (size_t k = n; k-- > 0;) {
+        T sum = rhs(k);
+        for (size_t m = k + 1; m < n; ++m) {
+            sum -= K(k, m) * rhs(m);
+        }
+        rhs(k) = sum / K(k, k);
+    }
+    for (size_t c = 0; c < q; ++c) {
+        for (size_t r = 0; r < p; ++r) {
+            R(i0 + r, j0 + c) = rhs(r + (c * p));
+        }
+    }
+    return true;
+}
+
+/**
+ * @brief Principal square root of the diagonal block of @p Tq at @p i0 (size 1, or 2 for a complex pair) into @p R.
+ *
+ * A standardized 2×2 block [[a, b], [c, a]] with bc < 0 has eigenvalues a ± iμ, μ = √(−bc); its root is
+ * αI + (T_ii − aI)/(2α) with α = Re √(a + iμ) > 0, taken from β = Im √(a + iμ) when a < 0 so that
+ * neither is formed by cancellation.
+ * @return false for a real eigenvalue that is not positive (no real principal root, or A singular).
+ */
+template<typename T, size_t N>
+[[nodiscard]] constexpr bool sqrtm_diagonal_block(const Matrix<N, N, T>& Tq, Matrix<N, N, T>& R, size_t i0, size_t size) {
+    if (size == 1) {
+        if (!(Tq(i0, i0) > T{0})) {
+            return false;
+        }
+        R(i0, i0) = damp::sqrt(Tq(i0, i0));
+        return true;
+    }
+    const T a = Tq(i0, i0);
+    const T b = Tq(i0, i0 + 1);
+    const T c = Tq(i0 + 1, i0);
+    const T mu = damp::sqrt(damp::abs(b)) * damp::sqrt(damp::abs(c));
+    const T m = damp::max(damp::abs(a), mu);
+    const T mod = m * damp::sqrt(((a / m) * (a / m)) + ((mu / m) * (mu / m))); // |a + iμ|, scaled
+    T       alpha{};
+    if (a >= T{0}) {
+        alpha = damp::sqrt(static_cast<T>(0.5) * (mod + a));
+    } else {
+        const T beta = damp::sqrt(static_cast<T>(0.5) * (mod - a));
+        alpha = mu / (T{2} * beta);
+    }
+    const T inv2a = T{1} / (T{2} * alpha);
+    R(i0, i0) = alpha;
+    R(i0 + 1, i0 + 1) = alpha;
+    R(i0, i0 + 1) = b * inv2a;
+    R(i0 + 1, i0) = c * inv2a;
+    return true;
+}
+
+/**
+ * @brief R = √Tq for a quasi-triangular @p Tq with standardized 2×2 blocks; R has the same block structure.
+ *
+ * Each 1×1 or 2×2 diagonal block takes its closed-form root (sqrtm_diagonal_block()), and each
+ * off-diagonal block solves a Sylvester equation of at most 4 unknowns (sqrtm_block_solve()).
+ * Returns damp::nullopt for a real eigenvalue that is not positive or an exactly singular
+ * Sylvester system.
+ *
+ * @see "Computing real square roots of a real matrix" (Higham, 1987), Linear Algebra Appl. 88/89
+ */
+template<typename T, size_t N>
+[[nodiscard]] constexpr damp::optional<Matrix<N, N, T>> sqrtm_quasi_triangular(const Matrix<N, N, T>& Tq) {
+    // Diagonal blocks: a nonzero subdiagonal marks a standardized 2×2 block (a complex pair).
+    damp::array<size_t, N> start{};
+    damp::array<size_t, N> size{};
+    size_t                 nb = 0;
+    for (size_t i = 0; i < N; i += size[nb - 1]) {
+        start[nb] = i;
+        size[nb] = (i + 1 < N && Tq(i + 1, i) != T{0}) ? 2 : 1;
+        ++nb;
+    }
+
+    Matrix<N, N, T> R{};
+    Matrix<N, N, T> C{};
+    for (size_t jb = 0; jb < nb; ++jb) {
+        if (!sqrtm_diagonal_block(Tq, R, start[jb], size[jb])) {
+            return damp::nullopt;
+        }
+        for (size_t ib = jb; ib-- > 0;) {
+            const size_t i0 = start[ib];
+            const size_t j0 = start[jb];
+            for (size_t r = 0; r < size[ib]; ++r) {
+                for (size_t c = 0; c < size[jb]; ++c) {
+                    T sum = Tq(i0 + r, j0 + c);
+                    for (size_t k = i0 + size[ib]; k < j0; ++k) {
+                        sum -= R(i0 + r, k) * R(k, j0 + c);
+                    }
+                    C(i0 + r, j0 + c) = sum;
+                }
+            }
+            if (!sqrtm_block_solve(R, C, i0, size[ib], j0, size[jb])) {
+                return damp::nullopt;
+            }
+        }
+    }
+    return R;
+}
+
+/**
+ * @brief Principal square root of a real A by the real Schur method; the float and double path of sqrt().
+ *
+ * Returns damp::nullopt for a non-finite entry, a real eigenvalue that is not positive, a Schur form
+ * that did not converge, or a result whose residual fails the bound documented on sqrt().
+ */
+template<typename T, size_t N>
+[[nodiscard]] constexpr damp::optional<Matrix<N, N, T>> sqrtm_real_schur(const Matrix<N, N, T>& A) {
+    if (!mat::all_of(A, [](T v) { return damp::isfinite(v); })) {
+        return damp::nullopt;
+    }
+    if constexpr (N == 1) {
+        if (!(A(0, 0) > T{0})) {
+            return damp::nullopt;
+        }
+        return Matrix<1, 1, T>{{damp::sqrt(A(0, 0))}};
+    } else {
+        // Balance first (a diagonal similarity by powers of two, exact): √A = D·√(D⁻¹AD)·D⁻¹, so
+        // the accuracy does not depend on the units of each state.
+        const auto            e = balance_exponents(A);
+        const Matrix<N, N, T> Ab = balanced(A, e);
+        Matrix<N, N, T>       Tq = Ab;
+        Matrix<N, N, T>       Z;
+        hessenberg_reduce(Tq, Z);
+        damp::array<T, N> wr{};
+        damp::array<T, N> wi{};
+        if (!francis_qr(Tq, Z, wr, wi)) {
+            return damp::nullopt;
+        }
+        const damp::optional<Matrix<N, N, T>> R = sqrtm_quasi_triangular(Tq);
+        if (!R) {
+            return damp::nullopt;
+        }
+
+        const Matrix<N, N, T> X = Z * R.value() * Z.t(); // √(D⁻¹AD)
+        const T               xn = X.norm();
+        const Matrix<N, N, T> residual = (X * X) - Ab;
+        if (!damp::isfinite(xn) || !(residual.norm() <= static_cast<T>(N) * T{64} * eps<T>() * xn * xn)) {
+            return damp::nullopt;
+        }
+        damp::array<int, N> neg{};
+        for (size_t i = 0; i < N; ++i) {
+            neg[i] = -e[i];
+        }
+        return balanced(X, neg);
+    }
+}
+
+/**
+ * @brief Principal square root by the Denman–Beavers iteration; the damp::complex path of sqrt().
+ *
+ * There is no complex Schur form here, so a complex A iterates Y₀ = A, Z₀ = I,
+ * Yₖ₊₁ = (Yₖ + Zₖ⁻¹)/2, Zₖ₊₁ = (Zₖ + Yₖ⁻¹)/2 until Y → √A, at most 50 times. Returns
+ * damp::nullopt on a singular iterate or when the iteration does not converge.
+ *
+ * @see Higham, "Functions of Matrices" (2008), §6.3
+ */
+template<typename T, size_t N>
+[[nodiscard]] constexpr damp::optional<Matrix<N, N, T>> sqrtm_denman_beavers(const Matrix<N, N, T>& A) {
     using real_t = scalar_type_t<T>;
     Matrix<N, N, T> Y = A;
     Matrix<N, N, T> Z = Matrix<N, N, T>::identity();
@@ -789,18 +945,67 @@ template<typename T, size_t N>
     return damp::nullopt;
 }
 
-/// @brief MATLAB®-style alias for @ref sqrt
+} // namespace detail
+
+/**
+ * @brief Principal matrix square root by the real Schur method
+ *
+ * Computes the principal square root @f$ X = \sqrt{A} @f$ with @f$ X\cdot X = A @f$ and every
+ * eigenvalue of X in the open right half-plane. A real Schur form @f$ A = Z T Z^\top @f$
+ * of the balanced matrix D⁻¹AD (balancing, Hessenberg reduction and Francis double-shift QR, as
+ * in compute_eigenvalues; √A = D·√(D⁻¹AD)·D⁻¹, so graded units cost no accuracy) reduces the
+ * problem to the quasi-triangular T: each 1×1 or 2×2 diagonal block has a closed-form root, and
+ * each off-diagonal block of R solves a Sylvester equation of at most 4 unknowns,
+ * @f[
+ *   R_{ii} R_{ij} + R_{ij} R_{jj} = T_{ij} - \sum_{k=i+1}^{j-1} R_{ik} R_{kj},
+ * @f]
+ * after which @f$ X = Z R Z^\top @f$. The method is backward stable: the residual
+ * @f$ \|X^2 - A\| @f$ is a small multiple of @f$ \varepsilon \|X\|^2 @f$, and the forward error
+ * follows the condition number of the square root, not κ(A). Denman–Beavers, used here before
+ * for real matrices, inverts iterates with condition κ(A), which failed in float once κ(A)
+ * passed about 10⁴.
+ *
+ * Returns damp::nullopt for a non-finite entry, a real eigenvalue that is not positive (no real
+ * principal root; A singular), a Schur form that did not converge, or a result whose residual
+ * ‖X² − A‖_F, taken on the balanced matrix, exceeds N·64·ε·‖X‖²_F.
+ *
+ * A damp::complex matrix has no Schur form here and takes the Denman–Beavers iteration
+ * (detail::sqrtm_denman_beavers), which returns damp::nullopt on a singular iterate or when it
+ * does not converge within 50 steps; its iterates carry the condition number κ(A).
+ *
+ * @note Compare with MATLAB®'s sqrtm(A).
+ * @see "Computing real square roots of a real matrix" (Higham, 1987), Linear Algebra Appl. 88/89
+ * @see Higham, "Functions of Matrices" (2008), §6.2 (Schur method) and Alg. 6.7, §6.3 (Denman–Beavers)
+ *
+ * @tparam T float or double (real Schur method), or damp::complex thereof (Denman–Beavers iteration)
+ * @tparam N Matrix dimension
+ * @param A Square matrix (no eigenvalues on the closed negative real axis)
+ * @return Principal √A, or damp::nullopt on failure
+ */
 template<typename T, size_t N>
-[[nodiscard]] constexpr damp::optional<Matrix<N, N, T>> sqrtm(const Matrix<N, N, T>& A) {
-    return sqrt(A);
+[[nodiscard]] constexpr damp::optional<Matrix<N, N, T>> sqrt(const Matrix<N, N, T>& A) {
+    if constexpr (std::is_floating_point_v<T>) {
+        return detail::sqrtm_real_schur(A);
+    } else {
+        return detail::sqrtm_denman_beavers(A);
+    }
 }
 
 /**
  * @brief Principal matrix logarithm via inverse scaling and squaring
  *
  * Computes @f$ X = \log(A) @f$ such that @f$ \exp(X) = A @f$ (principal branch).
- * Scales by repeated square roots until @f$ \|A_{\mathrm{scaled}} - I\|_\infty < 1/2 @f$,
- * evaluates the Gregory (atanh) series
+ * Balances A first (an exact diagonal similarity by powers of two,
+ * @f$ \log A = D \log(D^{-1} A D) D^{-1} @f$, as in sqrt()), so graded units cost no accuracy.
+ * A real A that is not already within 1/2 of I (∞-norm) then takes the real Schur form
+ * @f$ D^{-1} A D = Z T Z^\top @f$ once, and the roots (sqrt()'s quasi-triangular recurrence)
+ * and the series run on T: @f$ \log A = D Z \log(T) Z^\top D^{-1} @f$. A Schur form per root
+ * repeats its roundoff at every step, amplified by @f$ 2^s @f$, and a rotation of a
+ * near-identity matrix mixes ε·I into its small entries. A damp::complex A takes sqrt() of the
+ * balanced matrix at each step.
+ * The roots continue until @f$ \|A_{\mathrm{scaled}} - I\|_\infty \le 1/2 @f$, at most 20 (at
+ * the cap the series still converges, since @f$ \rho(Z) \lesssim 10^{-3} @f$ after 20 roots),
+ * and the result evaluates the Gregory (atanh) series
  * @f[
  *   \log(A) = 2 \sum_{k\ \mathrm{odd}} \frac{Z^k}{k},\quad Z = (A + I)^{-1}(A - I)
  * @f]
@@ -809,26 +1014,63 @@ template<typename T, size_t N>
  * @f$ \log(I + X) @f$ Taylor series at @f$ \|X\| = 1/2 @f$ stalls near 10⁻⁸.
  *
  * @p A must be invertible with no eigenvalues on the closed negative real axis.
- * Returns damp::nullopt if a square-root step fails (singular iterate / bad spectrum).
+ * Returns damp::nullopt for a non-finite entry, a Schur form that did not converge, or a
+ * square-root step that fails (an eigenvalue on the closed negative real axis, or a complex
+ * square root that does not converge).
  *
  * @note Compare with MATLAB®'s logm(A).
- * @see Higham, "Functions of Matrices" (2008), §11
- * @see sqrt() for the Denman–Beavers square-root step
+ * @see Higham, "Functions of Matrices" (2008), §11, §11.5 (inverse scaling and squaring, Schur)
+ * @see sqrt() for the square-root step
  *
- * @tparam T Element type
+ * @tparam T Element type (real or damp::complex)
  * @tparam N Matrix dimension
  * @param A Square matrix
  * @return Principal log(A), or damp::nullopt on failure
  */
 template<typename T, size_t N>
 [[nodiscard]] constexpr damp::optional<Matrix<N, N, T>> log(const Matrix<N, N, T>& A) {
-    Matrix I = Matrix<N, N, T>::identity();
-    Matrix A_scaled = A;
-    size_t s = 0;
+    // Balance first (exact, powers of two): log A = D·log(D⁻¹AD)·D⁻¹, so the number of square
+    // roots, and with it the accuracy, does not depend on the units of each state. The exponents
+    // come from the magnitudes, so a damp::complex A is balanced too. A non-finite entry is
+    // refused here: its NaN norm would pass the stop test below and skip the roots.
+    if (!mat::all_of(A, [](const T& v) { return detail::is_finite_entry(v); })) {
+        return damp::nullopt;
+    }
+    Matrix<N, N, scalar_type_t<T>> mag{};
+    for (size_t i = 0; i < N; ++i) {
+        for (size_t j = 0; j < N; ++j) {
+            mag(i, j) = damp::abs(A(i, j));
+        }
+    }
+    const auto e = detail::balance_exponents(mag);
+    Matrix     I = Matrix<N, N, T>::identity();
+    Matrix     A_scaled = detail::balanced(A, e);
+    size_t     s = 0;
 
-    // A_scaled = A^(1/2^s) until ||A_scaled - I||_∞ < 1/2
+    // Real A: when roots are needed, take the real Schur form of the balanced matrix once and
+    // run the roots and the series on its quasi-triangular factor, log(A) = D·Z·log(T)·Zᵀ·D⁻¹.
+    // A near-identity A skips the rotation, which would mix eps·I into its small entries.
+    constexpr bool                   schur = std::is_floating_point_v<T> && N > 1;
+    [[maybe_unused]] Matrix<N, N, T> Z_schur = I;
+    if constexpr (schur) {
+        if (infinity_norm(A_scaled - I) > T{0.5}) {
+            detail::hessenberg_reduce(A_scaled, Z_schur);
+            damp::array<T, N> wr{};
+            damp::array<T, N> wi{};
+            if (!detail::francis_qr(A_scaled, Z_schur, wr, wi)) {
+                return damp::nullopt;
+            }
+        }
+    }
+
+    // A_scaled = A^(1/2^s) until ||A_scaled - I||_∞ ≤ 1/2; for a real A the loop runs only if the Schur step did
     while (infinity_norm(A_scaled - I) > scalar_type_t<T>{0.5} && s < 20) {
-        auto S = sqrt(A_scaled);
+        damp::optional<Matrix<N, N, T>> S;
+        if constexpr (schur) {
+            S = detail::sqrtm_quasi_triangular(A_scaled);
+        } else {
+            S = sqrt(A_scaled);
+        }
         if (!S) {
             return damp::nullopt;
         }
@@ -847,55 +1089,69 @@ template<typename T, size_t N>
     Matrix       result = Z;
     for (size_t k = 3; k <= 41; k += 2) {
         Z_power = Z_power * Z2;
-        result = result + Z_power * (T{1} / static_cast<T>(k));
+        const scalar_type_t<T> inv_k = scalar_type_t<T>{1} / static_cast<scalar_type_t<T>>(k); // real, for complex T too
+        result = result + Z_power * T{inv_k};
     }
     result = result * T{2};
 
     // log(A) = 2^s * log(A^(1/2^s))
-    T scale = static_cast<T>(size_t{1} << s);
+    const T scale{static_cast<scalar_type_t<T>>(size_t{1} << s)};
     for (size_t i = 0; i < N; ++i) {
         for (size_t j = 0; j < N; ++j) {
             result(i, j) *= scale;
         }
     }
+    if constexpr (schur) {
+        result = Z_schur * result * Z_schur.t();
+    }
 
-    return result;
-}
-
-/// @brief MATLAB®-style alias for @ref log
-template<typename T, size_t N>
-[[nodiscard]] constexpr damp::optional<Matrix<N, N, T>> logm(const Matrix<N, N, T>& A) {
-    return log(A);
+    damp::array<int, N> neg{};
+    for (size_t i = 0; i < N; ++i) {
+        neg[i] = -e[i];
+    }
+    return detail::balanced(result, neg);
 }
 
 /**
  * @brief Integer matrix power via binary exponentiation
  *
- * Computes @f$ A^p @f$. For @f$ p < 0 @f$, returns @f$ (A^{|p|})^{-1} @f$ via
- * Matrix::inverse (the inverse is the deliverable). Returns damp::nullopt
- * if that inverse is singular — no identity fallback.
+ * Computes @f$ A^p @f$. For @f$ p < 0 @f$, returns @f$ (A^{-1})^{|p|} @f$: inverting A first
+ * costs a condition number κ(A), where inverting @f$ A^{|p|} @f$ would cost up to
+ * @f$ \kappa(A)^{|p|} @f$. Returns damp::nullopt if A is singular — no identity fallback.
  *
  * @note Compare with MATLAB®'s mpower(A, p) for integer @p p.
  *
  * @tparam T Element type
  * @tparam N Matrix dimension
+ * @tparam I Integer type of the exponent (a floating exponent takes the real overload)
  * @param A Square matrix
  * @param p Integer exponent
- * @return Aᵖ, or damp::nullopt if a required inverse is singular
+ * @return Aᵖ, or damp::nullopt if p < 0 and A is singular
  */
-template<typename T, size_t N>
-[[nodiscard]] constexpr damp::optional<Matrix<N, N, T>> pow(const Matrix<N, N, T>& A, int p) {
-    if (p == 0) {
+template<typename T, size_t N, typename I>
+    requires std::is_integral_v<I>
+[[nodiscard]] constexpr damp::optional<Matrix<N, N, T>> pow(const Matrix<N, N, T>& A, I p) {
+    if (p == I{0}) {
         return Matrix<N, N, T>::identity();
     }
 
-    const bool negate = p < 0;
-    // Magnitude in unsigned arithmetic: −INT_MIN overflows int.
-    unsigned int e = negate ? (0u - static_cast<unsigned int>(p)) : static_cast<unsigned int>(p);
+    bool negate = false;
+    if constexpr (std::is_signed_v<I>) {
+        negate = p < I{0};
+    }
+    // Magnitude in unsigned arithmetic: −min() overflows a signed type.
+    std::uintmax_t e = negate ? (std::uintmax_t{0} - static_cast<std::uintmax_t>(p)) : static_cast<std::uintmax_t>(p);
+
+    Matrix<N, N, T> base = A;
+    if (negate) {
+        const auto inv = A.inverse();
+        if (!inv) {
+            return damp::nullopt;
+        }
+        base = *inv;
+    }
 
     Matrix<N, N, T> result = Matrix<N, N, T>::identity();
-    Matrix<N, N, T> base = A;
-
     while (e > 0u) {
         if ((e & 1u) != 0u) {
             result = result * base;
@@ -903,19 +1159,14 @@ template<typename T, size_t N>
         base = base * base;
         e >>= 1u;
     }
-
-    if (negate) {
-        return result.inverse();
-    }
-
     return result;
 }
 
 /**
- * @brief Real matrix power Aᵖ via exp(p log(A))
+ * @brief Matrix power Aᵖ with a real exponent, via exp(p log(A))
  *
- * Near-integer exponents reduce to the integer @ref pow path. Non-integer
- * exponents require a successful principal logarithm:
+ * An exponent within default_tol of the nearest integer (from either side) reduces to the
+ * integer @ref pow path. Other exponents require a successful principal logarithm:
  * @f[
  *   A^p = \exp\bigl(p\,\log(A)\bigr)
  * @f]
@@ -925,34 +1176,124 @@ template<typename T, size_t N>
  *
  * @tparam T Element type
  * @tparam N Matrix dimension
- * @param A Square matrix
- * @param p Real exponent
- * @return Aᵖ, or damp::nullopt if @ref log fails (or integer inverse fails)
+ * @param A Square matrix (real or damp::complex)
+ * @param p Real exponent, of A's real scalar type (not deduced: a double literal works on a float matrix)
+ * @return Aᵖ, or damp::nullopt if @ref log or @ref expm fails (or integer inverse fails)
  */
 template<typename T, size_t N>
-[[nodiscard]] constexpr damp::optional<Matrix<N, N, T>> pow(const Matrix<N, N, T>& A, T p) {
+[[nodiscard]] constexpr damp::optional<Matrix<N, N, T>> pow(const Matrix<N, N, T>& A, std::type_identity_t<scalar_type_t<T>> p) {
+    using R = scalar_type_t<T>;
     // Integer case (constexpr-safe, no std::modf). Casting an out-of-range
     // value to int is UB, so only exponents inside int's range take this path.
-    constexpr T int_limit = static_cast<T>(std::numeric_limits<int>::max());
-    if (!(damp::abs(p) < int_limit)) {
-        auto L = log(A);
-        if (!L) {
-            return damp::nullopt;
+    constexpr R int_limit = static_cast<R>(std::numeric_limits<int>::max() / 2);
+    if (damp::abs(p) < int_limit) {
+        const R nearest = damp::floor(p + static_cast<R>(0.5));
+        if (damp::abs(p - nearest) < default_tol<R>()) {
+            return pow(A, static_cast<int>(nearest));
         }
-        return expm(L.value() * p);
     }
-    int p_int = static_cast<int>(p);
-    T   p_frac = p - static_cast<T>(p_int);
-    if (damp::abs(p_frac) < default_tol<T>()) {
-        return pow(A, p_int);
-    }
-
-    auto L = log(A);
+    const auto L = log(A);
     if (!L) {
         return damp::nullopt;
     }
-    return expm(L.value() * p);
+    return expm(Matrix<N, N, T>(L.value() * T{p}));
 }
+
+namespace detail {
+
+/**
+ * @brief The s with ‖A‖∞/2ˢ ≤ 1/2, for the double-angle recovery of sin/cos; sinh/cosh take the series only at s = 0.
+ *
+ * Bounded by the exponent range: a finite norm reaches 1/2 within max_exponent + 1 halvings. A
+ * non-finite norm (a NaN or ±Inf entry, or a row sum past the range) returns 0, and the series
+ * then carries the non-finite values into the result.
+ */
+template<typename T, size_t N>
+[[nodiscard]] constexpr size_t trig_scale_exponent(const Matrix<N, N, T>& A) {
+    using real_t = scalar_type_t<T>;
+    real_t nrm = infinity_norm(A);
+    if (!damp::isfinite(nrm)) {
+        return 0;
+    }
+    constexpr size_t cap = static_cast<size_t>(std::numeric_limits<real_t>::max_exponent) + 1;
+    size_t           s = 0;
+    while (nrm > real_t{0.5} && s < cap) {
+        nrm *= real_t{0.5};
+        ++s;
+    }
+    return s;
+}
+
+/** @brief The odd and even parts of a sin/cos or sinh/cosh pair. */
+template<typename T, size_t N>
+struct TrigPair {
+    Matrix<N, N, T> odd{};  ///< sin or sinh
+    Matrix<N, N, T> even{}; ///< cos or cosh
+};
+
+/**
+ * @brief sin/cos (σ = −1) or sinh/cosh (σ = +1) of A by scaling, Taylor series and double-angle recovery.
+ *
+ * The series run to X²¹/21! and X²⁰/20! on X = A/2ˢ with ‖X‖∞ ≤ 1/2, then s steps of
+ * odd(2X) = 2·odd(X)·even(X), even(2X) = 2·even(X)² − I, identities shared by both pairs. A small
+ * A takes s = 0 and its series, so sinh(A) ≈ A keeps its relative accuracy; the difference
+ * (exp(A) − exp(−A))/2 cancels to eps/‖A‖. The odd part is skipped when @p with_odd is false.
+ */
+template<typename T, size_t N>
+[[nodiscard]] constexpr TrigPair<T, N> trig_pair(const Matrix<N, N, T>& A, T sigma, bool with_odd) {
+    const Matrix<N, N, T> I = Matrix<N, N, T>::identity();
+    const size_t          s = trig_scale_exponent(A);
+    const Matrix<N, N, T> X = expm_div_pow2(A, s); // halve A itself: a scalar 2⁻ˢ is subnormal past s = 126 (float) and FTZ zeroes it
+    const Matrix<N, N, T> X2 = X * X;
+
+    TrigPair<T, N>  out{X, I};
+    Matrix<N, N, T> odd_power = X;
+    Matrix<N, N, T> even_power = I;
+    T               odd_factorial = T{1};
+    T               even_factorial = T{1};
+    T               sign = sigma;
+    for (size_t n = 2; n <= 20; n += 2) {
+        even_factorial *= static_cast<T>(n - 1) * static_cast<T>(n);
+        even_power = even_power * X2;
+        out.even = out.even + (even_power * (sign / even_factorial));
+        if (with_odd) {
+            odd_factorial *= static_cast<T>(n) * static_cast<T>(n + 1);
+            odd_power = odd_power * X2;
+            out.odd = out.odd + (odd_power * (sign / odd_factorial));
+        }
+        sign *= sigma;
+    }
+
+    for (size_t i = 0; i < s; ++i) {
+        if (with_odd) {
+            out.odd = out.odd * out.even * T{2};
+        }
+        out.even = (out.even * out.even * T{2}) - I;
+    }
+    return out;
+}
+
+/**
+ * @brief sinh/cosh of A: the series of trig_pair() when ‖A‖∞ ≤ 1/2, (exp(A) ∓ exp(−A))/2 otherwise.
+ *
+ * The exponential difference cancels only for a small A; above ‖A‖∞ = 1/2 it does not, and expm's
+ * scaling (θ₁₃ ≈ 5.4) squares fewer times than the double-angle recovery, which loses a factor 2
+ * per step. A failed expm (a NaN entry the norm skipped, a column sum past the range, or a failed
+ * Padé solve) falls back to the series, which carries the non-finite values into the result.
+ */
+template<typename T, size_t N>
+[[nodiscard]] constexpr TrigPair<T, N> hyperbolic_pair(const Matrix<N, N, T>& A, bool with_odd) {
+    if (trig_scale_exponent(A) > 0) {
+        const damp::optional<Matrix<N, N, T>> ep = expm(A);
+        const damp::optional<Matrix<N, N, T>> em = expm(Matrix<N, N, T>(A * T{-1}));
+        if (ep && em) {
+            return {(ep.value() - em.value()) * static_cast<T>(0.5), (ep.value() + em.value()) * static_cast<T>(0.5)};
+        }
+    }
+    return trig_pair(A, T{1}, with_odd);
+}
+
+} // namespace detail
 
 /**
  * @brief Compute sin(A) and cos(A) together via scaling and double-angle reconstruction
@@ -960,14 +1301,15 @@ template<typename T, size_t N>
  * More efficient than calling sin() and cos() separately — computes both
  * with one scaling pass and shared Taylor series evaluation.
  *
- * Scales A down so ||A/2ˢ|| < 0.5 (where the Taylor series converges
+ * Scales A down so ||A/2ˢ|| ≤ 0.5 (where the Taylor series converges
  * accurately), then recovers via repeated double-angle formulas:
  *
  *     sin(2A) = 2·sin(A)·cos(A)
  *     cos(2A) = 2·cos²(A) − I
  *
  * Since sin(A) and cos(A) are polynomials in A, they commute with each other,
- * so the scalar double-angle formulas apply directly.
+ * so the scalar double-angle formulas apply directly. A non-finite ‖A‖∞ gives a
+ * non-finite result.
  *
  * @see Higham, "Functions of Matrices" (2008), §12.3
  *
@@ -976,62 +1318,8 @@ template<typename T, size_t N>
  */
 template<typename T, size_t N>
 [[nodiscard]] constexpr damp::pair<Matrix<N, N, T>, Matrix<N, N, T>> sincos(const Matrix<N, N, T>& A) {
-    using real_t = scalar_type_t<T>;
-    Matrix<N, N, T> I = Matrix<N, N, T>::identity();
-
-    // Scale down until ||A/2^s|| < 0.5
-    size_t s = 0;
-    real_t scaled_norm = infinity_norm(A);
-    while (scaled_norm > real_t{0.5}) {
-        scaled_norm *= real_t{0.5};
-        ++s;
-    }
-
-    T scale = T{1};
-    for (size_t i = 0; i < s; ++i) {
-        scale *= static_cast<T>(0.5);
-    }
-
-    Matrix<N, N, T> As = A * scale;
-    Matrix<N, N, T> As2 = As * As;
-
-    // Taylor series for sin(As) = As - As³/3! + As⁵/5! - ...
-    Matrix<N, N, T> sinA = As;
-    {
-        Matrix<N, N, T> A_power = As;
-        T               factorial = T{1};
-        T               sign = T{-1};
-        for (size_t n = 3; n <= 21; n += 2) {
-            factorial *= static_cast<T>(n - 1) * static_cast<T>(n);
-            A_power = A_power * As2;
-            sinA = sinA + A_power * (sign / factorial);
-            sign = -sign;
-        }
-    }
-
-    // Taylor series for cos(As) = I - As²/2! + As⁴/4! - ...
-    Matrix<N, N, T> cosA = I;
-    {
-        Matrix<N, N, T> A_power = I;
-        T               factorial = T{1};
-        T               sign = T{-1};
-        for (size_t n = 2; n <= 20; n += 2) {
-            factorial *= static_cast<T>(n - 1) * static_cast<T>(n);
-            A_power = A_power * As2;
-            cosA = cosA + A_power * (sign / factorial);
-            sign = -sign;
-        }
-    }
-
-    // Double-angle reconstruction: s iterations
-    for (size_t i = 0; i < s; ++i) {
-        Matrix<N, N, T> new_sin = sinA * cosA * T{2};
-        Matrix<N, N, T> new_cos = cosA * cosA * T{2} - I;
-        sinA = new_sin;
-        cosA = new_cos;
-    }
-
-    return {sinA, cosA};
+    const auto p = detail::trig_pair(A, T{-1}, true);
+    return {p.odd, p.even};
 }
 
 /**
@@ -1052,6 +1340,8 @@ template<typename T, size_t N>
 /**
  * @brief Matrix cosine via scaling and double-angle reconstruction
  *
+ * cos(2X) = 2·cos²(X) − I needs no sine, so the sine series and its doubling are skipped.
+ *
  * @note Compare with MATLAB®'s funm(A, @@cos).
  * @see sincos() to compute both sin(A) and cos(A) in one call
  * @see Higham, "Functions of Matrices" (2008), §12.3
@@ -1061,52 +1351,15 @@ template<typename T, size_t N>
  */
 template<typename T, size_t N>
 [[nodiscard]] constexpr Matrix<N, N, T> cos(const Matrix<N, N, T>& A) {
-    // Unlike sin (whose double-angle step sin(2x)=2·sin·cos needs cos), cos can
-    // be reconstructed from cos alone via cos(2x)=2·cos²−1, so this avoids the
-    // sin Taylor series and sin doubling that sincos(A).second would discard.
-    using real_t = scalar_type_t<T>;
-    Matrix<N, N, T> I = Matrix<N, N, T>::identity();
-
-    // Scale down until ||A/2^s|| < 0.5
-    size_t s = 0;
-    real_t scaled_norm = infinity_norm(A);
-    while (scaled_norm > real_t{0.5}) {
-        scaled_norm *= real_t{0.5};
-        ++s;
-    }
-
-    T scale = T{1};
-    for (size_t i = 0; i < s; ++i) {
-        scale *= static_cast<T>(0.5);
-    }
-
-    Matrix<N, N, T> As = A * scale;
-    Matrix<N, N, T> As2 = As * As;
-
-    // Taylor series for cos(As) = I - As²/2! + As⁴/4! - ...
-    Matrix<N, N, T> cosA = I;
-    {
-        Matrix<N, N, T> A_power = I;
-        T               factorial = T{1};
-        T               sign = T{-1};
-        for (size_t n = 2; n <= 20; n += 2) {
-            factorial *= static_cast<T>(n - 1) * static_cast<T>(n);
-            A_power = A_power * As2;
-            cosA = cosA + A_power * (sign / factorial);
-            sign = -sign;
-        }
-    }
-
-    // Double-angle reconstruction: cos(2x) = 2·cos²(x) − 1
-    for (size_t i = 0; i < s; ++i) {
-        cosA = (cosA * cosA * T{2}) - I;
-    }
-
-    return cosA;
+    return detail::trig_pair(A, T{-1}, false).even;
 }
 
 /**
  * @brief Matrix hyperbolic sine sinh(A) = (exp(A) − exp(−A))/2
+ *
+ * For ‖A‖∞ ≤ 1/2, the Taylor series, so a small A keeps its relative accuracy where the
+ * exponential difference would cancel; for a larger A, (expm(A) − expm(−A))/2, which does
+ * not cancel there and keeps expm's accuracy.
  *
  * @note Compare with MATLAB®'s funm(A, @@sinh).
  * @see expm(), cosh()
@@ -1116,13 +1369,13 @@ template<typename T, size_t N>
  */
 template<typename T, size_t N>
 [[nodiscard]] constexpr Matrix<N, N, T> sinh(const Matrix<N, N, T>& A) {
-    Matrix<N, N, T> exp_A = expm(A);
-    Matrix<N, N, T> exp_neg_A = expm(A * T{-1});
-    return (exp_A - exp_neg_A) * static_cast<T>(0.5);
+    return detail::hyperbolic_pair(A, true).odd;
 }
 
 /**
  * @brief Matrix hyperbolic cosine cosh(A) = (exp(A) + exp(−A))/2
+ *
+ * For ‖A‖∞ ≤ 1/2, the even Taylor series; for a larger A, (expm(A) + expm(−A))/2.
  *
  * @note Compare with MATLAB®'s funm(A, @@cosh).
  * @see expm(), sinh()
@@ -1132,9 +1385,7 @@ template<typename T, size_t N>
  */
 template<typename T, size_t N>
 [[nodiscard]] constexpr Matrix<N, N, T> cosh(const Matrix<N, N, T>& A) {
-    Matrix<N, N, T> exp_A = expm(A);
-    Matrix<N, N, T> exp_neg_A = expm(A * T{-1});
-    return (exp_A + exp_neg_A) * static_cast<T>(0.5);
+    return detail::hyperbolic_pair(A, false).even;
 }
 } // namespace mat
 } // namespace damp

@@ -5,6 +5,7 @@
 
 #include <cmath>
 #include <cstddef>
+#include <limits>
 #include <numbers>
 
 #include "damp/backend.hpp"
@@ -62,7 +63,7 @@ TEST_SUITE("repetitive") {
         for (size_t k = 0; k < periods * N; ++k) {
             const double y = u_prev;           // y[k] = u[k-1]
             const double e = reference(k) - y; // tracking error
-            const double u = rc.step(e);
+            const double u = rc.control(e);
             u_prev = u;
 
             if (k < N) {
@@ -96,7 +97,7 @@ TEST_SUITE("repetitive") {
         for (size_t k = 0; k < periods * N; ++k) {
             const double y = u_prev + disturbance(k);
             const double e = 0.0 - y;
-            const double u = rc.step(e);
+            const double u = rc.control(e);
             u_prev = u;
             if (k >= (periods - 1) * N) {
                 worst_last_period = std::max(worst_last_period, std::abs(y));
@@ -109,22 +110,22 @@ TEST_SUITE("repetitive") {
         const auto                       design = design::repetitive(1000.0, 50.0, 1.0, 0.9, 1);
         RepetitiveController<64, double> rc(design);
         // Feed a unit-impulse error; with Q<1 the internal model decays, output bounded.
-        double maxout = std::abs(rc.step(1.0));
+        double maxout = std::abs(rc.control(1.0));
         for (int k = 0; k < 2000; ++k) {
-            maxout = std::max(maxout, std::abs(rc.step(0.0)));
+            maxout = std::max(maxout, std::abs(rc.control(0.0)));
         }
         CHECK(maxout < 2.0); // bounded (no marginal-stability blow-up)
         CHECK(maxout > 0.0); // and it actually produced corrections
 
         rc.reset();
         // After reset, a zero error gives zero output (empty internal model).
-        CHECK(rc.step(0.0) == doctest::Approx(0.0));
+        CHECK(rc.control(0.0) == doctest::Approx(0.0));
     }
 
     TEST_CASE("invalid design yields a pass-through (zero correction)") {
         RepetitiveController<64, double> rc(design::repetitive(1000.0, 1000.0)); // invalid
         CHECK_FALSE(rc.valid());
-        CHECK(rc.step(1.0) == doctest::Approx(0.0));
+        CHECK(rc.control(1.0) == doctest::Approx(0.0));
     }
 
     TEST_CASE("repetitive controller is constexpr-evaluable") {
@@ -136,7 +137,7 @@ TEST_SUITE("repetitive") {
             // ago surfaces, so the correction at step N (the 11th) equals 1.
             double last = 0.0;
             for (size_t k = 0; k < 11; ++k) {
-                last = rc.step(1.0);
+                last = rc.control(1.0);
             }
             return d.success && d.config.period == 10 && damp::abs(last - 1.0) < 1e-9;
         }();
@@ -150,7 +151,7 @@ TEST_SUITE("repetitive") {
 
         // Learn from a periodic error for several periods.
         for (size_t k = 0; k < 100; ++k) {
-            (void)rc.step(std::sin(2.0 * pi * static_cast<double>(k) / 20.0));
+            (void)rc.control(std::sin(2.0 * pi * static_cast<double>(k) / 20.0));
         }
 
         RepetitiveController<64, float> rf(rc); // double -> float converting ctor
@@ -161,9 +162,15 @@ TEST_SUITE("repetitive") {
         // The learned buffer carried over: the next correction matches within
         // float precision (a freshly-built rf would instead emit a stale value).
         const double e_next = std::sin(2.0 * pi * 100.0 / 20.0);
-        const double u_d = rc.step(e_next);
-        const float  u_f = rf.step(static_cast<float>(e_next));
+        const double u_d = rc.control(e_next);
+        const float  u_f = rf.control(static_cast<float>(e_next));
         CHECK(static_cast<double>(u_f) == doctest::Approx(u_d).epsilon(1e-4));
+    }
+
+    TEST_CASE("repetitive design rejects rates whose period overflows size_t") {
+        CHECK_FALSE(design::repetitive(1e300, 1e-300).success);
+        CHECK(design::repetitive(10000.0, 50.0).config.period == 200);
+        CHECK(design::repetitive_binomial<2>(10000.0f, 50.0f).success); // float taps still sum to ≤ 1
     }
 }
 
@@ -186,7 +193,7 @@ double closed_loop_peak(Rc& rc, int delay, double g, int steps) {
     for (int k = 0; k < steps; ++k) {
         const double d = (k == 0) ? 1.0 : 0.0; // impulse kick to excite the loop
         const double e = -y;
-        const double u = rc.step(e);
+        const double u = rc.control(e);
         ud[head] = u;
         const double u_delayed = ud[(head + ud.size() - static_cast<size_t>(delay)) % ud.size()];
         head = (head + 1) % ud.size();
@@ -238,7 +245,7 @@ TEST_SUITE("repetitive FIR Q") {
         const size_t periods = 40;
         for (size_t k = 0; k < periods * N; ++k) {
             const double y = u_prev + disturbance(k);
-            const double u = rc.step(0.0 - y);
+            const double u = rc.control(0.0 - y);
             u_prev = u;
             if (k >= (periods - 1) * N) {
                 worst_last = std::max(worst_last, std::abs(y));
@@ -251,7 +258,7 @@ TEST_SUITE("repetitive FIR Q") {
         // Uncompensated 1-sample plant delay (lead m=0): scalar Q=1 has loop gain
         // |1 − k_rc·z^-1| → up to 1.5 near Nyquist, so the marginal model amplifies
         // the high harmonics without bound; the binomial M=2 roll-off pulls the
-        // stability term |Q − k_rc·z^-1| under 1 everywhere (peak ≈ 0.56).
+        // stability term |Q·(1 − k_rc·z^-1)| under 1 everywhere.
         const int    delay = 1;
         const double g = 1.0;
         const int    steps = 4000;
@@ -286,11 +293,52 @@ TEST_SUITE("repetitive FIR Q") {
             RepetitiveController<32, double, 1> rc(art);
             double                              last = 0.0;
             for (int k = 0; k < 40; ++k) {
-                last = rc.step(1.0);
+                last = rc.control(1.0);
             }
             return art.success && rc.valid() && damp::abs(last) < 1e6; // bounded
         }();
         static_assert(ok, "FIR-Q repetitive must work at compile time");
         CHECK(ok);
+    }
+
+    TEST_CASE("Q on the output tap stabilizes a plant resonance the memory-only tap diverges on") {
+        // y[k] = −0.36·y[k−2] + 1.36·u[k−2]: DC gain 1, a peak of 2.1 at fs/4, where
+        // |1 − k_rc·G| > 1. With Q on both the memory and the output, the loop condition is
+        // |Q·(1 − k_rc·G)| < 1 (max 0.77 here); with Q on the memory only it was
+        // |Q − k_rc·G| < 1 (max 1.34), and |e| grew past 1e21 in 40000 ticks.
+        RepetitiveController<256, double, 2> rc(design::repetitive_binomial<2>(10000.0, 50.0, 0.5));
+        REQUIRE(rc.valid());
+        double y1 = 0.0;
+        double y2 = 0.0;
+        double u1 = 0.0;
+        double u2 = 0.0;
+        double worst = 0.0;
+        for (int k = 0; k < 40000; ++k) {
+            const double y = (-0.36 * y2) + (1.36 * u2);
+            const double e = std::sin(2.0 * std::numbers::pi * 50.0 * static_cast<double>(k) / 10000.0) - y;
+            const double u = rc.control(e);
+            y2 = y1;
+            y1 = y;
+            u2 = u1;
+            u1 = u;
+            if (k >= 40000 - 200) {
+                worst = std::max(worst, std::abs(e));
+            }
+        }
+        CHECK(worst < 1e-2);
+    }
+
+    TEST_CASE("the output tap's FIR window must lie in the past; NaN rates are refused") {
+        // N = 20, M = 2: lead + M must stay below N.
+        CHECK(design::repetitive_binomial<2>(1000.0, 50.0, 1.0, 17).success);
+        const auto late = design::repetitive_binomial<2>(1000.0, 50.0, 1.0, 18);
+        CHECK_FALSE(late.success);
+        CHECK(late.status == design::DesignStatus::invalid_parameter);
+
+        const double nan = std::numeric_limits<double>::quiet_NaN();
+        CHECK_FALSE(design::repetitive(1000.0, nan).success);
+        CHECK_FALSE(design::repetitive(nan, 50.0).success);
+        CHECK_FALSE(design::repetitive(1000.0, 50.0, nan).success);
+        CHECK(design::detail::repetitive_period(1000.0, nan) == 0);
     }
 }

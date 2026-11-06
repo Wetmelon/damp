@@ -32,7 +32,7 @@ using namespace damp::examples_pendulum;
 using namespace damp::sim;
 
 // Same design as sketch; double for host plant numerics
-static constinit LQR<2, 1, double> controller{lqr_d};
+static constinit LQR controller{lqr_d};
 
 /**
  * Nonlinear pendulum: θ̈ = (g/L)sinθ − (b/mL²)θ̇ + (1/mL²)u
@@ -57,7 +57,7 @@ int main() {
     // One-tick smoke (same float deploy path as sketch / former lqr print)
     {
         ColVec<2, float> x_smoke{0.1f, 0.0f};
-        LQR<2, 1, float> ctrl_f{lqr_d.as<float>()};
+        LQR              ctrl_f{lqr_d.as<float>()};
         const float      u_smoke = control_period(ctrl_f, x_smoke)(0);
         fmt::print("u at θ=0.1 rad (float): {:.4f}\n\n", u_smoke);
     }
@@ -88,16 +88,16 @@ int main() {
     // Runtime redesign (host only) — still gates on success
     fmt::print("\n===== Runtime LQR Redesign (Q = 50 I) =====\n");
     auto Q2 = Matrix<2, 2>::identity() * 50.0;
-    auto lqr_d2 = design::discrete_lqr_from_continuous(sys.A, sys.B, Q2, R, Ts);
+    auto lqr_d2 = design::lqr(sys, Ts, {.Q = Q2, .R = R});
     if (!lqr_d2.success) {
         fmt::print("LQR redesign failed\n");
         return 1;
     }
-    LQR<2, 1, double> controller2{lqr_d2};
+    LQR controller2{lqr_d2};
     fmt::print("New LQR Gain K = [{:.4f}, {:.4f}]\n", lqr_d2.K(0, 0), lqr_d2.K(0, 1));
 
     auto ctrl2 = [&](const ColVec<2, double>& x) -> ColVec<1, double> {
-        return controller2.control(x);
+        return controller2.step(x);
     };
 
     auto sim2 = simulate_state_feedback<2, 1, 2>(pendulum_f, output, ctrl2, solver, x0, {0.0, 5.0});
@@ -144,9 +144,9 @@ int main() {
     const double theta_op = 0.5;
     const double a21 = (g / L) * damp::cos(theta_op);
     const double a22 = -b_damp / (m * L * L);
-    Matrix<2, 2> A_op{{0.0, 1.0}, {a21, a22}};
-    Matrix<2, 1> B_op{{0.0}, {1.0 / (m * L * L)}};
-    const auto   res_op = design::lqrd(A_op, B_op, Q, R, Ts);
+    auto         sys_op = sys;
+    sys_op.A = Matrix<2, 2>{{0.0, 1.0}, {a21, a22}};
+    const auto res_op = design::lqr(sys_op, Ts, {.Q = Q, .R = R});
     if (res_op.success) {
         fmt::print("  K_op = [{:.4f}, {:.4f}]\n", res_op.K(0, 0), res_op.K(0, 1));
     }

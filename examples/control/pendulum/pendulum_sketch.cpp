@@ -32,7 +32,7 @@ static constexpr int OUTPUT = 1;
 #endif
 
 // Deploy runtime: float on target
-static constinit LQR<2, 1, float> controller{lqr_d.as<float>()};
+static constinit LQR controller{lqr_d.as<float>()};
 
 // Mock full state (replace with sensors on hardware)
 static ColVec<2, float> read_state() {

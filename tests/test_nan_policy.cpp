@@ -7,6 +7,7 @@
 // runtime object built from a failed (or default) design emits finite, safe output.
 // Each case below is a path that used to break the rule.
 
+#include <cmath>
 #include <cstddef>
 #include <limits>
 
@@ -17,15 +18,17 @@
 #include "damp/controllers/lqg.hpp"
 #include "damp/controllers/lqgi.hpp"
 #include "damp/controllers/lqi.hpp"
-#include "damp/controllers/lqr.hpp"
 #include "damp/controllers/mpc.hpp"
-#include "damp/controllers/offset_free_mpc.hpp"
+#include "damp/controllers/ofmpc.hpp"
 #include "damp/controllers/pid.hpp"
 #include "damp/controllers/pr.hpp"
 #include "damp/controllers/repetitive.hpp"
 #include "damp/controllers/smc.hpp"
 #include "damp/controllers/smith_predictor.hpp"
 #include "damp/controllers/stsmc.hpp"
+#include "damp/design/qp.hpp"
+#include "damp/estimation/kalman.hpp"
+#include "damp/estimation/luenberger.hpp"
 #include "damp/estimation/ukf.hpp"
 #include "damp/filters/complementary.hpp"
 #include "damp/filters/moving_average.hpp"
@@ -59,6 +62,20 @@ bool all_finite(const ColVec<N, T>& v) {
 } // namespace
 
 TEST_SUITE("NaN/Inf policy") {
+    TEST_CASE("isfinite rejects run-time NaN and Inf under fast-math") {
+        // clang -ffinite-math-only folded the bit test on its argument to true.
+        volatile double z = 0.0;
+        volatile float  zf = 0.0f;
+        CHECK_FALSE(damp::isfinite(z / z));
+        CHECK_FALSE(damp::isfinite(1.0 / z));
+        CHECK_FALSE(damp::isfinite(-1.0 / z));
+        CHECK_FALSE(damp::isfinite(zf / zf));
+        CHECK_FALSE(damp::isfinite(1.0f / zf));
+        CHECK_FALSE(damp::isfinite(-1.0f / zf));
+        CHECK(damp::isfinite(z + 1.0));
+        CHECK(damp::isfinite(zf + 1.0f));
+    }
+
     TEST_CASE("runtime exp / pow saturate instead of overflowing to Inf") {
         float x = 200.0f; // not a constant expression: the backend path
         CHECK(damp::isfinite(damp::exp(x)));
@@ -85,6 +102,32 @@ TEST_SUITE("NaN/Inf policy") {
         CHECK(detail::fast_sin(1.0) == doctest::Approx(0.8414709848)); // unchanged in range
     }
 
+    TEST_CASE("fast sin / cos stay in [-1, 1] in the float band where the reduction runs out") {
+        for (const float a : {1.7e7f, 1e8f, 3e8f, 1e9f, 3e9f, -3e8f}) {
+            const auto [s, c] = detail::fast_sincos(a);
+            CHECK(std::fabs(s) <= 1.0f);
+            CHECK(std::fabs(c) <= 1.0f);
+        }
+        // Double keeps reducing past 2^30 half-turns instead of collapsing to 0.
+        CHECK(detail::fast_sin(1e10) == doctest::Approx(std::sin(1e10)).epsilon(1e-5));
+    }
+
+    TEST_CASE("fast sin / cos / sincos propagate NaN and Inf as NaN") {
+        // Run-time NaN and Inf: clang -ffast-math folds arithmetic on a NaN or Inf constant.
+        volatile float  z = 0.0f;
+        volatile double zd = 0.0;
+        const float     nan = z / z;
+        const float     inf = 1.0f / z;
+        for (const float a : {nan, inf, -inf}) {
+            CHECK_FALSE(damp::isfinite(detail::fast_sin(a)));
+            CHECK_FALSE(damp::isfinite(detail::fast_cos(a)));
+            const auto [s, c] = detail::fast_sincos(a);
+            CHECK_FALSE(damp::isfinite(s));
+            CHECK_FALSE(damp::isfinite(c));
+        }
+        CHECK_FALSE(damp::isfinite(detail::fast_sin(zd / zd)));
+    }
+
     TEST_CASE("scalar complementary filter with zero tau and zero dt follows the measurement") {
         Complementary<float> f{0.0f};
         (void)f(1.0f, 0.0f, 0.01f);
@@ -95,7 +138,7 @@ TEST_SUITE("NaN/Inf policy") {
     }
 
     TEST_CASE("thermistor past its hot end reads the largest finite temperature") {
-        const Thermistor<float> ntc{design::beta(10000.0f, 298.15f, 3950.0f)};
+        const Thermistor<float> ntc{design::thermistor_beta(10000.0f, 298.15f, 3950.0f)};
         for (const float r : {0.0f, 1e-6f, 0.01f, 1e-30f}) {
             const float t = ntc.kelvin(r);
             CHECK(damp::isfinite(t));
@@ -122,35 +165,42 @@ TEST_SUITE("NaN/Inf policy") {
     }
 
     TEST_CASE("comb notch window never casts an out-of-range length") {
-        CHECK(comb_notch_window(1e6f, 1e-30f) == 0);
-        CHECK(comb_notch_window(1000.0f, 50.0f) == 20);
+        CHECK(comb_notch_window(1e-30f, 1e-6f) == 0);
+        CHECK(comb_notch_window(50.0f, 1e-3f) == 20);
     }
 
     TEST_CASE("UKF with alpha = 0 falls back to the plain unscented transform") {
         UnscentedParams<float> p{};
         p.alpha = 0.0f;
-        UnscentedKalmanFilter<2, 1, 1, float> ukf{ColVec<2, float>{1.0f, 2.0f}, Matrix<2, 2, float>::identity(), Matrix<2, 2, float>::identity() * 0.01f, p};
-        const auto                            f = [](const ColVec<2, float>& x, const ColVec<1, float>&) { return x; };
-        const auto                            h = [](const ColVec<2, float>& x, const ColVec<1, float>&) { return ColVec<1, float>{x[0]}; };
-        CHECK(ukf.predict(f));
-        CHECK(ukf.update(h, ColVec<1, float>{1.5f}, Matrix<1, 1, float>{{0.1f}}));
+        struct Still {
+            [[nodiscard]] ColVec<2, float> operator()(const ColVec<2, float>& /*x*/, const ColVec<1, float>& /*u*/) const { return ColVec<2, float>{}; }
+        };
+        struct First {
+            [[nodiscard]] ColVec<1, float> operator()(const ColVec<2, float>& x, const ColVec<1, float>& /*u*/) const { return ColVec<1, float>{x[0]}; }
+        };
+        UnscentedKalmanFilter<Still> ukf{Still{}, {.Ts = 0.01f, .Q = Matrix<2, 2, float>::identity() * 0.01f, .x0 = ColVec<2, float>{1.0f, 2.0f}, .unscented = p}};
+        CHECK(ukf.predict({}));
+        CHECK(ukf.update(First{}, ColVec<1, float>{1.5f}, 0.1f));
         CHECK(all_finite(ukf.state()));
         CHECK(ukf.state()[0] == doctest::Approx(1.45f).epsilon(0.05));
     }
 
     TEST_CASE("MPC from a failed design holds its input instead of dividing by zero scales") {
-        MPC<2, 1, 1, 10, 3, 0, float> mpc{design::MPCArtifacts<2, 1, 1, 10, 3, 0, float>{}};
+        MPC<2, 1, 1, 10, 3, 0, float> mpc{MPC<2, 1, 1, 10, 3, 0, float>::Result{}};
         for (const float r : kEdges) {
-            const auto u = mpc.control(ColVec<1, float>{r}, ColVec<2, float>{r, -r});
+            const auto u = mpc.step(ColVec<1, float>{r}, ColVec<2, float>{r, -r});
             CHECK(all_finite(u));
             CHECK(u[0] == 0.0f);
         }
-        OffsetFreeMPC<2, 1, 1, 10, 3, float> ofmpc{};
-        CHECK(all_finite(ofmpc.control(ColVec<1, float>{1.0f}, ColVec<1, float>{0.5f})));
+        using OffsetFree = OFMPC<2, 1, 1, 10, 3, float, design::WarmStartActiveSetSolver<4, 33, float>, 0, Luenberger<3, 1, 1, float, 1>>;
+        const auto failed = design::ofmpc<10, 3>(StateSpace<2, 1, 1, float, 2, 1>{}, {}, {}, {}, design::InputDisturbance{}); // a continuous plant: refused
+        REQUIRE_FALSE(failed.success);
+        OffsetFree ofmpc{failed};
+        CHECK(all_finite(ofmpc.step(ColVec<1, float>{1.0f}, ColVec<1, float>{0.5f})));
     }
 
     TEST_CASE("controllers from failed designs emit finite output on edge inputs") {
-        PIDController<float, PIDMode::PID> pid{design::DiscretePIDResult<float>{}};
+        PIDController<float, PIDMode::PID> pid{design::DiscretePIDGains<float>{}};
         PRController<float>                pr{design::PRResult<float>{}};
         LeadLagController<float>           lead{design::LeadLagResult<float>{}};
         ADRCController<2, float>           adrc{design::ADRCResult<2, float>{}};
@@ -160,9 +210,9 @@ TEST_SUITE("NaN/Inf policy") {
         RepetitiveController<16, float>    rep{design::RepetitiveResult<float>{}};
         SmithPredictor<8, float>           smith{design::SmithPredictorResult<float>{}};
         HarmonicSuppressor<3, float>       harm{design::HarmonicSuppressorResult<3, float>{}};
-        LQI<2, 1, 1, float>                lqi{design::LQIResult<2, 1, 1, float>{}};
-        LQGI<2, 1, 1, float, 2, 1>         lqgi{design::LQGIResult<2, 1, 1, float, 2, 1>{}};
-        LQG<2, 1, 1, float, 2, 1>          lqg{design::LQGResult<2, 1, 1, float, 2, 1>{}};
+        auto                               lqi = LQI{design::LQIResult<2, 1, 1, float, 1>{}};
+        auto                               lqgi = LQGI{design::LQGIResult<2, 1, 1, 1, float, 2, 1>{}};
+        auto                               lqg = LQG{design::LQGResult<2, 1, 1, float, 2, 1>{}};
         for (const float r : kEdges) {
             for (const float y : kEdges) {
                 CHECK(damp::isfinite(pid.control(r, y)));
@@ -171,13 +221,13 @@ TEST_SUITE("NaN/Inf policy") {
                 CHECK(damp::isfinite(adrc.control(r, y)));
                 CHECK(damp::isfinite(smc.control(r, y)));
                 CHECK(damp::isfinite(stsmc.control(r, y)));
-                CHECK(damp::isfinite(esc.step(y)));
-                CHECK(damp::isfinite(rep.step(r - y)));
+                CHECK(damp::isfinite(esc.control(y)));
+                CHECK(damp::isfinite(rep.control(r - y)));
                 CHECK(damp::isfinite(smith.control(r, y)));
                 CHECK(damp::isfinite(harm.control(r, y)));
                 const ColVec<1, float> rv{r};
                 const ColVec<1, float> yv{y};
-                CHECK(all_finite(lqi.control(rv, yv, ColVec<2, float>{y, y})));
+                CHECK(all_finite(lqi.step(rv, ColVec<2, float>{y, y})));
                 CHECK(all_finite(lqgi.step(rv, yv)));
                 CHECK(all_finite(lqg.step(yv)));
             }

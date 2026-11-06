@@ -34,13 +34,12 @@
 #include "damp/math/geometry.hpp"
 #include "damp/math/math.hpp"
 #include "damp/matrix/matrix.hpp"
-#include "ekf.hpp"
 
 namespace damp {
 
 namespace detail {
 
-/// Skew-symmetric (cross-product) matrix [v]×, so that [v]× w = v × w.
+/** @brief Skew-symmetric (cross-product) matrix [v]×, so that [v]× w = v × w. */
 template<typename T>
 [[nodiscard]] constexpr Matrix<3, 3, T> skew_sym(const Vec3<T>& v) {
     return Matrix<3, 3, T>{
@@ -50,7 +49,7 @@ template<typename T>
     };
 }
 
-/// Right-multiplicative attitude perturbation exp(δθ) as a unit quaternion.
+/** @brief Right-multiplicative attitude perturbation exp(δθ) as a unit quaternion. */
 template<typename T>
 [[nodiscard]] constexpr Quaternion<T> exp_delta_theta(const Vec3<T>& dth) {
     const T n = dth.norm();
@@ -85,10 +84,12 @@ namespace design {
 template<size_t NDX, size_t NY, typename T = double>
 struct ESKFResult {
     Matrix<NDX, NDX, T> Q{};            ///< Process noise covariance Q
-    Matrix<NY, NY, T>   R{};            ///< Measurement noise covariance R
+    Matrix<NY, NY, T>   R{};            ///< Measurement noise covariance R of the update (update_innovation(ν, H, R))
     Matrix<NDX, NDX, T> P0{};           ///< Initial error covariance P₀
     bool                success{false}; ///< true if densities/dt were valid
 
+    /** @brief True when the design succeeded (success). */
+    [[nodiscard]] constexpr explicit operator bool() const { return success; }
 
     template<typename U>
     [[nodiscard]] constexpr auto as() const {
@@ -103,7 +104,7 @@ struct ESKFResult {
 
 namespace detail {
 
-/// True if every entry is finite and >= 0 (densities, stds, dt).
+/** @brief True if every entry is finite and >= 0 (densities, stds, dt). */
 template<typename T>
 [[nodiscard]] constexpr bool nonneg_finite(T x) {
     return damp::finite_non_negative(x);
@@ -153,10 +154,13 @@ template<size_t NY, typename T>
     T mag_noise_density = T{0}
 ) {
     ESKFResult<6, NY, T> result{};
+    // R must be positive definite: the attitude Jacobians [a]× and [m]× have rank 2,
+    // so a zero density leaves S = H P Hᵀ + R singular and every update fails.
     result.success = nonneg_finite(dt) && (dt > T{0}) && nonneg_finite(gyro_noise_density)
-                  && nonneg_finite(accel_noise_density) && nonneg_finite(gyro_bias_rw)
-                  && nonneg_finite(initial_attitude_uncertainty) && nonneg_finite(initial_bias_uncertainty)
-                  && nonneg_finite(mag_noise_density);
+                  && nonneg_finite(accel_noise_density) && (accel_noise_density > T{0})
+                  && nonneg_finite(gyro_bias_rw) && nonneg_finite(initial_attitude_uncertainty)
+                  && nonneg_finite(initial_bias_uncertainty) && nonneg_finite(mag_noise_density)
+                  && (NY != 6 || mag_noise_density > T{0});
     if (!result.success) {
         return result;
     }
@@ -196,11 +200,11 @@ template<size_t NY, typename T>
  * a heading aid (e.g. steel structures / excavator bases where mag is unreliable).
  *
  * Discrete Q uses the continuous–discrete bias random-walk form
- * (@ref detail::fill_attitude_bias_q). Measurement R is
+ * (@c detail::fill_attitude_bias_q). Measurement R is
  * @f$ \sigma_a^2 / \Delta t @f$ from accel density [m/s²/√Hz] at sample period @p dt.
  *
  * @param gyro_noise_density   Gyroscope noise density [rad/s/√Hz]
- * @param accel_noise_density  Accelerometer noise density [m/s²/√Hz]
+ * @param accel_noise_density  Accelerometer noise density [m/s²/√Hz], > 0
  * @param gyro_bias_rw         Gyro bias random walk [rad/s^{3/2}]
  * @param dt                   Sample period [s] (forms discrete Q and R)
  * @param initial_attitude_uncertainty  Initial attitude 1-σ [rad]
@@ -238,8 +242,8 @@ template<typename T = double>
  * is usable.
  *
  * @param gyro_noise_density   Gyroscope noise density [rad/s/√Hz]
- * @param accel_noise_density  Accelerometer noise density [m/s²/√Hz]
- * @param mag_noise_density    Magnetometer noise density [1/√Hz] (same units as mag meas)
+ * @param accel_noise_density  Accelerometer noise density [m/s²/√Hz], > 0
+ * @param mag_noise_density    Magnetometer noise density [1/√Hz] (same units as mag meas), > 0
  * @param gyro_bias_rw         Gyro bias random walk [rad/s^{3/2}]
  * @param dt                   Sample period [s]
  * @param initial_attitude_uncertainty  Initial attitude 1-σ [rad]
@@ -286,7 +290,7 @@ struct ErrorStateJacobian {
 };
 
 /**
- * @brief Callable that returns @ref ErrorStateJacobian for one predict step
+ * @brief Callable that returns @ref damp::ErrorStateJacobian "ErrorStateJacobian" for one predict step
  *
  * Signature: (dt) → ErrorStateJacobian. Nominal integration (e.g. gyro on q)
  * is the caller's job; only F, G are returned here.
@@ -296,76 +300,82 @@ concept ESKFPredictFn = requires(Fn&& fn, T dt) {
     { fn(dt) } -> std::convertible_to<ErrorStateJacobian<T, NDX>>;
 };
 
+
 /**
- * @brief Callable that returns a measurement linearization for one update
+ * @brief Configuration of an ErrorStateKalmanFilter: the process noise and the initial covariance
  *
- * Signature: () → MeasJacobian (captures nominal state). Yields predicted
- * measurement and H (and optional M).
+ * An aggregate; name the fields you set: `ErrorStateKalmanFilter<15, float> eskf{{.Q = Q, .P0 = P0}}`.
+ *
+ * @tparam NDX Error-state size
  */
-template<typename Fn, typename T, size_t NDX, size_t NY>
-concept ESKFMeasFn = requires(Fn&& fn) {
-    { fn() } -> std::convertible_to<MeasJacobian<T, NY, NDX>>;
+template<size_t NDX, typename T = float>
+struct ErrorStateKalmanFilterConfig {
+    Matrix<NDX, NDX, T> Q{Matrix<NDX, NDX, T>::identity()};  ///< Process-noise covariance per step (through G)
+    Matrix<NDX, NDX, T> P0{Matrix<NDX, NDX, T>::identity()}; ///< Initial error covariance
 };
 
 /**
  * @brief Runtime error-state KF: tracks δx and P, not the full nominal state
  *
  * Estimates a small error δx; the user keeps the nominal quaternion/biases
- * and injects corrections after @ref update. Typical layout:
+ * and injects corrections after @ref update_innovation. Typical layout:
  * δx = [δθ (3), δb_g (3), …].
  *
  * Workflow:
  * 1. Integrate nominal state (e.g. q ← q ⊗ Δq from gyro).
  * 2. @ref predict — @f$ P \leftarrow F P F^\top + G Q G^\top @f$.
- * 3. @ref update — @f$ \delta x = K(y - h(x_{\mathrm{nom}})) @f$.
+ * 3. @ref update_innovation with each reading, linearized at the nominal state —
+ *    @f$ \delta x \leftarrow \delta x + K(\nu - H\,\delta x) @f$.
  * 4. Inject δx into the nominal state and @ref reset_error_state.
+ *
+ * The measurement model lives outside the filter with the nominal state, so each reading
+ * arrives as its innovation ν = y − h(x_nom), its Jacobian H = ∂h/∂δx and its covariance R, of
+ * any size.
  *
  * @see "Quaternion kinematics for the error-state Kalman filter" (Solà, 2017), §5–6
  *
  * @tparam NDX Error state dimension
- * @tparam NY  Default measurement dimension for @ref update
  * @tparam T   Scalar (default float for embedded runtime)
  */
-template<size_t NDX, size_t NY, typename T = float>
+template<size_t NDX, typename T = float>
 struct ErrorStateKalmanFilter {
     // Error state dimension typically: 3 (attitude) + 3 (gyro bias) + 3 (accel bias) = 9
     // Nominal state (quaternion + biases) is tracked separately and not part of the KF
 
     constexpr ErrorStateKalmanFilter() = default;
 
-    constexpr ErrorStateKalmanFilter(
-        const Matrix<NDX, NDX, T>& P0,
-        const Matrix<NDX, NDX, T>& Q_,
-        const Matrix<NY, NY, T>&   R_
-    ) : P(P0), Q(Q_), R(R_), delta_x(ColVec<NDX, T>{}) {}
+    /** @brief Filter from its process noise and initial covariance. */
+    constexpr explicit ErrorStateKalmanFilter(const ErrorStateKalmanFilterConfig<NDX, T>& config) : P(config.P0), Q(config.Q) {}
 
-    // Type conversion constructor
+    /** @brief The same filter in another scalar. */
     template<typename U>
-    constexpr ErrorStateKalmanFilter(const ErrorStateKalmanFilter<NDX, NY, U>& other)
-        : P(other.covariance()),
-          Q(other.process_noise_covariance()),
-          R(other.measurement_noise_covariance()),
-          delta_x(other.error_state()),
-          innov(other.innovation()) {}
+    constexpr ErrorStateKalmanFilter(const ErrorStateKalmanFilter<NDX, U>& other) // NOLINT(google-explicit-constructor): a scalar conversion
+        : P(other.covariance().template as<T>()),
+          Q(other.process_noise_covariance().template as<T>()),
+          delta_x(other.error_state().template as<T>()) {}
 
-    /// From design result (any scalar); converts P0/Q/R via @c .as\<T\>().
-    template<typename U>
-    constexpr ErrorStateKalmanFilter(const design::ESKFResult<NDX, NY, U>& result)
+    /**
+     * @brief From a design result (any scalar): its P₀ and Q via @c .as\<T\>(). The design's R
+     *        is the update's: update_innovation(ν, H, res.R).
+     */
+    template<typename U, size_t NY>
+    constexpr ErrorStateKalmanFilter(const design::ESKFResult<NDX, NY, U>& result) // NOLINT(google-explicit-constructor): assign-from-design
         : P(result.P0.template as<T>()),
-          Q(result.Q.template as<T>()),
-          R(result.R.template as<T>()),
-          delta_x(ColVec<NDX, T>{}) {
+          Q(result.Q.template as<T>()) {
         if (!result.success && std::is_constant_evaluated()) {
             ::damp::detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
     }
 
-    // Predict: propagate the error mean and covariance (nominal state is
-    // integrated externally by the user).
-    // User provides: (dt) -> ErrorStateJacobian{F, G}
-    //   F = error state transition Jacobian (∂δx_next/∂δx)
-    //   G = process noise Jacobian (maps Q to error covariance)
-    // δx[k+1|k] = F δx[k|k];  P[k+1|k] = F P[k|k] Fᵀ + G Q Gᵀ
+    /**
+     * @brief Propagate the error mean and covariance over one step (the nominal state is
+     *        integrated by the caller)
+     *
+     *     δx[k+1|k] = F δx[k|k];  P[k+1|k] = F P[k|k] Fᵀ + G Q Gᵀ
+     *
+     * @param propagate_nominal (dt) → ErrorStateJacobian{F, G}
+     * @param dt                Step [s]
+     */
     template<typename PredictFn>
         requires ESKFPredictFn<PredictFn, T, NDX>
     constexpr void predict(const PredictFn& propagate_nominal, const T dt) {
@@ -395,99 +405,82 @@ struct ErrorStateKalmanFilter {
     }
 
     /**
-     * @brief Joseph-form update from a precomputed innovation (any NY2)
+     * @brief Joseph-form update with one reading of any size, from its innovation
      *
-     * Use when this update's size differs from the filter's default NY
-     * (e.g. scalar heading while stored R is 3×3 for position).
+     * ν̄ = ν − H δx is the residual against the corrected estimate, which is ν itself after
+     * reset_error_state (δx = 0). S = H P Hᵀ + R is symmetric positive definite, so
+     * K = P Hᵀ S⁻¹ comes from S Kᵀ = H P by Cholesky. Then δx ← δx + K ν̄ and
+     * P ← (I − K H) P (I − K H)ᵀ + K R Kᵀ.
      *
-     * @tparam NY2 Measurement dimension for this update
-     * @param innovation  y − h(x) (form and wrap angles before calling)
-     * @param H           ∂h/∂δx (NY2 × NDX)
-     * @param R_meas      measurement covariance for this update
-     * @return false if the innovation covariance is not SPD / solve fails
+     * @param innovation ν = y − h(x_nom), with any wrap the reading needs (a heading residual on (−π, π])
+     * @param H          ∂h/∂δx at the nominal state (NY × NDX)
+     * @param R          Covariance of the reading's noise
+     * @return false if S is not positive definite: δx and P are unchanged
      */
-    template<size_t NY2>
+    template<size_t NY>
     [[nodiscard]] constexpr bool update_innovation(
-        const ColVec<NY2, T>&      innovation,
-        const Matrix<NY2, NDX, T>& H,
-        const Matrix<NY2, NY2, T>& R_meas
+        const ColVec<NY, T>&                           innovation,
+        const Matrix<NY, NDX, T>&                      H,
+        const std::type_identity_t<Matrix<NY, NY, T>>& R
     ) {
-        // S = HPHᵀ + R with exact symmetry (quadratic_form); fail closed if singular.
-        const Matrix<NY2, NY2, T> S = quadratic_form(H, P) + R_meas;
-        const auto                K_opt = mat::solve(S, H * P);
+        // S = HPHᵀ + R with exact symmetry (quadratic_form); fail closed if not positive definite.
+        const Matrix<NY, NY, T> S = quadratic_form(H, P) + R;
+        const auto              K_opt = mat::cholesky_solve(S, Matrix<NY, NDX, T>(H * P));
         if (!K_opt) {
             return false;
         }
-        const Matrix K = K_opt.value().transpose(); // NDX × NY2
+        const Matrix<NDX, NY, T> K = K_opt.value().transpose();
         // Stack on any correction not yet injected. A single update after
         // reset_error_state (δx = 0) matches δx = K (y − h).
-        const ColVec<NY2, T> innov_bar = innovation - (H * delta_x);
+        const ColVec<NY, T> innov_bar = innovation - (H * delta_x);
         delta_x = delta_x + (K * innov_bar);
         // Joseph form: P = (I − KH) P (I − KH)ᵀ + K R Kᵀ (exact P symmetry)
-        const auto I_KH = Matrix<NDX, NDX, T>::identity() - K * H;
-        P = quadratic_form(I_KH, P) + quadratic_form(K, R_meas);
-        if constexpr (NY2 == NY) {
-            innov = innovation;
-        }
+        const Matrix<NDX, NDX, T> I_KH = Matrix<NDX, NDX, T>::identity() - (K * H);
+        P = quadratic_form(I_KH, P) + quadratic_form(K, R);
         return true;
     }
 
-    // Measurement update: Correct error state from innovation
-    // User provides: () -> MeasJacobian{y_pred, H, M}
-    //   y_pred = h(nominal_state) - predicted measurement
-    //   H = measurement Jacobian (∂h/∂δx)
-    //   M = measurement noise Jacobian (∂h/∂v, usually identity)
-    // P update: P = (I - K*H) * P * (I - K*H)' + K*M*R*M'*K'  (Joseph form)
-    template<typename MeasFn>
-        requires ESKFMeasFn<MeasFn, T, NDX, NY>
-    constexpr bool update(const MeasFn& meas_fn, const ColVec<NY, T>& y) {
-        MeasJacobian<T, NY, NDX> mj = meas_fn();
-
-        innov = y - mj.y_pred; // Innovation
-        const Matrix<NY, NY, T> R_eff = quadratic_form(mj.M, R);
-        return update_innovation(innov, mj.H, R_eff);
-    }
-
-    // Reset error state after applying corrections to nominal state.
-    // Call this after you've updated the nominal quaternion/biases with delta_x.
-    // G is the reset Jacobian (P ← G P Gᵀ); for a right-multiplicative attitude
-    // error its attitude block is detail::attitude_reset_jacobian(δθ).
+    /**
+     * @brief Zero the error state after its correction is injected into the nominal state
+     *
+     * G is the reset Jacobian (P ← G P Gᵀ); for a right-multiplicative attitude error its
+     * attitude block is detail::attitude_reset_jacobian(δθ).
+     */
     constexpr void reset_error_state(const Matrix<NDX, NDX, T>& G = Matrix<NDX, NDX, T>::identity()) {
         delta_x = ColVec<NDX, T>{};
         P = quadratic_form(G, P);
     }
 
-    // Accessors
-    [[nodiscard]] constexpr const auto& error_state() const { return delta_x; }
-    [[nodiscard]] constexpr const auto& covariance() const { return P; }
-    [[nodiscard]] constexpr const auto& process_noise_covariance() const { return Q; }
-    [[nodiscard]] constexpr const auto& measurement_noise_covariance() const { return R; }
-    [[nodiscard]] constexpr const auto& innovation() const { return innov; }
+    /** @brief The error-state estimate δx (zero after reset_error_state). */
+    [[nodiscard]] constexpr const ColVec<NDX, T>& error_state() const { return delta_x; }
+    /** @brief The error covariance P. */
+    [[nodiscard]] constexpr const Matrix<NDX, NDX, T>& covariance() const { return P; }
+    /** @brief The process-noise covariance Q. */
+    [[nodiscard]] constexpr const Matrix<NDX, NDX, T>& process_noise_covariance() const { return Q; }
 
-    // Setters for runtime tuning
-    constexpr void set_process_noise_covariance(const Matrix<NDX, NDX, T>& Q_new) { Q = Q_new; }
-    constexpr void set_measurement_noise_covariance(const Matrix<NY, NY, T>& R_new) { R = R_new; }
-    constexpr void set_covariance(const Matrix<NDX, NDX, T>& P_new) { P = P_new; }
-
-    // Error-state mutators. The ESKF estimates the *correction* δx; the nominal
-    // state (quaternion, biases) lives outside the filter. Use these to bound or
-    // zero a correction component before injecting it into the nominal state —
-    // e.g. cap an attitude-error step so a bad measurement can't slew the
-    // quaternion, or freeze a bias correction that has saturated. Apply between
-    // update() and your nominal-state injection + reset_error_state().
+    /**
+     * @brief Overwrite the correction before injecting it: cap an attitude-error step so a bad
+     *        measurement cannot slew the quaternion, or freeze a saturated bias correction
+     */
     constexpr void set_error_state(const ColVec<NDX, T>& dx_new) { delta_x = dx_new; }
-    constexpr void set_error_state(size_t i, T value) { delta_x[i] = value; }
+
+    /**
+     * @brief Replace the error state and its covariance: a re-initialization, or the result of a
+     *        structured propagation such as ins_predict's. Q stays.
+     */
+    constexpr void reset(const ColVec<NDX, T>& dx0, const Matrix<NDX, NDX, T>& P0) {
+        delta_x = dx0;
+        P = P0;
+    }
 
 private:
-    Matrix<NDX, NDX, T> P{};       // Error covariance
-    Matrix<NDX, NDX, T> Q{};       // Process noise covariance
-    Matrix<NY, NY, T>   R{};       // Measurement noise covariance
-    ColVec<NDX, T>      delta_x{}; // Error state δx
-    ColVec<NY, T>       innov{};   // Innovation
+    Matrix<NDX, NDX, T> P{};       ///< Error covariance
+    Matrix<NDX, NDX, T> Q{};       ///< Process noise covariance
+    ColVec<NDX, T>      delta_x{}; ///< Error state δx
 };
 
-// CTAD deduction guide for ErrorStateKalmanFilter
-template<typename T, size_t NDX, size_t NY>
-ErrorStateKalmanFilter(Matrix<NDX, NDX, T>, Matrix<NDX, NDX, T>, Matrix<NY, NY, T>) -> ErrorStateKalmanFilter<NDX, NY, T>;
+/** @brief Deduce the filter from its design, keeping the result's scalar. */
+template<size_t NDX, size_t NY, typename T>
+ErrorStateKalmanFilter(const design::ESKFResult<NDX, NY, T>&) -> ErrorStateKalmanFilter<NDX, T>;
 
 } // namespace damp

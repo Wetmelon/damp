@@ -30,10 +30,10 @@ TEST_SUITE("Cached ZOH") {
         const double a = 2.0;
         const double h = 0.1;
         StateSpace   sys{
-              .A = Matrix<1, 1>{{-a}},
-              .B = Matrix<1, 1>{{0.0}},
-              .C = Matrix<1, 1>{{1.0}},
-              .Ts = 0.0,
+            .A = Matrix<1, 1>{{-a}},
+            .B = Matrix<1, 1>{{0.0}},
+            .C = Matrix<1, 1>{{1.0}},
+            .Ts = 0.0,
         };
         ColVec<1> x0{1.0};
         ColVec<1> u{0.0};
@@ -119,5 +119,14 @@ TEST_SUITE("Cached ZOH") {
         ColVec<1> x{1.0};
         ColVec<1> u{0.5};
         CHECK(zoh.step(x, u)(0) == doctest::Approx((dsys.A * x + dsys.B * u)(0)).epsilon(1e-14));
+    }
+
+    TEST_CASE("simulate_cached_zoh over a span never steps past tf") {
+        const StateSpace<1, 1, 1> sys{.A = Matrix<1, 1>{{-1.0}}, .B = Matrix<1, 1>{{1.0}}, .C = Matrix<1, 1>{{1.0}}, .Ts = 0.0};
+        const auto                sim = simulate_cached_zoh(sys, ColVec<1>{0.0}, ColVec<1>{1.0}, {0.0, 1.0}, 0.4);
+        CHECK(sim.t.back() <= 1.0);
+        CHECK(sim.t.size() == 3); // 0, 0.4, 0.8
+        const auto exact = simulate_cached_zoh(sys, ColVec<1>{0.0}, ColVec<1>{1.0}, {0.0, 0.3}, 0.1);
+        CHECK(exact.t.size() == 4); // 0.3/0.1 = 2.9999999999999996 still counts three steps
     }
 }
