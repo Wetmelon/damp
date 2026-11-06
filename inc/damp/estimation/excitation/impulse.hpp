@@ -53,6 +53,9 @@ struct ImpulseResult {
     ImpulseConfig<T> config{};
     bool             success{false};
 
+    /** @brief True when the design succeeded (success). */
+    [[nodiscard]] constexpr explicit operator bool() const { return success; }
+
     template<typename U>
     [[nodiscard]] constexpr ImpulseResult<U> as() const {
         return ImpulseResult<U>{

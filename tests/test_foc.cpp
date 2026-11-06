@@ -12,6 +12,7 @@
 #include "damp/math/transforms.hpp"
 #include "damp/motor/foc.hpp"
 #include "damp/motor/spm.hpp"
+#include "damp/systems/transfer_function.hpp"
 
 #define DOCTEST_CONFIG_INCLUDE_TYPE_TRAITS
 #include "doctest.h"
@@ -39,9 +40,19 @@ TEST_SUITE("FOC Controller") {
 
         // q-axis has larger inductance -> larger gains
         CHECK(foc.qctrl.Kp > foc.dctrl.Kp);
+
+        // 10 rad/s is slower than the R/L pole: the PI cancels it, Kp = ωL, Ki = ωR.
+        CHECK(foc.tune(10.0f));
+        CHECK(foc.dctrl.Kp == doctest::Approx(10.0f * Ld));
+        CHECK(foc.qctrl.Ki == doctest::Approx(10.0f * R));
+
+        // An out-of-range input is refused and the gains kept.
+        const float Kp_d = foc.dctrl.Kp;
+        CHECK_FALSE(foc.tune(-1.0f));
+        CHECK(foc.dctrl.Kp == Kp_d);
     }
 
-    TEST_CASE("FOC tuning uses pi_pole_placement_first_order") {
+    TEST_CASE("FOC tuning uses pid_pole_placement") {
         // Verify the motor controller uses the generic SISO PI pole-placement kernel.
         // with (a1,a0)=(L,R) — verify the delegation rather than a re-derivation.
         constexpr float                  L = 200e-6f;
@@ -49,7 +60,7 @@ TEST_SUITE("FOC Controller") {
         constexpr float                  omega = 6000.0f;
         constexpr float                  zeta = 1.0f;
         constexpr float                  b = 0.0f;
-        constexpr auto                   via_kernel = damp::design::pi_pole_placement_first_order(L, R, omega, zeta, b);
+        constexpr auto                   via_kernel = damp::design::pid_pole_placement(damp::TransferFunction<1, 2>{.num = {1.0}, .den = {L, R}}, {.omega = omega, .zeta = zeta, .b = b});
         damp::motor::FOController<float> foc({.d = L, .q = L}, R, 0.0f);
         foc.tune(omega, zeta, b);
         CHECK(foc.dctrl.Kp == doctest::Approx(via_kernel.Kp));
@@ -148,11 +159,11 @@ TEST_SUITE("FOC Controller") {
         CHECK(foc.current_controller(Idq_ref, Idq, 0.0f, 0.0f).Vdq.q == doctest::Approx(0.5f));
     }
 
-    TEST_CASE("pi_pole_placement_first_order returns a clean 2-DOF PIDResult") {
+    TEST_CASE("pid_pole_placement returns a clean 2-DOF PIDGains") {
         const double L = 250e-6;
         const double R = 0.35;
         const double wbw = 1500.0;
-        const auto   res = damp::design::pi_pole_placement_first_order(L, R, wbw); // zeta=1, b=1 defaults
+        const auto   res = damp::design::pid_pole_placement(damp::TransferFunction<1, 2>{.num = {1.0}, .den = {L, R}}, {.omega = wbw}); // zeta=1, b=1 defaults
 
         CHECK(res.Kp == doctest::Approx((2.0 * wbw * L) - R));
         CHECK(res.Ki == doctest::Approx(L * wbw * wbw));
@@ -161,17 +172,17 @@ TEST_SUITE("FOC Controller") {
         CHECK(res.b == doctest::Approx(1.0));
 
         // Regression: output/integrator limits must stay unbounded. A positional
-        // brace-init slip {Kp, Ki, Kd, Ts} once landed Ts in the u_min slot, which
+        // brace-init slip {Kp, Ki, Kd, Ts} once landed Ts in the output-limit slot, which
         // tune() discards (so gains looked fine) but which would silently clamp any
         // PIDController built straight from the result.
         constexpr double inf = std::numeric_limits<double>::max();
-        CHECK(res.u_min == -inf);
-        CHECK(res.u_max == inf);
-        CHECK(res.i_min == -inf);
-        CHECK(res.i_max == inf);
+        CHECK(res.u_lim.lower(0) == -inf);
+        CHECK(res.u_lim.upper(0) == inf);
+        CHECK(res.integral_lim.lower(0) == -inf);
+        CHECK(res.integral_lim.upper(0) == inf);
 
         // The setpoint weight propagates for the I-P structure.
-        CHECK(damp::design::pi_pole_placement_first_order(L, R, wbw, 1.0, 0.0).b == doctest::Approx(0.0));
+        CHECK(damp::design::pid_pole_placement(damp::TransferFunction<1, 2>{.num = {1.0}, .den = {L, R}}, {.omega = wbw, .zeta = 1.0, .b = 0.0}).b == doctest::Approx(0.0));
     }
 
     TEST_CASE("tune() setpoint weight selects PI vs I-P") {

@@ -37,18 +37,25 @@ struct RowVec;
 template<size_t Rows, size_t Cols, size_t ParentCols, typename T>
 struct Block {
 private:
-    T* const     data_ptr;
-    size_t const offset;
+    T*     data_ptr{};
+    size_t offset{};
 
 public:
-    typedef std::remove_const_t<T> value_type;
+    using value_type = std::remove_const_t<T>;
     // Create a block from a pointer to the parent data and an offset
     constexpr explicit Block(T* data_ptr_, size_t offset_ = 0)
         : data_ptr(data_ptr_), offset(offset_) {}
 
-    constexpr Block(const Block& other) : data_ptr(other.data_ptr), offset(other.offset) {}
+    constexpr Block(const Block&) = default;
+    constexpr Block(Block&&) noexcept = default;
+    constexpr ~Block() = default;
+
+    /** @brief Copies the other block's elements into this one (writes through; never rebinds). */
     constexpr Block& operator=(const Block& other) {
         if constexpr (Rows == 0 || Cols == 0) {
+            return *this;
+        }
+        if (this == &other) {
             return *this;
         }
         // Direct write when the rectangles do not share an element.
@@ -77,10 +84,10 @@ public:
         return *this;
     }
 
-    constexpr Block(Block&& other) noexcept : data_ptr(other.data_ptr), offset(other.offset) {}
-    /// Writes through like copy assignment (a temporary block still views live storage).
+    /** @brief Writes through like copy assignment (a temporary block still views live storage). */
     constexpr Block& operator=(Block&& other) noexcept {
-        return *this = static_cast<const Block&>(other);
+        *this = static_cast<const Block&>(other);
+        return *this;
     }
 
     [[nodiscard]] constexpr T& operator()(size_t r, size_t c) {
@@ -104,7 +111,7 @@ public:
      * @brief Assignment from any MatrixLike type with matching dimensions
      */
     template<MatrixLike M>
-        requires(M::rows() == Rows && M::cols() == Cols)
+        requires(M::rows() == Rows && M::cols() == Cols && ConvertsExactly<typename M::value_type, value_type>)
     constexpr Block& operator=(const M& other) {
         if constexpr (Rows == 0 || Cols == 0) {
             return *this;
@@ -138,18 +145,20 @@ public:
     [[nodiscard]] constexpr T*       data() { return data_ptr + offset; }
     [[nodiscard]] constexpr const T* data() const { return data_ptr + offset; }
 
-    /// First element of this rectangle.
+    /** @brief First element of this rectangle. */
     [[nodiscard]] constexpr const value_type* storage_first() const { return data_ptr + offset; }
 
-    /// Last element of this rectangle (inclusive). The span includes gaps when
-    /// Cols < ParentCols.
+    /**
+     * @brief Last element of this rectangle (inclusive). The span includes gaps when
+     * Cols < ParentCols.
+     */
     [[nodiscard]] constexpr const value_type* storage_last() const {
         if constexpr (Rows == 0 || Cols == 0) {
             return data_ptr + offset;
         }
         return data_ptr + offset + ((Rows - 1) * ParentCols) + (Cols - 1);
     }
-    /// True when @p other may read this block's storage (conservative span test).
+    /** @brief True when @p other may read this block's storage (conservative span test). */
     template<typename M>
     [[nodiscard]] constexpr bool aliases(const M& other) const {
         if constexpr (Rows == 0 || Cols == 0) {
@@ -165,12 +174,14 @@ public:
 
     // Sub-block access
     template<size_t Brows, size_t Bcols>
-    constexpr Block<Brows, Bcols, ParentCols, T> block(size_t start_row, size_t start_col) {
+    [[nodiscard]] constexpr Block<Brows, Bcols, ParentCols, T> block(size_t start_row, size_t start_col) {
+        static_assert(Brows <= Rows && Bcols <= Cols, "block larger than its parent");
         return Block<Brows, Bcols, ParentCols, T>(data_ptr, offset + (start_row * ParentCols) + start_col);
     }
 
     template<size_t Brows, size_t Bcols>
-    constexpr Block<Brows, Bcols, ParentCols, const T> block(size_t start_row, size_t start_col) const {
+    [[nodiscard]] constexpr Block<Brows, Bcols, ParentCols, const T> block(size_t start_row, size_t start_col) const {
+        static_assert(Brows <= Rows && Bcols <= Cols, "block larger than its parent");
         return Block<Brows, Bcols, ParentCols, const T>(
             const_cast<T*>(data_ptr), offset + (start_row * ParentCols) + start_col
         );
@@ -193,7 +204,7 @@ public:
      * @brief Compound addition assignment from any MatrixLike
      */
     template<MatrixLike M>
-        requires(M::rows() == Rows && M::cols() == Cols)
+        requires(M::rows() == Rows && M::cols() == Cols && ConvertsExactly<typename M::value_type, value_type>)
     constexpr Block& operator+=(const M& other) {
         if (aliases(other)) {
             return *this += Matrix<Rows, Cols, value_type>(other);
@@ -210,7 +221,7 @@ public:
      * @brief Compound subtraction assignment from any MatrixLike
      */
     template<MatrixLike M>
-        requires(M::rows() == Rows && M::cols() == Cols)
+        requires(M::rows() == Rows && M::cols() == Cols && ConvertsExactly<typename M::value_type, value_type>)
     constexpr Block& operator-=(const M& other) {
         if (aliases(other)) {
             return *this -= Matrix<Rows, Cols, value_type>(other);

@@ -4,6 +4,8 @@
 // (See accompanying file LICENSE or copy at http://www.boost.org/LICENSE_1_0.txt)
 
 
+#include <limits>
+
 #include "damp/controllers/action_governor.hpp"
 #include "damp/design/qp.hpp"
 #include "damp/matrix/matrix.hpp"
@@ -20,68 +22,42 @@ using namespace damp;
 
 TEST_CASE("project_box is identity when already safe") {
     const ColVec<2> u{0.5, -0.5};
-    const ColVec<2> umin{-1.0, -1.0};
-    const ColVec<2> umax{1.0, 1.0};
+    const Bounds<2> b{
+        .lower = {-1.0, -1.0},
+        .upper = {1.0, 1.0},
+    };
 
-    const auto out = project_box(u, umin, umax);
+    const auto out = project_box(u, b);
     CHECK(out(0) == doctest::Approx(0.5));
     CHECK(out(1) == doctest::Approx(-0.5));
 }
 
 TEST_CASE("project_box clamps violated channels") {
     const ColVec<3> u{-2.0, 0.5, 9.0};
-    const ColVec<3> umin{-1.0, 0.0, -5.0};
-    const ColVec<3> umax{1.0, 2.0, 5.0};
+    const Bounds<3> b{
+        .lower = {-1.0, 0.0, -5.0},
+        .upper = {1.0, 2.0, 5.0},
+    };
 
-    const auto out = project_box(u, umin, umax);
+    const auto out = project_box(u, b);
     CHECK(out(0) == doctest::Approx(-1.0));
     CHECK(out(1) == doctest::Approx(0.5));
     CHECK(out(2) == doctest::Approx(5.0));
 }
 
-TEST_CASE("project_box with Bounds matches ColVec form") {
-    const Bounds<2> b{{-1.0, -2.0}, {1.0, 2.0}};
-    const ColVec<2> u{1.5, -3.0};
-    const auto      out = project_box(u, b);
-    CHECK(out(0) == doctest::Approx(1.0));
-    CHECK(out(1) == doctest::Approx(-2.0));
-}
-
-TEST_CASE("BoxCommandFilter filter and operator() match project_box") {
-    const Bounds<2, float>     b{{-1.f, -2.f}, {1.f, 2.f}};
-    BoxCommandFilter<2, float> filt{b};
-
-    const ColVec<2, float> u_des{1.5f, -3.f};
-    const auto             u1 = filt.filter(u_des);
-    const auto             u2 = filt(u_des);
-    CHECK(u1(0) == doctest::Approx(1.f));
-    CHECK(u1(1) == doctest::Approx(-2.f));
-    CHECK(u2(0) == u1(0));
-    CHECK(u2(1) == u1(1));
-    CHECK(filt.is_safe(u1));
-    CHECK_FALSE(filt.is_safe(u_des));
-}
-
-TEST_CASE("BoxCommandFilter is constexpr") {
-    constexpr Bounds<2>                   b{{-1.0, -2.0}, {1.0, 2.0}};
-    constexpr BoxCommandFilter<2, double> filt{b};
-    constexpr ColVec<2>                   u_des{1.5, -3.0};
-    constexpr auto                        u = filt.filter(u_des);
+TEST_CASE("project_box is constexpr") {
+    constexpr Bounds<2> b{
+        .lower = {-1.0, -2.0},
+        .upper = {1.0, 2.0},
+    };
+    constexpr ColVec<2> u_des{1.5, -3.0};
+    constexpr auto      u = project_box(u_des, b);
     static_assert(u(0) == 1.0);
     static_assert(u(1) == -2.0);
-    static_assert(filt.is_safe(u));
-    static_assert(!filt.is_safe(u_des));
 
     constexpr auto u_id = project_box(ColVec<2>{0.0, 0.0}, b);
     static_assert(u_id(0) == 0.0);
     static_assert(u_id(1) == 0.0);
-}
-
-TEST_CASE("BoxCommandFilter::as converts bounds") {
-    const BoxCommandFilter<1, double> d{Bounds<1, double>{-2.0, 2.0}};
-    const auto                        f = d.as<float>();
-    const auto                        u = f.filter(ColVec<1, float>{3.f});
-    CHECK(u(0) == doctest::Approx(2.f));
 }
 
 // =============================================================================
@@ -155,6 +131,25 @@ TEST_CASE("ActionGovernor operator is fail-closed") {
     CHECK_FALSE(bad.filter(ColVec<1>{5.0}).success);
 }
 
+TEST_CASE("ActionGovernor::filter is fail-closed: a failed projection returns the last safe command") {
+    // filter() used to hand back the unprojected u_des on failure; only operator() held.
+    ActionGovernor<1, 2, double> gov{Matrix<2, 1>{{1.0}, {-1.0}}, ColVec<2>{1.0, 1.0}}; // |u| ≤ 1
+    REQUIRE(gov.filter(ColVec<1>{0.5}).success);
+    const auto failed = gov.filter(ColVec<1>{5.0}, ColVec<2>{-1.0, -1.0}); // u ≤ −1 and u ≥ 1: infeasible
+    CHECK_FALSE(failed.success);
+    CHECK(failed.u(0) == doctest::Approx(0.5));
+    CHECK(failed.modified);
+    CHECK(gov(ColVec<1>{2.0})(0) == doctest::Approx(1.0));
+}
+
+TEST_CASE("ActionGovernor::as maps a disabled row to the target sentinel, not inf") {
+    const ActionGovernor<1, 2, double> gov{Matrix<2, 1>{{1.0}, {-1.0}}, ColVec<2>{1.0, design::unbounded_bound<double>()}};
+    const auto                         govf = gov.as<float>();
+    CHECK(damp::isfinite(govf.b()(1)));
+    CHECK(govf.b()(1) == std::numeric_limits<float>::max());
+    CHECK(govf.b()(0) == 1.0f);
+}
+
 TEST_CASE("project_affine is constexpr") {
     constexpr Matrix<1, 2> A{{1.0, 1.0}};
     constexpr ColVec<1>    b{1.0};
@@ -208,7 +203,7 @@ TEST_CASE("cbf_relative_degree_1 builds the affine row") {
     const auto cbf = design::cbf_relative_degree_1(ColVec<2>{1.0, 2.0}, 0.5, 1.0, 2.0);
     CHECK(cbf.A(0, 0) == doctest::Approx(-1.0));
     CHECK(cbf.A(0, 1) == doctest::Approx(-2.0));
-    CHECK(cbf.b == doctest::Approx(2.5));
+    CHECK(cbf.b(0) == doctest::Approx(2.5));
 }
 
 TEST_CASE("cbf_relative_degree_1 enforces barrier via project_affine") {
@@ -223,12 +218,12 @@ TEST_CASE("cbf_relative_degree_1 enforces barrier via project_affine") {
     constexpr double alpha = 1.0;
 
     const auto cbf = design::cbf_relative_degree_1(ColVec<1>{Lg}, Lf, h, alpha);
-    const auto res = design::project_affine(ColVec<1>{1.0}, cbf.A, ColVec<1>{cbf.b});
+    const auto res = design::project_affine(ColVec<1>{1.0}, cbf.A, cbf.b);
     REQUIRE(res.success);
     CHECK(res.u(0) == doctest::Approx(alpha * h).epsilon(1e-9));
 
     // Already safe: u_des = 0.05 < 0.1
-    const auto res_safe = design::project_affine(ColVec<1>{0.05}, cbf.A, ColVec<1>{cbf.b});
+    const auto res_safe = design::project_affine(ColVec<1>{0.05}, cbf.A, cbf.b);
     REQUIRE(res_safe.success);
     CHECK_FALSE(res_safe.modified);
     CHECK(res_safe.u(0) == doctest::Approx(0.05).epsilon(1e-9));
@@ -237,9 +232,9 @@ TEST_CASE("cbf_relative_degree_1 enforces barrier via project_affine") {
 TEST_CASE("cbf_relative_degree_1 is constexpr") {
     constexpr auto cbf = design::cbf_relative_degree_1(ColVec<1>{-1.0}, 0.0, 0.1, 1.0);
     static_assert(cbf.A(0, 0) == 1.0); // −Lg = −(−1) = 1
-    static_assert(cbf.b - 0.1 < 1e-12 && cbf.b - 0.1 > -1e-12);
+    static_assert(cbf.b(0) - 0.1 < 1e-12 && cbf.b(0) - 0.1 > -1e-12);
 
-    constexpr auto res = design::project_affine(ColVec<1>{1.0}, cbf.A, ColVec<1>{cbf.b});
+    constexpr auto res = design::project_affine(ColVec<1>{1.0}, cbf.A, cbf.b);
     static_assert(res.success);
     static_assert(res.u(0) - 0.1 < 1e-9 && res.u(0) - 0.1 > -1e-9);
 }

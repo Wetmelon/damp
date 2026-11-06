@@ -4,11 +4,13 @@
 // (See accompanying file LICENSE or copy at http://www.boost.org/LICENSE_1_0.txt)
 
 #include <cstddef>
+#include <limits>
 #include <random>
 #include <type_traits>
-#include <vector>
 
 #include "damp/backend.hpp"
+#include "damp/math/complex.hpp"
+#include "damp/math/math.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "fmt/core.h"
 
@@ -49,6 +51,27 @@ TEST_CASE("Matrix initializer list constructor") {
     CHECK(mat(1, 1) == 4);
 }
 
+TEST_CASE("A 1×1 matrix converts from its scalar") {
+    constexpr Matrix<1, 1> from_scalar = 0.25;
+    static_assert(from_scalar(0, 0) == 0.25);
+    static_assert(Matrix<1, 1, float>{2.0f}(0, 0) == 2.0f);
+    static_assert(Matrix<1, 1>{{3.0}}(0, 0) == 3.0); // the nested list still reads as rows
+    static_assert(std::is_convertible_v<double, Matrix<1, 1>>);
+    static_assert(!std::is_constructible_v<Matrix<2, 2>, double>);
+    static_assert(!std::is_constructible_v<Matrix<1, 2>, double>);
+
+    // Scalar arithmetic on a 1×1 matrix still means scalar arithmetic, not a 1×1 product.
+    constexpr auto scaled = from_scalar * 4.0;
+    static_assert(std::is_same_v<std::remove_cvref_t<decltype(scaled)>, Matrix<1, 1>>);
+    static_assert(scaled(0, 0) == 1.0);
+    static_assert((4.0 * from_scalar)(0, 0) == 1.0);
+    static_assert((from_scalar + 1.0)(0, 0) == 1.25);
+
+    Matrix<1, 1> assigned{};
+    assigned = 0.5;
+    CHECK(assigned(0, 0) == 0.5);
+}
+
 TEST_CASE("Matrix copy and assignment") {
     Matrix<2, 2, float> mat1 = {{1.0f, 2.0f}, {3.0f, 4.0f}};
 
@@ -69,7 +92,7 @@ TEST_CASE("Matrix type conversion") {
     CHECK(mat_float(1, 1) == 4.0f);
 
     Matrix<2, 2, float> mat_assign;
-    mat_assign = mat_int;
+    mat_assign = mat_int.as<float>();
     CHECK(mat_assign(0, 1) == 2.0f);
 }
 
@@ -342,24 +365,6 @@ TEST_CASE("Matrix-matrix multiplication - various dimensions") {
     CHECK(outer(2, 0) == 12);
     CHECK(outer(2, 1) == 15);
     CHECK(outer(2, 2) == 18);
-}
-
-TEST_CASE("is_matrix_type type trait") {
-    // Test that Matrix types are detected
-    CHECK(is_matrix_type<Matrix<2, 2, double>>::value == true);
-    CHECK(is_matrix_type<Matrix<3, 1, float>>::value == true);
-    CHECK(is_matrix_type<Matrix<1, 5, double>>::value == true);
-
-    // Test that non-Matrix types are not detected
-    CHECK(is_matrix_type<int>::value == false);
-    CHECK(is_matrix_type<float>::value == false);
-    CHECK(is_matrix_type<std::vector<int>>::value == false);
-
-    // Test with typedefs (ColVec, RowVec)
-    using ColVec2f = Matrix<2, 1, float>;
-    using RowVec2f = Matrix<1, 2, float>;
-    CHECK(is_matrix_type<ColVec2f>::value == true);
-    CHECK(is_matrix_type<RowVec2f>::value == true);
 }
 
 TEST_CASE("Matrix operations with floating point precision") {
@@ -701,7 +706,7 @@ TEST_CASE("Matrix inverse") {
 
     auto A_inv_opt = A.inverse();
     REQUIRE(A_inv_opt.has_value());
-    auto A_inv = *A_inv_opt;
+    const auto& A_inv = *A_inv_opt;
 
     // Verify A * A_inv ≈ I
     auto product = A * A_inv;
@@ -1019,12 +1024,12 @@ constexpr double bundle_checksum() {
     const ColVec<3, double>    v{11.0, 12.0, 13.0};
     const Matrix<2, 2, float>  Af{{1.0f, 0.0f}, {0.0f, 1.0f}};
     const MatrixBundle         b{
-                .A = A,
-                .B = wide.block<2, 1>(0, 2),
-                .x = v.block<2, 1>(1, 0),
-                .k = wide.block<1, 2>(1, 0),
-                .A_from_float = Matrix<2, 2, double>(Af),
-                .Ts = 0.5,
+        .A = A,
+        .B = wide.block<2, 1>(0, 2),
+        .x = v.block<2, 1>(1, 0),
+        .k = wide.block<1, 2>(1, 0),
+        .A_from_float = Matrix<2, 2, double>(Af),
+        .Ts = 0.5,
     };
     return b.A(1, 0) + b.B(1, 0) + b.x(1) + b.k(1) + b.A_from_float(1, 1) + b.Ts; // 3 + 10 + 13 + 9 + 1 + 0.5
 }
@@ -1058,4 +1063,193 @@ TEST_CASE("ColVec / RowVec copy-initialize from a same-precision view") {
     // Cross-precision stays explicit.
     static_assert(!std::is_convertible_v<Block<2, 1, 1, const double>, ColVec<2, float>>);
     static_assert(std::is_convertible_v<Block<2, 1, 1, const double>, ColVec<2, double>>);
+}
+
+namespace precision {
+template<typename A, typename B>
+concept Addable = requires(const A& a, const B& b) { a + b; };
+template<typename A, typename B>
+concept Subtractable = requires(const A& a, const B& b) { a - b; };
+template<typename A, typename B>
+concept Multipliable = requires(const A& a, const B& b) { a * b; };
+template<typename A, typename B>
+concept AddAssignable = requires(A& a, const B& b) { a += b; };
+
+using Md = Matrix<2, 2, double>;
+using Mf = Matrix<2, 2, float>;
+using Mz = Matrix<2, 2, damp::complex<double>>;
+using Mzf = Matrix<2, 2, damp::complex<float>>;
+
+// double ↔ float never converts implicitly, in either direction.
+static_assert(!std::is_convertible_v<Md, Mf>);
+static_assert(!std::is_convertible_v<Mf, Md>);
+static_assert(!std::is_assignable_v<Mf&, const Md&>);
+static_assert(!std::is_assignable_v<Md&, const Mf&>);
+static_assert(!std::is_convertible_v<ColVec<2, double>, ColVec<2, float>>);
+static_assert(!std::is_assignable_v<ColVec<2, float>&, const Matrix<2, 1, double>&>);
+static_assert(!std::is_assignable_v<RowVec<2, float>&, const Matrix<1, 2, double>&>);
+static_assert(!std::is_convertible_v<TransposeView<2, 2, const double>, Mf>);
+static_assert(!std::is_assignable_v<Block<2, 2, 2, float>&, const Md&>);
+static_assert(!std::is_assignable_v<ColView<2, 2, float>&, const Matrix<2, 1, double>&>);
+static_assert(!AddAssignable<Mf, Md>);
+static_assert(!AddAssignable<ColVec<2, float>, ColVec<2, double>>);
+
+// The explicit forms stay, from blocks and views too.
+static_assert(std::is_constructible_v<Mf, Md>);
+static_assert(std::is_constructible_v<ColVec<2, float>, ColVec<2, double>>);
+static_assert(std::is_constructible_v<Mf, Block<2, 2, 2, const double>>);
+static_assert(std::is_constructible_v<Mf, TransposeView<2, 2, const double>>);
+static_assert(std::is_constructible_v<Matrix<2, 1, float>, ColView<2, 2, const double>>);
+static_assert(std::is_constructible_v<ColVec<2, float>, Block<2, 1, 1, const double>>);
+static_assert(std::is_constructible_v<RowVec<2, float>, RowView<2, 2, const double>>);
+static_assert(!std::is_convertible_v<ColView<2, 2, const double>, Matrix<2, 1, float>>);
+static_assert(!std::is_convertible_v<RowView<2, 2, const double>, RowVec<2, float>>);
+
+// Real into the complex of its own precision is exact and stays implicit; the reverse and a
+// precision change through complex do not.
+static_assert(std::is_convertible_v<Md, Mz>);
+static_assert(std::is_assignable_v<Mz&, const Md&>);
+static_assert(!std::is_convertible_v<Mz, Md>);
+static_assert(!std::is_convertible_v<Mf, Mz>);
+static_assert(!std::is_convertible_v<Md, Mzf>);
+
+// Matrix–matrix operators need one precision.
+static_assert(!Addable<Mf, Md>);
+static_assert(!Subtractable<Md, Mf>);
+static_assert(!Multipliable<Mf, Md>);
+static_assert(!Multipliable<Md, Matrix<2, 1, float>>);
+static_assert(!Multipliable<Mf, ColVec<2, double>>); // a float law fed a double state
+static_assert(!Multipliable<Md, ColVec<2, float>>);
+static_assert(!Multipliable<RowVec<2, float>, Md>);
+static_assert(!Multipliable<RowVec<2, double>, Mf>);
+static_assert(std::is_same_v<decltype(Mf{} * ColVec<2, float>{}), ColVec<2, float>>);
+static_assert(!Addable<Md, Mzf>);
+static_assert(Addable<Md, Md>);
+static_assert(Multipliable<Mf, Mf>);
+
+// Scalars keep converting to the matrix's element type.
+static_assert(Multipliable<Mf, double>);
+static_assert(Multipliable<double, Mf>);
+static_assert(Addable<Mf, int>);
+static_assert(std::is_same_v<decltype(Mf{} * 2.0), Mf>);
+} // namespace precision
+
+TEST_CASE("Matrix precision: real into complex mixes exactly, scalars convert to the element type") {
+    const Matrix<2, 2, double>          A{{1.0, 2.0}, {3.0, 4.0}};
+    Matrix<2, 2, damp::complex<double>> Z = A;
+    Z(0, 1) = damp::complex<double>{0.0, 1.0};
+    const auto S = A + Z; // complex result: the real operand widens exactly
+    static_assert(std::is_same_v<decltype(S), const Matrix<2, 2, damp::complex<double>>>);
+    CHECK(S(0, 0).real() == 2.0);
+    CHECK(S(0, 1).imag() == 1.0);
+    const auto P = A * Z;
+    static_assert(std::is_same_v<decltype(P), const Matrix<2, 2, damp::complex<double>>>);
+    CHECK(P(1, 1).real() == 4.0 * 4.0);
+    CHECK(P(1, 1).imag() == 3.0);
+    const ColVec<2, damp::complex<double>> z{damp::complex<double>{1.0, 0.0}, damp::complex<double>{0.0, 1.0}};
+    const auto                             Az = A * z;
+    static_assert(std::is_same_v<decltype(Az), const ColVec<2, damp::complex<double>>>);
+    CHECK(Az(1).real() == 3.0);
+    CHECK(Az(1).imag() == 4.0);
+    const auto zA = RowVec<2, double>{1.0, 1.0} * Z;
+    static_assert(std::is_same_v<decltype(zA), const RowVec<2, damp::complex<double>>>);
+    CHECK(zA(1).real() == 4.0);
+    CHECK(zA(1).imag() == 1.0);
+
+    const Matrix<2, 2, float> F = A.as<float>();
+    const auto                G = F * 0.5 + 1;
+    static_assert(std::is_same_v<decltype(G), const Matrix<2, 2, float>>);
+    CHECK(G(1, 1) == 3.0f);
+}
+
+TEST_CASE("mat::transform applies a callable to every entry, its return type the result's") {
+    constexpr Matrix<2, 3> A{{-1.0, 2.0, -0.5}, {0.0, -3.0, 4.0}};
+    constexpr auto         absA = mat::transform(A, [](double v) { return damp::abs(v); });
+    static_assert(absA(0, 0) == 1.0 && absA(0, 2) == 0.5 && absA(1, 0) == 0.0 && absA(1, 1) == 3.0);
+    Matrix<1, 1, damp::complex<double>> Z{};
+    Z(0, 0) = damp::complex<double>{3.0, -4.0};
+    const auto mag = mat::transform(Z, [](const damp::complex<double>& z) { return damp::abs(z); });
+    static_assert(std::is_same_v<decltype(mag), const Matrix<1, 1, double>>);
+    CHECK(mag(0, 0) == doctest::Approx(5.0));
+}
+
+TEST_CASE("mat::all_of / mat::any_of test a predicate on every entry") {
+    constexpr Matrix<2, 3> A{{-1.0, 2.0, -0.5}, {0.0, -3.0, 4.0}};
+    constexpr auto         finite = [](double v) { return damp::isfinite(v); };
+    static_assert(mat::all_of(A, finite));
+    static_assert(mat::all_of(A, [](double v) { return v < 5.0; }));
+    static_assert(!mat::all_of(A, [](double v) { return v < 4.0; })); // the last entry fails
+    static_assert(mat::any_of(A, [](double v) { return v == 4.0; })); // the last entry passes
+    static_assert(!mat::any_of(A, [](double v) { return v > 4.0; }));
+
+    ColVec<3, float> x{1.0f, 2.0f, 3.0f};
+    CHECK(mat::all_of(x, [](float v) { return damp::isfinite(v); })); // a ColVec is a Matrix
+    x(1) = std::numeric_limits<float>::quiet_NaN();
+    CHECK_FALSE(mat::all_of(x, [](float v) { return damp::isfinite(v); }));
+    CHECK(mat::any_of(x, [](float v) { return !damp::isfinite(v); }));
+
+    int calls = 0;
+    CHECK(mat::any_of(A, [&calls](double v) {
+        ++calls;
+        return v > 1.0;
+    }));
+    CHECK(calls == 2); // stops at (0, 1), row by row
+}
+
+TEST_CASE("norm neither overflows nor underflows") {
+    CHECK(ColVec<2, double>{3e200, 4e200}.norm() == doctest::Approx(5e200));
+    CHECK(ColVec<2, double>{3e-200, 4e-200}.norm() == doctest::Approx(5e-200));
+    CHECK(Matrix<1, 2, double>{{3e200, 4e200}}.norm() == doctest::Approx(5e200));
+    CHECK(RowVec<2, double>{3e-200, 4e-200}.normalized()[1] == doctest::Approx(0.8));
+}
+
+TEST_CASE("norm and normalized stay finite on subnormal and near-max entries") {
+    // Constant-evaluated, so -ffast-math (flush-to-zero) does not apply.
+    static_assert(ColVec<2, double>{3e-310, 0.0}.norm() == 3e-310);
+    static_assert(ColVec<2, double>{3e-310, 0.0}.normalized()[0] == 1.0);
+    static_assert(ColVec<2, float>{3e-39f, 0.0f}.norm() == 3e-39f);
+    static_assert(ColVec<2, float>{2e38f, 1.0f}.norm() == 2e38f);
+    static_assert(Matrix<2, 2, double>{{1e-308, 0.0}, {0.0, 0.0}}.norm() == 1e-308);
+    CHECK(ColVec<2, float>{2e38f, 1.0f}.norm() == doctest::Approx(2e38f));
+    CHECK(ColVec<2, float>{3e30f, 4e30f}.norm() == doctest::Approx(5e30f));
+}
+
+TEST_CASE("norm of a lone large entry and of near-max entries at run time") {
+    // volatile keeps the inputs out of constant folding, so this runs the suite's -ffast-math code.
+    // A constant scale s on a single term was rewritten (x·s)² → x²·s² with s² folded to 0, and
+    // the reciprocal of a near-max amax flushed to zero.
+    volatile float  f_big = 4.6e15f;
+    volatile float  f_huge = 3e20f;
+    volatile float  f_max = 2e38f;
+    volatile double d_big = 1e200;
+    volatile double d_max = 1e308;
+
+    CHECK(ColVec<1, float>{f_big}.norm() == doctest::Approx(4.6e15f));
+    CHECK(ColVec<1, float>{f_huge}.norm() == doctest::Approx(3e20f));
+    CHECK(Matrix<1, 1, float>{f_huge}.norm() == doctest::Approx(3e20f));
+    CHECK(ColVec<1, double>{d_big}.norm() == doctest::Approx(1e200));
+
+    ColVec<3, float> one_term{}; // only the first entry set: inlined, the sum has one term
+    one_term[0] = f_huge;
+    CHECK(one_term.norm() == doctest::Approx(3e20f));
+
+    const float half = f_max * 0.5f;
+    CHECK(ColVec<4, float>{f_max, half, half, half}.norm() == doctest::Approx(2.6457513e38f));
+    CHECK(ColVec<2, double>{d_max, d_max}.norm() == doctest::Approx(1.4142135623730951e308));
+}
+
+TEST_CASE("brace assignment zero-fills missing entries like the constructor") {
+    Matrix<2, 2, double> A{{9.0, 9.0}, {9.0, 9.0}};
+    A = {{1.0, 2.0}, {3.0}};
+    CHECK(A == Matrix<2, 2, double>{{1.0, 2.0}, {3.0, 0.0}});
+    A = {{5.0}};
+    CHECK(A == Matrix<2, 2, double>{{5.0, 0.0}, {0.0, 0.0}});
+}
+
+TEST_CASE("an array converts to a matrix only explicitly") {
+    static_assert(!std::is_convertible_v<damp::array<double, 4>, Matrix<2, 2, double>>);
+    static_assert(!std::is_convertible_v<damp::array<double, 4>, Matrix<4, 1, double>>);
+    const damp::array<double, 4> a{1.0, 2.0, 3.0, 4.0};
+    const Matrix<2, 2, double>   M{a};
+    CHECK(M == Matrix<2, 2, double>{{1.0, 2.0}, {3.0, 4.0}});
 }

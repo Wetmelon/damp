@@ -30,7 +30,7 @@
 
 namespace damp {
 
-/// Rising-edge detector: true on the tick @p x goes false → true.
+/** @brief Rising-edge detector: true on the tick @p x goes false → true. */
 class RisingEdge {
 public:
     constexpr bool operator()(bool x) {
@@ -44,7 +44,7 @@ private:
     bool prev_{false};
 };
 
-/// Falling-edge detector: true on the tick @p x goes true → false.
+/** @brief Falling-edge detector: true on the tick @p x goes true → false. */
 class FallingEdge {
 public:
     constexpr bool operator()(bool x) {
@@ -88,7 +88,7 @@ private:
     bool q_{false};
 };
 
-/// Reset-dominant latch (clear wins over set).
+/** @brief Reset-dominant latch (clear wins over set). */
 using ResetDominantLatch = Latch<false>;
 
 /**
@@ -240,7 +240,7 @@ private:
     bool state_{false};
 };
 
-/// Toggle (T flip-flop): output flips on each rising edge of @p in.
+/** @brief Toggle (T flip-flop): output flips on each rising edge of @p in. */
 class Toggle {
 public:
     constexpr explicit Toggle(bool initial = false) : q_(initial) {}

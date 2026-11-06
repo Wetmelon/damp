@@ -32,19 +32,19 @@
 
 namespace damp {
 
-/// Out-of-range behaviour for a @ref Lut1D / @ref Lut2D / @ref Lut3D query beyond its breakpoints.
+/** @brief Out-of-range behaviour for a @ref Lut1D / @ref Lut2D / @ref Lut3D query beyond its breakpoints. */
 enum class Extrapolation {
     Clamp, ///< Hold the nearest endpoint value.
     Linear ///< Continue the slope of the nearest end segment.
 };
 
-/// In-range interpolant for @ref Lut1D (2-D stays bilinear; use @ref SplineSurface for C¹ grids).
+/** @brief In-range interpolant for @ref Lut1D (2-D stays bilinear; use @ref SplineSurface for C¹ grids). */
 enum class Interpolation {
     Linear, ///< Piecewise-linear between breakpoints.
     Cubic,  ///< Non-uniform Catmull-Rom through the nodes (C¹, local; uses @ref catmull_1d).
 };
 
-/// How @ref AdaptiveLut1D / @ref AdaptiveLut2D treat samples outside the breakpoint span.
+/** @brief How @ref AdaptiveLut1D / @ref AdaptiveLut2D treat samples outside the breakpoint span. */
 enum class AdaptOutOfRange {
     Ignore,      ///< Drop the sample (no cell update).
     NearestCell, ///< Update the nearest endpoint cell.
@@ -114,7 +114,7 @@ struct Lut1D {
     Extrapolation oob{Extrapolation::Clamp};     ///< Out-of-range policy.
     Interpolation interp{Interpolation::Linear}; ///< In-range interpolant.
 
-    /// Interpolated value at @p x (mode @ref interp; extrapolation per @ref oob).
+    /** @brief Interpolated value at @p x (mode @ref interp; extrapolation per @ref oob). */
     [[nodiscard]] constexpr T operator()(T x) const {
         if constexpr (N == 1) {
             return ys[0];
@@ -142,7 +142,7 @@ struct Lut1D {
         }
     }
 
-    /// Nearest-neighbour value at @p x (always clamps to the breakpoint range).
+    /** @brief Nearest-neighbour value at @p x (always clamps to the breakpoint range). */
     [[nodiscard]] constexpr T nearest(T x) const {
         if constexpr (N == 1) {
             return ys[0];
@@ -158,7 +158,7 @@ struct Lut1D {
         }
     }
 
-    /// Index of the nearest breakpoint (for adaptive cell updates).
+    /** @brief Index of the nearest breakpoint (for adaptive cell updates). */
     [[nodiscard]] constexpr size_t nearest_index(T x) const {
         if constexpr (N == 1) {
             return 0;
@@ -206,7 +206,7 @@ struct Lut2D {
     Matrix<R, C, T> z{};                       ///< Grid values, z(row, col).
     Extrapolation   oob{Extrapolation::Clamp}; ///< Out-of-range policy (applied per axis).
 
-    /// Bilinearly interpolated value at (@p r, @p c); out-of-grid per @ref oob.
+    /** @brief Bilinearly interpolated value at (@p r, @p c); out-of-grid per @ref oob. */
     [[nodiscard]] constexpr T operator()(T r, T c) const {
         const T rc = (oob == Extrapolation::Clamp) ? damp::clamp(r, rows[0], rows[R - 1]) : r;
         const T cc = (oob == Extrapolation::Clamp) ? damp::clamp(c, cols[0], cols[C - 1]) : c;
@@ -281,20 +281,20 @@ struct Lut3D {
     damp::array<T, NX * NY * NZ> v{};                       ///< Dense values; see @ref at for (i,j,k).
     Extrapolation                oob{Extrapolation::Clamp}; ///< Out-of-range policy (applied per axis).
 
-    /// Flat index for grid node (@p i, @p j, @p k); x slowest, z fastest.
+    /** @brief Flat index for grid node (@p i, @p j, @p k); x slowest, z fastest. */
     [[nodiscard]] static constexpr size_t index(size_t i, size_t j, size_t k) {
         return (i * (NY * NZ)) + (j * NZ) + k;
     }
 
-    /// Mutable value at grid node (@p i, @p j, @p k).
+    /** @brief Mutable value at grid node (@p i, @p j, @p k). */
     [[nodiscard]] constexpr T& at(size_t i, size_t j, size_t k) { return v[index(i, j, k)]; }
 
-    /// Const value at grid node (@p i, @p j, @p k).
+    /** @brief Const value at grid node (@p i, @p j, @p k). */
     [[nodiscard]] constexpr const T& at(size_t i, size_t j, size_t k) const {
         return v[index(i, j, k)];
     }
 
-    /// Trilinearly interpolated value at (@p x, @p y, @p z); out-of-grid per @ref oob.
+    /** @brief Trilinearly interpolated value at (@p x, @p y, @p z); out-of-grid per @ref oob. */
     [[nodiscard]] constexpr T operator()(T x, T y, T z) const {
         const T xc = (oob == Extrapolation::Clamp) ? damp::clamp(x, xs[0], xs[NX - 1]) : x;
         const T yc = (oob == Extrapolation::Clamp) ? damp::clamp(y, ys[0], ys[NY - 1]) : y;
@@ -398,7 +398,7 @@ struct SplineSurface {
     ColVec<C, T>    cols{}; ///< Strictly increasing column breakpoints.
     Matrix<R, C, T> z{};    ///< Grid values, z(row, col).
 
-    /// Catmull-Rom interpolated value at (@p r, @p c), clamped to the grid edges.
+    /** @brief Catmull-Rom interpolated value at (@p r, @p c), clamped to the grid edges. */
     [[nodiscard]] constexpr T operator()(T r, T c) const {
         return catmull_1d(
             rows, [&](size_t i) { return catmull_1d(cols, [&](size_t j) { return z(i, j); }, c); }, r
@@ -440,7 +440,7 @@ struct AdaptiveLut1D {
     bool            forgetting{false};                  ///< true: exponential forgetting; false: running mean.
     bool            enabled{true};                      ///< false freezes adaptation.
 
-    /// Build from a static table (initial ys copied for reset).
+    /** @brief Build from a static table (initial ys copied for reset). */
     [[nodiscard]] static constexpr AdaptiveLut1D from_lut(const Lut1D<N, T>& lut) {
         return AdaptiveLut1D{
             .xs = lut.xs,
@@ -466,7 +466,7 @@ struct AdaptiveLut1D {
     [[nodiscard]] constexpr bool is_locked(size_t i) const { return locked[i] != T{0}; }
     constexpr void               set_locked(size_t i, bool on) { locked[i] = on ? T{1} : T{0}; }
 
-    /// Incorporate one measurement; no-op if disabled or cell locked / ignored OOR.
+    /** @brief Incorporate one measurement; no-op if disabled or cell locked / ignored OOR. */
     constexpr void observe(T x, T measured) {
         if (!enabled) {
             return;

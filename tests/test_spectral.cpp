@@ -37,7 +37,7 @@ TEST_SUITE("spectral") {
         const size_t N = 200;
         const double A = 2.0;
 
-        Goertzel<double> g(f, fs, N);
+        Goertzel<double> g(f, 1.0 / fs, N);
         const bool       done = feed(g, N, [&](size_t k) {
             return A * std::cos(2.0 * pi * f * static_cast<double>(k) / fs);
         });
@@ -52,7 +52,7 @@ TEST_SUITE("spectral") {
         const double fs = 1000.0;
         const size_t N = 200;
         // Detector tuned to 50 Hz, signal is a (coherent) 70 Hz tone -> ~0.
-        Goertzel<double> g(50.0, fs, N);
+        Goertzel<double> g(50.0, 1.0 / fs, N);
         feed(g, N, [&](size_t k) { return std::cos(2.0 * pi * 70.0 * static_cast<double>(k) / fs); });
         CHECK(g.amplitude() < 1e-9);
     }
@@ -61,7 +61,7 @@ TEST_SUITE("spectral") {
         const double     fs = 1000.0;
         const double     f = 50.0;
         const size_t     N = 200;
-        Goertzel<double> g(f, fs, N);
+        Goertzel<double> g(f, 1.0 / fs, N);
         // Two consecutive blocks of the same tone both report the amplitude.
         for (int block = 0; block < 2; ++block) {
             const bool done = feed(g, N, [&](size_t k) {
@@ -85,7 +85,7 @@ TEST_SUITE("spectral") {
                  + 0.1 * std::cos(2.0 * pi * (5 * f0) * t);
         };
 
-        HarmonicAnalyzer<5, double> ha(f0, fs, N); // tracks 50,100,150,200,250 Hz
+        HarmonicAnalyzer<5, double> ha(f0, 1.0 / fs, N); // tracks 50,100,150,200,250 Hz
         const bool                  done = feed(ha, N, gen);
         REQUIRE(done);
 
@@ -106,7 +106,7 @@ TEST_SUITE("spectral") {
         const double                fs = 1000.0;
         const double                f0 = 50.0;
         const size_t                N = 200;
-        HarmonicAnalyzer<5, double> ha(f0, fs, N);
+        HarmonicAnalyzer<5, double> ha(f0, 1.0 / fs, N);
         feed(ha, N, [&](size_t k) { return std::cos(2.0 * pi * f0 * static_cast<double>(k) / fs); });
         CHECK(ha.thd() == doctest::Approx(0.0).epsilon(1e-9));
     }
@@ -115,14 +115,14 @@ TEST_SUITE("spectral") {
         const float     fs = 1000.0f;
         const float     f = 50.0f;
         const size_t    N = 200;
-        Goertzel<float> g(f, fs, N);
+        Goertzel<float> g(f, 1.0f / fs, N);
         feed(g, N, [&](size_t k) { return 1.0f * std::cos(2.0f * 3.14159265f * f * static_cast<float>(k) / fs); });
         CHECK(g.amplitude() == doctest::Approx(1.0f).epsilon(1e-4));
     }
 
     TEST_CASE("Goertzel is constexpr-evaluable") {
         constexpr bool ok = []() consteval {
-            Goertzel<double> g(50.0, 1000.0, 200);
+            Goertzel<double> g(50.0, 1e-3, 200);
             bool             done = false;
             for (size_t k = 0; k < 200; ++k) {
                 done = g.push(damp::cos(2.0 * 3.14159265358979323846 * 50.0 * static_cast<double>(k) / 1000.0));
@@ -133,28 +133,100 @@ TEST_SUITE("spectral") {
         CHECK(ok);
     }
 
-    TEST_CASE("Goertzel rejects invalid block_size / fs / freq") {
-        Goertzel<double> zero_n(50.0, 1000.0, 0);
+    TEST_CASE("Goertzel rejects invalid block_size / Ts / freq") {
+        Goertzel<double> zero_n(50.0, 1e-3, 0);
         CHECK_FALSE(zero_n.push(1.0));
         CHECK(zero_n.amplitude() == doctest::Approx(0.0));
         CHECK(zero_n.block_size() == 0);
 
-        Goertzel<double> bad_fs(50.0, 0.0, 200);
-        CHECK_FALSE(bad_fs.push(1.0));
-        CHECK(bad_fs.amplitude() == doctest::Approx(0.0));
+        Goertzel<double> bad_ts(50.0, 0.0, 200);
+        CHECK_FALSE(bad_ts.push(1.0));
+        CHECK(bad_ts.amplitude() == doctest::Approx(0.0));
 
-        Goertzel<double> above_nyquist(600.0, 1000.0, 200);
+        Goertzel<double> above_nyquist(600.0, 1e-3, 200);
         CHECK_FALSE(above_nyquist.push(1.0));
         CHECK(above_nyquist.amplitude() == doctest::Approx(0.0));
     }
 
     TEST_CASE("HarmonicAnalyzer amplitude/phase out-of-range are zero") {
-        HarmonicAnalyzer<3, double> ha(50.0, 1000.0, 200);
+        HarmonicAnalyzer<3, double> ha(50.0, 1e-3, 200);
         feed(ha, 200, [&](size_t k) { return std::cos(2.0 * pi * 50.0 * static_cast<double>(k) / 1000.0); });
         CHECK(ha.amplitude(0) == doctest::Approx(0.0));
         CHECK(ha.amplitude(4) == doctest::Approx(0.0));
         CHECK(ha.phase(0) == doctest::Approx(0.0));
         CHECK(ha.phase(99) == doctest::Approx(0.0));
         CHECK(ha.amplitude(1) == doctest::Approx(1.0).epsilon(1e-9));
+    }
+
+    TEST_CASE("Goertzel phase is the cosine phase of the block (no w(N-1) rotation)") {
+        Goertzel<double> g(50.0, 1e-3, 200);
+        for (int k = 0; k < 200; ++k) {
+            (void)g.push(std::cos(2.0 * pi * 50.0 * k / 1000.0 + 0.5));
+        }
+        CHECK(g.phase() == doctest::Approx(0.5).epsilon(1e-9));
+        CHECK(g.amplitude() == doctest::Approx(1.0).epsilon(1e-9));
+    }
+
+    TEST_CASE("Goertzel DC bin amplitude is the DC level") {
+        Goertzel<double> g(0.0, 1e-3, 200);
+        for (int k = 0; k < 200; ++k) {
+            (void)g.push(3.0);
+        }
+        CHECK(g.amplitude() == doctest::Approx(3.0));
+    }
+
+    TEST_CASE("HarmonicAnalyzer completes when its top harmonic is above Nyquist") {
+        HarmonicAnalyzer<5, double> ha(50.0, 1.0 / 400.0, 80); // 5*50 Hz > fs/2
+        bool                        any = false;
+        for (int k = 0; k < 400; ++k) {
+            any = ha.push(std::sin(2.0 * pi * 50.0 * k / 400.0)) || any;
+        }
+        CHECK(any);
+        CHECK(ha.amplitude(1) == doctest::Approx(1.0).epsilon(1e-9));
+    }
+
+    TEST_CASE("Goertzel<float> keeps the bin frequency on long blocks near DC and Nyquist") {
+        //! The 2cos ω recurrence gave amp 0.387, phase −1.455 for f·Ts = 1e-4 over N = 1e5 in float.
+        {
+            const size_t    N = 100000; // 10 cycles of 1 Hz at 10 kHz
+            Goertzel<float> g(1.0f, 1e-4f, N);
+            const bool      done = feed(g, N, [&](size_t k) {
+                return static_cast<float>(std::cos(2.0 * pi * 1e-4 * static_cast<double>(k) + 0.3));
+            });
+            REQUIRE(done);
+            CHECK(static_cast<double>(g.amplitude()) == doctest::Approx(1.0).epsilon(1e-3));
+            CHECK(static_cast<double>(g.phase()) == doctest::Approx(0.3).epsilon(1e-2));
+        }
+        {
+            const size_t    N = 10000; // 4999 cycles of 4999 Hz at 10 kHz
+            Goertzel<float> g(4999.0f, 1e-4f, N);
+            const bool      done = feed(g, N, [&](size_t k) {
+                return static_cast<float>(std::cos(2.0 * pi * 0.4999 * static_cast<double>(k)));
+            });
+            REQUIRE(done);
+            CHECK(static_cast<double>(g.amplitude()) == doctest::Approx(1.0).epsilon(1e-3));
+        }
+        {
+            const size_t               N = 100000; // 10 cycles of 5 Hz at 50 kHz
+            HarmonicAnalyzer<3, float> ha(5.0f, 2e-5f, N);
+            const bool                 done = feed(ha, N, [&](size_t k) {
+                const double th = 2.0 * pi * 1e-4 * static_cast<double>(k);
+                return static_cast<float>(std::sin(th) + (0.1 * std::sin(3.0 * th)));
+            });
+            REQUIRE(done);
+            CHECK(static_cast<double>(ha.amplitude(1)) == doctest::Approx(1.0).epsilon(1e-3));
+            CHECK(static_cast<double>(ha.thd()) == doctest::Approx(0.1).epsilon(1e-2));
+        }
+    }
+
+    TEST_CASE("THD is scale invariant") {
+        for (const double A : {1.0, 1e-9}) {
+            HarmonicAnalyzer<3, double> ha(50.0, 1e-3, 200);
+            for (int k = 0; k < 200; ++k) {
+                const double th = 2.0 * pi * 50.0 * k / 1000.0;
+                (void)ha.push(A * (std::sin(th) + 0.1 * std::sin(3.0 * th)));
+            }
+            CHECK(ha.thd() == doctest::Approx(0.1).epsilon(1e-6));
+        }
     }
 }

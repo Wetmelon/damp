@@ -4,6 +4,7 @@
 // (See accompanying file LICENSE or copy at http://www.boost.org/LICENSE_1_0.txt)
 
 #include <cstddef>
+#include <limits>
 
 #include "damp/backend.hpp"
 #include "damp/controllers/mpc.hpp"
@@ -32,7 +33,7 @@ constexpr double Ts = 0.1;
 constexpr StateSpace<2, 1, 1> double_integrator{
     .A = {{1.0, Ts}, {0.0, 1.0}},
     .B = {{0.5 * Ts * Ts}, {Ts}},
-    .C = {{1.0, 0.0}},
+    .C = {{1.0, 0.0}}, // the state measured, the position controlled
     .Ts = Ts,
 };
 
@@ -117,18 +118,22 @@ TEST_CASE("warm-start solver is constexpr") {
 
 TEST_CASE("warm-start default MPC matches the stateless policy tick for tick") {
     design::MPCWeights<1, 1> weights{};
-    weights.Rdu = Matrix<1, 1>{{0.05}};
+    weights.Rdu = 0.05;
     design::MPCConstraints<1, 1> limits{};
-    limits.u_min = ColVec<1>{-0.5};
-    limits.u_max = ColVec<1>{0.5};
-    limits.du_min = ColVec<1>{-0.2};
-    limits.du_max = ColVec<1>{0.2};
+    limits.u_lim = {
+        .lower = -0.5,
+        .upper = 0.5,
+    };
+    limits.du_lim = {
+        .lower = -0.2,
+        .upper = 0.2,
+    };
 
-    const auto art = design::state_mpc<15, 5>(double_integrator, weights, limits);
+    const auto art = design::mpc<15, 5>(double_integrator, weights, limits);
     REQUIRE(art.success);
 
-    MPC                                                     warm{art}; // WarmStartActiveSetSolver is the default policy
-    MPC<2, 1, 1, 15, 5, 0, double, design::ActiveSetSolver> cold{art};
+    MPC warm{art}; // WarmStartActiveSetSolver is the default policy
+    MPC cold{art, design::ActiveSetSolver{}};
 
     ColVec<2>       xw{};
     ColVec<2>       xc{};
@@ -136,8 +141,8 @@ TEST_CASE("warm-start default MPC matches the stateless policy tick for tick") {
     size_t          warm_settled = 0;
     size_t          cold_settled = 0;
     for (size_t k = 0; k < 200; ++k) {
-        const auto uw = warm.control(r, xw);
-        const auto uc = cold.control(r, xc);
+        const auto uw = warm.step(r, xw);
+        const auto uc = cold.step(r, xc);
         CHECK(uw(0) == doctest::Approx(uc(0)).epsilon(1e-9));
         // Transient pick orders may differ either way; the guaranteed win is at
         // steady state, where the hint equals the active set.
@@ -179,29 +184,180 @@ TEST_CASE("ADMM warm start cuts the iteration count on a repeated solve") {
 
 TEST_CASE("ADMM solver policy drives the MPC like the active-set default") {
     design::MPCWeights<1, 1> weights{};
-    weights.Rdu = Matrix<1, 1>{{0.05}};
+    weights.Rdu = 0.05;
     design::MPCConstraints<1, 1> limits{};
-    limits.u_min = ColVec<1>{-0.5};
-    limits.u_max = ColVec<1>{0.5};
+    limits.u_lim = {
+        .lower = -0.5,
+        .upper = 0.5,
+    };
+    limits.max_qp_iterations = 20000;
 
-    const auto art = design::state_mpc<15, 5>(double_integrator, weights, limits, 20000);
+    const auto art = design::mpc<15, 5>(double_integrator, weights, limits);
     REQUIRE(art.success);
 
-    using Ctl = MPC<2, 1, 1, 15, 5, 0, double>;
-    MPC                                                                            exact{art};
-    MPC<2, 1, 1, 15, 5, 0, double, design::AdmmSolver<Ctl::NZ1, Ctl::NI1, double>> admm{art};
+    using Ctl = decltype(MPC{art});
+    MPC exact{art};
+    MPC admm{art, design::AdmmSolver<Ctl::NZ1, Ctl::NI1, double>{}};
 
     ColVec<2>       xe{};
     ColVec<2>       xa{};
     const ColVec<1> r{1.0};
     for (size_t k = 0; k < 120; ++k) {
-        const auto ue = exact.control(r, xe);
-        const auto ua = admm.control(r, xa);
+        const auto ue = exact.step(r, xe);
+        const auto ua = admm.step(r, xa);
         CHECK(ua(0) == doctest::Approx(ue(0)).epsilon(1e-4));
         xe = plant_step(xe, ue(0));
         xa = plant_step(xa, ua(0));
     }
     CHECK(xa(0) == doctest::Approx(1.0).epsilon(0.02));
+}
+
+TEST_CASE("ADMM certifies a primal-infeasible QP from its dual iterate difference") {
+    // The quadprog example plus x1 + x2 >= 3, against row 0's x1 + x2 <= 2.
+    const QuadprogExample qp;
+    const Matrix<4, 2>    A{{1.0, 1.0}, {-1.0, 2.0}, {2.0, 1.0}, {-1.0, -1.0}};
+    const ColVec<4>       b{2.0, 2.0, 3.0, -3.0};
+
+    design::AdmmSolver<2, 4> solver{};
+    const auto               res = solver(qp.H, qp.f, A, b, 4000);
+    CHECK(!res.success);
+    CHECK(res.status == design::QPStatus::Infeasible);
+    CHECK(res.iterations < 200); // certified long before the 4000-iteration budget
+    CHECK(design::solve_qp(qp.H, qp.f, A, b).status == design::QPStatus::Infeasible);
+
+    // The certificate clears the warm start: the next feasible solve (same A,
+    // row 3 disabled) runs exactly as on a fresh solver.
+    const ColVec<4> b_ok{2.0, 2.0, 3.0, design::unbounded_bound<double>()};
+    const auto      after = solver(qp.H, qp.f, A, b_ok, 4000);
+    const auto      fresh = design::solve_qp_admm(qp.H, qp.f, A, b_ok);
+    REQUIRE(after.success);
+    CHECK(after.iterations == fresh.iterations);
+    CHECK(after.x(0) == fresh.x(0));
+    CHECK(after.x(1) == fresh.x(1));
+    CHECK(after.x(0) == doctest::Approx(2.0 / 3.0).epsilon(1e-6));
+}
+
+TEST_CASE("ADMM primal certificate: contradictory bounds, and one infeasible variable beside an active one") {
+    const Matrix<1, 1> H1{{1.0}};
+    const ColVec<1>    f1{0.0};
+    const Matrix<2, 1> A1{{1.0}, {-1.0}};
+    const ColVec<2>    b1{-1.0, -1.0}; // x <= -1 and x >= 1
+    const auto         one = design::solve_qp_admm(H1, f1, A1, b1);
+    CHECK(one.status == design::QPStatus::Infeasible);
+    CHECK(one.iterations < 10);
+
+    // x1 infeasible as above; x2 pushed onto its bound x2 <= 1, whose multiplier settles.
+    const auto         H2 = Matrix<2, 2>::identity();
+    const ColVec<2>    f2{0.0, -5.0};
+    const Matrix<3, 2> A2{{1.0, 0.0}, {-1.0, 0.0}, {0.0, 1.0}};
+    const ColVec<3>    b2{-1.0, -1.0, 1.0};
+    const auto         two = design::solve_qp_admm(H2, f2, A2, b2);
+    CHECK(two.status == design::QPStatus::Infeasible);
+    CHECK(two.iterations < 400);
+
+    // Scaling a row (aᵢ, bᵢ) or the whole problem leaves the certificate in place.
+    const Matrix<2, 1> A1s{{1.0e3}, {-1.0}};
+    const ColVec<2>    b1s{-1.0e3, -1.0};
+    CHECK(design::solve_qp_admm(H1, f1, A1s, b1s).status == design::QPStatus::Infeasible);
+    CHECK(design::solve_qp_admm(H2, f2, A2 * 1.0e4, b2 * 1.0e4).status == design::QPStatus::Infeasible);
+}
+
+TEST_CASE("ADMM certifies a dual-infeasible (unbounded) QP from its primal iterate difference") {
+    // LP min −x1 with only x2 <= 1: x1 → +∞.
+    const Matrix<2, 2> H0{};
+    const ColVec<2>    f_lp{-1.0, 0.0};
+    const Matrix<1, 2> A_lp{{0.0, 1.0}};
+    const ColVec<1>    b_lp{1.0};
+    const auto         lp = design::solve_qp_admm(H0, f_lp, A_lp, b_lp);
+    CHECK(!lp.success);
+    CHECK(lp.status == design::QPStatus::Unbounded);
+
+    // Semidefinite H with a coupled null direction: ½(x1 − x2)² − x1 − 2x2 with
+    // x1 − x2 <= 1 and x1 >= 0 decreases without bound along (1, 1).
+    const Matrix<2, 2> H{{1.0, -1.0}, {-1.0, 1.0}};
+    const ColVec<2>    f{-1.0, -2.0};
+    const Matrix<2, 2> A{{1.0, -1.0}, {-1.0, 0.0}};
+    const ColVec<2>    b{1.0, 0.0};
+    const auto         res = design::solve_qp_admm(H, f, A, b);
+    CHECK(res.status == design::QPStatus::Unbounded);
+    CHECK(res.iterations < 200);
+    // The factoring solvers cannot factor this H.
+    CHECK(design::solve_qp(H, f, A, b).status == design::QPStatus::NotPositiveDefinite);
+    CHECK(design::solve_qp_interior_point(H, f, A, b).status == design::QPStatus::NotPositiveDefinite);
+}
+
+TEST_CASE("ADMM feasible results do not depend on the certificate tolerance") {
+    // A certificate is only tested after the convergence test fails, so on a
+    // feasible problem it changes nothing: a loose tolerance gives the same bits.
+    design::AdmmSettings<double> loose{};
+    loose.eps_infeasible = 1.0e-2;
+
+    const QuadprogExample qp;
+    const auto            tight_qp = design::solve_qp_admm(qp.H, qp.f, qp.A, qp.b);
+    const auto            loose_qp = design::solve_qp_admm(qp.H, qp.f, qp.A, qp.b, 4000, loose);
+    REQUIRE(tight_qp.success);
+    REQUIRE(loose_qp.success);
+    CHECK(loose_qp.iterations == tight_qp.iterations);
+    CHECK(loose_qp.x(0) == tight_qp.x(0));
+    CHECK(loose_qp.x(1) == tight_qp.x(1));
+
+    // A bounded LP (H = 0, which the factoring solvers refuse) still solves: min −x on [0, 2].
+    const Matrix<1, 1> H0{};
+    const ColVec<1>    f{-1.0};
+    const Matrix<2, 1> A{{1.0}, {-1.0}};
+    const ColVec<2>    b{2.0, 0.0};
+    const auto         lp = design::solve_qp_admm(H0, f, A, b);
+    const auto         lp_loose = design::solve_qp_admm(H0, f, A, b, 4000, loose);
+    REQUIRE(lp.success);
+    CHECK(lp.x(0) == doctest::Approx(2.0).epsilon(1e-6));
+    CHECK(lp_loose.x(0) == lp.x(0));
+    CHECK(lp_loose.iterations == lp.iterations);
+}
+
+TEST_CASE("ADMM reports an MPC's infeasible constraint set like the active-set default") {
+    // The held input 2.0 lies outside |u| <= 0.5 and |Δu| <= 0.1 cannot bring it
+    // back in one move: the hard boxes admit no move. Both solvers say so, the
+    // command holds the input clamped to the box, and the next tick (held input
+    // back in range) solves again.
+    design::MPCWeights<1, 1> weights{};
+    weights.Rdu = 0.05;
+    design::MPCConstraints<1, 1> limits{};
+    limits.u_lim = {
+        .lower = -0.5,
+        .upper = 0.5,
+    };
+    limits.du_lim = {
+        .lower = -0.1,
+        .upper = 0.1,
+    };
+    limits.max_qp_iterations = 20000;
+
+    const auto art = design::mpc<15, 5>(double_integrator, weights, limits);
+    REQUIRE(art.success);
+
+    using Ctl = decltype(MPC{art});
+    MPC exact{art};
+    MPC admm{art, design::AdmmSolver<Ctl::NZ1, Ctl::NI1, double>{}};
+
+    const ColVec<2> x{};
+    const ColVec<1> r{1.0};
+    exact.back_calculate(ColVec<1>{2.0});
+    admm.back_calculate(ColVec<1>{2.0});
+    const auto ue = exact.step(r, x);
+    const auto ua = admm.step(r, x);
+    CHECK(exact.last_status() == design::QPStatus::Infeasible);
+    CHECK(admm.last_status() == design::QPStatus::Infeasible);
+    CHECK(admm.last_iterations() < 1000); // was the whole 20000 budget, reported as MaxIterations
+    CHECK(ue(0) == doctest::Approx(0.5));
+    CHECK(ua(0) == doctest::Approx(0.5));
+
+    exact.back_calculate(ColVec<1>{0.3});
+    admm.back_calculate(ColVec<1>{0.3});
+    const auto ue2 = exact.step(r, x);
+    const auto ua2 = admm.step(r, x);
+    CHECK(exact.last_status() == design::QPStatus::Success);
+    CHECK(admm.last_status() == design::QPStatus::Success);
+    CHECK(ua2(0) == doctest::Approx(ue2(0)).epsilon(1e-6));
 }
 
 // --- Interior point ------------------------------------------------------------
@@ -242,23 +398,25 @@ TEST_CASE("interior point flags an infeasible constraint set") {
 
 TEST_CASE("interior-point solver policy drives the MPC like the active-set default") {
     design::MPCWeights<1, 1> weights{};
-    weights.Rdu = Matrix<1, 1>{{0.05}};
+    weights.Rdu = 0.05;
     design::MPCConstraints<1, 1> limits{};
-    limits.u_min = ColVec<1>{-0.5};
-    limits.u_max = ColVec<1>{0.5};
+    limits.u_lim = {
+        .lower = -0.5,
+        .upper = 0.5,
+    };
 
-    const auto art = design::state_mpc<15, 5>(double_integrator, weights, limits);
+    const auto art = design::mpc<15, 5>(double_integrator, weights, limits);
     REQUIRE(art.success);
 
-    MPC                                                         exact{art};
-    MPC<2, 1, 1, 15, 5, 0, double, design::InteriorPointSolver> ip{art};
+    MPC exact{art};
+    MPC ip{art, design::InteriorPointSolver{}};
 
     ColVec<2>       xe{};
     ColVec<2>       xi{};
     const ColVec<1> r{1.0};
     for (size_t k = 0; k < 120; ++k) {
-        const auto ue = exact.control(r, xe);
-        const auto ui = ip.control(r, xi);
+        const auto ue = exact.step(r, xe);
+        const auto ui = ip.step(r, xi);
         CHECK(ui(0) == doctest::Approx(ue(0)).epsilon(1e-5));
         xe = plant_step(xe, ue(0));
         xi = plant_step(xi, ui(0));
@@ -349,6 +507,8 @@ TEST_CASE("alternative solvers are constexpr") {
 
     constexpr auto admm = design::solve_qp_admm(qp.H, qp.f, qp.A, qp.b);
     static_assert(admm.success);
+    constexpr auto admm_infeasible = design::solve_qp_admm(Matrix<1, 1>{{1.0}}, ColVec<1>{0.0}, Matrix<2, 1>{{1.0}, {-1.0}}, ColVec<2>{-1.0, -1.0});
+    static_assert(admm_infeasible.status == design::QPStatus::Infeasible);
 
     constexpr auto mi = [] {
         constexpr auto         H = Matrix<1, 1>{{1.0}};
@@ -361,4 +521,84 @@ TEST_CASE("alternative solvers are constexpr") {
     }();
     static_assert(mi.success);
     static_assert(mi.x(0) - 1.0 < 1e-9 && mi.x(0) - 1.0 > -1e-9);
+}
+
+TEST_CASE("interior-point QP is invariant to scaling the cost") {
+    for (const double s : {1e-6, 1.0, 1e9}) {
+        const Matrix<2, 2> H{{s, -s}, {-s, 2.0 * s}};
+        const ColVec<2>    f{-2.0 * s, -6.0 * s};
+        const Matrix<3, 2> A{{1.0, 1.0}, {-1.0, 2.0}, {2.0, 1.0}};
+        const ColVec<3>    b{2.0, 2.0, 3.0};
+        const auto         res = design::solve_qp_interior_point(H, f, A, b);
+        CAPTURE(s);
+        REQUIRE(res.success);
+        CHECK(res.x(0) == doctest::Approx(2.0 / 3.0).epsilon(1e-6));
+        CHECK(res.x(1) == doctest::Approx(4.0 / 3.0).epsilon(1e-6));
+    }
+}
+
+TEST_CASE("ADMM reports a NaN input as NonFinite and its warm start recovers on finite data") {
+    //! The residual maxima dropped the NaN: Success at iteration 1, and x = NaN on every later
+    //! call until reset().
+    const QuadprogExample        qp;
+    design::AdmmSolver<2, 3>     solver;
+    const ColVec<3>              b_nan{2.0, std::numeric_limits<double>::quiet_NaN(), 3.0};
+    const design::QPResult<2, 3> bad = solver(qp.H, qp.f, qp.A, b_nan, 1000);
+    CHECK(bad.status == design::QPStatus::NonFinite);
+    CHECK_FALSE(bad.success);
+    const design::QPResult<2, 3> good = solver(qp.H, qp.f, qp.A, qp.b, 1000);
+    REQUIRE(good.success);
+    CHECK(good.x(0) == doctest::Approx(2.0 / 3.0).epsilon(1e-6));
+    CHECK(good.x(1) == doctest::Approx(4.0 / 3.0).epsilon(1e-6));
+}
+
+TEST_CASE("float ADMM reaches its default tolerances") {
+    //! eps_abs = eps_rel = 1e-8 sat below float's ε: every float solve ran the budget out.
+    const Matrix<2, 2, float>       H{{1.0F, -1.0F}, {-1.0F, 2.0F}};
+    const ColVec<2, float>          f{-2.0F, -6.0F};
+    const Matrix<3, 2, float>       A{{1.0F, 1.0F}, {-1.0F, 2.0F}, {2.0F, 1.0F}};
+    const ColVec<3, float>          b{2.0F, 2.0F, 3.0F};
+    design::AdmmSolver<2, 3, float> solver;
+    const auto                      res = solver(H, f, A, b, 1000);
+    REQUIRE(res.success);
+    CHECK(res.iterations < 1000);
+    CHECK(res.x(0) == doctest::Approx(2.0 / 3.0).epsilon(1e-3));
+    CHECK(res.x(1) == doctest::Approx(4.0 / 3.0).epsilon(1e-3));
+}
+
+TEST_CASE("float MIQP solves at 1e4, where a bound sits inside the relaxation's slack tolerance") {
+    //! It returned MaxIterations with no incumbent: x₁ ≥ 10000 at x₁ = 9999.6 lies within the
+    //! active-set solver's (NV+1)·64·ε of 2e4, so the up child never bound and was re-branched.
+    const float               t = 9999.6F;
+    const Matrix<2, 2, float> H = Matrix<2, 2, float>::identity();
+    const ColVec<2, float>    f{-t, -(t + 0.3F)};
+    const Matrix<1, 2, float> A{{1.0F, 1.0F}};
+    const ColVec<1, float>    b{(2.0F * t) + 0.1F};
+    const auto                mi = design::solve_miqp(H, f, A, b, damp::array<bool, 2>{true, true});
+    REQUIRE(mi.success);
+    CHECK(mi.status == design::QPStatus::Success);
+    CHECK(mi.x(0) == 9999.0F);
+    CHECK(mi.x(1) == 10000.0F);
+}
+
+TEST_CASE("float MIQP does not take a half-integer at 1.5e5 as integral") {
+    //! The relative integrality term 8·(NV+1)·ε·|x| exceeded 0.5 past 1.05e5 for NV = 4, so the
+    //! root relaxation x₀ = 150000.5 returned as Success.
+    const Matrix<4, 4, float> H = Matrix<4, 4, float>::identity();
+    const ColVec<4, float>    f{-150000.5F, 0.0F, 0.0F, 0.0F};
+    const Matrix<1, 4, float> A{};
+    const ColVec<1, float>    b{design::unbounded_bound<float>()};
+    const auto                mi = design::solve_miqp(H, f, A, b, damp::array<bool, 4>{true, true, true, true});
+    REQUIRE(mi.success);
+    CHECK((mi.x(0) == 150000.0F || mi.x(0) == 150001.0F));
+}
+
+TEST_CASE("MIQP refuses non-finite data") {
+    //! A NaN relaxation reached floor_scalar's long long cast (undefined behavior).
+    const Matrix<2, 2> H = Matrix<2, 2>::identity();
+    const ColVec<2>    f{std::numeric_limits<double>::quiet_NaN(), -1.0};
+    const Matrix<1, 2> A{{1.0, 1.0}};
+    const auto         mi = design::solve_miqp(H, f, A, ColVec<1>{2.0}, damp::array<bool, 2>{true, true});
+    CHECK(mi.status == design::QPStatus::NonFinite);
+    CHECK_FALSE(mi.success);
 }

@@ -47,7 +47,7 @@ struct Translation3 : Vec3<T> {
     }
     constexpr explicit Translation3(const Base& v) : Base(v) {}
 
-    /// Euclidean distance to another translation.
+    /** @brief Euclidean distance to another translation. */
     [[nodiscard]] constexpr T distance(const Translation3& other) const {
         return (static_cast<const Base&>(*this) - static_cast<const Base&>(other)).norm();
     }
@@ -62,10 +62,10 @@ struct Pose {
     Quaternion<T>   orientation{Quaternion<T>::identity()};
     Translation3<T> translation{};
 
-    /// The identity pose (origin, no rotation).
+    /** @brief The identity pose (origin, no rotation). */
     [[nodiscard]] static constexpr Pose identity() { return Pose{}; }
 
-    /// Compose: `*this * rhs` places `rhs` in this pose's frame (see file note).
+    /** @brief Compose: `*this * rhs` places `rhs` in this pose's frame (see file note). */
     [[nodiscard]] constexpr Pose operator*(const Pose& rhs) const {
         const Vec3<T> rotated = orientation.rotate(static_cast<const Vec3<T>&>(rhs.translation));
         return Pose{
@@ -74,12 +74,12 @@ struct Pose {
         };
     }
 
-    /// Map a point from this pose's local frame into the parent frame.
+    /** @brief Map a point from this pose's local frame into the parent frame. */
     [[nodiscard]] constexpr Vec3<T> transform_point(const Vec3<T>& p) const {
         return static_cast<const Vec3<T>&>(translation) + orientation.rotate(p);
     }
 
-    /// The inverse pose (assumes a unit quaternion).
+    /** @brief The inverse pose (assumes a unit quaternion). */
     [[nodiscard]] constexpr Pose inverse() const {
         const Quaternion<T> q_inv = orientation.conjugate();
         return Pose{
@@ -88,19 +88,21 @@ struct Pose {
         };
     }
 
-    /// Export to a 4×4 homogeneous transform (interop convenience).
+    /** @brief Export to a 4×4 homogeneous transform (interop convenience). */
     [[nodiscard]] constexpr Transform4<T> to_transform4() const {
         return Transform4<T>::from_quaternion_translation(orientation, static_cast<const Vec3<T>&>(translation));
     }
 
-    /// Build from a 4×4 homogeneous transform.
+    /** @brief Build from a 4×4 homogeneous transform. */
     [[nodiscard]] static constexpr Pose from_transform4(const Transform4<T>& tf) {
         const auto& [q, t] = tf.to_quaternion_translation(); // {Quaternion, Vec3}
         return {q, t};
     }
 
-    /// Rebind to another scalar type.
-    /// Designated initializers follow declaration order: orientation, then translation.
+    /**
+     * @brief Rebind to another scalar type.
+     * Designated initializers follow declaration order: orientation, then translation.
+     */
     template<typename U>
     [[nodiscard]] constexpr Pose<U> as() const {
         return {

@@ -18,6 +18,7 @@
 #include "core.hpp"
 #include "damp/backend.hpp"
 #include "damp/math/complex.hpp"
+#include "damp/matrix/matrix_traits.hpp"
 #include "decomposition.hpp"
 
 namespace damp {
@@ -49,10 +50,12 @@ constexpr ColVec<N, T> forward_substitute(const Matrix<N, N, T>& L, const ColVec
 }
 
 /**
- * @brief Backward substitution for Lᵀx = b (real) / Lᴴx = b layout
+ * @brief Backward substitution for Lᴴx = b (Lᵀx = b for real T)
  *
- * Solves using the lower factor stored in @p L by walking the transpose pattern
- * (@c L(j,i) for @c j > i). Caller must ensure nonzero diagonal (post-Cholesky).
+ * Solves using the lower factor stored in @p L by walking the conjugate-transpose
+ * pattern (@c conj(L(j,i)) for @c j > i), so it pairs with forward_substitute() to
+ * solve LLᴴx = b on a Cholesky factor. Caller must ensure nonzero diagonal
+ * (post-Cholesky).
  */
 template<size_t N, typename T>
 constexpr ColVec<N, T> backward_substitute_transpose(const Matrix<N, N, T>& L, const ColVec<N, T>& b) {
@@ -61,10 +64,10 @@ constexpr ColVec<N, T> backward_substitute_transpose(const Matrix<N, N, T>& L, c
     for (size_t i = N; i-- > 0;) {
         T sum = b(i);
         for (size_t j = i + 1; j < N; ++j) {
-            sum -= L(j, i) * x(j);
+            sum -= damp::conj(L(j, i)) * x(j);
         }
 
-        x(i) = sum / L(i, i);
+        x(i) = sum / damp::conj(L(i, i));
     }
 
     return x;
@@ -246,20 +249,33 @@ constexpr damp::optional<Matrix<N, M, T>> lu_solve(const Matrix<N, N, T>& A, con
  * Primary entry for linear solves. Prefer this over Matrix::inverse when
  * the goal is @f$ A^{-1} B @f$ rather than the inverse matrix itself.
  *
- * @return Solution X, or damp::nullopt if @p A is singular / not PD under Cholesky
+ * Cholesky reads only the lower triangle, so its backward error includes the
+ * asymmetry of A. The Cholesky path is therefore taken only when each pair
+ * aᵢⱼ, conj(aⱼᵢ) agrees to 4·eps of its scale (the tolerance of
+ * is_symmetric_or_hermitian() is N·64·eps, meant for validating inputs); any other
+ * A goes to LU, which is backward stable. A Hermitian A that Cholesky refuses falls
+ * back to LU. An A Hermitian only to N·64·eps (a product such as C·P·Cᵀ + R) that LU
+ * refuses falls back to Cholesky, whose per-pivot floor 16·(i+1)·eps is up to 4N times
+ * looser than LU's N·64·eps; its backward error is then bounded by that asymmetry.
+ *
+ * @return Solution X, or damp::nullopt if both factorizations refuse A
  * @note Compare with MATLAB®'s A \\ B.
  * @see cholesky_solve(), lu_solve()
  */
 template<size_t N, size_t M, typename T>
 constexpr damp::optional<Matrix<N, M, T>> solve(const Matrix<N, N, T>& A, const Matrix<N, M, T>& B) {
-    if (is_symmetric_or_hermitian<N, T>(A)) {
+    if (detail::is_hermitian_within(A, scalar_type_t<T>{4} * eps<T>())) {
         auto Xopt = cholesky_solve(A, B);
         if (Xopt) {
             return Xopt;
         }
+        return lu_solve(A, B);
     }
-
-    return lu_solve(A, B);
+    auto Xopt = lu_solve(A, B);
+    if (!Xopt && is_symmetric_or_hermitian(A)) {
+        return cholesky_solve(A, B);
+    }
+    return Xopt;
 }
 
 } // namespace mat

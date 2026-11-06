@@ -5,6 +5,7 @@
 
 #include "damp/toolbox/conditioning.hpp"
 #include "damp/toolbox/io.hpp"
+#include "damp/toolbox/logic.hpp"
 #include "damp/toolbox/lookup.hpp"
 #include "damp/toolbox/scaling.hpp"
 
@@ -23,7 +24,14 @@ TEST_SUITE("Tier-2 IO appliances") {
         // 0.5–4.5 V -> 0–100 %, with NE43 fault bands [0.25 (0.5 4.5) 4.75].
         io::AnalogInput<double> ai{
             two_point_cal(0.5, 0.0, 4.5, 100.0),
-            RangeMonitor<double>{0.25, 0.5, 4.5, 4.75}
+            RangeMonitor<double>{{.valid = {
+                                      .lower = 0.5,
+                                      .upper = 4.5,
+                                  },
+                                  .fault = {
+                                      .lower = 0.25,
+                                      .upper = 4.75,
+                                  }}}
         };
 
         CHECK(ai.update(2.5) == doctest::Approx(50.0)); // mid-scale
@@ -93,7 +101,14 @@ TEST_SUITE("Tier-2 IO appliances") {
     }
 
     TEST_CASE("RedundantAnalogPair wires two AnalogInputs through cross-check") {
-        const auto                      mon = RangeMonitor<double>{0.25, 0.5, 4.5, 4.75};
+        const auto                      mon = RangeMonitor<double>{{.valid = {
+                                                                        .lower = 0.5,
+                                                                        .upper = 4.5,
+                                                                    },
+                                                                    .fault = {
+                                                                        .lower = 0.25,
+                                                                        .upper = 4.75,
+                                                                    }}};
         const auto                      cal = two_point_cal(0.5, 0.0, 4.5, 100.0);
         io::RedundantAnalogPair<double> pair{
             io::AnalogInput<double>{cal, mon},
@@ -111,16 +126,6 @@ TEST_SUITE("Tier-2 IO appliances") {
         r = pair.update(2.5, 0.1);
         CHECK(r.status == AnalogCrossStatus::ChannelAOnly);
         CHECK(r.value == doctest::Approx(50.0));
-    }
-
-    TEST_CASE("ProportionalCurrentMap maps [0,1] command to mA window") {
-        io::ProportionalCurrentMap<double> valve{200.0, 800.0};
-        CHECK(valve(0.0) == doctest::Approx(200.0));
-        CHECK(valve(1.0) == doctest::Approx(800.0));
-        CHECK(valve(0.5) == doctest::Approx(500.0));
-        CHECK(valve(-1.0) == doctest::Approx(200.0)); // clamp low
-        CHECK(valve(2.0) == doctest::Approx(800.0));  // clamp high
-        CHECK(valve.invert(500.0) == doctest::Approx(0.5));
     }
 
     TEST_CASE("AxisInput chains cal, dead zone, expo, and scale") {
@@ -186,13 +191,6 @@ TEST_SUITE("Tier-2 IO appliances") {
         CHECK(sat.left / sat.right == doctest::Approx(1.3 / 0.3)); // ratio preserved
     }
 
-    TEST_CASE("arcade_drive is differential_drive with single-stick args") {
-        auto a = io::arcade_drive(0.5, 0.8); // x=steer, y=throttle
-        auto d = io::differential_drive(0.8, 0.5);
-        CHECK(a.left == doctest::Approx(d.left));
-        CHECK(a.right == doctest::Approx(d.right));
-    }
-
     TEST_CASE("h_pattern passes each lever to its own track, clamped") {
         auto straight = io::h_pattern(0.5, 0.5);
         CHECK(straight.left == doctest::Approx(0.5));
@@ -207,16 +205,11 @@ TEST_SUITE("Tier-2 IO appliances") {
         CHECK(clamped.right == doctest::Approx(-1.0));
     }
 
-    TEST_CASE("iso_s_drive is the speed-summed (differential) travel stick") {
-        auto s = io::iso_s_drive(0.8, 0.5);
-        auto d = io::differential_drive(0.8, 0.5);
-        CHECK(s.left == doctest::Approx(d.left));
-        CHECK(s.right == doctest::Approx(d.right));
-
+    TEST_CASE("differential_drive is the speed-summed (ISO-S) travel stick") {
         // Rotation direction is independent of travel direction: right steer
         // gives CW (left track leads) both forward and in reverse.
-        auto fwd_r = io::iso_s_drive(0.5, 0.5);
-        auto rev_r = io::iso_s_drive(-0.5, 0.5);
+        auto fwd_r = io::differential_drive(0.5, 0.5);
+        auto rev_r = io::differential_drive(-0.5, 0.5);
         CHECK(fwd_r.left > fwd_r.right); // CW forward
         CHECK(rev_r.left > rev_r.right); // still CW in reverse
     }
@@ -307,61 +300,67 @@ TEST_SUITE("Tier-2 IO appliances") {
         CHECK(sp.right == doctest::Approx(0.5));
     }
 
-    TEST_CASE("mecanum_drive recovers cardinal patterns and normalizes") {
+    TEST_CASE("holonomic_drive recovers cardinal patterns and normalizes") {
         // Pure forward: all four wheels equal and forward.
-        auto fwd = io::mecanum_drive(0.0, 1.0, 0.0);
+        auto fwd = io::holonomic_drive(0.0, 1.0, 0.0);
         CHECK(fwd.front_left == doctest::Approx(1.0));
         CHECK(fwd.front_right == doctest::Approx(1.0));
         CHECK(fwd.rear_left == doctest::Approx(1.0));
         CHECK(fwd.rear_right == doctest::Approx(1.0));
 
         // Pure strafe right: FL/RR forward, FR/RL reverse (mecanum X pattern).
-        auto strafe = io::mecanum_drive(1.0, 0.0, 0.0);
+        auto strafe = io::holonomic_drive(1.0, 0.0, 0.0);
         CHECK(strafe.front_left == doctest::Approx(1.0));
         CHECK(strafe.front_right == doctest::Approx(-1.0));
         CHECK(strafe.rear_left == doctest::Approx(-1.0));
         CHECK(strafe.rear_right == doctest::Approx(1.0));
 
         // Pure yaw: left side one way, right side the other.
-        auto yaw = io::mecanum_drive(0.0, 0.0, 1.0);
+        auto yaw = io::holonomic_drive(0.0, 0.0, 1.0);
         CHECK(yaw.front_left == doctest::Approx(1.0));
         CHECK(yaw.front_right == doctest::Approx(-1.0));
         CHECK(yaw.rear_left == doctest::Approx(1.0));
         CHECK(yaw.rear_right == doctest::Approx(-1.0));
 
         // Zero input -> zero output.
-        auto zero = io::mecanum_drive(0.0, 0.0, 0.0);
+        auto zero = io::holonomic_drive(0.0, 0.0, 0.0);
         CHECK(zero.front_left == doctest::Approx(0.0));
 
         // Saturating blend: peak = |1 + 0.5 + 0.5| = 2, all scaled by 1/2.
-        auto sat = io::mecanum_drive(0.5, 1.0, 0.5);
+        auto sat = io::holonomic_drive(0.5, 1.0, 0.5);
         CHECK(sat.front_left == doctest::Approx(2.0 / 2.0)); // 1.0
         CHECK(sat.front_right == doctest::Approx(0.0 / 2.0));
         CHECK(sat.rear_left == doctest::Approx(1.0 / 2.0));
         CHECK(sat.rear_right == doctest::Approx(1.0 / 2.0));
-
-        // mecanum_drive / omniwheel_drive are aliases for holonomic_drive.
-        auto h = io::holonomic_drive(0.5, 1.0, 0.5);
-        auto o = io::omniwheel_drive(0.5, 1.0, 0.5);
-        CHECK(sat.front_left == doctest::Approx(h.front_left));
-        CHECK(o.front_left == doctest::Approx(h.front_left));
-        CHECK(o.rear_right == doctest::Approx(h.rear_right));
     }
 
-    TEST_CASE("Switch debounces and flags changes") {
-        io::Switch<double> sw{0.02}; // 20 ms debounce
-        const double       dt = 0.01;
+    TEST_CASE("maintained switch: Debounce plus edge detection flags changes") {
+        Debounce<double> db{0.02}; // 20 ms debounce
+        RisingEdge       rise;
+        FallingEdge      fall;
+        const double     dt = 0.01;
+        bool             on = false;
+        bool             changed = false;
+        const auto       tick = [&](bool raw) {
+            on = db(raw, dt);
+            const bool rose = rise(on);
+            const bool fell = fall(on);
+            changed = rose || fell;
+        };
 
-        CHECK(sw.update(false, dt) == false);
-        sw.update(true, dt);                // 10 ms, not yet
-        CHECK(sw.update(true, dt) == true); // 20 ms -> on
-        CHECK(sw.changed() == true);        // flipped this tick
-        CHECK(sw.update(true, dt) == true);
-        CHECK(sw.changed() == false); // steady
+        tick(false);
+        CHECK_FALSE(on);
+        tick(true); // 10 ms, not yet
+        tick(true); // 20 ms -> on
+        CHECK(on);
+        CHECK(changed); // flipped this tick
+        tick(true);
+        CHECK(on);
+        CHECK_FALSE(changed); // steady
 
         // A glitch shorter than the debounce window is ignored.
-        sw.update(false, dt);
-        CHECK(sw.on() == true); // single false sample didn't flip it
-        CHECK(sw.changed() == false);
+        tick(false);
+        CHECK(on); // single false sample didn't flip it
+        CHECK_FALSE(changed);
     }
 }

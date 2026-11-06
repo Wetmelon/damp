@@ -83,11 +83,4 @@ TEST_SUITE("matrix_traits") {
         static_assert(std::is_same_v<decltype(default_tol<damp::complex<double>>()), double>);
         static_assert(std::is_same_v<decltype(default_tol<float>()), float>);
     }
-
-    TEST_CASE("is_matrix_type trait identifies Matrix specializations") {
-        static_assert(is_matrix_type<Matrix<3, 3, double>>::value);
-        static_assert(!is_matrix_type<double>::value);
-        static_assert(!is_matrix_type<int>::value);
-        CHECK(true); // anchor a runtime assertion for the case
-    }
 }

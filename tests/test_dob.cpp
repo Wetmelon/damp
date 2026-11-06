@@ -63,7 +63,7 @@ TEST_SUITE("Disturbance Observer") {
         // the estimate converges to the innovation itself. (With leak = 0 it is a
         // pure integrator and would diverge on a constant innovation — that is
         // the intended physics, not a settling estimator.)
-        DOB<double> dob{DOBConfig<double>{0.25, 0.25, 0.0, 0.0, false}};
+        DOB<double> dob{estimation::dob(DOBConfig<double>{0.25, 0.25, 0.0, 0.0, false})};
 
         const double d_true = 3.0;
         for (int k = 0; k < 500; ++k) {
@@ -76,7 +76,7 @@ TEST_SUITE("Disturbance Observer") {
     TEST_CASE("compensate subtracts the disturbance estimate from the command") {
         // gain = leak ⇒ unity-DC-gain leaky integrator settles d_hat at the
         // constant innovation (here 2.0).
-        DOB<double> dob{DOBConfig<double>{0.5, 0.5, 0.0, 0.0, false}};
+        DOB<double> dob{estimation::dob(DOBConfig<double>{0.5, 0.5, 0.0, 0.0, false})};
         for (int k = 0; k < 200; ++k) {
             REQUIRE(dob.update(0.0, 2.0)); // drive estimate toward +2
         }
@@ -85,7 +85,7 @@ TEST_SUITE("Disturbance Observer") {
     }
 
     TEST_CASE("innovation deadband freezes the estimate for small errors") {
-        DOB<double> dob{DOBConfig<double>{0.5, 0.0, 0.1, 0.0, false}};
+        DOB<double> dob{estimation::dob(DOBConfig<double>{0.5, 0.0, 0.1, 0.0, false})};
         // Innovation of 0.05 is below the 0.1 deadband → estimate stays put.
         for (int k = 0; k < 50; ++k) {
             REQUIRE(dob.update(0.0, 0.05));
@@ -98,7 +98,7 @@ TEST_SUITE("Disturbance Observer") {
     }
 
     TEST_CASE("magnitude clamp bounds the estimate") {
-        DOB<double> dob{DOBConfig<double>{0.5, 0.0, 0.0, 1.0, true}};
+        DOB<double> dob{estimation::dob(DOBConfig<double>{0.5, 0.0, 0.0, 1.0, true})};
         for (int k = 0; k < 200; ++k) {
             REQUIRE(dob.update(0.0, 100.0)); // would blow past the clamp
         }
@@ -107,13 +107,22 @@ TEST_SUITE("Disturbance Observer") {
     }
 
     TEST_CASE("reset clears state") {
-        DOB<double> dob{DOBConfig<double>{0.5, 0.0, 0.0, 0.0, false}};
+        DOB<double> dob{estimation::dob(DOBConfig<double>{0.5, 0.0, 0.0, 0.0, false})};
         REQUIRE(dob.update(0.0, 5.0));
         REQUIRE(dob.state().disturbance_hat != 0.0);
 
         dob.reset();
         CHECK(dob.state().disturbance_hat == doctest::Approx(0.0));
         CHECK_FALSE(dob.state().initialized);
+    }
+
+    TEST_CASE("a failed design stays inert after reset") {
+        DOB<double> dob{estimation::dob(DOBConfig<double>{2.0})}; // gain > 1
+        CHECK_FALSE(dob.valid());
+        CHECK_FALSE(dob.update(0.0, 1.0));
+        dob.reset();
+        CHECK_FALSE(dob.valid());
+        CHECK_FALSE(dob.update(0.0, 1.0));
     }
 
     TEST_CASE("constructing from a design result carries the config") {
@@ -176,6 +185,13 @@ TEST_SUITE("Classical DOB") {
         CHECK(d.fy_tf().num[0] == doctest::Approx(d.fy_num[0]));
         CHECK(d.fy_tf().den[0] == doctest::Approx(d.fy_den[0]));
 
+        // In z, Q = (1 - rho) z / (z - rho): Qn is zero-padded at the end and the pole is the IIR's, z = rho.
+        const auto q = d.q_tf();
+        CHECK(q.num[1] == doctest::Approx(0.0));
+        const auto q_ss = q.to_state_space();
+        REQUIRE(q_ss.has_value());
+        CHECK(q_ss->A(0, 0) == doctest::Approx(rho));
+
         // Non-invertible nominal plant (Bn[0] == 0) is rejected.
         const damp::array<double, 2> Bn_delay{0.0, beta};
         const damp::array<double, 2> An{1.0, -alpha};
@@ -194,7 +210,7 @@ TEST_SUITE("Classical DOB") {
         const double d = 1.0;
         double       u = 0.0;
         for (int k = 0; k < 400; ++k) {
-            u = dob.compensate(0.0, y);     // u = -d_hat
+            u = dob.step(y, 0.0);           // u = -d_hat
             y = alpha * y + beta * (u + d); // plant
         }
         CHECK(std::abs(y) < 1e-3);                                      // disturbance rejected
@@ -209,23 +225,56 @@ TEST_SUITE("Classical DOB") {
         double                           y = 0.0;
         const double                     d = 1.0;
         for (int k = 0; k < 1500; ++k) {
-            const double u = dob.compensate(0.0, y);
+            const double u = dob.step(y, 0.0);
             y = alpha_act * y + beta_act * (u + d);
         }
         CHECK(std::abs(y) < 5e-2); // DC rejection survives the mismatch
     }
 
-    TEST_CASE("estimate() recovers a known disturbance open-loop") {
+    TEST_CASE("step() estimates the disturbance under a varying command") {
+        // The Q·u path takes the command step() returned last tick, which is the input the plant's
+        // one-sample delay acts on: d_hat = Q·d exactly, whatever the command does.
         ClassicalDOB<1, 2, 1, 2, double> dob(make_dob());
         const double                     d = 0.5;
         double                           y = 0.0;
-        double                           last = 0.0;
         for (int k = 0; k < 400; ++k) {
-            const double u = 0.2;           // fixed input
-            y = alpha * y + beta * (u + d); // plant with disturbance
-            last = dob.estimate(y, u);
+            const double u = dob.step(y, std::sin(0.2 * k));
+            y = alpha * y + beta * (u + d);
         }
-        CHECK(last == doctest::Approx(0.5).epsilon(1e-2));
+        CHECK(dob.disturbance() == doctest::Approx(d).epsilon(1e-9));
+    }
+
+    TEST_CASE("classical_dob refuses an unstable inverse or Q-filter") {
+        constexpr double             Ts = 1e-3;
+        const damp::array<double, 1> Qn{0.1};
+        const damp::array<double, 2> Qd{1.0, -0.9};
+        // ZOH double integrator, delay removed: Bn = Ts²/2·(1 + z⁻¹), a zero at z = −1.
+        CHECK_FALSE(classical_dob(damp::array<double, 2>{Ts * Ts / 2, Ts * Ts / 2}, damp::array<double, 3>{1.0, -2.0, 1.0}, Qn, Qd)
+                        .success);
+        // ZOH triple integrator: Bn = Ts³/6·(1 + 4z⁻¹ + z⁻²), a zero at z ≈ −3.73.
+        const double c3 = Ts * Ts * Ts / 6;
+        CHECK_FALSE(classical_dob(damp::array<double, 3>{c3, 4 * c3, c3}, damp::array<double, 4>{1.0, -3.0, 3.0, -1.0}, Qn, Qd)
+                        .success);
+        // ZOH 1/(s(s+1)) at Ts = 0.01: the sampling zero sits just inside, at z ≈ −0.997, and passes
+        // (Fy then rings near Nyquist); the DC-equivalent single coefficient {b₀ + b₁} is the stable inverse.
+        const double                 p = std::exp(-0.01);
+        const damp::array<double, 2> Bn_rd2{0.01 - 1.0 + p, 1.0 - p - 0.01 * p};
+        const damp::array<double, 3> An_rd2{1.0, -(1.0 + p), p};
+        CHECK(classical_dob(Bn_rd2, An_rd2, Qn, Qd).success);
+        CHECK(classical_dob(damp::array<double, 1>{Bn_rd2[0] + Bn_rd2[1]}, An_rd2, Qn, Qd).success);
+        // A zero inside the unit circle (z = −0.5) is invertible.
+        CHECK(classical_dob(damp::array<double, 2>{0.1, 0.05}, damp::array<double, 2>{1.0, -0.9}, Qn, Qd).success);
+        // Complex zeros at radius √0.8 pass; on the unit circle they are refused.
+        CHECK(classical_dob(damp::array<double, 3>{1.0, -1.6, 0.8}, damp::array<double, 2>{1.0, -0.9}, Qn, Qd).success);
+        CHECK_FALSE(classical_dob(damp::array<double, 3>{1.0, -1.6, 1.0}, damp::array<double, 2>{1.0, -0.9}, Qn, Qd).success);
+        // An unstable Q-filter is refused.
+        CHECK_FALSE(classical_dob(damp::array<double, 1>{0.1}, damp::array<double, 2>{1.0, -0.9}, Qn, damp::array<double, 2>{1.0, -1.1})
+                        .success);
+    }
+
+    TEST_CASE("classical DOB deploys with static constinit") {
+        static constinit ClassicalDOB<1, 2, 1, 2, double> cdob{make_dob()};
+        CHECK(cdob.valid());
     }
 
     TEST_CASE("invalid design is inert; reset clears filter state") {
@@ -235,10 +284,10 @@ TEST_SUITE("Classical DOB") {
         const damp::array<double, 2>     Qd{1.0, -rho};
         ClassicalDOB<1, 2, 1, 2, double> bad(classical_dob(Bad, An, Qn, Qd));
         CHECK_FALSE(bad.valid());
-        CHECK(bad.compensate(3.0, 1.0) == doctest::Approx(3.0)); // pass-through
+        CHECK(bad.step(1.0, 3.0) == doctest::Approx(3.0)); // pass-through
 
         ClassicalDOB<1, 2, 1, 2, double> dob(make_dob());
-        (void)dob.compensate(0.0, 1.0);
+        (void)dob.step(1.0, 0.0);
         dob.reset();
         CHECK(dob.disturbance() == doctest::Approx(0.0));
     }
@@ -248,7 +297,7 @@ TEST_SUITE("Classical DOB") {
         REQUIRE(dob.valid());
         float y = 0.0f;
         for (int k = 0; k < 400; ++k) {
-            const float u = dob.compensate(0.0f, y);
+            const float u = dob.step(y, 0.0f);
             y = 0.9f * y + 0.1f * (u + 1.0f);
         }
         CHECK(std::abs(y) < 1e-2f);
@@ -259,12 +308,23 @@ TEST_SUITE("Classical DOB") {
             ClassicalDOB<1, 2, 1, 2, double> dob(make_dob());
             double                           y = 0.0;
             for (int k = 0; k < 400; ++k) {
-                const double u = dob.compensate(0.0, y);
+                const double u = dob.step(y, 0.0);
                 y = 0.9 * y + 0.1 * (u + 1.0);
             }
             return y;
         }();
         static_assert(y_final < 1e-3 && y_final > -1e-3, "DOB must reject the DC load at compile time");
         CHECK(y_final == doctest::Approx(0.0).epsilon(1e-3));
+    }
+
+    TEST_CASE("classical_dob realizability check is invariant to plant gain units") {
+        // Same plant, input in different units: gain 0.1 → 1e-13. Bn[0] ≠ 0 either way.
+        const damp::array<double, 2> An{1.0, -0.9};
+        const damp::array<double, 1> Qn{0.15};
+        const damp::array<double, 2> Qd{1.0, -0.85};
+        CHECK(estimation::classical_dob(damp::array<double, 1>{0.1}, An, Qn, Qd).success);
+        CHECK(estimation::classical_dob(damp::array<double, 1>{1e-13}, An, Qn, Qd).success);
+        // A true input delay (leading zero) is still rejected.
+        CHECK_FALSE(estimation::classical_dob(damp::array<double, 2>{0.0, 1e-13}, An, Qn, Qd).success);
     }
 }

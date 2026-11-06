@@ -679,3 +679,106 @@ TEST_CASE("TransposeView assignment") {
     CHECK(mat(1, 1) == 50);
     CHECK(mat(1, 2) == 60);
 }
+
+TEST_CASE("compound assignment from a view of itself") {
+    Matrix<2, 2, double> A{{1.0, 2.0}, {3.0, 4.0}};
+    A += A.t();
+    CHECK(A == Matrix<2, 2, double>{{2.0, 5.0}, {5.0, 8.0}});
+    A -= A.t();
+    CHECK(A == Matrix<2, 2, double>{{0.0, 0.0}, {0.0, 0.0}});
+}
+
+TEST_CASE("block assigned from an overlapping block temporary") {
+    Matrix<3, 1, double> v{{1.0}, {2.0}, {3.0}};
+    v.block<2, 1>(1, 0) = v.block<2, 1>(0, 0);
+    CHECK(v == Matrix<3, 1, double>{{1.0}, {1.0}, {2.0}});
+    Matrix<3, 1, double> w{{1.0}, {2.0}, {3.0}};
+    auto                 dst = w.block<2, 1>(1, 0);
+    dst += w.block<2, 1>(0, 0);
+    CHECK(w == Matrix<3, 1, double>{{1.0}, {3.0}, {5.0}});
+}
+
+TEST_CASE("row/column view assigned from an overlapping view") {
+    Matrix<3, 3, double> A{{1.0, 2.0, 3.0}, {4.0, 5.0, 6.0}, {7.0, 8.0, 9.0}};
+    A.row(2) = A.col(0);
+    CHECK(A.row_vector(2) == Matrix<1, 3, double>{{1.0, 4.0, 7.0}});
+    Matrix<3, 3, double> B{{1.0, 2.0, 3.0}, {4.0, 5.0, 6.0}, {7.0, 8.0, 9.0}};
+    B.col(2) = B.row(0);
+    CHECK(B.col_vector(2) == Matrix<3, 1, double>{{1.0}, {2.0}, {3.0}});
+}
+
+TEST_CASE("arithmetic on a square transpose, diagonal or triangle view returns an owning Matrix") {
+    const Matrix<2, 2, double> C{{1.0, 2.0}, {3.0, 4.0}};
+    const Matrix<2, 2, double> Ct{{1.0, 3.0}, {2.0, 4.0}};
+    const auto                 neg = -C.t();
+    const auto                 scaled = C.t() * 2.0;
+    const auto                 sum = C.t() + C.t();
+    const auto                 diff = C.t() - C.t();
+    const auto                 diag3 = C.diagonal() * 3.0;
+    const auto                 upper = C.upper_triangle() / 1.0;
+    static_assert(std::is_same_v<std::remove_cv_t<decltype(neg)>, Matrix<2, 2, double>>);
+    static_assert(std::is_same_v<std::remove_cv_t<decltype(scaled)>, Matrix<2, 2, double>>);
+    static_assert(std::is_same_v<std::remove_cv_t<decltype(sum)>, Matrix<2, 2, double>>);
+    static_assert(std::is_same_v<std::remove_cv_t<decltype(diag3)>, Matrix<2, 2, double>>);
+    static_assert(std::is_same_v<std::remove_cv_t<decltype(upper)>, Matrix<2, 2, double>>);
+    CHECK(neg == -Ct);
+    CHECK(scaled == Ct * 2.0);
+    CHECK(2.0 * C.t() == Ct * 2.0);
+    CHECK(C.t() / 2.0 == Ct / 2.0);
+    CHECK(C.t() + 1.0 == Ct + 1.0);
+    CHECK(1.0 - C.t() == 1.0 - Ct);
+    CHECK(sum == Ct * 2.0);
+    CHECK(diff == Matrix<2, 2, double>{});
+    CHECK(diag3 == Matrix<2, 2, double>{{3.0, 0.0}, {0.0, 12.0}});
+    CHECK(upper == Matrix<2, 2, double>{{1.0, 2.0}, {0.0, 4.0}});
+    const Matrix<2, 2, double> P = C.t() * 2.0 + C;
+    CHECK(P == Matrix<2, 2, double>{{3.0, 8.0}, {7.0, 12.0}});
+}
+
+TEST_CASE("assigning a view to a view of the same type writes through") {
+    Matrix<2, 2, double>       A{{1.0, 2.0}, {3.0, 4.0}};
+    const Matrix<2, 2, double> B{{5.0, 6.0}, {7.0, 8.0}};
+    Matrix<2, 2, double>       Bm = B;
+    A.t() = Bm.t();
+    CHECK(A == B);
+
+    Matrix<2, 2, double> D{{1.0, 2.0}, {3.0, 4.0}};
+    D.diagonal() = Bm.diagonal();
+    CHECK(D == Matrix<2, 2, double>{{5.0, 2.0}, {3.0, 8.0}});
+
+    Matrix<3, 3, double> E{{1.0, 2.0, 3.0}, {4.0, 5.0, 6.0}, {7.0, 8.0, 9.0}};
+    E.row(0) = E.row(1);
+    CHECK(E.row_vector(0) == Matrix<1, 3, double>{{4.0, 5.0, 6.0}});
+    E.col(0) = E.col(2);
+    CHECK(E.col_vector(0) == Matrix<3, 1, double>{{6.0}, {6.0}, {9.0}});
+
+    // A named view keeps its parent: assignment never rebinds it.
+    Matrix<2, 2, double> F{{1.0, 2.0}, {3.0, 4.0}};
+    Matrix<2, 2, double> G = B;
+    auto                 tv = F.t();
+    tv = G.t();
+    tv(0, 1) = 99.0;
+    CHECK(F == Matrix<2, 2, double>{{5.0, 6.0}, {99.0, 8.0}});
+    CHECK(G == B);
+
+    static_assert(!std::is_copy_assignable_v<UpperTriangle<2, double>>);
+    static_assert(!std::is_copy_assignable_v<LowerTriangle<2, double>>);
+}
+
+namespace {
+Matrix<2, 2, double> make_square() {
+    return Matrix<2, 2, double>{{1.0, 2.0}, {3.0, 4.0}};
+}
+} // namespace
+
+TEST_CASE("diagonal and triangle views of an rvalue are owning copies") {
+    const auto d = make_square().diagonal();
+    const auto u = make_square().upper_triangle();
+    const auto l = make_square().lower_triangle();
+    static_assert(std::is_same_v<std::remove_cv_t<decltype(d)>, Matrix<2, 2, double>>);
+    static_assert(std::is_same_v<std::remove_cv_t<decltype(u)>, Matrix<2, 2, double>>);
+    static_assert(std::is_same_v<std::remove_cv_t<decltype(l)>, Matrix<2, 2, double>>);
+    CHECK(d == Matrix<2, 2, double>{{1.0, 0.0}, {0.0, 4.0}});
+    CHECK(u == Matrix<2, 2, double>{{1.0, 2.0}, {0.0, 4.0}});
+    CHECK(l == Matrix<2, 2, double>{{1.0, 0.0}, {3.0, 4.0}});
+}

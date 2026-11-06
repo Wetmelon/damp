@@ -9,9 +9,9 @@
  * @file damp/estimation/ins_eskf.hpp
  * @brief 15-state navigation ESKF for loosely-coupled strapdown INS aiding
  *
- * Nominal nav state lives in @ref InsState and is integrated by
+ * Nominal nav state lives in @ref damp::InsState and is integrated by
  * @c mechanize_step. This header adds error dynamics, injection, sparse
- * absolute updates, and the Tier-3 @ref InsNavigator runtime.
+ * absolute updates, and the Tier-3 @ref damp::InsNavigator runtime.
  *
  * ## Error state (15)
  *
@@ -64,7 +64,9 @@
  */
 
 #include <cstddef>
+#include <type_traits>
 
+#include "damp/backend.hpp"
 #include "damp/math/geometry.hpp"
 #include "damp/math/math.hpp"
 #include "damp/matrix/matrix.hpp"
@@ -74,10 +76,10 @@
 
 namespace damp {
 
-/// Error-state dimension for full navigation ESKF (attitude, v, p, gyro bias, accel bias).
+/** @brief Error-state dimension for full navigation ESKF (attitude, v, p, gyro bias, accel bias). */
 inline constexpr std::size_t kInsErrorDim = 15;
 
-/// Sparse aiding measurement size (position or velocity triad).
+/** @brief Sparse aiding measurement size (position or velocity triad). */
 inline constexpr std::size_t kInsMeasDim = 3;
 
 /**
@@ -93,7 +95,7 @@ inline constexpr std::size_t dba = 12;   ///< accel bias error δb_a [m/s²] (3)
 
 namespace detail {
 
-/// Fill a 3×15 measurement Jacobian with @f$ I_3 @f$ at column @p col0.
+/** @brief Fill a 3×15 measurement Jacobian with I₃ at column @p col0. */
 template<typename T>
 [[nodiscard]] constexpr Matrix<kInsMeasDim, kInsErrorDim, T> selector_H(std::size_t col0) {
     Matrix<kInsMeasDim, kInsErrorDim, T> H = Matrix<kInsMeasDim, kInsErrorDim, T>::zeros();
@@ -142,33 +144,10 @@ template<typename T>
 namespace design {
 
 /**
- * @brief Design result for the 15-state INS error-state filter
- *
- * @tparam T Scalar type
- */
-template<typename T = double>
-struct InsEskfResult {
-    Matrix<kInsErrorDim, kInsErrorDim, T> Q{};  ///< Process noise (discrete)
-    Matrix<kInsMeasDim, kInsMeasDim, T>   R{};  ///< Default position measurement noise
-    Matrix<kInsErrorDim, kInsErrorDim, T> P0{}; ///< Initial error covariance
-    bool                                  success{false};
-
-    template<typename U>
-    [[nodiscard]] constexpr auto as() const {
-        return InsEskfResult<U>{
-            Q.template as<U>(),
-            R.template as<U>(),
-            P0.template as<U>(),
-            success,
-        };
-    }
-};
-
-/**
  * @brief Build Q / R / P0 for a 15-state INS ESKF from IMU noise densities
  *
  * Discrete process noise (continuous–discrete, first-order integrated RW):
- * attitude/gyro-bias as in @ref design::detail::fill_attitude_bias_q; velocity/
+ * attitude/gyro-bias as in @c design::detail::fill_attitude_bias_q; velocity/
  * accel-bias analogous; position gets @f$ Q_{pp}=\sigma_a^2\Delta t^3/3 @f$,
  * @f$ Q_{pv}=\sigma_a^2\Delta t^2/2 @f$ from double integration of white accel.
  * Default @p R is isotropic position std (m), not a density.
@@ -188,9 +167,11 @@ struct InsEskfResult {
  * @param init_pos_std         [m]
  * @param init_bg_std          [rad/s]
  * @param init_ba_std          [m/s²]
+ * @return @ref ESKFResult with the discrete Q, the position R and P₀, for
+ *         @ref InsNavigator or @ref ErrorStateKalmanFilter
  */
 template<typename T = double>
-[[nodiscard]] constexpr InsEskfResult<T> ins_eskf_design(
+[[nodiscard]] constexpr ESKFResult<kInsErrorDim, kInsMeasDim, T> ins_eskf_design(
     T gyro_noise_density,
     T accel_noise_density,
     T gyro_bias_rw,
@@ -203,7 +184,7 @@ template<typename T = double>
     T init_bg_std = static_cast<T>(0.01),
     T init_ba_std = static_cast<T>(0.1)
 ) {
-    InsEskfResult<T> r{};
+    ESKFResult<kInsErrorDim, kInsMeasDim, T> r{};
     r.Q = Matrix<kInsErrorDim, kInsErrorDim, T>::zeros();
     r.P0 = Matrix<kInsErrorDim, kInsErrorDim, T>::zeros();
     r.R = Matrix<kInsMeasDim, kInsMeasDim, T>::zeros();
@@ -438,12 +419,12 @@ ins_inject(InsState<T>& x, const ColVec<kInsErrorDim, T>& dx) {
  */
 template<typename T = double>
 constexpr void ins_predict(
-    ErrorStateKalmanFilter<kInsErrorDim, kInsMeasDim, T>& eskf,
-    InsState<T>&                                          x,
-    const ImuSample<T>&                                   imu,
-    T                                                     dt,
-    NavFrame                                              frame,
-    T                                                     g = kStandardGravity<T>
+    ErrorStateKalmanFilter<kInsErrorDim, T>& eskf,
+    InsState<T>&                             x,
+    const ImuSample<T>&                      imu,
+    T                                        dt,
+    NavFrame                                 frame,
+    T                                        g = kStandardGravity<T>
 ) {
     const Vec3<T> omega = imu.gyro - x.b_g;
     const Vec3<T> a_b = imu.accel - x.b_a;
@@ -453,7 +434,7 @@ constexpr void ins_predict(
     // Sparse F P Fᵀ + Q (G = I); avoids full 15×15×15 in ErrorStateKalmanFilter::predict
     auto P = eskf.covariance();
     ins_propagate_covariance(P, ej, eskf.process_noise_covariance());
-    eskf.set_covariance(P);
+    eskf.reset(eskf.error_state(), P);
 }
 
 /**
@@ -461,8 +442,8 @@ constexpr void ins_predict(
  */
 template<typename T = double>
 constexpr void ins_apply_correction(
-    ErrorStateKalmanFilter<kInsErrorDim, kInsMeasDim, T>& eskf,
-    InsState<T>&                                          x
+    ErrorStateKalmanFilter<kInsErrorDim, T>& eskf,
+    InsState<T>&                             x
 ) {
     const auto G = ins_inject(x, eskf.error_state());
     eskf.reset_error_state(G);
@@ -523,11 +504,11 @@ template<typename T = double>
  */
 template<typename T = double>
 [[nodiscard]] constexpr bool ins_update_position(
-    ErrorStateKalmanFilter<kInsErrorDim, kInsMeasDim, T>& eskf,
-    InsState<T>&                                          x,
-    const Vec3<T>&                                        p_meas,
-    const Matrix<kInsMeasDim, kInsMeasDim, T>&            R_pos,
-    const Vec3<T>&                                        lever_body = Vec3<T>{}
+    ErrorStateKalmanFilter<kInsErrorDim, T>&   eskf,
+    InsState<T>&                               x,
+    const Vec3<T>&                             p_meas,
+    const Matrix<kInsMeasDim, kInsMeasDim, T>& R_pos,
+    const Vec3<T>&                             lever_body = Vec3<T>{}
 ) {
     const Vec3<T>          p_pred = ins_aid_position(x, lever_body);
     ColVec<kInsMeasDim, T> innov{
@@ -548,17 +529,6 @@ template<typename T = double>
     return true;
 }
 
-/// Position update using the filter's stored R (default position noise from design).
-template<typename T = double>
-[[nodiscard]] constexpr bool ins_update_position(
-    ErrorStateKalmanFilter<kInsErrorDim, kInsMeasDim, T>& eskf,
-    InsState<T>&                                          x,
-    const Vec3<T>&                                        p_meas,
-    const Vec3<T>&                                        lever_body = Vec3<T>{}
-) {
-    return ins_update_position(eskf, x, p_meas, eskf.measurement_noise_covariance(), lever_body);
-}
-
 /**
  * @brief Sparse velocity update: y = v at the IMU origin (no lever-arm)
  *
@@ -566,10 +536,10 @@ template<typename T = double>
  */
 template<typename T = double>
 [[nodiscard]] constexpr bool ins_update_velocity(
-    ErrorStateKalmanFilter<kInsErrorDim, kInsMeasDim, T>& eskf,
-    InsState<T>&                                          x,
-    const Vec3<T>&                                        v_meas,
-    const Matrix<kInsMeasDim, kInsMeasDim, T>&            R_vel
+    ErrorStateKalmanFilter<kInsErrorDim, T>&   eskf,
+    InsState<T>&                               x,
+    const Vec3<T>&                             v_meas,
+    const Matrix<kInsMeasDim, kInsMeasDim, T>& R_vel
 ) {
     ColVec<kInsMeasDim, T> innov{v_meas[0] - x.v[0], v_meas[1] - x.v[1], v_meas[2] - x.v[2]};
     const auto             H = detail::selector_H<T>(ins_err::dv);
@@ -585,9 +555,9 @@ template<typename T = double>
  */
 template<typename T = double>
 [[nodiscard]] constexpr bool ins_update_zupt(
-    ErrorStateKalmanFilter<kInsErrorDim, kInsMeasDim, T>& eskf,
-    InsState<T>&                                          x,
-    const Matrix<kInsMeasDim, kInsMeasDim, T>&            R_zupt
+    ErrorStateKalmanFilter<kInsErrorDim, T>&   eskf,
+    InsState<T>&                               x,
+    const Matrix<kInsMeasDim, kInsMeasDim, T>& R_zupt
 ) {
     return ins_update_velocity(eskf, x, Vec3<T>{T{0}, T{0}, T{0}}, R_zupt);
 }
@@ -607,12 +577,12 @@ template<typename T = double>
  */
 template<typename T = double>
 [[nodiscard]] constexpr bool ins_update_heading(
-    ErrorStateKalmanFilter<kInsErrorDim, kInsMeasDim, T>& eskf,
-    InsState<T>&                                          x,
-    T                                                     psi_meas,
-    const Matrix<1, 1, T>&                                R_psi,
-    NavFrame                                              frame,
-    const Vec3<T>&                                        body_axis = Vec3<T>{T{1}, T{0}, T{0}}
+    ErrorStateKalmanFilter<kInsErrorDim, T>& eskf,
+    InsState<T>&                             x,
+    T                                        psi_meas,
+    const Matrix<1, 1, T>&                   R_psi,
+    NavFrame                                 frame,
+    const Vec3<T>&                           body_axis = Vec3<T>{T{1}, T{0}, T{0}}
 ) {
     const Vec3<T> f = x.q.rotate(body_axis);
     const T       psi_pred = detail::heading_from_forward_nav(f, frame);
@@ -645,10 +615,10 @@ template<typename T = double>
  */
 template<typename T = double>
 [[nodiscard]] constexpr bool ins_update_orientation(
-    ErrorStateKalmanFilter<kInsErrorDim, kInsMeasDim, T>& eskf,
-    InsState<T>&                                          x,
-    const Quaternion<T>&                                  q_meas,
-    const Matrix<3, 3, T>&                                R_att
+    ErrorStateKalmanFilter<kInsErrorDim, T>& eskf,
+    InsState<T>&                             x,
+    const Quaternion<T>&                     q_meas,
+    const Matrix<3, 3, T>&                   R_att
 ) {
     const Quaternion<T>        dq = (x.q.conjugate() * q_meas).normalized();
     const Vec3<T>              dth = dq.log();
@@ -670,13 +640,13 @@ template<typename T = double>
  */
 template<typename T = double>
 [[nodiscard]] constexpr bool ins_update_pose(
-    ErrorStateKalmanFilter<kInsErrorDim, kInsMeasDim, T>& eskf,
-    InsState<T>&                                          x,
-    const Vec3<T>&                                        p_meas,
-    const Quaternion<T>&                                  q_meas,
-    const Matrix<kInsMeasDim, kInsMeasDim, T>&            R_pos,
-    const Matrix<3, 3, T>&                                R_att,
-    const Vec3<T>&                                        lever_body = Vec3<T>{}
+    ErrorStateKalmanFilter<kInsErrorDim, T>&   eskf,
+    InsState<T>&                               x,
+    const Vec3<T>&                             p_meas,
+    const Quaternion<T>&                       q_meas,
+    const Matrix<kInsMeasDim, kInsMeasDim, T>& R_pos,
+    const Matrix<3, 3, T>&                     R_att,
+    const Vec3<T>&                             lever_body = Vec3<T>{}
 ) {
     if (!ins_update_position(eskf, x, p_meas, R_pos, lever_body)) {
         return false;
@@ -689,15 +659,15 @@ template<typename T = double>
  */
 template<typename T = double>
 [[nodiscard]] constexpr bool ins_update_pose_heading(
-    ErrorStateKalmanFilter<kInsErrorDim, kInsMeasDim, T>& eskf,
-    InsState<T>&                                          x,
-    const Vec3<T>&                                        p_meas,
-    T                                                     psi_meas,
-    const Matrix<kInsMeasDim, kInsMeasDim, T>&            R_pos,
-    const Matrix<1, 1, T>&                                R_psi,
-    NavFrame                                              frame,
-    const Vec3<T>&                                        lever_body = Vec3<T>{},
-    const Vec3<T>&                                        body_axis = Vec3<T>{T{1}, T{0}, T{0}}
+    ErrorStateKalmanFilter<kInsErrorDim, T>&   eskf,
+    InsState<T>&                               x,
+    const Vec3<T>&                             p_meas,
+    T                                          psi_meas,
+    const Matrix<kInsMeasDim, kInsMeasDim, T>& R_pos,
+    const Matrix<1, 1, T>&                     R_psi,
+    NavFrame                                   frame,
+    const Vec3<T>&                             lever_body = Vec3<T>{},
+    const Vec3<T>&                             body_axis = Vec3<T>{T{1}, T{0}, T{0}}
 ) {
     if (!ins_update_position(eskf, x, p_meas, R_pos, lever_body)) {
         return false;
@@ -727,19 +697,26 @@ public:
     constexpr InsNavigator() = default;
 
     /**
-     * @brief Construct from a design result
-     * @param design  Q, R (default position), P0
+     * @brief Construct from a design result (any scalar, converted with @c .as\<T\>())
+     *
+     * Non-explicit so design-is-deploy copy-init works; a failed design does not
+     * compile under constant evaluation.
+     *
+     * @param design  @ref design::ins_eskf_design: Q, R (default position), P0
      * @param frame   local-level frame for gravity / heading
      * @param g       gravity magnitude
      */
-    constexpr explicit InsNavigator(
-        const design::InsEskfResult<T>& design,
-        NavFrame                        frame = NavFrame::NED,
-        T                               g = kStandardGravity<T>
+    template<typename U>
+    constexpr InsNavigator( // NOLINT(google-explicit-constructor): assign-from-design
+        const design::ESKFResult<kInsErrorDim, kInsMeasDim, U>& design, NavFrame frame = NavFrame::NED, T g = kStandardGravity<T>
     )
-        : eskf_(design.P0, design.Q, design.R),
+        : eskf_(design),
+          R_pos_(design.R.template as<T>()),
           frame_(frame),
           g_(g) {
+        if (!design.success && std::is_constant_evaluated()) {
+            ::damp::detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed design does not compile
+        }
         x_.q = Quaternion<T>::identity();
     }
 
@@ -750,7 +727,8 @@ public:
         NavFrame                                     frame = NavFrame::NED,
         T                                            g = kStandardGravity<T>
     )
-        : eskf_(P0, Q, R),
+        : eskf_(ErrorStateKalmanFilterConfig<kInsErrorDim, T>{.Q = Q, .P0 = P0}),
+          R_pos_(R),
           frame_(frame),
           g_(g) {
         x_.q = Quaternion<T>::identity();
@@ -759,6 +737,7 @@ public:
     template<typename U>
     constexpr explicit InsNavigator(const InsNavigator<U>& other)
         : eskf_(other.filter()),
+          R_pos_(other.R_pos_.template as<T>()),
           x_{},
           frame_(other.frame()),
           g_(static_cast<T>(other.gravity())) {
@@ -769,7 +748,7 @@ public:
         x_.b_a = Vec3<T>{other.state().b_a.template as<T>()};
     }
 
-    /// One IMU step: mechanize nominal + propagate covariance.
+    /** @brief One IMU step: mechanize nominal + propagate covariance. */
     constexpr void predict(const ImuSample<T>& imu, T dt) {
         ins_predict(eskf_, x_, imu, dt, frame_, g_);
     }
@@ -778,7 +757,7 @@ public:
         const Vec3<T>& p_meas,
         const Vec3<T>& lever_body = Vec3<T>{}
     ) {
-        return ins_update_position(eskf_, x_, p_meas, lever_body);
+        return ins_update_position(eskf_, x_, p_meas, R_pos_, lever_body);
     }
 
     [[nodiscard]] constexpr bool update_position(
@@ -855,16 +834,12 @@ public:
     /**
      * @brief Re-initialize nominal INS state and error-state covariance
      *
-     * Clears the ESKF error state and sets P to @p P0 (default identity).
+     * Clears the ESKF error state and sets P to @p P0.
      * Does not change Q/R, frame, or gravity.
      */
-    constexpr void reset(
-        const InsState<T>&                           x0 = InsState<T>{},
-        const Matrix<kInsErrorDim, kInsErrorDim, T>& P0 = Matrix<kInsErrorDim, kInsErrorDim, T>::identity()
-    ) {
+    constexpr void reset(const InsState<T>& x0, const Matrix<kInsErrorDim, kInsErrorDim, T>& P0) {
         x_ = x0;
-        eskf_.set_error_state(ColVec<kInsErrorDim, T>{});
-        eskf_.set_covariance(P0);
+        eskf_.reset(ColVec<kInsErrorDim, T>{}, P0);
     }
 
     template<typename U>
@@ -873,10 +848,22 @@ public:
     }
 
 private:
-    ErrorStateKalmanFilter<kInsErrorDim, kInsMeasDim, T> eskf_{};
-    InsState<T>                                          x_{};
-    NavFrame                                             frame_{NavFrame::NED};
-    T                                                    g_{kStandardGravity<T>};
+    template<typename>
+    friend class InsNavigator;
+
+    ErrorStateKalmanFilter<kInsErrorDim, T> eskf_{};
+    Matrix<kInsMeasDim, kInsMeasDim, T>     R_pos_{}; ///< Default position measurement noise (the design's R)
+    InsState<T>                             x_{};
+    NavFrame                                frame_{NavFrame::NED};
+    T                                       g_{kStandardGravity<T>};
 };
+
+/** @brief Deduce the navigator from its design, keeping the result's scalar. */
+template<typename T>
+InsNavigator(const design::ESKFResult<kInsErrorDim, kInsMeasDim, T>&, NavFrame = NavFrame::NED) -> InsNavigator<T>;
+
+/** @brief Deduce the navigator from its design and a gravity magnitude, keeping the result's scalar. */
+template<typename T, typename G>
+InsNavigator(const design::ESKFResult<kInsErrorDim, kInsMeasDim, T>&, NavFrame, G) -> InsNavigator<T>;
 
 } // namespace damp

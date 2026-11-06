@@ -7,14 +7,12 @@
 
 /**
  * @file linspace.hpp
- * @brief Sample axes for host analysis: linspace, logspace, geomspace, arange
+ * @brief Sample axes for host analysis: linspace, geomspace, arange
  *
- * @note Compare with NumPy's numpy.linspace / logspace / geomspace / arange.
+ * A logarithmic frequency grid takes endpoint values, geomspace(0.01, 100.0, n); matlab::logspace
+ * takes decade exponents, as MATLAB®'s.
  *
- * @note damp::analysis::logspace takes endpoint *values* (e.g. 0.01…100 rad/s),
- *       not decade exponents. That matches typical Bode grids and is closer to
- *       numpy.geomspace than to numpy.logspace(start_exp, stop_exp). Use
- *       geomspace when you want the NumPy name for value endpoints.
+ * @note Compare with NumPy's numpy.linspace / geomspace / arange.
  */
 
 #include <cstddef>
@@ -49,46 +47,11 @@ constexpr std::vector<T> linspace(T start, T end, size_t num) {
     return result;
 }
 
-/// @brief @c linspace(span.first, span.second, num)
+/** @brief @c linspace(span.first, span.second, num) */
 template<typename T = double>
     requires std::is_floating_point_v<T>
 constexpr std::vector<T> linspace(const damp::pair<T, T>& span, size_t num) {
     return linspace(span.first, span.second, num);
-}
-
-/**
- * @brief @p num logarithmically spaced values from @p start to @p end (endpoint values)
- *
- * x_i = base^(log_b(start) + i·step); @p start and @p end must be > 0. @p num = 1
- * returns {start}; @p num = 0 returns an empty vector.
- *
- * @note Compare with NumPy's numpy.geomspace (value endpoints, not exponents).
- */
-template<typename T = double>
-    requires std::is_floating_point_v<T>
-constexpr std::vector<T> logspace(T start, T end, size_t num, T base = T{10}) {
-    std::vector<T> result;
-    result.reserve(num);
-    if (num == 1) {
-        result.push_back(start);
-    } else {
-        // Compute logarithms in the requested base
-        const T log_base = damp::log(base);
-        T       log_start = damp::log(start) / log_base;
-        T       log_end = damp::log(end) / log_base;
-        T       step = (log_end - log_start) / static_cast<T>(num - 1);
-        for (size_t i = 0; i < num; ++i) {
-            result.push_back(damp::pow(base, log_start + (static_cast<T>(i) * step)));
-        }
-    }
-    return result;
-}
-
-/// @brief @c logspace(span.first, span.second, num, base)
-template<typename T = double>
-    requires std::is_floating_point_v<T>
-constexpr std::vector<T> logspace(const damp::pair<T, T>& span, size_t num, T base = T{10}) {
-    return logspace(span.first, span.second, num, base);
 }
 
 /**
@@ -130,6 +93,7 @@ constexpr std::vector<T> geomspace(T start, T end, size_t num) {
     return result;
 }
 
+/** @brief @c geomspace(span.first, span.second, num) */
 template<typename T = double>
     requires std::is_floating_point_v<T>
 constexpr std::vector<T> geomspace(const damp::pair<T, T>& span, size_t num) {
@@ -179,14 +143,14 @@ constexpr std::vector<T> arange(T start, T stop, T step) {
     return result;
 }
 
-/// @brief @c arange(start, stop, 1)
+/** @brief @c arange(start, stop, 1) */
 template<typename T = double>
     requires std::is_floating_point_v<T>
 constexpr std::vector<T> arange(T start, T stop) {
     return arange(start, stop, T{1});
 }
 
-/// @brief @c arange(0, stop, 1)
+/** @brief @c arange(0, stop, 1) */
 template<typename T = double>
     requires std::is_floating_point_v<T>
 constexpr std::vector<T> arange(T stop) {

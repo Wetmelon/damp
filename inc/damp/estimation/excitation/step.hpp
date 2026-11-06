@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include <cstddef>
 #include <type_traits>
 
 /**
@@ -67,6 +68,10 @@ template<typename T = double>
 struct StepResult {
     StepConfig<T> config{};
     bool          success{false};
+    T             Ts{0}; ///< [s] Sample period of the internal step() clock (> 0)
+
+    /** @brief True when the design succeeded (success). */
+    [[nodiscard]] constexpr explicit operator bool() const { return success; }
 
     template<typename U>
     [[nodiscard]] constexpr StepResult<U> as() const {
@@ -79,17 +84,21 @@ struct StepResult {
                 static_cast<U>(config.settle_confirm_s),
             },
             success,
+            static_cast<U>(Ts),
         };
     }
 };
 
 /**
  * @brief Build a single-step design payload.
+ *
+ * @param config Step configuration.
+ * @param Ts     [s] Sample period of the runtime's step() clock (> 0: Step has no absolute-time step(t))
  */
 template<typename T = double>
 [[nodiscard]] constexpr StepResult<T>
-step(const StepConfig<T>& config) {
-    return StepResult<T>{config, config.valid()};
+step(const StepConfig<T>& config, T Ts) {
+    return StepResult<T>{config, config.valid() && (Ts > T{0}) && damp::isfinite(Ts), Ts};
 }
 
 } // namespace design
@@ -109,8 +118,14 @@ class Step {
 public:
     constexpr Step() = default;
 
-    constexpr explicit Step(const design::StepResult<T>& design, T Ts = T{0})
-        : config_(design.config), Ts_(Ts), valid_(design.success) {
+    /** @brief From a design result in another scalar: converts it with .as\<T\>() and builds from that. */
+    template<typename U>
+        requires(!std::is_same_v<U, T>)
+    constexpr Step(const design::StepResult<U>& result) // NOLINT(google-explicit-constructor): assign-from-design
+        : Step(result.template as<T>()) {}
+
+    constexpr Step(const design::StepResult<T>& design) // NOLINT(google-explicit-constructor): assign-from-design
+        : config_(design.config), Ts_(design.Ts), valid_(design.success) {
         if (!design.success && std::is_constant_evaluated()) {
             ::damp::detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
@@ -124,10 +139,8 @@ public:
             return T{0};
         }
         const T out = config_.amplitude;
-        if (Ts_ > T{0}) {
-            t_ += Ts_;
-            update_done_from_time();
-        }
+        ++k_;
+        update_done_from_time();
         return out;
     }
 
@@ -150,18 +163,18 @@ public:
         }
         const T rate = damp::abs(y - y_prev_) / Ts_;
         y_prev_ = y;
-        if (t_ < config_.min_hold_s) {
-            settle_hold_t_ = T{0};
+        if (time() < config_.min_hold_s) {
+            settle_k_ = 0;
             return;
         }
         if (rate <= config_.settle_rate_tol) {
-            settle_hold_t_ += Ts_;
-            if (settle_hold_t_ >= config_.settle_confirm_s) {
+            ++settle_k_;
+            if (static_cast<T>(settle_k_) * Ts_ >= config_.settle_confirm_s) {
                 finished_ = true;
                 settled_ok_ = true;
             }
         } else {
-            settle_hold_t_ = T{0};
+            settle_k_ = 0;
         }
         update_done_from_time();
     }
@@ -170,19 +183,20 @@ public:
         return !valid_ || finished_;
     }
 
-    /// true if completion was via settle band.
+    /** @brief true if completion was via settle band. */
     [[nodiscard]] constexpr bool settled() const { return settled_ok_; }
 
     constexpr void reset() {
-        t_ = T{0};
-        settle_hold_t_ = T{0};
+        k_ = 0;
+        settle_k_ = 0;
         finished_ = false;
         settled_ok_ = false;
         have_y_prev_ = false;
         y_prev_ = T{0};
     }
 
-    [[nodiscard]] constexpr T time() const { return t_; }
+    /** @brief Internal time k·Ts [s] after k samples (a count, not a running sum of Ts). */
+    [[nodiscard]] constexpr T time() const { return static_cast<T>(k_) * Ts_; }
 
 private:
     constexpr void update_done_from_time() {
@@ -190,10 +204,10 @@ private:
             return;
         }
         if (config_.settle_rate_tol > T{0}) {
-            if (t_ >= config_.max_hold_s) {
+            if (time() >= config_.max_hold_s) {
                 finished_ = true;
             }
-        } else if (t_ >= config_.min_hold_s) {
+        } else if (time() >= config_.min_hold_s) {
             finished_ = true;
             settled_ok_ = true; // timed step: treat as nominal completion
         }
@@ -201,13 +215,17 @@ private:
 
     design::StepConfig<T> config_{};
     T                     Ts_{T{0}};
-    T                     t_{T{0}};
-    T                     settle_hold_t_{T{0}};
+    std::size_t           k_{0};        ///< Samples emitted by step()
+    std::size_t           settle_k_{0}; ///< Consecutive quiet samples observed
     T                     y_prev_{T{0}};
     bool                  have_y_prev_{false};
     bool                  valid_{false};
     bool                  finished_{false};
     bool                  settled_ok_{false};
 };
+
+/** @brief Deduce the runtime from its design, keeping the result's scalar. */
+template<typename T>
+Step(const design::StepResult<T>&) -> Step<T>;
 
 } // namespace damp

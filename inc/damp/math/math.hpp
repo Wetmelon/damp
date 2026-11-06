@@ -22,6 +22,7 @@
  * @see math_backend.hpp for backend selection via damp_profile.hpp
  */
 
+#include <concepts>
 #include <limits>
 #include <type_traits>
 
@@ -82,7 +83,7 @@ constexpr T hypot(T x, T y) {
         return T{0};
     }
     const T r = lo / hi;
-    return hi * damp::sqrt<T>(T{1} + (r * r)); // <T>: dispatcher, not trig.hpp's non-constexpr sqrt(float)
+    return hi * damp::sqrt(T{1} + (r * r));
 }
 
 /**
@@ -243,7 +244,7 @@ constexpr T exp(T x) {
  *
  * Domain x ≤ 0 is guarded before the compile/runtime dispatch so both paths
  * return 0 (NaN/−inf unavailable under -ffinite-math-only / constant evaluation).
- * For x > 0: compile-time Newton-Raphson, runtime MathBackend\<T\>::log.
+ * For x > 0: compile-time atanh series, runtime MathBackend\<T\>::log.
  *
  * @tparam T Numeric type (floating-point)
  */
@@ -258,28 +259,42 @@ constexpr T log(T x) {
     return MathBackend<T>::log(x);
 }
 
+template<typename T>
+constexpr T floor(T x);
+
 /**
- * @brief Power function, base^exponent.
+ * @brief Power function with a real exponent, base^exponent.
  *
- * Domain guards (before dispatch, both paths): exponent == 0 → 1; base ≤ 0 → 0.
- * For base > 0: compile-time exp(exponent · ln(base)), runtime MathBackend\<T\>::pow
- * with overflow saturated to max().
+ * Domain guards (before dispatch, both paths): exponent == 0 → 1; base == 0, or
+ * base < 0 with a non-integral exponent, → 0. A negative base with an integral
+ * exponent keeps its sign, as std::pow. Otherwise compile-time
+ * exp(exponent · ln|base|), runtime MathBackend\<T\>::pow, with overflow saturated
+ * to ±max().
  *
- * @tparam T Numeric type (floating-point)
+ * The exponent takes the type of @p base (it does not take part in deduction), so
+ * a float base with a double exponent stays on this overload. Pass an integer
+ * type for an exact integer power (the binary-exponentiation overload).
+ *
+ * @tparam T Floating-point type
  */
 template<typename T>
-constexpr T pow(T base, T exponent) {
+    requires std::is_floating_point_v<T>
+constexpr T pow(T base, std::type_identity_t<T> exponent) {
     if (exponent == T{0}) {
         return T{1};
     }
-    if (base <= T{0}) {
+    const bool signed_integral = (base < T{0}) && (exponent == damp::floor(exponent));
+    if ((base <= T{0}) && !signed_integral) {
         return T{0};
     }
     if (std::is_constant_evaluated()) {
         return detail::pow(base, exponent);
     }
     const T r = MathBackend<T>::pow(base, exponent);
-    return detail::isfinite(r) ? r : std::numeric_limits<T>::max();
+    if (detail::isfinite(r)) {
+        return r;
+    }
+    return (r < T{0}) ? -std::numeric_limits<T>::max() : std::numeric_limits<T>::max();
 }
 
 /**
@@ -287,36 +302,65 @@ constexpr T pow(T base, T exponent) {
  *
  * Exact and backend-independent (the same implementation at compile and run
  * time), so it is not routed through MathBackend. base == 0 returns 0 for any
- * exponent (including negative — no ±inf under -ffinite-math-only); a result
- * past the finite range saturates to ±max().
+ * exponent (including negative — no ±inf under -ffinite-math-only). A result
+ * past the finite range saturates to ±max(), and a negative power whose
+ * magnitude would exceed max() returns 0; no intermediate overflows, so this
+ * holds in constant evaluation too.
  *
+ * @tparam T Floating-point type
+ * @tparam I Integer type of the exponent
  * @param base Base value
  * @param up   Integer exponent
  */
-template<typename T>
-constexpr T pow(T base, int up) {
-    if (up == 0) {
+template<typename T, std::integral I>
+    requires std::is_floating_point_v<T>
+constexpr T pow(T base, I up) {
+    if (up == I{0}) {
         return T{1};
     }
     if (base == T{0}) {
         return T{0};
     }
-    T result = T{1};
-    T b = base;
-    // |up| in unsigned arithmetic: −INT_MIN overflows int.
-    unsigned exponent = up >= 0 ? static_cast<unsigned>(up) : 0U - static_cast<unsigned>(up);
-    while (exponent > 0U) {
-        if ((exponent & 1U) != 0U) {
-            result *= b;
+    using U = std::make_unsigned_t<I>;
+    constexpr T max = std::numeric_limits<T>::max();
+    // Factors at or below lim cannot overflow a product (lim² ≤ max/4); only past it
+    // is the exact max/a test needed.
+    constexpr T lim = detail::sqrt(max) / T{2};
+    // |up| in unsigned arithmetic: −min() overflows I.
+    U          e = (up >= I{0}) ? static_cast<U>(up) : static_cast<U>(U{0} - static_cast<U>(up));
+    const bool negative_result = (base < T{0}) && ((e & U{1}) != U{0});
+    T          b = detail::abs(base);
+    T          p = T{1};
+    bool       saturated = false;
+    while (true) {
+        if ((e & U{1}) != U{0}) {
+            if (((p > lim) || (b > lim)) && (p > max / b)) {
+                saturated = true;
+                break;
+            }
+            p *= b;
+        }
+        e >>= 1U;
+        if (e == U{0}) {
+            break;
+        }
+        if ((b > lim) && (b > max / b)) {
+            saturated = true; // a later set bit multiplies by b² > max (and p ≥ 1 here)
+            break;
         }
         b *= b;
-        exponent >>= 1U;
     }
-    const T out = up >= 0 ? result : T{1} / result;
-    if (!detail::isfinite(out)) {
-        return ((base < T{0}) && ((up % 2) != 0)) ? -std::numeric_limits<T>::max() : std::numeric_limits<T>::max();
+    T out{};
+    if (up > I{0}) {
+        out = saturated ? max : p;
+    } else if (saturated) {
+        out = T{0};
+    } else {
+        // 1/p would round past max: covers p == 0 and a subnormal p (kept without FTZ and
+        // in constant evaluation). `<=`, since 1/fl(1/max) itself rounds past max.
+        out = (p <= T{1} / max) ? max : T{1} / p;
     }
-    return out;
+    return negative_result ? -out : out;
 }
 
 /**
@@ -487,10 +531,14 @@ template<typename T>
  * @brief Magnitude to decibels, 20·log10(mag).
  * @note Compare with MATLAB®'s mag2db(mag).
  * @tparam T Numeric type (floating-point)
+ * @return 20·log10(mag); −max() (the finite stand-in for −∞) for mag ≤ 0
  */
 template<typename T = double>
     requires std::is_floating_point_v<T>
 constexpr T mag2db(T mag) {
+    if (!(mag > T{0})) {
+        return -std::numeric_limits<T>::max();
+    }
     return T{20} * damp::log10(mag);
 }
 
@@ -536,18 +584,22 @@ constexpr T deg2rad(T deg) {
  * the inlined form folds to one multiply by a constant reciprocal plus one
  * round-to-nearest, with no runtime divide.
  *
+ * Once ulp(x) approaches the period (|x| ≳ range/ε) the product above no longer
+ * holds the remainder; the result then falls back to the exact remainder of x
+ * and stays in [min, max), but x itself no longer resolves the angle. An empty
+ * interval (max ≤ min) returns min.
+ *
  * @tparam T Numeric type (floating-point)
  */
 template<typename T>
     requires std::is_floating_point_v<T>
 constexpr T wrap(T x, T min, T max) noexcept {
     const T range = max - min;
+    if (!(range > T{0})) {
+        return min;
+    }
     const T midpoint = min + (range / T{2});
-
-    // Explicit \<T\>: force the constexpr dispatcher here. A bare damp::nearbyint(float) would bind
-    // to the non-template fast-float overload in trig.hpp (when visible) and break constexpr eval;
-    // the dispatcher still reaches that fast path at runtime via MathBackend<float>.
-    T y = x - (range * damp::nearbyint<T>((x - midpoint) / range));
+    T       y = x - (range * damp::nearbyint((x - midpoint) / range));
 
     // Rounding ties or floating error can land on max or just outside [min, max).
     // Fold once more so the result is half-open.
@@ -556,6 +608,15 @@ constexpr T wrap(T x, T min, T max) noexcept {
     }
     if (y >= max) {
         y -= range;
+    }
+    if ((y < min) || (y >= max)) { // |x| ≫ range: fall back to the exact remainder
+        y = min + damp::fmod(x - min, range);
+        if (y < min) {
+            y += range;
+        }
+        if (y >= max) {
+            y = min;
+        }
     }
     return y;
 }

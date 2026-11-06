@@ -11,21 +11,51 @@
  */
 
 #include <cstdint>
-#include <limits>
+#include <type_traits>
 
 #include "damp/backend.hpp"
+#include "damp/design/status.hpp"
 #include "damp/math/complex.hpp"
+#include "damp/math/math.hpp"
 #include "damp/systems/state_space.hpp"
 #include "damp/systems/transfer_function.hpp"
+#include "damp/toolbox/bounds.hpp"
 
 namespace damp {
+namespace detail {
+
+/**
+ * @brief True when Kbc and Ki have opposite signs
+ *
+ * Back-calculation adds Ki·(u_sat − u_unsat)/Kbc to the integral term, which enters u with
+ * unit gain, so it opposes windup only when the tracking time T_t = Kbc/Ki is positive.
+ */
+template<typename T>
+[[nodiscard]] constexpr bool pid_kbc_winds_up(T Ki, T Kbc) {
+    return ((Ki > T{0}) && (Kbc < T{0})) || ((Ki < T{0}) && (Kbc > T{0}));
+}
+
+/**
+ * @brief True when a PID gain set has no non-finite entry and a non-negative derivative filter
+ *
+ * A Tf < 0 puts the filtered-derivative pole Tf/(Ts + Tf) outside the unit circle for
+ * Tf < −Ts/2, and divides by zero at Tf = −Ts.
+ */
+template<typename T>
+[[nodiscard]] constexpr bool pid_gains_in_domain(T Kp, T Ki, T Kd, T Tf, T Kbc, T b, T c) {
+    return damp::isfinite(Kp) && damp::isfinite(Ki) && damp::isfinite(Kd) && damp::finite_non_negative(Tf)
+        && damp::isfinite(Kbc) && damp::isfinite(b) && damp::isfinite(c);
+}
+
+} // namespace detail
+
 namespace design {
 
 /**
- * @struct DiscretePIDResult
+ * @struct DiscretePIDGains
  * @brief Fixed-rate discrete PID coefficients (canonical deploy form)
  *
- * Produced by PIDResult::discretize. Sample time is baked into the
+ * Produced by PIDGains::discretize. Sample time is baked into the
  * integral gain and derivative filter coeffs so the runtime controller is a
  * pure `control(r, y)` tick with no per-call `Ts`.
  *
@@ -39,53 +69,60 @@ namespace design {
  *   continuous design result
  * - Back-calculation: @f$\Delta I = K_{i,d}(u-u_{\mathrm{unsat}})/K_{bc}@f$
  *
- * @see PIDResult::discretize
+ * @see PIDGains::discretize
  * @see Åström & Hägglund, "Advanced PID Control" (2006), Sec. 3.3
  */
 template<typename T = double>
-struct DiscretePIDResult {
-    T Kp{};
-    T Ki{};  ///< Discrete integral gain Kᵢ T_s (I += Ki·e)
-    T Kd{};  ///< Continuous K_d (documentation / re-discretize); runtime uses @ref d_a / @ref d_b
-    T d_a{}; ///< Filtered-derivative pole: D ← d_a D + d_b Δx
-    T d_b{}; ///< Filtered-derivative input gain
-    T u_min = -std::numeric_limits<T>::max();
-    T u_max = std::numeric_limits<T>::max();
-    T i_min = -std::numeric_limits<T>::max(); ///< Clamp on integral term I (same units as u)
-    T i_max = std::numeric_limits<T>::max();
-    T Kbc = T{0}; ///< Back-calculation coefficient; 0 = output clamp only
-    T b = T{1};   ///< Proportional setpoint weight
-    T c = T{1};   ///< Derivative setpoint weight
-    T Tf = T{0};  ///< Continuous derivative filter time constant (documentation)
-    T Ts = T{0};  ///< Sample period used for discretization [s]
+struct [[nodiscard]] DiscretePIDGains {
+    T            Kp{};
+    T            Ki{};           ///< Discrete integral gain Kᵢ T_s (I += Ki·e)
+    T            Kd{};           ///< Continuous K_d (documentation / re-discretize); runtime uses @ref d_a / @ref d_b
+    T            d_a{};          ///< Filtered-derivative pole: D ← d_a D + d_b Δx
+    T            d_b{};          ///< Filtered-derivative input gain
+    Bounds<1, T> u_lim{};        ///< Output limits [lower, upper] (default unbounded)
+    Bounds<1, T> integral_lim{}; ///< Clamp on integral term I (same units as u; default unbounded)
+    T            Kbc = T{0};     ///< Back-calculation coefficient, same sign as Ki; 0 = output clamp only
+    T            b = T{1};       ///< Proportional setpoint weight
+    T            c = T{1};       ///< Derivative setpoint weight
+    T            Tf = T{0};      ///< Continuous derivative filter time constant (documentation)
+    T            Ts = T{0};      ///< Sample period used for discretization [s]
+
+    bool         success{true};            ///< status == DesignStatus::ok (a hand-built set is a valid design)
+    DesignStatus status{DesignStatus::ok}; ///< ok, or why the design failed
+
+    /** @brief True when the design succeeded (success). */
+    [[nodiscard]] constexpr explicit operator bool() const { return success; }
 
     template<typename U>
     [[nodiscard]] constexpr auto as() const {
-        return DiscretePIDResult<U>{
+        return DiscretePIDGains<U>{
             static_cast<U>(Kp),
             static_cast<U>(Ki),
             static_cast<U>(Kd),
             static_cast<U>(d_a),
             static_cast<U>(d_b),
-            static_cast<U>(u_min),
-            static_cast<U>(u_max),
-            static_cast<U>(i_min),
-            static_cast<U>(i_max),
+            u_lim.template as<U>(),
+            integral_lim.template as<U>(),
             static_cast<U>(Kbc),
             static_cast<U>(b),
             static_cast<U>(c),
             static_cast<U>(Tf),
             static_cast<U>(Ts),
+            success,
+            status,
         };
     }
 };
 
 /**
- * @struct PIDResult
- * @brief 2-DOF continuous-time PID controller design result
+ * @struct PIDGains
+ * @brief 2-DOF continuous-time PID gains, limits and setpoint weights
  *
- * Contains continuous gains and setpoint weights. Deploy via
- * discretize into a @ref DiscretePIDResult for the fixed-rate
+ * An aggregate: every field has a safe default (unbounded limits, no
+ * back-calculation, b = c = 1, unfiltered derivative), so name only the knobs
+ * you set — `design::PIDGains{.Kp = 4.0, .Ki = 8.0, .u_lim = {.lower = -12.0, .upper = 12.0}}`.
+ * @ref design::pid covers the plain (Kp, Ki, Kd) case. Deploy via
+ * discretize into a @ref DiscretePIDGains for the fixed-rate
  * PIDController, or hand the continuous gains to @ref ContinuousPID
  * when the sample period is measured each tick.
  *
@@ -97,35 +134,39 @@ struct DiscretePIDResult {
  * @see Astrom & Hagglund, "Advanced PID Control" (2006), Sec. 4.4
  */
 template<typename T = double>
-struct PIDResult {
-    T Kp{};
-    T Ki{};
-    T Kd{};
-    T u_min = -std::numeric_limits<T>::max();
-    T u_max = std::numeric_limits<T>::max();
-    T i_min = -std::numeric_limits<T>::max(); ///< Clamp on integral term I (same units as u)
-    T i_max = std::numeric_limits<T>::max();
-    T Kbc = T{0}; ///< Back-calculation coefficient: ΔI += Ki·(Ts/Kbc)(u−u_unsat).
-                  ///< Tracking time T_t = Kbc/Ki (parallel form); Kbc = Kp ⇒ T_t = T_i.
-                  ///< Larger Kbc → slower unwind; 0 = output clamp only.
-    T b = T{1};   ///< Proportional setpoint weight (0=I-PD, 1=standard PID)
-    T c = T{1};   ///< Derivative setpoint weight   (0=PI-D, 1=standard PID)
-    T Tf = T{0};  ///< Derivative filter time constant (0 = unfiltered)
+struct [[nodiscard]] PIDGains {
+    T            Kp{};
+    T            Ki{};
+    T            Kd{};
+    Bounds<1, T> u_lim{};        ///< Output limits [lower, upper] (default unbounded)
+    Bounds<1, T> integral_lim{}; ///< Clamp on integral term I (same units as u; default unbounded)
+    T            Kbc = T{0};     ///< Back-calculation coefficient: ΔI += Ki·(Ts/Kbc)(u−u_unsat).
+                                 ///< Tracking time T_t = Kbc/Ki (parallel form); Kbc = Kp ⇒ T_t = T_i.
+                                 ///< Same sign as Ki (T_t > 0). Larger |Kbc| → slower unwind; 0 = output clamp only.
+    T            b = T{1};       ///< Proportional setpoint weight (0=I-PD, 1=standard PID)
+    T            c = T{1};       ///< Derivative setpoint weight   (0=PI-D, 1=standard PID)
+    T            Tf = T{0};      ///< Derivative filter time constant (0 = unfiltered)
+
+    bool         success{true};            ///< status == DesignStatus::ok (a hand-built set is a valid design)
+    DesignStatus status{DesignStatus::ok}; ///< ok, or why the design failed
+
+    /** @brief True when the design succeeded (success). */
+    [[nodiscard]] constexpr explicit operator bool() const { return success; }
 
     template<typename U>
     [[nodiscard]] constexpr auto as() const {
-        return PIDResult<U>{
+        return PIDGains<U>{
             static_cast<U>(Kp),
             static_cast<U>(Ki),
             static_cast<U>(Kd),
-            static_cast<U>(u_min),
-            static_cast<U>(u_max),
-            static_cast<U>(i_min),
-            static_cast<U>(i_max),
+            u_lim.template as<U>(),
+            integral_lim.template as<U>(),
             static_cast<U>(Kbc),
             static_cast<U>(b),
             static_cast<U>(c),
             static_cast<U>(Tf),
+            success,
+            status,
         };
     }
 
@@ -137,32 +178,39 @@ struct PIDResult {
      *     design::pid(4.0, 8.0, 0.0).discretize(0.01).as<float>();
      * @endcode
      *
-     * @param ts Sample period [s]; must be positive for a useful integral / derivative map
-     * @return DiscretePIDResult for PIDController
+     * A failed design stays failed (its status is carried over), a @p ts that is not
+     * positive and finite is refused with DesignStatus::invalid_sample_time, and a
+     * non-finite gain, a Tf < 0, or a Kbc whose sign differs from Ki's (T_t = Kbc/Ki < 0,
+     * back-calculation would wind the integrator up) is refused with
+     * DesignStatus::invalid_parameter.
+     *
+     * @param ts Sample period [s]
+     * @return DiscretePIDGains for PIDController
      */
-    [[nodiscard]] constexpr DiscretePIDResult<T> discretize(T ts) const {
-        DiscretePIDResult<T> d{};
+    [[nodiscard]] constexpr DiscretePIDGains<T> discretize(T ts) const {
+        if (!success) {
+            return ::damp::detail::refused<DiscretePIDGains<T>>(status);
+        }
+        if (!(ts > T{0}) || !damp::isfinite(ts)) {
+            return ::damp::detail::refused<DiscretePIDGains<T>>(DesignStatus::invalid_sample_time);
+        }
+        if (!::damp::detail::pid_gains_in_domain(Kp, Ki, Kd, Tf, Kbc, b, c) || ::damp::detail::pid_kbc_winds_up(Ki, Kbc)) {
+            return ::damp::detail::refused<DiscretePIDGains<T>>(DesignStatus::invalid_parameter);
+        }
+        DiscretePIDGains<T> d{};
         d.Kp = Kp;
         d.Kd = Kd;
-        d.u_min = u_min;
-        d.u_max = u_max;
+        d.u_lim = u_lim;
         d.Kbc = Kbc;
         d.b = b;
         d.c = c;
         d.Tf = Tf;
         d.Ts = ts;
-        d.i_min = i_min;
-        d.i_max = i_max;
-        if (ts > T{0}) {
-            d.Ki = Ki * ts;
-            const T den = ts + Tf;
-            d.d_a = Tf / den;
-            d.d_b = Kd / den;
-        } else {
-            d.Ki = T{0};
-            d.d_a = T{0};
-            d.d_b = T{0};
-        }
+        d.integral_lim = integral_lim;
+        d.Ki = Ki * ts;
+        const T den = ts + Tf;
+        d.d_a = Tf / den;
+        d.d_b = Kd / den;
         return d;
     }
 
@@ -175,8 +223,8 @@ struct PIDResult {
      */
     [[nodiscard]] constexpr TransferFunction<3, 3, T> to_tf() const {
         return TransferFunction<3, 3, T>{
-            .num = {Ki, Kp + (Ki * Tf), (Kp * Tf) + Kd},
-            .den = {T{0}, T{1}, Tf},
+            .num = {(Kp * Tf) + Kd, Kp + (Ki * Tf), Ki}, // (Kp Tf + Kd) s² + (Kp + Ki Tf) s + Ki
+            .den = {Tf, T{1}, T{0}},                     // Tf s² + s
         };
     }
 
@@ -187,8 +235,8 @@ struct PIDResult {
      */
     [[nodiscard]] constexpr TransferFunction<3, 3, T> to_tf_ff() const {
         return TransferFunction<3, 3, T>{
-            .num = {Ki, (b * Kp) + (Ki * Tf), (b * Kp * Tf) + (c * Kd)},
-            .den = {T{0}, T{1}, Tf},
+            .num = {(b * Kp * Tf) + (c * Kd), (b * Kp) + (Ki * Tf), Ki},
+            .den = {Tf, T{1}, T{0}},
         };
     }
 
@@ -207,19 +255,61 @@ struct PIDResult {
     }
 
     /**
-     * @brief Error-channel PI realization C(s) = Kₚ + Kᵢ/s
+     * @brief Error-channel realization C(s) = Kₚ + Kᵢ/s + K_d s/(1 + T_f s), the map of @ref to_tf
      *
-     * One integrator. @f$ K_d @f$ / @f$ T_f @f$ are not in this map — use
-     * @ref to_tf for the full (possibly improper) C(s). This is the LTI
-     * composed into cascade and feedforward plants.
+     * States: the integral of e, and the derivative filter state, as in @ref to_ss_2dof
+     * (its error column). With K_d = 0 the filter state has no input and no output.
+     *
+     * @return The realization, or nullopt when K_d ≠ 0 and T_f ≤ 0 (an unfiltered derivative is not proper)
      */
-    [[nodiscard]] constexpr StateSpace<1, 1, 1, T> to_ss() const {
-        return StateSpace<1, 1, 1, T>{
-            .A = {{T{0}}},
-            .B = {{T{1}}},
-            .C = {{Ki}},
-            .D = {{Kp}},
-        };
+    [[nodiscard]] constexpr damp::optional<StateSpace<2, 1, 1, T>> to_ss() const {
+        const auto two = to_ss_2dof();
+        if (!two) {
+            return damp::nullopt;
+        }
+        // e = r − y enters as −y at r = 0: negate the y column.
+        StateSpace<2, 1, 1, T> out{};
+        out.A = two->A;
+        out.B(0, 0) = -two->B(0, 1);
+        out.B(1, 0) = -two->B(1, 1);
+        out.C = two->C;
+        out.D(0, 0) = -two->D(0, 1);
+        return out;
+    }
+
+    /**
+     * @brief Two-degree-of-freedom realization u = K[r; y] with the setpoint weights, for analysis::gang_of_seven
+     *
+     * States: the integral of r − y, and the derivative filter state of c·r − y through
+     * 1/(1 + T_f s). So u = b·Kₚ r − Kₚ y + Kᵢ x_I + (K_d/T_f)(c·r − y − x_D), the setpoint
+     * channel @ref to_tf_ff from r and the error channel @ref to_tf from −y. With K_d = 0 the
+     * filter state has no input and no output; it sits at −1/T_f (−1 when T_f = 0) and cancels
+     * from every transfer function.
+     *
+     * @return The realization, or nullopt when K_d ≠ 0 and T_f ≤ 0 (an unfiltered derivative is not proper)
+     */
+    [[nodiscard]] constexpr damp::optional<StateSpace<2, 2, 1, T>> to_ss_2dof() const {
+        if ((Kd != T{0}) && !(Tf > T{0})) {
+            return damp::nullopt;
+        }
+        StateSpace<2, 2, 1, T> out{};
+        out.B(0, 0) = T{1};
+        out.B(0, 1) = T{-1};
+        out.C(0, 0) = Ki;
+        out.D(0, 0) = b * Kp;
+        out.D(0, 1) = -Kp;
+        if (Kd == T{0}) {
+            out.A(1, 1) = Tf > T{0} ? -T{1} / Tf : T{-1};
+            return out;
+        }
+        const T a = T{1} / Tf;
+        out.A(1, 1) = -a;
+        out.B(1, 0) = c * a;
+        out.B(1, 1) = -a;
+        out.C(0, 1) = -Kd * a;
+        out.D(0, 0) += c * Kd * a;
+        out.D(0, 1) -= Kd * a;
+        return out;
     }
 
 private:
@@ -238,10 +328,12 @@ private:
 };
 
 /**
- * @brief 2-DOF continuous PID controller design
+ * @brief Continuous PID gains Kₚ, Kᵢ, K_d with every other knob at its default
  *
- * Constructs a PIDResult with the given continuous-time gains and optional
- * setpoint weights. Deploy with PIDResult::discretize for fixed-rate
+ * Short form for the common case: unbounded output and integrator, no
+ * back-calculation, b = c = 1, unfiltered derivative. For limits, setpoint
+ * weights, or a derivative filter, build @ref PIDGains directly with
+ * designated initializers. Deploy with PIDGains::discretize for fixed-rate
  * PIDController, or construct @ref ContinuousPID for variable-rate ticks.
  *
  * The control law is:
@@ -254,38 +346,22 @@ private:
  * @code
  * constinit PIController controller =
  *     design::pid(4.0, 8.0, 0.0).discretize(0.01).as<float>();
+ *
+ * constinit PIController clamped =
+ *     design::PIDGains{.Kp = 4.0, .Ki = 8.0, .u_lim = {.lower = -12.0, .upper = 12.0}}
+ *         .discretize(0.01)
+ *         .as<float>();
  * @endcode
  *
- * @param Kp    Proportional gain
- * @param Ki    Integral gain (continuous)
- * @param Kd    Derivative gain
- * @param u_min Minimum control output
- * @param u_max Maximum control output
- * @param i_min Minimum integral term (same units as u)
- * @param i_max Maximum integral term
- * @param Kbc   Back-calculation coefficient: ΔI += Ki·(Ts/Kbc)(u−u_unsat); T_t = Kbc/Ki
- *              (set Kbc = Kp for T_t = T_i). 0 = clamping only
- * @param b     Proportional setpoint weight (default: 1 - standard PID)
- * @param c     Derivative setpoint weight   (default: 1 - standard PID)
- * @param Tf    Derivative filter time constant (default: 0 - unfiltered)
+ * @param Kp Proportional gain
+ * @param Ki Integral gain (continuous)
+ * @param Kd Derivative gain
  *
- * @return PIDResult with the specified parameters
+ * @return PIDGains{Kp, Ki, Kd} with default limits, weights and filter
  */
 template<typename T = double>
-[[nodiscard]] constexpr PIDResult<T> pid(
-    T Kp,
-    T Ki,
-    T Kd,
-    T u_min = -std::numeric_limits<T>::max(),
-    T u_max = std::numeric_limits<T>::max(),
-    T i_min = -std::numeric_limits<T>::max(),
-    T i_max = std::numeric_limits<T>::max(),
-    T Kbc = T{0},
-    T b = T{1},
-    T c = T{1},
-    T Tf = T{0}
-) {
-    return PIDResult<T>{Kp, Ki, Kd, u_min, u_max, i_min, i_max, Kbc, b, c, Tf};
+[[nodiscard]] constexpr PIDGains<T> pid(T Kp, T Ki, T Kd) {
+    return PIDGains<T>{.Kp = Kp, .Ki = Ki, .Kd = Kd};
 }
 
 } // namespace design
@@ -309,7 +385,7 @@ enum class PIDMode : std::uint8_t {
  *
  * - `Auto`:     standard control law with back-calculation anti-windup. The
  *               controller follows the reference.
- * - `Tracking`: the controller's output is `clamp(u_track, u_min, u_max)`
+ * - `Tracking`: the controller's output is `u_track` clamped into the output limits `u`
  *               and on every tick the integrator (and derivative state) is
  *               pre-loaded so that the next `enable()` call resumes in `Auto`
  *               *without a bump* in command. This is the standard ISA-PID
@@ -332,13 +408,13 @@ namespace detail {
 // Integral + output stage shared by PIDController and ContinuousPID. Free
 // functions over the controller's public fields, so neither type needs a base.
 
-/// I ← clamp(v, i_min, i_max)
+/** @brief I ← v clamped into the integrator limits i */
 template<typename C, typename T>
 constexpr void pid_set_integral(C& c, T v) {
-    c.integral = damp::clamp(v, c.i_min, c.i_max);
+    c.integral = c.integral_lim.saturate(v);
 }
 
-/// Back-calculation ΔI = gain·(u_sat − u_unsat)/Kbc. No-op when Kbc or gain is zero.
+/** @brief Back-calculation ΔI = gain·(u_sat − u_unsat)/Kbc. No-op when Kbc or gain is zero. */
 template<typename C, typename T>
 constexpr void pid_wind_back(C& c, T gain, T u_sat, T u_unsat) {
     if (c.Kbc == T{0} || gain == T{0} || u_sat == u_unsat) {
@@ -362,16 +438,18 @@ template<typename C, typename T>
 [[nodiscard]] constexpr T pid_step(C& c, T dI, T pd, T pd_next, T gain) {
     if (c.runtime_mode == PIDRuntimeMode::Tracking) {
         pid_set_integral(c, c.u_track - pd_next - dI);
-        return damp::clamp(c.u_track, c.u_min, c.u_max);
+        c.u_cmd = c.u_lim.saturate(c.u_track);
+        return c.u_cmd;
     }
     pid_set_integral(c, c.integral + dI);
     const T u_unsat = pd + c.integral;
-    const T u = damp::clamp(u_unsat, c.u_min, c.u_max);
+    const T u = c.u_lim.saturate(u_unsat);
     pid_wind_back(c, gain, u, u_unsat);
+    c.u_cmd = u;
     return u;
 }
 
-/// Δ(c·r − y) since the last tick; zero on the first (no derivative kick).
+/** @brief Δ(c·r − y) since the last tick; zero on the first (no derivative kick). */
 template<typename C, typename T>
 [[nodiscard]] constexpr T pid_delta(C& c, T x) {
     if (c.first) {
@@ -393,14 +471,15 @@ struct PIDController;
  * @brief Fixed-rate discrete 2-DOF PID (canonical runtime)
  *
  * Sample time is baked into the gains at design time via
- * @ref design::PIDResult::discretize. One tick is `control(r, y)` — no `Ts`
+ * @ref design::PIDGains::discretize. One tick is `control(r, y)` — no `Ts`
  * argument. Matches the library-wide pre-discretized controller model
  * (LQR, Kalman, PR, lead-lag).
  *
  * @ref PIDMode picks the specialization (P, PI, PD, PID); each stores and
  * computes only its own terms. A design result whose gains the mode cannot
- * realize is refused at construction: ill-formed under constant evaluation
- * (`constinit` deploy), a trap at runtime.
+ * realize, or whose Kbc has the opposite sign to Ki, is refused at
+ * construction: ill-formed under constant evaluation (`constinit` deploy), a
+ * trap at runtime.
  *
  * Control law:
  * @f[
@@ -417,29 +496,34 @@ struct PIDController;
  *
  * For continuous gains with a measured period each tick, use @ref ContinuousPID.
  *
+ * Angle input: pass r′ = y + wrap_pi(r − y), the reference nearest the measurement,
+ * `pid.control(y + wrap_pi(r - y), y)`, so P and I see the short-way error. With c ≠ 1
+ * (derivative on measurement) D also reads y, so unwrap y first with @ref PhaseUnwrapper.
+ * Keep b = 1 on an angle axis: with b ≠ 1, P carries −Kₚ(1 − b)·y, which depends on the
+ * absolute angle and the turn count rather than on the error.
+ *
  * MATLAB® equivalent: design with `pid(...)` then `c2d`; runtime is the discrete law.
+ * @see design::TrapezoidalProfile for a profiled PID: a motion profile generates the setpoint each tick.
  * @see Åström & Hägglund, "Advanced PID Control" (2006), Sec. 3.3–4.4
  *
  * @note Gains from a continuous-time designer (ziegler_nichols, cohen_coon,
- *       simc, lambda_tuning, pid_from_bandwidth) are Ts-agnostic until
- *       discretize(Ts). Gains from design::pid_pole_placement already embed a
- *       design Ts in continuous form — discretize with that same Ts.
+ *       simc, lambda_tuning, pidtune) are Ts-agnostic until discretize(Ts).
+ *       Gains from the sampled design::pid_pole_placement(plant, poles, Ts) already
+ *       embed that Ts in continuous form — discretize with the same Ts.
  */
 template<typename T>
 struct PIDController<T, PIDMode::PID> {
-    T Kp{};
-    T Ki{};  ///< Discrete integral gain Kᵢ T_s (I += Ki·e)
-    T Kd{};  ///< Continuous Kd retained for inspection; tick uses d_a / d_b
-    T d_a{}; ///< D ← d_a D + d_b Δx
-    T d_b{};
-    T u_min = -std::numeric_limits<T>::max();
-    T u_max = std::numeric_limits<T>::max();
-    T i_min = -std::numeric_limits<T>::max(); ///< Clamp on integral term I (same units as u)
-    T i_max = std::numeric_limits<T>::max();
-    T Kbc = T{0}; ///< Back-calculation: ΔI += Ki·(u−u_unsat)/Kbc; 0 = output clamp only
-    T b = T{1};   ///< Proportional setpoint weight
-    T c = T{1};   ///< Derivative setpoint weight
-    T Ts = T{0};  ///< Sample period from discretize (documentation)
+    T            Kp{};
+    T            Ki{};  ///< Discrete integral gain Kᵢ T_s (I += Ki·e)
+    T            Kd{};  ///< Continuous Kd retained for inspection; tick uses d_a / d_b
+    T            d_a{}; ///< D ← d_a D + d_b Δx
+    T            d_b{};
+    Bounds<1, T> u_lim{};        ///< Output limits [lower, upper] (default unbounded)
+    Bounds<1, T> integral_lim{}; ///< Clamp on integral term I (same units as u; default unbounded)
+    T            Kbc = T{0};     ///< Back-calculation: ΔI += Ki·(u−u_unsat)/Kbc; 0 = output clamp only
+    T            b = T{1};       ///< Proportional setpoint weight
+    T            c = T{1};       ///< Derivative setpoint weight
+    T            Ts = T{0};      ///< Sample period from discretize (documentation)
 
     T    integral = T{0}; ///< Integral term I (same units as u)
     T    prev_x = T{0};   ///< Previous c·r − y
@@ -448,25 +532,39 @@ struct PIDController<T, PIDMode::PID> {
 
     PIDRuntimeMode runtime_mode{PIDRuntimeMode::Auto};
     T              u_track{T{0}};
+    T              u_cmd{T{0}}; ///< Last command control() returned: the u in back_calculate's u_sat − (u + u_ff)
 
     constexpr PIDController() noexcept = default;
 
-    /// From discrete design result. Non-explicit for assign-from-design:
-    /// `PIDController c = design::pid(...).discretize(Ts).as<float>();`
-    constexpr PIDController(const design::DiscretePIDResult<T>& r)
+    /** @brief From a design result in another scalar: converts it with .as\<T\>() and builds from that. */
+    template<typename U>
+        requires(!std::is_same_v<U, T>)
+    constexpr PIDController(const design::DiscretePIDGains<U>& r) // NOLINT(google-explicit-constructor): assign-from-design
+        : PIDController(r.template as<T>()) {}
+
+    /**
+     * @brief From discrete design result. Non-explicit for assign-from-design:
+     * `PIDController c = design::pid(...).discretize(Ts).as<float>();`
+     */
+    constexpr PIDController(const design::DiscretePIDGains<T>& r) // NOLINT(google-explicit-constructor): assign-from-design
         : Kp(r.Kp),
           Ki(r.Ki),
           Kd(r.Kd),
           d_a(r.d_a),
           d_b(r.d_b),
-          u_min(r.u_min),
-          u_max(r.u_max),
-          i_min(r.i_min),
-          i_max(r.i_max),
+          u_lim(r.u_lim),
+          integral_lim(r.integral_lim),
           Kbc(r.Kbc),
           b(r.b),
           c(r.c),
-          Ts(r.Ts) {}
+          Ts(r.Ts) {
+        if (!r.success && std::is_constant_evaluated()) {
+            detail::refuse_failed_design(r.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
+        }
+        if (detail::pid_kbc_winds_up(r.Ki, r.Kbc)) {
+            detail::refuse_failed_design(design::DesignStatus::invalid_parameter); // Kbc against Ki's sign winds the integrator up
+        }
+    }
 
     template<typename U>
     constexpr explicit PIDController(const PIDController<U, PIDMode::PID>& o)
@@ -475,10 +573,8 @@ struct PIDController<T, PIDMode::PID> {
           Kd(static_cast<T>(o.Kd)),
           d_a(static_cast<T>(o.d_a)),
           d_b(static_cast<T>(o.d_b)),
-          u_min(static_cast<T>(o.u_min)),
-          u_max(static_cast<T>(o.u_max)),
-          i_min(static_cast<T>(o.i_min)),
-          i_max(static_cast<T>(o.i_max)),
+          u_lim(o.u_lim.template as<T>()),
+          integral_lim(o.integral_lim.template as<T>()),
           Kbc(static_cast<T>(o.Kbc)),
           b(static_cast<T>(o.b)),
           c(static_cast<T>(o.c)),
@@ -488,13 +584,14 @@ struct PIDController<T, PIDMode::PID> {
           deriv(static_cast<T>(o.deriv)),
           first(o.first),
           runtime_mode(o.runtime_mode),
-          u_track(static_cast<T>(o.u_track)) {}
+          u_track(static_cast<T>(o.u_track)),
+          u_cmd(static_cast<T>(o.u_cmd)) {}
 
     /**
      * @brief One fixed-rate discrete PID tick
      *
      * In Auto mode runs the 2-DOF law with back-calculation anti-windup.
-     * In Tracking mode the output is `clamp(u_track, u_min, u_max)` and the
+     * In Tracking mode the output is `u_track` clamped into the output limits `u` and the
      * integrator is pre-loaded for bumpless re-enable.
      */
     [[nodiscard]] constexpr T control(T r, T y) {
@@ -513,10 +610,19 @@ struct PIDController<T, PIDMode::PID> {
         (void)control(y, y);
     }
 
-    /// Anti-windup hook driven by a downstream stage: ΔI = Ki·(u_sat − u_unsat)/Kbc.
-    constexpr void back_calculate(T u_unsat, T u_sat) { detail::pid_wind_back(*this, Ki, u_sat, u_unsat); }
+    /**
+     * @brief Anti-windup after a downstream clamp: ΔI = Ki·(u_sat − (u + u_ff))/Kbc
+     *
+     * Call after the stage that clamps the summed command. @p u_sat is what the plant
+     * received, @p u_ff whatever was added to this law's command before the clamp; u is
+     * the command control() returned (@ref last_command).
+     */
+    constexpr void back_calculate(T u_sat, T u_ff = T{0}) { detail::pid_wind_back(*this, Ki, u_sat, u_cmd + u_ff); }
 
-    /// Clear integral and derivative state; keeps gains and runtime mode.
+    /** @brief The command the last control() returned. */
+    [[nodiscard]] constexpr T last_command() const { return u_cmd; }
+
+    /** @brief Clear integral and derivative state; keeps gains and runtime mode. */
     constexpr void reset() {
         integral = T{0};
         prev_x = T{0};
@@ -538,41 +644,50 @@ struct PIDController<T, PIDMode::PID> {
  * @ingroup discrete_controllers
  * @brief Fixed-rate discrete 2-DOF PI controller specialization
  *
- * Constructing from a design with a derivative term (Kd ≠ 0) is refused: a
- * compile error under constant evaluation (`constinit` deploy), a trap at
- * runtime.
+ * Constructing from a design with a derivative term (Kd ≠ 0), or with a Kbc of
+ * the opposite sign to Ki, is refused: a compile error under constant
+ * evaluation (`constinit` deploy), a trap at runtime.
  */
 template<typename T>
 struct PIDController<T, PIDMode::PI> {
-    T Kp{};
-    T Ki{}; ///< Discrete integral gain Kᵢ T_s (I += Ki·e)
-    T u_min = -std::numeric_limits<T>::max();
-    T u_max = std::numeric_limits<T>::max();
-    T i_min = -std::numeric_limits<T>::max(); ///< Clamp on integral term I (same units as u)
-    T i_max = std::numeric_limits<T>::max();
-    T Kbc = T{0}; ///< Back-calculation: ΔI += Ki·(u−u_unsat)/Kbc; 0 = output clamp only
-    T b = T{1};   ///< Proportional setpoint weight
-    T Ts = T{0};  ///< Sample period from discretize (documentation)
+    T            Kp{};
+    T            Ki{};           ///< Discrete integral gain Kᵢ T_s (I += Ki·e)
+    Bounds<1, T> u_lim{};        ///< Output limits [lower, upper] (default unbounded)
+    Bounds<1, T> integral_lim{}; ///< Clamp on integral term I (same units as u; default unbounded)
+    T            Kbc = T{0};     ///< Back-calculation: ΔI += Ki·(u−u_unsat)/Kbc; 0 = output clamp only
+    T            b = T{1};       ///< Proportional setpoint weight
+    T            Ts = T{0};      ///< Sample period from discretize (documentation)
 
     T integral = T{0}; ///< Integral term I (same units as u)
 
     PIDRuntimeMode runtime_mode{PIDRuntimeMode::Auto};
     T              u_track{T{0}};
+    T              u_cmd{T{0}}; ///< Last command control() returned: the u in back_calculate's u_sat − (u + u_ff)
 
     constexpr PIDController() noexcept = default;
 
-    constexpr PIDController(const design::DiscretePIDResult<T>& r)
+    /** @brief From a design result in another scalar: converts it with .as\<T\>() and builds from that. */
+    template<typename U>
+        requires(!std::is_same_v<U, T>)
+    constexpr PIDController(const design::DiscretePIDGains<U>& r) // NOLINT(google-explicit-constructor): assign-from-design
+        : PIDController(r.template as<T>()) {}
+
+    constexpr PIDController(const design::DiscretePIDGains<T>& r) // NOLINT(google-explicit-constructor): assign-from-design
         : Kp(r.Kp),
           Ki(r.Ki),
-          u_min(r.u_min),
-          u_max(r.u_max),
-          i_min(r.i_min),
-          i_max(r.i_max),
+          u_lim(r.u_lim),
+          integral_lim(r.integral_lim),
           Kbc(r.Kbc),
           b(r.b),
           Ts(r.Ts) {
+        if (!r.success && std::is_constant_evaluated()) {
+            detail::refuse_failed_design(r.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
+        }
         if (r.Kd != T{0}) {
             detail::refuse_failed_design(); // a PI cannot realize the D term
+        }
+        if (detail::pid_kbc_winds_up(r.Ki, r.Kbc)) {
+            detail::refuse_failed_design(design::DesignStatus::invalid_parameter); // Kbc against Ki's sign winds the integrator up
         }
     }
 
@@ -580,16 +695,15 @@ struct PIDController<T, PIDMode::PI> {
     constexpr explicit PIDController(const PIDController<U, PIDMode::PI>& o)
         : Kp(static_cast<T>(o.Kp)),
           Ki(static_cast<T>(o.Ki)),
-          u_min(static_cast<T>(o.u_min)),
-          u_max(static_cast<T>(o.u_max)),
-          i_min(static_cast<T>(o.i_min)),
-          i_max(static_cast<T>(o.i_max)),
+          u_lim(o.u_lim.template as<T>()),
+          integral_lim(o.integral_lim.template as<T>()),
           Kbc(static_cast<T>(o.Kbc)),
           b(static_cast<T>(o.b)),
           Ts(static_cast<T>(o.Ts)),
           integral(static_cast<T>(o.integral)),
           runtime_mode(o.runtime_mode),
-          u_track(static_cast<T>(o.u_track)) {}
+          u_track(static_cast<T>(o.u_track)),
+          u_cmd(static_cast<T>(o.u_cmd)) {}
 
     [[nodiscard]] constexpr T control(T r, T y) {
         const T p = Kp * ((b * r) - y);
@@ -606,10 +720,19 @@ struct PIDController<T, PIDMode::PI> {
         (void)control(y, y);
     }
 
-    /// Anti-windup hook driven by a downstream stage: ΔI = Ki·(u_sat − u_unsat)/Kbc.
-    constexpr void back_calculate(T u_unsat, T u_sat) { detail::pid_wind_back(*this, Ki, u_sat, u_unsat); }
+    /**
+     * @brief Anti-windup after a downstream clamp: ΔI = Ki·(u_sat − (u + u_ff))/Kbc
+     *
+     * Call after the stage that clamps the summed command. @p u_sat is what the plant
+     * received, @p u_ff whatever was added to this law's command before the clamp; u is
+     * the command control() returned (@ref last_command).
+     */
+    constexpr void back_calculate(T u_sat, T u_ff = T{0}) { detail::pid_wind_back(*this, Ki, u_sat, u_cmd + u_ff); }
 
-    /// Clear the integral; keeps gains and runtime mode.
+    /** @brief The command the last control() returned. */
+    [[nodiscard]] constexpr T last_command() const { return u_cmd; }
+
+    /** @brief Clear the integral; keeps gains and runtime mode. */
     constexpr void reset() { integral = T{0}; }
 
     constexpr void enable() { runtime_mode = PIDRuntimeMode::Auto; }
@@ -632,15 +755,14 @@ struct PIDController<T, PIDMode::PI> {
  */
 template<typename T>
 struct PIDController<T, PIDMode::PD> {
-    T Kp{};
-    T Kd{};  ///< Continuous Kd retained for inspection; tick uses d_a / d_b
-    T d_a{}; ///< D ← d_a D + d_b Δx
-    T d_b{};
-    T u_min = -std::numeric_limits<T>::max();
-    T u_max = std::numeric_limits<T>::max();
-    T b = T{1};  ///< Proportional setpoint weight
-    T c = T{1};  ///< Derivative setpoint weight
-    T Ts = T{0}; ///< Sample period from discretize (documentation)
+    T            Kp{};
+    T            Kd{};  ///< Continuous Kd retained for inspection; tick uses d_a / d_b
+    T            d_a{}; ///< D ← d_a D + d_b Δx
+    T            d_b{};
+    Bounds<1, T> u_lim{};   ///< Output limits [lower, upper] (default unbounded)
+    T            b = T{1};  ///< Proportional setpoint weight
+    T            c = T{1};  ///< Derivative setpoint weight
+    T            Ts = T{0}; ///< Sample period from discretize (documentation)
 
     T    prev_x = T{0}; ///< Previous c·r − y
     T    deriv = T{0};  ///< Filtered derivative term D
@@ -651,16 +773,24 @@ struct PIDController<T, PIDMode::PD> {
 
     constexpr PIDController() noexcept = default;
 
-    constexpr PIDController(const design::DiscretePIDResult<T>& r)
+    /** @brief From a design result in another scalar: converts it with .as\<T\>() and builds from that. */
+    template<typename U>
+        requires(!std::is_same_v<U, T>)
+    constexpr PIDController(const design::DiscretePIDGains<U>& r) // NOLINT(google-explicit-constructor): assign-from-design
+        : PIDController(r.template as<T>()) {}
+
+    constexpr PIDController(const design::DiscretePIDGains<T>& r) // NOLINT(google-explicit-constructor): assign-from-design
         : Kp(r.Kp),
           Kd(r.Kd),
           d_a(r.d_a),
           d_b(r.d_b),
-          u_min(r.u_min),
-          u_max(r.u_max),
+          u_lim(r.u_lim),
           b(r.b),
           c(r.c),
           Ts(r.Ts) {
+        if (!r.success && std::is_constant_evaluated()) {
+            detail::refuse_failed_design(r.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
+        }
         if (r.Ki != T{0}) {
             detail::refuse_failed_design(); // a PD cannot realize the I term
         }
@@ -672,8 +802,7 @@ struct PIDController<T, PIDMode::PD> {
           Kd(static_cast<T>(o.Kd)),
           d_a(static_cast<T>(o.d_a)),
           d_b(static_cast<T>(o.d_b)),
-          u_min(static_cast<T>(o.u_min)),
-          u_max(static_cast<T>(o.u_max)),
+          u_lim(o.u_lim.template as<T>()),
           b(static_cast<T>(o.b)),
           c(static_cast<T>(o.c)),
           Ts(static_cast<T>(o.Ts)),
@@ -685,11 +814,11 @@ struct PIDController<T, PIDMode::PD> {
 
     [[nodiscard]] constexpr T control(T r, T y) {
         deriv = (d_a * deriv) + (d_b * detail::pid_delta(*this, (c * r) - y));
-        const T u = (runtime_mode == PIDRuntimeMode::Tracking) ? u_track : (Kp * ((b * r) - y)) + deriv;
-        return damp::clamp(u, u_min, u_max);
+        const T cmd = (runtime_mode == PIDRuntimeMode::Tracking) ? u_track : (Kp * ((b * r) - y)) + deriv;
+        return u_lim.saturate(cmd);
     }
 
-    /// Clear derivative state; keeps gains and runtime mode.
+    /** @brief Clear derivative state; keeps gains and runtime mode. */
     constexpr void reset() {
         prev_x = T{0};
         deriv = T{0};
@@ -714,10 +843,9 @@ struct PIDController<T, PIDMode::PD> {
  */
 template<typename T>
 struct PIDController<T, PIDMode::P> {
-    T Kp{};
-    T u_min = -std::numeric_limits<T>::max();
-    T u_max = std::numeric_limits<T>::max();
-    T b = T{1}; ///< Proportional setpoint weight
+    T            Kp{};
+    Bounds<1, T> u_lim{};  ///< Output limits [lower, upper] (default unbounded)
+    T            b = T{1}; ///< Proportional setpoint weight
 
     PIDRuntimeMode runtime_mode{PIDRuntimeMode::Auto};
     T              u_track{T{0}};
@@ -727,8 +855,17 @@ struct PIDController<T, PIDMode::P> {
     constexpr explicit PIDController(T Kp_) noexcept
         : Kp(Kp_) {}
 
-    constexpr PIDController(const design::DiscretePIDResult<T>& r)
-        : Kp(r.Kp), u_min(r.u_min), u_max(r.u_max), b(r.b) {
+    /** @brief From a design result in another scalar: converts it with .as\<T\>() and builds from that. */
+    template<typename U>
+        requires(!std::is_same_v<U, T>)
+    constexpr PIDController(const design::DiscretePIDGains<U>& r) // NOLINT(google-explicit-constructor): assign-from-design
+        : PIDController(r.template as<T>()) {}
+
+    constexpr PIDController(const design::DiscretePIDGains<T>& r) // NOLINT(google-explicit-constructor): assign-from-design
+        : Kp(r.Kp), u_lim(r.u_lim), b(r.b) {
+        if (!r.success && std::is_constant_evaluated()) {
+            detail::refuse_failed_design(r.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
+        }
         if (r.Ki != T{0} || r.Kd != T{0}) {
             detail::refuse_failed_design(); // a P cannot realize the I or D term
         }
@@ -737,15 +874,14 @@ struct PIDController<T, PIDMode::P> {
     template<typename U>
     constexpr explicit PIDController(const PIDController<U, PIDMode::P>& o)
         : Kp(static_cast<T>(o.Kp)),
-          u_min(static_cast<T>(o.u_min)),
-          u_max(static_cast<T>(o.u_max)),
+          u_lim(o.u_lim.template as<T>()),
           b(static_cast<T>(o.b)),
           runtime_mode(o.runtime_mode),
           u_track(static_cast<T>(o.u_track)) {}
 
     [[nodiscard]] constexpr T control(T r, T y) {
-        const T u = (runtime_mode == PIDRuntimeMode::Tracking) ? u_track : Kp * ((b * r) - y);
-        return damp::clamp(u, u_min, u_max);
+        const T cmd = (runtime_mode == PIDRuntimeMode::Tracking) ? u_track : Kp * ((b * r) - y);
+        return u_lim.saturate(cmd);
     }
 
     constexpr void reset() {}
@@ -760,8 +896,12 @@ struct PIDController<T, PIDMode::P> {
     [[nodiscard]] constexpr bool is_enabled() const { return runtime_mode == PIDRuntimeMode::Auto; }
 };
 
-template<typename T>
-PIDController(const design::DiscretePIDResult<T>&) -> PIDController<T, PIDMode::PID>;
+/**
+ * @brief Deduce the runtime from its gains, keeping their scalar: PIDController pid{gains} is a PID;
+ * through an alias the mode comes from the alias: PIController pi{gains};
+ */
+template<typename T, PIDMode Mode = PIDMode::PID>
+PIDController(const design::DiscretePIDGains<T>&) -> PIDController<T, Mode>;
 
 template<typename T = float>
 using PController = PIDController<T, PIDMode::P>;
@@ -781,10 +921,13 @@ using PDController = PIDController<T, PIDMode::PD>;
  * time (jitter, multi-rate motor loops, PLL step periods).
  *
  * Integral term @f$I@f$ with @f$\dot I = K_i e@f$ and @f$u_I = I@f$, matching
- * the discrete form after @ref design::PIDResult::discretize.
+ * the discrete form after @ref design::PIDGains::discretize.
  *
  * For fixed-rate embedded deploy, prefer
  * `design::pid(...).discretize(Ts)` → PIDController.
+ *
+ * Gains with a non-finite entry, a Tf < 0, or a Kbc of the opposite sign to Ki are
+ * refused at construction: ill-formed under constant evaluation, a trap at runtime.
  *
  * @code
  * ContinuousPID<float> c{design::pid(2.0f, 5.0f, 0.1f)};
@@ -796,17 +939,15 @@ using PDController = PIDController<T, PIDMode::PD>;
  */
 template<typename T = float>
 struct ContinuousPID {
-    T Kp{};
-    T Ki{}; ///< Continuous integral gain (I += Ki·e·Ts)
-    T Kd{};
-    T Tf = T{0}; ///< Derivative filter time constant (0 = unfiltered)
-    T u_min = -std::numeric_limits<T>::max();
-    T u_max = std::numeric_limits<T>::max();
-    T i_min = -std::numeric_limits<T>::max(); ///< Clamp on integral term I (same units as u)
-    T i_max = std::numeric_limits<T>::max();
-    T Kbc = T{0}; ///< Back-calculation: ΔI += Ki·(Ts/Kbc)(u−u_unsat); 0 = output clamp only
-    T b = T{1};   ///< Proportional setpoint weight
-    T c = T{1};   ///< Derivative setpoint weight
+    T            Kp{};
+    T            Ki{}; ///< Continuous integral gain (I += Ki·e·Ts)
+    T            Kd{};
+    T            Tf = T{0};      ///< Derivative filter time constant (0 = unfiltered)
+    Bounds<1, T> u_lim{};        ///< Output limits [lower, upper] (default unbounded)
+    Bounds<1, T> integral_lim{}; ///< Clamp on integral term I (same units as u; default unbounded)
+    T            Kbc = T{0};     ///< Back-calculation: ΔI += Ki·(Ts/Kbc)(u−u_unsat); 0 = output clamp only
+    T            b = T{1};       ///< Proportional setpoint weight
+    T            c = T{1};       ///< Derivative setpoint weight
 
     T    integral = T{0}; ///< Integral term I (same units as u)
     T    prev_x = T{0};   ///< Previous c·r − y
@@ -815,21 +956,34 @@ struct ContinuousPID {
 
     PIDRuntimeMode runtime_mode{PIDRuntimeMode::Auto};
     T              u_track{T{0}};
+    T              u_cmd{T{0}};   ///< Last command control() returned: the u in back_calculate's u_sat − (u + u_ff)
+    T              Ts_last{T{0}}; ///< [s] Period of the last control() tick, which back_calculate charges
 
     constexpr ContinuousPID() noexcept = default;
 
-    constexpr ContinuousPID(const design::PIDResult<T>& r) noexcept
+    /** @brief From a design result in another scalar: converts it with .as\<T\>() and builds from that. */
+    template<typename U>
+        requires(!std::is_same_v<U, T>)
+    constexpr ContinuousPID(const design::PIDGains<U>& result) // NOLINT(google-explicit-constructor): assign-from-design
+        : ContinuousPID(result.template as<T>()) {}
+
+    constexpr ContinuousPID(const design::PIDGains<T>& r) // NOLINT(google-explicit-constructor): assign-from-design
         : Kp(r.Kp),
           Ki(r.Ki),
           Kd(r.Kd),
           Tf(r.Tf),
-          u_min(r.u_min),
-          u_max(r.u_max),
-          i_min(r.i_min),
-          i_max(r.i_max),
+          u_lim(r.u_lim),
+          integral_lim(r.integral_lim),
           Kbc(r.Kbc),
           b(r.b),
-          c(r.c) {}
+          c(r.c) {
+        if (!r.success && std::is_constant_evaluated()) {
+            detail::refuse_failed_design(r.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
+        }
+        if (!detail::pid_gains_in_domain(r.Kp, r.Ki, r.Kd, r.Tf, r.Kbc, r.b, r.c) || detail::pid_kbc_winds_up(r.Ki, r.Kbc)) {
+            detail::refuse_failed_design(design::DesignStatus::invalid_parameter); // a non-finite gain, Tf < 0, or Kbc against Ki's sign
+        }
+    }
 
     template<typename U>
     constexpr explicit ContinuousPID(const ContinuousPID<U>& o)
@@ -837,10 +991,8 @@ struct ContinuousPID {
           Ki(static_cast<T>(o.Ki)),
           Kd(static_cast<T>(o.Kd)),
           Tf(static_cast<T>(o.Tf)),
-          u_min(static_cast<T>(o.u_min)),
-          u_max(static_cast<T>(o.u_max)),
-          i_min(static_cast<T>(o.i_min)),
-          i_max(static_cast<T>(o.i_max)),
+          u_lim(o.u_lim.template as<T>()),
+          integral_lim(o.integral_lim.template as<T>()),
           Kbc(static_cast<T>(o.Kbc)),
           b(static_cast<T>(o.b)),
           c(static_cast<T>(o.c)),
@@ -849,19 +1001,24 @@ struct ContinuousPID {
           deriv(static_cast<T>(o.deriv)),
           first(o.first),
           runtime_mode(o.runtime_mode),
-          u_track(static_cast<T>(o.u_track)) {}
+          u_track(static_cast<T>(o.u_track)),
+          u_cmd(static_cast<T>(o.u_cmd)),
+          Ts_last(static_cast<T>(o.Ts_last)) {}
 
     /**
      * @brief Compute 2-DOF PID control output with measured sample period
      *
-     * Non-positive @p Ts holds state and emits the current command (no
-     * division by zero on the derivative path).
+     * A @p Ts that is not positive and finite holds state and emits the current command (no
+     * division by zero on the derivative path); a back_calculate after such a tick is a no-op.
      */
     [[nodiscard]] constexpr T control(T r, T y, T Ts) {
         const T p = Kp * ((b * r) - y);
-        if (Ts <= T{0}) {
-            return damp::clamp(runtime_mode == PIDRuntimeMode::Tracking ? u_track : p + integral + deriv, u_min, u_max);
+        if (!damp::finite_positive(Ts)) {
+            Ts_last = T{0};
+            u_cmd = u_lim.saturate(runtime_mode == PIDRuntimeMode::Tracking ? u_track : p + integral + deriv);
+            return u_cmd;
         }
+        Ts_last = Ts;
 
         // Filtered derivative D = Kd*s/(1 + Tf*s) on (c*r − y), backward Euler
         const T decay = Tf / (Ts + Tf);
@@ -879,10 +1036,19 @@ struct ContinuousPID {
         (void)control(y, y, Ts);
     }
 
-    /// Anti-windup hook: ΔI = Ki·Ts·(u_sat − u_unsat)/Kbc.
-    constexpr void back_calculate(T u_unsat, T u_sat, T Ts) { detail::pid_wind_back(*this, Ki * Ts, u_sat, u_unsat); }
+    /**
+     * @brief Anti-windup after a downstream clamp: ΔI = Ki·Ts·(u_sat − (u + u_ff))/Kbc
+     *
+     * Call after the stage that clamps the summed command, in the same tick as control():
+     * Ts is that tick's period and u the command it returned (@ref last_command).
+     * @p u_ff is whatever was added to this law's command before the clamp.
+     */
+    constexpr void back_calculate(T u_sat, T u_ff = T{0}) { detail::pid_wind_back(*this, Ki * Ts_last, u_sat, u_cmd + u_ff); }
 
-    /// Clear integral and derivative state; keeps gains and runtime mode.
+    /** @brief The command the last control() returned. */
+    [[nodiscard]] constexpr T last_command() const { return u_cmd; }
+
+    /** @brief Clear integral and derivative state; keeps gains and runtime mode. */
     constexpr void reset() {
         integral = T{0};
         prev_x = T{0};
@@ -899,5 +1065,9 @@ struct ContinuousPID {
 
     [[nodiscard]] constexpr bool is_enabled() const { return runtime_mode == PIDRuntimeMode::Auto; }
 };
+
+/** @brief Deduce the runtime from its design, keeping the result's scalar. */
+template<typename T>
+ContinuousPID(const design::PIDGains<T>&) -> ContinuousPID<T>;
 
 } // namespace damp

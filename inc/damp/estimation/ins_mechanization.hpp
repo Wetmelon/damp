@@ -79,7 +79,7 @@ enum class NavFrame : std::uint8_t {
     ENU, ///< East-North-Up — g_n = (0,0,-g)
 };
 
-/// Standard gravity magnitude [m/s²] (CGPM conventional value).
+/** @brief Standard gravity magnitude [m/s²] (CGPM conventional value). */
 template<typename T = double>
 inline constexpr T kStandardGravity = static_cast<T>(9.80665);
 

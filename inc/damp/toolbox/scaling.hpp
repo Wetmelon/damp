@@ -84,13 +84,13 @@ struct AffineCal {
     T gain{1};   ///< Slope applied to the raw value.
     T offset{0}; ///< Constant added after scaling.
 
-    /// Raw → engineering: `gain·x + offset`.
+    /** @brief Raw → engineering: `gain·x + offset`. */
     [[nodiscard]] constexpr T apply(T x) const { return (gain * x) + offset; }
 
-    /// Engineering → raw: `(y − offset) / gain`; 0 when `gain == 0` (no inverse).
+    /** @brief Engineering → raw: `(y − offset) / gain`; 0 when `gain == 0` (no inverse). */
     [[nodiscard]] constexpr T invert(T y) const { return (gain != T{0}) ? ((y - offset) / gain) : T{0}; }
 
-    /// Re-cast the coefficients to a different scalar type.
+    /** @brief Re-cast the coefficients to a different scalar type. */
     template<typename U>
     [[nodiscard]] constexpr AffineCal<U> as() const {
         return AffineCal<U>{static_cast<U>(gain), static_cast<U>(offset)};

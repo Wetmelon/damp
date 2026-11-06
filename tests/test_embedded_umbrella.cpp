@@ -9,7 +9,6 @@
 // umbrella is usable on its own for real controller code. The companion
 // `make embedded-check` target additionally proves no <vector> is reachable
 // from this header, which is the embedded (no-heap) guarantee.
-#include "damp/backend.hpp"
 #include "damp/control.hpp"
 
 #define DOCTEST_CONFIG_INCLUDE_TYPE_TRAITS
@@ -19,7 +18,7 @@ using namespace damp;
 
 TEST_SUITE("Embedded Umbrella") {
     TEST_CASE("damp/control.hpp alone supports compile-time synthesis + runtime control") {
-        constexpr auto artifacts = [] {
+        constexpr auto res = [] {
             StateSpace<2, 1, 1> sys{
                 .A = Matrix<2, 2>{{1.0, 0.1}, {0.0, 1.0}},
                 .B = Matrix<2, 1>{{0.005}, {0.1}},
@@ -27,21 +26,17 @@ TEST_SUITE("Embedded Umbrella") {
                 .D = Matrix<1, 1>::zeros(),
                 .Ts = 0.1
             };
-            Matrix<3, 3> Q_aug{};
-            Q_aug(0, 0) = 1.0;
-            Q_aug(1, 1) = 1.0;
-            Q_aug(2, 2) = 10.0;
             const Matrix<1, 1> R{{0.1}};
-            return damp::design::lqi_bundle(sys, Q_aug, R);
+            return damp::design::lqi(sys, {.Q = Matrix<2, 2>::identity(), .R = R, .Q_integral = 10.0});
         }();
 
-        static_assert(artifacts.success, "synthesis must succeed at compile time via control.hpp alone");
+        static_assert(res.success, "synthesis must succeed at compile time via control.hpp alone");
 
-        auto                   runtime = artifacts.runtime;
+        auto                   runtime = LQI{res.as<float>()};
         const ColVec<2, float> x{1.0f, 0.0f};
         const ColVec<1, float> y{1.0f};
         const ColVec<1, float> r{0.0f};
-        const auto             u = runtime.control(r, y, x);
+        const auto             u = runtime.step(r, x);
         CHECK(u(0, 0) != doctest::Approx(0.0f));
     }
 }

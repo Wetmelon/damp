@@ -198,7 +198,7 @@ slices of a single output.
 ## Control design (what `cart_pole_controller.hpp` does)
 
 1. Continuous plant $`(A,B)`$ as above.
-2. Discrete LQR via `design::discrete_lqr_from_continuous(A, B, Q, R, Ts)` (ZOH-style design path in the library).
+2. Discrete LQR via `design::lqr(sys, Ts, {.Q = Q, .R = R})`: a continuous plant plus `Ts` discretizes the dynamics (ZOH) and the cost (Van Loan), then solves the DARE.
 3. Cost weights (diagonal $`Q`$, $`R = 1`$):
 
 | State | $`Q_{ii}`$ | Intent |
@@ -209,7 +209,7 @@ slices of a single output.
 | $`\dot\theta`$ | 10 | Damp pole rate |
 | $`F`$ | $`R = 1`$ | Unit control effort |
 
-4. Law: $`u = -K x`$ (`LQR::control`).
+4. Law: $`u = -K x`$, the regulator about the origin: `LQR::step(x)`.
 5. Sketch uses `lqr_d.as<float>()`; SIL may keep double. Same $`K`$ source.
 
 Tuning tip: raise $`Q_{33}`$ (angle) for stiffer upright recovery; raise $`R`$ if force saturates.

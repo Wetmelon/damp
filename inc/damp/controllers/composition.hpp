@@ -22,7 +22,6 @@
  * wrap a thin SisoController adapter that holds the experiment output.
  *
  * @see concepts.hpp SisoController
- * @see experimental/experiment_safety.hpp for arm/protect/rollback around a switch
  */
 
 #include <cstdint>

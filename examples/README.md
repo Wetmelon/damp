@@ -10,8 +10,11 @@ tup — open an example folder as a reference and build with your own tree;
 
 ## Start here
 
+Task table and MATLAB® / firmware name map: [docs/guide.md](../docs/guide.md).
+
 | Domain | Folder | Reference layout |
 | ------ | ------ | ---------------- |
+| LQI + clamp + `back_calculate` | `control/` | [`control/lqi/`](control/lqi/) |
 | Classical pendulum / PID / LQR | `control/` | [`control/cart_pole/`](control/cart_pole/) |
 | IMU / INS / ESKF | `estimation/` | [`estimation/eskf/`](estimation/eskf/) |
 

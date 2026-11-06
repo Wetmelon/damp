@@ -31,6 +31,8 @@
 
 #include "damp/backend.hpp" // damp::array, damp::numbers
 #include "damp/controllers/pr.hpp"
+#include "damp/design/status.hpp"
+#include "damp/math/math.hpp"
 #include "damp/systems/state_space.hpp"
 #include "damp/systems/transfer_function.hpp"
 #include "damp/systems/zpk.hpp"
@@ -45,11 +47,15 @@ namespace design {
  * @tparam T Scalar type
  */
 template<size_t N, typename T = double>
-struct HarmonicSuppressorResult {
+struct [[nodiscard]] HarmonicSuppressorResult {
 
-    damp::array<PRResult<T>, N> gains{};  ///< one PR resonator per harmonic
-    T                           w_fund{}; ///< fundamental frequency [rad/s] (for set_fundamental rescaling)
-    bool                        success{false};
+    damp::array<PRResult<T>, N> gains{};                             ///< one PR resonator per harmonic
+    T                           w_fund{};                            ///< fundamental frequency [rad/s] (for set_fundamental rescaling)
+    bool                        success{false};                      ///< status == DesignStatus::ok
+    DesignStatus                status{DesignStatus::not_converged}; ///< ok, or why the design failed
+
+    /** @brief True when the design succeeded (success). */
+    [[nodiscard]] constexpr explicit operator bool() const { return success; }
 
     template<typename U>
     [[nodiscard]] constexpr HarmonicSuppressorResult<N, std::remove_const_t<U>> as() const {
@@ -59,6 +65,7 @@ struct HarmonicSuppressorResult {
         }
         out.w_fund = static_cast<std::remove_const_t<U>>(w_fund);
         out.success = success;
+        out.status = status;
         return out;
     }
 
@@ -97,43 +104,47 @@ private:
  * @brief Synthesize a multi-resonant harmonic suppressor.
  *
  * Builds one PR resonator per harmonic (via @ref pr_harmonics) and validates the
- * spec — frequencies positive, sampling time positive, and the highest harmonic
- * strictly below Nyquist (a resonator at or above fs/2 cannot be realized). The
- * proportional gain Kp is carried on the fundamental's resonator only.
+ * spec: a positive, finite sampling time, no 0th harmonic, and every resonator
+ * accepted by @ref pr (finite gains, a positive frequency strictly below Nyquist,
+ * since a resonator at or above fs/2 cannot be realized). The proportional gain Kp
+ * is carried on the fundamental's resonator only.
+ *
+ * @code
+ * const auto d = design::harmonic_suppressor({.Kp = 0.5, .Ki = 200.0, .w0 = w_grid, .wc = 5.0}, Ts,
+ *                                            damp::array<size_t, 3>{1, 5, 7});
+ * @endcode
  *
  * @tparam N Number of harmonics
- * @param Kp        Proportional gain (shared; placed on the fundamental)
- * @param Ki_fund   Resonant gain for the fundamental (scaled down per harmonic)
- * @param w_fund    Fundamental frequency [rad/s]
- * @param wc        Resonant-term bandwidth [rad/s] (0 = ideal PR)
- * @param Ts        Sample time [s]
- * @param harmonics Harmonic orders to suppress (e.g. {1, 5, 7, 11})
+ * @param fundamental The fundamental's resonator: Kp (shared, placed on the fundamental), Ki and
+ *                    w0 [rad/s] of the fundamental (Ki scaled down per harmonic), wc [rad/s] shared
+ *                    (0 = ideal PR)
+ * @param Ts          Sample time [s]
+ * @param harmonics   Harmonic orders to suppress (e.g. {1, 5, 7, 11})
+ * @return The bank; refused with invalid_sample_time for a non-positive or non-finite Ts, with
+ *         invalid_parameter for a 0th harmonic, and with the first refused resonator's status otherwise
  */
 template<size_t N, typename T = double>
-[[nodiscard]] constexpr HarmonicSuppressorResult<N, T> harmonic_suppressor(
-    T                             Kp,
-    T                             Ki_fund,
-    T                             w_fund,
-    T                             wc,
-    T                             Ts,
-    const damp::array<size_t, N>& harmonics
-) {
-    if (Ts <= T{0} || w_fund <= T{0} || wc < T{0}) {
-        return HarmonicSuppressorResult<N, T>{};
+[[nodiscard]] constexpr HarmonicSuppressorResult<N, T>
+harmonic_suppressor(const PRSpec<T>& fundamental, T Ts, const damp::array<size_t, N>& harmonics) {
+    if (!damp::finite_positive(Ts)) {
+        return ::damp::detail::refused<HarmonicSuppressorResult<N, T>>(DesignStatus::invalid_sample_time);
     }
-    const T nyquist = damp::numbers::pi_v<T> / Ts; // [rad/s]
     for (size_t i = 0; i < N; ++i) {
         if (harmonics[i] == 0) {
-            return HarmonicSuppressorResult<N, T>{}; // 0th harmonic (DC) is not a resonant target
+            return ::damp::detail::refused<HarmonicSuppressorResult<N, T>>(DesignStatus::invalid_parameter); // 0th harmonic (DC) is not a resonant target
         }
-        if ((w_fund * static_cast<T>(harmonics[i])) >= nyquist) {
-            return HarmonicSuppressorResult<N, T>{}; // resonator at/above Nyquist is unrealizable
+    }
+    const auto gains = pr_harmonics(fundamental, Ts, harmonics);
+    for (size_t i = 0; i < N; ++i) {
+        if (!gains[i].success) {
+            return ::damp::detail::refused<HarmonicSuppressorResult<N, T>>(gains[i].status);
         }
     }
     return HarmonicSuppressorResult<N, T>{
-        .gains = pr_harmonics(Kp, Ki_fund, w_fund, wc, Ts, harmonics),
-        .w_fund = w_fund,
+        .gains = gains,
+        .w_fund = fundamental.w0,
         .success = true,
+        .status = DesignStatus::ok,
     };
 }
 
@@ -143,9 +154,10 @@ template<size_t N, typename T = double>
  * @ingroup controllers
  * @brief Multi-resonant harmonic suppressor — a parallel bank of PR resonators.
  *
- * Sums the outputs of N PR resonators tuned to the target harmonics; drop it into
- * a current/voltage loop on the error signal. Satisfies the (r, y) controller
- * protocol so it composes like any other controller.
+ * Shared Kp plus N resonators with Kp stripped (applied once on the error). Drop
+ * it into a current/voltage loop. Satisfies the (r, y) controller protocol so it
+ * composes like any other controller. Built from @ref design::harmonic_suppressor,
+ * which carries the fundamental that @ref set_fundamental rescales from.
  *
  * @tparam N Number of harmonics
  * @tparam T Scalar type (float or double)
@@ -157,35 +169,46 @@ public:
 
     constexpr HarmonicSuppressor() = default;
 
-    constexpr explicit HarmonicSuppressor(const damp::array<design::PRResult<T>, N>& gains)
-        // No fundamental is carried with a raw gains array; assume resonator 0 is
-        // the fundamental (order 1) so set_fundamental() can rescale proportionally.
-        : w_fund_(gains[0].w0) {
-        for (size_t i = 0; i < N; ++i) {
-            resonators_[i] = PRController<T>(gains[i]);
-        }
-    }
+    /** @brief From a design result in another scalar: converts it with .as\<T\>() and builds from that. */
+    template<typename U>
+        requires(!std::is_same_v<U, T>)
+    constexpr HarmonicSuppressor(const design::HarmonicSuppressorResult<N, U>& result) // NOLINT(google-explicit-constructor): assign-from-design
+        : HarmonicSuppressor(result.template as<T>()) {}
 
-    constexpr explicit HarmonicSuppressor(const design::HarmonicSuppressorResult<N, T>& design)
+    constexpr HarmonicSuppressor(const design::HarmonicSuppressorResult<N, T>& design) // NOLINT(google-explicit-constructor): assign-from-design
         : w_fund_(design.w_fund), valid_(design.success) {
         if (!design.success && std::is_constant_evaluated()) {
-            ::damp::detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed design does not compile
+            ::damp::detail::refuse_failed_design(design.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
+        install_gains(design.gains);
         for (size_t i = 0; i < N; ++i) {
-            resonators_[i] = PRController<T>(design.gains[i]);
+            valid_ = valid_ && resonators_[i].valid();
         }
     }
 
-    /// Suppression command from the loop error (sum of the resonator outputs).
+    template<typename U>
+    constexpr explicit HarmonicSuppressor(const HarmonicSuppressor<N, U>& other)
+        : Kp_(static_cast<T>(other.Kp())),
+          w_fund_(static_cast<T>(other.fundamental())),
+          valid_(other.valid()) {
+        for (size_t i = 0; i < N; ++i) {
+            resonators_[i] = PRController<T>(other.resonator(i));
+        }
+    }
+
+    /** @brief Suppression command from the loop error (Kp once + sum of resonators). */
     [[nodiscard]] constexpr T control(T error) {
-        T u = T{0};
+        if (!valid_) {
+            return T{0};
+        }
+        T u = Kp_ * error;
         for (size_t i = 0; i < N; ++i) {
             u += resonators_[i].control(error);
         }
         return u;
     }
 
-    /// Reference-tracking overload (computes the error internally).
+    /** @brief Reference-tracking overload (computes the error internally). */
     [[nodiscard]] constexpr T control(T r, T y) { return control(r - y); }
 
     constexpr void reset() {
@@ -194,15 +217,25 @@ public:
         }
     }
 
-    /// Re-tune the bank to a new fundamental (grid-frequency adaptation); the
-    /// harmonic ratios are preserved (resonator i tracks its original order).
+    /**
+     * @brief Re-tune the bank to a new fundamental (grid-frequency adaptation); the
+     * harmonic ratios are preserved (resonator i tracks its original order).
+     *
+     * Ignored when either fundamental is not positive and finite, or when it would move a
+     * resonator to or past Nyquist (the bank is retuned whole or not at all).
+     */
     constexpr void set_fundamental(T w_fund) {
-        if (w_fund_ <= T{0} || w_fund <= T{0}) {
+        if (!damp::finite_positive(w_fund_) || !damp::finite_positive(w_fund)) {
             return; // no valid prior fundamental to rescale from
         }
         // Every resonator was tuned to w0_i = order_i · w_fund_old; scaling all by
         // the same ratio w_fund/w_fund_old preserves each per-resonator order.
         const T ratio = w_fund / w_fund_;
+        for (size_t i = 0; i < N; ++i) {
+            if (!(resonators_[i].w0 * ratio * resonators_[i].Ts < damp::numbers::pi_v<T>)) {
+                return;
+            }
+        }
         for (size_t i = 0; i < N; ++i) {
             resonators_[i].set_frequency(resonators_[i].w0 * ratio);
         }
@@ -210,12 +243,33 @@ public:
     }
 
     [[nodiscard]] constexpr const auto& resonator(size_t i) const { return resonators_[i]; }
+    [[nodiscard]] constexpr T           Kp() const { return Kp_; }
+    [[nodiscard]] constexpr T           fundamental() const { return w_fund_; }
     [[nodiscard]] constexpr bool        valid() const { return valid_; }
 
+    template<typename U>
+    [[nodiscard]] constexpr HarmonicSuppressor<N, U> as() const {
+        return HarmonicSuppressor<N, U>(*this);
+    }
+
 private:
+    constexpr void install_gains(const damp::array<design::PRResult<T>, N>& gains) {
+        Kp_ = gains[0].Kp;
+        for (size_t i = 0; i < N; ++i) {
+            auto r = gains[i];
+            r.Kp = T{0}; // Kp is applied once, not per-harmonic
+            resonators_[i] = PRController<T>(r);
+        }
+    }
+
     damp::array<PRController<T>, N> resonators_{};
+    T                               Kp_{T{0}};
     T                               w_fund_{T{0}};
     bool                            valid_{true};
 };
+
+/** @brief Deduce the runtime from its design, keeping the result's scalar. */
+template<size_t N, typename T>
+HarmonicSuppressor(const design::HarmonicSuppressorResult<N, T>&) -> HarmonicSuppressor<N, T>;
 
 } // namespace damp

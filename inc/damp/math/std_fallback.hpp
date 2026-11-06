@@ -41,8 +41,10 @@ struct StdMathFallback {
     static T atan(T x) { return std::atan(x); }
     static T atan2(T y, T x) { return std::atan2(y, x); }
 
-    /// Combined sin/cos. Returns {sin(x), cos(x)}. Platform backends should
-    /// override this with a shared-range-reduction implementation.
+    /**
+     * @brief Combined sin/cos. Returns {sin(x), cos(x)}. Platform backends should
+     * override this with a shared-range-reduction implementation.
+     */
     static damp::pair<T, T> sincos(T x) { return {std::sin(x), std::cos(x)}; }
 
     static T sqrt(T x) { return std::sqrt(x); }
@@ -58,7 +60,7 @@ struct StdMathFallback {
     static T pow(T base, T exponent) { return std::pow(base, exponent); }
     static T fmod(T x, T y) { return std::fmod(x, y); }
     static T copysign(T mag, T sgn) { return std::copysign(mag, sgn); }
-    /// Bit-pattern IEEE finite test (safe under -ffast-math).
+    /** @brief Bit-pattern IEEE finite test (safe under -ffast-math). */
     static bool isfinite(T x) { return detail::isfinite(x); }
 };
 

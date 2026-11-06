@@ -11,6 +11,7 @@
 
 #include <cmath>
 #include <cstddef>
+#include <limits>
 
 #include "damp/backend.hpp"
 #include "damp/concepts.hpp"
@@ -80,6 +81,54 @@ struct ProportionalPrimary {
     constexpr void reset() {}
 };
 
+/// The Smith predictor as it stood before its model ran on the delayed command: the delay-free FO
+/// model x and a Delay line of its output. The oracle for the rebuilt law.
+template<size_t MaxDelay, typename Primary>
+struct LegacySmith {
+    Primary                 primary{};
+    Delay<MaxDelay, double> delay{};
+    double                  a{0.0};
+    double                  b{0.0};
+    double                  x{0.0};
+
+    LegacySmith(const Primary& c, double a_, double b_, size_t d) : primary(c), a(a_), b(b_) { delay.init(d); }
+
+    double control(double r, double y) {
+        const double y_hat = x;
+        const double y_delayed = delay(y_hat);
+        const double u = primary.control(r, y + y_hat - y_delayed);
+        x = (a * x) + (b * u);
+        return u;
+    }
+};
+
+/// Largest |u_new − u_old| over @p N ticks of the rebuilt and the legacy law, each in closed loop
+/// with its own copy of the FOPDT plant (K, τ, L at Ts), reference steps at 0 and N/2.
+template<size_t MaxD, typename Primary>
+double max_command_gap(const Primary& c, double K, double tau, double L, double Ts, size_t N) {
+    const double                          a = std::exp(-Ts / tau);
+    const double                          b = K * (1.0 - a);
+    const auto                            d = static_cast<size_t>((L / Ts) + 0.5);
+    SmithPredictor<MaxD, double, Primary> rebuilt(c, a, b, d);
+    LegacySmith<MaxD + 1, Primary>        legacy(c, a, b, d);
+    FopdtPlant<MaxD + 1>                  plant_new{};
+    FopdtPlant<MaxD + 1>                  plant_old{};
+    plant_new.init(K, tau, L, Ts);
+    plant_old.init(K, tau, L, Ts);
+    double y_new = 0.0;
+    double y_old = 0.0;
+    double gap = 0.0;
+    for (size_t k = 0; k < N; ++k) {
+        const double r = (k < N / 2) ? 1.0 : -0.5;
+        const double u_new = rebuilt.control(r, y_new);
+        const double u_old = legacy.control(r, y_old);
+        gap = std::max(gap, std::abs(u_new - u_old));
+        y_new = plant_new.step(u_new);
+        y_old = plant_old.step(u_old);
+    }
+    return gap;
+}
+
 static_assert(SisoController<ProportionalPrimary, double>);
 static_assert(SisoController<SmithPredictor<8, double>, double>);
 static_assert(SisoController<SmithPredictor<8, float, PIController<float>>, float>);
@@ -108,7 +157,7 @@ TEST_SUITE("Smith Predictor") {
         CHECK(sp.pid.Ki > 0.0); // PI from SIMC
 
         // SIMC on delay-free plant: Kp = tau / (K * tau_c)
-        const auto cont = design::simc(K, 0.0, tau, tau_c, design::PIDType::PI);
+        const auto cont = design::simc(K, 0.0, tau, tau_c, PIDMode::PI);
         CHECK(sp.pid.Kp == doctest::Approx(cont.Kp));
         CHECK(sp.pid.Ki == doctest::Approx(cont.Ki * Ts));
     }
@@ -264,11 +313,32 @@ TEST_SUITE("Smith Predictor") {
         CHECK_FALSE(too_short.valid());
         CHECK(too_short.control(1.0, 0.0) == doctest::Approx(0.0));
 
-        // d == MaxDelay is unrealizable (Delay capacity is MaxDelay-1) → invalid
+        // MaxDelay is a capacity in whole samples: d = MaxDelay fits, d = MaxDelay + 1 does not.
         constexpr auto d_eq = design::smith_predictor_from_fopdt(1.0, 1.0, 0.8, 0.1, 1.0);
         static_assert(d_eq.delay_samples == 8);
         SmithPredictor<8, double> edge(d_eq);
-        CHECK_FALSE(edge.valid());
+        CHECK(edge.valid());
+        constexpr auto d_over = design::smith_predictor_from_fopdt(1.0, 1.0, 0.9, 0.1, 1.0);
+        static_assert(d_over.delay_samples == 9);
+        SmithPredictor<8, double> over(d_over);
+        CHECK_FALSE(over.valid());
+    }
+
+    TEST_CASE("the law on its ring of commands in flight reproduces the Delay-line law's commands") {
+        // The same plants as the cases above. ŷ is now the delayed model carried over the d
+        // commands in flight instead of a stored delay-free model, so the two agree to the
+        // rounding of d multiply-adds on commands of order 1–10: 1e-12 absolute.
+        const auto pi = [](double K, double tau, double tau_c, double Ts) {
+            return PIController<double>(design::simc(K, 0.0, tau, tau_c, PIDMode::PI).discretize(Ts));
+        };
+        const double gap_l0 = max_command_gap<8>(pi(1.0, 2.0, 1.0, 0.05), 1.0, 2.0, 0.0, 0.05, 400);
+        const double gap_l3 = max_command_gap<128>(pi(1.0, 1.0, 0.5, 0.05), 1.0, 1.0, 3.0, 0.05, 800);
+        const double gap_l05 = max_command_gap<16>(pi(1.0, 2.0, 1.0, 0.1), 1.0, 2.0, 0.5, 0.1, 400);
+        const double gap_p = max_command_gap<32>(ProportionalPrimary{.k = 1.5}, 1.0, 2.0, 1.0, 0.05, 400);
+        CHECK(gap_l0 < 1e-12); // d = 0: ŷ − ŷ_d is zero in both
+        CHECK(gap_l3 < 1e-12);
+        CHECK(gap_l05 < 1e-12);
+        CHECK(gap_p < 1e-12);
     }
 
     TEST_CASE("custom SisoController primary (not PID-family)") {
@@ -307,11 +377,9 @@ TEST_SUITE("Smith Predictor") {
     }
 
     TEST_CASE("full PID primary via template parameter") {
-        // Smith SIMC hides L from C, so Kd = Kp*L/2 is zero; the point of this
+        // Smith SIMC hides L from C, so the packed primary is a PI; the point of this
         // case is that Primary can be PIDController (full mode), not only PI.
-        constexpr auto sp = design::smith_predictor_from_fopdt(
-            1.0, 2.0, 0.0, 0.05, 1.0, design::PIDType::PID
-        );
+        constexpr auto sp = design::smith_predictor_from_fopdt(1.0, 2.0, 0.0, 0.05, 1.0);
         REQUIRE(sp.success);
         SmithPredictor<8, double, PIDController<double>> smith(sp);
         REQUIRE(smith.valid());
@@ -334,24 +402,55 @@ TEST_SUITE("Smith Predictor") {
         static_assert(sp.delay_samples == 4);
         constexpr auto disc = sp.pid;
         static_assert(disc.Ts > 0.0);
-        // Runtime controller is not fully constexpr-friendly (Delay buffer), but
-        // the design/result path used at compile time is.
         (void)disc;
+        // The runtime ticks under constant evaluation too (the commands in flight are a fixed array).
+        constexpr double u2 = [] {
+            SmithPredictor<8, double> c(design::smith_predictor_from_fopdt(1.0, 1.0, 0.2, 0.05, 0.5));
+            (void)c.control(1.0, 0.0);
+            return c.control(1.0, 0.0);
+        }();
+        static_assert(u2 > 0.0);
     }
 
     TEST_CASE("to_tf recovers SIMC primary; plant_tf is K/(τs+1)") {
         constexpr auto sp = design::smith_predictor_from_fopdt(2.0, 5.0, 1.0, 0.1, 2.0);
         REQUIRE(sp.success);
-        const auto C = design::simc(2.0, 0.0, 5.0, 2.0, design::PIDType::PI);
+        const auto C = design::simc(2.0, 0.0, 5.0, 2.0, PIDMode::PI);
         const auto tf = sp.to_tf();
         const auto cref = C.to_tf();
-        CHECK(tf.num[0] == doctest::Approx(cref.num[0]));
-        CHECK(tf.num[1] == doctest::Approx(cref.num[1]));
+        CHECK(tf.num[1] == doctest::Approx(cref.num[1])); // Kp
+        CHECK(tf.num[2] == doctest::Approx(cref.num[2])); // Ki
         CHECK(tf.den[1] == doctest::Approx(cref.den[1]));
         const auto Ghat = sp.plant_tf();
         CHECK(Ghat.num[0] == doctest::Approx(2.0));
-        CHECK(Ghat.den[0] == doctest::Approx(1.0));
-        CHECK(Ghat.den[1] == doctest::Approx(5.0));
-        CHECK(sp.to_ss().D(0, 0) == doctest::Approx(C.to_ss().D(0, 0)));
+        CHECK(Ghat.den[0] == doctest::Approx(5.0)); // τ
+        CHECK(Ghat.den[1] == doctest::Approx(1.0));
+        REQUIRE(sp.to_ss().has_value());
+        CHECK(sp.to_ss()->D(0, 0) == doctest::Approx(C.to_ss()->D(0, 0)));
+    }
+
+    TEST_CASE("smith designs carry a failed primary's status and refuse an unrepresentable delay") {
+        // A Kbc against Ki's sign is refused by discretize; the Smith design used to report success.
+        auto wrong_kbc = design::pid(2.0, 0.4, 0.0);
+        wrong_kbc.Kbc = -1.0;
+        const auto from_bad_kbc = design::smith_predictor_from_pid(wrong_kbc, 1.0, 4.0, 1.0, 0.1);
+        CHECK_FALSE(from_bad_kbc.success);
+        CHECK(from_bad_kbc.status == design::DesignStatus::invalid_parameter);
+        SmithPredictor<16, double> runtime(from_bad_kbc);
+        CHECK_FALSE(runtime.valid());
+
+        const auto failed_tuning = design::simc(0.0, 0.0, 4.0, 1.0); // K = 0: refused
+        REQUIRE_FALSE(failed_tuning.success);
+        CHECK(design::smith_predictor_from_pid(failed_tuning, 1.0, 4.0, 1.0, 0.1).status == failed_tuning.status);
+
+        // round(L/Ts) has no size_t value for an infinite or huge L.
+        const double inf = std::numeric_limits<double>::infinity();
+        const double nan = std::numeric_limits<double>::quiet_NaN();
+        const auto   pid = design::pid(2.0, 0.4, 0.0);
+        CHECK(design::smith_predictor_from_pid(pid, 1.0, 4.0, inf, 0.1).status == design::DesignStatus::invalid_parameter);
+        CHECK(design::smith_predictor_from_pid(pid, 1.0, 4.0, 1e300, 0.1).status == design::DesignStatus::invalid_parameter);
+        CHECK(design::smith_predictor_from_fopdt(1.0, 4.0, inf, 0.1).status == design::DesignStatus::invalid_parameter);
+        CHECK(design::smith_predictor_from_fopdt(1.0, nan, 1.0, 0.1).status == design::DesignStatus::invalid_parameter);
+        CHECK(design::smith_predictor_from_fopdt(1.0, 4.0, 1.0, nan).status == design::DesignStatus::invalid_sample_time);
     }
 }

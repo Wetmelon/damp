@@ -33,6 +33,7 @@
  * Example: relay autotune for a discrete plant, then apply Ziegler-Nichols.
  * @code
  * #include "damp/backend.hpp"
+#include "damp/design/status.hpp"
 #include "damp/estimation/relay_autotune.hpp"
  * #include "damp/design/pid_design.hpp"
  *
@@ -50,8 +51,8 @@
  *     .max_duration    = 30.0f,
  * };
  *
- * constexpr auto autotune = design::relay_autotune(cfg);
- * static constinit RelayAutotuner<float> tuner{autotune, Ts}; // a failed design does not compile
+ * constexpr auto autotune = design::relay_autotune(cfg, Ts);
+ * static constinit RelayAutotuner<float> tuner{autotune}; // a failed design does not compile
  *
  * // In the control loop, replace the controller with the tuner:
  * RelayAutotuneOutput<float> out = tuner.step(y);
@@ -62,7 +63,7 @@
  *     // Ziegler-Nichols formulas: same (Kᵤ, Tᵤ) input, gentler gains, ~6 dB
  *     // gain margin, no quarter-decay oscillation. Use design::ziegler_nichols
  *     // only when matching a textbook or legacy controller.
- *     auto pid = design::tyreus_luyben(out.Ku, out.Tu, Ts);
+ *     auto pid = design::tyreus_luyben(out.Ku, out.Tu);
  *     // hand pid off to a PIDController and resume normal control
  * }
  * @endcode
@@ -99,8 +100,11 @@
 #include <limits>
 #include <type_traits>
 
+#include "damp/backend.hpp"
+#include "damp/design/status.hpp"
 #include "damp/math/math.hpp"
 #include "damp/matrix/matrix_traits.hpp"
+#include "damp/toolbox/bounds.hpp"
 
 namespace damp {
 
@@ -116,15 +120,17 @@ namespace design {
  *
  * Hysteresis ε around the setpoint rejects measurement noise: the relay flips
  * only when |y − setpoint| exceeds ε.
+ *
+ * The relay levels u_bias + d⁺ and u_bias − d⁻ must lie inside @c u_lim:
+ * saturation never acts on them, so the applied amplitude is the d that Kᵤ uses.
  */
 template<typename T = double>
 struct RelayAutotuneConfig {
-    T amplitude{T{1}};                       ///< Positive-side magnitude d⁺ (> 0)
-    T hysteresis{T{0}};                      ///< ε around setpoint (≥ 0)
-    T setpoint{T{0}};                        ///< Operating point r
-    T u_bias{T{0}};                          ///< Baseline command
-    T u_min{-std::numeric_limits<T>::max()}; ///< Output saturation (lower)
-    T u_max{std::numeric_limits<T>::max()};  ///< Output saturation (upper)
+    T            amplitude{T{1}};  ///< Positive-side magnitude d⁺ (> 0)
+    T            hysteresis{T{0}}; ///< ε around setpoint (≥ 0)
+    T            setpoint{T{0}};   ///< Operating point r
+    T            u_bias{T{0}};     ///< Baseline command
+    Bounds<1, T> u_lim{};          ///< Output saturation [lower, upper] (default unbounded)
 
     std::size_t warmup_cycles{2};  ///< Half-periods discarded as transient
     std::size_t measure_cycles{6}; ///< Half-periods averaged for Tᵤ (≥ 2; rounded up to even)
@@ -132,7 +138,7 @@ struct RelayAutotuneConfig {
     T period_tolerance{static_cast<T>(0.05)}; ///< Convergence: (max − min) / mean ≤ tol
     T max_duration{T{30}};                    ///< Safety timeout (seconds, > 0)
 
-    /// Negative-side magnitude d⁻. If ≤ 0, uses @c amplitude (symmetric relay).
+    /** @brief Negative-side magnitude d⁻. If ≤ 0, uses @c amplitude (symmetric relay). */
     T amplitude_neg{T{0}};
 
     [[nodiscard]] constexpr T d_pos() const { return amplitude; }
@@ -150,12 +156,12 @@ struct RelayAutotuneConfig {
         if (amplitude_neg < T{0}) {
             return false;
         }
-        const T d_min = (amplitude_neg > T{0} && amplitude_neg < amplitude) ? amplitude_neg : amplitude;
-        // ε must be ≥ 0 and strictly below the smaller half-amplitude.
-        if (hysteresis < T{0} || hysteresis >= d_min) {
+        // ε is in output units; whether the limit cycle clears it (a > ε) is checked at run time.
+        if (hysteresis < T{0}) {
             return false;
         }
-        if (u_min >= u_max) {
+        // The relay levels must fit inside u_lim: a clipped level is not the d that Kᵤ = 4d/(πa) uses.
+        if (!(u_lim.lower(0) <= u_bias - d_neg()) || !(u_bias + d_pos() <= u_lim.upper(0))) {
             return false;
         }
         if (measure_cycles < std::size_t{2}) {
@@ -180,7 +186,12 @@ struct RelayAutotuneConfig {
 template<typename T = double>
 struct RelayAutotuneResult {
     RelayAutotuneConfig<T> config{};
-    bool                   success{false};
+    bool                   success{false};                      ///< status == DesignStatus::ok
+    DesignStatus           status{DesignStatus::not_converged}; ///< ok, or why the design failed
+    T                      Ts{0};                               ///< [s] Sample time the experiment ticks at
+
+    /** @brief True when the design succeeded (success). */
+    [[nodiscard]] constexpr explicit operator bool() const { return success; }
 
     template<typename U>
     [[nodiscard]] constexpr RelayAutotuneResult<U> as() const {
@@ -190,8 +201,7 @@ struct RelayAutotuneResult {
                 static_cast<U>(config.hysteresis),
                 static_cast<U>(config.setpoint),
                 static_cast<U>(config.u_bias),
-                static_cast<U>(config.u_min),
-                static_cast<U>(config.u_max),
+                config.u_lim.template as<U>(),
                 config.warmup_cycles,
                 config.measure_cycles,
                 static_cast<U>(config.period_tolerance),
@@ -199,6 +209,8 @@ struct RelayAutotuneResult {
                 static_cast<U>(config.amplitude_neg),
             },
             success,
+            status,
+            static_cast<U>(Ts),
         };
     }
 };
@@ -207,12 +219,21 @@ struct RelayAutotuneResult {
  * @brief Build a validated relay-autotune design payload.
  *
  * @param config Experiment configuration.
- * @return RelayAutotuneResult with `success = config.valid()`.
+ * @param Ts     [s] Sample time the runtime ticks at (> 0).
+ * @return RelayAutotuneResult; refused with invalid_parameter for an invalid config and
+ *         with invalid_sample_time for Ts ≤ 0 or non-finite.
  */
 template<typename T = double>
 [[nodiscard]] constexpr RelayAutotuneResult<T>
-relay_autotune(const RelayAutotuneConfig<T>& config) {
-    return RelayAutotuneResult<T>{config, config.valid()};
+relay_autotune(const RelayAutotuneConfig<T>& config, T Ts) {
+    RelayAutotuneResult<T> out{.config = config, .Ts = Ts};
+    if (!config.valid()) {
+        return ::damp::detail::set_status(out, DesignStatus::invalid_parameter);
+    }
+    if (!(Ts > T{0}) || !damp::isfinite(Ts)) {
+        return ::damp::detail::set_status(out, DesignStatus::invalid_sample_time);
+    }
+    return ::damp::detail::set_status(out, DesignStatus::ok);
 }
 
 } // namespace design
@@ -259,16 +280,21 @@ class RelayAutotuner {
 public:
     constexpr RelayAutotuner() = default;
 
+    /** @brief From a design result in another scalar: converts it with .as\<T\>() and builds from that. */
+    template<typename U>
+        requires(!std::is_same_v<U, T>)
+    constexpr RelayAutotuner(const design::RelayAutotuneResult<U>& result) // NOLINT(google-explicit-constructor): assign-from-design
+        : RelayAutotuner(result.template as<T>()) {}
+
     /**
-     * @brief Construct from a validated design payload and the loop sample time.
+     * @brief Construct from a validated design payload, which carries the sample time.
      *
      * @param design Relay-autotune design payload.
-     * @param Ts     Sample time in seconds (> 0).
      */
-    constexpr RelayAutotuner(const design::RelayAutotuneResult<T>& design, T Ts)
-        : config_(design.config), Ts_(Ts), valid_design_(design.success && Ts > T{0}), status_(valid_design_ ? RelayAutotuneStatus::Idle : RelayAutotuneStatus::Failed) {
+    constexpr RelayAutotuner(const design::RelayAutotuneResult<T>& design) // NOLINT(google-explicit-constructor): assign-from-design
+        : config_(design.config), Ts_(design.Ts), valid_design_(design.success && design.Ts > T{0}), status_(valid_design_ ? RelayAutotuneStatus::Idle : RelayAutotuneStatus::Failed) {
         if (!design.success && std::is_constant_evaluated()) {
-            ::damp::detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed design does not compile
+            ::damp::detail::refuse_failed_design(design.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
     }
 
@@ -372,17 +398,9 @@ public:
     [[nodiscard]] constexpr T                   Ks() const { return Ks_; }
 
 private:
-    constexpr T saturate(T u) const {
-        if (u < config_.u_min) {
-            return config_.u_min;
-        }
-        if (u > config_.u_max) {
-            return config_.u_max;
-        }
-        return u;
-    }
+    constexpr T saturate(T u) const { return config_.u_lim.saturate(u); }
 
-    /// Signed half-amplitude for the current relay_sign_ (+ → d⁺, − → −d⁻).
+    /** @brief Signed half-amplitude for the current relay_sign_ (+ → d⁺, − → −d⁻). */
     [[nodiscard]] constexpr T relay_half_amplitude() const {
         if (relay_sign_ >= T{0}) {
             return config_.d_pos();
@@ -390,7 +408,7 @@ private:
         return -config_.d_neg();
     }
 
-    /// Effective d for describing-function Ku (geometric mean of half-amplitudes).
+    /** @brief Effective d for describing-function Ku (geometric mean of half-amplitudes). */
     [[nodiscard]] constexpr T effective_d() const {
         return damp::sqrt(config_.d_pos() * config_.d_neg());
     }
@@ -521,5 +539,9 @@ private:
     T Tu_{T{0}};
     T Ks_{T{0}};
 };
+
+/** @brief Deduce the runtime from its design, keeping the result's scalar. */
+template<typename T>
+RelayAutotuner(const design::RelayAutotuneResult<T>&) -> RelayAutotuner<T>;
 
 } // namespace damp

@@ -11,8 +11,10 @@
  *        series in constexpr_math.hpp, pulling no hosted headers (no \<cmath\>).
  *
  * Selected with DAMP_MATH_BACKEND_FREESTANDING. Runtime accuracy is the same
- * series used at compile time (machine-precision over the practical range). The
- * natural pairing for the ETL container backend on targets without libm.
+ * series used at compile time: a few ulp (float ≤ 4, double about 1), with
+ * sin/cos/tan exact-reduction ranges of |x| ≲ 10⁵ rad (float) and 1.6·10⁶ rad
+ * (double); see detail::reduce_half_pi. The natural pairing for the ETL
+ * container backend on targets without libm.
  */
 
 #include "constexpr_math.hpp" // damp::detail::* (series; freestanding)

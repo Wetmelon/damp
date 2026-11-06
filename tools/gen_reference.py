@@ -43,6 +43,7 @@ LINE_DOC = re.compile(r"^((?:///[^\n]*\n)+)(.*?)(?=\n/\*\*|\n///|\n\}|\Z)", re.S
 # end of the captured innards — BLOCK strips the trailing */, so a doc comment that
 # is only an @brief line has no other terminator ($ catches it).
 BRIEF = re.compile(r"@brief\s+(.*?)(?:\n\s*\*\s*@|\n\s*\*\s*\n|\*/|$)", re.S)
+COPIED = re.compile(r"@(?:copydoc|copybrief|overload)\b")
 
 # Internal, compile-time-selected math backends. Each re-declares the same
 # damp:: scalar surface (sin/cos/sqrt/...), so listing their functions is pure
@@ -86,6 +87,7 @@ def escape_table_pipes(t):
 def clean_brief(t):
     t = t.strip().rstrip(".")
     t = doxygen_math_to_md(t)
+    t = re.sub(r"@ref\s+\S+\s+\"([^\"]*)\"", r"\1", t)  # @ref target "text" → text
     t = re.sub(r"@(?:ref|c|p|a)\s+", "", t)  # drop Doxygen inline tags
     return escape_table_pipes(t)
 
@@ -99,7 +101,7 @@ def brief_text(body):
 
 def line_doc_text(comment):
     """First sentence-ish of a column-0 /// run."""
-    lines = [re.sub(r"^///<?\s*", "", l.strip()) for l in comment.strip().split("\n")]
+    lines = [re.sub(r"^///<?\s*(?:@brief\s+)?", "", l.strip()) for l in comment.strip().split("\n")]
     return clean_brief(" ".join(l for l in lines if l))
 
 
@@ -129,7 +131,7 @@ def decl(code):
         m = re.search(r"\bconcept\s+(\w+)", joined)
         if m:
             return ("concept", m.group(1), i)
-        m = re.search(r"\b(?<!enum )(struct|class)\s+(\w+)", joined)
+        m = re.search(r"\b(?<!enum )(struct|class)\s+(?:\[\[[^\]]+\]\]\s+)*(\w+)", joined)
         if m and "{" in joined or (m and ";" not in joined and len(buf) <= 3):
             return ("type", m.group(2), i)
         m = re.search(r"\benum\s+(?:class\s+)?(\w+)", joined)
@@ -143,6 +145,10 @@ def decl(code):
                 if re.search(r"\b(struct|class|enum)\b", joined):
                     continue
                 return ("fn", fm.group(1), i)
+            if not fm and ("{" in s or s.endswith(";")):
+                # An operator: its declaration names nothing. Never take a name from
+                # the body, where operator+ calls damp::max on its first line.
+                return None
         if len(buf) > 4:
             break
     return None
@@ -177,6 +183,21 @@ def entity_category(path, kind, name):
 entries = collections.defaultdict(list)  # cat -> list[(kind,name,brief,header)]
 seen = collections.defaultdict(set)
 overloads = collections.Counter()  # (cat, name) -> extra same-name doc blocks seen
+borrowed_docs = []  # (cat, name) of @copydoc / @overload blocks with no @brief
+row_of = {}  # (cat, name) -> (index into entries[cat], whether that row's overload takes a view)
+
+# Non-owning matrix views (Diagonal, UpperTriangle, LowerTriangle, …). An overload on
+# a view is a special case of the one on the owning type (mat::solve substitutes on a
+# LowerTriangle, factors a Matrix), so it describes the overload set only when no
+# overload takes the owning type.
+VIEW_TYPES = set(re.findall(r"^(?:struct|class) (\w+)",
+                            (ROOT / "matrix" / "views.hpp").read_text(encoding="utf-8"), re.M))
+
+
+def takes_view(code):
+    """True when a function declaration's first parameter is a non-owning matrix view."""
+    m = re.search(r"\w+\s*\(\s*(?:const\s+)?(\w+)\s*<", code)
+    return bool(m) and m.group(1) in VIEW_TYPES
 
 
 def detail_spans(text):
@@ -194,20 +215,33 @@ def collect(path, text, header, matches, get_brief, hidden):
         if any(a <= m.start(2) < b for a, b in hidden):
             continue  # inside namespace detail
         b = get_brief(m.group(1))
-        if not b:
+        # A borrowed doc (@copydoc / @copybrief / @overload, no @brief of its own) still
+        # marks an overload of a name already listed; it never opens a new entry.
+        borrowed = not b and COPIED.search(m.group(1))
+        if not b and not borrowed:
             continue
         d = decl(m.group(2))
         if not d:
             continue
         kind, name, off = d
         cat = entity_category(path, kind, name)
-        if name in seen[cat]:
-            overloads[(cat, name)] += 1  # keep the first (primary) overload's brief
+        if borrowed:
+            borrowed_docs.append((cat, name))  # counted once every brief is seen
             continue
-        seen[cat].add(name)
         # line of the declaration itself: first line of the code block + its offset
         line = text.count("\n", 0, m.start(2)) + 1 + off
-        entries[cat].append((kind, name, b, f"inc/{header}#L{line}"))
+        row = (kind, name, b, f"inc/{header}#L{line}")
+        view = kind == "fn" and takes_view("\n".join(m.group(2).split("\n")[off:]))
+        if name in seen[cat]:
+            overloads[(cat, name)] += 1  # keep the first (primary) overload's brief…
+            index, primary_view = row_of[(cat, name)]
+            if primary_view and not view:  # …unless it is a view special case of this one
+                entries[cat][index] = row
+                row_of[(cat, name)] = (index, False)
+            continue
+        seen[cat].add(name)
+        row_of[(cat, name)] = (len(entries[cat]), view)
+        entries[cat].append(row)
 
 
 for hpp in sorted(ROOT.rglob("*.hpp")):
@@ -218,6 +252,10 @@ for hpp in sorted(ROOT.rglob("*.hpp")):
     hidden = detail_spans(text)
     collect(hpp, text, header, BLOCK.finditer(text), brief_text, hidden)
     collect(hpp, text, header, LINE_DOC.finditer(text), line_doc_text, hidden)
+
+for cat, name in borrowed_docs:
+    if name in seen[cat]:
+        overloads[(cat, name)] += 1
 
 # Same-name doc blocks are overload sets — say so instead of pretending the first
 # overload's brief is the whole story (e.g. mat::solve's triangular/LU/Cholesky family).

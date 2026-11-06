@@ -18,6 +18,7 @@ local damp_dirs = {
     '../inc/damp/analysis',
     '../inc/damp/controllers',
     '../inc/damp/design',
+    '../inc/damp/encoder',
     '../inc/damp/estimation',
     '../inc/damp/filters',
     '../inc/damp/kinematics',
@@ -58,6 +59,18 @@ tup.rule(
     'sh ../tools/contract_check.sh embedded ' .. CXX .. ' %o',
     {
         'build/embedded.ok',
+        '^build/probe.*',
+        '^inc/.*',
+        '^\\.\\./inc/.*',
+    }
+)
+
+-- workbench: host umbrella compiles as the only include
+tup.rule(
+    headers,
+    'sh ../tools/contract_check.sh workbench ' .. CXX .. ' %o',
+    {
+        'build/workbench.ok',
         '^build/probe.*',
         '^inc/.*',
         '^\\.\\./inc/.*',

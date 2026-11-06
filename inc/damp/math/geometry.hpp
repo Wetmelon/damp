@@ -10,19 +10,33 @@
  * @brief 3D rotations and homogeneous transforms: DCM, Quaternion, Euler, Transform4
  *
  * Working attitude types for estimation and robotics. Rigid-body pose
- * composition uses @c Quaternion + translation (@ref Pose in @c pose.hpp);
- * @ref Transform4 is retained for DH / homogeneous interop only.
+ * composition uses @c Quaternion + translation (@ref damp::Pose in @c pose.hpp);
+ * @ref damp::Transform4 is retained for DH / homogeneous interop only.
  *
- * Convention: @c EulerZYX = aerospace yaw-pitch-roll; @c EulerXYZ = robotics
- * roll-pitch-yaw — do not conflate them.
+ * Conventions:
+ *   - @ref damp::DCM and @ref damp::Quaternion are active rotations: R maps
+ *     body-frame coordinates into the parent frame (R_pb), and the quaternion
+ *     uses the Hamilton product. The aerospace / MATLAB® @c angle2dcm and
+ *     @c quat2dcm "DCM" is the passive parent→body matrix, the transpose.
+ *   - Euler angles are intrinsic sequences: Euler<T, Order>{θ₁, θ₂, θ₃} is a
+ *     rotation θ₁ about the first axis, then θ₂ about the once-rotated second
+ *     axis, then θ₃ about the twice-rotated third axis, so the matrix is the
+ *     product of principal rotations in sequence order (@c XYZ: Rx(θ₁) Ry(θ₂) Rz(θ₃)).
+ *   - @c EulerZYX{ψ, θ, φ} is aerospace yaw-pitch-roll, R = Rz(ψ) Ry(θ) Rx(φ).
+ *     The same matrix is the URDF / ROS (REP 103) @c rpy and Craig's X-Y-Z
+ *     fixed angles (roll about fixed X, then pitch about fixed Y, then yaw about
+ *     fixed Z): load URDF @c rpy="r p y" as @c EulerZYX{y, p, r}.
+ *   - @c EulerXYZ is the intrinsic X-Y′-Z″ (Cardan) sequence, scipy
+ *     @c from_euler('XYZ'). It is a different rotation from URDF / ROS @c rpy.
  *
  * @see Solà et al., "Quaternion kinematics for the error-state Kalman filter" (2017)
+ *      (Hamilton, active: the convention used here)
  * @see Diebel, "Representing Attitude: Euler Angles, Unit Quaternions, and Rotation Vectors" (2006)
+ *      (uses the passive attitude matrix, the transpose of @ref damp::DCM)
  */
 
 #include <cstddef>
 #include <initializer_list>
-#include <span>
 #include <type_traits>
 
 #include "damp/backend.hpp"
@@ -34,11 +48,13 @@ namespace damp {
 /**
  * @brief Intrinsic Euler angle sequence (axis order of successive principal rotations)
  *
- * @c ZYX is aerospace yaw-pitch-roll; @c XYZ is robotics roll-pitch-yaw.
+ * Each rotation is about the axis as moved by the previous ones. @c ZYX is
+ * aerospace yaw-pitch-roll and equals URDF / ROS @c rpy; @c XYZ is intrinsic
+ * X-Y′-Z″, which is not URDF / ROS @c rpy (see the file documentation).
  */
 enum class EulerOrder {
-    XYZ, ///< Roll-pitch-yaw (robotics RPY)
-    ZYX, ///< Yaw-pitch-roll (aerospace YPR)
+    XYZ, ///< X, then Y′, then Z″: R = Rx Ry Rz (Cardan; scipy 'XYZ')
+    ZYX, ///< Yaw-pitch-roll (aerospace YPR; URDF / ROS rpy): R = Rz Ry Rx
     ZXY, ///< Z then X then Y
     YXZ, ///< Y then X then Z
     YZX, ///< Y then Z then X
@@ -56,7 +72,14 @@ template<typename T, EulerOrder Order>
 struct Euler;
 
 /**
- * @brief Direction cosine matrix — 3×3 rotation (SO(3) wrapper over @ref Mat3)
+ * @brief Rotation matrix, active body→parent (SO(3) wrapper over @ref Mat3)
+ *
+ * R v maps a vector's body-frame coordinates to parent-frame coordinates, and
+ * @ref rotate_z(θ) rotates a vector by +θ about Z. This is the transpose of the
+ * passive (parent→body) direction cosine matrix used in much aerospace text.
+ *
+ * @note Compare with MATLAB®'s eul2rotm / quat2rotm (same matrix); angle2dcm and
+ *       quat2dcm return the transpose.
  * @tparam T Floating-point scalar
  */
 template<typename T>
@@ -71,16 +94,16 @@ struct DCM : public Mat3<T> {
     constexpr DCM& operator=(DCM&&) = default;
     constexpr ~DCM() = default;
 
-    /// Construct from a raw @ref Mat3 (entries used as-is).
+    /** @brief Construct from a raw @ref Mat3 (entries used as-is). */
     constexpr explicit DCM(const Mat3<T>& m) : Mat3<T>(m) {}
 
-    /// Row-nested initializer list (prvalue / RVO-friendly).
+    /** @brief Row-nested initializer list (prvalue / RVO-friendly). */
     constexpr DCM(std::initializer_list<std::initializer_list<T>> init) : Mat3<T>(init) {}
 
-    /// Identity rotation.
+    /** @brief Identity rotation. */
     [[nodiscard]] static constexpr DCM identity() { return DCM{}; }
 
-    /// Principal-axis rotation about X by @p angle [rad].
+    /** @brief Principal-axis rotation about X by @p angle [rad]. */
     [[nodiscard]] static constexpr DCM rotate_x(T angle) {
         const auto [s, c] = damp::sincos(angle);
         return DCM{
@@ -90,7 +113,7 @@ struct DCM : public Mat3<T> {
         };
     }
 
-    /// Principal-axis rotation about Y by @p angle [rad].
+    /** @brief Principal-axis rotation about Y by @p angle [rad]. */
     [[nodiscard]] static constexpr DCM rotate_y(T angle) {
         const auto [s, c] = damp::sincos(angle);
         return DCM{
@@ -100,7 +123,7 @@ struct DCM : public Mat3<T> {
         };
     }
 
-    /// Principal-axis rotation about Z by @p angle [rad].
+    /** @brief Principal-axis rotation about Z by @p angle [rad]. */
     [[nodiscard]] static constexpr DCM rotate_z(T angle) {
         const auto [s, c] = damp::sincos(angle);
         return DCM{
@@ -110,51 +133,48 @@ struct DCM : public Mat3<T> {
         };
     }
 
-    /// Compose rotations: R_this R_rhs.
+    /** @brief Compose rotations: R_this R_rhs. */
     [[nodiscard]] constexpr DCM operator*(const DCM& rhs) const {
         return DCM(static_cast<const Mat3<T>&>(*this) * static_cast<const Mat3<T>&>(rhs));
     }
 
-    /// In-place composition with @p rhs.
+    /** @brief In-place composition with @p rhs. */
     constexpr DCM& operator*=(const DCM& rhs) {
         return *this = *this * rhs;
     }
 
-    /// Rotate a 3-vector: R v.
+    /** @brief Rotate a 3-vector: R v. */
     [[nodiscard]] constexpr Vec3<T> operator*(const Vec3<T>& v) const {
         return Vec3<T>(static_cast<const Mat3<T>&>(*this) * static_cast<const Matrix<3, 1, T>&>(v));
     }
 
-    /// Matrix transpose (inverse when @c R is orthonormal).
+    /** @brief Matrix transpose (inverse when @c R is orthonormal). */
     [[nodiscard]] constexpr DCM transpose() const {
         return DCM(Mat3<T>::transpose());
     }
 
-    /// Inverse rotation (transpose for orthonormal @c R).
+    /** @brief Inverse rotation (transpose for orthonormal @c R). */
     [[nodiscard]] constexpr DCM inverse() const {
         return transpose();
     }
 
-    /// Underlying @ref Mat3 view.
+    /** @brief Underlying @ref Mat3 view. */
     [[nodiscard]] constexpr const Mat3<T>& matrix() const { return *this; }
-    /// Underlying @ref Mat3 view (mutable).
+    /** @brief Underlying @ref Mat3 view (mutable). */
     [[nodiscard]] constexpr Mat3<T>& matrix() { return *this; }
 
-    /**
-     * @brief Convert to a unit quaternion
-     * @return Unit quaternion, or nullopt if this is not a rotation (see @ref Quaternion::from_dcm)
-     */
-    [[nodiscard]] constexpr damp::optional<Quaternion<T>> to_quaternion() const;
+    /** @brief Convert to a unit quaternion (see @ref Quaternion::from_dcm; not validated). */
+    [[nodiscard]] constexpr Quaternion<T> to_quaternion() const;
 
-    /// Convert to Euler angles in sequence @p Order.
+    /** @brief Convert to Euler angles in sequence @p Order. */
     template<EulerOrder Order>
     [[nodiscard]] constexpr Euler<T, Order> to_euler() const;
 
-    /// Build from Euler angles in sequence @p Order.
+    /** @brief Build from Euler angles in sequence @p Order. */
     template<EulerOrder Order>
     [[nodiscard]] static constexpr DCM from_euler(const Euler<T, Order>& e);
 
-    /// Build from a (unit) quaternion.
+    /** @brief Build from a (unit) quaternion. */
     [[nodiscard]] static constexpr DCM from_quaternion(const Quaternion<T>& q);
 
     /**
@@ -196,7 +216,8 @@ struct DCM : public Mat3<T> {
  * @brief Intrinsic Euler angles for sequence @p Order (default @c ZYX aerospace YPR)
  *
  * Storage is @c angle1, @c angle2, @c angle3 along the sequence axes. For
- * @c ZYX: yaw/pitch/roll; for @c XYZ: use @c roll_xyz / @c pitch_xyz / @c yaw_xyz.
+ * @c ZYX: yaw/pitch/roll. For @c XYZ the angles are the rotations about X, Y′
+ * and Z″; this is not URDF / ROS @c rpy, which is @c EulerZYX{yaw, pitch, roll}.
  *
  * @tparam T     Floating-point scalar
  * @tparam Order Intrinsic rotation sequence
@@ -220,59 +241,32 @@ struct Euler {
 
     // --- ZYX (aerospace yaw-pitch-roll): angle1=yaw, angle2=pitch, angle3=roll ---
 
-    /// Yaw (ZYX only) [rad].
+    /** @brief Yaw (ZYX only) [rad]. */
     [[nodiscard]] constexpr T yaw() const
         requires(Order == EulerOrder::ZYX)
     { return angle1; }
-    /// Yaw (ZYX only) [rad], mutable.
+    /** @brief Yaw (ZYX only) [rad], mutable. */
     [[nodiscard]] constexpr T& yaw()
         requires(Order == EulerOrder::ZYX)
     { return angle1; }
-    /// Pitch (ZYX only) [rad].
+    /** @brief Pitch (ZYX only) [rad]. */
     [[nodiscard]] constexpr T pitch() const
         requires(Order == EulerOrder::ZYX)
     { return angle2; }
-    /// Pitch (ZYX only) [rad], mutable.
+    /** @brief Pitch (ZYX only) [rad], mutable. */
     [[nodiscard]] constexpr T& pitch()
         requires(Order == EulerOrder::ZYX)
     { return angle2; }
-    /// Roll (ZYX only) [rad].
+    /** @brief Roll (ZYX only) [rad]. */
     [[nodiscard]] constexpr T roll() const
         requires(Order == EulerOrder::ZYX)
     { return angle3; }
-    /// Roll (ZYX only) [rad], mutable.
+    /** @brief Roll (ZYX only) [rad], mutable. */
     [[nodiscard]] constexpr T& roll()
         requires(Order == EulerOrder::ZYX)
     { return angle3; }
 
-    // --- XYZ (robotics roll-pitch-yaw): angle1=roll, angle2=pitch, angle3=yaw ---
-
-    /// Roll (XYZ only) [rad].
-    [[nodiscard]] constexpr T roll_xyz() const
-        requires(Order == EulerOrder::XYZ)
-    { return angle1; }
-    /// Roll (XYZ only) [rad], mutable.
-    [[nodiscard]] constexpr T& roll_xyz()
-        requires(Order == EulerOrder::XYZ)
-    { return angle1; }
-    /// Pitch (XYZ only) [rad].
-    [[nodiscard]] constexpr T pitch_xyz() const
-        requires(Order == EulerOrder::XYZ)
-    { return angle2; }
-    /// Pitch (XYZ only) [rad], mutable.
-    [[nodiscard]] constexpr T& pitch_xyz()
-        requires(Order == EulerOrder::XYZ)
-    { return angle2; }
-    /// Yaw (XYZ only) [rad].
-    [[nodiscard]] constexpr T yaw_xyz() const
-        requires(Order == EulerOrder::XYZ)
-    { return angle3; }
-    /// Yaw (XYZ only) [rad], mutable.
-    [[nodiscard]] constexpr T& yaw_xyz()
-        requires(Order == EulerOrder::XYZ)
-    { return angle3; }
-
-    /// Compose principal rotations into a DCM for this sequence.
+    /** @brief Compose principal rotations into a DCM for this sequence. */
     [[nodiscard]] constexpr DCM<T> to_dcm() const {
         if constexpr (Order == EulerOrder::ZYX) {
             return DCM<T>::rotate_z(angle1) * DCM<T>::rotate_y(angle2) * DCM<T>::rotate_x(angle3);
@@ -289,7 +283,7 @@ struct Euler {
         }
     }
 
-    /// Convert to a unit quaternion (via DCM).
+    /** @brief Convert to a unit quaternion (via DCM). */
     [[nodiscard]] constexpr Quaternion<T> to_quaternion() const;
 
     /**
@@ -298,10 +292,13 @@ struct Euler {
      * One Tait–Bryan formula for all six sequences. With axes (i, j, k) and
      * s = +1 for a cyclic order (XYZ, YZX, ZXY), −1 otherwise:
      * @f$ \theta_2 = \operatorname{atan2}(s R_{ik}, \sqrt{R_{jk}^2 + R_{kk}^2}) @f$
-     * (no asin cancellation near ±π/2), @f$ \theta_1 = \operatorname{atan2}(-s R_{jk}, R_{kk}) @f$,
-     * @f$ \theta_3 = \operatorname{atan2}(-s R_{ij}, R_{ii}) @f$.
-     * At gimbal lock (cos θ₂ ≤ √ε, where θ₁ and θ₃ lose their separate
-     * meaning) θ₃ is set to 0 and θ₁ absorbs the remaining freedom.
+     * (no asin cancellation near ±π/2) and
+     * @f$ \theta_3 = \operatorname{atan2}(-s R_{ij}, R_{ii}) @f$. θ₁ is then
+     * solved from column j of @f$ R\,R_k(\theta_3)^T = R_i(\theta_1) R_j(\theta_2) @f$:
+     * @f$ \theta_1 = \operatorname{atan2}(s(c_3 R_{kj} + s\,s_3 R_{ki}),\; c_3 R_{jj} + s\,s_3 R_{ji}) @f$.
+     * Near gimbal lock θ₃ comes from entries of size cos θ₂ and carries their
+     * rounding error, but θ₁ absorbs that error, so the angles reproduce R to
+     * rounding at every pitch. At lock (cos θ₂ ≤ ε) θ₃ is set to 0.
      */
     [[nodiscard]] static constexpr Euler from_dcm(const DCM<T>& R) {
         constexpr auto   axes = euler_axes();
@@ -312,13 +309,13 @@ struct Euler {
 
         const T cos2 = damp::hypot(R(j, k), R(k, k));
         const T a2 = damp::atan2(s * R(i, k), cos2);
-        if (cos2 > damp::sqrt(damp::eps<T>())) {
-            return Euler{damp::atan2(-s * R(j, k), R(k, k)), a2, damp::atan2(-s * R(i, j), R(i, i))};
-        }
-        return Euler{damp::atan2(s * R(k, j), R(j, j)), a2, T{0}};
+        const T a3 = (cos2 > damp::eps<T>()) ? damp::atan2(-s * R(i, j), R(i, i)) : T{0};
+        const auto [s3, c3] = damp::sincos(a3);
+        const T a1 = damp::atan2(s * ((c3 * R(k, j)) + (s * s3 * R(k, i))), (c3 * R(j, j)) + (s * s3 * R(j, i)));
+        return Euler{a1, a2, a3};
     }
 
-    /// Axis indices (0 = X, 1 = Y, 2 = Z) of the three rotations in @p Order.
+    /** @brief Axis indices (0 = X, 1 = Y, 2 = Z) of the three rotations in @p Order. */
     [[nodiscard]] static constexpr damp::array<size_t, 3> euler_axes() {
         switch (Order) {
             case EulerOrder::XYZ:
@@ -336,23 +333,28 @@ struct Euler {
         }
     }
 
-    /// Build from a unit quaternion (via DCM).
+    /** @brief Build from a unit quaternion (via DCM). */
     [[nodiscard]] static constexpr Euler from_quaternion(const Quaternion<T>& q);
 };
 
-/// Aerospace yaw-pitch-roll (ψ, θ, φ); do not conflate with @ref EulerXYZ.
+/** @brief Aerospace yaw-pitch-roll (ψ, θ, φ), R = Rz(ψ) Ry(θ) Rx(φ); also URDF / ROS rpy as {y, p, r}. */
 template<typename T>
 using EulerZYX = Euler<T, EulerOrder::ZYX>;
 
-/// Robotics roll-pitch-yaw; do not conflate with @ref EulerZYX.
+/** @brief Intrinsic X-Y′-Z″ angles, R = Rx(θ₁) Ry(θ₂) Rz(θ₃); not URDF / ROS rpy (that is @ref EulerZYX). */
 template<typename T>
 using EulerXYZ = Euler<T, EulerOrder::XYZ>;
 
 /**
  * @brief Unit quaternion rotation (w, x, y, z) (Hamilton product)
  *
- * Stored as a 4×1 matrix with scalar part @c w first. Prefer @ref Pose for
- * rigid-body frames; use this type for pure orientation.
+ * Stored as a 4×1 matrix with scalar part @c w first. Active body→parent
+ * rotation, the same as @ref DCM. @ref to_dcm gives the matrix R with
+ * @c q.rotate(v) = R v. Prefer @ref Pose for rigid-body frames; use this type
+ * for pure orientation.
+ *
+ * @note Compare with MATLAB®'s quat2rotm (same matrix); quat2dcm returns the
+ *       transpose.
  *
  * @tparam T Floating-point scalar
  */
@@ -361,24 +363,24 @@ struct Quaternion : public Matrix<4, 1, T> {
 
     static_assert(std::is_floating_point_v<T>, "Quaternion element type must be floating point");
 
-    /// Scalar (real) part.
+    /** @brief Scalar (real) part. */
     constexpr T& w() { return this->data_[0]; }
-    /// Scalar (real) part.
+    /** @brief Scalar (real) part. */
     constexpr const T& w() const { return this->data_[0]; }
-    /// Vector part x.
+    /** @brief Vector part x. */
     constexpr T& x() { return this->data_[1]; }
-    /// Vector part x.
+    /** @brief Vector part x. */
     constexpr const T& x() const { return this->data_[1]; }
-    /// Vector part y.
+    /** @brief Vector part y. */
     constexpr T& y() { return this->data_[2]; }
-    /// Vector part y.
+    /** @brief Vector part y. */
     constexpr const T& y() const { return this->data_[2]; }
-    /// Vector part z.
+    /** @brief Vector part z. */
     constexpr T& z() { return this->data_[3]; }
-    /// Vector part z.
+    /** @brief Vector part z. */
     constexpr const T& z() const { return this->data_[3]; }
 
-    /// Identity quaternion (1, 0, 0, 0).
+    /** @brief Identity quaternion (1, 0, 0, 0). */
     constexpr Quaternion() : Matrix<4, 1, T>() { w() = T{1}; }
     constexpr Quaternion(const Quaternion&) = default;
     constexpr Quaternion& operator=(const Quaternion&) = default;
@@ -386,7 +388,7 @@ struct Quaternion : public Matrix<4, 1, T> {
     constexpr Quaternion& operator=(Quaternion&&) = default;
     constexpr ~Quaternion() = default;
 
-    /// Construct from components (w, x, y, z); call @ref normalize if needed.
+    /** @brief Construct from components (w, x, y, z); call @ref normalized() if needed. */
     constexpr Quaternion(T w_, T x_, T y_, T z_) : Matrix<4, 1, T>() {
         w() = w_;
         x() = x_;
@@ -394,7 +396,7 @@ struct Quaternion : public Matrix<4, 1, T> {
         z() = z_;
     }
 
-    /// Construct from up to four elements in (w, x, y, z) order.
+    /** @brief Construct from up to four elements in (w, x, y, z) order. */
     constexpr Quaternion(std::initializer_list<T> values) : Matrix<4, 1, T>() {
         size_t i = 0;
         for (const auto& val : values) {
@@ -405,40 +407,27 @@ struct Quaternion : public Matrix<4, 1, T> {
         }
     }
 
-    /// Construct from a span of up to four elements in (w, x, y, z) order.
-    template<typename SpanType>
-        requires std::is_same_v<SpanType, std::span<const T>>
-    constexpr explicit Quaternion(SpanType values) : Matrix<4, 1, T>() {
-        size_t i = 0;
-        for (const auto& val : values) {
-            if (i < 4) {
-                this->data_[i] = val;
-            }
-            ++i;
-        }
-    }
-
-    /// Convert from another scalar precision.
+    /** @brief Convert from another scalar precision. */
     template<typename U>
     constexpr explicit Quaternion(const Quaternion<U>& other) : Matrix<4, 1, T>(other) {}
 
-    /// Convert from a 4×1 matrix viewed as (w, x, y, z).
+    /** @brief Convert from a 4×1 matrix viewed as (w, x, y, z). */
     template<typename U>
     constexpr explicit Quaternion(const Matrix<4, 1, U>& other) : Matrix<4, 1, T>(other) {}
 
-    /// Assign from a 4×1 matrix viewed as (w, x, y, z).
+    /** @brief Assign from a 4×1 matrix viewed as (w, x, y, z). */
     template<typename U>
     constexpr Quaternion& operator=(const Matrix<4, 1, U>& other) {
         Matrix<4, 1, T>::operator=(other);
         return *this;
     }
 
-    /// Identity (no rotation).
+    /** @brief Identity (no rotation). */
     [[nodiscard]] static constexpr Quaternion identity() { return Quaternion{T{1}, T{0}, T{0}, T{0}}; }
 
-    /// Squared Euclidean norm ‖q‖².
+    /** @brief Squared Euclidean norm ‖q‖². */
     [[nodiscard]] constexpr T norm_squared() const { return (w() * w()) + (x() * x()) + (y() * y()) + (z() * z()); }
-    /// Euclidean norm ‖q‖.
+    /** @brief Euclidean norm ‖q‖. */
     [[nodiscard]] constexpr T norm() const { return damp::sqrt(norm_squared()); }
 
     /**
@@ -469,10 +458,10 @@ struct Quaternion : public Matrix<4, 1, T> {
         return true;
     }
 
-    /// Unit quaternion, or @c *this unchanged if q = 0.
+    /** @brief Unit quaternion, or @c *this unchanged if q = 0. */
     [[nodiscard]] constexpr Quaternion normalized() const { return normalized_safe().value_or(*this); }
 
-    /// Conjugate (w, −x, −y, −z) (inverse for unit quaternions).
+    /** @brief Conjugate (w, −x, −y, −z) (inverse for unit quaternions). */
     [[nodiscard]] constexpr Quaternion conjugate() const { return Quaternion{w(), -x(), -y(), -z()}; }
 
     /**
@@ -487,7 +476,7 @@ struct Quaternion : public Matrix<4, 1, T> {
         return Quaternion{w() / n2, -x() / n2, -y() / n2, -z() / n2};
     }
 
-    /// Hamilton product.
+    /** @brief Hamilton product. */
     [[nodiscard]] constexpr Quaternion operator*(const Quaternion& rhs) const {
         return Quaternion{
             (w() * rhs.w()) - (x() * rhs.x()) - (y() * rhs.y()) - (z() * rhs.z()),
@@ -497,22 +486,22 @@ struct Quaternion : public Matrix<4, 1, T> {
         };
     }
 
-    /// In-place Hamilton product.
+    /** @brief In-place Hamilton product. */
     constexpr Quaternion& operator*=(const Quaternion& rhs) {
         return *this = (*this) * rhs;
     }
 
-    /// Scale all components.
+    /** @brief Scale all components. */
     [[nodiscard]] constexpr Quaternion operator*(T scalar) const {
         return Quaternion{w() * scalar, x() * scalar, y() * scalar, z() * scalar};
     }
 
-    /// Divide all components by a scalar.
+    /** @brief Divide all components by a scalar. */
     [[nodiscard]] constexpr Quaternion operator/(T scalar) const {
         return Quaternion{w() / scalar, x() / scalar, y() / scalar, z() / scalar};
     }
 
-    /// Rotate a 3-vector by this orientation (sandwich q v q̄; assumes a unit quaternion).
+    /** @brief Rotate a 3-vector by this orientation (sandwich q v q̄; assumes a unit quaternion). */
     [[nodiscard]] constexpr Vec3<T> rotate(const Vec3<T>& v) const {
         const Vec3<T> qv{x(), y(), z()};
         const T       t0 = T{2} * ((qv[1] * v[2]) - (qv[2] * v[1]));
@@ -525,7 +514,7 @@ struct Quaternion : public Matrix<4, 1, T> {
         };
     }
 
-    /// Convert to a DCM (normalizes first).
+    /** @brief Convert to a DCM (normalizes first). */
     [[nodiscard]] constexpr DCM<T> to_dcm() const {
         const Quaternion qn = normalized();
 
@@ -541,7 +530,7 @@ struct Quaternion : public Matrix<4, 1, T> {
         };
     }
 
-    /// Convert to Euler angles (default aerospace @c ZYX).
+    /** @brief Convert to Euler angles (default aerospace @c ZYX). */
     template<EulerOrder Order = EulerOrder::ZYX>
     [[nodiscard]] constexpr Euler<T, Order> to_euler() const {
         return Euler<T, Order>::from_dcm(to_dcm());
@@ -550,13 +539,15 @@ struct Quaternion : public Matrix<4, 1, T> {
     /**
      * @brief Build a unit quaternion from a DCM (Shepperd / largest-component branch)
      *
-     * For any rotation the chosen branch has s ≥ 1, so no tolerance is needed;
-     * nullopt means @p R is not (close to) a rotation (non-positive radicand).
+     * The chosen branch has radicand s² ≥ 1 for any finite 3×3 input, so no
+     * tolerance is needed and the result is always a unit quaternion. @p R is
+     * not validated: a matrix that is not a rotation (reflection, scaled,
+     * sheared) gives some unit quaternion with no defined relation to it.
      *
-     * @param R Rotation matrix
-     * @return Unit quaternion, or nullopt if @p R is not a rotation
+     * @param R Rotation matrix (precondition: orthonormal, det = +1)
+     * @return Unit quaternion of @p R
      */
-    [[nodiscard]] static constexpr damp::optional<Quaternion> from_dcm(const DCM<T>& R) {
+    [[nodiscard]] static constexpr Quaternion from_dcm(const DCM<T>& R) {
         const T half = static_cast<T>(0.5);
         const T trace = R(0, 0) + R(1, 1) + R(2, 2);
         if (trace > T{0}) {
@@ -568,13 +559,10 @@ struct Quaternion : public Matrix<4, 1, T> {
                 (R(0, 2) - R(2, 0)) * inv_s,
                 (R(1, 0) - R(0, 1)) * inv_s,
             }
-                .normalized_safe();
+                .normalized();
         }
         if (R(0, 0) > R(1, 1) && R(0, 0) > R(2, 2)) {
             const T s = damp::sqrt(T{1} + R(0, 0) - R(1, 1) - R(2, 2));
-            if (s <= T{0}) {
-                return damp::nullopt;
-            }
             const T inv_s = half / s;
             return Quaternion{
                 (R(2, 1) - R(1, 2)) * inv_s,
@@ -582,13 +570,10 @@ struct Quaternion : public Matrix<4, 1, T> {
                 (R(0, 1) + R(1, 0)) * inv_s,
                 (R(0, 2) + R(2, 0)) * inv_s,
             }
-                .normalized_safe();
+                .normalized();
         }
         if (R(1, 1) > R(2, 2)) {
             const T s = damp::sqrt(T{1} + R(1, 1) - R(0, 0) - R(2, 2));
-            if (s <= T{0}) {
-                return damp::nullopt;
-            }
             const T inv_s = half / s;
             return Quaternion{
                 (R(0, 2) - R(2, 0)) * inv_s,
@@ -596,12 +581,9 @@ struct Quaternion : public Matrix<4, 1, T> {
                 half * s,
                 (R(1, 2) + R(2, 1)) * inv_s,
             }
-                .normalized_safe();
+                .normalized();
         }
         const T s = damp::sqrt(T{1} + R(2, 2) - R(0, 0) - R(1, 1));
-        if (s <= T{0}) {
-            return damp::nullopt;
-        }
         const T inv_s = half / s;
         return Quaternion{
             (R(1, 0) - R(0, 1)) * inv_s,
@@ -609,20 +591,19 @@ struct Quaternion : public Matrix<4, 1, T> {
             (R(1, 2) + R(2, 1)) * inv_s,
             half * s,
         }
-            .normalized_safe();
+            .normalized();
     }
 
-    /// Build from Euler angles (identity if the DCM conversion fails).
+    /** @brief Build from Euler angles (via DCM). */
     template<EulerOrder Order>
     [[nodiscard]] static constexpr Quaternion from_euler(const Euler<T, Order>& e) {
-        auto q_opt = from_dcm(e.to_dcm());
-        return q_opt.value_or(identity());
+        return from_dcm(e.to_dcm());
     }
 
     /**
      * @brief Unit quaternion from axis-angle
      *
-     * Same axis convention as @ref DCM::from_axis_angle: any nonzero axis is
+     * Same axis convention as @ref DCM::from_axis_angle(): any nonzero axis is
      * valid; @p eps is an optional linear floor (default 0 → reject only zero).
      *
      * @param axis  Rotation axis (normalized internally)
@@ -677,8 +658,9 @@ struct Quaternion : public Matrix<4, 1, T> {
     /**
      * @brief Log map to a rotation vector (axis · angle) [rad]
      *
-     * Inverse of the axis-angle construction used by @ref from_axis_angle.
-     * @f$ \exp(\log q) = \pm q @f$ (same rotation).
+     * Inverse of the axis-angle construction: for a nonzero result r,
+     * @c from_axis_angle(r, ‖r‖) is ±q (same rotation). A zero result is the
+     * identity rotation.
      */
     [[nodiscard]] constexpr Vec3<T> log() const {
         auto [axis, angle] = to_axis_angle();
@@ -722,8 +704,9 @@ struct Quaternion : public Matrix<4, 1, T> {
             cos_theta = -cos_theta;
         }
 
-        const T k_small = static_cast<T>(1e-6);
-        if (cos_theta > (T{1} - k_small)) {
+        // The sin((1−t)θ)/sin θ weights stay accurate for small θ (an error in θ
+        // from acos cancels in the ratio), so lerp is only needed where sin θ → 0.
+        if (cos_theta > (T{1} - damp::eps<T>())) {
             return Quaternion{
                 a.w() + (tt * (bw - a.w())),
                 a.x() + (tt * (bx - a.x())),
@@ -759,7 +742,7 @@ template<typename T>
 // Out-of-line members defined after all rotation types are complete.
 
 template<typename T>
-constexpr damp::optional<Quaternion<T>> DCM<T>::to_quaternion() const {
+constexpr Quaternion<T> DCM<T>::to_quaternion() const {
     return Quaternion<T>::from_dcm(*this);
 }
 
@@ -810,16 +793,16 @@ struct Transform4 : public Mat4<T> {
     constexpr Transform4& operator=(Transform4&&) = default;
     constexpr ~Transform4() = default;
 
-    /// Construct from a raw @ref Mat4.
+    /** @brief Construct from a raw @ref Mat4. */
     constexpr explicit Transform4(const Mat4<T>& m) : Mat4<T>(m) {}
 
-    /// Row-nested initializer list (prvalue / RVO-friendly).
+    /** @brief Row-nested initializer list (prvalue / RVO-friendly). */
     constexpr Transform4(std::initializer_list<std::initializer_list<T>> init) : Mat4<T>(init) {}
 
-    /// Identity transform.
+    /** @brief Identity transform. */
     [[nodiscard]] static constexpr Transform4 identity() { return Transform4{}; }
 
-    /// Build from rotation matrix and translation.
+    /** @brief Build from rotation matrix and translation. */
     [[nodiscard]] static constexpr Transform4 from_rotation_translation(const DCM<T>& R, const Vec3<T>& t) {
         return Transform4{
             {R(0, 0), R(0, 1), R(0, 2), t[0]},
@@ -829,18 +812,18 @@ struct Transform4 : public Mat4<T> {
         };
     }
 
-    /// Build from quaternion orientation and translation.
+    /** @brief Build from quaternion orientation and translation. */
     [[nodiscard]] static constexpr Transform4 from_quaternion_translation(const Quaternion<T>& q, const Vec3<T>& t) {
         return from_rotation_translation(q.to_dcm(), t);
     }
 
-    /// Build from Euler orientation and translation.
+    /** @brief Build from Euler orientation and translation. */
     template<EulerOrder Order>
     [[nodiscard]] static constexpr Transform4 from_euler_translation(const Euler<T, Order>& e, const Vec3<T>& t) {
         return from_rotation_translation(e.to_dcm(), t);
     }
 
-    /// Upper-left 3×3 rotation block as a @ref DCM.
+    /** @brief Upper-left 3×3 rotation block as a @ref DCM. */
     [[nodiscard]] constexpr DCM<T> rotation() const {
         return DCM<T>{
             {this->data_[(0 * 4) + 0], this->data_[(0 * 4) + 1], this->data_[(0 * 4) + 2]},
@@ -849,43 +832,27 @@ struct Transform4 : public Mat4<T> {
         };
     }
 
-    /// Translation column (t_x, t_y, t_z).
+    /** @brief Translation column (t_x, t_y, t_z). */
     [[nodiscard]] constexpr Vec3<T> translation() const {
         return Vec3<T>{this->data_[(0 * 4) + 3], this->data_[(1 * 4) + 3], this->data_[(2 * 4) + 3]};
     }
 
-    /// Compose transforms: T_this T_rhs.
+    /** @brief Compose transforms: T_this T_rhs. */
     [[nodiscard]] constexpr Transform4 operator*(const Transform4& rhs) const {
         return Transform4(static_cast<const Mat4<T>&>(*this) * static_cast<const Mat4<T>&>(rhs));
     }
 
-    /// In-place composition with @p rhs.
+    /** @brief In-place composition with @p rhs. */
     constexpr Transform4& operator*=(const Transform4& rhs) {
         return *this = *this * rhs;
     }
 
-    /// Map a point with rotation and translation (homogeneous; divides by @c w if needed).
+    /** @brief Map a point with rotation and translation: R p + t. */
     [[nodiscard]] constexpr Vec3<T> transform_point(const Vec3<T>& p) const {
-        T x = (this->data_[(0 * 4) + 0] * p[0]) + (this->data_[(0 * 4) + 1] * p[1])
-            + (this->data_[(0 * 4) + 2] * p[2]) + this->data_[(0 * 4) + 3];
-        T y = (this->data_[(1 * 4) + 0] * p[0]) + (this->data_[(1 * 4) + 1] * p[1])
-            + (this->data_[(1 * 4) + 2] * p[2]) + this->data_[(1 * 4) + 3];
-        T z = (this->data_[(2 * 4) + 0] * p[0]) + (this->data_[(2 * 4) + 1] * p[1])
-            + (this->data_[(2 * 4) + 2] * p[2]) + this->data_[(2 * 4) + 3];
-        T w = (this->data_[(3 * 4) + 0] * p[0]) + (this->data_[(3 * 4) + 1] * p[1])
-            + (this->data_[(3 * 4) + 2] * p[2]) + this->data_[(3 * 4) + 3];
-
-        if (w != T{1} && w != T{0}) {
-            T inv_w = T{1} / w;
-            x *= inv_w;
-            y *= inv_w;
-            z *= inv_w;
-        }
-
-        return Vec3<T>{x, y, z};
+        return (rotation() * p) + translation();
     }
 
-    /// Map a free vector (rotation only; no translation).
+    /** @brief Map a free vector (rotation only; no translation). */
     [[nodiscard]] constexpr Vec3<T> transform_vector(const Vec3<T>& v) const {
         return rotation() * v;
     }
@@ -901,30 +868,27 @@ struct Transform4 : public Mat4<T> {
         return from_rotation_translation(Rt, -(Rt * translation()));
     }
 
-    /// Split into unit quaternion and translation (identity quat if DCM conversion fails).
+    /** @brief Split into unit quaternion and translation. */
     [[nodiscard]] constexpr damp::pair<Quaternion<T>, Vec3<T>> to_quaternion_translation() const {
-        return {
-            rotation().to_quaternion().value_or(Quaternion<T>::identity()),
-            translation(),
-        };
+        return {rotation().to_quaternion(), translation()};
     }
 
-    /// Split into Euler angles and translation (default aerospace @c ZYX).
+    /** @brief Split into Euler angles and translation (default aerospace @c ZYX). */
     template<EulerOrder Order = EulerOrder::ZYX>
     [[nodiscard]] constexpr damp::pair<Euler<T, Order>, Vec3<T>> to_euler_translation() const {
         return {rotation().template to_euler<Order>(), translation()};
     }
 
-    /// Underlying @ref Mat4 view.
+    /** @brief Underlying @ref Mat4 view. */
     [[nodiscard]] constexpr const Mat4<T>& matrix() const { return *this; }
-    /// Underlying @ref Mat4 view (mutable).
+    /** @brief Underlying @ref Mat4 view (mutable). */
     [[nodiscard]] constexpr Mat4<T>& matrix() { return *this; }
 };
 
 using Transform4f = Transform4<float>;  ///< @c Transform4 with @c float
 using Transform4d = Transform4<double>; ///< @c Transform4 with @c double
 
-/// Alias: Special Euclidean group SE(3) ≡ @ref Transform4.
+/** @brief Alias: Special Euclidean group SE(3) ≡ @ref Transform4. */
 template<typename T>
 using SE3 = Transform4<T>;
 using SE3f = Transform4<float>;  ///< @c SE3 with @c float
@@ -939,7 +903,7 @@ using Vec3d = Vec3<double>; ///< @c Vec3 with @c double
 using DCMf = DCM<float>;  ///< @c DCM with @c float
 using DCMd = DCM<double>; ///< @c DCM with @c double
 
-/// Alias: Special Orthogonal group SO(3) ≡ @ref DCM.
+/** @brief Alias: Special Orthogonal group SO(3) ≡ @ref DCM. */
 template<typename T>
 using SO3 = DCM<T>;
 using SO3f = DCM<float>;  ///< @c SO3 with @c float
@@ -948,7 +912,7 @@ using SO3d = DCM<double>; ///< @c SO3 with @c double
 using EulerZYXf = EulerZYX<float>;  ///< Aerospace YPR, @c float
 using EulerZYXd = EulerZYX<double>; ///< Aerospace YPR, @c double
 
-using EulerXYZf = EulerXYZ<float>;  ///< Robotics RPY, @c float
-using EulerXYZd = EulerXYZ<double>; ///< Robotics RPY, @c double
+using EulerXYZf = EulerXYZ<float>;  ///< Intrinsic X-Y′-Z″, @c float
+using EulerXYZd = EulerXYZ<double>; ///< Intrinsic X-Y′-Z″, @c double
 
 } // namespace damp

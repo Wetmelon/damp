@@ -13,9 +13,9 @@
  * pipeline ([decisions.md] D21). Allocation-free, fixed-size tables so the
  * full FRF lives on the target.
  *
- * - FrequencyResponseEstimator — lock-in demodulation via a pair of
- *   Goertzel bins on (u, y), H1 estimate G = S_yu / S_uu, coherence γ².
- *   Sequential path for SteppedSine; parallel bank for MultiSine.
+ * - FrequencyResponseEstimator — lock-in demodulation of (u, y) against a
+ *   unit phasor at each bin frequency, H1 estimate G = S_yu / S_uu,
+ *   coherence γ². Sequential path for SteppedSine; parallel bank for MultiSine.
  * - extract_modes / ModeExtractorResult — reduce an FRF table to
  *   resonances (ωₙ, ζ, peak gain) via half-power bandwidth. Feeds
  *   `input_shaper` and harmonic suppressors.
@@ -29,12 +29,11 @@
  *
  * constexpr std::size_t Nf = 8;
  * FrequencyResponseEstimator<Nf, float> frf(1000.0f);
- * // For each frequency f: begin_bin → push(u,y) until true → table filled.
+ * // For each frequency f: begin_bin (true) → push(u,y) until true → table filled.
  * // Then: auto modes = design::extract_modes<Nf, 2>(frf.table());
  * @endcode
  *
  * @see excitation.hpp for SteppedSine / MultiSine stimuli
- * @see filters/spectral.hpp for the underlying Goertzel primitive
  * @see "System Identification" (Ljung, 1999), §6 (frequency-domain ID)
  * @see "Vibration Testing" (McConnell, 1995) — half-power bandwidth damping
  */
@@ -43,7 +42,6 @@
 #include <cstdint>
 
 #include "damp/backend.hpp"
-#include "damp/filters/spectral.hpp"
 #include "damp/math/math.hpp"
 
 namespace damp {
@@ -60,7 +58,7 @@ struct FrfPoint {
     T    freq_hz{T{0}};   ///< Frequency [Hz]
     T    magnitude{T{0}}; ///< |G(jω)|
     T    phase_rad{T{0}}; ///< arg(G) [rad]
-    T    coherence{T{0}}; ///< γ² ∈ [0, 1] (H1 single-input coherence)
+    T    coherence{T{0}}; ///< γ² ∈ [0, 1] (H1 single-input coherence); 0 = not measured (fewer than two blocks)
     bool valid{false};    ///< true if |U| power was sufficient to form G
 
     /**
@@ -79,15 +77,80 @@ struct FrfPoint {
     }
 };
 
+namespace detail {
+
+/**
+ * @brief Lock-in sums for one frequency: U = Σ u·e^{−jωn}, Y = Σ y·e^{−jωn} over a block.
+ *
+ * The phasor e^{−jωn} is rotated by e^{−jω} each sample and pulled back to unit length, so
+ * its angle error comes from the rounding of sin ω alone. A Goertzel recursion instead
+ * differences terms scaled by 2cos ω ≈ 2, which loses tens of percent in float at small ω.
+ */
+template<typename T>
+struct FrfLockIn {
+    T           rot_re{T{1}}; ///< cos ω
+    T           rot_im{T{0}}; ///< −sin ω
+    T           p_re{T{1}};   ///< Phasor e^{−jωn}, real part
+    T           p_im{T{0}};   ///< Phasor e^{−jωn}, imaginary part
+    T           u_re{T{0}};   ///< Re U
+    T           u_im{T{0}};   ///< Im U
+    T           y_re{T{0}};   ///< Re Y
+    T           y_im{T{0}};   ///< Im Y
+    std::size_t block{0};     ///< Samples per block (0 = inert)
+    std::size_t count{0};     ///< Samples in the current block
+
+    constexpr FrfLockIn() = default;
+
+    /** @brief Bin at ω = 2πf/fs [rad/sample] over blocks of @p block_size samples. */
+    constexpr FrfLockIn(T omega, std::size_t block_size) : block(block_size) {
+        const auto [s, c] = damp::sincos(omega);
+        rot_re = c;
+        rot_im = -s;
+    }
+
+    /** @brief Feed one (u, y) pair; true when the block just completed (sums valid until the next push). */
+    constexpr bool push(T u, T y) {
+        if (block == 0) {
+            return false;
+        }
+        if (count == block) {
+            p_re = T{1};
+            p_im = T{0};
+            u_re = T{0};
+            u_im = T{0};
+            y_re = T{0};
+            y_im = T{0};
+            count = 0;
+        }
+        u_re += u * p_re;
+        u_im += u * p_im;
+        y_re += y * p_re;
+        y_im += y * p_im;
+        const T re = (p_re * rot_re) - (p_im * rot_im);
+        const T im = (p_re * rot_im) + (p_im * rot_re);
+        const T g = T{1.5} - (T{0.5} * ((re * re) + (im * im))); // one Newton step toward |p| = 1
+        p_re = re * g;
+        p_im = im * g;
+        ++count;
+        return count == block;
+    }
+};
+
+} // namespace detail
+
 /**
  * @brief Lock-in FRF estimator over a fixed table of NFreq bins.
  *
- * Accumulates the classical H1 estimate from simultaneous Goertzel DFTs of
- * the applied input u and measured output y:
+ * Accumulates the classical H1 estimate from single-bin DFTs of the applied
+ * input u and measured output y over blocks of samples (both multiplied by the
+ * same unit phasor e^{−jωn}, rotated each sample, and summed):
  *
  *     S_yu = Σ Y · conj(U),   S_uu = Σ |U|²,   S_yy = Σ |Y|²
  *     G    = S_yu / S_uu
  *     γ²   = |S_yu|² / (S_uu · S_yy)
+ *
+ * γ² needs two or more blocks: over one block |Y·conj(U)|² = |U|²·|Y|² for any
+ * data, so a single-block point reports coherence 0 (not measured).
  *
  * Two usage modes:
  *
@@ -115,7 +178,7 @@ public:
     constexpr explicit FrequencyResponseEstimator(T fs_hz) : fs_(fs_hz) {}
 
     /**
-     * @brief Coherent Goertzel block length for an integer number of cycles.
+     * @brief Coherent block length for an integer number of cycles.
      *
      * N = round(cycles · fs / f). Prefer frequencies that make this exact.
      *
@@ -146,26 +209,28 @@ public:
     /**
      * @brief Start sequential measurement of table bin @p index.
      *
-     * Averages @p num_blocks successive Goertzel blocks of @p block_size samples
-     * (after discarding @p settle_samples). Call @ref push until it returns true.
+     * Averages @p num_blocks successive blocks of @p block_size samples (after
+     * discarding @p settle_samples). Call @ref push until it returns true. One
+     * block gives no coherence (0); two or more measure it.
      *
      * @param index          Table index in [0, NFreq)
-     * @param freq_hz        Bin frequency [Hz]
-     * @param block_size     Samples per Goertzel block
-     * @param num_blocks     Blocks to average for H1 (>= 1)
+     * @param freq_hz        Bin frequency [Hz], in (0, fs/2)
+     * @param block_size     Samples per block
+     * @param num_blocks     Blocks to average for H1 (>= 1; >= 2 for coherence)
      * @param settle_samples Leading samples discarded (transients)
+     * @return false if refused (bad index, frequency at or above Nyquist, sample rate unset,
+     *         zero block size or count); no measurement is then active.
      */
-    constexpr void begin_bin(
+    [[nodiscard]] constexpr bool begin_bin(
         std::size_t index,
         T           freq_hz,
         std::size_t block_size,
         std::size_t num_blocks = 1,
         std::size_t settle_samples = 0
     ) {
-        if (index >= NFreq || !(freq_hz > T{0}) || !(fs_ > T{0}) || block_size == 0
-            || num_blocks == 0) {
+        if (!bin_ok(index, freq_hz, block_size) || num_blocks == 0) {
             sequential_active_ = false;
-            return;
+            return false;
         }
         active_index_ = index;
         active_freq_ = freq_hz;
@@ -176,32 +241,35 @@ public:
         syu_im_ = T{0};
         suu_ = T{0};
         syy_ = T{0};
-        gu_ = Goertzel<T>(freq_hz, fs_, block_size);
-        gy_ = Goertzel<T>(freq_hz, fs_, block_size);
+        lock_ = detail::FrfLockIn<T>(omega_of(freq_hz), block_size);
         sequential_active_ = true;
         table_[index] = FrfPoint<T>{};
         table_[index].freq_hz = freq_hz;
+        return true;
     }
 
     /**
      * @brief Configure a parallel-bank bin (MultiSine path).
      *
      * All bank bins should use the same @p block_size so @ref push_bank
-     * completes them together. Single-block H1 (no multi-block average).
+     * completes them together. Single-block H1 (no multi-block average), so
+     * bank points report no coherence (0).
      *
      * @param index      Table index in [0, NFreq)
-     * @param freq_hz    Bin frequency [Hz]
-     * @param block_size Samples per Goertzel block
+     * @param freq_hz    Bin frequency [Hz], in (0, fs/2)
+     * @param block_size Samples per block
+     * @return false if refused (bad index, frequency at or above Nyquist, sample rate unset,
+     *         zero block size); the bin is then left as it was.
      */
-    constexpr void configure_bin(std::size_t index, T freq_hz, std::size_t block_size) {
-        if (index >= NFreq || !(freq_hz > T{0}) || block_size == 0 || !(fs_ > T{0})) {
-            return;
+    [[nodiscard]] constexpr bool configure_bin(std::size_t index, T freq_hz, std::size_t block_size) {
+        if (!bin_ok(index, freq_hz, block_size)) {
+            return false;
         }
-        bank_u_[index] = Goertzel<T>(freq_hz, fs_, block_size);
-        bank_y_[index] = Goertzel<T>(freq_hz, fs_, block_size);
+        bank_[index] = detail::FrfLockIn<T>(omega_of(freq_hz), block_size);
         bank_active_[index] = true;
         table_[index] = FrfPoint<T>{};
         table_[index].freq_hz = freq_hz;
+        return true;
     }
 
     /**
@@ -216,24 +284,23 @@ public:
             --settle_left_;
             return false;
         }
-        const bool done_u = gu_.push(u);
-        const bool done_y = gy_.push(y);
-        if (!(done_u && done_y)) {
+        if (!lock_.push(u, y)) {
             return false;
         }
-        accumulate_block(gu_.real(), gu_.imag(), gy_.real(), gy_.imag());
+        accumulate_block(lock_);
         ++blocks_done_;
         if (blocks_done_ < blocks_target_) {
             return false;
         }
-        finalize_point(active_index_, active_freq_);
+        finalize_point(active_index_, active_freq_, blocks_done_);
         sequential_active_ = false;
         return true;
     }
 
     /**
      * @brief Parallel path: feed one sample into every configured bank bin.
-     * @return true when a full block completes (all active bins updated).
+     * @return true when at least one bin completed a block on this sample (its table entry
+     *         was updated); bins with equal block sizes complete together.
      */
     [[nodiscard]] constexpr bool push_bank(T u, T y) {
         bool any_active = false;
@@ -243,37 +310,33 @@ public:
                 continue;
             }
             any_active = true;
-            const bool du = bank_u_[i].push(u);
-            const bool dy = bank_y_[i].push(y);
-            if (du && dy) {
+            if (bank_[i].push(u, y)) {
                 // Single-block H1 for this bin.
                 syu_re_ = T{0};
                 syu_im_ = T{0};
                 suu_ = T{0};
                 syy_ = T{0};
-                accumulate_block(
-                    bank_u_[i].real(), bank_u_[i].imag(), bank_y_[i].real(), bank_y_[i].imag()
-                );
-                finalize_point(i, table_[i].freq_hz);
+                accumulate_block(bank_[i]);
+                finalize_point(i, table_[i].freq_hz, 1);
                 completed = true;
             }
         }
         return any_active && completed;
     }
 
-    /// FRF table (fixed size; check @c FrfPoint::valid per entry).
+    /** @brief FRF table (fixed size; check @c FrfPoint::valid per entry). */
     [[nodiscard]] constexpr const damp::array<FrfPoint<T>, NFreq>& table() const { return table_; }
 
-    /// Mutable table (e.g. host post-processing).
+    /** @brief Mutable table (e.g. host post-processing). */
     [[nodiscard]] constexpr damp::array<FrfPoint<T>, NFreq>& table() { return table_; }
 
-    /// One table entry.
+    /** @brief One table entry. */
     [[nodiscard]] constexpr const FrfPoint<T>& point(std::size_t i) const { return table_[i]; }
 
-    /// Number of table slots (template size).
+    /** @brief Number of table slots (template size). */
     [[nodiscard]] static constexpr std::size_t size() { return NFreq; }
 
-    /// Count of currently valid points.
+    /** @brief Count of currently valid points. */
     [[nodiscard]] constexpr std::size_t valid_count() const {
         std::size_t n = 0;
         for (std::size_t i = 0; i < NFreq; ++i) {
@@ -284,13 +347,13 @@ public:
         return n;
     }
 
-    /// Sample rate [Hz] (0 if unset).
+    /** @brief Sample rate [Hz] (0 if unset). */
     [[nodiscard]] constexpr T sample_rate() const { return fs_; }
 
-    /// Set sample rate [Hz] (must be > 0 before begin_bin / configure_bin).
+    /** @brief Set sample rate [Hz] (must be > 0 before begin_bin / configure_bin). */
     constexpr void set_sample_rate(T fs_hz) { fs_ = fs_hz; }
 
-    /// Clear the table and abort any in-progress measurement.
+    /** @brief Clear the table and abort any in-progress measurement. */
     constexpr void reset() {
         sequential_active_ = false;
         blocks_done_ = 0;
@@ -298,23 +361,27 @@ public:
         for (std::size_t i = 0; i < NFreq; ++i) {
             table_[i] = FrfPoint<T>{};
             bank_active_[i] = false;
-            bank_u_[i].reset();
-            bank_y_[i].reset();
+            bank_[i] = detail::FrfLockIn<T>{};
         }
-        gu_.reset();
-        gy_.reset();
+        lock_ = detail::FrfLockIn<T>{};
     }
 
 private:
-    constexpr void accumulate_block(T ur, T ui, T yr, T yi) {
-        // S_yu += Y * conj(U) = (yr + j yi)(ur - j ui)
-        syu_re_ += (yr * ur) + (yi * ui);
-        syu_im_ += (yi * ur) - (yr * ui);
-        suu_ += (ur * ur) + (ui * ui);
-        syy_ += (yr * yr) + (yi * yi);
+    [[nodiscard]] constexpr bool bin_ok(std::size_t index, T freq_hz, std::size_t block_size) const {
+        return index < NFreq && freq_hz > T{0} && freq_hz < fs_ / T{2} && block_size > 0;
     }
 
-    constexpr void finalize_point(std::size_t index, T freq_hz) {
+    [[nodiscard]] constexpr T omega_of(T freq_hz) const { return (T{2} * damp::numbers::pi_v<T> * freq_hz) / fs_; }
+
+    constexpr void accumulate_block(const detail::FrfLockIn<T>& b) {
+        // S_yu += Y * conj(U) = (yr + j yi)(ur - j ui)
+        syu_re_ += (b.y_re * b.u_re) + (b.y_im * b.u_im);
+        syu_im_ += (b.y_im * b.u_re) - (b.y_re * b.u_im);
+        suu_ += (b.u_re * b.u_re) + (b.u_im * b.u_im);
+        syy_ += (b.y_re * b.y_re) + (b.y_im * b.y_im);
+    }
+
+    constexpr void finalize_point(std::size_t index, T freq_hz, std::size_t blocks) {
         FrfPoint<T> p{};
         p.freq_hz = freq_hz;
         // Exact-zero guards only: an absolute floor would depend on the units of u, y.
@@ -329,7 +396,7 @@ private:
         p.phase_rad = damp::atan2(gim, gre);
         const T num = (syu_re_ * syu_re_) + (syu_im_ * syu_im_);
         const T den = suu_ * syy_;
-        if (den > T{0}) {
+        if (blocks >= 2 && den > T{0}) { // one block: γ² ≡ 1 by Cauchy–Schwarz, not a measurement
             T coh = num / den;
             if (coh < T{0}) {
                 coh = T{0};
@@ -347,23 +414,21 @@ private:
     damp::array<FrfPoint<T>, NFreq> table_{};
 
     // Sequential state
-    Goertzel<T> gu_{};
-    Goertzel<T> gy_{};
-    T           active_freq_{T{0}};
-    T           syu_re_{T{0}};
-    T           syu_im_{T{0}};
-    T           suu_{T{0}};
-    T           syy_{T{0}};
-    std::size_t active_index_{0};
-    std::size_t blocks_target_{1};
-    std::size_t blocks_done_{0};
-    std::size_t settle_left_{0};
-    bool        sequential_active_{false};
+    detail::FrfLockIn<T> lock_{};
+    T                    active_freq_{T{0}};
+    T                    syu_re_{T{0}};
+    T                    syu_im_{T{0}};
+    T                    suu_{T{0}};
+    T                    syy_{T{0}};
+    std::size_t          active_index_{0};
+    std::size_t          blocks_target_{1};
+    std::size_t          blocks_done_{0};
+    std::size_t          settle_left_{0};
+    bool                 sequential_active_{false};
 
     // Parallel bank
-    damp::array<Goertzel<T>, NFreq> bank_u_{};
-    damp::array<Goertzel<T>, NFreq> bank_y_{};
-    damp::array<bool, NFreq>        bank_active_{};
+    damp::array<detail::FrfLockIn<T>, NFreq> bank_{};
+    damp::array<bool, NFreq>                 bank_active_{};
 };
 
 /**
@@ -384,9 +449,9 @@ struct ResonantMode {
     FrfFeatureKind kind{FrfFeatureKind::Peak}; ///< Peak vs valley
     T              omega_n{T{0}};              ///< Natural frequency [rad/s]
     T              frequency_hz{T{0}};         ///< Natural frequency [Hz]
-    T              zeta{T{0}};                 ///< Damping ratio (half-power / double-power BW)
+    T              zeta{T{0}};                 ///< Damping ratio (half-power / double-power BW); 0 = not estimated
     T              peak_gain{T{0}};            ///< |G| at the extremum
-    bool           valid{false};               ///< true if extremum + ζ estimate succeeded
+    bool           valid{false};               ///< Extremum found, with ζ estimated (or with ζ = 0 when require_valid_zeta is false)
 
     template<typename U>
     [[nodiscard]] constexpr ResonantMode<U> as() const {
@@ -412,7 +477,7 @@ struct ModeExtractorConfig {
     T    max_valley_gain{T{0}};    ///< Valleys: if > 0, ignore if |G| above this (0 = no cap)
     T    min_prominence{T{0}};     ///< Extremum must differ from neighbors by this amount
     T    min_coherence{T{0}};      ///< If > 0, require point.coherence >= this
-    bool require_valid_zeta{true}; ///< Drop extrema where half-power BW cannot be found
+    bool require_valid_zeta{true}; ///< Drop extrema without a half-power BW; if false they are kept, valid, with ζ = 0 (not estimated)
 };
 
 /**
@@ -428,6 +493,9 @@ struct ModeExtractorResult {
     damp::array<ResonantMode<T>, MaxModes> modes{};
     std::size_t                            count{0};
     bool                                   success{false};
+
+    /** @brief True when the design succeeded (success). */
+    [[nodiscard]] constexpr explicit operator bool() const { return success; }
 
     template<typename U>
     [[nodiscard]] constexpr ModeExtractorResult<MaxModes, U> as() const {
@@ -456,6 +524,9 @@ struct FrfFeatureResult {
     std::size_t                              valley_count{0};
     bool                                     success{false};
 
+    /** @brief True when the design succeeded (success). */
+    [[nodiscard]] constexpr explicit operator bool() const { return success; }
+
     template<typename U>
     [[nodiscard]] constexpr FrfFeatureResult<MaxPeaks, MaxValleys, U> as() const {
         FrfFeatureResult<MaxPeaks, MaxValleys, U> out{};
@@ -482,7 +553,7 @@ struct FrfFeatureResult {
  */
 template<typename T = float>
 struct FrfMargins {
-    T    phase_margin_deg{T{0}};   ///< PM at gain crossover
+    T    phase_margin_deg{T{0}};   ///< PM at gain crossover, in (−180°, 180°] (negative: closed loop unstable)
     T    gain_crossover_hz{T{0}};  ///< |G| = 1 crossing
     T    gain_margin_db{T{0}};     ///< GM at phase crossover (−180°)
     T    phase_crossover_hz{T{0}}; ///< phase = −π crossing
@@ -555,7 +626,7 @@ constexpr void sort_by_gain_asc(damp::array<ResonantMode<T>, N>& c, std::size_t 
     }
 }
 
-/// Half-power (peaks) or double-power (valleys) bandwidth → ζ.
+/** @brief Half-power (peaks) or double-power (valleys) bandwidth → ζ. */
 template<std::size_t NFreq, typename T>
 [[nodiscard]] constexpr ResonantMode<T> finish_extremum(
     const damp::array<FrfPoint<T>, NFreq>& table,
@@ -755,7 +826,7 @@ template<std::size_t NFreq, std::size_t MaxPeaks, std::size_t MaxValleys, typena
  * @brief Gain / phase margins from a fixed on-target FRF table.
  *
  * Treats the table as open-loop L(jω) (or plant G if that is what was measured).
- * - Gain crossover: |G| crosses 1 (descending). PM = 180° + ∠G at that f.
+ * - Gain crossover: |G| crosses 1 (descending). PM = 180° + ∠G at that f, wrapped to (−180°, 180°].
  * - Phase crossover: ∠G crosses −π. GM_dB = −20 log₁₀(|G|) at that f.
  *
  * Stored phases may be wrapped to (−π, π]: consecutive valid bins are unwrapped
@@ -797,7 +868,8 @@ template<std::size_t NFreq, typename T = float>
             const T t = lerp_t(a.magnitude, b.magnitude, T{1});
             const T ph = damp::wrap_pi(ph_a + t * (ph_b - ph_a));
             m.gain_crossover_hz = a.freq_hz + t * (b.freq_hz - a.freq_hz);
-            m.phase_margin_deg = (T{180} / pi) * (pi + ph);
+            // 180° + ∠L folded into (−180°, 180°] (wrap_pi folds into [−π, π), hence the negations).
+            m.phase_margin_deg = -(T{180} / pi) * damp::wrap_pi(-(pi + ph));
             m.has_phase_margin = true;
         }
 

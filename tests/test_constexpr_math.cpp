@@ -3,19 +3,30 @@
 // Distributed under the Boost Software License, Version 1.0.
 // (See accompanying file LICENSE or copy at http://www.boost.org/LICENSE_1_0.txt)
 
+#include <bit>
 #include <cmath>
 #include <complex>
+#include <cstddef>
+#include <cstdint>
 #include <initializer_list>
 #include <limits>
 #include <numbers>
 
 #include "damp/math/complex.hpp"
+#include "damp/math/constexpr_math.hpp"
 #include "damp/math/math.hpp"
 
 #define DOCTEST_CONFIG_INCLUDE_TYPE_TRAITS
 #include "doctest.h"
 
 using namespace damp;
+
+namespace {
+constexpr double kEps = std::numeric_limits<double>::epsilon();
+
+using C = damp::complex<double>;
+
+} // namespace
 
 TEST_SUITE("constexpr_math") {
     TEST_CASE("damp::sqrt matches std::sqrt") {
@@ -245,6 +256,23 @@ TEST_SUITE("constexpr_math") {
         CHECK(damp::fmod(1.0, 0.0) == doctest::Approx(0.0)); // guarded
     }
 
+    TEST_CASE("damp::fmod is 0 when x/y is a power of two, and pow keeps the sign of an even exponent") {
+        // Regression: the binary reduction stopped doubling at d = x/2 and returned y.
+        static_assert(damp::fmod(2.0, 1.0) == 0.0);
+        static_assert(damp::fmod(8.0, 2.0) == 0.0);
+        static_assert(damp::fmod(-2.0, 0.25) == 0.0);
+        static_assert(damp::fmod(4.0f, 1.0f) == 0.0f);
+        static_assert(damp::fmod(2.0, -1.0) == 0.0);
+        static_assert(damp::fmod(9.0, 2.0) == 1.0);
+        static_assert(damp::abs(damp::pow(-2.0, 4.0) - 16.0) < 1e-12);
+        static_assert(damp::pow(-3.0, 8.0) > 0.0);
+        static_assert(damp::pow(-2.0, 3.0) < 0.0);
+        volatile double two = 2.0;
+        volatile double one = 1.0;
+        CHECK(damp::fmod(two, one) == 0.0);
+        CHECK(damp::pow(-two, 4.0) == doctest::Approx(16.0));
+    }
+
     TEST_CASE("floor/ceil/nearbyint/fmod full range (beyond long long)") {
         // Regression: these used static_cast<long long> with no range check — UB for
         // |x| ≳ 2⁶³. Every finite binary float/double that large is already integral.
@@ -357,7 +385,8 @@ TEST_SUITE("constexpr_math") {
         static_assert(damp::log10(-1.0) == 0.0);
         static_assert(damp::sqrt(-1.0) == 0.0); // domain guard before dispatch
         static_assert(damp::sqrt(-4.0f) == 0.0f);
-        static_assert(damp::pow(-2.0, 3.0) == 0.0); // base ≤ 0
+        static_assert(damp::pow(-2.0, 2.5) == 0.0); // base < 0, non-integral exponent
+        static_assert(damp::pow(0.0, 3.0) == 0.0);  // base 0
         static_assert(damp::pow(2.0, 0.0) == 1.0);  // exponent 0
         // Runtime path must agree (guards are outside is_constant_evaluated)
         CHECK(damp::sqrt(-1.0) == 0.0);
@@ -546,6 +575,22 @@ TEST_SUITE("constexpr_math") {
         }
     }
 
+    TEST_CASE("damp::wrap keeps [min, max) for large float arguments and an empty interval") {
+        constexpr float pi = std::numbers::pi_v<float>;
+        for (float x = 1e3F; x < 3e38F; x *= 1.9F) {
+            for (const float a : {x, -x}) {
+                const float w = damp::wrap_pi(a);
+                CHECK(w >= -pi);
+                CHECK(w < pi);
+                const float w2 = damp::wrap_two_pi(a);
+                CHECK(w2 >= 0.0F);
+                CHECK(w2 < 2.0F * pi);
+            }
+        }
+        CHECK(damp::wrap(1.0, 2.0, 2.0) == 2.0);
+        static_assert(damp::wrap_pi(1e9F) >= -pi && damp::wrap_pi(1e9F) < pi);
+    }
+
     TEST_CASE("damp::wrap_pi is wrap(θ, −π, π)") {
         constexpr double pi = std::numbers::pi;
         CHECK(damp::wrap_pi(0.0) == doctest::Approx(0.0));
@@ -576,6 +621,210 @@ TEST_SUITE("constexpr_math") {
         }
         static_assert(damp::wrap_two_pi(0.0) == 0.0);
     }
+
+    TEST_CASE("series sqrt and cbrt converge across the exponent range") {
+        for (const double x : {1e-300, 1e-100, 1e-10, 0.3, 2.0, 1e10, 1e100, 1e300}) {
+            CHECK(std::fabs(detail::sqrt(x) - std::sqrt(x)) <= 2 * kEps * std::sqrt(x));
+            CHECK(std::fabs(detail::cbrt(x) - std::cbrt(x)) <= 2 * kEps * std::cbrt(x));
+            CHECK(std::fabs(detail::cbrt(-x) + std::cbrt(x)) <= 2 * kEps * std::cbrt(x));
+        }
+        CHECK(std::fabs(detail::sqrt(1e30f) - 1e15f) <= 2 * std::numeric_limits<float>::epsilon() * 1e15f);
+    }
+
+    TEST_CASE("constant-evaluated roots are accurate far from 1, subnormals included") {
+        constexpr double denorm = 4.9406564584124654e-324; // smallest subnormal
+        static_assert(detail::abs(damp::sqrt(1e150) - 1e75) <= 2 * kEps * 1e75);
+        static_assert(detail::abs(damp::sqrt(1e-150) - 1e-75) <= 2 * kEps * 1e-75);
+        static_assert(detail::abs(damp::sqrt(1e300) - 1e150) <= 2 * kEps * 1e150);
+        static_assert(detail::abs(damp::sqrt(denorm) - 2.2227587494850775e-162) <= 2 * kEps * 2.3e-162);
+        static_assert(detail::abs(damp::cbrt(1e-300) - 1e-100) <= 2 * kEps * 1e-100);
+        static_assert(detail::abs(damp::cbrt(-8e150) + 2e50) <= 2 * kEps * 2e50);
+        static_assert(detail::abs(damp::sqrt(1e30f) - 1e15f) <= 2 * std::numeric_limits<float>::epsilon() * 1e15f);
+        static_assert(detail::abs(damp::log(1e300) - 690.77552789821368) <= 4 * kEps * 690.8);
+        static_assert(detail::abs(damp::log(denorm) + 744.44007192138122) <= 4 * kEps * 744.5);
+        static_assert(detail::abs(damp::hypot(3e300, 4e300) - 5e300) <= 4 * kEps * 5e300);
+    }
+
+    TEST_CASE("series log/exp/pow/atan2 hold accuracy far from 1") {
+        for (const double x : {1e-300, 1e-150, 1e-10, 0.7, 1.0, 1.3, 1e10, 1e150, 1e300}) {
+            CHECK(std::fabs(detail::log(x) - std::log(x)) <= (4 * kEps * std::fabs(std::log(x))) + kEps);
+        }
+        for (const double x : {-700.0, -300.0, -1.0, 0.5, 1.0, 300.0, 700.0}) {
+            CHECK(std::fabs(detail::exp(x) - std::exp(x)) <= 8 * kEps * std::exp(x));
+        }
+        // exp(y·ln b): the rounding of y·ln b is amplified by |y·ln b| (≈ 690 here).
+        CHECK(std::fabs(detail::pow(10.0, 300.0) - 1e300) <= 1024 * kEps * 1e300);
+        CHECK(std::fabs(detail::pow(10.0, -300.0) - 1e-300) <= 1024 * kEps * 1e-300);
+        CHECK(std::fabs(detail::atan2(1e300, 1e-300) - (std::numbers::pi / 2.0)) <= 2 * kEps);
+        CHECK(std::fabs(detail::atan2(1e-300, 1e300)) <= 1e-300);
+        CHECK(std::fabs(detail::atan2(-1e-300, -1e-300) + (0.75 * std::numbers::pi)) <= 4 * kEps);
+    }
+
+    TEST_CASE("series sin/cos/sincos are accurate over several periods") {
+        double worst = 0.0;
+        for (int i = -2000; i <= 2000; ++i) {
+            const double x = 0.01 * i;
+            const auto   sc = detail::sincos(x);
+            worst = std::fmax(worst, std::fabs(detail::sin(x) - std::sin(x)));
+            worst = std::fmax(worst, std::fabs(detail::cos(x) - std::cos(x)));
+            worst = std::fmax(worst, std::fabs(sc.sin - std::sin(x)));
+            worst = std::fmax(worst, std::fabs(sc.cos - std::cos(x)));
+        }
+        CHECK(worst <= 4 * kEps);
+        CHECK(std::fabs(detail::cos(std::numbers::pi) + 1.0) <= 2 * kEps);
+        // Same kernels under constant evaluation (the consteval design path).
+        static_assert(detail::abs(damp::cos(std::numbers::pi) + 1.0) <= 2 * kEps);
+        static_assert(detail::abs(damp::sqrt(1e300) - 1e150) <= 2 * kEps * 1e150);
+    }
+
+    TEST_CASE("series tan keeps relative accuracy next to pi/2") {
+        for (const double x : {1.5707963267, 1.57079632679, -1.5707963267, 1.0, 0.1, 4.0}) {
+            CHECK(std::fabs(detail::tan(x) - std::tan(x)) <= 16 * kEps * std::fabs(std::tan(x)));
+        }
+    }
+
+    TEST_CASE("real pow keeps the sign of a negative base with an integral exponent") {
+        CEXPR_APPROX(damp::pow(-2.0, 3.0), -8.0, 1e-13);
+        CEXPR_APPROX(damp::pow(-2.0, -3.0), -0.125, 1e-13);
+        CEXPR_APPROX(damp::pow(-0.5, 2.0), 0.25, 1e-13);
+        CHECK(std::fabs(detail::pow(-2.0, 3.0) + 8.0) <= 16 * kEps); // series backend body
+        volatile double base = -2.0;                                 // runtime backend path
+        CHECK(damp::pow(static_cast<double>(base), 3.0) == doctest::Approx(-8.0));
+        CHECK(damp::pow(static_cast<double>(base), 2.0) == doctest::Approx(4.0));
+        CHECK(damp::pow(-1e200, 3.0) == -std::numeric_limits<double>::max());
+    }
+
+    TEST_CASE("pow with a mixed float/double exponent keeps the real exponent") {
+        volatile float xf = 2.0F;
+        CHECK(damp::pow(static_cast<float>(xf), 0.5) == doctest::Approx(std::sqrt(2.0F)));
+        CHECK(damp::pow(2.0, 2.5F) == doctest::Approx(std::pow(2.0, 2.5)));
+        constexpr float cf = damp::pow(2.0F, 0.5);
+        CHECK(cf == doctest::Approx(std::sqrt(2.0F)));
+        static_assert(damp::pow(2.0F, 3) == 8.0F); // integer exponent stays exact
+        static_assert(damp::pow(-2.0, 3) == -8.0);
+        static_assert(damp::pow(2.0, std::size_t{10}) == 1024.0);
+    }
+
+    TEST_CASE("integer pow is a constant expression up to and past the finite range") {
+        static_assert(damp::pow(1e100, 2) == 1e200); // the discarded last square used to overflow
+        static_assert(damp::pow(1.0e5F, 4) == 1e20F);
+        static_assert(damp::pow(1e200, 2) == std::numeric_limits<double>::max());
+        static_assert(damp::pow(-1e200, 3) == -std::numeric_limits<double>::max());
+        static_assert(damp::pow(10.0, -310) == 0.0);
+        static_assert(damp::pow(1e-200, -2) == std::numeric_limits<double>::max());
+        // |base|^|n| subnormal: 1/p would round past max (no FTZ in constant evaluation).
+        static_assert(damp::pow(1e-160, -2) == std::numeric_limits<double>::max());
+        static_assert(damp::pow(1e-20F, -2) == std::numeric_limits<float>::max());
+        static_assert(damp::pow(1e-10F, -4) == std::numeric_limits<float>::max());
+        static_assert(damp::pow(-1e-160, -3) == -std::numeric_limits<double>::max());
+        static_assert(damp::pow(2.0, -3) == 0.125);
+        CHECK(damp::pow(1e200, 2) == std::numeric_limits<double>::max());
+        volatile double tiny = 1e-160;
+        volatile float  tiny_f = 1e-20F;
+        CHECK(damp::pow(static_cast<double>(tiny), -2) == std::numeric_limits<double>::max());
+        CHECK(damp::pow(static_cast<float>(tiny_f), -2) == std::numeric_limits<float>::max());
+    }
+
+    TEST_CASE("float series reduction uses float splits: sin/cos/tan/exp sweeps") {
+        const auto ulp = [](double v) {
+            // Next float by bits, difference in double: under -ffast-math nextafter is unreliable
+            // and a float difference below FLT_MIN flushes to zero.
+            const float f = static_cast<float>(std::fabs(v));
+            return static_cast<double>(std::bit_cast<float>(std::bit_cast<std::uint32_t>(f) + 1U)) - static_cast<double>(f);
+        };
+        double worst = 0.0;     // in ulp of the result, |x| ≤ 100
+        double worst_abs = 0.0; // absolute, |x| ≤ 1e5
+        for (int i = -200000; i <= 200000; ++i) {
+            const float  x = static_cast<float>(i) * 5e-4F;
+            const double s = std::sin(static_cast<double>(x));
+            const double c = std::cos(static_cast<double>(x));
+            worst = std::fmax(worst, std::fabs(static_cast<double>(detail::sin(x)) - s) / ulp(s));
+            worst = std::fmax(worst, std::fabs(static_cast<double>(detail::cos(x)) - c) / ulp(c));
+            const float y = static_cast<float>(i) * 0.5F;
+            worst_abs = std::fmax(worst_abs, std::fabs(static_cast<double>(detail::sin(y)) - std::sin(static_cast<double>(y))));
+        }
+        CHECK(worst <= 4.0);
+        CHECK(worst_abs <= 1.2e-7);
+        double worst_tan = 0.0;
+        double worst_exp = 0.0;
+        for (int i = -100000; i <= 100000; ++i) {
+            const float  t = static_cast<float>(i) * 1.55e-5F;
+            const double rt = std::tan(static_cast<double>(t));
+            worst_tan = std::fmax(worst_tan, std::fabs(static_cast<double>(detail::tan(t)) - rt) / ulp(rt));
+            const float  x = (static_cast<float>(i) * 8e-4F) + 4.0F; // [-76, 84]: results stay normal (fast-math flushes subnormals)
+            const double re = std::exp(static_cast<double>(x));
+            worst_exp = std::fmax(worst_exp, std::fabs(static_cast<double>(detail::exp(x)) - re) / ulp(re));
+        }
+        CHECK(worst_tan <= 4.0);
+        CHECK(worst_exp <= 4.0);
+        // Relative accuracy next to the zeros and poles (the sign was wrong before).
+        constexpr float c = damp::cos(1.57079637F);
+        static_assert(c < 0.0F);
+        CHECK(c == doctest::Approx(std::cos(static_cast<double>(1.57079637F))).epsilon(1e-6));
+        constexpr float t = damp::tan(1.57079637F);
+        static_assert(t < 0.0F);
+        CHECK(t == doctest::Approx(std::tan(static_cast<double>(1.57079637F))).epsilon(1e-6));
+        // The largest float with a finite exp is not saturated, and is a constant expression.
+        constexpr float e = damp::exp(88.72283172607421875F);
+        static_assert(e < std::numeric_limits<float>::max());
+        CHECK(e == doctest::Approx(std::exp(88.72283172607421875)).epsilon(1e-6));
+    }
+
+    TEST_CASE("series sin/cos stay in [-1, 1] and tan stays finite for every finite argument") {
+        for (float x = 1e5F; x < 3e38F; x *= 1.37F) {
+            for (const float a : {x, -x}) {
+                const auto sc = detail::sincos(a);
+                CHECK(std::fabs(sc.sin) <= 1.0F);
+                CHECK(std::fabs(sc.cos) <= 1.0F);
+                CHECK(damp::isfinite(detail::tan(a)));
+            }
+        }
+        for (double x = 1e5; x < 1e308; x *= 13.7) {
+            const auto sc = detail::sincos(x);
+            CHECK(std::fabs(sc.sin) <= 1.0);
+            CHECK(std::fabs(sc.cos) <= 1.0);
+        }
+        constexpr double s = damp::sin(1e20); // was not a constant expression
+        static_assert(s <= 1.0 && s >= -1.0);
+        constexpr float sf = damp::sin(1e30F);
+        static_assert(sf <= 1.0F && sf >= -1.0F);
+    }
+
+    TEST_CASE("integer pow handles INT_MIN without signed overflow") {
+        static_assert(damp::pow(1.0, std::numeric_limits<int>::min()) == 1.0);
+        static_assert(damp::pow(-1.0, std::numeric_limits<int>::min()) == 1.0);
+        CHECK(damp::pow(2.0, std::numeric_limits<int>::min()) == 0.0);
+    }
+
+    TEST_CASE("division does not overflow or underflow in the denominator") {
+        const C big = C{1e200, 1e200} / C{1e200, 1e200};
+        CHECK(big.real() == doctest::Approx(1.0));
+        CHECK(std::fabs(big.imag()) <= kEps);
+        const C small = C{1e-200, 2e-200} / C{1e-200, 0.0};
+        CHECK(small.real() == doctest::Approx(1.0));
+        CHECK(small.imag() == doctest::Approx(2.0));
+        C q{3e200, 4e200};
+        q /= C{0.0, 1e200};
+        CHECK(q.real() == doctest::Approx(4.0));
+        CHECK(q.imag() == doctest::Approx(-3.0));
+        const C r = 1e-300 / C{1e-300, 1e-300};
+        CHECK(r.real() == doctest::Approx(0.5));
+        CHECK(r.imag() == doctest::Approx(-0.5));
+    }
+
+    TEST_CASE("abs does not overflow") {
+        CHECK(C{3e200, 4e200}.abs() == doctest::Approx(5e200));
+        CHECK(damp::abs(C{3e-200, 4e-200}) == doctest::Approx(5e-200));
+    }
+
+    TEST_CASE("sqrt keeps the small component (no cancellation)") {
+        const C s = damp::sqrt(C{1.0, 1e-10});
+        CHECK(s.real() == doctest::Approx(1.0));
+        CHECK(s.imag() == doctest::Approx(5e-11));
+        const C t = damp::sqrt(C{-1.0, -1e-10});
+        CHECK(t.real() == doctest::Approx(5e-11));
+        CHECK(t.imag() == doctest::Approx(-1.0));
+    }
 }
 
 TEST_SUITE("Utility") {
@@ -593,5 +842,12 @@ TEST_SUITE("Utility") {
 
         CHECK(db == doctest::Approx(20.0f).epsilon(1e-5));
         CHECK(mag == doctest::Approx(10.0f).epsilon(1e-5));
+    }
+
+    TEST_CASE("mag2db of zero or a negative magnitude is the finite minus infinity") {
+        static_assert(damp::mag2db(0.0) == -std::numeric_limits<double>::max());
+        static_assert(damp::mag2db(-1.0F) == -std::numeric_limits<float>::max());
+        CHECK(damp::mag2db(0.0) == -std::numeric_limits<double>::max());
+        CHECK(damp::mag2db(1.0) == 0.0);
     }
 }

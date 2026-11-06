@@ -5,6 +5,7 @@
 
 #include <cmath>
 #include <cstddef>
+#include <limits>
 
 #include "damp/backend.hpp"
 #include "damp/design/minreal.hpp"
@@ -73,11 +74,6 @@ TEST_SUITE("minreal") {
         const auto red = mr.extract<2>();
         REQUIRE(red.has_value());
         CHECK(max_abs_diff(red->A, sys.A) == doctest::Approx(0.0));
-
-        // Descriptive alias agrees.
-        const auto mr2 = minimal_realization(sys);
-        CHECK(mr2.success);
-        CHECK(mr2.order == mr.order);
     }
 
     TEST_CASE("uncontrollable mode is removed") {
@@ -142,13 +138,14 @@ TEST_SUITE("minreal") {
     TEST_CASE("series interconnection cancellation (pole-zero cancel)") {
         // G1 = (s+2)/(s+1), G2 = 1/(s+2)  ⇒  G1*G2 = 1/(s+1)
         // Companion SS series has order 2 with a non-minimal cancelled mode.
-        const TransferFunction<2, 2> tf1{{2.0, 1.0}, {1.0, 1.0}}; // (2 + s)/(1 + s)
-        const TransferFunction<1, 2> tf2{{1.0}, {2.0, 1.0}};      // 1/(2 + s)
+        const TransferFunction<2, 2> tf1{{1.0, 2.0}, {1.0, 1.0}}; // (s + 2)/(s + 1)
+        const TransferFunction<1, 2> tf2{{1.0}, {1.0, 2.0}};      // 1/(s + 2)
         const auto                   ss1 = tf1.to_state_space().value();
         const auto                   ss2 = tf2.to_state_space().value();
         const auto                   series_sys = *(ss1 * ss2); // order 2
 
         CHECK(series_sys.A.rows() == 2);
+        CHECK(ss2.A(0, 0) == doctest::Approx(-2.0)); // the mode G1's zero cancels
 
         const auto mr = minreal(series_sys);
         REQUIRE(mr.success);
@@ -311,5 +308,67 @@ TEST_SUITE("minreal and controllability with a spread spectrum") {
         sys.B(3, 0) = 0.0; // the 1e3 rad/s mode has no input
         CHECK_FALSE(stability::is_controllable(sys.A, sys.B));
         CHECK(minreal(sys).order == 5);
+    }
+
+    TEST_CASE("is_controllable / is_observable are invariant to signal scaling") {
+        const Matrix<2, 2> A{{-1.0, 0.0}, {0.0, -2.0}};
+        const Matrix<2, 1> B{{1e-11}, {1e-11}};
+        const Matrix<1, 2> C{{1e-11, 1e-11}};
+        CHECK(stability::is_controllable(A, B));
+        CHECK(stability::is_observable(A, C));
+    }
+
+    TEST_CASE("is_controllable is invariant to the time unit") {
+        // Same plant in seconds and in milliseconds⁻¹: A scales by 1e3, so the
+        // Krylov columns grow as 1, 1e3, 1e6, 1e9.
+        Matrix<4, 4> A{};
+        for (size_t i = 0; i < 4; ++i) {
+            A(i, i) = -1e3 * static_cast<double>(i + 1);
+        }
+        const Matrix<4, 1> B{{1.0}, {1.0}, {1.0}, {1.0}};
+        CHECK(stability::is_controllable(A, B));
+        const StateSpace<4, 1, 1> sys{.A = A, .B = B, .C = B.transpose()};
+        CHECK(design::minreal(sys).order == 4);
+    }
+}
+
+TEST_SUITE("minreal: units, noise inputs and non-finite models") {
+    TEST_CASE("an SI-unit hydraulic actuator keeps all three states") {
+        // x = [position m, velocity m/s, pressure Pa]: Ap/m = 1e-4 beside β/V·Ap = 1e9. Without
+        // balancing the coupling read as a cancellation and minreal returned order 0.
+        const StateSpace<3, 1, 1> hyd{
+            .A = Matrix<3, 3>{{0.0, 1.0, 0.0}, {0.0, -10.0, 1e-4}, {0.0, -1e9, -1e-3}},
+            .B = Matrix<3, 1>{{0.0}, {0.0}, {1e8}},
+            .C = Matrix<1, 3>{{1.0, 0.0, 0.0}},
+        };
+        const auto mr = minreal(hyd);
+        REQUIRE(mr.success);
+        CHECK(mr.status == DesignStatus::ok);
+        CHECK(mr.order == 3);
+    }
+
+    TEST_CASE("a state only the process noise drives is kept with its noise channel") {
+        // Offset-free augmentation x = [xp; d]: d is not reached from u, only from w.
+        const StateSpace<2, 1, 1, double, 1, 0> aug{
+            .A = Matrix<2, 2>{{0.9, 0.0}, {0.0, 1.0}},
+            .B = Matrix<2, 1>{{0.1}, {0.0}},
+            .C = Matrix<1, 2>{{1.0, 1.0}},
+            .G = Matrix<2, 1>{{0.0}, {1.0}},
+            .Ts = 0.01,
+        };
+        const auto mr = minreal(aug);
+        REQUIRE(mr.success);
+        CHECK(mr.order == 2);
+        // Without noise inputs the disturbance state is uncontrollable and goes.
+        const StateSpace<2, 1, 1> plain{.A = aug.A, .B = aug.B, .C = aug.C, .Ts = 0.01};
+        CHECK(minreal(plain).order == 1);
+    }
+
+    TEST_CASE("a non-finite model is refused with bad_weights") {
+        auto sys = coupled_minimal();
+        sys.C(0, 1) = std::numeric_limits<double>::quiet_NaN();
+        const auto mr = minreal(sys);
+        CHECK_FALSE(mr.success);
+        CHECK(mr.status == DesignStatus::bad_weights);
     }
 }

@@ -7,9 +7,10 @@
 
 /**
  * @file damp_backend.hpp
- * @brief Fast float/double math backend (trig.hpp) over the std:: fallback.
+ * @brief Fast float and double math backend (trig.hpp) over the std:: fallback.
  *
- * Routes MathBackend to damp::detail::fast_* kernels from trig.hpp. Those
+ * Routes MathBackend to damp::detail::fast_* kernels from trig.hpp: sin, cos,
+ * sincos, asin, acos, atan, atan2, sqrt and nearbyint, for float and double. Those
  * kernels must not live as damp::sin/sqrt overloads — that would shadow the
  * constexpr public API in math.hpp and break compile-time design
  * (e.g. DARE → Cholesky → sqrt under DAMP_MATH_BACKEND_DAMP).

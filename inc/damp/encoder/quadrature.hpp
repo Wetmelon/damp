@@ -1,0 +1,141 @@
+// Copyright Paul Guénette and Damp contributors.
+// SPDX-License-Identifier: BSL-1.0
+// Distributed under the Boost Software License, Version 1.0.
+// (See accompanying file LICENSE or copy at http://www.boost.org/LICENSE_1_0.txt)
+
+#pragma once
+
+/**
+ * @file damp/encoder/quadrature.hpp
+ * @brief Quadrature decoding and wrap-safe counter deltas.
+ *
+ * Software A/B quadrature decode — the incremental-encoder front end for
+ * motion control. Speed from the counts is @ref damp::EncoderTracker. `constexpr`, allocation-free.
+ * Counter wrap is handled deliberately (see wrapped_delta): position deltas
+ * are computed in the unsigned domain and reinterpreted as signed so a rollover
+ * never produces a spurious jump.
+ *
+ * @see encoder/unwrap.hpp to unwrap a single-turn absolute reading,
+ *      encoder/tracker.hpp for a smooth speed from the counts.
+ */
+
+#include <cstdint>
+#include <type_traits>
+
+#include "damp/backend.hpp"
+
+namespace damp {
+
+/**
+ * @brief Signed difference between two unsigned counter readings, wrap-safe.
+ *
+ * Computes `curr − prev` in modular (unsigned) arithmetic and reinterprets the
+ * result as signed, so a hardware counter rolling over its range yields the
+ * correct small signed delta rather than a huge jump. Valid while the true
+ * motion between reads is less than half the counter range.
+ *
+ * @tparam U Unsigned counter type (e.g. `uint16_t`, `uint32_t`).
+ * @return The signed change, in the matching signed type.
+ */
+template<typename U>
+[[nodiscard]] constexpr std::make_signed_t<U> wrapped_delta(U prev, U curr) {
+    static_assert(std::is_unsigned_v<U>, "wrapped_delta requires an unsigned counter type");
+    return static_cast<std::make_signed_t<U>>(static_cast<U>(curr - prev));
+}
+
+/** @brief Quadrature decode resolution (edges counted per A/B cycle). */
+enum class QuadMode {
+    X1, ///< Count one edge per cycle.
+    X2, ///< Count A edges on both transitions.
+    X4, ///< Count every A and B transition (full resolution).
+};
+
+/**
+ * @brief Software A/B quadrature decoder with optional index.
+ *
+ * Feed the raw A and B channel levels each sample; the decoder tracks the
+ * 2-bit Gray-coded state and accumulates a signed position. B leading A
+ * (AB: 00 → 01 → 11 → 10) counts up; A leading B counts down — swap the A/B
+ * arguments to flip the sense. Invalid transitions (both bits changing at
+ * once — a missed sample) are ignored rather than corrupting the count. The
+ * position is a fixed-width signed integer and wraps modulo 2³² by design
+ * (computed in unsigned arithmetic, so no signed overflow); use wrapped_delta
+ * on it for rates.
+ *
+ * X1 counts forward steps on the rising A edge and reverse steps on the
+ * falling A edge — the same physical edge in both directions — so dithering
+ * across one edge cannot accumulate counts.
+ *
+ * @code
+ * QuadratureDecoder dec{QuadMode::X4};
+ * // each sample: dec.update(a_pin, b_pin);
+ * int32_t pos = dec.position();
+ * @endcode
+ */
+class QuadratureDecoder {
+public:
+    constexpr QuadratureDecoder() = default;
+    constexpr explicit QuadratureDecoder(QuadMode mode) : mode_(mode) {}
+
+    /** @brief Process one sample of the A and B channels; returns the new position. */
+    constexpr int32_t update(bool a, bool b) {
+        const uint8_t state = static_cast<uint8_t>((static_cast<uint8_t>(a) << 1) | static_cast<uint8_t>(b));
+        // Transition index: (previous << 2) | current, into a 16-entry table of
+        // {-1, 0, +1} (0 for no-change and invalid double transitions).
+        const uint8_t idx = static_cast<uint8_t>((prev_ << 2) | state);
+        const int8_t  step = kTransition[idx];
+
+        const bool a_changed = ((prev_ ^ state) & 0b10) != 0;
+        const bool a_rising = a_changed && (state & 0b10) != 0;
+        bool       count = false;
+        switch (mode_) {
+            case QuadMode::X4:
+                count = true;
+                break;
+            case QuadMode::X2:
+                count = a_changed; // only transitions of A (the high bit)
+                break;
+            case QuadMode::X1:
+                // One count per cycle at the same physical A edge in either
+                // direction: forward on its rise, reverse on its fall.
+                count = a_changed && ((step > 0) == a_rising);
+                break;
+        }
+        if (count) {
+            // Modular add in uint32 (well-defined wrap; int32 += would be UB at the limit).
+            position_ = static_cast<int32_t>(static_cast<uint32_t>(position_) + static_cast<uint32_t>(static_cast<int32_t>(step)));
+        }
+        prev_ = state;
+        return position_;
+    }
+
+    /** @brief Latch the index/zero mark: reset position to 0 when @p z is true. */
+    constexpr void index(bool z) {
+        if (z) {
+            position_ = 0;
+        }
+    }
+
+    [[nodiscard]] constexpr int32_t position() const { return position_; }
+
+    constexpr void reset() {
+        position_ = 0;
+        prev_ = 0;
+    }
+
+private:
+    // Quadrature transition table indexed by (prev<<2 | curr); +1 forward,
+    // -1 reverse, 0 for no movement or an illegal (both-bits) transition.
+    static constexpr damp::array<int8_t, 16> kTransition{
+        0, +1, -1, 0,
+        -1, 0, 0, +1,
+        +1, 0, 0, -1,
+        0, -1, +1, 0
+    };
+
+    QuadMode mode_{QuadMode::X4};
+    uint8_t  prev_{0};
+    int32_t  position_{0};
+};
+
+} // namespace damp

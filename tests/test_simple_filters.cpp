@@ -14,13 +14,13 @@ using namespace damp;
 
 /**
  * @brief Tests for the simple runtime filters added to filters.hpp:
- *        HighPass (washout), MedianFilter (despiker), Complementary (scalar fusion).
+ *        FirstOrderSection (washout), MedianFilter (despiker), Complementary (scalar fusion).
  */
 
 TEST_SUITE("Simple filters") {
 
-    TEST_CASE("HighPass rejects DC exactly, passes a step transient") {
-        HighPass<double> hp{2.0, 1.0 / 1000.0}; // 2 Hz corner @ 1 kHz (Tustin highpass_1st)
+    TEST_CASE("FirstOrderSection washout rejects DC exactly, passes a step transient") {
+        FirstOrderSection<double> hp{design::highpass_1st(2.0, 1.0 / 1000.0)}; // 2 Hz corner @ 1 kHz (Tustin)
 
         // Feed a constant; after the first sample the washout must decay to ~0.
         double y = 0.0;
@@ -37,11 +37,24 @@ TEST_SUITE("Simple filters") {
         CHECK(first == doctest::Approx(1.0).epsilon(0.02)); // near-unity HF gain
     }
 
-    TEST_CASE("HighPass invalid Ts/fc yields zero output") {
-        HighPass<double> bad_ts{10.0, 0.0};
-        HighPass<double> bad_fc{0.0, 0.001};
+    TEST_CASE("FirstOrderSection from a refused design yields zero output") {
+        FirstOrderSection<double> bad_ts{design::highpass_1st(10.0, 0.0)};
+        FirstOrderSection<double> bad_fc{design::highpass_1st(0.0, 0.001)};
         CHECK(bad_ts(1.0) == doctest::Approx(0.0));
         CHECK(bad_fc(1.0) == doctest::Approx(0.0));
+    }
+
+    TEST_CASE("FirstOrderSection runs the first-order design it is given") {
+        static constinit FirstOrderSection<float> washout{design::highpass_1st(2.0f, 0.001f)};
+        static constinit FirstOrderSection<float> smoother{design::lowpass_1st(2.0f, 0.001f)};
+        float                                     hp = 0.0f;
+        float                                     lp = 0.0f;
+        for (int k = 0; k < 5000; ++k) {
+            hp = washout(1.0f);
+            lp = smoother(1.0f);
+        }
+        CHECK(static_cast<double>(hp) == doctest::Approx(0.0).epsilon(1e-5));
+        CHECK(static_cast<double>(lp) == doctest::Approx(1.0).epsilon(1e-5));
     }
 
     TEST_CASE("MedianFilter rejects a single-sample spike") {

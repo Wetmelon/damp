@@ -13,8 +13,9 @@
  * provide the primitives (range monitor, debounce, edge detect, affine cal),
  * this header composes them into the constructs you actually wire up: a
  * calibrated+validated analog input, a debounced push-button with edges and
- * hold, a debounced maintained switch. Live in `damp::io` to mark them as the
- * higher-level composites.
+ * hold. Live in `damp::io` to mark them as the higher-level composites. A
+ * maintained switch is a plain @ref damp::Debounce (plus @ref damp::RisingEdge /
+ * @ref damp::FallingEdge if the change matters).
  *
  * @see toolbox/conditioning.hpp, toolbox/logic.hpp, toolbox/scaling.hpp (tier 1).
  */
@@ -37,7 +38,7 @@ namespace damp::io {
  * @code
  * io::AnalogInput<float> level{
  *     two_point_cal(0.5f, 0.0f, 4.5f, 100.0f),   // 0.5–4.5 V → 0–100 %
- *     RangeMonitor<float>{0.25f, 0.5f, 4.5f, 4.75f}}; // NE43 fault bands
+ *     RangeMonitor<float>{{.valid = {.lower = 0.5f, .upper = 4.5f}, .fault = {.lower = 0.25f, .upper = 4.75f}}}}; // NE43 fault bands
  * float pct = level.update(volts);
  * if (level.faulted()) flag_wire_break();
  * @endcode
@@ -49,7 +50,7 @@ public:
     constexpr AnalogInput(const AffineCal<T>& cal, const RangeMonitor<T>& monitor)
         : cal_(cal), monitor_(monitor) {}
 
-    /// Validate the raw reading, scale it, and store both results.
+    /** @brief Validate the raw reading, scale it, and store both results. */
     constexpr T update(T raw) {
         status_ = monitor_(raw);
         value_ = cal_.apply(raw);
@@ -78,8 +79,8 @@ private:
  *
  * @code
  * io::RedundantAnalogPair<float> rail{
- *     {two_point_cal(0.5f, 0.f, 4.5f, 250.f), RangeMonitor<float>{0.25f, 0.5f, 4.5f, 4.75f}},
- *     {two_point_cal(0.5f, 0.f, 4.5f, 250.f), RangeMonitor<float>{0.25f, 0.5f, 4.5f, 4.75f}},
+ *     {two_point_cal(0.5f, 0.f, 4.5f, 250.f), RangeMonitor<float>{{.valid = {.lower = 0.5f, .upper = 4.5f}, .fault = {.lower = 0.25f, .upper = 4.75f}}}},
+ *     {two_point_cal(0.5f, 0.f, 4.5f, 250.f), RangeMonitor<float>{{.valid = {.lower = 0.5f, .upper = 4.5f}, .fault = {.lower = 0.25f, .upper = 4.75f}}}},
  *     AnalogCrossMode::SameSlope,
  *     5.f}; // 5 bar agreement
  * auto r = rail.update(v_a, v_b);
@@ -100,7 +101,7 @@ public:
     )
         : a_(channel_a), b_(channel_b), mode_(mode), tol_(tol), span_(span) {}
 
-    /// Update both raw readings; return the cross-check result.
+    /** @brief Update both raw readings; return the cross-check result. */
     constexpr AnalogCrossResult<T> update(T raw_a, T raw_b) {
         a_.update(raw_a);
         b_.update(raw_b);
@@ -119,50 +120,6 @@ private:
     T                    tol_{};
     T                    span_{};
     AnalogCrossResult<T> last_{};
-};
-
-/**
- * @brief Affine map from a normalized command to a proportional current (mA).
- *
- * Hydraulic valves and solenoid drivers are typically commanded as a percent (or
- * @f$[0,1]@f$) that maps linearly onto a coil current window
- * @f$ [I_{\min}, I_{\max}] @f$ (often with a deadband or pilot current at zero).
- * This is that map only — PWM current regulation lives in the driver hardware or
- * a PI current loop on the same stack.
- *
- * @code
- * io::ProportionalCurrentMap<float> valve{200.f, 800.f}; // pilot 200 mA, full 800 mA
- * float mA = valve(0.5f); // mid command → 500 mA
- * @endcode
- */
-template<typename T = float>
-class ProportionalCurrentMap {
-public:
-    constexpr ProportionalCurrentMap() = default;
-
-    /// @param i_min Current at command 0 [mA]. @param i_max Current at command 1 [mA].
-    constexpr ProportionalCurrentMap(T i_min, T i_max) : i_min_(i_min), i_max_(i_max) {}
-
-    /// Map command in @f$[0,1]@f$ (clamped) to mA.
-    [[nodiscard]] constexpr T operator()(T command) const {
-        const T u = damp::clamp(command, T{0}, T{1});
-        return i_min_ + ((i_max_ - i_min_) * u);
-    }
-
-    /// Inverse: mA → command in @f$[0,1]@f$ (clamped). Requires @p i_max ≠ @p i_min.
-    [[nodiscard]] constexpr T invert(T milliamps) const {
-        if (i_max_ == i_min_) {
-            return T{0};
-        }
-        return damp::clamp((milliamps - i_min_) / (i_max_ - i_min_), T{0}, T{1});
-    }
-
-    [[nodiscard]] constexpr T i_min() const { return i_min_; }
-    [[nodiscard]] constexpr T i_max() const { return i_max_; }
-
-private:
-    T i_min_{T{0}};
-    T i_max_{T{1}};
 };
 
 /**
@@ -241,7 +198,7 @@ public:
     constexpr explicit Button(T debounce_time, T hold_time = T{0})
         : db_(debounce_time), hold_(hold_time) {}
 
-    /// Advance one tick with the raw electrical state and elapsed time.
+    /** @brief Advance one tick with the raw electrical state and elapsed time. */
     constexpr void update(bool raw, T dt) {
         const bool s = db_(raw, dt);
         pressed_ = s && !prev_;
@@ -271,44 +228,6 @@ private:
 };
 
 /**
- * @brief Debounced maintained switch (toggle/selector contact) with change flag.
- *
- * `on()` is the debounced level; `changed()` is true the tick the debounced
- * state flips. The smoothed contact for a panel switch or limit/proximity sensor.
- *
- * @tparam T time type (see @ref Button).
- */
-template<typename T = float>
-class Switch {
-public:
-    constexpr Switch() = default;
-    constexpr explicit Switch(T debounce_time, bool initial = false)
-        : db_(debounce_time, initial), prev_(initial) {}
-
-    /// Advance one tick; returns the debounced state.
-    constexpr bool update(bool raw, T dt) {
-        const bool s = db_(raw, dt);
-        changed_ = (s != prev_);
-        prev_ = s;
-        return s;
-    }
-
-    [[nodiscard]] constexpr bool on() const { return prev_; }
-    [[nodiscard]] constexpr bool changed() const { return changed_; }
-
-    constexpr void reset(bool initial = false) {
-        db_.reset(initial);
-        prev_ = initial;
-        changed_ = false;
-    }
-
-private:
-    Debounce<T> db_{};
-    bool        prev_{false};
-    bool        changed_{false};
-};
-
-/**
  * @brief Left/right actuator pair (differential/arcade drive output).
  */
 template<typename T = float>
@@ -327,7 +246,10 @@ struct DrivePair {
  * *ratio* is preserved instead of hard-clamping one wheel (which distorts the
  * commanded curvature). Inputs are assumed already in @f$[-1, 1]@f$ (e.g. from
  * @ref AxisInput). Dual-path hydrostatic drives are the headline user of the
- * ratio-preserving clip.
+ * ratio-preserving clip. This is also the ISO-S (speed-summed) travel stick and
+ * the single-stick arcade mixer (steer axis → @p turn, throttle axis → @p throttle):
+ * the turn is a fixed track difference, so a turn at zero throttle spins in place.
+ * Contrast @ref iso_c_drive.
  *
  * @param throttle forward/back command in [-1, 1]
  * @param turn     turn-rate command in [-1, 1] (positive → turn one way)
@@ -349,20 +271,6 @@ template<typename T>
 }
 
 /**
- * @brief Arcade (single-stick) drive mixer: x (steer) + y (throttle) → left/right.
- *
- * Identical kinematics to @ref differential_drive with single-stick argument
- * ordering (horizontal steer axis, vertical throttle axis).
- *
- * @param x steering axis in [-1, 1]
- * @param y throttle axis in [-1, 1]
- */
-template<typename T>
-[[nodiscard]] constexpr DrivePair<T> arcade_drive(T x, T y) {
-    return differential_drive(y, x);
-}
-
-/**
  * @brief H-pattern (dual-lever / tank) drive: one lever per track, no mixing.
  *
  * The classic dozer/skid-steer lever control — each stick drives its own track
@@ -376,22 +284,6 @@ template<typename T>
 template<typename T>
 [[nodiscard]] constexpr DrivePair<T> h_pattern(T left_lever, T right_lever) {
     return {damp::clamp(left_lever, T{-1}, T{1}), damp::clamp(right_lever, T{-1}, T{1})};
-}
-
-/**
- * @brief ISO-S (single-stick, speed-summed) drive — arcade travel stick.
- *
- * The ISO travel stick with speed-summed steering: @f$\text{left}=v+\omega@f$,
- * @f$\text{right}=v-\omega@f$ with ratio-preserving anti-clip. Identical to
- * @ref differential_drive; the turn is a fixed track *difference*, so a turn
- * command at zero throttle spins in place. Contrast @ref iso_c_drive.
- *
- * @param throttle forward/back command in [-1, 1]
- * @param turn     steer command in [-1, 1]
- */
-template<typename T>
-[[nodiscard]] constexpr DrivePair<T> iso_s_drive(T throttle, T turn) {
-    return differential_drive(throttle, turn);
 }
 
 /**
@@ -423,7 +315,7 @@ template<typename T>
 /**
  * @brief Curve-driven steering map — arbitrary `(throttle, turn)` geometry.
  *
- * Where @ref iso_s_drive / @ref iso_c_drive fix the surface in closed form, this
+ * Where @ref differential_drive / @ref iso_c_drive fix the surface in closed form, this
  * reads the inner-track command from a caller-supplied 2-D curve over
  * @f$(|throttle|, |turn|)@f$: the outer track runs at the commanded throttle,
  * the inner track takes the curve value, the sign of `turn` picks which side is
@@ -480,8 +372,7 @@ struct HolonomicOutput {
  * where @f$y@f$ is forward, @f$x@f$ is strafe-right, and @f$\omega@f$ is yaw. The
  * @f$\pm x@f$ handedness follows the diagonal (X) roller pattern (`FL, RR` one lay;
  * `FR, RL` the other) — the only pattern that strafes; a left/right split would
- * spin instead. Mecanum-H and omni-X reduce to this same law, so they are aliases
- * (@ref mecanum_drive, @ref omniwheel_drive) rather than separate kinematics.
+ * spin instead. Mecanum-H and omni-X reduce to this same law.
  *
  * Anti-clip normalization scales all four wheels by the common overshoot so the
  * translation/rotation blend is preserved when a combined command saturates. Pure
@@ -507,18 +398,6 @@ template<typename T>
     }
 
     return {fl, fr, rl, rr};
-}
-
-/// Mecanum (H-layout, 45° rollers) mixer — alias for @ref holonomic_drive.
-template<typename T>
-[[nodiscard]] constexpr HolonomicOutput<T> mecanum_drive(T x, T y, T rotation) {
-    return holonomic_drive(x, y, rotation);
-}
-
-/// Omni-wheel (X-layout) mixer — alias for @ref holonomic_drive.
-template<typename T>
-[[nodiscard]] constexpr HolonomicOutput<T> omniwheel_drive(T x, T y, T rotation) {
-    return holonomic_drive(x, y, rotation);
 }
 
 } // namespace damp::io

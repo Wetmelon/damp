@@ -13,7 +13,7 @@
  * `SeriesMathBackend`): Newton–Raphson (`sqrt`, `cbrt` after exact power-of-two
  * scaling), atanh series `log` after exact power-of-two scaling, fdlibm polynomial kernels on |r| ≤ π/4 after π/2 quadrant reduction
  * (`sin`/`cos`/`sincos`/`tan`), Taylor `exp`, fdlibm-style multi-interval atan
- * (asin/acos via atan2), Cody–Waite two-part argument reduction,
+ * (asin/acos via atan2), Cody–Waite argument reduction with per-type splits,
  * cast-based `floor`/`ceil`/`fmod`, and a bit-pattern `isfinite`.
  *
  * No damp backend coupling: this header includes only freestanding standard
@@ -37,11 +37,11 @@
 
 namespace damp::detail {
 
-/// Local π (same digits as `damp::numbers::pi_v`; kept here to avoid backend.hpp).
+/** @brief Local π (same digits as `damp::numbers::pi_v`; kept here to avoid backend.hpp). */
 template<typename T>
 inline constexpr T pi_v = static_cast<T>(3.141592653589793238462643383279502884L);
 
-/// `{sin, cos}` result — plain aggregate so this header never needs `damp::pair`.
+/** @brief `{sin, cos}` result — plain aggregate so this header never needs `damp::pair`. */
 template<typename T>
 struct sincos_result {
     T sin;
@@ -84,10 +84,12 @@ inline constexpr double atan_lo[] = {
     +6.12323399573676603587e-17,
 };
 
-/// True when @p x is strictly inside the open range of `long long` after cast to
-/// `T` (so `static_cast<long long>(x)` is defined). Outside that range every
-/// finite binary `float`/`double` is already an integer (ulp ≥ 1 long before
-/// |x| reaches 2⁶³), so floor/ceil/trunc can return @p x unchanged.
+/**
+ * @brief True when @p x is strictly inside the open range of `long long` after cast to
+ * `T` (so `static_cast<long long>(x)` is defined). Outside that range every
+ * finite binary `float`/`double` is already an integer (ulp ≥ 1 long before
+ * |x| reaches 2⁶³), so floor/ceil/trunc can return @p x unchanged.
+ */
 template<typename T>
 constexpr bool in_long_long_cast_range(T x) {
     // LLONG_MAX is not exactly representable as double (rounds to 2⁶³); LLONG_MIN
@@ -101,8 +103,8 @@ constexpr bool in_long_long_cast_range(T x) {
  * @brief Round to nearest integer (ties away from zero), returned as long long.
  *
  * Used for argument reduction in the constexpr trig/exp paths. Values outside
- * the long-long range are clamped (trig reduction is already meaningless once
- * the quotient loses all fractional bits).
+ * the long-long range are clamped; @ref reduce_half_pi bounds the remainder
+ * that results.
  */
 template<typename T>
 constexpr long long lround_away(T x) {
@@ -114,20 +116,58 @@ constexpr long long lround_away(T x) {
     return static_cast<long long>(y);
 }
 
-/// Keep @p v as computed: stops `-ffast-math` from reassociating a Cody–Waite
-/// reduction `(x − k·hi) − k·lo` into `x − k·(hi + lo)` when the series run at
-/// runtime (constant evaluation is never reassociated).
+/**
+ * @brief Keep @p v as computed: stops `-ffast-math` from reassociating a Cody–Waite
+ * reduction `(x − k·hi) − k·lo` into `x − k·(hi + lo)` when the series run at
+ * runtime (constant evaluation is never reassociated).
+ */
 template<typename T>
 constexpr T assoc_barrier(T v) {
 #if defined(__has_builtin)
 #if __has_builtin(__builtin_assoc_barrier)
     return __builtin_assoc_barrier(v);
+#elif defined(__clang__) && (defined(__x86_64__) || defined(__i386__)) && __has_builtin(__arithmetic_fence)
+    if (!std::is_constant_evaluated()) {
+        return __arithmetic_fence(v); // clang implements the fence on x86 targets only
+    }
 #endif
+#endif
+#if (defined(__GNUC__) || defined(__clang__)) && defined(__arm__) && defined(__ARM_FP)
+    if (!std::is_constant_evaluated()) { // clang on ARM has neither builtin: an empty asm pins v in a VFP register
+        if constexpr (std::is_same_v<T, float>) {
+            asm volatile("" : "+t"(v));
+        } else {
+            asm volatile("" : "+w"(v));
+        }
+    }
+#elif (defined(__GNUC__) || defined(__clang__)) && defined(__aarch64__)
+    if (!std::is_constant_evaluated()) { // AArch64 has no "t" constraint; "w" is any FP/SIMD register
+        asm volatile("" : "+w"(v));
+    }
 #endif
     return v;
 }
 
-/// |x|.
+/**
+ * @brief Keep @p bits opaque at run time, so an integer test on a float's bit pattern
+ * is not folded from the float's value class.
+ *
+ * Under `-ffinite-math-only` (implied by `-ffast-math`) clang marks float arguments
+ * `nofpclass(nan inf)` and folds an exponent-mask test on their `std::bit_cast` to
+ * "finite". The empty asm hides the integer from that analysis; GCC does not fold the
+ * test today, but gets the barrier too. Mask before the barrier (pass `bits & mask`):
+ * the bare cast as an asm operand makes arm-none-eabi-gcc spill the float through the
+ * stack instead of one vmov. Constant evaluation is unaffected.
+ */
+template<typename U>
+constexpr U opaque_bits(U bits) {
+    if (!std::is_constant_evaluated()) {
+        asm("" : "+r"(bits));
+    }
+    return bits;
+}
+
+/** @brief |x|. */
 template<typename T>
 constexpr T abs(T x) {
     return x >= T{0} ? x : -x;
@@ -136,7 +176,7 @@ constexpr T abs(T x) {
 template<typename T>
 constexpr bool isfinite(T x); // bit-pattern test, defined at the end of this header
 
-/// Argument and scale of @ref reduce_for_root.
+/** @brief Argument and scale of @ref reduce_for_root. */
 template<typename T, int Root>
 struct RootReduced {
     T x;     ///< Reduced argument in [1, 2^Root)
@@ -176,10 +216,12 @@ constexpr RootReduced<T, Root> reduce_for_root(T x) {
     return {x, scale};
 }
 
-/// Square root via Newton–Raphson after exact power-of-four reduction into
-/// [1, 4) (converges in a handful of steps for any finite @p x). Domain
-/// @p x < 0 → 0 (library policy under `-ffinite-math-only` / constant
-/// evaluation — no NaN).
+/**
+ * @brief Square root via Newton–Raphson after exact power-of-four reduction into
+ * [1, 4) (converges in a handful of steps for any finite @p x). Domain
+ * @p x < 0 → 0 (library policy under `-ffinite-math-only` / constant
+ * evaluation — no NaN).
+ */
 template<typename T>
 constexpr T sqrt(T x) {
     if (x <= T{0}) {
@@ -202,8 +244,10 @@ constexpr T sqrt(T x) {
     return guess * red.scale;
 }
 
-/// Cube root via Newton–Raphson after exact power-of-eight reduction into
-/// [1, 8); preserves sign for negative x.
+/**
+ * @brief Cube root via Newton–Raphson after exact power-of-eight reduction into
+ * [1, 8); preserves sign for negative x.
+ */
 template<typename T>
 constexpr T cbrt(T x) {
     if (x == T{0} || !isfinite(x)) {
@@ -284,7 +328,7 @@ constexpr T atan_nonneg(T x) {
     return hi - (((x * (s1 + s2)) - lo) - x);
 }
 
-/// Single-argument arctangent ∈ (−π/2, π/2). Odd; uses @ref atan_nonneg.
+/** @brief Single-argument arctangent ∈ (−π/2, π/2). Odd; uses @ref atan_nonneg. */
 template<typename T>
 constexpr T atan(T x) {
     const T ax = x >= T{0} ? x : -x;
@@ -356,33 +400,57 @@ constexpr T acos(T x) {
     return atan2(sqrt((T{1} - x) * (T{1} + x)), x);
 }
 
-/**
- * @brief Quadrant reduction: x = k·π/2 + r with |r| ≲ π/4 (Cody–Waite, two-part π/2).
- *
- * The high word has its low mantissa bits cleared so k·hi is exact for
- * |k| < 2²⁰; accuracy degrades gracefully beyond |x| ~ 10⁶ rad.
- */
+/** @brief Result of @ref reduce_half_pi: x = k·π/2 + r. */
 template<typename T>
 struct QuadrantReduced {
-    T   r;        ///< Remainder in about [−π/4, π/4]
+    T   r;        ///< Remainder in about [−π/4, π/4], bounded to [−1, 1]
     int quadrant; ///< k mod 4, in {0, 1, 2, 3}
 };
 
+/**
+ * @brief Quadrant reduction: x = k·π/2 + r with |r| ≲ π/4 (Cody–Waite).
+ *
+ * The π/2 split is per type, with the low bits of the leading words cleared so
+ * the products k·word are exact: double uses two words (exact for |k| < 2²⁰,
+ * |x| ≲ 1.6·10⁶ rad), float four words whose first three hold 8 bits each
+ * (exact for |k| < 2¹⁶, |x| ≲ 10⁵ rad). Past that range the remainder carries an
+ * error of about ulp(x). Where that error leaves the polynomial chart (ulp(x) of
+ * order 1 rad) r is clamped to [−1, 1], so sin and cos stay in [−1, 1] and tan
+ * stays finite for every finite argument; the value carries no information there.
+ *
+ * @see "Software Manual for the Elementary Functions" (Cody, Waite, 1980), §8.
+ */
 template<typename T>
 constexpr QuadrantReduced<T> reduce_half_pi(T x) {
     if (abs(x) <= static_cast<T>(0.785398163397448309616)) { // |x| ≤ π/4: already reduced
         return {x, 0};
     }
-    constexpr T     half_pi_hi = static_cast<T>(1.57079632673412561417);
-    constexpr T     half_pi_lo = static_cast<T>(6.07710050650619224932e-11);
     constexpr T     two_over_pi = static_cast<T>(0.63661977236758134308);
     const long long k = lround_away(x * two_over_pi);
     const T         kreal = static_cast<T>(k);
-    return {assoc_barrier(x - (kreal * half_pi_hi)) - (kreal * half_pi_lo), static_cast<int>(k & 3LL)};
+    T               r{};
+    if constexpr (std::is_same_v<T, float>) {
+        r = assoc_barrier(x - (kreal * 1.5703125f));
+        r = assoc_barrier(r - (kreal * 4.825592041015625e-04f));
+        r = assoc_barrier(r - (kreal * 1.2665987014770508e-06f));
+        r = r - (kreal * 9.92093629470503e-10f);
+    } else {
+        constexpr T half_pi_hi = static_cast<T>(1.57079632673412561417);
+        constexpr T half_pi_lo = static_cast<T>(6.07710050650619224932e-11);
+        r = assoc_barrier(x - (kreal * half_pi_hi)) - (kreal * half_pi_lo);
+    }
+    if (r > T{1}) {
+        r = T{1};
+    } else if (r < T{-1}) {
+        r = T{-1};
+    }
+    return {r, static_cast<int>(k & 3LL)};
 }
 
-/// Sine kernel on |r| ≤ π/4: fdlibm's minimax polynomial in r² (error < 2⁻⁵⁸).
-/// Straight-line Horner keeps constant evaluation cheap.
+/**
+ * @brief Sine kernel on |r| ≤ π/4: fdlibm's minimax polynomial in r² (error < 2⁻⁵⁸).
+ * Straight-line Horner keeps constant evaluation cheap.
+ */
 template<typename T>
 constexpr T sin_kernel(T r) {
     constexpr T S1 = static_cast<T>(-1.66666666666666324348e-01);
@@ -396,7 +464,7 @@ constexpr T sin_kernel(T r) {
     return r + ((z * r) * (S1 + (z * p)));
 }
 
-/// Cosine kernel on |r| ≤ π/4: fdlibm's minimax polynomial in r² (error < 2⁻⁵⁸).
+/** @brief Cosine kernel on |r| ≤ π/4: fdlibm's minimax polynomial in r² (error < 2⁻⁵⁸). */
 template<typename T>
 constexpr T cos_kernel(T r) {
     constexpr T C1 = static_cast<T>(4.16666666666666019037e-02);
@@ -410,7 +478,7 @@ constexpr T cos_kernel(T r) {
     return T{1} - ((static_cast<T>(0.5) * z) - (z * p));
 }
 
-/// {sin(x), cos(x)} from one quadrant reduction and the |r| ≤ π/4 kernels.
+/** @brief {sin(x), cos(x)} from one quadrant reduction and the |r| ≤ π/4 kernels. */
 template<typename T>
 constexpr sincos_result<T> sincos(T x) {
     const auto red = reduce_half_pi(x);
@@ -428,7 +496,13 @@ constexpr sincos_result<T> sincos(T x) {
     }
 }
 
-/// Sine (quadrant reduction + polynomial kernel; ~1 ulp absolute).
+/**
+ * @brief Sine (quadrant reduction + polynomial kernel).
+ *
+ * A few ulp for |x| ≲ 100 rad, relative accuracy kept next to the zeros; over the
+ * exact-reduction range of @ref reduce_half_pi the absolute error stays near
+ * ulp(1). Bounded to [−1, 1] beyond it.
+ */
 template<typename T>
 constexpr T sin(T x) {
     const auto red = reduce_half_pi(x); // one kernel per quadrant, not both
@@ -444,7 +518,7 @@ constexpr T sin(T x) {
     }
 }
 
-/// Cosine (quadrant reduction + polynomial kernel; ~1 ulp absolute).
+/** @brief Cosine (quadrant reduction + polynomial kernel; accuracy as @ref sin). */
 template<typename T>
 constexpr T cos(T x) {
     const auto red = reduce_half_pi(x);
@@ -460,9 +534,12 @@ constexpr T cos(T x) {
     }
 }
 
-/// Tangent as a kernel ratio after quadrant reduction: sin r / cos r for even
-/// k, −cos r / sin r for odd k. The reduced r keeps relative accuracy next to
-/// the poles, so tan stays relatively accurate there.
+/**
+ * @brief Tangent as a kernel ratio after quadrant reduction: sin r / cos r for even
+ * k, −cos r / sin r for odd k. Within the exact-reduction range of
+ * @ref reduce_half_pi the reduced r keeps relative accuracy next to the poles,
+ * so tan stays relatively accurate there.
+ */
 template<typename T>
 constexpr T tan(T x) {
     const auto red = reduce_half_pi(x);
@@ -471,14 +548,30 @@ constexpr T tan(T x) {
     return ((red.quadrant & 1) == 0) ? (s / c) : (-c / s);
 }
 
-/// exp via ln2 argument reduction (@f$ e^x = 2^k e^r @f$, |r| ≤ ln2/2) and a
-/// Taylor series on the remainder. Over/underflow saturates to `max()` / `0`
-/// (no ±inf under `-ffinite-math-only`); thresholds are per-`T` (`float` vs
-/// `double` range).
+/**
+ * @brief ln 2 = hi + lo with the low bits of hi cleared, so k·hi is exact for every
+ * binary exponent k of @p T (float: hi holds 16 bits; double: 32 bits).
+ */
+template<typename T>
+inline constexpr T ln2_hi_v = std::is_same_v<T, float> ? static_cast<T>(6.93145751953125e-01f)
+                                                       : static_cast<T>(6.93147180369123816490e-01);
+
+/** @brief Low word of the ln 2 split: ln 2 − @ref ln2_hi_v, rounded to @p T. */
+template<typename T>
+inline constexpr T ln2_lo_v = std::is_same_v<T, float> ? static_cast<T>(1.428606765330187e-06f)
+                                                       : static_cast<T>(1.90821492927058770002e-10);
+
+/**
+ * @brief exp via ln2 argument reduction (eˣ = 2ᵏ·eʳ, |r| ≤ ln2/2) and a
+ * Taylor series on the remainder. Over/underflow saturates to `max()` / `0`
+ * (no ±inf under `-ffinite-math-only`); thresholds are per-`T` (`float` vs
+ * `double` range).
+ */
 template<typename T>
 constexpr T exp(T x) {
-    // log(numeric_limits<T>::max()) and ~log(min subnormal), type-scaled.
-    constexpr T overflow_x = std::is_same_v<T, float> ? static_cast<T>(88.722839f)
+    // Largest x whose exp(x) is finite (float: the float just below ln(FLT_MAX)),
+    // and ~log(min subnormal), type-scaled.
+    constexpr T overflow_x = std::is_same_v<T, float> ? static_cast<T>(88.72283172607421875f)
                                                       : static_cast<T>(709.782712893384);
     constexpr T underflow_x = std::is_same_v<T, float> ? static_cast<T>(-103.278929f)
                                                        : static_cast<T>(-745.133219101941);
@@ -492,12 +585,10 @@ constexpr T exp(T x) {
         return x; // NaN (±inf were saturated above)
     }
 
-    constexpr T     ln2_hi = static_cast<T>(6.93147180369123816490e-01);
-    constexpr T     ln2_lo = static_cast<T>(1.90821492927058770002e-10);
     constexpr T     inv_ln2 = static_cast<T>(1.44269504088896340736);
     const long long k = lround_away(x * inv_ln2);
     const T         kreal = static_cast<T>(k);
-    const T         r = assoc_barrier(x - (kreal * ln2_hi)) - (kreal * ln2_lo);
+    const T         r = assoc_barrier(x - (kreal * ln2_hi_v<T>)) - (kreal * ln2_lo_v<T>);
 
     T result = T{1};
     T term = T{1};
@@ -567,17 +658,28 @@ constexpr T log(T x) {
         term *= s2;
         sum += term / T((2 * n) + 1);
     }
-    constexpr T ln2_hi = static_cast<T>(6.93147180369123816490e-01);
-    constexpr T ln2_lo = static_cast<T>(1.90821492927058770002e-10);
-    return (m * ln2_hi) + ((m * ln2_lo) + (T{2} * sum));
+    return (m * ln2_hi_v<T>)+((m * ln2_lo_v<T>)+(T{2} * sum));
 }
 
-/// @f$ \mathrm{base}^{\mathrm{exponent}} = \exp(\mathrm{exponent}\cdot\ln\mathrm{base}) @f$.
-/// `exponent == 0` → 1 (including 0⁰); `base ≤ 0` (and nonzero exponent) → 0.
+template<typename T>
+constexpr T floor(T x);
+template<typename T>
+constexpr T fmod(T x, T y);
+
+/**
+ * @brief base^exponent = exp(exponent · ln base).
+ * `exponent == 0` → 1 (including 0⁰); a negative base with an integral exponent
+ * gives ±|base|^exponent (sign from the exponent's parity); `base == 0`, or a
+ * negative base with a non-integral exponent, → 0.
+ */
 template<typename T>
 constexpr T pow(T base, T exponent) {
     if (exponent == T{0}) {
         return T{1};
+    }
+    if ((base < T{0}) && (exponent == floor(exponent))) {
+        const T mag = exp(log(-base) * exponent);
+        return (fmod(exponent, T{2}) != T{0}) ? -mag : mag;
     }
     if (base <= T{0}) {
         return T{0};
@@ -585,7 +687,7 @@ constexpr T pow(T base, T exponent) {
     return exp(log(base) * exponent);
 }
 
-/// Largest integer ≤ @p x (full finite range; no long-long UB on huge |x|).
+/** @brief Largest integer ≤ @p x (full finite range; no long-long UB on huge |x|). */
 template<typename T>
 constexpr T floor(T x) {
     if (!in_long_long_cast_range(x)) {
@@ -599,7 +701,7 @@ constexpr T floor(T x) {
     return int_part;
 }
 
-/// Smallest integer ≥ @p x (full finite range).
+/** @brief Smallest integer ≥ @p x (full finite range). */
 template<typename T>
 constexpr T ceil(T x) {
     return -floor(-x);
@@ -628,9 +730,11 @@ constexpr T nearbyint(T x) {
     return ((n % 2) == 0) ? fl : (fl + T{1});
 }
 
-/// Non-negative remainder @p x mod @p y for @p x ≥ 0, @p y > 0, result in [0, y).
-/// Binary (shift-and-subtract) reduction — exact for large |x/y| where
-/// `x - y·trunc(x/y)` loses all precision in the product.
+/**
+ * @brief Non-negative remainder @p x mod @p y for @p x ≥ 0, @p y > 0, result in [0, y).
+ * Binary (shift-and-subtract) reduction — exact for large |x/y| where
+ * `x - y·trunc(x/y)` loses all precision in the product.
+ */
 template<typename T>
 constexpr T fmod_positive(T x, T y) {
     if (x < y) {
@@ -638,9 +742,11 @@ constexpr T fmod_positive(T x, T y) {
     }
     T   d = y;
     int shifts = 0;
+    // Double while 2d ≤ x, so the top d is the largest y·2ᵏ ≤ x (stopping at d = x/2 would
+    // leave x − d = d, and the lower levels would then return y instead of 0).
     // Cover the full binary64 exponent span with margin; each step doubles d.
     constexpr int max_shifts = 4096;
-    while (shifts < max_shifts && d < (x * static_cast<T>(0.5)) && d < (std::numeric_limits<T>::max() * static_cast<T>(0.5))) {
+    while (shifts < max_shifts && d <= (x * static_cast<T>(0.5)) && d < (std::numeric_limits<T>::max() * static_cast<T>(0.5))) {
         d *= T{2};
         ++shifts;
     }
@@ -653,9 +759,11 @@ constexpr T fmod_positive(T x, T y) {
     return x;
 }
 
-/// Floating-point remainder, @f$ x - y\cdot\mathrm{trunc}(x/y) @f$ (sign of x),
-/// matching `std::fmod`'s truncated-quotient convention. @p y == 0 → 0.
-/// Full finite range (no long-long UB; no catastrophic cancellation for huge x/y).
+/**
+ * @brief Floating-point remainder, x − y·trunc(x/y) (sign of x),
+ * matching `std::fmod`'s truncated-quotient convention. @p y == 0 → 0.
+ * Full finite range (no long-long UB; no catastrophic cancellation for huge x/y).
+ */
 template<typename T>
 constexpr T fmod(T x, T y) {
     if (y == T{0}) {
@@ -667,7 +775,7 @@ constexpr T fmod(T x, T y) {
     return x >= T{0} ? r : -r;
 }
 
-/// @f$ \log_{10}(x) = \ln(x)/\ln(10) @f$. Domain @p x ≤ 0 → 0.
+/** @brief log₁₀(x) = ln(x)/ln(10). Domain @p x ≤ 0 → 0. */
 template<typename T>
 constexpr T log10(T x) {
     if (x <= T{0}) {
@@ -676,8 +784,10 @@ constexpr T log10(T x) {
     return log(x) / log(T{10});
 }
 
-/// Magnitude of @p mag with the sign of @p sgn_src from a comparison
-/// (`sgn_src < 0`), not IEEE `signbit` (so −0 is treated as non-negative).
+/**
+ * @brief Magnitude of @p mag with the sign of @p sgn_src from a comparison
+ * (`sgn_src < 0`), not IEEE `signbit` (so −0 is treated as non-negative).
+ */
 template<typename T>
 constexpr T copysign(T mag, T sgn_src) {
     const T m = mag >= T{0} ? mag : -mag;
@@ -690,7 +800,9 @@ constexpr T copysign(T mag, T sgn_src) {
  * Inspects the exponent field via `std::bit_cast` so the result stays correct
  * under `-ffast-math` / `-ffinite-math-only`. Those flags may make
  * `std::isfinite` and FP comparisons (`|x| ≤ max`) optimize to "always true"
- * because the compiler assumes no NaNs/Infs — integer bit tests do not.
+ * because the compiler assumes no NaNs/Infs. Clang also folds a plain bit test
+ * on the cast (the argument carries `nofpclass(nan inf)`), so the bits pass
+ * through @ref opaque_bits first.
  *
  * @note Prefer magnitude guards (`abs(x) > bound`) for *divergence* detection
  *       when values grow without necessarily becoming Inf.
@@ -698,11 +810,9 @@ constexpr T copysign(T mag, T sgn_src) {
 template<typename T>
 constexpr bool isfinite(T x) {
     if constexpr (std::is_same_v<T, float>) {
-        const auto bits = std::bit_cast<std::uint32_t>(x);
-        return (bits & 0x7f800000u) != 0x7f800000u;
+        return opaque_bits(std::bit_cast<std::uint32_t>(x) & 0x7f800000u) != 0x7f800000u;
     } else if constexpr (std::is_same_v<T, double>) {
-        const auto bits = std::bit_cast<std::uint64_t>(x);
-        return (bits & 0x7ff0000000000000ull) != 0x7ff0000000000000ull;
+        return opaque_bits(std::bit_cast<std::uint64_t>(x) & 0x7ff0000000000000ull) != 0x7ff0000000000000ull;
     } else {
         // long double / extended: fall back to comparison (best-effort)
         return abs(x) <= std::numeric_limits<T>::max();

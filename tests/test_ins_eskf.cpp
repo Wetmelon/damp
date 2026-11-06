@@ -3,6 +3,9 @@
 // Distributed under the Boost Software License, Version 1.0.
 // (See accompanying file LICENSE or copy at http://www.boost.org/LICENSE_1_0.txt)
 
+#include <cstddef>
+#include <type_traits>
+
 #include "damp/backend.hpp"
 #include "damp/estimation/eskf.hpp"
 #include "damp/estimation/ins_eskf.hpp"
@@ -16,6 +19,28 @@
 #include "doctest.h"
 
 using namespace damp;
+
+namespace {
+
+// A reset that would install an identity covariance in place of the design's P₀.
+template<typename F>
+concept BareReset = requires(F& f) { f.reset(); };
+template<typename F, typename X>
+concept StateOnlyReset = requires(F& f, const X& x) { f.reset(x); };
+
+template<size_t N>
+[[nodiscard]] bool exactly_symmetric(const Matrix<N, N, double>& P) {
+    for (size_t i = 0; i < N; ++i) {
+        for (size_t j = 0; j < i; ++j) {
+            if (P(i, j) != P(j, i)) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+} // namespace
 
 namespace {
 
@@ -209,7 +234,7 @@ TEST_SUITE("INS ESKF (#26 PR2)") {
             0.01, // init bg
             0.1   // init ba (wide)
         );
-        ErrorStateKalmanFilter<kInsErrorDim, kInsMeasDim, double> eskf(design.P0, design.Q, design.R);
+        ErrorStateKalmanFilter<kInsErrorDim, double> eskf{{.Q = design.Q, .P0 = design.P0}};
 
         double err_free = 0.0;
         double err_aid = 0.0;
@@ -232,7 +257,7 @@ TEST_SUITE("INS ESKF (#26 PR2)") {
 
             if ((k % aid_every) == 0) {
                 // Perfect absolute position (mocap-style) — bounds filter
-                CHECK(ins_update_position(eskf, aided, truth.p));
+                CHECK(ins_update_position(eskf, aided, truth.p, design.R));
             }
 
             err_free = damp::max(err_free, max_abs_diff(free_run.p, truth.p));
@@ -258,8 +283,8 @@ TEST_SUITE("INS ESKF (#26 PR2)") {
         InsState<double> x{};
         x.q = Quaternion<double>::identity();
 
-        const auto                                                design = design::ins_eskf_design(1e-3, 1e-2, 1e-4, 1e-3, dt, 1.0);
-        ErrorStateKalmanFilter<kInsErrorDim, kInsMeasDim, double> eskf(design.P0, design.Q, design.R);
+        const auto                                   design = design::ins_eskf_design(1e-3, 1e-2, 1e-4, 1e-3, dt, 1.0);
+        ErrorStateKalmanFilter<kInsErrorDim, double> eskf{{.Q = design.Q, .P0 = design.P0}};
 
         const Matrix<3, 3, double> R_zupt = Matrix<3, 3, double>::identity() * 1e-4;
 
@@ -280,16 +305,16 @@ TEST_SUITE("INS ESKF (#26 PR2)") {
     }
 
     TEST_CASE("float instantiation compiles") {
-        const auto                                               design = design::ins_eskf_design(0.01f, 0.1f, 0.001f, 0.01f, 0.01f).as<float>();
-        ErrorStateKalmanFilter<kInsErrorDim, kInsMeasDim, float> eskf(design.P0, design.Q, design.R);
-        InsState<float>                                          x{};
+        const auto                                  design = design::ins_eskf_design(0.01f, 0.1f, 0.001f, 0.01f, 0.01f).as<float>();
+        ErrorStateKalmanFilter<kInsErrorDim, float> eskf{{.Q = design.Q, .P0 = design.P0}};
+        InsState<float>                             x{};
         x.q = Quaternion<float>::identity();
         const ImuSample<float> imu{
             .gyro = {0.f, 0.f, 0.f},
             .accel = specific_force_at_rest(x.q, NavFrame::ENU),
         };
         ins_predict(eskf, x, imu, 0.01f, NavFrame::ENU);
-        CHECK(ins_update_position(eskf, x, Vec3<float>{0.f, 0.f, 0.f}));
+        CHECK(ins_update_position(eskf, x, Vec3<float>{0.f, 0.f, 0.f}, design.R));
         CHECK(x.q.norm() == doctest::Approx(1.0f).epsilon(1e-5f));
     }
 }
@@ -325,9 +350,9 @@ TEST_SUITE("INS ESKF (#26 PR3 heading / pose)") {
         InsState<double> x{};
         x.q = Quaternion<double>::identity(); // wrong heading
 
-        auto                                                      design = design::ins_eskf_design(1e-3, 1e-2, 1e-4, 1e-3, dt, 1.0, 0.5);
-        ErrorStateKalmanFilter<kInsErrorDim, kInsMeasDim, double> eskf(design.P0, design.Q, design.R);
-        const Matrix<1, 1, double>                                R_psi{{0.01 * 0.01}};
+        auto                                         design = design::ins_eskf_design(1e-3, 1e-2, 1e-4, 1e-3, dt, 1.0, 0.5);
+        ErrorStateKalmanFilter<kInsErrorDim, double> eskf{{.Q = design.Q, .P0 = design.P0}};
+        const Matrix<1, 1, double>                   R_psi{{0.01 * 0.01}};
 
         for (int k = 0; k < 40; ++k) {
             ImuSample<double> imu{
@@ -353,8 +378,8 @@ TEST_SUITE("INS ESKF (#26 PR3 heading / pose)") {
         InsState<double> x = truth;
         x.p = Vec3<double>{0.0, 0.0, 0.0}; // bad position prior
 
-        auto                                                      design = design::ins_eskf_design(1e-3, 1e-2, 1e-4, 1e-3, dt, 0.05, 0.05, 0.5, 5.0);
-        ErrorStateKalmanFilter<kInsErrorDim, kInsMeasDim, double> eskf(design.P0, design.Q, design.R);
+        auto                                         design = design::ins_eskf_design(1e-3, 1e-2, 1e-4, 1e-3, dt, 0.05, 0.05, 0.5, 5.0);
+        ErrorStateKalmanFilter<kInsErrorDim, double> eskf{{.Q = design.Q, .P0 = design.P0}};
 
         const Vec3<double> p_ant = ins_aid_position(truth, lever);
         for (int k = 0; k < 20; ++k) {
@@ -380,9 +405,9 @@ TEST_SUITE("INS ESKF (#26 PR3 heading / pose)") {
         InsState<double> x{};
         x.q = Quaternion<double>::identity();
 
-        auto                                                      design = design::ins_eskf_design(1e-3, 1e-2, 1e-4, 1e-3, dt, 0.05, 0.5, 1.0, 5.0);
-        ErrorStateKalmanFilter<kInsErrorDim, kInsMeasDim, double> eskf(design.P0, design.Q, design.R);
-        const Matrix<3, 3, double>                                R_att = Matrix<3, 3, double>::identity() * (0.02 * 0.02);
+        auto                                         design = design::ins_eskf_design(1e-3, 1e-2, 1e-4, 1e-3, dt, 0.05, 0.5, 1.0, 5.0);
+        ErrorStateKalmanFilter<kInsErrorDim, double> eskf{{.Q = design.Q, .P0 = design.P0}};
+        const Matrix<3, 3, double>                   R_att = Matrix<3, 3, double>::identity() * (0.02 * 0.02);
 
         for (int k = 0; k < 15; ++k) {
             ImuSample<double> imu{
@@ -396,6 +421,23 @@ TEST_SUITE("INS ESKF (#26 PR3 heading / pose)") {
         CHECK(max_abs_diff(x.p, truth.p) < 0.05);
         CHECK(x.q.w() == doctest::Approx(truth.q.w()).epsilon(1e-2));
         CHECK(x.q.z() == doctest::Approx(truth.q.z()).epsilon(1e-2));
+    }
+
+    TEST_CASE("INS heading Jacobian is invariant to the scale of the forward vector") {
+        const Vec3<double> f{0.6, 0.8, 0.0};
+        const double       s = 1e-13; // tiny but perfectly horizontal
+        const Vec3<double> fs = f * s;
+        for (const NavFrame frame : {NavFrame::NED, NavFrame::ENU}) {
+            const auto J = detail::dheading_dforward(f, frame);
+            const auto Js = detail::dheading_dforward(fs, frame);
+            CHECK(J(0, 0) != 0.0);
+            CHECK(Js(0, 0) * s == doctest::Approx(J(0, 0)));
+            CHECK(Js(0, 1) * s == doctest::Approx(J(0, 1)));
+        }
+        // Exactly vertical: no heading information, zero Jacobian (no division by zero).
+        const auto Jv = detail::dheading_dforward(Vec3<double>{0.0, 0.0, 1.0}, NavFrame::NED);
+        CHECK(Jv(0, 0) == 0.0);
+        CHECK(Jv(0, 1) == 0.0);
     }
 }
 
@@ -475,5 +517,39 @@ TEST_SUITE("INS ESKF (#26 PR4 InsNavigator)") {
 
         const auto nav_d = nav.as<double>();
         CHECK(nav_d.frame() == NavFrame::ENU);
+    }
+
+    TEST_CASE("ins_eskf_design is an ESKFResult: copy-init from any scalar, ESKF from {res}") {
+        // A double design deploys to a float navigator by copy-init (constinit on target), and the
+        // free-function INS API's ErrorStateKalmanFilter takes the same result.
+        constexpr auto kD = design::ins_eskf_design(1e-3, 1e-2, 1e-4, 1e-3, 0.01);
+        static_assert(kD.success);
+        static constinit InsNavigator<float> nav = kD;
+        CHECK(nav.filter().covariance()(0, 0) == doctest::Approx(static_cast<float>(kD.P0(0, 0))));
+
+        ErrorStateKalmanFilter<kInsErrorDim, double> eskf{kD};
+        CHECK(eskf.covariance()(ins_err::dp, ins_err::dp) == doctest::Approx(kD.P0(ins_err::dp, ins_err::dp)));
+
+        // CTAD keeps the design's scalar; the class default (float) would drop it silently.
+        InsNavigator nav_d{kD, NavFrame::ENU};
+        static_assert(std::is_same_v<decltype(nav_d), InsNavigator<double>>);
+
+        // reset states the covariance: no identity default that discards the design's P₀.
+        static_assert(!BareReset<InsNavigator<double>>);
+        static_assert(!StateOnlyReset<InsNavigator<double>, InsState<double>>);
+    }
+
+    TEST_CASE("INS predict keeps the error covariance exactly symmetric") {
+        const auto d = design::ins_eskf_design(1e-3, 1e-2, 1e-4, 1e-3, 0.01);
+        REQUIRE(d.success);
+        InsNavigator<double> nav(d, NavFrame::NED);
+        InsState<double>     x{};
+        x.q = Quaternion<double>::from_axis_angle(Vec3<double>{0.3, -0.5, 0.8}, 0.7).value();
+        nav.set_state(x);
+        const ImuSample<double> imu{.gyro = {0.11, -0.07, 0.23}, .accel = {0.4, -0.3, -9.7}};
+        for (int k = 0; k < 50; ++k) {
+            nav.predict(imu, 0.01);
+        }
+        CHECK(exactly_symmetric(nav.filter().covariance()));
     }
 }

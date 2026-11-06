@@ -11,13 +11,14 @@
  *
  * The everyday command/feedback conditioning blocks that aren't filters and
  * aren't calibration math: dead zones, their inverse (hard step, soft
- * sine / tanh-like, Coulomb–viscous / Stribeck friction maps), rate limiting,
+ * sine / tanh-like), rate limiting,
  * and a Schmitt-trigger hysteresis comparator. All `constexpr` and
  * allocation-free — drop them straight into an ISR.
  *
  * Forward deadband/expo live on the stick path (reject noise). inverse
- * deadband / friction live on the actuator command after the online motion
- * planner (valve overlap, stiction, Coulomb) — not on the stick.
+ * deadband lives on the actuator command after the online motion planner
+ * (valve overlap, stiction) — not on the stick. Friction feedforward is
+ * `cmd + stribeck_force(params, cmd, v_smooth)` from systems/friction.hpp.
  *
  * @see toolbox/scaling.hpp for stateless range/affine calibration helpers.
  * @see filters/filters.hpp for the linear filter runtimes.
@@ -26,7 +27,8 @@
 #include <cstdint>
 #include <limits>
 
-#include "damp/math/math.hpp" // damp::abs, damp::copysign, damp::sin, damp::sqrt, damp::exp
+#include "damp/math/math.hpp"      // damp::abs, damp::copysign, damp::sin, damp::sqrt
+#include "damp/toolbox/bounds.hpp" // Bounds
 
 namespace damp {
 
@@ -54,7 +56,7 @@ template<typename T>
     return T{0};
 }
 
-/// Symmetric dead zone of half-width @p band (i.e. `[−band, band]`).
+/** @brief Symmetric dead zone of half-width @p band (i.e. `[−band, band]`). */
 template<typename T>
 [[nodiscard]] constexpr T deadband(T x, T band) {
     return deadband(x, -band, band);
@@ -83,7 +85,7 @@ template<typename T>
     return x + (x > T{0} ? upper : lower);
 }
 
-/// Symmetric inverse dead zone: boost by @p band in the command's direction.
+/** @brief Symmetric inverse dead zone: boost by @p band in the command's direction. */
 template<typename T>
 [[nodiscard]] constexpr T inverse_deadband(T x, T band) {
     return inverse_deadband(x, -band, band, T{0});
@@ -170,66 +172,6 @@ template<typename T>
 }
 
 /**
- * @brief Coulomb + viscous friction compensation (static inverse, massless)
- *
- * @f[
- *   u = u^{\star} + F_{c}\,\mathrm{soft\_sign}(u^{\star},\varepsilon) + b\,u^{\star}
- * @f]
- * Boosts the command so a plant with Coulomb stiction and linear viscous drag
- * can track @f$u^{\star}@f$ in steady state. Purely algebraic — no internal state.
- *
- * @param cmd      Desired command / velocity proxy.
- * @param coulomb  Coulomb magnitude F_c ≥ 0.
- * @param viscous  Viscous coefficient b (default 0).
- * @param eps      Soft-sign scale (default: machine-ish from @p coulomb).
- * @see compensate_stribeck, soft_sign, inverse_deadband_soft
- */
-template<typename T>
-[[nodiscard]] constexpr T compensate_coulomb_viscous(
-    T cmd, T coulomb, T viscous = T{0}, T eps = T{0}
-) {
-    const T fc = damp::max(coulomb, T{0});
-    const T e = (eps > T{0}) ? eps : (static_cast<T>(1e-3) * (T{1} + fc));
-    return cmd + (fc * soft_sign(cmd, e)) + (viscous * cmd);
-}
-
-/**
- * @brief Stribeck-style friction compensation (static + Coulomb + viscous)
- *
- * @f[
- *   F(v) = \Bigl(F_{c} + (F_{s}-F_{c})\,e^{-(v/v_{s})^{2}}\Bigr)
- *          \mathrm{soft\_sign}(v,\varepsilon) + b\,v
- * @f]
- * @f$ u = u^{\star} + F(u^{\star}) @f$. Captures higher breakaway (@p static_f)
- * that falls to Coulomb as speed rises. Still massless / memoryless.
- *
- * @param cmd       Desired command / velocity proxy v.
- * @param coulomb   Sliding Coulomb F_c ≥ 0.
- * @param static_f  Breakaway / static level F_s ≥ F_c.
- * @param v_stribeck Stribeck velocity scale v_s (0 = no Stribeck hump: pure Coulomb).
- * @param viscous   Viscous b (default 0).
- * @param eps       Soft-sign scale (default from Coulomb).
- * @see compensate_coulomb_viscous
- */
-template<typename T>
-[[nodiscard]] constexpr T compensate_stribeck(
-    T cmd,
-    T coulomb,
-    T static_f,
-    T v_stribeck,
-    T viscous = T{0},
-    T eps = T{0}
-) {
-    const T fc = damp::max(coulomb, T{0});
-    const T fs = damp::max(static_f, fc);
-    const T vs = damp::abs(v_stribeck);
-    const T e = (eps > T{0}) ? eps : (static_cast<T>(1e-3) * (T{1} + fc));
-    const T r = (vs > T{0}) ? cmd / vs : T{0};
-    const T stribeck = (vs > T{0}) ? fc + ((fs - fc) * damp::exp(-(r * r))) : fc;
-    return cmd + (stribeck * soft_sign(cmd, e)) + (viscous * cmd);
-}
-
-/**
  * @brief Center dead zone that rescales the surviving range back to full span.
  *
  * Unlike @ref deadband (which returns the raw distance past the edge), this maps
@@ -279,13 +221,13 @@ class SlewLimiter {
 public:
     constexpr SlewLimiter() = default;
 
-    /// Symmetric rate limit [units/s].
+    /** @brief Symmetric rate limit [units/s]. */
     constexpr explicit SlewLimiter(T rate) : rate_up_(rate), rate_down_(rate) {}
 
-    /// Independent rising/falling rate limits [units/s].
+    /** @brief Independent rising/falling rate limits [units/s]. */
     constexpr SlewLimiter(T rate_up, T rate_down) : rate_up_(rate_up), rate_down_(rate_down) {}
 
-    /// Advance one step toward @p target over @p dt seconds; holds when dt ≤ 0.
+    /** @brief Advance one step toward @p target over @p dt seconds; holds when dt ≤ 0. */
     constexpr T operator()(T target, T dt) {
         if (!init_) {
             y_ = target;
@@ -315,7 +257,7 @@ public:
         init_ = false;
     }
 
-    /// Pre-seed the output (and mark initialized) for bumpless start.
+    /** @brief Pre-seed the output (and mark initialized) for bumpless start. */
     constexpr void reset(T y) {
         y_ = y;
         init_ = true;
@@ -343,10 +285,10 @@ class Hysteresis {
 public:
     constexpr Hysteresis() = default;
 
-    /// @param low Falling (release) threshold. @param high Rising (trip) threshold.
+    /** @param low Falling (release) threshold. @param high Rising (trip) threshold. */
     constexpr Hysteresis(T low, T high) : low_(low), high_(high) {}
 
-    /// Update with one sample, return the latched state.
+    /** @brief Update with one sample, return the latched state. */
     constexpr bool operator()(T x) {
         if (state_) {
             if (x < low_) {
@@ -383,37 +325,58 @@ enum class SignalStatus : std::uint8_t {
     FaultHigh,  ///< above the fault ceiling — short to supply
 };
 
-/// True only for the in-span status.
+/** @brief True only for the in-span status. */
 [[nodiscard]] constexpr bool is_valid(SignalStatus s) {
     return s == SignalStatus::Valid;
 }
 
-/// True for a wire fault (FaultLow/FaultHigh) — i.e. not a real reading at all.
+/** @brief True for a wire fault (FaultLow/FaultHigh) — i.e. not a real reading at all. */
 [[nodiscard]] constexpr bool is_fault(SignalStatus s) {
     return s == SignalStatus::FaultLow || s == SignalStatus::FaultHigh;
 }
 
 /**
- * @brief Classify @p x against the four band edges `[fault_lo (valid_lo,
- *        valid_hi) fault_hi]` (assumed ordered, non-decreasing).
+ * @brief The measuring span and wire-fault limits of an analog input (NAMUR NE43 pattern).
  *
- * Bands: `x < fault_lo` → FaultLow; `[fault_lo, valid_lo)` → UnderRange;
- * `[valid_lo, valid_hi]` → Valid; `(valid_hi, fault_hi]` → OverRange;
- * `x > fault_hi` → FaultHigh. Pure/stateless.
+ * Two intervals, the fault band containing the valid span:
+ * `fault.lower ≤ valid.lower ≤ valid.upper ≤ fault.upper`. A ratiometric 0.5–4.5 V
+ * sensor with NE43-style margins reads
+ * `{.valid = {.lower = 0.5f, .upper = 4.5f}, .fault = {.lower = 0.25f, .upper = 4.75f}}`.
+ *
+ * Both default to the unbounded interval (∓max). An unset `fault` means no wire-fault
+ * band: a reading outside `valid` is UnderRange or OverRange, never FaultLow or FaultHigh.
+ *
+ * @tparam T Scalar type
+ */
+template<typename T = float>
+struct SignalRange {
+    Bounds<1, T> valid{}; ///< Nominal measuring span: readings inside it are Valid
+    Bounds<1, T> fault{}; ///< Wire-fault limits: readings outside are FaultLow / FaultHigh (default ∓max: none)
+};
+
+/**
+ * @brief Classify @p x against the valid span and the wire-fault limits of @p range.
+ *
+ * Bands: `x < fault.lower` → FaultLow; `[fault.lower, valid.lower)` → UnderRange;
+ * `[valid.lower, valid.upper]` → Valid; `(valid.upper, fault.upper]` → OverRange;
+ * `x > fault.upper` → FaultHigh. Pure/stateless.
+ *
+ * @code
+ * const SignalStatus s = classify_range(volts, {.valid = {.lower = 0.5f, .upper = 4.5f}, .fault = {.lower = 0.25f, .upper = 4.75f}});
+ * @endcode
  */
 template<typename T>
-[[nodiscard]] constexpr SignalStatus
-classify_range(T x, T fault_lo, T valid_lo, T valid_hi, T fault_hi) {
-    if (x < fault_lo) {
+[[nodiscard]] constexpr SignalStatus classify_range(T x, const SignalRange<T>& range) {
+    if (x < range.fault.lower(0)) {
         return SignalStatus::FaultLow;
     }
-    if (x > fault_hi) {
+    if (x > range.fault.upper(0)) {
         return SignalStatus::FaultHigh;
     }
-    if (x < valid_lo) {
+    if (x < range.valid.lower(0)) {
         return SignalStatus::UnderRange;
     }
-    if (x > valid_hi) {
+    if (x > range.valid.upper(0)) {
         return SignalStatus::OverRange;
     }
     return SignalStatus::Valid;
@@ -432,7 +395,7 @@ classify_range(T x, T fault_lo, T valid_lo, T valid_hi, T fault_hi) {
  * For *time*-based fault qualification, compose `faulted()` with a `Debounce`.
  *
  * @code
- * RangeMonitor<float> ai{0.25f, 0.5f, 4.5f, 4.75f}; // [0.25 (0.5 4.5) 4.75]
+ * RangeMonitor<float> ai{{.valid = {.lower = 0.5f, .upper = 4.5f}, .fault = {.lower = 0.25f, .upper = 4.75f}}};
  * if (ai.faulted(v)) trip();   // broken wire, not a low reading
  * @endcode
  */
@@ -441,44 +404,43 @@ class RangeMonitor {
 public:
     constexpr RangeMonitor() = default;
 
-    /// @param fault_lo,valid_lo,valid_hi,fault_hi The four band edges.
-    /// @param hysteresis Re-classification margin (≥ 0; 0 = none).
-    constexpr RangeMonitor(T fault_lo, T valid_lo, T valid_hi, T fault_hi, T hysteresis = T{0})
-        : fault_lo_(fault_lo), valid_lo_(valid_lo), valid_hi_(valid_hi), fault_hi_(fault_hi), hyst_(hysteresis) {}
+    /**
+     * @param range      Valid span and wire-fault limits (an unset fault band: no wire faults).
+     * @param hysteresis Re-classification margin (≥ 0; 0 = none).
+     */
+    constexpr explicit RangeMonitor(const SignalRange<T>& range, T hysteresis = T{0})
+        : range_(range), hyst_(hysteresis) {}
 
-    /// Classify one sample (applies hysteresis around the previous status).
+    /** @brief Classify one sample (applies hysteresis around the previous status). */
     constexpr SignalStatus operator()(T x) {
         // Bias the current band's edges outward by hyst_ so leaving it costs an
         // extra margin; entering bands keep their nominal edges.
-        T lo_f = fault_lo_;
-        T lo_v = valid_lo_;
-        T hi_v = valid_hi_;
-        T hi_f = fault_hi_;
+        SignalRange<T> r = range_;
         switch (status_) {
             case SignalStatus::Valid:
-                lo_v -= hyst_;
-                hi_v += hyst_;
+                r.valid.lower(0) -= hyst_;
+                r.valid.upper(0) += hyst_;
                 break;
             case SignalStatus::UnderRange:
-                lo_f -= hyst_;
-                lo_v += hyst_;
+                r.fault.lower(0) -= hyst_;
+                r.valid.lower(0) += hyst_;
                 break;
             case SignalStatus::OverRange:
-                hi_v -= hyst_;
-                hi_f += hyst_;
+                r.valid.upper(0) -= hyst_;
+                r.fault.upper(0) += hyst_;
                 break;
             case SignalStatus::FaultLow:
-                lo_f += hyst_;
+                r.fault.lower(0) += hyst_;
                 break;
             case SignalStatus::FaultHigh:
-                hi_f -= hyst_;
+                r.fault.upper(0) -= hyst_;
                 break;
         }
-        status_ = classify_range(x, lo_f, lo_v, hi_v, hi_f);
+        status_ = classify_range(x, r);
         return status_;
     }
 
-    /// Convenience predicates that also advance the monitor with @p x.
+    /** @brief Convenience predicates that also advance the monitor with @p x. */
     constexpr bool valid(T x) { return is_valid((*this)(x)); }
     constexpr bool faulted(T x) { return is_fault((*this)(x)); }
 
@@ -486,12 +448,9 @@ public:
     constexpr void                       reset() { status_ = SignalStatus::Valid; }
 
 private:
-    T            fault_lo_{};
-    T            valid_lo_{};
-    T            valid_hi_{};
-    T            fault_hi_{};
-    T            hyst_{T{0}};
-    SignalStatus status_{SignalStatus::Valid};
+    SignalRange<T> range_{};
+    T              hyst_{T{0}};
+    SignalStatus   status_{SignalStatus::Valid};
 };
 
 /**

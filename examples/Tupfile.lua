@@ -36,11 +36,12 @@ local product_dirs = {
     'control/pendulum',
     'control/reaction_wheel',
     'control/pid',
+    'control/lqi',
     'control/lpf',
     'control/workflow_end_to_end',
     'control/adrc',
     'control/heater_ofmpc',
-    'control/heater_oflqg',
+    'control/heater_lqg',
     'estimation/eskf',
     'estimation/ins_navigator',
     'estimation/ins_eskf',
@@ -60,6 +61,17 @@ ex_objs.extra_inputs = {'<fmt>'}
 
 -- Link with g++ (objects before LDFLAGS so -lws2_32 etc. resolve on MinGW)
 tup.foreach_rule(ex_objs, CXX..' '..CXXFLAGS..' %f %<fmt> '..LDFLAGS..' -o %o', 'build/%B.exe')
+
+-- Every product sketch must also compile with clang at its default constexpr budget: the
+-- designs are constant-evaluated, and clang's step limit is not GCC's ops limit. Skipped
+-- (and passing) without clang++ 19+ on PATH. Runner: tools/clang_budget_check.sh.
+local sketches = {}
+for _, f in ipairs(sources) do
+    if string.match(f, '_sketch%.cpp$') then
+        sketches[#sketches + 1] = f
+    end
+end
+tup.foreach_rule(sketches, 'sh ../tools/clang_budget_check.sh '..CXX..' %o %f '..INCLUDES, 'build/clang_budget/%B.ok')
 
 -- ---------------------------------------------------------------------------
 -- Run each example. Plot HTML under plots/<domain>/ is a *real* tup output of

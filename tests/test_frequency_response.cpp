@@ -5,6 +5,7 @@
 
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 
 #include "damp/backend.hpp"
 #include "damp/estimation/excitation.hpp"
@@ -69,7 +70,7 @@ TEST_SUITE("Frequency response estimator") {
 
         TransferFunction<1, 2, double> tf{
             .num = {K},
-            .den = {1.0, tau},
+            .den = {tau, 1.0},
         };
         const auto sys_c = tf.to_state_space().value();
         const auto sys_d = *discretize(sys_c, Ts, DiscretizationMethod::ZOH);
@@ -88,7 +89,7 @@ TEST_SUITE("Frequency response estimator") {
             const auto        Nset = frf.coherent_block_size(f, settle_cycles);
             ColVec<1, double> x{};
 
-            frf.begin_bin(i, f, N, /*num_blocks=*/2, /*settle=*/Nset);
+            REQUIRE(frf.begin_bin(i, f, N, /*num_blocks=*/2, /*settle=*/Nset));
             // Drive until the bin completes (settle + 2 blocks).
             for (int guard = 0; guard < 100000; ++guard) {
                 const double t = static_cast<double>(guard) * Ts;
@@ -116,7 +117,7 @@ TEST_SUITE("Frequency response estimator") {
     TEST_CASE("push_bank recovers multi-sine FRF bins") {
         constexpr double               Ts = 0.001;
         constexpr double               fs = 1000.0;
-        TransferFunction<1, 2, double> tf{.num = {1.0}, .den = {1.0, 0.01}};
+        TransferFunction<1, 2, double> tf{.num = {1.0}, .den = {0.01, 1.0}};
         const auto                     sys_d = *discretize(*tf.to_state_space(), Ts, DiscretizationMethod::ZOH);
 
         constexpr std::size_t   Nf = 3;
@@ -126,7 +127,7 @@ TEST_SUITE("Frequency response estimator") {
 
         FrequencyResponseEstimator<Nf, double> frf(fs);
         for (std::size_t i = 0; i < Nf; ++i) {
-            frf.configure_bin(i, freqs[i], N);
+            REQUIRE(frf.configure_bin(i, freqs[i], N));
         }
 
         // Discard plant transient over a full block, then measure one block.
@@ -149,13 +150,14 @@ TEST_SUITE("Frequency response estimator") {
             return done;
         };
         drive(N, false);
-        // Restart bank Goertzels after settle (configure again clears accumulators).
+        // Restart the bank after settle (configure again clears accumulators).
         for (std::size_t i = 0; i < Nf; ++i) {
-            frf.configure_bin(i, freqs[i], N);
+            REQUIRE(frf.configure_bin(i, freqs[i], N));
         }
         const bool done = drive(N, true);
         REQUIRE(done);
         CHECK(frf.valid_count() == Nf);
+        CHECK(frf.point(0).coherence == 0.0); // single block: γ² not measured
         for (std::size_t i = 0; i < Nf; ++i) {
             double mag_a = 0.0;
             double ph_a = 0.0;
@@ -174,10 +176,10 @@ TEST_SUITE("Frequency response estimator") {
             .cycles_per_freq = 2,
         };
         static_assert(cfg.valid());
-        constexpr auto design = design::stepped_sine(cfg);
+        constexpr auto design = design::stepped_sine(cfg, 0.001);
         static_assert(design.success);
 
-        SteppedSine<3, double> exc(design, 0.001);
+        SteppedSine<3, double> exc(design);
         CHECK(exc.frequency_index() == 0);
         CHECK(exc.frequency_hz() == doctest::Approx(10.0));
 
@@ -193,6 +195,114 @@ TEST_SUITE("Frequency response estimator") {
         CHECK(exc.done());
         CHECK(last_idx == 2);
         CHECK(steps > 100);
+    }
+
+    TEST_CASE("margins_from_frf finds the gain margin from wrapped measured phase") {
+        // L = 2 / (s (s+1) (s+2)): phase −180° at ω = √2 with |L| = 1/3 → GM = 9.54 dB.
+        // Measured phase is atan2-wrapped to (−π, π], so it jumps from −π to +π
+        // at the crossover instead of passing through −π.
+        constexpr std::size_t             Nf = 60;
+        damp::array<FrfPoint<double>, Nf> table{};
+        const double                      two_pi = 2.0 * damp::numbers::pi_v<double>;
+        for (std::size_t i = 0; i < Nf; ++i) {
+            const double w = 0.2 + 0.05 * static_cast<double>(i);
+            const double mag = 2.0 / (w * damp::sqrt(1.0 + w * w) * damp::sqrt(4.0 + w * w));
+            const double ph = -damp::numbers::pi_v<double> / 2.0 - damp::atan(w) - damp::atan(w / 2.0);
+            table[i] = {w / two_pi, mag, damp::atan2(damp::sin(ph), damp::cos(ph)), 1.0, true};
+        }
+        const auto m = design::margins_from_frf(table);
+        REQUIRE(m.has_gain_margin);
+        CHECK(m.gain_margin_db == doctest::Approx(20.0 * damp::log10(3.0)).epsilon(0.02));
+        CHECK(m.phase_crossover_hz * two_pi == doctest::Approx(damp::sqrt(2.0)).epsilon(0.02));
+        REQUIRE(m.has_phase_margin);
+        CHECK(m.phase_margin_deg > 0.0);
+        CHECK(m.phase_margin_deg < 90.0);
+    }
+
+    TEST_CASE("margins_from_frf reports a negative phase margin for an unstable loop") {
+        // L = 10 / (s (s+1) (s+2)): crossover phase ≈ −193°, PM ≈ −13.0° (python-control ct.margin).
+        // Wrapping the phase before adding 180° read this as +347°.
+        constexpr std::size_t             Nf = 120;
+        damp::array<FrfPoint<double>, Nf> table{};
+        const double                      two_pi = 2.0 * damp::numbers::pi_v<double>;
+        for (std::size_t i = 0; i < Nf; ++i) {
+            const double w = 0.5 + 0.025 * static_cast<double>(i);
+            const double mag = 10.0 / (w * damp::sqrt(1.0 + w * w) * damp::sqrt(4.0 + w * w));
+            const double ph = -damp::numbers::pi_v<double> / 2.0 - damp::atan(w) - damp::atan(w / 2.0);
+            table[i] = {w / two_pi, mag, damp::atan2(damp::sin(ph), damp::cos(ph)), 1.0, true};
+        }
+        const auto m = design::margins_from_frf(table);
+        REQUIRE(m.has_phase_margin);
+        CHECK(m.phase_margin_deg == doctest::Approx(-12.997).epsilon(0.01));
+        CHECK(m.gain_crossover_hz * two_pi == doctest::Approx(1.8022).epsilon(0.01));
+    }
+
+    TEST_CASE("coherence is measured only over two or more blocks") {
+        // y is noise uncorrelated with u: over one block |Y·conj(U)|² = |U|²·|Y|² for any data,
+        // so the single-block γ² read 1 and passed every min_coherence gate.
+        constexpr double      fs = 1000.0;
+        constexpr double      f = 50.0;
+        constexpr std::size_t N = 200; // 10 cycles
+        std::uint32_t         s = 12345U;
+        const auto            noise = [&s] {
+            s = (s * 1664525U) + 1013904223U;
+            return (static_cast<double>(s >> 8) / static_cast<double>(1U << 24)) - 0.5;
+        };
+        const auto measure = [&](std::size_t blocks) {
+            FrequencyResponseEstimator<1, double> frf(fs);
+            REQUIRE(frf.begin_bin(0, f, N, blocks));
+            for (std::size_t k = 0; k < N * blocks; ++k) {
+                const double u = std::sin(2.0 * damp::numbers::pi_v<double> * f * static_cast<double>(k) / fs);
+                if (frf.push(u, noise())) {
+                    break;
+                }
+            }
+            REQUIRE(frf.point(0).valid);
+            return frf.point(0).coherence;
+        };
+        CHECK(measure(1) == 0.0);
+        CHECK(measure(8) < 0.6);
+    }
+
+    TEST_CASE("float estimator is accurate at f/fs = 1e-4") {
+        // First-order lag τ = 0.1 s at 1 Hz, fs = 10 kHz. The float Goertzel pair this replaced
+        // read |G| 4 % low and the phase 1 rad off here.
+        constexpr double                     fs = 10000.0;
+        constexpr double                     f = 1.0;
+        const double                         a = std::exp(-1.0 / (fs * 0.1));
+        FrequencyResponseEstimator<1, float> frf(static_cast<float>(fs));
+        const auto                           N = frf.coherent_block_size(1.0f, 10);
+        const auto                           Nset = frf.coherent_block_size(1.0f, 5);
+        REQUIRE(frf.begin_bin(0, 1.0f, N, 2, Nset));
+        double y = 0.0;
+        for (std::size_t k = 0; k < Nset + (2 * N); ++k) {
+            const double u = std::sin(2.0 * damp::numbers::pi_v<double> * f * static_cast<double>(k) / fs);
+            if (frf.push(static_cast<float>(u), static_cast<float>(y))) {
+                break;
+            }
+            y = (a * y) + ((1.0 - a) * u); // y[k+1]: the plant's one-sample ZOH delay
+        }
+        REQUIRE(frf.point(0).valid);
+        // G(z) = (1 − a)/(z − a) at z = e^{jωTs}
+        const double                w = 2.0 * damp::numbers::pi_v<double> * f / fs;
+        const damp::complex<double> G = damp::complex<double>{1.0 - a, 0.0}
+                                      / (damp::complex<double>{std::cos(w), std::sin(w)} - damp::complex<double>{a, 0.0});
+        CHECK(frf.point(0).magnitude == doctest::Approx(damp::abs(G)).epsilon(2e-3));
+        CHECK(frf.point(0).phase_rad == doctest::Approx(damp::arg(G)).epsilon(5e-3));
+        CHECK(frf.point(0).coherence == doctest::Approx(1.0f).epsilon(1e-3));
+    }
+
+    TEST_CASE("begin_bin and configure_bin refuse a bin they could never complete") {
+        FrequencyResponseEstimator<2, double> frf(1000.0);
+        CHECK_FALSE(frf.begin_bin(0, 600.0, 100)); // above Nyquist: the bin would never complete
+        CHECK_FALSE(frf.begin_bin(0, 500.0, 100)); // at Nyquist
+        CHECK_FALSE(frf.begin_bin(2, 50.0, 100));  // index out of range
+        CHECK_FALSE(frf.push(1.0, 1.0));
+        CHECK_FALSE(frf.configure_bin(1, 600.0, 100));
+        CHECK_FALSE(frf.push_bank(1.0, 1.0));
+        FrequencyResponseEstimator<1, double> unset{};
+        CHECK_FALSE(unset.begin_bin(0, 50.0, 100)); // sample rate unset
+        CHECK(frf.begin_bin(0, 50.0, 100));
     }
 }
 
@@ -287,7 +397,7 @@ TEST_SUITE("Goertzel FRF accessors") {
         const double      fs = 1000.0;
         const double      f = 50.0;
         const std::size_t N = 200;
-        Goertzel<double>  g(f, fs, N);
+        Goertzel<double>  g(f, 1.0 / fs, N);
         for (std::size_t k = 0; k < N; ++k) {
             g.push(std::cos(2.0 * damp::numbers::pi_v<double> * f * static_cast<double>(k) / fs));
         }
@@ -300,7 +410,7 @@ TEST_SUITE("Goertzel FRF accessors") {
 TEST_SUITE("observable canonical form") {
     TEST_CASE("the dual realization has the same response and is observable") {
         // G(s) = (s + 2) / (s³ + 3s² + 3s + 1), strictly proper
-        const TransferFunction<2, 4> G{.num = {2.0, 1.0}, .den = {1.0, 3.0, 3.0, 1.0}};
+        const TransferFunction<2, 4> G{.num = {1.0, 2.0}, .den = {1.0, 3.0, 3.0, 1.0}};
         const auto                   ccf = G.to_controllable_canonical_form();
         const auto                   ocf = G.to_observable_canonical_form();
         REQUIRE(ccf.has_value());
@@ -313,7 +423,7 @@ TEST_SUITE("observable canonical form") {
             CHECK(ocf->B(i, 0) == ccf->C(0, i));
             CHECK(ocf->C(0, i) == ccf->B(i, 0));
         }
-        CHECK(ocf->A(0, 2) == doctest::Approx(-1.0)); // −den[0]/den[3] in the last column
+        CHECK(ocf->A(0, 2) == doctest::Approx(-1.0)); // −den[3]/den[0] in the last column
         CHECK(ocf->A(1, 0) == 1.0);                   // shift structure below the diagonal
         CHECK(stability::is_observable(ocf->A, ocf->C));
         CHECK(stability::is_controllable(ccf->A, ccf->B));
@@ -323,11 +433,14 @@ TEST_SUITE("observable canonical form") {
             REQUIRE(gc.has_value());
             REQUIRE(go.has_value());
             CHECK(((*go)(0, 0) - (*gc)(0, 0)).abs() <= 1e-12 * (*gc)(0, 0).abs());
+            const damp::complex<double> s{0.0, w};
+            const auto                  ref = (s + 2.0) / (s * s * s + s * s * 3.0 + s * 3.0 + 1.0);
+            CHECK(((*gc)(0, 0) - ref).abs() <= 1e-12 * ref.abs());
         }
     }
 
     TEST_CASE("biproper: feedthrough and reduced numerator carry over") {
-        const TransferFunction<3, 3> G{.num = {1.0, 0.5, 2.0}, .den = {4.0, 1.0, 1.0}}; // (2s² + 0.5s + 1)/(s² + s + 4)
+        const TransferFunction<3, 3> G{.num = {2.0, 0.5, 1.0}, .den = {1.0, 1.0, 4.0}}; // (2s² + 0.5s + 1)/(s² + s + 4)
         const auto                   ocf = G.to_observable_canonical_form();
         REQUIRE(ocf.has_value());
         CHECK(ocf->D(0, 0) == doctest::Approx(2.0));

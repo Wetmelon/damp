@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include <cstddef>
 #include <type_traits>
 
 /**
@@ -64,6 +65,10 @@ template<typename T = double>
 struct RampResult {
     RampConfig<T> config{};       ///< Validated ramp configuration
     bool          success{false}; ///< true if `config.valid()`
+    T             Ts{0};          ///< [s] Sample period of the internal step() clock (0 = absolute-time step(t) only)
+
+    /** @brief True when the design succeeded (success). */
+    [[nodiscard]] constexpr explicit operator bool() const { return success; }
 
     /**
      * @brief Convert design payload to another scalar type.
@@ -79,6 +84,7 @@ struct RampResult {
                 static_cast<U>(config.hold_at_end_s),
             },
             success,
+            static_cast<U>(Ts),
         };
     }
 };
@@ -87,12 +93,13 @@ struct RampResult {
  * @brief Build a ramp design payload from a configuration.
  *
  * @param config Ramp configuration.
- * @return RampResult with `success = config.valid()`.
+ * @param Ts     [s] Sample period of the runtime's step() clock (0 = absolute-time step(t) only; < 0 refused)
+ * @return RampResult with `success` = `config.valid()` and a valid Ts.
  */
 template<typename T = double>
 [[nodiscard]] constexpr RampResult<T>
-ramp(const RampConfig<T>& config) {
-    return RampResult<T>{config, config.valid()};
+ramp(const RampConfig<T>& config, T Ts = T{0}) {
+    return RampResult<T>{config, config.valid() && (Ts >= T{0}) && damp::isfinite(Ts), Ts};
 }
 
 } // namespace design
@@ -111,13 +118,18 @@ class Ramp {
 public:
     constexpr Ramp() = default;
 
+    /** @brief From a design result in another scalar: converts it with .as\<T\>() and builds from that. */
+    template<typename U>
+        requires(!std::is_same_v<U, T>)
+    constexpr Ramp(const design::RampResult<U>& result) // NOLINT(google-explicit-constructor): assign-from-design
+        : Ramp(result.template as<T>()) {}
+
     /**
      * @brief Construct from a ramp design payload.
      * @param design Validated design payload.
-     * @param Ts     Optional sample period for internal `step()` mode.
      */
-    constexpr explicit Ramp(const design::RampResult<T>& design, T Ts = T{0})
-        : config_(design.config), Ts_(Ts), valid_(design.success) {
+    constexpr Ramp(const design::RampResult<T>& design) // NOLINT(google-explicit-constructor): assign-from-design
+        : config_(design.config), Ts_(design.Ts), valid_(design.success) {
         if (!design.success && std::is_constant_evaluated()) {
             ::damp::detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
@@ -148,9 +160,9 @@ public:
      * @return Excitation value at current internal time.
      */
     [[nodiscard]] constexpr T step() {
-        const T out = step(t_);
+        const T out = step(elapsed());
         if (Ts_ > T{0} && !done()) {
-            t_ += Ts_;
+            ++k_;
         }
         return out;
     }
@@ -172,14 +184,14 @@ public:
      * @return true if internal sequence is complete.
      */
     [[nodiscard]] constexpr bool done() const {
-        return done(t_);
+        return done(elapsed());
     }
 
     /**
      * @brief Reset internal time to zero.
      */
     constexpr void reset() {
-        t_ = T{0};
+        k_ = 0;
     }
 
     /**
@@ -194,10 +206,17 @@ public:
     }
 
 private:
+    /** @brief Internal time k·Ts (a sample count, not a running sum of Ts). */
+    [[nodiscard]] constexpr T elapsed() const { return static_cast<T>(k_) * Ts_; }
+
     design::RampConfig<T> config_{};
     T                     Ts_{T{0}};
-    T                     t_{T{0}};
+    std::size_t           k_{0}; ///< Samples emitted by step()
     bool                  valid_{false};
 };
+
+/** @brief Deduce the runtime from its design, keeping the result's scalar. */
+template<typename T>
+Ramp(const design::RampResult<T>&) -> Ramp<T>;
 
 } // namespace damp

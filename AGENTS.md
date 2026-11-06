@@ -12,15 +12,16 @@ Header-only C++20 control library (`damp`): stack-only fixed sizes, no core heap
 (variants as `constexpr` / template params), closed in SIL with the same runtime
 objects.
 
-Public v0.1 is the design-is-deploy **core** (no vertical motor/power/motion packs
-in this tree).
+Public v0.1 is the design-is-deploy **core**. Motor FOC is opt-in under
+`damp/motor/` (not in `control.hpp`); there are no power or motion packs in this
+tree.
 
 ## Where to look
 
 | Topic | Doc |
 | ----- | --- |
 | Public API table | [REFERENCE.md](REFERENCE.md) (regen: `make refs` or `python3 tools/gen_reference.py`) |
-| Product front door | [README.md](README.md), [CHANGELOG.md](CHANGELOG.md) |
+| Product front door | [README.md](README.md), [docs/guide.md](docs/guide.md) (task table + MATLAB® / firmware names), [CHANGELOG.md](CHANGELOG.md) |
 
 ## Build and test
 
@@ -77,8 +78,11 @@ tup --quiet compiledb
 `#!/usr/bin/env python3` in scripts. On Windows without `python3` on PATH:
 `py -3 tools/...` or `make refs`.
 
-**Toolchains:** GCC 10+, Clang 12+, MSVC 2022+ (C++20). Flags live in
-`Tuprules.lua`. Format runs via `make` / `clang-format`.
+**Toolchains:** g++ 11+ (tested with 14) and clang++ 19+ (C++20); MSVC is not
+supported. Flags live in `Tuprules.lua`. Format runs via `make` / `clang-format`.
+
+**Golden data** for the oracle tests: `tools/gen_oracle.py` writes
+`tests/oracle_cases.hpp` (SciPy; run by hand, `make` never calls Python for it).
 
 **Tup paths** are relative to the Tupfile’s directory (e.g. `tests/build/`), not
 the repo root.
@@ -92,15 +96,22 @@ the repo root.
 
 - `damp::design::` — heavy CST synthesis only (not PWM-rate).
 - **Types:** `Matrix` / `ColVec` / `RowVec` / views; `StateSpace`; Result structs
-  with `.as<U>()` + `success`; geometry `DCM` / `Quaternion` / `Euler`
-  (`EulerZYX` = aerospace YPR, `EulerXYZ` = robotics RPY).
+  with `.as<U>()`, `success`, and `explicit operator bool()`; geometry `DCM` /
+  `Quaternion` / `Euler` (`EulerZYX` = aerospace YPR, `EulerXYZ` = robotics RPY).
 - **LTI shape:** design continuous SS → `discretize(..., ZOH)` → step matrices.
-  Prefer ZOH over hand-rolled Euler when an LTI model exists.
-- **Errors:** `optional` / `bool success` / compile-time constraints. No
-  exceptions on the tick path.
+  Prefer ZOH over hand-rolled Euler when an LTI model exists. An input delay of
+  at most one sample is `discretize(sys, Ts, InputDelay{θ})`; longer dead time
+  is a slower sample or `SmithPredictor`.
+- **Ticks:** estimators `predict` / `update`; controllers `control`; `step` is
+  predict then update then control (m_k in, u_k out). Low-latency ISR: update →
+  control → write → `back_calculate` → predict. `back_calculate(u_sat, u_ff = {})`
+  records the applied input.
+- **Errors:** `optional` / `bool success` / `DesignStatus` / compile-time
+  constraints. No exceptions on the tick path.
 
-**`matrix.hpp` bottom-includes** (do not reorder): `block`, `cholesky`, `colvec`,
-`matrix_functions`, `rowvec`, `views`.
+**`matrix.hpp` includes** (order is irrelevant): `block`, `colvec`, `concat`,
+`core`, `decomposition`, `eigen`, `functions`, `generalized_eigen`, `rowvec`,
+`solve`, `svd`, `views`.
 
 ## Contributor rules
 
@@ -114,8 +125,8 @@ Plant builders and host sim are not this ladder.
 
 ### Naming
 
-- Descriptive English primary names (`discrete_lqr`); MATLAB-style aliases
-  (`dlqr`) call through.
+- Descriptive English primary names (`design::lqr`); MATLAB-style aliases
+  (`matlab::dlqr`) call through.
 - Results: `FooResult`. Runtime ticks: short `PascalCase` (`LQR`, `PIDController`).
 
 ### Code style
@@ -190,9 +201,9 @@ fallthrough, shadowing); clang-tidy.
 - Single-argument constructors are `explicit`, except documented
   assign-from-design constructors.
 - A runtime constructed from a design result refuses a failed one when
-  constant-evaluated: `if (!r.success && std::is_constant_evaluated())
-  ::damp::detail::refuse_failed_design();`. `static constinit Law law{res};`
-  then needs no separate `static_assert(res.success)`.
+  constant-evaluated: `refuse_failed_design(result.status)` names the cause.
+  `static constinit Law law{res};` then needs no separate
+  `static_assert(res.success)`.
 - No virtuals, no RTTI, no type erasure on the product path.
 
 **Annotations — only where they carry meaning**

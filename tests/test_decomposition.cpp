@@ -5,12 +5,14 @@
 
 #include <cmath>
 #include <cstddef>
+#include <limits>
 #include <random>
 
 #include "damp/backend.hpp"
 #include "damp/math/complex.hpp"
 #include "damp/math/math.hpp"
 #include "damp/matrix/matrix.hpp"
+#include "damp/matrix/matrix_traits.hpp"
 
 #define DOCTEST_CONFIG_INCLUDE_TYPE_TRAITS
 #include "doctest.h"
@@ -289,7 +291,7 @@ TEST_SUITE("cholesky") {
         CHECK(U(2, 2) == doctest::Approx(8.0));
         CHECK(U(1, 0) == 0.0);
         CHECK(U(2, 0) == 0.0);
-        CHECK(U(2, 1) == doctest::Approx(0.0));
+        CHECK(U(2, 1) == 0.0);
 
         // Check that A = L * U
         auto LU = L * U;
@@ -776,6 +778,144 @@ TEST_SUITE("scale-invariant singularity and symmetry") {
             CHECK_FALSE(lu_decomposition(A).has_value());
         }
     }
+
+    TEST_CASE("a float upper-triangular matrix with a 1e19–1e20 diagonal is not taken as symmetric") {
+        // √(|a₀₀||a₁₁|) formed as a product overflowed float, so every pair passed and solve()
+        // ran Cholesky on the lower triangle only.
+        const Matrix<2, 2, float> A{{2e19f, 1e19f}, {0.0f, 3e19f}};
+        const Matrix<2, 1, float> b{{1e19f}, {1e19f}};
+        CHECK_FALSE(is_symmetric_or_hermitian(A));
+        const Matrix<2, 2, float> big{{1e20f, 1e19f}, {-1e19f, 1e20f}};
+        CHECK_FALSE(is_symmetric_or_hermitian(big));
+        const auto x = solve(A, b);
+        REQUIRE(x.has_value());
+        CHECK(x.value()(0, 0) == doctest::Approx(1.0f / 3.0f).epsilon(1e-5));
+        CHECK(x.value()(1, 0) == doctest::Approx(1.0f / 3.0f).epsilon(1e-5));
+        const auto inv = A.inverse();
+        REQUIRE(inv.has_value());
+        CHECK(inv.value()(0, 1) == doctest::Approx(-1.0f / 6.0f * 1e-19f).epsilon(1e-5));
+    }
+
+    TEST_CASE("solve takes LU for a nearly symmetric matrix, so its residual stays at roundoff") {
+        // An asymmetry of 1e-13 relative passes is_symmetric_or_hermitian (N·64·eps), but
+        // Cholesky reads only the lower triangle and would solve a different matrix.
+        Matrix<3, 3> A{{4.0, 1.0, 0.5}, {1.0, 3.0, 0.2}, {0.5, 0.2, 2.0}};
+        A(0, 1) *= 1.0 + 1e-13;
+        A(1, 2) *= 1.0 - 1e-13;
+        REQUIRE(is_symmetric_or_hermitian(A));
+        const Matrix<3, 1> b{{1.0}, {-2.0}, {0.5}};
+        const auto         x = solve(A, b);
+        REQUIRE(x.has_value());
+        const Matrix<3, 1> r = (A * x.value()) - b;
+        CHECK(r.norm() <= 16.0 * eps<double>() * A.norm() * x.value().norm());
+    }
+
+    TEST_CASE("lu_decomposition factors a row-graded well-conditioned matrix") {
+        // diag(1, 1e-3, 1e-22)·B with κ₂(B) ≈ 6: the largest entry of column 1 after the first
+        // step is cancellation roundoff in row 1, while row 2 holds the genuine pivot.
+        const Matrix<3, 3> B{{3.0, 1.1, 0.0}, {1.0, 1.1 / 3.0, 1.0}, {0.0, 1.0, 1.0}};
+        const Matrix<3, 3> D{{1.0, 0.0, 0.0}, {0.0, 1e-3, 0.0}, {0.0, 0.0, 1e-22}};
+        const Matrix<3, 3> A = D * B;
+        const auto         lu = lu_decomposition(A);
+        REQUIRE(lu.has_value());
+        const auto& [L, U, piv] = lu.value();
+        for (size_t i = 0; i < 3; ++i) {
+            for (size_t j = 0; j < i; ++j) {
+                CHECK(U(i, j) == 0.0);
+                CHECK(damp::abs(L(i, j)) <= 1.0);
+            }
+        }
+        const Matrix<3, 1> b = D * Matrix<3, 1>{{1.0}, {2.0}, {3.0}};
+        const auto         x = solve(A, b);
+        REQUIRE(x.has_value());
+        const auto xb = solve(B, Matrix<3, 1>{{1.0}, {2.0}, {3.0}});
+        REQUIRE(xb.has_value());
+        CHECK((x.value() - xb.value()).norm() <= 1e-12 * xb.value().norm());
+    }
+
+    TEST_CASE("lu_decomposition refuses a row-graded matrix whose digit-carrying entry outranks a clean pivot") {
+        // diag(1e30, s, 1)·B with det B ≈ −1. After the first step U(1, 1) ≈ s·100ε is 50ε of
+        // its magnitude: above the 32ε roundoff bound, so it is a candidate and beats the clean 1
+        // in row 2 by absolute size, but below the N·64·eps floor. Pivot choice by absolute size
+        // is not row-scale invariant: with the row scaled to s = 1e10 it no longer outranks the 1.
+        const double d = 100.0 * eps<double>();
+        const auto   graded = [d](double s) {
+            return Matrix<3, 3>{{1e30, 1e30, 1e30}, {s, s * (1.0 + d), 2.0 * s}, {0.0, 1.0, 3.0}};
+        };
+        CHECK_FALSE(lu_decomposition(graded(1e15)).has_value());
+        CHECK_FALSE(lu_decomposition(graded(1e20)).has_value());
+        CHECK(lu_decomposition(graded(1e10)).has_value());
+    }
+
+    TEST_CASE_TEMPLATE("lu_decomposition eliminates a lost entry smaller than the pivot instead of dropping it", T, float, double) {
+        // Symmetric indefinite, κ ≈ 6. After the first step U(1, 1) = δ is exact but below the
+        // N·64·eps floor; taking it as zero left ‖PA − LU‖ at 48·eps·‖A‖ and a forward error of 118 eps.
+        const T               d = T(128) * eps<T>();
+        const Matrix<3, 3, T> A{{T(1), T(1), T(0)}, {T(1), T(1) + d, T(1)}, {T(0), T(1), T(1)}};
+        const auto            lu = lu_decomposition(A);
+        REQUIRE(lu.has_value());
+        const auto& [L, U, piv] = lu.value();
+        Matrix<3, 3, T> PA{};
+        for (size_t i = 0; i < 3; ++i) {
+            for (size_t j = 0; j < 3; ++j) {
+                PA(i, j) = A(piv[i], j);
+            }
+        }
+        CHECK(Matrix<3, 3, T>(PA - (L * U)).norm() <= T(4) * eps<T>() * A.norm());
+        const Matrix<3, 1, T> x{{T(1)}, {T(2)}, {T(3)}};
+        const auto            xs = lu_solve(A, Matrix<3, 1, T>(A * x));
+        REQUIRE(xs.has_value());
+        CHECK(Matrix<3, 1, T>(xs.value() - x).norm() <= T(8) * eps<T>() * x.norm());
+    }
+
+    TEST_CASE_TEMPLATE("a NaN or ±Inf entry is not symmetric, and solve, inverse and pow(A, −1) refuse it", T, float, double) {
+        // The bound comparison is false for NaN and for ±Inf (whose scale is infinite), so a
+        // non-finite strict-upper entry passed the symmetry test and Cholesky, which reads only
+        // the lower triangle, returned inv([[2, 0.1], [0.1, 3]]) as a success.
+        for (const T x : {std::numeric_limits<T>::quiet_NaN(), std::numeric_limits<T>::infinity(), -std::numeric_limits<T>::infinity()}) {
+            const Matrix<2, 2, T> A{{T(2), x}, {T(0.1), T(3)}};
+            CHECK_FALSE(is_symmetric_or_hermitian(A));
+            CHECK_FALSE(A.inverse().has_value());
+            CHECK_FALSE(solve(A, Matrix<2, 2, T>::identity()).has_value());
+            CHECK_FALSE(mat::pow(A, -1).has_value());
+            // An infinite pivot read as roundoff of its infinite magnitude, and LU zeroed it.
+            const Matrix<2, 2, T> D{{x, T(0.1)}, {T(0.1), T(3)}};
+            CHECK_FALSE(solve(D, Matrix<2, 2, T>::identity()).has_value());
+        }
+        // |NaN + 0i| is 0, so the complex test checks the parts.
+        using C = complex<T>;
+        const Matrix<2, 2, C> Ac{{C{T(2), T(0)}, C{std::numeric_limits<T>::quiet_NaN(), T(0)}}, {C{T(0.1), T(0)}, C{T(3), T(0)}}};
+        CHECK_FALSE(is_symmetric_or_hermitian(Ac));
+        CHECK_FALSE(Ac.inverse().has_value());
+    }
+
+    TEST_CASE("lu_decomposition refuses a column whose skipped entry still carries digits; solve falls back to Cholesky") {
+        // Near-symmetric SPD (asymmetry 4.9·eps, κ∞ = 1.4·10¹⁴). At step 2 the largest entry, 203 eps
+        // of its magnitude, sits below the N·64·eps floor but far above roundoff; zeroing it to pivot
+        // on an entry 6 times smaller returned x with a forward error of 4, as a success.
+        const Matrix<4, 4> A{{0x1.e63ce298bcaddp-4, -0x1.b1bcdbf0afa1ap-3, -0x1.d1f0c07dcf05cp-3, -0x1.0e385c0ac0bcfp-6}, {-0x1.b1bcdbf0afa22p-3, 0x1.9aafbdf5f078cp-2, 0x1.bfad96223139dp-2, 0x1.e28341504c77ap-6}, {-0x1.d1f0c07dcf065p-3, 0x1.bfad9622313a5p-2, 0x1.e9acf007d391ap-2, 0x1.0339f699ea5bbp-5}, {-0x1.0e385c0ac0bcap-6, 0x1.e28341504c771p-6, 0x1.0339f699ea5b6p-5, 0x1.2c58a3c703785p-9}};
+        const Matrix<4, 1> b{{0x1.7990adc263206p+0}, {-0x1.75c8513ad6794p-1}, {-0x1.77b70205d24d0p-2}, {0x1.487948145a374p+1}};
+        // The exact solution of this (A, b), by rational elimination.
+        const Matrix<4, 1> x_exact{{0x1.3fa332e1260e7p+45}, {0x1.0e53d9ede8353p+45}, {-0x1.93e08520ee188p+44}, {0x1.93bea8c899cb6p+47}};
+        CHECK_FALSE(lu_decomposition(A).has_value());
+        CHECK_FALSE(lu_solve(A, b).has_value());
+        // Symmetric to N·64·eps, so solve() takes Cholesky once LU refuses (κ∞·eps = 0.03).
+        const auto x = solve(A, b);
+        REQUIRE(x.has_value());
+        CHECK((x.value() - x_exact).norm() <= 1e-2 * x_exact.norm());
+    }
+
+    TEST_CASE("backward_substitute_transpose solves Lᴴx = b for a complex Cholesky factor") {
+        using C = damp::complex<double>;
+        const Matrix<2, 2, C> A{{C{2.0, 0.0}, C{1.0, -1.0}}, {C{1.0, 1.0}, C{3.0, 0.0}}};
+        const ColVec<2, C>    b{C{1.0, 0.0}, C{0.0, 1.0}};
+        const auto            L = cholesky(A);
+        REQUIRE(L.has_value());
+        const auto x = backward_substitute_transpose(*L, forward_substitute(*L, b));
+        const auto r = (A * x) - b;
+        CHECK(r(0).abs() <= 1e-14);
+        CHECK(r(1).abs() <= 1e-14);
+    }
 }
 
 TEST_SUITE("rank, two_norm and QR are scale-invariant") {
@@ -793,11 +933,31 @@ TEST_SUITE("rank, two_norm and QR are scale-invariant") {
         CHECK(two_norm(Matrix<2, 2>::identity() * 1e-9) == doctest::Approx(1e-9));
     }
 
+    TEST_CASE_TEMPLATE("float QR factors columns of 1e-20 and 1e20 without overflow or flush", T, float, double) {
+        // A plain sum of squares overflows past 1.8e19 in float and flushes below 1e-19.
+        for (const T s : {T(1e-20), T(1e20)}) {
+            const Matrix<3, 2, T> A = Matrix<3, 2, T>{{T(1), T(2)}, {T(3), T(4)}, {T(5), T(6)}} * s;
+            const auto            q = qr_decompose(A);
+            CHECK(q.full_rank());
+            const Matrix<3, 2, T> QR = q.Q * q.R;
+            CHECK(Matrix<3, 2, T>(QR - A).norm() <= T(64) * eps<T>() * A.norm());
+            const auto f = full_qr(A);
+            CHECK(f.R(1, 0) == T(0));
+            CHECK(f.R(2, 0) == T(0));
+            CHECK(f.R(2, 1) == T(0));
+            CHECK(Matrix<3, 2, T>((f.Q * f.R) - A).norm() <= T(64) * eps<T>() * A.norm());
+        }
+        const Matrix<3, 2, T> mixed{{T(1), T(0)}, {T(0), T(1e-20)}, {T(0), T(1e-20)}};
+        const auto            qm = qr_decompose(mixed);
+        CHECK(qm.full_rank());
+        CHECK(Matrix<3, 2, T>((qm.Q * qm.R) - mixed).norm() <= T(64) * eps<T>() * T(1e-20));
+    }
+
     TEST_CASE("qr_decompose rank loss is relative to each column") {
         const Matrix<3, 2> tiny{{1e-14, 2e-14}, {0.0, 1e-14}, {0.0, 0.0}};
-        CHECK(qr_decompose(tiny).is_valid());
+        CHECK(qr_decompose(tiny).full_rank());
         const Matrix<3, 2> dep{{1.0, 2.0}, {1.0, 2.0}, {1.0, 2.0}};
-        CHECK_FALSE(qr_decompose(dep).is_valid());
+        CHECK_FALSE(qr_decompose(dep).full_rank());
     }
 }
 
@@ -846,7 +1006,7 @@ TEST_SUITE("qr_decompose orthogonality") {
         constexpr double   delta = 1e-7;
         const Matrix<4, 3> L{{1.0, 1.0, 1.0}, {delta, 0.0, 0.0}, {0.0, delta, 0.0}, {0.0, 0.0, delta}};
         const auto         qr = qr_decompose(L);
-        REQUIRE(qr.is_valid());
+        REQUIRE(qr.full_rank());
         CHECK(orthogonality_loss(qr.Q) <= 16.0 * damp::eps<double>());
         check_factors(L, qr);
     }
@@ -861,7 +1021,7 @@ TEST_SUITE("qr_decompose orthogonality") {
             {C(0.0, 0.0), C(0.0, 0.0), C(0.0, -delta)},
         };
         const auto qr = qr_decompose(L);
-        REQUIRE(qr.is_valid());
+        REQUIRE(qr.full_rank());
         CHECK(orthogonality_loss(qr.Q) <= 16.0 * damp::eps<double>());
         check_factors(L, qr);
     }
@@ -871,7 +1031,7 @@ TEST_SUITE("qr_decompose orthogonality") {
     TEST_CASE("rank-deficient input keeps Q orthonormal") {
         const Matrix<3, 2> dep{{1.0, 2.0}, {1.0, 2.0}, {1.0, 2.0}};
         const auto         qr = qr_decompose(dep);
-        CHECK_FALSE(qr.is_valid());
+        CHECK_FALSE(qr.full_rank());
         CHECK(qr.R(1, 1) == 0.0);
         CHECK(orthogonality_loss(qr.Q) <= 16.0 * damp::eps<double>());
         check_factors(dep, qr);
@@ -881,7 +1041,7 @@ TEST_SUITE("qr_decompose orthogonality") {
     TEST_CASE("a wide matrix factors with zero trailing columns of Q") {
         const Matrix<2, 3> W{{3.0, 1.0, 2.0}, {4.0, -1.0, 5.0}};
         const auto         qr = qr_decompose(W);
-        CHECK_FALSE(qr.is_valid());
+        CHECK_FALSE(qr.full_rank());
         CHECK(qr.R(0, 0) == doctest::Approx(5.0));
         CHECK(qr.R(2, 2) == 0.0);
         CHECK(qr.Q(0, 2) == 0.0);
@@ -901,7 +1061,7 @@ TEST_SUITE("svd on rank-deficient input") {
         // middle row leaves a ~1e-159 residue column whose Gram sums underflow.
         const Matrix<3, 3> Co{{1.0, -1.0 / 3.0, 1.0 / 9.0}, {0.0, 0.0, 0.0}, {1.0, -1.0, 1.0}};
         const auto         s = svd(Co);
-        CHECK(s.converged);
+        CHECK(s.success);
         CHECK(rank(Co) == 2);
         CHECK(s.singular_values[2] < 1e-15 * s.singular_values[0]);
     }
@@ -910,7 +1070,7 @@ TEST_SUITE("svd on rank-deficient input") {
         using C = damp::complex<double>;
         constexpr Matrix<2, 3, C> M{{C(1.0e-3, 0.0), C(-1.0e-3, 0.0), C(5.0e-7, 0.0)}, {C(-1.0e-3, 0.0), C(1.0e-3, 0.0), C(1.0e-3, 0.0)}};
         constexpr auto            ce = svd(M);
-        static_assert(ce.converged);
+        static_assert(ce.success);
         const auto rt = svd(M);
         CHECK(ce.singular_values[0] == doctest::Approx(rt.singular_values[0]).epsilon(1e-12));
         CHECK(ce.singular_values[1] == doctest::Approx(rt.singular_values[1]).epsilon(1e-12));
@@ -922,7 +1082,7 @@ TEST_SUITE("svd of a single column") {
         using C = damp::complex<double>;
         const Matrix<2, 1, C> a{{C(3.0, 0.0)}, {C(0.0, 4.0)}};
         const auto            s = svd(a);
-        CHECK(s.converged);
+        CHECK(s.success);
         CHECK(s.singular_values[0] == doctest::Approx(5.0));
         CHECK(rank(a) == 1);
         CHECK(rank(Matrix<2, 1, C>{}) == 0);

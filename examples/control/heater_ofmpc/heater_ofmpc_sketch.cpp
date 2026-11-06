@@ -11,7 +11,7 @@
  * heater PWM write. Closed-loop SIL: heater_ofmpc_sil.cpp (same tick).
  */
 
-#include "damp/controllers/offset_free_mpc.hpp"
+#include "damp/controllers/ofmpc.hpp"
 #include "heater_ofmpc_controller.hpp"
 
 using namespace damp;
@@ -32,8 +32,8 @@ static constexpr int OUTPUT = 1;
 static constexpr int kHeaterPin = 5;
 
 // Designed at compile time; float on target.
-static constinit OffsetFreeMPC controller{kLaw.as<float>()};
-static constexpr float         kSetpointC = 210.0f;
+static constinit OFMPC controller{kLaw.as<float>()};
+static constexpr float kSetpointC = 210.0f;
 
 // Mock thermistor (replace with the ADC read and the thermistor curve).
 static float read_temperature_c() {

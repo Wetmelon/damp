@@ -168,14 +168,14 @@ All designs share the plant above. Weights for model-based linear laws:
 
 | Family | Library path | Notes |
 | ------ | ------------ | ----- |
-| Cascade PI | `pi_pole_placement_first_order` on $`b_u/s`$ then $`1/s`$ | Industry default on rate-capable axis |
-| ADRC | `design::adrc<2>(wc=8, wo=40, b0=b_u)` | Treats $`\ddot\theta = f + b_0 u`$ |
+| Cascade PI | `pid_pole_placement` on $`b_u/s`$ then $`1/s`$ | Industry default on rate-capable axis |
+| ADRC | `design::adrc<2>(wc=8, wo=40, b0=b_u, Ts)` | Treats $`\ddot\theta = f + b_0 u`$ |
 | SMC / STSMC | `design::smc` / `design::stsmc` | Sliding on $`e,\dot e`$ (ST continuous $`u`$) |
-| Place | `design::place(A,B,{-8,-12}, Ts)` | Discrete poles from continuous intent |
-| LQR | `design::discrete_lqr(Ad,Bd,Q,R)` | Infinite-horizon discrete |
-| LQI | `design::discrete_lqi(sysd, Q_aug, R)` | Integrator on $`r-y`$ |
-| LQG / LQGI | `design::discrete_lqg` / `discrete_lqgi` | Separation + Kalman from $`y`$ |
-| OF-MPC | `design::mpc<10,4>` | Synthesis only; no constraint SIL |
+| Place | `design::place(plant, {-8,-12}, Ts)` | Discrete gain from s-plane poles on the continuous plant |
+| LQR | `design::lqr(sysd, {.Q = Q, .R = R})` | Infinite-horizon discrete (DARE on the ZOH model) |
+| LQI | `design::lqi(sysd, {.Q = Q, .R = R, .Q_integral = Q_integral})` | Integrator on $`r-y`$ |
+| LQG / LQGI | `design::lqg` / `lqgi` | Separation + Kalman from $`y`$ |
+| OF-MPC | `design::ofmpc<10,4>` | Synthesis only; no constraint SIL |
 
 Cascade tick: $`\omega^* =`$ outer angle PI, $`u =`$ inner rate PI
 (`cascade_period`). Full-state laws use $`u = -Kx`$ (plus integral / KF / MPC as appropriate).
@@ -188,7 +188,7 @@ There is no nonlinear closed-loop plant SIL. Section 2 / `reaction_wheel_sil.cpp
 only prints gains and runs one tick of each law on a fixed $`x_0`$ — intentional
 synthesis gallery, not gate-and-validate against an ODE. Cascade PI designs use
 the successive-loop-closure approximations $`b_u/s`$ and $`1/s`$ (not the full
-unstable $`b_u/(s^2-\omega_0^2)`$ plant); full-state laws use the linear $`plant`
+unstable $`b_u/(s^2-\omega_0^2)`$ plant); full-state laws use the linear `plant`
 aggregate above.
 
 ## Files

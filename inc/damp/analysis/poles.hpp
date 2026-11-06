@@ -21,6 +21,7 @@
 #include "damp/matrix/matrix.hpp"
 #include "damp/systems/state_space.hpp"
 #include "damp/systems/transfer_function.hpp"
+#include "damp/systems/zeros.hpp"
 
 
 namespace damp {
@@ -29,43 +30,23 @@ namespace analysis {
 /**
  * @brief Compute open-loop poles (eigenvalues of A matrix)
  *
- * Returns the eigenvalue vector from the Francis QR eigensolver when it
- * converges. If the solver does not converge, returns a zero vector (same
- * conservative posture as @ref is_stable_continuous, which treats
- * non-convergence as "not proven stable").
+ * The eigenvalues from the Francis QR eigensolver, or nullopt when it does not converge or A has
+ * a non-finite entry.
  *
  * @param A State matrix
- * @return Vector of pole locations as complex numbers, or zeros if eigen failed
+ * @return Pole locations as complex numbers, or nullopt if the eigensolver fails
  */
 template<size_t NX, typename T = double>
-[[nodiscard]] constexpr ColVec<NX, damp::complex<T>> poles(const Matrix<NX, NX, T>& A) {
-    auto eigen = mat::compute_eigenvalues(A);
-    if (!eigen.converged) {
-        return ColVec<NX, damp::complex<T>>{};
+[[nodiscard]] constexpr damp::optional<damp::array<damp::complex<T>, NX>> poles(const Matrix<NX, NX, T>& A) {
+    const auto eigen = mat::compute_eigenvalues(A);
+    if (!eigen.success) {
+        return damp::nullopt;
     }
-    return eigen.values;
-}
-
-/**
- * @brief Check continuous-time stability
- *
- * A continuous system is stable if all eigenvalues have Re(λ) < 0.
- *
- * @param A State matrix
- * @return true if all eigenvalues in the left half-plane
- */
-template<size_t NX, typename T = double>
-[[nodiscard]] constexpr bool is_stable_continuous(const Matrix<NX, NX, T>& A) {
-    auto eigen = mat::compute_eigenvalues(A);
-    if (!eigen.converged) {
-        return false;
-    }
+    damp::array<damp::complex<T>, NX> p{};
     for (size_t i = 0; i < NX; ++i) {
-        if (eigen.values[i].real() >= T{0}) {
-            return false;
-        }
+        p[i] = eigen.values[i];
     }
-    return true;
+    return p;
 }
 
 /**
@@ -85,17 +66,17 @@ struct PoleInfo {
  * Continuous-time interpretation (s-plane poles of A).
  *
  * @param A State matrix
- * @return Array of PoleInfo with ωn, ζ, τ for each pole; all zero if the
- *         eigensolver does not converge (same posture as @ref poles)
+ * @return Array of PoleInfo with ωn, ζ, τ for each pole, or nullopt if the eigensolver fails
+ *         (as @ref poles)
  */
 template<size_t NX, typename T = double>
-[[nodiscard]] constexpr damp::array<PoleInfo<T>, NX>
+[[nodiscard]] constexpr damp::optional<damp::array<PoleInfo<T>, NX>>
 damp(const Matrix<NX, NX, T>& A) {
-    auto                         eigen = mat::compute_eigenvalues(A);
-    damp::array<PoleInfo<T>, NX> info{};
-    if (!eigen.converged) {
-        return info;
+    const auto eigen = mat::compute_eigenvalues(A);
+    if (!eigen.success) {
+        return damp::nullopt;
     }
+    damp::array<PoleInfo<T>, NX> info{};
     for (size_t i = 0; i < NX; ++i) {
         auto p = eigen.values[i];
         T    wn = damp::abs(p);
@@ -145,7 +126,7 @@ void append_poly_roots(const damp::array<T, N>& c, size_t m, std::vector<damp::c
             companion(M - 1, j) = -c[j] / c[M];
         }
         const auto eig = mat::compute_eigenvalues(companion);
-        if (!eig.converged) {
+        if (!eig.success) {
             return;
         }
         for (size_t i = 0; i < M; ++i) {
@@ -157,10 +138,10 @@ void append_poly_roots(const damp::array<T, N>& c, size_t m, std::vector<damp::c
 } // namespace detail
 
 /**
- * @brief Roots of a polynomial given in ascending powers (MATLAB® `roots`, reversed order)
+ * @brief Roots of a polynomial given highest power first (MATLAB® `roots`)
  *
- * For coefficients c[0] + c[1]·x + … + c[N-1]·x^{N-1}, returns the roots as the
- * eigenvalues of the companion matrix. Trailing zero coefficients (fixed-size
+ * For coefficients c[0]·x^{N-1} + … + c[N-2]·x + c[N-1], returns the roots as the
+ * eigenvalues of the companion matrix. Leading zero coefficients (fixed-size
  * padding, e.g. a TF numerator of lower degree than its array) are dropped, so
  * a degree-m polynomial yields m roots. An all-zero polynomial, or an eigensolver
  * that does not converge, yields no roots.
@@ -169,12 +150,16 @@ template<size_t N, typename T>
 [[nodiscard]] std::vector<damp::complex<T>> poly_roots(const damp::array<T, N>& c) {
     std::vector<damp::complex<T>> out;
     if constexpr (N >= 2) {
+        damp::array<T, N> a{}; // a[k] multiplies x^k
+        for (size_t k = 0; k < N; ++k) {
+            a[k] = c[N - 1 - k];
+        }
         size_t m = N - 1; // effective degree: highest nonzero coefficient
-        while (m > 0 && c[m] == T{0}) {
+        while (m > 0 && a[m] == T{0}) {
             --m;
         }
         out.reserve(m);
-        detail::append_poly_roots<N - 1>(c, m, out);
+        detail::append_poly_roots<N - 1>(a, m, out);
     }
     return out;
 }
@@ -190,15 +175,17 @@ template<size_t Nnum, size_t Nden, typename T>
 }
 
 /**
- * @brief Pole map of a state matrix (MATLAB® `pzmap(sys)`, poles only)
+ * @brief Pole map of a state matrix: the eigenvalues of A as poles (a matrix alone has no zeros)
  *
- * Returns the eigenvalues of A as poles. Transmission zeros are not computed
- * (they require a generalized/QZ eigensolver, not yet available).
+ * pzmap(sys) on a StateSpace adds the transmission zeros. No poles when the eigensolver fails.
  */
 template<size_t NX, typename T>
 [[nodiscard]] PoleZeroMap<T> pzmap(const Matrix<NX, NX, T>& A) {
     PoleZeroMap<T> r;
     const auto     eig = mat::compute_eigenvalues(A);
+    if (!eig.success) {
+        return r;
+    }
     r.poles.reserve(NX);
     for (size_t i = 0; i < NX; ++i) {
         r.poles.push_back(eig.values[i]);
@@ -207,11 +194,21 @@ template<size_t NX, typename T>
 }
 
 /**
- * @brief Pole map of a state-space system (MATLAB® `pzmap(sys)`, poles only)
+ * @brief Pole-zero map of a state-space system: eigenvalues of A and the transmission zeros
+ *
+ * Any number of inputs and outputs; the zeros are damp::transmission_zeros (empty when it
+ * fails).
+ *
+ * @note Compare with MATLAB®'s pzmap(sys).
  */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
 [[nodiscard]] PoleZeroMap<T> pzmap(const StateSpace<NX, NU, NY, T, NW, NV>& sys) {
-    return pzmap(sys.A);
+    PoleZeroMap<T> r = pzmap(sys.A);
+    const auto     z = transmission_zeros(sys);
+    if (z.success) {
+        r.zeros.assign(z.zeros.begin(), z.zeros.begin() + static_cast<std::ptrdiff_t>(z.n_zeros));
+    }
+    return r;
 }
 
 // ============================================================================
@@ -238,7 +235,7 @@ struct RootLocusResult {
     std::vector<T>                             gains;           ///< Gain samples k
     std::vector<std::vector<damp::complex<T>>> poles;           ///< poles[i] = closed-loop poles at gains[i]
     std::vector<damp::complex<T>>              open_loop_poles; ///< Eigenvalues of A (k = 0)
-    std::vector<damp::complex<T>>              open_loop_zeros; ///< Transmission zeros when available (TF path)
+    std::vector<damp::complex<T>>              open_loop_zeros; ///< Open-loop zeros: numerator roots (TF) or transmission zeros (SS)
 };
 
 namespace detail {
@@ -304,9 +301,12 @@ template<size_t NX, size_t NW, size_t NV, typename T>
     // Open-loop poles
     {
         const auto eig = mat::compute_eigenvalues(sys.A);
-        result.open_loop_poles.reserve(NX);
-        for (size_t i = 0; i < NX; ++i) {
-            result.open_loop_poles.push_back(eig.values[i]);
+        if (eig.success) {
+            result.open_loop_poles.assign(eig.values.begin(), eig.values.end());
+        }
+        const auto z = transmission_zeros(sys);
+        if (z.success) {
+            result.open_loop_zeros.assign(z.zeros.begin(), z.zeros.begin() + static_cast<std::ptrdiff_t>(z.n_zeros));
         }
     }
 
@@ -329,7 +329,7 @@ template<size_t NX, size_t NW, size_t NV, typename T>
         }
 
         const auto eig = mat::compute_eigenvalues(A_cl);
-        if (!eig.converged) {
+        if (!eig.success) {
             continue;
         }
 

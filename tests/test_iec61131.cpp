@@ -6,11 +6,13 @@
 #include <cstdint>
 
 #include "damp/toolbox/iec61131.hpp"
+#include "damp/toolbox/logic.hpp"
 
 #define DOCTEST_CONFIG_INCLUDE_TYPE_TRAITS
 #include "doctest.h"
 
 using namespace damp::plc;
+using namespace damp;
 
 /**
  * @brief Tests for IEC61131-3 function blocks
@@ -384,6 +386,56 @@ TEST_SUITE("IEC61131-3 Function Blocks") {
         CHECK(bl(true, dt) == false); // 20 ms -> low
         // Disable holds low and resets phase.
         CHECK(bl(false, dt) == false);
+    }
+
+    TEST_CASE("TON<double> fires on the tick where n·dt reaches PT despite rounding") {
+        // 0.1 summed 8 times is 0.7999999999999999 < 0.8; the timer must still fire on tick 8.
+        plc::TON<double> ton;
+        ton.PT = 0.8;
+        for (int i = 0; i < 7; ++i) {
+            CHECK_FALSE(ton(true, 0.1));
+        }
+        CHECK(ton(true, 0.1));
+        CHECK(ton.ET == 0.8);
+    }
+
+    TEST_CASE("TP re-arms when IN rises right after a pulse that ended with IN low") {
+        plc::TP<double> tp;
+        tp.PT = 0.25;
+        CHECK(tp(true, 0.125));           // start, ET = 0.125
+        CHECK(tp(false, 0.125) == false); // ET = 0.25 -> pulse ends, IN already low
+        CHECK(tp(true, 0.125));           // new rising edge must start a new pulse
+    }
+
+    TEST_CASE("TOF elapsed time stays 0 at cold start while IN was never high") {
+        plc::TOF<double> tof;
+        tof.PT = 0.5;
+        for (int i = 0; i < 10; ++i) {
+            CHECK_FALSE(tof(false, 0.1));
+        }
+        CHECK(tof.ET == 0.0);
+    }
+
+    TEST_CASE("CTD reset leaves Q consistent with CV = 0") {
+        plc::CTD<uint32_t> ctd;
+        ctd.PV = 3;
+        ctd(false, true); // load
+        ctd.reset();
+        CHECK(ctd.CV == 0);
+        CHECK(ctd.Q);
+    }
+
+    TEST_CASE("BLINK keeps its average period when dt does not divide the phase times") {
+        plc::BLINK<double> blink{0.25, 0.25}; // 2 Hz
+        RisingEdge         edge;
+        int                n_edges = 0;
+        for (int i = 0; i < 1000; ++i) { // 100 s at dt = 0.1
+            if (edge(blink(true, 0.1))) {
+                ++n_edges;
+            }
+        }
+        CHECK(n_edges >= 199);
+        CHECK(n_edges <= 201);
     }
 } // TEST_SUITE
 

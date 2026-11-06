@@ -15,13 +15,15 @@
  *        irrelevant and the formatter may sort these freely.
  */
 
-#include "block.hpp"         // IWYU pragma: export
-#include "colvec.hpp"        // IWYU pragma: export
-#include "core.hpp"          // IWYU pragma: export
-#include "decomposition.hpp" // IWYU pragma: export
-#include "eigen.hpp"         // IWYU pragma: export
-#include "functions.hpp"     // IWYU pragma: export
-#include "rowvec.hpp"        // IWYU pragma: export
-#include "solve.hpp"         // IWYU pragma: export
-#include "svd.hpp"           // IWYU pragma: export
-#include "views.hpp"         // IWYU pragma: export
+#include "block.hpp"             // IWYU pragma: export
+#include "colvec.hpp"            // IWYU pragma: export
+#include "concat.hpp"            // IWYU pragma: export
+#include "core.hpp"              // IWYU pragma: export
+#include "decomposition.hpp"     // IWYU pragma: export
+#include "eigen.hpp"             // IWYU pragma: export
+#include "functions.hpp"         // IWYU pragma: export
+#include "generalized_eigen.hpp" // IWYU pragma: export
+#include "rowvec.hpp"            // IWYU pragma: export
+#include "solve.hpp"             // IWYU pragma: export
+#include "svd.hpp"               // IWYU pragma: export
+#include "views.hpp"             // IWYU pragma: export

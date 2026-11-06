@@ -9,36 +9,82 @@ and [known limitations](docs/known_limitations.md)).
 
 ## [Unreleased]
 
+Core API wave: one runtime per LQ/MPC design, one set of tick verbs, delay in
+the plant (at most one sample), and the matching numerics and heater examples.
+
+This section describes the tree at HEAD. It replaces the unreleased delay-in-the-law
+work that landed on main after 0.1.0 (`InputDelayPredictor`, `PredictedInputDelay`,
+delay templates on OFLQG / MPC). v0.1.0 never shipped those names.
+
 ### Added
 
-- Predictor form for input delays: `InputDelayPredictor` keeps the commands in flight and predicts the state the new command meets (Artstein's reduction); `split_input_delay`, `discretize(…, PredictedInputDelay<D>{θ})` give NX + NU states for any delay. Design calls take the delay in sampling periods, `design::mpc<NP, NC, θ / Ts>(plant, Ts, …)` and `discrete_oflqg<θ / Ts>(…)`, and the runtimes deduce it from the result. Equal to the register form to roundoff.
-- `OffsetFreeMPC` reference preview: the output reference over the prediction horizon and the input target per move.
-- Examples: `heater_ofmpc` (a hotend with a 2.5-period dead time under offset-free MPC: delay-aware vs delay-blind, and the setpoint known ahead) and `heater_oflqg` (the unconstrained offset-free LQG it reduces to, clamped at the actuator).
-- `lyapunov_cholesky` / `discrete_lyapunov_cholesky` (`lyapchol` / `dlyapchol`): the Cholesky factor of a stable Lyapunov solution by Hammarling's method, used by balanced realization, `hankelsv` and `balred`.
-- `StateSpace` deduces its sizes from brace initializers; Matrix / ColVec / RowVec braces refuse more entries than the type has.
-- `design::discrete_oflqg` / `OFLQG`: offset-free LQG (discrete LQR, input-disturbance Kalman filter, DC target).
-- `discretize` takes an input and output delay; every LQ / MPC / estimator design accepts plant-sized weights on delayed models.
-- Tustin pre-warping: `discretize(sys, Ts, Tustin, w0)` (and `c2d`) matches the discrete frequency response exactly at ω₀.
-- `mat::ldlt` / `mat::ldlt_solve`: LDLᵀ without pivoting for symmetric indefinite matrices (quasi-definite KKT included).
-- `TransferFunction::to_observable_canonical_form` (and `to_controllable_canonical_form` as the named twin of `to_state_space`).
-- LQI / LQGI integrate a chosen subset of outputs; saturation-aware `feedback` / `commit` across LQI, LQGI, MPC and OffsetFreeMPC.
+- `design::oflqg` / `OFLQG` and `design::ofmpc` / `OFMPC`, each in its own header,
+  over one shared state-feedback core. `Law<kRes, T>` names a law from its design
+  result for a struct member.
+- `TrackedOutputs` so LQR and LQG can `control(r)` / `step(r, m)` through the
+  model's steady-state target.
+- `design::output_inverse` / `OutputInverse` and `design::state_feedforward`.
+- `InputDelay{θ}` on `discretize`: at most one sample, NX+NU register, exact
+  under ZOH. Tustin pre-warp: `discretize(sys, Ts, Tustin, w0)`.
+- `DiscretizationResult` from `discretize` / `c2d` / `d2d`. `lft`. Canonical
+  forms in `systems/realization.hpp`. Transmission zeros (QZ) and `norm_hinf` /
+  disk margins on the host.
+- `matrix/concat.hpp`: size-deducing `diag` / `blkdiag` / `hcat` / `vcat`.
+  `mat::ldlt`. Encoders under `damp/encoder/`.
+- `lyapunov_cholesky` / `dlyapchol` (Hammarling). SOS IIR cascade.
+  `sim::quantize`.
+- Examples: `heater_ofmpc` and `heater_lqg` on a 5 s hotend, the dead time one
+  sample of the 5 s control period.
+- [docs/guide.md](docs/guide.md): task table from plant to law, plus MATLAB® /
+  firmware / Python-control name maps (`c2d`, `pidtune`, `back_calculate`, ISR).
+  Canonical example [`examples/control/lqi/`](examples/control/lqi/). CMake
+  build-tree alias `wetmelon::damp`.
+- `FeedbackLaw`: `control(r)` and `step(r, m)` on top of the `FeedbackRuntime`
+  lifecycle (`update` / `predict` / `back_calculate`).
+- Host contract check for `workbench.hpp` alone (`make workbench-check`). The
+  guide's canonical snippet is compiled as `checks/guide_canonical.cpp`.
+- `design::eso` / `ESO`: the Han–Gao extended-state observer on its own
+  (ADRC is this observer plus the PD law that cancels f̂). The discrete current
+  estimator in innovation form: `predict` advances with Φ, Γ, `update` corrects
+  with L. Any finite b₀. `reset(z0)` on `ESO` and `ADRCController`.
 
 ### Changed
 
-- `OffsetFreeMPC` regulates about its steady-state target with a fixed-gain filter in error coordinates, so a float runtime holds a constant input at a large operating point. LQG / LQGI / offset-free designs take their noise as one named struct.
-- `design::mpc` and `design::state_mpc` require the control horizon NC (no default NP).
-- Every runtime built from a design result refuses a failed one under constant evaluation, so `static constinit Law law{res};` needs no `static_assert(res.success)`.
-- Numerics: Cholesky's pivot floor grows with each pivot's term count (a float MPC with a 30-move horizon factors); Francis QR deflates by the Ahues–Tisseur criterion and standardizes 2×2 blocks; Schur block swaps pass the Bai–Demmel stability tests; `lyap` / `dlyap` use Bartels–Stewart on the complex Schur form (O(NX³), was an NX²×NX² system); thin QR uses Householder reflections; balancing and the Jacobi SVD take scaled norms.
-- `OffsetFreeMPC` takes `OffsetFreeModel` and its noise in OFLQG's order (`Q_process`, `R_measurement`, `Q_disturbance`); `mpc` likewise takes `R` before the input weight.
-- Numerics: DARE convergence relative to the solution, Cholesky refuses pivots below the roundoff of their terms, `compute_eigenvalues` balances its argument, `is_stabilizable` equilibrates before PBH, `minreal` uses the staircase controllable subspace.
-- NaN/Inf audit: finite inputs and failed designs give finite output across controllers, filters and toolbox.
-- Host builds use `-mtune=native` instead of `-march=native` (g++ 14 MinGW misaligned AVX-512 stack stores).
-- Prefer prvalue returns when assembling `StateSpace` / design results and geometry
-  values (style; same behavior under optimization).
-- Matrix: `ColVec`/`RowVec` `segment`, richer `RowView`/`ColView` assign and indexing;
-  INS sparse covariance uses column/row views.
-- Target smoke (`make targets`): full green PlatformIO board matrix, quiet `pio -s`,
-  product flags `-O3 -ffast-math` (no LTO), framework warning demotion for Arduino cores.
+- One tick vocabulary: estimators `predict` / `update`, controllers `control`,
+  `step` for a whole tick, `back_calculate(u_sat, u_ff = {})` for the applied
+  input. Ts lives on the design; runtimes never take it.
+- `LQRWeights` template order is NX, NU, NI (0 for a regulator), T:
+  `LQRWeights<2, 1, 1>` is LQI on double.
+- `design::lqr` follows the plant's time domain (CARE, or ZOH + Van Loan + DARE
+  with a Ts). `PIDGains` is the PID result; one `pidtune` and one
+  `pid_pole_placement`. `design::kalman` takes a disturbance spec.
+  `Luenberger` is the fixed-gain observer; `KalmanFilter` is recursive only.
+- Every design reports `success` / `DesignStatus` and `explicit operator bool()`.
+  A refused `constinit` law names the cause. `ok` is that design's checks
+  (weights, convergence, a closed-loop pole test where the design runs one), not
+  a robustness certificate. The Riccati residual lives on the solver result.
+- MPC and MHE ship in `control.hpp` (allocation-free). Weights are plant-sized.
+  A longer delay than one sample is refused: sample slower, or use
+  `SmithPredictor`. An infeasible MPC tick holds the last applied input (still
+  inside the u box). A MaxIterations or Degenerate iterate is applied when the
+  outputs are soft. With a hard output row or a terminal set it is applied only
+  if primal feasible (row scale |b_i| + Σ|A_ij z_j|); otherwise the tick holds.
+  Holding does not make predicted outputs or a terminal set feasible.
+- Numerics: Riccati certificates, SciPy oracles, Schur / Lyapunov / QR, finite
+  inputs give finite outputs.
+- Compilers: g++ 11+ and clang++ 19+. MSVC is not supported. Host CMake builds
+  use `-mtune=native`. Every product sketch must fit clang's default constexpr
+  budget (`tools/clang_budget_check.sh`).
+
+### Removed
+
+- `design/synthesis.hpp` (`*_bundle` wrappers). `StateFeedback` as a public
+  runtime. `discrete_oflqg`, `offset_free_lqg.hpp`, `offset_free_mpc.hpp`.
+- Delay in the design or runtime (`InputDelayPredictor`, `PredictedInputDelay`,
+  `OutputDelay`, delay template parameters on OFLQG / MPC).
+- `toolbox/encoder.hpp` (now `damp/encoder/`). `toolbox/thermal.hpp`.
+- `estimation/commissioning_frontends.hpp`, `estimation/experiment_safety.hpp`,
+  `estimation/successive_compensator.hpp`, `filters/highpass.hpp` (`HighPass`).
 
 ## [0.1.0] — 2026-08-09
 

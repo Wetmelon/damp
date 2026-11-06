@@ -10,6 +10,7 @@
  * @brief Column vector type
  */
 
+#include <limits>
 #include <type_traits>
 
 #include "core.hpp"
@@ -55,6 +56,11 @@ struct ColVec : public Matrix<N, 1, T> {
     // Constructor from damp::array<T, N> - enables CTAD
     constexpr ColVec(const damp::array<T, N>& arr) : Matrix<N, 1, T>(arr) {}
 
+    /** @brief A one-element vector from its scalar (implicit, as Matrix<1, 1>'s): a SISO bound reads `.lower = -12.0`. */
+    constexpr ColVec(T value) // NOLINT(google-explicit-constructor)
+        requires(N == 1)
+        : Matrix<N, 1, T>(value) {}
+
     /**
      * @brief Construct from a sized C array (reference keeps @p N in the type).
      *
@@ -75,10 +81,11 @@ struct ColVec : public Matrix<N, 1, T> {
     constexpr ColVec(const Matrix<N, 1, T>& other) : Matrix<N, 1, T>(other) {}
 
     // Same-precision N×1 view (block, column view, …) copies implicitly too, so
-    // `ColVec<3> p = x.block<3, 1>(0, 0);` reads like the matrix expression.
+    // `ColVec<3> p = x.block<3, 1>(0, 0);` reads like the matrix expression; any
+    // other element type converts explicitly.
     template<MatrixLike V>
-        requires(V::rows() == N && V::cols() == 1 && std::is_same_v<typename V::value_type, T> && !std::is_base_of_v<Matrix<N, 1, T>, V>)
-    constexpr ColVec(const V& view) : Matrix<N, 1, T>(view) {}
+        requires(V::rows() == N && V::cols() == 1 && !std::is_base_of_v<Matrix<N, 1, T>, V>)
+    explicit(!std::is_same_v<typename V::value_type, T>) constexpr ColVec(const V& view) : Matrix<N, 1, T>(view) {}
 
     template<typename U>
     explicit constexpr ColVec(const ColVec<N, U>& other) : Matrix<N, 1, T>(other) {}
@@ -87,6 +94,7 @@ struct ColVec : public Matrix<N, 1, T> {
     explicit constexpr ColVec(const Matrix<N, 1, U>& other) : Matrix<N, 1, T>(other) {}
 
     template<typename U>
+        requires ConvertsExactly<U, T>
     constexpr ColVec& operator=(const Matrix<N, 1, U>& other) {
         Matrix<N, 1, T>::operator=(other);
         return *this;
@@ -145,7 +153,7 @@ struct ColVec : public Matrix<N, 1, T> {
         return ColVec<3, T>{
             this->data_[1] * other.data_[2] - this->data_[2] * other.data_[1],
             this->data_[2] * other.data_[0] - this->data_[0] * other.data_[2],
-            this->data_[0] * other.data_[1] - this->data_[1] * other.data_[0]
+            this->data_[0] * other.data_[1] - this->data_[1] * other.data_[0],
         };
     }
 
@@ -154,11 +162,19 @@ struct ColVec : public Matrix<N, 1, T> {
      * @return Normalized vector
      */
     [[nodiscard]] constexpr ColVec normalized() const {
-        auto n = this->norm();
-        if (n == scalar_type_t<T>{0}) {
+        using R = scalar_type_t<T>;
+        const R n = this->norm();
+        if (n == R{0}) {
             return *this;
         }
-        return *this * (T{1} / static_cast<T>(n));
+        // Under -freciprocal-math x / n is x · (1/n), and 1/n is subnormal (flushed) near max.
+        // Scale by ε (an exact power of two), then divide the copy by its own norm, whose
+        // reciprocal is normal. Dividing x·ε by n·ε instead lets the compiler cancel ε.
+        if (n > R{0.25} / std::numeric_limits<R>::min()) {
+            const ColVec y = *this * std::numeric_limits<R>::epsilon();
+            return y / static_cast<T>(y.norm());
+        }
+        return *this / static_cast<T>(n);
     }
 
     [[nodiscard]] constexpr size_t size() const { return N; }
@@ -174,7 +190,7 @@ struct ColVec : public Matrix<N, 1, T> {
      * @return Mutable block view of shape Len × 1
      */
     template<size_t Len>
-    [[nodiscard]] constexpr Block<Len, 1, 1, T> segment(size_t start) {
+    [[nodiscard]] constexpr Block<Len, 1, 1, T> segment(size_t start) & {
         static_assert(Len <= N, "segment length exceeds vector dimension");
         return Block<Len, 1, 1, T>(this->data_.data(), start);
     }
@@ -187,9 +203,15 @@ struct ColVec : public Matrix<N, 1, T> {
      * @return Const block view of shape Len × 1
      */
     template<size_t Len>
-    [[nodiscard]] constexpr Block<Len, 1, 1, const T> segment(size_t start) const {
+    [[nodiscard]] constexpr Block<Len, 1, 1, const T> segment(size_t start) const& {
         static_assert(Len <= N, "segment length exceeds vector dimension");
         return Block<Len, 1, 1, const T>(this->data_.data(), start);
+    }
+
+    /** @brief Owning copy. An rvalue's view would dangle at the end of the full expression. */
+    template<size_t Len>
+    [[nodiscard]] constexpr ColVec<Len, T> segment(size_t start) const&& {
+        return ColVec<Len, T>{static_cast<const ColVec&>(*this).template segment<Len>(start)};
     }
 
     template<typename U>
@@ -199,12 +221,14 @@ struct ColVec : public Matrix<N, 1, T> {
 
     // Type-preserving compound assignment (base returns Matrix&)
     template<MatrixLike M>
+        requires ConvertsExactly<typename M::value_type, T>
     constexpr ColVec& operator+=(const M& other) {
         Matrix<N, 1, T>::operator+=(other);
         return *this;
     }
 
     template<MatrixLike M>
+        requires ConvertsExactly<typename M::value_type, T>
     constexpr ColVec& operator-=(const M& other) {
         Matrix<N, 1, T>::operator-=(other);
         return *this;
@@ -232,71 +256,19 @@ struct ColVec : public Matrix<N, 1, T> {
 };
 
 /**
- * @brief Matrix * ColVec returns ColVec
+ * @brief Matrix * ColVec of the same precision returns ColVec
  */
 template<size_t Rows, size_t Cols, typename T, typename U>
-[[nodiscard]] constexpr ColVec<Rows, T> operator*(const Matrix<Rows, Cols, T>& mat, const ColVec<Cols, U>& vec) {
-    ColVec<Rows, T> result;
+    requires SamePrecision<T, U>
+[[nodiscard]] constexpr auto operator*(const Matrix<Rows, Cols, T>& mat, const ColVec<Cols, U>& vec) {
+    using R = detail::common_element_t<T, U>;
+    ColVec<Rows, R> result;
     for (size_t i = 0; i < Rows; ++i) {
-        T sum = 0;
+        R sum{};
         for (size_t k = 0; k < Cols; ++k) {
-            sum += mat(i, k) * static_cast<T>(vec[k]);
+            sum += static_cast<R>(mat(i, k)) * static_cast<R>(vec[k]);
         }
         result[i] = sum;
-    }
-    return result;
-}
-
-// Type-preserving operators: ColVec op ColVec → ColVec
-template<size_t N, typename T>
-[[nodiscard]] constexpr ColVec<N, T> operator+(const ColVec<N, T>& a, const ColVec<N, T>& b) {
-    ColVec<N, T> result;
-    for (size_t i = 0; i < N; ++i) {
-        result[i] = a[i] + b[i];
-    }
-    return result;
-}
-
-template<size_t N, typename T>
-[[nodiscard]] constexpr ColVec<N, T> operator-(const ColVec<N, T>& a, const ColVec<N, T>& b) {
-    ColVec<N, T> result;
-    for (size_t i = 0; i < N; ++i) {
-        result[i] = a[i] - b[i];
-    }
-    return result;
-}
-
-template<size_t N, typename T>
-[[nodiscard]] constexpr ColVec<N, T> operator-(const ColVec<N, T>& a) {
-    ColVec<N, T> result;
-    for (size_t i = 0; i < N; ++i) {
-        result[i] = -a[i];
-    }
-    return result;
-}
-
-template<size_t N, typename T, typename Scalar>
-    requires(std::is_arithmetic_v<Scalar> || is_matrix_element_v<Scalar>)
-[[nodiscard]] constexpr ColVec<N, T> operator*(const ColVec<N, T>& a, Scalar s) {
-    ColVec<N, T> result;
-    for (size_t i = 0; i < N; ++i) {
-        result[i] = a[i] * static_cast<T>(s);
-    }
-    return result;
-}
-
-template<typename Scalar, size_t N, typename T>
-    requires(std::is_arithmetic_v<Scalar> || is_matrix_element_v<Scalar>)
-[[nodiscard]] constexpr ColVec<N, T> operator*(Scalar s, const ColVec<N, T>& a) {
-    return a * s;
-}
-
-template<size_t N, typename T, typename Scalar>
-    requires(std::is_arithmetic_v<Scalar> || is_matrix_element_v<Scalar>)
-[[nodiscard]] constexpr ColVec<N, T> operator/(const ColVec<N, T>& a, Scalar s) {
-    ColVec<N, T> result;
-    for (size_t i = 0; i < N; ++i) {
-        result[i] = a[i] / static_cast<T>(s);
     }
     return result;
 }

@@ -50,7 +50,7 @@
 
 /**
  * @defgroup discrete_estimators Discrete estimators
- * @brief Discrete-time observers such as full- and reduced-order Luenberger forms.
+ * @brief Discrete-time observers: Luenberger, Kalman, the extended-state observer (ESO).
  */
 
 /**

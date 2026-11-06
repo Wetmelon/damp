@@ -133,7 +133,7 @@ A = -\frac{R}{L},\qquad B = \frac{1}{L},\qquad C = 1,\qquad D = 0
 ```
 
 Transfer function $`G(s) = C(sI-A)^{-1}B + D = 1/(L s + R)`$. That is the plant
-passed to `pi_pole_placement_first_order` / `FOController::tune`.
+passed to `current_loop_pi` / `FOController::tune`.
 
 ---
 

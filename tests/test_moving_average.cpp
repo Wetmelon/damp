@@ -19,11 +19,11 @@ constexpr double pi = 3.14159265358979323846;
 } // namespace
 
 TEST_SUITE("moving_average") {
-    TEST_CASE("comb_notch_window computes N = round(fs / f_notch)") {
-        CHECK(comb_notch_window(1200.0, 120.0) == 10); // HV bus: 2f ripple at 120 Hz
-        CHECK(comb_notch_window(1000.0, 47.0) == 21);  // 21.28 -> 21
-        CHECK(comb_notch_window(1000.0, 1000.0) == 0); // f >= fs invalid
-        CHECK(comb_notch_window(1000.0, -50.0) == 0);  // invalid
+    TEST_CASE("comb_notch_window computes N = round(1 / (f_notch·Ts))") {
+        CHECK(comb_notch_window(120.0, 1.0 / 1200.0) == 10); // HV bus: 2f ripple at 120 Hz
+        CHECK(comb_notch_window(47.0, 1e-3) == 21);          // 21.28 -> 21
+        CHECK(comb_notch_window(1000.0, 1e-3) == 0);         // f >= fs invalid
+        CHECK(comb_notch_window(-50.0, 1e-3) == 0);          // invalid
     }
 
     TEST_CASE("passes DC unchanged") {
@@ -40,7 +40,7 @@ TEST_SUITE("moving_average") {
         // N = fs / 120 = 10 nulls every harmonic of 120 Hz, unity at DC.
         const double fs = 1200.0;
         const double f_ripple = 120.0;
-        const size_t N = comb_notch_window(fs, f_ripple);
+        const size_t N = comb_notch_window(f_ripple, 1.0 / fs);
         REQUIRE(N == 10);
 
         const double dc = 100.0;

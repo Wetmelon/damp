@@ -17,6 +17,11 @@
 
 using namespace damp;
 
+namespace {
+constexpr double pi = std::numbers::pi_v<double>;
+
+} // namespace
+
 
 namespace {
 
@@ -37,8 +42,8 @@ TEST_SUITE("Single-Phase PLL") {
         constexpr SinglePhasePLL<float> pll(Fnom);
 
         // Loop-filter output (frequency offset about nominal) is clamped to ±50%.
-        static_assert(pll.loop_filter.u_max == Fnom * 0.5f);
-        static_assert(pll.loop_filter.u_min == -Fnom * 0.5f);
+        static_assert(pll.loop_filter.u_lim.upper(0) == Fnom * 0.5f);
+        static_assert(pll.loop_filter.u_lim.lower(0) == -Fnom * 0.5f);
         static_assert(pll.loop_filter.Kbc == 10.0f); // Kbc = Kp anti-windup constant
         static_assert(pll.frequency() == Fnom);
         static_assert(pll.phase() == 0.0f);
@@ -145,9 +150,50 @@ TEST_SUITE("Single-Phase PLL") {
         CHECK(pll.frequency() == doctest::Approx(Fnom));
         CHECK(pll.phase() == doctest::Approx(0.0f));
     }
+
+    TEST_CASE("SinglePhasePLL locks phase, not just frequency") {
+        const double Ts = 1e-4;
+        for (const double ph0 : {0.0, 1.5, -2.5}) {
+            SinglePhasePLL<double> pll(50.0);
+            double                 th = 0.0;
+            for (int k = 0; k < 20000; ++k) {
+                th = 2.0 * pi * 50.0 * k * Ts + ph0;
+                pll.step(std::cos(th), Ts);
+            }
+            CHECK(std::cos(pll.phase() - th) > 0.99);
+            CHECK(pll.frequency() == doctest::Approx(50.0).epsilon(1e-3));
+        }
+    }
 }
 
 TEST_SUITE("Three-Phase PLL") {
+    TEST_CASE("Default gains lock at any input amplitude (normalized phase detector)") {
+        //! At a 325 V peak the raw q-axis error drove all three PLLs onto the ±50 % frequency rail.
+        constexpr float Ts = 1e-4f;
+        const float     two_pi = 2.0f * std::numbers::pi_v<float>;
+        const float     tp = two_pi / 3.0f;
+        for (const float A : {1.0f, 325.0f}) {
+            ThreePhasePLL<float>  three(50.0f);
+            DsogiPll<float>       dsogi(50.0f);
+            SinglePhasePLL<float> single(50.0f);
+            float                 wt = 0.0f;
+            for (int i = 0; i < 20000; ++i) {
+                const ColVec<3, float> abc = {A * std::cos(wt), A * std::cos(wt - tp), A * std::cos(wt + tp)};
+                three.step(abc, Ts);
+                dsogi.step(clarke_transform(abc), Ts);
+                single.step(abc(0), Ts);
+                wt += two_pi * 50.0f * Ts;
+                if (wt > two_pi) {
+                    wt -= two_pi;
+                }
+            }
+            CHECK(three.frequency() == doctest::Approx(50.0f).epsilon(5e-3f));
+            CHECK(dsogi.frequency() == doctest::Approx(50.0f).epsilon(5e-3f));
+            CHECK(single.frequency() == doctest::Approx(50.0f).epsilon(5e-3f));
+            CHECK(std::cos(three.phase() - wt) > 0.99f);
+        }
+    }
+
     TEST_CASE("Locks frequency and phase on a balanced set") {
         constexpr float Fnom = 50.0f;
         constexpr float Ts = 0.0001f;

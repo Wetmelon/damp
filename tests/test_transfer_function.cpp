@@ -101,7 +101,7 @@ TEST_CASE("TransferFunction multiplication") {
     // Numerator: 1 * 1 = 1
     CHECK(result.num[0] == doctest::Approx(1.0));
 
-    // Denominator: (1,1) * (1,2) = (1, 1+2, 1*2) = (1, 3, 2)
+    // Denominator: (s+1)(s+2) = s² + 3s + 2 → {1, 3, 2}
     CHECK(result.den[0] == doctest::Approx(1.0));
     CHECK(result.den[1] == doctest::Approx(3.0));
     CHECK(result.den[2] == doctest::Approx(2.0));
@@ -116,18 +116,46 @@ TEST_CASE("TransferFunction addition (parallel)") {
 
     TransferFunction<1, 2, double> tf2{
         .num = {1.0},
-        .den = {2.0, 1.0}
+        .den = {1.0, 2.0}
     };
 
     auto result = tf1 + tf2;
 
     CHECK(result.num.size() == 2);
     CHECK(result.den.size() == 3);
-    CHECK(result.num[0] == doctest::Approx(3.0));
-    CHECK(result.num[1] == doctest::Approx(2.0));
-    CHECK(result.den[0] == doctest::Approx(2.0));
+    CHECK(result.num[0] == doctest::Approx(2.0));
+    CHECK(result.num[1] == doctest::Approx(3.0));
+    CHECK(result.den[0] == doctest::Approx(1.0));
     CHECK(result.den[1] == doctest::Approx(3.0));
-    CHECK(result.den[2] == doctest::Approx(1.0));
+    CHECK(result.den[2] == doctest::Approx(2.0));
+}
+
+TEST_CASE("TransferFunction sums of different lengths align on the constant term") {
+    TransferFunction<1, 2, double> g{
+        .num = {1.0},
+        .den = {1.0, 1.0}
+    };
+
+    TransferFunction<1, 1, double> one{
+        .num = {1.0},
+        .den = {1.0}
+    };
+
+    // 1/(s+1) + 1 = (s+2)/(s+1)
+    auto sum = g + one;
+    CHECK(sum.num.size() == 2);
+    CHECK(sum.num[0] == doctest::Approx(1.0));
+    CHECK(sum.num[1] == doctest::Approx(2.0));
+    CHECK(sum.den[0] == doctest::Approx(1.0));
+    CHECK(sum.den[1] == doctest::Approx(1.0));
+
+    // feedback(1/(s+1), 1) = 1/(s+2)
+    auto closed = feedback(g, one);
+    CHECK(closed.num.size() == 1);
+    CHECK(closed.den.size() == 2);
+    CHECK(closed.num[0] == doctest::Approx(1.0));
+    CHECK(closed.den[0] == doctest::Approx(1.0));
+    CHECK(closed.den[1] == doctest::Approx(2.0));
 }
 
 TEST_CASE("TransferFunction subtraction") {
@@ -139,21 +167,30 @@ TEST_CASE("TransferFunction subtraction") {
 
     TransferFunction<1, 2, double> tf2{
         .num = {1.0},
-        .den = {2.0, 1.0}
+        .den = {1.0, 2.0}
     };
 
     auto result = tf1 - tf2;
 
     CHECK(result.num.size() == 2);
     CHECK(result.den.size() == 3);
-    CHECK(result.num[0] == doctest::Approx(1.0));
-    CHECK(result.num[1] == doctest::Approx(0.0));
-    CHECK(result.den[0] == doctest::Approx(2.0));
+    CHECK(result.num[0] == doctest::Approx(0.0));
+    CHECK(result.num[1] == doctest::Approx(1.0));
+    CHECK(result.den[0] == doctest::Approx(1.0));
     CHECK(result.den[1] == doctest::Approx(3.0));
-    CHECK(result.den[2] == doctest::Approx(1.0));
+    CHECK(result.den[2] == doctest::Approx(2.0));
 }
 
-TEST_CASE("TransferFunction feedback and division") {
+namespace {
+template<typename A, typename B>
+concept Divisible = requires(const A& a, const B& b) { a / b; };
+} // namespace
+
+// feedback(G, H) is the one spelling: a `/` would read as MATLAB's right division
+static_assert(!Divisible<TransferFunction<1, 2, double>, TransferFunction<1, 1, double>>);
+static_assert(!Divisible<StateSpace<1, 1, 1, double>, StateSpace<1, 1, 1, double>>);
+
+TEST_CASE("TransferFunction feedback") {
     // G = 10/(s+1), H = 1, closed-loop = G/(1+GH) = 10/(s+11)
     TransferFunction<1, 2, double> g{
         .num = {10.0},
@@ -166,17 +203,12 @@ TEST_CASE("TransferFunction feedback and division") {
     };
 
     auto result_named = feedback(g, h);
-    auto result_op = g / h;
 
     CHECK(result_named.num.size() == 1);
     CHECK(result_named.den.size() == 2);
     CHECK(result_named.num[0] == doctest::Approx(10.0));
-    CHECK(result_named.den[0] == doctest::Approx(11.0));
-    CHECK(result_named.den[1] == doctest::Approx(1.0));
-
-    CHECK(result_op.num[0] == doctest::Approx(result_named.num[0]));
-    CHECK(result_op.den[0] == doctest::Approx(result_named.den[0]));
-    CHECK(result_op.den[1] == doctest::Approx(result_named.den[1]));
+    CHECK(result_named.den[0] == doctest::Approx(1.0));
+    CHECK(result_named.den[1] == doctest::Approx(11.0));
 }
 
 TEST_CASE("ZPK to TransferFunction conversion") {
@@ -209,18 +241,18 @@ TEST_CASE("ZPK with zeros to TransferFunction") {
     CHECK(tf.num.size() == 2);
     CHECK(tf.den.size() == 2);
 
-    // Numerator: gain * (s - zero) = s - 1 → ascending [-1, 1]
-    CHECK(tf.num[0] == doctest::Approx(-1.0));
-    CHECK(tf.num[1] == doctest::Approx(1.0));
+    // Numerator: gain * (s - zero) = s - 1 → {1, -1}
+    CHECK(tf.num[0] == doctest::Approx(1.0));
+    CHECK(tf.num[1] == doctest::Approx(-1.0));
 
-    // Denominator: (s - pole) = s + 1 → ascending [1, 1]
+    // Denominator: (s - pole) = s + 1 → {1, 1}
     CHECK(tf.den[0] == doctest::Approx(1.0));
     CHECK(tf.den[1] == doctest::Approx(1.0));
 }
 
 TEST_CASE("ZPK complex conjugate poles to TransferFunction") {
     // Underdamped 2nd order: ωn=2, ζ=0.5 → poles at -1 ± j√3
-    // den = (s+1)² + 3 = s² + 2s + 4 → ascending [4, 2, 1]
+    // den = (s+1)² + 3 = s² + 2s + 4 → {1, 2, 4}
     const double wn = 2.0;
     const double zeta = 0.5;
     const double sigma = -zeta * wn;
@@ -236,15 +268,15 @@ TEST_CASE("ZPK complex conjugate poles to TransferFunction") {
     CHECK(tf.num.size() == 1);
     CHECK(tf.den.size() == 3);
     CHECK(tf.num[0] == doctest::Approx(4.0));
-    CHECK(tf.den[0] == doctest::Approx(4.0));
+    CHECK(tf.den[0] == doctest::Approx(1.0));
     CHECK(tf.den[1] == doctest::Approx(2.0));
-    CHECK(tf.den[2] == doctest::Approx(1.0));
+    CHECK(tf.den[2] == doctest::Approx(4.0));
 }
 
 TEST_CASE("Biproper TransferFunction to StateSpace") {
     // G(s) = (s+2)/(s+1) — biproper, D=1, reduced C from (num - D den)
     TransferFunction<2, 2, double> tf{
-        .num = {2.0, 1.0},
+        .num = {1.0, 2.0},
         .den = {1.0, 1.0}
     };
 
@@ -252,7 +284,7 @@ TEST_CASE("Biproper TransferFunction to StateSpace") {
 
     CHECK(ss.A(0, 0) == doctest::Approx(-1.0));
     CHECK(ss.B(0, 0) == doctest::Approx(1.0));
-    // C = (num[0] - D*den[0]) / den[1] = (2 - 1*1)/1 = 1
+    // D = num[0]/den[0] = 1; C = (num[1] - D*den[1]) / den[0] = (2 - 1*1)/1 = 1
     CHECK(ss.C(0, 0) == doctest::Approx(1.0));
     CHECK(ss.D(0, 0) == doctest::Approx(1.0));
 
@@ -305,7 +337,7 @@ TEST_CASE("TransferFunction constexpr compilation") {
 }
 
 TEST_CASE("TransferFunction to_state_space rejects zero leading den") {
-    TransferFunction<1, 2, double> bad{.num = {1.0}, .den = {1.0, 0.0}};
+    TransferFunction<1, 2, double> bad{.num = {1.0}, .den = {0.0, 1.0}};
     CHECK_FALSE(bad.to_state_space().has_value());
 }
 
@@ -317,4 +349,16 @@ TEST_CASE("TransferFunction CTAD accepts direct braced lists") {
     CHECK(tf.num[0] == doctest::Approx(1.0));
     CHECK(tf.den[0] == doctest::Approx(1.0));
     CHECK(tf.den[1] == doctest::Approx(1.0));
+}
+
+TEST_CASE("TF realization accepts a uniformly scaled polynomial") {
+    // 1e-13/(1e-13 s + 1e-13) = 1/(s + 1)
+    const TransferFunction<1, 2> tf{.num = {1e-13}, .den = {1e-13, 1e-13}};
+    const auto                   ss = tf.to_state_space();
+    REQUIRE(ss.has_value());
+    CHECK(ss->A(0, 0) == doctest::Approx(-1.0));
+    CHECK((ss->C(0, 0) * ss->B(0, 0)) == doctest::Approx(1.0));
+    const auto z = to_zpk(tf);
+    REQUIRE(z.success);
+    CHECK(z.zpk.gain == doctest::Approx(1.0));
 }

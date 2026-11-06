@@ -5,7 +5,9 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
+#include "damp/matrix/colvec.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "damp/simulation/integrator.hpp"
 
@@ -13,6 +15,7 @@
 #include "doctest.h"
 
 using namespace damp;
+using namespace damp::sim;
 
 // Exercises the fixed-step integrators in damp::sim, with emphasis on the
 // implicit LTI paths (BackwardEuler / BDF2 / Trapezoidal), which solve
@@ -457,5 +460,46 @@ TEST_SUITE("integrator") {
         // 10 Forward-Euler steps of h = 0.1: x = (1 - 0.1)^10 = 0.9^10.
         static_assert(y > 0.34 && y < 0.36, "ForwardEuler must work at compile time");
         CHECK(y == doctest::Approx(std::pow(0.9, 10)));
+    }
+
+    TEST_CASE("BackwardEuler nonlinear step is invariant to the state's units") {
+        // ẋ = −λx, hλ = 0.5: implicit Euler gives x/(1 + hλ) whatever the scale of x.
+        const auto       f = [](double, const ColVec<1>& x) { return ColVec<1>{-x(0)}; };
+        BackwardEuler<1> be;
+        for (double scale : {1.0, 1e-12, 1e12}) {
+            const auto r = be.evolve(f, ColVec<1>{scale}, 0.0, 0.5);
+            CHECK(r.x(0) / scale == doctest::Approx(1.0 / 1.5).epsilon(1e-9));
+        }
+    }
+
+    TEST_CASE("Trapezoidal nonlinear overload agrees with the LTI overload") {
+        const auto         f = [](double, const ColVec<1>& x) { return ColVec<1>{-x(0)}; };
+        Trapezoidal<1>     tr;
+        const auto         nl = tr.evolve(f, ColVec<1>{1.0}, 0.0, 0.5);
+        const Matrix<1, 1> A{{-1.0}};
+        const Matrix<1, 1> B{{0.0}};
+        const auto         lti = tr.evolve(A, B, ColVec<1>{1.0}, ColVec<1>{0.0}, 0.5);
+        CHECK(lti.x(0) == doctest::Approx(0.75 / 1.25));
+        CHECK(nl.x(0) == doctest::Approx(lti.x(0)).epsilon(1e-12));
+    }
+
+    TEST_CASE("implicit steps report a failed solve instead of returning garbage") {
+        // f = −1000x at h = 0.01: the fixed-point stages diverge (h·Lip = 10); they once returned
+        // NaN or unconverged iterates with success.
+        const auto      stiff = [](double, const ColVec<1>& x) { return ColVec<1>{-1000.0 * x(0)}; };
+        const ColVec<1> x0{1.0};
+        CHECK_FALSE(BackwardEuler<1>{}.evolve(stiff, x0, 0.0, 0.01).success);
+        CHECK_FALSE(Trapezoidal<1>{}.evolve(stiff, x0, 0.0, 0.01).success);
+        CHECK_FALSE(TRBDF2<1>{}.evolve(stiff, x0, 0.0, 0.01).success);
+        CHECK_FALSE(BDF2<1>{}.evolve(stiff, x0, 0.0, 0.01).success);
+        CHECK(BackwardEuler<1>{}.evolve(stiff, x0, 0.0, 0.01).x(0) == doctest::Approx(1.0)); // the start state
+        // I − hA singular: A = 10, h = 0.1 for Backward Euler (the optional was dereferenced).
+        const Matrix<1, 1> A{{10.0}};
+        const Matrix<1, 1> B{{0.0}};
+        CHECK_FALSE(BackwardEuler<1>{}.evolve(A, B, x0, ColVec<1>{0.0}, 0.1).success);
+        CHECK_FALSE(Trapezoidal<1>{}.evolve(A, B, x0, ColVec<1>{0.0}, 0.2).success);
+        // A non-finite A: the exponential fails, success false (no NaN sentinel).
+        const Matrix<1, 1> A_nan{{std::numeric_limits<double>::quiet_NaN()}};
+        CHECK_FALSE(Exact<1>{}.evolve(A_nan, B, x0, ColVec<1>{0.0}, 0.1).success);
     }
 }

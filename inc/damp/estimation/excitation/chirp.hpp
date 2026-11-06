@@ -10,6 +10,7 @@
  * @brief Chirp excitation — design payload and runtime generator
  */
 
+#include <cstddef>
 #include <cstdint>
 #include <type_traits>
 
@@ -83,6 +84,10 @@ template<typename T = double>
 struct ChirpResult {
     ChirpConfig<T> config{};       ///< Validated chirp configuration
     bool           success{false}; ///< true if `config.valid()`
+    T              Ts{0};          ///< [s] Sample period of the internal step() clock (0 = absolute-time step(t) only)
+
+    /** @brief True when the design succeeded (success). */
+    [[nodiscard]] constexpr explicit operator bool() const { return success; }
 
     /**
      * @brief Convert design payload to another scalar type.
@@ -100,6 +105,7 @@ struct ChirpResult {
                 config.mode,
             },
             success,
+            static_cast<U>(Ts),
         };
     }
 };
@@ -108,12 +114,15 @@ struct ChirpResult {
  * @brief Build a chirp design payload from a configuration.
  *
  * @param config Chirp configuration.
- * @return ChirpResult with `success = config.valid()`.
+ * @param Ts     [s] Sample period of the runtime's step() clock (0 = absolute-time step(t) only; < 0 refused)
+ * @return ChirpResult with `success` = `config.valid()`, a valid Ts, and (for Ts > 0) both
+ *         sweep ends below the Nyquist frequency 1/(2·Ts).
  */
 template<typename T = double>
 [[nodiscard]] constexpr ChirpResult<T>
-chirp(const ChirpConfig<T>& config) {
-    return ChirpResult<T>{config, config.valid()};
+chirp(const ChirpConfig<T>& config, T Ts = T{0}) {
+    const bool below_nyquist = (T{2} * config.f_start_hz * Ts < T{1}) && (T{2} * config.f_end_hz * Ts < T{1});
+    return ChirpResult<T>{config, config.valid() && (Ts >= T{0}) && damp::isfinite(Ts) && below_nyquist, Ts};
 }
 
 } // namespace design
@@ -133,14 +142,18 @@ class Chirp {
 public:
     constexpr Chirp() = default;
 
+    /** @brief From a design result in another scalar: converts it with .as\<T\>() and builds from that. */
+    template<typename U>
+        requires(!std::is_same_v<U, T>)
+    constexpr Chirp(const design::ChirpResult<U>& result) // NOLINT(google-explicit-constructor): assign-from-design
+        : Chirp(result.template as<T>()) {}
+
     /**
      * @brief Construct from a chirp design payload.
      * @param design Validated design payload.
-     * @param Ts     Optional sample period for `step()` mode. If `Ts <= 0`,
-     *               `step()` evaluates at a fixed internal time.
      */
-    constexpr explicit Chirp(const design::ChirpResult<T>& design, T Ts = T{0})
-        : config_(design.config), Ts_(Ts), valid_(design.success) {
+    constexpr Chirp(const design::ChirpResult<T>& design) // NOLINT(google-explicit-constructor): assign-from-design
+        : config_(design.config), Ts_(design.Ts), valid_(design.success) {
         if (!design.success && std::is_constant_evaluated()) {
             ::damp::detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
@@ -149,14 +162,14 @@ public:
     /**
      * @brief Evaluate chirp at absolute time.
      * @param t Time in seconds.
-     * @return Excitation value at clamped time `t in [0, duration]`.
+     * @return Excitation value at `t` (a negative t evaluates at 0), or 0 once `t >= duration_s`.
      */
     [[nodiscard]] constexpr T step(T t) const {
-        if (!valid_) {
+        if (!valid_ || done(t)) {
             return T{0};
         }
 
-        const T tc = clamp_time(t);
+        const T tc = damp::max(t, T{0});
         const T phase = (config_.mode == design::ChirpMode::Linear)
                           ? linear_phase(tc)
                           : log_phase(tc);
@@ -168,9 +181,9 @@ public:
      * @return Excitation value at current internal time.
      */
     [[nodiscard]] constexpr T step() {
-        const T out = step(t_);
+        const T out = step(time());
         if (Ts_ > T{0} && !done()) {
-            t_ += Ts_;
+            ++k_;
         }
         return out;
     }
@@ -192,33 +205,25 @@ public:
      * @return true if internal time has elapsed.
      */
     [[nodiscard]] constexpr bool done() const {
-        return done(t_);
+        return done(time());
     }
 
     /**
      * @brief Reset internal time to zero.
      */
     constexpr void reset() {
-        t_ = T{0};
+        k_ = 0;
     }
 
     /**
      * @brief Read current internal time.
-     * @return Internal time in seconds.
+     * @return Internal time in seconds, k·Ts after k samples (a count, not a running sum of Ts).
      */
     [[nodiscard]] constexpr T time() const {
-        return t_;
+        return static_cast<T>(k_) * Ts_;
     }
 
 private:
-    [[nodiscard]] constexpr T clamp_time(T t) const {
-        const T non_negative = damp::max(t, T{0});
-        if (non_negative > config_.duration_s) {
-            return config_.duration_s;
-        }
-        return non_negative;
-    }
-
     [[nodiscard]] constexpr T linear_phase(T t) const {
         const T k = (config_.f_end_hz - config_.f_start_hz) / config_.duration_s;
         const T phase_cycles = (config_.f_start_hz * t) + (static_cast<T>(0.5) * k * t * t);
@@ -240,9 +245,13 @@ private:
 
     design::ChirpConfig<T> config_{};
 
-    T    Ts_{T{0}};
-    T    t_{T{0}};
-    bool valid_{false};
+    T           Ts_{T{0}};
+    std::size_t k_{0}; ///< Samples emitted by step()
+    bool        valid_{false};
 };
+
+/** @brief Deduce the runtime from its design, keeping the result's scalar. */
+template<typename T>
+Chirp(const design::ChirpResult<T>&) -> Chirp<T>;
 
 } // namespace damp

@@ -18,28 +18,6 @@
 
 namespace damp {
 
-namespace detail {
-/// Helper for views: returns mutable or const reference depending on IsConst
-template<bool IsConst, typename T>
-[[nodiscard]] constexpr auto& view_element(const T* data, size_t idx) {
-    if constexpr (IsConst) {
-        return static_cast<const T&>(data[idx]);
-    } else {
-        return const_cast<T&>(data[idx]);
-    }
-}
-
-/// Helper for views: returns mutable or const pointer depending on IsConst
-template<bool IsConst, typename T>
-[[nodiscard]] constexpr auto* view_data(const T* data) {
-    if constexpr (IsConst) {
-        return static_cast<const T*>(data);
-    } else {
-        return const_cast<T*>(data);
-    }
-}
-} // namespace detail
-
 /**
  * @brief Diagonal view of a square matrix
  * @ingroup linear_algebra
@@ -52,45 +30,65 @@ template<bool IsConst, typename T>
 template<size_t N, typename T>
 struct Diagonal {
 private:
-    const Matrix<N, N, std::remove_const_t<T>>* mat_ptr;
-    static constexpr bool                       is_const = std::is_const_v<T>;
+    using Parent = std::conditional_t<std::is_const_v<T>, const Matrix<N, N, std::remove_const_t<T>>, Matrix<N, N, std::remove_const_t<T>>>; ///< const T: a read-only view
+    Parent*               mat_ptr{};
+    static constexpr bool is_const = std::is_const_v<T>;
 
 public:
     using value_type = std::remove_const_t<T>;
 
-    constexpr explicit Diagonal(const Matrix<N, N, std::remove_const_t<T>>& mat) : mat_ptr(&mat) {}
+    constexpr explicit Diagonal(Parent& mat) : mat_ptr(&mat) {}
+
+    constexpr Diagonal(const Diagonal&) = default;
+    constexpr Diagonal(Diagonal&&) noexcept = default;
+    constexpr ~Diagonal() = default;
+
+    /** @brief Copies the other diagonal's elements into this one (writes through; never rebinds). */
+    constexpr Diagonal& operator=(const Diagonal& other) {
+        static_assert(!is_const, "a const view is read-only");
+        if (this == &other) {
+            return *this;
+        }
+        for (size_t i = 0; i < N; ++i) {
+            (*this)(i) = other(i);
+        }
+        return *this;
+    }
+
+    /** @brief Writes through, as the copy assignment does. */
+    constexpr Diagonal& operator=(Diagonal&& other) noexcept {
+        *this = static_cast<const Diagonal&>(other);
+        return *this;
+    }
 
     [[nodiscard]] static constexpr size_t rows() { return N; }
     [[nodiscard]] static constexpr size_t cols() { return N; }
 
     [[nodiscard]] constexpr auto& operator()(size_t i) {
-        return detail::view_element<is_const>(mat_ptr->data(), i * N + i);
+        return mat_ptr->data()[(i * N) + i];
     }
 
-    [[nodiscard]] constexpr auto& operator()(size_t i) const {
-        return static_cast<const T&>(mat_ptr->data()[i * N + i]);
+    [[nodiscard]] constexpr const value_type& operator()(size_t i) const {
+        return mat_ptr->data()[(i * N) + i];
     }
 
-    /// Two-arg access for MatrixLike compliance; returns the element at (r,c)
-    /// Off-diagonal elements return zero
+    /**
+     * @brief Two-arg access for MatrixLike compliance; returns the element at (r,c)
+     * Off-diagonal elements return zero
+     */
     [[nodiscard]] constexpr value_type operator()(size_t r, size_t c) const {
         if (r == c) {
-            return static_cast<value_type>(mat_ptr->data()[r * N + r]);
+            return static_cast<value_type>(mat_ptr->data()[(r * N) + r]);
         }
         return value_type{};
     }
-
-    [[nodiscard]] constexpr auto* data() {
-        return detail::view_data<is_const>(mat_ptr->data());
-    }
-    [[nodiscard]] constexpr const T* data() const { return mat_ptr->data(); }
 
     [[nodiscard]] constexpr const value_type* storage_first() const { return mat_ptr->data(); }
     [[nodiscard]] constexpr const value_type* storage_last() const {
         if constexpr (N == 0) {
             return mat_ptr->data();
         }
-        return mat_ptr->data() + (N * N - 1);
+        return mat_ptr->data() + ((N * N) - 1);
     }
     [[nodiscard]] static constexpr size_t size() { return N; }
     // Convert to ColVec
@@ -104,7 +102,7 @@ public:
 
     // Assignment from any MatrixLike with cols()==1 (column vector shape)
     template<MatrixLike M>
-        requires(M::rows() == N && M::cols() == 1)
+        requires(M::rows() == N && M::cols() == 1 && ConvertsExactly<typename M::value_type, std::remove_const_t<T>>)
     constexpr Diagonal& operator=(const M& vec) {
         for (size_t i = 0; i < N; ++i) {
             (*this)(i) = static_cast<std::remove_const_t<T>>(vec(i, 0));
@@ -125,15 +123,21 @@ public:
 template<size_t N, typename T>
 struct UpperTriangle {
 private:
-    const Matrix<N, N, std::remove_const_t<T>>* mat_ptr;
+    const Matrix<N, N, std::remove_const_t<T>>* mat_ptr{};
 
 public:
     using value_type = std::remove_const_t<T>;
 
     constexpr explicit UpperTriangle(const Matrix<N, N, std::remove_const_t<T>>& mat) : mat_ptr(&mat) {}
 
+    constexpr UpperTriangle(const UpperTriangle&) = default;
+    constexpr UpperTriangle(UpperTriangle&&) noexcept = default;
+    UpperTriangle& operator=(const UpperTriangle&) = delete; ///< Read-only view: neither rebinds nor writes through
+    UpperTriangle& operator=(UpperTriangle&&) = delete;      ///< Read-only view: neither rebinds nor writes through
+    constexpr ~UpperTriangle() = default;
+
     [[nodiscard]] constexpr value_type operator()(size_t r, size_t c) const {
-        return r <= c ? mat_ptr->data()[r * N + c] : value_type{0};
+        return r <= c ? mat_ptr->data()[(r * N) + c] : value_type{0};
     }
 
     [[nodiscard]] static constexpr size_t rows() { return N; }
@@ -144,7 +148,7 @@ public:
         if constexpr (N == 0) {
             return mat_ptr->data();
         }
-        return mat_ptr->data() + (N * N - 1);
+        return mat_ptr->data() + ((N * N) - 1);
     }
 };
 
@@ -160,15 +164,21 @@ public:
 template<size_t N, typename T>
 struct LowerTriangle {
 private:
-    const Matrix<N, N, std::remove_const_t<T>>* mat_ptr;
+    const Matrix<N, N, std::remove_const_t<T>>* mat_ptr{};
 
 public:
     using value_type = std::remove_const_t<T>;
 
     constexpr explicit LowerTriangle(const Matrix<N, N, std::remove_const_t<T>>& mat) : mat_ptr(&mat) {}
 
+    constexpr LowerTriangle(const LowerTriangle&) = default;
+    constexpr LowerTriangle(LowerTriangle&&) noexcept = default;
+    LowerTriangle& operator=(const LowerTriangle&) = delete; ///< Read-only view: neither rebinds nor writes through
+    LowerTriangle& operator=(LowerTriangle&&) = delete;      ///< Read-only view: neither rebinds nor writes through
+    constexpr ~LowerTriangle() = default;
+
     [[nodiscard]] constexpr value_type operator()(size_t r, size_t c) const {
-        return r >= c ? mat_ptr->data()[r * N + c] : value_type{0};
+        return r >= c ? mat_ptr->data()[(r * N) + c] : value_type{0};
     }
 
     [[nodiscard]] static constexpr size_t rows() { return N; }
@@ -179,7 +189,7 @@ public:
         if constexpr (N == 0) {
             return mat_ptr->data();
         }
-        return mat_ptr->data() + (N * N - 1);
+        return mat_ptr->data() + ((N * N) - 1);
     }
 };
 
@@ -192,22 +202,43 @@ public:
 template<size_t Rows, size_t Cols, typename T>
 struct RowView {
 private:
-    const Matrix<Rows, Cols, std::remove_const_t<T>>* mat_ptr;
-    size_t const                                      row_index;
-    static constexpr bool                             is_const = std::is_const_v<T>;
+    using Parent = std::conditional_t<std::is_const_v<T>, const Matrix<Rows, Cols, std::remove_const_t<T>>, Matrix<Rows, Cols, std::remove_const_t<T>>>; ///< const T: a read-only view
+    Parent*               mat_ptr{};
+    size_t                row_index{};
+    static constexpr bool is_const = std::is_const_v<T>;
 
 public:
     using value_type = std::remove_const_t<T>;
 
-    constexpr explicit RowView(const Matrix<Rows, Cols, std::remove_const_t<T>>& mat, size_t row_idx)
+    constexpr explicit RowView(Parent& mat, size_t row_idx)
         : mat_ptr(&mat), row_index(row_idx) {}
 
-    [[nodiscard]] constexpr auto& operator()(size_t c) {
-        return detail::view_element<is_const>(mat_ptr->data(), row_index * Cols + c);
+    constexpr RowView(const RowView&) = default;
+    constexpr RowView(RowView&&) noexcept = default;
+    constexpr ~RowView() = default;
+
+    /** @brief Copies the other row's elements into this one (writes through; never rebinds). */
+    constexpr RowView& operator=(const RowView& other) {
+        static_assert(!is_const, "a const view is read-only");
+        if (this == &other) {
+            return *this;
+        }
+        this->template operator= <RowView>(other);
+        return *this;
     }
 
-    [[nodiscard]] constexpr auto& operator()(size_t c) const {
-        return static_cast<const T&>(mat_ptr->data()[row_index * Cols + c]);
+    /** @brief Writes through, as the copy assignment does. */
+    constexpr RowView& operator=(RowView&& other) noexcept {
+        *this = static_cast<const RowView&>(other);
+        return *this;
+    }
+
+    [[nodiscard]] constexpr auto& operator()(size_t c) {
+        return mat_ptr->data()[(row_index * Cols) + c];
+    }
+
+    [[nodiscard]] constexpr const value_type& operator()(size_t c) const {
+        return mat_ptr->data()[(row_index * Cols) + c];
     }
 
     [[nodiscard]] constexpr auto& operator[](size_t c) { return (*this)(c); }
@@ -221,10 +252,10 @@ public:
         return operator()(c);
     }
 
-    [[nodiscard]] constexpr auto*    data() { return detail::view_data<is_const>(mat_ptr->data() + row_index * Cols); }
-    [[nodiscard]] constexpr const T* data() const { return mat_ptr->data() + row_index * Cols; }
+    [[nodiscard]] constexpr auto*    data() { return mat_ptr->data() + (row_index * Cols); }
+    [[nodiscard]] constexpr const T* data() const { return mat_ptr->data() + (row_index * Cols); }
 
-    [[nodiscard]] constexpr const value_type* storage_first() const { return mat_ptr->data() + row_index * Cols; }
+    [[nodiscard]] constexpr const value_type* storage_first() const { return mat_ptr->data() + (row_index * Cols); }
     [[nodiscard]] constexpr const value_type* storage_last() const {
         if constexpr (Cols == 0) {
             return storage_first();
@@ -235,7 +266,7 @@ public:
     [[nodiscard]] static constexpr size_t rows() { return 1; }
     [[nodiscard]] static constexpr size_t cols() { return Cols; }
 
-    /// Owning @c RowVec copy of this row
+    /** @brief Owning @c RowVec copy of this row */
     [[nodiscard]] constexpr RowVec<Cols, value_type> to_vector() const {
         RowVec<Cols, value_type> result;
         for (size_t i = 0; i < Cols; ++i) {
@@ -244,7 +275,7 @@ public:
         return result;
     }
 
-    /// Owning column of the same length (for matvec that want N×1)
+    /** @brief Owning column of the same length (for matvec that want N×1) */
     [[nodiscard]] constexpr ColVec<Cols, value_type> to_col_vector() const {
         ColVec<Cols, value_type> result;
         for (size_t i = 0; i < Cols; ++i) {
@@ -253,7 +284,7 @@ public:
         return result;
     }
 
-    /// Owning 1×Cols matrix copy
+    /** @brief Owning 1×Cols matrix copy */
     [[nodiscard]] constexpr Matrix<1, Cols, value_type> to_matrix() const {
         Matrix<1, Cols, value_type> result;
         for (size_t i = 0; i < Cols; ++i) {
@@ -262,12 +293,13 @@ public:
         return result;
     }
 
-    /// Assign from a 1×Cols row-shaped @c MatrixLike
+    /** @brief Assign from a 1×Cols row-shaped @c MatrixLike */
     template<MatrixLike M>
-        requires(M::rows() == 1 && M::cols() == Cols)
+        requires(M::rows() == 1 && M::cols() == Cols && ConvertsExactly<typename M::value_type, value_type>)
     constexpr RowView& operator=(const M& vec) {
         if (detail::may_alias(storage_first(), storage_last(), vec)) {
-            return *this = Matrix<1, Cols, value_type>(vec);
+            *this = Matrix<1, Cols, value_type>(vec);
+            return *this;
         }
         for (size_t i = 0; i < Cols; ++i) {
             (*this)(i) = static_cast<value_type>(vec(0, i));
@@ -275,12 +307,13 @@ public:
         return *this;
     }
 
-    /// Assign from a Cols×1 column-shaped @c MatrixLike (layout transfer into this row)
+    /** @brief Assign from a Cols×1 column-shaped @c MatrixLike (layout transfer into this row) */
     template<MatrixLike M>
-        requires(M::rows() == Cols && M::cols() == 1 && !(M::rows() == 1 && M::cols() == Cols))
+        requires(M::rows() == Cols && M::cols() == 1 && !(M::rows() == 1 && M::cols() == Cols) && ConvertsExactly<typename M::value_type, value_type>)
     constexpr RowView& operator=(const M& col) {
         if (detail::may_alias(storage_first(), storage_last(), col)) {
-            return *this = Matrix<Cols, 1, value_type>(col); // e.g. A.row(2) = A.col(0)
+            *this = Matrix<Cols, 1, value_type>(col); // e.g. A.row(2) = A.col(0)
+            return *this;
         }
         for (size_t i = 0; i < Cols; ++i) {
             (*this)(i) = static_cast<value_type>(col(i, 0));
@@ -298,22 +331,43 @@ public:
 template<size_t Rows, size_t Cols, typename T>
 struct ColView {
 private:
-    const Matrix<Rows, Cols, std::remove_const_t<T>>* mat_ptr;
-    size_t const                                      col_index;
-    static constexpr bool                             is_const = std::is_const_v<T>;
+    using Parent = std::conditional_t<std::is_const_v<T>, const Matrix<Rows, Cols, std::remove_const_t<T>>, Matrix<Rows, Cols, std::remove_const_t<T>>>; ///< const T: a read-only view
+    Parent*               mat_ptr{};
+    size_t                col_index{};
+    static constexpr bool is_const = std::is_const_v<T>;
 
 public:
     using value_type = std::remove_const_t<T>;
 
-    constexpr explicit ColView(const Matrix<Rows, Cols, std::remove_const_t<T>>& mat, size_t col_idx)
+    constexpr explicit ColView(Parent& mat, size_t col_idx)
         : mat_ptr(&mat), col_index(col_idx) {}
 
-    [[nodiscard]] constexpr auto& operator()(size_t r) {
-        return detail::view_element<is_const>(mat_ptr->data(), r * Cols + col_index);
+    constexpr ColView(const ColView&) = default;
+    constexpr ColView(ColView&&) noexcept = default;
+    constexpr ~ColView() = default;
+
+    /** @brief Copies the other column's elements into this one (writes through; never rebinds). */
+    constexpr ColView& operator=(const ColView& other) {
+        static_assert(!is_const, "a const view is read-only");
+        if (this == &other) {
+            return *this;
+        }
+        this->template operator= <ColView>(other);
+        return *this;
     }
 
-    [[nodiscard]] constexpr auto& operator()(size_t r) const {
-        return static_cast<const T&>(mat_ptr->data()[r * Cols + col_index]);
+    /** @brief Writes through, as the copy assignment does. */
+    constexpr ColView& operator=(ColView&& other) noexcept {
+        *this = static_cast<const ColView&>(other);
+        return *this;
+    }
+
+    [[nodiscard]] constexpr auto& operator()(size_t r) {
+        return mat_ptr->data()[(r * Cols) + col_index];
+    }
+
+    [[nodiscard]] constexpr const value_type& operator()(size_t r) const {
+        return mat_ptr->data()[(r * Cols) + col_index];
     }
 
     [[nodiscard]] constexpr auto& operator[](size_t r) { return (*this)(r); }
@@ -339,7 +393,7 @@ public:
         return mat_ptr->data() + ((Rows - 1) * Cols) + col_index;
     }
 
-    /// Owning @c ColVec copy of this column
+    /** @brief Owning @c ColVec copy of this column */
     [[nodiscard]] constexpr ColVec<Rows, value_type> to_vector() const {
         ColVec<Rows, value_type> result;
         for (size_t i = 0; i < Rows; ++i) {
@@ -348,7 +402,7 @@ public:
         return result;
     }
 
-    /// Owning Rows×1 matrix copy
+    /** @brief Owning Rows×1 matrix copy */
     [[nodiscard]] constexpr Matrix<Rows, 1, value_type> to_matrix() const {
         Matrix<Rows, 1, value_type> result;
         for (size_t i = 0; i < Rows; ++i) {
@@ -357,12 +411,13 @@ public:
         return result;
     }
 
-    /// Assign from a Rows×1 column-shaped @c MatrixLike
+    /** @brief Assign from a Rows×1 column-shaped @c MatrixLike */
     template<MatrixLike M>
-        requires(M::rows() == Rows && M::cols() == 1)
+        requires(M::rows() == Rows && M::cols() == 1 && ConvertsExactly<typename M::value_type, value_type>)
     constexpr ColView& operator=(const M& vec) {
         if (detail::may_alias(storage_first(), storage_last(), vec)) {
-            return *this = Matrix<Rows, 1, value_type>(vec);
+            *this = Matrix<Rows, 1, value_type>(vec);
+            return *this;
         }
         for (size_t i = 0; i < Rows; ++i) {
             (*this)(i) = static_cast<value_type>(vec(i, 0));
@@ -370,12 +425,13 @@ public:
         return *this;
     }
 
-    /// Assign from a 1×Rows row-shaped @c MatrixLike (layout transfer into this column)
+    /** @brief Assign from a 1×Rows row-shaped @c MatrixLike (layout transfer into this column) */
     template<MatrixLike M>
-        requires(M::rows() == 1 && M::cols() == Rows && !(M::rows() == Rows && M::cols() == 1))
+        requires(M::rows() == 1 && M::cols() == Rows && !(M::rows() == Rows && M::cols() == 1) && ConvertsExactly<typename M::value_type, value_type>)
     constexpr ColView& operator=(const M& row) {
         if (detail::may_alias(storage_first(), storage_last(), row)) {
-            return *this = Matrix<1, Rows, value_type>(row); // e.g. A.col(2) = A.row(0)
+            *this = Matrix<1, Rows, value_type>(row); // e.g. A.col(2) = A.row(0)
+            return *this;
         }
         for (size_t i = 0; i < Rows; ++i) {
             (*this)(i) = static_cast<value_type>(row(0, i));
@@ -399,28 +455,49 @@ public:
 template<size_t Rows, size_t Cols, typename T>
 struct TransposeView {
 private:
-    const Matrix<Rows, Cols, std::remove_const_t<T>>* mat_ptr;
-    static constexpr bool                             is_const = std::is_const_v<T>;
+    using Parent = std::conditional_t<std::is_const_v<T>, const Matrix<Rows, Cols, std::remove_const_t<T>>, Matrix<Rows, Cols, std::remove_const_t<T>>>; ///< const T: a read-only view
+    Parent*               mat_ptr{};
+    static constexpr bool is_const = std::is_const_v<T>;
 
 public:
     using value_type = std::remove_const_t<T>;
 
-    constexpr explicit TransposeView(const Matrix<Rows, Cols, std::remove_const_t<T>>& mat) : mat_ptr(&mat) {}
+    constexpr explicit TransposeView(Parent& mat) : mat_ptr(&mat) {}
 
-    /// Transposed dimensions: parent Rows×Cols becomes Cols×Rows
+    constexpr TransposeView(const TransposeView&) = default;
+    constexpr TransposeView(TransposeView&&) noexcept = default;
+    constexpr ~TransposeView() = default;
+
+    /** @brief Copies the other transpose's elements into this one (writes through; never rebinds). */
+    constexpr TransposeView& operator=(const TransposeView& other) {
+        static_assert(!is_const, "a const view is read-only");
+        if (this == &other) {
+            return *this;
+        }
+        this->template operator= <TransposeView>(other);
+        return *this;
+    }
+
+    /** @brief Writes through, as the copy assignment does. */
+    constexpr TransposeView& operator=(TransposeView&& other) noexcept {
+        *this = static_cast<const TransposeView&>(other);
+        return *this;
+    }
+
+    /** @brief Transposed dimensions: parent Rows×Cols becomes Cols×Rows */
     [[nodiscard]] static constexpr size_t rows() { return Cols; }
     [[nodiscard]] static constexpr size_t cols() { return Rows; }
 
-    /// Access element (r, c) of the transposed view → parent element (c, r)
+    /** @brief Access element (r, c) of the transposed view → parent element (c, r) */
     [[nodiscard]] constexpr auto& operator()(size_t r, size_t c) {
-        return detail::view_element<is_const>(mat_ptr->data(), c * Cols + r);
+        return mat_ptr->data()[(c * Cols) + r];
     }
 
-    [[nodiscard]] constexpr auto& operator()(size_t r, size_t c) const {
-        return static_cast<const T&>(mat_ptr->data()[c * Cols + r]);
+    [[nodiscard]] constexpr const value_type& operator()(size_t r, size_t c) const {
+        return mat_ptr->data()[(c * Cols) + r];
     }
 
-    /// Convert to owning transposed Matrix
+    /** @brief Convert to owning transposed Matrix */
     [[nodiscard]] constexpr Matrix<Cols, Rows, value_type> to_matrix() const {
         Matrix<Cols, Rows, value_type> result;
         for (size_t r = 0; r < Cols; ++r) {
@@ -436,12 +513,12 @@ public:
         if constexpr (Rows == 0 || Cols == 0) {
             return mat_ptr->data();
         }
-        return mat_ptr->data() + (Rows * Cols - 1);
+        return mat_ptr->data() + ((Rows * Cols) - 1);
     }
 
-    /// Assignment from any MatrixLike with transposed dimensions
+    /** @brief Assignment from any MatrixLike with transposed dimensions */
     template<MatrixLike M>
-        requires(M::rows() == Cols && M::cols() == Rows)
+        requires(M::rows() == Cols && M::cols() == Rows && ConvertsExactly<typename M::value_type, value_type>)
     constexpr TransposeView& operator=(const M& mat) {
         if constexpr (Rows == 0 || Cols == 0) {
             return *this;

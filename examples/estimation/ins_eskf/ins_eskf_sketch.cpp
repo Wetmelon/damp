@@ -43,7 +43,7 @@ void loop() {
     nav.predict(imu, static_cast<float>(kTs));
     // Sparse absolute aids on target (GPS / dual-antenna) — mock hold
     (void)nav.update_position(nav.state().p);
-    const Matrix<1, 1, float> R_psi{{static_cast<float>(kHeadingStd * kHeadingStd)}};
+    const float R_psi = static_cast<float>(kHeadingStd * kHeadingStd);
     (void)nav.update_heading(nav.heading(), R_psi);
     (void)nav.state();
     delay(static_cast<int>(kTs * 1000.0));

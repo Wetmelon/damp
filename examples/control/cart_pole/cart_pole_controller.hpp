@@ -22,6 +22,7 @@
 
 #include "damp/controllers/lqr.hpp"
 #include "damp/matrix/colvec.hpp"
+#include "damp/matrix/concat.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "damp/systems/state_space.hpp"
 
@@ -67,17 +68,12 @@ inline constexpr double Ts = 0.01;    // 100 Hz control
 
 inline constexpr auto sys = linearize_upright();
 
-inline constexpr auto Q = Matrix<4, 4>{
-    {10.0, 0.0, 0.0, 0.0},
-    {0.0, 0.1, 0.0, 0.0},
-    {0.0, 0.0, 100.0, 0.0},
-    {0.0, 0.0, 0.0, 10.0}
-};
+inline constexpr auto Q = diag(10.0, 0.1, 100.0, 10.0); // x, ẋ, θ, θ̇
 
-inline constexpr auto R = Matrix<1, 1>{{1.0}};
+inline constexpr double R = 1.0;
 
-// 4×4 DARE at compile time — may need a higher -fconstexpr-ops-limit on some hosts
-inline constexpr auto lqr_d = design::discrete_lqr_from_continuous(sys.A, sys.B, Q, R, Ts);
+// Continuous plant + Ts: ZOH dynamics and Van Loan cost, then a 4×4 DARE at compile time.
+inline constexpr auto lqr_d = design::lqr(sys, Ts, {.Q = Q, .R = R});
 
 /**
  * @brief One control period: full-state feedback u = −Kx
@@ -86,7 +82,7 @@ inline constexpr auto lqr_d = design::discrete_lqr_from_continuous(sys.A, sys.B,
  */
 template<typename T>
 [[nodiscard]] ColVec<1, T> control_period(LQR<4, 1, T>& controller, const ColVec<4, T>& x) {
-    return controller.control(x);
+    return controller.step(x);
 }
 
 } // namespace damp::examples_cart_pole

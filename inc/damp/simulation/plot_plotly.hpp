@@ -264,7 +264,7 @@ std::vector<double> to_double_vector(const std::vector<T>& v) {
 // responsive shell applies without patching the plotlypp submodule.
 // ---------------------------------------------------------------------------
 
-/// Right edge of the plot column in paper coords (default: full width).
+/** @brief Right edge of the plot column in paper coords (default: full width). */
 inline constexpr double panel_x_right = 1.0;
 
 /**
@@ -394,17 +394,17 @@ plotlypp::Figure plot_simulation(
     // Stacked domains (top → bottom) with gaps; legends sit at each band top.
     const auto xd = panel_x_domain();
     auto       layout = Layout()
-                      .title([&](auto& tt) { tt.text(title); })
-                      .xaxis(Layout::Xaxis().domain(xd).showticklabels(false).anchor("y"))
-                      .yaxis(Layout::Yaxis().title([](auto& tt) { tt.text("States"); }).domain({0.70, 1.0}))
-                      .xaxis(2, Layout::Xaxis().domain(xd).matches("x").showticklabels(false).anchor("y2"))
-                      .yaxis(2, Layout::Yaxis().title([](auto& tt) { tt.text("Outputs"); }).domain({0.37, 0.63}))
-                      .xaxis(3, Layout::Xaxis().domain(xd).matches("x").title([](auto& tt) { tt.text("Time (s)"); }).anchor("y3"))
-                      .yaxis(3, Layout::Yaxis().title([](auto& tt) { tt.text("Inputs"); }).domain({0.0, 0.30}))
-                      .legend(panel_legend(1.0))
-                      .legend(2, panel_legend(0.63))
-                      .legend(3, panel_legend(0.30))
-                      .height(900);
+                            .title([&](auto& tt) { tt.text(title); })
+                            .xaxis(Layout::Xaxis().domain(xd).showticklabels(false).anchor("y"))
+                            .yaxis(Layout::Yaxis().title([](auto& tt) { tt.text("States"); }).domain({0.70, 1.0}))
+                            .xaxis(2, Layout::Xaxis().domain(xd).matches("x").showticklabels(false).anchor("y2"))
+                            .yaxis(2, Layout::Yaxis().title([](auto& tt) { tt.text("Outputs"); }).domain({0.37, 0.63}))
+                            .xaxis(3, Layout::Xaxis().domain(xd).matches("x").title([](auto& tt) { tt.text("Time (s)"); }).anchor("y3"))
+                            .yaxis(3, Layout::Yaxis().title([](auto& tt) { tt.text("Inputs"); }).domain({0.0, 0.30}))
+                            .legend(panel_legend(1.0))
+                            .legend(2, panel_legend(0.63))
+                            .legend(3, panel_legend(0.30))
+                            .height(900);
 
     fig.setLayout(damp::move(layout));
     return fig;
@@ -458,22 +458,22 @@ plotlypp::Figure plot_bode(
 
     const auto xd = panel_x_domain();
     auto       layout = Layout()
-                      .title([&](auto& tt) { tt.text(title); })
-                      .xaxis(Layout::Xaxis().domain(xd).type(Layout::Xaxis::Type::Log).showticklabels(false).anchor("y"))
-                      .yaxis(Layout::Yaxis().title([](auto& tt) { tt.text("Magnitude (dB)"); }).domain({0.55, 1.0}))
-                      .xaxis(
-                          2,
-                          Layout::Xaxis()
-                              .domain(xd)
-                              .type(Layout::Xaxis::Type::Log)
-                              .matches("x")
-                              .title([](auto& tt) { tt.text("Frequency (rad/s)"); })
-                              .anchor("y2")
-                      )
-                      .yaxis(2, Layout::Yaxis().title([](auto& tt) { tt.text("Phase (deg)"); }).domain({0.0, 0.45}))
-                      .legend(panel_legend(1.0))
-                      .legend(2, panel_legend(0.45))
-                      .height(700);
+                            .title([&](auto& tt) { tt.text(title); })
+                            .xaxis(Layout::Xaxis().domain(xd).type(Layout::Xaxis::Type::Log).showticklabels(false).anchor("y"))
+                            .yaxis(Layout::Yaxis().title([](auto& tt) { tt.text("Magnitude (dB)"); }).domain({0.55, 1.0}))
+                            .xaxis(
+                                2,
+                                Layout::Xaxis()
+                                    .domain(xd)
+                                    .type(Layout::Xaxis::Type::Log)
+                                    .matches("x")
+                                    .title([](auto& tt) { tt.text("Frequency (rad/s)"); })
+                                    .anchor("y2")
+                            )
+                            .yaxis(2, Layout::Yaxis().title([](auto& tt) { tt.text("Phase (deg)"); }).domain({0.0, 0.45}))
+                            .legend(panel_legend(1.0))
+                            .legend(2, panel_legend(0.45))
+                            .height(700);
 
     return Figure()
         .addTrace(damp::move(mag_trace))
@@ -602,7 +602,7 @@ inline plotlypp::Figure plot_xy(
     return fig;
 }
 
-/// Convenience overload — equal-aspect flag only.
+/** @brief Convenience overload — equal-aspect flag only. */
 inline plotlypp::Figure plot_xy(
     const std::vector<XySeries>& series,
     const std::string&           title,
@@ -888,7 +888,7 @@ inline void add_nichols_m_circle(
     phase_deg.reserve(n_samples);
     mag_db.reserve(n_samples);
 
-    constexpr double pi = 3.14159265358979323846;
+    constexpr double pi = damp::numbers::pi_v<double>;
     for (size_t i = 0; i < n_samples; ++i) {
         const double th = 2.0 * pi * static_cast<double>(i) / static_cast<double>(n_samples);
         const auto [s, c] = damp::sincos(th);
@@ -902,7 +902,13 @@ inline void add_nichols_m_circle(
         if (mdb < mag_db_min || mdb > mag_db_max) {
             continue;
         }
-        phase_deg.push_back(damp::atan2(im, re) * 180.0 / pi);
+        // Phase in [−360°, 0°), as MATLAB®'s ngrid: each contour closes around (−180°, 0 dB)
+        // instead of splitting at ±180°.
+        double ph = damp::atan2(im, re) * 180.0 / pi;
+        if (ph >= 0.0) {
+            ph -= 360.0;
+        }
+        phase_deg.push_back(ph);
         mag_db.push_back(mdb);
     }
     if (phase_deg.empty()) {
@@ -946,6 +952,7 @@ plotlypp::Figure nicholsplot(const analysis::NicholsResult<T>& nich, const std::
         phase_deg.push_back(static_cast<double>(p.phase_deg));
         mag_db.push_back(static_cast<double>(p.magnitude_db));
     }
+    phase_deg = analysis::unwrap_phase_deg(phase_deg); // continuous through −180°, where the chart matters
 
     Figure fig;
     // M-grid first so the locus draws on top

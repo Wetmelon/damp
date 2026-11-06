@@ -9,42 +9,64 @@
  * @file matlab.hpp
  * @brief MATLAB®-style free-function aliases for Damp APIs (host-oriented)
  *
- * Thin spellings over Damp design/analysis/systems. Prefer the descriptive
- * Damp names in new code; these exist for Control System Toolbox muscle memory.
+ * Thin spellings over Damp design/analysis/systems for Control System Toolbox
+ * muscle memory. They are MATLAB-inspired names, not drop-in MATLAB: argument
+ * order, defaults, and return types follow the Damp primary.
  *
- * Optional returns match the underlying APIs after the systems fail-closed
- * pass: @c c2d / @c place / @c acker / @c pidtune / @c gram / @c lyap / @c dlyap
- * / @c norm return @c damp::optional when the design or conversion can fail.
- * Frequency aliases (@c bode, @c nyquist, @c sigma, @c rlocus, …) skip contour
- * poles honestly (shorter grids) via @c analysis::.
+ * | MATLAB® | Damp |
+ * | ------- | ---- |
+ * | `ss`, `tf`, `zpk` | `matlab::ss` / `tf` / `zpk` → `StateSpace`, `TransferFunction`, `ZPK` |
+ * | `c2d`, `d2d` | `matlab::c2d` / `d2d` → `discretize` |
+ * | `lqr`, `dlqr`, `lqrd`, `lqi`, `lqg` | `matlab::lqr` … → `design::lqr` / `lqi` / `lqg` |
+ * | `place`, `acker` | `matlab::place` / `acker` → `design::place` |
+ * | `pidtune` | `matlab::pidtune` → `design::pidtune` |
+ * | `kalmd`, `dlqe` | `matlab::kalmd` / `dlqe` → `design::kalman` |
+ * | `bode`, `nyquist`, `margin` | `matlab::bode` … → `analysis::` |
+ *
+ * Include via `damp/workbench.hpp`. Each alias returns what its primary returns.
+ * Constructors (`ss`, `tf`, `zpk`) return system types. The design and conversion aliases
+ * (@c c2d, @c place, @c acker, @c pidtune, @c lqr / @c dlqr / @c lqrd / @c lqi / @c lqg /
+ * @c kalmd, @c canon, @c minreal, @c balreal, @c balred) return the primary's Result,
+ * whose @c success and @c status say whether and why it failed; @c gram, @c lyap,
+ * @c dlyap, @c lyapchol, @c norm, @c expm / @c sqrtm / @c logm, @c eig, @c pole,
+ * @c hankelsv, @c modred and @c thiran return @c damp::optional. Frequency aliases
+ * (@c bode, @c nyquist, @c sigma, @c rlocus, …) skip contour poles honestly (shorter
+ * grids) via @c analysis::.
  */
 
 #include <cstddef>
 #include <limits>
+#include <string_view>
 #include <type_traits>
 #include <vector>
 
 #include "damp/analysis/analysis.hpp"
 #include "damp/backend.hpp"
 #include "damp/controllers/lqg.hpp"
-#include "damp/controllers/lqgi.hpp"
 #include "damp/controllers/lqi.hpp"
 #include "damp/controllers/lqr.hpp"
 #include "damp/controllers/pid.hpp"
 #include "damp/design/linearization.hpp"
 #include "damp/design/minreal.hpp"
+#include "damp/design/model_reduction.hpp"
+#include "damp/design/model_result.hpp"
 #include "damp/design/pid_design.hpp"
 #include "damp/design/pole_placement.hpp"
 #include "damp/design/qp.hpp"
+#include "damp/design/riccati.hpp"
+#include "damp/design/status.hpp"
 #include "damp/estimation/kalman.hpp"
-#include "damp/filters/iir_design.hpp"
+#include "damp/filters/biquad.hpp"
+#include "damp/filters/pade.hpp"
 #include "damp/math/complex.hpp"
 #include "damp/matrix/eigen.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "damp/matrix/svd.hpp"
 #include "damp/systems/discretization.hpp"
+#include "damp/systems/realization.hpp"
 #include "damp/systems/state_space.hpp"
 #include "damp/systems/transfer_function.hpp"
+#include "damp/systems/zeros.hpp"
 #include "damp/systems/zpk.hpp"
 #include "design/stability.hpp"
 
@@ -55,10 +77,8 @@ namespace matlab {
 /**
  * @brief MATLAB®-style transfer function constructor
  *
- * Coefficients are in ascending powers of s or z (Damp's convention).
- *
- * @warning MATLAB®'s tf takes *descending* powers: MATLAB® tf([1 2], [1 3 2]) is
- *          matlab::tf({2.0, 1.0}, {2.0, 3.0, 1.0}) here.
+ * Coefficients are highest power of s or z first, as MATLAB®'s: MATLAB® tf([1 2], [1 3 2]) is
+ * matlab::tf({1.0, 2.0}, {1.0, 3.0, 2.0}), (s + 2)/(s² + 3s + 2).
  */
 template<size_t Nnum, size_t Nden, typename T = double>
 [[nodiscard]] constexpr TransferFunction<Nnum, Nden, T>
@@ -69,10 +89,8 @@ tf(const damp::array<T, Nnum>& num, const damp::array<T, Nden>& den) noexcept {
 /**
  * @brief MATLAB®-style transfer function constructor from braced coefficient lists
  *
- * Enables calls like: tf({1.0, 2.0}, {3.0, 4.0, 5.0})
- * Coefficients are in ascending powers of s or z.
- *
- * @warning Reversed from MATLAB®'s descending-power tf (see the array overload).
+ * Enables calls like: tf({1.0, 2.0}, {1.0, 3.0, 2.0})
+ * Coefficients are highest power of s or z first, as MATLAB®'s.
  */
 template<typename TNum, size_t Nnum, typename TDen, size_t Nden>
 [[nodiscard]] constexpr TransferFunction<Nnum, Nden, std::common_type_t<TNum, TDen>>
@@ -132,51 +150,104 @@ template<size_t Nz, size_t Np, typename T = double>
 }
 
 /**
- * @brief MATLAB®-style TF → ZPK conversion.
- * @note Compare with MATLAB®'s tf2zpk / zpk(tf).
- * @see damp::to_zpk
+ * @brief MATLAB® short alias for to_zpk (transfer function → zero-pole-gain)
+ * @note Compare with MATLAB®'s [z, p, k] = tf2zpk(b, a) / zpk(tf).
  */
-using damp::tf2zpk;
-using damp::to_zpk;
+template<size_t Nnum, size_t Nden, typename T = double>
+[[nodiscard]] constexpr auto tf2zpk(const TransferFunction<Nnum, Nden, T>& tf) {
+    return to_zpk(tf);
+}
 
 /**
- * @brief MATLAB®-style ZPK → TF conversion.
- * @note Compare with MATLAB®'s zpk2tf / tf(zpk).
+ * @brief MATLAB® short alias for ZPK::to_transfer_function
+ * @note Compare with MATLAB®'s [b, a] = zpk2tf(z, p, k) / tf(zpk).
  */
-using damp::zpk2tf;
+template<size_t Nz, size_t Np, typename T = double>
+[[nodiscard]] constexpr TransferFunction<Nz + 1, Np + 1, T> zpk2tf(const ZPK<Nz, Np, T>& sys) {
+    return sys.to_transfer_function();
+}
 
 /**
- * @brief MATLAB®-style SISO SS → ZPK / SS → TF.
- * @note Compare with MATLAB®'s ss2zpk, ss2tf.
+ * @brief MATLAB®-style transfer function → second-order sections, from MATLAB®'s z⁻¹ vectors
+ *
+ * @p b and @p a are as MATLAB® takes them, ascending powers of z⁻¹ (b(1) + b(2)z⁻¹ + …), the
+ * shorter one padded with trailing zeros: MATLAB® tf2sos([1 3 3 1]/6, [3 0 1 0]/3) is
+ * matlab::tf2sos({1.0 / 6, 0.5, 0.5, 1.0 / 6}, {1.0, 0.0, 1.0 / 3, 0.0}). Run the result with
+ * BiquadCascade.
+ *
+ * @note Compare with MATLAB®'s sos = tf2sos(b, a): order 'up', the gain in the first section.
+ * @see design::second_order_sections
  */
-using damp::feedback_read;
-using damp::mix;
-using damp::mix_outputs;
-using damp::select;
+template<size_t NB, size_t NA, typename T = double>
+[[nodiscard]] constexpr auto tf2sos(const damp::array<T, NB>& b, const damp::array<T, NA>& a) {
+    constexpr size_t          N = (NB > NA) ? NB : NA;
+    TransferFunction<N, N, T> sys{};
+    for (size_t i = 0; i < NB; ++i) {
+        sys.num[i] = b[i];
+    }
+    for (size_t i = 0; i < NA; ++i) {
+        sys.den[i] = a[i];
+    }
+    return design::second_order_sections(sys);
+}
+
+/**
+ * @brief MATLAB®-style tf2sos from braced coefficient lists, ascending powers of z⁻¹.
+ * @note Compare with MATLAB®'s sos = tf2sos(b, a).
+ */
+template<typename TB, size_t NB, typename TA, size_t NA>
+[[nodiscard]] constexpr auto tf2sos(const TB (&b)[NB], const TA (&a)[NA]) {
+    using T = std::common_type_t<TB, TA>;
+    damp::array<T, NB> bb{};
+    damp::array<T, NA> aa{};
+    for (size_t i = 0; i < NB; ++i) {
+        bb[i] = static_cast<T>(b[i]);
+    }
+    for (size_t i = 0; i < NA; ++i) {
+        aa[i] = static_cast<T>(a[i]);
+    }
+    return tf2sos(bb, aa);
+}
+
+/**
+ * @brief MATLAB®-style zero-pole-gain → second-order sections, H(z) = k·Π(z − zᵢ)/Π(z − pⱼ).
+ * @note Compare with MATLAB®'s sos = zp2sos(z, p, k).
+ * @see design::second_order_sections
+ */
+template<size_t Nz, size_t Np, typename T = double>
+[[nodiscard]] constexpr auto zp2sos(const damp::array<damp::complex<T>, Nz>& z, const damp::array<damp::complex<T>, Np>& p, T k) {
+    return design::second_order_sections(ZPK<Nz, Np, T>{z, p, k});
+}
+
+/**
+ * @brief MATLAB® short alias for SISO to_zpk (state space → zero-pole-gain)
+ * @note Compare with MATLAB®'s [z, p, k] = ss2zpk(A, B, C, D) / zpk(ss).
+ */
+template<size_t NX, typename T = double, size_t NW = 0, size_t NV = 0>
+[[nodiscard]] constexpr StateSpaceZPKResult<NX, T> ss2zpk(const StateSpace<NX, 1, 1, T, NW, NV>& sys) {
+    return to_zpk(sys);
+}
+
+/**
+ * @brief MATLAB®-style SISO SS → TF.
+ * @note Compare with MATLAB®'s ss2tf.
+ */
 using damp::ss2tf;
-using damp::ss2zpk;
-using damp::ss_gain;
-using damp::ss_integrator;
 
 /**
  * @brief MATLAB®-style parallel-form continuous PID constructor.
  *
- * Returns a @ref ContinuousPID with the given continuous-time gains; @p Tf is
- * the derivative filter time constant (0 = unfiltered). Deploy fixed-rate with
- * `design::pid(...).discretize(Ts)` → PIDController; this alias matches
- * MATLAB®'s continuous `pid` object before `c2d`.
+ * Returns the continuous design::PIDGains, as the rest of the PID family (pidstd,
+ * pidstd2, make1DOF, make2DOF, pidtune) does; @p Tf is the derivative filter time
+ * constant (0 = unfiltered). Deploy fixed-rate with `PIDController{matlab::pid(...).discretize(Ts)}`,
+ * or hand the gains to `ContinuousPID{matlab::pid(...)}` when the period is measured each tick.
  *
  * @note Compare with MATLAB®'s C = pid(Kp, Ki, Kd, Tf). MATLAB®'s filter
  *       coefficient N maps to Tf = 1/N.
  */
 template<typename T = double>
-[[nodiscard]] constexpr ContinuousPID<T> pid(T Kp, T Ki = T{0}, T Kd = T{0}, T Tf = T{0}) noexcept {
-    ContinuousPID<T> c{};
-    c.Kp = Kp;
-    c.Ki = Ki;
-    c.Kd = Kd;
-    c.Tf = Tf;
-    return c;
+[[nodiscard]] constexpr design::PIDGains<T> pid(T Kp, T Ki = T{0}, T Kd = T{0}, T Tf = T{0}) noexcept {
+    return design::PIDGains<T>{.Kp = Kp, .Ki = Ki, .Kd = Kd, .Tf = Tf};
 }
 
 /**
@@ -186,7 +257,7 @@ template<typename T = double>
  * @f[
  *   C(s) = K_p\Bigl(1 + \frac{1}{T_i s} + \frac{T_d s}{1+(T_d/N)s}\Bigr)
  * @f]
- * to the shipped parallel @ref design::PIDResult with
+ * to the shipped parallel @ref design::PIDGains with
  * @f$K_i = K_p/T_i@f$, @f$K_d = K_p T_d@f$, @f$T_f = T_d/N@f$ when @p N > 0
  * (else unfiltered). @p N = 0 (the default) means no derivative filter, matching
  * MATLAB®'s default N = ∞. @p Ti <= 0 yields @f$K_i = 0@f$ (P/PD).
@@ -198,25 +269,26 @@ template<typename T = double>
  * @see pidstd2 for the 2-DOF standard-form variant
  */
 template<typename T = double>
-[[nodiscard]] constexpr design::PIDResult<T> pidstd(T Kp, T Ti, T Td = T{0}, T N = T{0}) noexcept {
+[[nodiscard]] constexpr design::PIDGains<T> pidstd(T Kp, T Ti, T Td = T{0}, T N = T{0}) noexcept {
     const T Ki = (Ti > T{0}) ? (Kp / Ti) : T{0};
     const T Kd = Kp * Td;
     const T Tf = (N > T{0} && Td > T{0}) ? (Td / N) : T{0};
-    return design::pid(Kp, Ki, Kd, -std::numeric_limits<T>::max(), std::numeric_limits<T>::max(), -std::numeric_limits<T>::max(), std::numeric_limits<T>::max(), T{0}, T{1}, T{1}, Tf);
+    return design::PIDGains<T>{.Kp = Kp, .Ki = Ki, .Kd = Kd, .Tf = Tf};
 }
 
 /**
  * @brief Standard-form continuous 2-DOF PID constructor.
  *
  * Same Ti/Td → Ki/Kd map as @ref pidstd, with proportional/derivative setpoint
- * weights @p b and @p c (see @ref design::PIDResult).
+ * weights @p b and @p c (see @ref design::PIDGains). Both default to 1, as MATLAB®'s;
+ * c = 0 puts the derivative on the measurement (PI-D).
  *
  * @note Compare with MATLAB®'s C = pidstd2(Kp, Ti, Td, N, b, c).
  * @see pidstd, make1DOF, make2DOF
  */
 template<typename T = double>
-[[nodiscard]] constexpr design::PIDResult<T>
-pidstd2(T Kp, T Ti, T Td = T{0}, T N = T{0}, T b = T{1}, T c = T{0}) noexcept {
+[[nodiscard]] constexpr design::PIDGains<T>
+pidstd2(T Kp, T Ti, T Td = T{0}, T N = T{0}, T b = T{1}, T c = T{1}) noexcept {
     auto r = pidstd(Kp, Ti, Td, N);
     r.b = b;
     r.c = c;
@@ -229,7 +301,7 @@ pidstd2(T Kp, T Ti, T Td = T{0}, T N = T{0}, T b = T{1}, T c = T{0}) noexcept {
  * @note Compare with MATLAB®'s make1DOF (Control System Toolbox).
  */
 template<typename T = double>
-[[nodiscard]] constexpr design::PIDResult<T> make1DOF(design::PIDResult<T> r) noexcept {
+[[nodiscard]] constexpr design::PIDGains<T> make1DOF(design::PIDGains<T> r) noexcept {
     r.b = T{1};
     r.c = T{1};
     return r;
@@ -238,29 +310,73 @@ template<typename T = double>
 /**
  * @brief Apply 2-DOF setpoint weights on a PID design result.
  *
- * Defaults match the common PI-D industrial form (@f$b=1@f$, @f$c=0@f$: derivative
- * on measurement only).
+ * @p b and @p c default to 1, as MATLAB®'s, so make2DOF(r) keeps the response of r;
+ * c = 0 puts the derivative on the measurement (PI-D).
  *
- * @note Compare with MATLAB®'s make2DOF (Control System Toolbox).
+ * @note Compare with MATLAB®'s make2DOF(C1, b, c) (Control System Toolbox).
  */
 template<typename T = double>
-[[nodiscard]] constexpr design::PIDResult<T>
-make2DOF(design::PIDResult<T> r, T b = T{1}, T c = T{0}) noexcept {
+[[nodiscard]] constexpr design::PIDGains<T>
+make2DOF(design::PIDGains<T> r, T b = T{1}, T c = T{1}) noexcept {
     r.b = b;
     r.c = c;
     return r;
 }
 
 /**
- * @brief MATLAB® short alias for design::minreal
+ * @brief MATLAB® short alias for design::minreal, with its default tolerance √ε
  *
  * @note Compare with MATLAB®'s minreal(sys, tol).
- * @see design::minreal(), design::minimal_realization()
+ * @see design::minreal()
  */
 template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, size_t NV = 0>
 [[nodiscard]] constexpr design::MinimalRealizationResult<NX, NU, NY, T, NW, NV>
-minreal(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T tol = default_tol<T>()) {
+minreal(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T tol = damp::sqrt(eps<T>())) {
     return design::minreal(sys, tol);
+}
+
+/**
+ * @brief MATLAB® short alias for design::balanced_realization
+ * @note Compare with MATLAB®'s [sysb, g] = balreal(sys).
+ */
+template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, size_t NV = 0>
+[[nodiscard]] constexpr design::BalancedRealizationResult<NX, NU, NY, T, NW, NV> balreal(const StateSpace<NX, NU, NY, T, NW, NV>& sys) {
+    return design::balanced_realization(sys);
+}
+
+/**
+ * @brief MATLAB® short alias for design::hankel_singular_values
+ * @note Compare with MATLAB®'s hsv = hankelsv(sys).
+ */
+template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, size_t NV = 0>
+[[nodiscard]] constexpr damp::optional<ColVec<NX, T>> hankelsv(const StateSpace<NX, NU, NY, T, NW, NV>& sys) {
+    return design::hankel_singular_values(sys);
+}
+
+/**
+ * @brief MATLAB® short alias for design::balanced_reduction to NR states
+ * @note Compare with MATLAB®'s balred(sys, NR, balredOptions('StateElimMethod', …)); the
+ *       default here is Truncate, MATLAB®'s is MatchDC.
+ */
+template<size_t NR, size_t NX, size_t NU, size_t NY, size_t NW = 0, size_t NV = 0, typename T = double>
+[[nodiscard]] constexpr design::BalancedReductionResult<NR, NU, NY, T, NW, NV> balred(
+    const StateSpace<NX, NU, NY, T, NW, NV>& sys,
+    design::ModelReductionMethod             method = design::ModelReductionMethod::Truncate
+) {
+    return design::balanced_reduction<NR>(sys, method);
+}
+
+/**
+ * @brief MATLAB® short alias for design::eliminate_states (0-based indices)
+ * @note Compare with MATLAB®'s modred(sys, elim, 'MatchDC'|'Truncate'); MATLAB® indices are 1-based.
+ */
+template<size_t... Elim, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
+    requires(design::detail::valid_elimination<NX, Elim...>())
+[[nodiscard]] constexpr damp::optional<StateSpace<NX - sizeof...(Elim), NU, NY, T, NW, NV>> modred(
+    const StateSpace<NX, NU, NY, T, NW, NV>& sys,
+    design::ModelReductionMethod             method = design::ModelReductionMethod::MatchDC
+) {
+    return design::eliminate_states<Elim...>(sys, method);
 }
 
 /**
@@ -303,10 +419,10 @@ template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, si
  * @param method            Discretization method (ZOH or Tustin)
  * @param prewarp_frequency [rad/s] Tustin pre-warp frequency (c2dOptions 'PrewarpFrequency'); 0 for none
  *
- * @return Discrete StateSpace, or @c nullopt if the method fails (e.g. singular Tustin)
+ * @return Discrete StateSpace and status, as damp::discretize (e.g. DesignStatus::singular for a singular Tustin factor)
  */
 template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, size_t NV = 0>
-[[nodiscard]] constexpr damp::optional<StateSpace<NX, NU, NY, T, NW, NV>> c2d(
+[[nodiscard]] constexpr DiscretizationResult<NX, NU, NY, T, NW, NV> c2d(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     T                                        sampling_time,
     DiscretizationMethod                     method = DiscretizationMethod::ZOH,
@@ -318,104 +434,170 @@ template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, si
 /**
  * @brief MATLAB®-style c2d for SISO transfer functions
  *
- * Realizes the TF then discretizes. Returns @c nullopt if realization or c2d fails.
+ * Realizes the TF then discretizes. Refused with DesignStatus::singular if the realization
+ * fails (den[0] = 0), otherwise with damp::discretize's status.
  */
 template<size_t Nnum, size_t Nden, typename T = double>
-[[nodiscard]] constexpr damp::optional<StateSpace<Nden - 1, 1, 1, T>> c2d(
+[[nodiscard]] constexpr DiscretizationResult<Nden - 1, 1, 1, T> c2d(
     const TransferFunction<Nnum, Nden, T>& tf_sys,
     T                                      sampling_time,
     DiscretizationMethod                   method = DiscretizationMethod::ZOH
 ) {
     const auto ss = tf_sys.to_state_space();
     if (!ss) {
-        return damp::nullopt;
+        return ::damp::detail::refused<DiscretizationResult<Nden - 1, 1, 1, T>>(design::DesignStatus::singular);
     }
     return discretize(*ss, sampling_time, method);
 }
 
 /**
+ * @brief MATLAB® d2d: resample a ZOH-discrete model to a new sample time
+ * @note Forwards to damp::resample. Compare with MATLAB®'s d2d(sys, Ts) (ZOH method).
+ */
+template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
+[[nodiscard]] constexpr DiscretizationResult<NX, NU, NY, T, NW, NV> d2d(
+    const StateSpace<NX, NU, NY, T, NW, NV>& sys,
+    std::type_identity_t<T>                  sampling_time
+) {
+    return resample(sys, sampling_time);
+}
+
+/**
+ * @brief MATLAB® upsample: sys(z) → sys(zᴸ) at Ts / L
+ * @note Forwards to damp::upsample. Compare with MATLAB®'s upsample(sys, L); L is a template argument here.
+ */
+template<size_t L, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
+    requires(L >= 1)
+[[nodiscard]] constexpr StateSpace<NX * L, NU, NY, T, NW, NV> upsample(const StateSpace<NX, NU, NY, T, NW, NV>& sys) {
+    return damp::upsample<L>(sys);
+}
+
+/**
+ * @brief MATLAB® prescale: diagonal state scaling that balances A, B and C
+ * @note Forwards to damp::balance_states, the ssbal-style balance. MATLAB®'s prescale(sys)
+ *       chooses its factors over a frequency band; both return a scaled model and the scaling.
+ */
+template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
+[[nodiscard]] constexpr StateScaling<NX, NU, NY, T, NW, NV> prescale(const StateSpace<NX, NU, NY, T, NW, NV>& sys) {
+    return balance_states(sys);
+}
+
+/**
+ * @brief MATLAB® ssbal: diagonal state balancing of [A B; C 0]
+ * @note Forwards to damp::balance_states. Compare with MATLAB®'s [sysb, T] = ssbal(sys): T = diag(1 / scale()).
+ */
+template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
+[[nodiscard]] constexpr StateScaling<NX, NU, NY, T, NW, NV> ssbal(const StateSpace<NX, NU, NY, T, NW, NV>& sys) {
+    return balance_states(sys);
+}
+
+/**
+ * @brief MATLAB® canon(sys) / canon(sys, 'modal'): real modal canonical form and its transform
+ * @note Forwards to damp::modal_form; MATLAB®'s default form is 'modal'.
+ *       Compare with MATLAB®'s [csys, T] = canon(sys, 'modal'): csys = result.sys, T = result.transform.
+ */
+template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
+[[nodiscard]] constexpr StateTransformResult<NX, NU, NY, T, NW, NV> canon(const StateSpace<NX, NU, NY, T, NW, NV>& sys) {
+    return modal_form(sys);
+}
+
+/**
+ * @brief MATLAB® canon(sys, type): 'modal' or 'companion' canonical form and its transform
+ * @note Forwards to damp::modal_form or damp::companion_form (SISO only); any other type, or
+ *       'companion' on a MIMO model, is refused with DesignStatus::bad_weights.
+ *       Compare with MATLAB®'s [csys, T] = canon(sys, type).
+ */
+template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
+[[nodiscard]] constexpr StateTransformResult<NX, NU, NY, T, NW, NV>
+canon(const StateSpace<NX, NU, NY, T, NW, NV>& sys, std::string_view type) {
+    if (type == "modal") {
+        return modal_form(sys);
+    }
+    if constexpr (NU == 1 && NY == 1) {
+        if (type == "companion") {
+            return companion_form(sys);
+        }
+    }
+    StateTransformResult<NX, NU, NY, T, NW, NV> refused{};
+    return damp::detail::set_status(refused, design::DesignStatus::bad_weights);
+}
+
+/**
+ * @brief MATLAB® ss2ss(sys, T): the model in the state z = T·x
+ * @note Forwards to damp::similarity_transform. Compare with MATLAB®'s ss2ss(sys, T).
+ */
+template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
+[[nodiscard]] constexpr StateTransformResult<NX, NU, NY, T, NW, NV>
+ss2ss(const StateSpace<NX, NU, NY, T, NW, NV>& sys, const Matrix<NX, NX, T>& transform) {
+    return similarity_transform(sys, transform);
+}
+
+/**
+ * @brief MATLAB® ctrbf(A, B, C): controllability staircase form, its orthogonal transform and rank
+ * @note Forwards to damp::controllability_staircase. Compare with MATLAB®'s
+ *       [Abar, Bbar, Cbar, T, k] = ctrbf(A, B, C): result.sys, result.transform, result.rank = sum(k).
+ */
+template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
+[[nodiscard]] constexpr StaircaseFormResult<NX, NU, NY, T, NW, NV> ctrbf(const StateSpace<NX, NU, NY, T, NW, NV>& sys) {
+    return controllability_staircase(sys);
+}
+
+/**
+ * @brief MATLAB® obsvf(A, B, C): observability staircase form, its orthogonal transform and rank
+ * @note Forwards to damp::observability_staircase. Compare with MATLAB®'s
+ *       [Abar, Bbar, Cbar, T, k] = obsvf(A, B, C): result.sys, result.transform, result.rank = sum(k).
+ */
+template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
+[[nodiscard]] constexpr StaircaseFormResult<NX, NU, NY, T, NW, NV> obsvf(const StateSpace<NX, NU, NY, T, NW, NV>& sys) {
+    return observability_staircase(sys);
+}
+
+/**
+ * @brief MATLAB® tzero(sys): the finite invariant zeros of a model with any number of inputs and outputs
+ * @note Forwards to damp::transmission_zeros. Compare with MATLAB®'s z = tzero(sys):
+ *       result.zeros[0 .. result.n_zeros).
+ */
+template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
+[[nodiscard]] constexpr TransmissionZerosResult<NX, T> tzero(const StateSpace<NX, NU, NY, T, NW, NV>& sys) {
+    return transmission_zeros(sys);
+}
+
+/**
+ * @brief MATLAB® thiran: fractional-delay all-pass of order N for a delay tau at Ts
+ * @note Forwards to damp::fractional_delay. Compare with MATLAB®'s thiran(tau, Ts), which
+ *       chooses N = ⌈tau/Ts⌉; here N is a template argument.
+ */
+template<size_t N, typename T>
+    requires(N >= 1)
+[[nodiscard]] constexpr damp::optional<TransferFunction<N + 1, N + 1, T>> thiran(T tau, std::type_identity_t<T> Ts) {
+    return fractional_delay<N>(tau, Ts);
+}
+
+/**
  * @brief MATLAB®-style nonlinear linearization about an operating point
  *
- * Similar in spirit to MATLAB®'s linmod workflow: linearize nonlinear
- * dynamics and output maps, then return continuous-time state-space.
+ * Forwards to design::linearize: the Jacobians of the Dynamics ẋ = f(x, u) and the
+ * Measurement y = h(x, u) about (x_op, u_op), analytic when the model provides them,
+ * else by central differences.
+ *
+ * @return design::LinearizationResult with Jacobians A, B, C, D and the operating point
+ * @note Compare with MATLAB®'s [A,B,C,D] = linmod(model, x, u). MATLAB®'s several
+ *       outputs are one design::LinearizationResult here.
  */
-template<size_t NX, size_t NU, size_t NY, typename T = double, typename Dynamics, typename Output>
-[[nodiscard]] constexpr StateSpace<NX, NU, NY, T> linmod(
-    const Dynamics&      dynamics,
-    const Output&        output,
+template<size_t NX, size_t NU, size_t NY, typename T = double, typename F, typename H>
+[[nodiscard]] constexpr design::LinearizationResult<NX, NU, NY, T> linmod(
+    const F&             dynamics,
+    const H&             output,
     const ColVec<NX, T>& x_op,
     const ColVec<NU, T>& u_op,
     T                    epsilon = T{0}
 ) {
-    if (epsilon > T{0}) {
-        return design::linearize<NX, NU, NY, T>(dynamics, output, x_op, u_op, epsilon).to_state_space();
-    }
-    return design::linearize<NX, NU, NY, T>(dynamics, output, x_op, u_op).to_state_space();
+    return design::linearize<NX, NU, NY, T>(dynamics, output, x_op, u_op, epsilon);
 }
 
-/**
- * @brief Block diagonal matrix construction
- * @ingroup linear_algebra
- * @tparam Args Variadic list of matrix types
- * @return Block diagonal matrix composed of the input matrices
- */
-template<typename... Args>
-[[nodiscard]] constexpr auto blkdiag(Args... args) noexcept
-    requires(sizeof...(Args) > 0 && (is_matrix_type<Args>::value && ...))
-{
-    constexpr size_t total_rows = (args.rows() + ...);
-    constexpr size_t total_cols = (args.cols() + ...);
-    using T = std::common_type_t<typename std::decay_t<Args>::value_type...>;
-    Matrix<total_rows, total_cols, T> result = Matrix<total_rows, total_cols, T>::zeros();
-
-    size_t row_offset = 0;
-    size_t col_offset = 0;
-    ((result.template block<args.rows(), args.cols()>(row_offset, col_offset) = args, row_offset += args.rows(), col_offset += args.cols()), ...);
-
-    return result;
-}
-
-/**
- * @brief Returns a square diagonal matrix from the given array
- *
- * @tparam k Diagonal offset: 0 main diagonal, &gt;0 superdiagonal, &lt;0 subdiagonal
- * @param diag Diagonal entries
- * @return Matrix&lt;N, N, T&gt;
- */
-template<size_t N, typename T, int k = 0>
-[[nodiscard]] constexpr auto diag(const damp::array<T, N>& diag) noexcept {
-    Matrix<N, N, T> result = Matrix<N, N, T>::zeros();
-    for (size_t i = 0; i < N; ++i) {
-        size_t row = i;
-        size_t col = i + k;
-        if (col < N) {
-            result(row, col) = diag[i];
-        }
-    }
-    return result;
-}
-
-/**
- * @brief Returns the diagonal elements of a square matrix as a column vector
- *
- * @param A Input square matrix
- *
- * @return ColVec<N, T>
- */
-template<size_t N, typename T, int k = 0>
-[[nodiscard]] constexpr ColVec<N, T> diag(const Matrix<N, N, T>& A) noexcept {
-    ColVec<N, T> result;
-    for (size_t i = 0; i < N; ++i) {
-        size_t row = i;
-        size_t col = i + k;
-        if (col < N) {
-            result(i, 0) = A(row, col);
-        } else {
-            result(i, 0) = T{0};
-        }
-    }
-    return result;
-}
+/** @brief MATLAB® spellings of core size-deducing vocabulary (see matrix/concat.hpp). */
+using damp::blkdiag;
+using damp::diag;
 
 /**
  * @brief Create an identity matrix of size n x n
@@ -434,11 +616,7 @@ template<size_t N, typename T = double>
  */
 template<size_t N, typename T = double>
 [[nodiscard]] constexpr auto ones() noexcept {
-    Matrix<N, N, T> result;
-    for (auto& row : result.data_) {
-        row.fill(T{1});
-    }
-    return result;
+    return Matrix<N, N, T>::constant(T{1});
 }
 
 /**
@@ -480,39 +658,83 @@ template<size_t M, size_t N, typename T>
 /**
  * @brief MATLAB® short alias for the eigenvalues of a square matrix.
  *
- * Returns the eigenvalues as a complex column vector. Closed-form for N ≤ 4,
- * Francis double-shift QR for larger systems. For eigenvectors and the
- * convergence flag, call mat::compute_eigenvalues() directly.
+ * Returns the eigenvalues, from balancing, Hessenberg reduction and Francis double-shift QR,
+ * or nullopt when the iteration does not converge or A has a non-finite entry. For the real
+ * Schur basis, call mat::compute_eigenvalues() directly; neither returns eigenvectors of a
+ * general A.
  *
  * @note Compare with MATLAB®'s e = eig(A).
  */
 template<size_t N, typename T>
-[[nodiscard]] constexpr ColVec<N, damp::complex<T>> eig(const Matrix<N, N, T>& A) {
-    return mat::compute_eigenvalues(A).values;
+[[nodiscard]] constexpr damp::optional<damp::array<damp::complex<T>, N>> eig(const Matrix<N, N, T>& A) {
+    return analysis::poles(A);
 }
 
 /**
- * @brief Form state estimator from system and estimator gain
+ * @brief MATLAB® short alias for the matrix exponential (mat::expm).
  *
- * est = estim(sys,L) produces a state/output estimator est given the plant state-space model sys
- *       and the estimator gain L. All inputs w of sys are assumed stochastic (process and/or measurement noise),
- *       and all outputs y are measured. The estimator est is returned in state-space form.
+ * Returns nullopt for a non-finite input or a failed Padé solve.
  *
- * @param sys State-space system (discrete or continuous)
- * @param L   Estimator gain matrix
+ * @note Compare with MATLAB®'s expm(A).
+ */
+template<size_t N, typename T>
+[[nodiscard]] constexpr damp::optional<Matrix<N, N, T>> expm(const Matrix<N, N, T>& A) {
+    return mat::expm(A);
+}
+
+/**
+ * @brief MATLAB® short alias for the principal matrix square root (mat::sqrt).
  *
- * @return StateSpace<NX, NY, NX, T, NW, NV>
+ * Returns nullopt when mat::sqrt does: a non-finite entry, no real principal root, or a result
+ * that fails its residual check.
+ *
+ * @note Compare with MATLAB®'s sqrtm(A).
+ */
+template<size_t N, typename T>
+[[nodiscard]] constexpr damp::optional<Matrix<N, N, T>> sqrtm(const Matrix<N, N, T>& A) {
+    return mat::sqrt(A);
+}
+
+/**
+ * @brief MATLAB® short alias for the principal matrix logarithm (mat::log).
+ *
+ * Returns nullopt when mat::log does: an eigenvalue on the closed negative real axis, or a square
+ * root step that fails.
+ *
+ * @note Compare with MATLAB®'s logm(A).
+ */
+template<size_t N, typename T>
+[[nodiscard]] constexpr damp::optional<Matrix<N, N, T>> logm(const Matrix<N, N, T>& A) {
+    return mat::log(A);
+}
+
+/**
+ * @brief Form the state estimator from a plant and an estimator gain
+ *
+ * est = estim(sys, L) is the full-order estimator of gain L driven by the measured outputs y,
+ * with the state estimate as its output:
+ *
+ * @f[
+ *   \dot{\hat x} = (A - LC)\,\hat x + L y, \qquad \hat y = \hat x .
+ * @f]
+ *
+ * The plant inputs u are not estimator inputs (as in matlab::reg), and the noise channels
+ * G, H do not carry over. @p sys.Ts carries over, so a discrete plant gives a discrete estimator.
+ *
+ * @note Compare with MATLAB®'s est = estim(sys, L) with every output measured and no known input.
+ *
+ * @param sys State-space plant (discrete or continuous)
+ * @param L   Estimator gain
+ * @return Estimator StateSpace<NX, NY, NX> (input y, output x̂), with sys.Ts
  */
 template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, size_t NV = 0>
-constexpr auto estim(const StateSpace<NX, NU, NY, T, NW, NV>& sys, const Matrix<NX, NY, T>& L) noexcept {
-    Matrix<NX, NX, T> A_est = sys.A - L * sys.C;
-    Matrix<NX, NY, T> B_est = L;
-    Matrix<NX, NX, T> C_est = Matrix<NX, NX, T>::identity();
-    Matrix<NX, NY, T> D_est = Matrix<NX, NY, T>::zeros();
-    Matrix<NX, NW, T> G_est = sys.G - L * sys.H;
-    Matrix<NX, NV, T> H_est = L;
-
-    return StateSpace<NX, NY, NX, T, NW, NV>{A_est, B_est, C_est, D_est, G_est, H_est};
+[[nodiscard]] constexpr StateSpace<NX, NY, NX, T> estim(const StateSpace<NX, NU, NY, T, NW, NV>& sys, const Matrix<NX, NY, T>& L) noexcept {
+    return StateSpace<NX, NY, NX, T>{
+        .A = sys.A - (L * sys.C),
+        .B = L,
+        .C = Matrix<NX, NX, T>::identity(),
+        .Ts = sys.Ts,
+    };
 }
 
 /**
@@ -551,53 +773,109 @@ template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, si
     };
 }
 
+namespace detail {
+
+/** @brief MATLAB®-shaped (A, B, p) as the design::place arguments: a continuous plant and complex poles. */
+template<size_t NX, size_t NU, typename T>
+[[nodiscard]] constexpr StateSpace<NX, NU, NX, T> place_plant(const Matrix<NX, NX, T>& A, const Matrix<NX, NU, T>& B) {
+    return StateSpace<NX, NU, NX, T>{.A = A, .B = B, .C = Matrix<NX, NX, T>::identity()};
+}
+
+/** @brief Poles from any tuple-like of damp::complex / std::complex / real values. */
+template<size_t NX, typename T>
+[[nodiscard]] constexpr damp::array<damp::complex<T>, NX> place_poles(const auto& p) {
+    const auto poles = std::apply(
+        [](const auto&... elems) { return damp::array<damp::complex<T>, sizeof...(elems)>{damp::complex<T>(elems)...}; }, p
+    );
+    static_assert(poles.size() == NX, "place / acker need one pole per state");
+    return poles;
+}
+
 /**
- * @brief Pole placement for state-feedback control
+ * @brief MATLAB®'s Q on [x; xi] as the design's Q and Q_integral; nullopt when its x–xi blocks
+ *        are not zero (design::lqi weights the two blocks apart).
+ */
+template<size_t NX, size_t NI, size_t NU, typename T>
+[[nodiscard]] constexpr damp::optional<design::LQRWeights<NX, NU, NI, T>> split_integral_weight(const Matrix<NX + NI, NX + NI, T>& Q_aug, const Matrix<NU, NU, T>& R) {
+    for (size_t i = 0; i < NX; ++i) {
+        for (size_t j = 0; j < NI; ++j) {
+            if (Q_aug(i, NX + j) != T{0} || Q_aug(NX + j, i) != T{0}) {
+                return damp::nullopt;
+            }
+        }
+    }
+    return design::LQRWeights<NX, NU, NI, T>{.Q = Q_aug.template block<NX, NX>(0, 0), .R = R, .Q_integral = Q_aug.template block<NI, NI>(NX, NX)};
+}
+
+/** @brief An index list as the design's IntegralAction. */
+template<size_t NI>
+[[nodiscard]] constexpr design::IntegralAction<NI> integrated_list(const size_t (&outputs)[NI]) {
+    design::IntegralAction<NI> sel{};
+    for (size_t i = 0; i < NI; ++i) {
+        sel.outputs[i] = outputs[i];
+    }
+    return sel;
+}
+
+/** @brief The LQ design with integral action on a discrete plant, with MATLAB®'s Q on [x; xi]: bad_weights for x–xi cross weights. */
+template<size_t NI, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Options>
+[[nodiscard]] constexpr auto integral_design(const StateSpace<NX, NU, NY, T, NW, NV>& sys, const Matrix<NX + NI, NX + NI, T>& Q_aug, const Matrix<NU, NU, T>& R, const Options& options) {
+    const auto w = split_integral_weight<NX, NI>(Q_aug, R);
+    auto       res = design::detail::state_feedback(sys, w ? *w : design::LQRWeights<NX, NU, NI, T>{}, options);
+    if (!w) {
+        res = ::damp::detail::refused<decltype(res)>(design::DesignStatus::bad_weights); // x–xi cross weights
+    }
+    return res;
+}
+
+} // namespace detail
+
+/**
+ * @brief Single-input pole placement (MATLAB®'s acker)
+ *
+ * Forwards to design::place, which gives the unique single-input gain and assigns
+ * repeated poles as one Jordan chain, the case Ackermann's formula covers. The
+ * eigenvalues are read as continuous (MATLAB® place / acker carry no time domain);
+ * for a discrete law call design::place on the discrete StateSpace.
  *
  * @param A State matrix
- * @param B Input matrix
+ * @param B Input matrix (one column)
  * @param p Desired poles (damp::array / std::array of damp::complex or std::complex)
+ * @return design::PlaceResult with K, the achieved poles e and success / status
  *
- * @return damp::optional<Matrix<NU, NX, T>> State-feedback gain K, or nullopt if not implementable
+ * @note Compare with MATLAB®'s K = acker(A, B, p).
  */
 template<size_t NX, size_t NU, typename T = double>
-constexpr damp::optional<Matrix<NU, NX, T>> acker(
+[[nodiscard]] constexpr design::PlaceResult<NX, NU, T> acker(
     const Matrix<NX, NX, T>& A,
     const Matrix<NX, NU, T>& B,
     const auto&              p
 ) {
     static_assert(NU == 1, "acker is single-input only; use place for multi-input systems");
-    const auto poles = std::apply(
-        [](const auto&... elems) { return damp::array<damp::complex<T>, sizeof...(elems)>{elems...}; }, p
-    );
-    return design::ackermann(A, B, poles);
+    return design::place(detail::place_plant(A, B), detail::place_poles<NX, T>(p));
 }
 
 /**
  * @brief Robust multi-input pole placement (MATLAB®'s place)
  *
- * Thin alias for design::place — Kautsky–Nichols–Van Dooren robust eigenvalue
- * assignment, spending the multi-input freedom to minimize eigenvector
- * conditioning. Prefer this for multi-input systems; acker remains the
- * single-input Ackermann path.
+ * Forwards to design::place: Kautsky–Nichols–Van Dooren robust eigenvalue assignment,
+ * spending the multi-input freedom to minimize eigenvector conditioning. The
+ * eigenvalues are read as continuous, as for acker.
  *
  * @param A State matrix
  * @param B Input matrix
  * @param p Desired poles (damp::array / std::array of damp::complex or std::complex)
- * @return State-feedback gain K (NU×NX), or nullopt if not assignable.
+ * @return design::PlaceResult with K, the achieved poles e and success / status
  *
  * @note Compare with MATLAB®'s K = place(A, B, p).
  */
 template<size_t NX, size_t NU, typename T = double>
-[[nodiscard]] constexpr damp::optional<Matrix<NU, NX, T>> place(
+[[nodiscard]] constexpr design::PlaceResult<NX, NU, T> place(
     const Matrix<NX, NX, T>& A,
     const Matrix<NX, NU, T>& B,
     const auto&              p
 ) {
-    const auto poles = std::apply(
-        [](const auto&... elems) { return damp::array<damp::complex<T>, sizeof...(elems)>{elems...}; }, p
-    );
-    return design::place(A, B, poles);
+    return design::place(detail::place_plant(A, B), detail::place_poles<NX, T>(p));
 }
 
 /**
@@ -606,43 +884,39 @@ template<size_t NX, size_t NU, typename T = double>
  * Thin alias for design::continuous_lqr — the optimal gain K for u = −Kx
  * minimizing ∫(xᵀQx + uᵀRu + 2xᵀNu) dt via the continuous ARE (care()).
  *
- * @return K, or @c nullopt when the design fails (MATLAB® raises an error there).
- * @note Compare with MATLAB®'s K = lqr(A, B, Q, R, N). For the Riccati solution
- *       S and the closed-loop poles, call design::continuous_lqr directly.
+ * @return design::LQRResult with K, the CARE solution S, closed-loop poles e, and success / status
+ * @note Compare with MATLAB®'s [K,S,e] = lqr(A, B, Q, R, N). MATLAB®'s several
+ *       outputs are one design::LQRResult here.
  */
 template<size_t NX, size_t NU, typename T = double>
-[[nodiscard]] constexpr damp::optional<Matrix<NU, NX, T>> lqr(
+[[nodiscard]] constexpr design::LQRResult<NX, NU, T> lqr(
     const Matrix<NX, NX, T>& A,
     const Matrix<NX, NU, T>& B,
     const Matrix<NX, NX, T>& Q,
     const Matrix<NU, NU, T>& R,
     const Matrix<NX, NU, T>& N = Matrix<NX, NU, T>{}
 ) {
-    const auto res = design::continuous_lqr(A, B, Q, R, N);
-    if (!res.success) {
-        return damp::nullopt;
-    }
-    return res.K;
+    return design::continuous_lqr(A, B, Q, R, N);
 }
 
 /**
- * @brief Discrete-time Linear-Quadratic Regulator design
- * @note Alias for design::dlqr (same as design::discrete_lqr). Compare with MATLAB®'s dlqr.
+ * @brief Discrete-time Linear-Quadratic Regulator design (MATLAB®'s dlqr)
+ * @note Forwards to design::discrete_lqr. Compare with MATLAB®'s [K,S,e] = dlqr(A, B, Q, R, N).
  */
 template<size_t NX, size_t NU, typename T = double>
-[[nodiscard]] constexpr auto dlqr(
+[[nodiscard]] constexpr design::LQRResult<NX, NU, T> dlqr(
     const Matrix<NX, NX, T>& A,
     const Matrix<NX, NU, T>& B,
     const Matrix<NX, NX, T>& Q,
     const Matrix<NU, NU, T>& R,
     const Matrix<NX, NU, T>& N = Matrix<NX, NU, T>{}
 ) {
-    return design::dlqr(A, B, Q, R, N);
+    return design::discrete_lqr(A, B, Q, R, N);
 }
 
 /**
- * @brief Design discrete LQR from continuous-time system via discretization
- * @note Alias for design::lqrd (same as design::discrete_lqr_from_continuous). Compare with MATLAB®'s lqrd.
+ * @brief Sampled-data LQR from a continuous plant: ZOH dynamics + Van Loan cost (MATLAB®'s lqrd)
+ * @note Forwards to design::lqr(sys, Ts, w). Compare with MATLAB®'s lqrd(A, B, Q, R, Ts, N).
  */
 template<size_t NX, size_t NU, typename T = double>
 [[nodiscard]] constexpr auto lqrd(
@@ -653,12 +927,12 @@ template<size_t NX, size_t NU, typename T = double>
     T                        Ts,
     const Matrix<NX, NU, T>& N = Matrix<NX, NU, T>{}
 ) {
-    return design::lqrd(A, B, Q, R, Ts, N);
+    return design::lqr(StateSpace<NX, NU, 1, T>{.A = A, .B = B}, Ts, {Q, R, N});
 }
 
 /**
- * @brief Design discrete LQR from continuous state-space system via discretization
- * @note Alias for design::lqrd. Compare with MATLAB®'s lqrd(sys, Q, R, Ts).
+ * @brief Sampled-data LQR from a continuous state-space plant (MATLAB®'s lqrd)
+ * @note Forwards to design::lqr(sys, Ts, w). Compare with MATLAB®'s lqrd(sys, Q, R, Ts).
  */
 template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, size_t NV = 0>
 [[nodiscard]] constexpr auto lqrd(
@@ -668,13 +942,52 @@ template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, si
     T                                        Ts,
     const Matrix<NX, NU, T>&                 N = Matrix<NX, NU, T>{}
 ) {
-    return design::lqrd(sys, Q, R, Ts, N);
+    return design::lqr(sys, Ts, {Q, R, N});
 }
 
-// kalmd (discrete Kalman from continuous plant + continuous noise) is deferred:
-// design::kalman requires a discrete plant, and there is no Van Loan process-
-// noise discretizer yet. Use discretize(sys, Ts) then design::kalman when Q/R
-// are already discrete intensities. See roadmap #29.
+/**
+ * @brief Discrete linear-quadratic estimator from matrices (MATLAB®'s dlqe)
+ *
+ * Forwards to design::kalman on a carrier plant: process noise through @p G, H = I,
+ * B = D = 0 (they do not enter the gain) and Ts = 1 (the matrices are already discrete).
+ * The result's @c sys is that carrier: deploy the observer from the real plant and this M.
+ *
+ * @note Compare with MATLAB®'s [M,P,Z,E] = dlqe(A, G, C, Q, R): M (the innovation gain) and P
+ *       are on the result, with the predictor gain L = A M.
+ */
+template<size_t NX, size_t NW, size_t NY, typename T = double>
+[[nodiscard]] constexpr design::KalmanResult<NX, 1, NY, T, NW, NY> dlqe(
+    const Matrix<NX, NX, T>& A,
+    const Matrix<NX, NW, T>& G,
+    const Matrix<NY, NX, T>& C,
+    const Matrix<NW, NW, T>& Q,
+    const Matrix<NY, NY, T>& R
+) {
+    return design::kalman(StateSpace<NX, 1, NY, T, NW, NY>{.A = A, .C = C, .G = G, .H = Matrix<NY, NY, T>::identity(), .Ts = T{1}}, {.process = Q, .measurement = R});
+}
+
+/**
+ * @brief Discrete Kalman estimator for a continuous plant and continuous noise (MATLAB®'s kalmd)
+ *
+ * Keeps MATLAB's convention: @p Rn is a continuous intensity, and the measurement variance
+ * per reading is Rd = Rn/Ts (an integrate-and-dump sampler). Converts, then forwards to
+ * design::kalman(sys, Ts, {.process = Qn, .measurement = Rn/Ts}): ZOH plant, Van Loan process
+ * noise. Qn enters through the plant's G and Rn through its H. design::kalman itself takes
+ * the per-reading variance directly (see design::KalmanNoise).
+ *
+ * @note Compare with MATLAB®'s [kest,L,P,M] = kalmd(sys, Qn, Rn, Ts): L (the predictor gain),
+ *       P and M (the innovation gain) are on the result.
+ */
+template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
+[[nodiscard]] constexpr design::KalmanResult<NX, NU, NY, T, NX, NV> kalmd(
+    const StateSpace<NX, NU, NY, T, NW, NV>& sys,
+    const Matrix<NW, NW, T>&                 Qn,
+    const Matrix<NV, NV, T>&                 Rn,
+    std::type_identity_t<T>                  Ts
+) {
+    const T per_reading = damp::finite_positive(Ts) ? T{1} / Ts : T{1}; // a bad Ts is refused by design::kalman
+    return design::kalman(sys, Ts, {.process = Qn, .measurement = Matrix<NV, NV, T>(Rn * per_reading)});
+}
 
 /**
  * @brief Output-weighted continuous LQR (state cost Q = Cᵀ Q_y C).
@@ -709,15 +1022,15 @@ template<size_t NX, size_t NU, size_t NY, typename T = double>
 /**
  * @brief Output-weighted LQR for a state-space plant.
  *
- * Continuous plants (@p sys.Ts == 0) use @ref design::continuous_lqr; discrete
- * plants use @ref design::discrete_lqr. Same @f$Q_x/N/R_u@f$ map as the
+ * Follows the plant's time domain through @ref design::lqr(): CARE when
+ * @p sys.Ts == 0, DARE when @p sys.Ts > 0. Same @f$Q_x/N/R_u@f$ map as the
  * matrix overload.
  *
  * @note Compare with MATLAB®'s [K,S,e] = lqry(sys, Qy, R).
- * @see lqry(A,B,C,D,Qy,R), design::discrete_lqr, design::continuous_lqr
+ * @see lqry(A,B,C,D,Qy,R), design::lqr
  */
 template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, size_t NV = 0>
-[[nodiscard]] constexpr design::LQRResult<NX, NU, T> lqry(
+[[nodiscard]] constexpr auto lqry(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     const Matrix<NY, NY, T>&                 Qy,
     const Matrix<NU, NU, T>&                 R
@@ -725,71 +1038,60 @@ template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, si
     const Matrix<NX, NX, T> Qx = sys.C.transpose() * Qy * sys.C;
     const Matrix<NX, NU, T> N = sys.C.transpose() * Qy * sys.D;
     const Matrix<NU, NU, T> Ru = R + (sys.D.transpose() * Qy * sys.D);
-    if (sys.is_discrete()) {
-        return design::discrete_lqr(sys.A, sys.B, Qx, Ru, N);
-    }
-    return design::continuous_lqr(sys.A, sys.B, Qx, Ru, N);
+    return design::lqr(sys, {Qx, Ru, N});
 }
 
 /**
  * @brief Linear-Quadratic Integral design for tracking
  *
- * Discrete plants only (@p sys.Ts > 0): a continuous @p sys returns a result
- * with `success == false` rather than a DARE solution of the wrong problem.
+ * Discrete plants only (@p sys.Ts > 0): a continuous @p sys is refused with
+ * DesignStatus::invalid_sample_time rather than a DARE solution of the wrong problem.
  *
- * Integrates every output. To integrate a subset, add the last argument
- * design::discrete_lqi takes: an index list, `lqi(sys, Q, R, {0, 3})`, or an NI×NY
- * selector Ci; Q is then (NX+NI)×(NX+NI). On a model with delay states Q may be sized
- * to the plant, (NX_plant+NI)×(NX_plant+NI).
+ * Q is MATLAB®'s, on [x; xi], (NX+NI)×(NX+NI): its diagonal blocks are the design's Q and
+ * Q_integral. Cross weights between x and xi are refused with DesignStatus::bad_weights.
+ * Integrates every output. To integrate a subset, add an index list, `lqi(sys, Q, R, {0, 3})`,
+ * or an NI×NY selector Ci.
  *
- * @note Alias for design::discrete_lqi. Compare with MATLAB®'s lqi(sys, Q, R).
+ * @note Alias for design::lqi. Compare with MATLAB®'s lqi(sys, Q, R).
  */
-template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, size_t NV = 0, size_t NQA = NX + NY>
+template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, size_t NV = 0>
 [[nodiscard]] constexpr auto lqi(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
-    const Matrix<NQA, NQA, T>&               Q,
+    const Matrix<NX + NY, NX + NY, T>&       Q,
     const Matrix<NU, NU, T>&                 R
 ) {
-    if (!sys.is_discrete()) {
-        return decltype(design::discrete_lqi(sys, Q, R)){}; // discrete design only; success = false
-    }
-    return design::discrete_lqi(sys, Q, R);
+    return detail::integral_design<NY>(sys, Q, R, design::detail::StateFeedbackOptions{.offset_free = design::IntegralAction{}});
 }
 
-/// LQI integrating the outputs @p Ci selects (NI×NY). Discrete plants only.
-template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NI, size_t NQA = NX + NI>
+/** @brief LQI integrating the outputs @p Ci selects (NI×NY). Discrete plants only. */
+template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NI>
 [[nodiscard]] constexpr auto lqi(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
-    const Matrix<NQA, NQA, T>&               Q,
+    const Matrix<NX + NI, NX + NI, T>&       Q,
     const Matrix<NU, NU, T>&                 R,
     const Matrix<NI, NY, T>&                 Ci
 ) {
-    if (!sys.is_discrete()) {
-        return decltype(design::discrete_lqi(sys, Q, R, Ci)){}; // discrete design only; success = false
-    }
-    return design::discrete_lqi(sys, Q, R, Ci);
+    return detail::integral_design<NI>(sys, Q, R, design::detail::StateFeedbackOptions{.offset_free = Ci});
 }
 
-/// LQI integrating the listed outputs, e.g. `lqi(sys, Q, R, {0, 3})`. Discrete plants only.
-template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NI, size_t NQA = NX + NI>
+/** @brief LQI integrating the listed outputs, e.g. `lqi(sys, Q, R, {0, 3})`. Discrete plants only. */
+template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NI>
 [[nodiscard]] constexpr auto lqi(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
-    const Matrix<NQA, NQA, T>&               Q,
+    const Matrix<NX + NI, NX + NI, T>&       Q,
     const Matrix<NU, NU, T>&                 R,
     const size_t (&outputs)[NI]
 ) {
-    if (!sys.is_discrete()) {
-        return decltype(design::discrete_lqi(sys, Q, R, outputs)){}; // discrete design only; success = false
-    }
-    return design::discrete_lqi(sys, Q, R, outputs);
+    return detail::integral_design<NI>(sys, Q, R, design::detail::StateFeedbackOptions{.offset_free = detail::integrated_list(outputs)});
 }
 
 /**
  * @brief Linear-Quadratic-Gaussian regulator design
  *
- * Discrete plants only (@p sys.Ts > 0); a continuous @p sys returns `success == false`.
+ * Discrete plants only (@p sys.Ts > 0); a continuous @p sys is refused with
+ * DesignStatus::invalid_sample_time.
  *
- * @note Alias for design::discrete_lqg. Compare with MATLAB®'s lqg(sys, ...).
+ * @note Alias for design::lqg. Compare with MATLAB®'s lqg(sys, ...).
  */
 template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, size_t NV = 0>
 [[nodiscard]] constexpr auto lqg(
@@ -800,112 +1102,85 @@ template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, si
     const Matrix<NV, NV, T>&                 R_kf,
     const Matrix<NX, NU, T>&                 N = Matrix<NX, NU, T>{}
 ) {
-    if (!sys.is_discrete()) {
-        return decltype(design::discrete_lqg(sys, Q_lqr, R_lqr, design::KalmanNoise{Q_kf, R_kf}, N)){}; // discrete design only; success = false
-    }
-    return design::discrete_lqg(sys, Q_lqr, R_lqr, design::KalmanNoise{Q_kf, R_kf}, N);
+    return design::lqg(sys, {Q_lqr, R_lqr, N}, {Q_kf, R_kf});
 }
 
 /**
  * @brief Combine separate Kalman filter and LQR designs into an LQG controller
  * @note Alias for design::lqg_from_parts. Compare with MATLAB®'s lqgreg(kest, k).
  */
-template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = NX, size_t NV = NY>
+template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = NX, size_t NV = NY, typename Reg>
 [[nodiscard]] constexpr auto lqgreg(
     const design::KalmanResult<NX, NU, NY, T, NW, NV>& kest,
-    const design::LQRResult<NX, NU, T>&                lqr_result
+    const Reg&                                         reg // design::lqr's result, or dlqr's
 ) {
-    return design::lqg_from_parts(kest, lqr_result);
+    return design::lqg_from_parts(kest, reg);
 }
 
 /**
  * @brief Linear-Quadratic-Gaussian design with integral action for tracking
  *
- * Discrete plants only (@p sys.Ts > 0); a continuous @p sys returns `success == false`.
+ * Discrete plants only (@p sys.Ts > 0); a continuous @p sys is refused with
+ * DesignStatus::invalid_sample_time.
  *
- * Integrates every output. To integrate a subset, add the last argument
- * design::discrete_lqgi takes: an index list, `lqgtrack(sys, Q_aug, R, Q_kf, R_kf, {0, 3})`,
- * or an NI×NY selector Ci; Q_aug is then (NX+NI)×(NX+NI). On a model with delay states
- * Q_aug may be sized to the plant, (NX_plant+NI)×(NX_plant+NI).
+ * Q_aug is MATLAB®'s, on [x; xi], as for lqi: cross weights between x and xi are refused with
+ * DesignStatus::bad_weights. Integrates every output. To integrate a subset, add an index
+ * list, `lqgtrack(sys, Q_aug, R, Q_kf, R_kf, {0, 3})`, or an NI×NY selector Ci.
  *
- * @note Alias for design::discrete_lqgi. Compare with MATLAB®'s lqgtrack(...).
+ * @note Alias for design::lqgi. Compare with
+ *       MATLAB®'s lqgtrack(...).
  */
-template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, size_t NV = 0, size_t NQA = NX + NY>
+template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, size_t NV = 0>
 [[nodiscard]] constexpr auto lqgtrack(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
-    const Matrix<NQA, NQA, T>&               Q_aug,
+    const Matrix<NX + NY, NX + NY, T>&       Q_aug,
     const Matrix<NU, NU, T>&                 R,
     const Matrix<NW, NW, T>&                 Q_kf,
     const Matrix<NV, NV, T>&                 R_kf
 ) {
-    if (!sys.is_discrete()) {
-        return decltype(design::discrete_lqgi(sys, Q_aug, R, design::KalmanNoise{Q_kf, R_kf})){}; // discrete design only; success = false
-    }
-    return design::discrete_lqgi(sys, Q_aug, R, design::KalmanNoise{Q_kf, R_kf});
+    return detail::integral_design<NY>(sys, Q_aug, R, design::detail::StateFeedbackOptions{.noise = design::KalmanNoise{Q_kf, R_kf}, .offset_free = design::IntegralAction{}});
 }
 
-/// LQG servo integrating the outputs @p Ci selects (NI×NY). Discrete plants only.
-template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NI, size_t NQA = NX + NI>
+/** @brief LQG servo integrating the outputs @p Ci selects (NI×NY). Discrete plants only. */
+template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NI>
 [[nodiscard]] constexpr auto lqgtrack(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
-    const Matrix<NQA, NQA, T>&               Q_aug,
+    const Matrix<NX + NI, NX + NI, T>&       Q_aug,
     const Matrix<NU, NU, T>&                 R,
     const Matrix<NW, NW, T>&                 Q_kf,
     const Matrix<NV, NV, T>&                 R_kf,
     const Matrix<NI, NY, T>&                 Ci
 ) {
-    if (!sys.is_discrete()) {
-        return decltype(design::discrete_lqgi(sys, Q_aug, R, design::KalmanNoise{Q_kf, R_kf}, Ci)){}; // discrete design only; success = false
-    }
-    return design::discrete_lqgi(sys, Q_aug, R, design::KalmanNoise{Q_kf, R_kf}, Ci);
+    return detail::integral_design<NI>(sys, Q_aug, R, design::detail::StateFeedbackOptions{.noise = design::KalmanNoise{Q_kf, R_kf}, .offset_free = Ci});
 }
 
-/// LQG servo integrating the listed outputs, e.g. `lqgtrack(sys, Q_aug, R, Q_kf, R_kf, {0, 3})`.
-/// Discrete plants only.
-template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NI, size_t NQA = NX + NI>
+/**
+ * @brief LQG servo integrating the listed outputs, e.g. `lqgtrack(sys, Q_aug, R, Q_kf, R_kf, {0, 3})`.
+ * Discrete plants only.
+ */
+template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NI>
 [[nodiscard]] constexpr auto lqgtrack(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
-    const Matrix<NQA, NQA, T>&               Q_aug,
+    const Matrix<NX + NI, NX + NI, T>&       Q_aug,
     const Matrix<NU, NU, T>&                 R,
     const Matrix<NW, NW, T>&                 Q_kf,
     const Matrix<NV, NV, T>&                 R_kf,
     const size_t (&outputs)[NI]
 ) {
-    if (!sys.is_discrete()) {
-        return decltype(design::discrete_lqgi(sys, Q_aug, R, design::KalmanNoise{Q_kf, R_kf}, outputs)){}; // discrete design only; success = false
-    }
-    return design::discrete_lqgi(sys, Q_aug, R, design::KalmanNoise{Q_kf, R_kf}, outputs);
+    return detail::integral_design<NI>(sys, Q_aug, R, design::detail::StateFeedbackOptions{.noise = design::KalmanNoise{Q_kf, R_kf}, .offset_free = detail::integrated_list(outputs)});
 }
 
 /**
- * @brief Plant-aware PID tune (MATLAB® pidtune spelling)
+ * @brief Plant-aware PID tune at crossover ωc (MATLAB® pidtune spelling): 60° PID
  *
- * Forwards to @ref design::pidtune. The one-argument form is 60° PID.
- * Pass a @ref design::PidTuneSpec for PM, law, Tf, and 2-DOF weights.
+ * Forwards to @ref design::pidtune with `{.wc = wc}`; pass a design::PIDTuneSpec to
+ * design::pidtune for the phase margin, law, Tf and 2-DOF weights.
  *
- * @note Compare with MATLAB®'s pidtune(sys, wc).
+ * @note Compare with MATLAB®'s pidtune(sys, 'PID', wc).
  */
 template<size_t NX, typename T = double>
-[[nodiscard]] constexpr damp::optional<damp::design::PIDResult<T>>
-pidtune(const StateSpace<NX, 1, 1, T>& sys, T wc) noexcept {
-    return design::pidtune(sys, wc);
-}
-
-template<size_t NX, typename T = double>
-[[nodiscard]] constexpr damp::optional<damp::design::PIDResult<T>>
-pidtune(
-    const StateSpace<NX, 1, 1, T>& sys,
-    T                              wc,
-    T                              phase_margin_deg,
-    design::PIDType                type = design::PIDType::PID
-) noexcept {
-    return design::pidtune(sys, wc, phase_margin_deg, type);
-}
-
-template<size_t NX, typename T = double>
-[[nodiscard]] constexpr damp::optional<damp::design::PIDResult<T>>
-pidtune(const StateSpace<NX, 1, 1, T>& sys, const design::PidTuneSpec<T>& spec) noexcept {
-    return design::pidtune(sys, spec);
+[[nodiscard]] constexpr design::PIDGains<T> pidtune(const StateSpace<NX, 1, 1, T>& sys, T wc) noexcept {
+    return design::pidtune(sys, design::PIDTuneSpec<T>{.wc = wc});
 }
 
 // ===========================================================================
@@ -914,15 +1189,12 @@ pidtune(const StateSpace<NX, 1, 1, T>& sys, const design::PidTuneSpec<T>& spec) 
 
 // These already carry their MATLAB® names in analysis::; surface them under
 // matlab:: too so a MATLAB®-style call site finds them in one namespace.
-using analysis::arange;
 using analysis::bode;
 using analysis::damp;
 using analysis::dcgain;
-using analysis::geomspace;
 using analysis::impulse;
 using analysis::initial;
 using analysis::linspace;
-using analysis::logspace;
 using analysis::lsim;
 using analysis::lsiminfo;
 using analysis::nichols;
@@ -934,11 +1206,27 @@ using analysis::step;
 using analysis::stepinfo;
 
 /**
+ * @brief @p n points from 10ᵃ to 10ᵇ, logarithmically spaced (decade exponents, as MATLAB®'s)
+ *
+ * analysis::geomspace(10ᵃ, 10ᵇ, n): the endpoints are exact powers of ten.
+ *
+ * @note Compare with MATLAB®'s y = logspace(a, b, n).
+ */
+template<typename T = double>
+    requires std::is_floating_point_v<T>
+[[nodiscard]] std::vector<T> logspace(T a, T b, size_t n) {
+    return analysis::geomspace(damp::pow(T{10}, a), damp::pow(T{10}, b), n);
+}
+
+/**
  * @brief MATLAB® short alias for the open-loop poles of a system.
+ *
+ * nullopt when the eigensolver does not converge or A has a non-finite entry.
+ *
  * @note Compare with MATLAB®'s p = pole(sys). (analysis names it `poles`.)
  */
 template<size_t NX, typename T = double>
-[[nodiscard]] constexpr ColVec<NX, damp::complex<T>> pole(const Matrix<NX, NX, T>& A) {
+[[nodiscard]] constexpr damp::optional<damp::array<damp::complex<T>, NX>> pole(const Matrix<NX, NX, T>& A) {
     return analysis::poles(A);
 }
 
@@ -948,6 +1236,7 @@ template<size_t NX, typename T = double>
  * @note Compare with MATLAB®'s [Gm, Pm, Wcg, Wcp] = margin(...). Gm is a linear
  *       ratio; numeric_limits<T>::max() (the
  *       library's finite stand-in for +inf under -ffast-math) marks a missing crossover.
+ *       With several crossovers, the smallest margins, as MATLAB®'s.
  *
  * @c Wcg is the phase-crossover frequency (GM site); @c Wcp is the
  * gain-crossover frequency (PM site).
@@ -996,8 +1285,8 @@ template<size_t NX, size_t NW, size_t NV, typename T>
  * is the gain-crossover frequency stored in @ref MarginResult::Wcp. Missing
  * crossovers keep the corresponding margin at +inf (same sentinel as @ref margin).
  *
- * @note Compare with MATLAB®'s S = allmargin(sys) (subset: first GM/PM/DM only;
- *       multi-crossing arrays are not collected).
+ * @note Compare with MATLAB®'s S = allmargin(sys) (subset: the smallest GM and PM and the
+ *       DM at the PM's crossover; multi-crossing arrays are not collected).
  * @see margin
  */
 template<typename T = double>
@@ -1033,16 +1322,26 @@ template<size_t NX, size_t NW, size_t NV, typename T>
 }
 
 /**
- * @brief Continuous-time stability predicate on a state matrix.
- *
- * True when all eigenvalues of @p A satisfy @f$\mathrm{Re}(\lambda) < 0@f$.
- *
- * @note Compare with MATLAB®'s isstable(sys) for continuous models.
- * @see analysis::is_stable_continuous, stability::is_stable_discrete
+ * @brief Disk margin of a SISO loop.
+ * @note Forwards to analysis::disk_margin. Compare with MATLAB®'s DM = diskmargin(L, sigma):
+ *       DiskMargin = alpha, GainMargin = [gain_low gain_high], PhaseMargin = ±phase_margin_deg,
+ *       Frequency = frequency.
  */
-template<size_t NX, typename T = double>
-[[nodiscard]] constexpr bool isstable(const Matrix<NX, NX, T>& A) {
-    return analysis::is_stable_continuous(A);
+template<size_t NX, size_t NW, size_t NV, typename T>
+[[nodiscard]] constexpr analysis::DiskMarginResult<T> diskmargin(const StateSpace<NX, 1, 1, T, NW, NV>& L, std::type_identity_t<T> sigma = T{0}) {
+    return analysis::disk_margin(L, sigma);
+}
+
+/**
+ * @brief Loop-at-a-time disk margins of a square MIMO loop.
+ * @note Forwards to analysis::loop_at_a_time_disk_margin. Compare with MATLAB®'s
+ *       DM = diskmargin(L, sigma) for a MIMO L: DM(i) is channel[i]. The multiloop margin MM
+ *       needs μ and is not computed.
+ */
+template<size_t NX, size_t N, size_t NW, size_t NV, typename T>
+    requires(N > 1)
+[[nodiscard]] constexpr analysis::LoopDiskMarginResult<N, T> diskmargin(const StateSpace<NX, N, N, T, NW, NV>& L, std::type_identity_t<T> sigma = T{0}) {
+    return analysis::loop_at_a_time_disk_margin(L, sigma);
 }
 
 /**
@@ -1054,10 +1353,7 @@ template<size_t NX, typename T = double>
  */
 template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, size_t NV = 0>
 [[nodiscard]] constexpr bool isstable(const StateSpace<NX, NU, NY, T, NW, NV>& sys) {
-    if (sys.is_discrete()) {
-        return stability::is_stable_discrete(sys.A);
-    }
-    return analysis::is_stable_continuous(sys.A);
+    return stability::is_stable(sys);
 }
 
 /**
@@ -1074,47 +1370,23 @@ template<size_t Nnum, size_t Nden, typename T = double>
 }
 
 /**
- * @brief First-order Padé approximation of pure delay e^{−sT}.
+ * @brief Padé approximation of order N (1 or 2) of the pure delay e^{−sT}
  *
- * Thin alias for @ref design::pade_delay_1st.
+ * Forwards to design::pade_delay_1st / design::pade_delay_2nd. The order is a template
+ * argument because the transfer function's size depends on it; a sampled delay is
+ * design::pade_delay_1st(T, Ts) / design::pade_delay_2nd(T, Ts), or matlab::c2d.
  *
- * @note Compare with MATLAB®'s pade(T, 1) (numerator/denominator of the
- *       rational approximation; Damp returns a TransferFunction).
- * @see pade2, design::pade_delay_1st
+ * @note Compare with MATLAB®'s sys = pade(T, N), spelled matlab::pade<N>(T).
+ * @see design::pade_delay_1st, design::pade_delay_2nd
  */
-template<typename T = double>
-[[nodiscard]] constexpr TransferFunction<2, 2, T> pade(T T_delay) {
-    return design::pade_delay_1st(T_delay);
-}
-
-/**
- * @brief First-order Padé delay, Tustin-discretized at @p Ts.
- * @note Compare with MATLAB®'s c2d(pade(T,1), Ts, 'tustin') path.
- */
-template<typename T = double>
-[[nodiscard]] constexpr TransferFunction<2, 2, T> pade(T T_delay, T Ts) {
-    return design::pade_delay_1st(T_delay, Ts);
-}
-
-/**
- * @brief Second-order Padé approximation of pure delay e^{−sT}.
- *
- * Thin alias for @ref design::pade_delay_2nd.
- *
- * @note Compare with MATLAB®'s pade(T, 2).
- * @see pade, design::pade_delay_2nd
- */
-template<typename T = double>
-[[nodiscard]] constexpr TransferFunction<3, 3, T> pade2(T T_delay) {
-    return design::pade_delay_2nd(T_delay);
-}
-
-/**
- * @brief Second-order Padé delay, Tustin-discretized at @p Ts.
- */
-template<typename T = double>
-[[nodiscard]] constexpr TransferFunction<3, 3, T> pade2(T T_delay, T Ts) {
-    return design::pade_delay_2nd(T_delay, Ts);
+template<size_t N, typename T = double>
+    requires(N == 1 || N == 2)
+[[nodiscard]] constexpr auto pade(T T_delay) {
+    if constexpr (N == 1) {
+        return design::pade_delay_1st(T_delay);
+    } else {
+        return design::pade_delay_2nd(T_delay);
+    }
 }
 
 /**
@@ -1241,12 +1513,13 @@ template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, si
 }
 
 /**
- * @brief MATLAB® alias for the H∞ system norm @c norm(sys,Inf) / @c hinfnorm(sys).
- * @note Frequency-sweep estimate; see analysis::norm_hinf for the accuracy ceiling.
+ * @brief MATLAB® alias for the H∞ system norm @c [ninf, fpeak] = hinfnorm(sys, tol).
+ * @note Forwards to analysis::norm_hinf: ninf = gain, fpeak = frequency [rad/s]; an unstable
+ *       sys returns success = false. The default tol is 1e-12 (1e-6 for float), not MATLAB®'s 0.01.
  */
 template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, size_t NV = 0>
-[[nodiscard]] T hinfnorm(const StateSpace<NX, NU, NY, T, NW, NV>& sys, size_t n_points = 1024) {
-    return analysis::norm_hinf(sys, n_points);
+[[nodiscard]] constexpr analysis::HinfNormResult<T> hinfnorm(const StateSpace<NX, NU, NY, T, NW, NV>& sys, std::type_identity_t<T> tol = default_tol<T>()) {
+    return analysis::norm_hinf(sys, tol);
 }
 
 } // namespace matlab

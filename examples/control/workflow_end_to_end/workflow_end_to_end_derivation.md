@@ -36,7 +36,8 @@ x_2
 \end{aligned}
 ```
 
-(`plant_nonlinear` / `plant_output` in the example.) First-order mechanical
+(`plant_nonlinear(x, u)` / `plant_output(x, u)` in the example: a `Dynamics` and a
+`Measurement`, [concepts.hpp](../../../inc/damp/concepts.hpp).) First-order mechanical
 analogy: position $`x_1`$, rate $`x_2`$, viscous damping, nonlinear “gravity-like”
 $`\sin`$ restoring, force gain 1.5.
 
@@ -44,8 +45,8 @@ $`\sin`$ restoring, force gain 1.5.
 
 ## Design plant vs SIL truth
 
-The same `plant_nonlinear` is used for finite-difference linearization and for
-the nonlinear closed-loop SIL (no second plant). Design is at
+The same `plant_nonlinear` is used for central-difference linearization and for
+the nonlinear closed-loop SIL (no second plant); an EKF or UKF would take it too. Design is at
 $`(x_{\mathrm{op}}, u_{\mathrm{op}}) = (0, 0)`$ while SIL tracks $`r = 0.5`$ from
 $`x_0 = [0.25, 0]^\top`$ — intentional op-point ≠ setpoint so the LQGI integral
 (and PR) must supply the equilibrium bias
@@ -108,14 +109,16 @@ Discrete plant: `discretize(sys_c, Ts, ZOH)`.
 
 ## Design artifacts (deploy path)
 
-1. PID seed (optional side path): `pid_from_performance_spec` with
-   $`t_s=0.20`$, overshoot 10%, PI, $`T_s`$.
-2. LQGI: `design::lqgi_bundle(sys_d, Q_aug, R, {.process = Q_kf, .measurement = R_kf})` with
+1. PID seed (optional side path): `design::pidtune(sys_c, {.wc = 20.0, .phase_margin_deg = PM})`,
+   PID, with PM from `phase_margin_from_damping_ratio` at the damping of a 10% overshoot.
+2. LQGI: `design::lqgi(sys_d, {.Q = Q, .R = R, .Q_integral = Q_integral}, design::KalmanNoise{.process = Q_kf, .measurement = R_kf})` with
 
 ```math
-Q_{\mathrm{aug}}
+Q
 =
-\operatorname{diag}(20,\, 2,\, 80)
+\operatorname{diag}(20,\, 2)
+,\qquad
+Q_{\mathrm{integral}} = 80
 ,\qquad
 R = 0.25
 ```
@@ -131,9 +134,9 @@ Q_{\mathrm{kf}}
 R_{\mathrm{kf}} = 5\cdot 10^{-3}
 ```
 
-Success gated before runtime use. Float runtime from the bundle.
+Success gated before runtime use. Float runtime `LQGI runtime{lqgi_design.as<float>()}`, one tick `runtime.step(r, y)`.
 
-3. PR: `design::pr(0, 10, 2\pi, 6, Ts)` — resonant path on the tracking error;
+3. PR: `design::pr({.Kp = 0, .Ki = 10, .w0 = 2\pi, .wc = 6}, Ts)` — resonant path on the tracking error;
    float `PRController`.
 
 SIL control law (double plant, float controllers):

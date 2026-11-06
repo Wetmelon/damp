@@ -86,7 +86,7 @@ struct ServoCommand {
     T velocity{T{0}}; ///< Velocity feedforward [drive units/s, e.g. turns/s]
     T torque{T{0}};   ///< Torque feedforward at the motor [Nm]
 
-    /// Precision rebind.
+    /** @brief Precision rebind. */
     template<typename U>
     [[nodiscard]] constexpr ServoCommand<U> as() const {
         return ServoCommand<U>{static_cast<U>(position), static_cast<U>(velocity), static_cast<U>(torque)};
@@ -108,26 +108,30 @@ struct ServoAxis {
     T turns_per_unit{T{1}};  ///< Signed ratio r: motor turns per joint unit (rad or m)
     T position_offset{T{0}}; ///< Added to the position command [turns] (home/zero offset)
 
-    /// Joint position [rad or m] → drive position command [turns].
+    /** @brief Joint position [rad or m] → drive position command [turns]. */
     [[nodiscard]] constexpr T position_command(T q) const { return (turns_per_unit * q) + position_offset; }
 
-    /// Joint velocity [rad/s or m/s] → velocity feedforward [turns/s].
+    /** @brief Joint velocity [rad/s or m/s] → velocity feedforward [turns/s]. */
     [[nodiscard]] constexpr T velocity_command(T v) const { return turns_per_unit * v; }
 
-    /// Joint-side effort (torque [Nm] or force [N]) → motor torque feedforward [Nm].
-    /// τ_motor = τ_joint / (2π·r); sign of r reflects into the torque sign.
+    /**
+     * @brief Joint-side effort (torque [Nm] or force [N]) → motor torque feedforward [Nm].
+     * τ_motor = τ_joint / (2π·r); sign of r reflects into the torque sign.
+     */
     [[nodiscard]] constexpr T reflect_torque(T joint_effort) const {
         return joint_effort / (T{2} * damp::numbers::pi_v<T> * turns_per_unit);
     }
 
-    /// Convert a full joint TrajectoryState (position + velocity) plus an
-    /// already-computed joint-side effort into a drive command. Torque comes from
-    /// the feedforward policy, not the profile, so it is passed in separately.
+    /**
+     * @brief Convert a full joint TrajectoryState (position + velocity) plus an
+     * already-computed joint-side effort into a drive command. Torque comes from
+     * the feedforward policy, not the profile, so it is passed in separately.
+     */
     [[nodiscard]] constexpr ServoCommand<T> to_command(const TrajectoryState<T>& s, T joint_effort = T{0}) const {
         return ServoCommand<T>{position_command(s.position), velocity_command(s.velocity), reflect_torque(joint_effort)};
     }
 
-    /// Precision rebind.
+    /** @brief Precision rebind. */
     template<typename U>
     [[nodiscard]] constexpr ServoAxis<U> as() const {
         return ServoAxis<U>{static_cast<U>(turns_per_unit), static_cast<U>(position_offset)};
@@ -200,7 +204,7 @@ struct ConstantInertiaFeedforward {
     damp::array<T, NAxes> coulomb{}; ///< Coulomb friction τ_c,ᵢ [Nm or N]
     damp::array<T, NAxes> gravity{}; ///< Gravity / hold torque gᵢ [Nm or N], settable per tick
 
-    /// Joint-side feedforward effort for axis @p i from its motion state.
+    /** @brief Joint-side feedforward effort for axis @p i from its motion state. */
     [[nodiscard]] constexpr T operator()(size_t i, const TrajectoryState<T>& s) const {
         return (inertia[i] * s.acceleration) + (viscous[i] * s.velocity) + (coulomb[i] * damp::sgn(s.velocity)) + gravity[i];
     }
@@ -238,7 +242,7 @@ public:
     [[nodiscard]] constexpr const ServoAxis<T>& axis(size_t i) const { return axes_[i]; }
     constexpr void                              set_axis(size_t i, const ServoAxis<T>& a) { axes_[i] = a; }
 
-    /// Map all axes with a torque-feedforward policy `T effort = policy(i, state)`.
+    /** @brief Map all axes with a torque-feedforward policy `T effort = policy(i, state)`. */
     template<typename TorquePolicy>
     [[nodiscard]] constexpr CommandArray command(const StateArray& states, const TorquePolicy& policy) const {
         CommandArray out{};
@@ -248,7 +252,7 @@ public:
         return out;
     }
 
-    /// Map all axes with no torque feedforward (position + velocity only).
+    /** @brief Map all axes with no torque feedforward (position + velocity only). */
     [[nodiscard]] constexpr CommandArray command(const StateArray& states) const {
         CommandArray out{};
         for (size_t i = 0; i < NAxes; ++i) {
@@ -257,7 +261,7 @@ public:
         return out;
     }
 
-    /// Precision rebind.
+    /** @brief Precision rebind. */
     template<typename U>
     [[nodiscard]] constexpr ServoBank<NAxes, U> as() const {
         damp::array<ServoAxis<U>, NAxes> a{};

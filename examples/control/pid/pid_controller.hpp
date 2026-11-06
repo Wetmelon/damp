@@ -27,8 +27,8 @@ inline constexpr float Ts = 0.01f; // 100 Hz
 
 // Prefer: design → discretize → as<float> → assign into the runtime type.
 // discretize in double so static constinit is a constant expression under GCC.
-// API: design::pid(Kp, Ki, Kd [, u_min, u_max, ...]) — not (Kp, Ki, Kd, N, b).
-// Extra positional args are actuator limits; omit them for unbounded PI (b defaults to 1).
+// For limits / setpoint weights / filter, name them:
+// design::PIDGains{.Kp = 4.0, .Ki = 8.0, .u_lim = {.lower = -12.0, .upper = 12.0}}.
 inline constexpr auto pi_design = design::pid(4.0, 8.0, 0.0);
 
 /**

@@ -59,6 +59,33 @@ struct scalar_type<damp::complex<T>> {
 template<typename T>
 using scalar_type_t = typename scalar_type<T>::type;
 
+namespace detail {
+template<typename From, typename To>
+inline constexpr bool converts_exactly_v = std::is_same_v<std::remove_cv_t<From>, std::remove_cv_t<To>>
+                                        || (is_complex_v<std::remove_cv_t<To>> && std::is_same_v<std::remove_cv_t<From>, scalar_type_t<std::remove_cv_t<To>>>);
+
+/** @brief Element type of a mixed operation: the shared type, or the complex one when the other side is its real. */
+template<typename A, typename B>
+using common_element_t = std::conditional_t<is_complex_v<std::remove_cv_t<B>>, std::remove_cv_t<B>, std::remove_cv_t<A>>;
+} // namespace detail
+
+/**
+ * @brief Matrix elements of type @p From convert to @p To without rounding: the same type, or a real
+ * into the complex of its own precision
+ *
+ * Implicit matrix conversions, assignments and matrix–matrix operators require it. A change of
+ * precision (double ↔ float) is written `.as<U>()` or with the explicit converting constructor.
+ */
+template<typename From, typename To>
+concept ConvertsExactly = detail::converts_exactly_v<From, To>; // change precision with .as<U>()
+
+/**
+ * @brief Two matrix element types mix in one operator without rounding: equal, or a real and the
+ * complex of its own precision
+ */
+template<typename A, typename B>
+concept SamePrecision = ConvertsExactly<A, B> || ConvertsExactly<B, A>; // change precision with .as<U>()
+
 /**
  * @brief Concept for any type that provides 2D matrix-like element access
  *
@@ -80,16 +107,20 @@ concept MatrixLike = requires(const M& m, size_t i, size_t j) {
 template<typename M, size_t R, size_t C>
 concept MatrixLikeOf = MatrixLike<M> && (M::rows() == R) && (M::cols() == C);
 
-/// Machine epsilon of T's real scalar (MATLAB® eps). Scale it by problem size and
-/// magnitude to build a relative tolerance.
+/**
+ * @brief Machine epsilon of T's real scalar (MATLAB® eps). Scale it by problem size and
+ * magnitude to build a relative tolerance.
+ */
 template<typename T>
 constexpr scalar_type_t<std::remove_const_t<T>> eps() {
     return std::numeric_limits<scalar_type_t<std::remove_const_t<T>>>::epsilon();
 }
 
-/// Type-appropriate default tolerance for floating-point comparisons.
-/// float  ~7 decimal digits  → 1e-6
-/// double ~15 decimal digits → 1e-12
+/**
+ * @brief Type-appropriate default tolerance for floating-point comparisons.
+ * float  ~7 decimal digits  → 1e-6
+ * double ~15 decimal digits → 1e-12
+ */
 template<typename T>
 constexpr scalar_type_t<std::remove_const_t<T>> default_tol() {
     using real_t = scalar_type_t<std::remove_const_t<T>>;

@@ -67,7 +67,7 @@ int main() {
     fmt::print("PI-D: Kp={:.3f}  Ki={:.3f}  Kd={:.3f}  (c=0, Tf=1/(10 wc))\n", pid_d.Kp, pid_d.Ki, pid_d.Kd);
     fmt::print("Scenario: step r=1 → load 0.45 N·m @ 1.2 s → J×3 @ 2.4 s → r=0 @ 3.6 s\n\n");
 
-    ADRCController<2, double> adrc{adrc_d, Ts};
+    ADRCController<2, double> adrc{adrc_d};
     PIDController<double>     pid{pid_d.discretize(Ts)};
 
     Axis plant_adrc{};
@@ -100,8 +100,8 @@ int main() {
         double       up = control_period_pid(pid, rk, plant_pid.theta);
         const double ua_sat = damp::clamp(ua, -u_max, u_max);
         const double up_sat = damp::clamp(up, -u_max, u_max);
-        adrc.back_calculate(ua, ua_sat);
-        pid.back_calculate(up, up_sat);
+        adrc.back_calculate(ua_sat);
+        pid.back_calculate(up_sat);
 
         plant_adrc.step(ua_sat, tau_L, Ts);
         plant_pid.step(up_sat, tau_L, Ts);
@@ -194,17 +194,17 @@ int main() {
 
     const auto xd = plot::panel_x_domain();
     auto       layout = Layout()
-                      .title([](auto& tt) { tt.text("ADRC vs PI-D — load step, then J×3"); })
-                      .xaxis(Layout::Xaxis().domain(xd).showticklabels(false).anchor("y"))
-                      .yaxis(Layout::Yaxis().title([](auto& tt) { tt.text("θ [rad]"); }).domain({0.70, 1.0}))
-                      .xaxis(2, Layout::Xaxis().domain(xd).matches("x").showticklabels(false).anchor("y2"))
-                      .yaxis(2, Layout::Yaxis().title([](auto& tt) { tt.text("u [N·m]"); }).domain({0.37, 0.63}))
-                      .xaxis(3, Layout::Xaxis().domain(xd).matches("x").title([](auto& tt) { tt.text("Time (s)"); }).anchor("y3"))
-                      .yaxis(3, Layout::Yaxis().title([](auto& tt) { tt.text("f̂ [rad/s²]"); }).domain({0.0, 0.30}))
-                      .legend(plot::panel_legend(1.0))
-                      .legend(2, plot::panel_legend(0.63))
-                      .legend(3, plot::panel_legend(0.30))
-                      .height(900);
+                            .title([](auto& tt) { tt.text("ADRC vs PI-D — load step, then J×3"); })
+                            .xaxis(Layout::Xaxis().domain(xd).showticklabels(false).anchor("y"))
+                            .yaxis(Layout::Yaxis().title([](auto& tt) { tt.text("θ [rad]"); }).domain({0.70, 1.0}))
+                            .xaxis(2, Layout::Xaxis().domain(xd).matches("x").showticklabels(false).anchor("y2"))
+                            .yaxis(2, Layout::Yaxis().title([](auto& tt) { tt.text("u [N·m]"); }).domain({0.37, 0.63}))
+                            .xaxis(3, Layout::Xaxis().domain(xd).matches("x").title([](auto& tt) { tt.text("Time (s)"); }).anchor("y3"))
+                            .yaxis(3, Layout::Yaxis().title([](auto& tt) { tt.text("f̂ [rad/s²]"); }).domain({0.0, 0.30}))
+                            .legend(plot::panel_legend(1.0))
+                            .legend(2, plot::panel_legend(0.63))
+                            .legend(3, plot::panel_legend(0.30))
+                            .height(900);
     fig.setLayout(damp::move(layout));
     plot::write_html(fig, "plots/control/adrc_vs_pid.html");
     fmt::print("\nPlot written to plots/control/adrc_vs_pid.html\n");

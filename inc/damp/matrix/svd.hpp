@@ -26,6 +26,7 @@
 
 #include <cstddef>
 #include <limits>
+#include <type_traits>
 
 #include "core.hpp"
 #include "damp/backend.hpp"
@@ -37,18 +38,27 @@ namespace damp {
 
 namespace mat {
 
-namespace detail {
+/**
+ * @brief Result of a full singular value decomposition A = U·Σ·Vᴴ.
+ *
+ * U (M×M) and V (N×N) are unitary; singular_values holds the min(M,N) diagonal
+ * entries of Σ in non-increasing order. For real T, "unitary" means orthogonal
+ * and Vᴴ = Vᵀ.
+ */
+template<size_t M, size_t N, typename T>
+struct [[nodiscard]] SVDResult {
+    Matrix<M, M, T>                                singular_U{};      ///< Left singular vectors.
+    damp::array<scalar_type_t<T>, (M < N ? M : N)> singular_values{}; ///< Descending, ≥ 0.
+    Matrix<N, N, T>                                singular_V{};      ///< Right singular vectors.
+    bool                                           success{false};    ///< Finite input and the Jacobi sweeps converged.
 
-/// Result of a one-sided Jacobi SVD of a tall matrix (P ≥ Q).
-template<size_t P, size_t Q, typename T>
-struct TallSVD {
-    Matrix<P, P, T>                  U{};               ///< Left singular vectors (P×P unitary).
-    damp::array<scalar_type_t<T>, Q> s{};               ///< Singular values, descending, ≥ 0.
-    Matrix<Q, Q, T>                  V{};               ///< Right singular vectors (Q×Q unitary).
-    bool                             converged = false; ///< A sweep finished with no rotation.
+    /** @brief True for finite input whose Jacobi sweeps converged. */
+    [[nodiscard]] constexpr explicit operator bool() const { return success; }
 };
 
-/// Default relative rank threshold max(M, N)·eps (MATLAB® rank / pinv / null).
+namespace detail {
+
+/** @brief Default relative rank threshold max(M, N)·eps (MATLAB® rank / pinv / null). */
 template<size_t M, size_t N, typename T>
 [[nodiscard]] constexpr scalar_type_t<T> svd_default_rel_tol() {
     return static_cast<scalar_type_t<T>>(M > N ? M : N) * damp::eps<T>();
@@ -81,7 +91,7 @@ template<size_t M, size_t N, typename T>
  * @see "New fast and accurate Jacobi SVD algorithm I" (Drmač & Veselić, 2008), SIAM J. Matrix Anal. Appl. 29(4)
  */
 template<size_t P, size_t Q, typename T>
-[[nodiscard]] constexpr TallSVD<P, Q, T> jacobi_svd_tall(const Matrix<P, Q, T>& A) {
+[[nodiscard]] constexpr SVDResult<P, Q, T> jacobi_svd_tall(const Matrix<P, Q, T>& A) {
     static_assert(P >= Q, "jacobi_svd_tall requires P >= Q (transpose wide inputs)");
     using real_t = scalar_type_t<T>;
     const real_t tol = static_cast<real_t>(P) * damp::eps<T>();
@@ -151,9 +161,6 @@ template<size_t P, size_t Q, typename T>
                     }
                     const bool   p_big = d[p] > d[q];
                     const real_t rho = p_big ? (d[q] / d[p]) : (d[p] / d[q]);
-                    if (rho == real_t{0}) {
-                        continue; // norm ratio below the range: no representable rotation moves either column
-                    }
                     rotated = true;
 
                     // Real Jacobi angle that zeros the off-diagonal of the phase-aligned
@@ -164,12 +171,16 @@ template<size_t P, size_t Q, typename T>
                     const real_t gap = (real_t{1} - rho) * (real_t{1} + rho); // 1 − ρ²
                     const real_t two_rc = real_t{2} * rho * gmag;
                     real_t       t_abs = real_t{0};
+                    real_t       t_over_rho = real_t{0}; // |t|/ρ, finite as ρ → 0
                     if (gap <= two_rc) {
-                        const real_t az = gap / two_rc; // |ζ| ≤ 1
+                        const real_t az = gap / two_rc; // |ζ| ≤ 1, so ρ ≥ √2 − 1
                         t_abs = real_t{1} / (az + damp::sqrt((az * az) + real_t{1}));
+                        t_over_rho = t_abs / rho;
                     } else {
                         const real_t u = two_rc / gap; // 1/|ζ| < 1
-                        t_abs = u / (real_t{1} + damp::sqrt(real_t{1} + (u * u)));
+                        const real_t den = real_t{1} + damp::sqrt(real_t{1} + (u * u));
+                        t_abs = u / den;
+                        t_over_rho = (real_t{2} * gmag / gap) / den;
                     }
                     const real_t t = -zsign * t_abs;
                     const real_t c = real_t{1} / damp::sqrt(real_t{1} + (t * t));
@@ -180,9 +191,12 @@ template<size_t P, size_t Q, typename T>
 
                     // w_p ← c·w_p + ph·s·w_q, w_q ← −s·w_p + ph·c·w_q on w = W·d: in unit-vector
                     // form the cross terms carry s·d_q/d_p and s·d_p/d_q, both bounded by |c|·…
-                    // since |s| ≈ ρ|c| whenever ρ is small.
-                    const real_t sq_over_p = p_big ? (sn * rho) : (sn / rho); // s·d_q/d_p
-                    const real_t sp_over_q = p_big ? (sn / rho) : (sn * rho); // s·d_p/d_q
+                    // since |s| ≈ ρ|c| whenever ρ is small. s/ρ comes from |t|/ρ, not sn/ρ, so it stays
+                    // finite when ρ underflows: the small column then takes a Gram–Schmidt step
+                    // against the large one, which is the limit of the rotation as ρ → 0.
+                    const real_t s_over_rho = -zsign * c * t_over_rho;
+                    const real_t sq_over_p = p_big ? (sn * rho) : s_over_rho; // s·d_q/d_p
+                    const real_t sp_over_q = p_big ? s_over_rho : (sn * rho); // s·d_p/d_q
                     const T      phs = ph * T{sq_over_p};
                     const T      phc = ph * T{c};
                     for (size_t i = 0; i < P; ++i) {
@@ -209,28 +223,28 @@ template<size_t P, size_t Q, typename T>
     }
 
     // Singular values = column norms; economy U = the unit columns.
-    TallSVD<P, Q, T> out;
-    out.V = V;
-    out.converged = converged;
+    SVDResult<P, Q, T> out;
+    out.singular_V = V;
+    out.success = converged;
     for (size_t j = 0; j < Q; ++j) {
-        out.s[j] = d[j];
+        out.singular_values[j] = d[j];
     }
 
     // Sort singular values descending, permuting Ue (= W) and V columns with them.
     for (size_t i = 0; i < Q; ++i) {
         size_t best = i;
         for (size_t j = i + 1; j < Q; ++j) {
-            if (out.s[j] > out.s[best]) {
+            if (out.singular_values[j] > out.singular_values[best]) {
                 best = j;
             }
         }
         if (best != i) {
-            damp::swap(out.s[i], out.s[best]);
+            damp::swap(out.singular_values[i], out.singular_values[best]);
             for (size_t r = 0; r < P; ++r) {
                 damp::swap(W(r, i), W(r, best));
             }
             for (size_t r = 0; r < Q; ++r) {
-                damp::swap(out.V(r, i), out.V(r, best));
+                damp::swap(out.singular_V(r, i), out.singular_V(r, best));
             }
         }
     }
@@ -241,9 +255,9 @@ template<size_t P, size_t Q, typename T>
     // orthogonal to the others; the completion below supplies their left vectors.
     size_t rank = 0;
     for (size_t j = 0; j < Q; ++j) {
-        if (out.s[j] > real_t{0}) {
+        if (out.singular_values[j] > real_t{0}) {
             for (size_t i = 0; i < P; ++i) {
-                out.U(i, j) = W(i, j);
+                out.singular_U(i, j) = W(i, j);
             }
             ++rank;
         }
@@ -261,10 +275,10 @@ template<size_t P, size_t Q, typename T>
             for (size_t j = 0; j < filled; ++j) {
                 T proj = T{0};
                 for (size_t i = 0; i < P; ++i) {
-                    proj += damp::conj(out.U(i, j)) * v[i];
+                    proj += damp::conj(out.singular_U(i, j)) * v[i];
                 }
                 for (size_t i = 0; i < P; ++i) {
-                    v[i] -= proj * out.U(i, j);
+                    v[i] -= proj * out.singular_U(i, j);
                 }
             }
             real_t nrm_sq = real_t{0};
@@ -278,14 +292,26 @@ template<size_t P, size_t Q, typename T>
                 best_v = v;
             }
         }
+        // One Gram–Schmidt pass leaves the winner ~filled·eps/best_norm off the span it was
+        // projected against; a second pass restores eps ("twice is enough"). Its norm changes
+        // only to second order in that residue.
+        for (size_t j = 0; j < filled; ++j) {
+            T proj = T{0};
+            for (size_t i = 0; i < P; ++i) {
+                proj += damp::conj(out.singular_U(i, j)) * best_v[i];
+            }
+            for (size_t i = 0; i < P; ++i) {
+                best_v[i] -= proj * out.singular_U(i, j);
+            }
+        }
         for (size_t i = 0; i < P; ++i) {
-            out.U(i, filled) = best_v[i] / best_norm;
+            out.singular_U(i, filled) = best_v[i] / best_norm;
         }
     }
 
     if (rescale) {
         for (size_t j = 0; j < Q; ++j) {
-            out.s[j] *= amax;
+            out.singular_values[j] *= amax;
         }
     }
     return out;
@@ -294,60 +320,58 @@ template<size_t P, size_t Q, typename T>
 } // namespace detail
 
 /**
- * @brief Result of a full singular value decomposition A = U·Σ·Vᴴ.
- *
- * U (M×M) and V (N×N) are unitary; singular_values holds the min(M,N) diagonal
- * entries of Σ in non-increasing order. For real T, "unitary" means orthogonal
- * and Vᴴ = Vᵀ.
- */
-template<size_t M, size_t N, typename T>
-struct SVDResult {
-    Matrix<M, M, T>                                singular_U{};      ///< Left singular vectors.
-    damp::array<scalar_type_t<T>, (M < N ? M : N)> singular_values{}; ///< Descending, ≥ 0.
-    Matrix<N, N, T>                                singular_V{};      ///< Right singular vectors.
-    bool                                           converged = false; ///< Jacobi sweeps converged.
-};
-
-/**
  * @brief Full singular value decomposition A = U·Σ·Vᴴ (one-sided Jacobi).
  *
  * @tparam M Rows, @tparam N Columns, @tparam T float/double or damp::complex.
  * @param A Input matrix (any shape).
  * @return SVDResult with unitary U (M×M), descending singular values, unitary
  *         V (N×N). Wide inputs (M < N) are handled by decomposing Aᴴ internally.
+ *         A NaN or ±Inf entry returns success = false with every factor NaN.
  *
  * @note Compare with MATLAB®'s [U, S, V] = svd(A).
  */
 template<size_t M, size_t N, typename T>
 [[nodiscard]] constexpr SVDResult<M, N, T> svd(const Matrix<M, N, T>& A) {
-    SVDResult<M, N, T> out;
+    using real_t = scalar_type_t<T>;
+    const bool finite = mat::all_of(A, [](const T& v) {
+        if constexpr (std::is_floating_point_v<T>) {
+            return damp::isfinite(v);
+        } else {
+            return damp::isfinite(v.real()) && damp::isfinite(v.imag());
+        }
+    });
+    if (!finite) {
+        // The sweeps would zero a NaN column and report plausible singular values.
+        SVDResult<M, N, T> out{};
+        out.singular_U.fill(T{std::numeric_limits<real_t>::quiet_NaN()});
+        out.singular_values.fill(std::numeric_limits<real_t>::quiet_NaN());
+        out.singular_V.fill(T{std::numeric_limits<real_t>::quiet_NaN()});
+        return out;
+    }
     if constexpr (M >= N) {
-        const auto r = detail::jacobi_svd_tall<M, N, T>(A);
-        out.singular_U = r.U;
-        out.singular_V = r.V;
-        out.singular_values = r.s;
-        out.converged = r.converged;
+        return detail::jacobi_svd_tall<M, N, T>(A);
     } else {
         // A = (Aᴴ)ᴴ = (Uᵣ·Σ·Vᵣᴴ)ᴴ = Vᵣ·Σ·Uᵣᴴ ⇒ swap the factors.
         const auto r = detail::jacobi_svd_tall<N, M, T>(A.conjugate_transpose());
-        out.singular_U = r.V;
-        out.singular_V = r.U;
-        out.singular_values = r.s;
-        out.converged = r.converged;
+        return SVDResult<M, N, T>{r.singular_V, r.singular_values, r.singular_U, r.success};
     }
-    return out;
 }
 
 /**
  * @brief Numerical rank from a precomputed SVD result.
  * @param result SVD of the matrix.
  * @param rel_tol Singular values ≤ rel_tol·σ_max are treated as zero (default max(M, N)·eps, as MATLAB®).
+ * @return The rank; 0 for a failed SVD (a non-finite entry, or the sweeps did not converge), so a
+ *         full-rank test refuses it.
  */
 template<size_t M, size_t N, typename T>
 [[nodiscard]] constexpr size_t rank_from_svd(
     const SVDResult<M, N, T>& result,
     scalar_type_t<T>          rel_tol = detail::svd_default_rel_tol<M, N, T>()
 ) {
+    if (!result.success) {
+        return 0;
+    }
     constexpr size_t       K = (M < N) ? M : N;
     const scalar_type_t<T> smax = (K > 0) ? result.singular_values[0] : scalar_type_t<T>{0};
     const scalar_type_t<T> tol = smax * rel_tol;
@@ -371,7 +395,8 @@ template<size_t M, size_t N, typename T>
  *
  * @param A Input matrix (any shape).
  * @param rel_tol Singular values ≤ rel_tol·σ_max are treated as zero (default max(M, N)·eps, as MATLAB®).
- * @return Pseudoinverse (N×M).
+ * @return Pseudoinverse (N×M); every entry NaN when the SVD fails (a non-finite entry in A, or the
+ *         sweeps did not converge).
  *
  * @note Compare with MATLAB®'s pinv(A).
  */
@@ -383,7 +408,12 @@ template<size_t M, size_t N, typename T>
     using real_t = scalar_type_t<T>;
     constexpr size_t K = (M < N) ? M : N;
 
-    const auto   s = svd(A);
+    const auto s = svd(A);
+    if (!s.success) {
+        Matrix<N, M, T> nan{};
+        nan.fill(T{std::numeric_limits<real_t>::quiet_NaN()});
+        return nan;
+    }
     const real_t smax = (K > 0) ? s.singular_values[0] : real_t{0};
     const real_t tol = smax * rel_tol;
 
@@ -402,9 +432,9 @@ template<size_t M, size_t N, typename T>
     return Matrix<N, M, T>(s.singular_V * Sp_Uh);
 }
 
-/// Orthonormal basis for the null space (kernel) of a matrix.
+/** @brief Orthonormal basis for the null space (kernel) of a matrix. */
 template<size_t N, typename T>
-struct NullSpace {
+struct [[nodiscard]] NullSpace {
     Matrix<N, N, T> vectors{}; ///< Kernel basis = the last `dim` columns.
     size_t          dim = 0;   ///< Nullity (number of basis vectors).
 };
@@ -418,7 +448,9 @@ struct NullSpace {
  *
  * @param A Input matrix (any shape).
  * @param rel_tol Singular values ≤ rel_tol·σ_max are treated as zero (default max(M, N)·eps, as MATLAB®).
- * @return NullSpace whose last `dim` columns form an orthonormal kernel basis.
+ * @return NullSpace whose last `dim` columns form an orthonormal kernel basis. A failed SVD (a
+ *         non-finite entry in A, or the sweeps did not converge) has rank 0, so `dim` is N; its
+ *         vectors are NaN for a non-finite entry.
  *
  * @note Compare with MATLAB®'s null(A) (which returns those columns directly).
  */

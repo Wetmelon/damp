@@ -12,9 +12,9 @@
  * #include "damp/control.hpp"
  * using namespace damp;
  *
- * constexpr auto result = design::lqrd(A, B, Q, R, Ts);
- * constinit LQR<2, 1> controller{result.as<float>()}; // a failed design does not compile
- * // ISR: auto u = controller.control(x);
+ * constexpr auto result = design::lqr(sys, {.Q = Q, .R = R});
+ * constinit LQR controller{result.as<float>()}; // a failed design does not compile
+ * // ISR: auto u = controller.step(x);
  * @endcode
  *
  * | Include | Role |
@@ -24,6 +24,8 @@
  *
  * Point the compiler at `inc/` (`-I path/to/inc`). No library to link for the core.
  * Default math/container backend is the hosted C++ standard library.
+ * MATLAB® spellings (`c2d`, `lqr`, `pidtune`, `bode`) are `matlab::` on `workbench.hpp`;
+ * the name map is `docs/guide.md`.
  *
  * Vertical domain packs (motor / power / motion) are not in this public tree;
  * they may ship later as opt-in modules.
@@ -34,7 +36,8 @@
  *
  * 1. Design — `design::…` produce gains / Results, often `constexpr`.
  * 2. Result — pure data with `.as<U>()` and `bool success`.
- * 3. Runtime — light objects with `.control()` / `.estimate()` for the tick.
+ * 3. Runtime — light objects: `predict` / `update` on estimators, `control` on
+ *    controllers, `step` for predict then update then control (mₖ in, uₖ out).
  *
  * Keep iterative solvers out of the PWM-rate path. Prefer `mat::solve` over forming inverses.
  *
@@ -45,7 +48,8 @@
  *
  * @section main_more Further reading
  *
- * - Repository README and `REFERENCE.md` (generated API tables)
+ * - Repository README and `docs/guide.md` (task table: plant → law)
+ * - `REFERENCE.md` (generated API tables)
  * - `docs/known_limitations.md` — 0.x scope notes
  * - `examples/control/`, `examples/estimation/` — DiD teaching paths
  *
@@ -86,8 +90,13 @@
  */
 
 /**
+ * @namespace damp::encoder
+ * @brief Counts to exact position and a smooth speed: quadrature, sin/cos, unwrap, tracker.
+ */
+
+/**
  * @namespace damp::estimation
- * @brief Observers, filters for state estimation, and commissioning helpers.
+ * @brief Observers and filters for state estimation.
  *
  * Kalman / EKF / UKF / ESKF, Luenberger, DOB, RLS, excitation generators, and
  * related design entry points used by the estimation DiD path.

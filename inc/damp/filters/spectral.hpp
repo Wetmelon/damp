@@ -18,7 +18,7 @@
  * The Goertzel algorithm computes one DFT bin with a two-state recurrence — no
  * sample buffer, O(1) memory, O(N) per block. It is exact for *coherent*
  * sampling (an integer number of cycles of the target frequency in the block);
- * choose the block length N ≈ integer·fs/f for the best results.
+ * choose the block length N ≈ integer/(f·Ts) for the best results.
  *
  * All constexpr, allocation-free, float/double.
  */
@@ -39,6 +39,13 @@ namespace damp {
  * until the next @ref push (which begins the next block). Detecting the same
  * frequency continuously is just a loop of `if (g.push(x)) { use g.amplitude() }`.
  *
+ * The recurrence is Reinsch's form of s[n] = x[n] + 2cos ω·s[n−1] − s[n−2]: it carries
+ * d[n] = s[n] ∓ s[n−1] and the coefficient ∓4 sin²(ω/2) / 4 cos²(ω/2), which keep the
+ * bin frequency to full precision near ω = 0 and ω = π, where 2cos ω does not (in float
+ * at f·Ts = 1e-4, 1 − cos ω is about three float spacings below 1).
+ *
+ * @see "Introduction to Numerical Analysis" (Stoer & Bulirsch, 2002), §2.3.3 (the algorithms of Goertzel and Reinsch)
+ *
  * @tparam T Scalar type (float or double)
  */
 template<typename T = float>
@@ -47,33 +54,35 @@ public:
     constexpr Goertzel() = default;
 
     /**
-     * @brief Configure for @p freq_hz at sample rate @p fs_hz over @p block_size samples.
+     * @brief Configure for @p freq_hz sampled every @p Ts over @p block_size samples.
      *
-     * Requires @p fs_hz > 0, @p block_size ≥ 1, and 0 ≤ @p freq_hz < fs/2 (Nyquist).
+     * Requires @p Ts > 0 (finite), @p block_size ≥ 1, and 0 ≤ @p freq_hz < 1/(2·Ts) (Nyquist).
      * Invalid arguments leave the detector inert: @ref push never completes and
      * @ref amplitude returns 0 (no division by zero when N = 0).
      *
      * @param freq_hz    Target frequency [Hz]
-     * @param fs_hz      Sample rate [Hz]
+     * @param Ts         Sample time [s]
      * @param block_size Samples per block, N (≥ 1)
      */
-    constexpr Goertzel(T freq_hz, T fs_hz, size_t block_size)
+    constexpr Goertzel(T freq_hz, T Ts, size_t block_size)
         : n_(block_size) {
-        const bool ok = (block_size >= 1) && (fs_hz > T{0}) && (freq_hz >= T{0})
-                     && (freq_hz < (fs_hz / T{2}));
+        const bool ok = (block_size >= 1) && (Ts > T{0}) && damp::isfinite(Ts) && (freq_hz >= T{0})
+                     && (freq_hz * Ts < T{0.5});
         if (!ok) {
             n_ = 0;
             cos_ = T{1};
             sin_ = T{0};
-            coeff_ = T{0};
+            lambda_ = T{0};
             amp_scale_ = T{0};
             return;
         }
-        const T omega = (T{2} * damp::numbers::pi_v<T> * freq_hz) / fs_hz;
+        const T omega = T{2} * damp::numbers::pi_v<T> * freq_hz * Ts;
         const auto [s, c] = damp::sincos(omega);
         cos_ = c;
         sin_ = s;
-        coeff_ = T{2} * cos_;
+        near_dc_ = !(c < T{0});
+        const auto [hs, hc] = damp::sincos(omega / T{2});
+        lambda_ = near_dc_ ? (T{-4} * hs * hs) : (T{4} * hc * hc);
         // The recurrence ends on e^{jω(N−1)}·X(ω); undo that rotation once per block.
         const auto [rs, rc] = damp::sincos(omega * static_cast<T>(block_size - 1));
         rot_cos_ = rc;
@@ -92,18 +101,26 @@ public:
         }
         if (complete_) {
             // Auto-restart for the next block.
-            s1_ = T{0};
-            s2_ = T{0};
+            s_ = T{0};
+            d_ = T{0};
             count_ = 0;
             complete_ = false;
         }
-        const T s = x + (coeff_ * s1_) - s2_;
-        s2_ = s1_;
-        s1_ = s;
+        if (near_dc_) {
+            // d[n] = s[n] − s[n−1]: d ← d + λ·s + x, s ← s + d, λ = −4 sin²(ω/2).
+            d_ += (lambda_ * s_) + x;
+            s_ += d_;
+        } else {
+            // d[n] = s[n] + s[n−1]: d ← λ·s − d + x, s ← d − s, λ = 4 cos²(ω/2).
+            d_ = (lambda_ * s_) - d_ + x;
+            s_ = d_ - s_;
+        }
         if (++count_ >= n_) {
             // y = s[N−1] − e^{−jω}·s[N−2] = e^{jω(N−1)}·X(ω); X = y·e^{−jω(N−1)}.
-            const T yr = s1_ - (s2_ * cos_);
-            const T yi = s2_ * sin_;
+            // Re y = s[N−1]·(1 ∓ cos ω) ± cos ω·d, without the s[N−1] − cos ω·s[N−2] cancellation.
+            const T s2 = near_dc_ ? (s_ - d_) : (d_ - s_);
+            const T yr = near_dc_ ? ((cos_ * d_) - (lambda_ * s_ / T{2})) : ((lambda_ * s_ / T{2}) - (cos_ * d_));
+            const T yi = s2 * sin_;
             real_ = (yr * rot_cos_) + (yi * rot_sin_);
             imag_ = (yi * rot_cos_) - (yr * rot_sin_);
             complete_ = true;
@@ -112,33 +129,37 @@ public:
         return false;
     }
 
-    /// True once a full block has been accumulated.
+    /** @brief True once a full block has been accumulated. */
     [[nodiscard]] constexpr bool complete() const { return complete_; }
 
-    /// Magnitude of the DFT bin, |X_k|.
+    /** @brief Magnitude of the DFT bin, |X_k|. */
     [[nodiscard]] constexpr T magnitude() const { return damp::hypot(real_, imag_); }
 
-    /// Power, |X_k|².
+    /** @brief Power, |X_k|². */
     [[nodiscard]] constexpr T power() const { return (real_ * real_) + (imag_ * imag_); }
 
-    /// Peak amplitude of a sinusoid at the bin frequency (2·|X_k| / N; the DC level
-    /// |X₀| / N for a 0 Hz bin). Zero if N = 0.
+    /**
+     * @brief Peak amplitude of a sinusoid at the bin frequency (2·|X_k| / N; the DC level
+     * |X₀| / N for a 0 Hz bin). Zero if N = 0.
+     */
     [[nodiscard]] constexpr T amplitude() const { return amp_scale_ * magnitude(); }
 
-    /// Phase of the bin [rad]: φ for x[n] = A·cos(ωn + φ) on a coherent block,
-    /// with n = 0 at the first sample of the block.
+    /**
+     * @brief Phase of the bin [rad]: φ for x[n] = A·cos(ωn + φ) on a coherent block,
+     * with n = 0 at the first sample of the block.
+     */
     [[nodiscard]] constexpr T phase() const { return damp::atan2(imag_, real_); }
 
-    /// Real part of the DFT bin X(ω) = Σ x[n]·e^{−jωn} (valid after @ref complete).
+    /** @brief Real part of the DFT bin X(ω) = Σ x[n]·e^{−jωn} (valid after @ref complete). */
     [[nodiscard]] constexpr T real() const { return real_; }
 
-    /// Imaginary part of the DFT bin X(ω) (valid after @ref complete).
+    /** @brief Imaginary part of the DFT bin X(ω) (valid after @ref complete). */
     [[nodiscard]] constexpr T imag() const { return imag_; }
 
-    /// Discard the in-progress block and start over.
+    /** @brief Discard the in-progress block and start over. */
     constexpr void reset() {
-        s1_ = T{0};
-        s2_ = T{0};
+        s_ = T{0};
+        d_ = T{0};
         count_ = 0;
         complete_ = false;
         real_ = T{0};
@@ -148,7 +169,8 @@ public:
     [[nodiscard]] constexpr size_t block_size() const { return n_; }
 
 private:
-    T      coeff_{T{0}};
+    T      lambda_{T{0}};  ///< −4 sin²(ω/2) near DC, 4 cos²(ω/2) near Nyquist
+    bool   near_dc_{true}; ///< cos ω ≥ 0
     T      cos_{T{1}};
     T      sin_{T{0}};
     T      rot_cos_{T{1}};   ///< cos(ω(N−1)): end-of-block phase rotation
@@ -156,8 +178,8 @@ private:
     T      amp_scale_{T{1}}; ///< 2/N (1/N for the DC bin); 0 when inert
     size_t n_{1};
 
-    T      s1_{T{0}};
-    T      s2_{T{0}};
+    T      s_{T{0}}; ///< s[n]
+    T      d_{T{0}}; ///< s[n] − s[n−1] near DC, s[n] + s[n−1] near Nyquist
     size_t count_{0};
 
     T    real_{T{0}};
@@ -186,11 +208,11 @@ public:
     constexpr HarmonicAnalyzer() = default;
 
     /**
-     * @brief Configure for fundamental @p f0_hz at sample rate @p fs_hz over @p block_size samples.
+     * @brief Configure for fundamental @p f0_hz [Hz] sampled every @p Ts [s] over @p block_size samples.
      */
-    constexpr HarmonicAnalyzer(T f0_hz, T fs_hz, size_t block_size) {
+    constexpr HarmonicAnalyzer(T f0_hz, T Ts, size_t block_size) {
         for (size_t h = 0; h < K; ++h) {
-            bins_[h] = Goertzel<T>(f0_hz * static_cast<T>(h + 1), fs_hz, block_size);
+            bins_[h] = Goertzel<T>(f0_hz * static_cast<T>(h + 1), Ts, block_size);
         }
     }
 
@@ -208,7 +230,7 @@ public:
         return done;
     }
 
-    /// Peak amplitude of harmonic @p harmonic (1 = fundamental, … K). Zero if out of range.
+    /** @brief Peak amplitude of harmonic @p harmonic (1 = fundamental, … K). Zero if out of range. */
     [[nodiscard]] constexpr T amplitude(size_t harmonic) const {
         if (harmonic < 1 || harmonic > K) {
             return T{0};
@@ -216,7 +238,7 @@ public:
         return bins_[harmonic - 1].amplitude();
     }
 
-    /// Phase of harmonic @p harmonic [rad] (1 = fundamental, … K). Zero if out of range.
+    /** @brief Phase of harmonic @p harmonic [rad] (1 = fundamental, … K). Zero if out of range. */
     [[nodiscard]] constexpr T phase(size_t harmonic) const {
         if (harmonic < 1 || harmonic > K) {
             return T{0};
@@ -224,12 +246,12 @@ public:
         return bins_[harmonic - 1].phase();
     }
 
-    /// RMS of the fundamental (A₁ / √2).
+    /** @brief RMS of the fundamental (A₁ / √2). */
     [[nodiscard]] constexpr T rms() const {
         return bins_[0].amplitude() / damp::numbers::sqrt2_v<T>;
     }
 
-    /// RMS of the harmonics above the fundamental, √(Σ_{h≥2} (Aₕ/√2)²).
+    /** @brief RMS of the harmonics above the fundamental, √(Σ_{h≥2} (Aₕ/√2)²). */
     [[nodiscard]] constexpr T total_harmonic_rms() const {
         T sum_sq = T{0};
         for (size_t h = 1; h < K; ++h) {
@@ -239,7 +261,7 @@ public:
         return damp::sqrt(sum_sq) / damp::numbers::sqrt2_v<T>;
     }
 
-    /// Total harmonic distortion, √(Σ_{h≥2} Aₕ²) / A₁ (0 if the fundamental is 0).
+    /** @brief Total harmonic distortion, √(Σ_{h≥2} Aₕ²) / A₁ (0 if the fundamental is 0). */
     [[nodiscard]] constexpr T thd() const {
         const T fundamental = bins_[0].amplitude();
         if (!(fundamental > T{0})) {

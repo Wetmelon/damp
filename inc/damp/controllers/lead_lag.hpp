@@ -13,9 +13,10 @@
  *
  * @code
  * using namespace damp;
- * constexpr auto lead = design::lead(0.5, 100.0); // phi_max [rad], wc [rad/s]
+ * constexpr auto lead = design::lead(0.5, 100.0, 0.0); // phi_max [rad], wc [rad/s], Ts [s] (0 = continuous)
  * static_assert(lead.success);
  * constexpr auto tf = lead.to_tf(); // C(s) = K (s+z)/(s+p)
+ * static constinit LeadLagController<float> c{design::lead(0.5, 100.0, 1e-3).as<float>()}; // the runtime needs Ts > 0
  * @endcode
  *
  * @defgroup lead_lag Lead-Lag Compensator
@@ -44,6 +45,7 @@
  */
 
 #include "damp/backend.hpp"
+#include "damp/design/status.hpp"
 #include "damp/math/math.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "damp/systems/discretization.hpp"
@@ -59,31 +61,35 @@ namespace design {
  * @brief Lead-lag compensator design result
  */
 template<typename T = double>
-struct LeadLagResult {
-    T    K{};            ///< High-frequency gain (DC gain is K·z/p)
-    T    z{};            ///< Zero location (rad/s, positive value; actual zero at s = -z)
-    T    p{};            ///< Pole location (rad/s, positive value; actual pole at s = -p)
-    T    Ts{};           ///< Sampling time (seconds), 0 = continuous
-    bool success{false}; ///< true if the spec produced valid (finite, positive) z, p
+struct [[nodiscard]] LeadLagResult {
+    T            K{};                                 ///< High-frequency gain (DC gain is K·z/p)
+    T            z{};                                 ///< Zero location (rad/s, positive value; actual zero at s = -z)
+    T            p{};                                 ///< Pole location (rad/s, positive value; actual pole at s = -p)
+    T            Ts{};                                ///< Sampling time (seconds), 0 = continuous
+    bool         success{false};                      ///< status == DesignStatus::ok
+    DesignStatus status{DesignStatus::not_converged}; ///< ok, or why the design failed
+
+    /** @brief True when the design succeeded (success). */
+    [[nodiscard]] constexpr explicit operator bool() const { return success; }
 
     template<typename U>
     [[nodiscard]] constexpr LeadLagResult<U> as() const {
-        return {static_cast<U>(K), static_cast<U>(z), static_cast<U>(p), static_cast<U>(Ts), success};
+        return {static_cast<U>(K), static_cast<U>(z), static_cast<U>(p), static_cast<U>(Ts), success, status};
     }
 
     /**
      * @brief Convert to continuous-time transfer function
      *
      * Returns C(s) = K * (s + z) / (s + p)
-     * Numerator and denominator in ascending powers of s: {const, s}
+     * Numerator and denominator highest power of s first: {s, const}
      */
     [[nodiscard]] constexpr TransferFunction<2, 2, T> to_tf() const {
         // C(s) = K * (s + z) / (s + p)
-        // Numerator:   K*z + K*s   = {K*z, K}
-        // Denominator: p + s       = {p, 1}
+        // Numerator:   K*s + K*z   = {K, K*z}
+        // Denominator: s + p       = {1, p}
         return TransferFunction<2, 2, T>{
-            .num = {K * z, K},
-            .den = {p, T{1}},
+            .num = {K, K * z},
+            .den = {T{1}, p},
         };
     }
 
@@ -104,11 +110,13 @@ struct LeadLagResult {
     /**
      * @brief Convert to discrete-time state-space
      *
+     * Ts = 0 (continuous design) returns @ref to_ss.
+     *
      * @param method Discretization method (default: Tustin)
      */
     [[nodiscard]] constexpr StateSpace<1, 1, 1, T>
     to_discrete_ss(DiscretizationMethod method = DiscretizationMethod::Tustin) const {
-        return *discretize(to_ss(), Ts, method);
+        return (Ts > T{0}) ? *discretize(to_ss(), Ts, method) : to_ss();
     }
 };
 
@@ -128,14 +136,18 @@ struct LeadLagResult {
  *
  * @param phi_max  Desired maximum phase boost (radians, 0 < phi_max < π/2)
  * @param wc       Target crossover frequency (rad/s), must be > 0
- * @param Ts       Sampling time (seconds), 0 = continuous-time design
- * @return LeadLagResult with K, z, p; success false if the spec is out of range
+ * @param Ts       Sampling time (seconds); 0 = continuous-time design (analysis only: the runtime refuses it)
+ * @return LeadLagResult with K, z, p; refused with invalid_parameter for φ_max outside (0, π/2) or a
+ *         non-positive or non-finite wc, and with invalid_sample_time for a negative or non-finite Ts
  */
 template<typename T = double>
-[[nodiscard]] constexpr LeadLagResult<T> lead(T phi_max, T wc, T Ts = T{0}) {
+[[nodiscard]] constexpr LeadLagResult<T> lead(T phi_max, T wc, T Ts) {
     // Valid lead requires 0 < phi_max < pi/2 (else alpha <= 0) and wc > 0.
-    if (!(phi_max > T{0}) || !(phi_max < damp::numbers::pi_v<T> / T{2}) || !(wc > T{0})) {
-        return LeadLagResult<T>{};
+    if (!damp::finite_positive(phi_max) || !(phi_max < damp::numbers::pi_v<T> / T{2}) || !damp::finite_positive(wc)) {
+        return ::damp::detail::refused<LeadLagResult<T>>(DesignStatus::invalid_parameter);
+    }
+    if (!damp::finite_non_negative(Ts)) {
+        return ::damp::detail::refused<LeadLagResult<T>>(DesignStatus::invalid_sample_time);
     }
 
     // alpha = (1 - sin(phi)) / (1 + sin(phi))
@@ -157,7 +169,7 @@ template<typename T = double>
     // So K = 1/sqrt(alpha) for unity gain at crossover.
     T K = T{1} / sqrt_alpha;
 
-    return LeadLagResult<T>{K, z, p, Ts, true};
+    return LeadLagResult<T>{K, z, p, Ts, true, DesignStatus::ok};
 }
 
 /**
@@ -175,16 +187,21 @@ template<typename T = double>
  *
  * @param dc_gain_boost  Desired DC gain increase factor (> 1, e.g. 10 for +20 dB)
  * @param wc             Crossover frequency to stay below (rad/s), must be > 0
+ * @param Ts             Sampling time (seconds); 0 = continuous (analysis only: the runtime refuses it)
  * @param margin_factor  How far below wc to place the compensator (default: 10).
  *                       Larger values reduce phase lag at wc.
- * @param Ts             Sampling time (seconds), 0 = continuous
- * @return LeadLagResult with K, z, p; success false if the spec is out of range
+ * @return LeadLagResult with K, z, p; refused with invalid_parameter for an out-of-range or
+ *         non-finite spec, and with invalid_sample_time for a negative or non-finite Ts
  */
 template<typename T = double>
-[[nodiscard]] constexpr LeadLagResult<T> lag(T dc_gain_boost, T wc, T margin_factor = T{10}, T Ts = T{0}) {
+[[nodiscard]] constexpr LeadLagResult<T> lag(T dc_gain_boost, T wc, T Ts, T margin_factor = T{10}) {
     // Valid lag requires a real DC boost, a positive crossover, and a positive margin.
-    if (!(dc_gain_boost > T{1}) || !(wc > T{0}) || !(margin_factor > T{0})) {
-        return LeadLagResult<T>{};
+    if (!damp::isfinite(dc_gain_boost) || !(dc_gain_boost > T{1}) || !damp::finite_positive(wc)
+        || !damp::finite_positive(margin_factor)) {
+        return ::damp::detail::refused<LeadLagResult<T>>(DesignStatus::invalid_parameter);
+    }
+    if (!damp::finite_non_negative(Ts)) {
+        return ::damp::detail::refused<LeadLagResult<T>>(DesignStatus::invalid_sample_time);
     }
 
     // Place zero at wc / margin_factor
@@ -196,7 +213,7 @@ template<typename T = double>
     // Set K = 1 so the total DC gain is exactly dc_gain_boost
     T K = T{1};
 
-    return LeadLagResult<T>{K, z, p, Ts, true};
+    return LeadLagResult<T>{K, z, p, Ts, true, DesignStatus::ok};
 }
 
 /**
@@ -204,13 +221,17 @@ template<typename T = double>
  * @brief Cascaded lead+lag design result (2nd-order StateSpace + success)
  */
 template<typename T = double>
-struct LeadLagSeriesResult {
-    StateSpace<2, 1, 1, T> sys{};          ///< Cascaded compensator (zero if design failed)
-    bool                   success{false}; ///< true if both lead and lag sections succeeded
+struct [[nodiscard]] LeadLagSeriesResult {
+    StateSpace<2, 1, 1, T> sys{};                               ///< Cascaded compensator (zero if design failed)
+    bool                   success{false};                      ///< status == DesignStatus::ok
+    DesignStatus           status{DesignStatus::not_converged}; ///< ok, or why the design failed
+
+    /** @brief True when the design succeeded (success). */
+    [[nodiscard]] constexpr explicit operator bool() const { return success; }
 
     template<typename U>
     [[nodiscard]] constexpr LeadLagSeriesResult<U> as() const {
-        return {sys.template as<U>(), success};
+        return {sys.template as<U>(), success, status};
     }
 };
 
@@ -222,24 +243,27 @@ struct LeadLagSeriesResult {
  *
  *   C(s) = K_lead * (s+z_lead)/(s+p_lead) * (s+z_lag)/(s+p_lag)
  *
- * Propagates section success: if either lead() or lag() fails, success is
- * false and sys is the zero StateSpace.
+ * Propagates section status: if either lead() or lag() fails, the result is
+ * refused with that section's status and sys is the zero StateSpace.
  *
  * @param phi_max        Desired phase boost from lead section (radians)
  * @param wc             Target crossover frequency (rad/s)
  * @param dc_gain_boost  Desired DC gain increase from lag section (> 1)
- * @param margin_factor  How far below wc to place lag section (default: 10)
  * @param Ts             Sampling time (seconds), 0 = continuous
+ * @param margin_factor  How far below wc to place lag section (default: 10)
  * @return LeadLagSeriesResult with the 2nd-order SISO compensator
  */
 template<typename T = double>
 [[nodiscard]] constexpr LeadLagSeriesResult<T>
-lead_lag(T phi_max, T wc, T dc_gain_boost, T margin_factor = T{10}, T Ts = T{0}) {
+lead_lag(T phi_max, T wc, T dc_gain_boost, T Ts, T margin_factor = T{10}) {
     const auto lead_r = lead(phi_max, wc, Ts);
-    const auto lag_r = lag(dc_gain_boost, wc, margin_factor, Ts);
+    const auto lag_r = lag(dc_gain_boost, wc, Ts, margin_factor);
 
-    if (!lead_r.success || !lag_r.success) {
-        return LeadLagSeriesResult<T>{};
+    if (!lead_r.success) {
+        return ::damp::detail::refused<LeadLagSeriesResult<T>>(lead_r.status);
+    }
+    if (!lag_r.success) {
+        return ::damp::detail::refused<LeadLagSeriesResult<T>>(lag_r.status);
     }
 
     // Cascade: series connection of lead and lag state-space representations
@@ -249,6 +273,7 @@ lead_lag(T phi_max, T wc, T dc_gain_boost, T margin_factor = T{10}, T Ts = T{0})
     return LeadLagSeriesResult<T>{
         .sys = sys,
         .success = true,
+        .status = DesignStatus::ok,
     };
 }
 
@@ -261,11 +286,18 @@ lead_lag(T phi_max, T wc, T dc_gain_boost, T margin_factor = T{10}, T Ts = T{0})
  * @param z   Zero location (positive; actual zero at s = -z)
  * @param p   Pole location (positive; actual pole at s = -p)
  * @param Ts  Sampling time (seconds), 0 = continuous
- * @return LeadLagResult
+ * @return LeadLagResult; refused with invalid_parameter for a non-finite K or a non-positive or
+ *         non-finite z or p, and with invalid_sample_time for a negative or non-finite Ts
  */
 template<typename T = double>
-[[nodiscard]] constexpr LeadLagResult<T> lead_lag_direct(T K, T z, T p, T Ts = T{0}) {
-    return LeadLagResult<T>{K, z, p, Ts, z > T{0} && p > T{0}};
+[[nodiscard]] constexpr LeadLagResult<T> lead_lag_direct(T K, T z, T p, T Ts) {
+    if (!damp::isfinite(K) || !damp::finite_positive(z) || !damp::finite_positive(p)) {
+        return ::damp::detail::refused<LeadLagResult<T>>(DesignStatus::invalid_parameter);
+    }
+    if (!damp::finite_non_negative(Ts)) {
+        return ::damp::detail::refused<LeadLagResult<T>>(DesignStatus::invalid_sample_time);
+    }
+    return LeadLagResult<T>{K, z, p, Ts, true, DesignStatus::ok};
 }
 
 } // namespace design
@@ -274,9 +306,9 @@ template<typename T = double>
  * @ingroup discrete_controllers
  * @brief Discrete lead-lag compensator
  *
- * Implements @f$ C(s) = K(s+z)/(s+p) @f$ discretized via Tustin. A failed design
- * (@c success = false) constructs an invalid controller that emits zero and holds
- * state (fail-closed).
+ * Implements @f$ C(s) = K(s+z)/(s+p) @f$ discretized via Tustin. A failed or continuous
+ * (Ts = 0) design does not compile under constant evaluation; at run time it constructs an
+ * invalid controller that emits zero and holds state (fail-closed).
  *
  * @tparam T Scalar type (default: float)
  */
@@ -286,21 +318,30 @@ struct LeadLagController {
     T z{};
     T p{};
 
-    // Pre-computed IIR coefficients (1st-order: y[n] = b0*u[n] + b1*u[n-1] - a1*y[n-1])
+    // Pre-computed IIR coefficients (1st-order: u[n] = b0*e[n] + b1*e[n-1] - a1*u[n-1])
     T b0{0};
     T b1{0};
     T a1{0};
 
     // State
-    T u_prev{0};
-    T y_prev{0};
+    T e_prev{0}; ///< previous input e[n-1]
+    T u_prev{0}; ///< previous output u[n-1]
 
     constexpr LeadLagController() = default;
 
-    constexpr LeadLagController(const design::LeadLagResult<T>& result)
-        : K(result.K), z(result.z), p(result.p), valid_(result.success && result.z > T{0} && result.p > T{0}) {
-        if (!result.success && std::is_constant_evaluated()) {
-            ::damp::detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed design does not compile
+    /** @brief From a design result in another scalar: converts it with .as\<T\>() and builds from that. */
+    template<typename U>
+        requires(!std::is_same_v<U, T>)
+    constexpr LeadLagController(const design::LeadLagResult<U>& result) // NOLINT(google-explicit-constructor): assign-from-design
+        : LeadLagController(result.template as<T>()) {}
+
+    constexpr LeadLagController(const design::LeadLagResult<T>& result) // NOLINT(google-explicit-constructor): assign-from-design
+        : K(result.K),
+          z(result.z),
+          p(result.p),
+          valid_(result.success && result.Ts > T{0} && result.z > T{0} && result.p > T{0}) {
+        if ((!result.success || !(result.Ts > T{0})) && std::is_constant_evaluated()) {
+            ::damp::detail::refuse_failed_design(result.success ? design::DesignStatus::invalid_sample_time : result.status); // constant-evaluated (constinit / constexpr): a failed or continuous design does not compile
         }
         if (valid_) {
             compute_coefficients(result.Ts);
@@ -315,24 +356,24 @@ struct LeadLagController {
           b0(static_cast<T>(other.b0)),
           b1(static_cast<T>(other.b1)),
           a1(static_cast<T>(other.a1)),
+          e_prev(static_cast<T>(other.e_prev)),
           u_prev(static_cast<T>(other.u_prev)),
-          y_prev(static_cast<T>(other.y_prev)),
           valid_(other.valid()) {}
 
     /**
      * @brief Compute compensator output
      *
-     * @param u Input signal (typically error signal)
+     * @param e Compensator input (typically the tracking error)
      * @return Compensated output (zero if the design was invalid)
      */
-    [[nodiscard]] constexpr T control(T u) {
+    [[nodiscard]] constexpr T control(T e) {
         if (!valid_) {
             return T{0};
         }
-        T y = b0 * u + b1 * u_prev - a1 * y_prev;
+        const T u = (b0 * e) + (b1 * e_prev) - (a1 * u_prev);
+        e_prev = e;
         u_prev = u;
-        y_prev = y;
-        return y;
+        return u;
     }
 
     /**
@@ -344,7 +385,7 @@ struct LeadLagController {
      * can drop into `Cascade<Outer, LeadLagController>` and any other
      * SISOController-shaped consumer.
      *
-     * The single-argument `control(T u)` form is still available for use as
+     * The single-argument `control(T e)` form is still available for use as
      * a standalone filter inside a larger composite controller.
      */
     [[nodiscard]] constexpr T control(T r, T y) {
@@ -352,8 +393,8 @@ struct LeadLagController {
     }
 
     constexpr void reset() {
+        e_prev = T{0};
         u_prev = T{0};
-        y_prev = T{0};
     }
 
     [[nodiscard]] constexpr bool valid() const { return valid_; }
@@ -373,16 +414,6 @@ private:
      *            = ((2/Ts + p_loc)*z + (p_loc - 2/Ts)) / (z+1)
      */
     constexpr void compute_coefficients(T Ts) {
-        // Ts <= 0 means a continuous-time design (e.g. the design factories' default
-        // Ts = 0) was handed to a discrete controller. There is no valid Tustin
-        // mapping.
-        if (!(Ts > T{0})) {
-            b0 = K;
-            b1 = T{0};
-            a1 = T{0};
-            return;
-        }
-
         T k = T{2} / Ts; // Tustin substitution factor
 
         // Denominator coefficients (before normalization)
@@ -399,5 +430,9 @@ private:
         a1 = a1_raw / a0_raw;
     }
 };
+
+/** @brief Deduce the runtime from its design, keeping the result's scalar. */
+template<typename T>
+LeadLagController(const design::LeadLagResult<T>&) -> LeadLagController<T>;
 
 } // namespace damp

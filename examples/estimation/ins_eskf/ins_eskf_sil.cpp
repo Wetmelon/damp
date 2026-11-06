@@ -111,7 +111,7 @@ int main() {
     // Design from header (DiD parity with ins_navigator / sketch)
     InsNavigator<double> nav(kInsDesign, kFrame);
 
-    const Matrix<1, 1, double> R_psi{{kHeadingStd * kHeadingStd}};
+    const double R_psi = kHeadingStd * kHeadingStd;
 
     Polyline3                       path_truth;
     Polyline3                       path_free;

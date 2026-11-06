@@ -7,322 +7,238 @@
 
 /**
  * @file lqg.hpp
- * @brief Linear-Quadratic-Gaussian design and runtime controller
+ * @brief The linear-quadratic Gaussian law: design::lqg, LQGResult, the LQG runtime
  *
- * @code
- * using namespace damp;
- * constexpr auto res = design::discrete_lqg(
- *     sys, Q_lqr, R_lqr, {.process = Qn, .measurement = Rn});
- * static constinit LQG ctrl{res};  // a failed design does not compile
- * auto u = ctrl.step(y); // update + control + predict
- * @endcode
+ * design::lqg(plant, [Ts,] {.Q, .R, .N}, KalmanNoise{.process, .measurement}[, TrackedOutputs<NZ>{{i, …}}])
+ * → LQGResult → LQG.
+ * step(y) is predict, update(y), control. The low-latency tick is update(y), control(),
+ * back_calculate, predict. With tracked outputs: control(r), step(r, y). With
+ * feedforward from a planned trajectory: control([r,] x_ref, u_ref), step([r,] x_ref, u_ref, y).
  */
 
 #include <cstddef>
 #include <type_traits>
 
-#include "damp/backend.hpp"
+#include "damp/controllers/state_feedback_core.hpp"
+#include "damp/design/riccati.hpp"
+#include "damp/design/status.hpp"
 #include "damp/estimation/kalman.hpp"
-#include "damp/matrix/matrix.hpp"
+#include "damp/matrix/colvec.hpp"
 #include "damp/systems/state_space.hpp"
-#include "lqr.hpp"
 
 namespace damp {
 
 namespace design {
 
-/**
- * @struct LQGResult
- * @brief LQG design result
- *
- * Holds the LQR gain design and steady-state Kalman design that, by the
- * separation principle, form the discrete LQG regulator
- * u = −K x̂ with x̂ from the Kalman filter. Use .as<float>() for deploy.
- *
- * @see discrete_lqg()
- * @see "Optimal Control" (Anderson & Moore, 1990), §8
- * @see "Optimal State Estimation" (Simon, 2006), §5–7
- */
+/** @brief design::lqg's result: the gain and the steady-state Kalman filter. */
 template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = NX, size_t NV = NY>
-struct LQGResult {
-    LQRResult<NX, NU, T>                lqr{};          ///< LQR design result
-    KalmanResult<NX, NU, NY, T, NW, NV> kalman{};       ///< Kalman filter result
-    bool                                success{false}; ///< true if both designs succeeded
-
-    template<typename U>
-    [[nodiscard]] constexpr auto as() const {
-        return LQGResult<NX, NU, NY, U, NW, NV>{
-            lqr.template as<U>(),
-            kalman.template as<U>(),
-            success
-        };
-    }
-
-    /**
-     * @brief Convert the LQG regulator to a discrete state-space block
-     *
-     * Current-estimator realization of @ref LQG::step: measurement update, then
-     * @f$ u = -K \hat x(k|k) @f$, then predict. The compensator state is the
-     * previous filtered estimate @f$ \hat x(k-1|k-1) @f$ (zero at start, matching
-     * a zero predicted state and @f$ u_{\mathrm{prev}} = 0 @f$). Direct term
-     * @f$ D_c = -KL @f$ is the current-estimator feedthrough.
-     * @f[
-     *   A_c = (I-LC)(A-BK) + LDK,\quad B_c = L,\quad C_c = -K A_c,\quad D_c = -KL.
-     * @f]
-     *
-     * @return StateSpace with NX states, NY inputs (y), NU outputs (u)
-     */
-    [[nodiscard]] constexpr StateSpace<NX, NY, NU, T> to_ss() const {
-        const auto& A = kalman.sys.A;
-        const auto& B = kalman.sys.B;
-        const auto& C = kalman.sys.C;
-        const auto& D = kalman.sys.D;
-        const auto& L = kalman.L;
-        const auto& K = lqr.K;
-
-        const auto I = Matrix<NX, NX, T>::identity();
-        const auto ImLC = I - (L * C);
-        const auto AmBK = A - (B * K);
-        const auto Ac = (ImLC * AmBK) + ((L * D) * K);
-        return StateSpace<NX, NY, NU, T>{
-            .A = Ac,
-            .B = L,
-            .C = -(K * Ac),
-            .D = -(K * L),
-            .Ts = kalman.sys.Ts,
-        };
-    }
-};
+using LQGResult = StateFeedbackResult<NX, NU, T, 0, NY, KalmanResult<NX, NU, NY, T, NW, NV, 0>, 0>;
 
 /**
- * @brief Discrete Linear-Quadratic-Gaussian regulator design
- *
- * Designs the optimal full-state feedback gain K (discrete LQR) and the
- * steady-state Kalman gain L for the discrete plant
- *
- *     x[k+1] = A x[k] + B u[k] + G w[k]
- *     y[k]   = C x[k] + D u[k] + H v[k]
- *
- * with w ~ N(0, noise.process), v ~ N(0, noise.measurement). Separation applies: u = −K x̂ with x̂ from
- * the filter using L. Control cost is the discrete LQR criterion with weights
- * Q_lqr, R_lqr, and optional cross-term N.
- *
- * @note Compare with MATLAB®'s lqg(sys, ...) — exposed as the lqg() alias in matlab.hpp.
- *
- * @see discrete_lqr() for the control half
- * @see kalman() for the estimator half
- * @see "Optimal Control" (Anderson & Moore, 1990), §8
- * @see "Optimal State Estimation" (Simon, 2006), §5.3–5.4
- *
- * @param sys     Discrete-time state-space plant (Ts > 0)
- * @param Q_lqr   State cost (NX × NX, positive semidefinite)
- * @param R_lqr   Input cost (NU × NU, positive definite)
- * @param noise   Process (NW × NW, positive semidefinite) and measurement (NV × NV, positive
- *                definite) noise covariances (default I)
- * @param N       Cross-term cost (NX × NU, default zero)
- * @return LQGResult with lqr, kalman, and success = both designs succeeded
+ * @brief The linear-quadratic Gaussian law: LQR on a steady-state Kalman filter's estimate (design::kalman(sys, noise)): runs as LQG.
+ * @note Compare with MATLAB®'s lqg(sys, QXU, QWV).
  */
-template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, size_t NV = 0>
-[[nodiscard]] constexpr LQGResult<NX, NU, NY, T, NW, NV> discrete_lqg(
+template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
+[[nodiscard]] constexpr auto lqg(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
-    const Matrix<NX, NX, T>&                 Q_lqr,
-    const Matrix<NU, NU, T>&                 R_lqr,
-    const KalmanNoise<NW, NV, T>&            noise = {},
-    const Matrix<NX, NU, T>&                 N = Matrix<NX, NU, T>{}
+    const LQRWeights<NX, NU, 0, T>&          weights,
+    const KalmanNoise<NW, NV, T>&            noise
 ) {
-    const auto lqr_result = discrete_lqr(sys.A, sys.B, Q_lqr, R_lqr, N);
-    // design::kalman requires Ts > 0; hand-discretized plants often leave Ts = 0.
-    auto sys_d = sys;
-    if (!(sys_d.Ts > T{0})) {
-        sys_d.Ts = T{1};
-    }
-    auto kalman_result = kalman(sys_d, noise.process, noise.measurement);
-    kalman_result.sys.Ts = sys.Ts; // keep caller's sample-time tag on the result model
-    return LQGResult<NX, NU, NY, T, NW, NV>{lqr_result, kalman_result, lqr_result.success && kalman_result.success};
+    return detail::state_feedback(sys, weights, detail::StateFeedbackOptions{.noise = noise});
+}
+
+/** @brief The sampled-data linear-quadratic Gaussian law (the process noise a density, the measurement a variance per reading): runs as LQG. */
+template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
+[[nodiscard]] constexpr auto lqg(
+    const StateSpace<NX, NU, NY, T, NW, NV>& sys,
+    std::type_identity_t<T>                  Ts,
+    const LQRWeights<NX, NU, 0, T>&          weights,
+    const KalmanNoise<NW, NV, T>&            noise
+) {
+    return detail::state_feedback(sys, Ts, weights, detail::StateFeedbackOptions{.noise = noise});
 }
 
 /**
- * @brief Discrete LQG on a model with delay states, LQR weights sized to the plant
+ * @brief The linear-quadratic Gaussian law holding the listed outputs at r through the model's
+ *        steady-state target (x* = Nₓ·r, u* = Nᵤ·r, see lqr(sys, weights, outputs)): runs as LQG, step(r, y).
  *
- * For a model from discretize with InputDelay / OutputDelay: @p Q_lqr (and @p N) cover the
- * NQ plant states, which lead; the delay states get no cost. The process noise is already
- * plant-sized through G, which discretize keeps off the delay states.
+ * As for lqr: refused with DesignStatus::singular when no unique steady state holds r (NZ = NU)
+ * or none holds every r (NZ < NU); with more tracked outputs than inputs (NZ > NU, as
+ * TrackedOutputs{} gives on a plant with NY > NU) the target is the least-squares compromise,
+ * which holds none of them exactly.
  */
-template<size_t NX, size_t NU, size_t NY, size_t NQ, typename T = double, size_t NW = 0, size_t NV = 0>
-    requires(NQ < NX)
-[[nodiscard]] constexpr LQGResult<NX, NU, NY, T, NW, NV> discrete_lqg(
+template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NZ>
+[[nodiscard]] constexpr auto lqg(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
-    const Matrix<NQ, NQ, T>&                 Q_lqr,
-    const Matrix<NU, NU, T>&                 R_lqr,
-    const KalmanNoise<NW, NV, T>&            noise = {},
-    const Matrix<NQ, NU, T>&                 N = Matrix<NQ, NU, T>{}
+    const LQRWeights<NX, NU, 0, T>&          weights,
+    const KalmanNoise<NW, NV, T>&            noise,
+    const TrackedOutputs<NZ>&                outputs
 ) {
-    return discrete_lqg(sys, damp::detail::pad_leading<NX, NX>(Q_lqr), R_lqr, noise, damp::detail::pad_leading<NX, NU>(N));
+    return detail::state_feedback(sys, weights, detail::StateFeedbackOptions{.noise = noise, .track = outputs});
+}
+
+/** @brief The sampled-data linear-quadratic Gaussian law holding the listed outputs at r: runs as LQG, step(r, y). */
+template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NZ>
+[[nodiscard]] constexpr auto lqg(
+    const StateSpace<NX, NU, NY, T, NW, NV>& sys,
+    std::type_identity_t<T>                  Ts,
+    const LQRWeights<NX, NU, 0, T>&          weights,
+    const KalmanNoise<NW, NV, T>&            noise,
+    const TrackedOutputs<NZ>&                outputs
+) {
+    return detail::state_feedback(sys, Ts, weights, detail::StateFeedbackOptions{.noise = noise, .track = outputs});
 }
 
 /**
- * @brief Assemble an LQG design from separately computed Kalman and LQR results
+ * @brief Assemble an LQG design from separately computed Kalman and LQR designs
+ *
+ * The regulator must be discrete: a continuous one (Ts = 0) is refused with
+ * DesignStatus::invalid_sample_time. A design on the plant (design::lqr) carries its sample time,
+ * which must match kest.sys.Ts; a gain on bare matrices (discrete_lqr, matlab::dlqr) is discrete
+ * with no sample time (Ts = 0), so the law takes the filter's. A failure already
+ * reported by either half is kept (the regulator's first).
  *
  * @note Compare with MATLAB®'s lqgreg(kest, k) — exposed as the lqgreg() alias in matlab.hpp.
  *
- * @param kest        Steady-state Kalman design (success required for overall success)
- * @param lqr_result  Discrete LQR design (success required for overall success)
- * @return LQGResult with success = kest.success && lqr_result.success
+ * @param kest  Steady-state Kalman design (design::kalman, no options)
+ * @param reg   The regulator on the measured state: the LQRResult of design::lqr, discrete_lqr or
+ *              matlab::dlqr
+ * @return The LQG design: deploy with `LQG law{res}`
  */
-template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = NX, size_t NV = NY>
-[[nodiscard]] constexpr LQGResult<NX, NU, NY, T, NW, NV> lqg_from_parts(
+template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Reg>
+    requires std::is_same_v<Reg, StateFeedbackResult<NX, NU, T>> || std::is_same_v<Reg, LQRResult<NX, NU, T>>
+[[nodiscard]] constexpr StateFeedbackResult<NX, NU, T, 0, NY, KalmanResult<NX, NU, NY, T, NW, NV>> lqg_from_parts(
     const KalmanResult<NX, NU, NY, T, NW, NV>& kest,
-    const LQRResult<NX, NU, T>&                lqr_result
+    const Reg&                                 reg
 ) {
-    return LQGResult<NX, NU, NY, T, NW, NV>{lqr_result, kest, lqr_result.success && kest.success};
+
+    auto out = StateFeedbackResult<NX, NU, T, 0, NY, KalmanResult<NX, NU, NY, T, NW, NV>>{reg.K, reg.S, reg.e, false, DesignStatus::not_converged, kest.sys.Ts, kest};
+    auto status = reg.success ? kest.status : reg.status;
+
+    if (status == DesignStatus::ok && (!::damp::detail::discrete_gain(reg) || (reg.Ts != T{0} && reg.Ts != kest.sys.Ts))) {
+        status = DesignStatus::invalid_sample_time; // a continuous regulator, or the halves disagree on Ts
+    }
+    return ::damp::detail::set_status(out, status);
 }
+
 } // namespace design
+
 /**
  * @ingroup discrete_controllers
- * @brief Linear-Quadratic-Gaussian (LQG) controller
+ * @brief Linear-quadratic Gaussian law: LQR on the Kalman filter's estimate
  *
- * Combines LQR optimal control with a steady-state Kalman estimator (fixed L
- * from design). Separation: u = −K x̂ with x̂ from L (classical LQG). The full
- * time-varying KalmanFilter remains available for non-LQG use.
+ * Runs design::lqg. The estimator is a Luenberger observer with design::kalman's fixed gain
+ * (`estimator`). The tick is update(y) then control(), or step(y): the regulator. A design with
+ * TrackedOutputs holds those outputs at r through its steady-state target: control(r),
+ * step(r, y). Feedforward from a planned trajectory (x_ref, u_ref) adds to it:
+ * control([r,] x_ref, u_ref), step([r,] x_ref, u_ref, y). Then back_calculate(u_sat) and
+ * predict() move the observer with the input the plant received.
  *
- * Prefer step for a self-contained tick from the measurement alone (mirrors
- * @ref LQGI::step). The split @ref predict / @ref update / @ref control path remains
- * for multirate use and for feeding a post-saturation applied input into the filter.
+ * @note Compare with MATLAB®'s lqg.
  *
- * @tparam NX Number of states
- * @tparam NU Number of control inputs
- * @tparam NY Number of outputs
- * @tparam NW Number of process noise inputs (default: NX)
- * @tparam NV Number of measurement noise inputs (default: NY)
- * @tparam T  Scalar type (default: float — embedded runtime)
+ * @tparam NZ Tracked outputs: the size of r (0: none, the regulator)
  */
-template<size_t NX, size_t NU, size_t NY, typename T = float, size_t NW = NX, size_t NV = NY>
-struct LQG {
-    StateFeedback<NX, NU, T>                       lqr{};
-    SteadyStateKalmanFilter<NX, NU, NY, T, NW, NV> kf{};         ///< Fixed-L estimator (designed L)
-    ColVec<NU, T>                                  u_prev{};     ///< Last applied input, for the estimator's predict step
-    ColVec<NX, T>                                  x_ref_prev{}; ///< Last full state reference, to extend a plant-sized one over delay states
+template<size_t NX, size_t NU, size_t NY, typename T, typename Est, size_t NZ = 0>
+struct LQG : private detail::StateFeedbackCore<NX, NU, T, 0, NY, Est, NZ> {
+    using Core = detail::StateFeedbackCore<NX, NU, T, 0, NY, Est, NZ>; ///< The shared implementation
 
     constexpr LQG() = default;
 
-    constexpr LQG(
-        const StateFeedback<NX, NU, T>&                       lqr_,
-        const SteadyStateKalmanFilter<NX, NU, NY, T, NW, NV>& kf_
-    )
-        : lqr(lqr_), kf(kf_) {}
-
-    /// From design result (any scalar); converts via nested runtime ctors.
-    template<typename U>
-    constexpr LQG(const design::LQGResult<NX, NU, NY, U, NW, NV>& result) // NOLINT
-        : lqr(result.lqr), kf(result.kalman) {
-        if (!result.success && std::is_constant_evaluated()) {
-            ::damp::detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed design does not compile
+    /** @brief From design::lqg or lqg_from_parts (any scalar). */
+    template<size_t NXR, size_t NUR, typename U, size_t NIR, size_t NYR, typename Kalman, size_t NZR>
+    constexpr LQG(const design::StateFeedbackResult<NXR, NUR, U, NIR, NYR, Kalman, NZR>& result) { // NOLINT
+        constexpr bool kind = NIR == 0 && design::StateFeedbackResult<NXR, NUR, U, NIR, NYR, Kalman, NZR>::ND == 0 && !std::is_same_v<Kalman, NoEstimator>;
+        static_assert(kind, "LQG runs design::lqg: this design has no Kalman filter (LQR, LQI), integral action (LQGI) or a disturbance model (OFLQG).");
+        if constexpr (kind) {
+            static_cast<Core&>(*this) = Core(result);
         }
     }
 
-    template<typename U>
-    constexpr LQG(const LQG<NX, NU, NY, U, NW, NV>& other)
-        : lqr(other.lqr), kf(other.kf), u_prev(other.u_prev.template as<T>()), x_ref_prev(other.x_ref_prev.template as<T>()) {} // NOLINT
+    using Core::estimator;
+    using Core::K;
 
-    constexpr void predict(const ColVec<NU, T>& u = ColVec<NU, T>{}) { kf.predict(u); }
-    constexpr bool update(const ColVec<NY, T>& y, const ColVec<NU, T>& u = ColVec<NU, T>{}) {
-        return kf.update(y, u);
+    /** @brief The filter's measurement update with @p y. */
+    constexpr void update(const ColVec<NY, T>& y) { Core::update(y); }
+
+    /** @brief u = −K·x̂: the regulator. */
+    [[nodiscard]] constexpr ColVec<NU, T> control()
+        requires(NZ == 0)
+    {
+        return Core::control(ColVec<0, T>{}, ColVec<NX, T>{}, ColVec<NU, T>{});
     }
 
-    /// Regulator control at the current estimate: u = -K*x̂.
-    [[nodiscard]] constexpr ColVec<NU, T> control() const { return lqr.control(kf.state()); }
-
-    /// Servo control at the current estimate: u = -K*(x̂ - x_ref). The feedback half of a
-    /// 2-DOF law with no integral action, so it droops without the u_ff feedforward — see
-    /// StateFeedback::control(const ColVec<NX,T>&, const ColVec<NX,T>&).
-    [[nodiscard]] constexpr ColVec<NU, T> control(const ColVec<NX, T>& x_ref) const {
-        return lqr.control(x_ref, kf.state());
+    /** @brief u = u* − K·(x̂ − x*): feedforward from a planned trajectory (x*, u*). */
+    [[nodiscard]] constexpr ColVec<NU, T> control(const ColVec<NX, T>& x_ref, const ColVec<NU, T>& u_ref)
+        requires(NZ == 0)
+    {
+        return Core::control(ColVec<0, T>{}, x_ref, u_ref);
     }
 
-    /**
-     * @brief Measurement update + control law: the raw (pre-saturation) command for this tick.
-     *
-     * Runs the steady-state Kalman measurement update with the previously applied input,
-     * then the regulator at the estimate. Complete the tick with commit of the input
-     * the plant actually received (post-saturation). For plants without actuator limits,
-     * prefer step.
-     *
-     * @param y Measured output
-     * @return Raw control input u (pre-saturation)
-     */
-    [[nodiscard]] constexpr ColVec<NU, T> feedback(const ColVec<NY, T>& y) {
-        kf.update(y, u_prev);
-        return control();
+    /** @brief u = Nᵤ·r − K·(x̂ − Nₓ·r): the tracked outputs at @p r. */
+    [[nodiscard]] constexpr ColVec<NU, T> control(const ColVec<NZ, T>& r)
+        requires(NZ > 0)
+    {
+        return Core::control(r, ColVec<NX, T>{}, ColVec<NU, T>{});
     }
 
-    /// @copydoc feedback(const ColVec<NY,T>&)
-    /// @param x_ref State reference the feedback regulates toward.
-    [[nodiscard]] constexpr ColVec<NU, T> feedback(const ColVec<NY, T>& y, const ColVec<NX, T>& x_ref) {
-        kf.update(y, u_prev);
-        x_ref_prev = x_ref;
-        return control(x_ref);
+    /** @brief control(@p r) about the planned trajectory (x*, u*), which adds to the target's. */
+    [[nodiscard]] constexpr ColVec<NU, T> control(const ColVec<NZ, T>& r, const ColVec<NX, T>& x_ref, const ColVec<NU, T>& u_ref)
+        requires(NZ > 0)
+    {
+        return Core::control(r, x_ref, u_ref);
     }
 
-    /**
-     * @brief Measurement update + servo law on a model with delay states (discretize with
-     *        InputDelay / OutputDelay): @p x_ref covers the NR plant states only.
-     *
-     * The delay states that follow are filled in from the reference history with no
-     * feedforward input (this law has none): past inputs regulate toward zero, past outputs
-     * toward those the reference produced.
-     */
-    template<size_t NR>
-        requires(NR < NX)
-    [[nodiscard]] constexpr ColVec<NU, T> feedback(const ColVec<NY, T>& y, const ColVec<NR, T>& x_ref) {
-        return feedback(y, detail::extend_reference<NX>(kf.model().A, kf.model().B, x_ref_prev, ColVec<NU, T>{}, x_ref));
+    /** @brief One tick: predict(), update(@p y), then control(): the regulator. */
+    [[nodiscard]] constexpr ColVec<NU, T> step(const ColVec<NY, T>& y)
+        requires(NZ == 0)
+    {
+        return Core::step(ColVec<0, T>{}, ColVec<NX, T>{}, ColVec<NU, T>{}, y);
     }
 
-    /**
-     * @brief Complete the tick: propagate the estimator with the input the plant actually received.
-     * @param u_applied The realized plant input (post-saturation, including feedforward).
-     */
-    constexpr void commit(const ColVec<NU, T>& u_applied) {
-        kf.predict(u_applied);
-        u_prev = u_applied;
+    /** @brief One tick: predict(), update(@p y), then control(@p x_ref, @p u_ref), the feedforward form. */
+    [[nodiscard]] constexpr ColVec<NU, T> step(const ColVec<NX, T>& x_ref, const ColVec<NU, T>& u_ref, const ColVec<NY, T>& y)
+        requires(NZ == 0)
+    {
+        return Core::step(ColVec<0, T>{}, x_ref, u_ref, y);
     }
 
-    /**
-     * @brief One self-contained regulator tick from the measurement alone.
-     *
-     * @ref feedback then commit of the raw command. Use the split pair when the
-     * command can saturate so the estimator sees the applied input.
-     *
-     * @param y Measured output
-     * @return Control input u
-     */
-    [[nodiscard]] constexpr ColVec<NU, T> step(const ColVec<NY, T>& y) {
-        const auto u = feedback(y);
-        commit(u);
-        return u;
+    /** @brief One tick: predict(), update(@p y), then control(@p r). */
+    [[nodiscard]] constexpr ColVec<NU, T> step(const ColVec<NZ, T>& r, const ColVec<NY, T>& y)
+        requires(NZ > 0)
+    {
+        return Core::step(r, ColVec<NX, T>{}, ColVec<NU, T>{}, y);
     }
 
-    /// @copydoc step(const ColVec<NY,T>&)
-    /// @param x_ref State reference the feedback regulates toward.
-    [[nodiscard]] constexpr ColVec<NU, T> step(const ColVec<NY, T>& y, const ColVec<NX, T>& x_ref) {
-        const auto u = feedback(y, x_ref);
-        commit(u);
-        return u;
+    /** @brief One tick: predict(), update(@p y), then control(@p r, @p x_ref, @p u_ref), the feedforward form. */
+    [[nodiscard]] constexpr ColVec<NU, T> step(const ColVec<NZ, T>& r, const ColVec<NX, T>& x_ref, const ColVec<NU, T>& u_ref, const ColVec<NY, T>& y)
+        requires(NZ > 0)
+    {
+        return Core::step(r, x_ref, u_ref, y);
     }
 
-    /// One self-contained servo tick, @p x_ref on the plant states only (see feedback).
-    template<size_t NR>
-        requires(NR < NX)
-    [[nodiscard]] constexpr ColVec<NU, T> step(const ColVec<NY, T>& y, const ColVec<NR, T>& x_ref) {
-        const auto u = feedback(y, x_ref);
-        commit(u);
-        return u;
-    }
-
-    /// Clear the applied-input and reference memory (the estimator state is left untouched).
-    constexpr void reset() {
-        u_prev = ColVec<NU, T>{};
-        x_ref_prev = ColVec<NX, T>{};
-    }
+    using Core::applied;
+    using Core::back_calculate;
+    using Core::getK;
+    using Core::last_command;
+    using Core::predict;
+    using Core::reset;
+    using Core::state_estimate;
 };
+
+/** @brief LQG law{res}: the sizes, scalar and filter of design::lqg's result. */
+template<size_t NX, size_t NU, typename T, size_t NI, size_t NY, typename Kalman, size_t NZ>
+LQG(const design::StateFeedbackResult<NX, NU, T, NI, NY, Kalman, NZ>&) -> LQG<NX, NU, NY, T, detail::runtime_estimator_t<Kalman, T>, NZ>;
+
+
+namespace detail {
+
+/** @brief An LQ design with a filter and no integrators or disturbance model runs as LQG (with its tracked outputs, NZ > 0). */
+template<size_t NX, size_t NU, typename U, size_t NY, typename Kalman, size_t NZ, typename T>
+    requires(!std::is_same_v<Kalman, NoEstimator> && design::StateFeedbackResult<NX, NU, U, 0, NY, Kalman, NZ>::ND == 0)
+struct lq_runtime<design::StateFeedbackResult<NX, NU, U, 0, NY, Kalman, NZ>, T> {
+    using type = LQG<NX, NU, NY, T, runtime_estimator_t<Kalman, T>, NZ>; ///< LQG
+};
+
+} // namespace detail
 
 } // namespace damp

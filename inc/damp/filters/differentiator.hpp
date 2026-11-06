@@ -91,15 +91,15 @@ public:
         return z1_;
     }
 
-    /// Denoised estimate of the signal itself (z0 → f).
+    /** @brief Denoised estimate of the signal itself (z0 → f). */
     [[nodiscard]] constexpr T value() const { return z0_; }
 
-    /// Latest derivative estimate (z1 → ḟ).
+    /** @brief Latest derivative estimate (z1 → ḟ). */
     [[nodiscard]] constexpr T derivative() const { return z1_; }
 
     [[nodiscard]] constexpr bool valid() const { return valid_; }
 
-    /// Re-seed the internal states (e.g. to the first measurement and a known rate).
+    /** @brief Re-seed the internal states (e.g. to the first measurement and a known rate). */
     constexpr void reset(T value0 = T{0}, T derivative0 = T{0}) {
         z0_ = value0;
         z1_ = derivative0;

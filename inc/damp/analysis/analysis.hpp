@@ -17,7 +17,8 @@
  * (or this header) on the workstation.
  *
  * Split for navigation; this header re-exports the full analysis surface:
- * - linspace.hpp — linspace / logspace / geomspace / arange
+ * - linspace.hpp — linspace / geomspace / arange
+ * - disk_margin.hpp — SISO and loop-at-a-time MIMO disk margins (simultaneous gain and phase)
  * - frequency.hpp — Bode, Nyquist, Nichols, sigma, margins, loop metrics, impedance
  * - norms.hpp — dcgain, H2 / H∞
  * - poles.hpp — poles, damping, pzmap, rlocus
@@ -28,8 +29,10 @@
  * @c nullopt → sample skipped, no Inf/NaN fill).
  */
 
+#include "damp/analysis/disk_margin.hpp"   // IWYU pragma: export
 #include "damp/analysis/frequency.hpp"     // IWYU pragma: export
 #include "damp/analysis/linspace.hpp"      // IWYU pragma: export
 #include "damp/analysis/norms.hpp"         // IWYU pragma: export
 #include "damp/analysis/poles.hpp"         // IWYU pragma: export
+#include "damp/analysis/sensitivity.hpp"   // IWYU pragma: export
 #include "damp/analysis/time_response.hpp" // IWYU pragma: export

@@ -53,6 +53,7 @@
  *      multirate sampling chapter
  */
 
+#include <concepts>
 #include <cstddef>
 #include <vector>
 
@@ -83,6 +84,20 @@ struct MultiRateConfig {
     std::size_t max_base_ticks{0}; ///< 0 = unlimited; otherwise stop after this many base ticks
 };
 
+namespace detail {
+
+/** @brief y = output(x, u) for an output map that reads the held input, else output(x). */
+template<size_t NX, size_t NU, typename T, typename Output>
+[[nodiscard]] constexpr auto measure(Output& output, const ColVec<NX, T>& x, const ColVec<NU, T>& u) {
+    if constexpr (std::invocable<Output&, const ColVec<NX, T>&, const ColVec<NU, T>&>) {
+        return output(x, u);
+    } else {
+        return output(x);
+    }
+}
+
+} // namespace detail
+
 /**
  * @brief Result of a two-rate cascade simulation
  *
@@ -96,7 +111,7 @@ struct TwoRateSimulationResult {
     std::vector<ColVec<NY, T>> y{};                ///< Output history
     std::vector<ColVec<NU, T>> u{};                ///< Held plant input
     std::vector<ColVec<NR, T>> r{};                ///< Held outer → inner reference
-    bool                       truncated{false};   ///< Stopped at max_base_ticks before tf
+    bool                       success{true};      ///< false when the run stopped before tf: max_base_ticks, invalid input (Ts_base ≤ 0, an empty span, a zero divisor) or a failed solver segment
     std::size_t                base_tick_count{0}; ///< Base ticks executed
 };
 
@@ -108,7 +123,7 @@ struct TwoRateSimulationResult {
  * integrates the continuous plant over the next @c Ts_base. Implement multi-rate
  * scheduling inside @p control_step with @ref fires_at (or free-form logic).
  *
- * @tparam Plant        (T t, ColVec\<NX\> x, ColVec\<NU\> u) → ColVec\<NX\>  (dx/dt)
+ * @tparam Plant        (ColVec\<NX\> x, ColVec\<NU\> u) (a Dynamics) or (T t, ColVec\<NX\> x, ColVec\<NU\> u) → ColVec\<NX\>  (dx/dt)
  * @tparam Output       (ColVec\<NX\> x) → ColVec\<NY\>
  * @tparam ControlStep  (std::size_t k, T t, ColVec\<NY\> y) → ColVec\<NU\>
  * @tparam Solver       FixedStepSolver (plant sub-step)
@@ -135,6 +150,7 @@ template<
 ) {
     SimulationResult<NX, NU, NY, T> sim{};
     if (!(config.Ts_base > T{0}) || !(t_span.second > t_span.first)) {
+        sim.success = false;
         return sim;
     }
 
@@ -144,9 +160,11 @@ template<
     const std::size_t stride = (config.log_stride == 0) ? 1 : config.log_stride;
     // Base tick k at t0 + k·Ts_base (no running-sum drift, no sliver tick at tf).
     const std::size_t n_ticks = detail::step_count(t0, tf, config.Ts_base);
+    const auto        rhs = detail::timed_plant<NX, NU, T>(plant);
 
     for (std::size_t k = 0; k < n_ticks; ++k) {
         if (config.max_base_ticks != 0 && k >= config.max_base_ticks) {
+            sim.success = false;
             break;
         }
 
@@ -162,7 +180,7 @@ template<
             sim.u.push_back(u);
         }
 
-        const auto f = [&](T tt, const ColVec<NX, T>& xx) { return plant(tt, xx, u); };
+        const auto f = [&](T tt, const ColVec<NX, T>& xx) { return rhs(tt, xx, u); };
         const auto seg = fine_solver.solve(f, x, {t, t_next});
         for (size_t j = 1; j < seg.size(); ++j) {
             const bool keep = (j % stride == 0) || (j + 1 == seg.size());
@@ -175,6 +193,10 @@ template<
             sim.u.push_back(u);
         }
         x = seg.x.back();
+        if (!seg.success) {
+            sim.success = false; // the segment stopped short of t_next
+            break;
+        }
     }
     return sim;
 }
@@ -254,10 +276,8 @@ template<
     MultiRateConfig<T>      config
 ) {
     TwoRateSimulationResult<NX, NU, NY, NR, T> sim{};
-    if (!(config.Ts_base > T{0}) || !(t_span.second > t_span.first)) {
-        return sim;
-    }
-    if (outer_div == 0 || inner_div == 0) {
+    if (!(config.Ts_base > T{0}) || !(t_span.second > t_span.first) || outer_div == 0 || inner_div == 0) {
+        sim.success = false;
         return sim;
     }
 
@@ -268,17 +288,18 @@ template<
     const T           tf = t_span.second;
     const std::size_t stride = (config.log_stride == 0) ? 1 : config.log_stride;
     const std::size_t n_ticks = detail::step_count(t0, tf, config.Ts_base);
+    const auto        rhs = detail::timed_plant<NX, NU, T>(plant);
     std::size_t       k = 0;
 
     for (; k < n_ticks; ++k) {
         if (config.max_base_ticks != 0 && k >= config.max_base_ticks) {
-            sim.truncated = true;
+            sim.success = false;
             break;
         }
 
         const T             t = detail::grid_time(t0, tf, config.Ts_base, k, n_ticks);
         const T             t_next = detail::grid_time(t0, tf, config.Ts_base, k + 1, n_ticks);
-        const ColVec<NY, T> y = output(x);
+        const ColVec<NY, T> y = detail::measure<NX, NU, T>(output, x, u); // u held from the previous tick
 
         // Slow → fast: outer reference first, then inner plant command.
         if (fires_at(k, outer_div)) {
@@ -291,12 +312,12 @@ template<
         if (sim.t.empty()) {
             sim.t.push_back(t);
             sim.x.push_back(x);
-            sim.y.push_back(y);
+            sim.y.push_back(detail::measure<NX, NU, T>(output, x, u));
             sim.u.push_back(u);
             sim.r.push_back(r);
         }
 
-        const auto f = [&](T tt, const ColVec<NX, T>& xx) { return plant(tt, xx, u); };
+        const auto f = [&](T tt, const ColVec<NX, T>& xx) { return rhs(tt, xx, u); };
         const auto seg = fine_solver.solve(f, x, {t, t_next});
         for (size_t j = 1; j < seg.size(); ++j) {
             const bool keep = (j % stride == 0) || (j + 1 == seg.size());
@@ -305,11 +326,15 @@ template<
             }
             sim.t.push_back(seg.t[j]);
             sim.x.push_back(seg.x[j]);
-            sim.y.push_back(output(seg.x[j]));
+            sim.y.push_back(detail::measure<NX, NU, T>(output, seg.x[j], u));
             sim.u.push_back(u);
             sim.r.push_back(r);
         }
         x = seg.x.back();
+        if (!seg.success) {
+            sim.success = false; // the segment stopped short of t_next
+            break;
+        }
     }
     sim.base_tick_count = k;
     return sim;
@@ -318,7 +343,7 @@ template<
 /**
  * @brief Two-rate cascade: outer reference law + inner plant-input law
  *
- * @param plant        Continuous plant f(t, x, u) -> dx/dt
+ * @param plant        Continuous plant dx/dt = f(x, u) (a Dynamics) or f(t, x, u)
  * @param output       Measurement map y = g(x)
  * @param outer        Outer reference law (fires every outer_div base ticks)
  * @param outer_div    Outer period as multiple of Ts_base
@@ -370,10 +395,11 @@ template<
 }
 
 /**
- * @brief Two-rate cascade on a continuous LTI plant (A, B, C)
+ * @brief Two-rate cascade on a continuous LTI plant (A, B, C, D)
  *
- * Plant RHS is @c Ax + Bu; control sampling uses @c y = Cx (same as
- * simulate_sampled — no D feedthrough of the not-yet-computed @c u).
+ * Plant RHS is @c Ax + Bu. The laws sample y = Cx + D·u with the input held from the
+ * previous base tick (zero before the first), as simulate_lti_siso; recorded samples use
+ * the input held over their period, so every logged (y, u) pair satisfies y = Cx + Du.
  */
 template<
     size_t NX,
@@ -401,7 +427,7 @@ template<
     auto plant = [&](T /*t*/, const ColVec<NX, T>& x, const ColVec<NU, T>& u) -> ColVec<NX, T> {
         return sys.A * x + sys.B * u;
     };
-    auto output = [&](const ColVec<NX, T>& x) -> ColVec<NY, T> { return sys.C * x; };
+    auto output = [&](const ColVec<NX, T>& x, const ColVec<NU, T>& u) -> ColVec<NY, T> { return sys.C * x + sys.D * u; };
 
     return simulate_two_rate<NX, NU, NY, NR, T>(
         plant,

@@ -10,28 +10,30 @@
  * @brief Nonlinear model linearization (design-time)
  *
  * @defgroup linearization Nonlinear Model Linearization
- * @ingroup design
- * @brief Finite-difference Jacobian linearization to continuous A/B/C/D at an operating point
+ * @brief Jacobian linearization of a Dynamics / Measurement model to continuous A/B/C/D at an operating point
  *
- * Provides numerical linearization for nonlinear plants:
+ * Linearizes the continuous model of concepts.hpp,
  *
- *   x_dot = f(x, u) or f(t, x, u)
- *   y     = h(x) or h(x, u)
+ *   ẋ = f(x, u)   (Dynamics)
+ *   y = h(x, u)   (Measurement)
  *
- * around an operating point (x_op, u_op), returning Jacobians:
+ * around an operating point (x_op, u_op), returning the Jacobians
  *
  *   A = ∂f/∂x,  B = ∂f/∂u,  C = ∂h/∂x,  D = ∂h/∂u
  *
- * using central finite differences.
+ * from the model's own jacobian(x, u) when it has one (AnalyticDynamics, AnalyticMeasurement),
+ * else by central differences. The same f and h are the model of ExtendedKalmanFilter and
+ * UnscentedKalmanFilter and the plant of the continuous sim::simulate* functions.
  *
  * Primary API: @c damp::design::linearize (same pattern as @c design::pid, @c design::place).
  */
 
-#include <concepts>
 #include <cstddef>
 
-#include "damp/math/math.hpp"
+#include "damp/concepts.hpp"
+#include "damp/design/status.hpp"
 #include "damp/matrix/matrix.hpp"
+#include "damp/systems/dynamics.hpp"
 #include "damp/systems/state_space.hpp"
 
 namespace damp {
@@ -41,7 +43,7 @@ namespace design {
  * @brief Result of nonlinear operating-point linearization
  */
 template<size_t NX, size_t NU, size_t NY, typename T = double>
-struct LinearizationResult {
+struct [[nodiscard]] LinearizationResult {
     Matrix<NX, NX, T> A{}; ///< State Jacobian A = ∂f/∂x
     Matrix<NX, NU, T> B{}; ///< Input Jacobian B = ∂f/∂u
     Matrix<NY, NX, T> C{}; ///< Output Jacobian C = ∂h/∂x
@@ -51,8 +53,15 @@ struct LinearizationResult {
     ColVec<NU, T> u_op{}; ///< Input operating point
     ColVec<NY, T> y_op{}; ///< Output at operating point
 
-    T epsilon{}; ///< Relative finite-difference step used (hᵢ = ε·max(|pᵢ|, 1))
+    T epsilon{}; ///< Relative central-difference step (hᵢ = ε·max(|pᵢ|, 1)); unused for Jacobians the model supplies
 
+    bool         success{false};                      ///< status == DesignStatus::ok
+    DesignStatus status{DesignStatus::not_converged}; ///< ok, or why the linearization is refused
+
+    /** @brief True when the linearization succeeded (success). */
+    [[nodiscard]] constexpr explicit operator bool() const { return success; }
+
+    /** @brief The same linearization in the scalar @p U. */
     template<typename U>
     [[nodiscard]] constexpr auto as() const {
         return LinearizationResult<NX, NU, NY, U>{
@@ -63,7 +72,9 @@ struct LinearizationResult {
             x_op.template as<U>(),
             u_op.template as<U>(),
             y_op.template as<U>(),
-            static_cast<U>(epsilon)
+            static_cast<U>(epsilon),
+            success,
+            status
         };
     }
 
@@ -81,123 +92,62 @@ struct LinearizationResult {
     }
 };
 
-namespace detail {
-
-template<size_t NX, size_t NU, typename T, typename Dynamics>
-[[nodiscard]] constexpr ColVec<NX, T>
-eval_dynamics(const Dynamics& dynamics, const ColVec<NX, T>& x, const ColVec<NU, T>& u) {
-    if constexpr (requires { { dynamics(x, u) } -> std::convertible_to<ColVec<NX, T>>; }) {
-        return dynamics(x, u);
-    } else {
-        static_assert(
-            requires { { dynamics(T{0}, x, u) } -> std::convertible_to<ColVec<NX, T>>; },
-            "Dynamics must be callable as f(x, u) or f(t, x, u)."
-        );
-        return dynamics(T{0}, x, u);
-    }
-}
-
-template<size_t NX, size_t NU, size_t NY, typename T, typename Output>
-[[nodiscard]] constexpr ColVec<NY, T>
-eval_output(const Output& output, const ColVec<NX, T>& x, const ColVec<NU, T>& u) {
-    if constexpr (requires { { output(x, u) } -> std::convertible_to<ColVec<NY, T>>; }) {
-        return output(x, u);
-    } else {
-        static_assert(
-            requires { { output(x) } -> std::convertible_to<ColVec<NY, T>>; },
-            "Output must be callable as h(x, u) or h(x)."
-        );
-        return output(x);
-    }
-}
-
-template<typename T>
-[[nodiscard]] constexpr T default_linearization_epsilon() {
-    // Central differences: optimal step ~ ε^(1/3) balances the O(h²) truncation
-    // error against round-off, unlike the ε^(1/2) of one-sided differences.
-    return damp::cbrt(eps<T>());
-}
-
-/// Central-difference step for coordinate value v: rel · max(|v|, 1), so the
-/// perturbation stays resolvable at large operating points.
-template<typename T>
-[[nodiscard]] constexpr T fd_step(T v, T rel) {
-    const T mag = damp::abs(v);
-    return rel * ((mag > T{1}) ? mag : T{1});
-}
-
-/// Central difference of every output of g along coordinate i of p.
-/// The divisor is the realized step (p+h) − (p−h), not 2h, so rounding of
-/// p ± h does not bias the quotient.
-template<size_t NP, size_t NOUT, typename T, typename Eval>
-constexpr void central_column(
-    Matrix<NOUT, NP, T>& J,
-    const ColVec<NP, T>& p,
-    size_t               i,
-    T                    rel,
-    const Eval&          g
-) {
-    ColVec<NP, T> plus = p;
-    ColVec<NP, T> minus = p;
-    const T       h = fd_step(p(i, 0), rel);
-    plus(i, 0) += h;
-    minus(i, 0) -= h;
-    const T    inv_span = T{1} / (plus(i, 0) - minus(i, 0));
-    const auto g_plus = g(plus);
-    const auto g_minus = g(minus);
-    for (size_t r = 0; r < NOUT; ++r) {
-        J(r, i) = (g_plus(r, 0) - g_minus(r, 0)) * inv_span;
-    }
-}
-
-} // namespace detail
-
 /**
- * @brief Linearize nonlinear dynamics and output maps about an operating point
+ * @brief Linearize a Dynamics / Measurement model about an operating point
  *
- * Computes central finite-difference Jacobians for:
- * - dynamics f: x_dot = f(x, u) or f(t, x, u)
- * - output   h: y = h(x) or h(x, u)
+ * A and B come from the dynamics' jacobian(x, u) when it has one, C and D from the
+ * measurement's; the rest by central differences.
  *
- * @param dynamics Nonlinear dynamics callable
- * @param output   Nonlinear output callable
+ * The central-difference step hᵢ = ε·max(|pᵢ|, 1) has a floor of one unit of each coordinate,
+ * so a coordinate much smaller than one unit at the operating point (a gap of a few millimetres
+ * in metres) is stepped by more than its own size and its column comes out wrong, the more so
+ * in float, where ∛eps ≈ 4.9e-3. State such coordinates in units where they are of order one,
+ * or give the model an analytic jacobian(x, u), which no step affects.
+ *
+ * @param dynamics Continuous dynamics ẋ = f(x, u) (Dynamics)
+ * @param output   Measurement y = h(x, u) (Measurement)
  * @param x_op     State operating point
  * @param u_op     Input operating point
  * @param epsilon  Relative central-difference step: hᵢ = ε·max(|pᵢ|, 1) per coordinate (default ∛eps; ≤ 0 → default)
- * @return LinearizationResult with A, B, C, D Jacobians
+ * @return LinearizationResult with A, B, C, D Jacobians; refused with DesignStatus::invalid_parameter
+ *         for a non-finite @p epsilon and DesignStatus::bad_weights when the operating point, the
+ *         output there or a Jacobian entry is not finite
  */
-template<size_t NX, size_t NU, size_t NY, typename T = double, typename Dynamics, typename Output>
+template<size_t NX, size_t NU, size_t NY, typename T = double, typename F, typename H>
+    requires Dynamics<F, NX, NU, T> && Measurement<H, NX, NU, NY, T>
 [[nodiscard]] constexpr LinearizationResult<NX, NU, NY, T> linearize(
-    const Dynamics&      dynamics,
-    const Output&        output,
+    const F&             dynamics,
+    const H&             output,
     const ColVec<NX, T>& x_op,
     const ColVec<NU, T>& u_op,
-    T                    epsilon = detail::default_linearization_epsilon<T>()
+    T                    epsilon = ::damp::detail::default_jacobian_step<T>()
 ) {
+    using Result = LinearizationResult<NX, NU, NY, T>;
+    if (!damp::isfinite(epsilon)) {
+        return ::damp::detail::refused<Result>(DesignStatus::invalid_parameter);
+    }
     if (epsilon <= T{0}) {
-        epsilon = detail::default_linearization_epsilon<T>();
+        epsilon = ::damp::detail::default_jacobian_step<T>();
     }
-
-    LinearizationResult<NX, NU, NY, T> result{};
-    result.x_op = x_op;
-    result.u_op = u_op;
-    result.y_op = detail::eval_output<NX, NU, NY, T>(output, x_op, u_op);
-    result.epsilon = epsilon;
-
-    const auto f_of_x = [&](const ColVec<NX, T>& x) { return detail::eval_dynamics<NX, NU, T>(dynamics, x, u_op); };
-    const auto h_of_x = [&](const ColVec<NX, T>& x) { return detail::eval_output<NX, NU, NY, T>(output, x, u_op); };
-    const auto f_of_u = [&](const ColVec<NU, T>& u) { return detail::eval_dynamics<NX, NU, T>(dynamics, x_op, u); };
-    const auto h_of_u = [&](const ColVec<NU, T>& u) { return detail::eval_output<NX, NU, NY, T>(output, x_op, u); };
-
-    for (size_t i = 0; i < NX; ++i) {
-        detail::central_column(result.A, x_op, i, epsilon, f_of_x);
-        detail::central_column(result.C, x_op, i, epsilon, h_of_x);
+    const auto finite = [](T v) { return damp::isfinite(v); };
+    if (!mat::all_of(x_op, finite) || !mat::all_of(u_op, finite)) {
+        return ::damp::detail::refused<Result>(DesignStatus::bad_weights);
     }
-    for (size_t j = 0; j < NU; ++j) {
-        detail::central_column(result.B, u_op, j, epsilon, f_of_u);
-        detail::central_column(result.D, u_op, j, epsilon, h_of_u);
-    }
-    return result;
+    const DynamicsJacobian<NX, NU, T>        fj = ::damp::detail::dynamics_jacobian<NX, NU, T>(dynamics, x_op, u_op, epsilon);
+    const MeasurementJacobian<NX, NU, NY, T> hj = ::damp::detail::measurement_jacobian<NX, NU, NY, T>(output, x_op, u_op, epsilon);
+    Result                                   out{
+        .A = fj.A,
+        .B = fj.B,
+        .C = hj.C,
+        .D = hj.D,
+        .x_op = x_op,
+        .u_op = u_op,
+        .y_op = output(x_op, u_op),
+        .epsilon = epsilon,
+    };
+    const bool finite_result = mat::all_of(out.A, finite) && mat::all_of(out.B, finite) && mat::all_of(out.C, finite)
+                            && mat::all_of(out.D, finite) && mat::all_of(out.y_op, finite);
+    return ::damp::detail::set_status(out, finite_result ? DesignStatus::ok : DesignStatus::bad_weights);
 }
 
 /**
@@ -205,14 +155,15 @@ template<size_t NX, size_t NU, size_t NY, typename T = double, typename Dynamics
  *
  * Convenience overload for state-feedback workflows.
  */
-template<size_t NX, size_t NU, typename T = double, typename Dynamics>
+template<size_t NX, size_t NU, typename T = double, typename F>
+    requires Dynamics<F, NX, NU, T>
 [[nodiscard]] constexpr LinearizationResult<NX, NU, NX, T> linearize(
-    const Dynamics&      dynamics,
+    const F&             dynamics,
     const ColVec<NX, T>& x_op,
     const ColVec<NU, T>& u_op,
-    T                    epsilon = detail::default_linearization_epsilon<T>()
+    T                    epsilon = ::damp::detail::default_jacobian_step<T>()
 ) {
-    auto output = [](const ColVec<NX, T>& x) -> ColVec<NX, T> {
+    const auto output = [](const ColVec<NX, T>& x, const ColVec<NU, T>& /*u*/) -> ColVec<NX, T> {
         return x;
     };
 

@@ -33,11 +33,13 @@ class Complementary {
 public:
     constexpr Complementary() = default;
 
-    /// @param tau Crossover time constant [s] (larger ⇒ trust the rate longer).
+    /** @param tau Crossover time constant [s] (larger ⇒ trust the rate longer). */
     constexpr explicit Complementary(T tau) : tau_(tau) {}
 
-    /// @param measurement Absolute (slow/noisy) reading. @param rate Its
-    /// derivative (fast/low-drift). @param dt Sample time [s].
+    /**
+     * @param measurement Absolute (slow/noisy) reading. @param rate Its
+     * derivative (fast/low-drift). @param dt Sample time [s].
+     */
     constexpr T operator()(T measurement, T rate, T dt) {
         if (!init_) {
             y_ = measurement;

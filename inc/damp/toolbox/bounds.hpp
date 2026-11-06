@@ -13,92 +13,112 @@
  * Every "limit" in the library is the same shape: a closed interval
  * @f$[\,\text{lower}_i,\ \text{upper}_i\,]@f$ per channel. A state-limit set is a
  * `Bounds\<Nx\>`; an output/input-limit set is a `Bounds\<Nu\>` — same type, different
- * vector. This subsumes the scalar `u_min/u_max` saturation pairs (`Bounds<1>`)
- * and the symmetric @f$|x_i|\le \text{max}_i@f$ convention used by
- * `JointLimits` / `TrajectoryLimits` (see Bounds::symmetric).
+ * vector. The ends are column vectors, so they enter matrix expressions directly.
+ * A scalar saturation pair is a `Bounds<1>`, written `{lo, hi}`: the PID output and
+ * integrator limits, the ESC and relay-autotune clamps, the SOGI-FLL frequency range.
+ * The vector form carries the MPC input, move and output limits and the MHE state
+ * limits. The symmetric @f$|x_i|\le \text{max}_i@f$ convention is Bounds::symmetric.
  *
- * Scope is deliberately just the *hard* constraint. A soft/weighted constraint
- * (MPC: a `Q`/`R` cost coefficient or a slack penalty per channel) is a separate
- * concern that *composes* a `Bounds` with a weight — it is intentionally not a
- * member here, so the limit type stays usable in every controller today and the
- * MPC layer is purely additive later.
+ * Scope is just the hard constraint. A soft/weighted constraint (MPC: a `Q`/`R`
+ * cost coefficient or a slack penalty per channel) composes a `Bounds` with a
+ * weight; it is not a member here.
  *
  * @see controllers/pid.hpp (Bounds<1> on output + integrator),
- *      trajectory/cartesian_move.hpp (JointLimits), trajectory/trajectory_types.hpp.
+ *      controllers/mpc.hpp (MPCConstraints), estimation/mhe.hpp (MHEConstraints).
  */
 
 #include <cstddef>
 #include <limits>
 
-#include "damp/backend.hpp" // array, clamp
+#include "damp/backend.hpp" // clamp
+#include "damp/matrix/colvec.hpp"
+#include "damp/matrix/core.hpp"
 
 namespace damp {
 
 /**
  * @brief A per-channel closed-interval box constraint.
+ *
+ * An aggregate: `{.lower = -12.0, .upper = 12.0}` for one channel (a ColVec<1> takes its
+ * scalar), `{.lower = {-1.0, -2.0}, .upper = {1.0, 2.0}}` for two. An end left out stays
+ * unbounded. The default is unbounded: every end at the widest finite value, ∓max(). The
+ * library builds under -ffinite-math-only, where producing ±inf is undefined, so
+ * the ends are never ±inf; a zero-initialised box would clamp every channel to 0.
+ *
  * @tparam N Number of channels
  * @tparam T Scalar type (floating point)
  */
 template<size_t N, typename T = double>
 struct Bounds {
-    damp::array<T, N> lower; ///< lower[i] ≤ x[i]
-    damp::array<T, N> upper; ///< x[i] ≤ upper[i]
+    ColVec<N, T> lower = Matrix<N, 1, T>::constant(-std::numeric_limits<T>::max()); ///< lower(i) ≤ x(i)
+    ColVec<N, T> upper = Matrix<N, 1, T>::constant(std::numeric_limits<T>::max());  ///< x(i) ≤ upper(i)
 
-    /// Default is *unbounded* — the widest finite interval. Uses min()/max()
-    /// rather than ±inf because the library builds under -ffinite-math-only
-    /// (-ffast-math), where producing ±inf is UB (see math/constexpr_math.hpp).
-    /// A zero-initialised box would silently clamp every channel to 0.
-    constexpr Bounds() {
-        lower.fill(-std::numeric_limits<T>::max());
-        upper.fill(std::numeric_limits<T>::max());
+    /** @brief Symmetric box [−mag, +mag] per channel (the |xᵢ| ≤ magᵢ convention). */
+    [[nodiscard]] static constexpr Bounds symmetric(const ColVec<N, T>& mag) {
+        return Bounds{
+            .lower = -mag,
+            .upper = mag,
+        };
     }
 
-    constexpr Bounds(const damp::array<T, N>& lo, const damp::array<T, N>& hi) : lower(lo), upper(hi) {}
-
-    /// Scalar construction for the SISO case, e.g. a PID output limit.
-    constexpr Bounds(T lo, T hi)
-        requires(N == 1)
-        : lower{lo}, upper{hi} {}
-
-    /// Symmetric box [-mag, +mag] per channel (the |xᵢ|≤maxᵢ convention).
-    [[nodiscard]] static constexpr Bounds symmetric(const damp::array<T, N>& mag) {
-        Bounds b{};
+    /** @brief Per-channel clamp into the box. */
+    [[nodiscard]] constexpr ColVec<N, T> saturate(const ColVec<N, T>& x) const {
+        ColVec<N, T> out{};
         for (size_t i = 0; i < N; ++i) {
-            b.lower[i] = -mag[i];
-            b.upper[i] = mag[i];
-        }
-        return b;
-    }
-
-    /// Per-channel clamp into the box.
-    [[nodiscard]] constexpr damp::array<T, N> saturate(const damp::array<T, N>& x) const {
-        damp::array<T, N> out{};
-        for (size_t i = 0; i < N; ++i) {
-            out[i] = damp::clamp(x[i], lower[i], upper[i]);
+            out(i) = damp::clamp(x(i), lower(i), upper(i));
         }
         return out;
     }
 
-    /// True iff every channel is within its interval.
-    [[nodiscard]] constexpr bool contains(const damp::array<T, N>& x) const {
+    /** @brief True iff every channel is within its interval. */
+    [[nodiscard]] constexpr bool contains(const ColVec<N, T>& x) const {
         for (size_t i = 0; i < N; ++i) {
-            if (x[i] < lower[i] || x[i] > upper[i]) {
+            if (x(i) < lower(i) || x(i) > upper(i)) {
                 return false;
             }
         }
         return true;
     }
 
-    // ---- SISO scalar conveniences (N == 1) ---------------------------------
+    /** @brief Clamp of a scalar into the SISO interval. */
     [[nodiscard]] constexpr T saturate(T x) const
         requires(N == 1)
     {
-        return damp::clamp(x, lower[0], upper[0]);
+        return damp::clamp(x, lower(0), upper(0));
     }
+
+    /** @brief True iff the scalar is within the SISO interval. */
     [[nodiscard]] constexpr bool contains(T x) const
         requires(N == 1)
     {
-        return (x >= lower[0]) && (x <= upper[0]);
+        return (x >= lower(0)) && (x <= upper(0));
+    }
+
+    /**
+     * @brief The same box in scalar type U. An end at or beyond max()/4 in T is unbounded and
+     * becomes ±max() of U; a plain cast of numeric_limits<double>::max() to float would overflow.
+     */
+    template<typename U>
+    [[nodiscard]] constexpr Bounds<N, U> as() const {
+        Bounds<N, U> out{};
+        for (size_t i = 0; i < N; ++i) {
+            out.lower(i) = convert_end<U>(lower(i));
+            out.upper(i) = convert_end<U>(upper(i));
+        }
+        return out;
+    }
+
+private:
+    template<typename U>
+    [[nodiscard]] static constexpr U convert_end(T v) {
+        constexpr T unbounded = std::numeric_limits<T>::max() / T{4};
+        if (v >= unbounded) {
+            return std::numeric_limits<U>::max();
+        }
+        if (v <= -unbounded) {
+            return -std::numeric_limits<U>::max();
+        }
+        return static_cast<U>(v);
     }
 };
 

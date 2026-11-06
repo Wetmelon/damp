@@ -30,7 +30,7 @@ static constexpr int OUTPUT = 1;
 #define loop loop_
 #endif
 
-static constinit ADRCController<2, float> controller{adrc_d.as<float>(), static_cast<float>(Ts)};
+static constinit ADRCController<2, float> controller{adrc_d.as<float>()};
 
 static float reference = 1.0f;
 

@@ -23,12 +23,12 @@
  * @endcode
  *
  * Adaptive step — only pairs modelling @ref AdaptiveStepIntegrator
- * (DP45 non-stiff, RK23 cheap non-stiff, TRBDF2 stiff). Error control matches
+ * (DP45 non-stiff, RK23 cheap non-stiff, TRBDF2). Error control matches
  * SciPy `solve_ivp` (atol=1e-6, rtol=1e-3, weighted RMS ≤ 1), with Hairer
  * initial-step selection, Gustafsson PI step control, and scalar-or-vector tols:
  * @code
  *   auto result = adaptive_solve\<DP45\>(f, x0, {0.0, 10.0});
- *   auto stiff  = adaptive_solve\<TRBDF2\>(f, x0, {0.0, 10.0}, {.atol=1e-8, .rtol=1e-6});
+ *   auto tight  = adaptive_solve\<DP45\>(f, x0, {0.0, 10.0}, {.atol=1e-8, .rtol=1e-6});
  *   // or: AdaptiveStepSolver solver(DP45<2>{}, {.first_step=0.01}); ...
  *   // per-component: AdaptiveOptions<2>{.atol = ColVec<2>{1e-12, 1e-3}, ...}
  * @endcode
@@ -65,7 +65,7 @@ template<typename T>
     return static_cast<size_t>(damp::ceil(n - (T{64} * eps<T>() * n)));
 }
 
-/// Time of step @p k of @p n on the uniform grid t0 + k·h, with the last step exactly at tf.
+/** @brief Time of step @p k of @p n on the uniform grid t0 + k·h, with the last step exactly at tf. */
 template<typename T>
 [[nodiscard]] constexpr T grid_time(T t0, T tf, T h, size_t k, size_t n) {
     return (k >= n) ? tf : t0 + (static_cast<T>(k) * h);
@@ -92,7 +92,7 @@ struct SolveResult {
     size_t n_accepted = 0; ///< Accepted steps (adaptive solvers only)
     size_t n_rejected = 0; ///< Rejected steps (adaptive solvers only)
 
-    /// Iterator for range-based for: for (const auto& [t, x] : result)
+    /** @brief Iterator for range-based for: for (const auto& [t, x] : result) */
     struct Iterator {
         using iterator_category = std::forward_iterator_tag;
         using difference_type = std::ptrdiff_t;
@@ -127,7 +127,7 @@ struct SolveResult {
     Iterator begin() const { return Iterator(&t, &x, 0); }
     Iterator end() const { return Iterator(&t, &x, t.size()); }
 
-    /// Number of recorded time steps
+    /** @brief Number of recorded time steps */
     size_t size() const { return t.size(); }
 };
 
@@ -181,9 +181,20 @@ public:
         result.x.reserve(n_steps + 1);
 
         for (size_t k = 1; k <= n_steps; ++k) {
-            const T                  t_next = detail::grid_time(t0, tf, h_, k, n_steps);
+            const T t_next = detail::grid_time(t0, tf, h_, k, n_steps);
+            //! A multistep integrator's coefficients assume the step h: restart it before a final
+            //! step of another length.
+            if constexpr (requires { integrator_.reset(); }) {
+                if (damp::abs((t_next - t) - h_) > T{64} * eps<T>() * (damp::abs(t_next) + h_)) {
+                    integrator_.reset();
+                }
+            }
             IntegrationResult<NX, T> step_result = integrator_.evolve(f, x, t, t_next - t);
             ++result.nfev;
+            if (!step_result.success) {
+                result.success = false; // implicit stage not converged or singular: stop at the last good state
+                break;
+            }
 
             t = t_next;
             x = step_result.x;
@@ -201,6 +212,9 @@ public:
                 if (triggered) {
                     x = new_state;
                     result.x.back() = x;
+                    if constexpr (requires { integrator_.reset(); }) {
+                        integrator_.reset(); // the history before the jump in x is not the past of the new state
+                    }
                 }
                 if (stop) {
                     break;
@@ -216,13 +230,13 @@ public:
         return result;
     }
 
-    /// Set callback invoked after each accepted step
+    /** @brief Set callback invoked after each accepted step */
     template<typename Callback>
     void set_on_step(Callback&& cb) {
         on_step_ = damp::forward<Callback>(cb);
     }
 
-    /// Set condition to stop simulation early: returns true to stop
+    /** @brief Set condition to stop simulation early: returns true to stop */
     template<typename Condition>
     void set_stop_condition(Condition&& cond) {
         stop_condition_ = damp::forward<Condition>(cond);
@@ -239,8 +253,10 @@ public:
         event_detector_ = damp::forward<Detector>(det);
     }
 
+    /** @brief Set the step size h */
     void set_step_size(T h) { h_ = h; }
-    T    get_step_size() const { return h_; }
+    /** @brief The step size h */
+    [[nodiscard]] T get_step_size() const { return h_; }
 
 private:
     mutable IntegratorType integrator_;
@@ -250,7 +266,7 @@ private:
     std::function<bool(T, const ColVec<NX, T>&)>                                   stop_condition_;
     std::function<damp::tuple<bool, ColVec<NX, T>, bool>(T, const ColVec<NX, T>&)> event_detector_;
 };
-/// CTAD deduction guides for FixedStepSolver
+/** @brief CTAD deduction guides for FixedStepSolver */
 template<template<size_t, typename> class Int, size_t NX, typename T>
 FixedStepSolver(Int<NX, T>, T) -> FixedStepSolver<NX, T, Int<NX, T>>;
 
@@ -284,19 +300,19 @@ template<template<size_t, typename> class Method, size_t NX, typename T, typenam
  */
 template<size_t NX, typename T = double>
 struct ErrorTolerance {
-    ColVec<NX, T> v{};
+    ColVec<NX, T> v{}; ///< Tolerance of each state
 
-    /// Broadcast a scalar tolerance to all states
+    /** @brief Broadcast a scalar tolerance to all states */
     constexpr ErrorTolerance(T s = T{0}) {
         for (size_t i = 0; i < NX; ++i) {
             v[i] = s;
         }
     }
 
-    /// Per-component tolerances
+    /** @brief Per-component tolerances */
     constexpr ErrorTolerance(const ColVec<NX, T>& c) : v(c) {}
 
-    /// Brace list: one value broadcasts; NX values set components
+    /** @brief Brace list: one value broadcasts; NX values set components */
     constexpr ErrorTolerance(std::initializer_list<T> il) {
         if (il.size() == 1) {
             const T s = *il.begin();
@@ -373,7 +389,7 @@ struct AdaptiveOptions {
  * |---------|----------------------------------|
  * | DP45    | Non-stiff default (MATLAB® ode45) |
  * | RK23    | Cheap non-stiff (ode23)          |
- * | TRBDF2  | Stiff / switched plants (ode23tb)|
+ * | TRBDF2  | ode23tb scheme; its fixed-point stages limit h on stiff plants as an explicit method's stability does |
  *
  * @note Compare with scipy.integrate.solve_ivp atol/rtol error control.
  * @see "Solving Ordinary Differential Equations I" (Hairer, Nørsett & Wanner), §II.4
@@ -392,12 +408,6 @@ public:
      */
     explicit AdaptiveStepSolver(IntegratorType integrator, AdaptiveOptions<NX, T> opts = {})
         : integrator_(damp::move(integrator)), opts_(opts) {}
-
-    /**
-     * @brief Construct with first step and absolute/relative tolerances (scalar broadcast)
-     */
-    explicit AdaptiveStepSolver(IntegratorType integrator, T first_step, T atol, T rtol)
-        : integrator_(damp::move(integrator)), opts_{.atol = atol, .rtol = rtol, .first_step = first_step} {}
 
     /**
      * @brief Solve dx/dt = f(t, x) over [t0, tf] with adaptive stepping
@@ -507,8 +517,9 @@ public:
             ++result.nfev;
 
             const T error_norm = weighted_rms_error(x, step_result.x, step_result.error, opts_.atol, opts_.rtol);
-            // A non-finite estimate (stage overflow, f undefined) is a rejection that must shrink h.
-            const bool finite = damp::isfinite(error_norm);
+            // A non-finite estimate (stage overflow, f undefined) or a failed step (an implicit stage
+            // that did not converge) is a rejection that must shrink h.
+            const bool finite = step_result.success && damp::isfinite(error_norm);
             const bool within_tol = finite && error_norm <= T{1};
             // "At min step" only for a full h_min attempt.
             const bool at_min_step = target_step <= h_min * (T{1} + T{10} * eps<T>()) && remaining > h_min;
@@ -518,7 +529,7 @@ public:
                 return result;
             }
 
-            const T factor = step_factor(error_norm, error_old, within_tol, last_rejected, inv_k);
+            const T factor = finite ? step_factor(error_norm, error_old, within_tol, last_rejected, inv_k) : opts_.min_factor;
 
             if (!(within_tol || at_min_step)) {
                 // Reject: retry with a smaller step (keep error_old for the next accept).
@@ -551,37 +562,35 @@ public:
         return result;
     }
 
-    /// Add a zero-crossing function to monitor
+    /** @brief Add a zero-crossing function to monitor */
     template<typename ZCF>
     void add_zero_crossing(ZCF&& zcf) {
         zero_crossings_.push_back(damp::forward<ZCF>(zcf));
     }
 
+    /** @brief Set callback invoked after each accepted step */
     template<typename Callback>
     void set_on_step(Callback&& cb) {
         on_step_ = damp::forward<Callback>(cb);
     }
 
+    /** @brief Set condition to stop simulation early: returns true to stop */
     template<typename Condition>
     void set_stop_condition(Condition&& cond) {
         stop_condition_ = damp::forward<Condition>(cond);
     }
 
+    /** @brief Set event detector: (bool triggered, ColVec<NX,T> new_state, bool stop), as FixedStepSolver's */
     template<typename Detector>
     void set_event_detector(Detector&& det) {
         event_detector_ = damp::forward<Detector>(det);
     }
 
-    void                                 set_options(AdaptiveOptions<NX, T> opts) { opts_ = opts; }
+    /** @brief Replace the options (tolerances, step limits, nfev cap) */
+    void set_options(AdaptiveOptions<NX, T> opts) { opts_ = opts; }
+    /** @brief The current options */
     [[nodiscard]] AdaptiveOptions<NX, T> get_options() const { return opts_; }
 
-    void set_atol(T atol) { opts_.atol = ErrorTolerance<NX, T>{atol}; }
-    void set_atol(const ColVec<NX, T>& atol) { opts_.atol = ErrorTolerance<NX, T>{atol}; }
-    void set_rtol(T rtol) { opts_.rtol = ErrorTolerance<NX, T>{rtol}; }
-    void set_rtol(const ColVec<NX, T>& rtol) { opts_.rtol = ErrorTolerance<NX, T>{rtol}; }
-
-    [[nodiscard]] ErrorTolerance<NX, T> get_atol() const { return opts_.atol; }
-    [[nodiscard]] ErrorTolerance<NX, T> get_rtol() const { return opts_.rtol; }
 
 private:
     struct CrossingResult {
@@ -590,7 +599,7 @@ private:
         ColVec<NX, T> x{};
     };
 
-    /// Hairer §II.4 / SciPy select_initial_step — order-aware h0 from f(t0,y0).
+    /** @brief Hairer §II.4 / SciPy select_initial_step — order-aware h0 from f(t0,y0). */
     template<typename F>
     [[nodiscard]] static T select_initial_step(
         const F&                     f,
@@ -650,8 +659,10 @@ private:
         return damp::min({T{100} * h0, h1, span, h_max});
     }
 
-    /// Gustafsson PI on accept (with prior error); pure I on reject / first step;
-    /// the minimum factor after a non-finite error estimate.
+    /**
+     * @brief Gustafsson PI on accept (with prior error); pure I on reject / first step;
+     * the minimum factor after a non-finite error estimate.
+     */
     [[nodiscard]] T step_factor(T error_norm, T error_old, bool within_tol, bool last_rejected, T inv_k) const {
         if (!damp::isfinite(error_norm)) {
             return opts_.min_factor;
@@ -674,8 +685,10 @@ private:
         return factor;
     }
 
-    /// SciPy-style weighted RMS: rms(err_i / (atol_i + rtol_i * max(|y_i|, |ynew_i|)))
-    /// Scale is floored away from zero so atol=rtol=0 with a zero state cannot 0/0 → NaN.
+    /**
+     * @brief SciPy-style weighted RMS: rms(err_i / (atol_i + rtol_i * max(|y_i|, |ynew_i|)))
+     * Scale is floored away from zero so atol=rtol=0 with a zero state cannot 0/0 → NaN.
+     */
     [[nodiscard]] static constexpr T weighted_rms_error(
         const ColVec<NX, T>&         x,
         const ColVec<NX, T>&         x_new,
@@ -697,7 +710,7 @@ private:
         return (a > T{0} && b < T{0}) || (a < T{0} && b > T{0});
     }
 
-    /// Earliest sign change of any registered zero-crossing function over the step [t_a, t_b].
+    /** @brief Earliest sign change of any registered zero-crossing function over the step [t_a, t_b]. */
     template<typename F>
     [[nodiscard]] CrossingResult earliest_crossing(
         const F&             f,
@@ -721,9 +734,11 @@ private:
         return best;
     }
 
-    /// Bisection on the integrated trajectory x(τ) = evolve(f, x_a, t_a, τ − t_a).
-    /// Keeps z(lo) on z_a's side and returns hi — the first point at or past the
-    /// crossing — so the recorded state has crossed and is not re-detected.
+    /**
+     * @brief Bisection on the integrated trajectory x(τ) = evolve(f, x_a, t_a, τ − t_a).
+     * Keeps z(lo) on z_a's side and returns hi — the first point at or past the
+     * crossing — so the recorded state has crossed and is not re-detected.
+     */
     template<typename F>
     [[nodiscard]] CrossingResult locate_crossing(
         const F&                                         f,
@@ -767,12 +782,9 @@ private:
     std::vector<std::function<T(T, const ColVec<NX, T>&)>>                         zero_crossings_;
 };
 
-/// CTAD deduction guides for AdaptiveStepSolver
+/** @brief CTAD deduction guides for AdaptiveStepSolver */
 template<template<size_t, typename> class Int, size_t NX, typename T>
 AdaptiveStepSolver(Int<NX, T>, AdaptiveOptions<NX, T>) -> AdaptiveStepSolver<NX, T, Int<NX, T>>;
-
-template<template<size_t, typename> class Int, size_t NX, typename T>
-AdaptiveStepSolver(Int<NX, T>, T, T, T) -> AdaptiveStepSolver<NX, T, Int<NX, T>>;
 
 template<template<size_t, typename> class Int, size_t NX, typename T>
 AdaptiveStepSolver(Int<NX, T>) -> AdaptiveStepSolver<NX, T, Int<NX, T>>;

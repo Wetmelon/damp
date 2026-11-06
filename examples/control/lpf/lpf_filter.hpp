@@ -21,13 +21,12 @@
 
 namespace damp::examples_lpf {
 
-inline constexpr float fc = 10.0f;    // cutoff [Hz]
-inline constexpr float Ts = 0.001f;   // 1 kHz
-inline constexpr float zeta = 0.707f; // 2nd-order damping
+inline constexpr float fc = 10.0f;  // cutoff [Hz]
+inline constexpr float Ts = 0.001f; // 1 kHz
 
-// design::lowpass_* → static constinit: coefficients and filter objects must be constexpr.
-inline constexpr auto coeffs1 = design::lowpass_1st(fc, Ts);
-inline constexpr auto coeffs2 = design::lowpass_2nd(fc, Ts, zeta);
+// design::lowpass<N> → static constinit: the designs and filter objects must be constexpr.
+inline constexpr auto coeffs1 = design::lowpass<1>(fc, Ts); // first order
+inline constexpr auto coeffs2 = design::lowpass<2>(fc, Ts); // second-order Butterworth (ζ = 1/√2)
 
 /**
  * @brief One sample of the first-order LPF

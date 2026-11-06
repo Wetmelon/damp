@@ -21,11 +21,9 @@ For a host SIL of a linear plant against the same PI API, use
 | $`K_i`$ | | $`8.0`$ | Integral gain |
 | $`K_d`$ | | $`0.0`$ | Derivative off → pure PI |
 | $`b`$ | default | $`1.0`$ | Setpoint weight on $`K_p`$ (library default) |
-| $`u_{\min},u_{\max}`$ | default | unbounded | Actuator limits (optional 4th/5th args) |
+| $`u_{\min},u_{\max}`$ | default | unbounded | Actuator limits (`.u` field, a `Bounds<1>`) |
 
-Call site — signature is $`(K_p, K_i, K_d [, u_{\min}, u_{\max}, \ldots])`$, not
-$`(K_p, K_i, K_d, N, b)`$. Passing $`0, 1`$ after $`K_d`$ clamps the command to
-$`[0,1]`$ (easy footgun). Omit limits for an unbounded teaching PI; $`b`$ stays 1.
+Call site — `design::pid(Kp, Ki, Kd)` is the unbounded teaching PI ($`b = c = 1`$, no filter). Limits, setpoint weights and the derivative filter are named fields of the aggregate, e.g. `design::PIDGains{.Kp = 4.0, .Ki = 8.0, .u_lim = {.lower = -12.0, .upper = 12.0}}`.
 
 ```text
 design::pid(4.0, 8.0, 0.0).discretize(Ts).as<float>()
@@ -84,7 +82,7 @@ P(s) = \frac{K}{\tau s + 1}
 
 then the continuous open loop is $`C(s)P(s)`$ and you can tune $`K_p,K_i`$ against
 rise time / overshoot offline before flashing the same `PIController`. Prefer
-library maps when a known plant model exists (`design::pi_pole_placement_first_order`,
+library maps when a known plant model exists (`design::pid_pole_placement`,
 etc.) — this sketch intentionally uses fixed `design::pid(...)` gains to show the
 deploy path with minimal includes.
 

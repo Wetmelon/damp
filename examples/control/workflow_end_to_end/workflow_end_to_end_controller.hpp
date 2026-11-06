@@ -20,17 +20,16 @@ namespace damp::examples_workflow_e2e {
 
 inline constexpr double kTs = 0.001; // 1 kHz
 
-/** Nonlinear plant used for linearization and SIL. */
-[[nodiscard]] inline ColVec<2, double> plant_nonlinear(
-    double /*t*/, const ColVec<2, double>& x, const ColVec<1, double>& u
-) {
+/** Nonlinear plant ẋ = f(x, u) (a Dynamics) used for linearization and SIL. */
+[[nodiscard]] inline ColVec<2, double> plant_nonlinear(const ColVec<2, double>& x, const ColVec<1, double>& u) {
     const double x1 = x(0, 0);
     const double x2 = x(1, 0);
     const double uu = u(0, 0);
     return ColVec<2, double>{x2, (-0.8 * x2) - (2.0 * damp::sin(x1)) + (1.5 * uu)};
 }
 
-[[nodiscard]] inline ColVec<1, double> plant_output(const ColVec<2, double>& x) {
+/** Measured output y = h(x, u) (a Measurement): the position, no feedthrough. */
+[[nodiscard]] inline ColVec<1, double> plant_output(const ColVec<2, double>& x, const ColVec<1, double>& /*u*/) {
     return ColVec<1, double>{x(0, 0)};
 }
 

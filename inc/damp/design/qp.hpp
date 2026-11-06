@@ -54,6 +54,8 @@ enum class QPStatus : uint8_t {
     Infeasible,          ///< Constraints admit no solution
     Degenerate,          ///< Active-set normals became numerically dependent
     NotPositiveDefinite, ///< H failed its Cholesky factorization
+    Unbounded,           ///< (ADMM) The objective decreases without bound on the feasible set: H d = 0, A d ≤ 0, fᵀd < 0
+    NonFinite,           ///< The data or an iterate holds a NaN or an infinity: no solution is reported
 };
 
 /**
@@ -102,7 +104,7 @@ struct QPResult {
 
 namespace detail {
 
-/// A ColVec with every entry set to value (bound-vector construction helper)
+/** @brief A ColVec with every entry set to value (bound-vector construction helper) */
 template<size_t N, typename T>
 [[nodiscard]] constexpr ColVec<N, T> filled_vector(T value) {
     ColVec<N, T> out{};
@@ -135,9 +137,15 @@ template<typename U, size_t N, typename T>
     return out;
 }
 
-/// constexpr floor for branch-and-bound bounds (values well inside long long range)
+/**
+ * @brief constexpr floor for branch-and-bound bounds. A value at or past 1/ε in magnitude is
+ *        already an integer and is returned as is, as is a NaN: the long long cast never sees them.
+ */
 template<typename T>
 [[nodiscard]] constexpr T floor_scalar(T v) {
+    if (!(damp::abs(v) < T{1} / eps<T>())) {
+        return v;
+    }
     T fl = static_cast<T>(static_cast<long long>(v));
     if (fl > v) {
         fl -= T{1};
@@ -145,15 +153,17 @@ template<typename T>
     return fl;
 }
 
-/// constexpr round-to-nearest for integrality checks
+/** @brief constexpr round-to-nearest for integrality checks */
 template<typename T>
 [[nodiscard]] constexpr T round_scalar(T v) {
     return floor_scalar(v + static_cast<T>(0.5));
 }
 
-/// Relative pivot floor for the active-set Gram factor: a pivot below this
-/// fraction of its diagonal entry means the new normal is (numerically) in the
-/// span of the active ones. Relative, so it is invariant to scaling H, f, A, b.
+/**
+ * @brief Relative pivot floor for the active-set Gram factor: a pivot below this
+ * fraction of its diagonal entry means the new normal is (numerically) in the
+ * span of the active ones. Relative, so it is invariant to scaling H, f, A, b.
+ */
 template<size_t KMAX, typename T>
 [[nodiscard]] constexpr T gram_pivot_tol() {
     return static_cast<T>(KMAX + 1) * T{64} * eps<T>();
@@ -189,7 +199,7 @@ constexpr bool cholesky_leading(const Matrix<KMAX, KMAX, T>& M, Matrix<KMAX, KMA
     return true;
 }
 
-/// Solve L Lᵀ r = rhs in place on the leading k×k block of a cholesky_leading factor
+/** @brief Solve L Lᵀ r = rhs in place on the leading k×k block of a cholesky_leading factor */
 template<size_t KMAX, typename T>
 constexpr void factored_solve_leading(const Matrix<KMAX, KMAX, T>& L, ColVec<KMAX, T>& rhs, size_t k) {
     k = (k < KMAX) ? k : KMAX; // provable index bound for the optimizer
@@ -300,17 +310,31 @@ template<size_t NV, size_t NI, typename T>
         }
         return s; // = nᵢᵀx − βᵢ
     };
+    bool       non_finite = false; // a NaN or infinite slack: a non-finite bᵢ, row of A, or x
     const auto violated = [&](size_t i, T& s_out) {
         if (b(i) >= skip_threshold) {
             return false;
         }
-        // Roundoff scale of sᵢ = bᵢ − aᵢᵀx.
+        // Roundoff scale of sᵢ = bᵢ − aᵢᵀx: slack_tol·(|bᵢ| + Σ|A(i,c) x(c)|) for the row's own
+        // terms, plus (NV+1)·ε·‖aᵢ‖₁‖x‖∞ for the error the whole solve leaves in x, so a state
+        // pinned at 0 by an equal pair of limits does not read its paired row as violated. The
+        // second term stays ε-sized: slack_tol·‖x‖∞ accepted real violations in float on a small
+        // variable beside a large one.
         T mag = damp::abs(b(i));
+        T a_norm{0};
+        T x_max{0};
         for (size_t c = 0; c < NV; ++c) {
             mag += damp::abs(A(i, c) * x(c));
+            a_norm += damp::abs(A(i, c));
+            x_max = damp::max(x_max, damp::abs(x(c)));
         }
+        const T tol = (slack_tol * mag) + (static_cast<T>(NV + 1) * eps<T>() * a_norm * x_max);
         s_out = slack(i);
-        return s_out < -(slack_tol * mag);
+        if (!damp::isfinite(s_out) || !damp::isfinite(tol)) {
+            non_finite = true; // a NaN compares false: the row would read as satisfied
+            return false;
+        }
+        return s_out < -tol;
     };
 
     // Active set: indices, multipliers, cached wⱼ = H⁻¹nⱼ, and the Gram matrix
@@ -342,6 +366,12 @@ template<size_t NV, size_t NI, typename T>
         return result;
     };
 
+    for (size_t v = 0; v < NV; ++v) {
+        if (!damp::isfinite(x(v))) {
+            return finish(QPStatus::NonFinite); // a non-finite H or f
+        }
+    }
+
     while (true) {
         // Pick a violated constraint: most-violated among the hinted rows first
         // (an O(hint·NV) scan — at steady state the hint is the whole active
@@ -369,6 +399,9 @@ template<size_t NV, size_t NI, typename T>
                     p = i;
                 }
             }
+        }
+        if (non_finite) {
+            return finish(QPStatus::NonFinite);
         }
         if (p == NI) {
             return finish(QPStatus::Success);
@@ -411,9 +444,11 @@ template<size_t NV, size_t NI, typename T>
 
             // κ = nₚᵀ(I − projection)H⁻¹nₚ is the Schur complement of the new
             // Gram column: ≈ 0 relative to nₚᵀH⁻¹nₚ means nₚ is dependent on the
-            // active normals, so only a dual (drop) step is possible.
-            const T s_p = slack(p);
-            const T t2 = (kappa > T{2} * pivot_tol * npup) ? (-s_p / kappa) : big;
+            // active normals, so only a dual (drop) step is possible. With KMAX
+            // normals active they span ℝ^NV and κ is zero up to roundoff.
+            const T    s_p = slack(p);
+            const bool dependent = !(k < KMAX && kappa > T{2} * pivot_tol * npup);
+            const T    t2 = dependent ? big : (-s_p / kappa);
 
             T      t1 = big;
             size_t drop = KMAX;
@@ -427,12 +462,41 @@ template<size_t NV, size_t NI, typename T>
             }
 
             if (t1 >= big && t2 >= big) {
-                return finish(QPStatus::Infeasible);
+                // Infeasible needs a Farkas certificate: y = (−r, 1) ≥ 0 on (active, p) with
+                // Σ yᵢaᵢ ≈ 0 and Σ yᵢbᵢ < 0. Without one, nₚ is only nearly dependent in the
+                // H⁻¹ metric, where κ fell to roundoff (an ill-conditioned H in float), and the
+                // active set cannot grow: Degenerate.
+                T res = T{0};
+                T res_mag = T{0};
+                for (size_t v = 0; v < NV; ++v) {
+                    T rv = A(p, v);
+                    T mv = damp::abs(A(p, v));
+                    for (size_t a = 0; a < k; ++a) {
+                        rv -= r(a) * A(active[a], v);
+                        mv += damp::abs(r(a) * A(active[a], v));
+                    }
+                    res = damp::max(res, damp::abs(rv));
+                    res_mag = damp::max(res_mag, mv);
+                }
+                T gap = b(p);
+                T gap_mag = damp::abs(b(p));
+                for (size_t a = 0; a < k; ++a) {
+                    gap -= r(a) * b(active[a]);
+                    gap_mag += damp::abs(r(a) * b(active[a]));
+                }
+                const bool certified = (res <= damp::sqrt(pivot_tol) * res_mag) && (gap < -(slack_tol * gap_mag));
+                return finish(certified ? QPStatus::Infeasible : QPStatus::Degenerate);
             }
 
+            // A dependent nₚ has primal direction d = 0, so the step is in the dual alone
+            // (Goldfarb & Idnani's partial step with z = 0): the computed d is roundoff, and
+            // the step length, a multiplier as large as the cost's weights, would carry it
+            // into x.
             const T t = (t1 < t2) ? t1 : t2;
-            for (size_t v = 0; v < NV; ++v) {
-                x(v) += t * d(v);
+            if (!dependent) {
+                for (size_t v = 0; v < NV; ++v) {
+                    x(v) += t * d(v);
+                }
             }
             for (size_t a = 0; a < k; ++a) {
                 lam[a] -= t * r(a);
@@ -454,7 +518,7 @@ template<size_t NV, size_t NI, typename T>
                 // Full step: p joins the active set. The Gram column is exactly
                 // (nu, npup), so the factor grows in O(k²).
                 if (k >= KMAX) {
-                    return finish(QPStatus::Degenerate); // cannot activate more than NV independent normals
+                    return finish(QPStatus::Degenerate); // unreachable (t2 is finite only with k < KMAX): the index bound for the optimizer
                 }
                 for (size_t a = 0; a < k; ++a) {
                     M(a, k) = nu(a);
@@ -709,7 +773,7 @@ public:
         return result;
     }
 
-    /// Drop the warm start and the cached factorization (call when H or A change)
+    /** @brief Drop the warm start and the cached factorization (call when H or A change) */
     constexpr void reset() {
         factored_ = false;
         hint_count_ = 0;
@@ -727,16 +791,23 @@ private:
  * @brief Tuning parameters for the ADMM QP solver
  *
  * The defaults follow OSQP's, with tighter tolerances so results agree with
- * the exact active-set solver at test precision. Loosen eps_abs/eps_rel (e.g.
- * to 1e-4) when a cheaper moderate-accuracy solve is acceptable.
+ * the exact active-set solver at test precision: eps_abs and eps_rel default to
+ * √ε (ε the machine epsilon of T), 1.5e-8 in double and 3.4e-4 in float, which
+ * float iterates can reach. Loosen them (e.g. to 1e-4) when a cheaper
+ * moderate-accuracy solve is acceptable.
+ *
+ * eps_infeasible is relative: each infeasibility certificate test compares a
+ * residual with the magnitude of the terms that form it (see AdmmSolver). Its
+ * default √ε keeps half the digits of T.
  */
 template<typename T = double>
 struct AdmmSettings {
-    T rho{static_cast<T>(0.1)};        ///< Constraint penalty ρ
-    T sigma{static_cast<T>(1.0e-6)};   ///< Primal regularization σ
-    T alpha{static_cast<T>(1.6)};      ///< Over-relaxation α ∈ (0, 2)
-    T eps_abs{static_cast<T>(1.0e-8)}; ///< Absolute residual tolerance
-    T eps_rel{static_cast<T>(1.0e-8)}; ///< Relative residual tolerance
+    T rho{static_cast<T>(0.1)};             ///< Constraint penalty ρ
+    T sigma{static_cast<T>(1.0e-6)};        ///< Primal regularization σ
+    T alpha{static_cast<T>(1.6)};           ///< Over-relaxation α ∈ (0, 2)
+    T eps_abs{damp::sqrt(eps<T>())};        ///< Absolute residual tolerance
+    T eps_rel{damp::sqrt(eps<T>())};        ///< Relative residual tolerance
+    T eps_infeasible{damp::sqrt(eps<T>())}; ///< Relative tolerance of the primal and dual infeasibility certificates
 };
 
 /**
@@ -754,8 +825,44 @@ struct AdmmSettings {
  * The cached factorization assumes H and A are constant across calls (true for
  * damp::MPC, whose QP matrices are fixed at synthesis); call reset() if they
  * change. Compared with the active-set solver: solutions are accurate to the
- * configured tolerance rather than exact, and infeasible problems are reported
- * as MaxIterations (no infeasibility certificate is computed).
+ * configured tolerance rather than exact. Because σ > 0 keeps K positive
+ * definite, H may be positive semidefinite (H = 0 is an LP).
+ *
+ * Infeasibility is detected from the successive iterate differences
+ * @f$ \delta y^k = y^k - y^{k-1} @f$ and @f$ \delta x^k = x^k - x^{k-1} @f$,
+ * which converge on every convex QP; a nonzero limit is a certificate. With
+ * @f$ \hat y = \Pi(\delta y) @f$, δy with negative entries and sentinel rows
+ * zeroed (the projection onto the polar of the constraint set's recession
+ * cone), each iteration that fails the convergence test checks
+ * @f[
+ *   \text{primal: } \|A^\top \hat y\|_\infty \le \epsilon \textstyle\sum_i \|a_i\|_\infty \hat y_i,
+ *   \quad b^\top \hat y < -\epsilon \textstyle\sum_i |b_i| \hat y_i ,
+ * @f]
+ * @f[
+ *   \text{dual: } \|H\delta x\|_\infty \le \epsilon \textstyle\sum_j \|h_j\|_\infty |\delta x_j|,
+ *   \quad a_i^\top \delta x \le \epsilon \|a_i\|_\infty \|\delta x\|_\infty,
+ *   \quad f^\top \delta x < -\epsilon \textstyle\sum_j |f_j \delta x_j| ,
+ * @f]
+ * the middle dual test on bounded rows only, with ε = eps_infeasible. The
+ * primal test runs first. A primal certificate (no x satisfies Ax ≤ b) is
+ * reported as Infeasible. A dual certificate (a direction along which H is
+ * singular and the objective decreases without bound on the feasible set) is
+ * reported as Unbounded; solve_qp() and solve_qp_interior_point() report
+ * NotPositiveDefinite for the same problem, because they cannot factor H. Each
+ * test is relative to the constraint rows and the cost, so scaling a row
+ * (aᵢ, bᵢ) or the whole problem does not change its outcome for given
+ * iterates; the variables are assumed comparably scaled (damp::MPC scales its
+ * moves). The iteration itself is not row-scale invariant (one ρ for every
+ * row): a badly scaled row slows detection as it slows convergence. A
+ * certificate also clears the warm start (the iterates diverge on an
+ * infeasible problem) and keeps the factorization.
+ *
+ * Worst-case time: an iteration costs four passes over A, one over H and the
+ * two triangular solves, about 4·NI·NV + 2·NV² multiply-adds. In an iteration
+ * that fails the convergence test, the certificates add at most two passes
+ * over A and one over H (2·NI·NV + NV²), each behind an O(NI) or O(NV) sign
+ * test that usually skips it. Budget the worst case at 1.5× the iteration
+ * cost times max_iterations.
  *
  * Sized on the problem (state carries fixed-size iterates):
  * @code
@@ -767,6 +874,11 @@ struct AdmmSettings {
  * @see Stellato et al., "OSQP: an operator splitting solver for quadratic
  *      programs," Mathematical Programming Computation 12, 2020,
  *      https://doi.org/10.1007/s12532-020-00179-2
+ * @see "Infeasibility detection in the alternating direction method of
+ *      multipliers for convex optimization" (Banjac, Goulart, Stellato & Boyd,
+ *      2019), §3.2 Prop. 3.1 (certificates), §5.1 Thm. 5.1 (limits of δx, δy),
+ *      §5.2 (termination criteria, Remark 5.3 projection), JOTA 183(2),
+ *      https://doi.org/10.1007/s10957-019-01575-y
  */
 template<size_t NV, size_t NI, typename T = double>
     requires std::is_floating_point_v<T>
@@ -786,6 +898,12 @@ public:
         constexpr T skip_threshold = big / T{4};
 
         QPResult<NV, NI, T> result{};
+        for (size_t i = 0; i < NI; ++i) {
+            if (!damp::isfinite(b(i))) {
+                result.status = QPStatus::NonFinite; // a NaN bound is no sentinel; -ffast-math would drop its row
+                return result;
+            }
+        }
 
         if (!factored_) {
             // K = H + σI + ρAᵀA (sentinel rows included — harmless regularization,
@@ -813,8 +931,8 @@ public:
         const T rho = settings_.rho;
         const T alpha = settings_.alpha;
 
-        size_t it = 0;
-        bool   converged = false;
+        size_t   it = 0;
+        QPStatus status = QPStatus::MaxIterations;
         for (; it < max_iterations; ++it) {
             // x̃ = K⁻¹(σx − f + Aᵀ(ρz − y))
             ColVec<NV, T> rhs{};
@@ -833,6 +951,7 @@ public:
                 x_next(v) = alpha * x_tilde(v) + (T{1} - alpha) * x_(v);
             }
             ColVec<NI, T> z_next{};
+            ColVec<NI, T> dy{}; // δy = y^k − y^{k−1}
             for (size_t i = 0; i < NI; ++i) {
                 T ax = T{0};
                 for (size_t v = 0; v < NV; ++v) {
@@ -845,12 +964,16 @@ public:
                 } else {
                     z_next(i) = b(i);
                 }
-                y_(i) += rho * (v_relaxed - z_next(i));
+                dy(i) = rho * (v_relaxed - z_next(i));
+                y_(i) += dy(i);
             }
+            const ColVec<NV, T> dx = x_next - x_; // δx = x^k − x^{k−1}
             x_ = x_next;
             z_ = z_next;
 
             // Termination: ‖Ax − z‖∞ and ‖Hx + f + Aᵀy‖∞ under (abs + rel) tolerances.
+            // The maxima drop a NaN, so the sum of the residuals carries it.
+            T r_sum = T{0};
             T r_prim = T{0};
             T ax_norm = T{0};
             T z_norm = T{0};
@@ -860,6 +983,7 @@ public:
                     ax += A(i, v) * x_(v);
                 }
                 const T rp = damp::abs(ax - z_(i));
+                r_sum += rp;
                 r_prim = (rp > r_prim) ? rp : r_prim;
                 ax_norm = (damp::abs(ax) > ax_norm) ? damp::abs(ax) : ax_norm;
                 z_norm = (damp::abs(z_(i)) > z_norm) ? damp::abs(z_(i)) : z_norm;
@@ -876,14 +1000,23 @@ public:
                     aty += A(i, v) * y_(i);
                 }
                 const T rd = damp::abs(hx + aty);
+                r_sum += rd;
                 r_dual = (rd > r_dual) ? rd : r_dual;
                 const T sd = damp::abs(hx - f(v)) + damp::abs(aty) + damp::abs(f(v));
                 scale_dual = (sd > scale_dual) ? sd : scale_dual;
             }
             const T eps_prim = settings_.eps_abs + settings_.eps_rel * ((ax_norm > z_norm) ? ax_norm : z_norm);
             const T eps_dual = settings_.eps_abs + settings_.eps_rel * scale_dual;
-            if (r_prim <= eps_prim && r_dual <= eps_dual) {
-                converged = true;
+            if (!damp::isfinite(r_sum)) {
+                status = QPStatus::NonFinite; // a non-finite H, f, A or b
+            } else if (r_prim <= eps_prim && r_dual <= eps_dual) {
+                status = QPStatus::Success;
+            } else if (primal_infeasible(A, b, dy)) {
+                status = QPStatus::Infeasible;
+            } else if (dual_infeasible(H, f, A, b, dx)) {
+                status = QPStatus::Unbounded;
+            }
+            if (status != QPStatus::MaxIterations) {
                 ++it;
                 break;
             }
@@ -894,8 +1027,8 @@ public:
             result.lambda(i) = (y_(i) > T{0}) ? y_(i) : T{0};
         }
         result.iterations = it;
-        result.status = converged ? QPStatus::Success : QPStatus::MaxIterations;
-        result.success = converged;
+        result.status = status;
+        result.success = (status == QPStatus::Success);
         T obj = T{0};
         for (size_t r = 0; r < NV; ++r) {
             T hx = T{0};
@@ -905,18 +1038,122 @@ public:
             obj += x_(r) * (static_cast<T>(0.5) * hx + f(r));
         }
         result.objective = obj;
+        if (status == QPStatus::Infeasible || status == QPStatus::Unbounded || status == QPStatus::NonFinite) {
+            clear_iterates(); // diverging or non-finite iterates are no warm start for the next call
+        }
         return result;
     }
 
-    /// Drop the warm start and the cached factorization (call when H or A change)
+    /** @brief Drop the warm start and the cached factorization (call when H or A change) */
     constexpr void reset() {
-        x_ = ColVec<NV, T>{};
-        z_ = ColVec<NI, T>{};
-        y_ = ColVec<NI, T>{};
+        clear_iterates();
         factored_ = false;
     }
 
 private:
+    constexpr void clear_iterates() {
+        x_ = ColVec<NV, T>{};
+        z_ = ColVec<NI, T>{};
+        y_ = ColVec<NI, T>{};
+    }
+
+    /**
+     * @brief Primal infeasibility certificate from δy (Banjac et al. 2019, (30) with Remark 5.3)
+     *
+     * ŷ is δy projected onto the polar of the recession cone of {z : z ≤ b}: negative
+     * entries and sentinel rows zeroed. True when Aᵀŷ cancels and the support bᵀŷ is
+     * negative, each relative to the terms that form it. The O(NI) support test runs first.
+     */
+    [[nodiscard]] constexpr bool primal_infeasible(const Matrix<NI, NV, T>& A, const ColVec<NI, T>& b, const ColVec<NI, T>& dy) const {
+        constexpr T   skip_threshold = unbounded_bound<T>() / T{4};
+        const T       tol = settings_.eps_infeasible;
+        ColVec<NI, T> y_hat{};
+        T             support = T{0};
+        T             support_scale = T{0};
+        for (size_t i = 0; i < NI; ++i) {
+            if (b(i) < skip_threshold && dy(i) > T{0}) {
+                y_hat(i) = dy(i);
+                support += b(i) * dy(i);
+                support_scale += damp::abs(b(i)) * dy(i);
+            }
+        }
+        if (!(support < -(tol * support_scale))) {
+            return false;
+        }
+        ColVec<NV, T> aty{};
+        T             aty_scale = T{0}; // Σᵢ ‖aᵢ‖∞ ŷᵢ
+        for (size_t i = 0; i < NI; ++i) {
+            T row_norm = T{0};
+            for (size_t v = 0; v < NV; ++v) {
+                aty(v) += A(i, v) * y_hat(i);
+                row_norm = damp::max(row_norm, damp::abs(A(i, v)));
+            }
+            aty_scale += row_norm * y_hat(i);
+        }
+        for (size_t v = 0; v < NV; ++v) {
+            if (damp::abs(aty(v)) > tol * aty_scale) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * @brief Dual infeasibility certificate from δx (Banjac et al. 2019, (31))
+     *
+     * True when δx is a descent direction (fᵀδx < 0) in the null space of H that stays in
+     * the recession cone of the constraints (aᵢᵀδx ≤ 0 on bounded rows), each relative to
+     * the terms that form it. The O(NV) descent test runs first. H is taken symmetric, so
+     * its row norms are its column norms.
+     */
+    [[nodiscard]] constexpr bool dual_infeasible(
+        const Matrix<NV, NV, T>& H, const ColVec<NV, T>& f, const Matrix<NI, NV, T>& A, const ColVec<NI, T>& b, const ColVec<NV, T>& dx
+    ) const {
+        constexpr T skip_threshold = unbounded_bound<T>() / T{4};
+        const T     tol = settings_.eps_infeasible;
+        T           descent = T{0};
+        T           descent_scale = T{0};
+        T           dx_norm = T{0};
+        for (size_t v = 0; v < NV; ++v) {
+            descent += f(v) * dx(v);
+            descent_scale += damp::abs(f(v) * dx(v));
+            dx_norm = damp::max(dx_norm, damp::abs(dx(v)));
+        }
+        if (!(descent < -(tol * descent_scale))) {
+            return false;
+        }
+        T hdx_norm = T{0};
+        T hdx_scale = T{0}; // Σⱼ ‖hⱼ‖∞ |δxⱼ|
+        for (size_t r = 0; r < NV; ++r) {
+            T hdx = T{0};
+            T row_norm = T{0};
+            for (size_t c = 0; c < NV; ++c) {
+                hdx += H(r, c) * dx(c);
+                row_norm = damp::max(row_norm, damp::abs(H(r, c)));
+            }
+            hdx_norm = damp::max(hdx_norm, damp::abs(hdx));
+            hdx_scale += row_norm * damp::abs(dx(r));
+        }
+        if (hdx_norm > tol * hdx_scale) {
+            return false;
+        }
+        for (size_t i = 0; i < NI; ++i) {
+            if (b(i) >= skip_threshold) {
+                continue; // a free row bounds no direction
+            }
+            T adx = T{0};
+            T row_norm = T{0};
+            for (size_t v = 0; v < NV; ++v) {
+                adx += A(i, v) * dx(v);
+                row_norm = damp::max(row_norm, damp::abs(A(i, v)));
+            }
+            if (adx > tol * row_norm * dx_norm) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     Matrix<NV, NV, T> L_{}; // Cholesky factor of H + σI + ρAᵀA
     ColVec<NV, T>     x_{}; // warm-started primal iterate
     ColVec<NI, T>     z_{}; // warm-started auxiliary iterate
@@ -994,10 +1231,14 @@ template<size_t NV, size_t NI, typename T = double>
 
     QPResult<NV, NI, T> result{};
 
-    // Active-row mask (sentinel rows are absent from the problem).
+    // Active-row mask (sentinel rows are absent from the problem; a NaN bound is not one).
     damp::array<bool, NI> active{};
     size_t                m = 0;
     for (size_t i = 0; i < NI; ++i) {
+        if (!damp::isfinite(b(i))) {
+            result.status = QPStatus::NonFinite;
+            return result;
+        }
         active[i] = (b(i) < skip_threshold);
         m += active[i] ? 1U : 0U;
     }
@@ -1008,6 +1249,12 @@ template<size_t NV, size_t NI, typename T = double>
         return result;
     }
     ColVec<NV, T> x = -mat::backward_substitute_transpose(L_opt.value(), mat::forward_substitute(L_opt.value(), f));
+    for (size_t v = 0; v < NV; ++v) {
+        if (!damp::isfinite(x(v))) {
+            result.status = QPStatus::NonFinite; // a non-finite H or f
+            return result;
+        }
+    }
 
     if (m == 0) {
         result.x = x;
@@ -1164,6 +1411,12 @@ template<size_t NV, size_t NI, typename T = double>
         result.iterations = it + 1;
     }
 
+    for (size_t v = 0; v < NV; ++v) {
+        if (!damp::isfinite(x(v))) {
+            result.status = QPStatus::NonFinite; // a non-finite row of A
+            result.success = false;
+        }
+    }
     result.x = x;
     for (size_t i = 0; i < NI; ++i) {
         result.lambda(i) = active[i] ? lam(i) : T{0};
@@ -1236,9 +1489,10 @@ struct InteriorPointSolver {
  * @param b           Inequality bounds; sentinel rows are skipped
  * @param is_integer  Per-variable integrality mask
  * @param max_nodes   Relaxation budget (default: explore up to 16·NV nodes)
- * @param integer_tol Distance from an integer treated as integral
+ * @param integer_tol Distance from an integer treated as integral, plus 8·(NV+1)·ε of the
+ *                    value (the relaxation's roundoff at that magnitude), capped at 0.25
  * @return QPResult over the original variables (lambda reports the incumbent's
- *         relaxation multipliers for the original NI rows)
+ *         relaxation multipliers for the original NI rows); NonFinite for non-finite data
  */
 template<size_t MaxNodes = 64, size_t NV, size_t NI, typename T>
     requires std::is_floating_point_v<T>
@@ -1253,8 +1507,49 @@ template<size_t MaxNodes = 64, size_t NV, size_t NI, typename T>
 ) {
     constexpr T      big = unbounded_bound<T>();
     constexpr size_t NIE = NI + (2 * NV); // relaxation rows: original + integer box bounds
+    // Integral within integer_tol plus the roundoff of the value (a float relaxation on a bound
+    // is off by its ulp). The cap keeps a half-integer fractional at any magnitude.
+    constexpr T roundoff = static_cast<T>(8 * (NV + 1)) * eps<T>();
+    const auto  fraction = [&](T value) {
+        const T frac = damp::abs(value - detail::round_scalar(value));
+        return (frac > integer_tol + damp::min(roundoff * damp::abs(value), T{0.25})) ? frac : T{0};
+    };
 
     QPResult<NV, NI, T> result{};
+
+    //! The search runs about x₀, the root relaxation rounded on the integer variables: each
+    //! relaxation then sees an integer bound at the scale of its offset from x₀ rather than of x.
+    //! In float a bound at 1e4 lies inside the active-set solver's slack tolerance ((NV+1)·64·ε of
+    //! the row's magnitude) and would never bind.
+    const auto root = solve_qp(H, f, A, b);
+    if (root.status == QPStatus::NonFinite || root.status == QPStatus::Infeasible) {
+        result.status = root.status;
+        result.iterations = 1;
+        return result;
+    }
+    ColVec<NV, T> x0{};
+    bool          integral = root.success;
+    for (size_t v = 0; v < NV; ++v) {
+        if (is_integer[v] && root.success) {
+            x0(v) = detail::round_scalar(root.x(v));
+            integral = integral && !(fraction(root.x(v)) > T{0});
+        }
+    }
+    if (integral) {
+        QPResult<NV, NI, T> out = root;
+        out.iterations = 1; // the root relaxation is integral
+        return out;
+    }
+    const ColVec<NV, T> fs{f + (H * x0)};
+    ColVec<NI, T>       bs{};
+    for (size_t i = 0; i < NI; ++i) {
+        T ax = T{0};
+        for (size_t v = 0; v < NV; ++v) {
+            ax += A(i, v) * x0(v);
+        }
+        bs(i) = (b(i) >= big / T{4}) ? b(i) : (b(i) - ax);
+    }
+    result.iterations = 1;
 
     // Extended constraint matrix: [A; I; −I]. Bound rows are sentinel-disabled
     // until branching tightens them.
@@ -1288,15 +1583,22 @@ template<size_t MaxNodes = 64, size_t NV, size_t NI, typename T>
 
         ColVec<NIE, T> b_ext{};
         for (size_t i = 0; i < NI; ++i) {
-            b_ext(i) = b(i);
+            b_ext(i) = bs(i);
         }
         for (size_t v = 0; v < NV; ++v) {
             b_ext(NI + v) = node.ub(v);
             b_ext(NI + NV + v) = (node.lb(v) <= -big / T{4}) ? big : -node.lb(v);
         }
 
-        const auto relaxed = solve_qp(H, f, A_ext, b_ext);
+        const auto relaxed = solve_qp(H, fs, A_ext, b_ext);
         ++result.iterations;
+        if (relaxed.status == QPStatus::NonFinite) {
+            const size_t solved = result.iterations;
+            result = QPResult<NV, NI, T>{};
+            result.iterations = solved;
+            result.status = QPStatus::NonFinite;
+            return result;
+        }
         if (!relaxed.success) {
             // Only a proven-infeasible relaxation prunes soundly; a budget or
             // degeneracy stop leaves the subtree unexplored, so the result can no
@@ -1308,16 +1610,14 @@ template<size_t MaxNodes = 64, size_t NV, size_t NI, typename T>
             continue; // bound — cannot beat the incumbent
         }
 
-        // Most fractional integer variable.
+        // Most fractional integer variable (offsets from the integral x₀ keep integrality).
         size_t branch_var = NV;
-        T      worst_frac = integer_tol;
+        T      worst_frac = T{0};
         for (size_t v = 0; v < NV; ++v) {
             if (!is_integer[v]) {
                 continue;
             }
-            const T value = relaxed.x(v);
-            const T nearest = detail::round_scalar(value);
-            const T frac = damp::abs(value - nearest);
+            const T frac = fraction(relaxed.x(v));
             if (frac > worst_frac) {
                 worst_frac = frac;
                 branch_var = v;
@@ -1361,6 +1661,16 @@ template<size_t MaxNodes = 64, size_t NV, size_t NI, typename T>
         // Anytime: the incumbent is a valid integer-feasible point even when
         // the search was truncated (it just may not be proven optimal).
         result.status = truncated ? QPStatus::MaxIterations : QPStatus::Success;
+        result.x = result.x + x0; // back from the offsets
+        T obj = T{0};
+        for (size_t r = 0; r < NV; ++r) {
+            T hx = T{0};
+            for (size_t c = 0; c < NV; ++c) {
+                hx += H(r, c) * result.x(c);
+            }
+            obj += result.x(r) * ((static_cast<T>(0.5) * hx) + f(r));
+        }
+        result.objective = obj;
     } else if (truncated) {
         result.status = QPStatus::MaxIterations; // budget ran out before any integer point was found
     } else {

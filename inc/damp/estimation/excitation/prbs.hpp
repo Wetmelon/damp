@@ -127,6 +127,10 @@ struct PRBSResult {
     PRBSConfig<T> config{};       ///< Validated PRBS configuration
     std::size_t   period_bits{0}; ///< Sequence period in chips: `2^order - 1`
     bool          success{false}; ///< true if `config.valid()`
+    T             Ts{0};          ///< [s] Sample period of the internal step() clock
+
+    /** @brief True when the design succeeded (success). */
+    [[nodiscard]] constexpr explicit operator bool() const { return success; }
 
     /**
      * @brief Convert design payload to another scalar type.
@@ -144,6 +148,7 @@ struct PRBSResult {
             },
             period_bits,
             success,
+            static_cast<U>(Ts),
         };
     }
 };
@@ -152,16 +157,18 @@ struct PRBSResult {
  * @brief Build a PRBS design payload from a configuration.
  *
  * @param config PRBS configuration.
- * @return PRBSResult with `success = config.valid()` and period metadata.
+ * @param Ts     [s] Sample period of the runtime's step() clock (> 0, ≤ clock_period_s)
+ * @return PRBSResult with `success` = `config.valid()`, 0 < Ts ≤ clock_period_s (a chip shorter
+ *         than a sample would be skipped), and period metadata.
  */
 template<typename T = double>
 [[nodiscard]] constexpr PRBSResult<T>
-prbs(const PRBSConfig<T>& config) {
-    const bool        valid = config.valid();
+prbs(const PRBSConfig<T>& config, T Ts) {
+    const bool        valid = config.valid() && (Ts > T{0}) && damp::isfinite(Ts) && (Ts <= config.clock_period_s);
     const std::size_t period_bits = valid
                                       ? ((std::size_t{1} << config.lfsr_order) - std::size_t{1})
                                       : std::size_t{0};
-    return PRBSResult<T>{config, period_bits, valid};
+    return PRBSResult<T>{config, period_bits, valid, Ts};
 }
 
 } // namespace design
@@ -183,13 +190,18 @@ class PRBS {
 public:
     constexpr PRBS() = default;
 
+    /** @brief From a design result in another scalar: converts it with .as\<T\>() and builds from that. */
+    template<typename U>
+        requires(!std::is_same_v<U, T>)
+    constexpr PRBS(const design::PRBSResult<U>& result) // NOLINT(google-explicit-constructor): assign-from-design
+        : PRBS(result.template as<T>()) {}
+
     /**
      * @brief Construct from a PRBS design payload.
      * @param design Validated design payload.
-     * @param Ts     Sample period for internal `step()` mode.
      */
-    constexpr explicit PRBS(const design::PRBSResult<T>& design, T Ts)
-        : config_(design.config), Ts_(Ts), valid_(design.success && Ts > T{0}) {
+    constexpr PRBS(const design::PRBSResult<T>& design) // NOLINT(google-explicit-constructor): assign-from-design
+        : config_(design.config), Ts_(design.Ts), valid_(design.success && design.Ts > T{0}) {
         if (!design.success && std::is_constant_evaluated()) {
             ::damp::detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
@@ -318,5 +330,9 @@ private:
     std::uint32_t         state_{1u};
     bool                  valid_{false};
 };
+
+/** @brief Deduce the runtime from its design, keeping the result's scalar. */
+template<typename T>
+PRBS(const design::PRBSResult<T>&) -> PRBS<T>;
 
 } // namespace damp

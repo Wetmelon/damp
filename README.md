@@ -2,17 +2,40 @@
 
 Compile-time controls for embedded C++. Header-only, C++20.
 
-v0.1.0 (alpha) · [CHANGELOG](CHANGELOG.md) · BSL-1.0 ([LICENSE](LICENSE))
+v0.1.0 (alpha) · [CHANGELOG](CHANGELOG.md) · [Guide](docs/guide.md) · BSL-1.0 ([LICENSE](LICENSE))
 
-After enough years writing firmware for control systems, one will see the same issues:
+`design::lqr` (and the rest) run at compile time or init. The MCU keeps a small
+runtime and calls `step` every tick. SIL uses that same object. Hardware variants
+are `constexpr` parameters in the same headers.
 
-1. Everyone reimplements the same algorithms on every project (often incorrectly).
-2. Model-based control (LQR, ESKF, …) is desirable, but the integration effort involved in shipping real model-based controls is huge
-3. Every real controls project turns into a variant management problem.  Maintaining one source of truth across many variants, engineers, and tools over several years is difficult.
+## Add it
 
-Damp addresses these by keeping design and deploy in one tree. Heavy synthesis runs at compile time, the MCU keeps thin runtime objects. Plant models and controllers can live in the same headers with hardware variants as `constexpr` parameters rather than generated code hand-copied or awkwardly wired into the build system.
+Point the compiler at `inc/`. Nothing to link for the core.
 
-Example: Inverted-pendulum LQR in the shape that lands on target:
+```bash
+g++ -std=c++20 -I path/to/inc your_firmware.cpp
+```
+
+```cpp
+#include "damp/control.hpp"      // MCU path
+// #include "damp/workbench.hpp" // host only (Bode, ODE, simulate, matlab::)
+```
+
+CMake, FetchContent or `find_package`, same target:
+
+```cmake
+include(FetchContent)
+FetchContent_Declare(damp
+    GIT_REPOSITORY https://github.com/Wetmelon/damp.git
+    GIT_TAG v0.1.0   # 0.x: pin a commit or tag; the API can move
+)
+FetchContent_MakeAvailable(damp)
+target_link_libraries(your_fw PRIVATE wetmelon::damp)
+```
+
+GCC 11+ (tested with 14) and Clang 19+. MSVC is not supported.
+
+## Plant → law → tick
 
 ```cpp
 #include "damp/control.hpp"
@@ -25,23 +48,22 @@ constexpr auto sys = StateSpace{
     .B = Matrix<2, 1>{{0.0}, {1.0 / (m * L * L)}},
     .C = Matrix<1, 2>{{1.0, 0.0}},
 };
-constexpr auto Q = Matrix<2, 2>::identity() * 10.0;
-constexpr auto R = Matrix<1, 1>{{1.0}};
+constexpr auto result = design::lqr(sys, Ts, {.Q = Matrix<2, 2>::identity() * 10.0, .R = 1.0});
+static_assert(result.success);
 
-constexpr auto result = design::lqrd(sys.A, sys.B, Q, R, Ts);
-static_assert(result.success);   // build fails if DARE did not converge
+constinit LQR pendulum{result.as<float>()};
 
-// float gain on the MCU; the Riccati solver does not ship in the .elf
-constinit LQR<2, 1> pendulum_controller{result.as<float>()};
-
-// ISR: u = -K x  →  a couple of multiply-accumulates for this plant
-// ColVec<1, float> u = pendulum_controller.control(x);
+// ISR: measurement x at this sample, command u
+ColVec<2, float> x{0.1f, 0.0f};
+ColVec<1, float> u = pendulum.step(x);
 ```
 
-That is the usual design-is-deploy path (PID, LQR, ESKF, and most other laws look the
-same). Worked examples: [`examples/control/cart_pole/`](examples/control/cart_pole/),
-[`examples/control/pid/`](examples/control/pid/),
-[`examples/estimation/eskf/`](examples/estimation/eskf/).
+That is the design-is-deploy path. PID, LQG, MPC, ESKF look the same: design result →
+runtime → `step`. Flagship (LQI + clamp + `back_calculate`):
+[`examples/control/lqi/`](examples/control/lqi/).
+
+If you know MATLAB® (`c2d`, `lqr`, `pidtune`, `kalman`) or you are writing an ISR:
+[docs/guide.md](docs/guide.md) maps those names onto Damp.
 
 | Habit | What it does |
 | ----- | ------------ |
@@ -56,27 +78,16 @@ runtime types default to `float`, design to `double`.
 
 ## Usage
 
-Firmware only needs `inc/` on the include path. The default backend is the normal C++
-standard library — no git submodules required for `damp/control.hpp`.
-
-```bash
-g++ -std=c++20 -I path/to/inc your_firmware.cpp
-```
-
-```cpp
-#include "damp/control.hpp"      // MCU path
-// #include "damp/workbench.hpp" // host only (Bode, ODE, simulate, matlab::)
-```
-
 | Include | When |
 | ------- | ---- |
 | `damp/control.hpp` | MCU / embeddable core — heap-free umbrella |
 | `damp/workbench.hpp` | Host analysis and simulation (do not pull into firmware) |
 
-Small utilities (timers, scaling, bounds, …) live under `toolbox/` and ride along with
-`control.hpp`. Submodules under `libs/` (fmt, json, plotlypp, etl) are for host tests,
-examples, Plotly, and the optional freestanding ETL backend
-(`-DDAMP_BACKEND_ETL` + `-I libs/etl/include`) — see
+The default backend is the normal C++ standard library — no git submodules for
+`damp/control.hpp`. Small utilities (timers, scaling, bounds, …) live under
+`toolbox/` and ride along with `control.hpp`. Submodules under `libs/` (fmt, json,
+plotlypp, etl) are for host tests, examples, Plotly, and the optional freestanding
+ETL backend (`-DDAMP_BACKEND_ETL` + `-I libs/etl/include`) — see
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Initialize them only if you need those:
 
 ```bash
@@ -85,19 +96,15 @@ git clone --recurse-submodules https://github.com/Wetmelon/damp.git
 git submodule update --init --recursive
 ```
 
-Optional CMake: `find_package` / FetchContent → link `wetmelon::damp`.
-
-GCC 10+, Clang 12+, MSVC 2022+.
-
 ## Examples
 
-Copy an example folder rather than starting from a blank `main`. This release ships
-classical control and estimation demos.
+Copy an example folder. Task table: [docs/guide.md](docs/guide.md).
 
 | Want | Example | Headers |
 | ---- | ------- | ------- |
-| PID / LQR / cart-pole | [`control/cart_pole/`](examples/control/cart_pole/), [`pendulum/`](examples/control/pendulum/), [`pid/`](examples/control/pid/) | `controllers/lqr.hpp` or `pid.hpp`, `systems/state_space.hpp` |
-| Attitude ESKF / INS | [`estimation/eskf/`](examples/estimation/eskf/), [`ins_navigator/`](examples/estimation/ins_navigator/) | `estimation/eskf.hpp`, `estimation/sensor_fusion.hpp` |
+| LQI + clamp | [`control/lqi/`](examples/control/lqi/) | `controllers/lqi.hpp` |
+| PID / LQR / cart-pole | [`control/cart_pole/`](examples/control/cart_pole/), [`pendulum/`](examples/control/pendulum/), [`pid/`](examples/control/pid/) | `controllers/lqr.hpp` or `pid.hpp` |
+| Attitude ESKF / INS | [`estimation/eskf/`](examples/estimation/eskf/), [`ins_navigator/`](examples/estimation/ins_navigator/) | `estimation/eskf.hpp` |
 
 ```text
 examples/<domain>/<name>/
@@ -113,8 +120,9 @@ SIL should call the deploy tick — not reimplement the controller for the sim. 
 ## What’s in the tree
 
 Embeddable core: stack matrices, `constexpr` math, LTI types (SS / TF / ZPK) and
-discretize, design-is-deploy controllers and estimators (PID, LQR family, ADRC, SMC,
-KF/EKF/UKF, ESKF, …), filters, fixed-step integrators, geometry, toolbox helpers.
+discretize, design-is-deploy controllers and estimators (PID, LQR family, OFLQG,
+MPC, ADRC, ESO, SMC, KF/EKF/UKF, ESKF, …), filters, encoders, fixed-step integrators,
+geometry, toolbox helpers.
 
 Host (via `workbench.hpp`): Bode/margins, ODE solvers, closed-loop simulate, and a
 set of MATLAB®-style short names in `matlab.hpp` (not full toolbox parity).
@@ -126,7 +134,7 @@ inc/damp/
   control.hpp       # embeddable core
   workbench.hpp     # host extras
   math/  matrix/  systems/  controllers/  design/
-  estimation/  filters/  toolbox/  simulation/  analysis/
+  estimation/  filters/  encoder/  toolbox/  simulation/  analysis/
 tests/  examples/  cmake/  targets/  docs/
 ```
 
