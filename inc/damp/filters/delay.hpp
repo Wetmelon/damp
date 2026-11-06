@@ -10,7 +10,6 @@
  * @brief Discrete-time delay buffer runtime
  */
 
-#include <cstddef>
 
 #include "damp/backend.hpp"
 

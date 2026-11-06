@@ -63,8 +63,6 @@
  * @endcode
  */
 
-#include <cstddef>
-#include <type_traits>
 
 #include "damp/backend.hpp"
 #include "damp/math/geometry.hpp"
@@ -77,27 +75,27 @@
 namespace damp {
 
 /** @brief Error-state dimension for full navigation ESKF (attitude, v, p, gyro bias, accel bias). */
-inline constexpr std::size_t kInsErrorDim = 15;
+inline constexpr size_t kInsErrorDim = 15;
 
 /** @brief Sparse aiding measurement size (position or velocity triad). */
-inline constexpr std::size_t kInsMeasDim = 3;
+inline constexpr size_t kInsMeasDim = 3;
 
 /**
  * @brief Start indices of each 3-vector block in the 15-state error δx
  */
 namespace ins_err {
-inline constexpr std::size_t dtheta = 0; ///< attitude error δθ [rad] (3)
-inline constexpr std::size_t dv = 3;     ///< velocity error δv [m/s] (3)
-inline constexpr std::size_t dp = 6;     ///< position error δp [m] (3)
-inline constexpr std::size_t dbg = 9;    ///< gyro bias error δb_g [rad/s] (3)
-inline constexpr std::size_t dba = 12;   ///< accel bias error δb_a [m/s²] (3)
+inline constexpr size_t dtheta = 0; ///< attitude error δθ [rad] (3)
+inline constexpr size_t dv = 3;     ///< velocity error δv [m/s] (3)
+inline constexpr size_t dp = 6;     ///< position error δp [m] (3)
+inline constexpr size_t dbg = 9;    ///< gyro bias error δb_g [rad/s] (3)
+inline constexpr size_t dba = 12;   ///< accel bias error δb_a [m/s²] (3)
 } // namespace ins_err
 
 namespace detail {
 
 /** @brief Fill a 3×15 measurement Jacobian with I₃ at column @p col0. */
 template<typename T>
-[[nodiscard]] constexpr Matrix<kInsMeasDim, kInsErrorDim, T> selector_H(std::size_t col0) {
+[[nodiscard]] constexpr Matrix<kInsMeasDim, kInsErrorDim, T> selector_H(size_t col0) {
     Matrix<kInsMeasDim, kInsErrorDim, T> H = Matrix<kInsMeasDim, kInsErrorDim, T>::zeros();
     H.template block<3, 3>(0, col0) = Matrix<3, 3, T>::identity();
     return H;
@@ -215,7 +213,7 @@ template<typename T = double>
     const T q_pp = sa2 * (dt3 / T{3});
     const T q_pv = sa2 * (dt2 / T{2});
 
-    for (std::size_t i = 0; i < 3; ++i) {
+    for (size_t i = 0; i < 3; ++i) {
         r.Q(ins_err::dtheta + i, ins_err::dtheta + i) = q_tt;
         r.Q(ins_err::dbg + i, ins_err::dbg + i) = q_bbg;
         r.Q(ins_err::dtheta + i, ins_err::dbg + i) = q_tb;
@@ -305,7 +303,7 @@ template<typename T, MatrixLike X>
     )
 [[nodiscard]] constexpr ColVec<kInsErrorDim, T>
 ins_F_mul(const ErrorStateJacobian<T, kInsErrorDim>& ej, const X& x) {
-    const auto x_at = [&x](std::size_t i) -> T {
+    const auto x_at = [&x](size_t i) -> T {
         if constexpr (X::cols() == 1) {
             return static_cast<T>(x(i, 0));
         } else {
@@ -314,32 +312,32 @@ ins_F_mul(const ErrorStateJacobian<T, kInsErrorDim>& ej, const X& x) {
     };
 
     ColVec<kInsErrorDim, T> y{};
-    for (std::size_t i = 0; i < kInsErrorDim; ++i) {
+    for (size_t i = 0; i < kInsErrorDim; ++i) {
         y[i] = x_at(i);
     }
 
     // θ' = Fθθ θ + Fθbg bg
-    for (std::size_t i = 0; i < 3; ++i) {
+    for (size_t i = 0; i < 3; ++i) {
         T s = T{0};
-        for (std::size_t j = 0; j < 3; ++j) {
+        for (size_t j = 0; j < 3; ++j) {
             s += ej.F(ins_err::dtheta + i, ins_err::dtheta + j) * x_at(ins_err::dtheta + j);
             s += ej.F(ins_err::dtheta + i, ins_err::dbg + j) * x_at(ins_err::dbg + j);
         }
         y[ins_err::dtheta + i] = s;
     }
     // v' = v + Fvθ θ + Fvba ba
-    for (std::size_t i = 0; i < 3; ++i) {
+    for (size_t i = 0; i < 3; ++i) {
         T s = x_at(ins_err::dv + i);
-        for (std::size_t j = 0; j < 3; ++j) {
+        for (size_t j = 0; j < 3; ++j) {
             s += ej.F(ins_err::dv + i, ins_err::dtheta + j) * x_at(ins_err::dtheta + j);
             s += ej.F(ins_err::dv + i, ins_err::dba + j) * x_at(ins_err::dba + j);
         }
         y[ins_err::dv + i] = s;
     }
     // p' = p + Fp v
-    for (std::size_t i = 0; i < 3; ++i) {
+    for (size_t i = 0; i < 3; ++i) {
         T s = x_at(ins_err::dp + i);
-        for (std::size_t j = 0; j < 3; ++j) {
+        for (size_t j = 0; j < 3; ++j) {
             s += ej.F(ins_err::dp + i, ins_err::dv + j) * x_at(ins_err::dv + j);
         }
         y[ins_err::dp + i] = s;
@@ -362,17 +360,17 @@ constexpr void ins_propagate_covariance(
 ) {
     // W = F P  (each column: W.col(j) = F * P.col(j))
     Matrix<kInsErrorDim, kInsErrorDim, T> W{};
-    for (std::size_t j = 0; j < kInsErrorDim; ++j) {
+    for (size_t j = 0; j < kInsErrorDim; ++j) {
         W.col(j) = ins_F_mul(ej, P.col(j));
     }
     // P ← W Fᵀ + Q.  (W Fᵀ)_i,: = (F * W.row(i)ᵀ)ᵀ → assign F*row into row i
-    for (std::size_t i = 0; i < kInsErrorDim; ++i) {
+    for (size_t i = 0; i < kInsErrorDim; ++i) {
         P.row(i) = ins_F_mul(ej, W.row(i));
     }
     // The two passes round (i,j) and (j,i) differently; mirror the average so P
     // stays exactly symmetric (quadratic_form in the update reads one triangle).
-    for (std::size_t i = 0; i < kInsErrorDim; ++i) {
-        for (std::size_t j = 0; j <= i; ++j) {
+    for (size_t i = 0; i < kInsErrorDim; ++i) {
+        for (size_t j = 0; j <= i; ++j) {
             const T pij = T{0.5} * ((P(i, j) + Q(i, j)) + (P(j, i) + Q(j, i)));
             P(i, j) = pij;
             P(j, i) = pij;
@@ -714,7 +712,7 @@ public:
           R_pos_(design.R.template as<T>()),
           frame_(frame),
           g_(g) {
-        if (!design.success && std::is_constant_evaluated()) {
+        if (!design.success && damp::is_constant_evaluated()) {
             ::damp::detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
         x_.q = Quaternion<T>::identity();

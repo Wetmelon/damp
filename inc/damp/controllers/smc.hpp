@@ -5,7 +5,6 @@
 
 #pragma once
 
-#include <type_traits>
 
 /**
  * @file smc.hpp
@@ -198,7 +197,7 @@ public:
 
     /** @brief From a design result in another scalar: converts it with .as\<T\>() and builds from that. */
     template<typename U>
-        requires(!std::is_same_v<U, T>)
+        requires(!damp::is_same_v<U, T>)
     constexpr SMCController(const design::SMCResult<U>& result) // NOLINT(google-explicit-constructor): assign-from-design
         : SMCController(result.template as<T>()) {}
 
@@ -210,7 +209,7 @@ public:
      */
     constexpr SMCController(const design::SMCResult<T>& result) // NOLINT(google-explicit-constructor): assign-from-design
         : lambda(result.lambda), k(result.k), b0(result.b0), Ts_(result.Ts), phi_(result.phi), valid_(result.success && result.Ts > T{0}) {
-        if ((!result.success || !(result.Ts > T{0})) && std::is_constant_evaluated()) {
+        if ((!result.success || !(result.Ts > T{0})) && damp::is_constant_evaluated()) {
             ::damp::detail::refuse_failed_design(result.success ? design::DesignStatus::invalid_sample_time : result.status); // constant-evaluated (constinit / constexpr): a failed or continuous design does not compile
         }
     }

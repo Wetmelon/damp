@@ -10,8 +10,6 @@
  * @brief Nth-order low-pass design (design::lowpass), runtime, and continuous LPF exact step
  */
 
-#include <cstddef>
-#include <type_traits>
 
 #include "damp/backend.hpp"
 #include "damp/design/status.hpp"
@@ -238,7 +236,7 @@ public:
      */
     template<typename U>
     constexpr LowPass(const design::LowPassResult<N, U>& result) { // NOLINT(google-explicit-constructor): assign-from-design
-        if (!result.success && std::is_constant_evaluated()) {
+        if (!result.success && damp::is_constant_evaluated()) {
             ::damp::detail::refuse_failed_design(result.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
         if (result.success) {

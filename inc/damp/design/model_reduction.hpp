@@ -39,7 +39,6 @@
  * @see Antoulas, Approximation of Large-Scale Dynamical Systems, SIAM, 2005
  */
 
-#include <cstddef>
 
 #include "damp/backend.hpp"
 #include "damp/design/lyapunov.hpp"

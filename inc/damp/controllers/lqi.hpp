@@ -16,9 +16,7 @@
  * control(r, x_ref, u_ref), step(r, x_ref, u_ref, x).
  */
 
-#include <cstddef>
-#include <type_traits>
-
+#include "damp/backend.hpp"
 #include "damp/controllers/state_feedback_core.hpp" // IWYU pragma: export
 #include "damp/matrix/colvec.hpp"
 #include "damp/systems/state_space.hpp"
@@ -42,7 +40,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
 
 /** @brief The sampled-data linear-quadratic regulator with integral action on every output: runs as LQI. */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
-[[nodiscard]] constexpr auto lqi(const StateSpace<NX, NU, NY, T, NW, NV>& sys, std::type_identity_t<T> Ts, const LQRWeights<NX, NU, NY, T>& weights) {
+[[nodiscard]] constexpr auto lqi(const StateSpace<NX, NU, NY, T, NW, NV>& sys, damp::type_identity_t<T> Ts, const LQRWeights<NX, NU, NY, T>& weights) {
     return detail::state_feedback(sys, Ts, weights, detail::StateFeedbackOptions{.offset_free = IntegralAction{}});
 }
 
@@ -65,7 +63,7 @@ template<size_t NI, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size
     requires(NI > 0)
 [[nodiscard]] constexpr auto lqi(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
-    std::type_identity_t<T>                  Ts,
+    damp::type_identity_t<T>                 Ts,
     const LQRWeights<NX, NU, NI, T>&         weights,
     const IntegralAction<NI>&                outputs
 ) {
@@ -94,7 +92,7 @@ struct LQI : private detail::StateFeedbackCore<NX, NU, T, NI, NY, NoEstimator, 0
     /** @brief From design::lqi (any scalar). */
     template<size_t NXR, size_t NUR, typename U, size_t NIR, size_t NYR, typename Kalman, size_t NZR>
     constexpr LQI(const design::StateFeedbackResult<NXR, NUR, U, NIR, NYR, Kalman, NZR>& result) { // NOLINT
-        constexpr bool kind = NIR > 0 && std::is_same_v<Kalman, NoEstimator>;
+        constexpr bool kind = NIR > 0 && damp::is_same_v<Kalman, NoEstimator>;
         static_assert(kind, "LQI runs design::lqi: this design has no integral action (LQR) or a Kalman filter (LQG, LQGI, OFLQG).");
         if constexpr (kind) {
             static_cast<Core&>(*this) = Core(result);

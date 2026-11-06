@@ -27,8 +27,6 @@
  *      controllers/mpc.hpp (MPCConstraints), estimation/mhe.hpp (MHEConstraints).
  */
 
-#include <cstddef>
-#include <limits>
 
 #include "damp/backend.hpp" // clamp
 #include "damp/matrix/colvec.hpp"
@@ -50,8 +48,8 @@ namespace damp {
  */
 template<size_t N, typename T = double>
 struct Bounds {
-    ColVec<N, T> lower = Matrix<N, 1, T>::constant(-std::numeric_limits<T>::max()); ///< lower(i) ≤ x(i)
-    ColVec<N, T> upper = Matrix<N, 1, T>::constant(std::numeric_limits<T>::max());  ///< x(i) ≤ upper(i)
+    ColVec<N, T> lower = Matrix<N, 1, T>::constant(-damp::numeric_limits<T>::max()); ///< lower(i) ≤ x(i)
+    ColVec<N, T> upper = Matrix<N, 1, T>::constant(damp::numeric_limits<T>::max());  ///< x(i) ≤ upper(i)
 
     /** @brief Symmetric box [−mag, +mag] per channel (the |xᵢ| ≤ magᵢ convention). */
     [[nodiscard]] static constexpr Bounds symmetric(const ColVec<N, T>& mag) {
@@ -111,12 +109,12 @@ struct Bounds {
 private:
     template<typename U>
     [[nodiscard]] static constexpr U convert_end(T v) {
-        constexpr T unbounded = std::numeric_limits<T>::max() / T{4};
+        constexpr T unbounded = damp::numeric_limits<T>::max() / T{4};
         if (v >= unbounded) {
-            return std::numeric_limits<U>::max();
+            return damp::numeric_limits<U>::max();
         }
         if (v <= -unbounded) {
-            return -std::numeric_limits<U>::max();
+            return -damp::numeric_limits<U>::max();
         }
         return static_cast<U>(v);
     }

@@ -19,8 +19,7 @@
  * `constexpr`, allocation-free, embeddable.
  */
 
-#include <cstdint>
-
+#include "damp/backend.hpp"
 #include "damp/encoder/tracker.hpp" // EncoderTracker
 #include "damp/math/math.hpp"       // damp::abs, damp::isfinite
 #include "damp/math/split_real.hpp" // SplitReal
@@ -28,7 +27,7 @@
 namespace damp {
 
 /** @brief What EncoderGate made of a reading. */
-enum class EncoderVerdict : std::uint8_t {
+enum class EncoderVerdict : uint8_t {
     Accepted, ///< consistent with the prediction: pass it to the estimator
     Invalid,  ///< flagged bad by the interface (CRC, frame) or not finite: dropped
     Jump,     ///< further from the prediction than the axis can move: dropped
@@ -60,7 +59,7 @@ struct EncoderGateConfig {
      * @brief consecutive mutually consistent readings that confirm a new position (after a persistent jump,
      * at start-up, after staleness). 1 accepts the first reading.
      */
-    std::uint16_t resync_count{4};
+    uint16_t resync_count{4};
 
     template<typename U>
     [[nodiscard]] constexpr EncoderGateConfig<U> as() const {
@@ -189,7 +188,7 @@ private:
     /** @brief Extend (or start) the candidate track with a reading the locked window did not take. */
     constexpr EncoderVerdict candidate(const SplitReal<T>& reading, T w) {
         const bool extends = candidates_ > 0 && within(reading - (cand_ + (w * cand_since_)), cand_since_);
-        candidates_ = extends ? static_cast<std::uint16_t>(candidates_ + 1U) : std::uint16_t{1};
+        candidates_ = extends ? static_cast<uint16_t>(candidates_ + 1U) : uint16_t{1};
         cand_ = reading;
         cand_since_ = T{0};
         if (candidates_ < cfg_.resync_count) {
@@ -210,7 +209,7 @@ private:
     T                    since_{T{0}};      ///< [s] since the last accepted reading
     T                    cand_since_{T{0}}; ///< [s] since the latest candidate reading
     T                    interval_{T{0}};   ///< [s] between the last two accepted readings
-    std::uint16_t        candidates_{0};    ///< length of the candidate track
+    uint16_t             candidates_{0};    ///< length of the candidate track
     bool                 locked_{false};    ///< a position is confirmed
     bool                 stale_{false};     ///< no reading accepted for stale_time
 };

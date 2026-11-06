@@ -14,8 +14,7 @@
  * gain designs carry, so an invalid input is refused instead of returning a placeholder model.
  */
 
-#include <cstddef>
-
+#include "damp/backend.hpp"
 #include "damp/design/status.hpp"
 #include "damp/systems/state_space.hpp"
 #include "damp/systems/transfer_function.hpp"

@@ -14,8 +14,6 @@
  * disturbances d_{k+1} = d_k enter the filter's model through B_d and the readings through C_d.
  */
 
-#include <cstddef>
-#include <type_traits>
 
 #include "damp/backend.hpp"
 #include "damp/design/options.hpp"
@@ -89,27 +87,27 @@ namespace detail {
 
 /** @brief Not a disturbance spec. */
 template<typename>
-struct is_disturbance : std::false_type {};
+struct is_disturbance : damp::false_type {};
 
 /** @brief NoDisturbance. */
 template<>
-struct is_disturbance<NoDisturbance> : std::true_type {};
+struct is_disturbance<NoDisturbance> : damp::true_type {};
 
 /** @brief InputDisturbance. */
 template<size_t NZ>
-struct is_disturbance<InputDisturbance<NZ>> : std::true_type {};
+struct is_disturbance<InputDisturbance<NZ>> : damp::true_type {};
 
 /** @brief OutputDisturbance. */
 template<size_t NZ>
-struct is_disturbance<OutputDisturbance<NZ>> : std::true_type {};
+struct is_disturbance<OutputDisturbance<NZ>> : damp::true_type {};
 
 /** @brief PlantDisturbance. */
 template<size_t NZ>
-struct is_disturbance<PlantDisturbance<NZ>> : std::true_type {};
+struct is_disturbance<PlantDisturbance<NZ>> : damp::true_type {};
 
 /** @brief DisturbanceModel. */
 template<size_t NX, size_t NY, size_t ND, size_t NZ, typename T>
-struct is_disturbance<DisturbanceModel<NX, NY, ND, NZ, T>> : std::true_type {};
+struct is_disturbance<DisturbanceModel<NX, NY, ND, NZ, T>> : damp::true_type {};
 
 /**
  * @brief The sizes of a disturbance spec on a plant with NU inputs, NY outputs and NW columns of

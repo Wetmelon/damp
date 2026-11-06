@@ -10,8 +10,7 @@
  * @brief The position of an axis, rotary or linear: an exact count carrying its own scale.
  */
 
-#include <cstdint>
-
+#include "damp/backend.hpp"
 #include "damp/math/math.hpp"       // damp::floor
 #include "damp/math/split_real.hpp" // SplitReal
 
@@ -46,7 +45,7 @@ namespace damp {
 template<typename T = float>
 struct AxisPosition {
     SplitReal<T> counts{};             ///< [counts] exact position
-    std::int64_t counts_per_period{1}; ///< counts in one period (> 0)
+    int64_t      counts_per_period{1}; ///< counts in one period (> 0)
     T            period_length{T{1}};  ///< one period in the axis's units (1 turn, 0.04 m of belt, …)
 
     /**
@@ -64,7 +63,7 @@ struct AxisPosition {
      * @brief Shortest displacement from here to @p target modulo @p wrap_counts (circular position mode),
      * in the axis's units, in [−½, ½)·wrap. Whole wraps are removed exactly, in integers.
      */
-    [[nodiscard]] constexpr T distance_to(const SplitReal<T>& target, std::int64_t wrap_counts) const {
+    [[nodiscard]] constexpr T distance_to(const SplitReal<T>& target, int64_t wrap_counts) const {
         const T wrap_length = static_cast<T>(wrap_counts) * (period_length / static_cast<T>(counts_per_period));
         return wrapped(target.whole - counts.whole, target.frac - counts.frac, wrap_counts) * wrap_length;
     }
@@ -77,11 +76,11 @@ struct AxisPosition {
 
 private:
     /** @brief (whole + frac) / period, wrapped to [−0.5, 0.5); the integer part is reduced first. */
-    [[nodiscard]] static constexpr T wrapped(std::int64_t whole, T frac, std::int64_t period) {
+    [[nodiscard]] static constexpr T wrapped(int64_t whole, T frac, int64_t period) {
         if (period <= 0) {
             return T{0}; // invalid scale; never divide by zero
         }
-        std::int64_t r = whole % period;
+        int64_t r = whole % period;
         if (r > period / 2) {
             r -= period;
         } else if (r < -(period / 2)) {

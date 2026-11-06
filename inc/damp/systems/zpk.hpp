@@ -50,8 +50,6 @@
  * @note Compare with MATLAB®'s zpk, zpkdata, tf2zpk, zpk2tf, ss2tf, minreal (factored form).
  */
 
-#include <cstddef>
-#include <type_traits>
 
 #include "damp/backend.hpp"
 #include "damp/math/complex.hpp"
@@ -120,7 +118,7 @@ struct PolyRootsResult {
  * @return @ref PolyRootsResult; @c success = false if c₀ = 0
  */
 template<size_t N, typename T = double>
-    requires std::is_floating_point_v<T>
+    requires damp::is_floating_point_v<T>
 [[nodiscard]] constexpr PolyRootsResult<N, T> poly_roots(const damp::array<T, N>& c) {
     if constexpr (N <= 1) {
         return PolyRootsResult<N, T>{.success = true};
@@ -195,7 +193,7 @@ constexpr void mul_linear(Poly& poly, size_t degree, C root) {
  * @tparam T    Floating-point scalar type
  */
 template<size_t Nz, size_t Np, typename T = double>
-    requires std::is_floating_point_v<T>
+    requires damp::is_floating_point_v<T>
 struct ZPK {
     damp::array<damp::complex<T>, Nz> zeros{}; ///< Zeros of the transfer function, closed under conjugation
     damp::array<damp::complex<T>, Np> poles{}; ///< Poles of the transfer function, closed under conjugation
@@ -465,7 +463,7 @@ struct ZPKResult {
  * @return ZPKResult with success flag
  */
 template<size_t Nnum, size_t Nden, typename T = double>
-    requires std::is_floating_point_v<T>
+    requires damp::is_floating_point_v<T>
 [[nodiscard]] constexpr ZPKResult<(Nnum > 0 ? Nnum - 1 : 0), (Nden > 0 ? Nden - 1 : 0), T>
 to_zpk(const TransferFunction<Nnum, Nden, T>& tf) {
     constexpr size_t     Nz = (Nnum > 0 ? Nnum - 1 : 0);
@@ -721,7 +719,7 @@ struct StateSpaceZPKResult {
  * @return StateSpaceZPKResult
  */
 template<size_t NX, typename T = double, size_t NW = 0, size_t NV = 0>
-    requires std::is_floating_point_v<T>
+    requires damp::is_floating_point_v<T>
 [[nodiscard]] constexpr StateSpaceZPKResult<NX, T> to_zpk(const StateSpace<NX, 1, 1, T, NW, NV>& sys) {
     StateSpaceZPKResult<NX, T> art{};
 

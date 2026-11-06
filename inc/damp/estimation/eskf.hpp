@@ -26,9 +26,6 @@
  * @see ins_eskf.hpp for the 15-state navigation ESKF
  */
 
-#include <concepts>
-#include <cstddef>
-#include <type_traits>
 
 #include "damp/backend.hpp"
 #include "damp/math/geometry.hpp"
@@ -297,7 +294,7 @@ struct ErrorStateJacobian {
  */
 template<typename Fn, typename T, size_t NDX>
 concept ESKFPredictFn = requires(Fn&& fn, T dt) {
-    { fn(dt) } -> std::convertible_to<ErrorStateJacobian<T, NDX>>;
+    { fn(dt) } -> damp::convertible_to<ErrorStateJacobian<T, NDX>>;
 };
 
 
@@ -362,7 +359,7 @@ struct ErrorStateKalmanFilter {
     constexpr ErrorStateKalmanFilter(const design::ESKFResult<NDX, NY, U>& result) // NOLINT(google-explicit-constructor): assign-from-design
         : P(result.P0.template as<T>()),
           Q(result.Q.template as<T>()) {
-        if (!result.success && std::is_constant_evaluated()) {
+        if (!result.success && damp::is_constant_evaluated()) {
             ::damp::detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
     }
@@ -419,9 +416,9 @@ struct ErrorStateKalmanFilter {
      */
     template<size_t NY>
     [[nodiscard]] constexpr bool update_innovation(
-        const ColVec<NY, T>&                           innovation,
-        const Matrix<NY, NDX, T>&                      H,
-        const std::type_identity_t<Matrix<NY, NY, T>>& R
+        const ColVec<NY, T>&                            innovation,
+        const Matrix<NY, NDX, T>&                       H,
+        const damp::type_identity_t<Matrix<NY, NY, T>>& R
     ) {
         // S = HPHᵀ + R with exact symmetry (quadratic_form); fail closed if not positive definite.
         const Matrix<NY, NY, T> S = quadratic_form(H, P) + R;

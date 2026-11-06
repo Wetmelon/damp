@@ -24,6 +24,7 @@ local damp_dirs = {
     '../inc/damp/kinematics',
     '../inc/damp/math',
     '../inc/damp/matrix',
+    '../inc/damp/motor',
     '../inc/damp/simulation',
     '../inc/damp/systems',
     '../inc/damp/toolbox',
@@ -38,18 +39,14 @@ for _, d in ipairs(damp_dirs) do
 end
 
 -- freestanding: ETL + freestanding math compile + no hosted-std leaks in damp/
--- Headers are *inputs* (rebuild when they change). On Windows, g++/grep often
--- open those headers with write-sharing; tup then reports FILE OVERWRITTEN even
--- though content is unchanged. ^inc/.* ignores those false-positive writes
--- (same idea as examples' ^plots/.*). Probe temps live under build/.
+-- Headers are *inputs*, so every check re-runs when one changes. Do not list them in an
+-- ignore pattern: that drops the dependency. Probe temps live under build/.
 tup.rule(
     headers,
     'sh ../tools/contract_check.sh freestanding ' .. CXX .. ' %o',
     {
         'build/freestanding.ok',
         '^build/probe.*',
-        '^inc/.*',
-        '^\\.\\./inc/.*',
     }
 )
 
@@ -60,8 +57,6 @@ tup.rule(
     {
         'build/embedded.ok',
         '^build/probe.*',
-        '^inc/.*',
-        '^\\.\\./inc/.*',
     }
 )
 
@@ -72,8 +67,16 @@ tup.rule(
     {
         'build/workbench.ok',
         '^build/probe.*',
-        '^inc/.*',
-        '^\\.\\./inc/.*',
+    }
+)
+
+-- nostd: a constexpr design and its tick build and run with no C++ standard headers
+tup.rule(
+    headers,
+    'sh ../tools/contract_check.sh nostd ' .. CXX .. ' %o',
+    {
+        'build/nostd.ok',
+        '^build/probe.*',
     }
 )
 

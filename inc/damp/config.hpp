@@ -23,6 +23,7 @@
  *
  *   Containers (see backend.hpp):
  *     DAMP_BACKEND_ETL               damp::array/optional/... → ETL (else stdlib)
+ *     ETL_NO_STL                     with the above, for a toolchain with no C++ standard headers
  *
  *   Scalar math (see math/math_backend.hpp):
  *     DAMP_MATH_BACKEND_DAMP          runtime float math → damp/math/trig.hpp
@@ -31,7 +32,8 @@
  *     (none set → the std:: math backend; several set → HEADER, then FREESTANDING, then DAMP)
  *
  *   A target without libm sets DAMP_BACKEND_ETL and DAMP_MATH_BACKEND_FREESTANDING: the
- *   std:: math backend includes \<cmath\> whatever the container backend.
+ *   std:: and Damp math backends include \<cmath\> whatever the container backend, so a
+ *   toolchain with no C++ standard headers takes FREESTANDING or HEADER too.
  *
  * If no `damp_profile.hpp` is found, the library uses its host defaults — stdlib
  * containers and the std:: math backend — and emits a one-time warning so the

@@ -31,8 +31,6 @@
  * @endcode
  */
 
-#include <cstddef>
-#include <limits>
 
 #include "damp/backend.hpp"
 #include "damp/design/status.hpp"
@@ -87,7 +85,7 @@ template<typename T>
     if (!(v > T{0}) || !damp::isfinite(v)) {
         return 0;
     }
-    constexpr int cap = std::numeric_limits<T>::max_exponent - std::numeric_limits<T>::min_exponent + std::numeric_limits<T>::digits;
+    constexpr int cap = damp::numeric_limits<T>::max_exponent - damp::numeric_limits<T>::min_exponent + damp::numeric_limits<T>::digits;
     int           e = 0;
     while (v >= T{2} && e < cap) {
         v *= static_cast<T>(0.5);

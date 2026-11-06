@@ -24,9 +24,6 @@
  *      https://doi.org/10.1137/0613074
  */
 
-#include <cstddef>
-#include <limits>
-#include <type_traits>
 
 #include "core.hpp"
 #include "damp/backend.hpp"
@@ -96,9 +93,9 @@ template<size_t P, size_t Q, typename T>
     using real_t = scalar_type_t<T>;
     const real_t tol = static_cast<real_t>(P) * damp::eps<T>();
     // Below min/eps a column norm has lost relative precision: its direction is noise.
-    const real_t tiny = std::numeric_limits<real_t>::min() / damp::eps<T>();
+    const real_t tiny = damp::numeric_limits<real_t>::min() / damp::eps<T>();
     // A column norm can reach √P·max|a|; past this, rescale before taking norms.
-    const real_t big = std::numeric_limits<real_t>::max() / (real_t{2} * static_cast<real_t>(P));
+    const real_t big = damp::numeric_limits<real_t>::max() / (real_t{2} * static_cast<real_t>(P));
 
     real_t amax = real_t{0};
     for (size_t i = 0; i < P; ++i) {
@@ -334,7 +331,7 @@ template<size_t M, size_t N, typename T>
 [[nodiscard]] constexpr SVDResult<M, N, T> svd(const Matrix<M, N, T>& A) {
     using real_t = scalar_type_t<T>;
     const bool finite = mat::all_of(A, [](const T& v) {
-        if constexpr (std::is_floating_point_v<T>) {
+        if constexpr (damp::is_floating_point_v<T>) {
             return damp::isfinite(v);
         } else {
             return damp::isfinite(v.real()) && damp::isfinite(v.imag());
@@ -343,9 +340,9 @@ template<size_t M, size_t N, typename T>
     if (!finite) {
         // The sweeps would zero a NaN column and report plausible singular values.
         SVDResult<M, N, T> out{};
-        out.singular_U.fill(T{std::numeric_limits<real_t>::quiet_NaN()});
-        out.singular_values.fill(std::numeric_limits<real_t>::quiet_NaN());
-        out.singular_V.fill(T{std::numeric_limits<real_t>::quiet_NaN()});
+        out.singular_U.fill(T{damp::numeric_limits<real_t>::quiet_NaN()});
+        out.singular_values.fill(damp::numeric_limits<real_t>::quiet_NaN());
+        out.singular_V.fill(T{damp::numeric_limits<real_t>::quiet_NaN()});
         return out;
     }
     if constexpr (M >= N) {
@@ -411,7 +408,7 @@ template<size_t M, size_t N, typename T>
     const auto s = svd(A);
     if (!s.success) {
         Matrix<N, M, T> nan{};
-        nan.fill(T{std::numeric_limits<real_t>::quiet_NaN()});
+        nan.fill(T{damp::numeric_limits<real_t>::quiet_NaN()});
         return nan;
     }
     const real_t smax = (K > 0) ? s.singular_values[0] : real_t{0};

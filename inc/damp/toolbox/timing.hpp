@@ -24,10 +24,7 @@
  * @see iec61131.hpp for the standard PLC timers.
  */
 
-#include <cstdint>
-#include <limits>
-#include <type_traits>
-
+#include "damp/backend.hpp"
 #include "damp/math/math.hpp"
 #include "damp/matrix/matrix_traits.hpp"
 
@@ -46,7 +43,7 @@ namespace detail {
  */
 template<typename T>
 [[nodiscard]] constexpr T timer_slack(T preset) {
-    if constexpr (std::is_floating_point_v<T>) {
+    if constexpr (damp::is_floating_point_v<T>) {
         return damp::sqrt(eps<T>()) * damp::abs(preset);
     } else {
         return T{0};
@@ -179,8 +176,8 @@ public:
         if (!(period > T{0})) {
             return false;
         }
-        if (std::is_integral_v<T> && phase_ > T{0} && dt > std::numeric_limits<T>::max() - phase_) {
-            phase_ = std::numeric_limits<T>::max(); // saturate instead of wrapping (or signed overflow)
+        if (damp::is_integral_v<T> && phase_ > T{0} && dt > damp::numeric_limits<T>::max() - phase_) {
+            phase_ = damp::numeric_limits<T>::max(); // saturate instead of wrapping (or signed overflow)
         } else {
             phase_ += dt;
         }

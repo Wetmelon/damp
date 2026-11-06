@@ -15,9 +15,7 @@
  * trajectory: control(r, x_ref, u_ref), step(r, x_ref, u_ref, y).
  */
 
-#include <cstddef>
-#include <type_traits>
-
+#include "damp/backend.hpp"
 #include "damp/controllers/state_feedback_core.hpp"
 #include "damp/design/disturbance.hpp"
 #include "damp/estimation/kalman.hpp"
@@ -62,10 +60,10 @@ using OFLQGResult = StateFeedbackResult<NX, NU, T, 0, NY, KalmanResult<NX + ND, 
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Disturbance, size_t ND = detail::disturbance_traits<Disturbance, NU, NY, NW>::states>
     requires(detail::is_disturbance_model<Disturbance>)
 [[nodiscard]] constexpr auto oflqg(
-    const StateSpace<NX, NU, NY, T, NW, NV>&                sys,
-    const LQRWeights<NX, NU, 0, T>&                         weights,
-    const std::type_identity_t<KalmanNoise<NW, NV, T, ND>>& noise,
-    const Disturbance&                                      disturbance
+    const StateSpace<NX, NU, NY, T, NW, NV>&                 sys,
+    const LQRWeights<NX, NU, 0, T>&                          weights,
+    const damp::type_identity_t<KalmanNoise<NW, NV, T, ND>>& noise,
+    const Disturbance&                                       disturbance
 ) {
     return detail::state_feedback(sys, weights, detail::StateFeedbackOptions{.noise = noise, .offset_free = disturbance});
 }
@@ -74,11 +72,11 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Disturbance, size_t ND = detail::disturbance_traits<Disturbance, NU, NY, NW>::states>
     requires(detail::is_disturbance_model<Disturbance>)
 [[nodiscard]] constexpr auto oflqg(
-    const StateSpace<NX, NU, NY, T, NW, NV>&                sys,
-    std::type_identity_t<T>                                 Ts,
-    const LQRWeights<NX, NU, 0, T>&                         weights,
-    const std::type_identity_t<KalmanNoise<NW, NV, T, ND>>& noise,
-    const Disturbance&                                      disturbance
+    const StateSpace<NX, NU, NY, T, NW, NV>&                 sys,
+    damp::type_identity_t<T>                                 Ts,
+    const LQRWeights<NX, NU, 0, T>&                          weights,
+    const damp::type_identity_t<KalmanNoise<NW, NV, T, ND>>& noise,
+    const Disturbance&                                       disturbance
 ) {
     return detail::state_feedback(sys, Ts, weights, detail::StateFeedbackOptions{.noise = noise, .offset_free = disturbance});
 }

@@ -5,8 +5,6 @@
 
 #pragma once
 
-#include <cstddef>
-#include <type_traits>
 
 /**
  * @file ramp.hpp
@@ -120,7 +118,7 @@ public:
 
     /** @brief From a design result in another scalar: converts it with .as\<T\>() and builds from that. */
     template<typename U>
-        requires(!std::is_same_v<U, T>)
+        requires(!damp::is_same_v<U, T>)
     constexpr Ramp(const design::RampResult<U>& result) // NOLINT(google-explicit-constructor): assign-from-design
         : Ramp(result.template as<T>()) {}
 
@@ -130,7 +128,7 @@ public:
      */
     constexpr Ramp(const design::RampResult<T>& design) // NOLINT(google-explicit-constructor): assign-from-design
         : config_(design.config), Ts_(design.Ts), valid_(design.success) {
-        if (!design.success && std::is_constant_evaluated()) {
+        if (!design.success && damp::is_constant_evaluated()) {
             ::damp::detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
     }
@@ -211,7 +209,7 @@ private:
 
     design::RampConfig<T> config_{};
     T                     Ts_{T{0}};
-    std::size_t           k_{0}; ///< Samples emitted by step()
+    size_t                k_{0}; ///< Samples emitted by step()
     bool                  valid_{false};
 };
 

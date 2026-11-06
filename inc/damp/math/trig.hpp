@@ -18,10 +18,6 @@
  * (analysis/trig).
  */
 
-#include <bit>
-#include <cstddef>
-#include <cstdint>
-#include <type_traits>
 
 #include "constexpr_math.hpp" // detail::isfinite (bit pattern, survives -ffast-math), detail::assoc_barrier
 #include "damp/backend.hpp"
@@ -222,7 +218,7 @@ inline float fast_nearbyint(float x) {
 #if defined(__arm__) && defined(__ARM_FP)
     // |x| ≥ 2²³, ±Inf and NaN, on the bit pattern: -ffast-math folds a float comparison
     // and lets NaN reach the convert (which returns 0).
-    if ((std::bit_cast<std::uint32_t>(x) & 0x7fffffffU) >= 0x4b000000U) {
+    if ((damp::bit_cast<uint32_t>(x) & 0x7fffffffU) >= 0x4b000000U) {
         return x;
     }
     float result;
@@ -551,9 +547,9 @@ inline double fast_atan2(double y, double x) {
  * @see "Software Manual for the Elementary Functions" (Cody & Waite, 1980), Ch. 8
  */
 inline Reduced<float> reduce(float x) {
-    constexpr float         inv_pi = damp::numbers::inv_pi_v<float>;
-    constexpr std::uint32_t cold_bits = 0x4ac90fd8U; // smallest |x| with fl(|x|·(1/π)) rounding to 2²¹
-    const std::uint32_t     abs_bits = opaque_bits(std::bit_cast<std::uint32_t>(x) & 0x7fffffffU);
+    constexpr float    inv_pi = damp::numbers::inv_pi_v<float>;
+    constexpr uint32_t cold_bits = 0x4ac90fd8U; // smallest |x| with fl(|x|·(1/π)) rounding to 2²¹
+    const uint32_t     abs_bits = opaque_bits(damp::bit_cast<uint32_t>(x) & 0x7fffffffU);
     if (abs_bits >= cold_bits) [[unlikely]] {
         if (abs_bits >= 0x7f800000U) {
             return {.frac = x, .period_index = 0}; // NaN, ±Inf
@@ -565,7 +561,7 @@ inline Reduced<float> reduce(float x) {
 #if defined(__arm__) && defined(__ARM_FP)
     float q = x * inv_pi;
     asm("vcvtr.s32.f32 %0, %1" : "=t"(q) : "t"(q)); // round to nearest; |q| < 2²¹
-    const int period_index = std::bit_cast<int>(q);
+    const int period_index = damp::bit_cast<int>(q);
     float     n;
     asm("vcvt.f32.s32 %0, %1" : "=t"(n) : "t"(q));
 #else
@@ -625,8 +621,8 @@ inline double pi_remainder(double x, double n) {
  * @see "Software Manual for the Elementary Functions" (Cody & Waite, 1980), Ch. 8
  */
 inline Reduced<double> reduce(double x) {
-    constexpr std::uint32_t cold_high = 0x41e921fbU; // high word of 2³⁰·π
-    const std::uint32_t     abs_high = opaque_bits(static_cast<std::uint32_t>(std::bit_cast<std::uint64_t>(x) >> 32U) & 0x7fffffffU);
+    constexpr uint32_t cold_high = 0x41e921fbU; // high word of 2³⁰·π
+    const uint32_t     abs_high = opaque_bits(static_cast<uint32_t>(damp::bit_cast<uint64_t>(x) >> 32U) & 0x7fffffffU);
     if (abs_high >= cold_high) [[unlikely]] {
         return reduce_cold(x);
     }
@@ -634,7 +630,7 @@ inline Reduced<double> reduce(double x) {
 #if defined(__arm__) && defined(__ARM_FP) && ((__ARM_FP & 8) != 0)
     float qi;                                         // int32 in an S register
     asm("vcvtr.s32.f64 %0, %P1" : "=t"(qi) : "w"(q)); // round to nearest; |q| < 2³⁰
-    const int period_index = std::bit_cast<int>(qi);
+    const int period_index = damp::bit_cast<int>(qi);
     double    n;
     asm("vcvt.f64.s32 %P0, %1" : "=w"(n) : "t"(qi));
 #else
@@ -647,7 +643,7 @@ inline Reduced<double> reduce(double x) {
 template<typename T>
 inline T sin_poly(T frac) {
     const T u = frac * frac;
-    if constexpr (std::is_same_v<T, float>) {
+    if constexpr (damp::is_same_v<T, float>) {
         const T u2 = u * u;
         T       p = sin_coeffs_f[0];
         p += sin_coeffs_f[1] * u;
@@ -671,7 +667,7 @@ inline T sin_poly(T frac) {
 template<typename T>
 inline T cos_poly(T frac) {
     const T u = frac * frac;
-    if constexpr (std::is_same_v<T, float>) {
+    if constexpr (damp::is_same_v<T, float>) {
         const T u2 = u * u;
         T       p = cos_coeffs_f[0];
         p += cos_coeffs_f[1] * u;
@@ -734,7 +730,7 @@ constexpr T estrin_levels(T x, const T (&coeffs)[N], damp::index_sequence<I...> 
 template<typename T, size_t N>
 constexpr T estrin_eval(T x, const T (&coeffs)[N]) {
     static_assert(N >= 1, "estrin_eval requires at least one coefficient");
-    return estrin_levels(x, coeffs, damp::make_index_sequence<N>{}, damp::make_index_sequence<static_cast<size_t>(std::bit_width(N - 1))>{});
+    return estrin_levels(x, coeffs, damp::make_index_sequence<N>{}, damp::make_index_sequence<static_cast<size_t>(damp::bit_width(N - 1))>{});
 }
 
 /**

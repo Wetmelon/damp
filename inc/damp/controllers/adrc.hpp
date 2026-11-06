@@ -17,8 +17,6 @@
  * @f$e^{-\omega_o T_s}@f$ of the continuous design's poles at @f$-\omega_o@f$.
  */
 
-#include <cstddef>
-#include <type_traits>
 
 #include "damp/backend.hpp"
 #include "damp/design/status.hpp"
@@ -269,7 +267,7 @@ public:
     constexpr ADRCController() = default;
     /** @brief From a design result in another scalar: converts it with .as\<T\>() and builds from that. */
     template<typename U>
-        requires(!std::is_same_v<U, T>)
+        requires(!damp::is_same_v<U, T>)
     constexpr ADRCController(const design::ADRCResult<NX, U>& result) // NOLINT(google-explicit-constructor): assign-from-design
         : ADRCController(result.template as<T>()) {}
 
@@ -284,7 +282,7 @@ public:
           Kp(result.Kp),
           Kd(result.Kd),
           eso_(result.as_eso()) {
-        if ((!result.success || !(result.Ts > T{0})) && std::is_constant_evaluated()) {
+        if ((!result.success || !(result.Ts > T{0})) && damp::is_constant_evaluated()) {
             ::damp::detail::refuse_failed_design(result.success ? design::DesignStatus::invalid_sample_time : result.status); // constant-evaluated (constinit / constexpr): a failed or continuous design does not compile
         }
     }

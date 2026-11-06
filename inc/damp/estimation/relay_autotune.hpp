@@ -95,10 +95,6 @@
  *       *replaces* the controller for the duration of the experiment.
  */
 
-#include <cstddef>
-#include <cstdint>
-#include <limits>
-#include <type_traits>
 
 #include "damp/backend.hpp"
 #include "damp/design/status.hpp"
@@ -132,8 +128,8 @@ struct RelayAutotuneConfig {
     T            u_bias{T{0}};     ///< Baseline command
     Bounds<1, T> u_lim{};          ///< Output saturation [lower, upper] (default unbounded)
 
-    std::size_t warmup_cycles{2};  ///< Half-periods discarded as transient
-    std::size_t measure_cycles{6}; ///< Half-periods averaged for Tᵤ (≥ 2; rounded up to even)
+    size_t warmup_cycles{2};  ///< Half-periods discarded as transient
+    size_t measure_cycles{6}; ///< Half-periods averaged for Tᵤ (≥ 2; rounded up to even)
 
     T period_tolerance{static_cast<T>(0.05)}; ///< Convergence: (max − min) / mean ≤ tol
     T max_duration{T{30}};                    ///< Safety timeout (seconds, > 0)
@@ -164,7 +160,7 @@ struct RelayAutotuneConfig {
         if (!(u_lim.lower(0) <= u_bias - d_neg()) || !(u_bias + d_pos() <= u_lim.upper(0))) {
             return false;
         }
-        if (measure_cycles < std::size_t{2}) {
+        if (measure_cycles < size_t{2}) {
             return false;
         }
         if (period_tolerance <= T{0}) {
@@ -241,7 +237,7 @@ relay_autotune(const RelayAutotuneConfig<T>& config, T Ts) {
 /**
  * @brief Lifecycle state of a RelayAutotuner.
  */
-enum class RelayAutotuneStatus : std::uint8_t {
+enum class RelayAutotuneStatus : uint8_t {
     Idle,      ///< Constructed, no samples processed yet
     Warmup,    ///< Discarding initial half-periods (transient)
     Measuring, ///< Collecting half-periods, checking convergence
@@ -282,7 +278,7 @@ public:
 
     /** @brief From a design result in another scalar: converts it with .as\<T\>() and builds from that. */
     template<typename U>
-        requires(!std::is_same_v<U, T>)
+        requires(!damp::is_same_v<U, T>)
     constexpr RelayAutotuner(const design::RelayAutotuneResult<U>& result) // NOLINT(google-explicit-constructor): assign-from-design
         : RelayAutotuner(result.template as<T>()) {}
 
@@ -293,7 +289,7 @@ public:
      */
     constexpr RelayAutotuner(const design::RelayAutotuneResult<T>& design) // NOLINT(google-explicit-constructor): assign-from-design
         : config_(design.config), Ts_(design.Ts), valid_design_(design.success && design.Ts > T{0}), status_(valid_design_ ? RelayAutotuneStatus::Idle : RelayAutotuneStatus::Failed) {
-        if (!design.success && std::is_constant_evaluated()) {
+        if (!design.success && damp::is_constant_evaluated()) {
             ::damp::detail::refuse_failed_design(design.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
     }
@@ -309,13 +305,13 @@ public:
         warmup_count_ = 0;
         measure_count_ = 0;
         period_sum_ = T{0};
-        period_min_ = std::numeric_limits<T>::max();
+        period_min_ = damp::numeric_limits<T>::max();
         period_max_ = T{0};
         previous_half_ = T{0};
-        peak_pos_ = -std::numeric_limits<T>::max();
-        peak_neg_ = std::numeric_limits<T>::max();
-        cycle_peak_pos_ = -std::numeric_limits<T>::max();
-        cycle_peak_neg_ = std::numeric_limits<T>::max();
+        peak_pos_ = -damp::numeric_limits<T>::max();
+        peak_neg_ = damp::numeric_limits<T>::max();
+        cycle_peak_pos_ = -damp::numeric_limits<T>::max();
+        cycle_peak_neg_ = damp::numeric_limits<T>::max();
         sum_u_ = T{0};
         sum_y_ = T{0};
         n_avg_ = 0;
@@ -470,11 +466,11 @@ private:
         status_ = RelayAutotuneStatus::Measuring;
         measure_count_ = 0;
         period_sum_ = T{0};
-        period_min_ = std::numeric_limits<T>::max();
+        period_min_ = damp::numeric_limits<T>::max();
         period_max_ = T{0};
         previous_half_ = T{0};
-        peak_pos_ = -std::numeric_limits<T>::max();
-        peak_neg_ = std::numeric_limits<T>::max();
+        peak_pos_ = -damp::numeric_limits<T>::max();
+        peak_neg_ = damp::numeric_limits<T>::max();
         cycle_peak_pos_ = y;
         cycle_peak_neg_ = y;
         sum_u_ = T{0};
@@ -518,22 +514,22 @@ private:
     T                   time_since_last_crossing_{T{0}};
     T                   relay_sign_{T{1}};
 
-    std::size_t warmup_count_{0};
-    std::size_t measure_count_{0};
+    size_t warmup_count_{0};
+    size_t measure_count_{0};
 
     T period_sum_{T{0}};
-    T period_min_{std::numeric_limits<T>::max()};
+    T period_min_{damp::numeric_limits<T>::max()};
     T period_max_{T{0}};
     T previous_half_{T{0}};
 
-    T peak_pos_{-std::numeric_limits<T>::max()};
-    T peak_neg_{std::numeric_limits<T>::max()};
-    T cycle_peak_pos_{-std::numeric_limits<T>::max()};
-    T cycle_peak_neg_{std::numeric_limits<T>::max()};
+    T peak_pos_{-damp::numeric_limits<T>::max()};
+    T peak_neg_{damp::numeric_limits<T>::max()};
+    T cycle_peak_pos_{-damp::numeric_limits<T>::max()};
+    T cycle_peak_neg_{damp::numeric_limits<T>::max()};
 
-    T           sum_u_{T{0}};
-    T           sum_y_{T{0}};
-    std::size_t n_avg_{0};
+    T      sum_u_{T{0}};
+    T      sum_y_{T{0}};
+    size_t n_avg_{0};
 
     T Ku_{T{0}};
     T Tu_{T{0}};

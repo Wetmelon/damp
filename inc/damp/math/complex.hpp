@@ -16,7 +16,7 @@
 // std::complex. Guarded so the freestanding core (no <complex>) still provides
 // the full damp::complex type. No C99 `_Complex` interop — use damp::complex or
 // std::complex. Do not pull std::complex_literals into the global namespace.
-#if __has_include(<complex>)
+#if __has_include(<complex>) && (!defined(DAMP_BACKEND_ETL) || ETL_USING_STL)
 #define DAMP_HAS_STD_COMPLEX 1
 #include <complex>
 #else

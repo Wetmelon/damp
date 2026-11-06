@@ -148,10 +148,6 @@
  * @endcode
  */
 
-#include <cstddef>
-#include <cstdint>
-#include <limits>
-#include <type_traits>
 
 #include "damp/backend.hpp"
 #include "damp/controllers/law_detail.hpp"
@@ -188,7 +184,7 @@ namespace detail {
 /** @brief Scale factor from a constraint range: (max − min) when both finite, else 1. */
 template<typename T>
 [[nodiscard]] constexpr T scale_from_range(T lo, T hi) {
-    constexpr T thresh = std::numeric_limits<T>::max() / T{4};
+    constexpr T thresh = damp::numeric_limits<T>::max() / T{4};
     if (lo <= -thresh || lo >= thresh || hi >= thresh || hi <= -thresh) {
         return T{1};
     }
@@ -199,7 +195,7 @@ template<typename T>
 /** @brief Divide a bound by a scale factor, leaving unbounded sentinels untouched. */
 template<typename T>
 [[nodiscard]] constexpr T scaled_bound(T bound, T scale) {
-    constexpr T thresh = std::numeric_limits<T>::max() / T{4};
+    constexpr T thresh = damp::numeric_limits<T>::max() / T{4};
     if (bound >= thresh || bound <= -thresh) {
         return bound;
     }
@@ -227,7 +223,7 @@ template<typename T>
  * steps for that target: a reference step outside that region makes every tick Infeasible, and
  * the runtime holds its input. Size NP for the reference range.
  */
-enum class MPCTerminal : std::uint8_t {
+enum class MPCTerminal : uint8_t {
     none = 0,      ///< Today's Qy / Qy_terminal behaviour, no extra set
     dare_cost,     ///< V_f: the Δu stage cost's cost-to-go on z, no extra set
     invariant_set, ///< That cost + the target-augmented invariant set (implies dare_cost; needs NC = NP)
@@ -1208,19 +1204,19 @@ namespace detail {
 
 /** @brief Not the limits of an MPC. */
 template<typename>
-struct is_mpc_constraints : std::false_type {};
+struct is_mpc_constraints : damp::false_type {};
 
 /** @brief MPCConstraints. */
 template<size_t NU, size_t NY, typename T>
-struct is_mpc_constraints<MPCConstraints<NU, NY, T>> : std::true_type {};
+struct is_mpc_constraints<MPCConstraints<NU, NY, T>> : damp::true_type {};
 
 /** @brief Not a measured disturbance. */
 template<typename>
-struct is_measured_disturbance : std::false_type {};
+struct is_measured_disturbance : damp::false_type {};
 
 /** @brief MeasuredDisturbance. */
 template<size_t NX, size_t NM, typename T>
-struct is_measured_disturbance<MeasuredDisturbance<NX, NM, T>> : std::true_type {};
+struct is_measured_disturbance<MeasuredDisturbance<NX, NM, T>> : damp::true_type {};
 
 /** @brief The options design::mpc takes after the weights. */
 using mpc_options = ::damp::detail::option_set<
@@ -1389,7 +1385,7 @@ template<
     const auto       kf = kalman_design<Discrete>(sys, Ts, noise, spec);
     using Target = SteadyStateTargetResult<NXE, NU, ND, NZ, T>;
     using Law = MPCArtifacts<NXL, NU, NZ, NP, NC, ND, T, NT_max>;
-    using Result = MPCResult<Law, std::remove_cvref_t<decltype(kf)>, Target>;
+    using Result = MPCResult<Law, damp::remove_cvref_t<decltype(kf)>, Target>;
     Result     out{.kalman = kf};
     const auto m = sampled_model(sys, Ts, Discrete);
     const auto rows = selected_outputs<NY>(listed_outputs(spec));
@@ -1432,7 +1428,7 @@ template<bool Discrete, size_t NP, size_t NC, size_t NT_max, size_t NX, size_t N
 [[nodiscard]] constexpr auto mpc_design(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T Ts, const MPCWeights<NU, NZ, T>& weights, const Opts&... opts) {
     mpc_options::check<Opts...>();
     using Limits = ::damp::detail::option_t<is_mpc_constraints, MPCConstraints<NU, NZ, T>, Opts...>;
-    static_assert(std::is_same_v<Limits, MPCConstraints<NU, NZ, T>>, "The limits are on the inputs and the controlled outputs: MPCConstraints<NU, NZ>.");
+    static_assert(damp::is_same_v<Limits, MPCConstraints<NU, NZ, T>>, "The limits are on the inputs and the controlled outputs: MPCConstraints<NU, NZ>.");
     const auto constraints = ::damp::detail::option<is_mpc_constraints>(MPCConstraints<NU, NZ, T>{}, opts...);
     if constexpr (mpc_estimated<Opts...>) {
         static_assert(
@@ -1619,7 +1615,7 @@ template<size_t NP, size_t NC, size_t NT_max = 0, size_t NX, size_t NU, size_t N
 template<size_t NP, size_t NC, size_t NT_max = 0, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
 [[nodiscard]] constexpr auto mpc(
     const StateSpace<NX, NU, NY, T, NW, NV>& plant,
-    std::type_identity_t<T>                  Ts,
+    damp::type_identity_t<T>                 Ts,
     const MPCWeights<NU, NY, T>&             weights,
     const MPCConstraints<NU, NY, T>&         constraints
 ) {
@@ -1630,7 +1626,7 @@ template<size_t NP, size_t NC, size_t NT_max = 0, size_t NX, size_t NU, size_t N
 template<size_t NP, size_t NC, size_t NT_max = 0, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NM>
 [[nodiscard]] constexpr auto mpc(
     const StateSpace<NX, NU, NY, T, NW, NV>& plant,
-    std::type_identity_t<T>                  Ts,
+    damp::type_identity_t<T>                 Ts,
     const MPCWeights<NU, NY, T>&             weights,
     const MPCConstraints<NU, NY, T>&         constraints,
     const MeasuredDisturbance<NX, NM, T>&    md
@@ -1687,7 +1683,7 @@ template<typename T>
     const T steps = settling_time / Ts;
     // NP is a template argument: anything near size_t range is not a usable
     // suggestion, and the cast below would be UB past it.
-    if (!(steps < static_cast<T>(std::numeric_limits<size_t>::max() / 2))) {
+    if (!(steps < static_cast<T>(damp::numeric_limits<size_t>::max() / 2))) {
         return s;
     }
     auto np = static_cast<size_t>(steps);
@@ -1806,7 +1802,7 @@ struct mpc_estimator_traits {
 
     /** @brief The design results it is built from: none. */
     template<typename Design>
-    static constexpr bool built_from = std::is_same_v<Design, NoEstimator>;
+    static constexpr bool built_from = damp::is_same_v<Design, NoEstimator>;
 };
 
 /** @brief A Luenberger observer: its sizes, and the design::kalman results it runs (any noise inputs). */
@@ -1869,7 +1865,7 @@ struct NoMeasuredState {};
  * @see design::mpc
  */
 template<size_t NX, size_t NU, size_t NY, size_t NP, size_t NC, size_t ND, typename T, typename Solver, size_t NT_max, typename Estimator>
-    requires std::is_floating_point_v<T>
+    requires damp::is_floating_point_v<T>
 class MPCCore {
     using Traits = detail::mpc_estimator_traits<Estimator>;
 
@@ -1880,7 +1876,7 @@ public:
     static constexpr size_t NYM = estimated ? Traits::outputs : NX;         ///< Measured outputs (the state without an estimator)
     static constexpr size_t NXE = estimated ? (Traits::states - NDE) : NXM; ///< States of the estimator's model before the disturbance
     static_assert(!estimated || ND == 0, "A measured disturbance with an estimator is not supported.");
-    static_assert(std::is_same_v<Estimator, NoEstimator> || estimated, "The estimator is a Luenberger observer, or NoEstimator for the measured state.");
+    static_assert(damp::is_same_v<Estimator, NoEstimator> || estimated, "The estimator is a Luenberger observer, or NoEstimator for the measured state.");
 
     using Artifacts = design::MPCArtifacts<NXM, NU, NY, NP, NC, ND + NDE, T, NT_max>;
     using TargetResult = design::SteadyStateTargetResult<NXE, NU, ND + NDE, NY, T>;
@@ -1904,7 +1900,7 @@ public:
         requires(Traits::template built_from<Kalman>)
     constexpr explicit MPCCore(const ResultWith<Kalman>& result)
         : art(result.mpc), estimator_(make_estimator(result.kalman)), target_(target_of(result.target)), u_target_(held_target(result.mpc.u_target)) {
-        if (!result.success && std::is_constant_evaluated()) {
+        if (!result.success && damp::is_constant_evaluated()) {
             ::damp::detail::refuse_failed_design(result.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
     }
@@ -1914,7 +1910,7 @@ public:
         requires(Traits::template built_from<Kalman>)
     constexpr MPCCore(const ResultWith<Kalman>& result, const Solver& solver)
         : art(result.mpc), qp_solver_(solver), estimator_(make_estimator(result.kalman)), target_(target_of(result.target)), u_target_(held_target(result.mpc.u_target)) {
-        if (!result.success && std::is_constant_evaluated()) {
+        if (!result.success && damp::is_constant_evaluated()) {
             ::damp::detail::refuse_failed_design(result.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
     }
@@ -2124,7 +2120,7 @@ public:
 
 private:
     using Target = SteadyStateTarget<NXE, NU, ND + NDE, NY, T>;
-    using MeasuredState = std::conditional_t<estimated, detail::NoMeasuredState, ColVec<NX, T>>;
+    using MeasuredState = damp::conditional_t<estimated, detail::NoMeasuredState, ColVec<NX, T>>;
 
     /** @brief The estimator from its design; nothing on the measured state. */
     template<typename Kalman>
@@ -2447,9 +2443,9 @@ struct mpc_runtime<design::MPCResult<design::MPCArtifacts<NXM, NU, NY, NP, NC, N
 
 /** @brief Law<kRes, T> of an MPC design: MPC or OFMPC, default-constructed from the design. */
 template<const auto& Res, typename T>
-    requires requires { typename detail::mpc_runtime<std::remove_cvref_t<decltype(Res)>, T>::type; }
-struct Law<Res, T> : detail::mpc_runtime<std::remove_cvref_t<decltype(Res)>, T>::type {
-    using Runtime = detail::mpc_runtime<std::remove_cvref_t<decltype(Res)>, T>::type; ///< The runtime the design runs as
+    requires requires { typename detail::mpc_runtime<damp::remove_cvref_t<decltype(Res)>, T>::type; }
+struct Law<Res, T> : detail::mpc_runtime<damp::remove_cvref_t<decltype(Res)>, T>::type {
+    using Runtime = detail::mpc_runtime<damp::remove_cvref_t<decltype(Res)>, T>::type; ///< The runtime the design runs as
 
     /** @brief The design's law. */
     constexpr Law() : Runtime{Res.template as<T>()} {}

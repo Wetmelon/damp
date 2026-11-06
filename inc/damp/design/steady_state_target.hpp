@@ -27,8 +27,6 @@
  *      2003), AIChE Journal 49(2)
  */
 
-#include <cstddef>
-#include <type_traits>
 
 #include "damp/backend.hpp"
 #include "damp/controllers/law_detail.hpp"
@@ -342,7 +340,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
  * @param opts  The model features of the design, in any order
  */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename... Opts>
-[[nodiscard]] constexpr auto steady_state_target(const StateSpace<NX, NU, NY, T, NW, NV>& sys, std::type_identity_t<T> Ts, const Opts&... opts) {
+[[nodiscard]] constexpr auto steady_state_target(const StateSpace<NX, NU, NY, T, NW, NV>& sys, damp::type_identity_t<T> Ts, const Opts&... opts) {
     detail::target_options::check<Opts...>();
     return detail::target_design<false>(
         sys, Ts, ::damp::detail::option<detail::is_disturbance>(NoDisturbance{}, opts...)
@@ -379,7 +377,7 @@ struct SteadyStateTarget {
     template<typename U>
     constexpr SteadyStateTarget(const design::SteadyStateTargetResult<NX, NU, ND, NZ, U>& result) // NOLINT
         : target_d(result.target_d.template as<T>()), target_r(result.target_r.template as<T>()) {
-        if (!result.success && std::is_constant_evaluated()) {
+        if (!result.success && damp::is_constant_evaluated()) {
             ::damp::detail::refuse_failed_design(result.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
     }

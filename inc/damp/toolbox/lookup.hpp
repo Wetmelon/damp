@@ -24,7 +24,6 @@
  * @see roadmap #30 (cubic, 2-D extrapolate, adaptive tables, Lut3D)
  */
 
-#include <cstddef>
 
 #include "damp/backend.hpp"         // damp::clamp, damp::min, damp::max
 #include "damp/matrix/matrix.hpp"   // Matrix, ColVec

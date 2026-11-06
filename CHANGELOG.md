@@ -74,6 +74,10 @@ delay templates on OFLQG / MPC). v0.1.0 never shipped those names.
   Holding does not make predicted outputs or a terminal set feasible.
 - Numerics: Riccati certificates, SciPy oracles, Schur / Lyapunov / QR, finite
   inputs give finite outputs.
+- The embeddable core no longer needs any C++ standard header on the ETL backend:
+  add `ETL_NO_STL` to the profile. Traits,
+  limits and concepts go through `damp::` aliases, and `make nostd-check` builds and
+  runs a constexpr design and its tick with `-nostdinc++`.
 - Compilers: g++ 11+ and clang++ 19+. MSVC is not supported. Host CMake builds
   use `-mtune=native`. Every product sketch must fit clang's default constexpr
   budget (`tools/clang_budget_check.sh`).
