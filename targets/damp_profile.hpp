@@ -10,7 +10,8 @@
  * Found via `-I.` in platformio.ini and `-Itargets` in `make target-smoke`.
  * Host SILs under examples/ keep their own damp_profile (stdlib + std:: math).
  *
- * Requires ETL headers on the include path (`-isystem../libs/etl/include` in PIO).
+ * Requires ETL headers on the include path (`-isystem../libs/etl/include` in PIO; any
+ * copy of ETL works).
  */
 
 #define DAMP_BACKEND_ETL

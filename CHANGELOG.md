@@ -43,6 +43,8 @@ delay templates on OFLQG / MPC). v0.1.0 never shipped those names.
   lifecycle (`update` / `predict` / `back_calculate`).
 - Host contract check for `workbench.hpp` alone (`make workbench-check`). The
   guide's canonical snippet is compiled as `checks/guide_canonical.cpp`.
+- The ETL backend takes any copy of ETL on the include path; `libs/etl` is only what
+  this repo's tests use. README has the steps.
 - `design::eso` / `ESO`: the Han–Gao extended-state observer on its own
   (ADRC is this observer plus the PD law that cancels f̂). The discrete current
   estimator in innovation form: `predict` advances with Φ, Γ, `update` corrects
