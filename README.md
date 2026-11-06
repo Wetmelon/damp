@@ -35,6 +35,24 @@ target_link_libraries(your_fw PRIVATE wetmelon::damp)
 
 GCC 11+ (tested with 14) and Clang 19+. MSVC is not supported.
 
+## Using ETL instead of the standard library
+
+Damp includes ETL as `<etl/...>`, so ETL can live anywhere: the `libs/etl` submodule is only what this repo's own tests use. Put ETL's `include/` folder on the include path, and add a `damp_profile.hpp` to a folder on the include path too:
+
+```cpp
+#pragma once
+#define DAMP_BACKEND_ETL
+#define DAMP_MATH_BACKEND_FREESTANDING // constexpr series math at run time; no libm
+```
+
+```bash
+g++ -std=c++20 -I. -Ipath/to/damp/inc -isystem path/to/etl/include main.cpp
+```
+
+With CMake, `add_subdirectory` both trees and `target_link_libraries(your_fw PRIVATE wetmelon::damp etl::etl)`.
+
+Use the profile rather than `-DDAMP_BACKEND_ETL`: Damp warns when it finds no profile, and every file in the program must agree on the backend. The toolchain still needs C++ standard headers: ETL and Damp include them, though a Cortex-M7 build links nothing from them.
+
 ## Plant → law → tick
 
 ```cpp
@@ -86,8 +104,7 @@ runtime types default to `float`, design to `double`.
 The default backend is the normal C++ standard library — no git submodules for
 `damp/control.hpp`. Small utilities (timers, scaling, bounds, …) live under
 `toolbox/` and ride along with `control.hpp`. Submodules under `libs/` (fmt, json,
-plotlypp, etl) are for host tests, examples, Plotly, and the optional freestanding
-ETL backend (`-DDAMP_BACKEND_ETL` + `-I libs/etl/include`) — see
+plotlypp, etl) are for host tests, examples and Plotly — see
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Initialize them only if you need those:
 
 ```bash
