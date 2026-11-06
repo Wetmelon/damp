@@ -154,14 +154,15 @@ CLANG_ARGS     = --extra-arg=--target=$(CLANG_TARGET) \
                  --extra-arg=-Wno-unknown-warning-option
 
 # clang-tidy --fix over every .cpp in compile_commands.json and the inc/ headers they use.
-# (run-clang-tidy spells its option -extra-arg.)
+# (run-clang-tidy spells its option -extra-arg. It is a Python script whose
+# `#!/usr/bin/env python3` shebang fails on Windows, so run it through $(PYTHON).)
 tidy: compiledb
-	@run-clang-tidy -p . -fix -header-filter='inc[/\\].*' \
+	@$(PYTHON) "$$(command -v run-clang-tidy)" -p . -fix -header-filter='inc[/\\].*' \
 		$(subst --extra-arg,-extra-arg,$(CLANG_ARGS)) '\.cpp$$'
 
 # Include hygiene with clang-include-cleaner; IWYU keep/export pragmas apply.
 # Scope: every inc/ header (analyzed on its own), tests/*.cpp and every example
-# source. Excluded: the alternative math backends, which a profile swaps in for
+# source and header. Excluded: the alternative math backends, which a profile swaps in for
 # the default and so clash with it when parsed alone.
 #
 # The file lists use make's own recursive wildcard, not $(shell find …): from
@@ -172,7 +173,7 @@ INCLUDE_CLEANER       = clang-include-cleaner -p . $(CLANG_ARGS)
 INCLUDE_CLEANER_FILES = $(filter-out inc/damp/math/damp_backend.hpp inc/damp/math/series_backend.hpp, \
                             $(call rwildcard,inc,*.hpp)) \
                         $(wildcard tests/*.cpp) \
-                        $(filter-out %/build/%,$(call rwildcard,examples,*.cpp))
+                        $(filter-out %/build/%,$(call rwildcard,examples,*.cpp *.hpp))
 
 # Print suggested include changes, one file per call (--print takes a single input).
 iwyu: compiledb

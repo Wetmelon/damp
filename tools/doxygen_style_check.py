@@ -4,6 +4,7 @@
 Fails (exit 1) if any of the following appear in inc/damp/**/*.hpp:
 
   - //! < member-doc dialect (use ///<)
+  - leading /// declaration docs (use /** @brief … */; ///< stays for members)
   - Markdown **bold** used as *editorial emphasis* (not math symbols)
   - @note Equivalent to MATLAB… / @note Mirrors MATLAB… (use Compare with)
   - LaTeX @f$ / @f[ on one-line API tags (@brief / @param / @return /
@@ -39,6 +40,8 @@ ROOT = Path(__file__).resolve().parents[1]
 WET = ROOT / "inc" / "damp"
 
 BANG_MEMBER = re.compile(r"//!<")
+# Leading /// declaration doc (not the ///< member form, not a //// rule line).
+LEADING_TRIPLE = re.compile(r"^\s*///(?![/<])")
 NOTE_EQUIV = re.compile(r"@note\s+Equivalent to MATLAB")
 NOTE_MIRROR = re.compile(r"@note\s+Mirrors MATLAB")
 # **bold** that is not the /** comment opener or **/ closer
@@ -85,6 +88,29 @@ def is_one_line_api_doc(line: str) -> bool:
     return False
 
 
+def block_open_after(line: str, in_block: bool) -> bool:
+    """Whether a /* … */ comment is still open at the end of `line`."""
+    i, n = 0, len(line)
+    while i < n:
+        if in_block:
+            j = line.find("*/", i)
+            if j < 0:
+                return True
+            in_block, i = False, j + 2
+        elif line[i] == '"' or (line[i] == "'" and (i == 0 or not (line[i - 1].isalnum() or line[i - 1] == "_"))):
+            q, i = line[i], i + 1  # string or char literal (a ' after a digit is a separator)
+            while i < n and line[i] != q:
+                i += 2 if line[i] == "\\" else 1
+            i += 1
+        elif line.startswith("//", i):
+            return False
+        elif line.startswith("/*", i):
+            in_block, i = True, i + 2
+        else:
+            i += 1
+    return in_block
+
+
 def check_file(path: Path) -> list[str]:
     text = path.read_text(encoding="utf-8")
     rel = path.relative_to(ROOT).as_posix()
@@ -96,7 +122,11 @@ def check_file(path: Path) -> list[str]:
     elif n_file > 1:
         issues.append(f"{rel}: multiple @file tags ({n_file})")
 
+    in_block = False
     for i, line in enumerate(text.splitlines(), 1):
+        if not in_block and LEADING_TRIPLE.match(line):
+            issues.append(f"{rel}:{i}: use a /** @brief … */ block, not a leading /// doc (///< is for members)")
+        in_block = block_open_after(line, in_block)
         if BANG_MEMBER.search(line):
             issues.append(f"{rel}:{i}: use ///< not //! < for member docs")
         if NOTE_EQUIV.search(line):

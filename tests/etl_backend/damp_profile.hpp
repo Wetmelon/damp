@@ -5,9 +5,11 @@
 
 #pragma once
 
-// ETL profile for this standalone suite: select the Embedded Template Library
-// container backend instead of the stdlib default. damp_profile.hpp is MACRO-ONLY
+// ETL + freestanding profile for this standalone suite: the Embedded Template Library
+// container backend and the series math backend (no <cmath>), the pair a target
+// without libm uses, instead of the stdlib defaults. damp_profile.hpp is MACRO-ONLY
 // configuration — see damp/config.hpp. Found ahead of the host tests/damp_profile.hpp
 // because this directory is on the include path first (-I.).
 
 #define DAMP_BACKEND_ETL
+#define DAMP_MATH_BACKEND_FREESTANDING

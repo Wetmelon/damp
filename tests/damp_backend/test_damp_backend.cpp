@@ -48,7 +48,7 @@ TEST_SUITE("damp_backend") {
         CHECK(damp::MathBackend<float>::log(2.0f) == doctest::Approx(std::log(2.0f)).epsilon(kEps));
     }
 
-    TEST_CASE("MathBackend<double> routes to the fast double trig path") {
+    TEST_CASE("MathBackend<double>: fast sin/cos, std inverse trig") {
         constexpr double kEpsD = 1e-12;
         CHECK(damp::MathBackend<double>::sin(1.0) == doctest::Approx(std::sin(1.0)).epsilon(kEpsD));
         CHECK(damp::MathBackend<double>::cos(1.0) == doctest::Approx(std::cos(1.0)).epsilon(kEpsD));

@@ -33,7 +33,7 @@ FetchContent_MakeAvailable(damp)
 target_link_libraries(your_fw PRIVATE wetmelon::damp)
 ```
 
-GCC 10+, Clang 19+, MSVC 2022+.
+GCC 11+ (tested with 14) and Clang 19+. MSVC is not supported.
 
 ## Plant → law → tick
 

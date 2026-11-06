@@ -6,8 +6,9 @@
 #   sh tools/contract_check.sh embedded     <g++> <stamp>
 #   sh tools/contract_check.sh workbench    <g++> <stamp>
 #
-# freestanding: ETL + freestanding math must compile; no damp/ header reachable
-#               from control.hpp may unconditionally #include <hosted-std>.
+# freestanding: control.hpp must compile under ETL + freestanding math, with a constexpr
+#               design and its tick instantiated; no damp/ header reachable from it may
+#               unconditionally #include <hosted-std>.
 # embedded:     default (stdlib) control.hpp must not pull <vector>.
 set -e
 
@@ -46,11 +47,15 @@ freestanding)
         '#define DAMP_BACKEND_ETL' \
         '#define DAMP_MATH_BACKEND_FREESTANDING' \
         '#include "damp/control.hpp"' \
-        'int main(){}' >"$probe"
+        'using namespace damp;' \
+        'constexpr auto sys = StateSpace{.A = Matrix<2, 2>{{0.0, 1.0}, {9.81, -0.1}}, .B = Matrix<2, 1>{{0.0}, {1.0}}, .C = Matrix<1, 2>{{1.0, 0.0}}};' \
+        'constexpr auto res = design::lqr(sys, 0.01, {.Q = Matrix<2, 2>::identity() * 10.0, .R = 1.0});' \
+        'static_assert(res.success);' \
+        'int main() { LQR law{res.as<float>()}; law.update(ColVec<2, float>{0.1F, 0.0F}); return damp::isfinite(law.control()(0, 0)) ? 0 : 1; }' >"$probe"
 
     if ! "$GXX" -std=c++20 -Iinc -Ilibs/etl/include -fsyntax-only "$probe" 2>"${probe}.log"; then
         cat "${probe}.log" >&2
-        echo "freestanding-check FAILED: umbrella does not compile under ETL + freestanding math" >&2
+        echo "freestanding-check FAILED: the umbrella, a design or its tick do not compile under ETL + freestanding math" >&2
         rm -f "$probe" "${probe}.log"
         exit 1
     fi
@@ -68,7 +73,7 @@ freestanding)
         esac
         [ -f "$f" ] || continue
 
-        hits=$(grep -nE '#include[[:space:]]*<(cmath|algorithm|vector|string|numbers|optional|tuple|memory|functional|complex|valarray|array|iostream|sstream|map|set|deque|list)>' "$f" 2>/dev/null || true)
+        hits=$(grep -nE '#include[[:space:]]*<(cmath|algorithm|vector|string|numbers|optional|tuple|memory|functional|complex|valarray|array|span|iostream|sstream|map|set|deque|list)>' "$f" 2>/dev/null || true)
         [ -z "$hits" ] && continue
 
         echo "$hits" | while IFS= read -r line; do

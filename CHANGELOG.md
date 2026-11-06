@@ -72,6 +72,9 @@ delay templates on OFLQG / MPC). v0.1.0 never shipped those names.
   Holding does not make predicted outputs or a terminal set feasible.
 - Numerics: Riccati certificates, SciPy oracles, Schur / Lyapunov / QR, finite
   inputs give finite outputs.
+- Compilers: g++ 11+ and clang++ 19+. MSVC is not supported. Host CMake builds
+  use `-mtune=native`. Every product sketch must fit clang's default constexpr
+  budget (`tools/clang_budget_check.sh`).
 
 ### Removed
 

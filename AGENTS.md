@@ -78,8 +78,11 @@ tup --quiet compiledb
 `#!/usr/bin/env python3` in scripts. On Windows without `python3` on PATH:
 `py -3 tools/...` or `make refs`.
 
-**Toolchains:** GCC 10+, Clang 19+, MSVC 2022+ (C++20). Flags live in
-`Tuprules.lua`. Format runs via `make` / `clang-format`.
+**Toolchains:** g++ 11+ (tested with 14) and clang++ 19+ (C++20); MSVC is not
+supported. Flags live in `Tuprules.lua`. Format runs via `make` / `clang-format`.
+
+**Golden data** for the oracle tests: `tools/gen_oracle.py` writes
+`tests/oracle_cases.hpp` (SciPy; run by hand, `make` never calls Python for it).
 
 **Tup paths** are relative to the Tupfile’s directory (e.g. `tests/build/`), not
 the repo root.

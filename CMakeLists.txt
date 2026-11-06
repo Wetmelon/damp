@@ -78,7 +78,7 @@ function(damp_apply_flags target fast_math)
     # Mirrors Tuprules.lua WARNINGS (Jason Turner / cppbestpractices set).
     target_compile_options(${target} PRIVATE
         $<$<CXX_COMPILER_ID:GNU,Clang>:
-            -O3 -march=native
+            -O3 -mtune=native
             -ffunction-sections -fdata-sections
             -Wall -Wextra -Wshadow -Wnon-virtual-dtor -Wold-style-cast -Wcast-align
             -Wunused -Woverloaded-virtual -Wpedantic -Wconversion -Wsign-conversion

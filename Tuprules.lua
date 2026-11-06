@@ -61,6 +61,9 @@ CXXFLAGS = "-O3 -std=c++20 -mtune=native -ffunction-sections -fdata-sections "
 -- used an index_sequence fold over Rows*Cols; large fixed-N LU copies exceed that.
 if string.find(CXX, "clang", 1, true) then
     CXXFLAGS = CXXFLAGS .. "-fbracket-depth=16384 "
+else
+    -- GCC: compile-time designs of about 10 states or more exceed the default 2^25 constexpr ops.
+    CXXFLAGS = CXXFLAGS .. "-fconstexpr-ops-limit=67108864 "
 end
 LDFLAGS = "-O3 -mtune=native -ffunction-sections -fdata-sections -Wl,--gc-sections"
 -- example_drive_governor --live needs Winsock (and joy optional); unused on other exes
