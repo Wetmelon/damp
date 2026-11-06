@@ -590,40 +590,45 @@ struct IntegralAction {
  *
  * Weights in the plant's own time domain: a cost integral on a continuous plant (with a Ts
  * argument it is discretized exactly), per step on a discrete one. Braces size it from the
- * call: `{.Q = Q, .R = R}`, and `.Q_integral` with integral action.
+ * call: `{.Q = Q, .R = R}`, and `.Q_integral` with integral action. Template order is NX, NU, NI
+ * (0 for a regulator), T: `LQRWeights<2, 1, 1>` is LQI on double.
  *
  * | Field | Penalizes | Size |
  * | --- | --- | --- |
  * | Q | the plant states x | NX × NX, positive semidefinite |
  * | R | the inputs u | NU × NU, positive definite |
  * | N | the cross term 2xᵀNu (default zero) | NX × NU |
- * | Q_integral | the integrals ∫e of the integrated outputs (lqi, lqgi) | NI × NI, positive definite |
+ * | Q_integral | the discrete integral state ξ (lqi, lqgi) | NI × NI, positive definite |
  *
- * The integrator weight is block-diagonal with Q: the closed loop still couples them, so
- * raising Q_integral speeds the integral action and moves the regulator's poles too. An integrator Q_integral does not weight is a mode at z = 1
- * the cost does not see, with no stabilizing gain, so a design with integral action and a
+ * Q_integral is the cost on the Euler-integrated error ξ ≈ ∫e dt, not a block of a generic
+ * augmented Q. Q, R and N are the plant cost (Van Loan on a continuous plant); Q_integral keeps
+ * that meaning on both the continuous and discrete routes. The stacked DARE cost is
+ * block-diagonal in Q and Q_integral: x–ξ cross terms are not a public weight and are
+ * refused. The closed loop still couples x and ξ, so raising Q_integral
+ * speeds the integral and moves the regulator poles too. An integrator Q_integral does not
+ * weight is a mode at z = 1 the cost does not see; a design with integral action and a
  * Q_integral that is not positive definite (left out of the braces, for one) is refused with
- * DesignStatus::bad_weights, as is an R that is not positive definite, on every route.
+ * DesignStatus::bad_weights, as is an R that is not positive definite.
  */
-template<size_t NX, size_t NU, typename T = double, size_t NI = 0>
+template<size_t NX, size_t NU, size_t NI = 0, typename T = double>
 struct LQRWeights {
     Matrix<NX, NX, T> Q{};          ///< On the plant states x (positive semidefinite)
     Matrix<NU, NU, T> R{};          ///< On the inputs u (positive definite)
     Matrix<NX, NU, T> N{};          ///< Cross term between x and u (default zero)
-    Matrix<NI, NI, T> Q_integral{}; ///< On the integrals ∫e of the integrated outputs (positive definite)
+    Matrix<NI, NI, T> Q_integral{}; ///< On the discrete integral state ξ ≈ ∫e dt (positive definite)
 };
 
 /** @brief Sizes from the matrices: `LQRWeights{Q, R}`. */
 template<size_t NX, size_t NU, typename T>
-LQRWeights(Matrix<NX, NX, T>, Matrix<NU, NU, T>) -> LQRWeights<NX, NU, T>;
+LQRWeights(Matrix<NX, NX, T>, Matrix<NU, NU, T>) -> LQRWeights<NX, NU, 0, T>;
 
 /** @brief Sizes from the matrices: `LQRWeights{Q, R, N}`. */
 template<size_t NX, size_t NU, typename T>
-LQRWeights(Matrix<NX, NX, T>, Matrix<NU, NU, T>, Matrix<NX, NU, T>) -> LQRWeights<NX, NU, T>;
+LQRWeights(Matrix<NX, NX, T>, Matrix<NU, NU, T>, Matrix<NX, NU, T>) -> LQRWeights<NX, NU, 0, T>;
 
 /** @brief Sizes from the matrices: `LQRWeights{Q, R, N, Q_integral}`. */
 template<size_t NX, size_t NU, typename T, size_t NI>
-LQRWeights(Matrix<NX, NX, T>, Matrix<NU, NU, T>, Matrix<NX, NU, T>, Matrix<NI, NI, T>) -> LQRWeights<NX, NU, T, NI>;
+LQRWeights(Matrix<NX, NX, T>, Matrix<NU, NU, T>, Matrix<NX, NU, T>, Matrix<NI, NI, T>) -> LQRWeights<NX, NU, NI, T>;
 
 /** @brief The integral action of a design: the integrated outputs, their maps of the state and the input, and the per-sample step. */
 template<size_t NI, size_t NX, size_t NU, size_t NY, typename T = double>
@@ -911,7 +916,7 @@ inline constexpr size_t integrator_count = integrated_count<typename options_tra
 
 /** @brief The weights of a design with @p Options; not deduced, so braces take their sizes from the plant. */
 template<size_t NX, size_t NU, size_t NY, typename T, typename Options>
-using weights_for = std::type_identity_t<LQRWeights<NX, NU, T, integrator_count<NY, Options>>>;
+using weights_for = std::type_identity_t<LQRWeights<NX, NU, integrator_count<NY, Options>, T>>;
 
 /** @brief Whether a disturbance spec fits the plant: a DisturbanceModel on its states and outputs, in its scalar. */
 template<typename Spec, size_t NX, size_t NY, typename T>
@@ -1107,7 +1112,7 @@ template<size_t NX, size_t NU, size_t NY, size_t NI, typename T>
 
 /** @brief The weights on [x; xi]: Q and Q_integral on the diagonal, N on the plant's rows. */
 template<size_t NX, size_t NU, typename T, size_t NI>
-[[nodiscard]] constexpr LQRCost<NX + NI, NU, T> stacked_weights(const LQRWeights<NX, NU, T, NI>& w) {
+[[nodiscard]] constexpr LQRCost<NX + NI, NU, T> stacked_weights(const LQRWeights<NX, NU, NI, T>& w) {
     LQRCost<NX + NI, NU, T> out{.R = w.R};
     out.Q.template block<NX, NX>(0, 0) = w.Q;
     out.Q.template block<NI, NI>(NX, NX) = w.Q_integral;
@@ -1130,7 +1135,7 @@ template<size_t NX, size_t NU, typename T, size_t NI, size_t NY, size_t NK>
  *        continuous law (CARE).
  */
 template<bool Discrete, size_t NI, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
-[[nodiscard]] constexpr auto law_design(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T Ts, const LQRWeights<NX, NU, T, NI>& w, const Matrix<NI, NY, T>& Ci) {
+[[nodiscard]] constexpr auto law_design(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T Ts, const LQRWeights<NX, NU, NI, T>& w, const Matrix<NI, NY, T>& Ci) {
     using Result = StateFeedbackResult<NX, NU, T, NI, ((NI > 0) ? NY : NX)>;
     if (!mat::cholesky(w.R).has_value()) {
         return ::damp::detail::refused<Result>(DesignStatus::bad_weights); // R not positive definite, on every route

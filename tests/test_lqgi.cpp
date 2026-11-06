@@ -45,7 +45,7 @@ constexpr StateSpace<2, 1, 1, double, 2, 1> make_plant() {
 }
 
 // The cost: position, velocity, the input, and the integral of the tracking error ∫e, weighted to pull the steady-state error to 0.
-constexpr design::LQRWeights<2, 1, double, 1> kW{.Q = Matrix<2, 2>::identity(), .R = 0.1, .Q_integral = 1000.0};
+constexpr design::LQRWeights<2, 1, 1> kW{.Q = Matrix<2, 2>::identity(), .R = 0.1, .Q_integral = 1000.0};
 } // namespace
 
 TEST_SUITE("LQGI") {
@@ -271,9 +271,9 @@ constexpr StateSpace<2, 1, 1, double, 1, 1> make_continuous_plant() {
         .H = Matrix<1, 1>{{1.0}},
     };
 }
-constexpr design::LQRWeights<2, 1, double, 1> kContinuousWeights{.Q = Matrix<2, 2>::diagonal({10.0, 1.0}), .R = 1.0, .Q_integral = 100.0};
-constexpr design::KalmanNoise<1, 1>           kNoise{.process = 0.5, .measurement = 1e-4}; // density; per-reading variance
-constexpr double                              kTs = 1e-3;
+constexpr design::LQRWeights<2, 1, 1> kContinuousWeights{.Q = Matrix<2, 2>::diagonal({10.0, 1.0}), .R = 1.0, .Q_integral = 100.0};
+constexpr design::KalmanNoise<1, 1>   kNoise{.process = 0.5, .measurement = 1e-4}; // density; per-reading variance
+constexpr double                      kTs = 1e-3;
 } // namespace
 
 TEST_SUITE("LQGI sampled-data (continuous plant, Ts)") {
@@ -359,7 +359,7 @@ TEST_SUITE("LQGI on a plant with feedthrough") {
             pc.A = Matrix<1, 1>{{-1.0}};
             pc.B = Matrix<1, 1>{{1.0}};
             pc.Ts = 0.0;
-            const auto w = design::LQRWeights<1, 1, double, 1>{.Q = 1.0, .R = 1.0, .Q_integral = 10.0};
+            const auto w = design::LQRWeights<1, 1, 1>{.Q = 1.0, .R = 1.0, .Q_integral = 10.0};
             const auto n = design::KalmanNoise<1, 1, double>{.process = 1.0, .measurement = 0.01};
             for (const bool sampled : {false, true}) {
                 const auto res = sampled ? design::lqgi(pc, 0.1, w, n) : design::lqgi(pd, w, n);

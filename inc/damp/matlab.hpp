@@ -796,7 +796,7 @@ template<size_t NX, typename T>
  *        are not zero (design::lqi weights the two blocks apart).
  */
 template<size_t NX, size_t NI, size_t NU, typename T>
-[[nodiscard]] constexpr damp::optional<design::LQRWeights<NX, NU, T, NI>> split_integral_weight(const Matrix<NX + NI, NX + NI, T>& Q_aug, const Matrix<NU, NU, T>& R) {
+[[nodiscard]] constexpr damp::optional<design::LQRWeights<NX, NU, NI, T>> split_integral_weight(const Matrix<NX + NI, NX + NI, T>& Q_aug, const Matrix<NU, NU, T>& R) {
     for (size_t i = 0; i < NX; ++i) {
         for (size_t j = 0; j < NI; ++j) {
             if (Q_aug(i, NX + j) != T{0} || Q_aug(NX + j, i) != T{0}) {
@@ -804,7 +804,7 @@ template<size_t NX, size_t NI, size_t NU, typename T>
             }
         }
     }
-    return design::LQRWeights<NX, NU, T, NI>{.Q = Q_aug.template block<NX, NX>(0, 0), .R = R, .Q_integral = Q_aug.template block<NI, NI>(NX, NX)};
+    return design::LQRWeights<NX, NU, NI, T>{.Q = Q_aug.template block<NX, NX>(0, 0), .R = R, .Q_integral = Q_aug.template block<NI, NI>(NX, NX)};
 }
 
 /** @brief An index list as the design's IntegralAction. */
@@ -821,7 +821,7 @@ template<size_t NI>
 template<size_t NI, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Options>
 [[nodiscard]] constexpr auto integral_design(const StateSpace<NX, NU, NY, T, NW, NV>& sys, const Matrix<NX + NI, NX + NI, T>& Q_aug, const Matrix<NU, NU, T>& R, const Options& options) {
     const auto w = split_integral_weight<NX, NI>(Q_aug, R);
-    auto       res = design::detail::state_feedback(sys, w ? *w : design::LQRWeights<NX, NU, T, NI>{}, options);
+    auto       res = design::detail::state_feedback(sys, w ? *w : design::LQRWeights<NX, NU, NI, T>{}, options);
     if (!w) {
         res = ::damp::detail::refused<decltype(res)>(design::DesignStatus::bad_weights); // x–xi cross weights
     }

@@ -49,6 +49,8 @@ delay templates on OFLQG / MPC). v0.1.0 never shipped those names.
 - One tick vocabulary: estimators `predict` / `update`, controllers `control`,
   `step` for a whole tick, `back_calculate(u_sat, u_ff = {})` for the applied
   input. Ts lives on the design; runtimes never take it.
+- `LQRWeights` template order is NX, NU, NI (0 for a regulator), T:
+  `LQRWeights<2, 1, 1>` is LQI on double.
 - `design::lqr` follows the plant's time domain (CARE, or ZOH + Van Loan + DARE
   with a Ts). `PIDGains` is the PID result; one `pidtune` and one
   `pid_pole_placement`. `design::kalman` takes a disturbance spec.

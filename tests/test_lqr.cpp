@@ -256,9 +256,9 @@ TEST_CASE_TEMPLATE("discretize_lqr_cost and lqr(sys, Ts, w) keep a fast stable m
     const double tol = std::is_same_v<T, float> ? 1e-4 : 1e-9;
     for (const Case& c : cases) {
         CAPTURE(c.a);
-        const StateSpace<2, 1, 1, T>      sys{.A = Matrix<2, 2, T>{{T{-1}, T{1}}, {T{0}, static_cast<T>(c.a)}}, .B = Matrix<2, 1, T>{{T{0}}, {T{1}}}, .C = Matrix<1, 2, T>{{T{1}, T{0}}}};
-        const design::LQRWeights<2, 1, T> w{.Q = Matrix<2, 2, T>::identity(), .R = Matrix<1, 1, T>{{T{1}}}};
-        const auto                        cost = design::discretize_lqr_cost(sys.A, sys.B, w.Q, w.R, T{1});
+        const StateSpace<2, 1, 1, T>         sys{.A = Matrix<2, 2, T>{{T{-1}, T{1}}, {T{0}, static_cast<T>(c.a)}}, .B = Matrix<2, 1, T>{{T{0}}, {T{1}}}, .C = Matrix<1, 2, T>{{T{1}, T{0}}}};
+        const design::LQRWeights<2, 1, 0, T> w{.Q = Matrix<2, 2, T>::identity(), .R = Matrix<1, 1, T>{{T{1}}}};
+        const auto                           cost = design::discretize_lqr_cost(sys.A, sys.B, w.Q, w.R, T{1});
         REQUIRE(cost.has_value());
         CHECK(static_cast<double>(cost->R(0, 0)) == doctest::Approx(c.Rd).epsilon(tol));
         CHECK(static_cast<double>(cost->N(0, 0)) == doctest::Approx(c.Nd0).epsilon(tol));

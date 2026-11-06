@@ -10,6 +10,7 @@
  * @brief The linear-quadratic regulator with integral action: design::lqi, LQIResult, the LQI runtime
  *
  * design::lqi(plant, [Ts,] {.Q, .R, .N, .Q_integral}[, IntegralAction<NI>{{i, …}}]) → LQIResult → LQI.
+ * Q_integral is the cost on the discrete integral state, not a block of an augmented Q on [x; ξ].
  * step(r, x) is predict, update(x), control(r). The low-latency tick is update(x), control(r),
  * back_calculate, predict. With feedforward from a planned trajectory:
  * control(r, x_ref, u_ref), step(r, x_ref, u_ref, x).
@@ -35,13 +36,13 @@ using LQIResult = StateFeedbackResult<NX, NU, T, NI, NY>;
  * @note Compare with MATLAB®'s lqi(sys, Q, R, N).
  */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
-[[nodiscard]] constexpr auto lqi(const StateSpace<NX, NU, NY, T, NW, NV>& sys, const LQRWeights<NX, NU, T, NY>& weights) {
+[[nodiscard]] constexpr auto lqi(const StateSpace<NX, NU, NY, T, NW, NV>& sys, const LQRWeights<NX, NU, NY, T>& weights) {
     return detail::state_feedback(sys, weights, detail::StateFeedbackOptions{.offset_free = IntegralAction{}});
 }
 
 /** @brief The sampled-data linear-quadratic regulator with integral action on every output: runs as LQI. */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
-[[nodiscard]] constexpr auto lqi(const StateSpace<NX, NU, NY, T, NW, NV>& sys, std::type_identity_t<T> Ts, const LQRWeights<NX, NU, T, NY>& weights) {
+[[nodiscard]] constexpr auto lqi(const StateSpace<NX, NU, NY, T, NW, NV>& sys, std::type_identity_t<T> Ts, const LQRWeights<NX, NU, NY, T>& weights) {
     return detail::state_feedback(sys, Ts, weights, detail::StateFeedbackOptions{.offset_free = IntegralAction{}});
 }
 
@@ -53,7 +54,7 @@ template<size_t NI, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size
     requires(NI > 0)
 [[nodiscard]] constexpr auto lqi(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
-    const LQRWeights<NX, NU, T, NI>&         weights,
+    const LQRWeights<NX, NU, NI, T>&         weights,
     const IntegralAction<NI>&                outputs
 ) {
     return detail::state_feedback(sys, weights, detail::StateFeedbackOptions{.offset_free = outputs});
@@ -65,7 +66,7 @@ template<size_t NI, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size
 [[nodiscard]] constexpr auto lqi(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     std::type_identity_t<T>                  Ts,
-    const LQRWeights<NX, NU, T, NI>&         weights,
+    const LQRWeights<NX, NU, NI, T>&         weights,
     const IntegralAction<NI>&                outputs
 ) {
     return detail::state_feedback(sys, Ts, weights, detail::StateFeedbackOptions{.offset_free = outputs});

@@ -63,7 +63,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
     requires(detail::is_disturbance_model<Disturbance>)
 [[nodiscard]] constexpr auto oflqg(
     const StateSpace<NX, NU, NY, T, NW, NV>&                sys,
-    const LQRWeights<NX, NU, T>&                            weights,
+    const LQRWeights<NX, NU, 0, T>&                         weights,
     const std::type_identity_t<KalmanNoise<NW, NV, T, ND>>& noise,
     const Disturbance&                                      disturbance
 ) {
@@ -76,7 +76,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
 [[nodiscard]] constexpr auto oflqg(
     const StateSpace<NX, NU, NY, T, NW, NV>&                sys,
     std::type_identity_t<T>                                 Ts,
-    const LQRWeights<NX, NU, T>&                            weights,
+    const LQRWeights<NX, NU, 0, T>&                         weights,
     const std::type_identity_t<KalmanNoise<NW, NV, T, ND>>& noise,
     const Disturbance&                                      disturbance
 ) {

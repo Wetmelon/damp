@@ -42,7 +42,7 @@ template<size_t NX, size_t NU, typename T, size_t NY>
  * @note Compare with MATLAB®'s lqr(sys, Q, R, N).
  */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
-[[nodiscard]] constexpr LQRResult<NX, NU, T> lqr(const StateSpace<NX, NU, NY, T, NW, NV>& sys, const LQRWeights<NX, NU, T>& weights) {
+[[nodiscard]] constexpr LQRResult<NX, NU, T> lqr(const StateSpace<NX, NU, NY, T, NW, NV>& sys, const LQRWeights<NX, NU, 0, T>& weights) {
     return detail::lqr_result(detail::state_feedback(sys, weights, detail::StateFeedbackOptions{}));
 }
 
@@ -51,7 +51,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
  * @note Compare with MATLAB®'s lqrd(sys, Q, R, Ts).
  */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
-[[nodiscard]] constexpr LQRResult<NX, NU, T> lqr(const StateSpace<NX, NU, NY, T, NW, NV>& sys, std::type_identity_t<T> Ts, const LQRWeights<NX, NU, T>& weights) {
+[[nodiscard]] constexpr LQRResult<NX, NU, T> lqr(const StateSpace<NX, NU, NY, T, NW, NV>& sys, std::type_identity_t<T> Ts, const LQRWeights<NX, NU, 0, T>& weights) {
     return detail::lqr_result(detail::state_feedback(sys, Ts, weights, detail::StateFeedbackOptions{}));
 }
 
@@ -67,7 +67,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
  * leaves an offset: lqi removes it.
  */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NZ>
-[[nodiscard]] constexpr auto lqr(const StateSpace<NX, NU, NY, T, NW, NV>& sys, const LQRWeights<NX, NU, T>& weights, const TrackedOutputs<NZ>& outputs) {
+[[nodiscard]] constexpr auto lqr(const StateSpace<NX, NU, NY, T, NW, NV>& sys, const LQRWeights<NX, NU, 0, T>& weights, const TrackedOutputs<NZ>& outputs) {
     return detail::state_feedback(sys, weights, detail::StateFeedbackOptions{.track = outputs});
 }
 
@@ -76,7 +76,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size
 [[nodiscard]] constexpr auto lqr(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     std::type_identity_t<T>                  Ts,
-    const LQRWeights<NX, NU, T>&             weights,
+    const LQRWeights<NX, NU, 0, T>&          weights,
     const TrackedOutputs<NZ>&                outputs
 ) {
     return detail::state_feedback(sys, Ts, weights, detail::StateFeedbackOptions{.track = outputs});

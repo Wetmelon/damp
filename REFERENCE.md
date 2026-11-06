@@ -344,12 +344,12 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`lqg_from_parts`](inc/damp/controllers/lqg.hpp#L110) | Assemble an LQG design from separately computed Kalman and LQR designs |
 | [`lqgi`](inc/damp/controllers/lqgi.hpp#L39) | The linear-quadratic Gaussian law with integral action on every output: runs as LQGI (+3 more overloads) |
 | [`LQGI`](inc/damp/controllers/lqgi.hpp#L147) | LQGI law{res}: the sizes, scalar and filter of design::lqgi's result |
-| [`lqi`](inc/damp/controllers/lqi.hpp#L38) | The linear-quadratic regulator with integral action on every output (xi += Ts·(r − Ci·y)): runs as LQI (+3 more overloads) |
-| [`LQI`](inc/damp/controllers/lqi.hpp#L135) | LQI law{res}: the sizes and scalar of design::lqi's result |
+| [`lqi`](inc/damp/controllers/lqi.hpp#L39) | The linear-quadratic regulator with integral action on every output (xi += Ts·(r − Ci·y)): runs as LQI (+3 more overloads) |
+| [`LQI`](inc/damp/controllers/lqi.hpp#L136) | LQI law{res}: the sizes and scalar of design::lqi's result |
 | [`lqr`](inc/damp/controllers/lqr.hpp#L45) | The linear-quadratic regulator on the plant (DARE on a discrete plant, CARE on a continuous one): runs as LQR (+3 more overloads) |
 | [`LQR`](inc/damp/controllers/lqr.hpp#L204) | LQR law{res}: the sizes and scalar of design::lqr's result (+2 more overloads) |
 | [`lqr_gain`](inc/damp/design/riccati.hpp#L1359) | Optimal LQR state-feedback gain from a Riccati solution |
-| [`LQRWeights`](inc/damp/controllers/state_feedback_core.hpp#L618) | Sizes from the matrices: `LQRWeights{Q, R}` (+2 more overloads) |
+| [`LQRWeights`](inc/damp/controllers/state_feedback_core.hpp#L623) | Sizes from the matrices: `LQRWeights{Q, R}` (+2 more overloads) |
 | [`lyap`](inc/damp/design/lyapunov.hpp#L444) | Solve the continuous-time Lyapunov equation A X + X Aᵀ + Q = 0 |
 | [`lyapunov_cholesky`](inc/damp/design/lyapunov.hpp#L492) | Cholesky factor of the continuous Lyapunov solution: A X + X Aᵀ + B Bᵀ = 0, X = RᵀR |
 | [`maximal_invariant_set`](inc/damp/design/invariant_set.hpp#L251) | Maximal positively invariant set of x⁺ = A x under G₀ x ≤ h₀ |
@@ -421,14 +421,14 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`ExtremumType`](inc/damp/controllers/esc.hpp#L49) | Whether ESC climbs to a maximum or descends to a minimum of the objective |
 | [`HarmonicSuppressor`](inc/damp/controllers/harmonic_suppression.hpp#L166) | Multi-resonant harmonic suppressor — a parallel bank of PR resonators |
 | [`IntegralAction`](inc/damp/controllers/state_feedback_core.hpp#L583) | Offset-free by integral action: integrators on r − y, every measured output (`IntegralAction{}`) or the listed ones (`IntegralAction<2>{{0, 3}}`, in that order: the references r follow it) |
-| [`IntegralDesign`](inc/damp/controllers/state_feedback_core.hpp#L630) | The integral action of a design: the integrated outputs, their maps of the state and the input, and the per-sample step |
+| [`IntegralDesign`](inc/damp/controllers/state_feedback_core.hpp#L635) | The integral action of a design: the integrated outputs, their maps of the state and the input, and the per-sample step |
 | [`Law`](inc/damp/controllers/law_detail.hpp#L203) | The law a design result deploys as, named by the result: `Law<kRes, float> law;` (+1 more overload) |
 | [`LeadLagController`](inc/damp/controllers/lead_lag.hpp#L316) | Discrete lead-lag compensator |
 | [`LQG`](inc/damp/controllers/lqg.hpp#L142) | Linear-quadratic Gaussian law: LQR on the Kalman filter's estimate |
 | [`LQGI`](inc/damp/controllers/lqgi.hpp#L98) | Linear-quadratic Gaussian law with integral action on the measured outputs |
-| [`LQI`](inc/damp/controllers/lqi.hpp#L88) | Linear-quadratic regulator with integral action, on the measured state |
+| [`LQI`](inc/damp/controllers/lqi.hpp#L89) | Linear-quadratic regulator with integral action, on the measured state |
 | [`LQR`](inc/damp/controllers/lqr.hpp#L110) | Linear-quadratic regulator on the measured state: u = u − K·(x − x ) |
-| [`LQRWeights`](inc/damp/controllers/state_feedback_core.hpp#L609) | The cost of a state-feedback design: what to penalize and how much |
+| [`LQRWeights`](inc/damp/controllers/state_feedback_core.hpp#L614) | The cost of a state-feedback design: what to penalize and how much |
 | [`MeasuredDisturbance`](inc/damp/controllers/mpc.hpp#L1166) | A measured disturbance: a known input the controller does not command, entering the state update through Bd (a load torque, a feed rate, the ambient temperature) |
 | [`MPC`](inc/damp/controllers/mpc.hpp#L2356) | Constrained linear MPC on the measured state (design::mpc) |
 | [`MPCConstraints`](inc/damp/controllers/mpc.hpp#L294) | Box constraints for mpc() |
@@ -599,8 +599,8 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 
 | Name | Description |
 | ---- | ----------- |
-| [`Biquad`](inc/damp/filters/biquad.hpp#L533) | Second-order IIR (biquad) section runtime (+1 more overload) |
-| [`BiquadCascade`](inc/damp/filters/biquad.hpp#L623) | Cascade of second-order sections (SOS) for higher-order IIR filters (+1 more overload) |
+| [`Biquad`](inc/damp/filters/biquad.hpp#L538) | Second-order IIR (biquad) section runtime (+1 more overload) |
+| [`BiquadCascade`](inc/damp/filters/biquad.hpp#L628) | Cascade of second-order sections (SOS) for higher-order IIR filters (+1 more overload) |
 | [`Complementary`](inc/damp/filters/complementary.hpp#L32) | Scalar (1-D) complementary filter — fuse a fast rate with a slow absolute |
 | [`Delay`](inc/damp/filters/delay.hpp#L27) | Discrete-time delay buffer |
 | [`DsogiPll`](inc/damp/filters/pll.hpp#L306) | Dual-SOGI three-phase positive-sequence PLL (DSOGI-PLL) |
@@ -635,12 +635,12 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`fir_window`](inc/damp/filters/fir.hpp#L423) | Alias for fir1 (descriptive name) (+1 more overload) |
 | [`highpass_1st`](inc/damp/filters/iir_design.hpp#L417) | First-order high-pass filter design (continuous-time) (+1 more overload) |
 | [`highpass_2nd`](inc/damp/filters/iir_design.hpp#L553) | Second-order high-pass filter design (continuous-time) (+1 more overload) |
-| [`highpass_sections`](inc/damp/filters/biquad.hpp#L495) | Nth-order Butterworth high-pass at cutoff fc as second-order sections, any order |
+| [`highpass_sections`](inc/damp/filters/biquad.hpp#L500) | Nth-order Butterworth high-pass at cutoff fc as second-order sections, any order |
 | [`highshelf`](inc/damp/filters/iir_design.hpp#L905) | High-shelf EQ filter: boost or cut everything above fc |
 | [`lowpass`](inc/damp/filters/lowpass.hpp#L100) | Discretize a continuous low-pass TF (Tustin) into direct-form coefficients (+1 more overload) |
 | [`lowpass_1st`](inc/damp/filters/iir_design.hpp#L360) | First-order low-pass filter design (continuous-time) (+1 more overload) |
 | [`lowpass_2nd`](inc/damp/filters/iir_design.hpp#L474) | Second-order low-pass filter design (continuous-time) (+1 more overload) |
-| [`lowpass_sections`](inc/damp/filters/biquad.hpp#L459) | Nth-order Butterworth low-pass at cutoff fc as second-order sections, any order |
+| [`lowpass_sections`](inc/damp/filters/biquad.hpp#L464) | Nth-order Butterworth low-pass at cutoff fc as second-order sections, any order |
 | [`lowshelf`](inc/damp/filters/iir_design.hpp#L873) | Low-shelf EQ filter: boost or cut everything below fc |
 | [`mstogi`](inc/damp/filters/sogi.hpp#L153) | Mixed Second/Third-Order Generalized Integrator (MSTOGI) (+1 more overload) |
 | [`negative_sequence_ab`](inc/damp/filters/pll.hpp#L267) | Instantaneous negative-sequence αβ from a quadrature signal pair |
@@ -649,7 +649,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`pade_delay_2nd`](inc/damp/filters/pade.hpp#L85) | Second-order Pade approximation of time delay (+1 more overload) |
 | [`peaking`](inc/damp/filters/iir_design.hpp#L848) | Peaking (bell) EQ filter: boost or cut a band around f0 |
 | [`positive_sequence_ab`](inc/damp/filters/pll.hpp#L246) | Instantaneous positive-sequence αβ from a quadrature signal pair |
-| [`second_order_sections`](inc/damp/filters/biquad.hpp#L369) | Factor a discrete transfer function in z into second-order sections, for BiquadCascade (+1 more overload) |
+| [`second_order_sections`](inc/damp/filters/biquad.hpp#L374) | Factor a discrete transfer function in z into second-order sections, for BiquadCascade (+1 more overload) |
 | [`sogi`](inc/damp/filters/sogi.hpp#L69) | Second-Order Generalized Integrator (SOGI) design (+1 more overload) |
 | [`to_coeffs`](inc/damp/filters/iir_design.hpp#L132) | Convert StateSpace system to first-order DSP coefficients (+4 more overloads) |
 

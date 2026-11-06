@@ -38,7 +38,7 @@ using LQGIResult = StateFeedbackResult<NX, NU, T, NI, NY, KalmanResult<NX, NU, N
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
 [[nodiscard]] constexpr auto lqgi(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
-    const LQRWeights<NX, NU, T, NY>&         weights,
+    const LQRWeights<NX, NU, NY, T>&         weights,
     const KalmanNoise<NW, NV, T>&            noise
 ) {
     return detail::state_feedback(sys, weights, detail::StateFeedbackOptions{.noise = noise, .offset_free = IntegralAction{}});
@@ -49,7 +49,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
 [[nodiscard]] constexpr auto lqgi(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     std::type_identity_t<T>                  Ts,
-    const LQRWeights<NX, NU, T, NY>&         weights,
+    const LQRWeights<NX, NU, NY, T>&         weights,
     const KalmanNoise<NW, NV, T>&            noise
 ) {
     return detail::state_feedback(sys, Ts, weights, detail::StateFeedbackOptions{.noise = noise, .offset_free = IntegralAction{}});
@@ -60,7 +60,7 @@ template<size_t NI, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size
     requires(NI > 0)
 [[nodiscard]] constexpr auto lqgi(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
-    const LQRWeights<NX, NU, T, NI>&         weights,
+    const LQRWeights<NX, NU, NI, T>&         weights,
     const KalmanNoise<NW, NV, T>&            noise,
     const IntegralAction<NI>&                outputs
 ) {
@@ -73,7 +73,7 @@ template<size_t NI, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size
 [[nodiscard]] constexpr auto lqgi(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     std::type_identity_t<T>                  Ts,
-    const LQRWeights<NX, NU, T, NI>&         weights,
+    const LQRWeights<NX, NU, NI, T>&         weights,
     const KalmanNoise<NW, NV, T>&            noise,
     const IntegralAction<NI>&                outputs
 ) {

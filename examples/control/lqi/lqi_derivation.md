@@ -6,13 +6,16 @@ Numbers match [`lqi_controller.hpp`](lqi_controller.hpp) ($`m`$, $`k`$, $`c`$). 
 
 ## Plant
 
-Unit mass, spring, damper: $`G(s) = 1/(m s^2 + c s + k)`$, with $`m = 1\,\mathrm{kg}`$, $`k = 1\,\mathrm{N/m}`$, $`c = 0.5\,\mathrm{N\cdot s/m}`$. Coefficients are highest power first (`TransferFunction`). `to_state_space()` is controllable companion form; here that is [position, speed] because $`m = 1`$.
+Mass, spring, damper. The state is what you measure: $`x = [\mathrm{position},\;\mathrm{speed}]`$, $`u`$ is force, $`y`$ is position.
 
 ```math
-G(s)=\frac{1}{m s^2 + c s + k}
+\dot x =
+\begin{bmatrix} 0 & 1 \\ -k/m & -c/m \end{bmatrix} x
++ \begin{bmatrix} 0 \\ 1/m \end{bmatrix} u,\qquad
+y = \begin{bmatrix} 1 & 0 \end{bmatrix} x
 ```
 
-`discretize(*G.to_state_space(), 0.01)` is the 100 Hz model the design and the SIL share. The actuator is $`|u| \le 1.2`$ (steady force at $`r = 1`$ is $`k = 1`$).
+Numbers in [`lqi_controller.hpp`](lqi_controller.hpp): $`m = 1\,\mathrm{kg}`$, $`k = 1\,\mathrm{N/m}`$, $`c = 0.5\,\mathrm{N\cdot s/m}`$. Same input-output map as $`G(s) = 1/(m s^2 + c s + k)`$. `discretize(sys, 0.01)` is the 100 Hz model the design and the SIL share. The actuator is $`|u| \le 1.2`$ (steady force at $`r = 1`$ is $`k = 1`$).
 
 ## Why LQI
 

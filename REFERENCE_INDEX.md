@@ -57,8 +57,8 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`bandpass`](inc/damp/filters/iir_design.hpp#L609) | function | Filters & signal conditioning | Second-order band-pass filter design (continuous-time) (+1 more overload) |
 | [`bandwidth`](inc/damp/matlab.hpp#L1402) | function | MATLAB®-style aliases (host) | -3 dB bandwidth of a SISO system over a frequency grid |
 | [`BDF2`](inc/damp/simulation/integrator.hpp#L403) | block | Simulation / SIL harness (host) | Backward Differentiation Formula 2 (BDF2) integrator |
-| [`Biquad`](inc/damp/filters/biquad.hpp#L533) | block | Filters & signal conditioning | Second-order IIR (biquad) section runtime (+1 more overload) |
-| [`BiquadCascade`](inc/damp/filters/biquad.hpp#L623) | block | Filters & signal conditioning | Cascade of second-order sections (SOS) for higher-order IIR filters (+1 more overload) |
+| [`Biquad`](inc/damp/filters/biquad.hpp#L538) | block | Filters & signal conditioning | Second-order IIR (biquad) section runtime (+1 more overload) |
+| [`BiquadCascade`](inc/damp/filters/biquad.hpp#L628) | block | Filters & signal conditioning | Cascade of second-order sections (SOS) for higher-order IIR filters (+1 more overload) |
 | [`BLINK`](inc/damp/toolbox/iec61131.hpp#L542) | block | Embedded helpers (controls-adjacent utilities) | BLINK (free-running square-wave / flasher) |
 | [`blkdiag`](inc/damp/matrix/concat.hpp#L135) | function | Linear algebra | Block-diagonal assembly of MatrixLike arguments |
 | [`Block`](inc/damp/matrix/block.hpp#L38) | block | Linear algebra | Block view (non-owning) into a parent matrix |
@@ -285,7 +285,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`Heun`](inc/damp/simulation/integrator.hpp#L863) | block | Simulation / SIL harness (host) | Heun's method (Improved Euler, RK2) integrator |
 | [`highpass_1st`](inc/damp/filters/iir_design.hpp#L417) | function | Filters & signal conditioning | First-order high-pass filter design (continuous-time) (+1 more overload) |
 | [`highpass_2nd`](inc/damp/filters/iir_design.hpp#L553) | function | Filters & signal conditioning | Second-order high-pass filter design (continuous-time) (+1 more overload) |
-| [`highpass_sections`](inc/damp/filters/biquad.hpp#L495) | function | Filters & signal conditioning | Nth-order Butterworth high-pass at cutoff fc as second-order sections, any order |
+| [`highpass_sections`](inc/damp/filters/biquad.hpp#L500) | function | Filters & signal conditioning | Nth-order Butterworth high-pass at cutoff fc as second-order sections, any order |
 | [`highshelf`](inc/damp/filters/iir_design.hpp#L905) | function | Filters & signal conditioning | High-shelf EQ filter: boost or cut everything above fc |
 | [`hinfnorm`](inc/damp/matlab.hpp#L1521) | function | MATLAB®-style aliases (host) | MATLAB® alias for the H∞ system norm [ninf, fpeak] = hinfnorm(sys, tol) |
 | [`holonomic_drive`](inc/damp/toolbox/io.hpp#L386) | function | Embedded helpers (controls-adjacent utilities) | Four-wheel holonomic drive mixer (mecanum / omni) |
@@ -329,7 +329,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`instantaneous_power`](inc/damp/math/transforms.hpp#L496) | function | Scalar math, complex & frames | Instantaneous active and reactive power from dq quantities |
 | [`InstantaneousPower`](inc/damp/math/transforms.hpp#L457) | block | Scalar math, complex & frames | Instantaneous active and reactive power |
 | [`IntegralAction`](inc/damp/controllers/state_feedback_core.hpp#L583) | block | Runtime controllers | Offset-free by integral action: integrators on r − y, every measured output (`IntegralAction{}`) or the listed ones (`IntegralAction<2>{{0, 3}}`, in that order: the references r follow it) |
-| [`IntegralDesign`](inc/damp/controllers/state_feedback_core.hpp#L630) | block | Runtime controllers | The integral action of a design: the integrated outputs, their maps of the state and the input, and the per-sample step |
+| [`IntegralDesign`](inc/damp/controllers/state_feedback_core.hpp#L635) | block | Runtime controllers | The integral action of a design: the integrated outputs, their maps of the state and the input, and the per-sample step |
 | [`IntegrationResult`](inc/damp/simulation/integrator.hpp#L64) | block | Simulation / SIL harness (host) | Result of an integration step |
 | [`InteriorPointSolver`](inc/damp/design/qp.hpp#L1446) | block | Design-time synthesis (not PWM-rate) | Interior-point QP solver policy for damp::MPC |
 | [`Interpolation`](inc/damp/toolbox/lookup.hpp#L42) | enum | Embedded helpers (controls-adjacent utilities) | In-range interpolant for Lut1D (2-D stays bilinear; use SplineSurface for C¹ grids) |
@@ -403,7 +403,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`LowPass`](inc/damp/filters/lowpass.hpp#L223) | block | Filters & signal conditioning | Nth-order low-pass filter (direct form I) (+1 more overload) |
 | [`lowpass_1st`](inc/damp/filters/iir_design.hpp#L360) | function | Filters & signal conditioning | First-order low-pass filter design (continuous-time) (+1 more overload) |
 | [`lowpass_2nd`](inc/damp/filters/iir_design.hpp#L474) | function | Filters & signal conditioning | Second-order low-pass filter design (continuous-time) (+1 more overload) |
-| [`lowpass_sections`](inc/damp/filters/biquad.hpp#L459) | function | Filters & signal conditioning | Nth-order Butterworth low-pass at cutoff fc as second-order sections, any order |
+| [`lowpass_sections`](inc/damp/filters/biquad.hpp#L464) | function | Filters & signal conditioning | Nth-order Butterworth low-pass at cutoff fc as second-order sections, any order |
 | [`lowshelf`](inc/damp/filters/iir_design.hpp#L873) | function | Filters & signal conditioning | Low-shelf EQ filter: boost or cut everything below fc |
 | [`lqg`](inc/damp/controllers/lqg.hpp#L42) | function | Design-time synthesis (not PWM-rate) | The linear-quadratic Gaussian law: LQR on a steady-state Kalman filter's estimate (design::kalman(sys, noise)): runs as LQG (+3 more overloads) |
 | [`LQG`](inc/damp/controllers/lqg.hpp#L230) | function | Design-time synthesis (not PWM-rate) | LQG law{res}: the sizes, scalar and filter of design::lqg's result |
@@ -415,10 +415,10 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`LQGI`](inc/damp/controllers/lqgi.hpp#L98) | block | Runtime controllers | Linear-quadratic Gaussian law with integral action on the measured outputs |
 | [`lqgreg`](inc/damp/matlab.hpp#L1113) | function | MATLAB®-style aliases (host) | Combine separate Kalman filter and LQR designs into an LQG controller |
 | [`lqgtrack`](inc/damp/matlab.hpp#L1134) | function | MATLAB®-style aliases (host) | Linear-Quadratic-Gaussian design with integral action for tracking (+2 more overloads) |
-| [`lqi`](inc/damp/controllers/lqi.hpp#L38) | function | Design-time synthesis (not PWM-rate) | The linear-quadratic regulator with integral action on every output (xi += Ts·(r − Ci·y)): runs as LQI (+3 more overloads) |
-| [`LQI`](inc/damp/controllers/lqi.hpp#L135) | function | Design-time synthesis (not PWM-rate) | LQI law{res}: the sizes and scalar of design::lqi's result |
+| [`lqi`](inc/damp/controllers/lqi.hpp#L39) | function | Design-time synthesis (not PWM-rate) | The linear-quadratic regulator with integral action on every output (xi += Ts·(r − Ci·y)): runs as LQI (+3 more overloads) |
+| [`LQI`](inc/damp/controllers/lqi.hpp#L136) | function | Design-time synthesis (not PWM-rate) | LQI law{res}: the sizes and scalar of design::lqi's result |
 | [`lqi`](inc/damp/matlab.hpp#L1058) | function | MATLAB®-style aliases (host) | Linear-Quadratic Integral design for tracking (+2 more overloads) |
-| [`LQI`](inc/damp/controllers/lqi.hpp#L88) | block | Runtime controllers | Linear-quadratic regulator with integral action, on the measured state |
+| [`LQI`](inc/damp/controllers/lqi.hpp#L89) | block | Runtime controllers | Linear-quadratic regulator with integral action, on the measured state |
 | [`lqr`](inc/damp/controllers/lqr.hpp#L45) | function | Design-time synthesis (not PWM-rate) | The linear-quadratic regulator on the plant (DARE on a discrete plant, CARE on a continuous one): runs as LQR (+3 more overloads) |
 | [`LQR`](inc/damp/controllers/lqr.hpp#L204) | function | Design-time synthesis (not PWM-rate) | LQR law{res}: the sizes and scalar of design::lqr's result (+2 more overloads) |
 | [`lqr`](inc/damp/matlab.hpp#L892) | function | MATLAB®-style aliases (host) | Continuous-time LQR design (MATLAB®'s lqr) |
@@ -426,8 +426,8 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`lqr_gain`](inc/damp/design/riccati.hpp#L1359) | function | Design-time synthesis (not PWM-rate) | Optimal LQR state-feedback gain from a Riccati solution |
 | [`LQRCost`](inc/damp/design/riccati.hpp#L1577) | block | Design-time synthesis (not PWM-rate) | A quadratic cost on (x, u): state cost Q, input cost R, cross term N |
 | [`lqrd`](inc/damp/matlab.hpp#L922) | function | MATLAB®-style aliases (host) | Sampled-data LQR from a continuous plant: ZOH dynamics + Van Loan cost (MATLAB®'s lqrd) (+1 more overload) |
-| [`LQRWeights`](inc/damp/controllers/state_feedback_core.hpp#L618) | function | Design-time synthesis (not PWM-rate) | Sizes from the matrices: `LQRWeights{Q, R}` (+2 more overloads) |
-| [`LQRWeights`](inc/damp/controllers/state_feedback_core.hpp#L609) | block | Runtime controllers | The cost of a state-feedback design: what to penalize and how much |
+| [`LQRWeights`](inc/damp/controllers/state_feedback_core.hpp#L623) | function | Design-time synthesis (not PWM-rate) | Sizes from the matrices: `LQRWeights{Q, R}` (+2 more overloads) |
+| [`LQRWeights`](inc/damp/controllers/state_feedback_core.hpp#L614) | block | Runtime controllers | The cost of a state-feedback design: what to penalize and how much |
 | [`lqry`](inc/damp/matlab.hpp#L1008) | function | MATLAB®-style aliases (host) | Output-weighted continuous LQR (state cost Q = Cᵀ Q_y C) (+1 more overload) |
 | [`lsim`](inc/damp/analysis/time_response.hpp#L284) | function | Frequency-domain analysis (host) | Forced time response of a (MIMO) state-space system to an input signal (+1 more overload) |
 | [`LsimInfo`](inc/damp/analysis/time_response.hpp#L513) | block | Frequency-domain analysis (host) | Transient characteristics of an arbitrary response signal |
@@ -680,7 +680,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`scaled_deadband`](inc/damp/toolbox/conditioning.hpp#L185) | function | Embedded helpers (controls-adjacent utilities) | Center dead zone that rescales the surviving range back to full span |
 | [`schroeder_multi_sine`](inc/damp/estimation/excitation/multi_sine.hpp#L193) | function | Observers & estimators | Build a multi-sine design payload with Schroeder phases applied |
 | [`schur_stable`](inc/damp/systems/transfer_function.hpp#L64) | function | LTI systems (SS / TF / ZPK / discretize) | True if every root of z^(N−1)·p(z⁻¹) lies strictly inside the unit circle (Schur–Cohn) |
-| [`second_order_sections`](inc/damp/filters/biquad.hpp#L369) | function | Filters & signal conditioning | Factor a discrete transfer function in z into second-order sections, for BiquadCascade (+1 more overload) |
+| [`second_order_sections`](inc/damp/filters/biquad.hpp#L374) | function | Filters & signal conditioning | Factor a discrete transfer function in z into second-order sections, for BiquadCascade (+1 more overload) |
 | [`SEL`](inc/damp/toolbox/iec61131.hpp#L601) | function | Embedded helpers (controls-adjacent utilities) | SEL (IEC 61131-3 binary selection): g ? in1 : in0 |
 | [`select`](inc/damp/systems/state_space.hpp#L670) | function | LTI systems (SS / TF / ZPK / discretize) | SISO channel slice y_iy / u_iu |
 | [`SequenceComponents`](inc/damp/math/transforms.hpp#L514) | block | Scalar math, complex & frames | Symmetrical (sequence) components of a three-phase phasor set |

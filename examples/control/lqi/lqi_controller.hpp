@@ -7,8 +7,8 @@
  * @file lqi_controller.hpp
  * @brief Position LQI with a clamp — flashable design + tick
  *
- * Canonical path: TF → to_state_space → discretize → design::lqi → LQI → saturate →
- * back_calculate. SIL calls this same tick.
+ * Canonical path: StateSpace (x = position, speed) → discretize → design::lqi → LQI →
+ * saturate → back_calculate. SIL calls this same tick.
  *
  *   lqi_controller.hpp  — this file (nameplate, design::, control_period)
  *   lqi_sketch.cpp      — thin setup/loop
@@ -22,7 +22,7 @@
 #include "damp/matrix/colvec.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "damp/systems/discretization.hpp"
-#include "damp/systems/transfer_function.hpp"
+#include "damp/systems/state_space.hpp"
 
 namespace damp::examples_lqi {
 
@@ -35,9 +35,12 @@ constexpr double m = 1.0; // kg
 constexpr double k = 1.0; // N/m
 constexpr double c = 0.5; // N·s/m
 
-// G(s) = 1 / (m s² + c s + k). Companion form is [position, speed] when m = 1.
-constexpr auto G = TransferFunction<1, 3>{.num = {1.0}, .den = {m, c, k}};
-constexpr auto sys = *G.to_state_space();
+// x = [position, speed], u = force, y = position. G(s) = 1 / (m s² + c s + k)
+constexpr auto sys = StateSpace<2, 1, 1>{
+    .A = Matrix<2, 2>{{0.0, 1.0}, {-k / m, -c / m}},
+    .B = Matrix<2, 1>{{0.0}, {1.0 / m}},
+    .C = Matrix<1, 2>{{1.0, 0.0}},
+};
 
 } // namespace
 
@@ -45,17 +48,15 @@ inline constexpr auto sysd = discretize(sys, Ts);
 static_assert(sysd);
 
 // Design an LQI "law" on the discretized plant, and check for success
-inline constexpr auto lqi_result = design::lqi(
-    *sysd,
-    {
-        .Q = Matrix<2, 2>{
-            {10.0, 0.0},
-            {0.0, 1.0},
-        },
-        .R = 1.0,
-        .Q_integral = 80.0,
-    }
-);
+inline constexpr auto weights = design::LQRWeights<2, 1, 1>{
+    .Q = Matrix<2, 2>{
+        {10.0, 0.0},
+        {0.0, 1.0},
+    },
+    .R = 1.0,
+    .Q_integral = 80.0,
+};
+inline constexpr auto lqi_result = design::lqi(*sysd, weights);
 static_assert(lqi_result.success);
 
 /**
