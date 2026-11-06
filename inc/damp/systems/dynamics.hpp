@@ -15,8 +15,6 @@
  * sample time is one classical RK4 step with the input held.
  */
 
-#include <cstddef>
-#include <type_traits>
 
 #include "damp/backend.hpp"
 #include "damp/concepts.hpp"
@@ -44,10 +42,10 @@ template<typename Sig>
 struct call_operator_sizes {};
 
 template<typename C, typename R, typename X, typename U>
-struct call_operator_sizes<R (C::*)(X, U) const> : model_sizes<std::remove_cvref_t<R>, std::remove_cvref_t<X>, std::remove_cvref_t<U>> {};
+struct call_operator_sizes<R (C::*)(X, U) const> : model_sizes<damp::remove_cvref_t<R>, damp::remove_cvref_t<X>, damp::remove_cvref_t<U>> {};
 
 template<typename C, typename R, typename X, typename U>
-struct call_operator_sizes<R (C::*)(X, U) const noexcept> : model_sizes<std::remove_cvref_t<R>, std::remove_cvref_t<X>, std::remove_cvref_t<U>> {};
+struct call_operator_sizes<R (C::*)(X, U) const noexcept> : model_sizes<damp::remove_cvref_t<R>, damp::remove_cvref_t<X>, damp::remove_cvref_t<U>> {};
 
 /**
  * @brief Sizes of a model type from its call operator: NX, NU and the result's rows
@@ -199,7 +197,7 @@ template<typename T>
     if (damp::finite_positive(Ts)) {
         return Ts;
     }
-    if (std::is_constant_evaluated()) {
+    if (damp::is_constant_evaluated()) {
         refuse_failed_design(); // constinit / constexpr: a filter without a valid Ts does not compile
     }
     return T{0};

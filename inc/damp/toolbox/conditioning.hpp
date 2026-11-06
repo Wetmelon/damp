@@ -24,9 +24,7 @@
  * @see filters/filters.hpp for the linear filter runtimes.
  */
 
-#include <cstdint>
-#include <limits>
-
+#include "damp/backend.hpp"
 #include "damp/math/math.hpp"      // damp::abs, damp::copysign, damp::sin, damp::sqrt
 #include "damp/toolbox/bounds.hpp" // Bounds
 
@@ -264,8 +262,8 @@ public:
     }
 
 private:
-    T    rate_up_{std::numeric_limits<T>::max()};
-    T    rate_down_{std::numeric_limits<T>::max()};
+    T    rate_up_{damp::numeric_limits<T>::max()};
+    T    rate_down_{damp::numeric_limits<T>::max()};
     T    y_{T{0}};
     bool init_{false};
 };
@@ -317,7 +315,7 @@ private:
  * ratiometric (0.5–4.5 V) or 4–20 mA sensor let a genuine reading be told apart
  * from a wire fault.
  */
-enum class SignalStatus : std::uint8_t {
+enum class SignalStatus : uint8_t {
     Valid,      ///< within the nominal measuring span
     UnderRange, ///< below span but not a wire fault (saturated low)
     OverRange,  ///< above span but not a wire fault (saturated high)
@@ -464,7 +462,7 @@ private:
  * Opposite-slope sensors that are already inverted in their AffineCal (so both
  * report the same engineering direction) use SameSlope after calibration.
  */
-enum class AnalogCrossMode : std::uint8_t {
+enum class AnalogCrossMode : uint8_t {
     SameSlope,     ///< a ≈ b
     OppositeSlope, ///< a + b ≈ span
 };
@@ -472,7 +470,7 @@ enum class AnalogCrossMode : std::uint8_t {
 /**
  * @brief Result of comparing two redundant analog channels.
  */
-enum class AnalogCrossStatus : std::uint8_t {
+enum class AnalogCrossStatus : uint8_t {
     Agree,        ///< both usable and within tolerance
     Disagree,     ///< both usable but disagree (no silent average as “truth”)
     ChannelAOnly, ///< A usable, B not — value from A (degraded)

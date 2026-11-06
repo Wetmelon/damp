@@ -36,7 +36,6 @@
  *      TAC, 2002, https://doi.org/10.1109/9.983370
  */
 
-#include <type_traits>
 
 #include "damp/backend.hpp"
 #include "damp/design/status.hpp"
@@ -106,8 +105,8 @@ struct [[nodiscard]] ESCResult {
     [[nodiscard]] constexpr explicit operator bool() const { return success; }
 
     template<typename U>
-    [[nodiscard]] constexpr ESCResult<std::remove_const_t<U>> as() const {
-        using out_t = std::remove_const_t<U>;
+    [[nodiscard]] constexpr ESCResult<damp::remove_const_t<U>> as() const {
+        using out_t = damp::remove_const_t<U>;
         return ESCResult<out_t>{
             .dither_amplitude = static_cast<out_t>(dither_amplitude),
             .dither_omega = static_cast<out_t>(dither_omega),
@@ -239,13 +238,13 @@ public:
 
     /** @brief From a design result in another scalar: converts it with .as\<T\>() and builds from that. */
     template<typename U>
-        requires(!std::is_same_v<U, T>)
+        requires(!damp::is_same_v<U, T>)
     constexpr ExtremumSeekingController(const design::ESCResult<U>& result) // NOLINT(google-explicit-constructor): assign-from-design
         : ExtremumSeekingController(result.template as<T>()) {}
 
     constexpr ExtremumSeekingController(const design::ESCResult<T>& result) // NOLINT(google-explicit-constructor): assign-from-design
         : config_(result), uhat_(result.u_init), valid_(result.success) {
-        if (!result.success && std::is_constant_evaluated()) {
+        if (!result.success && damp::is_constant_evaluated()) {
             ::damp::detail::refuse_failed_design(result.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
         init_phasors();

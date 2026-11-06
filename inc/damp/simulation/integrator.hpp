@@ -10,10 +10,7 @@
  * @brief Fixed-step ODE integrators for simulation
  */
 
-#include <concepts>
-#include <cstddef>
-#include <limits>
-
+#include "damp/backend.hpp"
 #include "damp/matrix/colvec.hpp"
 #include "damp/matrix/functions.hpp"
 #include "damp/matrix/matrix.hpp"
@@ -114,10 +111,10 @@ template<size_t NX, typename T>
 template<typename I, size_t NX, typename T>
 concept AdaptiveStepIntegrator = requires {
     requires I::provides_embedded_error;
-    { I::error_order } -> std::convertible_to<int>;
+    { I::error_order } -> damp::convertible_to<int>;
     requires I::error_order > 0;
 } && requires(const I& i, ColVec<NX, T> (*f)(T, const ColVec<NX, T>&), const ColVec<NX, T>& x, T t, T h) {
-    { i.evolve(f, x, t, h) } -> std::convertible_to<IntegrationResult<NX, T>>;
+    { i.evolve(f, x, t, h) } -> damp::convertible_to<IntegrationResult<NX, T>>;
 };
 
 /**

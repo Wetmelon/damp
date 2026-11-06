@@ -10,9 +10,6 @@
  * @brief c2d / d2d: discretize a plant; InputDelay of at most one sample; Tustin pre-warp
  */
 
-#include <cstddef>
-#include <limits>
-#include <type_traits>
 
 #include "damp/backend.hpp"
 #include "damp/design/status.hpp"
@@ -114,7 +111,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
  */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
 [[nodiscard]] constexpr bool finite_dynamics(const StateSpace<NX, NU, NY, T, NW, NV>& sys) {
-    const auto finite = [](T v) { return damp::isfinite(v) && damp::abs(v) < std::numeric_limits<T>::max(); };
+    const auto finite = [](T v) { return damp::isfinite(v) && damp::abs(v) < damp::numeric_limits<T>::max(); };
     return mat::all_of(sys.A, finite) && mat::all_of(sys.B, finite) && mat::all_of(sys.G, finite);
 }
 
@@ -403,7 +400,7 @@ template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, si
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
 [[nodiscard]] constexpr DiscretizationResult<NX, NU, NY, T, NW, NV> resample(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
-    std::type_identity_t<T>                  sampling_time
+    damp::type_identity_t<T>                 sampling_time
 ) {
     using Result = DiscretizationResult<NX, NU, NY, T, NW, NV>;
     if (!finite_positive(sys.Ts) || !finite_positive(sampling_time)) {
@@ -512,7 +509,7 @@ template<size_t L, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_
  */
 template<size_t N, typename T>
     requires(N >= 1)
-[[nodiscard]] constexpr damp::optional<TransferFunction<N + 1, N + 1, T>> fractional_delay(T delay, std::type_identity_t<T> sampling_time) {
+[[nodiscard]] constexpr damp::optional<TransferFunction<N + 1, N + 1, T>> fractional_delay(T delay, damp::type_identity_t<T> sampling_time) {
     if (!finite_positive(sampling_time) || !damp::isfinite(delay)) {
         return damp::nullopt;
     }

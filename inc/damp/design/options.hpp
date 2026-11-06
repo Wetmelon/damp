@@ -27,15 +27,14 @@
  * @endcode
  */
 
-#include <cstddef>
-#include <type_traits>
+#include "damp/backend.hpp"
 
 
 namespace damp::detail {
 
 /** @brief How many of @p Opts are of the kind @p Is. */
 template<template<typename> class Is, typename... Opts>
-inline constexpr size_t option_count = (size_t{0} + ... + (Is<std::remove_cvref_t<Opts>>::value ? size_t{1} : size_t{0}));
+inline constexpr size_t option_count = (size_t{0} + ... + (Is<damp::remove_cvref_t<Opts>>::value ? size_t{1} : size_t{0}));
 
 /** @brief The type of the first option of the kind @p Is among @p Opts, else @p Default. */
 template<template<typename> class Is, typename Default, typename... Opts>
@@ -46,7 +45,7 @@ struct option_type {
 /** @brief The first option, if it is of the kind, else the rest's. */
 template<template<typename> class Is, typename Default, typename First, typename... Rest>
 struct option_type<Is, Default, First, Rest...> {
-    using type = std::conditional_t<Is<std::remove_cvref_t<First>>::value, std::remove_cvref_t<First>, typename option_type<Is, Default, Rest...>::type>; ///< The option's type
+    using type = damp::conditional_t<Is<damp::remove_cvref_t<First>>::value, damp::remove_cvref_t<First>, typename option_type<Is, Default, Rest...>::type>; ///< The option's type
 };
 
 /** @brief The type of the option of the kind @p Is among @p Opts, else @p Default. */
@@ -65,7 +64,7 @@ template<template<typename> class Is, typename Default>
  */
 template<template<typename> class Is, typename Default, typename First, typename... Rest>
 [[nodiscard]] constexpr option_t<Is, Default, First, Rest...> option(const Default& fallback, const First& first, const Rest&... rest) {
-    if constexpr (Is<std::remove_cvref_t<First>>::value) {
+    if constexpr (Is<damp::remove_cvref_t<First>>::value) {
         static_cast<void>(fallback);
         (static_cast<void>(rest), ...);
         return first;
@@ -83,7 +82,7 @@ template<template<typename> class... Kinds>
 struct option_set {
     /** @brief How many listed kinds @p Opt is of: 1 for a known option. */
     template<typename Opt>
-    static constexpr size_t kinds_of = (size_t{0} + ... + (Kinds<std::remove_cvref_t<Opt>>::value ? size_t{1} : size_t{0}));
+    static constexpr size_t kinds_of = (size_t{0} + ... + (Kinds<damp::remove_cvref_t<Opt>>::value ? size_t{1} : size_t{0}));
 
     /** @brief Every option is of exactly one listed kind. */
     template<typename... Opts>
@@ -113,11 +112,11 @@ namespace detail {
 
 /** @brief Not a KalmanNoise. */
 template<typename>
-struct is_kalman_noise : std::false_type {};
+struct is_kalman_noise : damp::false_type {};
 
 /** @brief KalmanNoise. */
 template<size_t NW, size_t NV, typename T, size_t ND>
-struct is_kalman_noise<KalmanNoise<NW, NV, T, ND>> : std::true_type {};
+struct is_kalman_noise<KalmanNoise<NW, NV, T, ND>> : damp::true_type {};
 
 } // namespace detail
 

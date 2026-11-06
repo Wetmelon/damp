@@ -71,8 +71,6 @@
  * @see kalman.hpp: design::kalman (a gain this observer runs) and KalmanFilter (the recursive filter)
  */
 
-#include <cstddef>
-#include <type_traits>
 
 #include "damp/backend.hpp"
 #include "damp/design/pole_placement.hpp" // design::place (dual placement)
@@ -791,13 +789,13 @@ private:
     };
     struct NoAnchor {};
 
-    StateSpace<NX, NU, NY, T>                                            sys_{};        ///< The observer's model, [x; d]
-    Matrix<NX, NY, T>                                                    M_{};          ///< The innovation gain (zero when !valid_)
-    ColVec<NX, T>                                                        x_{};          ///< Estimate (a deviation from the anchor when ND > 0)
-    ColVec<NY, T>                                                        innov_{};      ///< y − C x̂ − D u
-    ColVec<NU, T>                                                        u_prev_{};     ///< The input the plant holds, for the feedthrough
-    [[no_unique_address]] std::conditional_t<(ND > 0), Anchor, NoAnchor> anchor_{};     ///< The anchor of the deviations (ND > 0)
-    bool                                                                 valid_{false}; ///< Built from a successful discrete design or model
+    StateSpace<NX, NU, NY, T>                                             sys_{};        ///< The observer's model, [x; d]
+    Matrix<NX, NY, T>                                                     M_{};          ///< The innovation gain (zero when !valid_)
+    ColVec<NX, T>                                                         x_{};          ///< Estimate (a deviation from the anchor when ND > 0)
+    ColVec<NY, T>                                                         innov_{};      ///< y − C x̂ − D u
+    ColVec<NU, T>                                                         u_prev_{};     ///< The input the plant holds, for the feedthrough
+    [[no_unique_address]] damp::conditional_t<(ND > 0), Anchor, NoAnchor> anchor_{};     ///< The anchor of the deviations (ND > 0)
+    bool                                                                  valid_{false}; ///< Built from a successful discrete design or model
 
     /** @brief A model without its noise inputs, in the observer's scalar. */
     template<typename U, size_t NW, size_t NV>
@@ -809,7 +807,7 @@ private:
     template<typename U>
     [[nodiscard]] static constexpr bool usable(bool success, design::DesignStatus status, U Ts) {
         const bool ok = success && Ts > U{0};
-        if (!ok && std::is_constant_evaluated()) {
+        if (!ok && damp::is_constant_evaluated()) {
             ::damp::detail::refuse_failed_design(success ? design::DesignStatus::invalid_sample_time : status); // constant-evaluated (constinit / constexpr): a failed or continuous design does not compile
         }
         return ok;
@@ -867,7 +865,7 @@ public:
     template<typename U>
     constexpr ReducedLuenberger(const design::ReducedLuenbergerResult<NX, NU, U>& result) // NOLINT(google-explicit-constructor): assign-from-design
         : valid_(result.success && result.Ts > U{0}) {
-        if (!valid_ && std::is_constant_evaluated()) {
+        if (!valid_ && damp::is_constant_evaluated()) {
             ::damp::detail::refuse_failed_design(result.success ? design::DesignStatus::invalid_sample_time : result.status); // constant-evaluated (constinit / constexpr): a failed or continuous design does not compile
         }
         if (valid_) {

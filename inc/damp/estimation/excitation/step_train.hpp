@@ -10,8 +10,6 @@
  * @brief Step-train excitation — design payload and runtime generator
  */
 
-#include <cstddef>
-#include <type_traits>
 
 #include "damp/backend.hpp"
 #include "damp/math/math.hpp"
@@ -30,9 +28,9 @@ namespace design {
  */
 template<typename T = double>
 struct StepTrainConfig {
-    T           amplitude{T{1}};             ///< Step magnitude (> 0)
-    T           hold_s{static_cast<T>(0.1)}; ///< Hold time per plateau in seconds (> 0)
-    std::size_t cycles{1};                   ///< Number of +/- pairs
+    T      amplitude{T{1}};             ///< Step magnitude (> 0)
+    T      hold_s{static_cast<T>(0.1)}; ///< Hold time per plateau in seconds (> 0)
+    size_t cycles{1};                   ///< Number of +/- pairs
 
     /**
      * @brief Validate step-train configuration.
@@ -119,7 +117,7 @@ public:
 
     /** @brief From a design result in another scalar: converts it with .as\<T\>() and builds from that. */
     template<typename U>
-        requires(!std::is_same_v<U, T>)
+        requires(!damp::is_same_v<U, T>)
     constexpr StepTrain(const design::StepTrainResult<U>& result) // NOLINT(google-explicit-constructor): assign-from-design
         : StepTrain(result.template as<T>()) {}
 
@@ -129,7 +127,7 @@ public:
      */
     constexpr StepTrain(const design::StepTrainResult<T>& design) // NOLINT(google-explicit-constructor): assign-from-design
         : config_(design.config), Ts_(design.Ts), valid_(design.success) {
-        if (!design.success && std::is_constant_evaluated()) {
+        if (!design.success && damp::is_constant_evaluated()) {
             ::damp::detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
     }
@@ -149,7 +147,7 @@ public:
             return T{0};
         }
 
-        const auto segment = static_cast<std::size_t>(damp::floor(tc / config_.hold_s));
+        const auto segment = static_cast<size_t>(damp::floor(tc / config_.hold_s));
         return (segment % 2u == 0u) ? config_.amplitude : -config_.amplitude;
     }
 
@@ -199,7 +197,7 @@ private:
 
     design::StepTrainConfig<T> config_{};
     T                          Ts_{T{0}};
-    std::size_t                k_{0}; ///< Samples emitted by step()
+    size_t                     k_{0}; ///< Samples emitted by step()
     bool                       valid_{false};
 };
 

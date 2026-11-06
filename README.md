@@ -43,6 +43,7 @@ Damp includes ETL as `<etl/...>`, so ETL can live anywhere: the `libs/etl` submo
 #pragma once
 #define DAMP_BACKEND_ETL
 #define DAMP_MATH_BACKEND_FREESTANDING // constexpr series math at run time; no libm
+#define ETL_NO_STL                     // only if the toolchain has no C++ standard headers
 ```
 
 ```bash
@@ -51,7 +52,7 @@ g++ -std=c++20 -I. -Ipath/to/damp/inc -isystem path/to/etl/include main.cpp
 
 With CMake, `add_subdirectory` both trees and `target_link_libraries(your_fw PRIVATE wetmelon::damp etl::etl)`.
 
-Use the profile rather than `-DDAMP_BACKEND_ETL`: Damp warns when it finds no profile, and every file in the program must agree on the backend. The toolchain still needs C++ standard headers: ETL and Damp include them, though a Cortex-M7 build links nothing from them.
+Use the profile rather than `-DDAMP_BACKEND_ETL`: Damp warns when it finds no profile, and every file in the program must agree on the backend. Without a C++ header on the toolchain, `DAMP_MATH_BACKEND_DAMP` and the default math backend are out, because they need `<cmath>`: use `DAMP_MATH_BACKEND_FREESTANDING` or your own `DAMP_MATH_BACKEND_HEADER`. The host-only `damp/workbench.hpp` still needs the standard library. [Known limitations](docs/known_limitations.md) has what is tested.
 
 ## Plant → law → tick
 

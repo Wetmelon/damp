@@ -25,8 +25,6 @@
  * @endcode
  */
 
-#include <cstddef>
-#include <type_traits>
 
 #include "damp/backend.hpp"
 #include "damp/controllers/law_detail.hpp"
@@ -769,7 +767,7 @@ struct StateFeedforward {
     template<typename U>
     constexpr StateFeedforward(const design::StateFeedforwardResult<NX, NU, U>& result) // NOLINT
         : B_pinv(result.B_pinv.template as<T>()), drift(result.drift.template as<T>()) {
-        if (!result.success && std::is_constant_evaluated()) {
+        if (!result.success && damp::is_constant_evaluated()) {
             ::damp::detail::refuse_failed_design(result.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
     }
@@ -826,7 +824,7 @@ struct OutputInverse {
           zero_dynamics(result.zero_dynamics.template as<T>()),
           zero_preview(result.zero_preview.template as<T>()),
           u_zero(result.u_zero.template as<T>()) {
-        if (!result.success && std::is_constant_evaluated()) {
+        if (!result.success && damp::is_constant_evaluated()) {
             ::damp::detail::refuse_failed_design(result.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
     }
@@ -880,9 +878,9 @@ struct inverse_runtime<design::OutputInverseResult<NX, NU, NP, U>, T> {
 
 /** @brief Law<kRes, T> of a model inverse: StateFeedforward or OutputInverse, default-constructed from the design. */
 template<const auto& Res, typename T>
-    requires requires { typename detail::inverse_runtime<std::remove_cvref_t<decltype(Res)>, T>::type; }
-struct Law<Res, T> : detail::inverse_runtime<std::remove_cvref_t<decltype(Res)>, T>::type {
-    using Runtime = detail::inverse_runtime<std::remove_cvref_t<decltype(Res)>, T>::type; ///< The runtime the design runs as
+    requires requires { typename detail::inverse_runtime<damp::remove_cvref_t<decltype(Res)>, T>::type; }
+struct Law<Res, T> : detail::inverse_runtime<damp::remove_cvref_t<decltype(Res)>, T>::type {
+    using Runtime = detail::inverse_runtime<damp::remove_cvref_t<decltype(Res)>, T>::type; ///< The runtime the design runs as
 
     /** @brief The design's runtime. */
     constexpr Law() : Runtime{Res.template as<T>()} {}

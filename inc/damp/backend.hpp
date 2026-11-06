@@ -10,20 +10,21 @@
  * @brief Standard-library backend: the small set of `std`-replacement types the
  *        embeddable core needs, aliased into `damp`.
  *
- * The core does not hard-depend on the hosted C++ standard library. It uses a
- * handful of vocabulary types — `array`, `optional`, `tuple`/`pair`, a few
- * `<algorithm>`/`<utility>` helpers — through the `damp::` aliases defined here,
- * which resolve to one of two backends selected at compile time:
+ * The core does not hard-depend on the C++ standard library. It uses vocabulary
+ * types, type traits, limits and concepts — `array`, `optional`, `tuple`/`pair`,
+ * `is_same_v`, `numeric_limits`, `floating_point`, … — through the `damp::` aliases
+ * defined here, which resolve to one of two backends selected at compile time:
  *
- *   - stdlib (default): `damp::array` → `std::array`, etc. Hosted, and usable
- *     standalone (no third-party dependency).
- *   - ETL (`-DDAMP_BACKEND_ETL`): `damp::array` → `etl::array`, etc., for
- *     freestanding / embedded targets without a hosted standard library. Pairs
- *     with the [Embedded Template Library](https://www.etlcpp.com).
+ *   - stdlib (default): `damp::array` → `std::array`, etc. Usable standalone (no
+ *     third-party dependency).
+ *   - ETL (`DAMP_BACKEND_ETL` in `damp_profile.hpp`): `damp::array` → `etl::array`,
+ *     etc., with the [Embedded Template Library](https://www.etlcpp.com) on the
+ *     include path. Add `ETL_NO_STL` for a toolchain with no C++ standard headers.
  *
- * We do not invent our own primitives — anything not from the stdlib comes from
- * ETL. `std::initializer_list` is intentionally *not* aliased: it is a core
- * language facility (`<initializer_list>`), available even freestanding.
+ * Anything not from the stdlib comes from ETL, with one exception: under `ETL_NO_STL`
+ * `etl::optional` of anything but a fundamental type is not constexpr, so this header provides
+ * the optional that constexpr designs return. `std::initializer_list` is intentionally
+ * *not* aliased: it is a language name, which ETL declares itself without the STL.
  *
  * @note Selection is unified through `damp/config.hpp`: a single `damp_profile.hpp`
  *       sets `DAMP_BACKEND_ETL` (this header) alongside the math-backend macros
@@ -31,8 +32,8 @@
  *       container/utility types.
  */
 
-#include <cstddef>          // IWYU pragma: export
-#include <initializer_list> // IWYU pragma: export core language facility; freestanding-safe (see @note above)
+#include <stddef.h> // IWYU pragma: export C headers: every toolchain has them, even with no C++ headers
+#include <stdint.h> // IWYU pragma: export
 
 #include "damp/config.hpp" // IWYU pragma: export - pulls the profile's backend-selection macros
 
@@ -62,30 +63,162 @@ inline constexpr T log2e_v = static_cast<T>(1.4426950408889634073599246810018921
 
 } // namespace damp::numbers
 
-#if defined(DAMP_BACKEND_ETL)
+#ifdef DAMP_BACKEND_ETL
 
-#include <etl/algorithm.h> // IWYU pragma: export
-#include <etl/array.h>     // IWYU pragma: export
-#include <etl/optional.h>  // IWYU pragma: export
-#include <etl/tuple.h>     // IWYU pragma: export
-#include <etl/utility.h>   // IWYU pragma: export
+#include <etl/algorithm.h>        // IWYU pragma: export
+#include <etl/array.h>            // IWYU pragma: export
+#include <etl/bit.h>              // IWYU pragma: export
+#include <etl/concepts.h>         // IWYU pragma: export
+#include <etl/initializer_list.h> // IWYU pragma: export declares std::initializer_list without the STL
+#include <etl/limits.h>           // IWYU pragma: export
+#include <etl/optional.h>         // IWYU pragma: export
+#include <etl/tuple.h>            // IWYU pragma: export
+#include <etl/type_traits.h>      // IWYU pragma: export
+#include <etl/utility.h>          // IWYU pragma: export
+
+// etl/limits.h includes C's math.h, whose classification macros would rewrite damp::isfinite and
+// friends. <cmath> removes them with the STL; do the same without it.
+#undef fpclassify
+#undef isfinite
+#undef isinf
+#undef isnan
+#undef isnormal
+#undef signbit
+#undef isgreater
+#undef isgreaterequal
+#undef isless
+#undef islessequal
+#undef islessgreater
+#undef isunordered
 
 namespace damp {
 using etl::array;
+using etl::bool_constant;
 using etl::clamp;
+using etl::common_type_t;
+using etl::conditional_t;
+using etl::constructible_from;
+using etl::convertible_to;
+using etl::declval;
+using etl::false_type;
+using etl::floating_point;
 using etl::forward;
 using etl::get;
 using etl::index_sequence;
+using etl::integral;
+using etl::is_arithmetic_v;
+using etl::is_base_of_v;
+using etl::is_const_v;
+using etl::is_constructible_v;
+using etl::is_floating_point_v;
+using etl::is_integral_v;
+using etl::is_same_v;
+using etl::is_signed_v;
+using etl::is_unsigned_v;
 using etl::make_index_sequence;
+using etl::make_signed_t;
 using etl::make_tuple;
+using etl::make_unsigned_t;
 using etl::max;
 using etl::min;
 using etl::move;
 using etl::nullopt;
 using etl::nullopt_t;
-using etl::optional;
+using etl::numeric_limits;
 using etl::pair;
+using etl::remove_const_t;
+using etl::remove_cv_t;
+using etl::remove_cvref_t;
+using etl::remove_pointer_t;
+using etl::true_type;
 using etl::tuple;
+using etl::type_identity_t;
+
+/** @brief True during constant evaluation; the builtin needs no header. */
+[[nodiscard]] constexpr bool is_constant_evaluated() noexcept {
+    return __builtin_is_constant_evaluated();
+}
+
+/** @brief Reinterpret the bits of @p from as To, usable in constant evaluation (etl::bit_cast is not, without the STL). */
+template<typename To, typename From>
+    requires(sizeof(To) == sizeof(From))
+[[nodiscard]] constexpr To bit_cast(const From& from) noexcept {
+    return __builtin_bit_cast(To, from);
+}
+
+/** @brief Bits needed to represent @p value, as int like std::bit_width (etl::bit_width returns T). */
+template<typename T>
+[[nodiscard]] constexpr int bit_width(T value) noexcept {
+    return static_cast<int>(etl::bit_width(value));
+}
+
+#if ETL_USING_STL
+using etl::optional;
+#else
+/**
+ * @brief The optional of a toolchain with no C++ standard headers (ETL_NO_STL).
+ *
+ * etl::optional of anything but a fundamental type is constexpr only with the STL, POD structs
+ * included, because it needs std::construct_at, and constexpr designs return one. This holds a value and a flag
+ * instead, so T must be default-constructible and an empty optional still holds a T{}.
+ * value() on an empty optional returns that T{}: there is nothing to throw and no trap on the
+ * tick path, so check has_value() as with any optional.
+ */
+template<typename T>
+class optional {
+    T    value_{};
+    bool engaged_{false};
+
+public:
+    using value_type = T;
+
+    constexpr optional() = default;
+    constexpr optional(nullopt_t) {} // NOLINT(google-explicit-constructor): as std::optional
+
+    template<typename U = T>
+        requires(is_constructible_v<T, U&&> && !is_same_v<remove_cvref_t<U>, optional> && !is_same_v<remove_cvref_t<U>, nullopt_t>)
+    constexpr optional(U&& value) // NOLINT(google-explicit-constructor): as std::optional
+        : value_(static_cast<T>(damp::forward<U>(value))),
+          engaged_(true) {}
+
+    /** @brief From an optional of another type, as std::optional converts. */
+    template<typename U>
+        requires(!is_same_v<U, T> && is_constructible_v<T, const U&>)
+    constexpr optional(const optional<U>& other) { // NOLINT(google-explicit-constructor): as std::optional
+        if (other.has_value()) {
+            value_ = static_cast<T>(*other);
+            engaged_ = true;
+        }
+    }
+
+    [[nodiscard]] constexpr bool     has_value() const noexcept { return engaged_; }
+    [[nodiscard]] constexpr explicit operator bool() const noexcept { return engaged_; }
+
+    [[nodiscard]] constexpr T&       value() noexcept { return value_; }
+    [[nodiscard]] constexpr const T& value() const noexcept { return value_; }
+    [[nodiscard]] constexpr T&       operator*() noexcept { return value_; }
+    [[nodiscard]] constexpr const T& operator*() const noexcept { return value_; }
+    [[nodiscard]] constexpr T*       operator->() noexcept { return &value_; }
+    [[nodiscard]] constexpr const T* operator->() const noexcept { return &value_; }
+
+    template<typename U>
+    [[nodiscard]] constexpr T value_or(U&& fallback) const {
+        return engaged_ ? value_ : static_cast<T>(damp::forward<U>(fallback));
+    }
+
+    constexpr void reset() noexcept {
+        value_ = T{};
+        engaged_ = false;
+    }
+
+    template<typename... Args>
+    constexpr T& emplace(Args&&... args) {
+        value_ = T(damp::forward<Args>(args)...);
+        engaged_ = true;
+        return value_;
+    }
+};
+#endif
 
 // ETL only exposes specialized swap overloads (array/pair/tuple/…), not a
 // generic scalar swap. Provide one so LU pivots and friends can damp::swap(float&,
@@ -124,29 +257,64 @@ template<typename T>
 
 #else // stdlib backend (default)
 
-#include <algorithm> // IWYU pragma: export
-#include <array>     // IWYU pragma: export
-#include <optional>  // IWYU pragma: export
-#include <tuple>     // IWYU pragma: export
-#include <utility>   // IWYU pragma: export
+#include <algorithm>        // IWYU pragma: export
+#include <array>            // IWYU pragma: export
+#include <bit>              // IWYU pragma: export
+#include <concepts>         // IWYU pragma: export
+#include <initializer_list> // IWYU pragma: export core language facility
+#include <limits>           // IWYU pragma: export
+#include <optional>         // IWYU pragma: export
+#include <tuple>            // IWYU pragma: export
+#include <type_traits>      // IWYU pragma: export
+#include <utility>          // IWYU pragma: export
 
 namespace damp {
 using std::array;
+using std::bit_cast;
+using std::bit_width;
+using std::bool_constant;
 using std::clamp;
+using std::common_type_t;
+using std::conditional_t;
+using std::constructible_from;
+using std::convertible_to;
+using std::declval;
+using std::false_type;
+using std::floating_point;
 using std::forward;
 using std::get;
 using std::index_sequence;
+using std::integral;
+using std::is_arithmetic_v;
+using std::is_base_of_v;
+using std::is_const_v;
+using std::is_constant_evaluated;
+using std::is_constructible_v;
+using std::is_floating_point_v;
+using std::is_integral_v;
+using std::is_same_v;
+using std::is_signed_v;
+using std::is_unsigned_v;
 using std::make_index_sequence;
+using std::make_signed_t;
 using std::make_tuple;
+using std::make_unsigned_t;
 using std::max;
 using std::min;
 using std::move;
 using std::nullopt;
 using std::nullopt_t;
+using std::numeric_limits;
 using std::optional;
 using std::pair;
+using std::remove_const_t;
+using std::remove_cv_t;
+using std::remove_cvref_t;
+using std::remove_pointer_t;
 using std::swap;
+using std::true_type;
 using std::tuple;
+using std::type_identity_t;
 } // namespace damp
 
 #endif

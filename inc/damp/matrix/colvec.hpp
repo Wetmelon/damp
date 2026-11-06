@@ -10,8 +10,6 @@
  * @brief Column vector type
  */
 
-#include <limits>
-#include <type_traits>
 
 #include "core.hpp"
 #include "damp/backend.hpp"
@@ -84,8 +82,8 @@ struct ColVec : public Matrix<N, 1, T> {
     // `ColVec<3> p = x.block<3, 1>(0, 0);` reads like the matrix expression; any
     // other element type converts explicitly.
     template<MatrixLike V>
-        requires(V::rows() == N && V::cols() == 1 && !std::is_base_of_v<Matrix<N, 1, T>, V>)
-    explicit(!std::is_same_v<typename V::value_type, T>) constexpr ColVec(const V& view) : Matrix<N, 1, T>(view) {}
+        requires(V::rows() == N && V::cols() == 1 && !damp::is_base_of_v<Matrix<N, 1, T>, V>)
+    explicit(!damp::is_same_v<typename V::value_type, T>) constexpr ColVec(const V& view) : Matrix<N, 1, T>(view) {}
 
     template<typename U>
     explicit constexpr ColVec(const ColVec<N, U>& other) : Matrix<N, 1, T>(other) {}
@@ -134,7 +132,7 @@ struct ColVec : public Matrix<N, 1, T> {
      */
     [[nodiscard]] friend constexpr T dot(const ColVec<N, T>& vec1, const ColVec<N, T>& vec2) {
         T result = T{0};
-        for (std::size_t i = 0; i < N; ++i) {
+        for (size_t i = 0; i < N; ++i) {
             result += damp::conj(vec1.data_[i]) * vec2.data_[i];
         }
         return result;
@@ -170,8 +168,8 @@ struct ColVec : public Matrix<N, 1, T> {
         // Under -freciprocal-math x / n is x · (1/n), and 1/n is subnormal (flushed) near max.
         // Scale by ε (an exact power of two), then divide the copy by its own norm, whose
         // reciprocal is normal. Dividing x·ε by n·ε instead lets the compiler cancel ε.
-        if (n > R{0.25} / std::numeric_limits<R>::min()) {
-            const ColVec y = *this * std::numeric_limits<R>::epsilon();
+        if (n > R{0.25} / damp::numeric_limits<R>::min()) {
+            const ColVec y = *this * damp::numeric_limits<R>::epsilon();
             return y / static_cast<T>(y.norm());
         }
         return *this / static_cast<T>(n);
@@ -276,11 +274,11 @@ template<size_t Rows, size_t Cols, typename T, typename U>
 // Deduce ColVec<N, T> from variadic constructor arguments, e.g. ColVec vec{1.0f, 2.0f, 3.0f};
 // Integer literals deduce to double
 template<typename T, typename... Args>
-    requires(std::is_integral_v<T> && (std::is_integral_v<Args> && ...))
+    requires(damp::is_integral_v<T> && (damp::is_integral_v<Args> && ...))
 ColVec(T, Args...) -> ColVec<1 + sizeof...(Args), double>;
 
 template<typename T, typename... Args>
-    requires(!std::is_integral_v<T> || !(std::is_integral_v<Args> && ...))
+    requires(!damp::is_integral_v<T> || !(damp::is_integral_v<Args> && ...))
 ColVec(T, Args...) -> ColVec<1 + sizeof...(Args), T>;
 
 template<typename U, size_t M>

@@ -10,21 +10,17 @@
  * @brief Matrix element traits and tolerances
  */
 
-#include <concepts>
-#include <cstddef>
-#include <limits>
-#include <type_traits>
-
+#include "damp/backend.hpp"
 #include "damp/math/complex.hpp"
 
 namespace damp {
 
 // True if T is damp::complex\<U\> for some U
 template<typename T>
-struct is_complex : std::false_type {};
+struct is_complex : damp::false_type {};
 
 template<typename T>
-struct is_complex<damp::complex<T>> : std::true_type {};
+struct is_complex<damp::complex<T>> : damp::true_type {};
 
 template<typename T>
 inline constexpr bool is_complex_v = is_complex<T>::value;
@@ -39,8 +35,8 @@ inline constexpr bool is_complex_v = is_complex<T>::value;
  * Multi-parameter maps use @c Lut* ; block structure uses views on a flat matrix.
  */
 template<typename T>
-struct is_matrix_element : std::bool_constant<
-                               std::is_same_v<std::remove_const_t<T>, float> || std::is_same_v<std::remove_const_t<T>, double> || is_complex<std::remove_const_t<T>>::value> {};
+struct is_matrix_element : damp::bool_constant<
+                               damp::is_same_v<damp::remove_const_t<T>, float> || damp::is_same_v<damp::remove_const_t<T>, double> || is_complex<damp::remove_const_t<T>>::value> {};
 
 template<typename T>
 inline constexpr bool is_matrix_element_v = is_matrix_element<T>::value;
@@ -61,12 +57,12 @@ using scalar_type_t = typename scalar_type<T>::type;
 
 namespace detail {
 template<typename From, typename To>
-inline constexpr bool converts_exactly_v = std::is_same_v<std::remove_cv_t<From>, std::remove_cv_t<To>>
-                                        || (is_complex_v<std::remove_cv_t<To>> && std::is_same_v<std::remove_cv_t<From>, scalar_type_t<std::remove_cv_t<To>>>);
+inline constexpr bool converts_exactly_v = damp::is_same_v<damp::remove_cv_t<From>, damp::remove_cv_t<To>>
+                                        || (is_complex_v<damp::remove_cv_t<To>> && damp::is_same_v<damp::remove_cv_t<From>, scalar_type_t<damp::remove_cv_t<To>>>);
 
 /** @brief Element type of a mixed operation: the shared type, or the complex one when the other side is its real. */
 template<typename A, typename B>
-using common_element_t = std::conditional_t<is_complex_v<std::remove_cv_t<B>>, std::remove_cv_t<B>, std::remove_cv_t<A>>;
+using common_element_t = damp::conditional_t<is_complex_v<damp::remove_cv_t<B>>, damp::remove_cv_t<B>, damp::remove_cv_t<A>>;
 } // namespace detail
 
 /**
@@ -96,9 +92,9 @@ concept SamePrecision = ConvertsExactly<A, B> || ConvertsExactly<B, A>; // chang
  */
 template<typename M>
 concept MatrixLike = requires(const M& m, size_t i, size_t j) {
-    { M::rows() } -> std::convertible_to<size_t>;
-    { M::cols() } -> std::convertible_to<size_t>;
-    { m(i, j) } -> std::convertible_to<typename M::value_type>;
+    { M::rows() } -> damp::convertible_to<size_t>;
+    { M::cols() } -> damp::convertible_to<size_t>;
+    { m(i, j) } -> damp::convertible_to<typename M::value_type>;
 };
 
 /**
@@ -112,8 +108,8 @@ concept MatrixLikeOf = MatrixLike<M> && (M::rows() == R) && (M::cols() == C);
  * magnitude to build a relative tolerance.
  */
 template<typename T>
-constexpr scalar_type_t<std::remove_const_t<T>> eps() {
-    return std::numeric_limits<scalar_type_t<std::remove_const_t<T>>>::epsilon();
+constexpr scalar_type_t<damp::remove_const_t<T>> eps() {
+    return damp::numeric_limits<scalar_type_t<damp::remove_const_t<T>>>::epsilon();
 }
 
 /**
@@ -122,9 +118,9 @@ constexpr scalar_type_t<std::remove_const_t<T>> eps() {
  * double ~15 decimal digits → 1e-12
  */
 template<typename T>
-constexpr scalar_type_t<std::remove_const_t<T>> default_tol() {
-    using real_t = scalar_type_t<std::remove_const_t<T>>;
-    if constexpr (std::is_same_v<real_t, float>) {
+constexpr scalar_type_t<damp::remove_const_t<T>> default_tol() {
+    using real_t = scalar_type_t<damp::remove_const_t<T>>;
+    if constexpr (damp::is_same_v<real_t, float>) {
         return real_t{1e-6f};
     } else {
         return real_t{1e-12};

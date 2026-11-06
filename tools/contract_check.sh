@@ -5,11 +5,14 @@
 #   sh tools/contract_check.sh freestanding <g++> <stamp>
 #   sh tools/contract_check.sh embedded     <g++> <stamp>
 #   sh tools/contract_check.sh workbench    <g++> <stamp>
+#   sh tools/contract_check.sh nostd        <g++> <stamp>
 #
 # freestanding: control.hpp must compile under ETL + freestanding math, with a constexpr
-#               design and its tick instantiated; no damp/ header reachable from it may
-#               unconditionally #include <hosted-std>.
+#               design and its tick instantiated.
 # embedded:     default (stdlib) control.hpp must not pull <vector>.
+# nostd:        checks/nostd/nostd_check.cpp must build and run with no C++ standard
+#               headers at all (-nostdinc++, ETL_NO_STL): a constexpr design and its tick. An
+#               unguarded hosted #include anywhere in the core fails it.
 set -e
 
 mode=$1
@@ -17,7 +20,7 @@ GXX=$2
 OUT=$3
 
 if [ -z "$mode" ] || [ -z "$GXX" ] || [ -z "$OUT" ]; then
-    echo "usage: contract_check.sh <freestanding|embedded|workbench> <g++> <stamp>" >&2
+    echo "usage: contract_check.sh <freestanding|embedded|workbench|nostd> <g++> <stamp>" >&2
     exit 2
 fi
 
@@ -60,40 +63,8 @@ freestanding)
         exit 1
     fi
 
-    deps=$("$GXX" -std=c++20 -Iinc -Ilibs/etl/include -M "$probe" 2>/dev/null \
-        | tr ' \\' '\n' \
-        | grep -E 'inc[/\\]damp[/\\].*\.hpp' \
-        | sort -u) || true
-
-    rm -f "${probe}.bad"
-    # shellcheck disable=SC2086
-    for f in $deps; do
-        case "$f" in
-            *[/\\]backend.hpp) continue ;;
-        esac
-        [ -f "$f" ] || continue
-
-        hits=$(grep -nE '#include[[:space:]]*<(cmath|algorithm|vector|string|numbers|optional|tuple|memory|functional|complex|valarray|array|span|iostream|sstream|map|set|deque|list)>' "$f" 2>/dev/null || true)
-        [ -z "$hits" ] && continue
-
-        echo "$hits" | while IFS= read -r line; do
-            h=$(printf '%s\n' "$line" | sed -n 's/.*#include[[:space:]]*<\([^>]*\)>.*/\1/p')
-            [ -n "$h" ] || continue
-            if ! grep -q "__has_include(<${h}>)" "$f" 2>/dev/null; then
-                echo "  LEAK: $f unconditionally includes <$h>" >&2
-                echo 1 >"${probe}.bad"
-            fi
-        done
-    done
-
-    if [ -f "${probe}.bad" ]; then
-        rm -f "$probe" "${probe}.log" "${probe}.bad"
-        echo "freestanding-check FAILED: hosted headers reachable from damp/control.hpp" >&2
-        exit 1
-    fi
-
-    rm -f "$probe" "${probe}.log" "${probe}.bad"
-    echo "freestanding-check OK: damp/control.hpp is freestanding-clean (ETL + series math)"
+    rm -f "$probe" "${probe}.log"
+    echo "freestanding-check OK: a design and its tick compile on ETL + series math"
     echo ok >"$OUT"
     ;;
 
@@ -123,6 +94,27 @@ workbench)
 
     rm -f "$probe" "${probe}.log"
     echo "workbench-check OK: damp/workbench.hpp is a self-contained host umbrella"
+    echo ok >"$OUT"
+    ;;
+
+nostd)
+    exe="${probe%.cpp}.exe"
+    if ! "$GXX" -std=c++20 -nostdinc++ -fno-exceptions -fno-rtti -Iinc -Ilibs/etl/include \
+        checks/nostd/nostd_check.cpp -o "$exe" 2>"${probe}.log"; then
+        cat "${probe}.log" >&2
+        rm -f "$exe" "${probe}.log"
+        echo "nostd-check FAILED: the core, a design or its tick need a C++ standard header" >&2
+        exit 1
+    fi
+
+    if ! "$exe"; then
+        rm -f "$exe" "${probe}.log"
+        echo "nostd-check FAILED: the tick gave a wrong answer with no C++ standard headers" >&2
+        exit 1
+    fi
+
+    rm -f "$exe" "${probe}.log"
+    echo "nostd-check OK: a constexpr design and its tick run with no C++ standard headers"
     echo ok >"$OUT"
     ;;
 

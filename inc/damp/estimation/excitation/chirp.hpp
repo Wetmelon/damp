@@ -10,9 +10,6 @@
  * @brief Chirp excitation — design payload and runtime generator
  */
 
-#include <cstddef>
-#include <cstdint>
-#include <type_traits>
 
 #include "damp/backend.hpp"
 #include "damp/math/math.hpp"
@@ -24,7 +21,7 @@ namespace design {
 /**
  * @brief Chirp sweep law.
  */
-enum class ChirpMode : std::uint8_t {
+enum class ChirpMode : uint8_t {
     Linear, ///< Frequency increases linearly in time.
     Log,    ///< Frequency increases exponentially (constant ratio per unit time).
 };
@@ -144,7 +141,7 @@ public:
 
     /** @brief From a design result in another scalar: converts it with .as\<T\>() and builds from that. */
     template<typename U>
-        requires(!std::is_same_v<U, T>)
+        requires(!damp::is_same_v<U, T>)
     constexpr Chirp(const design::ChirpResult<U>& result) // NOLINT(google-explicit-constructor): assign-from-design
         : Chirp(result.template as<T>()) {}
 
@@ -154,7 +151,7 @@ public:
      */
     constexpr Chirp(const design::ChirpResult<T>& design) // NOLINT(google-explicit-constructor): assign-from-design
         : config_(design.config), Ts_(design.Ts), valid_(design.success) {
-        if (!design.success && std::is_constant_evaluated()) {
+        if (!design.success && damp::is_constant_evaluated()) {
             ::damp::detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
     }
@@ -245,9 +242,9 @@ private:
 
     design::ChirpConfig<T> config_{};
 
-    T           Ts_{T{0}};
-    std::size_t k_{0}; ///< Samples emitted by step()
-    bool        valid_{false};
+    T      Ts_{T{0}};
+    size_t k_{0}; ///< Samples emitted by step()
+    bool   valid_{false};
 };
 
 /** @brief Deduce the runtime from its design, keeping the result's scalar. */

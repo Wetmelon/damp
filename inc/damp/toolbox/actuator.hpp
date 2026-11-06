@@ -63,7 +63,6 @@
  * @see damp/toolbox/scaling.hpp for the affine-calibration primitives this builds on.
  */
 
-#include <cstddef>
 
 #include "damp/backend.hpp"
 #include "damp/math/math.hpp"

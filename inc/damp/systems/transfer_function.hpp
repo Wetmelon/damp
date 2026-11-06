@@ -21,8 +21,6 @@
  * @see TransferFunction::to_state_space, systems/state_space.hpp, systems/zpk.hpp
  */
 
-#include <cstddef>
-#include <type_traits>
 
 #include "damp/backend.hpp"
 #include "damp/math/math.hpp"
@@ -81,9 +79,9 @@ template<size_t N, typename T>
 } // namespace tf_detail
 
 template<typename TNum, typename TDen>
-using transfer_function_scalar_t = std::conditional_t<
-    std::is_floating_point_v<std::common_type_t<TNum, TDen>>,
-    std::common_type_t<TNum, TDen>,
+using transfer_function_scalar_t = damp::conditional_t<
+    damp::is_floating_point_v<damp::common_type_t<TNum, TDen>>,
+    damp::common_type_t<TNum, TDen>,
     double>;
 
 /**
@@ -98,7 +96,7 @@ using transfer_function_scalar_t = std::conditional_t<
  * @tparam T    Scalar type (default double)
  */
 template<size_t Nnum, size_t Nden, typename T = double>
-    requires std::is_floating_point_v<T>
+    requires damp::is_floating_point_v<T>
 struct TransferFunction {
     damp::array<T, Nnum> num{}; ///< Numerator coefficients, highest power of s first
     damp::array<T, Nden> den{}; ///< Denominator coefficients, highest power of s first

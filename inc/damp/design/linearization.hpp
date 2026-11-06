@@ -28,8 +28,7 @@
  * Primary API: @c damp::design::linearize (same pattern as @c design::pid, @c design::place).
  */
 
-#include <cstddef>
-
+#include "damp/backend.hpp"
 #include "damp/concepts.hpp"
 #include "damp/design/status.hpp"
 #include "damp/matrix/matrix.hpp"

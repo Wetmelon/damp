@@ -16,9 +16,7 @@
  * feedforward from a planned trajectory: control([r,] x_ref, u_ref), step([r,] x_ref, u_ref, y).
  */
 
-#include <cstddef>
-#include <type_traits>
-
+#include "damp/backend.hpp"
 #include "damp/controllers/state_feedback_core.hpp"
 #include "damp/design/riccati.hpp"
 #include "damp/design/status.hpp"
@@ -51,7 +49,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
 [[nodiscard]] constexpr auto lqg(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
-    std::type_identity_t<T>                  Ts,
+    damp::type_identity_t<T>                 Ts,
     const LQRWeights<NX, NU, 0, T>&          weights,
     const KalmanNoise<NW, NV, T>&            noise
 ) {
@@ -81,7 +79,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NZ>
 [[nodiscard]] constexpr auto lqg(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
-    std::type_identity_t<T>                  Ts,
+    damp::type_identity_t<T>                 Ts,
     const LQRWeights<NX, NU, 0, T>&          weights,
     const KalmanNoise<NW, NV, T>&            noise,
     const TrackedOutputs<NZ>&                outputs
@@ -106,7 +104,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size
  * @return The LQG design: deploy with `LQG law{res}`
  */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Reg>
-    requires std::is_same_v<Reg, StateFeedbackResult<NX, NU, T>> || std::is_same_v<Reg, LQRResult<NX, NU, T>>
+    requires damp::is_same_v<Reg, StateFeedbackResult<NX, NU, T>> || damp::is_same_v<Reg, LQRResult<NX, NU, T>>
 [[nodiscard]] constexpr StateFeedbackResult<NX, NU, T, 0, NY, KalmanResult<NX, NU, NY, T, NW, NV>> lqg_from_parts(
     const KalmanResult<NX, NU, NY, T, NW, NV>& kest,
     const Reg&                                 reg
@@ -147,7 +145,7 @@ struct LQG : private detail::StateFeedbackCore<NX, NU, T, 0, NY, Est, NZ> {
     /** @brief From design::lqg or lqg_from_parts (any scalar). */
     template<size_t NXR, size_t NUR, typename U, size_t NIR, size_t NYR, typename Kalman, size_t NZR>
     constexpr LQG(const design::StateFeedbackResult<NXR, NUR, U, NIR, NYR, Kalman, NZR>& result) { // NOLINT
-        constexpr bool kind = NIR == 0 && design::StateFeedbackResult<NXR, NUR, U, NIR, NYR, Kalman, NZR>::ND == 0 && !std::is_same_v<Kalman, NoEstimator>;
+        constexpr bool kind = NIR == 0 && design::StateFeedbackResult<NXR, NUR, U, NIR, NYR, Kalman, NZR>::ND == 0 && !damp::is_same_v<Kalman, NoEstimator>;
         static_assert(kind, "LQG runs design::lqg: this design has no Kalman filter (LQR, LQI), integral action (LQGI) or a disturbance model (OFLQG).");
         if constexpr (kind) {
             static_cast<Core&>(*this) = Core(result);
@@ -234,7 +232,7 @@ namespace detail {
 
 /** @brief An LQ design with a filter and no integrators or disturbance model runs as LQG (with its tracked outputs, NZ > 0). */
 template<size_t NX, size_t NU, typename U, size_t NY, typename Kalman, size_t NZ, typename T>
-    requires(!std::is_same_v<Kalman, NoEstimator> && design::StateFeedbackResult<NX, NU, U, 0, NY, Kalman, NZ>::ND == 0)
+    requires(!damp::is_same_v<Kalman, NoEstimator> && design::StateFeedbackResult<NX, NU, U, 0, NY, Kalman, NZ>::ND == 0)
 struct lq_runtime<design::StateFeedbackResult<NX, NU, U, 0, NY, Kalman, NZ>, T> {
     using type = LQG<NX, NU, NY, T, runtime_estimator_t<Kalman, T>, NZ>; ///< LQG
 };

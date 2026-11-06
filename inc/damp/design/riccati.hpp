@@ -14,9 +14,6 @@
  * controllers/) solve through these.
  */
 
-#include <cstddef>
-#include <cstdint>
-#include <limits>
 
 #include "damp/backend.hpp"
 #include "damp/design/lyapunov.hpp"
@@ -370,7 +367,7 @@ template<size_t NX, size_t NU, typename T = double>
     const T           tol = default_tol<T>(); // relative to ‖X‖ (see dare_sda)
     const int         max_iter = 500;
     // Type-safe ceiling: float cannot represent 1e150 (narrowing under -Wnarrowing).
-    const T guard = std::numeric_limits<T>::max() / T{100};
+    const T guard = damp::numeric_limits<T>::max() / T{100};
 
     for (int iter = 0; iter < max_iter; ++iter) {
         const Matrix BtX = B.t() * X;
@@ -547,7 +544,7 @@ constexpr bool swap_schur_blocks(Matrix<M, M, T>& Tm, Matrix<M, M, T>& Z, size_t
                 wmax = damp::max(wmax, damp::abs(W(r, c)));
             }
         }
-        const T         tau = damp::max(T{10} * static_cast<T>(S) * eps<T>() * wmax, std::numeric_limits<T>::min());
+        const T         tau = damp::max(T{10} * static_cast<T>(S) * eps<T>() * wmax, damp::numeric_limits<T>::min());
         Matrix<S, S, T> Ws = G.transpose() * W * G;
         for (size_t r = Q; r < S; ++r) {
             for (size_t c = 0; c < Q; ++c) {
@@ -1111,7 +1108,7 @@ template<size_t N, typename T>
 template<size_t N, typename T>
 [[nodiscard]] constexpr bool is_psd(const Matrix<N, N, T>& M, T scale) {
     //! Above cholesky's pivot floor (16·(i+1)·eps of the pivot's terms, i < N), so a shifted zero pivot clears it.
-    const T shift = (static_cast<T>(N) * T{256} * eps<T>() * scale) + std::numeric_limits<T>::min();
+    const T shift = (static_cast<T>(N) * T{256} * eps<T>() * scale) + damp::numeric_limits<T>::min();
     return mat::cholesky(M + Matrix<N, N, T>::identity() * shift).has_value();
 }
 
@@ -1420,7 +1417,7 @@ template<size_t N, typename T>
         return damp::nullopt;
     }
     //! a is finite, so it reaches ½ within max_exponent + 1 halvings.
-    constexpr int max_halvings = std::numeric_limits<T>::max_exponent + 1;
+    constexpr int max_halvings = damp::numeric_limits<T>::max_exponent + 1;
     int           s = 0;
     T             h = Ts;
     while (a > T{0.5} && s < max_halvings) {

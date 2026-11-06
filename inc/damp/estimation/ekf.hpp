@@ -18,9 +18,7 @@
  * @see "Optimal State Estimation" (Simon, 2006), §13.2.3
  */
 
-#include <cstddef>
-#include <type_traits>
-
+#include "damp/backend.hpp"
 #include "damp/concepts.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "damp/systems/dynamics.hpp"
@@ -167,7 +165,7 @@ struct ExtendedKalmanFilter {
      */
     template<typename H, size_t NY>
         requires Measurement<H, NX, NU, NY, T>
-    [[nodiscard]] constexpr bool update(const H& h, const ColVec<NY, T>& y, const std::type_identity_t<Matrix<NY, NY, T>>& R) {
+    [[nodiscard]] constexpr bool update(const H& h, const ColVec<NY, T>& y, const damp::type_identity_t<Matrix<NY, NY, T>>& R) {
         const Matrix<NY, NX, T> C = detail::measurement_state_jacobian<NX, NU, NY, T>(h, x, u_, detail::default_jacobian_step<T>());
         const ColVec<NY, T>     nu = y - h(x, u_);
         // S = CPCᵀ + R with exact symmetry on the propagated term

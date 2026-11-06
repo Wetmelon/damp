@@ -11,9 +11,6 @@
  *        pow, sin/cos, sinh/cosh)
  */
 
-#include <cstdint>
-#include <limits>
-#include <type_traits>
 
 #include "core.hpp"
 #include "damp/backend.hpp"
@@ -106,7 +103,7 @@ template<typename T, size_t N>
 template<typename T, size_t N>
 [[nodiscard]] constexpr scalar_type_t<T> two_norm(const Matrix<N, N, T>& A) {
     const auto s = svd(A);
-    return s.success ? s.singular_values[0] : std::numeric_limits<scalar_type_t<T>>::quiet_NaN();
+    return s.success ? s.singular_values[0] : damp::numeric_limits<scalar_type_t<T>>::quiet_NaN();
 }
 
 namespace detail {
@@ -263,7 +260,7 @@ template<typename T>
 // Unit roundoff u = 2^{-digits}: 2^{-53} for double, 2^{-24} for float.
 template<typename T>
 [[nodiscard]] constexpr T expm_log2_u() {
-    return -static_cast<T>(std::numeric_limits<T>::digits);
+    return -static_cast<T>(damp::numeric_limits<T>::digits);
 }
 
 // log2(c_m) for the coefficients in Higham 2005, (2.2) and (2.6). The 2009
@@ -309,7 +306,7 @@ template<typename T>
     T v = T{1};
     for (size_t i = 0; i < e; ++i) {
         if (!damp::isfinite(v * T{2})) {
-            return std::numeric_limits<T>::max();
+            return damp::numeric_limits<T>::max();
         }
         v *= T{2};
     }
@@ -417,7 +414,7 @@ template<typename T, size_t N>
     const Matrix<N, N, T> B8 = B6 * B2;
     const Matrix<N, N, T> B10 = B8 * B2;
     const real_t          two_e = expm_pow2<real_t>(e);
-    const real_t          cap = std::numeric_limits<real_t>::max();
+    const real_t          cap = damp::numeric_limits<real_t>::max();
     const auto            lift = [two_e, cap](const Matrix<N, N, T>& M, int k) {
         const real_t root = expm_root(one_norm(M), k) * two_e;
         return damp::isfinite(root) ? root : cap;
@@ -907,7 +904,7 @@ template<typename T, size_t N>
     using real_t = scalar_type_t<T>;
     Matrix<N, N, T> Y = A;
     Matrix<N, N, T> Z = Matrix<N, N, T>::identity();
-    real_t          prev_diff = std::numeric_limits<real_t>::max();
+    real_t          prev_diff = damp::numeric_limits<real_t>::max();
 
     for (int iter = 0; iter < 50; ++iter) {
         // Inverse is the deliverable of each Denman–Beavers half-step.
@@ -984,7 +981,7 @@ template<typename T, size_t N>
  */
 template<typename T, size_t N>
 [[nodiscard]] constexpr damp::optional<Matrix<N, N, T>> sqrt(const Matrix<N, N, T>& A) {
-    if constexpr (std::is_floating_point_v<T>) {
+    if constexpr (damp::is_floating_point_v<T>) {
         return detail::sqrtm_real_schur(A);
     } else {
         return detail::sqrtm_denman_beavers(A);
@@ -1050,7 +1047,7 @@ template<typename T, size_t N>
     // Real A: when roots are needed, take the real Schur form of the balanced matrix once and
     // run the roots and the series on its quasi-triangular factor, log(A) = D·Z·log(T)·Zᵀ·D⁻¹.
     // A near-identity A skips the rotation, which would mix eps·I into its small entries.
-    constexpr bool                   schur = std::is_floating_point_v<T> && N > 1;
+    constexpr bool                   schur = damp::is_floating_point_v<T> && N > 1;
     [[maybe_unused]] Matrix<N, N, T> Z_schur = I;
     if constexpr (schur) {
         if (infinity_norm(A_scaled - I) > T{0.5}) {
@@ -1129,18 +1126,18 @@ template<typename T, size_t N>
  * @return Aᵖ, or damp::nullopt if p < 0 and A is singular
  */
 template<typename T, size_t N, typename I>
-    requires std::is_integral_v<I>
+    requires damp::is_integral_v<I>
 [[nodiscard]] constexpr damp::optional<Matrix<N, N, T>> pow(const Matrix<N, N, T>& A, I p) {
     if (p == I{0}) {
         return Matrix<N, N, T>::identity();
     }
 
     bool negate = false;
-    if constexpr (std::is_signed_v<I>) {
+    if constexpr (damp::is_signed_v<I>) {
         negate = p < I{0};
     }
     // Magnitude in unsigned arithmetic: −min() overflows a signed type.
-    std::uintmax_t e = negate ? (std::uintmax_t{0} - static_cast<std::uintmax_t>(p)) : static_cast<std::uintmax_t>(p);
+    uintmax_t e = negate ? (uintmax_t{0} - static_cast<uintmax_t>(p)) : static_cast<uintmax_t>(p);
 
     Matrix<N, N, T> base = A;
     if (negate) {
@@ -1181,11 +1178,11 @@ template<typename T, size_t N, typename I>
  * @return Aᵖ, or damp::nullopt if @ref log or @ref expm fails (or integer inverse fails)
  */
 template<typename T, size_t N>
-[[nodiscard]] constexpr damp::optional<Matrix<N, N, T>> pow(const Matrix<N, N, T>& A, std::type_identity_t<scalar_type_t<T>> p) {
+[[nodiscard]] constexpr damp::optional<Matrix<N, N, T>> pow(const Matrix<N, N, T>& A, damp::type_identity_t<scalar_type_t<T>> p) {
     using R = scalar_type_t<T>;
     // Integer case (constexpr-safe, no std::modf). Casting an out-of-range
     // value to int is UB, so only exponents inside int's range take this path.
-    constexpr R int_limit = static_cast<R>(std::numeric_limits<int>::max() / 2);
+    constexpr R int_limit = static_cast<R>(damp::numeric_limits<int>::max() / 2);
     if (damp::abs(p) < int_limit) {
         const R nearest = damp::floor(p + static_cast<R>(0.5));
         if (damp::abs(p - nearest) < default_tol<R>()) {
@@ -1215,7 +1212,7 @@ template<typename T, size_t N>
     if (!damp::isfinite(nrm)) {
         return 0;
     }
-    constexpr size_t cap = static_cast<size_t>(std::numeric_limits<real_t>::max_exponent) + 1;
+    constexpr size_t cap = static_cast<size_t>(damp::numeric_limits<real_t>::max_exponent) + 1;
     size_t           s = 0;
     while (nrm > real_t{0.5} && s < cap) {
         nrm *= real_t{0.5};

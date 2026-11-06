@@ -45,8 +45,6 @@
  * @note Compare with MATLAB®'s ss, series, parallel, feedback, lft, and * / + operators.
  */
 
-#include <cstddef>
-#include <type_traits>
 
 #include "damp/backend.hpp"
 #include "damp/math/complex.hpp"
@@ -135,7 +133,7 @@ template<size_t R, size_t K, size_t C, typename T>
  * @tparam NV Number of measurement noise inputs (cols of H); default 0
  */
 template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, size_t NV = 0>
-    requires std::is_floating_point_v<T>
+    requires damp::is_floating_point_v<T>
 struct StateSpace {
     Matrix<NX, NX, T> A{}; ///< State dynamics matrix
     Matrix<NX, NU, T> B{}; ///< Control input matrix
@@ -644,8 +642,8 @@ template<
  */
 template<typename T = double>
 struct SsFeed {
-    std::size_t iy{};    ///< Output index (0-based)
-    T           k{T{1}}; ///< Weight on that output
+    size_t iy{};    ///< Output index (0-based)
+    T      k{T{1}}; ///< Weight on that output
 };
 
 /**
@@ -669,8 +667,8 @@ template<typename T = double>
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
 [[nodiscard]] constexpr damp::optional<StateSpace<NX, 1, 1, T, NW, NV>> select(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
-    std::size_t                              iy,
-    std::size_t                              iu
+    size_t                                   iy,
+    size_t                                   iu
 ) {
     if (iy >= NY || iu >= NU) {
         return damp::nullopt;
@@ -710,7 +708,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NF>
 [[nodiscard]] constexpr damp::optional<StateSpace<NX, 1, NY, T, NW, NV>> mix(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
-    std::size_t                              iu,
+    size_t                                   iu,
     T                                        path_gain,
     const damp::array<SsFeed<T>, NF>&        feeds
 ) {
@@ -774,7 +772,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
 [[nodiscard]] constexpr auto mix(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
-    std::size_t                              iu,
+    size_t                                   iu,
     T                                        path_gain = T{1}
 ) {
     return mix(sys, iu, path_gain, damp::array<SsFeed<T>, 0>{});

@@ -11,9 +11,6 @@
  *        the discrete model a design is on
  */
 
-#include <cstddef>
-#include <cstdint>
-#include <type_traits>
 
 #include "damp/backend.hpp"
 #include "damp/design/status.hpp"
@@ -77,7 +74,7 @@ struct NoAppliedRecord {};
  * @brief Which optional member an Off stands in for. Two `[[no_unique_address]]` empty members of
  *        one object must have distinct types, so each slot is used at most once per object.
  */
-enum class OffSlot : std::uint8_t {
+enum class OffSlot : uint8_t {
     target,          ///< StateFeedbackCore::target (NZ = 0)
     integral,        ///< StateFeedbackCore::integral (NI = 0)
     design_integral, ///< StateFeedbackResult::integral (NI = 0)
@@ -100,7 +97,7 @@ struct Off {};
  * Alias the result (`using HeldY = maybe<…>`) so the member declaration is the short name.
  */
 template<bool present, typename Feature, OffSlot slot>
-using maybe = std::conditional_t<present, Feature, Off<slot>>;
+using maybe = damp::conditional_t<present, Feature, Off<slot>>;
 
 /** @brief The law's state [x; xi] from the state @p x and the integrators @p tail. */
 template<size_t NX, size_t NI, typename T>

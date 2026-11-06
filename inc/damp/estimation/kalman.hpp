@@ -30,8 +30,6 @@
  * @endcode
  */
 
-#include <cstddef>
-#include <type_traits>
 
 #include "damp/backend.hpp"
 #include "damp/controllers/law_detail.hpp"
@@ -390,7 +388,7 @@ consteval bool kalman_disturbance_ok() {
         return false;
     } else if constexpr (requires(const Disturbance& d) { d.Bd; }) {
         constexpr size_t NZ = disturbance_traits<Disturbance, NU, NY, NW>::listed;
-        return std::is_same_v<Disturbance, DisturbanceModel<NX, NY, ND, NZ, T>>;
+        return damp::is_same_v<Disturbance, DisturbanceModel<NX, NY, ND, NZ, T>>;
     } else {
         return true;
     }
@@ -405,7 +403,7 @@ consteval void reject_kalman_disturbance() {
     } else if constexpr (requires(const Disturbance& d) { d.Bd; }) {
         constexpr size_t NZ = disturbance_traits<Disturbance, NU, NY, NW>::listed;
         static_assert(
-            std::is_same_v<Disturbance, DisturbanceModel<NX, NY, ND, NZ, T>>,
+            damp::is_same_v<Disturbance, DisturbanceModel<NX, NY, ND, NZ, T>>,
             "The DisturbanceModel is on the plant's states and outputs, in the plant's scalar."
         );
     }
@@ -518,11 +516,11 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
  * @return KalmanResult on [x; d]: steady-state gains L and M, error covariance P and status
  */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Disturbance, size_t ND = detail::disturbance_traits<Disturbance, NU, NY, NW>::states>
-    requires(detail::is_disturbance<Disturbance>::value && !std::is_same_v<Disturbance, NoDisturbance>)
+    requires(detail::is_disturbance<Disturbance>::value && !damp::is_same_v<Disturbance, NoDisturbance>)
 [[nodiscard]] constexpr auto kalman(
-    const StateSpace<NX, NU, NY, T, NW, NV>&                sys,
-    const std::type_identity_t<KalmanNoise<NW, NV, T, ND>>& noise,
-    const Disturbance&                                      disturbance
+    const StateSpace<NX, NU, NY, T, NW, NV>&                 sys,
+    const damp::type_identity_t<KalmanNoise<NW, NV, T, ND>>& noise,
+    const Disturbance&                                       disturbance
 ) {
     return detail::kalman_with_disturbance<true>(sys, T{0}, noise, disturbance);
 }
@@ -564,7 +562,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
 [[nodiscard]] constexpr auto kalman(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
-    std::type_identity_t<T>                  Ts,
+    damp::type_identity_t<T>                 Ts,
     const KalmanNoise<NW, NV, T>&            noise
 ) {
     return detail::kalman_design<false>(sys, Ts, noise, NoDisturbance{});
@@ -592,12 +590,12 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
  * @return KalmanResult on the discretized augment [x; d] (G = I), with L, M, P and status
  */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Disturbance, size_t ND = detail::disturbance_traits<Disturbance, NU, NY, NW>::states>
-    requires(detail::is_disturbance<Disturbance>::value && !std::is_same_v<Disturbance, NoDisturbance>)
+    requires(detail::is_disturbance<Disturbance>::value && !damp::is_same_v<Disturbance, NoDisturbance>)
 [[nodiscard]] constexpr auto kalman(
-    const StateSpace<NX, NU, NY, T, NW, NV>&                sys,
-    std::type_identity_t<T>                                 Ts,
-    const std::type_identity_t<KalmanNoise<NW, NV, T, ND>>& noise,
-    const Disturbance&                                      disturbance
+    const StateSpace<NX, NU, NY, T, NW, NV>&                 sys,
+    damp::type_identity_t<T>                                 Ts,
+    const damp::type_identity_t<KalmanNoise<NW, NV, T, ND>>& noise,
+    const Disturbance&                                       disturbance
 ) {
     return detail::kalman_with_disturbance<false>(sys, Ts, noise, disturbance);
 }
@@ -676,7 +674,7 @@ struct KalmanFilter {
     template<typename U, size_t ND>
     constexpr KalmanFilter(const design::KalmanResult<NX, NU, NY, U, NW, NV, ND>& result) // NOLINT(google-explicit-constructor): assign-from-design
         : sys(result.sys.template as<T>()), P_(result.success ? result.P.template as<T>() : Matrix<NX, NX, T>::identity()), Q_(result.Q.template as<T>()), R_(result.R.template as<T>()) {
-        if (!result.success && std::is_constant_evaluated()) {
+        if (!result.success && damp::is_constant_evaluated()) {
             ::damp::detail::refuse_failed_design(result.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
     }
@@ -688,7 +686,7 @@ struct KalmanFilter {
      */
     constexpr KalmanFilter(const StateSpace<NX, NU, NY, T, NW, NV>& model, const KalmanFilterConfig<NX, NU, NY, T, NW, NV>& config)
         : sys(model), x(config.x0), P_(config.P0), Q_(config.Q), R_(config.R) {
-        if (!damp::finite_positive(model.Ts) && std::is_constant_evaluated()) {
+        if (!damp::finite_positive(model.Ts) && damp::is_constant_evaluated()) {
             ::damp::detail::refuse_failed_design(design::DesignStatus::invalid_sample_time); // constant-evaluated: A is not a transition matrix
         }
     }
@@ -724,7 +722,7 @@ struct KalmanFilter {
      * @return false if S = C P Cᵀ + R is not positive definite: the estimate and P are unchanged
      */
     template<size_t NY2>
-    [[nodiscard]] constexpr bool update(const ColVec<NY2, T>& y, const Matrix<NY2, NX, T>& C, const std::type_identity_t<Matrix<NY2, NY2, T>>& R) {
+    [[nodiscard]] constexpr bool update(const ColVec<NY2, T>& y, const Matrix<NY2, NX, T>& C, const damp::type_identity_t<Matrix<NY2, NY2, T>>& R) {
         return correct(ColVec<NY2, T>(y - (C * x)), C, R);
     }
 
@@ -740,10 +738,10 @@ struct KalmanFilter {
      */
     template<size_t NY2>
     [[nodiscard]] constexpr bool update(
-        const ColVec<NY2, T>&                            y,
-        const Matrix<NY2, NX, T>&                        C,
-        const Matrix<NY2, NU, T>&                        D,
-        const std::type_identity_t<Matrix<NY2, NY2, T>>& R
+        const ColVec<NY2, T>&                             y,
+        const Matrix<NY2, NX, T>&                         C,
+        const Matrix<NY2, NU, T>&                         D,
+        const damp::type_identity_t<Matrix<NY2, NY2, T>>& R
     ) {
         return correct(ColVec<NY2, T>(y - ((C * x) + (D * u_prev_))), C, R);
     }

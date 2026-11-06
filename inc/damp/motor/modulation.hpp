@@ -47,8 +47,6 @@
  *      Principles and Practice," IEEE Press / Wiley, 2003, ch. 5–6.
  */
 
-#include <cstddef>
-#include <cstdint>
 
 #include "damp/backend.hpp"
 #include "damp/math/math.hpp"
@@ -76,7 +74,7 @@ namespace damp::motor {
  * @see Hava et al., IEEE T-PEL 14(1), 1999 (CPWM/DPWM taxonomy)
  * @see Hava et al., IEEE T-IA 34(5), 1998 (DPWM0–3 / GDPWM)
  */
-enum class PwmScheme : std::uint8_t {
+enum class PwmScheme : uint8_t {
     Spwm,    ///< Sinusoidal PWM — zero-sequence v₀ = 0
     Svpwm,   ///< Continuous SVPWM — min-max centering
     Thipwm,  ///< Third-harmonic injection v₀ = −(V/6) cos 3θ

@@ -26,8 +26,6 @@
  * @see "Quaternion kinematics for the error-state Kalman filter" (Solà, 2017)
  */
 
-#include <cstddef>
-#include <type_traits>
 
 #include "damp/backend.hpp"
 #include "damp/math/geometry.hpp"
@@ -414,7 +412,7 @@ public:
     template<typename U>
     constexpr ESKFOrientationFilter(const design::ESKFResult<kNdx, kNy, U>& design) // NOLINT(google-explicit-constructor): assign-from-design
         : eskf_(design), R_(design.R.template as<T>()), q_nom_(Quaternion<T>::identity()), b_g_nom_{} {
-        if (!design.success && std::is_constant_evaluated()) {
+        if (!design.success && damp::is_constant_evaluated()) {
             ::damp::detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
     }

@@ -19,7 +19,6 @@
  * status: a small residual is necessary, not sufficient, for a usable gain.
  */
 
-#include <cstdint>
 
 #include "damp/backend.hpp"
 
@@ -32,7 +31,7 @@ namespace design {
  * Estimator designs solve the dual Riccati equation, so a dual that cannot be stabilized is
  * reported as @c not_detectable: (A, C) is what to change.
  */
-enum class DesignStatus : std::uint8_t {
+enum class DesignStatus : uint8_t {
     ok = 0,              ///< This design's checks passed (not a robustness certificate)
     not_stabilizable,    ///< (A, B) fails PBH, or the closed-loop poles fail this design's Hurwitz/Schur test
     not_detectable,      ///< (A, C) cannot be detected (estimator designs, through the dual)

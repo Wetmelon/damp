@@ -10,9 +10,6 @@
  * @brief IEC 61131-3 function-block style helpers
  */
 
-#include <cstddef>
-#include <cstdint>
-#include <limits>
 
 #include "damp/backend.hpp"
 #include "damp/toolbox/timing.hpp" // detail::timer_advance / timer_reached
@@ -327,7 +324,7 @@ public:
     constexpr bool operator()(bool CU_input, bool R) {
         if (R) {
             CV = 0;
-        } else if (CU_input && !CU && CV < std::numeric_limits<T>::max()) {
+        } else if (CU_input && !CU && CV < damp::numeric_limits<T>::max()) {
             ++CV; // rising edge on CU, saturating at the type max (no overflow)
         }
         CU = CU_input;
@@ -418,7 +415,7 @@ public:
         } else if (!(cu_edge && cd_edge)) {
             // Per IEC, simultaneous up/down edges cancel (do nothing); otherwise
             // up takes priority (ELSIF), each saturating at its limit (no wrap).
-            if (cu_edge && CV < std::numeric_limits<T>::max()) {
+            if (cu_edge && CV < damp::numeric_limits<T>::max()) {
                 ++CV;
             } else if (cd_edge && CV > 0) {
                 --CV;

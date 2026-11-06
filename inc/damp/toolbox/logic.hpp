@@ -24,8 +24,7 @@
  * @see toolbox/conditioning.hpp for the analog signal-shaping siblings.
  */
 
-#include <limits>
-
+#include "damp/backend.hpp"
 #include "damp/toolbox/timing.hpp" // detail::timer_advance
 
 namespace damp {
@@ -276,10 +275,10 @@ public:
     constexpr explicit Counter(T initial) : count_(initial) {}
 
     constexpr T operator()(bool up, bool down) {
-        if (up && !prev_up_ && count_ < std::numeric_limits<T>::max()) {
+        if (up && !prev_up_ && count_ < damp::numeric_limits<T>::max()) {
             ++count_;
         }
-        if (down && !prev_down_ && count_ > std::numeric_limits<T>::lowest()) {
+        if (down && !prev_down_ && count_ > damp::numeric_limits<T>::lowest()) {
             --count_;
         }
         prev_up_ = up;

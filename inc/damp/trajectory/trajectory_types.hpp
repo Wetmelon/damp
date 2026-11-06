@@ -24,9 +24,6 @@
  * `damp/trajectory/scurve.hpp`) — each one already pulls this in.
  */
 
-#include <cstddef>
-#include <limits>
-#include <type_traits>
 
 #include "damp/backend.hpp"
 
@@ -157,8 +154,8 @@ struct Jet {
     }
 
     template<typename U>
-    [[nodiscard]] constexpr Jet<N, std::remove_const_t<U>> as() const {
-        using O = std::remove_const_t<U>;
+    [[nodiscard]] constexpr Jet<N, damp::remove_const_t<U>> as() const {
+        using O = damp::remove_const_t<U>;
         Jet<N, O> out{};
         for (size_t i = 0; i < N; ++i) {
             out.d[i] = static_cast<O>(d[i]);
@@ -237,7 +234,7 @@ namespace detail {
 /** @brief ⌈log₂ n⌉, 0 for n ≤ 1: the halvings a binary search over n candidates needs. */
 [[nodiscard]] consteval size_t ceil_log2(size_t n) {
     size_t bits = 0;
-    while (bits < std::numeric_limits<size_t>::digits && (size_t{1} << bits) < n) {
+    while (bits < damp::numeric_limits<size_t>::digits && (size_t{1} << bits) < n) {
         ++bits;
     }
     return bits;

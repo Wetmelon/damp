@@ -18,8 +18,6 @@
  * @see filters/blocks.hpp for the rest of the everyday signal-conditioning blocks.
  */
 
-#include <limits>
-#include <type_traits>
 
 #include "damp/backend.hpp"
 #include "damp/math/math.hpp"
@@ -193,7 +191,7 @@ public:
      * a failed fit does not compile when constant-evaluated.
      */
     constexpr explicit Thermistor(const design::ThermistorResult<T>& fit) : a_(fit.a), b_(fit.b), c_(fit.c) {
-        if (!fit.success && std::is_constant_evaluated()) {
+        if (!fit.success && damp::is_constant_evaluated()) {
             ::damp::detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed fit does not compile
         }
     }
@@ -205,12 +203,12 @@ public:
      */
     [[nodiscard]] constexpr T kelvin(T resistance) const {
         if (!(resistance > T{0})) {
-            return std::numeric_limits<T>::max(); // a dead short: hottest reading
+            return damp::numeric_limits<T>::max(); // a dead short: hottest reading
         }
         const T ln_r = damp::log(resistance);
         const T inv_t = a_ + (b_ * ln_r) + (c_ * ln_r * ln_r * ln_r);
-        if (!(inv_t > std::numeric_limits<T>::min())) {
-            return std::numeric_limits<T>::max();
+        if (!(inv_t > damp::numeric_limits<T>::min())) {
+            return damp::numeric_limits<T>::max();
         }
         return T{1} / inv_t;
     }

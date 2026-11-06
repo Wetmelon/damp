@@ -22,9 +22,6 @@
  * @see math_backend.hpp for backend selection via damp_profile.hpp
  */
 
-#include <concepts>
-#include <limits>
-#include <type_traits>
 
 #include "constexpr_math.hpp"
 #include "damp/backend.hpp"
@@ -46,7 +43,7 @@ constexpr T sqrt(T x) {
     if (x < T{0}) {
         return T{0};
     }
-    if (std::is_constant_evaluated()) {
+    if (damp::is_constant_evaluated()) {
         return detail::sqrt(x);
     }
     return MathBackend<T>::sqrt(x);
@@ -58,7 +55,7 @@ constexpr T sqrt(T x) {
  */
 template<typename T>
 constexpr T abs(T x) {
-    if (std::is_constant_evaluated()) {
+    if (damp::is_constant_evaluated()) {
         return detail::abs(x);
     }
     return MathBackend<T>::abs(x);
@@ -92,7 +89,7 @@ constexpr T hypot(T x, T y) {
  */
 template<typename T>
 constexpr T cbrt(T x) {
-    if (std::is_constant_evaluated()) {
+    if (damp::is_constant_evaluated()) {
         return detail::cbrt(x);
     }
     return MathBackend<T>::cbrt(x);
@@ -105,7 +102,7 @@ constexpr T cbrt(T x) {
  */
 template<typename T>
 constexpr T atan2(T y, T x) {
-    if (std::is_constant_evaluated()) {
+    if (damp::is_constant_evaluated()) {
         return detail::atan2(y, x);
     }
     return MathBackend<T>::atan2(y, x);
@@ -117,7 +114,7 @@ constexpr T atan2(T y, T x) {
  */
 template<typename T>
 constexpr T atan(T x) {
-    if (std::is_constant_evaluated()) {
+    if (damp::is_constant_evaluated()) {
         return detail::atan(x);
     }
     return MathBackend<T>::atan(x);
@@ -138,7 +135,7 @@ constexpr T asin(T x) {
     if (x <= T{-1}) {
         return -half_pi;
     }
-    if (std::is_constant_evaluated()) {
+    if (damp::is_constant_evaluated()) {
         return detail::asin(x);
     }
     return MathBackend<T>::asin(x);
@@ -156,7 +153,7 @@ constexpr T acos(T x) {
     if (x <= T{-1}) {
         return damp::numbers::pi_v<T>;
     }
-    if (std::is_constant_evaluated()) {
+    if (damp::is_constant_evaluated()) {
         return detail::acos(x);
     }
     return MathBackend<T>::acos(x);
@@ -169,7 +166,7 @@ constexpr T acos(T x) {
  */
 template<typename T>
 constexpr T cos(T x) {
-    if (std::is_constant_evaluated()) {
+    if (damp::is_constant_evaluated()) {
         return detail::cos(x);
     }
     return MathBackend<T>::cos(x);
@@ -182,7 +179,7 @@ constexpr T cos(T x) {
  */
 template<typename T>
 constexpr T sin(T x) {
-    if (std::is_constant_evaluated()) {
+    if (damp::is_constant_evaluated()) {
         return detail::sin(x);
     }
     return MathBackend<T>::sin(x);
@@ -200,7 +197,7 @@ constexpr T sin(T x) {
  */
 template<typename T>
 constexpr damp::pair<T, T> sincos(T x) {
-    if (std::is_constant_evaluated()) {
+    if (damp::is_constant_evaluated()) {
         const auto sc = detail::sincos(x);
         return {sc.sin, sc.cos};
     }
@@ -215,7 +212,7 @@ constexpr damp::pair<T, T> sincos(T x) {
  */
 template<typename T>
 constexpr T tan(T x) {
-    if (std::is_constant_evaluated()) {
+    if (damp::is_constant_evaluated()) {
         return detail::tan(x);
     }
     return MathBackend<T>::tan(x);
@@ -232,11 +229,11 @@ constexpr T tan(T x) {
  */
 template<typename T>
 constexpr T exp(T x) {
-    if (std::is_constant_evaluated()) {
+    if (damp::is_constant_evaluated()) {
         return detail::exp(x);
     }
     const T r = MathBackend<T>::exp(x);
-    return detail::isfinite(r) ? r : std::numeric_limits<T>::max();
+    return detail::isfinite(r) ? r : damp::numeric_limits<T>::max();
 }
 
 /**
@@ -253,7 +250,7 @@ constexpr T log(T x) {
     if (x <= T{0}) {
         return T{0};
     }
-    if (std::is_constant_evaluated()) {
+    if (damp::is_constant_evaluated()) {
         return detail::log(x);
     }
     return MathBackend<T>::log(x);
@@ -278,8 +275,8 @@ constexpr T floor(T x);
  * @tparam T Floating-point type
  */
 template<typename T>
-    requires std::is_floating_point_v<T>
-constexpr T pow(T base, std::type_identity_t<T> exponent) {
+    requires damp::is_floating_point_v<T>
+constexpr T pow(T base, damp::type_identity_t<T> exponent) {
     if (exponent == T{0}) {
         return T{1};
     }
@@ -287,14 +284,14 @@ constexpr T pow(T base, std::type_identity_t<T> exponent) {
     if ((base <= T{0}) && !signed_integral) {
         return T{0};
     }
-    if (std::is_constant_evaluated()) {
+    if (damp::is_constant_evaluated()) {
         return detail::pow(base, exponent);
     }
     const T r = MathBackend<T>::pow(base, exponent);
     if (detail::isfinite(r)) {
         return r;
     }
-    return (r < T{0}) ? -std::numeric_limits<T>::max() : std::numeric_limits<T>::max();
+    return (r < T{0}) ? -damp::numeric_limits<T>::max() : damp::numeric_limits<T>::max();
 }
 
 /**
@@ -312,8 +309,8 @@ constexpr T pow(T base, std::type_identity_t<T> exponent) {
  * @param base Base value
  * @param up   Integer exponent
  */
-template<typename T, std::integral I>
-    requires std::is_floating_point_v<T>
+template<typename T, damp::integral I>
+    requires damp::is_floating_point_v<T>
 constexpr T pow(T base, I up) {
     if (up == I{0}) {
         return T{1};
@@ -321,8 +318,8 @@ constexpr T pow(T base, I up) {
     if (base == T{0}) {
         return T{0};
     }
-    using U = std::make_unsigned_t<I>;
-    constexpr T max = std::numeric_limits<T>::max();
+    using U = damp::make_unsigned_t<I>;
+    constexpr T max = damp::numeric_limits<T>::max();
     // Factors at or below lim cannot overflow a product (lim² ≤ max/4); only past it
     // is the exact max/a test needed.
     constexpr T lim = detail::sqrt(max) / T{2};
@@ -369,7 +366,7 @@ constexpr T pow(T base, I up) {
  */
 template<typename T>
 constexpr T floor(T x) {
-    if (std::is_constant_evaluated()) {
+    if (damp::is_constant_evaluated()) {
         return detail::floor(x);
     }
     return MathBackend<T>::floor(x);
@@ -381,7 +378,7 @@ constexpr T floor(T x) {
  */
 template<typename T>
 constexpr T ceil(T x) {
-    if (std::is_constant_evaluated()) {
+    if (damp::is_constant_evaluated()) {
         return detail::ceil(x);
     }
     return MathBackend<T>::ceil(x);
@@ -397,7 +394,7 @@ constexpr T ceil(T x) {
  */
 template<typename T>
 constexpr T nearbyint(T x) {
-    if (std::is_constant_evaluated()) {
+    if (damp::is_constant_evaluated()) {
         return detail::nearbyint(x);
     }
     return MathBackend<T>::nearbyint(x);
@@ -416,7 +413,7 @@ constexpr T fmod(T x, T y) {
     if (y == T{0}) {
         return T{0};
     }
-    if (std::is_constant_evaluated()) {
+    if (damp::is_constant_evaluated()) {
         return detail::fmod(x, y);
     }
     return MathBackend<T>::fmod(x, y);
@@ -435,7 +432,7 @@ constexpr T log10(T x) {
     if (x <= T{0}) {
         return T{0};
     }
-    if (std::is_constant_evaluated()) {
+    if (damp::is_constant_evaluated()) {
         return detail::log10(x);
     }
     return MathBackend<T>::log10(x);
@@ -482,7 +479,7 @@ template<typename T>
  */
 template<typename T>
 constexpr T copysign(T mag, T sgn_src) {
-    if (std::is_constant_evaluated()) {
+    if (damp::is_constant_evaluated()) {
         return detail::copysign(mag, sgn_src);
     }
     return MathBackend<T>::copysign(mag, sgn_src);
@@ -534,10 +531,10 @@ template<typename T>
  * @return 20·log10(mag); −max() (the finite stand-in for −∞) for mag ≤ 0
  */
 template<typename T = double>
-    requires std::is_floating_point_v<T>
+    requires damp::is_floating_point_v<T>
 constexpr T mag2db(T mag) {
     if (!(mag > T{0})) {
-        return -std::numeric_limits<T>::max();
+        return -damp::numeric_limits<T>::max();
     }
     return T{20} * damp::log10(mag);
 }
@@ -548,7 +545,7 @@ constexpr T mag2db(T mag) {
  * @tparam T Numeric type (floating-point)
  */
 template<typename T = double>
-    requires std::is_floating_point_v<T>
+    requires damp::is_floating_point_v<T>
 constexpr T db2mag(T db) {
     return damp::pow(T{10}, db / T{20});
 }
@@ -559,7 +556,7 @@ constexpr T db2mag(T db) {
  * @tparam T Numeric type (floating-point)
  */
 template<typename T = double>
-    requires std::is_floating_point_v<T>
+    requires damp::is_floating_point_v<T>
 constexpr T rad2deg(T rad) {
     return rad * (T{180} / damp::numbers::pi_v<T>);
 }
@@ -570,7 +567,7 @@ constexpr T rad2deg(T rad) {
  * @tparam T Numeric type (floating-point)
  */
 template<typename T = double>
-    requires std::is_floating_point_v<T>
+    requires damp::is_floating_point_v<T>
 constexpr T deg2rad(T deg) {
     return deg * (damp::numbers::pi_v<T> / T{180});
 }
@@ -592,7 +589,7 @@ constexpr T deg2rad(T deg) {
  * @tparam T Numeric type (floating-point)
  */
 template<typename T>
-    requires std::is_floating_point_v<T>
+    requires damp::is_floating_point_v<T>
 constexpr T wrap(T x, T min, T max) noexcept {
     const T range = max - min;
     if (!(range > T{0})) {
@@ -635,7 +632,7 @@ constexpr T wrap(T x, T min, T max) noexcept {
  * @return θ folded into [−π, π)
  */
 template<typename T = double>
-    requires std::is_floating_point_v<T>
+    requires damp::is_floating_point_v<T>
 [[nodiscard]] constexpr T wrap_pi(T theta) {
     return wrap(theta, -damp::numbers::pi_v<T>, damp::numbers::pi_v<T>);
 }
@@ -653,7 +650,7 @@ template<typename T = double>
  * @return θ folded into [0, 2π)
  */
 template<typename T = double>
-    requires std::is_floating_point_v<T>
+    requires damp::is_floating_point_v<T>
 [[nodiscard]] constexpr T wrap_two_pi(T theta) {
     return wrap(theta, T{0}, T{2} * damp::numbers::pi_v<T>);
 }
