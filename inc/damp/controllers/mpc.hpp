@@ -917,6 +917,37 @@ template<size_t NP, size_t NC, size_t NXP, size_t NX, size_t NU, size_t NY, size
     return true;
 }
 
+/**
+ * @brief Whether each input's first move reaches a predicted output within the horizon: its column
+ *        of @p Gamma is not zero, row by row relative to |C|·|B| of that output and input.
+ *
+ * Only the first move is applied, so an input whose first move no output sees is never used: a
+ * horizon no longer than the input delay, or than the plant's relative degree, leaves it at rest.
+ */
+template<size_t NP, typename G, size_t NX, size_t NU, size_t NY, typename T>
+[[nodiscard]] constexpr bool mpc_first_moves_reach_outputs(const G& Gamma, const Matrix<NY, NX, T>& C, const Matrix<NX, NU, T>& B) {
+    for (size_t j = 0; j < NU; ++j) {
+        T b_max{0};
+        for (size_t i = 0; i < NX; ++i) {
+            b_max = damp::max(b_max, damp::abs(B(i, j)));
+        }
+        bool reaches = false;
+        for (size_t y = 0; y < NY; ++y) {
+            T c_max{0};
+            for (size_t i = 0; i < NX; ++i) {
+                c_max = damp::max(c_max, damp::abs(C(y, i)));
+            }
+            for (size_t k = 0; k < NP; ++k) {
+                reaches = reaches || (damp::abs(Gamma((k * NY) + y, j)) > T{16} * eps<T>() * c_max * b_max);
+            }
+        }
+        if (!reaches) {
+            return false;
+        }
+    }
+    return true;
+}
+
 template<size_t NP, size_t NC, size_t ND, size_t NT_max = 0, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NXP>
 [[nodiscard]] constexpr MPCArtifacts<NX, NU, NY, NP, NC, ND, T, NT_max> mpc_impl(
     const StateSpace<NX, NU, NY, T, NW, NV>&     sys,
@@ -1014,6 +1045,10 @@ template<size_t NP, size_t NC, size_t ND, size_t NT_max = 0, size_t NX, size_t N
     }
 
     const auto pred = mpc_predictions<NP, NC, NXA, NX, NU, NY, T>(Aa, Ba, Ca);
+    //! A terminal cost weights the state at NP, delay registers included, so it sees past the horizon.
+    if (constraints.terminal == MPCTerminal::none && !mpc_first_moves_reach_outputs<NP>(pred.Gamma, Cs, Bs)) {
+        return ::damp::detail::set_status(art, DesignStatus::invalid_parameter);
+    }
 
     //! On a continuous plant the move and input weights are per second: R_Δu on the rate Δu/Ts, R_u over the period
     const bool              dare_on = constraints.terminal != MPCTerminal::none;
@@ -1494,6 +1529,10 @@ template<bool Discrete, size_t NP, size_t NC, size_t NT_max, size_t NX, size_t N
  *
  * Input delay. A delay of up to one sample is a model of the plant: design on
  * discretize(plant, Ts, InputDelay{θ}), whose register state the QP's model carries like any other.
+ *
+ * Horizon. Without a terminal cost, each input's first move has to reach a predicted output
+ * within NP steps, or the law would never use that input: a shorter horizon, NP = 1 on a model
+ * with a one-sample delay for one, is refused (invalid_parameter).
  *
  * ## Offset-free control
  *

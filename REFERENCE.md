@@ -296,7 +296,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`LQRResult`](inc/damp/design/riccati.hpp#L1518) | The LQR gain: design::lqr on a plant, discrete_lqr and continuous_lqr on given matrices |
 | [`MinimalRealizationResult`](inc/damp/design/minreal.hpp#L89) | Minimal realization result |
 | [`ModelReductionMethod`](inc/damp/design/model_reduction.hpp#L61) | How balanced_reduction and eliminate_states eliminate states |
-| [`MPCResult`](inc/damp/controllers/mpc.hpp#L1185) | An MPC design: the condensed QP, the estimator when there is one, and the steady-state target the runtime poses the QP about; consumed by damp::MPC |
+| [`MPCResult`](inc/damp/controllers/mpc.hpp#L1220) | An MPC design: the condensed QP, the estimator when there is one, and the steady-state target the runtime poses the QP about; consumed by damp::MPC |
 | [`NoDisturbance`](inc/damp/design/disturbance.hpp#L33) | No disturbance model (the default): the plain filter on x |
 | [`option_set`](inc/damp/design/options.hpp#L83) | The kinds of option a design call accepts: check<Opts...>() refuses, at compile time, an option of no listed kind and a kind given twice |
 | [`option_type`](inc/damp/design/options.hpp#L42) | The type of the first option of the kind Is among Opts, else Default (+1 more overload) |
@@ -386,10 +386,10 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`lyap`](inc/damp/design/lyapunov.hpp#L444) | Solve the continuous-time Lyapunov equation A X + X Aᵀ + Q = 0 |
 | [`lyapunov_cholesky`](inc/damp/design/lyapunov.hpp#L492) | Cholesky factor of the continuous Lyapunov solution: A X + X Aᵀ + B Bᵀ = 0, X = RᵀR |
 | [`maximal_invariant_set`](inc/damp/design/invariant_set.hpp#L251) | Maximal positively invariant set of x⁺ = A x under G₀ x ≤ h₀ |
-| [`MeasuredDisturbance`](inc/damp/controllers/mpc.hpp#L1172) | Sizes from the matrix: `MeasuredDisturbance{Bd}` |
+| [`MeasuredDisturbance`](inc/damp/controllers/mpc.hpp#L1207) | Sizes from the matrix: `MeasuredDisturbance{Bd}` |
 | [`minreal`](inc/damp/design/minreal.hpp#L311) | Minimal realization — cancel uncontrollable and unobservable modes |
-| [`mpc`](inc/damp/controllers/mpc.hpp#L1569) | Synthesize a constrained linear MPC (condensed dense QP, Δu form) on a discrete plant (+3 more overloads) |
-| [`MPC`](inc/damp/controllers/mpc.hpp#L2426) | MPC law{res}: the sizes, scalar and terminal capacity of design::mpc's result (+1 more overload) |
+| [`mpc`](inc/damp/controllers/mpc.hpp#L1608) | Synthesize a constrained linear MPC (condensed dense QP, Δu form) on a discrete plant (+3 more overloads) |
+| [`MPC`](inc/damp/controllers/mpc.hpp#L2465) | MPC law{res}: the sizes, scalar and terminal capacity of design::mpc's result (+1 more overload) |
 | [`observability_gramian`](inc/damp/design/stability.hpp#L410) | Continuous/discrete observability Gramian W_o |
 | [`observability_matrix`](inc/damp/design/stability.hpp#L85) | Compute the observability matrix [C; CA; CA²; ...; CA^(N-1)] |
 | [`oflqg`](inc/damp/controllers/oflqg.hpp#L64) | The offset-free linear-quadratic Gaussian law: a Kalman filter on [x; d] and the steady-state target that holds the controlled outputs at r under d̂: runs as OFLQG (+1 more overload) |
@@ -429,7 +429,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`stsmc`](inc/damp/controllers/stsmc.hpp#L99) | Synthesize super-twisting gains from a disturbance-derivative bound |
 | [`stsmc_gains`](inc/damp/controllers/stsmc.hpp#L143) | Super-twisting controller from gains you specify directly |
 | [`STSMCController`](inc/damp/controllers/stsmc.hpp#L321) | Deduce the runtime from its design, keeping the result's scalar |
-| [`suggest_mpc_horizon`](inc/damp/controllers/mpc.hpp#L1682) | Suggest MPC horizons from an explicit settling-time target (+1 more overload) |
+| [`suggest_mpc_horizon`](inc/damp/controllers/mpc.hpp#L1721) | Suggest MPC horizons from an explicit settling-time target (+1 more overload) |
 | [`tyreus_luyben`](inc/damp/design/pid_design.hpp#L212) | Tyreus-Luyben tuning from ultimate gain and ultimate period |
 | [`unbounded_bound`](inc/damp/design/qp.hpp#L69) | Sentinel bound treated as "no constraint" on that row |
 | [`valid_spec`](inc/damp/design/pid_design.hpp#L477) | The spec's scalar domain: ωc > 0, 0 < PM < 180°, Tf ≥ 0, all finite |
@@ -463,11 +463,11 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`LQI`](inc/damp/controllers/lqi.hpp#L89) | Linear-quadratic regulator with integral action, on the measured state |
 | [`LQR`](inc/damp/controllers/lqr.hpp#L110) | Linear-quadratic regulator on the measured state: u = u − K·(x − x ) |
 | [`LQRWeights`](inc/damp/controllers/state_feedback_core.hpp#L614) | The cost of a state-feedback design: what to penalize and how much |
-| [`MeasuredDisturbance`](inc/damp/controllers/mpc.hpp#L1166) | A measured disturbance: a known input the controller does not command, entering the state update through Bd (a load torque, a feed rate, the ambient temperature) |
-| [`MPC`](inc/damp/controllers/mpc.hpp#L2356) | Constrained linear MPC on the measured state (design::mpc) |
+| [`MeasuredDisturbance`](inc/damp/controllers/mpc.hpp#L1201) | A measured disturbance: a known input the controller does not command, entering the state update through Bd (a load torque, a feed rate, the ambient temperature) |
+| [`MPC`](inc/damp/controllers/mpc.hpp#L2395) | Constrained linear MPC on the measured state (design::mpc) |
 | [`MPCArtifacts`](inc/damp/controllers/mpc.hpp#L351) | Condensed-QP data produced by mpc() (MPCResult::mpc), consumed by damp::MPC |
 | [`MPCConstraints`](inc/damp/controllers/mpc.hpp#L294) | Box constraints for mpc() |
-| [`MPCHorizonSuggestion`](inc/damp/controllers/mpc.hpp#L1658) | Advisory NP/NC horizon values from suggest_mpc_horizon() |
+| [`MPCHorizonSuggestion`](inc/damp/controllers/mpc.hpp#L1697) | Advisory NP/NC horizon values from suggest_mpc_horizon() |
 | [`MPCLimits`](inc/damp/controllers/mpc.hpp#L328) | The limits an MPC takes at run time (MATLAB®'s online constraints): u, Δu and the controlled outputs, in physical units. A field left out is unbounded |
 | [`MPCTerminal`](inc/damp/controllers/mpc.hpp#L230) | Opt-in terminal cost / set for `design::mpc` (default: none) |
 | [`MPCWeights`](inc/damp/controllers/mpc.hpp#L256) | Cost weights for mpc() |
