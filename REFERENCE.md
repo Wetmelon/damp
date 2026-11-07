@@ -289,7 +289,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`JordanObjective`](inc/damp/design/pole_placement.hpp#L1200) | How place_jordan spends the free parameter of the Klein–Moore family (Schmid et al.) |
 | [`JordanOptions`](inc/damp/design/pole_placement.hpp#L1213) | Options for place_jordan |
 | [`JordanPlaceResult`](inc/damp/design/pole_placement.hpp#L1228) | place_jordan result: the PlaceResult fields plus the achieved robustness metrics |
-| [`Law`](inc/damp/design/model_inverse.hpp#L884) | Law<kRes, T> of a model inverse: StateFeedforward or OutputInverse, default-constructed from the design |
+| [`Law`](inc/damp/design/model_inverse.hpp#L953) | Law<kRes, T> of a `constexpr` model inverse: the same runtime on the design's matrices as constants of the type (+1 more overload) |
 | [`LeadLagResult`](inc/damp/controllers/lead_lag.hpp#L64) | Lead-lag compensator design result |
 | [`LeadLagSeriesResult`](inc/damp/controllers/lead_lag.hpp#L224) | Cascaded lead+lag design result (2nd-order StateSpace + success) |
 | [`LinearizationResult`](inc/damp/design/linearization.hpp#L46) | Result of nonlinear operating-point linearization |
@@ -302,8 +302,8 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`option_set`](inc/damp/design/options.hpp#L83) | The kinds of option a design call accepts: check<Opts...>() refuses, at compile time, an option of no listed kind and a kind given twice |
 | [`option_type`](inc/damp/design/options.hpp#L42) | The type of the first option of the kind Is among Opts, else Default (+1 more overload) |
 | [`OutputDisturbance`](inc/damp/design/disturbance.hpp#L53) | An output disturbance: a bias on each reading, B_d = 0 and C_d = I, one per output |
-| [`OutputInverse`](inc/damp/design/model_inverse.hpp#L804) | The stable inverse at run time: the reference point (x , u ) from the output reference over the preview, seven matrix–vector products and the zero dynamics' state (+1 more overload) |
-| [`OutputInverseResult`](inc/damp/design/model_inverse.hpp#L142) | The stable inverse of a discrete model over a preview of NP output samples |
+| [`OutputInverse`](inc/damp/design/model_inverse.hpp#L864) | The stable inverse at run time: the reference point (x , u ) from the output reference over the preview, seven matrix–vector products and the zero dynamics' state (+1 more overload) |
+| [`OutputInverseResult`](inc/damp/design/model_inverse.hpp#L143) | The stable inverse of a discrete model over a preview of NP output samples |
 | [`PIDPolePlacementSpec`](inc/damp/design/pid_design.hpp#L912) | Closed-loop targets for the continuous pid_pole_placement forms |
 | [`PIDTuneSpec`](inc/damp/design/pid_design.hpp#L449) | Knobs for plant-aware pidtune |
 | [`PlaceResult`](inc/damp/design/pole_placement.hpp#L1085) | Pole-placement design result: the gain K, the achieved closed-loop poles e, and Ts |
@@ -315,8 +315,8 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`SMCResult`](inc/damp/controllers/smc.hpp#L37) | Tuning parameters for a first-order sliding-mode controller |
 | [`SmithPredictorResult`](inc/damp/controllers/smith_predictor.hpp#L97) | Smith predictor design result (discrete PID + FO model + delay samples) |
 | [`StateFeedbackResult`](inc/damp/controllers/state_feedback_core.hpp#L804) | A state-feedback design: the gain, and the parts the law's options add |
-| [`StateFeedforward`](inc/damp/design/model_inverse.hpp#L762) | The plant-inversion feedforward at run time: u = B⁺·(x ₖ₊₁ − x ₖ) − B⁺(A − I)·x ₖ, two matrix–vector products (+1 more overload) |
-| [`StateFeedforwardResult`](inc/damp/design/model_inverse.hpp#L62) | The plant-inversion feedforward of a discrete model: u ₖ = B⁺·(x ₖ₊₁ − x ₖ) − B⁺(A − I)·x ₖ |
+| [`StateFeedforward`](inc/damp/design/model_inverse.hpp#L821) | The plant-inversion feedforward at run time: u = B⁺·(x ₖ₊₁ − x ₖ) − B⁺(A − I)·x ₖ, two matrix–vector products (+1 more overload) |
+| [`StateFeedforwardResult`](inc/damp/design/model_inverse.hpp#L63) | The plant-inversion feedforward of a discrete model: u ₖ = B⁺·(x ₖ₊₁ − x ₖ) − B⁺(A − I)·x ₖ |
 | [`StateSpaceResult`](inc/damp/design/model_result.hpp#L59) | A designed state-space model with its success / status |
 | [`SteadyStateTarget`](inc/damp/design/steady_state_target.hpp#L372) | The steady-state target at run time: (x_t, u_t) from the reference and the estimated disturbance, two matrix–vector products, and the re-anchoring of a Luenberger observer on it (+1 more overload) |
 | [`SteadyStateTargetResult`](inc/damp/design/steady_state_target.hpp#L75) | The steady-state target maps: [x_t; u_t] per unit disturbance and per unit reference |
@@ -331,7 +331,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | Name | Description |
 | ---- | ----------- |
 | [`adrc`](inc/damp/controllers/adrc.hpp#L206) | Active Disturbance Rejection Control design |
-| [`ADRCController`](inc/damp/controllers/adrc.hpp#L376) | Deduce the runtime from its design, keeping the result's scalar |
+| [`ADRCController`](inc/damp/controllers/adrc.hpp#L384) | Deduce the runtime from its design, keeping the result's scalar |
 | [`amigo_kappa_tau`](inc/damp/design/pid_design.hpp#L253) | AMIGO PI from ultimate gain/period and static gain Kₛ |
 | [`balanced_realization`](inc/damp/design/model_reduction.hpp#L478) | Balanced realization via the square-root (Moore / Laub) method |
 | [`balanced_reduction`](inc/damp/design/model_reduction.hpp#L555) | Balanced reduction to NR states, by truncation or DC-matched residualization |
@@ -397,7 +397,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`ofmpc`](inc/damp/controllers/ofmpc.hpp#L43) | The offset-free MPC on a discrete plant: a Kalman filter on [x; d] (noise, disturbance) and the QP posed about the steady-state target under d̂: runs as OFMPC (+1 more overload) |
 | [`OFMPC`](inc/damp/controllers/ofmpc.hpp#L138) | OFMPC law{res}: the sizes, scalar, filter and target of design::ofmpc's result (+1 more overload) |
 | [`option`](inc/damp/design/options.hpp#L58) | No option left: the fallback (+1 more overload) |
-| [`output_inverse`](inc/damp/design/model_inverse.hpp#L685) | The stable inverse of a discrete model: the state and input of its trajectory through a reference y on the controlled outputs, from y ₖ … y ₖ₊NP₋₁ (+1 more overload) |
+| [`output_inverse`](inc/damp/design/model_inverse.hpp#L686) | The stable inverse of a discrete model: the state and input of its trajectory through a reference y on the controlled outputs, from y ₖ … y ₖ₊NP₋₁ (+1 more overload) |
 | [`phase_margin_from_damping_ratio`](inc/damp/design/pid_design.hpp#L888) | Approximate phase margin from damping ratio |
 | [`pid`](inc/damp/controllers/pid.hpp#L363) | Continuous PID gains Kₚ, Kᵢ, K_d with every other knob at its default |
 | [`pid_pole_placement`](inc/damp/design/pid_design.hpp#L960) | PI gains that place the closed-loop poles of a first-order plant b₀/(a₁ s + a₀) (+4 more overloads) |
@@ -424,7 +424,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`solve_qp_admm`](inc/damp/design/qp.hpp#L1174) | One-shot ADMM QP solve (cold start) |
 | [`solve_qp_interior_point`](inc/damp/design/qp.hpp#L1218) | Interior-point QP solver (primal-dual path following) |
 | [`stability_margin`](inc/damp/design/stability.hpp#L527) | Distance from the poles of sys to its domain's stability boundary |
-| [`state_feedforward`](inc/damp/design/model_inverse.hpp#L98) | The plant-inversion feedforward of a discrete model: the input that moves x⁺ = A·x + B·u along a state reference, u ₖ the least-squares solution of B·u = x ₖ₊₁ − A·x ₖ |
+| [`state_feedforward`](inc/damp/design/model_inverse.hpp#L99) | The plant-inversion feedforward of a discrete model: the input that moves x⁺ = A·x + B·u along a state reference, u ₖ the least-squares solution of B·u = x ₖ₊₁ − A·x ₖ |
 | [`steady_state_target`](inc/damp/design/steady_state_target.hpp#L328) | The steady-state target of a law on a discrete plant: the maps from the estimated disturbance and the reference to [x_t; u_t] (+1 more overload) |
 | [`stsmc`](inc/damp/controllers/stsmc.hpp#L99) | Synthesize super-twisting gains from a disturbance-derivative bound |
 | [`stsmc_gains`](inc/damp/controllers/stsmc.hpp#L143) | Super-twisting controller from gains you specify directly |
@@ -456,7 +456,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`HarmonicSuppressor`](inc/damp/controllers/harmonic_suppression.hpp#L166) | Multi-resonant harmonic suppressor — a parallel bank of PR resonators |
 | [`IntegralAction`](inc/damp/controllers/state_feedback_core.hpp#L715) | Offset-free by integral action: integrators on r − y, every measured output (`IntegralAction{}`) or the listed ones (`IntegralAction<2>{{0, 3}}`, in that order: the references r follow it) |
 | [`IntegralDesign`](inc/damp/controllers/state_feedback_core.hpp#L767) | The integral action of a design: the integrated outputs, their maps of the state and the input, and the per-sample step |
-| [`Law`](inc/damp/controllers/law_detail.hpp#L216) | The runtime a design result deploys as, named by the result: `Law<kRes, float> law;` (+3 more overloads) |
+| [`Law`](inc/damp/controllers/adrc.hpp#L408) | Law<kRes, T> of a design::adrc initialized at start-up: the ADRCController it runs as. A runtime of the same shape assigned replaces it (+6 more overloads) |
 | [`LeadLagController`](inc/damp/controllers/lead_lag.hpp#L316) | Discrete lead-lag compensator |
 | [`LQG`](inc/damp/controllers/lqg.hpp#L142) | Linear-quadratic Gaussian law: LQR on the Kalman filter's estimate |
 | [`LQGI`](inc/damp/controllers/lqgi.hpp#L98) | Linear-quadratic Gaussian law with integral action on the measured outputs |
@@ -510,8 +510,8 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`ESKFOrientationFilter`](inc/damp/estimation/sensor_fusion.hpp#L380) | Turnkey 6-state attitude ESKF: owns q, b_g, and the error filter |
 | [`ESKFPredictFn`](inc/damp/estimation/eskf.hpp#L299) | Callable that returns ErrorStateJacobian for one predict step |
 | [`ESKFResult`](inc/damp/estimation/eskf.hpp#L85) | Design payload for an ESKF: Q, R, P₀, and success |
-| [`ESO`](inc/damp/estimation/eso.hpp#L273) | Extended-state observer (ESO) (+1 more overload) |
-| [`ESOResult`](inc/damp/estimation/eso.hpp#L55) | Extended-state observer design: continuous β and, for Ts > 0, the discrete ESO |
+| [`ESO`](inc/damp/estimation/eso.hpp#L312) | Extended-state observer (ESO) (+1 more overload) |
+| [`ESOResult`](inc/damp/estimation/eso.hpp#L57) | Extended-state observer design: continuous β and, for Ts > 0, the discrete ESO |
 | [`ExtendedKalmanFilter`](inc/damp/estimation/ekf.hpp#L118) | Extended Kalman filter: continuous nonlinear dynamics, sampled measurements (+1 more overload) |
 | [`ExtendedKalmanFilterConfig`](inc/damp/estimation/ekf.hpp#L42) | Configuration of an ExtendedKalmanFilter: its sample time, the process noise and the initial estimate |
 | [`Filtered`](inc/damp/estimation/state_variable_filter.hpp#L67) | One signal after the state-variable filter: its filtered value and first two derivatives |
@@ -532,7 +532,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`KalmanFilterConfig`](inc/damp/estimation/kalman.hpp#L618) | Configuration of a KalmanFilter built from a model rather than from design::kalman |
 | [`KalmanNoise`](inc/damp/estimation/kalman.hpp#L80) | The estimator's noise: process noise on the plant's noise inputs (through G), measurement noise on the sensors (through H) (+2 more overloads) |
 | [`KalmanResult`](inc/damp/estimation/kalman.hpp#L138) | Steady-state Kalman filter design result |
-| [`Law`](inc/damp/estimation/luenberger.hpp#L948) | Law<kRes, T> of an observer design (design::kalman, design::luenberger) initialized at start-up: the Luenberger it runs as, default-constructed from the design. A runtime of the same shape assigned replaces it (+1 more overload) |
+| [`Law`](inc/damp/estimation/eso.hpp#L461) | Law<kRes, T> of a design::eso initialized at start-up: the ESO it runs as. A runtime of the same shape assigned replaces it (+5 more overloads) |
 | [`Luenberger`](inc/damp/estimation/luenberger.hpp#L589) | The fixed-gain state observer: the innovation gain M held, the current form, and the optional disturbance anchor (+4 more overloads) |
 | [`LuenbergerResult`](inc/damp/estimation/luenberger.hpp#L119) | Luenberger observer design result: the plant, the gains L and M, and the achieved error poles |
 | [`MadgwickFilter`](inc/damp/estimation/sensor_fusion.hpp#L135) | Madgwick gradient-descent AHRS filter |
@@ -553,7 +553,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`Ramp`](inc/damp/estimation/excitation/ramp.hpp#L117) | Rate-limited ramp runtime generator (+1 more overload) |
 | [`RampConfig`](inc/damp/estimation/excitation/ramp.hpp#L33) | Configuration for a slew-rate-limited ramp excitation |
 | [`RampResult`](inc/damp/estimation/excitation/ramp.hpp#L65) | Ramp design payload |
-| [`ReducedLuenberger`](inc/damp/estimation/luenberger.hpp#L1000) | Reduced-order (Gopinath) state observer (runtime) (+1 more overload) |
+| [`ReducedLuenberger`](inc/damp/estimation/luenberger.hpp#L1032) | Reduced-order (Gopinath) state observer (runtime) (+1 more overload) |
 | [`ReducedLuenbergerResult`](inc/damp/estimation/luenberger.hpp#L333) | Reduced-order (Gopinath) observer design result |
 | [`RelayAutotuneConfig`](inc/damp/estimation/relay_autotune.hpp#L128) | Configuration for the relay-feedback autotuning experiment |
 | [`RelayAutotuneOutput`](inc/damp/estimation/relay_autotune.hpp#L260) | Per-tick output of RelayAutotuner::step |
@@ -592,7 +592,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`enu_from_ned`](inc/damp/estimation/ins_mechanization.hpp#L116) | Map a NED vector into ENU (axis permute) |
 | [`eskf_imu`](inc/damp/estimation/eskf.hpp#L219) | Design Q, R, P₀ for a 6-state IMU attitude ESKF (gyro + accel) |
 | [`eskf_marg`](inc/damp/estimation/eskf.hpp#L258) | Design Q, R, P₀ for a 6-state MARG attitude ESKF (gyro + accel + mag) |
-| [`eso`](inc/damp/estimation/eso.hpp#L207) | Extended-state observer: poles at −ω_o, plant gain b₀, optional sample time |
+| [`eso`](inc/damp/estimation/eso.hpp#L209) | Extended-state observer: poles at −ω_o, plant gain b₀, optional sample time |
 | [`extract_frf_features`](inc/damp/estimation/frequency_response.hpp#L810) | Extract peaks and valleys in one pass over the FRF table |
 | [`extract_modes`](inc/damp/estimation/frequency_response.hpp#L785) | Extract resonant peaks (local \|G\| maxima) from an FRF table |
 | [`extract_valleys`](inc/damp/estimation/frequency_response.hpp#L799) | Extract anti-resonance valleys (local \|G\| minima) from an FRF table |

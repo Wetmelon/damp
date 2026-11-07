@@ -175,6 +175,15 @@ namespace detail {
 template<const auto& Res>
 concept constant_design = requires { typename std::bool_constant<(Res.success || true)>; }; // reads it: a discarded read would pass for any object
 
+/** @brief Whether a design a Law runs on constants succeeded and is discrete. Anything else does not compile, and the error names its status. */
+template<typename Ts>
+[[nodiscard]] consteval bool constant_design_runs(bool success, design::DesignStatus status, Ts sample_time) {
+    if (!success || !(sample_time > Ts{0})) {
+        refuse_failed_design(success ? design::DesignStatus::invalid_sample_time : status);
+    }
+    return true;
+}
+
 } // namespace detail
 
 /**
@@ -205,16 +214,17 @@ concept constant_design = requires { typename std::bool_constant<(Res.success ||
  *
  * The runtime's header defines it for the results that runtime is built from: the LQ runtimes
  * (controllers/lqr.hpp, lqi.hpp, lqg.hpp, lqgi.hpp, oflqg.hpp) and the observers
- * (estimation/luenberger.hpp), which run on constants when kRes is `constexpr`; MPC
- * (controllers/mpc.hpp, ofmpc.hpp) and the model inverses a law tracks through
- * (design/model_inverse.hpp: StateFeedforward, OutputInverse), which hold members either way.
+ * (estimation/luenberger.hpp: Luenberger, ReducedLuenberger), design::eso (estimation/eso.hpp),
+ * design::adrc (controllers/adrc.hpp) and the model inverses (design/model_inverse.hpp:
+ * StateFeedforward, OutputInverse), which all run on constants when kRes is `constexpr`, and MPC
+ * (controllers/mpc.hpp, ofmpc.hpp), whose QP data stays in members and whose OFMPC filter is on constants.
  *
  * @tparam Res The design result
  * @tparam T   The runtime scalar
  */
 template<const auto& Res, typename T>
 struct Law {
-    static_assert(sizeof(T) == 0, "Law<res, T>: res is not a design result a law is built from; include its runtime's header (controllers/lqr.hpp, lqi.hpp, lqg.hpp, lqgi.hpp, oflqg.hpp, mpc.hpp, ofmpc.hpp, estimation/luenberger.hpp, design/model_inverse.hpp)");
+    static_assert(sizeof(T) == 0, "Law<res, T>: res is not a design result a law is built from; include its runtime's header (controllers/lqr.hpp, lqi.hpp, lqg.hpp, lqgi.hpp, oflqg.hpp, mpc.hpp, ofmpc.hpp, adrc.hpp, estimation/luenberger.hpp, estimation/eso.hpp, design/model_inverse.hpp)");
 };
 
 } // namespace damp

@@ -148,6 +148,8 @@ namespace detail {
 template<size_t NXM, size_t NU, size_t NY, size_t NP, size_t NC, size_t ND, typename U, size_t NT, size_t NXK, size_t NYM, size_t NW, size_t NV, size_t NXE, typename T>
 struct mpc_runtime<design::MPCResult<design::MPCArtifacts<NXM, NU, NY, NP, NC, ND, U, NT>, design::KalmanResult<NXK, NU, NYM, U, NW, NV, ND>, design::SteadyStateTargetResult<NXE, NU, ND, NY, U>>, T> {
     using type = OFMPC<NXM, NU, NY, NP, NC, T, design::WarmStartActiveSetSolver<(NC * NU) + 1, (4 * NC * NU) + (2 * NP * NY) + NT + 1, T>, NT, Luenberger<NXK, NU, NYM, T, ND>>; ///< OFMPC
+    template<const auto& Res>
+    using on_constants = OFMPC<NXM, NU, NY, NP, NC, T, design::WarmStartActiveSetSolver<(NC * NU) + 1, (4 * NC * NU) + (2 * NP * NY) + NT + 1, T>, NT, Luenberger<NXK, NU, NYM, T, ND, ConstantObserver<Res, T, NXK - ND>>>; ///< OFMPC with its filter on the design's constants
 };
 
 } // namespace detail

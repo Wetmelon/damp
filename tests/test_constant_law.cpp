@@ -11,12 +11,17 @@
 #include <cstddef>
 #include <type_traits>
 
+#include "damp/controllers/adrc.hpp"
 #include "damp/controllers/lqg.hpp"
 #include "damp/controllers/lqgi.hpp"
 #include "damp/controllers/lqi.hpp"
 #include "damp/controllers/lqr.hpp"
 #include "damp/controllers/oflqg.hpp"
+#include "damp/controllers/ofmpc.hpp"
 #include "damp/design/disturbance.hpp"
+#include "damp/design/model_inverse.hpp"
+#include "damp/estimation/eso.hpp"
+#include "damp/estimation/luenberger.hpp"
 #include "damp/matrix/colvec.hpp"
 #include "damp/matrix/const_matrix.hpp"
 #include "damp/matrix/matrix.hpp"
@@ -372,5 +377,112 @@ TEST_SUITE("Law of a constexpr design") {
         check_same_commands<float>(held<kLqgDelayed, float>(), Law<kLqgDelayed, float>{}, lqg);
         const auto oflqg = [](auto& law, int k) { return law.step(ColVec<1, float>{0.2F}, ColVec<1, float>{static_cast<float>(reading(k))})[0]; };
         check_same_commands<float>(held<kOflqgDelayed, float>(), Law<kOflqgDelayed, float>{}, oflqg);
+    }
+}
+
+TEST_SUITE("The other runtimes on a constexpr design") {
+    TEST_CASE("ESO: the same estimate, and a chain of integrators' zeros and ones cost nothing") {
+        static constexpr auto kEso = design::eso<2>(50.0, 2.0, 0.001);
+        REQUIRE(kEso.success);
+        static_assert(sizeof(Law<kEso, float>) < sizeof(Law<kEso, float>::Runtime));
+        using Store = detail::ConstantEso<kEso, double>;
+        static_assert(detail::nonzero_columns<Store::kPhi, 2>.n == 1); // f̂ is held: one unit entry
+        Law<kEso, double>::Runtime held{kEso};
+        Law<kEso, double>          fixed;
+        double                     worst = 0.0;
+        for (int k = 0; k < 2000; ++k) {
+            const auto a = held.step(ColVec<1>{{reading(k)}}, ColVec<1>{{second(k)}});
+            const auto b = fixed.step(ColVec<1>{{reading(k)}}, ColVec<1>{{second(k)}});
+            worst = std::max(worst, (a - b).norm());
+        }
+        CHECK(worst < 1e-9);
+        CHECK(fixed.valid());
+        static constinit Law<kEso, float> deployed;
+        CHECK(std::isfinite(deployed.step(ColVec<1, float>{0.5F}, ColVec<1, float>{0.1F})[0]));
+    }
+
+    TEST_CASE("ADRC: the same commands, its ESO on constants") {
+        static constexpr auto kAdrc = design::adrc<2>(10.0, 50.0, 2.0, 0.001);
+        REQUIRE(kAdrc.success);
+        static_assert(sizeof(Law<kAdrc, float>) < sizeof(Law<kAdrc, float>::Runtime));
+        Law<kAdrc, double>::Runtime held{kAdrc};
+        Law<kAdrc, double>          fixed;
+        double                      worst = 0.0;
+        for (int k = 0; k < 2000; ++k) {
+            worst = std::max(worst, std::abs(held.control(second(k), reading(k)) - fixed.control(second(k), reading(k))));
+        }
+        CHECK(worst < 1e-8);
+        CHECK(fixed.valid());
+    }
+
+    TEST_CASE("ReducedLuenberger: the same estimate") {
+        static constexpr auto kReduced = design::reduced_luenberger(kPlant, {0.5});
+        REQUIRE(kReduced.success);
+        static_assert(sizeof(Law<kReduced, float>) < sizeof(Law<kReduced, float>::Runtime));
+        Law<kReduced, double>::Runtime held{kReduced};
+        Law<kReduced, double>          fixed;
+        double                         worst = 0.0;
+        for (int k = 0; k < 2000; ++k) {
+            const ColVec<1> u{{second(k)}};
+            const auto      a = held.step(reading(k), u);
+            const auto      b = fixed.step(reading(k), u);
+            worst = std::max(worst, (a - b).norm());
+        }
+        CHECK(worst < 1e-10);
+        CHECK(fixed.valid());
+    }
+
+    TEST_CASE("StateFeedforward and OutputInverse: the same reference points") {
+        static constexpr StateSpace<2, 2, 2> kSquare{.A = {{0.9, 0.1}, {0.0, 0.8}}, .B = {{1.0, 0.0}, {0.0, 1.0}}, .C = {{1.0, 0.0}, {0.0, 1.0}}, .Ts = 0.01};
+        static constexpr auto                kFeedforward = design::state_feedforward(kSquare);
+        REQUIRE(kFeedforward.success);
+        static_assert(sizeof(Law<kFeedforward, float>) < sizeof(Law<kFeedforward, float>::Runtime));
+        Law<kFeedforward, double>::Runtime held_ff{kFeedforward};
+        Law<kFeedforward, double>          fixed_ff;
+        const ColVec<2>                    x0{0.3, -0.2};
+        const ColVec<2>                    x1{0.35, -0.1};
+        CHECK((held_ff.control(x0, x1) - fixed_ff.control(x0, x1)).norm() < 1e-12);
+
+        static constexpr auto kInverse = design::output_inverse<3>(kSquare);
+        REQUIRE(kInverse.success);
+        static_assert(sizeof(Law<kInverse, float>) < sizeof(Law<kInverse, float>::Runtime));
+        Law<kInverse, double>::Runtime held{kInverse};
+        Law<kInverse, double>          fixed;
+        double                         worst = 0.0;
+        for (int k = 0; k < 500; ++k) {
+            damp::array<ColVec<2>, 3> y{};
+            for (int l = 0; l < 3; ++l) {
+                y[static_cast<size_t>(l)] = ColVec<2>{reading(k + l), second(k + l)};
+            }
+            const auto a = held.step(y);
+            const auto b = fixed.step(y);
+            worst = std::max(worst, (a.x - b.x).norm());
+            worst = std::max(worst, (a.u - b.u).norm());
+        }
+        CHECK(worst < 1e-10);
+    }
+
+    TEST_CASE("OFMPC: the same commands, its filter on constants and its QP unchanged") {
+        static constexpr auto kOfmpc = design::ofmpc<12, 3>(kDelayed, design::MPCWeights<1, 1>{.Rdu = 1.0}, design::MPCConstraints<1, 1>{}, {.process = kQn, .measurement = 1e-4, .disturbance = 1e-2}, design::InputDisturbance{});
+        REQUIRE(kOfmpc.success);
+        static_assert(sizeof(Law<kOfmpc, float>) < sizeof(Law<kOfmpc, float>::Runtime));
+        Law<kOfmpc, double>::Runtime held{kOfmpc};
+        Law<kOfmpc, double>          fixed;
+        double                       worst = 0.0;
+        for (int k = 0; k < 800; ++k) {
+            const auto a = held.step(ColVec<1>{{second(k)}}, ColVec<1>{{reading(k)}})[0];
+            const auto b = fixed.step(ColVec<1>{{second(k)}}, ColVec<1>{{reading(k)}})[0];
+            worst = std::max(worst, std::abs(a - b));
+        }
+        CHECK(worst < 1e-9);
+    }
+
+    TEST_CASE("a design initialized at start-up keeps members and can be replaced, on these too") {
+        static const auto kEsoAtInit = design::eso<1>(50.0, 2.0, 0.001);
+        static_assert(!detail::constant_design<kEsoAtInit>);
+        Law<kEsoAtInit, float> law;
+        CHECK(law.valid());
+        law = ESO{design::eso<1>(80.0, 2.0, 0.001).as<float>()};
+        CHECK(law.valid());
     }
 }

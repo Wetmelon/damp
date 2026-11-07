@@ -24,10 +24,13 @@ delay templates on OFLQG / MPC). v0.1.0 never shipped those names.
 - `TrackedOutputs` so LQR and LQG can `control(r)` / `step(r, m)` through the
   model's steady-state target.
 - `design::output_inverse` / `OutputInverse` and `design::state_feedforward`.
-- `Law<kRes, T>` of a `constexpr` LQ or observer design runs on `ConstMatrix`: the same ticks with the
-  matrices constants of the type, so they take no RAM and a coefficient that is exactly 0 is no code.
-  Nothing can replace them: a member a redesign assigns is `Law<kRes, T>::Runtime`. A design
-  initialized at start-up keeps members. `Law` also covers `design::kalman` and `design::luenberger`.
+- `Law<kRes, T>` of a `constexpr` design runs on `ConstMatrix`: the same ticks with the matrices
+  constants of the type, so they take no RAM and a coefficient that is exactly 0 is no code. It covers
+  LQR, LQI, LQG, LQGI, OFLQG, `Luenberger`, `ReducedLuenberger`, `ESO`, `ADRCController`,
+  `StateFeedforward`, `OutputInverse`, and OFMPC's filter (its QP data stays in members). Nothing can
+  replace them: a member a redesign assigns is `Law<kRes, T>::Runtime`. A design initialized at
+  start-up keeps members. `Law` now also covers `design::kalman`, `design::luenberger`,
+  `design::reduced_luenberger`, `design::eso` and `design::adrc`.
 - `InputDelay{θ}` on `discretize`: at most one sample, NX+NU register, exact
   under ZOH. Tustin pre-warp: `discretize(sys, Ts, Tustin, w0)`.
 - `DiscretizationResult` from `discretize` / `c2d` / `d2d`. `lft`. Canonical

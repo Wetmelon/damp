@@ -253,23 +253,29 @@ template<size_t NX, typename T = double>
  * @tparam NX Plant order: 1 (1st-order) or 2 (2nd-order) only
  * @tparam T Scalar type (default: float)
  */
-template<size_t NX, typename T = float>
+template<size_t NX, typename T = float, typename EsoStore = detail::HeldEso<NX, T>>
 class ADRCController {
     static_assert(NX == 1 || NX == 2, "ADRC supports 1st- and 2nd-order plants only");
 
-    template<size_t, typename>
+    template<size_t, typename, typename>
     friend class ADRCController; // cross-precision converting ctor
 
-    T          b0{1.0f}; ///< input gain
-    T          Kp{1.0f}; ///< proportional gain
-    T          Kd{1.0f}; ///< derivative gain
-    ESO<NX, T> eso_{};   ///< Discrete ESO (Miklosovic–Radke–Gao current estimator)
+    T                    b0{1.0f}; ///< input gain
+    T                    Kp{1.0f}; ///< proportional gain
+    T                    Kd{1.0f}; ///< derivative gain
+    ESO<NX, T, EsoStore> eso_{};   ///< Discrete ESO (Miklosovic–Radke–Gao current estimator)
 
 public:
     constexpr ADRCController() = default;
+
+    /** @brief The gains, its ESO's maps being constants of the type (Law of a `constexpr` design). */
+    constexpr ADRCController(T b0_, T Kp_, T Kd_)
+        requires(EsoStore::constant)
+        : b0(b0_), Kp(Kp_), Kd(Kd_) {}
+
     /** @brief From a design result in another scalar: converts it with .as\<T\>() and builds from that. */
     template<typename U>
-        requires(!std::is_same_v<U, T>)
+        requires(!std::is_same_v<U, T> && !EsoStore::constant)
     constexpr ADRCController(const design::ADRCResult<NX, U>& result) // NOLINT(google-explicit-constructor): assign-from-design
         : ADRCController(result.template as<T>()) {}
 
@@ -280,6 +286,7 @@ public:
      * time it leaves the controller invalid (valid() false, output 0).
      */
     constexpr ADRCController(const design::ADRCResult<NX, T>& result) // NOLINT(google-explicit-constructor): assign-from-design
+        requires(!EsoStore::constant)
         : b0(result.b0),
           Kp(result.Kp),
           Kd(result.Kd),
@@ -290,6 +297,7 @@ public:
     }
 
     template<typename U>
+        requires(!EsoStore::constant)
     constexpr ADRCController(const ADRCController<NX, U>& other)
         : b0(static_cast<T>(other.b0)),
           Kp(static_cast<T>(other.Kp)),
@@ -374,4 +382,47 @@ public:
 /** @brief Deduce the runtime from its design, keeping the result's scalar. */
 template<size_t NX, typename T>
 ADRCController(const design::ADRCResult<NX, T>&) -> ADRCController<NX, T>;
+
+namespace detail {
+
+/** @brief The runtime an ADRC design runs as: none for anything else. */
+template<const auto& Res, typename T, typename R = std::remove_cvref_t<decltype(Res)>>
+struct adrc_runtime {};
+
+/** @brief design::adrc: with members, or its ESO on the design's constants. */
+template<const auto& Res, typename T, size_t NX, typename U>
+struct adrc_runtime<Res, T, design::ADRCResult<NX, U>> {
+    using type = ADRCController<NX, T>;                              ///< With members
+    using on_constants = ADRCController<NX, T, ConstantEso<Res, T>>; ///< Its ESO on the design's constants
+};
+
+/** @brief An ADRC design. */
+template<const auto& Res, typename T>
+concept adrc_design = requires { typename adrc_runtime<Res, T>::type; };
+
+} // namespace detail
+
+/** @brief Law<kRes, T> of a design::adrc initialized at start-up: the ADRCController it runs as. A runtime of the same shape assigned replaces it. */
+template<const auto& Res, typename T>
+    requires detail::adrc_design<Res, T>
+struct Law<Res, T> : detail::adrc_runtime<Res, T>::type {
+    using Runtime = detail::adrc_runtime<Res, T>::type; ///< The runtime the design runs as
+
+    /** @brief The design's law. */
+    constexpr Law() : Runtime{Res} {}
+
+    using Runtime::operator=;
+};
+
+/** @brief Law<kRes, T> of a `constexpr` design::adrc: the same law, its ESO on the design's matrices as constants of the type. */
+template<const auto& Res, typename T>
+    requires(detail::adrc_design<Res, T> && detail::constant_design<Res>)
+struct Law<Res, T> : detail::adrc_runtime<Res, T>::on_constants {
+    using Runtime = detail::adrc_runtime<Res, T>::type; ///< The runtime with members: the type of a member a redesign assigns
+
+    static_assert(detail::constant_design_runs(Res.success, Res.status, Res.Ts));
+
+    /** @brief The design's law. */
+    constexpr Law() : detail::adrc_runtime<Res, T>::on_constants(static_cast<T>(Res.b0), static_cast<T>(Res.Kp), static_cast<T>(Res.Kd)) {}
+};
 } // namespace damp

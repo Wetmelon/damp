@@ -32,9 +32,11 @@
 #include <type_traits>
 
 #include "damp/backend.hpp"
+#include "damp/controllers/law_detail.hpp"
 #include "damp/design/status.hpp"
 #include "damp/math/math.hpp"
 #include "damp/matrix/colvec.hpp"
+#include "damp/matrix/const_matrix.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "damp/systems/discretization.hpp"
 #include "damp/systems/state_space.hpp"
@@ -249,6 +251,43 @@ template<size_t NX, typename T = double>
 
 } // namespace design
 
+namespace detail {
+
+/** @brief Where an ESO keeps its maps: in the object, any value at run time. */
+template<size_t NX, typename T>
+struct HeldEso {
+    static constexpr bool constant = false; ///< The matrices are members
+    using Phi = Matrix<NX + 1, NX + 1, T>;  ///< Φ
+    using Gamma = ColVec<NX + 1, T>;        ///< Γ
+    using L = ColVec<NX + 1, T>;            ///< L
+};
+
+/**
+ * @brief An ESO's maps as constants of the type: the chain of integrators' zeros and ones cost nothing.
+ *
+ * @tparam Res design::eso's result, or a design that has one in `.as_eso()` (design::adrc), `constexpr`
+ */
+template<const auto& Res, typename T>
+struct ConstantEso {
+    static constexpr bool constant = true;               ///< The matrices are constants of the type
+    static constexpr auto design = Res.template as<T>(); ///< The design, in the runtime's scalar
+    static constexpr auto filter = [] {
+        if constexpr (requires { design.as_eso(); }) {
+            return design.as_eso();
+        } else {
+            return design;
+        }
+    }(); ///< The observer's half of it
+    static constexpr auto kPhi = filter.Phi;     ///< Φ
+    static constexpr auto kGamma = filter.Gamma; ///< Γ
+    static constexpr auto kL = filter.L;         ///< L
+    using Phi = ConstMatrix<kPhi>;               ///< Φ
+    using Gamma = ConstMatrix<kGamma>;           ///< Γ
+    using L = ConstMatrix<kL>;                   ///< L
+};
+
+} // namespace detail
+
 /**
  * @ingroup discrete_estimators
  * @brief Extended-state observer (ESO)
@@ -269,26 +308,26 @@ template<size_t NX, typename T = double>
  * @tparam NX Plant order: 1 or 2 (ESO dimension NX+1)
  * @tparam T  Scalar type (default: float)
  */
-template<size_t NX, typename T = float>
+template<size_t NX, typename T = float, typename Store = detail::HeldEso<NX, T>>
 class ESO {
     static_assert(NX == 1 || NX == 2, "ESO supports 1st- and 2nd-order plants only");
 
-    template<size_t, typename>
+    template<size_t, typename, typename>
     friend class ESO;
 
-    Matrix<NX + 1, NX + 1, T> Phi_{};        ///< ZOH state map
-    ColVec<NX + 1, T>         Gamma_{};      ///< ZOH input map
-    ColVec<NX + 1, T>         L_{};          ///< Current-estimator gain
-    ColVec<NX + 1, T>         z_{};          ///< ESO state: [ŷ, ŷ̇, …, f̂]
-    T                         u_prev_{T{0}}; ///< Last applied command (post-saturation)
-    bool                      valid_{false}; ///< A successful discrete (Ts > 0) design
+    [[no_unique_address]] typename Store::Phi   Phi_{};                  ///< ZOH state map
+    [[no_unique_address]] typename Store::Gamma Gamma_{};                ///< ZOH input map
+    [[no_unique_address]] typename Store::L     L_{};                    ///< Current-estimator gain
+    ColVec<NX + 1, T>                           z_{};                    ///< ESO state: [ŷ, ŷ̇, …, f̂]
+    T                                           u_prev_{T{0}};           ///< Last applied command (post-saturation)
+    bool                                        valid_{Store::constant}; ///< A successful discrete (Ts > 0) design
 
 public:
     constexpr ESO() = default;
 
     /** @brief From a design result in another scalar: converts it with .as\<T\>() and builds from that. */
     template<typename U>
-        requires(!std::is_same_v<U, T>)
+        requires(!std::is_same_v<U, T> && !Store::constant)
     constexpr ESO(const design::ESOResult<NX, U>& result) // NOLINT(google-explicit-constructor): assign-from-design
         : ESO(result.template as<T>()) {}
 
@@ -299,6 +338,7 @@ public:
      * time it leaves the observer invalid (valid() false, state held).
      */
     constexpr ESO(const design::ESOResult<NX, T>& result) // NOLINT(google-explicit-constructor): assign-from-design
+        requires(!Store::constant)
         : Phi_(result.Phi),
           Gamma_(result.Gamma),
           L_(result.L),
@@ -309,6 +349,7 @@ public:
     }
 
     template<typename U>
+        requires(!Store::constant)
     constexpr ESO(const ESO<NX, U>& other)
         : Phi_(other.Phi_.template as<T>()),
           Gamma_(other.Gamma_.template as<T>()),
@@ -328,7 +369,7 @@ public:
     /** @brief Time update with the last applied input (back_calculate or the last predict's u). */
     constexpr void predict() {
         if (valid_) {
-            z_ = ColVec<NX + 1, T>((Phi_ * z_) + (Gamma_ * u_prev_));
+            z_ = ColVec<NX + 1, T>((Phi_ * z_) + (Gamma_ * ColVec<1, T>(u_prev_)));
         }
     }
 
@@ -336,7 +377,7 @@ public:
     constexpr void update(const ColVec<1, T>& y) {
         if (valid_) {
             const T innovation = y[0] - z_[0];
-            z_ = ColVec<NX + 1, T>(z_ + (L_ * innovation));
+            z_ = ColVec<NX + 1, T>(z_ + (L_ * ColVec<1, T>(innovation)));
         }
     }
 
@@ -394,5 +435,45 @@ public:
 /** @brief Deduce the runtime from its design, keeping the result's scalar. */
 template<size_t NX, typename T>
 ESO(const design::ESOResult<NX, T>&) -> ESO<NX, T>;
+
+namespace detail {
+
+/** @brief The runtime an ESO design runs as: none for anything else. */
+template<const auto& Res, typename T, typename R = std::remove_cvref_t<decltype(Res)>>
+struct eso_runtime {};
+
+/** @brief design::eso: with members, or on its constants. */
+template<const auto& Res, typename T, size_t NX, typename U>
+struct eso_runtime<Res, T, design::ESOResult<NX, U>> {
+    using type = ESO<NX, T>;                              ///< With members
+    using on_constants = ESO<NX, T, ConstantEso<Res, T>>; ///< On the design's constants
+};
+
+/** @brief An ESO design. */
+template<const auto& Res, typename T>
+concept eso_design = requires { typename eso_runtime<Res, T>::type; };
+
+} // namespace detail
+
+/** @brief Law<kRes, T> of a design::eso initialized at start-up: the ESO it runs as. A runtime of the same shape assigned replaces it. */
+template<const auto& Res, typename T>
+    requires detail::eso_design<Res, T>
+struct Law<Res, T> : detail::eso_runtime<Res, T>::type {
+    using Runtime = detail::eso_runtime<Res, T>::type; ///< The runtime the design runs as
+
+    /** @brief The design's observer. */
+    constexpr Law() : Runtime{Res} {}
+
+    using Runtime::operator=;
+};
+
+/** @brief Law<kRes, T> of a `constexpr` design::eso: the same ESO on the design's matrices as constants of the type. */
+template<const auto& Res, typename T>
+    requires(detail::eso_design<Res, T> && detail::constant_design<Res>)
+struct Law<Res, T> : detail::eso_runtime<Res, T>::on_constants {
+    using Runtime = detail::eso_runtime<Res, T>::type; ///< The runtime with members: the type of a member a redesign assigns
+
+    static_assert(detail::constant_design_runs(Res.success, Res.status, Res.Ts));
+};
 
 } // namespace damp
