@@ -95,6 +95,7 @@ types. Bode and friends return analysis grids. New code uses `design::` and
 | ------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
 | `ss`, `tf`, `zpk`                     | `StateSpace`, `TransferFunction`, `ZPK`; `matlab::ss` / `tf` / `zpk` on the host                                 |
 | `c2d`, `d2c`, `d2d`                   | `discretize` / `c2d` / `d2d`; `matlab::c2d`                                                                      |
+| A tick that costs only its nonzero terms | `static constinit Law<kRes, float> law;` on a `constexpr` design: the same ticks, the matrices constants of the type, no RAM for them and no code for an exact 0. A member a redesign assigns is `Law<kRes, float>::Runtime`. |
 | `InputDelay`, dead time               | `discretize(sys, Ts, InputDelay{θ})` with θ ≤ Ts. Longer: slower Ts or `SmithPredictor`. Not a field on the law. |
 | `lqr`, `dlqr`, `lqrd`                 | `design::lqr(sys, …)` or `design::lqr(sys, Ts, …)`; `matlab::lqr` / `dlqr` / `lqrd`                              |
 | `lqi`, `lqg`, `lqgtrack`              | `design::lqi`, `design::lqg`, `design::lqgi`                                                                     |

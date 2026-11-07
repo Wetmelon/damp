@@ -138,14 +138,15 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
  *
  * @tparam NZ Tracked outputs: the size of r (0: none, the regulator)
  */
-template<size_t NX, size_t NU, size_t NY, typename T, typename Est, size_t NZ = 0>
-struct LQG : private detail::StateFeedbackCore<NX, NU, T, 0, NY, Est, NZ> {
-    using Core = detail::StateFeedbackCore<NX, NU, T, 0, NY, Est, NZ>; ///< The shared implementation
+template<size_t NX, size_t NU, size_t NY, typename T, typename Est, size_t NZ = 0, typename Store = detail::HeldGains>
+struct LQG : private detail::StateFeedbackCore<NX, NU, T, 0, NY, Est, NZ, Store> {
+    using Core = detail::StateFeedbackCore<NX, NU, T, 0, NY, Est, NZ, Store>; ///< The shared implementation
 
     constexpr LQG() = default;
 
     /** @brief From design::lqg or lqg_from_parts (any scalar). */
     template<size_t NXR, size_t NUR, typename U, size_t NIR, size_t NYR, typename Kalman, size_t NZR>
+        requires(!Store::constant)
     constexpr LQG(const design::StateFeedbackResult<NXR, NUR, U, NIR, NYR, Kalman, NZR>& result) { // NOLINT
         constexpr bool kind = NIR == 0 && design::StateFeedbackResult<NXR, NUR, U, NIR, NYR, Kalman, NZR>::ND == 0 && !std::is_same_v<Kalman, NoEstimator>;
         static_assert(kind, "LQG runs design::lqg: this design has no Kalman filter (LQR, LQI), integral action (LQGI) or a disturbance model (OFLQG).");
@@ -237,6 +238,8 @@ template<size_t NX, size_t NU, typename U, size_t NY, typename Kalman, size_t NZ
     requires(!std::is_same_v<Kalman, NoEstimator> && design::StateFeedbackResult<NX, NU, U, 0, NY, Kalman, NZ>::ND == 0)
 struct lq_runtime<design::StateFeedbackResult<NX, NU, U, 0, NY, Kalman, NZ>, T> {
     using type = LQG<NX, NU, NY, T, runtime_estimator_t<Kalman, T>, NZ>; ///< LQG
+    template<typename Est, typename Store>
+    using on_constants = LQG<NX, NU, NY, T, Est, NZ, Store>; ///< LQG on the design's constants
 };
 
 } // namespace detail

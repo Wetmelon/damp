@@ -375,13 +375,14 @@ TEST_SUITE("LQG") {
         CHECK(axis.law.K(0, 0) == deduced.K(0, 0));
         CHECK(axis.law.K(0, 1) == deduced.K(0, 1));
 
-        // A redesign at run time replaces it.
-        axis.law = LQG{design::lqg(
-                           make_plant(), {.Q = Matrix<2, 2>::identity() * 10.0, .R = 0.1},
-                           {.process = Matrix<2, 2>{{0.01, 0.0}, {0.0, 0.01}}, .measurement = 0.1}
+        // A redesign at run time replaces a member of the runtime's type: a constexpr design's Law has its matrices in the type.
+        Law<res, float>::Runtime replaceable{res.as<float>()};
+        replaceable = LQG{design::lqg(
+                              make_plant(), {.Q = Matrix<2, 2>::identity() * 10.0, .R = 0.1},
+                              {.process = Matrix<2, 2>{{0.01, 0.0}, {0.0, 0.01}}, .measurement = 0.1}
         )
-                           .as<float>()};
-        CHECK(axis.law.K(0, 0) > deduced.K(0, 0));
+                              .as<float>()};
+        CHECK(replaceable.K(0, 0) > deduced.K(0, 0));
     }
 }
 

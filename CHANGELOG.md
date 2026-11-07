@@ -24,6 +24,10 @@ delay templates on OFLQG / MPC). v0.1.0 never shipped those names.
 - `TrackedOutputs` so LQR and LQG can `control(r)` / `step(r, m)` through the
   model's steady-state target.
 - `design::output_inverse` / `OutputInverse` and `design::state_feedforward`.
+- `Law<kRes, T>` of a `constexpr` LQ or observer design runs on `ConstMatrix`: the same ticks with the
+  matrices constants of the type, so they take no RAM and a coefficient that is exactly 0 is no code.
+  Nothing can replace them: a member a redesign assigns is `Law<kRes, T>::Runtime`. A design
+  initialized at start-up keeps members. `Law` also covers `design::kalman` and `design::luenberger`.
 - `InputDelay{θ}` on `discretize`: at most one sample, NX+NU register, exact
   under ZOH. Tustin pre-warp: `discretize(sys, Ts, Tustin, w0)`.
 - `DiscretizationResult` from `discretize` / `c2d` / `d2d`. `lft`. Canonical
@@ -50,6 +54,8 @@ delay templates on OFLQG / MPC). v0.1.0 never shipped those names.
 
 ### Changed
 
+- `Matrix` `+`, `-` and `+=`, `-=` keep constant indices at run time up to 64 entries, so a local
+  past GCC's 16-iteration unroll limit (a `ColVec<18>`) still scalar-replaces and stays out of memory.
 - One tick vocabulary: estimators `predict` / `update`, controllers `control`,
   `step` for a whole tick, `back_calculate(u_sat, u_ff = {})` for the applied
   input. Ts lives on the design; runtimes never take it.

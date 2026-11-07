@@ -132,6 +132,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`Block`](inc/damp/matrix/block.hpp#L38) | Block view (non-owning) into a parent matrix |
 | [`ColVec`](inc/damp/matrix/colvec.hpp#L30) | Concrete Column vector specialization of Matrix<N, 1, T> |
 | [`ColView`](inc/damp/matrix/views.hpp#L332) | Non-owning column view of a matrix |
+| [`ConstMatrix`](inc/damp/matrix/const_matrix.hpp#L83) | A matrix that is a constant of its type: no storage, and a product with a vector that has no term for an entry that is exactly 0 |
 | [`ConvertsExactly`](inc/damp/matrix/matrix_traits.hpp#L80) | Matrix elements of type From convert to To without rounding: the same type, or a real into the complex of its own precision |
 | [`Diagonal`](inc/damp/matrix/views.hpp#L31) | Diagonal view of a square matrix |
 | [`EigenResult`](inc/damp/matrix/eigen.hpp#L39) | Eigenvalue computation result |
@@ -140,7 +141,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`is_matrix_element`](inc/damp/matrix/matrix_traits.hpp#L42) | True if T may be a Matrix element type |
 | [`LDLT`](inc/damp/matrix/decomposition.hpp#L163) | LDLᴴ factors: A = L D Lᴴ with L unit lower-triangular and D real diagonal |
 | [`LowerTriangle`](inc/damp/matrix/views.hpp#L165) | Lower triangular view of a square matrix |
-| [`Matrix`](inc/damp/matrix/core.hpp#L205) | Fixed-size, stack-allocated matrix for linear algebra operations |
+| [`Matrix`](inc/damp/matrix/core.hpp#L240) | Fixed-size, stack-allocated matrix for linear algebra operations |
 | [`MatrixLike`](inc/damp/matrix/matrix_traits.hpp#L98) | Concept for any type that provides 2D matrix-like element access |
 | [`MatrixLikeOf`](inc/damp/matrix/matrix_traits.hpp#L108) | Concept for a MatrixLike type with specific dimensions |
 | [`NullSpace`](inc/damp/matrix/svd.hpp#L437) | Orthonormal basis for the null space (kernel) of a matrix |
@@ -156,8 +157,8 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 
 | Name | Description |
 | ---- | ----------- |
-| [`all_of`](inc/damp/matrix/core.hpp#L1421) | Whether p holds for every entry of A: the matrix counterpart of std::all_of |
-| [`any_of`](inc/damp/matrix/core.hpp#L1445) | Whether p holds for some entry of A: the matrix counterpart of std::any_of |
+| [`all_of`](inc/damp/matrix/core.hpp#L1440) | Whether p holds for every entry of A: the matrix counterpart of std::all_of |
+| [`any_of`](inc/damp/matrix/core.hpp#L1464) | Whether p holds for some entry of A: the matrix counterpart of std::any_of |
 | [`backward_substitute_transpose`](inc/damp/matrix/solve.hpp#L61) | Backward substitution for Lᴴx = b (Lᵀx = b for real T) |
 | [`blkdiag`](inc/damp/matrix/concat.hpp#L135) | Block-diagonal assembly of MatrixLike arguments |
 | [`cholesky`](inc/damp/matrix/decomposition.hpp#L124) | Cholesky decomposition for positive-definite matrices |
@@ -187,7 +188,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`pow`](inc/damp/matrix/functions.hpp#L1133) | Integer matrix power via binary exponentiation (+1 more overload) |
 | [`pseudo_inverse`](inc/damp/matrix/svd.hpp#L404) | Moore–Penrose pseudoinverse A⁺ via SVD |
 | [`qr_decompose`](inc/damp/matrix/decomposition.hpp#L444) | Thin QR via Householder reflections |
-| [`quadratic_form`](inc/damp/matrix/core.hpp#L1246) | Symmetric congruence (quadratic) form  S = M X Mᵀ |
+| [`quadratic_form`](inc/damp/matrix/core.hpp#L1269) | Symmetric congruence (quadratic) form  S = M X Mᵀ |
 | [`rank`](inc/damp/matrix/functions.hpp#L234) | Numerical rank: the number of singular values above rel_tol·σₘₐₓ |
 | [`rank_from_svd`](inc/damp/matrix/svd.hpp#L368) | Numerical rank from a precomputed SVD result |
 | [`sin`](inc/damp/matrix/functions.hpp#L1336) | Matrix sine via scaling and double-angle reconstruction |
@@ -196,7 +197,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`solve`](inc/damp/matrix/solve.hpp#L266) | Solve AX = B — Cholesky when Hermitian, else LU (+2 more overloads) |
 | [`sqrt`](inc/damp/matrix/functions.hpp#L986) | Principal matrix square root by the real Schur method |
 | [`svd`](inc/damp/matrix/svd.hpp#L334) | Full singular value decomposition A = U·Σ·Vᴴ (one-sided Jacobi) |
-| [`transform`](inc/damp/matrix/core.hpp#L1397) | Apply f to every entry, B(i, j) = f(A(i, j)): the matrix counterpart of std::transform |
+| [`transform`](inc/damp/matrix/core.hpp#L1416) | Apply f to every entry, B(i, j) = f(A(i, j)): the matrix counterpart of std::transform |
 | [`two_norm`](inc/damp/matrix/functions.hpp#L107) | Spectral norm ‖A‖₂ = σₘₐₓ(A) |
 | [`vcat`](inc/damp/matrix/concat.hpp#L182) | Vertical concatenation (same column count) |
 
@@ -313,7 +314,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`RepetitiveResult`](inc/damp/controllers/repetitive.hpp#L140) | Design result for the repetitive controller |
 | [`SMCResult`](inc/damp/controllers/smc.hpp#L37) | Tuning parameters for a first-order sliding-mode controller |
 | [`SmithPredictorResult`](inc/damp/controllers/smith_predictor.hpp#L97) | Smith predictor design result (discrete PID + FO model + delay samples) |
-| [`StateFeedbackResult`](inc/damp/controllers/state_feedback_core.hpp#L672) | A state-feedback design: the gain, and the parts the law's options add |
+| [`StateFeedbackResult`](inc/damp/controllers/state_feedback_core.hpp#L804) | A state-feedback design: the gain, and the parts the law's options add |
 | [`StateFeedforward`](inc/damp/design/model_inverse.hpp#L762) | The plant-inversion feedforward at run time: u = B⁺·(x ₖ₊₁ − x ₖ) − B⁺(A − I)·x ₖ, two matrix–vector products (+1 more overload) |
 | [`StateFeedforwardResult`](inc/damp/design/model_inverse.hpp#L62) | The plant-inversion feedforward of a discrete model: u ₖ = B⁺·(x ₖ₊₁ − x ₖ) − B⁺(A − I)·x ₖ |
 | [`StateSpaceResult`](inc/damp/design/model_result.hpp#L59) | A designed state-space model with its success / status |
@@ -346,7 +347,6 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`current_loop_pi`](inc/damp/design/pid_design.hpp#L1298) | PI gains for an R–L current loop 1/(L s + R) at any bandwidth ω |
 | [`damping_ratio_from_overshoot_percent`](inc/damp/design/pid_design.hpp#L858) | Map percent overshoot target to equivalent damping ratio |
 | [`dare`](inc/damp/design/riccati.hpp#L1322) | Solve the Discrete Algebraic Riccati Equation (DARE) |
-| [`decltype`](inc/damp/controllers/state_feedback_core.hpp#L510) | Law<kRes, T> of an LQ or gain design: the runtime it runs as (LQR, LQI, LQG, LQGI, OFLQG), default-constructed from the design |
 | [`discrete_lqr`](inc/damp/design/riccati.hpp#L1610) | Discrete-time Linear-Quadratic Regulator design (+1 more overload) |
 | [`discrete_lyapunov_cholesky`](inc/damp/design/lyapunov.hpp#L510) | Cholesky factor of the discrete Lyapunov solution: A X Aᵀ − X + B Bᵀ = 0, X = RᵀR |
 | [`discretize_lqr_cost`](inc/damp/design/riccati.hpp#L1679) | Discretize a continuous LQR cost integral over one sample (Van Loan) |
@@ -373,16 +373,16 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`LeadLagController`](inc/damp/controllers/lead_lag.hpp#L436) | Deduce the runtime from its design, keeping the result's scalar |
 | [`linearize`](inc/damp/design/linearization.hpp#L118) | Linearize a Dynamics / Measurement model about an operating point (+1 more overload) |
 | [`lqg`](inc/damp/controllers/lqg.hpp#L42) | The linear-quadratic Gaussian law: LQR on a steady-state Kalman filter's estimate (design::kalman(sys, noise)): runs as LQG (+3 more overloads) |
-| [`LQG`](inc/damp/controllers/lqg.hpp#L230) | LQG law{res}: the sizes, scalar and filter of design::lqg's result |
+| [`LQG`](inc/damp/controllers/lqg.hpp#L231) | LQG law{res}: the sizes, scalar and filter of design::lqg's result |
 | [`lqg_from_parts`](inc/damp/controllers/lqg.hpp#L110) | Assemble an LQG design from separately computed Kalman and LQR designs |
 | [`lqgi`](inc/damp/controllers/lqgi.hpp#L39) | The linear-quadratic Gaussian law with integral action on every output: runs as LQGI (+3 more overloads) |
-| [`LQGI`](inc/damp/controllers/lqgi.hpp#L147) | LQGI law{res}: the sizes, scalar and filter of design::lqgi's result |
+| [`LQGI`](inc/damp/controllers/lqgi.hpp#L148) | LQGI law{res}: the sizes, scalar and filter of design::lqgi's result |
 | [`lqi`](inc/damp/controllers/lqi.hpp#L39) | The linear-quadratic regulator with integral action on every output (xi += Ts·(r − Ci·y)): runs as LQI (+3 more overloads) |
-| [`LQI`](inc/damp/controllers/lqi.hpp#L136) | LQI law{res}: the sizes and scalar of design::lqi's result |
+| [`LQI`](inc/damp/controllers/lqi.hpp#L137) | LQI law{res}: the sizes and scalar of design::lqi's result |
 | [`lqr`](inc/damp/controllers/lqr.hpp#L45) | The linear-quadratic regulator on the plant (DARE on a discrete plant, CARE on a continuous one): runs as LQR (+3 more overloads) |
-| [`LQR`](inc/damp/controllers/lqr.hpp#L204) | LQR law{res}: the sizes and scalar of design::lqr's result (+2 more overloads) |
+| [`LQR`](inc/damp/controllers/lqr.hpp#L205) | LQR law{res}: the sizes and scalar of design::lqr's result (+2 more overloads) |
 | [`lqr_gain`](inc/damp/design/riccati.hpp#L1359) | Optimal LQR state-feedback gain from a Riccati solution |
-| [`LQRWeights`](inc/damp/controllers/state_feedback_core.hpp#L623) | Sizes from the matrices: `LQRWeights{Q, R}` (+2 more overloads) |
+| [`LQRWeights`](inc/damp/controllers/state_feedback_core.hpp#L755) | Sizes from the matrices: `LQRWeights{Q, R}` (+2 more overloads) |
 | [`lyap`](inc/damp/design/lyapunov.hpp#L444) | Solve the continuous-time Lyapunov equation A X + X Aᵀ + Q = 0 |
 | [`lyapunov_cholesky`](inc/damp/design/lyapunov.hpp#L492) | Cholesky factor of the continuous Lyapunov solution: A X + X Aᵀ + B Bᵀ = 0, X = RᵀR |
 | [`maximal_invariant_set`](inc/damp/design/invariant_set.hpp#L251) | Maximal positively invariant set of x⁺ = A x under G₀ x ≤ h₀ |
@@ -393,7 +393,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`observability_gramian`](inc/damp/design/stability.hpp#L410) | Continuous/discrete observability Gramian W_o |
 | [`observability_matrix`](inc/damp/design/stability.hpp#L85) | Compute the observability matrix [C; CA; CA²; ...; CA^(N-1)] |
 | [`oflqg`](inc/damp/controllers/oflqg.hpp#L64) | The offset-free linear-quadratic Gaussian law: a Kalman filter on [x; d] and the steady-state target that holds the controlled outputs at r under d̂: runs as OFLQG (+1 more overload) |
-| [`OFLQG`](inc/damp/controllers/oflqg.hpp#L152) | OFLQG law{res}: the sizes, scalar, filter and target of design::oflqg's result |
+| [`OFLQG`](inc/damp/controllers/oflqg.hpp#L153) | OFLQG law{res}: the sizes, scalar, filter and target of design::oflqg's result |
 | [`ofmpc`](inc/damp/controllers/ofmpc.hpp#L43) | The offset-free MPC on a discrete plant: a Kalman filter on [x; d] (noise, disturbance) and the QP posed about the steady-state target under d̂: runs as OFMPC (+1 more overload) |
 | [`OFMPC`](inc/damp/controllers/ofmpc.hpp#L138) | OFMPC law{res}: the sizes, scalar, filter and target of design::ofmpc's result (+1 more overload) |
 | [`option`](inc/damp/design/options.hpp#L58) | No option left: the fallback (+1 more overload) |
@@ -454,15 +454,15 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`ExtremumSeekingController`](inc/damp/controllers/esc.hpp#L236) | Extremum-seeking controller runtime (model-free online optimizer) |
 | [`ExtremumType`](inc/damp/controllers/esc.hpp#L49) | Whether ESC climbs to a maximum or descends to a minimum of the objective |
 | [`HarmonicSuppressor`](inc/damp/controllers/harmonic_suppression.hpp#L166) | Multi-resonant harmonic suppressor — a parallel bank of PR resonators |
-| [`IntegralAction`](inc/damp/controllers/state_feedback_core.hpp#L583) | Offset-free by integral action: integrators on r − y, every measured output (`IntegralAction{}`) or the listed ones (`IntegralAction<2>{{0, 3}}`, in that order: the references r follow it) |
-| [`IntegralDesign`](inc/damp/controllers/state_feedback_core.hpp#L635) | The integral action of a design: the integrated outputs, their maps of the state and the input, and the per-sample step |
-| [`Law`](inc/damp/controllers/law_detail.hpp#L203) | The law a design result deploys as, named by the result: `Law<kRes, float> law;` (+1 more overload) |
+| [`IntegralAction`](inc/damp/controllers/state_feedback_core.hpp#L715) | Offset-free by integral action: integrators on r − y, every measured output (`IntegralAction{}`) or the listed ones (`IntegralAction<2>{{0, 3}}`, in that order: the references r follow it) |
+| [`IntegralDesign`](inc/damp/controllers/state_feedback_core.hpp#L767) | The integral action of a design: the integrated outputs, their maps of the state and the input, and the per-sample step |
+| [`Law`](inc/damp/controllers/law_detail.hpp#L216) | The runtime a design result deploys as, named by the result: `Law<kRes, float> law;` (+3 more overloads) |
 | [`LeadLagController`](inc/damp/controllers/lead_lag.hpp#L316) | Discrete lead-lag compensator |
 | [`LQG`](inc/damp/controllers/lqg.hpp#L142) | Linear-quadratic Gaussian law: LQR on the Kalman filter's estimate |
 | [`LQGI`](inc/damp/controllers/lqgi.hpp#L98) | Linear-quadratic Gaussian law with integral action on the measured outputs |
 | [`LQI`](inc/damp/controllers/lqi.hpp#L89) | Linear-quadratic regulator with integral action, on the measured state |
 | [`LQR`](inc/damp/controllers/lqr.hpp#L110) | Linear-quadratic regulator on the measured state: u = u − K·(x − x ) |
-| [`LQRWeights`](inc/damp/controllers/state_feedback_core.hpp#L614) | The cost of a state-feedback design: what to penalize and how much |
+| [`LQRWeights`](inc/damp/controllers/state_feedback_core.hpp#L746) | The cost of a state-feedback design: what to penalize and how much |
 | [`MeasuredDisturbance`](inc/damp/controllers/mpc.hpp#L1166) | A measured disturbance: a known input the controller does not command, entering the state update through Bd (a load torque, a feed rate, the ambient temperature) |
 | [`MPC`](inc/damp/controllers/mpc.hpp#L2356) | Constrained linear MPC on the measured state (design::mpc) |
 | [`MPCArtifacts`](inc/damp/controllers/mpc.hpp#L351) | Condensed-QP data produced by mpc() (MPCResult::mpc), consumed by damp::MPC |
@@ -471,7 +471,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`MPCLimits`](inc/damp/controllers/mpc.hpp#L328) | The limits an MPC takes at run time (MATLAB®'s online constraints): u, Δu and the controlled outputs, in physical units. A field left out is unbounded |
 | [`MPCTerminal`](inc/damp/controllers/mpc.hpp#L230) | Opt-in terminal cost / set for `design::mpc` (default: none) |
 | [`MPCWeights`](inc/damp/controllers/mpc.hpp#L256) | Cost weights for mpc() |
-| [`NoEstimator`](inc/damp/controllers/state_feedback_core.hpp#L53) | The estimator of a law that measures its state: none, an empty type, so a `[[no_unique_address]]` member of it takes no storage |
+| [`NoEstimator`](inc/damp/controllers/state_feedback_core.hpp#L54) | The estimator of a law that measures its state: none, an empty type, so a `[[no_unique_address]]` member of it takes no storage |
 | [`OFLQG`](inc/damp/controllers/oflqg.hpp#L102) | Offset-free linear-quadratic Gaussian law: a Kalman filter on [x; d] and the steady-state target |
 | [`OFMPC`](inc/damp/controllers/ofmpc.hpp#L83) | Offset-free constrained linear MPC: a Kalman filter on [x; d] and the QP about the steady-state target under d̂ (design::ofmpc) |
 | [`PIDController`](inc/damp/controllers/pid.hpp#L515) | Fixed-rate discrete 2-DOF PID (canonical runtime) (+3 more overloads) |
@@ -532,8 +532,9 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`KalmanFilterConfig`](inc/damp/estimation/kalman.hpp#L618) | Configuration of a KalmanFilter built from a model rather than from design::kalman |
 | [`KalmanNoise`](inc/damp/estimation/kalman.hpp#L80) | The estimator's noise: process noise on the plant's noise inputs (through G), measurement noise on the sensors (through H) (+2 more overloads) |
 | [`KalmanResult`](inc/damp/estimation/kalman.hpp#L138) | Steady-state Kalman filter design result |
-| [`Luenberger`](inc/damp/estimation/luenberger.hpp#L572) | The fixed-gain state observer: the innovation gain M held, the current form, and the optional disturbance anchor (+4 more overloads) |
-| [`LuenbergerResult`](inc/damp/estimation/luenberger.hpp#L117) | Luenberger observer design result: the plant, the gains L and M, and the achieved error poles |
+| [`Law`](inc/damp/estimation/luenberger.hpp#L948) | Law<kRes, T> of an observer design (design::kalman, design::luenberger) initialized at start-up: the Luenberger it runs as, default-constructed from the design. A runtime of the same shape assigned replaces it (+1 more overload) |
+| [`Luenberger`](inc/damp/estimation/luenberger.hpp#L589) | The fixed-gain state observer: the innovation gain M held, the current form, and the optional disturbance anchor (+4 more overloads) |
+| [`LuenbergerResult`](inc/damp/estimation/luenberger.hpp#L119) | Luenberger observer design result: the plant, the gains L and M, and the achieved error poles |
 | [`MadgwickFilter`](inc/damp/estimation/sensor_fusion.hpp#L135) | Madgwick gradient-descent AHRS filter |
 | [`MahonyFilter`](inc/damp/estimation/sensor_fusion.hpp#L177) | Mahony nonlinear complementary filter with PI correction |
 | [`MHE`](inc/damp/estimation/mhe.hpp#L346) | Runtime moving-horizon estimator (fixed per-tick iteration budget) (+1 more overload) |
@@ -552,8 +553,8 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`Ramp`](inc/damp/estimation/excitation/ramp.hpp#L117) | Rate-limited ramp runtime generator (+1 more overload) |
 | [`RampConfig`](inc/damp/estimation/excitation/ramp.hpp#L33) | Configuration for a slew-rate-limited ramp excitation |
 | [`RampResult`](inc/damp/estimation/excitation/ramp.hpp#L65) | Ramp design payload |
-| [`ReducedLuenberger`](inc/damp/estimation/luenberger.hpp#L855) | Reduced-order (Gopinath) state observer (runtime) (+1 more overload) |
-| [`ReducedLuenbergerResult`](inc/damp/estimation/luenberger.hpp#L331) | Reduced-order (Gopinath) observer design result |
+| [`ReducedLuenberger`](inc/damp/estimation/luenberger.hpp#L1000) | Reduced-order (Gopinath) state observer (runtime) (+1 more overload) |
+| [`ReducedLuenbergerResult`](inc/damp/estimation/luenberger.hpp#L333) | Reduced-order (Gopinath) observer design result |
 | [`RelayAutotuneConfig`](inc/damp/estimation/relay_autotune.hpp#L128) | Configuration for the relay-feedback autotuning experiment |
 | [`RelayAutotuneOutput`](inc/damp/estimation/relay_autotune.hpp#L260) | Per-tick output of RelayAutotuner::step |
 | [`RelayAutotuner`](inc/damp/estimation/relay_autotune.hpp#L279) | Runtime relay-feedback autotuner (+1 more overload) |
@@ -615,7 +616,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`ins_update_velocity`](inc/damp/estimation/ins_eskf.hpp#L538) | Sparse velocity update: y = v at the IMU origin (no lever-arm) |
 | [`ins_update_zupt`](inc/damp/estimation/ins_eskf.hpp#L557) | Zero-velocity update (ZUPT): velocity measurement of zero |
 | [`kalman`](inc/damp/estimation/kalman.hpp#L485) | Steady-state Kalman filter design (+3 more overloads) |
-| [`luenberger`](inc/damp/estimation/luenberger.hpp#L283) | Design a Luenberger observer by robust pole placement, in the domain of sys (+1 more overload) |
+| [`luenberger`](inc/damp/estimation/luenberger.hpp#L285) | Design a Luenberger observer by robust pole placement, in the domain of sys (+1 more overload) |
 | [`margins_from_frf`](inc/damp/estimation/frequency_response.hpp#L842) | Gain / phase margins from a fixed on-target FRF table |
 | [`mechanize_step`](inc/damp/estimation/ins_mechanization.hpp#L210) | One dead-reckoning step from a raw IMU sample (subtracts the state's biases) |
 | [`mechanize_step_from_corrected`](inc/damp/estimation/ins_mechanization.hpp#L175) | One dead-reckoning step from an IMU sample (strapdown mechanization) |
@@ -624,7 +625,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`ned_from_enu`](inc/damp/estimation/ins_mechanization.hpp#L106) | Map an ENU vector into NED (axis permute) |
 | [`prbs`](inc/damp/estimation/excitation/prbs.hpp#L166) | Build a PRBS design payload from a configuration |
 | [`ramp`](inc/damp/estimation/excitation/ramp.hpp#L101) | Build a ramp design payload from a configuration |
-| [`reduced_luenberger`](inc/damp/estimation/luenberger.hpp#L490) | Design a reduced-order (Gopinath) observer by pole placement, in the domain of sys (+1 more overload) |
+| [`reduced_luenberger`](inc/damp/estimation/luenberger.hpp#L492) | Design a reduced-order (Gopinath) observer by pole placement, in the domain of sys (+1 more overload) |
 | [`relay_autotune`](inc/damp/estimation/relay_autotune.hpp#L228) | Build a validated relay-autotune design payload |
 | [`rls_vector`](inc/damp/estimation/rls.hpp#L135) | Build vector RLS design payload |
 | [`rows`](inc/damp/estimation/ins_eskf.hpp#L303) | Sparse y = F x for the 15-state INS first-order structure (G = I path) |
