@@ -24,6 +24,12 @@ delay templates on OFLQG / MPC). v0.1.0 never shipped those names.
 - `TrackedOutputs` so LQR and LQG can `control(r)` / `step(r, m)` through the
   model's steady-state target.
 - `design::output_inverse` / `OutputInverse` and `design::state_feedforward`.
+- `SparsityPattern` and `SparseMatrix` (`matrix/sparse_matrix.hpp`): a matrix whose zeros and ones are
+  known at compile time and whose other entries are runtime values, for a Jacobian whose numbers change
+  every tick and whose shape does not. A product has no term for a zero and no multiply for a one, and
+  `quadratic_form_in_place` computes `F S Fᵀ` with no copy of S. `ErrorStateKalmanFilter` takes one in
+  `predict(F)`, `update_innovation(ν, H, R)` and `reset_error_state(G)`, and the INS and the attitude
+  filter use them throughout: about 10× fewer cycles per tick on a Cortex-M4F.
 - `InputDelay{θ}` on `discretize`: at most one sample, NX+NU register, exact
   under ZOH. Tustin pre-warp: `discretize(sys, Ts, Tustin, w0)`.
 - `DiscretizationResult` from `discretize` / `c2d` / `d2d`. `lft`. Canonical
@@ -77,6 +83,10 @@ delay templates on OFLQG / MPC). v0.1.0 never shipped those names.
   budget (`tools/clang_budget_check.sh`).
 
 ### Removed
+
+- `ins_propagate_covariance` and `ins_F_mul`: `ErrorStateKalmanFilter::predict(F)` on the sparse
+  transition does the same and costs less. `ins_error_jacobian` returns that `SparseMatrix`, and
+  `ins_inject` the sparse reset Jacobian; `.to_matrix()` gives the dense one.
 
 - `design/synthesis.hpp` (`*_bundle` wrappers). `StateFeedback` as a public
   runtime. `discrete_oflqg`, `offset_free_lqg.hpp`, `offset_free_mpc.hpp`.

@@ -100,20 +100,22 @@ TEST_SUITE("INS ESKF (#26 PR2)") {
         CHECK(G(1, 1) == doctest::Approx(1.0));
     }
 
-    TEST_CASE("ins_propagate_covariance matches dense F P F^T + Q") {
-        const auto ej = ins_error_jacobian(
+    TEST_CASE("predict on the sparse transition matches dense F P F^T + Q") {
+        const auto F = ins_error_jacobian(
             Quaternion<double>::identity(),
             Vec3<double>{0.1, -0.05, 0.02},
             Vec3<double>{0.0, 0.0, 9.8},
             0.01
         );
-        Matrix<kInsErrorDim, kInsErrorDim, double> P = Matrix<kInsErrorDim, kInsErrorDim, double>::identity() * 0.1;
-        Matrix<kInsErrorDim, kInsErrorDim, double> Q = Matrix<kInsErrorDim, kInsErrorDim, double>::identity() * 1e-4;
-        Matrix<kInsErrorDim, kInsErrorDim, double> P_dense = ej.F * P * ej.F.t() + Q;
-        ins_propagate_covariance(P, ej, Q);
+        Matrix<kInsErrorDim, kInsErrorDim, double>   P = Matrix<kInsErrorDim, kInsErrorDim, double>::identity() * 0.1;
+        Matrix<kInsErrorDim, kInsErrorDim, double>   Q = Matrix<kInsErrorDim, kInsErrorDim, double>::identity() * 1e-4;
+        const auto                                   F_dense = F.to_matrix();
+        Matrix<kInsErrorDim, kInsErrorDim, double>   P_dense = F_dense * P * F_dense.t() + Q;
+        ErrorStateKalmanFilter<kInsErrorDim, double> eskf{ErrorStateKalmanFilterConfig<kInsErrorDim, double>{.Q = Q, .P0 = P}};
+        eskf.predict(F);
         for (std::size_t i = 0; i < kInsErrorDim; ++i) {
             for (std::size_t j = 0; j < kInsErrorDim; ++j) {
-                CHECK(P(i, j) == doctest::Approx(P_dense(i, j)).epsilon(1e-12));
+                CHECK(eskf.covariance()(i, j) == doctest::Approx(P_dense(i, j)).epsilon(1e-12));
             }
         }
     }
@@ -128,7 +130,7 @@ TEST_SUITE("INS ESKF (#26 PR2)") {
     }
 
     TEST_CASE("ins_error_jacobian is identity at dt=0") {
-        const auto ej = ins_error_jacobian(
+        const auto F = ins_error_jacobian(
             Quaternion<double>::identity(),
             Vec3<double>{0.1, 0.0, 0.0},
             Vec3<double>{0.0, 0.0, -g0},
@@ -137,7 +139,7 @@ TEST_SUITE("INS ESKF (#26 PR2)") {
         for (std::size_t i = 0; i < kInsErrorDim; ++i) {
             for (std::size_t j = 0; j < kInsErrorDim; ++j) {
                 const double expect = (i == j) ? 1.0 : 0.0;
-                CHECK(ej.F(i, j) == doctest::Approx(expect));
+                CHECK(F(i, j) == doctest::Approx(expect));
             }
         }
     }
@@ -146,21 +148,21 @@ TEST_SUITE("INS ESKF (#26 PR2)") {
         constexpr double   dt = 0.01;
         const Vec3<double> omega{0.0, 0.0, 0.5};
         const Vec3<double> a_b{1.0, 0.0, -g0};
-        const auto         ej = ins_error_jacobian(Quaternion<double>::identity(), omega, a_b, dt);
+        const auto         F = ins_error_jacobian(Quaternion<double>::identity(), omega, a_b, dt);
 
         // F_θ,bg = -dt I
-        CHECK(ej.F(ins_err::dtheta, ins_err::dbg) == doctest::Approx(-dt));
-        CHECK(ej.F(ins_err::dtheta + 1, ins_err::dbg + 1) == doctest::Approx(-dt));
+        CHECK(F(ins_err::dtheta, ins_err::dbg) == doctest::Approx(-dt));
+        CHECK(F(ins_err::dtheta + 1, ins_err::dbg + 1) == doctest::Approx(-dt));
 
         // F_p,v = dt I
-        CHECK(ej.F(ins_err::dp, ins_err::dv) == doctest::Approx(dt));
+        CHECK(F(ins_err::dp, ins_err::dv) == doctest::Approx(dt));
 
         // F_v,ba = -R dt; R=I ⇒ −dt on diagonal
-        CHECK(ej.F(ins_err::dv, ins_err::dba) == doctest::Approx(-dt));
+        CHECK(F(ins_err::dv, ins_err::dba) == doctest::Approx(-dt));
 
         // Attitude block includes −[ω]× dt: F_θθ(0,1) = −(−ωz) dt = ωz dt for ω=(0,0,ωz)?
         // [ω]× with ωz: row0 col1 = −ωz ⇒ I − [ω]×dt has (0,1) = +ωz dt
-        CHECK(ej.F(0, 1) == doctest::Approx(omega[2] * dt));
+        CHECK(F(0, 1) == doctest::Approx(omega[2] * dt));
     }
 
     TEST_CASE("ins_inject right-multiplies attitude and adds linear states") {

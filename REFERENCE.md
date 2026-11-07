@@ -135,6 +135,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`ConvertsExactly`](inc/damp/matrix/matrix_traits.hpp#L80) | Matrix elements of type From convert to To without rounding: the same type, or a real into the complex of its own precision |
 | [`Diagonal`](inc/damp/matrix/views.hpp#L31) | Diagonal view of a square matrix |
 | [`EigenResult`](inc/damp/matrix/eigen.hpp#L39) | Eigenvalue computation result |
+| [`Entry`](inc/damp/matrix/sparse_matrix.hpp#L24) | What an entry of a matrix is known to be at compile time |
 | [`FullQR`](inc/damp/matrix/decomposition.hpp#L515) | Result of a full (complete) QR factorization |
 | [`GeneralizedEigenResult`](inc/damp/matrix/generalized_eigen.hpp#L61) | Generalized eigenvalues of A − λB: the finite ones, and how many there are |
 | [`is_matrix_element`](inc/damp/matrix/matrix_traits.hpp#L42) | True if T may be a Matrix element type |
@@ -148,6 +149,8 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`RowVec`](inc/damp/matrix/rowvec.hpp#L31) | Row vector specialization of Matrix<1, N, T> |
 | [`RowView`](inc/damp/matrix/views.hpp#L203) | Non-owning row view of a matrix |
 | [`SamePrecision`](inc/damp/matrix/matrix_traits.hpp#L87) | Two matrix element types mix in one operator without rounding: equal, or a real and the complex of its own precision |
+| [`SparseMatrix`](inc/damp/matrix/sparse_matrix.hpp#L235) | The runtime values of a sparsity pattern, and nothing else: an entry the pattern knows has no storage, and in a product it has no term (a 0) or no multiply (a 1) |
+| [`SparsityPattern`](inc/damp/matrix/sparse_matrix.hpp#L42) | Which entries of an R × C matrix are exactly 0, exactly 1, or known only at run time |
 | [`SVDResult`](inc/damp/matrix/svd.hpp#L49) | Result of a full singular value decomposition A = U·Σ·Vᴴ |
 | [`TransposeView`](inc/damp/matrix/views.hpp#L456) | Non-owning transpose view of a matrix (zero-copy) |
 | [`UpperTriangle`](inc/damp/matrix/views.hpp#L124) | Upper triangular view of a square matrix |
@@ -187,7 +190,8 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`pow`](inc/damp/matrix/functions.hpp#L1133) | Integer matrix power via binary exponentiation (+1 more overload) |
 | [`pseudo_inverse`](inc/damp/matrix/svd.hpp#L404) | Moore–Penrose pseudoinverse A⁺ via SVD |
 | [`qr_decompose`](inc/damp/matrix/decomposition.hpp#L444) | Thin QR via Householder reflections |
-| [`quadratic_form`](inc/damp/matrix/core.hpp#L1246) | Symmetric congruence (quadratic) form  S = M X Mᵀ |
+| [`quadratic_form`](inc/damp/matrix/core.hpp#L1246) | Symmetric congruence (quadratic) form  S = M X Mᵀ (+1 more overload) |
+| [`quadratic_form_in_place`](inc/damp/matrix/sparse_matrix.hpp#L353) | S ← F S Fᵀ in place, for a symmetric S: every multiply the pattern can skip, skipped |
 | [`rank`](inc/damp/matrix/functions.hpp#L234) | Numerical rank: the number of singular values above rel_tol·σₘₐₓ |
 | [`rank_from_svd`](inc/damp/matrix/svd.hpp#L368) | Numerical rank from a precomputed SVD result |
 | [`sin`](inc/damp/matrix/functions.hpp#L1336) | Matrix sine via scaling and double-angle reconstruction |
@@ -196,6 +200,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`solve`](inc/damp/matrix/solve.hpp#L266) | Solve AX = B — Cholesky when Hermitian, else LU (+2 more overloads) |
 | [`sqrt`](inc/damp/matrix/functions.hpp#L986) | Principal matrix square root by the real Schur method |
 | [`svd`](inc/damp/matrix/svd.hpp#L334) | Full singular value decomposition A = U·Σ·Vᴴ (one-sided Jacobi) |
+| [`times_transpose`](inc/damp/matrix/sparse_matrix.hpp#L332) | A dense matrix times Hᵀ for a sparse H: A Hᵀ |
 | [`transform`](inc/damp/matrix/core.hpp#L1397) | Apply f to every entry, B(i, j) = f(A(i, j)): the matrix counterpart of std::transform |
 | [`two_norm`](inc/damp/matrix/functions.hpp#L107) | Spectral norm ‖A‖₂ = σₘₐₓ(A) |
 | [`vcat`](inc/damp/matrix/concat.hpp#L182) | Vertical concatenation (same column count) |
@@ -504,12 +509,12 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`ComplementaryFilter`](inc/damp/estimation/sensor_fusion.hpp#L61) | Simple complementary filter for orientation estimation |
 | [`DOB`](inc/damp/estimation/dob.hpp#L168) | Lightweight SISO disturbance observer runtime (+1 more overload) |
 | [`DOBConfig`](inc/damp/estimation/dob.hpp#L32) | Configuration for a first-order disturbance observer |
-| [`ErrorStateJacobian`](inc/damp/estimation/eskf.hpp#L287) | ESKF prediction Jacobians F and G (nominal state updated outside) |
-| [`ErrorStateKalmanFilter`](inc/damp/estimation/eskf.hpp#L341) | Runtime error-state KF: tracks δx and P, not the full nominal state (+1 more overload) |
-| [`ErrorStateKalmanFilterConfig`](inc/damp/estimation/eskf.hpp#L312) | Configuration of an ErrorStateKalmanFilter: the process noise and the initial covariance |
-| [`ESKFOrientationFilter`](inc/damp/estimation/sensor_fusion.hpp#L380) | Turnkey 6-state attitude ESKF: owns q, b_g, and the error filter |
-| [`ESKFPredictFn`](inc/damp/estimation/eskf.hpp#L299) | Callable that returns ErrorStateJacobian for one predict step |
-| [`ESKFResult`](inc/damp/estimation/eskf.hpp#L85) | Design payload for an ESKF: Q, R, P₀, and success |
+| [`ErrorStateJacobian`](inc/damp/estimation/eskf.hpp#L288) | ESKF prediction Jacobians F and G (nominal state updated outside) |
+| [`ErrorStateKalmanFilter`](inc/damp/estimation/eskf.hpp#L342) | Runtime error-state KF: tracks δx and P, not the full nominal state (+1 more overload) |
+| [`ErrorStateKalmanFilterConfig`](inc/damp/estimation/eskf.hpp#L313) | Configuration of an ErrorStateKalmanFilter: the process noise and the initial covariance |
+| [`ESKFOrientationFilter`](inc/damp/estimation/sensor_fusion.hpp#L383) | Turnkey 6-state attitude ESKF: owns q, b_g, and the error filter |
+| [`ESKFPredictFn`](inc/damp/estimation/eskf.hpp#L300) | Callable that returns ErrorStateJacobian for one predict step |
+| [`ESKFResult`](inc/damp/estimation/eskf.hpp#L86) | Design payload for an ESKF: Q, R, P₀, and success |
 | [`ESO`](inc/damp/estimation/eso.hpp#L273) | Extended-state observer (ESO) (+1 more overload) |
 | [`ESOResult`](inc/damp/estimation/eso.hpp#L55) | Extended-state observer design: continuous β and, for Ts > 0, the discrete ESO |
 | [`ExtendedKalmanFilter`](inc/damp/estimation/ekf.hpp#L118) | Extended Kalman filter: continuous nonlinear dynamics, sampled measurements (+1 more overload) |
@@ -526,7 +531,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`ImpulseConfig`](inc/damp/estimation/excitation/impulse.hpp#L32) | Configuration for a one-shot rectangular impulse (Dirac stand-in) |
 | [`ImpulseResult`](inc/damp/estimation/excitation/impulse.hpp#L52) | Impulse design payload |
 | [`ImuSample`](inc/damp/estimation/ins_mechanization.hpp#L125) | IMU sample in the body frame |
-| [`InsNavigator`](inc/damp/estimation/ins_eskf.hpp#L695) | Runtime strapdown navigator: nominal InsState + 15-state ESKF (+2 more overloads) |
+| [`InsNavigator`](inc/damp/estimation/ins_eskf.hpp#L624) | Runtime strapdown navigator: nominal InsState + 15-state ESKF (+2 more overloads) |
 | [`InsState`](inc/damp/estimation/ins_mechanization.hpp#L139) | Nominal strapdown navigation state (external to the ESKF error state) |
 | [`KalmanFilter`](inc/damp/estimation/kalman.hpp#L667) | The recursive Kalman filter: the covariance propagates each tick, and the gain is formed from it in Joseph form (+2 more overloads) |
 | [`KalmanFilterConfig`](inc/damp/estimation/kalman.hpp#L618) | Configuration of a KalmanFilter built from a model rather than from design::kalman |
@@ -589,31 +594,31 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`discretize_process_noise`](inc/damp/estimation/kalman.hpp#L269) | Discretize continuous process noise over one sample (Van Loan) |
 | [`dob`](inc/damp/estimation/dob.hpp#L143) | Validate and package DOB configuration into a runtime-ready design result |
 | [`enu_from_ned`](inc/damp/estimation/ins_mechanization.hpp#L116) | Map a NED vector into ENU (axis permute) |
-| [`eskf_imu`](inc/damp/estimation/eskf.hpp#L219) | Design Q, R, P₀ for a 6-state IMU attitude ESKF (gyro + accel) |
-| [`eskf_marg`](inc/damp/estimation/eskf.hpp#L258) | Design Q, R, P₀ for a 6-state MARG attitude ESKF (gyro + accel + mag) |
+| [`eskf_imu`](inc/damp/estimation/eskf.hpp#L220) | Design Q, R, P₀ for a 6-state IMU attitude ESKF (gyro + accel) |
+| [`eskf_marg`](inc/damp/estimation/eskf.hpp#L259) | Design Q, R, P₀ for a 6-state MARG attitude ESKF (gyro + accel + mag) |
 | [`eso`](inc/damp/estimation/eso.hpp#L207) | Extended-state observer: poles at −ω_o, plant gain b₀, optional sample time |
 | [`extract_frf_features`](inc/damp/estimation/frequency_response.hpp#L810) | Extract peaks and valleys in one pass over the FRF table |
 | [`extract_modes`](inc/damp/estimation/frequency_response.hpp#L785) | Extract resonant peaks (local \|G\| maxima) from an FRF table |
 | [`extract_valleys`](inc/damp/estimation/frequency_response.hpp#L799) | Extract anti-resonance valleys (local \|G\| minima) from an FRF table |
 | [`finish_extremum`](inc/damp/estimation/frequency_response.hpp#L631) | Half-power (peaks) or double-power (valleys) bandwidth → ζ |
 | [`gravity_nav`](inc/damp/estimation/ins_mechanization.hpp#L93) | Gravity vector in the local-level frame [m/s²] |
-| [`heading_from_baseline_nav`](inc/damp/estimation/ins_eskf.hpp#L491) | Heading [rad] from a nav-frame baseline vector (dual-antenna difference) |
+| [`heading_from_baseline_nav`](inc/damp/estimation/ins_eskf.hpp#L421) | Heading [rad] from a nav-frame baseline vector (dual-antenna difference) |
+| [`identity`](inc/damp/estimation/ins_eskf.hpp#L102) | The shape of the 15-state INS transition: δθ⁺ = (I − [ω]× dt) δθ − dt δb_g, δv⁺ = δv − R[a]× dt δθ − R dt δb_a, δp⁺ = δp + dt δv, biases held (+1 more overload) |
 | [`impulse`](inc/damp/estimation/excitation/impulse.hpp#L73) | Build an impulse design payload |
-| [`ins_aid_position`](inc/damp/estimation/ins_eskf.hpp#L458) | Predicted antenna / marker position with body lever-arm |
-| [`ins_apply_correction`](inc/damp/estimation/ins_eskf.hpp#L444) | Inject filter correction into x and reset the error state |
-| [`ins_error_jacobian`](inc/damp/estimation/ins_eskf.hpp#L262) | Discrete error-state transition and noise input for one IMU step |
-| [`ins_eskf_design`](inc/damp/estimation/ins_eskf.hpp#L174) | Build Q / R / P0 for a 15-state INS ESKF from IMU noise densities |
-| [`ins_heading`](inc/damp/estimation/ins_eskf.hpp#L476) | Horizontal heading [rad] of a body axis expressed in the nav frame |
-| [`ins_inject`](inc/damp/estimation/ins_eskf.hpp#L392) | Inject δx into the nominal INS state (right-multiplicative q) |
-| [`ins_predict`](inc/damp/estimation/ins_eskf.hpp#L421) | Mechanize nominal state and propagate the error covariance |
-| [`ins_propagate_covariance`](inc/damp/estimation/ins_eskf.hpp#L358) | P ← F P Fᵀ + Q using sparse F (exact for ins_error_jacobian structure) |
-| [`ins_update_heading`](inc/damp/estimation/ins_eskf.hpp#L579) | Sparse dual-antenna / yaw heading update (scalar) |
-| [`ins_update_orientation`](inc/damp/estimation/ins_eskf.hpp#L617) | Sparse orientation update from a measured body→nav quaternion |
-| [`ins_update_pose`](inc/damp/estimation/ins_eskf.hpp#L642) | Generic pose alias: position then orientation (two sparse updates) |
-| [`ins_update_pose_heading`](inc/damp/estimation/ins_eskf.hpp#L661) | Pose alias: position + dual-antenna heading (two sparse updates) |
-| [`ins_update_position`](inc/damp/estimation/ins_eskf.hpp#L506) | Sparse position update: y = p + Rℓ |
-| [`ins_update_velocity`](inc/damp/estimation/ins_eskf.hpp#L538) | Sparse velocity update: y = v at the IMU origin (no lever-arm) |
-| [`ins_update_zupt`](inc/damp/estimation/ins_eskf.hpp#L557) | Zero-velocity update (ZUPT): velocity measurement of zero |
+| [`ins_aid_position`](inc/damp/estimation/ins_eskf.hpp#L388) | Predicted antenna / marker position with body lever-arm |
+| [`ins_apply_correction`](inc/damp/estimation/ins_eskf.hpp#L374) | Inject filter correction into x and reset the error state |
+| [`ins_error_jacobian`](inc/damp/estimation/ins_eskf.hpp#L282) | Discrete error-state transition and noise input for one IMU step |
+| [`ins_eskf_design`](inc/damp/estimation/ins_eskf.hpp#L194) | Build Q / R / P0 for a 15-state INS ESKF from IMU noise densities |
+| [`ins_heading`](inc/damp/estimation/ins_eskf.hpp#L406) | Horizontal heading [rad] of a body axis expressed in the nav frame |
+| [`ins_inject`](inc/damp/estimation/ins_eskf.hpp#L325) | Inject δx into the nominal INS state (right-multiplicative q) |
+| [`ins_predict`](inc/damp/estimation/ins_eskf.hpp#L354) | Mechanize nominal state and propagate the error covariance |
+| [`ins_update_heading`](inc/damp/estimation/ins_eskf.hpp#L509) | Sparse dual-antenna / yaw heading update (scalar) |
+| [`ins_update_orientation`](inc/damp/estimation/ins_eskf.hpp#L547) | Sparse orientation update from a measured body→nav quaternion |
+| [`ins_update_pose`](inc/damp/estimation/ins_eskf.hpp#L571) | Generic pose alias: position then orientation (two sparse updates) |
+| [`ins_update_pose_heading`](inc/damp/estimation/ins_eskf.hpp#L590) | Pose alias: position + dual-antenna heading (two sparse updates) |
+| [`ins_update_position`](inc/damp/estimation/ins_eskf.hpp#L436) | Sparse position update: y = p + Rℓ |
+| [`ins_update_velocity`](inc/damp/estimation/ins_eskf.hpp#L468) | Sparse velocity update: y = v at the IMU origin (no lever-arm) |
+| [`ins_update_zupt`](inc/damp/estimation/ins_eskf.hpp#L487) | Zero-velocity update (ZUPT): velocity measurement of zero |
 | [`kalman`](inc/damp/estimation/kalman.hpp#L485) | Steady-state Kalman filter design (+3 more overloads) |
 | [`luenberger`](inc/damp/estimation/luenberger.hpp#L283) | Design a Luenberger observer by robust pole placement, in the domain of sys (+1 more overload) |
 | [`margins_from_frf`](inc/damp/estimation/frequency_response.hpp#L842) | Gain / phase margins from a fixed on-target FRF table |
@@ -622,18 +627,19 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`mhe`](inc/damp/estimation/mhe.hpp#L227) | Synthesize a constrained moving-horizon estimator |
 | [`multi_sine`](inc/damp/estimation/excitation/multi_sine.hpp#L139) | Build a multi-sine design payload from a configuration |
 | [`ned_from_enu`](inc/damp/estimation/ins_mechanization.hpp#L106) | Map an ENU vector into NED (axis permute) |
+| [`ones`](inc/damp/estimation/ins_eskf.hpp#L113) | The shape of a position reading through a lever arm: I on δp, a runtime block on δθ (+2 more overloads) |
 | [`prbs`](inc/damp/estimation/excitation/prbs.hpp#L166) | Build a PRBS design payload from a configuration |
 | [`ramp`](inc/damp/estimation/excitation/ramp.hpp#L101) | Build a ramp design payload from a configuration |
 | [`reduced_luenberger`](inc/damp/estimation/luenberger.hpp#L490) | Design a reduced-order (Gopinath) observer by pole placement, in the domain of sys (+1 more overload) |
 | [`relay_autotune`](inc/damp/estimation/relay_autotune.hpp#L228) | Build a validated relay-autotune design payload |
 | [`rls_vector`](inc/damp/estimation/rls.hpp#L135) | Build vector RLS design payload |
-| [`rows`](inc/damp/estimation/ins_eskf.hpp#L303) | Sparse y = F x for the 15-state INS first-order structure (G = I path) |
 | [`schroeder_multi_sine`](inc/damp/estimation/excitation/multi_sine.hpp#L193) | Build a multi-sine design payload with Schroeder phases applied |
 | [`specific_force_at_rest`](inc/damp/estimation/ins_mechanization.hpp#L227) | Specific force [m/s²] a stationary IMU measures for the given orientation |
 | [`state_variable_filter`](inc/damp/estimation/state_variable_filter.hpp#L99) | Design the filter F(s) = ω³/(s + ω)³ sampled at Ts |
 | [`step`](inc/damp/estimation/excitation/step.hpp#L100) | Build a single-step design payload |
 | [`step_train`](inc/damp/estimation/excitation/step_train.hpp#L100) | Build a step-train design payload from a configuration |
 | [`stepped_sine`](inc/damp/estimation/excitation/stepped_sine.hpp#L111) | Build a stepped-sine design payload from a configuration |
+| [`values`](inc/damp/estimation/ins_eskf.hpp#L122) | The shape of a heading reading: one row, a runtime block on δθ |
 | [`with_schroeder_phases`](inc/damp/estimation/excitation/multi_sine.hpp#L170) | Assign Schroeder low-crest-factor phases to a multi-sine tone table |
 
 ## Filters & signal conditioning
