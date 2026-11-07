@@ -99,7 +99,7 @@ workbench)
 
 nostd)
     exe="${probe%.cpp}.exe"
-    if ! "$GXX" -std=c++20 -nostdinc++ -fno-exceptions -fno-rtti -Iinc -Ilibs/etl/include \
+    if ! "$GXX" -std=c++20 -nostdinc++ -fno-exceptions -fno-rtti -Ichecks/nostd -Iinc -Ilibs/etl/include \
         checks/nostd/nostd_check.cpp -o "$exe" 2>"${probe}.log"; then
         cat "${probe}.log" >&2
         rm -f "$exe" "${probe}.log"

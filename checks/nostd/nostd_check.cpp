@@ -4,10 +4,10 @@
 // (See accompanying file LICENSE or copy at http://www.boost.org/LICENSE_1_0.txt)
 
 // Design and tick with no C++ standard headers: tools/contract_check.sh nostd builds this with
-// -nostdinc++ and runs it. In a subfolder so the checks/ asm glob does not pick it up.
+// -nostdinc++ and runs it. In a subfolder so the checks/ asm glob does not pick it up. ETL_NO_STL
+// comes from etl_profile.h beside this file, the setup README.md gives.
 #define DAMP_BACKEND_ETL
 #define DAMP_MATH_BACKEND_FREESTANDING
-#define ETL_NO_STL
 
 #include "damp/control.hpp"
 #include "damp/motor/foc.hpp"

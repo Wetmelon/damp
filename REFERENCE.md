@@ -43,7 +43,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`FeedbackRuntime`](inc/damp/concepts.hpp#L101) | Shared lifecycle of an LQ or MPC runtime: measurement, time update, applied input |
 | [`Measurement`](inc/damp/concepts.hpp#L205) | Nonlinear measurement y = h(x, u): a callable returning y as a ColVec<NY, T> |
 | [`MeasurementJacobian`](inc/damp/concepts.hpp#L218) | Analytic Jacobians of a Measurement model at (x, u), returned by its jacobian(x, u) |
-| [`optional`](inc/damp/backend.hpp#L182) | The optional of a toolchain with no C++ standard headers (ETL_NO_STL) |
+| [`optional`](inc/damp/backend.hpp#L185) | The optional of a toolchain with no C++ standard headers (ETL_NO_STL) |
 | [`ParameterEstimator`](inc/damp/concepts.hpp#L156) | Online grey-box parameter estimator: physical parameters + gating |
 | [`PatternMeasurement`](inc/damp/concepts.hpp#L242) | A Measurement whose jacobian(x, u) returns C = ∂h/∂x as an NY × NX PatternMatrix: zeros and ones known at compile time, the other entries computed at (x, u) |
 | [`SignalSource`](inc/damp/concepts.hpp#L141) | Self-clocked signal source: u = step(), finished when done() |
@@ -54,11 +54,11 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 
 | Name | Description |
 | ---- | ----------- |
-| [`array_as`](inc/damp/backend.hpp#L387) | Element-wise static_cast of a damp::array to scalar type U (precision rebind) |
-| [`bit_cast`](inc/damp/backend.hpp#L159) | Reinterpret the bits of from as To, usable in constant evaluation (etl::bit_cast is not, without the STL) |
-| [`bit_width`](inc/damp/backend.hpp#L165) | Bits needed to represent value, as int like std::bit_width (etl::bit_width returns T) |
-| [`is_constant_evaluated`](inc/damp/backend.hpp#L152) | True during constant evaluation; the builtin needs no header |
-| [`minmax`](inc/damp/backend.hpp#L356) | Ordered {min, max} pair returned by value (+1 more overload) |
+| [`array_as`](inc/damp/backend.hpp#L390) | Element-wise static_cast of a damp::array to scalar type U (precision rebind) |
+| [`bit_cast`](inc/damp/backend.hpp#L162) | Reinterpret the bits of from as To, usable in constant evaluation (etl::bit_cast is not, without the STL) |
+| [`bit_width`](inc/damp/backend.hpp#L168) | Bits needed to represent value, as int like std::bit_width (etl::bit_width returns T) |
+| [`is_constant_evaluated`](inc/damp/backend.hpp#L155) | True during constant evaluation; the builtin needs no header |
+| [`minmax`](inc/damp/backend.hpp#L359) | Ordered {min, max} pair returned by value (+1 more overload) |
 
 ## Scalar math, complex & frames
 

@@ -41,7 +41,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`apply_wet_plotly_shell`](inc/damp/simulation/plot_plotly.hpp#L66) | function | Simulation / SIL harness (host) | Apply damp's full-window HTML shell to plotlypp-generated markup |
 | [`arange`](inc/damp/analysis/linspace.hpp#L115) | function | Frequency-domain analysis (host) | Half-open arithmetic range [start, stop) with step step (+2 more overloads) |
 | [`arg`](inc/damp/math/complex.hpp#L373) | function | Scalar math, complex & frames | Compute argument (phase angle) of a complex number |
-| [`array_as`](inc/damp/backend.hpp#L387) | function | Core, configuration & backend vocabulary | Element-wise static_cast of a damp::array to scalar type U (precision rebind) |
+| [`array_as`](inc/damp/backend.hpp#L390) | function | Core, configuration & backend vocabulary | Element-wise static_cast of a damp::array to scalar type U (precision rebind) |
 | [`asin`](inc/damp/math/math.hpp#L130) | function | Scalar math, complex & frames | Arcsine ∈ [−π/2, π/2]. Input is clamped to [−1, 1] in both paths so behavior matches at compile and run time (std::asin would return NaN for \|x\| > 1) |
 | [`atan`](inc/damp/math/math.hpp#L116) | function | Scalar math, complex & frames | Single-argument arctangent ∈ (−π/2, π/2) |
 | [`atan2`](inc/damp/math/math.hpp#L104) | function | Scalar math, complex & frames | Two-argument arctangent, atan2(y, x) ∈ [−π, π] |
@@ -61,8 +61,8 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`BDF2`](inc/damp/simulation/integrator.hpp#L400) | block | Simulation / SIL harness (host) | Backward Differentiation Formula 2 (BDF2) integrator |
 | [`Biquad`](inc/damp/filters/biquad.hpp#L536) | block | Filters & signal conditioning | Second-order IIR (biquad) section runtime (+1 more overload) |
 | [`BiquadCascade`](inc/damp/filters/biquad.hpp#L626) | block | Filters & signal conditioning | Cascade of second-order sections (SOS) for higher-order IIR filters (+1 more overload) |
-| [`bit_cast`](inc/damp/backend.hpp#L159) | function | Core, configuration & backend vocabulary | Reinterpret the bits of from as To, usable in constant evaluation (etl::bit_cast is not, without the STL) |
-| [`bit_width`](inc/damp/backend.hpp#L165) | function | Core, configuration & backend vocabulary | Bits needed to represent value, as int like std::bit_width (etl::bit_width returns T) |
+| [`bit_cast`](inc/damp/backend.hpp#L162) | function | Core, configuration & backend vocabulary | Reinterpret the bits of from as To, usable in constant evaluation (etl::bit_cast is not, without the STL) |
+| [`bit_width`](inc/damp/backend.hpp#L168) | function | Core, configuration & backend vocabulary | Bits needed to represent value, as int like std::bit_width (etl::bit_width returns T) |
 | [`BLINK`](inc/damp/toolbox/iec61131.hpp#L539) | block | Embedded helpers (controls-adjacent utilities) | BLINK (free-running square-wave / flasher) |
 | [`blkdiag`](inc/damp/matrix/concat.hpp#L133) | function | Linear algebra | Block-diagonal assembly of MatrixLike arguments |
 | [`Block`](inc/damp/matrix/block.hpp#L36) | block | Linear algebra | Block view (non-owning) into a parent matrix |
@@ -364,7 +364,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`inverse_park_transform`](inc/damp/math/transforms.hpp#L381) | function | Scalar math, complex & frames | Inverse Park transform (dq → αβ) |
 | [`inverse_symmetrical_components`](inc/damp/math/transforms.hpp#L570) | function | Scalar math, complex & frames | Inverse symmetrical-component transform (012 → abc) |
 | [`iq_from_torque`](inc/damp/motor/spm.hpp#L70) | function | Motor control pack (if present) | i_q = T_e / Kₜ for id = 0 |
-| [`is_constant_evaluated`](inc/damp/backend.hpp#L152) | function | Core, configuration & backend vocabulary | True during constant evaluation; the builtin needs no header |
+| [`is_constant_evaluated`](inc/damp/backend.hpp#L155) | function | Core, configuration & backend vocabulary | True during constant evaluation; the builtin needs no header |
 | [`is_controllable`](inc/damp/design/stability.hpp#L445) | function | Design-time synthesis (not PWM-rate) | Check if a system is controllable |
 | [`is_fault`](inc/damp/toolbox/conditioning.hpp#L332) | function | Embedded helpers (controls-adjacent utilities) | True for a wire fault (FaultLow/FaultHigh) — i.e. not a real reading at all |
 | [`is_matrix_element`](inc/damp/matrix/matrix_traits.hpp#L38) | block | Linear algebra | True if T may be a Matrix element type |
@@ -506,7 +506,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`middlebrook`](inc/damp/analysis/frequency.hpp#L1113) | function | Frequency-domain analysis (host) | Middlebrook stability analysis of a cascaded source and load from their impedances |
 | [`MiddlebrookResult`](inc/damp/analysis/frequency.hpp#L927) | block | Frequency-domain analysis (host) | Result of Middlebrook minor loop gain analysis |
 | [`MinimalRealizationResult`](inc/damp/design/minreal.hpp#L88) | block | Design-time synthesis (not PWM-rate) | Minimal realization result |
-| [`minmax`](inc/damp/backend.hpp#L356) | function | Core, configuration & backend vocabulary | Ordered {min, max} pair returned by value (+1 more overload) |
+| [`minmax`](inc/damp/backend.hpp#L359) | function | Core, configuration & backend vocabulary | Ordered {min, max} pair returned by value (+1 more overload) |
 | [`minreal`](inc/damp/design/minreal.hpp#L310) | function | Design-time synthesis (not PWM-rate) | Minimal realization — cancel uncontrollable and unobservable modes |
 | [`minreal`](inc/damp/matlab.hpp#L334) | function | MATLAB®-style aliases (host) | MATLAB® short alias for design::minreal, with its default tolerance √ε |
 | [`minreal_zpk`](inc/damp/systems/zpk.hpp#L834) | function | LTI systems (SS / TF / ZPK / discretize) | Cancel matching pole-zero pairs on a ZPK model |
@@ -583,7 +583,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`option`](inc/damp/design/options.hpp#L57) | function | Design-time synthesis (not PWM-rate) | No option left: the fallback (+1 more overload) |
 | [`option_set`](inc/damp/design/options.hpp#L82) | block | Design-time synthesis (not PWM-rate) | The kinds of option a design call accepts: check<Opts...>() refuses, at compile time, an option of no listed kind and a kind given twice |
 | [`option_type`](inc/damp/design/options.hpp#L41) | block | Design-time synthesis (not PWM-rate) | The type of the first option of the kind Is among Opts, else Default (+1 more overload) |
-| [`optional`](inc/damp/backend.hpp#L182) | block | Core, configuration & backend vocabulary | The optional of a toolchain with no C++ standard headers (ETL_NO_STL) |
+| [`optional`](inc/damp/backend.hpp#L185) | block | Core, configuration & backend vocabulary | The optional of a toolchain with no C++ standard headers (ETL_NO_STL) |
 | [`output_inverse`](inc/damp/design/model_inverse.hpp#L683) | function | Design-time synthesis (not PWM-rate) | The stable inverse of a discrete model: the state and input of its trajectory through a reference y on the controlled outputs, from y ₖ … y ₖ₊NP₋₁ (+1 more overload) |
 | [`OutputDisturbance`](inc/damp/design/disturbance.hpp#L51) | block | Design-time synthesis (not PWM-rate) | An output disturbance: a bias on each reading, B_d = 0 and C_d = I, one per output |
 | [`OutputInverse`](inc/damp/design/model_inverse.hpp#L861) | block | Design-time synthesis (not PWM-rate) | The stable inverse at run time: the reference point (x , u ) from the output reference over the preview, seven matrix–vector products and the zero dynamics' state (+1 more overload) |
