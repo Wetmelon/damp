@@ -185,6 +185,54 @@ template<typename R, typename Mag>
     return d * damp::sqrt(ssq);
 }
 
+/** @brief Largest shape for_each_entry folds over: a local this size is worth keeping in registers. */
+inline constexpr size_t kConstantIndexEntries = 64;
+
+/** @brief One row of for_index_pairs: @p f<R, C>() for each column. */
+template<size_t R, typename F, size_t... C>
+[[gnu::always_inline]] constexpr void for_index_pairs_in_row(F& f, damp::index_sequence<C...> /*columns*/) {
+    (f.template operator()<R, C>(), ...);
+}
+
+/**
+ * @brief Call @p f<R, C>() for every pair of a Rows × Cols shape, the indices compile-time constants
+ *
+ * One Cols-wide fold per row, never a Rows·Cols pack: the arity stays within the compilers' default
+ * limits and the frontend's cost stays low, as in Matrix's copy. Everything is forced inline, so @p f
+ * reads the same data through no closure pointer and the compiler can keep it in registers.
+ */
+template<size_t Rows, size_t Cols, typename F>
+[[gnu::always_inline]] constexpr void for_index_pairs(F&& f) {
+    [&]<size_t... R>(damp::index_sequence<R...>) __attribute__((always_inline)) {
+        (for_index_pairs_in_row<R>(f, damp::make_index_sequence<Cols>{}), ...);
+    }(damp::make_index_sequence<Rows>{});
+}
+
+/**
+ * @brief Call @p f(r, c) for every entry of a Rows × Cols shape: on a small shape at run time with
+ *        constant indices, otherwise in a plain loop.
+ *
+ * GCC scalar-replaces a local only if every access has a constant index, and it stops unrolling a
+ * loop past 16 iterations, so a loop over a ColVec<18> leaves that vector, and everything assigned
+ * to it, in memory. for_index_pairs keeps the indices constant. Constant evaluation keeps the
+ * loop: it costs less there.
+ */
+template<size_t Rows, size_t Cols, typename F>
+[[gnu::always_inline]] constexpr void for_each_entry(F&& f) {
+    if constexpr (Rows * Cols > 0 && Rows * Cols <= kConstantIndexEntries) {
+        if (!std::is_constant_evaluated()) {
+            // Not forced as a whole: a dense operation inlines into its caller only where the compiler judges it worthwhile.
+            [&] { for_index_pairs<Rows, Cols>([&]<size_t R, size_t C>() __attribute__((always_inline)) { f(R, C); }); }();
+            return;
+        }
+    }
+    for (size_t r = 0; r < Rows; ++r) {
+        for (size_t c = 0; c < Cols; ++c) {
+            f(r, c);
+        }
+    }
+}
+
 } // namespace detail
 
 /**
@@ -760,11 +808,7 @@ public:
         if (aliases(other)) {
             return *this += Matrix(other); // A += A.t(): read before writing
         }
-        for (size_t r = 0; r < Rows; ++r) {
-            for (size_t c = 0; c < Cols; ++c) {
-                data_[(r * Cols) + c] += static_cast<T>(other(r, c));
-            }
-        }
+        detail::for_each_entry<Rows, Cols>([&](size_t r, size_t c) { data_[(r * Cols) + c] += static_cast<T>(other(r, c)); });
         return *this;
     }
 
@@ -777,11 +821,7 @@ public:
         if (aliases(other)) {
             return *this -= Matrix(other);
         }
-        for (size_t r = 0; r < Rows; ++r) {
-            for (size_t c = 0; c < Cols; ++c) {
-                data_[(r * Cols) + c] -= static_cast<T>(other(r, c));
-            }
-        }
+        detail::for_each_entry<Rows, Cols>([&](size_t r, size_t c) { data_[(r * Cols) + c] -= static_cast<T>(other(r, c)); });
         return *this;
     }
 
@@ -1130,15 +1170,13 @@ template<MatrixLike A, MatrixLike B>
     );
     using T = detail::common_element_t<typename A::value_type, typename B::value_type>;
     Matrix<ResRows, ResCols, T> result;
-    for (size_t i = 0; i < ResRows; ++i) {
-        for (size_t j = 0; j < ResCols; ++j) {
-            size_t ai = (A::rows() == 1) ? 0 : i;
-            size_t aj = (A::cols() == 1) ? 0 : j;
-            size_t bi = (B::rows() == 1) ? 0 : i;
-            size_t bj = (B::cols() == 1) ? 0 : j;
-            result(i, j) = static_cast<T>(a(ai, aj)) + static_cast<T>(b(bi, bj));
-        }
-    }
+    detail::for_each_entry<ResRows, ResCols>([&](size_t i, size_t j) {
+        const size_t ai = (A::rows() == 1) ? 0 : i;
+        const size_t aj = (A::cols() == 1) ? 0 : j;
+        const size_t bi = (B::rows() == 1) ? 0 : i;
+        const size_t bj = (B::cols() == 1) ? 0 : j;
+        result(i, j) = static_cast<T>(a(ai, aj)) + static_cast<T>(b(bi, bj));
+    });
     if constexpr (std::is_same_v<A, B> && detail::keeps_operand_type<A>) {
         return A(result);
     } else {
@@ -1164,15 +1202,13 @@ template<MatrixLike A, MatrixLike B>
     );
     using T = detail::common_element_t<typename A::value_type, typename B::value_type>;
     Matrix<ResRows, ResCols, T> result;
-    for (size_t i = 0; i < ResRows; ++i) {
-        for (size_t j = 0; j < ResCols; ++j) {
-            size_t ai = (A::rows() == 1) ? 0 : i;
-            size_t aj = (A::cols() == 1) ? 0 : j;
-            size_t bi = (B::rows() == 1) ? 0 : i;
-            size_t bj = (B::cols() == 1) ? 0 : j;
-            result(i, j) = static_cast<T>(a(ai, aj)) - static_cast<T>(b(bi, bj));
-        }
-    }
+    detail::for_each_entry<ResRows, ResCols>([&](size_t i, size_t j) {
+        const size_t ai = (A::rows() == 1) ? 0 : i;
+        const size_t aj = (A::cols() == 1) ? 0 : j;
+        const size_t bi = (B::rows() == 1) ? 0 : i;
+        const size_t bj = (B::cols() == 1) ? 0 : j;
+        result(i, j) = static_cast<T>(a(ai, aj)) - static_cast<T>(b(bi, bj));
+    });
     if constexpr (std::is_same_v<A, B> && detail::keeps_operand_type<A>) {
         return A(result);
     } else {
@@ -1269,11 +1305,7 @@ template<MatrixLike A>
 [[nodiscard]] constexpr auto operator-(const A& a) {
     using T = A::value_type;
     Matrix<A::rows(), A::cols(), T> result;
-    for (size_t i = 0; i < A::rows(); ++i) {
-        for (size_t j = 0; j < A::cols(); ++j) {
-            result(i, j) = -static_cast<T>(a(i, j));
-        }
-    }
+    detail::for_each_entry<A::rows(), A::cols()>([&](size_t i, size_t j) { result(i, j) = -static_cast<T>(a(i, j)); });
     if constexpr (detail::keeps_operand_type<A>) {
         return A(result);
     } else {
