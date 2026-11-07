@@ -29,9 +29,9 @@
  *
  * with ZOH coeffs @f$ a = e^{-T_s/\tau} @f$, @f$ b = K(1-a) @f$.
  *
- * It is the dead-time compensator for a single loop whose delay spans several samples. The
- * state-space laws (LQR, LQI, LQG, LQGI, OFLQG, MPC, OFMPC) take at most one sample of input
- * delay, in the model `discretize(sys, Ts, InputDelay{θ})` returns. The classic Smith structure is
+ * It is the dead-time compensator for a single loop whose delay spans many samples. The
+ * state-space laws (LQR, LQI, LQG, LQGI, OFLQG, MPC, OFMPC) take an input delay of N samples in the
+ * model `discretize(sys, Ts, InputDelay<N>{θ})` returns, one state per register. The classic Smith structure is
  * not internally stable for an open-loop unstable plant: the model path ŷ − ŷ_d runs open
  * loop, so the plant's unstable pole stays in the map from a load disturbance to the output.
  *

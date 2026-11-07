@@ -653,8 +653,8 @@ struct KalmanFilterConfig {
  * OFMPC, with the disturbance anchor the offset-free laws use.
  *
  * A design on [x; d] (design::kalman with a disturbance) runs here as the absolute filter on the
- * whole augmented state. An input delay (at most one sample) is in the model
- * discretize(plant, Ts, InputDelay{θ}) returns: its register v(k−1) is a state like any other.
+ * whole augmented state. An input delay is in the model discretize(plant, Ts, InputDelay<N>{θ})
+ * returns: its registers v(k−1) … v(k−N) are states like any other.
  *
  * @tparam NX Filter states
  * @tparam NW Process-noise inputs of the filter's model (columns of G)
