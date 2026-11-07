@@ -3,8 +3,8 @@
 // Distributed under the Boost Software License, Version 1.0.
 // (See accompanying file LICENSE or copy at http://www.boost.org/LICENSE_1_0.txt)
 
-// Design families on a plant with an input delay of at most one sample. The delay is part of
-// the model, discretize(plant, Ts, InputDelay{θ}): NX + NU states, the register v(k−1) last.
+// Design families on a plant with an input delay. The delay is part of the model,
+// discretize(plant, Ts, InputDelay<N>{θ}): NX + N·NU states, the registers v(k−1) … v(k−N) last.
 // Every design takes that model like any other plant, with zero weight on the register. A
 // measured-state law reads [x; u(k−1)], the last applied input appended by the caller; a Kalman
 // filter estimates the register like any other state. The design on the delayed model holds
@@ -15,6 +15,7 @@
 #include <cmath>
 #include <cstddef>
 
+#include "damp/controllers/lqg.hpp"
 #include "damp/controllers/lqgi.hpp"
 #include "damp/controllers/lqi.hpp"
 #include "damp/controllers/lqr.hpp"
@@ -108,6 +109,230 @@ struct Tail {
         }
     }
 };
+
+/// The inputs a law applied, newest first: what the caller of a measured-state law keeps for the registers.
+template<size_t N>
+struct AppliedInputs {
+    ColVec<N> u{};
+
+    void push(double v) {
+        for (size_t j = N - 1; j > 0; --j) {
+            u[j] = u[j - 1];
+        }
+        u[0] = v;
+    }
+
+    [[nodiscard]] ColVec<2 + N> after(const ColVec<2>& x) const {
+        ColVec<2 + N> out{};
+        out[0] = x[0];
+        out[1] = x[1];
+        for (size_t j = 0; j < N; ++j) {
+            out[2 + j] = u[j];
+        }
+        return out;
+    }
+};
+
+/// The position weight on N registers' model: none on the speed or the registers.
+template<size_t N>
+Matrix<2 + N, 2 + N> position_weight_on(double q) {
+    return blkdiag(Matrix<2, 2>{{q, 0.0}, {0.0, 0.0}}, Matrix<N, N>{});
+}
+
+/// The measured-state laws, each on the true plant with the true delay.
+template<size_t N>
+void check_measured_laws(double theta) {
+    constexpr size_t NS = 2 + N;
+    const auto       model = discretize(mass_spring(), kTs, InputDelay<N>{theta}).value();
+    const auto       truth = test::register_form<N>(mass_spring(), kTs, theta);
+    ColVec<NS>       x0{};
+    x0[0] = 1.0;
+
+    const auto lqr = design::lqr(model, {.Q = position_weight_on<N>(1e4), .R = Matrix<1, 1>{{1e-4}}});
+    REQUIRE(lqr.success);
+    CHECK(lqr.is_stable());
+    LQR              regulator{lqr};
+    Truth<NS>        a{truth, x0};
+    AppliedInputs<N> applied_a;
+    Tail             ta;
+    for (int k = 0; k < 1000; ++k) {
+        const double u = regulator.step(applied_a.after(a.plant()))[0];
+        a.step(u);
+        applied_a.push(u);
+        ta.add(k, 1000, a.position());
+    }
+    CHECK(ta.worst < 1e-6);
+
+    const auto lqi = design::lqi(model, {.Q = position_weight_on<N>(1e3), .R = Matrix<1, 1>{{1e-7}}, .Q_integral = Matrix<1, 1>{{1e6}}});
+    REQUIRE(lqi.success);
+    LQI              integrating{lqi};
+    Truth<NS>        b{truth};
+    AppliedInputs<N> applied_b;
+    Tail             tb;
+    for (int k = 0; k < 2000; ++k) {
+        const double u = integrating.step(ColVec<1>{{0.3}}, applied_b.after(b.plant()))[0];
+        b.step(u, 0.2);
+        applied_b.push(u);
+        tb.add(k, 2000, b.position() - 0.3);
+    }
+    CHECK(tb.worst < 1e-4);
+
+    design::MPCWeights<1, 1> w{};
+    w.Qy = 1e4;
+    w.Rdu = 1e-4;
+    const auto mpc = design::mpc<20 + N, 5>(model, w, {});
+    REQUIRE(mpc.success);
+    MPC              planner{mpc};
+    Truth<NS>        c{truth};
+    AppliedInputs<N> applied_c;
+    Tail             tc;
+    for (int k = 0; k < 1500; ++k) {
+        const double u = planner.step(ColVec<1>{{0.2}}, applied_c.after(c.plant()))[0];
+        c.step(u);
+        applied_c.push(u);
+        tc.add(k, 1500, c.position() - 0.2);
+    }
+    CHECK(tc.worst < 1e-4);
+}
+
+/// The laws that read the output, offset-free under a load the command carries.
+template<size_t N>
+void check_output_laws(double theta) {
+    constexpr size_t NS = 2 + N;
+    const auto       model = discretize(mass_spring(), kTs, InputDelay<N>{theta}).value();
+    const auto       truth = test::register_form<N>(mass_spring(), kTs, theta);
+
+    const design::KalmanNoise lqgi_noise{.process = Matrix<2, 2>::identity(), .measurement = Matrix<1, 1>{{1e-6}}};
+    const auto                lqgi = design::lqgi(model, {.Q = position_weight_on<N>(1e3), .R = Matrix<1, 1>{{1e-7}}, .Q_integral = Matrix<1, 1>{{1e6}}}, lqgi_noise);
+    REQUIRE(lqgi.success);
+    LQGI      integrating{lqgi};
+    Truth<NS> a{truth};
+    Tail      ta;
+    for (int k = 0; k < 2000; ++k) {
+        a.step(integrating.step(ColVec<1>{{0.3}}, a.y())[0], 0.2);
+        ta.add(k, 2000, a.position() - 0.3);
+    }
+    CHECK(ta.worst < 1e-4);
+
+    const design::KalmanNoise noise{Matrix<2, 2>{{1e-4, 0.0}, {0.0, 1e-2}}, Matrix<1, 1>{{1e-6}}, Matrix<1, 1>{{1e-2}}};
+    const auto                oflqg = design::oflqg(model, {.Q = position_weight_on<N>(1e3), .R = Matrix<1, 1>{{1e-4}}}, noise, design::InputDisturbance{});
+    REQUIRE(oflqg.success);
+    OFLQG     holding{oflqg};
+    Truth<NS> b{truth};
+    Tail      tb;
+    for (int k = 0; k < 2000; ++k) {
+        b.step(holding.step(ColVec<1>{{0.3}}, b.y())[0], (k > 500) ? 0.5 : 0.0);
+        tb.add(k, 2000, b.position() - 0.3);
+    }
+    CHECK(tb.worst < 1e-4);
+
+    design::MPCWeights<1, 1> w{};
+    w.Qy = 1e3;
+    w.Rdu = 1e-4;
+    const auto ofmpc = design::ofmpc<20 + N, 5>(model, w, {}, noise, design::InputDisturbance{});
+    REQUIRE(ofmpc.success);
+    OFMPC     planner{ofmpc};
+    Truth<NS> c{truth};
+    Tail      tc;
+    for (int k = 0; k < 2000; ++k) {
+        c.step(planner.step(ColVec<1>{{0.2}}, c.y())[0], (k > 500) ? 0.5 : 0.0);
+        tc.add(k, 2000, c.position() - 0.2);
+    }
+    CHECK(tc.worst < 1e-4);
+
+    // Deployed in float: the same offset-free law, to float's precision.
+    OFLQG     single{oflqg.template as<float>()};
+    Truth<NS> d{truth};
+    Tail      td;
+    for (int k = 0; k < 2000; ++k) {
+        const ColVec<1, float> y{{static_cast<float>(d.y()[0])}};
+        d.step(static_cast<double>(single.step(ColVec<1, float>{{0.3F}}, y)[0]), (k > 500) ? 0.5 : 0.0);
+        td.add(k, 2000, d.position() - 0.3);
+    }
+    CHECK(td.worst < 1e-3);
+}
+
+/// design::luenberger on N registers: the plant's poles as asked, the registers' at 0, and the error gone on the true plant.
+template<size_t N>
+void check_placed_observer(double Ts) {
+    constexpr size_t NS = 2 + N;
+    CAPTURE(N);
+    const auto                       model = discretize(mass_spring(), Ts, InputDelay<N>{static_cast<double>(N) * Ts}).value();
+    damp::array<complex<double>, NS> poles{};
+    poles[0] = complex<double>{0.9, 0.0};
+    poles[1] = complex<double>{0.92, 0.0};
+    const auto placed = design::luenberger(model, poles);
+    REQUIRE(placed.success);
+    CHECK(placed.is_stable());
+    Luenberger observer{placed};
+    ColVec<NS> x0{};
+    x0[0] = 1.0;
+    Truth<NS> t{test::register_form<N>(mass_spring(), Ts, static_cast<double>(N) * Ts), x0};
+    Tail      e;
+    for (int k = 0; k < 600; ++k) {
+        observer.update(t.y());
+        e.add(k, 600, std::abs(observer.state_estimate()[0] - t.x[0]) + std::abs(observer.state_estimate()[1] - t.x[1]));
+        observer.predict(ColVec<1>{{u_at(k)}});
+        t.step(u_at(k));
+    }
+    CHECK(e.worst < 1e-9);
+}
+
+/// Every estimator, from a wrong initial state: the registers known, the plant's estimate the undelayed filter's.
+template<size_t N>
+void check_estimators(double theta) {
+    constexpr size_t   NS = 2 + N;
+    constexpr int      n = 3000;
+    const auto         model = discretize(mass_spring(), kTs, InputDelay<N>{theta}).value();
+    const auto         truth = test::register_form<N>(mass_spring(), kTs, theta);
+    const Matrix<2, 2> Qn{{1e-6, 0.0}, {0.0, 1e-4}};
+    ColVec<NS>         x0{};
+    x0[0] = 1.0;
+
+    const design::KalmanNoise<2, 1> noise{.process = Qn, .measurement = 1e-6};
+    const auto                      filter = design::kalman(model, noise);
+    const auto                      undelayed = design::kalman(kUndelayed, noise);
+    REQUIRE(filter.success);
+    REQUIRE(undelayed.success);
+    CHECK((Matrix<2, 1>(filter.M.template block<2, 1>(0, 0)) - undelayed.M).norm() <= 1e-9 * undelayed.M.norm());
+    CHECK(Matrix<N, 1>(filter.M.template block<N, 1>(2, 0)).norm() == 0.0); // a command already sent is known
+
+    const auto run = [&](auto& est, const char* name) {
+        CAPTURE(name);
+        Truth<NS> t{truth, x0};
+        Tail      e;
+        for (int k = 0; k < n; ++k) {
+            est.update(t.y());
+            const auto x_hat = [&] {
+                if constexpr (requires { est.state_estimate(); }) {
+                    return est.state_estimate();
+                } else {
+                    return est.state();
+                }
+            }();
+            e.add(k, n, std::abs(x_hat[0] - t.x[0]) + std::abs(x_hat[1] - t.x[1]));
+            est.predict(ColVec<1>{{u_at(k)}});
+            t.step(u_at(k));
+        }
+        CHECK(e.worst < 1e-6);
+    };
+    Luenberger fixed{filter};
+    run(fixed, "Kalman gain");
+    KalmanFilter recursive{model, {.Q = Qn, .R = 1e-6}};
+    run(recursive, "recursive Kalman");
+
+    const auto art = design::mhe<6>(model, {.process = Qn, .measurement = 1e-6});
+    REQUIRE(art.success);
+    MHE<NS, 1, 1, 6, double> mhe{art};
+    Truth<NS>                t{truth, x0};
+    Tail                     e;
+    for (int k = 0; k < n; ++k) {
+        const auto x_hat = mhe.step(t.y(), ColVec<1>{{u_at(k - 1)}});
+        e.add(k, n, x_hat[1] - t.x[1]);
+        t.step(u_at(k));
+    }
+    CHECK(e.worst < 1e-6);
+}
 
 } // namespace
 
@@ -376,6 +601,153 @@ TEST_SUITE("Design on the delayed model") {
             t.step(u_at(k));
         }
         CHECK(e.worst < 1e-9);
+    }
+
+    TEST_CASE("the measured-state laws take N registers: whole samples, a fraction, spare capacity") {
+        check_measured_laws<2>(2.0 * kTs);
+        check_measured_laws<5>(5.0 * kTs);
+        check_measured_laws<3>(2.4 * kTs);
+        check_measured_laws<5>(2.4 * kTs);
+    }
+
+    TEST_CASE("the laws that read the output take N registers: whole samples, a fraction, spare capacity") {
+        check_output_laws<2>(2.0 * kTs);
+        check_output_laws<5>(5.0 * kTs);
+        check_output_laws<3>(2.4 * kTs);
+        check_output_laws<5>(2.4 * kTs);
+    }
+
+    TEST_CASE("the estimators take N registers: whole samples, a fraction, spare capacity") {
+        check_estimators<2>(2.0 * kTs);
+        check_estimators<5>(5.0 * kTs);
+        check_estimators<3>(2.4 * kTs);
+        check_estimators<5>(2.4 * kTs);
+    }
+
+    TEST_CASE("LQR on N registers is the delay-free LQR on the state the command will meet") {
+        // K = K₀·[Aᴺ, B, A·B, …, Aᴺ⁻¹·B]: the registers are newest first, and the newest has the
+        // longest to travel, so x(k+N) = Aᴺx + Σⱼ Aʲ⁻¹·B·v(k−j).
+        constexpr size_t N = 5;
+        const auto       model = discretize(mass_spring(), kTs, InputDelay<N>{N * kTs}).value();
+        const auto       free = design::lqr(kUndelayed, {.Q = Matrix<2, 2>{{1e4, 0.0}, {0.0, 0.0}}, .R = Matrix<1, 1>{{1e-4}}});
+        const auto       held = design::lqr(model, {.Q = position_weight_on<N>(1e4), .R = Matrix<1, 1>{{1e-4}}});
+        REQUIRE(free.success);
+        REQUIRE(held.success);
+        Matrix<1, 2 + N> expected{};
+        Matrix<2, 2>     power = Matrix<2, 2>::identity();
+        for (size_t j = 0; j < N; ++j) {
+            expected(0, 2 + j) = Matrix<1, 1>(free.K * Matrix<2, 1>(power * kUndelayed.B))(0, 0);
+            power = power * kUndelayed.A;
+        }
+        const Matrix<1, 2> on_plant = free.K * power;
+        expected(0, 0) = on_plant(0, 0);
+        expected(0, 1) = on_plant(0, 1);
+        CHECK((held.K - expected).norm() <= 1e-9 * expected.norm());
+    }
+
+    TEST_CASE("a clamped command: the filter's registers hold what back_calculate recorded") {
+        constexpr size_t N = 3;
+        constexpr size_t NS = 2 + N;
+        const auto       model = discretize(mass_spring(), kTs, InputDelay<N>{N * kTs}).value();
+        const auto       truth = test::register_form<N>(mass_spring(), kTs, N * kTs);
+        const auto       res = design::lqg(model, {.Q = position_weight_on<N>(1e4), .R = Matrix<1, 1>{{1e-4}}}, design::KalmanNoise<2, 1>{.process = Matrix<2, 2>::identity(), .measurement = 1e-6});
+        REQUIRE(res.success);
+        LQG        law{res};
+        ColVec<NS> x0{};
+        x0[0] = 1.0;
+        Truth<NS>        t{truth, x0};
+        AppliedInputs<N> applied;
+        double           worst = 0.0;
+        int              clamped = 0;
+        for (int k = 0; k < 300; ++k) {
+            law.update(t.y());
+            const double requested = law.control()[0];
+            const double u = std::clamp(requested, -0.5, 0.5);
+            clamped += (u != requested) ? 1 : 0;
+            law.back_calculate(ColVec<1>{{u}});
+            law.predict();
+            applied.push(u);
+            t.step(u);
+            for (size_t j = 0; j < N; ++j) {
+                worst = std::max(worst, std::abs(law.state_estimate()[2 + j] - applied.u[j]));
+            }
+        }
+        CHECK(clamped > 10);
+        CHECK(worst < 1e-12);
+    }
+
+    TEST_CASE("a placed observer on N registers: their poles at 0, and every register read") {
+        //! Two or more registers repeat the pole at 0, and the placement on (A, C A) then turned on
+        //! roundoff: refused at some Ts, and at Ts = 0.01 only under -O3.
+        for (const double Ts : {0.001, 0.01, 0.1, 0.5}) {
+            CAPTURE(Ts);
+            check_placed_observer<1>(Ts);
+            check_placed_observer<2>(Ts);
+            check_placed_observer<3>(Ts);
+            check_placed_observer<5>(Ts);
+        }
+
+        // Registers the plant never reads cannot be observed: refused, where the Kalman gain takes them.
+        const auto                      spare = discretize(mass_spring(), kTs, InputDelay<3>{1.0 * kTs}).value();
+        damp::array<complex<double>, 5> poles{};
+        poles[0] = complex<double>{0.9, 0.0};
+        poles[1] = complex<double>{0.92, 0.0};
+        CHECK(design::luenberger(spare, poles).status == design::DesignStatus::not_placeable);
+
+        // A pole the pinned mode cannot have is still refused, with the fallback in the way.
+        const auto                      whole = discretize(mass_spring(), kTs, InputDelay<2>{2.0 * kTs}).value();
+        damp::array<complex<double>, 4> slow{};
+        slow[0] = complex<double>{0.9, 0.0};
+        slow[1] = complex<double>{0.92, 0.0};
+        slow[2] = complex<double>{0.5, 0.0};
+        slow[3] = complex<double>{0.6, 0.0};
+        CHECK(design::luenberger(whole, slow).status == design::DesignStatus::not_placeable);
+    }
+
+    TEST_CASE("two inputs on two registers each: offset-free LQG and MPC on the true plant") {
+        const StateSpace<2, 2, 2, double, 2, 2> plant{.A = {{-1.0, 0.2}, {0.1, -2.0}}, .B = {{1.0, 0.0}, {0.0, 1.0}}, .C = {{1.0, 0.0}, {0.0, 1.0}}};
+        constexpr double                        theta = 2.0 * kTs;
+        const auto                              model = discretize(plant, kTs, InputDelay<2>{theta}).value();
+        const auto                              truth = test::register_form<2>(plant, kTs, theta);
+        static_assert(std::is_same_v<std::remove_cvref_t<decltype(model)>, StateSpace<6, 2, 2, double, 2, 2>>);
+        const design::KalmanNoise noise{Matrix<2, 2>::identity() * 1e-4, Matrix<2, 2>::identity() * 1e-6, Matrix<2, 2>::identity() * 1e-2};
+        const ColVec<2>           r{0.3, -0.2};
+        const ColVec<2>           load{0.4, 0.1};
+
+        const auto run = [&](auto& law) {
+            ColVec<6> x{};
+            Tail      e;
+            for (int k = 0; k < 2000; ++k) {
+                const ColVec<2> y = truth.C * x;
+                const ColVec<2> u = law.step(r, y);
+                e.add(k, 2000, std::abs(y[0] - r[0]) + std::abs(y[1] - r[1]));
+                x = truth.A * x + truth.B * ColVec<2>((k > 500) ? ColVec<2>(u + load) : u);
+            }
+            CHECK(e.worst < 1e-4);
+        };
+
+        const auto lq = design::oflqg(model, {.Q = blkdiag(Matrix<2, 2>::identity() * 1e3, Matrix<4, 4>{}), .R = Matrix<2, 2>::identity() * 1e-2}, noise, design::InputDisturbance{});
+        REQUIRE(lq.success);
+        OFLQG holding{lq};
+        run(holding);
+
+        design::MPCWeights<2, 2> w{};
+        w.Qy = Matrix<2, 2>::identity() * 1e3;
+        w.Qy_terminal = w.Qy;
+        w.Rdu = Matrix<2, 2>::identity() * 1e-2;
+        const auto mpc = design::ofmpc<30, 5>(model, w, {}, noise, design::InputDisturbance{});
+        REQUIRE(mpc.success);
+        OFMPC planning{mpc};
+        run(planning);
+    }
+
+    TEST_CASE("a law on N registers is designed at compile time and deployed in float") {
+        static constexpr StateSpace<1, 1, 1, double, 1, 1> lag{.A = {{-1.0}}, .B = {{1.0}}, .C = {{1.0}}};
+        static constexpr auto                              model = *discretize(lag, 0.05, InputDelay<2>{0.075});
+        static constexpr auto                              res = design::lqg(model, {.Q = blkdiag(Matrix<1, 1>{{1.0}}, Matrix<2, 2>{}), .R = 0.1}, {.process = 0.05, .measurement = 0.001});
+        static_assert(res.success);
+        static constinit LQG law{res.as<float>()};
+        CHECK(std::isfinite(law.step(ColVec<1, float>{{1.0F}})[0]));
     }
 
     TEST_CASE("a disturbance in G is discretized with the plant and kept off the register") {

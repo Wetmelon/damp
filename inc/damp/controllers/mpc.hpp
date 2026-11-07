@@ -1527,8 +1527,9 @@ template<bool Discrete, size_t NP, size_t NC, size_t NT_max, size_t NX, size_t N
  * output without cost does not pull it). An equilibrium leaves the QP the absolute one; the
  * terminal cost and set are on the deviation from it.
  *
- * Input delay. A delay of up to one sample is a model of the plant: design on
- * discretize(plant, Ts, InputDelay{θ}), whose register state the QP's model carries like any other.
+ * Input delay. A delay is a model of the plant: design on discretize(plant, Ts, InputDelay<N>{θ}),
+ * whose register states the QP's model carries like any other. The first outputs of the horizon
+ * are ones no decision can change, so a longer delay wants a longer NP.
  *
  * Horizon. Without a terminal cost, each input's first move has to reach a predicted output
  * within NP steps, or the law would never use that input: a shorter horizon, NP = 1 on a model
