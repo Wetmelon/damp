@@ -368,15 +368,16 @@ struct TargetPoint {
  * @tparam NX States of the filter's model before the disturbance; ND Disturbance states;
  *            NZ Controlled outputs
  */
-template<size_t NX, size_t NU, size_t ND, size_t NZ, typename T = float>
+template<size_t NX, size_t NU, size_t ND, size_t NZ, typename T = float, typename TargetD = Matrix<NX + NU, ND, T>, typename TargetR = Matrix<NX + NU, NZ, T>>
 struct SteadyStateTarget {
-    Matrix<NX + NU, ND, T> target_d{}; ///< [x_t; u_t] per unit d̂
-    Matrix<NX + NU, NZ, T> target_r{}; ///< [x_t; u_t] per unit r
+    [[no_unique_address]] TargetD target_d{}; ///< [x_t; u_t] per unit d̂
+    [[no_unique_address]] TargetR target_r{}; ///< [x_t; u_t] per unit r
 
     constexpr SteadyStateTarget() = default;
 
     /** @brief From design::steady_state_target (any scalar). A failed design does not compile when constant-evaluated. */
     template<typename U>
+        requires(std::is_same_v<TargetD, Matrix<NX + NU, ND, T>> && std::is_same_v<TargetR, Matrix<NX + NU, NZ, T>>)
     constexpr SteadyStateTarget(const design::SteadyStateTargetResult<NX, NU, ND, NZ, U>& result) // NOLINT
         : target_d(result.target_d.template as<T>()), target_r(result.target_r.template as<T>()) {
         if (!result.success && std::is_constant_evaluated()) {

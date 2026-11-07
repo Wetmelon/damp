@@ -85,14 +85,15 @@ template<size_t NI, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size
  *
  * @note Compare with MATLAB®'s lqi.
  */
-template<size_t NX, size_t NU, size_t NI, typename T = float, size_t NY = NX>
-struct LQI : private detail::StateFeedbackCore<NX, NU, T, NI, NY, NoEstimator, 0> {
-    using Core = detail::StateFeedbackCore<NX, NU, T, NI, NY, NoEstimator, 0>; ///< The shared implementation
+template<size_t NX, size_t NU, size_t NI, typename T = float, size_t NY = NX, typename Store = detail::HeldGains>
+struct LQI : private detail::StateFeedbackCore<NX, NU, T, NI, NY, NoEstimator, 0, Store> {
+    using Core = detail::StateFeedbackCore<NX, NU, T, NI, NY, NoEstimator, 0, Store>; ///< The shared implementation
 
     constexpr LQI() = default;
 
     /** @brief From design::lqi (any scalar). */
     template<size_t NXR, size_t NUR, typename U, size_t NIR, size_t NYR, typename Kalman, size_t NZR>
+        requires(!Store::constant)
     constexpr LQI(const design::StateFeedbackResult<NXR, NUR, U, NIR, NYR, Kalman, NZR>& result) { // NOLINT
         constexpr bool kind = NIR > 0 && std::is_same_v<Kalman, NoEstimator>;
         static_assert(kind, "LQI runs design::lqi: this design has no integral action (LQR) or a Kalman filter (LQG, LQGI, OFLQG).");
@@ -143,6 +144,8 @@ template<size_t NX, size_t NU, typename U, size_t NI, size_t NY, typename T>
     requires(NI > 0)
 struct lq_runtime<design::StateFeedbackResult<NX, NU, U, NI, NY, NoEstimator, 0>, T> {
     using type = LQI<NX, NU, NI, T, NY>; ///< LQI
+    template<typename, typename Store>
+    using on_constants = LQI<NX, NU, NI, T, NY, Store>; ///< LQI on the design's constants
 };
 
 } // namespace detail

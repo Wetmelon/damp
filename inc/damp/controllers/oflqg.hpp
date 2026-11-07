@@ -98,14 +98,15 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
  *
  * @note Compare with MATLAB®'s lqg with an integrated-white-noise disturbance model (setoutdist / setindist).
  */
-template<size_t NX, size_t NU, size_t NY, size_t NZ, typename T, typename Est>
-struct OFLQG : private detail::StateFeedbackCore<NX, NU, T, 0, NY, Est, NZ> {
-    using Core = detail::StateFeedbackCore<NX, NU, T, 0, NY, Est, NZ>; ///< The shared implementation
+template<size_t NX, size_t NU, size_t NY, size_t NZ, typename T, typename Est, typename Store = detail::HeldGains>
+struct OFLQG : private detail::StateFeedbackCore<NX, NU, T, 0, NY, Est, NZ, Store> {
+    using Core = detail::StateFeedbackCore<NX, NU, T, 0, NY, Est, NZ, Store>; ///< The shared implementation
 
     constexpr OFLQG() = default;
 
     /** @brief From design::oflqg (any scalar). */
     template<size_t NXR, size_t NUR, typename U, size_t NIR, size_t NYR, typename Kalman, size_t NZR>
+        requires(!Store::constant)
     constexpr OFLQG(const design::StateFeedbackResult<NXR, NUR, U, NIR, NYR, Kalman, NZR>& result) { // NOLINT
         constexpr bool kind = design::StateFeedbackResult<NXR, NUR, U, NIR, NYR, Kalman, NZR>::ND > 0;
         static_assert(kind, "OFLQG runs design::oflqg: this design has no disturbance model (LQR, LQI, LQG, LQGI).");
@@ -159,6 +160,8 @@ template<size_t NX, size_t NU, typename U, size_t NY, typename Kalman, size_t NZ
     requires(design::StateFeedbackResult<NX, NU, U, 0, NY, Kalman, NZ>::ND > 0)
 struct lq_runtime<design::StateFeedbackResult<NX, NU, U, 0, NY, Kalman, NZ>, T> {
     using type = OFLQG<NX, NU, NY, NZ, T, runtime_estimator_t<Kalman, T>>; ///< OFLQG
+    template<typename Est, typename Store>
+    using on_constants = OFLQG<NX, NU, NY, NZ, T, Est, Store>; ///< OFLQG on the design's constants
 };
 
 } // namespace detail

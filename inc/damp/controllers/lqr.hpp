@@ -106,24 +106,25 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size
  *
  * @tparam NZ Tracked outputs: the size of r (0: none, the regulator)
  */
-template<size_t NX, size_t NU, typename T = float, size_t NY = NX, size_t NZ = 0>
-struct LQR : private detail::StateFeedbackCore<NX, NU, T, 0, NY, NoEstimator, NZ> {
-    using Core = detail::StateFeedbackCore<NX, NU, T, 0, NY, NoEstimator, NZ>; ///< The shared implementation
+template<size_t NX, size_t NU, typename T = float, size_t NY = NX, size_t NZ = 0, typename Store = detail::HeldGains>
+struct LQR : private detail::StateFeedbackCore<NX, NU, T, 0, NY, NoEstimator, NZ, Store> {
+    using Core = detail::StateFeedbackCore<NX, NU, T, 0, NY, NoEstimator, NZ, Store>; ///< The shared implementation
 
     constexpr LQR() = default;
 
     /** @brief From a gain K. */
     constexpr explicit LQR(const Matrix<NU, NX, T>& K_)
-        requires(NZ == 0)
+        requires(NZ == 0 && !Store::constant)
         : Core(K_) {}
 
     /** @brief From a gain design (design::place's PlaceResult, LQRResult; any scalar). */
     template<typename R>
-        requires(detail::gain_result<R> && NZ == 0)
+        requires(detail::gain_result<R> && NZ == 0 && !Store::constant)
     constexpr LQR(const R& result) : Core(result) {} // NOLINT
 
     /** @brief From design::lqr (any scalar). */
     template<size_t NXR, size_t NUR, typename U, size_t NIR, size_t NYR, typename Kalman, size_t NZR>
+        requires(!Store::constant)
     constexpr LQR(const design::StateFeedbackResult<NXR, NUR, U, NIR, NYR, Kalman, NZR>& result) { // NOLINT
         constexpr bool kind = NIR == 0 && std::is_same_v<Kalman, NoEstimator>;
         static_assert(kind, "LQR runs design::lqr: this design has integral action (LQI, LQGI) or a Kalman filter (LQG, OFLQG).");
@@ -221,12 +222,16 @@ template<typename R, typename T>
 struct lq_runtime<R, T> {
     using Gain = std::remove_cvref_t<decltype(std::declval<const R&>().K)>;
     using type = LQR<Gain::cols(), Gain::rows(), T>; ///< LQR
+    template<typename, typename Store>
+    using on_constants = LQR<Gain::cols(), Gain::rows(), T, Gain::cols(), 0, Store>; ///< LQR on the design's constants
 };
 
 /** @brief An LQ design with no integrators or filter runs as LQR (with its tracked outputs, NZ > 0). */
 template<size_t NX, size_t NU, typename U, size_t NY, size_t NZ, typename T>
 struct lq_runtime<design::StateFeedbackResult<NX, NU, U, 0, NY, NoEstimator, NZ>, T> {
     using type = LQR<NX, NU, T, NY, NZ>; ///< LQR
+    template<typename, typename Store>
+    using on_constants = LQR<NX, NU, T, NY, NZ, Store>; ///< LQR on the design's constants
 };
 
 } // namespace detail

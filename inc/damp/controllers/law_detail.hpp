@@ -106,12 +106,8 @@ using maybe = std::conditional_t<present, Feature, Off<slot>>;
 template<size_t NX, size_t NI, typename T>
 [[nodiscard]] constexpr ColVec<NX + NI, T> stacked(const ColVec<NX, T>& x, const ColVec<NI, T>& tail) {
     ColVec<NX + NI, T> z{};
-    for (size_t i = 0; i < NX; ++i) {
-        z(i) = x(i);
-    }
-    for (size_t i = 0; i < NI; ++i) {
-        z(NX + i) = tail(i);
-    }
+    for_each_entry<NX, 1>([&](size_t i, size_t) { z(i) = x(i); });
+    for_each_entry<NI, 1>([&](size_t i, size_t) { z(NX + i) = tail(i); });
     return z;
 }
 
@@ -120,9 +116,7 @@ template<size_t N, size_t M, typename T>
 [[nodiscard]] constexpr ColVec<N, T> leading(const ColVec<M, T>& z) {
     static_assert(N <= M, "The leading part is at most the whole vector.");
     ColVec<N, T> x{};
-    for (size_t i = 0; i < N; ++i) {
-        x(i) = z(i);
-    }
+    for_each_entry<N, 1>([&](size_t i, size_t) { x(i) = z(i); });
     return x;
 }
 
@@ -175,13 +169,30 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
 } // namespace detail
 } // namespace design
 
+namespace detail {
+
+/** @brief Whether a design's numbers can be part of a type: it is `constexpr`, not initialized at start-up. */
+template<const auto& Res>
+concept constant_design = requires { typename std::bool_constant<(Res.success || true)>; }; // reads it: a discarded read would pass for any object
+
+} // namespace detail
+
 /**
- * @brief The law a design result deploys as, named by the result: `Law<kRes, float> law;`
+ * @brief The runtime a design result deploys as, named by the result: `Law<kRes, float> law;`
  *
  * A struct member's type cannot be deduced, so it is named by its design instead of its sizes.
- * kRes is a named result with static storage (namespace scope, or a `static` member or local),
- * `constexpr` or initialized at start-up. A default-constructed Law is the design's law; assigning
- * a runtime of the same shape replaces it, as a redesign at run time does.
+ * kRes is a named result with static storage (namespace scope, or a `static` member or local).
+ *
+ * On a `constexpr` kRes the design's matrices are constants of the type: they take no RAM, and a
+ * coefficient that is exactly 0 is no code, which removes the sparse work of a delay register, a
+ * plant with an integrator or a measurement of a single state. The ticks and the numbers are the
+ * runtime's own. Nothing can replace them, so a member a redesign assigns is
+ * `Law<kRes, float>::Runtime law{kRes.as<float>()};`. The coefficients move from RAM to flash, as
+ * constants in the code: where flash has wait states and no cache, keep the tick in RAM or tightly
+ * coupled memory.
+ *
+ * On a kRes initialized at start-up, from values measured or identified at init, the matrices are
+ * members, and assigning a runtime of the same shape replaces them.
  *
  * @code
  * inline constexpr auto kRes = design::lqg(plant, {.Q = Q, .R = R}, {.process = Qn, .measurement = Rn});
@@ -193,15 +204,17 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
  * @endcode
  *
  * The runtime's header defines it for the results that runtime is built from: the LQ runtimes
- * (controllers/lqr.hpp, lqi.hpp, lqg.hpp, lqgi.hpp, oflqg.hpp), MPC (controllers/mpc.hpp, ofmpc.hpp)
- * and the model inverses a law tracks through (design/model_inverse.hpp: StateFeedforward, OutputInverse).
+ * (controllers/lqr.hpp, lqi.hpp, lqg.hpp, lqgi.hpp, oflqg.hpp) and the observers
+ * (estimation/luenberger.hpp), which run on constants when kRes is `constexpr`; MPC
+ * (controllers/mpc.hpp, ofmpc.hpp) and the model inverses a law tracks through
+ * (design/model_inverse.hpp: StateFeedforward, OutputInverse), which hold members either way.
  *
  * @tparam Res The design result
  * @tparam T   The runtime scalar
  */
 template<const auto& Res, typename T>
 struct Law {
-    static_assert(sizeof(T) == 0, "Law<res, T>: res is not a design result a law is built from; include its runtime's header (controllers/lqr.hpp, lqi.hpp, lqg.hpp, lqgi.hpp, oflqg.hpp, mpc.hpp, ofmpc.hpp, design/model_inverse.hpp)");
+    static_assert(sizeof(T) == 0, "Law<res, T>: res is not a design result a law is built from; include its runtime's header (controllers/lqr.hpp, lqi.hpp, lqg.hpp, lqgi.hpp, oflqg.hpp, mpc.hpp, ofmpc.hpp, estimation/luenberger.hpp, design/model_inverse.hpp)");
 };
 
 } // namespace damp

@@ -75,13 +75,15 @@
 #include <type_traits>
 
 #include "damp/backend.hpp"
+#include "damp/controllers/law_detail.hpp"
 #include "damp/design/pole_placement.hpp" // design::place (dual placement)
 #include "damp/design/stability.hpp"
 #include "damp/design/status.hpp"
 #include "damp/estimation/kalman.hpp" // design::KalmanResult, a gain the observer runs
 #include "damp/math/complex.hpp"
 #include "damp/math/math.hpp"
-#include "damp/matrix/functions.hpp" // mat::one_norm (κ₁(A))
+#include "damp/matrix/const_matrix.hpp" // ConstantObserver
+#include "damp/matrix/functions.hpp"    // mat::one_norm (κ₁(A))
 #include "damp/matrix/matrix.hpp"
 #include "damp/matrix/solve.hpp"
 #include "damp/systems/state_space.hpp"
@@ -517,6 +519,18 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
 
 } // namespace design
 
+namespace detail {
+
+/** @brief Where a Luenberger observer keeps its model and gain: in the object, any value at run time. */
+template<size_t NX, size_t NU, size_t NY, typename T>
+struct HeldObserver {
+    static constexpr bool constant = false;  ///< The matrices are members
+    using Model = StateSpace<NX, NU, NY, T>; ///< A, B, C, D and Ts
+    using Gain = Matrix<NX, NY, T>;          ///< M
+};
+
+} // namespace detail
+
 /**
  * @ingroup discrete_estimators
  * @brief The fixed-gain state observer: the innovation gain M held, the current form, and the
@@ -543,6 +557,9 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
  *
  * The model is [x; d]: x the law's model (NXE states) and d the ND disturbance states.
  *
+ * @p Store says where the model and gain live: members by default, or constants of the type in the
+ * Law of a `constexpr` design, where an entry that is exactly 0 costs nothing.
+ *
  * - ND = 0: the observer on the absolute state, and the input the plant holds (for the feedthrough).
  * - ND > 0: the observer holds @f$ [\hat x - x_a;\; \hat d - d_a] @f$, deviations from an anchor
  *   @f$ (x_a, u_a, d_a) @f$: measurements enter as @f$ y - C x_a - C_d d_a - D u_a @f$ and inputs
@@ -568,7 +585,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
  * @see "Disturbance Models for Offset-Free Model-Predictive Control" (Pannocchia & Rawlings, 2003), AIChE Journal 49(2)
  * @see "Optimal State Estimation" (Simon, 2006), §5.3 (steady-state Kalman filter)
  */
-template<size_t NX, size_t NU, size_t NY, typename T = float, size_t ND = 0>
+template<size_t NX, size_t NU, size_t NY, typename T = float, size_t ND = 0, typename Store = detail::HeldObserver<NX, NU, NY, T>>
 class Luenberger {
 public:
     static_assert(ND <= NX, "The disturbance states are among the observer's.");
@@ -583,7 +600,7 @@ public:
      * constant-evaluated; at run time it installs M = 0 and valid() = false.
      */
     template<typename U, size_t NW, size_t NV>
-        requires(ND == 0)
+        requires(ND == 0 && !Store::constant)
     constexpr Luenberger(const design::LuenbergerResult<NX, NU, NY, U, NW, NV>& result) // NOLINT(google-explicit-constructor): assign-from-design
         : sys_(plant_of(result.sys)), valid_(usable(result.success, result.status, result.sys.Ts)) {
         if (valid_) {
@@ -599,6 +616,7 @@ public:
      * constant-evaluated; at run time it installs M = 0 and valid() = false.
      */
     template<typename U, size_t NW, size_t NV, size_t NDR>
+        requires(!Store::constant)
     constexpr Luenberger(const design::KalmanResult<NX, NU, NY, U, NW, NV, NDR>& result) // NOLINT(google-explicit-constructor): assign-from-design
         : sys_(plant_of(result.sys)), valid_(usable(result.success, result.status, result.sys.Ts)) {
         static_assert(ND == 0 || NDR == ND, "The anchor's disturbance states are the design's.");
@@ -615,6 +633,7 @@ public:
      * installs M = 0 and valid() = false.
      */
     template<size_t NW, size_t NV>
+        requires(!Store::constant)
     constexpr Luenberger(const StateSpace<NX, NU, NY, T, NW, NV>& model, const Matrix<NX, NY, T>& M, const ColVec<NX, T>& x0 = ColVec<NX, T>{})
         : sys_(plant_of(model)), x_(x0), valid_(usable(true, design::DesignStatus::ok, model.Ts)) {
         if (valid_) {
@@ -624,6 +643,7 @@ public:
 
     /** @brief The same observer in another scalar. */
     template<typename U>
+        requires(!Store::constant)
     constexpr Luenberger(const Luenberger<NX, NU, NY, U, ND>& other) // NOLINT(google-explicit-constructor): a scalar conversion
         : sys_(other.sys_.template as<T>()),
           M_(other.M_.template as<T>()),
@@ -653,7 +673,7 @@ public:
 
     /** @brief Measurement update with an explicit feedthrough input (absolute units): x̂ ← x̂ + M (y − C x̂ − D u). */
     constexpr void update(const ColVec<NY, T>& y, const ColVec<NU, T>& u) {
-        innov_ = deviation(y, sys_.C, sys_.D) - ((sys_.C * x_) + (sys_.D * deviation(u)));
+        innov_ = reading_deviation(y) - ((sys_.C * x_) + (sys_.D * deviation(u)));
         x_ += M_ * innov_;
     }
 
@@ -693,7 +713,11 @@ public:
         anchor_.x = x_t;
         anchor_.u = u_t;
         anchor_.d = d_hat;
-        anchor_.drift = ColVec<NXE, T>((sys_.A.template block<NXE, NXE>(0, 0) * x_ref) + (sys_.B.template block<NXE, NU>(0, 0) * u_ref) - x_ref);
+        if constexpr (Store::constant) {
+            anchor_.drift = ColVec<NXE, T>((Store::law_A * x_ref) + (Store::law_B * u_ref) - x_ref);
+        } else {
+            anchor_.drift = ColVec<NXE, T>((sys_.A.template block<NXE, NXE>(0, 0) * x_ref) + (sys_.B.template block<NXE, NU>(0, 0) * u_ref) - x_ref);
+        }
     }
 
     /** @brief The stored state [x; d] the command decided now acts on: a deviation from the anchor when ND > 0, the absolute state when ND = 0. */
@@ -743,7 +767,13 @@ public:
     }
 
     /** @brief The observer's model (A, B, C, D and Ts). */
-    [[nodiscard]] constexpr const StateSpace<NX, NU, NY, T>& model() const { return sys_; }
+    [[nodiscard]] constexpr const StateSpace<NX, NU, NY, T>& model() const {
+        if constexpr (Store::constant) {
+            return Store::model;
+        } else {
+            return sys_;
+        }
+    }
 
     /** @brief The innovation gain M (MATLAB®'s Mx); the predictor gain is A M. */
     [[nodiscard]] constexpr const Matrix<NX, NY, T>& gain() const { return M_; }
@@ -767,7 +797,11 @@ public:
     constexpr void set_state(size_t i, T value) { x_[i] = value; }
 
     /** @brief Replace the innovation gain M. */
-    constexpr void set_gain(const Matrix<NX, NY, T>& M_new) { M_ = M_new; }
+    constexpr void set_gain(const Matrix<NX, NY, T>& M_new)
+        requires(!Store::constant)
+    {
+        M_ = M_new;
+    }
 
     /** @brief Forget the applied input; the estimate and its anchor are left in place. */
     constexpr void reset() { u_prev_ = ColVec<NU, T>{}; }
@@ -780,7 +814,7 @@ public:
     }
 
 private:
-    template<size_t, size_t, size_t, typename, size_t>
+    template<size_t, size_t, size_t, typename, size_t, typename>
     friend class Luenberger;
 
     struct Anchor {
@@ -791,13 +825,13 @@ private:
     };
     struct NoAnchor {};
 
-    StateSpace<NX, NU, NY, T>                                            sys_{};        ///< The observer's model, [x; d]
-    Matrix<NX, NY, T>                                                    M_{};          ///< The innovation gain (zero when !valid_)
-    ColVec<NX, T>                                                        x_{};          ///< Estimate (a deviation from the anchor when ND > 0)
-    ColVec<NY, T>                                                        innov_{};      ///< y − C x̂ − D u
-    ColVec<NU, T>                                                        u_prev_{};     ///< The input the plant holds, for the feedthrough
-    [[no_unique_address]] std::conditional_t<(ND > 0), Anchor, NoAnchor> anchor_{};     ///< The anchor of the deviations (ND > 0)
-    bool                                                                 valid_{false}; ///< Built from a successful discrete design or model
+    [[no_unique_address]] typename Store::Model                          sys_{};                  ///< The observer's model, [x; d]
+    [[no_unique_address]] typename Store::Gain                           M_{};                    ///< The innovation gain (zero when !valid_)
+    ColVec<NX, T>                                                        x_{};                    ///< Estimate (a deviation from the anchor when ND > 0)
+    ColVec<NY, T>                                                        innov_{};                ///< y − C x̂ − D u
+    ColVec<NU, T>                                                        u_prev_{};               ///< The input the plant holds, for the feedthrough
+    [[no_unique_address]] std::conditional_t<(ND > 0), Anchor, NoAnchor> anchor_{};               ///< The anchor of the deviations (ND > 0)
+    bool                                                                 valid_{Store::constant}; ///< Built from a successful discrete design or model; a fixed store is refused at compile time otherwise
 
     /** @brief A model without its noise inputs, in the observer's scalar. */
     template<typename U, size_t NW, size_t NV>
@@ -825,15 +859,126 @@ private:
     }
 
     /** @brief A reading in the observer's units: y − C [x_a; d_a] − D u_a when ND > 0. */
-    [[nodiscard]] constexpr ColVec<NY, T> deviation(const ColVec<NY, T>& y, const Matrix<NY, NX, T>& C, const Matrix<NY, NU, T>& D) const {
+    [[nodiscard]] constexpr ColVec<NY, T> reading_deviation(const ColVec<NY, T>& y) const {
         if constexpr (ND > 0) {
             ColVec<NX, T> a{};
             a.template segment<NXE>(0) = anchor_.x;
             a.template segment<ND>(NXE) = anchor_.d;
-            return ColVec<NY, T>(y - (C * a) - (D * anchor_.u));
+            return ColVec<NY, T>(y - (sys_.C * a) - (sys_.D * anchor_.u));
         } else {
             return y;
         }
+    }
+};
+
+namespace detail {
+
+/**
+ * @brief An observer's matrices as constants of the type: the store of the Luenberger in a
+ *        `constexpr` design's Law.
+ *
+ * @tparam Res A design with static storage, `constexpr`: an observer's (KalmanResult,
+ *             LuenbergerResult) or a law's, its `.kalman`
+ * @tparam T   The runtime scalar
+ * @tparam NXE The states before the disturbance
+ */
+template<const auto& Res, typename T, size_t NXE>
+struct ConstantObserver {
+    static constexpr bool constant = true;               ///< The matrices are constants of the type
+    static constexpr auto design = Res.template as<T>(); ///< The design, in the runtime's scalar
+    static constexpr auto filter = [] {
+        if constexpr (requires { design.kalman; }) {
+            return design.kalman;
+        } else {
+            return design;
+        }
+    }(); ///< The observer's half of it
+    static constexpr auto                kA = filter.sys.A;                         ///< A
+    static constexpr auto                kB = filter.sys.B;                         ///< B
+    static constexpr auto                kC = filter.sys.C;                         ///< C
+    static constexpr auto                kD = filter.sys.D;                         ///< D
+    static constexpr auto                kM = filter.M;                             ///< M
+    static constexpr size_t              NX = decltype(kA)::rows();                 ///< States
+    static constexpr size_t              NU = decltype(kB)::cols();                 ///< Inputs
+    static constexpr size_t              NY = decltype(kC)::rows();                 ///< Outputs
+    static constexpr Matrix<NXE, NXE, T> kLawA = kA.template block<NXE, NXE>(0, 0); ///< A on the law's model
+    static constexpr Matrix<NXE, NU, T>  kLawB = kB.template block<NXE, NU>(0, 0);  ///< B on the law's model
+
+    /** @brief A, B, C and D, by the names the observer reads them under. */
+    struct Model {
+        static constexpr ConstMatrix<kA> A{}; ///< A
+        static constexpr ConstMatrix<kB> B{}; ///< B
+        static constexpr ConstMatrix<kC> C{}; ///< C
+        static constexpr ConstMatrix<kD> D{}; ///< D
+    };
+    using Gain = ConstMatrix<kM>; ///< M
+
+    static constexpr ConstMatrix<kLawA>        law_A{};                                                        ///< A on the law's model
+    static constexpr ConstMatrix<kLawB>        law_B{};                                                        ///< B on the law's model
+    static constexpr StateSpace<NX, NU, NY, T> model{.A = kA, .B = kB, .C = kC, .D = kD, .Ts = filter.sys.Ts}; ///< What model() reads
+};
+
+/** @brief The runtime an observer design runs as: none for anything else. */
+template<const auto& Res, typename T, typename R = std::remove_cvref_t<decltype(Res)>>
+struct observer_runtime {};
+
+/** @brief design::kalman: the observer and its disturbance. */
+template<const auto& Res, typename T, size_t NX, size_t NU, size_t NY, typename U, size_t NW, size_t NV, size_t ND>
+struct observer_runtime<Res, T, design::KalmanResult<NX, NU, NY, U, NW, NV, ND>> {
+    using type = Luenberger<NX, NU, NY, T, ND>;                                            ///< With members
+    using on_constants = Luenberger<NX, NU, NY, T, ND, ConstantObserver<Res, T, NX - ND>>; ///< On the design's constants
+};
+
+/** @brief design::luenberger: no disturbance. */
+template<const auto& Res, typename T, size_t NX, size_t NU, size_t NY, typename U, size_t NW, size_t NV>
+struct observer_runtime<Res, T, design::LuenbergerResult<NX, NU, NY, U, NW, NV>> {
+    using type = Luenberger<NX, NU, NY, T>;                                          ///< With members
+    using on_constants = Luenberger<NX, NU, NY, T, 0, ConstantObserver<Res, T, NX>>; ///< On the design's constants
+};
+
+/** @brief An observer design: a result that has a runtime in observer_runtime. */
+template<const auto& Res, typename T>
+concept observer_design = requires { typename observer_runtime<Res, T>::type; };
+
+} // namespace detail
+
+/** @brief Law<kRes, T> of an observer design (design::kalman, design::luenberger) initialized at start-up: the Luenberger it runs as, default-constructed from the design. A runtime of the same shape assigned replaces it. */
+template<const auto& Res, typename T>
+    requires detail::observer_design<Res, T>
+struct Law<Res, T> : detail::observer_runtime<Res, T>::type {
+    using Runtime = detail::observer_runtime<Res, T>::type; ///< The runtime the design runs as
+
+    /** @brief The design's observer. */
+    constexpr Law() : Runtime{Res.template as<T>()} {}
+
+    using Runtime::operator=;
+};
+
+/** @brief Law<kRes, T> of a `constexpr` observer design: the same Luenberger on the design's matrices as constants of the type. */
+template<const auto& Res, typename T>
+    requires(detail::observer_design<Res, T> && detail::constant_design<Res>)
+struct Law<Res, T> : detail::observer_runtime<Res, T>::on_constants {
+    using Runtime = detail::observer_runtime<Res, T>::type; ///< The runtime with members: the type of a member a redesign assigns
+
+    /** @brief The design's observer. A failed or continuous design does not compile: the error names its status. */
+    constexpr Law() { static_assert(usable()); }
+
+    /** @brief There is nothing to replace: the design is in the type. */
+    template<typename Other>
+        requires(!std::is_same_v<std::remove_cvref_t<Other>, Law>)
+    constexpr Law& operator=(const Other& other) {
+        static_assert(sizeof(Other) == 0, "This Law is a constexpr design's: its matrices are constants of the type, so there is nothing to replace. A member a redesign assigns is Law<kRes, T>::Runtime law{kRes.as<T>()};");
+        static_cast<void>(other);
+        return *this;
+    }
+
+private:
+    [[nodiscard]] static consteval bool usable() {
+        const bool ok = Res.success && Res.sys.Ts > decltype(Res.sys.Ts){0};
+        if (!ok) {
+            ::damp::detail::refuse_failed_design(Res.success ? design::DesignStatus::invalid_sample_time : Res.status);
+        }
+        return ok;
     }
 };
 
