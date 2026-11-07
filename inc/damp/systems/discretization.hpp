@@ -546,8 +546,10 @@ template<size_t N, typename T>
  *        returns that model; design on it like any other. `InputDelay{theta}` is N = 1.
  *
  * N sizes the model and θ is a value, so the model's type is the same for any delay up to N·Ts,
- * one measured at init included. Each register is a state of every matrix the law runs on, at a
- * cost of (NX + N·NU)² per tick for a filter: for many samples of dead time, sample slower or,
+ * one measured at init included. Each register is a state of every matrix the law runs on. On a
+ * `constexpr` design, Law runs on those matrices as constants, so a register costs only its nonzero
+ * terms; a runtime holding its matrices pays for every state, (NX + N·NU)² per tick for a filter's
+ * products and more for a recursive KalmanFilter. For many samples of dead time, sample slower or,
  * for a single loop, use SmithPredictor.
  *
  * @tparam N Registers, the longest delay the model can hold in samples

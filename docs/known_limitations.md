@@ -8,7 +8,7 @@ v0.1. Breaking renames are allowed (no deprecation cycle). See [AGENTS.md](../AG
 | Example coverage | Teaching demos for the main paths; not one example per REFERENCE row |
 | H∞ synthesis / mixsyn, μ | Not implemented; `norm_hinf` and SISO / loop-at-a-time disk margins ship |
 | Motor / power / motion packs | Not in this public tree; the FOC slice (`foc.hpp`, `modulation.hpp`, `spm.hpp`) is the exception |
-| Delay in a design | On the input, in the plant: `discretize(sys, Ts, InputDelay<N>{θ})`, NX + N·NU states and a dense (NX + N·NU)² per tick for a filter. Many samples of dead time: sample slower, or `SmithPredictor`. No output delay |
+| Delay in a design | On the input, in the plant: `discretize(sys, Ts, InputDelay<N>{θ})`, NX + N·NU states. A `constexpr` design's `Law` pays only for the registers' nonzero terms; a runtime holding its matrices pays a dense (NX + N·NU)² per tick for a filter. Many samples of dead time: sample slower, or `SmithPredictor`. No output delay |
 
 Implementation notes:
 

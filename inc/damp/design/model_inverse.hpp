@@ -38,6 +38,7 @@
 #include "damp/math/math.hpp"
 #include "damp/matrix/block.hpp"
 #include "damp/matrix/colvec.hpp"
+#include "damp/matrix/const_matrix.hpp"
 #include "damp/matrix/decomposition.hpp"
 #include "damp/matrix/eigen.hpp"
 #include "damp/matrix/matrix.hpp"
@@ -752,21 +753,80 @@ template<size_t NP, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size
 
 } // namespace design
 
+namespace detail {
+
+/** @brief Where a StateFeedforward keeps its maps: in the object, any value at run time. */
+template<size_t NX, size_t NU, typename T>
+struct HeldFeedforward {
+    static constexpr bool constant = false; ///< The matrices are members
+    using B_pinv = Matrix<NU, NX, T>;       ///< B⁺
+    using drift = Matrix<NU, NX, T>;        ///< B⁺(A − I)
+};
+
+/** @brief A StateFeedforward's maps as constants of the type. */
+template<const auto& Res, typename T>
+struct ConstantFeedforward {
+    static constexpr bool constant = true;               ///< The matrices are constants of the type
+    static constexpr auto design = Res.template as<T>(); ///< The design, in the runtime's scalar
+    static constexpr auto kB_pinv = design.B_pinv;       ///< B⁺
+    static constexpr auto kDrift = design.drift;         ///< B⁺(A − I)
+    using B_pinv = ConstMatrix<kB_pinv>;                 ///< B⁺
+    using drift = ConstMatrix<kDrift>;                   ///< B⁺(A − I)
+};
+
+/** @brief Where an OutputInverse keeps its maps: in the object, any value at run time. */
+template<size_t NX, size_t NU, size_t NP, typename T>
+struct HeldOutputInverse {
+    static constexpr bool   constant = false;   ///< The matrices are members
+    static constexpr size_t ND = NU * (NP - 1); ///< Preview steps, stacked
+    using x_hold = Matrix<NX, NU, T>;           ///< x* per unit y*ₖ
+    using u_hold = Matrix<NU, NU, T>;           ///< u* per unit y*ₖ
+    using x_preview = Matrix<NX, ND, T>;        ///< x* per unit preview step
+    using u_preview = Matrix<NU, ND, T>;        ///< u* per unit preview step
+    using zero_dynamics = Matrix<NX, NX, T>;    ///< The stable zero dynamics
+    using zero_preview = Matrix<NX, ND, T>;     ///< Their input per unit preview step
+    using u_zero = Matrix<NU, NX, T>;           ///< u* per unit zero-dynamics state
+};
+
+/** @brief An OutputInverse's maps as constants of the type. */
+template<const auto& Res, typename T>
+struct ConstantOutputInverse {
+    static constexpr bool constant = true;                       ///< The matrices are constants of the type
+    static constexpr auto design = Res.template as<T>();         ///< The design, in the runtime's scalar
+    static constexpr auto kx_hold = design.x_hold;               ///< x* per unit y*ₖ
+    static constexpr auto ku_hold = design.u_hold;               ///< u* per unit y*ₖ
+    static constexpr auto kx_preview = design.x_preview;         ///< x* per unit preview step
+    static constexpr auto ku_preview = design.u_preview;         ///< u* per unit preview step
+    static constexpr auto kzero_dynamics = design.zero_dynamics; ///< The stable zero dynamics
+    static constexpr auto kzero_preview = design.zero_preview;   ///< Their input per unit preview step
+    static constexpr auto ku_zero = design.u_zero;               ///< u* per unit zero-dynamics state
+    using x_hold = ConstMatrix<kx_hold>;                         ///< x* per unit y*ₖ
+    using u_hold = ConstMatrix<ku_hold>;                         ///< u* per unit y*ₖ
+    using x_preview = ConstMatrix<kx_preview>;                   ///< x* per unit preview step
+    using u_preview = ConstMatrix<ku_preview>;                   ///< u* per unit preview step
+    using zero_dynamics = ConstMatrix<kzero_dynamics>;           ///< The stable zero dynamics
+    using zero_preview = ConstMatrix<kzero_preview>;             ///< Their input per unit preview step
+    using u_zero = ConstMatrix<ku_zero>;                         ///< u* per unit zero-dynamics state
+};
+
+} // namespace detail
+
 /**
  * @brief The plant-inversion feedforward at run time: u* = B⁺·(x*ₖ₊₁ − x*ₖ) − B⁺(A − I)·x*ₖ, two
  *        matrix–vector products
  *
  * Runs design::state_feedforward. It holds no state.
  */
-template<size_t NX, size_t NU, typename T = float>
+template<size_t NX, size_t NU, typename T = float, typename Store = detail::HeldFeedforward<NX, NU, T>>
 struct StateFeedforward {
-    Matrix<NU, NX, T> B_pinv{}; ///< B⁺: u* per unit state step
-    Matrix<NU, NX, T> drift{};  ///< B⁺(A − I): u* per unit state
+    [[no_unique_address]] typename Store::B_pinv B_pinv{}; ///< B⁺: u* per unit state step
+    [[no_unique_address]] typename Store::drift  drift{};  ///< B⁺(A − I): u* per unit state
 
     constexpr StateFeedforward() = default;
 
     /** @brief From design::state_feedforward (any scalar). A failed design does not compile when constant-evaluated. */
     template<typename U>
+        requires(!Store::constant)
     constexpr StateFeedforward(const design::StateFeedforwardResult<NX, NU, U>& result) // NOLINT
         : B_pinv(result.B_pinv.template as<T>()), drift(result.drift.template as<T>()) {
         if (!result.success && std::is_constant_evaluated()) {
@@ -800,24 +860,25 @@ StateFeedforward(const design::StateFeedforwardResult<NX, NU, T>&) -> StateFeedf
  *
  * @tparam NX States of the model; NU Inputs and controlled outputs; NP Preview samples
  */
-template<size_t NX, size_t NU, size_t NP, typename T = float>
+template<size_t NX, size_t NU, size_t NP, typename T = float, typename Store = detail::HeldOutputInverse<NX, NU, NP, T>>
 struct OutputInverse {
     static constexpr size_t ND = NU * (NP - 1);     ///< Preview steps, stacked
     using Preview = damp::array<ColVec<NU, T>, NP>; ///< y*ₖ … y*ₖ₊NP₋₁: preview[0] is now
 
-    Matrix<NX, NU, T> x_hold{};              ///< x* per unit y*ₖ
-    Matrix<NU, NU, T> u_hold{};              ///< u* per unit y*ₖ
-    Matrix<NX, ND, T> x_preview{};           ///< x* per unit preview step
-    Matrix<NU, ND, T> u_preview{};           ///< u* per unit preview step
-    Matrix<NX, NX, T> zero_dynamics{};       ///< The stable zero dynamics
-    Matrix<NX, ND, T> zero_preview{};        ///< Their input per unit preview step
-    Matrix<NU, NX, T> u_zero{};              ///< u* per unit zero-dynamics state
-    ColVec<NX, T>     zero_dynamics_state{}; ///< The stable zero dynamics' state (0 at rest)
+    [[no_unique_address]] typename Store::x_hold        x_hold{};              ///< x* per unit y*ₖ
+    [[no_unique_address]] typename Store::u_hold        u_hold{};              ///< u* per unit y*ₖ
+    [[no_unique_address]] typename Store::x_preview     x_preview{};           ///< x* per unit preview step
+    [[no_unique_address]] typename Store::u_preview     u_preview{};           ///< u* per unit preview step
+    [[no_unique_address]] typename Store::zero_dynamics zero_dynamics{};       ///< The stable zero dynamics
+    [[no_unique_address]] typename Store::zero_preview  zero_preview{};        ///< Their input per unit preview step
+    [[no_unique_address]] typename Store::u_zero        u_zero{};              ///< u* per unit zero-dynamics state
+    ColVec<NX, T>                                       zero_dynamics_state{}; ///< The stable zero dynamics' state (0 at rest)
 
     constexpr OutputInverse() = default;
 
     /** @brief From design::output_inverse (any scalar). A failed design does not compile when constant-evaluated. */
     template<typename U>
+        requires(!Store::constant)
     constexpr OutputInverse(const design::OutputInverseResult<NX, NU, NP, U>& result) // NOLINT
         : x_hold(result.x_hold.template as<T>()),
           u_hold(result.u_hold.template as<T>()),
@@ -868,19 +929,38 @@ struct inverse_runtime {};
 template<size_t NX, size_t NU, typename U, typename T>
 struct inverse_runtime<design::StateFeedforwardResult<NX, NU, U>, T> {
     using type = StateFeedforward<NX, NU, T>; ///< StateFeedforward
+    template<const auto& Res>
+    using on_constants = StateFeedforward<NX, NU, T, ConstantFeedforward<Res, T>>; ///< StateFeedforward on the design's constants
 };
 
 /** @brief design::output_inverse runs as OutputInverse. */
 template<size_t NX, size_t NU, size_t NP, typename U, typename T>
 struct inverse_runtime<design::OutputInverseResult<NX, NU, NP, U>, T> {
     using type = OutputInverse<NX, NU, NP, T>; ///< OutputInverse
+    template<const auto& Res>
+    using on_constants = OutputInverse<NX, NU, NP, T, ConstantOutputInverse<Res, T>>; ///< OutputInverse on the design's constants
 };
+
+/** @brief A model-inverse design. */
+template<const auto& Res, typename T>
+concept inverse_design = requires { typename inverse_runtime<std::remove_cvref_t<decltype(Res)>, T>::type; };
 
 } // namespace detail
 
-/** @brief Law<kRes, T> of a model inverse: StateFeedforward or OutputInverse, default-constructed from the design. */
+/** @brief Law<kRes, T> of a `constexpr` model inverse: the same runtime on the design's matrices as constants of the type. */
 template<const auto& Res, typename T>
-    requires requires { typename detail::inverse_runtime<std::remove_cvref_t<decltype(Res)>, T>::type; }
+    requires(detail::inverse_design<Res, T> && detail::constant_design<Res>)
+struct Law<Res, T> : detail::inverse_runtime<std::remove_cvref_t<decltype(Res)>, T>::template on_constants<Res> {
+    using Runtime = detail::inverse_runtime<std::remove_cvref_t<decltype(Res)>, T>::type; ///< The runtime with members: the type of a member a redesign assigns
+    static_assert(detail::constant_design_runs(Res.success, Res.status));                 // a failed design does not compile: the error names its status
+
+    /** @brief The design's runtime. */
+    constexpr Law() = default;
+};
+
+/** @brief Law<kRes, T> of a model inverse initialized at start-up: StateFeedforward or OutputInverse, default-constructed from the design. */
+template<const auto& Res, typename T>
+    requires detail::inverse_design<Res, T>
 struct Law<Res, T> : detail::inverse_runtime<std::remove_cvref_t<decltype(Res)>, T>::type {
     using Runtime = detail::inverse_runtime<std::remove_cvref_t<decltype(Res)>, T>::type; ///< The runtime the design runs as
 
