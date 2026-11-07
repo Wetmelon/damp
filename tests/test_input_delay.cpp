@@ -8,12 +8,14 @@
 #include <limits>
 #include <type_traits>
 
+#include "damp/design/status.hpp"
 #include "damp/math/math.hpp"
 #include "damp/matrix/colvec.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "damp/systems/discretization.hpp"
 #include "damp/systems/state_space.hpp"
 #include "doctest.h"
+#include "register_form.hpp"
 
 using namespace damp;
 
@@ -204,5 +206,128 @@ TEST_SUITE("Input delay") {
         for (const auto method : {DiscretizationMethod::ForwardEuler, DiscretizationMethod::ZOH, DiscretizationMethod::Tustin}) {
             CHECK(discretize(double_integrator(), 0.01, InputDelay{0.01}, method).has_value()); // a whole sample: any method
         }
+    }
+
+    TEST_CASE("InputDelay<N>: the scalar and the size follow the arguments; the type does not depend on θ") {
+        static_assert(std::is_same_v<decltype(InputDelay{0.1}), InputDelay<1, double>>);
+        static_assert(std::is_same_v<decltype(InputDelay{0.1F}), InputDelay<1, float>>);
+        constexpr auto compile_time = discretize(double_integrator(), 0.01, InputDelay<3>{0.024});
+        static_assert(compile_time.has_value());
+        static_assert(std::is_same_v<std::remove_cvref_t<decltype(*compile_time)>, StateSpace<5, 1, 1>>);
+        static_assert(std::is_same_v<std::remove_cvref_t<decltype(*discretize(double_integrator(), 0.01, InputDelay<3>{0.0}))>, StateSpace<5, 1, 1>>);
+
+        const StateSpace<2, 1, 1, float> single{.A = {{0.0F, 1.0F}, {0.0F, 0.0F}}, .B = {{0.0F}, {1.0F}}, .C = {{1.0F, 0.0F}}};
+        const auto                       model = discretize(single, 0.01F, InputDelay<2, float>{0.015F});
+        REQUIRE(model.has_value());
+        CHECK(model->A(0, 3) != 0.0F); // a fraction past one whole sample reads the second register
+    }
+
+    TEST_CASE("InputDelay<N> against the register form, built apart from discretize") {
+        constexpr double Ts = 0.01;
+        for (const double periods : {0.0, 0.4, 1.0, 1.4, 2.0, 2.4, 3.0}) {
+            CAPTURE(periods);
+            const auto model = discretize(double_integrator(), Ts, InputDelay<3>{periods * Ts});
+            REQUIRE(model.has_value());
+            const auto oracle = test::register_form<3>(double_integrator(), Ts, periods * Ts);
+            CHECK((model->A - oracle.A).norm() < 1e-15);
+            CHECK((model->B - oracle.B).norm() < 1e-15);
+            CHECK((model->C - oracle.C).norm() == 0.0);
+            CHECK(model->Ts == Ts);
+        }
+    }
+
+    TEST_CASE("InputDelay<N> is exact against the continuous plant; the registers hold the inputs sent") {
+        // θ = 2.4·Ts: over each sample the plant holds u(k−3) for 0.4·Ts, then u(k−2).
+        constexpr double Ts = 0.01;
+        constexpr double frac = 0.4;
+        const auto       model = discretize(double_integrator(), Ts, InputDelay<3>{(2.0 + frac) * Ts});
+        REQUIRE(model.has_value());
+        ColVec<5>  xa{};
+        double     p = 0.0;
+        double     v = 0.0;
+        double     worst = 0.0;
+        const auto hold = [&](double a, double h) {
+            p += (v * h) + (0.5 * a * h * h);
+            v += a * h;
+        };
+        for (int k = 0; k < 300; ++k) {
+            worst = std::max({worst, std::abs(xa[0] - p), std::abs(xa[1] - v), std::abs(xa[2] - u_at(k - 1)), std::abs(xa[3] - u_at(k - 2)), std::abs(xa[4] - u_at(k - 3))});
+            hold(u_at(k - 3), frac * Ts);
+            hold(u_at(k - 2), (1.0 - frac) * Ts);
+            xa = model->A * xa + model->B * ColVec<1>{{u_at(k)}};
+        }
+        CHECK(worst < 1e-12 * 1e3); // states grow to ~10³ over the run
+    }
+
+    TEST_CASE("InputDelay<N>: a delay shorter than the capacity leaves the last registers unread") {
+        constexpr double Ts = 0.01;
+        const auto       model = discretize(double_integrator(), Ts, InputDelay<4>{1.4 * Ts}).value(); // two registers read, two not
+        CHECK(Matrix<2, 1>(model.A.block<2, 1>(0, 2)).norm() != 0.0);
+        CHECK(Matrix<2, 1>(model.A.block<2, 1>(0, 3)).norm() != 0.0);
+        CHECK(Matrix<2, 2>(model.A.block<2, 2>(0, 4)).norm() == 0.0);
+        CHECK(model.A(5, 4) == 1.0); // the chain still shifts
+    }
+
+    TEST_CASE("InputDelay<N> with two inputs: a register per input per sample, in order") {
+        const StateSpace<1, 2, 1> plant{.A = {{-1.0}}, .B = {{1.0, 2.0}}, .C = {{1.0}}};
+        constexpr double          Ts = 0.1;
+        const auto                model = discretize(plant, Ts, InputDelay<2>{2.0 * Ts}).value();
+        static_assert(std::is_same_v<std::remove_cvref_t<decltype(model)>, StateSpace<5, 2, 1>>);
+        const auto plain = discretize(plant, Ts, DiscretizationMethod::ZOH).value();
+        CHECK(model.A(0, 3) == plain.B(0, 0)); // the plant reads v(k−2), both inputs
+        CHECK(model.A(0, 4) == plain.B(0, 1));
+        CHECK(model.A(0, 1) == 0.0);
+        CHECK(model.B(1, 0) == 1.0); // the first register loads v(k)
+        CHECK(model.B(2, 1) == 1.0);
+        CHECK(model.A(3, 1) == 1.0); // the second loads the first
+        CHECK(model.A(4, 2) == 1.0);
+        CHECK(Matrix<1, 2>(model.B.block<1, 2>(0, 0)).norm() == 0.0);
+    }
+
+    TEST_CASE("InputDelay<N>: the feedthrough reads the input held at the sample instant") {
+        const StateSpace<1, 1, 1> lag{.A = {{-1.0}}, .B = {{1.0}}, .C = {{1.0}}, .D = {{0.5}}};
+        constexpr double          Ts = 0.1;
+        const auto                whole = discretize(lag, Ts, InputDelay<3>{2.0 * Ts}).value();
+        CHECK(whole.D(0, 0) == 0.0);
+        CHECK(whole.C(0, 2) == 0.5); // v(k−2)
+        CHECK(whole.C(0, 3) == 0.0);
+        const auto part = discretize(lag, Ts, InputDelay<3>{2.4 * Ts}).value();
+        CHECK(part.D(0, 0) == 0.0);
+        CHECK(part.C(0, 2) == 0.0);
+        CHECK(part.C(0, 3) == 0.5); // v(k−3): the switch is still to come at the sample instant
+        const auto none = discretize(lag, Ts, InputDelay<3>{0.0}).value();
+        CHECK(none.D(0, 0) == 0.5);
+    }
+
+    TEST_CASE("InputDelay<N>: no process noise reaches any register") {
+        const StateSpace<2, 1, 1, double, 2, 1> plant{.A = double_integrator().A, .B = double_integrator().B, .C = double_integrator().C, .G = Matrix<2, 2>::identity()};
+        const auto                              model = discretize(plant, 0.01, InputDelay<3>{0.024}).value();
+        CHECK(Matrix<3, 2>(model.G.block<3, 2>(2, 0)).norm() == 0.0);
+        CHECK(model.G(0, 0) != 0.0);
+    }
+
+    TEST_CASE("InputDelay<N>: the capacity and the rules of a fraction") {
+        using design::DesignStatus;
+        constexpr double Ts = 0.01;
+        constexpr double nan = std::numeric_limits<double>::quiet_NaN();
+        const auto       sys_d = discretize(double_integrator(), Ts, DiscretizationMethod::ZOH).value();
+        CHECK(discretize(double_integrator(), Ts, InputDelay<3>{3.0 * Ts}).has_value());
+        CHECK(discretize(double_integrator(), Ts, InputDelay<3>{3.0 * Ts * (1.0 + (4.0 * eps<double>()))}).has_value()); // roundoff of the product
+        CHECK(discretize(double_integrator(), Ts, InputDelay<3>{3.01 * Ts}).status == DesignStatus::invalid_parameter);  // past the capacity
+        CHECK(discretize(double_integrator(), Ts, InputDelay<3>{-0.001}).status == DesignStatus::invalid_parameter);
+        CHECK(discretize(double_integrator(), Ts, InputDelay<3>{nan}).status == DesignStatus::invalid_parameter);
+        CHECK(discretize(double_integrator(), Ts, InputDelay<3>{1.4 * Ts}, DiscretizationMethod::Tustin).status == DesignStatus::invalid_parameter); // a fraction needs ZOH
+        CHECK(discretize(sys_d, Ts, InputDelay<3>{1.4 * Ts}).status == DesignStatus::invalid_sample_time);                                           // a fraction needs the continuous plant
+        CHECK(discretize(sys_d, 2.0 * Ts, InputDelay<3>{2.0 * Ts}).status == DesignStatus::invalid_sample_time);                                     // a discrete model at another Ts
+
+        const auto a = discretize(double_integrator(), Ts, InputDelay<3>{2.0 * Ts});
+        const auto b = discretize(sys_d, Ts, InputDelay<3>{2.0 * Ts}); // whole samples on a discrete model
+        REQUIRE(a.has_value());
+        REQUIRE(b.has_value());
+        CHECK((a->A - b->A).norm() < 1e-12);
+        const auto tustin = discretize(double_integrator(), Ts, DiscretizationMethod::Tustin).value();
+        const auto late = discretize(double_integrator(), Ts, InputDelay<3>{2.0 * Ts}, DiscretizationMethod::Tustin);
+        REQUIRE(late.has_value());
+        CHECK((Matrix<2, 1>(late->A.block<2, 1>(0, 3)) - tustin.B).norm() < 1e-15); // whole samples: that method's Γ
     }
 }
