@@ -193,21 +193,22 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`EncoderTracker`](inc/damp/encoder/tracker.hpp#L70) | block | Embedded helpers (controls-adjacent utilities) | Encoder position (exact) and speed (smoothed) from absolute counts |
 | [`EncoderTrackerConfig`](inc/damp/encoder/tracker.hpp#L23) | block | Embedded helpers (controls-adjacent utilities) | Configuration for EncoderTracker |
 | [`EncoderVerdict`](inc/damp/encoder/gate.hpp#L31) | enum | Embedded helpers (controls-adjacent utilities) | What EncoderGate made of a reading |
+| [`Entry`](inc/damp/matrix/sparse_matrix.hpp#L24) | enum | Linear algebra | What an entry of a matrix is known to be at compile time |
 | [`enu_from_ned`](inc/damp/estimation/ins_mechanization.hpp#L116) | function | Observers & estimators | Map a NED vector into ENU (axis permute) |
 | [`eps`](inc/damp/matrix/matrix_traits.hpp#L115) | function | Linear algebra | Machine epsilon of T's real scalar (MATLAB® eps). Scale it by problem size and magnitude to build a relative tolerance |
-| [`ErrorStateJacobian`](inc/damp/estimation/eskf.hpp#L287) | block | Observers & estimators | ESKF prediction Jacobians F and G (nominal state updated outside) |
-| [`ErrorStateKalmanFilter`](inc/damp/estimation/eskf.hpp#L341) | block | Observers & estimators | Runtime error-state KF: tracks δx and P, not the full nominal state (+1 more overload) |
-| [`ErrorStateKalmanFilterConfig`](inc/damp/estimation/eskf.hpp#L312) | block | Observers & estimators | Configuration of an ErrorStateKalmanFilter: the process noise and the initial covariance |
+| [`ErrorStateJacobian`](inc/damp/estimation/eskf.hpp#L288) | block | Observers & estimators | ESKF prediction Jacobians F and G (nominal state updated outside) |
+| [`ErrorStateKalmanFilter`](inc/damp/estimation/eskf.hpp#L342) | block | Observers & estimators | Runtime error-state KF: tracks δx and P, not the full nominal state (+1 more overload) |
+| [`ErrorStateKalmanFilterConfig`](inc/damp/estimation/eskf.hpp#L313) | block | Observers & estimators | Configuration of an ErrorStateKalmanFilter: the process noise and the initial covariance |
 | [`ErrorTolerance`](inc/damp/simulation/solver.hpp#L302) | block | Simulation / SIL harness (host) | Scalar-or-vector local-error tolerance for adaptive ODE control |
 | [`esc`](inc/damp/controllers/esc.hpp#L156) | function | Design-time synthesis (not PWM-rate) | Synthesize an extremum-seeking controller |
 | [`esc_mppt`](inc/damp/controllers/esc.hpp#L200) | function | Design-time synthesis (not PWM-rate) | MPPT-flavored ESC: maximize a power measurement by perturbing the operating point (e.g. converter duty or reference voltage) |
 | [`ESCResult`](inc/damp/controllers/esc.hpp#L91) | block | Design-time synthesis (not PWM-rate) | Extremum-seeking design result: the discrete realization the runtime runs |
 | [`ESCSpec`](inc/damp/controllers/esc.hpp#L71) | block | Runtime controllers | The extremum-seeking design input: dither, gain, filter corners and clamp; Ts is passed beside it |
-| [`eskf_imu`](inc/damp/estimation/eskf.hpp#L219) | function | Observers & estimators | Design Q, R, P₀ for a 6-state IMU attitude ESKF (gyro + accel) |
-| [`eskf_marg`](inc/damp/estimation/eskf.hpp#L258) | function | Observers & estimators | Design Q, R, P₀ for a 6-state MARG attitude ESKF (gyro + accel + mag) |
-| [`ESKFOrientationFilter`](inc/damp/estimation/sensor_fusion.hpp#L380) | block | Observers & estimators | Turnkey 6-state attitude ESKF: owns q, b_g, and the error filter |
-| [`ESKFPredictFn`](inc/damp/estimation/eskf.hpp#L299) | concept | Observers & estimators | Callable that returns ErrorStateJacobian for one predict step |
-| [`ESKFResult`](inc/damp/estimation/eskf.hpp#L85) | block | Observers & estimators | Design payload for an ESKF: Q, R, P₀, and success |
+| [`eskf_imu`](inc/damp/estimation/eskf.hpp#L220) | function | Observers & estimators | Design Q, R, P₀ for a 6-state IMU attitude ESKF (gyro + accel) |
+| [`eskf_marg`](inc/damp/estimation/eskf.hpp#L259) | function | Observers & estimators | Design Q, R, P₀ for a 6-state MARG attitude ESKF (gyro + accel + mag) |
+| [`ESKFOrientationFilter`](inc/damp/estimation/sensor_fusion.hpp#L383) | block | Observers & estimators | Turnkey 6-state attitude ESKF: owns q, b_g, and the error filter |
+| [`ESKFPredictFn`](inc/damp/estimation/eskf.hpp#L300) | concept | Observers & estimators | Callable that returns ErrorStateJacobian for one predict step |
+| [`ESKFResult`](inc/damp/estimation/eskf.hpp#L86) | block | Observers & estimators | Design payload for an ESKF: Q, R, P₀, and success |
 | [`eso`](inc/damp/estimation/eso.hpp#L207) | function | Observers & estimators | Extended-state observer: poles at −ω_o, plant gain b₀, optional sample time |
 | [`ESO`](inc/damp/estimation/eso.hpp#L273) | block | Observers & estimators | Extended-state observer (ESO) (+1 more overload) |
 | [`ESOResult`](inc/damp/estimation/eso.hpp#L55) | block | Observers & estimators | Extended-state observer design: continuous β and, for Ts > 0, the discrete ESO |
@@ -298,7 +299,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`HarmonicSuppressor`](inc/damp/controllers/harmonic_suppression.hpp#L166) | block | Runtime controllers | Multi-resonant harmonic suppressor — a parallel bank of PR resonators |
 | [`HarmonicSuppressorResult`](inc/damp/controllers/harmonic_suppression.hpp#L50) | block | Design-time synthesis (not PWM-rate) | Design result for a multi-resonant harmonic suppressor |
 | [`hcat`](inc/damp/matrix/concat.hpp#L159) | function | Linear algebra | Horizontal concatenation (same row count) |
-| [`heading_from_baseline_nav`](inc/damp/estimation/ins_eskf.hpp#L491) | function | Observers & estimators | Heading [rad] from a nav-frame baseline vector (dual-antenna difference) |
+| [`heading_from_baseline_nav`](inc/damp/estimation/ins_eskf.hpp#L421) | function | Observers & estimators | Heading [rad] from a nav-frame baseline vector (dual-antenna difference) |
 | [`Heun`](inc/damp/simulation/integrator.hpp#L863) | block | Simulation / SIL harness (host) | Heun's method (Improved Euler, RK2) integrator |
 | [`highpass_1st`](inc/damp/filters/iir_design.hpp#L417) | function | Filters & signal conditioning | First-order high-pass filter design (continuous-time) (+1 more overload) |
 | [`highpass_2nd`](inc/damp/filters/iir_design.hpp#L553) | function | Filters & signal conditioning | Second-order high-pass filter design (continuous-time) (+1 more overload) |
@@ -313,6 +314,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`HybridSimulationResult`](inc/damp/simulation/hybrid.hpp#L79) | block | Simulation / SIL harness (host) | Result of a piecewise-LTI hybrid simulation |
 | [`hypot`](inc/damp/math/math.hpp#L78) | function | Scalar math, complex & frames | Euclidean distance hypot(x, y) = √(x² + y²), without overflow |
 | [`Hysteresis`](inc/damp/toolbox/conditioning.hpp#L284) | block | Embedded helpers (controls-adjacent utilities) | Hysteresis comparator (Schmitt trigger): bool output with separate on/off thresholds to reject chatter |
+| [`identity`](inc/damp/estimation/ins_eskf.hpp#L102) | function | Observers & estimators | The shape of the 15-state INS transition: δθ⁺ = (I − [ω]× dt) δθ − dt δb_g, δv⁺ = δv − R[a]× dt δθ − R dt δb_a, δp⁺ = δp + dt δv, biases held (+1 more overload) |
 | [`impedance`](inc/damp/analysis/frequency.hpp#L1073) | function | Frequency-domain analysis (host) | Compute impedance frequency response from a SISO impedance transfer function |
 | [`impedance_from_admittance`](inc/damp/analysis/frequency.hpp#L1031) | function | Frequency-domain analysis (host) | Compute impedance frequency response from a SISO admittance system |
 | [`ImpedanceResult`](inc/damp/analysis/frequency.hpp#L903) | block | Frequency-domain analysis (host) | Result of impedance frequency response evaluation |
@@ -327,22 +329,21 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`initial`](inc/damp/analysis/time_response.hpp#L246) | function | Frequency-domain analysis (host) | Initial-condition (free) response of a (MIMO) state-space system |
 | [`InputDelay`](inc/damp/systems/discretization.hpp#L552) | block | LTI systems (SS / TF / ZPK / discretize) | An input delay of θ = seconds, at most one sample (0 ≤ θ ≤ Ts): one register state v(k−1) in the model holds the input of the last period. `discretize(sys, Ts, InputDelay{theta})` returns that model; design on it like any other |
 | [`InputDisturbance`](inc/damp/design/disturbance.hpp#L42) | block | Design-time synthesis (not PWM-rate) | An input disturbance: d adds to u, B_d = B and C_d = D, one disturbance per input |
-| [`ins_aid_position`](inc/damp/estimation/ins_eskf.hpp#L458) | function | Observers & estimators | Predicted antenna / marker position with body lever-arm |
-| [`ins_apply_correction`](inc/damp/estimation/ins_eskf.hpp#L444) | function | Observers & estimators | Inject filter correction into x and reset the error state |
-| [`ins_error_jacobian`](inc/damp/estimation/ins_eskf.hpp#L262) | function | Observers & estimators | Discrete error-state transition and noise input for one IMU step |
-| [`ins_eskf_design`](inc/damp/estimation/ins_eskf.hpp#L174) | function | Observers & estimators | Build Q / R / P0 for a 15-state INS ESKF from IMU noise densities |
-| [`ins_heading`](inc/damp/estimation/ins_eskf.hpp#L476) | function | Observers & estimators | Horizontal heading [rad] of a body axis expressed in the nav frame |
-| [`ins_inject`](inc/damp/estimation/ins_eskf.hpp#L392) | function | Observers & estimators | Inject δx into the nominal INS state (right-multiplicative q) |
-| [`ins_predict`](inc/damp/estimation/ins_eskf.hpp#L421) | function | Observers & estimators | Mechanize nominal state and propagate the error covariance |
-| [`ins_propagate_covariance`](inc/damp/estimation/ins_eskf.hpp#L358) | function | Observers & estimators | P ← F P Fᵀ + Q using sparse F (exact for ins_error_jacobian structure) |
-| [`ins_update_heading`](inc/damp/estimation/ins_eskf.hpp#L579) | function | Observers & estimators | Sparse dual-antenna / yaw heading update (scalar) |
-| [`ins_update_orientation`](inc/damp/estimation/ins_eskf.hpp#L617) | function | Observers & estimators | Sparse orientation update from a measured body→nav quaternion |
-| [`ins_update_pose`](inc/damp/estimation/ins_eskf.hpp#L642) | function | Observers & estimators | Generic pose alias: position then orientation (two sparse updates) |
-| [`ins_update_pose_heading`](inc/damp/estimation/ins_eskf.hpp#L661) | function | Observers & estimators | Pose alias: position + dual-antenna heading (two sparse updates) |
-| [`ins_update_position`](inc/damp/estimation/ins_eskf.hpp#L506) | function | Observers & estimators | Sparse position update: y = p + Rℓ |
-| [`ins_update_velocity`](inc/damp/estimation/ins_eskf.hpp#L538) | function | Observers & estimators | Sparse velocity update: y = v at the IMU origin (no lever-arm) |
-| [`ins_update_zupt`](inc/damp/estimation/ins_eskf.hpp#L557) | function | Observers & estimators | Zero-velocity update (ZUPT): velocity measurement of zero |
-| [`InsNavigator`](inc/damp/estimation/ins_eskf.hpp#L695) | block | Observers & estimators | Runtime strapdown navigator: nominal InsState + 15-state ESKF (+2 more overloads) |
+| [`ins_aid_position`](inc/damp/estimation/ins_eskf.hpp#L388) | function | Observers & estimators | Predicted antenna / marker position with body lever-arm |
+| [`ins_apply_correction`](inc/damp/estimation/ins_eskf.hpp#L374) | function | Observers & estimators | Inject filter correction into x and reset the error state |
+| [`ins_error_jacobian`](inc/damp/estimation/ins_eskf.hpp#L282) | function | Observers & estimators | Discrete error-state transition and noise input for one IMU step |
+| [`ins_eskf_design`](inc/damp/estimation/ins_eskf.hpp#L194) | function | Observers & estimators | Build Q / R / P0 for a 15-state INS ESKF from IMU noise densities |
+| [`ins_heading`](inc/damp/estimation/ins_eskf.hpp#L406) | function | Observers & estimators | Horizontal heading [rad] of a body axis expressed in the nav frame |
+| [`ins_inject`](inc/damp/estimation/ins_eskf.hpp#L325) | function | Observers & estimators | Inject δx into the nominal INS state (right-multiplicative q) |
+| [`ins_predict`](inc/damp/estimation/ins_eskf.hpp#L354) | function | Observers & estimators | Mechanize nominal state and propagate the error covariance |
+| [`ins_update_heading`](inc/damp/estimation/ins_eskf.hpp#L509) | function | Observers & estimators | Sparse dual-antenna / yaw heading update (scalar) |
+| [`ins_update_orientation`](inc/damp/estimation/ins_eskf.hpp#L547) | function | Observers & estimators | Sparse orientation update from a measured body→nav quaternion |
+| [`ins_update_pose`](inc/damp/estimation/ins_eskf.hpp#L571) | function | Observers & estimators | Generic pose alias: position then orientation (two sparse updates) |
+| [`ins_update_pose_heading`](inc/damp/estimation/ins_eskf.hpp#L590) | function | Observers & estimators | Pose alias: position + dual-antenna heading (two sparse updates) |
+| [`ins_update_position`](inc/damp/estimation/ins_eskf.hpp#L436) | function | Observers & estimators | Sparse position update: y = p + Rℓ |
+| [`ins_update_velocity`](inc/damp/estimation/ins_eskf.hpp#L468) | function | Observers & estimators | Sparse velocity update: y = v at the IMU origin (no lever-arm) |
+| [`ins_update_zupt`](inc/damp/estimation/ins_eskf.hpp#L487) | function | Observers & estimators | Zero-velocity update (ZUPT): velocity measurement of zero |
+| [`InsNavigator`](inc/damp/estimation/ins_eskf.hpp#L624) | block | Observers & estimators | Runtime strapdown navigator: nominal InsState + 15-state ESKF (+2 more overloads) |
 | [`InsState`](inc/damp/estimation/ins_mechanization.hpp#L139) | block | Observers & estimators | Nominal strapdown navigation state (external to the ESKF error state) |
 | [`instantaneous_power`](inc/damp/math/transforms.hpp#L496) | function | Scalar math, complex & frames | Instantaneous active and reactive power from dq quantities (+1 more overload) |
 | [`InstantaneousPower`](inc/damp/math/transforms.hpp#L457) | block | Scalar math, complex & frames | Instantaneous active and reactive power |
@@ -578,6 +579,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`OnDelayTimer`](inc/damp/toolbox/logic.hpp#L100) | block | Embedded helpers (controls-adjacent utilities) | On-delay timer: output goes true once in has been held true continuously for delay; drops immediately when in goes false |
 | [`one_norm`](inc/damp/matrix/functions.hpp#L71) | function | Linear algebra | One-norm ‖A‖₁: maximum absolute column sum |
 | [`ones`](inc/damp/matlab.hpp#L618) | function | MATLAB®-style aliases (host) | N×N matrix of ones |
+| [`ones`](inc/damp/estimation/ins_eskf.hpp#L113) | function | Observers & estimators | The shape of a position reading through a lever arm: I on δp, a runtime block on δθ (+2 more overloads) |
 | [`option`](inc/damp/design/options.hpp#L58) | function | Design-time synthesis (not PWM-rate) | No option left: the fallback (+1 more overload) |
 | [`option_set`](inc/damp/design/options.hpp#L83) | block | Design-time synthesis (not PWM-rate) | The kinds of option a design call accepts: check<Opts...>() refuses, at compile time, an option of no listed kind and a kind given twice |
 | [`option_type`](inc/damp/design/options.hpp#L42) | block | Design-time synthesis (not PWM-rate) | The type of the first option of the kind Is among Opts, else Default (+1 more overload) |
@@ -664,7 +666,8 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`QRDecomposition`](inc/damp/matrix/decomposition.hpp#L397) | block | Linear algebra | Thin QR factorization A = QR (Householder) |
 | [`QuadMode`](inc/damp/encoder/quadrature.hpp#L47) | enum | Embedded helpers (controls-adjacent utilities) | Quadrature decode resolution (edges counted per A/B cycle) |
 | [`quadprog`](inc/damp/matlab.hpp#L1453) | function | MATLAB®-style aliases (host) | MATLAB® alias for the dense inequality-constrained QP solve (+1 more overload) |
-| [`quadratic_form`](inc/damp/matrix/core.hpp#L1246) | function | Linear algebra | Symmetric congruence (quadratic) form  S = M X Mᵀ |
+| [`quadratic_form`](inc/damp/matrix/core.hpp#L1246) | function | Linear algebra | Symmetric congruence (quadratic) form  S = M X Mᵀ (+1 more overload) |
+| [`quadratic_form_in_place`](inc/damp/matrix/sparse_matrix.hpp#L353) | function | Linear algebra | S ← F S Fᵀ in place, for a symmetric S: every multiply the pattern can skip, skipped |
 | [`QuadratureDecoder`](inc/damp/encoder/quadrature.hpp#L75) | block | Embedded helpers (controls-adjacent utilities) | Software A/B quadrature decoder with optional index |
 | [`quantize`](inc/damp/simulation/quantize.hpp#L66) | function | Simulation / SIL harness (host) | ADC reading of x: x rounded to the nearest multiple of lsb, then clamped to [lo, hi] |
 | [`Quaternion`](inc/damp/math/geometry.hpp#L362) | block | Scalar math, complex & frames | Unit quaternion rotation (w, x, y, z) (Hamilton product) |
@@ -712,7 +715,6 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`RobustExactDifferentiator`](inc/damp/filters/differentiator.hpp#L62) | block | Filters & signal conditioning | First-order robust exact differentiator (super-twisting differentiator) |
 | [`RootLocusResult`](inc/damp/analysis/poles.hpp#L234) | block | Frequency-domain analysis (host) | Root-locus data: closed-loop poles along a gain grid |
 | [`rotary_gearbox`](inc/damp/toolbox/actuator.hpp#L153) | function | Embedded helpers (controls-adjacent utilities) | Build a ServoAxis for a rotary joint behind a gearbox |
-| [`rows`](inc/damp/estimation/ins_eskf.hpp#L303) | function | Observers & estimators | Sparse y = F x for the 15-state INS first-order structure (G = I path) |
 | [`RowVec`](inc/damp/matrix/rowvec.hpp#L31) | block | Linear algebra | Row vector specialization of Matrix<1, N, T> |
 | [`RowView`](inc/damp/matrix/views.hpp#L203) | block | Linear algebra | Non-owning row view of a matrix |
 | [`RS`](inc/damp/toolbox/iec61131.hpp#L92) | block | Embedded helpers (controls-adjacent utilities) | RS Latch (Reset-Set Latch) |
@@ -787,6 +789,8 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`solve_qp_admm`](inc/damp/design/qp.hpp#L1174) | function | Design-time synthesis (not PWM-rate) | One-shot ADMM QP solve (cold start) |
 | [`solve_qp_interior_point`](inc/damp/design/qp.hpp#L1218) | function | Design-time synthesis (not PWM-rate) | Interior-point QP solver (primal-dual path following) |
 | [`SolveResult`](inc/damp/simulation/solver.hpp#L86) | block | Simulation / SIL harness (host) | Result of an ODE solve operation |
+| [`SparseMatrix`](inc/damp/matrix/sparse_matrix.hpp#L235) | block | Linear algebra | The runtime values of a sparsity pattern, and nothing else: an entry the pattern knows has no storage, and in a product it has no term (a 0) or no multiply (a 1) |
+| [`SparsityPattern`](inc/damp/matrix/sparse_matrix.hpp#L42) | block | Linear algebra | Which entries of an R × C matrix are exactly 0, exactly 1, or known only at run time |
 | [`specific_force_at_rest`](inc/damp/estimation/ins_mechanization.hpp#L227) | function | Observers & estimators | Specific force [m/s²] a stationary IMU measures for the given orientation |
 | [`SplineSurface`](inc/damp/toolbox/lookup.hpp#L394) | block | Embedded helpers (controls-adjacent utilities) | 2-D interpolating surface with smooth (Catmull-Rom spline) blending |
 | [`SplitReal`](inc/damp/math/split_real.hpp#L48) | block | Scalar math, complex & frames | A real number split into an exact integer part and a floating-point remainder |
@@ -872,6 +876,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`ThreePhasePLL`](inc/damp/filters/pll.hpp#L160) | block | Filters & signal conditioning | Synchronous-reference-frame (SRF) PLL for balanced three-phase input |
 | [`Timeout`](inc/damp/toolbox/timing.hpp#L126) | block | Embedded helpers (controls-adjacent utilities) | One-shot timeout |
 | [`TimeResponse`](inc/damp/analysis/time_response.hpp#L51) | block | Frequency-domain analysis (host) | Multi-channel time-domain response sampled on a time grid |
+| [`times_transpose`](inc/damp/matrix/sparse_matrix.hpp#L332) | function | Linear algebra | A dense matrix times Hᵀ for a sparse H: A Hᵀ |
 | [`to_coeffs`](inc/damp/filters/iir_design.hpp#L132) | function | Filters & signal conditioning | Convert StateSpace system to first-order DSP coefficients (+4 more overloads) |
 | [`to_double_vector`](inc/damp/simulation/plot_plotly.hpp#L238) | function | Simulation / SIL harness (host) | Convert std::vector\<T\> to std::vector<double> |
 | [`to_std_vector`](inc/damp/simulation/plot_plotly.hpp#L213) | function | Simulation / SIL harness (host) | Convert a ColVec<N,T> to std::vector<double> for plotlypp |
@@ -915,6 +920,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`upsample`](inc/damp/systems/discretization.hpp#L464) | function | LTI systems (SS / TF / ZPK / discretize) | Upsample a discrete model by an integer factor: sys(z) → sys(zᴸ) at Ts / L |
 | [`upsample`](inc/damp/matlab.hpp#L471) | function | MATLAB®-style aliases (host) | MATLAB® upsample: sys(z) → sys(zᴸ) at Ts / L |
 | [`valid_spec`](inc/damp/design/pid_design.hpp#L477) | function | Design-time synthesis (not PWM-rate) | The spec's scalar domain: ωc > 0, 0 < PM < 180°, Tf ≥ 0, all finite |
+| [`values`](inc/damp/estimation/ins_eskf.hpp#L122) | function | Observers & estimators | The shape of a heading reading: one row, a runtime block on δθ |
 | [`vcat`](inc/damp/matrix/concat.hpp#L182) | function | Linear algebra | Vertical concatenation (same column count) |
 | [`voltage_circle_radius`](inc/damp/motor/foc.hpp#L60) | function | Motor control pack (if present) | SVPWM voltage-circle radius Vₘₐₓ = m · Vdc / √3 |
 | [`WarmStartActiveSetSolver`](inc/damp/design/qp.hpp#L739) | block | Design-time synthesis (not PWM-rate) | Warm-started active-set solver policy — the damp::MPC default |

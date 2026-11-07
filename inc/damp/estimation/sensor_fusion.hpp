@@ -197,6 +197,15 @@ public:
 
 namespace detail {
 
+/** @brief The shape of the 6-state attitude transition: I, but for δθ's off-diagonal and −dt on δb_g. */
+inline constexpr auto kAttitudeTransitionPattern = SparsityPattern<6, 6>::identity().values_off_diagonal(0, 0, 3).value_diagonal(0, 3, 3);
+
+/** @brief The shape of its reset Jacobian: I, but for δθ's off-diagonal. */
+inline constexpr auto kAttitudeResetPattern = SparsityPattern<6, 6>::identity().values_off_diagonal(0, 0, 3);
+
+/** @brief The shape of an accelerometer or magnetometer reading: [a]× on δθ, zero on its diagonal. */
+inline constexpr auto kAttitudeVectorPattern = SparsityPattern<3, 6>{}.values_off_diagonal(0, 0, 3);
+
 /**
  * Gyro predict + error covariance for 6-state attitude ESKF.
  * F uses first-order body-rate kinematics: δθ⁺ ≈ (I − [ω]×dt) δθ − dt δb_g
@@ -212,18 +221,12 @@ constexpr void eskf_attitude_predict(
     const Vec3<T> omega = gyro_meas - b_g_nom;
     q_nom = q_nom.integrate_body_rates(omega, dt);
 
-    Matrix<6, 6, T> F = Matrix<6, 6, T>::identity();
-    F.template block<3, 3>(0, 0) = Matrix<3, 3, T>::identity() - (skew_sym(omega) * dt);
-    F(0, 3) = -dt;
-    F(1, 4) = -dt;
-    F(2, 5) = -dt;
-    const Matrix<6, 6, T> G = Matrix<6, 6, T>::identity();
-    eskf.predict(
-        [F, G](T) -> ErrorStateJacobian<T, 6> {
-        return {F, G};
-    },
-        dt
-    );
+    SparseMatrix<kAttitudeTransitionPattern, T> F{};
+    F.template set_block<0, 0>(Matrix<3, 3, T>(skew_sym(omega) * (-dt)));
+    F.template at<0, 3>() = -dt;
+    F.template at<1, 4>() = -dt;
+    F.template at<2, 5>() = -dt;
+    eskf.predict(F);
 }
 
 template<typename T>
@@ -232,8 +235,8 @@ constexpr void eskf_attitude_inject(ErrorStateKalmanFilter<6, T>& eskf, Quaterni
     const Vec3<T> dth{dx[0], dx[1], dx[2]};
     q_nom = (q_nom * exp_delta_theta(dth)).normalized();
     b_g_nom = b_g_nom + Vec3<T>{dx[3], dx[4], dx[5]};
-    Matrix<6, 6, T> G_reset = Matrix<6, 6, T>::identity();
-    G_reset.template block<3, 3>(0, 0) = attitude_reset_jacobian(dth);
+    SparseMatrix<kAttitudeResetPattern, T> G_reset{};
+    G_reset.template set_block<0, 0>(attitude_reset_jacobian(dth));
     eskf.reset_error_state(G_reset);
 }
 
@@ -264,8 +267,8 @@ constexpr void eskf_apply_accel(
     innov[0] = accel_meas[0] - a_pred[0];
     innov[1] = accel_meas[1] - a_pred[1];
     innov[2] = accel_meas[2] - a_pred[2];
-    Matrix<3, 6, T> H = Matrix<3, 6, T>::zeros();
-    H.template block<3, 3>(0, 0) = skew_sym(a_pred);
+    SparseMatrix<kAttitudeVectorPattern, T> H{};
+    H.template set_block<0, 0>(skew_sym(a_pred));
     if (!eskf.update_innovation(innov, H, R_a)) {
         return;
     }
@@ -318,8 +321,8 @@ constexpr void eskf_tick_marg(
     innov_m[0] = mag_meas[0] - m_pred[0];
     innov_m[1] = mag_meas[1] - m_pred[1];
     innov_m[2] = mag_meas[2] - m_pred[2];
-    Matrix<3, 6, T> Hm = Matrix<3, 6, T>::zeros();
-    Hm.template block<3, 3>(0, 0) = skew_sym(m_pred);
+    SparseMatrix<kAttitudeVectorPattern, T> Hm{};
+    Hm.template set_block<0, 0>(skew_sym(m_pred));
     const Matrix<3, 3, T> R_m = R.template block<3, 3>(3, 3);
     if (eskf.update_innovation(innov_m, Hm, R_m)) {
         eskf_attitude_inject(eskf, q_nom, b_g_nom);

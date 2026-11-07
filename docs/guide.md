@@ -95,6 +95,7 @@ types. Bode and friends return analysis grids. New code uses `design::` and
 | ------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
 | `ss`, `tf`, `zpk`                     | `StateSpace`, `TransferFunction`, `ZPK`; `matlab::ss` / `tf` / `zpk` on the host                                 |
 | `c2d`, `d2c`, `d2d`                   | `discretize` / `c2d` / `d2d`; `matlab::c2d`                                                                      |
+| A Jacobian with a fixed shape, in a filter | `SparsityPattern` + `SparseMatrix<kPattern, float>`: `eskf.predict(F)`, `eskf.update_innovation(nu, H, R)`. The zeros and ones are known at compile time, so they cost nothing; the values stay runtime. |
 | `InputDelay`, dead time               | `discretize(sys, Ts, InputDelay{θ})` with θ ≤ Ts. Longer: slower Ts or `SmithPredictor`. Not a field on the law. |
 | `lqr`, `dlqr`, `lqrd`                 | `design::lqr(sys, …)` or `design::lqr(sys, Ts, …)`; `matlab::lqr` / `dlqr` / `lqrd`                              |
 | `lqi`, `lqg`, `lqgtrack`              | `design::lqi`, `design::lqg`, `design::lqgi`                                                                     |

@@ -34,6 +34,7 @@
 #include "damp/math/geometry.hpp"
 #include "damp/math/math.hpp"
 #include "damp/matrix/matrix.hpp"
+#include "damp/matrix/sparse_matrix.hpp"
 
 namespace damp {
 
@@ -345,14 +346,15 @@ struct ErrorStateKalmanFilter {
     constexpr ErrorStateKalmanFilter() = default;
 
     /** @brief Filter from its process noise and initial covariance. */
-    constexpr explicit ErrorStateKalmanFilter(const ErrorStateKalmanFilterConfig<NDX, T>& config) : P(config.P0), Q(config.Q) {}
+    constexpr explicit ErrorStateKalmanFilter(const ErrorStateKalmanFilterConfig<NDX, T>& config) : P(config.P0), Q(config.Q), q_is_diagonal(is_diagonal(config.Q)) {}
 
     /** @brief The same filter in another scalar. */
     template<typename U>
     constexpr ErrorStateKalmanFilter(const ErrorStateKalmanFilter<NDX, U>& other) // NOLINT(google-explicit-constructor): a scalar conversion
         : P(other.covariance().template as<T>()),
           Q(other.process_noise_covariance().template as<T>()),
-          delta_x(other.error_state().template as<T>()) {}
+          delta_x(other.error_state().template as<T>()),
+          q_is_diagonal(is_diagonal(Q)) {}
 
     /**
      * @brief From a design result (any scalar): its P₀ and Q via @c .as\<T\>(). The design's R
@@ -361,7 +363,8 @@ struct ErrorStateKalmanFilter {
     template<typename U, size_t NY>
     constexpr ErrorStateKalmanFilter(const design::ESKFResult<NDX, NY, U>& result) // NOLINT(google-explicit-constructor): assign-from-design
         : P(result.P0.template as<T>()),
-          Q(result.Q.template as<T>()) {
+          Q(result.Q.template as<T>()),
+          q_is_diagonal(is_diagonal(Q)) {
         if (!result.success && std::is_constant_evaluated()) {
             ::damp::detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
@@ -405,6 +408,36 @@ struct ErrorStateKalmanFilter {
     }
 
     /**
+     * @brief Propagate over one step with F's zeros and ones known at compile time (G = I):
+     *        δx ← F δx, P ← F P Fᵀ + Q in place, with no term for a zero and no multiply for a one
+     *
+     * The same numbers as predict() with F dense, to rounding. A diagonal Q adds only its diagonal.
+     *
+     * @tparam Pattern F's sparsity pattern
+     * @param F The transition of δx, its runtime values filled in
+     */
+    template<const auto& Pattern>
+    constexpr void predict(const SparseMatrix<Pattern, T>& F) {
+        delta_x = F * delta_x;
+        quadratic_form_in_place(F, P);
+        if (q_is_diagonal) {
+            for (size_t i = 0; i < NDX; ++i) {
+                P(i, i) += Q(i, i);
+            }
+        } else {
+            for (size_t i = 0; i < NDX; ++i) {
+                for (size_t j = 0; j <= i; ++j) {
+                    const T q = T{0.5} * (Q(i, j) + Q(j, i));
+                    P(i, j) += q;
+                    if (i != j) {
+                        P(j, i) += q;
+                    }
+                }
+            }
+        }
+    }
+
+    /**
      * @brief Joseph-form update with one reading of any size, from its innovation
      *
      * ν̄ = ν − H δx is the residual against the corrected estimate, which is ν itself after
@@ -441,6 +474,75 @@ struct ErrorStateKalmanFilter {
     }
 
     /**
+     * @brief Joseph-form update with H's zeros and ones known at compile time: the same factors as
+     *        update_innovation with H dense, with no term for what H does not read
+     *
+     * With A = I − K H, P ← A P Aᵀ + K R Kᵀ stays that sum of two positive semidefinite terms; it is
+     * not the shorter P − K H P, which can lose symmetry and positive definiteness to rounding. Only
+     * the entries of A P that the result reads are computed: its lower triangle and the columns H
+     * reads. The result is exactly symmetric.
+     *
+     * @tparam Pattern H's sparsity pattern
+     * @param innovation ν = y − h(x_nom), with any wrap the reading needs
+     * @param H          ∂h/∂δx at the nominal state, its runtime values filled in
+     * @param R          Covariance of the reading's noise
+     * @return false if S = H P Hᵀ + R is not positive definite: δx and P are unchanged
+     */
+    template<const auto& Pattern, size_t NY>
+    [[nodiscard]] constexpr bool update_innovation(
+        const ColVec<NY, T>&            innovation,
+        const SparseMatrix<Pattern, T>& H,
+        const Matrix<NY, NY, T>&        R
+    ) {
+        static_assert(SparseMatrix<Pattern, T>::NR == NY && SparseMatrix<Pattern, T>::NC == NDX, "H is NY × NDX.");
+        const Matrix<NY, NDX, T> HP = H * P;
+        const Matrix<NY, NY, T>  S = times_transpose(HP, H) + R;
+        const auto               K_opt = mat::cholesky_solve(S, HP);
+        if (!K_opt) {
+            return false;
+        }
+        const Matrix<NDX, NY, T> K = K_opt.value().transpose();
+        const ColVec<NY, T>      innov_bar = innovation - (H * delta_x);
+        delta_x = delta_x + (K * innov_bar);
+
+        const Matrix<NDX, NY, T> KR = K * R;
+        constexpr auto&          read_by_H = ::damp::detail::pattern_read_columns<Pattern>;
+        // A P, row by row: its lower triangle, and past the diagonal only the columns H reads.
+        T AP[NDX][NDX]; // written before it is read, only where the result reads it
+        for (size_t i = 0; i < NDX; ++i) {
+            const auto ap_entry = [&](size_t l) __attribute__((always_inline)) {
+                T s = P(i, l);
+                [&]<size_t... M>(damp::index_sequence<M...>) __attribute__((always_inline)) {
+                    ((s -= K(i, M) * HP(M, l)), ...);
+                }(damp::make_index_sequence<NY>{});
+                AP[i][l] = s;
+            };
+            for (size_t l = 0; l <= i; ++l) {
+                ap_entry(l);
+            }
+            [&]<size_t... C>(damp::index_sequence<C...>) __attribute__((always_inline)) {
+                ((read_by_H[C] && C > i ? ap_entry(C) : void()), ...);
+            }(damp::make_index_sequence<NDX>{});
+        }
+        // P ← A P Aᵀ + K R Kᵀ, row by row: the part of each row that does not depend on the column once.
+        for (size_t i = 0; i < NDX; ++i) {
+            T d[NY];
+            [&]<size_t... M>(damp::index_sequence<M...>) __attribute__((always_inline)) {
+                ((d[M] = KR(i, M) - H.template row_dot<M>([&](auto c) __attribute__((always_inline)) { return AP[i][decltype(c)::value]; })), ...);
+            }(damp::make_index_sequence<NY>{});
+            for (size_t j = 0; j <= i; ++j) {
+                T s = AP[i][j];
+                [&]<size_t... M>(damp::index_sequence<M...>) __attribute__((always_inline)) {
+                    ((s += K(j, M) * d[M]), ...);
+                }(damp::make_index_sequence<NY>{});
+                P(i, j) = s;
+                P(j, i) = s;
+            }
+        }
+        return true;
+    }
+
+    /**
      * @brief Zero the error state after its correction is injected into the nominal state
      *
      * G is the reset Jacobian (P ← G P Gᵀ); for a right-multiplicative attitude error its
@@ -449,6 +551,13 @@ struct ErrorStateKalmanFilter {
     constexpr void reset_error_state(const Matrix<NDX, NDX, T>& G = Matrix<NDX, NDX, T>::identity()) {
         delta_x = ColVec<NDX, T>{};
         P = quadratic_form(G, P);
+    }
+
+    /** @brief Zero the error state, with the reset Jacobian's zeros and ones known at compile time: P ← G P Gᵀ in place. */
+    template<const auto& Pattern>
+    constexpr void reset_error_state(const SparseMatrix<Pattern, T>& G) {
+        delta_x = ColVec<NDX, T>{};
+        quadratic_form_in_place(G, P);
     }
 
     /** @brief The error-state estimate δx (zero after reset_error_state). */
@@ -474,9 +583,21 @@ struct ErrorStateKalmanFilter {
     }
 
 private:
-    Matrix<NDX, NDX, T> P{};       ///< Error covariance
-    Matrix<NDX, NDX, T> Q{};       ///< Process noise covariance
-    ColVec<NDX, T>      delta_x{}; ///< Error state δx
+    Matrix<NDX, NDX, T> P{};                 ///< Error covariance
+    Matrix<NDX, NDX, T> Q{};                 ///< Process noise covariance
+    ColVec<NDX, T>      delta_x{};           ///< Error state δx
+    bool                q_is_diagonal{true}; ///< Q has no off-diagonal entries: predict adds only its diagonal
+
+    [[nodiscard]] static constexpr bool is_diagonal(const Matrix<NDX, NDX, T>& m) {
+        for (size_t i = 0; i < NDX; ++i) {
+            for (size_t j = 0; j < NDX; ++j) {
+                if (i != j && m(i, j) != T{0}) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
 };
 
 /** @brief Deduce the filter from its design, keeping the result's scalar. */

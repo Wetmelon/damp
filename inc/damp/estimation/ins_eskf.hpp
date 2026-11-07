@@ -49,7 +49,8 @@
  * | ins_update_orientation | q (3 as rotvec) | mocap attitude |
  * | ins_update_pose | p then q | sequential sparse updates |
  *
- * Prefer small selector H rows over a dense 15-row zero-padded Jacobian.
+ * Every Jacobian here is a SparseMatrix: its zeros and ones are known at compile time, so predict,
+ * update and reset have no term for what they do not read.
  *
  * @see "Quaternion kinematics for the error-state Kalman filter" (Solà, 2017), §5–6
  * @see "Principles of GNSS, Inertial, and Multisensor Integrated Navigation Systems" (Groves, 2013)
@@ -71,6 +72,7 @@
 #include "damp/math/math.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "damp/matrix/matrix_traits.hpp"
+#include "damp/matrix/sparse_matrix.hpp"
 #include "eskf.hpp"
 #include "ins_mechanization.hpp"
 
@@ -93,15 +95,33 @@ inline constexpr std::size_t dbg = 9;    ///< gyro bias error δb_g [rad/s] (3)
 inline constexpr std::size_t dba = 12;   ///< accel bias error δb_a [m/s²] (3)
 } // namespace ins_err
 
-namespace detail {
+/**
+ * @brief The shape of the 15-state INS transition: δθ⁺ = (I − [ω]× dt) δθ − dt δb_g,
+ *        δv⁺ = δv − R[a]× dt δθ − R dt δb_a, δp⁺ = δp + dt δv, biases held
+ */
+inline constexpr auto kInsTransitionPattern = SparsityPattern<kInsErrorDim, kInsErrorDim>::identity()
+                                                  .values_off_diagonal(ins_err::dtheta, ins_err::dtheta, 3)
+                                                  .value_diagonal(ins_err::dtheta, ins_err::dbg, 3)
+                                                  .values(ins_err::dv, ins_err::dtheta, 3, 3)
+                                                  .values(ins_err::dv, ins_err::dba, 3, 3)
+                                                  .value_diagonal(ins_err::dp, ins_err::dv, 3);
 
-/** @brief Fill a 3×15 measurement Jacobian with I₃ at column @p col0. */
-template<typename T>
-[[nodiscard]] constexpr Matrix<kInsMeasDim, kInsErrorDim, T> selector_H(std::size_t col0) {
-    Matrix<kInsMeasDim, kInsErrorDim, T> H = Matrix<kInsMeasDim, kInsErrorDim, T>::zeros();
-    H.template block<3, 3>(0, col0) = Matrix<3, 3, T>::identity();
-    return H;
-}
+/** @brief The shape of the reset Jacobian: I, but for the attitude block's off-diagonal. */
+inline constexpr auto kInsResetPattern = SparsityPattern<kInsErrorDim, kInsErrorDim>::identity().values_off_diagonal(ins_err::dtheta, ins_err::dtheta, 3);
+
+/** @brief The shape of a position reading through a lever arm: I on δp, a runtime block on δθ. */
+inline constexpr auto kInsPositionPattern = SparsityPattern<kInsMeasDim, kInsErrorDim>{}.ones(0, ins_err::dp, 3).values(0, ins_err::dtheta, 3, 3);
+
+/** @brief The shape of a velocity reading: I on δv. */
+inline constexpr auto kInsVelocityPattern = SparsityPattern<kInsMeasDim, kInsErrorDim>{}.ones(0, ins_err::dv, 3);
+
+/** @brief The shape of an orientation reading: I on δθ. */
+inline constexpr auto kInsOrientationPattern = SparsityPattern<kInsMeasDim, kInsErrorDim>{}.ones(0, ins_err::dtheta, 3);
+
+/** @brief The shape of a heading reading: one row, a runtime block on δθ. */
+inline constexpr auto kInsHeadingPattern = SparsityPattern<1, kInsErrorDim>{}.values(0, ins_err::dtheta, 1, 3);
+
+namespace detail {
 
 /**
  * Horizontal heading from a nav-frame direction.
@@ -259,18 +279,15 @@ template<typename T = double>
  * @return F (15×15) and G (identity 15×15 for additive Q)
  */
 template<typename T = double>
-[[nodiscard]] constexpr ErrorStateJacobian<T, kInsErrorDim> ins_error_jacobian(
+[[nodiscard]] constexpr SparseMatrix<kInsTransitionPattern, T> ins_error_jacobian(
     const Quaternion<T>& q,
     const Vec3<T>&       omega,
     const Vec3<T>&       a_b,
     T                    dt
 ) {
-    ErrorStateJacobian<T, kInsErrorDim> ej{};
-    ej.F = Matrix<kInsErrorDim, kInsErrorDim, T>::identity();
-    ej.G = Matrix<kInsErrorDim, kInsErrorDim, T>::identity();
-
+    SparseMatrix<kInsTransitionPattern, T> F{};
     if (!(dt > T{0})) {
-        return ej;
+        return F; // the identity
     }
 
     const Mat3<T> R = q.to_dcm().matrix();
@@ -279,105 +296,21 @@ template<typename T = double>
     const Mat3<T> R_A = R * A;
 
     // δθ⁺ ≈ (I − [ω]× dt) δθ − dt δb_g
-    ej.F.template block<3, 3>(ins_err::dtheta, ins_err::dtheta) = Matrix<3, 3, T>::identity() - (W * dt);
-    ej.F.template block<3, 3>(ins_err::dtheta, ins_err::dbg) = Matrix<3, 3, T>::identity() * (-dt);
+    F.template set_block<ins_err::dtheta, ins_err::dtheta>(Mat3<T>(W * (-dt)));
+    F.template at<ins_err::dtheta, ins_err::dbg>() = -dt;
+    F.template at<ins_err::dtheta + 1, ins_err::dbg + 1>() = -dt;
+    F.template at<ins_err::dtheta + 2, ins_err::dbg + 2>() = -dt;
 
     // δv⁺ ≈ δv − R[a_b]× dt δθ − R dt δb_a
-    ej.F.template block<3, 3>(ins_err::dv, ins_err::dtheta) = R_A * (-dt);
-    ej.F.template block<3, 3>(ins_err::dv, ins_err::dba) = R * (-dt);
+    F.template set_block<ins_err::dv, ins_err::dtheta>(Mat3<T>(R_A * (-dt)));
+    F.template set_block<ins_err::dv, ins_err::dba>(Mat3<T>(R * (-dt)));
 
     // δp⁺ ≈ δp + dt δv  (+ ½ a dt² is only on nominal; keep F first-order)
-    ej.F.template block<3, 3>(ins_err::dp, ins_err::dv) = Matrix<3, 3, T>::identity() * dt;
+    F.template at<ins_err::dp, ins_err::dv>() = dt;
+    F.template at<ins_err::dp + 1, ins_err::dv + 1>() = dt;
+    F.template at<ins_err::dp + 2, ins_err::dv + 2>() = dt;
 
-    return ej;
-}
-
-/**
- * @brief Sparse y = F x for the 15-state INS first-order structure (G = I path)
- *
- * @p x may be any 15×1 @c MatrixLike (e.g. @c ColVec, @c ColView) or 1×15
- * row-shaped view; elements are read in storage order of the 15-vector.
- */
-template<typename T, MatrixLike X>
-    requires(
-        (X::rows() == kInsErrorDim && X::cols() == 1)
-        || (X::rows() == 1 && X::cols() == kInsErrorDim)
-    )
-[[nodiscard]] constexpr ColVec<kInsErrorDim, T>
-ins_F_mul(const ErrorStateJacobian<T, kInsErrorDim>& ej, const X& x) {
-    const auto x_at = [&x](std::size_t i) -> T {
-        if constexpr (X::cols() == 1) {
-            return static_cast<T>(x(i, 0));
-        } else {
-            return static_cast<T>(x(0, i));
-        }
-    };
-
-    ColVec<kInsErrorDim, T> y{};
-    for (std::size_t i = 0; i < kInsErrorDim; ++i) {
-        y[i] = x_at(i);
-    }
-
-    // θ' = Fθθ θ + Fθbg bg
-    for (std::size_t i = 0; i < 3; ++i) {
-        T s = T{0};
-        for (std::size_t j = 0; j < 3; ++j) {
-            s += ej.F(ins_err::dtheta + i, ins_err::dtheta + j) * x_at(ins_err::dtheta + j);
-            s += ej.F(ins_err::dtheta + i, ins_err::dbg + j) * x_at(ins_err::dbg + j);
-        }
-        y[ins_err::dtheta + i] = s;
-    }
-    // v' = v + Fvθ θ + Fvba ba
-    for (std::size_t i = 0; i < 3; ++i) {
-        T s = x_at(ins_err::dv + i);
-        for (std::size_t j = 0; j < 3; ++j) {
-            s += ej.F(ins_err::dv + i, ins_err::dtheta + j) * x_at(ins_err::dtheta + j);
-            s += ej.F(ins_err::dv + i, ins_err::dba + j) * x_at(ins_err::dba + j);
-        }
-        y[ins_err::dv + i] = s;
-    }
-    // p' = p + Fp v
-    for (std::size_t i = 0; i < 3; ++i) {
-        T s = x_at(ins_err::dp + i);
-        for (std::size_t j = 0; j < 3; ++j) {
-            s += ej.F(ins_err::dp + i, ins_err::dv + j) * x_at(ins_err::dv + j);
-        }
-        y[ins_err::dp + i] = s;
-    }
-    // bg, ba unchanged (I) — already copied into y
-    return y;
-}
-
-/**
- * @brief P ← F P Fᵀ + Q using sparse F (exact for @ref ins_error_jacobian structure)
- *
- * Applies @ref ins_F_mul to each column of @p P and each row of the intermediate
- * via @c .col / @c .row views (no manual pack/unpack of dense temporaries for I/O).
- */
-template<typename T = double>
-constexpr void ins_propagate_covariance(
-    Matrix<kInsErrorDim, kInsErrorDim, T>&       P,
-    const ErrorStateJacobian<T, kInsErrorDim>&   ej,
-    const Matrix<kInsErrorDim, kInsErrorDim, T>& Q
-) {
-    // W = F P  (each column: W.col(j) = F * P.col(j))
-    Matrix<kInsErrorDim, kInsErrorDim, T> W{};
-    for (std::size_t j = 0; j < kInsErrorDim; ++j) {
-        W.col(j) = ins_F_mul(ej, P.col(j));
-    }
-    // P ← W Fᵀ + Q.  (W Fᵀ)_i,: = (F * W.row(i)ᵀ)ᵀ → assign F*row into row i
-    for (std::size_t i = 0; i < kInsErrorDim; ++i) {
-        P.row(i) = ins_F_mul(ej, W.row(i));
-    }
-    // The two passes round (i,j) and (j,i) differently; mirror the average so P
-    // stays exactly symmetric (quadratic_form in the update reads one triangle).
-    for (std::size_t i = 0; i < kInsErrorDim; ++i) {
-        for (std::size_t j = 0; j <= i; ++j) {
-            const T pij = T{0.5} * ((P(i, j) + Q(i, j)) + (P(j, i) + Q(j, i)));
-            P(i, j) = pij;
-            P(j, i) = pij;
-        }
-    }
+    return F;
 }
 
 /**
@@ -388,7 +321,7 @@ constexpr void ins_propagate_covariance(
  * @return reset Jacobian G for @ref ErrorStateKalmanFilter::reset_error_state
  */
 template<typename T = double>
-[[nodiscard]] constexpr Matrix<kInsErrorDim, kInsErrorDim, T>
+[[nodiscard]] constexpr SparseMatrix<kInsResetPattern, T>
 ins_inject(InsState<T>& x, const ColVec<kInsErrorDim, T>& dx) {
     const Vec3<T> dth{dx[0], dx[1], dx[2]};
     const Vec3<T> dv{dx[3], dx[4], dx[5]};
@@ -402,8 +335,8 @@ ins_inject(InsState<T>& x, const ColVec<kInsErrorDim, T>& dx) {
     x.b_g = x.b_g + dbg;
     x.b_a = x.b_a + dba;
 
-    Matrix<kInsErrorDim, kInsErrorDim, T> G = Matrix<kInsErrorDim, kInsErrorDim, T>::identity();
-    G.template block<3, 3>(ins_err::dtheta, ins_err::dtheta) = detail::attitude_reset_jacobian(dth);
+    SparseMatrix<kInsResetPattern, T> G{};
+    G.template set_block<ins_err::dtheta, ins_err::dtheta>(detail::attitude_reset_jacobian(dth));
     return G;
 }
 
@@ -429,12 +362,9 @@ constexpr void ins_predict(
     const Vec3<T> omega = imu.gyro - x.b_g;
     const Vec3<T> a_b = imu.accel - x.b_a;
     // Jacobian at pre-step orientation (standard first-order practice)
-    const auto ej = ins_error_jacobian(x.q, omega, a_b, dt);
+    const auto F = ins_error_jacobian(x.q, omega, a_b, dt);
     x = mechanize_step_from_corrected(x, omega, a_b, dt, frame, g);
-    // Sparse F P Fᵀ + Q (G = I); avoids full 15×15×15 in ErrorStateKalmanFilter::predict
-    auto P = eskf.covariance();
-    ins_propagate_covariance(P, ej, eskf.process_noise_covariance());
-    eskf.reset(eskf.error_state(), P);
+    eskf.predict(F);
 }
 
 /**
@@ -518,9 +448,9 @@ template<typename T = double>
     };
 
     // H_p = I on δp; H_θ = −R[ℓ]× for right-multiplicative attitude error
-    Matrix<kInsMeasDim, kInsErrorDim, T> H = detail::selector_H<T>(ins_err::dp);
+    SparseMatrix<kInsPositionPattern, T> H{};
     const Mat3<T>                        R = x.q.to_dcm().matrix();
-    H.template block<3, 3>(0, ins_err::dtheta) = (R * detail::skew_sym(lever_body)) * (-T{1});
+    H.template set_block<0, ins_err::dtheta>(Mat3<T>((R * detail::skew_sym(lever_body)) * (-T{1})));
 
     if (!eskf.update_innovation(innov, H, R_pos)) {
         return false;
@@ -541,8 +471,8 @@ template<typename T = double>
     const Vec3<T>&                             v_meas,
     const Matrix<kInsMeasDim, kInsMeasDim, T>& R_vel
 ) {
-    ColVec<kInsMeasDim, T> innov{v_meas[0] - x.v[0], v_meas[1] - x.v[1], v_meas[2] - x.v[2]};
-    const auto             H = detail::selector_H<T>(ins_err::dv);
+    ColVec<kInsMeasDim, T>                     innov{v_meas[0] - x.v[0], v_meas[1] - x.v[1], v_meas[2] - x.v[2]};
+    const SparseMatrix<kInsVelocityPattern, T> H{};
     if (!eskf.update_innovation(innov, H, R_vel)) {
         return false;
     }
@@ -589,12 +519,12 @@ template<typename T = double>
     ColVec<1, T>  innov{damp::wrap_pi(psi_meas - psi_pred)};
 
     // ∂f/∂δθ = −R [e]×  (right mult); H_θ = (∂ψ/∂f)(∂f/∂δθ)
-    const Mat3<T>              R = x.q.to_dcm().matrix();
-    const Mat3<T>              dfdth = (R * detail::skew_sym(body_axis)) * (-T{1});
-    const auto                 dpsidf = detail::dheading_dforward(f, frame);
-    Matrix<1, kInsErrorDim, T> H = Matrix<1, kInsErrorDim, T>::zeros();
-    const Matrix<1, 3, T>      H_th = dpsidf * dfdth;
-    H.template block<1, 3>(0, ins_err::dtheta) = H_th;
+    const Mat3<T>                       R = x.q.to_dcm().matrix();
+    const Mat3<T>                       dfdth = (R * detail::skew_sym(body_axis)) * (-T{1});
+    const auto                          dpsidf = detail::dheading_dforward(f, frame);
+    SparseMatrix<kInsHeadingPattern, T> H{};
+    const Matrix<1, 3, T>               H_th = dpsidf * dfdth;
+    H.template set_block<0, ins_err::dtheta>(H_th);
 
     if (!eskf.update_innovation(innov, H, R_psi)) {
         return false;
@@ -620,11 +550,10 @@ template<typename T = double>
     const Quaternion<T>&                     q_meas,
     const Matrix<3, 3, T>&                   R_att
 ) {
-    const Quaternion<T>        dq = (x.q.conjugate() * q_meas).normalized();
-    const Vec3<T>              dth = dq.log();
-    ColVec<3, T>               innov{dth[0], dth[1], dth[2]};
-    Matrix<3, kInsErrorDim, T> H = Matrix<3, kInsErrorDim, T>::zeros();
-    H.template block<3, 3>(0, ins_err::dtheta) = Matrix<3, 3, T>::identity();
+    const Quaternion<T>                           dq = (x.q.conjugate() * q_meas).normalized();
+    const Vec3<T>                                 dth = dq.log();
+    ColVec<3, T>                                  innov{dth[0], dth[1], dth[2]};
+    const SparseMatrix<kInsOrientationPattern, T> H{};
 
     if (!eskf.update_innovation(innov, H, R_att)) {
         return false;
