@@ -173,7 +173,7 @@ template<size_t NX, typename T>
 
 /**
  * @brief The current-form gain of a discrete design: A M = L, or, on a numerically singular A,
- *        M placed on (A, C A) with L = A M; e = eig((I − M C) A) either way (see luenberger).
+ *        M placed on (A, C A) or else A⁺ L, with L = A M; e = eig((I − M C) A) either way (see luenberger).
  */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
 [[nodiscard]] constexpr LuenbergerResult<NX, NU, NY, T, NW, NV> with_innovation_gain(
@@ -192,8 +192,22 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
     } else {
         //! A numerically singular: place M directly, never dividing by A. A's (near) null space
         //! is (nearly) unobservable through C A: those modes stay at (near) z = 0.
-        Matrix<NY, NX, T>  Mt{};
-        const DesignStatus status = place_gain(At, CAt, poles, Mt);
+        Matrix<NY, NX, T> Mt{};
+        DesignStatus      status = place_gain(At, CAt, poles, Mt);
+        if (status != DesignStatus::ok) {
+            //! That pair is rank-deficient by construction, and a repeated pole at 0 (two or more
+            //! delay registers) reaches a rank test that reads roundoff. L places the poles, and an
+            //! M with A M = L has them too: eig((I − M C) A) = eig(A − L C). A⁺L is such an M only
+            //! where L lies in A's range, which a request on a pinned register mode can leave.
+            const Matrix<NX, NY, T> M_L = mat::pseudo_inverse(out.sys.A) * out.L;
+            const T                 tol = T{64} * static_cast<T>(NX) * eps<T>() * ((out.sys.A.norm() * M_L.norm()) + out.L.norm());
+            const bool              solves = Matrix<NX, NY, T>((out.sys.A * M_L) - out.L).norm() <= tol;
+            const Matrix<NY, NX, T> from_L = M_L.transpose();
+            if (solves && placement_matches(At, CAt, from_L, poles)) {
+                Mt = from_L;
+                status = DesignStatus::ok;
+            }
+        }
         if (status != DesignStatus::ok) {
             out.L = Matrix<NX, NY, T>{}; // a failed design ships no gain
             out.e = damp::array<damp::complex<T>, NX>{};
@@ -253,7 +267,8 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
  * register state, a mode much faster than the sample rate) takes the direct placement instead,
  * which never divides by A: Mᵀ = place(Aᵀ, (C A)ᵀ, p), then L = A M. The modes in A's (near)
  * null space are (nearly) unobservable through C A, and the status is the one that placement
- * reports.
+ * reports, unless M = A⁺ L has the requested poles: where that pair's rank deficit decides the
+ * placement (a pole at 0 repeated, on two or more delay registers), any M with A M = L has them.
  *
  * A mode the plant forgets within a sample (an eigenvalue λ of A near 0) has a current-form
  * error pole near 0 for any bounded gain: request a pole near 0 for it. A slow pole requested
@@ -552,8 +567,8 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
  *   anchors the deviation carries the reference point's own motion over the period,
  *   @f$ A x^* + B u^* - x^* @f$, so a reference need not be a trajectory of the model; at a
  *   setpoint that term is zero and the deviation observer is the absolute one in exact arithmetic.
- * - An input delay (at most one sample) is in the model discretize(plant, Ts, InputDelay{θ})
- *   returns: its register v(k−1) is a state like any other, loaded through B.
+ * - An input delay is in the model discretize(plant, Ts, InputDelay<N>{θ}) returns: its registers
+ *   v(k−1) … v(k−N) are states like any other, the first loaded through B.
  *
  * A failed or continuous (Ts = 0) design, or a continuous model, does not compile when
  * constant-evaluated; at run time it installs M = 0 (an open-loop predictor) and valid() is false.
