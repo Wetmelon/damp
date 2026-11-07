@@ -982,6 +982,38 @@ private:
     }
 };
 
+namespace detail {
+
+/** @brief Where a reduced observer keeps its maps: in the object, any value at run time. */
+template<size_t NX, size_t NU, typename T>
+struct HeldReducedObserver {
+    static constexpr bool constant = false; ///< The matrices are members
+    using F = Matrix<NX - 1, NX - 1, T>;    ///< F
+    using L = Matrix<NX - 1, 1, T>;         ///< L
+    using Gy = Matrix<NX - 1, 1, T>;        ///< G_y
+    using Gu = Matrix<NX - 1, NU, T>;       ///< G_u
+    using Tinv = Matrix<NX, NX, T>;         ///< T⁻¹
+};
+
+/** @brief A reduced observer's maps as constants of the type. */
+template<const auto& Res, typename T>
+struct ConstantReducedObserver {
+    static constexpr bool constant = true;               ///< The matrices are constants of the type
+    static constexpr auto design = Res.template as<T>(); ///< The design, in the runtime's scalar
+    static constexpr auto kF = design.F;                 ///< F
+    static constexpr auto kL = design.L;                 ///< L
+    static constexpr auto kGy = design.Gy;               ///< G_y
+    static constexpr auto kGu = design.Gu;               ///< G_u
+    static constexpr auto kTinv = design.Tinv;           ///< T⁻¹
+    using F = ConstMatrix<kF>;                           ///< F
+    using L = ConstMatrix<kL>;                           ///< L
+    using Gy = ConstMatrix<kGy>;                         ///< G_y
+    using Gu = ConstMatrix<kGu>;                         ///< G_u
+    using Tinv = ConstMatrix<kTinv>;                     ///< T⁻¹
+};
+
+} // namespace detail
+
 /**
  * @ingroup discrete_estimators
  * @brief Reduced-order (Gopinath) state observer (runtime).
@@ -996,7 +1028,7 @@ private:
  * @tparam NU Number of inputs
  * @tparam T  Scalar type (default: float for embedded deployment)
  */
-template<size_t NX, size_t NU, typename T = float>
+template<size_t NX, size_t NU, typename T = float, typename Store = detail::HeldReducedObserver<NX, NU, T>>
 class ReducedLuenberger {
     static constexpr size_t NM = NX - 1;
 
@@ -1010,6 +1042,7 @@ public:
      * instead of stepping a continuous F as if it were a discrete transition.
      */
     template<typename U>
+        requires(!Store::constant)
     constexpr ReducedLuenberger(const design::ReducedLuenbergerResult<NX, NU, U>& result) // NOLINT(google-explicit-constructor): assign-from-design
         : valid_(result.success && result.Ts > U{0}) {
         if (!valid_ && std::is_constant_evaluated()) {
@@ -1083,15 +1116,15 @@ public:
     constexpr void set_internal_state(size_t i, T value) { z_[i] = value; }
 
 private:
-    Matrix<NM, NM, T> F_{};
-    Matrix<NM, 1, T>  L_{};
-    Matrix<NM, 1, T>  Gy_{};
-    Matrix<NM, NU, T> Gu_{};
-    Matrix<NX, NX, T> Tinv_{};
-    ColVec<NM, T>     z_{};
-    ColVec<NX, T>     x_{};
-    ColVec<1, T>      y_prev_{}; ///< The previous reading, which drives z over the period that followed it
-    bool              valid_{false};
+    [[no_unique_address]] typename Store::F    F_{};
+    [[no_unique_address]] typename Store::L    L_{};
+    [[no_unique_address]] typename Store::Gy   Gy_{};
+    [[no_unique_address]] typename Store::Gu   Gu_{};
+    [[no_unique_address]] typename Store::Tinv Tinv_{};
+    ColVec<NM, T>                              z_{};
+    ColVec<NX, T>                              x_{};
+    ColVec<1, T>                               y_prev_{}; ///< The previous reading, which drives z over the period that followed it
+    bool                                       valid_{Store::constant};
 };
 
 /** @brief Deduce the runtime from its design, keeping the result's scalar: Luenberger obs{res.as<float>()}; */
@@ -1113,5 +1146,45 @@ Luenberger(const StateSpace<NX, NU, NY, T, NW, NV>&, const Matrix<NX, NY, T>&, c
 /** @brief Deduce the runtime from its design, keeping the result's scalar. */
 template<size_t NX, size_t NU, typename T>
 ReducedLuenberger(const design::ReducedLuenbergerResult<NX, NU, T>&) -> ReducedLuenberger<NX, NU, T>;
+
+namespace detail {
+
+/** @brief The runtime a reduced-observer design runs as: none for anything else. */
+template<const auto& Res, typename T, typename R = std::remove_cvref_t<decltype(Res)>>
+struct reduced_observer_runtime {};
+
+/** @brief design::reduced_luenberger: with members, or on its constants. */
+template<const auto& Res, typename T, size_t NX, size_t NU, typename U>
+struct reduced_observer_runtime<Res, T, design::ReducedLuenbergerResult<NX, NU, U>> {
+    using type = ReducedLuenberger<NX, NU, T>;                                          ///< With members
+    using on_constants = ReducedLuenberger<NX, NU, T, ConstantReducedObserver<Res, T>>; ///< On the design's constants
+};
+
+/** @brief A reduced-observer design. */
+template<const auto& Res, typename T>
+concept reduced_observer_design = requires { typename reduced_observer_runtime<Res, T>::type; };
+
+} // namespace detail
+
+/** @brief Law<kRes, T> of a design::reduced_luenberger initialized at start-up: the ReducedLuenberger it runs as. A runtime of the same shape assigned replaces it. */
+template<const auto& Res, typename T>
+    requires detail::reduced_observer_design<Res, T>
+struct Law<Res, T> : detail::reduced_observer_runtime<Res, T>::type {
+    using Runtime = detail::reduced_observer_runtime<Res, T>::type; ///< The runtime the design runs as
+
+    /** @brief The design's observer. */
+    constexpr Law() : Runtime{Res} {}
+
+    using Runtime::operator=;
+};
+
+/** @brief Law<kRes, T> of a `constexpr` design::reduced_luenberger: the same observer on the design's matrices as constants of the type. */
+template<const auto& Res, typename T>
+    requires(detail::reduced_observer_design<Res, T> && detail::constant_design<Res>)
+struct Law<Res, T> : detail::reduced_observer_runtime<Res, T>::on_constants {
+    using Runtime = detail::reduced_observer_runtime<Res, T>::type; ///< The runtime with members: the type of a member a redesign assigns
+
+    static_assert(detail::constant_design_runs(Res.success, Res.status, Res.Ts));
+};
 
 } // namespace damp

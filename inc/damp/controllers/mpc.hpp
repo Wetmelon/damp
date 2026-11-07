@@ -1810,8 +1810,8 @@ struct mpc_estimator_traits {
 };
 
 /** @brief A Luenberger observer: its sizes, and the design::kalman results it runs (any noise inputs). */
-template<size_t NXK, size_t NU, size_t NY, typename T, size_t ND>
-struct mpc_estimator_traits<Luenberger<NXK, NU, NY, T, ND>> {
+template<size_t NXK, size_t NU, size_t NY, typename T, size_t ND, typename Store>
+struct mpc_estimator_traits<Luenberger<NXK, NU, NY, T, ND, Store>> {
     static constexpr bool   estimated = true;  ///< Whether there is a filter
     static constexpr size_t states = NXK;      ///< NXK: the filter's states
     static constexpr size_t outputs = NY;      ///< NY: the readings it takes
@@ -2129,10 +2129,10 @@ private:
     /** @brief The estimator from its design; nothing on the measured state. */
     template<typename Kalman>
     [[nodiscard]] static constexpr Estimator make_estimator(const Kalman& design) {
-        if constexpr (estimated) {
+        if constexpr (requires { Estimator(design); }) {
             return Estimator(design);
         } else {
-            static_cast<void>(design);
+            static_cast<void>(design); // nothing to build: no filter, or its matrices are constants of its type
             return Estimator{};
         }
     }
@@ -2445,9 +2445,32 @@ struct mpc_runtime<design::MPCResult<design::MPCArtifacts<NXM, NU, NY, NP, NC, N
 
 } // namespace detail
 
+namespace detail {
+
+/** @brief An MPC design. */
+template<const auto& Res, typename T>
+concept mpc_design = requires { typename mpc_runtime<std::remove_cvref_t<decltype(Res)>, T>::type; };
+
+/** @brief An MPC design with a filter: OFMPC, whose filter can run on the design's constants. */
+template<const auto& Res, typename T>
+concept filtered_mpc_design = mpc_design<Res, T> && requires { typename mpc_runtime<std::remove_cvref_t<decltype(Res)>, T>::template on_constants<Res>; };
+
+} // namespace detail
+
+/** @brief Law<kRes, T> of a `constexpr` OFMPC design: the same law, its filter on the design's matrices as constants of the type. The QP's data stays in members: set_limits rewrites it. */
+template<const auto& Res, typename T>
+    requires(detail::filtered_mpc_design<Res, T> && detail::constant_design<Res>)
+struct Law<Res, T> : detail::mpc_runtime<std::remove_cvref_t<decltype(Res)>, T>::template on_constants<Res> {
+    using Base = detail::mpc_runtime<std::remove_cvref_t<decltype(Res)>, T>::template on_constants<Res>; ///< The runtime on constants
+    using Runtime = detail::mpc_runtime<std::remove_cvref_t<decltype(Res)>, T>::type;                    ///< The runtime with members: the type of a member a redesign assigns
+
+    /** @brief The design's law. */
+    constexpr Law() : Base{Res.template as<T>()} {}
+};
+
 /** @brief Law<kRes, T> of an MPC design: MPC or OFMPC, default-constructed from the design. */
 template<const auto& Res, typename T>
-    requires requires { typename detail::mpc_runtime<std::remove_cvref_t<decltype(Res)>, T>::type; }
+    requires detail::mpc_design<Res, T>
 struct Law<Res, T> : detail::mpc_runtime<std::remove_cvref_t<decltype(Res)>, T>::type {
     using Runtime = detail::mpc_runtime<std::remove_cvref_t<decltype(Res)>, T>::type; ///< The runtime the design runs as
 
