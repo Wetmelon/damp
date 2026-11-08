@@ -28,19 +28,20 @@
 using namespace damp;
 using namespace damp::examples_reaction_wheel;
 
-static constinit PIController    rate_pi = rate_pi_design.discretize(Ts).as<float>();
-static constinit PIController    angle_pi = angle_pi_design.discretize(Ts).as<float>();
-static constinit ADRCController  adrc{adrc_res.as<float>()};
-static constinit SMCController   smc{smc_res.as<float>()};
-static constinit STSMCController stsmc{stsmc_res.as<float>()};
-static constinit LQR             place_ctrl{place_res.as<float>()};
-// Each design runs as the runtime named for it, its sizes deduced from the result: LQR on the measured
-// state (design::place, design::lqr), LQI with integrators, LQG with the Kalman estimator, LQGI with both.
-static constinit LQR   lqr{lqr_res.as<float>()};
-static constinit LQI   lqi{lqi_res.as<float>()};
-static constinit LQG   lqg{lqg_res.as<float>()};
-static constinit LQGI  lqgi{lqgi_res.as<float>()};
-static constinit OFMPC of_mpc{mpc_art.as<float>()};
+static constinit PIController          rate_pi = rate_pi_design.discretize(Ts).as<float>();
+static constinit PIController          angle_pi = angle_pi_design.discretize(Ts).as<float>();
+static constinit Law<adrc_res, float>  adrc;
+static constinit SMCController         smc{smc_res.as<float>()};
+static constinit STSMCController       stsmc{stsmc_res.as<float>()};
+static constinit Law<place_res, float> place_ctrl;
+// Each design runs as the law named by its result, on its matrices as constants: LQR on the measured
+// state (design::place, design::lqr), LQI with integrators, LQG with the Kalman estimator, LQGI with both,
+// and OFMPC with its filter on constants.
+static constinit Law<lqr_res, float>  lqr;
+static constinit Law<lqi_res, float>  lqi;
+static constinit Law<lqg_res, float>  lqg;
+static constinit Law<lqgi_res, float> lqgi;
+static constinit Law<mpc_art, float>  of_mpc;
 
 int main() {
     fmt::print("===== Reaction-wheel roll — controller synthesis =====\n\n");

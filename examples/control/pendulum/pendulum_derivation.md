@@ -191,7 +191,7 @@ P(s)
 ($`Q = 10\,I_2`$.)
 
 4. Law: $`u = -K x`$, the regulator about the origin: `LQR::step(x)` in `control_period`.
-5. Host SIL keeps `double`; flash path: `static constinit LQR controller{lqr_d.as<float>()}` (the sizes and scalar are deduced from the result).
+5. Host SIL keeps `double`; flash path: `static constinit Law<lqr_d, float> controller;`, the design's LQR with its gains as constants of the type (a failed design does not compile).
 
 Host redesign in SIL: same plant, $`Q = 50\,I`$ — stiffer recovery; phase
 portrait compares $`Q=10`$ vs $`Q=50`$. Also prints a redesign about

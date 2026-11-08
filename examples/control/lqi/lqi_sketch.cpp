@@ -33,7 +33,7 @@ static constexpr int OUTPUT = 1;
 #endif
 
 // Create an instance of an LQI runtime from the LQI "Law"
-static constinit LQI controller{lqi_result.as<float>()};
+static constinit Law<lqi_result, float> controller; // the design's LQI in float, its gains constants of the type
 
 static ColVec<2, float> read_state() {
     return ColVec<2, float>{0.0f, 0.0f};

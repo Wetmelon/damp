@@ -48,10 +48,9 @@ constexpr auto weights = design::LQRWeights<2, 1, 1>{
 
 // Discretize the plant and solve the DARE
 constexpr auto res = design::lqi(sys, Ts, weights);
-static_assert(res.success);
 
-// Convert the design result to a single-precision LQI controller instance
-constinit LQI law{res.as<float>()};
+// The design's LQI in single precision, its gains constants of the type; a failed design does not compile
+constinit Law<res, float> law;
 
 
 int main() {
@@ -125,7 +124,7 @@ One object, one tick. Design at compile time or init. Do not run Riccati in the 
 
 ```cpp
 #include "damp/control.hpp"
-constinit LQI law{kRes.as<float>()}; // kRes from design::lqi
+constinit Law<kRes, float> law; // kRes from design::lqi
 // ISR:
 auto u = law.step(r, x);           // or update / control / back_calculate / predict
 write_pwm(u[0]);

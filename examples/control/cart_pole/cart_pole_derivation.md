@@ -210,7 +210,7 @@ slices of a single output.
 | $`F`$ | $`R = 1`$ | Unit control effort |
 
 4. Law: $`u = -K x`$, the regulator about the origin: `LQR::step(x)`.
-5. Sketch uses `lqr_d.as<float>()`; SIL may keep double. Same $`K`$ source.
+5. The sketch runs `Law<lqr_d, float>`, the design's LQR with its gains as constants of the type; the SIL runs `Law<lqr_d, double>`. Same $`K`$ source.
 
 Tuning tip: raise $`Q_{33}`$ (angle) for stiffer upright recovery; raise $`R`$ if force saturates.
 

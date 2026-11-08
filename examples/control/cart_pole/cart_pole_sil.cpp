@@ -26,8 +26,8 @@ using namespace damp;
 using namespace damp::examples_cart_pole;
 using namespace damp::sim;
 
-// Same design as sketch; double for host plant numerics
-static constinit LQR controller{lqr_d};
+// Same law as the sketch, in double for the host plant numerics
+static constinit Law<lqr_d, double> controller;
 
 /**
  * Nonlinear cart-pole, θ = 0 upright.

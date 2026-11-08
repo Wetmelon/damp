@@ -62,7 +62,7 @@ inline constexpr auto adrc_d = make_adrc();
 inline constexpr auto pid_d = make_pid();
 
 template<typename T>
-[[nodiscard]] T control_period_adrc(ADRCController<2, T>& ctrl, T r, T y) {
+[[nodiscard]] T control_period_adrc(Law<adrc_d, T>& ctrl, T r, T y) {
     return ctrl.control(r, y);
 }
 

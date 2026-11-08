@@ -227,12 +227,11 @@ void write_plot(const Trace& aware, const Trace& naive) {
 
 int main() {
     fmt::print("===== Hotend, offset-free MPC through a one-period dead time (host SIL) =====\n\n");
-    constexpr auto naive_law = design::ofmpc<kHorizon, 4>(*discretize(kPlant, kTs), kWeights, kLimits, kNoise, design::InputDisturbance{}); // the same design, blind to the dead time
-    static_assert(naive_law.success);
-    OFMPC       aware_mpc{kLaw.as<float>()};
-    OFMPC       naive_mpc{naive_law.as<float>()};
-    const Trace aware = run(aware_mpc);
-    const Trace naive = run(naive_mpc);
+    static constexpr auto naive_law = design::ofmpc<kHorizon, 4>(*discretize(kPlant, kTs), kWeights, kLimits, kNoise, design::InputDisturbance{}); // the same design, blind to the dead time
+    Law<kLaw, float>      aware_mpc;                                                                                                               // the sketch's law
+    Law<naive_law, float> naive_mpc;
+    const Trace           aware = run(aware_mpc);
+    const Trace           naive = run(naive_mpc);
 
     const int fan = static_cast<int>(kFanOn / kTs);
     const int last_minute = kPeriods - static_cast<int>(60.0 / kTs);
@@ -254,12 +253,12 @@ int main() {
     fmt::print("\nPlot written to plots/control/heater_ofmpc.html\n");
 
     // The profile run: the same delay-aware MPC, told about the step down or not.
-    OFMPC        preview_mpc{kLaw.as<float>()};
-    OFMPC        held_mpc{kLaw.as<float>()};
-    const Trace  with = run_profile(preview_mpc, true);
-    const Trace  without = run_profile(held_mpc, false);
-    const double err_with = profile_error(with, kStepDownAt - 60.0, kEnd);
-    const double err_without = profile_error(without, kStepDownAt - 60.0, kEnd);
+    Law<kLaw, float> preview_mpc;
+    Law<kLaw, float> held_mpc;
+    const Trace      with = run_profile(preview_mpc, true);
+    const Trace      without = run_profile(held_mpc, false);
+    const double     err_with = profile_error(with, kStepDownAt - 60.0, kEnd);
+    const double     err_without = profile_error(without, kStepDownAt - 60.0, kEnd);
     fmt::print("\nSetpoint 210 → 190 °C at 360 s, ∫|e| dt over 300 … 480 s:  known 60 s ahead {:6.1f} °C·s   held {:6.1f} °C·s\n", err_with, err_without);
     write_preview_plot(with, without);
     fmt::print("Plot written to plots/control/heater_ofmpc_preview.html\n");

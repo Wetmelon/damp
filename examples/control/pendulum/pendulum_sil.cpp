@@ -31,8 +31,8 @@ using namespace damp;
 using namespace damp::examples_pendulum;
 using namespace damp::sim;
 
-// Same design as sketch; double for host plant numerics
-static constinit LQR controller{lqr_d};
+// Same law as the sketch, in double for the host plant numerics
+static constinit Law<lqr_d, double> controller;
 
 /**
  * Nonlinear pendulum: θ̈ = (g/L)sinθ − (b/mL²)θ̇ + (1/mL²)u
@@ -56,9 +56,9 @@ int main() {
 
     // One-tick smoke (same float deploy path as sketch / former lqr print)
     {
-        ColVec<2, float> x_smoke{0.1f, 0.0f};
-        LQR              ctrl_f{lqr_d.as<float>()};
-        const float      u_smoke = control_period(ctrl_f, x_smoke)(0);
+        ColVec<2, float>  x_smoke{0.1f, 0.0f};
+        Law<lqr_d, float> ctrl_f;
+        const float       u_smoke = control_period(ctrl_f, x_smoke)(0);
         fmt::print("u at θ=0.1 rad (float): {:.4f}\n\n", u_smoke);
     }
 
