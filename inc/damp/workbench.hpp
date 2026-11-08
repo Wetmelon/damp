@@ -40,7 +40,7 @@
 
 // --- Host CST analysis + ODE solvers + closed-loop sim (heap OK) ------------
 #include "damp/analysis/analysis.hpp"     // IWYU pragma: export  (Bode/Nyquist/margins/sweeps)
-#include "damp/matlab.hpp"                // IWYU pragma: export  (MATLAB-style aliases)
+#include "damp/matlab.hpp"                // IWYU pragma: export  (MATLAB®-style aliases)
 #include "damp/simulation/cached_zoh.hpp" // IWYU pragma: export  (cached Ad/Bd Exact ZOH steps)
 #include "damp/simulation/hybrid.hpp"     // IWYU pragma: export  (piecewise-LTI Exact event sim)
 #include "damp/simulation/multirate.hpp"  // IWYU pragma: export  (multi-rate cascade SIL harness)
