@@ -23,7 +23,7 @@
  *
  *   Containers (see backend.hpp):
  *     DAMP_BACKEND_ETL               damp::array/optional/... → ETL (else stdlib)
- *     ETL_NO_STL                     with the above, for a toolchain with no C++ standard headers
+ *     (ETL_NO_STL goes in etl_profile.h, which ETL reads itself: see "Using ETL" in README.md)
  *
  *   Scalar math (see math/math_backend.hpp):
  *     DAMP_MATH_BACKEND_DAMP          runtime float math → damp/math/trig.hpp

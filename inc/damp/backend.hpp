@@ -19,7 +19,8 @@
  *     third-party dependency).
  *   - ETL (`DAMP_BACKEND_ETL` in `damp_profile.hpp`): `damp::array` → `etl::array`,
  *     etc., with the [Embedded Template Library](https://www.etlcpp.com) on the
- *     include path. Add `ETL_NO_STL` for a toolchain with no C++ standard headers.
+ *     include path. Put `ETL_NO_STL` in `etl_profile.h` for a toolchain with no C++
+ *     standard headers.
  *
  * Anything not from the stdlib comes from ETL, with one exception: under `ETL_NO_STL`
  * `etl::optional` of anything but a fundamental type is not constexpr, so this header provides
@@ -64,6 +65,8 @@ inline constexpr T log2e_v = static_cast<T>(1.4426950408889634073599246810018921
 } // namespace damp::numbers
 
 #ifdef DAMP_BACKEND_ETL
+
+#include <etl/platform.h> // IWYU pragma: keep - reads etl_profile.h, which can set ETL_NO_STL
 
 // etl/tuple.h declares these itself, except on Clang 19 and 20 and on Apple, where it expects a
 // standard header to have done so. With no C++ standard headers none has.
