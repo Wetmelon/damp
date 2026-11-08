@@ -406,6 +406,17 @@ inline constexpr auto as_pattern_matrix = [] {
 
 } // namespace detail
 
+namespace detail {
+
+/** @brief Whether M is a PatternMatrix. */
+template<typename M>
+inline constexpr bool is_pattern_matrix = false;
+
+template<const auto& P, typename T>
+inline constexpr bool is_pattern_matrix<PatternMatrix<P, T>> = true;
+
+} // namespace detail
+
 /** @brief F S Fᵀ for a symmetric S (quadratic_form_in_place, on a copy). */
 template<const auto& P, size_t N, typename T>
 [[nodiscard, gnu::always_inline]] constexpr Matrix<N, N, T> quadratic_form(const PatternMatrix<P, T>& F, const Matrix<N, N, T>& S) {

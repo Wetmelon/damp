@@ -787,12 +787,7 @@ struct KalmanFilter {
     [[nodiscard]] constexpr bool update(const ColVec<NY, T>& y) {
         const ColVec<NY, T> nu = y - ((sys.C * x) + (sys.D * u_prev_));
         if constexpr (Store::constant) {
-            Matrix<NX, NY, T> K{detail::unfilled};
-            if (!detail::joseph_update(P_, detail::as_pattern_matrix<Store::kC>, Store::kHRH, K)) {
-                return false; // S not positive definite: fail closed
-            }
-            x += K * nu;
-            return true;
+            return correct(nu, detail::as_pattern_matrix<Store::kC>, Store::kHRH);
         } else {
             return correct(nu, sys.C, quadratic_form(sys.H, R_));
         }
@@ -825,6 +820,31 @@ struct KalmanFilter {
     [[nodiscard]] constexpr bool update(
         const ColVec<NY2, T>&                            y,
         const Matrix<NY2, NX, T>&                        C,
+        const Matrix<NY2, NU, T>&                        D,
+        const std::type_identity_t<Matrix<NY2, NY2, T>>& R
+    ) {
+        return correct(ColVec<NY2, T>(y - ((C * x) + (D * u_prev_))), C, R);
+    }
+
+    /**
+     * @brief Measurement update with a linear reading y = C x + v whose C has zeros and ones known
+     *        at compile time: no term for a zero and no multiply for a one
+     *
+     * @param y Reading (C's rows)
+     * @param C Output matrix of the reading on the filter's state, on its pattern
+     * @param R Covariance of the reading's noise
+     * @return false if S = C P Cᵀ + R is not positive definite: the estimate and P are unchanged
+     */
+    template<const auto& Pattern, size_t NY2>
+    [[nodiscard]] constexpr bool update(const ColVec<NY2, T>& y, const PatternMatrix<Pattern, T>& C, const std::type_identity_t<Matrix<NY2, NY2, T>>& R) {
+        return correct(ColVec<NY2, T>(y - (C * x)), C, R);
+    }
+
+    /** @brief Measurement update with a linear reading y = C x + D u + v, C on its pattern: update(y, C, R) with the held input's feedthrough. */
+    template<const auto& Pattern, size_t NY2>
+    [[nodiscard]] constexpr bool update(
+        const ColVec<NY2, T>&                            y,
+        const PatternMatrix<Pattern, T>&                 C,
         const Matrix<NY2, NU, T>&                        D,
         const std::type_identity_t<Matrix<NY2, NY2, T>>& R
     ) {
@@ -924,6 +944,17 @@ private:
         const Matrix<NX, NYS, T> K = K_t.value().transpose();
         x += K * nu;
         P_ = quadratic_form(Matrix<NX, NX, T>(Matrix<NX, NX, T>::identity() - (K * C)), P_) + quadratic_form(K, R);
+        return true;
+    }
+
+    /** @brief The Joseph update for a C on its pattern (detail::joseph_update). */
+    template<size_t NYS, const auto& Pattern>
+    [[nodiscard]] constexpr bool correct(const ColVec<NYS, T>& nu, const PatternMatrix<Pattern, T>& C, const Matrix<NYS, NYS, T>& R) {
+        Matrix<NX, NYS, T> K{detail::unfilled};
+        if (!detail::joseph_update(P_, C, R, K)) {
+            return false; // S not positive definite: fail closed
+        }
+        x += K * nu;
         return true;
     }
 

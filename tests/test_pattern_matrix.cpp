@@ -4,17 +4,23 @@
 // (See accompanying file LICENSE or copy at http://www.boost.org/LICENSE_1_0.txt)
 
 // PatternMatrix: zeros and ones known at compile time, the other entries runtime values. Every product
-// has to be the dense one to rounding, and the filter on it has to be the filter on the dense Jacobians.
+// has to be the dense one to rounding, and a filter on it (ESKF, KalmanFilter, EKF) has to be the filter on the
+// dense Jacobians.
 
 #include <cmath>
 #include <cstddef>
 #include <type_traits>
 
+#include "damp/concepts.hpp"
+#include "damp/estimation/ekf.hpp"
 #include "damp/estimation/eskf.hpp"
 #include "damp/estimation/ins_eskf.hpp"
+#include "damp/estimation/kalman.hpp"
 #include "damp/matrix/colvec.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "damp/matrix/pattern_matrix.hpp"
+#include "damp/systems/dynamics.hpp"
+#include "damp/systems/state_space.hpp"
 #include "doctest.h"
 
 using namespace damp;
@@ -290,6 +296,131 @@ TEST_SUITE("ESKF on sparse Jacobians") {
         f.predict(F);
         CHECK(f.error_state()[ins_err::dp] == doctest::Approx(1.0));
         CHECK(f.error_state()[ins_err::dv] == doctest::Approx(2.0));
+    }
+}
+
+TEST_SUITE("Kalman and EKF readings on sparse matrices") {
+    constexpr size_t NK = 7;
+
+    /// A 7-state plant with an input, wiggled so that nothing in it is special.
+    StateSpace<NK, 1, 3, double, NK, 3> wiggled_plant() {
+        StateSpace<NK, 1, 3, double, NK, 3> s{};
+        for (size_t i = 0; i < NK; ++i) {
+            for (size_t j = 0; j < NK; ++j) {
+                s.A(i, j) = 0.15 * wiggle(i, j, 0.3);
+            }
+            s.B(i, 0) = wiggle(i, 0, 1.1);
+        }
+        s.Ts = 0.01;
+        return s;
+    }
+
+    /// The same run with C on its pattern and dense, comparing the whole filter after every reading.
+    template<const auto& CPattern, bool WithFeedthrough>
+    void check_kalman_run() {
+        KalmanFilter       sparse{wiggled_plant(), {.Q = Matrix<NK, NK>::identity() * 1e-3, .R = Matrix<3, 3>::identity(), .P0 = spd<NK>(0.4)}};
+        auto               dense = sparse;
+        const Matrix<3, 1> D{{0.2}, {-0.1}, {0.4}};
+        const Matrix<3, 3> R = Matrix<3, 3>::identity() * 0.5;
+        double             worst = 0.0;
+        double             scale = 1.0;
+        for (int k = 0; k < 40; ++k) {
+            const double                    seed = 0.1 * static_cast<double>(k);
+            const ColVec<1>                 u{std::cos(3.0 * seed)};
+            const ColVec<3>                 y{std::sin(seed), std::cos(seed), std::sin(2.0 * seed)};
+            PatternMatrix<CPattern, double> C{};
+            fill(C, seed);
+            sparse.predict(u);
+            dense.predict(u);
+            if constexpr (WithFeedthrough) {
+                REQUIRE(sparse.update(y, C, D, R));
+                REQUIRE(dense.update(y, C.to_matrix(), D, R));
+            } else {
+                REQUIRE(sparse.update(y, C, R));
+                REQUIRE(dense.update(y, C.to_matrix(), R));
+            }
+            worst = std::fmax(worst, gap(sparse.covariance(), dense.covariance()));
+            worst = std::fmax(worst, gap(Matrix<NK, 1>(sparse.state()), Matrix<NK, 1>(dense.state())));
+            scale = std::fmax(scale, dense.covariance().norm());
+            const auto& P = sparse.covariance();
+            for (size_t i = 0; i < NK; ++i) {
+                for (size_t j = 0; j < NK; ++j) {
+                    CHECK(P(i, j) == P(j, i)); // exactly
+                }
+            }
+        }
+        CAPTURE(worst);
+        CHECK(worst <= 1e-9 * scale);
+    }
+
+    TEST_CASE("KalmanFilter: a reading on its pattern is the dense reading, with and without feedthrough") {
+        check_kalman_run<kSelector, false>();
+        check_kalman_run<kLever, false>();
+        check_kalman_run<kLever, true>();
+    }
+
+    TEST_CASE("KalmanFilter: a reading on its pattern that cannot be solved leaves the filter as it was") {
+        KalmanFilter         f{wiggled_plant(), {.Q = Matrix<NK, NK>{}, .R = Matrix<3, 3>::identity(), .P0 = Matrix<NK, NK>{}}};
+        const Matrix<NK, NK> before = f.covariance();
+        CHECK_FALSE(f.update(ColVec<3>{1.0, 1.0, 1.0}, PatternMatrix<kSelector, double>{}, Matrix<3, 3>{})); // S = 0
+        CHECK(gap(f.covariance(), before) == 0.0);
+        CHECK(gap(Matrix<NK, 1>(f.state()), Matrix<NK, 1>{}) == 0.0);
+    }
+
+    // A pendulum and a decaying cart: x = [θ, ω, p, v].
+    struct PendulumCart {
+        [[nodiscard]] ColVec<4> operator()(const ColVec<4>& x, const ColVec<1>& u) const { return ColVec<4>{x[1], -std::sin(x[0]) + u[0], x[3], -0.5 * x[3]}; }
+    };
+
+    // y = [θ; p cos θ]: C = [[1, 0, 0, 0], [−p sin θ, 0, cos θ, 0]].
+    inline constexpr auto kAngleAndProjection = SparsityPattern<2, 4>{}.unit_diagonal(0, 0, 1).values(1, 0, 1, 1).values(1, 2, 1, 1);
+
+    struct ReadingOnPattern {
+        [[nodiscard]] ColVec<2>                                  operator()(const ColVec<4>& x, const ColVec<1>& /*u*/) const { return ColVec<2>{x[0], x[2] * std::cos(x[0])}; }
+        [[nodiscard]] PatternMatrix<kAngleAndProjection, double> jacobian(const ColVec<4>& x, const ColVec<1>& /*u*/) const {
+            PatternMatrix<kAngleAndProjection, double> C{};
+            C.at<1, 0>() = -x[2] * std::sin(x[0]);
+            C.at<1, 2>() = std::cos(x[0]);
+            return C;
+        }
+    };
+
+    struct ReadingDense {
+        [[nodiscard]] ColVec<2>                    operator()(const ColVec<4>& x, const ColVec<1>& u) const { return ReadingOnPattern{}(x, u); }
+        [[nodiscard]] MeasurementJacobian<4, 1, 2> jacobian(const ColVec<4>& x, const ColVec<1>& u) const { return {.C = ReadingOnPattern{}.jacobian(x, u).to_matrix()}; }
+    };
+
+    static_assert(PatternMeasurement<ReadingOnPattern, 4, 1, 2, double>);
+    static_assert(!PatternMeasurement<ReadingDense, 4, 1, 2, double>);
+    static_assert(!PatternMeasurement<ReadingOnPattern, 4, 1, 2, float>); // its C is double
+
+    TEST_CASE("EKF: a measurement whose Jacobian is on its pattern is the dense filter's") {
+        const ExtendedKalmanFilterConfig<PendulumCart> config{.Ts = 0.01, .Q = Matrix<4, 4>::identity() * 1e-4, .x0 = ColVec<4>{0.3, 0.0, 1.0, 0.2}, .P0 = spd<4>(0.9)};
+        ExtendedKalmanFilter                           sparse{PendulumCart{}, config};
+        ExtendedKalmanFilter                           dense{PendulumCart{}, config};
+        const Matrix<2, 2>                             R{{1e-2, 0.0}, {0.0, 4e-2}};
+        double                                         worst = 0.0;
+        for (int k = 0; k < 50; ++k) {
+            const double    seed = 0.1 * static_cast<double>(k);
+            const ColVec<1> u{0.2 * std::sin(seed)};
+            const ColVec<2> y{0.3 * std::cos(seed), std::sin(0.5 * seed)};
+            REQUIRE(sparse.update(ReadingOnPattern{}, y, R));
+            REQUIRE(dense.update(ReadingDense{}, y, R));
+            sparse.predict(u);
+            dense.predict(u);
+            worst = std::fmax(worst, gap(sparse.covariance(), dense.covariance()));
+            worst = std::fmax(worst, gap(Matrix<4, 1>(sparse.state()), Matrix<4, 1>(dense.state())));
+        }
+        CAPTURE(worst);
+        CHECK(worst <= 1e-9);
+    }
+
+    TEST_CASE("a measurement on its pattern still gives dense Jacobians to the consumers that need them") {
+        const ColVec<4> x{0.4, -0.1, 2.0, 0.3};
+        const ColVec<1> u{0.5};
+        const auto      J = detail::measurement_jacobian<4, 1, 2, double>(ReadingOnPattern{}, x, u, 1e-6);
+        CHECK(gap(J.C, ReadingOnPattern{}.jacobian(x, u).to_matrix()) == 0.0);
+        CHECK(gap(J.D, Matrix<2, 1>{}) == 0.0); // h does not read u
     }
 }
 
