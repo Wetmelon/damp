@@ -11,8 +11,8 @@
  *
  * design::kalman solves the filter DARE for the steady-state covariance P∞ and gains: the
  * innovation gain M (MATLAB®'s Mx) and the predictor gain L = A M (MATLAB®'s L). For a fixed
- * (steady-state) gain, run the design on Luenberger (luenberger.hpp), the fixed-gain observer the
- * LQ and MPC laws hold: `Luenberger obs{design::kalman(sys, noise)}`. KalmanFilter propagates its
+ * (steady-state) gain, run the design on FixedGainObserver (fixed_gain_observer.hpp), the fixed-gain observer the
+ * LQ and MPC laws hold: `FixedGainObserver obs{design::kalman(sys, noise)}`. KalmanFilter propagates its
  * covariance each tick, for a reading whose R or C changes at run time.
  *
  * @code
@@ -24,7 +24,7 @@
  * // a filter on [x; d]: noise.disturbance is the random walk of d
  * // (the disturbance spec sets the count, so the noise is a plain braced list)
  * constexpr auto res_d = design::kalman(sys, {.process = Qd, .measurement = sigma2, .disturbance = Qdd}, design::InputDisturbance{});
- * static constinit Luenberger obs{res};     // the fixed gain M (luenberger.hpp); a failed design does not compile
+ * static constinit FixedGainObserver obs{res};     // the fixed gain M (fixed_gain_observer.hpp); a failed design does not compile
  * static constinit KalmanFilter filt{res};  // the recursive filter, P∞ its initial P
  * // each tick: auto xhat = obs.step(y, u);  // or obs.predict(u); obs.update(y, u); for a split tick
  * @endcode
@@ -123,7 +123,7 @@ KalmanNoise(Matrix<NW, NW, T>, Matrix<NV, NV, T>, Matrix<ND, ND, T>) -> KalmanNo
  * | L | predictor gain A M: x̂[k+1\|k] = A x̂[k\|k−1] + B u + L (y − C x̂[k\|k−1] − D u) | kalman's L |
  * | P | a priori error covariance P[k\|k−1], the filter DARE's solution | kalman's P |
  *
- * Luenberger runs M in the current form (`Luenberger obs{res}`); KalmanFilter starts from P.
+ * FixedGainObserver runs M in the current form (`FixedGainObserver obs{res}`); KalmanFilter starts from P.
  * Use .as<float>() to convert for embedded deployment.
  *
  * With a disturbance (design::kalman(sys[, Ts], noise, disturbance)), @c sys is the filter's model:
@@ -457,7 +457,7 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
  * Use dare with that dual only when P alone is required; use this
  * function when the estimator gains (or LQG’s estimator half) are the goal.
  *
- * The result runs on Luenberger, the fixed-gain observer (`Luenberger obs{res}`: M held, no
+ * The result runs on FixedGainObserver, the fixed-gain observer (`FixedGainObserver obs{res}`: M held, no
  * per-tick covariance), or on KalmanFilter, which starts from P∞ and propagates P each tick.
  *
  * Requires a discrete plant (Ts > 0): there is no continuous-time (Kalman–Bucy) design, so a
@@ -647,9 +647,9 @@ struct KalmanFilterConfig {
  * (void)kf.update(theta, C_enc, r); // a second sensor, y = C x
  * @endcode
  *
- * For a fixed (steady-state) gain, run the design on Luenberger: `Luenberger obs{design::kalman(sys, noise)}`
+ * For a fixed (steady-state) gain, run the design on FixedGainObserver: `FixedGainObserver obs{design::kalman(sys, noise)}`
  * — about 2–13 % of the recursive filter's multiply-accumulates per tick (2.4 % at 10 states, 6 outputs),
- * no per-tick solve, no failure path. Luenberger is also the estimator inside LQG, LQGI, OFLQG and
+ * no per-tick solve, no failure path. FixedGainObserver is also the estimator inside LQG, LQGI, OFLQG and
  * OFMPC, with the disturbance anchor the offset-free laws use.
  *
  * A design on [x; d] (design::kalman with a disturbance) runs here as the absolute filter on the

@@ -110,7 +110,7 @@
  *       disturbances via setmpcsignals, and the built-in estimator (setindist, setoutdist).
  * @see design/qp.hpp for the QP solver
  * @see design/invariant_set.hpp for the Gilbert–Tan terminal set
- * @see estimation/kalman.hpp for the estimator's design, estimation/luenberger.hpp for the observer
+ * @see estimation/kalman.hpp for the estimator's design, estimation/fixed_gain_observer.hpp for the observer
  *      that runs it, and design/steady_state_target.hpp for the target
  * @see García, Prett & Morari, "Model Predictive Control: Theory and Practice —
  *      A Survey," Automatica 25(3), 1989, https://doi.org/10.1016/0005-1098(89)90002-2
@@ -163,8 +163,8 @@
 #include "damp/design/riccati.hpp"
 #include "damp/design/status.hpp"
 #include "damp/design/steady_state_target.hpp"
+#include "damp/estimation/fixed_gain_observer.hpp"
 #include "damp/estimation/kalman.hpp"
-#include "damp/estimation/luenberger.hpp"
 #include "damp/math/math.hpp"
 #include "damp/matrix/block.hpp"
 #include "damp/matrix/decomposition.hpp"
@@ -1627,7 +1627,7 @@ template<bool Discrete, size_t NP, size_t NC, size_t NT_max, size_t NX, size_t N
  * DesignStatus::not_detectable: an output disturbance on a plant with a pole at z = 1 is not,
  * which is why MATLAB® falls back to input disturbances on integrating plants.
  *
- * The estimator holds deviations from the target (Luenberger with the fixed gain of
+ * The estimator holds deviations from the target (FixedGainObserver with the fixed gain of
  * design::kalman, anchored by SteadyStateTarget each tick), so the QP's gradient stays a sum of
  * small terms however far the plant sits from zero (a temperature at 200 °C, a position in
  * metres at micrometre precision).
@@ -1906,9 +1906,9 @@ struct mpc_estimator_traits {
     static constexpr bool built_from = std::is_same_v<Design, NoEstimator>;
 };
 
-/** @brief A Luenberger observer: its sizes, and the design::kalman results it runs (any noise inputs). */
+/** @brief A FixedGainObserver: its sizes, and the design::kalman results it runs (any noise inputs). */
 template<size_t NXK, size_t NU, size_t NY, typename T, size_t ND, typename Store>
-struct mpc_estimator_traits<Luenberger<NXK, NU, NY, T, ND, Store>> {
+struct mpc_estimator_traits<FixedGainObserver<NXK, NU, NY, T, ND, Store>> {
     static constexpr bool   estimated = true;  ///< Whether there is a filter
     static constexpr size_t states = NXK;      ///< NXK: the filter's states
     static constexpr size_t outputs = NY;      ///< NY: the readings it takes
@@ -1948,7 +1948,7 @@ struct NoMeasuredState {};
  *
  * - No estimator (Estimator = NoEstimator): the measurement is the plant state x; the reference
  *   is on the controlled outputs C·x.
- * - Luenberger (the fixed gain of design::kalman): the measurement is the plant's outputs; the
+ * - FixedGainObserver (the fixed gain of design::kalman): the measurement is the plant's outputs; the
  *   observer reconstructs the state.
  *   With a disturbance model the estimator holds deviations from the steady-state target,
  *   re-anchored each tick on the reference now (SteadyStateTarget), and the law is offset-free.
@@ -1959,7 +1959,7 @@ struct NoMeasuredState {};
  * @tparam ND        Measured-disturbance inputs (0: none)
  * @tparam Solver    QP solver policy (default: the warm-started Goldfarb–Idnani active set)
  * @tparam NT_max    Terminal-set row capacity (default 0)
- * @tparam Estimator Luenberger, or NoEstimator for the measured state; it holds the
+ * @tparam Estimator FixedGainObserver, or NoEstimator for the measured state; it holds the
  *                   disturbance when there is one
  *
  * @note Compare with MATLAB®'s mpcmove(mpcobj, xc, ym, r, v).
@@ -1977,7 +1977,7 @@ public:
     static constexpr size_t NYM = estimated ? Traits::outputs : NX;         ///< Measured outputs (the state without an estimator)
     static constexpr size_t NXE = estimated ? (Traits::states - NDE) : NXM; ///< States of the estimator's model before the disturbance
     static_assert(!estimated || ND == 0, "A measured disturbance with an estimator is not supported.");
-    static_assert(std::is_same_v<Estimator, NoEstimator> || estimated, "The estimator is a Luenberger observer, or NoEstimator for the measured state.");
+    static_assert(std::is_same_v<Estimator, NoEstimator> || estimated, "The estimator is a FixedGainObserver, or NoEstimator for the measured state.");
 
     using Artifacts = design::MPCArtifacts<NXM, NU, NY, NP, NC, ND + NDE, T, NT_max>;
     using TargetResult = design::SteadyStateTargetResult<NXE, NU, ND + NDE, NY, T>;

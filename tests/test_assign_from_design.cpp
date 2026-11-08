@@ -23,8 +23,8 @@
 #include "damp/design/pid_design.hpp"
 #include "damp/estimation/eso.hpp"
 #include "damp/estimation/excitation/chirp.hpp"
+#include "damp/estimation/fixed_gain_observer.hpp"
 #include "damp/estimation/kalman.hpp"
-#include "damp/estimation/luenberger.hpp"
 #include "damp/filters/biquad.hpp"
 #include "damp/filters/first_order_section.hpp"
 #include "damp/filters/iir_design.hpp"
@@ -55,7 +55,7 @@ constexpr auto kLowPass = design::lowpass<2>(50.0, kTs);
 constexpr auto kNotch = design::notch(50.0, 2.0, kTs);
 constexpr auto kHighPass = design::highpass_1st(5.0, kTs);
 constexpr auto kChirp = design::chirp(design::ChirpConfig<double>{.amplitude = 1.0, .f_start_hz = 1.0, .f_end_hz = 10.0, .duration_s = 1.0}, kTs);
-constexpr auto kObserver = design::luenberger(
+constexpr auto kObserver = design::place_observer(
     StateSpace<2, 1, 1>{
         .A = Matrix<2, 2>{{1.0, 0.1}, {0.0, 1.0}},
         .B = Matrix<2, 1>{{0.005}, {0.1}},
@@ -79,7 +79,7 @@ static constinit LowPass<2, float>                  lowpass = kLowPass;
 static constinit Biquad<float>                      notch = kNotch;
 static constinit FirstOrderSection<float>           highpass = kHighPass;
 static constinit Chirp<float>                       chirp = kChirp;
-static constinit Luenberger<2, 1, 1, float>         observer = kObserver;
+static constinit FixedGainObserver<2, 1, 1, float>  observer = kObserver;
 
 } // namespace
 
@@ -117,7 +117,7 @@ TEST_SUITE("assign from design") {
         LowPass                   lp{kLowPass};
         Biquad                    bq{kNotch};
         FirstOrderSection         hp{kHighPass};
-        Luenberger                ob{kObserver};
+        FixedGainObserver         ob{kObserver};
         static_assert(std::is_same_v<decltype(pd), PIDController<double>>);
         static_assert(std::is_same_v<decltype(cd), ContinuousPID<double>>);
         static_assert(std::is_same_v<decltype(ad), ADRCController<2, double>>);
@@ -130,7 +130,7 @@ TEST_SUITE("assign from design") {
         static_assert(std::is_same_v<decltype(lp), LowPass<2, double>>);
         static_assert(std::is_same_v<decltype(bq), Biquad<double>>);
         static_assert(std::is_same_v<decltype(hp), FirstOrderSection<double>>);
-        static_assert(std::is_same_v<decltype(ob), Luenberger<2, 1, 1, double>>);
+        static_assert(std::is_same_v<decltype(ob), FixedGainObserver<2, 1, 1, double>>);
         CHECK(pd.Kp == doctest::Approx(2.0));
     }
 

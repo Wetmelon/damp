@@ -52,7 +52,7 @@ struct ADRCResult {
     static_assert(NX == 1 || NX == 2, "ADRC supports 1st- and 2nd-order plants only");
 
     T wc{}; ///< Controller bandwidth
-    T wo{}; ///< Luenberger bandwidth
+    T wo{}; ///< FixedGainObserver bandwidth
     T b0{}; ///< Plant gain
 
     ColVec<NX + 1, T> beta{}; ///< ESO gains

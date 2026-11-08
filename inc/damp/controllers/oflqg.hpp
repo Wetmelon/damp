@@ -89,7 +89,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
  * @ingroup discrete_controllers
  * @brief Offset-free linear-quadratic Gaussian law: a Kalman filter on [x; d] and the steady-state target
  *
- * Runs design::oflqg. The estimator is a Luenberger observer on [x; d] with design::kalman's fixed
+ * Runs design::oflqg. The estimator is a FixedGainObserver on [x; d] with design::kalman's fixed
  * gain, holding deviations from the target (`estimator`). The target holds the controlled outputs
  * at r under the disturbance estimate d̂, taken about the reference point (x*, u*). The tick is
  * update(y) then control(r), or step(r, y), with x* = 0 and u* = 0; feedforward from a planned

@@ -22,8 +22,8 @@
 #include "damp/design/disturbance.hpp"
 #include "damp/design/qp.hpp"
 #include "damp/design/steady_state_target.hpp"
+#include "damp/estimation/fixed_gain_observer.hpp"
 #include "damp/estimation/kalman.hpp"
-#include "damp/estimation/luenberger.hpp"
 #include "damp/matrix/colvec.hpp"
 #include "damp/systems/state_space.hpp"
 
@@ -71,7 +71,7 @@ template<size_t NP, size_t NC, size_t NT_max = 0, size_t NX, size_t NU, size_t N
  * @brief Offset-free constrained linear MPC: a Kalman filter on [x; d] and the QP about the
  *        steady-state target under d̂ (design::ofmpc)
  *
- * The estimator is a Luenberger observer with design::kalman's fixed gain, holding deviations
+ * The estimator is a FixedGainObserver with design::kalman's fixed gain, holding deviations
  * from the target. The tick is update(y) then control(r), or step(r, y) for both; @p r is the
  * controlled outputs' reference (held, or a Preview). back_calculate(u_sat) records what went
  * out, predict() moves the observer with it. A failed design does not compile when
@@ -136,21 +136,21 @@ public:
 /** @brief OFMPC law{res}: the sizes, scalar, filter and target of design::ofmpc's result. */
 template<size_t NXM, size_t NU, size_t NY, size_t NP, size_t NC, size_t ND, typename T, size_t NT, size_t NXK, size_t NYM, size_t NW, size_t NV, size_t NXE>
 OFMPC(const design::MPCResult<design::MPCArtifacts<NXM, NU, NY, NP, NC, ND, T, NT>, design::KalmanResult<NXK, NU, NYM, T, NW, NV, ND>, design::SteadyStateTargetResult<NXE, NU, ND, NY, T>>&)
-    -> OFMPC<NXM, NU, NY, NP, NC, T, design::WarmStartActiveSetSolver<(NC * NU) + 1, (4 * NC * NU) + (2 * NP * NY) + NT + 1, T>, NT, Luenberger<NXK, NU, NYM, T, ND>>;
+    -> OFMPC<NXM, NU, NY, NP, NC, T, design::WarmStartActiveSetSolver<(NC * NU) + 1, (4 * NC * NU) + (2 * NP * NY) + NT + 1, T>, NT, FixedGainObserver<NXK, NU, NYM, T, ND>>;
 
 /** @brief OFMPC law{res, solver}: as OFMPC law{res}, with that solver. */
 template<size_t NXM, size_t NU, size_t NY, size_t NP, size_t NC, size_t ND, typename T, size_t NT, size_t NXK, size_t NYM, size_t NW, size_t NV, size_t NXE, typename Solver>
-OFMPC(const design::MPCResult<design::MPCArtifacts<NXM, NU, NY, NP, NC, ND, T, NT>, design::KalmanResult<NXK, NU, NYM, T, NW, NV, ND>, design::SteadyStateTargetResult<NXE, NU, ND, NY, T>>&, const Solver&) -> OFMPC<NXM, NU, NY, NP, NC, T, Solver, NT, Luenberger<NXK, NU, NYM, T, ND>>;
+OFMPC(const design::MPCResult<design::MPCArtifacts<NXM, NU, NY, NP, NC, ND, T, NT>, design::KalmanResult<NXK, NU, NYM, T, NW, NV, ND>, design::SteadyStateTargetResult<NXE, NU, ND, NY, T>>&, const Solver&) -> OFMPC<NXM, NU, NY, NP, NC, T, Solver, NT, FixedGainObserver<NXK, NU, NYM, T, ND>>;
 
 namespace detail {
 
 /** @brief design::ofmpc runs as OFMPC. */
 template<size_t NXM, size_t NU, size_t NY, size_t NP, size_t NC, size_t ND, typename U, size_t NT, size_t NXK, size_t NYM, size_t NW, size_t NV, size_t NXE, typename T>
 struct mpc_runtime<design::MPCResult<design::MPCArtifacts<NXM, NU, NY, NP, NC, ND, U, NT>, design::KalmanResult<NXK, NU, NYM, U, NW, NV, ND>, design::SteadyStateTargetResult<NXE, NU, ND, NY, U>>, T> {
-    using type = OFMPC<NXM, NU, NY, NP, NC, T, design::WarmStartActiveSetSolver<(NC * NU) + 1, (4 * NC * NU) + (2 * NP * NY) + NT + 1, T>, NT, Luenberger<NXK, NU, NYM, T, ND>>; ///< OFMPC
-    static constexpr bool filtered = true;                                                                                                                                       ///< Its filter can run on the design's constants
+    using type = OFMPC<NXM, NU, NY, NP, NC, T, design::WarmStartActiveSetSolver<(NC * NU) + 1, (4 * NC * NU) + (2 * NP * NY) + NT + 1, T>, NT, FixedGainObserver<NXK, NU, NYM, T, ND>>; ///< OFMPC
+    static constexpr bool filtered = true;                                                                                                                                              ///< Its filter can run on the design's constants
     template<const auto& Res>
-    using on_constants = OFMPC<NXM, NU, NY, NP, NC, T, design::WarmStartActiveSetSolver<(NC * NU) + 1, (4 * NC * NU) + (2 * NP * NY) + NT + 1, T>, NT, Luenberger<NXK, NU, NYM, T, ND, ConstantObserver<Res, T, NXK - ND>>>; ///< OFMPC with its filter on the design's constants
+    using on_constants = OFMPC<NXM, NU, NY, NP, NC, T, design::WarmStartActiveSetSolver<(NC * NU) + 1, (4 * NC * NU) + (2 * NP * NY) + NT + 1, T>, NT, FixedGainObserver<NXK, NU, NYM, T, ND, ConstantObserver<Res, T, NXK - ND>>>; ///< OFMPC with its filter on the design's constants
 };
 
 } // namespace detail

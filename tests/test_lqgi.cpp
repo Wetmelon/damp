@@ -10,8 +10,8 @@
 #include "damp/controllers/lqgi.hpp"
 #include "damp/controllers/lqi.hpp"
 #include "damp/design/status.hpp"
+#include "damp/estimation/fixed_gain_observer.hpp"
 #include "damp/estimation/kalman.hpp"
-#include "damp/estimation/luenberger.hpp"
 #include "damp/math/math.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "damp/systems/state_space.hpp"
@@ -238,9 +238,9 @@ TEST_SUITE("LQGI") {
     TEST_CASE("LQGI deduces sizes and scalar from its design") {
         static constexpr auto res = design::lqgi(make_plant(), kW, {.process = Matrix<2, 2>{{0.01, 0.0}, {0.0, 0.01}}, .measurement = 0.1});
         static constinit LQGI law{res.as<float>()}; // sizes and scalar deduced from the result
-        static_assert(std::is_same_v<decltype(law), LQGI<2, 1, 1, 1, float, Luenberger<2, 1, 1, float>>>);
+        static_assert(std::is_same_v<decltype(law), LQGI<2, 1, 1, 1, float, FixedGainObserver<2, 1, 1, float>>>);
         // A double design does not narrow to the float default.
-        static_assert(std::is_same_v<decltype(LQGI{res}), LQGI<2, 1, 1, 1, double, Luenberger<2, 1, 1, double>>>);
+        static_assert(std::is_same_v<decltype(LQGI{res}), LQGI<2, 1, 1, 1, double, FixedGainObserver<2, 1, 1, double>>>);
         CHECK(law.K(0, 0) == doctest::Approx(static_cast<float>(res.K(0, 0))));
     }
 }

@@ -42,7 +42,7 @@
  * The result is a PlaceResult, a gain design that LQR runs: `LQR law{res}`
  * deploys it, and a continuous result is refused there under constant evaluation.
  *
- * Observer gains (A − LC) are the dual: design::luenberger in estimation/luenberger.hpp.
+ * Observer gains (A − LC) are the dual: design::place_observer in estimation/fixed_gain_observer.hpp.
  *
  * @see J. Kautsky, N. K. Nichols, P. Van Dooren, "Robust pole assignment in
  *      linear state feedback," Int. J. Control 41(5), 1985,
@@ -978,7 +978,7 @@ template<size_t NX, typename T>
 }
 
 /**
- * @brief The placement kernel behind place() and luenberger(): K with eig(A − B·K) = poles.
+ * @brief The placement kernel behind place() and place_observer(): K with eig(A − B·K) = poles.
  *
  * KNV for a non-defective spectrum; a single-input pair with repeated poles, or a repeated
  * pole in a spectrum with complex pairs, goes through the Klein–Moore construction instead.

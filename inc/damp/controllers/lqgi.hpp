@@ -86,7 +86,7 @@ template<size_t NI, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size
  * @ingroup discrete_controllers
  * @brief Linear-quadratic Gaussian law with integral action on the measured outputs
  *
- * Runs design::lqgi. The estimator is a Luenberger observer with design::kalman's fixed gain
+ * Runs design::lqgi. The estimator is a FixedGainObserver with design::kalman's fixed gain
  * (`estimator`). xi integrates r − Ci·y on the last update's measurement; the law is
  * u = u* − K·[x̂ − x*; xi]. The tick is update(y) then control(r), or step(r, y), with x* = 0 and
  * u* = 0; feedforward from a planned trajectory (x_ref, u_ref) is control(r, x_ref, u_ref), or

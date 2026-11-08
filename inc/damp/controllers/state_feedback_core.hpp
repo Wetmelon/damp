@@ -24,8 +24,8 @@
 #include "damp/design/riccati.hpp"
 #include "damp/design/status.hpp"
 #include "damp/design/steady_state_target.hpp"
+#include "damp/estimation/fixed_gain_observer.hpp"
 #include "damp/estimation/kalman.hpp"
-#include "damp/estimation/luenberger.hpp"
 #include "damp/math/complex.hpp"
 #include "damp/math/math.hpp"
 #include "damp/matrix/block.hpp"
@@ -69,9 +69,9 @@ struct estimator_traits {
     static constexpr size_t ND = 0;          ///< Disturbance states
 };
 
-/** @brief A Luenberger observer's sizes. */
+/** @brief A FixedGainObserver's sizes. */
 template<size_t NXK, size_t NU, size_t NY, typename T, size_t ND_, typename Store>
-struct estimator_traits<Luenberger<NXK, NU, NY, T, ND_, Store>> {
+struct estimator_traits<FixedGainObserver<NXK, NU, NY, T, ND_, Store>> {
     static constexpr bool   present = true;  ///< A filter runs
     static constexpr size_t NXE = NXK - ND_; ///< Filter states before the disturbance
     static constexpr size_t ND = ND_;        ///< Disturbance states
@@ -127,10 +127,10 @@ struct runtime_estimator {
     using type = NoEstimator; ///< NoEstimator
 };
 
-/** @brief A KalmanResult runs as the Luenberger observer of its sizes (its fixed gain M), in the runtime's scalar @p T. */
+/** @brief A KalmanResult runs as the FixedGainObserver of its sizes (its fixed gain M), in the runtime's scalar @p T. */
 template<size_t NXK, size_t NU, size_t NY, typename U, size_t NW, size_t NV, size_t ND, typename T>
 struct runtime_estimator<design::KalmanResult<NXK, NU, NY, U, NW, NV, ND>, T> {
-    using type = Luenberger<NXK, NU, NY, T, ND>; ///< The observer and the disturbance
+    using type = FixedGainObserver<NXK, NU, NY, T, ND>; ///< The observer and the disturbance
 };
 
 /** @brief The runtime of a design's filter half (@p Kalman: KalmanResult or NoEstimator), in the scalar @p T. */
@@ -166,7 +166,7 @@ struct HeldGains {
  * | Feature | Parameter | Off |
  * | --- | --- | --- |
  * | integral action on r − Ci·y | NI, NY | 0 |
- * | estimator (Luenberger with design::kalman's gain, disturbance model) | Est | NoEstimator: the state is measured |
+ * | estimator (FixedGainObserver with design::kalman's gain, disturbance model) | Est | NoEstimator: the state is measured |
  * | steady-state target for r, under the disturbance model if there is one (SteadyStateTarget) | NZ | 0 |
  *
  * One tick is @ref step(): @ref predict (the time update with the input @ref back_calculate
@@ -199,7 +199,7 @@ struct HeldGains {
  * @tparam T   Scalar
  * @tparam NI  Integrators (0: none)
  * @tparam NY  Measured outputs (with no estimator, the outputs the integrators read through C)
- * @tparam Est Estimator: Luenberger (the fixed Kalman gain of design::kalman), or NoEstimator for a measured state
+ * @tparam Est Estimator: FixedGainObserver (the fixed Kalman gain of design::kalman), or NoEstimator for a measured state
  * @tparam NZ  Controlled outputs of the steady-state target (0: none)
  * @tparam Store Where the matrices live: HeldGains (members), or constants of the type (Law of a `constexpr` design)
  */
@@ -619,10 +619,10 @@ struct constant_estimator {
     using type = NoEstimator; ///< NoEstimator
 };
 
-/** @brief A design with a filter runs its Luenberger on constants of the type. */
+/** @brief A design with a filter runs its FixedGainObserver on constants of the type. */
 template<const auto& Res, typename T, size_t NX, size_t NU, typename U, size_t NI, size_t NY, size_t NXK, size_t NW, size_t NV, size_t ND, size_t NZ>
 struct constant_estimator<Res, T, design::StateFeedbackResult<NX, NU, U, NI, NY, design::KalmanResult<NXK, NU, NY, U, NW, NV, ND>, NZ>> {
-    using type = Luenberger<NXK, NU, NY, T, ND, ConstantObserver<Res, T, NXK - ND>>; ///< The observer and the disturbance
+    using type = FixedGainObserver<NXK, NU, NY, T, ND, ConstantObserver<Res, T, NXK - ND>>; ///< The observer and the disturbance
 };
 
 } // namespace detail

@@ -29,11 +29,11 @@ delay templates on OFLQG / MPC). v0.1.0 never shipped those names.
   as it is. Tustin pre-warp: `discretize(sys, Ts, Tustin, w0)`.
 - `Law<kRes, T>` of a `constexpr` design runs on `ConstMatrix`: the same ticks with the matrices
   constants of the type, so they take no RAM and a coefficient that is exactly 0 is no code. It covers
-  LQR, LQI, LQG, LQGI, OFLQG, `Luenberger`, `ReducedLuenberger`, `ESO`, `ADRCController`,
+  LQR, LQI, LQG, LQGI, OFLQG, `FixedGainObserver`, `ReducedOrderObserver`, `ESO`, `ADRCController`,
   `StateFeedforward`, `OutputInverse`, and OFMPC's filter (its QP data stays in members). Nothing can
   replace them: a member a redesign assigns is `Law<kRes, T>::Runtime`. A design initialized at
-  start-up keeps members. `Law` now also covers `design::kalman`, `design::luenberger`,
-  `design::reduced_luenberger`, `design::eso` and `design::adrc`.
+  start-up keeps members. `Law` now also covers `design::kalman`, `design::place_observer`,
+  `design::reduced_order_observer`, `design::eso` and `design::adrc`.
 - `SparsityPattern` and `PatternMatrix` (`matrix/pattern_matrix.hpp`): a matrix whose zeros and ones are
   known at compile time and whose other entries are runtime values, for a Jacobian whose numbers change
   every tick and whose shape does not. A product has no term for a zero and no multiply for a one, and
@@ -67,6 +67,12 @@ delay templates on OFLQG / MPC). v0.1.0 never shipped those names.
 
 ### Changed
 
+- The fixed-gain observer family is renamed for what it is: `Luenberger` → `FixedGainObserver`,
+  `ReducedLuenberger` → `ReducedOrderObserver`, `design::luenberger` → `design::place_observer`
+  (`LuenbergerResult` → `PlaceObserverResult`), `design::reduced_luenberger` →
+  `design::reduced_order_observer` (`ReducedLuenbergerResult` → `ReducedOrderObserverResult`), and
+  `estimation/luenberger.hpp` → `estimation/fixed_gain_observer.hpp`. `FixedGainObserver` runs a fixed
+  gain from `design::kalman` or `design::place_observer`; `KalmanFilter` is the recursive filter.
 - Matrix operations no longer zero-fill a result whose every entry they write, triangular solves
   build their result inside the `optional`, and an operator on a plain `Matrix` returns its result
   with no copy. That removes `memset` and `memcpy` calls from the run-time path. On a Cortex-M4F
@@ -83,7 +89,7 @@ delay templates on OFLQG / MPC). v0.1.0 never shipped those names.
 - `design::lqr` follows the plant's time domain (CARE, or ZOH + Van Loan + DARE
   with a Ts). `PIDGains` is the PID result; one `pidtune` and one
   `pid_pole_placement`. `design::kalman` takes a disturbance spec.
-  `Luenberger` is the fixed-gain observer; `KalmanFilter` is recursive only.
+  `FixedGainObserver` is the fixed-gain observer; `KalmanFilter` is recursive only.
 - Every design reports `success` / `DesignStatus` and `explicit operator bool()`.
   A refused `constinit` law names the cause. `ok` is that design's checks
   (weights, convergence, a closed-loop pole test where the design runs one), not

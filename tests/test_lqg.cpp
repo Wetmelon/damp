@@ -9,8 +9,8 @@
 #include "damp/controllers/lqg.hpp"
 #include "damp/controllers/lqr.hpp"
 #include "damp/design/status.hpp"
+#include "damp/estimation/fixed_gain_observer.hpp"
 #include "damp/estimation/kalman.hpp"
-#include "damp/estimation/luenberger.hpp"
 #include "damp/math/math.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "damp/systems/state_space.hpp"
@@ -233,7 +233,7 @@ TEST_SUITE("LQG") {
         REQUIRE(result.success);
 
         auto controller = LQG{result};
-        // Fixed gain matches design (the law's Luenberger observer holds M).
+        // Fixed gain matches design (the law's FixedGainObserver holds M).
         CHECK(controller.estimator.gain()(0, 0) == doctest::Approx(result.kalman.M(0, 0)));
         CHECK(controller.estimator.gain()(1, 0) == doctest::Approx(result.kalman.M(1, 0)));
 
@@ -334,9 +334,9 @@ TEST_SUITE("LQG") {
             {.process = Matrix<2, 2>{{0.01, 0.0}, {0.0, 0.01}}, .measurement = 0.1}
         );
         static constinit LQG law{res.as<float>()}; // sizes and scalar deduced from the result
-        static_assert(std::is_same_v<decltype(law), LQG<2, 1, 1, float, Luenberger<2, 1, 1, float>>>);
+        static_assert(std::is_same_v<decltype(law), LQG<2, 1, 1, float, FixedGainObserver<2, 1, 1, float>>>);
         // A double design does not narrow to the float default.
-        static_assert(std::is_same_v<decltype(LQG{res}), LQG<2, 1, 1, double, Luenberger<2, 1, 1, double>>>);
+        static_assert(std::is_same_v<decltype(LQG{res}), LQG<2, 1, 1, double, FixedGainObserver<2, 1, 1, double>>>);
         CHECK(law.K(0, 0) == doctest::Approx(static_cast<float>(res.K(0, 0))));
     }
 
@@ -350,7 +350,7 @@ TEST_SUITE("LQG") {
         );
         REQUIRE(res.success);
         LQG law{res};
-        static_assert(std::is_same_v<decltype(law), LQG<2, 1, 1, double, Luenberger<2, 1, 1, double>, 1>>);
+        static_assert(std::is_same_v<decltype(law), LQG<2, 1, 1, double, FixedGainObserver<2, 1, 1, double>, 1>>);
         ColVec<2>       x{};
         const ColVec<1> r{0.5};
         for (int k = 0; k < 600; ++k) {

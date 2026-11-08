@@ -222,7 +222,7 @@ template<typename Ts>
  *
  * The runtime's header defines it for the results that runtime is built from: the LQ runtimes
  * (controllers/lqr.hpp, lqi.hpp, lqg.hpp, lqgi.hpp, oflqg.hpp) and the observers
- * (estimation/luenberger.hpp: Luenberger, ReducedLuenberger), design::eso (estimation/eso.hpp),
+ * (estimation/fixed_gain_observer.hpp: FixedGainObserver, ReducedOrderObserver), design::eso (estimation/eso.hpp),
  * design::adrc (controllers/adrc.hpp) and the model inverses (design/model_inverse.hpp:
  * StateFeedforward, OutputInverse), which all run on constants when kRes is `constexpr`, and MPC
  * (controllers/mpc.hpp, ofmpc.hpp), whose QP data stays in members and whose OFMPC filter is on constants.
@@ -232,7 +232,7 @@ template<typename Ts>
  */
 template<const auto& Res, typename T>
 struct Law {
-    static_assert(sizeof(T) == 0, "Law<res, T>: res is not a design result a law is built from; include its runtime's header (controllers/lqr.hpp, lqi.hpp, lqg.hpp, lqgi.hpp, oflqg.hpp, mpc.hpp, ofmpc.hpp, adrc.hpp, estimation/luenberger.hpp, estimation/eso.hpp, design/model_inverse.hpp)");
+    static_assert(sizeof(T) == 0, "Law<res, T>: res is not a design result a law is built from; include its runtime's header (controllers/lqr.hpp, lqi.hpp, lqg.hpp, lqgi.hpp, oflqg.hpp, mpc.hpp, ofmpc.hpp, adrc.hpp, estimation/fixed_gain_observer.hpp, estimation/eso.hpp, design/model_inverse.hpp)");
 };
 
 } // namespace damp

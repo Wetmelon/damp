@@ -20,7 +20,7 @@
  * solved once at design time for unit d and r, so the runtime target is two matrix–vector
  * products (with NZ < NU the minimum-norm solution; with NZ > NU the equilibrium whose outputs
  * are closest to r in the least-squares sense). Shared by the laws that track through a target
- * (OFLQG, OFMPC); a law with a disturbance model re-anchors its estimator (a Luenberger observer
+ * (OFLQG, OFMPC); a law with a disturbance model re-anchors its estimator (a FixedGainObserver
  * with design::kalman's fixed gain) on it.
  *
  * @see "Disturbance Models for Offset-Free Model-Predictive Control" (Pannocchia & Rawlings,
@@ -360,7 +360,7 @@ struct TargetPoint {
 
 /**
  * @brief The steady-state target at run time: (x_t, u_t) from the reference and the estimated
- *        disturbance, two matrix–vector products, and the re-anchoring of a Luenberger observer on it.
+ *        disturbance, two matrix–vector products, and the re-anchoring of a FixedGainObserver on it.
  *
  * Shared by the laws that track through a target (OFLQG, MPC, OFMPC): equilibrium() for a law
  * on the absolute state, anchor() for one on the estimator's deviation (ND > 0).

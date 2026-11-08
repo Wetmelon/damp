@@ -98,7 +98,7 @@
  * @namespace damp::estimation
  * @brief Observers and filters for state estimation.
  *
- * Kalman / EKF / UKF / ESKF, Luenberger, DOB, RLS, excitation generators, and
+ * Kalman / EKF / UKF / ESKF, FixedGainObserver, DOB, RLS, excitation generators, and
  * related design entry points used by the estimation DiD path.
  */
 

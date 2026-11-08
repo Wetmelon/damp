@@ -26,8 +26,8 @@
 #include "damp/estimation/ekf.hpp"
 #include "damp/estimation/eso.hpp"
 #include "damp/estimation/excitation.hpp"
+#include "damp/estimation/fixed_gain_observer.hpp"
 #include "damp/estimation/kalman.hpp"
-#include "damp/estimation/luenberger.hpp"
 #include "damp/estimation/mhe.hpp"
 #include "damp/estimation/parameter_estimation.hpp"
 #include "damp/estimation/relay_autotune.hpp"
@@ -63,8 +63,8 @@ static_assert(!SisoController<RelayAutotuner<double>, double>);            // an
 
 // --- FeedbackRuntime: lifecycle only (update, predict, back_calculate, reset) ---
 // The seven LQ and MPC runtimes on a two-state, one-input, one-output plant.
-using PlantFilter = Luenberger<2, 1, 1, double>;                                                                // on [x]
-using LoadFilter = Luenberger<3, 1, 1, double, 1>;                                                              // on [x; d], one disturbance state
+using PlantFilter = FixedGainObserver<2, 1, 1, double>;                                                         // on [x]
+using LoadFilter = FixedGainObserver<3, 1, 1, double, 1>;                                                       // on [x; d], one disturbance state
 using LqrLaw = LQR<2, 1, double>;                                                                               // design::lqr
 using LqrTrackLaw = LQR<2, 1, double, 2, 1>;                                                                    // design::lqr, one tracked output
 using LqiLaw = LQI<2, 1, 1, double, 1>;                                                                         // design::lqi, one integrated output
@@ -149,14 +149,14 @@ static_assert(ControlsWith<MpcMdLaw, V1, V1> && StepsWith<MpcMdLaw, V1, V1, X2>)
 static_assert(!ControlsWith<MpcMdLaw, V1> && !StepsWith<MpcMdLaw, V1, X2>);
 
 // --- StateEstimator: step(y, u) + state() ------------------------------------
-static_assert(StateEstimator<KalmanFilter<2, 1, 1, double, 2, 1>, 2, 1, 1, double>); // recursive
-static_assert(StateEstimator<Luenberger<2, 1, 1, double>, 2, 1, 1, double>);         // fixed gain
-static_assert(StateEstimator<Luenberger<3, 1, 1, double, 1>, 3, 1, 1, double>);      // fixed gain, anchored
+static_assert(StateEstimator<KalmanFilter<2, 1, 1, double, 2, 1>, 2, 1, 1, double>);   // recursive
+static_assert(StateEstimator<FixedGainObserver<2, 1, 1, double>, 2, 1, 1, double>);    // fixed gain
+static_assert(StateEstimator<FixedGainObserver<3, 1, 1, double, 1>, 3, 1, 1, double>); // fixed gain, anchored
 static_assert(StateEstimator<MHE<1, 1, 1, 4, double>, 1, 1, 1, double>);
-static_assert(StateEstimator<ReducedLuenberger<3, 1, double>, 3, 1, 1, double>); // reduced order
-static_assert(StateEstimator<ESO<1, double>, 2, 1, 1, double>);                  // 1st-order plant, z = [ŷ, f̂]
-static_assert(StateEstimator<ESO<2, double>, 3, 1, 1, double>);                  // 2nd-order plant, z = [ŷ, ẏ, f̂]
-struct ConstantVelocityModel {                                                   // ẋ = [v, 0]
+static_assert(StateEstimator<ReducedOrderObserver<3, 1, double>, 3, 1, 1, double>); // reduced order
+static_assert(StateEstimator<ESO<1, double>, 2, 1, 1, double>);                     // 1st-order plant, z = [ŷ, f̂]
+static_assert(StateEstimator<ESO<2, double>, 3, 1, 1, double>);                     // 2nd-order plant, z = [ŷ, ẏ, f̂]
+struct ConstantVelocityModel {                                                      // ẋ = [v, 0]
     [[nodiscard]] ColVec<2> operator()(const ColVec<2>& x, const ColVec<1>& /*u*/) const { return ColVec<2>{x[1], 0.0}; }
 };
 static_assert(!StateEstimator<ExtendedKalmanFilter<ConstantVelocityModel, double>, 2, 1, 1, double>); // update(h, y, R): no step
@@ -224,11 +224,11 @@ TEST_CASE("fused step(y, u) equals the manual predict/update sequence") {
         }
     }
 
-    SUBCASE("Luenberger") {
-        const auto ld = design::luenberger(sys, {0.5, 0.6});
+    SUBCASE("FixedGainObserver") {
+        const auto ld = design::place_observer(sys, {0.5, 0.6});
         REQUIRE(ld.success);
-        Luenberger<2, 1, 1, double> fused{ld};
-        Luenberger<2, 1, 1, double> manual{ld};
+        FixedGainObserver<2, 1, 1, double> fused{ld};
+        FixedGainObserver<2, 1, 1, double> manual{ld};
         for (int k = 0; k < 30; ++k) {
             const ColVec<1> y{0.1 * k};
             const ColVec<1> u{0.5};

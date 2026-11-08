@@ -45,12 +45,12 @@
  * @defgroup estimators Estimators (general)
  * @brief Observers and estimators spanning continuous-time and hybrid use cases.
  *
- * DOB and related blocks that are not exclusively discrete Luenberger-style.
+ * DOB and related blocks that are not exclusively discrete FixedGainObserver-style.
  */
 
 /**
  * @defgroup discrete_estimators Discrete estimators
- * @brief Discrete-time observers: Luenberger, Kalman, the extended-state observer (ESO).
+ * @brief Discrete-time observers: FixedGainObserver, Kalman, the extended-state observer (ESO).
  */
 
 /**
