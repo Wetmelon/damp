@@ -133,7 +133,7 @@ template<typename Model, typename T = detail::model_shape<Model>::scalar>
 struct UnscentedKalmanFilter {
     static constexpr size_t NX = detail::model_shape<Model>::states; ///< States
     static constexpr size_t NU = detail::model_shape<Model>::inputs; ///< Inputs
-    static constexpr size_t NSIG = (2 * NX) + 1;                     ///< Number of sigma points
+    static constexpr size_t NSP = (2 * NX) + 1;                      ///< Number of sigma points (not NSIG, a signal.h macro)
 
     constexpr UnscentedKalmanFilter() { compute_weights(); }
 
@@ -168,14 +168,14 @@ struct UnscentedKalmanFilter {
         }
         const auto& sig = sigma_opt.value();
 
-        damp::array<ColVec<NX, T>, NSIG> Xp{};
-        for (size_t i = 0; i < NSIG; ++i) {
+        damp::array<ColVec<NX, T>, NSP> Xp{};
+        for (size_t i = 0; i < NSP; ++i) {
             Xp[i] = detail::rk4_step<NX, NU, T>(model_, sig[i], u, Ts);
         }
 
         x = weighted_mean<NX>(Xp);
         Matrix<NX, NX, T> P_new = Q;
-        for (size_t i = 0; i < NSIG; ++i) {
+        for (size_t i = 0; i < NSP; ++i) {
             const ColVec<NX, T> dx = Xp[i] - x;
             P_new = P_new + (dx * dx.t()) * Wc[i];
         }
@@ -265,8 +265,8 @@ private:
         }
         const auto& sig = sigma_opt.value();
 
-        damp::array<ColVec<NY, T>, NSIG> Yp{};
-        for (size_t i = 0; i < NSIG; ++i) {
+        damp::array<ColVec<NY, T>, NSP> Yp{};
+        for (size_t i = 0; i < NSP; ++i) {
             Yp[i] = h(sig[i], u_);
         }
 
@@ -274,7 +274,7 @@ private:
         m.y_pred = weighted_mean<NY>(Yp);
         m.Pyy = R;
         m.Pxy = Matrix<NX, NY, T>::zeros();
-        for (size_t i = 0; i < NSIG; ++i) {
+        for (size_t i = 0; i < NSP; ++i) {
             const ColVec<NY, T> dy = Yp[i] - m.y_pred;
             const ColVec<NX, T> dx = sig[i] - x;
             m.Pyy = m.Pyy + (dy * dy.t()) * Wc[i];
@@ -299,7 +299,7 @@ private:
         Wm[0] = lambda / denom;
         Wc[0] = (lambda / denom) + (static_cast<T>(1) - (p.alpha * p.alpha) + p.beta);
         const T w = static_cast<T>(1) / (static_cast<T>(2) * denom);
-        for (size_t i = 1; i < NSIG; ++i) {
+        for (size_t i = 1; i < NSP; ++i) {
             Wm[i] = w;
             Wc[i] = w;
         }
@@ -345,14 +345,14 @@ private:
     }
 
     /** @brief Draw the 2n+1 sigma points from (x, P); nullopt if P is not positive semidefinite. */
-    [[nodiscard]] constexpr damp::optional<damp::array<ColVec<NX, T>, NSIG>> sigma_points() const {
+    [[nodiscard]] constexpr damp::optional<damp::array<ColVec<NX, T>, NSP>> sigma_points() const {
         const auto L_opt = semidefinite_factor(P * (static_cast<T>(NX) + lambda));
         if (!L_opt) {
             return damp::nullopt;
         }
         const Matrix<NX, NX, T> L = L_opt.value();
 
-        damp::array<ColVec<NX, T>, NSIG> sig{};
+        damp::array<ColVec<NX, T>, NSP> sig{};
         sig[0] = x;
         for (size_t j = 0; j < NX; ++j) {
             const ColVec<NX, T> dcol = L.col(j).to_vector();
@@ -364,9 +364,9 @@ private:
 
     /** @brief Weighted (mean-weight) combination of a sigma-point set. */
     template<size_t N>
-    [[nodiscard]] constexpr ColVec<N, T> weighted_mean(const damp::array<ColVec<N, T>, NSIG>& pts) const {
+    [[nodiscard]] constexpr ColVec<N, T> weighted_mean(const damp::array<ColVec<N, T>, NSP>& pts) const {
         ColVec<N, T> m{};
-        for (size_t i = 0; i < NSIG; ++i) {
+        for (size_t i = 0; i < NSP; ++i) {
             m = m + pts[i] * Wm[i];
         }
         return m;
@@ -380,9 +380,9 @@ private:
     UnscentedParams<T> p{};      ///< Unscented transform tuning
     ColVec<NU, T>      u_{};     ///< The input the last predict held, for the readings' h
 
-    T                    lambda{}; ///< λ = α²(n + κ) − n
-    damp::array<T, NSIG> Wm{};     ///< Mean weights
-    damp::array<T, NSIG> Wc{};     ///< Covariance weights
+    T                   lambda{}; ///< λ = α²(n + κ) − n
+    damp::array<T, NSP> Wm{};     ///< Mean weights
+    damp::array<T, NSP> Wc{};     ///< Covariance weights
 };
 
 /** @brief Deduce the filter from its model, a struct or a captureless lambda: `UnscentedKalmanFilter ukf{f, {.Ts = Ts, .Q = Q}}`. */
