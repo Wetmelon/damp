@@ -137,6 +137,11 @@ def decl(code):
         m = re.search(r"\benum\s+(?:class\s+)?(\w+)", joined)
         if m:
             return ("enum", m.group(1), i)
+        # A constant, whose initializer may call functions that are not its name
+        # (kInsTransitionPattern = SparsityPattern<…>::identity().values(…)): not listed.
+        eq = joined.find("=")
+        if eq != -1 and ("(" not in joined or eq < joined.find("(")) and "operator" not in joined[:eq]:
+            return None
         # function: identifier immediately before '(' once we've cleared prefixes
         if "(" in joined:
             fm = re.search(r"(\w+)\s*\(", joined)
@@ -231,16 +236,20 @@ def collect(path, text, header, matches, get_brief, hidden):
         # line of the declaration itself: first line of the code block + its offset
         line = text.count("\n", 0, m.start(2)) + 1 + off
         row = (kind, name, b, f"inc/{header}#L{line}")
-        view = kind == "fn" and takes_view("\n".join(m.group(2).split("\n")[off:]))
+        code_at = "\n".join(m.group(2).split("\n")[off:])
+        view = kind == "fn" and takes_view(code_at)
+        # A partial specialization (struct Law<Res, T>) is a special case of its primary template.
+        special = kind == "type" and re.search(rf"\b(?:struct|class)\s+(?:\[\[[^\]]+\]\]\s+)*{re.escape(name)}\s*<", code_at) is not None
+        secondary = view or special
         if name in seen[cat]:
             overloads[(cat, name)] += 1  # keep the first (primary) overload's brief…
-            index, primary_view = row_of[(cat, name)]
-            if primary_view and not view:  # …unless it is a view special case of this one
+            index, primary_secondary = row_of[(cat, name)]
+            if primary_secondary and not secondary:  # …unless it is a special case of this one
                 entries[cat][index] = row
                 row_of[(cat, name)] = (index, False)
             continue
         seen[cat].add(name)
-        row_of[(cat, name)] = (len(entries[cat]), view)
+        row_of[(cat, name)] = (len(entries[cat]), secondary)
         entries[cat].append(row)
 
 

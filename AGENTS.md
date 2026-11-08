@@ -111,8 +111,8 @@ the repo root.
   constraints. No exceptions on the tick path.
 
 **`matrix.hpp` includes** (order is irrelevant): `block`, `colvec`, `concat`,
-`const_matrix`, `core`, `decomposition`, `eigen`, `functions`, `generalized_eigen`, `rowvec`,
-`solve`, `svd`, `views`.
+`const_matrix`, `core`, `decomposition`, `eigen`, `functions`, `generalized_eigen`,
+`pattern_matrix`, `rowvec`, `solve`, `svd`, `views`.
 
 ## Contributor rules
 

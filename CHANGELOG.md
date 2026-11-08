@@ -34,6 +34,13 @@ delay templates on OFLQG / MPC). v0.1.0 never shipped those names.
   replace them: a member a redesign assigns is `Law<kRes, T>::Runtime`. A design initialized at
   start-up keeps members. `Law` now also covers `design::kalman`, `design::luenberger`,
   `design::reduced_luenberger`, `design::eso` and `design::adrc`.
+- `SparsityPattern` and `PatternMatrix` (`matrix/pattern_matrix.hpp`): a matrix whose zeros and ones are
+  known at compile time and whose other entries are runtime values, for a Jacobian whose numbers change
+  every tick and whose shape does not. A product has no term for a zero and no multiply for a one, and
+  `quadratic_form_in_place` computes `F S Fᵀ` with no copy of S. `ErrorStateKalmanFilter` takes one in
+  `predict(F)`, `update_innovation(ν, H, R)` and `reset_error_state(G)`, and the INS and the attitude
+  filter use them throughout. On a Cortex-M4F the 15-state `F P Fᵀ` takes 3,906 estimated cycles and
+  a 3-row update 9,639, against 41,567 and 61,809 for the dense ones.
 - `DiscretizationResult` from `discretize` / `c2d` / `d2d`. `lft`. Canonical
   forms in `systems/realization.hpp`. Transmission zeros (QZ) and `norm_hinf` /
   disk margins on the host.
@@ -94,6 +101,11 @@ delay templates on OFLQG / MPC). v0.1.0 never shipped those names.
 
 ### Removed
 
+- `ins_propagate_covariance` and `ins_F_mul`: `ErrorStateKalmanFilter::predict(F)` on the sparse
+  transition does their job and costs less. It also carries a δx not yet injected through F, as the
+  generic `predict` always did; after an injection δx is zero, so nothing changes there.
+  `ins_error_jacobian` returns that `PatternMatrix`, and `ins_inject` the sparse reset Jacobian;
+  `.to_matrix()` gives the dense one.
 - `design/synthesis.hpp` (`*_bundle` wrappers). `StateFeedback` as a public
   runtime. `discrete_oflqg`, `offset_free_lqg.hpp`, `offset_free_mpc.hpp`.
 - Delay in the design or runtime (`InputDelayPredictor`, `PredictedInputDelay`,
