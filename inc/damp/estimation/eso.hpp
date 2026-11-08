@@ -102,8 +102,8 @@ namespace detail {
  * @brief Fill the discrete ESO of @p r (Φ, Γ, L) from its b0, wo and Ts > 0: the ZOH model of
  *        the chain of integrators and the current-estimator gain with every pole at e^{−ω_o T_s}.
  *
- * Refuses (invalid_parameter) an ω_o T_s below the resolution of T, where λ = 1 and L = 0 would
- * never correct, and gains that do not fit in T.
+ * Refuses (invalid_parameter) an ω_o T_s below eps of T, where λ is within an ulp of 1 and L ≈ 0
+ * would never correct, and gains that do not fit in T.
  *
  * @see "Discrete implementation and generalization of the extended state observer"
  *      (Miklosovic, Radke & Gao, 2006), ACC
@@ -125,12 +125,15 @@ constexpr void discrete_eso(ESOResult<NX, T>& r) {
     const auto& d = *d_opt;
 
     const T h = r.Ts;
-    const T lambda = damp::exp(-r.wo * h);
-    const T m = T{1} - lambda;
-    if (!(m > T{0})) {
+    const T wo_h = r.wo * h;
+    // Decided on ω_o T_s itself: under -ffast-math GCC 15 folds 1 − e^{−x} > 0 into x > 0, so a
+    // test on m would pass while m rounds to 0.
+    if (!(wo_h >= eps<T>())) {
         ::damp::detail::set_status(r, DesignStatus::invalid_parameter);
         return;
     }
+    const T lambda = damp::exp(-wo_h);
+    const T m = T{1} - lambda;
     if constexpr (NX == 1) {
         r.L(0) = m * (T{1} + lambda);
         r.L(1) = (m * m) / h;
@@ -186,8 +189,8 @@ constexpr void discrete_eso(ESOResult<NX, T>& r) {
  *
  * Requires wo > 0 and a finite b0, else refused with invalid_parameter. The observer never
  * divides by b0: a negative b0 is a reverse-acting plant, and b0 = 0 with u = 0 is a plain
- * differentiator of y. Also refused with invalid_parameter: an ω_o T_s below the resolution of
- * T (the observer would never correct) and gains that do not fit in T. A negative or non-finite
+ * differentiator of y. Also refused with invalid_parameter: an ω_o T_s below eps of T (the
+ * observer would never correct) and gains that do not fit in T. A negative or non-finite
  * Ts is refused with invalid_sample_time.
  *
  * @param wo Observer bandwidth [rad/s]

@@ -422,11 +422,10 @@ public:
         const auto qp = qp_solver_(art.H, f, art.A_con, art.b_bound, art.max_qp_iterations);
         last_status_ = qp.status;
         last_iterations_ = qp.iterations;
-        if (qp.status == design::QPStatus::Success) {
-            z = qp.x;
-        } else if (qp.status == design::QPStatus::MaxIterations) {
-            // The dual iterate is not primal feasible: project it onto the box, this QP's whole
-            // feasible set.
+        if (qp.status == design::QPStatus::Success || qp.status == design::QPStatus::MaxIterations) {
+            // Project onto the box, this QP's whole feasible set: a solution leaves it by rounding
+            // on an active bound (−1e-17 for a bound of 0 when multiply-adds are fused), a dual
+            // iterate that ran out of iterations by more.
             for (size_t v = 0; v < NV; ++v) {
                 z(v) = damp::clamp(qp.x(v), art.constraints.x_lim.lower(v % NX), art.constraints.x_lim.upper(v % NX));
             }

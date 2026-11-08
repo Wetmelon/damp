@@ -595,7 +595,9 @@ TEST_CASE("KalmanResult carries MATLAB's two gains: the innovation gain M and th
     REQUIRE(res.success);
     const Matrix<1, 1> S = (sys.C * res.P * sys.C.t()) + R;
     CHECK((res.M * S - (res.P * sys.C.t())).norm() < 1e-14);
-    CHECK((res.L - (sys.A * res.M)).norm() == 0.0);
+    //! L is formed as A·M. This product, evaluated again here, may round differently under FMA
+    //! contraction: two evaluations of an n-term product differ by at most n·ε·‖A‖‖M‖.
+    CHECK((res.L - (sys.A * res.M)).norm() <= 2.0 * damp::eps<double>() * sys.A.norm() * res.M.norm());
 
     //! The predictor's error A − L C and the current form's (I − M C) A share their poles.
     const auto   pred = mat::compute_eigenvalues<2, double>(sys.A - (res.L * sys.C)).values;
@@ -607,7 +609,7 @@ TEST_CASE("KalmanResult carries MATLAB's two gains: the innovation gain M and th
     //! A design on [x; d]: both gains on the augmented model
     const auto aug = design::kalman(sys, {.process = Q, .measurement = R, .disturbance = Matrix<1, 1>{{1e-3}}}, design::InputDisturbance{});
     REQUIRE(aug.success);
-    CHECK((aug.L - (aug.sys.A * aug.M)).norm() == 0.0);
+    CHECK((aug.L - (aug.sys.A * aug.M)).norm() <= 3.0 * damp::eps<double>() * aug.sys.A.norm() * aug.M.norm());
 
     //! as<U>() carries both
     const auto res_f = res.as<float>();

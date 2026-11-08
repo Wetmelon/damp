@@ -119,8 +119,8 @@ TEST_CASE("lsim returns empty result when u and time lengths disagree") {
     const auto           sys = StateSpace{A, B, C};
 
     const auto                t = analysis::linspace(0.0, 1.0, 11);
-    const std::vector<double> u_short(5, 1.0);
-    const auto                bad = analysis::lsim(sys, u_short, t);
+    const std::vector<double> u_too_short(5, 1.0);
+    const auto                bad = analysis::lsim(sys, u_too_short, t);
     CHECK(bad.t.empty());
     CHECK(bad.y.empty());
     CHECK(bad.x.empty());

@@ -118,6 +118,7 @@ TEST_SUITE("Extended State Observer (ESO)") {
         const auto                res = design::adrc<2>(10.0, 50.0, 2.0, 1e-3);
         ADRCController<2, double> law{res};
         ESO<2, double>            obs{res.as_eso()};
+        const auto                L = res.as_eso().L;
         double                    y = 0.0, v = 0.0;
         const double              r = 1.0, Ts = 1e-3, b = 2.0, d = 0.3;
         for (int k = 0; k < 400; ++k) {
@@ -125,8 +126,13 @@ TEST_SUITE("Extended State Observer (ESO)") {
             const auto&  z = obs.step(y);
             const double u_obs = ((res.Kp * (r - z[0])) - (res.Kd * z[1]) - z[2]) / res.b0;
             obs.back_calculate(u_obs);
-            CHECK(u_law == doctest::Approx(u_obs).epsilon(1e-14));
-            CHECK(law.observer()[2] == doctest::Approx(obs.disturbance()).epsilon(1e-14));
+            // The same observer, instantiated twice, may round apart (GCC 15 -ffast-math, fused
+            // multiply-adds). A rounding of y enters each estimate through its gain, so they agree to
+            // ulps of |zᵢ| + Lᵢ·|y| (L₂ = 116 here), and u to its gains times those.
+            const auto   scale = [&](size_t i) { return damp::abs(z[i]) + (L(i) * damp::abs(y)); };
+            const double u_scale = damp::abs(u_obs) + (((res.Kp * scale(0)) + (res.Kd * scale(1)) + scale(2)) / damp::abs(res.b0));
+            CHECK(damp::abs(u_law - u_obs) <= 64.0 * eps<double>() * u_scale);
+            CHECK(damp::abs(law.observer()[2] - obs.disturbance()) <= 64.0 * eps<double>() * scale(2));
             v += ((b * u_law) + d) * Ts;
             y += v * Ts;
         }

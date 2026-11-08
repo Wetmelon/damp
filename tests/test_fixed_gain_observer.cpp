@@ -322,8 +322,10 @@ TEST_SUITE("FixedGainObserver") {
         //! a pole near 0 for the fast mode: M bounded, e at the request
         const auto fast = design::place_observer(sys, {0.5, 0.0});
         REQUIRE(fast.success);
-        CHECK((A * fast.M - fast.L).norm() == 0.0); // L = A M exactly: the direct placement
-        CHECK(fast.M.norm() < 2.0 / C.norm());      // comparable to 1/‖C‖: M = [4/9, 5/9]
+        // L = A M: the direct placement forms L as this product, which a build with fused multiply-adds
+        // may round differently here, so to n·ε·‖A‖‖M‖.
+        CHECK((A * fast.M - fast.L).norm() <= 2.0 * eps<double>() * A.norm() * fast.M.norm());
+        CHECK(fast.M.norm() < 2.0 / C.norm()); // comparable to 1/‖C‖: M = [4/9, 5/9]
         CHECK(fast.M(0, 0) == doctest::Approx(4.0 / 9.0).epsilon(1e-12));
         CHECK(fast.M(1, 0) == doctest::Approx(5.0 / 9.0).epsilon(1e-12));
         CHECK(real_pair_is(fast.e, 0.5, 0.0));

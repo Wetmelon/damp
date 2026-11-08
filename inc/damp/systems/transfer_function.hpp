@@ -56,19 +56,27 @@ template<size_t Na, size_t Nb, typename T>
  *
  * Step-down recursion on the reflection coefficients kₙ = aₙ/a₀: the polynomial is Schur-stable
  * iff every |kₙ| < 1. A root on the unit circle (|kₙ| = 1 to rounding) is refused. kₙ is
- * dimensionless, so the margin N·ε does not depend on the coefficients' units.
+ * dimensionless, so the margin N·ε of T does not depend on the coefficients' units.
+ *
+ * Float coefficients are judged in double, where they are exact: the recursion's own rounding
+ * in float can pass a polynomial with a root outside the circle (a fourth-order cluster near
+ * z = −1, depending on whether the compiler fuses its multiply-adds).
  */
 template<size_t N, typename T>
 [[nodiscard]] constexpr bool schur_stable(const damp::array<T, N>& p) {
-    using R = scalar_type_t<T>;
-    damp::array<T, N> a = p;
-    const R           margin = static_cast<R>(N) * eps<T>();
+    using W = damp::conditional_t<damp::is_same_v<T, float>, double, T>;
+    using R = scalar_type_t<W>;
+    damp::array<W, N> a{};
+    for (size_t i = 0; i < N; ++i) {
+        a[i] = static_cast<W>(p[i]);
+    }
+    const R margin = static_cast<R>(N) * static_cast<R>(eps<T>());
     for (size_t n = N; n-- > 1;) {
-        const T k = a[n] / a[0];
+        const W k = a[n] / a[0];
         if (!(damp::abs(k) < R{1} - margin)) {
             return false;
         }
-        const damp::array<T, N> prev = a;
+        const damp::array<W, N> prev = a;
         for (size_t i = 0; i < n; ++i) {
             a[i] = prev[i] - (k * prev[n - i]);
         }

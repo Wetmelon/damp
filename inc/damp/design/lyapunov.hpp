@@ -243,7 +243,20 @@ template<size_t N, typename T>
     if (!Y) {
         return damp::nullopt;
     }
-    return from_schur_coordinates(cs, *Y);
+    auto X = from_schur_coordinates(cs, *Y);
+    // A symmetric Q has a symmetric X. The two triangles come out of different roundings (their
+    // gap grows with the conditioning, not ε alone), so return their mean: in norm it is no farther
+    // from the solution than X, and a symmetric X is what Cholesky and the gramians expect.
+    if (mat::detail::is_hermitian_within(Q, T{0})) {
+        for (size_t i = 0; i < N; ++i) {
+            for (size_t j = i + 1; j < N; ++j) {
+                const T mean = (T{0.5} * X(i, j)) + (T{0.5} * X(j, i));
+                X(i, j) = mean;
+                X(j, i) = mean;
+            }
+        }
+    }
+    return X;
 }
 
 /**
@@ -435,7 +448,7 @@ template<size_t N, size_t M, typename T>
  *
  * @param A State matrix (NX × NX).
  * @param Q Right-hand side (NX × NX).
- * @return Solution X (NX × NX), or damp::nullopt if A and −A share an eigenvalue (to
+ * @return Solution X (NX × NX), exactly symmetric when Q is, or damp::nullopt if A and −A share an eigenvalue (to
  *         64·NX·ε of the Schur form's largest entry) or the Schur reduction fails.
  */
 template<size_t NX, typename T = double>
@@ -462,7 +475,7 @@ lyap(const Matrix<NX, NX, T>& A, const Matrix<NX, NX, T>& Q) {
  *
  * @param A State transition matrix (NX × NX).
  * @param Q Right-hand side (NX × NX).
- * @return Solution X (NX × NX), or damp::nullopt if some λᵢλⱼ = 1 or the Schur reduction fails.
+ * @return Solution X (NX × NX), exactly symmetric when Q is, or damp::nullopt if some λᵢλⱼ = 1 or the Schur reduction fails.
  */
 template<size_t NX, typename T = double>
 [[nodiscard]] constexpr damp::optional<Matrix<NX, NX, T>>

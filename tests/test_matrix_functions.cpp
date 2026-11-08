@@ -520,11 +520,14 @@ TEST_SUITE("Matrix Functions") {
         const Matrix<2, 2> Q{{c, -sn}, {sn, c}};
         const double       lambda = 1e-4;
         const Matrix<2, 2> A = Q * Matrix<2, 2>{{1.0, 0.0}, {0.0, lambda}} * Q.t();
+        // A is rounded: its small eigenvalue moves by ε‖A‖, a relative κ(A)·ε, so A^p is no closer
+        // to ref than |p|·κ(A)·ε. Inverting A^|p| instead would cost κ(A)^|p|·ε: 2e-4 and 2 here.
+        const double kappa = 1.0 / lambda;
         for (const int p : {-3, -4}) {
             const Matrix<2, 2> ref = Q * Matrix<2, 2>{{1.0, 0.0}, {0.0, std::pow(lambda, p)}} * Q.t();
             const auto         got = mat::pow(A, p);
             REQUIRE(got.has_value());
-            CHECK((got.value() - ref).norm() <= 1e-12 * ref.norm());
+            CHECK((got.value() - ref).norm() <= 2.0 * static_cast<double>(-p) * kappa * damp::eps<double>() * ref.norm());
         }
     }
 

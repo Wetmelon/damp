@@ -152,10 +152,11 @@ TEST_SUITE("MPC reference preview") {
         w.Qy = 1.0;
         w.Rdu = 1.0;
         w.Qy_terminal = w.Qy;
+        constexpr double             u_max = 40.0;
         design::MPCConstraints<1, 1> c{};
         c.u_lim = {
             .lower = 0.0,
-            .upper = 40.0,
+            .upper = u_max,
         };
         StateSpace<1, 1, 1, double, 1, 1> plant{.A = kModel->A, .B = kModel->B, .C = kModel->C, .Ts = kModel->Ts}; // process noise on the state
         const auto                        art = design::ofmpc<NP, NC>(plant, w, c, design::KalmanNoise{Matrix<1, 1>{{0.01}}, Matrix<1, 1>{{0.01}}, Matrix<1, 1>{{0.05}}}, design::InputDisturbance{});
@@ -169,7 +170,11 @@ TEST_SUITE("MPC reference preview") {
             const double w_in = (k >= 90) ? 1.0 : 0.0;
             const double ua = a.step(ColVec<1>{r}, ColVec<1>{xa})[0];
             const double ub = b.step(held_preview(r), ColVec<1>{xb})[0];
-            CHECK(ua == ub);
+            // The same tick on the same numbers, compiled twice: the held reference is built inside
+            // the call, the preview read from memory, and FMA contraction may round the two apart.
+            // The estimator and the QP amplify that by their conditioning (measured up to ~1200
+            // ulps of u_max); a preview read one step off would differ by whole setpoint steps.
+            CHECK(damp::abs(ua - ub) <= 1e4 * damp::eps<double>() * u_max);
             xa = kModel->A(0, 0) * xa + kModel->B(0, 0) * (ua + w_in);
             xb = kModel->A(0, 0) * xb + kModel->B(0, 0) * (ub + w_in);
         }
