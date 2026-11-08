@@ -3,6 +3,7 @@
 // Distributed under the Boost Software License, Version 1.0.
 // (See accompanying file LICENSE or copy at http://www.boost.org/LICENSE_1_0.txt)
 
+#include <cmath>
 #include <cstddef>
 #include <limits>
 
@@ -615,6 +616,16 @@ TEST_CASE("horizon advisor reads the dominant time constant") {
     CHECK(h.control_horizon == 8);
 }
 
+TEST_CASE("horizon advisor covers the dead time, so its horizon is one design::mpc accepts") {
+    constexpr StateSpace<1, 1, 1> lag{.A = {{0.9}}, .B = {{0.1}}, .C = {{1.0}}, .Ts = Ts};
+    constexpr auto                model = discretize(lag, Ts, InputDelay<5>{5.0 * Ts}).value();
+    constexpr auto                h = design::suggest_mpc_horizon(model);
+    static_assert(h.success);
+    CHECK(h.prediction_horizon == 43); // 4τ = 3.80 s and the 0.5 s delay, at Ts = 0.1
+    CHECK(design::mpc<h.prediction_horizon, h.control_horizon>(model, move_weight(0.05), {}).success);
+    CHECK(design::suggest_mpc_horizon(lag).prediction_horizon == 38); // no delay: unchanged
+}
+
 TEST_CASE("horizon advisor falls back to the settling-time overload on integrating plants") {
     // A pure integrator chain has no strictly stable pole to read tau from.
     const auto from_poles = design::suggest_mpc_horizon(double_integrator);
@@ -1041,6 +1052,61 @@ TEST_CASE("a horizon no output sees an input's first move in is refused") {
     SUBCASE("relative to the plant's size: a small gain is not a blind input") {
         const StateSpace<2, 1, 1> tiny{.A = double_integrator.A, .B = double_integrator.B * 1e-9, .C = double_integrator.C, .Ts = Ts};
         CHECK(design::mpc<1, 1>(tiny, move_weight(0.05), {}).success);
+        const StateSpace<2, 1, 1> tinier{.A = double_integrator.A, .B = double_integrator.B * 1e-11, .C = double_integrator.C, .Ts = Ts};
+        CHECK(design::mpc<2, 1>(discretize(tinier, Ts, InputDelay{Ts}).value(), move_weight(0.05), {}).success);
+    }
+
+    SUBCASE("relative to the data: a delay register, float and the input's units do not refuse a horizon that sees") {
+        //! The test compared C A^k B with max|C|·max|B|, and a register's 1 set max|B|.
+        for (const float unit : {1.0F, 1e3F}) {
+            CAPTURE(unit);
+            constexpr float                  ts = 1e-3F;
+            const StateSpace<2, 1, 1, float> plant{.A = {{1.0F, ts}, {0.0F, 1.0F}}, .B = {{0.5F * ts * ts * unit}, {ts * unit}}, .C = {{1.0F, 0.0F}}, .Ts = ts};
+            const auto                       model = discretize(plant, ts, InputDelay{ts}).value();
+            design::MPCWeights<1, 1, float>  w{};
+            w.Rdu = 1e-6F;
+            CHECK(design::mpc<2, 1>(model, w, {}).success);
+            CHECK(design::mpc<1, 1>(model, w, {}).status == design::DesignStatus::invalid_parameter);
+        }
+    }
+
+    SUBCASE("in any basis of the same model: a blind horizon is refused, one that sees is not") {
+        //! In a dense basis C A^k B of a blind horizon is roundoff, not 0, and was read as a path.
+        const auto model = discretize(double_integrator, Ts, InputDelay<5>{5.0 * Ts}).value(); // a 5-sample delay, 7 states
+        for (size_t seed = 1; seed <= 40; ++seed) {
+            CAPTURE(seed);
+            Matrix<7, 7> Q = Matrix<7, 7>::identity(); // a product of plane rotations: orthogonal and dense
+            for (size_t i = 0; i < 7; ++i) {
+                for (size_t j = i + 1; j < 7; ++j) {
+                    const double a = (0.37 * static_cast<double>(seed * (i + 1))) + (0.11 * static_cast<double>(j));
+                    Matrix<7, 7> G = Matrix<7, 7>::identity();
+                    G(i, i) = std::cos(a);
+                    G(j, j) = std::cos(a);
+                    G(i, j) = -std::sin(a);
+                    G(j, i) = std::sin(a);
+                    Q = Q * G;
+                }
+            }
+            const StateSpace<7, 1, 1> rotated{.A = Q * model.A * Q.transpose(), .B = Q * model.B, .C = model.C * Q.transpose(), .Ts = Ts};
+            CHECK(design::mpc<5, 1>(rotated, move_weight(0.05), {}).status == design::DesignStatus::invalid_parameter);
+            CHECK(design::mpc<6, 1>(rotated, move_weight(0.05), {}).success);
+        }
+    }
+
+    SUBCASE("an input an Ru weight steers to its target is not blind, while some input sees") {
+        //! u₁ reaches y only a step later; at NP = 1 its Ru weight holds it at its target.
+        const StateSpace<2, 2, 1> two{.A = {{0.9, 0.1}, {0.0, 0.0}}, .B = {{0.1, 0.0}, {0.0, 1.0}}, .C = {{1.0, 0.0}}, .Ts = Ts};
+        design::MPCWeights<2, 1>  w{};
+        w.Ru = Matrix<2, 2>{{0.0, 0.0}, {0.0, 1.0}};
+        w.u_target = ColVec<2>{0.0, 5.0};
+        const auto res = design::mpc<1, 1>(two, w, {});
+        REQUIRE(res.success);
+        MPC steered{res};
+        CHECK(steered.step(ColVec<1>{1.0}, ColVec<2>{})(1) > 0.0);
+
+        auto only_ru = move_weight(0.05); // no input reaches the output: refused, Ru or not
+        only_ru.Ru = 1.0;
+        CHECK(design::mpc<1, 1>(delayed, only_ru, {}).status == design::DesignStatus::invalid_parameter);
     }
 
     SUBCASE("the offset-free design too") {

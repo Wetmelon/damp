@@ -918,34 +918,82 @@ template<size_t NP, size_t NC, size_t NXP, size_t NX, size_t NU, size_t NY, size
 }
 
 /**
- * @brief Whether each input's first move reaches a predicted output within the horizon: its column
- *        of @p Gamma is not zero, row by row relative to |C|·|B| of that output and input.
+ * @brief The first step k at which each input's move reaches an output, or @p max_steps if it has
+ *        not by then
+ *
+ * Output y's response to input j's move, k steps on, is (C A^k B)(y, j). Roundoff leaves a true zero
+ * of it within about n·(k+1)·ε of (|C| |A|^k |B|)(y, j), so a response above 16 times that is a path.
+ * The two scale together with the units of x, u and y, and a structural zero is exactly 0 in both,
+ * so neither the units nor a dense basis of the same model changes the answer. Each input's column
+ * is renormalized every step, so neither overflows on an unstable A.
+ */
+template<size_t NX, size_t NU, size_t NY, typename T>
+[[nodiscard]] constexpr damp::array<size_t, NU> first_reaching_steps(const Matrix<NX, NX, T>& A, const Matrix<NX, NU, T>& B, const Matrix<NY, NX, T>& C, size_t max_steps) {
+    damp::array<size_t, NU> first{};
+    for (size_t j = 0; j < NU; ++j) {
+        ColVec<NX, T> v{}; // A^k B's column j, then scaled
+        ColVec<NX, T> w{}; // |A|^k |B|'s, scaled the same
+        for (size_t i = 0; i < NX; ++i) {
+            v(i) = B(i, j);
+            w(i) = damp::abs(B(i, j));
+        }
+        first[j] = max_steps;
+        for (size_t k = 0; k < max_steps && first[j] == max_steps; ++k) {
+            const T tol = T{16} * static_cast<T>(NX * (k + 1)) * eps<T>();
+            for (size_t y = 0; y < NY; ++y) {
+                T response{0};
+                T bound{0};
+                for (size_t i = 0; i < NX; ++i) {
+                    response += C(y, i) * v(i);
+                    bound += damp::abs(C(y, i)) * w(i);
+                }
+                first[j] = (damp::abs(response) > tol * bound) ? k : first[j];
+            }
+            ColVec<NX, T> v_next{};
+            ColVec<NX, T> w_next{};
+            T             scale{0};
+            for (size_t r = 0; r < NX; ++r) {
+                for (size_t c = 0; c < NX; ++c) {
+                    v_next(r) += A(r, c) * v(c);
+                    w_next(r) += damp::abs(A(r, c)) * w(c);
+                }
+                scale = damp::max(scale, w_next(r));
+            }
+            if (!(scale > T{0})) {
+                break; // A^k B is exactly 0 from here on
+            }
+            v = v_next / scale;
+            w = w_next / scale;
+        }
+    }
+    return first;
+}
+
+/**
+ * @brief Whether the first move is used: every input with no Ru weight reaches a predicted output
+ *        within NP steps, and some input does
  *
  * Only the first move is applied, so an input whose first move no output sees is never used: a
  * horizon no longer than the input delay, or than the plant's relative degree, leaves it at rest.
+ * An Ru weight still steers its input to the input target, as long as some input reaches an output.
  */
-template<size_t NP, typename G, size_t NX, size_t NU, size_t NY, typename T>
-[[nodiscard]] constexpr bool mpc_first_moves_reach_outputs(const G& Gamma, const Matrix<NY, NX, T>& C, const Matrix<NX, NU, T>& B) {
+template<size_t NP, size_t NXA, size_t NU, size_t NY, typename T>
+[[nodiscard]] constexpr bool mpc_first_moves_reach_outputs(
+    const Matrix<NXA, NXA, T>& A,
+    const Matrix<NXA, NU, T>&  B,
+    const Matrix<NY, NXA, T>&  C,
+    const Matrix<NU, NU, T>&   Ru
+) {
+    const auto first = first_reaching_steps(A, B, C, NP);
+    bool       any = false;
     for (size_t j = 0; j < NU; ++j) {
-        T b_max{0};
-        for (size_t i = 0; i < NX; ++i) {
-            b_max = damp::max(b_max, damp::abs(B(i, j)));
-        }
-        bool reaches = false;
-        for (size_t y = 0; y < NY; ++y) {
-            T c_max{0};
-            for (size_t i = 0; i < NX; ++i) {
-                c_max = damp::max(c_max, damp::abs(C(y, i)));
-            }
-            for (size_t k = 0; k < NP; ++k) {
-                reaches = reaches || (damp::abs(Gamma((k * NY) + y, j)) > T{16} * eps<T>() * c_max * b_max);
-            }
-        }
-        if (!reaches) {
+        const bool reaches = first[j] < NP;
+        any = any || reaches;
+        if (!reaches && !(Ru(j, j) > T{0})) {
             return false;
         }
     }
-    return true;
+    return any;
 }
 
 template<size_t NP, size_t NC, size_t ND, size_t NT_max = 0, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NXP>
@@ -1046,7 +1094,7 @@ template<size_t NP, size_t NC, size_t ND, size_t NT_max = 0, size_t NX, size_t N
 
     const auto pred = mpc_predictions<NP, NC, NXA, NX, NU, NY, T>(Aa, Ba, Ca);
     //! A terminal cost weights the state at NP, delay registers included, so it sees past the horizon.
-    if (constraints.terminal == MPCTerminal::none && !mpc_first_moves_reach_outputs<NP>(pred.Gamma, Cs, Bs)) {
+    if (constraints.terminal == MPCTerminal::none && !mpc_first_moves_reach_outputs<NP>(Aa, Ba, Ca, weights.Ru)) {
         return ::damp::detail::set_status(art, DesignStatus::invalid_parameter);
     }
 
@@ -1533,7 +1581,10 @@ template<bool Discrete, size_t NP, size_t NC, size_t NT_max, size_t NX, size_t N
  *
  * Horizon. Without a terminal cost, each input's first move has to reach a predicted output
  * within NP steps, or the law would never use that input: a shorter horizon, NP = 1 on a model
- * with a one-sample delay for one, is refused (invalid_parameter).
+ * with a one-sample delay for one, is refused (invalid_parameter). An input with an Ru weight is
+ * the exception, since Ru steers it to its input target, as long as some input reaches an output.
+ * The test is relative to the data: the units of x, u and y and the model's basis do not change it.
+ * suggest_mpc_horizon(sys) counts the dead time into the horizon it suggests.
  *
  * ## Offset-free control
  *
@@ -1747,7 +1798,9 @@ template<typename T>
  *
  * Finds the slowest strictly stable discrete pole of A, converts it to a time
  * constant @f$ \tau = -T_s / \ln|\lambda| @f$, and sizes the horizon to cover
- * @f$ k \cdot \tau @f$ (default k = 4, the ~2% settling criterion).
+ * @f$ k \cdot \tau @f$ (default k = 4, the ~2% settling criterion) plus the dead time: the
+ * steps before every input's move reaches an output, an input delay's registers included, which
+ * design::mpc needs the horizon to cover.
  *
  * Fails (success = false) when the plant has no strictly stable pole to read a
  * timescale from — pure integrator chains (e.g. the double integrator) and
@@ -1819,7 +1872,11 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
         return s; // no strictly stable pole — supply a settling-time target instead
     }
 
-    s = suggest_mpc_horizon(settle_time_constants * tau_max, sys.Ts);
+    size_t dead = 0; // steps before every input's move reaches an output; one that never does adds none
+    for (const size_t k : detail::first_reaching_steps(sys.A, sys.B, sys.C, NX)) {
+        dead = (k < NX && k > dead) ? k : dead;
+    }
+    s = suggest_mpc_horizon((settle_time_constants * tau_max) + (static_cast<T>(dead) * sys.Ts), sys.Ts);
     s.time_constant = tau_max;
     return s;
 }

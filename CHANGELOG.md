@@ -73,8 +73,10 @@ delay templates on OFLQG / MPC). v0.1.0 never shipped those names.
   if primal feasible (row scale |b_i| + Σ|A_ij z_j|); otherwise the tick holds.
   Holding does not make predicted outputs or a terminal set feasible.
   A horizon too short for an input's first move to reach any output is refused
-  (`invalid_parameter`) unless a terminal cost sees past it; it used to succeed and
-  leave that input at rest.
+  (`invalid_parameter`) unless a terminal cost sees past it or an `Ru` weight steers
+  that input to its target; it used to succeed and leave that input at rest. The test
+  is relative to the data, so units and the model's basis do not change it, and
+  `suggest_mpc_horizon(sys)` counts the dead time into the horizon it suggests.
 - Numerics: Riccati certificates, SciPy oracles, Schur / Lyapunov / QR, finite
   inputs give finite outputs.
 - Compilers: g++ 11+ and clang++ 19+. MSVC is not supported. Host CMake builds
