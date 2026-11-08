@@ -36,7 +36,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`AnalogCrossStatus`](inc/damp/toolbox/conditioning.hpp#L475) | enum | Embedded helpers (controls-adjacent utilities) | Result of comparing two redundant analog channels |
 | [`AnalogInput`](inc/damp/toolbox/io.hpp#L47) | block | Embedded helpers (controls-adjacent utilities) | A single analog input: range/fault check on the raw reading, then affine calibration to engineering units |
 | [`AnalyticDynamics`](inc/damp/concepts.hpp#L233) | concept | Core, configuration & backend vocabulary | Dynamics that provide their own Jacobians: f.jacobian(x, u) → DynamicsJacobian |
-| [`AnalyticMeasurement`](inc/damp/concepts.hpp#L239) | concept | Core, configuration & backend vocabulary | A Measurement that provides its own Jacobians: h.jacobian(x, u) → MeasurementJacobian |
+| [`AnalyticMeasurement`](inc/damp/concepts.hpp#L253) | concept | Core, configuration & backend vocabulary | A Measurement that provides its own Jacobians: h.jacobian(x, u) → MeasurementJacobian |
 | [`any_of`](inc/damp/matrix/core.hpp#L1539) | function | Linear algebra | Whether p holds for some entry of A: the matrix counterpart of std::any_of |
 | [`apply_wet_plotly_shell`](inc/damp/simulation/plot_plotly.hpp#L66) | function | Simulation / SIL harness (host) | Apply damp's full-window HTML shell to plotlypp-generated markup |
 | [`arange`](inc/damp/analysis/linspace.hpp#L115) | function | Frequency-domain analysis (host) | Half-open arithmetic range [start, stop) with step step (+2 more overloads) |
@@ -222,8 +222,8 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`expm`](inc/damp/matrix/functions.hpp#L696) | function | Linear algebra | Matrix exponential by scaling and squaring (Al-Mohy & Higham 2009) |
 | [`expm`](inc/damp/matlab.hpp#L681) | function | MATLAB®-style aliases (host) | MATLAB® short alias for the matrix exponential (mat::expm) |
 | [`expo`](inc/damp/toolbox/conditioning.hpp#L204) | function | Embedded helpers (controls-adjacent utilities) | Exponential response curve `y = (1−k)·x + k·x³` (RC "expo") |
-| [`ExtendedKalmanFilter`](inc/damp/estimation/ekf.hpp#L118) | block | Observers & estimators | Extended Kalman filter: continuous nonlinear dynamics, sampled measurements (+1 more overload) |
-| [`ExtendedKalmanFilterConfig`](inc/damp/estimation/ekf.hpp#L42) | block | Observers & estimators | Configuration of an ExtendedKalmanFilter: its sample time, the process noise and the initial estimate |
+| [`ExtendedKalmanFilter`](inc/damp/estimation/ekf.hpp#L119) | block | Observers & estimators | Extended Kalman filter: continuous nonlinear dynamics, sampled measurements (+1 more overload) |
+| [`ExtendedKalmanFilterConfig`](inc/damp/estimation/ekf.hpp#L43) | block | Observers & estimators | Configuration of an ExtendedKalmanFilter: its sample time, the process noise and the initial estimate |
 | [`extract_channel`](inc/damp/simulation/plot_plotly.hpp#L225) | function | Simulation / SIL harness (host) | Extract the i-th element from each vector entry into a std::vector<double> |
 | [`extract_frf_features`](inc/damp/estimation/frequency_response.hpp#L810) | function | Observers & estimators | Extract peaks and valleys in one pass over the FRF table |
 | [`extract_modes`](inc/damp/estimation/frequency_response.hpp#L785) | function | Observers & estimators | Extract resonant peaks (local \|G\| maxima) from an FRF table |
@@ -597,6 +597,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`park_transform`](inc/damp/math/transforms.hpp#L355) | function | Scalar math, complex & frames | Park transform (αβ → dq) |
 | [`PatternEntry`](inc/damp/matrix/pattern_matrix.hpp#L25) | enum | Linear algebra | What an entry of a sparsity pattern is known to be at compile time |
 | [`PatternMatrix`](inc/damp/matrix/pattern_matrix.hpp#L219) | block | Linear algebra | The runtime values of a sparsity pattern, and nothing else: an entry the pattern knows has no storage, and in a product it has no term (a 0) or no multiply (a 1) |
+| [`PatternMeasurement`](inc/damp/concepts.hpp#L245) | concept | Core, configuration & backend vocabulary | A Measurement whose jacobian(x, u) returns C = ∂h/∂x as an NY × NX PatternMatrix: zeros and ones known at compile time, the other entries computed at (x, u) |
 | [`peaking`](inc/damp/filters/iir_design.hpp#L848) | function | Filters & signal conditioning | Peaking (bell) EQ filter: boost or cut a band around f0 |
 | [`Periodic`](inc/damp/toolbox/timing.hpp#L170) | block | Embedded helpers (controls-adjacent utilities) | Periodic trigger — fires once per elapsed period |
 | [`phase_margin_from_damping_ratio`](inc/damp/design/pid_design.hpp#L888) | function | Design-time synthesis (not PWM-rate) | Approximate phase margin from damping ratio |

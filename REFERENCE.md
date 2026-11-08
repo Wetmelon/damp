@@ -36,7 +36,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | Name | Description |
 | ---- | ----------- |
 | [`AnalyticDynamics`](inc/damp/concepts.hpp#L233) | Dynamics that provide their own Jacobians: f.jacobian(x, u) → DynamicsJacobian |
-| [`AnalyticMeasurement`](inc/damp/concepts.hpp#L239) | A Measurement that provides its own Jacobians: h.jacobian(x, u) → MeasurementJacobian |
+| [`AnalyticMeasurement`](inc/damp/concepts.hpp#L253) | A Measurement that provides its own Jacobians: h.jacobian(x, u) → MeasurementJacobian |
 | [`Dynamics`](inc/damp/concepts.hpp#L195) | Continuous-time nonlinear dynamics ẋ = f(x, u): a callable returning ẋ as a ColVec<NX, T> |
 | [`DynamicsJacobian`](inc/damp/concepts.hpp#L214) | Analytic Jacobians of a Dynamics model at (x, u), returned by its jacobian(x, u) |
 | [`FeedbackLaw`](inc/damp/concepts.hpp#L118) | An LQ or MPC law that holds outputs at r: control(r) and step(r, m) |
@@ -44,6 +44,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`Measurement`](inc/damp/concepts.hpp#L208) | Nonlinear measurement y = h(x, u): a callable returning y as a ColVec<NY, T> |
 | [`MeasurementJacobian`](inc/damp/concepts.hpp#L221) | Analytic Jacobians of a Measurement model at (x, u), returned by its jacobian(x, u) |
 | [`ParameterEstimator`](inc/damp/concepts.hpp#L159) | Online grey-box parameter estimator: physical parameters + gating |
+| [`PatternMeasurement`](inc/damp/concepts.hpp#L245) | A Measurement whose jacobian(x, u) returns C = ∂h/∂x as an NY × NX PatternMatrix: zeros and ones known at compile time, the other entries computed at (x, u) |
 | [`SignalSource`](inc/damp/concepts.hpp#L144) | Self-clocked signal source: u = step(), finished when done() |
 | [`SisoController`](inc/damp/concepts.hpp#L87) | Scalar output-feedback controller: u = control(r, y), fixed rate |
 | [`StateEstimator`](inc/damp/concepts.hpp#L131) | State estimator: x̂ = step(y, u) — the fused per-tick form |
@@ -517,8 +518,8 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`ESKFResult`](inc/damp/estimation/eskf.hpp#L87) | Design payload for an ESKF: Q, R, P₀, and success |
 | [`ESO`](inc/damp/estimation/eso.hpp#L312) | Extended-state observer (ESO) (+1 more overload) |
 | [`ESOResult`](inc/damp/estimation/eso.hpp#L57) | Extended-state observer design: continuous β and, for Ts > 0, the discrete ESO |
-| [`ExtendedKalmanFilter`](inc/damp/estimation/ekf.hpp#L118) | Extended Kalman filter: continuous nonlinear dynamics, sampled measurements (+1 more overload) |
-| [`ExtendedKalmanFilterConfig`](inc/damp/estimation/ekf.hpp#L42) | Configuration of an ExtendedKalmanFilter: its sample time, the process noise and the initial estimate |
+| [`ExtendedKalmanFilter`](inc/damp/estimation/ekf.hpp#L119) | Extended Kalman filter: continuous nonlinear dynamics, sampled measurements (+1 more overload) |
+| [`ExtendedKalmanFilterConfig`](inc/damp/estimation/ekf.hpp#L43) | Configuration of an ExtendedKalmanFilter: its sample time, the process noise and the initial estimate |
 | [`Filtered`](inc/damp/estimation/state_variable_filter.hpp#L67) | One signal after the state-variable filter: its filtered value and first two derivatives |
 | [`FirstOrderPlantEstimator`](inc/damp/estimation/parameter_estimation.hpp#L126) | Online estimator for a first-order plant's gain and time constant |
 | [`FirstOrderPlantEstimatorConfig`](inc/damp/estimation/parameter_estimation.hpp#L85) | Configuration for the first-order grey-box estimator |

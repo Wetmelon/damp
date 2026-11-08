@@ -234,6 +234,20 @@ concept AnalyticDynamics = Dynamics<F, NX, NU, T> && requires(const F& f, const 
     { f.jacobian(x, u) } -> std::convertible_to<DynamicsJacobian<NX, NU, T>>;
 };
 
+/**
+ * @brief A Measurement whose jacobian(x, u) returns C = ∂h/∂x as an NY × NX PatternMatrix: zeros
+ *        and ones known at compile time, the other entries computed at (x, u)
+ *
+ * The EKF's update then has no term for a zero and no multiply for a one. A consumer that needs
+ * D = ∂h/∂u (design::linearize) takes it by central differences.
+ */
+template<typename H, size_t NX, size_t NU, size_t NY, typename T>
+concept PatternMeasurement = Measurement<H, NX, NU, NY, T> && requires(const H& h, const ColVec<NX, T>& x, const ColVec<NU, T>& u) {
+    requires detail::is_pattern_matrix<std::remove_cvref_t<decltype(h.jacobian(x, u))>>;
+    requires std::is_same_v<typename std::remove_cvref_t<decltype(h.jacobian(x, u))>::Scalar, T>;
+    requires std::remove_cvref_t<decltype(h.jacobian(x, u))>::NR == NY&& std::remove_cvref_t<decltype(h.jacobian(x, u))>::NC == NX;
+};
+
 /** @brief A Measurement that provides its own Jacobians: h.jacobian(x, u) → MeasurementJacobian. */
 template<typename H, size_t NX, size_t NU, size_t NY, typename T>
 concept AnalyticMeasurement = Measurement<H, NX, NU, NY, T> && requires(const H& h, const ColVec<NX, T>& x, const ColVec<NU, T>& u) {

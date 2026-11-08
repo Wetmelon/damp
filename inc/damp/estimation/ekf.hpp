@@ -22,6 +22,7 @@
 #include <type_traits>
 
 #include "damp/concepts.hpp"
+#include "damp/estimation/joseph.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "damp/systems/dynamics.hpp"
 
@@ -160,7 +161,8 @@ struct ExtendedKalmanFilter {
      *     P[k|k] = (I − KC)·P·(I − KC)ᵀ + K·R·Kᵀ  [Joseph form]
      *
      * @param h Measurement y = h(x, u) (Measurement), a struct or a lambda, with an optional
-     *          analytic jacobian(x, u)
+     *          analytic jacobian(x, u). A jacobian that returns C as a PatternMatrix
+     *          (PatternMeasurement) has no term for its zeros and no multiply for its ones.
      * @param y Reading (NY rows)
      * @param R Covariance of the reading's noise
      * @return false if S is not positive definite: the estimate and P are unchanged
@@ -168,24 +170,33 @@ struct ExtendedKalmanFilter {
     template<typename H, size_t NY>
         requires Measurement<H, NX, NU, NY, T>
     [[nodiscard]] constexpr bool update(const H& h, const ColVec<NY, T>& y, const std::type_identity_t<Matrix<NY, NY, T>>& R) {
-        const Matrix<NY, NX, T> C = detail::measurement_state_jacobian<NX, NU, NY, T>(h, x, u_, detail::default_jacobian_step<T>());
-        const ColVec<NY, T>     nu = y - h(x, u_);
-        // S = CPCᵀ + R with exact symmetry on the propagated term
-        const Matrix<NY, NY, T> S = quadratic_form(C, P) + R;
+        const ColVec<NY, T> nu = y - h(x, u_);
+        if constexpr (PatternMeasurement<H, NX, NU, NY, T>) {
+            Matrix<NX, NY, T> K{detail::unfilled};
+            if (!detail::joseph_update(P, h.jacobian(x, u_), R, K)) {
+                return false;
+            }
+            x += K * nu;
+            return true;
+        } else {
+            const Matrix<NY, NX, T> C = detail::measurement_state_jacobian<NX, NU, NY, T>(h, x, u_, detail::default_jacobian_step<T>());
+            // S = CPCᵀ + R with exact symmetry on the propagated term
+            const Matrix<NY, NY, T> S = quadratic_form(C, P) + R;
 
-        // K = PCᵀS⁻¹ → solve S Kᵀ = C P by Cholesky (fail closed if S is not positive definite)
-        const auto K_opt = mat::cholesky_solve(S, Matrix<NY, NX, T>(C * P));
-        if (!K_opt) {
-            return false;
+            // K = PCᵀS⁻¹ → solve S Kᵀ = C P by Cholesky (fail closed if S is not positive definite)
+            const auto K_opt = mat::cholesky_solve(S, Matrix<NY, NX, T>(C * P));
+            if (!K_opt) {
+                return false;
+            }
+
+            const Matrix<NX, NY, T> K = K_opt.value().transpose();
+            x = x + (K * nu);
+
+            // Joseph form: P = (I − KC) P (I − KC)ᵀ + K R Kᵀ
+            const Matrix<NX, NX, T> I_KC = Matrix<NX, NX, T>::identity() - (K * C);
+            P = quadratic_form(I_KC, P) + quadratic_form(K, R);
+            return true;
         }
-
-        const Matrix<NX, NY, T> K = K_opt.value().transpose();
-        x = x + (K * nu);
-
-        // Joseph form: P = (I − KC) P (I − KC)ᵀ + K R Kᵀ
-        const Matrix<NX, NX, T> I_KC = Matrix<NX, NX, T>::identity() - (K * C);
-        P = quadratic_form(I_KC, P) + quadratic_form(K, R);
-        return true;
     }
 
     /** @brief The state estimate x̂. */

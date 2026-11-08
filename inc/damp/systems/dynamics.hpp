@@ -138,15 +138,17 @@ template<size_t NX, size_t NU, typename T, typename F>
     }
 }
 
-/** @brief C = ∂h/∂x at (x, u): the model's jacobian(x, u), else 2·NX evaluations of h. */
+/** @brief C = ∂h/∂x at (x, u), dense: the model's jacobian(x, u), else 2·NX evaluations of h. */
 template<size_t NX, size_t NU, size_t NY, typename T, typename H>
     requires Measurement<H, NX, NU, NY, T>
 [[nodiscard]] constexpr Matrix<NY, NX, T> measurement_state_jacobian(const H& h, const ColVec<NX, T>& x, const ColVec<NU, T>& u, T rel) {
     if constexpr (AnalyticMeasurement<H, NX, NU, NY, T>) {
         const MeasurementJacobian<NX, NU, NY, T> J = h.jacobian(x, u);
         return J.C;
+    } else if constexpr (PatternMeasurement<H, NX, NU, NY, T>) {
+        return h.jacobian(x, u).to_matrix();
     } else {
-        static_assert(!declares_jacobian<H, NX, NU, T>, "a Measurement model's jacobian(x, u) must return MeasurementJacobian<NX, NU, NY, T>");
+        static_assert(!declares_jacobian<H, NX, NU, T>, "a Measurement model's jacobian(x, u) must return MeasurementJacobian<NX, NU, NY, T> or an NY × NX PatternMatrix");
         const auto h_of_x = [&](const ColVec<NX, T>& xx) -> ColVec<NY, T> { return h(xx, u); };
         return central_difference<NY>(h_of_x, x, rel);
     }

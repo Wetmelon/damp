@@ -46,6 +46,10 @@ delay templates on OFLQG / MPC). v0.1.0 never shipped those names.
   `predict(F)`, `update_innovation(ν, H, R)` and `reset_error_state(G)`, and the INS and the attitude
   filter use them throughout. On a Cortex-M4F the 15-state `F P Fᵀ` takes 3,906 estimated cycles and
   a 3-row update 8,331, against 37,618 and 51,463 for the dense ones.
+- `KalmanFilter::update(y, C, R)` and `update(y, C, D, R)` take a `PatternMatrix` C, and the EKF's
+  measurement model may return its C = ∂h/∂x as one from `jacobian(x, u)` (`PatternMeasurement`).
+  On a Cortex-M4F, in float, a 7-state `KalmanFilter` reading one state takes 764 estimated cycles
+  against 3,914 dense, and a 10-state EKF's 2-row update 2,922 against 15,734.
 - `DiscretizationResult` from `discretize` / `c2d` / `d2d`. `lft`. Canonical
   forms in `systems/realization.hpp`. Transmission zeros (QZ) and `norm_hinf` /
   disk margins on the host.
