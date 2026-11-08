@@ -163,7 +163,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`DiscretePIDGains`](inc/damp/controllers/pid.hpp#L74) | block | Runtime controllers | Fixed-rate discrete PID coefficients (canonical deploy form) |
 | [`DiscretizationMethod`](inc/damp/systems/discretization.hpp#L27) | enum | LTI systems (SS / TF / ZPK / discretize) | Discretization methods for continuous-time state-space systems |
 | [`DiscretizationResult`](inc/damp/systems/discretization.hpp#L50) | block | LTI systems (SS / TF / ZPK / discretize) | A discretized or resampled model with its success / status, read like an optional |
-| [`discretize`](inc/damp/systems/discretization.hpp#L330) | function | LTI systems (SS / TF / ZPK / discretize) | Discretize a continuous-time state-space system (+1 more overload) |
+| [`discretize`](inc/damp/systems/discretization.hpp#L330) | function | LTI systems (SS / TF / ZPK / discretize) | Discretize a continuous-time state-space system (+3 more overloads) |
 | [`discretize_lqr_cost`](inc/damp/design/riccati.hpp#L1676) | function | Design-time synthesis (not PWM-rate) | Discretize a continuous LQR cost integral over one sample (Van Loan) |
 | [`discretize_process_noise`](inc/damp/estimation/kalman.hpp#L269) | function | Observers & estimators | Discretize continuous process noise over one sample (Van Loan) |
 | [`disk_margin`](inc/damp/analysis/disk_margin.hpp#L158) | function | Frequency-domain analysis (host) | Disk margin of a SISO loop L under unity negative feedback |
@@ -328,7 +328,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`ImuSample`](inc/damp/estimation/ins_mechanization.hpp#L124) | block | Observers & estimators | IMU sample in the body frame |
 | [`infinity_norm`](inc/damp/matrix/functions.hpp#L39) | function | Linear algebra | Infinity norm ‖A‖∞: maximum absolute row sum |
 | [`initial`](inc/damp/analysis/time_response.hpp#L246) | function | Frequency-domain analysis (host) | Initial-condition (free) response of a (MIMO) state-space system |
-| [`InputDelay`](inc/damp/systems/discretization.hpp#L555) | block | LTI systems (SS / TF / ZPK / discretize) | An input delay of θ = seconds, in up to N registers (0 ≤ θ ≤ N·Ts): each register state holds an input already sent, v(k−1) … v(k−N). `discretize(sys, Ts, InputDelay<N>{theta})` returns that model; design on it like any other. `InputDelay{theta}` is N = 1 (+1 more overload) |
+| [`InputDelay`](inc/damp/systems/discretization.hpp#L558) | block | LTI systems (SS / TF / ZPK / discretize) | An input delay of θ = seconds, in up to N registers (0 ≤ θ ≤ N·Ts): each register state holds the inputs already sent, v(k−1) … v(k−N). `discretize(sys, Ts, InputDelay<N>{θ})` returns that model; design on it like any other. `InputDelay{θ}` is N = 1 (+1 more overload) |
 | [`InputDisturbance`](inc/damp/design/disturbance.hpp#L40) | block | Design-time synthesis (not PWM-rate) | An input disturbance: d adds to u, B_d = B and C_d = D, one disturbance per input |
 | [`ins_aid_position`](inc/damp/estimation/ins_eskf.hpp#L386) | function | Observers & estimators | Predicted antenna / marker position with body lever-arm |
 | [`ins_apply_correction`](inc/damp/estimation/ins_eskf.hpp#L372) | function | Observers & estimators | Inject filter correction into x and reset the error state |
@@ -585,6 +585,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`option_type`](inc/damp/design/options.hpp#L41) | block | Design-time synthesis (not PWM-rate) | The type of the first option of the kind Is among Opts, else Default (+1 more overload) |
 | [`optional`](inc/damp/backend.hpp#L185) | block | Core, configuration & backend vocabulary | The optional of a toolchain with no C++ standard headers (ETL_NO_STL) |
 | [`output_inverse`](inc/damp/design/model_inverse.hpp#L683) | function | Design-time synthesis (not PWM-rate) | The stable inverse of a discrete model: the state and input of its trajectory through a reference y on the controlled outputs, from y ₖ … y ₖ₊NP₋₁ (+1 more overload) |
+| [`OutputDelay`](inc/damp/systems/discretization.hpp#L584) | block | LTI systems (SS / TF / ZPK / discretize) | A measurement delay of θ = seconds, in up to N registers (0 ≤ θ ≤ N·Ts): the reading that arrives at sample k is y(t_k − θ). `discretize(sys, Ts, OutputDelay<N>{θ})` returns that model; design on it like any other. `OutputDelay{θ}` is N = 1 (+1 more overload) |
 | [`OutputDisturbance`](inc/damp/design/disturbance.hpp#L51) | block | Design-time synthesis (not PWM-rate) | An output disturbance: a bias on each reading, B_d = 0 and C_d = I, one per output |
 | [`OutputInverse`](inc/damp/design/model_inverse.hpp#L861) | block | Design-time synthesis (not PWM-rate) | The stable inverse at run time: the reference point (x , u ) from the output reference over the preview, seven matrix–vector products and the zero dynamics' state (+1 more overload) |
 | [`OutputInverseResult`](inc/damp/design/model_inverse.hpp#L140) | block | Design-time synthesis (not PWM-rate) | The stable inverse of a discrete model over a preview of NP output samples |

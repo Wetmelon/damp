@@ -28,6 +28,13 @@ delay templates on OFLQG / MPC). v0.1.0 never shipped those names.
 - `InputDelay<N>{θ}` on `discretize`: θ ≤ N·Ts in N registers, NX + N·NU states,
   exact under ZOH; `InputDelay{θ}` is N = 1. Every law and estimator takes the model
   as it is. Tustin pre-warp: `discretize(sys, Ts, Tustin, w0)`.
+- `OutputDelay<N>{θ}` on `discretize`: a reading that arrives θ after it was taken, held in N
+  output registers, NX + N·NY states, exact under ZOH for a fraction of a sample too. A filter on
+  the model estimates the current state from the late readings, and MPC counts the dead time.
+  `discretize(sys, Ts, InputDelay<N>{θu}, OutputDelay<M>{θy})` takes both, in that state order.
+- One delay per channel: `InputDelay<N, ColVec<NU>>{{θ₁, θ₂}}` and `OutputDelay<N, ColVec<NY>>`,
+  a delay for each input or output in the same N registers; the scalar form is still one delay for
+  every channel.
 - `Law<kRes, T>` of a `constexpr` design runs on `ConstMatrix`: the same ticks with the matrices
   constants of the type, so they take no RAM and a coefficient that is exactly 0 is no code. It covers
   LQR, LQI, LQG, LQGI, OFLQG, `FixedGainObserver`, `ReducedOrderObserver`, `ESO`, `ADRCController`,

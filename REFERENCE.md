@@ -219,8 +219,9 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | ---- | ----------- |
 | [`DiscretizationMethod`](inc/damp/systems/discretization.hpp#L27) | Discretization methods for continuous-time state-space systems |
 | [`DiscretizationResult`](inc/damp/systems/discretization.hpp#L50) | A discretized or resampled model with its success / status, read like an optional |
-| [`InputDelay`](inc/damp/systems/discretization.hpp#L555) | An input delay of θ = seconds, in up to N registers (0 ≤ θ ≤ N·Ts): each register state holds an input already sent, v(k−1) … v(k−N). `discretize(sys, Ts, InputDelay<N>{theta})` returns that model; design on it like any other. `InputDelay{theta}` is N = 1 (+1 more overload) |
+| [`InputDelay`](inc/damp/systems/discretization.hpp#L558) | An input delay of θ = seconds, in up to N registers (0 ≤ θ ≤ N·Ts): each register state holds the inputs already sent, v(k−1) … v(k−N). `discretize(sys, Ts, InputDelay<N>{θ})` returns that model; design on it like any other. `InputDelay{θ}` is N = 1 (+1 more overload) |
 | [`LeverrierResult`](inc/damp/systems/zpk.hpp#L517) | Faddeev–LeVerrier characteristic polynomial and adjoint coefficient matrices |
+| [`OutputDelay`](inc/damp/systems/discretization.hpp#L584) | A measurement delay of θ = seconds, in up to N registers (0 ≤ θ ≤ N·Ts): the reading that arrives at sample k is y(t_k − θ). `discretize(sys, Ts, OutputDelay<N>{θ})` returns that model; design on it like any other. `OutputDelay{θ}` is N = 1 (+1 more overload) |
 | [`PolyRootsResult`](inc/damp/systems/zpk.hpp#L91) | Roots of a real polynomial given highest power first |
 | [`SsFeed`](inc/damp/systems/state_space.hpp#L644) | One term of a linear output mix: k · y_iy |
 | [`StaircaseFormResult`](inc/damp/systems/realization.hpp#L645) | A model in staircase coordinates, the orthogonal transform that took it there, and its rank |
@@ -242,7 +243,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`companion_form`](inc/damp/systems/realization.hpp#L616) | Companion form of a SISO model, MATLAB®'s canon(sys, 'companion'): B = e₁, −α in A's last column |
 | [`controllability_staircase`](inc/damp/systems/realization.hpp#L791) | Controllability staircase form: the controllable part split off by an orthogonal transform |
 | [`controllable_canonical_form`](inc/damp/systems/realization.hpp#L518) | Controllable canonical form of a SISO model: ones on A's superdiagonal, −α in its last row, B = eₙ |
-| [`discretize`](inc/damp/systems/discretization.hpp#L330) | Discretize a continuous-time state-space system (+1 more overload) |
+| [`discretize`](inc/damp/systems/discretization.hpp#L330) | Discretize a continuous-time state-space system (+3 more overloads) |
 | [`eval_frf`](inc/damp/systems/state_space.hpp#L232) | Evaluate frequency response of a state-space system |
 | [`feedback`](inc/damp/systems/state_space.hpp#L390) | Negative feedback: y = sys1(u − sys2(y)) (+1 more overload) |
 | [`feedback_read`](inc/damp/systems/state_space.hpp#L827) | Unity (or weighted) negative feedback around G_loop, read G_out |

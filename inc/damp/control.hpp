@@ -17,7 +17,7 @@
  *
  * This umbrella is the embeddable surface:
  * - linear algebra + pluggable math backend (via matrix / math includes)
- * - LTI systems (SS / TF / ZPK) + @c design:: synthesis (@c discretize, @c InputDelay in N registers)
+ * - LTI systems (SS / TF / ZPK) + @c design:: synthesis (@c discretize, @c InputDelay and @c OutputDelay in N registers)
  * - core design-is-deploy controllers and estimators (including MPC / MHE on the
  *   allocation-free QP, ESKF / attitude fusion and the strapdown INS)
  * - identification on target: excitation sources, frequency-response and relay

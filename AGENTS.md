@@ -102,8 +102,10 @@ the repo root.
 - **LTI shape:** design continuous SS → `discretize(..., ZOH)` → step matrices.
   Prefer ZOH over hand-rolled Euler when an LTI model exists. An input delay is
   `discretize(sys, Ts, InputDelay<N>{θ})`, θ ≤ N·Ts in N registers of the plant
-  (`InputDelay{θ}` is N = 1), never a parameter of a law; many samples of dead
-  time is a slower sample or `SmithPredictor`.
+  (`InputDelay{θ}` is N = 1), and a late reading `OutputDelay<N>{θ}` the same
+  way; a `ColVec` of seconds gives one delay per channel. A delay is never a
+  parameter of a law; many samples of dead time is a slower sample or
+  `SmithPredictor`.
 - **Ticks:** estimators `predict` / `update`; controllers `control`; `step` is
   predict then update then control (m_k in, u_k out). Low-latency ISR: update →
   control → write → `back_calculate` → predict. `back_calculate(u_sat, u_ff = {})`
