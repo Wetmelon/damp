@@ -94,14 +94,15 @@ template<size_t NI, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size
  *
  * @note Compare with MATLAB®'s lqgtrack.
  */
-template<size_t NX, size_t NU, size_t NY, size_t NI, typename T, typename Est>
-struct LQGI : private detail::StateFeedbackCore<NX, NU, T, NI, NY, Est, 0> {
-    using Core = detail::StateFeedbackCore<NX, NU, T, NI, NY, Est, 0>; ///< The shared implementation
+template<size_t NX, size_t NU, size_t NY, size_t NI, typename T, typename Est, typename Store = detail::HeldGains>
+struct LQGI : private detail::StateFeedbackCore<NX, NU, T, NI, NY, Est, 0, Store> {
+    using Core = detail::StateFeedbackCore<NX, NU, T, NI, NY, Est, 0, Store>; ///< The shared implementation
 
     constexpr LQGI() = default;
 
     /** @brief From design::lqgi (any scalar). */
     template<size_t NXR, size_t NUR, typename U, size_t NIR, size_t NYR, typename Kalman, size_t NZR>
+        requires(!Store::constant)
     constexpr LQGI(const design::StateFeedbackResult<NXR, NUR, U, NIR, NYR, Kalman, NZR>& result) { // NOLINT
         constexpr bool kind = NIR > 0 && !std::is_same_v<Kalman, NoEstimator>;
         static_assert(kind, "LQGI runs design::lqgi: this design has no Kalman filter (LQR, LQI) or no integral action (LQG, OFLQG).");
@@ -154,6 +155,8 @@ template<size_t NX, size_t NU, typename U, size_t NI, size_t NY, typename Kalman
     requires(NI > 0 && !std::is_same_v<Kalman, NoEstimator>)
 struct lq_runtime<design::StateFeedbackResult<NX, NU, U, NI, NY, Kalman, 0>, T> {
     using type = LQGI<NX, NU, NY, NI, T, runtime_estimator_t<Kalman, T>>; ///< LQGI
+    template<typename Est, typename Store>
+    using on_constants = LQGI<NX, NU, NY, NI, T, Est, Store>; ///< LQGI on the design's constants
 };
 
 } // namespace detail

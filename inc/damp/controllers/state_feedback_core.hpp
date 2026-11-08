@@ -29,6 +29,7 @@
 #include "damp/math/complex.hpp"
 #include "damp/math/math.hpp"
 #include "damp/matrix/block.hpp"
+#include "damp/matrix/const_matrix.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "damp/matrix/matrix_traits.hpp"
 #include "damp/systems/state_space.hpp"
@@ -69,8 +70,8 @@ struct estimator_traits {
 };
 
 /** @brief A Luenberger observer's sizes. */
-template<size_t NXK, size_t NU, size_t NY, typename T, size_t ND_>
-struct estimator_traits<Luenberger<NXK, NU, NY, T, ND_>> {
+template<size_t NXK, size_t NU, size_t NY, typename T, size_t ND_, typename Store>
+struct estimator_traits<Luenberger<NXK, NU, NY, T, ND_, Store>> {
     static constexpr bool   present = true;  ///< A filter runs
     static constexpr size_t NXE = NXK - ND_; ///< Filter states before the disturbance
     static constexpr size_t ND = ND_;        ///< Disturbance states
@@ -81,16 +82,16 @@ struct estimator_traits<Luenberger<NXK, NU, NY, T, ND_>> {
  *        measurement) and their feedthrough Ci·D, the per-sample step, the error held for the next
  *        predict, and with an estimator the measurement held from the last update (NYH = NY; 0: none).
  */
-template<size_t NI, size_t NC, size_t NU, size_t NYH, typename T>
+template<size_t NI, size_t NC, size_t NU, size_t NYH, typename T, typename CiMatrix = Matrix<NI, NC, T>, typename CiuMatrix = Matrix<NI, NU, T>>
 struct IntegralAction {
     using HeldY = maybe<(NYH > 0), ColVec<NYH, T>, OffSlot::held_y>;
 
-    ColVec<NI, T>               xi{};    ///< Integral of the tracking error
-    Matrix<NI, NC, T>           Ci{};    ///< Integrated outputs: e = r − Ci·(measurement)
-    Matrix<NI, NU, T>           Ci_u{};  ///< Ci·D: the integrated outputs' feedthrough of the input
-    T                           step{1}; ///< Per-sample integrator gain: the design's Ts (xi += Ts·e ≈ ∫e dt)
-    ColVec<NI, T>               e{};     ///< Error held from control for the next predict, before the input's feedthrough
-    [[no_unique_address]] HeldY y{};     ///< Measurement from the last update (with an estimator)
+    ColVec<NI, T>                   xi{};    ///< Integral of the tracking error
+    [[no_unique_address]] CiMatrix  Ci{};    ///< Integrated outputs: e = r − Ci·(measurement)
+    [[no_unique_address]] CiuMatrix Ci_u{};  ///< Ci·D: the integrated outputs' feedthrough of the input
+    T                               step{1}; ///< Per-sample integrator gain: the design's Ts (xi += Ts·e ≈ ∫e dt)
+    ColVec<NI, T>                   e{};     ///< Error held from control for the next predict, before the input's feedthrough
+    [[no_unique_address]] HeldY     y{};     ///< Measurement from the last update (with an estimator)
 };
 
 /** @brief Not a StateFeedbackResult. */
@@ -140,6 +141,22 @@ using runtime_estimator_t = runtime_estimator<Kalman, T>::type;
 
 namespace detail {
 
+/** @brief Where a state-feedback law keeps its matrices: in the object, any value at run time. */
+struct HeldGains {
+    static constexpr bool constant = false; ///< The matrices are members
+
+    template<size_t R, size_t C, typename T>
+    using K = Matrix<R, C, T>; ///< The gain
+    template<size_t R, size_t C, typename T>
+    using Ci = Matrix<R, C, T>; ///< The integrated outputs
+    template<size_t R, size_t C, typename T>
+    using Ci_u = Matrix<R, C, T>; ///< Their feedthrough
+    template<size_t R, size_t C, typename T>
+    using TargetD = Matrix<R, C, T>; ///< The target per unit d̂
+    template<size_t R, size_t C, typename T>
+    using TargetR = Matrix<R, C, T>; ///< The target per unit r
+};
+
 /**
  * @brief The implementation the state-feedback runtimes share: u = u* − K·(x̂ − x*), every feature
  *        optional and free when off.
@@ -184,8 +201,9 @@ namespace detail {
  * @tparam NY  Measured outputs (with no estimator, the outputs the integrators read through C)
  * @tparam Est Estimator: Luenberger (the fixed Kalman gain of design::kalman), or NoEstimator for a measured state
  * @tparam NZ  Controlled outputs of the steady-state target (0: none)
+ * @tparam Store Where the matrices live: HeldGains (members), or constants of the type (Law of a `constexpr` design)
  */
-template<size_t NX, size_t NU, typename T, size_t NI, size_t NY, typename Est, size_t NZ>
+template<size_t NX, size_t NU, typename T, size_t NI, size_t NY, typename Est, size_t NZ, typename Store = HeldGains>
 struct StateFeedbackCore {
     using Traits = detail::estimator_traits<Est>;
     static constexpr bool   kEstimated = Traits::present;         ///< A filter estimates the state
@@ -200,20 +218,20 @@ struct StateFeedbackCore {
     static constexpr bool kRecord = (NI > 0) || kEstimated; ///< The law keeps its command and the applied input
     using Record = std::conditional_t<kRecord, detail::AppliedRecord<NU, T>, detail::NoAppliedRecord>;
 
-    using Target = detail::maybe<(NZ > 0), SteadyStateTarget<NXE, NU, ND, NZ, T>, detail::OffSlot::target>;
-    using Integral = detail::maybe<(NI > 0), detail::IntegralAction<NI, NM, NU, (kEstimated ? NY : 0), T>, detail::OffSlot::integral>;
+    using Target = detail::maybe<(NZ > 0), SteadyStateTarget<NXE, NU, ND, NZ, T, typename Store::template TargetD<NXE + NU, ND, T>, typename Store::template TargetR<NXE + NU, NZ, T>>, detail::OffSlot::target>;
+    using Integral = detail::maybe<(NI > 0), detail::IntegralAction<NI, NM, NU, (kEstimated ? NY : 0), T, typename Store::template Ci<NI, NM, T>, typename Store::template Ci_u<NI, NU, T>>, detail::OffSlot::integral>;
     using HeldX = detail::maybe<!kEstimated, ColVec<NX, T>, detail::OffSlot::held_x>;
 
-    Matrix<NU, NXL + NI, T>        K{};         ///< Gain on [x; xi]
-    [[no_unique_address]] Est      estimator{}; ///< The filter (none for a measured state)
-    [[no_unique_address]] Target   target{};    ///< The steady-state target (NZ > 0)
-    [[no_unique_address]] Integral integral{};  ///< The integrators (NI > 0)
+    [[no_unique_address]] typename Store::template K<NU, NXL + NI, T> K{};         ///< Gain on [x; xi]
+    [[no_unique_address]] Est                                         estimator{}; ///< The filter (none for a measured state)
+    [[no_unique_address]] Target                                      target{};    ///< The steady-state target (NZ > 0)
+    [[no_unique_address]] Integral                                    integral{};  ///< The integrators (NI > 0)
 
     constexpr StateFeedbackCore() = default;
 
     /** @brief From a gain on the law's state (no estimator): K = @p K_. */
     constexpr explicit StateFeedbackCore(const Matrix<NU, NXL + NI, T>& K_)
-        requires(!kEstimated)
+        requires(!kEstimated && !Store::constant)
         : K(K_) {}
 
     /**
@@ -223,7 +241,7 @@ struct StateFeedbackCore {
      * time either leaves K = 0.
      */
     template<typename R>
-        requires(detail::gain_result<R> && !kEstimated && NI == 0 && NZ == 0)
+        requires(detail::gain_result<R> && !kEstimated && NI == 0 && NZ == 0 && !Store::constant)
     constexpr StateFeedbackCore(const R& result) // NOLINT
     {
         if (usable(result, detail::discrete_gain(result))) {
@@ -239,6 +257,7 @@ struct StateFeedbackCore {
      * time either leaves K = 0.
      */
     template<size_t NXR, size_t NUR, typename U, size_t NIR, size_t NYR, typename Kalman, size_t NZR>
+        requires(!Store::constant)
     constexpr StateFeedbackCore(const design::StateFeedbackResult<NXR, NUR, U, NIR, NYR, Kalman, NZR>& result) { // NOLINT
         constexpr bool same = NXR == NX && NUR == NU && NIR == NI && NYR == NY && NZR == NZ && std::is_same_v<Est, detail::runtime_estimator_t<Kalman, T>>;
         static_assert(same, "This law's sizes are not the design's: let them deduce, LQG law{res}, or Law<res, T> for a member.");
@@ -504,12 +523,20 @@ struct lq_runtime {};
 
 } // namespace detail
 
-/** @brief Law<kRes, T> of an LQ or gain design: the runtime it runs as (LQR, LQI, LQG, LQGI, OFLQG), default-constructed from the design. */
+namespace detail {
+
+/** @brief An LQ or gain design: a result that has a runtime in lq_runtime. */
 template<const auto& Res, typename T>
-    requires requires {
-        typename detail::lq_runtime<std::remove_cvref_t<decltype(Res)>, T>::type;
-        Res.success;
-    }
+concept lq_design = requires {
+    typename lq_runtime<std::remove_cvref_t<decltype(Res)>, T>::type;
+    Res.success;
+};
+
+} // namespace detail
+
+/** @brief Law<kRes, T> of an LQ or gain design initialized at start-up: the runtime it runs as (LQR, LQI, LQG, LQGI, OFLQG), default-constructed from the design. A runtime of the same shape assigned replaces it. */
+template<const auto& Res, typename T>
+    requires detail::lq_design<Res, T>
 struct Law<Res, T> : detail::lq_runtime<std::remove_cvref_t<decltype(Res)>, T>::type {
     using Runtime = detail::lq_runtime<std::remove_cvref_t<decltype(Res)>, T>::type; ///< The runtime the design runs as
 
@@ -519,6 +546,111 @@ struct Law<Res, T> : detail::lq_runtime<std::remove_cvref_t<decltype(Res)>, T>::
     using Runtime::operator=;
 };
 
+namespace detail {
+
+/** @brief A design a Law can run on constants: it succeeded and is discrete. Anything else does not compile, and the error names its status. */
+template<const auto& Res>
+inline constexpr bool constant_design_usable = [] {
+    const bool ok = Res.success && discrete_gain(Res);
+    if (!ok) {
+        if constexpr (requires { Res.status; }) {
+            refuse_failed_design(Res.success ? design::DesignStatus::invalid_sample_time : Res.status);
+        } else {
+            refuse_failed_design();
+        }
+    }
+    return ok;
+}();
+
+/** @brief The law's matrices as constants of the type: the store of a `constexpr` design's Law. */
+template<const auto& Res, typename T>
+struct ConstantGains {
+    static constexpr bool constant = true;               ///< The matrices are constants of the type
+    static constexpr auto design = Res.template as<T>(); ///< The design, in the runtime's scalar
+    static constexpr auto kK = design.K;                 ///< K
+    static constexpr auto kCi = [] {
+        if constexpr (requires { design.integral.Ci; }) {
+            if constexpr (std::remove_cvref_t<decltype(design)>::kEstimated) {
+                return design.integral.Ci; // on the measurement y
+            } else {
+                return design.integral.Ci_x; // on the measured state: Ci·C
+            }
+        } else {
+            return Matrix<0, 0, T>{};
+        }
+    }(); ///< The integrated outputs
+    static constexpr auto kCiu = [] {
+        if constexpr (requires { design.integral.Ci_u; }) {
+            return design.integral.Ci_u;
+        } else {
+            return Matrix<0, 0, T>{};
+        }
+    }(); ///< Their feedthrough
+    static constexpr auto kTargetD = [] {
+        if constexpr (requires { design.target.target_d; }) {
+            return design.target.target_d;
+        } else {
+            return Matrix<0, 0, T>{};
+        }
+    }(); ///< The target per unit d̂
+    static constexpr auto kTargetR = [] {
+        if constexpr (requires { design.target.target_r; }) {
+            return design.target.target_r;
+        } else {
+            return Matrix<0, 0, T>{};
+        }
+    }(); ///< The target per unit r
+
+    template<size_t, size_t, typename>
+    using K = ConstMatrix<kK>; ///< The gain
+    template<size_t, size_t, typename>
+    using Ci = ConstMatrix<kCi>; ///< The integrated outputs
+    template<size_t, size_t, typename>
+    using Ci_u = ConstMatrix<kCiu>; ///< Their feedthrough
+    template<size_t, size_t, typename>
+    using TargetD = ConstMatrix<kTargetD>; ///< The target per unit d̂
+    template<size_t, size_t, typename>
+    using TargetR = ConstMatrix<kTargetR>; ///< The target per unit r
+};
+
+/** @brief The estimator of a `constexpr` design's Law: none for a measured state. */
+template<const auto& Res, typename T, typename R = std::remove_cvref_t<decltype(Res)>>
+struct constant_estimator {
+    using type = NoEstimator; ///< NoEstimator
+};
+
+/** @brief A design with a filter runs its Luenberger on constants of the type. */
+template<const auto& Res, typename T, size_t NX, size_t NU, typename U, size_t NI, size_t NY, size_t NXK, size_t NW, size_t NV, size_t ND, size_t NZ>
+struct constant_estimator<Res, T, design::StateFeedbackResult<NX, NU, U, NI, NY, design::KalmanResult<NXK, NU, NY, U, NW, NV, ND>, NZ>> {
+    using type = Luenberger<NXK, NU, NY, T, ND, ConstantObserver<Res, T, NXK - ND>>; ///< The observer and the disturbance
+};
+
+} // namespace detail
+
+/** @brief Law<kRes, T> of a `constexpr` LQ or gain design: the same runtime on the design's matrices as constants of the type. */
+template<const auto& Res, typename T>
+    requires(detail::lq_design<Res, T> && detail::constant_design<Res>)
+struct Law<Res, T> : detail::lq_runtime<std::remove_cvref_t<decltype(Res)>, T>::template on_constants<typename detail::constant_estimator<Res, T>::type, detail::ConstantGains<Res, T>> {
+    using Runtime = detail::lq_runtime<std::remove_cvref_t<decltype(Res)>, T>::type; ///< The runtime with members: the type of a member a redesign assigns
+
+    static_assert(detail::constant_design_usable<Res>);
+
+    /** @brief The design's law. */
+    constexpr Law() {
+        if constexpr (requires { this->integral.step; }) {
+            this->integral.step = static_cast<T>(Res.integral.step);
+        }
+    }
+
+    /** @brief There is nothing to replace: the design is in the type. */
+    template<typename Other>
+        requires(!std::is_same_v<std::remove_cvref_t<Other>, Law>)
+    constexpr Law& operator=(const Other& other) {
+        static_assert(sizeof(Other) == 0, "This Law is a constexpr design's: its matrices are constants of the type, so there is nothing to replace. A member a redesign assigns is Law<kRes, T>::Runtime law{kRes.as<T>()};");
+        static_cast<void>(other);
+        return *this;
+    }
+};
 
 } // namespace damp
 

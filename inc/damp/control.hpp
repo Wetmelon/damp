@@ -13,7 +13,7 @@
  * (variant gains as @c constexpr), with the same runtime objects usable in SIL.
  *
  * Start here on the MCU: @c StateSpace (or TF / ZPK), @c design::lqr / @c lqi / @c pidtune / @c kalman,
- * @c Law{res.as<float>()}, then @c step in the interrupt. Same objects in SIL.
+ * @c Law<kRes, float> on a @c constexpr design, then @c step in the interrupt. Same objects in SIL.
  *
  * This umbrella is the embeddable surface:
  * - linear algebra + pluggable math backend (via matrix / math includes)

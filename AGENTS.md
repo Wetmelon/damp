@@ -111,7 +111,7 @@ the repo root.
   constraints. No exceptions on the tick path.
 
 **`matrix.hpp` includes** (order is irrelevant): `block`, `colvec`, `concat`,
-`core`, `decomposition`, `eigen`, `functions`, `generalized_eigen`, `rowvec`,
+`const_matrix`, `core`, `decomposition`, `eigen`, `functions`, `generalized_eigen`, `rowvec`,
 `solve`, `svd`, `views`.
 
 ## Contributor rules
@@ -203,8 +203,9 @@ fallthrough, shadowing); clang-tidy.
   assign-from-design constructors.
 - A runtime constructed from a design result refuses a failed one when
   constant-evaluated: `refuse_failed_design(result.status)` names the cause.
-  `static constinit Law law{res};` then needs no separate
-  `static_assert(res.success)`.
+  `static constinit LQR law{res};` then needs no separate
+  `static_assert(res.success)`, and `Law<kRes, T>` of a `constexpr` design
+  refuses one wherever it is declared.
 - No virtuals, no RTTI, no type erasure on the product path.
 
 **Annotations — only where they carry meaning**

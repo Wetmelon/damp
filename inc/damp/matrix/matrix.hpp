@@ -18,6 +18,7 @@
 #include "block.hpp"             // IWYU pragma: export
 #include "colvec.hpp"            // IWYU pragma: export
 #include "concat.hpp"            // IWYU pragma: export
+#include "const_matrix.hpp"      // IWYU pragma: export
 #include "core.hpp"              // IWYU pragma: export
 #include "decomposition.hpp"     // IWYU pragma: export
 #include "eigen.hpp"             // IWYU pragma: export
