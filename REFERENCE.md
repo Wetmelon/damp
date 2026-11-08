@@ -165,8 +165,8 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 
 | Name | Description |
 | ---- | ----------- |
-| [`all_of`](inc/damp/matrix/core.hpp#L1510) | Whether p holds for every entry of A: the matrix counterpart of std::all_of |
-| [`any_of`](inc/damp/matrix/core.hpp#L1534) | Whether p holds for some entry of A: the matrix counterpart of std::any_of |
+| [`all_of`](inc/damp/matrix/core.hpp#L1519) | Whether p holds for every entry of A: the matrix counterpart of std::all_of |
+| [`any_of`](inc/damp/matrix/core.hpp#L1543) | Whether p holds for some entry of A: the matrix counterpart of std::any_of |
 | [`backward_substitute_transpose`](inc/damp/matrix/solve.hpp#L76) | Backward substitution for Lᴴx = b (Lᵀx = b for real T) |
 | [`blkdiag`](inc/damp/matrix/concat.hpp#L133) | Block-diagonal assembly of MatrixLike arguments |
 | [`cholesky`](inc/damp/matrix/decomposition.hpp#L122) | Cholesky decomposition for positive-definite matrices |
@@ -196,7 +196,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`pow`](inc/damp/matrix/functions.hpp#L1130) | Integer matrix power via binary exponentiation (+1 more overload) |
 | [`pseudo_inverse`](inc/damp/matrix/svd.hpp#L401) | Moore–Penrose pseudoinverse A⁺ via SVD |
 | [`qr_decompose`](inc/damp/matrix/decomposition.hpp#L442) | Thin QR via Householder reflections |
-| [`quadratic_form`](inc/damp/matrix/core.hpp#L1339) | Symmetric congruence (quadratic) form  S = M X Mᵀ (+1 more overload) |
+| [`quadratic_form`](inc/damp/matrix/core.hpp#L1348) | Symmetric congruence (quadratic) form  S = M X Mᵀ (+1 more overload) |
 | [`quadratic_form_in_place`](inc/damp/matrix/pattern_matrix.hpp#L341) | S ← F S Fᵀ in place, for a symmetric S: every multiply the pattern can skip, skipped |
 | [`rank`](inc/damp/matrix/functions.hpp#L231) | Numerical rank: the number of singular values above rel_tol·σₘₐₓ |
 | [`rank_from_svd`](inc/damp/matrix/svd.hpp#L365) | Numerical rank from a precomputed SVD result |
@@ -207,7 +207,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`sqrt`](inc/damp/matrix/functions.hpp#L983) | Principal matrix square root by the real Schur method |
 | [`svd`](inc/damp/matrix/svd.hpp#L331) | Full singular value decomposition A = U·Σ·Vᴴ (one-sided Jacobi) |
 | [`times_transpose`](inc/damp/matrix/pattern_matrix.hpp#L317) | A dense matrix times Hᵀ for a sparse H: A Hᵀ |
-| [`transform`](inc/damp/matrix/core.hpp#L1486) | Apply f to every entry, B(i, j) = f(A(i, j)): the matrix counterpart of std::transform |
+| [`transform`](inc/damp/matrix/core.hpp#L1495) | Apply f to every entry, B(i, j) = f(A(i, j)): the matrix counterpart of std::transform |
 | [`two_norm`](inc/damp/matrix/functions.hpp#L104) | Spectral norm ‖A‖₂ = σₘₐₓ(A) |
 | [`vcat`](inc/damp/matrix/concat.hpp#L180) | Vertical concatenation (same column count) |
 

@@ -80,9 +80,39 @@ auto product_of(const Matrix<R, K, T>& a, const RhsAt& rhs_at) {
     };
 }
 
+/// A copy in a member's default initializer, as Bounds builds its ColVec from a Matrix.
+struct WithCopiedDefault {
+    ColVec<2, double> lower = Matrix<2, 1, double>::constant(-1.0);
+};
+
+/// Holds one, as RlsConfig holds a Bounds.
+struct HoldsCopiedDefault {
+    double            scale{1.0};
+    WithCopiedDefault box{};
+};
+
+/// GCC 14 crashed compiling this constructor (an internal compiler error in
+/// build_data_member_initialization) when the copy reached a function that is not constexpr.
+struct BuildsOneAsALocal {
+    constexpr explicit BuildsOneAsALocal(double scale) {
+        HoldsCopiedDefault h{};
+        h.scale = scale;
+        value = h.scale * h.box.lower[0];
+    }
+    double value{0.0};
+};
+
+BuildsOneAsALocal g_built_as_local{2.0};
+
 } // namespace
 
 TEST_SUITE("Matrix without a zero-fill") {
+    TEST_CASE("a copy in a member's default initializer compiles inside a constexpr constructor") {
+        CHECK(g_built_as_local.value == -2.0);
+        const BuildsOneAsALocal at_run_time{3.0};
+        CHECK(at_run_time.value == -3.0);
+    }
+
     TEST_CASE_TEMPLATE("products are the plain arithmetic on a dirty stack", T, float, double) {
         const auto a = wiggly<kBig, kBig, T>(0.1);
         const auto b = wiggly<kBig, kBig, T>(0.9);

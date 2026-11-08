@@ -390,12 +390,21 @@ protected:
     /**
      * @brief Copy-constructor seed: the whole array under constant evaluation; at run
      * time no values yet, for the constant-index folds that GCC can SROA to write.
+     *
+     * The unset array is built here rather than by unset_elements: GCC 14 crashes (an internal
+     * compiler error in build_data_member_initialization) when a copy constructor reached from a
+     * member's default initializer, in a local of a `constexpr` constructor, calls a function that is
+     * not `constexpr`.
      */
     [[nodiscard]] static constexpr damp::array<T, Rows * Cols> copy_seed(const Matrix& other) {
         if (damp::is_constant_evaluated()) {
             return other.data_;
         }
-        return unset_elements();
+        damp::array<T, Rows * Cols> out; // NOLINT(cppcoreguidelines-pro-type-member-init): copy_from writes every entry
+        if constexpr (sizeof(damp::array<T, Rows * Cols>) <= detail::kReturnedInRegistersBytes) {
+            out = {};
+        }
+        return out;
     }
 
 public:
