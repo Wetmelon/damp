@@ -369,6 +369,43 @@ template<const auto& P, size_t N, typename T>
     });
 }
 
+namespace detail {
+
+/** @brief The sparsity pattern of a constant matrix @p M: its exact zeros and ones, and every other entry a value. */
+template<const auto& M>
+inline constexpr auto pattern_of = [] {
+    using Stored = std::remove_cvref_t<decltype(M)>;
+    using Value = typename Stored::value_type;
+    SparsityPattern<Stored::rows(), Stored::cols()> p{};
+    for (size_t r = 0; r < Stored::rows(); ++r) {
+        for (size_t c = 0; c < Stored::cols(); ++c) {
+            const Value v = M(r, c);
+            p.entries[(r * Stored::cols()) + c] = (v == Value{0}) ? PatternEntry::zero : ((v == Value{1}) ? PatternEntry::one : PatternEntry::value);
+        }
+    }
+    return p;
+}();
+
+/**
+ * @brief A constant matrix @p M as a PatternMatrix whose values are constants too: the pattern
+ *        products and quadratic forms then skip its zeros and ones and read its other entries as literals
+ */
+template<const auto& M>
+inline constexpr auto as_pattern_matrix = [] {
+    using Stored = std::remove_cvref_t<decltype(M)>;
+    PatternMatrix<pattern_of<M>, typename Stored::value_type> out{};
+    for (size_t r = 0; r < Stored::rows(); ++r) {
+        for (size_t c = 0; c < Stored::cols(); ++c) {
+            if (pattern_of<M>(r, c) == PatternEntry::value) {
+                out.values[pattern_slots<pattern_of<M>>[(r * Stored::cols()) + c]] = M(r, c);
+            }
+        }
+    }
+    return out;
+}();
+
+} // namespace detail
+
 /** @brief F S Fᵀ for a symmetric S (quadratic_form_in_place, on a copy). */
 template<const auto& P, size_t N, typename T>
 [[nodiscard, gnu::always_inline]] constexpr Matrix<N, N, T> quadratic_form(const PatternMatrix<P, T>& F, const Matrix<N, N, T>& S) {

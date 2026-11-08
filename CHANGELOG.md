@@ -34,6 +34,11 @@ delay templates on OFLQG / MPC). v0.1.0 never shipped those names.
   replace them: a member a redesign assigns is `Law<kRes, T>::Runtime`. A design initialized at
   start-up keeps members. `Law` now also covers `design::kalman`, `design::place_observer`,
   `design::reduced_order_observer`, `design::eso` and `design::adrc`.
+- `Law<kRes, T>::Recursive` of a `design::kalman`: the recursive `KalmanFilter` of the same model and
+  noise. On a `constexpr` design its model and noise are constants of the type, so `A P Aᵀ` and the
+  model's own update have no term for an exact zero and no multiply for an exact one: a 2-state plant
+  with five delay registers takes 1,018 estimated cycles a tick on a Cortex-M4F against 8,266 with
+  members, and 228 B against 568 B. `KalmanFilter` takes a trailing store parameter for it.
 - `SparsityPattern` and `PatternMatrix` (`matrix/pattern_matrix.hpp`): a matrix whose zeros and ones are
   known at compile time and whose other entries are runtime values, for a Jacobian whose numbers change
   every tick and whose shape does not. A product has no term for a zero and no multiply for a one, and
