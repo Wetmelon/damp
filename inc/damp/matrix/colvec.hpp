@@ -32,6 +32,9 @@ struct ColVec : public Matrix<N, 1, T> {
      * @brief Default constructor
      */
     constexpr ColVec() = default;
+
+    /** @brief No zero-fill at run time. Not API: see detail::Unfilled. */
+    constexpr explicit ColVec(const detail::Unfilled& tag) : Matrix<N, 1, T>(tag) {}
     /**
      * @brief Copy constructor and assignment
      */
@@ -262,7 +265,7 @@ template<size_t Rows, size_t Cols, typename T, typename U>
     requires SamePrecision<T, U>
 [[nodiscard]] constexpr auto operator*(const Matrix<Rows, Cols, T>& mat, const ColVec<Cols, U>& vec) {
     using R = detail::common_element_t<T, U>;
-    ColVec<Rows, R> result;
+    ColVec<Rows, R> result{detail::unfilled};
     for (size_t i = 0; i < Rows; ++i) {
         R sum{};
         for (size_t k = 0; k < Cols; ++k) {

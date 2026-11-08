@@ -199,6 +199,8 @@ fallthrough, shadowing); clang-tidy.
 **Types and initialization**
 
 - Every member has a default member initializer.
+- `detail::unfilled` skips `Matrix`'s run-time zero-fill. Use it only for a result whose
+  every entry is written before it is read; constant evaluation still starts from zeros.
 - Single-argument constructors are `explicit`, except documented
   assign-from-design constructors.
 - A runtime constructed from a design result refuses a failed one when

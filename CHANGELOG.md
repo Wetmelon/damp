@@ -40,7 +40,7 @@ delay templates on OFLQG / MPC). v0.1.0 never shipped those names.
   `quadratic_form_in_place` computes `F S Fᵀ` with no copy of S. `ErrorStateKalmanFilter` takes one in
   `predict(F)`, `update_innovation(ν, H, R)` and `reset_error_state(G)`, and the INS and the attitude
   filter use them throughout. On a Cortex-M4F the 15-state `F P Fᵀ` takes 3,906 estimated cycles and
-  a 3-row update 9,639, against 41,567 and 61,809 for the dense ones.
+  a 3-row update 8,331, against 37,618 and 51,463 for the dense ones.
 - `DiscretizationResult` from `discretize` / `c2d` / `d2d`. `lft`. Canonical
   forms in `systems/realization.hpp`. Transmission zeros (QZ) and `norm_hinf` /
   disk margins on the host.
@@ -67,6 +67,12 @@ delay templates on OFLQG / MPC). v0.1.0 never shipped those names.
 
 ### Changed
 
+- Matrix operations no longer zero-fill a result whose every entry they write, triangular solves
+  build their result inside the `optional`, and an operator on a plain `Matrix` returns its result
+  with no copy. That removes `memset` and `memcpy` calls from the run-time path. On a Cortex-M4F
+  with full newlib a dense 15-state `F P Fᵀ` goes from 41,567 to 37,618 estimated cycles and the
+  dense 3-row ESKF update from 61,809 to 51,463; with newlib-nano, whose `memset` works a byte at a
+  time, that update goes from 146,340 to 65,501. A triangular solve checks its whole diagonal first.
 - `Matrix` `+`, `-` and `+=`, `-=` keep constant indices at run time up to 64 entries, so a local
   past GCC's 16-iteration unroll limit (a `ColVec<18>`) still scalar-replaces and stays out of memory.
 - One tick vocabulary: estimators `predict` / `update`, controllers `control`,

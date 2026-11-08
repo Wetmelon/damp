@@ -307,7 +307,7 @@ TEST_CASE("Matrix inverse() - 1x1 matrix") {
     Matrix<1, 1, float> mat = {{2.0f}};
     auto                inv = mat.inverse();
     REQUIRE(inv.has_value());
-    CHECK(inv->operator()(0, 0) == 0.5f);
+    CHECK(inv->operator()(0, 0) == doctest::Approx(0.5f)); // through √2, so not exact in general
 
     // Test identity property: mat * inv = identity
     auto product = mat * inv.value();

@@ -52,8 +52,8 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 
 | Name | Description |
 | ---- | ----------- |
-| [`array_as`](inc/damp/backend.hpp#L195) | Element-wise static_cast of a damp::array to scalar type U (precision rebind) |
-| [`minmax`](inc/damp/backend.hpp#L164) | Ordered {min, max} pair returned by value (+1 more overload) |
+| [`array_as`](inc/damp/backend.hpp#L197) | Element-wise static_cast of a damp::array to scalar type U (precision rebind) |
+| [`minmax`](inc/damp/backend.hpp#L166) | Ordered {min, max} pair returned by value (+1 more overload) |
 
 ## Scalar math, complex & frames
 
@@ -141,7 +141,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`is_matrix_element`](inc/damp/matrix/matrix_traits.hpp#L42) | True if T may be a Matrix element type |
 | [`LDLT`](inc/damp/matrix/decomposition.hpp#L163) | LDLᴴ factors: A = L D Lᴴ with L unit lower-triangular and D real diagonal |
 | [`LowerTriangle`](inc/damp/matrix/views.hpp#L165) | Lower triangular view of a square matrix |
-| [`Matrix`](inc/damp/matrix/core.hpp#L253) | Fixed-size, stack-allocated matrix for linear algebra operations |
+| [`Matrix`](inc/damp/matrix/core.hpp#L270) | Fixed-size, stack-allocated matrix for linear algebra operations |
 | [`MatrixLike`](inc/damp/matrix/matrix_traits.hpp#L98) | Concept for any type that provides 2D matrix-like element access |
 | [`MatrixLikeOf`](inc/damp/matrix/matrix_traits.hpp#L108) | Concept for a MatrixLike type with specific dimensions |
 | [`NullSpace`](inc/damp/matrix/svd.hpp#L437) | Orthonormal basis for the null space (kernel) of a matrix |
@@ -160,12 +160,12 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 
 | Name | Description |
 | ---- | ----------- |
-| [`all_of`](inc/damp/matrix/core.hpp#L1453) | Whether p holds for every entry of A: the matrix counterpart of std::all_of |
-| [`any_of`](inc/damp/matrix/core.hpp#L1477) | Whether p holds for some entry of A: the matrix counterpart of std::any_of |
-| [`backward_substitute_transpose`](inc/damp/matrix/solve.hpp#L61) | Backward substitution for Lᴴx = b (Lᵀx = b for real T) |
+| [`all_of`](inc/damp/matrix/core.hpp#L1515) | Whether p holds for every entry of A: the matrix counterpart of std::all_of |
+| [`any_of`](inc/damp/matrix/core.hpp#L1539) | Whether p holds for some entry of A: the matrix counterpart of std::any_of |
+| [`backward_substitute_transpose`](inc/damp/matrix/solve.hpp#L79) | Backward substitution for Lᴴx = b (Lᵀx = b for real T) |
 | [`blkdiag`](inc/damp/matrix/concat.hpp#L135) | Block-diagonal assembly of MatrixLike arguments |
 | [`cholesky`](inc/damp/matrix/decomposition.hpp#L124) | Cholesky decomposition for positive-definite matrices |
-| [`cholesky_solve`](inc/damp/matrix/solve.hpp#L159) | Solve AX = B via Cholesky (A = LLᴴ) |
+| [`cholesky_solve`](inc/damp/matrix/solve.hpp#L163) | Solve AX = B via Cholesky (A = LLᴴ) |
 | [`compute_eigenvalues`](inc/damp/matrix/eigen.hpp#L763) | Compute the eigenvalues (and Schur vectors) of a real square matrix |
 | [`cos`](inc/damp/matrix/functions.hpp#L1353) | Matrix cosine via scaling and double-angle reconstruction |
 | [`cosh`](inc/damp/matrix/functions.hpp#L1387) | Matrix hyperbolic cosine cosh(A) = (exp(A) + exp(−A))/2 |
@@ -174,35 +174,35 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`diag`](inc/damp/matrix/concat.hpp#L55) | Square diagonal matrix from scalars: diag(10.0, 0.1, 100.0, 10.0) (+4 more overloads) |
 | [`eps`](inc/damp/matrix/matrix_traits.hpp#L115) | Machine epsilon of T's real scalar (MATLAB® eps). Scale it by problem size and magnitude to build a relative tolerance |
 | [`expm`](inc/damp/matrix/functions.hpp#L696) | Matrix exponential by scaling and squaring (Al-Mohy & Higham 2009) |
-| [`forward_substitute`](inc/damp/matrix/solve.hpp#L37) | Forward substitution for Lx = b |
+| [`forward_substitute`](inc/damp/matrix/solve.hpp#L55) | Forward substitution for Lx = b |
 | [`full_qr`](inc/damp/matrix/decomposition.hpp#L533) | Full QR factorization via Householder reflections (real or complex T) |
 | [`generalized_eigenvalues`](inc/damp/matrix/generalized_eigen.hpp#L509) | Generalized eigenvalues of the real pencil A − λB: the λ with det(A − λB) = 0 |
 | [`hcat`](inc/damp/matrix/concat.hpp#L159) | Horizontal concatenation (same row count) |
 | [`infinity_norm`](inc/damp/matrix/functions.hpp#L42) | Infinity norm ‖A‖∞: maximum absolute row sum |
-| [`inverse`](inc/damp/matrix/solve.hpp#L294) | Matrix inverse A⁻¹ via mat::solve(A, I) |
+| [`inverse`](inc/damp/matrix/solve.hpp#L298) | Matrix inverse A⁻¹ via mat::solve(A, I) |
 | [`is_symmetric_or_hermitian`](inc/damp/matrix/decomposition.hpp#L91) | True if A equals its transpose (real) or conjugate transpose (complex) |
 | [`ldlt`](inc/damp/matrix/decomposition.hpp#L191) | LDLᴴ decomposition of a symmetric (Hermitian) matrix, no pivoting |
-| [`ldlt_solve`](inc/damp/matrix/solve.hpp#L189) | Solve AX = B via LDLᴴ (A = L D Lᴴ, symmetric indefinite) |
+| [`ldlt_solve`](inc/damp/matrix/solve.hpp#L193) | Solve AX = B via LDLᴴ (A = L D Lᴴ, symmetric indefinite) |
 | [`log`](inc/damp/matrix/functions.hpp#L1031) | Principal matrix logarithm via inverse scaling and squaring |
 | [`lu_decomposition`](inc/damp/matrix/decomposition.hpp#L254) | LU decomposition with partial pivoting |
-| [`lu_solve`](inc/damp/matrix/solve.hpp#L220) | Solve AX = B via LU with partial pivoting |
+| [`lu_solve`](inc/damp/matrix/solve.hpp#L224) | Solve AX = B via LU with partial pivoting |
 | [`null_space`](inc/damp/matrix/svd.hpp#L458) | Orthonormal basis for the null space {x : A·x = 0} via SVD |
 | [`one_norm`](inc/damp/matrix/functions.hpp#L71) | One-norm ‖A‖₁: maximum absolute column sum |
 | [`pow`](inc/damp/matrix/functions.hpp#L1133) | Integer matrix power via binary exponentiation (+1 more overload) |
 | [`pseudo_inverse`](inc/damp/matrix/svd.hpp#L404) | Moore–Penrose pseudoinverse A⁺ via SVD |
 | [`qr_decompose`](inc/damp/matrix/decomposition.hpp#L444) | Thin QR via Householder reflections |
-| [`quadratic_form`](inc/damp/matrix/core.hpp#L1282) | Symmetric congruence (quadratic) form  S = M X Mᵀ (+1 more overload) |
+| [`quadratic_form`](inc/damp/matrix/core.hpp#L1344) | Symmetric congruence (quadratic) form  S = M X Mᵀ (+1 more overload) |
 | [`quadratic_form_in_place`](inc/damp/matrix/pattern_matrix.hpp#L345) | S ← F S Fᵀ in place, for a symmetric S: every multiply the pattern can skip, skipped |
 | [`rank`](inc/damp/matrix/functions.hpp#L234) | Numerical rank: the number of singular values above rel_tol·σₘₐₓ |
 | [`rank_from_svd`](inc/damp/matrix/svd.hpp#L368) | Numerical rank from a precomputed SVD result |
 | [`sin`](inc/damp/matrix/functions.hpp#L1336) | Matrix sine via scaling and double-angle reconstruction |
 | [`sincos`](inc/damp/matrix/functions.hpp#L1320) | Compute sin(A) and cos(A) together via scaling and double-angle reconstruction |
 | [`sinh`](inc/damp/matrix/functions.hpp#L1371) | Matrix hyperbolic sine sinh(A) = (exp(A) − exp(−A))/2 |
-| [`solve`](inc/damp/matrix/solve.hpp#L266) | Solve AX = B — Cholesky when Hermitian, else LU (+2 more overloads) |
+| [`solve`](inc/damp/matrix/solve.hpp#L270) | Solve AX = B — Cholesky when Hermitian, else LU (+2 more overloads) |
 | [`sqrt`](inc/damp/matrix/functions.hpp#L986) | Principal matrix square root by the real Schur method |
 | [`svd`](inc/damp/matrix/svd.hpp#L334) | Full singular value decomposition A = U·Σ·Vᴴ (one-sided Jacobi) |
 | [`times_transpose`](inc/damp/matrix/pattern_matrix.hpp#L321) | A dense matrix times Hᵀ for a sparse H: A Hᵀ |
-| [`transform`](inc/damp/matrix/core.hpp#L1429) | Apply f to every entry, B(i, j) = f(A(i, j)): the matrix counterpart of std::transform |
+| [`transform`](inc/damp/matrix/core.hpp#L1491) | Apply f to every entry, B(i, j) = f(A(i, j)): the matrix counterpart of std::transform |
 | [`two_norm`](inc/damp/matrix/functions.hpp#L107) | Spectral norm ‖A‖₂ = σₘₐₓ(A) |
 | [`vcat`](inc/damp/matrix/concat.hpp#L182) | Vertical concatenation (same column count) |
 

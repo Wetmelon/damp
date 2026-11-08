@@ -23,6 +23,24 @@
 
 namespace damp {
 
+namespace detail {
+
+/**
+ * @brief An optional holding the matrix @p fill writes, built in the optional's own storage
+ *
+ * `return X;` from a function returning optional<Matrix> has to copy X in: the types differ, so no
+ * return elision applies. One return of one variable of the return type does not copy. @p fill must
+ * write every entry before reading it.
+ */
+template<typename M, typename Fill>
+[[nodiscard]] constexpr damp::optional<M> built_in_place(const Fill& fill) {
+    damp::optional<M> out{damp::in_place, unfilled};
+    fill(*out);
+    return out;
+}
+
+} // namespace detail
+
 namespace mat {
 
 /**
@@ -83,31 +101,24 @@ template<size_t N, size_t M, typename T>
 constexpr damp::optional<Matrix<N, M, std::remove_const_t<T>>>
 solve(const LowerTriangle<N, T>& L, const Matrix<N, M, std::remove_const_t<T>>& B) {
     using VT = std::remove_const_t<T>;
+    using Result = Matrix<N, M, VT>;
 
-    Matrix<N, M, VT> X;
-    for (size_t col = 0; col < M; ++col) {
-        ColVec<N, VT> b;
-        for (size_t i = 0; i < N; ++i) {
-            b(i) = B(i, col);
-        }
-
-        ColVec<N, VT> x;
-        for (size_t i = 0; i < N; ++i) {
-            if (!(damp::abs(L(i, i)) > 0)) {
-                return damp::nullopt;
-            }
-            VT sum = b(i);
-            for (size_t j = 0; j < i; ++j) {
-                sum -= L(i, j) * x(j);
-            }
-            x(i) = sum / L(i, i);
-        }
-
-        for (size_t i = 0; i < N; ++i) {
-            X(i, col) = x(i);
+    for (size_t i = 0; i < N; ++i) {
+        if (!(damp::abs(L(i, i)) > 0)) {
+            return damp::nullopt;
         }
     }
-    return X;
+    return ::damp::detail::built_in_place<Result>([&](Result& X) {
+        for (size_t col = 0; col < M; ++col) {
+            for (size_t i = 0; i < N; ++i) {
+                VT sum = B(i, col);
+                for (size_t j = 0; j < i; ++j) {
+                    sum -= L(i, j) * X(j, col);
+                }
+                X(i, col) = sum / L(i, i);
+            }
+        }
+    });
 }
 
 /**
@@ -119,31 +130,24 @@ template<size_t N, size_t M, typename T>
 constexpr damp::optional<Matrix<N, M, std::remove_const_t<T>>>
 solve(const UpperTriangle<N, T>& U, const Matrix<N, M, std::remove_const_t<T>>& B) {
     using VT = std::remove_const_t<T>;
+    using Result = Matrix<N, M, VT>;
 
-    Matrix<N, M, VT> X;
-    for (size_t col = 0; col < M; ++col) {
-        ColVec<N, VT> b;
-        for (size_t i = 0; i < N; ++i) {
-            b(i) = B(i, col);
-        }
-
-        ColVec<N, VT> x;
-        for (size_t i = N; i-- > 0;) {
-            if (!(damp::abs(U(i, i)) > 0)) {
-                return damp::nullopt;
-            }
-            VT sum = b(i);
-            for (size_t j = i + 1; j < N; ++j) {
-                sum -= U(i, j) * x(j);
-            }
-            x(i) = sum / U(i, i);
-        }
-
-        for (size_t i = 0; i < N; ++i) {
-            X(i, col) = x(i);
+    for (size_t i = 0; i < N; ++i) {
+        if (!(damp::abs(U(i, i)) > 0)) {
+            return damp::nullopt;
         }
     }
-    return X;
+    return ::damp::detail::built_in_place<Result>([&](Result& X) {
+        for (size_t col = 0; col < M; ++col) {
+            for (size_t i = N; i-- > 0;) {
+                VT sum = B(i, col);
+                for (size_t j = i + 1; j < N; ++j) {
+                    sum -= U(i, j) * X(j, col);
+                }
+                X(i, col) = sum / U(i, i);
+            }
+        }
+    });
 }
 
 /**
