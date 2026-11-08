@@ -21,7 +21,7 @@
 #include "damp/design/disturbance.hpp"
 #include "damp/design/model_inverse.hpp"
 #include "damp/estimation/eso.hpp"
-#include "damp/estimation/luenberger.hpp"
+#include "damp/estimation/fixed_gain_observer.hpp"
 #include "damp/matrix/colvec.hpp"
 #include "damp/matrix/const_matrix.hpp"
 #include "damp/matrix/matrix.hpp"
@@ -323,9 +323,9 @@ TEST_SUITE("Law of a constexpr design") {
         CHECK(std::abs(held.state_estimate()[0] - fixed.state_estimate()[0]) < 1e-10);
     }
 
-    TEST_CASE("an observer design: the same estimate as Luenberger, a Kalman gain and a placed one") {
+    TEST_CASE("an observer design: the same estimate as FixedGainObserver, a Kalman gain and a placed one") {
         static constexpr auto kKalman = design::kalman(kDelayed, {.process = kQn, .measurement = 1e-4});
-        static constexpr auto kPlaced = design::luenberger(kPlant, {0.9, 0.92});
+        static constexpr auto kPlaced = design::place_observer(kPlant, {0.9, 0.92});
         static constexpr auto kAnchored = design::kalman(kDelayed, {.process = kQn, .measurement = 1e-4, .disturbance = 1e-2}, design::InputDisturbance{});
         static_assert(sizeof(Law<kKalman, float>) < sizeof(Law<kKalman, float>::Runtime) / 2);
 
@@ -343,11 +343,11 @@ TEST_SUITE("Law of a constexpr design") {
             }
             CHECK(worst < 1e-10);
         };
-        run(Luenberger{kKalman}, Law<kKalman, double>{});
-        run(Luenberger{kPlaced}, Law<kPlaced, double>{});
+        run(FixedGainObserver{kKalman}, Law<kKalman, double>{});
+        run(FixedGainObserver{kPlaced}, Law<kPlaced, double>{});
 
         // The anchor: the deviation shifts with it, the reference point's motion carried.
-        Luenberger             held{kAnchored};
+        FixedGainObserver      held{kAnchored};
         Law<kAnchored, double> fixed;
         double                 worst = 0.0;
         for (int k = 0; k < 1000; ++k) {
@@ -415,8 +415,8 @@ TEST_SUITE("The other runtimes on a constexpr design") {
         CHECK(fixed.valid());
     }
 
-    TEST_CASE("ReducedLuenberger: the same estimate") {
-        static constexpr auto kReduced = design::reduced_luenberger(kPlant, {0.5});
+    TEST_CASE("ReducedOrderObserver: the same estimate") {
+        static constexpr auto kReduced = design::reduced_order_observer(kPlant, {0.5});
         REQUIRE(kReduced.success);
         static_assert(sizeof(Law<kReduced, float>) < sizeof(Law<kReduced, float>::Runtime));
         Law<kReduced, double>::Runtime held{kReduced};

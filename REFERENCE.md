@@ -323,7 +323,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`StateFeedforward`](inc/damp/design/model_inverse.hpp#L821) | The plant-inversion feedforward at run time: u = B⁺·(x ₖ₊₁ − x ₖ) − B⁺(A − I)·x ₖ, two matrix–vector products (+1 more overload) |
 | [`StateFeedforwardResult`](inc/damp/design/model_inverse.hpp#L63) | The plant-inversion feedforward of a discrete model: u ₖ = B⁺·(x ₖ₊₁ − x ₖ) − B⁺(A − I)·x ₖ |
 | [`StateSpaceResult`](inc/damp/design/model_result.hpp#L59) | A designed state-space model with its success / status |
-| [`SteadyStateTarget`](inc/damp/design/steady_state_target.hpp#L372) | The steady-state target at run time: (x_t, u_t) from the reference and the estimated disturbance, two matrix–vector products, and the re-anchoring of a Luenberger observer on it (+1 more overload) |
+| [`SteadyStateTarget`](inc/damp/design/steady_state_target.hpp#L372) | The steady-state target at run time: (x_t, u_t) from the reference and the estimated disturbance, two matrix–vector products, and the re-anchoring of a FixedGainObserver on it (+1 more overload) |
 | [`SteadyStateTargetResult`](inc/damp/design/steady_state_target.hpp#L75) | The steady-state target maps: [x_t; u_t] per unit disturbance and per unit reference |
 | [`STSMCResult`](inc/damp/controllers/stsmc.hpp#L34) | Super-twisting (second-order sliding-mode) controller design result |
 | [`TargetPoint`](inc/damp/design/steady_state_target.hpp#L356) | A state and the input at it: a steady state (SteadyStateTarget), or a point of a reference trajectory (OutputInverse) |
@@ -522,6 +522,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`Filtered`](inc/damp/estimation/state_variable_filter.hpp#L67) | One signal after the state-variable filter: its filtered value and first two derivatives |
 | [`FirstOrderPlantEstimator`](inc/damp/estimation/parameter_estimation.hpp#L126) | Online estimator for a first-order plant's gain and time constant |
 | [`FirstOrderPlantEstimatorConfig`](inc/damp/estimation/parameter_estimation.hpp#L85) | Configuration for the first-order grey-box estimator |
+| [`FixedGainObserver`](inc/damp/estimation/fixed_gain_observer.hpp#L604) | The fixed-gain state observer: the innovation gain M held, the current form, and the optional disturbance anchor (+4 more overloads) |
 | [`FrequencyResponseEstimator`](inc/damp/estimation/frequency_response.hpp#L168) | Lock-in FRF estimator over a fixed table of NFreq bins |
 | [`FrfFeatureKind`](inc/damp/estimation/frequency_response.hpp#L437) | Peak (resonance) or valley (anti-resonance) on an FRF magnitude curve |
 | [`FrfFeatureResult`](inc/damp/estimation/frequency_response.hpp#L520) | Combined peak + valley reduction of an FRF table |
@@ -538,8 +539,6 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`KalmanNoise`](inc/damp/estimation/kalman.hpp#L80) | The estimator's noise: process noise on the plant's noise inputs (through G), measurement noise on the sensors (through H) (+2 more overloads) |
 | [`KalmanResult`](inc/damp/estimation/kalman.hpp#L138) | Steady-state Kalman filter design result |
 | [`Law`](inc/damp/estimation/eso.hpp#L461) | Law<kRes, T> of a design::eso initialized at start-up: the ESO it runs as. A runtime of the same shape assigned replaces it (+5 more overloads) |
-| [`Luenberger`](inc/damp/estimation/luenberger.hpp#L604) | The fixed-gain state observer: the innovation gain M held, the current form, and the optional disturbance anchor (+4 more overloads) |
-| [`LuenbergerResult`](inc/damp/estimation/luenberger.hpp#L119) | Luenberger observer design result: the plant, the gains L and M, and the achieved error poles |
 | [`MadgwickFilter`](inc/damp/estimation/sensor_fusion.hpp#L135) | Madgwick gradient-descent AHRS filter |
 | [`MahonyFilter`](inc/damp/estimation/sensor_fusion.hpp#L177) | Mahony nonlinear complementary filter with PI correction |
 | [`MHE`](inc/damp/estimation/mhe.hpp#L346) | Runtime moving-horizon estimator (fixed per-tick iteration budget) (+1 more overload) |
@@ -552,14 +551,15 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`MultiSineResult`](inc/damp/estimation/excitation/multi_sine.hpp#L104) | Multi-sine design payload |
 | [`NavFrame`](inc/damp/estimation/ins_mechanization.hpp#L77) | Local-level navigation frame for strapdown mechanization |
 | [`ParameterDriftMonitor`](inc/damp/estimation/parameter_estimation.hpp#L252) | Residual-based drift detector: has the plant moved away from the model? |
+| [`PlaceObserverResult`](inc/damp/estimation/fixed_gain_observer.hpp#L119) | Luenberger observer design result: the plant, the gains L and M, and the achieved error poles |
 | [`PRBS`](inc/damp/estimation/excitation/prbs.hpp#L189) | Maximal-length PRBS runtime generator (+1 more overload) |
 | [`PRBSConfig`](inc/damp/estimation/excitation/prbs.hpp#L82) | Configuration for maximal-length pseudo-random binary excitation |
 | [`PRBSResult`](inc/damp/estimation/excitation/prbs.hpp#L126) | PRBS design payload |
 | [`Ramp`](inc/damp/estimation/excitation/ramp.hpp#L117) | Rate-limited ramp runtime generator (+1 more overload) |
 | [`RampConfig`](inc/damp/estimation/excitation/ramp.hpp#L33) | Configuration for a slew-rate-limited ramp excitation |
 | [`RampResult`](inc/damp/estimation/excitation/ramp.hpp#L65) | Ramp design payload |
-| [`ReducedLuenberger`](inc/damp/estimation/luenberger.hpp#L1047) | Reduced-order (Gopinath) state observer (runtime) (+1 more overload) |
-| [`ReducedLuenbergerResult`](inc/damp/estimation/luenberger.hpp#L348) | Reduced-order (Gopinath) observer design result |
+| [`ReducedOrderObserver`](inc/damp/estimation/fixed_gain_observer.hpp#L1047) | Reduced-order (Gopinath) state observer (runtime) (+1 more overload) |
+| [`ReducedOrderObserverResult`](inc/damp/estimation/fixed_gain_observer.hpp#L348) | Reduced-order (Gopinath) observer design result |
 | [`RelayAutotuneConfig`](inc/damp/estimation/relay_autotune.hpp#L128) | Configuration for the relay-feedback autotuning experiment |
 | [`RelayAutotuneOutput`](inc/damp/estimation/relay_autotune.hpp#L260) | Per-tick output of RelayAutotuner::step |
 | [`RelayAutotuner`](inc/damp/estimation/relay_autotune.hpp#L279) | Runtime relay-feedback autotuner (+1 more overload) |
@@ -620,16 +620,16 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`ins_update_velocity`](inc/damp/estimation/ins_eskf.hpp#L469) | Sparse velocity update: y = v at the IMU origin (no lever-arm) |
 | [`ins_update_zupt`](inc/damp/estimation/ins_eskf.hpp#L488) | Zero-velocity update (ZUPT): velocity measurement of zero |
 | [`kalman`](inc/damp/estimation/kalman.hpp#L485) | Steady-state Kalman filter design (+3 more overloads) |
-| [`luenberger`](inc/damp/estimation/luenberger.hpp#L300) | Design a Luenberger observer by robust pole placement, in the domain of sys (+1 more overload) |
 | [`margins_from_frf`](inc/damp/estimation/frequency_response.hpp#L842) | Gain / phase margins from a fixed on-target FRF table |
 | [`mechanize_step`](inc/damp/estimation/ins_mechanization.hpp#L210) | One dead-reckoning step from a raw IMU sample (subtracts the state's biases) |
 | [`mechanize_step_from_corrected`](inc/damp/estimation/ins_mechanization.hpp#L175) | One dead-reckoning step from an IMU sample (strapdown mechanization) |
 | [`mhe`](inc/damp/estimation/mhe.hpp#L227) | Synthesize a constrained moving-horizon estimator |
 | [`multi_sine`](inc/damp/estimation/excitation/multi_sine.hpp#L139) | Build a multi-sine design payload from a configuration |
 | [`ned_from_enu`](inc/damp/estimation/ins_mechanization.hpp#L106) | Map an ENU vector into NED (axis permute) |
+| [`place_observer`](inc/damp/estimation/fixed_gain_observer.hpp#L300) | Design a Luenberger observer by robust pole placement, in the domain of sys (+1 more overload) |
 | [`prbs`](inc/damp/estimation/excitation/prbs.hpp#L166) | Build a PRBS design payload from a configuration |
 | [`ramp`](inc/damp/estimation/excitation/ramp.hpp#L101) | Build a ramp design payload from a configuration |
-| [`reduced_luenberger`](inc/damp/estimation/luenberger.hpp#L507) | Design a reduced-order (Gopinath) observer by pole placement, in the domain of sys (+1 more overload) |
+| [`reduced_order_observer`](inc/damp/estimation/fixed_gain_observer.hpp#L507) | Design a reduced-order (Gopinath) observer by pole placement, in the domain of sys (+1 more overload) |
 | [`relay_autotune`](inc/damp/estimation/relay_autotune.hpp#L228) | Build a validated relay-autotune design payload |
 | [`rls_vector`](inc/damp/estimation/rls.hpp#L135) | Build vector RLS design payload |
 | [`schroeder_multi_sine`](inc/damp/estimation/excitation/multi_sine.hpp#L193) | Build a multi-sine design payload with Schroeder phases applied |

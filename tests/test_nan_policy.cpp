@@ -27,8 +27,8 @@
 #include "damp/controllers/smith_predictor.hpp"
 #include "damp/controllers/stsmc.hpp"
 #include "damp/design/qp.hpp"
+#include "damp/estimation/fixed_gain_observer.hpp"
 #include "damp/estimation/kalman.hpp"
-#include "damp/estimation/luenberger.hpp"
 #include "damp/estimation/ukf.hpp"
 #include "damp/filters/complementary.hpp"
 #include "damp/filters/moving_average.hpp"
@@ -192,7 +192,7 @@ TEST_SUITE("NaN/Inf policy") {
             CHECK(all_finite(u));
             CHECK(u[0] == 0.0f);
         }
-        using OffsetFree = OFMPC<2, 1, 1, 10, 3, float, design::WarmStartActiveSetSolver<4, 33, float>, 0, Luenberger<3, 1, 1, float, 1>>;
+        using OffsetFree = OFMPC<2, 1, 1, 10, 3, float, design::WarmStartActiveSetSolver<4, 33, float>, 0, FixedGainObserver<3, 1, 1, float, 1>>;
         const auto failed = design::ofmpc<10, 3>(StateSpace<2, 1, 1, float, 2, 1>{}, {}, {}, {}, design::InputDisturbance{}); // a continuous plant: refused
         REQUIRE_FALSE(failed.success);
         OffsetFree ofmpc{failed};

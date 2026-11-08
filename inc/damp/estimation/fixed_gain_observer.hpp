@@ -6,11 +6,11 @@
 #pragma once
 
 /**
- * @file luenberger.hpp
- * @brief The fixed-gain state observer (Luenberger) and its pole-placement designs.
+ * @file fixed_gain_observer.hpp
+ * @brief The fixed-gain state observer (FixedGainObserver) and its pole-placement designs.
  *
- * Luenberger is the fixed-gain observer: it holds a gain and the plant model, and its gain comes
- * from design::luenberger (pole placement) or design::kalman (the steady-state Kalman gain: the
+ * FixedGainObserver is the fixed-gain observer: it holds a gain and the plant model, and its gain comes
+ * from design::place_observer (pole placement) or design::kalman (the steady-state Kalman gain: the
  * filter DARE). It is the estimator inside LQG, LQGI, OFLQG and OFMPC, with the disturbance anchor
  * the offset-free laws use. For a covariance that updates (R or C changing per reading) use
  * KalmanFilter (kalman.hpp).
@@ -23,7 +23,7 @@
  *
  * so the error after an update evolves as e[k|k] = (I − M C) A e[k−1|k−1].
  *
- * design::luenberger places the eigenvalues of the predictor error dynamics,
+ * design::place_observer places the eigenvalues of the predictor error dynamics,
  * e[k+1] = (A − L C) e[k], by the dual of state-feedback pole placement:
  * eig(A − LC) = eig(Aᵀ − Cᵀ Lᵀ), so Lᵀ is a state-feedback gain for the pair (Aᵀ, Cᵀ) and
  *
@@ -31,7 +31,7 @@
  *
  * via the robust Kautsky–Nichols–Van Dooren routine (design::place). On a discrete plant
  * A M = L, so (I − M C) A = A⁻¹ (A − L C) A: the current form has the placed poles. On a
- * singular or ill-conditioned A, M is placed directly on (A, C A) instead (design::luenberger).
+ * singular or ill-conditioned A, M is placed directly on (A, C A) instead (design::place_observer).
  * Because place() is multi-input, the observer is multi-output (NY ≤ NX) for free; the
  * spectrum is assigned exactly and place() minimizes the eigenvector conditioning,
  * so the placed poles are less perturbation-sensitive than the single-output
@@ -45,7 +45,7 @@
  *
  * Example: observer for a double integrator (position measured, velocity estimated)
  * @code
- * #include "damp/estimation/luenberger.hpp"
+ * #include "damp/estimation/fixed_gain_observer.hpp"
  * #include "damp/systems/state_space.hpp"
  *
  * using namespace damp;
@@ -58,12 +58,12 @@
  * };
  *
  * // Place observer error poles inside the unit circle (faster than the plant).
- * constexpr auto result = design::luenberger(sys, {0.3, 0.4});
- * static constinit Luenberger observer{result.as<float>()};  // deploy in float; a failed design does not compile
+ * constexpr auto result = design::place_observer(sys, {0.3, 0.4});
+ * static constinit FixedGainObserver observer{result.as<float>()};  // deploy in float; a failed design does not compile
  * // In the loop: auto xhat = observer.step(y, u);  // or observer.predict(u); observer.update(y);
  *
  * // The steady-state Kalman gain instead (a plant with noise inputs G, H):
- * // static constinit Luenberger kf{design::kalman(noisy_sys, {.process = Qn, .measurement = Rn}).as<float>()};
+ * // static constinit FixedGainObserver kf{design::kalman(noisy_sys, {.process = Qn, .measurement = Rn}).as<float>()};
  * @endcode
  *
  * @see "An Introduction to Observers" (Luenberger, 1971), IEEE TAC
@@ -93,11 +93,11 @@ namespace damp {
 namespace design {
 
 /**
- * @struct LuenbergerResult
+ * @struct PlaceObserverResult
  * @brief Luenberger observer design result: the plant, the gains L and M, and the achieved error poles.
  *
  * Carries the plant the gain was placed on (the ZOH model when a sample period was
- * given), so `Luenberger observer{res}` needs nothing else. Use .as<float>() to convert
+ * given), so `FixedGainObserver observer{res}` needs nothing else. Use .as<float>() to convert
  * for embedded deployment.
  *
  * | Member | What it is | MATLAB® |
@@ -116,7 +116,7 @@ namespace design {
  * @see "An Introduction to Observers" (Luenberger, 1971)
  */
 template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, size_t NV = 0>
-struct [[nodiscard]] LuenbergerResult {
+struct [[nodiscard]] PlaceObserverResult {
     StateSpace<NX, NU, NY, T, NW, NV> sys{};                               ///< Plant the gain was placed on; sys.Ts is the observer's sample time
     Matrix<NX, NY, T>                 L{};                                 ///< Predictor gain (MATLAB®'s L): x̂[k+1] = A x̂ + B u + L (y − C x̂ − D u)
     Matrix<NX, NY, T>                 M{};                                 ///< Innovation gain, A M = L (MATLAB®'s Mx): x̂ ← x̂ + M (y − C x̂ − D u); zero on a continuous plant
@@ -129,7 +129,7 @@ struct [[nodiscard]] LuenbergerResult {
 
     template<typename U>
     [[nodiscard]] constexpr auto as() const {
-        return LuenbergerResult<NX, NU, NY, U, NW, NV>{
+        return PlaceObserverResult<NX, NU, NY, U, NW, NV>{
             sys.template as<U>(),
             L.template as<U>(),
             M.template as<U>(),
@@ -161,7 +161,7 @@ namespace detail {
 
 /**
  * @brief Whether A M = L may be solved for the current-form gain: A invertible with
- *        κ₁(A) = ‖A‖₁ ‖A⁻¹‖₁ ≤ 1/√ε (see luenberger).
+ *        κ₁(A) = ‖A‖₁ ‖A⁻¹‖₁ ≤ 1/√ε (see place_observer).
  */
 template<size_t NX, typename T>
 [[nodiscard]] constexpr bool solvable_for_innovation_gain(const Matrix<NX, NX, T>& A) {
@@ -175,12 +175,12 @@ template<size_t NX, typename T>
 
 /**
  * @brief The current-form gain of a discrete design: A M = L, or, on a numerically singular A,
- *        M placed on (A, C A) or else A⁺ L, with L = A M; e = eig((I − M C) A) either way (see luenberger).
+ *        M placed on (A, C A) or else A⁺ L, with L = A M; e = eig((I − M C) A) either way (see place_observer).
  */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
-[[nodiscard]] constexpr LuenbergerResult<NX, NU, NY, T, NW, NV> with_innovation_gain(
-    LuenbergerResult<NX, NU, NY, T, NW, NV>  out,
-    const damp::array<damp::complex<T>, NX>& poles
+[[nodiscard]] constexpr PlaceObserverResult<NX, NU, NY, T, NW, NV> with_innovation_gain(
+    PlaceObserverResult<NX, NU, NY, T, NW, NV> out,
+    const damp::array<damp::complex<T>, NX>&   poles
 ) {
     //! eig((I − M C) A) = eig(Aᵀ − (C A)ᵀ Mᵀ), so Mᵀ is a state-feedback gain for (Aᵀ, (C A)ᵀ).
     const Matrix<NX, NX, T>           At = out.sys.A.transpose();
@@ -224,12 +224,12 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
 
 /** @brief Observer gains on a plant whose domain is already the observer's: L = place(Aᵀ, Cᵀ, p)ᵀ, and M with A M = L when discrete. */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
-[[nodiscard]] constexpr LuenbergerResult<NX, NU, NY, T, NW, NV> luenberger_on(
+[[nodiscard]] constexpr PlaceObserverResult<NX, NU, NY, T, NW, NV> place_observer_on(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     const damp::array<damp::complex<T>, NX>& poles
 ) {
     static_assert(NY <= NX, "An observer cannot place more poles than states (NY <= NX).");
-    LuenbergerResult<NX, NU, NY, T, NW, NV> out{};
+    PlaceObserverResult<NX, NU, NY, T, NW, NV> out{};
     out.sys = sys;
     if (!finite_model(sys)) {
         return ::damp::detail::set_status(out, DesignStatus::bad_weights); // placement reads only A and C; the runtime runs B and D
@@ -256,10 +256,10 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
  * Places the eigenvalues of (A − L C) at @p poles via the dual of design::place:
  * L = place(Aᵀ, Cᵀ, p)ᵀ, the predictor gain. Multi-output (NY ≤ NX). A discrete plant
  * takes z-plane poles; a continuous one takes s-plane poles and gives a continuous gain
- * (not a runtime: the Luenberger runtime refuses it under constant evaluation). Real poles
- * convert implicitly: `design::luenberger(sys, {0.3, 0.4})`.
+ * (not a runtime: the FixedGainObserver runtime refuses it under constant evaluation). Real poles
+ * convert implicitly: `design::place_observer(sys, {0.3, 0.4})`.
  *
- * On a discrete plant the result also carries the innovation gain M the Luenberger runtime
+ * On a discrete plant the result also carries the innovation gain M the FixedGainObserver runtime
  * runs in the current form, from A M = L: then (I − M C) A = A⁻¹ (A − L C) A, so the
  * current-form error e[k|k] = (I − M C) A e[k−1|k−1] has the placed poles. The solve is taken
  * only when κ₁(A) = ‖A‖₁ ‖A⁻¹‖₁ ≤ 1/√ε (A⁻¹ from mat::solve(A, I)): its error in M is about
@@ -292,16 +292,16 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
  *
  * @param sys   Plant (A, C used for the gain; the whole model is kept for the runtime)
  * @param poles Desired error poles, adjacent conjugate pairs
- * @return LuenbergerResult with sys, L, M and the achieved poles e
+ * @return PlaceObserverResult with sys, L, M and the achieved poles e
  *
  * @see design::place for the underlying robust placement and its pole requirements
  */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
-[[nodiscard]] constexpr LuenbergerResult<NX, NU, NY, T, NW, NV> luenberger(
+[[nodiscard]] constexpr PlaceObserverResult<NX, NU, NY, T, NW, NV> place_observer(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     const damp::array<damp::complex<T>, NX>& poles
 ) {
-    return detail::luenberger_on(sys, poles);
+    return detail::place_observer_on(sys, poles);
 }
 
 /**
@@ -314,10 +314,10 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
  * @param sys   Continuous plant (sys.Ts == 0)
  * @param poles Desired continuous error poles (s-plane), adjacent conjugate pairs
  * @param Ts    [s] Observer sample period
- * @return LuenbergerResult with the sampled sys, the discrete L and M, and the z-plane poles e
+ * @return PlaceObserverResult with the sampled sys, the discrete L and M, and the z-plane poles e
  */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
-[[nodiscard]] constexpr LuenbergerResult<NX, NU, NY, T, NW, NV> luenberger(
+[[nodiscard]] constexpr PlaceObserverResult<NX, NU, NY, T, NW, NV> place_observer(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     const damp::array<damp::complex<T>, NX>& poles,
     T                                        Ts
@@ -325,13 +325,13 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
     StateSpace<NX, NU, NY, T, NW, NV> sampled{};
     const DesignStatus                status = detail::sample_plant(sys, Ts, sampled);
     if (status != DesignStatus::ok) {
-        return ::damp::detail::refused<LuenbergerResult<NX, NU, NY, T, NW, NV>>(status);
+        return ::damp::detail::refused<PlaceObserverResult<NX, NU, NY, T, NW, NV>>(status);
     }
-    return detail::luenberger_on(sampled, detail::poles_s_to_z(poles, Ts));
+    return detail::place_observer_on(sampled, detail::poles_s_to_z(poles, Ts));
 }
 
 /**
- * @struct ReducedLuenbergerResult
+ * @struct ReducedOrderObserverResult
  * @brief Reduced-order (Gopinath) observer design result.
  *
  * Estimates only the NX−1 unmeasured states from a single measured output,
@@ -345,7 +345,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
  * @see "On the Synthesis of Minimal-Order Observers" (Gopinath, 1971)
  */
 template<size_t NX, size_t NU, typename T = double>
-struct [[nodiscard]] ReducedLuenbergerResult {
+struct [[nodiscard]] ReducedOrderObserverResult {
     static constexpr size_t NM = NX - 1; ///< Number of estimated (unmeasured) states
 
     Matrix<NM, NM, T>                 F{};                                 ///< Internal dynamics (Abb − L Aab); error poles
@@ -363,7 +363,7 @@ struct [[nodiscard]] ReducedLuenbergerResult {
 
     template<typename U>
     [[nodiscard]] constexpr auto as() const {
-        return ReducedLuenbergerResult<NX, NU, U>{
+        return ReducedOrderObserverResult<NX, NU, U>{
             F.template as<U>(),
             L.template as<U>(),
             Gy.template as<U>(),
@@ -398,14 +398,14 @@ namespace detail {
 
 /** @brief Reduced-order observer on a plant whose domain is already the observer's. */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
-[[nodiscard]] constexpr ReducedLuenbergerResult<NX, NU, T> reduced_luenberger_on(
+[[nodiscard]] constexpr ReducedOrderObserverResult<NX, NU, T> reduced_order_observer_on(
     const StateSpace<NX, NU, NY, T, NW, NV>&     sys,
     const damp::array<damp::complex<T>, NX - 1>& poles
 ) {
     static_assert(NX >= 2, "Reduced-order observer requires at least two states.");
     static_assert(NY == 1, "Reduced-order observer is single-output (NY == 1).");
     constexpr size_t NM = NX - 1;
-    using Result = ReducedLuenbergerResult<NX, NU, T>;
+    using Result = ReducedOrderObserverResult<NX, NU, T>;
     const auto& A = sys.A;
     const auto& B = sys.B;
     const auto& C = sys.C;
@@ -499,27 +499,27 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
  *
  * @param sys   Plant (D = 0); C (1 × NX) has one dominant entry (a state measurement)
  * @param poles NX−1 desired error poles, adjacent conjugate pairs
- * @return ReducedLuenbergerResult with runtime matrices, achieved poles and Ts = sys.Ts
+ * @return ReducedOrderObserverResult with runtime matrices, achieved poles and Ts = sys.Ts
  *
  * @see "On the Synthesis of Minimal-Order Observers" (Gopinath, 1971)
  */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
-[[nodiscard]] constexpr ReducedLuenbergerResult<NX, NU, T> reduced_luenberger(
+[[nodiscard]] constexpr ReducedOrderObserverResult<NX, NU, T> reduced_order_observer(
     const StateSpace<NX, NU, NY, T, NW, NV>&     sys,
     const damp::array<damp::complex<T>, NX - 1>& poles
 ) {
-    return detail::reduced_luenberger_on(sys, poles);
+    return detail::reduced_order_observer_on(sys, poles);
 }
 
 /**
  * @brief Design a discrete reduced-order observer for a continuous plant sampled at @p Ts.
  *
- * Same domain rule as luenberger(sys, poles, Ts): ZOH model, z = e^{s·Ts}; a discrete
+ * Same domain rule as place_observer(sys, poles, Ts): ZOH model, z = e^{s·Ts}; a discrete
  * @p sys or a Ts that is not positive and finite is refused with
  * DesignStatus::invalid_sample_time.
  */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
-[[nodiscard]] constexpr ReducedLuenbergerResult<NX, NU, T> reduced_luenberger(
+[[nodiscard]] constexpr ReducedOrderObserverResult<NX, NU, T> reduced_order_observer(
     const StateSpace<NX, NU, NY, T, NW, NV>&     sys,
     const damp::array<damp::complex<T>, NX - 1>& poles,
     T                                            Ts
@@ -527,16 +527,16 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
     StateSpace<NX, NU, NY, T, NW, NV> sampled{};
     const DesignStatus                status = detail::sample_plant(sys, Ts, sampled);
     if (status != DesignStatus::ok) {
-        return ::damp::detail::refused<ReducedLuenbergerResult<NX, NU, T>>(status);
+        return ::damp::detail::refused<ReducedOrderObserverResult<NX, NU, T>>(status);
     }
-    return detail::reduced_luenberger_on(sampled, detail::poles_s_to_z(poles, Ts));
+    return detail::reduced_order_observer_on(sampled, detail::poles_s_to_z(poles, Ts));
 }
 
 } // namespace design
 
 namespace detail {
 
-/** @brief Where a Luenberger observer keeps its model and gain: in the object, any value at run time. */
+/** @brief Where a FixedGainObserver keeps its model and gain: in the object, any value at run time. */
 template<size_t NX, size_t NU, size_t NY, typename T>
 struct HeldObserver {
     static constexpr bool constant = false;  ///< The matrices are members
@@ -552,7 +552,7 @@ struct HeldObserver {
  *        optional disturbance anchor
  *
  * Built from design::kalman (the steady-state Kalman gain: the filter DARE), from
- * design::luenberger (pole placement), or from the model and a gain. Either result carries the
+ * design::place_observer (pole placement), or from the model and a gain. Either result carries the
  * innovation gain M (MATLAB®'s Mx) and the predictor gain L = A M (MATLAB®'s L); the observer runs
  * M. It is the estimator inside LQG, LQGI, OFLQG and OFMPC. A fixed Kalman gain costs about
  * 2–13 % of the recursive filter's multiply-accumulates per tick (2.4 % at 10 states, 6 outputs),
@@ -568,7 +568,7 @@ struct HeldObserver {
  * - step(y, u): predict(u), then update(y, u) (StateEstimator).
  *
  * The error after an update evolves as @f$ e[k|k] = (I - M C) A\, e[k-1|k-1] @f$: for a
- * design::luenberger result, the poles it placed for A − L C (A M = L makes the two similar).
+ * design::place_observer result, the poles it placed for A − L C (A M = L makes the two similar).
  *
  * The model is [x; d]: x the law's model (NXE states) and d the ND disturbance states.
  *
@@ -601,22 +601,22 @@ struct HeldObserver {
  * @see "Optimal State Estimation" (Simon, 2006), §5.3 (steady-state Kalman filter)
  */
 template<size_t NX, size_t NU, size_t NY, typename T = float, size_t ND = 0, typename Store = detail::HeldObserver<NX, NU, NY, T>>
-class Luenberger {
+class FixedGainObserver {
 public:
     static_assert(ND <= NX, "The disturbance states are among the observer's.");
     static constexpr size_t NXE = NX - ND; ///< The law's model: the states before the disturbance
 
-    constexpr Luenberger() = default;
+    constexpr FixedGainObserver() = default;
 
     /**
-     * @brief From design::luenberger (any scalar): the innovation gain M, held.
+     * @brief From design::place_observer (any scalar): the innovation gain M, held.
      *
      * A failed or continuous design (sys.Ts = 0, a gain for ẋ) does not compile when
      * constant-evaluated; at run time it installs M = 0 and valid() = false.
      */
     template<typename U, size_t NW, size_t NV>
         requires(ND == 0 && !Store::constant)
-    constexpr Luenberger(const design::LuenbergerResult<NX, NU, NY, U, NW, NV>& result) // NOLINT(google-explicit-constructor): assign-from-design
+    constexpr FixedGainObserver(const design::PlaceObserverResult<NX, NU, NY, U, NW, NV>& result) // NOLINT(google-explicit-constructor): assign-from-design
         : sys_(plant_of(result.sys)), valid_(usable(result.success, result.status, result.sys.Ts)) {
         if (valid_) {
             M_ = result.M.template as<T>();
@@ -632,7 +632,7 @@ public:
      */
     template<typename U, size_t NW, size_t NV, size_t NDR>
         requires(!Store::constant)
-    constexpr Luenberger(const design::KalmanResult<NX, NU, NY, U, NW, NV, NDR>& result) // NOLINT(google-explicit-constructor): assign-from-design
+    constexpr FixedGainObserver(const design::KalmanResult<NX, NU, NY, U, NW, NV, NDR>& result) // NOLINT(google-explicit-constructor): assign-from-design
         : sys_(plant_of(result.sys)), valid_(usable(result.success, result.status, result.sys.Ts)) {
         static_assert(ND == 0 || NDR == ND, "The anchor's disturbance states are the design's.");
         if (valid_) {
@@ -649,7 +649,7 @@ public:
      */
     template<size_t NW, size_t NV>
         requires(!Store::constant)
-    constexpr Luenberger(const StateSpace<NX, NU, NY, T, NW, NV>& model, const Matrix<NX, NY, T>& M, const ColVec<NX, T>& x0 = ColVec<NX, T>{})
+    constexpr FixedGainObserver(const StateSpace<NX, NU, NY, T, NW, NV>& model, const Matrix<NX, NY, T>& M, const ColVec<NX, T>& x0 = ColVec<NX, T>{})
         : sys_(plant_of(model)), x_(x0), valid_(usable(true, design::DesignStatus::ok, model.Ts)) {
         if (valid_) {
             M_ = M;
@@ -659,7 +659,7 @@ public:
     /** @brief The same observer in another scalar. */
     template<typename U>
         requires(!Store::constant)
-    constexpr Luenberger(const Luenberger<NX, NU, NY, U, ND>& other) // NOLINT(google-explicit-constructor): a scalar conversion
+    constexpr FixedGainObserver(const FixedGainObserver<NX, NU, NY, U, ND>& other) // NOLINT(google-explicit-constructor): a scalar conversion
         : sys_(other.sys_.template as<T>()),
           M_(other.M_.template as<T>()),
           x_(other.x_.template as<T>()),
@@ -830,7 +830,7 @@ public:
 
 private:
     template<size_t, size_t, size_t, typename, size_t, typename>
-    friend class Luenberger;
+    friend class FixedGainObserver;
 
     struct Anchor {
         ColVec<NXE, T> x{};     ///< x_a: the steady-state target the estimate is relative to
@@ -889,11 +889,11 @@ private:
 namespace detail {
 
 /**
- * @brief An observer's matrices as constants of the type: the store of the Luenberger in a
+ * @brief An observer's matrices as constants of the type: the store of the FixedGainObserver in a
  *        `constexpr` design's Law.
  *
  * @tparam Res A design with static storage, `constexpr`: an observer's (KalmanResult,
- *             LuenbergerResult) or a law's, its `.kalman`
+ *             PlaceObserverResult) or a law's, its `.kalman`
  * @tparam T   The runtime scalar
  * @tparam NXE The states before the disturbance
  */
@@ -940,15 +940,15 @@ struct observer_runtime {};
 /** @brief design::kalman: the observer and its disturbance. */
 template<const auto& Res, typename T, size_t NX, size_t NU, size_t NY, typename U, size_t NW, size_t NV, size_t ND>
 struct observer_runtime<Res, T, design::KalmanResult<NX, NU, NY, U, NW, NV, ND>> {
-    using type = Luenberger<NX, NU, NY, T, ND>;                                            ///< With members
-    using on_constants = Luenberger<NX, NU, NY, T, ND, ConstantObserver<Res, T, NX - ND>>; ///< On the design's constants
+    using type = FixedGainObserver<NX, NU, NY, T, ND>;                                            ///< With members
+    using on_constants = FixedGainObserver<NX, NU, NY, T, ND, ConstantObserver<Res, T, NX - ND>>; ///< On the design's constants
 };
 
-/** @brief design::luenberger: no disturbance. */
+/** @brief design::place_observer: no disturbance. */
 template<const auto& Res, typename T, size_t NX, size_t NU, size_t NY, typename U, size_t NW, size_t NV>
-struct observer_runtime<Res, T, design::LuenbergerResult<NX, NU, NY, U, NW, NV>> {
-    using type = Luenberger<NX, NU, NY, T>;                                          ///< With members
-    using on_constants = Luenberger<NX, NU, NY, T, 0, ConstantObserver<Res, T, NX>>; ///< On the design's constants
+struct observer_runtime<Res, T, design::PlaceObserverResult<NX, NU, NY, U, NW, NV>> {
+    using type = FixedGainObserver<NX, NU, NY, T>;                                          ///< With members
+    using on_constants = FixedGainObserver<NX, NU, NY, T, 0, ConstantObserver<Res, T, NX>>; ///< On the design's constants
 };
 
 /** @brief An observer design: a result that has a runtime in observer_runtime. */
@@ -957,7 +957,7 @@ concept observer_design = requires { typename observer_runtime<Res, T>::type; };
 
 } // namespace detail
 
-/** @brief Law<kRes, T> of an observer design (design::kalman, design::luenberger) initialized at start-up: the Luenberger it runs as, default-constructed from the design. A runtime of the same shape assigned replaces it. */
+/** @brief Law<kRes, T> of an observer design (design::kalman, design::place_observer) initialized at start-up: the FixedGainObserver it runs as, default-constructed from the design. A runtime of the same shape assigned replaces it. */
 template<const auto& Res, typename T>
     requires detail::observer_design<Res, T>
 struct Law<Res, T> : detail::observer_runtime<Res, T>::type {
@@ -969,7 +969,7 @@ struct Law<Res, T> : detail::observer_runtime<Res, T>::type {
     using Runtime::operator=;
 };
 
-/** @brief Law<kRes, T> of a `constexpr` observer design: the same Luenberger on the design's matrices as constants of the type. */
+/** @brief Law<kRes, T> of a `constexpr` observer design: the same FixedGainObserver on the design's matrices as constants of the type. */
 template<const auto& Res, typename T>
     requires(detail::observer_design<Res, T> && detail::constant_design<Res>)
 struct Law<Res, T> : detail::observer_runtime<Res, T>::on_constants {
@@ -1037,28 +1037,28 @@ struct ConstantReducedObserver {
  * reconstructs the full state, reading the measured state directly from y.
  * Use when the measurement is essentially noise-free (e.g. encoder counts):
  * it does no filtering of the measured channel. For noisy measurements prefer
- * the full-order Luenberger (with a Kalman gain) or the KalmanFilter.
+ * the full-order FixedGainObserver (with a Kalman gain) or the KalmanFilter.
  *
  * @tparam NX Number of plant states
  * @tparam NU Number of inputs
  * @tparam T  Scalar type (default: float for embedded deployment)
  */
 template<size_t NX, size_t NU, typename T = float, typename Store = detail::HeldReducedObserver<NX, NU, T>>
-class ReducedLuenberger {
+class ReducedOrderObserver {
     static constexpr size_t NM = NX - 1;
 
 public:
-    constexpr ReducedLuenberger() = default;
+    constexpr ReducedOrderObserver() = default;
     /**
      * @brief From a reduced-order observer design result (any scalar); converts via @c .as\<T\>().
      *
-     * A failed or continuous design is ill-formed under constant evaluation, as for Luenberger.
+     * A failed or continuous design is ill-formed under constant evaluation, as for FixedGainObserver.
      * At run time it leaves the observer inert (zero matrices, a zero estimate) and valid() false,
      * instead of stepping a continuous F as if it were a discrete transition.
      */
     template<typename U>
         requires(!Store::constant)
-    constexpr ReducedLuenberger(const design::ReducedLuenbergerResult<NX, NU, U>& result) // NOLINT(google-explicit-constructor): assign-from-design
+    constexpr ReducedOrderObserver(const design::ReducedOrderObserverResult<NX, NU, U>& result) // NOLINT(google-explicit-constructor): assign-from-design
         : valid_(result.success && result.Ts > U{0}) {
         if (!valid_ && std::is_constant_evaluated()) {
             ::damp::detail::refuse_failed_design(result.success ? design::DesignStatus::invalid_sample_time : result.status); // constant-evaluated (constinit / constexpr): a failed or continuous design does not compile
@@ -1142,25 +1142,25 @@ private:
     bool                                       valid_{Store::constant};
 };
 
-/** @brief Deduce the runtime from its design, keeping the result's scalar: Luenberger obs{res.as<float>()}; */
+/** @brief Deduce the runtime from its design, keeping the result's scalar: FixedGainObserver obs{res.as<float>()}; */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
-Luenberger(const design::LuenbergerResult<NX, NU, NY, T, NW, NV>&) -> Luenberger<NX, NU, NY, T>;
+FixedGainObserver(const design::PlaceObserverResult<NX, NU, NY, T, NW, NV>&) -> FixedGainObserver<NX, NU, NY, T>;
 
-/** @brief The steady-state Kalman gain, keeping the result's scalar and disturbance states: Luenberger obs{design::kalman(sys, noise)}; */
+/** @brief The steady-state Kalman gain, keeping the result's scalar and disturbance states: FixedGainObserver obs{design::kalman(sys, noise)}; */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t ND>
-Luenberger(const design::KalmanResult<NX, NU, NY, T, NW, NV, ND>&) -> Luenberger<NX, NU, NY, T, ND>;
+FixedGainObserver(const design::KalmanResult<NX, NU, NY, T, NW, NV, ND>&) -> FixedGainObserver<NX, NU, NY, T, ND>;
 
-/** @brief From the model and an innovation gain: Luenberger obs{sys, M}; */
+/** @brief From the model and an innovation gain: FixedGainObserver obs{sys, M}; */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
-Luenberger(const StateSpace<NX, NU, NY, T, NW, NV>&, const Matrix<NX, NY, T>&) -> Luenberger<NX, NU, NY, T>;
+FixedGainObserver(const StateSpace<NX, NU, NY, T, NW, NV>&, const Matrix<NX, NY, T>&) -> FixedGainObserver<NX, NU, NY, T>;
 
-/** @brief From the model, an innovation gain and the initial estimate: Luenberger obs{sys, M, x0}; */
+/** @brief From the model, an innovation gain and the initial estimate: FixedGainObserver obs{sys, M, x0}; */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
-Luenberger(const StateSpace<NX, NU, NY, T, NW, NV>&, const Matrix<NX, NY, T>&, const ColVec<NX, T>&) -> Luenberger<NX, NU, NY, T>;
+FixedGainObserver(const StateSpace<NX, NU, NY, T, NW, NV>&, const Matrix<NX, NY, T>&, const ColVec<NX, T>&) -> FixedGainObserver<NX, NU, NY, T>;
 
 /** @brief Deduce the runtime from its design, keeping the result's scalar. */
 template<size_t NX, size_t NU, typename T>
-ReducedLuenberger(const design::ReducedLuenbergerResult<NX, NU, T>&) -> ReducedLuenberger<NX, NU, T>;
+ReducedOrderObserver(const design::ReducedOrderObserverResult<NX, NU, T>&) -> ReducedOrderObserver<NX, NU, T>;
 
 namespace detail {
 
@@ -1168,11 +1168,11 @@ namespace detail {
 template<const auto& Res, typename T, typename R = std::remove_cvref_t<decltype(Res)>>
 struct reduced_observer_runtime {};
 
-/** @brief design::reduced_luenberger: with members, or on its constants. */
+/** @brief design::reduced_order_observer: with members, or on its constants. */
 template<const auto& Res, typename T, size_t NX, size_t NU, typename U>
-struct reduced_observer_runtime<Res, T, design::ReducedLuenbergerResult<NX, NU, U>> {
-    using type = ReducedLuenberger<NX, NU, T>;                                          ///< With members
-    using on_constants = ReducedLuenberger<NX, NU, T, ConstantReducedObserver<Res, T>>; ///< On the design's constants
+struct reduced_observer_runtime<Res, T, design::ReducedOrderObserverResult<NX, NU, U>> {
+    using type = ReducedOrderObserver<NX, NU, T>;                                          ///< With members
+    using on_constants = ReducedOrderObserver<NX, NU, T, ConstantReducedObserver<Res, T>>; ///< On the design's constants
 };
 
 /** @brief A reduced-observer design. */
@@ -1181,7 +1181,7 @@ concept reduced_observer_design = requires { typename reduced_observer_runtime<R
 
 } // namespace detail
 
-/** @brief Law<kRes, T> of a design::reduced_luenberger initialized at start-up: the ReducedLuenberger it runs as. A runtime of the same shape assigned replaces it. */
+/** @brief Law<kRes, T> of a design::reduced_order_observer initialized at start-up: the ReducedOrderObserver it runs as. A runtime of the same shape assigned replaces it. */
 template<const auto& Res, typename T>
     requires detail::reduced_observer_design<Res, T>
 struct Law<Res, T> : detail::reduced_observer_runtime<Res, T>::type {
@@ -1193,7 +1193,7 @@ struct Law<Res, T> : detail::reduced_observer_runtime<Res, T>::type {
     using Runtime::operator=;
 };
 
-/** @brief Law<kRes, T> of a `constexpr` design::reduced_luenberger: the same observer on the design's matrices as constants of the type. */
+/** @brief Law<kRes, T> of a `constexpr` design::reduced_order_observer: the same observer on the design's matrices as constants of the type. */
 template<const auto& Res, typename T>
     requires(detail::reduced_observer_design<Res, T> && detail::constant_design<Res>)
 struct Law<Res, T> : detail::reduced_observer_runtime<Res, T>::on_constants {

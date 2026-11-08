@@ -19,8 +19,8 @@
 #include "damp/design/disturbance.hpp"
 #include "damp/design/qp.hpp"
 #include "damp/design/status.hpp"
+#include "damp/estimation/fixed_gain_observer.hpp"
 #include "damp/estimation/kalman.hpp"
-#include "damp/estimation/luenberger.hpp"
 #include "damp/math/math.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "damp/systems/discretization.hpp"
@@ -612,9 +612,9 @@ TEST_SUITE("offset-free MPC error-state estimator") {
         }
         using Law = decltype(MPC{law_design(1.0).template as<T>()});
 
-        Law                    mpc;
-        Luenberger<5, 1, 1, T> kf;
-        ColVec<1, T>           u_prev{};
+        Law                           mpc;
+        FixedGainObserver<5, 1, 1, T> kf;
+        ColVec<1, T>                  u_prev{};
         template<typename Art>
         AbsoluteReplica(const Art& a, double u_max)
             : mpc(law_design(u_max).template as<T>()), kf(a.kalman) {}

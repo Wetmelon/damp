@@ -108,7 +108,7 @@ TEST_SUITE("Active Disturbance Rejection Control (ADRC)") {
         constexpr size_t NX = 1;
 
         double wc = 5.0;  // Controller bandwidth
-        double wo = 20.0; // Luenberger bandwidth
+        double wo = 20.0; // FixedGainObserver bandwidth
         double b0 = 1.0;  // Plant gain
 
         auto adrc_result = design::adrc<NX>(wc, wo, b0);
@@ -137,7 +137,7 @@ TEST_SUITE("Active Disturbance Rejection Control (ADRC)") {
         constexpr size_t NX = 2;
 
         double wc = 5.0;  // Controller bandwidth
-        double wo = 20.0; // Luenberger bandwidth
+        double wo = 20.0; // FixedGainObserver bandwidth
         double b0 = 1.0;  // Plant gain
 
         auto adrc_result = design::adrc<NX>(wc, wo, b0);

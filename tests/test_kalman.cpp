@@ -9,8 +9,8 @@
 #include <type_traits>
 
 #include "damp/design/status.hpp"
+#include "damp/estimation/fixed_gain_observer.hpp"
 #include "damp/estimation/kalman.hpp"
-#include "damp/estimation/luenberger.hpp"
 #include "damp/math/math.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "damp/systems/discretization.hpp"
@@ -67,7 +67,7 @@ TEST_CASE("KalmanFilter from KalmanResult + fused step()") {
     CHECK(x[0] < 1.5);
 }
 
-TEST_CASE("Luenberger runs design::kalman's fixed gain M; set_gain and reset") {
+TEST_CASE("FixedGainObserver runs design::kalman's fixed gain M; set_gain and reset") {
     StateSpace<1, 1, 1, double, 1, 1> sys{};
     sys.A(0, 0) = 0.9;
     sys.B(0, 0) = 1.0;
@@ -79,8 +79,8 @@ TEST_CASE("Luenberger runs design::kalman's fixed gain M; set_gain and reset") {
     const auto result = design::kalman(sys, {.process = 0.1, .measurement = 0.1});
     REQUIRE(result.success);
 
-    Luenberger sskf{result};
-    static_assert(std::is_same_v<decltype(sskf), Luenberger<1, 1, 1, double>>);
+    FixedGainObserver sskf{result};
+    static_assert(std::is_same_v<decltype(sskf), FixedGainObserver<1, 1, 1, double>>);
     CHECK(sskf.valid());
     CHECK(sskf.gain()(0, 0) == doctest::Approx(result.M(0, 0)));
 
@@ -793,8 +793,8 @@ TEST_CASE("kalman(sys, Ts, noise): a continuous plant and a noise density, again
     CHECK(res.P(0, 1) == doctest::Approx(0.03245571574084469).epsilon(1e-9));
     CHECK(res.P(1, 1) == doctest::Approx(0.13784428598747336).epsilon(1e-9));
 
-    //! It deploys like any Kalman design, in float: the fixed gain on Luenberger.
-    constexpr Luenberger<2, 1, 1, float> filt{res.as<float>()};
+    //! It deploys like any Kalman design, in float: the fixed gain on FixedGainObserver.
+    constexpr FixedGainObserver<2, 1, 1, float> filt{res.as<float>()};
     CHECK(filt.gain()(0, 0) == doctest::Approx(0.15876599438771183).epsilon(1e-5));
 
     //! A float plant designs in float.

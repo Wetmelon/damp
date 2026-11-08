@@ -95,9 +95,9 @@
 #include "damp/estimation/ekf.hpp"                   // IWYU pragma: export
 #include "damp/estimation/eskf.hpp"                  // IWYU pragma: export
 #include "damp/estimation/eso.hpp"                   // IWYU pragma: export
+#include "damp/estimation/fixed_gain_observer.hpp"   // IWYU pragma: export
 #include "damp/estimation/ins_eskf.hpp"              // IWYU pragma: export
 #include "damp/estimation/kalman.hpp"                // IWYU pragma: export
-#include "damp/estimation/luenberger.hpp"            // IWYU pragma: export
 #include "damp/estimation/mhe.hpp"                   // IWYU pragma: export
 #include "damp/estimation/rls.hpp"                   // IWYU pragma: export
 #include "damp/estimation/sensor_fusion.hpp"         // IWYU pragma: export

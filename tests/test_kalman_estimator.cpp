@@ -6,7 +6,7 @@
 /**
  * @file test_kalman_estimator.cpp
  * @brief The shared core of the laws: the options by type, the disturbance specs, design::kalman
- *        with a disturbance spec, the Luenberger observer running its gain, and SteadyStateTarget.
+ *        with a disturbance spec, the FixedGainObserver running its gain, and SteadyStateTarget.
  *
  * The disturbance-augmented filter and the target are checked against the offset-free design they
  * compose into (design::oflqg, OFLQG): the same gains, maps and commands. A delayed plant is a
@@ -32,8 +32,8 @@
 #include "damp/design/options.hpp"
 #include "damp/design/status.hpp"
 #include "damp/design/steady_state_target.hpp"
+#include "damp/estimation/fixed_gain_observer.hpp"
 #include "damp/estimation/kalman.hpp"
-#include "damp/estimation/luenberger.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "damp/systems/discretization.hpp"
 #include "damp/systems/state_space.hpp"
@@ -353,7 +353,7 @@ TEST_SUITE("design::kalman with a disturbance spec") {
     }
 }
 
-TEST_SUITE("Luenberger and SteadyStateTarget") {
+TEST_SUITE("FixedGainObserver and SteadyStateTarget") {
     TEST_CASE("the disturbance spec sets the noise's disturbance count, so the noise is a braced list") {
         const auto braced = design::kalman(kPlantD, {.process = kQp, .measurement = kRn, .disturbance = kQd}, design::InputDisturbance{});
         const auto typed = design::kalman(kPlantD, design::KalmanNoise{.process = kQp, .measurement = kRn, .disturbance = kQd}, design::InputDisturbance{});
@@ -362,8 +362,8 @@ TEST_SUITE("Luenberger and SteadyStateTarget") {
     }
 
     TEST_CASE("no options: the plain filter, with the input it holds") {
-        const auto res = design::kalman(kPlantD, {.process = kQp, .measurement = kRn});
-        Luenberger est{res};
+        const auto        res = design::kalman(kPlantD, {.process = kQp, .measurement = kRn});
+        FixedGainObserver est{res};
         static_assert(sizeof(KalmanFilter<2, 1, 1, double, 2, 1>) > sizeof(est)); // no P, Q, R, G or H
         ColVec<2> x{0.1, 0.0};
         ColVec<2> ref{};
@@ -389,9 +389,9 @@ TEST_SUITE("Luenberger and SteadyStateTarget") {
         REQUIRE(res.success);
         const SteadyStateTarget target{design::steady_state_target(kPlantD, design::InputDisturbance{})};
 
-        Luenberger<3, 1, 1, double, 1> dev{res};
-        Luenberger<3, 1, 1, double>    absf{res}; // the design on [x; d] as an absolute observer
-        static_assert(std::is_same_v<decltype(Luenberger{res}), decltype(dev)>);
+        FixedGainObserver<3, 1, 1, double, 1> dev{res};
+        FixedGainObserver<3, 1, 1, double>    absf{res}; // the design on [x; d] as an absolute observer
+        static_assert(std::is_same_v<decltype(FixedGainObserver{res}), decltype(dev)>);
         ColVec<2> x{0.05, 0.0};
         ColVec<1> u{{0.1}};
         for (int k = 0; k < 40; ++k) {
@@ -431,7 +431,7 @@ TEST_SUITE("Luenberger and SteadyStateTarget") {
         const auto                                 old = design::oflqg(whole, {.Q = kQ3, .R = kR}, nn, load);
         REQUIRE(old.success);
         OFLQG             law{old};
-        Luenberger        est{design::kalman(whole, nn, load)};
+        FixedGainObserver est{design::kalman(whole, nn, load)};
         SteadyStateTarget target{design::steady_state_target(whole, load)};
         static_assert(decltype(est)::NXE == 3);
         const Matrix<1, 3> K = old.K; // on the law's model [x; v(k−1)]
@@ -515,7 +515,7 @@ template<size_t NXK, size_t NU, size_t NY, size_t NW, size_t NV, size_t ND, size
 struct TextbookLaw {
     static constexpr size_t NX = NXK - ND;
 
-    Luenberger<NXK, NU, NY, double>           kf;
+    FixedGainObserver<NXK, NU, NY, double>    kf;
     SteadyStateTarget<NX, NU, ND, NZ, double> target;
     Matrix<NU, NX>                            K;
 
@@ -582,7 +582,7 @@ const Matrix<2, 2> kR2 = Matrix<2, 2>::identity() * 1e-3;
 
 } // namespace
 
-TEST_SUITE("Luenberger: the anchored law against the textbook form") {
+TEST_SUITE("FixedGainObserver: the anchored law against the textbook form") {
     TEST_CASE("an input delay and a load at both inputs: the textbook law's estimates and commands") {
         //! The corexy shape: the commands one period late, a load at both inputs; the model is the plant with its registers
         auto plant = discretize(four_readings(), kTs).value();

@@ -676,7 +676,7 @@ template<size_t N, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_
  * (design::mpc refuses one too short). A state weight covers the registers, none on them:
  * `{.Q = blkdiag(Q, Matrix<N * NU, N * NU>{}), .R = R}`. A law that measures its state reads
  * [x; u(k−1); …; u(k−N)], the inputs it applied; a filter estimates the registers like any other
- * state. design::luenberger needs every register read, and A pins NU of the register poles at 0,
+ * state. design::place_observer needs every register read, and A pins NU of the register poles at 0,
  * one per input. It places a pole at most NY times, so with more registers than that put the
  * other register poles near 0 but apart (1e-3, 2e-3, …), or use design::kalman.
  *

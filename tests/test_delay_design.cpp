@@ -24,8 +24,8 @@
 #include "damp/controllers/ofmpc.hpp"
 #include "damp/design/disturbance.hpp"
 #include "damp/design/riccati.hpp"
+#include "damp/estimation/fixed_gain_observer.hpp"
 #include "damp/estimation/kalman.hpp"
-#include "damp/estimation/luenberger.hpp"
 #include "damp/estimation/mhe.hpp"
 #include "damp/matrix/colvec.hpp"
 #include "damp/matrix/matrix.hpp"
@@ -252,7 +252,7 @@ void check_output_laws(double theta) {
     CHECK(td.worst < 1e-3);
 }
 
-/// design::luenberger on N registers: the plant's poles as asked, the registers' at 0, and the error gone on the true plant.
+/// design::place_observer on N registers: the plant's poles as asked, the registers' at 0, and the error gone on the true plant.
 template<size_t N>
 void check_placed_observer(double Ts) {
     constexpr size_t NS = 2 + N;
@@ -261,11 +261,11 @@ void check_placed_observer(double Ts) {
     damp::array<complex<double>, NS> poles{};
     poles[0] = complex<double>{0.9, 0.0};
     poles[1] = complex<double>{0.92, 0.0};
-    const auto placed = design::luenberger(model, poles);
+    const auto placed = design::place_observer(model, poles);
     REQUIRE(placed.success);
     CHECK(placed.is_stable());
-    Luenberger observer{placed};
-    ColVec<NS> x0{};
+    FixedGainObserver observer{placed};
+    ColVec<NS>        x0{};
     x0[0] = 1.0;
     Truth<NS> t{test::register_form<N>(mass_spring(), Ts, static_cast<double>(N) * Ts), x0};
     Tail      e;
@@ -316,7 +316,7 @@ void check_estimators(double theta) {
         }
         CHECK(e.worst < 1e-6);
     };
-    Luenberger fixed{filter};
+    FixedGainObserver fixed{filter};
     run(fixed, "Kalman gain");
     KalmanFilter recursive{model, {.Q = Qn, .R = 1e-6}};
     run(recursive, "recursive Kalman");
@@ -377,13 +377,13 @@ TEST_SUITE("Design on the delayed model") {
         const Matrix<2, 2> Qn{{1e-6, 0.0}, {0.0, 1e-4}};
         const Matrix<1, 1> Rn{{1e-6}};
         for (const double theta : {0.4 * kTs, kTs}) {
-            const auto                  model = discretize(mass_spring(), kTs, InputDelay{theta}).value();
-            Luenberger<3, 1, 1, double> aware{design::kalman(model, {.process = Qn, .measurement = Rn})};
-            Luenberger<2, 1, 1, double> naive{design::kalman(kUndelayed, {.process = Qn, .measurement = Rn})};
-            Truth<3>                    t{test::register_form<1>(mass_spring(), kTs, theta), ColVec<3>{0.5, -0.2, 0.0}};
-            Tail                        ea;
-            Tail                        eb;
-            constexpr int               n = 2000;
+            const auto                         model = discretize(mass_spring(), kTs, InputDelay{theta}).value();
+            FixedGainObserver<3, 1, 1, double> aware{design::kalman(model, {.process = Qn, .measurement = Rn})};
+            FixedGainObserver<2, 1, 1, double> naive{design::kalman(kUndelayed, {.process = Qn, .measurement = Rn})};
+            Truth<3>                           t{test::register_form<1>(mass_spring(), kTs, theta), ColVec<3>{0.5, -0.2, 0.0}};
+            Tail                               ea;
+            Tail                               eb;
+            constexpr int                      n = 2000;
             for (int k = 0; k < n; ++k) {
                 const ColVec<1> y = t.y();
                 const ColVec<1> u{{u_at(k)}};
@@ -692,7 +692,7 @@ TEST_SUITE("Design on the delayed model") {
         damp::array<complex<double>, 5> poles{};
         poles[0] = complex<double>{0.9, 0.0};
         poles[1] = complex<double>{0.92, 0.0};
-        CHECK(design::luenberger(spare, poles).status == design::DesignStatus::not_placeable);
+        CHECK(design::place_observer(spare, poles).status == design::DesignStatus::not_placeable);
 
         // A pole the pinned mode cannot have is still refused, with the fallback in the way.
         const auto                      whole = discretize(mass_spring(), kTs, InputDelay<2>{2.0 * kTs}).value();
@@ -701,20 +701,20 @@ TEST_SUITE("Design on the delayed model") {
         slow[1] = complex<double>{0.92, 0.0};
         slow[2] = complex<double>{0.5, 0.0};
         slow[3] = complex<double>{0.6, 0.0};
-        CHECK(design::luenberger(whole, slow).status == design::DesignStatus::not_placeable);
+        CHECK(design::place_observer(whole, slow).status == design::DesignStatus::not_placeable);
 
         //! A⁺L is a gain only where A M = L. It was accepted on the poles it showed, with a tolerance
         //! that grew with the gain: unstable observers at a faster Ts, ρ = 1.6 at 1 ms.
         for (const double ts : {1e-3, 1e-4}) {
             CAPTURE(ts);
             const auto fast = discretize(mass_spring(), ts, InputDelay<2>{2.0 * ts}).value();
-            CHECK(design::luenberger(fast, slow).status == design::DesignStatus::not_placeable);
+            CHECK(design::place_observer(fast, slow).status == design::DesignStatus::not_placeable);
         }
         damp::array<complex<double>, 3> all_07{};
         for (auto& p : all_07) {
             p = complex<double>{0.7, 0.0};
         }
-        CHECK(design::luenberger(kDelayed, all_07).status == design::DesignStatus::not_placeable);
+        CHECK(design::place_observer(kDelayed, all_07).status == design::DesignStatus::not_placeable);
     }
 
     TEST_CASE("two inputs on two registers each: offset-free LQG and MPC on the true plant") {
