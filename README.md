@@ -85,7 +85,15 @@ ColVec<2, float> x{0.1f, 0.0f};
 ColVec<1, float> u = pendulum.step(x);
 ```
 
-That is the design-is-deploy path. `Law<result, float>` makes the gains constants of the type: they take no RAM, a gain that is exactly 0 is no code, and a failed design does not compile. A design computed at start-up, from values measured at init, deploys as `LQR pendulum{result.as<float>()};` with the gains in members.
+That is the design-is-deploy path. The deploy line chooses where the design runs:
+
+| You write | The design runs | The gains live | A failed design | Tick cost |
+| --------- | --------------- | -------------- | --------------- | --------- |
+| `constinit Law<result, float> law;` | In the compiler | Constants of the type, in flash | Does not compile | Nonzero terms only |
+| `constinit LQR law{result.as<float>()};` | In the compiler | Members, in RAM | Does not compile | Dense |
+| `LQR law{design::lqr(plant, Ts, w).as<float>()};` | On the MCU, at init | Members, in RAM | The result's `success` is false, and the law keeps zero gains | Dense, plus the design at init |
+
+`Law<result, float>` is the default when the plant and the weights are known at build time. The design cannot slip to run time unnoticed: a template argument has to be a constant expression, so a result computed at run time does not compile there. The middle row keeps a compile-time design replaceable by a redesign at run time; the last row is for a plant measured or identified at start-up. More in [docs/guide.md](docs/guide.md#where-the-design-runs).
 
 PID, LQG, MPC, ESKF look the same: design result → runtime → `step`. Flagship (LQI + clamp + `back_calculate`): [`examples/control/lqi/`](examples/control/lqi/).
 

@@ -32,8 +32,8 @@ static constexpr int OUTPUT = 1;
 static constexpr int kHeaterPin = 5;
 
 // Designed at compile time; float on target.
-static constinit OFMPC controller{kLaw.as<float>()};
-static constexpr float kSetpointC = 210.0f;
+static constinit Law<kLaw, float> controller; // the design's OFMPC in float, its filter on constants
+static constexpr float            kSetpointC = 210.0f;
 
 // Mock thermistor (replace with the ADC read and the thermistor curve).
 static float read_temperature_c() {

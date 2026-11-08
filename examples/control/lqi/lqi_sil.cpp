@@ -18,8 +18,8 @@
 using namespace damp;
 using namespace damp::examples_lqi;
 
-static constinit LQI aware{lqi_result.as<float>()};
-static constinit LQI naive{lqi_result.as<float>()};
+static constinit Law<lqi_result, float> aware;
+static constinit Law<lqi_result, float> naive;
 
 static constexpr auto kModel = *sysd;
 

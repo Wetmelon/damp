@@ -33,10 +33,9 @@ constexpr auto weights = design::LQRWeights<2, 1, 1>{
 
 // Discretize the plant and solve the DARE
 constexpr auto res = design::lqi(sys, Ts, weights);
-static_assert(res.success);
 
-// Convert the design result to a single-precision LQI controller instance
-constinit LQI law{res.as<float>()};
+// The design's LQI in single precision, its gains constants of the type; a failed design does not compile
+constinit Law<res, float> law;
 
 // Fake function representing some PWM/DAC/comms
 static void write_force(float /*u*/) {}

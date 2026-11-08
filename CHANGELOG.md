@@ -76,6 +76,10 @@ delay templates on OFLQG / MPC). v0.1.0 never shipped those names.
 
 ### Changed
 
+- The examples and the guide's canonical snippet deploy as `Law<kRes, float>`, on the design's constants: cart-pole, pendulum,
+  LQI, ADRC and the heater OFMPC sketches and SILs, and the reaction-wheel SIL. Their tick functions take `Law<kRes, T>&`.
+- README and the guide ("Where the design runs") show the three deploy forms side by side: `Law<kRes, float>` on
+  constants, a compile-time design with its gains in RAM, and a design run on the MCU at init.
 - The fixed-gain observer family is renamed for what it is: `Luenberger` → `FixedGainObserver`,
   `ReducedLuenberger` → `ReducedOrderObserver`, `design::luenberger` → `design::place_observer`
   (`LuenbergerResult` → `PlaceObserverResult`), `design::reduced_luenberger` →

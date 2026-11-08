@@ -65,7 +65,7 @@ static_assert(lqi_result.success);
  * Pass the voltage (or force) that actually left the driver, not the unsaturated request.
  */
 template<typename T>
-[[nodiscard]] T control_period(LQI<2, 1, 1, T, 1>& law, const ColVec<2, T>& x, T r) {
+[[nodiscard]] T control_period(Law<lqi_result, T>& law, const ColVec<2, T>& x, T r) {
     law.update(x);
     const T u = law.control(ColVec<1, T>{{r}})[0];
     const T u_sat = damp::clamp(u, static_cast<T>(u_min), static_cast<T>(u_max));

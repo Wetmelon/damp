@@ -48,10 +48,9 @@ constexpr auto weights = design::LQRWeights<2, 1, 1>{
 
 // Discretize the plant and solve the DARE
 constexpr auto res = design::lqi(sys, Ts, weights);
-static_assert(res.success);
 
-// Convert the design result to a single-precision LQI controller instance
-constinit LQI law{res.as<float>()};
+// The design's LQI in single precision, its gains constants of the type; a failed design does not compile
+constinit Law<res, float> law;
 
 
 int main() {
@@ -74,6 +73,20 @@ int main() {
 The SIL in that folder runs this tick next to a naive loop that reports the unsaturated
 request. The integrator winds on the naive path and overshoots; `back_calculate(u_sat)`
 holds it while the clamp is against the move.
+
+## Where the design runs
+
+The design functions are the same in every case; the line that deploys the law decides where the design runs and where its numbers live.
+
+| You write | The design runs | The gains live | A failed design | Tick cost |
+| --------- | --------------- | -------------- | --------------- | --------- |
+| `constinit Law<kRes, float> law;` | In the compiler | Constants of the type, in flash | Does not compile | Nonzero terms only |
+| `constinit LQR law{kRes.as<float>()};` | In the compiler | Members, in RAM | Does not compile | Dense |
+| `LQR law{design::lqr(plant, Ts, w).as<float>()};` | On the MCU, at init | Members, in RAM | The result's `success` is false, and the law keeps zero gains | Dense, plus the design at init |
+
+- **Fixed at compile time, `Law<kRes, float>`.** The default when the plant and the weights are known at build time. `kRes` is a named `constexpr` result with static storage (namespace scope, or a `static` member or local). The matrices are constants of the type: they take no RAM, an entry that is exactly 0 is no code and a 1 is no multiply. Nothing can replace them at run time. The constants sit in flash, so on a part with flash wait states and no cache, run the tick from RAM or tightly coupled memory.
+- **Designed at compile time, gains in RAM.** For a law a redesign replaces at run time: assign another result of the same shape. A struct member of that kind is `Law<kRes, float>::Runtime`. The design is still checked when the program is built, and every tick pays for the dense matrices.
+- **Designed on the MCU at init.** For a plant measured or identified at start-up. The design's iterations are capped and it reports `success` and a `DesignStatus`; check them before the first tick. Keep `design::…` out of the ISR.
 
 ## Two headers
 
@@ -125,7 +138,7 @@ One object, one tick. Design at compile time or init. Do not run Riccati in the 
 
 ```cpp
 #include "damp/control.hpp"
-constinit LQI law{kRes.as<float>()}; // kRes from design::lqi
+constinit Law<kRes, float> law; // kRes from design::lqi
 // ISR:
 auto u = law.step(r, x);           // or update / control / back_calculate / predict
 write_pwm(u[0]);

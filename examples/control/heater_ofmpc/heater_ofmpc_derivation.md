@@ -36,7 +36,7 @@ The whole design and runtime:
 ```cpp
 constexpr auto kModel = *discretize(kPlant, kTs, InputDelay{kDeadTime});  // 5 s at 5 s: one period, one register state
 constexpr auto kLaw = design::ofmpc<12, 4>(kModel, kWeights, kLimits, kNoise, design::InputDisturbance{});
-static constinit OFMPC controller{kLaw.as<float>()};  // sizes, the estimator and the delay from the design; a failed design does not compile
+static constinit Law<kLaw, float> controller;  // the design's OFMPC: sizes, estimator and delay from the design, the filter on constants; a failed design does not compile
 ```
 
 After the weights come, in this order, the limits, the estimator's noise (`KalmanNoise`, so the controller runs from the thermistor reading through a Kalman filter) and the disturbance model (`InputDisturbance`, which makes it offset-free): `design::ofmpc<NP, NC>(model, weights, limits, noise, disturbance)`, run as `OFMPC`, whose tick is `step(r, y)`. The dead time is in the model itself.

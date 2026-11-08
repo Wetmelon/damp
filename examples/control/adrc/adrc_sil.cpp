@@ -67,8 +67,8 @@ int main() {
     fmt::print("PI-D: Kp={:.3f}  Ki={:.3f}  Kd={:.3f}  (c=0, Tf=1/(10 wc))\n", pid_d.Kp, pid_d.Ki, pid_d.Kd);
     fmt::print("Scenario: step r=1 → load 0.45 N·m @ 1.2 s → J×3 @ 2.4 s → r=0 @ 3.6 s\n\n");
 
-    ADRCController<2, double> adrc{adrc_d};
-    PIDController<double>     pid{pid_d.discretize(Ts)};
+    Law<adrc_d, double>   adrc;
+    PIDController<double> pid{pid_d.discretize(Ts)};
 
     Axis plant_adrc{};
     Axis plant_pid{};

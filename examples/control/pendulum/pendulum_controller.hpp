@@ -62,7 +62,7 @@ inline constexpr auto lqr_d = design::lqr(sys, Ts, {.Q = Q, .R = R});
  * On target, replace x with encoder/IMU fusion. SIL may use double; sketch uses float.
  */
 template<typename T>
-[[nodiscard]] ColVec<1, T> control_period(LQR<2, 1, T>& controller, const ColVec<2, T>& x) {
+[[nodiscard]] ColVec<1, T> control_period(Law<lqr_d, T>& controller, const ColVec<2, T>& x) {
     return controller.step(x);
 }
 

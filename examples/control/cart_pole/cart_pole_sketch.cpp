@@ -32,8 +32,8 @@ static constexpr int OUTPUT = 1;
 #define loop loop_
 #endif
 
-// Deploy runtime: float on target
-static constinit LQR controller{lqr_d.as<float>()};
+// Deploy runtime: the design's LQR in float, its gains constants of the type
+static constinit Law<lqr_d, float> controller;
 
 // Mock full state (replace with sensors on hardware)
 static ColVec<4, float> read_state() {
