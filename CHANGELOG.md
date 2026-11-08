@@ -10,7 +10,7 @@ and [known limitations](docs/known_limitations.md)).
 ## [Unreleased]
 
 Core API wave: one runtime per LQ/MPC design, one set of tick verbs, delay in
-the plant (at most one sample), and the matching numerics and heater examples.
+the plant, and the matching numerics and heater examples.
 
 This section describes the tree at HEAD. It replaces the unreleased delay-in-the-law
 work that landed on main after 0.1.0 (`InputDelayPredictor`, `PredictedInputDelay`,
@@ -24,8 +24,9 @@ delay templates on OFLQG / MPC). v0.1.0 never shipped those names.
 - `TrackedOutputs` so LQR and LQG can `control(r)` / `step(r, m)` through the
   model's steady-state target.
 - `design::output_inverse` / `OutputInverse` and `design::state_feedforward`.
-- `InputDelay{θ}` on `discretize`: at most one sample, NX+NU register, exact
-  under ZOH. Tustin pre-warp: `discretize(sys, Ts, Tustin, w0)`.
+- `InputDelay<N>{θ}` on `discretize`: θ ≤ N·Ts in N registers, NX + N·NU states,
+  exact under ZOH; `InputDelay{θ}` is N = 1. Every law and estimator takes the model
+  as it is. Tustin pre-warp: `discretize(sys, Ts, Tustin, w0)`.
 - `DiscretizationResult` from `discretize` / `c2d` / `d2d`. `lft`. Canonical
   forms in `systems/realization.hpp`. Transmission zeros (QZ) and `norm_hinf` /
   disk margins on the host.
@@ -66,15 +67,16 @@ delay templates on OFLQG / MPC). v0.1.0 never shipped those names.
   (weights, convergence, a closed-loop pole test where the design runs one), not
   a robustness certificate. The Riccati residual lives on the solver result.
 - MPC and MHE ship in `control.hpp` (allocation-free). Weights are plant-sized.
-  A longer delay than one sample is refused: sample slower, or use
-  `SmithPredictor`. An infeasible MPC tick holds the last applied input (still
+  An infeasible MPC tick holds the last applied input (still
   inside the u box). A MaxIterations or Degenerate iterate is applied when the
   outputs are soft. With a hard output row or a terminal set it is applied only
   if primal feasible (row scale |b_i| + Σ|A_ij z_j|); otherwise the tick holds.
   Holding does not make predicted outputs or a terminal set feasible.
   A horizon too short for an input's first move to reach any output is refused
-  (`invalid_parameter`) unless a terminal cost sees past it; it used to succeed and
-  leave that input at rest.
+  (`invalid_parameter`) unless a terminal cost sees past it or an `Ru` weight steers
+  that input to its target; it used to succeed and leave that input at rest. The test
+  is relative to the data, so units and the model's basis do not change it, and
+  `suggest_mpc_horizon(sys)` counts the dead time into the horizon it suggests.
 - Numerics: Riccati certificates, SciPy oracles, Schur / Lyapunov / QR, finite
   inputs give finite outputs.
 - Compilers: g++ 11+ and clang++ 19+. MSVC is not supported. Host CMake builds

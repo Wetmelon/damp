@@ -99,9 +99,10 @@ the repo root.
   with `.as<U>()`, `success`, and `explicit operator bool()`; geometry `DCM` /
   `Quaternion` / `Euler` (`EulerZYX` = aerospace YPR, `EulerXYZ` = robotics RPY).
 - **LTI shape:** design continuous SS → `discretize(..., ZOH)` → step matrices.
-  Prefer ZOH over hand-rolled Euler when an LTI model exists. An input delay of
-  at most one sample is `discretize(sys, Ts, InputDelay{θ})`; longer dead time
-  is a slower sample or `SmithPredictor`.
+  Prefer ZOH over hand-rolled Euler when an LTI model exists. An input delay is
+  `discretize(sys, Ts, InputDelay<N>{θ})`, θ ≤ N·Ts in N registers of the plant
+  (`InputDelay{θ}` is N = 1), never a parameter of a law; many samples of dead
+  time is a slower sample or `SmithPredictor`.
 - **Ticks:** estimators `predict` / `update`; controllers `control`; `step` is
   predict then update then control (m_k in, u_k out). Low-latency ISR: update →
   control → write → `back_calculate` → predict. `back_calculate(u_sat, u_ff = {})`

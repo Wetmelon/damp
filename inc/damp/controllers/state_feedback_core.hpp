@@ -1269,8 +1269,8 @@ namespace detail {
  *
  * With `.offset_free = IntegralAction{}`, the integrators ξ advance by xi += Ts·(r − Ci·y)
  * (MATLAB®'s discrete lqi, so ξ ≈ ∫e dt and Q_integral means what it does on the sampled route).
- * An input delay of up to one sample is part of the plant: design on the model
- * discretize(plant, Ts, InputDelay{θ}) returns, its register state a state like any other.
+ * An input delay is part of the plant: design on the model
+ * discretize(plant, Ts, InputDelay<N>{θ}) returns, its registers states like any other.
  * The other options are state_feedback(sys, Ts, weights, options)'s.
  *
  * Refused with DesignStatus::invalid_sample_time for a negative or non-finite sys.Ts, or a
@@ -1315,9 +1315,9 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
  * Constant references and disturbances leave no steady-state error on the integrated outputs.
  *
  * @par Input delay
- * A delay of up to one sample is a model of the plant, not an option of the law: design on
- * discretize(plant, Ts, InputDelay{θ}), whose register state v(k−1) the law measures or the
- * filter estimates like any other state.
+ * A delay is a model of the plant, not an option of the law: design on
+ * discretize(plant, Ts, InputDelay<N>{θ}), whose registers v(k−1) … v(k−N) the law measures or
+ * the filter estimates like any other state.
  *
  * @par Offset-free control by a disturbance model
  * A disturbance model in `.offset_free` (InputDisturbance, OutputDisturbance, PlantDisturbance,

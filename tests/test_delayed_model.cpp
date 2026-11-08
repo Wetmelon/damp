@@ -157,7 +157,7 @@ const Matrix<1, 1> kRn{{1e-4}};
 
 TEST_SUITE("Input delay: a model of the plant") {
     TEST_CASE("InputDelay: one register state, for no delay, a fraction of a sample or a whole sample") {
-        static_assert(std::is_same_v<decltype(InputDelay{kFrac}), InputDelay<double>>); // the scalar from the seconds
+        static_assert(std::is_same_v<decltype(InputDelay{kFrac}), InputDelay<1, double>>); // one register, the scalar from the seconds
         constexpr auto none = discretize(heater_block(), kTs, InputDelay{0.0});
         constexpr auto frac = discretize(heater_block(), kTs, InputDelay{kFrac});
         constexpr auto whole = discretize(heater_block(), kTs, InputDelay{kTs});

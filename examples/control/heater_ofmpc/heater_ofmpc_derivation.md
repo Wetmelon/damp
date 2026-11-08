@@ -57,7 +57,7 @@ x_{k+1} = a\,x_k + \Gamma_0\,v_k + \Gamma_1\,v_{k-1},\qquad
 
 The register is not a guess, the controller sent it, so it carries no process noise. A Padé approximation would instead add a non-minimum-phase zero that is only right at low frequency.
 
-A law models at most one sample of delay. A longer dead time means sampling slower, as here: 5 s is six samples per 30 s time constant, plenty for a thermal plant. A single loop whose dead time spans many samples is a job for `SmithPredictor`.
+A longer dead time means more registers, `InputDelay<N>{θ}`, or sampling slower, as here: 5 s is six samples per 30 s time constant, plenty for a thermal plant, and the model stays small. A single loop whose dead time spans many samples is a job for `SmithPredictor`.
 
 ---
 
@@ -124,6 +124,6 @@ The ringing is not an MPC trait: any law tuned for the 30 s time constant and bl
 
 ## Forking it
 
-- Measure $`K`$, $`\tau`$ and $`\theta`$ from one open-loop step and put them in the nameplate, and the model takes the dead time in seconds, `discretize(kPlant, kTs, InputDelay{kDeadTime})`. Keep $`T_s`$ at or above the dead time (a law models at most one sample of it) and well below $`\tau`$, here 5 s against 30 s; the model stays two states. A dead time too long for that is a job for `SmithPredictor`.
+- Measure $`K`$, $`\tau`$ and $`\theta`$ from one open-loop step and put them in the nameplate, and the model takes the dead time in seconds, `discretize(kPlant, kTs, InputDelay{kDeadTime})`. Keep $`T_s`$ at or above the dead time and well below $`\tau`$, here 5 s against 30 s, and the model stays two states. A dead time longer than that takes `InputDelay<N>` and N more states per input, or, for a single loop spanning many samples, `SmithPredictor`.
 - Raise `Rdu` for gentler power moves, lower it for a faster loop. The weights are per period, so a different `kTs` needs them rescaled (and the horizons in periods rescaled to the same seconds); the delay-blind design is what rings in the temperature.
 - The MPC and filter are designed at compile time (`kLaw`), so the board only runs the tick; the sketch's controller is `constinit`, so a failed design is a compile error. The unconstrained law, [`../heater_lqg/`](../heater_lqg/heater_lqg_derivation.md), is designed the same way; flash it instead of the MPC when the only constraint is the actuator's own range.
