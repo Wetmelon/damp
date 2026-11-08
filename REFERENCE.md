@@ -651,7 +651,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`BiquadCascade`](inc/damp/filters/biquad.hpp#L628) | Cascade of second-order sections (SOS) for higher-order IIR filters (+1 more overload) |
 | [`Complementary`](inc/damp/filters/complementary.hpp#L32) | Scalar (1-D) complementary filter — fuse a fast rate with a slow absolute |
 | [`Delay`](inc/damp/filters/delay.hpp#L27) | Discrete-time delay buffer |
-| [`DsogiPll`](inc/damp/filters/pll.hpp#L306) | Dual-SOGI three-phase positive-sequence PLL (DSOGI-PLL) |
+| [`DsogiPll`](inc/damp/filters/pll.hpp#L315) | Dual-SOGI three-phase positive-sequence PLL (DSOGI-PLL) |
 | [`FirDesignResult`](inc/damp/filters/fir.hpp#L67) | Window-method FIR design result |
 | [`FirFilter`](inc/damp/filters/fir.hpp#L465) | Direct-form FIR filter runtime (tapped delay line + dot product) (+1 more overload) |
 | [`FirstOrderCoeffs`](inc/damp/filters/iir_design.hpp#L31) | DSP coefficients for first-order IIR filter |
@@ -669,10 +669,10 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`RobustExactDifferentiator`](inc/damp/filters/differentiator.hpp#L62) | First-order robust exact differentiator (super-twisting differentiator) |
 | [`SecondOrderCoeffs`](inc/damp/filters/iir_design.hpp#L72) | DSP coefficients for second-order IIR filter |
 | [`SecondOrderSectionsResult`](inc/damp/filters/biquad.hpp#L42) | An IIR filter as a cascade of second-order sections: the result BiquadCascade runs |
-| [`SinglePhasePLL`](inc/damp/filters/pll.hpp#L60) | Single-Phase PLL |
+| [`SinglePhasePLL`](inc/damp/filters/pll.hpp#L69) | Single-Phase PLL |
 | [`SOGI`](inc/damp/filters/sogi.hpp#L226) | Runtime SOGI quadrature-signal generator (live-frequency resonator) |
 | [`SogiFll`](inc/damp/filters/sogi.hpp#L396) | SOGI with a Frequency-Locked Loop — self-tuning single-tone tracker |
-| [`ThreePhasePLL`](inc/damp/filters/pll.hpp#L160) | Synchronous-reference-frame (SRF) PLL for balanced three-phase input |
+| [`ThreePhasePLL`](inc/damp/filters/pll.hpp#L169) | Synchronous-reference-frame (SRF) PLL for balanced three-phase input |
 
 **Functions**
 
@@ -696,12 +696,12 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`lowpass_sections`](inc/damp/filters/biquad.hpp#L464) | Nth-order Butterworth low-pass at cutoff fc as second-order sections, any order |
 | [`lowshelf`](inc/damp/filters/iir_design.hpp#L873) | Low-shelf EQ filter: boost or cut everything below fc |
 | [`mstogi`](inc/damp/filters/sogi.hpp#L153) | Mixed Second/Third-Order Generalized Integrator (MSTOGI) (+1 more overload) |
-| [`negative_sequence_ab`](inc/damp/filters/pll.hpp#L267) | Instantaneous negative-sequence αβ from a quadrature signal pair |
+| [`negative_sequence_ab`](inc/damp/filters/pll.hpp#L276) | Instantaneous negative-sequence αβ from a quadrature signal pair |
 | [`notch`](inc/damp/filters/iir_design.hpp#L661) | Second-order band-reject (notch) filter design (continuous-time) (+1 more overload) |
 | [`pade_delay_1st`](inc/damp/filters/pade.hpp#L33) | First-order Pade approximation of time delay (+1 more overload) |
 | [`pade_delay_2nd`](inc/damp/filters/pade.hpp#L85) | Second-order Pade approximation of time delay (+1 more overload) |
 | [`peaking`](inc/damp/filters/iir_design.hpp#L848) | Peaking (bell) EQ filter: boost or cut a band around f0 |
-| [`positive_sequence_ab`](inc/damp/filters/pll.hpp#L246) | Instantaneous positive-sequence αβ from a quadrature signal pair |
+| [`positive_sequence_ab`](inc/damp/filters/pll.hpp#L255) | Instantaneous positive-sequence αβ from a quadrature signal pair |
 | [`second_order_sections`](inc/damp/filters/biquad.hpp#L374) | Factor a discrete transfer function in z into second-order sections, for BiquadCascade (+1 more overload) |
 | [`sogi`](inc/damp/filters/sogi.hpp#L69) | Second-Order Generalized Integrator (SOGI) design (+1 more overload) |
 | [`to_coeffs`](inc/damp/filters/iir_design.hpp#L132) | Convert StateSpace system to first-order DSP coefficients (+4 more overloads) |

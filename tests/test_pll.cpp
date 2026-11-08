@@ -4,6 +4,7 @@
 // (See accompanying file LICENSE or copy at http://www.boost.org/LICENSE_1_0.txt)
 
 #include <cmath>
+#include <limits>
 #include <numbers>
 
 #include "damp/backend.hpp"
@@ -132,6 +133,17 @@ TEST_SUITE("Single-Phase PLL") {
 
         CHECK(damp::abs(freq_bled - Fnom) < damp::abs(freq_charged - Fnom));
         CHECK(freq_bled == doctest::Approx(Fnom).epsilon(0.05f));
+    }
+
+    TEST_CASE("A subnormal amplitude is no signal, whether or not the CPU flushes subnormals") {
+        // Constant evaluation keeps subnormals, unlike this runner: linking with -ffast-math
+        // flushes them on x86, which hides the leak test above failing on a CPU that does not.
+        constexpr float smallest = std::numeric_limits<float>::min();
+        constexpr float subnormal = detail::normalized_phase_error(DirectQuadrature<float>{smallest / 4.0f, smallest / 4.0f});
+        constexpr float normal = detail::normalized_phase_error(DirectQuadrature<float>{0.0f, smallest});
+
+        CHECK(subnormal == 0.0f);
+        CHECK(normal == 1.0f);
     }
 
     TEST_CASE("Reset restores nominal frequency and zero phase") {

@@ -10,6 +10,9 @@
  * @brief Phase-locked loops for grid and signal synchronization
  */
 
+#include <limits>
+
+#include "damp/backend.hpp"
 #include "damp/controllers/pid.hpp"
 #include "damp/filters/sogi.hpp"
 #include "damp/math/math.hpp"
@@ -20,11 +23,17 @@ namespace damp {
 
 namespace detail {
 
-/** @brief PLL phase error v_q / |v| = sin(θ − θ̂); 0 while the detected amplitude is exactly 0. */
+/**
+ * @brief PLL phase error v_q / |v| = sin(θ − θ̂); 0 below the smallest normal amplitude.
+ *
+ * A lost input decays into the subnormals and can stop there, where a step too small to round
+ * leaves the SOGI state unchanged. Without this floor the ratio stays full scale and keeps driving
+ * the loop filter on any CPU that does not flush subnormals to zero.
+ */
 template<typename T>
 [[nodiscard]] constexpr T normalized_phase_error(const DirectQuadrature<T>& dq) {
     const T amplitude = damp::hypot(dq.d, dq.q);
-    return (amplitude > T{0}) ? (dq.q / amplitude) : T{0};
+    return (amplitude >= std::numeric_limits<T>::min()) ? (dq.q / amplitude) : T{0};
 }
 
 } // namespace detail

@@ -181,7 +181,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`dpwm_zero_sequence`](inc/damp/motor/modulation.hpp#L269) | function | Motor control pack (if present) | DPWM zero-sequence for a chosen discontinuous scheme |
 | [`DqCommand`](inc/damp/motor/foc.hpp#L86) | block | Motor control pack (if present) | Clamped dq voltage command from FOController::current_controller |
 | [`DrivePair`](inc/damp/toolbox/io.hpp#L234) | block | Embedded helpers (controls-adjacent utilities) | Left/right actuator pair (differential/arcade drive output) |
-| [`DsogiPll`](inc/damp/filters/pll.hpp#L306) | block | Filters & signal conditioning | Dual-SOGI three-phase positive-sequence PLL (DSOGI-PLL) |
+| [`DsogiPll`](inc/damp/filters/pll.hpp#L315) | block | Filters & signal conditioning | Dual-SOGI three-phase positive-sequence PLL (DSOGI-PLL) |
 | [`duties_from_phase_voltages`](inc/damp/motor/modulation.hpp#L361) | function | Motor control pack (if present) | Map phase voltages + zero-sequence to clamped half-bridge duties |
 | [`Dynamics`](inc/damp/concepts.hpp#L195) | concept | Core, configuration & backend vocabulary | Continuous-time nonlinear dynamics ẋ = f(x, u): a callable returning ẋ as a ColVec<NX, T> |
 | [`DynamicsJacobian`](inc/damp/concepts.hpp#L214) | block | Core, configuration & backend vocabulary | Analytic Jacobians of a Dynamics model at (x, u), returned by its jacobian(x, u) |
@@ -542,7 +542,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`NavFrame`](inc/damp/estimation/ins_mechanization.hpp#L77) | enum | Observers & estimators | Local-level navigation frame for strapdown mechanization |
 | [`nearbyint`](inc/damp/math/math.hpp#L399) | function | Scalar math, complex & frames | Round to nearest integer; ties to even (IEEE default / `FE_TONEAREST`) |
 | [`ned_from_enu`](inc/damp/estimation/ins_mechanization.hpp#L106) | function | Observers & estimators | Map an ENU vector into NED (axis permute) |
-| [`negative_sequence_ab`](inc/damp/filters/pll.hpp#L267) | function | Filters & signal conditioning | Instantaneous negative-sequence αβ from a quadrature signal pair |
+| [`negative_sequence_ab`](inc/damp/filters/pll.hpp#L276) | function | Filters & signal conditioning | Instantaneous negative-sequence αβ from a quadrature signal pair |
 | [`nichols`](inc/damp/analysis/frequency.hpp#L714) | function | Frequency-domain analysis (host) | Build Nichols points from existing Bode data (+2 more overloads) |
 | [`nicholsplot`](inc/damp/simulation/plot_plotly.hpp#L944) | function | Simulation / SIL harness (host) | Plot a Nichols chart (open-loop phase vs magnitude) with M-circle grid |
 | [`NicholsPoint`](inc/damp/analysis/frequency.hpp#L685) | block | Frequency-domain analysis (host) | Single-point Nichols chart sample (open-loop phase vs magnitude) |
@@ -640,7 +640,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`poly_roots`](inc/damp/systems/zpk.hpp#L124) | function | LTI systems (SS / TF / ZPK / discretize) | Compute roots of a real polynomial given highest power first |
 | [`PolyRootsResult`](inc/damp/systems/zpk.hpp#L93) | block | LTI systems (SS / TF / ZPK / discretize) | Roots of a real polynomial given highest power first |
 | [`Pose`](inc/damp/kinematics/pose.hpp#L61) | block | Kinematics / pose | Rigid-body pose: a translation and an orientation (unit quaternion) |
-| [`positive_sequence_ab`](inc/damp/filters/pll.hpp#L246) | function | Filters & signal conditioning | Instantaneous positive-sequence αβ from a quadrature signal pair |
+| [`positive_sequence_ab`](inc/damp/filters/pll.hpp#L255) | function | Filters & signal conditioning | Instantaneous positive-sequence αβ from a quadrature signal pair |
 | [`pow`](inc/damp/matrix/functions.hpp#L1133) | function | Linear algebra | Integer matrix power via binary exponentiation (+1 more overload) |
 | [`pow`](inc/damp/math/math.hpp#L282) | function | Scalar math, complex & frames | Power function with a real exponent, base^exponent (+1 more overload) |
 | [`pr`](inc/damp/controllers/pr.hpp#L205) | function | Design-time synthesis (not PWM-rate) | Design a Proportional-Resonant controller |
@@ -763,7 +763,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`sincos`](inc/damp/math/math.hpp#L202) | function | Scalar math, complex & frames | Combined sine and cosine, {sin(x), cos(x)} |
 | [`SinCosCalibration`](inc/damp/encoder/sincos.hpp#L66) | block | Embedded helpers (controls-adjacent utilities) | Per-channel gain/offset trims for the sin/cos front end (hardware calibration) |
 | [`SinCosSample`](inc/damp/encoder/sincos.hpp#L78) | block | Embedded helpers (controls-adjacent utilities) | One decoded sin/cos sample: the fine phase and the signal amplitude |
-| [`SinglePhasePLL`](inc/damp/filters/pll.hpp#L60) | block | Filters & signal conditioning | Single-Phase PLL |
+| [`SinglePhasePLL`](inc/damp/filters/pll.hpp#L69) | block | Filters & signal conditioning | Single-Phase PLL |
 | [`sinh`](inc/damp/matrix/functions.hpp#L1371) | function | Linear algebra | Matrix hyperbolic sine sinh(A) = (exp(A) − exp(−A))/2 |
 | [`siso_ref`](inc/damp/simulation/simulate.hpp#L115) | function | Simulation / SIL harness (host) | Build a SisoReferenceAdapter for a SISO `control(r,y)` controller |
 | [`SisoController`](inc/damp/concepts.hpp#L87) | concept | Core, configuration & backend vocabulary | Scalar output-feedback controller: u = control(r, y), fixed rate |
@@ -873,7 +873,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`ThermistorResult`](inc/damp/toolbox/thermistor.hpp#L44) | block | Embedded helpers (controls-adjacent utilities) | Fitted NTC coefficients in Steinhart-Hart form |
 | [`thipwm_zero_sequence`](inc/damp/motor/modulation.hpp#L229) | function | Motor control pack (if present) | Third-harmonic injection (THIPWM) zero-sequence — 1/6 of fundamental |
 | [`thiran`](inc/damp/matlab.hpp#L572) | function | MATLAB®-style aliases (host) | MATLAB® thiran: fractional-delay all-pass of order N for a delay tau at Ts |
-| [`ThreePhasePLL`](inc/damp/filters/pll.hpp#L160) | block | Filters & signal conditioning | Synchronous-reference-frame (SRF) PLL for balanced three-phase input |
+| [`ThreePhasePLL`](inc/damp/filters/pll.hpp#L169) | block | Filters & signal conditioning | Synchronous-reference-frame (SRF) PLL for balanced three-phase input |
 | [`Timeout`](inc/damp/toolbox/timing.hpp#L126) | block | Embedded helpers (controls-adjacent utilities) | One-shot timeout |
 | [`TimeResponse`](inc/damp/analysis/time_response.hpp#L51) | block | Frequency-domain analysis (host) | Multi-channel time-domain response sampled on a time grid |
 | [`times_transpose`](inc/damp/matrix/pattern_matrix.hpp#L321) | function | Linear algebra | A dense matrix times Hᵀ for a sparse H: A Hᵀ |
