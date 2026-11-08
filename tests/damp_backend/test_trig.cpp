@@ -325,6 +325,9 @@ TEST_SUITE("trig") {
     TEST_CASE("double inverse trig is within a few ulp of a long double reference") {
         // Oracle in long double; asin and acos through (1 − x)(1 + x), which stays exact near ±1.
         auto ulps = [](double got, long double ref) {
+            if (static_cast<long double>(got) == ref) {
+                return 0.0; // acos(1) = 0: the ulp of 0 is subnormal, which -ffast-math reads as 0
+            }
             const double r = std::fabs(static_cast<double>(ref));
             const double ulp = std::nextafter(r, 2.0 * r + 1.0) - r;
             return static_cast<double>(std::fabs(static_cast<long double>(got) - ref)) / ulp;
@@ -344,8 +347,16 @@ TEST_SUITE("trig") {
             worst_acos = std::fmax(worst_acos, ulps(damp::acos(x), ref_acos(x)));
             worst_atan = std::fmax(worst_atan, ulps(damp::atan(x), std::atan(static_cast<long double>(x))));
         }
-        for (double d = 1e-16; d < 1e-2; d *= 1.3) { // the sqrt branch near ±1
-            for (const double x : {1.0 - d, -1.0 + d}) {
+        // The sqrt branch near ±1. x passes through a volatile: inlined, -fassociative-math folds
+        // the 1 − |x| inside damp::asin of x = 1 − d to d itself, so asin would be evaluated at the
+        // unrounded 1 − d while the oracle sees the rounded x (1e7 ulp at x = 1 − 2⁻⁵², GCC 15 -O3).
+        const auto opaque = [](double v) -> double {
+            volatile double o = v;
+            return o;
+        };
+        for (double d = 1e-16; d < 1e-2; d *= 1.3) {
+            for (const double x_near : {1.0 - d, -1.0 + d}) {
+                const double x = opaque(x_near);
                 worst_asin = std::fmax(worst_asin, ulps(damp::asin(x), ref_asin(x)));
                 worst_acos = std::fmax(worst_acos, ulps(damp::acos(x), ref_acos(x)));
             }

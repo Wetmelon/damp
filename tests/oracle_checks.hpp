@@ -507,6 +507,9 @@ bool is_symmetric_data(const std::array<double, R * C>& a) {
 inline constexpr double C_FACTOR = 12.0; ///< backward error, orthogonality and residual constant
 inline constexpr double C_FWD = 16.0;    ///< forward error against the reference, on top of its condition number
 inline constexpr double C_ROOT = 4.0;    ///< eigenvalue, root and pole constant, on top of its sensitivity
+/// Schur sqrtm residual constant. Higham's bound carries γ̃ of n³ terms, not n: sqrtm_jordan_3 measures
+/// 9.9 units in double and 14 in float with FMA contraction; mat::sqrt itself certifies 64.
+inline constexpr double C_SQRTM = 24.0;
 
 // ---- LU, QR, Cholesky, LDLᵀ, SVD ----
 
@@ -844,7 +847,7 @@ void check_sqrtm() {
     const MD   X0 = scale(di, dbl(X.value()), C::units);
     // The Schur method is backward stable (Higham 2008, §6.2): the residual reaches α·ε with
     // α = ‖X‖²/‖A‖. The bound keeps the κ factor of a forward-stable method, α·κ·ε.
-    check_within("sqrtm ‖X² − A‖ / ‖A‖", MD(X0 * X0 - A0).norm() / A0.norm(), ne * C::alpha * damp::max(1.0, C::kappa), C_FACTOR);
+    check_within("sqrtm ‖X² − A‖ / ‖A‖", MD(X0 * X0 - A0).norm() / A0.norm(), ne * C::alpha * damp::max(1.0, C::kappa), C_SQRTM);
     const auto R0 = scale(di, load<N, N, double>(C::X), C::units);
     check_within("sqrtm forward error", rel_diff(X0, R0), ne * damp::max(1.0, C::kappa), C_FWD);
 }

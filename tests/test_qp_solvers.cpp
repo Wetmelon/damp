@@ -226,14 +226,17 @@ TEST_CASE("ADMM certifies a primal-infeasible QP from its dual iterate differenc
     CHECK(design::solve_qp(qp.H, qp.f, A, b).status == design::QPStatus::Infeasible);
 
     // The certificate clears the warm start: the next feasible solve (same A,
-    // row 3 disabled) runs exactly as on a fresh solver.
+    // row 3 disabled) runs as on a fresh solver: the same iterations, and the same
+    // iterate up to rounding (the two calls are inlined at different sites, which
+    // -ffast-math and FMA contraction may round differently).
     const ColVec<4> b_ok{2.0, 2.0, 3.0, design::unbounded_bound<double>()};
     const auto      after = solver(qp.H, qp.f, A, b_ok, 4000);
     const auto      fresh = design::solve_qp_admm(qp.H, qp.f, A, b_ok);
     REQUIRE(after.success);
     CHECK(after.iterations == fresh.iterations);
-    CHECK(after.x(0) == fresh.x(0));
-    CHECK(after.x(1) == fresh.x(1));
+    const double ulps = (after.x - fresh.x).norm() / (eps<double>() * fresh.x.norm());
+    INFO("after vs fresh: ", ulps, " ulps of |x|"); // GCC 15: 3
+    CHECK(ulps <= 16.0);
     CHECK(after.x(0) == doctest::Approx(2.0 / 3.0).epsilon(1e-6));
 }
 

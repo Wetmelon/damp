@@ -165,8 +165,8 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 
 | Name | Description |
 | ---- | ----------- |
-| [`all_of`](inc/damp/matrix/core.hpp#L1519) | Whether p holds for every entry of A: the matrix counterpart of std::all_of |
-| [`any_of`](inc/damp/matrix/core.hpp#L1543) | Whether p holds for some entry of A: the matrix counterpart of std::any_of |
+| [`all_of`](inc/damp/matrix/core.hpp#L1518) | Whether p holds for every entry of A: the matrix counterpart of std::all_of |
+| [`any_of`](inc/damp/matrix/core.hpp#L1542) | Whether p holds for some entry of A: the matrix counterpart of std::any_of |
 | [`backward_substitute_transpose`](inc/damp/matrix/solve.hpp#L76) | Backward substitution for Lᴴx = b (Lᵀx = b for real T) |
 | [`blkdiag`](inc/damp/matrix/concat.hpp#L133) | Block-diagonal assembly of MatrixLike arguments |
 | [`cholesky`](inc/damp/matrix/decomposition.hpp#L122) | Cholesky decomposition for positive-definite matrices |
@@ -196,7 +196,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`pow`](inc/damp/matrix/functions.hpp#L1130) | Integer matrix power via binary exponentiation (+1 more overload) |
 | [`pseudo_inverse`](inc/damp/matrix/svd.hpp#L401) | Moore–Penrose pseudoinverse A⁺ via SVD |
 | [`qr_decompose`](inc/damp/matrix/decomposition.hpp#L442) | Thin QR via Householder reflections |
-| [`quadratic_form`](inc/damp/matrix/core.hpp#L1348) | Symmetric congruence (quadratic) form  S = M X Mᵀ (+1 more overload) |
+| [`quadratic_form`](inc/damp/matrix/core.hpp#L1347) | Symmetric congruence (quadratic) form  S = M X Mᵀ (+1 more overload) |
 | [`quadratic_form_in_place`](inc/damp/matrix/pattern_matrix.hpp#L341) | S ← F S Fᵀ in place, for a symmetric S: every multiply the pattern can skip, skipped |
 | [`rank`](inc/damp/matrix/functions.hpp#L231) | Numerical rank: the number of singular values above rel_tol·σₘₐₓ |
 | [`rank_from_svd`](inc/damp/matrix/svd.hpp#L365) | Numerical rank from a precomputed SVD result |
@@ -207,7 +207,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`sqrt`](inc/damp/matrix/functions.hpp#L983) | Principal matrix square root by the real Schur method |
 | [`svd`](inc/damp/matrix/svd.hpp#L331) | Full singular value decomposition A = U·Σ·Vᴴ (one-sided Jacobi) |
 | [`times_transpose`](inc/damp/matrix/pattern_matrix.hpp#L317) | A dense matrix times Hᵀ for a sparse H: A Hᵀ |
-| [`transform`](inc/damp/matrix/core.hpp#L1495) | Apply f to every entry, B(i, j) = f(A(i, j)): the matrix counterpart of std::transform |
+| [`transform`](inc/damp/matrix/core.hpp#L1494) | Apply f to every entry, B(i, j) = f(A(i, j)): the matrix counterpart of std::transform |
 | [`two_norm`](inc/damp/matrix/functions.hpp#L104) | Spectral norm ‖A‖₂ = σₘₐₓ(A) |
 | [`vcat`](inc/damp/matrix/concat.hpp#L180) | Vertical concatenation (same column count) |
 
@@ -228,7 +228,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`StateSpace`](inc/damp/systems/state_space.hpp#L137) | State-space representation for linear time-invariant systems (discrete or continuous) (+10 more overloads) |
 | [`StateSpaceZPKResult`](inc/damp/systems/zpk.hpp#L661) | SISO state-space → ZPK conversion result with runtime zero count |
 | [`StateTransformResult`](inc/damp/systems/realization.hpp#L123) | A model in new state coordinates z = transform·x, and the transform that took it there |
-| [`TransferFunction`](inc/damp/systems/transfer_function.hpp#L100) | SISO polynomial transfer function G(s) = num(s)/den(s) |
+| [`TransferFunction`](inc/damp/systems/transfer_function.hpp#L108) | SISO polynomial transfer function G(s) = num(s)/den(s) |
 | [`TransmissionZerosResult`](inc/damp/systems/zeros.hpp#L56) | The finite invariant zeros of a state-space model and their count |
 | [`ZPK`](inc/damp/systems/zpk.hpp#L197) | Zero-pole-gain (ZPK) representation of a SISO LTI system |
 | [`ZPKResult`](inc/damp/systems/zpk.hpp#L432) | Result of converting a transfer function to zero-pole-gain form |
@@ -260,7 +260,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`parallel`](inc/damp/systems/state_space.hpp#L323) | Parallel connection (shared input, summed outputs) |
 | [`poly_roots`](inc/damp/systems/zpk.hpp#L122) | Compute roots of a real polynomial given highest power first |
 | [`resample`](inc/damp/systems/discretization.hpp#L400) | Resample a ZOH-discrete model to a new sample time |
-| [`schur_stable`](inc/damp/systems/transfer_function.hpp#L62) | True if every root of z^(N−1)·p(z⁻¹) lies strictly inside the unit circle (Schur–Cohn) |
+| [`schur_stable`](inc/damp/systems/transfer_function.hpp#L66) | True if every root of z^(N−1)·p(z⁻¹) lies strictly inside the unit circle (Schur–Cohn) |
 | [`select`](inc/damp/systems/state_space.hpp#L668) | SISO channel slice y_iy / u_iu |
 | [`series`](inc/damp/systems/state_space.hpp#L267) | Series connection: sys2 follows sys1 (u → sys1 → sys2 → y) |
 | [`similarity_transform`](inc/damp/systems/realization.hpp#L374) | Change the state basis to z = T·x: (T·A·T⁻¹, T·B, C·T⁻¹, D), and T·G for the noise input |
@@ -296,9 +296,9 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`InteriorPointSolver`](inc/damp/design/qp.hpp#L1442) | Interior-point QP solver policy for damp::MPC |
 | [`InvariantSetResult`](inc/damp/design/invariant_set.hpp#L39) | Maximal positively invariant polytope G e ≤ h of x⁺ = A x |
 | [`JordanBlock`](inc/damp/design/pole_placement.hpp#L485) | One Jordan mini-block of a desired closed-loop spectrum |
-| [`JordanObjective`](inc/damp/design/pole_placement.hpp#L1196) | How place_jordan spends the free parameter of the Klein–Moore family (Schmid et al.) |
-| [`JordanOptions`](inc/damp/design/pole_placement.hpp#L1209) | Options for place_jordan |
-| [`JordanPlaceResult`](inc/damp/design/pole_placement.hpp#L1224) | place_jordan result: the PlaceResult fields plus the achieved robustness metrics |
+| [`JordanObjective`](inc/damp/design/pole_placement.hpp#L1191) | How place_jordan spends the free parameter of the Klein–Moore family (Schmid et al.) |
+| [`JordanOptions`](inc/damp/design/pole_placement.hpp#L1204) | Options for place_jordan |
+| [`JordanPlaceResult`](inc/damp/design/pole_placement.hpp#L1219) | place_jordan result: the PlaceResult fields plus the achieved robustness metrics |
 | [`Law`](inc/damp/design/model_inverse.hpp#L950) | Law<kRes, T> of a `constexpr` model inverse: the same runtime on the design's matrices as constants of the type (+1 more overload) |
 | [`LeadLagResult`](inc/damp/controllers/lead_lag.hpp#L63) | Lead-lag compensator design result |
 | [`LeadLagSeriesResult`](inc/damp/controllers/lead_lag.hpp#L223) | Cascaded lead+lag design result (2nd-order StateSpace + success) |
@@ -316,7 +316,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`OutputInverseResult`](inc/damp/design/model_inverse.hpp#L140) | The stable inverse of a discrete model over a preview of NP output samples |
 | [`PIDPolePlacementSpec`](inc/damp/design/pid_design.hpp#L912) | Closed-loop targets for the continuous pid_pole_placement forms |
 | [`PIDTuneSpec`](inc/damp/design/pid_design.hpp#L449) | Knobs for plant-aware pidtune |
-| [`PlaceResult`](inc/damp/design/pole_placement.hpp#L1081) | Pole-placement design result: the gain K, the achieved closed-loop poles e, and Ts |
+| [`PlaceResult`](inc/damp/design/pole_placement.hpp#L1076) | Pole-placement design result: the gain K, the achieved closed-loop poles e, and Ts |
 | [`PlantDisturbance`](inc/damp/design/disturbance.hpp#L65) | The plant's own disturbance channel: B_d = G and C_d = H, one disturbance per column of G (H needs as many columns) |
 | [`PRResult`](inc/damp/controllers/pr.hpp#L109) | Proportional-Resonant controller design result |
 | [`QPResult`](inc/damp/design/qp.hpp#L80) | Result of a dense QP solve |
@@ -358,9 +358,9 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`damping_ratio_from_overshoot_percent`](inc/damp/design/pid_design.hpp#L858) | Map percent overshoot target to equivalent damping ratio |
 | [`dare`](inc/damp/design/riccati.hpp#L1319) | Solve the Discrete Algebraic Riccati Equation (DARE) |
 | [`discrete_lqr`](inc/damp/design/riccati.hpp#L1607) | Discrete-time Linear-Quadratic Regulator design (+1 more overload) |
-| [`discrete_lyapunov_cholesky`](inc/damp/design/lyapunov.hpp#L509) | Cholesky factor of the discrete Lyapunov solution: A X Aᵀ − X + B Bᵀ = 0, X = RᵀR |
+| [`discrete_lyapunov_cholesky`](inc/damp/design/lyapunov.hpp#L522) | Cholesky factor of the discrete Lyapunov solution: A X Aᵀ − X + B Bᵀ = 0, X = RᵀR |
 | [`discretize_lqr_cost`](inc/damp/design/riccati.hpp#L1676) | Discretize a continuous LQR cost integral over one sample (Van Loan) |
-| [`dlyap`](inc/damp/design/lyapunov.hpp#L469) | Solve the discrete-time Lyapunov (Stein) equation A X Aᵀ − X + Q = 0 |
+| [`dlyap`](inc/damp/design/lyapunov.hpp#L482) | Solve the discrete-time Lyapunov (Stein) equation A X Aᵀ − X + Q = 0 |
 | [`eliminate_states`](inc/damp/design/model_reduction.hpp#L626) | Eliminate the listed states, by DC-matched residualization or truncation |
 | [`esc`](inc/damp/controllers/esc.hpp#L155) | Synthesize an extremum-seeking controller |
 | [`esc_mppt`](inc/damp/controllers/esc.hpp#L199) | MPPT-flavored ESC: maximize a power measurement by perturbing the operating point (e.g. converter duty or reference voltage) |
@@ -393,8 +393,8 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`LQR`](inc/damp/controllers/lqr.hpp#L203) | LQR law{res}: the sizes and scalar of design::lqr's result (+2 more overloads) |
 | [`lqr_gain`](inc/damp/design/riccati.hpp#L1356) | Optimal LQR state-feedback gain from a Riccati solution |
 | [`LQRWeights`](inc/damp/controllers/state_feedback_core.hpp#L752) | Sizes from the matrices: `LQRWeights{Q, R}` (+2 more overloads) |
-| [`lyap`](inc/damp/design/lyapunov.hpp#L443) | Solve the continuous-time Lyapunov equation A X + X Aᵀ + Q = 0 |
-| [`lyapunov_cholesky`](inc/damp/design/lyapunov.hpp#L491) | Cholesky factor of the continuous Lyapunov solution: A X + X Aᵀ + B Bᵀ = 0, X = RᵀR |
+| [`lyap`](inc/damp/design/lyapunov.hpp#L456) | Solve the continuous-time Lyapunov equation A X + X Aᵀ + Q = 0 |
+| [`lyapunov_cholesky`](inc/damp/design/lyapunov.hpp#L504) | Cholesky factor of the continuous Lyapunov solution: A X + X Aᵀ + B Bᵀ = 0, X = RᵀR |
 | [`maximal_invariant_set`](inc/damp/design/invariant_set.hpp#L249) | Maximal positively invariant set of x⁺ = A x under G₀ x ≤ h₀ |
 | [`MeasuredDisturbance`](inc/damp/controllers/mpc.hpp#L1250) | Sizes from the matrix: `MeasuredDisturbance{Bd}` |
 | [`minreal`](inc/damp/design/minreal.hpp#L310) | Minimal realization — cancel uncontrollable and unobservable modes |
@@ -413,8 +413,8 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`pid_pole_placement`](inc/damp/design/pid_design.hpp#L960) | PI gains that place the closed-loop poles of a first-order plant b₀/(a₁ s + a₀) (+4 more overloads) |
 | [`PIDController`](inc/damp/controllers/pid.hpp#L902) | Deduce the runtime from its gains, keeping their scalar: PIDController pid{gains} is a PID; through an alias the mode comes from the alias: PIController pi{gains}; |
 | [`pidtune`](inc/damp/design/pid_design.hpp#L807) | Plant-aware PID tune at a crossover |
-| [`place`](inc/damp/design/pole_placement.hpp#L1160) | Robust pole placement (KNV): the gain K with eig(A − B·K) at poles, in the domain of sys (+1 more overload) |
-| [`place_jordan`](inc/damp/design/pole_placement.hpp#L1681) | Exact pole placement with an arbitrary Jordan structure (Schmid–Ntogramatzidis–Nguyen–Pandey / Klein–Moore parametric form) (+1 more overload) |
+| [`place`](inc/damp/design/pole_placement.hpp#L1155) | Robust pole placement (KNV): the gain K with eig(A − B·K) at poles, in the domain of sys (+1 more overload) |
+| [`place_jordan`](inc/damp/design/pole_placement.hpp#L1676) | Exact pole placement with an arbitrary Jordan structure (Schmid–Ntogramatzidis–Nguyen–Pandey / Klein–Moore parametric form) (+1 more overload) |
 | [`pr`](inc/damp/controllers/pr.hpp#L203) | Design a Proportional-Resonant controller |
 | [`pr_harmonics`](inc/damp/controllers/pr.hpp#L241) | Design multiple-harmonic PR controller gains |
 | [`PRController`](inc/damp/controllers/pr.hpp#L436) | Deduce the runtime from its design, keeping the result's scalar |
@@ -520,7 +520,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`ESKFOrientationFilter`](inc/damp/estimation/sensor_fusion.hpp#L380) | Turnkey 6-state attitude ESKF: owns q, b_g, and the error filter |
 | [`ESKFPredictFn`](inc/damp/estimation/eskf.hpp#L297) | Callable that returns ErrorStateJacobian for one predict step |
 | [`ESKFResult`](inc/damp/estimation/eskf.hpp#L83) | Design payload for an ESKF: Q, R, P₀, and success |
-| [`ESO`](inc/damp/estimation/eso.hpp#L308) | Extended-state observer (ESO) (+1 more overload) |
+| [`ESO`](inc/damp/estimation/eso.hpp#L311) | Extended-state observer (ESO) (+1 more overload) |
 | [`ESOResult`](inc/damp/estimation/eso.hpp#L53) | Extended-state observer design: continuous β and, for Ts > 0, the discrete ESO |
 | [`ExtendedKalmanFilter`](inc/damp/estimation/ekf.hpp#L117) | Extended Kalman filter: continuous nonlinear dynamics, sampled measurements (+1 more overload) |
 | [`ExtendedKalmanFilterConfig`](inc/damp/estimation/ekf.hpp#L41) | Configuration of an ExtendedKalmanFilter: its sample time, the process noise and the initial estimate |
@@ -543,7 +543,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`KalmanFilterConfig`](inc/damp/estimation/kalman.hpp#L618) | Configuration of a KalmanFilter built from a model rather than from design::kalman |
 | [`KalmanNoise`](inc/damp/estimation/kalman.hpp#L80) | The estimator's noise: process noise on the plant's noise inputs (through G), measurement noise on the sensors (through H) (+2 more overloads) |
 | [`KalmanResult`](inc/damp/estimation/kalman.hpp#L138) | Steady-state Kalman filter design result |
-| [`Law`](inc/damp/estimation/eso.hpp#L457) | Law<kRes, T> of a design::eso initialized at start-up: the ESO it runs as. A runtime of the same shape assigned replaces it (+5 more overloads) |
+| [`Law`](inc/damp/estimation/eso.hpp#L460) | Law<kRes, T> of a design::eso initialized at start-up: the ESO it runs as. A runtime of the same shape assigned replaces it (+5 more overloads) |
 | [`MadgwickFilter`](inc/damp/estimation/sensor_fusion.hpp#L132) | Madgwick gradient-descent AHRS filter |
 | [`MahonyFilter`](inc/damp/estimation/sensor_fusion.hpp#L174) | Mahony nonlinear complementary filter with PI correction |
 | [`MHE`](inc/damp/estimation/mhe.hpp#L344) | Runtime moving-horizon estimator (fixed per-tick iteration budget) (+1 more overload) |
@@ -602,7 +602,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`enu_from_ned`](inc/damp/estimation/ins_mechanization.hpp#L115) | Map a NED vector into ENU (axis permute) |
 | [`eskf_imu`](inc/damp/estimation/eskf.hpp#L217) | Design Q, R, P₀ for a 6-state IMU attitude ESKF (gyro + accel) |
 | [`eskf_marg`](inc/damp/estimation/eskf.hpp#L256) | Design Q, R, P₀ for a 6-state MARG attitude ESKF (gyro + accel + mag) |
-| [`eso`](inc/damp/estimation/eso.hpp#L205) | Extended-state observer: poles at −ω_o, plant gain b₀, optional sample time |
+| [`eso`](inc/damp/estimation/eso.hpp#L208) | Extended-state observer: poles at −ω_o, plant gain b₀, optional sample time |
 | [`extract_frf_features`](inc/damp/estimation/frequency_response.hpp#L808) | Extract peaks and valleys in one pass over the FRF table |
 | [`extract_modes`](inc/damp/estimation/frequency_response.hpp#L783) | Extract resonant peaks (local \|G\| maxima) from an FRF table |
 | [`extract_valleys`](inc/damp/estimation/frequency_response.hpp#L797) | Extract anti-resonance valleys (local \|G\| minima) from an FRF table |
@@ -981,34 +981,34 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | Name | Description |
 | ---- | ----------- |
 | [`AdaptiveOptions`](inc/damp/simulation/solver.hpp#L349) | Options for adaptive-step ODE integration |
-| [`AdaptiveStepIntegrator`](inc/damp/simulation/integrator.hpp#L112) | Integrator that reports a genuine embedded local-error estimate |
+| [`AdaptiveStepIntegrator`](inc/damp/simulation/integrator.hpp#L133) | Integrator that reports a genuine embedded local-error estimate |
 | [`AdaptiveStepSolver`](inc/damp/simulation/solver.hpp#L404) | Adaptive-step ODE solver (+1 more overload) |
-| [`BackwardEuler`](inc/damp/simulation/integrator.hpp#L340) | Backward Euler integrator |
-| [`BDF2`](inc/damp/simulation/integrator.hpp#L400) | Backward Differentiation Formula 2 (BDF2) integrator |
+| [`BackwardEuler`](inc/damp/simulation/integrator.hpp#L361) | Backward Euler integrator |
+| [`BDF2`](inc/damp/simulation/integrator.hpp#L420) | Backward Differentiation Formula 2 (BDF2) integrator |
 | [`CachedZoh`](inc/damp/simulation/cached_zoh.hpp#L63) | Cached discrete ZOH maps Ad, Bd for step size h |
-| [`Discrete`](inc/damp/simulation/integrator.hpp#L130) | Discrete-time integrator (no integration, just one step) |
-| [`DP45`](inc/damp/simulation/integrator.hpp#L777) | Dormand-Prince 5(4) adaptive integrator — the ode45 pair |
+| [`Discrete`](inc/damp/simulation/integrator.hpp#L151) | Discrete-time integrator (no integration, just one step) |
+| [`DP45`](inc/damp/simulation/integrator.hpp#L795) | Dormand-Prince 5(4) adaptive integrator — the ode45 pair |
 | [`ErrorTolerance`](inc/damp/simulation/solver.hpp#L302) | Scalar-or-vector local-error tolerance for adaptive ODE control |
 | [`EventSimConfig`](inc/damp/simulation/hybrid.hpp#L67) | Configuration for event-driven hybrid / multi-rate style runs |
-| [`Exact`](inc/damp/simulation/integrator.hpp#L164) | Exact integrator for LTI systems |
+| [`Exact`](inc/damp/simulation/integrator.hpp#L185) | Exact integrator for LTI systems |
 | [`FixedStepSolver`](inc/damp/simulation/solver.hpp#L145) | Fixed-step ODE solver (+1 more overload) |
-| [`ForwardEuler`](inc/damp/simulation/integrator.hpp#L220) | Forward Euler integrator |
-| [`Heun`](inc/damp/simulation/integrator.hpp#L860) | Heun's method (Improved Euler, RK2) integrator |
+| [`ForwardEuler`](inc/damp/simulation/integrator.hpp#L241) | Forward Euler integrator |
+| [`Heun`](inc/damp/simulation/integrator.hpp#L878) | Heun's method (Improved Euler, RK2) integrator |
 | [`HybridEventAction`](inc/damp/simulation/hybrid.hpp#L104) | Action applied when an event fires (after Exact advance to the event time) |
 | [`HybridSimulationResult`](inc/damp/simulation/hybrid.hpp#L79) | Result of a piecewise-LTI hybrid simulation |
 | [`IntegrationResult`](inc/damp/simulation/integrator.hpp#L61) | Result of an integration step |
 | [`LogPolicy`](inc/damp/simulation/hybrid.hpp#L58) | How often to record samples along a hybrid trajectory |
 | [`MultiRateConfig`](inc/damp/simulation/multirate.hpp#L81) | Configuration for multi-rate closed-loop runs |
 | [`PiecewiseLTI`](inc/damp/simulation/hybrid.hpp#L93) | Plant: NModes continuous LTI pieces (same state/input/output dimensions) |
-| [`RK23`](inc/damp/simulation/integrator.hpp#L915) | Bogacki-Shampine 2(3) adaptive integrator |
-| [`RK3`](inc/damp/simulation/integrator.hpp#L982) | Classical 3rd-order Runge-Kutta (RK3) integrator |
-| [`RK4`](inc/damp/simulation/integrator.hpp#L707) | Classical 4th-order Runge-Kutta (RK4) integrator |
+| [`RK23`](inc/damp/simulation/integrator.hpp#L933) | Bogacki-Shampine 2(3) adaptive integrator |
+| [`RK3`](inc/damp/simulation/integrator.hpp#L1000) | Classical 3rd-order Runge-Kutta (RK3) integrator |
+| [`RK4`](inc/damp/simulation/integrator.hpp#L725) | Classical 4th-order Runge-Kutta (RK4) integrator |
 | [`SimulationResult`](inc/damp/simulation/simulate.hpp#L128) | Result of a closed-loop simulation |
 | [`SisoReferenceAdapter`](inc/damp/simulation/simulate.hpp#L96) | Adapt a SISO `control(r, y)` controller for callables that want `u = f(y)` or `u = f(t, y)` (the older simulate contracts) |
 | [`SolveResult`](inc/damp/simulation/solver.hpp#L86) | Result of an ODE solve operation |
-| [`SymplecticEuler`](inc/damp/simulation/integrator.hpp#L275) | Semi-implicit (symplectic) Euler for mechanical systems |
-| [`Trapezoidal`](inc/damp/simulation/integrator.hpp#L649) | Trapezoidal (Tustin) integrator |
-| [`TRBDF2`](inc/damp/simulation/integrator.hpp#L524) | TR-BDF2 composite integrator with an embedded error estimate (the ode23tb scheme) |
+| [`SymplecticEuler`](inc/damp/simulation/integrator.hpp#L296) | Semi-implicit (symplectic) Euler for mechanical systems |
+| [`Trapezoidal`](inc/damp/simulation/integrator.hpp#L667) | Trapezoidal (Tustin) integrator |
+| [`TRBDF2`](inc/damp/simulation/integrator.hpp#L542) | TR-BDF2 composite integrator with an embedded error estimate (the ode23tb scheme) |
 | [`TwoRateSimulationResult`](inc/damp/simulation/multirate.hpp#L108) | Result of a two-rate cascade simulation |
 | [`XyPlotOpts`](inc/damp/simulation/plot_plotly.hpp#L537) | Optional axis framing for plot_xy |
 | [`XySeries`](inc/damp/simulation/plot_plotly.hpp#L519) | One series for a planar (x, y) scatter / path plot |

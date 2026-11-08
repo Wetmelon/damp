@@ -314,9 +314,11 @@ TEST_SUITE("PID Mode Control") {
         static_assert(!damp::detail::pid_kbc_winds_up(0.0, -1.0));
     }
 
-    TEST_CASE("back_calculate(u_sat, u_ff) reproduces the two-point ΔI = gain·(u_sat − u_unsat)/Kbc exactly") {
+    TEST_CASE("back_calculate(u_sat, u_ff) reproduces the two-point ΔI = gain·(u_sat − u_unsat)/Kbc") {
         // A PI plus feedforward, clamped downstream. The reference applies the formula with
-        // u_unsat = the PI's command + u_ff, which is what callers passed before.
+        // u_unsat = the PI's command + u_ff, which is what callers passed before. Both sides are the
+        // same formula, inlined twice: with FMA contraction (Cortex-M FPUs, x86-64-v3) the two copies
+        // may round differently, so they agree to a few ulps of the command's scale, not bit for bit.
         constexpr double      Ts = 0.01;
         const auto            gains = design::PIDGains{.Kp = 2.0, .Ki = 20.0, .Kbc = 2.0}.discretize(Ts);
         PIController<double>  law{gains};
@@ -325,8 +327,11 @@ TEST_SUITE("PID Mode Control") {
         ContinuousPID<double> cref{design::PIDGains{.Kp = 2.0, .Ki = 20.0, .Kbc = 2.0}};
         constexpr double      u_ff = 0.3;
         constexpr double      u_lim = 1.0;
-        double                y = 0.0;
-        int                   clamped = 0;
+        const auto            same_to_rounding = [](double a, double b) {
+            return damp::abs(a - b) <= 8.0 * damp::eps<double>() * (u_lim + damp::abs(a) + damp::abs(b));
+        };
+        double y = 0.0;
+        int    clamped = 0;
         for (int k = 0; k < 200; ++k) {
             const double r = (k < 100) ? 2.0 : -2.0;
             const double u = law.control(r, y);
@@ -343,8 +348,8 @@ TEST_SUITE("PID Mode Control") {
                 claw.back_calculate(cu_sat, u_ff);
                 damp::detail::pid_wind_back(cref, cref.Ki * Ts, cu_sat, cu_ref + u_ff);
             }
-            CHECK(law.integral == ref.integral);
-            CHECK(claw.integral == cref.integral);
+            CHECK(same_to_rounding(law.integral, ref.integral));
+            CHECK(same_to_rounding(claw.integral, cref.integral));
             y += Ts * (u_sat - y); // first-order plant
         }
         CHECK(clamped > 0);

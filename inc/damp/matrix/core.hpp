@@ -397,14 +397,13 @@ protected:
      * not `constexpr`.
      */
     [[nodiscard]] static constexpr damp::array<T, Rows * Cols> copy_seed(const Matrix& other) {
-        if (damp::is_constant_evaluated()) {
-            return other.data_;
-        }
         damp::array<T, Rows * Cols> out; // NOLINT(cppcoreguidelines-pro-type-member-init): copy_from writes every entry
-        if constexpr (sizeof(damp::array<T, Rows * Cols>) <= detail::kReturnedInRegistersBytes) {
+        if (damp::is_constant_evaluated()) {
+            out = other.data_;
+        } else if constexpr (sizeof(damp::array<T, Rows * Cols>) <= detail::kReturnedInRegistersBytes) {
             out = {};
         }
-        return out;
+        return out; // the only return, so built in the caller's storage: no copy reads the unset entries
     }
 
 public:

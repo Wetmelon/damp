@@ -176,6 +176,8 @@ Host tests and PIO target smoke use `-ffast-math`. Design `constexpr` stays
 abstract IEEE; runtime hardens around fast-math (`damp::isfinite` is bit-pattern
 based; no fragile cancellations; no ±Inf sentinels).
 
+The same code must also hold where multiply-adds fuse (Cortex-M4F/M7, x86-64-v3) and under GCC 15, which folds more of fast-math. Two rules follow. A decision never waits for a cancellation to round to exactly 0: test the operands, or a tolerance scaled to them. A test never expects two inlined copies of the same formula to agree bit for bit: compare to a few ulps of the operands. Check a change with `-march=x86-64-v3` on the host.
+
 ### Safety profile
 
 Inspired by MISRA C++, AUTOSAR C++14, JSF AV C++ and the C++ Core Guidelines;

@@ -72,6 +72,27 @@ template<size_t NX, typename T>
     return IntegrationResult<NX, T>{x, {}, false};
 }
 
+/**
+ * @brief I − s·A for an implicit step, a diagonal entry that is the roundoff of its two terms stored as 0
+ *
+ * 1 − s·aᵢᵢ within 16·eps·(1 + |s·aᵢᵢ|) of zero (the floor lu_decomposition() uses for one term)
+ * cannot be told from 0: 1 − 0.1·10 is 0, or −5.6e-17 when the multiply and subtract are fused.
+ * Stored as 0, an I − s·A singular to working precision is refused by the solve on every target,
+ * which measures cancellation against the entries it is given, not the terms that formed them.
+ */
+template<size_t NX, typename T>
+[[nodiscard]] constexpr Matrix<NX, NX, T> identity_minus(T s, const Matrix<NX, NX, T>& A) {
+    Matrix<NX, NX, T> M = -(s * A);
+    for (size_t i = 0; i < NX; ++i) {
+        const T sa = s * A(i, i);
+        M(i, i) = T{1} - sa;
+        if (!(damp::abs(M(i, i)) > T{16} * eps<T>() * (T{1} + damp::abs(sa)))) {
+            M(i, i) = T{0};
+        }
+    }
+    return M;
+}
+
 /** @brief The implicit step from a fixed-point solve, or a failed step when it does not converge. */
 template<size_t NX, typename T>
 [[nodiscard]] constexpr IntegrationResult<NX, T> implicit_step(const damp::optional<ColVec<NX, T>>& y, const ColVec<NX, T>& x) {
@@ -352,9 +373,8 @@ struct BackwardEuler {
      */
     template<size_t NU>
     constexpr IntegrationResult<NX, T> evolve(const Matrix<NX, NX, T>& A, const Matrix<NX, NU, T>& B, const ColVec<NX, T>& x, const ColVec<NU, T>& u, T h) const {
-        const Matrix I = Matrix<NX, NX, T>::identity();
         // (I − hA)·x_next = x + hBu  (Backward Euler implicit step).
-        const auto x_next = mat::solve(I - h * A, x + h * B * u);
+        const auto x_next = mat::solve(detail::identity_minus(h, A), x + h * B * u);
         return x_next ? IntegrationResult<NX, T>{*x_next, {}} : detail::failed_step(x);
     }
 
@@ -422,11 +442,9 @@ struct BDF2 {
      */
     template<size_t NU>
     constexpr IntegrationResult<NX, T> evolve(const Matrix<NX, NX, T>& A, const Matrix<NX, NU, T>& B, const ColVec<NX, T>& x, const ColVec<NU, T>& u, T h) const {
-        Matrix I = Matrix<NX, NX, T>::identity();
-
         if (first_step) {
             // Use Backward Euler for first step
-            const auto x_next = mat::solve(I - h * A, x + h * B * u);
+            const auto x_next = mat::solve(detail::identity_minus(h, A), x + h * B * u);
             if (!x_next) {
                 return detail::failed_step(x);
             }
@@ -436,7 +454,7 @@ struct BDF2 {
         }
 
         // BDF2: (I - (2/3)*h*A)*x_{n+1} = (4/3)*x_n - (1/3)*x_{n-1} + (2/3)*h*B*u
-        Matrix     lhs = I - c2 * h * A;
+        Matrix     lhs = detail::identity_minus(c2 * h, A);
         ColVec     rhs = c0 * x + c1 * x_prev + c2 * h * B * u;
         const auto x_next = mat::solve(lhs, rhs);
         if (!x_next) {
@@ -547,7 +565,7 @@ struct TRBDF2 {
         const T c_n = -((T{1} - g) * (T{1} - g)) / (g * (T{2} - g));
 
         const Matrix I = Matrix<NX, NX, T>::identity();
-        const Matrix M = I - gh2 * A;
+        const Matrix M = detail::identity_minus(gh2, A);
 
         // Stage 1 — trapezoidal over [t, t+γh]
         const auto x_gamma_opt = mat::solve(M, (I + gh2 * A) * x + (g * h) * (B * u));
@@ -664,7 +682,7 @@ struct Trapezoidal {
         const Matrix I = Matrix<NX, NX, T>::identity();
         const T      h2 = h / T{2};
         // (I − ½hA)·x_next = (I + ½hA)·x + hBu  (trapezoidal / Tustin implicit step).
-        const auto x_next = mat::solve(I - h2 * A, (I + h2 * A) * x + h * B * u);
+        const auto x_next = mat::solve(detail::identity_minus(h2, A), (I + h2 * A) * x + h * B * u);
         return x_next ? IntegrationResult<NX, T>{*x_next, {}} : detail::failed_step(x);
     }
 

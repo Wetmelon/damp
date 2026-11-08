@@ -147,6 +147,14 @@ delay templates on OFLQG / MPC). v0.1.0 never shipped those names.
 
 - GCC 14 no longer crashes (an internal compiler error in `build_data_member_initialization`) on a `constexpr` constructor holding a local whose member's default initializer copies a `Matrix`, as an `RlsConfig` does through its `Bounds`. The copy constructor reached `unset_elements`, which is not `constexpr`; it now builds its unset array itself, with the same code.
 - `UnscentedKalmanFilter::NSIG` is `NSP`. MinGW's `<signal.h>` defines `NSIG` as a macro, so GCC 11 on Windows could not compile `control.hpp`.
+- Results no longer depend on the compiler rounding a cancellation to exactly 0. GCC 15 under `-ffast-math`, and any build that fuses multiply-adds (Cortex-M4F/M7, x86-64-v3), broke these:
+  - `design::eso` decides "ω_o·T_s below eps of T" on the product. GCC 15 folded the old test `1 − e^{−ω_o T_s} > 0` into `ω_o T_s > 0`, so a design whose gain was exactly 0 reported success.
+  - The implicit integrators (Backward Euler, BDF2, TR-BDF2, trapezoidal) refuse an I − hA that is singular to working precision. 1 − 0.1·10 is −5.6e-17 when fused, and the solve accepted that as a pivot.
+  - `design::lowpass` and the other transfer-function stability checks judge float coefficients in double. Float's own recursion passed a pole at |z| = 1.011 when its multiply-adds were fused.
+  - `MHE` clamps a converged QP solution onto its box, as it already did one that ran out of iterations. A bound of 0 could read −1e-17.
+- `lyap` and `dlyap` return an exactly symmetric X when Q is symmetric. Before, the gap between the two triangles grew with the conditioning.
+- `design::place_jordan` on a defective structure no longer fails under GCC 15.2 `-O3 -ffast-math` on x86-64, which vectorizes the chain vectors' open-coded complex multiply-accumulate wrongly. They are `Matrix` products now.
+- GCC 15 warnings are gone: `-Wuninitialized` on the `Matrix` copy constructor's seed, which now has one return so it is built in place, and `-Wmaybe-uninitialized` on the pole-placement BFGS matrix.
 - The PLLs treat an amplitude below the smallest normal value as no signal. A lost input could stick in the subnormals and hold the phase error at full scale, so `integrator_leak` never bled the offset back to nominal on a CPU that keeps subnormals. The tests missed it because linking with `-ffast-math` flushes them on x86.
 
 ## [0.1.0] — 2026-08-09

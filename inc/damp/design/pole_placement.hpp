@@ -695,41 +695,36 @@ constexpr void assemble_vw(
         Matrix<NS, NX, Cplx> chains{};
         size_t               nchain = 0;
         for (size_t k = 0; k < plan.g[e]; ++k) {
-            damp::array<Cplx, NS> prev{};
+            Matrix<NX, 1, Cplx> prev{}; // state part of the previous chain vector
             for (size_t l = 0; l < plan.orders[e][k]; ++l) {
-                damp::array<Cplx, NS> h{};
-                for (size_t i = 0; i < NS; ++i) {
-                    Cplx acc{0};
-                    for (size_t r = 0; r < NU; ++r) {
-                        acc += N(i, r) * K(r, pcol); // N · K(l)
-                    }
-                    h[i] = acc;
+                Matrix<NU, 1, Cplx> kl{};
+                for (size_t r = 0; r < NU; ++r) {
+                    kl(r, 0) = K(r, pcol);
                 }
+                // h = N·K(l) + M·overp(prev) as matrix products. GCC 15 -O3 -ffast-math on x86-64
+                // (SSE2) loop-vectorizes the open-coded complex multiply-accumulate over prev wrongly.
+                Matrix<NS, 1, Cplx> h = N * kl;
                 if (l > 0) {
-                    for (size_t i = 0; i < NS; ++i) {
-                        Cplx acc{0};
-                        for (size_t r = 0; r < NX; ++r) {
-                            acc += M(i, r) * prev[r]; // + M · overp(prev)
-                        }
-                        h[i] += acc;
-                    }
+                    h += M * prev;
                 }
                 ++pcol;
                 if (is_real) {
                     for (size_t i = 0; i < NX; ++i) {
-                        V(i, col) = h[i].real();
+                        V(i, col) = h(i, 0).real();
                     }
                     for (size_t i = 0; i < NU; ++i) {
-                        W(i, col) = h[NX + i].real();
+                        W(i, col) = h(NX + i, 0).real();
                     }
                     ++col;
                 } else {
                     for (size_t i = 0; i < NS; ++i) {
-                        chains(i, nchain) = h[i];
+                        chains(i, nchain) = h(i, 0);
                     }
                     ++nchain;
                 }
-                prev = h;
+                for (size_t i = 0; i < NX; ++i) {
+                    prev(i, 0) = h(i, 0);
+                }
             }
         }
         if (!is_real) {
@@ -1434,9 +1429,9 @@ template<size_t NX, size_t NU, size_t NB, typename T>
     // BFGS with an Armijo backtracking line search warm-started at the unit
     // (quasi-Newton) step. H approximates the inverse Hessian. The accepted
     // line-search inverse is reused for the gradient (one V⁻¹ per step).
-    damp::array<damp::array<T, MaxDof>, MaxDof> H{};
+    Matrix<MaxDof, MaxDof, T> H{}; // flat: GCC 15 with FMA warns maybe-uninitialized on nested arrays here
     for (size_t i = 0; i < dof; ++i) {
-        H[i][i] = T{1};
+        H(i, i) = T{1};
     }
     const T c1 = static_cast<T>(1e-4);
     const T ftol = static_cast<T>(1e-12);
@@ -1459,7 +1454,7 @@ template<size_t NX, size_t NU, size_t NB, typename T>
         for (size_t i = 0; i < dof; ++i) {
             T acc = T{0};
             for (size_t k = 0; k < dof; ++k) {
-                acc += H[i][k] * grad[k];
+                acc += H(i, k) * grad[k];
             }
             p[i] = -acc;
             gp += grad[i] * p[i];
@@ -1467,7 +1462,7 @@ template<size_t NX, size_t NU, size_t NB, typename T>
         if (gp >= T{0}) {
             for (size_t i = 0; i < dof; ++i) {
                 for (size_t k = 0; k < dof; ++k) {
-                    H[i][k] = (i == k) ? T{1} : T{0};
+                    H(i, k) = (i == k) ? T{1} : T{0};
                 }
                 p[i] = -grad[i];
             }
@@ -1529,7 +1524,7 @@ template<size_t NX, size_t NU, size_t NB, typename T>
             for (size_t i = 0; i < dof; ++i) {
                 T acc = T{0};
                 for (size_t k = 0; k < dof; ++k) {
-                    acc += H[i][k] * yv[k];
+                    acc += H(i, k) * yv[k];
                 }
                 Hy[i] = acc;
                 yHy += yv[i] * Hy[i];
@@ -1538,7 +1533,7 @@ template<size_t NX, size_t NU, size_t NB, typename T>
             const T coef = rho * (T{1} + (rho * yHy));
             for (size_t i = 0; i < dof; ++i) {
                 for (size_t k = 0; k < dof; ++k) {
-                    H[i][k] += (coef * sv[i] * sv[k]) - (rho * ((Hy[i] * sv[k]) + (sv[i] * Hy[k])));
+                    H(i, k) += (coef * sv[i] * sv[k]) - (rho * ((Hy[i] * sv[k]) + (sv[i] * Hy[k])));
                 }
             }
         }

@@ -436,14 +436,18 @@ TEST_SUITE("back_calculate: the applied input through the law's own last command
         auto      with_ff = LQI{design::lqi(kPlantD, {.Q = kQ, .R = kR, .Q_integral = kQint})};
         auto      plain = with_ff;
         ColVec<2> x{};
+        double    xi_scale = 0.0;
         for (int k = 0; k < 200; ++k) {
             const double u = with_ff.step(ColVec<1>{setpoint_at(k)}, x)[0];
             static_cast<void>(plain.step(ColVec<1>{setpoint_at(k)}, x));
             const double ff = 0.3 * std::sin(0.05 * k);
             with_ff.back_calculate(ColVec<1>{u + ff}, ColVec<1>{ff}); // no clamp: u_sat = u_cmd + u_ff
             x = kPlantD.A * x + kPlantD.B * ColVec<1>{u + ff};
+            xi_scale = damp::max(xi_scale, damp::abs(plain.integral.xi[0]));
         }
-        CHECK(with_ff.integral.xi[0] == plain.integral.xi[0]);
+        // The same integrator in two copies of the tick: FMA contraction may round them apart by
+        // an ulp or so; a feedforward misread as a clamp would hold it by whole steps.
+        CHECK(damp::abs(with_ff.integral.xi[0] - plain.integral.xi[0]) <= 16.0 * damp::eps<double>() * xi_scale);
 
         // The same input reported without its feedforward reads as a clamp and holds an integrator.
         auto      misread = LQI{design::lqi(kPlantD, {.Q = kQ, .R = kR, .Q_integral = kQint})};
