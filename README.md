@@ -67,26 +67,25 @@ constexpr auto sys = StateSpace{
     .C = Matrix<1, 2>{{1.0, 0.0}},
 };
 constexpr auto result = design::lqr(sys, Ts, {.Q = Matrix<2, 2>::identity() * 10.0, .R = 1.0});
-static_assert(result.success);
 
-constinit LQR pendulum{result.as<float>()};
+constinit Law<result, float> pendulum; // the design's LQR, in float
 
 // ISR: measurement x at this sample, command u
 ColVec<2, float> x{0.1f, 0.0f};
 ColVec<1, float> u = pendulum.step(x);
 ```
 
-That is the design-is-deploy path. PID, LQG, MPC, ESKF look the same: design result →
-runtime → `step`. Flagship (LQI + clamp + `back_calculate`):
-[`examples/control/lqi/`](examples/control/lqi/).
+That is the design-is-deploy path. `Law<result, float>` makes the gains constants of the type: they take no RAM, a gain that is exactly 0 is no code, and a failed design does not compile. A design computed at start-up, from values measured at init, deploys as `LQR pendulum{result.as<float>()};` with the gains in members.
+
+PID, LQG, MPC, ESKF look the same: design result → runtime → `step`. Flagship (LQI + clamp + `back_calculate`): [`examples/control/lqi/`](examples/control/lqi/).
 
 If you know MATLAB® (`c2d`, `lqr`, `pidtune`, `kalman`) or you are writing an ISR:
 [docs/guide.md](docs/guide.md) maps those names onto Damp.
 
 | Habit | What it does |
 | ----- | ------------ |
-| `constexpr` on design | Plants, gains, and `design::…` results evaluate at compile time (or init). Pair with `static_assert(result.success)` so a failed design is a build failure, not a silent wrong gain. |
-| `.as<float>()` | Design stays in `double` for numerics; deploy is `float` for the MCU. Convert once at the boundary instead of mixing precisions on every tick. |
+| `constexpr` on design | Plants, gains, and `design::…` results evaluate at compile time (or init). A runtime built from a `constexpr` result refuses a failed one, so a failed design is a build failure, not a silent wrong gain. At init, check `result.success`. |
+| `Law<result, float>` or `.as<float>()` | Design stays in `double` for numerics; deploy is `float` for the MCU. Convert once at the boundary instead of mixing precisions on every tick. |
 | `constinit` on the runtime object | Controllers and estimators in static storage with constant initialization: state lands in the binary image (`.hex` / load image), not via a dynamic constructor during `__start`. No heap and no first-use setup in the interrupt. |
 | `StateSpace` / `TransferFunction` / `ZPK` | Shared LTI types for plants and interconnections (series `*`, feedback `/`, `discretize`, …). Prefer these over ad-hoc `A`/`B` arrays local to one module. |
 | `damp::` math (and aliases), not `std::` on target | `damp::sin` / `sqrt` / `exp` / … go through `MathBackend<T>` (constexpr-friendly at design time, swappable on target). Same for `damp::array`, `optional`, `clamp`, and the other backed aliases — raw `std::` skips that path and freestanding builds. |
@@ -136,10 +135,7 @@ SIL should call the deploy tick — not reimplement the controller for the sim. 
 
 ## What’s in the tree
 
-Embeddable core: stack matrices, `constexpr` math, LTI types (SS / TF / ZPK) and
-discretize, design-is-deploy controllers and estimators (PID, LQR family, OFLQG,
-MPC, ADRC, ESO, SMC, KF/EKF/UKF, ESKF, …), filters, encoders, fixed-step integrators,
-geometry, toolbox helpers.
+Embeddable core: stack matrices, `constexpr` math, LTI types (SS / TF / ZPK) and discretize (with input delay), design-is-deploy controllers and estimators (PID, LQR family, OFLQG, MPC, ADRC, ESO, SMC, fixed-gain and reduced-order observers, KF/EKF/UKF, ESKF, …), filters, encoders, fixed-step integrators, geometry, toolbox helpers.
 
 Host (via `workbench.hpp`): Bode/margins, ODE solvers, closed-loop simulate, and a
 set of MATLAB®-style short names in `matlab.hpp` (not full toolbox parity).
