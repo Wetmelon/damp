@@ -951,6 +951,17 @@ struct observer_runtime<Res, T, design::PlaceObserverResult<NX, NU, NY, U, NW, N
     using on_constants = FixedGainObserver<NX, NU, NY, T, 0, ConstantObserver<Res, T, NX>>; ///< On the design's constants
 };
 
+/** @brief The recursive filter a design also runs as, named Law<kRes, T>::Recursive: none but design::kalman's. */
+template<const auto& Res, typename T, bool OnConstants, typename R = std::remove_cvref_t<decltype(Res)>>
+struct recursive_filter_of {};
+
+/** @brief design::kalman: the KalmanFilter of the same model and noise, on the design's constants when it is `constexpr`. */
+template<const auto& Res, typename T, bool OnConstants, size_t NX, size_t NU, size_t NY, typename U, size_t NW, size_t NV, size_t ND>
+struct recursive_filter_of<Res, T, OnConstants, design::KalmanResult<NX, NU, NY, U, NW, NV, ND>> {
+    /** @brief The recursive filter of the same design: P propagates every tick, from the design's steady state on constants. */
+    using Recursive = std::conditional_t<OnConstants, KalmanFilter<NX, NU, NY, T, NW, NV, ConstantKalman<Res, T>>, KalmanFilter<NX, NU, NY, T, NW, NV>>;
+};
+
 /** @brief An observer design: a result that has a runtime in observer_runtime. */
 template<const auto& Res, typename T>
 concept observer_design = requires { typename observer_runtime<Res, T>::type; };
@@ -960,7 +971,7 @@ concept observer_design = requires { typename observer_runtime<Res, T>::type; };
 /** @brief Law<kRes, T> of an observer design (design::kalman, design::place_observer) initialized at start-up: the FixedGainObserver it runs as, default-constructed from the design. A runtime of the same shape assigned replaces it. */
 template<const auto& Res, typename T>
     requires detail::observer_design<Res, T>
-struct Law<Res, T> : detail::observer_runtime<Res, T>::type {
+struct Law<Res, T> : detail::observer_runtime<Res, T>::type, detail::recursive_filter_of<Res, T, false> {
     using Runtime = detail::observer_runtime<Res, T>::type; ///< The runtime the design runs as
 
     /** @brief The design's observer. */
@@ -972,7 +983,7 @@ struct Law<Res, T> : detail::observer_runtime<Res, T>::type {
 /** @brief Law<kRes, T> of a `constexpr` observer design: the same FixedGainObserver on the design's matrices as constants of the type. */
 template<const auto& Res, typename T>
     requires(detail::observer_design<Res, T> && detail::constant_design<Res>)
-struct Law<Res, T> : detail::observer_runtime<Res, T>::on_constants {
+struct Law<Res, T> : detail::observer_runtime<Res, T>::on_constants, detail::recursive_filter_of<Res, T, true> {
     using Runtime = detail::observer_runtime<Res, T>::type; ///< The runtime with members: the type of a member a redesign assigns
 
     /** @brief The design's observer. A failed or continuous design does not compile: the error names its status. */

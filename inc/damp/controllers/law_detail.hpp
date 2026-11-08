@@ -226,6 +226,8 @@ template<typename Ts>
  * design::adrc (controllers/adrc.hpp) and the model inverses (design/model_inverse.hpp:
  * StateFeedforward, OutputInverse), which all run on constants when kRes is `constexpr`, and MPC
  * (controllers/mpc.hpp, ofmpc.hpp), whose QP data stays in members and whose OFMPC filter is on constants.
+ * design::kalman's Law also names its recursive filter, `Law<kRes, float>::Recursive`: the KalmanFilter
+ * of the same model and noise, on the same constants when kRes is `constexpr`.
  *
  * @tparam Res The design result
  * @tparam T   The runtime scalar

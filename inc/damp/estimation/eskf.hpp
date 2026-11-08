@@ -31,6 +31,7 @@
 #include <type_traits>
 
 #include "damp/backend.hpp"
+#include "damp/estimation/joseph.hpp"
 #include "damp/math/geometry.hpp"
 #include "damp/math/math.hpp"
 #include "damp/matrix/matrix.hpp"
@@ -496,50 +497,12 @@ struct ErrorStateKalmanFilter {
         const std::type_identity_t<Matrix<NY, NY, T>>& R
     ) {
         static_assert(PatternMatrix<Pattern, T>::NR == NY && PatternMatrix<Pattern, T>::NC == NDX, "H is NY × NDX.");
-        const Matrix<NY, NDX, T> HP = H * P;
-        const Matrix<NY, NY, T>  S = times_transpose(HP, H) + R;
-        const auto               K_opt = mat::cholesky_solve(S, HP);
-        if (!K_opt) {
+        Matrix<NDX, NY, T> K{::damp::detail::unfilled};
+        if (!::damp::detail::joseph_update(P, H, R, K)) {
             return false;
         }
-        const Matrix<NDX, NY, T> K = K_opt.value().transpose();
-        const ColVec<NY, T>      innov_bar = innovation - (H * delta_x);
+        const ColVec<NY, T> innov_bar = innovation - (H * delta_x);
         delta_x = delta_x + (K * innov_bar);
-
-        const Matrix<NDX, NY, T> KR = K * R;
-        constexpr auto&          read_by_H = ::damp::detail::pattern_read_columns<Pattern>;
-        // A P, row by row: its lower triangle, and past the diagonal only the columns H reads.
-        T AP[NDX][NDX]; // written before it is read, only where the result reads it
-        for (size_t i = 0; i < NDX; ++i) {
-            const auto ap_entry = [&](size_t l) __attribute__((always_inline)) {
-                T s = P(i, l);
-                [&]<size_t... M>(damp::index_sequence<M...>) __attribute__((always_inline)) {
-                    ((s -= K(i, M) * HP(M, l)), ...);
-                }(damp::make_index_sequence<NY>{});
-                AP[i][l] = s;
-            };
-            for (size_t l = 0; l <= i; ++l) {
-                ap_entry(l);
-            }
-            [&]<size_t... C>(damp::index_sequence<C...>) __attribute__((always_inline)) {
-                ((read_by_H[C] && C > i ? ap_entry(C) : void()), ...);
-            }(damp::make_index_sequence<NDX>{});
-        }
-        // P ← A P Aᵀ + K R Kᵀ, row by row: the part of each row that does not depend on the column once.
-        for (size_t i = 0; i < NDX; ++i) {
-            T d[NY];
-            [&]<size_t... M>(damp::index_sequence<M...>) __attribute__((always_inline)) {
-                ((d[M] = KR(i, M) - H.template row_dot<M>([&](auto c) __attribute__((always_inline)) { return AP[i][decltype(c)::value]; })), ...);
-            }(damp::make_index_sequence<NY>{});
-            for (size_t j = 0; j <= i; ++j) {
-                T s = AP[i][j];
-                [&]<size_t... M>(damp::index_sequence<M...>) __attribute__((always_inline)) {
-                    ((s += K(j, M) * d[M]), ...);
-                }(damp::make_index_sequence<NY>{});
-                P(i, j) = s;
-                P(j, i) = s;
-            }
-        }
         return true;
     }
 

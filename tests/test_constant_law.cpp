@@ -22,6 +22,7 @@
 #include "damp/design/model_inverse.hpp"
 #include "damp/estimation/eso.hpp"
 #include "damp/estimation/fixed_gain_observer.hpp"
+#include "damp/estimation/kalman.hpp"
 #include "damp/matrix/colvec.hpp"
 #include "damp/matrix/const_matrix.hpp"
 #include "damp/matrix/matrix.hpp"
@@ -370,6 +371,86 @@ TEST_SUITE("Law of a constexpr design") {
         deployed.update(ColVec<1, float>{0.5F});
         CHECK(deployed.valid());
         CHECK(deployed.model().A(0, 1) == static_cast<float>(kKalman.sys.A(0, 1)));
+    }
+
+    TEST_CASE("Law<kRes, T>::Recursive: the recursive filter on constants, the same estimate and covariance as KalmanFilter") {
+        //! Run both on the same readings: a slowly moving input and a deterministic wobble on y.
+        const auto gap = [](const auto& a, const auto& b) {
+            using A = std::remove_cvref_t<decltype(a)>;
+            double g = 0.0;
+            for (size_t r = 0; r < A::rows(); ++r) {
+                for (size_t c = 0; c < A::cols(); ++c) {
+                    g = std::max(g, std::abs(static_cast<double>(a(r, c)) - static_cast<double>(b(r, c))));
+                }
+            }
+            return g;
+        };
+        const auto compare = [&gap](auto& on_constants, auto& held, double tol) {
+            using Held = std::remove_cvref_t<decltype(held)>;
+            constexpr size_t NX = std::remove_cvref_t<decltype(held.state())>::rows();
+            CHECK(gap(on_constants.covariance(), held.covariance()) <= tol);
+            ColVec<NX> truth{};
+            const auto plant = held.model();
+            for (int k = 0; k < 300; ++k) {
+                const double u = std::sin(0.031 * k) + ((k / 70) % 2 == 0 ? 0.4 : -0.4);
+                const auto   y = ColVec<1>(plant.C.template as<double>() * truth.template as<double>()) + ColVec<1>{1e-3 * std::sin(1.7 * k)};
+                using S = typename std::remove_cvref_t<decltype(held.state())>::value_type;
+                const ColVec<1, S> ys{static_cast<S>(y(0))};
+                const ColVec<1, S> us{static_cast<S>(u)};
+                REQUIRE(on_constants.update(ys) == held.update(ys));
+                on_constants.predict(us);
+                held.predict(us);
+                truth = ColVec<NX>(plant.A.template as<double>() * truth) + ColVec<NX>(plant.B.template as<double>() * ColVec<1>{u});
+                CAPTURE(k);
+                REQUIRE(gap(on_constants.state(), held.state()) <= tol * (1.0 + static_cast<double>(held.state().norm())));
+                REQUIRE(gap(on_constants.covariance(), held.covariance()) <= tol * (1.0 + static_cast<double>(held.covariance().norm())));
+            }
+            static_assert(!std::is_same_v<std::remove_cvref_t<decltype(on_constants)>, Held>);
+        };
+
+        SUBCASE("one register, a model with no disturbance") {
+            static constexpr auto           kKalman = design::kalman(kDelayed, {.process = kQn, .measurement = 1e-4});
+            Law<kKalman, double>::Recursive on_constants;
+            KalmanFilter                    held{kKalman};
+            static_assert(sizeof(on_constants) < sizeof(held));
+            compare(on_constants, held, 1e-12);
+            CHECK(on_constants.model().A(0, 1) == kKalman.sys.A(0, 1));
+            CHECK(on_constants.process_noise_covariance()(1, 1) == kKalman.Q(1, 1));
+            CHECK(on_constants.measurement_noise_covariance()(0, 0) == kKalman.R(0, 0));
+
+            // A reading of another C and R runs dense, the same on both.
+            const Matrix<1, 3> C2{{0.0, 1.0, 0.0}};
+            REQUIRE(on_constants.update(ColVec<1>{0.2}, C2, 1e-3) == held.update(ColVec<1>{0.2}, C2, 1e-3));
+            CHECK(gap(on_constants.state(), held.state()) <= 1e-12);
+            CHECK(gap(on_constants.covariance(), held.covariance()) <= 1e-12);
+        }
+
+        SUBCASE("three registers: their zeros cost nothing, and the numbers are the same") {
+            static constexpr auto           kModel = *discretize(mass_spring(), kTs, InputDelay<3>{3.0 * kTs});
+            static constexpr auto           kKalman = design::kalman(kModel, {.process = kQn, .measurement = 1e-4});
+            Law<kKalman, double>::Recursive on_constants;
+            KalmanFilter                    held{kKalman};
+            compare(on_constants, held, 1e-12);
+        }
+
+        SUBCASE("a disturbance design runs on [x; d], as KalmanFilter from it does") {
+            static constexpr auto           kKalman = design::kalman(kDelayed, {.process = kQn, .measurement = 1e-4, .disturbance = 1e-2}, design::InputDisturbance{});
+            Law<kKalman, double>::Recursive on_constants;
+            KalmanFilter                    held{kKalman};
+            compare(on_constants, held, 1e-12);
+        }
+
+        SUBCASE("in float, to float's precision") {
+            static constexpr auto          kKalman = design::kalman(kDelayed, {.process = kQn, .measurement = 1e-4});
+            Law<kKalman, float>::Recursive on_constants;
+            KalmanFilter                   held{kKalman.as<float>()};
+            compare(on_constants, held, 1e-4);
+        }
+
+        SUBCASE("a design initialized at start-up names the filter with members") {
+            static const auto kAtInit = design::kalman(kDelayed, {.process = kQn, .measurement = 1e-4});
+            static_assert(std::is_same_v<Law<kAtInit, double>::Recursive, KalmanFilter<3, 1, 1, double, 2, 1>>);
+        }
     }
 
     TEST_CASE("deployed in float: the same commands to float's precision") {
