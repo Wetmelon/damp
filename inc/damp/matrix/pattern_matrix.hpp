@@ -10,10 +10,6 @@
  * @brief A matrix whose zeros and ones are known at compile time and whose other entries are runtime values
  */
 
-#include <cstddef>
-#include <cstdint>
-#include <type_traits>
-
 #include "damp/backend.hpp"
 #include "damp/matrix/colvec.hpp"
 #include "damp/matrix/const_matrix.hpp"
@@ -22,7 +18,7 @@
 namespace damp {
 
 /** @brief What an entry of a sparsity pattern is known to be at compile time. */
-enum class PatternEntry : std::uint8_t {
+enum class PatternEntry : uint8_t {
     zero,  ///< Exactly 0: no term
     one,   ///< Exactly 1: no multiply
     value, ///< Known only at run time: one number in the matrix's storage
@@ -136,7 +132,7 @@ namespace detail {
 /** @brief For each entry of @p P, its place among the runtime values. */
 template<const auto& P>
 inline constexpr auto pattern_slots = [] {
-    using Pattern = std::remove_cvref_t<decltype(P)>;
+    using Pattern = damp::remove_cvref_t<decltype(P)>;
     damp::array<size_t, Pattern::rows() * Pattern::cols()> slots{};
     size_t                                                 n = 0;
     for (size_t i = 0; i < Pattern::rows() * Pattern::cols(); ++i) {
@@ -149,7 +145,7 @@ inline constexpr auto pattern_slots = [] {
 /** @brief Whether each row of a square @p P is a unit row. */
 template<const auto& P>
 inline constexpr auto pattern_unit_rows = [] {
-    using Pattern = std::remove_cvref_t<decltype(P)>;
+    using Pattern = damp::remove_cvref_t<decltype(P)>;
     damp::array<bool, Pattern::rows()> unit{};
     for (size_t r = 0; r < Pattern::rows(); ++r) {
         unit[r] = P.unit_row(r);
@@ -160,7 +156,7 @@ inline constexpr auto pattern_unit_rows = [] {
 /** @brief Whether any row of @p P reads each column. */
 template<const auto& P>
 inline constexpr auto pattern_read_columns = [] {
-    using Pattern = std::remove_cvref_t<decltype(P)>;
+    using Pattern = damp::remove_cvref_t<decltype(P)>;
     damp::array<bool, Pattern::cols()> read{};
     for (size_t r = 0; r < Pattern::rows(); ++r) {
         for (size_t c = 0; c < Pattern::cols(); ++c) {
@@ -176,7 +172,7 @@ inline constexpr auto pattern_read_columns = [] {
  */
 template<const auto& P>
 inline constexpr auto pattern_sandwich_reads = [] {
-    constexpr size_t         N = std::remove_cvref_t<decltype(P)>::rows();
+    constexpr size_t         N = damp::remove_cvref_t<decltype(P)>::rows();
     constexpr auto&          unit = pattern_unit_rows<P>;
     damp::array<bool, N * N> reads{};
     for (size_t i = 0; i < N; ++i) {
@@ -217,8 +213,8 @@ inline constexpr auto pattern_sandwich_reads = [] {
  */
 template<const auto& P, typename T = float>
 struct PatternMatrix {
-    using Pattern = std::remove_cvref_t<decltype(P)>; ///< The pattern's type
-    using Scalar = T;                                 ///< The scalar
+    using Pattern = damp::remove_cvref_t<decltype(P)>; ///< The pattern's type
+    using Scalar = T;                                  ///< The scalar
 
     static constexpr size_t NR = Pattern::rows(); ///< Rows
     static constexpr size_t NC = Pattern::cols(); ///< Columns
@@ -291,7 +287,7 @@ struct PatternMatrix {
             if constexpr (sizeof...(I) == 0) {
                 return T{0};
             } else {
-                return (... + times<R, detail::nonzero_columns<P, R>.col[I]>(read(std::integral_constant<size_t, detail::nonzero_columns<P, R>.col[I]>{})));
+                return (... + times<R, detail::nonzero_columns<P, R>.col[I]>(read(damp::integral_constant<size_t, detail::nonzero_columns<P, R>.col[I]>{})));
             }
         }(damp::make_index_sequence<detail::nonzero_columns<P, R>.n>{});
     }
@@ -374,7 +370,7 @@ namespace detail {
 /** @brief The sparsity pattern of a constant matrix @p M: its exact zeros and ones, and every other entry a value. */
 template<const auto& M>
 inline constexpr auto pattern_of = [] {
-    using Stored = std::remove_cvref_t<decltype(M)>;
+    using Stored = damp::remove_cvref_t<decltype(M)>;
     using Value = typename Stored::value_type;
     SparsityPattern<Stored::rows(), Stored::cols()> p{};
     for (size_t r = 0; r < Stored::rows(); ++r) {
@@ -392,7 +388,7 @@ inline constexpr auto pattern_of = [] {
  */
 template<const auto& M>
 inline constexpr auto as_pattern_matrix = [] {
-    using Stored = std::remove_cvref_t<decltype(M)>;
+    using Stored = damp::remove_cvref_t<decltype(M)>;
     PatternMatrix<pattern_of<M>, typename Stored::value_type> out{};
     for (size_t r = 0; r < Stored::rows(); ++r) {
         for (size_t c = 0; c < Stored::cols(); ++c) {

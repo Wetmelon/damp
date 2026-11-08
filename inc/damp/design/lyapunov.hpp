@@ -14,7 +14,6 @@
  * scalar. The cost is O(NX³) time and O(NX²) storage.
  */
 
-#include <cstddef>
 
 #include "damp/backend.hpp"
 #include "damp/math/complex.hpp"

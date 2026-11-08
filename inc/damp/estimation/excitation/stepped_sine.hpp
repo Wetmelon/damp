@@ -10,8 +10,6 @@
  * @brief Stepped-sine excitation — design payload and runtime generator
  */
 
-#include <cstddef>
-#include <type_traits>
 
 #include "damp/backend.hpp"
 #include "damp/math/math.hpp"
@@ -30,11 +28,11 @@ namespace design {
  * @tparam NFreq Number of frequency steps.
  * @tparam T     Scalar type.
  */
-template<std::size_t NFreq, typename T = double>
+template<size_t NFreq, typename T = double>
 struct SteppedSineConfig {
     damp::array<T, NFreq> frequencies_hz{};    ///< Frequency table [Hz], each > 0
     T                     amplitude{T{1}};     ///< Tone amplitude (>= 0)
-    std::size_t           cycles_per_freq{10}; ///< Periods spent at each frequency (>= 1)
+    size_t                cycles_per_freq{10}; ///< Periods spent at each frequency (>= 1)
     T                     phase_rad{T{0}};     ///< Phase offset [rad] (finite)
 
     /**
@@ -54,7 +52,7 @@ struct SteppedSineConfig {
         if (!damp::isfinite(phase_rad)) {
             return false;
         }
-        for (std::size_t i = 0; i < NFreq; ++i) {
+        for (size_t i = 0; i < NFreq; ++i) {
             if (!damp::finite_positive(frequencies_hz[i])) {
                 return false;
             }
@@ -70,7 +68,7 @@ struct SteppedSineConfig {
  * @tparam NFreq Number of frequency steps.
  * @tparam T     Scalar type.
  */
-template<std::size_t NFreq, typename T = double>
+template<size_t NFreq, typename T = double>
 struct SteppedSineResult {
     SteppedSineConfig<NFreq, T> config{};       ///< Validated configuration
     bool                        success{false}; ///< true if `config.valid()`
@@ -86,7 +84,7 @@ struct SteppedSineResult {
     template<typename U>
     [[nodiscard]] constexpr SteppedSineResult<NFreq, U> as() const {
         SteppedSineConfig<NFreq, U> cfg_u{};
-        for (std::size_t i = 0; i < NFreq; ++i) {
+        for (size_t i = 0; i < NFreq; ++i) {
             cfg_u.frequencies_hz[i] = static_cast<U>(config.frequencies_hz[i]);
         }
         cfg_u.amplitude = static_cast<U>(config.amplitude);
@@ -106,11 +104,11 @@ struct SteppedSineResult {
  * @return SteppedSineResult with `success` = `config.valid()`, a valid Ts, and every frequency
  *         below the Nyquist frequency 1/(2·Ts).
  */
-template<std::size_t NFreq, typename T = double>
+template<size_t NFreq, typename T = double>
 [[nodiscard]] constexpr SteppedSineResult<NFreq, T>
 stepped_sine(const SteppedSineConfig<NFreq, T>& config, T Ts) {
     bool below_nyquist = true;
-    for (std::size_t i = 0; i < NFreq; ++i) {
+    for (size_t i = 0; i < NFreq; ++i) {
         below_nyquist = below_nyquist && (T{2} * config.frequencies_hz[i] * Ts < T{1});
     }
     return SteppedSineResult<NFreq, T>{config, config.valid() && (Ts > T{0}) && damp::isfinite(Ts) && below_nyquist, Ts};
@@ -132,14 +130,14 @@ stepped_sine(const SteppedSineConfig<NFreq, T>& config, T Ts) {
  * @tparam NFreq Number of frequency steps.
  * @tparam T     Scalar type.
  */
-template<std::size_t NFreq, typename T = float>
+template<size_t NFreq, typename T = float>
 class SteppedSine {
 public:
     constexpr SteppedSine() = default;
 
     /** @brief From a design result in another scalar: converts it with .as\<T\>() and builds from that. */
     template<typename U>
-        requires(!std::is_same_v<U, T>)
+        requires(!damp::is_same_v<U, T>)
     constexpr SteppedSine(const design::SteppedSineResult<NFreq, U>& result) // NOLINT(google-explicit-constructor): assign-from-design
         : SteppedSine(result.template as<T>()) {}
 
@@ -149,7 +147,7 @@ public:
      */
     constexpr SteppedSine(const design::SteppedSineResult<NFreq, T>& design) // NOLINT(google-explicit-constructor): assign-from-design
         : config_(design.config), Ts_(design.Ts), valid_(design.success) {
-        if (!design.success && std::is_constant_evaluated()) {
+        if (!design.success && damp::is_constant_evaluated()) {
             ::damp::detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
         if (valid_) {
@@ -202,7 +200,7 @@ public:
     }
 
     /** @brief Index of the active frequency in the table. */
-    [[nodiscard]] constexpr std::size_t frequency_index() const { return index_; }
+    [[nodiscard]] constexpr size_t frequency_index() const { return index_; }
 
     /** @brief Active frequency [Hz] (0 if invalid / finished). */
     [[nodiscard]] constexpr T frequency_hz() const {
@@ -216,7 +214,7 @@ public:
     [[nodiscard]] constexpr T amplitude() const { return config_.amplitude; }
 
 private:
-    constexpr void start_frequency(std::size_t i) {
+    constexpr void start_frequency(size_t i) {
         index_ = i;
         k_ = 0;
         finished_ = false;
@@ -224,14 +222,14 @@ private:
 
     design::SteppedSineConfig<NFreq, T> config_{};
     T                                   Ts_{T{0}};
-    std::size_t                         k_{0}; ///< Samples emitted at the active frequency
-    std::size_t                         index_{0};
+    size_t                              k_{0}; ///< Samples emitted at the active frequency
+    size_t                              index_{0};
     bool                                valid_{false};
     bool                                finished_{false};
 };
 
 /** @brief Deduce the runtime from its design, keeping the result's scalar. */
-template<std::size_t NFreq, typename T>
+template<size_t NFreq, typename T>
 SteppedSine(const design::SteppedSineResult<NFreq, T>&) -> SteppedSine<NFreq, T>;
 
 } // namespace damp

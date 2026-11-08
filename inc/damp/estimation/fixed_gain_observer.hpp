@@ -71,9 +71,6 @@
  * @see kalman.hpp: design::kalman (a gain this observer runs) and KalmanFilter (the recursive filter)
  */
 
-#include <cstddef>
-#include <type_traits>
-
 #include "damp/backend.hpp"
 #include "damp/controllers/law_detail.hpp"
 #include "damp/design/pole_placement.hpp" // design::place (dual placement)
@@ -840,13 +837,13 @@ private:
     };
     struct NoAnchor {};
 
-    [[no_unique_address]] typename Store::Model                          sys_{};                  ///< The observer's model, [x; d]
-    [[no_unique_address]] typename Store::Gain                           M_{};                    ///< The innovation gain (zero when !valid_)
-    ColVec<NX, T>                                                        x_{};                    ///< Estimate (a deviation from the anchor when ND > 0)
-    ColVec<NY, T>                                                        innov_{};                ///< y − C x̂ − D u
-    ColVec<NU, T>                                                        u_prev_{};               ///< The input the plant holds, for the feedthrough
-    [[no_unique_address]] std::conditional_t<(ND > 0), Anchor, NoAnchor> anchor_{};               ///< The anchor of the deviations (ND > 0)
-    bool                                                                 valid_{Store::constant}; ///< Built from a successful discrete design or model; a fixed store is refused at compile time otherwise
+    [[no_unique_address]] typename Store::Model                           sys_{};                  ///< The observer's model, [x; d]
+    [[no_unique_address]] typename Store::Gain                            M_{};                    ///< The innovation gain (zero when !valid_)
+    ColVec<NX, T>                                                         x_{};                    ///< Estimate (a deviation from the anchor when ND > 0)
+    ColVec<NY, T>                                                         innov_{};                ///< y − C x̂ − D u
+    ColVec<NU, T>                                                         u_prev_{};               ///< The input the plant holds, for the feedthrough
+    [[no_unique_address]] damp::conditional_t<(ND > 0), Anchor, NoAnchor> anchor_{};               ///< The anchor of the deviations (ND > 0)
+    bool                                                                  valid_{Store::constant}; ///< Built from a successful discrete design or model; a fixed store is refused at compile time otherwise
 
     /** @brief A model without its noise inputs, in the observer's scalar. */
     template<typename U, size_t NW, size_t NV>
@@ -858,7 +855,7 @@ private:
     template<typename U>
     [[nodiscard]] static constexpr bool usable(bool success, design::DesignStatus status, U Ts) {
         const bool ok = success && Ts > U{0};
-        if (!ok && std::is_constant_evaluated()) {
+        if (!ok && damp::is_constant_evaluated()) {
             ::damp::detail::refuse_failed_design(success ? design::DesignStatus::invalid_sample_time : status); // constant-evaluated (constinit / constexpr): a failed or continuous design does not compile
         }
         return ok;
@@ -934,7 +931,7 @@ struct ConstantObserver {
 };
 
 /** @brief The runtime an observer design runs as: none for anything else. */
-template<const auto& Res, typename T, typename R = std::remove_cvref_t<decltype(Res)>>
+template<const auto& Res, typename T, typename R = damp::remove_cvref_t<decltype(Res)>>
 struct observer_runtime {};
 
 /** @brief design::kalman: the observer and its disturbance. */
@@ -952,14 +949,14 @@ struct observer_runtime<Res, T, design::PlaceObserverResult<NX, NU, NY, U, NW, N
 };
 
 /** @brief The recursive filter a design also runs as, named Law<kRes, T>::Recursive: none but design::kalman's. */
-template<const auto& Res, typename T, bool OnConstants, typename R = std::remove_cvref_t<decltype(Res)>>
+template<const auto& Res, typename T, bool OnConstants, typename R = damp::remove_cvref_t<decltype(Res)>>
 struct recursive_filter_of {};
 
 /** @brief design::kalman: the KalmanFilter of the same model and noise, on the design's constants when it is `constexpr`. */
 template<const auto& Res, typename T, bool OnConstants, size_t NX, size_t NU, size_t NY, typename U, size_t NW, size_t NV, size_t ND>
 struct recursive_filter_of<Res, T, OnConstants, design::KalmanResult<NX, NU, NY, U, NW, NV, ND>> {
     /** @brief The recursive filter of the same design: P propagates every tick, from the design's steady state on constants. */
-    using Recursive = std::conditional_t<OnConstants, KalmanFilter<NX, NU, NY, T, NW, NV, ConstantKalman<Res, T>>, KalmanFilter<NX, NU, NY, T, NW, NV>>;
+    using Recursive = damp::conditional_t<OnConstants, KalmanFilter<NX, NU, NY, T, NW, NV, ConstantKalman<Res, T>>, KalmanFilter<NX, NU, NY, T, NW, NV>>;
 };
 
 /** @brief An observer design: a result that has a runtime in observer_runtime. */
@@ -991,7 +988,7 @@ struct Law<Res, T> : detail::observer_runtime<Res, T>::on_constants, detail::rec
 
     /** @brief There is nothing to replace: the design is in the type. */
     template<typename Other>
-        requires(!std::is_same_v<std::remove_cvref_t<Other>, Law>)
+        requires(!damp::is_same_v<damp::remove_cvref_t<Other>, Law>)
     constexpr Law& operator=(const Other& other) {
         static_assert(sizeof(Other) == 0, "This Law is a constexpr design's: its matrices are constants of the type, so there is nothing to replace. A member a redesign assigns is Law<kRes, T>::Runtime law{kRes.as<T>()};");
         static_cast<void>(other);
@@ -1071,7 +1068,7 @@ public:
         requires(!Store::constant)
     constexpr ReducedOrderObserver(const design::ReducedOrderObserverResult<NX, NU, U>& result) // NOLINT(google-explicit-constructor): assign-from-design
         : valid_(result.success && result.Ts > U{0}) {
-        if (!valid_ && std::is_constant_evaluated()) {
+        if (!valid_ && damp::is_constant_evaluated()) {
             ::damp::detail::refuse_failed_design(result.success ? design::DesignStatus::invalid_sample_time : result.status); // constant-evaluated (constinit / constexpr): a failed or continuous design does not compile
         }
         if (valid_) {
@@ -1176,7 +1173,7 @@ ReducedOrderObserver(const design::ReducedOrderObserverResult<NX, NU, T>&) -> Re
 namespace detail {
 
 /** @brief The runtime a reduced-observer design runs as: none for anything else. */
-template<const auto& Res, typename T, typename R = std::remove_cvref_t<decltype(Res)>>
+template<const auto& Res, typename T, typename R = damp::remove_cvref_t<decltype(Res)>>
 struct reduced_observer_runtime {};
 
 /** @brief design::reduced_order_observer: with members, or on its constants. */

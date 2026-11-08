@@ -35,9 +35,6 @@
  * @see "Optimal State Estimation" (Simon, 2006), §14.3
  */
 
-#include <cstddef>
-#include <type_traits>
-
 #include "damp/backend.hpp"
 #include "damp/concepts.hpp"
 #include "damp/matrix/matrix.hpp"
@@ -62,7 +59,7 @@ struct UnscentedParams {
      * @brief Spread of the sigma points. 1e-3 is a double-precision recipe; in float
      * it makes n+λ ~ 1e-6 n and a center weight ~ 1/α².
      */
-    T alpha{std::is_same_v<T, float> ? T{0.5} : static_cast<T>(1e-3)};
+    T alpha{damp::is_same_v<T, float> ? T{0.5} : static_cast<T>(1e-3)};
     T beta{static_cast<T>(2)};  ///< Prior-distribution knowledge (2 for a Gaussian)
     T kappa{static_cast<T>(0)}; ///< Secondary scaling
 };
@@ -205,7 +202,7 @@ struct UnscentedKalmanFilter {
      */
     template<typename H, size_t NY>
         requires Measurement<H, NX, NU, NY, T>
-    [[nodiscard]] constexpr bool update(const H& h, const ColVec<NY, T>& y, const std::type_identity_t<Matrix<NY, NY, T>>& R) {
+    [[nodiscard]] constexpr bool update(const H& h, const ColVec<NY, T>& y, const damp::type_identity_t<Matrix<NY, NY, T>>& R) {
         const auto m = measurement_moments<NY>(h, R);
         if (!m) {
             return false;

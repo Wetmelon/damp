@@ -11,8 +11,6 @@
  *        at compile time, shared by the filters that run on one
  */
 
-#include <cstddef>
-
 #include "damp/backend.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "damp/matrix/pattern_matrix.hpp"

@@ -10,9 +10,6 @@
  * @brief PRBS excitation — design payload and runtime generator
  */
 
-#include <cstddef>
-#include <cstdint>
-#include <type_traits>
 
 #include "damp/backend.hpp"
 #include "damp/math/math.hpp"
@@ -23,14 +20,14 @@ namespace detail {
 
 // Galois LFSR helpers for maximal-length PRBS (orders 2..16).
 
-[[nodiscard]] constexpr std::uint32_t prbs_bit_mask(std::size_t order) {
+[[nodiscard]] constexpr uint32_t prbs_bit_mask(size_t order) {
     if (order == 0 || order >= 32) {
         return 0u;
     }
-    return (std::uint32_t{1u} << static_cast<unsigned>(order)) - std::uint32_t{1u};
+    return (uint32_t{1u} << static_cast<unsigned>(order)) - uint32_t{1u};
 }
 
-[[nodiscard]] constexpr std::uint32_t prbs_feedback_mask(std::size_t order) {
+[[nodiscard]] constexpr uint32_t prbs_feedback_mask(size_t order) {
     switch (order) {
         case 2: return 0x3u;
         case 3: return 0x6u;
@@ -51,16 +48,16 @@ namespace detail {
     }
 }
 
-[[nodiscard]] constexpr std::uint32_t prbs_advance(std::uint32_t state, std::size_t order) {
-    const std::uint32_t lsb = state & std::uint32_t{1u};
+[[nodiscard]] constexpr uint32_t prbs_advance(uint32_t state, size_t order) {
+    const uint32_t lsb = state & uint32_t{1u};
     state >>= 1u;
     if (lsb != 0u) {
         state ^= prbs_feedback_mask(order);
     }
-    const std::uint32_t mask = prbs_bit_mask(order);
+    const uint32_t mask = prbs_bit_mask(order);
     state &= mask;
     if (state == 0u) {
-        state = std::uint32_t{1u};
+        state = uint32_t{1u};
     }
     return state;
 }
@@ -80,13 +77,13 @@ namespace design {
  */
 template<typename T = double>
 struct PRBSConfig {
-    static constexpr std::size_t kMinOrder = 2;
-    static constexpr std::size_t kMaxOrder = 16;
+    static constexpr size_t kMinOrder = 2;
+    static constexpr size_t kMaxOrder = 16;
 
-    T             amplitude{T{1}};                       ///< Output level (+/- amplitude), must be > 0
-    std::size_t   lfsr_order{10};                        ///< LFSR order in [kMinOrder, kMaxOrder]
-    T             clock_period_s{static_cast<T>(0.001)}; ///< Chip period in seconds (> 0)
-    std::uint32_t seed{1u};                              ///< Initial LFSR state (must not map to all-zero)
+    T        amplitude{T{1}};                       ///< Output level (+/- amplitude), must be > 0
+    size_t   lfsr_order{10};                        ///< LFSR order in [kMinOrder, kMaxOrder]
+    T        clock_period_s{static_cast<T>(0.001)}; ///< Chip period in seconds (> 0)
+    uint32_t seed{1u};                              ///< Initial LFSR state (must not map to all-zero)
 
     /**
      * @brief Validate PRBS configuration.
@@ -102,7 +99,7 @@ struct PRBSConfig {
         if (lfsr_order < kMinOrder || lfsr_order > kMaxOrder) {
             return false;
         }
-        const std::uint32_t mask = damp::detail::prbs_bit_mask(lfsr_order);
+        const uint32_t mask = damp::detail::prbs_bit_mask(lfsr_order);
         if ((seed & mask) == 0u) {
             return false;
         }
@@ -125,7 +122,7 @@ struct PRBSConfig {
 template<typename T = double>
 struct PRBSResult {
     PRBSConfig<T> config{};       ///< Validated PRBS configuration
-    std::size_t   period_bits{0}; ///< Sequence period in chips: `2^order - 1`
+    size_t        period_bits{0}; ///< Sequence period in chips: `2^order - 1`
     bool          success{false}; ///< true if `config.valid()`
     T             Ts{0};          ///< [s] Sample period of the internal step() clock
 
@@ -164,10 +161,10 @@ struct PRBSResult {
 template<typename T = double>
 [[nodiscard]] constexpr PRBSResult<T>
 prbs(const PRBSConfig<T>& config, T Ts) {
-    const bool        valid = config.valid() && (Ts > T{0}) && damp::isfinite(Ts) && (Ts <= config.clock_period_s);
-    const std::size_t period_bits = valid
-                                      ? ((std::size_t{1} << config.lfsr_order) - std::size_t{1})
-                                      : std::size_t{0};
+    const bool   valid = config.valid() && (Ts > T{0}) && damp::isfinite(Ts) && (Ts <= config.clock_period_s);
+    const size_t period_bits = valid
+                                 ? ((size_t{1} << config.lfsr_order) - size_t{1})
+                                 : size_t{0};
     return PRBSResult<T>{config, period_bits, valid, Ts};
 }
 
@@ -192,7 +189,7 @@ public:
 
     /** @brief From a design result in another scalar: converts it with .as\<T\>() and builds from that. */
     template<typename U>
-        requires(!std::is_same_v<U, T>)
+        requires(!damp::is_same_v<U, T>)
     constexpr PRBS(const design::PRBSResult<U>& result) // NOLINT(google-explicit-constructor): assign-from-design
         : PRBS(result.template as<T>()) {}
 
@@ -202,7 +199,7 @@ public:
      */
     constexpr PRBS(const design::PRBSResult<T>& design) // NOLINT(google-explicit-constructor): assign-from-design
         : config_(design.config), Ts_(design.Ts), valid_(design.success && design.Ts > T{0}) {
-        if (!design.success && std::is_constant_evaluated()) {
+        if (!design.success && damp::is_constant_evaluated()) {
             ::damp::detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
         reset();
@@ -220,16 +217,16 @@ public:
 
         // Reduce modulo the period in floating point first so the size_t cast is
         // in range for any t (a raw floor(t/clock) can exceed SIZE_MAX).
-        const T           tc = damp::max(t, T{0});
-        const std::size_t period = period_bits();
-        const T           chip_pos = damp::fmod(damp::floor(tc / config_.clock_period_s), static_cast<T>(period));
-        auto              chips = static_cast<std::size_t>(chip_pos);
+        const T      tc = damp::max(t, T{0});
+        const size_t period = period_bits();
+        const T      chip_pos = damp::fmod(damp::floor(tc / config_.clock_period_s), static_cast<T>(period));
+        auto         chips = static_cast<size_t>(chip_pos);
         if (chips >= period) {
             chips = 0; // fmod round-off at the period boundary
         }
 
-        std::uint32_t state = seeded_state();
-        for (std::size_t i = 0; i < chips; ++i) {
+        uint32_t state = seeded_state();
+        for (size_t i = 0; i < chips; ++i) {
             state = detail::prbs_advance(state, config_.lfsr_order);
         }
 
@@ -294,40 +291,40 @@ public:
      * @brief Return PRBS period in chips.
      * @return `2^lfsr_order - 1` for valid config, 0 otherwise.
      */
-    [[nodiscard]] constexpr std::size_t period_bits() const {
+    [[nodiscard]] constexpr size_t period_bits() const {
         if (!config_.valid()) {
             return 0;
         }
-        return (std::size_t{1} << config_.lfsr_order) - std::size_t{1};
+        return (size_t{1} << config_.lfsr_order) - size_t{1};
     }
 
     /**
      * @brief Return current internal LFSR state.
      * @return Raw LFSR register value.
      */
-    [[nodiscard]] constexpr std::uint32_t state() const {
+    [[nodiscard]] constexpr uint32_t state() const {
         return state_;
     }
 
 private:
-    [[nodiscard]] constexpr std::uint32_t seeded_state() const {
-        const std::uint32_t mask = detail::prbs_bit_mask(config_.lfsr_order);
-        const std::uint32_t seeded = config_.seed & mask;
+    [[nodiscard]] constexpr uint32_t seeded_state() const {
+        const uint32_t mask = detail::prbs_bit_mask(config_.lfsr_order);
+        const uint32_t seeded = config_.seed & mask;
         if (seeded == 0u) {
             return 1u;
         }
         return seeded;
     }
 
-    [[nodiscard]] constexpr T output_from_state(std::uint32_t state) const {
-        return ((state & std::uint32_t{1u}) != 0u) ? config_.amplitude : -config_.amplitude;
+    [[nodiscard]] constexpr T output_from_state(uint32_t state) const {
+        return ((state & uint32_t{1u}) != 0u) ? config_.amplitude : -config_.amplitude;
     }
 
     design::PRBSConfig<T> config_{};
     T                     Ts_{T{0}};
     T                     elapsed_chip_time_{T{0}};
-    std::size_t           chips_generated_{0};
-    std::uint32_t         state_{1u};
+    size_t                chips_generated_{0};
+    uint32_t              state_{1u};
     bool                  valid_{false};
 };
 

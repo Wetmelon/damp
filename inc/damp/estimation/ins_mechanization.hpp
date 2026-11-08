@@ -61,8 +61,7 @@
  * @endcode
  */
 
-#include <cstdint>
-
+#include "damp/backend.hpp"
 #include "damp/math/geometry.hpp"
 #include "damp/matrix/colvec.hpp"
 
@@ -74,7 +73,7 @@ namespace damp {
  * Selects gravity direction and axis labeling only. One code path for NED and ENU
  * (MATLAB-style option; default documentation uses NED).
  */
-enum class NavFrame : std::uint8_t {
+enum class NavFrame : uint8_t {
     NED, ///< North-East-Down — g_n = (0,0,+g)
     ENU, ///< East-North-Up — g_n = (0,0,-g)
 };

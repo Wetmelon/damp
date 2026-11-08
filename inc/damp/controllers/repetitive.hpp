@@ -50,9 +50,6 @@
  *      1988, https://doi.org/10.1109/9.1274
  */
 
-#include <cstddef>
-#include <limits>
-#include <type_traits>
 
 #include "damp/backend.hpp" // damp::array
 #include "damp/design/status.hpp"
@@ -118,9 +115,9 @@ struct RepetitiveConfig {
 
     /** @brief Convert the configuration to a different scalar precision. */
     template<typename U>
-    [[nodiscard]] constexpr RepetitiveConfig<std::remove_const_t<U>, MaxQHalf> as() const {
-        using out_scalar = scalar_type_t<std::remove_const_t<U>>;
-        RepetitiveConfig<std::remove_const_t<U>, MaxQHalf> out{};
+    [[nodiscard]] constexpr RepetitiveConfig<damp::remove_const_t<U>, MaxQHalf> as() const {
+        using out_scalar = scalar_type_t<damp::remove_const_t<U>>;
+        RepetitiveConfig<damp::remove_const_t<U>, MaxQHalf> out{};
         out.period = period;
         out.gain = static_cast<out_scalar>(gain);
         out.q_filter = static_cast<out_scalar>(q_filter);
@@ -147,8 +144,8 @@ struct [[nodiscard]] RepetitiveResult {
     [[nodiscard]] constexpr explicit operator bool() const { return success; }
 
     template<typename U>
-    [[nodiscard]] constexpr RepetitiveResult<std::remove_const_t<U>, MaxQHalf> as() const {
-        return RepetitiveResult<std::remove_const_t<U>, MaxQHalf>{config.template as<U>(), success, status};
+    [[nodiscard]] constexpr RepetitiveResult<damp::remove_const_t<U>, MaxQHalf> as() const {
+        return RepetitiveResult<damp::remove_const_t<U>, MaxQHalf>{config.template as<U>(), success, status};
     }
 };
 
@@ -161,7 +158,7 @@ template<typename T>
         return 0;
     }
     const T ratio = fs_hz / f0_hz;
-    if (!(ratio < static_cast<T>(std::numeric_limits<size_t>::max() / 2))) {
+    if (!(ratio < static_cast<T>(damp::numeric_limits<size_t>::max() / 2))) {
         return 0;
     }
     return static_cast<size_t>(ratio + static_cast<T>(0.5)); // round to nearest
@@ -297,13 +294,13 @@ public:
 
     /** @brief From a design result in another scalar: converts it with .as\<T\>() and builds from that. */
     template<typename U>
-        requires(!std::is_same_v<U, T>)
+        requires(!damp::is_same_v<U, T>)
     constexpr RepetitiveController(const design::RepetitiveResult<U, MaxQHalf>& result) // NOLINT(google-explicit-constructor): assign-from-design
         : RepetitiveController(result.template as<T>()) {}
 
     constexpr RepetitiveController(const design::RepetitiveResult<T, MaxQHalf>& result) // NOLINT(google-explicit-constructor): assign-from-design
         : config_(result.config), valid_(result.success && result.config.period + result.config.q_half <= MaxPeriod) {
-        if (!valid_ && std::is_constant_evaluated()) {
+        if (!valid_ && damp::is_constant_evaluated()) {
             ::damp::detail::refuse_failed_design(result.success ? design::DesignStatus::invalid_parameter : result.status); // constant-evaluated (constinit / constexpr): a failed design, or one MaxPeriod cannot hold, does not compile
         }
     }

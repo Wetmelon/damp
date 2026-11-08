@@ -5,7 +5,6 @@
 
 #pragma once
 
-#include <type_traits>
 
 /**
  * @file lead_lag.hpp
@@ -331,7 +330,7 @@ struct LeadLagController {
 
     /** @brief From a design result in another scalar: converts it with .as\<T\>() and builds from that. */
     template<typename U>
-        requires(!std::is_same_v<U, T>)
+        requires(!damp::is_same_v<U, T>)
     constexpr LeadLagController(const design::LeadLagResult<U>& result) // NOLINT(google-explicit-constructor): assign-from-design
         : LeadLagController(result.template as<T>()) {}
 
@@ -340,7 +339,7 @@ struct LeadLagController {
           z(result.z),
           p(result.p),
           valid_(result.success && result.Ts > T{0} && result.z > T{0} && result.p > T{0}) {
-        if ((!result.success || !(result.Ts > T{0})) && std::is_constant_evaluated()) {
+        if ((!result.success || !(result.Ts > T{0})) && damp::is_constant_evaluated()) {
             ::damp::detail::refuse_failed_design(result.success ? design::DesignStatus::invalid_sample_time : result.status); // constant-evaluated (constinit / constexpr): a failed or continuous design does not compile
         }
         if (valid_) {

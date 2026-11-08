@@ -10,11 +10,6 @@
  * @brief Row vector type
  */
 
-#include <cstddef>
-#include <initializer_list>
-#include <limits>
-#include <type_traits>
-
 #include "core.hpp"
 #include "damp/backend.hpp"
 #include "matrix_traits.hpp"
@@ -65,8 +60,8 @@ struct RowVec : public Matrix<1, N, T> {
     // Same-precision 1×N view (block, row view, …) copies implicitly too; any
     // other element type converts explicitly.
     template<MatrixLike V>
-        requires(V::rows() == 1 && V::cols() == N && !std::is_base_of_v<Matrix<1, N, T>, V>)
-    explicit(!std::is_same_v<typename V::value_type, T>) constexpr RowVec(const V& view) : Matrix<1, N, T>(view) {}
+        requires(V::rows() == 1 && V::cols() == N && !damp::is_base_of_v<Matrix<1, N, T>, V>)
+    explicit(!damp::is_same_v<typename V::value_type, T>) constexpr RowVec(const V& view) : Matrix<1, N, T>(view) {}
 
     template<typename U>
     explicit constexpr RowVec(const RowVec<N, U>& other) : Matrix<1, N, T>(other) {}
@@ -112,7 +107,7 @@ struct RowVec : public Matrix<1, N, T> {
      */
     [[nodiscard]] friend constexpr T dot(const RowVec<N, T>& vec1, const RowVec<N, T>& vec2) {
         T result = T{0};
-        for (std::size_t i = 0; i < N; ++i) {
+        for (size_t i = 0; i < N; ++i) {
             result += damp::conj(vec1.data_[i]) * vec2.data_[i];
         }
         return result;
@@ -148,8 +143,8 @@ struct RowVec : public Matrix<1, N, T> {
         // Under -freciprocal-math x / n is x · (1/n), and 1/n is subnormal (flushed) near max.
         // Scale by ε (an exact power of two), then divide the copy by its own norm, whose
         // reciprocal is normal. Dividing x·ε by n·ε instead lets the compiler cancel ε.
-        if (n > R{0.25} / std::numeric_limits<R>::min()) {
-            const RowVec y = *this * std::numeric_limits<R>::epsilon();
+        if (n > R{0.25} / damp::numeric_limits<R>::min()) {
+            const RowVec y = *this * damp::numeric_limits<R>::epsilon();
             return y / static_cast<T>(y.norm());
         }
         return *this / static_cast<T>(n);
@@ -245,11 +240,11 @@ template<size_t N, size_t Cols, typename T, typename U>
 // Deduce RowVec<N, T> from variadic constructor arguments, e.g. RowVec vec{1.0f, 2.0f, 3.0f};
 // Integer literals deduce to double
 template<typename T, typename... Args>
-    requires(std::is_integral_v<T> && (std::is_integral_v<Args> && ...))
+    requires(damp::is_integral_v<T> && (damp::is_integral_v<Args> && ...))
 RowVec(T, Args...) -> RowVec<1 + sizeof...(Args), double>;
 
 template<typename T, typename... Args>
-    requires(!std::is_integral_v<T> || !(std::is_integral_v<Args> && ...))
+    requires(!damp::is_integral_v<T> || !(damp::is_integral_v<Args> && ...))
 RowVec(T, Args...) -> RowVec<1 + sizeof...(Args), T>;
 
 template<typename U, size_t M>

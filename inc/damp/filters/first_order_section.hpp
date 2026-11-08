@@ -10,7 +10,6 @@
  * @brief First-order IIR section runtime (the first-order counterpart of Biquad)
  */
 
-#include <type_traits>
 
 #include "damp/backend.hpp"
 #include "damp/design/status.hpp"
@@ -47,14 +46,14 @@ public:
 
     /** @brief From a design result in another scalar: converts it with .as\<T\>() and builds from that. */
     template<typename U>
-        requires(!std::is_same_v<U, T>)
+        requires(!damp::is_same_v<U, T>)
     constexpr FirstOrderSection(const design::FirstOrderCoeffs<U>& result) // NOLINT(google-explicit-constructor): assign-from-design
         : FirstOrderSection(result.template as<T>()) {}
 
     /** @brief Construct from first-order design coefficients (design::highpass_1st, design::lowpass_1st). */
     constexpr FirstOrderSection(const design::FirstOrderCoeffs<T>& c) // NOLINT(google-explicit-constructor): assign-from-design
         : b0_(c.b0), b1_(c.b1), a1_(c.a1) {
-        if (!c.success && std::is_constant_evaluated()) {
+        if (!c.success && damp::is_constant_evaluated()) {
             ::damp::detail::refuse_failed_design(c.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
     }

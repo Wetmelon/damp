@@ -60,7 +60,6 @@
  * @see Chen, "Linear System Theory and Design" (3rd ed.), §6.4–6.5
  */
 
-#include <cstddef>
 
 #include "damp/backend.hpp"
 #include "damp/design/stability.hpp"

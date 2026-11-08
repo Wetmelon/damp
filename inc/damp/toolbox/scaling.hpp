@@ -17,9 +17,7 @@
  * @see toolbox/lookup.hpp for breakpoint-table (non-affine) sensor linearization.
  */
 
-#include <cstddef>
-#include <type_traits>
-
+#include "damp/backend.hpp"
 #include "damp/matrix/matrix.hpp" // RowVec
 
 namespace damp {
@@ -31,7 +29,7 @@ namespace damp {
  * [0, 1] extrapolate (use clamp on `t` first if that is unwanted).
  */
 template<typename T>
-    requires std::is_floating_point_v<T>
+    requires damp::is_floating_point_v<T>
 [[nodiscard]] constexpr T lerp(T a, T b, T t) {
     return a + ((b - a) * t);
 }
@@ -44,7 +42,7 @@ template<typename T>
  * reported.
  */
 template<typename T>
-    requires std::is_floating_point_v<T>
+    requires damp::is_floating_point_v<T>
 [[nodiscard]] constexpr T inverse_lerp(T a, T b, T x) {
     const T den = b - a;
     if (den == T{0}) {
@@ -65,7 +63,7 @@ template<typename T>
  * @endcode
  */
 template<typename T>
-    requires std::is_floating_point_v<T>
+    requires damp::is_floating_point_v<T>
 [[nodiscard]] constexpr T rescale(T x, T in_lo, T in_hi, T out_lo, T out_hi) {
     return lerp(out_lo, out_hi, inverse_lerp(in_lo, in_hi, x));
 }
@@ -108,7 +106,7 @@ struct AffineCal {
  *         fit) the constant `eng0` (gain 0).
  */
 template<typename T>
-    requires std::is_floating_point_v<T>
+    requires damp::is_floating_point_v<T>
 [[nodiscard]] constexpr AffineCal<T> two_point_cal(T raw0, T eng0, T raw1, T eng1) {
     if (raw1 == raw0) {
         return AffineCal<T>{T{0}, eng0};
@@ -134,7 +132,7 @@ template<typename T>
  * @tparam T Scalar type.
  */
 template<size_t N, typename T>
-    requires std::is_floating_point_v<T>
+    requires damp::is_floating_point_v<T>
 [[nodiscard]] constexpr T poly_horner(const RowVec<N, T>& coeffs, T x) {
     static_assert(N >= 1, "poly_horner needs at least one coefficient");
     T result = coeffs[N - 1];

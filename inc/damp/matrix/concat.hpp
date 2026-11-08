@@ -13,8 +13,6 @@
  * here (reachable from control.hpp) so firmware does not pull workbench.hpp.
  */
 
-#include <cstddef>
-#include <type_traits>
 
 #include "colvec.hpp"
 #include "core.hpp"
@@ -26,10 +24,10 @@ namespace damp {
 namespace detail {
 
 template<typename T>
-concept diag_scalar = is_matrix_element_v<T> || std::is_integral_v<T>;
+concept diag_scalar = is_matrix_element_v<T> || damp::is_integral_v<T>;
 
 template<typename Common>
-using diag_scalar_t = std::conditional_t<is_matrix_element_v<Common>, Common, double>;
+using diag_scalar_t = damp::conditional_t<is_matrix_element_v<Common>, Common, double>;
 
 template<size_t R, size_t C, typename T, MatrixLike M>
 constexpr void copy_block(Matrix<R, C, T>& dest, size_t r0, size_t c0, const M& src) {
@@ -53,7 +51,7 @@ constexpr void copy_block(Matrix<R, C, T>& dest, size_t r0, size_t c0, const M& 
 template<detail::diag_scalar... Ts>
     requires(sizeof...(Ts) >= 1)
 [[nodiscard]] constexpr auto diag(Ts... xs) noexcept {
-    using T = detail::diag_scalar_t<std::common_type_t<Ts...>>;
+    using T = detail::diag_scalar_t<damp::common_type_t<Ts...>>;
     constexpr size_t N = sizeof...(Ts);
     Matrix<N, N, T>  result{};
     const T          vals[N] = {static_cast<T>(xs)...};
@@ -135,7 +133,7 @@ template<MatrixLike... Ms>
 [[nodiscard]] constexpr auto blkdiag(const Ms&... ms) noexcept {
     constexpr size_t R = (Ms::rows() + ...);
     constexpr size_t C = (Ms::cols() + ...);
-    using T = std::common_type_t<typename Ms::value_type...>;
+    using T = damp::common_type_t<typename Ms::value_type...>;
     Matrix<R, C, T> result{};
     size_t          r0 = 0;
     size_t          c0 = 0;
@@ -159,7 +157,7 @@ template<MatrixLike M0, MatrixLike... Ms>
 [[nodiscard]] constexpr auto hcat(const M0& m0, const Ms&... ms) noexcept {
     constexpr size_t R = M0::rows();
     constexpr size_t C = (M0::cols() + ... + Ms::cols());
-    using T = std::common_type_t<typename M0::value_type, typename Ms::value_type...>;
+    using T = damp::common_type_t<typename M0::value_type, typename Ms::value_type...>;
     Matrix<R, C, T> result{};
     size_t          c0 = 0;
     auto            put = [&](const auto& m) {
@@ -182,7 +180,7 @@ template<MatrixLike M0, MatrixLike... Ms>
 [[nodiscard]] constexpr auto vcat(const M0& m0, const Ms&... ms) noexcept {
     constexpr size_t R = (M0::rows() + ... + Ms::rows());
     constexpr size_t C = M0::cols();
-    using T = std::common_type_t<typename M0::value_type, typename Ms::value_type...>;
+    using T = damp::common_type_t<typename M0::value_type, typename Ms::value_type...>;
     Matrix<R, C, T> result{};
     size_t          r0 = 0;
     auto            put = [&](const auto& m) {

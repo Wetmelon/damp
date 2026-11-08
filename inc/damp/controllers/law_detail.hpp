@@ -11,10 +11,6 @@
  *        the discrete model a design is on
  */
 
-#include <cstddef>
-#include <cstdint>
-#include <type_traits>
-
 #include "damp/backend.hpp"
 #include "damp/design/status.hpp"
 #include "damp/matrix/colvec.hpp"
@@ -77,7 +73,7 @@ struct NoAppliedRecord {};
  * @brief Which optional member an Off stands in for. Two `[[no_unique_address]]` empty members of
  *        one object must have distinct types, so each slot is used at most once per object.
  */
-enum class OffSlot : std::uint8_t {
+enum class OffSlot : uint8_t {
     target,          ///< StateFeedbackCore::target (NZ = 0)
     integral,        ///< StateFeedbackCore::integral (NI = 0)
     design_integral, ///< StateFeedbackResult::integral (NI = 0)
@@ -100,7 +96,7 @@ struct Off {};
  * Alias the result (`using HeldY = maybe<…>`) so the member declaration is the short name.
  */
 template<bool present, typename Feature, OffSlot slot>
-using maybe = std::conditional_t<present, Feature, Off<slot>>;
+using maybe = damp::conditional_t<present, Feature, Off<slot>>;
 
 /** @brief The law's state [x; xi] from the state @p x and the integrators @p tail. */
 template<size_t NX, size_t NI, typename T>
@@ -173,7 +169,7 @@ namespace detail {
 
 /** @brief Whether a design's numbers can be part of a type: it is `constexpr`, not initialized at start-up. */
 template<const auto& Res>
-concept constant_design = requires { typename std::bool_constant<(Res.success || true)>; }; // reads it: a discarded read would pass for any object
+concept constant_design = requires { typename damp::bool_constant<(Res.success || true)>; }; // reads it: a discarded read would pass for any object
 
 /** @brief Whether a design a Law runs on constants succeeded and is discrete. Anything else does not compile, and the error names its status. */
 template<typename Ts>

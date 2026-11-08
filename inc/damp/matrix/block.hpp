@@ -10,10 +10,8 @@
  * @brief Non-owning matrix block views
  */
 
-#include <cstddef>
-#include <type_traits>
-
 #include "core.hpp"
+#include "damp/backend.hpp"
 #include "matrix_traits.hpp"
 
 namespace damp {
@@ -41,7 +39,7 @@ private:
     size_t offset{};
 
 public:
-    using value_type = std::remove_const_t<T>;
+    using value_type = damp::remove_const_t<T>;
     // Create a block from a pointer to the parent data and an offset
     constexpr explicit Block(T* data_ptr_, size_t offset_ = 0)
         : data_ptr(data_ptr_), offset(offset_) {}

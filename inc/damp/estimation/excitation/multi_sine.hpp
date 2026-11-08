@@ -10,8 +10,6 @@
  * @brief Multi-sine excitation — design payload and runtime generator
  */
 
-#include <cstddef>
-#include <type_traits>
 
 #include "damp/backend.hpp"
 #include "damp/math/math.hpp"
@@ -58,7 +56,7 @@ struct Tone {
  * @tparam NTones Number of tones.
  * @tparam T      Scalar type.
  */
-template<std::size_t NTones, typename T = double>
+template<size_t NTones, typename T = double>
 struct MultiSineConfig {
     damp::array<Tone<T>, NTones> tones{}; ///< Fixed tone table
 
@@ -72,7 +70,7 @@ struct MultiSineConfig {
         }
 
         bool has_energy = false;
-        for (std::size_t i = 0; i < NTones; ++i) {
+        for (size_t i = 0; i < NTones; ++i) {
             const auto& tone = tones[i];
             if (!damp::finite_non_negative(tone.amplitude)) {
                 return false;
@@ -100,7 +98,7 @@ struct MultiSineConfig {
  * @tparam NTones Number of tones.
  * @tparam T      Scalar type.
  */
-template<std::size_t NTones, typename T = double>
+template<size_t NTones, typename T = double>
 struct MultiSineResult {
     MultiSineConfig<NTones, T> config{};       ///< Validated multi-sine configuration
     bool                       success{false}; ///< true if `config.valid()`
@@ -117,7 +115,7 @@ struct MultiSineResult {
     template<typename U>
     [[nodiscard]] constexpr MultiSineResult<NTones, U> as() const {
         MultiSineConfig<NTones, U> cfg_u{};
-        for (std::size_t i = 0; i < NTones; ++i) {
+        for (size_t i = 0; i < NTones; ++i) {
             cfg_u.tones[i] = config.tones[i].template as<U>();
         }
         return MultiSineResult<NTones, U>{cfg_u, success, static_cast<U>(Ts)};
@@ -134,11 +132,11 @@ struct MultiSineResult {
  * @return MultiSineResult with `success` = `config.valid()`, a valid Ts, and (for Ts > 0) every
  *         tone below the Nyquist frequency 1/(2·Ts).
  */
-template<std::size_t NTones, typename T = double>
+template<size_t NTones, typename T = double>
 [[nodiscard]] constexpr MultiSineResult<NTones, T>
 multi_sine(const MultiSineConfig<NTones, T>& config, T Ts = T{0}) {
     bool below_nyquist = true;
-    for (std::size_t i = 0; i < NTones; ++i) {
+    for (size_t i = 0; i < NTones; ++i) {
         below_nyquist = below_nyquist && (T{2} * config.tones[i].freq_hz * Ts < T{1});
     }
     return MultiSineResult<NTones, T>{config, config.valid() && (Ts >= T{0}) && damp::isfinite(Ts) && below_nyquist, Ts};
@@ -165,14 +163,14 @@ multi_sine(const MultiSineConfig<NTones, T>& config, T Ts = T{0}) {
  * @see Schroeder, "Synthesis of low-peak-factor signals and binary sequences
  *      with low autocorrelation" (IEEE Trans. Inf. Theory, 1970)
  */
-template<std::size_t NTones, typename T = double>
+template<size_t NTones, typename T = double>
 [[nodiscard]] constexpr MultiSineConfig<NTones, T>
 with_schroeder_phases(MultiSineConfig<NTones, T> config) {
     if constexpr (NTones == 0) {
         return config;
     }
     const T inv_n = T{1} / static_cast<T>(NTones);
-    for (std::size_t k = 0; k < NTones; ++k) {
+    for (size_t k = 0; k < NTones; ++k) {
         const T kk = static_cast<T>(k);
         // n = k+1: φ = −π n (n−1) / N = −π (k+1) k / N
         config.tones[k].phase_rad = -damp::numbers::pi_v<T> * (kk + T{1}) * kk * inv_n;
@@ -188,7 +186,7 @@ with_schroeder_phases(MultiSineConfig<NTones, T> config) {
  * @param config Multi-sine configuration; its phases are replaced by the Schroeder phases.
  * @param Ts     [s] Sample period of the runtime's step() clock (0 = absolute-time step(t) only; < 0 refused)
  */
-template<std::size_t NTones, typename T = double>
+template<size_t NTones, typename T = double>
 [[nodiscard]] constexpr MultiSineResult<NTones, T>
 schroeder_multi_sine(const MultiSineConfig<NTones, T>& config, T Ts = T{0}) {
     return multi_sine(with_schroeder_phases(config), Ts);
@@ -209,14 +207,14 @@ schroeder_multi_sine(const MultiSineConfig<NTones, T>& config, T Ts = T{0}) {
  * @tparam NTones Number of tones.
  * @tparam T      Scalar type.
  */
-template<std::size_t NTones, typename T = float>
+template<size_t NTones, typename T = float>
 class MultiSine {
 public:
     constexpr MultiSine() = default;
 
     /** @brief From a design result in another scalar: converts it with .as\<T\>() and builds from that. */
     template<typename U>
-        requires(!std::is_same_v<U, T>)
+        requires(!damp::is_same_v<U, T>)
     constexpr MultiSine(const design::MultiSineResult<NTones, U>& result) // NOLINT(google-explicit-constructor): assign-from-design
         : MultiSine(result.template as<T>()) {}
 
@@ -226,10 +224,10 @@ public:
      */
     constexpr MultiSine(const design::MultiSineResult<NTones, T>& design) // NOLINT(google-explicit-constructor): assign-from-design
         : config_(design.config), valid_(design.success) {
-        if (!design.success && std::is_constant_evaluated()) {
+        if (!design.success && damp::is_constant_evaluated()) {
             ::damp::detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
-        for (std::size_t i = 0; i < NTones; ++i) {
+        for (size_t i = 0; i < NTones; ++i) {
             step_[i] = damp::wrap_pi(T{2} * damp::numbers::pi_v<T> * config_.tones[i].freq_hz * design.Ts);
         }
         reset();
@@ -247,7 +245,7 @@ public:
 
         const T tc = damp::max(t, T{0});
         T       y = T{0};
-        for (std::size_t i = 0; i < NTones; ++i) {
+        for (size_t i = 0; i < NTones; ++i) {
             const auto& tone = config_.tones[i];
             const T     omega_t = (T{2} * damp::numbers::pi_v<T> * tone.freq_hz * tc) + tone.phase_rad;
             y += tone.amplitude * damp::sin(omega_t);
@@ -268,7 +266,7 @@ public:
             return T{0};
         }
         T y = T{0};
-        for (std::size_t i = 0; i < NTones; ++i) {
+        for (size_t i = 0; i < NTones; ++i) {
             y += config_.tones[i].amplitude * damp::sin(phase_[i]);
             phase_[i] = damp::wrap_pi(phase_[i] + step_[i]);
         }
@@ -297,7 +295,7 @@ public:
      * @brief Reset internal time to zero.
      */
     constexpr void reset() {
-        for (std::size_t i = 0; i < NTones; ++i) {
+        for (size_t i = 0; i < NTones; ++i) {
             phase_[i] = damp::wrap_pi(config_.tones[i].phase_rad);
         }
     }
@@ -310,7 +308,7 @@ private:
 };
 
 /** @brief Deduce the runtime from its design, keeping the result's scalar. */
-template<std::size_t NTones, typename T>
+template<size_t NTones, typename T>
 MultiSine(const design::MultiSineResult<NTones, T>&) -> MultiSine<NTones, T>;
 
 } // namespace damp

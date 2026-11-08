@@ -13,8 +13,6 @@
  *        solve.hpp; the eigensolver in eigen.hpp.
  */
 
-#include <cstddef>
-#include <type_traits>
 
 #include "core.hpp"
 #include "damp/backend.hpp"
@@ -35,7 +33,7 @@ namespace detail {
  */
 template<typename T>
 [[nodiscard]] constexpr bool is_finite_entry(const T& v) {
-    if constexpr (std::is_floating_point_v<T>) {
+    if constexpr (damp::is_floating_point_v<T>) {
         return damp::isfinite(v);
     } else {
         return damp::isfinite(v.real()) && damp::isfinite(v.imag());
@@ -56,7 +54,7 @@ template<size_t N, typename T>
         return false;
     }
     for (size_t i = 0; i < N; ++i) {
-        if constexpr (!std::is_floating_point_v<T>) {
+        if constexpr (!damp::is_floating_point_v<T>) {
             // Hermitian requires a real diagonal
             if (damp::abs(damp::imag(A(i, i))) > rel * damp::abs(A(i, i))) {
                 return false;
@@ -140,7 +138,7 @@ constexpr damp::optional<Matrix<N, N, T>> cholesky(const Matrix<N, N, T>& A) {
                     const real_t l = damp::abs(L(i, k));
                     mag += l * l;
                 }
-                if constexpr (std::is_floating_point_v<T>) {
+                if constexpr (damp::is_floating_point_v<T>) {
                     diag_val = sum;
                 } else {
                     diag_val = damp::real(sum);
@@ -191,7 +189,7 @@ template<size_t N, typename T>
 constexpr damp::optional<LDLT<N, T>> ldlt(const Matrix<N, N, T>& A) {
     using real_t = scalar_type_t<T>;
     const auto real_part = [](const T& x) -> real_t {
-        if constexpr (std::is_floating_point_v<T>) {
+        if constexpr (damp::is_floating_point_v<T>) {
             return x;
         } else {
             return damp::real(x);

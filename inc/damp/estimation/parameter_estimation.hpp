@@ -65,10 +65,7 @@
  * @see examples/estimation/fo_plant_inertia/ for the J/b recipe
  */
 
-#include <cstddef>
-#include <limits>
-#include <type_traits>
-
+#include "damp/backend.hpp"
 #include "damp/estimation/rls.hpp"
 #include "damp/math/math.hpp"
 #include "damp/matrix/matrix.hpp"
@@ -122,7 +119,7 @@ struct FirstOrderPlantEstimatorConfig {
  * @see design::FirstOrderPlantEstimatorConfig, ParameterEstimator (concepts.hpp)
  */
 template<typename T = float>
-    requires std::is_floating_point_v<T>
+    requires damp::is_floating_point_v<T>
 class FirstOrderPlantEstimator {
 public:
     constexpr FirstOrderPlantEstimator() = default;
@@ -248,7 +245,7 @@ private:
  * AdaptationGate review when it fires.
  */
 template<typename T = float>
-    requires std::is_floating_point_v<T>
+    requires damp::is_floating_point_v<T>
 class ParameterDriftMonitor {
 public:
     constexpr ParameterDriftMonitor() = default;
@@ -263,7 +260,7 @@ public:
      */
     constexpr ParameterDriftMonitor(T fast_alpha, T slow_alpha, T threshold)
         : fast_alpha_(fast_alpha), slow_alpha_(slow_alpha), threshold_(threshold), valid_(T{0} < slow_alpha && slow_alpha < fast_alpha && fast_alpha <= T{1} && damp::finite_positive(threshold)), warmup_(valid_ ? warmup_samples(slow_alpha) : 0) {
-        if (!valid_ && std::is_constant_evaluated()) {
+        if (!valid_ && damp::is_constant_evaluated()) {
             ::damp::detail::refuse_failed_design(); // constant-evaluated: an invalid configuration does not compile
         }
     }
@@ -306,7 +303,7 @@ public:
 private:
     /** @brief ⌈2/slow_alpha⌉ samples, capped below half the size_t range (no out-of-range float→int cast). */
     [[nodiscard]] static constexpr size_t warmup_samples(T slow_alpha) {
-        constexpr size_t cap = std::numeric_limits<size_t>::max() / 2;
+        constexpr size_t cap = damp::numeric_limits<size_t>::max() / 2;
         const T          n = T{2} / slow_alpha;
         return (n < static_cast<T>(cap)) ? static_cast<size_t>(n) : cap;
     }
@@ -335,7 +332,7 @@ private:
  * posture per decisions.md O2.
  */
 template<size_t NPARAM, typename T = float>
-    requires std::is_floating_point_v<T>
+    requires damp::is_floating_point_v<T>
 class AdaptationGate {
 public:
     /** @brief Outcome of one evaluation */
@@ -386,7 +383,7 @@ private:
     static constexpr ColVec<NPARAM, T> unbounded_steps() {
         ColVec<NPARAM, T> v{};
         for (size_t i = 0; i < NPARAM; ++i) {
-            v(i) = std::numeric_limits<T>::max();
+            v(i) = damp::numeric_limits<T>::max();
         }
         return v;
     }

@@ -17,9 +17,6 @@
  * @f$e^{-\omega_o T_s}@f$ of the continuous design's poles at @f$-\omega_o@f$.
  */
 
-#include <cstddef>
-#include <type_traits>
-
 #include "damp/backend.hpp"
 #include "damp/design/status.hpp"
 #include "damp/estimation/eso.hpp"
@@ -275,7 +272,7 @@ public:
 
     /** @brief From a design result in another scalar: converts it with .as\<T\>() and builds from that. */
     template<typename U>
-        requires(!std::is_same_v<U, T> && !EsoStore::constant)
+        requires(!damp::is_same_v<U, T> && !EsoStore::constant)
     constexpr ADRCController(const design::ADRCResult<NX, U>& result) // NOLINT(google-explicit-constructor): assign-from-design
         : ADRCController(result.template as<T>()) {}
 
@@ -291,7 +288,7 @@ public:
           Kp(result.Kp),
           Kd(result.Kd),
           eso_(result.as_eso()) {
-        if ((!result.success || !(result.Ts > T{0})) && std::is_constant_evaluated()) {
+        if ((!result.success || !(result.Ts > T{0})) && damp::is_constant_evaluated()) {
             ::damp::detail::refuse_failed_design(result.success ? design::DesignStatus::invalid_sample_time : result.status); // constant-evaluated (constinit / constexpr): a failed or continuous design does not compile
         }
     }
@@ -386,7 +383,7 @@ ADRCController(const design::ADRCResult<NX, T>&) -> ADRCController<NX, T>;
 namespace detail {
 
 /** @brief The runtime an ADRC design runs as: none for anything else. */
-template<const auto& Res, typename T, typename R = std::remove_cvref_t<decltype(Res)>>
+template<const auto& Res, typename T, typename R = damp::remove_cvref_t<decltype(Res)>>
 struct adrc_runtime {};
 
 /** @brief design::adrc: with members, or its ESO on the design's constants. */

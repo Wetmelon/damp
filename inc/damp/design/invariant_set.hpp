@@ -18,8 +18,6 @@
  *      Application of Maximal Output Admissible Sets" (Gilbert & Tan, 1991)
  */
 
-#include <cstddef>
-#include <cstdint>
 
 #include "damp/backend.hpp"
 #include "damp/design/qp.hpp"
@@ -115,9 +113,9 @@ constexpr void set_unbounded_offsets(ColVec<N, T>& h) {
 }
 
 /** @brief Candidate aᵀe ≤ β is redundant iff max aᵀe on G e ≤ h is ≤ β (data-scaled tol). */
-enum class RowRedundancy : std::uint8_t { redundant,
-                                          needed,
-                                          empty };
+enum class RowRedundancy : uint8_t { redundant,
+                                     needed,
+                                     empty };
 
 /** @brief The size of G e ≤ h: its largest facet distance |hᵢ|/‖Gᵢ‖ (1 when every hᵢ is 0). */
 template<size_t NT_max, size_t NX, typename T>

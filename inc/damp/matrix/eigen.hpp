@@ -10,8 +10,6 @@
  * @brief Eigenvalue algorithms
  */
 
-#include <cstddef>
-#include <limits>
 
 #include "core.hpp"
 #include "damp/backend.hpp"
@@ -90,7 +88,7 @@ template<typename T>
         return step;
     }
     const T s = c + r;
-    const T sfmin1 = std::numeric_limits<T>::min() / eps<T>();
+    const T sfmin1 = damp::numeric_limits<T>::min() / eps<T>();
     const T sfmin2 = sfmin1 * T{2};
     const T sfmax2 = T{1} / sfmin2;
 
@@ -149,7 +147,7 @@ template<size_t M, typename T>
     if (!mat::all_of(A, [](T v) { return damp::isfinite(v); })) {
         return false;
     }
-    const T sfmin1 = std::numeric_limits<T>::min() / eps<T>();
+    const T sfmin1 = damp::numeric_limits<T>::min() / eps<T>();
     const T sfmax1 = T{1} / sfmin1;
 
     for (int sweep = 0; sweep < 64; ++sweep) {
@@ -487,7 +485,7 @@ constexpr bool francis_qr(
     damp::array<T, N>& wi
 ) {
     constexpr T  eps = damp::eps<T>();
-    constexpr T  smlnum = std::numeric_limits<T>::min() * (static_cast<T>(N) / eps);
+    constexpr T  smlnum = damp::numeric_limits<T>::min() * (static_cast<T>(N) / eps);
     const size_t max_its = (30 * N) + 30;
 
     T anorm = T{0};
@@ -759,7 +757,7 @@ constexpr bool francis_qr(
  *         convergence flag.
  */
 template<size_t N, typename T = double>
-    requires std::is_floating_point_v<T> // the real Schur form: real A only
+    requires damp::is_floating_point_v<T> // the real Schur form: real A only
 [[nodiscard]] constexpr EigenResult<N, T> compute_eigenvalues(const Matrix<N, N, T>& A) {
     using Cplx = damp::complex<T>;
     EigenResult<N, T> result;

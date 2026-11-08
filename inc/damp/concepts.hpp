@@ -59,10 +59,7 @@
  * runtime API drift becomes a compile error there.
  */
 
-#include <concepts>
-#include <cstddef>
-#include <type_traits>
-
+#include "damp/backend.hpp"
 #include "damp/matrix/matrix.hpp"
 
 namespace damp {
@@ -84,8 +81,8 @@ namespace damp {
  * one block driven at two rates.
  */
 template<typename C, typename T>
-concept SisoController = std::is_floating_point_v<T> && requires(C c, T r, T y) {
-    { c.control(r, y) } -> std::convertible_to<T>;
+concept SisoController = damp::is_floating_point_v<T> && requires(C c, T r, T y) {
+    { c.control(r, y) } -> damp::convertible_to<T>;
     c.reset();
 };
 
@@ -116,8 +113,8 @@ concept FeedbackRuntime = requires(C c, const ColVec<NM, T>& m, const ColVec<NU,
  */
 template<typename C, size_t NU, size_t NR, size_t NM, typename T>
 concept FeedbackLaw = FeedbackRuntime<C, NU, NM, T> && requires(C c, const ColVec<NR, T>& r, const ColVec<NM, T>& m) {
-    { c.control(r) } -> std::convertible_to<ColVec<NU, T>>;
-    { c.step(r, m) } -> std::convertible_to<ColVec<NU, T>>;
+    { c.control(r) } -> damp::convertible_to<ColVec<NU, T>>;
+    { c.step(r, m) } -> damp::convertible_to<ColVec<NU, T>>;
 };
 
 /**
@@ -129,8 +126,8 @@ concept FeedbackLaw = FeedbackRuntime<C, NU, NM, T> && requires(C c, const ColVe
  */
 template<typename E, size_t NX, size_t NU, size_t NY, typename T>
 concept StateEstimator = requires(E e, const ColVec<NY, T>& y, const ColVec<NU, T>& u) {
-    { e.step(y, u) } -> std::convertible_to<ColVec<NX, T>>;
-    { e.state() } -> std::convertible_to<ColVec<NX, T>>;
+    { e.step(y, u) } -> damp::convertible_to<ColVec<NX, T>>;
+    { e.state() } -> damp::convertible_to<ColVec<NX, T>>;
     e.reset();
 };
 
@@ -141,9 +138,9 @@ concept StateEstimator = requires(E e, const ColVec<NY, T>& y, const ColVec<NU, 
  * playback and test stimuli.
  */
 template<typename S, typename T>
-concept SignalSource = std::is_floating_point_v<T> && requires(S s) {
-    { s.step() } -> std::convertible_to<T>;
-    { s.done() } -> std::convertible_to<bool>;
+concept SignalSource = damp::is_floating_point_v<T> && requires(S s) {
+    { s.step() } -> damp::convertible_to<T>;
+    { s.done() } -> damp::convertible_to<bool>;
     s.reset();
 };
 
@@ -156,10 +153,10 @@ concept SignalSource = std::is_floating_point_v<T> && requires(S s) {
  * monotone excitation/convergence indicator in [0, 1] for adaptation gating.
  */
 template<typename E, size_t NPARAM, typename T>
-concept ParameterEstimator = std::is_floating_point_v<T> && requires(E e) {
-    { e.parameters() } -> std::convertible_to<ColVec<NPARAM, T>>;
-    { e.valid() } -> std::convertible_to<bool>;
-    { e.confidence() } -> std::convertible_to<T>;
+concept ParameterEstimator = damp::is_floating_point_v<T> && requires(E e) {
+    { e.parameters() } -> damp::convertible_to<ColVec<NPARAM, T>>;
+    { e.valid() } -> damp::convertible_to<bool>;
+    { e.confidence() } -> damp::convertible_to<T>;
     e.reset();
 };
 
@@ -193,7 +190,7 @@ concept ParameterEstimator = std::is_floating_point_v<T> && requires(E e) {
  */
 template<typename F, size_t NX, size_t NU, typename T>
 concept Dynamics = requires(const F& f, const ColVec<NX, T>& x, const ColVec<NU, T>& u) {
-    { f(x, u) } -> std::convertible_to<ColVec<NX, T>>;
+    { f(x, u) } -> damp::convertible_to<ColVec<NX, T>>;
 };
 
 /**
@@ -206,7 +203,7 @@ concept Dynamics = requires(const F& f, const ColVec<NX, T>& x, const ColVec<NU,
  */
 template<typename H, size_t NX, size_t NU, size_t NY, typename T>
 concept Measurement = requires(const H& h, const ColVec<NX, T>& x, const ColVec<NU, T>& u) {
-    { h(x, u) } -> std::convertible_to<ColVec<NY, T>>;
+    { h(x, u) } -> damp::convertible_to<ColVec<NY, T>>;
 };
 
 /** @brief Analytic Jacobians of a Dynamics model at (x, u), returned by its jacobian(x, u). */
@@ -231,7 +228,7 @@ struct MeasurementJacobian {
  */
 template<typename F, size_t NX, size_t NU, typename T>
 concept AnalyticDynamics = Dynamics<F, NX, NU, T> && requires(const F& f, const ColVec<NX, T>& x, const ColVec<NU, T>& u) {
-    { f.jacobian(x, u) } -> std::convertible_to<DynamicsJacobian<NX, NU, T>>;
+    { f.jacobian(x, u) } -> damp::convertible_to<DynamicsJacobian<NX, NU, T>>;
 };
 
 /**
@@ -243,15 +240,15 @@ concept AnalyticDynamics = Dynamics<F, NX, NU, T> && requires(const F& f, const 
  */
 template<typename H, size_t NX, size_t NU, size_t NY, typename T>
 concept PatternMeasurement = Measurement<H, NX, NU, NY, T> && requires(const H& h, const ColVec<NX, T>& x, const ColVec<NU, T>& u) {
-    requires detail::is_pattern_matrix<std::remove_cvref_t<decltype(h.jacobian(x, u))>>;
-    requires std::is_same_v<typename std::remove_cvref_t<decltype(h.jacobian(x, u))>::Scalar, T>;
-    requires std::remove_cvref_t<decltype(h.jacobian(x, u))>::NR == NY&& std::remove_cvref_t<decltype(h.jacobian(x, u))>::NC == NX;
+    requires detail::is_pattern_matrix<damp::remove_cvref_t<decltype(h.jacobian(x, u))>>;
+    requires damp::is_same_v<typename damp::remove_cvref_t<decltype(h.jacobian(x, u))>::Scalar, T>;
+    requires damp::remove_cvref_t<decltype(h.jacobian(x, u))>::NR == NY&& damp::remove_cvref_t<decltype(h.jacobian(x, u))>::NC == NX;
 };
 
 /** @brief A Measurement that provides its own Jacobians: h.jacobian(x, u) → MeasurementJacobian. */
 template<typename H, size_t NX, size_t NU, size_t NY, typename T>
 concept AnalyticMeasurement = Measurement<H, NX, NU, NY, T> && requires(const H& h, const ColVec<NX, T>& x, const ColVec<NU, T>& u) {
-    { h.jacobian(x, u) } -> std::convertible_to<MeasurementJacobian<NX, NU, NY, T>>;
+    { h.jacobian(x, u) } -> damp::convertible_to<MeasurementJacobian<NX, NU, NY, T>>;
 };
 
 } // namespace damp

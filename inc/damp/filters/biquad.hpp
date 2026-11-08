@@ -11,8 +11,6 @@
  *        highpass_sections → SecondOrderSectionsResult → BiquadCascade, and the Biquad section
  */
 
-#include <cstddef>
-#include <type_traits>
 
 #include "damp/backend.hpp"
 #include "damp/design/status.hpp"
@@ -541,13 +539,13 @@ public:
 
     /** @brief From a design result in another scalar: converts it with .as\<T\>() and builds from that. */
     template<typename U>
-        requires(!std::is_same_v<U, T>)
+        requires(!damp::is_same_v<U, T>)
     constexpr Biquad(const design::SecondOrderCoeffs<U>& result) // NOLINT(google-explicit-constructor): assign-from-design
         : Biquad(result.template as<T>()) {}
 
     constexpr Biquad(const design::SecondOrderCoeffs<T>& c) // NOLINT(google-explicit-constructor): assign-from-design
         : b0_(c.b0), b1_(c.b1), b2_(c.b2), a1_(c.a1), a2_(c.a2) {
-        if (!c.success && std::is_constant_evaluated()) {
+        if (!c.success && damp::is_constant_evaluated()) {
             ::damp::detail::refuse_failed_design(c.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
     }
@@ -631,13 +629,13 @@ public:
 
     /** @brief From a design result in another scalar: converts it with .as\<T\>() and builds from that. */
     template<typename U>
-        requires(!std::is_same_v<U, T>)
+        requires(!damp::is_same_v<U, T>)
     constexpr BiquadCascade(const design::SecondOrderSectionsResult<NSections, U>& result) // NOLINT(google-explicit-constructor): assign-from-design
         : BiquadCascade(result.template as<T>()) {}
 
     /** @brief From a sections design. A failed design does not compile when constant-evaluated; at run time it outputs 0. */
     constexpr BiquadCascade(const design::SecondOrderSectionsResult<NSections, T>& result) { // NOLINT(google-explicit-constructor): assign-from-design
-        if (!result.success && std::is_constant_evaluated()) {
+        if (!result.success && damp::is_constant_evaluated()) {
             ::damp::detail::refuse_failed_design(result.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
         for (size_t i = 0; i < NSections; ++i) {
@@ -661,25 +659,25 @@ public:
     }
 
     /** @brief Process only the first @p n_active sections (bypass the rest as identity). */
-    constexpr T operator()(T x, std::size_t n_active) {
-        const std::size_t n = (n_active < NSections) ? n_active : NSections;
-        for (std::size_t i = 0; i < n; ++i) {
+    constexpr T operator()(T x, size_t n_active) {
+        const size_t n = (n_active < NSections) ? n_active : NSections;
+        for (size_t i = 0; i < n; ++i) {
             x = sections_[i](x);
         }
         return x;
     }
 
     /** @brief Replace coefficients of section @p i (keeps that section's delay line). */
-    constexpr void set_section(std::size_t i, const design::SecondOrderCoeffs<T>& c) {
+    constexpr void set_section(size_t i, const design::SecondOrderCoeffs<T>& c) {
         if (i < NSections) {
             sections_[i].set_coefficients(c);
         }
     }
 
     /** @brief Access one section (e.g. reset a single biquad after retune). */
-    [[nodiscard]] constexpr Biquad<T>& section(std::size_t i) { return sections_[i]; }
+    [[nodiscard]] constexpr Biquad<T>& section(size_t i) { return sections_[i]; }
 
-    [[nodiscard]] constexpr const Biquad<T>& section(std::size_t i) const { return sections_[i]; }
+    [[nodiscard]] constexpr const Biquad<T>& section(size_t i) const { return sections_[i]; }
 
     /** @brief Reset every section. */
     constexpr void reset() {

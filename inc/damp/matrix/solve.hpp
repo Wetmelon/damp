@@ -12,9 +12,6 @@
  *        solve(), and the Matrix::inverse() definition.
  */
 
-#include <cstddef>
-#include <type_traits>
-
 #include "core.hpp"
 #include "damp/backend.hpp"
 #include "damp/math/complex.hpp"
@@ -98,9 +95,9 @@ constexpr ColVec<N, T> backward_substitute_transpose(const Matrix<N, N, T>& L, c
  * diagonal entry is exactly zero.
  */
 template<size_t N, size_t M, typename T>
-constexpr damp::optional<Matrix<N, M, std::remove_const_t<T>>>
-solve(const LowerTriangle<N, T>& L, const Matrix<N, M, std::remove_const_t<T>>& B) {
-    using VT = std::remove_const_t<T>;
+constexpr damp::optional<Matrix<N, M, damp::remove_const_t<T>>>
+solve(const LowerTriangle<N, T>& L, const Matrix<N, M, damp::remove_const_t<T>>& B) {
+    using VT = damp::remove_const_t<T>;
     using Result = Matrix<N, M, VT>;
 
     for (size_t i = 0; i < N; ++i) {
@@ -127,9 +124,9 @@ solve(const LowerTriangle<N, T>& L, const Matrix<N, M, std::remove_const_t<T>>& 
  * Returns damp::nullopt if any diagonal entry is exactly zero.
  */
 template<size_t N, size_t M, typename T>
-constexpr damp::optional<Matrix<N, M, std::remove_const_t<T>>>
-solve(const UpperTriangle<N, T>& U, const Matrix<N, M, std::remove_const_t<T>>& B) {
-    using VT = std::remove_const_t<T>;
+constexpr damp::optional<Matrix<N, M, damp::remove_const_t<T>>>
+solve(const UpperTriangle<N, T>& U, const Matrix<N, M, damp::remove_const_t<T>>& B) {
+    using VT = damp::remove_const_t<T>;
     using Result = Matrix<N, M, VT>;
 
     for (size_t i = 0; i < N; ++i) {
@@ -227,7 +224,11 @@ constexpr damp::optional<Matrix<N, M, T>> lu_solve(const Matrix<N, N, T>& A, con
         return damp::nullopt;
     }
 
-    const auto& [L, U, piv] = lu_opt.value();
+    // damp::get, not a structured binding: that needs std::tuple_size, absent under ETL_NO_STL.
+    const auto& lu = lu_opt.value();
+    const auto& L = damp::get<0>(lu);
+    const auto& U = damp::get<1>(lu);
+    const auto& piv = damp::get<2>(lu);
 
     // Apply row permutation to B
     Matrix<N, M, T> B_perm;

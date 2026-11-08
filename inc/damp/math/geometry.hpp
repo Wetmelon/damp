@@ -35,9 +35,6 @@
  *      (uses the passive attitude matrix, the transpose of @ref damp::DCM)
  */
 
-#include <cstddef>
-#include <initializer_list>
-#include <type_traits>
 
 #include "damp/backend.hpp"
 #include "damp/math/math.hpp"
@@ -85,7 +82,7 @@ struct Euler;
 template<typename T>
 struct DCM : public Mat3<T> {
 
-    static_assert(std::is_floating_point_v<T>, "DCM element type must be floating point");
+    static_assert(damp::is_floating_point_v<T>, "DCM element type must be floating point");
 
     constexpr DCM() : Mat3<T>(Mat3<T>::identity()) {}
     constexpr DCM(const DCM&) = default;
@@ -361,7 +358,7 @@ using EulerXYZ = Euler<T, EulerOrder::XYZ>;
 template<typename T>
 struct Quaternion : public Matrix<4, 1, T> {
 
-    static_assert(std::is_floating_point_v<T>, "Quaternion element type must be floating point");
+    static_assert(damp::is_floating_point_v<T>, "Quaternion element type must be floating point");
 
     /** @brief Scalar (real) part. */
     constexpr T& w() { return this->data_[0]; }
@@ -784,7 +781,7 @@ constexpr Euler<T, Order> Euler<T, Order>::from_quaternion(const Quaternion<T>& 
 template<typename T>
 struct Transform4 : public Mat4<T> {
 
-    static_assert(std::is_floating_point_v<T>, "Transform4 element type must be floating point");
+    static_assert(damp::is_floating_point_v<T>, "Transform4 element type must be floating point");
 
     constexpr Transform4() : Mat4<T>(Mat4<T>::identity()) {}
     constexpr Transform4(const Transform4&) = default;

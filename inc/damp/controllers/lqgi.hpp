@@ -15,9 +15,7 @@
  * planned trajectory: control(r, x_ref, u_ref), step(r, x_ref, u_ref, y).
  */
 
-#include <cstddef>
-#include <type_traits>
-
+#include "damp/backend.hpp"
 #include "damp/controllers/state_feedback_core.hpp"
 #include "damp/estimation/kalman.hpp"
 #include "damp/matrix/colvec.hpp"
@@ -48,7 +46,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
 [[nodiscard]] constexpr auto lqgi(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
-    std::type_identity_t<T>                  Ts,
+    damp::type_identity_t<T>                 Ts,
     const LQRWeights<NX, NU, NY, T>&         weights,
     const KalmanNoise<NW, NV, T>&            noise
 ) {
@@ -72,7 +70,7 @@ template<size_t NI, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size
     requires(NI > 0)
 [[nodiscard]] constexpr auto lqgi(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
-    std::type_identity_t<T>                  Ts,
+    damp::type_identity_t<T>                 Ts,
     const LQRWeights<NX, NU, NI, T>&         weights,
     const KalmanNoise<NW, NV, T>&            noise,
     const IntegralAction<NI>&                outputs
@@ -104,7 +102,7 @@ struct LQGI : private detail::StateFeedbackCore<NX, NU, T, NI, NY, Est, 0, Store
     template<size_t NXR, size_t NUR, typename U, size_t NIR, size_t NYR, typename Kalman, size_t NZR>
         requires(!Store::constant)
     constexpr LQGI(const design::StateFeedbackResult<NXR, NUR, U, NIR, NYR, Kalman, NZR>& result) { // NOLINT
-        constexpr bool kind = NIR > 0 && !std::is_same_v<Kalman, NoEstimator>;
+        constexpr bool kind = NIR > 0 && !damp::is_same_v<Kalman, NoEstimator>;
         static_assert(kind, "LQGI runs design::lqgi: this design has no Kalman filter (LQR, LQI) or no integral action (LQG, OFLQG).");
         if constexpr (kind) {
             static_cast<Core&>(*this) = Core(result);
@@ -147,12 +145,11 @@ struct LQGI : private detail::StateFeedbackCore<NX, NU, T, NI, NY, Est, 0, Store
 template<size_t NX, size_t NU, typename T, size_t NI, size_t NY, typename Kalman, size_t NZ>
 LQGI(const design::StateFeedbackResult<NX, NU, T, NI, NY, Kalman, NZ>&) -> LQGI<NX, NU, NY, NI, T, detail::runtime_estimator_t<Kalman, T>>;
 
-
 namespace detail {
 
 /** @brief An LQ design with a filter and integrators runs as LQGI. */
 template<size_t NX, size_t NU, typename U, size_t NI, size_t NY, typename Kalman, typename T>
-    requires(NI > 0 && !std::is_same_v<Kalman, NoEstimator>)
+    requires(NI > 0 && !damp::is_same_v<Kalman, NoEstimator>)
 struct lq_runtime<design::StateFeedbackResult<NX, NU, U, NI, NY, Kalman, 0>, T> {
     using type = LQGI<NX, NU, NY, NI, T, runtime_estimator_t<Kalman, T>>; ///< LQGI
     template<typename Est, typename Store>

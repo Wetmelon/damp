@@ -27,10 +27,6 @@
  * @endcode
  */
 
-#include <cstddef>
-#include <limits>
-#include <type_traits>
-
 #include "damp/backend.hpp"
 #include "damp/controllers/law_detail.hpp"
 #include "damp/design/status.hpp"
@@ -226,7 +222,7 @@ template<size_t NX, typename T = double>
             binom /= static_cast<T>(k);
         }
         const T power = damp::pow(wo, static_cast<int>(i)); // saturates at max()
-        if (!(power < (std::numeric_limits<T>::max() / binom))) {
+        if (!(power < (damp::numeric_limits<T>::max() / binom))) {
             return ::damp::detail::refused<ESOResult<NX, T>>(DesignStatus::invalid_parameter);
         }
         beta[i - 1] = binom * power;
@@ -327,7 +323,7 @@ public:
 
     /** @brief From a design result in another scalar: converts it with .as\<T\>() and builds from that. */
     template<typename U>
-        requires(!std::is_same_v<U, T> && !Store::constant)
+        requires(!damp::is_same_v<U, T> && !Store::constant)
     constexpr ESO(const design::ESOResult<NX, U>& result) // NOLINT(google-explicit-constructor): assign-from-design
         : ESO(result.template as<T>()) {}
 
@@ -343,7 +339,7 @@ public:
           Gamma_(result.Gamma),
           L_(result.L),
           valid_(result.success && result.Ts > T{0}) {
-        if ((!result.success || !(result.Ts > T{0})) && std::is_constant_evaluated()) {
+        if ((!result.success || !(result.Ts > T{0})) && damp::is_constant_evaluated()) {
             ::damp::detail::refuse_failed_design(result.success ? design::DesignStatus::invalid_sample_time : result.status); // constant-evaluated (constinit / constexpr): a failed or continuous design does not compile
         }
     }
@@ -439,7 +435,7 @@ ESO(const design::ESOResult<NX, T>&) -> ESO<NX, T>;
 namespace detail {
 
 /** @brief The runtime an ESO design runs as: none for anything else. */
-template<const auto& Res, typename T, typename R = std::remove_cvref_t<decltype(Res)>>
+template<const auto& Res, typename T, typename R = damp::remove_cvref_t<decltype(Res)>>
 struct eso_runtime {};
 
 /** @brief design::eso: with members, or on its constants. */

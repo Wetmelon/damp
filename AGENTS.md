@@ -37,7 +37,8 @@ tup --quiet tests # compile tests only
 **Final check: always run `make`.** Before reporting work as done, run plain
 `make` and confirm it exits 0. It is the only command that covers everything:
 formatting, the test runner, both backend runners, examples (built *and* run),
-the embedded/freestanding contract checks, and the `REFERENCE.md` regen.
+the embedded/freestanding/workbench/no-C++-headers contract checks, and the
+`REFERENCE.md` regen.
 `tup tests`, `test_runner`, or a hand-built subset are for iterating, not a
 substitute.
 
@@ -140,7 +141,11 @@ Plant builders and host sim are not this ladder.
 - Tolerances: scale `eps<T>()` to the data (size and magnitude) so results don't
   depend on units; `default_tol<T>()` only for convergence of an
   already-relative quantity. Always `damp::` math and backed aliases in
-  `inc/damp` and tests (tests may use `std::` math as an oracle only).
+  `inc/damp` and tests (tests may use `std::` math as an oracle only). That
+  includes traits, limits and concepts (`damp::is_same_v`, `damp::numeric_limits`,
+  `damp::floating_point`): `make nostd-check` builds the core with no C++ standard
+  headers. New names go in both branches of `backend.hpp`. No structured bindings
+  on `damp::tuple`; use `damp::get`.
 - No virtuals, heap, exceptions, or global mutable state in core.
 - No backwards-compat burden: clarity over API stability.
 
@@ -224,6 +229,8 @@ Controls / DSP lane only. Generic embedded containers →
 [ETL](https://www.etlcpp.com) (`libs/etl`), not reimplemented here.
 
 **Backends:** `damp_profile.hpp` maps `array`/`optional`/… to `std::` or `etl::`.
+The one ETL-shaped type Damp owns is `damp::optional` under `ETL_NO_STL`, because
+`etl::optional` of anything but a fundamental type is not constexpr there.
 Host workbench may use vector/string; plotlypp for plots.
 
 ### What not to do

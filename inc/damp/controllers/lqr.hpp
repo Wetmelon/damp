@@ -16,9 +16,7 @@
  * x_ref, u_ref), step([r,] x_ref, u_ref, x).
  */
 
-#include <cstddef>
-#include <type_traits>
-
+#include "damp/backend.hpp"
 #include "damp/controllers/state_feedback_core.hpp" // IWYU pragma: export
 #include "damp/design/riccati.hpp"
 #include "damp/matrix/colvec.hpp"
@@ -51,7 +49,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
  * @note Compare with MATLAB®'s lqrd(sys, Q, R, Ts).
  */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
-[[nodiscard]] constexpr LQRResult<NX, NU, T> lqr(const StateSpace<NX, NU, NY, T, NW, NV>& sys, std::type_identity_t<T> Ts, const LQRWeights<NX, NU, 0, T>& weights) {
+[[nodiscard]] constexpr LQRResult<NX, NU, T> lqr(const StateSpace<NX, NU, NY, T, NW, NV>& sys, damp::type_identity_t<T> Ts, const LQRWeights<NX, NU, 0, T>& weights) {
     return detail::lqr_result(detail::state_feedback(sys, Ts, weights, detail::StateFeedbackOptions{}));
 }
 
@@ -75,7 +73,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NZ>
 [[nodiscard]] constexpr auto lqr(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
-    std::type_identity_t<T>                  Ts,
+    damp::type_identity_t<T>                 Ts,
     const LQRWeights<NX, NU, 0, T>&          weights,
     const TrackedOutputs<NZ>&                outputs
 ) {
@@ -126,7 +124,7 @@ struct LQR : private detail::StateFeedbackCore<NX, NU, T, 0, NY, NoEstimator, NZ
     template<size_t NXR, size_t NUR, typename U, size_t NIR, size_t NYR, typename Kalman, size_t NZR>
         requires(!Store::constant)
     constexpr LQR(const design::StateFeedbackResult<NXR, NUR, U, NIR, NYR, Kalman, NZR>& result) { // NOLINT
-        constexpr bool kind = NIR == 0 && std::is_same_v<Kalman, NoEstimator>;
+        constexpr bool kind = NIR == 0 && damp::is_same_v<Kalman, NoEstimator>;
         static_assert(kind, "LQR runs design::lqr: this design has integral action (LQI, LQGI) or a Kalman filter (LQG, OFLQG).");
         if constexpr (kind) {
             static_cast<Core&>(*this) = Core(result);
@@ -211,8 +209,7 @@ LQR(const Matrix<NU, NX, T>&) -> LQR<NX, NU, T>;
 /** @brief LQR law{res}: the sizes of a gain design (design::place, LQRResult). */
 template<typename R>
     requires detail::gain_result<R>
-LQR(const R& r) -> LQR<std::remove_cvref_t<decltype(r.K)>::cols(), std::remove_cvref_t<decltype(r.K)>::rows(), typename std::remove_cvref_t<decltype(r.K)>::value_type>;
-
+LQR(const R& r) -> LQR<damp::remove_cvref_t<decltype(r.K)>::cols(), damp::remove_cvref_t<decltype(r.K)>::rows(), typename damp::remove_cvref_t<decltype(r.K)>::value_type>;
 
 namespace detail {
 
@@ -220,7 +217,7 @@ namespace detail {
 template<typename R, typename T>
     requires gain_result<R>
 struct lq_runtime<R, T> {
-    using Gain = std::remove_cvref_t<decltype(std::declval<const R&>().K)>;
+    using Gain = damp::remove_cvref_t<decltype(damp::declval<const R&>().K)>;
     using type = LQR<Gain::cols(), Gain::rows(), T>; ///< LQR
     template<typename, typename Store>
     using on_constants = LQR<Gain::cols(), Gain::rows(), T, Gain::cols(), 0, Store>; ///< LQR on the design's constants

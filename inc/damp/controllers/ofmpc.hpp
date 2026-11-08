@@ -15,9 +15,7 @@
  * limits and the measured-state MPC are in mpc.hpp.
  */
 
-#include <cstddef>
-#include <type_traits>
-
+#include "damp/backend.hpp"
 #include "damp/controllers/mpc.hpp"
 #include "damp/design/disturbance.hpp"
 #include "damp/design/qp.hpp"
@@ -41,11 +39,11 @@ namespace design {
 template<size_t NP, size_t NC, size_t NT_max = 0, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Disturbance, size_t ND = detail::disturbance_traits<Disturbance, NU, NY, NW>::states, size_t NZ = detail::mpc_outputs<NU, NY, NW, Disturbance>>
     requires(detail::is_disturbance_model<Disturbance>)
 [[nodiscard]] constexpr auto ofmpc(
-    const StateSpace<NX, NU, NY, T, NW, NV>&                sys,
-    const MPCWeights<NU, NZ, T>&                            weights,
-    const MPCConstraints<NU, NZ, T>&                        constraints,
-    const std::type_identity_t<KalmanNoise<NW, NV, T, ND>>& noise,
-    const Disturbance&                                      disturbance
+    const StateSpace<NX, NU, NY, T, NW, NV>&                 sys,
+    const MPCWeights<NU, NZ, T>&                             weights,
+    const MPCConstraints<NU, NZ, T>&                         constraints,
+    const damp::type_identity_t<KalmanNoise<NW, NV, T, ND>>& noise,
+    const Disturbance&                                       disturbance
 ) {
     return detail::mpc_design<true, NP, NC, NT_max>(sys, T{0}, weights, constraints, noise, disturbance);
 }
@@ -54,12 +52,12 @@ template<size_t NP, size_t NC, size_t NT_max = 0, size_t NX, size_t NU, size_t N
 template<size_t NP, size_t NC, size_t NT_max = 0, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Disturbance, size_t ND = detail::disturbance_traits<Disturbance, NU, NY, NW>::states, size_t NZ = detail::mpc_outputs<NU, NY, NW, Disturbance>>
     requires(detail::is_disturbance_model<Disturbance>)
 [[nodiscard]] constexpr auto ofmpc(
-    const StateSpace<NX, NU, NY, T, NW, NV>&                plant,
-    std::type_identity_t<T>                                 Ts,
-    const MPCWeights<NU, NZ, T>&                            weights,
-    const MPCConstraints<NU, NZ, T>&                        constraints,
-    const std::type_identity_t<KalmanNoise<NW, NV, T, ND>>& noise,
-    const Disturbance&                                      disturbance
+    const StateSpace<NX, NU, NY, T, NW, NV>&                 plant,
+    damp::type_identity_t<T>                                 Ts,
+    const MPCWeights<NU, NZ, T>&                             weights,
+    const MPCConstraints<NU, NZ, T>&                         constraints,
+    const damp::type_identity_t<KalmanNoise<NW, NV, T, ND>>& noise,
+    const Disturbance&                                       disturbance
 ) {
     return detail::mpc_design<false, NP, NC, NT_max>(plant, Ts, weights, constraints, noise, disturbance);
 }

@@ -26,8 +26,6 @@
  * @see filters/spectral.hpp for the detection side
  */
 
-#include <cstddef>
-#include <type_traits>
 
 #include "damp/backend.hpp" // damp::array, damp::numbers
 #include "damp/controllers/pr.hpp"
@@ -58,12 +56,12 @@ struct [[nodiscard]] HarmonicSuppressorResult {
     [[nodiscard]] constexpr explicit operator bool() const { return success; }
 
     template<typename U>
-    [[nodiscard]] constexpr HarmonicSuppressorResult<N, std::remove_const_t<U>> as() const {
-        HarmonicSuppressorResult<N, std::remove_const_t<U>> out{};
+    [[nodiscard]] constexpr HarmonicSuppressorResult<N, damp::remove_const_t<U>> as() const {
+        HarmonicSuppressorResult<N, damp::remove_const_t<U>> out{};
         for (size_t i = 0; i < N; ++i) {
-            out.gains[i] = gains[i].template as<std::remove_const_t<U>>();
+            out.gains[i] = gains[i].template as<damp::remove_const_t<U>>();
         }
-        out.w_fund = static_cast<std::remove_const_t<U>>(w_fund);
+        out.w_fund = static_cast<damp::remove_const_t<U>>(w_fund);
         out.success = success;
         out.status = status;
         return out;
@@ -171,13 +169,13 @@ public:
 
     /** @brief From a design result in another scalar: converts it with .as\<T\>() and builds from that. */
     template<typename U>
-        requires(!std::is_same_v<U, T>)
+        requires(!damp::is_same_v<U, T>)
     constexpr HarmonicSuppressor(const design::HarmonicSuppressorResult<N, U>& result) // NOLINT(google-explicit-constructor): assign-from-design
         : HarmonicSuppressor(result.template as<T>()) {}
 
     constexpr HarmonicSuppressor(const design::HarmonicSuppressorResult<N, T>& design) // NOLINT(google-explicit-constructor): assign-from-design
         : w_fund_(design.w_fund), valid_(design.success) {
-        if (!design.success && std::is_constant_evaluated()) {
+        if (!design.success && damp::is_constant_evaluated()) {
             ::damp::detail::refuse_failed_design(design.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
         install_gains(design.gains);

@@ -23,7 +23,6 @@
  * All constexpr, allocation-free, float/double.
  */
 
-#include <cstddef>
 
 #include "damp/backend.hpp"   // damp::array, damp::numbers
 #include "damp/math/math.hpp" // damp::sin/cos/sqrt/atan2

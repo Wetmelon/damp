@@ -21,8 +21,6 @@
  * @endcode
  */
 
-#include <cstddef>
-#include <type_traits>
 
 #include "damp/backend.hpp"
 #include "damp/design/status.hpp"
@@ -78,9 +76,9 @@ struct [[nodiscard]] FirDesignResult {
      * @tparam U Target scalar type
      */
     template<typename U>
-    [[nodiscard]] constexpr FirDesignResult<MaxTaps, std::remove_const_t<U>> as() const {
-        FirDesignResult<MaxTaps, std::remove_const_t<U>> out{};
-        using O = std::remove_const_t<U>;
+    [[nodiscard]] constexpr FirDesignResult<MaxTaps, damp::remove_const_t<U>> as() const {
+        FirDesignResult<MaxTaps, damp::remove_const_t<U>> out{};
+        using O = damp::remove_const_t<U>;
         for (size_t i = 0; i < MaxTaps; ++i) {
             out.b[i] = static_cast<O>(b[i]);
         }
@@ -471,13 +469,13 @@ public:
 
     /** @brief From a design result in another scalar: converts it with .as\<T\>() and builds from that. */
     template<typename U>
-        requires(!std::is_same_v<U, T>)
+        requires(!damp::is_same_v<U, T>)
     constexpr FirFilter(const design::FirDesignResult<MaxTaps, U>& result) // NOLINT(google-explicit-constructor): assign-from-design
         : FirFilter(result.template as<T>()) {}
 
     /** @brief Construct from a design result (at run time a failed design leaves zero taps, zero output; constant-evaluated, it does not compile) */
     constexpr FirFilter(const design::FirDesignResult<MaxTaps, T>& des) : FirFilter() { // NOLINT(google-explicit-constructor): assign-from-design
-        if (!des.success && std::is_constant_evaluated()) {
+        if (!des.success && damp::is_constant_evaluated()) {
             ::damp::detail::refuse_failed_design(des.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
         (void)init(des);

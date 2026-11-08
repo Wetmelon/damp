@@ -25,9 +25,6 @@
  * @endcode
  */
 
-#include <cstddef>
-#include <type_traits>
-
 #include "damp/backend.hpp"
 #include "damp/controllers/law_detail.hpp"
 #include "damp/design/disturbance.hpp"
@@ -829,7 +826,7 @@ struct StateFeedforward {
         requires(!Store::constant)
     constexpr StateFeedforward(const design::StateFeedforwardResult<NX, NU, U>& result) // NOLINT
         : B_pinv(result.B_pinv.template as<T>()), drift(result.drift.template as<T>()) {
-        if (!result.success && std::is_constant_evaluated()) {
+        if (!result.success && damp::is_constant_evaluated()) {
             ::damp::detail::refuse_failed_design(result.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
     }
@@ -887,7 +884,7 @@ struct OutputInverse {
           zero_dynamics(result.zero_dynamics.template as<T>()),
           zero_preview(result.zero_preview.template as<T>()),
           u_zero(result.u_zero.template as<T>()) {
-        if (!result.success && std::is_constant_evaluated()) {
+        if (!result.success && damp::is_constant_evaluated()) {
             ::damp::detail::refuse_failed_design(result.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
     }
@@ -943,16 +940,16 @@ struct inverse_runtime<design::OutputInverseResult<NX, NU, NP, U>, T> {
 
 /** @brief A model-inverse design. */
 template<const auto& Res, typename T>
-concept inverse_design = requires { typename inverse_runtime<std::remove_cvref_t<decltype(Res)>, T>::type; };
+concept inverse_design = requires { typename inverse_runtime<damp::remove_cvref_t<decltype(Res)>, T>::type; };
 
 } // namespace detail
 
 /** @brief Law<kRes, T> of a `constexpr` model inverse: the same runtime on the design's matrices as constants of the type. */
 template<const auto& Res, typename T>
     requires(detail::inverse_design<Res, T> && detail::constant_design<Res>)
-struct Law<Res, T> : detail::inverse_runtime<std::remove_cvref_t<decltype(Res)>, T>::template on_constants<Res> {
-    using Runtime = detail::inverse_runtime<std::remove_cvref_t<decltype(Res)>, T>::type; ///< The runtime with members: the type of a member a redesign assigns
-    static_assert(detail::constant_design_runs(Res.success, Res.status));                 // a failed design does not compile: the error names its status
+struct Law<Res, T> : detail::inverse_runtime<damp::remove_cvref_t<decltype(Res)>, T>::template on_constants<Res> {
+    using Runtime = detail::inverse_runtime<damp::remove_cvref_t<decltype(Res)>, T>::type; ///< The runtime with members: the type of a member a redesign assigns
+    static_assert(detail::constant_design_runs(Res.success, Res.status));                  // a failed design does not compile: the error names its status
 
     /** @brief The design's runtime. */
     constexpr Law() = default;
@@ -961,8 +958,8 @@ struct Law<Res, T> : detail::inverse_runtime<std::remove_cvref_t<decltype(Res)>,
 /** @brief Law<kRes, T> of a model inverse initialized at start-up: StateFeedforward or OutputInverse, default-constructed from the design. */
 template<const auto& Res, typename T>
     requires detail::inverse_design<Res, T>
-struct Law<Res, T> : detail::inverse_runtime<std::remove_cvref_t<decltype(Res)>, T>::type {
-    using Runtime = detail::inverse_runtime<std::remove_cvref_t<decltype(Res)>, T>::type; ///< The runtime the design runs as
+struct Law<Res, T> : detail::inverse_runtime<damp::remove_cvref_t<decltype(Res)>, T>::type {
+    using Runtime = detail::inverse_runtime<damp::remove_cvref_t<decltype(Res)>, T>::type; ///< The runtime the design runs as
 
     /** @brief The design's runtime. */
     constexpr Law() : Runtime{Res.template as<T>()} {}
