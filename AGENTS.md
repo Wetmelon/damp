@@ -111,8 +111,8 @@ the repo root.
   constraints. No exceptions on the tick path.
 
 **`matrix.hpp` includes** (order is irrelevant): `block`, `colvec`, `concat`,
-`const_matrix`, `core`, `decomposition`, `eigen`, `functions`, `generalized_eigen`, `rowvec`,
-`solve`, `svd`, `views`.
+`const_matrix`, `core`, `decomposition`, `eigen`, `functions`, `generalized_eigen`,
+`pattern_matrix`, `rowvec`, `solve`, `svd`, `views`.
 
 ## Contributor rules
 
@@ -199,6 +199,8 @@ fallthrough, shadowing); clang-tidy.
 **Types and initialization**
 
 - Every member has a default member initializer.
+- `detail::unfilled` skips `Matrix`'s run-time zero-fill. Use it only for a result whose
+  every entry is written before it is read; constant evaluation still starts from zeros.
 - Single-argument constructors are `explicit`, except documented
   assign-from-design constructors.
 - A runtime constructed from a design result refuses a failed one when

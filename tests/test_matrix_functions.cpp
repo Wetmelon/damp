@@ -561,7 +561,9 @@ TEST_SUITE("Matrix Functions") {
     TEST_CASE_TEMPLATE("sinh and cosh keep expm's accuracy above ‖A‖∞ = 1/2", T, float, double) {
         // The double-angle recovery from A/2ˢ loses a factor 2 per step: 2.2–2.9·λ·eps on the
         // symmetric A and 2350–10200 eps on the non-normal one, against 0.3–0.75·λ·eps and 30 eps
-        // by (expm(A) ∓ expm(−A))/2.
+        // by (expm(A) ∓ expm(−A))/2. Under -ffast-math each translation unit may round expm's
+        // squaring its own way, and the test runner links one of those copies: up to 1.5·λ·eps
+        // in float. The bound sits between that and the recovery's 2.2.
         const auto tol = static_cast<double>(eps<T>());
         // Q = H/2 (H the 4×4 Hadamard matrix) is orthogonal with entries ±1/2, so A = Q·D·Qᵀ is exact.
         const Matrix<4, 4> Q = Matrix<4, 4>{{1.0, 1.0, 1.0, 1.0}, {1.0, -1.0, 1.0, -1.0}, {1.0, 1.0, -1.0, -1.0}, {1.0, -1.0, -1.0, 1.0}} * 0.5;
@@ -579,8 +581,8 @@ TEST_SUITE("Matrix Functions") {
             const Matrix<4, 4, T> A(Matrix<4, 4>(Q * D * Q.t()));
             const Matrix<4, 4>    rs = Q * Ds * Q.t();
             const Matrix<4, 4>    rc = Q * Dc * Q.t();
-            CHECK(Matrix<4, 4>(Matrix<4, 4>(mat::sinh(A)) - rs).norm() <= 1.5 * lambda * tol * rs.norm());
-            CHECK(Matrix<4, 4>(Matrix<4, 4>(mat::cosh(A)) - rc).norm() <= 1.5 * lambda * tol * rc.norm());
+            CHECK(Matrix<4, 4>(Matrix<4, 4>(mat::sinh(A)) - rs).norm() <= 2.0 * lambda * tol * rs.norm());
+            CHECK(Matrix<4, 4>(Matrix<4, 4>(mat::cosh(A)) - rc).norm() <= 2.0 * lambda * tol * rc.norm());
         }
         // Non-normal, ‖A‖_F = 43: A = S·U·S⁻¹ with S = [[1,0,0],[1,1,0],[−1,2,1]] and U upper
         // triangular; the reference is S·f(U)·S⁻¹, f(U) by Parlett's recurrence.

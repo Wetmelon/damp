@@ -24,6 +24,7 @@
 #include "eigen.hpp"             // IWYU pragma: export
 #include "functions.hpp"         // IWYU pragma: export
 #include "generalized_eigen.hpp" // IWYU pragma: export
+#include "pattern_matrix.hpp"    // IWYU pragma: export
 #include "rowvec.hpp"            // IWYU pragma: export
 #include "solve.hpp"             // IWYU pragma: export
 #include "svd.hpp"               // IWYU pragma: export

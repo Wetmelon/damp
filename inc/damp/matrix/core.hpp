@@ -185,6 +185,23 @@ template<typename R, typename Mag>
     return d * damp::sqrt(ssq);
 }
 
+/**
+ * @brief Tag for a Matrix whose every entry is written before it is read: no zero-fill at run time
+ *
+ * Not API. The fill of a large matrix is a memset call the compiler cannot remove when a loop with
+ * run-time indices does the writing, since it cannot prove the loop covers every entry. Constant
+ * evaluation still starts from zeros, so nothing there reads an indeterminate value.
+ */
+struct Unfilled {
+    explicit constexpr Unfilled() = default;
+};
+
+/** @brief The Unfilled tag. */
+inline constexpr Unfilled unfilled{};
+
+/** @brief Largest array any supported ABI may return in registers: four doubles on AArch64. */
+inline constexpr size_t kReturnedInRegistersBytes = 32;
+
 /** @brief Largest shape for_each_entry folds over: a local this size is worth keeping in registers. */
 inline constexpr size_t kConstantIndexEntries = 64;
 
@@ -288,7 +305,7 @@ protected:
     /** @brief Elements of any (r, c)-indexable source, cast to T. */
     template<typename Src>
     [[nodiscard]] static constexpr damp::array<T, Rows * Cols> elements_of(const Src& src) {
-        damp::array<T, Rows * Cols> out{};
+        damp::array<T, Rows * Cols> out = seed_elements();
         for (size_t r = 0; r < Rows; ++r) {
             for (size_t c = 0; c < Cols; ++c) {
                 out[(r * Cols) + c] = static_cast<T>(src(r, c));
@@ -352,14 +369,38 @@ protected:
     }
 
     /**
+     * @brief Elements with no values yet: every entry must be written before it is read. Not constexpr,
+     * so constant evaluation cannot reach it and GCC does not fold away the constructor that calls it
+     * (on ARM a constructor returns `this`, and an empty one warns "value computed is not used").
+     *
+     * An array small enough to come back in registers would be read by the return itself, so it gets
+     * zeros: the compiler removes that small a fill anyway. A larger one is built in the caller's storage.
+     */
+    [[nodiscard]] static damp::array<T, Rows * Cols> unset_elements() {
+        damp::array<T, Rows * Cols> out; // NOLINT(cppcoreguidelines-pro-type-member-init): see detail::Unfilled
+        if constexpr (sizeof(damp::array<T, Rows * Cols>) <= detail::kReturnedInRegistersBytes) {
+            out = {};
+        }
+        return out; // one variable at function scope: GCC before 14 elides no other
+    }
+
+    /** @brief What a matrix about to be overwritten starts from: zeros under constant evaluation, else nothing. */
+    [[nodiscard]] static constexpr damp::array<T, Rows * Cols> seed_elements() {
+        if (std::is_constant_evaluated()) {
+            return {};
+        }
+        return unset_elements();
+    }
+
+    /**
      * @brief Copy-constructor seed: the whole array under constant evaluation; at run
-     * time zeros, overwritten by the constant-index folds that GCC can SROA.
+     * time no values yet, for the constant-index folds that GCC can SROA to write.
      */
     [[nodiscard]] static constexpr damp::array<T, Rows * Cols> copy_seed(const Matrix& other) {
         if (std::is_constant_evaluated()) {
             return other.data_;
         }
-        return {};
+        return unset_elements();
     }
 
 public:
@@ -376,6 +417,9 @@ public:
      * @brief Default constructor, initializes all elements to zero
      */
     constexpr Matrix() = default;
+
+    /** @brief No zero-fill at run time. Not API: see detail::Unfilled. */
+    constexpr explicit Matrix(const detail::Unfilled& /*tag*/) : data_(seed_elements()) {}
 
     /**
      * @brief Copy constructor and assignment operator
@@ -871,7 +915,7 @@ public:
      * @see t() for a zero-copy TransposeView
      */
     [[nodiscard]] constexpr Matrix<Cols, Rows, T> transpose() const {
-        Matrix<Cols, Rows, T> result;
+        Matrix<Cols, Rows, T> result{detail::unfilled};
         for (size_t r = 0; r < Rows; ++r) {
             for (size_t c = 0; c < Cols; ++c) {
                 result.data_[(c * Rows) + r] = data_[(r * Cols) + c];
@@ -905,7 +949,7 @@ public:
      * @return Conjugate-transposed matrix (Cols × Rows)
      */
     [[nodiscard]] constexpr Matrix<Cols, Rows, T> conjugate_transpose() const {
-        Matrix<Cols, Rows, T> result;
+        Matrix<Cols, Rows, T> result{detail::unfilled};
         for (size_t r = 0; r < Rows; ++r) {
             for (size_t c = 0; c < Cols; ++c) {
                 result.data_[(c * Rows) + r] = damp::conj(data_[(r * Cols) + c]);
@@ -925,7 +969,7 @@ public:
     [[nodiscard]] constexpr Matrix<NewRows, NewCols, T> reshape() const
         requires(NewRows * NewCols == Rows * Cols)
     {
-        Matrix<NewRows, NewCols, T> result;
+        Matrix<NewRows, NewCols, T> result{detail::unfilled};
         for (size_t i = 0; i < Rows * Cols; ++i) {
             size_t r_new = i / NewCols;
             size_t c_new = i % NewCols;
@@ -1034,7 +1078,7 @@ public:
      * @return Row vector
      */
     [[nodiscard]] constexpr Matrix<1, Cols, T> row_vector(size_t r_idx) const {
-        Matrix<1, Cols, T> result;
+        Matrix<1, Cols, T> result{detail::unfilled};
         for (size_t c = 0; c < Cols; ++c) {
             result.data_[c] = data_[(r_idx * Cols) + c];
         }
@@ -1047,7 +1091,7 @@ public:
      * @return Column vector
      */
     [[nodiscard]] constexpr Matrix<Rows, 1, T> col_vector(size_t c_idx) const {
-        Matrix<Rows, 1, T> result;
+        Matrix<Rows, 1, T> result{detail::unfilled};
         for (size_t r = 0; r < Rows; ++r) {
             result.data_[r] = data_[(r * Cols) + c_idx];
         }
@@ -1145,10 +1189,11 @@ namespace detail {
 /**
  * @brief Whether an element-wise free operator returns its operand's own type (ColVec, RowVec, …)
  * rather than Matrix. Only owning types qualify: a view built over the operator's local result
- * would dangle.
+ * would dangle. Matrix itself does not: its result is already the type, and returns with no copy.
  */
 template<typename A>
-inline constexpr bool keeps_operand_type = std::is_base_of_v<Matrix<A::rows(), A::cols(), typename A::value_type>, A>
+inline constexpr bool keeps_operand_type = !std::is_same_v<A, Matrix<A::rows(), A::cols(), typename A::value_type>>
+                                        && std::is_base_of_v<Matrix<A::rows(), A::cols(), typename A::value_type>, A>
                                         && std::is_constructible_v<A, Matrix<A::rows(), A::cols(), typename A::value_type>>;
 } // namespace detail
 
@@ -1169,7 +1214,7 @@ template<MatrixLike A, MatrixLike B>
         "Incompatible column dimensions for broadcasting"
     );
     using T = detail::common_element_t<typename A::value_type, typename B::value_type>;
-    Matrix<ResRows, ResCols, T> result;
+    Matrix<ResRows, ResCols, T> result{detail::unfilled};
     detail::for_each_entry<ResRows, ResCols>([&](size_t i, size_t j) {
         const size_t ai = (A::rows() == 1) ? 0 : i;
         const size_t aj = (A::cols() == 1) ? 0 : j;
@@ -1201,7 +1246,7 @@ template<MatrixLike A, MatrixLike B>
         "Incompatible column dimensions for broadcasting"
     );
     using T = detail::common_element_t<typename A::value_type, typename B::value_type>;
-    Matrix<ResRows, ResCols, T> result;
+    Matrix<ResRows, ResCols, T> result{detail::unfilled};
     detail::for_each_entry<ResRows, ResCols>([&](size_t i, size_t j) {
         const size_t ai = (A::rows() == 1) ? 0 : i;
         const size_t aj = (A::cols() == 1) ? 0 : j;
@@ -1223,35 +1268,52 @@ template<MatrixLike A, MatrixLike B>
     requires(A::cols() == B::rows() && SamePrecision<typename A::value_type, typename B::value_type>)
 [[nodiscard]] constexpr auto operator*(const A& a, const B& b) {
     using T = detail::common_element_t<typename A::value_type, typename B::value_type>;
-    Matrix<A::rows(), B::cols(), T> result;
-    if constexpr (std::is_base_of_v<Matrix<A::rows(), A::cols(), T>, A> && std::is_base_of_v<Matrix<B::rows(), B::cols(), T>, B> && A::rows() * A::cols() * B::cols() > 0) {
+    using Result = Matrix<A::rows(), B::cols(), T>;
+    //! Each row is written from its first term, added to +0 as a zero-filled sum would be, so a sum
+    //! of -0 terms is +0 as it always was. One result at function scope: GCC before 14 elides no other.
+    Result result{detail::unfilled};
+    if constexpr (A::cols() == 0) {
+        result = Result{}; // an empty sum on every entry
+    } else if constexpr (std::is_base_of_v<Matrix<A::rows(), A::cols(), T>, A> && std::is_base_of_v<Matrix<B::rows(), B::cols(), T>, B> && A::rows() * A::cols() * B::cols() > 0) {
         // Owning operands: walk the storage directly. Same arithmetic as the view
         // path; it only spares constant evaluation the per-element accessor calls,
         // and there skips the zero entries that block-structured design matrices
-        // are full of.
+        // are full of, adding to the zeros that evaluation starts from.
         const T* const ap = a.data();
         const T* const bp = b.data();
         T* const       rp = result.data();
         for (size_t i = 0; i < A::rows(); ++i) {
-            for (size_t k = 0; k < A::cols(); ++k) {
+            T* const rrow = rp + (i * B::cols());
+            size_t   first = 0;
+            if (!std::is_constant_evaluated()) {
+                const T ai0 = ap[i * A::cols()];
+                for (size_t j = 0; j < B::cols(); ++j) {
+                    rrow[j] = T{} + (ai0 * bp[j]);
+                }
+                first = 1;
+            }
+            for (size_t k = first; k < A::cols(); ++k) {
                 const T aik = ap[(i * A::cols()) + k];
                 if (std::is_constant_evaluated() && aik == T{0}) {
                     continue;
                 }
                 const T* const brow = bp + (k * B::cols());
-                T* const       rrow = rp + (i * B::cols());
                 for (size_t j = 0; j < B::cols(); ++j) {
                     rrow[j] += aik * brow[j];
                 }
             }
         }
-        return result;
-    }
-    for (size_t i = 0; i < A::rows(); ++i) {
-        for (size_t k = 0; k < A::cols(); ++k) {
-            T aik = static_cast<T>(a(i, k));
+    } else {
+        for (size_t i = 0; i < A::rows(); ++i) {
+            const T ai0 = static_cast<T>(a(i, 0));
             for (size_t j = 0; j < B::cols(); ++j) {
-                result(i, j) += aik * static_cast<T>(b(k, j));
+                result(i, j) = T{} + (ai0 * static_cast<T>(b(0, j)));
+            }
+            for (size_t k = 1; k < A::cols(); ++k) {
+                const T aik = static_cast<T>(a(i, k));
+                for (size_t j = 0; j < B::cols(); ++j) {
+                    result(i, j) += aik * static_cast<T>(b(k, j));
+                }
             }
         }
     }
@@ -1284,7 +1346,7 @@ template<MatrixLike Mat, MatrixLike Sym>
     constexpr size_t P = Mat::rows();
     constexpr size_t N = Mat::cols();
     const auto       mx = m * x; // p×n
-    Matrix<P, P, T>  result{};
+    Matrix<P, P, T>  result{detail::unfilled};
     for (size_t i = 0; i < P; ++i) {
         for (size_t j = 0; j <= i; ++j) {
             T acc{};
@@ -1304,7 +1366,7 @@ template<MatrixLike Mat, MatrixLike Sym>
 template<MatrixLike A>
 [[nodiscard]] constexpr auto operator-(const A& a) {
     using T = A::value_type;
-    Matrix<A::rows(), A::cols(), T> result;
+    Matrix<A::rows(), A::cols(), T> result{detail::unfilled};
     detail::for_each_entry<A::rows(), A::cols()>([&](size_t i, size_t j) { result(i, j) = -static_cast<T>(a(i, j)); });
     if constexpr (detail::keeps_operand_type<A>) {
         return A(result);
@@ -1318,7 +1380,7 @@ template<MatrixLike A, typename Scalar>
     requires(std::is_arithmetic_v<Scalar> || is_matrix_element_v<Scalar>)
 [[nodiscard]] constexpr auto operator+(const A& a, Scalar scalar) {
     using T = A::value_type;
-    Matrix<A::rows(), A::cols(), T> result;
+    Matrix<A::rows(), A::cols(), T> result{detail::unfilled};
     for (size_t i = 0; i < A::rows(); ++i) {
         for (size_t j = 0; j < A::cols(); ++j) {
             result(i, j) = static_cast<T>(a(i, j)) + static_cast<T>(scalar);
@@ -1336,7 +1398,7 @@ template<MatrixLike A, typename Scalar>
     requires(std::is_arithmetic_v<Scalar> || is_matrix_element_v<Scalar>)
 [[nodiscard]] constexpr auto operator-(const A& a, Scalar scalar) {
     using T = A::value_type;
-    Matrix<A::rows(), A::cols(), T> result;
+    Matrix<A::rows(), A::cols(), T> result{detail::unfilled};
     for (size_t i = 0; i < A::rows(); ++i) {
         for (size_t j = 0; j < A::cols(); ++j) {
             result(i, j) = static_cast<T>(a(i, j)) - static_cast<T>(scalar);
@@ -1354,7 +1416,7 @@ template<typename Scalar, MatrixLike A>
     requires(std::is_arithmetic_v<Scalar> || is_matrix_element_v<Scalar>)
 [[nodiscard]] constexpr auto operator-(Scalar scalar, const A& a) {
     using T = A::value_type;
-    Matrix<A::rows(), A::cols(), T> result;
+    Matrix<A::rows(), A::cols(), T> result{detail::unfilled};
     for (size_t i = 0; i < A::rows(); ++i) {
         for (size_t j = 0; j < A::cols(); ++j) {
             result(i, j) = static_cast<T>(scalar) - static_cast<T>(a(i, j));
@@ -1372,7 +1434,7 @@ template<MatrixLike A, typename Scalar>
     requires(std::is_arithmetic_v<Scalar> || is_matrix_element_v<Scalar>)
 [[nodiscard]] constexpr auto operator*(const A& a, Scalar scalar) {
     using T = A::value_type;
-    Matrix<A::rows(), A::cols(), T> result;
+    Matrix<A::rows(), A::cols(), T> result{detail::unfilled};
     for (size_t i = 0; i < A::rows(); ++i) {
         for (size_t j = 0; j < A::cols(); ++j) {
             result(i, j) = static_cast<T>(a(i, j)) * static_cast<T>(scalar);
@@ -1397,7 +1459,7 @@ template<MatrixLike A, typename Scalar>
     requires(std::is_arithmetic_v<Scalar> || is_matrix_element_v<Scalar>)
 [[nodiscard]] constexpr auto operator/(const A& a, Scalar scalar) {
     using T = A::value_type;
-    Matrix<A::rows(), A::cols(), T> result;
+    Matrix<A::rows(), A::cols(), T> result{detail::unfilled};
     for (size_t i = 0; i < A::rows(); ++i) {
         for (size_t j = 0; j < A::cols(); ++j) {
             result(i, j) = static_cast<T>(a(i, j)) / static_cast<T>(scalar);
