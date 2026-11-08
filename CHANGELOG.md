@@ -133,6 +133,7 @@ delay templates on OFLQG / MPC). v0.1.0 never shipped those names.
 
 ### Fixed
 
+- `UnscentedKalmanFilter::NSIG` is `NSP`. MinGW's `<signal.h>` defines `NSIG` as a macro, so GCC 11 on Windows could not compile `control.hpp`.
 - The PLLs treat an amplitude below the smallest normal value as no signal. A lost input could stick in the subnormals and hold the phase error at full scale, so `integrator_leak` never bled the offset back to nominal on a CPU that keeps subnormals. The tests missed it because linking with `-ffast-math` flushes them on x86.
 
 ## [0.1.0] — 2026-08-09
