@@ -49,9 +49,6 @@
  *      https://doi.org/10.1080/00207178508933420
  */
 
-#include <cstddef>
-#include <cstdint>
-
 #include "damp/backend.hpp"
 #include "damp/design/stability.hpp"
 #include "damp/design/status.hpp"
@@ -776,7 +773,6 @@ template<size_t NX, size_t NU, size_t NB, typename T>
     return K;
 }
 
-
 /** @brief Gain from the canonical (minimum-norm) parameter: K = −W·V⁻¹, or nullopt if V is singular. */
 template<size_t NX, size_t NU, size_t NB, typename T>
 [[nodiscard]] constexpr damp::optional<Matrix<NU, NX, T>> jordan_canonical_gain(const JordanPlan<NX, NU, NB, T>& plan) {
@@ -1197,7 +1193,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
 }
 
 /** @brief How place_jordan spends the free parameter of the Klein–Moore family (Schmid et al.). */
-enum class JordanObjective : std::uint8_t {
+enum class JordanObjective : uint8_t {
     Canonical,              ///< No search: the canonical minimum-norm parameter.
     ConditionNumber,        ///< Method 1: minimize the Frobenius condition number of V.
     DepartureFromNormality, ///< Method 2: minimize the departure from normality of A − B·K.

@@ -24,8 +24,7 @@
  * @see concepts.hpp SisoController
  */
 
-#include <cstdint>
-
+#include "damp/backend.hpp"
 #include "damp/concepts.hpp"
 
 namespace damp {
@@ -89,7 +88,7 @@ using CascadePPI = Cascade<Outer, Inner, T>;
 /**
  * @brief Which path owns the plant command.
  */
-enum class SwitchMode : std::uint8_t {
+enum class SwitchMode : uint8_t {
     Normal,     ///< Primary closed-loop controller
     Experiment, ///< Commissioning / autotune experiment owns u
     Backup,     ///< Safe fallback controller

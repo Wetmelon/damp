@@ -10,8 +10,7 @@
  * @brief Real number with an exact integer part: constant resolution over any range.
  */
 
-#include <cstdint>
-
+#include "damp/backend.hpp"
 #include "damp/math/math.hpp" // damp::floor, damp::ceil, damp::abs, damp::isfinite
 
 namespace damp {
@@ -46,8 +45,8 @@ namespace damp {
  */
 template<typename T = float>
 struct SplitReal {
-    std::int64_t whole{0}; ///< exact integer part
-    T            frac{0};  ///< remainder in [−0.5, 0.5)
+    int64_t whole{0}; ///< exact integer part
+    T       frac{0};  ///< remainder in [−0.5, 0.5)
 
     constexpr SplitReal() noexcept = default;
 
@@ -55,7 +54,7 @@ struct SplitReal {
     constexpr SplitReal(T value) noexcept : frac(value) { normalize(); } // NOLINT(google-explicit-constructor)
 
     /** @brief From an integer part and a remainder (any range; normalized). */
-    constexpr SplitReal(std::int64_t whole_in, T frac_in) noexcept : whole(whole_in), frac(frac_in) { normalize(); }
+    constexpr SplitReal(int64_t whole_in, T frac_in) noexcept : whole(whole_in), frac(frac_in) { normalize(); }
 
     /** @brief The value as one number. Lossy for large magnitudes; prefer differences. */
     [[nodiscard]] constexpr T value() const { return static_cast<T>(whole) + frac; }
@@ -73,7 +72,7 @@ struct SplitReal {
     /** @brief Difference @p a − @p b as a plain number. */
     [[nodiscard]] friend constexpr T operator-(const SplitReal& a, const SplitReal& b) {
         // Modular difference: defined for any two values (a signed subtraction could overflow).
-        const auto dw = static_cast<std::int64_t>(static_cast<std::uint64_t>(a.whole) - static_cast<std::uint64_t>(b.whole));
+        const auto dw = static_cast<int64_t>(static_cast<uint64_t>(a.whole) - static_cast<uint64_t>(b.whole));
         return static_cast<T>(dw) + (a.frac - b.frac);
     }
 
@@ -90,7 +89,7 @@ private:
         // A step this large is not an accumulation; leave it rather than cast an
         // out-of-range float to an integer (undefined behaviour). NaN and ±Inf are left too,
         // tested on the bit pattern: under -ffast-math a comparison may assume them away.
-        constexpr T limit = static_cast<T>(std::int64_t{1} << 62);
+        constexpr T limit = static_cast<T>(int64_t{1} << 62);
         if (!damp::isfinite(frac) || !(damp::abs(frac) < limit)) {
             return;
         }
@@ -107,8 +106,8 @@ private:
             n -= T{1};
             r += T{1};
         }
-        const auto step = static_cast<std::uint64_t>(static_cast<std::int64_t>(n));
-        whole = static_cast<std::int64_t>(static_cast<std::uint64_t>(whole) + step); // modular: no signed overflow
+        const auto step = static_cast<uint64_t>(static_cast<int64_t>(n));
+        whole = static_cast<int64_t>(static_cast<uint64_t>(whole) + step); // modular: no signed overflow
         frac = r;
     }
 };

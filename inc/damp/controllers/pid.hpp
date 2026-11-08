@@ -10,8 +10,6 @@
  * @brief PID design and runtime controllers
  */
 
-#include <cstdint>
-#include <type_traits>
 
 #include "damp/backend.hpp"
 #include "damp/design/status.hpp"
@@ -373,7 +371,7 @@ template<typename T = double>
  * stores and computes only its own terms. Distinct from @ref PIDRuntimeMode,
  * which selects runtime behavior (Auto vs Tracking) at each tick.
  */
-enum class PIDMode : std::uint8_t {
+enum class PIDMode : uint8_t {
     P,
     PI,
     PD,
@@ -398,7 +396,7 @@ enum class PIDMode : std::uint8_t {
  * output was clamped downstream; use `disable(u_track)` when the controller is
  * being temporarily replaced by another command source.
  */
-enum class PIDRuntimeMode : std::uint8_t {
+enum class PIDRuntimeMode : uint8_t {
     Auto,
     Tracking,
 };
@@ -538,7 +536,7 @@ struct PIDController<T, PIDMode::PID> {
 
     /** @brief From a design result in another scalar: converts it with .as\<T\>() and builds from that. */
     template<typename U>
-        requires(!std::is_same_v<U, T>)
+        requires(!damp::is_same_v<U, T>)
     constexpr PIDController(const design::DiscretePIDGains<U>& r) // NOLINT(google-explicit-constructor): assign-from-design
         : PIDController(r.template as<T>()) {}
 
@@ -558,7 +556,7 @@ struct PIDController<T, PIDMode::PID> {
           b(r.b),
           c(r.c),
           Ts(r.Ts) {
-        if (!r.success && std::is_constant_evaluated()) {
+        if (!r.success && damp::is_constant_evaluated()) {
             detail::refuse_failed_design(r.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
         if (detail::pid_kbc_winds_up(r.Ki, r.Kbc)) {
@@ -668,7 +666,7 @@ struct PIDController<T, PIDMode::PI> {
 
     /** @brief From a design result in another scalar: converts it with .as\<T\>() and builds from that. */
     template<typename U>
-        requires(!std::is_same_v<U, T>)
+        requires(!damp::is_same_v<U, T>)
     constexpr PIDController(const design::DiscretePIDGains<U>& r) // NOLINT(google-explicit-constructor): assign-from-design
         : PIDController(r.template as<T>()) {}
 
@@ -680,7 +678,7 @@ struct PIDController<T, PIDMode::PI> {
           Kbc(r.Kbc),
           b(r.b),
           Ts(r.Ts) {
-        if (!r.success && std::is_constant_evaluated()) {
+        if (!r.success && damp::is_constant_evaluated()) {
             detail::refuse_failed_design(r.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
         if (r.Kd != T{0}) {
@@ -775,7 +773,7 @@ struct PIDController<T, PIDMode::PD> {
 
     /** @brief From a design result in another scalar: converts it with .as\<T\>() and builds from that. */
     template<typename U>
-        requires(!std::is_same_v<U, T>)
+        requires(!damp::is_same_v<U, T>)
     constexpr PIDController(const design::DiscretePIDGains<U>& r) // NOLINT(google-explicit-constructor): assign-from-design
         : PIDController(r.template as<T>()) {}
 
@@ -788,7 +786,7 @@ struct PIDController<T, PIDMode::PD> {
           b(r.b),
           c(r.c),
           Ts(r.Ts) {
-        if (!r.success && std::is_constant_evaluated()) {
+        if (!r.success && damp::is_constant_evaluated()) {
             detail::refuse_failed_design(r.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
         if (r.Ki != T{0}) {
@@ -857,13 +855,13 @@ struct PIDController<T, PIDMode::P> {
 
     /** @brief From a design result in another scalar: converts it with .as\<T\>() and builds from that. */
     template<typename U>
-        requires(!std::is_same_v<U, T>)
+        requires(!damp::is_same_v<U, T>)
     constexpr PIDController(const design::DiscretePIDGains<U>& r) // NOLINT(google-explicit-constructor): assign-from-design
         : PIDController(r.template as<T>()) {}
 
     constexpr PIDController(const design::DiscretePIDGains<T>& r) // NOLINT(google-explicit-constructor): assign-from-design
         : Kp(r.Kp), u_lim(r.u_lim), b(r.b) {
-        if (!r.success && std::is_constant_evaluated()) {
+        if (!r.success && damp::is_constant_evaluated()) {
             detail::refuse_failed_design(r.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
         if (r.Ki != T{0} || r.Kd != T{0}) {
@@ -963,7 +961,7 @@ struct ContinuousPID {
 
     /** @brief From a design result in another scalar: converts it with .as\<T\>() and builds from that. */
     template<typename U>
-        requires(!std::is_same_v<U, T>)
+        requires(!damp::is_same_v<U, T>)
     constexpr ContinuousPID(const design::PIDGains<U>& result) // NOLINT(google-explicit-constructor): assign-from-design
         : ContinuousPID(result.template as<T>()) {}
 
@@ -977,7 +975,7 @@ struct ContinuousPID {
           Kbc(r.Kbc),
           b(r.b),
           c(r.c) {
-        if (!r.success && std::is_constant_evaluated()) {
+        if (!r.success && damp::is_constant_evaluated()) {
             detail::refuse_failed_design(r.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
         if (!detail::pid_gains_in_domain(r.Kp, r.Ki, r.Kd, r.Tf, r.Kbc, r.b, r.c) || detail::pid_kbc_winds_up(r.Ki, r.Kbc)) {

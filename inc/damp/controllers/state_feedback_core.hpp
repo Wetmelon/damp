@@ -14,9 +14,6 @@
  * result, runtime). This header is what they include.
  */
 
-#include <cstddef>
-#include <type_traits>
-
 #include "damp/backend.hpp"
 #include "damp/controllers/law_detail.hpp"
 #include "damp/design/disturbance.hpp"
@@ -96,11 +93,11 @@ struct IntegralAction {
 
 /** @brief Not a StateFeedbackResult. */
 template<typename R>
-struct is_state_feedback_result : std::false_type {};
+struct is_state_feedback_result : damp::false_type {};
 
 /** @brief A StateFeedbackResult. */
 template<size_t NX, size_t NU, typename T, size_t NI, size_t NY, typename Kalman, size_t NZ>
-struct is_state_feedback_result<design::StateFeedbackResult<NX, NU, T, NI, NY, Kalman, NZ>> : std::true_type {};
+struct is_state_feedback_result<design::StateFeedbackResult<NX, NU, T, NI, NY, Kalman, NZ>> : damp::true_type {};
 
 /** @brief A gain design result other than StateFeedbackResult: K, success and Ts (PlaceResult, LQRResult). */
 template<typename R>
@@ -108,7 +105,7 @@ concept gain_result = requires(const R& r) {
     r.success;
     r.Ts;
     r.K;
-    requires MatrixLike<std::remove_cvref_t<decltype(r.K)>>;
+    requires MatrixLike<damp::remove_cvref_t<decltype(r.K)>>;
 } && !is_state_feedback_result<R>::value;
 
 /** @brief A gain design is discrete: its @c discrete flag (LQRResult), else a sample time Ts > 0 (PlaceResult, StateFeedbackResult). */
@@ -216,7 +213,7 @@ struct StateFeedbackCore {
     static_assert(NI == 0 || NZ == 0, "Integral action and a disturbance model are two offset-free choices: lqgi or oflqg, not both.");
     static_assert(ND == 0 || NZ > 0, "A disturbance model tracks through its steady-state target.");
     static constexpr bool kRecord = (NI > 0) || kEstimated; ///< The law keeps its command and the applied input
-    using Record = std::conditional_t<kRecord, detail::AppliedRecord<NU, T>, detail::NoAppliedRecord>;
+    using Record = damp::conditional_t<kRecord, detail::AppliedRecord<NU, T>, detail::NoAppliedRecord>;
 
     using Target = detail::maybe<(NZ > 0), SteadyStateTarget<NXE, NU, ND, NZ, T, typename Store::template TargetD<NXE + NU, ND, T>, typename Store::template TargetR<NXE + NU, NZ, T>>, detail::OffSlot::target>;
     using Integral = detail::maybe<(NI > 0), detail::IntegralAction<NI, NM, NU, (kEstimated ? NY : 0), T, typename Store::template Ci<NI, NM, T>, typename Store::template Ci_u<NI, NU, T>>, detail::OffSlot::integral>;
@@ -259,7 +256,7 @@ struct StateFeedbackCore {
     template<size_t NXR, size_t NUR, typename U, size_t NIR, size_t NYR, typename Kalman, size_t NZR>
         requires(!Store::constant)
     constexpr StateFeedbackCore(const design::StateFeedbackResult<NXR, NUR, U, NIR, NYR, Kalman, NZR>& result) { // NOLINT
-        constexpr bool same = NXR == NX && NUR == NU && NIR == NI && NYR == NY && NZR == NZ && std::is_same_v<Est, detail::runtime_estimator_t<Kalman, T>>;
+        constexpr bool same = NXR == NX && NUR == NU && NIR == NI && NYR == NY && NZR == NZ && damp::is_same_v<Est, detail::runtime_estimator_t<Kalman, T>>;
         static_assert(same, "This law's sizes are not the design's: let them deduce, LQG law{res}, or Law<res, T> for a member.");
         if constexpr (same) {
             if (usable(result, result.Ts != U{0})) {
@@ -420,7 +417,7 @@ private:
     template<typename R>
     [[nodiscard]] static constexpr bool usable(const R& result, bool discrete) {
         const bool ok = result.success && discrete;
-        if (!ok && std::is_constant_evaluated()) {
+        if (!ok && damp::is_constant_evaluated()) {
             if constexpr (requires { result.status; }) {
                 detail::refuse_failed_design(result.success ? design::DesignStatus::invalid_sample_time : result.status);
             } else {
@@ -528,7 +525,7 @@ namespace detail {
 /** @brief An LQ or gain design: a result that has a runtime in lq_runtime. */
 template<const auto& Res, typename T>
 concept lq_design = requires {
-    typename lq_runtime<std::remove_cvref_t<decltype(Res)>, T>::type;
+    typename lq_runtime<damp::remove_cvref_t<decltype(Res)>, T>::type;
     Res.success;
 };
 
@@ -537,8 +534,8 @@ concept lq_design = requires {
 /** @brief Law<kRes, T> of an LQ or gain design initialized at start-up: the runtime it runs as (LQR, LQI, LQG, LQGI, OFLQG), default-constructed from the design. A runtime of the same shape assigned replaces it. */
 template<const auto& Res, typename T>
     requires detail::lq_design<Res, T>
-struct Law<Res, T> : detail::lq_runtime<std::remove_cvref_t<decltype(Res)>, T>::type {
-    using Runtime = detail::lq_runtime<std::remove_cvref_t<decltype(Res)>, T>::type; ///< The runtime the design runs as
+struct Law<Res, T> : detail::lq_runtime<damp::remove_cvref_t<decltype(Res)>, T>::type {
+    using Runtime = detail::lq_runtime<damp::remove_cvref_t<decltype(Res)>, T>::type; ///< The runtime the design runs as
 
     /** @brief The design's law. */
     constexpr Law() : Runtime{Res.template as<T>()} {}
@@ -570,7 +567,7 @@ struct ConstantGains {
     static constexpr auto kK = design.K;                 ///< K
     static constexpr auto kCi = [] {
         if constexpr (requires { design.integral.Ci; }) {
-            if constexpr (std::remove_cvref_t<decltype(design)>::kEstimated) {
+            if constexpr (damp::remove_cvref_t<decltype(design)>::kEstimated) {
                 return design.integral.Ci; // on the measurement y
             } else {
                 return design.integral.Ci_x; // on the measured state: Ci·C
@@ -614,7 +611,7 @@ struct ConstantGains {
 };
 
 /** @brief The estimator of a `constexpr` design's Law: none for a measured state. */
-template<const auto& Res, typename T, typename R = std::remove_cvref_t<decltype(Res)>>
+template<const auto& Res, typename T, typename R = damp::remove_cvref_t<decltype(Res)>>
 struct constant_estimator {
     using type = NoEstimator; ///< NoEstimator
 };
@@ -630,8 +627,8 @@ struct constant_estimator<Res, T, design::StateFeedbackResult<NX, NU, U, NI, NY,
 /** @brief Law<kRes, T> of a `constexpr` LQ or gain design: the same runtime on the design's matrices as constants of the type. */
 template<const auto& Res, typename T>
     requires(detail::lq_design<Res, T> && detail::constant_design<Res>)
-struct Law<Res, T> : detail::lq_runtime<std::remove_cvref_t<decltype(Res)>, T>::template on_constants<typename detail::constant_estimator<Res, T>::type, detail::ConstantGains<Res, T>> {
-    using Runtime = detail::lq_runtime<std::remove_cvref_t<decltype(Res)>, T>::type; ///< The runtime with members: the type of a member a redesign assigns
+struct Law<Res, T> : detail::lq_runtime<damp::remove_cvref_t<decltype(Res)>, T>::template on_constants<typename detail::constant_estimator<Res, T>::type, detail::ConstantGains<Res, T>> {
+    using Runtime = detail::lq_runtime<damp::remove_cvref_t<decltype(Res)>, T>::type; ///< The runtime with members: the type of a member a redesign assigns
 
     static_assert(detail::constant_design_usable<Res>);
 
@@ -644,7 +641,7 @@ struct Law<Res, T> : detail::lq_runtime<std::remove_cvref_t<decltype(Res)>, T>::
 
     /** @brief There is nothing to replace: the design is in the type. */
     template<typename Other>
-        requires(!std::is_same_v<std::remove_cvref_t<Other>, Law>)
+        requires(!damp::is_same_v<damp::remove_cvref_t<Other>, Law>)
     constexpr Law& operator=(const Other& other) {
         static_assert(sizeof(Other) == 0, "This Law is a constexpr design's: its matrices are constants of the type, so there is nothing to replace. A member a redesign assigns is Law<kRes, T>::Runtime law{kRes.as<T>()};");
         static_cast<void>(other);
@@ -826,7 +823,7 @@ struct [[nodiscard]] StateFeedbackResult {
     /** @brief The same design in the scalar @p U: `res.as<float>()` for the embedded runtime. */
     template<typename U>
     [[nodiscard]] constexpr auto as() const {
-        using Out = StateFeedbackResult<NX, NU, U, NI, NY, std::remove_cvref_t<decltype(kalman.template as<U>())>, NZ>;
+        using Out = StateFeedbackResult<NX, NU, U, NI, NY, damp::remove_cvref_t<decltype(kalman.template as<U>())>, NZ>;
         Out out{K.template as<U>(), S.template as<U>(), array_as<damp::complex<U>>(e), success, status, static_cast<U>(Ts), kalman.template as<U>()};
         if constexpr (NI > 0) {
             out.integral = integral.template as<U>();
@@ -973,7 +970,7 @@ namespace detail {
 
 /** @brief Whether an option was left out. */
 template<typename O>
-inline constexpr bool is_unset = std::is_same_v<O, Unset>;
+inline constexpr bool is_unset = damp::is_same_v<O, Unset>;
 
 /** @brief Not integral action. */
 template<typename>
@@ -997,7 +994,7 @@ inline constexpr bool is_tracked_outputs<TrackedOutputs<NZ>> = true;
 
 /** @brief A disturbance model with states: every disturbance spec but NoDisturbance. */
 template<typename Spec>
-inline constexpr bool is_disturbance_model = is_disturbance<Spec>::value && !std::is_same_v<Spec, NoDisturbance>;
+inline constexpr bool is_disturbance_model = is_disturbance<Spec>::value && !damp::is_same_v<Spec, NoDisturbance>;
 
 /** @brief The fields of an options type: none for anything but StateFeedbackOptions. */
 template<typename Options>
@@ -1013,12 +1010,12 @@ struct options_traits {
 /** @brief The field types of a StateFeedbackOptions. */
 template<typename NoiseT, typename OffsetFreeT, typename TrackT>
 struct options_traits<StateFeedbackOptions<NoiseT, OffsetFreeT, TrackT>> {
-    static constexpr bool named = true;                                                            ///< A StateFeedbackOptions
-    using noise = NoiseT;                                                                          ///< .noise
-    using offset_free = OffsetFreeT;                                                               ///< .offset_free
-    using disturbance = std::conditional_t<is_disturbance_model<OffsetFreeT>, OffsetFreeT, Unset>; ///< .offset_free when it is a disturbance model
-    using integrate = std::conditional_t<is_integral_action<OffsetFreeT>, OffsetFreeT, Unset>;     ///< .offset_free when it is integral action
-    using track = TrackT;                                                                          ///< .track
+    static constexpr bool named = true;                                                             ///< A StateFeedbackOptions
+    using noise = NoiseT;                                                                           ///< .noise
+    using offset_free = OffsetFreeT;                                                                ///< .offset_free
+    using disturbance = damp::conditional_t<is_disturbance_model<OffsetFreeT>, OffsetFreeT, Unset>; ///< .offset_free when it is a disturbance model
+    using integrate = damp::conditional_t<is_integral_action<OffsetFreeT>, OffsetFreeT, Unset>;     ///< .offset_free when it is integral action
+    using track = TrackT;                                                                           ///< .track
 };
 
 /** @brief How many outputs a selection integrates on a plant with NY outputs: none for anything but a selection. */
@@ -1048,7 +1045,7 @@ inline constexpr size_t integrator_count = integrated_count<typename options_tra
 
 /** @brief The weights of a design with @p Options; not deduced, so braces take their sizes from the plant. */
 template<size_t NX, size_t NU, size_t NY, typename T, typename Options>
-using weights_for = std::type_identity_t<LQRWeights<NX, NU, integrator_count<NY, Options>, T>>;
+using weights_for = damp::type_identity_t<LQRWeights<NX, NU, integrator_count<NY, Options>, T>>;
 
 /** @brief Whether a disturbance spec fits the plant: a DisturbanceModel on its states and outputs, in its scalar. */
 template<typename Spec, size_t NX, size_t NY, typename T>
@@ -1056,7 +1053,7 @@ inline constexpr bool disturbance_fits = true;
 
 /** @brief A DisturbanceModel fits a plant of its sizes and scalar. */
 template<size_t NXD, size_t NYD, size_t ND, size_t NZ, typename U, size_t NX, size_t NY, typename T>
-inline constexpr bool disturbance_fits<DisturbanceModel<NXD, NYD, ND, NZ, U>, NX, NY, T> = (NXD == NX) && (NYD == NY) && std::is_same_v<U, T>;
+inline constexpr bool disturbance_fits<DisturbanceModel<NXD, NYD, ND, NZ, U>, NX, NY, T> = (NXD == NX) && (NYD == NY) && damp::is_same_v<U, T>;
 
 /** @brief Each field of the options is its own kind of option: a message per mistake. @return Every field is */
 template<size_t NX, size_t NY, typename T, typename Options>
@@ -1095,7 +1092,7 @@ consteval bool features_valid() {
         }
     }();
     constexpr bool estimated = kNoise || is_unset<typename O::disturbance>;
-    constexpr bool sized = !kNoise || std::is_same_v<typename O::noise, KalmanNoise<NW, NV, T, ND>>;
+    constexpr bool sized = !kNoise || damp::is_same_v<typename O::noise, KalmanNoise<NW, NV, T, ND>>;
     static_assert(estimated, "A disturbance model is estimated by the Kalman filter: give its noise, with .disturbance the disturbance's random walk.");
     static_assert(
         sized || !estimated,
@@ -1332,7 +1329,7 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
     if constexpr (!kEstimated && !kTarget) {
         return law;
     } else {
-        constexpr size_t NDS = disturbance_traits<std::remove_cvref_t<decltype(spec)>, NU, NY, NW>::listed;
+        constexpr size_t NDS = disturbance_traits<damp::remove_cvref_t<decltype(spec)>, NU, NY, NW>::listed;
         constexpr size_t NZS = (NDS == 0) ? NY : NDS; // the spec's outputs, or every output
         constexpr size_t NZ = kTarget ? NZS : 0;
         const auto       filter = [&] {
@@ -1342,7 +1339,7 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
                 return NoEstimator{};
             }
         }();
-        using Result = StateFeedbackResult<NX, NU, T, NI, (kEstimated ? NY : NX), std::remove_cvref_t<decltype(filter)>, NZ>;
+        using Result = StateFeedbackResult<NX, NU, T, NI, (kEstimated ? NY : NX), damp::remove_cvref_t<decltype(filter)>, NZ>;
         Result out{law.K, law.S, law.e, law.success, law.status, law.Ts, filter};
         if constexpr (NI > 0) {
             out.integral = law.integral;
@@ -1504,7 +1501,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Options>
 [[nodiscard]] constexpr auto state_feedback(
     const StateSpace<NX, NU, NY, T, NW, NV>&   sys,
-    std::type_identity_t<T>                    Ts,
+    damp::type_identity_t<T>                   Ts,
     const weights_for<NX, NU, NY, T, Options>& weights,
     const Options&                             options
 ) {

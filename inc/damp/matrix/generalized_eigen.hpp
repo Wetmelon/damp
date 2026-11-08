@@ -37,7 +37,6 @@
  * @see "Matrix Computations" (Golub & Van Loan, 2013), §7.7 (the QZ method)
  */
 
-#include <cstddef>
 
 #include "core.hpp"
 #include "damp/backend.hpp"
@@ -505,7 +504,7 @@ constexpr bool pencil_eigenvalues(
  *         budget runs out (the eigenvalues found by then are kept)
  */
 template<size_t N, typename T = double>
-    requires std::is_floating_point_v<T> // the real QZ: real A and B only
+    requires damp::is_floating_point_v<T> // the real QZ: real A and B only
 [[nodiscard]] constexpr GeneralizedEigenResult<N, T> generalized_eigenvalues(const Matrix<N, N, T>& A, const Matrix<N, N, T>& B) {
     GeneralizedEigenResult<N, T> out{};
     const auto                   finite_entry = [](T v) { return damp::isfinite(v); };

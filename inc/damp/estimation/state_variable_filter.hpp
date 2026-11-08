@@ -51,8 +51,6 @@
  * @see rls.hpp (RlsVector), parameter_estimation.hpp (ParameterDriftMonitor, AdaptationGate)
  */
 
-#include <cstddef>
-#include <type_traits>
 
 #include "damp/backend.hpp"
 #include "damp/matrix/colvec.hpp"
@@ -133,7 +131,7 @@ public:
     template<typename U>
     constexpr StateVariableFilter(const StateVariableFilterResult<U>& design) // NOLINT(google-explicit-constructor): assign-from-design
         : Ad_(design.Ad.template as<T>()), Bd_(design.Bd.template as<T>()), valid_(design.success) {
-        if (!design.success && std::is_constant_evaluated()) {
+        if (!design.success && damp::is_constant_evaluated()) {
             ::damp::detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
     }

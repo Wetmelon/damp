@@ -19,8 +19,6 @@
  *      encoder/tracker.hpp for a smooth speed from the counts.
  */
 
-#include <cstdint>
-#include <type_traits>
 
 #include "damp/backend.hpp"
 
@@ -38,9 +36,9 @@ namespace damp {
  * @return The signed change, in the matching signed type.
  */
 template<typename U>
-[[nodiscard]] constexpr std::make_signed_t<U> wrapped_delta(U prev, U curr) {
-    static_assert(std::is_unsigned_v<U>, "wrapped_delta requires an unsigned counter type");
-    return static_cast<std::make_signed_t<U>>(static_cast<U>(curr - prev));
+[[nodiscard]] constexpr damp::make_signed_t<U> wrapped_delta(U prev, U curr) {
+    static_assert(damp::is_unsigned_v<U>, "wrapped_delta requires an unsigned counter type");
+    return static_cast<damp::make_signed_t<U>>(static_cast<U>(curr - prev));
 }
 
 /** @brief Quadrature decode resolution (edges counted per A/B cycle). */

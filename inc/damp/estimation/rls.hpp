@@ -31,8 +31,6 @@
  * @see parameter_estimation.hpp for grey-box extraction + AdaptationGate
  */
 
-#include <cstddef>
-#include <type_traits>
 
 #include "damp/backend.hpp"
 #include "damp/math/math.hpp"
@@ -114,7 +112,7 @@ struct RlsVectorResult {
 
     template<typename U>
     [[nodiscard]] constexpr auto as() const {
-        using out_t = std::remove_const_t<U>;
+        using out_t = damp::remove_const_t<U>;
         return RlsVectorResult<NP, out_t>{
             RlsConfig<out_t, NP>{
                 static_cast<scalar_type_t<out_t>>(config.lambda),
@@ -155,13 +153,13 @@ public:
 
     /** @brief From a design result in another scalar: converts it with .as\<T\>() and builds from that. */
     template<typename U>
-        requires(!std::is_same_v<U, T>)
+        requires(!damp::is_same_v<U, T>)
     constexpr RlsVector(const RlsVectorResult<NP, U>& result) // NOLINT(google-explicit-constructor): assign-from-design
         : RlsVector(result.template as<T>()) {}
 
     constexpr RlsVector(const RlsVectorResult<NP, T>& design) // NOLINT(google-explicit-constructor): assign-from-design
         : config_(design.config), state_{.theta = design.theta0, .covariance = prior_covariance(design.config)}, valid_(design.success) {
-        if (!design.success && std::is_constant_evaluated()) {
+        if (!design.success && damp::is_constant_evaluated()) {
             ::damp::detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
     }

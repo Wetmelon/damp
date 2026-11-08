@@ -32,10 +32,6 @@
  * @see Nocedal & Wright, "Numerical Optimization," 2nd ed., 2006, §16.5
  */
 
-#include <cstddef>
-#include <cstdint>
-#include <limits>
-#include <type_traits>
 
 #include "damp/backend.hpp"
 #include "damp/matrix/matrix.hpp"
@@ -67,7 +63,7 @@ enum class QPStatus : uint8_t {
  */
 template<typename T>
 [[nodiscard]] constexpr T unbounded_bound() {
-    return std::numeric_limits<T>::max();
+    return damp::numeric_limits<T>::max();
 }
 
 /**
@@ -123,13 +119,13 @@ template<size_t N, typename T>
  */
 template<typename U, size_t N, typename T>
 [[nodiscard]] constexpr ColVec<N, U> convert_bounds(const ColVec<N, T>& v) {
-    constexpr T  hi = std::numeric_limits<T>::max() / T{4};
+    constexpr T  hi = damp::numeric_limits<T>::max() / T{4};
     ColVec<N, U> out{};
     for (size_t i = 0; i < N; ++i) {
         if (v(i) >= hi) {
-            out(i) = std::numeric_limits<U>::max();
+            out(i) = damp::numeric_limits<U>::max();
         } else if (v(i) <= -hi) {
-            out(i) = -std::numeric_limits<U>::max();
+            out(i) = -damp::numeric_limits<U>::max();
         } else {
             out(i) = static_cast<U>(v(i));
         }
@@ -606,7 +602,7 @@ template<size_t NV, size_t NI, typename T>
  * @return QPResult with minimizer, multipliers, objective, and status
  */
 template<size_t NV, size_t NI, typename T = double>
-    requires std::is_floating_point_v<T>
+    requires damp::is_floating_point_v<T>
 [[nodiscard]] constexpr QPResult<NV, NI, T> solve_qp(
     const Matrix<NV, NV, T>& H,
     const ColVec<NV, T>&     f,
@@ -660,7 +656,7 @@ template<size_t NV, size_t NI, typename T = double>
  * @return QPResult over NI + 2·NE rows (equalities appended as twin pairs)
  */
 template<size_t NV, size_t NI, size_t NE, typename T = double>
-    requires std::is_floating_point_v<T>
+    requires damp::is_floating_point_v<T>
 [[nodiscard]] constexpr QPResult<NV, NI + (2 * NE), T> solve_qp(
     const Matrix<NV, NV, T>& H,
     const ColVec<NV, T>&     f,
@@ -735,7 +731,7 @@ struct ActiveSetSolver {
  * @see solve_qp, ActiveSetSolver, damp::MPC
  */
 template<size_t NV, size_t NI, typename T = double>
-    requires std::is_floating_point_v<T>
+    requires damp::is_floating_point_v<T>
 class WarmStartActiveSetSolver {
 public:
     static constexpr size_t KMAX = (NV < NI) ? NV : NI;
@@ -881,7 +877,7 @@ struct AdmmSettings {
  *      https://doi.org/10.1007/s10957-019-01575-y
  */
 template<size_t NV, size_t NI, typename T = double>
-    requires std::is_floating_point_v<T>
+    requires damp::is_floating_point_v<T>
 class AdmmSolver {
 public:
     constexpr AdmmSolver() = default;
@@ -1214,7 +1210,7 @@ template<size_t NV, size_t NI, typename T = double>
  * @return QPResult with minimizer, multipliers, objective, and status
  */
 template<size_t NV, size_t NI, typename T = double>
-    requires std::is_floating_point_v<T>
+    requires damp::is_floating_point_v<T>
 [[nodiscard]] constexpr QPResult<NV, NI, T> solve_qp_interior_point(
     const Matrix<NV, NV, T>& H,
     const ColVec<NV, T>&     f,
@@ -1495,7 +1491,7 @@ struct InteriorPointSolver {
  *         relaxation multipliers for the original NI rows); NonFinite for non-finite data
  */
 template<size_t MaxNodes = 64, size_t NV, size_t NI, typename T>
-    requires std::is_floating_point_v<T>
+    requires damp::is_floating_point_v<T>
 [[nodiscard]] constexpr QPResult<NV, NI, T> solve_miqp(
     const Matrix<NV, NV, T>&     H,
     const ColVec<NV, T>&         f,

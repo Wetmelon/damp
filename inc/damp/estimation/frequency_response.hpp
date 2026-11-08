@@ -38,8 +38,6 @@
  * @see "Vibration Testing" (McConnell, 1995) — half-power bandwidth damping
  */
 
-#include <cstddef>
-#include <cstdint>
 
 #include "damp/backend.hpp"
 #include "damp/math/math.hpp"
@@ -88,21 +86,21 @@ namespace detail {
  */
 template<typename T>
 struct FrfLockIn {
-    T           rot_re{T{1}}; ///< cos ω
-    T           rot_im{T{0}}; ///< −sin ω
-    T           p_re{T{1}};   ///< Phasor e^{−jωn}, real part
-    T           p_im{T{0}};   ///< Phasor e^{−jωn}, imaginary part
-    T           u_re{T{0}};   ///< Re U
-    T           u_im{T{0}};   ///< Im U
-    T           y_re{T{0}};   ///< Re Y
-    T           y_im{T{0}};   ///< Im Y
-    std::size_t block{0};     ///< Samples per block (0 = inert)
-    std::size_t count{0};     ///< Samples in the current block
+    T      rot_re{T{1}}; ///< cos ω
+    T      rot_im{T{0}}; ///< −sin ω
+    T      p_re{T{1}};   ///< Phasor e^{−jωn}, real part
+    T      p_im{T{0}};   ///< Phasor e^{−jωn}, imaginary part
+    T      u_re{T{0}};   ///< Re U
+    T      u_im{T{0}};   ///< Im U
+    T      y_re{T{0}};   ///< Re Y
+    T      y_im{T{0}};   ///< Im Y
+    size_t block{0};     ///< Samples per block (0 = inert)
+    size_t count{0};     ///< Samples in the current block
 
     constexpr FrfLockIn() = default;
 
     /** @brief Bin at ω = 2πf/fs [rad/sample] over blocks of @p block_size samples. */
-    constexpr FrfLockIn(T omega, std::size_t block_size) : block(block_size) {
+    constexpr FrfLockIn(T omega, size_t block_size) : block(block_size) {
         const auto [s, c] = damp::sincos(omega);
         rot_re = c;
         rot_im = -s;
@@ -164,7 +162,7 @@ struct FrfLockIn {
  * @tparam NFreq Number of frequency bins in the table.
  * @tparam T     Scalar type (default float for target).
  */
-template<std::size_t NFreq, typename T = float>
+template<size_t NFreq, typename T = float>
 class FrequencyResponseEstimator {
 public:
     static_assert(NFreq >= 1, "FrequencyResponseEstimator needs at least one bin");
@@ -187,12 +185,12 @@ public:
      * @param cycles  Periods in the block (>= 1)
      * @return Block length in samples (>= 1)
      */
-    [[nodiscard]] static constexpr std::size_t coherent_block_size(T freq_hz, T fs_hz, std::size_t cycles) {
+    [[nodiscard]] static constexpr size_t coherent_block_size(T freq_hz, T fs_hz, size_t cycles) {
         if (!(freq_hz > T{0}) || !(fs_hz > T{0}) || cycles == 0) {
             return 1;
         }
         const T n = static_cast<T>(cycles) * fs_hz / freq_hz;
-        auto    N = static_cast<std::size_t>(n + static_cast<T>(0.5));
+        auto    N = static_cast<size_t>(n + static_cast<T>(0.5));
         if (N < 1) {
             N = 1;
         }
@@ -202,7 +200,7 @@ public:
     /**
      * @brief Coherent block length using the estimator's sample rate.
      */
-    [[nodiscard]] constexpr std::size_t coherent_block_size(T freq_hz, std::size_t cycles) const {
+    [[nodiscard]] constexpr size_t coherent_block_size(T freq_hz, size_t cycles) const {
         return coherent_block_size(freq_hz, fs_, cycles);
     }
 
@@ -222,11 +220,11 @@ public:
      *         zero block size or count); no measurement is then active.
      */
     [[nodiscard]] constexpr bool begin_bin(
-        std::size_t index,
-        T           freq_hz,
-        std::size_t block_size,
-        std::size_t num_blocks = 1,
-        std::size_t settle_samples = 0
+        size_t index,
+        T      freq_hz,
+        size_t block_size,
+        size_t num_blocks = 1,
+        size_t settle_samples = 0
     ) {
         if (!bin_ok(index, freq_hz, block_size) || num_blocks == 0) {
             sequential_active_ = false;
@@ -261,7 +259,7 @@ public:
      * @return false if refused (bad index, frequency at or above Nyquist, sample rate unset,
      *         zero block size); the bin is then left as it was.
      */
-    [[nodiscard]] constexpr bool configure_bin(std::size_t index, T freq_hz, std::size_t block_size) {
+    [[nodiscard]] constexpr bool configure_bin(size_t index, T freq_hz, size_t block_size) {
         if (!bin_ok(index, freq_hz, block_size)) {
             return false;
         }
@@ -305,7 +303,7 @@ public:
     [[nodiscard]] constexpr bool push_bank(T u, T y) {
         bool any_active = false;
         bool completed = false;
-        for (std::size_t i = 0; i < NFreq; ++i) {
+        for (size_t i = 0; i < NFreq; ++i) {
             if (!bank_active_[i]) {
                 continue;
             }
@@ -331,15 +329,15 @@ public:
     [[nodiscard]] constexpr damp::array<FrfPoint<T>, NFreq>& table() { return table_; }
 
     /** @brief One table entry. */
-    [[nodiscard]] constexpr const FrfPoint<T>& point(std::size_t i) const { return table_[i]; }
+    [[nodiscard]] constexpr const FrfPoint<T>& point(size_t i) const { return table_[i]; }
 
     /** @brief Number of table slots (template size). */
-    [[nodiscard]] static constexpr std::size_t size() { return NFreq; }
+    [[nodiscard]] static constexpr size_t size() { return NFreq; }
 
     /** @brief Count of currently valid points. */
-    [[nodiscard]] constexpr std::size_t valid_count() const {
-        std::size_t n = 0;
-        for (std::size_t i = 0; i < NFreq; ++i) {
+    [[nodiscard]] constexpr size_t valid_count() const {
+        size_t n = 0;
+        for (size_t i = 0; i < NFreq; ++i) {
             if (table_[i].valid) {
                 ++n;
             }
@@ -358,7 +356,7 @@ public:
         sequential_active_ = false;
         blocks_done_ = 0;
         settle_left_ = 0;
-        for (std::size_t i = 0; i < NFreq; ++i) {
+        for (size_t i = 0; i < NFreq; ++i) {
             table_[i] = FrfPoint<T>{};
             bank_active_[i] = false;
             bank_[i] = detail::FrfLockIn<T>{};
@@ -367,7 +365,7 @@ public:
     }
 
 private:
-    [[nodiscard]] constexpr bool bin_ok(std::size_t index, T freq_hz, std::size_t block_size) const {
+    [[nodiscard]] constexpr bool bin_ok(size_t index, T freq_hz, size_t block_size) const {
         return index < NFreq && freq_hz > T{0} && freq_hz < fs_ / T{2} && block_size > 0;
     }
 
@@ -381,7 +379,7 @@ private:
         syy_ += (b.y_re * b.y_re) + (b.y_im * b.y_im);
     }
 
-    constexpr void finalize_point(std::size_t index, T freq_hz, std::size_t blocks) {
+    constexpr void finalize_point(size_t index, T freq_hz, size_t blocks) {
         FrfPoint<T> p{};
         p.freq_hz = freq_hz;
         // Exact-zero guards only: an absolute floor would depend on the units of u, y.
@@ -420,10 +418,10 @@ private:
     T                    syu_im_{T{0}};
     T                    suu_{T{0}};
     T                    syy_{T{0}};
-    std::size_t          active_index_{0};
-    std::size_t          blocks_target_{1};
-    std::size_t          blocks_done_{0};
-    std::size_t          settle_left_{0};
+    size_t               active_index_{0};
+    size_t               blocks_target_{1};
+    size_t               blocks_done_{0};
+    size_t               settle_left_{0};
     bool                 sequential_active_{false};
 
     // Parallel bank
@@ -434,7 +432,7 @@ private:
 /**
  * @brief Peak (resonance) or valley (anti-resonance) on an FRF magnitude curve.
  */
-enum class FrfFeatureKind : std::uint8_t {
+enum class FrfFeatureKind : uint8_t {
     Peak,  ///< Local |G| maximum — mechanical / filter resonance
     Valley ///< Local |G| minimum — anti-resonance / transmission zero
 };
@@ -488,10 +486,10 @@ struct ModeExtractorConfig {
  * @tparam MaxModes Capacity of the mode table.
  * @tparam T        Scalar type.
  */
-template<std::size_t MaxModes, typename T = float>
+template<size_t MaxModes, typename T = float>
 struct ModeExtractorResult {
     damp::array<ResonantMode<T>, MaxModes> modes{};
-    std::size_t                            count{0};
+    size_t                                 count{0};
     bool                                   success{false};
 
     /** @brief True when the design succeeded (success). */
@@ -502,7 +500,7 @@ struct ModeExtractorResult {
         ModeExtractorResult<MaxModes, U> out{};
         out.count = count;
         out.success = success;
-        for (std::size_t i = 0; i < MaxModes; ++i) {
+        for (size_t i = 0; i < MaxModes; ++i) {
             out.modes[i] = modes[i].template as<U>();
         }
         return out;
@@ -516,12 +514,12 @@ struct ModeExtractorResult {
  * @tparam MaxValleys Capacity for anti-resonances
  * @tparam T          Scalar type
  */
-template<std::size_t MaxPeaks, std::size_t MaxValleys, typename T = float>
+template<size_t MaxPeaks, size_t MaxValleys, typename T = float>
 struct FrfFeatureResult {
     damp::array<ResonantMode<T>, MaxPeaks>   peaks{};
     damp::array<ResonantMode<T>, MaxValleys> valleys{};
-    std::size_t                              peak_count{0};
-    std::size_t                              valley_count{0};
+    size_t                                   peak_count{0};
+    size_t                                   valley_count{0};
     bool                                     success{false};
 
     /** @brief True when the design succeeded (success). */
@@ -533,10 +531,10 @@ struct FrfFeatureResult {
         out.peak_count = peak_count;
         out.valley_count = valley_count;
         out.success = success;
-        for (std::size_t i = 0; i < MaxPeaks; ++i) {
+        for (size_t i = 0; i < MaxPeaks; ++i) {
             out.peaks[i] = peaks[i].template as<U>();
         }
-        for (std::size_t i = 0; i < MaxValleys; ++i) {
+        for (size_t i = 0; i < MaxValleys; ++i) {
             out.valleys[i] = valleys[i].template as<U>();
         }
         return out;
@@ -578,9 +576,9 @@ struct FrfMargins {
 namespace design {
 namespace detail_frf {
 
-template<std::size_t NFreq, typename T>
+template<size_t NFreq, typename T>
 [[nodiscard]] constexpr bool point_ok(
-    const damp::array<FrfPoint<T>, NFreq>& table, std::size_t i, const ModeExtractorConfig<T>& cfg
+    const damp::array<FrfPoint<T>, NFreq>& table, size_t i, const ModeExtractorConfig<T>& cfg
 ) {
     const auto& p = table[i];
     if (!p.valid || !(p.freq_hz > T{0})) {
@@ -592,11 +590,11 @@ template<std::size_t NFreq, typename T>
     return true;
 }
 
-template<std::size_t N, typename T>
-constexpr void sort_by_gain_desc(damp::array<ResonantMode<T>, N>& c, std::size_t n) {
-    for (std::size_t i = 0; i < n; ++i) {
-        std::size_t best = i;
-        for (std::size_t j = i + 1; j < n; ++j) {
+template<size_t N, typename T>
+constexpr void sort_by_gain_desc(damp::array<ResonantMode<T>, N>& c, size_t n) {
+    for (size_t i = 0; i < n; ++i) {
+        size_t best = i;
+        for (size_t j = i + 1; j < n; ++j) {
             if (c[j].peak_gain > c[best].peak_gain) {
                 best = j;
             }
@@ -609,11 +607,11 @@ constexpr void sort_by_gain_desc(damp::array<ResonantMode<T>, N>& c, std::size_t
     }
 }
 
-template<std::size_t N, typename T>
-constexpr void sort_by_gain_asc(damp::array<ResonantMode<T>, N>& c, std::size_t n) {
-    for (std::size_t i = 0; i < n; ++i) {
-        std::size_t best = i;
-        for (std::size_t j = i + 1; j < n; ++j) {
+template<size_t N, typename T>
+constexpr void sort_by_gain_asc(damp::array<ResonantMode<T>, N>& c, size_t n) {
+    for (size_t i = 0; i < n; ++i) {
+        size_t best = i;
+        for (size_t j = i + 1; j < n; ++j) {
             if (c[j].peak_gain < c[best].peak_gain) {
                 best = j;
             }
@@ -627,10 +625,10 @@ constexpr void sort_by_gain_asc(damp::array<ResonantMode<T>, N>& c, std::size_t 
 }
 
 /** @brief Half-power (peaks) or double-power (valleys) bandwidth → ζ. */
-template<std::size_t NFreq, typename T>
+template<size_t NFreq, typename T>
 [[nodiscard]] constexpr ResonantMode<T> finish_extremum(
     const damp::array<FrfPoint<T>, NFreq>& table,
-    std::size_t                            i,
+    size_t                                 i,
     FrfFeatureKind                         kind,
     const ModeExtractorConfig<T>&          cfg
 ) {
@@ -648,7 +646,7 @@ template<std::size_t NFreq, typename T>
 
     bool found_lo = false;
     T    f_lo = p.freq_hz;
-    for (std::size_t j = i; j > 0; --j) {
+    for (size_t j = i; j > 0; --j) {
         const auto& a = table[j - 1];
         const auto& b = table[j];
         if (!a.valid || !b.valid) {
@@ -668,7 +666,7 @@ template<std::size_t NFreq, typename T>
 
     bool found_hi = false;
     T    f_hi = p.freq_hz;
-    for (std::size_t j = i; j + 1 < NFreq; ++j) {
+    for (size_t j = i; j + 1 < NFreq; ++j) {
         const auto& a = table[j];
         const auto& b = table[j + 1];
         if (!a.valid || !b.valid) {
@@ -702,7 +700,7 @@ template<std::size_t NFreq, typename T>
     return mode;
 }
 
-template<std::size_t NFreq, std::size_t MaxModes, typename T>
+template<size_t NFreq, size_t MaxModes, typename T>
 [[nodiscard]] constexpr ModeExtractorResult<MaxModes, T> extract_extrema(
     const damp::array<FrfPoint<T>, NFreq>& table,
     const ModeExtractorConfig<T>&          cfg,
@@ -714,9 +712,9 @@ template<std::size_t NFreq, std::size_t MaxModes, typename T>
     }
 
     damp::array<ResonantMode<T>, NFreq> candidates{};
-    std::size_t                         n_cand = 0;
+    size_t                              n_cand = 0;
 
-    for (std::size_t i = 1; i + 1 < NFreq; ++i) {
+    for (size_t i = 1; i + 1 < NFreq; ++i) {
         if (!point_ok(table, i, cfg) || !point_ok(table, i - 1, cfg) || !point_ok(table, i + 1, cfg)) {
             continue;
         }
@@ -763,8 +761,8 @@ template<std::size_t NFreq, std::size_t MaxModes, typename T>
         sort_by_gain_asc(candidates, n_cand); // deepest valleys first
     }
 
-    const std::size_t take = (n_cand < MaxModes) ? n_cand : MaxModes;
-    for (std::size_t i = 0; i < take; ++i) {
+    const size_t take = (n_cand < MaxModes) ? n_cand : MaxModes;
+    for (size_t i = 0; i < take; ++i) {
         result.modes[i] = candidates[i];
     }
     result.count = take;
@@ -781,7 +779,7 @@ template<std::size_t NFreq, std::size_t MaxModes, typename T>
  *
  * @see "Vibration Testing: Theory and Practice" (McConnell, 1995)
  */
-template<std::size_t NFreq, std::size_t MaxModes, typename T = float>
+template<size_t NFreq, size_t MaxModes, typename T = float>
 [[nodiscard]] constexpr ModeExtractorResult<MaxModes, T> extract_modes(
     const damp::array<FrfPoint<T>, NFreq>& table,
     const ModeExtractorConfig<T>&          cfg = {}
@@ -795,7 +793,7 @@ template<std::size_t NFreq, std::size_t MaxModes, typename T = float>
  * Double-power (+3 dB) bandwidth → ζ. Deepest valleys first.
  * Feeds band-pass / peaking compensators and two-mass zero placement.
  */
-template<std::size_t NFreq, std::size_t MaxModes, typename T = float>
+template<size_t NFreq, size_t MaxModes, typename T = float>
 [[nodiscard]] constexpr ModeExtractorResult<MaxModes, T> extract_valleys(
     const damp::array<FrfPoint<T>, NFreq>& table,
     const ModeExtractorConfig<T>&          cfg = {}
@@ -806,7 +804,7 @@ template<std::size_t NFreq, std::size_t MaxModes, typename T = float>
 /**
  * @brief Extract peaks and valleys in one pass over the FRF table.
  */
-template<std::size_t NFreq, std::size_t MaxPeaks, std::size_t MaxValleys, typename T = float>
+template<size_t NFreq, size_t MaxPeaks, size_t MaxValleys, typename T = float>
 [[nodiscard]] constexpr FrfFeatureResult<MaxPeaks, MaxValleys, T> extract_frf_features(
     const damp::array<FrfPoint<T>, NFreq>& table,
     const ModeExtractorConfig<T>&          cfg = {}
@@ -838,7 +836,7 @@ template<std::size_t NFreq, std::size_t MaxPeaks, std::size_t MaxValleys, typena
  * @param table  FRF points
  * @return FrfMargins
  */
-template<std::size_t NFreq, typename T = float>
+template<size_t NFreq, typename T = float>
 [[nodiscard]] constexpr FrfMargins<T> margins_from_frf(const damp::array<FrfPoint<T>, NFreq>& table) {
     FrfMargins<T> m{};
     if constexpr (NFreq < 2) {
@@ -852,7 +850,7 @@ template<std::size_t NFreq, typename T = float>
     // Unwrapped phase of the previous valid bin; atan2-wrapped measurements jump
     // ±2π near −180°, exactly where the phase crossover sits.
     T ph_a = T{0};
-    for (std::size_t i = 1; i < NFreq; ++i) {
+    for (size_t i = 1; i < NFreq; ++i) {
         const auto& a = table[i - 1];
         const auto& b = table[i];
         if (!a.valid || !b.valid) {

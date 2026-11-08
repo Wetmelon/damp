@@ -67,8 +67,6 @@
  * @endcode
  */
 
-#include <cstddef>
-#include <type_traits>
 
 #include "damp/backend.hpp"
 #include "damp/design/qp.hpp"
@@ -342,7 +340,7 @@ template<size_t NH, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size
  * @see design::mhe, KalmanFilter for the unconstrained equivalent
  */
 template<size_t NX, size_t NU, size_t NY, size_t NH, typename T = float, typename Solver = design::WarmStartActiveSetSolver<NX*(NH + 1), 2 * NX*(NH + 1), T>>
-    requires std::is_floating_point_v<T>
+    requires damp::is_floating_point_v<T>
 class MHE {
 public:
     using Result = design::MHEResult<NX, NU, NY, NH, T>;
@@ -356,7 +354,7 @@ public:
      */
     constexpr MHE(const Result& result) // NOLINT(google-explicit-constructor): assign-from-design
         : art(result), valid_(result.success) {
-        if (!result.success && std::is_constant_evaluated()) {
+        if (!result.success && damp::is_constant_evaluated()) {
             ::damp::detail::refuse_failed_design(result.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
     }

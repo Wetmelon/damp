@@ -21,7 +21,6 @@
  * small models and analysis; deploy a physical, modal or balanced realization.
  */
 
-#include <cstddef>
 
 #include "damp/backend.hpp"
 #include "damp/design/status.hpp"

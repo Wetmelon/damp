@@ -26,10 +26,6 @@
  * @see ins_eskf.hpp for the 15-state navigation ESKF
  */
 
-#include <concepts>
-#include <cstddef>
-#include <type_traits>
-
 #include "damp/backend.hpp"
 #include "damp/estimation/joseph.hpp"
 #include "damp/math/geometry.hpp"
@@ -299,9 +295,8 @@ struct ErrorStateJacobian {
  */
 template<typename Fn, typename T, size_t NDX>
 concept ESKFPredictFn = requires(Fn&& fn, T dt) {
-    { fn(dt) } -> std::convertible_to<ErrorStateJacobian<T, NDX>>;
+    { fn(dt) } -> damp::convertible_to<ErrorStateJacobian<T, NDX>>;
 };
-
 
 /**
  * @brief Configuration of an ErrorStateKalmanFilter: the process noise and the initial covariance
@@ -366,7 +361,7 @@ struct ErrorStateKalmanFilter {
         : P(result.P0.template as<T>()),
           Q(result.Q.template as<T>()),
           q_is_diagonal(is_diagonal(Q)) {
-        if (!result.success && std::is_constant_evaluated()) {
+        if (!result.success && damp::is_constant_evaluated()) {
             ::damp::detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
     }
@@ -454,9 +449,9 @@ struct ErrorStateKalmanFilter {
      */
     template<size_t NY>
     [[nodiscard]] constexpr bool update_innovation(
-        const ColVec<NY, T>&                           innovation,
-        const Matrix<NY, NDX, T>&                      H,
-        const std::type_identity_t<Matrix<NY, NY, T>>& R
+        const ColVec<NY, T>&                            innovation,
+        const Matrix<NY, NDX, T>&                       H,
+        const damp::type_identity_t<Matrix<NY, NY, T>>& R
     ) {
         // S = HPHᵀ + R with exact symmetry (quadratic_form); fail closed if not positive definite.
         const Matrix<NY, NY, T> S = quadratic_form(H, P) + R;
@@ -492,9 +487,9 @@ struct ErrorStateKalmanFilter {
      */
     template<const auto& Pattern, size_t NY>
     [[nodiscard]] constexpr bool update_innovation(
-        const ColVec<NY, T>&                           innovation,
-        const PatternMatrix<Pattern, T>&               H,
-        const std::type_identity_t<Matrix<NY, NY, T>>& R
+        const ColVec<NY, T>&                            innovation,
+        const PatternMatrix<Pattern, T>&                H,
+        const damp::type_identity_t<Matrix<NY, NY, T>>& R
     ) {
         static_assert(PatternMatrix<Pattern, T>::NR == NY && PatternMatrix<Pattern, T>::NC == NDX, "H is NY × NDX.");
         Matrix<NDX, NY, T> K{::damp::detail::unfilled};

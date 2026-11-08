@@ -10,8 +10,6 @@
  * @brief Phase-locked loops for grid and signal synchronization
  */
 
-#include <limits>
-
 #include "damp/backend.hpp"
 #include "damp/controllers/pid.hpp"
 #include "damp/filters/sogi.hpp"
@@ -33,7 +31,7 @@ namespace detail {
 template<typename T>
 [[nodiscard]] constexpr T normalized_phase_error(const DirectQuadrature<T>& dq) {
     const T amplitude = damp::hypot(dq.d, dq.q);
-    return (amplitude >= std::numeric_limits<T>::min()) ? (dq.q / amplitude) : T{0};
+    return (amplitude >= damp::numeric_limits<T>::min()) ? (dq.q / amplitude) : T{0};
 }
 
 } // namespace detail

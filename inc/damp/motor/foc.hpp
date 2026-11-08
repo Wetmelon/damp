@@ -14,8 +14,6 @@
  * capability maps live in kit headers (spm.hpp / ipm.hpp), not here.
  */
 
-#include <limits>
-#include <type_traits>
 
 #include "damp/backend.hpp"
 #include "damp/controllers/pid.hpp"
@@ -142,7 +140,7 @@ struct FOController {
         const auto d = ::damp::design::current_loop_pi(Ldq.d, R, {.omega = omega_bw, .zeta = zeta, .b = b});
         const auto q = ::damp::design::current_loop_pi(Ldq.q, R, {.omega = omega_bw, .zeta = zeta, .b = b});
         if (!d.success || !q.success) {
-            if (std::is_constant_evaluated()) {
+            if (damp::is_constant_evaluated()) {
                 ::damp::detail::refuse_failed_design(d.success ? q.status : d.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
             }
             return false;
@@ -196,7 +194,7 @@ struct FOController {
         const DQ& Idq,
         const T   omega_e,
         const T   Ts,
-        const T   Vmax = std::numeric_limits<T>::max()
+        const T   Vmax = damp::numeric_limits<T>::max()
     ) {
         DQ Vff = decoupling_feedforward(omega_e, Ldq, lambda, Idq_ref);
 
@@ -225,7 +223,7 @@ struct FOController {
         }
 
         const T Vmag = Vdq.abs();
-        const T Vcap = std::numeric_limits<T>::max();
+        const T Vcap = damp::numeric_limits<T>::max();
         if (Vmag > Vmax) {
             const T scale = Vmax / Vmag;
             // Scale the summed command onto the circle, but charge the integrator

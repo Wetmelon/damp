@@ -64,9 +64,6 @@
  * @endcode
  */
 
-#include <cstddef>
-#include <type_traits>
-
 #include "damp/backend.hpp"
 #include "damp/math/geometry.hpp"
 #include "damp/math/math.hpp"
@@ -79,20 +76,20 @@
 namespace damp {
 
 /** @brief Error-state dimension for full navigation ESKF (attitude, v, p, gyro bias, accel bias). */
-inline constexpr std::size_t kInsErrorDim = 15;
+inline constexpr size_t kInsErrorDim = 15;
 
 /** @brief Sparse aiding measurement size (position or velocity triad). */
-inline constexpr std::size_t kInsMeasDim = 3;
+inline constexpr size_t kInsMeasDim = 3;
 
 /**
  * @brief Start indices of each 3-vector block in the 15-state error δx
  */
 namespace ins_err {
-inline constexpr std::size_t dtheta = 0; ///< attitude error δθ [rad] (3)
-inline constexpr std::size_t dv = 3;     ///< velocity error δv [m/s] (3)
-inline constexpr std::size_t dp = 6;     ///< position error δp [m] (3)
-inline constexpr std::size_t dbg = 9;    ///< gyro bias error δb_g [rad/s] (3)
-inline constexpr std::size_t dba = 12;   ///< accel bias error δb_a [m/s²] (3)
+inline constexpr size_t dtheta = 0; ///< attitude error δθ [rad] (3)
+inline constexpr size_t dv = 3;     ///< velocity error δv [m/s] (3)
+inline constexpr size_t dp = 6;     ///< position error δp [m] (3)
+inline constexpr size_t dbg = 9;    ///< gyro bias error δb_g [rad/s] (3)
+inline constexpr size_t dba = 12;   ///< accel bias error δb_a [m/s²] (3)
 } // namespace ins_err
 
 /**
@@ -235,7 +232,7 @@ template<typename T = double>
     const T q_pp = sa2 * (dt3 / T{3});
     const T q_pv = sa2 * (dt2 / T{2});
 
-    for (std::size_t i = 0; i < 3; ++i) {
+    for (size_t i = 0; i < 3; ++i) {
         r.Q(ins_err::dtheta + i, ins_err::dtheta + i) = q_tt;
         r.Q(ins_err::dbg + i, ins_err::dbg + i) = q_bbg;
         r.Q(ins_err::dtheta + i, ins_err::dbg + i) = q_tb;
@@ -644,7 +641,7 @@ public:
           R_pos_(design.R.template as<T>()),
           frame_(frame),
           g_(g) {
-        if (!design.success && std::is_constant_evaluated()) {
+        if (!design.success && damp::is_constant_evaluated()) {
             ::damp::detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
         x_.q = Quaternion<T>::identity();

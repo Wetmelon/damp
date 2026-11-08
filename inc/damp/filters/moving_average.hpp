@@ -10,7 +10,6 @@
  * @brief Moving-average (boxcar / comb-notch) runtime
  */
 
-#include <cstddef>
 
 #include "damp/backend.hpp"
 

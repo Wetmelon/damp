@@ -66,11 +66,6 @@
  * @see SisoController, Cascade — same primary/composition shape
  */
 
-#include <concepts>
-#include <cstddef>
-#include <limits>
-#include <type_traits>
-
 #include "damp/backend.hpp"
 #include "damp/concepts.hpp"
 #include "damp/controllers/law_detail.hpp"
@@ -188,7 +183,7 @@ template<typename T>
         return DesignStatus::invalid_sample_time;
     }
     const bool ok = damp::isfinite(K) && (K != T{0}) && damp::finite_positive(tau) && damp::finite_non_negative(L)
-                 && (L / Ts < static_cast<T>(std::numeric_limits<size_t>::max() / 2));
+                 && (L / Ts < static_cast<T>(damp::numeric_limits<size_t>::max() / 2));
     return ok ? DesignStatus::ok : DesignStatus::invalid_parameter;
 }
 
@@ -349,7 +344,7 @@ public:
 
     /** @brief From a design result in another scalar: converts it with .as\<T\>() and builds from that. */
     template<typename U>
-        requires(!std::is_same_v<U, T>) && std::constructible_from<Primary, const design::DiscretePIDGains<T>&>
+        requires(!damp::is_same_v<U, T>) && damp::constructible_from<Primary, const design::DiscretePIDGains<T>&>
     constexpr SmithPredictor(const design::SmithPredictorResult<U>& result) // NOLINT(google-explicit-constructor): assign-from-design
         : SmithPredictor(result.template as<T>()) {}
 
@@ -366,10 +361,10 @@ public:
      * @ref control returns zero.
      */
     constexpr SmithPredictor(const design::SmithPredictorResult<T>& result) // NOLINT(google-explicit-constructor): assign-from-design
-        requires std::constructible_from<Primary, const design::DiscretePIDGains<T>&>
+        requires damp::constructible_from<Primary, const design::DiscretePIDGains<T>&>
         : SmithPredictor(Primary(result.pid), result.a, result.b, result.delay_samples) {
         valid_ = valid_ && result.success;
-        if (!valid_ && std::is_constant_evaluated()) {
+        if (!valid_ && damp::is_constant_evaluated()) {
             ::damp::detail::refuse_failed_design(result.success ? design::DesignStatus::invalid_parameter : result.status); // constant-evaluated (constinit / constexpr): a failed design, or a delay past MaxDelay, does not compile
         }
     }
@@ -391,7 +386,7 @@ public:
         T                                  b,
         size_t                             delay_samples
     )
-        requires std::constructible_from<Primary, const design::DiscretePIDGains<T>&>
+        requires damp::constructible_from<Primary, const design::DiscretePIDGains<T>&>
         : SmithPredictor(Primary(pid), a, b, delay_samples) {}
 
     /**
@@ -424,7 +419,7 @@ public:
      */
     template<typename U, typename PrimaryU>
     constexpr explicit SmithPredictor(const SmithPredictor<MaxDelay, U, PrimaryU>& other)
-        requires std::constructible_from<Primary, const PrimaryU&>
+        requires damp::constructible_from<Primary, const PrimaryU&>
         : primary_(other.primary()),
           head_(other.ring_head()),
           a_(static_cast<T>(other.model_pole())),

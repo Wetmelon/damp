@@ -10,7 +10,6 @@
  * @brief Three-phase reference-frame transforms (Clarke/Park)
  */
 
-#include <cstdint>
 
 #include "damp/backend.hpp"
 #include "damp/math/complex.hpp"
@@ -66,7 +65,7 @@ namespace damp {
  *
  * @see https://en.wikipedia.org/wiki/Alpha%E2%80%93beta_transformation
  */
-enum class Convention : std::uint8_t {
+enum class Convention : uint8_t {
     AmplitudeInvariant,
     PowerInvariant,
 };

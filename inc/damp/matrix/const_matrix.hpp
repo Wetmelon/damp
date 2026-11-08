@@ -10,8 +10,6 @@
  * @brief A matrix known at compile time: its product with a vector is its nonzero terms and nothing else
  */
 
-#include <type_traits>
-
 #include "damp/backend.hpp"
 #include "damp/matrix/colvec.hpp"
 #include "damp/matrix/core.hpp"
@@ -27,8 +25,8 @@ namespace detail {
  */
 template<const auto& M, size_t R>
 inline constexpr auto nonzero_columns = [] {
-    using Stored = std::remove_cvref_t<decltype(M)>;
-    using Value = std::remove_cvref_t<decltype(M(R, size_t{0}))>;
+    using Stored = damp::remove_cvref_t<decltype(M)>;
+    using Value = damp::remove_cvref_t<decltype(M(R, size_t{0}))>;
     struct Columns {
         size_t                              n{0};
         damp::array<size_t, Stored::cols()> col{};
@@ -86,8 +84,8 @@ template<const auto& M, size_t R, typename T, size_t N>
  */
 template<const auto& M>
 struct ConstMatrix {
-    using Stored = std::remove_cvref_t<decltype(M)>; ///< The matrix's type
-    using Scalar = typename Stored::value_type;      ///< Its scalar
+    using Stored = damp::remove_cvref_t<decltype(M)>; ///< The matrix's type
+    using Scalar = typename Stored::value_type;       ///< Its scalar
 
     /** @brief Rows. */
     [[nodiscard]] static constexpr size_t rows() { return Stored::rows(); }

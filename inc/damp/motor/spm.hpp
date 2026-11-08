@@ -13,7 +13,6 @@
  * for surface machines. Used with @ref foc.hpp for FOC teaching and host sizing.
  */
 
-#include <cstddef>
 
 #include "damp/backend.hpp"
 #include "damp/math/math.hpp"
@@ -198,7 +197,7 @@ max_torque_at_speed(T omega_mech, T Vmax, T Imax, T Lq, T R, T lambda, T pole_pa
 /**
  * @brief Fixed table of SPM torque–speed envelope samples (host / LUT bake).
  */
-template<std::size_t N, typename T = double>
+template<size_t N, typename T = double>
 [[nodiscard]] constexpr damp::array<TorqueSpeedPoint<T>, N>
 torque_speed_envelope(T omega_mech_max, T Vmax, T Imax, T Lq, T R, T lambda, T pole_pairs) {
     damp::array<TorqueSpeedPoint<T>, N> table{};
@@ -206,12 +205,12 @@ torque_speed_envelope(T omega_mech_max, T Vmax, T Imax, T Lq, T R, T lambda, T p
         return table;
     }
     if (!(omega_mech_max > T{0})) {
-        for (std::size_t i = 0; i < N; ++i) {
+        for (size_t i = 0; i < N; ++i) {
             table[i] = max_torque_at_speed(T{0}, Vmax, Imax, Lq, R, lambda, pole_pairs);
         }
         return table;
     }
-    for (std::size_t i = 0; i < N; ++i) {
+    for (size_t i = 0; i < N; ++i) {
         const T frac = (N == 1) ? T{0} : static_cast<T>(i) / static_cast<T>(N - 1);
         table[i] = max_torque_at_speed(frac * omega_mech_max, Vmax, Imax, Lq, R, lambda, pole_pairs);
     }

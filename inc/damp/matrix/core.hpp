@@ -10,11 +10,6 @@
  * @brief Fixed-size stack-allocated matrix type
  */
 
-#include <cstddef>
-#include <initializer_list>
-#include <limits>
-#include <type_traits>
-
 #include "damp/backend.hpp"
 #include "damp/math/complex.hpp"
 #include "damp/math/math.hpp"
@@ -82,7 +77,7 @@ template<typename T>
     if (a_rows == 0 || a_cols == 0 || b_rows == 0 || b_cols == 0) {
         return false;
     }
-    if (std::is_constant_evaluated()) {
+    if (damp::is_constant_evaluated()) {
         return true; // `<` across objects is not a constant expression; snapshot instead
     }
     const T* const a_last = a + ((a_rows - 1) * a_stride) + (a_cols - 1);
@@ -115,10 +110,10 @@ template<typename T>
 template<typename T, typename Src>
 [[nodiscard]] constexpr bool storage_overlaps(const T* dest_first, const T* dest_last, const Src& src) {
     if constexpr (requires { src.storage_first(); src.storage_last(); }) {
-        using SrcElem = std::remove_cv_t<std::remove_pointer_t<decltype(src.storage_first())>>;
-        if constexpr (!std::is_same_v<std::remove_cv_t<T>, SrcElem>) {
+        using SrcElem = damp::remove_cv_t<damp::remove_pointer_t<decltype(src.storage_first())>>;
+        if constexpr (!damp::is_same_v<damp::remove_cv_t<T>, SrcElem>) {
             return false;
-        } else if (std::is_constant_evaluated()) {
+        } else if (damp::is_constant_evaluated()) {
             return true; // `<` across objects is not a constant expression; snapshot instead
         } else {
             const T* const src_first = static_cast<const T*>(src.storage_first());
@@ -138,7 +133,7 @@ template<typename T, typename Src>
  */
 template<typename T, typename Src>
 [[nodiscard]] constexpr bool may_alias(const T* dest_first, const T* dest_last, const Src& src) {
-    if constexpr (std::is_base_of_v<Matrix<Src::rows(), Src::cols(), typename Src::value_type>, Src>) {
+    if constexpr (damp::is_base_of_v<Matrix<Src::rows(), Src::cols(), typename Src::value_type>, Src>) {
         return false;
     } else {
         return storage_overlaps(dest_first, dest_last, src);
@@ -175,7 +170,7 @@ template<typename R, typename Mag>
     if (!(amax > R{0})) {
         return R{0};
     }
-    constexpr R lo = std::numeric_limits<R>::min();
+    constexpr R lo = damp::numeric_limits<R>::min();
     const R     d = damp::clamp(amax, lo, R{1} / lo);
     R           ssq = R{0};
     for (size_t k = 0; k < n; ++k) {
@@ -237,7 +232,7 @@ template<size_t Rows, size_t Cols, typename F>
 template<size_t Rows, size_t Cols, typename F>
 [[gnu::always_inline]] constexpr void for_each_entry(F&& f) {
     if constexpr (Rows * Cols > 0 && Rows * Cols <= kConstantIndexEntries) {
-        if (!std::is_constant_evaluated()) {
+        if (!damp::is_constant_evaluated()) {
             // Not forced as a whole: a dense operation inlines into its caller only where the compiler judges it worthwhile.
             [&] { for_index_pairs<Rows, Cols>([&]<size_t R, size_t C>() __attribute__((always_inline)) { f(R, C); }); }();
             return;
@@ -386,7 +381,7 @@ protected:
 
     /** @brief What a matrix about to be overwritten starts from: zeros under constant evaluation, else nothing. */
     [[nodiscard]] static constexpr damp::array<T, Rows * Cols> seed_elements() {
-        if (std::is_constant_evaluated()) {
+        if (damp::is_constant_evaluated()) {
             return {};
         }
         return unset_elements();
@@ -397,7 +392,7 @@ protected:
      * time no values yet, for the constant-index folds that GCC can SROA to write.
      */
     [[nodiscard]] static constexpr damp::array<T, Rows * Cols> copy_seed(const Matrix& other) {
-        if (std::is_constant_evaluated()) {
+        if (damp::is_constant_evaluated()) {
             return other.data_;
         }
         return unset_elements();
@@ -429,7 +424,7 @@ public:
      * keeps g++ frontend cost reasonable for typical matrix shapes.
      */
     constexpr Matrix(const Matrix& other) : data_(copy_seed(other)) {
-        if (!std::is_constant_evaluated()) {
+        if (!damp::is_constant_evaluated()) {
             copy_from(other);
         }
     }
@@ -657,7 +652,7 @@ public:
      * when the elements change precision
      */
     template<MatrixLike M>
-        requires(M::rows() == Rows && M::cols() == Cols && !std::is_same_v<std::remove_cvref_t<M>, Matrix<Rows, Cols, T>>)
+        requires(M::rows() == Rows && M::cols() == Cols && !damp::is_same_v<damp::remove_cvref_t<M>, Matrix<Rows, Cols, T>>)
     explicit(!ConvertsExactly<typename M::value_type, T>) constexpr Matrix(const M& other) : data_(elements_of(other)) {}
 
     /**
@@ -1192,9 +1187,9 @@ namespace detail {
  * would dangle. Matrix itself does not: its result is already the type, and returns with no copy.
  */
 template<typename A>
-inline constexpr bool keeps_operand_type = !std::is_same_v<A, Matrix<A::rows(), A::cols(), typename A::value_type>>
-                                        && std::is_base_of_v<Matrix<A::rows(), A::cols(), typename A::value_type>, A>
-                                        && std::is_constructible_v<A, Matrix<A::rows(), A::cols(), typename A::value_type>>;
+inline constexpr bool keeps_operand_type = !damp::is_same_v<A, Matrix<A::rows(), A::cols(), typename A::value_type>>
+                                        && damp::is_base_of_v<Matrix<A::rows(), A::cols(), typename A::value_type>, A>
+                                        && damp::is_constructible_v<A, Matrix<A::rows(), A::cols(), typename A::value_type>>;
 } // namespace detail
 
 /**
@@ -1222,7 +1217,7 @@ template<MatrixLike A, MatrixLike B>
         const size_t bj = (B::cols() == 1) ? 0 : j;
         result(i, j) = static_cast<T>(a(ai, aj)) + static_cast<T>(b(bi, bj));
     });
-    if constexpr (std::is_same_v<A, B> && detail::keeps_operand_type<A>) {
+    if constexpr (damp::is_same_v<A, B> && detail::keeps_operand_type<A>) {
         return A(result);
     } else {
         return result;
@@ -1254,7 +1249,7 @@ template<MatrixLike A, MatrixLike B>
         const size_t bj = (B::cols() == 1) ? 0 : j;
         result(i, j) = static_cast<T>(a(ai, aj)) - static_cast<T>(b(bi, bj));
     });
-    if constexpr (std::is_same_v<A, B> && detail::keeps_operand_type<A>) {
+    if constexpr (damp::is_same_v<A, B> && detail::keeps_operand_type<A>) {
         return A(result);
     } else {
         return result;
@@ -1274,7 +1269,7 @@ template<MatrixLike A, MatrixLike B>
     Result result{detail::unfilled};
     if constexpr (A::cols() == 0) {
         result = Result{}; // an empty sum on every entry
-    } else if constexpr (std::is_base_of_v<Matrix<A::rows(), A::cols(), T>, A> && std::is_base_of_v<Matrix<B::rows(), B::cols(), T>, B> && A::rows() * A::cols() * B::cols() > 0) {
+    } else if constexpr (damp::is_base_of_v<Matrix<A::rows(), A::cols(), T>, A> && damp::is_base_of_v<Matrix<B::rows(), B::cols(), T>, B> && A::rows() * A::cols() * B::cols() > 0) {
         // Owning operands: walk the storage directly. Same arithmetic as the view
         // path; it only spares constant evaluation the per-element accessor calls,
         // and there skips the zero entries that block-structured design matrices
@@ -1285,7 +1280,7 @@ template<MatrixLike A, MatrixLike B>
         for (size_t i = 0; i < A::rows(); ++i) {
             T* const rrow = rp + (i * B::cols());
             size_t   first = 0;
-            if (!std::is_constant_evaluated()) {
+            if (!damp::is_constant_evaluated()) {
                 const T ai0 = ap[i * A::cols()];
                 for (size_t j = 0; j < B::cols(); ++j) {
                     rrow[j] = T{} + (ai0 * bp[j]);
@@ -1294,7 +1289,7 @@ template<MatrixLike A, MatrixLike B>
             }
             for (size_t k = first; k < A::cols(); ++k) {
                 const T aik = ap[(i * A::cols()) + k];
-                if (std::is_constant_evaluated() && aik == T{0}) {
+                if (damp::is_constant_evaluated() && aik == T{0}) {
                     continue;
                 }
                 const T* const brow = bp + (k * B::cols());
@@ -1377,7 +1372,7 @@ template<MatrixLike A>
 
 // MatrixLike + Scalar
 template<MatrixLike A, typename Scalar>
-    requires(std::is_arithmetic_v<Scalar> || is_matrix_element_v<Scalar>)
+    requires(damp::is_arithmetic_v<Scalar> || is_matrix_element_v<Scalar>)
 [[nodiscard]] constexpr auto operator+(const A& a, Scalar scalar) {
     using T = A::value_type;
     Matrix<A::rows(), A::cols(), T> result{detail::unfilled};
@@ -1395,7 +1390,7 @@ template<MatrixLike A, typename Scalar>
 
 // MatrixLike - Scalar
 template<MatrixLike A, typename Scalar>
-    requires(std::is_arithmetic_v<Scalar> || is_matrix_element_v<Scalar>)
+    requires(damp::is_arithmetic_v<Scalar> || is_matrix_element_v<Scalar>)
 [[nodiscard]] constexpr auto operator-(const A& a, Scalar scalar) {
     using T = A::value_type;
     Matrix<A::rows(), A::cols(), T> result{detail::unfilled};
@@ -1413,7 +1408,7 @@ template<MatrixLike A, typename Scalar>
 
 // Scalar - MatrixLike
 template<typename Scalar, MatrixLike A>
-    requires(std::is_arithmetic_v<Scalar> || is_matrix_element_v<Scalar>)
+    requires(damp::is_arithmetic_v<Scalar> || is_matrix_element_v<Scalar>)
 [[nodiscard]] constexpr auto operator-(Scalar scalar, const A& a) {
     using T = A::value_type;
     Matrix<A::rows(), A::cols(), T> result{detail::unfilled};
@@ -1431,7 +1426,7 @@ template<typename Scalar, MatrixLike A>
 
 // MatrixLike * Scalar
 template<MatrixLike A, typename Scalar>
-    requires(std::is_arithmetic_v<Scalar> || is_matrix_element_v<Scalar>)
+    requires(damp::is_arithmetic_v<Scalar> || is_matrix_element_v<Scalar>)
 [[nodiscard]] constexpr auto operator*(const A& a, Scalar scalar) {
     using T = A::value_type;
     Matrix<A::rows(), A::cols(), T> result{detail::unfilled};
@@ -1449,14 +1444,14 @@ template<MatrixLike A, typename Scalar>
 
 // Scalar * MatrixLike
 template<typename Scalar, MatrixLike A>
-    requires(std::is_arithmetic_v<Scalar> || is_matrix_element_v<Scalar>)
+    requires(damp::is_arithmetic_v<Scalar> || is_matrix_element_v<Scalar>)
 [[nodiscard]] constexpr auto operator*(Scalar scalar, const A& a) {
     return a * scalar;
 }
 
 // MatrixLike / Scalar
 template<MatrixLike A, typename Scalar>
-    requires(std::is_arithmetic_v<Scalar> || is_matrix_element_v<Scalar>)
+    requires(damp::is_arithmetic_v<Scalar> || is_matrix_element_v<Scalar>)
 [[nodiscard]] constexpr auto operator/(const A& a, Scalar scalar) {
     using T = A::value_type;
     Matrix<A::rows(), A::cols(), T> result{detail::unfilled};
@@ -1489,7 +1484,7 @@ namespace mat {
  */
 template<size_t R, size_t C, typename T, typename F>
 [[nodiscard]] constexpr auto transform(const Matrix<R, C, T>& A, F f) {
-    using U = std::remove_cvref_t<decltype(f(A(0, 0)))>;
+    using U = damp::remove_cvref_t<decltype(f(A(0, 0)))>;
     Matrix<R, C, U> out{};
     for (size_t i = 0; i < R; ++i) {
         for (size_t j = 0; j < C; ++j) {

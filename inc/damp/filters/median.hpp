@@ -10,7 +10,6 @@
  * @brief Sliding-window median filter runtime
  */
 
-#include <cstddef>
 
 #include "damp/backend.hpp"
 

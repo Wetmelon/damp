@@ -47,8 +47,6 @@
  * @see Gurriet et al., realizable command filters / action governors
  */
 
-#include <cstddef>
-#include <type_traits>
 
 #include "damp/backend.hpp"
 #include "damp/design/qp.hpp"
@@ -72,7 +70,7 @@ namespace damp {
  * @return Projected command
  */
 template<size_t NU, typename T = double>
-    requires std::is_floating_point_v<T>
+    requires damp::is_floating_point_v<T>
 [[nodiscard]] constexpr ColVec<NU, T> project_box(const ColVec<NU, T>& u, const Bounds<NU, T>& bounds) {
     return bounds.saturate(u);
 }
@@ -133,7 +131,7 @@ namespace design {
  * @return CommandProjectionResult with projected @c u and status
  */
 template<size_t NU, size_t NI, typename T = double>
-    requires std::is_floating_point_v<T>
+    requires damp::is_floating_point_v<T>
 [[nodiscard]] constexpr CommandProjectionResult<NU, T> project_affine(
     const ColVec<NU, T>&     u_des,
     const Matrix<NI, NU, T>& A,
@@ -201,7 +199,7 @@ struct CBFConstraint {
  * @return CBFConstraint with @c A and @c b ready for @ref project_affine
  */
 template<size_t NU, typename T = double>
-    requires std::is_floating_point_v<T>
+    requires damp::is_floating_point_v<T>
 [[nodiscard]] constexpr CBFConstraint<NU, T> cbf_relative_degree_1(
     const ColVec<NU, T>& Lg_h,
     T                    Lf_h,
@@ -233,7 +231,7 @@ template<size_t NU, typename T = double>
  * @see Ames et al., ECC 2019; Gurriet et al., action governors
  */
 template<size_t NU, size_t NI, typename T = float>
-    requires std::is_floating_point_v<T>
+    requires damp::is_floating_point_v<T>
 class ActionGovernor {
 public:
     constexpr ActionGovernor() = default;

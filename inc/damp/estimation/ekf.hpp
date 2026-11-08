@@ -18,9 +18,7 @@
  * @see "Optimal State Estimation" (Simon, 2006), §13.2.3
  */
 
-#include <cstddef>
-#include <type_traits>
-
+#include "damp/backend.hpp"
 #include "damp/concepts.hpp"
 #include "damp/estimation/joseph.hpp"
 #include "damp/matrix/matrix.hpp"
@@ -169,7 +167,7 @@ struct ExtendedKalmanFilter {
      */
     template<typename H, size_t NY>
         requires Measurement<H, NX, NU, NY, T>
-    [[nodiscard]] constexpr bool update(const H& h, const ColVec<NY, T>& y, const std::type_identity_t<Matrix<NY, NY, T>>& R) {
+    [[nodiscard]] constexpr bool update(const H& h, const ColVec<NY, T>& y, const damp::type_identity_t<Matrix<NY, NY, T>>& R) {
         const ColVec<NY, T> nu = y - h(x, u_);
         if constexpr (PatternMeasurement<H, NX, NU, NY, T>) {
             Matrix<NX, NY, T> K{detail::unfilled};

@@ -10,8 +10,6 @@
  * @brief Disturbance-observer estimation primitives and lightweight runtime.
  */
 
-#include <cstddef>
-#include <type_traits>
 
 #include "damp/backend.hpp" // damp::array
 #include "damp/math/math.hpp"
@@ -82,7 +80,7 @@ struct DOBResult {
 
     template<typename U>
     [[nodiscard]] constexpr auto as() const {
-        using out_t = std::remove_const_t<U>;
+        using out_t = damp::remove_const_t<U>;
         return DOBResult<out_t>{
             DOBConfig<out_t>{
                 static_cast<scalar_type_t<out_t>>(config.gain),
@@ -173,13 +171,13 @@ public:
 
     /** @brief From a design result in another scalar: converts it with .as\<T\>() and builds from that. */
     template<typename U>
-        requires(!std::is_same_v<U, T>)
+        requires(!damp::is_same_v<U, T>)
     constexpr DOB(const DOBResult<U>& result) // NOLINT(google-explicit-constructor): assign-from-design
         : DOB(result.template as<T>()) {}
 
     constexpr DOB(const DOBResult<T>& design) // NOLINT(google-explicit-constructor): assign-from-design
         : config_(design.config), valid_(design.success) {
-        if (!design.success && std::is_constant_evaluated()) {
+        if (!design.success && damp::is_constant_evaluated()) {
             ::damp::detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
     }
@@ -351,9 +349,9 @@ struct ClassicalDobResult {
     [[nodiscard]] constexpr explicit operator bool() const { return success; }
 
     template<typename U>
-    [[nodiscard]] constexpr ClassicalDobResult<NBn, NAn, NQn, NQd, std::remove_const_t<U>> as() const {
-        ClassicalDobResult<NBn, NAn, NQn, NQd, std::remove_const_t<U>> out{};
-        using O = std::remove_const_t<U>;
+    [[nodiscard]] constexpr ClassicalDobResult<NBn, NAn, NQn, NQd, damp::remove_const_t<U>> as() const {
+        ClassicalDobResult<NBn, NAn, NQn, NQd, damp::remove_const_t<U>> out{};
+        using O = damp::remove_const_t<U>;
         for (size_t i = 0; i < NFyNum; ++i) {
             out.fy_num[i] = static_cast<O>(fy_num[i]);
         }
@@ -444,13 +442,13 @@ public:
 
     /** @brief From a design result in another scalar: converts it with .as\<T\>() and builds from that. */
     template<typename U>
-        requires(!std::is_same_v<U, T>)
+        requires(!damp::is_same_v<U, T>)
     constexpr ClassicalDOB(const ClassicalDobResult<NBn, NAn, NQn, NQd, U>& design) // NOLINT(google-explicit-constructor): assign-from-design
         : ClassicalDOB(design.template as<T>()) {}
 
     constexpr ClassicalDOB(const result_type& design) // NOLINT(google-explicit-constructor): assign-from-design
         : fy_{.num = design.fy_num, .den = design.fy_den}, fu_{.num = design.fu_num, .den = design.fu_den}, valid_(design.success) {
-        if (!design.success && std::is_constant_evaluated()) {
+        if (!design.success && damp::is_constant_evaluated()) {
             ::damp::detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
     }

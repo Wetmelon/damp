@@ -20,8 +20,6 @@
  *       fully-complex eigenvalues for any N (closed form for N ≤ 2, Francis QR
  *       beyond).
  */
-#include <cstddef>
-#include <limits>
 
 #include "damp/backend.hpp"
 #include "damp/design/lyapunov.hpp"
@@ -529,7 +527,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
     if (!eigen.success) {
         return T{-1}; // negative margin signals "not provably stable"
     }
-    T worst = sys.Ts > T{0} ? T{0} : -std::numeric_limits<T>::max(); // finite sentinel: NX = 0 has no eigenvalue to start from
+    T worst = sys.Ts > T{0} ? T{0} : -damp::numeric_limits<T>::max(); // finite sentinel: NX = 0 has no eigenvalue to start from
     for (size_t i = 0; i < NX; ++i) {
         const T v = sys.Ts > T{0} ? eigen.values[i].abs() : eigen.values[i].real();
         if (v > worst) {

@@ -10,8 +10,6 @@
  * @brief Impulse excitation — design payload and runtime generator
  */
 
-#include <cstddef>
-#include <type_traits>
 
 #include "damp/backend.hpp"
 #include "damp/math/math.hpp"
@@ -30,8 +28,8 @@ namespace design {
  */
 template<typename T = double>
 struct ImpulseConfig {
-    T           amplitude{T{1}};  ///< Pulse height (finite)
-    std::size_t width_samples{1}; ///< Samples at amplitude (>= 1)
+    T      amplitude{T{1}};  ///< Pulse height (finite)
+    size_t width_samples{1}; ///< Samples at amplitude (>= 1)
 
     [[nodiscard]] constexpr bool valid() const {
         if (!damp::isfinite(amplitude)) {
@@ -94,7 +92,7 @@ public:
         : amplitude_(design.config.amplitude),
           width_(design.config.width_samples),
           valid_(design.success) {
-        if (!design.success && std::is_constant_evaluated()) {
+        if (!design.success && damp::is_constant_evaluated()) {
             ::damp::detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
     }
@@ -118,10 +116,10 @@ public:
     constexpr void reset() { count_ = 0; }
 
 private:
-    T           amplitude_{T{0}};
-    std::size_t width_{1};
-    std::size_t count_{0};
-    bool        valid_{false};
+    T      amplitude_{T{0}};
+    size_t width_{1};
+    size_t count_{0};
+    bool   valid_{false};
 };
 
 } // namespace damp

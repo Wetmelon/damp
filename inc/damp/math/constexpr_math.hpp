@@ -30,10 +30,7 @@
  * @see math.hpp for the public dispatch layer
  */
 
-#include <bit>
-#include <cstdint>
-#include <limits>
-#include <type_traits>
+#include "damp/backend.hpp"
 
 namespace damp::detail {
 
@@ -94,8 +91,8 @@ template<typename T>
 constexpr bool in_long_long_cast_range(T x) {
     // LLONG_MAX is not exactly representable as double (rounds to 2⁶³); LLONG_MIN
     // is exact (−2⁶³). Open bounds avoid a cast at the unrepresentable endpoint.
-    constexpr T hi = static_cast<T>(std::numeric_limits<long long>::max());
-    constexpr T lo = static_cast<T>(std::numeric_limits<long long>::min());
+    constexpr T hi = static_cast<T>(damp::numeric_limits<long long>::max());
+    constexpr T lo = static_cast<T>(damp::numeric_limits<long long>::min());
     return (x > lo) && (x < hi);
 }
 
@@ -110,8 +107,8 @@ template<typename T>
 constexpr long long lround_away(T x) {
     const T y = x >= T{0} ? x + static_cast<T>(0.5) : x - static_cast<T>(0.5);
     if (!in_long_long_cast_range(y)) {
-        return y >= T{0} ? std::numeric_limits<long long>::max()
-                         : std::numeric_limits<long long>::min();
+        return y >= T{0} ? damp::numeric_limits<long long>::max()
+                         : damp::numeric_limits<long long>::min();
     }
     return static_cast<long long>(y);
 }
@@ -127,21 +124,21 @@ constexpr T assoc_barrier(T v) {
 #if __has_builtin(__builtin_assoc_barrier)
     return __builtin_assoc_barrier(v);
 #elif defined(__clang__) && (defined(__x86_64__) || defined(__i386__)) && __has_builtin(__arithmetic_fence)
-    if (!std::is_constant_evaluated()) {
+    if (!damp::is_constant_evaluated()) {
         return __arithmetic_fence(v); // clang implements the fence on x86 targets only
     }
 #endif
 #endif
 #if (defined(__GNUC__) || defined(__clang__)) && defined(__arm__) && defined(__ARM_FP)
-    if (!std::is_constant_evaluated()) { // clang on ARM has neither builtin: an empty asm pins v in a VFP register
-        if constexpr (std::is_same_v<T, float>) {
+    if (!damp::is_constant_evaluated()) { // clang on ARM has neither builtin: an empty asm pins v in a VFP register
+        if constexpr (damp::is_same_v<T, float>) {
             asm volatile("" : "+t"(v));
         } else {
             asm volatile("" : "+w"(v));
         }
     }
 #elif (defined(__GNUC__) || defined(__clang__)) && defined(__aarch64__)
-    if (!std::is_constant_evaluated()) { // AArch64 has no "t" constraint; "w" is any FP/SIMD register
+    if (!damp::is_constant_evaluated()) { // AArch64 has no "t" constraint; "w" is any FP/SIMD register
         asm volatile("" : "+w"(v));
     }
 #endif
@@ -161,7 +158,7 @@ constexpr T assoc_barrier(T v) {
  */
 template<typename U>
 constexpr U opaque_bits(U bits) {
-    if (!std::is_constant_evaluated()) {
+    if (!damp::is_constant_evaluated()) {
         asm("" : "+r"(bits));
     }
     return bits;
@@ -429,7 +426,7 @@ constexpr QuadrantReduced<T> reduce_half_pi(T x) {
     const long long k = lround_away(x * two_over_pi);
     const T         kreal = static_cast<T>(k);
     T               r{};
-    if constexpr (std::is_same_v<T, float>) {
+    if constexpr (damp::is_same_v<T, float>) {
         r = assoc_barrier(x - (kreal * 1.5703125f));
         r = assoc_barrier(r - (kreal * 4.825592041015625e-04f));
         r = assoc_barrier(r - (kreal * 1.2665987014770508e-06f));
@@ -553,13 +550,13 @@ constexpr T tan(T x) {
  * binary exponent k of @p T (float: hi holds 16 bits; double: 32 bits).
  */
 template<typename T>
-inline constexpr T ln2_hi_v = std::is_same_v<T, float> ? static_cast<T>(6.93145751953125e-01f)
-                                                       : static_cast<T>(6.93147180369123816490e-01);
+inline constexpr T ln2_hi_v = damp::is_same_v<T, float> ? static_cast<T>(6.93145751953125e-01f)
+                                                        : static_cast<T>(6.93147180369123816490e-01);
 
 /** @brief Low word of the ln 2 split: ln 2 − @ref ln2_hi_v, rounded to @p T. */
 template<typename T>
-inline constexpr T ln2_lo_v = std::is_same_v<T, float> ? static_cast<T>(1.428606765330187e-06f)
-                                                       : static_cast<T>(1.90821492927058770002e-10);
+inline constexpr T ln2_lo_v = damp::is_same_v<T, float> ? static_cast<T>(1.428606765330187e-06f)
+                                                        : static_cast<T>(1.90821492927058770002e-10);
 
 /**
  * @brief exp via ln2 argument reduction (eˣ = 2ᵏ·eʳ, |r| ≤ ln2/2) and a
@@ -571,12 +568,12 @@ template<typename T>
 constexpr T exp(T x) {
     // Largest x whose exp(x) is finite (float: the float just below ln(FLT_MAX)),
     // and ~log(min subnormal), type-scaled.
-    constexpr T overflow_x = std::is_same_v<T, float> ? static_cast<T>(88.72283172607421875f)
-                                                      : static_cast<T>(709.782712893384);
-    constexpr T underflow_x = std::is_same_v<T, float> ? static_cast<T>(-103.278929f)
-                                                       : static_cast<T>(-745.133219101941);
+    constexpr T overflow_x = damp::is_same_v<T, float> ? static_cast<T>(88.72283172607421875f)
+                                                       : static_cast<T>(709.782712893384);
+    constexpr T underflow_x = damp::is_same_v<T, float> ? static_cast<T>(-103.278929f)
+                                                        : static_cast<T>(-745.133219101941);
     if (x > overflow_x) {
-        return std::numeric_limits<T>::max();
+        return damp::numeric_limits<T>::max();
     }
     if (x < underflow_x) {
         return T{0};
@@ -746,7 +743,7 @@ constexpr T fmod_positive(T x, T y) {
     // leave x − d = d, and the lower levels would then return y instead of 0).
     // Cover the full binary64 exponent span with margin; each step doubles d.
     constexpr int max_shifts = 4096;
-    while (shifts < max_shifts && d <= (x * static_cast<T>(0.5)) && d < (std::numeric_limits<T>::max() * static_cast<T>(0.5))) {
+    while (shifts < max_shifts && d <= (x * static_cast<T>(0.5)) && d < (damp::numeric_limits<T>::max() * static_cast<T>(0.5))) {
         d *= T{2};
         ++shifts;
     }
@@ -809,13 +806,13 @@ constexpr T copysign(T mag, T sgn_src) {
  */
 template<typename T>
 constexpr bool isfinite(T x) {
-    if constexpr (std::is_same_v<T, float>) {
-        return opaque_bits(std::bit_cast<std::uint32_t>(x) & 0x7f800000u) != 0x7f800000u;
-    } else if constexpr (std::is_same_v<T, double>) {
-        return opaque_bits(std::bit_cast<std::uint64_t>(x) & 0x7ff0000000000000ull) != 0x7ff0000000000000ull;
+    if constexpr (damp::is_same_v<T, float>) {
+        return opaque_bits(damp::bit_cast<uint32_t>(x) & 0x7f800000u) != 0x7f800000u;
+    } else if constexpr (damp::is_same_v<T, double>) {
+        return opaque_bits(damp::bit_cast<uint64_t>(x) & 0x7ff0000000000000ull) != 0x7ff0000000000000ull;
     } else {
         // long double / extended: fall back to comparison (best-effort)
-        return abs(x) <= std::numeric_limits<T>::max();
+        return abs(x) <= damp::numeric_limits<T>::max();
     }
 }
 

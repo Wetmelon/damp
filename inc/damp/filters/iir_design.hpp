@@ -10,7 +10,6 @@
  * @brief IIR coefficient design (analog TFs, Tustin/RBJ/Butterworth) and to_coeffs
  */
 
-#include <cstddef>
 
 #include "damp/backend.hpp"
 #include "damp/design/model_result.hpp"

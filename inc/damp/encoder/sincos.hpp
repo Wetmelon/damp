@@ -46,8 +46,7 @@
  *      interpolation.
  */
 
-#include <cstdint>
-
+#include "damp/backend.hpp"
 #include "damp/math/math.hpp"       // damp::atan2, damp::hypot, damp::floor, damp::wrap
 #include "damp/math/split_real.hpp" // SplitReal
 
@@ -117,10 +116,10 @@ template<typename T>
  * @return absolute position in periods
  */
 template<typename T>
-[[nodiscard]] constexpr SplitReal<T> combine_quadrature(std::int64_t quarter_count, T frac) {
+[[nodiscard]] constexpr SplitReal<T> combine_quadrature(int64_t quarter_count, T frac) {
     // Floor division by 4 (C++ division truncates toward zero; fix up negative counts).
-    std::int64_t q_whole = quarter_count / 4;
-    std::int64_t q_rem = quarter_count % 4;
+    int64_t q_whole = quarter_count / 4;
+    int64_t q_rem = quarter_count % 4;
     if (q_rem < 0) {
         q_rem += 4;
         --q_whole;
@@ -129,7 +128,7 @@ template<typename T>
     // An ideal count is q = ⌊4p⌋, so q/4 trails the position by 1/8 period on average: the
     // extra 1/8 centres the rounding on it, leaving 3/8 period for early and for late edges.
     const T n = damp::floor(coarse_frac - frac + static_cast<T>(0.625)); // 0 or 1 for an ideal count
-    return {q_whole + static_cast<std::int64_t>(n), frac};
+    return {q_whole + static_cast<int64_t>(n), frac};
 }
 
 } // namespace damp

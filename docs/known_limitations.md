@@ -8,6 +8,7 @@ v0.1. Breaking renames are allowed (no deprecation cycle). See [AGENTS.md](../AG
 | Example coverage | Teaching demos for the main paths; not one example per REFERENCE row |
 | H∞ synthesis / mixsyn, μ | Not implemented; `norm_hinf` and SISO / loop-at-a-time disk margins ship |
 | Motor / power / motion packs | Not in this public tree; the FOC slice (`foc.hpp`, `modulation.hpp`, `spm.hpp`) is the exception |
+| No C++ standard headers | The core builds on ETL with `ETL_NO_STL`, math `FREESTANDING` or `HEADER` ([README](../README.md#using-etl-instead-of-the-standard-library)). `make nostd-check` emulates this with `-nostdinc++` on GCC; also checked by hand on Clang and arm-none-eabi. Not tried on a toolchain that truly ships none, such as avr-gcc. `damp/workbench.hpp` still needs the standard library |
 | Delay in a design | On the input, in the plant: `discretize(sys, Ts, InputDelay<N>{θ})`, NX + N·NU states. A `constexpr` design's `Law` pays only for the registers' nonzero terms; a runtime holding its matrices pays a dense (NX + N·NU)² per tick for a filter. Many samples of dead time: sample slower, or `SmithPredictor`. No output delay |
 
 Implementation notes:

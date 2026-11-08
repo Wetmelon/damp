@@ -10,10 +10,8 @@
  * @brief Matrix view types (transpose, diagonal, triangles)
  */
 
-#include <cstddef>
-#include <type_traits>
-
 #include "core.hpp"
+#include "damp/backend.hpp"
 #include "damp/matrix/matrix_traits.hpp"
 
 namespace damp {
@@ -30,12 +28,12 @@ namespace damp {
 template<size_t N, typename T>
 struct Diagonal {
 private:
-    using Parent = std::conditional_t<std::is_const_v<T>, const Matrix<N, N, std::remove_const_t<T>>, Matrix<N, N, std::remove_const_t<T>>>; ///< const T: a read-only view
+    using Parent = damp::conditional_t<damp::is_const_v<T>, const Matrix<N, N, damp::remove_const_t<T>>, Matrix<N, N, damp::remove_const_t<T>>>; ///< const T: a read-only view
     Parent*               mat_ptr{};
-    static constexpr bool is_const = std::is_const_v<T>;
+    static constexpr bool is_const = damp::is_const_v<T>;
 
 public:
-    using value_type = std::remove_const_t<T>;
+    using value_type = damp::remove_const_t<T>;
 
     constexpr explicit Diagonal(Parent& mat) : mat_ptr(&mat) {}
 
@@ -92,8 +90,8 @@ public:
     }
     [[nodiscard]] static constexpr size_t size() { return N; }
     // Convert to ColVec
-    [[nodiscard]] constexpr ColVec<N, std::remove_const_t<T>> to_vector() const {
-        ColVec<N, std::remove_const_t<T>> result;
+    [[nodiscard]] constexpr ColVec<N, damp::remove_const_t<T>> to_vector() const {
+        ColVec<N, damp::remove_const_t<T>> result;
         for (size_t i = 0; i < N; ++i) {
             result(i) = (*this)(i);
         }
@@ -102,10 +100,10 @@ public:
 
     // Assignment from any MatrixLike with cols()==1 (column vector shape)
     template<MatrixLike M>
-        requires(M::rows() == N && M::cols() == 1 && ConvertsExactly<typename M::value_type, std::remove_const_t<T>>)
+        requires(M::rows() == N && M::cols() == 1 && ConvertsExactly<typename M::value_type, damp::remove_const_t<T>>)
     constexpr Diagonal& operator=(const M& vec) {
         for (size_t i = 0; i < N; ++i) {
-            (*this)(i) = static_cast<std::remove_const_t<T>>(vec(i, 0));
+            (*this)(i) = static_cast<damp::remove_const_t<T>>(vec(i, 0));
         }
         return *this;
     }
@@ -123,12 +121,12 @@ public:
 template<size_t N, typename T>
 struct UpperTriangle {
 private:
-    const Matrix<N, N, std::remove_const_t<T>>* mat_ptr{};
+    const Matrix<N, N, damp::remove_const_t<T>>* mat_ptr{};
 
 public:
-    using value_type = std::remove_const_t<T>;
+    using value_type = damp::remove_const_t<T>;
 
-    constexpr explicit UpperTriangle(const Matrix<N, N, std::remove_const_t<T>>& mat) : mat_ptr(&mat) {}
+    constexpr explicit UpperTriangle(const Matrix<N, N, damp::remove_const_t<T>>& mat) : mat_ptr(&mat) {}
 
     constexpr UpperTriangle(const UpperTriangle&) = default;
     constexpr UpperTriangle(UpperTriangle&&) noexcept = default;
@@ -164,12 +162,12 @@ public:
 template<size_t N, typename T>
 struct LowerTriangle {
 private:
-    const Matrix<N, N, std::remove_const_t<T>>* mat_ptr{};
+    const Matrix<N, N, damp::remove_const_t<T>>* mat_ptr{};
 
 public:
-    using value_type = std::remove_const_t<T>;
+    using value_type = damp::remove_const_t<T>;
 
-    constexpr explicit LowerTriangle(const Matrix<N, N, std::remove_const_t<T>>& mat) : mat_ptr(&mat) {}
+    constexpr explicit LowerTriangle(const Matrix<N, N, damp::remove_const_t<T>>& mat) : mat_ptr(&mat) {}
 
     constexpr LowerTriangle(const LowerTriangle&) = default;
     constexpr LowerTriangle(LowerTriangle&&) noexcept = default;
@@ -202,13 +200,13 @@ public:
 template<size_t Rows, size_t Cols, typename T>
 struct RowView {
 private:
-    using Parent = std::conditional_t<std::is_const_v<T>, const Matrix<Rows, Cols, std::remove_const_t<T>>, Matrix<Rows, Cols, std::remove_const_t<T>>>; ///< const T: a read-only view
+    using Parent = damp::conditional_t<damp::is_const_v<T>, const Matrix<Rows, Cols, damp::remove_const_t<T>>, Matrix<Rows, Cols, damp::remove_const_t<T>>>; ///< const T: a read-only view
     Parent*               mat_ptr{};
     size_t                row_index{};
-    static constexpr bool is_const = std::is_const_v<T>;
+    static constexpr bool is_const = damp::is_const_v<T>;
 
 public:
-    using value_type = std::remove_const_t<T>;
+    using value_type = damp::remove_const_t<T>;
 
     constexpr explicit RowView(Parent& mat, size_t row_idx)
         : mat_ptr(&mat), row_index(row_idx) {}
@@ -331,13 +329,13 @@ public:
 template<size_t Rows, size_t Cols, typename T>
 struct ColView {
 private:
-    using Parent = std::conditional_t<std::is_const_v<T>, const Matrix<Rows, Cols, std::remove_const_t<T>>, Matrix<Rows, Cols, std::remove_const_t<T>>>; ///< const T: a read-only view
+    using Parent = damp::conditional_t<damp::is_const_v<T>, const Matrix<Rows, Cols, damp::remove_const_t<T>>, Matrix<Rows, Cols, damp::remove_const_t<T>>>; ///< const T: a read-only view
     Parent*               mat_ptr{};
     size_t                col_index{};
-    static constexpr bool is_const = std::is_const_v<T>;
+    static constexpr bool is_const = damp::is_const_v<T>;
 
 public:
-    using value_type = std::remove_const_t<T>;
+    using value_type = damp::remove_const_t<T>;
 
     constexpr explicit ColView(Parent& mat, size_t col_idx)
         : mat_ptr(&mat), col_index(col_idx) {}
@@ -455,12 +453,12 @@ public:
 template<size_t Rows, size_t Cols, typename T>
 struct TransposeView {
 private:
-    using Parent = std::conditional_t<std::is_const_v<T>, const Matrix<Rows, Cols, std::remove_const_t<T>>, Matrix<Rows, Cols, std::remove_const_t<T>>>; ///< const T: a read-only view
+    using Parent = damp::conditional_t<damp::is_const_v<T>, const Matrix<Rows, Cols, damp::remove_const_t<T>>, Matrix<Rows, Cols, damp::remove_const_t<T>>>; ///< const T: a read-only view
     Parent*               mat_ptr{};
-    static constexpr bool is_const = std::is_const_v<T>;
+    static constexpr bool is_const = damp::is_const_v<T>;
 
 public:
-    using value_type = std::remove_const_t<T>;
+    using value_type = damp::remove_const_t<T>;
 
     constexpr explicit TransposeView(Parent& mat) : mat_ptr(&mat) {}
 
