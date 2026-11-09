@@ -53,7 +53,6 @@ constexpr auto res = design::lqi(sys, Ts, weights);
 // The design's LQI in single precision, its gains constants of the type; a failed design does not compile
 constinit Law<res, float> law;
 
-
 int main() {
     ColVec<2, float> x{}; // position, speed from sensors
 
@@ -64,7 +63,7 @@ int main() {
     const float u = law.control(r)[0];         // Tick the controller and get the first output
     const float u_sat = clamp(u, -1.2f, 1.2f); // Saturate the control output
     law.back_calculate(u_sat);                 // Make the controller aware of the saturation
-    law.predict();                             // Run the integrator (interally clamped)
+    law.predict();                             // Run the integrator (internally clamped)
 
     // Apply the saturated control
     write_force(u_sat);

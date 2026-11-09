@@ -6,6 +6,9 @@
 #include "damp/control.hpp"
 using namespace damp;
 
+// Fake function representing some PWM/DAC/comms
+static void write_force(float /*u*/) {}
+
 namespace {
 constexpr double Ts = 0.01; // [sec] Controller sample time
 
@@ -37,16 +40,17 @@ constexpr auto res = design::lqi(sys, Ts, weights);
 // The design's LQI in single precision, its gains constants of the type; a failed design does not compile
 constinit Law<res, float> law;
 
-// Fake function representing some PWM/DAC/comms
-static void write_force(float /*u*/) {}
-
 int main() {
     ColVec<2, float> x{}; // position, speed from sensors
 
-    const float r = 1.0f; // Target 
-    const float u = law.step(r, x)[0];         // Tick the controller and get the first output
+    // Update the state (measurements)
+    law.update(x);
+
+    const float r = 1.0f;
+    const float u = law.control(r)[0];         // Tick the controller and get the first output
     const float u_sat = clamp(u, -1.2f, 1.2f); // Saturate the control output
     law.back_calculate(u_sat);                 // Make the controller aware of the saturation
+    law.predict();                             // Run the integrator (internally clamped)
 
     // Apply the saturated control
     write_force(u_sat);
