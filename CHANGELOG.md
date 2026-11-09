@@ -135,6 +135,7 @@ delay templates on OFLQG / MPC). v0.1.0 never shipped those names.
   add `ETL_NO_STL` to `etl_profile.h`. Traits,
   limits and concepts go through `damp::` aliases, and `make nostd-check` builds and
   runs a constexpr design and its tick with `-nostdinc++`.
+- With no `damp_profile.hpp` and no backend macro, Damp builds on the host defaults without a warning, so `g++ -std=c++20 -I inc` is quiet. The warning stays for a backend macro set with no profile (`-DDAMP_BACKEND_ETL`, `DAMP_MATH_BACKEND_*`), because every file in the program must agree on the backend.
 - Compilers: g++ 11+ and clang++ 19+. MSVC is not supported. Host CMake builds
   use `-mtune=native`. Every product sketch must fit clang's default constexpr
   budget (`tools/clang_budget_check.sh`).

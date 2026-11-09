@@ -35,9 +35,11 @@
  *   std:: and Damp math backends include \<cmath\> whatever the container backend, so a
  *   toolchain with no C++ standard headers takes FREESTANDING or HEADER too.
  *
- * If no `damp_profile.hpp` is found, the library uses its host defaults — stdlib
- * containers and the std:: math backend — and emits a one-time warning so the
- * choice is never silent.
+ * If no `damp_profile.hpp` is found and none of these macros is set, the library
+ * uses its host defaults — stdlib containers and the std:: math backend — without
+ * a warning. A macro set with no profile (e.g. `-DDAMP_BACKEND_ETL`) draws a
+ * warning: every file in the program must agree on the backend, and a profile on
+ * the include path is the one place they all read it from.
  *
  * @code
  * // damp_profile.hpp  (user-created, anywhere on the include path) — macros only
@@ -48,6 +50,6 @@
 
 #if __has_include("damp_profile.hpp")
 #include "damp_profile.hpp" // IWYU pragma: keep
-#else
-#warning "damp_profile.hpp not found in include path. Using host defaults (stdlib containers + std:: math). Create a damp_profile.hpp to select platform backends."
+#elif defined(DAMP_BACKEND_ETL) || defined(DAMP_MATH_BACKEND_DAMP) || defined(DAMP_MATH_BACKEND_FREESTANDING) || defined(DAMP_MATH_BACKEND_HEADER)
+#warning "A Damp backend macro is set but damp_profile.hpp is not on the include path. Every file in the program must agree on the backend: set it in a damp_profile.hpp rather than with -D."
 #endif
