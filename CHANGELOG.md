@@ -75,6 +75,7 @@ delay templates on OFLQG / MPC). v0.1.0 never shipped those names.
   lifecycle (`update` / `predict` / `back_calculate`).
 - Host contract check for `workbench.hpp` alone (`make workbench-check`). The
   guide's canonical snippet is compiled as `checks/guide_canonical.cpp`.
+- The README's "Plant → law → tick" snippet is compiled as `checks/readme_front_door.cpp`, on the same Cortex-M7 build as the guide's.
 - The ETL backend takes any copy of ETL on the include path; `libs/etl` is only what
   this repo's tests use. README has the steps.
 - `design::eso` / `ESO`: the Han–Gao extended-state observer on its own

@@ -83,6 +83,8 @@ tup.rule(
 -- ---------------------------------------------------------------------------
 -- Asm dumps (arm-none-eabi, Cortex-M7) — cycle inspection via cycle_guesser.py
 -- ---------------------------------------------------------------------------
+-- Every checks/*.cpp compiles here, the doc snippets among them (guide_canonical.cpp,
+-- readme_front_door.cpp): a snippet that stops compiling fails make.
 
 local asm_includes = '-I. -I../inc -isystem../libs -isystem../libs/etl/include'
     .. ' -isystem../libs/fmt/include -isystem../libs/plotlypp/include -isystem../libs/json/single_include'
