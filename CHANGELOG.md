@@ -18,6 +18,7 @@ delay templates on OFLQG / MPC). v0.1.0 never shipped those names.
 
 ### Added
 
+- [docs/known_issues.md](docs/known_issues.md): compiler bugs that change results. They are GCC 15+ folding `pow(0, y)` to 0 under `-ffast-math`, the MinGW AVX stack-alignment fault (GCC PR 54412), GCC 15.1/15.2 vectorizer wrong code, and what fused multiply-adds do to exact comparisons.
 - `design::oflqg` / `OFLQG` and `design::ofmpc` / `OFMPC`, each in its own header,
   over one shared state-feedback core. `Law<kRes, T>` names a law from its design
   result for a struct member.

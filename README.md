@@ -33,7 +33,7 @@ FetchContent_MakeAvailable(damp)
 target_link_libraries(your_fw PRIVATE wetmelon::damp)
 ```
 
-GCC 11+ (tested with 14) and Clang 19+. MSVC is not supported.
+GCC 11+ (tested with 14) and Clang 19+. MSVC is not supported. [Known issues](docs/known_issues.md) lists the compiler bugs that change results, among them GCC 15's `pow(0, y)` under `-ffast-math`.
 
 ## Using ETL instead of the standard library
 
