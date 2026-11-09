@@ -501,7 +501,8 @@ struct PIDController;
  * absolute angle and the turn count rather than on the error.
  *
  * MATLAB® equivalent: design with `pid(...)` then `c2d`; runtime is the discrete law.
- * @see design::TrapezoidalProfile for a profiled PID: a motion profile generates the setpoint each tick.
+ * A profiled PID takes its setpoint from a motion profile each tick (the motion pack's
+ * trapezoidal profile, not yet public).
  * @see Åström & Hägglund, "Advanced PID Control" (2006), Sec. 3.3–4.4
  *
  * @note Gains from a continuous-time designer (ziegler_nichols, cohen_coon,

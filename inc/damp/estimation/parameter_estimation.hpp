@@ -14,8 +14,8 @@
  * The library's system-identification stance is grey-box first: the model
  * structure is known physics with unknown parameters, and the estimator's job
  * is to report those parameters in physical units with an honest statement of
- * whether they can be trusted yet. This is the pattern the motor calibrator
- * (`motor/calibration.hpp` — R/L from a PRBS experiment) already uses,
+ * whether they can be trusted yet. This is the pattern the motor pack's calibrator
+ * (R/L from a PRBS experiment, not yet public) already uses,
  * generalized: a linear-in-parameters recursive regression
  * (`estimation/rls.hpp`) on the ZOH-discretized model,
  * followed by an exact algebraic extraction back to the physical parameters.
@@ -28,7 +28,8 @@
  *    `estimation/excitation.hpp`), stream (u, y), read parameters when
  *    valid() && confidence() clear your gate.
  * 2. Parameter-as-state augmentation: for slowly-varying offsets observed
- *    through known dynamics — load torque (`motor/mechanical_estimator.hpp`),
+ *    through known dynamics — load torque (the motor pack's mechanical
+ *    estimator, not yet public),
  *    gyro bias (`estimation/eskf.hpp`), input disturbances
  *    (`controllers/mpc.hpp`). Augment the state, let the Kalman
  *    machinery estimate it; no new tooling needed.

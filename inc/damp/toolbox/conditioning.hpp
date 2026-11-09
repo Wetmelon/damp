@@ -17,8 +17,8 @@
  *
  * Forward deadband/expo live on the stick path (reject noise). inverse
  * deadband lives on the actuator command after the online motion planner
- * (valve overlap, stiction) — not on the stick. Friction feedforward is
- * `cmd + stribeck_force(params, cmd, v_smooth)` from systems/friction.hpp.
+ * (valve overlap, stiction) — not on the stick. Friction feedforward
+ * (a Stribeck model added to the command) is in the motion pack, not yet public.
  *
  * @see toolbox/scaling.hpp for stateless range/affine calibration helpers.
  * @see filters/filters.hpp for the linear filter runtimes.

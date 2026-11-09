@@ -15,13 +15,14 @@
  * - Jet — order-N derivative chain (scales past jerk for high-order polys / cams)
  * - TrajectoryBoundary — fixed-size endpoint BCs (p…jerk) for common poly orders
  * - design::detail::factorial / design::detail::falling_factorial — shared
- *   polynomial-coefficient helpers used by both @ref polynomial.hpp and @ref spline.hpp
+ *   polynomial-coefficient helpers for the motion pack's polynomial and spline
+ *   profiles (not yet public)
  * - detail::segment_at — the bounded binary search the piecewise evaluators use
  *   to find the segment that holds a time
  *
- * Include this header only when you need the shared types without pulling in a full
- * profile family. Normally just include the profile header you need (e.g.
- * `damp/trajectory/scurve.hpp`) — each one already pulls this in.
+ * The profile families themselves (S-curve, polynomial, spline) are in the motion
+ * pack, not yet public; each of its profile headers pulls this one in. In this tree,
+ * include it for the shared types, e.g. a TrajectoryState for toolbox/actuator.hpp.
  */
 
 

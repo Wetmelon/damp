@@ -15,7 +15,7 @@
  * runtime block (@ref damp::Thermistor) that evaluates them one
  * sample at a time.
  *
- * @see filters/blocks.hpp for the rest of the everyday signal-conditioning blocks.
+ * @see toolbox/conditioning.hpp for the rest of the everyday signal-conditioning blocks.
  */
 
 

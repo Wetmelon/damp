@@ -352,7 +352,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`closed_loop_stable`](inc/damp/design/pid_design.hpp#L684) | Closed-loop certificate: den_P·den_C + num_P·num_C is Hurwitz for C_fb = Kp + Kᵢ/s + Kd s/(1 + Tf s) |
 | [`cohen_coon`](inc/damp/design/pid_design.hpp#L300) | Cohen-Coon tuning from first-order-plus-dead-time model |
 | [`continuous_lqr`](inc/damp/design/riccati.hpp#L1741) | Continuous-time Linear-Quadratic Regulator design |
-| [`ContinuousPID`](inc/damp/controllers/pid.hpp#L1069) | Deduce the runtime from its design, keeping the result's scalar |
+| [`ContinuousPID`](inc/damp/controllers/pid.hpp#L1070) | Deduce the runtime from its design, keeping the result's scalar |
 | [`controllability_gramian`](inc/damp/design/stability.hpp#L380) | Continuous/discrete controllability Gramian W_c |
 | [`controllability_matrix`](inc/damp/design/stability.hpp#L53) | Compute the controllability matrix [B, AB, A²B, ..., A^(N-1)B] |
 | [`current_loop_pi`](inc/damp/design/pid_design.hpp#L1298) | PI gains for an R–L current loop 1/(L s + R) at any bandwidth ω |
@@ -412,7 +412,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`phase_margin_from_damping_ratio`](inc/damp/design/pid_design.hpp#L888) | Approximate phase margin from damping ratio |
 | [`pid`](inc/damp/controllers/pid.hpp#L361) | Continuous PID gains Kₚ, Kᵢ, K_d with every other knob at its default |
 | [`pid_pole_placement`](inc/damp/design/pid_design.hpp#L960) | PI gains that place the closed-loop poles of a first-order plant b₀/(a₁ s + a₀) (+4 more overloads) |
-| [`PIDController`](inc/damp/controllers/pid.hpp#L902) | Deduce the runtime from its gains, keeping their scalar: PIDController pid{gains} is a PID; through an alias the mode comes from the alias: PIController pi{gains}; |
+| [`PIDController`](inc/damp/controllers/pid.hpp#L903) | Deduce the runtime from its gains, keeping their scalar: PIDController pid{gains} is a PID; through an alias the mode comes from the alias: PIController pi{gains}; |
 | [`pidtune`](inc/damp/design/pid_design.hpp#L807) | Plant-aware PID tune at a crossover |
 | [`place`](inc/damp/design/pole_placement.hpp#L1155) | Robust pole placement (KNV): the gain K with eig(A − B·K) at poles, in the domain of sys (+1 more overload) |
 | [`place_jordan`](inc/damp/design/pole_placement.hpp#L1676) | Exact pole placement with an arbitrary Jordan structure (Schmid–Ntogramatzidis–Nguyen–Pandey / Klein–Moore parametric form) (+1 more overload) |
@@ -459,7 +459,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`ADRCController`](inc/damp/controllers/adrc.hpp#L254) | Active Disturbance Rejection Control (ADRC) |
 | [`Cascade`](inc/damp/controllers/composition.hpp#L49) | Series cascade of two SISO controllers: outer → inner reference |
 | [`CBFConstraint`](inc/damp/controllers/action_governor.hpp#L187) | One affine row from a relative-degree-1 CBF condition |
-| [`ContinuousPID`](inc/damp/controllers/pid.hpp#L939) | Continuous-gain PID with per-tick sample time (variable-rate secondary form) |
+| [`ContinuousPID`](inc/damp/controllers/pid.hpp#L940) | Continuous-gain PID with per-tick sample time (variable-rate secondary form) |
 | [`DiscretePIDGains`](inc/damp/controllers/pid.hpp#L74) | Fixed-rate discrete PID coefficients (canonical deploy form) |
 | [`ESCSpec`](inc/damp/controllers/esc.hpp#L70) | The extremum-seeking design input: dither, gain, filter corners and clamp; Ts is passed beside it |
 | [`ExtremumSeekingController`](inc/damp/controllers/esc.hpp#L235) | Extremum-seeking controller runtime (model-free online optimizer) |
@@ -485,7 +485,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`NoEstimator`](inc/damp/controllers/state_feedback_core.hpp#L51) | The estimator of a law that measures its state: none, an empty type, so a `[[no_unique_address]]` member of it takes no storage |
 | [`OFLQG`](inc/damp/controllers/oflqg.hpp#L100) | Offset-free linear-quadratic Gaussian law: a Kalman filter on [x; d] and the steady-state target |
 | [`OFMPC`](inc/damp/controllers/ofmpc.hpp#L81) | Offset-free constrained linear MPC: a Kalman filter on [x; d] and the QP about the steady-state target under d̂ (design::ofmpc) |
-| [`PIDController`](inc/damp/controllers/pid.hpp#L513) | Fixed-rate discrete 2-DOF PID (canonical runtime) (+3 more overloads) |
+| [`PIDController`](inc/damp/controllers/pid.hpp#L514) | Fixed-rate discrete 2-DOF PID (canonical runtime) (+3 more overloads) |
 | [`PIDGains`](inc/damp/controllers/pid.hpp#L135) | 2-DOF continuous-time PID gains, limits and setpoint weights |
 | [`PIDMode`](inc/damp/controllers/pid.hpp#L374) | Compile-time selection of the PID control-law structure |
 | [`PIDRuntimeMode`](inc/damp/controllers/pid.hpp#L399) | Runtime operating mode for PIDController / ContinuousPID |
@@ -505,7 +505,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 
 | Name | Description |
 | ---- | ----------- |
-| [`AdaptationGate`](inc/damp/estimation/parameter_estimation.hpp#L336) | Gated-adaptation policy: decide whether a parameter update is safe to apply |
+| [`AdaptationGate`](inc/damp/estimation/parameter_estimation.hpp#L337) | Gated-adaptation policy: decide whether a parameter update is safe to apply |
 | [`Chirp`](inc/damp/estimation/excitation/chirp.hpp#L138) | Linear or logarithmic chirp runtime generator (+1 more overload) |
 | [`ChirpConfig`](inc/damp/estimation/excitation/chirp.hpp#L38) | Configuration for a sine chirp excitation |
 | [`ChirpMode`](inc/damp/estimation/excitation/chirp.hpp#L24) | Chirp sweep law |
@@ -526,8 +526,8 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`ExtendedKalmanFilter`](inc/damp/estimation/ekf.hpp#L117) | Extended Kalman filter: continuous nonlinear dynamics, sampled measurements (+1 more overload) |
 | [`ExtendedKalmanFilterConfig`](inc/damp/estimation/ekf.hpp#L41) | Configuration of an ExtendedKalmanFilter: its sample time, the process noise and the initial estimate |
 | [`Filtered`](inc/damp/estimation/state_variable_filter.hpp#L65) | One signal after the state-variable filter: its filtered value and first two derivatives |
-| [`FirstOrderPlantEstimator`](inc/damp/estimation/parameter_estimation.hpp#L123) | Online estimator for a first-order plant's gain and time constant |
-| [`FirstOrderPlantEstimatorConfig`](inc/damp/estimation/parameter_estimation.hpp#L82) | Configuration for the first-order grey-box estimator |
+| [`FirstOrderPlantEstimator`](inc/damp/estimation/parameter_estimation.hpp#L124) | Online estimator for a first-order plant's gain and time constant |
+| [`FirstOrderPlantEstimatorConfig`](inc/damp/estimation/parameter_estimation.hpp#L83) | Configuration for the first-order grey-box estimator |
 | [`FixedGainObserver`](inc/damp/estimation/fixed_gain_observer.hpp#L601) | The fixed-gain state observer: the innovation gain M held, the current form, and the optional disturbance anchor (+4 more overloads) |
 | [`FrequencyResponseEstimator`](inc/damp/estimation/frequency_response.hpp#L166) | Lock-in FRF estimator over a fixed table of NFreq bins |
 | [`FrfFeatureKind`](inc/damp/estimation/frequency_response.hpp#L435) | Peak (resonance) or valley (anti-resonance) on an FRF magnitude curve |
@@ -556,7 +556,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`MultiSineConfig`](inc/damp/estimation/excitation/multi_sine.hpp#L60) | Configuration for fixed-component multi-sine excitation |
 | [`MultiSineResult`](inc/damp/estimation/excitation/multi_sine.hpp#L102) | Multi-sine design payload |
 | [`NavFrame`](inc/damp/estimation/ins_mechanization.hpp#L76) | Local-level navigation frame for strapdown mechanization |
-| [`ParameterDriftMonitor`](inc/damp/estimation/parameter_estimation.hpp#L249) | Residual-based drift detector: has the plant moved away from the model? |
+| [`ParameterDriftMonitor`](inc/damp/estimation/parameter_estimation.hpp#L250) | Residual-based drift detector: has the plant moved away from the model? |
 | [`PlaceObserverResult`](inc/damp/estimation/fixed_gain_observer.hpp#L116) | Luenberger observer design result: the plant, the gains L and M, and the achieved error poles |
 | [`PRBS`](inc/damp/estimation/excitation/prbs.hpp#L186) | Maximal-length PRBS runtime generator (+1 more overload) |
 | [`PRBSConfig`](inc/damp/estimation/excitation/prbs.hpp#L79) | Configuration for maximal-length pseudo-random binary excitation |
@@ -720,17 +720,17 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 
 | Name | Description |
 | ---- | ----------- |
-| [`Jet`](inc/damp/trajectory/trajectory_types.hpp#L95) | Truncated jet of a scalar motion sample: d[k] = s⁽ᵏ⁾ |
-| [`TrajectoryBoundary`](inc/damp/trajectory/trajectory_types.hpp#L178) | Boundary conditions at one endpoint of a polynomial trajectory: a position and its time derivatives through jerk |
-| [`TrajectoryLimits`](inc/damp/trajectory/trajectory_types.hpp#L45) | Asymmetric kinematic limits for a trapezoidal or S-curve motion profile |
-| [`TrajectoryState`](inc/damp/trajectory/trajectory_types.hpp#L76) | A point on a motion profile: commanded position, velocity, acceleration |
+| [`Jet`](inc/damp/trajectory/trajectory_types.hpp#L96) | Truncated jet of a scalar motion sample: d[k] = s⁽ᵏ⁾ |
+| [`TrajectoryBoundary`](inc/damp/trajectory/trajectory_types.hpp#L179) | Boundary conditions at one endpoint of a polynomial trajectory: a position and its time derivatives through jerk |
+| [`TrajectoryLimits`](inc/damp/trajectory/trajectory_types.hpp#L46) | Asymmetric kinematic limits for a trapezoidal or S-curve motion profile |
+| [`TrajectoryState`](inc/damp/trajectory/trajectory_types.hpp#L77) | A point on a motion profile: commanded position, velocity, acceleration |
 
 **Functions**
 
 | Name | Description |
 | ---- | ----------- |
-| [`factorial`](inc/damp/trajectory/trajectory_types.hpp#L206) | k! (exact for modest k in float/double; used up through nonic BVP / jets) |
-| [`falling_factorial`](inc/damp/trajectory/trajectory_types.hpp#L219) | Falling factorial i·(i−1)···(i−k+1) = i! / (i−k)! — the k-th derivative coefficient of tⁱ. Zero when i < k |
+| [`factorial`](inc/damp/trajectory/trajectory_types.hpp#L207) | k! (exact for modest k in float/double; used up through nonic BVP / jets) |
+| [`falling_factorial`](inc/damp/trajectory/trajectory_types.hpp#L220) | Falling factorial i·(i−1)···(i−k+1) = i! / (i−k)! — the k-th derivative coefficient of tⁱ. Zero when i < k |
 
 ## Kinematics / pose
 
@@ -806,7 +806,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`BLINK`](inc/damp/toolbox/iec61131.hpp#L539) | BLINK (free-running square-wave / flasher) |
 | [`Bounds`](inc/damp/toolbox/bounds.hpp#L50) | A per-channel closed-interval box constraint |
 | [`Button`](inc/damp/toolbox/io.hpp#L195) | Debounced momentary push-button with edge and long-press detection |
-| [`ConstantInertiaFeedforward`](inc/damp/toolbox/actuator.hpp#L200) | Per-axis decoupled torque feedforward: `τ = J·a + b·v + τ_c·sign(v) + g` |
+| [`ConstantInertiaFeedforward`](inc/damp/toolbox/actuator.hpp#L199) | Per-axis decoupled torque feedforward: `τ = J·a + b·v + τ_c·sign(v) + g` |
 | [`Counter`](inc/damp/toolbox/logic.hpp#L272) | Edge-counting up/down counter: increments on each rising edge of up, decrements on each rising edge of down. Returns the running count, saturating at the limits of T (no wrap / signed overflow) |
 | [`CTD`](inc/damp/toolbox/iec61131.hpp#L351) | CTD Counter (Count Down) |
 | [`CTU`](inc/damp/toolbox/iec61131.hpp#L311) | CTU Counter (Count Up) |
@@ -842,9 +842,9 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`RedundantAnalogPair`](inc/damp/toolbox/io.hpp#L91) | Dual-channel analog input with same-slope or opposite-slope cross-check |
 | [`RisingEdge`](inc/damp/toolbox/logic.hpp#L33) | Rising-edge detector: true on the tick x goes false → true |
 | [`RS`](inc/damp/toolbox/iec61131.hpp#L89) | RS Latch (Reset-Set Latch) |
-| [`ServoAxis`](inc/damp/toolbox/actuator.hpp#L106) | One servoactuator transmission: SI joint unit ⟷ drive (motor) units |
-| [`ServoBank`](inc/damp/toolbox/actuator.hpp#L232) | A bank of ServoAxis transmissions: maps a synchronized multi-axis TrajectoryState array straight to drive commands in one call |
-| [`ServoCommand`](inc/damp/toolbox/actuator.hpp#L83) | A drive-native servoactuator setpoint: position, velocity, torque |
+| [`ServoAxis`](inc/damp/toolbox/actuator.hpp#L105) | One servoactuator transmission: SI joint unit ⟷ drive (motor) units |
+| [`ServoBank`](inc/damp/toolbox/actuator.hpp#L231) | A bank of ServoAxis transmissions: maps a synchronized multi-axis TrajectoryState array straight to drive commands in one call |
+| [`ServoCommand`](inc/damp/toolbox/actuator.hpp#L82) | A drive-native servoactuator setpoint: position, velocity, torque |
 | [`SignalRange`](inc/damp/toolbox/conditioning.hpp#L350) | The measuring span and wire-fault limits of an analog input (NAMUR NE43 pattern) |
 | [`SignalStatus`](inc/damp/toolbox/conditioning.hpp#L318) | Classification of an analog input against its valid/fault bands |
 | [`SinCosCalibration`](inc/damp/encoder/sincos.hpp#L65) | Per-channel gain/offset trims for the sin/cos front end (hardware calibration) |
@@ -886,12 +886,12 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`iso_c_drive`](inc/damp/toolbox/io.hpp#L304) | ISO-C (single-stick, coordinated / curvature) drive |
 | [`lerp`](inc/damp/toolbox/scaling.hpp#L33) | Linear interpolation between a and b by fraction t |
 | [`LIMIT`](inc/damp/toolbox/iec61131.hpp#L590) | LIMIT (IEC 61131-3 selection function): clamp in to [mn, mx] |
-| [`linear_screw`](inc/damp/toolbox/actuator.hpp#L169) | Build a ServoAxis for a linear axis driven by a leadscrew/belt |
+| [`linear_screw`](inc/damp/toolbox/actuator.hpp#L168) | Build a ServoAxis for a linear axis driven by a leadscrew/belt |
 | [`lut_segment`](inc/damp/toolbox/lookup.hpp#L62) | Index of the interpolation segment containing x |
 | [`MUX`](inc/damp/toolbox/iec61131.hpp#L609) | MUX (IEC 61131-3 multiplexer): select input k of N (0-based) |
 | [`poly_horner`](inc/damp/toolbox/scaling.hpp#L136) | Evaluate a polynomial at x by Horner's method |
 | [`rescale`](inc/damp/toolbox/scaling.hpp#L67) | Affine map of x from the input range to the output range |
-| [`rotary_gearbox`](inc/damp/toolbox/actuator.hpp#L152) | Build a ServoAxis for a rotary joint behind a gearbox |
+| [`rotary_gearbox`](inc/damp/toolbox/actuator.hpp#L151) | Build a ServoAxis for a rotary joint behind a gearbox |
 | [`scaled_deadband`](inc/damp/toolbox/conditioning.hpp#L183) | Center dead zone that rescales the surviving range back to full span |
 | [`SEL`](inc/damp/toolbox/iec61131.hpp#L598) | SEL (IEC 61131-3 binary selection): g ? in1 : in0 |
 | [`soft_sign`](inc/damp/toolbox/conditioning.hpp#L105) | Smooth unit direction x / √(x²+ε²) ∈ (−1,1) |

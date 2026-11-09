@@ -11,7 +11,7 @@
  *
  * Stage-2 electrical pipeline primitive: PI + decoupling FF → clamped Vdq.
  * Frame transforms and modulation belong to the machine adapter. Plant torque /
- * capability maps live in kit headers (spm.hpp / ipm.hpp), not here.
+ * capability maps live in kit headers (spm.hpp; the IPM one is not yet public), not here.
  */
 
 

@@ -57,7 +57,8 @@
  * @defgroup trajectory Trajectory generators
  * @brief Motion profiles and path generators for multi-axis motion.
  *
- * Trapezoidal and S-curve profiles, polynomials, splines, electronic cam, TOPP,
- * input shapers, and online OTG helpers. Pair with toolbox actuator bridges for
- * drive-native units.
+ * This tree has the shared value types (trajectory_types.hpp). The generators
+ * themselves (trapezoidal and S-curve profiles, polynomials, splines, electronic
+ * cam, TOPP, input shapers, online OTG) are in the motion pack, not yet public.
+ * Pair with toolbox actuator bridges for drive-native units.
  */
