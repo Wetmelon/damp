@@ -7,7 +7,7 @@ and this project uses [Semantic Versioning](https://semver.org/) for tags.
 0.x releases may break API without a deprecation cycle (see [AGENTS.md](AGENTS.md)
 and [known limitations](docs/known_limitations.md)).
 
-## [0.2.0] — 2026-11-08
+## [0.2.0] — 2026-11-09
 
 One runtime and one set of tick verbs for every LQ and MPC design, input and
 output delay in the plant model, and a core that builds with no C++ standard
