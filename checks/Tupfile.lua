@@ -11,7 +11,7 @@ end
 
 -- One-level globs (tup does not expand **). List only directories that exist in
 -- *this* tree — tup.glob hard-errors on a missing dir (pcall cannot catch it),
--- and public v0.1 is deliberately sparse (no motor/power packs; kinematics is
+-- and this public tree is deliberately sparse (no motor/power packs; kinematics is
 -- pose.hpp only). When adding a pack directory, append it here.
 local damp_dirs = {
     '../inc/damp',

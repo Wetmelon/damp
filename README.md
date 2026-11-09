@@ -2,7 +2,7 @@
 
 Compile-time controls for embedded C++. Header-only, C++20.
 
-v0.1.0 (alpha) · [CHANGELOG](CHANGELOG.md) · [Guide](docs/guide.md) · BSL-1.0 ([LICENSE](LICENSE))
+v0.2.0 (alpha) · [CHANGELOG](CHANGELOG.md) · [Guide](docs/guide.md) · BSL-1.0 ([LICENSE](LICENSE))
 
 `design::lqr` (and the rest) run at compile time or init. The MCU keeps a small
 runtime and calls `step` every tick. SIL uses that same object. Hardware variants
@@ -27,7 +27,7 @@ CMake, FetchContent or `find_package`, same target:
 include(FetchContent)
 FetchContent_Declare(damp
     GIT_REPOSITORY https://github.com/Wetmelon/damp.git
-    GIT_TAG v0.1.0   # 0.x: pin a commit or tag; the API can move
+    GIT_TAG v0.2.0   # 0.x: pin a commit or tag; the API can move
 )
 FetchContent_MakeAvailable(damp)
 target_link_libraries(your_fw PRIVATE wetmelon::damp)

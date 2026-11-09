@@ -86,7 +86,7 @@ tup.foreach_rule(sketches, 'sh ../tools/clang_budget_check.sh '..CXX..' %o %f '.
 -- ---------------------------------------------------------------------------
 
 -- basename (no .exe / path) → files the default main() always writes under plots/
--- Public v0.1 product set only (match product_dirs above).
+-- Public product set only (match product_dirs above).
 local plot_outputs = {
     encoder_velocity_sil = {
         'plots/estimation/encoder_velocity_absolute.html',

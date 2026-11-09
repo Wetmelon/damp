@@ -12,7 +12,7 @@ Header-only C++20 control library (`damp`): stack-only fixed sizes, no core heap
 (variants as `constexpr` / template params), closed in SIL with the same runtime
 objects.
 
-Public v0.1 is the design-is-deploy **core**. Motor FOC is opt-in under
+The public tree is the design-is-deploy **core**. Motor FOC is opt-in under
 `damp/motor/` (not in `control.hpp`); there are no power or motion packs in this
 tree.
 

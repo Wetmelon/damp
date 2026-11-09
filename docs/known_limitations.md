@@ -1,6 +1,6 @@
 # Known limitations
 
-v0.1. Breaking renames are allowed (no deprecation cycle). See [AGENTS.md](../AGENTS.md). Compiler bugs that change results are in [known_issues.md](known_issues.md).
+0.x: breaking renames are allowed (no deprecation cycle). See [AGENTS.md](../AGENTS.md). Compiler bugs that change results are in [known_issues.md](known_issues.md).
 
 | Topic | Status |
 | ----- | ------ |

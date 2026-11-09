@@ -10,7 +10,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`acos`](inc/damp/math/math.hpp#L149) | function | Scalar math, complex & frames | Arccosine ∈ [0, π]. Input is clamped to [−1, 1] in both paths |
 | [`ActionGovernor`](inc/damp/controllers/action_governor.hpp#L235) | block | Runtime controllers | Runtime action governor — QP projection of u_des onto A u ≤ b |
 | [`ActiveSetSolver`](inc/damp/design/qp.hpp#L699) | block | Design-time synthesis (not PWM-rate) | Default QP solver policy: the Goldfarb–Idnani active-set solve_qp() |
-| [`AdaptationGate`](inc/damp/estimation/parameter_estimation.hpp#L336) | block | Observers & estimators | Gated-adaptation policy: decide whether a parameter update is safe to apply |
+| [`AdaptationGate`](inc/damp/estimation/parameter_estimation.hpp#L337) | block | Observers & estimators | Gated-adaptation policy: decide whether a parameter update is safe to apply |
 | [`adaptive_solve`](inc/damp/simulation/solver.hpp#L814) | function | Simulation / SIL harness (host) | Adaptive-step solve in one call |
 | [`AdaptiveLut1D`](inc/damp/toolbox/lookup.hpp#L427) | block | Embedded helpers (controls-adjacent utilities) | Adaptive 1-D lookup: fixed breakpoints, online-updated cell values |
 | [`AdaptiveLut2D`](inc/damp/toolbox/lookup.hpp#L500) | block | Embedded helpers (controls-adjacent utilities) | Adaptive 2-D lookup: fixed grid, online-updated cells (nearest grid node) |
@@ -111,12 +111,12 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`complex`](inc/damp/math/complex.hpp#L38) | block | Scalar math, complex & frames | Constexpr complex number class for compile-time computations |
 | [`compute_eigenvalues`](inc/damp/matrix/eigen.hpp#L763) | function | Linear algebra | Compute the eigenvalues (and Schur vectors) of a real square matrix |
 | [`constant_power_torque_limit`](inc/damp/motor/foc.hpp#L42) | function | Motor control pack (if present) | Constant-power torque ceiling Tₘₐₓ = P_rated / \|ω\| |
-| [`ConstantInertiaFeedforward`](inc/damp/toolbox/actuator.hpp#L200) | block | Embedded helpers (controls-adjacent utilities) | Per-axis decoupled torque feedforward: `τ = J·a + b·v + τ_c·sign(v) + g` |
+| [`ConstantInertiaFeedforward`](inc/damp/toolbox/actuator.hpp#L199) | block | Embedded helpers (controls-adjacent utilities) | Per-axis decoupled torque feedforward: `τ = J·a + b·v + τ_c·sign(v) + g` |
 | [`ConstMatrix`](inc/damp/matrix/const_matrix.hpp#L86) | block | Linear algebra | A matrix that is a constant of its type: no storage, and a product with a vector that has no term for an entry that is exactly 0 |
 | [`continuous_lpf_exact_step`](inc/damp/filters/lowpass.hpp#L37) | function | Filters & signal conditioning | Exact step of continuous first-order LPF ẏ = −ω_c (y − u) |
 | [`continuous_lqr`](inc/damp/design/riccati.hpp#L1741) | function | Design-time synthesis (not PWM-rate) | Continuous-time Linear-Quadratic Regulator design |
-| [`ContinuousPID`](inc/damp/controllers/pid.hpp#L1069) | function | Design-time synthesis (not PWM-rate) | Deduce the runtime from its design, keeping the result's scalar |
-| [`ContinuousPID`](inc/damp/controllers/pid.hpp#L939) | block | Runtime controllers | Continuous-gain PID with per-tick sample time (variable-rate secondary form) |
+| [`ContinuousPID`](inc/damp/controllers/pid.hpp#L1070) | function | Design-time synthesis (not PWM-rate) | Deduce the runtime from its design, keeping the result's scalar |
+| [`ContinuousPID`](inc/damp/controllers/pid.hpp#L940) | block | Runtime controllers | Continuous-gain PID with per-tick sample time (variable-rate secondary form) |
 | [`controllability_gramian`](inc/damp/design/stability.hpp#L380) | function | Design-time synthesis (not PWM-rate) | Continuous/discrete controllability Gramian W_c |
 | [`controllability_matrix`](inc/damp/design/stability.hpp#L53) | function | Design-time synthesis (not PWM-rate) | Compute the controllability matrix [B, AB, A²B, ..., A^(N-1)B] |
 | [`controllability_staircase`](inc/damp/systems/realization.hpp#L791) | function | LTI systems (SS / TF / ZPK / discretize) | Controllability staircase form: the controllable part split off by an orthogonal transform |
@@ -236,8 +236,8 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`ExtremumType`](inc/damp/controllers/esc.hpp#L48) | enum | Runtime controllers | Whether ESC climbs to a maximum or descends to a minimum of the objective |
 | [`eye`](inc/damp/matlab.hpp#L609) | function | MATLAB®-style aliases (host) | Create an identity matrix of size n x n |
 | [`F_TRIG`](inc/damp/toolbox/iec61131.hpp#L151) | block | Embedded helpers (controls-adjacent utilities) | F_TRIG (Falling Edge Trigger) |
-| [`factorial`](inc/damp/trajectory/trajectory_types.hpp#L206) | function | Trajectory value types | k! (exact for modest k in float/double; used up through nonic BVP / jets) |
-| [`falling_factorial`](inc/damp/trajectory/trajectory_types.hpp#L219) | function | Trajectory value types | Falling factorial i·(i−1)···(i−k+1) = i! / (i−k)! — the k-th derivative coefficient of tⁱ. Zero when i < k |
+| [`factorial`](inc/damp/trajectory/trajectory_types.hpp#L207) | function | Trajectory value types | k! (exact for modest k in float/double; used up through nonic BVP / jets) |
+| [`falling_factorial`](inc/damp/trajectory/trajectory_types.hpp#L220) | function | Trajectory value types | Falling factorial i·(i−1)···(i−k+1) = i! / (i−k)! — the k-th derivative coefficient of tⁱ. Zero when i < k |
 | [`FallingEdge`](inc/damp/toolbox/logic.hpp#L47) | block | Embedded helpers (controls-adjacent utilities) | Falling-edge detector: true on the tick x goes true → false |
 | [`feedback`](inc/damp/systems/state_space.hpp#L390) | function | LTI systems (SS / TF / ZPK / discretize) | Negative feedback: y = sys1(u − sys2(y)) (+1 more overload) |
 | [`feedback_read`](inc/damp/systems/state_space.hpp#L827) | function | LTI systems (SS / TF / ZPK / discretize) | Unity (or weighted) negative feedback around G_loop, read G_out |
@@ -254,8 +254,8 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`fires_at`](inc/damp/simulation/multirate.hpp#L73) | function | Simulation / SIL harness (host) | True when base tick tick is a firing instant for divisor |
 | [`FirFilter`](inc/damp/filters/fir.hpp#L463) | block | Filters & signal conditioning | Direct-form FIR filter runtime (tapped delay line + dot product) (+1 more overload) |
 | [`FirstOrderCoeffs`](inc/damp/filters/iir_design.hpp#L30) | block | Filters & signal conditioning | DSP coefficients for first-order IIR filter |
-| [`FirstOrderPlantEstimator`](inc/damp/estimation/parameter_estimation.hpp#L123) | block | Observers & estimators | Online estimator for a first-order plant's gain and time constant |
-| [`FirstOrderPlantEstimatorConfig`](inc/damp/estimation/parameter_estimation.hpp#L82) | block | Observers & estimators | Configuration for the first-order grey-box estimator |
+| [`FirstOrderPlantEstimator`](inc/damp/estimation/parameter_estimation.hpp#L124) | block | Observers & estimators | Online estimator for a first-order plant's gain and time constant |
+| [`FirstOrderPlantEstimatorConfig`](inc/damp/estimation/parameter_estimation.hpp#L83) | block | Observers & estimators | Configuration for the first-order grey-box estimator |
 | [`FirstOrderSection`](inc/damp/filters/first_order_section.hpp#L43) | block | Filters & signal conditioning | First-order IIR section runtime, Direct Form I (+1 more overload) |
 | [`FirType`](inc/damp/filters/fir.hpp#L36) | enum | Filters & signal conditioning | Ideal frequency-selective response for fir1 / fir_window |
 | [`FirWindow`](inc/damp/filters/fir.hpp#L48) | enum | Filters & signal conditioning | Window applied to the ideal truncated impulse response |
@@ -377,7 +377,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`isfinite`](inc/damp/math/math.hpp#L500) | function | Scalar math, complex & frames | Finiteness test — false for NaN and ±∞ |
 | [`iso_c_drive`](inc/damp/toolbox/io.hpp#L304) | function | Embedded helpers (controls-adjacent utilities) | ISO-C (single-stick, coordinated / curvature) drive |
 | [`isstable`](inc/damp/matlab.hpp#L1355) | function | MATLAB®-style aliases (host) | Stability predicate for a state-space model (+1 more overload) |
-| [`Jet`](inc/damp/trajectory/trajectory_types.hpp#L95) | block | Trajectory value types | Truncated jet of a scalar motion sample: d[k] = s⁽ᵏ⁾ |
+| [`Jet`](inc/damp/trajectory/trajectory_types.hpp#L96) | block | Trajectory value types | Truncated jet of a scalar motion sample: d[k] = s⁽ᵏ⁾ |
 | [`JordanBlock`](inc/damp/design/pole_placement.hpp#L485) | block | Design-time synthesis (not PWM-rate) | One Jordan mini-block of a desired closed-loop spectrum |
 | [`JordanObjective`](inc/damp/design/pole_placement.hpp#L1191) | enum | Design-time synthesis (not PWM-rate) | How place_jordan spends the free parameter of the Klein–Moore family (Schmid et al.) |
 | [`JordanOptions`](inc/damp/design/pole_placement.hpp#L1204) | block | Design-time synthesis (not PWM-rate) | Options for place_jordan |
@@ -411,7 +411,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`lft`](inc/damp/systems/state_space.hpp#L504) | function | LTI systems (SS / TF / ZPK / discretize) | Lower linear fractional transformation: K closes the loop from P's last outputs to its last inputs |
 | [`LIMIT`](inc/damp/toolbox/iec61131.hpp#L590) | function | Embedded helpers (controls-adjacent utilities) | LIMIT (IEC 61131-3 selection function): clamp in to [mn, mx] |
 | [`linear_modulation_voltage`](inc/damp/motor/modulation.hpp#L125) | function | Motor control pack (if present) | Peak phase voltage at the linear SVPWM hexagon limit |
-| [`linear_screw`](inc/damp/toolbox/actuator.hpp#L169) | function | Embedded helpers (controls-adjacent utilities) | Build a ServoAxis for a linear axis driven by a leadscrew/belt |
+| [`linear_screw`](inc/damp/toolbox/actuator.hpp#L168) | function | Embedded helpers (controls-adjacent utilities) | Build a ServoAxis for a linear axis driven by a leadscrew/belt |
 | [`LinearizationResult`](inc/damp/design/linearization.hpp#L45) | block | Design-time synthesis (not PWM-rate) | Result of nonlinear operating-point linearization |
 | [`linearize`](inc/damp/design/linearization.hpp#L117) | function | Design-time synthesis (not PWM-rate) | Linearize a Dynamics / Measurement model about an operating point (+1 more overload) |
 | [`linmod`](inc/damp/matlab.hpp#L588) | function | MATLAB®-style aliases (host) | MATLAB®-style nonlinear linearization about an operating point |
@@ -597,7 +597,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`panel_legend_id`](inc/damp/simulation/plot_plotly.hpp#L285) | function | Simulation / SIL harness (host) | Legend id for subplot row (1-based): "legend", "legend2", … |
 | [`panel_x_domain`](inc/damp/simulation/plot_plotly.hpp#L275) | function | Simulation / SIL harness (host) | Horizontal domain for stacked multi-panel x-axes |
 | [`parallel`](inc/damp/systems/state_space.hpp#L323) | function | LTI systems (SS / TF / ZPK / discretize) | Parallel connection (shared input, summed outputs) |
-| [`ParameterDriftMonitor`](inc/damp/estimation/parameter_estimation.hpp#L249) | block | Observers & estimators | Residual-based drift detector: has the plant moved away from the model? |
+| [`ParameterDriftMonitor`](inc/damp/estimation/parameter_estimation.hpp#L250) | block | Observers & estimators | Residual-based drift detector: has the plant moved away from the model? |
 | [`ParameterEstimator`](inc/damp/concepts.hpp#L156) | concept | Core, configuration & backend vocabulary | Online grey-box parameter estimator: physical parameters + gating |
 | [`park_transform`](inc/damp/math/transforms.hpp#L354) | function | Scalar math, complex & frames | Park transform (αβ → dq) |
 | [`PatternEntry`](inc/damp/matrix/pattern_matrix.hpp#L21) | enum | Linear algebra | What an entry of a sparsity pattern is known to be at compile time |
@@ -611,8 +611,8 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`pid`](inc/damp/controllers/pid.hpp#L361) | function | Design-time synthesis (not PWM-rate) | Continuous PID gains Kₚ, Kᵢ, K_d with every other knob at its default |
 | [`pid`](inc/damp/matlab.hpp#L249) | function | MATLAB®-style aliases (host) | MATLAB®-style parallel-form continuous PID constructor |
 | [`pid_pole_placement`](inc/damp/design/pid_design.hpp#L960) | function | Design-time synthesis (not PWM-rate) | PI gains that place the closed-loop poles of a first-order plant b₀/(a₁ s + a₀) (+4 more overloads) |
-| [`PIDController`](inc/damp/controllers/pid.hpp#L902) | function | Design-time synthesis (not PWM-rate) | Deduce the runtime from its gains, keeping their scalar: PIDController pid{gains} is a PID; through an alias the mode comes from the alias: PIController pi{gains}; |
-| [`PIDController`](inc/damp/controllers/pid.hpp#L513) | block | Runtime controllers | Fixed-rate discrete 2-DOF PID (canonical runtime) (+3 more overloads) |
+| [`PIDController`](inc/damp/controllers/pid.hpp#L903) | function | Design-time synthesis (not PWM-rate) | Deduce the runtime from its gains, keeping their scalar: PIDController pid{gains} is a PID; through an alias the mode comes from the alias: PIController pi{gains}; |
+| [`PIDController`](inc/damp/controllers/pid.hpp#L514) | block | Runtime controllers | Fixed-rate discrete 2-DOF PID (canonical runtime) (+3 more overloads) |
 | [`PIDGains`](inc/damp/controllers/pid.hpp#L135) | block | Runtime controllers | 2-DOF continuous-time PID gains, limits and setpoint weights |
 | [`PIDMode`](inc/damp/controllers/pid.hpp#L374) | enum | Runtime controllers | Compile-time selection of the PID control-law structure |
 | [`PIDPolePlacementSpec`](inc/damp/design/pid_design.hpp#L912) | block | Design-time synthesis (not PWM-rate) | Closed-loop targets for the continuous pid_pole_placement forms |
@@ -721,7 +721,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`RlsVectorState`](inc/damp/estimation/rls.hpp#L90) | block | Observers & estimators | Vector RLS runtime state for N parameters |
 | [`RobustExactDifferentiator`](inc/damp/filters/differentiator.hpp#L62) | block | Filters & signal conditioning | First-order robust exact differentiator (super-twisting differentiator) |
 | [`RootLocusResult`](inc/damp/analysis/poles.hpp#L230) | block | Frequency-domain analysis (host) | Root-locus data: closed-loop poles along a gain grid |
-| [`rotary_gearbox`](inc/damp/toolbox/actuator.hpp#L152) | function | Embedded helpers (controls-adjacent utilities) | Build a ServoAxis for a rotary joint behind a gearbox |
+| [`rotary_gearbox`](inc/damp/toolbox/actuator.hpp#L151) | function | Embedded helpers (controls-adjacent utilities) | Build a ServoAxis for a rotary joint behind a gearbox |
 | [`RowVec`](inc/damp/matrix/rowvec.hpp#L26) | block | Linear algebra | Row vector specialization of Matrix<1, N, T> |
 | [`RowView`](inc/damp/matrix/views.hpp#L201) | block | Linear algebra | Non-owning row view of a matrix |
 | [`RS`](inc/damp/toolbox/iec61131.hpp#L89) | block | Embedded helpers (controls-adjacent utilities) | RS Latch (Reset-Set Latch) |
@@ -736,9 +736,9 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`select`](inc/damp/systems/state_space.hpp#L668) | function | LTI systems (SS / TF / ZPK / discretize) | SISO channel slice y_iy / u_iu |
 | [`SequenceComponents`](inc/damp/math/transforms.hpp#L513) | block | Scalar math, complex & frames | Symmetrical (sequence) components of a three-phase phasor set |
 | [`series`](inc/damp/systems/state_space.hpp#L267) | function | LTI systems (SS / TF / ZPK / discretize) | Series connection: sys2 follows sys1 (u → sys1 → sys2 → y) |
-| [`ServoAxis`](inc/damp/toolbox/actuator.hpp#L106) | block | Embedded helpers (controls-adjacent utilities) | One servoactuator transmission: SI joint unit ⟷ drive (motor) units |
-| [`ServoBank`](inc/damp/toolbox/actuator.hpp#L232) | block | Embedded helpers (controls-adjacent utilities) | A bank of ServoAxis transmissions: maps a synchronized multi-axis TrajectoryState array straight to drive commands in one call |
-| [`ServoCommand`](inc/damp/toolbox/actuator.hpp#L83) | block | Embedded helpers (controls-adjacent utilities) | A drive-native servoactuator setpoint: position, velocity, torque |
+| [`ServoAxis`](inc/damp/toolbox/actuator.hpp#L105) | block | Embedded helpers (controls-adjacent utilities) | One servoactuator transmission: SI joint unit ⟷ drive (motor) units |
+| [`ServoBank`](inc/damp/toolbox/actuator.hpp#L231) | block | Embedded helpers (controls-adjacent utilities) | A bank of ServoAxis transmissions: maps a synchronized multi-axis TrajectoryState array straight to drive commands in one call |
+| [`ServoCommand`](inc/damp/toolbox/actuator.hpp#L82) | block | Embedded helpers (controls-adjacent utilities) | A drive-native servoactuator setpoint: position, velocity, torque |
 | [`sgn`](inc/damp/math/math.hpp#L448) | function | Scalar math, complex & frames | Sign function — −1 if val < 0, 1 if val > 0, 0 if val == 0 |
 | [`sigma`](inc/damp/analysis/frequency.hpp#L827) | function | Frequency-domain analysis (host) | Singular-value frequency response of a (possibly MIMO) state-space system (+1 more overload) |
 | [`sigmaplot`](inc/damp/simulation/plot_plotly.hpp#L999) | function | Simulation / SIL harness (host) | Plot singular-value frequency response (log frequency, dB) |
@@ -899,9 +899,9 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`TorqueSpeedPoint`](inc/damp/motor/spm.hpp#L143) | block | Motor control pack (if present) | One sample of the SPM torque–speed envelope (MTPA i_d=0 branch) |
 | [`TP`](inc/damp/toolbox/iec61131.hpp#L259) | block | Embedded helpers (controls-adjacent utilities) | TP Timer (Timer Pulse) |
 | [`TrackedOutputs`](inc/damp/design/steady_state_target.hpp#L59) | block | Design-time synthesis (not PWM-rate) | The outputs a law without integrators or a disturbance model holds at r through its steady-state target (design::lqr, design::lqg): `TrackedOutputs<1>{{0}}`, in that order (the references r follow it) |
-| [`TrajectoryBoundary`](inc/damp/trajectory/trajectory_types.hpp#L178) | block | Trajectory value types | Boundary conditions at one endpoint of a polynomial trajectory: a position and its time derivatives through jerk |
-| [`TrajectoryLimits`](inc/damp/trajectory/trajectory_types.hpp#L45) | block | Trajectory value types | Asymmetric kinematic limits for a trapezoidal or S-curve motion profile |
-| [`TrajectoryState`](inc/damp/trajectory/trajectory_types.hpp#L76) | block | Trajectory value types | A point on a motion profile: commanded position, velocity, acceleration |
+| [`TrajectoryBoundary`](inc/damp/trajectory/trajectory_types.hpp#L179) | block | Trajectory value types | Boundary conditions at one endpoint of a polynomial trajectory: a position and its time derivatives through jerk |
+| [`TrajectoryLimits`](inc/damp/trajectory/trajectory_types.hpp#L46) | block | Trajectory value types | Asymmetric kinematic limits for a trapezoidal or S-curve motion profile |
+| [`TrajectoryState`](inc/damp/trajectory/trajectory_types.hpp#L77) | block | Trajectory value types | A point on a motion profile: commanded position, velocity, acceleration |
 | [`TransferFunction`](inc/damp/systems/transfer_function.hpp#L108) | block | LTI systems (SS / TF / ZPK / discretize) | SISO polynomial transfer function G(s) = num(s)/den(s) |
 | [`TransferFunctionResult`](inc/damp/design/model_result.hpp#L34) | block | Design-time synthesis (not PWM-rate) | A designed transfer function with its success / status |
 | [`transform`](inc/damp/matrix/core.hpp#L1494) | function | Linear algebra | Apply f to every entry, B(i, j) = f(A(i, j)): the matrix counterpart of std::transform |

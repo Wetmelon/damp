@@ -7,14 +7,12 @@ and this project uses [Semantic Versioning](https://semver.org/) for tags.
 0.x releases may break API without a deprecation cycle (see [AGENTS.md](AGENTS.md)
 and [known limitations](docs/known_limitations.md)).
 
-## [Unreleased]
+## [0.2.0] — 2026-11-08
 
-Core API wave: one runtime per LQ/MPC design, one set of tick verbs, delay in
-the plant, and the matching numerics and heater examples.
-
-This section describes the tree at HEAD. It replaces the unreleased delay-in-the-law
-work that landed on main after 0.1.0 (`InputDelayPredictor`, `PredictedInputDelay`,
-delay templates on OFLQG / MPC). v0.1.0 never shipped those names.
+One runtime and one set of tick verbs for every LQ and MPC design, input and
+output delay in the plant model, and a core that builds with no C++ standard
+headers, with the numerics, examples and compiler workarounds that go with them.
+The API breaks from 0.1.0 throughout: see Changed and Removed.
 
 ### Added
 
@@ -149,9 +147,7 @@ delay templates on OFLQG / MPC). v0.1.0 never shipped those names.
   `ins_error_jacobian` returns that `PatternMatrix`, and `ins_inject` the sparse reset Jacobian;
   `.to_matrix()` gives the dense one.
 - `design/synthesis.hpp` (`*_bundle` wrappers). `StateFeedback` as a public
-  runtime. `discrete_oflqg`, `offset_free_lqg.hpp`, `offset_free_mpc.hpp`.
-- Delay in the design or runtime (`InputDelayPredictor`, `PredictedInputDelay`,
-  `OutputDelay`, delay template parameters on OFLQG / MPC).
+  runtime. `offset_free_mpc.hpp`: `OFMPC` replaces it.
 - `toolbox/encoder.hpp` (now `damp/encoder/`). `toolbox/thermal.hpp`.
 - `estimation/commissioning_frontends.hpp`, `estimation/experiment_safety.hpp`,
   `estimation/successive_compensator.hpp`, `filters/highpass.hpp` (`HighPass`).
@@ -216,4 +212,5 @@ Runtime controllers and estimators default to `float`; design synthesis defaults
 
 See [docs/known_limitations.md](docs/known_limitations.md).
 
+[0.2.0]: https://github.com/Wetmelon/damp/releases/tag/v0.2.0
 [0.1.0]: https://github.com/Wetmelon/damp/releases/tag/v0.1.0
