@@ -2,6 +2,7 @@
 
 Short paths from a plant to a tick. Exhaustive names: [REFERENCE.md](../REFERENCE.md).
 Rules: [AGENTS.md](../AGENTS.md). Limits: [known_limitations.md](known_limitations.md).
+Compiler bugs: [known_issues.md](known_issues.md).
 
 The plant is the process under control (motor, heater, pendulum). Damp holds a
 model of it: command $`u`$ in, measurement $`y`$ (and often state $`x`$) out —
