@@ -179,6 +179,8 @@ The API breaks from 0.1.0 throughout: see Changed and Removed.
 - `dpwm_zero_sequence` is constexpr on Clang 19.
 - `make embedded-check` reports a compile error instead of passing, and the Clang constexpr budget check finds MinGW's libstdc++ whatever is first on PATH.
 - `make tidy`, `make iwyu` and `make fix_includes` drop GCC's `-fconstexpr-ops-limit`, which clang tools reject.
+- CMake's `docs` target exists only at the top level, so it cannot clash with a parent project's.
+- The README's FetchContent snippet skips the submodules: `libs/` is only for this repo's own tests and examples.
 
 ## [0.1.0] — 2026-08-09
 

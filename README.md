@@ -27,7 +27,8 @@ CMake, FetchContent or `find_package`, same target:
 include(FetchContent)
 FetchContent_Declare(damp
     GIT_REPOSITORY https://github.com/Wetmelon/damp.git
-    GIT_TAG v0.2.0   # 0.x: pin a commit or tag; the API can move
+    GIT_TAG v0.2.0     # 0.x: pin a commit or tag; the API can move
+    GIT_SUBMODULES ""  # libs/ is only for this repo's own tests and examples
 )
 FetchContent_MakeAvailable(damp)
 target_link_libraries(your_fw PRIVATE wetmelon::damp)

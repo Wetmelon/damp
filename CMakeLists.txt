@@ -159,8 +159,9 @@ if(DAMP_BUILD_EXAMPLES)
 endif()
 
 # --- Docs (mirrors `make docs`) ---
+# Top level only: a project using add_subdirectory or FetchContent may have its own docs target.
 find_package(Doxygen)
-if(DOXYGEN_FOUND AND EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/Doxyfile)
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR AND DOXYGEN_FOUND AND EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/Doxyfile)
     add_custom_target(docs
         COMMAND ${CMAKE_COMMAND} -E make_directory docs/html
         COMMAND ${DOXYGEN_EXECUTABLE} Doxyfile

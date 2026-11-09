@@ -219,9 +219,9 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | ---- | ----------- |
 | [`DiscretizationMethod`](inc/damp/systems/discretization.hpp#L27) | Discretization methods for continuous-time state-space systems |
 | [`DiscretizationResult`](inc/damp/systems/discretization.hpp#L50) | A discretized or resampled model with its success / status, read like an optional |
-| [`InputDelay`](inc/damp/systems/discretization.hpp#L558) | An input delay of θ = seconds, in up to N registers (0 ≤ θ ≤ N·Ts): each register state holds the inputs already sent, v(k−1) … v(k−N). `discretize(sys, Ts, InputDelay<N>{θ})` returns that model; design on it like any other. `InputDelay{θ}` is N = 1 (+1 more overload) |
+| [`InputDelay`](inc/damp/systems/discretization.hpp#L559) | An input delay of θ = seconds, in up to N registers (0 ≤ θ ≤ N·Ts): each register state holds the inputs already sent, v(k−1) … v(k−N). `discretize(sys, Ts, InputDelay<N>{θ})` returns that model; design on it like any other. `InputDelay{θ}` is N = 1 (+1 more overload) |
 | [`LeverrierResult`](inc/damp/systems/zpk.hpp#L512) | Faddeev–LeVerrier characteristic polynomial and adjoint coefficient matrices |
-| [`OutputDelay`](inc/damp/systems/discretization.hpp#L584) | A measurement delay of θ = seconds, in up to N registers (0 ≤ θ ≤ N·Ts): the reading that arrives at sample k is y(t_k − θ). `discretize(sys, Ts, OutputDelay<N>{θ})` returns that model; design on it like any other. `OutputDelay{θ}` is N = 1 (+1 more overload) |
+| [`OutputDelay`](inc/damp/systems/discretization.hpp#L585) | A measurement delay of θ = seconds, in up to N registers (0 ≤ θ ≤ N·Ts): the reading that arrives at sample k is y(t_k − θ). `discretize(sys, Ts, OutputDelay<N>{θ})` returns that model; design on it like any other. `OutputDelay{θ}` is N = 1 (+1 more overload) |
 | [`PolyRootsResult`](inc/damp/systems/zpk.hpp#L91) | Roots of a real polynomial given highest power first |
 | [`SsFeed`](inc/damp/systems/state_space.hpp#L644) | One term of a linear output mix: k · y_iy |
 | [`StaircaseFormResult`](inc/damp/systems/realization.hpp#L645) | A model in staircase coordinates, the orthogonal transform that took it there, and its rank |
@@ -247,7 +247,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`eval_frf`](inc/damp/systems/state_space.hpp#L232) | Evaluate frequency response of a state-space system |
 | [`feedback`](inc/damp/systems/state_space.hpp#L390) | Negative feedback: y = sys1(u − sys2(y)) (+1 more overload) |
 | [`feedback_read`](inc/damp/systems/state_space.hpp#L827) | Unity (or weighted) negative feedback around G_loop, read G_out |
-| [`fractional_delay`](inc/damp/systems/discretization.hpp#L511) | Fractional-delay all-pass filter of order N (Thiran): z⁻ᴰ for a real D = delay / Ts |
+| [`fractional_delay`](inc/damp/systems/discretization.hpp#L512) | Fractional-delay all-pass filter of order N (Thiran): z⁻ᴰ for a real D = delay / Ts |
 | [`leverrier_num_scale`](inc/damp/systems/zpk.hpp#L578) | Magnitude scale of each strictly proper Leverrier numerator coefficient |
 | [`lft`](inc/damp/systems/state_space.hpp#L504) | Lower linear fractional transformation: K closes the loop from P's last outputs to its last inputs |
 | [`markov_checked_numerator`](inc/damp/systems/zpk.hpp#L608) | num, or the numerator the Markov parameters give over den when num misses it |
@@ -260,7 +260,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`observable_canonical_form`](inc/damp/systems/realization.hpp#L568) | Observable canonical form of a SISO model: ones on A's subdiagonal, −α in its last column, C = eₙᵀ |
 | [`parallel`](inc/damp/systems/state_space.hpp#L323) | Parallel connection (shared input, summed outputs) |
 | [`poly_roots`](inc/damp/systems/zpk.hpp#L122) | Compute roots of a real polynomial given highest power first |
-| [`resample`](inc/damp/systems/discretization.hpp#L400) | Resample a ZOH-discrete model to a new sample time |
+| [`resample`](inc/damp/systems/discretization.hpp#L401) | Resample a ZOH-discrete model to a new sample time |
 | [`schur_stable`](inc/damp/systems/transfer_function.hpp#L66) | True if every root of z^(N−1)·p(z⁻¹) lies strictly inside the unit circle (Schur–Cohn) |
 | [`select`](inc/damp/systems/state_space.hpp#L668) | SISO channel slice y_iy / u_iu |
 | [`series`](inc/damp/systems/state_space.hpp#L267) | Series connection: sys2 follows sys1 (u → sys1 → sys2 → y) |
@@ -271,7 +271,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`to_transfer_function`](inc/damp/systems/zpk.hpp#L776) | SISO state-space → transfer function, size NX+1 / NX+1 |
 | [`to_zpk`](inc/damp/systems/zpk.hpp#L463) | Convert a SISO transfer function to zero-pole-gain form (+1 more overload) |
 | [`transmission_zeros`](inc/damp/systems/zeros.hpp#L426) | The finite invariant zeros of a state-space model with any number of inputs and outputs |
-| [`upsample`](inc/damp/systems/discretization.hpp#L460) | Upsample a discrete model by an integer factor: sys(z) → sys(zᴸ) at Ts / L |
+| [`upsample`](inc/damp/systems/discretization.hpp#L461) | Upsample a discrete model by an integer factor: sys(z) → sys(zᴸ) at Ts / L |
 
 > **Design-time — not for the PWM interrupt**
 
@@ -666,7 +666,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`FirWindow`](inc/damp/filters/fir.hpp#L48) | Window applied to the ideal truncated impulse response |
 | [`Goertzel`](inc/damp/filters/spectral.hpp#L51) | Generalized Goertzel single-bin DFT — amplitude/phase at one frequency |
 | [`HarmonicAnalyzer`](inc/damp/filters/spectral.hpp#L203) | Harmonic analyzer — a Goertzel bank over a fundamental and K−1 harmonics |
-| [`LowPass`](inc/damp/filters/lowpass.hpp#L221) | Nth-order low-pass filter (direct form I) (+1 more overload) |
+| [`LowPass`](inc/damp/filters/lowpass.hpp#L224) | Nth-order low-pass filter (direct form I) (+1 more overload) |
 | [`LowPassResult`](inc/damp/filters/lowpass.hpp#L56) | Direct-form coefficients of an Nth-order low-pass, with success / status |
 | [`MedianFilter`](inc/damp/filters/median.hpp#L33) | Sliding-window median filter — nonlinear spike/outlier rejection |
 | [`MovingAverage`](inc/damp/filters/moving_average.hpp#L66) | Moving-average (boxcar) filter — also a DC-preserving harmonic-notch comb |
@@ -749,7 +749,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | ---- | ----------- |
 | [`DqCommand`](inc/damp/motor/foc.hpp#L84) | Clamped dq voltage command from FOController::current_controller |
 | [`FOController`](inc/damp/motor/foc.hpp#L99) | dq current regulator: PI + decoupling FF → clamped Vdq |
-| [`Modulator`](inc/damp/motor/modulation.hpp#L495) | Thin scheme-holding wrapper for FOC / deploy paths |
+| [`Modulator`](inc/damp/motor/modulation.hpp#L498) | Thin scheme-holding wrapper for FOC / deploy paths |
 | [`PwmScheme`](inc/damp/motor/modulation.hpp#L77) | Carrier-based three-phase VSI modulation scheme |
 | [`SvmDuties`](inc/damp/motor/modulation.hpp#L101) | Result of a duty-map: half-bridge duties plus an over-modulation flag |
 | [`TorqueSpeedPoint`](inc/damp/motor/spm.hpp#L143) | One sample of the SPM torque–speed envelope (MTPA i_d=0 branch) |
@@ -761,22 +761,22 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`constant_power_torque_limit`](inc/damp/motor/foc.hpp#L42) | Constant-power torque ceiling Tₘₐₓ = P_rated / \|ω\| |
 | [`decoupling_feedforward`](inc/damp/motor/foc.hpp#L70) | Decoupling + back-EMF feedforward at R = 0 (reference currents) |
 | [`dpwm_zero_sequence`](inc/damp/motor/modulation.hpp#L267) | DPWM zero-sequence for a chosen discontinuous scheme |
-| [`duties_from_phase_voltages`](inc/damp/motor/modulation.hpp#L359) | Map phase voltages + zero-sequence to clamped half-bridge duties |
+| [`duties_from_phase_voltages`](inc/damp/motor/modulation.hpp#L362) | Map phase voltages + zero-sequence to clamped half-bridge duties |
 | [`flux_from_Kv`](inc/damp/motor/spm.hpp#L54) | λ from Kᵥ via torque_constant_from_Kv |
 | [`flux_from_torque_constant`](inc/damp/motor/spm.hpp#L36) | λ from datasheet Kₜ (amplitude / peak-per-phase convention) |
 | [`iq_from_torque`](inc/damp/motor/spm.hpp#L70) | i_q = T_e / Kₜ for id = 0 |
 | [`linear_modulation_voltage`](inc/damp/motor/modulation.hpp#L125) | Peak phase voltage at the linear SVPWM hexagon limit |
 | [`max_iq`](inc/damp/motor/spm.hpp#L110) | Max positive i_q for an SPM (i_d = 0) at electrical speed |
 | [`max_torque_at_speed`](inc/damp/motor/spm.hpp#L171) | SPM max-torque point at a mechanical speed (i_d = 0 only) |
-| [`modulation_duty_cycles`](inc/damp/motor/modulation.hpp#L398) | Carrier-based VSI duty cycles from an αβ voltage command |
+| [`modulation_duty_cycles`](inc/damp/motor/modulation.hpp#L401) | Carrier-based VSI duty cycles from an αβ voltage command |
 | [`modulation_index`](inc/damp/motor/modulation.hpp#L163) | Modulation index relative to the linear SVPWM circle |
-| [`modulation_zero_sequence`](inc/damp/motor/modulation.hpp#L325) | Zero-sequence for any PwmScheme |
+| [`modulation_zero_sequence`](inc/damp/motor/modulation.hpp#L328) | Zero-sequence for any PwmScheme |
 | [`motor_constant`](inc/damp/motor/spm.hpp#L62) | Motor constant Kₘ = Kₜ / √R [Nm/√W] |
-| [`six_step_duty_cycles`](inc/damp/motor/modulation.hpp#L464) | Classical six-step (full-wave) duty pattern from the αβ angle |
+| [`six_step_duty_cycles`](inc/damp/motor/modulation.hpp#L467) | Classical six-step (full-wave) duty pattern from the αβ angle |
 | [`six_step_fundamental_voltage`](inc/damp/motor/modulation.hpp#L144) | Six-step (square-wave) fundamental peak phase voltage |
 | [`steady_state_vdq`](inc/damp/motor/spm.hpp#L78) | Steady-state Vdq (rotor frame) |
 | [`steady_state_voltage_magnitude`](inc/damp/motor/spm.hpp#L91) | \|Vdq\| at a steady-state operating point |
-| [`svm_duty_cycles`](inc/damp/motor/modulation.hpp#L441) | Space-vector PWM duty cycles from an αβ voltage command |
+| [`svm_duty_cycles`](inc/damp/motor/modulation.hpp#L444) | Space-vector PWM duty cycles from an αβ voltage command |
 | [`svpwm_zero_sequence`](inc/damp/motor/modulation.hpp#L198) | Min-max zero-sequence injection for space-vector PWM |
 | [`thipwm_zero_sequence`](inc/damp/motor/modulation.hpp#L227) | Third-harmonic injection (THIPWM) zero-sequence — 1/6 of fundamental |
 | [`torque`](inc/damp/motor/spm.hpp#L102) | Electromagnetic torque of an SPM (i_d = 0): T_e = Kₜ i_q |
