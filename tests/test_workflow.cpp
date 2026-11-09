@@ -35,7 +35,7 @@ StateSpace<0, N, N> unity_positive(double Ts) {
 
 // Every expected pole has its own closed-loop pole within tol.
 template<size_t NC, size_t NE>
-bool contains_poles(const ColVec<NC, complex<double>>& closed_loop, const ColVec<NE, complex<double>>& expected, double tol) {
+bool contains_poles(const damp::array<complex<double>, NC>& closed_loop, const damp::array<complex<double>, NE>& expected, double tol) {
     damp::array<bool, NC> used{};
     for (size_t i = 0; i < NE; ++i) {
         size_t best = NC;
@@ -89,8 +89,8 @@ TEST_SUITE("Workflow: design, result, runtime") {
         REQUIRE(loop.has_value());
         const auto cl = feedback(*loop, unity_positive<1>(sys.Ts));
         REQUIRE(cl.has_value());
-        const auto                 observer = mat::compute_eigenvalues(sys.A * (Matrix<2, 2>::identity() - (res.kalman.M * sys.C))).values;
-        ColVec<4, complex<double>> expected{};
+        const auto                      observer = mat::compute_eigenvalues(sys.A * (Matrix<2, 2>::identity() - (res.kalman.M * sys.C))).values;
+        damp::array<complex<double>, 4> expected{};
         for (size_t i = 0; i < 2; ++i) {
             expected[i] = res.e[i];
             expected[2 + i] = observer[i];
@@ -162,8 +162,8 @@ TEST_SUITE("Workflow: design, result, runtime") {
         REQUIRE(loop.has_value());
         const auto cl = feedback(*loop, unity_positive<2>(sys.Ts));
         REQUIRE(cl.has_value());
-        const auto                 observer = mat::compute_eigenvalues(sys.A * (Matrix<2, 2>::identity() - (res.kalman.M * sys.C))).values;
-        ColVec<5, complex<double>> expected{};
+        const auto                      observer = mat::compute_eigenvalues(sys.A * (Matrix<2, 2>::identity() - (res.kalman.M * sys.C))).values;
+        damp::array<complex<double>, 5> expected{};
         for (size_t i = 0; i < 3; ++i) {
             expected[i] = res.e[i];
         }

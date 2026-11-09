@@ -53,11 +53,7 @@ TEST_SUITE("Generalized eigenvalues") {
         const auto         ev = mat::compute_eigenvalues(A);
         REQUIRE(ge.success);
         REQUIRE(ge.n_finite == 4);
-        damp::array<damp::complex<double>, 4> want{};
-        for (size_t i = 0; i < 4; ++i) {
-            want[i] = ev.values[i];
-        }
-        CHECK(contains_roots(ge.values, ge.n_finite, want, 1e-12));
+        CHECK(contains_roots(ge.values, ge.n_finite, ev.values, 1e-12));
     }
 
     TEST_CASE("a singular B gives an infinite eigenvalue, constant-evaluated") {

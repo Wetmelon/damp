@@ -73,7 +73,7 @@ TEST_SUITE("FixedGainObserver") {
         // The current form runs M with A M = L: (I − M C) A = A⁻¹ (A − L C) A has the same poles.
         CHECK((A * result.M - result.L).norm() < 1e-12);
         const auto ev_c = compute_eigenvalues<2, double>(current_error(A, C, result.M)).values;
-        CHECK(real_pair_is({ev_c[0], ev_c[1]}, 0.3, 0.4));
+        CHECK(real_pair_is(ev_c, 0.3, 0.4));
     }
 
     TEST_CASE("place_observer handles complex-conjugate pole pairs") {
@@ -270,9 +270,9 @@ TEST_SUITE("FixedGainObserver") {
         CHECK((A * result.M - result.L).norm() < 1e-12); // L = A M
         CHECK(real_pair_is(result.e, 0.0, 0.3));
         const auto ev_c = compute_eigenvalues<2, double>(current_error(A, C, result.M)).values;
-        CHECK(real_pair_is({ev_c[0], ev_c[1]}, 0.0, 0.3));
+        CHECK(real_pair_is(ev_c, 0.0, 0.3));
         const auto ev_p = compute_eigenvalues<2, double>(A - result.L * C).values;
-        CHECK(real_pair_is({ev_p[0], ev_p[1]}, 0.0, 0.3));
+        CHECK(real_pair_is(ev_p, 0.0, 0.3));
 
         // The estimate converges.
         FixedGainObserver observer{result};
@@ -330,7 +330,7 @@ TEST_SUITE("FixedGainObserver") {
         CHECK(fast.M(1, 0) == doctest::Approx(5.0 / 9.0).epsilon(1e-12));
         CHECK(real_pair_is(fast.e, 0.5, 0.0));
         const auto ev_c = compute_eigenvalues<2, double>(current_error(A, C, fast.M)).values;
-        CHECK(real_pair_is({ev_c[0], ev_c[1]}, 0.5, 0.0)); // e is the runtime's eig((I − M C) A)
+        CHECK(real_pair_is(ev_c, 0.5, 0.0)); // e is the runtime's eig((I − M C) A)
 
         // The float runtime: the estimate converges with no amplified rounding along the fast mode.
         FixedGainObserver observer{fast.as<float>()};

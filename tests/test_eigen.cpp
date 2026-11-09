@@ -396,6 +396,12 @@ TEST_CASE("the real eigen solvers refuse a complex matrix at the signature, and 
     CHECK(static_cast<bool>(compute_eigenvalues(Matrix<2, 2>{{1.0, 0.0}, {0.0, 2.0}})));
 }
 
+TEST_CASE("eigenvalues come back as a list, like the pole lists") {
+    using List = damp::array<damp::complex<double>, 3>;
+    static_assert(damp::is_same_v<decltype(mat::EigenResult<3, double>::values), List>);
+    static_assert(damp::is_same_v<decltype(mat::GeneralizedEigenResult<3, double>::values), List>);
+}
+
 TEST_CASE("compute_eigenvalues resolves complex conjugate eigenvalues") {
     SUBCASE("2x2 pure rotation has eigenvalues ±i") {
         Matrix<2, 2> A = {

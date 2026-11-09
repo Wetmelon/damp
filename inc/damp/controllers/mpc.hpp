@@ -1826,7 +1826,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
     damp::array<T, NX>      dist{};
     for (size_t i = 0; i < NX; ++i) {
         order[i] = i;
-        dist[i] = damp::abs(eig.values(i) - T{1});
+        dist[i] = damp::abs(eig.values[i] - T{1});
     }
     for (size_t i = 1; i < NX; ++i) {
         for (size_t j = i; j > 0 && dist[order[j]] < dist[order[j - 1]]; --j) {
@@ -1839,7 +1839,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
         for (size_t m = NX; m > 0 && cluster == 0; --m) {
             damp::complex<T> mean{};
             for (size_t k = 0; k < m; ++k) {
-                mean += eig.values(order[k]);
+                mean += eig.values[order[k]];
             }
             mean = mean / static_cast<T>(m);
             const T spread = band_scale * damp::exp(damp::log(rel) / static_cast<T>(m));
@@ -1855,7 +1855,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
 
     T tau_max = T{0};
     for (size_t i = 0; i < NX; ++i) {
-        const T mag = damp::abs(eig.values(i));
+        const T mag = damp::abs(eig.values[i]);
         if (integrator[i] || !(mag > T{0}) || !(mag < T{1})) {
             continue; // integrators, unstable and deadbeat poles contribute no timescale
         }

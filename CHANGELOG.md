@@ -84,6 +84,9 @@ delay templates on OFLQG / MPC). v0.1.0 never shipped those names.
 
 ### Changed
 
+- `mat::EigenResult::values` is a `damp::array<damp::complex<T>, N>`, as the pole lists,
+  `GeneralizedEigenResult::values` and the transmission zeros already are; it was a `ColVec`.
+  An eigenvalue list is a list, not a vector: index it with `values[i]`.
 - The examples and the guide's canonical snippet deploy as `Law<kRes, float>`, on the design's constants: cart-pole, pendulum,
   LQI, ADRC and the heater OFMPC sketches and SILs, and the reaction-wheel SIL. Their tick functions take `Law<kRes, T>&`.
 - README and the guide ("Where the design runs") show the three deploy forms side by side: `Law<kRes, float>` on

@@ -23,7 +23,9 @@ namespace mat {
  * @brief Eigenvalue computation result.
  *
  * Returned by compute_eigenvalues(). Eigenvalues are fully resolved complex
- * values. @c schur_vectors is not a matrix of eigenvectors: it is the real Schur
+ * values, a list in the order of the diagonal of the real Schur form; a complex
+ * pair occupies two consecutive entries, positive imaginary part first.
+ * @c schur_vectors is not a matrix of eigenvectors: it is the real Schur
  * basis D·Z of the balanced matrix mapped back to A, with unit columns. Its
  * leading k columns span an invariant subspace of A whenever k does not split a
  * 2×2 block (a complex pair); it is orthogonal only when A needed no balancing.
@@ -35,9 +37,9 @@ namespace mat {
  */
 template<size_t N, typename T = double>
 struct [[nodiscard]] EigenResult {
-    ColVec<N, damp::complex<T>> values{};        ///< Eigenvalues
-    Matrix<N, N, T>             schur_vectors{}; ///< Real Schur basis D·Z with unit columns (nested invariant subspaces)
-    bool                        success{false};  ///< Every eigenvalue deflated within the budget, from finite input
+    damp::array<damp::complex<T>, N> values{};        ///< Eigenvalues, in Schur-diagonal order
+    Matrix<N, N, T>                  schur_vectors{}; ///< Real Schur basis D·Z with unit columns (nested invariant subspaces)
+    bool                             success{false};  ///< Every eigenvalue deflated within the budget, from finite input
 
     /** @brief True when every eigenvalue deflated, from finite input. */
     [[nodiscard]] constexpr explicit operator bool() const { return success; }

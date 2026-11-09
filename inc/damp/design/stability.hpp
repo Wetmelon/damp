@@ -543,10 +543,10 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
  * Computes the eigenvalues of the closed-loop state matrix A_cl = A - B*K.
  * These poles determine the closed-loop system dynamics.
  *
- * If the eigen solver does not converge, returns a zero vector rather than
+ * If the eigen solver does not converge, returns all zeros rather than
  * uninitialized/garbage pole locations. Callers that set design @c success from
  * the Riccati/gain path alone (e.g. LQR) keep @c success true when K is valid;
- * a zeroed pole vector signals that pole reporting failed independently of K.
+ * an all-zero pole list signals that pole reporting failed independently of K.
  *
  * @tparam NX  Number of states
  * @tparam NU  Number of inputs
@@ -555,7 +555,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
  * @param B    Control input matrix
  * @param K    State feedback gain matrix (u = -K*x)
  *
- * @return Vector of closed-loop pole locations (eigenvalues as complex numbers);
+ * @return The closed-loop pole locations (eigenvalues as complex numbers);
  *         all zeros if eigenvalue computation does not converge
  */
 template<size_t NX, size_t NU, typename T = double>
@@ -564,15 +564,11 @@ template<size_t NX, size_t NU, typename T = double>
     const Matrix<NX, NU, T>& B,
     const Matrix<NU, NX, T>& K
 ) {
-    Matrix<NX, NX, T>                 A_cl = A - B * K;
-    auto                              eigen = mat::compute_eigenvalues(A_cl);
-    damp::array<damp::complex<T>, NX> poles{};
-    if (eigen.success) {
-        for (size_t i = 0; i < NX; ++i) {
-            poles[i] = eigen.values[i];
-        }
+    const auto eigen = mat::compute_eigenvalues(Matrix<NX, NX, T>(A - (B * K)));
+    if (!eigen.success) {
+        return damp::array<damp::complex<T>, NX>{};
     }
-    return poles;
+    return eigen.values;
 }
 
 } // namespace stability

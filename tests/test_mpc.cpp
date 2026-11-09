@@ -697,7 +697,7 @@ TEST_CASE("to_ss realizes the unconstrained runtime, and closed around the plant
     // All closed-loop poles inside the unit circle...
     const auto eig = mat::compute_eigenvalues(cl->A);
     for (size_t i = 0; i < 3; ++i) {
-        CHECK(damp::abs(eig.values(i)) < 1.0);
+        CHECK(damp::abs(eig.values[i]) < 1.0);
     }
     // ...and the r → y DC gain is exactly 1 (integral action).
     const auto dc = *eval_frf(*cl, damp::complex<double>{1.0, 0.0});

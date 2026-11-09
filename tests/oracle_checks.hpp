@@ -252,7 +252,7 @@ constexpr double gold_bound(double e) {
 }
 
 template<size_t NX>
-constexpr double max_margin(const ColVec<NX, damp::complex<double>>& ev, bool discrete) {
+constexpr double max_margin(const damp::array<damp::complex<double>, NX>& ev, bool discrete) {
     double m = discrete ? ev[0].abs() : ev[0].real();
     for (size_t i = 1; i < NX; ++i) {
         m = damp::max(m, discrete ? ev[i].abs() : ev[i].real());

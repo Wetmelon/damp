@@ -144,13 +144,8 @@ template<size_t N, typename T = double>
         for (size_t j = 0; j < M; ++j) {
             companion(M - 1, j) = -c[N - 1 - j] * inv_lead;
         }
-        const auto            eig = mat::compute_eigenvalues(companion);
-        PolyRootsResult<N, T> result{};
-        for (size_t i = 0; i < M; ++i) {
-            result.roots[i] = eig.values[i];
-        }
-        result.success = eig.success;
-        return result;
+        const auto eig = mat::compute_eigenvalues(companion);
+        return PolyRootsResult<N, T>{.roots = eig.values, .success = eig.success};
     }
 }
 
@@ -733,9 +728,7 @@ template<size_t NX, typename T = double, size_t NW = 0, size_t NV = 0>
         if (!pe.success) {
             return art;
         }
-        for (size_t i = 0; i < NX; ++i) {
-            art.poles[i] = pe.values[i];
-        }
+        art.poles = pe.values;
         const auto tz = transmission_zeros(sys);
         if (!tz.success) {
             return art;

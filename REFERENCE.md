@@ -140,7 +140,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`ConstMatrix`](inc/damp/matrix/const_matrix.hpp#L86) | A matrix that is a constant of its type: no storage, and a product with a vector that has no term for an entry that is exactly 0 |
 | [`ConvertsExactly`](inc/damp/matrix/matrix_traits.hpp#L76) | Matrix elements of type From convert to To without rounding: the same type, or a real into the complex of its own precision |
 | [`Diagonal`](inc/damp/matrix/views.hpp#L29) | Diagonal view of a square matrix |
-| [`EigenResult`](inc/damp/matrix/eigen.hpp#L37) | Eigenvalue computation result |
+| [`EigenResult`](inc/damp/matrix/eigen.hpp#L39) | Eigenvalue computation result |
 | [`FullQR`](inc/damp/matrix/decomposition.hpp#L513) | Result of a full (complete) QR factorization |
 | [`GeneralizedEigenResult`](inc/damp/matrix/generalized_eigen.hpp#L60) | Generalized eigenvalues of A − λB: the finite ones, and how many there are |
 | [`is_matrix_element`](inc/damp/matrix/matrix_traits.hpp#L38) | True if T may be a Matrix element type |
@@ -171,7 +171,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`blkdiag`](inc/damp/matrix/concat.hpp#L133) | Block-diagonal assembly of MatrixLike arguments |
 | [`cholesky`](inc/damp/matrix/decomposition.hpp#L122) | Cholesky decomposition for positive-definite matrices |
 | [`cholesky_solve`](inc/damp/matrix/solve.hpp#L160) | Solve AX = B via Cholesky (A = LLᴴ) |
-| [`compute_eigenvalues`](inc/damp/matrix/eigen.hpp#L761) | Compute the eigenvalues (and Schur vectors) of a real square matrix |
+| [`compute_eigenvalues`](inc/damp/matrix/eigen.hpp#L763) | Compute the eigenvalues (and Schur vectors) of a real square matrix |
 | [`cos`](inc/damp/matrix/functions.hpp#L1350) | Matrix cosine via scaling and double-angle reconstruction |
 | [`cosh`](inc/damp/matrix/functions.hpp#L1384) | Matrix hyperbolic cosine cosh(A) = (exp(A) + exp(−A))/2 |
 | [`default_tol`](inc/damp/matrix/matrix_traits.hpp#L121) | Type-appropriate default tolerance for floating-point comparisons. float  ~7 decimal digits  → 1e-6 double ~15 decimal digits → 1e-12 |
@@ -220,19 +220,19 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`DiscretizationMethod`](inc/damp/systems/discretization.hpp#L27) | Discretization methods for continuous-time state-space systems |
 | [`DiscretizationResult`](inc/damp/systems/discretization.hpp#L50) | A discretized or resampled model with its success / status, read like an optional |
 | [`InputDelay`](inc/damp/systems/discretization.hpp#L558) | An input delay of θ = seconds, in up to N registers (0 ≤ θ ≤ N·Ts): each register state holds the inputs already sent, v(k−1) … v(k−N). `discretize(sys, Ts, InputDelay<N>{θ})` returns that model; design on it like any other. `InputDelay{θ}` is N = 1 (+1 more overload) |
-| [`LeverrierResult`](inc/damp/systems/zpk.hpp#L517) | Faddeev–LeVerrier characteristic polynomial and adjoint coefficient matrices |
+| [`LeverrierResult`](inc/damp/systems/zpk.hpp#L512) | Faddeev–LeVerrier characteristic polynomial and adjoint coefficient matrices |
 | [`OutputDelay`](inc/damp/systems/discretization.hpp#L584) | A measurement delay of θ = seconds, in up to N registers (0 ≤ θ ≤ N·Ts): the reading that arrives at sample k is y(t_k − θ). `discretize(sys, Ts, OutputDelay<N>{θ})` returns that model; design on it like any other. `OutputDelay{θ}` is N = 1 (+1 more overload) |
 | [`PolyRootsResult`](inc/damp/systems/zpk.hpp#L91) | Roots of a real polynomial given highest power first |
 | [`SsFeed`](inc/damp/systems/state_space.hpp#L644) | One term of a linear output mix: k · y_iy |
 | [`StaircaseFormResult`](inc/damp/systems/realization.hpp#L645) | A model in staircase coordinates, the orthogonal transform that took it there, and its rank |
 | [`StateScaling`](inc/damp/systems/realization.hpp#L39) | A model in balanced state coordinates, and the diagonal scaling that took it there |
 | [`StateSpace`](inc/damp/systems/state_space.hpp#L137) | State-space representation for linear time-invariant systems (discrete or continuous) (+10 more overloads) |
-| [`StateSpaceZPKResult`](inc/damp/systems/zpk.hpp#L661) | SISO state-space → ZPK conversion result with runtime zero count |
+| [`StateSpaceZPKResult`](inc/damp/systems/zpk.hpp#L656) | SISO state-space → ZPK conversion result with runtime zero count |
 | [`StateTransformResult`](inc/damp/systems/realization.hpp#L123) | A model in new state coordinates z = transform·x, and the transform that took it there |
 | [`TransferFunction`](inc/damp/systems/transfer_function.hpp#L108) | SISO polynomial transfer function G(s) = num(s)/den(s) |
 | [`TransmissionZerosResult`](inc/damp/systems/zeros.hpp#L56) | The finite invariant zeros of a state-space model and their count |
-| [`ZPK`](inc/damp/systems/zpk.hpp#L197) | Zero-pole-gain (ZPK) representation of a SISO LTI system |
-| [`ZPKResult`](inc/damp/systems/zpk.hpp#L432) | Result of converting a transfer function to zero-pole-gain form |
+| [`ZPK`](inc/damp/systems/zpk.hpp#L192) | Zero-pole-gain (ZPK) representation of a SISO LTI system |
+| [`ZPKResult`](inc/damp/systems/zpk.hpp#L427) | Result of converting a transfer function to zero-pole-gain form |
 
 **Functions**
 
@@ -248,14 +248,14 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`feedback`](inc/damp/systems/state_space.hpp#L390) | Negative feedback: y = sys1(u − sys2(y)) (+1 more overload) |
 | [`feedback_read`](inc/damp/systems/state_space.hpp#L827) | Unity (or weighted) negative feedback around G_loop, read G_out |
 | [`fractional_delay`](inc/damp/systems/discretization.hpp#L511) | Fractional-delay all-pass filter of order N (Thiran): z⁻ᴰ for a real D = delay / Ts |
-| [`leverrier_num_scale`](inc/damp/systems/zpk.hpp#L583) | Magnitude scale of each strictly proper Leverrier numerator coefficient |
+| [`leverrier_num_scale`](inc/damp/systems/zpk.hpp#L578) | Magnitude scale of each strictly proper Leverrier numerator coefficient |
 | [`lft`](inc/damp/systems/state_space.hpp#L504) | Lower linear fractional transformation: K closes the loop from P's last outputs to its last inputs |
-| [`markov_checked_numerator`](inc/damp/systems/zpk.hpp#L613) | num, or the numerator the Markov parameters give over den when num misses it |
-| [`minreal_zpk`](inc/damp/systems/zpk.hpp#L834) | Cancel matching pole-zero pairs on a ZPK model |
+| [`markov_checked_numerator`](inc/damp/systems/zpk.hpp#L608) | num, or the numerator the Markov parameters give over den when num misses it |
+| [`minreal_zpk`](inc/damp/systems/zpk.hpp#L827) | Cancel matching pole-zero pairs on a ZPK model |
 | [`mix`](inc/damp/systems/state_space.hpp#L709) | Fold plant outputs into one input: v = g u + Σ kᵢ yᵢ (+1 more overload) |
 | [`mix_outputs`](inc/damp/systems/state_space.hpp#L786) | Linear combination of outputs: y = Σ αⱼ yⱼ |
 | [`modal_form`](inc/damp/systems/realization.hpp#L285) | Real modal canonical form: A block diagonal, one block per mode |
-| [`mul_linear`](inc/damp/systems/zpk.hpp#L163) | Multiply a polynomial of degree by (s − root) in place; poly[k] multiplies sᵏ |
+| [`mul_linear`](inc/damp/systems/zpk.hpp#L158) | Multiply a polynomial of degree by (s − root) in place; poly[k] multiplies sᵏ |
 | [`observability_staircase`](inc/damp/systems/realization.hpp#L850) | Observability staircase form: the observable part split off by an orthogonal transform |
 | [`observable_canonical_form`](inc/damp/systems/realization.hpp#L568) | Observable canonical form of a SISO model: ones on A's subdiagonal, −α in its last column, C = eₙᵀ |
 | [`parallel`](inc/damp/systems/state_space.hpp#L323) | Parallel connection (shared input, summed outputs) |
@@ -265,11 +265,11 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`select`](inc/damp/systems/state_space.hpp#L668) | SISO channel slice y_iy / u_iu |
 | [`series`](inc/damp/systems/state_space.hpp#L267) | Series connection: sys2 follows sys1 (u → sys1 → sys2 → y) |
 | [`similarity_transform`](inc/damp/systems/realization.hpp#L374) | Change the state basis to z = T·x: (T·A·T⁻¹, T·B, C·T⁻¹, D), and T·G for the noise input |
-| [`ss2tf`](inc/damp/systems/zpk.hpp#L813) | MATLAB®-style alias for SISO to_transfer_function |
+| [`ss2tf`](inc/damp/systems/zpk.hpp#L806) | MATLAB®-style alias for SISO to_transfer_function |
 | [`ss_gain`](inc/damp/systems/state_space.hpp#L655) | Static gain y = k u (no states) |
 | [`subtract`](inc/damp/systems/state_space.hpp#L586) | Differencing connection: outputs y = y₁ − y₂ |
-| [`to_transfer_function`](inc/damp/systems/zpk.hpp#L783) | SISO state-space → transfer function, size NX+1 / NX+1 |
-| [`to_zpk`](inc/damp/systems/zpk.hpp#L468) | Convert a SISO transfer function to zero-pole-gain form (+1 more overload) |
+| [`to_transfer_function`](inc/damp/systems/zpk.hpp#L776) | SISO state-space → transfer function, size NX+1 / NX+1 |
+| [`to_zpk`](inc/damp/systems/zpk.hpp#L463) | Convert a SISO transfer function to zero-pole-gain form (+1 more overload) |
 | [`transmission_zeros`](inc/damp/systems/zeros.hpp#L426) | The finite invariant zeros of a state-space model with any number of inputs and outputs |
 | [`upsample`](inc/damp/systems/discretization.hpp#L460) | Upsample a discrete model by an integer factor: sys(z) → sys(zᴸ) at Ts / L |
 
@@ -926,9 +926,9 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`NicholsResult`](inc/damp/analysis/frequency.hpp#L697) | Nichols chart locus across a frequency sweep |
 | [`NyquistPoint`](inc/damp/analysis/frequency.hpp#L371) | Single-point Nyquist response data |
 | [`NyquistResult`](inc/damp/analysis/frequency.hpp#L383) | Nyquist response data across a frequency sweep |
-| [`PoleInfo`](inc/damp/analysis/poles.hpp#L56) | Natural frequency and damping ratio for each pole |
-| [`PoleZeroMap`](inc/damp/analysis/poles.hpp#L102) | Poles and zeros of a system, for pole-zero plotting |
-| [`RootLocusResult`](inc/damp/analysis/poles.hpp#L234) | Root-locus data: closed-loop poles along a gain grid |
+| [`PoleInfo`](inc/damp/analysis/poles.hpp#L52) | Natural frequency and damping ratio for each pole |
+| [`PoleZeroMap`](inc/damp/analysis/poles.hpp#L98) | Poles and zeros of a system, for pole-zero plotting |
+| [`RootLocusResult`](inc/damp/analysis/poles.hpp#L230) | Root-locus data: closed-loop poles along a gain grid |
 | [`SigmaPoint`](inc/damp/analysis/frequency.hpp#L770) | Singular values of G(jω) at one frequency |
 | [`SigmaResult`](inc/damp/analysis/frequency.hpp#L784) | Singular-value frequency response over a grid |
 | [`StepInfo`](inc/damp/analysis/time_response.hpp#L381) | Step-response characteristics of a single output signal |
@@ -941,7 +941,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`arange`](inc/damp/analysis/linspace.hpp#L115) | Half-open arithmetic range [start, stop) with step step (+2 more overloads) |
 | [`bode`](inc/damp/analysis/frequency.hpp#L267) | Compute Bode plot data for a SISO state-space system (+2 more overloads) |
 | [`canonical_phase_margin`](inc/damp/analysis/frequency.hpp#L150) | Normalize phase margin to (-180, 180] |
-| [`damp`](inc/damp/analysis/poles.hpp#L74) | Compute natural frequency and damping for each pole |
+| [`damp`](inc/damp/analysis/poles.hpp#L70) | Compute natural frequency and damping for each pole |
 | [`dcgain`](inc/damp/analysis/norms.hpp#L42) | Compute DC gain of a continuous-time system |
 | [`disk_margin`](inc/damp/analysis/disk_margin.hpp#L158) | Disk margin of a SISO loop L under unity negative feedback |
 | [`frf_s_or_z`](inc/damp/analysis/frequency.hpp#L1005) | FRF evaluation point: jω (continuous) or e^{jωTs} (discrete) |
@@ -966,9 +966,9 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`nyquist`](inc/damp/analysis/frequency.hpp#L499) | Compute Nyquist data for a SISO state-space system (+1 more overload) |
 | [`phase_margin_unwrapped`](inc/damp/analysis/frequency.hpp#L169) | Find the phase margin using the unwrapped phase trajectory |
 | [`poles`](inc/damp/analysis/poles.hpp#L40) | Compute open-loop poles (eigenvalues of A matrix) |
-| [`poly_roots`](inc/damp/analysis/poles.hpp#L150) | Roots of a polynomial given highest power first (MATLAB® `roots`) |
-| [`pzmap`](inc/damp/analysis/poles.hpp#L173) | Pole-zero map of a SISO transfer function (MATLAB® `pzmap(tf)`) (+2 more overloads) |
-| [`rlocus`](inc/damp/analysis/poles.hpp#L293) | Root locus of a SISO state-space plant over an explicit gain grid (+1 more overload) |
+| [`poly_roots`](inc/damp/analysis/poles.hpp#L146) | Roots of a polynomial given highest power first (MATLAB® `roots`) |
+| [`pzmap`](inc/damp/analysis/poles.hpp#L169) | Pole-zero map of a SISO transfer function (MATLAB® `pzmap(tf)`) (+2 more overloads) |
+| [`rlocus`](inc/damp/analysis/poles.hpp#L289) | Root locus of a SISO state-space plant over an explicit gain grid (+1 more overload) |
 | [`sigma`](inc/damp/analysis/frequency.hpp#L827) | Singular-value frequency response of a (possibly MIMO) state-space system (+1 more overload) |
 | [`step`](inc/damp/analysis/time_response.hpp#L164) | Step response of a (MIMO) state-space system (+1 more overload) |
 | [`stepinfo`](inc/damp/analysis/time_response.hpp#L402) | Compute step-response characteristics from an output/time signal (+1 more overload) |

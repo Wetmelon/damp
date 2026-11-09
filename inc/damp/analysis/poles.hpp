@@ -42,11 +42,7 @@ template<size_t NX, typename T = double>
     if (!eigen.success) {
         return damp::nullopt;
     }
-    damp::array<damp::complex<T>, NX> p{};
-    for (size_t i = 0; i < NX; ++i) {
-        p[i] = eigen.values[i];
-    }
-    return p;
+    return eigen.values;
 }
 
 /**
