@@ -265,8 +265,11 @@ template<typename T = float>
  */
 template<typename T = float>
 [[nodiscard]] constexpr T dpwm_zero_sequence(const ColVec<3, T>& v_abc, T v_dc, PwmScheme scheme, const AlphaBeta<T>& v_ab = {}) {
-    const auto [v_min, v_max] = damp::minmax({v_abc[0], v_abc[1], v_abc[2]});
-    const T half = v_dc / T{2};
+    // Not a structured binding: Clang 19 cannot read one through the lambdas below at compile time.
+    const auto range = damp::minmax({v_abc[0], v_abc[1], v_abc[2]});
+    const T    v_min = range.first;
+    const T    v_max = range.second;
+    const T    half = v_dc / T{2};
 
     const auto high = [&]() -> T {
         return half - v_max;

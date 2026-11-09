@@ -15,6 +15,7 @@
  * std:: implementation lives in std_fallback.hpp.
  */
 
+#include "damp/config.hpp" // IWYU pragma: keep - the macros below are not symbols the cleaner can see
 
 namespace damp {
 

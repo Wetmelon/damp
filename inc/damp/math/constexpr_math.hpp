@@ -141,6 +141,10 @@ constexpr T assoc_barrier(T v) {
     if (!damp::is_constant_evaluated()) { // AArch64 has no "t" constraint; "w" is any FP/SIMD register
         asm volatile("" : "+w"(v));
     }
+#elif defined(__GNUC__) && !defined(__clang__) && (__GNUC__ < 12) && defined(__x86_64__)
+    if (!damp::is_constant_evaluated()) { // GCC 11 has no builtin: an empty asm pins v in an SSE register
+        asm volatile("" : "+x"(v));
+    }
 #endif
     return v;
 }

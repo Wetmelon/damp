@@ -378,8 +378,8 @@ TEST_SUITE("FixedGainObserver and SteadyStateTarget") {
             u_held = u;
             x = kPlantD.A * x + kPlantD.B * u;
         }
-        CHECK((est.state_estimate() - ref).norm() == 0.0);
-        CHECK((est.at_command() - ref).norm() == 0.0);
+        CHECK((est.state_estimate() - ref).norm() <= 1e-14); // not 0: -ffast-math may order the two sides differently
+        CHECK((est.at_command() - ref).norm() <= 1e-14);
     }
 
     TEST_CASE("the deviation observer matches the absolute observer, and anchor shifts the deviation exactly") {

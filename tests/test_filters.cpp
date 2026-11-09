@@ -621,16 +621,17 @@ TEST_SUITE("Discrete designer guards") {
         REQUIRE(f3.success);
         REQUIRE(f4.success);
         //! The float numerator moved 20 % per tap with compiler flags; (1 + z⁻¹)^N pins Σb = 1 + Σa.
+        //! Summed in double: 1 + Σa nearly cancels, and in float -ffast-math's summation order alone moves it.
         const auto dc_gain = [](const auto& r) {
-            float num = 0.0f;
-            float den = 1.0f;
+            double num = 0.0;
+            double den = 1.0;
             for (const float b : r.b) {
-                num += b;
+                num += static_cast<double>(b);
             }
             for (const float a : r.a) {
-                den += a;
+                den += static_cast<double>(a);
             }
-            return static_cast<double>(num / den);
+            return num / den;
         };
         CHECK(dc_gain(f3) == doctest::Approx(1.0).epsilon(1e-5));
         CHECK(dc_gain(f4) == doctest::Approx(1.0).epsilon(1e-5));

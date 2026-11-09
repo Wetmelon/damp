@@ -194,13 +194,16 @@ template<size_t N, typename T = double>
             return out;
         }
         // b = g·(1 + z⁻¹)^N with Σb = 1 + Σa: unit DC gain by construction, as in lowpass_2nd.
-        T dc_sum{1};
+        // Summed in double: 1 + Σa nearly cancels, and in float -ffast-math's summation order alone
+        // moves the DC gain by a percent.
+        double dc_sum = 1.0;
         for (const T a_k : out.a) {
-            dc_sum += a_k;
+            dc_sum += static_cast<double>(a_k);
         }
-        T binomial{1};
+        const T g = static_cast<T>(dc_sum / static_cast<double>(size_t{1} << N));
+        T       binomial{1};
         for (size_t k = 0; k <= N; ++k) {
-            out.b[k] = binomial * dc_sum / static_cast<T>(size_t{1} << N);
+            out.b[k] = binomial * g;
             binomial = binomial * static_cast<T>(N - k) / static_cast<T>(k + 1);
         }
         return out;

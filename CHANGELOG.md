@@ -135,7 +135,7 @@ The API breaks from 0.1.0 throughout: see Changed and Removed.
   limits and concepts go through `damp::` aliases, and `make nostd-check` builds and
   runs a constexpr design and its tick with `-nostdinc++`.
 - With no `damp_profile.hpp` and no backend macro, Damp builds on the host defaults without a warning, so `g++ -std=c++20 -I inc` is quiet. The warning stays for a backend macro set with no profile (`-DDAMP_BACKEND_ETL`, `DAMP_MATH_BACKEND_*`), because every file in the program must agree on the backend.
-- Compilers: g++ 11+ and clang++ 19+. MSVC is not supported. Host CMake builds
+- Compilers: g++ 11.3+ and clang++ 19+. MSVC is not supported. Host CMake builds
   use `-mtune=native`. Every product sketch must fit clang's default constexpr
   budget (`tools/clang_budget_check.sh`).
 - Every `*Result` struct is `[[nodiscard]]`, so a discarded design, analysis or
@@ -167,6 +167,11 @@ The API breaks from 0.1.0 throughout: see Changed and Removed.
 - `design::place_jordan` on a defective structure no longer fails under GCC 15.2 `-O3 -ffast-math` on x86-64, which vectorizes the chain vectors' open-coded complex multiply-accumulate wrongly. They are `Matrix` products now.
 - GCC 15 warnings are gone: `-Wuninitialized` on the `Matrix` copy constructor's seed, which now has one return so it is built in place, and `-Wmaybe-uninitialized` on the pole-placement BFGS matrix.
 - The PLLs treat an amplitude below the smallest normal value as no signal. A lost input could stick in the subnormals and hold the phase error at full scale, so `integrator_leak` never bled the offset back to nominal on a CPU that keeps subnormals. The tests missed it because linking with `-ffast-math` flushes them on x86.
+- `damp/math/math_backend.hpp` honours the profile when it is the first Damp header included.
+- `assoc_barrier` works on GCC 11 for x86, where float and double `sin` lost accuracy under `-ffast-math`.
+- `design::lowpass<3>` and `<4>` in float keep unit DC gain under `-ffast-math` whatever the compiler's summation order.
+- `discretize` refuses a NaN `Ts` under `-ffast-math` on GCC 11.
+- `dpwm_zero_sequence` is constexpr on Clang 19.
 
 ## [0.1.0] — 2026-08-09
 

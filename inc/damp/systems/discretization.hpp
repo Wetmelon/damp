@@ -338,7 +338,8 @@ template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, si
     if (!damp::finite_positive(sampling_time)) {
         return detail::refused<Result>(DesignStatus::invalid_sample_time);
     }
-    if (sys.Ts != T{0} || !damp::isfinite(sys.Ts)) {
+    // Finiteness first: under -ffast-math a NaN can compare equal to 0, and the compiler may then fold the test.
+    if (!damp::isfinite(sys.Ts) || sys.Ts != T{0}) {
         if (detail::same_sample_time(sys.Ts, sampling_time)) {
             return detail::discretized(sys); // already discrete at this rate
         }

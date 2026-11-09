@@ -56,8 +56,8 @@ TEST_CASE("Complex Matrix Support") {
 
 TEST_CASE("Eigen Decomposition") {
     SUBCASE("2x2 symmetric matrix") {
-        Mat2 A = {{4.0, 1.0}, {1.0, 3.0}};
-        auto result = compute_eigenvalues(A);
+        Mat2<double> A = {{4.0, 1.0}, {1.0, 3.0}};
+        auto         result = compute_eigenvalues(A);
 
         CHECK(result.success);
 
@@ -80,7 +80,7 @@ TEST_CASE("Eigen Decomposition") {
 
     SUBCASE("3x3 symmetric: Schur vectors satisfy A v ≈ λ v") {
         // Non-diagonal SPD-ish matrix so the Schur basis is a real eigenbasis.
-        Mat3 A = {
+        Mat3<double> A = {
             {4.0, 1.0, 0.5},
             {1.0, 3.0, 0.2},
             {0.5, 0.2, 2.0},
@@ -127,7 +127,7 @@ TEST_CASE("Eigen Decomposition") {
     SUBCASE("2x2 general matrix (Buck converter closed-loop)") {
         // This is approximately what the Buck converter A-B*K looks like
         // with large values typical of power electronics
-        Mat2 A_cl = {{-3e4, -5e3}, {6.8e4, -6.8e3}};
+        Mat2<double> A_cl = {{-3e4, -5e3}, {6.8e4, -6.8e3}};
 
         auto result = compute_eigenvalues(A_cl);
         CHECK(result.success);
@@ -144,8 +144,8 @@ TEST_CASE("Eigen Decomposition") {
 
     SUBCASE("2x2 consteval eigenvalue computation") {
         // Test that eigenvalues work in consteval context
-        constexpr Mat2 A_cl = {{-3e4, -5e3}, {6.8e4, -6.8e3}};
-        constexpr auto result = compute_eigenvalues(A_cl);
+        constexpr Mat2<double> A_cl = {{-3e4, -5e3}, {6.8e4, -6.8e3}};
+        constexpr auto         result = compute_eigenvalues(A_cl);
 
         static_assert(result.success, "Eigenvalue computation should converge");
 

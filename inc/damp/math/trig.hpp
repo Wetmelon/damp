@@ -15,7 +15,8 @@
  * for |x| ≤ 6e6 rad; asin 3.3 ulp, acos 3.1 ulp, atan and atan2 2.1 ulp against a
  * quad-precision reference (relative error ≤ 6.8e-16; atan, asin and atan2 odd, exactly
  * 0 at 0). Float sin/cos: exhaustive over all floats; double: 3.2e7 samples per domain
- * (analysis/trig).
+ * (analysis/trig). Clang 23 with -ffast-math on x86 reaches 1.4e-6 in float asin and acos
+ * near |x| = 1.
  */
 
 
