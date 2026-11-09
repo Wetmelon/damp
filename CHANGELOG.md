@@ -161,7 +161,7 @@ The API breaks from 0.1.0 throughout: see Changed and Removed.
 
 ### Fixed
 
-- GCC 14 no longer crashes (an internal compiler error in `build_data_member_initialization`) on a `constexpr` constructor holding a local whose member's default initializer copies a `Matrix`, as an `RlsConfig` does through its `Bounds`. The copy constructor reached `unset_elements`, which is not `constexpr`; it now builds its unset array itself, with the same code.
+- GCC 14 no longer crashes (an internal compiler error in `build_data_member_initialization`) on a `constexpr` constructor holding a local whose member's default initializer copies a `Matrix`, as an `RlsConfig` does through its `Bounds`. The copy constructor reached `unset_elements`, which is not `constexpr`; it now builds its unset array itself, with the same code. GCC 11 crashed on the same code for the copy constructor's `is_constant_evaluated` branch; there it copies the array whole.
 - `UnscentedKalmanFilter::NSIG` is `NSP`. MinGW's `<signal.h>` defines `NSIG` as a macro, so GCC 11 on Windows could not compile `control.hpp`.
 - Results no longer depend on the compiler rounding a cancellation to exactly 0. GCC 15 under `-ffast-math`, and any build that fuses multiply-adds (Cortex-M4F/M7, x86-64-v3), broke these:
   - `design::eso` decides "ω_o·T_s below eps of T" on the product. GCC 15 folded the old test `1 − e^{−ω_o T_s} > 0` into `ω_o T_s > 0`, so a design whose gain was exactly 0 reported success.

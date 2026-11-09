@@ -431,11 +431,19 @@ public:
      * GCC SROA of small locals). Arity is Cols rather than Rows*Cols, which
      * keeps g++ frontend cost reasonable for typical matrix shapes.
      */
+#if defined(__GNUC__) && !defined(__clang__) && (__GNUC__ < 12)
+    // GCC 11 crashes (an internal compiler error in build_data_member_initialization) on a copy
+    // constructor that branches on is_constant_evaluated, reached from a member's default
+    // initializer in a local of a `constexpr` constructor, as RlsConfig's Bounds is. It copies the
+    // array whole instead.
+    constexpr Matrix(const Matrix& other) : data_(other.data_) {}
+#else
     constexpr Matrix(const Matrix& other) : data_(copy_seed(other)) {
         if (!damp::is_constant_evaluated()) {
             copy_from(other);
         }
     }
+#endif
 
     constexpr Matrix& operator=(const Matrix& other) {
         if (this != &other) {
