@@ -33,7 +33,7 @@ FetchContent_MakeAvailable(damp)
 target_link_libraries(your_fw PRIVATE wetmelon::damp)
 ```
 
-GCC 11.3+ (tested with 14) and Clang 19+. MSVC is not supported. [Known issues](docs/known_issues.md) lists the compiler bugs that change results, among them GCC 15's `pow(0, y)` under `-ffast-math`.
+GCC 11.3+ (tested with 14) and Clang 19+. MSVC is not supported. On Windows, Clang needs `--target=x86_64-w64-mingw32` and a MinGW GCC installed for its libstdc++. [Known issues](docs/known_issues.md) lists the compiler bugs that change results, among them GCC 15's `pow(0, y)` under `-ffast-math`.
 
 ## Using ETL instead of the standard library
 
@@ -179,8 +179,9 @@ make tests
 make examples
 ```
 
-[tup](https://gittup.org/tup/) under the Makefile. Copy `tup.config.default` →
-`tup.config` if you need a local compiler path.
+[tup](https://gittup.org/tup/) under the Makefile. You also need GNU make, `sh`, `g++`, `clang-format` and Python 3. The first `make` copies `tup.config.default` to `tup.config`: set `CONFIG_COMPILER_PATH` or `CONFIG_CXX` there to use another compiler.
+
+Two steps skip themselves when their tool is not on PATH: the Clang constexpr budget (`clang++` 19+) and the Cortex-M7 asm dumps (`arm-none-eabi-g++`), which also compile the README and guide snippets. Board builds (`make targets`) need [PlatformIO®](targets/README.md).
 
 ## Trademarks
 

@@ -140,9 +140,14 @@ The API breaks from 0.1.0 throughout: see Changed and Removed.
   budget (`tools/clang_budget_check.sh`).
 - Every `*Result` struct is `[[nodiscard]]`, so a discarded design, analysis or
   simulation result warns at the call site.
+- `CONFIG_CXX=clang++` builds on Windows: it targets MinGW's libstdc++, since Damp does not support MSVC.
+- Examples and `make target-smoke` link statically, as the tests do, so they run whichever libstdc++ DLL is on PATH.
+- `make` no longer needs `arm-none-eabi-g++`: the Cortex-M7 asm dumps, which also compile the README and guide snippets, skip themselves without it.
+- `make embedded-check` looks for heap container includes in Damp's own headers, not in what a standard library reaches.
 
 ### Removed
 
+- `CONFIG_BACKEND` and `CONFIG_COMPILER_PREFIX` in `tup.config`, which did not build. The ETL backend has its own contract checks, and PlatformIO does cross builds.
 - `ins_propagate_covariance` and `ins_F_mul`: `ErrorStateKalmanFilter::predict(F)` on the sparse
   transition does their job and costs less. It also carries a δx not yet injected through F, as the
   generic `predict` always did; after an injection δx is zero, so nothing changes there.
@@ -172,6 +177,8 @@ The API breaks from 0.1.0 throughout: see Changed and Removed.
 - `design::lowpass<3>` and `<4>` in float keep unit DC gain under `-ffast-math` whatever the compiler's summation order.
 - `discretize` refuses a NaN `Ts` under `-ffast-math` on GCC 11.
 - `dpwm_zero_sequence` is constexpr on Clang 19.
+- `make embedded-check` reports a compile error instead of passing, and the Clang constexpr budget check finds MinGW's libstdc++ whatever is first on PATH.
+- `make tidy`, `make iwyu` and `make fix_includes` drop GCC's `-fconstexpr-ops-limit`, which clang tools reject.
 
 ## [0.1.0] — 2026-08-09
 

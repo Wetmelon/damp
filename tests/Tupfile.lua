@@ -25,6 +25,15 @@ INCLUDES += '-isystem../libs/json/single_include'
 TEST_CXXFLAGS = CXXFLAGS..' -ffast-math'
 TEST_LDFLAGS = LDFLAGS
 
+-- The consteval designs in these tests exceed clang's default budget (.clangd matches). Product
+-- sketches must not: examples build at the default, and tools/clang_budget_check.sh checks them.
+-- -fno-finite-math-only because these tests spell NaN and Inf as numeric_limits constants, which
+-- clang folds away under finite-math-only. tests/damp_backend keeps the flag and checks data that
+-- arrives at run time, which is what firmware sees.
+if string.find(CXX, 'clang', 1, true) then
+    TEST_CXXFLAGS = TEST_CXXFLAGS..' -fconstexpr-steps=100000000 -fno-finite-math-only'
+end
+
 -- Compile all .cpp files in the tests directory
 objs = tup.foreach_rule('*.cpp', '^j^'..CXX..' -c %f '..TEST_CXXFLAGS..' '..INCLUDES..' '..WARNINGS..' -o %o', 'build/objs/%B.o')
 

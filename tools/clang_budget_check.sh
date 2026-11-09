@@ -6,9 +6,9 @@
 # Usage (tup, CWD = examples/):
 #   sh ../tools/clang_budget_check.sh <c++ driver> <stamp> <sketch.cpp> [compile flags...]
 #
-# The driver only names the target (-dumpmachine), so clang analyzes against the same
-# libstdc++. Without clang++ 19 or newer on PATH (the oldest AGENTS.md supports) the check
-# writes a "skipped" stamp and passes.
+# The driver names the target (-dumpmachine) and, on MinGW, the toolchain root, so clang
+# analyzes against the same libstdc++ whatever is on PATH. Without clang++ 19 or newer on
+# PATH (the oldest AGENTS.md supports) the check writes a "skipped" stamp and passes.
 set -e
 
 GXX=$1
@@ -35,6 +35,11 @@ if [ "$major" -lt 19 ]; then
 fi
 
 target=$("$GXX" -dumpmachine)
+# clang's MinGW driver looks for a triple-prefixed gcc on PATH, not the build driver. Linux
+# keeps clang's own detection: this derivation would give it --sysroot=/usr.
+case "$target" in
+    *mingw*) set -- --sysroot="$("$GXX" -print-libgcc-file-name | sed 's,/lib/gcc/.*,,')" "$@" ;;
+esac
 if ! clang++ --target="$target" -std=c++20 -fsyntax-only "$@" "$SRC"; then
     echo "clang-budget-check FAILED: $SRC does not compile with clang $major at the default -fconstexpr-steps" >&2
     exit 1

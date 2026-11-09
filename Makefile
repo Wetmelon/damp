@@ -11,7 +11,7 @@
 
 .PHONY: all format compiledb build tests examples examples-force sils \
         refs docs doxygen-style-check reference-check embedded-check freestanding-check workbench-check nostd-check ci \
-        tidy iwyu fix_includes target-smoke targets
+        clangdb tidy iwyu fix_includes target-smoke targets
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -30,19 +30,22 @@ endif
 # Compiler, from the same tup.config keys Tuprules.lua reads:
 #   CONFIG_CXX               full override (clang++, path/to/clang++)
 #   CONFIG_COMPILER_PATH     toolchain bin directory
-#   CONFIG_COMPILER_PREFIX   cross prefix, e.g. arm-none-eabi-
 -include tup.config
 ifneq ($(CONFIG_CXX),)
 GXX := $(CONFIG_CXX)
 else ifneq ($(CONFIG_COMPILER_PATH),)
-GXX := $(CONFIG_COMPILER_PATH)/$(CONFIG_COMPILER_PREFIX)g++
+GXX := $(CONFIG_COMPILER_PATH)/g++
 else
-GXX := $(CONFIG_COMPILER_PREFIX)g++
+GXX := g++
 endif
 
 # Python for the tools/ scripts. Override: make refs PYTHON=python3
 ifeq ($(OS),Windows_NT)
 PYTHON ?= py -3
+# clang targets MSVC by default here, which Damp does not support (as in Tuprules.lua).
+ifneq ($(findstring clang,$(GXX)),)
+GXX += --target=x86_64-w64-mingw32 -femulated-tls
+endif
 else
 PYTHON ?= python3
 endif
@@ -156,10 +159,15 @@ CLANG_ARGS     = --extra-arg=--target=$(CLANG_TARGET) \
                  --extra-arg=-fconstexpr-steps=100000000 \
                  --extra-arg=-Wno-unknown-warning-option
 
+# The compile database without GCC's constexpr budget, an error to clang tools (.clangd removes
+# it for the IDE). -Wno-unknown-warning-option covers GCC's warnings, but not this.
+clangdb: compiledb
+	@sed -i 's/ -fconstexpr-ops-limit=[0-9]*//' compile_commands.json
+
 # clang-tidy --fix over every .cpp in compile_commands.json and the inc/ headers they use.
 # (run-clang-tidy spells its option -extra-arg. It is a Python script whose
 # `#!/usr/bin/env python3` shebang fails on Windows, so run it through $(PYTHON).)
-tidy: compiledb
+tidy: clangdb
 	@$(PYTHON) "$$(command -v run-clang-tidy)" -p . -fix -header-filter='inc[/\\].*' \
 		$(subst --extra-arg,-extra-arg,$(CLANG_ARGS)) '\.cpp$$'
 
@@ -179,13 +187,13 @@ INCLUDE_CLEANER_FILES = $(filter-out inc/damp/math/damp_backend.hpp inc/damp/mat
                         $(filter-out %/build/%,$(call rwildcard,examples,*.cpp *.hpp))
 
 # Print suggested include changes, one file per call (--print takes a single input).
-iwyu: compiledb
+iwyu: clangdb
 	@for f in $(INCLUDE_CLEANER_FILES); do \
 		$(INCLUDE_CLEANER) --print=changes "$$f" | sed "s|^|$$f: |"; \
 	done
 
 # Apply them, then re-sort with clang-format.
-fix_includes: compiledb
+fix_includes: clangdb
 	@$(INCLUDE_CLEANER) --edit $(INCLUDE_CLEANER_FILES)
 	@$(MAKE) --no-print-directory format
 
@@ -200,7 +208,7 @@ SMOKE_SKETCHES = pid cart_pole
 target-smoke:
 	@mkdir -p targets/build
 	@for s in $(SMOKE_SKETCHES); do \
-		$(GXX) -std=c++20 -O3 -Wall -Wextra -Iinc -Itargets -Ilibs/etl/include \
+		$(GXX) -std=c++20 -O3 -Wall -Wextra -static -Iinc -Itargets -Ilibs/etl/include \
 			-Iexamples/control/$$s -o targets/build/$${s}_sketch_host.exe \
 			examples/control/$$s/$${s}_sketch.cpp \
 		&& ./targets/build/$${s}_sketch_host.exe || exit 1; \

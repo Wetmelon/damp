@@ -7,9 +7,12 @@
 #   sh tools/contract_check.sh workbench    <g++> <stamp>
 #   sh tools/contract_check.sh nostd        <g++> <stamp>
 #
+# <g++> is one argument and may carry flags: "clang++ --target=x86_64-w64-mingw32".
+#
 # freestanding: control.hpp must compile under ETL + freestanding math, with a constexpr
 #               design and its tick instantiated.
-# embedded:     default (stdlib) control.hpp must not pull <vector>.
+# embedded:     no Damp header reachable from the default (stdlib) control.hpp includes a heap
+#               container header.
 # nostd:        checks/nostd/nostd_check.cpp must build and run with no C++ standard
 #               headers at all (-nostdinc++, ETL_NO_STL): a constexpr design and its tick. An
 #               unguarded hosted #include anywhere in the core fails it.
@@ -56,7 +59,7 @@ freestanding)
         'static_assert(res.success);' \
         'int main() { LQR law{res.as<float>()}; law.update(ColVec<2, float>{0.1F, 0.0F}); return damp::isfinite(law.control()(0, 0)) ? 0 : 1; }' >"$probe"
 
-    if ! "$GXX" -std=c++20 -Iinc -Ilibs/etl/include -fsyntax-only "$probe" 2>"${probe}.log"; then
+    if ! $GXX -std=c++20 -Iinc -Ilibs/etl/include -fsyntax-only "$probe" 2>"${probe}.log"; then
         cat "${probe}.log" >&2
         echo "freestanding-check FAILED: the umbrella, a design or its tick do not compile under ETL + freestanding math" >&2
         rm -f "$probe" "${probe}.log"
@@ -71,13 +74,23 @@ freestanding)
 embedded)
     printf '%s\n' '#include "damp/control.hpp"' 'int main(){}' >"$probe"
 
-    if "$GXX" -std=c++20 -Iinc -M "$probe" 2>/dev/null | grep -q stl_vector.h; then
-        rm -f "$probe"
-        echo "embedded-check FAILED: <vector> is reachable from damp/control.hpp" >&2
+    if ! deps=$($GXX -std=c++20 -Iinc -M "$probe" 2>"${probe}.log"); then
+        cat "${probe}.log" >&2
+        rm -f "$probe" "${probe}.log"
+        echo "embedded-check FAILED: damp/control.hpp does not compile" >&2
         exit 1
     fi
 
-    rm -f "$probe"
+    # Damp's own headers only: what a standard header reaches varies by library (GCC 11's
+    # <algorithm> reaches stl_vector.h), and libc++ has no stl_vector.h to look for.
+    heap='^[[:space:]]*#[[:space:]]*include[[:space:]]*<(vector|string|deque|list|map|set|unordered_map|unordered_set|memory|functional)>'
+    if printf '%s\n' "$deps" | tr '\\ ' '/\n' | grep -E 'damp/.*\.hpp$' | xargs grep -lE "$heap" >&2; then
+        rm -f "$probe" "${probe}.log"
+        echo "embedded-check FAILED: damp/control.hpp reaches the heap container headers in the files above" >&2
+        exit 1
+    fi
+
+    rm -f "$probe" "${probe}.log"
     echo "embedded-check OK: damp/control.hpp is allocation-free"
     echo ok >"$OUT"
     ;;
@@ -85,7 +98,7 @@ embedded)
 workbench)
     printf '%s\n' '#include "damp/workbench.hpp"' 'int main(){}' >"$probe"
 
-    if ! "$GXX" -std=c++20 -Iinc -fsyntax-only "$probe" 2>"${probe}.log"; then
+    if ! $GXX -std=c++20 -Iinc -fsyntax-only "$probe" 2>"${probe}.log"; then
         cat "${probe}.log" >&2
         rm -f "$probe" "${probe}.log"
         echo "workbench-check FAILED: damp/workbench.hpp does not compile on its own" >&2
@@ -99,7 +112,7 @@ workbench)
 
 nostd)
     exe="${probe%.cpp}.exe"
-    if ! "$GXX" -std=c++20 -nostdinc++ -fno-exceptions -fno-rtti -Ichecks/nostd -Iinc -Ilibs/etl/include \
+    if ! $GXX -std=c++20 -nostdinc++ -fno-exceptions -fno-rtti -Ichecks/nostd -Iinc -Ilibs/etl/include \
         checks/nostd/nostd_check.cpp -o "$exe" 2>"${probe}.log"; then
         cat "${probe}.log" >&2
         rm -f "$exe" "${probe}.log"

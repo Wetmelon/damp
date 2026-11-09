@@ -5,12 +5,6 @@ if tup.getconfig("DAMP_SELF_BUILD") ~= "y" then
     return
 end
 
--- The example programs are hosted demos (fmt / plotlypp). They are not part of
--- the freestanding contract, so skip them under the ETL backend variant.
-if BACKEND == 'ETL' then
-    return
-end
-
 INCLUDES = '-I.'
 INCLUDES += '-I../inc'
 INCLUDES += '-I..'   -- repo root (examples may include shared helpers)
@@ -59,19 +53,23 @@ end
 ex_objs = tup.foreach_rule(sources, '^j^'..CXX..' -c %f '..CXXFLAGS..' '..INCLUDES..' '..WARNINGS..' -o %o', 'build/obj/%B.o')
 ex_objs.extra_inputs = {'<fmt>'}
 
--- Link with g++ (objects before LDFLAGS so -lws2_32 etc. resolve on MinGW)
-tup.foreach_rule(ex_objs, CXX..' '..CXXFLAGS..' %f %<fmt> '..LDFLAGS..' -o %o', 'build/%B.exe')
+-- Link with g++ (objects before LDFLAGS so -lws2_32 etc. resolve on MinGW). -static, as for the
+-- tests: these run in the build, and a shared libstdc++ comes from whatever is first on PATH.
+tup.foreach_rule(ex_objs, CXX..' '..CXXFLAGS..' %f %<fmt> '..LDFLAGS..' -static -o %o', 'build/%B.exe')
 
 -- Every product sketch must also compile with clang at its default constexpr budget: the
 -- designs are constant-evaluated, and clang's step limit is not GCC's ops limit. Skipped
--- (and passing) without clang++ 19+ on PATH. Runner: tools/clang_budget_check.sh.
-local sketches = {}
-for _, f in ipairs(sources) do
-    if string.match(f, '_sketch%.cpp$') then
-        sketches[#sketches + 1] = f
+-- (and passing) without clang++ 19+ on PATH. Runner: tools/clang_budget_check.sh. A clang build
+-- has already compiled them at that budget above.
+if not string.find(CXX, 'clang', 1, true) then
+    local sketches = {}
+    for _, f in ipairs(sources) do
+        if string.match(f, '_sketch%.cpp$') then
+            sketches[#sketches + 1] = f
+        end
     end
+    tup.foreach_rule(sketches, 'sh ../tools/clang_budget_check.sh '..CXX..' %o %f '..INCLUDES, 'build/clang_budget/%B.ok')
 end
-tup.foreach_rule(sketches, 'sh ../tools/clang_budget_check.sh '..CXX..' %o %f '..INCLUDES, 'build/clang_budget/%B.ok')
 
 -- ---------------------------------------------------------------------------
 -- Run each example. Plot HTML under plots/<domain>/ is a *real* tup output of

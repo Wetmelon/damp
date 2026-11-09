@@ -1,9 +1,9 @@
 -- Compiler selection (tup.config / tup.config.default):
 --   CONFIG_DAMP_SELF_BUILD=y     — enable this repo's Tupfiles (unset when a submodule)
 --   CONFIG_COMPILER_PATH=...    — directory containing the compiler (optional)
---   CONFIG_COMPILER_PREFIX=...  — e.g. arm-none-eabi- (optional; empty = host)
---   CONFIG_CXX=clang++           — full driver override (optional; wins over path/prefix)
---   CONFIG_BACKEND=ETL          — ETL container + freestanding math (optional)
+--   CONFIG_CXX=clang++           — full driver override (optional; wins over the path)
+--
+-- These build and run host programs. Cross builds are PlatformIO's job: see targets/.
 --
 -- Official API: getconfig("FOO") reads CONFIG_FOO. Default driver is g++ on PATH.
 
@@ -20,7 +20,6 @@ end
 
 local cxx_override = tup.getconfig("CXX")
 local compiler_path = with_slash(tup.getconfig("COMPILER_PATH"))
-local compiler_prefix = tup.getconfig("COMPILER_PREFIX")
 
 if cxx_override ~= "" then
     -- Full override for clang tooling or a non-g++ driver:
@@ -28,8 +27,17 @@ if cxx_override ~= "" then
     --   CONFIG_CXX=C:/Tools/llvm/bin/clang++
     CXX = cxx_override
 else
-    -- Default: g++ (optionally under COMPILER_PATH, optionally prefixed for cross).
-    CXX = compiler_path .. compiler_prefix .. "g++"
+    -- Default: g++, optionally under COMPILER_PATH.
+    CXX = compiler_path .. "g++"
+end
+
+local plat = tup.getconfig("TUP_PLATFORM")
+local on_windows = plat == "win32" or plat == "win64"
+
+-- clang on Windows targets MSVC by default, and Damp does not support MSVC: use MinGW's libstdc++.
+-- Emulated TLS too: Clang 19's native TLS crashes doctest's thread_local on that target.
+if on_windows and string.find(CXX, "clang", 1, true) then
+    CXX = CXX .. " --target=x86_64-w64-mingw32 -femulated-tls"
 end
 
 -- Warning set: Jason Turner / cppbestpractices "GCC / Clang" list
@@ -67,14 +75,6 @@ else
 end
 LDFLAGS = "-O3 -mtune=native -ffunction-sections -fdata-sections -Wl,--gc-sections"
 -- example_drive_governor --live needs Winsock (and joy optional); unused on other exes
-local plat = tup.getconfig("TUP_PLATFORM")
-if plat == "win32" or plat == "win64" then
+if on_windows then
     LDFLAGS = LDFLAGS .. " -lws2_32"
-end
-
--- Backend selection (mirrors damp/config.hpp). Default = C++ stdlib.
--- Variant with CONFIG_BACKEND=ETL: ETL containers + freestanding series math.
-BACKEND = tup.getconfig("BACKEND")
-if BACKEND == "ETL" then
-    CXXFLAGS = CXXFLAGS .. "-DDAMP_BACKEND_ETL -DDAMP_MATH_BACKEND_FREESTANDING -I../libs/etl/include "
 end

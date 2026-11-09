@@ -43,17 +43,17 @@ end
 -- ignore pattern: that drops the dependency. Probe temps live under build/.
 tup.rule(
     headers,
-    'sh ../tools/contract_check.sh freestanding ' .. CXX .. ' %o',
+    'sh ../tools/contract_check.sh freestanding "' .. CXX .. '" %o',
     {
         'build/freestanding.ok',
         '^build/probe.*',
     }
 )
 
--- embedded: default profile must not pull <vector> via control.hpp
+-- embedded: no Damp header reachable from control.hpp includes a heap container header
 tup.rule(
     headers,
-    'sh ../tools/contract_check.sh embedded ' .. CXX .. ' %o',
+    'sh ../tools/contract_check.sh embedded "' .. CXX .. '" %o',
     {
         'build/embedded.ok',
         '^build/probe.*',
@@ -63,7 +63,7 @@ tup.rule(
 -- workbench: host umbrella compiles as the only include
 tup.rule(
     headers,
-    'sh ../tools/contract_check.sh workbench ' .. CXX .. ' %o',
+    'sh ../tools/contract_check.sh workbench "' .. CXX .. '" %o',
     {
         'build/workbench.ok',
         '^build/probe.*',
@@ -73,7 +73,7 @@ tup.rule(
 -- nostd: a constexpr design and its tick build and run with no C++ standard headers
 tup.rule(
     headers,
-    'sh ../tools/contract_check.sh nostd ' .. CXX .. ' %o',
+    'sh ../tools/contract_check.sh nostd "' .. CXX .. '" %o',
     {
         'build/nostd.ok',
         '^build/probe.*',
@@ -82,6 +82,7 @@ tup.rule(
 
 -- ---------------------------------------------------------------------------
 -- Asm dumps (arm-none-eabi, Cortex-M7) — cycle inspection via cycle_guesser.py
+-- Skipped (and passing) without arm-none-eabi-g++ on PATH: tools/arm_asm_dump.sh.
 -- ---------------------------------------------------------------------------
 -- Every checks/*.cpp compiles here, the doc snippets among them (guide_canonical.cpp,
 -- readme_front_door.cpp): a snippet that stops compiling fails make.
@@ -93,11 +94,9 @@ local asm_cxxflags =
     '-std=c++20 -O3 -ffast-math -mcpu=cortex-m7 -mfloat-abi=hard -mfpu=fpv5-d16'
     .. ' -fno-exceptions -fno-rtti -fno-threadsafe-statics'
 
-local asm_objs = tup.foreach_rule(
+tup.foreach_rule(
     '*.cpp',
-    'arm-none-eabi-g++ -c %f ' .. asm_cxxflags .. ' ' .. WARNINGS .. ' ' .. asm_includes
-        .. ' -o %o -ffunction-sections -fdata-sections',
-    'build/obj/%B.o'
+    'sh ../tools/arm_asm_dump.sh %f %o ' .. asm_cxxflags .. ' ' .. WARNINGS .. ' ' .. asm_includes
+        .. ' -ffunction-sections -fdata-sections',
+    { 'build/%B.asm', '^build/.*\\.o$' }
 )
-
-tup.foreach_rule(asm_objs, 'arm-none-eabi-objdump -drC %f > %o', 'build/%B.asm')
