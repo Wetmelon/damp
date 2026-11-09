@@ -58,7 +58,7 @@ template<size_t NX, typename T, typename G>
  * @tparam T  Scalar type
  */
 template<size_t NX, typename T = double>
-struct IntegrationResult {
+struct [[nodiscard]] IntegrationResult {
     ColVec<NX, T> x{};           ///< State at the end of the step (the start state when !success)
     ColVec<NX, T> error{};       ///< Unscaled embedded local-error vector (zeros for fixed-step methods)
     bool          success{true}; ///< false when an implicit stage did not converge, I − αhA is singular, or the exponential failed

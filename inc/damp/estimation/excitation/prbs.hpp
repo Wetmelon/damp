@@ -120,7 +120,7 @@ struct PRBSConfig {
  * @tparam T Scalar type.
  */
 template<typename T = double>
-struct PRBSResult {
+struct [[nodiscard]] PRBSResult {
     PRBSConfig<T> config{};       ///< Validated PRBS configuration
     size_t        period_bits{0}; ///< Sequence period in chips: `2^order - 1`
     bool          success{false}; ///< true if `config.valid()`

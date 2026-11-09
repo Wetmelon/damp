@@ -63,7 +63,7 @@ struct TimeResponse {
  * @tparam NY Number of outputs
  */
 template<size_t NX, size_t NY, typename T = double>
-struct LsimResult {
+struct [[nodiscard]] LsimResult {
     std::vector<T>             t; ///< Time points (s)
     std::vector<ColVec<NY, T>> y; ///< Output vector at each time point
     std::vector<ColVec<NX, T>> x; ///< State vector at each time point

@@ -45,7 +45,7 @@ namespace design {
  *      (Miklosovic, Radke & Gao, 2006), ACC
  */
 template<size_t NX, typename T = double>
-struct ADRCResult {
+struct [[nodiscard]] ADRCResult {
     static_assert(NX == 1 || NX == 2, "ADRC supports 1st- and 2nd-order plants only");
 
     T wc{}; ///< Controller bandwidth

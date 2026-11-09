@@ -77,7 +77,7 @@ template<typename T>
  * @note Compare with MATLAB®'s [x, fval, exitflag, ~, lambda] = quadprog(...) outputs.
  */
 template<size_t NV, size_t NI, typename T = double>
-struct QPResult {
+struct [[nodiscard]] QPResult {
     ColVec<NV, T> x{};                             ///< Minimizer
     ColVec<NI, T> lambda{};                        ///< Multipliers: λᵢ ≥ 0, λᵢ·(Ax − b)ᵢ = 0
     T             objective{};                     ///< ½xᵀHx + fᵀx at x

@@ -99,7 +99,7 @@ struct MultiSineConfig {
  * @tparam T      Scalar type.
  */
 template<size_t NTones, typename T = double>
-struct MultiSineResult {
+struct [[nodiscard]] MultiSineResult {
     MultiSineConfig<NTones, T> config{};       ///< Validated multi-sine configuration
     bool                       success{false}; ///< true if `config.valid()`
     T                          Ts{0};          ///< [s] Sample period of the internal step() clock (0 = absolute-time step(t) only)

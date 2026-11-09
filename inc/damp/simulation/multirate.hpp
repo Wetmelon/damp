@@ -105,7 +105,7 @@ template<size_t NX, size_t NU, typename T, typename Output>
  * logged sample (ZOH of the outer law between its firing instants).
  */
 template<size_t NX, size_t NU, size_t NY, size_t NR, typename T = double>
-struct TwoRateSimulationResult {
+struct [[nodiscard]] TwoRateSimulationResult {
     std::vector<T>             t{};                ///< Time points
     std::vector<ColVec<NX, T>> x{};                ///< State history
     std::vector<ColVec<NY, T>> y{};                ///< Output history

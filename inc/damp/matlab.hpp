@@ -1242,7 +1242,7 @@ template<size_t NX, typename T = double>
  * gain-crossover frequency (PM site).
  */
 template<typename T = double>
-struct MarginResult {
+struct [[nodiscard]] MarginResult {
     T Gm{};  ///< Gain margin (linear ratio); +inf if phase never crosses -180°
     T Pm{};  ///< Phase margin (degrees); +inf if gain never crosses 0 dB
     T Wcg{}; ///< Phase-crossover frequency (rad/s, where phase = -180°) — GM site
@@ -1290,7 +1290,7 @@ template<size_t NX, size_t NW, size_t NV, typename T>
  * @see margin
  */
 template<typename T = double>
-struct AllMarginResult {
+struct [[nodiscard]] AllMarginResult {
     T Gm{};  ///< Gain margin (linear ratio); +inf if no phase crossover
     T Pm{};  ///< Phase margin (degrees); +inf if no gain crossover
     T Dm{};  ///< Delay margin (seconds); +inf if no gain crossover or ω = 0

@@ -73,7 +73,7 @@ struct Filtered {
  * @tparam T Scalar type.
  */
 template<typename T = double>
-struct StateVariableFilterResult {
+struct [[nodiscard]] StateVariableFilterResult {
     Matrix<3, 3, T> Ad{};    ///< state update over one sample, states [x_f, ẋ_f, ẍ_f]
     ColVec<3, T>    Bd{};    ///< input coupling over one sample
     T               omega{}; ///< [rad/s] filter corner

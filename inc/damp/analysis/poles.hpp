@@ -227,7 +227,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
  *       no adaptive branch tracking beyond nearest-neighbor reordering).
  */
 template<typename T = double>
-struct RootLocusResult {
+struct [[nodiscard]] RootLocusResult {
     std::vector<T>                             gains;           ///< Gain samples k
     std::vector<std::vector<damp::complex<T>>> poles;           ///< poles[i] = closed-loop poles at gains[i]
     std::vector<damp::complex<T>>              open_loop_poles; ///< Eigenvalues of A (k = 0)

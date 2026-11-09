@@ -86,7 +86,7 @@ template<size_t NU, typename T = double>
  * @tparam T  Scalar type
  */
 template<size_t NU, typename T = double>
-struct CommandProjectionResult {
+struct [[nodiscard]] CommandProjectionResult {
     ColVec<NU, T>    u{};                                     ///< Projected command; on failure, @c u_des from project_affine and the last safe command from ActionGovernor::filter
     bool             success{false};                          ///< true if the QP found a feasible minimizer
     bool             modified{false};                         ///< true if @c u differs from the desired command

@@ -59,7 +59,7 @@ struct StepTrainConfig {
  * @tparam T Scalar type.
  */
 template<typename T = double>
-struct StepTrainResult {
+struct [[nodiscard]] StepTrainResult {
     StepTrainConfig<T> config{};       ///< Validated step-train configuration
     bool               success{false}; ///< true if `config.valid()`
     T                  Ts{0};          ///< [s] Sample period of the internal step() clock (0 = absolute-time step(t) only)

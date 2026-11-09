@@ -487,7 +487,7 @@ struct ModeExtractorConfig {
  * @tparam T        Scalar type.
  */
 template<size_t MaxModes, typename T = float>
-struct ModeExtractorResult {
+struct [[nodiscard]] ModeExtractorResult {
     damp::array<ResonantMode<T>, MaxModes> modes{};
     size_t                                 count{0};
     bool                                   success{false};
@@ -515,7 +515,7 @@ struct ModeExtractorResult {
  * @tparam T          Scalar type
  */
 template<size_t MaxPeaks, size_t MaxValleys, typename T = float>
-struct FrfFeatureResult {
+struct [[nodiscard]] FrfFeatureResult {
     damp::array<ResonantMode<T>, MaxPeaks>   peaks{};
     damp::array<ResonantMode<T>, MaxValleys> valleys{};
     size_t                                   peak_count{0};

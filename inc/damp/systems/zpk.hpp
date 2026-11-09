@@ -88,7 +88,7 @@ namespace damp {
  * @tparam T Floating-point scalar type
  */
 template<size_t N, typename T = double>
-struct PolyRootsResult {
+struct [[nodiscard]] PolyRootsResult {
     damp::array<damp::complex<T>, (N > 0 ? N - 1 : 0)> roots{};        ///< Roots (empty when N ≤ 1)
     bool                                               success{false}; ///< true if leading coeff OK and eigen converged
 
@@ -197,7 +197,7 @@ struct ZPK {
     /**
      * @brief Result of @ref cancel_matching (factored minreal)
      */
-    struct CancelResult {
+    struct [[nodiscard]] CancelResult {
         ZPK    zpk{};          ///< Model with cancelled pairs re-appended as identical z=p
         size_t n_cancelled{0}; ///< Number of pole-zero pairs cancelled
     };
@@ -424,7 +424,7 @@ struct ZPK {
  * @note Compare with MATLAB®'s [z,p,k] = zpkdata(tf) / tf2zpk.
  */
 template<size_t Nz, size_t Np, typename T = double>
-struct ZPKResult {
+struct [[nodiscard]] ZPKResult {
     ZPK<Nz, Np, T> zpk{};          ///< Factored model (valid when success)
     bool           success{false}; ///< true if both poly root solves succeeded
 
@@ -509,7 +509,7 @@ namespace zpk_detail {
  * @see Faddeev–LeVerrier; Golub & Van Loan, Matrix Computations
  */
 template<size_t NX, typename T>
-struct LeverrierResult {
+struct [[nodiscard]] LeverrierResult {
     damp::array<T, NX + 1>             den{}; ///< Monic char poly, highest power first
     damp::array<Matrix<NX, NX, T>, NX> M{};   ///< M_1 .. M_NX
 };
@@ -653,7 +653,7 @@ template<size_t NX, typename T, size_t NW, size_t NV>
  * @note Compare with MATLAB®'s zpk(ss_sys) / ss2zpk.
  */
 template<size_t NX, typename T = double>
-struct StateSpaceZPKResult {
+struct [[nodiscard]] StateSpaceZPKResult {
     damp::array<damp::complex<T>, NX> poles{};        ///< Eigenvalues of A
     damp::array<damp::complex<T>, NX> zeros{};        ///< First @ref n_zeros entries valid
     size_t                            n_zeros{0};     ///< Number of finite zeros

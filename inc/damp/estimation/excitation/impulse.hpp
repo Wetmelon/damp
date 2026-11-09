@@ -47,7 +47,7 @@ struct ImpulseConfig {
  * @brief Impulse design payload.
  */
 template<typename T = double>
-struct ImpulseResult {
+struct [[nodiscard]] ImpulseResult {
     ImpulseConfig<T> config{};
     bool             success{false};
 

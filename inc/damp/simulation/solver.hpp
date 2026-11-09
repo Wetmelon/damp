@@ -83,7 +83,7 @@ template<typename T>
  * @tparam T  Scalar type
  */
 template<size_t NX, typename T = double>
-struct SolveResult {
+struct [[nodiscard]] SolveResult {
     std::vector<T>             t; ///< Time points
     std::vector<ColVec<NX, T>> x; ///< State vectors at each time point
 
@@ -593,7 +593,7 @@ public:
 
 
 private:
-    struct CrossingResult {
+    struct [[nodiscard]] CrossingResult {
         bool          found = false;
         T             time = T(0);
         ColVec<NX, T> x{};

@@ -76,7 +76,7 @@ struct EventSimConfig {
  * Same shape as @ref SimulationResult plus the active mode index at each sample.
  */
 template<size_t NX, size_t NU, size_t NY, typename T = double>
-struct HybridSimulationResult {
+struct [[nodiscard]] HybridSimulationResult {
     std::vector<T>             t{};            ///< Sample times
     std::vector<ColVec<NX, T>> x{};            ///< State at each sample
     std::vector<ColVec<NY, T>> y{};            ///< Output at each sample

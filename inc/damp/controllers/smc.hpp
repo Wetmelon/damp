@@ -33,7 +33,7 @@ namespace design {
  * @tparam T Scalar type (default: double)
  */
 template<typename T = double>
-struct SMCResult {
+struct [[nodiscard]] SMCResult {
     T            lambda{};                            ///< Sliding-surface slope λ in s = λ·e + ė [1/s]. Larger = faster but noisier.
     T            k{};                                 ///< Switching gain (must exceed the lumped disturbance bound) [units of ÿ].
     T            b0{};                                ///< Nominal plant input gain, ÿ = f + b0·u (> 0).

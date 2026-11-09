@@ -484,7 +484,7 @@ enum class AnalogCrossStatus : uint8_t {
  * @tparam T Scalar type.
  */
 template<typename T = float>
-struct AnalogCrossResult {
+struct [[nodiscard]] AnalogCrossResult {
     T                 value{};                                 ///< fused or single-channel engineering value when @ref has_value
     bool              has_value{false};                        ///< true when a usable value is provided
     AnalogCrossStatus status{AnalogCrossStatus::BothUnusable}; ///< voting outcome

@@ -80,7 +80,7 @@ namespace design {
  * @tparam NY  Measurement size (3 = IMU accel, 6 = MARG accel+mag)
  */
 template<size_t NDX, size_t NY, typename T = double>
-struct ESKFResult {
+struct [[nodiscard]] ESKFResult {
     Matrix<NDX, NDX, T> Q{};            ///< Process noise covariance Q
     Matrix<NY, NY, T>   R{};            ///< Measurement noise covariance R of the update (update_innovation(ν, H, R))
     Matrix<NDX, NDX, T> P0{};           ///< Initial error covariance P₀

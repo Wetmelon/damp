@@ -138,6 +138,8 @@ The API breaks from 0.1.0 throughout: see Changed and Removed.
 - Compilers: g++ 11+ and clang++ 19+. MSVC is not supported. Host CMake builds
   use `-mtune=native`. Every product sketch must fit clang's default constexpr
   budget (`tools/clang_budget_check.sh`).
+- Every `*Result` struct is `[[nodiscard]]`, so a discarded design, analysis or
+  simulation result warns at the call site.
 
 ### Removed
 

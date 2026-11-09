@@ -101,7 +101,7 @@ struct RlsVectorState {
  * @brief Vector RLS design payload for N parameters.
  */
 template<size_t NP, typename T = double>
-struct RlsVectorResult {
+struct [[nodiscard]] RlsVectorResult {
 
     RlsConfig<T, NP> config{}; ///< The runtime starts from P₀ = p₀·I
     ColVec<NP, T>    theta0{};

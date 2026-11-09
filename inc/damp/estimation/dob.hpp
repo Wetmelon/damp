@@ -61,7 +61,7 @@ struct DOBConfig {
 };
 
 template<typename T = double>
-struct DOBResult {
+struct [[nodiscard]] DOBResult {
 
     using scalar_type = scalar_type_t<T>;
 
@@ -334,7 +334,7 @@ struct IirDF2 {
  * @tparam NQn,NQd Q-filter = Qn/Qd sizes (z^-1)
  */
 template<size_t NBn, size_t NAn, size_t NQn, size_t NQd, typename T = double>
-struct ClassicalDobResult {
+struct [[nodiscard]] ClassicalDobResult {
 
     static constexpr size_t NFyNum = NQn + NAn - 1; // Qn · An
     static constexpr size_t NFyDen = NQd + NBn - 1; // Qd · Bn

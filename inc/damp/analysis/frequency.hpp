@@ -56,7 +56,7 @@ template<typename T>
 [[nodiscard]] constexpr damp::optional<damp::pair<T, T>> gain_margin_unwrapped(const BodeResult<T>& result);
 
 template<typename T>
-struct BodeResult {
+struct [[nodiscard]] BodeResult {
     std::vector<FrequencyPoint<T>> points; ///< Frequency response data points
 
     /**
@@ -380,7 +380,7 @@ struct NyquistPoint {
  * @brief Nyquist response data across a frequency sweep
  */
 template<typename T = double>
-struct NyquistResult {
+struct [[nodiscard]] NyquistResult {
     std::vector<NyquistPoint<T>> points;
 
     /**
@@ -414,7 +414,7 @@ struct NyquistResult {
  * - nyquist: complex Nyquist response of L
  */
 template<typename T = double>
-struct LoopResponseResult {
+struct [[nodiscard]] LoopResponseResult {
     BodeResult<T>    open_loop;
     BodeResult<T>    sensitivity;
     BodeResult<T>    complementary_sensitivity;
@@ -694,7 +694,7 @@ struct NicholsPoint {
  * @note Compare with MATLAB®'s nichols / nicholsplot data.
  */
 template<typename T = double>
-struct NicholsResult {
+struct [[nodiscard]] NicholsResult {
     std::vector<NicholsPoint<T>> points;
 };
 
@@ -781,7 +781,7 @@ struct SigmaPoint {
  * @note Compare with MATLAB®'s sigma / svplot data.
  */
 template<size_t NS, typename T = double>
-struct SigmaResult {
+struct [[nodiscard]] SigmaResult {
     std::vector<SigmaPoint<NS, T>> points; ///< One sample per frequency
 
     /**
@@ -900,7 +900,7 @@ template<size_t Nnum, size_t Nden, typename T>
  * magnitude/phase representation for Bode-style plotting.
  */
 template<typename T = double>
-struct ImpedanceResult {
+struct [[nodiscard]] ImpedanceResult {
     struct Point {
         T                omega{};        ///< Frequency (rad/s)
         damp::complex<T> Z{};            ///< Complex impedance
@@ -924,7 +924,7 @@ struct ImpedanceResult {
  * i.e. |Z_s| < |Z_L| at every frequency.
  */
 template<typename T = double>
-struct MiddlebrookResult {
+struct [[nodiscard]] MiddlebrookResult {
     BodeResult<T> minor_loop_gain; ///< Bode data for T_m = Z_s / Z_L
 
     ImpedanceResult<T> source_impedance; ///< Z_s frequency response

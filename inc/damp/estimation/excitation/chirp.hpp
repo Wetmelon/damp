@@ -78,7 +78,7 @@ struct ChirpConfig {
  * @tparam T Scalar type.
  */
 template<typename T = double>
-struct ChirpResult {
+struct [[nodiscard]] ChirpResult {
     ChirpConfig<T> config{};       ///< Validated chirp configuration
     bool           success{false}; ///< true if `config.valid()`
     T              Ts{0};          ///< [s] Sample period of the internal step() clock (0 = absolute-time step(t) only)

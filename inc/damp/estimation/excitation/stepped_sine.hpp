@@ -69,7 +69,7 @@ struct SteppedSineConfig {
  * @tparam T     Scalar type.
  */
 template<size_t NFreq, typename T = double>
-struct SteppedSineResult {
+struct [[nodiscard]] SteppedSineResult {
     SteppedSineConfig<NFreq, T> config{};       ///< Validated configuration
     bool                        success{false}; ///< true if `config.valid()`
     T                           Ts{0};          ///< [s] Sample period of the internal step() clock (> 0)

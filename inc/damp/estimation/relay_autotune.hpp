@@ -180,7 +180,7 @@ struct RelayAutotuneConfig {
  * conversion to the embedded scalar type.
  */
 template<typename T = double>
-struct RelayAutotuneResult {
+struct [[nodiscard]] RelayAutotuneResult {
     RelayAutotuneConfig<T> config{};
     bool                   success{false};                      ///< status == DesignStatus::ok
     DesignStatus           status{DesignStatus::not_converged}; ///< ok, or why the design failed

@@ -63,7 +63,7 @@ struct StepConfig {
  * @brief Single-step design payload.
  */
 template<typename T = double>
-struct StepResult {
+struct [[nodiscard]] StepResult {
     StepConfig<T> config{};
     bool          success{false};
     T             Ts{0}; ///< [s] Sample period of the internal step() clock (> 0)

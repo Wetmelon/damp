@@ -60,7 +60,7 @@ struct RampConfig {
  * @tparam T Scalar type.
  */
 template<typename T = double>
-struct RampResult {
+struct [[nodiscard]] RampResult {
     RampConfig<T> config{};       ///< Validated ramp configuration
     bool          success{false}; ///< true if `config.valid()`
     T             Ts{0};          ///< [s] Sample period of the internal step() clock (0 = absolute-time step(t) only)

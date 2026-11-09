@@ -30,7 +30,7 @@ namespace design {
  *      Osorio, 2012), IEEE TAC
  */
 template<typename T = double>
-struct STSMCResult {
+struct [[nodiscard]] STSMCResult {
     T            k1{};                                ///< Continuous gain on |s|^½·sign(s)
     T            k2{};                                ///< Integral gain on sign(s)
     T            lambda{};                            ///< Sliding-surface slope for the (r, y) convenience form (σ = −(λe + ė), e = r − y)
