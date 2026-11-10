@@ -7,6 +7,12 @@ and this project uses [Semantic Versioning](https://semver.org/) for tags.
 0.x releases may break API without a deprecation cycle (see [AGENTS.md](AGENTS.md)
 and [known limitations](docs/known_limitations.md)).
 
+## [Unreleased]
+
+### Fixed
+
+- `mat::sqrt` and `mat::log` balance only where it pays, when ‖D⁻¹AD‖ is below ‖A‖/√κ(D): a graded matrix, not one of a single scale. Balancing `sqrtm_jordan_3` (κ(D) = 16 for a 1.16× smaller norm) cost up to 9× in accuracy. With GCC 14 on Intel or generic tuning, that was 21 units of forward error against a limit of 16, and `make` failed. Its worst build is now 5.2 units, and the oracle drops its Clang 19 allowance.
+
 ## [0.2.0] — 2026-11-09
 
 One runtime and one set of tick verbs for every LQ and MPC design, input and
@@ -228,5 +234,6 @@ Runtime controllers and estimators default to `float`; design synthesis defaults
 
 See [docs/known_limitations.md](docs/known_limitations.md).
 
+[Unreleased]: https://github.com/Wetmelon/damp/compare/v0.2.0...HEAD
 [0.2.0]: https://github.com/Wetmelon/damp/releases/tag/v0.2.0
 [0.1.0]: https://github.com/Wetmelon/damp/releases/tag/v0.1.0

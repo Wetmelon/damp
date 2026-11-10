@@ -26,4 +26,16 @@ TEST_SUITE("Oracle conformance") {
     TEST_CASE("sqrtm squares back to A and matches scipy") {
         run_cases<oracle::sqrtm_cases>([]<typename C, typename T>() { check_sqrtm<C, T>(); });
     }
+    TEST_CASE("sqrtm and logm balance a graded matrix, not one of a single scale") {
+        // Balancing sqrtm_jordan_3 (κ(D) = 16 for a 1.16× smaller norm) cost up to 9× in accuracy, which
+        // only some instruction schedules showed: check the decision itself, on every host.
+        using J = oracle::sqrtm_jordan_3;
+        using G = oracle::sqrtm_graded_4;
+        const auto A = load<J::n, J::n, double>(J::A);
+        const auto B = load<G::n, G::n, double>(G::A);
+        CHECK(mat::detail::balance_exponents(A) != damp::array<int, J::n>{});
+        CHECK(mat::detail::function_balance_exponents(A) == damp::array<int, J::n>{});
+        CHECK(mat::detail::function_balance_exponents(B) == mat::detail::balance_exponents(B));
+        CHECK(mat::detail::balance_exponents(B) != damp::array<int, G::n>{});
+    }
 }

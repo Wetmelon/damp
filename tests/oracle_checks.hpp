@@ -86,7 +86,7 @@ using namespace damp;
 // multiplicity m (a Jordan block of size m) moves as the m-th root of the
 // perturbation, so roots are checked as |Δz|ᵐ against the stored sensitivity.
 // Their constants leave about 3× headroom too: C_FACTOR over 3.1 (orthogonality of
-// the SVD's V in the property runs), C_FWD over 4.5 (sqrtm_jordan_3), C_ROOT over
+// the SVD's V in the property runs), C_FWD over 5.2 (sqrtm_jordan_3), C_ROOT over
 // 1.3 (a zero of ss2tf_biproper_3 in double). ZOH is an expm and shares C_EXPM.
 //
 // Everything is measured in the case's natural units x₀ = D⁻¹x (D = 1 unless the
@@ -508,7 +508,8 @@ inline constexpr double C_FACTOR = 12.0; ///< backward error, orthogonality and 
 inline constexpr double C_FWD = 16.0;    ///< forward error against the reference, on top of its condition number
 inline constexpr double C_ROOT = 4.0;    ///< eigenvalue, root and pole constant, on top of its sensitivity
 /// Schur sqrtm residual constant. Higham's bound carries γ̃ of n³ terms, not n: sqrtm_jordan_3 measures
-/// 9.9 units in double and 14 in float with FMA contraction; mat::sqrt itself certifies 64.
+/// up to 8.0 units in double and 5.1 in float over GCC 11.3 and 14 and Clang 19 and 23, x86-64-v3
+/// included; mat::sqrt itself certifies 64.
 inline constexpr double C_SQRTM = 24.0;
 
 // ---- LU, QR, Cholesky, LDLᵀ, SVD ----
@@ -849,13 +850,7 @@ void check_sqrtm() {
     // α = ‖X‖²/‖A‖. The bound keeps the κ factor of a forward-stable method, α·κ·ε.
     check_within("sqrtm ‖X² − A‖ / ‖A‖", MD(X0 * X0 - A0).norm() / A0.norm(), ne * C::alpha * damp::max(1.0, C::kappa), C_SQRTM);
     const auto R0 = scale(di, load<N, N, double>(C::X), C::units);
-    // The forward-error limit is set from GCC. Clang 19 under -ffast-math reaches 17.4 units on sqrtm_jordan_3.
-#if defined(__clang__) && (__clang_major__ < 20)
-    constexpr double fwd_limit = 1.5 * C_FWD;
-#else
-    constexpr double fwd_limit = C_FWD;
-#endif
-    check_within("sqrtm forward error", rel_diff(X0, R0), ne * damp::max(1.0, C::kappa), fwd_limit);
+    check_within("sqrtm forward error", rel_diff(X0, R0), ne * damp::max(1.0, C::kappa), C_FWD);
 }
 
 // ---- Lyapunov ----
