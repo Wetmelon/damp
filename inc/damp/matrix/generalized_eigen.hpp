@@ -247,18 +247,41 @@ struct PencilPair {
 /**
  * @brief Roots of det(A₂ − λB₂) for A₂ = [a₀₀ a₀₁; a₁₀ a₁₁], B₂ = [b₀₀ b₀₁; 0 b₁₁], b₀₀b₁₁ ≠ 0
  *
- * The quadratic b₀₀b₁₁λ² − (a₀₀b₁₁ + a₁₁b₀₀ − a₁₀b₀₁)λ + det A₂ is formed on A₂ and B₂
- * divided by their largest entries, and solved without cancellation: the larger real root from
- * the formula, the smaller as the product over it. A small b₀₀ or b₁₁ then gives one large
- * eigenvalue without costing the other its digits.
+ * A₂ and B₂ are divided by their largest entries, and the roots are found relative to a shift
+ * σ: the diagonal ratio s₀ = a₀₀/b₀₀ or s₁ = a₁₁/b₁₁ nearer zero, so that A₂ − σB₂ rounds least.
+ * For σ = s₀ the (0, 0) entry of A₂ − σB₂ is zero up to a rounding of a₀₀, which is dropped as
+ * a backward error, and μ = λ − σ solves
+ * @f[ \mu^2 - 2p\mu - q = 0,\quad p = \tfrac12\bigl(s_1 - s_0 - \hat s\, b_{01}\bigr),\quad
+ *     q = \hat s\,(a_{01} - \sigma b_{01}),\quad \hat s = \frac{a_{10}}{b_{00} b_{11}} @f]
+ * (for σ = s₁, exchange s₀ and s₁ in p). p is half the gap between the two ratios, less
+ * ŝb₀₁/2, so the discriminant @f$ p^2 + q @f$ is a square plus a product: no difference of
+ * large squares. Two close eigenvalues keep their digits, and whether they are real is
+ * decided by comparing |p| with √(−q), not by the sign of a quantity that cancelled. The
+ * unshifted quadratic in λ loses ε·λ²/gap instead, enough to report a complex pair with a
+ * small imaginary part as real.
+ *
+ * Neither p² nor q is formed, so a small block does not underflow in float:
+ * @f$ \sqrt{|q|} = \sqrt{|\hat s|}\,\sqrt{|a_{01} - \sigma b_{01}|} @f$, and
+ * @f$ \sqrt{p^2 + q} @f$ is the scaled norm of (p, √q) for q ≥ 0 and
+ * @f$ \sqrt{|p| - \sqrt{|q|}}\,\sqrt{|p| + \sqrt{|q|}} @f$ for q < 0. A real pair takes
+ * @f$ \mu = p + \operatorname{sign}(p)\sqrt{p^2 + q} @f$, which does not cancel, and the other
+ * root as @f$ -q/\mu @f$. Adding σ back can still cancel in the eigenvalue of smaller magnitude;
+ * when it is less than half the other, it is taken as det A₂/(b₀₀b₁₁) over the other instead,
+ * so a small b₀₀ or b₁₁ gives one large eigenvalue without costing the other its digits.
+ *
+ * @see LAPACK xLAG2, whose shifted formulation it credits to C. Van Loan
  */
 template<typename T>
 [[nodiscard]] constexpr PencilPair<T> pencil_2x2_eigenvalues(T a00, T a01, T a10, T a11, T b00, T b01, T b11) {
-    const T sa = damp::max(damp::max(damp::abs(a00), damp::abs(a01)), damp::max(damp::abs(a10), damp::abs(a11)));
-    const T sb = damp::max(damp::max(damp::abs(b00), damp::abs(b01)), damp::abs(b11));
-    if (!(sa > T{0})) {
+    const T a_max = damp::max(damp::max(damp::abs(a00), damp::abs(a01)), damp::max(damp::abs(a10), damp::abs(a11)));
+    const T b_max = damp::max(damp::max(damp::abs(b00), damp::abs(b01)), damp::abs(b11));
+    if (!(a_max > T{0})) {
         return {};
     }
+    //! Divisors clamped to [min, 1/min] keep their reciprocals normal under -freciprocal-math.
+    constexpr T lo = damp::numeric_limits<T>::min();
+    const T     sa = damp::clamp(a_max, lo, T{1} / lo);
+    const T     sb = damp::clamp(b_max, lo, T{1} / lo);
     a00 /= sa;
     a01 /= sa;
     a10 /= sa;
@@ -266,29 +289,50 @@ template<typename T>
     b00 /= sb;
     b01 /= sb;
     b11 /= sb;
-    const T q2 = b00 * b11;
-    const T q1 = -((a00 * b11) + (a11 * b00) - (a10 * b01));
-    const T q0 = (a00 * a11) - (a01 * a10);
-    const T disc = (q1 * q1) - (T{4} * q2 * q0);
-    const T unit = sa / sb;
-    if (disc >= T{0}) {
-        const T r = -static_cast<T>(0.5) * (q1 + damp::copysign(damp::sqrt(disc), q1));
-        const T big_root = r / q2;
-        const T small_root = (r != T{0}) ? (q0 / r) : T{0};
-        return {damp::complex<T>{big_root * unit, T{0}}, damp::complex<T>{small_root * unit, T{0}}};
+    const T    s0 = a00 / b00;
+    const T    s1 = a11 / b11;
+    const T    s_hat = (a10 / b00) / b11;
+    const bool shift_by_s0 = damp::abs(s0) <= damp::abs(s1);
+    const T    sigma = shift_by_s0 ? s0 : s1;
+    const T    other = shift_by_s0 ? s1 : s0;
+    const T    p = static_cast<T>(0.5) * ((other - sigma) - (s_hat * b01));
+    const T    a01_shifted = a01 - (sigma * b01);
+    const T    root_q = damp::sqrt(damp::abs(s_hat)) * damp::sqrt(damp::abs(a01_shifted)); // √|q|
+    const bool q_negative = (root_q > T{0}) && ((s_hat < T{0}) != (a01_shifted < T{0}));
+    const T    abs_p = damp::abs(p);
+    const T    unit = sa / sb;
+    if (q_negative && abs_p < root_q) {
+        const T re = sigma + p;
+        const T im = damp::sqrt(root_q - abs_p) * damp::sqrt(root_q + abs_p);
+        return {damp::complex<T>{re * unit, im * unit}, damp::complex<T>{re * unit, -im * unit}};
     }
-    const T re = -q1 / (T{2} * q2);
-    const T im = damp::sqrt(-disc) / (T{2} * damp::abs(q2));
-    return {damp::complex<T>{re * unit, im * unit}, damp::complex<T>{re * unit, -im * unit}};
+    const T r = q_negative ? (damp::sqrt(abs_p - root_q) * damp::sqrt(abs_p + root_q))
+                           : damp::detail::scaled_norm2<T>(2, [&](size_t k) { return (k == 0) ? abs_p : root_q; });
+    const T mu_far = p + damp::copysign(r, p);
+    T       mu_near = T{0}; // −q/μ_far; μ_far is zero only when p and q both are
+    if (mu_far != T{0}) {
+        const T q_over_mu = root_q * (root_q / mu_far);
+        mu_near = q_negative ? q_over_mu : -q_over_mu;
+    }
+    T big = sigma + mu_far;
+    T small = sigma + mu_near;
+    if (damp::abs(small) > damp::abs(big)) {
+        damp::swap(big, small);
+    }
+    if (damp::abs(small) < static_cast<T>(0.5) * damp::abs(big)) {
+        small = ((((a00 * a11) - (a01 * a10)) / b00) / b11) / big;
+    }
+    return {damp::complex<T>{big * unit, T{0}}, damp::complex<T>{small * unit, T{0}}};
 }
 
 /**
  * @brief Move the zero at B(j, j) to B(h, h) and deflate it as an infinite eigenvalue at h
  *
  * A row rotation on rows k, k+1 zeroes B(k+1, k+1); the entry it fills in at A(k+1, k−1) is
- * removed by a column rotation on columns k−1, k, which also restores B(k, k). At the bottom a
- * column rotation zeroes A(h, h−1), leaving the eigenvalue (A(h, h), 0) split off. The
- * rotations act on the window [l, h] only.
+ * removed by a column rotation on columns k−1, k, which also restores B(k−1, k−1), the zero the
+ * step before started from. At the bottom a column rotation zeroes A(h, h−1) and restores
+ * B(h−1, h−1), leaving the eigenvalue (A(h, h), 0) split off. The rotations act on the window
+ * [l, h] only.
  *
  * @see "Matrix Computations" (Golub & Van Loan, 2013), §7.7.5 (deflation of a zero bᵢᵢ)
  */

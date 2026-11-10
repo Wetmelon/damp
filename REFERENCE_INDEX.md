@@ -286,7 +286,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`gang_of_seven`](inc/damp/analysis/sensitivity.hpp#L150) | function | Frequency-domain analysis (host) | Gang of seven of a plant and a two-degree-of-freedom controller u = K[r; y] |
 | [`GangOfFourResult`](inc/damp/analysis/sensitivity.hpp#L29) | block | Frequency-domain analysis (host) | Gang of four of a loop u = C(r − y): S, T, PS and CS, each a state-space model on the closed loop's states |
 | [`GangOfSevenResult`](inc/damp/analysis/sensitivity.hpp#L45) | block | Frequency-domain analysis (host) | Gang of seven of a two-degree-of-freedom loop u = K[r; y]: the gang of four of its feedback path plus the reference responses |
-| [`generalized_eigenvalues`](inc/damp/matrix/generalized_eigen.hpp#L508) | function | Linear algebra | Generalized eigenvalues of the real pencil A − λB: the λ with det(A − λB) = 0 |
+| [`generalized_eigenvalues`](inc/damp/matrix/generalized_eigen.hpp#L552) | function | Linear algebra | Generalized eigenvalues of the real pencil A − λB: the λ with det(A − λB) = 0 |
 | [`GeneralizedEigenResult`](inc/damp/matrix/generalized_eigen.hpp#L60) | block | Linear algebra | Generalized eigenvalues of A − λB: the finite ones, and how many there are |
 | [`geomspace`](inc/damp/analysis/linspace.hpp#L68) | function | Frequency-domain analysis (host) | Geometric sequence from start to end (endpoint values, not exponents) (+1 more overload) |
 | [`Goertzel`](inc/damp/filters/spectral.hpp#L51) | block | Filters & signal conditioning | Generalized Goertzel single-bin DFT — amplitude/phase at one frequency |

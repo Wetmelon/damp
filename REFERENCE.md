@@ -181,7 +181,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`expm`](inc/damp/matrix/functions.hpp#L693) | Matrix exponential by scaling and squaring (Al-Mohy & Higham 2009) |
 | [`forward_substitute`](inc/damp/matrix/solve.hpp#L52) | Forward substitution for Lx = b |
 | [`full_qr`](inc/damp/matrix/decomposition.hpp#L807) | Full QR factorization via Householder reflections (real or complex T) |
-| [`generalized_eigenvalues`](inc/damp/matrix/generalized_eigen.hpp#L508) | Generalized eigenvalues of the real pencil A − λB: the λ with det(A − λB) = 0 |
+| [`generalized_eigenvalues`](inc/damp/matrix/generalized_eigen.hpp#L552) | Generalized eigenvalues of the real pencil A − λB: the λ with det(A − λB) = 0 |
 | [`hcat`](inc/damp/matrix/concat.hpp#L157) | Horizontal concatenation (same row count) |
 | [`infinity_norm`](inc/damp/matrix/functions.hpp#L39) | Infinity norm ‖A‖∞: maximum absolute row sum |
 | [`inverse`](inc/damp/matrix/solve.hpp#L315) | Matrix inverse A⁻¹ via mat::solve(A, I) |

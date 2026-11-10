@@ -102,3 +102,61 @@ TEST_SUITE("Generalized eigenvalues") {
         CHECK(evd.n_finite == 2);
     }
 }
+
+TEST_SUITE("Generalized eigenvalues: close pairs and scaling") {
+    // The 2×2 block's eigenvalues came from the unshifted quadratic det(A − λB) = 0, whose
+    // discriminant q₁² − 4q₂q₀ cancels when the two eigenvalues are close: their imaginary part
+    // lost ε·λ²/gap, and whether they were real followed the sign of the cancelled difference.
+    // A rotation by θ has eigenvalues c ± i·s exactly (c, s the stored cos θ, sin θ); at θ = 1e-4
+    // in float and 1e-8 in double the old code returned a real double eigenvalue.
+    TEST_CASE_TEMPLATE("a rotation pencil keeps its small imaginary part", T, float, double) {
+        const T               theta = damp::is_same_v<T, float> ? static_cast<T>(1e-4) : static_cast<T>(1e-8);
+        const T               c = damp::cos(theta);
+        const T               s = damp::sin(theta);
+        const Matrix<2, 2, T> A{{c, -s}, {s, c}};
+        const T               e = eps<T>();
+        const auto            ev = mat::generalized_eigenvalues(A, Matrix<2, 2, T>::identity());
+        REQUIRE(ev.success);
+        REQUIRE(ev.n_finite == 2);
+        CHECK(damp::abs(ev.values[0].real() - c) <= T{4} * e);
+        CHECK(damp::abs(ev.values[0].imag() - s) <= T{8} * e * s); // to the digits of s, not of 1
+        CHECK(ev.values[1].real() == ev.values[0].real());
+        CHECK(ev.values[1].imag() == -ev.values[0].imag());
+
+        // The same eigenvalues from (A·Bt, Bt): the rounding of A·Bt moves them by a few ε.
+        const Matrix<2, 2, T> Bt{{T{2}, T{0.5}}, {T{0}, T{0.25}}};
+        const auto            evt = mat::generalized_eigenvalues(Matrix<2, 2, T>(A * Bt), Bt);
+        REQUIRE(evt.success);
+        REQUIRE(evt.n_finite == 2);
+        const damp::complex<T> want{c, s};
+        const T                err0 = damp::min(damp::abs(evt.values[0] - want), damp::abs(evt.values[1] - want));
+        CHECK(err0 <= T{32} * e);
+        CHECK(damp::abs(evt.values[0].imag()) > s / T{2});
+    }
+
+    // A symmetric A with B = I has real eigenvalues a + g/2 ± √(g²/4 + d²). With d and g small
+    // the old discriminant cancelled to a negative number and reported a complex pair (216 of
+    // 40,000 such double pencils, more under x86-64-v3); the shifted one is (g/2)² + d².
+    TEST_CASE_TEMPLATE("a symmetric pencil with close eigenvalues stays real", T, float, double) {
+        const bool            f = damp::is_same_v<T, float>;
+        const T               a = T{1} + T{0.0009765625};                                                          // 1 + 2⁻¹⁰, exact
+        const T               d = f ? static_cast<T>(3.814697265625e-06) : static_cast<T>(1.4551915228366852e-11); // 2⁻¹⁸, 2⁻³⁶
+        const T               g = f ? static_cast<T>(6.103515625e-05) : static_cast<T>(7.450580596923828125e-09);  // 2⁻¹⁴, 2⁻²⁷
+        const Matrix<2, 2, T> A{{a, d}, {d, a + g}};
+        const auto            ev = mat::generalized_eigenvalues(A, Matrix<2, 2, T>::identity());
+        REQUIRE(ev.success);
+        REQUIRE(ev.n_finite == 2);
+        const double mid = static_cast<double>(a) + (static_cast<double>(g) / 2.0);
+        const double half_gap = std::hypot(static_cast<double>(g) / 2.0, static_cast<double>(d));
+        const double want_hi = mid + half_gap;
+        const double want_lo = mid - half_gap;
+        const double tol = 4.0 * static_cast<double>(eps<T>());
+        for (size_t i = 0; i < 2; ++i) {
+            CHECK(ev.values[i].imag() == T{0});
+        }
+        const double hi = static_cast<double>(damp::max(ev.values[0].real(), ev.values[1].real()));
+        const double lo = static_cast<double>(damp::min(ev.values[0].real(), ev.values[1].real()));
+        CHECK(damp::abs(hi - want_hi) <= tol);
+        CHECK(damp::abs(lo - want_lo) <= tol);
+    }
+}
