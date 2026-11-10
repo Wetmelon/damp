@@ -859,19 +859,16 @@ template<typename T, size_t N>
         }
         return Matrix<1, 1, T>{{damp::sqrt(A(0, 0))}};
     } else {
-        // Balance first (a diagonal similarity by powers of two, exact): √A = D·√(D⁻¹AD)·D⁻¹, so
-        // the accuracy does not depend on the units of each state.
-        const auto            e = balance_exponents(A);
-        const Matrix<N, N, T> Ab = balanced(A, e);
-        Matrix<N, N, T>       Tq = Ab;
-        Matrix<N, N, T>       Z;
-        hessenberg_reduce(Tq, Z);
-        damp::array<T, N> wr{};
-        damp::array<T, N> wi{};
-        if (!francis_qr(Tq, Z, wr, wi)) {
+        // Balance first (a permutation and a diagonal similarity by powers of two, exact):
+        // √A = D·√(D⁻¹AD)·D⁻¹, so the accuracy does not depend on the units of each state.
+        const auto rs = real_schur(A);
+        if (!rs.converged) {
             return damp::nullopt;
         }
-        const damp::optional<Matrix<N, N, T>> R = sqrtm_quasi_triangular(Tq);
+        const auto&                           e = rs.e;
+        const auto&                           Z = rs.Z;
+        const Matrix<N, N, T>                 Ab = balanced(A, e);
+        const damp::optional<Matrix<N, N, T>> R = sqrtm_quasi_triangular(rs.T_form);
         if (!R) {
             return damp::nullopt;
         }
@@ -949,8 +946,8 @@ template<typename T, size_t N>
  *
  * Computes the principal square root @f$ X = \sqrt{A} @f$ with @f$ X\cdot X = A @f$ and every
  * eigenvalue of X in the open right half-plane. A real Schur form @f$ A = Z T Z^\top @f$
- * of the balanced matrix D⁻¹AD (balancing, Hessenberg reduction and Francis double-shift QR, as
- * in compute_eigenvalues; √A = D·√(D⁻¹AD)·D⁻¹, so graded units cost no accuracy) reduces the
+ * of the balanced matrix D⁻¹AD (balancing, Hessenberg reduction and Francis double-shift QR,
+ * detail::real_schur as in compute_eigenvalues, with the permutation folded into Z; √A = D·√(D⁻¹AD)·D⁻¹, so graded units cost no accuracy) reduces the
  * problem to the quasi-triangular T: each 1×1 or 2×2 diagonal block has a closed-form root, and
  * each off-diagonal block of R solves a Sylvester equation of at most 4 unknowns,
  * @f[
@@ -995,7 +992,8 @@ template<typename T, size_t N>
  * Balances A first (an exact diagonal similarity by powers of two,
  * @f$ \log A = D \log(D^{-1} A D) D^{-1} @f$, as in sqrt()), so graded units cost no accuracy.
  * A real A that is not already within 1/2 of I (∞-norm) then takes the real Schur form
- * @f$ D^{-1} A D = Z T Z^\top @f$ once, and the roots (sqrt()'s quasi-triangular recurrence)
+ * @f$ D^{-1} A D = Z T Z^\top @f$ once (detail::real_schur, as in sqrt(); its D comes from a
+ * balance that first isolates the eigenvalues a permutation exposes), and the roots (sqrt()'s quasi-triangular recurrence)
  * and the series run on T: @f$ \log A = D Z \log(T) Z^\top D^{-1} @f$. A Schur form per root
  * repeats its roundoff at every step, amplified by @f$ 2^s @f$, and a rotation of a
  * near-identity matrix mixes ε·I into its small entries. A damp::complex A takes sqrt() of the
@@ -1039,10 +1037,10 @@ template<typename T, size_t N>
             mag(i, j) = damp::abs(A(i, j));
         }
     }
-    const auto e = detail::balance_exponents(mag);
-    Matrix     I = Matrix<N, N, T>::identity();
-    Matrix     A_scaled = detail::balanced(A, e);
-    size_t     s = 0;
+    auto   e = detail::balance_exponents(mag);
+    Matrix I = Matrix<N, N, T>::identity();
+    Matrix A_scaled = detail::balanced(A, e);
+    size_t s = 0;
 
     // Real A: when roots are needed, take the real Schur form of the balanced matrix once and
     // run the roots and the series on its quasi-triangular factor, log(A) = D·Z·log(T)·Zᵀ·D⁻¹.
@@ -1051,12 +1049,13 @@ template<typename T, size_t N>
     [[maybe_unused]] Matrix<N, N, T> Z_schur = I;
     if constexpr (schur) {
         if (infinity_norm(A_scaled - I) > T{0.5}) {
-            detail::hessenberg_reduce(A_scaled, Z_schur);
-            damp::array<T, N> wr{};
-            damp::array<T, N> wi{};
-            if (!detail::francis_qr(A_scaled, Z_schur, wr, wi)) {
+            const auto rs = detail::real_schur(A); // its own balance: a permutation, then the scaling
+            if (!rs.converged) {
                 return damp::nullopt;
             }
+            A_scaled = rs.T_form;
+            Z_schur = rs.Z;
+            e = rs.e;
         }
     }
 

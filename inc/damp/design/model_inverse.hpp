@@ -337,8 +337,8 @@ struct DiskSchur {
 /**
  * @brief The real Schur form of @p A with the eigenvalues inside the unit circle leading
  *
- * Balanced first (powers of two, exact), so the split does not depend on the units of the
- * states. An eigenvalue within √ε of the unit circle has neither a causal nor an anticausal
+ * Balanced first (mat::detail::real_schur: a permutation and powers of two, exact), so the
+ * split does not depend on the units of the states or their overall scale. An eigenvalue within √ε of the unit circle has neither a causal nor an anticausal
  * bounded solution and is refused as DesignStatus::singular.
  *
  * @see "Matrix Computations" (Golub & Van Loan, 2013), §7.6 (ordered Schur form)
@@ -346,21 +346,17 @@ struct DiskSchur {
 template<size_t NX, typename T>
 [[nodiscard]] constexpr DiskSchur<NX, T> disk_ordered_schur(const Matrix<NX, NX, T>& A) {
     DiskSchur<NX, T> out{};
-    out.e = mat::detail::balance_exponents(A);
-    out.T_form = mat::detail::balanced(A, out.e);
-    out.Z = Matrix<NX, NX, T>::identity();
-    damp::array<T, NX> wr{};
-    damp::array<T, NX> wi{};
-    if constexpr (NX > 1) {
-        mat::detail::hessenberg_reduce(out.T_form, out.Z);
-        if (!mat::detail::francis_qr(out.T_form, out.Z, wr, wi)) {
-            return out; // not_converged
-        }
-    } else {
-        wr[0] = out.T_form(0, 0);
+    const auto       rs = mat::detail::real_schur(A);
+    if (!rs.converged) {
+        return out; // not_converged
     }
-    const T band = damp::sqrt(eps<T>());
-    size_t  inside = 0;
+    out.e = rs.e;
+    out.T_form = rs.T_form;
+    out.Z = rs.Z;
+    const auto& wr = rs.wr;
+    const auto& wi = rs.wi;
+    const T     band = damp::sqrt(eps<T>());
+    size_t      inside = 0;
     for (size_t i = 0; i < NX; ++i) {
         const T modulus = damp::sqrt((wr[i] * wr[i]) + (wi[i] * wi[i]));
         if (damp::abs(modulus - T{1}) <= band) {

@@ -897,7 +897,7 @@ template<size_t NX, size_t NU, typename T>
  * non-stabilizing fixed point (Q = 0 with unstable A gives X = 0), and the anti-stabilizing
  * CARE solution has a tiny residual too; the residual alone cannot tell them apart. Two bands
  * on the distance inside the boundary (1 − |λ| or −Re λ), with the norm of the balanced closed
- * loop ‖D⁻¹(A − BK)D‖_F (D the balancing compute_eigenvalues applies) as the scale where
+ * loop ‖D⁻¹(A − BK)D‖_F (D the scaling of mat::detail::balance_exponents) as the scale where
  * one is needed, so the verdict does not depend on the states' units or the time unit:
  * - within n·ε·max(1, ‖D⁻¹(A − BK)D‖_F) (discrete) or n·ε·‖D⁻¹(A − BK)D‖_F (continuous),
  *   the pole is on the boundary to within the roundoff of computing it: refused. No
@@ -917,7 +917,9 @@ template<size_t NX, size_t NU, typename T>
  *   the solve can leave that pole O(√ε) inside, up to 2× outside the band.
  *
  * compute_eigenvalues balances the closed loop, so the poles are computed to a relative
- * accuracy independent of the states' units; the PBH tests run on pairs balanced the same way.
+ * accuracy independent of the states' units; the PBH tests run on pairs scaled by the same D.
+ * Where compute_eigenvalues isolates a pole by a permutation that pole is exact, and its
+ * scaling of the rest agrees with D whenever nothing is isolated.
  *
  * @see "Controllability and observability conditions of linear autonomous systems" (Hautus, 1969)
  */

@@ -288,17 +288,13 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
     StateTransformResult<NX, NU, NY, T, NW, NV> out{};
 
     //! Real Schur form of the balanced A: D⁻¹AD = Z·S·Zᵀ, D = diag(2^e).
-    const auto        e = mat::detail::balance_exponents(sys.A);
-    Matrix<NX, NX, T> S = mat::detail::balanced(sys.A, e);
-    Matrix<NX, NX, T> Z = Matrix<NX, NX, T>::identity();
-    if constexpr (NX > 1) {
-        mat::detail::hessenberg_reduce(S, Z);
-        damp::array<T, NX> wr{};
-        damp::array<T, NX> wi{};
-        if (!mat::detail::francis_qr(S, Z, wr, wi)) {
-            return detail::set_status(out, Status::not_converged);
-        }
+    const auto rs = mat::detail::real_schur(sys.A);
+    if (!rs.converged) {
+        return detail::set_status(out, Status::not_converged);
     }
+    const auto&       e = rs.e;
+    const auto&       S = rs.T_form;
+    const auto&       Z = rs.Z;
     const auto        blocks = detail::schur_blocks(S);
     Matrix<NX, NX, T> V{};
     if (!detail::block_diagonalize(S, blocks, V)) {

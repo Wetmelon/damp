@@ -26,7 +26,7 @@ namespace damp {
 
 namespace detail {
 
-/** @brief Complex Schur form of a balanced A: A = D·U·S·Uᴴ·D⁻¹ with D = diag(2^e). */
+/** @brief Complex Schur form of a balanced A: A = D·U·S·Uᴴ·D⁻¹ with D = diag(2^e) (mat::detail::real_schur). */
 template<size_t N, typename T>
 struct ComplexSchur {
     Matrix<N, N, damp::complex<T>> S{};       ///< Upper triangular, the eigenvalues on its diagonal
@@ -49,17 +49,13 @@ template<size_t N, typename T>
 [[nodiscard]] constexpr ComplexSchur<N, T> complex_schur(const Matrix<N, N, T>& A) {
     using C = damp::complex<T>;
     ComplexSchur<N, T> out{};
-    out.e = mat::detail::balance_exponents(A);
-    Matrix<N, N, T> H = mat::detail::balanced(A, out.e);
-    Matrix<N, N, T> Z = Matrix<N, N, T>::identity();
-    if constexpr (N > 1) {
-        mat::detail::hessenberg_reduce(H, Z);
-        damp::array<T, N> wr{};
-        damp::array<T, N> wi{};
-        if (!mat::detail::francis_qr(H, Z, wr, wi)) {
-            return out;
-        }
+    const auto         rs = mat::detail::real_schur(A);
+    if (!rs.converged) {
+        return out;
     }
+    out.e = rs.e;
+    const Matrix<N, N, T>& H = rs.T_form;
+    const Matrix<N, N, T>& Z = rs.Z;
     for (size_t i = 0; i < N; ++i) {
         for (size_t j = 0; j < N; ++j) {
             out.S(i, j) = C{H(i, j), T{0}};

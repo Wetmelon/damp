@@ -846,7 +846,7 @@ void check_eig() {
 }
 
 /// compute_eigenvalues' schur_vectors: the real Schur basis Z of the balanced matrix A_b = D⁻¹AD,
-/// mapped back as x = D·z with unit columns. Undo the map, then Zᵀ·A_b·Z must be quasi upper
+/// mapped back as x = D·z with unit columns (D from real_schur's balance, the permutation in Z). Undo the map, then Zᵀ·A_b·Z must be quasi upper
 /// triangular with Z orthogonal, its 1×1 and 2×2 diagonal blocks carrying the eigenvalues.
 template<typename C, typename T>
 void check_schur() {
@@ -856,7 +856,7 @@ void check_schur() {
     const double ne = static_cast<double>(N) * eps_of<T>();
     const auto   A = load<N, N, T>(C::A);
     const auto   r = mat::compute_eigenvalues(A);
-    const auto   e = mat::detail::balance_exponents(A);
+    const auto   e = mat::detail::real_schur(A).e;
     const MD     Ab = dbl(mat::detail::balanced(A, e));
     MD           Z;
     for (size_t i = 0; i < N; ++i) {

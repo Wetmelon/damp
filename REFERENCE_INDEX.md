@@ -77,7 +77,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`CachedZoh`](inc/damp/simulation/cached_zoh.hpp#L63) | block | Simulation / SIL harness (host) | Cached discrete ZOH maps Ad, Bd for step size h |
 | [`canon`](inc/damp/matlab.hpp#L500) | function | MATLAB®-style aliases (host) | MATLAB® canon(sys) / canon(sys, 'modal'): real modal canonical form and its transform (+1 more overload) |
 | [`canonical_phase_margin`](inc/damp/analysis/frequency.hpp#L150) | function | Frequency-domain analysis (host) | Normalize phase margin to (-180, 180] |
-| [`care`](inc/damp/design/riccati.hpp#L1488) | function | Design-time synthesis (not PWM-rate) | Solve the Continuous-time Algebraic Riccati Equation (CARE) |
+| [`care`](inc/damp/design/riccati.hpp#L1490) | function | Design-time synthesis (not PWM-rate) | Solve the Continuous-time Algebraic Riccati Equation (CARE) |
 | [`Cascade`](inc/damp/controllers/composition.hpp#L49) | block | Runtime controllers | Series cascade of two SISO controllers: outer → inner reference |
 | [`catmull_1d`](inc/damp/toolbox/lookup.hpp#L339) | function | Embedded helpers (controls-adjacent utilities) | 1-D non-uniform Catmull-Rom (cubic Hermite) evaluation |
 | [`cbf_relative_degree_1`](inc/damp/controllers/action_governor.hpp#L203) | function | Design-time synthesis (not PWM-rate) | Build a relative-degree-1 CBF inequality row |
@@ -97,7 +97,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`ClassicalDOB`](inc/damp/estimation/dob.hpp#L437) | block | Observers & estimators | Classical Pn^-1·Q disturbance observer runtime (bolt-on compensator) (+1 more overload) |
 | [`ClassicalDobResult`](inc/damp/estimation/dob.hpp#L337) | block | Observers & estimators | Design result for the classical Pn^-1·Q disturbance observer |
 | [`classify_range`](inc/damp/toolbox/conditioning.hpp#L367) | function | Embedded helpers (controls-adjacent utilities) | Classify x against the valid span and the wire-fault limits of range |
-| [`closed_loop_poles`](inc/damp/design/stability.hpp#L562) | function | Design-time synthesis (not PWM-rate) | Compute closed-loop poles (eigenvalues) with state feedback |
+| [`closed_loop_poles`](inc/damp/design/stability.hpp#L563) | function | Design-time synthesis (not PWM-rate) | Compute closed-loop poles (eigenvalues) with state feedback |
 | [`closed_loop_stable`](inc/damp/design/pid_design.hpp#L684) | function | Design-time synthesis (not PWM-rate) | Closed-loop certificate: den_P·den_C + num_P·num_C is Hurwitz for C_fb = Kp + Kᵢ/s + Kd s/(1 + Tf s) |
 | [`cohen_coon`](inc/damp/design/pid_design.hpp#L300) | function | Design-time synthesis (not PWM-rate) | Cohen-Coon tuning from first-order-plus-dead-time model |
 | [`ColVec`](inc/damp/matrix/colvec.hpp#L27) | block | Linear algebra | Concrete Column vector specialization of Matrix<N, 1, T> |
@@ -105,28 +105,28 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`comb_notch_window`](inc/damp/filters/moving_average.hpp#L33) | function | Filters & signal conditioning | Window length for a moving-average comb that notches f_notch and all its harmonics: N = round(1 / (f_notch·Ts)) |
 | [`combine_quadrature`](inc/damp/encoder/sincos.hpp#L119) | function | Embedded helpers (controls-adjacent utilities) | Absolute position from a quadrature edge counter and the fine phase |
 | [`CommandProjectionResult`](inc/damp/controllers/action_governor.hpp#L89) | block | Design-time synthesis (not PWM-rate) | Result of an affine command projection |
-| [`companion_form`](inc/damp/systems/realization.hpp#L617) | function | LTI systems (SS / TF / ZPK / discretize) | Companion form of a SISO model, MATLAB®'s canon(sys, 'companion'): B = e₁, −α in A's last column |
+| [`companion_form`](inc/damp/systems/realization.hpp#L613) | function | LTI systems (SS / TF / ZPK / discretize) | Companion form of a SISO model, MATLAB®'s canon(sys, 'companion'): B = e₁, −α in A's last column |
 | [`Complementary`](inc/damp/filters/complementary.hpp#L32) | block | Filters & signal conditioning | Scalar (1-D) complementary filter — fuse a fast rate with a slow absolute |
 | [`ComplementaryFilter`](inc/damp/estimation/sensor_fusion.hpp#L58) | block | Observers & estimators | Simple complementary filter for orientation estimation |
 | [`complex`](inc/damp/math/complex.hpp#L38) | block | Scalar math, complex & frames | Constexpr complex number class for compile-time computations |
-| [`compute_eigenvalues`](inc/damp/matrix/eigen.hpp#L786) | function | Linear algebra | Compute the eigenvalues (and Schur vectors) of a real square matrix |
+| [`compute_eigenvalues`](inc/damp/matrix/eigen.hpp#L989) | function | Linear algebra | Compute the eigenvalues (and Schur vectors) of a real square matrix |
 | [`constant_power_torque_limit`](inc/damp/motor/foc.hpp#L42) | function | Motor control pack (if present) | Constant-power torque ceiling Tₘₐₓ = P_rated / \|ω\| |
 | [`ConstantInertiaFeedforward`](inc/damp/toolbox/actuator.hpp#L199) | block | Embedded helpers (controls-adjacent utilities) | Per-axis decoupled torque feedforward: `τ = J·a + b·v + τ_c·sign(v) + g` |
 | [`ConstMatrix`](inc/damp/matrix/const_matrix.hpp#L86) | block | Linear algebra | A matrix that is a constant of its type: no storage, and a product with a vector that has no term for an entry that is exactly 0 |
 | [`continuous_lpf_exact_step`](inc/damp/filters/lowpass.hpp#L37) | function | Filters & signal conditioning | Exact step of continuous first-order LPF ẏ = −ω_c (y − u) |
-| [`continuous_lqr`](inc/damp/design/riccati.hpp#L1741) | function | Design-time synthesis (not PWM-rate) | Continuous-time Linear-Quadratic Regulator design |
+| [`continuous_lqr`](inc/damp/design/riccati.hpp#L1743) | function | Design-time synthesis (not PWM-rate) | Continuous-time Linear-Quadratic Regulator design |
 | [`ContinuousPID`](inc/damp/controllers/pid.hpp#L1070) | function | Design-time synthesis (not PWM-rate) | Deduce the runtime from its design, keeping the result's scalar |
 | [`ContinuousPID`](inc/damp/controllers/pid.hpp#L940) | block | Runtime controllers | Continuous-gain PID with per-tick sample time (variable-rate secondary form) |
-| [`controllability_gramian`](inc/damp/design/stability.hpp#L380) | function | Design-time synthesis (not PWM-rate) | Continuous/discrete controllability Gramian W_c |
+| [`controllability_gramian`](inc/damp/design/stability.hpp#L381) | function | Design-time synthesis (not PWM-rate) | Continuous/discrete controllability Gramian W_c |
 | [`controllability_matrix`](inc/damp/design/stability.hpp#L53) | function | Design-time synthesis (not PWM-rate) | Compute the controllability matrix [B, AB, A²B, ..., A^(N-1)B] |
-| [`controllability_staircase`](inc/damp/systems/realization.hpp#L792) | function | LTI systems (SS / TF / ZPK / discretize) | Controllability staircase form: the controllable part split off by an orthogonal transform |
-| [`controllable_canonical_form`](inc/damp/systems/realization.hpp#L519) | function | LTI systems (SS / TF / ZPK / discretize) | Controllable canonical form of a SISO model: ones on A's superdiagonal, −α in its last row, B = eₙ |
+| [`controllability_staircase`](inc/damp/systems/realization.hpp#L788) | function | LTI systems (SS / TF / ZPK / discretize) | Controllability staircase form: the controllable part split off by an orthogonal transform |
+| [`controllable_canonical_form`](inc/damp/systems/realization.hpp#L515) | function | LTI systems (SS / TF / ZPK / discretize) | Controllable canonical form of a SISO model: ones on A's superdiagonal, −α in its last row, B = eₙ |
 | [`Convention`](inc/damp/math/transforms.hpp#L68) | enum | Scalar math, complex & frames | Scaling convention for the Clarke/Park family |
 | [`ConvertsExactly`](inc/damp/matrix/matrix_traits.hpp#L76) | concept | Linear algebra | Matrix elements of type From convert to To without rounding: the same type, or a real into the complex of its own precision |
 | [`copysign`](inc/damp/math/math.hpp#L481) | function | Scalar math, complex & frames | Copy sign — magnitude of mag with the sign of sgn_src |
-| [`cos`](inc/damp/matrix/functions.hpp#L1350) | function | Linear algebra | Matrix cosine via scaling and double-angle reconstruction |
+| [`cos`](inc/damp/matrix/functions.hpp#L1349) | function | Linear algebra | Matrix cosine via scaling and double-angle reconstruction |
 | [`cos`](inc/damp/math/math.hpp#L168) | function | Scalar math, complex & frames | Cosine |
-| [`cosh`](inc/damp/matrix/functions.hpp#L1384) | function | Linear algebra | Matrix hyperbolic cosine cosh(A) = (exp(A) + exp(−A))/2 |
+| [`cosh`](inc/damp/matrix/functions.hpp#L1383) | function | Linear algebra | Matrix hyperbolic cosine cosh(A) = (exp(A) + exp(−A))/2 |
 | [`Counter`](inc/damp/toolbox/logic.hpp#L272) | block | Embedded helpers (controls-adjacent utilities) | Edge-counting up/down counter: increments on each rising edge of up, decrements on each rising edge of down. Returns the running count, saturating at the limits of T (no wrap / signed overflow) |
 | [`cross_check_analog`](inc/damp/toolbox/conditioning.hpp#L541) | function | Embedded helpers (controls-adjacent utilities) | Cross-check two calibrated analog readings for redundant sensors |
 | [`CTD`](inc/damp/toolbox/iec61131.hpp#L351) | block | Embedded helpers (controls-adjacent utilities) | CTD Counter (Count Down) |
@@ -138,8 +138,8 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`d2d`](inc/damp/matlab.hpp#L458) | function | MATLAB®-style aliases (host) | MATLAB® d2d: resample a ZOH-discrete model to a new sample time |
 | [`damp`](inc/damp/analysis/poles.hpp#L70) | function | Frequency-domain analysis (host) | Compute natural frequency and damping for each pole |
 | [`damping_ratio_from_overshoot_percent`](inc/damp/design/pid_design.hpp#L858) | function | Design-time synthesis (not PWM-rate) | Map percent overshoot target to equivalent damping ratio |
-| [`dare`](inc/damp/design/riccati.hpp#L1319) | function | Design-time synthesis (not PWM-rate) | Solve the Discrete Algebraic Riccati Equation (DARE) |
-| [`DareMethod`](inc/damp/design/riccati.hpp#L1186) | enum | Design-time synthesis (not PWM-rate) | DARE solver selection for dare() |
+| [`dare`](inc/damp/design/riccati.hpp#L1321) | function | Design-time synthesis (not PWM-rate) | Solve the Discrete Algebraic Riccati Equation (DARE) |
+| [`DareMethod`](inc/damp/design/riccati.hpp#L1188) | enum | Design-time synthesis (not PWM-rate) | DARE solver selection for dare() |
 | [`db2mag`](inc/damp/math/math.hpp#L549) | function | Scalar math, complex & frames | Decibels to magnitude, 10^(db/20) |
 | [`dcgain`](inc/damp/analysis/norms.hpp#L42) | function | Frequency-domain analysis (host) | Compute DC gain of a continuous-time system |
 | [`DCM`](inc/damp/math/geometry.hpp#L83) | block | Scalar math, complex & frames | Rotation matrix, active body→parent (SO(3) wrapper over Mat3) |
@@ -158,13 +158,13 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`differential_drive`](inc/damp/toolbox/io.hpp#L262) | function | Embedded helpers (controls-adjacent utilities) | Differential (tank) drive mixer: throttle + turn → left/right |
 | [`DirectQuadrature`](inc/damp/math/transforms.hpp#L83) | block | Scalar math, complex & frames | Direct-quadrature (rotor-frame) component pair |
 | [`Discrete`](inc/damp/simulation/integrator.hpp#L151) | block | Simulation / SIL harness (host) | Discrete-time integrator (no integration, just one step) |
-| [`discrete_lqr`](inc/damp/design/riccati.hpp#L1607) | function | Design-time synthesis (not PWM-rate) | Discrete-time Linear-Quadratic Regulator design (+1 more overload) |
-| [`discrete_lyapunov_cholesky`](inc/damp/design/lyapunov.hpp#L522) | function | Design-time synthesis (not PWM-rate) | Cholesky factor of the discrete Lyapunov solution: A X Aᵀ − X + B Bᵀ = 0, X = RᵀR |
+| [`discrete_lqr`](inc/damp/design/riccati.hpp#L1609) | function | Design-time synthesis (not PWM-rate) | Discrete-time Linear-Quadratic Regulator design (+1 more overload) |
+| [`discrete_lyapunov_cholesky`](inc/damp/design/lyapunov.hpp#L518) | function | Design-time synthesis (not PWM-rate) | Cholesky factor of the discrete Lyapunov solution: A X Aᵀ − X + B Bᵀ = 0, X = RᵀR |
 | [`DiscretePIDGains`](inc/damp/controllers/pid.hpp#L74) | block | Runtime controllers | Fixed-rate discrete PID coefficients (canonical deploy form) |
 | [`DiscretizationMethod`](inc/damp/systems/discretization.hpp#L27) | enum | LTI systems (SS / TF / ZPK / discretize) | Discretization methods for continuous-time state-space systems |
 | [`DiscretizationResult`](inc/damp/systems/discretization.hpp#L50) | block | LTI systems (SS / TF / ZPK / discretize) | A discretized or resampled model with its success / status, read like an optional |
 | [`discretize`](inc/damp/systems/discretization.hpp#L330) | function | LTI systems (SS / TF / ZPK / discretize) | Discretize a continuous-time state-space system (+3 more overloads) |
-| [`discretize_lqr_cost`](inc/damp/design/riccati.hpp#L1676) | function | Design-time synthesis (not PWM-rate) | Discretize a continuous LQR cost integral over one sample (Van Loan) |
+| [`discretize_lqr_cost`](inc/damp/design/riccati.hpp#L1678) | function | Design-time synthesis (not PWM-rate) | Discretize a continuous LQR cost integral over one sample (Van Loan) |
 | [`discretize_process_noise`](inc/damp/estimation/kalman.hpp#L269) | function | Observers & estimators | Discretize continuous process noise over one sample (Van Loan) |
 | [`disk_margin`](inc/damp/analysis/disk_margin.hpp#L158) | function | Frequency-domain analysis (host) | Disk margin of a SISO loop L under unity negative feedback |
 | [`diskmargin`](inc/damp/matlab.hpp#L1331) | function | MATLAB®-style aliases (host) | Disk margin of a SISO loop (+1 more overload) |
@@ -173,7 +173,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`DLATCH`](inc/damp/toolbox/iec61131.hpp#L479) | block | Embedded helpers (controls-adjacent utilities) | D Latch (level-sensitive / transparent latch) |
 | [`dlqe`](inc/damp/matlab.hpp#L959) | function | MATLAB®-style aliases (host) | Discrete linear-quadratic estimator from matrices (MATLAB®'s dlqe) |
 | [`dlqr`](inc/damp/matlab.hpp#L907) | function | MATLAB®-style aliases (host) | Discrete-time Linear-Quadratic Regulator design (MATLAB®'s dlqr) |
-| [`dlyap`](inc/damp/design/lyapunov.hpp#L482) | function | Design-time synthesis (not PWM-rate) | Solve the discrete-time Lyapunov (Stein) equation A X Aᵀ − X + Q = 0 |
+| [`dlyap`](inc/damp/design/lyapunov.hpp#L478) | function | Design-time synthesis (not PWM-rate) | Solve the discrete-time Lyapunov (Stein) equation A X Aᵀ − X + Q = 0 |
 | [`dlyap`](inc/damp/matlab.hpp#L1422) | function | MATLAB®-style aliases (host) | MATLAB® alias for the discrete Lyapunov solve AXAᵀ−X+Q=0 |
 | [`dlyapchol`](inc/damp/matlab.hpp#L1442) | function | MATLAB®-style aliases (host) | MATLAB® alias for the Cholesky factor of the discrete Lyapunov solution (X = RᵀR) |
 | [`dob`](inc/damp/estimation/dob.hpp#L141) | function | Observers & estimators | Validate and package DOB configuration into a runtime-ready design result |
@@ -365,12 +365,12 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`inverse_symmetrical_components`](inc/damp/math/transforms.hpp#L570) | function | Scalar math, complex & frames | Inverse symmetrical-component transform (012 → abc) |
 | [`iq_from_torque`](inc/damp/motor/spm.hpp#L70) | function | Motor control pack (if present) | i_q = T_e / Kₜ for id = 0 |
 | [`is_constant_evaluated`](inc/damp/backend.hpp#L155) | function | Core, configuration & backend vocabulary | True during constant evaluation; the builtin needs no header |
-| [`is_controllable`](inc/damp/design/stability.hpp#L445) | function | Design-time synthesis (not PWM-rate) | Check if a system is controllable |
+| [`is_controllable`](inc/damp/design/stability.hpp#L446) | function | Design-time synthesis (not PWM-rate) | Check if a system is controllable |
 | [`is_fault`](inc/damp/toolbox/conditioning.hpp#L332) | function | Embedded helpers (controls-adjacent utilities) | True for a wire fault (FaultLow/FaultHigh) — i.e. not a real reading at all |
 | [`is_matrix_element`](inc/damp/matrix/matrix_traits.hpp#L38) | block | Linear algebra | True if T may be a Matrix element type |
-| [`is_observable`](inc/damp/design/stability.hpp#L459) | function | Design-time synthesis (not PWM-rate) | Check if a system is observable |
-| [`is_stabilizable`](inc/damp/design/stability.hpp#L482) | function | Design-time synthesis (not PWM-rate) | Check if (A, B) of sys is a stabilizable pair, in the domain of sys |
-| [`is_stable`](inc/damp/design/stability.hpp#L500) | function | Design-time synthesis (not PWM-rate) | Stability of a state-space model, in the domain of sys |
+| [`is_observable`](inc/damp/design/stability.hpp#L460) | function | Design-time synthesis (not PWM-rate) | Check if a system is observable |
+| [`is_stabilizable`](inc/damp/design/stability.hpp#L483) | function | Design-time synthesis (not PWM-rate) | Check if (A, B) of sys is a stabilizable pair, in the domain of sys |
+| [`is_stable`](inc/damp/design/stability.hpp#L501) | function | Design-time synthesis (not PWM-rate) | Stability of a state-space model, in the domain of sys |
 | [`is_symmetric_or_hermitian`](inc/damp/matrix/decomposition.hpp#L89) | function | Linear algebra | True if A equals its transpose (real) or conjugate transpose (complex) |
 | [`is_usable`](inc/damp/toolbox/conditioning.hpp#L506) | function | Embedded helpers (controls-adjacent utilities) | True when a channel reading may still be used (in-span or saturated) |
 | [`is_valid`](inc/damp/toolbox/conditioning.hpp#L327) | function | Embedded helpers (controls-adjacent utilities) | True only for the in-span status |
@@ -392,7 +392,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`lag`](inc/damp/controllers/lead_lag.hpp#L196) | function | Design-time synthesis (not PWM-rate) | Design a lag compensator from desired low-frequency gain boost |
 | [`lambda_tuning`](inc/damp/design/pid_design.hpp#L429) | function | Design-time synthesis (not PWM-rate) | Lambda tuning for FOPDT model |
 | [`Latch`](inc/damp/toolbox/logic.hpp#L65) | block | Embedded helpers (controls-adjacent utilities) | Set/reset latch. @tparam SetDominant which input wins when both are asserted (default: set-dominant, e.g. a trip overriding a clear) |
-| [`Law`](inc/damp/design/model_inverse.hpp#L954) | block | Design-time synthesis (not PWM-rate) | Law<kRes, T> of a `constexpr` model inverse: the same runtime on the design's matrices as constants of the type (+1 more overload) |
+| [`Law`](inc/damp/design/model_inverse.hpp#L950) | block | Design-time synthesis (not PWM-rate) | Law<kRes, T> of a `constexpr` model inverse: the same runtime on the design's matrices as constants of the type (+1 more overload) |
 | [`Law`](inc/damp/estimation/eso.hpp#L460) | block | Observers & estimators | Law<kRes, T> of a design::eso initialized at start-up: the ESO it runs as. A runtime of the same shape assigned replaces it (+5 more overloads) |
 | [`Law`](inc/damp/controllers/law_detail.hpp#L232) | block | Runtime controllers | The runtime a design result deploys as, named by the result: `Law<kRes, float> law;` (+6 more overloads) |
 | [`LDLT`](inc/damp/matrix/decomposition.hpp#L175) | block | Linear algebra | LDLᴴ factors with symmetric pivoting: P·A·Pᵀ = L·D·Lᴴ, D block diagonal with 1×1 and 2×2 blocks |
@@ -417,7 +417,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`linmod`](inc/damp/matlab.hpp#L588) | function | MATLAB®-style aliases (host) | MATLAB®-style nonlinear linearization about an operating point |
 | [`linspace`](inc/damp/analysis/linspace.hpp#L36) | function | Frequency-domain analysis (host) | num evenly spaced values from start to end inclusive (+1 more overload) |
 | [`locate_zero_crossing_exact`](inc/damp/simulation/hybrid.hpp#L333) | function | Simulation / SIL harness (host) | Locate a state zero-crossing of g(x) on an Exact LTI segment |
-| [`log`](inc/damp/matrix/functions.hpp#L1028) | function | Linear algebra | Principal matrix logarithm via inverse scaling and squaring |
+| [`log`](inc/damp/matrix/functions.hpp#L1026) | function | Linear algebra | Principal matrix logarithm via inverse scaling and squaring |
 | [`log`](inc/damp/math/math.hpp#L249) | function | Scalar math, complex & frames | Natural logarithm |
 | [`log10`](inc/damp/math/math.hpp#L431) | function | Scalar math, complex & frames | Base-10 logarithm, log10(x) = ln(x) / ln(10) |
 | [`logm`](inc/damp/matlab.hpp#L707) | function | MATLAB®-style aliases (host) | MATLAB® short alias for the principal matrix logarithm (mat::log) |
@@ -455,10 +455,10 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`LQR`](inc/damp/controllers/lqr.hpp#L203) | function | Design-time synthesis (not PWM-rate) | LQR law{res}: the sizes and scalar of design::lqr's result (+2 more overloads) |
 | [`lqr`](inc/damp/matlab.hpp#L892) | function | MATLAB®-style aliases (host) | Continuous-time LQR design (MATLAB®'s lqr) |
 | [`LQR`](inc/damp/controllers/lqr.hpp#L108) | block | Runtime controllers | Linear-quadratic regulator on the measured state: u = u − K·(x − x ) |
-| [`lqr_gain`](inc/damp/design/riccati.hpp#L1356) | function | Design-time synthesis (not PWM-rate) | Optimal LQR state-feedback gain from a Riccati solution |
-| [`LQRCost`](inc/damp/design/riccati.hpp#L1574) | block | Design-time synthesis (not PWM-rate) | A quadratic cost on (x, u): state cost Q, input cost R, cross term N |
+| [`lqr_gain`](inc/damp/design/riccati.hpp#L1358) | function | Design-time synthesis (not PWM-rate) | Optimal LQR state-feedback gain from a Riccati solution |
+| [`LQRCost`](inc/damp/design/riccati.hpp#L1576) | block | Design-time synthesis (not PWM-rate) | A quadratic cost on (x, u): state cost Q, input cost R, cross term N |
 | [`lqrd`](inc/damp/matlab.hpp#L922) | function | MATLAB®-style aliases (host) | Sampled-data LQR from a continuous plant: ZOH dynamics + Van Loan cost (MATLAB®'s lqrd) (+1 more overload) |
-| [`LQRResult`](inc/damp/design/riccati.hpp#L1515) | block | Design-time synthesis (not PWM-rate) | The LQR gain: design::lqr on a plant, discrete_lqr and continuous_lqr on given matrices |
+| [`LQRResult`](inc/damp/design/riccati.hpp#L1517) | block | Design-time synthesis (not PWM-rate) | The LQR gain: design::lqr on a plant, discrete_lqr and continuous_lqr on given matrices |
 | [`LQRWeights`](inc/damp/controllers/state_feedback_core.hpp#L752) | function | Design-time synthesis (not PWM-rate) | Sizes from the matrices: `LQRWeights{Q, R}` (+2 more overloads) |
 | [`LQRWeights`](inc/damp/controllers/state_feedback_core.hpp#L743) | block | Runtime controllers | The cost of a state-feedback design: what to penalize and how much |
 | [`lqry`](inc/damp/matlab.hpp#L1008) | function | MATLAB®-style aliases (host) | Output-weighted continuous LQR (state cost Q = Cᵀ Q_y C) (+1 more overload) |
@@ -473,10 +473,10 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`Lut2D`](inc/damp/toolbox/lookup.hpp#L200) | block | Embedded helpers (controls-adjacent utilities) | 2-D bilinear interpolating lookup table over a regular grid |
 | [`Lut3D`](inc/damp/toolbox/lookup.hpp#L274) | block | Embedded helpers (controls-adjacent utilities) | 3-D trilinear interpolating lookup table over a regular grid |
 | [`lut_segment`](inc/damp/toolbox/lookup.hpp#L62) | function | Embedded helpers (controls-adjacent utilities) | Index of the interpolation segment containing x |
-| [`lyap`](inc/damp/design/lyapunov.hpp#L456) | function | Design-time synthesis (not PWM-rate) | Solve the continuous-time Lyapunov equation A X + X Aᵀ + Q = 0 |
+| [`lyap`](inc/damp/design/lyapunov.hpp#L452) | function | Design-time synthesis (not PWM-rate) | Solve the continuous-time Lyapunov equation A X + X Aᵀ + Q = 0 |
 | [`lyap`](inc/damp/matlab.hpp#L1412) | function | MATLAB®-style aliases (host) | MATLAB® alias for the continuous Lyapunov solve AX+XAᵀ+Q=0 |
 | [`lyapchol`](inc/damp/matlab.hpp#L1432) | function | MATLAB®-style aliases (host) | MATLAB® alias for the Cholesky factor of the continuous Lyapunov solution (X = RᵀR) |
-| [`lyapunov_cholesky`](inc/damp/design/lyapunov.hpp#L504) | function | Design-time synthesis (not PWM-rate) | Cholesky factor of the continuous Lyapunov solution: A X + X Aᵀ + B Bᵀ = 0, X = RᵀR |
+| [`lyapunov_cholesky`](inc/damp/design/lyapunov.hpp#L500) | function | Design-time synthesis (not PWM-rate) | Cholesky factor of the continuous Lyapunov solution: A X + X Aᵀ + B Bᵀ = 0, X = RᵀR |
 | [`MadgwickFilter`](inc/damp/estimation/sensor_fusion.hpp#L132) | block | Observers & estimators | Madgwick gradient-descent AHRS filter |
 | [`mag2db`](inc/damp/math/math.hpp#L535) | function | Scalar math, complex & frames | Magnitude to decibels, 20·log10(mag) |
 | [`MahonyFilter`](inc/damp/estimation/sensor_fusion.hpp#L174) | block | Observers & estimators | Mahony nonlinear complementary filter with PI correction |
@@ -564,10 +564,10 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`nyquistplot`](inc/damp/simulation/plot_plotly.hpp#L823) | function | Simulation / SIL harness (host) | Plot a Nyquist locus with the -1 critical point marked |
 | [`NyquistPoint`](inc/damp/analysis/frequency.hpp#L371) | block | Frequency-domain analysis (host) | Single-point Nyquist response data |
 | [`NyquistResult`](inc/damp/analysis/frequency.hpp#L383) | block | Frequency-domain analysis (host) | Nyquist response data across a frequency sweep |
-| [`observability_gramian`](inc/damp/design/stability.hpp#L408) | function | Design-time synthesis (not PWM-rate) | Continuous/discrete observability Gramian W_o |
+| [`observability_gramian`](inc/damp/design/stability.hpp#L409) | function | Design-time synthesis (not PWM-rate) | Continuous/discrete observability Gramian W_o |
 | [`observability_matrix`](inc/damp/design/stability.hpp#L83) | function | Design-time synthesis (not PWM-rate) | Compute the observability matrix [C; CA; CA²; ...; CA^(N-1)] |
-| [`observability_staircase`](inc/damp/systems/realization.hpp#L851) | function | LTI systems (SS / TF / ZPK / discretize) | Observability staircase form: the observable part split off by an orthogonal transform |
-| [`observable_canonical_form`](inc/damp/systems/realization.hpp#L569) | function | LTI systems (SS / TF / ZPK / discretize) | Observable canonical form of a SISO model: ones on A's subdiagonal, −α in its last column, C = eₙᵀ |
+| [`observability_staircase`](inc/damp/systems/realization.hpp#L847) | function | LTI systems (SS / TF / ZPK / discretize) | Observability staircase form: the observable part split off by an orthogonal transform |
+| [`observable_canonical_form`](inc/damp/systems/realization.hpp#L565) | function | LTI systems (SS / TF / ZPK / discretize) | Observable canonical form of a SISO model: ones on A's subdiagonal, −α in its last column, C = eₙᵀ |
 | [`obsv`](inc/damp/matlab.hpp#L402) | function | MATLAB®-style aliases (host) | MATLAB® short alias for observability_matrix (+1 more overload) |
 | [`obsvf`](inc/damp/matlab.hpp#L551) | function | MATLAB®-style aliases (host) | MATLAB® obsvf(A, B, C): observability staircase form, its orthogonal transform and rank |
 | [`OffDelayTimer`](inc/damp/toolbox/logic.hpp#L135) | block | Embedded helpers (controls-adjacent utilities) | Off-delay timer: output goes true immediately when in is true and stays true until in has been false continuously for delay |
@@ -584,10 +584,10 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`option_set`](inc/damp/design/options.hpp#L82) | block | Design-time synthesis (not PWM-rate) | The kinds of option a design call accepts: check<Opts...>() refuses, at compile time, an option of no listed kind and a kind given twice |
 | [`option_type`](inc/damp/design/options.hpp#L41) | block | Design-time synthesis (not PWM-rate) | The type of the first option of the kind Is among Opts, else Default (+1 more overload) |
 | [`optional`](inc/damp/backend.hpp#L185) | block | Core, configuration & backend vocabulary | The optional of a toolchain with no C++ standard headers (ETL_NO_STL) |
-| [`output_inverse`](inc/damp/design/model_inverse.hpp#L687) | function | Design-time synthesis (not PWM-rate) | The stable inverse of a discrete model: the state and input of its trajectory through a reference y on the controlled outputs, from y ₖ … y ₖ₊NP₋₁ (+1 more overload) |
+| [`output_inverse`](inc/damp/design/model_inverse.hpp#L683) | function | Design-time synthesis (not PWM-rate) | The stable inverse of a discrete model: the state and input of its trajectory through a reference y on the controlled outputs, from y ₖ … y ₖ₊NP₋₁ (+1 more overload) |
 | [`OutputDelay`](inc/damp/systems/discretization.hpp#L585) | block | LTI systems (SS / TF / ZPK / discretize) | A measurement delay of θ = seconds, in up to N registers (0 ≤ θ ≤ N·Ts): the reading that arrives at sample k is y(t_k − θ). `discretize(sys, Ts, OutputDelay<N>{θ})` returns that model; design on it like any other. `OutputDelay{θ}` is N = 1 (+1 more overload) |
 | [`OutputDisturbance`](inc/damp/design/disturbance.hpp#L51) | block | Design-time synthesis (not PWM-rate) | An output disturbance: a bias on each reading, B_d = 0 and C_d = I, one per output |
-| [`OutputInverse`](inc/damp/design/model_inverse.hpp#L865) | block | Design-time synthesis (not PWM-rate) | The stable inverse at run time: the reference point (x , u ) from the output reference over the preview, seven matrix–vector products and the zero dynamics' state (+1 more overload) |
+| [`OutputInverse`](inc/damp/design/model_inverse.hpp#L861) | block | Design-time synthesis (not PWM-rate) | The stable inverse at run time: the reference point (x , u ) from the output reference over the preview, seven matrix–vector products and the zero dynamics' state (+1 more overload) |
 | [`OutputInverseResult`](inc/damp/design/model_inverse.hpp#L144) | block | Design-time synthesis (not PWM-rate) | The stable inverse of a discrete model over a preview of NP output samples |
 | [`pade`](inc/damp/matlab.hpp#L1384) | function | MATLAB®-style aliases (host) | Padé approximation of order N (1 or 2) of the pure delay e^{−sT} |
 | [`pade_delay_1st`](inc/damp/filters/pade.hpp#L33) | function | Filters & signal conditioning | First-order Pade approximation of time delay (+1 more overload) |
@@ -647,7 +647,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`PolyRootsResult`](inc/damp/systems/zpk.hpp#L91) | block | LTI systems (SS / TF / ZPK / discretize) | Roots of a real polynomial given highest power first |
 | [`Pose`](inc/damp/kinematics/pose.hpp#L61) | block | Kinematics / pose | Rigid-body pose: a translation and an orientation (unit quaternion) |
 | [`positive_sequence_ab`](inc/damp/filters/pll.hpp#L253) | function | Filters & signal conditioning | Instantaneous positive-sequence αβ from a quadrature signal pair |
-| [`pow`](inc/damp/matrix/functions.hpp#L1130) | function | Linear algebra | Integer matrix power via binary exponentiation (+1 more overload) |
+| [`pow`](inc/damp/matrix/functions.hpp#L1129) | function | Linear algebra | Integer matrix power via binary exponentiation (+1 more overload) |
 | [`pow`](inc/damp/math/math.hpp#L279) | function | Scalar math, complex & frames | Power function with a real exponent, base^exponent (+1 more overload) |
 | [`pr`](inc/damp/controllers/pr.hpp#L203) | function | Design-time synthesis (not PWM-rate) | Design a Proportional-Resonant controller |
 | [`pr_harmonics`](inc/damp/controllers/pr.hpp#L241) | function | Design-time synthesis (not PWM-rate) | Design multiple-harmonic PR controller gains |
@@ -686,7 +686,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`RampConfig`](inc/damp/estimation/excitation/ramp.hpp#L31) | block | Observers & estimators | Configuration for a slew-rate-limited ramp excitation |
 | [`RampResult`](inc/damp/estimation/excitation/ramp.hpp#L63) | block | Observers & estimators | Ramp design payload |
 | [`RangeMonitor`](inc/damp/toolbox/conditioning.hpp#L401) | block | Embedded helpers (controls-adjacent utilities) | Analog-input range/fault monitor (NAMUR NE43 pattern) |
-| [`rank`](inc/damp/design/stability.hpp#L423) | function | Design-time synthesis (not PWM-rate) | Numerical rank of a matrix (forwards to mat::rank) (+1 more overload) |
+| [`rank`](inc/damp/design/stability.hpp#L424) | function | Design-time synthesis (not PWM-rate) | Numerical rank of a matrix (forwards to mat::rank) (+1 more overload) |
 | [`rank`](inc/damp/matrix/functions.hpp#L231) | function | Linear algebra | Numerical rank: the number of singular values above rel_tol·σₘₐₓ |
 | [`rank_from_svd`](inc/damp/matrix/svd.hpp#L390) | function | Linear algebra | Numerical rank from a precomputed SVD result |
 | [`reduced_order_observer`](inc/damp/estimation/fixed_gain_observer.hpp#L504) | function | Observers & estimators | Design a reduced-order (Gopinath) observer by pole placement, in the domain of sys (+1 more overload) |
@@ -748,7 +748,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`SignalSource`](inc/damp/concepts.hpp#L141) | concept | Core, configuration & backend vocabulary | Self-clocked signal source: u = step(), finished when done() |
 | [`SignalStatus`](inc/damp/toolbox/conditioning.hpp#L318) | enum | Embedded helpers (controls-adjacent utilities) | Classification of an analog input against its valid/fault bands |
 | [`simc`](inc/damp/design/pid_design.hpp#L368) | function | Design-time synthesis (not PWM-rate) | SIMC (Skogestad Internal Model Control) tuning for FOPDT models |
-| [`similarity_transform`](inc/damp/systems/realization.hpp#L375) | function | LTI systems (SS / TF / ZPK / discretize) | Change the state basis to z = T·x: (T·A·T⁻¹, T·B, C·T⁻¹, D), and T·G for the noise input |
+| [`similarity_transform`](inc/damp/systems/realization.hpp#L371) | function | LTI systems (SS / TF / ZPK / discretize) | Change the state basis to z = T·x: (T·A·T⁻¹, T·B, C·T⁻¹, D), and T·G for the noise input |
 | [`simulate`](inc/damp/simulation/simulate.hpp#L159) | function | Simulation / SIL harness (host) | Simulate a nonlinear plant with a controller in closed loop |
 | [`simulate_cached_zoh`](inc/damp/simulation/cached_zoh.hpp#L157) | function | Simulation / SIL harness (host) | Simulate a continuous LTI plant with fixed ZOH step and held input (+1 more overload) |
 | [`simulate_cached_zoh_multirate`](inc/damp/simulation/cached_zoh.hpp#L236) | function | Simulation / SIL harness (host) | Multi-rate ZOH: held control samples, dense plant samples for plotting |
@@ -763,14 +763,14 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`simulate_two_rate`](inc/damp/simulation/multirate.hpp#L266) | function | Simulation / SIL harness (host) | Two-rate cascade with MultiRateConfig (+1 more overload) |
 | [`simulate_two_rate_lti`](inc/damp/simulation/multirate.hpp#L415) | function | Simulation / SIL harness (host) | Two-rate cascade on a continuous LTI plant (A, B, C, D) |
 | [`SimulationResult`](inc/damp/simulation/simulate.hpp#L128) | block | Simulation / SIL harness (host) | Result of a closed-loop simulation |
-| [`sin`](inc/damp/matrix/functions.hpp#L1333) | function | Linear algebra | Matrix sine via scaling and double-angle reconstruction |
+| [`sin`](inc/damp/matrix/functions.hpp#L1332) | function | Linear algebra | Matrix sine via scaling and double-angle reconstruction |
 | [`sin`](inc/damp/math/math.hpp#L181) | function | Scalar math, complex & frames | Sine |
-| [`sincos`](inc/damp/matrix/functions.hpp#L1317) | function | Linear algebra | Compute sin(A) and cos(A) together via scaling and double-angle reconstruction |
+| [`sincos`](inc/damp/matrix/functions.hpp#L1316) | function | Linear algebra | Compute sin(A) and cos(A) together via scaling and double-angle reconstruction |
 | [`sincos`](inc/damp/math/math.hpp#L199) | function | Scalar math, complex & frames | Combined sine and cosine, {sin(x), cos(x)} |
 | [`SinCosCalibration`](inc/damp/encoder/sincos.hpp#L65) | block | Embedded helpers (controls-adjacent utilities) | Per-channel gain/offset trims for the sin/cos front end (hardware calibration) |
 | [`SinCosSample`](inc/damp/encoder/sincos.hpp#L77) | block | Embedded helpers (controls-adjacent utilities) | One decoded sin/cos sample: the fine phase and the signal amplitude |
 | [`SinglePhasePLL`](inc/damp/filters/pll.hpp#L67) | block | Filters & signal conditioning | Single-Phase PLL |
-| [`sinh`](inc/damp/matrix/functions.hpp#L1368) | function | Linear algebra | Matrix hyperbolic sine sinh(A) = (exp(A) − exp(−A))/2 |
+| [`sinh`](inc/damp/matrix/functions.hpp#L1367) | function | Linear algebra | Matrix hyperbolic sine sinh(A) = (exp(A) − exp(−A))/2 |
 | [`siso_ref`](inc/damp/simulation/simulate.hpp#L115) | function | Simulation / SIL harness (host) | Build a SisoReferenceAdapter for a SISO `control(r,y)` controller |
 | [`SisoController`](inc/damp/concepts.hpp#L84) | concept | Core, configuration & backend vocabulary | Scalar output-feedback controller: u = control(r, y), fixed rate |
 | [`SisoReferenceAdapter`](inc/damp/simulation/simulate.hpp#L96) | block | Simulation / SIL harness (host) | Adapt a SISO `control(r, y)` controller for callables that want `u = f(y)` or `u = f(t, y)` (the older simulate contracts) |
@@ -800,7 +800,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`specific_force_at_rest`](inc/damp/estimation/ins_mechanization.hpp#L226) | function | Observers & estimators | Specific force [m/s²] a stationary IMU measures for the given orientation |
 | [`SplineSurface`](inc/damp/toolbox/lookup.hpp#L393) | block | Embedded helpers (controls-adjacent utilities) | 2-D interpolating surface with smooth (Catmull-Rom spline) blending |
 | [`SplitReal`](inc/damp/math/split_real.hpp#L47) | block | Scalar math, complex & frames | A real number split into an exact integer part and a floating-point remainder |
-| [`sqrt`](inc/damp/matrix/functions.hpp#L983) | function | Linear algebra | Principal matrix square root by the real Schur method |
+| [`sqrt`](inc/damp/matrix/functions.hpp#L980) | function | Linear algebra | Principal matrix square root by the real Schur method |
 | [`sqrt`](inc/damp/math/complex.hpp#L337) | function | Scalar math, complex & frames | Compute complex square root (constexpr) (+1 more overload) |
 | [`sqrtm`](inc/damp/matlab.hpp#L694) | function | MATLAB®-style aliases (host) | MATLAB® short alias for the principal matrix square root (mat::sqrt) |
 | [`SR`](inc/damp/toolbox/iec61131.hpp#L61) | block | Embedded helpers (controls-adjacent utilities) | SR Latch (Set-dominant Set-Reset Latch) |
@@ -811,13 +811,13 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`ss_gain`](inc/damp/systems/state_space.hpp#L655) | function | LTI systems (SS / TF / ZPK / discretize) | Static gain y = k u (no states) |
 | [`ssbal`](inc/damp/matlab.hpp#L490) | function | MATLAB®-style aliases (host) | MATLAB® ssbal: diagonal state balancing of [A B; C 0] |
 | [`SsFeed`](inc/damp/systems/state_space.hpp#L644) | block | LTI systems (SS / TF / ZPK / discretize) | One term of a linear output mix: k · y_iy |
-| [`stability_margin`](inc/damp/design/stability.hpp#L525) | function | Design-time synthesis (not PWM-rate) | Distance from the poles of sys to its domain's stability boundary |
-| [`StaircaseFormResult`](inc/damp/systems/realization.hpp#L646) | block | LTI systems (SS / TF / ZPK / discretize) | A model in staircase coordinates, the orthogonal transform that took it there, and its rank |
+| [`stability_margin`](inc/damp/design/stability.hpp#L526) | function | Design-time synthesis (not PWM-rate) | Distance from the poles of sys to its domain's stability boundary |
+| [`StaircaseFormResult`](inc/damp/systems/realization.hpp#L642) | block | LTI systems (SS / TF / ZPK / discretize) | A model in staircase coordinates, the orthogonal transform that took it there, and its rank |
 | [`state_feedforward`](inc/damp/design/model_inverse.hpp#L100) | function | Design-time synthesis (not PWM-rate) | The plant-inversion feedforward of a discrete model: the input that moves x⁺ = A·x + B·u along a state reference, u ₖ the least-squares solution of B·u = x ₖ₊₁ − A·x ₖ |
 | [`state_variable_filter`](inc/damp/estimation/state_variable_filter.hpp#L97) | function | Observers & estimators | Design the filter F(s) = ω³/(s + ω)³ sampled at Ts |
 | [`StateEstimator`](inc/damp/concepts.hpp#L128) | concept | Core, configuration & backend vocabulary | State estimator: x̂ = step(y, u) — the fused per-tick form |
 | [`StateFeedbackResult`](inc/damp/controllers/state_feedback_core.hpp#L801) | block | Design-time synthesis (not PWM-rate) | A state-feedback design: the gain, and the parts the law's options add |
-| [`StateFeedforward`](inc/damp/design/model_inverse.hpp#L822) | block | Design-time synthesis (not PWM-rate) | The plant-inversion feedforward at run time: u = B⁺·(x ₖ₊₁ − x ₖ) − B⁺(A − I)·x ₖ, two matrix–vector products (+1 more overload) |
+| [`StateFeedforward`](inc/damp/design/model_inverse.hpp#L818) | block | Design-time synthesis (not PWM-rate) | The plant-inversion feedforward at run time: u = B⁺·(x ₖ₊₁ − x ₖ) − B⁺(A − I)·x ₖ, two matrix–vector products (+1 more overload) |
 | [`StateFeedforwardResult`](inc/damp/design/model_inverse.hpp#L60) | block | Design-time synthesis (not PWM-rate) | The plant-inversion feedforward of a discrete model: u ₖ = B⁺·(x ₖ₊₁ − x ₖ) − B⁺(A − I)·x ₖ |
 | [`StateScaling`](inc/damp/systems/realization.hpp#L39) | block | LTI systems (SS / TF / ZPK / discretize) | A model in balanced state coordinates, and the diagonal scaling that took it there |
 | [`StateSpace`](inc/damp/systems/state_space.hpp#L137) | block | LTI systems (SS / TF / ZPK / discretize) | State-space representation for linear time-invariant systems (discrete or continuous) (+10 more overloads) |

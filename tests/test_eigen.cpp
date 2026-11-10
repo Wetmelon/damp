@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <complex>
 #include <cstdlib>
 #include <limits>
 #include <numbers>
@@ -753,6 +754,135 @@ TEST_CASE("Schur vectors are eigenvectors of symmetric matrices") {
     REQUIRE(r4.success);
     for (size_t i = 0; i < 4; ++i) {
         CHECK(eigen_residual<4>(A4, r4, i) <= 64 * kEps * 8.0);
+    }
+}
+
+namespace {
+
+// Every eigenvalue of r is real and the multiset equals want, bit for bit.
+template<size_t N, typename T>
+bool exact_real_spectrum(const mat::EigenResult<N, T>& r, damp::array<T, N> want) {
+    damp::array<T, N> got{};
+    for (size_t i = 0; i < N; ++i) {
+        if (r.values[i].imag() != T{0}) {
+            return false;
+        }
+        got[i] = r.values[i].real();
+    }
+    std::sort(got.begin(), got.end());
+    std::sort(want.begin(), want.end());
+    return got == want;
+}
+
+// Distance from s·z to the nearest eigenvalue of r, relative to |s·z|. The eigenvalues are
+// divided by s first: under -ffast-math std::abs of a complex squares its parts.
+template<size_t N, typename T>
+double nearest_relative(const mat::EigenResult<N, T>& r, std::complex<double> z, double s = 1.0) {
+    double best = 1e300;
+    for (size_t i = 0; i < N; ++i) {
+        const double dr = (static_cast<double>(r.values[i].real()) / s) - z.real();
+        const double di = (static_cast<double>(r.values[i].imag()) / s) - z.imag();
+        best = std::min(best, damp::hypot(dr, di) / damp::hypot(z.real(), z.imag()));
+    }
+    return best;
+}
+
+} // namespace
+
+TEST_SUITE("compute_eigenvalues: eigenvalues a permutation isolates are exact") {
+    // Scaling alone mixed a triangular matrix in the Hessenberg reduction: the QR iteration
+    // then returned its small eigenvalues with the backward error of the large ones. This one
+    // came back with +5.4e-5 among four negative eigenvalues, flipping a stability verdict.
+    TEST_CASE_TEMPLATE("a graded lower-triangular matrix returns its diagonal, signs intact", T, float, double) {
+        const Matrix<4, 4, T> A{
+            {T(-471.36748253258696), T(0), T(0), T(0)},
+            {T(-0.87361149115686365), T(-4.9233887939782065e-08), T(0), T(0)},
+            {T(-0.0071707893691730362), T(-5910.9650985859535), T(-2.3287070457625161e-08), T(0)},
+            {T(2.3610115030470471), T(0.11348600858513481), T(-0.039941256173751209), T(-24384783.994237196)},
+        };
+        const auto r = compute_eigenvalues(A);
+        REQUIRE(r.success);
+        CHECK(exact_real_spectrum(r, {A(0, 0), A(1, 1), A(2, 2), A(3, 3)}));
+        const auto ut = compute_eigenvalues(A.transpose()); // upper triangular: the column search
+        REQUIRE(ut.success);
+        CHECK(exact_real_spectrum(ut, {A(0, 0), A(1, 1), A(2, 2), A(3, 3)}));
+    }
+
+    TEST_CASE_TEMPLATE("a cascade around a complex pair keeps its isolated poles exact", T, float, double) {
+        // A slow pole feeding an oscillator feeding a fast pole: block lower triangular.
+        const Matrix<4, 4, T> A{
+            {T(-1e-7), T(0), T(0), T(0)},
+            {T(1), T(-0.5), T(2), T(0)},
+            {T(0), T(-3), T(-0.5), T(0)},
+            {T(0), T(0), T(1e4), T(-1e4)},
+        };
+        const auto r = compute_eigenvalues(A);
+        REQUIRE(r.success);
+        size_t exact = 0;
+        for (const auto& v : r.values) {
+            exact += (v.imag() == T{0} && (v.real() == A(0, 0) || v.real() == A(3, 3))) ? 1U : 0U;
+        }
+        CHECK(exact == 2);
+        CHECK(nearest_relative(r, {-0.5, std::sqrt(6.0)}) <= 8.0 * static_cast<double>(eps<T>()));
+        CHECK(nearest_relative(r, {-0.5, -std::sqrt(6.0)}) <= 8.0 * static_cast<double>(eps<T>()));
+    }
+
+    // [[A_p, 0], [−C, 0]]: the integrator's eigenvalue is 0, not the roundoff of the plant.
+    TEST_CASE_TEMPLATE("an integrator appended to a plant has the eigenvalue 0 exactly", T, float, double) {
+        const Matrix<4, 4, T> A{
+            {T(0), T(1), T(0), T(0)},
+            {T(-400), T(-0.2), T(3e3), T(0)},
+            {T(0), T(0), T(-1e-3), T(0)},
+            {T(-1), T(0), T(0), T(0)},
+        };
+        const auto r = compute_eigenvalues(A);
+        REQUIRE(r.success);
+        size_t zero = 0;
+        size_t slow = 0;
+        for (const auto& v : r.values) {
+            zero += (v.real() == T{0} && v.imag() == T{0}) ? 1U : 0U;
+            slow += (v.real() == A(2, 2) && v.imag() == T{0}) ? 1U : 0U;
+        }
+        CHECK(zero == 1);
+        CHECK(slow == 1);
+        CHECK(nearest_relative(r, {-0.1, std::sqrt(399.99)}) <= 8.0 * static_cast<double>(eps<T>()));
+    }
+
+    TEST_CASE_TEMPLATE("an empty matrix has an empty spectrum", T, float, double) {
+        // N − 1 wraps for N = 0: the balance and the reduction must not iterate on it.
+        CHECK(compute_eigenvalues(Matrix<0, 0, T>{}).success);
+        CHECK(mat::detail::real_schur(Matrix<0, 0, T>{}).converged);
+        damp::array<int, 0> e{};
+        Matrix<0, 0, T>     M{};
+        CHECK(mat::detail::gebal_log2_scale(M, e));
+    }
+
+    TEST_CASE_TEMPLATE("the Schur basis of a permuted matrix still triangularizes it", T, float, double) {
+        const Matrix<4, 4, T> A{
+            {T(2), T(0), T(5), T(0)},
+            {T(1), T(-3), T(4), T(7)},
+            {T(0), T(0), T(-1), T(0)},
+            {T(0), T(0), T(3), T(6)},
+        };
+        const auto rs = mat::detail::real_schur(A);
+        REQUIRE(rs.converged);
+        Matrix<4, 4, T> D{};
+        Matrix<4, 4, T> Di{};
+        for (size_t i = 0; i < 4; ++i) {
+            D(i, i) = mat::detail::scale_by_pow2(T{1}, rs.e[i]);
+            Di(i, i) = mat::detail::scale_by_pow2(T{1}, -rs.e[i]);
+        }
+        const Matrix<4, 4, T> ztz = rs.Z.transpose() * rs.Z;
+        const Matrix<4, 4, T> back = D * rs.Z * rs.T_form * rs.Z.transpose() * Di;
+        for (size_t i = 0; i < 4; ++i) {
+            for (size_t j = 0; j < 4; ++j) {
+                CHECK(std::fabs(ztz(i, j) - (i == j ? T{1} : T{0})) <= 8 * eps<T>());
+                CHECK(std::fabs(back(i, j) - A(i, j)) <= 64 * eps<T>());
+                if (i > j) {
+                    CHECK(rs.T_form(i, j) == T{0}); // the spectrum is real: T is triangular
+                }
+            }
+        }
     }
 }
 

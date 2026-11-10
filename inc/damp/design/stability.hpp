@@ -230,9 +230,10 @@ template<size_t NX, size_t NU, typename T>
  * @brief PBH test at one eigenvalue of a balanced pair: true when rank([λI − A, B]) < n
  *        (λ is uncontrollable).
  *
- * @p lambda must come from mat::compute_eigenvalues (which balances the same way): a
- * diagonal similarity does not move an eigenvalue, but it does rescale the roundoff in a
- * computed one, and that roundoff is what the rank tolerance has to absorb.
+ * @p lambda must come from mat::compute_eigenvalues (which balances the same way, except
+ * that an eigenvalue a permutation isolates is exact): a diagonal similarity does not move an
+ * eigenvalue, but it does rescale the roundoff in a computed one, and that roundoff is what
+ * the rank tolerance has to absorb.
  *
  * The rank tolerance is relative to the largest singular value, so the test matrix is
  * conditioned first, by operations that do not change its rank. Balancing (a delay

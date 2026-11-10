@@ -141,29 +141,38 @@ template<typename T>
  * (damp::detail::scaled_norm2), so entries anywhere in the finite range balance:
  * a plain sum of squares overflows past √max and flushes small rows to zero.
  *
+ * Only the indices in [@p lo, @p hi] are scaled, and their norms count only that block, as after
+ * permute_and_scale's isolation: the rest of A is triangular and its eigenvalues are already exact.
+ * The max-norms that guard against overflow take the whole row and column, which the similarity
+ * scales.
+ *
  * @return false, with @p A and @p exp untouched, if @p A holds a non-finite entry.
  * @see LAPACK xGEBAL, JOB='S'
  * @see "Balancing a Matrix for Calculation of Eigenvalues and Eigenvectors" (Parlett & Reinsch, 1969)
  */
 template<size_t M, typename T>
-[[nodiscard]] constexpr bool gebal_log2_scale(Matrix<M, M, T>& A, damp::array<int, M>& exp) {
+[[nodiscard]] constexpr bool gebal_log2_scale(Matrix<M, M, T>& A, damp::array<int, M>& exp, size_t lo = 0, size_t hi = M - 1) {
     if (!mat::all_of(A, [](T v) { return damp::isfinite(v); })) {
         return false;
     }
-    const T sfmin1 = damp::numeric_limits<T>::min() / eps<T>();
-    const T sfmax1 = T{1} / sfmin1;
+    if constexpr (M == 0) {
+        return true; // hi = M − 1 wraps: nothing to scale
+    }
+    const T      sfmin1 = damp::numeric_limits<T>::min() / eps<T>();
+    const T      sfmax1 = T{1} / sfmin1;
+    const size_t width = hi - lo + 1;
 
     for (int sweep = 0; sweep < 64; ++sweep) {
         bool noconv = false;
-        for (size_t i = 0; i < M; ++i) {
+        for (size_t i = lo; i <= hi; ++i) {
             T ca = T{0};
             T ra = T{0};
             for (size_t j = 0; j < M; ++j) {
                 ra = damp::max(ra, damp::abs(A(i, j)));
                 ca = damp::max(ca, damp::abs(A(j, i)));
             }
-            const T    c = damp::detail::scaled_norm2<T>(M, [&](size_t j) { return damp::abs(A(j, i)); });
-            const T    r = damp::detail::scaled_norm2<T>(M, [&](size_t j) { return damp::abs(A(i, j)); });
+            const T    c = damp::detail::scaled_norm2<T>(width, [&](size_t k) { return damp::abs(A(lo + k, i)); });
+            const T    r = damp::detail::scaled_norm2<T>(width, [&](size_t k) { return damp::abs(A(i, lo + k)); });
             const auto step = gebal_step(c, r, ca, ra);
             if (!step.apply) {
                 continue;
@@ -213,6 +222,10 @@ template<size_t M, typename T>
  * units of roundoff. A similarity of a 3×3 Jordan block took κ(D) = 16 for a 1.16× smaller
  * norm, and its square root lost up to 9× in accuracy; with the diagonal, D = I.
  *
+ * Scaling only, over the whole matrix: the conditioning step for rank and pencil tests that do
+ * not reduce A itself. A Schur reduction balances with permute_and_scale (real_schur), which
+ * first isolates the eigenvalues a permutation exposes; with nothing to isolate the two agree.
+ *
  * @see "Balancing a Matrix for Calculation of Eigenvalues and Eigenvectors" (Parlett & Reinsch, 1969)
  * @see "On matrix balancing and eigenvector computation" (James, Langou & Lowery, 2014), §2–4
  * @see LAPACK xGEBAL (JOB = 'S'); MATLAB®'s balance
@@ -240,6 +253,121 @@ template<size_t N, typename T>
         for (size_t j = 0; j < N; ++j) {
             out(i, j) = scale_by_pow2(A(i, j), e[j] - e[i]);
         }
+    }
+    return out;
+}
+
+/**
+ * @brief A permutation P and a diagonal D = diag(2^e) with B = D⁻¹·Pᵀ·A·P·D balanced.
+ *
+ * B is upper triangular outside the block [lo, hi]: its rows below hi and its columns left of
+ * lo hold an eigenvalue of A on the diagonal, exactly. D scales only the block (e is 0 outside).
+ */
+template<size_t N>
+struct Balancing {
+    damp::array<size_t, N> perm{}; ///< Row and column k of B are row and column perm[k] of A
+    damp::array<int, N>    e{};    ///< log2 of D, by the index of B
+    size_t                 lo{0};  ///< First index of the block the QR iteration must reduce
+    size_t                 hi{0};  ///< Last index of that block
+};
+
+/** @brief Exchange indices i and j of the similarity: rows and columns of @p M, and @p perm. */
+template<size_t N, typename T>
+constexpr void swap_indices(Matrix<N, N, T>& M, damp::array<size_t, N>& perm, size_t i, size_t j) {
+    if (i == j) {
+        return;
+    }
+    for (size_t k = 0; k < N; ++k) {
+        const T t = M(i, k);
+        M(i, k) = M(j, k);
+        M(j, k) = t;
+    }
+    for (size_t k = 0; k < N; ++k) {
+        const T t = M(k, i);
+        M(k, i) = M(k, j);
+        M(k, j) = t;
+    }
+    const size_t t = perm[i];
+    perm[i] = perm[j];
+    perm[j] = t;
+}
+
+/** @brief True when row (@p column false) or column @p k of @p M is zero on [lo, hi] off the diagonal. */
+template<size_t N, typename T>
+[[nodiscard]] constexpr bool isolated_index(const Matrix<N, N, T>& M, size_t k, size_t lo, size_t hi, bool column) {
+    for (size_t j = lo; j <= hi; ++j) {
+        if (j != k && (column ? M(j, k) : M(k, j)) != T{0}) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/**
+ * @brief Isolate the eigenvalues a permutation exposes, then scale the rest (xGEBAL, JOB = 'B').
+ *
+ * A row whose entries left of column hi are zero off the diagonal holds an eigenvalue on its
+ * diagonal: it is exchanged to position hi and the search repeats on the leading hi × hi part.
+ * Then a column whose entries in rows [lo, hi] are zero off the diagonal moves to position lo, and
+ * the search repeats on [lo + 1, hi]. No column found then can turn a row into an isolated one: an
+ * isolated column has no nonzero in a row of the block. Each search moves one index or ends, so
+ * each takes at most N passes. The block [lo, hi] is then scaled (gebal_log2_scale).
+ *
+ * The exchanges are exact, so a triangular A, or one a permutation makes triangular (a cascade,
+ * an integrator appended to a plant), keeps every eigenvalue exact: the Hessenberg reduction and
+ * the QR iteration never touch those rows. Scaling alone mixes them, and a graded triangular
+ * matrix then loses its small eigenvalues (and the sign of one).
+ *
+ * @see "Balancing a Matrix for Calculation of Eigenvalues and Eigenvectors" (Parlett & Reinsch, 1969), §2 (permutation)
+ * @see EISPACK `balanc`; LAPACK xGEBAL (JOB = 'B')
+ */
+template<size_t N, typename T>
+[[nodiscard]] constexpr Balancing<N> permute_and_scale(const Matrix<N, N, T>& A) {
+    Balancing<N> out{};
+    if constexpr (N == 0) {
+        return out;
+    }
+    Matrix<N, N, T> mag{};
+    for (size_t i = 0; i < N; ++i) {
+        out.perm[i] = i;
+        for (size_t j = 0; j < N; ++j) {
+            mag(i, j) = damp::abs(A(i, j));
+        }
+    }
+    size_t hi = N - 1;
+    for (size_t pass = 0; pass < N && hi > 0; ++pass) {
+        size_t found = N;
+        for (size_t i = hi + 1; i-- > 0;) {
+            if (isolated_index(mag, i, 0, hi, false)) {
+                found = i;
+                break;
+            }
+        }
+        if (found == N) {
+            break;
+        }
+        swap_indices(mag, out.perm, found, hi);
+        --hi;
+    }
+    size_t lo = 0;
+    for (size_t pass = 0; pass < N && lo < hi; ++pass) {
+        size_t found = N;
+        for (size_t j = lo; j <= hi; ++j) {
+            if (isolated_index(mag, j, lo, hi, true)) {
+                found = j;
+                break;
+            }
+        }
+        if (found == N) {
+            break;
+        }
+        swap_indices(mag, out.perm, found, lo);
+        ++lo;
+    }
+    out.lo = lo;
+    out.hi = hi;
+    if (lo < hi && !gebal_log2_scale(mag, out.e, lo, hi)) {
+        out.e = damp::array<int, N>{}; // a non-finite entry: leave the block unscaled
     }
     return out;
 }
@@ -485,13 +613,17 @@ constexpr SchurBlockEigenvalues<T> standardize_schur_block(Matrix<N, N, T>& H, M
  * count bounds the total work. A converged 2×2 block is standardized
  * (standardize_schur_block).
  *
+ * Outside the block [@p lo, @p hi] H must be upper triangular (permute_and_scale isolates such
+ * rows): their eigenvalues are read off the diagonal, and the iteration and its shifts touch only
+ * the block, so they stay exact.
+ *
  * @return true if every eigenvalue deflated within the iteration budget.
  * @see EISPACK `hqr2`; Golub & Van Loan, "Matrix Computations" §7.5
  * @see "A New Deflation Criterion for the QR Algorithm" (Ahues & Tisseur, 1997), LAPACK Working Note 122
  *
  * Indexing: EISPACK/Golub–Van Loan use a signed active-block cursor that
  * counts down through −1 as the exit condition. Accesses cast to size_t; the
- * conversion is intentional and bounded (nn starts at N−1 and only decreases).
+ * conversion is intentional and bounded (nn starts at hi and only decreases).
  */
 #if defined(__GNUC__)
 #pragma GCC diagnostic push
@@ -502,20 +634,28 @@ constexpr bool francis_qr(
     Matrix<N, N, T>&   H,
     Matrix<N, N, T>&   Z,
     damp::array<T, N>& wr,
-    damp::array<T, N>& wi
+    damp::array<T, N>& wi,
+    size_t             lo = 0,
+    size_t             hi = N - 1
 ) {
     constexpr T  eps = damp::eps<T>();
     constexpr T  smlnum = damp::numeric_limits<T>::min() * (static_cast<T>(N) / eps);
     const size_t max_its = (30 * N) + 30;
+    const int    first = static_cast<int>(lo);
 
     T anorm = T{0};
     for (size_t i = 0; i < N; ++i) {
-        for (size_t j = (i ? i - 1 : 0); j < N; ++j) {
+        if (i < lo || i > hi) {
+            wr[i] = H(i, i); // isolated: the eigenvalue is on the diagonal
+            wi[i] = T{0};
+            continue;
+        }
+        for (size_t j = ((i > lo) ? i - 1 : lo); j <= hi; ++j) {
             anorm += damp::abs(H(i, j));
         }
     }
 
-    int    nn = static_cast<int>(N) - 1;
+    int    nn = static_cast<int>(hi);
     T      t = T{0}; // accumulated shift
     bool   converged = true;
     size_t its = 0;      // total sweeps: the budget
@@ -532,7 +672,7 @@ constexpr bool francis_qr(
         T       tst = damp::abs(hpp) + damp::abs(hll);
         if constexpr (N >= 3) {
             if (tst == T{0}) {
-                if (l >= 2) {
+                if (l >= first + 2) {
                     tst += damp::abs(H(l - 1, l - 2));
                 }
                 if (l + 1 <= last) {
@@ -556,12 +696,12 @@ constexpr bool francis_qr(
         return ba * (ab / sc) <= damp::max(smlnum, eps * (bb * (aa / sc)));
     };
 
-    while (nn >= 0) {
+    while (nn >= first) {
         bool deflated = false;
         while (!deflated) {
             // Locate the first small subdiagonal element (deflation point).
             int l = nn;
-            while (l > 0) {
+            while (l > first) {
                 if (negligible(l, nn)) {
                     H(l, l - 1) = T{0};
                     break;
@@ -622,7 +762,7 @@ constexpr bool francis_qr(
                 // Exceptional shift every 10 sweeps on this eigenvalue to break out of cycles.
                 if (its_here > 0 && its_here % 10 == 0) {
                     t += x;
-                    for (int i = 0; i <= nn; ++i) {
+                    for (int i = first; i <= nn; ++i) {
                         H(i, i) -= x;
                     }
                     T s = damp::abs(H(nn, nn - 1)) + damp::abs(H(nn - 1, nn - 2));
@@ -752,22 +892,85 @@ constexpr bool francis_qr(
 #pragma GCC diagnostic pop
 #endif
 
+/**
+ * @brief Real Schur form of a balanced A: A = D·Z·T·Zᵀ·D⁻¹, D = diag(2^e), Z orthogonal.
+ *
+ * Every row of Z, and every entry of e, is indexed as A's; the permutation of the balance is
+ * folded into Z, so Z stays orthogonal and D diagonal. T is in A's units.
+ */
+template<size_t N, typename T>
+struct RealSchur {
+    Matrix<N, N, T>     T_form{};         ///< Standardized real Schur form, quasi upper triangular
+    Matrix<N, N, T>     Z{};              ///< Orthogonal Schur vectors of D⁻¹AD
+    damp::array<int, N> e{};              ///< log2 of the balancing D
+    damp::array<T, N>   wr{};             ///< Real parts of the eigenvalues, in T's diagonal order
+    damp::array<T, N>   wi{};             ///< Imaginary parts, positive first within a pair
+    bool                converged{false}; ///< Finite A and every eigenvalue deflated
+};
+
+/**
+ * @brief Balance (permute_and_scale), reduce (Hessenberg and Francis QR) and map back, for every real Schur caller.
+ *
+ * The eigenvalues the permutation isolates are exact, and the rest are accurate relative to the
+ * balanced block. A non-finite entry, or a QR iteration that does not deflate, returns
+ * converged = false.
+ *
+ * @see "Balancing a Matrix for Calculation of Eigenvalues and Eigenvectors" (Parlett & Reinsch, 1969)
+ * @see LAPACK xGEEV (balance, reduce, then undo the balance)
+ */
+template<size_t N, typename T>
+[[nodiscard]] constexpr RealSchur<N, T> real_schur(const Matrix<N, N, T>& A) {
+    RealSchur<N, T> out{};
+    if (!mat::all_of(A, [](T v) { return damp::isfinite(v); })) {
+        return out;
+    }
+    const Balancing<N> bal = permute_and_scale(A);
+    Matrix<N, N, T>    H{};
+    for (size_t i = 0; i < N; ++i) {
+        for (size_t j = 0; j < N; ++j) {
+            H(i, j) = scale_by_pow2(A(bal.perm[i], bal.perm[j]), bal.e[j] - bal.e[i]);
+        }
+    }
+    Matrix<N, N, T> Zb = Matrix<N, N, T>::identity();
+    bool            ok = true;
+    if constexpr (N == 0) {
+        // nothing to reduce
+    } else if constexpr (N == 1) {
+        out.wr[0] = H(0, 0);
+    } else {
+        hessenberg_reduce(H, Zb);
+        ok = francis_qr(H, Zb, out.wr, out.wi, bal.lo, bal.hi);
+    }
+    out.T_form = H;
+    for (size_t i = 0; i < N; ++i) {
+        out.e[bal.perm[i]] = bal.e[i];
+        for (size_t j = 0; j < N; ++j) {
+            out.Z(bal.perm[i], j) = Zb(i, j);
+        }
+    }
+    out.converged = ok;
+    return out;
+}
+
 } // namespace detail
 
 /**
  * @brief Compute the eigenvalues (and Schur vectors) of a real square matrix.
  *
  * Resolves both real and complex-conjugate eigenvalues for any N, returned as
- * fully-resolved complex values. 1×1 is trivial; larger matrices are balanced
- * (detail::balance_exponents, a diagonal similarity by powers of two) and then
- * reduced by Hessenberg + Francis double-shift QR (a 2×2 deflates at once via
- * the cancellation-free quadratic). Balancing makes the computed eigenvalues
- * accurate relative to the balanced norm, not to the largest entry of A, so a
- * state in metres next to one in counts does not cost the small eigenvalues
- * their digits. The @c schur_vectors field holds the real Schur basis of the
- * balanced matrix mapped back (x = D x_b) with unit columns: nested invariant
- * subspaces of A, orthogonal when A needed no balancing, and the eigenvectors for
- * symmetric A. It does not hold eigenvectors of a general A.
+ * fully-resolved complex values. 1×1 is trivial; larger matrices go through
+ * detail::real_schur: balanced (detail::permute_and_scale, a permutation and a
+ * diagonal similarity by powers of two), then reduced by
+ * Hessenberg + Francis double-shift QR (a 2×2 deflates at once via the
+ * cancellation-free quadratic). An eigenvalue the permutation isolates (a
+ * triangular A, a cascade, an appended integrator) is the diagonal entry itself,
+ * exactly. Balancing makes the others accurate relative to the balanced norm, not
+ * to the largest entry of A, so a state in metres next to one in counts does not
+ * cost the small eigenvalues their digits. The @c schur_vectors
+ * field holds the real Schur basis of the balanced matrix mapped back (x = D x_b)
+ * with unit columns: nested invariant subspaces of A, orthogonal when A needed no
+ * scaling, and the eigenvectors for symmetric A. It does not hold eigenvectors of a
+ * general A.
  *
  * @note Compare with MATLAB®'s eig(A) — the algorithm is selected internally.
  * @warning QR is iterative (data-dependent iteration count). Suitable for
@@ -800,21 +1003,15 @@ template<size_t N, typename T = double>
     } else {
         // N == 2 deflates immediately through the stable 2×2 branch of
         // francis_qr (its bulge chase is compiled only for N ≥ 3).
-        const auto      e = detail::balance_exponents(A);
-        Matrix<N, N, T> H = detail::balanced(A, e);
-        Matrix<N, N, T> Z;
-        detail::hessenberg_reduce(H, Z);
-
-        damp::array<T, N> wr{};
-        damp::array<T, N> wi{};
-        result.success = detail::francis_qr(H, Z, wr, wi);
+        const auto rs = detail::real_schur(A);
+        result.success = rs.converged;
 
         for (size_t i = 0; i < N; ++i) {
-            result.values[i] = Cplx{wr[i], wi[i]};
+            result.values[i] = Cplx{rs.wr[i], rs.wi[i]};
             // Schur vectors of A are D·Z; renormalize each column.
             T nrm_sq = T{0};
             for (size_t j = 0; j < N; ++j) {
-                const T v = detail::scale_by_pow2(Z(j, i), e[j]);
+                const T v = detail::scale_by_pow2(rs.Z(j, i), rs.e[j]);
                 result.schur_vectors(j, i) = v;
                 nrm_sq += v * v;
             }
