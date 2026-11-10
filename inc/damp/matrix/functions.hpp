@@ -843,32 +843,6 @@ template<typename T, size_t N>
 }
 
 /**
- * @brief balance_exponents(A) where balancing pays for f(A) = D·f(D⁻¹AD)·D⁻¹, else all zero.
- *
- * Balancing makes the accuracy of f independent of the units of each state, but mapping the
- * result back by D magnifies the roundoff of its small entries by up to κ(D) = 2^(max e − min e).
- * A graded matrix, whose D undoes its units, has its norm cut by about κ(D). A matrix of one
- * scale, whose D only evens out its rows, barely changes: a similarity of a 3×3 Jordan block has
- * @f$ \|A\|_F / \|D^{-1}AD\|_F = 1.16 @f$ for κ(D) = 16, and balancing its square root costs up to
- * 9× in accuracy. So balance only when the norm falls by more than √κ(D), between the two.
- */
-template<size_t N, typename T>
-[[nodiscard]] constexpr damp::array<int, N> function_balance_exponents(const Matrix<N, N, T>& A) {
-    const damp::array<int, N> e = balance_exponents(A);
-    int                       lo = e[0];
-    int                       hi = e[0];
-    for (size_t i = 1; i < N; ++i) {
-        lo = damp::min(lo, e[i]);
-        hi = damp::max(hi, e[i]);
-    }
-    // ‖A‖ > 2^⌈(hi − lo)/2⌉·‖D⁻¹AD‖ ≥ √κ(D)·‖D⁻¹AD‖, scaled by a power of two so it cannot overflow
-    if (A.norm() > scale_by_pow2(balanced(A, e).norm(), (hi - lo + 1) / 2)) {
-        return e;
-    }
-    return damp::array<int, N>{};
-}
-
-/**
  * @brief Principal square root of a real A by the real Schur method; the float and double path of sqrt().
  *
  * Returns damp::nullopt for a non-finite entry, a real eigenvalue that is not positive, a Schur form
@@ -885,9 +859,9 @@ template<typename T, size_t N>
         }
         return Matrix<1, 1, T>{{damp::sqrt(A(0, 0))}};
     } else {
-        // Balance first where it pays (a diagonal similarity by powers of two, exact):
-        // √A = D·√(D⁻¹AD)·D⁻¹, so the accuracy does not depend on the units of each state.
-        const auto            e = function_balance_exponents(A);
+        // Balance first (a diagonal similarity by powers of two, exact): √A = D·√(D⁻¹AD)·D⁻¹, so
+        // the accuracy does not depend on the units of each state.
+        const auto            e = balance_exponents(A);
         const Matrix<N, N, T> Ab = balanced(A, e);
         Matrix<N, N, T>       Tq = Ab;
         Matrix<N, N, T>       Z;
@@ -975,9 +949,8 @@ template<typename T, size_t N>
  *
  * Computes the principal square root @f$ X = \sqrt{A} @f$ with @f$ X\cdot X = A @f$ and every
  * eigenvalue of X in the open right half-plane. A real Schur form @f$ A = Z T Z^\top @f$
- * of the balanced matrix D⁻¹AD (balancing where it pays, see detail::function_balance_exponents,
- * then Hessenberg reduction and Francis double-shift QR, as in compute_eigenvalues;
- * √A = D·√(D⁻¹AD)·D⁻¹, so graded units cost no accuracy) reduces the
+ * of the balanced matrix D⁻¹AD (balancing, Hessenberg reduction and Francis double-shift QR, as
+ * in compute_eigenvalues; √A = D·√(D⁻¹AD)·D⁻¹, so graded units cost no accuracy) reduces the
  * problem to the quasi-triangular T: each 1×1 or 2×2 diagonal block has a closed-form root, and
  * each off-diagonal block of R solves a Sylvester equation of at most 4 unknowns,
  * @f[
@@ -1053,8 +1026,8 @@ template<typename T, size_t N>
  */
 template<typename T, size_t N>
 [[nodiscard]] constexpr damp::optional<Matrix<N, N, T>> log(const Matrix<N, N, T>& A) {
-    // Balance first where it pays (exact, powers of two): log A = D·log(D⁻¹AD)·D⁻¹, so the number
-    // of square roots, and with it the accuracy, does not depend on the units of each state. The exponents
+    // Balance first (exact, powers of two): log A = D·log(D⁻¹AD)·D⁻¹, so the number of square
+    // roots, and with it the accuracy, does not depend on the units of each state. The exponents
     // come from the magnitudes, so a damp::complex A is balanced too. A non-finite entry is
     // refused here: its NaN norm would pass the stop test below and skip the roots.
     if (!mat::all_of(A, [](const T& v) { return detail::is_finite_entry(v); })) {
@@ -1066,7 +1039,7 @@ template<typename T, size_t N>
             mag(i, j) = damp::abs(A(i, j));
         }
     }
-    const auto e = detail::function_balance_exponents(mag);
+    const auto e = detail::balance_exponents(mag);
     Matrix     I = Matrix<N, N, T>::identity();
     Matrix     A_scaled = detail::balanced(A, e);
     size_t     s = 0;

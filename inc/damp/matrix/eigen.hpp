@@ -134,9 +134,10 @@ template<typename T>
 /**
  * @brief log2 of the xGEBAL scale factors of @p A.
  *
- * @p A is overwritten by D⁻¹ A D with D = diag(2^exp). Diagonal entries are
- * ignored by the caller (they are zero), matching the Benner / SciPy recipe
- * of clearing diag(|H|) before balancing. Row and column norms are scaled
+ * @p A is overwritten by D⁻¹ A D with D = diag(2^exp). The row and column norms
+ * include whatever diagonal the caller leaves: balance_exponents keeps it, as
+ * LAPACK ≥ 3.5.0 does, and the Hamiltonian balance clears it, as Benner's
+ * symplectic recipe and SciPy's CARE do. Row and column norms are scaled
  * (damp::detail::scaled_norm2), so entries anywhere in the finite range balance:
  * a plain sum of squares overflows past √max and flushes small rows to zero.
  *
@@ -202,22 +203,26 @@ template<size_t M, typename T>
 /**
  * @brief xGEBAL scaling exponents of @p A: D = diag(2^e) with D⁻¹ A D balanced.
  *
- * Row and column norms of the balanced matrix agree to within a factor of two
- * (the diagonal is ignored, as in LAPACK). A similarity transform, so the
- * eigenvalues are unchanged, but the QR iteration then computes them to a
- * relative accuracy that does not depend on the units of each state.
+ * Row and column 2-norms of the balanced matrix agree to within a factor of two. A
+ * similarity transform, so the eigenvalues are unchanged, but the QR iteration then
+ * computes them to a relative accuracy that does not depend on the units of each state.
+ *
+ * The norms include the diagonal, as xGEBAL's have since LAPACK 3.5.0. Without it a matrix
+ * whose diagonal dominates is over-balanced. A result mapped back by D (eigenvectors, a
+ * Schur basis, √A, log A) has a backward error bounded only by κ(D)·‖D⁻¹AD‖_F/‖A‖_F
+ * units of roundoff. A similarity of a 3×3 Jordan block took κ(D) = 16 for a 1.16× smaller
+ * norm, and its square root lost up to 9× in accuracy; with the diagonal, D = I.
  *
  * @see "Balancing a Matrix for Calculation of Eigenvalues and Eigenvectors" (Parlett & Reinsch, 1969)
+ * @see "On matrix balancing and eigenvector computation" (James, Langou & Lowery, 2014), §2–4
  * @see LAPACK xGEBAL (JOB = 'S'); MATLAB®'s balance
  */
 template<size_t N, typename T>
 [[nodiscard]] constexpr damp::array<int, N> balance_exponents(const Matrix<N, N, T>& A) {
-    Matrix<N, N, T> mag = Matrix<N, N, T>::zeros();
+    Matrix<N, N, T> mag{};
     for (size_t i = 0; i < N; ++i) {
         for (size_t j = 0; j < N; ++j) {
-            if (i != j) {
-                mag(i, j) = damp::abs(A(i, j));
-            }
+            mag(i, j) = damp::abs(A(i, j));
         }
     }
     damp::array<int, N> e{};
