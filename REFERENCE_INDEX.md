@@ -558,8 +558,8 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`norm_hinf`](inc/damp/analysis/norms.hpp#L337) | function | Frequency-domain analysis (host) | H∞ norm of a stable state-space system, sup σ̄(G) over the imaginary axis or the unit circle, and its frequency |
 | [`notch`](inc/damp/filters/iir_design.hpp#L660) | function | Filters & signal conditioning | Second-order band-reject (notch) filter design (continuous-time) (+1 more overload) |
 | [`null`](inc/damp/matlab.hpp#L654) | function | MATLAB®-style aliases (host) | MATLAB® short alias for an orthonormal null-space basis |
-| [`null_space`](inc/damp/matrix/svd.hpp#L455) | function | Linear algebra | Orthonormal basis for the null space {x : A·x = 0} via SVD |
-| [`NullSpace`](inc/damp/matrix/svd.hpp#L434) | block | Linear algebra | Orthonormal basis for the null space (kernel) of a matrix |
+| [`null_space`](inc/damp/matrix/svd.hpp#L480) | function | Linear algebra | Orthonormal basis for the null space {x : A·x = 0} via SVD |
+| [`NullSpace`](inc/damp/matrix/svd.hpp#L459) | block | Linear algebra | Orthonormal basis for the null space (kernel) of a matrix |
 | [`nyquist`](inc/damp/analysis/frequency.hpp#L499) | function | Frequency-domain analysis (host) | Compute Nyquist data for a SISO state-space system (+1 more overload) |
 | [`nyquistplot`](inc/damp/simulation/plot_plotly.hpp#L823) | function | Simulation / SIL harness (host) | Plot a Nyquist locus with the -1 critical point marked |
 | [`NyquistPoint`](inc/damp/analysis/frequency.hpp#L371) | block | Frequency-domain analysis (host) | Single-point Nyquist response data |
@@ -662,7 +662,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`project_box`](inc/damp/controllers/action_governor.hpp#L74) | function | Design-time synthesis (not PWM-rate) | Euclidean projection of u onto a Bounds box |
 | [`PRResult`](inc/damp/controllers/pr.hpp#L109) | block | Design-time synthesis (not PWM-rate) | Proportional-Resonant controller design result |
 | [`PRSpec`](inc/damp/controllers/pr.hpp#L96) | block | Runtime controllers | The gains and frequencies of a proportional-resonant design; Ts is passed beside it |
-| [`pseudo_inverse`](inc/damp/matrix/svd.hpp#L401) | function | Linear algebra | Moore–Penrose pseudoinverse A⁺ via SVD |
+| [`pseudo_inverse`](inc/damp/matrix/svd.hpp#L426) | function | Linear algebra | Moore–Penrose pseudoinverse A⁺ via SVD |
 | [`PulseTimer`](inc/damp/toolbox/logic.hpp#L170) | block | Embedded helpers (controls-adjacent utilities) | Pulse timer (non-retriggerable): a rising edge of in emits a fixed |
 | [`PwmScheme`](inc/damp/motor/modulation.hpp#L77) | enum | Motor control pack (if present) | Carrier-based three-phase VSI modulation scheme |
 | [`pzmap`](inc/damp/analysis/poles.hpp#L169) | function | Frequency-domain analysis (host) | Pole-zero map of a SISO transfer function (MATLAB® `pzmap(tf)`) (+2 more overloads) |
@@ -688,7 +688,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`RangeMonitor`](inc/damp/toolbox/conditioning.hpp#L401) | block | Embedded helpers (controls-adjacent utilities) | Analog-input range/fault monitor (NAMUR NE43 pattern) |
 | [`rank`](inc/damp/design/stability.hpp#L423) | function | Design-time synthesis (not PWM-rate) | Numerical rank of a matrix (forwards to mat::rank) (+1 more overload) |
 | [`rank`](inc/damp/matrix/functions.hpp#L231) | function | Linear algebra | Numerical rank: the number of singular values above rel_tol·σₘₐₓ |
-| [`rank_from_svd`](inc/damp/matrix/svd.hpp#L365) | function | Linear algebra | Numerical rank from a precomputed SVD result |
+| [`rank_from_svd`](inc/damp/matrix/svd.hpp#L390) | function | Linear algebra | Numerical rank from a precomputed SVD result |
 | [`reduced_order_observer`](inc/damp/estimation/fixed_gain_observer.hpp#L504) | function | Observers & estimators | Design a reduced-order (Gopinath) observer by pole placement, in the domain of sys (+1 more overload) |
 | [`ReducedOrderObserver`](inc/damp/estimation/fixed_gain_observer.hpp#L1055) | block | Observers & estimators | Reduced-order (Gopinath) state observer (runtime) (+1 more overload) |
 | [`ReducedOrderObserverResult`](inc/damp/estimation/fixed_gain_observer.hpp#L345) | block | Observers & estimators | Reduced-order (Gopinath) observer design result |
@@ -858,9 +858,9 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`subtract`](inc/damp/systems/state_space.hpp#L586) | function | LTI systems (SS / TF / ZPK / discretize) | Differencing connection: outputs y = y₁ − y₂ |
 | [`suggest_mpc_horizon`](inc/damp/controllers/mpc.hpp#L1767) | function | Design-time synthesis (not PWM-rate) | Suggest MPC horizons from an explicit settling-time target (+1 more overload) |
 | [`summarize_loop_response`](inc/damp/analysis/frequency.hpp#L462) | function | Frequency-domain analysis (host) | Summarize loop_response() results into one compact metrics struct |
-| [`svd`](inc/damp/matrix/svd.hpp#L331) | function | Linear algebra | Full singular value decomposition A = U·Σ·Vᴴ (one-sided Jacobi) |
+| [`svd`](inc/damp/matrix/svd.hpp#L356) | function | Linear algebra | Full singular value decomposition A = U·Σ·Vᴴ (one-sided Jacobi) |
 | [`svd`](inc/damp/matlab.hpp#L632) | function | MATLAB®-style aliases (host) | MATLAB® short alias for the singular value decomposition |
-| [`SVDResult`](inc/damp/matrix/svd.hpp#L46) | block | Linear algebra | Result of a full singular value decomposition A = U·Σ·Vᴴ |
+| [`SVDResult`](inc/damp/matrix/svd.hpp#L47) | block | Linear algebra | Result of a full singular value decomposition A = U·Σ·Vᴴ |
 | [`svm_duty_cycles`](inc/damp/motor/modulation.hpp#L444) | function | Motor control pack (if present) | Space-vector PWM duty cycles from an αβ voltage command |
 | [`SvmDuties`](inc/damp/motor/modulation.hpp#L101) | block | Motor control pack (if present) | Result of a duty-map: half-bridge duties plus an over-modulation flag |
 | [`svpwm_zero_sequence`](inc/damp/motor/modulation.hpp#L198) | function | Motor control pack (if present) | Min-max zero-sequence injection for space-vector PWM |

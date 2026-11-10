@@ -29,6 +29,7 @@
 #include "damp/backend.hpp"
 #include "damp/math/complex.hpp"
 #include "damp/math/math.hpp"
+#include "eigen.hpp" // scale_by_pow2
 #include "matrix_traits.hpp"
 
 namespace damp {
@@ -47,9 +48,9 @@ struct [[nodiscard]] SVDResult {
     Matrix<M, M, T>                                singular_U{};      ///< Left singular vectors.
     damp::array<scalar_type_t<T>, (M < N ? M : N)> singular_values{}; ///< Descending, ≥ 0.
     Matrix<N, N, T>                                singular_V{};      ///< Right singular vectors.
-    bool                                           success{false};    ///< Finite input and the Jacobi sweeps converged.
+    bool                                           success{false};    ///< Finite input, the Jacobi sweeps converged, and every σ fits in T.
 
-    /** @brief True for finite input whose Jacobi sweeps converged. */
+    /** @brief True for finite input whose Jacobi sweeps converged to singular values that fit in T. */
     [[nodiscard]] constexpr explicit operator bool() const { return success; }
 };
 
@@ -80,9 +81,14 @@ template<size_t M, size_t N, typename T>
  * with @f$ t = 1/(|\zeta| + \sqrt{\zeta^2+1}) @f$ for |ζ| ≤ 1 and
  * @f$ t = u/(1 + \sqrt{1+u^2}) @f$, @f$ u = 1/|\zeta| @f$, beyond. A Gram sum ‖a‖² flushes
  * a column 10⁻²⁰ below the largest to zero in float, which cost a graded matrix its small
- * singular values. A is rescaled by its largest entry only when every entry is below one
- * or the column norms could overflow, so graded entries stay where they are; a column
- * whose norm falls below min/eps (absolute) is roundoff residue and is reported as zero.
+ * singular values. A is rescaled only when every entry is below one (up, so its largest entry
+ * lies in [1, 2)) or the column norms could overflow (down, by the least power of two that
+ * prevents it), so graded entries stay where they are; a column whose norm falls below min/eps
+ * (absolute) is roundoff residue and is reported as zero. The scale is a power of two applied
+ * entry by entry, so it is exact. A reciprocal 1/max|a| is not: past 1/min it is subnormal, and
+ * -ffast-math flushed it to zero, which zeroed A and returned every σ = 0 as a success (float
+ * diag(1e38, 1e37)); for subnormal max|a| it overflowed. A σ above the largest value of T fails
+ * the SVD.
  *
  * @see "Jacobi's method is more accurate than QR" (Demmel & Veselić, 1992), SIAM J. Matrix Anal. Appl. 13(4)
  * @see "New fast and accurate Jacobi SVD algorithm I" (Drmač & Veselić, 2008), SIAM J. Matrix Anal. Appl. 29(4)
@@ -105,9 +111,28 @@ template<size_t P, size_t Q, typename T>
     }
     // Rescale only when needed: up when every entry is below one (none is pushed toward
     // underflow), down when a norm could overflow. Otherwise a graded A keeps its entries.
-    const bool      rescale = (amax > real_t{0}) && (amax < real_t{1} || amax > big);
-    const real_t    inv_amax = rescale ? real_t{1} / amax : real_t{1};
-    Matrix<P, Q, T> W = A * T{inv_amax};
+    // W = A/2^e, scaled exactly: no reciprocal of amax, which flushes or overflows near the ends.
+    int e = 0;
+    if (amax > real_t{0} && amax < real_t{1}) {
+        e = damp::detail::binary_exponent(amax); // largest entry of W in [1, 2)
+    } else if (amax > big) {
+        e = damp::detail::binary_exponent(amax) - damp::detail::binary_exponent(big) + 1; // below big
+    }
+    const auto pow2 = [](T x, int k) {
+        if constexpr (damp::is_floating_point_v<T>) {
+            return scale_by_pow2(x, k);
+        } else {
+            return T{scale_by_pow2(x.real(), k), scale_by_pow2(x.imag(), k)};
+        }
+    };
+    Matrix<P, Q, T> W = A;
+    if (e != 0) {
+        for (size_t i = 0; i < P; ++i) {
+            for (size_t j = 0; j < Q; ++j) {
+                W(i, j) = pow2(A(i, j), -e);
+            }
+        }
+    }
     Matrix<Q, Q, T> V = Matrix<Q, Q, T>::identity();
 
     // Column j of the working matrix is W(:, j)·d[j] with W(:, j) a unit vector (Drmač–Veselić):
@@ -306,10 +331,9 @@ template<size_t P, size_t Q, typename T>
         }
     }
 
-    if (rescale) {
-        for (size_t j = 0; j < Q; ++j) {
-            out.singular_values[j] *= amax;
-        }
+    for (size_t j = 0; j < Q; ++j) {
+        out.singular_values[j] = scale_by_pow2(out.singular_values[j], e);
+        out.success = out.success && damp::isfinite(out.singular_values[j]); // σ above max: not representable
     }
     return out;
 }
@@ -323,7 +347,8 @@ template<size_t P, size_t Q, typename T>
  * @param A Input matrix (any shape).
  * @return SVDResult with unitary U (M×M), descending singular values, unitary
  *         V (N×N). Wide inputs (M < N) are handled by decomposing Aᴴ internally.
- *         A NaN or ±Inf entry returns success = false with every factor NaN.
+ *         A NaN or ±Inf entry returns success = false with every factor NaN; so does a
+ *         singular value above the largest value of T, which is then not finite.
  *
  * @note Compare with MATLAB®'s [U, S, V] = svd(A).
  */

@@ -443,6 +443,77 @@ TEST_SUITE("svd scaling") {
         }
     }
 
+    // The prescale multiplied A by 1/max|a|. Past 1/min (8.5e37 in float, 4.5e307 in double) that
+    // reciprocal is subnormal and -ffast-math flushed it to zero, so A became 0 and every σ came
+    // back 0 as a success; for a subnormal max|a| it overflowed. The scale is now an exact power of
+    // two, and only as large as the column norms need, so a graded matrix keeps its small σ.
+    // volatile keeps the inputs out of constant folding, so this runs the suite's -ffast-math code.
+    TEST_CASE_TEMPLATE("singular values near the top of the range are kept", T, float, double) {
+        const bool      f = damp::is_same_v<T, float>;
+        volatile T      top_in = f ? static_cast<T>(1e38) : static_cast<T>(1e308);
+        volatile T      big_in = f ? static_cast<T>(3e38) : static_cast<T>(1.5e308);
+        const T         top = top_in;
+        const T         big = big_in;
+        const T         tenth = static_cast<T>(0.1);
+        const T         e = damp::eps<T>();
+        const auto      near = [&](T got, T want) { return damp::abs(got - want) <= T{4} * e * want; };
+        Matrix<2, 2, T> A{};
+        A(0, 0) = top;
+        A(1, 1) = top * tenth;
+        const auto s = svd(A);
+        REQUIRE(s.success);
+        CHECK(near(s.singular_values[0], top));
+        CHECK(near(s.singular_values[1], top * tenth));
+        CHECK(rank_from_svd(s) == 2);
+
+        Matrix<3, 3, T> G{}; // graded: σ₂ and σ₃ sit 38 (float) or 308 (double) decades below σ₁
+        G(0, 0) = big;
+        G(1, 1) = T{1};
+        G(2, 2) = tenth;
+        const auto sg = svd(G);
+        REQUIRE(sg.success);
+        CHECK(near(sg.singular_values[0], big));
+        CHECK(near(sg.singular_values[1], T{1}));
+        CHECK(near(sg.singular_values[2], tenth));
+
+        Matrix<2, 2, complex<T>> C{};
+        C(0, 0) = complex<T>{top, T{0}};
+        C(1, 1) = complex<T>{T{0}, top * tenth};
+        const auto sc = svd(C);
+        REQUIRE(sc.success);
+        CHECK(near(sc.singular_values[0], top));
+        CHECK(near(sc.singular_values[1], top * tenth));
+    }
+
+    TEST_CASE_TEMPLATE("a singular value above the largest finite value fails the SVD", T, float, double) {
+        // σ of [[2, 1], [1, 1]] are (3 ± √5)/2; σ₁ of [[3, 1], [2, 1]] is 3.86. With u = 1e38 in
+        // float and 5e307 in double the first fits in T and the second does not: it came back
+        // +Inf (or, before that, 0) with success = true.
+        volatile T unit_in = damp::is_same_v<T, float> ? static_cast<T>(1e38) : static_cast<T>(5e307);
+        const T    u = unit_in;
+        const auto fits = svd(Matrix<2, 2, T>{{T{2} * u, u}, {u, u}});
+        REQUIRE(fits.success);
+        const long double root5 = std::sqrt(5.0L);
+        const long double s0 = (3.0L + root5) / 2.0L * static_cast<long double>(u);
+        const long double s1 = (3.0L - root5) / 2.0L * static_cast<long double>(u);
+        const long double tol = 8.0L * static_cast<long double>(damp::eps<T>());
+        CHECK(std::fabs(static_cast<long double>(fits.singular_values[0]) - s0) <= tol * s0);
+        CHECK(std::fabs(static_cast<long double>(fits.singular_values[1]) - s1) <= tol * s0);
+        const auto over = svd(Matrix<2, 2, T>{{T{3} * u, u}, {T{2} * u, u}});
+        CHECK_FALSE(over.success);
+        CHECK_FALSE(damp::isfinite(over.singular_values[0]));
+        CHECK(rank_from_svd(over) == 0);
+    }
+
+    TEST_CASE("subnormal singular values come back exactly, constant-evaluated") {
+        // Constant evaluation keeps subnormals (no flush-to-zero); 1/max|a| overflowed there.
+        constexpr auto sd = svd(Matrix<2, 2, double>{{3e-310, 0.0}, {0.0, 1e-310}});
+        static_assert(sd.success && sd.singular_values[0] == 3e-310 && sd.singular_values[1] == 1e-310);
+        constexpr auto sf = svd(Matrix<2, 2, float>{{3e-40f, 0.0f}, {0.0f, 1e-40f}});
+        static_assert(sf.success && sf.singular_values[0] == 3e-40f && sf.singular_values[1] == 1e-40f);
+        CHECK(sd.success);
+    }
+
     TEST_CASE("a NaN or ±Inf entry fails the SVD, and rank, pinv, null space and two-norm do not read it") {
         // Regression: the sweeps zeroed a NaN column and reported success with finite,
         // plausible singular values, so rank and pinv returned plain garbage.
