@@ -171,7 +171,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`blkdiag`](inc/damp/matrix/concat.hpp#L133) | Block-diagonal assembly of MatrixLike arguments |
 | [`cholesky`](inc/damp/matrix/decomposition.hpp#L128) | Cholesky decomposition for positive-definite matrices |
 | [`cholesky_solve`](inc/damp/matrix/solve.hpp#L162) | Solve AX = B via Cholesky (A = LLᴴ) |
-| [`compute_eigenvalues`](inc/damp/matrix/eigen.hpp#L781) | Compute the eigenvalues (and Schur vectors) of a real square matrix |
+| [`compute_eigenvalues`](inc/damp/matrix/eigen.hpp#L786) | Compute the eigenvalues (and Schur vectors) of a real square matrix |
 | [`cos`](inc/damp/matrix/functions.hpp#L1350) | Matrix cosine via scaling and double-angle reconstruction |
 | [`cosh`](inc/damp/matrix/functions.hpp#L1384) | Matrix hyperbolic cosine cosh(A) = (exp(A) + exp(−A))/2 |
 | [`default_tol`](inc/damp/matrix/matrix_traits.hpp#L121) | Type-appropriate default tolerance for floating-point comparisons. float  ~7 decimal digits  → 1e-6 double ~15 decimal digits → 1e-12 |

@@ -692,12 +692,17 @@ constexpr bool francis_qr(
                     } else {
                         H(k, k - 1) = -s * x;
                     }
+                    //! The reflector I − τ·v·vᵀ, v = [1, q/p, r/p], τ = p/s, with p ← p + s: the row
+                    //! factor (τ, τ·v₁, τ·v₂) is formed from v, not as [p, q, r]/s, so the
+                    //! transform stays symmetric when -ffast-math turns x/s into x·(1/s). Divided
+                    //! separately, square roots of 3×3 Jordan blocks lost about a quarter of their
+                    //! accuracy in float and double.
                     p += s;
                     const T px = p / s;
-                    const T qx = q / s;
-                    const T rx = r / s;
                     const T qq = q / p;
                     const T rr = r / p;
+                    const T qx = qq * px;
+                    const T rx = rr * px;
                     // Row modification.
                     for (int j = k; j < static_cast<int>(N); ++j) {
                         p = H(k, j) + (qq * H(k + 1, j));

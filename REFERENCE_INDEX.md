@@ -109,7 +109,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`Complementary`](inc/damp/filters/complementary.hpp#L32) | block | Filters & signal conditioning | Scalar (1-D) complementary filter — fuse a fast rate with a slow absolute |
 | [`ComplementaryFilter`](inc/damp/estimation/sensor_fusion.hpp#L58) | block | Observers & estimators | Simple complementary filter for orientation estimation |
 | [`complex`](inc/damp/math/complex.hpp#L38) | block | Scalar math, complex & frames | Constexpr complex number class for compile-time computations |
-| [`compute_eigenvalues`](inc/damp/matrix/eigen.hpp#L781) | function | Linear algebra | Compute the eigenvalues (and Schur vectors) of a real square matrix |
+| [`compute_eigenvalues`](inc/damp/matrix/eigen.hpp#L786) | function | Linear algebra | Compute the eigenvalues (and Schur vectors) of a real square matrix |
 | [`constant_power_torque_limit`](inc/damp/motor/foc.hpp#L42) | function | Motor control pack (if present) | Constant-power torque ceiling Tₘₐₓ = P_rated / \|ω\| |
 | [`ConstantInertiaFeedforward`](inc/damp/toolbox/actuator.hpp#L199) | block | Embedded helpers (controls-adjacent utilities) | Per-axis decoupled torque feedforward: `τ = J·a + b·v + τ_c·sign(v) + g` |
 | [`ConstMatrix`](inc/damp/matrix/const_matrix.hpp#L86) | block | Linear algebra | A matrix that is a constant of its type: no storage, and a product with a vector that has no term for an entry that is exactly 0 |
