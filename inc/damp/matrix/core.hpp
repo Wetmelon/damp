@@ -154,18 +154,28 @@ template<typename T, typename Src>
  * rewrite (x·s)² as x²·s², and g++ folds an s² below the subnormal range to 0. The result
  * is accurate to rounding for normal input; subnormal input keeps the precision it carries.
  *
+ * A magnitude that is not finite (damp::isfinite, on its bits) is returned as the norm, so a
+ * NaN or ±Inf entry gives a NaN or +Inf norm, as a plain sum of squares would and as LAPACK's
+ * xNRM2 has since 3.10. damp::max drops a NaN against the running maximum, so without the
+ * test an all-NaN vector, or a NaN among zeros, read as norm 0 and passed every ‖r‖ ≤ tol
+ * certificate.
+ *
  * @see "A portable Fortran program to find the Euclidean norm of a vector" (Blue, 1978), ACM TOMS 4(1)
  * @see "Algorithm 978: Safe Scaling in the Level 1 BLAS" (Anderson, 2017), ACM TOMS 44(1)
  *
  * @param n    Number of magnitudes
- * @param mag  Callable size_t → R returning |x_k| (finite, ≥ 0)
- * @return √(Σ mag(k)²)
+ * @param mag  Callable size_t → R returning |x_k| (≥ 0, or NaN / +Inf for a non-finite x_k)
+ * @return √(Σ mag(k)²), or the first magnitude that is not finite
  */
 template<typename R, typename Mag>
 [[nodiscard]] constexpr R scaled_norm2(size_t n, Mag mag) {
     R amax = R{0};
     for (size_t k = 0; k < n; ++k) {
-        amax = damp::max(amax, mag(k));
+        const R a = mag(k);
+        if (!damp::isfinite(a)) {
+            return a;
+        }
+        amax = damp::max(amax, a);
     }
     if (!(amax > R{0})) {
         return R{0};
@@ -1019,12 +1029,22 @@ public:
      * Always returns a real value, even for complex-valued matrices. Entries are
      * divided by the largest magnitude before squaring (detail::scaled_norm2), so
      * no square overflows or underflows, under -ffast-math as well; the result
-     * overflows only when the norm itself exceeds the largest finite value.
+     * overflows only when the norm itself exceeds the largest finite value. A NaN
+     * or ±Inf entry (in either part of a complex one) gives a norm that is not
+     * finite, so a residual certificate cannot read an all-NaN residual as 0.
      *
      * @return Frobenius norm (real scalar)
      */
     [[nodiscard]] constexpr scalar_type_t<T> norm() const {
-        return detail::scaled_norm2<scalar_type_t<T>>(Rows * Cols, [&](size_t k) { return damp::abs(data_[k]); });
+        if constexpr (is_complex_v<T>) {
+            // Over the real and imaginary parts: |z| = hypot(re, im) reads (NaN, 0) as 0.
+            return detail::scaled_norm2<scalar_type_t<T>>(2 * Rows * Cols, [&](size_t k) {
+                const T& z = data_[k / 2];
+                return damp::abs((k % 2 == 0) ? z.real() : z.imag());
+            });
+        } else {
+            return detail::scaled_norm2<scalar_type_t<T>>(Rows * Cols, [&](size_t k) { return damp::abs(data_[k]); });
+        }
     }
 
     /**

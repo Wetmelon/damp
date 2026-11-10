@@ -3,11 +3,11 @@
 // Distributed under the Boost Software License, Version 1.0.
 // (See accompanying file LICENSE or copy at http://www.boost.org/LICENSE_1_0.txt)
 
-// A NaN or ±Inf that reaches a factorization or a solve is refused, under the runner's
-// -ffast-math as in IEEE arithmetic. -ffinite-math-only lets GCC fold a negated test
-// !(x > floor) into x ≤ floor, which a NaN fails, so a NaN pivot passed a test the IEEE build
-// refuses it with. The values here arrive at run time (through a volatile), as a sensor's
-// would: a NaN constant can be folded at compile time.
+// A NaN or ±Inf that reaches a factorization, a solve or a norm is refused or reported as such,
+// under the runner's -ffast-math as in IEEE arithmetic. -ffinite-math-only lets GCC fold a
+// negated test !(x > floor) into x ≤ floor, which a NaN fails, so a NaN pivot passed a test the
+// IEEE build refuses it with. The values here arrive at run time (through a volatile), as a
+// sensor's would: a NaN constant can be folded at compile time.
 
 #include <bit>
 #include <cstddef>
@@ -159,6 +159,48 @@ TEST_SUITE("non-finite input to the factorizations") {
                 CHECK_FALSE(mat::solve(U.upper_triangle(), b).has_value());
             }
         }
+    }
+}
+
+TEST_SUITE("non-finite entries make the norm non-finite") {
+    TEST_CASE_TEMPLATE("a NaN or ±Inf in any position, among zeros or not", T, float, double) {
+        // damp::max(0, NaN) is 0, so a NaN among zeros, or a vector of NaN, read as norm 0, and in
+        // float a NaN beside finite entries could too.
+        for (int k = 0; k < 3; ++k) {
+            for (size_t i = 0; i < 3; ++i) {
+                INFO("value ", k, " at ", i);
+                ColVec<3, T> zeros{};
+                zeros[i] = non_finite<T>(k);
+                CHECK_FALSE(damp::isfinite(zeros.norm()));
+                ColVec<3, T> ones{T(1), T(-2), T(3)};
+                ones[i] = non_finite<T>(k);
+                CHECK_FALSE(damp::isfinite(ones.norm()));
+                Matrix<2, 2, T> M{};
+                M(i / 2, i % 2) = non_finite<T>(k);
+                CHECK_FALSE(damp::isfinite(M.norm()));
+            }
+            ColVec<3, T> all{};
+            for (size_t i = 0; i < 3; ++i) {
+                all[i] = non_finite<T>(k);
+            }
+            CHECK_FALSE(damp::isfinite(all.norm()));
+        }
+        CHECK(ColVec<2, T>{T(3), T(4)}.norm() == T(5));
+        CHECK(ColVec<2, T>{}.norm() == T(0));
+    }
+
+    TEST_CASE_TEMPLATE("a complex entry with a NaN or ±Inf part", T, float, double) {
+        // |z| is hypot(re, im), which reads (NaN, 0) as 0: the norm sums the parts instead.
+        using C = damp::complex<T>;
+        for (int k = 0; k < 3; ++k) {
+            for (const bool imag : {false, true}) {
+                INFO("value ", k, ", imaginary part ", imag);
+                ColVec<2, C> v{};
+                v[1] = imag ? C(T(0), non_finite<T>(k)) : C(non_finite<T>(k), T(0));
+                CHECK_FALSE(damp::isfinite(v.norm()));
+            }
+        }
+        CHECK(ColVec<2, C>{C(T(3), T(0)), C(T(0), T(4))}.norm() == T(5));
     }
 }
 
