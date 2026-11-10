@@ -159,4 +159,80 @@ TEST_SUITE("Generalized eigenvalues: close pairs and scaling") {
         CHECK(damp::abs(hi - want_hi) <= tol);
         CHECK(damp::abs(lo - want_lo) <= tol);
     }
+
+    // The first column of the double-shift polynomial is quadratic in A·B⁻¹, so on the pencil as
+    // given it overflowed or underflowed once ‖A‖/‖B‖ left about [2⁻⁶⁰, 2⁶⁰] in float and
+    // [2⁻⁴⁹⁷, 2⁵⁰⁸] in double, and the sweep failed. A and B are now scaled by powers of two
+    // (exact), so the eigenvalues of (2ᵏA, B) are those of (A, B) times 2ᵏ to rounding.
+    TEST_CASE_TEMPLATE("a pencil with an extreme ‖A‖/‖B‖ is solved by exact scaling", T, float, double) {
+        const Matrix<5, 5, T> A{
+            {T{1}, T{2}, T{0.5}, T{-1}, static_cast<T>(0.3)},
+            {T{0.5}, T{-3}, T{1}, T{0}, T{2}},
+            {T{1}, T{0.25}, T{2}, T{1.5}, static_cast<T>(-0.7)},
+            {T{0}, T{1}, T{-1}, T{0.5}, static_cast<T>(1.1)},
+            {static_cast<T>(0.9), static_cast<T>(-0.4), static_cast<T>(0.3), T{2}, static_cast<T>(-1.2)},
+        };
+        const Matrix<5, 5, T> B{
+            {T{2}, static_cast<T>(0.1), T{0}, static_cast<T>(0.3), static_cast<T>(-0.2)},
+            {static_cast<T>(0.4), T{1}, static_cast<T>(0.2), T{0}, static_cast<T>(0.1)},
+            {T{0}, static_cast<T>(-0.3), T{1.5}, static_cast<T>(0.2), T{0}},
+            {static_cast<T>(0.1), T{0}, static_cast<T>(0.4), static_cast<T>(0.8), static_cast<T>(0.3)},
+            {T{0}, static_cast<T>(0.2), T{0}, static_cast<T>(-0.1), static_cast<T>(1.2)},
+        };
+        const auto ref = mat::generalized_eigenvalues(A, B);
+        REQUIRE(ref.success);
+        REQUIRE(ref.n_finite == 5);
+        const bool f = damp::is_same_v<T, float>;
+        struct Scale {
+            int a; ///< A times 2^a
+            int b; ///< B times 2^b
+        };
+        const Scale scales[] = {
+            {f ? 80 : 600, 0},
+            {f ? -80 : -600, 0},
+            {0, f ? 80 : 600},
+            {0, f ? -80 : -600},
+            {f ? 100 : 1000, -20},
+            {f ? -100 : -1000, f ? -110 : -1010},
+        };
+        for (const Scale sc : scales) {
+            CAPTURE(sc.a);
+            CAPTURE(sc.b);
+            Matrix<5, 5, T> As{};
+            Matrix<5, 5, T> Bs{};
+            for (size_t i = 0; i < 5; ++i) {
+                for (size_t j = 0; j < 5; ++j) {
+                    As(i, j) = std::ldexp(A(i, j), sc.a);
+                    Bs(i, j) = std::ldexp(B(i, j), sc.b);
+                }
+            }
+            const auto ev = mat::generalized_eigenvalues(As, Bs);
+            REQUIRE(ev.success);
+            REQUIRE(ev.n_finite == 5);
+            damp::array<damp::complex<double>, 5> got{};
+            damp::array<damp::complex<double>, 5> want{};
+            for (size_t i = 0; i < 5; ++i) {
+                got[i] = {std::ldexp(static_cast<double>(ev.values[i].real()), sc.b - sc.a), std::ldexp(static_cast<double>(ev.values[i].imag()), sc.b - sc.a)};
+                want[i] = {static_cast<double>(ref.values[i].real()), static_cast<double>(ref.values[i].imag())};
+            }
+            CHECK(contains_roots(got, 5, want, 8.0 * static_cast<double>(eps<T>())));
+        }
+    }
+
+    TEST_CASE_TEMPLATE("an eigenvalue too large for the type fails the pencil", T, float, double) {
+        const int       k = damp::numeric_limits<T>::max_exponent - 4; // λ ≈ 2^(2k) overflows
+        Matrix<2, 2, T> A{{T{1}, T{2}}, {T{0}, T{3}}};
+        Matrix<2, 2, T> B = Matrix<2, 2, T>::identity();
+        for (size_t i = 0; i < 2; ++i) {
+            for (size_t j = 0; j < 2; ++j) {
+                A(i, j) = std::ldexp(A(i, j), k);
+                B(i, j) = std::ldexp(B(i, j), -k);
+            }
+        }
+        CHECK_FALSE(mat::generalized_eigenvalues(A, B).success);
+        const Matrix<1, 1, T> a1{std::ldexp(T{1}, k)};
+        const Matrix<1, 1, T> b1{std::ldexp(T{1}, -k)};
+        CHECK_FALSE(mat::generalized_eigenvalues(a1, b1).success);
+        CHECK(mat::generalized_eigenvalues(a1, a1).success);
+    }
 }

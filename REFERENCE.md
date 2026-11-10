@@ -142,11 +142,11 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`Diagonal`](inc/damp/matrix/views.hpp#L29) | Diagonal view of a square matrix |
 | [`EigenResult`](inc/damp/matrix/eigen.hpp#L39) | Eigenvalue computation result |
 | [`FullQR`](inc/damp/matrix/decomposition.hpp#L789) | Result of a full (complete) QR factorization |
-| [`GeneralizedEigenResult`](inc/damp/matrix/generalized_eigen.hpp#L60) | Generalized eigenvalues of A − λB: the finite ones, and how many there are |
+| [`GeneralizedEigenResult`](inc/damp/matrix/generalized_eigen.hpp#L61) | Generalized eigenvalues of A − λB: the finite ones, and how many there are |
 | [`is_matrix_element`](inc/damp/matrix/matrix_traits.hpp#L38) | True if T may be a Matrix element type |
 | [`LDLT`](inc/damp/matrix/decomposition.hpp#L175) | LDLᴴ factors with symmetric pivoting: P·A·Pᵀ = L·D·Lᴴ, D block diagonal with 1×1 and 2×2 blocks |
 | [`LowerTriangle`](inc/damp/matrix/views.hpp#L163) | Lower triangular view of a square matrix |
-| [`Matrix`](inc/damp/matrix/core.hpp#L275) | Fixed-size, stack-allocated matrix for linear algebra operations |
+| [`Matrix`](inc/damp/matrix/core.hpp#L295) | Fixed-size, stack-allocated matrix for linear algebra operations |
 | [`MatrixLike`](inc/damp/matrix/matrix_traits.hpp#L94) | Concept for any type that provides 2D matrix-like element access |
 | [`MatrixLikeOf`](inc/damp/matrix/matrix_traits.hpp#L104) | Concept for a MatrixLike type with specific dimensions |
 | [`NullSpace`](inc/damp/matrix/svd.hpp#L434) | Orthonormal basis for the null space (kernel) of a matrix |
@@ -165,8 +165,8 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 
 | Name | Description |
 | ---- | ----------- |
-| [`all_of`](inc/damp/matrix/core.hpp#L1546) | Whether p holds for every entry of A: the matrix counterpart of std::all_of |
-| [`any_of`](inc/damp/matrix/core.hpp#L1570) | Whether p holds for some entry of A: the matrix counterpart of std::any_of |
+| [`all_of`](inc/damp/matrix/core.hpp#L1566) | Whether p holds for every entry of A: the matrix counterpart of std::all_of |
+| [`any_of`](inc/damp/matrix/core.hpp#L1590) | Whether p holds for some entry of A: the matrix counterpart of std::any_of |
 | [`backward_substitute_transpose`](inc/damp/matrix/solve.hpp#L76) | Backward substitution for Lᴴx = b (Lᵀx = b for real T) |
 | [`blkdiag`](inc/damp/matrix/concat.hpp#L133) | Block-diagonal assembly of MatrixLike arguments |
 | [`cholesky`](inc/damp/matrix/decomposition.hpp#L128) | Cholesky decomposition for positive-definite matrices |
@@ -181,7 +181,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`expm`](inc/damp/matrix/functions.hpp#L693) | Matrix exponential by scaling and squaring (Al-Mohy & Higham 2009) |
 | [`forward_substitute`](inc/damp/matrix/solve.hpp#L52) | Forward substitution for Lx = b |
 | [`full_qr`](inc/damp/matrix/decomposition.hpp#L807) | Full QR factorization via Householder reflections (real or complex T) |
-| [`generalized_eigenvalues`](inc/damp/matrix/generalized_eigen.hpp#L552) | Generalized eigenvalues of the real pencil A − λB: the λ with det(A − λB) = 0 |
+| [`generalized_eigenvalues`](inc/damp/matrix/generalized_eigen.hpp#L621) | Generalized eigenvalues of the real pencil A − λB: the λ with det(A − λB) = 0 |
 | [`hcat`](inc/damp/matrix/concat.hpp#L157) | Horizontal concatenation (same row count) |
 | [`infinity_norm`](inc/damp/matrix/functions.hpp#L39) | Infinity norm ‖A‖∞: maximum absolute row sum |
 | [`inverse`](inc/damp/matrix/solve.hpp#L315) | Matrix inverse A⁻¹ via mat::solve(A, I) |
@@ -196,7 +196,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`pow`](inc/damp/matrix/functions.hpp#L1130) | Integer matrix power via binary exponentiation (+1 more overload) |
 | [`pseudo_inverse`](inc/damp/matrix/svd.hpp#L401) | Moore–Penrose pseudoinverse A⁺ via SVD |
 | [`qr_decompose`](inc/damp/matrix/decomposition.hpp#L718) | Thin QR via Householder reflections |
-| [`quadratic_form`](inc/damp/matrix/core.hpp#L1375) | Symmetric congruence (quadratic) form  S = M X Mᵀ (+1 more overload) |
+| [`quadratic_form`](inc/damp/matrix/core.hpp#L1395) | Symmetric congruence (quadratic) form  S = M X Mᵀ (+1 more overload) |
 | [`quadratic_form_in_place`](inc/damp/matrix/pattern_matrix.hpp#L341) | S ← F S Fᵀ in place, for a symmetric S: every multiply the pattern can skip, skipped |
 | [`rank`](inc/damp/matrix/functions.hpp#L231) | Numerical rank: the number of singular values above rel_tol·σₘₐₓ |
 | [`rank_from_svd`](inc/damp/matrix/svd.hpp#L365) | Numerical rank from a precomputed SVD result |
@@ -207,7 +207,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`sqrt`](inc/damp/matrix/functions.hpp#L983) | Principal matrix square root by the real Schur method |
 | [`svd`](inc/damp/matrix/svd.hpp#L331) | Full singular value decomposition A = U·Σ·Vᴴ (one-sided Jacobi) |
 | [`times_transpose`](inc/damp/matrix/pattern_matrix.hpp#L317) | A dense matrix times Hᵀ for a sparse H: A Hᵀ |
-| [`transform`](inc/damp/matrix/core.hpp#L1522) | Apply f to every entry, B(i, j) = f(A(i, j)): the matrix counterpart of std::transform |
+| [`transform`](inc/damp/matrix/core.hpp#L1542) | Apply f to every entry, B(i, j) = f(A(i, j)): the matrix counterpart of std::transform |
 | [`two_norm`](inc/damp/matrix/functions.hpp#L104) | Spectral norm ‖A‖₂ = σₘₐₓ(A) |
 | [`vcat`](inc/damp/matrix/concat.hpp#L180) | Vertical concatenation (same column count) |
 
@@ -270,7 +270,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`subtract`](inc/damp/systems/state_space.hpp#L586) | Differencing connection: outputs y = y₁ − y₂ |
 | [`to_transfer_function`](inc/damp/systems/zpk.hpp#L776) | SISO state-space → transfer function, size NX+1 / NX+1 |
 | [`to_zpk`](inc/damp/systems/zpk.hpp#L463) | Convert a SISO transfer function to zero-pole-gain form (+1 more overload) |
-| [`transmission_zeros`](inc/damp/systems/zeros.hpp#L426) | The finite invariant zeros of a state-space model with any number of inputs and outputs |
+| [`transmission_zeros`](inc/damp/systems/zeros.hpp#L406) | The finite invariant zeros of a state-space model with any number of inputs and outputs |
 | [`upsample`](inc/damp/systems/discretization.hpp#L461) | Upsample a discrete model by an integer factor: sys(z) → sys(zᴸ) at Ts / L |
 
 > **Design-time — not for the PWM interrupt**

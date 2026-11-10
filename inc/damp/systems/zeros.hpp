@@ -78,26 +78,6 @@ struct [[nodiscard]] TransmissionZerosResult {
 
 namespace detail {
 
-/** @brief e with |x| = 2^e·f, f ∈ [1, 2); 0 for x = 0 or non-finite x. */
-template<typename T>
-[[nodiscard]] constexpr int binary_exponent(T x) {
-    T v = damp::abs(x);
-    if (!(v > T{0}) || !damp::isfinite(v)) {
-        return 0;
-    }
-    constexpr int cap = damp::numeric_limits<T>::max_exponent - damp::numeric_limits<T>::min_exponent + damp::numeric_limits<T>::digits;
-    int           e = 0;
-    while (v >= T{2} && e < cap) {
-        v *= static_cast<T>(0.5);
-        ++e;
-    }
-    while (v < T{1} && e > -cap) {
-        v *= T{2};
-        --e;
-    }
-    return e;
-}
-
 /**
  * @brief The system matrix [A B; C D] of a model with n states, m inputs and p outputs, held in
  *        the leading (n + p) × (n + m) block of a K × K buffer (zero outside it)

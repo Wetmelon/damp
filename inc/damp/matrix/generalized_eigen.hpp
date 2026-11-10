@@ -42,6 +42,7 @@
 #include "damp/backend.hpp"
 #include "damp/math/complex.hpp"
 #include "damp/math/math.hpp"
+#include "eigen.hpp" // scale_by_pow2
 
 namespace damp {
 namespace mat {
@@ -434,7 +435,33 @@ constexpr void qz_sweep(Matrix<N, N, T>& A, Matrix<N, N, T>& B, size_t l, size_t
 }
 
 /**
- * @brief Eigenvalues of the leading n×n block of the pencil (A, B), overwritten by the iteration
+ * @brief Divide the leading n×n block of @p M by 2^e, e the binary exponent of its largest entry
+ *
+ * The largest entry then lies in [1, 2). Powers of two scale exactly, short of the subnormal range.
+ *
+ * @return e (0 for a zero block)
+ */
+template<size_t N, typename T>
+constexpr int scale_to_unit_max(Matrix<N, N, T>& M, size_t n) {
+    T m_max = T{0};
+    for (size_t i = 0; i < n; ++i) {
+        for (size_t j = 0; j < n; ++j) {
+            m_max = damp::max(m_max, damp::abs(M(i, j)));
+        }
+    }
+    const int e = damp::detail::binary_exponent(m_max);
+    if (e != 0) {
+        for (size_t i = 0; i < n; ++i) {
+            for (size_t j = 0; j < n; ++j) {
+                M(i, j) = scale_by_pow2(M(i, j), -e);
+            }
+        }
+    }
+    return e;
+}
+
+/**
+ * @brief QZ eigenvalues of the leading n×n block (2 ≤ n ≤ N) of the pencil (A, B), overwritten
  *
  * Hessenberg–triangular reduction, then QZ sweeps on the active window. A subdiagonal entry of
  * A deflates when it is at most ε(|a_{k−1,k−1}| + |a_kk|) (ε‖A‖_F when both are zero); a
@@ -448,6 +475,87 @@ constexpr void qz_sweep(Matrix<N, N, T>& A, Matrix<N, N, T>& B, size_t l, size_t
  * @return true if every eigenvalue deflated within the budget
  */
 template<size_t N, typename T>
+constexpr bool qz_eigenvalues(
+    Matrix<N, N, T>&                  A,
+    Matrix<N, N, T>&                  B,
+    size_t                            n,
+    damp::array<damp::complex<T>, N>& lambda,
+    damp::array<bool, N>&             finite
+) {
+    hessenberg_triangular(A, B, n);
+    const T      a_norm = A.norm();
+    const T      b_tol = static_cast<T>(n) * eps<T>() * B.norm();
+    const size_t max_its = (30 * n) + 30;
+    size_t       its = 0;
+    size_t       its_here = 0;
+    size_t       active = n; // eigenvalues at positions [active, n) are found
+    while (active > 0) {
+        const size_t h = active - 1;
+        size_t       l = h;
+        while (l > 0) {
+            T local = damp::abs(A(l - 1, l - 1)) + damp::abs(A(l, l));
+            if (local == T{0}) {
+                local = a_norm;
+            }
+            if (damp::abs(A(l, l - 1)) <= eps<T>() * local) {
+                A(l, l - 1) = T{0};
+                break;
+            }
+            --l;
+        }
+        size_t zero_at = n;
+        for (size_t j = l; j <= h && zero_at == n; ++j) {
+            if (damp::abs(B(j, j)) <= b_tol) {
+                zero_at = j;
+            }
+        }
+        if (zero_at < n) {
+            chase_infinite_eigenvalue(A, B, l, h, zero_at);
+            finite[h] = false;
+            active = h;
+            its_here = 0;
+        } else if (l == h) {
+            lambda[h] = damp::complex<T>{A(h, h) / B(h, h), T{0}};
+            finite[h] = true;
+            active = h;
+            its_here = 0;
+        } else if (l + 1 == h) {
+            const auto pair = pencil_2x2_eigenvalues(A(l, l), A(l, h), A(h, l), A(h, h), B(l, l), B(l, h), B(h, h));
+            lambda[l] = pair.first;
+            lambda[h] = pair.second;
+            finite[l] = true;
+            finite[h] = true;
+            active = l;
+            its_here = 0;
+        } else if constexpr (N >= 3) { // a window of three or more: only N ≥ 3 has one
+            if (its >= max_its) {
+                return false;
+            }
+            ++its;
+            ++its_here;
+            qz_sweep(A, B, l, h, its_here % 10 == 0);
+        }
+    }
+    return true;
+}
+
+/**
+ * @brief Eigenvalues of the leading n×n block of the pencil (A, B), overwritten by the iteration
+ *
+ * A and B are first divided by the powers of two that bring their largest entries into [1, 2)
+ * (scale_to_unit_max), and every eigenvalue is multiplied back by 2^(e_A − e_B). The scaling is
+ * exact, so it changes no digit of a pencil that was safe already. It is needed because the
+ * first column of the double-shift polynomial is quadratic in A·B⁻¹ (qz_sweep): on the pencil
+ * as given it overflowed or underflowed once ‖A‖/‖B‖ left about [2⁻⁶⁰, 2⁶⁰] in float
+ * ([2⁻⁴⁹⁷, 2⁵⁰⁸] in double), and products of small entries flushed near the bottom of the
+ * range. The eigenvalues are then found by qz_eigenvalues (n ≥ 2) or as a₀₀/b₀₀ (n = 1).
+ *
+ * @param lambda Eigenvalue at each position, valid where @p finite is set
+ * @param finite Whether the eigenvalue at each position is finite
+ * @return true if every eigenvalue deflated within the budget and every finite one is within the
+ *         range of T (an eigenvalue of magnitude above its largest value is lost, not clamped)
+ */
+template<size_t N, typename T>
 constexpr bool pencil_eigenvalues(
     Matrix<N, N, T>&                  A,
     Matrix<N, N, T>&                  B,
@@ -455,70 +563,28 @@ constexpr bool pencil_eigenvalues(
     damp::array<damp::complex<T>, N>& lambda,
     damp::array<bool, N>&             finite
 ) {
+    n = (n < N) ? n : N;
+    const int e_a = scale_to_unit_max(A, n);
+    const int e_b = scale_to_unit_max(B, n);
+    bool      converged = true;
     if constexpr (N == 1) { // a 1×1 pencil: no iteration, and no 2×2 block indices to compile
         if (n == 1 && B(0, 0) != T{0}) {
             lambda[0] = damp::complex<T>{A(0, 0) / B(0, 0), T{0}};
             finite[0] = true;
         }
-        return true;
     } else {
-        n = (n < N) ? n : N;
-        hessenberg_triangular(A, B, n);
-        const T      a_norm = A.norm();
-        const T      b_tol = static_cast<T>(n) * eps<T>() * B.norm();
-        const size_t max_its = (30 * n) + 30;
-        size_t       its = 0;
-        size_t       its_here = 0;
-        size_t       active = n; // eigenvalues at positions [active, n) are found
-        while (active > 0) {
-            const size_t h = active - 1;
-            size_t       l = h;
-            while (l > 0) {
-                T local = damp::abs(A(l - 1, l - 1)) + damp::abs(A(l, l));
-                if (local == T{0}) {
-                    local = a_norm;
-                }
-                if (damp::abs(A(l, l - 1)) <= eps<T>() * local) {
-                    A(l, l - 1) = T{0};
-                    break;
-                }
-                --l;
-            }
-            size_t zero_at = n;
-            for (size_t j = l; j <= h && zero_at == n; ++j) {
-                if (damp::abs(B(j, j)) <= b_tol) {
-                    zero_at = j;
-                }
-            }
-            if (zero_at < n) {
-                chase_infinite_eigenvalue(A, B, l, h, zero_at);
-                finite[h] = false;
-                active = h;
-                its_here = 0;
-            } else if (l == h) {
-                lambda[h] = damp::complex<T>{A(h, h) / B(h, h), T{0}};
-                finite[h] = true;
-                active = h;
-                its_here = 0;
-            } else if (l + 1 == h) {
-                const auto pair = pencil_2x2_eigenvalues(A(l, l), A(l, h), A(h, l), A(h, h), B(l, l), B(l, h), B(h, h));
-                lambda[l] = pair.first;
-                lambda[h] = pair.second;
-                finite[l] = true;
-                finite[h] = true;
-                active = l;
-                its_here = 0;
-            } else if constexpr (N >= 3) { // a window of three or more: only N ≥ 3 has one
-                if (its >= max_its) {
-                    return false;
-                }
-                ++its;
-                ++its_here;
-                qz_sweep(A, B, l, h, its_here % 10 == 0);
-            }
-        }
-        return true;
+        converged = qz_eigenvalues(A, B, n, lambda, finite);
     }
+    bool representable = true;
+    for (size_t i = 0; i < n; ++i) {
+        if (finite[i]) {
+            const T re = scale_by_pow2(lambda[i].real(), e_a - e_b);
+            const T im = scale_by_pow2(lambda[i].imag(), e_a - e_b);
+            lambda[i] = damp::complex<T>{re, im};
+            representable = representable && damp::isfinite(re) && damp::isfinite(im);
+        }
+    }
+    return converged && representable;
 }
 
 } // namespace detail
@@ -532,7 +598,9 @@ constexpr bool pencil_eigenvalues(
  * finite one of magnitude near ‖A‖/(ε‖B‖) (see the file description). With B = I they are the
  * eigenvalues of A. The pencil must be regular (det(A − λB) not identically zero): for a
  * singular pencil every λ makes A − λB singular, and the values returned are not determined
- * by it. No balancing is applied, so the accuracy is relative to ‖A‖ and ‖B‖.
+ * by it. A and B are each scaled by a power of two (exact), so any finite pencil whose
+ * eigenvalues fit in T can be solved, whatever ‖A‖/‖B‖. No balancing is applied, so the
+ * accuracy is relative to ‖A‖ and ‖B‖.
  *
  * @note Compare with MATLAB®'s eig(A, B) and its 'qz' algorithm (MATLAB® reports an infinite
  *       eigenvalue as Inf; here it is counted, not stored).
@@ -544,8 +612,9 @@ constexpr bool pencil_eigenvalues(
  *
  * @param A Left matrix of the pencil
  * @param B Right matrix of the pencil
- * @return GeneralizedEigenResult; success is false for a non-finite entry or when the iteration
- *         budget runs out (the eigenvalues found by then are kept)
+ * @return GeneralizedEigenResult; success is false for a non-finite entry, when the iteration
+ *         budget runs out (the eigenvalues found by then are kept), or when a finite eigenvalue
+ *         is too large for T
  */
 template<size_t N, typename T = double>
     requires damp::is_floating_point_v<T> // the real QZ: real A and B only
