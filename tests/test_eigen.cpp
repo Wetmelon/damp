@@ -755,3 +755,29 @@ TEST_CASE("Schur vectors are eigenvectors of symmetric matrices") {
         CHECK(eigen_residual<4>(A4, r4, i) <= 64 * kEps * 8.0);
     }
 }
+
+TEST_SUITE("standardize_schur_block") {
+    // [[a, 0], [c, d]] has the eigenvalues a and d. The real-root path formed a as
+    // d + (a − d), which cancels when |a| ≪ |d|: −1e-3 beside −1e3 came back with a relative
+    // error of 2.4e-11. The exact swap G = [[0, −1], [1, 0]] gives [[d, −c], [0, a]].
+    TEST_CASE_TEMPLATE("a lower-triangular block is exchanged exactly", T, float, double) {
+        const T cases[][3] = {{T(-1e-3), T(1), T(-1e3)}, {T(-1e-5), T(1), T(-1e3)}, {T(-1e-8), T(1), T(-1e4)}, {T(3), T(-2), T(3)}};
+        for (const auto& k : cases) {
+            Matrix<2, 2, T> H{{k[0], T(0)}, {k[1], k[2]}};
+            Matrix<2, 2, T> Z = Matrix<2, 2, T>::identity();
+            const auto      ev = mat::detail::standardize_schur_block(H, Z, 0);
+            CHECK(ev.wr0 == k[2]);
+            CHECK(ev.wr1 == k[0]);
+            CHECK(ev.wi0 == T{0});
+            CHECK(ev.wi1 == T{0});
+            CHECK(H(0, 0) == k[2]);
+            CHECK(H(1, 1) == k[0]);
+            CHECK(H(0, 1) == -k[1]);
+            CHECK(H(1, 0) == T{0});
+            CHECK(Z(0, 1) == T{-1});
+            CHECK(Z(1, 0) == T{1});
+            CHECK(Z(0, 0) == T{0});
+            CHECK(Z(1, 1) == T{0});
+        }
+    }
+}

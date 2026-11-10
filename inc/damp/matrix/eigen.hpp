@@ -376,6 +376,10 @@ constexpr void rotate_schur_pair(Matrix<N, N, T>& H, Matrix<N, N, T>& Z, size_t 
  * @f$ \cos 2\theta \ge 0 @f$ so @f$ \cos\theta \ge 1/\sqrt 2 @f$; it equalizes the diagonal
  * and leaves @f$ b - c @f$, the skew part, unchanged.
  *
+ * A lower triangular block (b = 0) is exchanged by the exact permutation G = [[0, −1], [1, 0]]
+ * to @f$ \bigl[\begin{smallmatrix} d & -c \\ 0 & a \end{smallmatrix}\bigr] @f$: the real-root
+ * path would form a as @f$ d + (a - d) @f$, which cancels when |a| ≪ |d|.
+ *
  * @see "Matrix Computations" (Golub & Van Loan, 2013), §7.4.1 (real Schur form)
  * @see "On swapping diagonal blocks in real Schur form" (Bai & Demmel, 1993), §2 (standardized blocks)
  *
@@ -393,6 +397,15 @@ constexpr SchurBlockEigenvalues<T> standardize_schur_block(Matrix<N, N, T>& H, M
         ev.wr1 = d;
         return ev;
     }
+    if (b == T{0}) {
+        rotate_schur_pair(H, Z, i, T{0}, T{1});
+        H(i, i) = d;
+        H(i + 1, i + 1) = a;
+        H(i + 1, i) = T{0};
+        ev.wr0 = d;
+        ev.wr1 = a;
+        return ev;
+    }
     const T p = static_cast<T>(0.5) * (a - d);
     const T scale = damp::max(damp::abs(p), damp::max(damp::abs(b), damp::abs(c)));
     const T ps = p / scale;
@@ -401,7 +414,7 @@ constexpr SchurBlockEigenvalues<T> standardize_schur_block(Matrix<N, N, T>& H, M
         const T root = scale * damp::sqrt(disc);
         const T z = p + damp::copysign(root, p);
         const T l0 = d + z;
-        const T l1 = (z != T{0}) ? (d - ((b / z) * c)) : a; // z = 0 only when a = d and b = 0
+        const T l1 = (z != T{0}) ? (d - ((b / z) * c)) : a; // z = 0 only when a = d and bc/scale² flushes
         const T r = damp::sqrt((z * z) + (c * c));
         rotate_schur_pair(H, Z, i, z / r, c / r);
         H(i, i) = l0;
