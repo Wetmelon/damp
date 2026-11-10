@@ -34,6 +34,8 @@ FetchContent_MakeAvailable(damp)
 target_link_libraries(your_fw PRIVATE wetmelon::damp)
 ```
 
+PlatformIO, from the registry: `lib_deps = wetmelon/damp@^0.2.0` puts `inc/` on the include path. The package holds the headers, the docs and the license, no submodules. C++20 has to be on for C++ only, since `-std=gnu++20` in `build_flags` also reaches every C file of the framework: append it to `CXXFLAGS` from a `pre:` script, as [targets/pio_cxx_flags.py](targets/pio_cxx_flags.py) does, and `build_unflags` the platform's older `-std`. On a platform whose toolchain predates GCC 11, swap one in with `platform_packages`, for ARM `toolchain-gccarmnoneeabi@~1.120301.0` (GCC 12.3).
+
 GCC 11.3+ (tested with 14) and Clang 19+. MSVC is not supported. On Windows, Clang needs `--target=x86_64-w64-mingw32` and a MinGW GCC installed for its libstdc++. [Known issues](docs/known_issues.md) lists the compiler bugs that change results, among them GCC 15's `pow(0, y)` under `-ffast-math`.
 
 ## Using ETL instead of the standard library
