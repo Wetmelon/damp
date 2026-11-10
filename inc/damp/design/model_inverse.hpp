@@ -358,7 +358,7 @@ template<size_t NX, typename T>
     const T     band = damp::sqrt(eps<T>());
     size_t      inside = 0;
     for (size_t i = 0; i < NX; ++i) {
-        const T modulus = damp::sqrt((wr[i] * wr[i]) + (wi[i] * wi[i]));
+        const T modulus = damp::hypot(wr[i], wi[i]);
         if (damp::abs(modulus - T{1}) <= band) {
             out.status = DesignStatus::singular; // a zero on the unit circle: no bounded inverse
             return out;

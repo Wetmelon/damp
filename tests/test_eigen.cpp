@@ -7,6 +7,7 @@
 #include <cmath>
 #include <complex>
 #include <cstdlib>
+#include <initializer_list>
 #include <limits>
 #include <numbers>
 
@@ -909,5 +910,67 @@ TEST_SUITE("standardize_schur_block") {
             CHECK(Z(0, 0) == T{0});
             CHECK(Z(1, 1) == T{0});
         }
+    }
+}
+
+TEST_SUITE("compute_eigenvalues at any scale") {
+    // s·A has the eigenvalues s·λ. Unscaled, a 2×2 block's entries were squared: past √max
+    // (1.8e19 in float, 1.3e154 in double) the imaginary part came back infinite, below √min a
+    // complex pair came back as a double real eigenvalue, both with success = true, and the
+    // 3×3 companion did not converge. The block is brought into a safe range first.
+    template<typename T>
+    void check_scales(std::initializer_list<double> scales) {
+        const double tol = 64.0 * static_cast<double>(eps<T>());
+        for (const double sd : scales) {
+            const T s = static_cast<T>(sd);
+            CAPTURE(sd);
+            const Matrix<2, 2, T> A{{s, T(2) * s}, {T(-3) * s, T(1.5) * s}};
+            const auto            r = compute_eigenvalues(A);
+            CHECK(r.success);
+            CHECK(nearest_relative(r, std::complex<double>(1.25, std::sqrt(5.9375)), static_cast<double>(s)) <= tol);
+            CHECK(nearest_relative(r, std::complex<double>(1.25, -std::sqrt(5.9375)), static_cast<double>(s)) <= tol);
+            const Matrix<3, 3, T> C{{T(-5) * s, T(-17) * s, T(-13) * s}, {s, T(0), T(0)}, {T(0), s, T(0)}}; // (λ + 1)(λ² + 4λ + 13)
+            const auto            rc = compute_eigenvalues(C);
+            CHECK(rc.success);
+            CHECK(nearest_relative(rc, std::complex<double>(-1.0, 0.0), static_cast<double>(s)) <= tol);
+            CHECK(nearest_relative(rc, std::complex<double>(-2.0, 3.0), static_cast<double>(s)) <= tol);
+            CHECK(nearest_relative(rc, std::complex<double>(-2.0, -3.0), static_cast<double>(s)) <= tol);
+        }
+    }
+
+    TEST_CASE("float, from 1e-30 to 1e30") {
+        check_scales<float>({1e-30, 1e-20, 1e-10, 1e10, 1e20, 1e30});
+    }
+
+    TEST_CASE("double, from 1e-300 to 1e300") {
+        check_scales<double>({1e-300, 1e-160, 1e-80, 1e80, 1e160, 1e300});
+    }
+
+    // One prescale cannot bring both blocks of diag(1e19·B, 1e-19·B) near 1 in float; the
+    // 2×2 standardization keeps the small one anyway, since it squares nothing.
+    TEST_CASE("float blocks 38 decades apart") {
+        const float         big = 1e19f;
+        const float         small = 1e-19f;
+        Matrix<4, 4, float> A{};
+        const float         B[2][2] = {{1.0f, 2.0f}, {-3.0f, 1.5f}};
+        for (size_t i = 0; i < 2; ++i) {
+            for (size_t j = 0; j < 2; ++j) {
+                A(i, j) = big * B[i][j];
+                A(2 + i, 2 + j) = small * B[i][j];
+            }
+        }
+        const auto r = compute_eigenvalues(A);
+        REQUIRE(r.success);
+        const double tol = 64.0 * static_cast<double>(eps<float>());
+        for (const double s : {static_cast<double>(big), static_cast<double>(small)}) {
+            CHECK(nearest_relative(r, std::complex<double>(1.25, std::sqrt(5.9375)), s) <= tol);
+            CHECK(nearest_relative(r, std::complex<double>(1.25, -std::sqrt(5.9375)), s) <= tol);
+        }
+    }
+
+    TEST_CASE("an eigenvalue past the largest float is not a success") {
+        const float               m = std::numeric_limits<float>::max();
+        const Matrix<2, 2, float> A{{m, m}, {m, m}}; // eigenvalues 0 and 2·max
+        CHECK_FALSE(compute_eigenvalues(A).success);
     }
 }

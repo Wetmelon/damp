@@ -486,6 +486,24 @@ constexpr void rotate_schur_pair(Matrix<N, N, T>& H, Matrix<N, N, T>& Z, size_t 
 }
 
 /**
+ * @brief √(|b|·|c|) without forming the product: max·√(min/max).
+ *
+ * The imaginary part of a standardized 2×2 block, @f$ \sqrt{|b|}\sqrt{|c|} @f$, is no safer
+ * written that way: -ffast-math rewrites it into @f$ \sqrt{|bc|} @f$, whose product overflows past
+ * √max and flushes to zero below √min (about 1.8·10¹⁹ and 1.1·10⁻¹⁹ in float). The quotient here
+ * is at most 1 and underflows only when the result is below max·√min, negligible beside max.
+ */
+template<typename T>
+[[nodiscard]] constexpr T sqrt_abs_product(T b, T c) {
+    const T hi = damp::max(damp::abs(b), damp::abs(c));
+    const T lo = damp::min(damp::abs(b), damp::abs(c));
+    if (!(hi > T{0})) {
+        return T{0};
+    }
+    return hi * damp::sqrt(lo / hi);
+}
+
+/**
  * @brief Bring the 2×2 diagonal block at @p i to the standard real Schur form.
  *
  * A block with real eigenvalues is triangularized; one with a complex pair is rotated to
@@ -506,7 +524,9 @@ constexpr void rotate_schur_pair(Matrix<N, N, T>& H, Matrix<N, N, T>& Z, size_t 
  *
  * A lower triangular block (b = 0) is exchanged by the exact permutation G = [[0, −1], [1, 0]]
  * to @f$ \bigl[\begin{smallmatrix} d & -c \\ 0 & a \end{smallmatrix}\bigr] @f$: the real-root
- * path would form a as @f$ d + (a - d) @f$, which cancels when |a| ≪ |d|.
+ * path would form a as @f$ d + (a - d) @f$, which cancels when |a| ≪ |d|. No entry is squared:
+ * the rotations take damp::hypot, the imaginary part sqrt_abs_product, so the block's
+ * eigenvalues do not overflow or flush to zero with its scale.
  *
  * @see "Matrix Computations" (Golub & Van Loan, 2013), §7.4.1 (real Schur form)
  * @see "On swapping diagonal blocks in real Schur form" (Bai & Demmel, 1993), §2 (standardized blocks)
@@ -543,7 +563,7 @@ constexpr SchurBlockEigenvalues<T> standardize_schur_block(Matrix<N, N, T>& H, M
         const T z = p + damp::copysign(root, p);
         const T l0 = d + z;
         const T l1 = (z != T{0}) ? (d - ((b / z) * c)) : a; // z = 0 only when a = d and bc/scale² flushes
-        const T r = damp::sqrt((z * z) + (c * c));
+        const T r = damp::hypot(z, c);
         rotate_schur_pair(H, Z, i, z / r, c / r);
         H(i, i) = l0;
         H(i + 1, i + 1) = l1;
@@ -555,7 +575,7 @@ constexpr SchurBlockEigenvalues<T> standardize_schur_block(Matrix<N, N, T>& H, M
     // Complex pair: equalize the diagonal.
     T       c2 = b + c;
     T       s2 = d - a;
-    const T r2 = damp::sqrt((c2 * c2) + (s2 * s2));
+    const T r2 = damp::hypot(c2, s2);
     if (r2 > T{0}) {
         if (c2 < T{0}) {
             c2 = -c2;
@@ -570,24 +590,24 @@ constexpr SchurBlockEigenvalues<T> standardize_schur_block(Matrix<N, N, T>& H, M
     H(i + 1, i + 1) = m;
     const T b1 = H(i, i + 1);
     const T c1 = H(i + 1, i);
+    const T g = sqrt_abs_product(b1, c1); // √|b₁|·√|c₁|
     if ((b1 > T{0} && c1 < T{0}) || (b1 < T{0} && c1 > T{0})) {
-        const T im = damp::sqrt(damp::abs(b1)) * damp::sqrt(damp::abs(c1));
         ev.wr0 = m;
         ev.wr1 = m;
-        ev.wi0 = im;
-        ev.wi1 = -im;
+        ev.wi0 = g;
+        ev.wi1 = -g;
         return ev;
     }
     // Rounding left a (nearly) double real eigenvalue: triangularize about m with the
-    // eigenvector [√|b₁|, sign(c₁)√|c₁|] of m + √|b₁c₁|.
+    // eigenvector [√|b₁|, sign(c₁)√|c₁|] of m + √|b₁c₁|, of norm √(|b₁| + |c₁|).
     const T sb = damp::sqrt(damp::abs(b1));
     const T sc = damp::sqrt(damp::abs(c1));
-    const T r = damp::sqrt((sb * sb) + (sc * sc));
+    const T r = damp::sqrt(damp::abs(b1) + damp::abs(c1));
     if (r > T{0}) {
         rotate_schur_pair(H, Z, i, sb / r, damp::copysign(sc, c1) / r);
     }
-    H(i, i) = m + (sb * sc);
-    H(i + 1, i + 1) = m - (sb * sc);
+    H(i, i) = m + g;
+    H(i + 1, i + 1) = m - g;
     H(i + 1, i) = T{0};
     ev.wr0 = H(i, i);
     ev.wr1 = H(i + 1, i + 1);
@@ -615,7 +635,9 @@ constexpr SchurBlockEigenvalues<T> standardize_schur_block(Matrix<N, N, T>& H, M
  *
  * Outside the block [@p lo, @p hi] H must be upper triangular (permute_and_scale isolates such
  * rows): their eigenvalues are read off the diagonal, and the iteration and its shifts touch only
- * the block, so they stay exact.
+ * the block, so they stay exact. The shift products are of entries in the block, which
+ * schur_reduce brings into a range where a product of two cannot overflow; under -ffast-math a
+ * local scale factor would not help, since the compiler folds (x·k)(y·k) back into x·y·k².
  *
  * @return true if every eigenvalue deflated within the iteration budget.
  * @see EISPACK `hqr2`; Golub & Van Loan, "Matrix Computations" §7.5
@@ -640,6 +662,7 @@ constexpr bool francis_qr(
 ) {
     constexpr T  eps = damp::eps<T>();
     constexpr T  smlnum = damp::numeric_limits<T>::min() * (static_cast<T>(N) / eps);
+    constexpr T  quotient_guard = T{8} / damp::numeric_limits<T>::max(); // |x|·guard < |y| ⇒ |x/y| < max/8
     const size_t max_its = (30 * N) + 30;
     const int    first = static_cast<int>(lo);
 
@@ -782,9 +805,20 @@ constexpr bool francis_qr(
                     T z2 = H(m, m);
                     r = x - z2;
                     T s = y - z2;
-                    p = (((r * s) - w) / H(m + 1, m)) + H(m, m + 1);
+                    //! First column of (H − σ₁)(H − σ₂) from row m, divided by h₍ₘ₊₁,ₘ₎. Beside a
+                    //! tiny h₍ₘ₊₁,ₘ₎ the quotient could overflow: then the column is kept undivided,
+                    //! the same direction.
+                    const T h21 = H(m + 1, m);
+                    const T num = (r * s) - w;
                     q = H(m + 1, m + 1) - z2 - r - s;
                     r = H(m + 2, m + 1);
+                    if (damp::abs(num) * quotient_guard < damp::abs(h21)) {
+                        p = (num / h21) + H(m, m + 1);
+                    } else {
+                        p = num + (H(m, m + 1) * h21);
+                        q *= h21;
+                        r *= h21;
+                    }
                     T s2 = damp::abs(p) + damp::abs(q) + damp::abs(r);
                     p /= s2;
                     q /= s2;
@@ -893,6 +927,79 @@ constexpr bool francis_qr(
 #endif
 
 /**
+ * @brief Even exponent σ with 2^−σ·max |hᵢⱼ| over the block [lo, hi] in [√min/ε, ε/√min].
+ *
+ * The range is LAPACK xGEEV's: a product of two entries there neither overflows nor flushes to
+ * zero (about [9·10⁻¹³, 1.1·10¹²] in float, [7·10⁻¹³⁹, 1.5·10¹³⁸] in double). An even σ keeps
+ * every square root exact under the scaling, so a matrix already inside (σ = 0) and one brought
+ * there round alike.
+ */
+template<typename T, size_t N>
+[[nodiscard]] constexpr int schur_prescale_exponent(const Matrix<N, N, T>& H, size_t lo, size_t hi) {
+    constexpr T small = damp::sqrt(damp::numeric_limits<T>::min()) / damp::eps<T>();
+    constexpr T big = T{1} / small;
+    T           amax = T{0};
+    for (size_t i = lo; i <= hi; ++i) {
+        for (size_t j = lo; j <= hi; ++j) {
+            amax = damp::max(amax, damp::abs(H(i, j)));
+        }
+    }
+    int sigma = 0;
+    for (int k = 0; k < 1024 && amax > big; ++k) {
+        amax *= static_cast<T>(0.25);
+        sigma += 2;
+    }
+    for (int k = 0; k < 1024 && amax > T{0} && amax < small; ++k) {
+        amax *= T{4};
+        sigma -= 2;
+    }
+    return sigma;
+}
+
+/**
+ * @brief Real Schur form of @p H in place: Hessenberg reduction and Francis QR, at a safe scale.
+ *
+ * The block [lo, hi] is multiplied by 2^−σ (schur_prescale_exponent) before the reduction and its
+ * Schur form, eigenvalues included, by 2^σ after, both exact. Only the block: outside it H must be
+ * upper triangular, and the coupling rows and columns take orthogonal transforms computed from the
+ * block alone, which do not depend on its scale. On return @p H is the standardized real Schur
+ * form, Zᵀ·H₀·Z = H with @p Z orthogonal, and @p wr, @p wi hold the eigenvalues in its diagonal
+ * order. Without the prescale a block whose entries pass √max (1.8·10¹⁹ in float) returns an
+ * infinite imaginary part, and one below √min a complex pair as a real double eigenvalue.
+ *
+ * @return true if every eigenvalue deflated within the iteration budget.
+ * @see LAPACK xGEEV (scaling A into [SMLNUM, BIGNUM] before xGEBAL and xHSEQR)
+ */
+template<typename T, size_t N>
+[[nodiscard]] constexpr bool schur_reduce(Matrix<N, N, T>& H, Matrix<N, N, T>& Z, damp::array<T, N>& wr, damp::array<T, N>& wi, size_t lo = 0, size_t hi = N - 1) {
+    Z = Matrix<N, N, T>::identity();
+    if constexpr (N == 0) {
+        return true;
+    } else if constexpr (N == 1) {
+        wr[0] = H(0, 0);
+        wi[0] = T{0};
+        return true;
+    } else {
+        const int sigma = schur_prescale_exponent(H, lo, hi);
+        for (size_t i = lo; sigma != 0 && i <= hi; ++i) {
+            for (size_t j = lo; j <= hi; ++j) {
+                H(i, j) = scale_by_pow2(H(i, j), -sigma);
+            }
+        }
+        hessenberg_reduce(H, Z);
+        const bool ok = francis_qr(H, Z, wr, wi, lo, hi);
+        for (size_t i = lo; sigma != 0 && i <= hi; ++i) {
+            for (size_t j = lo; j <= hi; ++j) {
+                H(i, j) = scale_by_pow2(H(i, j), sigma);
+            }
+            wr[i] = scale_by_pow2(wr[i], sigma);
+            wi[i] = scale_by_pow2(wi[i], sigma);
+        }
+        return ok;
+    }
+}
+
+/**
  * @brief Real Schur form of a balanced A: A = D·Z·T·Zᵀ·D⁻¹, D = diag(2^e), Z orthogonal.
  *
  * Every row of Z, and every entry of e, is indexed as A's; the permutation of the balance is
@@ -905,18 +1012,20 @@ struct RealSchur {
     damp::array<int, N> e{};              ///< log2 of the balancing D
     damp::array<T, N>   wr{};             ///< Real parts of the eigenvalues, in T's diagonal order
     damp::array<T, N>   wi{};             ///< Imaginary parts, positive first within a pair
-    bool                converged{false}; ///< Finite A and every eigenvalue deflated
+    bool                converged{false}; ///< Finite A, every eigenvalue deflated, finite T
 };
 
 /**
- * @brief Balance (permute_and_scale), reduce (Hessenberg and Francis QR) and map back, for every real Schur caller.
+ * @brief Balance (permute_and_scale), reduce (schur_reduce) and map back, for every real Schur caller.
  *
- * The eigenvalues the permutation isolates are exact, and the rest are accurate relative to the
- * balanced block. A non-finite entry, or a QR iteration that does not deflate, returns
+ * The eigenvalues the permutation isolates are exact, the rest are accurate relative to the
+ * balanced block, and neither depends on the overall scale of A from the smallest normal number
+ * to the largest. A non-finite entry, a QR iteration that does not deflate, or a Schur form that
+ * leaves the finite range on the way back (a true eigenvalue past the largest number) returns
  * converged = false.
  *
  * @see "Balancing a Matrix for Calculation of Eigenvalues and Eigenvectors" (Parlett & Reinsch, 1969)
- * @see LAPACK xGEEV (balance, reduce, then undo the balance)
+ * @see LAPACK xGEEV (balance, scale, reduce, then undo the scaling and the balance)
  */
 template<size_t N, typename T>
 [[nodiscard]] constexpr RealSchur<N, T> real_schur(const Matrix<N, N, T>& A) {
@@ -931,16 +1040,8 @@ template<size_t N, typename T>
             H(i, j) = scale_by_pow2(A(bal.perm[i], bal.perm[j]), bal.e[j] - bal.e[i]);
         }
     }
-    Matrix<N, N, T> Zb = Matrix<N, N, T>::identity();
-    bool            ok = true;
-    if constexpr (N == 0) {
-        // nothing to reduce
-    } else if constexpr (N == 1) {
-        out.wr[0] = H(0, 0);
-    } else {
-        hessenberg_reduce(H, Zb);
-        ok = francis_qr(H, Zb, out.wr, out.wi, bal.lo, bal.hi);
-    }
+    Matrix<N, N, T> Zb{};
+    const bool      ok = schur_reduce(H, Zb, out.wr, out.wi, bal.lo, bal.hi);
     out.T_form = H;
     for (size_t i = 0; i < N; ++i) {
         out.e[bal.perm[i]] = bal.e[i];
@@ -948,7 +1049,10 @@ template<size_t N, typename T>
             out.Z(bal.perm[i], j) = Zb(i, j);
         }
     }
-    out.converged = ok;
+    out.converged = ok && mat::all_of(H, [](T v) { return damp::isfinite(v); });
+    for (size_t i = 0; i < N; ++i) {
+        out.converged = out.converged && damp::isfinite(out.wr[i]) && damp::isfinite(out.wi[i]);
+    }
     return out;
 }
 
@@ -960,13 +1064,14 @@ template<size_t N, typename T>
  * Resolves both real and complex-conjugate eigenvalues for any N, returned as
  * fully-resolved complex values. 1×1 is trivial; larger matrices go through
  * detail::real_schur: balanced (detail::permute_and_scale, a permutation and a
- * diagonal similarity by powers of two), then reduced by
+ * diagonal similarity by powers of two), brought to a safe scale, then reduced by
  * Hessenberg + Francis double-shift QR (a 2×2 deflates at once via the
  * cancellation-free quadratic). An eigenvalue the permutation isolates (a
  * triangular A, a cascade, an appended integrator) is the diagonal entry itself,
  * exactly. Balancing makes the others accurate relative to the balanced norm, not
  * to the largest entry of A, so a state in metres next to one in counts does not
- * cost the small eigenvalues their digits. The @c schur_vectors
+ * cost the small eigenvalues their digits, and the prescale makes them independent
+ * of A's overall scale across the whole floating-point range. The @c schur_vectors
  * field holds the real Schur basis of the balanced matrix mapped back (x = D x_b)
  * with unit columns: nested invariant subspaces of A, orthogonal when A needed no
  * scaling, and the eigenvectors for symmetric A. It does not hold eigenvectors of a
@@ -978,7 +1083,8 @@ template<size_t N, typename T>
  *
  * The iteration budget scales with N internally and a subdiagonal entry deflates
  * by the local Ahues–Tisseur criterion (see detail::francis_qr), so no tolerance
- * or iteration cap is taken. A non-finite entry in A returns success = false.
+ * or iteration cap is taken. A non-finite entry in A, or an eigenvalue past the
+ * largest finite number, returns success = false.
  *
  * @param A input matrix
  * @return EigenResult with complex eigenvalues, Schur vectors, and an honest
@@ -1008,14 +1114,12 @@ template<size_t N, typename T = double>
 
         for (size_t i = 0; i < N; ++i) {
             result.values[i] = Cplx{rs.wr[i], rs.wi[i]};
-            // Schur vectors of A are D·Z; renormalize each column.
-            T nrm_sq = T{0};
+            // Schur vectors of A are D·Z; renormalize each column (D may span many decades).
             for (size_t j = 0; j < N; ++j) {
-                const T v = detail::scale_by_pow2(rs.Z(j, i), rs.e[j]);
-                result.schur_vectors(j, i) = v;
-                nrm_sq += v * v;
+                result.schur_vectors(j, i) = detail::scale_by_pow2(rs.Z(j, i), rs.e[j]);
             }
-            const T inv = (nrm_sq > T{0}) ? (T{1} / damp::sqrt(nrm_sq)) : T{1};
+            const T nrm = damp::detail::scaled_norm2<T>(N, [&](size_t j) { return damp::abs(result.schur_vectors(j, i)); });
+            const T inv = (nrm > T{0}) ? (T{1} / nrm) : T{1};
             for (size_t j = 0; j < N; ++j) {
                 result.schur_vectors(j, i) *= inv;
             }

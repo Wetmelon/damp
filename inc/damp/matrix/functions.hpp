@@ -776,9 +776,8 @@ template<typename T, size_t N>
     const T a = Tq(i0, i0);
     const T b = Tq(i0, i0 + 1);
     const T c = Tq(i0 + 1, i0);
-    const T mu = damp::sqrt(damp::abs(b)) * damp::sqrt(damp::abs(c));
-    const T m = damp::max(damp::abs(a), mu);
-    const T mod = m * damp::sqrt(((a / m) * (a / m)) + ((mu / m) * (mu / m))); // |a + iμ|, scaled
+    const T mu = sqrt_abs_product(b, c); // √|b|·√|c|, which -ffast-math would form as √|bc|
+    const T mod = damp::hypot(a, mu);    // |a + iμ|
     T       alpha{};
     if (a >= T{0}) {
         alpha = damp::sqrt(static_cast<T>(0.5) * (mod + a));

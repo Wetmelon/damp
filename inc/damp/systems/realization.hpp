@@ -317,7 +317,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
             continue;
         }
         const T b = S(i, i + 1);
-        const T w = damp::sqrt(damp::abs(b)) * damp::sqrt(damp::abs(S(i + 1, i)));
+        const T w = mat::detail::sqrt_abs_product(b, S(i + 1, i));
         const T sigma = static_cast<T>(0.5) * (S(i, i) + S(i + 1, i + 1));
         for (size_t r = 0; r < NX; ++r) {
             X(r, i + 1) = X(r, i + 1) * (w / b);

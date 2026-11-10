@@ -171,9 +171,9 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`blkdiag`](inc/damp/matrix/concat.hpp#L133) | Block-diagonal assembly of MatrixLike arguments |
 | [`cholesky`](inc/damp/matrix/decomposition.hpp#L128) | Cholesky decomposition for positive-definite matrices |
 | [`cholesky_solve`](inc/damp/matrix/solve.hpp#L162) | Solve AX = B via Cholesky (A = LLᴴ) |
-| [`compute_eigenvalues`](inc/damp/matrix/eigen.hpp#L989) | Compute the eigenvalues (and Schur vectors) of a real square matrix |
-| [`cos`](inc/damp/matrix/functions.hpp#L1349) | Matrix cosine via scaling and double-angle reconstruction |
-| [`cosh`](inc/damp/matrix/functions.hpp#L1383) | Matrix hyperbolic cosine cosh(A) = (exp(A) + exp(−A))/2 |
+| [`compute_eigenvalues`](inc/damp/matrix/eigen.hpp#L1095) | Compute the eigenvalues (and Schur vectors) of a real square matrix |
+| [`cos`](inc/damp/matrix/functions.hpp#L1348) | Matrix cosine via scaling and double-angle reconstruction |
+| [`cosh`](inc/damp/matrix/functions.hpp#L1382) | Matrix hyperbolic cosine cosh(A) = (exp(A) + exp(−A))/2 |
 | [`default_tol`](inc/damp/matrix/matrix_traits.hpp#L121) | Type-appropriate default tolerance for floating-point comparisons. float  ~7 decimal digits  → 1e-6 double ~15 decimal digits → 1e-12 |
 | [`det`](inc/damp/matrix/functions.hpp#L169) | Matrix determinant det(A) |
 | [`diag`](inc/damp/matrix/concat.hpp#L53) | Square diagonal matrix from scalars: diag(10.0, 0.1, 100.0, 10.0) (+4 more overloads) |
@@ -188,23 +188,23 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`is_symmetric_or_hermitian`](inc/damp/matrix/decomposition.hpp#L89) | True if A equals its transpose (real) or conjugate transpose (complex) |
 | [`ldlt`](inc/damp/matrix/decomposition.hpp#L482) | Symmetric indefinite LDLᴴ with rook pivoting: P·A·Pᵀ = L·D·Lᴴ, D block diagonal (1×1 and 2×2) |
 | [`ldlt_solve`](inc/damp/matrix/solve.hpp#L193) | Solve AX = B via pivoted LDLᴴ (P·A·Pᵀ = L·D·Lᴴ, symmetric indefinite) |
-| [`log`](inc/damp/matrix/functions.hpp#L1026) | Principal matrix logarithm via inverse scaling and squaring |
+| [`log`](inc/damp/matrix/functions.hpp#L1025) | Principal matrix logarithm via inverse scaling and squaring |
 | [`lu_decomposition`](inc/damp/matrix/decomposition.hpp#L533) | LU decomposition with partial pivoting |
 | [`lu_solve`](inc/damp/matrix/solve.hpp#L237) | Solve AX = B via LU with partial pivoting |
 | [`null_space`](inc/damp/matrix/svd.hpp#L480) | Orthonormal basis for the null space {x : A·x = 0} via SVD |
 | [`one_norm`](inc/damp/matrix/functions.hpp#L68) | One-norm ‖A‖₁: maximum absolute column sum |
-| [`pow`](inc/damp/matrix/functions.hpp#L1129) | Integer matrix power via binary exponentiation (+1 more overload) |
+| [`pow`](inc/damp/matrix/functions.hpp#L1128) | Integer matrix power via binary exponentiation (+1 more overload) |
 | [`pseudo_inverse`](inc/damp/matrix/svd.hpp#L426) | Moore–Penrose pseudoinverse A⁺ via SVD |
 | [`qr_decompose`](inc/damp/matrix/decomposition.hpp#L718) | Thin QR via Householder reflections |
 | [`quadratic_form`](inc/damp/matrix/core.hpp#L1395) | Symmetric congruence (quadratic) form  S = M X Mᵀ (+1 more overload) |
 | [`quadratic_form_in_place`](inc/damp/matrix/pattern_matrix.hpp#L341) | S ← F S Fᵀ in place, for a symmetric S: every multiply the pattern can skip, skipped |
 | [`rank`](inc/damp/matrix/functions.hpp#L231) | Numerical rank: the number of singular values above rel_tol·σₘₐₓ |
 | [`rank_from_svd`](inc/damp/matrix/svd.hpp#L390) | Numerical rank from a precomputed SVD result |
-| [`sin`](inc/damp/matrix/functions.hpp#L1332) | Matrix sine via scaling and double-angle reconstruction |
-| [`sincos`](inc/damp/matrix/functions.hpp#L1316) | Compute sin(A) and cos(A) together via scaling and double-angle reconstruction |
-| [`sinh`](inc/damp/matrix/functions.hpp#L1367) | Matrix hyperbolic sine sinh(A) = (exp(A) − exp(−A))/2 |
+| [`sin`](inc/damp/matrix/functions.hpp#L1331) | Matrix sine via scaling and double-angle reconstruction |
+| [`sincos`](inc/damp/matrix/functions.hpp#L1315) | Compute sin(A) and cos(A) together via scaling and double-angle reconstruction |
+| [`sinh`](inc/damp/matrix/functions.hpp#L1366) | Matrix hyperbolic sine sinh(A) = (exp(A) − exp(−A))/2 |
 | [`solve`](inc/damp/matrix/solve.hpp#L287) | Solve AX = B — Cholesky when Hermitian, else LU (+2 more overloads) |
-| [`sqrt`](inc/damp/matrix/functions.hpp#L980) | Principal matrix square root by the real Schur method |
+| [`sqrt`](inc/damp/matrix/functions.hpp#L979) | Principal matrix square root by the real Schur method |
 | [`svd`](inc/damp/matrix/svd.hpp#L356) | Full singular value decomposition A = U·Σ·Vᴴ (one-sided Jacobi) |
 | [`times_transpose`](inc/damp/matrix/pattern_matrix.hpp#L317) | A dense matrix times Hᵀ for a sparse H: A Hᵀ |
 | [`transform`](inc/damp/matrix/core.hpp#L1542) | Apply f to every entry, B(i, j) = f(A(i, j)): the matrix counterpart of std::transform |
@@ -288,7 +288,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`BalancedRealizationResult`](inc/damp/design/model_reduction.hpp#L76) | Balanced realization result (Moore square-root method) |
 | [`BalancedReductionResult`](inc/damp/design/model_reduction.hpp#L108) | Reduced-order model from balanced truncation or residualization |
 | [`CommandProjectionResult`](inc/damp/controllers/action_governor.hpp#L89) | Result of an affine command projection |
-| [`DareMethod`](inc/damp/design/riccati.hpp#L1188) | DARE solver selection for dare() |
+| [`DareMethod`](inc/damp/design/riccati.hpp#L1187) | DARE solver selection for dare() |
 | [`DesignStatus`](inc/damp/design/status.hpp#L34) | Why a design failed, one value per cause class (not per code branch) |
 | [`DisturbanceModel`](inc/damp/design/disturbance.hpp#L80) | An explicit disturbance model: d enters the plant's state through B_d and the readings through C_d |
 | [`ESCResult`](inc/damp/controllers/esc.hpp#L90) | Extremum-seeking design result: the discrete realization the runtime runs |
@@ -304,8 +304,8 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`LeadLagResult`](inc/damp/controllers/lead_lag.hpp#L63) | Lead-lag compensator design result |
 | [`LeadLagSeriesResult`](inc/damp/controllers/lead_lag.hpp#L223) | Cascaded lead+lag design result (2nd-order StateSpace + success) |
 | [`LinearizationResult`](inc/damp/design/linearization.hpp#L45) | Result of nonlinear operating-point linearization |
-| [`LQRCost`](inc/damp/design/riccati.hpp#L1576) | A quadratic cost on (x, u): state cost Q, input cost R, cross term N |
-| [`LQRResult`](inc/damp/design/riccati.hpp#L1517) | The LQR gain: design::lqr on a plant, discrete_lqr and continuous_lqr on given matrices |
+| [`LQRCost`](inc/damp/design/riccati.hpp#L1575) | A quadratic cost on (x, u): state cost Q, input cost R, cross term N |
+| [`LQRResult`](inc/damp/design/riccati.hpp#L1516) | The LQR gain: design::lqr on a plant, discrete_lqr and continuous_lqr on given matrices |
 | [`MinimalRealizationResult`](inc/damp/design/minreal.hpp#L88) | Minimal realization result |
 | [`ModelReductionMethod`](inc/damp/design/model_reduction.hpp#L60) | How balanced_reduction and eliminate_states eliminate states |
 | [`MPCResult`](inc/damp/controllers/mpc.hpp#L1263) | An MPC design: the condensed QP, the estimator when there is one, and the steady-state target the runtime poses the QP about; consumed by damp::MPC |
@@ -346,21 +346,21 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`amigo_kappa_tau`](inc/damp/design/pid_design.hpp#L253) | AMIGO PI from ultimate gain/period and static gain Kₛ |
 | [`balanced_realization`](inc/damp/design/model_reduction.hpp#L477) | Balanced realization via the square-root (Moore / Laub) method |
 | [`balanced_reduction`](inc/damp/design/model_reduction.hpp#L554) | Balanced reduction to NR states, by truncation or DC-matched residualization |
-| [`care`](inc/damp/design/riccati.hpp#L1490) | Solve the Continuous-time Algebraic Riccati Equation (CARE) |
+| [`care`](inc/damp/design/riccati.hpp#L1489) | Solve the Continuous-time Algebraic Riccati Equation (CARE) |
 | [`cbf_relative_degree_1`](inc/damp/controllers/action_governor.hpp#L203) | Build a relative-degree-1 CBF inequality row |
 | [`closed_loop_poles`](inc/damp/design/stability.hpp#L563) | Compute closed-loop poles (eigenvalues) with state feedback |
 | [`closed_loop_stable`](inc/damp/design/pid_design.hpp#L684) | Closed-loop certificate: den_P·den_C + num_P·num_C is Hurwitz for C_fb = Kp + Kᵢ/s + Kd s/(1 + Tf s) |
 | [`cohen_coon`](inc/damp/design/pid_design.hpp#L300) | Cohen-Coon tuning from first-order-plus-dead-time model |
-| [`continuous_lqr`](inc/damp/design/riccati.hpp#L1743) | Continuous-time Linear-Quadratic Regulator design |
+| [`continuous_lqr`](inc/damp/design/riccati.hpp#L1742) | Continuous-time Linear-Quadratic Regulator design |
 | [`ContinuousPID`](inc/damp/controllers/pid.hpp#L1070) | Deduce the runtime from its design, keeping the result's scalar |
 | [`controllability_gramian`](inc/damp/design/stability.hpp#L381) | Continuous/discrete controllability Gramian W_c |
 | [`controllability_matrix`](inc/damp/design/stability.hpp#L53) | Compute the controllability matrix [B, AB, A²B, ..., A^(N-1)B] |
 | [`current_loop_pi`](inc/damp/design/pid_design.hpp#L1298) | PI gains for an R–L current loop 1/(L s + R) at any bandwidth ω |
 | [`damping_ratio_from_overshoot_percent`](inc/damp/design/pid_design.hpp#L858) | Map percent overshoot target to equivalent damping ratio |
-| [`dare`](inc/damp/design/riccati.hpp#L1321) | Solve the Discrete Algebraic Riccati Equation (DARE) |
-| [`discrete_lqr`](inc/damp/design/riccati.hpp#L1609) | Discrete-time Linear-Quadratic Regulator design (+1 more overload) |
+| [`dare`](inc/damp/design/riccati.hpp#L1320) | Solve the Discrete Algebraic Riccati Equation (DARE) |
+| [`discrete_lqr`](inc/damp/design/riccati.hpp#L1608) | Discrete-time Linear-Quadratic Regulator design (+1 more overload) |
 | [`discrete_lyapunov_cholesky`](inc/damp/design/lyapunov.hpp#L518) | Cholesky factor of the discrete Lyapunov solution: A X Aᵀ − X + B Bᵀ = 0, X = RᵀR |
-| [`discretize_lqr_cost`](inc/damp/design/riccati.hpp#L1678) | Discretize a continuous LQR cost integral over one sample (Van Loan) |
+| [`discretize_lqr_cost`](inc/damp/design/riccati.hpp#L1677) | Discretize a continuous LQR cost integral over one sample (Van Loan) |
 | [`dlyap`](inc/damp/design/lyapunov.hpp#L478) | Solve the discrete-time Lyapunov (Stein) equation A X Aᵀ − X + Q = 0 |
 | [`eliminate_states`](inc/damp/design/model_reduction.hpp#L626) | Eliminate the listed states, by DC-matched residualization or truncation |
 | [`esc`](inc/damp/controllers/esc.hpp#L155) | Synthesize an extremum-seeking controller |
@@ -392,7 +392,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`LQI`](inc/damp/controllers/lqi.hpp#L135) | LQI law{res}: the sizes and scalar of design::lqi's result |
 | [`lqr`](inc/damp/controllers/lqr.hpp#L43) | The linear-quadratic regulator on the plant (DARE on a discrete plant, CARE on a continuous one): runs as LQR (+3 more overloads) |
 | [`LQR`](inc/damp/controllers/lqr.hpp#L203) | LQR law{res}: the sizes and scalar of design::lqr's result (+2 more overloads) |
-| [`lqr_gain`](inc/damp/design/riccati.hpp#L1358) | Optimal LQR state-feedback gain from a Riccati solution |
+| [`lqr_gain`](inc/damp/design/riccati.hpp#L1357) | Optimal LQR state-feedback gain from a Riccati solution |
 | [`LQRWeights`](inc/damp/controllers/state_feedback_core.hpp#L752) | Sizes from the matrices: `LQRWeights{Q, R}` (+2 more overloads) |
 | [`lyap`](inc/damp/design/lyapunov.hpp#L452) | Solve the continuous-time Lyapunov equation A X + X Aᵀ + Q = 0 |
 | [`lyapunov_cholesky`](inc/damp/design/lyapunov.hpp#L500) | Cholesky factor of the continuous Lyapunov solution: A X + X Aᵀ + B Bᵀ = 0, X = RᵀR |

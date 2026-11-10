@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <initializer_list>
 #include <type_traits>
 
 #include "damp/backend.hpp"
@@ -1126,5 +1127,40 @@ TEST_SUITE("DARE: RDE with a slow closed loop") {
             const auto kf = design::kalman(sys, design::KalmanNoise{.process = Matrix<2, 2>{{q, 0.0}, {0.0, 1.0}}, .measurement = Matrix<1, 1>{{1.0}}});
             CHECK(kf.success);
         }
+    }
+}
+
+TEST_SUITE("reorder_schur at any scale") {
+    template<typename T>
+    void check_reorder_scales(std::initializer_list<double> scales) {
+        for (const double sd : scales) {
+            const T s = static_cast<T>(sd);
+            CAPTURE(sd);
+            // Two 1×1 blocks: the swap's rotation norm √(b² + (c − a)²) overflowed past √max and
+            // vanished below √min, and the swap was refused.
+            Matrix<2, 2, T> T2{{s, s}, {T(0), -s}};
+            Matrix<2, 2, T> Z2 = Matrix<2, 2, T>::identity();
+            CHECK(damp::detail::reorder_schur(T2, Z2, [](const damp::complex<T>& l) { return l.real() < T{0}; }) == 1);
+            CHECK(static_cast<double>(T2(0, 0) / s) == doctest::Approx(-1.0).epsilon(1e-6));
+            CHECK(static_cast<double>(T2(1, 1) / s) == doctest::Approx(1.0).epsilon(1e-6));
+            CHECK(T2(1, 0) == T{0});
+            // A complex pair ahead of a stable real eigenvalue: the standardization and the 2×2
+            // swap run on entries of the matrix's own scale.
+            Matrix<3, 3, T> T3{{s, T(2) * s, s}, {T(-3) * s, T(1.5) * s, s}, {T(0), T(0), -s}};
+            Matrix<3, 3, T> Z3 = Matrix<3, 3, T>::identity();
+            CHECK(damp::detail::reorder_schur(T3, Z3, [](const damp::complex<T>& l) { return l.real() < T{0}; }) == 1);
+            CHECK(static_cast<double>(T3(0, 0) / s) == doctest::Approx(-1.0).epsilon(1e-5));
+            CHECK(static_cast<double>((T3(1, 1) + T3(2, 2)) / s) == doctest::Approx(2.5).epsilon(1e-5));
+            CHECK(T3(1, 0) == T{0});
+            CHECK(T3(2, 0) == T{0});
+        }
+    }
+
+    TEST_CASE("float, from 1e-30 to 1e30") {
+        check_reorder_scales<float>({1e-30, 1e-20, 1.0, 1e20, 1e30});
+    }
+
+    TEST_CASE("double, from 1e-300 to 1e300") {
+        check_reorder_scales<double>({1e-300, 1e-160, 1.0, 1e160, 1e300});
     }
 }

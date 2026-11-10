@@ -441,7 +441,7 @@ template<size_t NX, size_t NU, typename T = double>
  * The Sylvester system is tiny (≤ 4×4 via a Kronecker expansion). P,Q ∈ {1,2}.
  *
  * Two 1×1 blocks swap by the Givens rotation whose first column is [b, c − a], which is
- * unconditionally stable. A swap involving a 2×2 block is computed on a copy of the S×S
+ * unconditionally stable; its norm is damp::hypot, so the swap works at any scale. A swap involving a 2×2 block is computed on a copy of the S×S
  * window and kept only if it passes Bai and Demmel's two stability tests: the block that
  * must vanish, rows Q… by columns …Q of GᵀWG, is at most τ (weak), and so is the window
  * rebuilt from the swapped form with that block zeroed, ‖W − G·W′·Gᵀ‖ (strong), entrywise.
@@ -472,7 +472,7 @@ constexpr bool swap_schur_blocks(Matrix<M, M, T>& Tm, Matrix<M, M, T>& Z, size_t
         }
         const T x0 = b;
         const T x1 = c - a;
-        const T r = damp::sqrt((x0 * x0) + (x1 * x1));
+        const T r = damp::hypot(x0, x1);
         if (!(r > T{0}) || !damp::isfinite(r)) {
             return false;
         }
@@ -641,7 +641,7 @@ constexpr size_t reorder_schur(Matrix<M, M, T>& Tm, Matrix<M, M, T>& Z, Pred in_
     while (i < M) {
         const size_t b = schur_subdiagonal(Tm, i) ? 2 : 1;
         const T      re = (b == 2) ? (static_cast<T>(0.5) * (Tm(i, i) + Tm(i + 1, i + 1))) : Tm(i, i);
-        const T      im = (b == 2) ? (damp::sqrt(damp::abs(Tm(i, i + 1))) * damp::sqrt(damp::abs(Tm(i + 1, i)))) : T{0};
+        const T      im = (b == 2) ? mat::detail::sqrt_abs_product(Tm(i, i + 1), Tm(i + 1, i)) : T{0};
         if (in_front(damp::complex<T>{re, im})) {
             size_t cur = i;
             bool   reached = true;
@@ -1041,13 +1041,12 @@ template<size_t NX, size_t NU, typename T = double>
     H.template block<NX, NX>(NX, NX) = A_eff.transpose() * T{-1};
     balance_hamiltonian(H, scale);
 
-    //! Real Schur form Zᵀ H Z = T, accumulating Schur vectors in Z.
+    //! Real Schur form Zᵀ H Z = T, accumulating Schur vectors in Z, at a safe scale (schur_reduce).
     Matrix<M, M, T>   T_schur = H;
     Matrix<M, M, T>   Z;
     damp::array<T, M> wr{};
     damp::array<T, M> wi{};
-    mat::detail::hessenberg_reduce(T_schur, Z);
-    if (!mat::detail::francis_qr(T_schur, Z, wr, wi)) {
+    if (!mat::detail::schur_reduce(T_schur, Z, wr, wi)) {
         return out; // not_converged
     }
 

@@ -3,6 +3,7 @@
 // Distributed under the Boost Software License, Version 1.0.
 // (See accompanying file LICENSE or copy at http://www.boost.org/LICENSE_1_0.txt)
 
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -739,5 +740,36 @@ TEST_SUITE("Matrix Functions") {
         REQUIRE_FALSE(mat::expm(A).has_value());
         CHECK_FALSE(mat::all_of(mat::sinh(A), [](T v) { return damp::isfinite(v); }));
         CHECK_FALSE(mat::all_of(mat::cosh(A), [](T v) { return damp::isfinite(v); }));
+    }
+}
+
+TEST_SUITE("Matrix functions at any scale") {
+    // √(s·A) = √s·√A and log(s·A) = log(s)·I + log A. The real Schur form behind both squared
+    // the entries of its 2×2 blocks, so a complex pair past √max (1.8e19 in float) or below √min
+    // came back wrong and the residual test refused the root.
+    TEST_CASE_TEMPLATE("sqrtm and logm of s·A", T, float, double) {
+        const Matrix<3, 3, T> A{{T(4), T(1), T(0.5)}, {T(-1), T(3), T(0.25)}, {T(0), T(0.5), T(2)}};
+        const auto            R0 = mat::sqrt(A);
+        const auto            L0 = mat::log(A);
+        REQUIRE(R0.has_value());
+        REQUIRE(L0.has_value());
+        const double tol = 256.0 * static_cast<double>(eps<T>());
+        // Even powers of two: √s is exact, so the reference √s·√A carries no rounding of its own.
+        // Named arrays, not a ?: of two initializer lists: those lists' arrays die with the
+        // expression, before the loop reads them (GCC 11 read garbage).
+        const std::array<int, 4> float_exponents{-100, -64, 64, 100};
+        const std::array<int, 4> double_exponents{-1000, -520, 520, 1000};
+        for (const int e : (damp::is_same_v<T, float> ? float_exponents : double_exponents)) {
+            CAPTURE(e);
+            const T    s = mat::detail::scale_by_pow2(T{1}, e);
+            const auto R = mat::sqrt(Matrix<3, 3, T>(A * s));
+            REQUIRE(R.has_value());
+            const T root_s = mat::detail::scale_by_pow2(T{1}, e / 2);
+            CHECK(static_cast<double>(Matrix<3, 3, T>((R.value() / root_s) - R0.value()).norm()) <= tol * static_cast<double>(R0.value().norm()));
+            const auto L = mat::log(Matrix<3, 3, T>(A * s));
+            REQUIRE(L.has_value());
+            const T log_s = static_cast<T>(static_cast<double>(e) * std::log(2.0));
+            CHECK(static_cast<double>(Matrix<3, 3, T>(L.value() - (Matrix<3, 3, T>::identity() * log_s) - L0.value()).norm()) <= tol * static_cast<double>(damp::abs(log_s) + L0.value().norm()));
+        }
     }
 }

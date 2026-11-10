@@ -3,6 +3,7 @@
 // Distributed under the Boost Software License, Version 1.0.
 // (See accompanying file LICENSE or copy at http://www.boost.org/LICENSE_1_0.txt)
 
+#include <array>
 #include <cmath>
 #include <cstddef>
 
@@ -307,5 +308,26 @@ TEST_SUITE("Lyapunov on the Schur form") {
         const auto X = lyap(A, B * B.transpose());
         REQUIRE(X.has_value());
         CHECK_FALSE(mat::cholesky(*X).has_value());
+    }
+}
+
+// lyap(s·A, s·Q) = lyap(A, Q): the Schur form behind it once squared the entries of its 2×2
+// blocks, so a lightly damped pair at 1e20 in float came back as an infinite imaginary part.
+TEST_CASE_TEMPLATE("lyap does not depend on the overall scale of A and Q", T, float, double) {
+    const Matrix<2, 2, T> A{{T(-1), T(2)}, {T(-3), T(-1.5)}}; // −1.25 ± 2.44i
+    const Matrix<2, 2, T> Q{{T(3), T(1)}, {T(1), T(2)}};
+    const auto            X0 = lyap(A, Q);
+    REQUIRE(X0.has_value());
+    const T tol = T(64) * eps<T>() * X0.value().norm();
+    // Named arrays, not a ?: of two initializer lists: those lists' arrays die with the
+    // expression, before the loop reads them (GCC 11 read garbage).
+    const std::array<double, 4> float_scales{1e-30, 1e-20, 1e20, 1e30};
+    const std::array<double, 4> double_scales{1e-300, 1e-160, 1e160, 1e300};
+    for (const double sd : (damp::is_same_v<T, float> ? float_scales : double_scales)) {
+        CAPTURE(sd);
+        const T    s = static_cast<T>(sd);
+        const auto X = lyap(Matrix<2, 2, T>(A * s), Matrix<2, 2, T>(Q * s));
+        REQUIRE(X.has_value());
+        CHECK(Matrix<2, 2, T>(X.value() - X0.value()).norm() <= tol);
     }
 }

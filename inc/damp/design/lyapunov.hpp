@@ -68,8 +68,8 @@ template<size_t N, typename T>
         }
         const T m = H(k, k);
         const T b = H(k, k + 1);
-        const T w = damp::sqrt(damp::abs(b)) * damp::sqrt(damp::abs(H(k + 1, k)));
-        const T nv = damp::sqrt((b * b) + (w * w));
+        const T w = mat::detail::sqrt_abs_product(b, H(k + 1, k));
+        const T nv = damp::hypot(b, w);
         const C g00{b / nv, T{0}}; // G = [[g00, g01], [g10, g11]], first column the eigenvector
         const C g10{T{0}, w / nv};
         const C g01 = -damp::conj(g10);

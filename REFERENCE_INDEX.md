@@ -77,7 +77,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`CachedZoh`](inc/damp/simulation/cached_zoh.hpp#L63) | block | Simulation / SIL harness (host) | Cached discrete ZOH maps Ad, Bd for step size h |
 | [`canon`](inc/damp/matlab.hpp#L500) | function | MATLAB®-style aliases (host) | MATLAB® canon(sys) / canon(sys, 'modal'): real modal canonical form and its transform (+1 more overload) |
 | [`canonical_phase_margin`](inc/damp/analysis/frequency.hpp#L150) | function | Frequency-domain analysis (host) | Normalize phase margin to (-180, 180] |
-| [`care`](inc/damp/design/riccati.hpp#L1490) | function | Design-time synthesis (not PWM-rate) | Solve the Continuous-time Algebraic Riccati Equation (CARE) |
+| [`care`](inc/damp/design/riccati.hpp#L1489) | function | Design-time synthesis (not PWM-rate) | Solve the Continuous-time Algebraic Riccati Equation (CARE) |
 | [`Cascade`](inc/damp/controllers/composition.hpp#L49) | block | Runtime controllers | Series cascade of two SISO controllers: outer → inner reference |
 | [`catmull_1d`](inc/damp/toolbox/lookup.hpp#L339) | function | Embedded helpers (controls-adjacent utilities) | 1-D non-uniform Catmull-Rom (cubic Hermite) evaluation |
 | [`cbf_relative_degree_1`](inc/damp/controllers/action_governor.hpp#L203) | function | Design-time synthesis (not PWM-rate) | Build a relative-degree-1 CBF inequality row |
@@ -109,12 +109,12 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`Complementary`](inc/damp/filters/complementary.hpp#L32) | block | Filters & signal conditioning | Scalar (1-D) complementary filter — fuse a fast rate with a slow absolute |
 | [`ComplementaryFilter`](inc/damp/estimation/sensor_fusion.hpp#L58) | block | Observers & estimators | Simple complementary filter for orientation estimation |
 | [`complex`](inc/damp/math/complex.hpp#L38) | block | Scalar math, complex & frames | Constexpr complex number class for compile-time computations |
-| [`compute_eigenvalues`](inc/damp/matrix/eigen.hpp#L989) | function | Linear algebra | Compute the eigenvalues (and Schur vectors) of a real square matrix |
+| [`compute_eigenvalues`](inc/damp/matrix/eigen.hpp#L1095) | function | Linear algebra | Compute the eigenvalues (and Schur vectors) of a real square matrix |
 | [`constant_power_torque_limit`](inc/damp/motor/foc.hpp#L42) | function | Motor control pack (if present) | Constant-power torque ceiling Tₘₐₓ = P_rated / \|ω\| |
 | [`ConstantInertiaFeedforward`](inc/damp/toolbox/actuator.hpp#L199) | block | Embedded helpers (controls-adjacent utilities) | Per-axis decoupled torque feedforward: `τ = J·a + b·v + τ_c·sign(v) + g` |
 | [`ConstMatrix`](inc/damp/matrix/const_matrix.hpp#L86) | block | Linear algebra | A matrix that is a constant of its type: no storage, and a product with a vector that has no term for an entry that is exactly 0 |
 | [`continuous_lpf_exact_step`](inc/damp/filters/lowpass.hpp#L37) | function | Filters & signal conditioning | Exact step of continuous first-order LPF ẏ = −ω_c (y − u) |
-| [`continuous_lqr`](inc/damp/design/riccati.hpp#L1743) | function | Design-time synthesis (not PWM-rate) | Continuous-time Linear-Quadratic Regulator design |
+| [`continuous_lqr`](inc/damp/design/riccati.hpp#L1742) | function | Design-time synthesis (not PWM-rate) | Continuous-time Linear-Quadratic Regulator design |
 | [`ContinuousPID`](inc/damp/controllers/pid.hpp#L1070) | function | Design-time synthesis (not PWM-rate) | Deduce the runtime from its design, keeping the result's scalar |
 | [`ContinuousPID`](inc/damp/controllers/pid.hpp#L940) | block | Runtime controllers | Continuous-gain PID with per-tick sample time (variable-rate secondary form) |
 | [`controllability_gramian`](inc/damp/design/stability.hpp#L381) | function | Design-time synthesis (not PWM-rate) | Continuous/discrete controllability Gramian W_c |
@@ -124,9 +124,9 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`Convention`](inc/damp/math/transforms.hpp#L68) | enum | Scalar math, complex & frames | Scaling convention for the Clarke/Park family |
 | [`ConvertsExactly`](inc/damp/matrix/matrix_traits.hpp#L76) | concept | Linear algebra | Matrix elements of type From convert to To without rounding: the same type, or a real into the complex of its own precision |
 | [`copysign`](inc/damp/math/math.hpp#L481) | function | Scalar math, complex & frames | Copy sign — magnitude of mag with the sign of sgn_src |
-| [`cos`](inc/damp/matrix/functions.hpp#L1349) | function | Linear algebra | Matrix cosine via scaling and double-angle reconstruction |
+| [`cos`](inc/damp/matrix/functions.hpp#L1348) | function | Linear algebra | Matrix cosine via scaling and double-angle reconstruction |
 | [`cos`](inc/damp/math/math.hpp#L168) | function | Scalar math, complex & frames | Cosine |
-| [`cosh`](inc/damp/matrix/functions.hpp#L1383) | function | Linear algebra | Matrix hyperbolic cosine cosh(A) = (exp(A) + exp(−A))/2 |
+| [`cosh`](inc/damp/matrix/functions.hpp#L1382) | function | Linear algebra | Matrix hyperbolic cosine cosh(A) = (exp(A) + exp(−A))/2 |
 | [`Counter`](inc/damp/toolbox/logic.hpp#L272) | block | Embedded helpers (controls-adjacent utilities) | Edge-counting up/down counter: increments on each rising edge of up, decrements on each rising edge of down. Returns the running count, saturating at the limits of T (no wrap / signed overflow) |
 | [`cross_check_analog`](inc/damp/toolbox/conditioning.hpp#L541) | function | Embedded helpers (controls-adjacent utilities) | Cross-check two calibrated analog readings for redundant sensors |
 | [`CTD`](inc/damp/toolbox/iec61131.hpp#L351) | block | Embedded helpers (controls-adjacent utilities) | CTD Counter (Count Down) |
@@ -138,8 +138,8 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`d2d`](inc/damp/matlab.hpp#L458) | function | MATLAB®-style aliases (host) | MATLAB® d2d: resample a ZOH-discrete model to a new sample time |
 | [`damp`](inc/damp/analysis/poles.hpp#L70) | function | Frequency-domain analysis (host) | Compute natural frequency and damping for each pole |
 | [`damping_ratio_from_overshoot_percent`](inc/damp/design/pid_design.hpp#L858) | function | Design-time synthesis (not PWM-rate) | Map percent overshoot target to equivalent damping ratio |
-| [`dare`](inc/damp/design/riccati.hpp#L1321) | function | Design-time synthesis (not PWM-rate) | Solve the Discrete Algebraic Riccati Equation (DARE) |
-| [`DareMethod`](inc/damp/design/riccati.hpp#L1188) | enum | Design-time synthesis (not PWM-rate) | DARE solver selection for dare() |
+| [`dare`](inc/damp/design/riccati.hpp#L1320) | function | Design-time synthesis (not PWM-rate) | Solve the Discrete Algebraic Riccati Equation (DARE) |
+| [`DareMethod`](inc/damp/design/riccati.hpp#L1187) | enum | Design-time synthesis (not PWM-rate) | DARE solver selection for dare() |
 | [`db2mag`](inc/damp/math/math.hpp#L549) | function | Scalar math, complex & frames | Decibels to magnitude, 10^(db/20) |
 | [`dcgain`](inc/damp/analysis/norms.hpp#L42) | function | Frequency-domain analysis (host) | Compute DC gain of a continuous-time system |
 | [`DCM`](inc/damp/math/geometry.hpp#L83) | block | Scalar math, complex & frames | Rotation matrix, active body→parent (SO(3) wrapper over Mat3) |
@@ -158,13 +158,13 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`differential_drive`](inc/damp/toolbox/io.hpp#L262) | function | Embedded helpers (controls-adjacent utilities) | Differential (tank) drive mixer: throttle + turn → left/right |
 | [`DirectQuadrature`](inc/damp/math/transforms.hpp#L83) | block | Scalar math, complex & frames | Direct-quadrature (rotor-frame) component pair |
 | [`Discrete`](inc/damp/simulation/integrator.hpp#L151) | block | Simulation / SIL harness (host) | Discrete-time integrator (no integration, just one step) |
-| [`discrete_lqr`](inc/damp/design/riccati.hpp#L1609) | function | Design-time synthesis (not PWM-rate) | Discrete-time Linear-Quadratic Regulator design (+1 more overload) |
+| [`discrete_lqr`](inc/damp/design/riccati.hpp#L1608) | function | Design-time synthesis (not PWM-rate) | Discrete-time Linear-Quadratic Regulator design (+1 more overload) |
 | [`discrete_lyapunov_cholesky`](inc/damp/design/lyapunov.hpp#L518) | function | Design-time synthesis (not PWM-rate) | Cholesky factor of the discrete Lyapunov solution: A X Aᵀ − X + B Bᵀ = 0, X = RᵀR |
 | [`DiscretePIDGains`](inc/damp/controllers/pid.hpp#L74) | block | Runtime controllers | Fixed-rate discrete PID coefficients (canonical deploy form) |
 | [`DiscretizationMethod`](inc/damp/systems/discretization.hpp#L27) | enum | LTI systems (SS / TF / ZPK / discretize) | Discretization methods for continuous-time state-space systems |
 | [`DiscretizationResult`](inc/damp/systems/discretization.hpp#L50) | block | LTI systems (SS / TF / ZPK / discretize) | A discretized or resampled model with its success / status, read like an optional |
 | [`discretize`](inc/damp/systems/discretization.hpp#L330) | function | LTI systems (SS / TF / ZPK / discretize) | Discretize a continuous-time state-space system (+3 more overloads) |
-| [`discretize_lqr_cost`](inc/damp/design/riccati.hpp#L1678) | function | Design-time synthesis (not PWM-rate) | Discretize a continuous LQR cost integral over one sample (Van Loan) |
+| [`discretize_lqr_cost`](inc/damp/design/riccati.hpp#L1677) | function | Design-time synthesis (not PWM-rate) | Discretize a continuous LQR cost integral over one sample (Van Loan) |
 | [`discretize_process_noise`](inc/damp/estimation/kalman.hpp#L269) | function | Observers & estimators | Discretize continuous process noise over one sample (Van Loan) |
 | [`disk_margin`](inc/damp/analysis/disk_margin.hpp#L158) | function | Frequency-domain analysis (host) | Disk margin of a SISO loop L under unity negative feedback |
 | [`diskmargin`](inc/damp/matlab.hpp#L1331) | function | MATLAB®-style aliases (host) | Disk margin of a SISO loop (+1 more overload) |
@@ -417,7 +417,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`linmod`](inc/damp/matlab.hpp#L588) | function | MATLAB®-style aliases (host) | MATLAB®-style nonlinear linearization about an operating point |
 | [`linspace`](inc/damp/analysis/linspace.hpp#L36) | function | Frequency-domain analysis (host) | num evenly spaced values from start to end inclusive (+1 more overload) |
 | [`locate_zero_crossing_exact`](inc/damp/simulation/hybrid.hpp#L333) | function | Simulation / SIL harness (host) | Locate a state zero-crossing of g(x) on an Exact LTI segment |
-| [`log`](inc/damp/matrix/functions.hpp#L1026) | function | Linear algebra | Principal matrix logarithm via inverse scaling and squaring |
+| [`log`](inc/damp/matrix/functions.hpp#L1025) | function | Linear algebra | Principal matrix logarithm via inverse scaling and squaring |
 | [`log`](inc/damp/math/math.hpp#L249) | function | Scalar math, complex & frames | Natural logarithm |
 | [`log10`](inc/damp/math/math.hpp#L431) | function | Scalar math, complex & frames | Base-10 logarithm, log10(x) = ln(x) / ln(10) |
 | [`logm`](inc/damp/matlab.hpp#L707) | function | MATLAB®-style aliases (host) | MATLAB® short alias for the principal matrix logarithm (mat::log) |
@@ -455,10 +455,10 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`LQR`](inc/damp/controllers/lqr.hpp#L203) | function | Design-time synthesis (not PWM-rate) | LQR law{res}: the sizes and scalar of design::lqr's result (+2 more overloads) |
 | [`lqr`](inc/damp/matlab.hpp#L892) | function | MATLAB®-style aliases (host) | Continuous-time LQR design (MATLAB®'s lqr) |
 | [`LQR`](inc/damp/controllers/lqr.hpp#L108) | block | Runtime controllers | Linear-quadratic regulator on the measured state: u = u − K·(x − x ) |
-| [`lqr_gain`](inc/damp/design/riccati.hpp#L1358) | function | Design-time synthesis (not PWM-rate) | Optimal LQR state-feedback gain from a Riccati solution |
-| [`LQRCost`](inc/damp/design/riccati.hpp#L1576) | block | Design-time synthesis (not PWM-rate) | A quadratic cost on (x, u): state cost Q, input cost R, cross term N |
+| [`lqr_gain`](inc/damp/design/riccati.hpp#L1357) | function | Design-time synthesis (not PWM-rate) | Optimal LQR state-feedback gain from a Riccati solution |
+| [`LQRCost`](inc/damp/design/riccati.hpp#L1575) | block | Design-time synthesis (not PWM-rate) | A quadratic cost on (x, u): state cost Q, input cost R, cross term N |
 | [`lqrd`](inc/damp/matlab.hpp#L922) | function | MATLAB®-style aliases (host) | Sampled-data LQR from a continuous plant: ZOH dynamics + Van Loan cost (MATLAB®'s lqrd) (+1 more overload) |
-| [`LQRResult`](inc/damp/design/riccati.hpp#L1517) | block | Design-time synthesis (not PWM-rate) | The LQR gain: design::lqr on a plant, discrete_lqr and continuous_lqr on given matrices |
+| [`LQRResult`](inc/damp/design/riccati.hpp#L1516) | block | Design-time synthesis (not PWM-rate) | The LQR gain: design::lqr on a plant, discrete_lqr and continuous_lqr on given matrices |
 | [`LQRWeights`](inc/damp/controllers/state_feedback_core.hpp#L752) | function | Design-time synthesis (not PWM-rate) | Sizes from the matrices: `LQRWeights{Q, R}` (+2 more overloads) |
 | [`LQRWeights`](inc/damp/controllers/state_feedback_core.hpp#L743) | block | Runtime controllers | The cost of a state-feedback design: what to penalize and how much |
 | [`lqry`](inc/damp/matlab.hpp#L1008) | function | MATLAB®-style aliases (host) | Output-weighted continuous LQR (state cost Q = Cᵀ Q_y C) (+1 more overload) |
@@ -647,7 +647,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`PolyRootsResult`](inc/damp/systems/zpk.hpp#L91) | block | LTI systems (SS / TF / ZPK / discretize) | Roots of a real polynomial given highest power first |
 | [`Pose`](inc/damp/kinematics/pose.hpp#L61) | block | Kinematics / pose | Rigid-body pose: a translation and an orientation (unit quaternion) |
 | [`positive_sequence_ab`](inc/damp/filters/pll.hpp#L253) | function | Filters & signal conditioning | Instantaneous positive-sequence αβ from a quadrature signal pair |
-| [`pow`](inc/damp/matrix/functions.hpp#L1129) | function | Linear algebra | Integer matrix power via binary exponentiation (+1 more overload) |
+| [`pow`](inc/damp/matrix/functions.hpp#L1128) | function | Linear algebra | Integer matrix power via binary exponentiation (+1 more overload) |
 | [`pow`](inc/damp/math/math.hpp#L279) | function | Scalar math, complex & frames | Power function with a real exponent, base^exponent (+1 more overload) |
 | [`pr`](inc/damp/controllers/pr.hpp#L203) | function | Design-time synthesis (not PWM-rate) | Design a Proportional-Resonant controller |
 | [`pr_harmonics`](inc/damp/controllers/pr.hpp#L241) | function | Design-time synthesis (not PWM-rate) | Design multiple-harmonic PR controller gains |
@@ -763,14 +763,14 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`simulate_two_rate`](inc/damp/simulation/multirate.hpp#L266) | function | Simulation / SIL harness (host) | Two-rate cascade with MultiRateConfig (+1 more overload) |
 | [`simulate_two_rate_lti`](inc/damp/simulation/multirate.hpp#L415) | function | Simulation / SIL harness (host) | Two-rate cascade on a continuous LTI plant (A, B, C, D) |
 | [`SimulationResult`](inc/damp/simulation/simulate.hpp#L128) | block | Simulation / SIL harness (host) | Result of a closed-loop simulation |
-| [`sin`](inc/damp/matrix/functions.hpp#L1332) | function | Linear algebra | Matrix sine via scaling and double-angle reconstruction |
+| [`sin`](inc/damp/matrix/functions.hpp#L1331) | function | Linear algebra | Matrix sine via scaling and double-angle reconstruction |
 | [`sin`](inc/damp/math/math.hpp#L181) | function | Scalar math, complex & frames | Sine |
-| [`sincos`](inc/damp/matrix/functions.hpp#L1316) | function | Linear algebra | Compute sin(A) and cos(A) together via scaling and double-angle reconstruction |
+| [`sincos`](inc/damp/matrix/functions.hpp#L1315) | function | Linear algebra | Compute sin(A) and cos(A) together via scaling and double-angle reconstruction |
 | [`sincos`](inc/damp/math/math.hpp#L199) | function | Scalar math, complex & frames | Combined sine and cosine, {sin(x), cos(x)} |
 | [`SinCosCalibration`](inc/damp/encoder/sincos.hpp#L65) | block | Embedded helpers (controls-adjacent utilities) | Per-channel gain/offset trims for the sin/cos front end (hardware calibration) |
 | [`SinCosSample`](inc/damp/encoder/sincos.hpp#L77) | block | Embedded helpers (controls-adjacent utilities) | One decoded sin/cos sample: the fine phase and the signal amplitude |
 | [`SinglePhasePLL`](inc/damp/filters/pll.hpp#L67) | block | Filters & signal conditioning | Single-Phase PLL |
-| [`sinh`](inc/damp/matrix/functions.hpp#L1367) | function | Linear algebra | Matrix hyperbolic sine sinh(A) = (exp(A) − exp(−A))/2 |
+| [`sinh`](inc/damp/matrix/functions.hpp#L1366) | function | Linear algebra | Matrix hyperbolic sine sinh(A) = (exp(A) − exp(−A))/2 |
 | [`siso_ref`](inc/damp/simulation/simulate.hpp#L115) | function | Simulation / SIL harness (host) | Build a SisoReferenceAdapter for a SISO `control(r,y)` controller |
 | [`SisoController`](inc/damp/concepts.hpp#L84) | concept | Core, configuration & backend vocabulary | Scalar output-feedback controller: u = control(r, y), fixed rate |
 | [`SisoReferenceAdapter`](inc/damp/simulation/simulate.hpp#L96) | block | Simulation / SIL harness (host) | Adapt a SISO `control(r, y)` controller for callables that want `u = f(y)` or `u = f(t, y)` (the older simulate contracts) |
@@ -800,7 +800,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`specific_force_at_rest`](inc/damp/estimation/ins_mechanization.hpp#L226) | function | Observers & estimators | Specific force [m/s²] a stationary IMU measures for the given orientation |
 | [`SplineSurface`](inc/damp/toolbox/lookup.hpp#L393) | block | Embedded helpers (controls-adjacent utilities) | 2-D interpolating surface with smooth (Catmull-Rom spline) blending |
 | [`SplitReal`](inc/damp/math/split_real.hpp#L47) | block | Scalar math, complex & frames | A real number split into an exact integer part and a floating-point remainder |
-| [`sqrt`](inc/damp/matrix/functions.hpp#L980) | function | Linear algebra | Principal matrix square root by the real Schur method |
+| [`sqrt`](inc/damp/matrix/functions.hpp#L979) | function | Linear algebra | Principal matrix square root by the real Schur method |
 | [`sqrt`](inc/damp/math/complex.hpp#L337) | function | Scalar math, complex & frames | Compute complex square root (constexpr) (+1 more overload) |
 | [`sqrtm`](inc/damp/matlab.hpp#L694) | function | MATLAB®-style aliases (host) | MATLAB® short alias for the principal matrix square root (mat::sqrt) |
 | [`SR`](inc/damp/toolbox/iec61131.hpp#L61) | block | Embedded helpers (controls-adjacent utilities) | SR Latch (Set-dominant Set-Reset Latch) |
