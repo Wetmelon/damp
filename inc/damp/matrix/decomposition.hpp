@@ -405,18 +405,6 @@ template<typename T, size_t N, size_t M>
 struct [[nodiscard]] QRDecomposition {
     Matrix<N, M, T> Q{}; ///< Orthonormal columns (thin Q)
     Matrix<M, M, T> R{}; ///< Upper-triangular factor
-
-    /**
-     * @brief True if A had full column rank (no diagonal of R was zeroed as rank loss)
-     */
-    [[nodiscard]] constexpr bool full_rank() const {
-        for (size_t i = 0; i < M; ++i) {
-            if (R(i, i) == T{0}) {
-                return false;
-            }
-        }
-        return true;
-    }
 };
 
 /**
@@ -431,11 +419,16 @@ struct [[nodiscard]] QRDecomposition {
  * Each column of Q and row of R is then rotated by the phase of its diagonal entry, so R has
  * a real, non-negative diagonal (the convention Gram–Schmidt produces) and QR is unchanged.
  *
- * Rank loss is scale-invariant per column: when |R(j, j)|, the part of column j orthogonal to
- * the columns before it, is at most rel_tol times ‖A(:, j)‖, it is roundoff and R(j, j) is
- * stored as zero, which is what full_rank() reports. Q keeps an orthonormal column there, so
- * QR reconstructs A to within that dropped roundoff. Columns past N (M > N) have R(j, j) = 0
- * and a zero Q column.
+ * The roundoff test is scale-invariant per column: when |R(j, j)|, the part of column j
+ * orthogonal to the columns before it, is at most rel_tol times ‖A(:, j)‖, it is roundoff and
+ * R(j, j) is stored as zero, so a triangular solve on R refuses instead of dividing by it. Q keeps an
+ * orthonormal column there, so QR reconstructs A to within that dropped roundoff. Columns past
+ * N (M > N) have R(j, j) = 0 and a zero Q column.
+ *
+ * That zero is not a rank test. Without column pivoting each column is measured against the
+ * ones before it only, so a near-dependency can hide in the column order: for
+ * A = [a₀, a₀ + 10⁻⁴·a₂, a₂] with σ₃/σ₁ = 10⁻¹⁷ every |R(j, j)| clears its floor, while the same
+ * columns in the order [a₀, a₂, a₀ + 10⁻⁴·a₂] zero the last one. Decide rank with mat::rank.
  *
  * @note Compare with MATLAB®'s [Q,R] = qr(A, 0) (economy size).
  * @see Golub & Van Loan, "Matrix Computations" (4th ed., 2013), §5.1.6 (backward accumulation) and §5.2.2
@@ -445,7 +438,7 @@ struct [[nodiscard]] QRDecomposition {
  * @tparam N   Rows
  * @tparam M   Columns
  * @param A        Input matrix
- * @param rel_tol  Relative column-norm floor treated as rank loss (default N·64·eps)
+ * @param rel_tol  Relative column-norm floor below which R(j, j) is roundoff (default N·64·eps)
  * @return Thin QR factors
  */
 template<typename T, size_t N, size_t M>

@@ -155,6 +155,29 @@ damp::array<double, 2> trajectory_size(const Trajectory<N, NX, NU>& t) {
 
 constexpr double kEps = damp::eps<double>();
 
+/**
+ * Three columns of an orthogonal N × N reflector Q: b₀ = Q·e₀, b₂ = Q·e₁ and b₁ = Q·(e₀ + τ·e₁) =
+ * b₀ + τ·b₂ up to rounding, so σ₃/σ₁ is roundoff. In the order [b₀, b₁, b₂] every diagonal of an
+ * unpivoted QR clears its column's floor; in the order [b₀, b₂, b₁] the last one does not.
+ */
+template<size_t N>
+Matrix<N, 3> hidden_dependency(double tau, bool b1_last) {
+    const damp::array<double, 4> w{0.3, -0.5, 0.7, 0.4};
+    double                       ww = 0.0;
+    for (size_t i = 0; i < N; ++i) {
+        ww += w[i] * w[i];
+    }
+    Matrix<N, 3> B{};
+    for (size_t i = 0; i < N; ++i) {
+        const double q0 = ((i == 0) ? 1.0 : 0.0) - (2.0 * w[i] * w[0] / ww); // Q(i, 0)
+        const double q1 = ((i == 1) ? 1.0 : 0.0) - (2.0 * w[i] * w[1] / ww); // Q(i, 1)
+        B(i, 0) = q0;
+        B(i, b1_last ? 2 : 1) = q0 + (tau * q1);
+        B(i, b1_last ? 1 : 2) = q1;
+    }
+    return B;
+}
+
 constexpr auto kMimoInverse = design::output_inverse<3>(mimo_minimum_phase());
 static_assert(kMimoInverse.success);
 static_assert(kMimoInverse.relative_degree[0] == 1 && kMimoInverse.relative_degree[1] == 2);
@@ -208,6 +231,44 @@ TEST_SUITE("Model inverse: plant-inversion feedforward and the stable output inv
         auto continuous = mimo_minimum_phase();
         continuous.Ts = 0.0;
         CHECK(design::state_feedforward(continuous).status == design::DesignStatus::invalid_sample_time);
+    }
+
+    TEST_CASE_TEMPLATE("state_feedforward and output_inverse refuse a B whose dependency hides in the column order", T, float, double) {
+        // B = [b₀, b₀ + τ·b₂, b₂] has rank 2. The unpivoted QR kept every |R(j, j)| above its
+        // column's floor, and state_feedforward returned success with |B⁺| up to 2·10¹⁶; the
+        // same columns as [b₀, b₂, b₁] were refused. Both orders are refused by mat::rank now.
+        for (const double tau : {1e-4, 1e-6}) {
+            for (const bool b1_last : {false, true}) {
+                INFO("tau ", tau, ", b1 last ", b1_last);
+                const Matrix<4, 3, T>        B = hidden_dependency<4>(tau, b1_last).template as<T>();
+                const StateSpace<4, 3, 1, T> sys{
+                    .A = Matrix<4, 4, T>::identity() * T(0.9),
+                    .B = B,
+                    .C = Matrix<1, 4, T>{{T(1), T(0), T(0), T(0)}},
+                    .Ts = T(0.1),
+                };
+                const auto ff = design::state_feedforward(sys);
+                CHECK_FALSE(ff.success);
+                CHECK(ff.status == design::DesignStatus::singular);
+
+                // The decoupling matrix of y = x, three outputs of relative degree 1, is B itself.
+                const StateSpace<3, 3, 3, T> square{
+                    .A = Matrix<3, 3, T>::identity() * T(0.5),
+                    .B = hidden_dependency<3>(tau, b1_last).template as<T>(),
+                    .C = Matrix<3, 3, T>::identity(),
+                    .Ts = T(0.1),
+                };
+                CHECK(design::output_inverse<3>(square).status == design::DesignStatus::singular);
+            }
+        }
+        // Columns of different sizes are not a dependency.
+        const StateSpace<4, 3, 1, T> scaled{
+            .A = Matrix<4, 4, T>::identity() * T(0.9),
+            .B = Matrix<4, 3, T>{{T(1), T(0), T(0)}, {T(0), T(1e-3), T(0)}, {T(0), T(0), T(1e3)}, {T(0), T(0), T(0)}},
+            .C = Matrix<1, 4, T>{{T(1), T(0), T(0), T(0)}},
+            .Ts = T(0.1),
+        };
+        CHECK(design::state_feedforward(scaled).success);
     }
 
     TEST_CASE("output_inverse recovers x and u of a minimum-phase MIMO model, vector relative degree (1, 2)") {

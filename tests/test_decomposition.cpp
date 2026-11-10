@@ -918,6 +918,21 @@ TEST_SUITE("scale-invariant singularity and symmetry") {
     }
 }
 
+namespace {
+
+/// No diagonal of R was stored as zero, the mark qr_decompose leaves on a column it drops as roundoff.
+template<typename T, size_t N, size_t M>
+bool no_column_dropped(const QRDecomposition<T, N, M>& qr) {
+    for (size_t j = 0; j < M; ++j) {
+        if (qr.R(j, j) == T{0}) {
+            return false;
+        }
+    }
+    return true;
+}
+
+} // namespace
+
 TEST_SUITE("rank, two_norm and QR are scale-invariant") {
     TEST_CASE("rank uses relative SVD threshold at any scale") {
         for (const double s : {1e-20, 1.0, 1e20}) {
@@ -938,7 +953,7 @@ TEST_SUITE("rank, two_norm and QR are scale-invariant") {
         for (const T s : {T(1e-20), T(1e20)}) {
             const Matrix<3, 2, T> A = Matrix<3, 2, T>{{T(1), T(2)}, {T(3), T(4)}, {T(5), T(6)}} * s;
             const auto            q = qr_decompose(A);
-            CHECK(q.full_rank());
+            CHECK(no_column_dropped(q));
             const Matrix<3, 2, T> QR = q.Q * q.R;
             CHECK(Matrix<3, 2, T>(QR - A).norm() <= T(64) * eps<T>() * A.norm());
             const auto f = full_qr(A);
@@ -949,15 +964,15 @@ TEST_SUITE("rank, two_norm and QR are scale-invariant") {
         }
         const Matrix<3, 2, T> mixed{{T(1), T(0)}, {T(0), T(1e-20)}, {T(0), T(1e-20)}};
         const auto            qm = qr_decompose(mixed);
-        CHECK(qm.full_rank());
+        CHECK(no_column_dropped(qm));
         CHECK(Matrix<3, 2, T>((qm.Q * qm.R) - mixed).norm() <= T(64) * eps<T>() * T(1e-20));
     }
 
-    TEST_CASE("qr_decompose rank loss is relative to each column") {
+    TEST_CASE("qr_decompose drops a column as roundoff relative to its own norm") {
         const Matrix<3, 2> tiny{{1e-14, 2e-14}, {0.0, 1e-14}, {0.0, 0.0}};
-        CHECK(qr_decompose(tiny).full_rank());
+        CHECK(no_column_dropped(qr_decompose(tiny)));
         const Matrix<3, 2> dep{{1.0, 2.0}, {1.0, 2.0}, {1.0, 2.0}};
-        CHECK_FALSE(qr_decompose(dep).full_rank());
+        CHECK(qr_decompose(dep).R(1, 1) == 0.0);
     }
 }
 
@@ -1006,7 +1021,7 @@ TEST_SUITE("qr_decompose orthogonality") {
         constexpr double   delta = 1e-7;
         const Matrix<4, 3> L{{1.0, 1.0, 1.0}, {delta, 0.0, 0.0}, {0.0, delta, 0.0}, {0.0, 0.0, delta}};
         const auto         qr = qr_decompose(L);
-        REQUIRE(qr.full_rank());
+        REQUIRE(no_column_dropped(qr));
         CHECK(orthogonality_loss(qr.Q) <= 16.0 * damp::eps<double>());
         check_factors(L, qr);
     }
@@ -1021,7 +1036,7 @@ TEST_SUITE("qr_decompose orthogonality") {
             {C(0.0, 0.0), C(0.0, 0.0), C(0.0, -delta)},
         };
         const auto qr = qr_decompose(L);
-        REQUIRE(qr.full_rank());
+        REQUIRE(no_column_dropped(qr));
         CHECK(orthogonality_loss(qr.Q) <= 16.0 * damp::eps<double>());
         check_factors(L, qr);
     }
@@ -1031,7 +1046,6 @@ TEST_SUITE("qr_decompose orthogonality") {
     TEST_CASE("rank-deficient input keeps Q orthonormal") {
         const Matrix<3, 2> dep{{1.0, 2.0}, {1.0, 2.0}, {1.0, 2.0}};
         const auto         qr = qr_decompose(dep);
-        CHECK_FALSE(qr.full_rank());
         CHECK(qr.R(1, 1) == 0.0);
         CHECK(orthogonality_loss(qr.Q) <= 16.0 * damp::eps<double>());
         check_factors(dep, qr);
@@ -1041,7 +1055,6 @@ TEST_SUITE("qr_decompose orthogonality") {
     TEST_CASE("a wide matrix factors with zero trailing columns of Q") {
         const Matrix<2, 3> W{{3.0, 1.0, 2.0}, {4.0, -1.0, 5.0}};
         const auto         qr = qr_decompose(W);
-        CHECK_FALSE(qr.full_rank());
         CHECK(qr.R(0, 0) == doctest::Approx(5.0));
         CHECK(qr.R(2, 2) == 0.0);
         CHECK(qr.Q(0, 2) == 0.0);

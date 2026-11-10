@@ -571,7 +571,9 @@ void check_qr() {
     const double ne = static_cast<double>(R) * eps_of<T>();
     const auto   A = load<R, K, T>(C::A);
     const auto   qr = mat::qr_decompose(A);
-    CHECK(qr.full_rank());
+    for (size_t j = 0; j < K; ++j) {
+        CHECK(qr.R(j, j) != T{0}); // no column dropped as roundoff
+    }
     const Matrix<R, K> Q = dbl(qr.Q);
     const Matrix<K, K> Rm = dbl(qr.R);
     const auto         di = recip(C::units);

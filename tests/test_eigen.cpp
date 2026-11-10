@@ -351,7 +351,9 @@ TEST_CASE("qr_decompose reconstructs A and Q is orthonormal") {
             {-4.0, 24.0, -41.0},
         };
         auto qr = qr_decompose(A);
-        REQUIRE(qr.full_rank());
+        for (size_t j = 0; j < 3; ++j) {
+            REQUIRE(qr.R(j, j) != 0.0); // no column dropped as roundoff
+        }
 
         // Q * R == A
         CHECK(max_abs_diff(qr.Q * qr.R, A) < 1e-9);
@@ -374,7 +376,8 @@ TEST_CASE("qr_decompose reconstructs A and Q is orthonormal") {
             {7.0, 9.0},
         };
         auto qr = qr_decompose(A);
-        REQUIRE(qr.full_rank());
+        REQUIRE(qr.R(0, 0) != 0.0);
+        REQUIRE(qr.R(1, 1) != 0.0);
         CHECK(max_abs_diff(qr.Q * qr.R, A) < 1e-9);
         // Columns of Q orthonormal: QᵀQ == I_2
         Matrix<2, 2> QtQ = qr.Q.transpose() * qr.Q;

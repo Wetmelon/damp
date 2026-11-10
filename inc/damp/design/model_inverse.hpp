@@ -85,6 +85,10 @@ struct [[nodiscard]] StateFeedforwardResult {
  * Refused with DesignStatus::invalid_sample_time for a continuous model (Ts = 0), with
  * DesignStatus::bad_weights when an entry of A or B is not finite, and with
  * DesignStatus::singular when B does not have full column rank (two inputs that act alike).
+ * Rank is read from B's singular values (mat::rank), which do not depend on the order of the
+ * inputs. The diagonal of an unpivoted QR does: for B = [b₀, b₀ + 10⁻⁴·b₂, b₂] with
+ * σ₃/σ₁ = 10⁻¹⁷ every |R(j, j)| clears its column's floor and B⁺ has entries of 2·10¹⁶, while
+ * the same columns in the order [b₀, b₂, b₀ + 10⁻⁴·b₂] lose the last one.
  *
  * @see "Matrix Computations" (Golub & Van Loan, 2013), §5.3 (the full-rank least-squares problem)
  * @see "Computer-Controlled Systems" (Åström & Wittenmark, 1997): feedforward from the inverse of the process model
@@ -103,10 +107,10 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
     if (!mat::all_of(sys.A, finite) || !mat::all_of(sys.B, finite)) {
         return ::damp::detail::refused<Result>(DesignStatus::bad_weights);
     }
-    const auto qr = mat::qr_decompose(sys.B);
-    if (!qr.full_rank()) {
+    if (mat::rank(sys.B) < NU) {
         return ::damp::detail::refused<Result>(DesignStatus::singular); // B loses rank: an input does nothing the others cannot
     }
+    const auto qr = mat::qr_decompose(sys.B);
     const auto B_pinv = mat::solve(qr.R.upper_triangle(), Matrix<NU, NX, T>(qr.Q.transpose()));
     if (!B_pinv) {
         return ::damp::detail::refused<Result>(DesignStatus::singular);
@@ -222,8 +226,8 @@ struct Decoupling {
  * A Markov row m = Cᵢ·A^(j−1)·B counts as zero when every entry is within 16(j + 1)·n·ε of the
  * same product taken in absolute values, |Cᵢ|·|A|^(j−1)·|B|. That bound does not change when
  * the states are rescaled, so the relative degree does not depend on their units. An output no
- * input reaches within n samples is refused, and so is a decoupling matrix that loses rank once
- * its rows are scaled to unit size.
+ * input reaches within n samples is refused, and so is a decoupling matrix that loses rank
+ * (mat::rank) once its rows are scaled to unit size.
  */
 template<size_t NX, size_t NU, typename T>
 [[nodiscard]] constexpr Decoupling<NX, NU, T> decoupling(
@@ -279,7 +283,7 @@ template<size_t NX, size_t NU, typename T>
             unit_rows(i, c) = out.D(i, c) / peak;
         }
     }
-    if (mat::qr_decompose(unit_rows).full_rank()) {
+    if (mat::rank(unit_rows) == NU) { // singular values: an unpivoted QR's verdict depends on the column order
         out.status = DesignStatus::ok;
     }
     return out;
