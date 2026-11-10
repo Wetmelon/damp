@@ -1,0 +1,36 @@
+{
+  "$schema": "https://raw.githubusercontent.com/platformio/platformio-core/develop/platformio/assets/schema/library.json",
+  "name": "damp",
+  "version": "0.2.0",
+  "description": "Header-only C++20 control library: LQR, LQI, LQG, MPC, Kalman and PID designed at compile time or init, run as stack-only fixed-size ticks on an MCU, and closed in SIL with the same objects.",
+  "keywords": ["control", "lqr", "lqg", "mpc", "kalman", "pid", "state-space", "constexpr", "embedded", "dsp"],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Wetmelon/damp.git"
+  },
+  "homepage": "https://github.com/Wetmelon/damp",
+  "authors": [
+    {
+      "name": "Paul Guénette",
+      "maintainer": true
+    }
+  ],
+  "license": "BSL-1.0",
+  "frameworks": "*",
+  "platforms": "*",
+  "headers": "damp/control.hpp",
+  "build": {
+    "includeDir": "inc",
+    "srcDir": "inc"
+  },
+  "export": {
+    "include": [
+      "inc",
+      "docs",
+      "LICENSE",
+      "README.md",
+      "CHANGELOG.md",
+      "THIRD_PARTY_NOTICES.md"
+    ]
+  }
+}

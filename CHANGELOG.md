@@ -7,6 +7,12 @@ and this project uses [Semantic Versioning](https://semver.org/) for tags.
 0.x releases may break API without a deprecation cycle (see [AGENTS.md](AGENTS.md)
 and [known limitations](docs/known_limitations.md)).
 
+## [Unreleased]
+
+### Added
+
+- `library.json`: Damp on the PlatformIO registry, `lib_deps = wetmelon/damp`. The package is `inc/`, `docs/` and the license files; 0.2.0 there is the v0.2.0 headers.
+
 ## [0.2.0] — 2026-11-09
 
 One runtime and one set of tick verbs for every LQ and MPC design, input and
