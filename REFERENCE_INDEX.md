@@ -279,8 +279,8 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`FrfFeatureResult`](inc/damp/estimation/frequency_response.hpp#L518) | block | Observers & estimators | Combined peak + valley reduction of an FRF table |
 | [`FrfMargins`](inc/damp/estimation/frequency_response.hpp#L553) | block | Observers & estimators | Open-loop margins read from a discrete FRF table (on-target) |
 | [`FrfPoint`](inc/damp/estimation/frequency_response.hpp#L55) | block | Observers & estimators | One measured frequency-response point (on-target FRF table entry) |
-| [`full_qr`](inc/damp/matrix/decomposition.hpp#L534) | function | Linear algebra | Full QR factorization via Householder reflections (real or complex T) |
-| [`FullQR`](inc/damp/matrix/decomposition.hpp#L516) | block | Linear algebra | Result of a full (complete) QR factorization |
+| [`full_qr`](inc/damp/matrix/decomposition.hpp#L807) | function | Linear algebra | Full QR factorization via Householder reflections (real or complex T) |
+| [`FullQR`](inc/damp/matrix/decomposition.hpp#L789) | block | Linear algebra | Result of a full (complete) QR factorization |
 | [`gain_margin_unwrapped`](inc/damp/analysis/frequency.hpp#L211) | function | Frequency-domain analysis (host) | Find the gain margin using the unwrapped phase trajectory |
 | [`gang_of_four`](inc/damp/analysis/sensitivity.hpp#L207) | function | Frequency-domain analysis (host) | Gang of four of a plant P and a controller C on the error, u = C(r − y) |
 | [`gang_of_seven`](inc/damp/analysis/sensitivity.hpp#L150) | function | Frequency-domain analysis (host) | Gang of seven of a plant and a two-degree-of-freedom controller u = K[r; y] |
@@ -354,7 +354,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`InteriorPointSolver`](inc/damp/design/qp.hpp#L1442) | block | Design-time synthesis (not PWM-rate) | Interior-point QP solver policy for damp::MPC |
 | [`Interpolation`](inc/damp/toolbox/lookup.hpp#L41) | enum | Embedded helpers (controls-adjacent utilities) | In-range interpolant for Lut1D (2-D stays bilinear; use SplineSurface for C¹ grids) |
 | [`InvariantSetResult`](inc/damp/design/invariant_set.hpp#L39) | block | Design-time synthesis (not PWM-rate) | Maximal positively invariant polytope G e ≤ h of x⁺ = A x |
-| [`inverse`](inc/damp/matrix/solve.hpp#L301) | function | Linear algebra | Matrix inverse A⁻¹ via mat::solve(A, I) |
+| [`inverse`](inc/damp/matrix/solve.hpp#L315) | function | Linear algebra | Matrix inverse A⁻¹ via mat::solve(A, I) |
 | [`inverse_clarke_transform`](inc/damp/math/transforms.hpp#L307) | function | Scalar math, complex & frames | Inverse Clarke transform (αβ → abc) |
 | [`inverse_deadband`](inc/damp/toolbox/conditioning.hpp#L79) | function | Embedded helpers (controls-adjacent utilities) | Inverse dead zone: add an offset to overcome a physical dead zone (valve overlap, static friction, motor stiction), with independent negative/positive offsets (+1 more overload) |
 | [`inverse_deadband_sine`](inc/damp/toolbox/conditioning.hpp#L162) | function | Embedded helpers (controls-adjacent utilities) | Sine-shaped inverse dead zone (full boost once \|x\|≥w) |
@@ -395,9 +395,9 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`Law`](inc/damp/design/model_inverse.hpp#L954) | block | Design-time synthesis (not PWM-rate) | Law<kRes, T> of a `constexpr` model inverse: the same runtime on the design's matrices as constants of the type (+1 more overload) |
 | [`Law`](inc/damp/estimation/eso.hpp#L460) | block | Observers & estimators | Law<kRes, T> of a design::eso initialized at start-up: the ESO it runs as. A runtime of the same shape assigned replaces it (+5 more overloads) |
 | [`Law`](inc/damp/controllers/law_detail.hpp#L232) | block | Runtime controllers | The runtime a design result deploys as, named by the result: `Law<kRes, float> law;` (+6 more overloads) |
-| [`LDLT`](inc/damp/matrix/decomposition.hpp#L168) | block | Linear algebra | LDLᴴ factors: A = L D Lᴴ with L unit lower-triangular and D real diagonal |
-| [`ldlt`](inc/damp/matrix/decomposition.hpp#L196) | function | Linear algebra | LDLᴴ decomposition of a symmetric (Hermitian) matrix, no pivoting |
-| [`ldlt_solve`](inc/damp/matrix/solve.hpp#L192) | function | Linear algebra | Solve AX = B via LDLᴴ (A = L D Lᴴ, symmetric indefinite) |
+| [`LDLT`](inc/damp/matrix/decomposition.hpp#L175) | block | Linear algebra | LDLᴴ factors with symmetric pivoting: P·A·Pᵀ = L·D·Lᴴ, D block diagonal with 1×1 and 2×2 blocks |
+| [`ldlt`](inc/damp/matrix/decomposition.hpp#L482) | function | Linear algebra | Symmetric indefinite LDLᴴ with rook pivoting: P·A·Pᵀ = L·D·Lᴴ, D block diagonal (1×1 and 2×2) |
+| [`ldlt_solve`](inc/damp/matrix/solve.hpp#L193) | function | Linear algebra | Solve AX = B via pivoted LDLᴴ (P·A·Pᵀ = L·D·Lᴴ, symmetric indefinite) |
 | [`lead`](inc/damp/controllers/lead_lag.hpp#L143) | function | Design-time synthesis (not PWM-rate) | Design a lead compensator from desired phase boost at a target frequency |
 | [`lead_lag`](inc/damp/controllers/lead_lag.hpp#L257) | function | Design-time synthesis (not PWM-rate) | Design a lead-lag compensator (cascade of lead + lag sections) |
 | [`lead_lag_direct`](inc/damp/controllers/lead_lag.hpp#L292) | function | Design-time synthesis (not PWM-rate) | Direct lead-lag specification from zero/pole locations |
@@ -467,8 +467,8 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`lsiminfo`](inc/damp/analysis/time_response.hpp#L533) | function | Frequency-domain analysis (host) | Compute transient characteristics from an output/time signal |
 | [`lsimplot`](inc/damp/simulation/plot_plotly.hpp#L751) | function | Simulation / SIL harness (host) | Plot a forced (lsim) simulation, one trace per output |
 | [`LsimResult`](inc/damp/analysis/time_response.hpp#L66) | block | Frequency-domain analysis (host) | Result of a single-trajectory simulation: time, output, and state history |
-| [`lu_decomposition`](inc/damp/matrix/decomposition.hpp#L260) | function | Linear algebra | LU decomposition with partial pivoting |
-| [`lu_solve`](inc/damp/matrix/solve.hpp#L223) | function | Linear algebra | Solve AX = B via LU with partial pivoting |
+| [`lu_decomposition`](inc/damp/matrix/decomposition.hpp#L533) | function | Linear algebra | LU decomposition with partial pivoting |
+| [`lu_solve`](inc/damp/matrix/solve.hpp#L237) | function | Linear algebra | Solve AX = B via LU with partial pivoting |
 | [`Lut1D`](inc/damp/toolbox/lookup.hpp#L108) | block | Embedded helpers (controls-adjacent utilities) | 1-D interpolating lookup table over monotonic breakpoints |
 | [`Lut2D`](inc/damp/toolbox/lookup.hpp#L200) | block | Embedded helpers (controls-adjacent utilities) | 2-D bilinear interpolating lookup table over a regular grid |
 | [`Lut3D`](inc/damp/toolbox/lookup.hpp#L274) | block | Embedded helpers (controls-adjacent utilities) | 3-D trilinear interpolating lookup table over a regular grid |
@@ -669,8 +669,8 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`pzplot`](inc/damp/simulation/plot_plotly.hpp#L850) | function | Simulation / SIL harness (host) | Plot a pole-zero map on the complex plane (poles as ×, zeros as ○) |
 | [`QPResult`](inc/damp/design/qp.hpp#L80) | block | Design-time synthesis (not PWM-rate) | Result of a dense QP solve |
 | [`QPStatus`](inc/damp/design/qp.hpp#L47) | enum | Design-time synthesis (not PWM-rate) | Termination status of a QP solve |
-| [`qr_decompose`](inc/damp/matrix/decomposition.hpp#L445) | function | Linear algebra | Thin QR via Householder reflections |
-| [`QRDecomposition`](inc/damp/matrix/decomposition.hpp#L405) | block | Linear algebra | Thin QR factorization A = QR (Householder) |
+| [`qr_decompose`](inc/damp/matrix/decomposition.hpp#L718) | function | Linear algebra | Thin QR via Householder reflections |
+| [`QRDecomposition`](inc/damp/matrix/decomposition.hpp#L678) | block | Linear algebra | Thin QR factorization A = QR (Householder) |
 | [`QuadMode`](inc/damp/encoder/quadrature.hpp#L45) | enum | Embedded helpers (controls-adjacent utilities) | Quadrature decode resolution (edges counted per A/B cycle) |
 | [`quadprog`](inc/damp/matlab.hpp#L1453) | function | MATLAB®-style aliases (host) | MATLAB® alias for the dense inequality-constrained QP solve (+1 more overload) |
 | [`quadratic_form`](inc/damp/matrix/core.hpp#L1375) | function | Linear algebra | Symmetric congruence (quadratic) form  S = M X Mᵀ (+1 more overload) |
@@ -790,7 +790,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`sogi`](inc/damp/filters/sogi.hpp#L69) | function | Filters & signal conditioning | Second-Order Generalized Integrator (SOGI) design (+1 more overload) |
 | [`SOGI`](inc/damp/filters/sogi.hpp#L226) | block | Filters & signal conditioning | Runtime SOGI quadrature-signal generator (live-frequency resonator) |
 | [`SogiFll`](inc/damp/filters/sogi.hpp#L396) | block | Filters & signal conditioning | SOGI with a Frequency-Locked Loop — self-tuning single-tone tracker |
-| [`solve`](inc/damp/matrix/solve.hpp#L273) | function | Linear algebra | Solve AX = B — Cholesky when Hermitian, else LU (+2 more overloads) |
+| [`solve`](inc/damp/matrix/solve.hpp#L287) | function | Linear algebra | Solve AX = B — Cholesky when Hermitian, else LU (+2 more overloads) |
 | [`solve_miqp`](inc/damp/design/qp.hpp#L1495) | function | Design-time synthesis (not PWM-rate) | Mixed-integer QP by branch and bound over the active-set relaxation |
 | [`solve_qp`](inc/damp/design/qp.hpp#L606) | function | Design-time synthesis (not PWM-rate) | Solve a strictly convex inequality-constrained QP (dual active-set) (+1 more overload) |
 | [`solve_qp_admm`](inc/damp/design/qp.hpp#L1170) | function | Design-time synthesis (not PWM-rate) | One-shot ADMM QP solve (cold start) |

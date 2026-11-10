@@ -80,7 +80,8 @@ using namespace damp;
 // The later families compare only what is unique: reconstructions and residuals
 // (backward errors, in the units of the bound the algorithm meets), orthogonality,
 // |det|, singular values, eigenvalues matched to the reference, the triangular
-// factors fixed by a sign convention (R with diag ≥ 0, Cholesky L, unpivoted LDLᵀ),
+// factors fixed by a sign convention or by uniqueness (R with diag ≥ 0, Cholesky L, and
+// LDLᵀ where ldlt() takes no pivot, since the unpivoted factors are unique),
 // polynomial coefficients, Markov parameters for tf2ss (any realization) and
 // closed-loop eigenvalues for place (K is not unique for several inputs). A root of
 // multiplicity m (a Jordan block of size m) moves as the m-th root of the
@@ -644,6 +645,69 @@ void check_cholesky_fails() {
     CHECK_FALSE(mat::cholesky_solve(A, b).has_value());
 }
 
+/// ldlt()'s factors in double and in natural units: P·A₀·Pᵀ = L₀·D₀·L₀ᵀ, with A₀ = D⁻¹AD⁻¹ and
+/// the units permuted along, Dₚ = P·D·Pᵀ, L₀ = Dₚ⁻¹LDₚ, D₀ = Dₚ⁻¹DDₚ⁻¹.
+template<size_t N>
+struct LdltNatural {
+    Matrix<N, N> PA0{};            ///< P·A₀·Pᵀ
+    Matrix<N, N> L0{};             ///< L₀
+    Matrix<N, N> D0{};             ///< D₀, block diagonal
+    double       growth = 0.0;     ///< ‖|L₀||D₀||L₀ᵀ|‖
+    size_t       neg = 0;          ///< Negative eigenvalues of D, which A shares (Sylvester)
+    bool         shape = true;     ///< L unit lower with |lᵢⱼ| ≤ 1/(1 − α), perm a permutation, D's blocks disjoint
+    bool         unpivoted = true; ///< P = I and D diagonal: the unpivoted LDLᵀ
+};
+
+template<size_t N, typename T>
+LdltNatural<N> ldlt_natural(const Matrix<N, N, T>& A, const mat::LDLT<N, T>& f, const std::array<double, N>& units) {
+    using MD = Matrix<N, N>;
+    LdltNatural<N>        out{};
+    std::array<double, N> dp{};
+    std::array<bool, N>   seen{};
+    for (size_t i = 0; i < N; ++i) {
+        const size_t p = f.perm[i] < N ? f.perm[i] : 0;
+        out.shape = out.shape && f.perm[i] < N && !seen[p];
+        seen[p] = true;
+        dp[i] = units[p];
+        out.unpivoted = out.unpivoted && p == i && f.e[i] == T{0};
+    }
+    const auto dpi = recip(dp);
+    const MD   Ad = dbl(A);
+    MD         D = MD::zeros();
+    for (size_t i = 0; i < N; ++i) {
+        for (size_t j = 0; j < N; ++j) {
+            out.PA0(i, j) = Ad(f.perm[i] < N ? f.perm[i] : 0, f.perm[j] < N ? f.perm[j] : 0) * dpi[i] * dpi[j];
+            const double l = static_cast<double>(f.L(i, j));
+            out.shape = out.shape && (j < i ? damp::abs(l) <= (1.0 + (16.0 * eps_of<T>())) / (1.0 - 0.6403882032022076) : l == (i == j ? 1.0 : 0.0));
+        }
+    }
+    out.shape = out.shape && f.e[N - 1] == T{0};
+    for (size_t i = 0; i < N; ++i) {
+        D(i, i) = static_cast<double>(f.d[i]);
+        if (i + 1 < N && f.e[i] != T{0}) {
+            // A 2×2 block [[a, w], [w, c]]: one eigenvalue of each sign when det < 0
+            const double a = D(i, i);
+            const double c = static_cast<double>(f.d[i + 1]);
+            const double w = static_cast<double>(f.e[i]);
+            D(i + 1, i + 1) = c;
+            D(i + 1, i) = D(i, i + 1) = w;
+            out.neg += ((a * c) - (w * w) < 0.0) ? 1U : ((a + c < 0.0) ? 2U : 0U);
+            out.shape = out.shape && f.e[i + 1] == T{0};
+            ++i;
+        } else {
+            out.neg += (f.d[i] < 0) ? 1U : 0U;
+        }
+    }
+    out.L0 = scale(dpi, dbl(f.L), dp);
+    out.D0 = scale(dpi, D, dpi);
+    out.growth = MD(abs_of(out.L0) * abs_of(out.D0) * abs_of(out.L0).t()).norm();
+    return out;
+}
+
+// Pivoted LDLᵀ is backward stable relative to |L||D||Lᵀ| (Higham 2002, §11.1), and the rook pivot
+// bounds |L| by 1/(1 − α) (Ashcraft, Grimes & Lewis 1998). The stored L and d are the unpivoted
+// factors, unique where they exist: compared only when ldlt() takes no pivot. The solve's forward
+// error is bounded through max κ₂ of the leading blocks, which includes κ₂(A₀) itself.
 template<typename C, typename T>
 void check_ldlt() {
     constexpr size_t N = C::n;
@@ -658,30 +722,18 @@ void check_ldlt() {
     }
     const auto d = C::units;
     const auto di = recip(d);
-    // Natural units A₀ = D⁻¹AD⁻¹: L₀ = D⁻¹LD, d₀ = d / D².
-    const MD A0 = scale(di, dbl(A), di);
-    const MD L0 = scale(di, dbl(f->L), d);
-    MD       D0 = MD::zeros();
-    size_t   neg = 0;
-    bool     unit_lower = true;
-    for (size_t i = 0; i < N; ++i) {
-        D0(i, i) = static_cast<double>(f->d[i]) * di[i] * di[i];
-        neg += (f->d[i] < 0) ? 1U : 0U;
-        for (size_t j = i; j < N; ++j) {
-            unit_lower = unit_lower && f->L(i, j) == (i == j ? T{1} : T{0});
+    const auto nat = ldlt_natural(A, *f, d);
+    CHECK(nat.shape);
+    CHECK(nat.neg == C::neg);
+    check_within("ldlt ‖LDLᵀ − PAPᵀ‖ / ‖|L||D||Lᵀ|‖", MD(nat.L0 * nat.D0 * nat.L0.t() - nat.PA0).norm(), ne * nat.growth, C_FACTOR);
+    const double cond = damp::max(1.0, C::kappa) * nat.growth / nat.PA0.norm();
+    if (nat.unpivoted) {
+        const MD Lref0 = scale(di, load<N, N, double>(C::L), d);
+        check_within("ldlt L forward error", rel_diff(nat.L0, Lref0), ne * cond, C_FWD);
+        for (size_t i = 0; i < N; ++i) {
+            const double ref = C::d[i] * di[i] * di[i];
+            check_within("ldlt d forward error", damp::abs(nat.D0(i, i) - ref) / damp::abs(ref), ne * cond, C_FWD);
         }
-    }
-    CHECK(unit_lower);
-    CHECK(neg == C::neg);
-    // Unpivoted LDLᵀ is backward stable relative to |L||D||Lᵀ| (Higham 2002, §11.1).
-    const double growth = MD(abs_of(L0) * abs_of(D0) * abs_of(L0).t()).norm();
-    check_within("ldlt ‖LDLᵀ − A‖ / ‖|L||D||Lᵀ|‖", MD(L0 * D0 * L0.t() - A0).norm(), ne * growth, C_FACTOR);
-    const double cond = damp::max(1.0, C::kappa) * growth / A0.norm();
-    const MD     Lref0 = scale(di, load<N, N, double>(C::L), d);
-    check_within("ldlt L forward error", rel_diff(L0, Lref0), ne * cond, C_FWD);
-    for (size_t i = 0; i < N; ++i) {
-        const double ref = C::d[i] * di[i] * di[i];
-        check_within("ldlt d forward error", damp::abs(D0(i, i) - ref) / damp::abs(ref), ne * cond, C_FWD);
     }
 
     const auto x = mat::ldlt_solve(A, load<N, 1, T>(C::b));
@@ -691,16 +743,43 @@ void check_ldlt() {
     }
     const Matrix<N, 1> xd = dbl(x.value());
     const Matrix<N, 1> b = dbl(load<N, 1, T>(C::b));
-    const double       den = (growth * scale(d, xd, ones<1>()).norm()) + scale(di, b, ones<1>()).norm();
+    const double       den = (nat.growth * scale(d, xd, ones<1>()).norm()) + scale(di, b, ones<1>()).norm();
     check_within("ldlt_solve residual, natural units", scale(di, Matrix<N, 1>(dbl(A) * xd - b), ones<1>()).norm(), ne * den, C_FACTOR);
     const auto xr = load<N, 1, double>(C::x);
     check_within("ldlt_solve forward error, natural units", rel_diff(scale(d, xd, ones<1>()), scale(d, xr, ones<1>())), ne * cond, C_FWD);
 }
 
+// ldlt_fail_cases are nonsingular matrices with a vanishing leading minor ([[0, 1], [1, 0]] and
+// one whose leading 2×2 block is singular), the ones unpivoted LDLᵀ refused: the pivoted ldlt()
+// must take a pivot or a 2×2 block, and factor and solve them backward stably.
 template<typename C, typename T>
-void check_ldlt_fails() {
+void check_ldlt_vanishing_minor() {
+    constexpr size_t N = C::n;
+    using MD = Matrix<N, N>;
     INFO(doctest::String(C::name), " (", doctest::String(type_name<T>()), ")");
-    CHECK_FALSE(mat::ldlt(load<C::n, C::n, T>(C::A)).has_value());
+    const double ne = static_cast<double>(N) * eps_of<T>();
+    const auto   A = load<N, N, T>(C::A);
+    const auto   f = mat::ldlt(A);
+    CHECK(f.has_value());
+    if (!f) {
+        return;
+    }
+    const auto nat = ldlt_natural(A, *f, ones<N>());
+    CHECK(nat.shape);
+    CHECK_FALSE(nat.unpivoted);
+    check_within("ldlt ‖LDLᵀ − PAPᵀ‖ / ‖|L||D||Lᵀ|‖", MD(nat.L0 * nat.D0 * nat.L0.t() - nat.PA0).norm(), ne * nat.growth, C_FACTOR);
+    Matrix<N, 1, T> bt{};
+    for (size_t i = 0; i < N; ++i) {
+        bt(i, 0) = T{1};
+    }
+    const auto x = mat::ldlt_solve(A, bt);
+    CHECK(x.has_value());
+    if (!x) {
+        return;
+    }
+    const Matrix<N, 1> xd = dbl(x.value());
+    const Matrix<N, 1> b = dbl(bt);
+    check_within("ldlt_solve residual", Matrix<N, 1>(dbl(A) * xd - b).norm(), ne * ((nat.growth * xd.norm()) + b.norm()), C_FACTOR);
 }
 
 template<typename C, typename T>

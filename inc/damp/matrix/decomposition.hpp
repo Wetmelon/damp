@@ -7,7 +7,7 @@
 
 /**
  * @file decomposition.hpp
- * @brief Matrix factorizations: Cholesky, LDLᵀ, LU (partial pivoting), and thin
+ * @brief Matrix factorizations: Cholesky, LDLᵀ (rook pivoting), LU (partial pivoting), and thin
  *        and full QR (Householder), plus the symmetry/Hermitian predicate used to
  *        choose between them. Linear-system solvers built on these live in
  *        solve.hpp; the eigensolver in eigen.hpp.
@@ -163,70 +163,343 @@ constexpr damp::optional<Matrix<N, N, T>> cholesky(const Matrix<N, N, T>& A) {
     return L;
 }
 
-/** @brief LDLᴴ factors: A = L D Lᴴ with L unit lower-triangular and D real diagonal. */
+/**
+ * @brief LDLᴴ factors with symmetric pivoting: P·A·Pᵀ = L·D·Lᴴ, D block diagonal with 1×1 and 2×2 blocks
+ *
+ * D is Hermitian with real diagonal d. A 2×2 block on rows k, k+1 keeps its off-diagonal
+ * D(k+1, k) in e[k], the block's largest entry in magnitude and never zero; every other
+ * entry of e is zero. (P·A·Pᵀ)(i, j) = A(perm[i], perm[j]), the convention of
+ * lu_decomposition()'s pivot vector.
+ */
 template<size_t N, typename T>
 struct [[nodiscard]] LDLT {
-    Matrix<N, N, T>                  L{}; ///< Unit lower-triangular factor
-    damp::array<scalar_type_t<T>, N> d{}; ///< Diagonal of D (real; may carry negative entries)
+    Matrix<N, N, T>                  L{};    ///< Unit lower-triangular factor, |lᵢⱼ| ≤ 1/(1 − α) ≈ 2.78
+    damp::array<scalar_type_t<T>, N> d{};    ///< Diagonal of D (real)
+    damp::array<T, N>                e{};    ///< Subdiagonal of D: e[k] = D(k+1, k), nonzero only on the first row of a 2×2 block
+    damp::array<size_t, N>           perm{}; ///< Row i of P·A·Pᵀ is row perm[i] of A
+};
+
+namespace detail {
+
+/** @brief Bunch and Kaufman's α = (1 + √17)/8, which equalizes the growth bounds of a 1×1 and a 2×2 step. */
+template<typename R>
+inline constexpr R ldlt_alpha = static_cast<R>(0.64038820320220756872767623199676);
+
+/** @brief Real part of a diagonal entry (the entry itself for real T). */
+template<typename T>
+[[nodiscard]] constexpr scalar_type_t<T> real_entry(const T& x) {
+    if constexpr (damp::is_floating_point_v<T>) {
+        return x;
+    } else {
+        return damp::real(x);
+    }
+}
+
+/**
+ * @brief A 2×2 block E = [[a, w̄], [w, c]] of ldlt()'s D, with |a|, |c| < α|w|, solved scaled by |w|
+ *
+ * With â = a/|w| and ĉ = c/|w|, det E = |w|²·(âĉ − 1) and |âĉ| < α² ≈ 0.41, so δ = âĉ − 1 lies
+ * in (−1.41, −0.59): the determinant never cancels, and |w|², which overflows past 1.8·10¹⁹
+ * and flushes below 10⁻¹⁹ in float, is never formed. κ(E) ≤ (1 + α)/(1 − α) ≈ 4.6.
+ */
+template<typename T>
+struct LDLTBlock {
+    using real_t = scalar_type_t<T>;
+    real_t m{};     ///< |w|
+    real_t a{};     ///< â = a/|w|
+    real_t c{};     ///< ĉ = c/|w|
+    real_t delta{}; ///< δ = âĉ − 1 = det E/|w|²
+    T      u{};     ///< w/|w| (±1 for real T)
+
+    /** @brief The block with diagonal a0, c0 and subdiagonal w. */
+    [[nodiscard]] static constexpr LDLTBlock of(real_t a0, real_t c0, const T& w) {
+        LDLTBlock E{};
+        E.m = damp::abs(w);
+        E.a = a0 / E.m;
+        E.c = c0 / E.m;
+        E.delta = (E.a * E.c) - real_t{1};
+        E.u = w / E.m;
+        return E;
+    }
+
+    /** @brief (y₁, y₂) ← E⁻¹(y₁, y₂) = ((ĉy₁ − ūy₂), (ây₂ − uy₁)) / (|w|δ) */
+    constexpr void solve(T& y1, T& y2) const {
+        const T s1 = y1 / m;
+        const T s2 = y2 / m;
+        y1 = ((c * s1) - (damp::conj(u) * s2)) / delta;
+        y2 = ((a * s2) - (u * s1)) / delta;
+    }
 };
 
 /**
- * @brief LDLᴴ decomposition of a symmetric (Hermitian) matrix, no pivoting
+ * @brief ldlt()'s state: the active matrix S (lower triangle), the size M of the terms behind
+ *        each entry of S, the factors so far, and k, the number of rows eliminated.
+ */
+template<size_t N, typename T>
+struct LDLTWork {
+    using real_t = scalar_type_t<T>;
+
+    /** @brief Largest non-roundoff off-diagonal magnitude of a column and its row (N if none). */
+    struct ColMax {
+        real_t w{};           ///< ωᵢ
+        size_t row = N;       ///< Its row, or N when every off-diagonal entry is roundoff
+        bool   finite = true; ///< False when an entry of the column (or its M) is not finite
+    };
+
+    LDLT<N, T>           f{};   ///< Factors so far
+    Matrix<N, N, T>      S{};   ///< Active matrix, rows and columns k…N−1 of the lower triangle
+    Matrix<N, N, real_t> M{};   ///< |A| + Σ|l||s|: the size of the terms behind each entry of S
+    size_t               k = 0; ///< Rows eliminated
+
+    /** @brief Loads the lower triangle of A; false for a non-finite entry. */
+    [[nodiscard]] constexpr bool load(const Matrix<N, N, T>& A) {
+        f.L = Matrix<N, N, T>::identity();
+        for (size_t i = 0; i < N; ++i) {
+            f.perm[i] = i;
+            for (size_t j = 0; j <= i; ++j) {
+                if (!is_finite_entry(A(i, j))) {
+                    return false;
+                }
+                S(i, j) = (i == j) ? T{real_entry(A(i, i))} : A(i, j);
+                M(i, j) = damp::abs(S(i, j));
+            }
+        }
+        return true;
+    }
+
+    /** @brief Entry (i, j), i ≥ j, is cancellation roundoff: it does not clear 16·(k+1)·eps of its k+1 terms. */
+    [[nodiscard]] constexpr bool roundoff(size_t i, size_t j) const {
+        return !(damp::abs(S(i, j)) > real_t{16} * static_cast<real_t>(k + 1) * eps<T>() * M(i, j));
+    }
+
+    /** @brief |S(i, i)|, or 0 when it is roundoff. */
+    [[nodiscard]] constexpr real_t diag(size_t i) const { return roundoff(i, i) ? real_t{0} : damp::abs(S(i, i)); }
+
+    /** @brief ωᵢ over the active rows of column i, read from the lower triangle; roundoff entries count as zero. */
+    [[nodiscard]] constexpr ColMax col_max(size_t i) const {
+        ColMax out{};
+        for (size_t x = k; x < N; ++x) {
+            const size_t r = (x > i) ? x : i;
+            const size_t c = (x > i) ? i : x;
+            if (!is_finite_entry(S(r, c)) || !damp::isfinite(M(r, c))) {
+                out.finite = false;
+                return out;
+            }
+            if (x != i && !roundoff(r, c) && (out.row == N || damp::abs(S(r, c)) > out.w)) {
+                out.w = damp::abs(S(r, c));
+                out.row = x;
+            }
+        }
+        return out;
+    }
+
+    /**
+     * @brief Rook search from column k: {i, N} for a 1×1 pivot on i, {i, r} for a 2×2 pivot on
+     *        (i, r), {N, N} to refuse (a column that is roundoff throughout, or a non-finite entry).
+     */
+    [[nodiscard]] constexpr damp::array<size_t, 2> rook_pivot() const {
+        constexpr real_t alpha = ldlt_alpha<real_t>;
+        size_t           i = k;
+        ColMax           wi = col_max(i);
+        if (!wi.finite) {
+            return {N, N};
+        }
+        if (wi.row == N) {
+            // Off-diagonal roundoff throughout: the diagonal pivots, or the column is lost.
+            return {roundoff(i, i) ? N : i, N};
+        }
+        if (diag(i) >= alpha * wi.w) {
+            return {i, N};
+        }
+        // ω rises strictly from column to column, so none repeats: at most N − k − 1 passes.
+        for (size_t pass = 0; pass < N; ++pass) {
+            const size_t r = wi.row;
+            const ColMax wr = col_max(r);
+            if (!wr.finite) {
+                return {N, N};
+            }
+            if (diag(r) >= alpha * wr.w) {
+                return {r, N};
+            }
+            if (!(wr.w > wi.w)) {
+                return {i, r}; // aᵣᵢ is the largest off-diagonal entry of both columns
+            }
+            i = r;
+            wi = wr;
+        }
+        return {N, N};
+    }
+
+    /** @brief Symmetric interchange of active indices q ≤ p: S and M in place, the rows of L so far, perm. */
+    constexpr void swap(size_t q, size_t p) {
+        if (q == p) {
+            return;
+        }
+        for (size_t x = k; x < q; ++x) {
+            damp::swap(S(q, x), S(p, x));
+            damp::swap(M(q, x), M(p, x));
+        }
+        damp::swap(S(q, q), S(p, p));
+        damp::swap(M(q, q), M(p, p));
+        for (size_t x = q + 1; x < p; ++x) {
+            const T s = S(x, q);
+            S(x, q) = damp::conj(S(p, x));
+            S(p, x) = damp::conj(s);
+            damp::swap(M(x, q), M(p, x));
+        }
+        S(p, q) = damp::conj(S(p, q));
+        for (size_t x = p + 1; x < N; ++x) {
+            damp::swap(S(x, q), S(x, p));
+            damp::swap(M(x, q), M(x, p));
+        }
+        for (size_t x = 0; x < k; ++x) {
+            damp::swap(f.L(q, x), f.L(p, x));
+        }
+        damp::swap(f.perm[q], f.perm[p]);
+    }
+
+    /** @brief S(i, j) −= Σ L(i, c)·conj(S(j, c)) over the pivot columns c ∈ [k, k + s), for i ≥ j ≥ k + s. */
+    constexpr void update(size_t s) {
+        for (size_t j = k + s; j < N; ++j) {
+            for (size_t i = j; i < N; ++i) {
+                for (size_t c = k; c < k + s; ++c) {
+                    S(i, j) -= f.L(i, c) * damp::conj(S(j, c));
+                    M(i, j) += damp::abs(f.L(i, c)) * damp::abs(S(j, c));
+                }
+            }
+            S(j, j) = T{real_entry(S(j, j))};
+        }
+        k += s;
+    }
+
+    /** @brief Eliminates the 1×1 pivot at k. */
+    constexpr void eliminate_1x1() {
+        const real_t p = real_entry(S(k, k));
+        f.d[k] = p;
+        for (size_t i = k + 1; i < N; ++i) {
+            // A roundoff entry the pivot test did not bound is zero within its rounding bound.
+            if (roundoff(i, k) && ldlt_alpha<real_t> * damp::abs(S(i, k)) > damp::abs(p)) {
+                S(i, k) = T{0};
+            }
+            f.L(i, k) = S(i, k) / p;
+        }
+        update(1);
+    }
+
+    /** @brief Eliminates the 2×2 pivot on rows k, k+1: Lᵢᴴ = E⁻¹ (S(i, k), S(i, k+1))ᴴ. */
+    constexpr void eliminate_2x2() {
+        // The search saw a roundoff diagonal as zero; storing it so keeps |a|, |c| < α|w|.
+        for (size_t c = k; c < k + 2; ++c) {
+            if (roundoff(c, c)) {
+                S(c, c) = T{0};
+            }
+        }
+        f.d[k] = real_entry(S(k, k));
+        f.d[k + 1] = real_entry(S(k + 1, k + 1));
+        f.e[k] = S(k + 1, k);
+        const LDLTBlock<T> E = LDLTBlock<T>::of(f.d[k], f.d[k + 1], f.e[k]);
+        for (size_t i = k + 2; i < N; ++i) {
+            for (size_t c = k; c < k + 2; ++c) {
+                if (roundoff(i, c) && damp::abs(S(i, c)) > E.m) {
+                    S(i, c) = T{0};
+                }
+            }
+            T l1 = damp::conj(S(i, k));
+            T l2 = damp::conj(S(i, k + 1));
+            E.solve(l1, l2);
+            f.L(i, k) = damp::conj(l1);
+            f.L(i, k + 1) = damp::conj(l2);
+        }
+        update(2);
+    }
+};
+
+} // namespace detail
+
+/**
+ * @brief Symmetric indefinite LDLᴴ with rook pivoting: P·A·Pᵀ = L·D·Lᴴ, D block diagonal (1×1 and 2×2)
  *
- * A = L D Lᴴ with L unit lower-triangular and D real diagonal. No square roots, and
- * D may carry negative entries, so this covers the symmetric indefinite matrices whose
- * leading principal minors are all nonzero: in particular the quasi-definite KKT
- * matrices @f$ \begin{bmatrix} H & A^\top \\ A & -E \end{bmatrix} @f$ with
- * @f$ H \succ 0,\; E \succeq 0 @f$, which factor in any symmetric ordering
- * (Vanderbei). A general indefinite matrix needs Bunch–Kaufman pivoting, which this does
- * not do: a pivot |dⱼ| at or below 16·(j+1)·eps of the terms that formed it (the floor
- * cholesky() uses) returns damp::nullopt rather than dividing by roundoff.
+ * Factors any symmetric (Hermitian) matrix that is nonsingular to working precision, definite
+ * or not, without square roots. Each step takes a 1×1 or a 2×2 pivot by the rook search of
+ * Ashcraft, Grimes and Lewis (their bounded Bunch–Kaufman) with Bunch and Kaufman's
+ * @f$ \alpha = (1 + \sqrt{17})/8 \approx 0.64 @f$. With @f$ \omega_i @f$ the largest
+ * off-diagonal magnitude in column i of the active matrix, the search starts at the next
+ * column i. If @f$ |a_{ii}| \ge \alpha\,\omega_i @f$, i is a 1×1 pivot; otherwise the search
+ * moves to the row r of @f$ \omega_i @f$ and stops on the 2×2 pivot (i, r) once
+ * @f$ a_{ri} @f$ is the largest off-diagonal entry of column r too. The ω it meets rise
+ * strictly, so no column is visited twice: a step scans at most N − k columns (under two on
+ * average), and the work stays O(N³).
+ *
+ * The pivot test alone bounds both factors, for every matrix:
+ * - A 1×1 pivot has multipliers @f$ |a_{ri}|/|a_{ii}| \le 1/\alpha @f$ and grows the active
+ *   entries by at most @f$ 1 + 1/\alpha \approx 2.56 @f$.
+ * - A 2×2 pivot @f$ E = \begin{bmatrix} a & \bar w \\ w & c \end{bmatrix} @f$ has
+ *   @f$ |a|, |c| < \alpha|w| @f$ with |w| the largest entry of both its columns, so
+ *   @f$ |\det E| > (1 - \alpha^2)|w|^2 @f$, its multipliers are at most
+ *   @f$ (1 + \alpha)/(1 - \alpha^2) = 1/(1 - \alpha) \approx 2.78 @f$, and it grows the active
+ *   entries by at most @f$ 1 + 2/(1 - \alpha) = (1 + 1/\alpha)^2 @f$, the balance that fixes α.
+ *
+ * The computed factors satisfy @f$ PAP^\top + \Delta A = LDL^H @f$ with
+ * @f$ |\Delta A| \le p(n)\,\varepsilon\,(|A| + |L||D||L^H|) @f$ (Higham, §11.1). With |L| at
+ * most 2.78, each entry of the second term is at most @f$ 2 \cdot 2.78^2\, n \max|D| @f$, so the
+ * factors and ldlt_solve() are backward stable up to the growth of D alone, the guarantee of
+ * LU with partial pivoting. Bunch–Kaufman partial pivoting (LAPACK's xSYTRF) stops the search
+ * at the second column: D grows no faster, but |L| is unbounded. On
+ * @f$ \begin{bmatrix} \delta^2 & \delta & 0 \\ \delta & 0 & 1 \\ 0 & 1 & 1 \end{bmatrix} @f$
+ * it takes the 1×1 pivot δ² and l = 1/δ, and Higham (1997) bounds its |L||D||Lᵀ| in norm only,
+ * through small entries of D offsetting large ones of L. On random indefinite 7×7 matrices
+ * in float, the rook search kept max |L| at 1.8 against Bunch–Kaufman's 8.0 and
+ * ‖|L||D||Lᵀ|‖/‖A‖ at 6.0 against 14, scanning 1.7 columns per step against 1.5.
+ *
+ * An entry of the active matrix that does not exceed 16·(k+1)·eps of the magnitude of the
+ * k+1 terms that formed it is cancellation roundoff (the floor of cholesky() and
+ * lu_decomposition()): the search counts it as zero, and one too large for the bound on L is
+ * eliminated as zero, a perturbation within its rounding bound. Returns damp::nullopt when a
+ * column of the active matrix is roundoff throughout (A is singular to working precision), or
+ * for a non-finite entry of the lower triangle or of the active matrix (overflow); finiteness
+ * is tested on the bit pattern, so a NaN is refused under -ffast-math. The tests compare
+ * entries to the terms that formed them and so are invariant to scaling A; the pivot choice
+ * compares absolute sizes, so a graded matrix pivots on its large-unit entries first.
+ *
+ * A 2×2 block is solved scaled by its off-diagonal (detail::LDLTBlock): neither its
+ * determinant nor |w|² is formed. Every 2×2 block has det E < 0, so A has as many negative
+ * eigenvalues as D has negative 1×1 pivots plus 2×2 blocks (Sylvester's law of inertia).
  *
  * Reads only the lower triangle and assumes the upper mirrors it.
  *
- * @note Compare with MATLAB®'s ldl(A) (which pivots).
- * @see Golub & Van Loan, "Matrix Computations" (4th ed., 2013), §4.1.2
- * @see Vanderbei, "Symmetric Quasidefinite Matrices," SIAM J. Optim. 5(1), 1995
+ * @note Compare with MATLAB®'s [L, D, P] = ldl(A), whose P'·A·P = L·D·L' makes its P the Pᵀ here.
+ * @see "Accurate Symmetric Indefinite Linear Equation Solvers" (Ashcraft, Grimes & Lewis, 1998), §2–3
+ * @see "Some Stable Methods for Calculating Inertia and Solving Symmetric Linear Systems" (Bunch & Kaufman, 1977)
+ * @see "Accuracy and Stability of Numerical Algorithms" (Higham, 2002), §11.1
+ * @see "Stability of the Diagonal Pivoting Method with Partial Pivoting" (Higham, 1997)
+ * @see "Matrix Computations" (Golub & Van Loan, 2013), §4.4
  * @see ldlt_solve(), cholesky()
  *
  * @param A Symmetric (real) or Hermitian (complex) matrix
- * @return L and d, or damp::nullopt on a vanishing pivot
+ * @return L, D (d, e) and P (perm), or damp::nullopt for a singular or non-finite A
  */
 template<size_t N, typename T>
 constexpr damp::optional<LDLT<N, T>> ldlt(const Matrix<N, N, T>& A) {
-    using real_t = scalar_type_t<T>;
-    const auto real_part = [](const T& x) -> real_t {
-        if constexpr (damp::is_floating_point_v<T>) {
-            return x;
-        } else {
-            return damp::real(x);
-        }
-    };
-
-    LDLT<N, T> out{};
-    out.L = Matrix<N, N, T>::identity();
-    for (size_t j = 0; j < N; ++j) {
-        // dⱼ = aⱼⱼ − Σₖ |lⱼₖ|² dₖ, tested against the size of those terms
-        real_t dj = real_part(A(j, j));
-        real_t mag = damp::abs(dj);
-        for (size_t k = 0; k < j; ++k) {
-            const real_t l = damp::abs(out.L(j, k));
-            dj -= l * l * out.d[k];
-            mag += l * l * damp::abs(out.d[k]);
-        }
-        if (!(damp::abs(dj) > real_t{16} * static_cast<real_t>(j + 1) * eps<T>() * mag)) {
+    detail::LDLTWork<N, T> w{};
+    if (!w.load(A)) {
+        return damp::nullopt;
+    }
+    // k rises by 1 or 2 per pass
+    for (size_t pass = 0; pass < N && w.k < N; ++pass) {
+        const auto piv = w.rook_pivot();
+        if (piv[0] == N) {
             return damp::nullopt;
         }
-        out.d[j] = dj;
-        for (size_t i = j + 1; i < N; ++i) {
-            T sum = A(i, j);
-            for (size_t k = 0; k < j; ++k) {
-                sum -= out.L(i, k) * damp::conj(out.L(j, k)) * out.d[k];
-            }
-            out.L(i, j) = sum / dj;
+        if (piv[1] == N) {
+            w.swap(w.k, piv[0]);
+            w.eliminate_1x1();
+        } else {
+            w.swap(w.k, damp::min(piv[0], piv[1]));
+            w.swap(w.k + 1, damp::max(piv[0], piv[1]));
+            w.eliminate_2x2();
         }
     }
-    return out;
+    return w.f;
 }
 
 /**

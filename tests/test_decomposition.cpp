@@ -1149,26 +1149,126 @@ TEST_SUITE("cholesky rank deficiency") {
     }
 }
 
+namespace {
+
+template<typename T>
+constexpr double eps_of() {
+    return static_cast<double>(eps<T>());
+}
+
+/// 1/(1 − α), α = (1 + √17)/8: the rook bound on |lᵢⱼ|.
+constexpr double rook_L_bound = 1.0 / (1.0 - 0.6403882032022076);
+
+/// x through a volatile, so the optimizer cannot fold a NaN test on a known constant.
+template<typename T>
+T opaque_value(T x) {
+    volatile T v = x;
+    return v;
+}
+
+/// D of an ldlt() factorization as a full matrix, in double.
+template<size_t N, typename T>
+Matrix<N, N, damp::complex<double>> ldlt_D(const LDLT<N, T>& f) {
+    using C = damp::complex<double>;
+    Matrix<N, N, C> D{};
+    for (size_t i = 0; i < N; ++i) {
+        D(i, i) = C{static_cast<double>(f.d[i]), 0.0};
+        if (i + 1 < N) {
+            const C e{static_cast<double>(damp::real(complex<scalar_type_t<T>>{f.e[i]})), static_cast<double>(damp::imag(complex<scalar_type_t<T>>{f.e[i]}))};
+            D(i + 1, i) = e;
+            D(i, i + 1) = damp::conj(e);
+        }
+    }
+    return D;
+}
+
+/// L in complex double.
+template<size_t N, typename T>
+Matrix<N, N, damp::complex<double>> ldlt_L(const LDLT<N, T>& f) {
+    using C = damp::complex<double>;
+    Matrix<N, N, C> L{};
+    for (size_t i = 0; i < N; ++i) {
+        for (size_t j = 0; j < N; ++j) {
+            const complex<scalar_type_t<T>> l{f.L(i, j)};
+            L(i, j) = C{static_cast<double>(l.real()), static_cast<double>(l.imag())};
+        }
+    }
+    return L;
+}
+
+/// Backward error and growth of an ldlt() factorization, in double: ‖Pᵀ·L·D·Lᴴ·P − A‖ and ‖|L||D||Lᴴ|‖.
+struct LdltError {
+    double backward = 0.0; ///< ‖Pᵀ·L·D·Lᴴ·P − A‖_F
+    double growth = 0.0;   ///< ‖|L||D||Lᴴ|‖_F
+    double max_l = 0.0;    ///< max |lᵢⱼ|
+    size_t blocks = 0;     ///< 2×2 blocks
+};
+
+template<size_t N, typename T>
+LdltError ldlt_error(const Matrix<N, N, T>& A, const LDLT<N, T>& f) {
+    const auto L = ldlt_L(f);
+    const auto D = ldlt_D(f);
+    const auto PAP = L * D * L.conjugate_transpose();
+    LdltError  out{};
+    double     back2 = 0.0;
+    double     grow2 = 0.0;
+    for (size_t i = 0; i < N; ++i) {
+        out.blocks += (i + 1 < N && f.e[i] != T{0}) ? 1U : 0U;
+        for (size_t j = 0; j < N; ++j) {
+            const complex<scalar_type_t<T>> a{A(f.perm[i], f.perm[j])};
+            const damp::complex<double>     r = PAP(i, j) - damp::complex<double>{static_cast<double>(a.real()), static_cast<double>(a.imag())};
+            back2 += damp::real(r * damp::conj(r));
+            double g = 0.0;
+            for (size_t p = 0; p < N; ++p) {
+                for (size_t q = 0; q < N; ++q) {
+                    g += damp::abs(L(i, p)) * damp::abs(D(p, q)) * damp::abs(L(j, q));
+                }
+            }
+            grow2 += g * g;
+            out.max_l = damp::max(out.max_l, damp::abs(L(i, j)));
+        }
+    }
+    out.backward = std::sqrt(back2);
+    out.growth = std::sqrt(grow2);
+    return out;
+}
+
+/// Relative 2-norm distance of x from a double reference.
+template<size_t N, typename T>
+double rel_error(const Matrix<N, 1, T>& x, const Matrix<N, 1, double>& ref) {
+    double e = 0.0;
+    double n = 0.0;
+    for (size_t i = 0; i < N; ++i) {
+        const double d = static_cast<double>(x(i, 0)) - ref(i, 0);
+        e += d * d;
+        n += ref(i, 0) * ref(i, 0);
+    }
+    return std::sqrt(e / n);
+}
+
+/// [[δ, 1, 0.5, 0.2], [1, 1, 0.3, 0.4], [0.5, 0.3, −1, 0.1], [0.2, 0.4, 0.1, 2]]: κ₂ = 4.6 for small δ.
+template<typename T>
+Matrix<4, 4, T> graded_corner_4(T delta) {
+    return Matrix<4, 4, T>{{delta, T(1), T(0.5), T(0.2)}, {T(1), T(1), T(0.3), T(0.4)}, {T(0.5), T(0.3), T(-1), T(0.1)}, {T(0.2), T(0.4), T(0.1), T(2)}};
+}
+
+} // namespace
+
 TEST_SUITE("ldlt") {
     TEST_CASE("a KKT saddle-point matrix factors and solves where Cholesky cannot") {
-        // [[H, Aᵀ], [A, 0]] with H = diag(2, 3), A = [1, 1]: indefinite (one negative pivot)
-        Matrix<3, 3> K{{2.0, 0.0, 1.0}, {0.0, 3.0, 1.0}, {1.0, 1.0, 0.0}};
+        // [[H, Aᵀ], [A, 0]] with H = diag(2, 3), A = [1, 1]: indefinite, and no pivot is needed
+        const Matrix<3, 3> K{{2.0, 0.0, 1.0}, {0.0, 3.0, 1.0}, {1.0, 1.0, 0.0}};
         CHECK_FALSE(cholesky(K).has_value());
         const auto f = ldlt(K);
         REQUIRE(f.has_value());
+        for (size_t i = 0; i < 3; ++i) {
+            CHECK(f->perm[i] == i);
+            CHECK(f->e[i] == 0.0);
+        }
         CHECK(f->d[0] == doctest::Approx(2.0));
         CHECK(f->d[1] == doctest::Approx(3.0));
         CHECK(f->d[2] == doctest::Approx(-(1.0 / 2.0 + 1.0 / 3.0))); // Schur complement −A H⁻¹ Aᵀ
-        Matrix<3, 3> D{};
-        for (size_t i = 0; i < 3; ++i) {
-            D(i, i) = f->d[i];
-        }
-        const Matrix<3, 3> back = f->L * D * f->L.t();
-        for (size_t i = 0; i < 3; ++i) {
-            for (size_t j = 0; j < 3; ++j) {
-                CHECK(back(i, j) == doctest::Approx(K(i, j)).scale(1.0));
-            }
-        }
+        CHECK(ldlt_error(K, *f).backward <= 8.0 * 3.0 * eps<double>() * K.norm());
         const Matrix<3, 1> b{{1.0}, {2.0}, {0.5}};
         const auto         x = ldlt_solve(K, b);
         const auto         x_lu = lu_solve(K, b);
@@ -1179,9 +1279,153 @@ TEST_SUITE("ldlt") {
         }
     }
 
-    TEST_CASE("a singular symmetric matrix is refused") {
-        const Matrix<2, 2> S{{1.0, 2.0}, {2.0, 4.0}};
-        CHECK_FALSE(ldlt(S).has_value());
+    TEST_CASE_TEMPLATE("[[δ, 1], [1, 0]] (κ = 1) takes a 2×2 pivot and solves to working precision", T, float, double) {
+        // Unpivoted, d₁ = −1/δ and l = 1/δ: the factors grew as 1/δ, and ldlt_solve returned x with
+        // a relative error of 3.6·10⁻³ in float at δ = 10⁻⁵ and 2.5·10⁻⁷ in double at δ = 10⁻¹⁰.
+        const T               delta = damp::is_same_v<T, float> ? T(1e-5) : T(1e-10);
+        const Matrix<2, 2, T> A{{delta, T(1)}, {T(1), T(0)}};
+        const auto            f = ldlt(A);
+        REQUIRE(f.has_value());
+        CHECK(f->e[0] == T(1)); // a single 2×2 block, D = A
+        CHECK(f->d[0] == delta);
+        CHECK(f->d[1] == T(0));
+        CHECK(f->perm[0] == 0);
+        CHECK(f->perm[1] == 1);
+        const Matrix<2, 1, T> b{{T(0.3)}, {T(0.7)}};
+        const auto            x = ldlt_solve(A, b);
+        REQUIRE(x.has_value());
+        // x = (b₂, b₁ − δb₂), in double from the T data
+        const Matrix<2, 1> ref{{static_cast<double>(b(1, 0))}, {static_cast<double>(b(0, 0)) - (static_cast<double>(delta) * static_cast<double>(b(1, 0)))}};
+        CHECK(rel_error(x.value(), ref) <= 2.0 * 2.0 * eps_of<T>());
+    }
+
+    TEST_CASE_TEMPLATE("a 4×4 with κ = 4.6 and a tiny a₀₀ solves as accurately as LU", T, float, double) {
+        // Unpivoted, the first pivot δ grew the factors by 1/δ: ldlt_solve lost 6.4·10⁻³ in float
+        // at δ = 10⁻⁵ and 2.1·10⁻⁷ in double at δ = 10⁻¹⁰, where lu_solve keeps 4·10⁻⁸ and 10⁻¹⁶.
+        const T               delta = damp::is_same_v<T, float> ? T(1e-5) : T(1e-10);
+        const auto            A = graded_corner_4(delta);
+        const Matrix<4, 1, T> b{{T(0.3)}, {T(-0.7)}, {T(1.1)}, {T(0.2)}};
+        const auto            f = ldlt(A);
+        REQUIRE(f.has_value());
+        const LdltError err = ldlt_error(A, *f);
+        CHECK(err.max_l <= rook_L_bound);
+        CHECK(err.growth <= 2.0 * Matrix<4, 4>(A).norm());
+        CHECK(err.backward <= 8.0 * 4.0 * eps_of<T>() * err.growth);
+        const auto x = ldlt_solve(A, b);
+        const auto ref = lu_solve(Matrix<4, 4>(A), Matrix<4, 1>(b)); // double LU on the same data: κ·10⁻¹⁶
+        REQUIRE(x.has_value());
+        REQUIRE(ref.has_value());
+        CHECK(rel_error(x.value(), ref.value()) <= 4.0 * 4.0 * 4.6 * eps_of<T>());
+    }
+
+    TEST_CASE_TEMPLATE("a 2×2 block with rows below: exact multipliers, then a 1×1 pivot", T, float, double) {
+        // E = [[0, 1], [1, 0]] is the first block (no 1×1 pivot clears α); Lᵢ = [s₁ s₂]E⁻¹ = [s₂ s₁].
+        const Matrix<4, 4, T> A{{T(0), T(1), T(0.5), T(0.25)}, {T(1), T(0), T(0.75), T(-0.5)}, {T(0.5), T(0.75), T(2), T(0.5)}, {T(0.25), T(-0.5), T(0.5), T(-1)}};
+        const auto            f = ldlt(A);
+        REQUIRE(f.has_value());
+        CHECK(f->e[0] == T(1));
+        CHECK(f->e[1] == T(0));
+        CHECK(f->e[2] == T(0));
+        for (size_t i = 0; i < 4; ++i) {
+            CHECK(f->perm[i] == i);
+        }
+        CHECK(f->L(2, 0) == T(0.75));
+        CHECK(f->L(2, 1) == T(0.5));
+        CHECK(f->L(3, 0) == T(-0.5));
+        CHECK(f->L(3, 1) == T(0.25));
+        CHECK(f->d[2] == T(1.25)); // 2 − 2·0.5·0.75
+        CHECK(ldlt_error(A, *f).backward <= 8.0 * 4.0 * eps_of<T>() * Matrix<4, 4>(A).norm());
+        const Matrix<4, 1, T> b{{T(1)}, {T(-2)}, {T(0.5)}, {T(3)}};
+        const auto            x = ldlt_solve(A, b);
+        const auto            ref = lu_solve(Matrix<4, 4>(A), Matrix<4, 1>(b));
+        REQUIRE(x.has_value());
+        REQUIRE(ref.has_value());
+        CHECK(rel_error(x.value(), ref.value()) <= 64.0 * eps_of<T>());
+    }
+
+    TEST_CASE("float: a 2×2 block at 10⁻²⁵ and 10²⁵ solves without forming |w|²") {
+        // |w|² flushes to zero below 10⁻¹⁹ and overflows past 1.8·10¹⁹ in float; the block is solved
+        // scaled by |w|, as LU (which never squares an entry) does.
+        for (const float s : {1e-25f, 1e25f}) {
+            const Matrix<2, 2, float> A{{s * 1e-3f, s}, {s, s * 2e-3f}};
+            const Matrix<2, 1, float> b{{0.3f}, {0.7f}};
+            const auto                x = ldlt_solve(A, b);
+            const auto                ref = lu_solve(Matrix<2, 2>(A), Matrix<2, 1>(b));
+            REQUIRE(x.has_value());
+            REQUIRE(ref.has_value());
+            CHECK(rel_error(x.value(), ref.value()) <= 8.0 * eps_of<float>());
+        }
+    }
+
+    TEST_CASE_TEMPLATE("singular matrices are refused, semidefinite or indefinite", T, float, double) {
+        const Matrix<2, 2, T> S2{{T(1), T(2)}, {T(2), T(4)}};
+        const Matrix<3, 3, T> S3{{T(0), T(1), T(1)}, {T(1), T(0), T(0)}, {T(1), T(0), T(0)}}; // a 2×2 pivot, then a lost row
+        const Matrix<3, 3, T> D3{{T(1), T(0), T(0)}, {T(0), T(-1), T(0)}, {T(0), T(0), T(0)}};
+        // u·uᵀ − v·vᵀ: rank 2, indefinite, reached through pivots that do not cancel exactly
+        const Matrix<4, 1, T> u{{T(1)}, {T(2)}, {T(0.5)}, {T(1)}};
+        const Matrix<4, 1, T> v{{T(0.25)}, {T(1)}, {T(1)}, {T(2)}};
+        const Matrix<4, 4, T> R4 = (u * u.t()) - (v * v.t());
+        CHECK_FALSE(ldlt(S2).has_value());
+        CHECK_FALSE(ldlt(S3).has_value());
+        CHECK_FALSE(ldlt(D3).has_value());
+        CHECK_FALSE(ldlt(R4).has_value());
+        CHECK_FALSE(ldlt(Matrix<3, 3, T>::zeros()).has_value());
+        CHECK_FALSE(ldlt_solve(S3, Matrix<3, 1, T>{{T(1)}, {T(1)}, {T(1)}}).has_value());
+        CHECK_FALSE(ldlt_solve(R4, Matrix<4, 1, T>{{T(1)}, {T(1)}, {T(1)}, {T(1)}}).has_value());
+    }
+
+    TEST_CASE_TEMPLATE("NaN and ±Inf are refused in every position, and so is an overflowing Schur complement", T, float, double) {
+        // Under -ffast-math GCC folds !(|d| > floor) to |d| ≤ floor, false for NaN: a NaN pivot
+        // passed, and ldlt returned NaN factors as a success.
+        for (const T bad : {std::numeric_limits<T>::quiet_NaN(), std::numeric_limits<T>::infinity(), -std::numeric_limits<T>::infinity()}) {
+            for (size_t i = 0; i < 4; ++i) {
+                for (size_t j = 0; j <= i; ++j) {
+                    INFO("entry (", i, ", ", j, ")");
+                    auto A = graded_corner_4(T(1e-3));
+                    A(i, j) = opaque_value(bad);
+                    A(j, i) = A(i, j);
+                    CHECK_FALSE(ldlt(A).has_value());
+                    CHECK_FALSE(ldlt_solve(A, Matrix<4, 1, T>{{T(1)}, {T(1)}, {T(1)}, {T(1)}}).has_value());
+                }
+            }
+        }
+        // A NaN in either part of a complex entry
+        using C = complex<T>;
+        for (const C bad : {C{std::numeric_limits<T>::quiet_NaN(), T(0)}, C{T(0), std::numeric_limits<T>::quiet_NaN()}}) {
+            Matrix<2, 2, C> A{{C{T(2), T(0)}, C{T(0)}}, {C{T(0)}, C{T(3), T(0)}}};
+            A(1, 0) = C{opaque_value(bad.real()), opaque_value(bad.imag())};
+            A(0, 1) = damp::conj(A(1, 0));
+            CHECK_FALSE(ldlt(A).has_value());
+            A = Matrix<2, 2, C>{{C{T(2), T(0)}, C{T(0)}}, {C{T(0)}, C{T(3), T(0)}}};
+            A(1, 1) = C{opaque_value(bad.real()), opaque_value(bad.imag())};
+            CHECK_FALSE(ldlt(A).has_value());
+        }
+        // Finite entries whose Schur complement −0.8·max − 0.19²/0.125·max overflows to −Inf. (The
+        // pivot stays below max/4: -ffast-math divides by a pivot through its reciprocal, which
+        // is subnormal past max/4 and flushes to zero.)
+        const T               big = opaque_value(std::numeric_limits<T>::max());
+        const Matrix<2, 2, T> O{{T(0.125) * big, static_cast<T>(0.19) * big}, {static_cast<T>(0.19) * big, static_cast<T>(-0.8) * big}};
+        CHECK_FALSE(ldlt(O).has_value());
+    }
+
+    TEST_CASE("constexpr: a permuted factorization, a 2×2 block, and a solve") {
+        // [[0, 1, 0], [1, 2, 1], [0, 1, 4]]: a₀₀ = 0 fails α·ω₀, a₁₁ = 2 pivots first
+        static constexpr Matrix<3, 3> A{{0.0, 1.0, 0.0}, {1.0, 2.0, 1.0}, {0.0, 1.0, 4.0}};
+        static constexpr auto         f = ldlt(A);
+        static_assert(f.has_value());
+        static_assert(f->perm[0] == 1 && f->perm[1] == 0 && f->perm[2] == 2);
+        static_assert(f->d[0] == 2.0 && f->d[1] == -0.5 && f->d[2] == 4.0);
+        static_assert(f->L(1, 0) == 0.5 && f->L(2, 0) == 0.5 && f->L(2, 1) == 1.0);
+        static_assert(f->e[0] == 0.0 && f->e[1] == 0.0);
+        static constexpr auto x = ldlt_solve(A, Matrix<3, 1>{{2.0}, {8.0}, {14.0}});
+        static_assert(x.has_value() && (*x)(0, 0) == 1.0 && (*x)(1, 0) == 2.0 && (*x)(2, 0) == 3.0);
+        // [[4, 2, 2], [2, 1, 3], [2, 3, 1]]: a 1×1 pivot leaves [[0, 2], [2, 0]], a 2×2 block
+        static constexpr auto g = ldlt(Matrix<3, 3>{{4.0, 2.0, 2.0}, {2.0, 1.0, 3.0}, {2.0, 3.0, 1.0}});
+        static_assert(g.has_value());
+        static_assert(g->d[0] == 4.0 && g->d[1] == 0.0 && g->d[2] == 0.0 && g->e[0] == 0.0 && g->e[1] == 2.0);
+        static_assert(g->L(1, 0) == 0.5 && g->L(2, 0) == 0.5 && g->L(2, 1) == 0.0);
+        static_assert(!ldlt(Matrix<2, 2>{{1.0, 2.0}, {2.0, 4.0}}).has_value());
+        static_assert(ldlt(Matrix<1, 1>{{-3.0}})->d[0] == -3.0 && !ldlt(Matrix<1, 1>{{0.0}}).has_value());
     }
 
     TEST_CASE("Hermitian: complex off-diagonal, real pivots") {
@@ -1200,5 +1444,65 @@ TEST_SUITE("ldlt") {
         for (size_t i = 0; i < 2; ++i) {
             CHECK((r(i, 0) - b(i, 0)).abs() <= 1e-12);
         }
+    }
+
+    TEST_CASE_TEMPLATE("Hermitian: a complex 2×2 block with a row below", T, float, double) {
+        using C = complex<T>;
+        const Matrix<3, 3, C> A{
+            {C{T(0), T(0)}, C{T(1), T(-2)}, C{T(0.5), T(0)}},
+            {C{T(1), T(2)}, C{T(0.25), T(0)}, C{T(0), T(1)}},
+            {C{T(0.5), T(0)}, C{T(0), T(-1)}, C{T(1), T(0)}},
+        };
+        const auto f = ldlt(A);
+        REQUIRE(f.has_value());
+        const LdltError err = ldlt_error(A, *f);
+        CHECK(err.blocks == 1);
+        CHECK(err.max_l <= rook_L_bound);
+        CHECK(err.backward <= 8.0 * 3.0 * eps_of<T>() * err.growth);
+        const Matrix<3, 1, C> b{{C{T(1), T(0)}}, {C{T(0), T(1)}}, {C{T(-1), T(0.5)}}};
+        const auto            x = ldlt_solve(A, b);
+        REQUIRE(x.has_value());
+        const Matrix<3, 1, C> r = (A * (*x)) - b;
+        for (size_t i = 0; i < 3; ++i) {
+            CHECK(static_cast<double>(r(i, 0).abs()) <= 64.0 * eps_of<T>() * static_cast<double>(x->norm() + b.norm()));
+        }
+    }
+
+    TEST_CASE_TEMPLATE("random indefinite matrices: |L| ≤ 1/(1 − α), backward stable, solved", T, float, double) {
+        // Off-diagonal entries in [−1, 1], diagonal shrunk by up to 10⁶ so that 2×2 pivots are common.
+        std::mt19937_64                        gen(11);
+        std::uniform_real_distribution<T>      U(T(-1), T(1));
+        std::uniform_real_distribution<double> E(-6.0, 0.0);
+        constexpr size_t                       N = 7;
+        size_t                                 blocks = 0;
+        double                                 worst_back = 0.0;
+        double                                 worst_res = 0.0;
+        for (int trial = 0; trial < 300; ++trial) {
+            Matrix<N, N, T> A{};
+            for (size_t i = 0; i < N; ++i) {
+                for (size_t j = 0; j < i; ++j) {
+                    A(i, j) = A(j, i) = U(gen);
+                }
+                A(i, i) = U(gen) * static_cast<T>(std::pow(10.0, E(gen)));
+            }
+            const auto f = ldlt(A);
+            REQUIRE(f.has_value());
+            const LdltError err = ldlt_error(A, *f);
+            blocks += err.blocks;
+            CHECK(err.max_l <= rook_L_bound * (1.0 + (16.0 * eps_of<T>())));
+            worst_back = damp::max(worst_back, err.backward / (static_cast<double>(N) * eps_of<T>() * err.growth));
+            Matrix<N, 1, T> b{};
+            for (size_t i = 0; i < N; ++i) {
+                b(i, 0) = U(gen);
+            }
+            const auto x = ldlt_solve(A, b);
+            REQUIRE(x.has_value());
+            const Matrix<N, 1> r = (Matrix<N, N>(A) * Matrix<N, 1>(x.value())) - Matrix<N, 1>(b);
+            worst_res = damp::max(worst_res, r.norm() / (static_cast<double>(N) * eps_of<T>() * ((err.growth * Matrix<N, 1>(x.value()).norm()) + Matrix<N, 1>(b).norm())));
+        }
+        INFO("2×2 blocks ", blocks, ", backward error ", worst_back, " and residual ", worst_res, " units of n·eps");
+        CHECK(blocks >= 300);
+        CHECK(worst_back <= 1.0); // 0.12 measured
+        CHECK(worst_res <= 1.0);  // 0.05 measured
     }
 }

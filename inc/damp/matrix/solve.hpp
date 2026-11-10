@@ -179,11 +179,12 @@ constexpr damp::optional<Matrix<N, M, T>> cholesky_solve(const Matrix<N, N, T>& 
 }
 
 /**
- * @brief Solve AX = B via LDLᴴ (A = L D Lᴴ, symmetric indefinite)
+ * @brief Solve AX = B via pivoted LDLᴴ (P·A·Pᵀ = L·D·Lᴴ, symmetric indefinite)
  *
  * For the symmetric matrices cholesky_solve() refuses: saddle-point / KKT systems
- * @f$ \begin{bmatrix} H & A^\top \\ A & -E \end{bmatrix} @f$ and other quasi-definite
- * forms. Returns damp::nullopt if ldlt() meets a vanishing pivot.
+ * @f$ \begin{bmatrix} H & A^\top \\ A & -E \end{bmatrix} @f$ and any other nonsingular
+ * indefinite matrix. Each column is permuted, swept through L, D (a 2×2 block solved scaled
+ * by its off-diagonal) and Lᴴ, and permuted back. Returns damp::nullopt if ldlt() refuses A.
  *
  * @note Prefer this over forming @f$ A^{-1} @f$ then multiplying.
  * @see ldlt(), solve()
@@ -194,21 +195,34 @@ constexpr damp::optional<Matrix<N, M, T>> ldlt_solve(const Matrix<N, N, T>& A, c
     if (!f) {
         return damp::nullopt;
     }
-    // L Y = B
-    auto Y_opt = solve(f->L.lower_triangle(), B);
-    if (!Y_opt) {
-        return damp::nullopt;
-    }
-    // D Z = Y
-    Matrix<N, M, T> Z = Y_opt.value();
-    for (size_t i = 0; i < N; ++i) {
-        for (size_t c = 0; c < M; ++c) {
-            Z(i, c) = Z(i, c) / T{f->d[i]};
+    using Result = Matrix<N, M, T>;
+    return ::damp::detail::built_in_place<Result>([&](Result& X) {
+        for (size_t col = 0; col < M; ++col) {
+            damp::array<T, N> y{};
+            for (size_t i = 0; i < N; ++i) { // L y = P b
+                y[i] = B(f->perm[i], col);
+                for (size_t j = 0; j < i; ++j) {
+                    y[i] -= f->L(i, j) * y[j];
+                }
+            }
+            size_t i = 0;
+            while (i < N) { // D z = y, block by block
+                if (i + 1 < N && f->e[i] != T{0}) {
+                    detail::LDLTBlock<T>::of(f->d[i], f->d[i + 1], f->e[i]).solve(y[i], y[i + 1]);
+                    i += 2;
+                } else {
+                    y[i] = y[i] / f->d[i];
+                    i += 1;
+                }
+            }
+            for (size_t r = N; r-- > 0;) { // Lᴴ v = z, then x = Pᵀ v
+                for (size_t j = r + 1; j < N; ++j) {
+                    y[r] -= damp::conj(f->L(j, r)) * y[j];
+                }
+                X(f->perm[r], col) = y[r];
+            }
         }
-    }
-    // Lᴴ X = Z
-    const auto Lh = f->L.conjugate_transpose();
-    return solve(Lh.upper_triangle(), Z);
+    });
 }
 
 /**

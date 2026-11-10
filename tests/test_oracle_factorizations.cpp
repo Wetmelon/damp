@@ -22,7 +22,8 @@ TEST_SUITE("Oracle conformance") {
     }
     TEST_CASE("ldlt factors, inertia and solve against exact arithmetic") {
         run_cases<oracle::ldlt_cases>([]<typename C, typename T>() { check_ldlt<C, T>(); });
-        run_cases<oracle::ldlt_fail_cases>([]<typename C, typename T>() { check_ldlt_fails<C, T>(); });
+        // The generator still names these *_fail: they are what the unpivoted factorization refused.
+        run_cases<oracle::ldlt_fail_cases>([]<typename C, typename T>() { check_ldlt_vanishing_minor<C, T>(); });
     }
     TEST_CASE("svd reconstructs A and matches scipy's singular values") {
         run_cases<oracle::svd_cases>([]<typename C, typename T>() { check_svd<C, T>(); });
