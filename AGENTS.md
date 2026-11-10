@@ -165,6 +165,18 @@ Plant builders and host sim are not this ladder.
   family when adding algorithms.
 - MATLAB note form: `@note Compare with MATLAB®'s ...`.
 - House style: `make doxygen-style-check`. Prefer `///<` for members.
+- **Algorithm detail lives in the Doxygen** of the function that implements it: the
+  method, its source (`@see`), what it guards against, its limits. Not in the
+  CHANGELOG.
+
+### CHANGELOG and release notes
+
+- CHANGELOG: one line per entry, one or two sentences: what changed and what it
+  means for a user, at most one number. Mechanism, measurements and citations go
+  in the Doxygen and the commit message.
+- GitHub release notes are shorter still: a summary line, one line per
+  user-visible change, and a link to the CHANGELOG.
+- Credit the published method, never "as LAPACK does": that reads as copied code.
 
 ### Examples (design-is-deploy)
 

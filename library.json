@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/platformio/platformio-core/develop/platformio/assets/schema/library.json",
   "name": "damp",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Header-only C++20 control library: LQR, LQI, LQG, MPC, Kalman and PID designed at compile time or init, run as stack-only fixed-size ticks on an MCU, and closed in SIL with the same objects.",
   "keywords": ["control", "lqr", "lqg", "mpc", "kalman", "pid", "state-space", "constexpr", "embedded", "dsp"],
   "repository": {
