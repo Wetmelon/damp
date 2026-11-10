@@ -62,8 +62,9 @@ struct [[nodiscard]] StateScaling {
  * @f$ \left[\begin{smallmatrix} A & B \\ C & 0 \end{smallmatrix}\right] @f$ with the inputs
  * and outputs held fixed: only the states are scaled, x = D·x̃ with D = diag(2^e), giving
  * @f$ (D^{-1} A D,\; D^{-1} B,\; C D,\; D) @f$ and @f$ D^{-1} G @f$ for the noise input.
- * Each state's row (its A row and B row) and column (its A column and C column) then have
- * 2-norms within a factor of two of each other. A state in counts beside one in metres stops
+ * Each state's row (its A row and B row) and column (its A column and C column), diagonal
+ * included as in xGEBAL since LAPACK 3.5.0, then have 2-norms within a factor of two of each
+ * other; a state whose own dynamics dominate is left alone. A state in counts beside one in metres stops
  * costing digits in eigenvalue, Riccati and frequency-response computations. The scaling is
  * a similarity by powers of two, so it is exact and the transfer function does not change.
  *
@@ -84,7 +85,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
     Matrix<NX + 1, NX + 1, T> mag{};
     for (size_t i = 0; i < NX; ++i) {
         for (size_t j = 0; j < NX; ++j) {
-            mag(i, j) = (i == j) ? T{0} : damp::abs(sys.A(i, j));
+            mag(i, j) = damp::abs(sys.A(i, j));
         }
         mag(i, NX) = damp::detail::scaled_norm2<T>(NU, [&](size_t j) { return damp::abs(sys.B(i, j)); });
         mag(NX, i) = damp::detail::scaled_norm2<T>(NY, [&](size_t k) { return damp::abs(sys.C(k, i)); });

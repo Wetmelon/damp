@@ -128,6 +128,19 @@ TEST_SUITE("State balancing (prescale / ssbal)") {
         CHECK(untouched.sys.B == broken.B);
     }
 
+    TEST_CASE("balance_states counts each state's own dynamics: a dominant diagonal is left alone") {
+        //! Couplings of 100 and 0.01 beside poles at −1000: each state's row and column already
+        //! agree once the diagonal counts, as in xGEBAL since LAPACK 3.5.0. Without it the
+        //! couplings alone set the scale: exponents +2 and −2.
+        constexpr StateSpace<2, 1, 1> stiff{
+            .A = Matrix<2, 2>{{-1000.0, 100.0}, {0.01, -1000.0}},
+            .B = Matrix<2, 1>{{1.0}, {1.0}},
+            .C = Matrix<1, 2>{{1.0, 1.0}}
+        };
+        constexpr auto same = balance_states(stiff);
+        static_assert(same.exponent[0] == 0 && same.exponent[1] == 0 && same.sys.A == stiff.A);
+    }
+
     TEST_CASE("matlab::prescale and matlab::ssbal forward to balance_states") {
         constexpr auto bad = make_badly_scaled();
         static_assert(matlab::prescale(bad).exponent == balance_states(bad).exponent);

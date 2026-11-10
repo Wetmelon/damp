@@ -11,7 +11,7 @@ and [known limitations](docs/known_limitations.md)).
 
 ### Fixed
 
-- Balancing (`balance_exponents`, behind eigenvalues and Schur forms, zeros, stability, Lyapunov, the model inverse, `sqrt` and `log`) counts the diagonal in its row and column norms, as LAPACK's xGEBAL has since 3.5.0 (James, Langou & Lowery). Without it a matrix whose diagonal dominates was over-balanced. `sqrtm_jordan_3` took κ(D) = 16 for a 1.16× smaller norm, and mapping its root back by D cost up to 9× in accuracy. With GCC 14 on Intel or generic tuning, that was 21 units of forward error against a limit of 16, and `make` failed. It now gets D = I, at 5.2 units in its worst build, and the oracle drops its Clang 19 allowance. Graded matrices still balance. The Hamiltonian balance keeps Benner's zero diagonal.
+- Balancing (`balance_exponents`, behind eigenvalues and Schur forms, zeros, stability, Lyapunov, the model inverse, `sqrt` and `log`) counts the diagonal in its row and column norms, as LAPACK's xGEBAL has since 3.5.0 (James, Langou & Lowery). Without it a matrix whose diagonal dominates was over-balanced. `sqrtm_jordan_3` took κ(D) = 16 for a 1.16× smaller norm, and mapping its root back by D cost up to 9× in accuracy. With GCC 14 on Intel or generic tuning, that was 21 units of forward error against a limit of 16, and `make` failed. It now gets D = I, at 5.2 units in its worst build, and the oracle drops its Clang 19 allowance. Graded matrices still balance. `balance_states` (`matlab::ssbal` / `prescale`) counts A's diagonal the same way, so a state whose own dynamics dominate its couplings is left unscaled. The Hamiltonian balance keeps Benner's zero diagonal.
 
 ## [0.2.0] — 2026-11-09
 
