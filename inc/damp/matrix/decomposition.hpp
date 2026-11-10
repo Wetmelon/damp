@@ -112,6 +112,12 @@ template<size_t N, typename T>
  * for a positivity test. Decide rank with mat::rank. The test is invariant to scaling A.
  * LAPACK's xPOTRF tests only positivity.
  *
+ * A NaN or ±Inf in the lower triangle reaches a pivot (an off-diagonal one through lᵢⱼ and
+ * |lᵢⱼ|²), and a pivot that is not finite is refused by its bit pattern (damp::isfinite)
+ * before the floor is read. The floor test alone does not refuse it: under
+ * -ffinite-math-only GCC folds the negated comparison into ≤, which a NaN fails, so a NaN
+ * pivot factored and cholesky_solve() returned NaN.
+ *
  * @note Compare with MATLAB®'s chol(A, 'lower').
  * @see Golub & Van Loan, "Matrix Computations" (4th ed., 2013), §4.2
  *
@@ -143,7 +149,8 @@ constexpr damp::optional<Matrix<N, N, T>> cholesky(const Matrix<N, N, T>& A) {
                 } else {
                     diag_val = damp::real(sum);
                 }
-                if (!(diag_val > real_t{16} * static_cast<real_t>(i + 1) * eps<T>() * mag)) {
+                // Finiteness first: -ffinite-math-only folds !(d > floor) into d ≤ floor, false for a NaN d.
+                if (!detail::is_finite_entry(sum) || !(diag_val > real_t{16} * static_cast<real_t>(i + 1) * eps<T>() * mag)) {
                     return damp::nullopt;
                 }
                 L(i, j) = damp::sqrt(diag_val);
@@ -236,7 +243,8 @@ constexpr damp::optional<LDLT<N, T>> ldlt(const Matrix<N, N, T>& A) {
  * it is taken as zero. The pivot is the largest entry that is not roundoff, eliminated with
  * |lᵢⱼ| ≤ 1, and damp::nullopt is returned when it does not exceed N·64·eps·mᵢⱼ (the column
  * is lost to cancellation, or an entry that still carries digits is too small to pivot on),
- * or for a non-finite entry.
+ * for a non-finite entry of A, or for a pivot that the elimination overflowed to a non-finite
+ * value.
  * The roundoff test is invariant to row and column scaling, so graded but well-posed systems
  * such as [[1, 10¹⁶], [0, 1]] still factor when their cancellation residues stay within the
  * 16·(i+1)·eps bound, and a row whose largest entry is cancellation roundoff does not hide a
@@ -288,8 +296,10 @@ lu_decomposition(const Matrix<N, N, T>& A) {
 
         // The pivot must clear the N·64·eps floor. One below it either is lost to cancellation
         // or still carries digits while being too small; skipping it for a smaller entry would
-        // perturb A by more than the pivot.
-        if (max_row == N || !(max_val > rel * mag(max_row, i))) {
+        // perturb A by more than the pivot. A finite A can still overflow to Inf − Inf = NaN in
+        // the elimination, and under -ffinite-math-only the roundoff and floor tests can pass a
+        // NaN, so finiteness is tested on its bits.
+        if (max_row == N || !detail::is_finite_entry(U(max_row, i)) || !(max_val > rel * mag(max_row, i))) {
             return damp::nullopt;
         }
 

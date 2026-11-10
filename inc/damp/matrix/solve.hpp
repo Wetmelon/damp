@@ -92,7 +92,8 @@ constexpr ColVec<N, T> backward_substitute_transpose(const Matrix<N, N, T>& L, c
  * @brief Solve lower-triangular system LX = B via forward substitution
  *
  * Requires nonsingular lower-triangular @p L. Returns damp::nullopt if any
- * diagonal entry is exactly zero.
+ * diagonal entry is exactly zero or is not finite (tested on its bits, which
+ * -ffinite-math-only cannot fold away).
  */
 template<size_t N, size_t M, typename T>
 constexpr damp::optional<Matrix<N, M, damp::remove_const_t<T>>>
@@ -101,7 +102,7 @@ solve(const LowerTriangle<N, T>& L, const Matrix<N, M, damp::remove_const_t<T>>&
     using Result = Matrix<N, M, VT>;
 
     for (size_t i = 0; i < N; ++i) {
-        if (!(damp::abs(L(i, i)) > 0)) {
+        if (!detail::is_finite_entry(L(i, i)) || !(damp::abs(L(i, i)) > 0)) {
             return damp::nullopt;
         }
     }
@@ -121,7 +122,8 @@ solve(const LowerTriangle<N, T>& L, const Matrix<N, M, damp::remove_const_t<T>>&
 /**
  * @brief Solve upper-triangular system UX = B via backward substitution
  *
- * Returns damp::nullopt if any diagonal entry is exactly zero.
+ * Returns damp::nullopt if any diagonal entry is exactly zero or is not finite
+ * (tested on its bits, which -ffinite-math-only cannot fold away).
  */
 template<size_t N, size_t M, typename T>
 constexpr damp::optional<Matrix<N, M, damp::remove_const_t<T>>>
@@ -130,7 +132,7 @@ solve(const UpperTriangle<N, T>& U, const Matrix<N, M, damp::remove_const_t<T>>&
     using Result = Matrix<N, M, VT>;
 
     for (size_t i = 0; i < N; ++i) {
-        if (!(damp::abs(U(i, i)) > 0)) {
+        if (!detail::is_finite_entry(U(i, i)) || !(damp::abs(U(i, i)) > 0)) {
             return damp::nullopt;
         }
     }

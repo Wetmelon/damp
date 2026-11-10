@@ -141,10 +141,10 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`ConvertsExactly`](inc/damp/matrix/matrix_traits.hpp#L76) | Matrix elements of type From convert to To without rounding: the same type, or a real into the complex of its own precision |
 | [`Diagonal`](inc/damp/matrix/views.hpp#L29) | Diagonal view of a square matrix |
 | [`EigenResult`](inc/damp/matrix/eigen.hpp#L39) | Eigenvalue computation result |
-| [`FullQR`](inc/damp/matrix/decomposition.hpp#L513) | Result of a full (complete) QR factorization |
+| [`FullQR`](inc/damp/matrix/decomposition.hpp#L523) | Result of a full (complete) QR factorization |
 | [`GeneralizedEigenResult`](inc/damp/matrix/generalized_eigen.hpp#L60) | Generalized eigenvalues of A − λB: the finite ones, and how many there are |
 | [`is_matrix_element`](inc/damp/matrix/matrix_traits.hpp#L38) | True if T may be a Matrix element type |
-| [`LDLT`](inc/damp/matrix/decomposition.hpp#L161) | LDLᴴ factors: A = L D Lᴴ with L unit lower-triangular and D real diagonal |
+| [`LDLT`](inc/damp/matrix/decomposition.hpp#L168) | LDLᴴ factors: A = L D Lᴴ with L unit lower-triangular and D real diagonal |
 | [`LowerTriangle`](inc/damp/matrix/views.hpp#L163) | Lower triangular view of a square matrix |
 | [`Matrix`](inc/damp/matrix/core.hpp#L265) | Fixed-size, stack-allocated matrix for linear algebra operations |
 | [`MatrixLike`](inc/damp/matrix/matrix_traits.hpp#L94) | Concept for any type that provides 2D matrix-like element access |
@@ -152,7 +152,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`NullSpace`](inc/damp/matrix/svd.hpp#L434) | Orthonormal basis for the null space (kernel) of a matrix |
 | [`PatternEntry`](inc/damp/matrix/pattern_matrix.hpp#L21) | What an entry of a sparsity pattern is known to be at compile time |
 | [`PatternMatrix`](inc/damp/matrix/pattern_matrix.hpp#L215) | The runtime values of a sparsity pattern, and nothing else: an entry the pattern knows has no storage, and in a product it has no term (a 0) or no multiply (a 1) |
-| [`QRDecomposition`](inc/damp/matrix/decomposition.hpp#L395) | Thin QR factorization A = QR (Householder) |
+| [`QRDecomposition`](inc/damp/matrix/decomposition.hpp#L405) | Thin QR factorization A = QR (Householder) |
 | [`RowVec`](inc/damp/matrix/rowvec.hpp#L26) | Row vector specialization of Matrix<1, N, T> |
 | [`RowView`](inc/damp/matrix/views.hpp#L201) | Non-owning row view of a matrix |
 | [`SamePrecision`](inc/damp/matrix/matrix_traits.hpp#L83) | Two matrix element types mix in one operator without rounding: equal, or a real and the complex of its own precision |
@@ -169,8 +169,8 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`any_of`](inc/damp/matrix/core.hpp#L1550) | Whether p holds for some entry of A: the matrix counterpart of std::any_of |
 | [`backward_substitute_transpose`](inc/damp/matrix/solve.hpp#L76) | Backward substitution for Lᴴx = b (Lᵀx = b for real T) |
 | [`blkdiag`](inc/damp/matrix/concat.hpp#L133) | Block-diagonal assembly of MatrixLike arguments |
-| [`cholesky`](inc/damp/matrix/decomposition.hpp#L122) | Cholesky decomposition for positive-definite matrices |
-| [`cholesky_solve`](inc/damp/matrix/solve.hpp#L160) | Solve AX = B via Cholesky (A = LLᴴ) |
+| [`cholesky`](inc/damp/matrix/decomposition.hpp#L128) | Cholesky decomposition for positive-definite matrices |
+| [`cholesky_solve`](inc/damp/matrix/solve.hpp#L162) | Solve AX = B via Cholesky (A = LLᴴ) |
 | [`compute_eigenvalues`](inc/damp/matrix/eigen.hpp#L768) | Compute the eigenvalues (and Schur vectors) of a real square matrix |
 | [`cos`](inc/damp/matrix/functions.hpp#L1350) | Matrix cosine via scaling and double-angle reconstruction |
 | [`cosh`](inc/damp/matrix/functions.hpp#L1384) | Matrix hyperbolic cosine cosh(A) = (exp(A) + exp(−A))/2 |
@@ -180,22 +180,22 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`eps`](inc/damp/matrix/matrix_traits.hpp#L111) | Machine epsilon of T's real scalar (MATLAB® eps). Scale it by problem size and magnitude to build a relative tolerance |
 | [`expm`](inc/damp/matrix/functions.hpp#L693) | Matrix exponential by scaling and squaring (Al-Mohy & Higham 2009) |
 | [`forward_substitute`](inc/damp/matrix/solve.hpp#L52) | Forward substitution for Lx = b |
-| [`full_qr`](inc/damp/matrix/decomposition.hpp#L531) | Full QR factorization via Householder reflections (real or complex T) |
+| [`full_qr`](inc/damp/matrix/decomposition.hpp#L541) | Full QR factorization via Householder reflections (real or complex T) |
 | [`generalized_eigenvalues`](inc/damp/matrix/generalized_eigen.hpp#L508) | Generalized eigenvalues of the real pencil A − λB: the λ with det(A − λB) = 0 |
 | [`hcat`](inc/damp/matrix/concat.hpp#L157) | Horizontal concatenation (same row count) |
 | [`infinity_norm`](inc/damp/matrix/functions.hpp#L39) | Infinity norm ‖A‖∞: maximum absolute row sum |
-| [`inverse`](inc/damp/matrix/solve.hpp#L299) | Matrix inverse A⁻¹ via mat::solve(A, I) |
+| [`inverse`](inc/damp/matrix/solve.hpp#L301) | Matrix inverse A⁻¹ via mat::solve(A, I) |
 | [`is_symmetric_or_hermitian`](inc/damp/matrix/decomposition.hpp#L89) | True if A equals its transpose (real) or conjugate transpose (complex) |
-| [`ldlt`](inc/damp/matrix/decomposition.hpp#L189) | LDLᴴ decomposition of a symmetric (Hermitian) matrix, no pivoting |
-| [`ldlt_solve`](inc/damp/matrix/solve.hpp#L190) | Solve AX = B via LDLᴴ (A = L D Lᴴ, symmetric indefinite) |
+| [`ldlt`](inc/damp/matrix/decomposition.hpp#L196) | LDLᴴ decomposition of a symmetric (Hermitian) matrix, no pivoting |
+| [`ldlt_solve`](inc/damp/matrix/solve.hpp#L192) | Solve AX = B via LDLᴴ (A = L D Lᴴ, symmetric indefinite) |
 | [`log`](inc/damp/matrix/functions.hpp#L1028) | Principal matrix logarithm via inverse scaling and squaring |
-| [`lu_decomposition`](inc/damp/matrix/decomposition.hpp#L252) | LU decomposition with partial pivoting |
-| [`lu_solve`](inc/damp/matrix/solve.hpp#L221) | Solve AX = B via LU with partial pivoting |
+| [`lu_decomposition`](inc/damp/matrix/decomposition.hpp#L260) | LU decomposition with partial pivoting |
+| [`lu_solve`](inc/damp/matrix/solve.hpp#L223) | Solve AX = B via LU with partial pivoting |
 | [`null_space`](inc/damp/matrix/svd.hpp#L455) | Orthonormal basis for the null space {x : A·x = 0} via SVD |
 | [`one_norm`](inc/damp/matrix/functions.hpp#L68) | One-norm ‖A‖₁: maximum absolute column sum |
 | [`pow`](inc/damp/matrix/functions.hpp#L1130) | Integer matrix power via binary exponentiation (+1 more overload) |
 | [`pseudo_inverse`](inc/damp/matrix/svd.hpp#L401) | Moore–Penrose pseudoinverse A⁺ via SVD |
-| [`qr_decompose`](inc/damp/matrix/decomposition.hpp#L442) | Thin QR via Householder reflections |
+| [`qr_decompose`](inc/damp/matrix/decomposition.hpp#L452) | Thin QR via Householder reflections |
 | [`quadratic_form`](inc/damp/matrix/core.hpp#L1355) | Symmetric congruence (quadratic) form  S = M X Mᵀ (+1 more overload) |
 | [`quadratic_form_in_place`](inc/damp/matrix/pattern_matrix.hpp#L341) | S ← F S Fᵀ in place, for a symmetric S: every multiply the pattern can skip, skipped |
 | [`rank`](inc/damp/matrix/functions.hpp#L231) | Numerical rank: the number of singular values above rel_tol·σₘₐₓ |
@@ -203,7 +203,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`sin`](inc/damp/matrix/functions.hpp#L1333) | Matrix sine via scaling and double-angle reconstruction |
 | [`sincos`](inc/damp/matrix/functions.hpp#L1317) | Compute sin(A) and cos(A) together via scaling and double-angle reconstruction |
 | [`sinh`](inc/damp/matrix/functions.hpp#L1368) | Matrix hyperbolic sine sinh(A) = (exp(A) − exp(−A))/2 |
-| [`solve`](inc/damp/matrix/solve.hpp#L271) | Solve AX = B — Cholesky when Hermitian, else LU (+2 more overloads) |
+| [`solve`](inc/damp/matrix/solve.hpp#L273) | Solve AX = B — Cholesky when Hermitian, else LU (+2 more overloads) |
 | [`sqrt`](inc/damp/matrix/functions.hpp#L983) | Principal matrix square root by the real Schur method |
 | [`svd`](inc/damp/matrix/svd.hpp#L331) | Full singular value decomposition A = U·Σ·Vᴴ (one-sided Jacobi) |
 | [`times_transpose`](inc/damp/matrix/pattern_matrix.hpp#L317) | A dense matrix times Hᵀ for a sparse H: A Hᵀ |
