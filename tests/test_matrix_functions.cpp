@@ -688,6 +688,11 @@ TEST_SUITE("Matrix Functions") {
         const Matrix<3, 3, T> D_inv{{T(1024), T(0), T(0)}, {T(0), T(1), T(0)}, {T(0), T(0), T(1) / T(1024)}};
         const auto            E = mat::expm(M);
         REQUIRE(E.has_value());
+        // Balancing takes the grading out in full, up to a common shift, so the two logs run the
+        // same arithmetic. Stopping short (a spread of 16 left) cost float 43–82 eps, by host.
+        const auto e = mat::detail::balance_exponents(Matrix<3, 3, T>(D * E.value() * D_inv));
+        CHECK(e[1] - e[0] == 10);
+        CHECK(e[2] - e[1] == 10);
         const auto L = mat::log(Matrix<3, 3, T>(D * E.value() * D_inv));
         const auto L_ref = mat::log(E.value());
         REQUIRE(L.has_value());

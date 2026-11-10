@@ -7,6 +7,12 @@ and this project uses [Semantic Versioning](https://semver.org/) for tags.
 0.x releases may break API without a deprecation cycle (see [AGENTS.md](AGENTS.md)
 and [known limitations](docs/known_limitations.md)).
 
+## [Unreleased]
+
+### Fixed
+
+- Balancing takes a matrix's grading out in full again, and keeps it only where it pays, so `logm` of a graded matrix in float has the accuracy of the ungraded one (0.2.1 lost up to 16×, and failed a test on some hosts). A matrix of one scale is still left unscaled.
+
 ## [0.2.1] — 2026-11-10
 
 Numerical robustness fixes across the matrix core, tested in float first, and Damp on the PlatformIO registry.
@@ -134,6 +140,7 @@ Runtime controllers and estimators default to `float`; design synthesis defaults
 
 See [docs/known_limitations.md](docs/known_limitations.md).
 
+[Unreleased]: https://github.com/Wetmelon/damp/compare/v0.2.1...HEAD
 [0.2.1]: https://github.com/Wetmelon/damp/releases/tag/v0.2.1
 [0.2.0]: https://github.com/Wetmelon/damp/releases/tag/v0.2.0
 [0.1.0]: https://github.com/Wetmelon/damp/releases/tag/v0.1.0

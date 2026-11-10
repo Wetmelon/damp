@@ -135,9 +135,9 @@ template<typename T>
  * @brief log2 of the xGEBAL scale factors of @p A.
  *
  * @p A is overwritten by D⁻¹ A D with D = diag(2^exp). The row and column norms
- * include whatever diagonal the caller leaves: balance_exponents keeps it, as
- * LAPACK ≥ 3.5.0 does, and the Hamiltonian balance clears it, as Benner's
- * symplectic recipe and SciPy's CARE do. Row and column norms are scaled
+ * include whatever diagonal the caller leaves: balance_block clears it, as Parlett
+ * and Reinsch do, and so does the Hamiltonian balance, as Benner's symplectic recipe
+ * and SciPy's CARE do. Row and column norms are scaled
  * (damp::detail::scaled_norm2), so entries anywhere in the finite range balance:
  * a plain sum of squares overflows past √max and flushes small rows to zero.
  *
@@ -210,17 +210,76 @@ template<size_t M, typename T>
 }
 
 /**
+ * @brief Balance the block [@p lo, @p hi] of the magnitudes @p mag, keeping D only where it pays.
+ *
+ * The off-diagonal part is balanced to its norm optimum (gebal_log2_scale with the block's
+ * diagonal cleared; D⁻¹AD leaves the diagonal as it is), which takes a grading out in full. D is
+ * then kept only when it lowers the bound on the backward error of a result mapped back through
+ * it. For the balanced matrix that bound is κ(D)·‖D⁻¹AD‖_F/‖A‖_F units of roundoff (James,
+ * Langou & Lowery, 2014, §4); for the matrix as it is, measured in the balanced units, it is
+ * ‖A‖_F/‖D⁻¹AD‖_F. So D is kept when ρ² > κ(D), with ρ = ‖A‖_F/‖D⁻¹AD‖_F and
+ * κ(D) = 2^(max e − min e). A graded matrix, whose norm falls by about κ(D), keeps its grading.
+ * A matrix of one scale, whose D only evens out its rows, is left alone: a similarity of a 3×3
+ * Jordan block takes κ(D) = 16 for ρ = 1.16, and its square root lost up to 9× with that D.
+ *
+ * Counting the diagonal in the row and column norms, as xGEBAL has since LAPACK 3.5.0, also
+ * avoids the second case but stops short on the first: a 3×3 graded by 2^±10 kept a spread of
+ * 16, and its float logm lost 8×.
+ *
+ * @p mag is scratch. @p e must start at zero, and stays zero when D does not pay.
+ * @return false, with @p e untouched, if @p mag holds a non-finite entry.
+ * @see "On pre-conditioning of matrices" (Osborne, 1960)
+ * @see "On matrix balancing and eigenvector computation" (James, Langou & Lowery, 2014), §4
+ */
+template<size_t M, typename T>
+[[nodiscard]] constexpr bool balance_block(Matrix<M, M, T>& mag, damp::array<int, M>& e, size_t lo = 0, size_t hi = M - 1) {
+    if (!mat::all_of(mag, [](T v) { return damp::isfinite(v); })) {
+        return false;
+    }
+    if constexpr (M == 0) {
+        return true; // hi = M − 1 wraps: nothing to scale
+    }
+    const size_t width = hi - lo + 1;
+    const auto   block_norm = [&] {
+        return damp::detail::scaled_norm2<T>(width * width, [&](size_t k) { return mag(lo + (k / width), lo + (k % width)); });
+    };
+    const T           before = block_norm();
+    damp::array<T, M> diag{};
+    for (size_t i = lo; i <= hi; ++i) {
+        diag[i] = mag(i, i);
+        mag(i, i) = T{0};
+    }
+    damp::array<int, M> trial{};
+    (void)gebal_log2_scale(mag, trial, lo, hi); // finite: checked above
+    for (size_t i = lo; i <= hi; ++i) {
+        mag(i, i) = diag[i];
+    }
+    int emin = trial[lo];
+    int emax = trial[lo];
+    for (size_t i = lo; i <= hi; ++i) {
+        emin = damp::min(emin, trial[i]);
+        emax = damp::max(emax, trial[i]);
+    }
+    //! ρ > √κ(D) as ‖A‖ > 2^(spread/2)·‖D⁻¹AD‖, the odd half power as √2, so nothing overflows
+    const int spread = emax - emin;
+    T         bound = scale_by_pow2(block_norm(), spread / 2);
+    if ((spread % 2) != 0) {
+        bound *= static_cast<T>(1.4142135623730951);
+    }
+    if (before > bound) {
+        e = trial;
+    }
+    return true;
+}
+
+/**
  * @brief xGEBAL scaling exponents of @p A: D = diag(2^e) with D⁻¹ A D balanced.
  *
- * Row and column 2-norms of the balanced matrix agree to within a factor of two. A
- * similarity transform, so the eigenvalues are unchanged, but the QR iteration then
- * computes them to a relative accuracy that does not depend on the units of each state.
- *
- * The norms include the diagonal, as xGEBAL's have since LAPACK 3.5.0. Without it a matrix
- * whose diagonal dominates is over-balanced. A result mapped back by D (eigenvectors, a
- * Schur basis, √A, log A) has a backward error bounded only by κ(D)·‖D⁻¹AD‖_F/‖A‖_F
- * units of roundoff. A similarity of a 3×3 Jordan block took κ(D) = 16 for a 1.16× smaller
- * norm, and its square root lost up to 9× in accuracy; with the diagonal, D = I.
+ * Off-diagonal row and column 2-norms of the balanced matrix agree to within a factor of
+ * two. A similarity transform, so the eigenvalues are unchanged, but the QR iteration then
+ * computes them to a relative accuracy that does not depend on the units of each state. D is
+ * kept only where it pays: see balance_block, which also says why the norms leave out the
+ * diagonal, unlike xGEBAL's since LAPACK 3.5.0.
  *
  * Scaling only, over the whole matrix: the conditioning step for rank and pencil tests that do
  * not reduce A itself. A Schur reduction balances with permute_and_scale (real_schur), which
@@ -239,7 +298,7 @@ template<size_t N, typename T>
         }
     }
     damp::array<int, N> e{};
-    if (!gebal_log2_scale(mag, e)) {
+    if (!balance_block(mag, e)) {
         return damp::array<int, N>{}; // a non-finite entry: leave A unscaled
     }
     return e;
@@ -311,7 +370,7 @@ template<size_t N, typename T>
  * Then a column whose entries in rows [lo, hi] are zero off the diagonal moves to position lo, and
  * the search repeats on [lo + 1, hi]. No column found then can turn a row into an isolated one: an
  * isolated column has no nonzero in a row of the block. Each search moves one index or ends, so
- * each takes at most N passes. The block [lo, hi] is then scaled (gebal_log2_scale).
+ * each takes at most N passes. The block [lo, hi] is then scaled (balance_block).
  *
  * The exchanges are exact, so a triangular A, or one a permutation makes triangular (a cascade,
  * an integrator appended to a plant), keeps every eigenvalue exact: the Hessenberg reduction and
@@ -366,7 +425,7 @@ template<size_t N, typename T>
     }
     out.lo = lo;
     out.hi = hi;
-    if (lo < hi && !gebal_log2_scale(mag, out.e, lo, hi)) {
+    if (lo < hi && !balance_block(mag, out.e, lo, hi)) {
         out.e = damp::array<int, N>{}; // a non-finite entry: leave the block unscaled
     }
     return out;

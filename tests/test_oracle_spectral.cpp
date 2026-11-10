@@ -26,9 +26,10 @@ TEST_SUITE("Oracle conformance") {
     TEST_CASE("sqrtm squares back to A and matches scipy") {
         run_cases<oracle::sqrtm_cases>([]<typename C, typename T>() { check_sqrtm<C, T>(); });
     }
-    TEST_CASE("balancing counts the diagonal: a graded matrix is balanced, one of a single scale is not") {
-        // Without the diagonal, sqrtm_jordan_3 took κ(D) = 16 and its root lost up to 9× in accuracy,
-        // which only some instruction schedules pushed past the limit: check D itself, on every host.
+    TEST_CASE("balancing keeps a graded matrix's scaling and leaves one of a single scale alone") {
+        // Balanced to its norm optimum, sqrtm_jordan_3 takes κ(D) = 16 for a 1.16× smaller norm, which
+        // does not pay: kept, its root lost up to 9×, past the limit on some instruction schedules.
+        // Check D itself, on every host.
         using J = oracle::sqrtm_jordan_3;
         using G = oracle::sqrtm_graded_4;
         CHECK(mat::detail::balance_exponents(load<J::n, J::n, double>(J::A)) == damp::array<int, J::n>{});

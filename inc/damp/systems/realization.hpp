@@ -62,9 +62,10 @@ struct [[nodiscard]] StateScaling {
  * @f$ \left[\begin{smallmatrix} A & B \\ C & 0 \end{smallmatrix}\right] @f$ with the inputs
  * and outputs held fixed: only the states are scaled, x = D·x̃ with D = diag(2^e), giving
  * @f$ (D^{-1} A D,\; D^{-1} B,\; C D,\; D) @f$ and @f$ D^{-1} G @f$ for the noise input.
- * Each state's row (its A row and B row) and column (its A column and C column), diagonal
- * included as in xGEBAL since LAPACK 3.5.0, then have 2-norms within a factor of two of each
- * other; a state whose own dynamics dominate is left alone. A state in counts beside one in metres stops
+ * Each state's row (its A row and B row) and column (its A column and C column), off the
+ * diagonal, then have 2-norms within a factor of two of each other. The scaling is kept only
+ * where it pays (mat::detail::balance_block), so a state whose own dynamics dominate its
+ * couplings is left alone. A state in counts beside one in metres stops
  * costing digits in eigenvalue, Riccati and frequency-response computations. The scaling is
  * a similarity by powers of two, so it is exact and the transfer function does not change.
  *
@@ -92,7 +93,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
     }
     damp::array<int, NX + 1>            e{};
     StateScaling<NX, NU, NY, T, NW, NV> out{.sys = sys};
-    if (!mat::detail::gebal_log2_scale(mag, e)) {
+    if (!mat::detail::balance_block(mag, e)) {
         return out; // a non-finite entry: leave the model unscaled
     }
     //! A common shift leaves D⁻¹AD unchanged; shifting the I/O index to 0 makes it a pure state scaling.

@@ -129,9 +129,9 @@ TEST_SUITE("State balancing (prescale / ssbal)") {
     }
 
     TEST_CASE("balance_states counts each state's own dynamics: a dominant diagonal is left alone") {
-        //! Couplings of 100 and 0.01 beside poles at −1000: each state's row and column already
-        //! agree once the diagonal counts, as in xGEBAL since LAPACK 3.5.0. Without it the
-        //! couplings alone set the scale: exponents +2 and −2.
+        //! Couplings of 100 and 0.01 beside poles at −1000: balancing the couplings takes
+        //! exponents +2 and −2 (κ(D) = 16) for a norm a fraction of a percent smaller, which
+        //! does not pay, so the states stay as they are.
         constexpr StateSpace<2, 1, 1> stiff{
             .A = Matrix<2, 2>{{-1000.0, 100.0}, {0.01, -1000.0}},
             .B = Matrix<2, 1>{{1.0}, {1.0}},
