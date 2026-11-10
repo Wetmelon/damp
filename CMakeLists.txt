@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 project(damp
-    VERSION 0.2.1
+    VERSION 0.2.2
     LANGUAGES CXX
     DESCRIPTION "Header-only C++20 control systems library for embedded systems"
 )

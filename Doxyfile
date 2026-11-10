@@ -5,7 +5,7 @@
 #---------------------------------------------------------------------------
 DOXYFILE_ENCODING      = UTF-8
 PROJECT_NAME           = "Damp"
-PROJECT_NUMBER         = "0.2.1"
+PROJECT_NUMBER         = "0.2.2"
 PROJECT_BRIEF          = "Header-only C++20 control design for embedded targets (Design Is Deploy)"
 PROJECT_LOGO           =
 PROJECT_ICON           =

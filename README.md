@@ -2,7 +2,7 @@
 
 Compile-time controls for embedded C++. Header-only, C++20.
 
-v0.2.1 (alpha) · [CHANGELOG](CHANGELOG.md) · [Guide](docs/guide.md) · BSL-1.0 ([LICENSE](LICENSE))
+v0.2.2 (alpha) · [CHANGELOG](CHANGELOG.md) · [Guide](docs/guide.md) · BSL-1.0 ([LICENSE](LICENSE))
 
 `design::lqr` (and the rest) run at compile time or init. The MCU keeps a small
 runtime and calls `step` every tick. SIL uses that same object. Hardware variants
@@ -27,14 +27,14 @@ CMake, FetchContent or `find_package`, same target:
 include(FetchContent)
 FetchContent_Declare(damp
     GIT_REPOSITORY https://github.com/Wetmelon/damp.git
-    GIT_TAG v0.2.1     # 0.x: pin a commit or tag; the API can move
+    GIT_TAG v0.2.2     # 0.x: pin a commit or tag; the API can move
     GIT_SUBMODULES ""  # libs/ is only for this repo's own tests and examples
 )
 FetchContent_MakeAvailable(damp)
 target_link_libraries(your_fw PRIVATE wetmelon::damp)
 ```
 
-PlatformIO, from the registry: `lib_deps = wetmelon/damp@^0.2.1` puts `inc/` on the include path. The package holds the headers, the docs and the license, no submodules. C++20 has to be on for C++ only, since `-std=gnu++20` in `build_flags` also reaches every C file of the framework: append it to `CXXFLAGS` from a `pre:` script, as [targets/pio_cxx_flags.py](targets/pio_cxx_flags.py) does, and `build_unflags` the platform's older `-std`. On a platform whose toolchain predates GCC 11, swap one in with `platform_packages`, for ARM `toolchain-gccarmnoneeabi@~1.120301.0` (GCC 12.3).
+PlatformIO, from the registry: `lib_deps = wetmelon/damp@^0.2.2` puts `inc/` on the include path. The package holds the headers, the docs and the license, no submodules. C++20 has to be on for C++ only, since `-std=gnu++20` in `build_flags` also reaches every C file of the framework: append it to `CXXFLAGS` from a `pre:` script, as [targets/pio_cxx_flags.py](targets/pio_cxx_flags.py) does, and `build_unflags` the platform's older `-std`. On a platform whose toolchain predates GCC 11, swap one in with `platform_packages`, for ARM `toolchain-gccarmnoneeabi@~1.120301.0` (GCC 12.3).
 
 GCC 11.3+ (tested with 14) and Clang 19+. MSVC is not supported. On Windows, Clang needs `--target=x86_64-w64-mingw32` and a MinGW GCC installed for its libstdc++. [Known issues](docs/known_issues.md) lists the compiler bugs that change results, among them GCC 15's `pow(0, y)` under `-ffast-math`.
 
