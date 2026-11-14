@@ -55,7 +55,7 @@ constexpr double kTheta = 0.14;
  * with [v; e] held). The law reads the plant state and holds its registers itself.
  */
 template<size_t NI, typename L>
-double continuous_cost(L& law, const design::LQRConfig<2, 1, NI>& w, const ColVec<2>& x0, double xi0, int periods) {
+double continuous_cost(L& law, const design::detail::lq_config<2, 1, NI, double>& w, const ColVec<2>& x0, double xi0, int periods) {
     constexpr size_t      NE = 2 + NI;
     constexpr size_t      NH = 1 + NI;
     const auto            p = plant();
@@ -111,8 +111,8 @@ double continuous_cost(L& law, const design::LQRConfig<2, 1, NI>& w, const ColVe
 
 TEST_SUITE("Delayed laws") {
     TEST_CASE("LQR with an InputDelay: the closed loop's continuous cost is the one the design predicts") {
-        const design::LQRConfig<2, 1, 0> w{.Q = Matrix<2, 2>{{10.0, 0.0}, {0.0, 1.0}}, .R = Matrix<1, 1>{{0.1}}};
-        const auto                       res = design::lqr(plant(), kTs, InputDelay<2>{kTheta}, w);
+        const design::LQRConfig<2, 1> w{.Q = Matrix<2, 2>{{10.0, 0.0}, {0.0, 1.0}}, .R = Matrix<1, 1>{{0.1}}};
+        const auto                    res = design::lqr(plant(), kTs, InputDelay<2>{kTheta}, w);
         REQUIRE(res.success);
         REQUIRE(res.is_stable());
         LQR             law{res};
@@ -124,7 +124,7 @@ TEST_SUITE("Delayed laws") {
     }
 
     TEST_CASE("LQI with an InputDelay: the closed loop's continuous cost, integrator included, is the one the design predicts") {
-        const design::LQRConfig<2, 1, 1> w{.Q = Matrix<2, 2>{{10.0, 0.0}, {0.0, 1.0}}, .R = Matrix<1, 1>{{0.1}}, .Q_integral = Matrix<1, 1>{{5.0}}};
+        const design::LQIConfig<2, 1, 1> w{.Q = Matrix<2, 2>{{10.0, 0.0}, {0.0, 1.0}}, .R = Matrix<1, 1>{{0.1}}, .Q_integral = Matrix<1, 1>{{5.0}}};
         const auto                       res = design::lqi(plant(), kTs, InputDelay<2>{kTheta}, w);
         REQUIRE(res.success);
         REQUIRE(res.is_stable());
@@ -137,7 +137,7 @@ TEST_SUITE("Delayed laws") {
     }
 
     TEST_CASE("an InputDelay of zero is the design without one, the registers unread") {
-        const design::LQRConfig<2, 1, 1> w{.Q = Matrix<2, 2>{{10.0, 0.0}, {0.0, 1.0}}, .R = Matrix<1, 1>{{0.1}}, .Q_integral = Matrix<1, 1>{{5.0}}};
+        const design::LQIConfig<2, 1, 1> w{.Q = Matrix<2, 2>{{10.0, 0.0}, {0.0, 1.0}}, .R = Matrix<1, 1>{{0.1}}, .Q_integral = Matrix<1, 1>{{5.0}}};
         const auto                       late = design::lqi(plant(), kTs, InputDelay<2>{0.0}, w);
         const auto                       now = design::lqi(plant(), kTs, w);
         REQUIRE(late.success);
@@ -149,15 +149,15 @@ TEST_SUITE("Delayed laws") {
         CHECK(damp::abs(late.K(0, 2)) <= 1e-9 * scale);
         CHECK(damp::abs(late.K(0, 3)) <= 1e-9 * scale);
 
-        const design::LQRConfig<2, 1, 0> wr{.Q = w.Q, .R = w.R};
-        const auto                       lqr_late = design::lqr(plant(), kTs, InputDelay<1>{0.0}, wr);
-        const auto                       lqr_now = design::lqr(plant(), kTs, wr);
+        const design::LQRConfig<2, 1> wr{.Q = w.Q, .R = w.R};
+        const auto                    lqr_late = design::lqr(plant(), kTs, InputDelay<1>{0.0}, wr);
+        const auto                    lqr_now = design::lqr(plant(), kTs, wr);
         REQUIRE(lqr_late.success);
         CHECK((lqr_late.K.template block<1, 2>(0, 0) - lqr_now.K).norm() <= 1e-9 * lqr_now.K.norm());
     }
 
     TEST_CASE("the law holds what back_calculate recorded, newest first, and a reference point holds u* in them") {
-        const design::LQRConfig<2, 1, 1> w{.Q = Matrix<2, 2>{{10.0, 0.0}, {0.0, 1.0}}, .R = Matrix<1, 1>{{0.1}}, .Q_integral = Matrix<1, 1>{{5.0}}};
+        const design::LQIConfig<2, 1, 1> w{.Q = Matrix<2, 2>{{10.0, 0.0}, {0.0, 1.0}}, .R = Matrix<1, 1>{{0.1}}, .Q_integral = Matrix<1, 1>{{5.0}}};
         const auto                       res = design::lqi(plant(), kTs, InputDelay<3>{0.25}, w);
         REQUIRE(res.success);
         LQI             law{res};
@@ -212,8 +212,8 @@ TEST_SUITE("Delayed laws") {
     }
 
     TEST_CASE("refusals: a discrete plant, a delay past the registers, an input cost that is not positive definite") {
-        const design::LQRConfig<2, 1, 0> w{.Q = Matrix<2, 2>::identity(), .R = Matrix<1, 1>{{0.1}}};
-        const auto                       discrete = discretize(plant(), kTs).value();
+        const design::LQRConfig<2, 1> w{.Q = Matrix<2, 2>::identity(), .R = Matrix<1, 1>{{0.1}}};
+        const auto                    discrete = discretize(plant(), kTs).value();
         CHECK(design::lqr(discrete, kTs, InputDelay<2>{kTheta}, w).status == design::DesignStatus::invalid_sample_time);
         CHECK(design::lqr(plant(), kTs, InputDelay<1>{kTheta}, w).status == design::DesignStatus::invalid_parameter);
         CHECK(design::lqr(plant(), kTs, InputDelay<2>{kTheta}, {.Q = w.Q, .R = Matrix<1, 1>{{0.0}}}).status == design::DesignStatus::bad_weights);
@@ -223,8 +223,8 @@ TEST_SUITE("Delayed laws") {
 namespace {
 
 const design::KalmanNoise<2, 1>  kNoise{.process = Matrix<2, 2>{{0.01, 0.0}, {0.0, 0.1}}, .measurement = Matrix<1, 1>{{1e-4}}};
-const design::LQRConfig<2, 1, 0> kW{.Q = Matrix<2, 2>{{10.0, 0.0}, {0.0, 1.0}}, .R = Matrix<1, 1>{{0.1}}};
-const design::LQRConfig<2, 1, 1> kWi{.Q = kW.Q, .R = kW.R, .Q_integral = Matrix<1, 1>{{5.0}}};
+const design::LQRConfig<2, 1>    kW{.Q = Matrix<2, 2>{{10.0, 0.0}, {0.0, 1.0}}, .R = Matrix<1, 1>{{0.1}}};
+const design::LQIConfig<2, 1, 1> kWi{.Q = kW.Q, .R = kW.R, .Q_integral = Matrix<1, 1>{{5.0}}};
 
 /// The plant with its noise channels: process noise on both states (G = I), one on the reading.
 constexpr StateSpace<2, 1, 1, double, 2, 1> noisy() {

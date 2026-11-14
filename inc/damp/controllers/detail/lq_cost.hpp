@@ -16,7 +16,6 @@
 #include "damp/controllers/state_feedback_types.hpp"
 #include "damp/design/riccati.hpp"
 #include "damp/math/math.hpp"
-#include "damp/matrix/block.hpp"
 #include "damp/matrix/functions.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "damp/systems/discretization.hpp"
@@ -110,7 +109,7 @@ template<size_t NX, size_t NU, size_t NY, size_t NI, typename T>
 
 /** @brief The weights on [x; xi]: Q and Q_integral on the diagonal, N on the plant's rows. */
 template<size_t NX, size_t NU, typename T, size_t NI>
-[[nodiscard]] constexpr LQRCost<NX + NI, NU, T> stacked_weights(const LQRConfig<NX, NU, NI, T>& w) {
+[[nodiscard]] constexpr LQRCost<NX + NI, NU, T> stacked_weights(const LQIConfig<NX, NU, NI, T>& w) {
     LQRCost<NX + NI, NU, T> out{.R = w.R};
     out.Q.template block<NX, NX>(0, 0) = w.Q;
     out.Q.template block<NI, NI>(NX, NX) = w.Q_integral;
@@ -141,7 +140,7 @@ template<size_t NX, size_t NU, size_t NY, size_t NI, typename T, size_t NW, size
     const StateSpace<NZ, NU, NY, T, NW, NV>&                 model, // discretize(sys, Ts, InputDelay<N>{θ})
     const damp::array<::damp::detail::RegisterDelay<T>, NU>& inputs,
     const Matrix<NI, NY, T>&                                 Ci,
-    const LQRConfig<NX, NU, NI, T>&                          w,
+    const lq_config<NX, NU, NI, T>&                          w,
     T                                                        Ts
 ) {
     constexpr size_t NL = NZ + NI;      // the law's state [z; ξ]
@@ -157,10 +156,12 @@ template<size_t NX, size_t NU, size_t NY, size_t NI, typename T, size_t NW, size
     S.template block<NX, NX>(0, 0) = w.Q;
     S.template block<NX, NU>(0, NE) = w.N;
     S.template block<NU, NX>(NE, 0) = w.N.t();
-    for (size_t i = 0; i < NI; ++i) {
-        F(NX + i, NE + NU + i) = T{-1};
-        for (size_t c = 0; c < NI; ++c) {
-            S(NX + i, NX + c) = w.Q_integral(i, c);
+    if constexpr (NI > 0) { // a regulator's LQRConfig has no Q_integral
+        for (size_t i = 0; i < NI; ++i) {
+            F(NX + i, NE + NU + i) = T{-1};
+            for (size_t c = 0; c < NI; ++c) {
+                S(NX + i, NX + c) = w.Q_integral(i, c);
+            }
         }
     }
 

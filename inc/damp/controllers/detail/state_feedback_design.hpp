@@ -30,6 +30,18 @@ namespace damp {
 namespace design {
 namespace detail {
 
+/** @brief The regulator's limit is usable (Bounds::valid). */
+template<size_t NX, size_t NU, typename T>
+[[nodiscard]] constexpr bool limits_valid(const LQRConfig<NX, NU, T>& w) {
+    return w.u_lim.valid();
+}
+
+/** @brief The limits on the command and on the integrators are usable (Bounds::valid). */
+template<size_t NX, size_t NU, size_t NI, typename T>
+[[nodiscard]] constexpr bool limits_valid(const LQIConfig<NX, NU, NI, T>& w) {
+    return w.u_lim.valid() && w.integral_lim.valid();
+}
+
 /** @brief The gain on the law's state. */
 template<typename Result, size_t NK, size_t NU, typename T>
 [[nodiscard]] constexpr Result with_gain(Result out, const LQRResult<NK, NU, T>& lq) {
@@ -45,7 +57,7 @@ template<typename Result, size_t NK, size_t NU, typename T>
  *        continuous law (CARE).
  */
 template<bool Discrete, size_t NI, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
-[[nodiscard]] constexpr auto law_design(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T Ts, const LQRConfig<NX, NU, NI, T>& w, const Matrix<NI, NY, T>& Ci) {
+[[nodiscard]] constexpr auto law_design(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T Ts, const lq_config<NX, NU, NI, T>& w, const Matrix<NI, NY, T>& Ci) {
     using Result = StateFeedbackResult<NX, NU, T, NI, ((NI > 0) ? NY : NX)>;
     if (!mat::cholesky(w.R).has_value()) {
         return ::damp::detail::refused<Result>(DesignStatus::bad_weights); // R not positive definite, on every route
@@ -103,7 +115,7 @@ template<size_t NI, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     T                                        Ts,
     const InputDelay<N, S>&                  delay,
-    const LQRConfig<NX, NU, NI, T>&          w,
+    const lq_config<NX, NU, NI, T>&          w,
     const Matrix<NI, NY, T>&                 Ci
 ) {
     using Result = StateFeedbackResult<NX, NU, T, NI, ((NI > 0) ? NY : NX), NoEstimator, 0, N>;
@@ -137,7 +149,7 @@ template<size_t NI, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size
 
 /** @brief The gain of a design: on the plant (law_design), or on the model with the input registers of @p delay (delayed_law_design). */
 template<bool Discrete, size_t NI, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Delay>
-[[nodiscard]] constexpr auto gain_design(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T Ts, const LQRConfig<NX, NU, NI, T>& w, const Matrix<NI, NY, T>& Ci, const Delay& delay) {
+[[nodiscard]] constexpr auto gain_design(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T Ts, const lq_config<NX, NU, NI, T>& w, const Matrix<NI, NY, T>& Ci, const Delay& delay) {
     if constexpr (damp::is_same_v<Delay, NoDelay>) {
         static_cast<void>(delay);
         return law_design<Discrete, NI>(sys, Ts, w, Ci);
@@ -170,7 +182,7 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
     auto       law = gain_design<Discrete>(sys, Ts, w, Ci ? *Ci : Matrix<NI, NY, T>{}, delay);
     if (!Ci) {
         law = ::damp::detail::refused<decltype(law)>(DesignStatus::bad_weights); // an integrated output out of range or listed twice
-    } else if (law.success && !(w.u_lim.valid() && w.integral_lim.valid())) {
+    } else if (law.success && !limits_valid(w)) {
         law = ::damp::detail::refused<decltype(law)>(DesignStatus::invalid_parameter); // a limit that is NaN, or a lower one above its upper one
     }
     if (law.success) { // the runtime's: the gain does not depend on them, and a refused design ships none
@@ -264,7 +276,7 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
  *       plant's domain.
  *
  * @param sys      Plant (A, B, C, D, G, H and Ts)
- * @param config   The cost {.Q, .R, .N, .Q_integral}, in the plant's time domain, and the limits {.u_lim, .integral_lim}
+ * @param config   LQRConfig, or LQIConfig with integral action: the cost, in the plant's time domain, and the limits
  * @param options  design::StateFeedbackOptions{…}: the law's features (default none)
  * @return StateFeedbackResult: the runtime its design names runs it
  */
@@ -349,7 +361,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
  *
  * @param sys      Continuous plant (sys.Ts = 0; A, B, C, D, G, H)
  * @param Ts       Sampling time of the law [s]
- * @param config   The continuous cost {.Q, .R, .N, .Q_integral}, a cost integral, and the limits {.u_lim, .integral_lim}
+ * @param config   LQRConfig, or LQIConfig with integral action: the continuous cost, a cost integral, and the limits
  * @param options  design::StateFeedbackOptions{…}: the law's features (default none)
  * @return StateFeedbackResult on the discretized plant: the runtime its design names runs it
  */
@@ -386,7 +398,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
  * @param sys      Continuous plant (sys.Ts = 0)
  * @param Ts       Sampling time of the law [s]
  * @param delay    InputDelay<N>{θ}: θ ≤ N·Ts, one for every input or a ColVec of one per input
- * @param config   The continuous cost {.Q, .R, .N, .Q_integral} on the plant, a cost integral, and the limits {.u_lim, .integral_lim}
+ * @param config   LQRConfig, or LQIConfig with integral action: the continuous cost on the plant, a cost integral, and the limits
  * @param options  design::StateFeedbackOptions{…}: the law's features (default none)
  * @return StateFeedbackResult with NRU = N: the runtime its design names runs it
  */

@@ -40,7 +40,7 @@ using LQGIResult = StateFeedbackResult<NX, NU, T, NI, NY, KalmanResult<NX, NU, N
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
 [[nodiscard]] constexpr auto lqgi(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
-    const LQRConfig<NX, NU, NY, T>&          config,
+    const LQIConfig<NX, NU, NY, T>&          config,
     const KalmanNoise<NW, NV, T>&            noise
 ) {
     return detail::state_feedback(sys, config, detail::StateFeedbackOptions{.noise = noise, .offset_free = IntegralAction{}});
@@ -51,7 +51,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
 [[nodiscard]] constexpr auto lqgi(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     damp::type_identity_t<T>                 Ts,
-    const LQRConfig<NX, NU, NY, T>&          config,
+    const LQIConfig<NX, NU, NY, T>&          config,
     const KalmanNoise<NW, NV, T>&            noise
 ) {
     return detail::state_feedback(sys, Ts, config, detail::StateFeedbackOptions{.noise = noise, .offset_free = IntegralAction{}});
@@ -62,7 +62,7 @@ template<size_t NI, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size
     requires(NI > 0)
 [[nodiscard]] constexpr auto lqgi(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
-    const LQRConfig<NX, NU, NI, T>&          config,
+    const LQIConfig<NX, NU, NI, T>&          config,
     const KalmanNoise<NW, NV, T>&            noise,
     const IntegralAction<NI>&                outputs
 ) {
@@ -75,7 +75,7 @@ template<size_t NI, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size
 [[nodiscard]] constexpr auto lqgi(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     damp::type_identity_t<T>                 Ts,
-    const LQRConfig<NX, NU, NI, T>&          config,
+    const LQIConfig<NX, NU, NI, T>&          config,
     const KalmanNoise<NW, NV, T>&            noise,
     const IntegralAction<NI>&                outputs
 ) {
@@ -95,7 +95,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     damp::type_identity_t<T>                 Ts,
     const InputDelay<N, S>&                  delay,
-    const LQRConfig<NX, NU, NY, T>&          config,
+    const LQIConfig<NX, NU, NY, T>&          config,
     const KalmanNoise<NW, NV, T>&            noise
 ) {
     return detail::state_feedback(sys, Ts, delay, config, detail::StateFeedbackOptions{.noise = noise, .offset_free = IntegralAction{}});
@@ -108,7 +108,7 @@ template<size_t NI, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     damp::type_identity_t<T>                 Ts,
     const InputDelay<N, S>&                  delay,
-    const LQRConfig<NX, NU, NI, T>&          config,
+    const LQIConfig<NX, NU, NI, T>&          config,
     const KalmanNoise<NW, NV, T>&            noise,
     const IntegralAction<NI>&                outputs
 ) {
@@ -126,7 +126,7 @@ template<size_t NI, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size
  * u = u* − K·[x̂ − x*; xi]. The tick is update(y) then control(r), or step(r, y), with x* = 0 and
  * u* = 0; feedforward from a planned trajectory (x_ref, u_ref) is control(r, x_ref, u_ref), or
  * step(r, x_ref, u_ref, y). The command is clamped into u_lim and xi into integral.lim (the
- * design's, LQRConfig; unbounded by default): predict() moves the filter on the clamped command
+ * design's, LQIConfig; unbounded by default): predict() moves the filter on the clamped command
  * and holds the integrators against the clamp. back_calculate(u_sat) before it reports a stage
  * that clamps after the law.
  *

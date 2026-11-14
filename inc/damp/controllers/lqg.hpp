@@ -43,7 +43,7 @@ using LQGResult = StateFeedbackResult<NX, NU, T, 0, NY, KalmanResult<NX, NU, NY,
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
 [[nodiscard]] constexpr auto lqg(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
-    const LQRConfig<NX, NU, 0, T>&           config,
+    const LQRConfig<NX, NU, T>&              config,
     const KalmanNoise<NW, NV, T>&            noise
 ) {
     return detail::state_feedback(sys, config, detail::StateFeedbackOptions{.noise = noise});
@@ -54,7 +54,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
 [[nodiscard]] constexpr auto lqg(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     damp::type_identity_t<T>                 Ts,
-    const LQRConfig<NX, NU, 0, T>&           config,
+    const LQRConfig<NX, NU, T>&              config,
     const KalmanNoise<NW, NV, T>&            noise
 ) {
     return detail::state_feedback(sys, Ts, config, detail::StateFeedbackOptions{.noise = noise});
@@ -72,7 +72,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NZ>
 [[nodiscard]] constexpr auto lqg(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
-    const LQRConfig<NX, NU, 0, T>&           config,
+    const LQRConfig<NX, NU, T>&              config,
     const KalmanNoise<NW, NV, T>&            noise,
     const TrackedOutputs<NZ>&                outputs
 ) {
@@ -84,7 +84,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size
 [[nodiscard]] constexpr auto lqg(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     damp::type_identity_t<T>                 Ts,
-    const LQRConfig<NX, NU, 0, T>&           config,
+    const LQRConfig<NX, NU, T>&              config,
     const KalmanNoise<NW, NV, T>&            noise,
     const TrackedOutputs<NZ>&                outputs
 ) {
@@ -110,7 +110,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     damp::type_identity_t<T>                 Ts,
     const InputDelay<N, S>&                  delay,
-    const LQRConfig<NX, NU, 0, T>&           config,
+    const LQRConfig<NX, NU, T>&              config,
     const KalmanNoise<NW, NV, T>&            noise
 ) {
     return detail::state_feedback(sys, Ts, delay, config, detail::StateFeedbackOptions{.noise = noise});
@@ -122,7 +122,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     damp::type_identity_t<T>                 Ts,
     const InputDelay<N, S>&                  delay,
-    const LQRConfig<NX, NU, 0, T>&           config,
+    const LQRConfig<NX, NU, T>&              config,
     const KalmanNoise<NW, NV, T>&            noise,
     const TrackedOutputs<NZ>&                outputs
 ) {

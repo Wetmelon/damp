@@ -21,9 +21,11 @@
 #include "damp/backend.hpp"
 #include "damp/controllers/detail/lq_law.hpp"                // IWYU pragma: export
 #include "damp/controllers/detail/state_feedback_design.hpp" // IWYU pragma: export
-#include "damp/controllers/state_feedback_core.hpp"          // IWYU pragma: export
-#include "damp/controllers/state_feedback_types.hpp"         // IWYU pragma: export
+#include "damp/controllers/detail/state_feedback_options.hpp"
+#include "damp/controllers/state_feedback_core.hpp"  // IWYU pragma: export
+#include "damp/controllers/state_feedback_types.hpp" // IWYU pragma: export
 #include "damp/design/riccati.hpp"
+#include "damp/design/steady_state_target.hpp"
 #include "damp/matrix/colvec.hpp"
 #include "damp/matrix/core.hpp"
 #include "damp/systems/discretization.hpp"
@@ -46,7 +48,7 @@ template<size_t NX, size_t NU, typename T, size_t NY>
  * @note Compare with MATLAB®'s lqr(sys, Q, R, N).
  */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
-[[nodiscard]] constexpr LQRResult<NX, NU, T> lqr(const StateSpace<NX, NU, NY, T, NW, NV>& sys, const LQRConfig<NX, NU, 0, T>& config) {
+[[nodiscard]] constexpr LQRResult<NX, NU, T> lqr(const StateSpace<NX, NU, NY, T, NW, NV>& sys, const LQRConfig<NX, NU, T>& config) {
     return detail::lqr_result(detail::state_feedback(sys, config, detail::StateFeedbackOptions{}));
 }
 
@@ -55,7 +57,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
  * @note Compare with MATLAB®'s lqrd(sys, Q, R, Ts).
  */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
-[[nodiscard]] constexpr LQRResult<NX, NU, T> lqr(const StateSpace<NX, NU, NY, T, NW, NV>& sys, damp::type_identity_t<T> Ts, const LQRConfig<NX, NU, 0, T>& config) {
+[[nodiscard]] constexpr LQRResult<NX, NU, T> lqr(const StateSpace<NX, NU, NY, T, NW, NV>& sys, damp::type_identity_t<T> Ts, const LQRConfig<NX, NU, T>& config) {
     return detail::lqr_result(detail::state_feedback(sys, Ts, config, detail::StateFeedbackOptions{}));
 }
 
@@ -71,7 +73,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
  * leaves an offset: lqi removes it.
  */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NZ>
-[[nodiscard]] constexpr auto lqr(const StateSpace<NX, NU, NY, T, NW, NV>& sys, const LQRConfig<NX, NU, 0, T>& config, const TrackedOutputs<NZ>& outputs) {
+[[nodiscard]] constexpr auto lqr(const StateSpace<NX, NU, NY, T, NW, NV>& sys, const LQRConfig<NX, NU, T>& config, const TrackedOutputs<NZ>& outputs) {
     return detail::state_feedback(sys, config, detail::StateFeedbackOptions{.track = outputs});
 }
 
@@ -80,7 +82,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size
 [[nodiscard]] constexpr auto lqr(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     damp::type_identity_t<T>                 Ts,
-    const LQRConfig<NX, NU, 0, T>&           config,
+    const LQRConfig<NX, NU, T>&              config,
     const TrackedOutputs<NZ>&                outputs
 ) {
     return detail::state_feedback(sys, Ts, config, detail::StateFeedbackOptions{.track = outputs});
@@ -100,7 +102,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     damp::type_identity_t<T>                 Ts,
     const InputDelay<N, S>&                  delay,
-    const LQRConfig<NX, NU, 0, T>&           config
+    const LQRConfig<NX, NU, T>&              config
 ) {
     return detail::state_feedback(sys, Ts, delay, config, detail::StateFeedbackOptions{});
 }
@@ -111,7 +113,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     damp::type_identity_t<T>                 Ts,
     const InputDelay<N, S>&                  delay,
-    const LQRConfig<NX, NU, 0, T>&           config,
+    const LQRConfig<NX, NU, T>&              config,
     const TrackedOutputs<NZ>&                outputs
 ) {
     return detail::state_feedback(sys, Ts, delay, config, detail::StateFeedbackOptions{.track = outputs});
