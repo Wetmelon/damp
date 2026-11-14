@@ -121,8 +121,10 @@ template<
  * gain, holding deviations from the target (`estimator`). The target holds the controlled outputs
  * at r under the disturbance estimate d̂, taken about the reference point (x*, u*). The tick is
  * update(y) then control(r), or step(r, y), with x* = 0 and u* = 0; feedforward from a planned
- * trajectory (x_ref, u_ref) is control(r, x_ref, u_ref), or step(r, x_ref, u_ref, y). Then
- * back_calculate(u_sat) and predict().
+ * trajectory (x_ref, u_ref) is control(r, x_ref, u_ref), or step(r, x_ref, u_ref, y). The
+ * command is clamped into u_lim (the design's, LQRWeights; unbounded by default), and predict()
+ * moves the filter with it, so the clamp is not taken for a disturbance; back_calculate(u_sat)
+ * before it reports a stage that clamps after the law.
  *
  * A design with an InputDelay (NRU > 0) has its filter on [x; v(k−1); …; v(k−NRU); d]: predict
  * shifts the applied input into the registers. x_ref is the plant's; the registers' reference is
@@ -152,6 +154,7 @@ struct OFLQG : private detail::StateFeedbackCore<NX, NU, T, 0, NY, Est, NZ, Stor
     using Core::estimator;
     using Core::K;
     using Core::target;
+    using Core::u_lim;
 
     /** @brief The filter's measurement update with @p y. */
     constexpr void update(const ColVec<NY, T>& y) { Core::update(y); }

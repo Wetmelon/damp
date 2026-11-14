@@ -170,6 +170,12 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
     auto       law = gain_design<Discrete>(sys, Ts, w, Ci ? *Ci : Matrix<NI, NY, T>{}, delay);
     if (!Ci) {
         law = ::damp::detail::refused<decltype(law)>(DesignStatus::bad_weights); // an integrated output out of range or listed twice
+    } else if (law.success && !(w.u_lim.valid() && w.integral_lim.valid())) {
+        law = ::damp::detail::refused<decltype(law)>(DesignStatus::invalid_parameter); // a limit that is NaN, or a lower one above its upper one
+    }
+    law.u_lim = w.u_lim; // the runtime's: the gain does not depend on them
+    if constexpr (NI > 0) {
+        law.integral.lim = w.integral_lim;
     }
     if constexpr (!kEstimated && !kTarget) {
         return law;
@@ -190,6 +196,7 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
         if constexpr (NI > 0) {
             out.integral = law.integral;
         }
+        out.u_lim = law.u_lim;
         DesignStatus status = law.status;
         if constexpr (kEstimated) {
             status = (status == DesignStatus::ok) ? filter.status : status;

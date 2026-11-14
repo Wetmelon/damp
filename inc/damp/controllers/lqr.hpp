@@ -36,7 +36,7 @@ namespace detail {
 /** @brief design::lqr's result: the gain, the Riccati solution, the closed-loop poles, the status and Ts. */
 template<size_t NX, size_t NU, typename T, size_t NY>
 [[nodiscard]] constexpr LQRResult<NX, NU, T> lqr_result(const StateFeedbackResult<NX, NU, T, 0, NY>& r) {
-    return {r.K, r.S, r.e, r.success, r.status, r.Ts, r.Ts > T{0}};
+    return {r.K, r.S, r.e, r.success, r.status, r.Ts, r.Ts > T{0}, r.u_lim};
 }
 
 } // namespace detail
@@ -128,8 +128,9 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size
  * empty, so that equals update then control. The regulator is x* = 0 and u* = 0. A design with
  * TrackedOutputs holds those outputs at r through its steady-state target: control(r),
  * step(r, x). Feedforward from a planned trajectory
- * (x_ref, u_ref) adds to it: control([r,] x_ref, u_ref), step([r,] x_ref, u_ref, x). A failed or
- * continuous design does not compile when constant-evaluated.
+ * (x_ref, u_ref) adds to it: control([r,] x_ref, u_ref), step([r,] x_ref, u_ref, x). The command
+ * is clamped into u_lim (design::lqr's, LQRWeights; unbounded by default, and for a gain K or a
+ * design::place result). A failed or continuous design does not compile when constant-evaluated.
  *
  * @code
  * static constinit LQR law{kRes.as<float>()};
@@ -173,6 +174,7 @@ struct LQR : private detail::StateFeedbackCore<NX, NU, T, 0, NY, NoEstimator, NZ
     }
 
     using Core::K;
+    using Core::u_lim;
 
     /** @brief Hold the measured state @p x for the next control. */
     constexpr void update(const ColVec<NX, T>& x) { Core::update(x); }

@@ -26,6 +26,7 @@
 #include "damp/matrix/functions.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "damp/systems/state_space.hpp"
+#include "damp/toolbox/bounds.hpp"
 
 namespace damp {
 
@@ -1521,6 +1522,7 @@ struct [[nodiscard]] LQRResult {
     DesignStatus                      status{DesignStatus::not_converged}; ///< ok, or why the design failed
     T                                 Ts{0};                               ///< Sample time of the law [s]: the plant's (design::lqr); 0 when it has none (continuous, or discrete_lqr on bare matrices)
     bool                              discrete{false};                     ///< A discrete law (e in the z-plane): discrete_lqr, or design::lqr on a discrete plant or with a Ts
+    Bounds<NU, T>                     u_lim{};                             ///< Limits on the command the LQR returns (design::lqr's LQRWeights::u_lim; default unbounded)
 
     /** @brief True when the design succeeded (success). */
     [[nodiscard]] constexpr explicit operator bool() const { return success; }
@@ -1528,7 +1530,7 @@ struct [[nodiscard]] LQRResult {
     /** @brief The result in scalar U. */
     template<typename U>
     [[nodiscard]] constexpr LQRResult<NX, NU, U> as() const {
-        return {K.template as<U>(), S.template as<U>(), array_as<damp::complex<U>>(e), success, status, static_cast<U>(Ts), discrete};
+        return {K.template as<U>(), S.template as<U>(), array_as<damp::complex<U>>(e), success, status, static_cast<U>(Ts), discrete, u_lim.template as<U>()};
     }
 
     /**

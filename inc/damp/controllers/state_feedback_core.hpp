@@ -24,14 +24,16 @@
 #include "damp/math/math.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "damp/matrix/matrix_traits.hpp"
+#include "damp/toolbox/bounds.hpp"
 
 namespace damp {
 namespace detail {
 
 /**
- * @brief The integral action of a law: the integrators, the integrated outputs Ci (on the
- *        measurement) and their feedthrough Ci·D, the per-sample step, the error held for the next
- *        predict, and with an estimator the measurement held from the last update (NYH = NY; 0: none).
+ * @brief The integral action of a law: the integrators and their limits, the integrated outputs Ci
+ *        (on the measurement) and their feedthrough Ci·D, the per-sample step, the error and the
+ *        unclamped command held for the next predict, and with an estimator the measurement held
+ *        from the last update (NYH = NY; 0: none).
  */
 template<size_t NI, size_t NC, size_t NU, size_t NYH, typename T, typename CiMatrix = Matrix<NI, NC, T>, typename CiuMatrix = Matrix<NI, NU, T>>
 struct IntegralAction {
@@ -43,6 +45,8 @@ struct IntegralAction {
     T                               step{1}; ///< Per-sample integrator gain: the design's Ts (xi += Ts·e ≈ ∫e dt)
     ColVec<NI, T>                   e{};     ///< Error held from control for the next predict, before the input's feedthrough
     [[no_unique_address]] HeldY     y{};     ///< Measurement from the last update (with an estimator)
+    Bounds<NI, T>                   lim{};   ///< Limits on xi (default unbounded)
+    ColVec<NU, T>                   asked{}; ///< The law's last command before u_lim: what the applied input is compared with
 };
 
 /** @brief A gain design result other than StateFeedbackResult: K, success and Ts (PlaceResult, LQRResult). */
@@ -92,6 +96,7 @@ struct HeldGains {
  * | estimator (FixedGainObserver with design::kalman's gain, disturbance model) | Est | NoEstimator: the state is measured |
  * | steady-state target for r, under the disturbance model if there is one (SteadyStateTarget) | NZ | 0 |
  * | input registers: the inputs applied over the last NRU periods, held by the law (a measured state) | NRU | 0 |
+ * | limits on the command and on the integrators | @ref u_lim, integral.lim | unbounded |
  *
  * One tick is @ref step(): @ref predict (the time update with the input @ref back_calculate
  * recorded, else the last command), then @ref update with the measurement at sample k (the
@@ -120,7 +125,12 @@ struct HeldGains {
  *   control holds the part it knows, r − Ci·C·x (from the measured state, or from the
  *   measurement less the feedthrough D·u of the input it was taken under), and @ref predict
  *   subtracts Ci·D·u for the input applied, then advances xi unless the applied input shows the
- *   actuator clamping against it (conditional integration).
+ *   actuator clamping against it (conditional integration), and clamps xi into integral.lim;
+ * - within limits: @ref control returns the command clamped into @ref u_lim, and that is the
+ *   input the next @ref predict takes as applied unless @ref back_calculate recorded another.
+ *   The integrators compare the applied input with the command before the clamp, so they hold
+ *   against the law's own limit as against a clamp downstream. The limits are members: set them
+ *   at run time for a rail that moves.
  *
  * @see "Optimal Control" (Anderson & Moore, 1990), §4.1 and §8
  * @see "Advanced PID Control" (Åström & Hägglund, 2006), §3.5: back-calculation anti-windup
@@ -159,6 +169,7 @@ struct StateFeedbackCore {
     [[no_unique_address]] Est                                         estimator{}; ///< The filter (none for a measured state)
     [[no_unique_address]] Target                                      target{};    ///< The steady-state target (NZ > 0)
     [[no_unique_address]] Integral                                    integral{};  ///< The integrators (NI > 0)
+    Bounds<NU, T>                                                     u_lim{};     ///< Limits on the command control returns (default unbounded)
 
     constexpr StateFeedbackCore() = default;
 
@@ -179,6 +190,9 @@ struct StateFeedbackCore {
     {
         if (usable(result, detail::discrete_gain(result))) {
             K = result.K.template as<T>();
+        }
+        if constexpr (requires { result.u_lim; }) {
+            u_lim = result.u_lim.template as<T>();
         }
     }
 
@@ -209,7 +223,9 @@ struct StateFeedbackCore {
             if constexpr (NI > 0) {
                 integral.Ci_u = result.integral.Ci_u.template as<T>();
                 integral.step = static_cast<T>(result.integral.step);
+                integral.lim = result.integral.lim.template as<T>();
             }
+            u_lim = result.u_lim.template as<T>();
             if constexpr (NZ > 0) {
                 target = Target(result.target);
             }
@@ -222,9 +238,10 @@ struct StateFeedbackCore {
      * @brief Record the input the plant received, @p u_sat (after the actuator's clamp), and the
      *        feedforward @p u_ff added outside the law, for the next @ref predict.
      *
-     * The clamp's excess is u_sat − (u_cmd + u_ff), u_cmd the law's last command, so a
-     * feedforward is not taken for saturation. The estimator moves on @p u_sat. A law that keeps
-     * no memory (no integrator or estimator) ignores it.
+     * The clamp's excess is u_sat − (u_cmd + u_ff), u_cmd the law's last command before its own
+     * u_lim, so a feedforward is not taken for saturation. The estimator moves on @p u_sat. A law
+     * that keeps no memory (no integrator or estimator) ignores it. Without it the applied input
+     * is the command control returned, clamped into u_lim.
      */
     constexpr void back_calculate(const ColVec<NU, T>& u_sat, const ColVec<NU, T>& u_ff = ColVec<NU, T>{}) {
         if constexpr (kRecord) {
@@ -281,8 +298,9 @@ struct StateFeedbackCore {
     }
 
     /**
-     * @brief The law at the last update's measurement, about the reference point (@p x_ref, @p u_ref):
-     *        integral action on @p r (NI > 0), or the steady-state target for @p r (NZ > 0, under d̂ when ND > 0).
+     * @brief The law at the last update's measurement, about the reference point (@p x_ref, @p u_ref),
+     *        clamped into u_lim: integral action on @p r (NI > 0), or the steady-state target for
+     *        @p r (NZ > 0, under d̂ when ND > 0).
      */
     [[nodiscard]] constexpr ColVec<NU, T> control(const ColVec<NR, T>& r, const ColVec<NX, T>& x_ref, const ColVec<NU, T>& u_ref) {
         const ColVec<NXL, T> ref = on_law_model(x_ref, u_ref);
@@ -353,6 +371,7 @@ struct StateFeedbackCore {
         if constexpr (NI > 0) {
             integral.xi = ColVec<NI, T>{};
             integral.e = ColVec<NI, T>{};
+            integral.asked = ColVec<NU, T>{};
             if constexpr (kEstimated) {
                 integral.y = ColVec<NY, T>{};
             }
@@ -419,11 +438,16 @@ private:
         }
     }
 
+    /** @brief The command: @p u clamped into u_lim. The law keeps it, and @p u itself for the integrators. */
     [[nodiscard]] constexpr ColVec<NU, T> record(const ColVec<NU, T>& u) {
-        if constexpr (kRecord) {
-            applied_.command = u;
+        const ColVec<NU, T> out = u_lim.saturate(u);
+        if constexpr (NI > 0) {
+            integral.asked = u;
         }
-        return u;
+        if constexpr (kRecord) {
+            applied_.command = out;
+        }
+        return out;
     }
 
     /** @brief u = u* − K·z, z = [x − x*; xi], x and x* on the law's model. */
@@ -455,14 +479,14 @@ private:
         return record(ColVec<NU, T>(estimator.anchor_input() - (K * detail::leading<NXL>(estimator.at_command()))));
     }
 
-    /** @brief Integrate the held error less the applied input's feedthrough Ci·D·u, unless the clamp would wind it up: integrator i holds when −K(j, i)·eᵢ points into a clamped input j. */
+    /** @brief Integrate the held error less the applied input's feedthrough Ci·D·u, into integral.lim, unless a clamp (u_lim, or one back_calculate reported) would wind it up: integrator i holds when −K(j, i)·eᵢ points into a clamped input j. */
     constexpr void integrate()
         requires(NI > 0)
     {
         const ColVec<NI, T> e = integral.e - (integral.Ci_u * applied_.applied);
         ColVec<NU, T>       excess{};
         for (size_t j = 0; j < NU; ++j) {
-            const T u_req = applied_.command(j) + applied_.feedforward(j);
+            const T u_req = integral.asked(j) + applied_.feedforward(j);
             const T diff = applied_.applied(j) - u_req;
             const T tol = T{4} * eps<T>() * (damp::abs(applied_.applied(j)) + damp::abs(u_req));
             excess(j) = (damp::abs(diff) > tol) ? diff : T{0};
@@ -473,7 +497,7 @@ private:
                 winds_up = winds_up || (K(j, NXL + i) * e(i) * excess(j) > T{0});
             }
             if (!winds_up) {
-                integral.xi(i) += integral.step * e(i);
+                integral.xi(i) = damp::clamp(integral.xi(i) + (integral.step * e(i)), integral.lim.lower(i), integral.lim.upper(i));
             }
         }
         integral.e = ColVec<NI, T>{};

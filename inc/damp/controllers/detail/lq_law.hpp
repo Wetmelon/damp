@@ -141,10 +141,14 @@ struct Law<Res, T> : detail::lq_runtime<damp::remove_cvref_t<decltype(Res)>, T>:
 
     static_assert(detail::constant_design_usable<Res>);
 
-    /** @brief The design's law. */
+    /** @brief The design's law: its matrices are the type's, its integrator step and its limits members. */
     constexpr Law() {
         if constexpr (requires { this->integral.step; }) {
             this->integral.step = static_cast<T>(Res.integral.step);
+            this->integral.lim = Res.integral.lim.template as<T>();
+        }
+        if constexpr (requires { Res.u_lim; }) {
+            this->u_lim = Res.u_lim.template as<T>();
         }
     }
 

@@ -153,6 +153,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
 ) {
 
     auto out = StateFeedbackResult<NX, NU, T, 0, NY, KalmanResult<NX, NU, NY, T, NW, NV>>{reg.K, reg.S, reg.e, false, DesignStatus::not_converged, kest.sys.Ts, kest};
+    out.u_lim = reg.u_lim;
     auto status = reg.success ? kest.status : reg.status;
 
     if (status == DesignStatus::ok && (!::damp::detail::discrete_gain(reg) || (reg.Ts != T{0} && reg.Ts != kest.sys.Ts))) {
@@ -171,8 +172,9 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
  * (`estimator`). The tick is update(y) then control(), or step(y): the regulator. A design with
  * TrackedOutputs holds those outputs at r through its steady-state target: control(r),
  * step(r, y). Feedforward from a planned trajectory (x_ref, u_ref) adds to it:
- * control([r,] x_ref, u_ref), step([r,] x_ref, u_ref, y). Then back_calculate(u_sat) and
- * predict() move the observer with the input the plant received.
+ * control([r,] x_ref, u_ref), step([r,] x_ref, u_ref, y). The command is clamped into u_lim
+ * (the design's, LQRWeights; unbounded by default), and predict() moves the observer with it,
+ * or with the input back_calculate(u_sat) recorded for a stage that clamps after the law.
  *
  * A design with an InputDelay (NRU > 0) has its filter on [x; v(k−1); …; v(k−NRU)]: predict
  * shifts the applied input into the registers. x_ref is the plant's; the registers' reference is
@@ -202,6 +204,7 @@ struct LQG : private detail::StateFeedbackCore<NX, NU, T, 0, NY, Est, NZ, Store,
 
     using Core::estimator;
     using Core::K;
+    using Core::u_lim;
 
     /** @brief The filter's measurement update with @p y. */
     constexpr void update(const ColVec<NY, T>& y) { Core::update(y); }

@@ -121,8 +121,10 @@ template<size_t NI, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size
  *
  * Runs design::lqi. xi integrates r − Ci·C·x; the law is u = u* − K·[x − x*; xi]. The tick is
  * update(x) then control(r), or step(r, x), with x* = 0 and u* = 0; feedforward from a planned
- * trajectory (x_ref, u_ref) is control(r, x_ref, u_ref), or step(r, x_ref, u_ref, x). Then
- * back_calculate(u_sat) and predict() hold the integrators against a clamp.
+ * trajectory (x_ref, u_ref) is control(r, x_ref, u_ref), or step(r, x_ref, u_ref, x). The
+ * command is clamped into u_lim and xi into integral.lim (the design's, LQRWeights; unbounded by
+ * default), and predict() holds the integrators against that clamp; back_calculate(u_sat) before
+ * it reports a stage that clamps after the law.
  *
  * A design with an InputDelay (NRU > 0) runs on [x; v(k−1); …; v(k−NRU); xi]: update takes the
  * plant state x, and predict shifts the input back_calculate recorded (else the last command)
@@ -151,6 +153,7 @@ struct LQI : private detail::StateFeedbackCore<NX, NU, T, NI, NY, NoEstimator, 0
 
     using Core::integral;
     using Core::K;
+    using Core::u_lim;
 
     /** @brief Hold the measured plant state @p x for the next control (the input registers are the law's). */
     constexpr void update(const ColVec<NX, T>& x) { Core::update(x); }

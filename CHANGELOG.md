@@ -12,6 +12,8 @@ and [known limitations](docs/known_limitations.md)).
 ### Added
 
 - `design::lqr`, `lqi`, `lqg`, `lqgi`, `oflqg`, `kalman` and `steady_state_target` take an `InputDelay` after Ts: the continuous plant, its weights and its noise, the cost and the noise discretized exactly on the delayed model. A measured-state law holds the registers itself, so `update` takes the plant state; a filter carries them with no noise on them.
+- `LQRWeights` takes `u_lim` and `integral_lim`: the LQR, LQI, LQG, LQGI and OFLQG runtimes clamp their command and their integral state to them, and hold the integrators against that clamp with no `back_calculate`. Both are members of the runtime (`law.u_lim`, `law.integral.lim`), so a limit can move at run time.
+- `Bounds::valid()`: no end NaN and no lower end above its upper one, the test `design::mpc` and `design::mhe` already applied.
 
 ### Changed
 

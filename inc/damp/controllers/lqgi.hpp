@@ -125,7 +125,10 @@ template<size_t NI, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size
  * (`estimator`). xi integrates r − Ci·y on the last update's measurement; the law is
  * u = u* − K·[x̂ − x*; xi]. The tick is update(y) then control(r), or step(r, y), with x* = 0 and
  * u* = 0; feedforward from a planned trajectory (x_ref, u_ref) is control(r, x_ref, u_ref), or
- * step(r, x_ref, u_ref, y). Then back_calculate(u_sat) and predict().
+ * step(r, x_ref, u_ref, y). The command is clamped into u_lim and xi into integral.lim (the
+ * design's, LQRWeights; unbounded by default): predict() moves the filter on the clamped command
+ * and holds the integrators against the clamp. back_calculate(u_sat) before it reports a stage
+ * that clamps after the law.
  *
  * A design with an InputDelay (NRU > 0) has its filter on [x; v(k−1); …; v(k−NRU)]: predict
  * shifts the applied input into the registers. x_ref is the plant's; the registers' reference is
@@ -155,6 +158,7 @@ struct LQGI : private detail::StateFeedbackCore<NX, NU, T, NI, NY, Est, 0, Store
     using Core::estimator;
     using Core::integral;
     using Core::K;
+    using Core::u_lim;
 
     /** @brief The filter's measurement update with @p y (the integrators read it at the next control). */
     constexpr void update(const ColVec<NY, T>& y) { Core::update(y); }

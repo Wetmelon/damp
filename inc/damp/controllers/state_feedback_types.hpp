@@ -23,6 +23,7 @@
 #include "damp/matrix/block.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "damp/systems/state_space.hpp"
+#include "damp/toolbox/bounds.hpp"
 
 namespace damp {
 namespace design {
@@ -96,7 +97,8 @@ struct IntegralAction {
 
 /**
  * @struct LQRWeights
- * @brief The cost of a state-feedback design: what to penalize and how much
+ * @brief The cost of a state-feedback design, what to penalize and how much, and the limits its
+ *        law runs within
  *
  * Weights in the plant's own time domain: a cost integral on a continuous plant (with a Ts
  * argument it is discretized exactly), per step on a discrete one. Braces size it from the
@@ -119,13 +121,30 @@ struct IntegralAction {
  * weight is a mode at z = 1 the cost does not see; a design with integral action and a
  * Q_integral that is not positive definite (left out of the braces, for one) is refused with
  * DesignStatus::bad_weights, as is an R that is not positive definite.
+ *
+ * The limits are the runtime's, not the cost's: the gain is the same with or without them.
+ *
+ * | Field | Limits | Size |
+ * | --- | --- | --- |
+ * | u_lim | the command control returns, per input | NU, default unbounded |
+ * | integral_lim | the integral state ξ, per integrator (lqi, lqgi) | NI, default unbounded |
+ *
+ * `{.Q = Q, .R = R, .u_lim = {.lower = -12.0, .upper = 12.0}}` clamps the command to ±12 and
+ * holds the integrators against that clamp, with no back_calculate (which stays for a stage
+ * that clamps after the law). integral_lim is on ξ itself, in the units of ∫e dt (the error's
+ * times seconds): through the gain, ξ moves input j by K(j, NX + i)·ξᵢ. Both are members of the
+ * runtime, `law.u_lim` and `law.integral.lim`, so a rail that moves is set at run time. A limit
+ * that is NaN, or a lower limit above its upper one, is refused with
+ * DesignStatus::invalid_parameter.
  */
 template<size_t NX, size_t NU, size_t NI = 0, typename T = double>
 struct LQRWeights {
-    Matrix<NX, NX, T> Q{};          ///< On the plant states x (positive semidefinite)
-    Matrix<NU, NU, T> R{};          ///< On the inputs u (positive definite)
-    Matrix<NX, NU, T> N{};          ///< Cross term between x and u (default zero)
-    Matrix<NI, NI, T> Q_integral{}; ///< On the discrete integral state ξ ≈ ∫e dt (positive definite)
+    Matrix<NX, NX, T> Q{};            ///< On the plant states x (positive semidefinite)
+    Matrix<NU, NU, T> R{};            ///< On the inputs u (positive definite)
+    Matrix<NX, NU, T> N{};            ///< Cross term between x and u (default zero)
+    Matrix<NI, NI, T> Q_integral{};   ///< On the discrete integral state ξ ≈ ∫e dt (positive definite)
+    Bounds<NU, T>     u_lim{};        ///< Limits on the command u, per input (default unbounded)
+    Bounds<NI, T>     integral_lim{}; ///< Limits on the integral state ξ, per integrator (default unbounded)
 };
 
 /** @brief Sizes from the matrices: `LQRWeights{Q, R}`. */
@@ -140,18 +159,19 @@ LQRWeights(Matrix<NX, NX, T>, Matrix<NU, NU, T>, Matrix<NX, NU, T>) -> LQRWeight
 template<size_t NX, size_t NU, typename T, size_t NI>
 LQRWeights(Matrix<NX, NX, T>, Matrix<NU, NU, T>, Matrix<NX, NU, T>, Matrix<NI, NI, T>) -> LQRWeights<NX, NU, NI, T>;
 
-/** @brief The integral action of a design: the integrated outputs, their maps of the state and the input, and the per-sample step. */
+/** @brief The integral action of a design: the integrated outputs, their maps of the state and the input, the per-sample step and the limits on ξ. */
 template<size_t NI, size_t NX, size_t NU, size_t NY, typename T = double>
 struct IntegralDesign {
     Matrix<NI, NY, T> Ci{};    ///< The integrated outputs: e = r − Ci·y, y = C·x + D·u
     Matrix<NI, NX, T> Ci_x{};  ///< Ci·C: the integrated outputs as a map of the plant state (what a law that measures its state integrates)
     Matrix<NI, NU, T> Ci_u{};  ///< Ci·D: the integrated outputs' feedthrough of the input applied over the period
     T                 step{1}; ///< Per-sample integrator gain: the design's Ts (xi += Ts·e ≈ ∫e dt)
+    Bounds<NI, T>     lim{};   ///< Limits on the integral state ξ (LQRWeights::integral_lim; default unbounded)
 
     /** @brief The same integral action in the scalar U. */
     template<typename U>
     [[nodiscard]] constexpr IntegralDesign<NI, NX, NU, NY, U> as() const {
-        return {Ci.template as<U>(), Ci_x.template as<U>(), Ci_u.template as<U>(), static_cast<U>(step)};
+        return {Ci.template as<U>(), Ci_x.template as<U>(), Ci_u.template as<U>(), static_cast<U>(step), lim.template as<U>()};
     }
 };
 
@@ -166,8 +186,9 @@ struct IntegralDesign {
  * | --- | --- | --- |
  * | K, S, e | the gain, the Riccati solution, the closed-loop poles | always |
  * | success, status, Ts | ok or why not; the law's sample time | always |
+ * | u_lim | the limits on the command (LQRWeights::u_lim) | always, default unbounded |
  * | kalman | the Kalman filter (design::kalman's result) | lqg, lqgi, oflqg |
- * | integral | the integrated outputs Ci, Ci·C, Ci·D and the step | NI > 0 |
+ * | integral | the integrated outputs Ci, Ci·C, Ci·D, the step and the limits on ξ | NI > 0 |
  * | target | the steady-state target (design::steady_state_target's result) | oflqg; lqr and lqg with TrackedOutputs (NZ > 0) |
  *
  * A design on a plant whose input arrives late (an InputDelay) is on the law's model
@@ -202,6 +223,7 @@ struct [[nodiscard]] StateFeedbackResult {
     [[no_unique_address]] Kalman      kalman{};                            ///< The Kalman filter (lqg, lqgi, oflqg)
     [[no_unique_address]] Integral    integral{};                          ///< The integral action (NI > 0)
     [[no_unique_address]] Target      target{};                            ///< The steady-state target (NZ > 0)
+    Bounds<NU, T>                     u_lim{};                             ///< Limits on the command the runtime returns (default unbounded)
 
     /** @brief True when the design succeeded (success). */
     [[nodiscard]] constexpr explicit operator bool() const { return success; }
@@ -217,6 +239,7 @@ struct [[nodiscard]] StateFeedbackResult {
         if constexpr (NZ > 0) {
             out.target = target.template as<U>();
         }
+        out.u_lim = u_lim.template as<U>();
         return out;
     }
 
@@ -261,7 +284,8 @@ struct [[nodiscard]] StateFeedbackResult {
      * @f]
      * A law with a disturbance model holds more than these
      * states, so it has no such block. The steady-state target of TrackedOutputs is a
-     * feedforward on r outside this block: the block is the regulator (r = 0).
+     * feedforward on r outside this block: the block is the regulator (r = 0). The block is the
+     * law within its limits: u_lim and the integrators' limits are not part of it.
      */
     [[nodiscard]] constexpr auto to_ss() const
         requires(ND == 0)
