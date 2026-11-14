@@ -103,8 +103,13 @@ the repo root.
   Prefer ZOH over hand-rolled Euler when an LTI model exists. An input delay is
   `discretize(sys, Ts, InputDelay<N>{θ})`, θ ≤ N·Ts in N registers of the plant
   (`InputDelay{θ}` is N = 1), and a late reading `OutputDelay<N>{θ}` the same
-  way; a `ColVec` of seconds gives one delay per channel. A delay is never a
-  parameter of a law; many samples of dead time is a slower sample or
+  way; a `ColVec` of seconds gives one delay per channel. A delay is a model of
+  the plant, never a parameter of a law's tick. Every sampled LQ design
+  (`lqr`, `lqi`, `lqg`, `lqgi`, `oflqg`) and `kalman` / `steady_state_target`
+  take the continuous plant and an `InputDelay` and design on that model, the
+  cost and the noise discretized exactly; a measured-state law holds the
+  registers (`update` takes the plant state), a filter carries them. MPC is
+  designed on the model. Many samples of dead time is a slower sample or
   `SmithPredictor`.
 - **Ticks:** estimators `predict` / `update`; controllers `control`; `step` is
   predict then update then control (m_k in, u_k out). Low-latency ISR: update →

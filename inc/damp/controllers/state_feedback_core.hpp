@@ -29,13 +29,14 @@
 #include "damp/matrix/const_matrix.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "damp/matrix/matrix_traits.hpp"
+#include "damp/systems/discretization.hpp"
 #include "damp/systems/state_space.hpp"
 
 namespace damp {
 namespace design {
 
 /** @brief The LQ design result the runtimes run (defined below, with the design machinery). */
-template<size_t NX, size_t NU, typename T, size_t NI, size_t NY, typename Kalman, size_t NZ>
+template<size_t NX, size_t NU, typename T, size_t NI, size_t NY, typename Kalman, size_t NZ, size_t NRU>
 struct StateFeedbackResult;
 
 /** @brief The filter half of an estimated design (defined in kalman.hpp). */
@@ -96,8 +97,8 @@ template<typename R>
 struct is_state_feedback_result : damp::false_type {};
 
 /** @brief A StateFeedbackResult. */
-template<size_t NX, size_t NU, typename T, size_t NI, size_t NY, typename Kalman, size_t NZ>
-struct is_state_feedback_result<design::StateFeedbackResult<NX, NU, T, NI, NY, Kalman, NZ>> : damp::true_type {};
+template<size_t NX, size_t NU, typename T, size_t NI, size_t NY, typename Kalman, size_t NZ, size_t NRU>
+struct is_state_feedback_result<design::StateFeedbackResult<NX, NU, T, NI, NY, Kalman, NZ, NRU>> : damp::true_type {};
 
 /** @brief A gain design result other than StateFeedbackResult: K, success and Ts (PlaceResult, LQRResult). */
 template<typename R>
@@ -165,6 +166,7 @@ struct HeldGains {
  * | integral action on r − Ci·y | NI, NY | 0 |
  * | estimator (FixedGainObserver with design::kalman's gain, disturbance model) | Est | NoEstimator: the state is measured |
  * | steady-state target for r, under the disturbance model if there is one (SteadyStateTarget) | NZ | 0 |
+ * | input registers: the inputs applied over the last NRU periods, held by the law (a measured state) | NRU | 0 |
  *
  * One tick is @ref step(): @ref predict (the time update with the input @ref back_calculate
  * recorded, else the last command), then @ref update with the measurement at sample k (the
@@ -173,6 +175,13 @@ struct HeldGains {
  * The low-latency ISR is update(m_k) → control → write → back_calculate(u) → predict(): the
  * trailing predict is the next sample's time update. For a measured-state LQR, predict is
  * empty, so step(x) equals update then control.
+ *
+ * With input registers (NRU > 0, a design on a plant whose input arrives late) the law's model is
+ * [x; v(k−1); …; v(k−NRU)]. On a measured state update takes the plant state x, and the law holds
+ * the inputs it applied: @ref predict shifts the input back_calculate recorded (else the last
+ * command) into the first register, so it runs every tick, as step does. A filter carries them as
+ * states of its model, shifted by its own predict. The reference point of a register is u*: an
+ * input held there is the one the law would send at the reference, so x_ref is the plant's.
  *
  * The law:
  * - about a reference point (x*, u*): u = u* − K·[x̂ − x*; xi]; x* = 0, u* = 0 is the regulator;
@@ -199,25 +208,27 @@ struct HeldGains {
  * @tparam Est Estimator: FixedGainObserver (the fixed Kalman gain of design::kalman), or NoEstimator for a measured state
  * @tparam NZ  Controlled outputs of the steady-state target (0: none)
  * @tparam Store Where the matrices live: HeldGains (members), or constants of the type (Law of a `constexpr` design)
+ * @tparam NRU Input registers the law holds, NRU·NU states after the plant's (0: none)
  */
-template<size_t NX, size_t NU, typename T, size_t NI, size_t NY, typename Est, size_t NZ, typename Store = HeldGains>
+template<size_t NX, size_t NU, typename T, size_t NI, size_t NY, typename Est, size_t NZ, typename Store = HeldGains, size_t NRU = 0>
 struct StateFeedbackCore {
     using Traits = detail::estimator_traits<Est>;
     static constexpr bool   kEstimated = Traits::present;         ///< A filter estimates the state
-    static constexpr size_t NXL = NX;                             ///< The law's model: the plant
+    static constexpr size_t NXL = NX + (NRU * NU);                ///< The law's model: the plant, then its input registers
     static constexpr size_t ND = Traits::ND;                      ///< Disturbance states of the estimator
     static constexpr size_t NXE = kEstimated ? Traits::NXE : NXL; ///< The filter's model before the disturbance (the law's without one)
-    static constexpr size_t NM = kEstimated ? NY : NX;            ///< The measurement: y, or the state itself
+    static constexpr size_t NIn = kEstimated ? NY : NX;           ///< What update takes: y, or the plant state
+    static constexpr size_t NM = kEstimated ? NY : NXL;           ///< What the integrators read: y, or the law's state
     static constexpr size_t NR = (NI > 0) ? NI : NZ;              ///< The reference r: integrated or tracked outputs (0: none)
     static_assert(!kEstimated || Traits::NXE == NXL, "The estimator is on the law's model.");
     static_assert(NI == 0 || NZ == 0, "Integral action and a disturbance model are two offset-free choices: lqgi or oflqg, not both.");
     static_assert(ND == 0 || NZ > 0, "A disturbance model tracks through its steady-state target.");
-    static constexpr bool kRecord = (NI > 0) || kEstimated; ///< The law keeps its command and the applied input
+    static constexpr bool kRecord = (NI > 0) || kEstimated || (NRU > 0); ///< The law keeps its command and the applied input
     using Record = damp::conditional_t<kRecord, detail::AppliedRecord<NU, T>, detail::NoAppliedRecord>;
 
     using Target = detail::maybe<(NZ > 0), SteadyStateTarget<NXE, NU, ND, NZ, T, typename Store::template TargetD<NXE + NU, ND, T>, typename Store::template TargetR<NXE + NU, NZ, T>>, detail::OffSlot::target>;
     using Integral = detail::maybe<(NI > 0), detail::IntegralAction<NI, NM, NU, (kEstimated ? NY : 0), T, typename Store::template Ci<NI, NM, T>, typename Store::template Ci_u<NI, NU, T>>, detail::OffSlot::integral>;
-    using HeldX = detail::maybe<!kEstimated, ColVec<NX, T>, detail::OffSlot::held_x>;
+    using HeldX = detail::maybe<!kEstimated, ColVec<NXL, T>, detail::OffSlot::held_x>;
 
     [[no_unique_address]] typename Store::template K<NU, NXL + NI, T> K{};         ///< Gain on [x; xi]
     [[no_unique_address]] Est                                         estimator{}; ///< The filter (none for a measured state)
@@ -238,7 +249,7 @@ struct StateFeedbackCore {
      * time either leaves K = 0.
      */
     template<typename R>
-        requires(detail::gain_result<R> && !kEstimated && NI == 0 && NZ == 0 && !Store::constant)
+        requires(detail::gain_result<R> && !kEstimated && NI == 0 && NZ == 0 && NRU == 0 && !Store::constant)
     constexpr StateFeedbackCore(const R& result) // NOLINT
     {
         if (usable(result, detail::discrete_gain(result))) {
@@ -253,10 +264,10 @@ struct StateFeedbackCore {
      * A failed or continuous result (Ts = 0) does not compile when constant-evaluated; at run
      * time either leaves K = 0.
      */
-    template<size_t NXR, size_t NUR, typename U, size_t NIR, size_t NYR, typename Kalman, size_t NZR>
+    template<size_t NXR, size_t NUR, typename U, size_t NIR, size_t NYR, typename Kalman, size_t NZR, size_t NRR>
         requires(!Store::constant)
-    constexpr StateFeedbackCore(const design::StateFeedbackResult<NXR, NUR, U, NIR, NYR, Kalman, NZR>& result) { // NOLINT
-        constexpr bool same = NXR == NX && NUR == NU && NIR == NI && NYR == NY && NZR == NZ && damp::is_same_v<Est, detail::runtime_estimator_t<Kalman, T>>;
+    constexpr StateFeedbackCore(const design::StateFeedbackResult<NXR, NUR, U, NIR, NYR, Kalman, NZR, NRR>& result) { // NOLINT
+        constexpr bool same = NXR == NX && NUR == NU && NIR == NI && NYR == NY && NZR == NZ && NRR == NRU && damp::is_same_v<Est, detail::runtime_estimator_t<Kalman, T>>;
         static_assert(same, "This law's sizes are not the design's: let them deduce, LQG law{res}, or Law<res, T> for a member.");
         if constexpr (same) {
             if (usable(result, result.Ts != U{0})) {
@@ -314,20 +325,33 @@ struct StateFeedbackCore {
         if constexpr (kEstimated) {
             estimator.predict(applied_.applied);
         }
+        if constexpr (NRU > 0 && !kEstimated) {
+            for (size_t i = NXL; i-- > NX + NU;) { // oldest first: each register takes the one before it
+                x_(i) = x_(i - NU);
+            }
+            for (size_t j = 0; j < NU; ++j) {
+                x_(NX + j) = applied_.applied(j);
+            }
+        }
     }
 
     /**
      * @brief Measurement update: the filter's with the outputs @p m (the integrators read them at
-     *        the next control), or, with no filter, the state @p m held for the next control.
+     *        the next control), or, with no filter, the plant state @p m held for the next control
+     *        (the input registers after it are the law's own).
      */
-    constexpr void update(const ColVec<NM, T>& m) {
+    constexpr void update(const ColVec<NIn, T>& m) {
         if constexpr (kEstimated) {
             if constexpr (NI > 0) {
                 integral.y = m;
             }
             estimator.update(m);
-        } else {
+        } else if constexpr (NRU == 0) {
             x_ = m;
+        } else {
+            for (size_t i = 0; i < NX; ++i) {
+                x_(i) = m(i);
+            }
         }
     }
 
@@ -336,24 +360,25 @@ struct StateFeedbackCore {
      *        integral action on @p r (NI > 0), or the steady-state target for @p r (NZ > 0, under d̂ when ND > 0).
      */
     [[nodiscard]] constexpr ColVec<NU, T> control(const ColVec<NR, T>& r, const ColVec<NX, T>& x_ref, const ColVec<NU, T>& u_ref) {
+        const ColVec<NXL, T> ref = on_law_model(x_ref, u_ref);
         if constexpr (ND > 0) {
-            return anchored_law(r, x_ref, u_ref);
+            return anchored_law(r, ref, u_ref);
         } else if constexpr (NZ > 0) {
-            const auto p = target.equilibrium(r);
-            return reference_law(law_state(), ColVec<NX, T>(x_ref + p.x), ColVec<NU, T>(u_ref + p.u));
+            const auto p = target.equilibrium(r); // on the law's model: each register at u_t
+            return reference_law(law_state(), ColVec<NXL, T>(ref + p.x), ColVec<NU, T>(u_ref + p.u));
         } else if constexpr (NI > 0 && kEstimated) {
             // y was measured under the input the last predict applied: take its feedthrough out.
-            return integral_law(r, plant_estimate(), x_ref, u_ref, integral.y, ColVec<NI, T>(integral.Ci_u * applied_.applied));
+            return integral_law(r, law_state(), ref, u_ref, integral.y, ColVec<NI, T>(integral.Ci_u * applied_.applied));
         } else if constexpr (NI > 0) {
-            return integral_law(r, x_, x_ref, u_ref, x_, ColVec<NI, T>{});
+            return integral_law(r, x_, ref, u_ref, x_, ColVec<NI, T>{});
         } else {
             static_cast<void>(r);
-            return reference_law(law_state(), x_ref, u_ref);
+            return reference_law(law_state(), ref, u_ref);
         }
     }
 
     /** @brief One tick: predict(), update(@p m), then control(@p r, @p x_ref, @p u_ref). */
-    [[nodiscard]] constexpr ColVec<NU, T> step(const ColVec<NR, T>& r, const ColVec<NX, T>& x_ref, const ColVec<NU, T>& u_ref, const ColVec<NM, T>& m) {
+    [[nodiscard]] constexpr ColVec<NU, T> step(const ColVec<NR, T>& r, const ColVec<NX, T>& x_ref, const ColVec<NU, T>& u_ref, const ColVec<NIn, T>& m) {
         predict();
         update(m);
         return control(r, x_ref, u_ref);
@@ -407,6 +432,9 @@ struct StateFeedbackCore {
                 integral.y = ColVec<NY, T>{};
             }
         }
+        if constexpr (NRU > 0 && !kEstimated) {
+            x_ = ColVec<NXL, T>{};
+        }
     }
 
 private:
@@ -433,11 +461,28 @@ private:
         return detail::leading<NX>(estimator.state_estimate());
     }
 
-    [[nodiscard]] constexpr ColVec<NX, T> law_state() const {
+    [[nodiscard]] constexpr ColVec<NXL, T> law_state() const {
         if constexpr (kEstimated) {
-            return plant_estimate();
+            return detail::leading<NXL>(estimator.state_estimate());
         } else {
             return x_;
+        }
+    }
+
+    /** @brief The reference point on the law's model: x*, then u* in each input register. */
+    [[nodiscard]] static constexpr ColVec<NXL, T> on_law_model(const ColVec<NX, T>& x_ref, const ColVec<NU, T>& u_ref) {
+        if constexpr (NRU == 0) {
+            static_cast<void>(u_ref);
+            return x_ref;
+        } else {
+            ColVec<NXL, T> out{};
+            for (size_t i = 0; i < NX; ++i) {
+                out(i) = x_ref(i);
+            }
+            for (size_t i = NX; i < NXL; ++i) {
+                out(i) = u_ref((i - NX) % NU);
+            }
+            return out;
         }
     }
 
@@ -456,9 +501,9 @@ private:
         return u;
     }
 
-    /** @brief u = u* − K·z, z = [x − x*; xi]. */
-    [[nodiscard]] constexpr ColVec<NU, T> reference_law(const ColVec<NX, T>& x, const ColVec<NX, T>& x_ref, const ColVec<NU, T>& u_ref) {
-        const ColVec<NXL + NI, T> z = detail::stacked(ColVec<NX, T>(x - x_ref), integrators());
+    /** @brief u = u* − K·z, z = [x − x*; xi], x and x* on the law's model. */
+    [[nodiscard]] constexpr ColVec<NU, T> reference_law(const ColVec<NXL, T>& x, const ColVec<NXL, T>& x_ref, const ColVec<NU, T>& u_ref) {
+        const ColVec<NXL + NI, T> z = detail::stacked(ColVec<NXL, T>(x - x_ref), integrators());
         return record(ColVec<NU, T>(u_ref - (K * z)));
     }
 
@@ -466,8 +511,8 @@ private:
     template<size_t NMeas>
     [[nodiscard]] constexpr ColVec<NU, T> integral_law(
         const ColVec<NI, T>&    r,
-        const ColVec<NX, T>&    x,
-        const ColVec<NX, T>&    x_ref,
+        const ColVec<NXL, T>&   x,
+        const ColVec<NXL, T>&   x_ref,
         const ColVec<NU, T>&    u_ref,
         const ColVec<NMeas, T>& meas,
         const ColVec<NI, T>&    fed
@@ -478,7 +523,7 @@ private:
     }
 
     /** @brief The estimator anchored on the target for @p r about (x*, u*), then u = u_a − K·(the deviation the command meets). */
-    [[nodiscard]] constexpr ColVec<NU, T> anchored_law(const ColVec<NZ, T>& r, const ColVec<NX, T>& x_ref, const ColVec<NU, T>& u_ref)
+    [[nodiscard]] constexpr ColVec<NU, T> anchored_law(const ColVec<NZ, T>& r, const ColVec<NXL, T>& x_ref, const ColVec<NU, T>& u_ref)
         requires(ND > 0)
     {
         target.anchor(estimator, r, x_ref, u_ref);
@@ -617,8 +662,8 @@ struct constant_estimator {
 };
 
 /** @brief A design with a filter runs its FixedGainObserver on constants of the type. */
-template<const auto& Res, typename T, size_t NX, size_t NU, typename U, size_t NI, size_t NY, size_t NXK, size_t NW, size_t NV, size_t ND, size_t NZ>
-struct constant_estimator<Res, T, design::StateFeedbackResult<NX, NU, U, NI, NY, design::KalmanResult<NXK, NU, NY, U, NW, NV, ND>, NZ>> {
+template<const auto& Res, typename T, size_t NX, size_t NU, typename U, size_t NI, size_t NY, size_t NXK, size_t NW, size_t NV, size_t ND, size_t NZ, size_t NRU>
+struct constant_estimator<Res, T, design::StateFeedbackResult<NX, NU, U, NI, NY, design::KalmanResult<NXK, NU, NY, U, NW, NV, ND>, NZ, NRU>> {
     using type = FixedGainObserver<NXK, NU, NY, T, ND, ConstantObserver<Res, T, NXK - ND>>; ///< The observer and the disturbance
 };
 
@@ -789,22 +834,27 @@ struct IntegralDesign {
  * | integral | the integrated outputs Ci, Ci·C, Ci·D and the step | NI > 0 |
  * | target | the steady-state target (design::steady_state_target's result) | oflqg; lqr and lqg with TrackedOutputs (NZ > 0) |
  *
+ * A design on a plant whose input arrives late (an InputDelay) is on the law's model
+ * [x; v(k−1); …; v(k−NRU)]: K, S, e, the integrated outputs, the filter's model and the target
+ * cover the registers. A measured-state runtime holds them, a filter carries them.
+ *
  * @tparam NX     Plant states
  * @tparam NI     Integrators (0: none)
  * @tparam NY     Measured outputs (NX for a law without integrators or estimator)
  * @tparam Kalman The filter's design: KalmanResult, or NoEstimator for a measured state
  * @tparam NZ     Controlled outputs of the target (0: none)
+ * @tparam NRU    Input registers the law holds, NRU·NU states after the plant's (0: none)
  *
  * @see "Optimal Control" (Anderson & Moore, 1990), §4 and §8
  */
-template<size_t NX, size_t NU, typename T = double, size_t NI = 0, size_t NY = NX, typename Kalman = NoEstimator, size_t NZ = 0>
+template<size_t NX, size_t NU, typename T = double, size_t NI = 0, size_t NY = NX, typename Kalman = NoEstimator, size_t NZ = 0, size_t NRU = 0>
 struct [[nodiscard]] StateFeedbackResult {
     using Filter = ::damp::detail::estimator_traits<::damp::detail::runtime_estimator_t<Kalman, T>>;
     static constexpr bool   kEstimated = Filter::present; ///< A Kalman filter estimates the state
-    static constexpr size_t NXL = NX;                     ///< The law's model: the plant
-    static constexpr size_t NK = NXL + NI;                ///< The gain's state: the plant and the integrators
+    static constexpr size_t NXL = NX + (NRU * NU);        ///< The law's model: the plant, then its input registers
+    static constexpr size_t NK = NXL + NI;                ///< The gain's state: the law's model and the integrators
     static constexpr size_t ND = Filter::ND;              ///< Disturbance states of the filter
-    using Integral = ::damp::detail::maybe<(NI > 0), IntegralDesign<NI, NX, NU, NY, T>, ::damp::detail::OffSlot::design_integral>;
+    using Integral = ::damp::detail::maybe<(NI > 0), IntegralDesign<NI, NXL, NU, NY, T>, ::damp::detail::OffSlot::design_integral>;
     using Target = ::damp::detail::maybe<(NZ > 0), SteadyStateTargetResult<NXL, NU, ND, NZ, T>, ::damp::detail::OffSlot::design_target>;
 
     Matrix<NU, NK, T>                 K{};                                 ///< Optimal gain: u = −K·[x; xi]
@@ -823,7 +873,7 @@ struct [[nodiscard]] StateFeedbackResult {
     /** @brief The same design in the scalar @p U: `res.as<float>()` for the embedded runtime. */
     template<typename U>
     [[nodiscard]] constexpr auto as() const {
-        using Out = StateFeedbackResult<NX, NU, U, NI, NY, damp::remove_cvref_t<decltype(kalman.template as<U>())>, NZ>;
+        using Out = StateFeedbackResult<NX, NU, U, NI, NY, damp::remove_cvref_t<decltype(kalman.template as<U>())>, NZ, NRU>;
         Out out{K.template as<U>(), S.template as<U>(), array_as<damp::complex<U>>(e), success, status, static_cast<U>(Ts), kalman.template as<U>()};
         if constexpr (NI > 0) {
             out.integral = integral.template as<U>();
@@ -862,6 +912,9 @@ struct [[nodiscard]] StateFeedbackResult {
      * | Kalman filter | x̂(k−1\|k−1) | y | u |
      * | Kalman filter, integrators | [x̂(k\|k−1); ξ; u_prev] | [r; y] | u |
      *
+     * With input registers, x is the law's model [x; v(k−1); …], the state of the delayed plant the
+     * loop closes on.
+     *
      * With integrators, @f$ u = -K_x x - K_i \xi @f$ reads the current ξ, then
      * @f$ \xi \leftarrow \xi + h(r - C_i (C x + D u)) @f$ (h = integral.step), the measurement
      * less the feedthrough of the input it was taken under standing in for C x with a filter. With a filter it is the
@@ -878,7 +931,7 @@ struct [[nodiscard]] StateFeedbackResult {
         requires(ND == 0)
     {
         if constexpr (!kEstimated && NI == 0) {
-            return StateSpace<0, NX, NU, T>{.A = Matrix<0, 0, T>{}, .B = Matrix<0, NX, T>{}, .C = Matrix<NU, 0, T>{}, .D = -K, .Ts = Ts};
+            return StateSpace<0, NXL, NU, T>{.A = Matrix<0, 0, T>{}, .B = Matrix<0, NXL, T>{}, .C = Matrix<NU, 0, T>{}, .D = -K, .Ts = Ts};
         } else if constexpr (!kEstimated) {
             return integral_ss();
         } else if constexpr (NI == 0) {
@@ -894,72 +947,72 @@ private:
      *        D_c = [0, −K_x], and ξ ← ξ + h·(r − Ci·C·x − Ci·D·u): A_c = I − h·Ci·D·C_c,
      *        B_c = [hI, −h·Ci·C] − h·Ci·D·D_c.
      */
-    [[nodiscard]] constexpr StateSpace<NI, NI + NX, NU, T> integral_ss() const {
+    [[nodiscard]] constexpr StateSpace<NI, NI + NXL, NU, T> integral_ss() const {
         const T                 h = integral.step;
-        const Matrix<NU, NI, T> Cc = -K.template block<NU, NI>(0, NX);
-        Matrix<NU, NI + NX, T>  Dc{};
-        Dc.template block<NU, NX>(0, NI) = -K.template block<NU, NX>(0, 0);
-        Matrix<NI, NI + NX, T> Bc{};
+        const Matrix<NU, NI, T> Cc = -K.template block<NU, NI>(0, NXL);
+        Matrix<NU, NI + NXL, T> Dc{};
+        Dc.template block<NU, NXL>(0, NI) = -K.template block<NU, NXL>(0, 0);
+        Matrix<NI, NI + NXL, T> Bc{};
         Bc.template block<NI, NI>(0, 0) = Matrix<NI, NI, T>::identity() * h;
-        Bc.template block<NI, NX>(0, NI) = -integral.Ci_x * h;
+        Bc.template block<NI, NXL>(0, NI) = -integral.Ci_x * h;
         const Matrix<NI, NU, T> hCiD = integral.Ci_u * h;
         const Matrix<NI, NI, T> Ac = Matrix<NI, NI, T>::identity() - (hCiD * Cc);
-        return {.A = Ac, .B = Matrix<NI, NI + NX, T>(Bc - (hCiD * Dc)), .C = Cc, .D = Dc, .Ts = Ts};
+        return {.A = Ac, .B = Matrix<NI, NI + NXL, T>(Bc - (hCiD * Dc)), .C = Cc, .D = Dc, .Ts = Ts};
     }
 
     /** @brief The current-estimator law: the filter's estimate x̂(k−1|k−1) is the state. */
-    [[nodiscard]] constexpr StateSpace<NX, NY, NU, T> estimator_ss() const {
+    [[nodiscard]] constexpr StateSpace<NXL, NY, NU, T> estimator_ss() const {
         const auto& sys = kalman.sys;
-        const auto  ImMC = Matrix<NX, NX, T>::identity() - (kalman.M * sys.C);
+        const auto  ImMC = Matrix<NXL, NXL, T>::identity() - (kalman.M * sys.C);
         const auto  Ac = (ImMC * (sys.A - (sys.B * K))) + ((kalman.M * sys.D) * K);
         return {.A = Ac, .B = kalman.M, .C = -(K * Ac), .D = -(K * kalman.M), .Ts = Ts};
     }
 
     /** @brief The current-estimator law with integrators: the state is [x̂(k|k−1); ξ; u_prev], the inputs [r; y] (to_ss()). */
-    [[nodiscard]] constexpr StateSpace<NX + NI + NU, NI + NY, NU, T> integral_estimator_ss() const {
-        constexpr size_t        NS = NX + NI + NU;
-        const auto&             sys = kalman.sys;
-        const auto&             M = kalman.M;
-        const Matrix<NU, NX, T> Kx = K.template block<NU, NX>(0, 0);
-        const Matrix<NU, NI, T> Ki = K.template block<NU, NI>(0, NX);
-        const auto              ImMC = Matrix<NX, NX, T>::identity() - (M * sys.C);
-        const auto              MD = M * sys.D;
-        const auto              KxImMC = Kx * ImMC;
-        const auto              AmBKx = sys.A - (sys.B * Kx);
-        const auto              KxM = Kx * M;
-        const T                 h = integral.step;
+    [[nodiscard]] constexpr StateSpace<NXL + NI + NU, NI + NY, NU, T> integral_estimator_ss() const {
+        constexpr size_t         NS = NXL + NI + NU;
+        const auto&              sys = kalman.sys;
+        const auto&              M = kalman.M;
+        const Matrix<NU, NXL, T> Kx = K.template block<NU, NXL>(0, 0);
+        const Matrix<NU, NI, T>  Ki = K.template block<NU, NI>(0, NXL);
+        const auto               ImMC = Matrix<NXL, NXL, T>::identity() - (M * sys.C);
+        const auto               MD = M * sys.D;
+        const auto               KxImMC = Kx * ImMC;
+        const auto               AmBKx = sys.A - (sys.B * Kx);
+        const auto               KxM = Kx * M;
+        const T                  h = integral.step;
 
         Matrix<NS, NS, T> Ac{};
-        Ac.template block<NX, NX>(0, 0) = AmBKx * ImMC;
-        Ac.template block<NX, NI>(0, NX) = -(sys.B * Ki);
-        Ac.template block<NX, NU>(0, NX + NI) = -(AmBKx * MD);
-        Ac.template block<NI, NI>(NX, NX) = Matrix<NI, NI, T>::identity();
-        Ac.template block<NU, NX>(NX + NI, 0) = -KxImMC;
-        Ac.template block<NU, NI>(NX + NI, NX) = -Ki;
-        Ac.template block<NU, NU>(NX + NI, NX + NI) = Kx * MD;
+        Ac.template block<NXL, NXL>(0, 0) = AmBKx * ImMC;
+        Ac.template block<NXL, NI>(0, NXL) = -(sys.B * Ki);
+        Ac.template block<NXL, NU>(0, NXL + NI) = -(AmBKx * MD);
+        Ac.template block<NI, NI>(NXL, NXL) = Matrix<NI, NI, T>::identity();
+        Ac.template block<NU, NXL>(NXL + NI, 0) = -KxImMC;
+        Ac.template block<NU, NI>(NXL + NI, NXL) = -Ki;
+        Ac.template block<NU, NU>(NXL + NI, NXL + NI) = Kx * MD;
         Matrix<NS, NI + NY, T> Bc{};
-        Bc.template block<NI, NI>(NX, 0) = Matrix<NI, NI, T>::identity() * h;
-        Bc.template block<NX, NY>(0, NI) = AmBKx * M;
-        Bc.template block<NI, NY>(NX, NI) = -integral.Ci * h;
-        Bc.template block<NU, NY>(NX + NI, NI) = -KxM;
+        Bc.template block<NI, NI>(NXL, 0) = Matrix<NI, NI, T>::identity() * h;
+        Bc.template block<NXL, NY>(0, NI) = AmBKx * M;
+        Bc.template block<NI, NY>(NXL, NI) = -integral.Ci * h;
+        Bc.template block<NU, NY>(NXL + NI, NI) = -KxM;
         Matrix<NU, NS, T> Cc{};
-        Cc.template block<NU, NX>(0, 0) = -KxImMC;
-        Cc.template block<NU, NI>(0, NX) = -Ki;
-        Cc.template block<NU, NU>(0, NX + NI) = Kx * MD;
+        Cc.template block<NU, NXL>(0, 0) = -KxImMC;
+        Cc.template block<NU, NI>(0, NXL) = -Ki;
+        Cc.template block<NU, NU>(0, NXL + NI) = Kx * MD;
         Matrix<NU, NI + NY, T> Dc{};
         Dc.template block<NU, NY>(0, NI) = -KxM;
         //! ξ ← ξ + h·(r − Ci·y + Ci·D·u_prev − Ci·D·u): the measurement less the feedthrough of the
         //! input it was taken under, then the feedthrough of the input the law applies, u = C_c s + D_c [r; y].
         const Matrix<NI, NU, T> hCiD = integral.Ci_u * h;
-        Ac.template block<NI, NU>(NX, NX + NI) = hCiD;
+        Ac.template block<NI, NU>(NXL, NXL + NI) = hCiD;
         const Matrix<NI, NS, T>      fed_a = hCiD * Cc;
         const Matrix<NI, NI + NY, T> fed_b = hCiD * Dc;
         for (size_t i = 0; i < NI; ++i) {
             for (size_t j = 0; j < NS; ++j) {
-                Ac(NX + i, j) -= fed_a(i, j);
+                Ac(NXL + i, j) -= fed_a(i, j);
             }
             for (size_t j = 0; j < NI + NY; ++j) {
-                Bc(NX + i, j) -= fed_b(i, j);
+                Bc(NXL + i, j) -= fed_b(i, j);
             }
         }
         return {.A = Ac, .B = Bc, .C = Cc, .D = Dc, .Ts = Ts};
@@ -1250,8 +1303,8 @@ template<size_t NX, size_t NU, typename T, size_t NI>
 }
 
 /** @brief The gain on the law's state. */
-template<size_t NX, size_t NU, typename T, size_t NI, size_t NY, size_t NK>
-[[nodiscard]] constexpr StateFeedbackResult<NX, NU, T, NI, NY> with_gain(StateFeedbackResult<NX, NU, T, NI, NY> out, const LQRResult<NK, NU, T>& lq) {
+template<typename Result, size_t NK, size_t NU, typename T>
+[[nodiscard]] constexpr Result with_gain(Result out, const LQRResult<NK, NU, T>& lq) {
     out.K = lq.K;
     out.S = lq.S;
     out.e = lq.e;
@@ -1312,34 +1365,215 @@ template<bool Discrete, size_t NI, size_t NX, size_t NU, size_t NY, typename T, 
     }
 }
 
-/** @brief The design on checked options: the law, then the filter and the target they ask for; status the first failure. */
-template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Options>
-[[nodiscard]] constexpr auto designed(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T Ts, const weights_for<NX, NU, NY, T, Options>& w, const Options& opts) {
+/**
+ * @brief The continuous cost over one period of a plant whose input arrives late, on the law's
+ *        state [z; ξ], z = [x; v(k−1); …], and the command u: exact under ZOH.
+ *
+ * Within the period input j holds v_j(k − d_j − 1) until its switch at τ_j, then v_j(k − d_j)
+ * (discretize with an InputDelay), and the integrators ramp on the error sampled at the start,
+ * ξ̇ = −Ci·y_k. The switches cut the period into stretches over which every input holds one
+ * value. Over each, Van Loan gives the exact cost of [x; ξ] from the stretch's start under the
+ * held values, and the exponential carries the start to the next stretch. The start and the held
+ * values are linear maps of [z; ξ; u], so the stretches sum to a quadratic form on it.
+ *
+ * The input cost is booked on the command when it is sent, Ts·uᵀRu, not over the periods it
+ * reaches the plant in. A held input acts for Ts in all, so over any trajectory the two
+ * bookings differ only by the cost of the inputs already in the registers at the start, which
+ * no command changes: the same gain, with R on the command where the DARE needs it. Q and the
+ * cross term N act on the plant as it runs, x(t) and the input it holds.
+ */
+template<size_t NX, size_t NU, size_t NY, size_t NI, typename T, size_t NW, size_t NV, size_t NZ>
+[[nodiscard]] constexpr damp::optional<LQRCost<NZ + NI, NU, T>> delayed_cost(
+    const StateSpace<NX, NU, NY, T, NW, NV>&                 sys,   // continuous
+    const StateSpace<NZ, NU, NY, T, NW, NV>&                 model, // discretize(sys, Ts, InputDelay<N>{θ})
+    const damp::array<::damp::detail::RegisterDelay<T>, NU>& inputs,
+    const Matrix<NI, NY, T>&                                 Ci,
+    const LQRWeights<NX, NU, NI, T>&                         w,
+    T                                                        Ts
+) {
+    constexpr size_t NL = NZ + NI;      // the law's state [z; ξ]
+    constexpr size_t NQ = NL + NU;      // and the command
+    constexpr size_t NE = NX + NI;      // what runs over the period: [x; ξ]
+    constexpr size_t NA = NE + NU + NI; // and what a stretch holds: [v; e]
+
+    //! d/dt [x; ξ; v; e] = [A·x + B·v; −e; 0; 0], weighted by [Q 0 N 0; 0 Q_integral 0 0; Nᵀ 0 0 0; 0 0 0 0]
+    Matrix<NA, NA, T> F{};
+    Matrix<NA, NA, T> S{};
+    F.template block<NX, NX>(0, 0) = sys.A;
+    F.template block<NX, NU>(0, NE) = sys.B;
+    S.template block<NX, NX>(0, 0) = w.Q;
+    S.template block<NX, NU>(0, NE) = w.N;
+    S.template block<NU, NX>(NE, 0) = w.N.t();
+    for (size_t i = 0; i < NI; ++i) {
+        F(NX + i, NE + NU + i) = T{-1};
+        for (size_t c = 0; c < NI; ++c) {
+            S(NX + i, NX + c) = w.Q_integral(i, c);
+        }
+    }
+
+    //! The stretches: 0, each switch once in time order, then Ts.
+    damp::array<T, NU + 2> edge{};
+    size_t                 cuts = 1;
+    for (size_t j = 0; j < NU; ++j) {
+        const T tau = inputs[j].fraction;
+        bool    seen = !(tau > T{0});
+        for (size_t c = 1; c < cuts; ++c) {
+            seen = seen || (edge[c] == tau);
+        }
+        if (!seen) {
+            size_t c = cuts++;
+            for (; c > 1 && edge[c - 1] > tau; --c) {
+                edge[c] = edge[c - 1];
+            }
+            edge[c] = tau;
+        }
+    }
+    edge[cuts] = Ts;
+
+    //! [x; ξ] at the start of the period as a map of [z; ξ; u], and the error held over it, e = Ci·(C·z + D·u)
+    Matrix<NE, NQ, T> start{};
+    for (size_t i = 0; i < NX; ++i) {
+        start(i, i) = T{1};
+    }
+    for (size_t i = 0; i < NI; ++i) {
+        start(NX + i, NZ + i) = T{1};
+    }
+    const Matrix<NI, NZ, T> CiC = Ci * model.C;
+    const Matrix<NI, NU, T> CiD = Ci * model.D;
+
+    Matrix<NQ, NQ, T> total{};
+    for (size_t s = 0; s < cuts; ++s) {
+        const T           a = edge[s];
+        const T           h = edge[s + 1] - a;
+        Matrix<NA, NQ, T> M{}; // [x; ξ; v; e] at the stretch's start
+        M.template block<NE, NQ>(0, 0) = start;
+        for (size_t j = 0; j < NU; ++j) {
+            const bool   before = inputs[j].fraction > T{0} && a < inputs[j].fraction;
+            const size_t age = inputs[j].whole + (before ? 1 : 0);
+            M(NE + j, (age == 0) ? NL + j : NX + ((age - 1) * NU) + j) = T{1};
+        }
+        for (size_t i = 0; i < NI; ++i) {
+            for (size_t c = 0; c < NZ; ++c) {
+                M(NE + NU + i, c) = CiC(i, c);
+            }
+            for (size_t j = 0; j < NU; ++j) {
+                M(NE + NU + i, NL + j) = CiD(i, j);
+            }
+        }
+        const auto W = ::damp::detail::van_loan_integral(F, S, h);
+        const auto E = mat::expm(Matrix<NA, NA, T>(F * h));
+        if (!W || !E) {
+            return damp::nullopt;
+        }
+        const Matrix<NQ, NA, T> Mt = M.t();
+        total = total + ((Mt * *W) * M);
+        start = E->template block<NE, NA>(0, 0) * M;
+    }
+    total.template block<NU, NU>(NL, NL) = total.template block<NU, NU>(NL, NL) + (w.R * Ts);
+    total = (total + total.t()) * static_cast<T>(0.5);
+    if (!mat::all_of(total, [](T v) { return damp::isfinite(v); })) {
+        return damp::nullopt;
+    }
+    return LQRCost<NL, NU, T>{
+        .Q = total.template block<NL, NL>(0, 0),
+        .R = total.template block<NU, NU>(NL, NL),
+        .N = total.template block<NL, NU>(0, NL),
+    };
+}
+
+/**
+ * @brief The law on a measured state of a continuous plant whose input arrives @p delay late:
+ *        the gain on [x; v(k−1); …; v(k−N); ξ] for the continuous cost of @p w, exact (delayed_cost),
+ *        and the integrators of @p Ci (NI > 0).
+ */
+template<size_t NI, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t N, typename S>
+[[nodiscard]] constexpr auto delayed_law_design(
+    const StateSpace<NX, NU, NY, T, NW, NV>& sys,
+    T                                        Ts,
+    const InputDelay<N, S>&                  delay,
+    const LQRWeights<NX, NU, NI, T>&         w,
+    const Matrix<NI, NY, T>&                 Ci
+) {
+    using Result = StateFeedbackResult<NX, NU, T, NI, ((NI > 0) ? NY : NX), NoEstimator, 0, N>;
+    if (!mat::cholesky(w.R).has_value()) {
+        return ::damp::detail::refused<Result>(DesignStatus::bad_weights); // R not positive definite
+    }
+    if constexpr (NI > 0) {
+        if (!mat::cholesky(w.Q_integral).has_value()) {
+            return ::damp::detail::refused<Result>(DesignStatus::bad_weights); // an unweighted integrator
+        }
+    }
+    const auto m = sampled_model(sys, Ts, false, delay); // a continuous plant, a usable Ts, finite entries, a delay discretize takes
+    if (m.status != DesignStatus::ok) {
+        return ::damp::detail::refused<Result>(m.status);
+    }
+    const auto& model = m.law;
+    const auto  inputs = ::damp::detail::channel_register_delays<NU>(delay.seconds, Ts, N); // as discretize accepted them
+    const auto  cost = inputs ? delayed_cost(sys, model, *inputs, Ci, w, Ts) : damp::nullopt;
+    if (!cost) {
+        return ::damp::detail::refused<Result>(DesignStatus::bad_weights); // a non-finite weight on the sampled plant
+    }
+    Result out{.Ts = Ts};
+    if constexpr (NI == 0) {
+        return with_gain(out, discrete_lqr(model.A, model.B, *cost));
+    } else {
+        const auto im = integral_model(model.A, model.B, model.C, model.D, Ci, Ts);
+        out.integral = IntegralDesign<NI, NX + (N * NU), NU, NY, T>{Ci, Ci * model.C, Ci * model.D, Ts};
+        return with_gain(out, discrete_lqr(im.A, im.B, *cost));
+    }
+}
+
+/** @brief The gain of a design: on the plant (law_design), or on the model with the input registers of @p delay (delayed_law_design). */
+template<bool Discrete, size_t NI, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Delay>
+[[nodiscard]] constexpr auto gain_design(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T Ts, const LQRWeights<NX, NU, NI, T>& w, const Matrix<NI, NY, T>& Ci, const Delay& delay) {
+    if constexpr (damp::is_same_v<Delay, NoDelay>) {
+        static_cast<void>(delay);
+        return law_design<Discrete, NI>(sys, Ts, w, Ci);
+    } else {
+        static_assert(!Discrete, "A delay is sampled with the plant: a continuous plant and Ts.");
+        return delayed_law_design<NI>(sys, Ts, delay, w, Ci);
+    }
+}
+
+/**
+ * @brief The design on checked options: the law, then the filter and the target they ask for, on
+ *        the plant or on its model with the input registers of @p delay; status the first failure.
+ */
+template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Options, typename Delay = NoDelay>
+[[nodiscard]] constexpr auto designed(
+    const StateSpace<NX, NU, NY, T, NW, NV>&   sys,
+    T                                          Ts,
+    const weights_for<NX, NU, NY, T, Options>& w,
+    const Options&                             opts,
+    const Delay&                               delay = Delay{}
+) {
     using O = options_traits<Options>;
     constexpr size_t NI = integrator_count<NY, Options>;
+    constexpr size_t NRU = delay_registers<Delay>;
     constexpr bool   kEstimated = !is_unset<typename O::noise>;
     constexpr bool   kTarget = !is_unset<typename O::disturbance> || !is_unset<typename O::track>;
     const auto       spec = disturbance_of(opts);
 
     const auto Ci = integrated_selector<NI, NY, T>(integral_action_of(opts));
-    auto       law = law_design<Discrete, NI>(sys, Ts, w, Ci ? *Ci : Matrix<NI, NY, T>{});
+    auto       law = gain_design<Discrete>(sys, Ts, w, Ci ? *Ci : Matrix<NI, NY, T>{}, delay);
     if (!Ci) {
         law = ::damp::detail::refused<decltype(law)>(DesignStatus::bad_weights); // an integrated output out of range or listed twice
     }
     if constexpr (!kEstimated && !kTarget) {
         return law;
     } else {
-        constexpr size_t NDS = disturbance_traits<damp::remove_cvref_t<decltype(spec)>, NU, NY, NW>::listed;
+        using SpecT = damp::remove_cvref_t<decltype(spec)>;
+        constexpr size_t NDS = disturbance_traits<SpecT, NU, NY, NW>::listed;
         constexpr size_t NZS = (NDS == 0) ? NY : NDS; // the spec's outputs, or every output
         constexpr size_t NZ = kTarget ? NZS : 0;
         const auto       filter = [&] {
             if constexpr (kEstimated) {
-                return kalman_design<Discrete>(sys, Ts, opts.noise, spec);
+                return kalman_design<Discrete>(sys, Ts, opts.noise, spec, delay);
             } else {
                 return NoEstimator{};
             }
         }();
-        using Result = StateFeedbackResult<NX, NU, T, NI, (kEstimated ? NY : NX), damp::remove_cvref_t<decltype(filter)>, NZ>;
+        using Result = StateFeedbackResult<NX, NU, T, NI, (kEstimated ? NY : NX), damp::remove_cvref_t<decltype(filter)>, NZ, NRU>;
         Result out{law.K, law.S, law.e, law.success, law.status, law.Ts, filter};
         if constexpr (NI > 0) {
             out.integral = law.integral;
@@ -1349,7 +1583,7 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
             status = (status == DesignStatus::ok) ? filter.status : status;
         }
         if constexpr (kTarget) {
-            out.target = target_design<Discrete>(sys, Ts, spec);
+            out.target = target_design<Discrete>(sys, Ts, spec, target_weight<SpecT, NU, NY, NW, T>::identity(), delay);
             status = (status == DesignStatus::ok) ? out.target.status : status;
         }
         return ::damp::detail::set_status(out, status);
@@ -1358,14 +1592,16 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
 
 /**
  * @brief The state-feedback design on @p sys in its own time domain (@p Discrete) or sampled at
- *        @p Ts, once the options pass their checks: a mistake stops here with its message alone.
+ *        @p Ts, with its input @p delay late when that is an InputDelay, once the options pass
+ *        their checks: a mistake stops here with its message alone.
  */
-template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Options>
+template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Options, typename Delay = NoDelay>
 [[nodiscard]] constexpr auto state_feedback_design(
     const StateSpace<NX, NU, NY, T, NW, NV>&   sys,
     T                                          Ts,
     const weights_for<NX, NU, NY, T, Options>& w,
-    const Options&                             opts
+    const Options&                             opts,
+    const Delay&                               delay = Delay{}
 ) {
     if constexpr (!options_traits<Options>::named) {
         static_assert(options_traits<Options>::named, "The options are design::StateFeedbackOptions{.noise = ..., .offset_free = ...}: one named field per feature.");
@@ -1375,7 +1611,7 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
     } else if constexpr (!features_valid<NU, NY, T, NW, NV, Options>()) {
         return StateFeedbackResult<NX, NU, T>{}; // features_valid says why
     } else {
-        return designed<Discrete>(sys, Ts, w, opts);
+        return designed<Discrete>(sys, Ts, w, opts, delay);
     }
 }
 
@@ -1398,8 +1634,9 @@ namespace detail {
  *
  * With `.offset_free = IntegralAction{}`, the integrators ξ advance by xi += Ts·(r − Ci·y)
  * (MATLAB®'s discrete lqi, so ξ ≈ ∫e dt and Q_integral means what it does on the sampled route).
- * An input delay is part of the plant: design on the model
- * discretize(plant, Ts, InputDelay<N>{θ}) returns, its registers states like any other.
+ * An input delay on a discrete plant is part of its model: design on the one
+ * discretize(plant, Ts, InputDelay<N>{θ}) returns, its registers states like any other, or from
+ * the continuous plant with state_feedback(sys, Ts, InputDelay<N>{θ}, weights, options).
  * The other options are state_feedback(sys, Ts, weights, options)'s.
  *
  * Refused with DesignStatus::invalid_sample_time for a negative or non-finite sys.Ts, or a
@@ -1444,9 +1681,10 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
  * Constant references and disturbances leave no steady-state error on the integrated outputs.
  *
  * @par Input delay
- * A delay is a model of the plant, not an option of the law: design on
- * discretize(plant, Ts, InputDelay<N>{θ}), whose registers v(k−1) … v(k−N) the law measures or
- * the filter estimates like any other state.
+ * A delay is a model of the plant: state_feedback(sys, Ts, InputDelay<N>{θ}, weights, options)
+ * designs on discretize(sys, Ts, InputDelay<N>{θ}) with the cost discretized exactly, every
+ * option as here. A measured-state law holds the registers v(k−1) … v(k−N); a filter carries
+ * them as states of its model, with no process noise on them.
  *
  * @par Offset-free control by a disturbance model
  * A disturbance model in `.offset_free` (InputDisturbance, OutputDisturbance, PlantDisturbance,
@@ -1506,6 +1744,43 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
     const Options&                             options
 ) {
     return state_feedback_design<false>(sys, Ts, weights, options);
+}
+
+/**
+ * @brief The sampled-data state-feedback law of a continuous plant whose input arrives @p delay
+ *        late: the weights and the noise on the plant, the law on [x; v(k−1); …; v(k−N)]
+ *
+ * The model is discretize(sys, Ts, delay), and the cost integral is discretized on it exactly:
+ * the plant runs on the input it holds within each period, which switches at the delay's
+ * fraction of a sample (delayed_cost). The registers take no weight of their own, so @p weights
+ * are the plant's, as for the design without a delay, and mean the same at any Ts and any delay.
+ *
+ * The options are state_feedback(sys, Ts, weights, options)'s, each on the delayed model. A
+ * measured-state law (LQR, LQI) holds the registers: update takes the plant state, and predict
+ * shifts in the input back_calculate recorded. A filter (`.noise`) is design::kalman(sys, Ts,
+ * delay, noise): the process noise acts on the plant, none on the registers, which it carries
+ * exactly. A target holds each register at u_t. x_ref is the plant's and the registers'
+ * reference is u_ref, on every law.
+ *
+ * Refused as state_feedback(sys, Ts, weights, options), and with discretize's status for a delay
+ * it refuses (negative, not finite or longer than N samples).
+ *
+ * @param sys      Continuous plant (sys.Ts = 0)
+ * @param Ts       Sampling time of the law [s]
+ * @param delay    InputDelay<N>{θ}: θ ≤ N·Ts, one for every input or a ColVec of one per input
+ * @param weights  Continuous {.Q, .R, .N, .Q_integral} on the plant: a cost integral
+ * @param options  design::StateFeedbackOptions{…}: the law's features (default none)
+ * @return StateFeedbackResult with NRU = N: the runtime its design names runs it
+ */
+template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t N, typename S, typename Options>
+[[nodiscard]] constexpr auto state_feedback(
+    const StateSpace<NX, NU, NY, T, NW, NV>&   sys,
+    damp::type_identity_t<T>                   Ts,
+    const InputDelay<N, S>&                    delay,
+    const weights_for<NX, NU, NY, T, Options>& weights,
+    const Options&                             options
+) {
+    return state_feedback_design<false>(sys, static_cast<T>(Ts), weights, options, delay);
 }
 
 } // namespace detail
