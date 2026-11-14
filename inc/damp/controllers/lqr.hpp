@@ -19,7 +19,10 @@
  */
 
 #include "damp/backend.hpp"
-#include "damp/controllers/state_feedback_core.hpp" // IWYU pragma: export
+#include "damp/controllers/detail/lq_law.hpp"                // IWYU pragma: export
+#include "damp/controllers/detail/state_feedback_design.hpp" // IWYU pragma: export
+#include "damp/controllers/state_feedback_core.hpp"          // IWYU pragma: export
+#include "damp/controllers/state_feedback_types.hpp"         // IWYU pragma: export
 #include "damp/design/riccati.hpp"
 #include "damp/matrix/colvec.hpp"
 #include "damp/matrix/core.hpp"
@@ -33,7 +36,7 @@ namespace detail {
 /** @brief design::lqr's result: the gain, the Riccati solution, the closed-loop poles, the status and Ts. */
 template<size_t NX, size_t NU, typename T, size_t NY>
 [[nodiscard]] constexpr LQRResult<NX, NU, T> lqr_result(const StateFeedbackResult<NX, NU, T, 0, NY>& r) {
-    return {r.K, r.S, r.e, r.success, r.status, r.Ts, r.Ts > T{0}};
+    return {r.K, r.S, r.e, r.success, r.status, r.Ts, r.Ts > T{0}, r.u_lim};
 }
 
 } // namespace detail
@@ -43,8 +46,8 @@ template<size_t NX, size_t NU, typename T, size_t NY>
  * @note Compare with MATLAB®'s lqr(sys, Q, R, N).
  */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
-[[nodiscard]] constexpr LQRResult<NX, NU, T> lqr(const StateSpace<NX, NU, NY, T, NW, NV>& sys, const LQRWeights<NX, NU, 0, T>& weights) {
-    return detail::lqr_result(detail::state_feedback(sys, weights, detail::StateFeedbackOptions{}));
+[[nodiscard]] constexpr LQRResult<NX, NU, T> lqr(const StateSpace<NX, NU, NY, T, NW, NV>& sys, const LQRConfig<NX, NU, 0, T>& config) {
+    return detail::lqr_result(detail::state_feedback(sys, config, detail::StateFeedbackOptions{}));
 }
 
 /**
@@ -52,8 +55,8 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
  * @note Compare with MATLAB®'s lqrd(sys, Q, R, Ts).
  */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
-[[nodiscard]] constexpr LQRResult<NX, NU, T> lqr(const StateSpace<NX, NU, NY, T, NW, NV>& sys, damp::type_identity_t<T> Ts, const LQRWeights<NX, NU, 0, T>& weights) {
-    return detail::lqr_result(detail::state_feedback(sys, Ts, weights, detail::StateFeedbackOptions{}));
+[[nodiscard]] constexpr LQRResult<NX, NU, T> lqr(const StateSpace<NX, NU, NY, T, NW, NV>& sys, damp::type_identity_t<T> Ts, const LQRConfig<NX, NU, 0, T>& config) {
+    return detail::lqr_result(detail::state_feedback(sys, Ts, config, detail::StateFeedbackOptions{}));
 }
 
 /**
@@ -68,19 +71,19 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
  * leaves an offset: lqi removes it.
  */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NZ>
-[[nodiscard]] constexpr auto lqr(const StateSpace<NX, NU, NY, T, NW, NV>& sys, const LQRWeights<NX, NU, 0, T>& weights, const TrackedOutputs<NZ>& outputs) {
-    return detail::state_feedback(sys, weights, detail::StateFeedbackOptions{.track = outputs});
+[[nodiscard]] constexpr auto lqr(const StateSpace<NX, NU, NY, T, NW, NV>& sys, const LQRConfig<NX, NU, 0, T>& config, const TrackedOutputs<NZ>& outputs) {
+    return detail::state_feedback(sys, config, detail::StateFeedbackOptions{.track = outputs});
 }
 
-/** @brief The sampled-data linear-quadratic regulator holding the listed outputs at r (see lqr(sys, weights, outputs)): runs as LQR, step(r, x). */
+/** @brief The sampled-data linear-quadratic regulator holding the listed outputs at r (see lqr(sys, config, outputs)): runs as LQR, step(r, x). */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NZ>
 [[nodiscard]] constexpr auto lqr(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     damp::type_identity_t<T>                 Ts,
-    const LQRWeights<NX, NU, 0, T>&          weights,
+    const LQRConfig<NX, NU, 0, T>&           config,
     const TrackedOutputs<NZ>&                outputs
 ) {
-    return detail::state_feedback(sys, Ts, weights, detail::StateFeedbackOptions{.track = outputs});
+    return detail::state_feedback(sys, Ts, config, detail::StateFeedbackOptions{.track = outputs});
 }
 
 /**
@@ -97,9 +100,9 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     damp::type_identity_t<T>                 Ts,
     const InputDelay<N, S>&                  delay,
-    const LQRWeights<NX, NU, 0, T>&          weights
+    const LQRConfig<NX, NU, 0, T>&           config
 ) {
-    return detail::state_feedback(sys, Ts, delay, weights, detail::StateFeedbackOptions{});
+    return detail::state_feedback(sys, Ts, delay, config, detail::StateFeedbackOptions{});
 }
 
 /** @brief The sampled-data linear-quadratic regulator of a plant whose input arrives @p delay late, holding the listed outputs at r (the target holds each register at u_t): runs as LQR, step(r, x). */
@@ -108,10 +111,10 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     damp::type_identity_t<T>                 Ts,
     const InputDelay<N, S>&                  delay,
-    const LQRWeights<NX, NU, 0, T>&          weights,
+    const LQRConfig<NX, NU, 0, T>&           config,
     const TrackedOutputs<NZ>&                outputs
 ) {
-    return detail::state_feedback(sys, Ts, delay, weights, detail::StateFeedbackOptions{.track = outputs});
+    return detail::state_feedback(sys, Ts, delay, config, detail::StateFeedbackOptions{.track = outputs});
 }
 
 } // namespace design
@@ -125,8 +128,9 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size
  * empty, so that equals update then control. The regulator is x* = 0 and u* = 0. A design with
  * TrackedOutputs holds those outputs at r through its steady-state target: control(r),
  * step(r, x). Feedforward from a planned trajectory
- * (x_ref, u_ref) adds to it: control([r,] x_ref, u_ref), step([r,] x_ref, u_ref, x). A failed or
- * continuous design does not compile when constant-evaluated.
+ * (x_ref, u_ref) adds to it: control([r,] x_ref, u_ref), step([r,] x_ref, u_ref, x). The command
+ * is clamped into u_lim (design::lqr's, LQRConfig; unbounded by default, and for a gain K or a
+ * design::place result). A failed or continuous design does not compile when constant-evaluated.
  *
  * @code
  * static constinit LQR law{kRes.as<float>()};
@@ -170,6 +174,7 @@ struct LQR : private detail::StateFeedbackCore<NX, NU, T, 0, NY, NoEstimator, NZ
     }
 
     using Core::K;
+    using Core::u_lim;
 
     /** @brief Hold the measured state @p x for the next control. */
     constexpr void update(const ColVec<NX, T>& x) { Core::update(x); }

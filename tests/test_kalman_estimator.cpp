@@ -27,7 +27,7 @@
 #include "damp/backend.hpp"
 #include "damp/controllers/lqg.hpp"
 #include "damp/controllers/oflqg.hpp"
-#include "damp/controllers/state_feedback_core.hpp"
+#include "damp/controllers/state_feedback_types.hpp"
 #include "damp/design/disturbance.hpp"
 #include "damp/design/options.hpp"
 #include "damp/design/status.hpp"

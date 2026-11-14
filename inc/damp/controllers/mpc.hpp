@@ -150,7 +150,7 @@
 
 #include "damp/backend.hpp"
 #include "damp/controllers/law_detail.hpp"
-#include "damp/controllers/state_feedback_core.hpp"
+#include "damp/controllers/state_feedback_types.hpp"
 #include "damp/design/disturbance.hpp"
 #include "damp/design/invariant_set.hpp"
 #include "damp/design/options.hpp"
@@ -486,17 +486,6 @@ struct [[nodiscard]] MPCArtifacts {
 };
 
 namespace detail {
-
-/** @brief Limits an MPC accepts: every end not NaN (∓max() for none) and no lower end above its upper one. */
-template<size_t N, typename T>
-[[nodiscard]] constexpr bool mpc_limits_valid(const Bounds<N, T>& b) {
-    for (size_t j = 0; j < N; ++j) {
-        if (!damp::isfinite(b.lower(j)) || !damp::isfinite(b.upper(j)) || !(b.lower(j) <= b.upper(j))) {
-            return false;
-        }
-    }
-    return true;
-}
 
 /** @brief A weight matrix design::mpc accepts: finite, symmetric and positive semidefinite (as design::lqr's). */
 template<size_t N, typename T>
@@ -1039,7 +1028,7 @@ template<size_t NP, size_t NC, size_t ND, size_t NT_max = 0, size_t NX, size_t N
     if (!mpc_weights_valid(weights, constraints)) {
         return ::damp::detail::set_status(art, DesignStatus::bad_weights); // as design::lqr: indefinite, asymmetric or non-finite
     }
-    if (!mpc_limits_valid(constraints.u_lim) || !mpc_limits_valid(constraints.du_lim) || !mpc_limits_valid(constraints.y_lim)) {
+    if (!constraints.u_lim.valid() || !constraints.du_lim.valid() || !constraints.y_lim.valid()) {
         return ::damp::detail::set_status(art, DesignStatus::invalid_parameter); // as set_limits: a NaN or inverted limit
     }
     if (constraints.terminal == MPCTerminal::invariant_set && NC < NP) {
@@ -2140,7 +2129,7 @@ public:
         if (art.terminal == design::MPCTerminal::invariant_set) {
             return false;
         }
-        if (!design::detail::mpc_limits_valid(lim.u_lim) || !design::detail::mpc_limits_valid(lim.du_lim) || !design::detail::mpc_limits_valid(lim.y_lim)) {
+        if (!lim.u_lim.valid() || !lim.du_lim.valid() || !lim.y_lim.valid()) {
             return false;
         }
         design::detail::mpc_box_bounds(art, lim);

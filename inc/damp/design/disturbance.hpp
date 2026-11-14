@@ -109,6 +109,10 @@ struct is_disturbance<PlantDisturbance<NZ>> : damp::true_type {};
 template<size_t NX, size_t NY, size_t ND, size_t NZ, typename T>
 struct is_disturbance<DisturbanceModel<NX, NY, ND, NZ, T>> : damp::true_type {};
 
+/** @brief A disturbance model with states: every disturbance spec but NoDisturbance. */
+template<typename Spec>
+inline constexpr bool is_disturbance_model = is_disturbance<Spec>::value && !damp::is_same_v<Spec, NoDisturbance>;
+
 /**
  * @brief The sizes of a disturbance spec on a plant with NU inputs, NY outputs and NW columns of
  *        G: @c states (ND) and @c listed (the NZ of its outputs list, 0 for all).

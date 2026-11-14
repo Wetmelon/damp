@@ -29,6 +29,7 @@
 
 
 #include "damp/backend.hpp" // clamp
+#include "damp/math/math.hpp"
 #include "damp/matrix/colvec.hpp"
 #include "damp/matrix/core.hpp"
 
@@ -72,6 +73,16 @@ struct Bounds {
     [[nodiscard]] constexpr bool contains(const ColVec<N, T>& x) const {
         for (size_t i = 0; i < N; ++i) {
             if (x(i) < lower(i) || x(i) > upper(i)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** @brief True iff the box is usable: no end is NaN (∓max() for none) and no lower end is above its upper one. */
+    [[nodiscard]] constexpr bool valid() const {
+        for (size_t i = 0; i < N; ++i) {
+            if (!damp::isfinite(lower(i)) || !damp::isfinite(upper(i)) || !(lower(i) <= upper(i))) {
                 return false;
             }
         }
