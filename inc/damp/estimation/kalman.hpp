@@ -310,6 +310,49 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
     return kalman_plain(sys_d, KalmanNoise<NX, NV, T>{.process = *Qd, .measurement = noise.measurement});
 }
 
+/**
+ * @brief The sampled-data Kalman design on a continuous plant whose input arrives @p delay late:
+ *        the filter on discretize(sys, Ts, delay), the registers states it carries.
+ *
+ * The process noise acts on the plant, not through the delay: Q_d over the period is the plant's
+ * (discretize_process_noise), the registers take none, and the filter's model is the delayed one
+ * with G = [I; 0]. The registers hold the inputs applied, which predict shifts in, so their
+ * covariance is zero and the readings do not move them.
+ */
+template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t N, typename S>
+[[nodiscard]] constexpr KalmanResult<NX + (N * NU), NU, NY, T, NX, NV> kalman_sampled(
+    const StateSpace<NX, NU, NY, T, NW, NV>& sys,
+    T                                        Ts,
+    const KalmanNoise<NW, NV, T>&            noise,
+    const InputDelay<N, S>&                  delay
+) {
+    constexpr size_t NXE = NX + (N * NU);
+    using Result = KalmanResult<NXE, NU, NY, T, NX, NV>;
+    const auto m = design::detail::sampled_model(sys, Ts, false, delay);
+    if (m.status != DesignStatus::ok) {
+        return damp::detail::refused<Result>(m.status);
+    }
+    const auto Qd = discretize_process_noise(sys.A, sys.G, noise.process, Ts);
+    if (!Qd) {
+        return damp::detail::refused<Result>(DesignStatus::bad_weights); // a non-finite noise entry
+    }
+    StateSpace<NXE, NU, NY, T, NX, NV> model{.A = m.law.A, .B = m.law.B, .C = m.law.C, .D = m.law.D, .H = sys.H, .Ts = Ts};
+    model.G = Matrix<NXE, NX, T>{};
+    model.G.template block<NX, NX>(0, 0) = Matrix<NX, NX, T>::identity();
+    return kalman_plain(model, KalmanNoise<NX, NV, T>{.process = *Qd, .measurement = noise.measurement});
+}
+
+/** @brief kalman_sampled(sys, Ts, noise): the plant without a delay. */
+template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
+[[nodiscard]] constexpr KalmanResult<NX, NU, NY, T, NX, NV> kalman_sampled(
+    const StateSpace<NX, NU, NY, T, NW, NV>& sys,
+    T                                        Ts,
+    const KalmanNoise<NW, NV, T>&            noise,
+    design::detail::NoDelay
+) {
+    return kalman_sampled(sys, Ts, noise);
+}
+
 /** @brief A plain design result as the result of a design with options: its ND. */
 template<size_t ND, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
 [[nodiscard]] constexpr KalmanResult<NX, NU, NY, T, NW, NV, ND> with_disturbance_states(const KalmanResult<NX, NU, NY, T, NW, NV>& result) {
@@ -317,12 +360,20 @@ template<size_t ND, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size
 }
 
 /**
- * @brief The Kalman design, plain or on [x; d]: the filter's model (the plant, then the disturbance),
- *        in the plant's own time domain (@p Discrete) or sampled at @p Ts.
+ * @brief The Kalman design, plain or on [x; d]: the filter's model (the plant, its input registers
+ *        when @p delay is an InputDelay, then the disturbance), in the plant's own time domain
+ *        (@p Discrete) or sampled at @p Ts.
  */
-template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t ND, typename Spec>
-[[nodiscard]] constexpr auto kalman_design(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T Ts, const KalmanNoise<NW, NV, T, ND>& noise, const Spec& spec) {
-    constexpr size_t NXE = NX;
+template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t ND, typename Spec, typename Delay = NoDelay>
+[[nodiscard]] constexpr auto kalman_design(
+    const StateSpace<NX, NU, NY, T, NW, NV>& sys,
+    T                                        Ts,
+    const KalmanNoise<NW, NV, T, ND>&        noise,
+    const Spec&                              spec,
+    const Delay&                             delay = Delay{}
+) {
+    static_assert(!Discrete || damp::is_same_v<Delay, NoDelay>, "A delay is sampled with the plant: a continuous plant and Ts.");
+    constexpr size_t NXE = NX + (delay_registers<Delay> * NU);
     constexpr size_t NXK = NXE + ND;
     if constexpr (ND == 0) {
         static_cast<void>(spec);
@@ -330,13 +381,13 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
             static_cast<void>(Ts);
             return kalman_plain(sys, noise);
         } else {
-            return kalman_sampled(sys, Ts, noise);
+            return kalman_sampled(sys, Ts, noise, delay);
         }
     } else {
         static_assert(ND <= NY, "Estimating ND disturbances needs at least ND independent readings (ND <= NY).");
         constexpr size_t NWK = Discrete ? (NW + ND) : NXK;
         using Result = KalmanResult<NXK, NU, NY, T, NWK, NV, ND>;
-        const auto m = sampled_model(sys, Ts, Discrete);
+        const auto m = sampled_model(sys, Ts, Discrete, delay);
         if (m.status != DesignStatus::ok) {
             return ::damp::detail::refused<Result>(m.status);
         }
@@ -415,15 +466,16 @@ consteval void reject_kalman_disturbance() {
  * @brief kalman(sys[, Ts], noise, disturbance), once the disturbance fits. A mistake stops here,
  *        before the filter DARE.
  */
-template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t ND, typename Disturbance>
+template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t ND, typename Disturbance, typename Delay = NoDelay>
 [[nodiscard]] constexpr auto kalman_with_disturbance(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     T                                        Ts,
     const KalmanNoise<NW, NV, T, ND>&        noise,
-    const Disturbance&                       disturbance
+    const Disturbance&                       disturbance,
+    const Delay&                             delay = Delay{}
 ) {
     if constexpr (kalman_disturbance_ok<Disturbance, NX, NU, NY, T, NW, ND>()) {
-        return kalman_design<Discrete>(sys, Ts, noise, disturbance);
+        return kalman_design<Discrete>(sys, Ts, noise, disturbance, delay);
     } else {
         reject_kalman_disturbance<Disturbance, NX, NU, NY, T, NW, ND>();
         return KalmanResult<NX, NU, NY, T>{};
@@ -500,7 +552,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
  * detectable, rank [A − I, B_d; C, C_d] = NX + ND (so ND ≤ NY), or the design is refused with
  * DesignStatus::not_detectable; a @c noise.disturbance that is not positive definite is refused
  * with DesignStatus::bad_weights. A delayed plant is the model discretize(plant, Ts, InputDelay{θ})
- * returns.
+ * returns, or kalman(plant, Ts, InputDelay<N>{θ}, noise, disturbance) from the continuous plant.
  *
  * @see "Disturbance Models for Offset-Free Model-Predictive Control" (Pannocchia & Rawlings,
  *      2003), AIChE Journal 49(2)
@@ -600,6 +652,70 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
     const Disturbance&                                       disturbance
 ) {
     return detail::kalman_with_disturbance<false>(sys, Ts, noise, disturbance);
+}
+
+/**
+ * @brief Sampled-data Kalman filter for a continuous plant whose input arrives @p delay late
+ *
+ * As kalman(sys, Ts, noise), on the model discretize(sys, Ts, delay): the plant, then the
+ * registers v(k−1) … v(k−N) of the inputs still on their way. The process noise acts on the
+ * plant, not through the delay: Q_d is the plant's over the period (Van Loan) and the registers
+ * take none, so G on the model is [I; 0]. The filter carries the registers exactly: predict
+ * shifts the applied input in, their covariance is zero and no reading moves them. The result
+ * runs on FixedGainObserver or KalmanFilter like any other.
+ *
+ * Refused as kalman(sys, Ts, noise), and with discretize's status for a delay it refuses
+ * (negative, not finite or longer than N samples).
+ *
+ * @code
+ * constexpr auto kf = design::kalman(plant, 0.01, InputDelay<3>{0.022}, {.process = Qc, .measurement = sigma2});
+ * @endcode
+ *
+ * @param sys    Continuous plant (sys.Ts = 0)
+ * @param Ts     Sampling time of the filter [s]
+ * @param delay  InputDelay<N>{θ}: θ ≤ N·Ts, one for every input or a ColVec of one per input
+ * @param noise  {.process, .measurement}: process-noise density, per-reading measurement variance
+ * @return KalmanResult on [x; v(k−1); …; v(k−N)] (G = [I; 0]), with L, M, P and status
+ */
+template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t N, typename S>
+[[nodiscard]] constexpr auto kalman(
+    const StateSpace<NX, NU, NY, T, NW, NV>& sys,
+    damp::type_identity_t<T>                 Ts,
+    const InputDelay<N, S>&                  delay,
+    const KalmanNoise<NW, NV, T>&            noise
+) {
+    return detail::kalman_design<false>(sys, Ts, noise, NoDisturbance{}, delay);
+}
+
+/**
+ * @brief Sampled-data Kalman filter on [x; v(k−1); …; v(k−N); d] for a continuous plant whose
+ *        input arrives @p delay late
+ *
+ * As kalman(sys, Ts, noise, disturbance), on the delayed model. A disturbance enters where its
+ * spec says on that model: an InputDisturbance adds to u, so it reaches the plant through the
+ * registers and its walk moves x only through them; a load on the plant itself, which acts at
+ * once, is DisturbanceModel{.Bd = sys.B, .Cd = sys.D} or PlantDisturbance, on the plant's states.
+ *
+ * @param sys          Continuous plant (sys.Ts = 0)
+ * @param Ts           Sampling time of the filter [s]
+ * @param delay        InputDelay<N>{θ}: θ ≤ N·Ts
+ * @param noise        {.process, .measurement, .disturbance}: densities and the per-reading variance
+ * @param disturbance  Where d enters: InputDisturbance, OutputDisturbance, PlantDisturbance or
+ *                     DisturbanceModel
+ * @return KalmanResult on [x; v(k−1); …; v(k−N); d] (G = I), with L, M, P and status
+ */
+template<
+    size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t N, typename S, typename Disturbance,
+    size_t ND = detail::disturbance_traits<Disturbance, NU, NY, NW>::states>
+    requires(detail::is_disturbance<Disturbance>::value && !damp::is_same_v<Disturbance, NoDisturbance>)
+[[nodiscard]] constexpr auto kalman(
+    const StateSpace<NX, NU, NY, T, NW, NV>&                 sys,
+    damp::type_identity_t<T>                                 Ts,
+    const InputDelay<N, S>&                                  delay,
+    const damp::type_identity_t<KalmanNoise<NW, NV, T, ND>>& noise,
+    const Disturbance&                                       disturbance
+) {
+    return detail::kalman_with_disturbance<false>(sys, Ts, noise, disturbance, delay);
 }
 
 } // namespace design
@@ -707,7 +823,8 @@ struct ConstantKalman {
  *
  * A design on [x; d] (design::kalman with a disturbance) runs here as the absolute filter on the
  * whole augmented state. An input delay is in the model discretize(plant, Ts, InputDelay<N>{θ})
- * returns: its registers v(k−1) … v(k−N) are states like any other.
+ * returns, which design::kalman(plant, Ts, InputDelay<N>{θ}, noise) designs on from the continuous
+ * plant: its registers v(k−1) … v(k−N) are states like any other.
  *
  * On a `constexpr` design::kalman, `Law<kRes, float>::Recursive` is this filter with the design's
  * model and noise as constants of the type (@p Store): no RAM for them, and A P Aᵀ and the model's

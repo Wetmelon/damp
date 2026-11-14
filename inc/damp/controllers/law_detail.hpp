@@ -129,24 +129,34 @@ struct SampledModel {
 };
 
 /**
- * @brief The discrete model of @p sys: itself on a discrete plant (@p discrete), else sampled at
- *        @p Ts (ZOH) by discretize.
- * @return status invalid_sample_time for a plant in the other time domain or a Ts that is not
- *         finite and positive; bad_weights for a non-finite entry of A, B, C, D, G or H, on
- *         either plant; else discretize's not_converged for a model that overflows within one
- *         period.
+ * @brief Whether a design takes @p sys: in its own time domain (@p discrete) or continuous with a
+ *        usable @p Ts, every entry finite.
+ * @return invalid_sample_time for a plant in the other time domain or a Ts that is not finite and
+ *         positive; bad_weights for a non-finite entry of A, B, C, D, G or H; else ok
  */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
-[[nodiscard]] constexpr SampledModel<NX, NU, NY, T, NW, NV> sampled_model(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T Ts, bool discrete) {
-    SampledModel<NX, NU, NY, T, NW, NV> out{};
+[[nodiscard]] constexpr DesignStatus plant_status(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T Ts, bool discrete) {
     if (discrete ? !damp::finite_positive(sys.Ts) : (sys.Ts != T{0} || !damp::finite_positive(Ts))) {
-        out.status = DesignStatus::invalid_sample_time; // the plant's own time domain, one discretization
-        return out;
+        return DesignStatus::invalid_sample_time; // the plant's own time domain, one discretization
     }
     const auto finite = [](T v) { return damp::isfinite(v); };
     if (!mat::all_of(sys.A, finite) || !mat::all_of(sys.B, finite) || !mat::all_of(sys.C, finite) || !mat::all_of(sys.D, finite)
         || !mat::all_of(sys.G, finite) || !mat::all_of(sys.H, finite)) {
-        out.status = DesignStatus::bad_weights; // a non-finite plant entry, which discretize would not see on C, D or H
+        return DesignStatus::bad_weights; // a non-finite plant entry, which discretize would not see on C, D or H
+    }
+    return DesignStatus::ok;
+}
+
+/**
+ * @brief The discrete model of @p sys: itself on a discrete plant (@p discrete), else sampled at
+ *        @p Ts (ZOH) by discretize.
+ * @return status plant_status's; else discretize's not_converged for a model that overflows
+ *         within one period
+ */
+template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
+[[nodiscard]] constexpr SampledModel<NX, NU, NY, T, NW, NV> sampled_model(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T Ts, bool discrete) {
+    SampledModel<NX, NU, NY, T, NW, NV> out{.status = plant_status(sys, Ts, discrete)};
+    if (out.status != DesignStatus::ok) {
         return out;
     }
     if (discrete) {
@@ -154,6 +164,49 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
         return out;
     }
     const auto d = ::damp::discretize(sys, Ts);
+    if (!d) {
+        out.status = d.status;
+        return out;
+    }
+    out.law = *d;
+    return out;
+}
+
+/** @brief No input delay: a design's model is the plant's own (sampled_model). */
+struct NoDelay {};
+
+/** @brief The input registers a delay adds to the model, per input: none without one. */
+template<typename Delay>
+inline constexpr size_t delay_registers = 0;
+
+/** @brief InputDelay<N>: N registers per input. */
+template<size_t N, typename S>
+inline constexpr size_t delay_registers<InputDelay<N, S>> = N;
+
+/** @brief sampled_model(sys, Ts, discrete), the model of a design without a delay. */
+template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
+[[nodiscard]] constexpr SampledModel<NX, NU, NY, T, NW, NV> sampled_model(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T Ts, bool discrete, NoDelay) {
+    return sampled_model(sys, Ts, discrete);
+}
+
+/**
+ * @brief The model of a continuous @p sys sampled at @p Ts with its input @p delay late:
+ *        discretize(sys, Ts, delay), the plant then the registers v(k−1) … v(k−N).
+ * @return status as sampled_model's for a continuous plant (a discrete one is invalid_sample_time),
+ *         then discretize's for a delay it refuses
+ */
+template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t N, typename S>
+[[nodiscard]] constexpr SampledModel<NX + (N * NU), NU, NY, T, NW, NV> sampled_model(
+    const StateSpace<NX, NU, NY, T, NW, NV>& sys,
+    T                                        Ts,
+    bool                                     discrete,
+    const InputDelay<N, S>&                  delay
+) {
+    SampledModel<NX + (N * NU), NU, NY, T, NW, NV> out{.status = discrete ? DesignStatus::invalid_sample_time : plant_status(sys, Ts, false)};
+    if (out.status != DesignStatus::ok) {
+        return out; // a delay is sampled with the plant: there is no delayed model of a discrete one
+    }
+    const auto d = ::damp::discretize(sys, Ts, delay);
     if (!d) {
         out.status = d.status;
         return out;

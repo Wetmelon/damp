@@ -9,8 +9,8 @@
  * @file lqg.hpp
  * @brief The linear-quadratic Gaussian law: design::lqg, LQGResult, the LQG runtime
  *
- * design::lqg(plant, [Ts,] {.Q, .R, .N}, KalmanNoise{.process, .measurement}[, TrackedOutputs<NZ>{{i, …}}])
- * → LQGResult → LQG.
+ * design::lqg(plant, [Ts, [InputDelay<N>{θ},]] {.Q, .R, .N}, KalmanNoise{.process, .measurement}[, TrackedOutputs<NZ>{{i, …}}])
+ * → LQGResult → LQG. With an InputDelay the filter carries the inputs still on their way.
  * step(y) is predict, update(y), control. The low-latency tick is update(y), control(),
  * back_calculate, predict. With tracked outputs: control(r), step(r, y). With
  * feedforward from a planned trajectory: control([r,] x_ref, u_ref), step([r,] x_ref, u_ref, y).
@@ -22,6 +22,7 @@
 #include "damp/design/status.hpp"
 #include "damp/estimation/kalman.hpp"
 #include "damp/matrix/colvec.hpp"
+#include "damp/systems/discretization.hpp"
 #include "damp/systems/state_space.hpp"
 
 namespace damp {
@@ -88,6 +89,44 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size
 }
 
 /**
+ * @brief The sampled-data linear-quadratic Gaussian law of a plant whose input arrives @p delay
+ *        late: runs as LQG, its filter carrying the inputs still on their way.
+ *
+ * The weights and the noise are the plant's, as without the delay: the gain is lqr(sys, Ts,
+ * delay, weights)'s and the filter design::kalman(sys, Ts, delay, noise)'s, on
+ * discretize(sys, Ts, delay) (detail::state_feedback with an InputDelay).
+ *
+ * @code
+ * constexpr auto res = design::lqg(plant, 0.01, InputDelay<3>{0.022}, {.Q = Q, .R = R}, {.process = Qn, .measurement = Rn});
+ * static constinit Law<res, float> law;
+ * // each tick: law.update(y); u = law.control(); write(sat(u)); law.back_calculate(sat(u)); law.predict();
+ * @endcode
+ */
+template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t N, typename S>
+[[nodiscard]] constexpr auto lqg(
+    const StateSpace<NX, NU, NY, T, NW, NV>& sys,
+    damp::type_identity_t<T>                 Ts,
+    const InputDelay<N, S>&                  delay,
+    const LQRWeights<NX, NU, 0, T>&          weights,
+    const KalmanNoise<NW, NV, T>&            noise
+) {
+    return detail::state_feedback(sys, Ts, delay, weights, detail::StateFeedbackOptions{.noise = noise});
+}
+
+/** @brief The sampled-data linear-quadratic Gaussian law of a plant whose input arrives @p delay late, holding the listed outputs at r: runs as LQG, step(r, y). */
+template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t N, typename S, size_t NZ>
+[[nodiscard]] constexpr auto lqg(
+    const StateSpace<NX, NU, NY, T, NW, NV>& sys,
+    damp::type_identity_t<T>                 Ts,
+    const InputDelay<N, S>&                  delay,
+    const LQRWeights<NX, NU, 0, T>&          weights,
+    const KalmanNoise<NW, NV, T>&            noise,
+    const TrackedOutputs<NZ>&                outputs
+) {
+    return detail::state_feedback(sys, Ts, delay, weights, detail::StateFeedbackOptions{.noise = noise, .track = outputs});
+}
+
+/**
  * @brief Assemble an LQG design from separately computed Kalman and LQR designs
  *
  * The regulator must be discrete: a continuous one (Ts = 0) is refused with
@@ -132,21 +171,26 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
  * control([r,] x_ref, u_ref), step([r,] x_ref, u_ref, y). Then back_calculate(u_sat) and
  * predict() move the observer with the input the plant received.
  *
+ * A design with an InputDelay (NRU > 0) has its filter on [x; v(k−1); …; v(k−NRU)]: predict
+ * shifts the applied input into the registers. x_ref is the plant's; the registers' reference is
+ * u_ref.
+ *
  * @note Compare with MATLAB®'s lqg.
  *
  * @tparam NZ Tracked outputs: the size of r (0: none, the regulator)
+ * @tparam NRU Input registers of the filter's model (0: none)
  */
-template<size_t NX, size_t NU, size_t NY, typename T, typename Est, size_t NZ = 0, typename Store = detail::HeldGains>
-struct LQG : private detail::StateFeedbackCore<NX, NU, T, 0, NY, Est, NZ, Store> {
-    using Core = detail::StateFeedbackCore<NX, NU, T, 0, NY, Est, NZ, Store>; ///< The shared implementation
+template<size_t NX, size_t NU, size_t NY, typename T, typename Est, size_t NZ = 0, typename Store = detail::HeldGains, size_t NRU = 0>
+struct LQG : private detail::StateFeedbackCore<NX, NU, T, 0, NY, Est, NZ, Store, NRU> {
+    using Core = detail::StateFeedbackCore<NX, NU, T, 0, NY, Est, NZ, Store, NRU>; ///< The shared implementation
 
     constexpr LQG() = default;
 
     /** @brief From design::lqg or lqg_from_parts (any scalar). */
-    template<size_t NXR, size_t NUR, typename U, size_t NIR, size_t NYR, typename Kalman, size_t NZR>
+    template<size_t NXR, size_t NUR, typename U, size_t NIR, size_t NYR, typename Kalman, size_t NZR, size_t NRR>
         requires(!Store::constant)
-    constexpr LQG(const design::StateFeedbackResult<NXR, NUR, U, NIR, NYR, Kalman, NZR>& result) { // NOLINT
-        constexpr bool kind = NIR == 0 && design::StateFeedbackResult<NXR, NUR, U, NIR, NYR, Kalman, NZR>::ND == 0 && !damp::is_same_v<Kalman, NoEstimator>;
+    constexpr LQG(const design::StateFeedbackResult<NXR, NUR, U, NIR, NYR, Kalman, NZR, NRR>& result) { // NOLINT
+        constexpr bool kind = NIR == 0 && design::StateFeedbackResult<NXR, NUR, U, NIR, NYR, Kalman, NZR, NRR>::ND == 0 && !damp::is_same_v<Kalman, NoEstimator>;
         static_assert(kind, "LQG runs design::lqg: this design has no Kalman filter (LQR, LQI), integral action (LQGI) or a disturbance model (OFLQG).");
         if constexpr (kind) {
             static_cast<Core&>(*this) = Core(result);
@@ -225,18 +269,18 @@ struct LQG : private detail::StateFeedbackCore<NX, NU, T, 0, NY, Est, NZ, Store>
 };
 
 /** @brief LQG law{res}: the sizes, scalar and filter of design::lqg's result. */
-template<size_t NX, size_t NU, typename T, size_t NI, size_t NY, typename Kalman, size_t NZ>
-LQG(const design::StateFeedbackResult<NX, NU, T, NI, NY, Kalman, NZ>&) -> LQG<NX, NU, NY, T, detail::runtime_estimator_t<Kalman, T>, NZ>;
+template<size_t NX, size_t NU, typename T, size_t NI, size_t NY, typename Kalman, size_t NZ, size_t NRU>
+LQG(const design::StateFeedbackResult<NX, NU, T, NI, NY, Kalman, NZ, NRU>&) -> LQG<NX, NU, NY, T, detail::runtime_estimator_t<Kalman, T>, NZ, detail::HeldGains, NRU>;
 
 namespace detail {
 
 /** @brief An LQ design with a filter and no integrators or disturbance model runs as LQG (with its tracked outputs, NZ > 0). */
-template<size_t NX, size_t NU, typename U, size_t NY, typename Kalman, size_t NZ, typename T>
-    requires(!damp::is_same_v<Kalman, NoEstimator> && design::StateFeedbackResult<NX, NU, U, 0, NY, Kalman, NZ>::ND == 0)
-struct lq_runtime<design::StateFeedbackResult<NX, NU, U, 0, NY, Kalman, NZ>, T> {
-    using type = LQG<NX, NU, NY, T, runtime_estimator_t<Kalman, T>, NZ>; ///< LQG
+template<size_t NX, size_t NU, typename U, size_t NY, typename Kalman, size_t NZ, size_t NRU, typename T>
+    requires(!damp::is_same_v<Kalman, NoEstimator> && design::StateFeedbackResult<NX, NU, U, 0, NY, Kalman, NZ, NRU>::ND == 0)
+struct lq_runtime<design::StateFeedbackResult<NX, NU, U, 0, NY, Kalman, NZ, NRU>, T> {
+    using type = LQG<NX, NU, NY, T, runtime_estimator_t<Kalman, T>, NZ, HeldGains, NRU>; ///< LQG
     template<typename Est, typename Store>
-    using on_constants = LQG<NX, NU, NY, T, Est, NZ, Store>; ///< LQG on the design's constants
+    using on_constants = LQG<NX, NU, NY, T, Est, NZ, Store, NRU>; ///< LQG on the design's constants
 };
 
 } // namespace detail

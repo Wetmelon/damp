@@ -200,7 +200,11 @@ struct DisturbanceChannels {
     Matrix<NX, ND, T>  Bd_c{}; ///< Into the continuous plant (Van Loan of the random walk)
 };
 
-/** @brief An input disturbance: B_d = B of the filter's model (delayed with u), C_d = its D. */
+/**
+ * @brief An input disturbance: B_d = B of the filter's model (delayed with u), C_d = its D. On a
+ *        model with input registers its walk reaches the plant through them, so none of it acts
+ *        within the period (B_d,c = 0).
+ */
 template<size_t NZ, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NXE, size_t NWE, size_t NVE>
 [[nodiscard]] constexpr DisturbanceChannels<NX, NXE, NY, NU, T> disturbance_channels(
     const InputDisturbance<NZ>&,
@@ -208,7 +212,11 @@ template<size_t NZ, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size
     const StateSpace<NXE, NU, NY, T, NWE, NVE>& model,
     T
 ) {
-    return DisturbanceChannels<NX, NXE, NY, NU, T>{.Bd = model.B, .Cd = model.D, .Bd_c = plant.B};
+    if constexpr (NXE == NX) {
+        return DisturbanceChannels<NX, NXE, NY, NU, T>{.Bd = model.B, .Cd = model.D, .Bd_c = plant.B};
+    } else {
+        return DisturbanceChannels<NX, NXE, NY, NU, T>{.Bd = model.B, .Cd = model.D};
+    }
 }
 
 /** @brief An output disturbance: a bias on each reading, B_d = 0, C_d = I. */
