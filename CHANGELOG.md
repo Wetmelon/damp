@@ -12,13 +12,14 @@ and [known limitations](docs/known_limitations.md)).
 ### Added
 
 - `design::lqr`, `lqi`, `lqg`, `lqgi`, `oflqg`, `kalman` and `steady_state_target` take an `InputDelay` after Ts: the continuous plant, its weights and its noise, the cost and the noise discretized exactly on the delayed model. A measured-state law holds the registers itself, so `update` takes the plant state; a filter carries them with no noise on them.
-- `LQRWeights` takes `u_lim` and `integral_lim`: the LQR, LQI, LQG, LQGI and OFLQG runtimes clamp their command and their integral state to them, and hold the integrators against that clamp with no `back_calculate`. Both are members of the runtime (`law.u_lim`, `law.integral.lim`), so a limit can move at run time.
+- `LQRConfig`, the weights of an LQ design, takes `u_lim` and `integral_lim`: the LQR, LQI, LQG, LQGI and OFLQG runtimes clamp their command and their integral state to them, and hold the integrators against that clamp with no `back_calculate`. Both are members of the runtime (`law.u_lim`, `law.integral.lim`), so a limit can move at run time.
 - `Bounds::valid()`: no end NaN and no lower end above its upper one, the test `design::mpc` and `design::mhe` already applied.
 
 ### Changed
 
 - `StateFeedbackResult` and the LQR, LQI, LQG, LQGI and OFLQG runtimes take a last template argument, NRU, the input registers of the law's model (0: none); K, S and e are on [x; v(k−1); …; v(k−NRU)] then the integrators.
-- `state_feedback_core.hpp` holds only the runtime the LQ laws share. `LQRWeights`, `IntegralAction`, `NoEstimator` and `StateFeedbackResult` are in `state_feedback_types.hpp`, and the design behind them in `controllers/detail/`; `lqr.hpp`, `lqi.hpp`, `lqg.hpp`, `lqgi.hpp` and `oflqg.hpp` include all of it as before.
+- `LQRWeights` is `LQRConfig`: it carries the law's limits with the cost. A design called with braces, `{.Q = Q, .R = R}`, does not change.
+- `state_feedback_core.hpp` holds only the runtime the LQ laws share. `LQRConfig`, `IntegralAction`, `NoEstimator` and `StateFeedbackResult` are in `state_feedback_types.hpp`, and the design behind them in `controllers/detail/`; `lqr.hpp`, `lqi.hpp`, `lqg.hpp`, `lqgi.hpp` and `oflqg.hpp` include all of it as before.
 
 ## [0.2.2] — 2026-11-10
 

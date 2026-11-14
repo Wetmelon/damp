@@ -40,10 +40,10 @@ using LQGIResult = StateFeedbackResult<NX, NU, T, NI, NY, KalmanResult<NX, NU, N
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
 [[nodiscard]] constexpr auto lqgi(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
-    const LQRWeights<NX, NU, NY, T>&         weights,
+    const LQRConfig<NX, NU, NY, T>&          config,
     const KalmanNoise<NW, NV, T>&            noise
 ) {
-    return detail::state_feedback(sys, weights, detail::StateFeedbackOptions{.noise = noise, .offset_free = IntegralAction{}});
+    return detail::state_feedback(sys, config, detail::StateFeedbackOptions{.noise = noise, .offset_free = IntegralAction{}});
 }
 
 /** @brief The sampled-data linear-quadratic Gaussian law with integral action on every output: runs as LQGI. */
@@ -51,10 +51,10 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
 [[nodiscard]] constexpr auto lqgi(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     damp::type_identity_t<T>                 Ts,
-    const LQRWeights<NX, NU, NY, T>&         weights,
+    const LQRConfig<NX, NU, NY, T>&          config,
     const KalmanNoise<NW, NV, T>&            noise
 ) {
-    return detail::state_feedback(sys, Ts, weights, detail::StateFeedbackOptions{.noise = noise, .offset_free = IntegralAction{}});
+    return detail::state_feedback(sys, Ts, config, detail::StateFeedbackOptions{.noise = noise, .offset_free = IntegralAction{}});
 }
 
 /** @brief The linear-quadratic Gaussian law with integral action on the listed outputs: runs as LQGI. */
@@ -62,11 +62,11 @@ template<size_t NI, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size
     requires(NI > 0)
 [[nodiscard]] constexpr auto lqgi(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
-    const LQRWeights<NX, NU, NI, T>&         weights,
+    const LQRConfig<NX, NU, NI, T>&          config,
     const KalmanNoise<NW, NV, T>&            noise,
     const IntegralAction<NI>&                outputs
 ) {
-    return detail::state_feedback(sys, weights, detail::StateFeedbackOptions{.noise = noise, .offset_free = outputs});
+    return detail::state_feedback(sys, config, detail::StateFeedbackOptions{.noise = noise, .offset_free = outputs});
 }
 
 /** @brief The sampled-data linear-quadratic Gaussian law with integral action on the listed outputs: runs as LQGI. */
@@ -75,11 +75,11 @@ template<size_t NI, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size
 [[nodiscard]] constexpr auto lqgi(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     damp::type_identity_t<T>                 Ts,
-    const LQRWeights<NX, NU, NI, T>&         weights,
+    const LQRConfig<NX, NU, NI, T>&          config,
     const KalmanNoise<NW, NV, T>&            noise,
     const IntegralAction<NI>&                outputs
 ) {
-    return detail::state_feedback(sys, Ts, weights, detail::StateFeedbackOptions{.noise = noise, .offset_free = outputs});
+    return detail::state_feedback(sys, Ts, config, detail::StateFeedbackOptions{.noise = noise, .offset_free = outputs});
 }
 
 /**
@@ -88,17 +88,17 @@ template<size_t NI, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size
  *        still on their way.
  *
  * The weights and the noise are the plant's, as without the delay: the gain is lqi(sys, Ts,
- * delay, weights)'s and the filter design::kalman(sys, Ts, delay, noise)'s.
+ * delay, config)'s and the filter design::kalman(sys, Ts, delay, noise)'s.
  */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t N, typename S>
 [[nodiscard]] constexpr auto lqgi(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     damp::type_identity_t<T>                 Ts,
     const InputDelay<N, S>&                  delay,
-    const LQRWeights<NX, NU, NY, T>&         weights,
+    const LQRConfig<NX, NU, NY, T>&          config,
     const KalmanNoise<NW, NV, T>&            noise
 ) {
-    return detail::state_feedback(sys, Ts, delay, weights, detail::StateFeedbackOptions{.noise = noise, .offset_free = IntegralAction{}});
+    return detail::state_feedback(sys, Ts, delay, config, detail::StateFeedbackOptions{.noise = noise, .offset_free = IntegralAction{}});
 }
 
 /** @brief The sampled-data linear-quadratic Gaussian law with integral action on the listed outputs, of a plant whose input arrives @p delay late: runs as LQGI. */
@@ -108,11 +108,11 @@ template<size_t NI, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     damp::type_identity_t<T>                 Ts,
     const InputDelay<N, S>&                  delay,
-    const LQRWeights<NX, NU, NI, T>&         weights,
+    const LQRConfig<NX, NU, NI, T>&          config,
     const KalmanNoise<NW, NV, T>&            noise,
     const IntegralAction<NI>&                outputs
 ) {
-    return detail::state_feedback(sys, Ts, delay, weights, detail::StateFeedbackOptions{.noise = noise, .offset_free = outputs});
+    return detail::state_feedback(sys, Ts, delay, config, detail::StateFeedbackOptions{.noise = noise, .offset_free = outputs});
 }
 
 } // namespace design
@@ -126,7 +126,7 @@ template<size_t NI, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size
  * u = u* − K·[x̂ − x*; xi]. The tick is update(y) then control(r), or step(r, y), with x* = 0 and
  * u* = 0; feedforward from a planned trajectory (x_ref, u_ref) is control(r, x_ref, u_ref), or
  * step(r, x_ref, u_ref, y). The command is clamped into u_lim and xi into integral.lim (the
- * design's, LQRWeights; unbounded by default): predict() moves the filter on the clamped command
+ * design's, LQRConfig; unbounded by default): predict() moves the filter on the clamped command
  * and holds the integrators against the clamp. back_calculate(u_sat) before it reports a stage
  * that clamps after the law.
  *

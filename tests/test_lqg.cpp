@@ -417,7 +417,7 @@ TEST_SUITE("LQG status") {
             .G = Matrix<2, 1>{{0.0}, {1.0}},
             .H = Matrix<1, 1>{{1.0}},
         };
-        constexpr design::LQRWeights<2, 1>  w{.Q = Matrix<2, 2>::identity(), .R = 0.1};
+        constexpr design::LQRConfig<2, 1>   w{.Q = Matrix<2, 2>::identity(), .R = 0.1};
         constexpr design::KalmanNoise<1, 1> noise{.process = 0.5, .measurement = 0.01};
         constexpr double                    Ts = 0.05;
 

@@ -45,7 +45,7 @@ template<typename Result, size_t NK, size_t NU, typename T>
  *        continuous law (CARE).
  */
 template<bool Discrete, size_t NI, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
-[[nodiscard]] constexpr auto law_design(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T Ts, const LQRWeights<NX, NU, NI, T>& w, const Matrix<NI, NY, T>& Ci) {
+[[nodiscard]] constexpr auto law_design(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T Ts, const LQRConfig<NX, NU, NI, T>& w, const Matrix<NI, NY, T>& Ci) {
     using Result = StateFeedbackResult<NX, NU, T, NI, ((NI > 0) ? NY : NX)>;
     if (!mat::cholesky(w.R).has_value()) {
         return ::damp::detail::refused<Result>(DesignStatus::bad_weights); // R not positive definite, on every route
@@ -103,7 +103,7 @@ template<size_t NI, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     T                                        Ts,
     const InputDelay<N, S>&                  delay,
-    const LQRWeights<NX, NU, NI, T>&         w,
+    const LQRConfig<NX, NU, NI, T>&          w,
     const Matrix<NI, NY, T>&                 Ci
 ) {
     using Result = StateFeedbackResult<NX, NU, T, NI, ((NI > 0) ? NY : NX), NoEstimator, 0, N>;
@@ -137,7 +137,7 @@ template<size_t NI, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size
 
 /** @brief The gain of a design: on the plant (law_design), or on the model with the input registers of @p delay (delayed_law_design). */
 template<bool Discrete, size_t NI, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Delay>
-[[nodiscard]] constexpr auto gain_design(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T Ts, const LQRWeights<NX, NU, NI, T>& w, const Matrix<NI, NY, T>& Ci, const Delay& delay) {
+[[nodiscard]] constexpr auto gain_design(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T Ts, const LQRConfig<NX, NU, NI, T>& w, const Matrix<NI, NY, T>& Ci, const Delay& delay) {
     if constexpr (damp::is_same_v<Delay, NoDelay>) {
         static_cast<void>(delay);
         return law_design<Discrete, NI>(sys, Ts, w, Ci);
@@ -153,11 +153,11 @@ template<bool Discrete, size_t NI, size_t NX, size_t NU, size_t NY, typename T, 
  */
 template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Options, typename Delay = NoDelay>
 [[nodiscard]] constexpr auto designed(
-    const StateSpace<NX, NU, NY, T, NW, NV>&   sys,
-    T                                          Ts,
-    const weights_for<NX, NU, NY, T, Options>& w,
-    const Options&                             opts,
-    const Delay&                               delay = Delay{}
+    const StateSpace<NX, NU, NY, T, NW, NV>&  sys,
+    T                                         Ts,
+    const config_for<NX, NU, NY, T, Options>& w,
+    const Options&                            opts,
+    const Delay&                              delay = Delay{}
 ) {
     using O = options_traits<Options>;
     constexpr size_t NI = integrator_count<NY, Options>;
@@ -216,11 +216,11 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
  */
 template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Options, typename Delay = NoDelay>
 [[nodiscard]] constexpr auto state_feedback_design(
-    const StateSpace<NX, NU, NY, T, NW, NV>&   sys,
-    T                                          Ts,
-    const weights_for<NX, NU, NY, T, Options>& w,
-    const Options&                             opts,
-    const Delay&                               delay = Delay{}
+    const StateSpace<NX, NU, NY, T, NW, NV>&  sys,
+    T                                         Ts,
+    const config_for<NX, NU, NY, T, Options>& w,
+    const Options&                            opts,
+    const Delay&                              delay = Delay{}
 ) {
     if constexpr (!options_traits<Options>::named) {
         static_assert(options_traits<Options>::named, "The options are design::StateFeedbackOptions{.noise = ..., .offset_free = ...}: one named field per feature.");
@@ -237,11 +237,11 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
 /**
  * @brief The linear-quadratic state-feedback law for a plant, in the plant's own time domain
  *
- * The law u = −K·x minimizes the weighted cost of @p weights; @p options adds the features of the
+ * The law u = −K·x minimizes the weighted cost of @p config; @p options adds the features of the
  * law, one named field each (StateFeedbackOptions). A discrete plant (@c sys.Ts > 0) gets the
  * discrete law (DARE) at its own Ts; a continuous plant with no options gets the continuous law
  * (CARE, Ts = 0), for analysis: only a discrete law deploys. For a digital law from a continuous
- * plant, pass the sample time: state_feedback(sys, Ts, weights, options).
+ * plant, pass the sample time: state_feedback(sys, Ts, config, options).
  *
  * @f[
  *   J = \sum_k \bigl( x_k^\top Q x_k + u_k^\top R u_k + 2 x_k^\top N u_k + \xi_k^\top Q_\xi \xi_k \bigr)
@@ -251,8 +251,8 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
  * (MATLAB®'s discrete lqi, so ξ ≈ ∫e dt and Q_integral means what it does on the sampled route).
  * An input delay on a discrete plant is part of its model: design on the one
  * discretize(plant, Ts, InputDelay<N>{θ}) returns, its registers states like any other, or from
- * the continuous plant with state_feedback(sys, Ts, InputDelay<N>{θ}, weights, options).
- * The other options are state_feedback(sys, Ts, weights, options)'s.
+ * the continuous plant with state_feedback(sys, Ts, InputDelay<N>{θ}, config, options).
+ * The other options are state_feedback(sys, Ts, config, options)'s.
  *
  * Refused with DesignStatus::invalid_sample_time for a negative or non-finite sys.Ts, or a
  * continuous plant with any option; with DesignStatus::bad_weights for a listed output out
@@ -262,17 +262,17 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
  *       plant's domain.
  *
  * @param sys      Plant (A, B, C, D, G, H and Ts)
- * @param weights  {.Q, .R, .N, .Q_integral}, in the plant's time domain
+ * @param config   The cost {.Q, .R, .N, .Q_integral}, in the plant's time domain, and the limits {.u_lim, .integral_lim}
  * @param options  design::StateFeedbackOptions{…}: the law's features (default none)
  * @return StateFeedbackResult: the runtime its design names runs it
  */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Options>
 [[nodiscard]] constexpr auto state_feedback(
-    const StateSpace<NX, NU, NY, T, NW, NV>&   sys,
-    const weights_for<NX, NU, NY, T, Options>& weights,
-    const Options&                             options
+    const StateSpace<NX, NU, NY, T, NW, NV>&  sys,
+    const config_for<NX, NU, NY, T, Options>& config,
+    const Options&                            options
 ) {
-    return state_feedback_design<true>(sys, T{0}, weights, options);
+    return state_feedback_design<true>(sys, T{0}, config, options);
 }
 
 /**
@@ -296,7 +296,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
  * Constant references and disturbances leave no steady-state error on the integrated outputs.
  *
  * @par Input delay
- * A delay is a model of the plant: state_feedback(sys, Ts, InputDelay<N>{θ}, weights, options)
+ * A delay is a model of the plant: state_feedback(sys, Ts, InputDelay<N>{θ}, config, options)
  * designs on discretize(sys, Ts, InputDelay<N>{θ}) with the cost discretized exactly, every
  * option as here. A measured-state law holds the registers v(k−1) … v(k−N); a filter carries
  * them as states of its model, with no process noise on them.
@@ -347,18 +347,18 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
  *
  * @param sys      Continuous plant (sys.Ts = 0; A, B, C, D, G, H)
  * @param Ts       Sampling time of the law [s]
- * @param weights  Continuous {.Q, .R, .N, .Q_integral}: a cost integral
+ * @param config   The continuous cost {.Q, .R, .N, .Q_integral}, a cost integral, and the limits {.u_lim, .integral_lim}
  * @param options  design::StateFeedbackOptions{…}: the law's features (default none)
  * @return StateFeedbackResult on the discretized plant: the runtime its design names runs it
  */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Options>
 [[nodiscard]] constexpr auto state_feedback(
-    const StateSpace<NX, NU, NY, T, NW, NV>&   sys,
-    damp::type_identity_t<T>                   Ts,
-    const weights_for<NX, NU, NY, T, Options>& weights,
-    const Options&                             options
+    const StateSpace<NX, NU, NY, T, NW, NV>&  sys,
+    damp::type_identity_t<T>                  Ts,
+    const config_for<NX, NU, NY, T, Options>& config,
+    const Options&                            options
 ) {
-    return state_feedback_design<false>(sys, Ts, weights, options);
+    return state_feedback_design<false>(sys, Ts, config, options);
 }
 
 /**
@@ -367,35 +367,36 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
  *
  * The model is discretize(sys, Ts, delay), and the cost integral is discretized on it exactly:
  * the plant runs on the input it holds within each period, which switches at the delay's
- * fraction of a sample (delayed_cost). The registers take no weight of their own, so @p weights
- * are the plant's, as for the design without a delay, and mean the same at any Ts and any delay.
+ * fraction of a sample (delayed_cost). The registers take no weight of their own, so the weights
+ * of @p config are the plant's, as for the design without a delay, and mean the same at any Ts
+ * and any delay.
  *
- * The options are state_feedback(sys, Ts, weights, options)'s, each on the delayed model. A
+ * The options are state_feedback(sys, Ts, config, options)'s, each on the delayed model. A
  * measured-state law (LQR, LQI) holds the registers: update takes the plant state, and predict
  * shifts in the input back_calculate recorded. A filter (`.noise`) is design::kalman(sys, Ts,
  * delay, noise): the process noise acts on the plant, none on the registers, which it carries
  * exactly. A target holds each register at u_t. x_ref is the plant's and the registers'
  * reference is u_ref, on every law.
  *
- * Refused as state_feedback(sys, Ts, weights, options), and with discretize's status for a delay
+ * Refused as state_feedback(sys, Ts, config, options), and with discretize's status for a delay
  * it refuses (negative, not finite or longer than N samples).
  *
  * @param sys      Continuous plant (sys.Ts = 0)
  * @param Ts       Sampling time of the law [s]
  * @param delay    InputDelay<N>{θ}: θ ≤ N·Ts, one for every input or a ColVec of one per input
- * @param weights  Continuous {.Q, .R, .N, .Q_integral} on the plant: a cost integral
+ * @param config   The continuous cost {.Q, .R, .N, .Q_integral} on the plant, a cost integral, and the limits {.u_lim, .integral_lim}
  * @param options  design::StateFeedbackOptions{…}: the law's features (default none)
  * @return StateFeedbackResult with NRU = N: the runtime its design names runs it
  */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t N, typename S, typename Options>
 [[nodiscard]] constexpr auto state_feedback(
-    const StateSpace<NX, NU, NY, T, NW, NV>&   sys,
-    damp::type_identity_t<T>                   Ts,
-    const InputDelay<N, S>&                    delay,
-    const weights_for<NX, NU, NY, T, Options>& weights,
-    const Options&                             options
+    const StateSpace<NX, NU, NY, T, NW, NV>&  sys,
+    damp::type_identity_t<T>                  Ts,
+    const InputDelay<N, S>&                   delay,
+    const config_for<NX, NU, NY, T, Options>& config,
+    const Options&                            options
 ) {
-    return state_feedback_design<false>(sys, static_cast<T>(Ts), weights, options, delay);
+    return state_feedback_design<false>(sys, static_cast<T>(Ts), config, options, delay);
 }
 
 } // namespace detail

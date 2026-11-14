@@ -7,8 +7,8 @@
 
 /**
  * @file state_feedback_types.hpp
- * @brief The types an LQ design hands its runtime: the weights, IntegralAction, NoEstimator and
- *        the design result StateFeedbackResult
+ * @brief The types of an LQ design: what it is given (LQRConfig, IntegralAction) and what it hands
+ *        its runtime (StateFeedbackResult, NoEstimator)
  *
  * The designs are in lqr.hpp, lqi.hpp, lqg.hpp, lqgi.hpp and oflqg.hpp (detail/state_feedback_design.hpp
  * behind them), the runtime they share in state_feedback_core.hpp.
@@ -96,14 +96,14 @@ struct IntegralAction {
 };
 
 /**
- * @struct LQRWeights
- * @brief The cost of a state-feedback design, what to penalize and how much, and the limits its
- *        law runs within
+ * @struct LQRConfig
+ * @brief What a state-feedback design is given with the plant: the cost, what to penalize and how
+ *        much, and the limits its law runs within
  *
- * Weights in the plant's own time domain: a cost integral on a continuous plant (with a Ts
- * argument it is discretized exactly), per step on a discrete one. Braces size it from the
- * call: `{.Q = Q, .R = R}`, and `.Q_integral` with integral action. Template order is NX, NU, NI
- * (0 for a regulator), T: `LQRWeights<2, 1, 1>` is LQI on double.
+ * The cost is the weights Q, R, N and Q_integral, in the plant's own time domain: a cost integral
+ * on a continuous plant (with a Ts argument it is discretized exactly), per step on a discrete
+ * one. Braces size it from the call: `{.Q = Q, .R = R}`, and `.Q_integral` with integral action.
+ * Template order is NX, NU, NI (0 for a regulator), T: `LQRConfig<2, 1, 1>` is LQI on double.
  *
  * | Field | Penalizes | Size |
  * | --- | --- | --- |
@@ -138,7 +138,7 @@ struct IntegralAction {
  * DesignStatus::invalid_parameter.
  */
 template<size_t NX, size_t NU, size_t NI = 0, typename T = double>
-struct LQRWeights {
+struct LQRConfig {
     Matrix<NX, NX, T> Q{};            ///< On the plant states x (positive semidefinite)
     Matrix<NU, NU, T> R{};            ///< On the inputs u (positive definite)
     Matrix<NX, NU, T> N{};            ///< Cross term between x and u (default zero)
@@ -147,17 +147,17 @@ struct LQRWeights {
     Bounds<NI, T>     integral_lim{}; ///< Limits on the integral state ξ, per integrator (default unbounded)
 };
 
-/** @brief Sizes from the matrices: `LQRWeights{Q, R}`. */
+/** @brief Sizes from the matrices: `LQRConfig{Q, R}`. */
 template<size_t NX, size_t NU, typename T>
-LQRWeights(Matrix<NX, NX, T>, Matrix<NU, NU, T>) -> LQRWeights<NX, NU, 0, T>;
+LQRConfig(Matrix<NX, NX, T>, Matrix<NU, NU, T>) -> LQRConfig<NX, NU, 0, T>;
 
-/** @brief Sizes from the matrices: `LQRWeights{Q, R, N}`. */
+/** @brief Sizes from the matrices: `LQRConfig{Q, R, N}`. */
 template<size_t NX, size_t NU, typename T>
-LQRWeights(Matrix<NX, NX, T>, Matrix<NU, NU, T>, Matrix<NX, NU, T>) -> LQRWeights<NX, NU, 0, T>;
+LQRConfig(Matrix<NX, NX, T>, Matrix<NU, NU, T>, Matrix<NX, NU, T>) -> LQRConfig<NX, NU, 0, T>;
 
-/** @brief Sizes from the matrices: `LQRWeights{Q, R, N, Q_integral}`. */
+/** @brief Sizes from the matrices: `LQRConfig{Q, R, N, Q_integral}`. */
 template<size_t NX, size_t NU, typename T, size_t NI>
-LQRWeights(Matrix<NX, NX, T>, Matrix<NU, NU, T>, Matrix<NX, NU, T>, Matrix<NI, NI, T>) -> LQRWeights<NX, NU, NI, T>;
+LQRConfig(Matrix<NX, NX, T>, Matrix<NU, NU, T>, Matrix<NX, NU, T>, Matrix<NI, NI, T>) -> LQRConfig<NX, NU, NI, T>;
 
 /** @brief The integral action of a design: the integrated outputs, their maps of the state and the input, the per-sample step and the limits on ξ. */
 template<size_t NI, size_t NX, size_t NU, size_t NY, typename T = double>
@@ -166,7 +166,7 @@ struct IntegralDesign {
     Matrix<NI, NX, T> Ci_x{};  ///< Ci·C: the integrated outputs as a map of the plant state (what a law that measures its state integrates)
     Matrix<NI, NU, T> Ci_u{};  ///< Ci·D: the integrated outputs' feedthrough of the input applied over the period
     T                 step{1}; ///< Per-sample integrator gain: the design's Ts (xi += Ts·e ≈ ∫e dt)
-    Bounds<NI, T>     lim{};   ///< Limits on the integral state ξ (LQRWeights::integral_lim; default unbounded)
+    Bounds<NI, T>     lim{};   ///< Limits on the integral state ξ (LQRConfig::integral_lim; default unbounded)
 
     /** @brief The same integral action in the scalar U. */
     template<typename U>
@@ -186,7 +186,7 @@ struct IntegralDesign {
  * | --- | --- | --- |
  * | K, S, e | the gain, the Riccati solution, the closed-loop poles | always |
  * | success, status, Ts | ok or why not; the law's sample time | always |
- * | u_lim | the limits on the command (LQRWeights::u_lim) | always, default unbounded |
+ * | u_lim | the limits on the command (LQRConfig::u_lim) | always, default unbounded |
  * | kalman | the Kalman filter (design::kalman's result) | lqg, lqgi, oflqg |
  * | integral | the integrated outputs Ci, Ci·C, Ci·D, the step and the limits on ξ | NI > 0 |
  * | target | the steady-state target (design::steady_state_target's result) | oflqg; lqr and lqg with TrackedOutputs (NZ > 0) |

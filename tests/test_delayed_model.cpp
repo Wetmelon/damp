@@ -98,8 +98,8 @@ double max_diff(const Matrix<R, C>& a, const Matrix<R, C>& b) {
 }
 
 /// The delay-free cost per step, and the same on the delayed model: the temperature weighted, the register not.
-constexpr design::LQRWeights<1, 1> kLq{.Q = 1.0, .R = 0.02};
-constexpr design::LQRWeights<2, 1> kLqModel{.Q = {{1.0, 0.0}, {0.0, 0.0}}, .R = 0.02};
+constexpr design::LQRConfig<1, 1> kLq{.Q = 1.0, .R = 0.02};
+constexpr design::LQRConfig<2, 1> kLqModel{.Q = {{1.0, 0.0}, {0.0, 0.0}}, .R = 0.02};
 
 /// The offset-free designs' noise per step: model error on the block, the reading, the heat loss's walk.
 constexpr design::KalmanNoise<1, 1, double, 1> kNoise{.process = 0.02, .measurement = 0.01, .disturbance = 0.1};

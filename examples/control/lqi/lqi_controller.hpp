@@ -48,7 +48,7 @@ inline constexpr auto sysd = discretize(sys, Ts);
 static_assert(sysd);
 
 // Design an LQI "law" on the discretized plant, and check for success
-inline constexpr auto weights = design::LQRWeights<2, 1, 1>{
+inline constexpr auto weights = design::LQRConfig<2, 1, 1>{
     .Q = Matrix<2, 2>{
         {10.0, 0.0},
         {0.0, 1.0},

@@ -65,11 +65,11 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
     requires(detail::is_disturbance_model<Disturbance>)
 [[nodiscard]] constexpr auto oflqg(
     const StateSpace<NX, NU, NY, T, NW, NV>&                 sys,
-    const LQRWeights<NX, NU, 0, T>&                          weights,
+    const LQRConfig<NX, NU, 0, T>&                           config,
     const damp::type_identity_t<KalmanNoise<NW, NV, T, ND>>& noise,
     const Disturbance&                                       disturbance
 ) {
-    return detail::state_feedback(sys, weights, detail::StateFeedbackOptions{.noise = noise, .offset_free = disturbance});
+    return detail::state_feedback(sys, config, detail::StateFeedbackOptions{.noise = noise, .offset_free = disturbance});
 }
 
 /** @brief The sampled-data offset-free linear-quadratic Gaussian law (the process and disturbance noise densities): runs as OFLQG. */
@@ -78,11 +78,11 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
 [[nodiscard]] constexpr auto oflqg(
     const StateSpace<NX, NU, NY, T, NW, NV>&                 sys,
     damp::type_identity_t<T>                                 Ts,
-    const LQRWeights<NX, NU, 0, T>&                          weights,
+    const LQRConfig<NX, NU, 0, T>&                           config,
     const damp::type_identity_t<KalmanNoise<NW, NV, T, ND>>& noise,
     const Disturbance&                                       disturbance
 ) {
-    return detail::state_feedback(sys, Ts, weights, detail::StateFeedbackOptions{.noise = noise, .offset_free = disturbance});
+    return detail::state_feedback(sys, Ts, config, detail::StateFeedbackOptions{.noise = noise, .offset_free = disturbance});
 }
 
 /**
@@ -90,7 +90,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
  *        @p delay late: runs as OFLQG, its filter on [x; v(k−1); …; v(k−N); d].
  *
  * The weights and the noise are the plant's, as without the delay: the gain is lqr(sys, Ts,
- * delay, weights)'s, the filter design::kalman(sys, Ts, delay, noise, disturbance)'s and the
+ * delay, config)'s, the filter design::kalman(sys, Ts, delay, noise, disturbance)'s and the
  * target design::steady_state_target(sys, Ts, delay, disturbance)'s, which holds each register
  * at u_t. An InputDisturbance adds to u, so it reaches the plant through the delay; a load on
  * the plant itself, which acts at once, is DisturbanceModel{.Bd = sys.B, .Cd = sys.D} or
@@ -104,11 +104,11 @@ template<
     const StateSpace<NX, NU, NY, T, NW, NV>&                 sys,
     damp::type_identity_t<T>                                 Ts,
     const InputDelay<N, S>&                                  delay,
-    const LQRWeights<NX, NU, 0, T>&                          weights,
+    const LQRConfig<NX, NU, 0, T>&                           config,
     const damp::type_identity_t<KalmanNoise<NW, NV, T, ND>>& noise,
     const Disturbance&                                       disturbance
 ) {
-    return detail::state_feedback(sys, Ts, delay, weights, detail::StateFeedbackOptions{.noise = noise, .offset_free = disturbance});
+    return detail::state_feedback(sys, Ts, delay, config, detail::StateFeedbackOptions{.noise = noise, .offset_free = disturbance});
 }
 
 } // namespace design
@@ -122,7 +122,7 @@ template<
  * at r under the disturbance estimate d̂, taken about the reference point (x*, u*). The tick is
  * update(y) then control(r), or step(r, y), with x* = 0 and u* = 0; feedforward from a planned
  * trajectory (x_ref, u_ref) is control(r, x_ref, u_ref), or step(r, x_ref, u_ref, y). The
- * command is clamped into u_lim (the design's, LQRWeights; unbounded by default), and predict()
+ * command is clamped into u_lim (the design's, LQRConfig; unbounded by default), and predict()
  * moves the filter with it, so the clamp is not taken for a disturbance; back_calculate(u_sat)
  * before it reports a stage that clamps after the law.
  *

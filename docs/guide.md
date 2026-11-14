@@ -38,7 +38,7 @@ constexpr auto sys = StateSpace<2, 1, 1>{
 } // namespace
 
 // Configure tuning parameters (control weights) for an LQI
-constexpr auto weights = design::LQRWeights<2, 1, 1>{
+constexpr auto weights = design::LQRConfig<2, 1, 1>{
     .Q = Matrix<2, 2>{
         {10.0, 0.0},
         {0.0, 1.0},
@@ -119,7 +119,7 @@ types. Bode and friends return analysis grids. New code uses `design::` and
 | `kalman`, `lqe`, `dlqe`, `kalmd`      | `design::kalman` → `FixedGainObserver` (fixed gain on the law) or `KalmanFilter` (P each tick)                          |
 | observer, FixedGainObserver                  | `FixedGainObserver{design::kalman(...)}`                                                                                |
 | ESO, ADRC                             | `design::eso` → `ESO` (observer only); `design::adrc` → `ADRCController` (ESO + PD)                              |
-| anti-windup, sat, `umax`              | `u_lim` and `integral_lim` on the design: `PIDGains`, and `LQRWeights` for the LQ laws. `back_calculate(u_sat)` after a clamp downstream of the law |
+| anti-windup, sat, `umax`              | `u_lim` and `integral_lim` on the design: `PIDGains`, and `LQRConfig` for the LQ laws. `back_calculate(u_sat)` after a clamp downstream of the law |
 | `mpcmove`, constraints                | `design::mpc` / `ofmpc`, `MPC.step(r, y)`                                                                        |
 | `bode`, `nyquist`, `margin`, `rlocus` | `workbench.hpp`; `analysis::` or `matlab::bode`                                                                  |
 | `lsim`, `step`, `forced_response`     | `sim::simulate*` on the host                                                                                     |
@@ -131,7 +131,7 @@ Keep the plant as `StateSpace` (or `matlab::ss` / `tf`). Discretize with `discre
 
 `[K,S,e] = lqr(sys,Q,R)` is `design::lqr(sys, {.Q, .R})` (CARE if continuous, DARE if discrete). Sampled-data (`lqrd`) is `design::lqr(sys, Ts, {.Q, .R})`.
 
-Integral action is `design::lqi`; it builds the augmented plant. Actuator saturation on that law is `.u_lim` in the weights, which the law clamps to and holds its integrators against, or `back_calculate` after a clamp downstream. Input and output limits over a horizon are `design::mpc`.
+Integral action is `design::lqi`; it builds the augmented plant. Actuator saturation on that law is `.u_lim` in its `LQRConfig`, which the law clamps to and holds its integrators against, or `back_calculate` after a clamp downstream. Input and output limits over a horizon are `design::mpc`.
 
 ## Coming from firmware
 

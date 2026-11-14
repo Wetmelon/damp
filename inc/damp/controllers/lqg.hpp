@@ -43,10 +43,10 @@ using LQGResult = StateFeedbackResult<NX, NU, T, 0, NY, KalmanResult<NX, NU, NY,
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
 [[nodiscard]] constexpr auto lqg(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
-    const LQRWeights<NX, NU, 0, T>&          weights,
+    const LQRConfig<NX, NU, 0, T>&           config,
     const KalmanNoise<NW, NV, T>&            noise
 ) {
-    return detail::state_feedback(sys, weights, detail::StateFeedbackOptions{.noise = noise});
+    return detail::state_feedback(sys, config, detail::StateFeedbackOptions{.noise = noise});
 }
 
 /** @brief The sampled-data linear-quadratic Gaussian law (the process noise a density, the measurement a variance per reading): runs as LQG. */
@@ -54,15 +54,15 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
 [[nodiscard]] constexpr auto lqg(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     damp::type_identity_t<T>                 Ts,
-    const LQRWeights<NX, NU, 0, T>&          weights,
+    const LQRConfig<NX, NU, 0, T>&           config,
     const KalmanNoise<NW, NV, T>&            noise
 ) {
-    return detail::state_feedback(sys, Ts, weights, detail::StateFeedbackOptions{.noise = noise});
+    return detail::state_feedback(sys, Ts, config, detail::StateFeedbackOptions{.noise = noise});
 }
 
 /**
  * @brief The linear-quadratic Gaussian law holding the listed outputs at r through the model's
- *        steady-state target (x* = Nₓ·r, u* = Nᵤ·r, see lqr(sys, weights, outputs)): runs as LQG, step(r, y).
+ *        steady-state target (x* = Nₓ·r, u* = Nᵤ·r, see lqr(sys, config, outputs)): runs as LQG, step(r, y).
  *
  * As for lqr: refused with DesignStatus::singular when no unique steady state holds r (NZ = NU)
  * or none holds every r (NZ < NU); with more tracked outputs than inputs (NZ > NU, as
@@ -72,11 +72,11 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NZ>
 [[nodiscard]] constexpr auto lqg(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
-    const LQRWeights<NX, NU, 0, T>&          weights,
+    const LQRConfig<NX, NU, 0, T>&           config,
     const KalmanNoise<NW, NV, T>&            noise,
     const TrackedOutputs<NZ>&                outputs
 ) {
-    return detail::state_feedback(sys, weights, detail::StateFeedbackOptions{.noise = noise, .track = outputs});
+    return detail::state_feedback(sys, config, detail::StateFeedbackOptions{.noise = noise, .track = outputs});
 }
 
 /** @brief The sampled-data linear-quadratic Gaussian law holding the listed outputs at r: runs as LQG, step(r, y). */
@@ -84,11 +84,11 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size
 [[nodiscard]] constexpr auto lqg(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     damp::type_identity_t<T>                 Ts,
-    const LQRWeights<NX, NU, 0, T>&          weights,
+    const LQRConfig<NX, NU, 0, T>&           config,
     const KalmanNoise<NW, NV, T>&            noise,
     const TrackedOutputs<NZ>&                outputs
 ) {
-    return detail::state_feedback(sys, Ts, weights, detail::StateFeedbackOptions{.noise = noise, .track = outputs});
+    return detail::state_feedback(sys, Ts, config, detail::StateFeedbackOptions{.noise = noise, .track = outputs});
 }
 
 /**
@@ -96,7 +96,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size
  *        late: runs as LQG, its filter carrying the inputs still on their way.
  *
  * The weights and the noise are the plant's, as without the delay: the gain is lqr(sys, Ts,
- * delay, weights)'s and the filter design::kalman(sys, Ts, delay, noise)'s, on
+ * delay, config)'s and the filter design::kalman(sys, Ts, delay, noise)'s, on
  * discretize(sys, Ts, delay) (detail::state_feedback with an InputDelay).
  *
  * @code
@@ -110,10 +110,10 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     damp::type_identity_t<T>                 Ts,
     const InputDelay<N, S>&                  delay,
-    const LQRWeights<NX, NU, 0, T>&          weights,
+    const LQRConfig<NX, NU, 0, T>&           config,
     const KalmanNoise<NW, NV, T>&            noise
 ) {
-    return detail::state_feedback(sys, Ts, delay, weights, detail::StateFeedbackOptions{.noise = noise});
+    return detail::state_feedback(sys, Ts, delay, config, detail::StateFeedbackOptions{.noise = noise});
 }
 
 /** @brief The sampled-data linear-quadratic Gaussian law of a plant whose input arrives @p delay late, holding the listed outputs at r: runs as LQG, step(r, y). */
@@ -122,11 +122,11 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     damp::type_identity_t<T>                 Ts,
     const InputDelay<N, S>&                  delay,
-    const LQRWeights<NX, NU, 0, T>&          weights,
+    const LQRConfig<NX, NU, 0, T>&           config,
     const KalmanNoise<NW, NV, T>&            noise,
     const TrackedOutputs<NZ>&                outputs
 ) {
-    return detail::state_feedback(sys, Ts, delay, weights, detail::StateFeedbackOptions{.noise = noise, .track = outputs});
+    return detail::state_feedback(sys, Ts, delay, config, detail::StateFeedbackOptions{.noise = noise, .track = outputs});
 }
 
 /**
@@ -173,7 +173,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
  * TrackedOutputs holds those outputs at r through its steady-state target: control(r),
  * step(r, y). Feedforward from a planned trajectory (x_ref, u_ref) adds to it:
  * control([r,] x_ref, u_ref), step([r,] x_ref, u_ref, y). The command is clamped into u_lim
- * (the design's, LQRWeights; unbounded by default), and predict() moves the observer with it,
+ * (the design's, LQRConfig; unbounded by default), and predict() moves the observer with it,
  * or with the input back_calculate(u_sat) recorded for a stage that clamps after the law.
  *
  * A design with an InputDelay (NRU > 0) has its filter on [x; v(k−1); …; v(k−NRU)]: predict

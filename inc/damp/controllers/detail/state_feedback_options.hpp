@@ -136,9 +136,9 @@ struct integrated_count<Matrix<R, C, U>, NY> {
 template<size_t NY, typename Options>
 inline constexpr size_t integrator_count = integrated_count<typename options_traits<Options>::integrate, NY>::value;
 
-/** @brief The weights of a design with @p Options; not deduced, so braces take their sizes from the plant. */
+/** @brief The LQRConfig of a design with @p Options; not deduced, so braces take their sizes from the plant. */
 template<size_t NX, size_t NU, size_t NY, typename T, typename Options>
-using weights_for = damp::type_identity_t<LQRWeights<NX, NU, integrator_count<NY, Options>, T>>;
+using config_for = damp::type_identity_t<LQRConfig<NX, NU, integrator_count<NY, Options>, T>>;
 
 /** @brief Whether a disturbance spec fits the plant: a DisturbanceModel on its states and outputs, in its scalar. */
 template<typename Spec, size_t NX, size_t NY, typename T>

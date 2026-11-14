@@ -1522,7 +1522,7 @@ struct [[nodiscard]] LQRResult {
     DesignStatus                      status{DesignStatus::not_converged}; ///< ok, or why the design failed
     T                                 Ts{0};                               ///< Sample time of the law [s]: the plant's (design::lqr); 0 when it has none (continuous, or discrete_lqr on bare matrices)
     bool                              discrete{false};                     ///< A discrete law (e in the z-plane): discrete_lqr, or design::lqr on a discrete plant or with a Ts
-    Bounds<NU, T>                     u_lim{};                             ///< Limits on the command the LQR returns (design::lqr's LQRWeights::u_lim; default unbounded)
+    Bounds<NU, T>                     u_lim{};                             ///< Limits on the command the LQR returns (design::lqr's LQRConfig::u_lim; default unbounded)
 
     /** @brief True when the design succeeded (success). */
     [[nodiscard]] constexpr explicit operator bool() const { return success; }

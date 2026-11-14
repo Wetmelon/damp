@@ -393,7 +393,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`lqr`](inc/damp/controllers/lqr.hpp#L49) | The linear-quadratic regulator on the plant (DARE on a discrete plant, CARE on a continuous one): runs as LQR (+5 more overloads) |
 | [`LQR`](inc/damp/controllers/lqr.hpp#L246) | LQR law{res}: the sizes and scalar of design::lqr's result (+2 more overloads) |
 | [`lqr_gain`](inc/damp/design/riccati.hpp#L1358) | Optimal LQR state-feedback gain from a Riccati solution |
-| [`LQRWeights`](inc/damp/controllers/state_feedback_types.hpp#L152) | Sizes from the matrices: `LQRWeights{Q, R}` (+2 more overloads) |
+| [`LQRConfig`](inc/damp/controllers/state_feedback_types.hpp#L152) | Sizes from the matrices: `LQRConfig{Q, R}` (+2 more overloads) |
 | [`lyap`](inc/damp/design/lyapunov.hpp#L452) | Solve the continuous-time Lyapunov equation A X + X Aᵀ + Q = 0 |
 | [`lyapunov_cholesky`](inc/damp/design/lyapunov.hpp#L500) | Cholesky factor of the continuous Lyapunov solution: A X + X Aᵀ + B Bᵀ = 0, X = RᵀR |
 | [`maximal_invariant_set`](inc/damp/design/invariant_set.hpp#L249) | Maximal positively invariant set of x⁺ = A x under G₀ x ≤ h₀ |
@@ -473,7 +473,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`LQGI`](inc/damp/controllers/lqgi.hpp#L142) | Linear-quadratic Gaussian law with integral action on the measured outputs |
 | [`LQI`](inc/damp/controllers/lqi.hpp#L138) | Linear-quadratic regulator with integral action, on the measured state |
 | [`LQR`](inc/damp/controllers/lqr.hpp#L150) | Linear-quadratic regulator on the measured state: u = u − K·(x − x ) |
-| [`LQRWeights`](inc/damp/controllers/state_feedback_types.hpp#L141) | The cost of a state-feedback design, what to penalize and how much, and the limits its law runs within |
+| [`LQRConfig`](inc/damp/controllers/state_feedback_types.hpp#L141) | What a state-feedback design is given with the plant: the cost, what to penalize and how much, and the limits its law runs within |
 | [`MeasuredDisturbance`](inc/damp/controllers/mpc.hpp#L1233) | A measured disturbance: a known input the controller does not command, entering the state update through Bd (a load torque, a feed rate, the ambient temperature) |
 | [`MPC`](inc/damp/controllers/mpc.hpp#L2436) | Constrained linear MPC on the measured state (design::mpc) |
 | [`MPCArtifacts`](inc/damp/controllers/mpc.hpp#L346) | Condensed-QP data produced by mpc() (MPCResult::mpc), consumed by damp::MPC |

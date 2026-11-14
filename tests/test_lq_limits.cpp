@@ -46,13 +46,13 @@ constexpr StateSpace<2, 1, 1, double, 2, 1> plant() {
     };
 }
 
-constexpr Matrix<2, 2>                Q{{10.0, 0.0}, {0.0, 1.0}};
-constexpr Bounds<1>                   kBox{.lower = -kLimit, .upper = kLimit};
-constexpr design::KalmanNoise<2, 1>   kNoise{.process = Matrix<2, 2>{{0.01, 0.0}, {0.0, 0.1}}, .measurement = Matrix<1, 1>{{1e-4}}};
-constexpr design::LQRWeights<2, 1, 0> kFree{.Q = Q, .R = 1.0};
-constexpr design::LQRWeights<2, 1, 0> kBound{.Q = Q, .R = 1.0, .u_lim = kBox};
-constexpr design::LQRWeights<2, 1, 1> kFreeI{.Q = Q, .R = 1.0, .Q_integral = 80.0};
-constexpr design::LQRWeights<2, 1, 1> kBoundI{.Q = Q, .R = 1.0, .Q_integral = 80.0, .u_lim = kBox};
+constexpr Matrix<2, 2>               Q{{10.0, 0.0}, {0.0, 1.0}};
+constexpr Bounds<1>                  kBox{.lower = -kLimit, .upper = kLimit};
+constexpr design::KalmanNoise<2, 1>  kNoise{.process = Matrix<2, 2>{{0.01, 0.0}, {0.0, 0.1}}, .measurement = Matrix<1, 1>{{1e-4}}};
+constexpr design::LQRConfig<2, 1, 0> kFree{.Q = Q, .R = 1.0};
+constexpr design::LQRConfig<2, 1, 0> kBound{.Q = Q, .R = 1.0, .u_lim = kBox};
+constexpr design::LQRConfig<2, 1, 1> kFreeI{.Q = Q, .R = 1.0, .Q_integral = 80.0};
+constexpr design::LQRConfig<2, 1, 1> kBoundI{.Q = Q, .R = 1.0, .Q_integral = 80.0, .u_lim = kBox};
 
 /**
  * Run @p bounded (its design carries u_lim) and @p clamped (the same design without, clamped
@@ -198,7 +198,7 @@ TEST_SUITE("LQ limits") {
     }
 
     TEST_CASE_TEMPLATE("integral_lim clamps the integral state, and moves at run time", T, float, double) {
-        design::LQRWeights<2, 1, 1> w = kFreeI;
+        design::LQRConfig<2, 1, 1> w = kFreeI;
         w.integral_lim = {.lower = -0.02, .upper = 0.05};
         const auto res = design::lqi(plant(), kTs, w);
         REQUIRE(res.success);

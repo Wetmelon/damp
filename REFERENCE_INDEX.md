@@ -456,11 +456,11 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`lqr`](inc/damp/matlab.hpp#L892) | function | MATLAB®-style aliases (host) | Continuous-time LQR design (MATLAB®'s lqr) |
 | [`LQR`](inc/damp/controllers/lqr.hpp#L150) | block | Runtime controllers | Linear-quadratic regulator on the measured state: u = u − K·(x − x ) |
 | [`lqr_gain`](inc/damp/design/riccati.hpp#L1358) | function | Design-time synthesis (not PWM-rate) | Optimal LQR state-feedback gain from a Riccati solution |
+| [`LQRConfig`](inc/damp/controllers/state_feedback_types.hpp#L152) | function | Design-time synthesis (not PWM-rate) | Sizes from the matrices: `LQRConfig{Q, R}` (+2 more overloads) |
+| [`LQRConfig`](inc/damp/controllers/state_feedback_types.hpp#L141) | block | Runtime controllers | What a state-feedback design is given with the plant: the cost, what to penalize and how much, and the limits its law runs within |
 | [`LQRCost`](inc/damp/design/riccati.hpp#L1577) | block | Design-time synthesis (not PWM-rate) | A quadratic cost on (x, u): state cost Q, input cost R, cross term N |
 | [`lqrd`](inc/damp/matlab.hpp#L922) | function | MATLAB®-style aliases (host) | Sampled-data LQR from a continuous plant: ZOH dynamics + Van Loan cost (MATLAB®'s lqrd) (+1 more overload) |
 | [`LQRResult`](inc/damp/design/riccati.hpp#L1517) | block | Design-time synthesis (not PWM-rate) | The LQR gain: design::lqr on a plant, discrete_lqr and continuous_lqr on given matrices |
-| [`LQRWeights`](inc/damp/controllers/state_feedback_types.hpp#L152) | function | Design-time synthesis (not PWM-rate) | Sizes from the matrices: `LQRWeights{Q, R}` (+2 more overloads) |
-| [`LQRWeights`](inc/damp/controllers/state_feedback_types.hpp#L141) | block | Runtime controllers | The cost of a state-feedback design, what to penalize and how much, and the limits its law runs within |
 | [`lqry`](inc/damp/matlab.hpp#L1008) | function | MATLAB®-style aliases (host) | Output-weighted continuous LQR (state cost Q = Cᵀ Q_y C) (+1 more overload) |
 | [`lsim`](inc/damp/analysis/time_response.hpp#L284) | function | Frequency-domain analysis (host) | Forced time response of a (MIMO) state-space system to an input signal (+1 more overload) |
 | [`LsimInfo`](inc/damp/analysis/time_response.hpp#L513) | block | Frequency-domain analysis (host) | Transient characteristics of an arbitrary response signal |
