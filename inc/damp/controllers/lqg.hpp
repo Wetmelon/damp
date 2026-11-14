@@ -17,7 +17,10 @@
  */
 
 #include "damp/backend.hpp"
+#include "damp/controllers/detail/lq_law.hpp"
+#include "damp/controllers/detail/state_feedback_design.hpp"
 #include "damp/controllers/state_feedback_core.hpp"
+#include "damp/controllers/state_feedback_types.hpp"
 #include "damp/design/riccati.hpp"
 #include "damp/design/status.hpp"
 #include "damp/estimation/kalman.hpp"

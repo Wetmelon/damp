@@ -150,7 +150,7 @@
 
 #include "damp/backend.hpp"
 #include "damp/controllers/law_detail.hpp"
-#include "damp/controllers/state_feedback_core.hpp"
+#include "damp/controllers/state_feedback_types.hpp"
 #include "damp/design/disturbance.hpp"
 #include "damp/design/invariant_set.hpp"
 #include "damp/design/options.hpp"

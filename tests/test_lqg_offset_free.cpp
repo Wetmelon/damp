@@ -8,7 +8,7 @@
 #include <cstddef>
 
 #include "damp/controllers/oflqg.hpp"
-#include "damp/controllers/state_feedback_core.hpp"
+#include "damp/controllers/state_feedback_types.hpp"
 #include "damp/design/disturbance.hpp"
 #include "damp/design/status.hpp"
 #include "damp/design/steady_state_target.hpp"
