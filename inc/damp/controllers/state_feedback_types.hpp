@@ -208,6 +208,7 @@ template<size_t NX, size_t NU, typename T = double, size_t NI = 0, size_t NY = N
 struct [[nodiscard]] StateFeedbackResult {
     using Filter = ::damp::detail::estimator_traits<::damp::detail::runtime_estimator_t<Kalman, T>>;
     static constexpr bool   kEstimated = Filter::present; ///< A Kalman filter estimates the state
+    static constexpr bool   kIntegral = NI > 0;           ///< The law has integral action
     static constexpr size_t NXL = NX + (NRU * NU);        ///< The law's model: the plant, then its input registers
     static constexpr size_t NK = NXL + NI;                ///< The gain's state: the law's model and the integrators
     static constexpr size_t ND = Filter::ND;              ///< Disturbance states of the filter
@@ -390,6 +391,14 @@ struct is_state_feedback_result : damp::false_type {};
 /** @brief A StateFeedbackResult. */
 template<size_t NX, size_t NU, typename T, size_t NI, size_t NY, typename Kalman, size_t NZ, size_t NRU>
 struct is_state_feedback_result<design::StateFeedbackResult<NX, NU, T, NI, NY, Kalman, NZ, NRU>> : damp::true_type {};
+
+/**
+ * @brief A StateFeedbackResult of any sizes. A runtime's constructor takes one and reads its kind
+ *        from the result's own constants (kIntegral, kEstimated, ND), so a parameter added to the
+ *        result does not reach the runtimes' constructors.
+ */
+template<typename R>
+concept state_feedback_result = is_state_feedback_result<R>::value;
 
 } // namespace detail
 

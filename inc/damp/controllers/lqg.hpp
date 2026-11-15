@@ -192,10 +192,10 @@ struct LQG : private detail::StateFeedbackCore<NX, NU, T, 0, NY, Est, NZ, Store,
     constexpr LQG() = default;
 
     /** @brief From design::lqg or lqg_from_parts (any scalar). */
-    template<size_t NXR, size_t NUR, typename U, size_t NIR, size_t NYR, typename Kalman, size_t NZR, size_t NRR>
+    template<detail::state_feedback_result R>
         requires(!Store::constant)
-    constexpr LQG(const design::StateFeedbackResult<NXR, NUR, U, NIR, NYR, Kalman, NZR, NRR>& result) { // NOLINT
-        constexpr bool kind = NIR == 0 && design::StateFeedbackResult<NXR, NUR, U, NIR, NYR, Kalman, NZR, NRR>::ND == 0 && !damp::is_same_v<Kalman, NoEstimator>;
+    constexpr LQG(const R& result) { // NOLINT
+        constexpr bool kind = !R::kIntegral && R::kEstimated && R::ND == 0;
         static_assert(kind, "LQG runs design::lqg: this design has no Kalman filter (LQR, LQI), integral action (LQGI) or a disturbance model (OFLQG).");
         if constexpr (kind) {
             static_cast<Core&>(*this) = Core(result);
