@@ -75,7 +75,7 @@ struct ESCSpec {
     T            hp_cutoff_hz{T{0}};           ///< High-pass corner [Hz], below the dither; 0 = dither_freq_hz/5
     T            lp_cutoff_hz{T{0}};           ///< Gradient low-pass corner [Hz]; 0 = no low-pass
     T            u_init{T{0}};                 ///< Initial operating point û₀
-    Bounds<1, T> u_lim{};                      ///< Clamp on û (default unbounded; off when lower ≥ upper)
+    Bounds<1, T> u_lim{};                      ///< Limits on û and on the applied input û + dither (default unbounded)
     T            demod_phase{T{0}};            ///< Demodulation phase offset φ [rad] for plant lag
 };
 
@@ -96,7 +96,7 @@ struct [[nodiscard]] ESCResult {
     T            demod_phase{};                       ///< φ, demodulation phase offset [rad] (plant lag)
     T            direction{T{1}};                     ///< +1 maximize, −1 minimize
     T            u_init{};                            ///< Initial operating point û₀
-    Bounds<1, T> u_lim{};                             ///< Clamp on û (default unbounded; off when lower ≥ upper)
+    Bounds<1, T> u_lim{};                             ///< Limits on û and on the applied input û + dither (default unbounded)
     T            Ts{};                                ///< Sample time [s]
     bool         success{false};                      ///< status == DesignStatus::ok
     DesignStatus status{DesignStatus::not_converged}; ///< ok, or why the design failed
@@ -149,7 +149,8 @@ template<typename T>
  *             initial operating point, clamp and demodulation phase
  * @param Ts   Sample time [s] (> 0)
  * @return ESCResult; refused with invalid_sample_time for a non-positive or non-finite Ts, and
- *         with invalid_parameter for a spec entry outside its domain or a dither faster than Ts allows
+ *         with invalid_parameter for a spec entry outside its domain, a u_lim that is not a box
+ *         (an end not finite, or lower above upper) or a dither faster than Ts allows
  */
 template<typename T = double>
 [[nodiscard]] constexpr ESCResult<T> esc(const ESCSpec<T>& spec, T Ts) {
@@ -159,7 +160,7 @@ template<typename T = double>
     const bool in_domain = damp::finite_positive(spec.dither_amplitude) && damp::finite_positive(spec.dither_freq_hz)
                         && damp::finite_positive(spec.gain) && damp::finite_non_negative(spec.hp_cutoff_hz)
                         && damp::finite_non_negative(spec.lp_cutoff_hz) && damp::isfinite(spec.u_init)
-                        && damp::isfinite(spec.demod_phase);
+                        && damp::isfinite(spec.demod_phase) && spec.u_lim.valid();
     if (!in_domain) {
         return ::damp::detail::refused<ESCResult<T>>(DesignStatus::invalid_parameter);
     }
@@ -234,6 +235,8 @@ template<typename T = double>
 template<typename T = float>
 class ExtremumSeekingController {
 public:
+    Bounds<1, T> u_lim{}; ///< Limits on û and on the applied input û + dither (the design's; default unbounded)
+
     constexpr ExtremumSeekingController() = default;
 
     /** @brief From a design result in another scalar: converts it with .as\<T\>() and builds from that. */
@@ -243,7 +246,7 @@ public:
         : ExtremumSeekingController(result.template as<T>()) {}
 
     constexpr ExtremumSeekingController(const design::ESCResult<T>& result) // NOLINT(google-explicit-constructor): assign-from-design
-        : config_(result), uhat_(result.u_init), valid_(result.success) {
+        : u_lim(result.u_lim), config_(result), uhat_(result.u_lim.saturate(result.u_init)), valid_(result.success) {
         if (!result.success && damp::is_constant_evaluated()) {
             ::damp::detail::refuse_failed_design(result.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
@@ -253,19 +256,12 @@ public:
     /**
      * @brief Current perturbed input to apply, û + a·sin φ.
      *
-     * When the clamp band is active (`u_lim.lower < u_lim.upper`) the *applied* command is
-     * clamped to it: the estimate û is bounded, but û + dither could otherwise
-     * ride a full dither amplitude past a hard actuator limit. Near a bound this
-     * clips the perturbation asymmetrically (a small, benign gradient bias) in
-     * exchange for never commanding past the limit.
+     * The *applied* command is clamped into u_lim: the estimate û is bounded, but û + dither
+     * could otherwise ride a full dither amplitude past a hard actuator limit. Near a bound
+     * this clips the perturbation asymmetrically (a small, benign gradient bias) in exchange
+     * for never commanding past the limit.
      */
-    [[nodiscard]] constexpr T input() const {
-        const T u = uhat_ + (config_.dither_amplitude * dither_s_);
-        if (config_.u_lim.lower(0) < config_.u_lim.upper(0)) {
-            return config_.u_lim.saturate(u);
-        }
-        return u;
-    }
+    [[nodiscard]] constexpr T input() const { return u_lim.saturate(uhat_ + (config_.dither_amplitude * dither_s_)); }
 
     /**
      * @brief Feed back the measured objective; returns the next input to apply.
@@ -302,10 +298,7 @@ public:
         gradient_ = grad_state_;
 
         // Integrate the gradient toward the extremum.
-        uhat_ += config_.direction * config_.gain * gradient_ * config_.Ts;
-        if (config_.u_lim.lower(0) < config_.u_lim.upper(0)) {
-            uhat_ = config_.u_lim.saturate(uhat_);
-        }
+        uhat_ = u_lim.saturate(uhat_ + (config_.direction * config_.gain * gradient_ * config_.Ts));
 
         // Advance the dither phase and form the next perturbed input.
         advance_dither();
@@ -315,13 +308,31 @@ public:
     /** @brief Not a SISO law: control(r, y) would read y as the validity flag, so it does not compile. */
     constexpr T control(T, T) = delete;
 
+    /**
+     * @brief Record the input the plant received, @p u_sat, when a stage after this law clamped
+     *        or replaced its command, and the feedforward @p u_ff added to the command before it
+     *
+     * The operating point moves by what the clamp cut off, û ← û + u_sat − (u + u_ff) with u the
+     * input control() returned, then into u_lim: û stays where the applied input was, less the
+     * dither, and does not integrate on behind the clamp. An input applied as commanded changes
+     * nothing.
+     */
+    constexpr void back_calculate(T u_sat, T u_ff = T{0}) {
+        const T asked = input() + u_ff;
+        const T diff = u_sat - asked;
+        const T tol = T{4} * eps<T>() * (damp::abs(u_sat) + damp::abs(asked));
+        if (valid_ && damp::abs(diff) > tol) {
+            uhat_ = u_lim.saturate(uhat_ + diff);
+        }
+    }
+
     /** @brief The operating point û: the current estimate of the extremum's input, without the dither. */
     [[nodiscard]] constexpr T    operating_point() const { return uhat_; }
     [[nodiscard]] constexpr T    gradient() const { return gradient_; }
     [[nodiscard]] constexpr bool valid() const { return valid_; }
 
     constexpr void reset() {
-        uhat_ = config_.u_init;
+        uhat_ = u_lim.saturate(config_.u_init);
         dither_s_ = T{0};
         dither_c_ = T{1};
         hp_state_ = T{0};

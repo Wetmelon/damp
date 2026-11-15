@@ -63,3 +63,37 @@ TEST_CASE("Bounds::as maps the unbounded ends to the target's max and casts the 
     static_assert(back.upper(1) == std::numeric_limits<double>::max());
     CHECK(back.upper(0) == 0.25);
 }
+
+TEST_CASE("Bounds::valid: every end finite and no lower end above its upper one") {
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+    CHECK(Bounds<2>{}.valid());                                          // unbounded
+    CHECK(Bounds<2>{.lower = {-1.0, 0.0}, .upper = {1.0, 0.0}}.valid()); // lower == upper pins a channel
+    CHECK_FALSE(Bounds<2>{.lower = {-1.0, 2.0}, .upper = {1.0, 1.0}}.valid());
+    CHECK_FALSE(Bounds<1>{.lower = nan, .upper = 1.0}.valid());
+    CHECK_FALSE(Bounds<1>{.lower = -1.0, .upper = nan}.valid());
+}
+
+TEST_CASE("Bounds::saturate has one result for an inverted interval") {
+    //! std::clamp and etl::clamp disagreed on lower > upper: one returned the upper end for every
+    //! input, the other the lower end below it. A member set at run time can hold such an interval.
+    const Bounds<1> inverted{.lower = 1.0, .upper = -1.0};
+    CHECK(inverted.saturate(-5.0) == -1.0);
+    CHECK(inverted.saturate(0.0) == -1.0);
+    CHECK(inverted.saturate(5.0) == -1.0);
+    const Bounds<2> box{.lower = {1.0, -2.0}, .upper = {-1.0, 2.0}};
+    const auto      s = box.saturate(ColVec<2>{0.0, 5.0});
+    CHECK(s(0) == -1.0);
+    CHECK(s(1) == 2.0);
+}
+
+TEST_CASE("Bounds::as saturates a finite end past the narrower type's range") {
+    //! A double end of 1e300, written for "large", was cast to float: an overflow.
+    const Bounds<1> wide{.lower = -1e300, .upper = 1e39};
+    const auto      f = wide.as<float>();
+    CHECK(f.lower(0) == -std::numeric_limits<float>::max());
+    CHECK(f.upper(0) == std::numeric_limits<float>::max());
+    CHECK(f.valid());
+    const auto d = Bounds<1, float>{.lower = -2.5F, .upper = 3.0F}.as<double>(); // widening casts
+    CHECK(d.lower(0) == -2.5);
+    CHECK(d.upper(0) == 3.0);
+}

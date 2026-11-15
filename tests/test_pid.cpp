@@ -274,13 +274,15 @@ TEST_SUITE("PID Mode Control") {
         static_assert(damp::detail::pid_gains_in_domain(1.0, 2.0, 0.1, 0.0, 0.0, 1.0, 1.0));
     }
 
-    TEST_CASE("back_calculate is a no-op when Kbc == 0, bleeds when Kbc > 0") {
+    TEST_CASE("back_calculate takes back the last increment when Kbc == 0, bleeds when Kbc > 0") {
         constexpr double      Ts = 0.01;
         PIDController<double> pid{design::pid(1.0, 1.0, 0.0).discretize(Ts)};
         (void)pid.control(1.0, 0.0);
-        const double integ = pid.integral;
-        pid.back_calculate(0.5); // Kbc == 0 → no-op
-        CHECK(pid.integral == doctest::Approx(integ));
+        CHECK(pid.integral == doctest::Approx(0.01));
+        pid.back_calculate(0.5); // Kbc == 0: the clamp cut 0.51 off, more than the tick added
+        CHECK(pid.integral == 0.0);
+        pid.back_calculate(0.5); // nothing left of that tick to give back
+        CHECK(pid.integral == 0.0);
 
         PIDController<double> pid2{design::PIDGains{.Kp = 1.0, .Ki = 1.0, .Kbc = 0.5}.discretize(Ts)};
         (void)pid2.control(1.0, 0.0);
@@ -530,3 +532,85 @@ TEST_SUITE("PID Mode Control") {
         CHECK(wrapped_d_max == doctest::Approx(gains.d_b * turn).epsilon(0.01)); // a wrapped y steps D by d_b·2π
     }
 } // TEST_SUITE
+
+/// What happens to the integral at a limit, with no anti-windup parameter set: it holds.
+TEST_SUITE("PID limits") {
+    constexpr double kTs = 0.01;
+
+    TEST_CASE_TEMPLATE("an output limit alone keeps the integral from winding up", T, float, double) {
+        //! With Kbc = 0 the integral ran on behind the clamp: Kp 1, Ki 10, ±1, ten seconds on the
+        //! rail left I = 500 and the output stayed on the rail for 99.6 s after the error reversed.
+        PIController<T> pi{design::PIDGains<double>{.Kp = 1.0, .Ki = 10.0, .u_lim = {.lower = -1.0, .upper = 1.0}}.discretize(kTs).template as<T>()};
+        for (int k = 0; k < 1000; ++k) {
+            CHECK(pi.control(T{5}, T{0}) == T{1});
+        }
+        CHECK(pi.integral == T{0});              // P alone is past the limit: nothing of I is needed
+        CHECK(pi.control(T{0.5}, T{0}) < T{1});  // off the rail on the first tick the error allows it
+        CHECK(pi.control(T{-5}, T{0}) == T{-1}); // and onto the other
+        CHECK(pi.integral >= T{0});              // without the integral having gone the wrong way
+    }
+
+    TEST_CASE_TEMPLATE("the integral stops where the output meets the limit", T, float, double) {
+        PIController<T> pi{design::PIDGains<double>{.Kp = 1.0, .Ki = 10.0, .u_lim = {.lower = -1.0, .upper = 1.0}}.discretize(kTs).template as<T>()};
+        T               u{0};
+        for (int k = 0; k < 200; ++k) {
+            u = pi.control(T{0.5}, T{0}); // P = 0.5, I ramps 0.05 a tick towards 0.5
+        }
+        CHECK(u == T{1});
+        CHECK(damp::abs(pi.integral - T{0.5}) <= T{8} * eps<T>());
+        //! A step of the P term through the limit does not reset what the integral holds.
+        (void)pi.control(T{3}, T{0});
+        CHECK(damp::abs(pi.integral - T{0.5}) <= T{8} * eps<T>());
+        //! Nor does integral_lim stop applying.
+        pi.integral_lim = {.lower = T{-0.25}, .upper = T{0.25}};
+        (void)pi.control(static_cast<T>(0.1), T{0});
+        CHECK(pi.integral == T{0.25});
+    }
+
+    TEST_CASE_TEMPLATE("u_lim alone is the law clamped outside and told with back_calculate", T, float, double) {
+        //! The oracle of the LQ limits: one tick, whichever stage clamps.
+        const auto gains = design::PIDGains<double>{.Kp = 2.0, .Ki = 8.0, .Kd = 0.02, .c = 0.0, .Tf = 0.005};
+        auto       bounded_gains = gains;
+        bounded_gains.u_lim = {.lower = -1.0, .upper = 1.0};
+        PIDController<T> bounded{bounded_gains.discretize(kTs).template as<T>()};
+        PIDController<T> outside{gains.discretize(kTs).template as<T>()};
+        ContinuousPID<T> measured{bounded_gains.template as<T>()};
+        T                ya{0};
+        T                yb{0};
+        T                yc{0};
+        int              saturated = 0;
+        for (int k = 0; k < 600; ++k) {
+            const T r = (k < 300) ? T{1} : T{-0.5};
+            const T ua = bounded.control(r, ya);
+            const T ub = damp::clamp(outside.control(r, yb), T{-1}, T{1});
+            outside.back_calculate(ub);
+            const T uc = measured.control(r, yc, static_cast<T>(kTs));
+            saturated += (damp::abs(ua) >= T{1}) ? 1 : 0;
+            CHECK(damp::abs(ua - ub) <= T{64} * eps<T>());
+            CHECK(damp::abs(ua - uc) <= T{64} * eps<T>());
+            ya += static_cast<T>(kTs) * (ua - (T{0.5} * ya)); // a lag with a gain of 2: r = 1 needs u = 0.5
+            yb += static_cast<T>(kTs) * (ub - (T{0.5} * yb));
+            yc += static_cast<T>(kTs) * (uc - (T{0.5} * yc));
+        }
+        CHECK(saturated > 10);
+        CHECK(static_cast<double>(ya) == doctest::Approx(-0.5).epsilon(0.02));
+    }
+
+    TEST_CASE("back-calculation takes at most the whole excess: a Kbc under Ki·Ts does not diverge") {
+        //! ΔI = Ki·Ts·(u − u_unsat)/Kbc with Kbc = Ki·Ts/10 overshot the unsaturated value tenfold:
+        //! the integral changed sign and grew ninefold each tick, to ±3.4e38.
+        PIController<float> pi{design::PIDGains<double>{.Kp = 1.0, .Ki = 10.0, .u_lim = {.lower = -1.0, .upper = 1.0}, .Kbc = 0.01}.discretize(kTs).as<float>()};
+        for (int k = 0; k < 200; ++k) {
+            CHECK(pi.control(5.0F, 0.0F) == 1.0F);
+            CHECK(damp::abs(pi.integral) <= 5.0F); // I tracks the limit less P: −4, each tick
+        }
+    }
+
+    TEST_CASE("a limit that is not a box is refused, as the LQ and MPC designs refuse it") {
+        const double nan = std::numeric_limits<double>::quiet_NaN();
+        CHECK(design::PIDGains<double>{.Kp = 1.0, .Ki = 1.0, .u_lim = {.lower = 1.0, .upper = -1.0}}.discretize(kTs).status == design::DesignStatus::invalid_parameter);
+        CHECK(design::PIDGains<double>{.Kp = 1.0, .Ki = 1.0, .u_lim = {.lower = nan, .upper = 1.0}}.discretize(kTs).status == design::DesignStatus::invalid_parameter);
+        CHECK(design::PIDGains<double>{.Kp = 1.0, .Ki = 1.0, .integral_lim = {.lower = 0.5, .upper = -0.5}}.discretize(kTs).status == design::DesignStatus::invalid_parameter);
+        CHECK(design::PIDGains<double>{.Kp = 1.0, .Ki = 1.0, .u_lim = {.lower = 0.0, .upper = 0.0}}.discretize(kTs).success); // pinned, not refused
+    }
+}

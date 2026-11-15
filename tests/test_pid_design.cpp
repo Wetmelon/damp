@@ -820,9 +820,9 @@ TEST_SUITE("PID Design - Back-calculation seed") {
         auto gains = design::pid_pole_placement(kPlant, damp::array<damp::complex<double>, 2>{s_pole(0.95, kTs), s_pole(0.96, kTs)}, kTs);
         gains.u_lim = {.lower = -1.0, .upper = 1.0};
         PIController<double> law{gains.discretize(kTs)};
-        PIController<double> clamp_only{[&] {
+        PIController<double> holding{[&] {
             auto g = gains;
-            g.Kbc = 0.0; // output clamp only: the integrator runs away
+            g.Kbc = 0.0; // no back-calculation: the integral holds against the clamp
             return g.discretize(kTs);
         }()};
 
@@ -830,10 +830,17 @@ TEST_SUITE("PID Design - Back-calculation seed") {
         const double a = std::exp(-kTs);
         const double b = 1.0 - a;
         double       y = 0.0;
-        double       y_open = 0.0;
+        double       y_held = 0.0;
+        double       at_limit = 0.0; // the held law's integral on the tick its output first met the limit
+        bool         met = false;
         for (int k = 0; k < 400; ++k) {
             y = (a * y) + (b * law.control(10.0, y));
-            y_open = (a * y_open) + (b * clamp_only.control(10.0, y_open));
+            const double u_held = holding.control(10.0, y_held);
+            if (!met && u_held >= 1.0) {
+                met = true;
+                at_limit = holding.integral;
+            }
+            y_held = (a * y_held) + (b * u_held);
         }
         // Saturated equilibrium: ΔI = Kᵢ·Ts·e + Kᵢ·Ts·(u_sat − u_unsat)/Kbc = 0 gives
         // u_unsat − u_sat = Kbc·e; the stored I (after the tick's correction) is then
@@ -841,21 +848,24 @@ TEST_SUITE("PID Design - Back-calculation seed") {
         const double e = 10.0 - y;
         CHECK(y == doctest::Approx(1.0).epsilon(1e-6));
         CHECK(law.integral == doctest::Approx(1.0 + ((gains.Kbc - gains.Kp - (gains.Ki * kTs)) * e)).epsilon(1e-6));
-        CHECK(clamp_only.integral > 10.0 * law.integral);
+        // With Kbc = 0 the integral stops where the output met the limit and holds there: the
+        // ticks of positive error that follow add nothing.
+        REQUIRE(met);
+        CHECK(y_held == doctest::Approx(1.0).epsilon(1e-6));
+        CHECK(holding.integral == doctest::Approx(at_limit).epsilon(1e-12));
+        CHECK(holding.integral < 1.0 - (gains.Kp * 10.0)); // under u_sat − Kp·e at the first error
 
-        // Back to an attainable reference: the anti-windup law leaves saturation within a
-        // few T_t; the clamp-only law is still pinned at the limit.
+        // Back to an attainable reference: the back-calculating law leaves saturation within a
+        // few T_t.
         int  ticks = 0;
         bool left = false;
         for (; ticks < 50 && !left; ++ticks) {
             const double u = law.control(0.5, y);
             left = u < 1.0;
             y = (a * y) + (b * u);
-            y_open = (a * y_open) + (b * clamp_only.control(0.5, y_open));
         }
         CHECK(left);
         CHECK(ticks < 20);
-        CHECK(clamp_only.control(0.5, y_open) == doctest::Approx(1.0));
     }
 
     TEST_CASE("an I-only placement (Kp = 0) seeds Kbc = Ki·Ts, a one-sample tracking time") {

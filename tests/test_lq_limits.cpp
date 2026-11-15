@@ -10,6 +10,7 @@
 
 #include <cmath>
 #include <cstddef>
+#include <limits>
 
 #include "damp/controllers/law_detail.hpp"
 #include "damp/controllers/lqg.hpp"
@@ -241,5 +242,52 @@ TEST_SUITE("LQ limits") {
         CHECK(design::lqr(plant(), kTs, {.Q = Q, .R = 1.0, .u_lim = inverted}).status == design::DesignStatus::invalid_parameter);
         CHECK(design::lqi(plant(), kTs, {.Q = Q, .R = 1.0, .Q_integral = 80.0, .integral_lim = inverted}).status == design::DesignStatus::invalid_parameter);
         CHECK(design::lqg(plant(), kTs, {.Q = Q, .R = 1.0, .u_lim = inverted}, kNoise).status == design::DesignStatus::invalid_parameter);
+    }
+
+    TEST_CASE("a refused design ships no limits") {
+        //! The refused result kept the inverted box, and a runtime built from it at run time took
+        //! it with K = 0: control() returned a limit, not 0.
+        const double    nan = std::numeric_limits<double>::quiet_NaN();
+        const Bounds<1> inverted{.lower = 1.0, .upper = -1.0};
+        const auto      lqr = design::lqr(plant(), kTs, {.Q = Q, .R = 1.0, .u_lim = inverted});
+        REQUIRE_FALSE(lqr.success);
+        CHECK(lqr.u_lim.lower(0) == -damp::numeric_limits<double>::max());
+        CHECK(lqr.u_lim.upper(0) == damp::numeric_limits<double>::max());
+        LQR law{lqr};
+        law.update(ColVec<2>{{1.0, 1.0}});
+        CHECK(law.control()(0) == 0.0);
+
+        const auto lqi = design::lqi(plant(), kTs, {.Q = Q, .R = 1.0, .Q_integral = 80.0, .u_lim = {.lower = nan, .upper = 1.0}, .integral_lim = {.lower = -0.1, .upper = 0.1}});
+        CHECK(lqi.status == design::DesignStatus::invalid_parameter);
+        CHECK(lqi.u_lim.upper(0) == damp::numeric_limits<double>::max());
+        CHECK(lqi.integral.lim.upper(0) == damp::numeric_limits<double>::max());
+
+        //! An LQG assembled from a regulator whose box was edited by hand is refused as the design is.
+        auto reg = design::lqr(plant(), kTs, kBound);
+        REQUIRE(reg.success);
+        reg.u_lim = inverted;
+        const auto parts = design::lqg_from_parts(design::kalman(plant(), kTs, kNoise), reg);
+        CHECK(parts.status == design::DesignStatus::invalid_parameter);
+        CHECK(parts.u_lim.upper(0) == damp::numeric_limits<double>::max());
+    }
+
+    TEST_CASE_TEMPLATE("an integrator limit narrowed while the integrator is held pulls it in", T, float, double) {
+        //! integral.lim was applied only when the integrator advanced: held against u_lim, it kept
+        //! a value outside a limit set since.
+        const auto res = design::lqi(plant(), kTs, kBoundI);
+        REQUIRE(res.success);
+        LQI        law{res.template as<T>()};
+        const auto tick = [&] {
+            law.update(ColVec<2, T>{});
+            const T u = law.control(ColVec<1, T>{T{100}})(0); // far above what u_lim allows
+            law.predict();
+            return u;
+        };
+        law.integral.xi(0) = T{0.5};
+        CHECK(tick() == static_cast<T>(kLimit));
+        CHECK(law.integral.xi(0) == T{0.5}); // held against the clamp
+        law.integral.lim.upper(0) = T{0.25};
+        CHECK(tick() == static_cast<T>(kLimit));
+        CHECK(law.integral.xi(0) == T{0.25});
     }
 }

@@ -292,9 +292,12 @@ TEST_SUITE("Active Disturbance Rejection Control (ADRC)") {
         const double u_free = ctrl.control(1.0, 0.5);
         ctrl.back_calculate(0.0); // plant saturated to 0
         // Same inputs; ESO next tick uses u_prev=0 instead of u_free
+        CHECK(ctrl.last_command() == u_free); // the command, as on the other laws
+        CHECK(ctrl.applied() == 0.0);         // and what the ESO takes as applied
         const double u_after = ctrl.control(1.0, 0.5);
         CHECK(u_after != doctest::Approx(u_free));
         CHECK(ctrl.last_command() == doctest::Approx(u_after));
+        CHECK(ctrl.applied() == ctrl.last_command());
     }
 
     TEST_CASE("Kp Kd beta do not absorb 1/b0 — only the tick does") {
@@ -663,5 +666,53 @@ TEST_SUITE("Active Disturbance Rejection Control (ADRC)") {
         warm.reset(ColVec<3>{1.0, 0.0, 0.0});
         CHECK(damp::abs(cold.control(1.0, 1.0)) > 100.0);
         CHECK(warm.control(1.0, 1.0) == doctest::Approx(0.0).scale(1.0));
+    }
+
+    TEST_CASE_TEMPLATE("u_lim alone is the law clamped outside and told with back_calculate", T, float, double) {
+        //! The law had no limit of its own: without a back_calculate each tick its ESO took the
+        //! unclamped command as applied and put the difference in the disturbance estimate.
+        constexpr double Ts = 5e-4;
+        constexpr double umax = 0.25;
+        auto             res = design::adrc<1>(20.0, 80.0, 1.0, Ts);
+        const auto       open = res;
+        res.u_lim = {.lower = -umax, .upper = umax};
+        ADRCController<1, T> bounded{res.template as<T>()};
+        ADRCController<1, T> outside{open.template as<T>()};
+        T                    ya{0};
+        T                    yb{0};
+        int                  saturated = 0;
+        for (int k = 0; k < 4600; ++k) {
+            const T r = (k < 1600) ? T{1} : static_cast<T>(0.15); // ẏ = −y + u: r = 1 is out of reach, 0.15 is not
+            const T ua = bounded.control(r, ya);
+            const T ub = damp::clamp(outside.control(r, yb), static_cast<T>(-umax), static_cast<T>(umax));
+            outside.back_calculate(ub);
+            saturated += (damp::abs(ua) >= static_cast<T>(umax)) ? 1 : 0;
+            CHECK(damp::abs(ua) <= static_cast<T>(umax));
+            CHECK(damp::abs(ua - ub) <= T{64} * eps<T>());
+            CHECK(bounded.applied() == ua);
+            ya += static_cast<T>(Ts) * (ua - ya);
+            yb += static_cast<T>(Ts) * (ub - yb);
+        }
+        CHECK(saturated > 100);
+        CHECK(static_cast<double>(ya) == doctest::Approx(0.15).epsilon(0.03));
+    }
+
+    TEST_CASE("a u_lim that is not a box leaves the runtime invalid; a constexpr design's Law carries the box") {
+        auto res = design::adrc<1>(20.0, 80.0, 1.0, 5e-4);
+        res.u_lim = {.lower = 1.0, .upper = -1.0};
+        ADRCController<1, double> inert{res};
+        CHECK_FALSE(inert.valid());
+        CHECK(inert.control(1.0, 0.0) == 0.0);
+
+        static constexpr auto kRes = [] {
+            auto r = design::adrc<1>(20.0, 80.0, 1.0, 5e-4);
+            r.u_lim = {.lower = -0.25, .upper = 0.25};
+            return r;
+        }();
+        Law<kRes, float> law;
+        CHECK(law.u_lim.upper(0) == 0.25F);
+        CHECK(law.control(1.0F, 0.0F) == 0.25F);
+        law.u_lim.upper(0) = 0.125F; // a rail that moves
+        CHECK(law.control(1.0F, 0.0F) == 0.125F);
     }
 }

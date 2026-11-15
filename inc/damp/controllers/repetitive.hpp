@@ -308,7 +308,12 @@ public:
     /** @brief Convert across scalar precision, preserving the learned internal model. */
     template<typename U>
     constexpr explicit RepetitiveController(const RepetitiveController<MaxPeriod, U, MaxQHalf>& other)
-        : config_(other.config_.template as<T>()), write_idx_(other.write_idx_), valid_(other.valid_) {
+        : config_(other.config_.template as<T>()),
+          clamp_(other.clamp_),
+          write_idx_(other.write_idx_),
+          e_last_(static_cast<T>(other.e_last_)),
+          u_cmd_(static_cast<T>(other.u_cmd_)),
+          valid_(other.valid_) {
         for (size_t i = 0; i < MaxPeriod; ++i) {
             mem_[i] = static_cast<T>(other.mem_[i]);
         }
@@ -327,16 +332,57 @@ public:
         // Phase-advanced output through the same zero-phase FIR: u_rc = k_rc·Q·w[k-N+lead].
         const T u_rc = static_cast<T>(config_.gain) * filtered(n - config_.lead);
 
-        mem_[write_idx_] = filtered(n) + e; // w[k] = Q·w[k-N] + e[k]
+        //! w[k] = Q·w[k-N] + e[k], unless the command that read w[k-N] (m ticks ago, the lead) was
+        //! cut off by a clamp and this error would push the next period's further past it.
+        e_last_ = winds_up(e, clamp_[(write_idx_ + MaxPeriod - config_.lead) % MaxPeriod]) ? T{0} : e;
+        mem_[write_idx_] = filtered(n) + e_last_;
+        clamp_[write_idx_] = 0;
         write_idx_ = (write_idx_ + 1) % MaxPeriod;
+        u_cmd_ = u_rc;
 
         return u_rc;
     }
 
+    /**
+     * @brief Record the input the plant received, @p u_sat, when the summed command was
+     *        clamped, and what was added to this correction before that clamp, @p u_ff (the
+     *        base controller's command)
+     *
+     * The memory does not learn from a sample the actuator could not follow. The error at tick k
+     * answers the command sent m ticks before it (the phase lead m is the plant's delay), which
+     * read the memory sample one period back. When a clamp cut that command off, u_sat ≠ u_rc +
+     * u_ff, and the error would push the next period's command further past the limit, the
+     * sample is stored without it: w[k] = Q·w[k−N]. An error that pulls the command back from
+     * the limit is learned as ever. With Q = 1 the memory integrates the error period over
+     * period, so without this it grows for as long as the clamp lasts.
+     *
+     * Costs one byte per memory sample: which way each of the last commands was cut.
+     */
+    constexpr void back_calculate(T u_sat, T u_ff = T{0}) {
+        if (!valid_) {
+            return;
+        }
+        const T      asked = u_cmd_ + u_ff;
+        const T      diff = u_sat - asked;
+        const T      tol = T{4} * eps<T>() * (damp::abs(u_sat) + damp::abs(asked));
+        const size_t last = (write_idx_ + MaxPeriod - 1) % MaxPeriod; // this tick's slot
+        clamp_[last] = (damp::abs(diff) > tol) ? ((diff < T{0}) ? static_cast<signed char>(-1) : static_cast<signed char>(1)) : static_cast<signed char>(0);
+        if (config_.lead == 0 && winds_up(e_last_, clamp_[last])) {
+            mem_[last] -= e_last_; // no lead: this tick's own command is the one the error answers
+            e_last_ = T{0};
+        }
+    }
+
+    /** @brief The correction the last control() returned. */
+    [[nodiscard]] constexpr T last_command() const { return u_cmd_; }
+
     /** @brief Clear the learned internal model (buffer + write index); config preserved. */
     constexpr void reset() {
         mem_ = {};
+        clamp_ = {};
         write_idx_ = 0;
+        e_last_ = T{0};
+        u_cmd_ = T{0};
     }
 
     /** @brief The active configuration (period, gain, Q taps, phase lead). */
@@ -364,9 +410,15 @@ private:
         return qw;
     }
 
+    /** @brief Whether learning the error @p e would push a command cut off towards @p cut (−1 from above, +1 from below, 0 not cut) further past the limit. The learning gain is positive. */
+    [[nodiscard]] static constexpr bool winds_up(T e, signed char cut) { return (cut < 0 && e > T{0}) || (cut > 0 && e < T{0}); }
+
     design::RepetitiveConfig<T, MaxQHalf> config_{};
     damp::array<T, MaxPeriod>             mem_{};
+    damp::array<signed char, MaxPeriod>   clamp_{}; ///< Per tick, which way a clamp cut the command off (back_calculate): −1, 0, +1
     size_t                                write_idx_{0};
+    T                                     e_last_{}; ///< The error the last control() stored
+    T                                     u_cmd_{};  ///< The correction the last control() returned
     bool                                  valid_{false};
 };
 

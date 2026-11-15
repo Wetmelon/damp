@@ -190,9 +190,9 @@ struct StateFeedbackCore {
     {
         if (usable(result, detail::discrete_gain(result))) {
             K = result.K.template as<T>();
-        }
-        if constexpr (requires { result.u_lim; }) {
-            u_lim = result.u_lim.template as<T>();
+            if constexpr (requires { result.u_lim; }) {
+                u_lim = result.u_lim.template as<T>();
+            }
         }
     }
 
@@ -497,9 +497,10 @@ private:
                 winds_up = winds_up || (K(j, NXL + i) * e(i) * excess(j) > T{0});
             }
             if (!winds_up) {
-                integral.xi(i) = damp::clamp(integral.xi(i) + (integral.step * e(i)), integral.lim.lower(i), integral.lim.upper(i));
+                integral.xi(i) += integral.step * e(i);
             }
         }
+        integral.xi = integral.lim.saturate(integral.xi); // held or not: a limit narrowed at run time pulls xi in
         integral.e = ColVec<NI, T>{};
     }
 };

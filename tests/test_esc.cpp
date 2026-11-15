@@ -204,4 +204,58 @@ TEST_SUITE("esc") {
         CHECK(design::esc({.dither_amplitude = 0.1, .dither_freq_hz = 50.0, .gain = 20.0, .hp_cutoff_hz = -8.0}, 1e-3).status == design::DesignStatus::invalid_parameter);
         CHECK(design::esc({.dither_amplitude = 0.1, .dither_freq_hz = 600.0, .gain = 20.0}, 1e-3).status == design::DesignStatus::invalid_parameter);
     }
+
+    TEST_CASE("u_lim is a box or the design is refused; it starts û inside and moves at run time") {
+        //! lower ≥ upper, or a NaN end, switched the clamp off without a word.
+        const double nan = std::numeric_limits<double>::quiet_NaN();
+        CHECK(design::esc({.dither_amplitude = 0.1, .dither_freq_hz = 50.0, .gain = 20.0, .u_lim = {.lower = 1.0, .upper = -1.0}}, 1e-3).status == design::DesignStatus::invalid_parameter);
+        CHECK(design::esc({.dither_amplitude = 0.1, .dither_freq_hz = 50.0, .gain = 20.0, .u_lim = {.lower = nan, .upper = 1.0}}, 1e-3).status == design::DesignStatus::invalid_parameter);
+
+        const auto art = design::esc_mppt({.dither_amplitude = 0.02, .dither_freq_hz = 100.0, .gain = 200.0, .u_init = 2.0, .u_lim = {.lower = 0.2, .upper = 0.8}}, 1e-4);
+        REQUIRE(art.success);
+        ExtremumSeekingController<double> esc(art);
+        CHECK(esc.operating_point() == 0.8); // u_init outside the box starts on it
+        esc.u_lim.upper(0) = 0.5;            // a rail that moves
+        double u = esc.input();
+        for (int k = 0; k < 2000; ++k) {
+            u = esc.control(-(u - 1.5) * (u - 1.5));
+            CHECK(u <= 0.5);
+        }
+        CHECK(esc.operating_point() == 0.5);
+        esc.reset();
+        CHECK(esc.operating_point() == 0.5); // u_init into the box as it stands
+    }
+
+    TEST_CASE("back_calculate keeps the operating point where a clamp after the law left the input") {
+        //! With no way to report a clamp downstream, û climbed past it until the whole dither sat
+        //! above the clamp and the objective stopped answering.
+        const auto art = design::esc_mppt({.dither_amplitude = 0.02, .dither_freq_hz = 100.0, .gain = 200.0, .u_init = 0.5}, 1e-4);
+        REQUIRE(art.success);
+        ExtremumSeekingController<double> told(art);
+        ExtremumSeekingController<double> untold(art);
+        const auto                        objective = [](double u) { return -(u - 1.5) * (u - 1.5); }; // optimum above the clamp
+        const double                      rail = 0.8;
+        double                            ua = told.input();
+        double                            ub = untold.input();
+        for (int k = 0; k < 20000; ++k) {
+            ua = damp::min(told.control(objective(ua)), rail);
+            told.back_calculate(ua);
+            ub = damp::min(untold.control(objective(ub)), rail);
+        }
+        CHECK(untold.operating_point() > rail);
+        CHECK(told.operating_point() <= rail);
+        CHECK(told.operating_point() >= rail - (2.0 * 0.02) - 1e-9); // within the dither's swing of it
+
+        //! An input applied as commanded changes nothing: the two are one run.
+        ExtremumSeekingController<double> plain(art);
+        ExtremumSeekingController<double> echoed(art);
+        double                            up = plain.input();
+        double                            ue = echoed.input();
+        for (int k = 0; k < 2000; ++k) {
+            up = plain.control(-(up - 0.6) * (up - 0.6));
+            ue = echoed.control(-(ue - 0.6) * (ue - 0.6));
+            echoed.back_calculate(ue);
+        }
+        CHECK(echoed.operating_point() == plain.operating_point());
+    }
 }

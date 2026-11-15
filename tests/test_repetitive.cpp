@@ -341,4 +341,45 @@ TEST_SUITE("repetitive FIR Q") {
         CHECK_FALSE(design::repetitive(1000.0, 50.0, nan).success);
         CHECK(design::detail::repetitive_period(1000.0, nan) == 0);
     }
+
+    TEST_CASE("back_calculate: the memory does not learn from samples the actuator could not follow") {
+        //! With Q = 1 the memory integrates the error period over period. Behind a clamp the
+        //! error at the clipped samples never closes, so the memory grew for as long as it lasted.
+        constexpr size_t N = 20;
+        const auto       design = design::repetitive(1000.0, 50.0, 1.0, 1.0, 1);
+        REQUIRE(design.success);
+        RepetitiveController<64, double> told(design);
+        RepetitiveController<64, double> untold(design);
+        const double                     rail = 0.5;
+        double                           u_t = 0.0; // y[k] = u[k−1], the clamped command
+        double                           u_u = 0.0;
+        double                           worst_t = 0.0;
+        double                           worst_u = 0.0;
+        double                           told_peak = 0.0;
+        double                           untold_peak = 0.0;
+        for (size_t k = 0; k < 60 * N; ++k) {
+            const double amplitude = (k < 50 * N) ? 1.0 : 0.4; // past the rail, then within it
+            const double r = amplitude * std::sin(2.0 * pi * static_cast<double>(k) / static_cast<double>(N));
+            const double e_t = r - u_t;
+            const double e_u = r - u_u;
+            const double c_t = told.control(e_t);
+            u_t = damp::clamp(c_t, -rail, rail);
+            told.back_calculate(u_t);
+            const double c_u = untold.control(e_u);
+            u_u = damp::clamp(c_u, -rail, rail);
+            if (k >= 49 * N && k < 50 * N) {
+                told_peak = damp::max(told_peak, damp::abs(c_t));
+                untold_peak = damp::max(untold_peak, damp::abs(c_u));
+            }
+            if (k >= 59 * N) {
+                worst_t = damp::max(worst_t, damp::abs(e_t));
+                worst_u = damp::max(worst_u, damp::abs(e_u));
+            }
+        }
+        CHECK(told_peak <= 1.0 + 1e-12); // what the first period learned, held
+        CHECK(untold_peak > 10.0);       // half the reference more, every period
+        CHECK(worst_t < 1e-9);           // learning again once the reference is within reach
+        CHECK(worst_u > 0.05);           // still on the rail at the peaks
+        CHECK(told.last_command() == doctest::Approx(u_t));
+    }
 }

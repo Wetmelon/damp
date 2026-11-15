@@ -173,9 +173,11 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
     } else if (law.success && !(w.u_lim.valid() && w.integral_lim.valid())) {
         law = ::damp::detail::refused<decltype(law)>(DesignStatus::invalid_parameter); // a limit that is NaN, or a lower one above its upper one
     }
-    law.u_lim = w.u_lim; // the runtime's: the gain does not depend on them
-    if constexpr (NI > 0) {
-        law.integral.lim = w.integral_lim;
+    if (law.success) { // the runtime's: the gain does not depend on them, and a refused design ships none
+        law.u_lim = w.u_lim;
+        if constexpr (NI > 0) {
+            law.integral.lim = w.integral_lim;
+        }
     }
     if constexpr (!kEstimated && !kTarget) {
         return law;

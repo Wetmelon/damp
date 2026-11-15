@@ -327,4 +327,24 @@ TEST_SUITE("Classical DOB") {
         // A true input delay (leading zero) is still rejected.
         CHECK_FALSE(estimation::classical_dob(damp::array<double, 2>{0.0, 1e-13}, An, Qn, Qd).success);
     }
+
+    TEST_CASE("back_calculate: the estimate does not absorb what a clamp cut off") {
+        //! The Q·u path took the command the observer returned. Behind a clamp it could not be
+        //! told of, d̂ = d + (what the clamp cut off) fed back on itself and ran away.
+        ClassicalDOB<1, 2, 1, 2, double> told(make_dob());
+        ClassicalDOB<1, 2, 1, 2, double> untold(make_dob());
+        const double                     d = 1.0; // a load the ±0.5 actuator cannot cancel
+        const double                     rail = 0.5;
+        double                           y_t = 0.0;
+        double                           y_u = 0.0;
+        for (int k = 0; k < 400; ++k) {
+            const double u_t = damp::clamp(told.step(y_t, 0.0), -rail, rail);
+            told.back_calculate(u_t);
+            const double u_u = damp::clamp(untold.step(y_u, 0.0), -rail, rail);
+            y_t = (alpha * y_t) + (beta * (u_t + d));
+            y_u = (alpha * y_u) + (beta * (u_u + d));
+        }
+        CHECK(told.disturbance() == doctest::Approx(d).epsilon(1e-3)); // the load itself, though it cannot be cancelled
+        CHECK(untold.disturbance() > 5.0 * d);
+    }
 }

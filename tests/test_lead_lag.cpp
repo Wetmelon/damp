@@ -9,6 +9,7 @@
 
 #include "damp/backend.hpp"
 #include "damp/controllers/lead_lag.hpp"
+#include "damp/math/math.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "damp/systems/state_space.hpp"
 #include "damp/systems/transfer_function.hpp"
@@ -379,5 +380,44 @@ TEST_SUITE("Lead-Lag Compensator") {
         CHECK(design::lag(nan, 100.0, 1e-3).status == design::DesignStatus::invalid_parameter);
         CHECK(design::lead_lag_direct(1.0, nan, 5.0, 1e-3).status == design::DesignStatus::invalid_parameter);
         CHECK(design::lead_lag(0.5, 100.0, 10.0, -1.0).status == design::DesignStatus::invalid_sample_time);
+    }
+
+    TEST_CASE_TEMPLATE("u_lim: a lag section holds against the clamp, its own or one reported", T, float, double) {
+        //! The recursion ran on its own unclamped output: behind a clamp the slow pole kept charging
+        //! towards the DC gain, and the output stayed on the rail long after the error reversed.
+        constexpr double Ts = 1e-3;
+        auto             res = design::lag(10.0, 20.0, Ts); // zero at 2 rad/s, pole at 0.2: ten times the gain at DC
+        REQUIRE(res.success);
+        const auto open = res;
+        res.u_lim = {.lower = -1.0, .upper = 1.0};
+        LeadLagController<T> bounded{res.template as<T>()};
+        LeadLagController<T> outside{open.template as<T>()};
+        LeadLagController<T> untold{open.template as<T>()};
+        int                  bounded_on_rail = 0;
+        int                  untold_on_rail = 0;
+        for (int k = 0; k < 6000; ++k) {
+            const T e = (k < 3000) ? T{1} : static_cast<T>(-0.02);
+            const T ua = bounded.control(e);
+            const T ub = damp::clamp(outside.control(e), T{-1}, T{1});
+            outside.back_calculate(ub);
+            const T uc = damp::clamp(untold.control(e), T{-1}, T{1});
+            CHECK(damp::abs(ua - ub) <= T{64} * eps<T>()); // one tick, whichever stage clamps
+            if (k < 3000) {
+                CHECK(ua == T{1});
+            } else {
+                bounded_on_rail += (ua >= T{1}) ? 1 : 0;
+                untold_on_rail += (uc >= T{1}) ? 1 : 0;
+            }
+        }
+        CHECK(bounded_on_rail == 0);   // off the rail on the tick the error reverses
+        CHECK(untold_on_rail == 3000); // the unreported clamp: still charged three seconds later
+    }
+
+    TEST_CASE("a u_lim that is not a box leaves the runtime invalid") {
+        auto res = design::lag(10.0, 20.0, 1e-3);
+        res.u_lim = {.lower = 1.0, .upper = -1.0};
+        LeadLagController<double> inert{res};
+        CHECK_FALSE(inert.valid());
+        CHECK(inert.control(1.0) == 0.0);
     }
 }

@@ -14,6 +14,8 @@ and [known limitations](docs/known_limitations.md)).
 - `design::lqr`, `lqi`, `lqg`, `lqgi`, `oflqg`, `kalman` and `steady_state_target` take an `InputDelay` after Ts: the continuous plant, its weights and its noise, the cost and the noise discretized exactly on the delayed model. A measured-state law holds the registers itself, so `update` takes the plant state; a filter carries them with no noise on them.
 - `LQRConfig`, the weights of an LQ design, takes `u_lim` and `integral_lim`: the LQR, LQI, LQG, LQGI and OFLQG runtimes clamp their command and their integral state to them, and hold the integrators against that clamp with no `back_calculate`. Both are members of the runtime (`law.u_lim`, `law.integral.lim`), so a limit can move at run time.
 - `Bounds::valid()`: no end NaN and no lower end above its upper one, the test `design::mpc` and `design::mhe` already applied.
+- `u_lim` on `ADRCResult`, `STSMCResult` and `LeadLagResult`, and as a member of their runtimes and of `ExtremumSeekingController`: the command is clamped into it and the law's memory holds against that clamp.
+- `back_calculate(u_sat, u_ff)` on `STSMCController`, `LeadLagController`, `ExtremumSeekingController`, `SmithPredictor`, `RepetitiveController` and `ClassicalDOB`: a clamp after the law is reported the same way to every law with memory.
 
 ### Changed
 
@@ -22,7 +24,16 @@ and [known limitations](docs/known_limitations.md)).
 - `LQRWeights` is `LQRConfig`: it carries the law's limits with the cost. A design called with braces, `{.Q = Q, .R = R}`, does not change.
 - `mat::pseudo_inverse`, `mat::null_space` and `mat::two_norm` return an optional, empty when the SVD fails, where they returned NaN; `matlab::pinv` and `matlab::null` follow. `design::steady_state_target` with more outputs than inputs refuses a failed factorization, where it could report NaN maps as a success.
 - `+` and `−` on matrices and views need equal shapes: a dimension of size 1 is no longer stretched to fit (NumPy's broadcast), so a missing transpose does not compile. An offset on every entry is `A + scalar`.
+- A PID with an output limit and `Kbc = 0` holds its integral against the clamp (conditional integration), where it wound up, and `back_calculate` does the same for a clamp downstream. A `Kbc` still unwinds it by back-calculation.
+- `PIDGains::discretize` and `design::esc` refuse a limit that is not a box, as the LQ and MPC designs do. In `ESCSpec`, `lower ≥ upper` no longer switches the clamp off.
+- `ADRCController::last_command()` is the command the law returned, as on the other laws; the input its observer takes as applied is `applied()`.
+- `Bounds::as` saturates a finite end past the narrower type's range.
 - `state_feedback_core.hpp` holds only the runtime the LQ laws share. `LQRConfig`, `IntegralAction`, `NoEstimator` and `StateFeedbackResult` are in `state_feedback_types.hpp`, and the design behind them in `controllers/detail/`; `lqr.hpp`, `lqi.hpp`, `lqg.hpp`, `lqgi.hpp` and `oflqg.hpp` include all of it as before.
+
+### Fixed
+
+- PID back-calculation with a `Kbc` under `Ki·Ts` diverged; it takes at most the whole excess per tick.
+- An LQ design refused for its limits no longer carries them into a runtime, and an `integral.lim` narrowed at run time pulls a held integrator in.
 
 ## [0.2.2] — 2026-11-10
 

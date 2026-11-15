@@ -119,7 +119,7 @@ types. Bode and friends return analysis grids. New code uses `design::` and
 | `kalman`, `lqe`, `dlqe`, `kalmd`      | `design::kalman` → `FixedGainObserver` (fixed gain on the law) or `KalmanFilter` (P each tick)                          |
 | observer, FixedGainObserver                  | `FixedGainObserver{design::kalman(...)}`                                                                                |
 | ESO, ADRC                             | `design::eso` → `ESO` (observer only); `design::adrc` → `ADRCController` (ESO + PD)                              |
-| anti-windup, sat, `umax`              | `u_lim` and `integral_lim` on the design: `PIDGains`, and `LQRConfig` for the LQ laws. `back_calculate(u_sat)` after a clamp downstream of the law |
+| anti-windup, sat, `umax`              | `u_lim` on the design or its result: the law clamps to it and holds its memory against that clamp, with nothing else to set. `back_calculate(u_sat)` after a clamp downstream of the law. See [Limits and anti-windup](#limits-and-anti-windup) |
 | `mpcmove`, constraints                | `design::mpc` / `ofmpc`, `MPC.step(r, y)`                                                                        |
 | `bode`, `nyquist`, `margin`, `rlocus` | `workbench.hpp`; `analysis::` or `matlab::bode`                                                                  |
 | `lsim`, `step`, `forced_response`     | `sim::simulate*` on the host                                                                                     |
@@ -145,7 +145,7 @@ auto u = law.step(r, x);           // or update / control / back_calculate / pre
 write_pwm(u[0]);
 ```
 
-PID: `design::pidtune` or `design::pid(Kp, Ki, Kd)` → `.discretize(Ts)` → `PIDController`. Limits go on the gains (`u_lim`), not as extra ISR code, unless a downstream stage clamps — then `back_calculate`.
+PID: `design::pidtune` or `design::pid(Kp, Ki, Kd)` → `.discretize(Ts)` → `PIDController`. Limits go on the gains (`u_lim`), not as extra ISR code, unless a downstream stage clamps — then `back_calculate`. The output limit is all the anti-windup a PID needs: the integral holds against it.
 
 ## Coming from Python Control / SciPy
 
@@ -175,6 +175,35 @@ Both can hold an output at r.
 - **TrackedOutputs + LQR / LQG** uses the model's steady-state maps $`x^* = N_x r`$, $`u^* = N_u r`$. Offset-free only if the model is right and there is no unmatched load.
 - **LQI / LQGI** adds an integrator on $`r - C_i y`$. It rejects a constant disturbance and a constant model error. Use this when the plant will not match the design model.
 - **OFLQG / OFMPC** estimate a disturbance and hold r through a steady-state target. Same job as LQI when a disturbance model fits; MPC when the actuator or output limits bind.
+
+## Limits and anti-windup
+
+One contract for every law:
+
+- **`u_lim`** is the output limit, a `Bounds` (`{.lower = -12.0, .upper = 12.0}`), unbounded by default. It is a field of the design input where the design takes a struct, and of the result otherwise. The runtime holds it as a public member, so a rail that moves is set per tick. A limit that is not a box (an end not finite, or lower above upper) is refused.
+- **The tick returns a command inside `u_lim`**, and the law's memory holds against that clamp with nothing else to set: an integral does not run on behind it, and an observer or internal model takes the clamped command as the input applied.
+- **`back_calculate(u_sat, u_ff = {})`** reports a clamp after the law: `u_sat` is what the plant received, `u_ff` what was added to the law's command before the clamp. The law's memory holds against it the same way.
+
+| Law | Output limit | What holds against the clamp |
+| --- | --- | --- |
+| `PIDController`, `PIController`, `ContinuousPID` | `u_lim` in `PIDGains` | The integral: it gives back what the tick added, up to what the clamp cut off. With a `Kbc` it unwinds by back-calculation instead |
+| `LQR`, `LQI`, `LQG`, `LQGI`, `OFLQG` | `u_lim` in `LQRConfig` | The integrators; the filter and the input registers move on the clamped command |
+| `MPC`, `OFMPC` | `u_lim`, `du_lim`, `y_lim` in `MPCConstraints` | By construction: the limits are constraints of the QP |
+| `ADRCController` | `u_lim` on `ADRCResult` | The ESO runs on the clamped command |
+| `STSMCController` | `u_lim` on `STSMCResult` | The integral state |
+| `LeadLagController` | `u_lim` on `LeadLagResult` | The recursion runs on the clamped output |
+| `ExtremumSeekingController` | `u_lim` in `ESCSpec` | The operating point stays inside, and follows a clamp reported to it |
+| `SmithPredictor` | its primary's | The primary's memory; the internal model runs on the input reported |
+| `RepetitiveController` | none: it returns a correction | A sample the clamp cut off is not learned |
+| `ClassicalDOB` | none: it returns the corrected command | The estimate takes the input reported |
+
+`integral_lim` bounds the integral a law stores, so its unit is that law's: the I term in output units on a PID, ξ ≈ ∫e·dt on the LQ laws.
+
+A limit on a state or an output needs a prediction: `design::mpc` (`y_lim`, soft or hard), `design::mhe` (`x_lim` on the estimate), or an `ActionGovernor` around any law.
+
+References follow the same split. Every law takes the output reference `r`. The state-feedback laws also take a reference point inside the law, `control(r, x_ref, u_ref)`, which the clamp covers. A feedforward added outside any law is `u_ff`, passed to `back_calculate` so it is not taken for saturation. MPC takes `r` or a `Preview` of it, and an input preference through `set_input_target`.
+
+Not covered yet: `PRController` has a tracking time `Tt` and no `u_lim`, and `HarmonicSuppressor` has neither; `Cascade` does not tell its outer loop of an inner clamp; `SwitchedController` resets the law it switches to.
 
 ## Tick
 
