@@ -78,6 +78,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`canon`](inc/damp/matlab.hpp#L500) | function | MATLAB®-style aliases (host) | MATLAB® canon(sys) / canon(sys, 'modal'): real modal canonical form and its transform (+1 more overload) |
 | [`canonical_phase_margin`](inc/damp/analysis/frequency.hpp#L150) | function | Frequency-domain analysis (host) | Normalize phase margin to (-180, 180] |
 | [`care`](inc/damp/design/riccati.hpp#L1490) | function | Design-time synthesis (not PWM-rate) | Solve the Continuous-time Algebraic Riccati Equation (CARE) |
+| [`carlson_update`](inc/damp/estimation/sqrt_covariance.hpp#L595) | function | Observers & estimators | Carlson's triangular update for row m of a whitened reading: S ← S T with T Tᵀ = I − f fᵀ/α, f = Sᵀc̃ᵀ the row of F and α = 1 + fᵀf |
 | [`Cascade`](inc/damp/controllers/composition.hpp#L49) | block | Runtime controllers | Series cascade of two SISO controllers: outer → inner reference |
 | [`catmull_1d`](inc/damp/toolbox/lookup.hpp#L339) | function | Embedded helpers (controls-adjacent utilities) | 1-D non-uniform Catmull-Rom (cubic Hermite) evaluation |
 | [`cbf_relative_degree_1`](inc/damp/controllers/action_governor.hpp#L203) | function | Design-time synthesis (not PWM-rate) | Build a relative-degree-1 CBF inequality row |
@@ -129,6 +130,8 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`cos`](inc/damp/math/math.hpp#L168) | function | Scalar math, complex & frames | Cosine |
 | [`cosh`](inc/damp/matrix/functions.hpp#L1386) | function | Linear algebra | Matrix hyperbolic cosine cosh(A) = (exp(A) + exp(−A))/2 |
 | [`Counter`](inc/damp/toolbox/logic.hpp#L272) | block | Embedded helpers (controls-adjacent utilities) | Edge-counting up/down counter: increments on each rising edge of up, decrements on each rising edge of down. Returns the running count, saturating at the limits of T (no wrap / signed overflow) |
+| [`covariance_factor_or_identity`](inc/damp/estimation/sqrt_covariance.hpp#L155) | function | Observers & estimators | The factor a filter starts from: of P when it is a covariance; otherwise refused under constant evaluation, and the identity at run time |
+| [`covariance_of_factor`](inc/damp/estimation/sqrt_covariance.hpp#L56) | function | Observers & estimators | The covariance P = S Sᵀ of a lower-triangular factor S, exactly symmetric |
 | [`cross_check_analog`](inc/damp/toolbox/conditioning.hpp#L541) | function | Embedded helpers (controls-adjacent utilities) | Cross-check two calibrated analog readings for redundant sensors |
 | [`CTD`](inc/damp/toolbox/iec61131.hpp#L351) | block | Embedded helpers (controls-adjacent utilities) | CTD Counter (Count Down) |
 | [`ctrb`](inc/damp/matlab.hpp#L386) | function | MATLAB®-style aliases (host) | MATLAB® short alias for controllability_matrix (+1 more overload) |
@@ -225,7 +228,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`expm`](inc/damp/matrix/functions.hpp#L697) | function | Linear algebra | Matrix exponential by scaling and squaring (Al-Mohy & Higham 2009) |
 | [`expm`](inc/damp/matlab.hpp#L681) | function | MATLAB®-style aliases (host) | MATLAB® short alias for the matrix exponential (mat::expm) |
 | [`expo`](inc/damp/toolbox/conditioning.hpp#L202) | function | Embedded helpers (controls-adjacent utilities) | Exponential response curve `y = (1−k)·x + k·x³` (RC "expo") |
-| [`ExtendedKalmanFilter`](inc/damp/estimation/ekf.hpp#L117) | block | Observers & estimators | Extended Kalman filter: continuous nonlinear dynamics, sampled measurements (+1 more overload) |
+| [`ExtendedKalmanFilter`](inc/damp/estimation/ekf.hpp#L129) | block | Observers & estimators | Extended Kalman filter: continuous nonlinear dynamics, sampled measurements (+1 more overload) |
 | [`ExtendedKalmanFilterConfig`](inc/damp/estimation/ekf.hpp#L41) | block | Observers & estimators | Configuration of an ExtendedKalmanFilter: its sample time, the process noise and the initial estimate |
 | [`extract_channel`](inc/damp/simulation/plot_plotly.hpp#L225) | function | Simulation / SIL harness (host) | Extract the i-th element from each vector entry into a std::vector<double> |
 | [`extract_frf_features`](inc/damp/estimation/frequency_response.hpp#L808) | function | Observers & estimators | Extract peaks and valleys in one pass over the FRF table |
@@ -385,7 +388,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`JordanPlaceResult`](inc/damp/design/pole_placement.hpp#L1219) | block | Design-time synthesis (not PWM-rate) | place_jordan result: the PlaceResult fields plus the achieved robustness metrics |
 | [`joseph_update`](inc/damp/estimation/joseph.hpp#L39) | function | Observers & estimators | P ← (I − K H) P (I − K H)ᵀ + K R Kᵀ with K = P Hᵀ S⁻¹ and S = H P Hᵀ + R, for an H whose zeros and ones are known at compile time |
 | [`kalman`](inc/damp/estimation/kalman.hpp#L537) | function | Observers & estimators | Steady-state Kalman filter design (+5 more overloads) |
-| [`KalmanFilter`](inc/damp/estimation/kalman.hpp#L842) | block | Observers & estimators | The recursive Kalman filter: the covariance propagates each tick, and the gain is formed from it in Joseph form (+2 more overloads) |
+| [`KalmanFilter`](inc/damp/estimation/kalman.hpp#L869) | block | Observers & estimators | The recursive Kalman filter: the covariance propagates each tick as its triangular factor, and the gain is formed from it (+2 more overloads) |
 | [`KalmanFilterConfig`](inc/damp/estimation/kalman.hpp#L734) | block | Observers & estimators | Configuration of a KalmanFilter built from a model rather than from design::kalman |
 | [`KalmanNoise`](inc/damp/estimation/kalman.hpp#L80) | block | Observers & estimators | The estimator's noise: process noise on the plant's noise inputs (through G), measurement noise on the sensors (through H) (+2 more overloads) |
 | [`KalmanResult`](inc/damp/estimation/kalman.hpp#L138) | block | Observers & estimators | Steady-state Kalman filter design result |
@@ -603,10 +606,12 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`ParameterDriftMonitor`](inc/damp/estimation/parameter_estimation.hpp#L250) | block | Observers & estimators | Residual-based drift detector: has the plant moved away from the model? |
 | [`ParameterEstimator`](inc/damp/concepts.hpp#L156) | concept | Core, configuration & backend vocabulary | Online grey-box parameter estimator: physical parameters + gating |
 | [`park_transform`](inc/damp/math/transforms.hpp#L354) | function | Scalar math, complex & frames | Park transform (αβ → dq) |
+| [`pattern_row_times_factor_column`](inc/damp/estimation/sqrt_covariance.hpp#L331) | function | Observers & estimators | Row R of F times column J of the lower-triangular S: a term for each nonzero of the row at or below the diagonal of that column, and nothing else |
 | [`PatternEntry`](inc/damp/matrix/pattern_matrix.hpp#L21) | enum | Linear algebra | What an entry of a sparsity pattern is known to be at compile time |
 | [`PatternMatrix`](inc/damp/matrix/pattern_matrix.hpp#L215) | block | Linear algebra | The runtime values of a sparsity pattern, and nothing else: an entry the pattern knows has no storage, and in a product it has no term (a 0) or no multiply (a 1) |
 | [`PatternMeasurement`](inc/damp/concepts.hpp#L242) | concept | Core, configuration & backend vocabulary | A Measurement whose jacobian(x, u) returns C = ∂h/∂x as an NY × NX PatternMatrix: zeros and ones known at compile time, the other entries computed at (x, u) |
 | [`peaking`](inc/damp/filters/iir_design.hpp#L847) | function | Filters & signal conditioning | Peaking (bell) EQ filter: boost or cut a band around f0 |
+| [`perfect_row_scale`](inc/damp/estimation/sqrt_covariance.hpp#L496) | function | Observers & estimators | The scale of row m of a reading that has no noise of its own: 1/√(eps·‖f‖²), its noise taken at the rounding of its own prior variance ‖f‖² = c̃ P c̃ᵀ |
 | [`Periodic`](inc/damp/toolbox/timing.hpp#L167) | block | Embedded helpers (controls-adjacent utilities) | Periodic trigger — fires once per elapsed period |
 | [`phase_margin_from_damping_ratio`](inc/damp/design/pid_design.hpp#L888) | function | Design-time synthesis (not PWM-rate) | Approximate phase margin from damping ratio |
 | [`phase_margin_unwrapped`](inc/damp/analysis/frequency.hpp#L169) | function | Frequency-domain analysis (host) | Find the phase margin using the unwrapped phase trajectory |
@@ -661,6 +666,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`PRController`](inc/damp/controllers/pr.hpp#L575) | function | Design-time synthesis (not PWM-rate) | Deduce the runtime from its design, keeping the result's scalar |
 | [`PRController`](inc/damp/controllers/pr.hpp#L417) | block | Runtime controllers | Discrete Proportional-Resonant Controller |
 | [`prescale`](inc/damp/matlab.hpp#L481) | function | MATLAB®-style aliases (host) | MATLAB® prescale: diagonal state scaling that balances A, B and C |
+| [`process_noise_factor`](inc/damp/estimation/sqrt_covariance.hpp#L292) | function | Observers & estimators | A factor Γ of the process noise on the state, Γ Γᵀ = G Q Gᵀ, for sqrt_time_update() |
 | [`project_affine`](inc/damp/controllers/action_governor.hpp#L135) | function | Design-time synthesis (not PWM-rate) | Project u_des onto the polyhedron A u ≤ b (Euclidean) |
 | [`project_box`](inc/damp/controllers/action_governor.hpp#L74) | function | Design-time synthesis (not PWM-rate) | Euclidean projection of u onto a Bounds box |
 | [`PRResonator`](inc/damp/controllers/pr.hpp#L323) | block | Runtime controllers | Resonant section of PRController, run on its output y and the output's increment d |
@@ -693,10 +699,15 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`rank`](inc/damp/design/stability.hpp#L424) | function | Design-time synthesis (not PWM-rate) | Numerical rank of a matrix (forwards to mat::rank) (+1 more overload) |
 | [`rank`](inc/damp/matrix/functions.hpp#L235) | function | Linear algebra | Numerical rank: the number of singular values above rel_tol·σₘₐₓ |
 | [`rank_from_svd`](inc/damp/matrix/svd.hpp#L390) | function | Linear algebra | Numerical rank from a precomputed SVD result |
+| [`reading_noise_factor`](inc/damp/estimation/sqrt_covariance.hpp#L456) | function | Observers & estimators | The factor of a reading's noise covariance R (positive semidefinite; only its lower triangle is read), or an invalid one when R is indefinite or not finite |
+| [`reading_row_reach`](inc/damp/estimation/sqrt_covariance.hpp#L467) | function | Observers & estimators | The size of the terms row m of C S is summed from, ‖\|C_m\|·\|S\|‖: what a perfect row's ‖f‖ is measured against, so that "zero" is the rounding of those terms and not a literal |
+| [`reading_times_factor`](inc/damp/estimation/sqrt_covariance.hpp#L415) | function | Observers & estimators | F = C S for a lower-triangular S and a dense C (+1 more overload) |
+| [`ReadingNoiseFactor`](inc/damp/estimation/sqrt_covariance.hpp#L443) | block | Observers & estimators | A reading's noise covariance R factored for sqrt_measurement_update(): R = L Lᵀ, and whether R is a covariance at all |
 | [`reduced_order_observer`](inc/damp/estimation/fixed_gain_observer.hpp#L506) | function | Observers & estimators | Design a reduced-order (Gopinath) observer by pole placement, in the domain of sys (+1 more overload) |
 | [`ReducedOrderObserver`](inc/damp/estimation/fixed_gain_observer.hpp#L1057) | block | Observers & estimators | Reduced-order (Gopinath) state observer (runtime) (+1 more overload) |
 | [`ReducedOrderObserverResult`](inc/damp/estimation/fixed_gain_observer.hpp#L347) | block | Observers & estimators | Reduced-order (Gopinath) observer design result |
 | [`RedundantAnalogPair`](inc/damp/toolbox/io.hpp#L91) | block | Embedded helpers (controls-adjacent utilities) | Dual-channel analog input with same-slope or opposite-slope cross-check |
+| [`reflect_rows_below`](inc/damp/estimation/sqrt_covariance.hpp#L174) | function | Observers & estimators | Apply row i's reflection of triangularize() to the rows below it: row k ← row k − s·v, with column i's sign turned when flip |
 | [`reg`](inc/damp/matlab.hpp#L762) | function | MATLAB®-style aliases (host) | Form the observer-based compensator y → u from a plant, K and L |
 | [`relay_autotune`](inc/damp/estimation/relay_autotune.hpp#L224) | function | Observers & estimators | Build a validated relay-autotune design payload |
 | [`RelayAutotuneConfig`](inc/damp/estimation/relay_autotune.hpp#L124) | block | Observers & estimators | Configuration for the relay-feedback autotuning experiment |
@@ -738,6 +749,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`SecondOrderSectionsResult`](inc/damp/filters/biquad.hpp#L40) | block | Filters & signal conditioning | An IIR filter as a cascade of second-order sections: the result BiquadCascade runs |
 | [`SEL`](inc/damp/toolbox/iec61131.hpp#L598) | function | Embedded helpers (controls-adjacent utilities) | SEL (IEC 61131-3 binary selection): g ? in1 : in0 |
 | [`select`](inc/damp/systems/state_space.hpp#L668) | function | LTI systems (SS / TF / ZPK / discretize) | SISO channel slice y_iy / u_iu |
+| [`semidefinite_factor`](inc/damp/estimation/sqrt_covariance.hpp#L103) | function | Observers & estimators | The lower-triangular factor S of a positive semidefinite P, P = S Sᵀ, with a zero column where a pivot vanishes |
 | [`SequenceComponents`](inc/damp/math/transforms.hpp#L513) | block | Scalar math, complex & frames | Symmetrical (sequence) components of a three-phase phasor set |
 | [`series`](inc/damp/systems/state_space.hpp#L267) | function | LTI systems (SS / TF / ZPK / discretize) | Series connection: sys2 follows sys1 (u → sys1 → sys2 → y) |
 | [`ServoAxis`](inc/damp/toolbox/actuator.hpp#L105) | block | Embedded helpers (controls-adjacent utilities) | One servoactuator transmission: SI joint unit ⟷ drive (motor) units |
@@ -806,6 +818,8 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`SplitReal`](inc/damp/math/split_real.hpp#L47) | block | Scalar math, complex & frames | A real number split into an exact integer part and a floating-point remainder |
 | [`sqrt`](inc/damp/matrix/functions.hpp#L983) | function | Linear algebra | Principal matrix square root by the real Schur method |
 | [`sqrt`](inc/damp/math/complex.hpp#L337) | function | Scalar math, complex & frames | Compute complex square root (constexpr) (+1 more overload) |
+| [`sqrt_measurement_update`](inc/damp/estimation/sqrt_covariance.hpp#L691) | function | Observers & estimators | Measurement update of the factor and the estimate with a reading of innovation ν, output matrix C and noise covariance R = L Lᵀ |
+| [`sqrt_time_update`](inc/damp/estimation/sqrt_covariance.hpp#L401) | function | Observers & estimators | Time update of the factor: S ← the lower-triangular factor of A S Sᵀ Aᵀ + Γ Γᵀ |
 | [`sqrtm`](inc/damp/matlab.hpp#L694) | function | MATLAB®-style aliases (host) | MATLAB® short alias for the principal matrix square root (mat::sqrt) |
 | [`SR`](inc/damp/toolbox/iec61131.hpp#L61) | block | Embedded helpers (controls-adjacent utilities) | SR Latch (Set-dominant Set-Reset Latch) |
 | [`ss`](inc/damp/matlab.hpp#L121) | function | MATLAB®-style aliases (host) | MATLAB®-style state-space model constructor |
@@ -886,6 +900,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`ThreePhasePLL`](inc/damp/filters/pll.hpp#L167) | block | Filters & signal conditioning | Synchronous-reference-frame (SRF) PLL for balanced three-phase input |
 | [`Timeout`](inc/damp/toolbox/timing.hpp#L123) | block | Embedded helpers (controls-adjacent utilities) | One-shot timeout |
 | [`TimeResponse`](inc/damp/analysis/time_response.hpp#L51) | block | Frequency-domain analysis (host) | Multi-channel time-domain response sampled on a time grid |
+| [`times_factor_in_place`](inc/damp/estimation/sqrt_covariance.hpp#L348) | function | Observers & estimators | S ← A S in place for a lower-triangular S: column j of the product reads column j of S only, so one column of scratch is all it takes (+1 more overload) |
 | [`times_transpose`](inc/damp/matrix/pattern_matrix.hpp#L317) | function | Linear algebra | A dense matrix times Hᵀ for a sparse H: A Hᵀ |
 | [`to_coeffs`](inc/damp/filters/iir_design.hpp#L131) | function | Filters & signal conditioning | Convert StateSpace system to first-order DSP coefficients (+4 more overloads) |
 | [`to_double_vector`](inc/damp/simulation/plot_plotly.hpp#L238) | function | Simulation / SIL harness (host) | Convert std::vector\<T\> to std::vector<double> |
@@ -916,6 +931,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`TransposeView`](inc/damp/matrix/views.hpp#L454) | block | Linear algebra | Non-owning transpose view of a matrix (zero-copy) |
 | [`Trapezoidal`](inc/damp/simulation/integrator.hpp#L667) | block | Simulation / SIL harness (host) | Trapezoidal (Tustin) integrator |
 | [`TRBDF2`](inc/damp/simulation/integrator.hpp#L542) | block | Simulation / SIL harness (host) | TR-BDF2 composite integrator with an embedded error estimate (the ode23tb scheme) |
+| [`triangularize`](inc/damp/estimation/sqrt_covariance.hpp#L234) | function | Observers & estimators | [W E] Θ = [S 0] for an orthogonal Θ: W becomes the lower-triangular S with S Sᵀ = W Wᵀ + E Eᵀ, by Householder reflections, in place |
 | [`two_norm`](inc/damp/matrix/functions.hpp#L105) | function | Linear algebra | Spectral norm ‖A‖₂ = σₘₐₓ(A) |
 | [`two_point_cal`](inc/damp/toolbox/scaling.hpp#L110) | function | Embedded helpers (controls-adjacent utilities) | Fit an AffineCal through two `(raw, engineering)` points |
 | [`TwoRateSimulationResult`](inc/damp/simulation/multirate.hpp#L108) | block | Simulation / SIL harness (host) | Result of a two-rate cascade simulation |
@@ -933,6 +949,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`vcat`](inc/damp/matrix/concat.hpp#L180) | function | Linear algebra | Vertical concatenation (same column count) |
 | [`voltage_circle_radius`](inc/damp/motor/foc.hpp#L58) | function | Motor control pack (if present) | SVPWM voltage-circle radius Vₘₐₓ = m · Vdc / √3 |
 | [`WarmStartActiveSetSolver`](inc/damp/design/qp.hpp#L979) | block | Design-time synthesis (not PWM-rate) | Warm-started active-set solver policy — the damp::MPC default |
+| [`whiten_reading`](inc/damp/estimation/sqrt_covariance.hpp#L529) | function | Observers & estimators | Whiten a reading in place with the factor L of its noise: each row of F and of ν less the rows before it through L, then scaled to unit noise |
 | [`with_schroeder_phases`](inc/damp/estimation/excitation/multi_sine.hpp#L168) | function | Observers & estimators | Assign Schroeder low-crest-factor phases to a multi-sine tone table |
 | [`wrap`](inc/damp/math/math.hpp#L593) | function | Scalar math, complex & frames | Wrap x into the half-open interval [min, max) (period max − min) |
 | [`wrap_pi`](inc/damp/math/math.hpp#L636) | function | Scalar math, complex & frames | Wrap an angle to [−π, π) |

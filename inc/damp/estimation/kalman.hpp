@@ -35,7 +35,7 @@
 #include "damp/design/disturbance.hpp"
 #include "damp/design/riccati.hpp"
 #include "damp/design/status.hpp"
-#include "damp/estimation/joseph.hpp"
+#include "damp/estimation/sqrt_covariance.hpp"
 #include "damp/math/math.hpp"
 #include "damp/matrix/const_matrix.hpp"
 #include "damp/matrix/matrix.hpp"
@@ -743,38 +743,41 @@ namespace detail {
 /** @brief Where a KalmanFilter keeps its model and noise: in the object, any value at run time. */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
 struct HeldKalman {
-    static constexpr bool constant = false;          ///< The matrices are members
-    using Model = StateSpace<NX, NU, NY, T, NW, NV>; ///< A, B, C, D, G, H and Ts
-    using ProcessNoise = Matrix<NW, NW, T>;          ///< Q
-    using ReadingNoise = Matrix<NV, NV, T>;          ///< R of the model's own reading
+    static constexpr bool constant = false;                                    ///< The matrices are members
+    using Model = StateSpace<NX, NU, NY, T, NW, NV>;                           ///< A, B, C, D, G, H and Ts
+    using ProcessNoise = Matrix<NW, NW, T>;                                    ///< Q
+    using ReadingNoise = Matrix<NV, NV, T>;                                    ///< R of the model's own reading
+    using ProcessFactor = Matrix<NX, detail::noise_factor_columns<NX, NW>, T>; ///< Γ, Γ Γᵀ = G Q Gᵀ (detail::process_noise_factor)
+    using ReadingFactor = detail::ReadingNoiseFactor<NY, T>;                   ///< H R Hᵀ factored, and whether it is a covariance
 };
 
 /**
  * @brief A `constexpr` design::kalman's model and noise as constants of the type: the store of the
  *        KalmanFilter that Law<kRes, T>::Recursive names
  *
- * A and C are also patterns holding their values, so A P Aᵀ and the update's Joseph form have no
- * term for an exact zero (a delay register's) and no multiply for an exact one. G Q Gᵀ and H R Hᵀ
- * are constants, and P starts at the design's steady state.
+ * A and C are also patterns holding their values, so the products A S and C S have no term for an
+ * exact zero (a delay register's) and no multiply for an exact one. The factors of G Q Gᵀ and
+ * H R Hᵀ are constants, and the covariance starts at the design's steady state, factored in the
+ * design's own scalar.
  *
  * @tparam Res A design::kalman result with static storage, `constexpr`
  * @tparam T   The runtime scalar
  */
 template<const auto& Res, typename T>
 struct ConstantKalman {
-    static constexpr bool constant = true;                                             ///< The matrices are constants of the type
-    static constexpr auto design = Res.template as<T>();                               ///< The design, in the runtime's scalar
-    static_assert(constant_design_runs(design.success, design.status, design.sys.Ts)); // a failed or continuous design does not compile
-    static constexpr auto kA = design.sys.A;                                           ///< A
-    static constexpr auto kB = design.sys.B;                                           ///< B
-    static constexpr auto kC = design.sys.C;                                           ///< C
-    static constexpr auto kD = design.sys.D;                                           ///< D
-    static constexpr auto kGQG = quadratic_form(design.sys.G, design.Q);               ///< G Q Gᵀ: the process noise on the state
-    static constexpr auto kHRH = quadratic_form(design.sys.H, design.R);               ///< H R Hᵀ: the noise of the model's own reading
-    static constexpr auto model = design.sys;                                          ///< What model() reads
-    static constexpr auto process_noise = design.Q;                                    ///< What process_noise_covariance() reads
-    static constexpr auto reading_noise = design.R;                                    ///< What measurement_noise_covariance() reads
-    static constexpr auto initial_covariance = design.P;                               ///< P at construction: the design's steady state
+    static constexpr bool constant = true;                                                                          ///< The matrices are constants of the type
+    static constexpr auto design = Res.template as<T>();                                                            ///< The design, in the runtime's scalar
+    static_assert(constant_design_runs(design.success, design.status, design.sys.Ts));                              // a failed or continuous design does not compile
+    static constexpr auto kA = design.sys.A;                                                                        ///< A
+    static constexpr auto kB = design.sys.B;                                                                        ///< B
+    static constexpr auto kC = design.sys.C;                                                                        ///< C
+    static constexpr auto kD = design.sys.D;                                                                        ///< D
+    static constexpr auto kGamma = process_noise_factor(Res.sys.G, Res.Q).template as<T>();                         ///< Γ, Γ Γᵀ = G Q Gᵀ: the process noise on the state
+    static constexpr auto kReadingFactor = reading_noise_factor(quadratic_form(Res.sys.H, Res.R)).template as<T>(); ///< H R Hᵀ factored, the noise of the model's own reading
+    static constexpr auto model = design.sys;                                                                       ///< What model() reads
+    static constexpr auto process_noise = design.Q;                                                                 ///< What process_noise_covariance() reads
+    static constexpr auto reading_noise = design.R;                                                                 ///< What measurement_noise_covariance() reads
+    static constexpr auto initial_factor = covariance_factor_or_identity(Res.P).template as<T>();                   ///< The factor at construction: of the design's steady-state P
 
     /** @brief A, B, C and D, by the names the filter reads them under. */
     struct Model {
@@ -787,13 +790,17 @@ struct ConstantKalman {
     struct ProcessNoise {};
     /** @brief R is reading_noise: no member. */
     struct ReadingNoise {};
+    /** @brief Γ is kGamma: no member. */
+    struct ProcessFactor {};
+    /** @brief The reading's factor is kReadingFactor: no member. */
+    struct ReadingFactor {};
 };
 
 } // namespace detail
 
 /**
- * @brief The recursive Kalman filter: the covariance propagates each tick, and the gain is
- *        formed from it in Joseph form
+ * @brief The recursive Kalman filter: the covariance propagates each tick as its triangular
+ *        factor, and the gain is formed from it
  *
  * The linear member of the recursive family beside the ExtendedKalmanFilter, the
  * UnscentedKalmanFilter and the ErrorStateKalmanFilter, with the same shape: the filter holds
@@ -805,9 +812,27 @@ struct ConstantKalman {
  * variance or geometry moves, a reading that covers part of the outputs. The feedthrough takes
  * the input of the last predict, the input the plant holds when the reading is taken.
  *
- * Each update solves S = C P Cᵀ + R by Cholesky (S is symmetric positive definite), forms
- * K = P Cᵀ S⁻¹ and updates P in Joseph form. It returns false, and leaves the estimate and P
- * unchanged, when S is not positive definite.
+ * Square-root form. The filter carries the lower-triangular factor S of the covariance,
+ * P = S Sᵀ, and never P itself (estimation/sqrt_covariance.hpp). predict triangularizes
+ * [A S, G Q½] by Householder reflections; an update whitens the reading with the factor of
+ * its R and applies Carlson's triangular update one whitened row at a time. A
+ * covariance stored as P loses its small eigenvalues once cond(P) passes about 1/eps: from a
+ * prior 10⁵ times a reading's variance, the float filter on P went indefinite within a few
+ * ticks and refused nearly every later reading (10⁹ in double). The factor holds that range squared.
+ * covariance() forms P = S Sᵀ on request; covariance_factor() is S.
+ *
+ * R may be singular: a reading, or a row of one, with no noise of its own is a perfect
+ * measurement, and is taken at the rounding of its own prior variance, so the estimate reads
+ * C x̂ = y to within eps of the innovation and the factor keeps eps times the prior variance
+ * there. An update returns false, and leaves the estimate and the factor bit for bit, when the
+ * reading cannot be used: an R that is not positive semidefinite or not finite, a NaN or ±Inf
+ * in C, an innovation variance past the scalar's range, or a perfect reading of what is already
+ * known exactly (no noise and no prior variance: C P Cᵀ + R singular).
+ *
+ * P₀ and Q are factored once, at construction and in reset(x0, P0), and may be singular: zeros,
+ * a state known exactly, a noise input with no variance. One that is not positive semidefinite
+ * or not finite does not compile where the filter is constant-evaluated; at run time P₀ becomes
+ * the identity, as a failed design's, and such a Q adds no process noise.
  *
  * @code
  * KalmanFilter kf{sys, {.Q = Q, .R = R, .x0 = x0, .P0 = P0}};
@@ -817,26 +842,28 @@ struct ConstantKalman {
  * @endcode
  *
  * For a fixed (steady-state) gain, run the design on FixedGainObserver: `FixedGainObserver obs{design::kalman(sys, noise)}`
- * — about 2–13 % of the recursive filter's multiply-accumulates per tick (2.4 % at 10 states, 6 outputs),
- * no per-tick solve, no failure path. FixedGainObserver is also the estimator inside LQG, LQGI, OFLQG and
+ * — about 6 % of the recursive filter's multiply-accumulates per tick at 10 states and 6 outputs,
+ * no square root, no failure path. FixedGainObserver is also the estimator inside LQG, LQGI, OFLQG and
  * OFMPC, with the disturbance anchor the offset-free laws use.
  *
  * A design on [x; d] (design::kalman with a disturbance) runs here as the absolute filter on the
  * whole augmented state. An input delay is in the model discretize(plant, Ts, InputDelay<N>{θ})
  * returns, which design::kalman(plant, Ts, InputDelay<N>{θ}, noise) designs on from the continuous
- * plant: its registers v(k−1) … v(k−N) are states like any other.
+ * plant: its registers v(k−1) … v(k−N) are states like any other, with zero rows in the factor.
  *
  * On a `constexpr` design::kalman, `Law<kRes, float>::Recursive` is this filter with the design's
- * model and noise as constants of the type (@p Store): no RAM for them, and A P Aᵀ and the model's
- * own update have no term for an exact zero, a delay register's. P starts at the design's steady
- * state. A reading of another C, D or R (update(y, C, R)) runs dense, as with members.
+ * model and noise as constants of the type (@p Store): no RAM for them, and the products A S and
+ * C S have no term for an exact zero, a delay register's. The factor starts at the design's
+ * steady state. A reading of another C, D or R (update(y, C, R)) runs dense, as with members.
  *
  * @tparam NX Filter states
  * @tparam NW Process-noise inputs of the filter's model (columns of G)
  * @tparam NV Measurement-noise inputs (columns of H)
  *
- * @see "Optimal State Estimation" (Simon, 2006), §5.1, §7.6.2 (Joseph form)
- * @see "Optimal Control" (Anderson & Moore, 1990), §8
+ * @see "Optimal State Estimation" (Simon, 2006), §5.1
+ * @see "Discrete square root filtering: a survey of current techniques" (Kaminski, Bryson &
+ *      Schmidt, 1971), IEEE TAC 16(6)
+ * @see "Fast triangular formulation of the square root filter" (Carlson, 1973), AIAA Journal 11(9)
  */
 template<size_t NX, size_t NU, size_t NY, typename T = float, size_t NW = NX, size_t NV = NY, typename Store = detail::HeldKalman<NX, NU, NY, T, NW, NV>>
 struct KalmanFilter {
@@ -846,64 +873,70 @@ struct KalmanFilter {
      * @brief From design::kalman (any scalar): P∞ seeds P, and the design's Q and R are the noise.
      *
      * A design with a disturbance model runs as the absolute filter on [x; d]. A failed design
-     * does not compile when constant-evaluated; at run time its P is the identity.
+     * does not compile when constant-evaluated; at run time its P is the identity. P∞, Q and R
+     * are factored in the design's scalar, then converted.
      */
     template<typename U, size_t ND>
         requires(!Store::constant)
     constexpr KalmanFilter(const design::KalmanResult<NX, NU, NY, U, NW, NV, ND>& result) // NOLINT(google-explicit-constructor): assign-from-design
-        : sys(result.sys.template as<T>()), P_(result.success ? result.P.template as<T>() : Matrix<NX, NX, T>::identity()), Q_(result.Q.template as<T>()), R_(result.R.template as<T>()) {
-        if (!result.success && damp::is_constant_evaluated()) {
-            ::damp::detail::refuse_failed_design(result.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
-        }
-    }
+        : sys(model_of(result)),
+          S_(detail::covariance_factor_or_identity(result.success ? result.P : Matrix<NX, NX, U>::identity()).template as<T>()),
+          Q_(result.Q.template as<T>()),
+          R_(result.R.template as<T>()),
+          Gamma_(detail::process_noise_factor(result.sys.G, result.Q).template as<T>()),
+          Lr_(detail::reading_noise_factor(quadratic_form(result.sys.H, result.R)).template as<T>()) {}
 
     /**
      * @brief From a discrete model, its noise covariances and the initial estimate.
      *
-     * A continuous model (Ts not positive and finite) does not compile when constant-evaluated.
+     * A continuous model (Ts not positive and finite) does not compile when constant-evaluated,
+     * nor does a P0 or a Q that is not positive semidefinite.
      */
     constexpr KalmanFilter(const StateSpace<NX, NU, NY, T, NW, NV>& model, const KalmanFilterConfig<NX, NU, NY, T, NW, NV>& config)
         requires(!Store::constant)
-        : sys(model), x(config.x0), P_(config.P0), Q_(config.Q), R_(config.R) {
+        : sys(model),
+          x(config.x0),
+          S_(detail::covariance_factor_or_identity(config.P0)),
+          Q_(config.Q),
+          R_(config.R),
+          Gamma_(detail::process_noise_factor(model.G, config.Q)),
+          Lr_(detail::reading_noise_factor(quadratic_form(model.H, config.R))) {
         if (!damp::finite_positive(model.Ts) && damp::is_constant_evaluated()) {
             ::damp::detail::refuse_failed_design(design::DesignStatus::invalid_sample_time); // constant-evaluated: A is not a transition matrix
         }
     }
 
-    /** @brief The same filter in another scalar. */
+    /** @brief The same filter in another scalar: the factors are converted, not refactored. */
     template<typename U>
         requires(!Store::constant)
     constexpr KalmanFilter(const KalmanFilter<NX, NU, NY, U, NW, NV>& other) // NOLINT(google-explicit-constructor): a scalar conversion
         : sys(other.sys.template as<T>()),
           x(other.x.template as<T>()),
           u_prev_(other.u_prev_.template as<T>()),
-          P_(other.P_.template as<T>()),
+          S_(other.S_.template as<T>()),
           Q_(other.Q_.template as<T>()),
-          R_(other.R_.template as<T>()) {}
+          R_(other.R_.template as<T>()),
+          Gamma_(other.Gamma_.template as<T>()),
+          Lr_(other.Lr_.template as<T>()) {}
 
-    /** @brief Time update with the input applied now: x̂ ← A x̂ + B u, P ← A P Aᵀ + G Q Gᵀ. The updates' feedthrough takes u until the next predict. */
+    /** @brief Time update with the input applied now: x̂ ← A x̂ + B u, P ← A P Aᵀ + G Q Gᵀ on its factor. The updates' feedthrough takes u until the next predict. */
     constexpr void predict(const ColVec<NU, T>& u) {
         u_prev_ = u;
         x = (sys.A * x) + (sys.B * u);
         if constexpr (Store::constant) {
-            quadratic_form_in_place(detail::as_pattern_matrix<Store::kA>, P_);
-            detail::for_index_pairs<NX, NX>([&]<size_t R, size_t C>() __attribute__((always_inline)) {
-                if constexpr (Store::kGQG(R, C) != T{0}) {
-                    P_(R, C) += Store::kGQG(R, C);
-                }
-            });
+            detail::sqrt_time_update<kTriangularNoise>(S_, detail::as_pattern_matrix<Store::kA>, Store::kGamma);
         } else {
-            P_ = quadratic_form(sys.A, P_) + quadratic_form(sys.G, Q_);
+            detail::sqrt_time_update<kTriangularNoise>(S_, sys.A, Gamma_);
         }
     }
 
-    /** @brief Measurement update with the model's own C, D and H R Hᵀ. False if S is not positive definite. */
+    /** @brief Measurement update with the model's own C, D and H R Hᵀ. False if H R Hᵀ is not positive semidefinite, C P Cᵀ + H R Hᵀ is singular, or C P Cᵀ is past the scalar's range. */
     [[nodiscard]] constexpr bool update(const ColVec<NY, T>& y) {
         const ColVec<NY, T> nu = y - ((sys.C * x) + (sys.D * u_prev_));
         if constexpr (Store::constant) {
-            return correct(nu, detail::as_pattern_matrix<Store::kC>, Store::kHRH);
+            return detail::sqrt_measurement_update(S_, x, nu, detail::as_pattern_matrix<Store::kC>, Store::kReadingFactor);
         } else {
-            return correct(nu, sys.C, quadratic_form(sys.H, R_));
+            return detail::sqrt_measurement_update(S_, x, nu, sys.C, Lr_);
         }
     }
 
@@ -912,8 +945,8 @@ struct KalmanFilter {
      *
      * @param y Reading (NY2 rows)
      * @param C Output matrix of the reading on the filter's state
-     * @param R Covariance of the reading's noise
-     * @return false if S = C P Cᵀ + R is not positive definite: the estimate and P are unchanged
+     * @param R Covariance of the reading's noise, positive semidefinite: a zero-variance row is a perfect measurement
+     * @return false if R is not positive semidefinite, C P Cᵀ + R is singular or the reading is not finite: the estimate and the covariance are unchanged
      */
     template<size_t NY2>
     [[nodiscard]] constexpr bool update(const ColVec<NY2, T>& y, const Matrix<NY2, NX, T>& C, const damp::type_identity_t<Matrix<NY2, NY2, T>>& R) {
@@ -927,8 +960,8 @@ struct KalmanFilter {
      * @param y Reading (NY2 rows)
      * @param C Output matrix of the reading on the filter's state
      * @param D Feedthrough of the held input
-     * @param R Covariance of the reading's noise
-     * @return false if S = C P Cᵀ + R is not positive definite: the estimate and P are unchanged
+     * @param R Covariance of the reading's noise, positive semidefinite: a zero-variance row is a perfect measurement
+     * @return false if R is not positive semidefinite, C P Cᵀ + R is singular or the reading is not finite: the estimate and the covariance are unchanged
      */
     template<size_t NY2>
     [[nodiscard]] constexpr bool update(
@@ -942,12 +975,12 @@ struct KalmanFilter {
 
     /**
      * @brief Measurement update with a linear reading y = C x + v whose C has zeros and ones known
-     *        at compile time: no term for a zero and no multiply for a one
+     *        at compile time: no term for a zero and no multiply for a one in C S
      *
      * @param y Reading (C's rows)
      * @param C Output matrix of the reading on the filter's state, on its pattern
-     * @param R Covariance of the reading's noise
-     * @return false if S = C P Cᵀ + R is not positive definite: the estimate and P are unchanged
+     * @param R Covariance of the reading's noise, positive semidefinite: a zero-variance row is a perfect measurement
+     * @return false if R is not positive semidefinite, C P Cᵀ + R is singular or the reading is not finite: the estimate and the covariance are unchanged
      */
     template<const auto& Pattern, size_t NY2>
     [[nodiscard]] constexpr bool update(const ColVec<NY2, T>& y, const PatternMatrix<Pattern, T>& C, const damp::type_identity_t<Matrix<NY2, NY2, T>>& R) {
@@ -969,8 +1002,8 @@ struct KalmanFilter {
      * @brief Fused tick: predict with @p u, correct with @p y from the model's own C, D and R,
      *        return the state.
      *
-     * One call is one complete filter tick (StateEstimator). An S that is not positive definite
-     * skips the correction and the prediction stands.
+     * One call is one complete filter tick (StateEstimator). A reading update(y) refuses skips
+     * the correction and the prediction stands.
      *
      * @param y Measurement taken now
      * @param u Input applied over the previous interval
@@ -985,8 +1018,11 @@ struct KalmanFilter {
     /** @brief The state estimate x̂. */
     [[nodiscard]] constexpr const ColVec<NX, T>& state() const { return x; }
 
-    /** @brief The running error covariance P. */
-    [[nodiscard]] constexpr const Matrix<NX, NX, T>& covariance() const { return P_; }
+    /** @brief The running error covariance P = S Sᵀ, formed from the factor on each call: exactly symmetric, rounded to eps·‖P‖. */
+    [[nodiscard]] constexpr Matrix<NX, NX, T> covariance() const { return detail::covariance_of_factor(S_); }
+
+    /** @brief The factor S the filter carries, P = S Sᵀ: lower triangular with a non-negative diagonal, and a zero row for a state known exactly. */
+    [[nodiscard]] constexpr const Matrix<NX, NX, T>& covariance_factor() const { return S_; }
 
     /** @brief The filter's model. */
     [[nodiscard]] constexpr const StateSpace<NX, NU, NY, T, NW, NV>& model() const {
@@ -1021,10 +1057,16 @@ struct KalmanFilter {
     /** @brief Forget the applied input; the estimate and its covariance are left in place. */
     constexpr void reset() { u_prev_ = ColVec<NU, T>{}; }
 
-    /** @brief Replace the estimate and its covariance, and forget the applied input. Q and R stay. */
+    /**
+     * @brief Replace the estimate and its covariance, and forget the applied input. Q and R stay.
+     *
+     * @p P0 is factored here and may be singular. One that is not positive semidefinite or not
+     * finite does not compile when constant-evaluated; at run time the covariance becomes the
+     * identity.
+     */
     constexpr void reset(const ColVec<NX, T>& x0, const Matrix<NX, NX, T>& P0) {
         x = x0;
-        P_ = P0;
+        S_ = detail::covariance_factor_or_identity(P0);
         u_prev_ = ColVec<NU, T>{};
     }
 
@@ -1032,52 +1074,40 @@ private:
     template<size_t, size_t, size_t, typename, size_t, size_t, typename>
     friend struct KalmanFilter;
 
-    /** @brief P at construction: the design's steady state on constants, else zeros until a constructor sets it. */
-    [[nodiscard]] static constexpr Matrix<NX, NX, T> initial_covariance() {
+    static constexpr bool kTriangularNoise = detail::noise_factor_is_triangular<NX, NW>; ///< Whether Γ is lower triangular (NW ≥ NX) or the dense G Q½
+
+    /** @brief A design's model in the filter's scalar, or no constant expression when the design failed: the first member built, so the refusal carries the design's status. */
+    template<typename Result>
+    [[nodiscard]] static constexpr StateSpace<NX, NU, NY, T, NW, NV> model_of(const Result& result) {
+        if (!result.success && damp::is_constant_evaluated()) {
+            ::damp::detail::refuse_failed_design(result.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
+        }
+        return result.sys.template as<T>();
+    }
+
+    /** @brief The factor at construction: of the design's steady state on constants, else zeros until a constructor sets it. */
+    [[nodiscard]] static constexpr Matrix<NX, NX, T> initial_factor() {
         if constexpr (Store::constant) {
-            return Store::initial_covariance;
+            return Store::initial_factor;
         } else {
             return {};
         }
     }
 
-    /**
-     * @brief Joseph update with innovation ν, output matrix C and reading covariance R
-     *
-     * S = C P Cᵀ + R is symmetric positive definite, so K = P Cᵀ S⁻¹ comes from S Kᵀ = C P by
-     * Cholesky. P ← (I − K C) P (I − K C)ᵀ + K R Kᵀ keeps P symmetric and positive semidefinite
-     * for any K.
-     */
-    template<size_t NYS>
-    [[nodiscard]] constexpr bool correct(const ColVec<NYS, T>& nu, const Matrix<NYS, NX, T>& C, const Matrix<NYS, NYS, T>& R) {
-        const Matrix<NYS, NYS, T> S = quadratic_form(C, P_) + R;
-        const auto                K_t = mat::cholesky_solve(S, Matrix<NYS, NX, T>(C * P_));
-        if (!K_t) {
-            return false; // S not positive definite: fail closed
-        }
-        const Matrix<NX, NYS, T> K = K_t.value().transpose();
-        x += K * nu;
-        P_ = quadratic_form(Matrix<NX, NX, T>(Matrix<NX, NX, T>::identity() - (K * C)), P_) + quadratic_form(K, R);
-        return true;
+    /** @brief The update with innovation ν, output matrix C (dense or on its pattern) and reading covariance R, factored here. */
+    template<size_t NYS, typename CMatrix>
+    [[nodiscard]] constexpr bool correct(const ColVec<NYS, T>& nu, const CMatrix& C, const Matrix<NYS, NYS, T>& R) {
+        return detail::sqrt_measurement_update(S_, x, nu, C, detail::reading_noise_factor(R)); // an R that is not a covariance: fail closed
     }
 
-    /** @brief The Joseph update for a C on its pattern (detail::joseph_update). */
-    template<size_t NYS, const auto& Pattern>
-    [[nodiscard]] constexpr bool correct(const ColVec<NYS, T>& nu, const PatternMatrix<Pattern, T>& C, const Matrix<NYS, NYS, T>& R) {
-        Matrix<NX, NYS, T> K{detail::unfilled};
-        if (!detail::joseph_update(P_, C, R, K)) {
-            return false; // S not positive definite: fail closed
-        }
-        x += K * nu;
-        return true;
-    }
-
-    [[no_unique_address]] typename Store::Model        sys{};                    ///< The filter's model
-    ColVec<NX, T>                                      x{};                      ///< Estimate
-    ColVec<NU, T>                                      u_prev_{};                ///< The input the plant holds, for the feedthrough
-    Matrix<NX, NX, T>                                  P_{initial_covariance()}; ///< Error covariance
-    [[no_unique_address]] typename Store::ProcessNoise Q_{};                     ///< Process noise covariance
-    [[no_unique_address]] typename Store::ReadingNoise R_{};                     ///< Measurement noise covariance of the model's own reading
+    [[no_unique_address]] typename Store::Model         sys{};                ///< The filter's model
+    ColVec<NX, T>                                       x{};                  ///< Estimate
+    ColVec<NU, T>                                       u_prev_{};            ///< The input the plant holds, for the feedthrough
+    Matrix<NX, NX, T>                                   S_{initial_factor()}; ///< Lower-triangular factor of the error covariance, P = S Sᵀ
+    [[no_unique_address]] typename Store::ProcessNoise  Q_{};                 ///< Process noise covariance
+    [[no_unique_address]] typename Store::ReadingNoise  R_{};                 ///< Measurement noise covariance of the model's own reading
+    [[no_unique_address]] typename Store::ProcessFactor Gamma_{};             ///< Γ, Γ Γᵀ = G Q Gᵀ, factored once
+    [[no_unique_address]] typename Store::ReadingFactor Lr_{};                ///< H R Hᵀ factored once; not valid when it is not a covariance, and update(y) then refuses
 };
 
 /** @brief Deduce the filter from its design, keeping the result's scalar: KalmanFilter kf{res.as<float>()}. */

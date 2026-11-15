@@ -20,7 +20,7 @@
 
 #include "damp/backend.hpp"
 #include "damp/concepts.hpp"
-#include "damp/estimation/joseph.hpp"
+#include "damp/estimation/sqrt_covariance.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "damp/systems/dynamics.hpp"
 
@@ -77,7 +77,18 @@ struct ExtendedKalmanFilterConfig {
  * Noise. Q is the covariance of the state increment over one step, on the full state (G = I).
  * A white-noise density @f$ Q_c @f$ on ẋ gives @f$ Q \approx Q_c T_s @f$, or exactly
  * design::discretize_process_noise(A, I, Q_c, Ts). Each reading's R is the covariance of an
- * additive measurement noise. The covariance update uses the Joseph form.
+ * additive measurement noise, positive semidefinite: a row with no noise is a perfect
+ * measurement, taken at the rounding of its own prior variance.
+ *
+ * Square-root form. The filter carries the lower-triangular factor S of the covariance,
+ * P = S Sᵀ, as KalmanFilter does (estimation/sqrt_covariance.hpp): predict triangularizes
+ * [Φ S, Q½] by Householder reflections, and an update whitens the reading with the factor of
+ * its R and applies Carlson's triangular update one whitened row at a time. A prior
+ * much wider than a reading's noise, which a covariance stored as P cannot hold in float, costs
+ * the factor nothing. covariance() forms P = S Sᵀ on request; covariance_factor() is S. P₀ and
+ * Q are factored once, at construction and in reset(), and may be singular; one that is not
+ * positive semidefinite or not finite is refused under constant evaluation, and at run time P₀
+ * becomes the identity and such a Q adds no process noise.
  *
  * Central differences, for a model with no jacobian(x, u), step state i by
  * hᵢ = ∛eps·max(|x̂ᵢ|, 1), as linearize does. A state much smaller than one unit (a gap of a few
@@ -88,7 +99,7 @@ struct ExtendedKalmanFilterConfig {
  *
  * Cost per tick, NX states: predict evaluates f 4 times (RK4) plus jacobian(x, u) once, or f
  * 2·NX more times by central differences; an update evaluates h once plus jacobian(x, u) once,
- * or h 2·NX more times, and factors S once (Cholesky). The counts are fixed, so the worst-case
+ * or h 2·NX more times, and factors R once (Cholesky). The counts are fixed, so the worst-case
  * time is bounded.
  *
  * @code
@@ -108,6 +119,7 @@ struct ExtendedKalmanFilterConfig {
  *
  * @see "Optimal State Estimation" (Simon, 2006), §13.2.3 (discrete-time EKF)
  * @see "Solving Ordinary Differential Equations II" (Hairer & Wanner, 1996), §IV.2 (RK4 stability function)
+ * @see "Fast triangular formulation of the square root filter" (Carlson, 1973), AIAA Journal 11(9)
  *
  * @tparam Model Dynamics ẋ = f(x, u), a struct or a lambda whose call operator gives NX and NU
  * @tparam T     Scalar type (default: the model's)
@@ -124,18 +136,24 @@ struct ExtendedKalmanFilter {
      * @brief Filter from its process model and its configuration
      *
      * A sample time that is not finite and positive is refused under constant evaluation; at run
-     * time it becomes 0 and predict holds the state.
+     * time it becomes 0 and predict holds the state. A P0 or a Q that is not positive semidefinite
+     * is refused under constant evaluation too; at run time P0 becomes the identity and Q zero.
      */
     constexpr ExtendedKalmanFilter(const Model& model, const ExtendedKalmanFilterConfig<Model, T>& config)
-        : model_(model), x(config.x0), P(config.P0), Q(config.Q), Ts(detail::filter_sample_time(config.Ts)) {}
+        : model_(model),
+          x(config.x0),
+          S(detail::covariance_factor_or_identity(config.P0)),
+          Q(config.Q),
+          Gamma(detail::process_noise_factor(Matrix<NX, NX, T>::identity(), config.Q)),
+          Ts(detail::filter_sample_time(config.Ts)) {}
 
     /**
-     * @brief Time update over one sample: x ← RK4 step of f, P ← Φ·P·Φᵀ + Q
+     * @brief Time update over one sample: x ← RK4 step of f, P ← Φ·P·Φᵀ + Q on its factor
      *
      *     A        = ∂f/∂x at (x[k|k], u)
      *     Φ        = I + M + M²/2 + M³/6 + M⁴/24,  M = A·Ts
      *     x[k+1|k] = RK4 step of f from x[k|k] over Ts, u held
-     *     P[k+1|k] = Φ·P[k|k]·Φᵀ + Q
+     *     S[k+1|k] = the triangular factor of [Φ·S[k|k], Q½], so P[k+1|k] = Φ·P[k|k]·Φᵀ + Q
      *
      * @param u Input held over the step; the next updates' h sees it too
      */
@@ -144,8 +162,7 @@ struct ExtendedKalmanFilter {
         const Matrix<NX, NX, T> Phi = detail::rk4_transition(A, Ts);
         x = detail::rk4_step<NX, NU, T>(model_, x, u, Ts);
         u_ = u;
-        // quadratic_form forces exact P symmetry (mirrors Joseph path in KalmanFilter)
-        P = quadratic_form(Phi, P) + Q;
+        detail::sqrt_time_update<true>(S, Phi, Gamma);
     }
 
     /**
@@ -153,54 +170,38 @@ struct ExtendedKalmanFilter {
      *        last predict
      *
      *     C = ∂h/∂x at (x[k|k−1], u)
-     *     S = C·P·Cᵀ + R                       (Cholesky: S is symmetric positive definite)
-     *     K = P·Cᵀ·S⁻¹
-     *     x[k|k] = x[k|k−1] + K·(y − h(x[k|k−1], u))
-     *     P[k|k] = (I − KC)·P·(I − KC)ᵀ + K·R·Kᵀ  [Joseph form]
+     *     R = L·Lᵀ                                  (Cholesky: R is symmetric positive semidefinite)
+     *     ν̃ = L⁻¹·(y − h(x[k|k−1], u)),  C̃ = L⁻¹·C   (unit, uncorrelated noise)
+     *     each row c̃ of C̃ in turn:  f = Sᵀ·c̃ᵀ,  α = 1 + fᵀf,  x ← x + S·f·ν̃/α,  S ← S·T   [Carlson]
+     *
+     * which is K = P·Cᵀ·(C·P·Cᵀ + R)⁻¹, x ← x + K·ν and P ← (I − K·C)·P, on the factor.
      *
      * @param h Measurement y = h(x, u) (Measurement), a struct or a lambda, with an optional
      *          analytic jacobian(x, u). A jacobian that returns C as a PatternMatrix
-     *          (PatternMeasurement) has no term for its zeros and no multiply for its ones.
+     *          (PatternMeasurement) has no term for its zeros and no multiply for its ones in C·S.
      * @param y Reading (NY rows)
-     * @param R Covariance of the reading's noise
-     * @return false if S is not positive definite: the estimate and P are unchanged
+     * @param R Covariance of the reading's noise, positive semidefinite: a zero-variance row is a perfect measurement
+     * @return false if R is not positive semidefinite, C·P·Cᵀ + R is singular or the reading is not finite: the estimate and the covariance are unchanged
      */
     template<typename H, size_t NY>
         requires Measurement<H, NX, NU, NY, T>
     [[nodiscard]] constexpr bool update(const H& h, const ColVec<NY, T>& y, const damp::type_identity_t<Matrix<NY, NY, T>>& R) {
         const ColVec<NY, T> nu = y - h(x, u_);
+        const auto          noise = detail::reading_noise_factor(R); // an R that is not a covariance is refused below
         if constexpr (PatternMeasurement<H, NX, NU, NY, T>) {
-            Matrix<NX, NY, T> K{detail::unfilled};
-            if (!detail::joseph_update(P, h.jacobian(x, u_), R, K)) {
-                return false;
-            }
-            x += K * nu;
-            return true;
+            return detail::sqrt_measurement_update(S, x, nu, h.jacobian(x, u_), noise);
         } else {
             const Matrix<NY, NX, T> C = detail::measurement_state_jacobian<NX, NU, NY, T>(h, x, u_, detail::default_jacobian_step<T>());
-            // S = CPCᵀ + R with exact symmetry on the propagated term
-            const Matrix<NY, NY, T> S = quadratic_form(C, P) + R;
-
-            // K = PCᵀS⁻¹ → solve S Kᵀ = C P by Cholesky (fail closed if S is not positive definite)
-            const auto K_opt = mat::cholesky_solve(S, Matrix<NY, NX, T>(C * P));
-            if (!K_opt) {
-                return false;
-            }
-
-            const Matrix<NX, NY, T> K = K_opt.value().transpose();
-            x = x + (K * nu);
-
-            // Joseph form: P = (I − KC) P (I − KC)ᵀ + K R Kᵀ
-            const Matrix<NX, NX, T> I_KC = Matrix<NX, NX, T>::identity() - (K * C);
-            P = quadratic_form(I_KC, P) + quadratic_form(K, R);
-            return true;
+            return detail::sqrt_measurement_update(S, x, nu, C, noise);
         }
     }
 
     /** @brief The state estimate x̂. */
     [[nodiscard]] constexpr const ColVec<NX, T>& state() const { return x; }
-    /** @brief The estimate covariance P. */
-    [[nodiscard]] constexpr const Matrix<NX, NX, T>& covariance() const { return P; }
+    /** @brief The estimate covariance P = S Sᵀ, formed from the factor on each call: exactly symmetric, rounded to eps·‖P‖. */
+    [[nodiscard]] constexpr Matrix<NX, NX, T> covariance() const { return detail::covariance_of_factor(S); }
+    /** @brief The factor S the filter carries, P = S Sᵀ: lower triangular with a non-negative diagonal. */
+    [[nodiscard]] constexpr const Matrix<NX, NX, T>& covariance_factor() const { return S; }
     /** @brief The process-noise covariance Q. */
     [[nodiscard]] constexpr const Matrix<NX, NX, T>& process_noise_covariance() const { return Q; }
     /** @brief The process model. */
@@ -217,18 +218,25 @@ struct ExtendedKalmanFilter {
      */
     constexpr void set_state(const ColVec<NX, T>& x_new) { x = x_new; }
 
-    /** @brief Re-initialize the estimate and its covariance and forget the held input. The model, Ts and Q stay. */
+    /**
+     * @brief Re-initialize the estimate and its covariance and forget the held input. The model, Ts and Q stay.
+     *
+     * @p P0 is factored here and may be singular. One that is not positive semidefinite or not
+     * finite does not compile when constant-evaluated; at run time the covariance becomes the
+     * identity.
+     */
     constexpr void reset(const ColVec<NX, T>& x0, const Matrix<NX, NX, T>& P0) {
         x = x0;
-        P = P0;
+        S = detail::covariance_factor_or_identity(P0);
         u_ = ColVec<NU, T>{};
     }
 
 private:
     Model             model_{}; ///< Continuous dynamics ẋ = f(x, u)
     ColVec<NX, T>     x{};      ///< Estimate
-    Matrix<NX, NX, T> P{};      ///< Estimate covariance
+    Matrix<NX, NX, T> S{};      ///< Lower-triangular factor of the estimate covariance, P = S Sᵀ
     Matrix<NX, NX, T> Q{};      ///< Process-noise covariance per step
+    Matrix<NX, NX, T> Gamma{};  ///< Lower-triangular factor of Q, factored once
     T                 Ts{};     ///< Sample time [s]; 0 (default-constructed) holds the state in predict
     ColVec<NU, T>     u_{};     ///< The input the last predict held, for the readings' h
 };

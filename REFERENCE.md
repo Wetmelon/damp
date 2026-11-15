@@ -527,7 +527,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`ESKFResult`](inc/damp/estimation/eskf.hpp#L83) | Design payload for an ESKF: Q, R, P₀, and success |
 | [`ESO`](inc/damp/estimation/eso.hpp#L311) | Extended-state observer (ESO) (+1 more overload) |
 | [`ESOResult`](inc/damp/estimation/eso.hpp#L53) | Extended-state observer design: continuous β and, for Ts > 0, the discrete ESO |
-| [`ExtendedKalmanFilter`](inc/damp/estimation/ekf.hpp#L117) | Extended Kalman filter: continuous nonlinear dynamics, sampled measurements (+1 more overload) |
+| [`ExtendedKalmanFilter`](inc/damp/estimation/ekf.hpp#L129) | Extended Kalman filter: continuous nonlinear dynamics, sampled measurements (+1 more overload) |
 | [`ExtendedKalmanFilterConfig`](inc/damp/estimation/ekf.hpp#L41) | Configuration of an ExtendedKalmanFilter: its sample time, the process noise and the initial estimate |
 | [`Filtered`](inc/damp/estimation/state_variable_filter.hpp#L65) | One signal after the state-variable filter: its filtered value and first two derivatives |
 | [`FirstOrderPlantEstimator`](inc/damp/estimation/parameter_estimation.hpp#L124) | Online estimator for a first-order plant's gain and time constant |
@@ -544,7 +544,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`ImuSample`](inc/damp/estimation/ins_mechanization.hpp#L124) | IMU sample in the body frame |
 | [`InsNavigator`](inc/damp/estimation/ins_eskf.hpp#L622) | Runtime strapdown navigator: nominal InsState + 15-state ESKF (+2 more overloads) |
 | [`InsState`](inc/damp/estimation/ins_mechanization.hpp#L138) | Nominal strapdown navigation state (external to the ESKF error state) |
-| [`KalmanFilter`](inc/damp/estimation/kalman.hpp#L842) | The recursive Kalman filter: the covariance propagates each tick, and the gain is formed from it in Joseph form (+2 more overloads) |
+| [`KalmanFilter`](inc/damp/estimation/kalman.hpp#L869) | The recursive Kalman filter: the covariance propagates each tick as its triangular factor, and the gain is formed from it (+2 more overloads) |
 | [`KalmanFilterConfig`](inc/damp/estimation/kalman.hpp#L734) | Configuration of a KalmanFilter built from a model rather than from design::kalman |
 | [`KalmanNoise`](inc/damp/estimation/kalman.hpp#L80) | The estimator's noise: process noise on the plant's noise inputs (through G), measurement noise on the sensors (through H) (+2 more overloads) |
 | [`KalmanResult`](inc/damp/estimation/kalman.hpp#L138) | Steady-state Kalman filter design result |
@@ -568,6 +568,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`Ramp`](inc/damp/estimation/excitation/ramp.hpp#L115) | Rate-limited ramp runtime generator (+1 more overload) |
 | [`RampConfig`](inc/damp/estimation/excitation/ramp.hpp#L31) | Configuration for a slew-rate-limited ramp excitation |
 | [`RampResult`](inc/damp/estimation/excitation/ramp.hpp#L63) | Ramp design payload |
+| [`ReadingNoiseFactor`](inc/damp/estimation/sqrt_covariance.hpp#L443) | A reading's noise covariance R factored for sqrt_measurement_update(): R = L Lᵀ, and whether R is a covariance at all |
 | [`ReducedOrderObserver`](inc/damp/estimation/fixed_gain_observer.hpp#L1057) | Reduced-order (Gopinath) state observer (runtime) (+1 more overload) |
 | [`ReducedOrderObserverResult`](inc/damp/estimation/fixed_gain_observer.hpp#L347) | Reduced-order (Gopinath) observer design result |
 | [`RelayAutotuneConfig`](inc/damp/estimation/relay_autotune.hpp#L124) | Configuration for the relay-feedback autotuning experiment |
@@ -600,8 +601,11 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 
 | Name | Description |
 | ---- | ----------- |
+| [`carlson_update`](inc/damp/estimation/sqrt_covariance.hpp#L595) | Carlson's triangular update for row m of a whitened reading: S ← S T with T Tᵀ = I − f fᵀ/α, f = Sᵀc̃ᵀ the row of F and α = 1 + fᵀf |
 | [`chirp`](inc/damp/estimation/excitation/chirp.hpp#L120) | Build a chirp design payload from a configuration |
 | [`classical_dob`](inc/damp/estimation/dob.hpp#L402) | Synthesize a classical disturbance observer from a nominal plant and Q-filter |
+| [`covariance_factor_or_identity`](inc/damp/estimation/sqrt_covariance.hpp#L155) | The factor a filter starts from: of P when it is a covariance; otherwise refused under constant evaluation, and the identity at run time |
+| [`covariance_of_factor`](inc/damp/estimation/sqrt_covariance.hpp#L56) | The covariance P = S Sᵀ of a lower-triangular factor S, exactly symmetric |
 | [`discretize_process_noise`](inc/damp/estimation/kalman.hpp#L269) | Discretize continuous process noise over one sample (Van Loan) |
 | [`dob`](inc/damp/estimation/dob.hpp#L141) | Validate and package DOB configuration into a runtime-ready design result |
 | [`enu_from_ned`](inc/damp/estimation/ins_mechanization.hpp#L115) | Map a NED vector into ENU (axis permute) |
@@ -637,18 +641,31 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`mhe`](inc/damp/estimation/mhe.hpp#L214) | Synthesize a constrained moving-horizon estimator |
 | [`multi_sine`](inc/damp/estimation/excitation/multi_sine.hpp#L137) | Build a multi-sine design payload from a configuration |
 | [`ned_from_enu`](inc/damp/estimation/ins_mechanization.hpp#L105) | Map an ENU vector into NED (axis permute) |
+| [`pattern_row_times_factor_column`](inc/damp/estimation/sqrt_covariance.hpp#L331) | Row R of F times column J of the lower-triangular S: a term for each nonzero of the row at or below the diagonal of that column, and nothing else |
+| [`perfect_row_scale`](inc/damp/estimation/sqrt_covariance.hpp#L496) | The scale of row m of a reading that has no noise of its own: 1/√(eps·‖f‖²), its noise taken at the rounding of its own prior variance ‖f‖² = c̃ P c̃ᵀ |
 | [`place_observer`](inc/damp/estimation/fixed_gain_observer.hpp#L299) | Design a Luenberger observer by robust pole placement, in the domain of sys (+1 more overload) |
 | [`prbs`](inc/damp/estimation/excitation/prbs.hpp#L163) | Build a PRBS design payload from a configuration |
+| [`process_noise_factor`](inc/damp/estimation/sqrt_covariance.hpp#L292) | A factor Γ of the process noise on the state, Γ Γᵀ = G Q Gᵀ, for sqrt_time_update() |
 | [`ramp`](inc/damp/estimation/excitation/ramp.hpp#L99) | Build a ramp design payload from a configuration |
+| [`reading_noise_factor`](inc/damp/estimation/sqrt_covariance.hpp#L456) | The factor of a reading's noise covariance R (positive semidefinite; only its lower triangle is read), or an invalid one when R is indefinite or not finite |
+| [`reading_row_reach`](inc/damp/estimation/sqrt_covariance.hpp#L467) | The size of the terms row m of C S is summed from, ‖\|C_m\|·\|S\|‖: what a perfect row's ‖f‖ is measured against, so that "zero" is the rounding of those terms and not a literal |
+| [`reading_times_factor`](inc/damp/estimation/sqrt_covariance.hpp#L415) | F = C S for a lower-triangular S and a dense C (+1 more overload) |
 | [`reduced_order_observer`](inc/damp/estimation/fixed_gain_observer.hpp#L506) | Design a reduced-order (Gopinath) observer by pole placement, in the domain of sys (+1 more overload) |
+| [`reflect_rows_below`](inc/damp/estimation/sqrt_covariance.hpp#L174) | Apply row i's reflection of triangularize() to the rows below it: row k ← row k − s·v, with column i's sign turned when flip |
 | [`relay_autotune`](inc/damp/estimation/relay_autotune.hpp#L224) | Build a validated relay-autotune design payload |
 | [`rls_vector`](inc/damp/estimation/rls.hpp#L133) | Build vector RLS design payload |
 | [`schroeder_multi_sine`](inc/damp/estimation/excitation/multi_sine.hpp#L191) | Build a multi-sine design payload with Schroeder phases applied |
+| [`semidefinite_factor`](inc/damp/estimation/sqrt_covariance.hpp#L103) | The lower-triangular factor S of a positive semidefinite P, P = S Sᵀ, with a zero column where a pivot vanishes |
 | [`specific_force_at_rest`](inc/damp/estimation/ins_mechanization.hpp#L226) | Specific force [m/s²] a stationary IMU measures for the given orientation |
+| [`sqrt_measurement_update`](inc/damp/estimation/sqrt_covariance.hpp#L691) | Measurement update of the factor and the estimate with a reading of innovation ν, output matrix C and noise covariance R = L Lᵀ |
+| [`sqrt_time_update`](inc/damp/estimation/sqrt_covariance.hpp#L401) | Time update of the factor: S ← the lower-triangular factor of A S Sᵀ Aᵀ + Γ Γᵀ |
 | [`state_variable_filter`](inc/damp/estimation/state_variable_filter.hpp#L97) | Design the filter F(s) = ω³/(s + ω)³ sampled at Ts |
 | [`step`](inc/damp/estimation/excitation/step.hpp#L98) | Build a single-step design payload |
 | [`step_train`](inc/damp/estimation/excitation/step_train.hpp#L98) | Build a step-train design payload from a configuration |
 | [`stepped_sine`](inc/damp/estimation/excitation/stepped_sine.hpp#L109) | Build a stepped-sine design payload from a configuration |
+| [`times_factor_in_place`](inc/damp/estimation/sqrt_covariance.hpp#L348) | S ← A S in place for a lower-triangular S: column j of the product reads column j of S only, so one column of scratch is all it takes (+1 more overload) |
+| [`triangularize`](inc/damp/estimation/sqrt_covariance.hpp#L234) | [W E] Θ = [S 0] for an orthogonal Θ: W becomes the lower-triangular S with S Sᵀ = W Wᵀ + E Eᵀ, by Householder reflections, in place |
+| [`whiten_reading`](inc/damp/estimation/sqrt_covariance.hpp#L529) | Whiten a reading in place with the factor L of its noise: each row of F and of ν less the rows before it through L, then scaled to unit noise |
 | [`with_schroeder_phases`](inc/damp/estimation/excitation/multi_sine.hpp#L168) | Assign Schroeder low-crest-factor phases to a multi-sine tone table |
 
 ## Filters & signal conditioning
