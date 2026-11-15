@@ -31,17 +31,19 @@ and [known limitations](docs/known_limitations.md)).
 - `state_feedback_core.hpp` holds only the runtime the LQ laws share. `LQRConfig`, `IntegralAction`, `NoEstimator` and `StateFeedbackResult` are in `state_feedback_types.hpp`, and the design behind them in `controllers/detail/`; `lqr.hpp`, `lqi.hpp`, `lqg.hpp`, `lqgi.hpp` and `oflqg.hpp` include all of it as before.
 - `solve_qp` at its iteration budget: a solve that its last allowed iteration completes is `Success`, and a `MaxIterations` point is the minimizer on the constraints taken in so far.
 - A float MPC riding a hard output limit at full input can read `Infeasible` on a tick whose rounded state is past the limit's reach, and hold its input. It returned `Success` there with the limit's row violated.
+- `KalmanFilter` and `ExtendedKalmanFilter` carry the triangular factor S of their covariance, P = S Sᵀ: `covariance()` returns P by value, formed on each call, and `covariance_factor()` is S.
+- A perfect measurement on `KalmanFilter` or `ExtendedKalmanFilter` (R = 0, or a zero-variance row of R) is taken at the rounding of its own prior variance: the estimate reads it to eps, and the covariance keeps eps times the prior there instead of zero.
+- A P₀ or a Q of `KalmanFilter` or `ExtendedKalmanFilter` may be singular, and one that is not positive semidefinite or not finite does not compile where the filter is constant-evaluated; at run time P₀ becomes the identity and such a Q adds no process noise.
+- The update of `KalmanFilter` and `ExtendedKalmanFilter` takes far less stack, about a ninth for a large filter; a `KalmanFilter` that holds its matrices is larger by the factors of its Q and R.
 
 ### Fixed
 
 - A float MPC with soft output limits solves its QP on every tick. Once the moves sat on their limits the active-set solver ended `Degenerate`, or called a feasible problem `Infeasible`, on up to every tick of a recovery from outside the limits; it now keeps an orthogonal factorization of the active constraints.
 - `solve_qp` in float no longer returns `Success` with a constraint violated past its tolerance: the point is recomputed on the active constraints after each step, and every solved point meets its rows.
-
-### Fixed
-
 - PID back-calculation with a `Kbc` under `Ki·Ts` diverged; it takes at most the whole excess per tick.
 - An LQ design refused for its limits no longer carries them into a runtime, and an `integral.lim` narrowed at run time pulls a held integrator in.
 - `PRController<float>` and `HarmonicSuppressor<float>` hold a resonance far below the sample rate, where the output used to lose its gain at ω₀ or run to Inf (f₀/fs = 5e-5). The resonant section, `PRController::resonant`, is a `PRResonator` on the output and its increment instead of a `Biquad`.
+- `KalmanFilter` and `ExtendedKalmanFilter` in float keep their covariance under a prior far wider than a reading's noise: stored as P it went indefinite within a few ticks once P₀/R passed about 10⁵, and nearly every later update was refused.
 
 ## [0.2.2] — 2026-11-10
 
