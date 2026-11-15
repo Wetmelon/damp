@@ -652,19 +652,20 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`positive_sequence_ab`](inc/damp/filters/pll.hpp#L253) | function | Filters & signal conditioning | Instantaneous positive-sequence αβ from a quadrature signal pair |
 | [`pow`](inc/damp/matrix/functions.hpp#L1132) | function | Linear algebra | Integer matrix power via binary exponentiation (+1 more overload) |
 | [`pow`](inc/damp/math/math.hpp#L279) | function | Scalar math, complex & frames | Power function with a real exponent, base^exponent (+1 more overload) |
-| [`pr`](inc/damp/controllers/pr.hpp#L203) | function | Design-time synthesis (not PWM-rate) | Design a Proportional-Resonant controller |
-| [`pr_harmonics`](inc/damp/controllers/pr.hpp#L241) | function | Design-time synthesis (not PWM-rate) | Design multiple-harmonic PR controller gains |
+| [`pr`](inc/damp/controllers/pr.hpp#L215) | function | Design-time synthesis (not PWM-rate) | Design a Proportional-Resonant controller |
+| [`pr_harmonics`](inc/damp/controllers/pr.hpp#L253) | function | Design-time synthesis (not PWM-rate) | Design multiple-harmonic PR controller gains |
 | [`prbs`](inc/damp/estimation/excitation/prbs.hpp#L163) | function | Observers & estimators | Build a PRBS design payload from a configuration |
 | [`PRBS`](inc/damp/estimation/excitation/prbs.hpp#L186) | block | Observers & estimators | Maximal-length PRBS runtime generator (+1 more overload) |
 | [`PRBSConfig`](inc/damp/estimation/excitation/prbs.hpp#L79) | block | Observers & estimators | Configuration for maximal-length pseudo-random binary excitation |
 | [`PRBSResult`](inc/damp/estimation/excitation/prbs.hpp#L123) | block | Observers & estimators | PRBS design payload |
-| [`PRController`](inc/damp/controllers/pr.hpp#L436) | function | Design-time synthesis (not PWM-rate) | Deduce the runtime from its design, keeping the result's scalar |
-| [`PRController`](inc/damp/controllers/pr.hpp#L289) | block | Runtime controllers | Discrete Proportional-Resonant Controller |
+| [`PRController`](inc/damp/controllers/pr.hpp#L575) | function | Design-time synthesis (not PWM-rate) | Deduce the runtime from its design, keeping the result's scalar |
+| [`PRController`](inc/damp/controllers/pr.hpp#L417) | block | Runtime controllers | Discrete Proportional-Resonant Controller |
 | [`prescale`](inc/damp/matlab.hpp#L481) | function | MATLAB®-style aliases (host) | MATLAB® prescale: diagonal state scaling that balances A, B and C |
 | [`project_affine`](inc/damp/controllers/action_governor.hpp#L135) | function | Design-time synthesis (not PWM-rate) | Project u_des onto the polyhedron A u ≤ b (Euclidean) |
 | [`project_box`](inc/damp/controllers/action_governor.hpp#L74) | function | Design-time synthesis (not PWM-rate) | Euclidean projection of u onto a Bounds box |
-| [`PRResult`](inc/damp/controllers/pr.hpp#L109) | block | Design-time synthesis (not PWM-rate) | Proportional-Resonant controller design result |
-| [`PRSpec`](inc/damp/controllers/pr.hpp#L96) | block | Runtime controllers | The gains and frequencies of a proportional-resonant design; Ts is passed beside it |
+| [`PRResonator`](inc/damp/controllers/pr.hpp#L323) | block | Runtime controllers | Resonant section of PRController, run on its output y and the output's increment d |
+| [`PRResult`](inc/damp/controllers/pr.hpp#L121) | block | Design-time synthesis (not PWM-rate) | Proportional-Resonant controller design result |
+| [`PRSpec`](inc/damp/controllers/pr.hpp#L108) | block | Runtime controllers | The gains and frequencies of a proportional-resonant design; Ts is passed beside it |
 | [`pseudo_inverse`](inc/damp/matrix/svd.hpp#L426) | function | Linear algebra | Moore–Penrose pseudoinverse A⁺ via SVD |
 | [`PulseTimer`](inc/damp/toolbox/logic.hpp#L170) | block | Embedded helpers (controls-adjacent utilities) | Pulse timer (non-retriggerable): a rising edge of in emits a fixed |
 | [`PwmScheme`](inc/damp/motor/modulation.hpp#L77) | enum | Motor control pack (if present) | Carrier-based three-phase VSI modulation scheme |

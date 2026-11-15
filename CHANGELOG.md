@@ -34,6 +34,7 @@ and [known limitations](docs/known_limitations.md)).
 
 - PID back-calculation with a `Kbc` under `Ki·Ts` diverged; it takes at most the whole excess per tick.
 - An LQ design refused for its limits no longer carries them into a runtime, and an `integral.lim` narrowed at run time pulls a held integrator in.
+- `PRController<float>` and `HarmonicSuppressor<float>` hold a resonance far below the sample rate, where the output used to lose its gain at ω₀ or run to Inf (f₀/fs = 5e-5). The resonant section, `PRController::resonant`, is a `PRResonator` on the output and its increment instead of a `Biquad`.
 
 ## [0.2.2] — 2026-11-10
 
