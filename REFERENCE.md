@@ -322,7 +322,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`PIDTuneSpec`](inc/damp/design/pid_design.hpp#L449) | Knobs for plant-aware pidtune |
 | [`PlaceResult`](inc/damp/design/pole_placement.hpp#L1076) | Pole-placement design result: the gain K, the achieved closed-loop poles e, and Ts |
 | [`PlantDisturbance`](inc/damp/design/disturbance.hpp#L65) | The plant's own disturbance channel: B_d = G and C_d = H, one disturbance per column of G (H needs as many columns) |
-| [`PRResult`](inc/damp/controllers/pr.hpp#L109) | Proportional-Resonant controller design result |
+| [`PRResult`](inc/damp/controllers/pr.hpp#L121) | Proportional-Resonant controller design result |
 | [`QPResult`](inc/damp/design/qp.hpp#L80) | Result of a dense QP solve |
 | [`QPStatus`](inc/damp/design/qp.hpp#L47) | Termination status of a QP solve |
 | [`RepetitiveResult`](inc/damp/controllers/repetitive.hpp#L137) | Design result for the repetitive controller |
@@ -419,9 +419,9 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`pidtune`](inc/damp/design/pid_design.hpp#L807) | Plant-aware PID tune at a crossover |
 | [`place`](inc/damp/design/pole_placement.hpp#L1155) | Robust pole placement (KNV): the gain K with eig(A − B·K) at poles, in the domain of sys (+1 more overload) |
 | [`place_jordan`](inc/damp/design/pole_placement.hpp#L1676) | Exact pole placement with an arbitrary Jordan structure (Schmid–Ntogramatzidis–Nguyen–Pandey / Klein–Moore parametric form) (+1 more overload) |
-| [`pr`](inc/damp/controllers/pr.hpp#L203) | Design a Proportional-Resonant controller |
-| [`pr_harmonics`](inc/damp/controllers/pr.hpp#L241) | Design multiple-harmonic PR controller gains |
-| [`PRController`](inc/damp/controllers/pr.hpp#L436) | Deduce the runtime from its design, keeping the result's scalar |
+| [`pr`](inc/damp/controllers/pr.hpp#L215) | Design a Proportional-Resonant controller |
+| [`pr_harmonics`](inc/damp/controllers/pr.hpp#L253) | Design multiple-harmonic PR controller gains |
+| [`PRController`](inc/damp/controllers/pr.hpp#L575) | Deduce the runtime from its design, keeping the result's scalar |
 | [`project_affine`](inc/damp/controllers/action_governor.hpp#L135) | Project u_des onto the polyhedron A u ≤ b (Euclidean) |
 | [`project_box`](inc/damp/controllers/action_governor.hpp#L74) | Euclidean projection of u onto a Bounds box |
 | [`raise_loop_for_tracking`](inc/damp/design/pid_design.hpp#L713) | Raise the loop crossover so T −3 dB matches the 1-DOF target |
@@ -492,8 +492,9 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`PIDGains`](inc/damp/controllers/pid.hpp#L139) | 2-DOF continuous-time PID gains, limits and setpoint weights |
 | [`PIDMode`](inc/damp/controllers/pid.hpp#L382) | Compile-time selection of the PID control-law structure |
 | [`PIDRuntimeMode`](inc/damp/controllers/pid.hpp#L407) | Runtime operating mode for PIDController / ContinuousPID |
-| [`PRController`](inc/damp/controllers/pr.hpp#L289) | Discrete Proportional-Resonant Controller |
-| [`PRSpec`](inc/damp/controllers/pr.hpp#L96) | The gains and frequencies of a proportional-resonant design; Ts is passed beside it |
+| [`PRController`](inc/damp/controllers/pr.hpp#L417) | Discrete Proportional-Resonant Controller |
+| [`PRResonator`](inc/damp/controllers/pr.hpp#L323) | Resonant section of PRController, run on its output y and the output's increment d |
+| [`PRSpec`](inc/damp/controllers/pr.hpp#L108) | The gains and frequencies of a proportional-resonant design; Ts is passed beside it |
 | [`RepetitiveConfig`](inc/damp/controllers/repetitive.hpp#L74) | Repetitive-controller tuning + period (with optional zero-phase FIR Q) |
 | [`RepetitiveController`](inc/damp/controllers/repetitive.hpp#L288) | Plug-in repetitive controller runtime (fixed-size internal model) |
 | [`SMCController`](inc/damp/controllers/smc.hpp#L181) | First-order sliding-mode controller (SMC) for a SISO plant |

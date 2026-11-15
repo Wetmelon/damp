@@ -13,6 +13,7 @@
 #include "damp/controllers/pr.hpp"
 #include "damp/math/complex.hpp"
 #include "damp/math/math.hpp"
+#include "damp/matrix/matrix_traits.hpp"
 #include "damp/systems/state_space.hpp"
 
 #define DOCTEST_CONFIG_INCLUDE_TYPE_TRAITS
@@ -102,6 +103,47 @@ TEST_SUITE("harmonic_suppression") {
         HarmonicSuppressor<2, float> sup(d);
         const float                  u = sup.control(1.0f);
         CHECK(std::isfinite(u));
+    }
+
+    TEST_CASE("a float bank retuned to a 1 Hz fundamental at 20 kHz stays on the double bank") {
+        // f0/fs = 5e-5: as Direct Form I sections the float resonators ran to Inf there, within 36 s
+        // of a 0.01 sine at the fundamental.
+        const float                  Ts = 1.0f / 20000.0f;
+        const float                  w50 = 2.0f * 3.14159265f * 50.0f;
+        const float                  w1 = 2.0f * 3.14159265f;
+        const damp::array<size_t, 2> harmonics{1, 3};
+        const auto                   d = design::harmonic_suppressor({.Kp = 1.0f, .Ki = 100.0f, .w0 = w50, .wc = 5.0f}, Ts, harmonics);
+        REQUIRE(d.success);
+        HarmonicSuppressor<2, float>  bank(d);
+        HarmonicSuppressor<2, double> ref(d.as<double>()); // the same design: the float numbers, in double
+        bank.set_fundamental(w1);
+        ref.set_fundamental(static_cast<double>(w1));
+        CHECK(bank.resonator(1).w0 == doctest::Approx(3.0f * w1));
+
+        // For each of the two resonators, relative to the output: 8 ulps of ω₀ across a peak ω_c wide,
+        // Q = ω₀/(2ω_c) with the 3rd harmonic the sharper, and the roundoff of the 2/c₂ ticks a
+        // resonator remembers, c₂ = 2ω_c·Ts.
+        const double wc = 5.0;
+        const double Q3 = 3.0 * static_cast<double>(w1) / (2.0 * wc);
+        const double tol = 2.0 * static_cast<double>(eps<float>()) * ((8.0 * (1.0 + Q3)) + (4.0 / damp::sqrt(2.0 * wc * static_cast<double>(Ts))));
+
+        const double th = 2.0 * pi / 20000.0; // 1 Hz at 20 kHz
+        bool         finite = true;
+        double       peak = 0.0;  // largest |u_ref| so far: the scale of the difference
+        double       worst = 0.0; // largest |u − u_ref| / peak
+        for (size_t k = 0; k < 1000000U; ++k) {
+            const double phase = th * static_cast<double>(k % 20000U);
+            const float  e = static_cast<float>(0.01 * (damp::sin(phase) + (0.5 * damp::sin(3.0 * phase))));
+            const float  u = bank.control(e);
+            const double u_ref = ref.control(static_cast<double>(e));
+            finite = finite && damp::isfinite(u);
+            peak = damp::max(peak, damp::abs(u_ref));
+            if (peak > 0.0) {
+                worst = damp::max(worst, damp::abs(static_cast<double>(u) - u_ref) / peak);
+            }
+        }
+        CHECK(finite);
+        CHECK(worst <= tol);
     }
 
     TEST_CASE("as<U>() converts the design result precision") {
