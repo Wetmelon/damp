@@ -163,10 +163,10 @@ struct LQR : private detail::StateFeedbackCore<NX, NU, T, 0, NY, NoEstimator, NZ
     constexpr LQR(const R& result) : Core(result) {} // NOLINT
 
     /** @brief From design::lqr (any scalar). */
-    template<size_t NXR, size_t NUR, typename U, size_t NIR, size_t NYR, typename Kalman, size_t NZR, size_t NRR>
+    template<detail::state_feedback_result R>
         requires(!Store::constant)
-    constexpr LQR(const design::StateFeedbackResult<NXR, NUR, U, NIR, NYR, Kalman, NZR, NRR>& result) { // NOLINT
-        constexpr bool kind = NIR == 0 && damp::is_same_v<Kalman, NoEstimator>;
+    constexpr LQR(const R& result) { // NOLINT
+        constexpr bool kind = !R::kIntegral && !R::kEstimated;
         static_assert(kind, "LQR runs design::lqr: this design has integral action (LQI, LQGI) or a Kalman filter (LQG, OFLQG).");
         if constexpr (kind) {
             static_cast<Core&>(*this) = Core(result);

@@ -145,10 +145,10 @@ struct LQGI : private detail::StateFeedbackCore<NX, NU, T, NI, NY, Est, 0, Store
     constexpr LQGI() = default;
 
     /** @brief From design::lqgi (any scalar). */
-    template<size_t NXR, size_t NUR, typename U, size_t NIR, size_t NYR, typename Kalman, size_t NZR, size_t NRR>
+    template<detail::state_feedback_result R>
         requires(!Store::constant)
-    constexpr LQGI(const design::StateFeedbackResult<NXR, NUR, U, NIR, NYR, Kalman, NZR, NRR>& result) { // NOLINT
-        constexpr bool kind = NIR > 0 && !damp::is_same_v<Kalman, NoEstimator>;
+    constexpr LQGI(const R& result) { // NOLINT
+        constexpr bool kind = R::kIntegral && R::kEstimated;
         static_assert(kind, "LQGI runs design::lqgi: this design has no Kalman filter (LQR, LQI) or no integral action (LQG, OFLQG).");
         if constexpr (kind) {
             static_cast<Core&>(*this) = Core(result);

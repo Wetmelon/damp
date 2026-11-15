@@ -141,10 +141,10 @@ struct OFLQG : private detail::StateFeedbackCore<NX, NU, T, 0, NY, Est, NZ, Stor
     constexpr OFLQG() = default;
 
     /** @brief From design::oflqg (any scalar). */
-    template<size_t NXR, size_t NUR, typename U, size_t NIR, size_t NYR, typename Kalman, size_t NZR, size_t NRR>
+    template<detail::state_feedback_result R>
         requires(!Store::constant)
-    constexpr OFLQG(const design::StateFeedbackResult<NXR, NUR, U, NIR, NYR, Kalman, NZR, NRR>& result) { // NOLINT
-        constexpr bool kind = design::StateFeedbackResult<NXR, NUR, U, NIR, NYR, Kalman, NZR, NRR>::ND > 0;
+    constexpr OFLQG(const R& result) { // NOLINT
+        constexpr bool kind = R::ND > 0;
         static_assert(kind, "OFLQG runs design::oflqg: this design has no disturbance model (LQR, LQI, LQG, LQGI).");
         if constexpr (kind) {
             static_cast<Core&>(*this) = Core(result);
