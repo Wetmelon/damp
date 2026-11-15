@@ -469,6 +469,11 @@ TEST_CASE("ColView arithmetic operations") {
     CHECK(col_plus_vec(1, 0) == 6 + 2);
 }
 
+/// Whether a + b compiles: a concept, since an invalid expression in a requires-expression outside
+/// a template is an error, not false.
+template<typename A, typename B>
+concept ViewsAddable = requires(const A& a, const B& b) { a + b; };
+
 TEST_CASE("Cross-type view arithmetic operations") {
     Matrix<3, 4, double> mat = {
         {1, 2, 3, 4},
@@ -479,27 +484,32 @@ TEST_CASE("Cross-type view arithmetic operations") {
     auto row1 = mat.row(1); // [5, 6, 7, 8]
     auto col1 = mat.col(1); // [2, 6, 10]
 
-    // RowView + ColView (broadcasting to 3x4 matrix)
-    auto row_plus_col = row1 + col1;
-    CHECK(row_plus_col.rows() == 3);
-    CHECK(row_plus_col.cols() == 4);
-    CHECK(row_plus_col(0, 0) == 5 + 2);
-    CHECK(row_plus_col(0, 1) == 6 + 2);
-    CHECK(row_plus_col(0, 2) == 7 + 2);
-    CHECK(row_plus_col(0, 3) == 8 + 2);
-    CHECK(row_plus_col(1, 0) == 5 + 6);
-    CHECK(row_plus_col(1, 1) == 6 + 6);
-    CHECK(row_plus_col(2, 0) == 5 + 10);
+    // A row and a column differ in shape: their sum is a missing transpose and does not compile,
+    // nor does a block plus one row.
+    static_assert(!ViewsAddable<decltype(row1), decltype(col1)>);
+    static_assert(!ViewsAddable<decltype(mat.block<2, 4>(1, 0)), decltype(row1)>);
+    static_assert(ViewsAddable<decltype(col1), decltype(mat.col(2))>);
 
-    // Block + RowView
-    auto block = mat.block<2, 4>(1, 0); // rows 1-2, cols 0-3
+    // ColView + ColView
+    auto col_plus_col = col1 + mat.col(2);
+    CHECK(col_plus_col.rows() == 3);
+    CHECK(col_plus_col.cols() == 1);
+    CHECK(col_plus_col(0, 0) == 2 + 3);
+    CHECK(col_plus_col(2, 0) == 10 + 11);
+
+    // Block + RowView of the same shape
+    auto block = mat.block<1, 4>(2, 0); // row 2
     auto block_plus_row = block + row1;
-    CHECK(block_plus_row.rows() == 2);
+    CHECK(block_plus_row.rows() == 1);
     CHECK(block_plus_row.cols() == 4);
-    CHECK(block_plus_row(0, 0) == 5 + 5);
-    CHECK(block_plus_row(0, 1) == 6 + 6);
-    CHECK(block_plus_row(1, 0) == 9 + 5);
-    CHECK(block_plus_row(1, 1) == 10 + 6);
+    CHECK(block_plus_row(0, 0) == 9 + 5);
+    CHECK(block_plus_row(0, 3) == 12 + 8);
+
+    // Block − Block
+    auto bottom_minus_top = mat.block<2, 4>(1, 0) - mat.block<2, 4>(0, 0);
+    CHECK(bottom_minus_top.rows() == 2);
+    CHECK(bottom_minus_top(0, 0) == 5 - 1);
+    CHECK(bottom_minus_top(1, 3) == 12 - 8);
 }
 
 TEST_CASE("TransposeView basic functionality") {

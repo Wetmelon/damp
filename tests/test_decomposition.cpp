@@ -944,8 +944,8 @@ TEST_SUITE("rank, two_norm and QR are scale-invariant") {
     }
 
     TEST_CASE("two_norm when the all-ones vector is a null vector") {
-        CHECK(two_norm(Matrix<2, 2>{{1.0, -1.0}, {0.0, 0.0}}) == doctest::Approx(std::sqrt(2.0)));
-        CHECK(two_norm(Matrix<2, 2>::identity() * 1e-9) == doctest::Approx(1e-9));
+        CHECK(two_norm(Matrix<2, 2>{{1.0, -1.0}, {0.0, 0.0}}).value() == doctest::Approx(std::sqrt(2.0)));
+        CHECK(two_norm(Matrix<2, 2>::identity() * 1e-9).value() == doctest::Approx(1e-9));
     }
 
     TEST_CASE_TEMPLATE("float QR factors columns of 1e-20 and 1e20 without overflow or flush", T, float, double) {

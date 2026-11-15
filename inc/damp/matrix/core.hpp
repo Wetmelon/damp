@@ -1249,30 +1249,17 @@ inline constexpr bool keeps_operand_type = !damp::is_same_v<A, Matrix<A::rows(),
 } // namespace detail
 
 /**
- * @brief Addition of two MatrixLike types of the same precision (with broadcasting support)
+ * @brief Sum of two MatrixLike types of the same shape and precision
+ *
+ * The shapes must be equal, as for `+=`: a column plus a row, or a matrix plus one of its rows,
+ * is a missing transpose and does not compile. An offset on every entry is `A + scalar`.
  */
 template<MatrixLike A, MatrixLike B>
-    requires SamePrecision<typename A::value_type, typename B::value_type>
+    requires(A::rows() == B::rows() && A::cols() == B::cols() && SamePrecision<typename A::value_type, typename B::value_type>)
 [[nodiscard]] constexpr auto operator+(const A& a, const B& b) {
-    constexpr size_t ResRows = damp::max(A::rows(), B::rows());
-    constexpr size_t ResCols = damp::max(A::cols(), B::cols());
-    static_assert(
-        (A::rows() == 1 || A::rows() == ResRows) && (B::rows() == 1 || B::rows() == ResRows),
-        "Incompatible row dimensions for broadcasting"
-    );
-    static_assert(
-        (A::cols() == 1 || A::cols() == ResCols) && (B::cols() == 1 || B::cols() == ResCols),
-        "Incompatible column dimensions for broadcasting"
-    );
     using T = detail::common_element_t<typename A::value_type, typename B::value_type>;
-    Matrix<ResRows, ResCols, T> result{detail::unfilled};
-    detail::for_each_entry<ResRows, ResCols>([&](size_t i, size_t j) {
-        const size_t ai = (A::rows() == 1) ? 0 : i;
-        const size_t aj = (A::cols() == 1) ? 0 : j;
-        const size_t bi = (B::rows() == 1) ? 0 : i;
-        const size_t bj = (B::cols() == 1) ? 0 : j;
-        result(i, j) = static_cast<T>(a(ai, aj)) + static_cast<T>(b(bi, bj));
-    });
+    Matrix<A::rows(), A::cols(), T> result{detail::unfilled};
+    detail::for_each_entry<A::rows(), A::cols()>([&](size_t i, size_t j) { result(i, j) = static_cast<T>(a(i, j)) + static_cast<T>(b(i, j)); });
     if constexpr (damp::is_same_v<A, B> && detail::keeps_operand_type<A>) {
         return A(result);
     } else {
@@ -1281,30 +1268,16 @@ template<MatrixLike A, MatrixLike B>
 }
 
 /**
- * @brief Subtraction of two MatrixLike types of the same precision (with broadcasting support)
+ * @brief Difference of two MatrixLike types of the same shape and precision
+ *
+ * The shapes must be equal, as for operator+. An offset on every entry is `A - scalar`.
  */
 template<MatrixLike A, MatrixLike B>
-    requires SamePrecision<typename A::value_type, typename B::value_type>
+    requires(A::rows() == B::rows() && A::cols() == B::cols() && SamePrecision<typename A::value_type, typename B::value_type>)
 [[nodiscard]] constexpr auto operator-(const A& a, const B& b) {
-    constexpr size_t ResRows = damp::max(A::rows(), B::rows());
-    constexpr size_t ResCols = damp::max(A::cols(), B::cols());
-    static_assert(
-        (A::rows() == 1 || A::rows() == ResRows) && (B::rows() == 1 || B::rows() == ResRows),
-        "Incompatible row dimensions for broadcasting"
-    );
-    static_assert(
-        (A::cols() == 1 || A::cols() == ResCols) && (B::cols() == 1 || B::cols() == ResCols),
-        "Incompatible column dimensions for broadcasting"
-    );
     using T = detail::common_element_t<typename A::value_type, typename B::value_type>;
-    Matrix<ResRows, ResCols, T> result{detail::unfilled};
-    detail::for_each_entry<ResRows, ResCols>([&](size_t i, size_t j) {
-        const size_t ai = (A::rows() == 1) ? 0 : i;
-        const size_t aj = (A::cols() == 1) ? 0 : j;
-        const size_t bi = (B::rows() == 1) ? 0 : i;
-        const size_t bj = (B::cols() == 1) ? 0 : j;
-        result(i, j) = static_cast<T>(a(ai, aj)) - static_cast<T>(b(bi, bj));
-    });
+    Matrix<A::rows(), A::cols(), T> result{detail::unfilled};
+    detail::for_each_entry<A::rows(), A::cols()>([&](size_t i, size_t j) { result(i, j) = static_cast<T>(a(i, j)) - static_cast<T>(b(i, j)); });
     if constexpr (damp::is_same_v<A, B> && detail::keeps_operand_type<A>) {
         return A(result);
     } else {

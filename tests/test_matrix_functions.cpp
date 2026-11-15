@@ -246,7 +246,7 @@ TEST_SUITE("Matrix Functions") {
 
         // Two norm (spectral norm): largest singular value of A = [[1,2],[3,4]]
         // sigma_max = sqrt(lambda_max(A^T A)) ≈ 5.46499
-        CHECK(doctest::Approx(mat::two_norm(A)).epsilon(1e-4) == 5.4649857);
+        CHECK(doctest::Approx(mat::two_norm(A).value()).epsilon(1e-4) == 5.4649857);
     }
 
     TEST_CASE("Matrix norms - identity") {
@@ -256,7 +256,7 @@ TEST_SUITE("Matrix Functions") {
         CHECK(doctest::Approx(mat::infinity_norm(I)).epsilon(1e-10) == 1.0);
         CHECK(doctest::Approx(I.norm()).epsilon(1e-10) == std::sqrt(2.0));
         // Spectral norm of identity is 1 (all singular values are 1)
-        CHECK(doctest::Approx(mat::two_norm(I)).epsilon(1e-10) == 1.0);
+        CHECK(doctest::Approx(mat::two_norm(I).value()).epsilon(1e-10) == 1.0);
     }
 
     TEST_CASE("Matrix norms - zero matrix") {
@@ -265,7 +265,7 @@ TEST_SUITE("Matrix Functions") {
         CHECK(doctest::Approx(mat::one_norm(Z)).epsilon(1e-10) == 0.0);
         CHECK(doctest::Approx(mat::infinity_norm(Z)).epsilon(1e-10) == 0.0);
         CHECK(doctest::Approx(Z.norm()).epsilon(1e-10) == 0.0);
-        CHECK(doctest::Approx(mat::two_norm(Z)).epsilon(1e-10) == 0.0);
+        CHECK(doctest::Approx(mat::two_norm(Z).value()).epsilon(1e-10) == 0.0);
     }
 
     TEST_CASE("Matrix norms - complex matrices return real scalars via A^H A") {
@@ -282,10 +282,10 @@ TEST_SUITE("Matrix Functions") {
         // Frobenius: sqrt(1^2 + 2^2) = sqrt(5)
         CHECK(doctest::Approx(A.norm()).epsilon(1e-12) == std::sqrt(5.0));
         // Spectral: max |diag| = 2 (uses conjugate_transpose, not plain transpose)
-        CHECK(doctest::Approx(mat::two_norm(A)).epsilon(1e-6) == 2.0);
+        CHECK(doctest::Approx(mat::two_norm(A).value()).epsilon(1e-6) == 2.0);
 
         // Static type check: norms are real, not complex
-        static_assert(std::is_same_v<decltype(mat::two_norm(A)), double>);
+        static_assert(std::is_same_v<decltype(mat::two_norm(A)), damp::optional<double>>);
         static_assert(std::is_same_v<decltype(A.norm()), double>);
     }
 

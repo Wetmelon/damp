@@ -20,3 +20,19 @@ Implementation notes:
 - Host analysis: some FRF helpers continuous-only unless routed via discrete `StateSpace`.
 - Model inverse (`design::output_inverse`): square only, with a vector relative degree. A zero within √ε of the unit circle is refused (the −1 sampling zero of a ZOH-sampled double integrator).
 - MPC: with a hard output row or a terminal set, a MaxIterations or Degenerate iterate that fails the primal row check is held (last applied input). That hold does not restore output or terminal-set feasibility. Soft-output ticks still apply the exhausted iterate, then the u box.
+
+## Stack
+
+Matrices are passed and returned by value, so a routine's peak stack is a multiple of the matrices it works on. A `constexpr` design costs the target nothing; a design run at start-up on the target needs the stack below, and so does a recursive filter's tick. Worst-case call chain in float on Cortex-M4F (arm-none-eabi-g++ 14.2, `-O2`), one input and one output, C library frames not counted:
+
+| Call | 2 states | 4 states | 8 states | 12 states |
+| ---- | -------- | -------- | -------- | --------- |
+| `discretize(sys, Ts)` | 1.7 KB | 4.2 KB | 12.2 KB | 24.9 KB |
+| `design::lqr(sys, Ts, config)` | 5.6 KB | 15.1 KB | 47.2 KB | 97.7 KB |
+| `design::kalman(sys, Ts, noise)` | 2.8 KB | 9.6 KB | 37.7 KB | 83.7 KB |
+| `mat::expm(A)` | 0.6 KB | 2.4 KB | 8.1 KB | 17.8 KB |
+| `mat::solve(A, b)` | 0.3 KB | 0.8 KB | 2.1 KB | 4.5 KB |
+| `KalmanFilter::update(y)` | 0.2 KB | 0.8 KB | 1.8 KB | 3.7 KB |
+| `KalmanFilter::predict(u)` | under 0.1 KB | 0.3 KB | 0.8 KB | 1.8 KB |
+
+The sampled designs take most of theirs in the matrix exponential of the Van Loan block, 2·(NX + NU) rows for `lqr` and 2·NX for `kalman`. `KalmanFilter::update` holds about six NX×NX temporaries. A fixed-gain law or observer (`LQR`, `LQG`, `FixedGainObserver`) holds vectors only.

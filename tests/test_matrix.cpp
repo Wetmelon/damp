@@ -534,20 +534,27 @@ TEST_CASE("Block scalar assignment") {
     CHECK(mat(1, 1) == 7);
     CHECK(mat(2, 2) == 0); // Unchanged
 }
-TEST_CASE("Broadcasting addition") {
-    Matrix<1, 3> row = {{1, 2, 3}};
-    Matrix<2, 3> mat = {{4, 5, 6}, {7, 8, 9}};
+/// Whether a + b and a − b compile: a concept, since an invalid expression in a requires-expression
+/// outside a template is an error, not false.
+template<typename A, typename B>
+concept Addable = requires(const A& a, const B& b) { a + b; };
+template<typename A, typename B>
+concept Subtractable = requires(const A& a, const B& b) { a - b; };
 
-    auto result = mat + row; // Should broadcast row to both rows of mat
+TEST_CASE("Addition and subtraction need equal shapes") {
+    // A row added to a matrix, or a column to a row, is a missing transpose: it does not compile.
+    static_assert(!Addable<Matrix<2, 3>, Matrix<1, 3>>);
+    static_assert(!Subtractable<Matrix<2, 3>, Matrix<2, 1>>);
+    static_assert(!Addable<ColVec<3>, RowVec<3>>);
+    static_assert(!Addable<Matrix<3, 3>, Matrix<1, 1>>);
+    static_assert(Addable<ColVec<3>, decltype(RowVec<3>{}.t())>);
+    static_assert(Addable<Matrix<2, 3>, Matrix<2, 3>> && Subtractable<Matrix<2, 3>, Matrix<2, 3>>);
 
-    CHECK(result.rows() == 2);
-    CHECK(result.cols() == 3);
-    CHECK(result(0, 0) == 5);  // 4 + 1
-    CHECK(result(0, 1) == 7);  // 5 + 2
-    CHECK(result(0, 2) == 9);  // 6 + 3
-    CHECK(result(1, 0) == 8);  // 7 + 1
-    CHECK(result(1, 1) == 10); // 8 + 2
-    CHECK(result(1, 2) == 12); // 9 + 3
+    const Matrix<2, 3> a = {{1, 2, 3}, {4, 5, 6}};
+    const Matrix<2, 3> b = {{6, 5, 4}, {3, 2, 1}};
+    CHECK((a + b) == Matrix<2, 3>::constant(7.0));
+    CHECK((a - a) == Matrix<2, 3>{});
+    CHECK((a + 1.0)(1, 2) == 7.0); // an offset on every entry is the scalar overload
 }
 
 TEST_CASE("Matrix reshape") {

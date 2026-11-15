@@ -316,6 +316,22 @@ TEST_SUITE("design::kalman with a disturbance spec") {
         CHECK(s(2) == doctest::Approx(1.5).epsilon(1e-9));
     }
 
+    TEST_CASE("the equilibrium target refuses a factorization that failed") {
+        //! equilibrium_target read its SVDs and the pseudoinverse unchecked: a NaN in the output
+        //! weight came back a success with every map NaN.
+        const Matrix<1, 2> E{{-0.1, 0.1}};            // x⁺ = 0.9·x + 0.1·u: [A − I, B]
+        const Matrix<2, 2> S{{1.0, 0.0}, {2.0, 0.0}}; // two outputs of the one state
+        Matrix<2, 2>       Q = Matrix<2, 2>::identity();
+        const auto         held = design::detail::equilibrium_target<1, 1>(E, S, Matrix<1, 0>{}, Matrix<2, 0>{}, Q);
+        REQUIRE(held.success);
+        CHECK(held.target_r(0, 0) == doctest::Approx(held.target_r(1, 0)).epsilon(1e-12)); // x_t = u_t at every steady state
+        Q(0, 1) = std::numeric_limits<double>::quiet_NaN();
+        const auto refused = design::detail::equilibrium_target<1, 1>(E, S, Matrix<1, 0>{}, Matrix<2, 0>{}, Q);
+        CHECK_FALSE(refused.success);
+        CHECK(refused.status == design::DesignStatus::not_converged);
+        CHECK(refused.target_r.norm() == 0.0); // a refused design ships no map
+    }
+
     TEST_CASE("an explicit model and the listed outputs") {
         auto sys = discretize(two_sensors(), kTs).value();
         sys.G = Matrix<2, 2>::identity(); // the process noise on the states

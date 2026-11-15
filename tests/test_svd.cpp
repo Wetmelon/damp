@@ -276,7 +276,7 @@ TEST_SUITE("svd") {
 TEST_SUITE("pseudo_inverse") {
     TEST_CASE("Overdetermined: Moore–Penrose conditions hold") {
         const Matrix<4, 2, double> A = {{1.0, 0.0}, {1.0, 1.0}, {1.0, 2.0}, {1.0, 3.0}};
-        const auto                 P = pseudo_inverse(A);
+        const auto                 P = pseudo_inverse(A).value();
 
         // A·A⁺·A = A and A⁺·A·A⁺ = A⁺.
         const Matrix<4, 2, double> APA = A * P * A;
@@ -303,7 +303,7 @@ TEST_SUITE("pseudo_inverse") {
         // Fit y = a + b·x to (0,1),(1,3),(2,2),(3,5): A⁺·b is the LS fit.
         const Matrix<4, 2, double> A = {{1.0, 0.0}, {1.0, 1.0}, {1.0, 2.0}, {1.0, 3.0}};
         const Matrix<4, 1, double> b = {{1.0}, {3.0}, {2.0}, {5.0}};
-        const auto                 P = pseudo_inverse(A);
+        const auto                 P = pseudo_inverse(A).value();
         const Matrix<2, 1, double> x = P * b;
 
         // Closed-form LS for this data (normal equations): intercept = slope = 1.1.
@@ -313,7 +313,7 @@ TEST_SUITE("pseudo_inverse") {
 
     TEST_CASE("Square nonsingular: pseudoinverse equals inverse") {
         const Matrix<3, 3, double> A = {{2.0, 0.0, 1.0}, {1.0, 3.0, 2.0}, {1.0, 0.0, 4.0}};
-        const auto                 P = pseudo_inverse(A);
+        const auto                 P = pseudo_inverse(A).value();
         const auto                 Inv = A.inverse().value();
         double                     e = 0.0;
         for (size_t i = 0; i < 3; ++i) {
@@ -330,7 +330,7 @@ TEST_SUITE("pseudo_inverse") {
             {{0.0, 2.0}, {1.0, 0.0}},
             {{3.0, 0.0}, {-1.0, 1.0}},
         };
-        const auto                          P = pseudo_inverse(A);
+        const auto                          P = pseudo_inverse(A).value();
         const Matrix<3, 2, complex<double>> APA = A * P * A;
         double                              e = 0.0;
         for (size_t i = 0; i < 3; ++i) {
@@ -345,7 +345,7 @@ TEST_SUITE("pseudo_inverse") {
 TEST_SUITE("null_space") {
     TEST_CASE("Wide full-rank matrix: 1-D kernel orthogonal to the rows") {
         const Matrix<2, 3, double> A = {{1.0, 2.0, 3.0}, {4.0, 5.0, 6.0}};
-        const auto                 ns = null_space(A);
+        const auto                 ns = null_space(A).value();
         REQUIRE(ns.dim == 1);
 
         // Kernel basis is the trailing column of ns.vectors.
@@ -360,14 +360,14 @@ TEST_SUITE("null_space") {
 
     TEST_CASE("Full-rank square matrix has trivial kernel") {
         const Matrix<3, 3, double> A = {{2.0, 0.0, 1.0}, {1.0, 3.0, 2.0}, {1.0, 0.0, 4.0}};
-        const auto                 ns = null_space(A);
+        const auto                 ns = null_space(A).value();
         CHECK(ns.dim == 0);
     }
 
     TEST_CASE("Rank-deficient matrix: kernel dimension matches the defect") {
         // Column 3 = column 1 + column 2 ⇒ 1-D kernel [1, 1, −1].
         const Matrix<3, 3, double> A = {{1.0, 0.0, 1.0}, {0.0, 1.0, 1.0}, {2.0, 1.0, 3.0}};
-        const auto                 ns = null_space(A);
+        const auto                 ns = null_space(A).value();
         REQUIRE(ns.dim == 1);
         Matrix<3, 1, double> n;
         for (size_t i = 0; i < 3; ++i) {
@@ -389,7 +389,7 @@ TEST_SUITE("null_space") {
                     A(i, j) = (static_cast<double>(gen()) / 4294967296.0) - 0.5;
                 }
             }
-            const auto ns = null_space(A);
+            const auto ns = null_space(A).value();
             REQUIRE(ns.dim == 17);
             const double s1 = svd(A).singular_values[0];
             for (size_t k = 20 - ns.dim; k < 20; ++k) {
@@ -528,11 +528,11 @@ TEST_SUITE("svd scaling") {
         CHECK_FALSE(mat::svd(W).success);
         CHECK(mat::rank(A) == 0);
         CHECK(mat::rank(W) == 0);
-        CHECK_FALSE(damp::isfinite(mat::pseudo_inverse(A)(0, 0)));
-        CHECK_FALSE(damp::isfinite(mat::two_norm(A)));
-        const auto ns = mat::null_space(A);
-        CHECK(ns.dim == 3);
-        CHECK_FALSE(damp::isfinite(ns.vectors(0, 0)));
+        // What is built on a failed SVD is empty, not NaN: a caller cannot use it unchecked.
+        CHECK_FALSE(mat::pseudo_inverse(A).has_value());
+        CHECK_FALSE(mat::pseudo_inverse(W).has_value());
+        CHECK_FALSE(mat::two_norm(A).has_value());
+        CHECK_FALSE(mat::null_space(A).has_value());
         const Matrix<2, 2, complex<double>> C{{complex<double>{1.0, nan}, complex<double>{0.0}}, {complex<double>{0.0}, complex<double>{1.0}}};
         CHECK_FALSE(mat::svd(C).success);
         CHECK(mat::svd(Matrix<3, 3, double>{{1.0, 2.0, 3.0}, {4.0, 5.0, 6.0}, {7.0, 8.0, 10.0}}).success);

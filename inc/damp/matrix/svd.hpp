@@ -417,13 +417,13 @@ template<size_t M, size_t N, typename T>
  *
  * @param A Input matrix (any shape).
  * @param rel_tol Singular values ≤ rel_tol·σ_max are treated as zero (default max(M, N)·eps, as MATLAB®).
- * @return Pseudoinverse (N×M); every entry NaN when the SVD fails (a non-finite entry in A, or the
- *         sweeps did not converge).
+ * @return Pseudoinverse (N×M), or damp::nullopt when the SVD fails (a non-finite entry in A, or
+ *         the sweeps did not converge).
  *
  * @note Compare with MATLAB®'s pinv(A).
  */
 template<size_t M, size_t N, typename T>
-[[nodiscard]] constexpr Matrix<N, M, T> pseudo_inverse(
+[[nodiscard]] constexpr damp::optional<Matrix<N, M, T>> pseudo_inverse(
     const Matrix<M, N, T>& A,
     scalar_type_t<T>       rel_tol = detail::svd_default_rel_tol<M, N, T>()
 ) {
@@ -432,9 +432,7 @@ template<size_t M, size_t N, typename T>
 
     const auto s = svd(A);
     if (!s.success) {
-        Matrix<N, M, T> nan{};
-        nan.fill(T{damp::numeric_limits<real_t>::quiet_NaN()});
-        return nan;
+        return damp::nullopt;
     }
     const real_t smax = (K > 0) ? s.singular_values[0] : real_t{0};
     const real_t tol = smax * rel_tol;
@@ -470,18 +468,20 @@ struct [[nodiscard]] NullSpace {
  *
  * @param A Input matrix (any shape).
  * @param rel_tol Singular values ≤ rel_tol·σ_max are treated as zero (default max(M, N)·eps, as MATLAB®).
- * @return NullSpace whose last `dim` columns form an orthonormal kernel basis. A failed SVD (a
- *         non-finite entry in A, or the sweeps did not converge) has rank 0, so `dim` is N; its
- *         vectors are NaN for a non-finite entry.
+ * @return NullSpace whose last `dim` columns form an orthonormal kernel basis, or damp::nullopt
+ *         when the SVD fails (a non-finite entry in A, or the sweeps did not converge).
  *
  * @note Compare with MATLAB®'s null(A) (which returns those columns directly).
  */
 template<size_t M, size_t N, typename T>
-[[nodiscard]] constexpr NullSpace<N, T> null_space(
+[[nodiscard]] constexpr damp::optional<NullSpace<N, T>> null_space(
     const Matrix<M, N, T>& A,
     scalar_type_t<T>       rel_tol = detail::svd_default_rel_tol<M, N, T>()
 ) {
-    const auto      s = svd(A);
+    const auto s = svd(A);
+    if (!s.success) {
+        return damp::nullopt;
+    }
     const size_t    r = rank_from_svd(s, rel_tol);
     NullSpace<N, T> out;
     out.vectors = s.singular_V;
