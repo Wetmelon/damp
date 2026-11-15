@@ -153,8 +153,13 @@ template<size_t NXE, size_t NU, size_t NZ, size_t ND, typename T>
     const Matrix<NZ, ND, T>&        Cdz,
     const Matrix<NZ, NZ, T>&        Q
 ) {
-    constexpr size_t  NS = NXE + NU;
-    const auto        e = mat::svd(E);
+    constexpr size_t NS = NXE + NU;
+    using Result = SteadyStateTargetResult<NXE, NU, ND, NZ, T>;
+    const auto e = mat::svd(E);
+    const auto q = mat::svd(Q);
+    if (!e.success || !q.success) {
+        return ::damp::detail::refused<Result>(DesignStatus::not_converged); // a non-finite entry, or the sweeps ran out
+    }
     const size_t      rank = mat::rank_from_svd(e);
     Matrix<NS, NS, T> N{};
     for (size_t c = rank; c < NS; ++c) {
@@ -162,7 +167,6 @@ template<size_t NXE, size_t NU, size_t NZ, size_t ND, typename T>
             N(i, c) = e.singular_V(i, c);
         }
     }
-    const auto        q = mat::svd(Q);
     Matrix<NZ, NZ, T> W{};
     for (size_t i = 0; i < NZ; ++i) {
         const T root = damp::sqrt(q.singular_values[i]);
@@ -170,8 +174,12 @@ template<size_t NXE, size_t NU, size_t NZ, size_t ND, typename T>
             W(i, j) = root * q.singular_U(j, i);
         }
     }
-    const Matrix<NS, NZ, T>                     G = N * Matrix<NS, NZ, T>(mat::pseudo_inverse(Matrix<NZ, NS, T>(W * (S * N))) * W);
-    SteadyStateTargetResult<NXE, NU, ND, NZ, T> out{};
+    const auto least_squares = mat::pseudo_inverse(Matrix<NZ, NS, T>(W * (S * N)));
+    if (!least_squares) {
+        return ::damp::detail::refused<Result>(DesignStatus::not_converged); // its sweeps ran out
+    }
+    const Matrix<NS, NZ, T> G = N * Matrix<NS, NZ, T>(*least_squares * W);
+    Result                  out{};
     out.target_r = G;
     if constexpr (ND > 0) {
         //! s_d = E⁺·(−B_d) = −V·Σ⁺·Uᵀ·B_d over the rank nonzero singular values
@@ -273,9 +281,12 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
             Q
         );
     } else {
-        const Matrix<NXE + NU, NXE + NZ, T> Mp = mat::pseudo_inverse(M);
-        out.target_d = Mp * rhs_d;
-        out.target_r = Mp * rhs_r;
+        const auto Mp = mat::pseudo_inverse(M);
+        if (!Mp) {
+            return ::damp::detail::refused<Result>(DesignStatus::not_converged); // its sweeps ran out: M is finite here
+        }
+        out.target_d = *Mp * rhs_d;
+        out.target_r = *Mp * rhs_r;
         {
             //! NZ < NU: a steady state holds r only if [A − I, B; C_z, D_z] has full row rank. The
             //! minimum-norm solution must then solve the system to roundoff (relative to ‖M‖·‖T‖,

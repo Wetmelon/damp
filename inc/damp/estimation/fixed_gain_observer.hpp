@@ -198,13 +198,15 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
             //! delay registers) reaches a rank test that reads roundoff. L places the poles, and an
             //! M with A M = L has them too: eig((I − M C) A) = eig(A − L C). A⁺L is such an M only
             //! where L lies in A's range, which a request on a pinned register mode can leave.
-            const Matrix<NX, NY, T> M_L = mat::pseudo_inverse(out.sys.A) * out.L;
-            const T                 tol = T{64} * static_cast<T>(NX) * eps<T>() * ((out.sys.A.norm() * M_L.norm()) + out.L.norm());
-            const bool              solves = Matrix<NX, NY, T>((out.sys.A * M_L) - out.L).norm() <= tol;
-            const Matrix<NY, NX, T> from_L = M_L.transpose();
-            if (solves && placement_matches(At, CAt, from_L, poles)) {
-                Mt = from_L;
-                status = DesignStatus::ok;
+            if (const auto A_pinv = mat::pseudo_inverse(out.sys.A)) {
+                const Matrix<NX, NY, T> M_L = *A_pinv * out.L;
+                const T                 tol = T{64} * static_cast<T>(NX) * eps<T>() * ((out.sys.A.norm() * M_L.norm()) + out.L.norm());
+                const bool              solves = Matrix<NX, NY, T>((out.sys.A * M_L) - out.L).norm() <= tol;
+                const Matrix<NY, NX, T> from_L = M_L.transpose();
+                if (solves && placement_matches(At, CAt, from_L, poles)) {
+                    Mt = from_L;
+                    status = DesignStatus::ok;
+                }
             }
         }
         if (status != DesignStatus::ok) {

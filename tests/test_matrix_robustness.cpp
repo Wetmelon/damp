@@ -20,12 +20,19 @@ using namespace damp;
 /**
  * @file test_robustness.cpp
  * @brief Adversarial edge-case coverage for damp/matrix: singular and
- *        ill-conditioned inverses, broadcasting, view aliasing, and the
+ *        ill-conditioned inverses, sums of unequal shapes, view aliasing, and the
  *        identities tying solve/inverse/det/rank together. Complements the
  *        happy-path coverage in test_matrix*.cpp.
  */
 
 namespace {
+
+/// Whether a + b and a − b compile: a concept, since an invalid expression in a requires-expression
+/// outside a template is an error, not false.
+template<typename A, typename B>
+concept Addable = requires(const A& a, const B& b) { a + b; };
+template<typename A, typename B>
+concept Subtractable = requires(const A& a, const B& b) { a - b; };
 
 // Largest |A·A⁻¹ − I| element, for verifying inverses on conditioned matrices.
 template<size_t N, typename T>
@@ -178,32 +185,23 @@ TEST_SUITE("robustness") {
         }
     }
 
-    TEST_CASE("broadcasting operators") {
-        Matrix<3, 3, double> A = Matrix<3, 3, double>::constant(1.0);
-        SUBCASE("row vector broadcasts down the rows") {
-            Matrix<1, 3, double> r = {{10.0, 20.0, 30.0}};
-            Matrix<3, 3, double> S = A + r;
-            for (size_t i = 0; i < 3; ++i) {
-                CHECK(S(i, 0) == doctest::Approx(11.0));
-                CHECK(S(i, 1) == doctest::Approx(21.0));
-                CHECK(S(i, 2) == doctest::Approx(31.0));
-            }
+    TEST_CASE("a sum or difference of unequal shapes does not compile") {
+        // No broadcasting: a size-1 dimension is not stretched to fit, in either precision or order.
+        static_assert(!Addable<Matrix<3, 3, double>, Matrix<1, 3, double>>);
+        static_assert(!Addable<Matrix<1, 3, double>, Matrix<3, 3, double>>);
+        static_assert(!Addable<Matrix<3, 3, double>, Matrix<3, 1, double>>);
+        static_assert(!Subtractable<Matrix<3, 3, double>, Matrix<1, 3, double>>);
+        static_assert(!Subtractable<Matrix<3, 3, float>, Matrix<1, 1, float>>);
+        static_assert(!Subtractable<ColVec<3, float>, RowVec<3, float>>);
+
+        // The same row added to every row is written out.
+        Matrix<3, 3, double>       A = Matrix<3, 3, double>::constant(1.0);
+        const Matrix<1, 3, double> r = {{10.0, 20.0, 30.0}};
+        for (size_t i = 0; i < 3; ++i) {
+            A.block<1, 3>(i, 0) += r;
         }
-        SUBCASE("column vector broadcasts across the columns") {
-            Matrix<3, 1, double> c = {{1.0}, {2.0}, {3.0}};
-            Matrix<3, 3, double> S = A + c;
-            for (size_t j = 0; j < 3; ++j) {
-                CHECK(S(0, j) == doctest::Approx(2.0));
-                CHECK(S(1, j) == doctest::Approx(3.0));
-                CHECK(S(2, j) == doctest::Approx(4.0));
-            }
-        }
-        SUBCASE("subtraction broadcasts too") {
-            Matrix<1, 3, double> r = {{1.0, 2.0, 3.0}};
-            Matrix<3, 3, double> S = A - r;
-            CHECK(S(0, 0) == doctest::Approx(0.0));
-            CHECK(S(1, 2) == doctest::Approx(-2.0));
-        }
+        CHECK(A(0, 0) == doctest::Approx(11.0));
+        CHECK(A(2, 2) == doctest::Approx(31.0));
     }
 
     TEST_CASE("view aliasing and consistency") {

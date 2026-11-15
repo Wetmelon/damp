@@ -634,24 +634,24 @@ template<size_t M, size_t N, typename T>
 }
 
 /**
- * @brief MATLAB® short alias for the Moore–Penrose pseudoinverse.
- * @note Compare with MATLAB®'s pinv(A).
+ * @brief MATLAB® short alias for the Moore–Penrose pseudoinverse: an optional, empty when the SVD fails.
+ * @note Compare with MATLAB®'s pinv(A) (which returns NaN for a non-finite A).
  */
 template<size_t M, size_t N, typename T>
-[[nodiscard]] constexpr Matrix<N, M, T> pinv(const Matrix<M, N, T>& A) {
+[[nodiscard]] constexpr damp::optional<Matrix<N, M, T>> pinv(const Matrix<M, N, T>& A) {
     return mat::pseudo_inverse(A);
 }
 
 /**
- * @brief MATLAB® short alias for an orthonormal null-space basis.
+ * @brief MATLAB® short alias for an orthonormal null-space basis: an optional, empty when the SVD fails.
  *
- * Returns a mat::NullSpace whose trailing `dim` columns are the kernel basis
+ * Holds a mat::NullSpace whose trailing `dim` columns are the kernel basis
  * (MATLAB®'s null returns those columns directly as an N×dim matrix).
  *
  * @note Compare with MATLAB®'s null(A).
  */
 template<size_t M, size_t N, typename T>
-[[nodiscard]] constexpr mat::NullSpace<N, T> null(const Matrix<M, N, T>& A) {
+[[nodiscard]] constexpr damp::optional<mat::NullSpace<N, T>> null(const Matrix<M, N, T>& A) {
     return mat::null_space(A);
 }
 

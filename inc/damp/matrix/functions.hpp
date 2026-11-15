@@ -90,7 +90,7 @@ template<typename T, size_t N>
  *
  * Computed as the largest singular value from mat::svd. Power iteration from a
  * fixed start vector fails when that vector is orthogonal to the dominant
- * singular vector (e.g. returns 0 for [[1, −1], [0, 0]]). Always returns a real
+ * singular vector (e.g. returns 0 for [[1, −1], [0, 0]]). The norm is a real
  * scalar.
  *
  * @note Compare with MATLAB®'s norm(A, 2).
@@ -98,12 +98,16 @@ template<typename T, size_t N>
  * @tparam T Element type (real or damp::complex)
  * @tparam N Matrix dimension
  * @param A Square matrix
- * @return Spectral norm
+ * @return Spectral norm, or damp::nullopt when the SVD fails (a non-finite entry in A, or the
+ *         sweeps did not converge)
  */
 template<typename T, size_t N>
-[[nodiscard]] constexpr scalar_type_t<T> two_norm(const Matrix<N, N, T>& A) {
+[[nodiscard]] constexpr damp::optional<scalar_type_t<T>> two_norm(const Matrix<N, N, T>& A) {
     const auto s = svd(A);
-    return s.success ? s.singular_values[0] : damp::numeric_limits<scalar_type_t<T>>::quiet_NaN();
+    if (!s.success) {
+        return damp::nullopt;
+    }
+    return s.singular_values[0];
 }
 
 namespace detail {

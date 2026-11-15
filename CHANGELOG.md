@@ -20,6 +20,8 @@ and [known limitations](docs/known_limitations.md)).
 - `StateFeedbackResult` and the LQR, LQI, LQG, LQGI and OFLQG runtimes take a last template argument, NRU, the input registers of the law's model (0: none); K, S and e are on [x; v(k−1); …; v(k−NRU)] then the integrators.
 - `damp::min`, `damp::max` and `damp::clamp` return by value on both backends, so a result bound to a reference cannot dangle on a temporary argument. The backends now agree: a tie or a NaN gives `min` and `max` their first argument, and `clamp` with lo > hi gives hi, where `std::clamp` is undefined.
 - `LQRWeights` is `LQRConfig`: it carries the law's limits with the cost. A design called with braces, `{.Q = Q, .R = R}`, does not change.
+- `mat::pseudo_inverse`, `mat::null_space` and `mat::two_norm` return an optional, empty when the SVD fails, where they returned NaN; `matlab::pinv` and `matlab::null` follow. `design::steady_state_target` with more outputs than inputs refuses a failed factorization, where it could report NaN maps as a success.
+- `+` and `−` on matrices and views need equal shapes: a dimension of size 1 is no longer stretched to fit (NumPy's broadcast), so a missing transpose does not compile. An offset on every entry is `A + scalar`.
 - `state_feedback_core.hpp` holds only the runtime the LQ laws share. `LQRConfig`, `IntegralAction`, `NoEstimator` and `StateFeedbackResult` are in `state_feedback_types.hpp`, and the design behind them in `controllers/detail/`; `lqr.hpp`, `lqi.hpp`, `lqg.hpp`, `lqgi.hpp` and `oflqg.hpp` include all of it as before.
 
 ## [0.2.2] — 2026-11-10
