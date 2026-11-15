@@ -8,7 +8,7 @@
 #include <cstddef>
 
 #include "damp/controllers/oflqg.hpp"
-#include "damp/controllers/state_feedback_core.hpp"
+#include "damp/controllers/state_feedback_types.hpp"
 #include "damp/design/disturbance.hpp"
 #include "damp/design/status.hpp"
 #include "damp/design/steady_state_target.hpp"
@@ -55,8 +55,8 @@ TEST_SUITE("Offset-free LQG: oflqg with a disturbance model") {
     }
 
     TEST_CASE("a continuous plant is refused, as by lqg; continuous plant + Ts designs at Ts") {
-        constexpr design::LQRWeights<2, 1> w{.Q = Matrix<2, 2>::identity(), .R = 0.1};
-        auto                               continuous = make_plant();
+        constexpr design::LQRConfig<2, 1> w{.Q = Matrix<2, 2>::identity(), .R = 0.1};
+        auto                              continuous = make_plant();
         continuous.Ts = 0.0;
         const auto refused = design::oflqg(continuous, w, design::KalmanNoise<2, 1, double, 1>{}, design::InputDisturbance{});
         CHECK_FALSE(refused.success);
@@ -232,7 +232,7 @@ TEST_SUITE("Offset-free LQG: oflqg with a disturbance model") {
                 Matrix<2, 2>{{0.9, 0.1}, {0.0, 0.8}}, Matrix<2, 1>{{0.0}, {0.2}}, Matrix<1, 2>{{1.0, 0.0}}, Matrix<1, 1>{{D}}, Matrix<2, 2>::identity(), Matrix<1, 1>::identity(), 0.01
             };
             const design::KalmanNoise<2, 1, double, 1> noise{.process = Matrix<2, 2>::identity() * 0.01, .measurement = 0.01, .disturbance = 0.01};
-            const design::LQRWeights<2, 1>             w{.Q = Matrix<2, 2>::identity(), .R = 1.0};
+            const design::LQRConfig<2, 1>              w{.Q = Matrix<2, 2>::identity(), .R = 1.0};
             const auto                                 result = design::oflqg(sys, w, noise, spec);
             REQUIRE(result.success);
             OFLQG        law{result};

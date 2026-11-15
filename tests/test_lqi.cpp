@@ -152,9 +152,9 @@ TEST_SUITE("LQI") {
             .C = Matrix<2, 2>::identity(),
             .Ts = 0.1
         };
-        constexpr design::LQRWeights<2, 1, 1> w{.Q = Matrix<2, 2>{{10.0, 0.0}, {0.0, 1.0}}, .R = 1.0, .Q_integral = 500.0}; // design_lqi's
-        constexpr auto                        picked = design::lqi(sys2, w, design::IntegralAction<1>{{0}});
-        constexpr auto                        by_hand = design_lqi(); // C = [1 0]
+        constexpr design::LQRConfig<2, 1, 1> w{.Q = Matrix<2, 2>{{10.0, 0.0}, {0.0, 1.0}}, .R = 1.0, .Q_integral = 500.0}; // design_lqi's
+        constexpr auto                       picked = design::lqi(sys2, w, design::IntegralAction<1>{{0}});
+        constexpr auto                       by_hand = design_lqi(); // C = [1 0]
         static_assert(picked.success);
         for (size_t j = 0; j < 3; ++j) {
             CHECK(picked.K(0, j) == doctest::Approx(by_hand.K(0, j)).epsilon(1e-12));
@@ -338,7 +338,7 @@ constexpr StateSpace<2, 1, 1> make_continuous_plant() {
 }
 
 // Continuous cost on [position; velocity], u and ∫e dt.
-constexpr design::LQRWeights<2, 1, 1> continuous_weights() {
+constexpr design::LQRConfig<2, 1, 1> continuous_weights() {
     return {.Q = Matrix<2, 2>::diagonal({10.0, 1.0}), .R = 1.0, .Q_integral = 100.0};
 }
 
@@ -482,7 +482,7 @@ TEST_SUITE("LQI on a plant with feedthrough") {
     TEST_CASE("the design and the runtime integrate the same output: the deployed loop has the design's poles and y holds r") {
         for (const double D : {0.5, -2.0}) {
             const auto plant = feedthrough_plant(D, 0.1);
-            const auto w = design::LQRWeights<1, 1, 1>{.Q = 1.0, .R = 1.0, .Q_integral = 10.0};
+            const auto w = design::LQRConfig<1, 1, 1>{.Q = 1.0, .R = 1.0, .Q_integral = 10.0};
             for (const bool sampled : {false, true}) {
                 const auto res = sampled ? design::lqi(feedthrough_plant(D, 0.0), 0.1, w) : design::lqi(plant, w);
                 REQUIRE(res.success);

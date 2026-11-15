@@ -166,7 +166,7 @@ TEST_CASE("design::lqr with TrackedOutputs refuses an output no steady state hol
         .C = Matrix<2, 2>::identity(),
         .Ts = 0.1,
     };
-    const auto weights = design::LQRWeights<2, 2>{.Q = Matrix<2, 2>::identity(), .R = Matrix<2, 2>::identity()};
+    const auto weights = design::LQRConfig<2, 2>{.Q = Matrix<2, 2>::identity(), .R = Matrix<2, 2>::identity()};
     const auto res = design::lqr(sys, weights, design::TrackedOutputs<1>{{1}});
     CHECK_FALSE(res.success);
     CHECK(res.status == design::DesignStatus::singular);
@@ -256,9 +256,9 @@ TEST_CASE_TEMPLATE("discretize_lqr_cost and lqr(sys, Ts, w) keep a fast stable m
     const double tol = std::is_same_v<T, float> ? 1e-4 : 1e-9;
     for (const Case& c : cases) {
         CAPTURE(c.a);
-        const StateSpace<2, 1, 1, T>         sys{.A = Matrix<2, 2, T>{{T{-1}, T{1}}, {T{0}, static_cast<T>(c.a)}}, .B = Matrix<2, 1, T>{{T{0}}, {T{1}}}, .C = Matrix<1, 2, T>{{T{1}, T{0}}}};
-        const design::LQRWeights<2, 1, 0, T> w{.Q = Matrix<2, 2, T>::identity(), .R = Matrix<1, 1, T>{{T{1}}}};
-        const auto                           cost = design::discretize_lqr_cost(sys.A, sys.B, w.Q, w.R, T{1});
+        const StateSpace<2, 1, 1, T>        sys{.A = Matrix<2, 2, T>{{T{-1}, T{1}}, {T{0}, static_cast<T>(c.a)}}, .B = Matrix<2, 1, T>{{T{0}}, {T{1}}}, .C = Matrix<1, 2, T>{{T{1}, T{0}}}};
+        const design::LQRConfig<2, 1, 0, T> w{.Q = Matrix<2, 2, T>::identity(), .R = Matrix<1, 1, T>{{T{1}}}};
+        const auto                          cost = design::discretize_lqr_cost(sys.A, sys.B, w.Q, w.R, T{1});
         REQUIRE(cost.has_value());
         CHECK(static_cast<double>(cost->R(0, 0)) == doctest::Approx(c.Rd).epsilon(tol));
         CHECK(static_cast<double>(cost->N(0, 0)) == doctest::Approx(c.Nd0).epsilon(tol));
@@ -468,7 +468,7 @@ constexpr Matrix<1, 2> kDiC{{1.0, 0.0}};
 constexpr StateSpace   kDiPlant{.A = kDiA, .B = kDiB, .C = kDiC};
 constexpr auto         kDiDiscrete = *discretize(kDiPlant, 0.1);
 
-constexpr design::LQRWeights<2, 1> kDiW{.Q = Matrix<2, 2>::identity(), .R = 1.0};
+constexpr design::LQRConfig<2, 1> kDiW{.Q = Matrix<2, 2>::identity(), .R = 1.0};
 
 // Row 2 at compile time: continuous plant + Ts is the sampled-data design, and the law deploys from it.
 constexpr auto kSampled = design::lqr(kDiPlant, 0.2, {.Q = kDiW.Q, .R = kDiW.R});
@@ -589,8 +589,8 @@ TEST_SUITE("design::lqr dispatch table") {
     }
 
     TEST_CASE("design::lqr fails on a non-positive sample time") {
-        const StateSpace<2, 1, 1>      plant{.A = {{0.0, 1.0}, {0.0, 0.0}}, .B = {{0.0}, {1.0}}, .C = {{1.0, 0.0}}};
-        const design::LQRWeights<2, 1> w{.Q = Matrix<2, 2>::identity(), .R = 1.0};
+        const StateSpace<2, 1, 1>     plant{.A = {{0.0, 1.0}, {0.0, 0.0}}, .B = {{0.0}, {1.0}}, .C = {{1.0, 0.0}}};
+        const design::LQRConfig<2, 1> w{.Q = Matrix<2, 2>::identity(), .R = 1.0};
         CHECK_FALSE(design::lqr(plant, 0.0, w).success);
         CHECK(design::lqr(plant, 0.01, w).success);
     }

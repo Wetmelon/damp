@@ -20,7 +20,10 @@
  */
 
 #include "damp/backend.hpp"
-#include "damp/controllers/state_feedback_core.hpp" // IWYU pragma: export
+#include "damp/controllers/detail/lq_law.hpp"                // IWYU pragma: export
+#include "damp/controllers/detail/state_feedback_design.hpp" // IWYU pragma: export
+#include "damp/controllers/state_feedback_core.hpp"          // IWYU pragma: export
+#include "damp/controllers/state_feedback_types.hpp"         // IWYU pragma: export
 #include "damp/matrix/colvec.hpp"
 #include "damp/systems/discretization.hpp"
 #include "damp/systems/state_space.hpp"
@@ -38,14 +41,14 @@ using LQIResult = StateFeedbackResult<NX, NU, T, NI, NY, NoEstimator, 0, NRU>;
  * @note Compare with MATLAB®'s lqi(sys, Q, R, N).
  */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
-[[nodiscard]] constexpr auto lqi(const StateSpace<NX, NU, NY, T, NW, NV>& sys, const LQRWeights<NX, NU, NY, T>& weights) {
-    return detail::state_feedback(sys, weights, detail::StateFeedbackOptions{.offset_free = IntegralAction{}});
+[[nodiscard]] constexpr auto lqi(const StateSpace<NX, NU, NY, T, NW, NV>& sys, const LQRConfig<NX, NU, NY, T>& config) {
+    return detail::state_feedback(sys, config, detail::StateFeedbackOptions{.offset_free = IntegralAction{}});
 }
 
 /** @brief The sampled-data linear-quadratic regulator with integral action on every output: runs as LQI. */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
-[[nodiscard]] constexpr auto lqi(const StateSpace<NX, NU, NY, T, NW, NV>& sys, damp::type_identity_t<T> Ts, const LQRWeights<NX, NU, NY, T>& weights) {
-    return detail::state_feedback(sys, Ts, weights, detail::StateFeedbackOptions{.offset_free = IntegralAction{}});
+[[nodiscard]] constexpr auto lqi(const StateSpace<NX, NU, NY, T, NW, NV>& sys, damp::type_identity_t<T> Ts, const LQRConfig<NX, NU, NY, T>& config) {
+    return detail::state_feedback(sys, Ts, config, detail::StateFeedbackOptions{.offset_free = IntegralAction{}});
 }
 
 /**
@@ -56,10 +59,10 @@ template<size_t NI, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size
     requires(NI > 0)
 [[nodiscard]] constexpr auto lqi(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
-    const LQRWeights<NX, NU, NI, T>&         weights,
+    const LQRConfig<NX, NU, NI, T>&          config,
     const IntegralAction<NI>&                outputs
 ) {
-    return detail::state_feedback(sys, weights, detail::StateFeedbackOptions{.offset_free = outputs});
+    return detail::state_feedback(sys, config, detail::StateFeedbackOptions{.offset_free = outputs});
 }
 
 /** @brief The sampled-data linear-quadratic regulator with integral action on the listed outputs: runs as LQI. */
@@ -68,10 +71,10 @@ template<size_t NI, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size
 [[nodiscard]] constexpr auto lqi(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     damp::type_identity_t<T>                 Ts,
-    const LQRWeights<NX, NU, NI, T>&         weights,
+    const LQRConfig<NX, NU, NI, T>&          config,
     const IntegralAction<NI>&                outputs
 ) {
-    return detail::state_feedback(sys, Ts, weights, detail::StateFeedbackOptions{.offset_free = outputs});
+    return detail::state_feedback(sys, Ts, config, detail::StateFeedbackOptions{.offset_free = outputs});
 }
 
 /**
@@ -92,9 +95,9 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     damp::type_identity_t<T>                 Ts,
     const InputDelay<N, S>&                  delay,
-    const LQRWeights<NX, NU, NY, T>&         weights
+    const LQRConfig<NX, NU, NY, T>&          config
 ) {
-    return detail::state_feedback(sys, Ts, delay, weights, detail::StateFeedbackOptions{.offset_free = IntegralAction{}});
+    return detail::state_feedback(sys, Ts, delay, config, detail::StateFeedbackOptions{.offset_free = IntegralAction{}});
 }
 
 /** @brief The sampled-data LQI of a plant whose input arrives @p delay late, integral action on the listed outputs: runs as LQI. */
@@ -104,10 +107,10 @@ template<size_t NI, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     damp::type_identity_t<T>                 Ts,
     const InputDelay<N, S>&                  delay,
-    const LQRWeights<NX, NU, NI, T>&         weights,
+    const LQRConfig<NX, NU, NI, T>&          config,
     const IntegralAction<NI>&                outputs
 ) {
-    return detail::state_feedback(sys, Ts, delay, weights, detail::StateFeedbackOptions{.offset_free = outputs});
+    return detail::state_feedback(sys, Ts, delay, config, detail::StateFeedbackOptions{.offset_free = outputs});
 }
 
 } // namespace design
@@ -118,8 +121,10 @@ template<size_t NI, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size
  *
  * Runs design::lqi. xi integrates r − Ci·C·x; the law is u = u* − K·[x − x*; xi]. The tick is
  * update(x) then control(r), or step(r, x), with x* = 0 and u* = 0; feedforward from a planned
- * trajectory (x_ref, u_ref) is control(r, x_ref, u_ref), or step(r, x_ref, u_ref, x). Then
- * back_calculate(u_sat) and predict() hold the integrators against a clamp.
+ * trajectory (x_ref, u_ref) is control(r, x_ref, u_ref), or step(r, x_ref, u_ref, x). The
+ * command is clamped into u_lim and xi into integral.lim (the design's, LQRConfig; unbounded by
+ * default), and predict() holds the integrators against that clamp; back_calculate(u_sat) before
+ * it reports a stage that clamps after the law.
  *
  * A design with an InputDelay (NRU > 0) runs on [x; v(k−1); …; v(k−NRU); xi]: update takes the
  * plant state x, and predict shifts the input back_calculate recorded (else the last command)
@@ -148,6 +153,7 @@ struct LQI : private detail::StateFeedbackCore<NX, NU, T, NI, NY, NoEstimator, 0
 
     using Core::integral;
     using Core::K;
+    using Core::u_lim;
 
     /** @brief Hold the measured plant state @p x for the next control (the input registers are the law's). */
     constexpr void update(const ColVec<NX, T>& x) { Core::update(x); }

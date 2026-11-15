@@ -178,17 +178,6 @@ template<size_t N, typename T>
     return W + (Matrix<N, N, T>::identity() * (damp::sqrt(eps<T>()) * w_max));
 }
 
-/** @brief State limits the window accepts: no NaN end (∓max() for none) and no lower end above its upper one. */
-template<size_t N, typename T>
-[[nodiscard]] constexpr bool mhe_limits_valid(const Bounds<N, T>& b) {
-    for (size_t i = 0; i < N; ++i) {
-        if (!damp::isfinite(b.lower(i)) || !damp::isfinite(b.upper(i)) || !(b.lower(i) <= b.upper(i))) {
-            return false;
-        }
-    }
-    return true;
-}
-
 } // namespace detail
 
 /**
@@ -242,7 +231,7 @@ template<size_t NH, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size
     if (!detail::finite_filter_model(sys, noise.process, noise.measurement)) {
         return ::damp::detail::set_status(art, DesignStatus::bad_weights);
     }
-    if (!detail::mhe_limits_valid(constraints.x_lim)) {
+    if (!constraints.x_lim.valid()) {
         return ::damp::detail::set_status(art, DesignStatus::invalid_parameter); // as design::mpc's limits
     }
     if (!mat::all_of(sys.D, [](T v) { return v == T{0}; })) {

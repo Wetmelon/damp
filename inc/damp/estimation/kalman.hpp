@@ -52,7 +52,7 @@ namespace design {
  * @brief The estimator's noise: process noise on the plant's noise inputs (through G),
  *        measurement noise on the sensors (through H)
  *
- * The meaning of @c process follows the plant's time domain, as LQRWeights does. On a
+ * The meaning of @c process follows the plant's time domain, as LQRConfig does. On a
  * continuous plant (the `kalman(sys, Ts, noise)` form) it is a power spectral density, the
  * intensity of white noise in ẋ = Ax + Bu + Gw; the design integrates it over one sample
  * (Van Loan, @ref discretize_process_noise), so the same density gives the same filter
