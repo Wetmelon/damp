@@ -115,6 +115,14 @@ the repo root.
   predict then update then control (m_k in, u_k out). Low-latency ISR: update →
   control → write → `back_calculate` → predict. `back_calculate(u_sat, u_ff = {})`
   records the applied input.
+- **Limits:** a law's output limit is `u_lim` (`Bounds`, unbounded by default):
+  in the design input or on its result, a public member of the runtime, refused
+  when it is not a box. The tick returns a command inside it, and with nothing
+  else set the law's memory holds against that clamp (conditional integration,
+  an observer or internal model on the clamped command). A clamp after the law
+  is reported with `back_calculate`, to the same effect. State and output
+  limits are `design::mpc` (`y_lim`), `design::mhe` (`x_lim`) or an
+  `ActionGovernor` around any law. A new law with memory gets all of it.
 - **Errors:** `optional` / `bool success` / `DesignStatus` / compile-time
   constraints. No exceptions on the tick path.
 

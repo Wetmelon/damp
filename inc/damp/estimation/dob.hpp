@@ -474,6 +474,20 @@ public:
         return u;
     }
 
+    /**
+     * @brief Record the input the plant received, @p u_sat, when a stage after the observer
+     *        clamped the command step() returned
+     *
+     * The Q·u path takes @p u_sat on the next tick, so the estimate d̂ does not absorb what the
+     * clamp cut off. Same signature as the laws' back_calculate: a feedforward added before the
+     * clamp is already part of @p u_sat, so @p u_ff does not enter.
+     */
+    constexpr void back_calculate(T u_sat, [[maybe_unused]] T u_ff = T{0}) {
+        if (valid_) {
+            u_prev_ = u_sat;
+        }
+    }
+
     [[nodiscard]] constexpr T    disturbance() const { return d_hat_; }
     [[nodiscard]] constexpr bool valid() const { return valid_; }
 

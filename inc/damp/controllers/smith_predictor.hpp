@@ -461,6 +461,31 @@ public:
         return u;
     }
 
+    /**
+     * @brief Record the input the plant received, @p u_sat, when a stage after this law clamped
+     *        its command, and the feedforward @p u_ff added to the command before that clamp
+     *
+     * The internal model runs on the input that reached the plant: the command just queued is
+     * replaced by @p u_sat, so the prediction ŷ − ŷ_d stays the plant's, where a clamp the model
+     * did not see left it predicting an output the plant never produced. The primary controller
+     * is told the same when it has a back_calculate.
+     *
+     * @see "Advanced PID Control" (Åström & Hägglund, 2006), §7.5
+     */
+    constexpr void back_calculate(T u_sat, T u_ff = T{0}) {
+        if (!valid_) {
+            return;
+        }
+        const size_t newest = (head_ == 0) ? periods() : (head_ - 1);
+        if (periods() == 0) {
+            x_ += b_ * (u_sat - ring_[newest]); // no delay: the model has already stepped on this command
+        }
+        ring_[newest] = u_sat;
+        if constexpr (requires { primary_.back_calculate(u_sat, u_ff); }) {
+            primary_.back_calculate(u_sat, u_ff);
+        }
+    }
+
     /** @brief Clear primary, commands in flight, and model state */
     constexpr void reset() {
         primary_.reset();

@@ -12,6 +12,7 @@
 
 
 #include "damp/backend.hpp"
+#include "damp/controllers/detail/anti_windup.hpp"
 #include "damp/design/status.hpp"
 #include "damp/math/complex.hpp"
 #include "damp/math/math.hpp"
@@ -79,7 +80,7 @@ struct [[nodiscard]] DiscretePIDGains {
     T            d_b{};          ///< Filtered-derivative input gain
     Bounds<1, T> u_lim{};        ///< Output limits [lower, upper] (default unbounded)
     Bounds<1, T> integral_lim{}; ///< Clamp on integral term I (same units as u; default unbounded)
-    T            Kbc = T{0};     ///< Back-calculation coefficient, same sign as Ki; 0 = output clamp only
+    T            Kbc = T{0};     ///< Back-calculation coefficient, same sign as Ki; 0: I holds against a clamp (conditional integration)
     T            b = T{1};       ///< Proportional setpoint weight
     T            c = T{1};       ///< Derivative setpoint weight
     T            Tf = T{0};      ///< Continuous derivative filter time constant (documentation)
@@ -119,6 +120,9 @@ struct [[nodiscard]] DiscretePIDGains {
  * An aggregate: every field has a safe default (unbounded limits, no
  * back-calculation, b = c = 1, unfiltered derivative), so name only the knobs
  * you set — `design::PIDGains{.Kp = 4.0, .Ki = 8.0, .u_lim = {.lower = -12.0, .upper = 12.0}}`.
+ * An output limit is enough for anti-windup: with Kbc = 0 the integral holds against the
+ * clamp (conditional integration), its own or one reported with back_calculate. A Kbc
+ * unwinds it instead, with the tracking time T_t = Kbc/Ki.
  * @ref design::pid covers the plain (Kp, Ki, Kd) case. Deploy via
  * discretize into a @ref DiscretePIDGains for the fixed-rate
  * PIDController, or hand the continuous gains to @ref ContinuousPID
@@ -140,7 +144,8 @@ struct [[nodiscard]] PIDGains {
     Bounds<1, T> integral_lim{}; ///< Clamp on integral term I (same units as u; default unbounded)
     T            Kbc = T{0};     ///< Back-calculation coefficient: ΔI += Ki·(Ts/Kbc)(u−u_unsat).
                                  ///< Tracking time T_t = Kbc/Ki (parallel form); Kbc = Kp ⇒ T_t = T_i.
-                                 ///< Same sign as Ki (T_t > 0). Larger |Kbc| → slower unwind; 0 = output clamp only.
+                                 ///< Same sign as Ki (T_t > 0). Larger |Kbc| → slower unwind.
+                                 ///< 0 (default): no unwinding, I holds against a clamp (conditional integration).
     T            b = T{1};       ///< Proportional setpoint weight (0=I-PD, 1=standard PID)
     T            c = T{1};       ///< Derivative setpoint weight   (0=PI-D, 1=standard PID)
     T            Tf = T{0};      ///< Derivative filter time constant (0 = unfiltered)
@@ -178,9 +183,9 @@ struct [[nodiscard]] PIDGains {
      *
      * A failed design stays failed (its status is carried over), a @p ts that is not
      * positive and finite is refused with DesignStatus::invalid_sample_time, and a
-     * non-finite gain, a Tf < 0, or a Kbc whose sign differs from Ki's (T_t = Kbc/Ki < 0,
-     * back-calculation would wind the integrator up) is refused with
-     * DesignStatus::invalid_parameter.
+     * non-finite gain, a Tf < 0, a Kbc whose sign differs from Ki's (T_t = Kbc/Ki < 0,
+     * back-calculation would wind the integrator up), or a limit that is not finite or whose
+     * lower end is above its upper one is refused with DesignStatus::invalid_parameter.
      *
      * @param ts Sample period [s]
      * @return DiscretePIDGains for PIDController
@@ -194,6 +199,9 @@ struct [[nodiscard]] PIDGains {
         }
         if (!::damp::detail::pid_gains_in_domain(Kp, Ki, Kd, Tf, Kbc, b, c) || ::damp::detail::pid_kbc_winds_up(Ki, Kbc)) {
             return ::damp::detail::refused<DiscretePIDGains<T>>(DesignStatus::invalid_parameter);
+        }
+        if (!u_lim.valid() || !integral_lim.valid()) {
+            return ::damp::detail::refused<DiscretePIDGains<T>>(DesignStatus::invalid_parameter); // as the LQ and MPC designs
         }
         DiscretePIDGains<T> d{};
         d.Kp = Kp;
@@ -381,8 +389,8 @@ enum class PIDMode : uint8_t {
 /**
  * @brief Runtime operating mode for PIDController / @ref ContinuousPID.
  *
- * - `Auto`:     standard control law with back-calculation anti-windup. The
- *               controller follows the reference.
+ * - `Auto`:     standard control law, the integral held (Kbc = 0) or unwound (Kbc ≠ 0)
+ *               against a clamp. The controller follows the reference.
  * - `Tracking`: the controller's output is `u_track` clamped into the output limits `u`
  *               and on every tick the integrator (and derivative state) is
  *               pre-loaded so that the next `enable()` call resumes in `Auto`
@@ -412,17 +420,29 @@ constexpr void pid_set_integral(C& c, T v) {
     c.integral = c.integral_lim.saturate(v);
 }
 
-/** @brief Back-calculation ΔI = gain·(u_sat − u_unsat)/Kbc. No-op when Kbc or gain is zero. */
+/**
+ * @brief Anti-windup for a clamp of u_sat − u_unsat: back-calculation ΔI = gain·(u_sat − u_unsat)/Kbc,
+ *        or with Kbc = 0 conditional integration (hold_against_clamp: I gives back what the last
+ *        tick added, up to the excess, and holds). No-op when gain is zero.
+ *
+ * The back-calculation takes at most the whole excess in one tick (gain/Kbc ≤ 1, a tracking time
+ * no shorter than the sample): past that it would overshoot the unsaturated value, and past twice
+ * it diverges.
+ */
 template<typename C, typename T>
 constexpr void pid_wind_back(C& c, T gain, T u_sat, T u_unsat) {
-    if (c.Kbc == T{0} || gain == T{0} || u_sat == u_unsat) {
+    if (gain == T{0} || u_sat == u_unsat) {
         return;
     }
-    pid_set_integral(c, c.integral + (gain * ((u_sat - u_unsat) / c.Kbc)));
+    if (c.Kbc == T{0}) {
+        hold_against_clamp(c.integral, c.integral_step, u_sat - u_unsat);
+        return;
+    }
+    pid_set_integral(c, c.integral + (damp::min(gain / c.Kbc, T{1}) * (u_sat - u_unsat)));
 }
 
 /**
- * @brief One tick: Tracking holds u_track, Auto integrates and saturates.
+ * @brief One tick: Tracking holds u_track, Auto integrates, saturates and holds or unwinds I against the clamp.
  *
  * @param dI       Integral increment this tick
  * @param pd       Proportional + derivative terms this tick
@@ -436,10 +456,13 @@ template<typename C, typename T>
 [[nodiscard]] constexpr T pid_step(C& c, T dI, T pd, T pd_next, T gain) {
     if (c.runtime_mode == PIDRuntimeMode::Tracking) {
         pid_set_integral(c, c.u_track - pd_next - dI);
+        c.integral_step = T{0};
         c.u_cmd = c.u_lim.saturate(c.u_track);
         return c.u_cmd;
     }
+    const T held = c.integral;
     pid_set_integral(c, c.integral + dI);
+    c.integral_step = c.integral - held;
     const T u_unsat = pd + c.integral;
     const T u = c.u_lim.saturate(u_unsat);
     pid_wind_back(c, gain, u, u_unsat);
@@ -519,15 +542,16 @@ struct PIDController<T, PIDMode::PID> {
     T            d_b{};
     Bounds<1, T> u_lim{};        ///< Output limits [lower, upper] (default unbounded)
     Bounds<1, T> integral_lim{}; ///< Clamp on integral term I (same units as u; default unbounded)
-    T            Kbc = T{0};     ///< Back-calculation: ΔI += Ki·(u−u_unsat)/Kbc; 0 = output clamp only
+    T            Kbc = T{0};     ///< Back-calculation: ΔI += Ki·(u−u_unsat)/Kbc; 0: I holds against a clamp
     T            b = T{1};       ///< Proportional setpoint weight
     T            c = T{1};       ///< Derivative setpoint weight
     T            Ts = T{0};      ///< Sample period from discretize (documentation)
 
-    T    integral = T{0}; ///< Integral term I (same units as u)
-    T    prev_x = T{0};   ///< Previous c·r − y
-    T    deriv = T{0};    ///< Filtered derivative term D
-    bool first = true;    ///< Next tick seeds prev_x (no derivative kick)
+    T    integral = T{0};      ///< Integral term I (same units as u)
+    T    integral_step = T{0}; ///< What the last control() added to I: what a clamp takes back when Kbc = 0
+    T    prev_x = T{0};        ///< Previous c·r − y
+    T    deriv = T{0};         ///< Filtered derivative term D
+    bool first = true;         ///< Next tick seeds prev_x (no derivative kick)
 
     PIDRuntimeMode runtime_mode{PIDRuntimeMode::Auto};
     T              u_track{T{0}};
@@ -579,6 +603,7 @@ struct PIDController<T, PIDMode::PID> {
           c(static_cast<T>(o.c)),
           Ts(static_cast<T>(o.Ts)),
           integral(static_cast<T>(o.integral)),
+          integral_step(static_cast<T>(o.integral_step)),
           prev_x(static_cast<T>(o.prev_x)),
           deriv(static_cast<T>(o.deriv)),
           first(o.first),
@@ -589,7 +614,8 @@ struct PIDController<T, PIDMode::PID> {
     /**
      * @brief One fixed-rate discrete PID tick
      *
-     * In Auto mode runs the 2-DOF law with back-calculation anti-windup.
+     * In Auto mode runs the 2-DOF law, clamps into u_lim and keeps the integral from winding up
+     * against that clamp: it holds (Kbc = 0) or unwinds by back-calculation (Kbc ≠ 0).
      * In Tracking mode the output is `u_track` clamped into the output limits `u` and the
      * integrator is pre-loaded for bumpless re-enable.
      */
@@ -610,7 +636,8 @@ struct PIDController<T, PIDMode::PID> {
     }
 
     /**
-     * @brief Anti-windup after a downstream clamp: ΔI = Ki·(u_sat − (u + u_ff))/Kbc
+     * @brief Anti-windup after a downstream clamp: ΔI = Ki·(u_sat − (u + u_ff))/Kbc, or with
+     *        Kbc = 0 the integral gives back what the last tick added, up to that excess
      *
      * Call after the stage that clamps the summed command. @p u_sat is what the plant
      * received, @p u_ff whatever was added to this law's command before the clamp; u is
@@ -624,6 +651,7 @@ struct PIDController<T, PIDMode::PID> {
     /** @brief Clear integral and derivative state; keeps gains and runtime mode. */
     constexpr void reset() {
         integral = T{0};
+        integral_step = T{0};
         prev_x = T{0};
         deriv = T{0};
         first = true;
@@ -653,11 +681,12 @@ struct PIDController<T, PIDMode::PI> {
     T            Ki{};           ///< Discrete integral gain Kᵢ T_s (I += Ki·e)
     Bounds<1, T> u_lim{};        ///< Output limits [lower, upper] (default unbounded)
     Bounds<1, T> integral_lim{}; ///< Clamp on integral term I (same units as u; default unbounded)
-    T            Kbc = T{0};     ///< Back-calculation: ΔI += Ki·(u−u_unsat)/Kbc; 0 = output clamp only
+    T            Kbc = T{0};     ///< Back-calculation: ΔI += Ki·(u−u_unsat)/Kbc; 0: I holds against a clamp
     T            b = T{1};       ///< Proportional setpoint weight
     T            Ts = T{0};      ///< Sample period from discretize (documentation)
 
-    T integral = T{0}; ///< Integral term I (same units as u)
+    T integral = T{0};      ///< Integral term I (same units as u)
+    T integral_step = T{0}; ///< What the last control() added to I: what a clamp takes back when Kbc = 0
 
     PIDRuntimeMode runtime_mode{PIDRuntimeMode::Auto};
     T              u_track{T{0}};
@@ -700,6 +729,7 @@ struct PIDController<T, PIDMode::PI> {
           b(static_cast<T>(o.b)),
           Ts(static_cast<T>(o.Ts)),
           integral(static_cast<T>(o.integral)),
+          integral_step(static_cast<T>(o.integral_step)),
           runtime_mode(o.runtime_mode),
           u_track(static_cast<T>(o.u_track)),
           u_cmd(static_cast<T>(o.u_cmd)) {}
@@ -720,7 +750,8 @@ struct PIDController<T, PIDMode::PI> {
     }
 
     /**
-     * @brief Anti-windup after a downstream clamp: ΔI = Ki·(u_sat − (u + u_ff))/Kbc
+     * @brief Anti-windup after a downstream clamp: ΔI = Ki·(u_sat − (u + u_ff))/Kbc, or with
+     *        Kbc = 0 the integral gives back what the last tick added, up to that excess
      *
      * Call after the stage that clamps the summed command. @p u_sat is what the plant
      * received, @p u_ff whatever was added to this law's command before the clamp; u is
@@ -732,7 +763,10 @@ struct PIDController<T, PIDMode::PI> {
     [[nodiscard]] constexpr T last_command() const { return u_cmd; }
 
     /** @brief Clear the integral; keeps gains and runtime mode. */
-    constexpr void reset() { integral = T{0}; }
+    constexpr void reset() {
+        integral = T{0};
+        integral_step = T{0};
+    }
 
     constexpr void enable() { runtime_mode = PIDRuntimeMode::Auto; }
 
@@ -944,14 +978,15 @@ struct ContinuousPID {
     T            Tf = T{0};      ///< Derivative filter time constant (0 = unfiltered)
     Bounds<1, T> u_lim{};        ///< Output limits [lower, upper] (default unbounded)
     Bounds<1, T> integral_lim{}; ///< Clamp on integral term I (same units as u; default unbounded)
-    T            Kbc = T{0};     ///< Back-calculation: ΔI += Ki·(Ts/Kbc)(u−u_unsat); 0 = output clamp only
+    T            Kbc = T{0};     ///< Back-calculation: ΔI += Ki·(Ts/Kbc)(u−u_unsat); 0: I holds against a clamp
     T            b = T{1};       ///< Proportional setpoint weight
     T            c = T{1};       ///< Derivative setpoint weight
 
-    T    integral = T{0}; ///< Integral term I (same units as u)
-    T    prev_x = T{0};   ///< Previous c·r − y
-    T    deriv = T{0};    ///< Filtered derivative term D
-    bool first = true;    ///< Next tick seeds prev_x (no derivative kick)
+    T    integral = T{0};      ///< Integral term I (same units as u)
+    T    integral_step = T{0}; ///< What the last control() added to I: what a clamp takes back when Kbc = 0
+    T    prev_x = T{0};        ///< Previous c·r − y
+    T    deriv = T{0};         ///< Filtered derivative term D
+    bool first = true;         ///< Next tick seeds prev_x (no derivative kick)
 
     PIDRuntimeMode runtime_mode{PIDRuntimeMode::Auto};
     T              u_track{T{0}};
@@ -996,6 +1031,7 @@ struct ContinuousPID {
           b(static_cast<T>(o.b)),
           c(static_cast<T>(o.c)),
           integral(static_cast<T>(o.integral)),
+          integral_step(static_cast<T>(o.integral_step)),
           prev_x(static_cast<T>(o.prev_x)),
           deriv(static_cast<T>(o.deriv)),
           first(o.first),
@@ -1036,7 +1072,8 @@ struct ContinuousPID {
     }
 
     /**
-     * @brief Anti-windup after a downstream clamp: ΔI = Ki·Ts·(u_sat − (u + u_ff))/Kbc
+     * @brief Anti-windup after a downstream clamp: ΔI = Ki·Ts·(u_sat − (u + u_ff))/Kbc, or with
+     *        Kbc = 0 the integral gives back what the last tick added, up to that excess
      *
      * Call after the stage that clamps the summed command, in the same tick as control():
      * Ts is that tick's period and u the command it returned (@ref last_command).
@@ -1050,6 +1087,7 @@ struct ContinuousPID {
     /** @brief Clear integral and derivative state; keeps gains and runtime mode. */
     constexpr void reset() {
         integral = T{0};
+        integral_step = T{0};
         prev_x = T{0};
         deriv = T{0};
         first = true;

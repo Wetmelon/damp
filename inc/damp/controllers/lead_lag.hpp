@@ -50,6 +50,7 @@
 #include "damp/systems/discretization.hpp"
 #include "damp/systems/state_space.hpp"
 #include "damp/systems/transfer_function.hpp"
+#include "damp/toolbox/bounds.hpp"
 
 namespace damp {
 
@@ -67,13 +68,14 @@ struct [[nodiscard]] LeadLagResult {
     T            Ts{};                                ///< Sampling time (seconds), 0 = continuous
     bool         success{false};                      ///< status == DesignStatus::ok
     DesignStatus status{DesignStatus::not_converged}; ///< ok, or why the design failed
+    Bounds<1, T> u_lim{};                             ///< Limits on the output (default unbounded): set here, or on the runtime
 
     /** @brief True when the design succeeded (success). */
     [[nodiscard]] constexpr explicit operator bool() const { return success; }
 
     template<typename U>
     [[nodiscard]] constexpr LeadLagResult<U> as() const {
-        return {static_cast<U>(K), static_cast<U>(z), static_cast<U>(p), static_cast<U>(Ts), success, status};
+        return {static_cast<U>(K), static_cast<U>(z), static_cast<U>(p), static_cast<U>(Ts), success, status, u_lim.template as<U>()};
     }
 
     /**
@@ -306,8 +308,16 @@ template<typename T = double>
  * @brief Discrete lead-lag compensator
  *
  * Implements @f$ C(s) = K(s+z)/(s+p) @f$ discretized via Tustin. A failed or continuous
- * (Ts = 0) design does not compile under constant evaluation; at run time it constructs an
- * invalid controller that emits zero and holds state (fail-closed).
+ * (Ts = 0) design, or one whose u_lim is not a box, does not compile under constant evaluation;
+ * at run time it constructs an invalid controller that emits zero and holds state (fail-closed).
+ *
+ * The output is clamped into u_lim, and the recursion runs on that clamped output: a lag
+ * section's slow pole then holds against the clamp where it kept charging towards its DC gain
+ * behind it. For a stage that clamps after this one, back_calculate(u_sat) puts the recursion
+ * on the output that went out.
+ *
+ * @see "Computer-Controlled Systems" (Åström & Wittenmark, 1997): the controller's recursion
+ *      driven by the saturated output
  *
  * @tparam T Scalar type (default: float)
  */
@@ -321,6 +331,8 @@ struct LeadLagController {
     T b0{0};
     T b1{0};
     T a1{0};
+
+    Bounds<1, T> u_lim{}; ///< Limits on the output (the result's; default unbounded): the recursion runs on the clamped output
 
     // State
     T e_prev{0}; ///< previous input e[n-1]
@@ -338,7 +350,11 @@ struct LeadLagController {
         : K(result.K),
           z(result.z),
           p(result.p),
-          valid_(result.success && result.Ts > T{0} && result.z > T{0} && result.p > T{0}) {
+          u_lim(result.u_lim),
+          valid_(result.success && result.Ts > T{0} && result.z > T{0} && result.p > T{0} && result.u_lim.valid()) {
+        if (result.success && !result.u_lim.valid() && damp::is_constant_evaluated()) {
+            ::damp::detail::refuse_failed_design(design::DesignStatus::invalid_parameter); // a limit that is not finite, or lower above upper
+        }
         if ((!result.success || !(result.Ts > T{0})) && damp::is_constant_evaluated()) {
             ::damp::detail::refuse_failed_design(result.success ? design::DesignStatus::invalid_sample_time : result.status); // constant-evaluated (constinit / constexpr): a failed or continuous design does not compile
         }
@@ -355,6 +371,7 @@ struct LeadLagController {
           b0(static_cast<T>(other.b0)),
           b1(static_cast<T>(other.b1)),
           a1(static_cast<T>(other.a1)),
+          u_lim(other.u_lim.template as<T>()),
           e_prev(static_cast<T>(other.e_prev)),
           u_prev(static_cast<T>(other.u_prev)),
           valid_(other.valid()) {}
@@ -363,16 +380,28 @@ struct LeadLagController {
      * @brief Compute compensator output
      *
      * @param e Compensator input (typically the tracking error)
-     * @return Compensated output (zero if the design was invalid)
+     * @return Compensated output, clamped into u_lim (zero if the design was invalid)
      */
     [[nodiscard]] constexpr T control(T e) {
         if (!valid_) {
             return T{0};
         }
-        const T u = (b0 * e) + (b1 * e_prev) - (a1 * u_prev);
+        const T u = u_lim.saturate((b0 * e) + (b1 * e_prev) - (a1 * u_prev));
         e_prev = e;
         u_prev = u;
         return u;
+    }
+
+    /**
+     * @brief Record the output that went out, @p u_sat, when a stage after this one clamped it,
+     *        and the feedforward @p u_ff added to this output before that clamp
+     *
+     * The recursion continues from u_sat − u_ff, this compensator's share of what was applied.
+     */
+    constexpr void back_calculate(T u_sat, T u_ff = T{0}) {
+        if (valid_) {
+            u_prev = u_sat - u_ff;
+        }
     }
 
     /**
@@ -399,7 +428,7 @@ struct LeadLagController {
     [[nodiscard]] constexpr bool valid() const { return valid_; }
 
 private:
-    bool valid_{true}; // default ctor leaves a zero-gain filter usable as pass-through placeholder
+    bool valid_{true}; // a default-constructed controller has zero coefficients: it emits 0
     /**
      * @brief Compute Tustin-discretized IIR coefficients
      *

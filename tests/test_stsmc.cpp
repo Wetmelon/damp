@@ -253,4 +253,44 @@ TEST_SUITE("stsmc") {
         CHECK(design::stsmc_gains(2.0, 2.2, 1e-3, nan).status == design::DesignStatus::invalid_parameter);
         CHECK(design::stsmc_gains(2.0, 2.2, 1e-3, -1.0).status == design::DesignStatus::invalid_parameter);
     }
+
+    TEST_CASE_TEMPLATE("u_lim: the integral state holds against the clamp, the law's own or one reported", T, float, double) {
+        //! v ran on while the clamped command could not bring s to 0, and had to be run back
+        //! before the law answered again.
+        constexpr double Ts = 1e-3;
+        auto             res = design::stsmc(2.0, Ts);
+        const auto       open = res;
+        res.u_lim = {.lower = -1.0, .upper = 1.0};
+        STSMCController<T> bounded{res.template as<T>()};
+        STSMCController<T> outside{open.template as<T>()};
+        T                  sa{0.5};
+        T                  sb{0.5};
+        T                  v_on_rail{0};
+        for (int k = 0; k < 14000; ++k) {
+            const T d = (k < 2000) ? T{3} : T{0.5}; // ṡ = u + d: a load past the ±1 authority, then within it
+            const T ua = bounded.control_sliding(sa);
+            const T ub = damp::clamp(outside.control_sliding(sb), T{-1}, T{1});
+            outside.back_calculate(ub);
+            CHECK(damp::abs(ua) <= T{1});
+            CHECK(damp::abs(ua - ub) <= T{64} * eps<T>()); // one tick, whichever stage clamps
+            sa += static_cast<T>(Ts) * (ua + d);
+            sb += static_cast<T>(Ts) * (ub + d);
+            if (k == 1999) {
+                v_on_rail = bounded.integral_state();
+            }
+        }
+        CHECK(damp::abs(v_on_rail) <= static_cast<T>(0.01)); // held, where it would have run to −4.4
+        CHECK(damp::abs(sa) < static_cast<T>(0.05));
+        CHECK(static_cast<double>(bounded.integral_state()) == doctest::Approx(-0.5).epsilon(0.1)); // v settles on −d
+        CHECK(bounded.last_command() == bounded.u_lim.saturate(bounded.last_command()));
+    }
+
+    TEST_CASE("a u_lim that is not a box leaves the runtime invalid") {
+        auto res = design::stsmc(2.0, 1e-3);
+        res.u_lim = {.lower = 1.0, .upper = -1.0};
+        STSMCController<double> inert{res};
+        CHECK_FALSE(inert.valid());
+        CHECK(inert.control_sliding(1.0) == 0.0);
+        CHECK(res.as<float>().u_lim.lower(0) == 1.0F); // the box travels with the result
+    }
 }

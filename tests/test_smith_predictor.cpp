@@ -453,4 +453,38 @@ TEST_SUITE("Smith Predictor") {
         CHECK(design::smith_predictor_from_fopdt(1.0, nan, 1.0, 0.1).status == design::DesignStatus::invalid_parameter);
         CHECK(design::smith_predictor_from_fopdt(1.0, 4.0, 1.0, nan).status == design::DesignStatus::invalid_sample_time);
     }
+
+    TEST_CASE("back_calculate: the model runs on the input that reached the plant, and the primary holds") {
+        //! A clamp after the law could not be reported: the model stepped on the unclamped command
+        //! and predicted an output the plant never produced, and the primary wound up behind it.
+        constexpr double K = 1.0;
+        constexpr double tau = 1.0;
+        constexpr double L = 1.0;
+        constexpr double Ts = 0.05;
+        constexpr double rail = 0.8;
+        constexpr auto   sp = design::smith_predictor_from_fopdt(K, tau, L, Ts, 0.5);
+        REQUIRE(sp.success);
+        SmithPredictor<64, double> told(sp);
+        SmithPredictor<64, double> untold(sp);
+        FopdtPlant<64>             plant_t{};
+        FopdtPlant<64>             plant_u{};
+        plant_t.init(K, tau, L, Ts);
+        plant_u.init(K, tau, L, Ts);
+        double y_t = 0.0;
+        double y_u = 0.0;
+        for (int k = 0; k < 1000; ++k) {
+            const double r = (k < 600) ? 2.0 : 0.5; // out of the rail's reach, then within it
+            const double u_t = damp::min(told.control(r, y_t), rail);
+            told.back_calculate(u_t);
+            const double u_u = damp::min(untold.control(r, y_u), rail);
+            y_t = plant_t.step(u_t);
+            y_u = plant_u.step(u_u);
+            if (k == 599) {
+                CHECK(told.delayed_model_output() == doctest::Approx(rail * K).epsilon(1e-3)); // the plant's own output
+                CHECK(untold.delayed_model_output() > 10.0 * rail);                            // an output the plant never had
+            }
+        }
+        CHECK(y_t == doctest::Approx(0.5).epsilon(0.02)); // back on the reference
+        CHECK(y_u > 0.75);                                // still unwinding, on the rail
+    }
 }

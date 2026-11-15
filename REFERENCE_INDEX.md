@@ -20,10 +20,10 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`AdaptOutOfRange`](inc/damp/toolbox/lookup.hpp#L47) | enum | Embedded helpers (controls-adjacent utilities) | How AdaptiveLut1D / AdaptiveLut2D treat samples outside the breakpoint span |
 | [`AdmmSettings`](inc/damp/design/qp.hpp#L800) | block | Design-time synthesis (not PWM-rate) | Tuning parameters for the ADMM QP solver |
 | [`AdmmSolver`](inc/damp/design/qp.hpp#L881) | block | Design-time synthesis (not PWM-rate) | ADMM (OSQP-style) QP solver policy — warm-started, fixed-cost iterations |
-| [`adrc`](inc/damp/controllers/adrc.hpp#L203) | function | Design-time synthesis (not PWM-rate) | Active Disturbance Rejection Control design |
-| [`ADRCController`](inc/damp/controllers/adrc.hpp#L381) | function | Design-time synthesis (not PWM-rate) | Deduce the runtime from its design, keeping the result's scalar |
-| [`ADRCController`](inc/damp/controllers/adrc.hpp#L254) | block | Runtime controllers | Active Disturbance Rejection Control (ADRC) |
-| [`ADRCResult`](inc/damp/controllers/adrc.hpp#L48) | block | Design-time synthesis (not PWM-rate) | Active Disturbance Rejection Control design result |
+| [`adrc`](inc/damp/controllers/adrc.hpp#L206) | function | Design-time synthesis (not PWM-rate) | Active Disturbance Rejection Control design |
+| [`ADRCController`](inc/damp/controllers/adrc.hpp#L412) | function | Design-time synthesis (not PWM-rate) | Deduce the runtime from its design, keeping the result's scalar |
+| [`ADRCController`](inc/damp/controllers/adrc.hpp#L257) | block | Runtime controllers | Active Disturbance Rejection Control (ADRC) |
+| [`ADRCResult`](inc/damp/controllers/adrc.hpp#L49) | block | Design-time synthesis (not PWM-rate) | Active Disturbance Rejection Control design result |
 | [`AffineCal`](inc/damp/toolbox/scaling.hpp#L81) | block | Embedded helpers (controls-adjacent utilities) | Affine sensor calibration `y = gain·x + offset` |
 | [`all_of`](inc/damp/matrix/core.hpp#L1539) | function | Linear algebra | Whether p holds for every entry of A: the matrix counterpart of std::all_of |
 | [`allmargin`](inc/damp/matlab.hpp#L1314) | function | MATLAB®-style aliases (host) | Gain, phase, and delay margins of a SISO loop over a frequency grid |
@@ -116,8 +116,8 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`ConstMatrix`](inc/damp/matrix/const_matrix.hpp#L86) | block | Linear algebra | A matrix that is a constant of its type: no storage, and a product with a vector that has no term for an entry that is exactly 0 |
 | [`continuous_lpf_exact_step`](inc/damp/filters/lowpass.hpp#L37) | function | Filters & signal conditioning | Exact step of continuous first-order LPF ẏ = −ω_c (y − u) |
 | [`continuous_lqr`](inc/damp/design/riccati.hpp#L1744) | function | Design-time synthesis (not PWM-rate) | Continuous-time Linear-Quadratic Regulator design |
-| [`ContinuousPID`](inc/damp/controllers/pid.hpp#L1070) | function | Design-time synthesis (not PWM-rate) | Deduce the runtime from its design, keeping the result's scalar |
-| [`ContinuousPID`](inc/damp/controllers/pid.hpp#L940) | block | Runtime controllers | Continuous-gain PID with per-tick sample time (variable-rate secondary form) |
+| [`ContinuousPID`](inc/damp/controllers/pid.hpp#L1108) | function | Design-time synthesis (not PWM-rate) | Deduce the runtime from its design, keeping the result's scalar |
+| [`ContinuousPID`](inc/damp/controllers/pid.hpp#L974) | block | Runtime controllers | Continuous-gain PID with per-tick sample time (variable-rate secondary form) |
 | [`controllability_gramian`](inc/damp/design/stability.hpp#L381) | function | Design-time synthesis (not PWM-rate) | Continuous/discrete controllability Gramian W_c |
 | [`controllability_matrix`](inc/damp/design/stability.hpp#L53) | function | Design-time synthesis (not PWM-rate) | Compute the controllability matrix [B, AB, A²B, ..., A^(N-1)B] |
 | [`controllability_staircase`](inc/damp/systems/realization.hpp#L789) | function | LTI systems (SS / TF / ZPK / discretize) | Controllability staircase form: the controllable part split off by an orthogonal transform |
@@ -161,7 +161,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`Discrete`](inc/damp/simulation/integrator.hpp#L151) | block | Simulation / SIL harness (host) | Discrete-time integrator (no integration, just one step) |
 | [`discrete_lqr`](inc/damp/design/riccati.hpp#L1610) | function | Design-time synthesis (not PWM-rate) | Discrete-time Linear-Quadratic Regulator design (+1 more overload) |
 | [`discrete_lyapunov_cholesky`](inc/damp/design/lyapunov.hpp#L518) | function | Design-time synthesis (not PWM-rate) | Cholesky factor of the discrete Lyapunov solution: A X Aᵀ − X + B Bᵀ = 0, X = RᵀR |
-| [`DiscretePIDGains`](inc/damp/controllers/pid.hpp#L74) | block | Runtime controllers | Fixed-rate discrete PID coefficients (canonical deploy form) |
+| [`DiscretePIDGains`](inc/damp/controllers/pid.hpp#L75) | block | Runtime controllers | Fixed-rate discrete PID coefficients (canonical deploy form) |
 | [`DiscretizationMethod`](inc/damp/systems/discretization.hpp#L27) | enum | LTI systems (SS / TF / ZPK / discretize) | Discretization methods for continuous-time state-space systems |
 | [`DiscretizationResult`](inc/damp/systems/discretization.hpp#L50) | block | LTI systems (SS / TF / ZPK / discretize) | A discretized or resampled model with its success / status, read like an optional |
 | [`discretize`](inc/damp/systems/discretization.hpp#L330) | function | LTI systems (SS / TF / ZPK / discretize) | Discretize a continuous-time state-space system (+3 more overloads) |
@@ -202,8 +202,8 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`ErrorStateKalmanFilter`](inc/damp/estimation/eskf.hpp#L338) | block | Observers & estimators | Runtime error-state KF: tracks δx and P, not the full nominal state (+1 more overload) |
 | [`ErrorStateKalmanFilterConfig`](inc/damp/estimation/eskf.hpp#L309) | block | Observers & estimators | Configuration of an ErrorStateKalmanFilter: the process noise and the initial covariance |
 | [`ErrorTolerance`](inc/damp/simulation/solver.hpp#L302) | block | Simulation / SIL harness (host) | Scalar-or-vector local-error tolerance for adaptive ODE control |
-| [`esc`](inc/damp/controllers/esc.hpp#L155) | function | Design-time synthesis (not PWM-rate) | Synthesize an extremum-seeking controller |
-| [`esc_mppt`](inc/damp/controllers/esc.hpp#L199) | function | Design-time synthesis (not PWM-rate) | MPPT-flavored ESC: maximize a power measurement by perturbing the operating point (e.g. converter duty or reference voltage) |
+| [`esc`](inc/damp/controllers/esc.hpp#L156) | function | Design-time synthesis (not PWM-rate) | Synthesize an extremum-seeking controller |
+| [`esc_mppt`](inc/damp/controllers/esc.hpp#L200) | function | Design-time synthesis (not PWM-rate) | MPPT-flavored ESC: maximize a power measurement by perturbing the operating point (e.g. converter duty or reference voltage) |
 | [`ESCResult`](inc/damp/controllers/esc.hpp#L90) | block | Design-time synthesis (not PWM-rate) | Extremum-seeking design result: the discrete realization the runtime runs |
 | [`ESCSpec`](inc/damp/controllers/esc.hpp#L70) | block | Runtime controllers | The extremum-seeking design input: dither, gain, filter corners and clamp; Ts is passed beside it |
 | [`eskf_imu`](inc/damp/estimation/eskf.hpp#L217) | function | Observers & estimators | Design Q, R, P₀ for a 6-state IMU attitude ESKF (gyro + accel) |
@@ -232,8 +232,8 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`extract_modes`](inc/damp/estimation/frequency_response.hpp#L783) | function | Observers & estimators | Extract resonant peaks (local \|G\| maxima) from an FRF table |
 | [`extract_valleys`](inc/damp/estimation/frequency_response.hpp#L797) | function | Observers & estimators | Extract anti-resonance valleys (local \|G\| minima) from an FRF table |
 | [`Extrapolation`](inc/damp/toolbox/lookup.hpp#L35) | enum | Embedded helpers (controls-adjacent utilities) | Out-of-range behaviour for a Lut1D / Lut2D / Lut3D query beyond its breakpoints |
-| [`ExtremumSeekingController`](inc/damp/controllers/esc.hpp#L373) | function | Design-time synthesis (not PWM-rate) | Deduce the runtime from its design, keeping the result's scalar |
-| [`ExtremumSeekingController`](inc/damp/controllers/esc.hpp#L235) | block | Runtime controllers | Extremum-seeking controller runtime (model-free online optimizer) |
+| [`ExtremumSeekingController`](inc/damp/controllers/esc.hpp#L384) | function | Design-time synthesis (not PWM-rate) | Deduce the runtime from its design, keeping the result's scalar |
+| [`ExtremumSeekingController`](inc/damp/controllers/esc.hpp#L236) | block | Runtime controllers | Extremum-seeking controller runtime (model-free online optimizer) |
 | [`ExtremumType`](inc/damp/controllers/esc.hpp#L48) | enum | Runtime controllers | Whether ESC climbs to a maximum or descends to a minimum of the objective |
 | [`eye`](inc/damp/matlab.hpp#L609) | function | MATLAB®-style aliases (host) | Create an identity matrix of size n x n |
 | [`F_TRIG`](inc/damp/toolbox/iec61131.hpp#L151) | block | Embedded helpers (controls-adjacent utilities) | F_TRIG (Falling Edge Trigger) |
@@ -390,7 +390,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`KalmanNoise`](inc/damp/estimation/kalman.hpp#L80) | block | Observers & estimators | The estimator's noise: process noise on the plant's noise inputs (through G), measurement noise on the sensors (through H) (+2 more overloads) |
 | [`KalmanResult`](inc/damp/estimation/kalman.hpp#L138) | block | Observers & estimators | Steady-state Kalman filter design result |
 | [`kalmd`](inc/damp/matlab.hpp#L982) | function | MATLAB®-style aliases (host) | Discrete Kalman estimator for a continuous plant and continuous noise (MATLAB®'s kalmd) |
-| [`lag`](inc/damp/controllers/lead_lag.hpp#L196) | function | Design-time synthesis (not PWM-rate) | Design a lag compensator from desired low-frequency gain boost |
+| [`lag`](inc/damp/controllers/lead_lag.hpp#L198) | function | Design-time synthesis (not PWM-rate) | Design a lag compensator from desired low-frequency gain boost |
 | [`lambda_tuning`](inc/damp/design/pid_design.hpp#L429) | function | Design-time synthesis (not PWM-rate) | Lambda tuning for FOPDT model |
 | [`Latch`](inc/damp/toolbox/logic.hpp#L65) | block | Embedded helpers (controls-adjacent utilities) | Set/reset latch. @tparam SetDominant which input wins when both are asserted (default: set-dominant, e.g. a trip overriding a clear) |
 | [`Law`](inc/damp/design/model_inverse.hpp#L950) | block | Design-time synthesis (not PWM-rate) | Law<kRes, T> of a `constexpr` model inverse: the same runtime on the design's matrices as constants of the type (+1 more overload) |
@@ -399,13 +399,13 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`LDLT`](inc/damp/matrix/decomposition.hpp#L175) | block | Linear algebra | LDLᴴ factors with symmetric pivoting: P·A·Pᵀ = L·D·Lᴴ, D block diagonal with 1×1 and 2×2 blocks |
 | [`ldlt`](inc/damp/matrix/decomposition.hpp#L482) | function | Linear algebra | Symmetric indefinite LDLᴴ with rook pivoting: P·A·Pᵀ = L·D·Lᴴ, D block diagonal (1×1 and 2×2) |
 | [`ldlt_solve`](inc/damp/matrix/solve.hpp#L193) | function | Linear algebra | Solve AX = B via pivoted LDLᴴ (P·A·Pᵀ = L·D·Lᴴ, symmetric indefinite) |
-| [`lead`](inc/damp/controllers/lead_lag.hpp#L143) | function | Design-time synthesis (not PWM-rate) | Design a lead compensator from desired phase boost at a target frequency |
-| [`lead_lag`](inc/damp/controllers/lead_lag.hpp#L257) | function | Design-time synthesis (not PWM-rate) | Design a lead-lag compensator (cascade of lead + lag sections) |
-| [`lead_lag_direct`](inc/damp/controllers/lead_lag.hpp#L292) | function | Design-time synthesis (not PWM-rate) | Direct lead-lag specification from zero/pole locations |
-| [`LeadLagController`](inc/damp/controllers/lead_lag.hpp#L435) | function | Design-time synthesis (not PWM-rate) | Deduce the runtime from its design, keeping the result's scalar |
-| [`LeadLagController`](inc/damp/controllers/lead_lag.hpp#L315) | block | Runtime controllers | Discrete lead-lag compensator |
-| [`LeadLagResult`](inc/damp/controllers/lead_lag.hpp#L63) | block | Design-time synthesis (not PWM-rate) | Lead-lag compensator design result |
-| [`LeadLagSeriesResult`](inc/damp/controllers/lead_lag.hpp#L223) | block | Design-time synthesis (not PWM-rate) | Cascaded lead+lag design result (2nd-order StateSpace + success) |
+| [`lead`](inc/damp/controllers/lead_lag.hpp#L145) | function | Design-time synthesis (not PWM-rate) | Design a lead compensator from desired phase boost at a target frequency |
+| [`lead_lag`](inc/damp/controllers/lead_lag.hpp#L259) | function | Design-time synthesis (not PWM-rate) | Design a lead-lag compensator (cascade of lead + lag sections) |
+| [`lead_lag_direct`](inc/damp/controllers/lead_lag.hpp#L294) | function | Design-time synthesis (not PWM-rate) | Direct lead-lag specification from zero/pole locations |
+| [`LeadLagController`](inc/damp/controllers/lead_lag.hpp#L464) | function | Design-time synthesis (not PWM-rate) | Deduce the runtime from its design, keeping the result's scalar |
+| [`LeadLagController`](inc/damp/controllers/lead_lag.hpp#L325) | block | Runtime controllers | Discrete lead-lag compensator |
+| [`LeadLagResult`](inc/damp/controllers/lead_lag.hpp#L64) | block | Design-time synthesis (not PWM-rate) | Lead-lag compensator design result |
+| [`LeadLagSeriesResult`](inc/damp/controllers/lead_lag.hpp#L225) | block | Design-time synthesis (not PWM-rate) | Cascaded lead+lag design result (2nd-order StateSpace + success) |
 | [`lerp`](inc/damp/toolbox/scaling.hpp#L33) | function | Embedded helpers (controls-adjacent utilities) | Linear interpolation between a and b by fraction t |
 | [`leverrier_num_scale`](inc/damp/systems/zpk.hpp#L578) | function | LTI systems (SS / TF / ZPK / discretize) | Magnitude scale of each strictly proper Leverrier numerator coefficient |
 | [`LeverrierResult`](inc/damp/systems/zpk.hpp#L512) | block | LTI systems (SS / TF / ZPK / discretize) | Faddeev–LeVerrier characteristic polynomial and adjoint coefficient matrices |
@@ -439,9 +439,9 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`LowPassResult`](inc/damp/filters/lowpass.hpp#L56) | block | Filters & signal conditioning | Direct-form coefficients of an Nth-order low-pass, with success / status |
 | [`lowshelf`](inc/damp/filters/iir_design.hpp#L872) | function | Filters & signal conditioning | Low-shelf EQ filter: boost or cut everything below fc |
 | [`lqg`](inc/damp/controllers/lqg.hpp#L44) | function | Design-time synthesis (not PWM-rate) | The linear-quadratic Gaussian law: LQR on a steady-state Kalman filter's estimate (design::kalman(sys, noise)): runs as LQG (+5 more overloads) |
-| [`LQG`](inc/damp/controllers/lqg.hpp#L279) | function | Design-time synthesis (not PWM-rate) | LQG law{res}: the sizes, scalar and filter of design::lqg's result |
+| [`LQG`](inc/damp/controllers/lqg.hpp#L284) | function | Design-time synthesis (not PWM-rate) | LQG law{res}: the sizes, scalar and filter of design::lqg's result |
 | [`lqg`](inc/damp/matlab.hpp#L1097) | function | MATLAB®-style aliases (host) | Linear-Quadratic-Gaussian regulator design |
-| [`LQG`](inc/damp/controllers/lqg.hpp#L189) | block | Runtime controllers | Linear-quadratic Gaussian law: LQR on the Kalman filter's estimate |
+| [`LQG`](inc/damp/controllers/lqg.hpp#L194) | block | Runtime controllers | Linear-quadratic Gaussian law: LQR on the Kalman filter's estimate |
 | [`lqg_from_parts`](inc/damp/controllers/lqg.hpp#L150) | function | Design-time synthesis (not PWM-rate) | Assemble an LQG design from separately computed Kalman and LQR designs |
 | [`lqgi`](inc/damp/controllers/lqgi.hpp#L41) | function | Design-time synthesis (not PWM-rate) | The linear-quadratic Gaussian law with integral action on every output: runs as LQGI (+5 more overloads) |
 | [`LQGI`](inc/damp/controllers/lqgi.hpp#L193) | function | Design-time synthesis (not PWM-rate) | LQGI law{res}: the sizes, scalar and filter of design::lqgi's result |
@@ -611,15 +611,15 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`phase_margin_from_damping_ratio`](inc/damp/design/pid_design.hpp#L888) | function | Design-time synthesis (not PWM-rate) | Approximate phase margin from damping ratio |
 | [`phase_margin_unwrapped`](inc/damp/analysis/frequency.hpp#L169) | function | Frequency-domain analysis (host) | Find the phase margin using the unwrapped phase trajectory |
 | [`PhaseUnwrapper`](inc/damp/encoder/unwrap.hpp#L40) | block | Embedded helpers (controls-adjacent utilities) | Counts whole periods from successive fine phases (no hardware counter) |
-| [`pid`](inc/damp/controllers/pid.hpp#L361) | function | Design-time synthesis (not PWM-rate) | Continuous PID gains Kₚ, Kᵢ, K_d with every other knob at its default |
+| [`pid`](inc/damp/controllers/pid.hpp#L369) | function | Design-time synthesis (not PWM-rate) | Continuous PID gains Kₚ, Kᵢ, K_d with every other knob at its default |
 | [`pid`](inc/damp/matlab.hpp#L249) | function | MATLAB®-style aliases (host) | MATLAB®-style parallel-form continuous PID constructor |
 | [`pid_pole_placement`](inc/damp/design/pid_design.hpp#L960) | function | Design-time synthesis (not PWM-rate) | PI gains that place the closed-loop poles of a first-order plant b₀/(a₁ s + a₀) (+4 more overloads) |
-| [`PIDController`](inc/damp/controllers/pid.hpp#L903) | function | Design-time synthesis (not PWM-rate) | Deduce the runtime from its gains, keeping their scalar: PIDController pid{gains} is a PID; through an alias the mode comes from the alias: PIController pi{gains}; |
-| [`PIDController`](inc/damp/controllers/pid.hpp#L514) | block | Runtime controllers | Fixed-rate discrete 2-DOF PID (canonical runtime) (+3 more overloads) |
-| [`PIDGains`](inc/damp/controllers/pid.hpp#L135) | block | Runtime controllers | 2-DOF continuous-time PID gains, limits and setpoint weights |
-| [`PIDMode`](inc/damp/controllers/pid.hpp#L374) | enum | Runtime controllers | Compile-time selection of the PID control-law structure |
+| [`PIDController`](inc/damp/controllers/pid.hpp#L937) | function | Design-time synthesis (not PWM-rate) | Deduce the runtime from its gains, keeping their scalar: PIDController pid{gains} is a PID; through an alias the mode comes from the alias: PIController pi{gains}; |
+| [`PIDController`](inc/damp/controllers/pid.hpp#L537) | block | Runtime controllers | Fixed-rate discrete 2-DOF PID (canonical runtime) (+3 more overloads) |
+| [`PIDGains`](inc/damp/controllers/pid.hpp#L139) | block | Runtime controllers | 2-DOF continuous-time PID gains, limits and setpoint weights |
+| [`PIDMode`](inc/damp/controllers/pid.hpp#L382) | enum | Runtime controllers | Compile-time selection of the PID control-law structure |
 | [`PIDPolePlacementSpec`](inc/damp/design/pid_design.hpp#L912) | block | Design-time synthesis (not PWM-rate) | Closed-loop targets for the continuous pid_pole_placement forms |
-| [`PIDRuntimeMode`](inc/damp/controllers/pid.hpp#L399) | enum | Runtime controllers | Runtime operating mode for PIDController / ContinuousPID |
+| [`PIDRuntimeMode`](inc/damp/controllers/pid.hpp#L407) | enum | Runtime controllers | Runtime operating mode for PIDController / ContinuousPID |
 | [`pidstd`](inc/damp/matlab.hpp#L272) | function | MATLAB®-style aliases (host) | Standard-form continuous PID constructor (1-DOF) |
 | [`pidstd2`](inc/damp/matlab.hpp#L291) | function | MATLAB®-style aliases (host) | Standard-form continuous 2-DOF PID constructor |
 | [`pidtune`](inc/damp/design/pid_design.hpp#L807) | function | Design-time synthesis (not PWM-rate) | Plant-aware PID tune at a crossover |
@@ -853,11 +853,11 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`StepTrainConfig`](inc/damp/estimation/excitation/step_train.hpp#L30) | block | Observers & estimators | Configuration for alternating +/- step excitation |
 | [`StepTrainResult`](inc/damp/estimation/excitation/step_train.hpp#L62) | block | Observers & estimators | Step-train design payload |
 | [`Stopwatch`](inc/damp/toolbox/timing.hpp#L88) | block | Embedded helpers (controls-adjacent utilities) | Free-running elapsed-time accumulator |
-| [`stsmc`](inc/damp/controllers/stsmc.hpp#L98) | function | Design-time synthesis (not PWM-rate) | Synthesize super-twisting gains from a disturbance-derivative bound |
-| [`stsmc_gains`](inc/damp/controllers/stsmc.hpp#L142) | function | Design-time synthesis (not PWM-rate) | Super-twisting controller from gains you specify directly |
-| [`STSMCController`](inc/damp/controllers/stsmc.hpp#L320) | function | Design-time synthesis (not PWM-rate) | Deduce the runtime from its design, keeping the result's scalar |
-| [`STSMCController`](inc/damp/controllers/stsmc.hpp#L204) | block | Runtime controllers | Super-twisting controller (second-order sliding mode) |
-| [`STSMCResult`](inc/damp/controllers/stsmc.hpp#L33) | block | Design-time synthesis (not PWM-rate) | Super-twisting (second-order sliding-mode) controller design result |
+| [`stsmc`](inc/damp/controllers/stsmc.hpp#L101) | function | Design-time synthesis (not PWM-rate) | Synthesize super-twisting gains from a disturbance-derivative bound |
+| [`stsmc_gains`](inc/damp/controllers/stsmc.hpp#L145) | function | Design-time synthesis (not PWM-rate) | Super-twisting controller from gains you specify directly |
+| [`STSMCController`](inc/damp/controllers/stsmc.hpp#L362) | function | Design-time synthesis (not PWM-rate) | Deduce the runtime from its design, keeping the result's scalar |
+| [`STSMCController`](inc/damp/controllers/stsmc.hpp#L207) | block | Runtime controllers | Super-twisting controller (second-order sliding mode) |
+| [`STSMCResult`](inc/damp/controllers/stsmc.hpp#L35) | block | Design-time synthesis (not PWM-rate) | Super-twisting (second-order sliding-mode) controller design result |
 | [`subtract`](inc/damp/systems/state_space.hpp#L586) | function | LTI systems (SS / TF / ZPK / discretize) | Differencing connection: outputs y = y₁ − y₂ |
 | [`suggest_mpc_horizon`](inc/damp/controllers/mpc.hpp#L1756) | function | Design-time synthesis (not PWM-rate) | Suggest MPC horizons from an explicit settling-time target (+1 more overload) |
 | [`summarize_loop_response`](inc/damp/analysis/frequency.hpp#L462) | function | Frequency-domain analysis (host) | Summarize loop_response() results into one compact metrics struct |

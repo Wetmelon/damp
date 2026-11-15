@@ -2125,7 +2125,7 @@ public:
      * when a limit is NaN, a lower limit is above its upper one, or the design has a terminal
      * invariant set, which was built for the design's limits.
      */
-    constexpr bool set_limits(const design::MPCLimits<NU, NY, T>& lim) {
+    [[nodiscard]] constexpr bool set_limits(const design::MPCLimits<NU, NY, T>& lim) {
         if (art.terminal == design::MPCTerminal::invariant_set) {
             return false;
         }

@@ -13,8 +13,10 @@
  */
 
 #include "damp/backend.hpp"
+#include "damp/controllers/detail/anti_windup.hpp"
 #include "damp/design/status.hpp"
 #include "damp/math/math.hpp"
+#include "damp/toolbox/bounds.hpp"
 namespace damp {
 
 namespace design {
@@ -39,6 +41,7 @@ struct [[nodiscard]] STSMCResult {
     bool         success{false};                      ///< status == DesignStatus::ok
     DesignStatus status{DesignStatus::not_converged}; ///< ok, or why the design failed
     T            Ts{0};                               ///< [s] Sample time of the law: 0 continuous (analysis), > 0 the runtime's tick
+    Bounds<1, T> u_lim{};                             ///< Limits on the command (default unbounded): set here, or on the runtime
 
     /** @brief True when the design succeeded (success). */
     [[nodiscard]] constexpr explicit operator bool() const { return success; }
@@ -47,7 +50,7 @@ struct [[nodiscard]] STSMCResult {
     [[nodiscard]] constexpr auto as() const {
         return STSMCResult<U>{
             static_cast<U>(k1), static_cast<U>(k2), static_cast<U>(lambda), static_cast<U>(k_lin),
-            static_cast<U>(phi), success, status, static_cast<U>(Ts)
+            static_cast<U>(phi), success, status, static_cast<U>(Ts), u_lim.template as<U>()
         };
     }
 };
@@ -203,6 +206,8 @@ stsmc_gains(T k1, T k2, T Ts = T{0}, T lambda = T{0}, T k_lin = T{0}, T phi = T{
 template<typename T = float>
 class STSMCController {
 public:
+    Bounds<1, T> u_lim{}; ///< Limits on the command (the result's; default unbounded): the integral state holds against them
+
     constexpr STSMCController() = default;
 
     /** @brief From a design result in another scalar: converts it with .as\<T\>() and builds from that. */
@@ -214,11 +219,22 @@ public:
     /**
      * @brief From the design result, which carries the sample time.
      *
-     * A failed or continuous (Ts = 0) design is ill-formed under constant evaluation; at run
-     * time it leaves the controller invalid (valid() false, output 0 from both entry points).
+     * A failed or continuous (Ts = 0) design, or one whose u_lim is not a box, is ill-formed
+     * under constant evaluation; at run time it leaves the controller invalid (valid() false,
+     * output 0 from both entry points).
      */
     constexpr STSMCController(const design::STSMCResult<T>& result) // NOLINT(google-explicit-constructor): assign-from-design
-        : k1_(result.k1), k2_(result.k2), lambda_(result.lambda), k_lin_(result.k_lin), phi_(result.phi), Ts_(result.Ts), valid_(result.success && result.Ts > T{0}) {
+        : u_lim(result.u_lim),
+          k1_(result.k1),
+          k2_(result.k2),
+          lambda_(result.lambda),
+          k_lin_(result.k_lin),
+          phi_(result.phi),
+          Ts_(result.Ts),
+          valid_(result.success && result.Ts > T{0} && result.u_lim.valid()) {
+        if (result.success && !result.u_lim.valid() && damp::is_constant_evaluated()) {
+            ::damp::detail::refuse_failed_design(design::DesignStatus::invalid_parameter); // a limit that is not finite, or lower above upper
+        }
         if ((!result.success || !(result.Ts > T{0})) && damp::is_constant_evaluated()) {
             ::damp::detail::refuse_failed_design(result.success ? design::DesignStatus::invalid_sample_time : result.status); // constant-evaluated (constinit / constexpr): a failed or continuous design does not compile
         }
@@ -226,13 +242,16 @@ public:
 
     template<typename U>
     constexpr STSMCController(const STSMCController<U>& other)
-        : k1_(static_cast<T>(other.k1_)),
+        : u_lim(other.u_lim.template as<T>()),
+          k1_(static_cast<T>(other.k1_)),
           k2_(static_cast<T>(other.k2_)),
           lambda_(static_cast<T>(other.lambda_)),
           k_lin_(static_cast<T>(other.k_lin_)),
           phi_(static_cast<T>(other.phi_)),
           Ts_(static_cast<T>(other.Ts_)),
           v_(static_cast<T>(other.v_)),
+          v_step_(static_cast<T>(other.v_step_)),
+          u_cmd_(static_cast<T>(other.u_cmd_)),
           e_prev_(static_cast<T>(other.e_prev_)),
           first_(other.first_),
           valid_(other.valid_) {}
@@ -241,7 +260,10 @@ public:
      * @brief Super-twisting control from the sliding variable @p s (canonical form).
      * Named distinctly from control(r, y) because both would otherwise be
      * two-scalar overloads.
-     * The integral state advances by one explicit-Euler step of the design's Ts.
+     * The integral state advances by one explicit-Euler step of the design's Ts. The command
+     * is clamped into u_lim, and a step of the integral state that pushes the command further
+     * past a limit it is on is taken back (conditional integration): v holds against the clamp
+     * where it ran on while s could not reach 0.
      * @param s  Sliding variable
      */
     [[nodiscard]] constexpr T control_sliding(T s) {
@@ -255,15 +277,31 @@ public:
         const T sqrt_s = damp::sqrt(abs_s);
 
         const T phi1 = (sqrt_s * sign_s) + (k_lin_ * s);
-        const T u = (-k1_ * phi1) + v_;
+        const T u_unsat = (-k1_ * phi1) + v_;
+        const T u = u_lim.saturate(u_unsat);
 
         // φ₂ = sign(s) + 3·k_lin·|s|^½·sign(s) + 2·k_lin²·s  (= classic sign(s) when k_lin = 0,
         // keeping the k₁ = 1.5√L / k₂ = 1.1L formulas valid). Explicit-Euler integral.
         const T phi2 = sign_s + (T{3} * k_lin_ * sqrt_s * sign_s) + (T{2} * k_lin_ * k_lin_ * s);
-        v_ += -k2_ * phi2 * Ts_; // explicit-Euler integral
+        v_step_ = -k2_ * phi2 * Ts_; // explicit-Euler integral
+        v_ += v_step_;
+        detail::hold_against_clamp(v_, v_step_, u - u_unsat);
 
+        u_cmd_ = u;
         return u;
     }
+
+    /**
+     * @brief Record the input the plant received, @p u_sat, when a stage after this law clamped
+     *        its command, and the feedforward @p u_ff added to the command before that clamp
+     *
+     * The integral state gives back what the last tick added, as far as the clamp cut the
+     * command off: u_sat − (u + u_ff), u the command the last tick returned.
+     */
+    constexpr void back_calculate(T u_sat, T u_ff = T{0}) { detail::hold_against_clamp(v_, v_step_, u_sat - (u_cmd_ + u_ff)); }
+
+    /** @brief The command the last tick returned. */
+    [[nodiscard]] constexpr T last_command() const { return u_cmd_; }
 
     /**
      * @brief Convenience: build σ = −(λ·e + ė), e = r − y (ė via backward difference),
@@ -295,6 +333,8 @@ public:
 
     constexpr void reset() {
         v_ = T{0};
+        v_step_ = T{0};
+        u_cmd_ = T{0};
         e_prev_ = T{0};
         first_ = true;
     }
@@ -310,6 +350,8 @@ private:
     T    phi_{T{0}}; ///< Boundary-layer half-width of the smoothed sign
     T    Ts_{T{0}};  ///< [s] Sample time, from the design result
     T    v_{T{0}};
+    T    v_step_{T{0}}; ///< What the last tick added to v: what a clamp takes back
+    T    u_cmd_{T{0}};  ///< The command the last tick returned
     T    e_prev_{T{0}};
     bool first_{true};
     bool valid_{false};

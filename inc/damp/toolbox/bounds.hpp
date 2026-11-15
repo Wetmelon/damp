@@ -28,7 +28,7 @@
  */
 
 
-#include "damp/backend.hpp" // clamp
+#include "damp/backend.hpp" // clamp, numeric_limits
 #include "damp/math/math.hpp"
 #include "damp/matrix/colvec.hpp"
 #include "damp/matrix/core.hpp"
@@ -60,7 +60,13 @@ struct Bounds {
         };
     }
 
-    /** @brief Per-channel clamp into the box. */
+    /**
+     * @brief Per-channel clamp into the box.
+     *
+     * damp::clamp per channel, which has no precondition: an interval whose lower end is above its
+     * upper one (which valid() refuses at design, but a member set at run time can hold) returns its
+     * upper end on every backend.
+     */
     [[nodiscard]] constexpr ColVec<N, T> saturate(const ColVec<N, T>& x) const {
         ColVec<N, T> out{};
         for (size_t i = 0; i < N; ++i) {
@@ -79,7 +85,7 @@ struct Bounds {
         return true;
     }
 
-    /** @brief True iff the box is usable: no end is NaN (∓max() for none) and no lower end is above its upper one. */
+    /** @brief True iff the box is usable: every end finite (∓max() for none) and no lower end above its upper one. */
     [[nodiscard]] constexpr bool valid() const {
         for (size_t i = 0; i < N; ++i) {
             if (!damp::isfinite(lower(i)) || !damp::isfinite(upper(i)) || !(lower(i) <= upper(i))) {
@@ -105,7 +111,8 @@ struct Bounds {
 
     /**
      * @brief The same box in scalar type U. An end at or beyond max()/4 in T is unbounded and
-     * becomes ±max() of U; a plain cast of numeric_limits<double>::max() to float would overflow.
+     * becomes ±max() of U, and so does a finite end past the range of a narrower U: a plain cast
+     * of either to float would overflow.
      */
     template<typename U>
     [[nodiscard]] constexpr Bounds<N, U> as() const {
@@ -126,6 +133,10 @@ private:
         }
         if (v <= -unbounded) {
             return -damp::numeric_limits<U>::max();
+        }
+        if constexpr (damp::numeric_limits<U>::max_exponent < damp::numeric_limits<T>::max_exponent) {
+            constexpr T widest = static_cast<T>(damp::numeric_limits<U>::max()); // U is narrower: its range fits in T
+            return static_cast<U>(damp::clamp(v, -widest, widest));
         }
         return static_cast<U>(v);
     }

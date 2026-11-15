@@ -153,11 +153,16 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
 ) {
 
     auto out = StateFeedbackResult<NX, NU, T, 0, NY, KalmanResult<NX, NU, NY, T, NW, NV>>{reg.K, reg.S, reg.e, false, DesignStatus::not_converged, kest.sys.Ts, kest};
-    out.u_lim = reg.u_lim;
     auto status = reg.success ? kest.status : reg.status;
 
     if (status == DesignStatus::ok && (!::damp::detail::discrete_gain(reg) || (reg.Ts != T{0} && reg.Ts != kest.sys.Ts))) {
         status = DesignStatus::invalid_sample_time; // a continuous regulator, or the halves disagree on Ts
+    }
+    if (status == DesignStatus::ok && !reg.u_lim.valid()) {
+        status = DesignStatus::invalid_parameter; // a regulator built by hand with a limit that is not a box
+    }
+    if (status == DesignStatus::ok) {
+        out.u_lim = reg.u_lim;
     }
     return ::damp::detail::set_status(out, status);
 }
