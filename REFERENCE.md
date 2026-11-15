@@ -284,9 +284,9 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 
 | Name | Description |
 | ---- | ----------- |
-| [`ActiveSetSolver`](inc/damp/design/qp.hpp#L699) | Default QP solver policy: the Goldfarb–Idnani active-set solve_qp() |
-| [`AdmmSettings`](inc/damp/design/qp.hpp#L800) | Tuning parameters for the ADMM QP solver |
-| [`AdmmSolver`](inc/damp/design/qp.hpp#L881) | ADMM (OSQP-style) QP solver policy — warm-started, fixed-cost iterations |
+| [`ActiveSetSolver`](inc/damp/design/qp.hpp#L943) | Default QP solver policy: the Goldfarb–Idnani active-set solve_qp() |
+| [`AdmmSettings`](inc/damp/design/qp.hpp#L1044) | Tuning parameters for the ADMM QP solver |
+| [`AdmmSolver`](inc/damp/design/qp.hpp#L1125) | ADMM (OSQP-style) QP solver policy — warm-started, fixed-cost iterations |
 | [`ADRCResult`](inc/damp/controllers/adrc.hpp#L49) | Active Disturbance Rejection Control design result |
 | [`BalancedRealizationResult`](inc/damp/design/model_reduction.hpp#L76) | Balanced realization result (Moore square-root method) |
 | [`BalancedReductionResult`](inc/damp/design/model_reduction.hpp#L108) | Reduced-order model from balanced truncation or residualization |
@@ -297,7 +297,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`ESCResult`](inc/damp/controllers/esc.hpp#L90) | Extremum-seeking design result: the discrete realization the runtime runs |
 | [`HarmonicSuppressorResult`](inc/damp/controllers/harmonic_suppression.hpp#L48) | Design result for a multi-resonant harmonic suppressor |
 | [`InputDisturbance`](inc/damp/design/disturbance.hpp#L40) | An input disturbance: d adds to u, B_d = B and C_d = D, one disturbance per input |
-| [`InteriorPointSolver`](inc/damp/design/qp.hpp#L1442) | Interior-point QP solver policy for damp::MPC |
+| [`InteriorPointSolver`](inc/damp/design/qp.hpp#L1686) | Interior-point QP solver policy for damp::MPC |
 | [`InvariantSetResult`](inc/damp/design/invariant_set.hpp#L39) | Maximal positively invariant polytope G e ≤ h of x⁺ = A x |
 | [`JordanBlock`](inc/damp/design/pole_placement.hpp#L485) | One Jordan mini-block of a desired closed-loop spectrum |
 | [`JordanObjective`](inc/damp/design/pole_placement.hpp#L1191) | How place_jordan spends the free parameter of the Klein–Moore family (Schmid et al.) |
@@ -323,8 +323,8 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`PlaceResult`](inc/damp/design/pole_placement.hpp#L1076) | Pole-placement design result: the gain K, the achieved closed-loop poles e, and Ts |
 | [`PlantDisturbance`](inc/damp/design/disturbance.hpp#L65) | The plant's own disturbance channel: B_d = G and C_d = H, one disturbance per column of G (H needs as many columns) |
 | [`PRResult`](inc/damp/controllers/pr.hpp#L121) | Proportional-Resonant controller design result |
-| [`QPResult`](inc/damp/design/qp.hpp#L80) | Result of a dense QP solve |
-| [`QPStatus`](inc/damp/design/qp.hpp#L47) | Termination status of a QP solve |
+| [`QPResult`](inc/damp/design/qp.hpp#L81) | Result of a dense QP solve |
+| [`QPStatus`](inc/damp/design/qp.hpp#L48) | Termination status of a QP solve |
 | [`RepetitiveResult`](inc/damp/controllers/repetitive.hpp#L137) | Design result for the repetitive controller |
 | [`SMCResult`](inc/damp/controllers/smc.hpp#L36) | Tuning parameters for a first-order sliding-mode controller |
 | [`SmithPredictorResult`](inc/damp/controllers/smith_predictor.hpp#L92) | Smith predictor design result (discrete PID + FO model + delay samples) |
@@ -338,7 +338,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`TargetPoint`](inc/damp/design/steady_state_target.hpp#L388) | A state and the input at it: a steady state (SteadyStateTarget), or a point of a reference trajectory (OutputInverse) |
 | [`TrackedOutputs`](inc/damp/design/steady_state_target.hpp#L59) | The outputs a law without integrators or a disturbance model holds at r through its steady-state target (design::lqr, design::lqg): `TrackedOutputs<1>{{0}}`, in that order (the references r follow it) |
 | [`TransferFunctionResult`](inc/damp/design/model_result.hpp#L34) | A designed transfer function with its success / status |
-| [`WarmStartActiveSetSolver`](inc/damp/design/qp.hpp#L735) | Warm-started active-set solver policy — the damp::MPC default |
+| [`WarmStartActiveSetSolver`](inc/damp/design/qp.hpp#L979) | Warm-started active-set solver policy — the damp::MPC default |
 
 **Functions**
 
@@ -403,7 +403,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`MeasuredDisturbance`](inc/damp/controllers/mpc.hpp#L1239) | Sizes from the matrix: `MeasuredDisturbance{Bd}` |
 | [`minreal`](inc/damp/design/minreal.hpp#L310) | Minimal realization — cancel uncontrollable and unobservable modes |
 | [`mpc`](inc/damp/controllers/mpc.hpp#L1644) | Synthesize a constrained linear MPC (condensed dense QP, Δu form) on a discrete plant (+3 more overloads) |
-| [`MPC`](inc/damp/controllers/mpc.hpp#L2506) | MPC law{res}: the sizes, scalar and terminal capacity of design::mpc's result (+1 more overload) |
+| [`MPC`](inc/damp/controllers/mpc.hpp#L2519) | MPC law{res}: the sizes, scalar and terminal capacity of design::mpc's result (+1 more overload) |
 | [`observability_gramian`](inc/damp/design/stability.hpp#L409) | Continuous/discrete observability Gramian W_o |
 | [`observability_matrix`](inc/damp/design/stability.hpp#L83) | Compute the observability matrix [C; CA; CA²; ...; CA^(N-1)] |
 | [`oflqg`](inc/damp/controllers/oflqg.hpp#L66) | The offset-free linear-quadratic Gaussian law: a Kalman filter on [x; d] and the steady-state target that holds the controlled outputs at r under d̂: runs as OFLQG (+2 more overloads) |
@@ -433,10 +433,10 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`SMCController`](inc/damp/controllers/smc.hpp#L267) | Deduce the runtime from its design, keeping the result's scalar |
 | [`smith_predictor_from_fopdt`](inc/damp/controllers/smith_predictor.hpp#L249) | Design a Smith predictor from FOPDT parameters |
 | [`smith_predictor_from_pid`](inc/damp/controllers/smith_predictor.hpp#L282) | Pack a Smith predictor from an existing continuous PID and FOPDT plant |
-| [`solve_miqp`](inc/damp/design/qp.hpp#L1495) | Mixed-integer QP by branch and bound over the active-set relaxation |
-| [`solve_qp`](inc/damp/design/qp.hpp#L606) | Solve a strictly convex inequality-constrained QP (dual active-set) (+1 more overload) |
-| [`solve_qp_admm`](inc/damp/design/qp.hpp#L1170) | One-shot ADMM QP solve (cold start) |
-| [`solve_qp_interior_point`](inc/damp/design/qp.hpp#L1214) | Interior-point QP solver (primal-dual path following) |
+| [`solve_miqp`](inc/damp/design/qp.hpp#L1739) | Mixed-integer QP by branch and bound over the active-set relaxation |
+| [`solve_qp`](inc/damp/design/qp.hpp#L850) | Solve a strictly convex inequality-constrained QP (dual active-set) (+1 more overload) |
+| [`solve_qp_admm`](inc/damp/design/qp.hpp#L1414) | One-shot ADMM QP solve (cold start) |
+| [`solve_qp_interior_point`](inc/damp/design/qp.hpp#L1458) | Interior-point QP solver (primal-dual path following) |
 | [`stability_margin`](inc/damp/design/stability.hpp#L526) | Distance from the poles of sys to its domain's stability boundary |
 | [`state_feedforward`](inc/damp/design/model_inverse.hpp#L100) | The plant-inversion feedforward of a discrete model: the input that moves x⁺ = A·x + B·u along a state reference, u ₖ the least-squares solution of B·u = x ₖ₊₁ − A·x ₖ |
 | [`steady_state_target`](inc/damp/design/steady_state_target.hpp#L338) | The steady-state target of a law on a discrete plant: the maps from the estimated disturbance and the reference to [x_t; u_t] (+2 more overloads) |
@@ -445,7 +445,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`STSMCController`](inc/damp/controllers/stsmc.hpp#L362) | Deduce the runtime from its design, keeping the result's scalar |
 | [`suggest_mpc_horizon`](inc/damp/controllers/mpc.hpp#L1756) | Suggest MPC horizons from an explicit settling-time target (+1 more overload) |
 | [`tyreus_luyben`](inc/damp/design/pid_design.hpp#L212) | Tyreus-Luyben tuning from ultimate gain and ultimate period |
-| [`unbounded_bound`](inc/damp/design/qp.hpp#L65) | Sentinel bound treated as "no constraint" on that row |
+| [`unbounded_bound`](inc/damp/design/qp.hpp#L66) | Sentinel bound treated as "no constraint" on that row |
 | [`valid_spec`](inc/damp/design/pid_design.hpp#L477) | The spec's scalar domain: ωc > 0, 0 < PM < 180°, Tf ≥ 0, all finite |
 | [`ziegler_nichols`](inc/damp/design/pid_design.hpp#L110) | Ziegler-Nichols tuning from ultimate gain and ultimate period |
 | [`ziegler_nichols_step`](inc/damp/design/pid_design.hpp#L161) | Ziegler-Nichols step response method (reaction curve) |
@@ -478,7 +478,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`LQR`](inc/damp/controllers/lqr.hpp#L150) | Linear-quadratic regulator on the measured state: u = u − K·(x − x ) |
 | [`LQRConfig`](inc/damp/controllers/state_feedback_types.hpp#L141) | What a state-feedback design is given with the plant: the cost, what to penalize and how much, and the limits its law runs within |
 | [`MeasuredDisturbance`](inc/damp/controllers/mpc.hpp#L1233) | A measured disturbance: a known input the controller does not command, entering the state update through Bd (a load torque, a feed rate, the ambient temperature) |
-| [`MPC`](inc/damp/controllers/mpc.hpp#L2436) | Constrained linear MPC on the measured state (design::mpc) |
+| [`MPC`](inc/damp/controllers/mpc.hpp#L2449) | Constrained linear MPC on the measured state (design::mpc) |
 | [`MPCArtifacts`](inc/damp/controllers/mpc.hpp#L346) | Condensed-QP data produced by mpc() (MPCResult::mpc), consumed by damp::MPC |
 | [`MPCConstraints`](inc/damp/controllers/mpc.hpp#L289) | Box constraints for mpc() |
 | [`MPCHorizonSuggestion`](inc/damp/controllers/mpc.hpp#L1732) | Advisory NP/NC horizon values from suggest_mpc_horizon() |

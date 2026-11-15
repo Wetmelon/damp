@@ -266,6 +266,33 @@ TEST_CASE("offset-free MPC deploys in float") {
     CHECK(x(0) == doctest::Approx(0.5).epsilon(0.01));
 }
 
+TEST_CASE_TEMPLATE("offset-free MPC with soft output bounds, started outside them, solves every tick", T, float, double) {
+    //! From the position reading alone, under an unknown load at the input. The float active set
+    //! ended Degenerate on 18 of the 600 ticks from 1.5 and on 22 from 5: a row met through the
+    //! slack alone lies at a sine of 2·10⁻⁴ from the active normals (qp.hpp).
+    design::MPCConstraints<1, 1> limits{};
+    limits.u_lim = {.lower = -1.0, .upper = 1.0};
+    limits.du_lim = {.lower = -0.2, .upper = 0.2};
+    limits.y_lim = {.lower = -0.5, .upper = 0.5};
+    const auto art = offset_free<30, 10>(move_weight(0.01), limits);
+    REQUIRE(art.success);
+    constexpr double load = 0.3; // unknown to the controller
+    for (const double x0 : {1.5, 5.0}) {
+        CAPTURE(x0);
+        OFMPC     controller{art.template as<T>()};
+        ColVec<2> x{x0, 0.0};
+        size_t    unsolved = 0;
+        for (size_t k = 0; k < 600; ++k) {
+            const auto u = controller.step(ColVec<1, T>{T{0}}, ColVec<1, T>{static_cast<T>(x(0))});
+            unsolved += (controller.last_status() != design::QPStatus::Success) ? 1U : 0U;
+            x = plant_step(x, static_cast<double>(u(0)) + load);
+        }
+        CHECK(unsolved == 0);
+        CHECK(x(0) == doctest::Approx(0.0).scale(1.0).epsilon(1e-6)); // offset-free: 2·10⁻⁸ in float
+        CHECK(static_cast<double>(controller.disturbance_estimate()(0)) == doctest::Approx(load).epsilon(1e-4));
+    }
+}
+
 TEST_CASE("step with the applied input: a downstream clamp reaches the held input and the estimator") {
     const auto art = offset_free<15, 5>(move_weight(0.05), {}, design::KalmanNoise{Matrix<2, 2>::identity(), Matrix<1, 1>{{0.01}}, Matrix<1, 1>{{1.0}}});
     REQUIRE(art.success);

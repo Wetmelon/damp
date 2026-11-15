@@ -20,7 +20,8 @@ Implementation notes:
 - Kalman/ESKF: thin-H Joseph path; some large-Δt Φ assumptions (documented in headers).
 - Host analysis: some FRF helpers continuous-only unless routed via discrete `StateSpace`.
 - Model inverse (`design::output_inverse`): square only, with a vector relative degree. A zero within √ε of the unit circle is refused (the −1 sampling zero of a ZOH-sampled double integrator).
-- MPC: with a hard output row or a terminal set, a MaxIterations or Degenerate iterate that fails the primal row check is held (last applied input). That hold does not restore output or terminal-set feasibility. Soft-output ticks still apply the exhausted iterate, then the u box.
+- MPC: with a hard output row or a terminal set, a MaxIterations or Degenerate iterate that fails the primal row check is held (last applied input). That hold does not restore output or terminal-set feasibility. Soft-output ticks still apply the exhausted iterate, then the u box: `last_status()` is the only sign of it.
+- MPC in float: the active set has a margin of about 100 in the slack weight `ecr_weight` over its default of 1e5; past it some ticks end Degenerate. A hard output limit the plan rides at full input can read Infeasible on a tick in a hundred, the rounded state lying past what the input can still reach. `as<float>()` refuses a design whose Hessian does not factor in float (a condition number of about 1e6 or more: a long horizon on an integrating or unstable plant, or a small move weight).
 
 ## Stack
 

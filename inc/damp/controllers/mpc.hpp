@@ -1912,11 +1912,24 @@ struct NoMeasuredState {};
  * applies the first move: u = u_prev + Δu₀. The applied command is always clamped to the u box,
  * and to the Δu box whenever the held input lies inside the u box, so even a budget-exhausted or
  * failed solve never emits an out-of-range actuator command (the QP's intermediate iterates are
- * dual, not primal, feasible). A MaxIterations or Degenerate iterate is applied when the
- * outputs are soft (the default). If any output ECR is 0 or a terminal set is present, the
- * iterate is applied only when it is primal feasible; otherwise the tick holds the last
- * applied input, as Infeasible does. Holding the input does not make the predicted outputs or
- * a terminal set feasible. The soft-constraint
+ * dual, not primal, feasible).
+ *
+ * A solve that does not converge. last_status() is the only report of it: the tick returns a
+ * command either way. A MaxIterations or Degenerate iterate is applied when the outputs are soft
+ * (the default). It is the active set's minimizer over the limits it had taken in when it
+ * stopped: the plan of a QP with the others left out, whose first move the boxes then clamp.
+ * Holding the input instead is the worse fallback on a loop that has to move. On a double
+ * integrator brought back from outside its soft limits (NP = 30, NC = 10) with a budget of 12
+ * iterations where a tick needs up to 17, the applied iterates settle the loop at 1.4 times the
+ * converged Σy², and holding leaves the input where the last solved tick put it: the output
+ * runs away. If any output ECR is 0 or a terminal set is present, the iterate is applied only
+ * when it is primal feasible; otherwise the tick holds the last applied input, as Infeasible
+ * does. Holding the input does not make the predicted outputs or a terminal set feasible, and
+ * a hard limit the plan rides at full input can read Infeasible in single precision, the
+ * rounded state lying past what the input can still reach (2 of 300 ticks braking onto a hard
+ * ceiling).
+ *
+ * The soft-constraint
  * slack actually used is reported by last_slack(). @p r is the reference for the NY controlled
  * outputs (held, or a Preview), not a state x_ref: the cost is ‖y − r‖²_Qy plus move /
  * input-target terms, with no ‖x − x_ref‖ term (see the file comment).
