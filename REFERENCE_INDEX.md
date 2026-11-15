@@ -9,7 +9,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`acker`](inc/damp/matlab.hpp#L849) | function | MATLAB®-style aliases (host) | Single-input pole placement (MATLAB®'s acker) |
 | [`acos`](inc/damp/math/math.hpp#L149) | function | Scalar math, complex & frames | Arccosine ∈ [0, π]. Input is clamped to [−1, 1] in both paths |
 | [`ActionGovernor`](inc/damp/controllers/action_governor.hpp#L235) | block | Runtime controllers | Runtime action governor — QP projection of u_des onto A u ≤ b |
-| [`ActiveSetSolver`](inc/damp/design/qp.hpp#L699) | block | Design-time synthesis (not PWM-rate) | Default QP solver policy: the Goldfarb–Idnani active-set solve_qp() |
+| [`ActiveSetSolver`](inc/damp/design/qp.hpp#L943) | block | Design-time synthesis (not PWM-rate) | Default QP solver policy: the Goldfarb–Idnani active-set solve_qp() |
 | [`AdaptationGate`](inc/damp/estimation/parameter_estimation.hpp#L337) | block | Observers & estimators | Gated-adaptation policy: decide whether a parameter update is safe to apply |
 | [`adaptive_solve`](inc/damp/simulation/solver.hpp#L814) | function | Simulation / SIL harness (host) | Adaptive-step solve in one call |
 | [`AdaptiveLut1D`](inc/damp/toolbox/lookup.hpp#L427) | block | Embedded helpers (controls-adjacent utilities) | Adaptive 1-D lookup: fixed breakpoints, online-updated cell values |
@@ -18,8 +18,8 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`AdaptiveStepIntegrator`](inc/damp/simulation/integrator.hpp#L133) | concept | Simulation / SIL harness (host) | Integrator that reports a genuine embedded local-error estimate |
 | [`AdaptiveStepSolver`](inc/damp/simulation/solver.hpp#L404) | block | Simulation / SIL harness (host) | Adaptive-step ODE solver (+1 more overload) |
 | [`AdaptOutOfRange`](inc/damp/toolbox/lookup.hpp#L47) | enum | Embedded helpers (controls-adjacent utilities) | How AdaptiveLut1D / AdaptiveLut2D treat samples outside the breakpoint span |
-| [`AdmmSettings`](inc/damp/design/qp.hpp#L800) | block | Design-time synthesis (not PWM-rate) | Tuning parameters for the ADMM QP solver |
-| [`AdmmSolver`](inc/damp/design/qp.hpp#L881) | block | Design-time synthesis (not PWM-rate) | ADMM (OSQP-style) QP solver policy — warm-started, fixed-cost iterations |
+| [`AdmmSettings`](inc/damp/design/qp.hpp#L1044) | block | Design-time synthesis (not PWM-rate) | Tuning parameters for the ADMM QP solver |
+| [`AdmmSolver`](inc/damp/design/qp.hpp#L1125) | block | Design-time synthesis (not PWM-rate) | ADMM (OSQP-style) QP solver policy — warm-started, fixed-cost iterations |
 | [`adrc`](inc/damp/controllers/adrc.hpp#L206) | function | Design-time synthesis (not PWM-rate) | Active Disturbance Rejection Control design |
 | [`ADRCController`](inc/damp/controllers/adrc.hpp#L412) | function | Design-time synthesis (not PWM-rate) | Deduce the runtime from its design, keeping the result's scalar |
 | [`ADRCController`](inc/damp/controllers/adrc.hpp#L257) | block | Runtime controllers | Active Disturbance Rejection Control (ADRC) |
@@ -352,7 +352,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`IntegralAction`](inc/damp/controllers/state_feedback_types.hpp#L94) | block | Runtime controllers | Offset-free by integral action: integrators on r − y, every measured output (`IntegralAction{}`) or the listed ones (`IntegralAction<2>{{0, 3}}`, in that order: the references r follow it) |
 | [`IntegralDesign`](inc/damp/controllers/state_feedback_types.hpp#L164) | block | Runtime controllers | The integral action of a design: the integrated outputs, their maps of the state and the input, the per-sample step and the limits on ξ |
 | [`IntegrationResult`](inc/damp/simulation/integrator.hpp#L61) | block | Simulation / SIL harness (host) | Result of an integration step |
-| [`InteriorPointSolver`](inc/damp/design/qp.hpp#L1442) | block | Design-time synthesis (not PWM-rate) | Interior-point QP solver policy for damp::MPC |
+| [`InteriorPointSolver`](inc/damp/design/qp.hpp#L1686) | block | Design-time synthesis (not PWM-rate) | Interior-point QP solver policy for damp::MPC |
 | [`Interpolation`](inc/damp/toolbox/lookup.hpp#L41) | enum | Embedded helpers (controls-adjacent utilities) | In-range interpolant for Lut1D (2-D stays bilinear; use SplineSurface for C¹ grids) |
 | [`InvariantSetResult`](inc/damp/design/invariant_set.hpp#L39) | block | Design-time synthesis (not PWM-rate) | Maximal positively invariant polytope G e ≤ h of x⁺ = A x |
 | [`inverse`](inc/damp/matrix/solve.hpp#L315) | function | Linear algebra | Matrix inverse A⁻¹ via mat::solve(A, I) |
@@ -527,8 +527,8 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`motor_constant`](inc/damp/motor/spm.hpp#L62) | function | Motor control pack (if present) | Motor constant Kₘ = Kₜ / √R [Nm/√W] |
 | [`MovingAverage`](inc/damp/filters/moving_average.hpp#L66) | block | Filters & signal conditioning | Moving-average (boxcar) filter — also a DC-preserving harmonic-notch comb |
 | [`mpc`](inc/damp/controllers/mpc.hpp#L1644) | function | Design-time synthesis (not PWM-rate) | Synthesize a constrained linear MPC (condensed dense QP, Δu form) on a discrete plant (+3 more overloads) |
-| [`MPC`](inc/damp/controllers/mpc.hpp#L2506) | function | Design-time synthesis (not PWM-rate) | MPC law{res}: the sizes, scalar and terminal capacity of design::mpc's result (+1 more overload) |
-| [`MPC`](inc/damp/controllers/mpc.hpp#L2436) | block | Runtime controllers | Constrained linear MPC on the measured state (design::mpc) |
+| [`MPC`](inc/damp/controllers/mpc.hpp#L2519) | function | Design-time synthesis (not PWM-rate) | MPC law{res}: the sizes, scalar and terminal capacity of design::mpc's result (+1 more overload) |
+| [`MPC`](inc/damp/controllers/mpc.hpp#L2449) | block | Runtime controllers | Constrained linear MPC on the measured state (design::mpc) |
 | [`MPCArtifacts`](inc/damp/controllers/mpc.hpp#L346) | block | Runtime controllers | Condensed-QP data produced by mpc() (MPCResult::mpc), consumed by damp::MPC |
 | [`MPCConstraints`](inc/damp/controllers/mpc.hpp#L289) | block | Runtime controllers | Box constraints for mpc() |
 | [`MPCHorizonSuggestion`](inc/damp/controllers/mpc.hpp#L1732) | block | Runtime controllers | Advisory NP/NC horizon values from suggest_mpc_horizon() |
@@ -671,8 +671,8 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`PwmScheme`](inc/damp/motor/modulation.hpp#L77) | enum | Motor control pack (if present) | Carrier-based three-phase VSI modulation scheme |
 | [`pzmap`](inc/damp/analysis/poles.hpp#L169) | function | Frequency-domain analysis (host) | Pole-zero map of a SISO transfer function (MATLAB® `pzmap(tf)`) (+2 more overloads) |
 | [`pzplot`](inc/damp/simulation/plot_plotly.hpp#L850) | function | Simulation / SIL harness (host) | Plot a pole-zero map on the complex plane (poles as ×, zeros as ○) |
-| [`QPResult`](inc/damp/design/qp.hpp#L80) | block | Design-time synthesis (not PWM-rate) | Result of a dense QP solve |
-| [`QPStatus`](inc/damp/design/qp.hpp#L47) | enum | Design-time synthesis (not PWM-rate) | Termination status of a QP solve |
+| [`QPResult`](inc/damp/design/qp.hpp#L81) | block | Design-time synthesis (not PWM-rate) | Result of a dense QP solve |
+| [`QPStatus`](inc/damp/design/qp.hpp#L48) | enum | Design-time synthesis (not PWM-rate) | Termination status of a QP solve |
 | [`qr_decompose`](inc/damp/matrix/decomposition.hpp#L718) | function | Linear algebra | Thin QR via Householder reflections |
 | [`QRDecomposition`](inc/damp/matrix/decomposition.hpp#L678) | block | Linear algebra | Thin QR factorization A = QR (Householder) |
 | [`QuadMode`](inc/damp/encoder/quadrature.hpp#L45) | enum | Embedded helpers (controls-adjacent utilities) | Quadrature decode resolution (edges counted per A/B cycle) |
@@ -795,10 +795,10 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`SOGI`](inc/damp/filters/sogi.hpp#L226) | block | Filters & signal conditioning | Runtime SOGI quadrature-signal generator (live-frequency resonator) |
 | [`SogiFll`](inc/damp/filters/sogi.hpp#L396) | block | Filters & signal conditioning | SOGI with a Frequency-Locked Loop — self-tuning single-tone tracker |
 | [`solve`](inc/damp/matrix/solve.hpp#L287) | function | Linear algebra | Solve AX = B — Cholesky when Hermitian, else LU (+2 more overloads) |
-| [`solve_miqp`](inc/damp/design/qp.hpp#L1495) | function | Design-time synthesis (not PWM-rate) | Mixed-integer QP by branch and bound over the active-set relaxation |
-| [`solve_qp`](inc/damp/design/qp.hpp#L606) | function | Design-time synthesis (not PWM-rate) | Solve a strictly convex inequality-constrained QP (dual active-set) (+1 more overload) |
-| [`solve_qp_admm`](inc/damp/design/qp.hpp#L1170) | function | Design-time synthesis (not PWM-rate) | One-shot ADMM QP solve (cold start) |
-| [`solve_qp_interior_point`](inc/damp/design/qp.hpp#L1214) | function | Design-time synthesis (not PWM-rate) | Interior-point QP solver (primal-dual path following) |
+| [`solve_miqp`](inc/damp/design/qp.hpp#L1739) | function | Design-time synthesis (not PWM-rate) | Mixed-integer QP by branch and bound over the active-set relaxation |
+| [`solve_qp`](inc/damp/design/qp.hpp#L850) | function | Design-time synthesis (not PWM-rate) | Solve a strictly convex inequality-constrained QP (dual active-set) (+1 more overload) |
+| [`solve_qp_admm`](inc/damp/design/qp.hpp#L1414) | function | Design-time synthesis (not PWM-rate) | One-shot ADMM QP solve (cold start) |
+| [`solve_qp_interior_point`](inc/damp/design/qp.hpp#L1458) | function | Design-time synthesis (not PWM-rate) | Interior-point QP solver (primal-dual path following) |
 | [`SolveResult`](inc/damp/simulation/solver.hpp#L86) | block | Simulation / SIL harness (host) | Result of an ODE solve operation |
 | [`SparsityPattern`](inc/damp/matrix/pattern_matrix.hpp#L50) | block | Linear algebra | Which entries of an R × C matrix are exactly 0, exactly 1, or known only at run time |
 | [`specific_force_at_rest`](inc/damp/estimation/ins_mechanization.hpp#L226) | function | Observers & estimators | Specific force [m/s²] a stationary IMU measures for the given orientation |
@@ -921,7 +921,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`TwoRateSimulationResult`](inc/damp/simulation/multirate.hpp#L108) | block | Simulation / SIL harness (host) | Result of a two-rate cascade simulation |
 | [`tyreus_luyben`](inc/damp/design/pid_design.hpp#L212) | function | Design-time synthesis (not PWM-rate) | Tyreus-Luyben tuning from ultimate gain and ultimate period |
 | [`tzero`](inc/damp/matlab.hpp#L561) | function | MATLAB®-style aliases (host) | MATLAB® tzero(sys): the finite invariant zeros of a model with any number of inputs and outputs |
-| [`unbounded_bound`](inc/damp/design/qp.hpp#L65) | function | Design-time synthesis (not PWM-rate) | Sentinel bound treated as "no constraint" on that row |
+| [`unbounded_bound`](inc/damp/design/qp.hpp#L66) | function | Design-time synthesis (not PWM-rate) | Sentinel bound treated as "no constraint" on that row |
 | [`UnscentedKalmanFilter`](inc/damp/estimation/ukf.hpp#L130) | block | Observers & estimators | Unscented (sigma-point) Kalman Filter: continuous nonlinear dynamics, sampled measurements (+1 more overload) |
 | [`UnscentedKalmanFilterConfig`](inc/damp/estimation/ukf.hpp#L79) | block | Observers & estimators | Configuration of an UnscentedKalmanFilter: its sample time, the process noise, the initial estimate and the unscented transform's tuning |
 | [`UnscentedParams`](inc/damp/estimation/ukf.hpp#L57) | block | Observers & estimators | Tuning parameters for the scaled unscented transform |
@@ -932,7 +932,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`valid_spec`](inc/damp/design/pid_design.hpp#L477) | function | Design-time synthesis (not PWM-rate) | The spec's scalar domain: ωc > 0, 0 < PM < 180°, Tf ≥ 0, all finite |
 | [`vcat`](inc/damp/matrix/concat.hpp#L180) | function | Linear algebra | Vertical concatenation (same column count) |
 | [`voltage_circle_radius`](inc/damp/motor/foc.hpp#L58) | function | Motor control pack (if present) | SVPWM voltage-circle radius Vₘₐₓ = m · Vdc / √3 |
-| [`WarmStartActiveSetSolver`](inc/damp/design/qp.hpp#L735) | block | Design-time synthesis (not PWM-rate) | Warm-started active-set solver policy — the damp::MPC default |
+| [`WarmStartActiveSetSolver`](inc/damp/design/qp.hpp#L979) | block | Design-time synthesis (not PWM-rate) | Warm-started active-set solver policy — the damp::MPC default |
 | [`with_schroeder_phases`](inc/damp/estimation/excitation/multi_sine.hpp#L168) | function | Observers & estimators | Assign Schroeder low-crest-factor phases to a multi-sine tone table |
 | [`wrap`](inc/damp/math/math.hpp#L593) | function | Scalar math, complex & frames | Wrap x into the half-open interval [min, max) (period max − min) |
 | [`wrap_pi`](inc/damp/math/math.hpp#L636) | function | Scalar math, complex & frames | Wrap an angle to [−π, π) |

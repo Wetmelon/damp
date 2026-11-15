@@ -29,6 +29,13 @@ and [known limitations](docs/known_limitations.md)).
 - `ADRCController::last_command()` is the command the law returned, as on the other laws; the input its observer takes as applied is `applied()`.
 - `Bounds::as` saturates a finite end past the narrower type's range.
 - `state_feedback_core.hpp` holds only the runtime the LQ laws share. `LQRConfig`, `IntegralAction`, `NoEstimator` and `StateFeedbackResult` are in `state_feedback_types.hpp`, and the design behind them in `controllers/detail/`; `lqr.hpp`, `lqi.hpp`, `lqg.hpp`, `lqgi.hpp` and `oflqg.hpp` include all of it as before.
+- `solve_qp` at its iteration budget: a solve that its last allowed iteration completes is `Success`, and a `MaxIterations` point is the minimizer on the constraints taken in so far.
+- A float MPC riding a hard output limit at full input can read `Infeasible` on a tick whose rounded state is past the limit's reach, and hold its input. It returned `Success` there with the limit's row violated.
+
+### Fixed
+
+- A float MPC with soft output limits solves its QP on every tick. Once the moves sat on their limits the active-set solver ended `Degenerate`, or called a feasible problem `Infeasible`, on up to every tick of a recovery from outside the limits; it now keeps an orthogonal factorization of the active constraints.
+- `solve_qp` in float no longer returns `Success` with a constraint violated past its tolerance: the point is recomputed on the active constraints after each step, and every solved point meets its rows.
 
 ### Fixed
 

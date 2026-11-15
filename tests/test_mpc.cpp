@@ -60,6 +60,112 @@ constexpr ColVec<2> plant_step(const ColVec<2>& x, double u) {
     };
 }
 
+/// A solver policy that keeps the QP of the last tick and its result: the data for a check of the
+/// solve that owes nothing to the solver.
+template<size_t NV, size_t NI, typename T>
+struct RecordingSolver {
+    design::WarmStartActiveSetSolver<NV, NI, T> solver{};
+    Matrix<NV, NV, T>                           H{};
+    ColVec<NV, T>                               f{};
+    Matrix<NI, NV, T>                           A{};
+    ColVec<NI, T>                               b{};
+    design::QPResult<NV, NI, T>                 result{};
+
+    design::QPResult<NV, NI, T> operator()(
+        const Matrix<NV, NV, T>& H_in, const ColVec<NV, T>& f_in, const Matrix<NI, NV, T>& A_in, const ColVec<NI, T>& b_in, size_t max_iterations
+    ) {
+        H = H_in;
+        f = f_in;
+        A = A_in;
+        b = b_in;
+        result = solver(H_in, f_in, A_in, b_in, max_iterations);
+        return result;
+    }
+};
+
+/// The KKT conditions of a recorded solve, formed in double from its data. Each residual is over
+/// the terms that form it, so it reads against the ε of the solve's own scalar.
+struct KktResiduals {
+    double primal{0.0};       ///< Largest aᵢᵀx − bᵢ, over |bᵢ| + Σ|aᵢⱼxⱼ| + ‖aᵢ‖₁‖x‖∞
+    double tight{0.0};        ///< Largest |aᵢᵀx − bᵢ| on a row with λᵢ > 0, over the same
+    double stationarity{0.0}; ///< ‖Hx + f + Aᵀλ‖∞ over the largest sum of one entry's terms
+    double lambda_min{0.0};   ///< Smallest multiplier, 0 when none is negative
+
+    void take_worst(const KktResiduals& other) {
+        primal = damp::max(primal, other.primal);
+        tight = damp::max(tight, other.tight);
+        stationarity = damp::max(stationarity, other.stationarity);
+        lambda_min = damp::min(lambda_min, other.lambda_min);
+    }
+};
+
+template<size_t NV, size_t NI, typename T>
+KktResiduals kkt_residuals(const RecordingSolver<NV, NI, T>& qp) {
+    const auto                         at = [](T v) { return static_cast<double>(v); };
+    const double                       disabled = at(design::unbounded_bound<T>()) / 4.0;
+    const design::QPResult<NV, NI, T>& res = qp.result;
+    KktResiduals                       out{};
+    double                             x_max = 0.0;
+    for (size_t v = 0; v < NV; ++v) {
+        x_max = damp::max(x_max, damp::abs(at(res.x(v))));
+    }
+    for (size_t i = 0; i < NI; ++i) {
+        if (at(qp.b(i)) >= disabled) {
+            continue;
+        }
+        double ax = 0.0;
+        double terms = damp::abs(at(qp.b(i)));
+        double a_norm = 0.0;
+        for (size_t v = 0; v < NV; ++v) {
+            const double term = at(qp.A(i, v)) * at(res.x(v));
+            ax += term;
+            terms += damp::abs(term);
+            a_norm += damp::abs(at(qp.A(i, v)));
+        }
+        const double scale = terms + (a_norm * x_max);
+        const double miss = ax - at(qp.b(i));
+        if (scale > 0.0) {
+            out.primal = damp::max(out.primal, miss / scale);
+            if (res.lambda(i) > T{0}) {
+                out.tight = damp::max(out.tight, damp::abs(miss) / scale);
+            }
+        }
+        out.lambda_min = damp::min(out.lambda_min, at(res.lambda(i)));
+    }
+    double gradient = 0.0;
+    double largest = 0.0;
+    for (size_t v = 0; v < NV; ++v) {
+        double g = at(qp.f(v));
+        double terms = damp::abs(g);
+        for (size_t c = 0; c < NV; ++c) {
+            const double term = at(qp.H(v, c)) * at(res.x(c));
+            g += term;
+            terms += damp::abs(term);
+        }
+        for (size_t i = 0; i < NI; ++i) {
+            const double term = at(qp.A(i, v)) * at(res.lambda(i));
+            g += term;
+            terms += damp::abs(term);
+        }
+        gradient = damp::max(gradient, damp::abs(g));
+        largest = damp::max(largest, terms);
+    }
+    //! Below √min the products of T underflow: a loop at rest (x ≈ 1e-33 in float) has no digits to test.
+    if (largest > damp::sqrt(at(damp::numeric_limits<T>::min()))) {
+        out.stationarity = gradient / largest;
+    }
+    return out;
+}
+
+/// The soft-bounded loop of the float regression: |u| ≤ 1, |Δu| ≤ 0.2, soft |y| ≤ 0.5, r = 0.
+design::MPCConstraints<1, 1> soft_box() {
+    design::MPCConstraints<1, 1> limits{};
+    limits.u_lim = {.lower = -1.0, .upper = 1.0};
+    limits.du_lim = {.lower = -0.2, .upper = 0.2};
+    limits.y_lim = {.lower = -0.5, .upper = 0.5};
+    return limits;
+}
+
 } // namespace
 
 TEST_CASE("unconstrained MPC with a DARE terminal weight reproduces the LQR law") {
@@ -1119,26 +1225,179 @@ TEST_CASE("a horizon no output sees an input's first move in is refused") {
     }
 }
 
-TEST_CASE("float MPC with soft output bounds, started outside them, converges") {
-    //! The float active set reported Infeasible on most such ticks (κ at roundoff for soft rows
-    //! of adjacent steps), the input was held and the double integrator ran off to y = −356.
+TEST_CASE_TEMPLATE("MPC with soft output bounds, started outside them, solves every tick and converges", T, float, double) {
+    //! The float active set reported Infeasible on most such ticks, the input was held and the
+    //! double integrator ran off to y = −356. Then it ended Degenerate on 17 to 35 of the 300
+    //! ticks from x₀ = 1.5, which this test did not count, and on 295 from x₀ = 20: with the moves
+    //! pinned by their limits a row is met through the slack alone, at a sine of 2·10⁻⁴ to the
+    //! active normals (qp.hpp).
+    const auto art = design::mpc<30, 10>(double_integrator, move_weight(0.01), soft_box());
+    REQUIRE(art.success);
+    using Recorder = RecordingSolver<11, 101, T>;
+    MPC<2, 1, 1, 30, 10, 0, T, Recorder> controller{art.template as<T>(), Recorder{}};
+    MPC                                  reference{art}; // in double, from the same state and held input each tick
+
+    double x0 = 0.0;
+    size_t ticks = 0;
+    SUBCASE("from x₀ = 1.5") {
+        x0 = 1.5;
+        ticks = 300;
+    }
+    SUBCASE("from x₀ = 20: the slack and its multiplier 40 times larger") {
+        x0 = 20.0;
+        ticks = 500;
+    }
+    CAPTURE(x0);
+
+    ColVec<2>    x{x0, 0.0};
+    size_t       unsolved = 0;
+    size_t       reference_unsolved = 0;
+    double       worst_move = 0.0;
+    KktResiduals worst{};
+    for (size_t k = 0; k < ticks; ++k) {
+        const ColVec<2, T> x_read{x.template as<T>()}; // the state as the controller reads it
+        const auto         u = controller.step(ColVec<1, T>{T{0}}, x_read);
+        unsolved += (controller.last_status() != design::QPStatus::Success) ? 1U : 0U;
+        const auto u_ref = reference.step(ColVec<1>{0.0}, ColVec<2>{x_read.template as<double>()});
+        reference_unsolved += (reference.last_status() != design::QPStatus::Success) ? 1U : 0U;
+        worst_move = damp::max(worst_move, damp::abs(static_cast<double>(u(0)) - u_ref(0)));
+        reference.back_calculate(ColVec<1>{static_cast<double>(u(0))});
+        worst.take_worst(kkt_residuals(controller.qp_solver()));
+        x = plant_step(x, static_cast<double>(u(0)));
+    }
+    const double e = static_cast<double>(eps<T>());
+    CHECK(unsolved == 0);
+    CHECK(reference_unsolved == 0);
+    //! The move against the double controller's. Rounding H and f to ε moves the first move of
+    //! an unconstrained plan by up to ε·Σⱼ|H⁻¹|₀ⱼ·(|fⱼ| + Σₖ|Hⱼₖ Zₖ|): the first row of H⁻¹ sums to
+    //! 55 and the gradient's terms reach 600 here, 6.6·10⁴·ε in u (8·10⁻³ in float). Measured in
+    //! float: 7.5·10⁻⁴ from 1.5, 1.5·10⁻³ from 20.
+    CHECK(worst_move <= 65536.0 * e);
+    //! The KKT conditions of every tick's solve. Rows: the solver's own tolerance, 64·(NV+1)·ε of
+    //! a row's terms, and 16·ε on the rows with a multiplier (measured 0.4·ε). Stationarity:
+    //! 4096·ε of the largest term (measured 430·ε): the multipliers reach 4·10⁶.
+    CHECK(worst.primal <= ((64.0 * 12.0) + 16.0) * e);
+    CHECK(worst.tight <= 16.0 * e);
+    CHECK(worst.stationarity <= 4096.0 * e);
+    CHECK(worst.lambda_min >= 0.0);
+    CHECK(x(0) == doctest::Approx(0.0).scale(1.0).epsilon(1e-3));
+    CHECK(x(1) == doctest::Approx(0.0).scale(1.0).epsilon(1e-3));
+}
+
+TEST_CASE("float MPC solves with a slack weight 10 times the default") {
+    //! The margin the dependence floor of the active set leaves in single precision: the sine of
+    //! a row met through the slack falls as 1/√ρ, 3.9·10⁻⁵ here against a floor of 1.1·10⁻⁵. At
+    //! 100 times the default it is on the floor, and past that some ticks end Degenerate.
+    auto weights = move_weight(0.01);
+    weights.ecr_weight = 1.0e6;
+    const auto art = design::mpc<30, 10>(double_integrator, weights, soft_box());
+    REQUIRE(art.success);
+    for (const double x0 : {1.5, 20.0}) {
+        CAPTURE(x0);
+        MPC       controller{art.as<float>()};
+        ColVec<2> x{x0, 0.0};
+        size_t    unsolved = 0;
+        for (size_t k = 0; k < 300; ++k) {
+            const auto u = controller.step(ColVec<1, float>{0.0F}, x.as<float>());
+            unsolved += (controller.last_status() != design::QPStatus::Success) ? 1U : 0U;
+            x = plant_step(x, static_cast<double>(u(0)));
+        }
+        CHECK(unsolved == 0);
+    }
+}
+
+TEST_CASE_TEMPLATE("MPC rests on a soft output bound the reference lies beyond", T, float, double) {
+    //! r = 1 above the soft ceiling y ≤ 0.5: the output settles on the ceiling plus the slack the
+    //! cost buys, 30·0.5/(30 + ρ) = 1.5·10⁻⁴, with soft rows active on every tick from then on.
+    //! On the Gram factor the float input chattered by 10⁻² there.
     design::MPCConstraints<1, 1> limits{};
     limits.u_lim = {.lower = -1.0, .upper = 1.0};
     limits.du_lim = {.lower = -0.2, .upper = 0.2};
-    limits.y_lim = {.lower = -0.5, .upper = 0.5};
+    limits.y_lim.upper(0) = 0.5;
     const auto art = design::mpc<30, 10>(double_integrator, move_weight(0.01), limits);
     REQUIRE(art.success);
-    MPC       controller{art.as<float>()};
-    ColVec<2> x{1.5, 0.0};
-    size_t    infeasible = 0;
-    for (size_t k = 0; k < 300; ++k) {
-        const auto u = controller.step(ColVec<1, float>{0.0F}, x.as<float>());
-        infeasible += (controller.last_status() == design::QPStatus::Infeasible) ? 1U : 0U;
+    MPC controller{art.template as<T>()};
+    MPC reference{art};
+
+    ColVec<2> x{};
+    size_t    unsolved = 0;
+    double    worst_move = 0.0;
+    double    y_low = 1.0;
+    double    y_high = 0.0;
+    double    u_tail = 0.0;
+    for (size_t k = 0; k < 400; ++k) {
+        const ColVec<2, T> x_read{x.template as<T>()};
+        const auto         u = controller.step(ColVec<1, T>{T{1}}, x_read);
+        unsolved += (controller.last_status() != design::QPStatus::Success) ? 1U : 0U;
+        const auto u_ref = reference.step(ColVec<1>{1.0}, ColVec<2>{x_read.template as<double>()});
+        worst_move = damp::max(worst_move, damp::abs(static_cast<double>(u(0)) - u_ref(0)));
+        reference.back_calculate(ColVec<1>{static_cast<double>(u(0))});
         x = plant_step(x, static_cast<double>(u(0)));
+        if (k >= 300) {
+            y_low = damp::min(y_low, x(0));
+            y_high = damp::max(y_high, x(0));
+            u_tail = damp::max(u_tail, damp::abs(static_cast<double>(u(0))));
+        }
     }
-    CHECK(infeasible == 0);
-    CHECK(x(0) == doctest::Approx(0.0).scale(1.0).epsilon(1e-3));
-    CHECK(x(1) == doctest::Approx(0.0).scale(1.0).epsilon(1e-3));
+    CHECK(unsolved == 0);
+    CHECK(worst_move <= 65536.0 * static_cast<double>(eps<T>())); // as above; measured 8·10⁻⁴ in float
+    CHECK(y_low > 0.5);
+    CHECK(y_high < 0.5 + 2.0e-4);
+    CHECK(static_cast<double>(controller.last_slack()) == doctest::Approx(1.5e-4).epsilon(0.05));
+    CHECK(u_tail < 1e-3); // at rest on the bound: 2·10⁻⁴ in float
+}
+
+TEST_CASE_TEMPLATE("MPC under a hard output ceiling below the reference: a solved tick meets its rows", T, float, double) {
+    //! r = 1 above a hard ceiling y ≤ 0.8: the output brakes onto the ceiling and stays, hard
+    //! rows active on every tick. A QP on the edge of infeasible is a hard ceiling's lot (the
+    //! plan rides it with no margin, and a rounded state can be past it); what a Success must
+    //! mean is that the point meets every row. On the Gram factor 200 of these 300 float ticks
+    //! returned Success with a row violated by up to 1.2·10⁵·ε of its terms.
+    design::MPCConstraints<1, 1> limits{};
+    limits.u_lim = {.lower = -1.0, .upper = 1.0};
+    limits.y_lim.upper(0) = 0.8;
+    limits.y_upper_ecr(0) = 0.0;
+    SUBCASE("the input free to move") {}
+    SUBCASE("the moves limited") {
+        limits.du_lim = {.lower = -0.2, .upper = 0.2};
+    }
+    const auto art = design::mpc<20, 8>(double_integrator, move_weight(0.01), limits);
+    REQUIRE(art.success);
+    using Recorder = RecordingSolver<9, 73, T>;
+    MPC<2, 1, 1, 20, 8, 0, T, Recorder> controller{art.template as<T>(), Recorder{}};
+
+    ColVec<2>    x{};
+    size_t       stalled = 0;    // MaxIterations or Degenerate: the solver gave up
+    size_t       infeasible = 0; // the rounded state past the ceiling's reach
+    size_t       on_ceiling = 0; // ticks with a hard output row active
+    double       peak = 0.0;
+    KktResiduals worst{};
+    for (size_t k = 0; k < 300; ++k) {
+        const ColVec<2, T> x_read{x.template as<T>()};
+        const auto         u = controller.step(ColVec<1, T>{T{1}}, x_read);
+        const auto         status = controller.last_status();
+        infeasible += (status == design::QPStatus::Infeasible) ? 1U : 0U;
+        stalled += (status == design::QPStatus::MaxIterations || status == design::QPStatus::Degenerate) ? 1U : 0U;
+        if (status == design::QPStatus::Success) {
+            worst.take_worst(kkt_residuals(controller.qp_solver()));
+            bool active = false;
+            for (size_t row = 4 * 8; row < (4 * 8) + 20; ++row) { // the upper output rows
+                active = active || controller.qp_solver().result.lambda(row) > T{0};
+            }
+            on_ceiling += active ? 1U : 0U;
+        }
+        x = plant_step(x, static_cast<double>(u(0)));
+        peak = damp::max(peak, x(0));
+    }
+    const double e = static_cast<double>(eps<T>());
+    CHECK(stalled == 0);
+    CHECK(infeasible <= 6); // 2 to 3 in float, none in double
+    CHECK(on_ceiling > 250);
+    CHECK(worst.primal <= ((64.0 * 10.0) + 16.0) * e); // the solver's row tolerance; measured 306·ε
+    CHECK(worst.tight <= 16.0 * e);
+    CHECK(worst.lambda_min >= 0.0);
+    CHECK(peak <= 0.8 + 1e-6); // the plant is the model: over by the rounding of the state read, 10⁻⁷ in float
+    CHECK(x(0) == doctest::Approx(0.8).epsilon(1e-5));
 }
 
 TEST_CASE("back_calculate with a feedforward: the command is the law's share, and the loop settles on r") {
