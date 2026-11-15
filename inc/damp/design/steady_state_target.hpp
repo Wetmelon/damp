@@ -199,22 +199,24 @@ using target_weight = Matrix<target_outputs<Spec, NU, NY, NW>, target_outputs<Sp
 
 /**
  * @brief The target maps on the filter's model of @p sys under the options (see
- *        steady_state_target), in the plant's time domain (@p Discrete) or sampled at @p Ts.
- *        With NZ > NU, @p Q weighs the controlled outputs' least squares (MPC's cost).
+ *        steady_state_target), in the plant's time domain (@p Discrete) or sampled at @p Ts,
+ *        with the input registers of @p delay when it is an InputDelay. With NZ > NU, @p Q weighs
+ *        the controlled outputs' least squares (MPC's cost).
  */
-template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Spec>
+template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Spec, typename Delay = NoDelay>
 [[nodiscard]] constexpr auto target_design(
     const StateSpace<NX, NU, NY, T, NW, NV>&  sys,
     T                                         Ts,
     const Spec&                               spec,
-    const target_weight<Spec, NU, NY, NW, T>& Q = target_weight<Spec, NU, NY, NW, T>::identity()
+    const target_weight<Spec, NU, NY, NW, T>& Q = target_weight<Spec, NU, NY, NW, T>::identity(),
+    const Delay&                              delay = Delay{}
 ) {
-    constexpr size_t NXE = NX;
+    constexpr size_t NXE = NX + (delay_registers<Delay> * NU);
     constexpr size_t NXL = NXE;
     constexpr size_t ND = disturbance_traits<Spec, NU, NY, NW>::states;
     constexpr size_t NZ = target_outputs<Spec, NU, NY, NW>;
     using Result = SteadyStateTargetResult<NXE, NU, ND, NZ, T>;
-    const auto m = sampled_model(sys, Ts, Discrete);
+    const auto m = sampled_model(sys, Ts, Discrete, delay);
     if (m.status != DesignStatus::ok) {
         return ::damp::detail::refused<Result>(m.status);
     }
@@ -344,6 +346,28 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
     return detail::target_design<false>(
         sys, Ts, ::damp::detail::option<detail::is_disturbance>(NoDisturbance{}, opts...)
     );
+}
+
+/**
+ * @brief The steady-state target of a law on a continuous plant whose input arrives @p delay
+ *        late: on the filter's model of design::kalman(sys, Ts, delay, noise, opts…), the plant
+ *        and its registers v(k−1) … v(k−N). At a steady state each register holds u_t.
+ *
+ * @param sys    Continuous plant (sys.Ts = 0)
+ * @param Ts     Sampling time of the law [s]
+ * @param delay  InputDelay<N>{θ}: θ ≤ N·Ts
+ * @param opts   The model features of the design, in any order
+ */
+template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t N, typename S, typename... Opts>
+[[nodiscard]] constexpr auto steady_state_target(
+    const StateSpace<NX, NU, NY, T, NW, NV>& sys,
+    damp::type_identity_t<T>                 Ts,
+    const InputDelay<N, S>&                  delay,
+    const Opts&... opts
+) {
+    detail::target_options::check<Opts...>();
+    const auto spec = ::damp::detail::option<detail::is_disturbance>(NoDisturbance{}, opts...);
+    return detail::target_design<false>(sys, Ts, spec, detail::target_weight<damp::remove_cvref_t<decltype(spec)>, NU, NY, NW, T>::identity(), delay);
 }
 
 } // namespace design

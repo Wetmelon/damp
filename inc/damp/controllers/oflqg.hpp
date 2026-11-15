@@ -9,8 +9,8 @@
  * @file oflqg.hpp
  * @brief The offset-free linear-quadratic Gaussian law: design::oflqg, OFLQGResult, the OFLQG runtime
  *
- * design::oflqg(plant, [Ts,] {.Q, .R, .N}, KalmanNoise{.process, .measurement, .disturbance}, disturbance) → OFLQGResult
- * → OFLQG. step(r, y) is predict, update(y), control(r). The low-latency tick is update(y),
+ * design::oflqg(plant, [Ts, [InputDelay<N>{θ},]] {.Q, .R, .N}, KalmanNoise{.process, .measurement, .disturbance}, disturbance) → OFLQGResult
+ * → OFLQG. With an InputDelay the filter carries the inputs still on their way. step(r, y) is predict, update(y), control(r). The low-latency tick is update(y),
  * control(r), back_calculate, predict. With feedforward from a planned
  * trajectory: control(r, x_ref, u_ref), step(r, x_ref, u_ref, y).
  */
@@ -20,6 +20,7 @@
 #include "damp/design/disturbance.hpp"
 #include "damp/estimation/kalman.hpp"
 #include "damp/matrix/colvec.hpp"
+#include "damp/systems/discretization.hpp"
 #include "damp/systems/state_space.hpp"
 
 namespace damp {
@@ -81,6 +82,32 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
     return detail::state_feedback(sys, Ts, weights, detail::StateFeedbackOptions{.noise = noise, .offset_free = disturbance});
 }
 
+/**
+ * @brief The sampled-data offset-free linear-quadratic Gaussian law of a plant whose input arrives
+ *        @p delay late: runs as OFLQG, its filter on [x; v(k−1); …; v(k−N); d].
+ *
+ * The weights and the noise are the plant's, as without the delay: the gain is lqr(sys, Ts,
+ * delay, weights)'s, the filter design::kalman(sys, Ts, delay, noise, disturbance)'s and the
+ * target design::steady_state_target(sys, Ts, delay, disturbance)'s, which holds each register
+ * at u_t. An InputDisturbance adds to u, so it reaches the plant through the delay; a load on
+ * the plant itself, which acts at once, is DisturbanceModel{.Bd = sys.B, .Cd = sys.D} or
+ * PlantDisturbance.
+ */
+template<
+    size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t N, typename S, typename Disturbance,
+    size_t ND = detail::disturbance_traits<Disturbance, NU, NY, NW>::states>
+    requires(detail::is_disturbance_model<Disturbance>)
+[[nodiscard]] constexpr auto oflqg(
+    const StateSpace<NX, NU, NY, T, NW, NV>&                 sys,
+    damp::type_identity_t<T>                                 Ts,
+    const InputDelay<N, S>&                                  delay,
+    const LQRWeights<NX, NU, 0, T>&                          weights,
+    const damp::type_identity_t<KalmanNoise<NW, NV, T, ND>>& noise,
+    const Disturbance&                                       disturbance
+) {
+    return detail::state_feedback(sys, Ts, delay, weights, detail::StateFeedbackOptions{.noise = noise, .offset_free = disturbance});
+}
+
 } // namespace design
 
 /**
@@ -94,19 +121,25 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
  * trajectory (x_ref, u_ref) is control(r, x_ref, u_ref), or step(r, x_ref, u_ref, y). Then
  * back_calculate(u_sat) and predict().
  *
+ * A design with an InputDelay (NRU > 0) has its filter on [x; v(k−1); …; v(k−NRU); d]: predict
+ * shifts the applied input into the registers. x_ref is the plant's; the registers' reference is
+ * u_ref.
+ *
  * @note Compare with MATLAB®'s lqg with an integrated-white-noise disturbance model (setoutdist / setindist).
+ *
+ * @tparam NRU Input registers of the filter's model (0: none)
  */
-template<size_t NX, size_t NU, size_t NY, size_t NZ, typename T, typename Est, typename Store = detail::HeldGains>
-struct OFLQG : private detail::StateFeedbackCore<NX, NU, T, 0, NY, Est, NZ, Store> {
-    using Core = detail::StateFeedbackCore<NX, NU, T, 0, NY, Est, NZ, Store>; ///< The shared implementation
+template<size_t NX, size_t NU, size_t NY, size_t NZ, typename T, typename Est, typename Store = detail::HeldGains, size_t NRU = 0>
+struct OFLQG : private detail::StateFeedbackCore<NX, NU, T, 0, NY, Est, NZ, Store, NRU> {
+    using Core = detail::StateFeedbackCore<NX, NU, T, 0, NY, Est, NZ, Store, NRU>; ///< The shared implementation
 
     constexpr OFLQG() = default;
 
     /** @brief From design::oflqg (any scalar). */
-    template<size_t NXR, size_t NUR, typename U, size_t NIR, size_t NYR, typename Kalman, size_t NZR>
+    template<size_t NXR, size_t NUR, typename U, size_t NIR, size_t NYR, typename Kalman, size_t NZR, size_t NRR>
         requires(!Store::constant)
-    constexpr OFLQG(const design::StateFeedbackResult<NXR, NUR, U, NIR, NYR, Kalman, NZR>& result) { // NOLINT
-        constexpr bool kind = design::StateFeedbackResult<NXR, NUR, U, NIR, NYR, Kalman, NZR>::ND > 0;
+    constexpr OFLQG(const design::StateFeedbackResult<NXR, NUR, U, NIR, NYR, Kalman, NZR, NRR>& result) { // NOLINT
+        constexpr bool kind = design::StateFeedbackResult<NXR, NUR, U, NIR, NYR, Kalman, NZR, NRR>::ND > 0;
         static_assert(kind, "OFLQG runs design::oflqg: this design has no disturbance model (LQR, LQI, LQG, LQGI).");
         if constexpr (kind) {
             static_cast<Core&>(*this) = Core(result);
@@ -147,18 +180,18 @@ struct OFLQG : private detail::StateFeedbackCore<NX, NU, T, 0, NY, Est, NZ, Stor
 };
 
 /** @brief OFLQG law{res}: the sizes, scalar, filter and target of design::oflqg's result. */
-template<size_t NX, size_t NU, typename T, size_t NI, size_t NY, typename Kalman, size_t NZ>
-OFLQG(const design::StateFeedbackResult<NX, NU, T, NI, NY, Kalman, NZ>&) -> OFLQG<NX, NU, NY, NZ, T, detail::runtime_estimator_t<Kalman, T>>;
+template<size_t NX, size_t NU, typename T, size_t NI, size_t NY, typename Kalman, size_t NZ, size_t NRU>
+OFLQG(const design::StateFeedbackResult<NX, NU, T, NI, NY, Kalman, NZ, NRU>&) -> OFLQG<NX, NU, NY, NZ, T, detail::runtime_estimator_t<Kalman, T>, detail::HeldGains, NRU>;
 
 namespace detail {
 
 /** @brief An LQ design with a disturbance model runs as OFLQG. */
-template<size_t NX, size_t NU, typename U, size_t NY, typename Kalman, size_t NZ, typename T>
-    requires(design::StateFeedbackResult<NX, NU, U, 0, NY, Kalman, NZ>::ND > 0)
-struct lq_runtime<design::StateFeedbackResult<NX, NU, U, 0, NY, Kalman, NZ>, T> {
-    using type = OFLQG<NX, NU, NY, NZ, T, runtime_estimator_t<Kalman, T>>; ///< OFLQG
+template<size_t NX, size_t NU, typename U, size_t NY, typename Kalman, size_t NZ, size_t NRU, typename T>
+    requires(design::StateFeedbackResult<NX, NU, U, 0, NY, Kalman, NZ, NRU>::ND > 0)
+struct lq_runtime<design::StateFeedbackResult<NX, NU, U, 0, NY, Kalman, NZ, NRU>, T> {
+    using type = OFLQG<NX, NU, NY, NZ, T, runtime_estimator_t<Kalman, T>, HeldGains, NRU>; ///< OFLQG
     template<typename Est, typename Store>
-    using on_constants = OFLQG<NX, NU, NY, NZ, T, Est, Store>; ///< OFLQG on the design's constants
+    using on_constants = OFLQG<NX, NU, NY, NZ, T, Est, Store, NRU>; ///< OFLQG on the design's constants
 };
 
 } // namespace detail

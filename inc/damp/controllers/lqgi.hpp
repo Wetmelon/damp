@@ -9,8 +9,8 @@
  * @file lqgi.hpp
  * @brief The linear-quadratic Gaussian law with integral action: design::lqgi, LQGIResult, the LQGI runtime
  *
- * design::lqgi(plant, [Ts,] {.Q, .R, .N, .Q_integral}, KalmanNoise{.process, .measurement}[, IntegralAction<NI>{{i, …}}])
- * → LQGIResult → LQGI. step(r, y) is predict, update(y), control(r). The low-latency tick is
+ * design::lqgi(plant, [Ts, [InputDelay<N>{θ},]] {.Q, .R, .N, .Q_integral}, KalmanNoise{.process, .measurement}[, IntegralAction<NI>{.outputs = {i, …}}])
+ * → LQGIResult → LQGI. With an InputDelay the filter carries the inputs still on their way. step(r, y) is predict, update(y), control(r). The low-latency tick is
  * update(y), control(r), back_calculate, predict. With feedforward from a
  * planned trajectory: control(r, x_ref, u_ref), step(r, x_ref, u_ref, y).
  */
@@ -19,6 +19,7 @@
 #include "damp/controllers/state_feedback_core.hpp"
 #include "damp/estimation/kalman.hpp"
 #include "damp/matrix/colvec.hpp"
+#include "damp/systems/discretization.hpp"
 #include "damp/systems/state_space.hpp"
 
 namespace damp {
@@ -78,6 +79,39 @@ template<size_t NI, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size
     return detail::state_feedback(sys, Ts, weights, detail::StateFeedbackOptions{.noise = noise, .offset_free = outputs});
 }
 
+/**
+ * @brief The sampled-data linear-quadratic Gaussian law with integral action on every output, of
+ *        a plant whose input arrives @p delay late: runs as LQGI, its filter carrying the inputs
+ *        still on their way.
+ *
+ * The weights and the noise are the plant's, as without the delay: the gain is lqi(sys, Ts,
+ * delay, weights)'s and the filter design::kalman(sys, Ts, delay, noise)'s.
+ */
+template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t N, typename S>
+[[nodiscard]] constexpr auto lqgi(
+    const StateSpace<NX, NU, NY, T, NW, NV>& sys,
+    damp::type_identity_t<T>                 Ts,
+    const InputDelay<N, S>&                  delay,
+    const LQRWeights<NX, NU, NY, T>&         weights,
+    const KalmanNoise<NW, NV, T>&            noise
+) {
+    return detail::state_feedback(sys, Ts, delay, weights, detail::StateFeedbackOptions{.noise = noise, .offset_free = IntegralAction{}});
+}
+
+/** @brief The sampled-data linear-quadratic Gaussian law with integral action on the listed outputs, of a plant whose input arrives @p delay late: runs as LQGI. */
+template<size_t NI, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t N, typename S>
+    requires(NI > 0)
+[[nodiscard]] constexpr auto lqgi(
+    const StateSpace<NX, NU, NY, T, NW, NV>& sys,
+    damp::type_identity_t<T>                 Ts,
+    const InputDelay<N, S>&                  delay,
+    const LQRWeights<NX, NU, NI, T>&         weights,
+    const KalmanNoise<NW, NV, T>&            noise,
+    const IntegralAction<NI>&                outputs
+) {
+    return detail::state_feedback(sys, Ts, delay, weights, detail::StateFeedbackOptions{.noise = noise, .offset_free = outputs});
+}
+
 } // namespace design
 
 /**
@@ -90,18 +124,24 @@ template<size_t NI, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size
  * u* = 0; feedforward from a planned trajectory (x_ref, u_ref) is control(r, x_ref, u_ref), or
  * step(r, x_ref, u_ref, y). Then back_calculate(u_sat) and predict().
  *
+ * A design with an InputDelay (NRU > 0) has its filter on [x; v(k−1); …; v(k−NRU)]: predict
+ * shifts the applied input into the registers. x_ref is the plant's; the registers' reference is
+ * u_ref.
+ *
  * @note Compare with MATLAB®'s lqgtrack.
+ *
+ * @tparam NRU Input registers of the filter's model (0: none)
  */
-template<size_t NX, size_t NU, size_t NY, size_t NI, typename T, typename Est, typename Store = detail::HeldGains>
-struct LQGI : private detail::StateFeedbackCore<NX, NU, T, NI, NY, Est, 0, Store> {
-    using Core = detail::StateFeedbackCore<NX, NU, T, NI, NY, Est, 0, Store>; ///< The shared implementation
+template<size_t NX, size_t NU, size_t NY, size_t NI, typename T, typename Est, typename Store = detail::HeldGains, size_t NRU = 0>
+struct LQGI : private detail::StateFeedbackCore<NX, NU, T, NI, NY, Est, 0, Store, NRU> {
+    using Core = detail::StateFeedbackCore<NX, NU, T, NI, NY, Est, 0, Store, NRU>; ///< The shared implementation
 
     constexpr LQGI() = default;
 
     /** @brief From design::lqgi (any scalar). */
-    template<size_t NXR, size_t NUR, typename U, size_t NIR, size_t NYR, typename Kalman, size_t NZR>
+    template<size_t NXR, size_t NUR, typename U, size_t NIR, size_t NYR, typename Kalman, size_t NZR, size_t NRR>
         requires(!Store::constant)
-    constexpr LQGI(const design::StateFeedbackResult<NXR, NUR, U, NIR, NYR, Kalman, NZR>& result) { // NOLINT
+    constexpr LQGI(const design::StateFeedbackResult<NXR, NUR, U, NIR, NYR, Kalman, NZR, NRR>& result) { // NOLINT
         constexpr bool kind = NIR > 0 && !damp::is_same_v<Kalman, NoEstimator>;
         static_assert(kind, "LQGI runs design::lqgi: this design has no Kalman filter (LQR, LQI) or no integral action (LQG, OFLQG).");
         if constexpr (kind) {
@@ -142,18 +182,18 @@ struct LQGI : private detail::StateFeedbackCore<NX, NU, T, NI, NY, Est, 0, Store
 };
 
 /** @brief LQGI law{res}: the sizes, scalar and filter of design::lqgi's result. */
-template<size_t NX, size_t NU, typename T, size_t NI, size_t NY, typename Kalman, size_t NZ>
-LQGI(const design::StateFeedbackResult<NX, NU, T, NI, NY, Kalman, NZ>&) -> LQGI<NX, NU, NY, NI, T, detail::runtime_estimator_t<Kalman, T>>;
+template<size_t NX, size_t NU, typename T, size_t NI, size_t NY, typename Kalman, size_t NZ, size_t NRU>
+LQGI(const design::StateFeedbackResult<NX, NU, T, NI, NY, Kalman, NZ, NRU>&) -> LQGI<NX, NU, NY, NI, T, detail::runtime_estimator_t<Kalman, T>, detail::HeldGains, NRU>;
 
 namespace detail {
 
 /** @brief An LQ design with a filter and integrators runs as LQGI. */
-template<size_t NX, size_t NU, typename U, size_t NI, size_t NY, typename Kalman, typename T>
+template<size_t NX, size_t NU, typename U, size_t NI, size_t NY, typename Kalman, size_t NRU, typename T>
     requires(NI > 0 && !damp::is_same_v<Kalman, NoEstimator>)
-struct lq_runtime<design::StateFeedbackResult<NX, NU, U, NI, NY, Kalman, 0>, T> {
-    using type = LQGI<NX, NU, NY, NI, T, runtime_estimator_t<Kalman, T>>; ///< LQGI
+struct lq_runtime<design::StateFeedbackResult<NX, NU, U, NI, NY, Kalman, 0, NRU>, T> {
+    using type = LQGI<NX, NU, NY, NI, T, runtime_estimator_t<Kalman, T>, HeldGains, NRU>; ///< LQGI
     template<typename Est, typename Store>
-    using on_constants = LQGI<NX, NU, NY, NI, T, Est, Store>; ///< LQGI on the design's constants
+    using on_constants = LQGI<NX, NU, NY, NI, T, Est, Store, NRU>; ///< LQGI on the design's constants
 };
 
 } // namespace detail
