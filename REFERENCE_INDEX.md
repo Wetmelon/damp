@@ -533,8 +533,8 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`motor_constant`](inc/damp/motor/spm.hpp#L62) | function | Motor control pack (if present) | Motor constant Kₘ = Kₜ / √R [Nm/√W] |
 | [`MovingAverage`](inc/damp/filters/moving_average.hpp#L66) | block | Filters & signal conditioning | Moving-average (boxcar) filter — also a DC-preserving harmonic-notch comb |
 | [`mpc`](inc/damp/controllers/mpc.hpp#L1643) | function | Design-time synthesis (not PWM-rate) | Synthesize a constrained linear MPC (condensed dense QP, Δu form) on a discrete plant (+3 more overloads) |
-| [`MPC`](inc/damp/controllers/mpc.hpp#L2518) | function | Design-time synthesis (not PWM-rate) | MPC law{res}: the sizes, scalar and terminal capacity of design::mpc's result (+1 more overload) |
-| [`MPC`](inc/damp/controllers/mpc.hpp#L2448) | block | Runtime controllers | Constrained linear MPC on the measured state (design::mpc) |
+| [`MPC`](inc/damp/controllers/mpc.hpp#L2534) | function | Design-time synthesis (not PWM-rate) | MPC law{res}: the sizes, scalar and terminal capacity of design::mpc's result (+1 more overload) |
+| [`MPC`](inc/damp/controllers/mpc.hpp#L2464) | block | Runtime controllers | Constrained linear MPC on the measured state (design::mpc) |
 | [`MPCArtifacts`](inc/damp/controllers/mpc.hpp#L345) | block | Runtime controllers | Condensed-QP data produced by mpc() (MPCResult::mpc), consumed by damp::MPC |
 | [`MPCConstraints`](inc/damp/controllers/mpc.hpp#L288) | block | Runtime controllers | Box constraints for mpc() |
 | [`MPCHorizonSuggestion`](inc/damp/controllers/mpc.hpp#L1731) | block | Runtime controllers | Advisory NP/NC horizon values from suggest_mpc_horizon() |
@@ -584,8 +584,8 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`OFLQG`](inc/damp/controllers/oflqg.hpp#L196) | function | Design-time synthesis (not PWM-rate) | OFLQG law{res}: the sizes, scalar, filter and target of design::oflqg's result |
 | [`OFLQG`](inc/damp/controllers/oflqg.hpp#L141) | block | Runtime controllers | Offset-free linear-quadratic Gaussian law: a Kalman filter on [x; d] and the steady-state target |
 | [`ofmpc`](inc/damp/controllers/ofmpc.hpp#L41) | function | Design-time synthesis (not PWM-rate) | The offset-free MPC on a discrete plant: a Kalman filter on [x; d] (noise, disturbance) and the QP posed about the steady-state target under d̂: runs as OFMPC (+1 more overload) |
-| [`OFMPC`](inc/damp/controllers/ofmpc.hpp#L136) | function | Design-time synthesis (not PWM-rate) | OFMPC law{res}: the sizes, scalar, filter and target of design::ofmpc's result (+1 more overload) |
-| [`OFMPC`](inc/damp/controllers/ofmpc.hpp#L81) | block | Runtime controllers | Offset-free constrained linear MPC: a Kalman filter on [x; d] and the QP about the steady-state target under d̂ (design::ofmpc) |
+| [`OFMPC`](inc/damp/controllers/ofmpc.hpp#L138) | function | Design-time synthesis (not PWM-rate) | OFMPC law{res}: the sizes, scalar, filter and target of design::ofmpc's result (+1 more overload) |
+| [`OFMPC`](inc/damp/controllers/ofmpc.hpp#L82) | block | Runtime controllers | Offset-free constrained linear MPC: a Kalman filter on [x; d] and the QP about the steady-state target under d̂ (design::ofmpc) |
 | [`OnDelayTimer`](inc/damp/toolbox/logic.hpp#L99) | block | Embedded helpers (controls-adjacent utilities) | On-delay timer: output goes true once in has been held true continuously for delay; drops immediately when in goes false |
 | [`one_norm`](inc/damp/matrix/functions.hpp#L68) | function | Linear algebra | One-norm ‖A‖₁: maximum absolute column sum |
 | [`ones`](inc/damp/matlab.hpp#L617) | function | MATLAB®-style aliases (host) | N×N matrix of ones |
