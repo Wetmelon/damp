@@ -406,8 +406,8 @@ struct StateFeedbackCore {
     }
 
 private:
-    [[no_unique_address]] Record applied_{};      ///< The last command and the input back_calculate recorded
-    [[no_unique_address]] HeldX  x_{};            ///< The measured state from the last update (no estimator)
+    [[no_unique_address]] Record applied_{}; ///< The last command and the input back_calculate recorded
+    [[no_unique_address]] HeldX  x_{};       ///< The measured state from the last update (no estimator)
 
     /** @brief Whether a design's gain runs on this tick: it succeeded and is discrete. Otherwise it does not compile when constant-evaluated (the error names its status) and the law keeps K = 0. */
     template<typename R>
