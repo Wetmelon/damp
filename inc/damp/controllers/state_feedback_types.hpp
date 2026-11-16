@@ -184,6 +184,33 @@ using lq_config = damp::conditional_t<(NI == 0), LQRConfig<NX, NU, T>, LQIConfig
 
 } // namespace detail
 
+/**
+ * @brief A limit on what a law's outer terms ask of one of its states: a cascade's outer limit,
+ *        inside one gain
+ *
+ * Read the law u = u* − K·z, z = [x − x*; ξ], as a cascade on the state s: u = −K_s·(z_s − z_c) − (the
+ * other terms), where the outer terms (the plant states and integrators listed in @ref outer) ask for
+ * z_c = −(Σ K_j·z_j)/K_s. The law clamps z_c into @ref lim, per input that acts on s (K_s ≠ 0). A
+ * balancing robot's position, speed and integral ask for a lean; this bounds the lean they may ask
+ * for, not the lean itself, which no law without a prediction can bound. The integrators hold against
+ * the clamp as against u_lim's. At a steady state the outer terms carry the input that holds it (none
+ * for a robot balanced upright; a spring's force through its position): a limit below that holds the
+ * plant short of its reference.
+ *
+ * Off by default (state = none). Set it on the runtime: `law.demand_lim = {.state = 2, .outer = {true,
+ * true, false, false, true}, .lim = {.lower = -0.26, .upper = 0.26}}`.
+ *
+ * @tparam N The gain's plant states and integrators, NX + NI (the input registers are never outer)
+ */
+template<size_t N, typename T = double>
+struct DemandLimit {
+    static constexpr size_t none = static_cast<size_t>(-1); ///< No state: the limit is off
+
+    size_t               state{none}; ///< s: the state asked for, an index of the plant state x (none: off)
+    damp::array<bool, N> outer{};     ///< The terms that ask: the plant states, then the integrators
+    Bounds<1, T>         lim{};       ///< The most they may ask of x_s, as a deviation from the reference point (the target with one)
+};
+
 /** @brief The integral action of a design: the integrated outputs, their maps of the state and the input, the per-sample step and the limits on ξ. */
 template<size_t NI, size_t NX, size_t NU, size_t NY, typename T = double>
 struct IntegralDesign {
@@ -311,7 +338,7 @@ struct [[nodiscard]] StateFeedbackResult {
      * A law with a disturbance model holds more than these
      * states, so it has no such block. The steady-state target of TrackedOutputs is a
      * feedforward on r outside this block: the block is the regulator (r = 0). The block is the
-     * law within its limits: u_lim and the integrators' limits are not part of it.
+     * law within its limits: u_lim, the integrators' limits and demand_lim are not part of it.
      */
     [[nodiscard]] constexpr auto to_ss() const
         requires(ND == 0)

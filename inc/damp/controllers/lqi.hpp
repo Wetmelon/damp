@@ -153,6 +153,7 @@ struct LQI : private detail::StateFeedbackCore<NX, NU, T, NI, NY, NoEstimator, 0
 
     using Core::integral;
     using Core::K;
+    using Core::demand_lim;
     using Core::u_lim;
 
     /** @brief Hold the measured plant state @p x for the next control (the input registers are the law's). */

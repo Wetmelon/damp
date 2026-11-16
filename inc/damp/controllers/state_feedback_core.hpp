@@ -97,6 +97,7 @@ struct HeldGains {
  * | input registers: the inputs applied over the last NRU periods, held by the law (a measured state) | NRU | 0 |
  * | limits on the command and on the integrators | @ref u_lim, integral.lim | unbounded |
  * | a limit on the disturbance estimate d̂ (ND > 0) | @ref disturbance_lim | unbounded |
+ * | a limit on what the outer terms ask of one state (design::DemandLimit) | @ref demand_lim | off |
  *
  * One tick is @ref step(): @ref predict (the time update with the input @ref back_calculate
  * recorded, else the last command), then @ref update with the measurement at sample k (the
@@ -130,7 +131,8 @@ struct HeldGains {
  *   input the next @ref predict takes as applied unless @ref back_calculate recorded another.
  *   The integrators compare the applied input with the command before the clamp, so they hold
  *   against the law's own limit as against a clamp downstream. The limits are members: set them
- *   at run time for a rail that moves. With a disturbance model, @ref update clamps d̂ into
+ *   at run time for a rail that moves. @ref demand_lim bounds what the outer terms ask of one
+ *   state (design::DemandLimit), and the integrators hold against it the same way. With a disturbance model, @ref update clamps d̂ into
  *   @ref disturbance_lim, so a load past it (a wall the plant is held against) does not wind d̂,
  *   and with it the target, up the way an integrator would;
  * - on a number only: a reading, a reference or a reported input that is NaN or ±Inf, or a command
@@ -181,6 +183,7 @@ struct StateFeedbackCore {
     Bounds<NU, T>                  u_lim{};     ///< Limits on the command control returns (default unbounded)
 
     [[no_unique_address]] DisturbanceLim disturbance_lim{}; ///< Limits on the disturbance estimate d̂, in d's units (ND > 0; default unbounded)
+    design::DemandLimit<NX + NI, T>      demand_lim{};      ///< A limit on what the outer terms ask of a state (default off)
 
     constexpr StateFeedbackCore() = default;
 
@@ -490,15 +493,48 @@ private:
         }
     }
 
-    /** @brief The command: @p u clamped into u_lim, unless it is not a number. The law keeps it, and @p u itself for the integrators. */
-    [[nodiscard]] constexpr ColVec<NU, T> record(const ColVec<NU, T>& u, const ColVec<NU, T>& u_ref) {
+    /**
+     * @brief The law u = u* − K·z with the outer terms' demand on demand_lim.state clamped into
+     *        demand_lim.lim, per input that acts on it; u itself where the demand is inside.
+     */
+    [[nodiscard]] constexpr ColVec<NU, T> limit_demand(const ColVec<NU, T>& u, const ColVec<NXL + NI, T>& z) const {
+        const size_t s = demand_lim.state;
+        if (s >= NX) {
+            return u; // off (none), or not a plant state
+        }
+        ColVec<NU, T> out = u;
+        for (size_t i = 0; i < NU; ++i) {
+            const T k_s = K(i, s);
+            if (k_s == T{0}) {
+                continue; // this input does not act on s
+            }
+            T outer{0}; // −Σ K_j·z_j over the outer terms: the command they make
+            for (size_t j = 0; j < NX + NI; ++j) {
+                if (demand_lim.outer[j]) {
+                    const size_t c = (j < NX) ? j : (NXL + (j - NX)); // the integrators sit after the registers
+                    outer -= K(i, c) * z(c);
+                }
+            }
+            const T asked = outer / k_s;
+            const T held = demand_lim.lim.saturate(asked);
+            if (held != asked) {
+                out(i) += (k_s * held) - outer;
+            }
+        }
+        return out;
+    }
+
+    /** @brief The command: @p u clamped into u_lim, unless it is not a number. The law keeps it, and @p asked (u before any clamp) for the integrators. */
+    [[nodiscard]] constexpr ColVec<NU, T> record(const ColVec<NU, T>& asked, const ColVec<NU, T>& u, const ColVec<NU, T>& u_ref) {
         if (!finite(u)) {
             refused_ = true; // a finite state and reference can still overflow
             return held_command(u_ref);
         }
         const ColVec<NU, T> out = u_lim.saturate(u);
         if constexpr (NI > 0) {
-            integral.asked = u;
+            integral.asked = asked;
+        } else {
+            static_cast<void>(asked);
         }
         if constexpr (kRecord) {
             applied_.command = out;
@@ -509,7 +545,8 @@ private:
     /** @brief u = u* − K·z, z = [x − x*; xi], x and x* on the law's model. */
     [[nodiscard]] constexpr ColVec<NU, T> reference_law(const ColVec<NXL, T>& x, const ColVec<NXL, T>& x_ref, const ColVec<NU, T>& u_ref) {
         const ColVec<NXL + NI, T> z = detail::stacked(ColVec<NXL, T>(x - x_ref), integrators());
-        return record(ColVec<NU, T>(u_ref - (K * z)), u_ref);
+        const ColVec<NU, T>       u = u_ref - (K * z);
+        return record(u, limit_demand(u, z), u_ref);
     }
 
     /** @brief The law, then the integrators' error from @p r and the measurement, with the feedthrough @p fed (Ci·D·u) it carries added back. */
@@ -534,7 +571,9 @@ private:
         requires(ND > 0)
     {
         target.anchor(estimator, r, x_ref, u_ref);
-        return record(ColVec<NU, T>(estimator.anchor_input() - (K * detail::leading<NXL>(estimator.at_command()))), u_ref);
+        const ColVec<NXL, T> z = detail::leading<NXL>(estimator.at_command());
+        const ColVec<NU, T>  u = estimator.anchor_input() - (K * z);
+        return record(u, limit_demand(u, z), u_ref);
     }
 
     /** @brief Integrate the held error less the applied input's feedthrough Ci·D·u, into integral.lim, unless a clamp (u_lim, or one back_calculate reported) would wind it up: integrator i holds when −K(j, i)·eᵢ points into a clamped input j. */

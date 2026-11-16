@@ -158,6 +158,7 @@ struct LQGI : private detail::StateFeedbackCore<NX, NU, T, NI, NY, Est, 0, Store
     using Core::estimator;
     using Core::integral;
     using Core::K;
+    using Core::demand_lim;
     using Core::u_lim;
 
     /** @brief The filter's measurement update with @p y (the integrators read it at the next control). */

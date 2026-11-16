@@ -255,6 +255,93 @@ TEST_SUITE("LQ limits") {
         CHECK(static_cast<double>((model.C * x)(0, 0)) == doctest::Approx(0.0).epsilon(1e-3)); // offset-free again
     }
 
+    TEST_CASE_TEMPLATE("demand_lim is the outer terms' demand clamped outside with back_calculate", T, float, double) {
+        // Read as a cascade on the speed: position and the integral ask for a speed, at most 0.3. The
+        // oracle is the same law with the clamp outside it, as a hand-written cascade limit would be.
+        // A mass on a damper: no input holds it anywhere, so the demand is 0 at rest (with a spring the
+        // outer terms would carry its force).
+        constexpr StateSpace<2, 1, 1> mass{.A = Matrix<2, 2>{{0.0, 1.0}, {0.0, -0.5}}, .B = Matrix<2, 1>{{0.0}, {1.0}}, .C = Matrix<1, 2>{{1.0, 0.0}}};
+        const auto                    res = design::lqi(mass, kTs, kFreeI);
+        REQUIRE(res.success);
+        LQI      bounded{res.template as<T>()};
+        LQI      clamped{res.template as<T>()};
+        const T  lim = static_cast<T>(0.3);
+        bounded.demand_lim = {.state = 1, .outer = {true, false, true}, .lim = {.lower = -lim, .upper = lim}};
+        const auto&            K = clamped.K; // [p, v, ξ]
+        const auto             d = discretize(mass, kTs).value();
+        const auto             model = StateSpace<2, 1, 1, T>{.A = d.A.template as<T>(), .B = d.B.template as<T>(), .C = d.C.template as<T>(), .Ts = static_cast<T>(kTs)};
+        const ColVec<1, T>     r{T{5}};
+        ColVec<2, T>           xa{};
+        ColVec<2, T>           xb{};
+        T                      worst{0};
+        T                      worst_free_demand{0};
+        int                    limited = 0;
+        for (int k = 0; k < 3000; ++k) {
+            bounded.update(xa);
+            clamped.update(xb);
+            const T ua = bounded.control(r)(0);
+            T       ub = clamped.control(r)(0);
+            const T outer = -((K(0, 0) * (xb(0) - T{0})) + (K(0, 2) * clamped.integral.xi(0)));
+            const T asked = outer / K(0, 1);
+            worst_free_demand = damp::max(worst_free_demand, damp::abs(asked));
+            if (damp::abs(asked) > lim) {
+                ub += (K(0, 1) * damp::clamp(asked, -lim, lim)) - outer;
+                ++limited;
+            }
+            clamped.back_calculate(ColVec<1, T>{ub});
+            bounded.predict();
+            clamped.predict();
+            worst = damp::max(worst, damp::abs(ua - ub));
+            xa = ColVec<2, T>((model.A * xa) + (model.B * ColVec<1, T>{ua}));
+            xb = ColVec<2, T>((model.A * xb) + (model.B * ColVec<1, T>{ub}));
+        }
+        CHECK(limited > 100);
+        CHECK(worst_free_demand > lim); // the limit bound: without it the outer terms ask for more
+        CHECK(worst <= T{64} * tol<T> * T{5});
+        CHECK(static_cast<double>(xa(0)) == doctest::Approx(5.0).epsilon(1e-3)); // the integrator held, then settled
+        // OFLQG: the same on the deviation from its target, d̂ standing in for the integral.
+        const design::KalmanNoise<2, 1, double, 1> noise{.process = kNoise.process, .measurement = kNoise.measurement, .disturbance = Matrix<1, 1>{{1.0}}};
+        constexpr StateSpace<2, 1, 1, double, 2, 1> noisy{.A = mass.A, .B = mass.B, .C = mass.C, .G = Matrix<2, 2>::identity(), .H = Matrix<1, 1>::identity()};
+        const auto                                  of = design::oflqg(noisy, kTs, kFree, noise, design::InputDisturbance{});
+        REQUIRE(of.success);
+        OFLQG of_bounded{of.template as<T>()};
+        OFLQG of_clamped{of.template as<T>()};
+        of_bounded.demand_lim = {.state = 1, .outer = {true, false}, .lim = {.lower = -lim, .upper = lim}};
+        const auto& Kf = of_clamped.K;
+        xa = ColVec<2, T>{};
+        xb = ColVec<2, T>{};
+        worst = T{0};
+        limited = 0;
+        for (int k = 0; k < 3000; ++k) {
+            of_bounded.update(ColVec<1, T>(model.C * xa));
+            of_clamped.update(ColVec<1, T>(model.C * xb));
+            const T ua = of_bounded.control(r)(0);
+            T       ub = of_clamped.control(r)(0);
+            const T outer = -(Kf(0, 0) * of_clamped.estimator.at_command()(0));
+            const T asked = outer / Kf(0, 1);
+            if (damp::abs(asked) > lim) {
+                ub += (Kf(0, 1) * damp::clamp(asked, -lim, lim)) - outer;
+                ++limited;
+            }
+            of_clamped.back_calculate(ColVec<1, T>{ub});
+            of_bounded.predict();
+            of_clamped.predict();
+            worst = damp::max(worst, damp::abs(ua - ub));
+            xa = ColVec<2, T>((model.A * xa) + (model.B * ColVec<1, T>{ua}));
+            xb = ColVec<2, T>((model.A * xb) + (model.B * ColVec<1, T>{ub}));
+        }
+        CHECK(limited > 50);
+        CHECK(worst <= T{64} * tol<T> * T{5});
+        CHECK(static_cast<double>(xa(0)) == doctest::Approx(5.0).epsilon(1e-3));
+
+        LQI off{res.template as<T>()}; // demand_lim off again: the plain law
+        bounded.demand_lim.state = design::DemandLimit<3, T>::none;
+        bounded.reset();
+        off.update(ColVec<2, T>{T{-3}, T{0}});
+        bounded.update(ColVec<2, T>{T{-3}, T{0}});
+        CHECK(bounded.control(r) == off.control(r));
+    }
+
     TEST_CASE("a constexpr design's Law carries the limits, in float") {
         static constexpr auto kLqi = design::lqi(plant(), kTs, {.Q = Q, .R = 1.0, .Q_integral = 80.0, .u_lim = {.lower = -1.05, .upper = 1.05}, .integral_lim = {.lower = -0.05, .upper = 0.05}});
         static constexpr auto kLqr = design::lqr(plant(), kTs, {.Q = Q, .R = 1.0, .u_lim = {.lower = -1.05, .upper = 1.05}});
