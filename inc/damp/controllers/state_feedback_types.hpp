@@ -304,6 +304,7 @@ struct [[nodiscard]] StateFeedbackResult {
      * | measured state | none | x | u = −Kx |
      * | measured state, integrators | ξ | [r; x] | u |
      * | Kalman filter | x̂(k−1\|k−1) | y | u |
+     * | Kalman filter, disturbance model (OFLQG) | [x̂; d̂](k−1\|k−1) | y | u |
      * | Kalman filter, integrators | [x̂(k\|k−1); ξ; u_prev] | [r; y] | u |
      *
      * With input registers, x is the law's model [x; v(k−1); …], the state of the delayed plant the
@@ -317,14 +318,16 @@ struct [[nodiscard]] StateFeedbackResult {
      * @f[
      *   A_c = (I-MC)(A-BK) + MDK,\quad B_c = M,\quad C_c = -K A_c,\quad D_c = -KM.
      * @f]
-     * A law with a disturbance model holds more than these
-     * states, so it has no such block. The steady-state target of TrackedOutputs is a
-     * feedforward on r outside this block: the block is the regulator (r = 0). The block is the
+     * With a disturbance model the target folds into the gain: at r = 0 the target for d̂ is
+     * x_t = T_x d̂, u_t = T_u d̂ (SteadyStateTargetResult::target_d), so the law
+     * u = u_t − K(x̂ − x_t) is the same current estimator on [x; d] with the gain
+     * [K, −(T_u + K T_x)] on [x̂; d̂]. The steady-state target is a feedforward on r outside this
+     * block, with TrackedOutputs and with a disturbance model alike: the block is the regulator
+     * (r = 0). It closes on any plant its y is read from, one with another delay among them:
+     * u = C_c s + D_c y, its sign included. The block is the
      * law within its limits: u_lim, the integrators' limits and demand_lim are not part of it.
      */
-    [[nodiscard]] constexpr auto to_ss() const
-        requires(ND == 0)
-    {
+    [[nodiscard]] constexpr auto to_ss() const {
         if constexpr (!kEstimated && NI == 0) {
             return StateSpace<0, NXL, NU, T>{.A = Matrix<0, 0, T>{}, .B = Matrix<0, NXL, T>{}, .C = Matrix<NU, 0, T>{}, .D = -K, .Ts = Ts};
         } else if constexpr (!kEstimated) {
@@ -355,12 +358,28 @@ private:
         return {.A = Ac, .B = Matrix<NI, NI + NXL, T>(Bc - (hCiD * Dc)), .C = Cc, .D = Dc, .Ts = Ts};
     }
 
-    /** @brief The current-estimator law: the filter's estimate x̂(k−1|k−1) is the state. */
-    [[nodiscard]] constexpr StateSpace<NXL, NY, NU, T> estimator_ss() const {
-        const auto& sys = kalman.sys;
-        const auto  ImMC = Matrix<NXL, NXL, T>::identity() - (kalman.M * sys.C);
-        const auto  Ac = (ImMC * (sys.A - (sys.B * K))) + ((kalman.M * sys.D) * K);
-        return {.A = Ac, .B = kalman.M, .C = -(K * Ac), .D = -(K * kalman.M), .Ts = Ts};
+    /** @brief The gain on the filter's state: K, and with a disturbance model −(T_u + K T_x) on d̂, the target's at r = 0 folded in. */
+    [[nodiscard]] constexpr Matrix<NU, NXL + ND, T> filter_gain() const {
+        if constexpr (ND == 0) {
+            return K;
+        } else {
+            Matrix<NU, NXL + ND, T> Ks{};
+            Ks.template block<NU, NXL>(0, 0) = K;
+            const Matrix<NXL, ND, T> Tx = target.target_d.template block<NXL, ND>(0, 0);
+            const Matrix<NU, ND, T>  Tu = target.target_d.template block<NU, ND>(NXL, 0);
+            Ks.template block<NU, ND>(0, NXL) = -(Tu + (K * Tx));
+            return Ks;
+        }
+    }
+
+    /** @brief The current-estimator law: the filter's estimate x̂(k−1|k−1) is the state ([x̂; d̂] with a disturbance model). */
+    [[nodiscard]] constexpr StateSpace<NXL + ND, NY, NU, T> estimator_ss() const {
+        constexpr size_t NF = NXL + ND;
+        const auto&      sys = kalman.sys;
+        const auto       Kf = filter_gain();
+        const auto       ImMC = Matrix<NF, NF, T>::identity() - (kalman.M * sys.C);
+        const auto       Ac = (ImMC * (sys.A - (sys.B * Kf))) + ((kalman.M * sys.D) * Kf);
+        return {.A = Ac, .B = kalman.M, .C = -(Kf * Ac), .D = -(Kf * kalman.M), .Ts = Ts};
     }
 
     /** @brief The current-estimator law with integrators: the state is [x̂(k|k−1); ξ; u_prev], the inputs [r; y] (to_ss()). */

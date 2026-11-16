@@ -319,6 +319,55 @@ TEST_SUITE("Delayed laws with a filter") {
         CHECK(z.norm() < 1e-4);
     }
 
+    TEST_CASE("to_ss of an OFLQG with an InputDelay is the runtime's tick at r = 0, d̂ in the gain") {
+        const design::KalmanNoise<2, 1, double, 1> noise{.process = kNoise.process, .measurement = kNoise.measurement, .disturbance = Matrix<1, 1>{{1.0}}};
+        const auto                                 res = design::oflqg(noisy(), kTs, InputDelay<2>{kTheta}, kW, noise, design::InputDisturbance{});
+        REQUIRE(res.success);
+        const auto ctrl = res.to_ss();
+        static_assert(damp::remove_cvref_t<decltype(ctrl.A)>::rows() == 5); // [x; v(k−1); v(k−2); d]
+        const auto model = delayed_model();
+        OFLQG      law{res};
+        ColVec<4>  z{{0.1, 0.0, 0.0, 0.0}};
+        ColVec<4>  zc = z;
+        ColVec<5>  xc{};
+        double     worst = 0.0;
+        double     scale = 0.0;
+        for (int k = 0; k < 200; ++k) {
+            law.update(model.C * z);
+            const double u = law.control(ColVec<1>{})(0);
+            law.predict();
+            const ColVec<1> yc(model.C * zc);
+            const double    uc = ((ctrl.C * xc) + (ctrl.D * yc))(0, 0);
+            xc = (ctrl.A * xc) + (ctrl.B * yc);
+            worst = std::fmax(worst, std::fabs(u - uc));
+            scale = std::fmax(scale, std::fabs(u));
+            z = (model.A * z) + (model.B * ColVec<1>{u});
+            zc = (model.A * zc) + (model.B * ColVec<1>{uc});
+        }
+        CHECK(worst <= 1e-9 * scale);
+        CHECK(z.norm() < 1e-4);
+
+        // Closed on a plant a period later than the design's: the loop the block makes is the runtime's there too.
+        const auto later = discretize(noisy(), kTs, InputDelay<3>{kTheta + kTs}).value();
+        OFLQG      late_law{res};
+        ColVec<5>  w{{0.1, 0.0, 0.0, 0.0, 0.0}};
+        ColVec<5>  wc = w;
+        xc = ColVec<5>{};
+        worst = 0.0;
+        for (int k = 0; k < 100; ++k) {
+            late_law.update(later.C * w);
+            const double u = late_law.control(ColVec<1>{})(0);
+            late_law.predict();
+            const ColVec<1> yc(later.C * wc);
+            const double    uc = ((ctrl.C * xc) + (ctrl.D * yc))(0, 0);
+            xc = (ctrl.A * xc) + (ctrl.B * yc);
+            worst = std::fmax(worst, std::fabs(u - uc));
+            w = (later.A * w) + (later.B * ColVec<1>{u});
+            wc = (later.A * wc) + (later.B * ColVec<1>{uc});
+        }
+        CHECK(worst <= 1e-9 * scale);
+    }
+
     TEST_CASE("LQG and LQR with an InputDelay hold r alike, the target's registers at u_t") {
         const auto lqr = design::lqr(noisy(), kTs, InputDelay<2>{kTheta}, kW, design::TrackedOutputs{});
         const auto lqg = design::lqg(noisy(), kTs, InputDelay<2>{kTheta}, kW, kNoise, design::TrackedOutputs{});
