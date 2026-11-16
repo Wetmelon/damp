@@ -133,6 +133,13 @@ template<size_t NX, size_t NU, typename T, size_t NI>
  * bookings differ only by the cost of the inputs already in the registers at the start, which
  * no command changes: the same gain, with R on the command where the DARE needs it. Q and the
  * cross term N act on the plant as it runs, x(t) and the input it holds.
+ *
+ * The limits of that booking. It holds term by term for each input's own weight Rⱼⱼ, and for an
+ * Rᵢⱼ between inputs of the same delay. Between inputs of different delays the plant pairs
+ * commands of different ages, and the gain is optimal for the cost booked on the command, not
+ * for the continuous one. A cross term N on a delayed input pairs x(t) with a register that
+ * carries no input cost, so the weight on [z; ξ; u] is indefinite and the design is refused
+ * (bad_weights); N on an input with no delay is exact.
  */
 template<size_t NX, size_t NU, size_t NY, size_t NI, typename T, size_t NW, size_t NV, size_t NZ>
 [[nodiscard]] constexpr damp::optional<LQRCost<NZ + NI, NU, T>> delayed_cost(

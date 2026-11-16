@@ -263,7 +263,8 @@ public:
      * The integral state advances by one explicit-Euler step of the design's Ts. The command
      * is clamped into u_lim, and a step of the integral state that pushes the command further
      * past a limit it is on is taken back (conditional integration): v holds against the clamp
-     * where it ran on while s could not reach 0.
+     * where it ran on while s could not reach 0. The step enters the next command, so v holds at
+     * most one step, k₂·Ts, past the limit, as it does for a clamp reported with back_calculate.
      * @param s  Sliding variable
      */
     [[nodiscard]] constexpr T control_sliding(T s) {

@@ -97,3 +97,11 @@ TEST_CASE("Bounds::as saturates a finite end past the narrower type's range") {
     CHECK(d.lower(0) == -2.5);
     CHECK(d.upper(0) == 3.0);
 }
+
+TEST_CASE("Bounds::as keeps a NaN end, so a narrower copy of a box that is not one is refused too") {
+    volatile double zero = 0.0;
+    const double    nan = zero / zero; // at run time: a constant could be folded
+    const Bounds<1> bad{.lower = nan, .upper = 1.0};
+    REQUIRE_FALSE(bad.valid());
+    CHECK_FALSE(bad.as<float>().valid()); // clamp made the NaN the float range's end
+}

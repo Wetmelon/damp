@@ -13,7 +13,8 @@
  * design::lqr(plant, Ts, InputDelay<N>{θ}, {.Q, .R, .N}[, TrackedOutputs<NZ>{{i, …}}]) → a
  * StateFeedbackResult whose LQR holds the inputs still on their way;
  * with TrackedOutputs<NZ>{{i, …}}, a StateFeedbackResult. step(x) is predict, update(x), control
- * (predict is empty on LQR). The low-latency tick is update(x), control(). With tracked
+ * (predict is empty on LQR without an InputDelay). The low-latency tick is update(x), control(),
+ * then back_calculate and predict() with an InputDelay. With tracked
  * outputs: control(r), step(r, x). With feedforward from a planned trajectory: control([r,]
  * x_ref, u_ref), step([r,] x_ref, u_ref, x).
  */
@@ -127,7 +128,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size
  *
  * Runs design::lqr, or a gain design (design::place, discrete_lqr): `LQR law{res.as<float>()}`, or
  * `Law<kRes, float>` for a struct member. step(x) is predict, update(x), control; predict is
- * empty, so that equals update then control. The regulator is x* = 0 and u* = 0. A design with
+ * empty without an InputDelay, so that equals update then control. The regulator is x* = 0 and u* = 0. A design with
  * TrackedOutputs holds those outputs at r through its steady-state target: control(r),
  * step(r, x). Feedforward from a planned trajectory
  * (x_ref, u_ref) adds to it: control([r,] x_ref, u_ref), step([r,] x_ref, u_ref, x). The command

@@ -393,6 +393,12 @@ struct ActiveNormals {
  * and this, the metric of H⁻¹ alone does not tell a row that a heavy weight hides from the
  * roundoff of a dependent row, which grows with the conditioning of L; the row itself does
  * (row_stands_clear).
+ *
+ * Its limit: row_stands_clear takes this as its tolerance too, so a row that reaches a heavily
+ * weighted variable only through a coefficient below it, against the row's largest, reads as
+ * dependent. In float that is about 5·10⁻³ (more with more active rows), and a feasible problem
+ * that can only meet such a row through that variable can end Infeasible. In double the level
+ * is about 10⁻⁷.
  */
 template<size_t KMAX, typename T>
 [[nodiscard]] constexpr T clear_tol() {

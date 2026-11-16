@@ -323,17 +323,18 @@ using std::type_identity_t;
 namespace damp {
 
 /**
- * @brief The smaller of a and b, by value; a tie or a NaN returns a.
+ * @brief The smaller of a and b, by value; a tie returns a, and so does a NaN without -ffast-math.
  *
  * std::min and etl::min return a reference, which dangles once bound past a temporary argument,
- * and disagree on which argument a tie or a NaN returns. One VMINNM on FPv5 under -ffast-math.
+ * and disagree on which argument a tie or a NaN returns. One VMINNM on FPv5 under -ffast-math,
+ * which assumes no NaN: there a NaN may come out of either side, so test with damp::isfinite.
  */
 template<typename T>
 [[nodiscard]] constexpr T min(const T& a, const T& b) {
     return (b < a) ? b : a;
 }
 
-/** @brief The larger of a and b, by value; a tie or a NaN returns a. */
+/** @brief The larger of a and b, by value; a tie returns a, and so does a NaN without -ffast-math. */
 template<typename T>
 [[nodiscard]] constexpr T max(const T& a, const T& b) {
     return (a < b) ? b : a;
@@ -368,7 +369,8 @@ template<typename T>
  *
  * Branch-free (a VMAXNM/VMINNM pair on FPv5 under -ffast-math) and with no precondition: for
  * lo > hi, where std::clamp's behavior is undefined and etl::clamp returns lo below it, this
- * returns hi on every backend. lo is compared first, so a NaN x gives lo.
+ * returns hi on every backend. lo is compared first, so a NaN x gives lo without -ffast-math
+ * (under it, any of the three).
  */
 template<typename T>
 [[nodiscard]] constexpr T clamp(const T& x, const T& lo, const T& hi) {

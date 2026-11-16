@@ -121,7 +121,8 @@ template<
  * Runs design::oflqg. The estimator is a FixedGainObserver on [x; d] with design::kalman's fixed
  * gain, holding deviations from the target (`estimator`). The target holds the controlled outputs
  * at r under the disturbance estimate d̂, taken about the reference point (x*, u*). The tick is
- * update(y) then control(r), or step(r, y), with x* = 0 and u* = 0; feedforward from a planned
+ * step(r, y), or update(y), control(r), back_calculate, predict() (predict moves the filter),
+ * with x* = 0 and u* = 0; feedforward from a planned
  * trajectory (x_ref, u_ref) is control(r, x_ref, u_ref), or step(r, x_ref, u_ref, y). The
  * command is clamped into u_lim (the design's, LQRConfig; unbounded by default), and predict()
  * moves the filter with it, so the clamp is not taken for a disturbance; back_calculate(u_sat)
