@@ -175,8 +175,8 @@ struct LQR : private detail::StateFeedbackCore<NX, NU, T, 0, NY, NoEstimator, NZ
         }
     }
 
-    using Core::K;
     using Core::demand_lim;
+    using Core::K;
     using Core::u_lim;
 
     /** @brief Hold the measured state @p x for the next control. */

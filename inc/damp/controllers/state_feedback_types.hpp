@@ -124,10 +124,10 @@ struct IntegralAction {
  */
 template<size_t NX, size_t NU, typename T = double>
 struct LQRConfig {
-    Matrix<NX, NX, T> Q{};     ///< On the plant states x (positive semidefinite)
-    Matrix<NU, NU, T> R{};     ///< On the inputs u (positive definite)
-    Matrix<NX, NU, T> N{};     ///< Cross term between x and u (default zero)
-    Bounds<NU, T>     u_lim{}; ///< Limits on the command u, per input (default unbounded)
+    Matrix<NX, NX, T>  Q{};          ///< On the plant states x (positive semidefinite)
+    Matrix<NU, NU, T>  R{};          ///< On the inputs u (positive definite)
+    Matrix<NX, NU, T>  N{};          ///< Cross term between x and u (default zero)
+    Bounds<NU, T>      u_lim{};      ///< Limits on the command u, per input (default unbounded)
     DemandLimit<NX, T> demand_lim{}; ///< A limit on what the outer states ask of one state (default off)
 };
 
@@ -169,13 +169,13 @@ LQRConfig(Matrix<NX, NX, T>, Matrix<NU, NU, T>, Matrix<NX, NU, T>) -> LQRConfig<
  */
 template<size_t NX, size_t NU, size_t NI, typename T = double>
 struct LQIConfig {
-    Matrix<NX, NX, T> Q{};            ///< On the plant states x (positive semidefinite)
-    Matrix<NU, NU, T> R{};            ///< On the inputs u (positive definite)
-    Matrix<NX, NU, T> N{};            ///< Cross term between x and u (default zero)
-    Matrix<NI, NI, T> Q_integral{};   ///< On the discrete integral state ξ ≈ ∫e dt (positive definite)
-    Bounds<NU, T>     u_lim{};        ///< Limits on the command u, per input (default unbounded)
-    Bounds<NI, T>     integral_lim{}; ///< Limits on the integral state ξ, per integrator (default unbounded)
-    DemandLimit<NX + NI, T> demand_lim{}; ///< A limit on what the outer states and integrators ask of one state (default off)
+    Matrix<NX, NX, T>       Q{};            ///< On the plant states x (positive semidefinite)
+    Matrix<NU, NU, T>       R{};            ///< On the inputs u (positive definite)
+    Matrix<NX, NU, T>       N{};            ///< Cross term between x and u (default zero)
+    Matrix<NI, NI, T>       Q_integral{};   ///< On the discrete integral state ξ ≈ ∫e dt (positive definite)
+    Bounds<NU, T>           u_lim{};        ///< Limits on the command u, per input (default unbounded)
+    Bounds<NI, T>           integral_lim{}; ///< Limits on the integral state ξ, per integrator (default unbounded)
+    DemandLimit<NX + NI, T> demand_lim{};   ///< A limit on what the outer states and integrators ask of one state (default off)
 };
 
 /** @brief Sizes from the matrices: `LQIConfig{Q, R, N, Q_integral}`. */

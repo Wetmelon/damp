@@ -208,9 +208,9 @@ struct LQG : private detail::StateFeedbackCore<NX, NU, T, 0, NY, Est, NZ, Store,
         }
     }
 
+    using Core::demand_lim;
     using Core::estimator;
     using Core::K;
-    using Core::demand_lim;
     using Core::u_lim;
 
     /** @brief The filter's measurement update with @p y. */

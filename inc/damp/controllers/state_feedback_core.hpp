@@ -184,8 +184,8 @@ struct StateFeedbackCore {
     [[no_unique_address]] Integral integral{};  ///< The integrators (NI > 0)
     Bounds<NU, T>                  u_lim{};     ///< Limits on the command control returns (default unbounded)
 
-    [[no_unique_address]] DisturbanceLim disturbance_lim{}; ///< Limits on the disturbance estimate d̂, in d's units (ND > 0; default unbounded)
-    [[no_unique_address]] Store::template Demand<NX + NI, T> demand_lim{}; ///< A limit on what the outer terms ask of a state (default off; a constant of a `constexpr` design's Law)
+    [[no_unique_address]] DisturbanceLim                     disturbance_lim{}; ///< Limits on the disturbance estimate d̂, in d's units (ND > 0; default unbounded)
+    [[no_unique_address]] Store::template Demand<NX + NI, T> demand_lim{};      ///< A limit on what the outer terms ask of a state (default off; a constant of a `constexpr` design's Law)
 
     constexpr StateFeedbackCore() = default;
 
@@ -511,20 +511,22 @@ private:
         ColVec<NU, T> out = u;
         for (size_t i = 0; i < NU; ++i) {
             const T k_s = K(i, s);
-            if (k_s == T{0}) {
-                continue; // this input does not act on s
-            }
-            T outer{0}; // −Σ K_j·z_j over the outer terms: the command they make
+            T       outer{0}; // −Σ K_j·z_j over the outer terms: the command they make
+            T       row{0};   // the row's largest gain, for the test on k_s
             for (size_t j = 0; j < NX + NI; ++j) {
+                const size_t c = (j < NX) ? j : (NXL + (j - NX)); // the integrators sit after the registers
+                row = damp::max(row, damp::abs(K(i, c)));
                 if (demand_lim.outer[j]) {
-                    const size_t c = (j < NX) ? j : (NXL + (j - NX)); // the integrators sit after the registers
                     outer -= K(i, c) * z(c);
                 }
             }
-            const T asked = outer / k_s;
-            const T held = demand_lim.lim.saturate(asked);
-            if (held != asked) {
-                out(i) += (k_s * held) - outer;
+            if (damp::abs(k_s) <= T{4} * eps<T>() * row) {
+                continue; // this input does not act on s: its gain there is rounding
+            }
+            const T demand = outer / k_s;
+            const T allowed = demand_lim.lim.saturate(demand);
+            if (allowed != demand) {
+                out(i) += (k_s * allowed) - outer;
             }
         }
         return out;

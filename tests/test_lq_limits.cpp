@@ -263,19 +263,19 @@ TEST_SUITE("LQ limits") {
         constexpr StateSpace<2, 1, 1> mass{.A = Matrix<2, 2>{{0.0, 1.0}, {0.0, -0.5}}, .B = Matrix<2, 1>{{0.0}, {1.0}}, .C = Matrix<1, 2>{{1.0, 0.0}}};
         const auto                    res = design::lqi(mass, kTs, kFreeI);
         REQUIRE(res.success);
-        LQI      bounded{res.template as<T>()};
-        LQI      clamped{res.template as<T>()};
-        const T  lim = static_cast<T>(0.3);
+        LQI     bounded{res.template as<T>()};
+        LQI     clamped{res.template as<T>()};
+        const T lim = static_cast<T>(0.3);
         bounded.demand_lim = {.state = 1, .outer = {true, false, true}, .lim = {.lower = -lim, .upper = lim}};
-        const auto&            K = clamped.K; // [p, v, ξ]
-        const auto             d = discretize(mass, kTs).value();
-        const auto             model = StateSpace<2, 1, 1, T>{.A = d.A.template as<T>(), .B = d.B.template as<T>(), .C = d.C.template as<T>(), .Ts = static_cast<T>(kTs)};
-        const ColVec<1, T>     r{T{5}};
-        ColVec<2, T>           xa{};
-        ColVec<2, T>           xb{};
-        T                      worst{0};
-        T                      worst_free_demand{0};
-        int                    limited = 0;
+        const auto&        K = clamped.K; // [p, v, ξ]
+        const auto         d = discretize(mass, kTs).value();
+        const auto         model = StateSpace<2, 1, 1, T>{.A = d.A.template as<T>(), .B = d.B.template as<T>(), .C = d.C.template as<T>(), .Ts = static_cast<T>(kTs)};
+        const ColVec<1, T> r{T{5}};
+        ColVec<2, T>       xa{};
+        ColVec<2, T>       xb{};
+        T                  worst{0};
+        T                  worst_free_demand{0};
+        int                limited = 0;
         for (int k = 0; k < 3000; ++k) {
             bounded.update(xa);
             clamped.update(xb);
@@ -300,7 +300,7 @@ TEST_SUITE("LQ limits") {
         CHECK(worst <= T{64} * tol<T> * T{5});
         CHECK(static_cast<double>(xa(0)) == doctest::Approx(5.0).epsilon(1e-3)); // the integrator held, then settled
         // OFLQG: the same on the deviation from its target, d̂ standing in for the integral.
-        const design::KalmanNoise<2, 1, double, 1> noise{.process = kNoise.process, .measurement = kNoise.measurement, .disturbance = Matrix<1, 1>{{1.0}}};
+        const design::KalmanNoise<2, 1, double, 1>  noise{.process = kNoise.process, .measurement = kNoise.measurement, .disturbance = Matrix<1, 1>{{1.0}}};
         constexpr StateSpace<2, 1, 1, double, 2, 1> noisy{.A = mass.A, .B = mass.B, .C = mass.C, .G = Matrix<2, 2>::identity(), .H = Matrix<1, 1>::identity()};
         const auto                                  of = design::oflqg(noisy, kTs, kFree, noise, design::InputDisturbance{});
         REQUIRE(of.success);
