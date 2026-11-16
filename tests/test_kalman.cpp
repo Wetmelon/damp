@@ -500,7 +500,15 @@ TEST_CASE("Kalman Joseph update keeps P symmetric; singular S fails closed") {
     // Zero R and zero prior on the measured channel → S singular → update rejects.
     KalmanFilter kf_sing{sys, {.Q = Matrix<2, 2, double>::zeros(), .R = 0.0, .P0 = Matrix<2, 2, double>::zeros()}};
     kf_sing.predict(ColVec<1>{0.0});
+    CHECK(kf_sing.last_status() == UpdateStatus::ok); // no update yet
     CHECK_FALSE(kf_sing.update(ColVec<1>{1.0}));
+    CHECK(kf_sing.last_status() == UpdateStatus::refused);
+    static_cast<void>(kf_sing.step(ColVec<1>{1.0}, ColVec<1>{0.0})); // step drops the bool: the status keeps it
+    CHECK(kf_sing.last_status() == UpdateStatus::refused);
+    CHECK(kf.update(ColVec<1>{0.5}));
+    CHECK(kf.last_status() == UpdateStatus::ok);
+    kf_sing.reset();
+    CHECK(kf_sing.last_status() == UpdateStatus::ok);
 }
 
 TEST_CASE("KalmanFilter fuses a second sensor of another size: update(y, C, R) and update(y, C, D, R)") {
