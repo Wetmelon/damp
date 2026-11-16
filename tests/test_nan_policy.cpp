@@ -275,7 +275,7 @@ TEST_SUITE("NaN/Inf policy") {
 
         // And the disturbance estimate of an offset-free law.
         const design::KalmanNoise<2, 1, double, 1> of_noise{.process = kLqNoise.process, .measurement = kLqNoise.measurement, .disturbance = Matrix<1, 1>{{1.0}}};
-        const auto of_res = design::oflqg(lq_plant(), 0.01, design::LQRConfig<2, 1>{.Q = kLqQ, .R = 1.0}, of_noise, design::InputDisturbance{});
+        const auto                                 of_res = design::oflqg(lq_plant(), 0.01, design::LQRConfig<2, 1>{.Q = kLqQ, .R = 1.0}, of_noise, design::InputDisturbance{});
         REQUIRE(of_res.success);
         OFLQG oflqg{of_res.as<float>()};
         for (int k = 0; k < 20; ++k) {
