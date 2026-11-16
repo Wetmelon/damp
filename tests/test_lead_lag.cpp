@@ -9,6 +9,7 @@
 
 #include "damp/backend.hpp"
 #include "damp/controllers/lead_lag.hpp"
+#include "damp/design/status.hpp"
 #include "damp/math/math.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "damp/systems/state_space.hpp"

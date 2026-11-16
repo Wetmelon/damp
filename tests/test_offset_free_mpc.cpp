@@ -14,6 +14,7 @@
 #include <cstddef>
 #include <type_traits>
 
+#include "damp/backend.hpp"
 #include "damp/controllers/mpc.hpp"
 #include "damp/controllers/ofmpc.hpp"
 #include "damp/design/disturbance.hpp"

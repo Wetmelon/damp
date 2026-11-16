@@ -11,6 +11,7 @@
 #include <type_traits>
 
 #include "damp/backend.hpp"
+#include "damp/controllers/detail/lq_cost.hpp"
 #include "damp/controllers/lqi.hpp"
 #include "damp/design/riccati.hpp"
 #include "damp/design/status.hpp"

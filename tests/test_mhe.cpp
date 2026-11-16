@@ -8,6 +8,7 @@
 
 #include "damp/backend.hpp"
 #include "damp/design/qp.hpp"
+#include "damp/design/status.hpp"
 #include "damp/estimation/kalman.hpp"
 #include "damp/estimation/mhe.hpp"
 #include "damp/math/math.hpp"

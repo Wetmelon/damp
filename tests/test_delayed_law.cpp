@@ -13,6 +13,7 @@
 #include <cstddef>
 #include <vector>
 
+#include "damp/backend.hpp"
 #include "damp/controllers/lqg.hpp"
 #include "damp/controllers/lqgi.hpp"
 #include "damp/controllers/lqi.hpp"
@@ -20,8 +21,10 @@
 #include "damp/controllers/oflqg.hpp"
 #include "damp/design/disturbance.hpp"
 #include "damp/design/riccati.hpp"
+#include "damp/design/status.hpp"
 #include "damp/design/steady_state_target.hpp"
 #include "damp/estimation/kalman.hpp"
+#include "damp/math/math.hpp"
 #include "damp/matrix/colvec.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "damp/systems/discretization.hpp"

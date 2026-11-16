@@ -13,6 +13,7 @@
 #include "damp/design/steady_state_target.hpp"
 #include "damp/math/math.hpp"
 #include "damp/matrix/matrix.hpp"
+#include "damp/matrix/matrix_traits.hpp"
 #include "damp/systems/discretization.hpp"
 #include "damp/systems/state_space.hpp"
 

@@ -14,7 +14,6 @@
 #include "damp/analysis/analysis.hpp"
 #include "damp/design/stability.hpp"
 #include "damp/filters/iir_design.hpp"
-#include "damp/math/complex.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "damp/systems/state_space.hpp"
 #include "damp/systems/transfer_function.hpp"

@@ -18,6 +18,7 @@
 #include "damp/controllers/pid.hpp"
 #include "damp/controllers/smith_predictor.hpp"
 #include "damp/design/pid_design.hpp"
+#include "damp/design/status.hpp"
 #include "damp/filters/delay.hpp"
 #include "damp/systems/transfer_function.hpp"
 

@@ -5,6 +5,7 @@
 
 // Oracle conformance: expm, CARE and DARE (checks in oracle_checks.hpp, cases in oracle_cases.hpp).
 
+#include "oracle_cases.hpp"
 #include "oracle_checks.hpp"
 
 using namespace oracle_checks;

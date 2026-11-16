@@ -11,6 +11,7 @@
  * then a 3× inertia jump — the PI-D is honest for the nameplate, not a strawman.
  */
 
+#include <cstddef>
 #include <vector>
 
 #include "adrc_controller.hpp"

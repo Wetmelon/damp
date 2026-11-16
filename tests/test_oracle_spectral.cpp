@@ -6,6 +6,9 @@
 // Oracle conformance: eigenvalues, the Schur basis, generalized eigenvalues (QZ), logm and sqrtm
 // (checks in oracle_checks.hpp, cases in oracle_cases.hpp).
 
+#include "damp/backend.hpp"
+#include "damp/matrix/eigen.hpp"
+#include "oracle_cases.hpp"
 #include "oracle_checks.hpp"
 
 using namespace oracle_checks;

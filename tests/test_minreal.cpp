@@ -10,6 +10,7 @@
 #include "damp/backend.hpp"
 #include "damp/design/minreal.hpp"
 #include "damp/design/stability.hpp"
+#include "damp/design/status.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "damp/systems/state_space.hpp"
 #include "damp/systems/transfer_function.hpp"

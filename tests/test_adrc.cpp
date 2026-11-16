@@ -13,6 +13,7 @@
 #include "damp/design/status.hpp"
 #include "damp/math/complex.hpp"
 #include "damp/math/math.hpp"
+#include "damp/matrix/colvec.hpp"
 #include "damp/systems/state_space.hpp"
 #include "damp/systems/zpk.hpp"
 

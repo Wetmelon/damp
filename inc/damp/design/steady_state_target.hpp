@@ -36,6 +36,7 @@
 #include "damp/matrix/matrix.hpp"
 #include "damp/matrix/solve.hpp"
 #include "damp/matrix/svd.hpp"
+#include "damp/systems/discretization.hpp"
 #include "damp/systems/state_space.hpp"
 
 namespace damp {

@@ -11,15 +11,19 @@
 #include <cstddef>
 #include <type_traits>
 
+#include "damp/backend.hpp"
 #include "damp/controllers/adrc.hpp"
+#include "damp/controllers/law_detail.hpp"
 #include "damp/controllers/lqg.hpp"
 #include "damp/controllers/lqgi.hpp"
 #include "damp/controllers/lqi.hpp"
 #include "damp/controllers/lqr.hpp"
+#include "damp/controllers/mpc.hpp"
 #include "damp/controllers/oflqg.hpp"
 #include "damp/controllers/ofmpc.hpp"
 #include "damp/design/disturbance.hpp"
 #include "damp/design/model_inverse.hpp"
+#include "damp/design/steady_state_target.hpp"
 #include "damp/estimation/eso.hpp"
 #include "damp/estimation/fixed_gain_observer.hpp"
 #include "damp/estimation/kalman.hpp"

@@ -42,6 +42,7 @@
 
 #include "damp/analysis/analysis.hpp"
 #include "damp/backend.hpp"
+#include "damp/controllers/detail/state_feedback_options.hpp"
 #include "damp/controllers/lqg.hpp"
 #include "damp/controllers/lqi.hpp"
 #include "damp/controllers/lqr.hpp"
@@ -49,7 +50,6 @@
 #include "damp/design/linearization.hpp"
 #include "damp/design/minreal.hpp"
 #include "damp/design/model_reduction.hpp"
-#include "damp/design/model_result.hpp"
 #include "damp/design/pid_design.hpp"
 #include "damp/design/pole_placement.hpp"
 #include "damp/design/qp.hpp"
@@ -59,7 +59,6 @@
 #include "damp/filters/biquad.hpp"
 #include "damp/filters/pade.hpp"
 #include "damp/math/complex.hpp"
-#include "damp/matrix/eigen.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "damp/matrix/svd.hpp"
 #include "damp/systems/discretization.hpp"

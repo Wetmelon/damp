@@ -8,11 +8,14 @@
 #include <limits>
 #include <type_traits>
 
+#include "damp/backend.hpp"
+#include "damp/design/disturbance.hpp"
 #include "damp/design/status.hpp"
 #include "damp/estimation/fixed_gain_observer.hpp"
 #include "damp/estimation/kalman.hpp"
 #include "damp/math/math.hpp"
 #include "damp/matrix/matrix.hpp"
+#include "damp/matrix/matrix_traits.hpp"
 #include "damp/systems/discretization.hpp"
 #include "damp/systems/state_space.hpp"
 

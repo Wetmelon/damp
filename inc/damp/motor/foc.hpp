@@ -20,7 +20,6 @@
 #include "damp/design/pid_design.hpp" // ::damp::design::current_loop_pi
 #include "damp/design/status.hpp"
 #include "damp/math/transforms.hpp"
-#include "damp/systems/transfer_function.hpp"
 
 namespace damp::motor {
 

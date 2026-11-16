@@ -14,6 +14,7 @@
 #include "damp/backend.hpp"
 #include "damp/controllers/state_feedback_types.hpp"
 #include "damp/design/disturbance.hpp"
+#include "damp/design/options.hpp"
 #include "damp/design/steady_state_target.hpp"
 #include "damp/estimation/kalman.hpp"
 #include "damp/matrix/matrix.hpp"

@@ -13,6 +13,7 @@
 #include "damp/math/complex.hpp"
 #include "damp/math/math.hpp"
 #include "damp/matrix/matrix.hpp"
+#include "damp/matrix/matrix_traits.hpp"
 #include "damp/matrix/svd.hpp"
 
 #define DOCTEST_CONFIG_INCLUDE_TYPE_TRAITS

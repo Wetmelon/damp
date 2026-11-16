@@ -11,6 +11,7 @@
 
 #include "damp/backend.hpp"
 #include "damp/math/complex.hpp"
+#include "damp/math/math.hpp"
 #include "damp/matrix/eigen.hpp"
 #include "damp/matrix/generalized_eigen.hpp"
 #include "damp/matrix/matrix.hpp"

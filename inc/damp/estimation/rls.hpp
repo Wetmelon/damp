@@ -33,7 +33,6 @@
 
 
 #include "damp/backend.hpp"
-#include "damp/math/math.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "damp/matrix/matrix_traits.hpp"
 #include "damp/toolbox/bounds.hpp"

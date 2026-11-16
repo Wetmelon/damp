@@ -18,6 +18,7 @@
 
 #pragma once
 
+#include "damp/controllers/law_detail.hpp"
 #include "damp/controllers/lqi.hpp"
 #include "damp/matrix/colvec.hpp"
 #include "damp/matrix/matrix.hpp"

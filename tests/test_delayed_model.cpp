@@ -25,6 +25,7 @@
 #include <type_traits>
 #include <utility>
 
+#include "damp/backend.hpp"
 #include "damp/controllers/lqg.hpp"
 #include "damp/controllers/lqgi.hpp"
 #include "damp/controllers/lqi.hpp"
@@ -39,6 +40,7 @@
 #include "damp/math/math.hpp"
 #include "damp/matrix/colvec.hpp"
 #include "damp/matrix/matrix.hpp"
+#include "damp/matrix/matrix_traits.hpp"
 #include "damp/systems/discretization.hpp"
 #include "damp/systems/state_space.hpp"
 #include "doctest.h"

@@ -18,6 +18,7 @@
  */
 
 #include "damp/backend.hpp"
+#include "damp/controllers/law_detail.hpp"
 #include "damp/design/status.hpp"
 #include "damp/estimation/eso.hpp"
 #include "damp/math/math.hpp"

@@ -18,8 +18,8 @@
 #pragma once
 
 #include "damp/backend.hpp"
+#include "damp/controllers/detail/lq_law.hpp"
 #include "damp/controllers/oflqg.hpp"
-#include "damp/controllers/state_feedback_types.hpp"
 #include "damp/design/disturbance.hpp"
 #include "damp/matrix/colvec.hpp"
 #include "damp/matrix/core.hpp"

@@ -31,6 +31,7 @@
 #include "damp/math/math.hpp"
 #include "damp/matrix/colvec.hpp"
 #include "damp/matrix/core.hpp"
+#include "damp/matrix/pattern_matrix.hpp"
 #include "eskf.hpp"
 #include "ins_mechanization.hpp"
 

@@ -10,6 +10,7 @@
 #include "damp/controllers/mpc.hpp"
 #include "damp/design/qp.hpp"
 #include "damp/matrix/matrix.hpp"
+#include "damp/matrix/matrix_traits.hpp"
 #include "damp/systems/state_space.hpp"
 
 #define DOCTEST_CONFIG_INCLUDE_TYPE_TRAITS

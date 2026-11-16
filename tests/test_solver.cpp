@@ -14,6 +14,7 @@
 
 #include "damp/analysis/analysis.hpp"
 #include "damp/backend.hpp"
+#include "damp/math/math.hpp"
 #include "damp/matrix/colvec.hpp"
 #include "damp/simulation/integrator.hpp"
 #include "damp/simulation/plot_plotly.hpp"

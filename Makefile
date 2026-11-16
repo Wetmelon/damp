@@ -161,8 +161,10 @@ CLANG_ARGS     = --extra-arg=--target=$(CLANG_TARGET) \
 
 # The compile database without GCC's constexpr budget, an error to clang tools (.clangd removes
 # it for the IDE). -Wno-unknown-warning-option covers GCC's warnings, but not this.
+# Through sh: make runs a command with no shell syntax directly, and from PowerShell sed is
+# only an applet of busybox's sh.
 clangdb: compiledb
-	@sed -i 's/ -fconstexpr-ops-limit=[0-9]*//' compile_commands.json
+	@sh -c "sed -i 's/ -fconstexpr-ops-limit=[0-9]*//' compile_commands.json"
 
 # clang-tidy --fix over every .cpp in compile_commands.json and the inc/ headers they use.
 # (run-clang-tidy spells its option -extra-arg. It is a Python script whose
@@ -192,10 +194,18 @@ iwyu: clangdb
 		$(INCLUDE_CLEANER) --print=changes "$$f" | sed "s|^|$$f: |"; \
 	done
 
-# Apply them, then re-sort with clang-format.
+# Apply them, then re-sort with clang-format. One clang-include-cleaner per file, JOBS at a time:
+# each edits only its own file, through a temporary file and a rename, so a parse running
+# alongside sees a header either before or after its edit. The sub-make gets the clang target
+# and sysroot already worked out, or it would run g++ twice per file to find them.
+JOBS ?= $(or $(NUMBER_OF_PROCESSORS),$(shell nproc))
 fix_includes: clangdb
-	@$(INCLUDE_CLEANER) --edit $(INCLUDE_CLEANER_FILES)
+	@$(MAKE) --no-print-directory -j$(JOBS) -k -O CLANG_TARGET=$(CLANG_TARGET) \
+		CLANG_SYSROOT=$(CLANG_SYSROOT) $(INCLUDE_CLEANER_FILES:%=fix_includes/%)
 	@$(MAKE) --no-print-directory format
+
+fix_includes/%:
+	@$(INCLUDE_CLEANER) --edit $*
 
 # ---------------------------------------------------------------------------
 # Targets (embedded)

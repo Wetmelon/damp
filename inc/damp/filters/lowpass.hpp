@@ -15,7 +15,6 @@
 #include "damp/design/status.hpp"
 #include "damp/filters/iir_design.hpp"
 #include "damp/math/math.hpp"
-#include "damp/matrix/matrix.hpp"
 #include "damp/systems/discretization.hpp"
 #include "damp/systems/transfer_function.hpp"
 #include "damp/systems/zpk.hpp"

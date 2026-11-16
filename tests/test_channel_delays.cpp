@@ -13,13 +13,16 @@
 #include <cstddef>
 #include <vector>
 
+#include "damp/backend.hpp"
 #include "damp/controllers/lqg.hpp"
 #include "damp/controllers/mpc.hpp"
 #include "damp/controllers/oflqg.hpp"
 #include "damp/controllers/ofmpc.hpp"
 #include "damp/design/disturbance.hpp"
+#include "damp/design/status.hpp"
 #include "damp/estimation/fixed_gain_observer.hpp"
 #include "damp/estimation/kalman.hpp"
+#include "damp/math/complex.hpp"
 #include "damp/matrix/colvec.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "damp/systems/discretization.hpp"

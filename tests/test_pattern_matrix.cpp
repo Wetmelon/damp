@@ -11,11 +11,13 @@
 #include <cstddef>
 #include <type_traits>
 
+#include "damp/backend.hpp"
 #include "damp/concepts.hpp"
 #include "damp/estimation/ekf.hpp"
 #include "damp/estimation/eskf.hpp"
 #include "damp/estimation/ins_eskf.hpp"
 #include "damp/estimation/kalman.hpp"
+#include "damp/math/geometry.hpp"
 #include "damp/matrix/colvec.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "damp/matrix/pattern_matrix.hpp"

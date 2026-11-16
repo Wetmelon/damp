@@ -8,6 +8,7 @@
 
 #include "damp/controllers/action_governor.hpp"
 #include "damp/design/qp.hpp"
+#include "damp/math/math.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "damp/toolbox/bounds.hpp"
 

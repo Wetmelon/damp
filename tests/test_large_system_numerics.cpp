@@ -10,7 +10,6 @@
 #include "damp/design/riccati.hpp"
 #include "damp/design/stability.hpp"
 #include "damp/estimation/kalman.hpp"
-#include "damp/math/complex.hpp"
 #include "damp/math/math.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "damp/systems/state_space.hpp"

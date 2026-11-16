@@ -16,6 +16,7 @@
 #include "damp/math/math.hpp"
 #include "damp/matrix/eigen.hpp"
 #include "damp/matrix/matrix.hpp"
+#include "damp/matrix/matrix_traits.hpp"
 
 #define DOCTEST_CONFIG_INCLUDE_TYPE_TRAITS
 #include "doctest.h"
