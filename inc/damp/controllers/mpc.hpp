@@ -362,40 +362,40 @@ struct MPCLimits {
  */
 template<size_t NX, size_t NU, size_t NY, size_t NP, size_t NC, size_t ND = 0, typename T = double, size_t NT_max = 0, size_t NXC = 0>
 struct [[nodiscard]] MPCArtifacts {
-    static constexpr size_t NXA = NX + NU + ND;                         ///< Augmented state size [x; u'_prev; d]
-    static constexpr size_t NYS = NP * NY;                              ///< Stacked outputs over the prediction horizon
-    static constexpr size_t NXS = NP * NXC;                             ///< Stacked bounded states over the prediction horizon
-    static constexpr size_t NZ = NC * NU;                               ///< Move-increment decision variables
-    static constexpr size_t NZ1 = NZ + 1;                               ///< QP decision size (moves + slack ε)
-    static constexpr size_t NI_box = (4 * NZ) + (2 * NYS) + (2 * NXS);  ///< Rows before the terminal block: Δu, u, y, x
-    static constexpr size_t NI = NI_box + NT_max;                       ///< Box-constraint rows (+ terminal capacity)
-    static constexpr size_t NI1 = NI + 1;                               ///< QP constraint rows (+ ε ≥ 0)
+    static constexpr size_t NXA = NX + NU + ND;                        ///< Augmented state size [x; u'_prev; d]
+    static constexpr size_t NYS = NP * NY;                             ///< Stacked outputs over the prediction horizon
+    static constexpr size_t NXS = NP * NXC;                            ///< Stacked bounded states over the prediction horizon
+    static constexpr size_t NZ = NC * NU;                              ///< Move-increment decision variables
+    static constexpr size_t NZ1 = NZ + 1;                              ///< QP decision size (moves + slack ε)
+    static constexpr size_t NI_box = (4 * NZ) + (2 * NYS) + (2 * NXS); ///< Rows before the terminal block: Δu, u, y, x
+    static constexpr size_t NI = NI_box + NT_max;                      ///< Box-constraint rows (+ terminal capacity)
+    static constexpr size_t NI1 = NI + 1;                              ///< QP constraint rows (+ ε ≥ 0)
 
-    Matrix<NZ1, NZ1, T>         H{};                                 ///< QP Hessian (positive definite)
-    Matrix<NZ, NXA, T>          F_x{};                               ///< Gradient state map
-    Matrix<NZ, NYS, T>          F_r{};                               ///< Gradient reference map, one scaled reference per prediction step (preview)
-    Matrix<NZ, NZ, T>           F_ut{};                              ///< Gradient input-target map, one scaled target per move
-    Matrix<NI1, NZ1, T>         A_con{};                             ///< Constraint rows: A_con·[Z;ε] ≤ b_bound + B_map·x̃0
-    ColVec<NI1, T>              b_bound{};                           ///< Constant bound term (sentinel rows disabled)
-    Matrix<NI1, NXA, T>         B_map{};                             ///< State-dependent bound term
-    Matrix<NY, NX, T>           C{};                                 ///< Output map of the prediction model (the target's output)
-    Matrix<NY, ND, T>           Cd{};                                ///< The disturbance channels into the outputs (C_{d,z}; zero for measured ones)
-    ColVec<NU, T>               scale_u{};                           ///< Input scale factors
-    ColVec<NY, T>               scale_y{};                           ///< Output scale factors
-    ColVec<NXC, T>              scale_x{};                           ///< Scale factors of the bounded states
-    ColVec<NU, T>               u_target{};                          ///< Initial input target (physical units)
-    MPCConstraints<NU, NY, T, NXC> constraints{};                    ///< Original limits (runtime clamp fallback)
-    size_t                      max_qp_iterations{};                 ///< Per-tick QP iteration budget
-    Matrix<NX + NU, NX + NU, T> P{};                                 ///< Terminal cost on z = [x − x_t; u′_prev − u′_t] (zero when unused)
-    Matrix<NU, NX + NU, T>      K_terminal{};                        ///< Terminal move law Δu′ = −K·z
-    Matrix<NT_max, NX + NU, T>  G_terminal{};                        ///< Terminal-set rows on z; first n_terminal used
-    Matrix<NT_max, NY + NU, T>  G_terminal_target{};                 ///< Their target terms: G·z + G_target·[y_t; u_t] ≤ h
-    ColVec<NT_max, T>           h_terminal{};                        ///< Terminal-set offsets
-    size_t                      n_terminal{0};                       ///< Live terminal-set rows
-    MPCTerminal                 terminal{MPCTerminal::none};         ///< Requested terminal mode
-    DesignStatus                status{DesignStatus::not_converged}; ///< ok, or why the design failed
-    bool                        success{false};                      ///< status == DesignStatus::ok
-    T                           Ts{0};                               ///< Sample time of the law [s]
+    Matrix<NZ1, NZ1, T>            H{};                                 ///< QP Hessian (positive definite)
+    Matrix<NZ, NXA, T>             F_x{};                               ///< Gradient state map
+    Matrix<NZ, NYS, T>             F_r{};                               ///< Gradient reference map, one scaled reference per prediction step (preview)
+    Matrix<NZ, NZ, T>              F_ut{};                              ///< Gradient input-target map, one scaled target per move
+    Matrix<NI1, NZ1, T>            A_con{};                             ///< Constraint rows: A_con·[Z;ε] ≤ b_bound + B_map·x̃0
+    ColVec<NI1, T>                 b_bound{};                           ///< Constant bound term (sentinel rows disabled)
+    Matrix<NI1, NXA, T>            B_map{};                             ///< State-dependent bound term
+    Matrix<NY, NX, T>              C{};                                 ///< Output map of the prediction model (the target's output)
+    Matrix<NY, ND, T>              Cd{};                                ///< The disturbance channels into the outputs (C_{d,z}; zero for measured ones)
+    ColVec<NU, T>                  scale_u{};                           ///< Input scale factors
+    ColVec<NY, T>                  scale_y{};                           ///< Output scale factors
+    ColVec<NXC, T>                 scale_x{};                           ///< Scale factors of the bounded states
+    ColVec<NU, T>                  u_target{};                          ///< Initial input target (physical units)
+    MPCConstraints<NU, NY, T, NXC> constraints{};                       ///< Original limits (runtime clamp fallback)
+    size_t                         max_qp_iterations{};                 ///< Per-tick QP iteration budget
+    Matrix<NX + NU, NX + NU, T>    P{};                                 ///< Terminal cost on z = [x − x_t; u′_prev − u′_t] (zero when unused)
+    Matrix<NU, NX + NU, T>         K_terminal{};                        ///< Terminal move law Δu′ = −K·z
+    Matrix<NT_max, NX + NU, T>     G_terminal{};                        ///< Terminal-set rows on z; first n_terminal used
+    Matrix<NT_max, NY + NU, T>     G_terminal_target{};                 ///< Their target terms: G·z + G_target·[y_t; u_t] ≤ h
+    ColVec<NT_max, T>              h_terminal{};                        ///< Terminal-set offsets
+    size_t                         n_terminal{0};                       ///< Live terminal-set rows
+    MPCTerminal                    terminal{MPCTerminal::none};         ///< Requested terminal mode
+    DesignStatus                   status{DesignStatus::not_converged}; ///< ok, or why the design failed
+    bool                           success{false};                      ///< status == DesignStatus::ok
+    T                              Ts{0};                               ///< Sample time of the law [s]
 
     /** @brief True when the design succeeded (success). */
     [[nodiscard]] constexpr explicit operator bool() const { return success; }
@@ -729,8 +729,8 @@ constexpr void mpc_terminal_rows(
     const ColVec<NU, T>&                  scale_u,
     const ColVec<NY, T>&                  scale_y,
     const MPCConstraints<NU, NY, T, NXC>& c,
-    Matrix<NG, NA, T>&               G0,
-    ColVec<NG, T>&                   h0
+    Matrix<NG, NA, T>&                    G0,
+    ColVec<NG, T>&                        h0
 ) {
     constexpr size_t NZD = NX + NU;
     h0 = filled_vector<NG>(unbounded_bound<T>());
@@ -895,14 +895,14 @@ template<size_t NX, size_t NU, size_t NS, typename T>
 template<size_t NP, size_t NC, size_t NXP, size_t NX, size_t NU, size_t NY, size_t ND, size_t NT_max, typename T, size_t NXC, size_t NXA = NX + NU + ND, size_t NZ = NC * NU>
 [[nodiscard]] constexpr bool mpc_output_cost(
     MPCArtifacts<NX, NU, NY, NP, NC, ND, T, NT_max, NXC>& art,
-    const MpcPred<NP, NC, NXA, NX, NU, NY, T>&       pred,
-    const Matrix<NXA, NXA, T>&                       Aa,
-    const Matrix<NXA, NU, T>&                        Ba,
-    const MPCWeights<NU, NY, T>&                     weights,
-    const MpcContinuousCost<NXP, NU, NY, ND, T>&     plant,
-    bool                                             dare_on,
-    Matrix<NZ, NZ, T>&                               Hm,
-    Matrix<NZ, NXA, T>&                              Fx
+    const MpcPred<NP, NC, NXA, NX, NU, NY, T>&            pred,
+    const Matrix<NXA, NXA, T>&                            Aa,
+    const Matrix<NXA, NU, T>&                             Ba,
+    const MPCWeights<NU, NY, T>&                          weights,
+    const MpcContinuousCost<NXP, NU, NY, ND, T>&          plant,
+    bool                                                  dare_on,
+    Matrix<NZ, NZ, T>&                                    Hm,
+    Matrix<NZ, NXA, T>&                                   Fx
 ) {
     if (!plant.on) {
         const Matrix<NY, NY, T> Q_last = dare_on ? Matrix<NY, NY, T>{} : weights.Qy_terminal;
@@ -1049,7 +1049,7 @@ template<size_t NP, size_t NC, size_t ND, size_t NT_max = 0, size_t NX, size_t N
 
     using Art = MPCArtifacts<NX, NU, NY, NP, NC, ND, T, NT_max, NXC>;
     constexpr size_t NI = Art::NI;
-    Art art{};
+    Art              art{};
     art.constraints = constraints;
     art.C = sys.C;
     art.Cd = Cd;
@@ -1216,8 +1216,8 @@ template<size_t NP, size_t NC, size_t ND, size_t NT_max = 0, size_t NX, size_t N
     }
     if constexpr (NXC > 0) {
         //! The bounded states over the horizon, scaled: the state rows of the same prediction, x = S_x·Ã^k·x̃ + ….
-        constexpr size_t   r_x_hi = (4 * NZ) + (2 * NYS);
-        constexpr size_t   r_x_lo = r_x_hi + NXS;
+        constexpr size_t    r_x_hi = (4 * NZ) + (2 * NYS);
+        constexpr size_t    r_x_lo = r_x_hi + NXS;
         Matrix<NXC, NXA, T> Sx{};
         for (size_t i = 0; i < NXC; ++i) {
             Sx(i, constraints.x_states[i]) = T{1} / art.scale_x(i);
@@ -1728,7 +1728,7 @@ template<size_t NP, size_t NC, size_t NT_max = 0, size_t NX, size_t NU, size_t N
 [[nodiscard]] constexpr auto mpc(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     const MPCWeights<NU, NY, T>&             weights,
-    const MPCConstraints<NU, NY, T, NXC>&         constraints
+    const MPCConstraints<NU, NY, T, NXC>&    constraints
 ) {
     return detail::mpc_design<true, NP, NC, NT_max>(sys, T{0}, weights, constraints);
 }
@@ -1738,7 +1738,7 @@ template<size_t NP, size_t NC, size_t NT_max = 0, size_t NX, size_t NU, size_t N
 [[nodiscard]] constexpr auto mpc(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     const MPCWeights<NU, NY, T>&             weights,
-    const MPCConstraints<NU, NY, T, NXC>&         constraints,
+    const MPCConstraints<NU, NY, T, NXC>&    constraints,
     const MeasuredDisturbance<NX, NM, T>&    md
 ) {
     return detail::mpc_design<true, NP, NC, NT_max>(sys, T{0}, weights, constraints, md);
@@ -1781,7 +1781,7 @@ template<size_t NP, size_t NC, size_t NT_max = 0, size_t NX, size_t NU, size_t N
     const StateSpace<NX, NU, NY, T, NW, NV>& plant,
     damp::type_identity_t<T>                 Ts,
     const MPCWeights<NU, NY, T>&             weights,
-    const MPCConstraints<NU, NY, T, NXC>&         constraints
+    const MPCConstraints<NU, NY, T, NXC>&    constraints
 ) {
     return detail::mpc_design<false, NP, NC, NT_max>(plant, Ts, weights, constraints);
 }
@@ -1792,7 +1792,7 @@ template<size_t NP, size_t NC, size_t NT_max = 0, size_t NX, size_t NU, size_t N
     const StateSpace<NX, NU, NY, T, NW, NV>& plant,
     damp::type_identity_t<T>                 Ts,
     const MPCWeights<NU, NY, T>&             weights,
-    const MPCConstraints<NU, NY, T, NXC>&         constraints,
+    const MPCConstraints<NU, NY, T, NXC>&    constraints,
     const MeasuredDisturbance<NX, NM, T>&    md
 ) {
     return detail::mpc_design<false, NP, NC, NT_max>(plant, Ts, weights, constraints, md);

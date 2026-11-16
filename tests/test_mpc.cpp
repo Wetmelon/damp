@@ -333,13 +333,13 @@ TEST_CASE_TEMPLATE("x_lim bounds a state the MPC does not track, hard or soft, a
         }
         return x;
     };
-    double     peak_free = 0.0;
-    double     peak = 0.0;
+    double peak_free = 0.0;
+    double peak = 0.0;
     static_cast<void>(run(free, peak_free));
     const auto x = run(bounded, peak);
-    CHECK(peak_free > 0.4);                                   // without the bound the speed runs past it
+    CHECK(peak_free > 0.4);                                        // without the bound the speed runs past it
     CHECK(peak <= 0.3 + (std::is_same_v<T, float> ? 1e-5 : 1e-9)); // hard: plant == model, so the predicted cap holds
-    CHECK(x(0) == doctest::Approx(1.0).epsilon(0.02));        // and the position still settles
+    CHECK(x(0) == doctest::Approx(1.0).epsilon(0.02));             // and the position still settles
 
     auto lim = bounded.limits();
     CHECK(lim.x_lim.upper(0) == T(0.3));
@@ -353,7 +353,7 @@ TEST_CASE_TEMPLATE("x_lim bounds a state the MPC does not track, hard or soft, a
 
     // Soft (the default): started past the bound, every tick solves and the speed comes back inside.
     design::MPCConstraints<1, 1, double, 1> soft{.u_lim = {.lower = -1.0, .upper = 1.0}, .x_states = {1}, .x_lim = {.lower = -0.3, .upper = 0.3}};
-    const auto soft_art = design::mpc<20, 8>(double_integrator, move_weight(0.01), soft);
+    const auto                              soft_art = design::mpc<20, 8>(double_integrator, move_weight(0.01), soft);
     REQUIRE(soft_art.success);
     MPC       recovering{soft_art.template as<T>()};
     ColVec<2> xs{0.0, 0.8};

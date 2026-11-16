@@ -41,7 +41,7 @@ template<size_t NP, size_t NC, size_t NT_max = 0, size_t NX, size_t NU, size_t N
 [[nodiscard]] constexpr auto ofmpc(
     const StateSpace<NX, NU, NY, T, NW, NV>&                 sys,
     const MPCWeights<NU, NZ, T>&                             weights,
-    const MPCConstraints<NU, NZ, T, NXC>&                         constraints,
+    const MPCConstraints<NU, NZ, T, NXC>&                    constraints,
     const damp::type_identity_t<KalmanNoise<NW, NV, T, ND>>& noise,
     const Disturbance&                                       disturbance
 ) {
@@ -55,7 +55,7 @@ template<size_t NP, size_t NC, size_t NT_max = 0, size_t NX, size_t NU, size_t N
     const StateSpace<NX, NU, NY, T, NW, NV>&                 plant,
     damp::type_identity_t<T>                                 Ts,
     const MPCWeights<NU, NZ, T>&                             weights,
-    const MPCConstraints<NU, NZ, T, NXC>&                         constraints,
+    const MPCConstraints<NU, NZ, T, NXC>&                    constraints,
     const damp::type_identity_t<KalmanNoise<NW, NV, T, ND>>& noise,
     const Disturbance&                                       disturbance
 ) {
@@ -148,7 +148,7 @@ namespace detail {
 template<size_t NXM, size_t NU, size_t NY, size_t NP, size_t NC, size_t ND, typename U, size_t NT, size_t NXC, size_t NXK, size_t NYM, size_t NW, size_t NV, size_t NXE, typename T>
 struct mpc_runtime<design::MPCResult<design::MPCArtifacts<NXM, NU, NY, NP, NC, ND, U, NT, NXC>, design::KalmanResult<NXK, NU, NYM, U, NW, NV, ND>, design::SteadyStateTargetResult<NXE, NU, ND, NY, U>>, T> {
     using type = OFMPC<NXM, NU, NY, NP, NC, T, design::WarmStartActiveSetSolver<(NC * NU) + 1, design::MPCArtifacts<NXM, NU, NY, NP, NC, ND, T, NT, NXC>::NI1, T>, NT, FixedGainObserver<NXK, NU, NYM, T, ND>, NXC>; ///< OFMPC
-    static constexpr bool filtered = true;                                                                                                                                              ///< Its filter can run on the design's constants
+    static constexpr bool filtered = true;                                                                                                                                                                           ///< Its filter can run on the design's constants
     template<const auto& Res>
     using on_constants = OFMPC<NXM, NU, NY, NP, NC, T, design::WarmStartActiveSetSolver<(NC * NU) + 1, design::MPCArtifacts<NXM, NU, NY, NP, NC, ND, T, NT, NXC>::NI1, T>, NT, FixedGainObserver<NXK, NU, NYM, T, ND, ConstantObserver<Res, T, NXK - ND>>, NXC>; ///< OFMPC with its filter on the design's constants
 };

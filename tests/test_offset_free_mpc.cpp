@@ -126,7 +126,7 @@ TEST_CASE("disturbance_lim clamps OFMPC's disturbance estimate, and moves at run
 TEST_CASE("x_lim bounds an estimated state of an offset-free MPC: on the estimate's prediction") {
     // Only the position is measured; the speed is the filter's, bounded at 0.3 (2 without the bound).
     design::MPCConstraints<1, 1, double, 1> limits{.u_lim = {.lower = -2.0, .upper = 2.0}, .x_states = {1}, .x_lim = {.lower = -0.3, .upper = 0.3}};
-    const auto art = design::ofmpc<15, 5>(double_integrator, move_weight(0.01), limits, design::KalmanNoise{Matrix<2, 2>::identity(), Matrix<1, 1>{{0.01}}, Matrix<1, 1>{{1.0}}}, design::InputDisturbance{});
+    const auto                              art = design::ofmpc<15, 5>(double_integrator, move_weight(0.01), limits, design::KalmanNoise{Matrix<2, 2>::identity(), Matrix<1, 1>{{0.01}}, Matrix<1, 1>{{1.0}}}, design::InputDisturbance{});
     REQUIRE(art.success);
     const auto run = [&](double load) {
         OFMPC     controller{art};
