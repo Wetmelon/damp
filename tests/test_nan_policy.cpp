@@ -18,7 +18,9 @@
 #include "damp/controllers/lqg.hpp"
 #include "damp/controllers/lqgi.hpp"
 #include "damp/controllers/lqi.hpp"
+#include "damp/controllers/lqr.hpp"
 #include "damp/controllers/mpc.hpp"
+#include "damp/controllers/oflqg.hpp"
 #include "damp/controllers/ofmpc.hpp"
 #include "damp/controllers/pid.hpp"
 #include "damp/controllers/pr.hpp"
@@ -58,6 +60,26 @@ bool all_finite(const ColVec<N, T>& v) {
     }
     return true;
 }
+
+/// A quiet NaN made at run time, as a sensor's would be: a constant could be folded.
+float runtime_nan() {
+    volatile float zero = 0.0f;
+    return zero / zero;
+}
+
+/// A mass on a spring and a damper: position, speed; force in; position out.
+constexpr StateSpace<2, 1, 1, double, 2, 1> lq_plant() {
+    return {
+        .A = Matrix<2, 2>{{0.0, 1.0}, {-1.0, -0.5}},
+        .B = Matrix<2, 1>{{0.0}, {1.0}},
+        .C = Matrix<1, 2>{{1.0, 0.0}},
+        .G = Matrix<2, 2>::identity(),
+        .H = Matrix<1, 1>::identity(),
+    };
+}
+
+constexpr Matrix<2, 2>                      kLqQ{{10.0, 0.0}, {0.0, 1.0}};
+constexpr design::KalmanNoise<2, 1, double> kLqNoise{.process = Matrix<2, 2>{{0.01, 0.0}, {0.0, 0.1}}, .measurement = Matrix<1, 1>{{1e-4}}};
 
 } // namespace
 
@@ -197,6 +219,81 @@ TEST_SUITE("NaN/Inf policy") {
         REQUIRE_FALSE(failed.success);
         OffsetFree ofmpc{failed};
         CHECK(all_finite(ofmpc.step(ColVec<1, float>{1.0f}, ColVec<1, float>{0.5f})));
+    }
+
+    TEST_CASE("an LQ law refuses a reading, a reference or an input that is not a number") {
+        const float nan = runtime_nan();
+        const auto  lqi_res = design::lqi(lq_plant(), 0.01, design::LQIConfig<2, 1, 1>{.Q = kLqQ, .R = 1.0, .Q_integral = 80.0, .u_lim = {.lower = -2.0, .upper = 2.0}});
+        REQUIRE(lqi_res.success);
+        LQI                    lqi{lqi_res.as<float>()};
+        const ColVec<1, float> r{1.0f};
+        const ColVec<2, float> x{0.2f, 0.0f};
+        for (int k = 0; k < 20; ++k) {
+            CHECK(all_finite(lqi.step(r, x)));
+            CHECK_FALSE(lqi.refused());
+        }
+        const ColVec<1, float> last = lqi.last_command();
+        const ColVec<1, float> xi = lqi.integral.xi;
+
+        // A reading: the law keeps its state and sends its last command; the integrator stays.
+        lqi.predict();
+        const ColVec<1, float> xi_before = lqi.integral.xi;
+        lqi.update(ColVec<2, float>{nan, 0.0f});
+        CHECK(lqi.control(r) == last);
+        CHECK(lqi.refused());
+        lqi.predict();
+        CHECK(lqi.integral.xi == xi_before);
+        CHECK(lqi.applied() == last);
+
+        // A reference, then an input reported after the law: the same.
+        lqi.update(x);
+        CHECK(lqi.control(ColVec<1, float>{nan}) == last);
+        CHECK(lqi.refused());
+        lqi.back_calculate(ColVec<1, float>{nan});
+        lqi.predict();
+        CHECK(all_finite(lqi.integral.xi));
+        CHECK(lqi.applied() == last);
+
+        // The next finite reading resumes it.
+        CHECK(all_finite(lqi.step(r, x)));
+        CHECK_FALSE(lqi.refused());
+        CHECK(all_finite(xi));
+
+        // A filter keeps its prediction: the estimate stays a number.
+        const auto lqg_res = design::lqg(lq_plant(), 0.01, design::LQRConfig<2, 1>{.Q = kLqQ, .R = 1.0}, kLqNoise);
+        REQUIRE(lqg_res.success);
+        LQG lqg{lqg_res.as<float>()};
+        for (int k = 0; k < 20; ++k) {
+            static_cast<void>(lqg.step(ColVec<1, float>{0.3f}));
+        }
+        const ColVec<1, float> held = lqg.last_command();
+        CHECK(lqg.step(ColVec<1, float>{nan}) == held);
+        CHECK(lqg.refused());
+        CHECK(all_finite(lqg.state_estimate()));
+        CHECK(all_finite(lqg.step(ColVec<1, float>{0.3f})));
+        CHECK_FALSE(lqg.refused());
+
+        // And the disturbance estimate of an offset-free law.
+        const design::KalmanNoise<2, 1, double, 1> of_noise{.process = kLqNoise.process, .measurement = kLqNoise.measurement, .disturbance = Matrix<1, 1>{{1.0}}};
+        const auto of_res = design::oflqg(lq_plant(), 0.01, design::LQRConfig<2, 1>{.Q = kLqQ, .R = 1.0}, of_noise, design::InputDisturbance{});
+        REQUIRE(of_res.success);
+        OFLQG oflqg{of_res.as<float>()};
+        for (int k = 0; k < 20; ++k) {
+            static_cast<void>(oflqg.step(ColVec<1, float>{1.0f}, ColVec<1, float>{0.3f}));
+        }
+        const ColVec<1, float> d_hat = oflqg.disturbance_estimate();
+        CHECK(oflqg.step(ColVec<1, float>{1.0f}, ColVec<1, float>{nan}) == oflqg.last_command());
+        CHECK(oflqg.refused());
+        CHECK(oflqg.disturbance_estimate() == d_hat);
+
+        // A law with no memory sends its reference input.
+        const auto lqr_res = design::lqr(lq_plant(), 0.01, design::LQRConfig<2, 1>{.Q = kLqQ, .R = 1.0, .u_lim = {.lower = -1.0, .upper = 1.0}});
+        REQUIRE(lqr_res.success);
+        LQR lqr{lqr_res.as<float>()};
+        lqr.update(ColVec<2, float>{0.0f, nan});
+        CHECK(lqr.control(ColVec<2, float>{}, ColVec<1, float>{0.5f})(0) == 0.5f);
+        CHECK(lqr.control(ColVec<2, float>{}, ColVec<1, float>{3.0f})(0) == 1.0f);
+        CHECK(lqr.refused());
     }
 
     TEST_CASE("controllers from failed designs emit finite output on edge inputs") {

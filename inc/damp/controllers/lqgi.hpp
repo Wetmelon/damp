@@ -184,6 +184,7 @@ struct LQGI : private detail::StateFeedbackCore<NX, NU, T, NI, NY, Est, 0, Store
     using Core::getK;
     using Core::last_command;
     using Core::predict;
+    using Core::refused;
     using Core::reset;
     using Core::state_estimate;
 };

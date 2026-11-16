@@ -19,6 +19,7 @@ and [known limitations](docs/known_limitations.md)).
 
 ### Changed
 
+- The LQR, LQI, LQG, LQGI and OFLQG ticks refuse a reading, a reference or a reported input that is NaN or ±Inf: the law keeps its state, sends its last command again and reports it in `refused()`. A NaN reading used to send the command to the lower end of `u_lim`, and stayed in a filter's estimate.
 - `StateFeedbackResult` and the LQR, LQI, LQG, LQGI and OFLQG runtimes take a last template argument, NRU, the input registers of the law's model (0: none); K, S and e are on [x; v(k−1); …; v(k−NRU)] then the integrators.
 - `damp::min`, `damp::max` and `damp::clamp` return by value on both backends, so a result bound to a reference cannot dangle on a temporary argument. The backends now agree: a tie or a NaN gives `min` and `max` their first argument, and `clamp` with lo > hi gives hi, where `std::clamp` is undefined.
 - `LQRWeights<NX, NU, NI>` is `LQRConfig<NX, NU>` for `lqr`, `lqg` and `oflqg`, and `LQIConfig<NX, NU, NI>` with `Q_integral` for `lqi` and `lqgi`: each has only its law's fields, the limits with the cost. A design called with braces, `{.Q = Q, .R = R}`, does not change.

@@ -209,6 +209,8 @@ Not covered yet: `PRController` has a tracking time `Tt` and no `u_lim`, and `Ha
 
 `step(r, m)` is predict, then update(m), then control. Low-latency ISR: update → control → write → `back_calculate` → predict. After a clamp, pass the applied input to `back_calculate(u_sat, u_ff)`.
 
+An LQ law (`LQR`, `LQI`, `LQG`, `LQGI`, `OFLQG`) refuses a reading, a reference or a reported input that is NaN or ±Inf: it keeps its state (a filter its prediction), sends its last command again and holds its integrators, and `refused()` is true until the next finite reading.
+
 ## Add the library
 
 Headers only: `-I path/to/inc` and `#include "damp/control.hpp"`. CMake: link `wetmelon::damp` (FetchContent or `find_package`). Host analysis: `damp/workbench.hpp`.

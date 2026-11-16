@@ -240,6 +240,7 @@ struct LQR : private detail::StateFeedbackCore<NX, NU, T, 0, NY, NoEstimator, NZ
     using Core::back_calculate;
     using Core::getK;
     using Core::predict;
+    using Core::refused;
     using Core::reset;
 };
 
