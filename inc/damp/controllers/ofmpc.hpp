@@ -72,7 +72,8 @@ template<size_t NP, size_t NC, size_t NT_max = 0, size_t NX, size_t NU, size_t N
  * The estimator is a FixedGainObserver with design::kalman's fixed gain, holding deviations
  * from the target. The tick is update(y) then control(r), or step(r, y) for both; @p r is the
  * controlled outputs' reference (held, or a Preview). back_calculate(u_sat) records what went
- * out, predict() moves the observer with it. A failed design does not compile when
+ * out, predict() moves the observer with it. update() clamps d̂ into disturbance_lim, a member
+ * (unbounded by default), in d's units, as OFLQG's. A failed design does not compile when
  * constant-evaluated.
  *
  * @note Compare with MATLAB®'s mpcmove(mpcobj, xc, ym, r) with its default disturbance model.
@@ -114,6 +115,7 @@ public:
     using Core::applied;
     using Core::back_calculate;
     using Core::disturbance_estimate;
+    using Core::disturbance_lim;
     using Core::estimator;
     using Core::input_target;
     using Core::input_target_preview;

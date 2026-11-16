@@ -95,6 +95,34 @@ TEST_CASE("offset-free MPC rejects an unknown input disturbance from output feed
     CHECK(controller.applied()(0) == doctest::Approx(-d_load).epsilon(1e-2));
 }
 
+TEST_CASE("disturbance_lim clamps OFMPC's disturbance estimate, and moves at run time") {
+    const auto art = offset_free<15, 5>(move_weight(0.05), {}, design::KalmanNoise{Matrix<2, 2>::identity(), Matrix<1, 1>{{0.01}}, Matrix<1, 1>{{1.0}}});
+    REQUIRE(art.success);
+    OFMPC        controller{art};
+    ColVec<2>    x{};
+    const double d_load = 0.3;
+    const auto   hold = [&] {
+        double worst = 0.0;
+        for (size_t k = 0; k < 600; ++k) {
+            const auto u = controller.step(ColVec<1>{0.5}, ColVec<1>{x(0)});
+            x = plant_step(x, u(0) + d_load);
+            worst = std::fmax(worst, std::fabs(controller.disturbance_estimate()(0)));
+        }
+        return worst;
+    };
+    controller.disturbance_lim = {.lower = -0.1, .upper = 0.1};
+    CHECK(hold() <= 0.1);
+    CHECK(controller.disturbance_estimate()(0) == 0.1);
+    controller.disturbance_lim.upper(0) = 1.0;
+    static_cast<void>(hold());
+    CHECK(controller.disturbance_estimate()(0) == doctest::Approx(d_load).epsilon(1e-3));
+    CHECK(x(0) == doctest::Approx(0.5).epsilon(1e-3)); // offset-free again
+
+    // The filter is the law's to restart: a mutable estimator.
+    controller.estimator().reset(ColVec<3>{});
+    CHECK(controller.estimator().state() == ColVec<3>{});
+}
+
 TEST_CASE("offset-free MPC removes steady-state error under plant gain mismatch") {
     // The real plant has 30% more input gain than the model. The disturbance
     // integrator absorbs the mismatch at steady state.
