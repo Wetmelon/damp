@@ -231,9 +231,9 @@ TEST_SUITE("LQ limits") {
         const design::KalmanNoise<2, 1, double, 1> noise{.process = kNoise.process, .measurement = kNoise.measurement, .disturbance = Matrix<1, 1>{{1.0}}};
         const auto                                 res = design::oflqg(plant(), kTs, kFree, noise, design::InputDisturbance{});
         REQUIRE(res.success);
-        OFLQG      law{res.template as<T>()};
-        const auto model = sampled<T>();
-        const T    load = static_cast<T>(0.5); // on the input, the plant held at r = 0 against it
+        OFLQG        law{res.template as<T>()};
+        const auto   model = sampled<T>();
+        const T      load = static_cast<T>(0.5); // on the input, the plant held at r = 0 against it
         ColVec<2, T> x{};
         const auto   hold = [&]() {
             T worst{0};
