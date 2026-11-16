@@ -18,6 +18,7 @@ and [known limitations](docs/known_limitations.md)).
 ### Changed
 
 - `StateFeedbackResult` and the LQR, LQI, LQG, LQGI and OFLQG runtimes take a last template argument, NRU, the input registers of the law's model (0: none); K, S and e are on [x; v(k−1); …; v(k−NRU)] then the integrators.
+- `damp::min`, `damp::max` and `damp::clamp` return by value on both backends, so a result bound to a reference cannot dangle on a temporary argument. The backends now agree: a tie or a NaN gives `min` and `max` their first argument, and `clamp` with lo > hi gives hi, where `std::clamp` is undefined.
 - `LQRWeights` is `LQRConfig`: it carries the law's limits with the cost. A design called with braces, `{.Q = Q, .R = R}`, does not change.
 - `state_feedback_core.hpp` holds only the runtime the LQ laws share. `LQRConfig`, `IntegralAction`, `NoEstimator` and `StateFeedbackResult` are in `state_feedback_types.hpp`, and the design behind them in `controllers/detail/`; `lqr.hpp`, `lqi.hpp`, `lqg.hpp`, `lqgi.hpp` and `oflqg.hpp` include all of it as before.
 

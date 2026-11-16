@@ -44,4 +44,25 @@ TEST_SUITE("backend min/max/minmax") {
         CHECK(damp::max({42}) == 42);
         CHECK(damp::minmax({42}) == pair{42, 42});
     }
+
+    TEST_CASE("min/max/clamp return by value, so a temporary argument cannot dangle") {
+        //! std::clamp(x, -m, m) returned a reference to the temporary -m for x below it, and a
+        //! const auto& bound to it dangled. Constant evaluation refuses a read past a lifetime.
+        constexpr auto clamp_sym = [](const double& x, const double& m) {
+            const auto& r = damp::clamp(x, -m, m);
+            return r;
+        };
+        constexpr auto floor_at = [](const double& x, const double& m) {
+            const auto& r = damp::max(x, -m);
+            return r;
+        };
+        constexpr auto ceil_at = [](const double& x, const double& m) {
+            const auto& r = damp::min(x, m + 1.0);
+            return r;
+        };
+        static_assert(clamp_sym(-5.0, 1.0) == -1.0);
+        static_assert(floor_at(-5.0, 1.0) == -1.0);
+        static_assert(ceil_at(5.0, 1.0) == 2.0);
+        static_assert(damp::clamp(0, 1, -1) == -1); // an inverted interval gives hi on every backend
+    }
 }
