@@ -1113,14 +1113,14 @@ private:
         return taken;
     }
 
-    [[no_unique_address]] typename Store::Model         sys{};                ///< The filter's model
-    ColVec<NX, T>                                       x{};                  ///< Estimate
-    ColVec<NU, T>                                       u_prev_{};            ///< The input the plant holds, for the feedthrough
-    Matrix<NX, NX, T>                                   S_{initial_factor()}; ///< Lower-triangular factor of the error covariance, P = S Sᵀ
-    [[no_unique_address]] typename Store::ProcessNoise  Q_{};                 ///< Process noise covariance
-    [[no_unique_address]] typename Store::ReadingNoise  R_{};                 ///< Measurement noise covariance of the model's own reading
-    [[no_unique_address]] typename Store::ProcessFactor Gamma_{};             ///< Γ, Γ Γᵀ = G Q Gᵀ, factored once
-    [[no_unique_address]] typename Store::ReadingFactor Lr_{};                ///< H R Hᵀ factored once; not valid when it is not a covariance, and update(y) then refuses
+    [[no_unique_address]] typename Store::Model         sys{};                          ///< The filter's model
+    ColVec<NX, T>                                       x{};                            ///< Estimate
+    ColVec<NU, T>                                       u_prev_{};                      ///< The input the plant holds, for the feedthrough
+    Matrix<NX, NX, T>                                   S_{initial_factor()};           ///< Lower-triangular factor of the error covariance, P = S Sᵀ
+    [[no_unique_address]] typename Store::ProcessNoise  Q_{};                           ///< Process noise covariance
+    [[no_unique_address]] typename Store::ReadingNoise  R_{};                           ///< Measurement noise covariance of the model's own reading
+    [[no_unique_address]] typename Store::ProcessFactor Gamma_{};                       ///< Γ, Γ Γᵀ = G Q Gᵀ, factored once
+    [[no_unique_address]] typename Store::ReadingFactor Lr_{};                          ///< H R Hᵀ factored once; not valid when it is not a covariance, and update(y) then refuses
     UpdateStatus                                        last_status_{UpdateStatus::ok}; ///< What the last measurement update did
 };
 

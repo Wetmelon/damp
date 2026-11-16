@@ -188,7 +188,7 @@ struct ExtendedKalmanFilter {
     [[nodiscard]] constexpr bool update(const H& h, const ColVec<NY, T>& y, const damp::type_identity_t<Matrix<NY, NY, T>>& R) {
         const ColVec<NY, T> nu = y - h(x, u_);
         const auto          noise = detail::reading_noise_factor(R); // an R that is not a covariance is refused below
-        bool taken = false;
+        bool                taken = false;
         if constexpr (PatternMeasurement<H, NX, NU, NY, T>) {
             taken = detail::sqrt_measurement_update(S, x, nu, h.jacobian(x, u_), noise);
         } else {
@@ -238,14 +238,14 @@ struct ExtendedKalmanFilter {
     }
 
 private:
-    Model             model_{}; ///< Continuous dynamics ẋ = f(x, u)
-    ColVec<NX, T>     x{};      ///< Estimate
-    Matrix<NX, NX, T> S{};      ///< Lower-triangular factor of the estimate covariance, P = S Sᵀ
-    Matrix<NX, NX, T> Q{};      ///< Process-noise covariance per step
-    Matrix<NX, NX, T> Gamma{};  ///< Lower-triangular factor of Q, factored once
-    T                 Ts{};     ///< Sample time [s]; 0 (default-constructed) holds the state in predict
+    Model             model_{};                       ///< Continuous dynamics ẋ = f(x, u)
+    ColVec<NX, T>     x{};                            ///< Estimate
+    Matrix<NX, NX, T> S{};                            ///< Lower-triangular factor of the estimate covariance, P = S Sᵀ
+    Matrix<NX, NX, T> Q{};                            ///< Process-noise covariance per step
+    Matrix<NX, NX, T> Gamma{};                        ///< Lower-triangular factor of Q, factored once
+    T                 Ts{};                           ///< Sample time [s]; 0 (default-constructed) holds the state in predict
     UpdateStatus      last_status_{UpdateStatus::ok}; ///< What the last measurement update did
-    ColVec<NU, T>     u_{};     ///< The input the last predict held, for the readings' h
+    ColVec<NU, T>     u_{};                           ///< The input the last predict held, for the readings' h
 };
 
 /** @brief Deduce the filter from its model, a struct or a captureless lambda: `ExtendedKalmanFilter ekf{f, {.Ts = Ts, .Q = Q}}`. */
