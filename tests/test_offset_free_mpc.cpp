@@ -123,6 +123,29 @@ TEST_CASE("disturbance_lim clamps OFMPC's disturbance estimate, and moves at run
     CHECK(controller.estimator().state() == ColVec<3>{});
 }
 
+TEST_CASE("x_lim bounds an estimated state of an offset-free MPC: on the estimate's prediction") {
+    // Only the position is measured; the speed is the filter's, bounded at 0.3 (2 without the bound).
+    design::MPCConstraints<1, 1, double, 1> limits{.u_lim = {.lower = -2.0, .upper = 2.0}, .x_states = {1}, .x_lim = {.lower = -0.3, .upper = 0.3}};
+    const auto art = design::ofmpc<15, 5>(double_integrator, move_weight(0.01), limits, design::KalmanNoise{Matrix<2, 2>::identity(), Matrix<1, 1>{{0.01}}, Matrix<1, 1>{{1.0}}}, design::InputDisturbance{});
+    REQUIRE(art.success);
+    const auto run = [&](double load) {
+        OFMPC     controller{art};
+        ColVec<2> x{};
+        double    peak = 0.0;
+        for (size_t k = 0; k < 600; ++k) {
+            const auto u = controller.step(ColVec<1>{2.0}, ColVec<1>{x(0)});
+            x = plant_step(x, u(0) + load);
+            peak = std::fmax(peak, x(1));
+        }
+        CHECK(x(0) == doctest::Approx(2.0).epsilon(1e-3)); // offset-free
+        return peak;
+    };
+    CHECK(run(0.0) <= 0.3 + 1e-3); // the model is the plant: the bound holds, to its soft slack
+    // A load the filter has not caught yet carries the plant past what the estimate predicts
+    // (0.44 here): the bound is on the estimate, so it is as good as the estimate.
+    CHECK(run(0.3) <= 0.5);
+}
+
 TEST_CASE("offset-free MPC removes steady-state error under plant gain mismatch") {
     // The real plant has 30% more input gain than the model. The disturbance
     // integrator absorbs the mismatch at steady state.

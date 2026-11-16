@@ -36,12 +36,12 @@ namespace design {
  * As design::mpc, with the measured outputs C and D and the controlled outputs the rows the
  * disturbance spec lists (all of them without a list): see "Offset-free control" there.
  */
-template<size_t NP, size_t NC, size_t NT_max = 0, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Disturbance, size_t ND = detail::disturbance_traits<Disturbance, NU, NY, NW>::states, size_t NZ = detail::mpc_outputs<NU, NY, NW, Disturbance>>
+template<size_t NP, size_t NC, size_t NT_max = 0, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Disturbance, size_t ND = detail::disturbance_traits<Disturbance, NU, NY, NW>::states, size_t NZ = detail::mpc_outputs<NU, NY, NW, Disturbance>, size_t NXC = 0>
     requires(detail::is_disturbance_model<Disturbance>)
 [[nodiscard]] constexpr auto ofmpc(
     const StateSpace<NX, NU, NY, T, NW, NV>&                 sys,
     const MPCWeights<NU, NZ, T>&                             weights,
-    const MPCConstraints<NU, NZ, T>&                         constraints,
+    const MPCConstraints<NU, NZ, T, NXC>&                         constraints,
     const damp::type_identity_t<KalmanNoise<NW, NV, T, ND>>& noise,
     const Disturbance&                                       disturbance
 ) {
@@ -49,13 +49,13 @@ template<size_t NP, size_t NC, size_t NT_max = 0, size_t NX, size_t NU, size_t N
 }
 
 /** @brief The sampled-data offset-free MPC: the continuous plant and cost, the QP at @p Ts (the noise densities): runs as OFMPC. */
-template<size_t NP, size_t NC, size_t NT_max = 0, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Disturbance, size_t ND = detail::disturbance_traits<Disturbance, NU, NY, NW>::states, size_t NZ = detail::mpc_outputs<NU, NY, NW, Disturbance>>
+template<size_t NP, size_t NC, size_t NT_max = 0, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Disturbance, size_t ND = detail::disturbance_traits<Disturbance, NU, NY, NW>::states, size_t NZ = detail::mpc_outputs<NU, NY, NW, Disturbance>, size_t NXC = 0>
     requires(detail::is_disturbance_model<Disturbance>)
 [[nodiscard]] constexpr auto ofmpc(
     const StateSpace<NX, NU, NY, T, NW, NV>&                 plant,
     damp::type_identity_t<T>                                 Ts,
     const MPCWeights<NU, NZ, T>&                             weights,
-    const MPCConstraints<NU, NZ, T>&                         constraints,
+    const MPCConstraints<NU, NZ, T, NXC>&                         constraints,
     const damp::type_identity_t<KalmanNoise<NW, NV, T, ND>>& noise,
     const Disturbance&                                       disturbance
 ) {
@@ -78,9 +78,9 @@ template<size_t NP, size_t NC, size_t NT_max = 0, size_t NX, size_t NU, size_t N
  *
  * @note Compare with MATLAB®'s mpcmove(mpcobj, xc, ym, r) with its default disturbance model.
  */
-template<size_t NX, size_t NU, size_t NY, size_t NP, size_t NC, typename T, typename Solver, size_t NT_max, typename Estimator>
-class OFMPC : private detail::MPCCore<NX, NU, NY, NP, NC, 0, T, Solver, NT_max, Estimator> {
-    using Core = detail::MPCCore<NX, NU, NY, NP, NC, 0, T, Solver, NT_max, Estimator>;
+template<size_t NX, size_t NU, size_t NY, size_t NP, size_t NC, typename T, typename Solver, size_t NT_max, typename Estimator, size_t NXC = 0>
+class OFMPC : private detail::MPCCore<NX, NU, NY, NP, NC, 0, T, Solver, NT_max, Estimator, NXC> {
+    using Core = detail::MPCCore<NX, NU, NY, NP, NC, 0, T, Solver, NT_max, Estimator, NXC>;
 
 public:
     using Reference = Core::Reference;       ///< r: held, or a Preview
@@ -134,23 +134,23 @@ public:
 };
 
 /** @brief OFMPC law{res}: the sizes, scalar, filter and target of design::ofmpc's result. */
-template<size_t NXM, size_t NU, size_t NY, size_t NP, size_t NC, size_t ND, typename T, size_t NT, size_t NXK, size_t NYM, size_t NW, size_t NV, size_t NXE>
-OFMPC(const design::MPCResult<design::MPCArtifacts<NXM, NU, NY, NP, NC, ND, T, NT>, design::KalmanResult<NXK, NU, NYM, T, NW, NV, ND>, design::SteadyStateTargetResult<NXE, NU, ND, NY, T>>&)
-    -> OFMPC<NXM, NU, NY, NP, NC, T, design::WarmStartActiveSetSolver<(NC * NU) + 1, (4 * NC * NU) + (2 * NP * NY) + NT + 1, T>, NT, FixedGainObserver<NXK, NU, NYM, T, ND>>;
+template<size_t NXM, size_t NU, size_t NY, size_t NP, size_t NC, size_t ND, typename T, size_t NT, size_t NXC, size_t NXK, size_t NYM, size_t NW, size_t NV, size_t NXE>
+OFMPC(const design::MPCResult<design::MPCArtifacts<NXM, NU, NY, NP, NC, ND, T, NT, NXC>, design::KalmanResult<NXK, NU, NYM, T, NW, NV, ND>, design::SteadyStateTargetResult<NXE, NU, ND, NY, T>>&)
+    -> OFMPC<NXM, NU, NY, NP, NC, T, design::WarmStartActiveSetSolver<(NC * NU) + 1, design::MPCArtifacts<NXM, NU, NY, NP, NC, ND, T, NT, NXC>::NI1, T>, NT, FixedGainObserver<NXK, NU, NYM, T, ND>, NXC>;
 
 /** @brief OFMPC law{res, solver}: as OFMPC law{res}, with that solver. */
-template<size_t NXM, size_t NU, size_t NY, size_t NP, size_t NC, size_t ND, typename T, size_t NT, size_t NXK, size_t NYM, size_t NW, size_t NV, size_t NXE, typename Solver>
-OFMPC(const design::MPCResult<design::MPCArtifacts<NXM, NU, NY, NP, NC, ND, T, NT>, design::KalmanResult<NXK, NU, NYM, T, NW, NV, ND>, design::SteadyStateTargetResult<NXE, NU, ND, NY, T>>&, const Solver&) -> OFMPC<NXM, NU, NY, NP, NC, T, Solver, NT, FixedGainObserver<NXK, NU, NYM, T, ND>>;
+template<size_t NXM, size_t NU, size_t NY, size_t NP, size_t NC, size_t ND, typename T, size_t NT, size_t NXC, size_t NXK, size_t NYM, size_t NW, size_t NV, size_t NXE, typename Solver>
+OFMPC(const design::MPCResult<design::MPCArtifacts<NXM, NU, NY, NP, NC, ND, T, NT, NXC>, design::KalmanResult<NXK, NU, NYM, T, NW, NV, ND>, design::SteadyStateTargetResult<NXE, NU, ND, NY, T>>&, const Solver&) -> OFMPC<NXM, NU, NY, NP, NC, T, Solver, NT, FixedGainObserver<NXK, NU, NYM, T, ND>, NXC>;
 
 namespace detail {
 
 /** @brief design::ofmpc runs as OFMPC. */
-template<size_t NXM, size_t NU, size_t NY, size_t NP, size_t NC, size_t ND, typename U, size_t NT, size_t NXK, size_t NYM, size_t NW, size_t NV, size_t NXE, typename T>
-struct mpc_runtime<design::MPCResult<design::MPCArtifacts<NXM, NU, NY, NP, NC, ND, U, NT>, design::KalmanResult<NXK, NU, NYM, U, NW, NV, ND>, design::SteadyStateTargetResult<NXE, NU, ND, NY, U>>, T> {
-    using type = OFMPC<NXM, NU, NY, NP, NC, T, design::WarmStartActiveSetSolver<(NC * NU) + 1, (4 * NC * NU) + (2 * NP * NY) + NT + 1, T>, NT, FixedGainObserver<NXK, NU, NYM, T, ND>>; ///< OFMPC
+template<size_t NXM, size_t NU, size_t NY, size_t NP, size_t NC, size_t ND, typename U, size_t NT, size_t NXC, size_t NXK, size_t NYM, size_t NW, size_t NV, size_t NXE, typename T>
+struct mpc_runtime<design::MPCResult<design::MPCArtifacts<NXM, NU, NY, NP, NC, ND, U, NT, NXC>, design::KalmanResult<NXK, NU, NYM, U, NW, NV, ND>, design::SteadyStateTargetResult<NXE, NU, ND, NY, U>>, T> {
+    using type = OFMPC<NXM, NU, NY, NP, NC, T, design::WarmStartActiveSetSolver<(NC * NU) + 1, design::MPCArtifacts<NXM, NU, NY, NP, NC, ND, T, NT, NXC>::NI1, T>, NT, FixedGainObserver<NXK, NU, NYM, T, ND>, NXC>; ///< OFMPC
     static constexpr bool filtered = true;                                                                                                                                              ///< Its filter can run on the design's constants
     template<const auto& Res>
-    using on_constants = OFMPC<NXM, NU, NY, NP, NC, T, design::WarmStartActiveSetSolver<(NC * NU) + 1, (4 * NC * NU) + (2 * NP * NY) + NT + 1, T>, NT, FixedGainObserver<NXK, NU, NYM, T, ND, ConstantObserver<Res, T, NXK - ND>>>; ///< OFMPC with its filter on the design's constants
+    using on_constants = OFMPC<NXM, NU, NY, NP, NC, T, design::WarmStartActiveSetSolver<(NC * NU) + 1, design::MPCArtifacts<NXM, NU, NY, NP, NC, ND, T, NT, NXC>::NI1, T>, NT, FixedGainObserver<NXK, NU, NYM, T, ND, ConstantObserver<Res, T, NXK - ND>>, NXC>; ///< OFMPC with its filter on the design's constants
 };
 
 } // namespace detail
