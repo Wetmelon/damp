@@ -7,7 +7,9 @@ and this project uses [Semantic Versioning](https://semver.org/) for tags.
 0.x releases may break API without a deprecation cycle (see [AGENTS.md](AGENTS.md)
 and [known limitations](docs/known_limitations.md)).
 
-## [Unreleased]
+## [0.3.0] — 2026-11-17
+
+Designs for a plant whose input arrives late, one limits and anti-windup contract for every law (with state limits on MPC and a bound on the offset-free laws' disturbance estimate), a Kalman filter and an MPC that hold in float, no fault at run time, and Damp after `Arduino.h`. The API breaks: `LQRWeights` is now `LQRConfig`, or `LQIConfig` with integral action, and a `SisoController` needs `back_calculate`.
 
 ### Added
 
@@ -15,10 +17,10 @@ and [known limitations](docs/known_limitations.md)).
 - `last_status()` on `KalmanFilter` and `ExtendedKalmanFilter`: whether the last measurement update was taken or refused (`UpdateStatus`), so the refusal `step()` drops is still there to read. MPC's `last_status()` reports its QP the same way.
 - `OFMPC::disturbance_lim` clamps the disturbance estimate d̂ at each update, as on `OFLQG`, and `estimator()` has a mutable overload to restart the filter or set its estimate.
 - `to_ss()` on an OFLQG design: the law as a discrete block at r = 0, its filter on [x; d] and the target's d̂ terms folded into the gain, to close on a plant other than the design's (one with another delay, say) for its poles.
-- `LQRConfig` and `LQIConfig` take `demand_lim`, a `DemandLimit`: the LQ laws bound what the gain's outer terms ask of one state, read as a cascade (a balancing robot's position and integral asking for a lean), and the integrators hold against it. Off by default, and free in a `constexpr` design's `Law`.
-- `OFLQG::disturbance_lim` clamps the disturbance estimate d̂ at each update, so a load past it (a wall the plant is held against) does not wind d̂ and the target up, the way `integral_lim` holds an LQI's integrator. Unbounded by default.
+- `LQRConfig` and `LQIConfig` take `demand_lim`, a `DemandLimit`: the LQ laws bound what the gain's outer terms ask of one state, read as a cascade (a balancing robot's position and integral asking for a lean), and the integrators unwind against it. Off by default, and free in a `constexpr` design's `Law`.
+- `OFLQG::disturbance_lim` clamps the disturbance estimate d̂ at each update, so a load past it (a wall the plant is held against) does not wind d̂ and the target up, the way `integral_lim` bounds an LQI's integrator. Unbounded by default.
 - `design::lqr`, `lqi`, `lqg`, `lqgi`, `oflqg`, `kalman` and `steady_state_target` take an `InputDelay` after Ts: the continuous plant, its weights and its noise, the cost and the noise discretized exactly on the delayed model. A measured-state law holds the registers itself, so `update` takes the plant state; a filter carries them with no noise on them.
-- `LQRConfig`, the weights of an LQ design, takes `u_lim`, and `LQIConfig` also `integral_lim`: the LQR, LQI, LQG, LQGI and OFLQG runtimes clamp their command and their integral state to them, and hold the integrators against that clamp with no `back_calculate`. Both are members of the runtime (`law.u_lim`, `law.integral.lim`), so a limit can move at run time.
+- `LQRConfig`, the weights of an LQ design, takes `u_lim`, and `LQIConfig` also `integral_lim`: the LQR, LQI, LQG, LQGI and OFLQG runtimes clamp their command and their integral state to them, and unwind the integrators against that clamp with no `back_calculate`. Both are members of the runtime (`law.u_lim`, `law.integral.lim`), so a limit can move at run time.
 - `Bounds::valid()`: no end NaN and no lower end above its upper one, the test `design::mpc` and `design::mhe` already applied.
 - `u_lim` on `ADRCResult`, `STSMCResult` and `LeadLagResult`, and as a member of their runtimes and of `ExtremumSeekingController`: the command is clamped into it and the law's memory holds against that clamp.
 - `back_calculate(u_sat, u_ff)` on `STSMCController`, `LeadLagController`, `ExtremumSeekingController`, `SmithPredictor`, `RepetitiveController` and `ClassicalDOB`: a clamp after the law is reported the same way to every law with memory.
@@ -57,7 +59,7 @@ and [known limitations](docs/known_limitations.md)).
 - A float MPC with soft output limits solves its QP on every tick. Once the moves sat on their limits the active-set solver ended `Degenerate`, or called a feasible problem `Infeasible`, on up to every tick of a recovery from outside the limits; it now keeps an orthogonal factorization of the active constraints.
 - `solve_qp` in float no longer returns `Success` with a constraint violated past its tolerance: the point is recomputed on the active constraints after each step, and every solved point meets its rows.
 - PID back-calculation with a `Kbc` under half of `Ki·Ts` diverged, and overshot under `Ki·Ts`; it takes at most the whole excess per tick.
-- An LQ design refused for its limits no longer carries them into a runtime, and an `integral_lim` narrowed at run time pulls a held integrator in.
+- An LQ design refused for its limits no longer carries them into a runtime, and an `integral_lim` narrowed at run time pulls the integrator in on the next tick.
 - `PRController<float>` and `HarmonicSuppressor<float>` hold a resonance far below the sample rate, where the output used to lose its gain at ω₀ or run to Inf (f₀/fs = 5e-5). The resonant section, `PRController::resonant`, is a `PRResonator` on the output and its increment instead of a `Biquad`.
 - `KalmanFilter` and `ExtendedKalmanFilter` in float keep their covariance under a prior far wider than a reading's noise: stored as P it went indefinite within a few ticks once P₀/R passed about 10⁵, and nearly every later update was refused.
 - `PRController` with a tracking time `Tt` under the sample period overshot the realizable command on each unwind, and diverged under half of it; it takes at most the whole excess per tick.
@@ -197,6 +199,7 @@ Runtime controllers and estimators default to `float`; design synthesis defaults
 
 See [docs/known_limitations.md](docs/known_limitations.md).
 
+[0.3.0]: https://github.com/Wetmelon/damp/releases/tag/v0.3.0
 [0.2.2]: https://github.com/Wetmelon/damp/releases/tag/v0.2.2
 [0.2.1]: https://github.com/Wetmelon/damp/releases/tag/v0.2.1
 [0.2.0]: https://github.com/Wetmelon/damp/releases/tag/v0.2.0
