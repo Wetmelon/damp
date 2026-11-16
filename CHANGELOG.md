@@ -11,6 +11,7 @@ and [known limitations](docs/known_limitations.md)).
 
 ### Added
 
+- `MPCConstraints` takes `x_states` and `x_lim`, with their softness: an MPC or OFMPC bounds states it does not track over the horizon, soft or hard, and `set_limits` moves them. The type names how many, `MPCConstraints<NU, NY, T, NXC>`.
 - `last_status()` on `KalmanFilter` and `ExtendedKalmanFilter`: whether the last measurement update was taken or refused (`UpdateStatus`), so the refusal `step()` drops is still there to read. MPC's `last_status()` reports its QP the same way.
 - `OFMPC::disturbance_lim` clamps the disturbance estimate d̂ at each update, as on `OFLQG`, and `estimator()` has a mutable overload to restart the filter or set its estimate.
 - `to_ss()` on an OFLQG design: the law as a discrete block at r = 0, its filter on [x; d] and the target's d̂ terms folded into the gain, to close on a plant other than the design's (one with another delay, say) for its poles.
