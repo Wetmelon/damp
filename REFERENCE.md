@@ -43,7 +43,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`FeedbackRuntime`](inc/damp/concepts.hpp#L101) | Shared lifecycle of an LQ or MPC runtime: measurement, time update, applied input |
 | [`Measurement`](inc/damp/concepts.hpp#L205) | Nonlinear measurement y = h(x, u): a callable returning y as a ColVec<NY, T> |
 | [`MeasurementJacobian`](inc/damp/concepts.hpp#L218) | Analytic Jacobians of a Measurement model at (x, u), returned by its jacobian(x, u) |
-| [`optional`](inc/damp/backend.hpp#L182) | The optional of a toolchain with no C++ standard headers (ETL_NO_STL) |
+| [`optional`](inc/damp/backend.hpp#L186) | The optional of a toolchain with no C++ standard headers (ETL_NO_STL) |
 | [`ParameterEstimator`](inc/damp/concepts.hpp#L156) | Online grey-box parameter estimator: physical parameters + gating |
 | [`PatternMeasurement`](inc/damp/concepts.hpp#L242) | A Measurement whose jacobian(x, u) returns C = ∂h/∂x as an NY × NX PatternMatrix: zeros and ones known at compile time, the other entries computed at (x, u) |
 | [`SignalSource`](inc/damp/concepts.hpp#L141) | Self-clocked signal source: u = step(), finished when done() |
@@ -54,14 +54,14 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 
 | Name | Description |
 | ---- | ----------- |
-| [`array_as`](inc/damp/backend.hpp#L413) | Element-wise static_cast of a damp::array to scalar type U (precision rebind) |
-| [`bit_cast`](inc/damp/backend.hpp#L159) | Reinterpret the bits of from as To, usable in constant evaluation (etl::bit_cast is not, without the STL) |
-| [`bit_width`](inc/damp/backend.hpp#L165) | Bits needed to represent value, as int like std::bit_width (etl::bit_width returns T) |
-| [`clamp`](inc/damp/backend.hpp#L370) | x clamped to [lo, hi], by value: min(max(lo, x), hi) |
-| [`is_constant_evaluated`](inc/damp/backend.hpp#L152) | True during constant evaluation; the builtin needs no header |
-| [`max`](inc/damp/backend.hpp#L334) | The larger of a and b, by value; a tie or a NaN returns a (+1 more overload) |
-| [`min`](inc/damp/backend.hpp#L328) | The smaller of a and b, by value; a tie or a NaN returns a (+1 more overload) |
-| [`minmax`](inc/damp/backend.hpp#L382) | Ordered {min, max} pair returned by value (+1 more overload) |
+| [`array_as`](inc/damp/backend.hpp#L417) | Element-wise static_cast of a damp::array to scalar type U (precision rebind) |
+| [`bit_cast`](inc/damp/backend.hpp#L163) | Reinterpret the bits of from as To, usable in constant evaluation (etl::bit_cast is not, without the STL) |
+| [`bit_width`](inc/damp/backend.hpp#L169) | Bits needed to represent value, as int like std::bit_width (etl::bit_width returns T) |
+| [`clamp`](inc/damp/backend.hpp#L374) | x clamped to [lo, hi], by value: min(max(lo, x), hi) |
+| [`is_constant_evaluated`](inc/damp/backend.hpp#L156) | True during constant evaluation; the builtin needs no header |
+| [`max`](inc/damp/backend.hpp#L338) | The larger of a and b, by value; a tie or a NaN returns a (+1 more overload) |
+| [`min`](inc/damp/backend.hpp#L332) | The smaller of a and b, by value; a tie or a NaN returns a (+1 more overload) |
+| [`minmax`](inc/damp/backend.hpp#L386) | Ordered {min, max} pair returned by value (+1 more overload) |
 
 ## Scalar math, complex & frames
 
@@ -175,13 +175,13 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`cholesky`](inc/damp/matrix/decomposition.hpp#L128) | Cholesky decomposition for positive-definite matrices |
 | [`cholesky_solve`](inc/damp/matrix/solve.hpp#L162) | Solve AX = B via Cholesky (A = LLᴴ) |
 | [`compute_eigenvalues`](inc/damp/matrix/eigen.hpp#L1154) | Compute the eigenvalues (and Schur vectors) of a real square matrix |
-| [`cos`](inc/damp/matrix/functions.hpp#L1352) | Matrix cosine via scaling and double-angle reconstruction |
-| [`cosh`](inc/damp/matrix/functions.hpp#L1386) | Matrix hyperbolic cosine cosh(A) = (exp(A) + exp(−A))/2 |
+| [`cos`](inc/damp/matrix/functions.hpp#L1351) | Matrix cosine via scaling and double-angle reconstruction |
+| [`cosh`](inc/damp/matrix/functions.hpp#L1385) | Matrix hyperbolic cosine cosh(A) = (exp(A) + exp(−A))/2 |
 | [`default_tol`](inc/damp/matrix/matrix_traits.hpp#L121) | Type-appropriate default tolerance for floating-point comparisons. float  ~7 decimal digits  → 1e-6 double ~15 decimal digits → 1e-12 |
 | [`det`](inc/damp/matrix/functions.hpp#L173) | Matrix determinant det(A) |
 | [`diag`](inc/damp/matrix/concat.hpp#L53) | Square diagonal matrix from scalars: diag(10.0, 0.1, 100.0, 10.0) (+4 more overloads) |
 | [`eps`](inc/damp/matrix/matrix_traits.hpp#L111) | Machine epsilon of T's real scalar (MATLAB® eps). Scale it by problem size and magnitude to build a relative tolerance |
-| [`expm`](inc/damp/matrix/functions.hpp#L697) | Matrix exponential by scaling and squaring (Al-Mohy & Higham 2009) |
+| [`expm`](inc/damp/matrix/functions.hpp#L696) | Matrix exponential by scaling and squaring (Al-Mohy & Higham 2009) |
 | [`forward_substitute`](inc/damp/matrix/solve.hpp#L52) | Forward substitution for Lx = b |
 | [`full_qr`](inc/damp/matrix/decomposition.hpp#L807) | Full QR factorization via Householder reflections (real or complex T) |
 | [`generalized_eigenvalues`](inc/damp/matrix/generalized_eigen.hpp#L621) | Generalized eigenvalues of the real pencil A − λB: the λ with det(A − λB) = 0 |
@@ -191,23 +191,23 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`is_symmetric_or_hermitian`](inc/damp/matrix/decomposition.hpp#L89) | True if A equals its transpose (real) or conjugate transpose (complex) |
 | [`ldlt`](inc/damp/matrix/decomposition.hpp#L482) | Symmetric indefinite LDLᴴ with rook pivoting: P·A·Pᵀ = L·D·Lᴴ, D block diagonal (1×1 and 2×2) |
 | [`ldlt_solve`](inc/damp/matrix/solve.hpp#L193) | Solve AX = B via pivoted LDLᴴ (P·A·Pᵀ = L·D·Lᴴ, symmetric indefinite) |
-| [`log`](inc/damp/matrix/functions.hpp#L1029) | Principal matrix logarithm via inverse scaling and squaring |
+| [`log`](inc/damp/matrix/functions.hpp#L1028) | Principal matrix logarithm via inverse scaling and squaring |
 | [`lu_decomposition`](inc/damp/matrix/decomposition.hpp#L533) | LU decomposition with partial pivoting |
 | [`lu_solve`](inc/damp/matrix/solve.hpp#L237) | Solve AX = B via LU with partial pivoting |
 | [`null_space`](inc/damp/matrix/svd.hpp#L477) | Orthonormal basis for the null space {x : A·x = 0} via SVD |
 | [`one_norm`](inc/damp/matrix/functions.hpp#L68) | One-norm ‖A‖₁: maximum absolute column sum |
-| [`pow`](inc/damp/matrix/functions.hpp#L1132) | Integer matrix power via binary exponentiation (+1 more overload) |
+| [`pow`](inc/damp/matrix/functions.hpp#L1131) | Integer matrix power via binary exponentiation (+1 more overload) |
 | [`pseudo_inverse`](inc/damp/matrix/svd.hpp#L426) | Moore–Penrose pseudoinverse A⁺ via SVD |
 | [`qr_decompose`](inc/damp/matrix/decomposition.hpp#L718) | Thin QR via Householder reflections |
 | [`quadratic_form`](inc/damp/matrix/core.hpp#L1368) | Symmetric congruence (quadratic) form  S = M X Mᵀ (+1 more overload) |
 | [`quadratic_form_in_place`](inc/damp/matrix/pattern_matrix.hpp#L341) | S ← F S Fᵀ in place, for a symmetric S: every multiply the pattern can skip, skipped |
 | [`rank`](inc/damp/matrix/functions.hpp#L235) | Numerical rank: the number of singular values above rel_tol·σₘₐₓ |
 | [`rank_from_svd`](inc/damp/matrix/svd.hpp#L390) | Numerical rank from a precomputed SVD result |
-| [`sin`](inc/damp/matrix/functions.hpp#L1335) | Matrix sine via scaling and double-angle reconstruction |
-| [`sincos`](inc/damp/matrix/functions.hpp#L1319) | Compute sin(A) and cos(A) together via scaling and double-angle reconstruction |
-| [`sinh`](inc/damp/matrix/functions.hpp#L1370) | Matrix hyperbolic sine sinh(A) = (exp(A) − exp(−A))/2 |
+| [`sin`](inc/damp/matrix/functions.hpp#L1334) | Matrix sine via scaling and double-angle reconstruction |
+| [`sincos`](inc/damp/matrix/functions.hpp#L1318) | Compute sin(A) and cos(A) together via scaling and double-angle reconstruction |
+| [`sinh`](inc/damp/matrix/functions.hpp#L1369) | Matrix hyperbolic sine sinh(A) = (exp(A) − exp(−A))/2 |
 | [`solve`](inc/damp/matrix/solve.hpp#L287) | Solve AX = B — Cholesky when Hermitian, else LU (+2 more overloads) |
-| [`sqrt`](inc/damp/matrix/functions.hpp#L983) | Principal matrix square root by the real Schur method |
+| [`sqrt`](inc/damp/matrix/functions.hpp#L982) | Principal matrix square root by the real Schur method |
 | [`svd`](inc/damp/matrix/svd.hpp#L356) | Full singular value decomposition A = U·Σ·Vᴴ (one-sided Jacobi) |
 | [`times_transpose`](inc/damp/matrix/pattern_matrix.hpp#L317) | A dense matrix times Hᵀ for a sparse H: A Hᵀ |
 | [`transform`](inc/damp/matrix/core.hpp#L1515) | Apply f to every entry, B(i, j) = f(A(i, j)): the matrix counterpart of std::transform |
@@ -226,7 +226,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`LeverrierResult`](inc/damp/systems/zpk.hpp#L512) | Faddeev–LeVerrier characteristic polynomial and adjoint coefficient matrices |
 | [`OutputDelay`](inc/damp/systems/discretization.hpp#L585) | A measurement delay of θ = seconds, in up to N registers (0 ≤ θ ≤ N·Ts): the reading that arrives at sample k is y(t_k − θ). `discretize(sys, Ts, OutputDelay<N>{θ})` returns that model; design on it like any other. `OutputDelay{θ}` is N = 1 (+1 more overload) |
 | [`PolyRootsResult`](inc/damp/systems/zpk.hpp#L91) | Roots of a real polynomial given highest power first |
-| [`SsFeed`](inc/damp/systems/state_space.hpp#L644) | One term of a linear output mix: k · y_iy |
+| [`SsFeed`](inc/damp/systems/state_space.hpp#L643) | One term of a linear output mix: k · y_iy |
 | [`StaircaseFormResult`](inc/damp/systems/realization.hpp#L643) | A model in staircase coordinates, the orthogonal transform that took it there, and its rank |
 | [`StateScaling`](inc/damp/systems/realization.hpp#L39) | A model in balanced state coordinates, and the diagonal scaling that took it there |
 | [`StateSpace`](inc/damp/systems/state_space.hpp#L137) | State-space representation for linear time-invariant systems (discrete or continuous) (+10 more overloads) |
@@ -249,14 +249,14 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`discretize`](inc/damp/systems/discretization.hpp#L330) | Discretize a continuous-time state-space system (+3 more overloads) |
 | [`eval_frf`](inc/damp/systems/state_space.hpp#L232) | Evaluate frequency response of a state-space system |
 | [`feedback`](inc/damp/systems/state_space.hpp#L390) | Negative feedback: y = sys1(u − sys2(y)) (+1 more overload) |
-| [`feedback_read`](inc/damp/systems/state_space.hpp#L827) | Unity (or weighted) negative feedback around G_loop, read G_out |
+| [`feedback_read`](inc/damp/systems/state_space.hpp#L826) | Unity (or weighted) negative feedback around G_loop, read G_out |
 | [`fractional_delay`](inc/damp/systems/discretization.hpp#L512) | Fractional-delay all-pass filter of order N (Thiran): z⁻ᴰ for a real D = delay / Ts |
 | [`leverrier_num_scale`](inc/damp/systems/zpk.hpp#L578) | Magnitude scale of each strictly proper Leverrier numerator coefficient |
 | [`lft`](inc/damp/systems/state_space.hpp#L504) | Lower linear fractional transformation: K closes the loop from P's last outputs to its last inputs |
 | [`markov_checked_numerator`](inc/damp/systems/zpk.hpp#L608) | num, or the numerator the Markov parameters give over den when num misses it |
 | [`minreal_zpk`](inc/damp/systems/zpk.hpp#L827) | Cancel matching pole-zero pairs on a ZPK model |
-| [`mix`](inc/damp/systems/state_space.hpp#L709) | Fold plant outputs into one input: v = g u + Σ kᵢ yᵢ (+1 more overload) |
-| [`mix_outputs`](inc/damp/systems/state_space.hpp#L786) | Linear combination of outputs: y = Σ αⱼ yⱼ |
+| [`mix`](inc/damp/systems/state_space.hpp#L708) | Fold plant outputs into one input: v = g u + Σ kᵢ yᵢ (+1 more overload) |
+| [`mix_outputs`](inc/damp/systems/state_space.hpp#L785) | Linear combination of outputs: y = Σ αⱼ yⱼ |
 | [`modal_form`](inc/damp/systems/realization.hpp#L287) | Real modal canonical form: A block diagonal, one block per mode |
 | [`mul_linear`](inc/damp/systems/zpk.hpp#L158) | Multiply a polynomial of degree by (s − root) in place; poly[k] multiplies sᵏ |
 | [`observability_staircase`](inc/damp/systems/realization.hpp#L848) | Observability staircase form: the observable part split off by an orthogonal transform |
@@ -265,12 +265,12 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`poly_roots`](inc/damp/systems/zpk.hpp#L122) | Compute roots of a real polynomial given highest power first |
 | [`resample`](inc/damp/systems/discretization.hpp#L401) | Resample a ZOH-discrete model to a new sample time |
 | [`schur_stable`](inc/damp/systems/transfer_function.hpp#L66) | True if every root of z^(N−1)·p(z⁻¹) lies strictly inside the unit circle (Schur–Cohn) |
-| [`select`](inc/damp/systems/state_space.hpp#L668) | SISO channel slice y_iy / u_iu |
+| [`select`](inc/damp/systems/state_space.hpp#L667) | SISO channel slice y_iy / u_iu |
 | [`series`](inc/damp/systems/state_space.hpp#L267) | Series connection: sys2 follows sys1 (u → sys1 → sys2 → y) |
 | [`similarity_transform`](inc/damp/systems/realization.hpp#L372) | Change the state basis to z = T·x: (T·A·T⁻¹, T·B, C·T⁻¹, D), and T·G for the noise input |
 | [`ss2tf`](inc/damp/systems/zpk.hpp#L806) | MATLAB®-style alias for SISO to_transfer_function |
-| [`ss_gain`](inc/damp/systems/state_space.hpp#L655) | Static gain y = k u (no states) |
-| [`subtract`](inc/damp/systems/state_space.hpp#L586) | Differencing connection: outputs y = y₁ − y₂ |
+| [`ss_gain`](inc/damp/systems/state_space.hpp#L654) | Static gain y = k u (no states) |
+| [`subtract`](inc/damp/systems/state_space.hpp#L585) | Differencing connection: outputs y = y₁ − y₂ |
 | [`to_transfer_function`](inc/damp/systems/zpk.hpp#L776) | SISO state-space → transfer function, size NX+1 / NX+1 |
 | [`to_zpk`](inc/damp/systems/zpk.hpp#L463) | Convert a SISO transfer function to zero-pole-gain form (+1 more overload) |
 | [`transmission_zeros`](inc/damp/systems/zeros.hpp#L406) | The finite invariant zeros of a state-space model with any number of inputs and outputs |
@@ -318,8 +318,8 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`OutputDisturbance`](inc/damp/design/disturbance.hpp#L51) | An output disturbance: a bias on each reading, B_d = 0 and C_d = I, one per output |
 | [`OutputInverse`](inc/damp/design/model_inverse.hpp#L861) | The stable inverse at run time: the reference point (x , u ) from the output reference over the preview, seven matrix–vector products and the zero dynamics' state (+1 more overload) |
 | [`OutputInverseResult`](inc/damp/design/model_inverse.hpp#L144) | The stable inverse of a discrete model over a preview of NP output samples |
-| [`PIDPolePlacementSpec`](inc/damp/design/pid_design.hpp#L912) | Closed-loop targets for the continuous pid_pole_placement forms |
-| [`PIDTuneSpec`](inc/damp/design/pid_design.hpp#L449) | Knobs for plant-aware pidtune |
+| [`PIDPolePlacementSpec`](inc/damp/design/pid_design.hpp#L916) | Closed-loop targets for the continuous pid_pole_placement forms |
+| [`PIDTuneSpec`](inc/damp/design/pid_design.hpp#L453) | Knobs for plant-aware pidtune |
 | [`PlaceResult`](inc/damp/design/pole_placement.hpp#L1076) | Pole-placement design result: the gain K, the achieved closed-loop poles e, and Ts |
 | [`PlantDisturbance`](inc/damp/design/disturbance.hpp#L65) | The plant's own disturbance channel: B_d = G and C_d = H, one disturbance per column of G (H needs as many columns) |
 | [`PRResult`](inc/damp/controllers/pr.hpp#L121) | Proportional-Resonant controller design result |
@@ -327,7 +327,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`QPStatus`](inc/damp/design/qp.hpp#L48) | Termination status of a QP solve |
 | [`RepetitiveResult`](inc/damp/controllers/repetitive.hpp#L137) | Design result for the repetitive controller |
 | [`SMCResult`](inc/damp/controllers/smc.hpp#L36) | Tuning parameters for a first-order sliding-mode controller |
-| [`SmithPredictorResult`](inc/damp/controllers/smith_predictor.hpp#L92) | Smith predictor design result (discrete PID + FO model + delay samples) |
+| [`SmithPredictorResult`](inc/damp/controllers/smith_predictor.hpp#L96) | Smith predictor design result (discrete PID + FO model + delay samples) |
 | [`StateFeedbackResult`](inc/damp/controllers/state_feedback_types.hpp#L233) | A state-feedback design: the gain, and the parts the law's options add |
 | [`StateFeedforward`](inc/damp/design/model_inverse.hpp#L818) | The plant-inversion feedforward at run time: u = B⁺·(x ₖ₊₁ − x ₖ) − B⁺(A − I)·x ₖ, two matrix–vector products (+1 more overload) |
 | [`StateFeedforwardResult`](inc/damp/design/model_inverse.hpp#L60) | The plant-inversion feedforward of a discrete model: u ₖ = B⁺·(x ₖ₊₁ − x ₖ) − B⁺(A − I)·x ₖ |
@@ -346,41 +346,41 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | ---- | ----------- |
 | [`adrc`](inc/damp/controllers/adrc.hpp#L206) | Active Disturbance Rejection Control design |
 | [`ADRCController`](inc/damp/controllers/adrc.hpp#L412) | Deduce the runtime from its design, keeping the result's scalar |
-| [`amigo_kappa_tau`](inc/damp/design/pid_design.hpp#L253) | AMIGO PI from ultimate gain/period and static gain Kₛ |
-| [`balanced_realization`](inc/damp/design/model_reduction.hpp#L477) | Balanced realization via the square-root (Moore / Laub) method |
-| [`balanced_reduction`](inc/damp/design/model_reduction.hpp#L554) | Balanced reduction to NR states, by truncation or DC-matched residualization |
+| [`amigo_kappa_tau`](inc/damp/design/pid_design.hpp#L257) | AMIGO PI from ultimate gain/period and static gain Kₛ |
+| [`balanced_realization`](inc/damp/design/model_reduction.hpp#L476) | Balanced realization via the square-root (Moore / Laub) method |
+| [`balanced_reduction`](inc/damp/design/model_reduction.hpp#L553) | Balanced reduction to NR states, by truncation or DC-matched residualization |
 | [`care`](inc/damp/design/riccati.hpp#L1490) | Solve the Continuous-time Algebraic Riccati Equation (CARE) |
 | [`cbf_relative_degree_1`](inc/damp/controllers/action_governor.hpp#L203) | Build a relative-degree-1 CBF inequality row |
 | [`closed_loop_poles`](inc/damp/design/stability.hpp#L563) | Compute closed-loop poles (eigenvalues) with state feedback |
-| [`closed_loop_stable`](inc/damp/design/pid_design.hpp#L684) | Closed-loop certificate: den_P·den_C + num_P·num_C is Hurwitz for C_fb = Kp + Kᵢ/s + Kd s/(1 + Tf s) |
-| [`cohen_coon`](inc/damp/design/pid_design.hpp#L300) | Cohen-Coon tuning from first-order-plus-dead-time model |
+| [`closed_loop_stable`](inc/damp/design/pid_design.hpp#L688) | Closed-loop certificate: den_P·den_C + num_P·num_C is Hurwitz for C_fb = Kp + Kᵢ/s + Kd s/(1 + Tf s) |
+| [`cohen_coon`](inc/damp/design/pid_design.hpp#L304) | Cohen-Coon tuning from first-order-plus-dead-time model |
 | [`continuous_lqr`](inc/damp/design/riccati.hpp#L1744) | Continuous-time Linear-Quadratic Regulator design |
-| [`ContinuousPID`](inc/damp/controllers/pid.hpp#L1108) | Deduce the runtime from its design, keeping the result's scalar |
+| [`ContinuousPID`](inc/damp/controllers/pid.hpp#L1112) | Deduce the runtime from its design, keeping the result's scalar |
 | [`controllability_gramian`](inc/damp/design/stability.hpp#L381) | Continuous/discrete controllability Gramian W_c |
 | [`controllability_matrix`](inc/damp/design/stability.hpp#L53) | Compute the controllability matrix [B, AB, A²B, ..., A^(N-1)B] |
-| [`current_loop_pi`](inc/damp/design/pid_design.hpp#L1298) | PI gains for an R–L current loop 1/(L s + R) at any bandwidth ω |
-| [`damping_ratio_from_overshoot_percent`](inc/damp/design/pid_design.hpp#L858) | Map percent overshoot target to equivalent damping ratio |
+| [`current_loop_pi`](inc/damp/design/pid_design.hpp#L1302) | PI gains for an R–L current loop 1/(L s + R) at any bandwidth ω |
+| [`damping_ratio_from_overshoot_percent`](inc/damp/design/pid_design.hpp#L862) | Map percent overshoot target to equivalent damping ratio |
 | [`dare`](inc/damp/design/riccati.hpp#L1321) | Solve the Discrete Algebraic Riccati Equation (DARE) |
 | [`discrete_lqr`](inc/damp/design/riccati.hpp#L1610) | Discrete-time Linear-Quadratic Regulator design (+1 more overload) |
 | [`discrete_lyapunov_cholesky`](inc/damp/design/lyapunov.hpp#L518) | Cholesky factor of the discrete Lyapunov solution: A X Aᵀ − X + B Bᵀ = 0, X = RᵀR |
 | [`discretize_lqr_cost`](inc/damp/design/riccati.hpp#L1679) | Discretize a continuous LQR cost integral over one sample (Van Loan) |
 | [`dlyap`](inc/damp/design/lyapunov.hpp#L478) | Solve the discrete-time Lyapunov (Stein) equation A X Aᵀ − X + Q = 0 |
-| [`eliminate_states`](inc/damp/design/model_reduction.hpp#L626) | Eliminate the listed states, by DC-matched residualization or truncation |
+| [`eliminate_states`](inc/damp/design/model_reduction.hpp#L625) | Eliminate the listed states, by DC-matched residualization or truncation |
 | [`esc`](inc/damp/controllers/esc.hpp#L156) | Synthesize an extremum-seeking controller |
 | [`esc_mppt`](inc/damp/controllers/esc.hpp#L200) | MPPT-flavored ESC: maximize a power measurement by perturbing the operating point (e.g. converter duty or reference voltage) |
 | [`ExtremumSeekingController`](inc/damp/controllers/esc.hpp#L384) | Deduce the runtime from its design, keeping the result's scalar |
-| [`fit_at_crossover`](inc/damp/design/pid_design.hpp#L603) | fit_to_response at spec.wc with every gain of sign σ = ±1 |
-| [`fit_to_response`](inc/damp/design/pid_design.hpp#L549) | The requested law with C(jω) = e^{j(−π + PM)}/P(jω), from the plant response P at ω = spec.wc |
-| [`hankel_singular_values`](inc/damp/design/model_reduction.hpp#L507) | Hankel singular values of a stable state-space system |
+| [`fit_at_crossover`](inc/damp/design/pid_design.hpp#L607) | fit_to_response at spec.wc with every gain of sign σ = ±1 |
+| [`fit_to_response`](inc/damp/design/pid_design.hpp#L553) | The requested law with C(jω) = e^{j(−π + PM)}/P(jω), from the plant response P at ω = spec.wc |
+| [`hankel_singular_values`](inc/damp/design/model_reduction.hpp#L506) | Hankel singular values of a stable state-space system |
 | [`harmonic_suppressor`](inc/damp/controllers/harmonic_suppression.hpp#L126) | Synthesize a multi-resonant harmonic suppressor |
 | [`HarmonicSuppressor`](inc/damp/controllers/harmonic_suppression.hpp#L271) | Deduce the runtime from its design, keeping the result's scalar |
-| [`hurwitz`](inc/damp/design/pid_design.hpp#L628) | Routh–Hurwitz: every root of c[0] sⁿ + … + c[n] in the open left half plane |
+| [`hurwitz`](inc/damp/design/pid_design.hpp#L632) | Routh–Hurwitz: every root of c[0] sⁿ + … + c[n] in the open left half plane |
 | [`is_controllable`](inc/damp/design/stability.hpp#L446) | Check if a system is controllable |
 | [`is_observable`](inc/damp/design/stability.hpp#L460) | Check if a system is observable |
 | [`is_stabilizable`](inc/damp/design/stability.hpp#L483) | Check if (A, B) of sys is a stabilizable pair, in the domain of sys |
 | [`is_stable`](inc/damp/design/stability.hpp#L501) | Stability of a state-space model, in the domain of sys |
 | [`lag`](inc/damp/controllers/lead_lag.hpp#L198) | Design a lag compensator from desired low-frequency gain boost |
-| [`lambda_tuning`](inc/damp/design/pid_design.hpp#L429) | Lambda tuning for FOPDT model |
+| [`lambda_tuning`](inc/damp/design/pid_design.hpp#L433) | Lambda tuning for FOPDT model |
 | [`lead`](inc/damp/controllers/lead_lag.hpp#L145) | Design a lead compensator from desired phase boost at a target frequency |
 | [`lead_lag`](inc/damp/controllers/lead_lag.hpp#L259) | Design a lead-lag compensator (cascade of lead + lag sections) |
 | [`lead_lag_direct`](inc/damp/controllers/lead_lag.hpp#L294) | Direct lead-lag specification from zero/pole locations |
@@ -413,11 +413,11 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`OFMPC`](inc/damp/controllers/ofmpc.hpp#L136) | OFMPC law{res}: the sizes, scalar, filter and target of design::ofmpc's result (+1 more overload) |
 | [`option`](inc/damp/design/options.hpp#L57) | No option left: the fallback (+1 more overload) |
 | [`output_inverse`](inc/damp/design/model_inverse.hpp#L683) | The stable inverse of a discrete model: the state and input of its trajectory through a reference y on the controlled outputs, from y ₖ … y ₖ₊NP₋₁ (+1 more overload) |
-| [`phase_margin_from_damping_ratio`](inc/damp/design/pid_design.hpp#L888) | Approximate phase margin from damping ratio |
-| [`pid`](inc/damp/controllers/pid.hpp#L369) | Continuous PID gains Kₚ, Kᵢ, K_d with every other knob at its default |
-| [`pid_pole_placement`](inc/damp/design/pid_design.hpp#L960) | PI gains that place the closed-loop poles of a first-order plant b₀/(a₁ s + a₀) (+4 more overloads) |
-| [`PIDController`](inc/damp/controllers/pid.hpp#L937) | Deduce the runtime from its gains, keeping their scalar: PIDController pid{gains} is a PID; through an alias the mode comes from the alias: PIController pi{gains}; |
-| [`pidtune`](inc/damp/design/pid_design.hpp#L807) | Plant-aware PID tune at a crossover |
+| [`phase_margin_from_damping_ratio`](inc/damp/design/pid_design.hpp#L892) | Approximate phase margin from damping ratio |
+| [`pid`](inc/damp/controllers/pid.hpp#L373) | Continuous PID gains Kₚ, Kᵢ, K_d with every other knob at its default |
+| [`pid_pole_placement`](inc/damp/design/pid_design.hpp#L964) | PI gains that place the closed-loop poles of a first-order plant b₀/(a₁ s + a₀) (+4 more overloads) |
+| [`PIDController`](inc/damp/controllers/pid.hpp#L941) | Deduce the runtime from its gains, keeping their scalar: PIDController pid{gains} is a PID; through an alias the mode comes from the alias: PIController pi{gains}; |
+| [`pidtune`](inc/damp/design/pid_design.hpp#L811) | Plant-aware PID tune at a crossover |
 | [`place`](inc/damp/design/pole_placement.hpp#L1155) | Robust pole placement (KNV): the gain K with eig(A − B·K) at poles, in the domain of sys (+1 more overload) |
 | [`place_jordan`](inc/damp/design/pole_placement.hpp#L1676) | Exact pole placement with an arbitrary Jordan structure (Schmid–Ntogramatzidis–Nguyen–Pandey / Klein–Moore parametric form) (+1 more overload) |
 | [`pr`](inc/damp/controllers/pr.hpp#L215) | Design a Proportional-Resonant controller |
@@ -425,15 +425,15 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`PRController`](inc/damp/controllers/pr.hpp#L575) | Deduce the runtime from its design, keeping the result's scalar |
 | [`project_affine`](inc/damp/controllers/action_governor.hpp#L135) | Project u_des onto the polyhedron A u ≤ b (Euclidean) |
 | [`project_box`](inc/damp/controllers/action_governor.hpp#L74) | Euclidean projection of u onto a Bounds box |
-| [`raise_loop_for_tracking`](inc/damp/design/pid_design.hpp#L713) | Raise the loop crossover so T −3 dB matches the 1-DOF target |
+| [`raise_loop_for_tracking`](inc/damp/design/pid_design.hpp#L717) | Raise the loop crossover so T −3 dB matches the 1-DOF target |
 | [`rank`](inc/damp/design/stability.hpp#L424) | Numerical rank of a matrix (forwards to mat::rank) (+1 more overload) |
 | [`repetitive`](inc/damp/controllers/repetitive.hpp#L211) | Synthesize a repetitive controller with a scalar robustness filter Q |
 | [`repetitive_binomial`](inc/damp/controllers/repetitive.hpp#L244) | Synthesize a repetitive controller with a binomial zero-phase FIR Q |
-| [`simc`](inc/damp/design/pid_design.hpp#L368) | SIMC (Skogestad Internal Model Control) tuning for FOPDT models |
+| [`simc`](inc/damp/design/pid_design.hpp#L372) | SIMC (Skogestad Internal Model Control) tuning for FOPDT models |
 | [`smc`](inc/damp/controllers/smc.hpp#L89) | Bundle hand-picked SMC parameters into an SMCResult |
 | [`SMCController`](inc/damp/controllers/smc.hpp#L267) | Deduce the runtime from its design, keeping the result's scalar |
-| [`smith_predictor_from_fopdt`](inc/damp/controllers/smith_predictor.hpp#L249) | Design a Smith predictor from FOPDT parameters |
-| [`smith_predictor_from_pid`](inc/damp/controllers/smith_predictor.hpp#L282) | Pack a Smith predictor from an existing continuous PID and FOPDT plant |
+| [`smith_predictor_from_fopdt`](inc/damp/controllers/smith_predictor.hpp#L253) | Design a Smith predictor from FOPDT parameters |
+| [`smith_predictor_from_pid`](inc/damp/controllers/smith_predictor.hpp#L286) | Pack a Smith predictor from an existing continuous PID and FOPDT plant |
 | [`solve_miqp`](inc/damp/design/qp.hpp#L1739) | Mixed-integer QP by branch and bound over the active-set relaxation |
 | [`solve_qp`](inc/damp/design/qp.hpp#L850) | Solve a strictly convex inequality-constrained QP (dual active-set) (+1 more overload) |
 | [`solve_qp_admm`](inc/damp/design/qp.hpp#L1414) | One-shot ADMM QP solve (cold start) |
@@ -445,11 +445,11 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`stsmc_gains`](inc/damp/controllers/stsmc.hpp#L145) | Super-twisting controller from gains you specify directly |
 | [`STSMCController`](inc/damp/controllers/stsmc.hpp#L362) | Deduce the runtime from its design, keeping the result's scalar |
 | [`suggest_mpc_horizon`](inc/damp/controllers/mpc.hpp#L1756) | Suggest MPC horizons from an explicit settling-time target (+1 more overload) |
-| [`tyreus_luyben`](inc/damp/design/pid_design.hpp#L212) | Tyreus-Luyben tuning from ultimate gain and ultimate period |
+| [`tyreus_luyben`](inc/damp/design/pid_design.hpp#L216) | Tyreus-Luyben tuning from ultimate gain and ultimate period |
 | [`unbounded_bound`](inc/damp/design/qp.hpp#L66) | Sentinel bound treated as "no constraint" on that row |
-| [`valid_spec`](inc/damp/design/pid_design.hpp#L477) | The spec's scalar domain: ωc > 0, 0 < PM < 180°, Tf ≥ 0, all finite |
-| [`ziegler_nichols`](inc/damp/design/pid_design.hpp#L110) | Ziegler-Nichols tuning from ultimate gain and ultimate period |
-| [`ziegler_nichols_step`](inc/damp/design/pid_design.hpp#L161) | Ziegler-Nichols step response method (reaction curve) |
+| [`valid_spec`](inc/damp/design/pid_design.hpp#L481) | The spec's scalar domain: ωc > 0, 0 < PM < 180°, Tf ≥ 0, all finite |
+| [`ziegler_nichols`](inc/damp/design/pid_design.hpp#L114) | Ziegler-Nichols tuning from ultimate gain and ultimate period |
+| [`ziegler_nichols_step`](inc/damp/design/pid_design.hpp#L165) | Ziegler-Nichols step response method (reaction curve) |
 
 > **Runtime — tick objects and signal processing**
 
@@ -463,8 +463,8 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`ADRCController`](inc/damp/controllers/adrc.hpp#L257) | Active Disturbance Rejection Control (ADRC) |
 | [`Cascade`](inc/damp/controllers/composition.hpp#L49) | Series cascade of two SISO controllers: outer → inner reference |
 | [`CBFConstraint`](inc/damp/controllers/action_governor.hpp#L187) | One affine row from a relative-degree-1 CBF condition |
-| [`ContinuousPID`](inc/damp/controllers/pid.hpp#L974) | Continuous-gain PID with per-tick sample time (variable-rate secondary form) |
-| [`DiscretePIDGains`](inc/damp/controllers/pid.hpp#L75) | Fixed-rate discrete PID coefficients (canonical deploy form) |
+| [`ContinuousPID`](inc/damp/controllers/pid.hpp#L978) | Continuous-gain PID with per-tick sample time (variable-rate secondary form) |
+| [`DiscretePIDGains`](inc/damp/controllers/pid.hpp#L79) | Fixed-rate discrete PID coefficients (canonical deploy form) |
 | [`ESCSpec`](inc/damp/controllers/esc.hpp#L70) | The extremum-seeking design input: dither, gain, filter corners and clamp; Ts is passed beside it |
 | [`ExtremumSeekingController`](inc/damp/controllers/esc.hpp#L236) | Extremum-seeking controller runtime (model-free online optimizer) |
 | [`ExtremumType`](inc/damp/controllers/esc.hpp#L48) | Whether ESC climbs to a maximum or descends to a minimum of the objective |
@@ -490,17 +490,17 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`NoEstimator`](inc/damp/controllers/state_feedback_types.hpp#L40) | The estimator of a law that measures its state: none, an empty type, so a `[[no_unique_address]]` member of it takes no storage |
 | [`OFLQG`](inc/damp/controllers/oflqg.hpp#L138) | Offset-free linear-quadratic Gaussian law: a Kalman filter on [x; d] and the steady-state target |
 | [`OFMPC`](inc/damp/controllers/ofmpc.hpp#L81) | Offset-free constrained linear MPC: a Kalman filter on [x; d] and the QP about the steady-state target under d̂ (design::ofmpc) |
-| [`PIDController`](inc/damp/controllers/pid.hpp#L537) | Fixed-rate discrete 2-DOF PID (canonical runtime) (+3 more overloads) |
-| [`PIDGains`](inc/damp/controllers/pid.hpp#L139) | 2-DOF continuous-time PID gains, limits and setpoint weights |
-| [`PIDMode`](inc/damp/controllers/pid.hpp#L382) | Compile-time selection of the PID control-law structure |
-| [`PIDRuntimeMode`](inc/damp/controllers/pid.hpp#L407) | Runtime operating mode for PIDController / ContinuousPID |
+| [`PIDController`](inc/damp/controllers/pid.hpp#L541) | Fixed-rate discrete 2-DOF PID (canonical runtime) (+3 more overloads) |
+| [`PIDGains`](inc/damp/controllers/pid.hpp#L143) | 2-DOF continuous-time PID gains, limits and setpoint weights |
+| [`PIDMode`](inc/damp/controllers/pid.hpp#L386) | Compile-time selection of the PID control-law structure |
+| [`PIDRuntimeMode`](inc/damp/controllers/pid.hpp#L411) | Runtime operating mode for PIDController / ContinuousPID |
 | [`PRController`](inc/damp/controllers/pr.hpp#L417) | Discrete Proportional-Resonant Controller |
 | [`PRResonator`](inc/damp/controllers/pr.hpp#L323) | Resonant section of PRController, run on its output y and the output's increment d |
 | [`PRSpec`](inc/damp/controllers/pr.hpp#L108) | The gains and frequencies of a proportional-resonant design; Ts is passed beside it |
 | [`RepetitiveConfig`](inc/damp/controllers/repetitive.hpp#L74) | Repetitive-controller tuning + period (with optional zero-phase FIR Q) |
 | [`RepetitiveController`](inc/damp/controllers/repetitive.hpp#L288) | Plug-in repetitive controller runtime (fixed-size internal model) |
 | [`SMCController`](inc/damp/controllers/smc.hpp#L181) | First-order sliding-mode controller (SMC) for a SISO plant |
-| [`SmithPredictor`](inc/damp/controllers/smith_predictor.hpp#L324) | Smith predictor runtime: SISO primary + FO model + pure delay |
+| [`SmithPredictor`](inc/damp/controllers/smith_predictor.hpp#L328) | Smith predictor runtime: SISO primary + FO model + pure delay |
 | [`STSMCController`](inc/damp/controllers/stsmc.hpp#L207) | Super-twisting controller (second-order sliding mode) |
 | [`SwitchedController`](inc/damp/controllers/composition.hpp#L114) | Bumpless-ish switch between normal, experiment, and backup SISO laws |
 | [`SwitchMode`](inc/damp/controllers/composition.hpp#L91) | Which path owns the plant command |
@@ -603,7 +603,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 
 | Name | Description |
 | ---- | ----------- |
-| [`carlson_update`](inc/damp/estimation/sqrt_covariance.hpp#L595) | Carlson's triangular update for row m of a whitened reading: S ← S T with T Tᵀ = I − f fᵀ/α, f = Sᵀc̃ᵀ the row of F and α = 1 + fᵀf |
+| [`carlson_update`](inc/damp/estimation/sqrt_covariance.hpp#L595) | Carlson's triangular update for row m of a whitened reading: S ← S T with T Tᵀ = I − f fᵀ/α, f = Sᵀc̃ᵀ the row of CS and α = 1 + fᵀf |
 | [`chirp`](inc/damp/estimation/excitation/chirp.hpp#L120) | Build a chirp design payload from a configuration |
 | [`classical_dob`](inc/damp/estimation/dob.hpp#L402) | Synthesize a classical disturbance observer from a nominal plant and Q-filter |
 | [`covariance_factor_or_identity`](inc/damp/estimation/sqrt_covariance.hpp#L155) | The factor a filter starts from: of P when it is a covariance; otherwise refused under constant evaluation, and the identity at run time |
@@ -651,7 +651,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`ramp`](inc/damp/estimation/excitation/ramp.hpp#L99) | Build a ramp design payload from a configuration |
 | [`reading_noise_factor`](inc/damp/estimation/sqrt_covariance.hpp#L456) | The factor of a reading's noise covariance R (positive semidefinite; only its lower triangle is read), or an invalid one when R is indefinite or not finite |
 | [`reading_row_reach`](inc/damp/estimation/sqrt_covariance.hpp#L467) | The size of the terms row m of C S is summed from, ‖\|C_m\|·\|S\|‖: what a perfect row's ‖f‖ is measured against, so that "zero" is the rounding of those terms and not a literal |
-| [`reading_times_factor`](inc/damp/estimation/sqrt_covariance.hpp#L415) | F = C S for a lower-triangular S and a dense C (+1 more overload) |
+| [`reading_times_factor`](inc/damp/estimation/sqrt_covariance.hpp#L415) | CS = C S for a lower-triangular S and a dense C (+1 more overload) |
 | [`reduced_order_observer`](inc/damp/estimation/fixed_gain_observer.hpp#L506) | Design a reduced-order (Gopinath) observer by pole placement, in the domain of sys (+1 more overload) |
 | [`reflect_rows_below`](inc/damp/estimation/sqrt_covariance.hpp#L174) | Apply row i's reflection of triangularize() to the rows below it: row k ← row k − s·v, with column i's sign turned when flip |
 | [`relay_autotune`](inc/damp/estimation/relay_autotune.hpp#L224) | Build a validated relay-autotune design payload |
@@ -667,7 +667,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`stepped_sine`](inc/damp/estimation/excitation/stepped_sine.hpp#L109) | Build a stepped-sine design payload from a configuration |
 | [`times_factor_in_place`](inc/damp/estimation/sqrt_covariance.hpp#L348) | S ← A S in place for a lower-triangular S: column j of the product reads column j of S only, so one column of scratch is all it takes (+1 more overload) |
 | [`triangularize`](inc/damp/estimation/sqrt_covariance.hpp#L234) | [W E] Θ = [S 0] for an orthogonal Θ: W becomes the lower-triangular S with S Sᵀ = W Wᵀ + E Eᵀ, by Householder reflections, in place |
-| [`whiten_reading`](inc/damp/estimation/sqrt_covariance.hpp#L529) | Whiten a reading in place with the factor L of its noise: each row of F and of ν less the rows before it through L, then scaled to unit noise |
+| [`whiten_reading`](inc/damp/estimation/sqrt_covariance.hpp#L529) | Whiten a reading in place with the factor L of its noise: each row of CS and of ν less the rows before it through L, then scaled to unit noise |
 | [`with_schroeder_phases`](inc/damp/estimation/excitation/multi_sine.hpp#L168) | Assign Schroeder low-crest-factor phases to a multi-sine tone table |
 
 ## Filters & signal conditioning
