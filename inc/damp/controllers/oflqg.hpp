@@ -186,7 +186,6 @@ struct OFLQG : private detail::StateFeedbackCore<NX, NU, T, 0, NY, Est, NZ, Stor
     using Core::getK;
     using Core::last_command;
     using Core::predict;
-    using Core::refused;
     using Core::reset;
     using Core::state_estimate;
 };

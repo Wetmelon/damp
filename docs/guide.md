@@ -209,7 +209,7 @@ Not covered yet: `PRController` has a tracking time `Tt` and no `u_lim`, `Harmon
 
 `step(r, m)` is predict, then update(m), then control. Low-latency ISR: update → control → write → `back_calculate` → predict. After a clamp, pass the applied input to `back_calculate(u_sat, u_ff)`.
 
-An LQ law (`LQR`, `LQI`, `LQG`, `LQGI`, `OFLQG`) refuses a reading, a reference or a reported input that is NaN or ±Inf: it keeps its state (a filter its prediction), sends its last command again and holds its integrators, and `refused()` is true until the next finite reading.
+Readings, references and reported inputs are the application's to check, with `damp::isfinite` (on the bits, so it holds under `-ffast-math`): what to do when a sensor fails, stop, hold or switch to a backup, is the application's call. A NaN or ±Inf that reaches a law stays in its memory until that is reset: `reset()` clears the integrators, a filter restarts with `estimator.reset(x0)`, and `law = decltype(law){}` starts the whole law over.
 
 ## Add the library
 

@@ -136,12 +136,13 @@ struct HeldGains {
  *   at run time for a rail that moves. @ref demand_lim bounds what the outer terms ask of one
  *   state (DemandLimit), and the integrators hold against it the same way. With a disturbance model, @ref update clamps d̂ into
  *   @ref disturbance_lim, so a load past it (a wall the plant is held against) does not wind d̂,
- *   and with it the target, up the way an integrator would;
- * - on a number only: a reading, a reference or a reported input that is NaN or ±Inf, or a command
- *   that comes out so, is refused (@ref refused). @ref update keeps the last state (a filter its
- *   prediction), @ref control returns the last command again and the integrators do not move, and
- *   @ref back_calculate leaves the applied input at that command. The next finite reading resumes
- *   the law where it was. Under -ffast-math the test is on the bits (damp::isfinite).
+ *   and with it the target, up the way an integrator would.
+ *
+ * Readings, references and reported inputs are the caller's to check: a NaN or ±Inf that reaches
+ * the law stays in its memory (the integrators, a filter's estimate and its anchor) until that is
+ * reset. @ref reset clears the integrators and the input memory; a filter restarts with
+ * estimator.reset(x0), or the whole law with `law = decltype(law){}`. damp::isfinite tests on the
+ * bits, so it holds under -ffast-math.
  *
  * @see "Optimal Control" (Anderson & Moore, 1990), §4.1 and §8
  * @see "Advanced PID Control" (Åström & Hägglund, 2006), §3.5: back-calculation anti-windup
@@ -265,10 +266,6 @@ struct StateFeedbackCore {
      */
     constexpr void back_calculate(const ColVec<NU, T>& u_sat, const ColVec<NU, T>& u_ff = ColVec<NU, T>{}) {
         if constexpr (kRecord) {
-            if (!finite(u_sat) || !finite(u_ff)) {
-                refused_ = true; // the applied input stays the command
-                return;
-            }
             applied_.record(u_sat, u_ff);
         } else {
             static_cast<void>(u_sat);
@@ -307,10 +304,6 @@ struct StateFeedbackCore {
      *        (the input registers after it are the law's own).
      */
     constexpr void update(const ColVec<NIn, T>& m) {
-        refused_ = !finite(m);
-        if (refused_) {
-            return; // the last state stays, a filter's prediction
-        }
         if constexpr (kEstimated) {
             if constexpr (NI > 0) {
                 integral.y = m;
@@ -334,10 +327,6 @@ struct StateFeedbackCore {
      *        @p r (NZ > 0, under d̂ when ND > 0).
      */
     [[nodiscard]] constexpr ColVec<NU, T> control(const ColVec<NR, T>& r, const ColVec<NX, T>& x_ref, const ColVec<NU, T>& u_ref) {
-        if (refused_ || !finite(r) || !finite(x_ref) || !finite(u_ref)) {
-            refused_ = true;
-            return held_command(u_ref);
-        }
         const ColVec<NXL, T> ref = on_law_model(x_ref, u_ref);
         if constexpr (ND > 0) {
             return anchored_law(r, ref, u_ref);
@@ -378,14 +367,6 @@ struct StateFeedbackCore {
         return applied_.applied;
     }
 
-    /**
-     * @brief Whether the last tick refused a value that is not a number (NaN or ±Inf): the reading
-     *        update took or a reference control took (control returned the last command again),
-     *        the command it formed (the same), or the input back_calculate reported (the applied
-     *        input stays the command). The next update clears it.
-     */
-    [[nodiscard]] constexpr bool refused() const { return refused_; }
-
     /** @brief The estimated plant state x̂ (absolute). */
     [[nodiscard]] constexpr ColVec<NX, T> state_estimate() const
         requires kEstimated
@@ -405,7 +386,6 @@ struct StateFeedbackCore {
 
     /** @brief Clear the integrators and the input memory (an estimate and its anchor stay). */
     constexpr void reset() {
-        refused_ = false;
         if constexpr (kRecord) {
             applied_ = Record{};
         }
@@ -426,9 +406,8 @@ struct StateFeedbackCore {
     }
 
 private:
-    [[no_unique_address]] Record applied_{};      ///< The last command and the input back_calculate recorded
-    [[no_unique_address]] HeldX  x_{};            ///< The measured state from the last update (no estimator)
-    bool                         refused_{false}; ///< The last tick met a value that is not a number
+    [[no_unique_address]] Record applied_{}; ///< The last command and the input back_calculate recorded
+    [[no_unique_address]] HeldX  x_{};       ///< The measured state from the last update (no estimator)
 
     /** @brief Whether a design's gain runs on this tick: it succeeded and is discrete. Otherwise it does not compile when constant-evaluated (the error names its status) and the law keeps K = 0. */
     template<typename R>
@@ -483,22 +462,6 @@ private:
         }
     }
 
-    /** @brief Every entry a number, on the bits: -ffast-math may drop a comparison that tests for NaN. */
-    template<size_t N>
-    [[nodiscard]] static constexpr bool finite(const ColVec<N, T>& v) {
-        return mat::all_of(v, [](T x) { return damp::isfinite(x); });
-    }
-
-    /** @brief A refused tick's command: the last one (a law with no memory, @p u_ref, or 0 if it is not a number either), in u_lim. */
-    [[nodiscard]] constexpr ColVec<NU, T> held_command(const ColVec<NU, T>& u_ref) const {
-        if constexpr (kRecord) {
-            static_cast<void>(u_ref);
-            return applied_.command;
-        } else {
-            return u_lim.saturate(finite(u_ref) ? u_ref : ColVec<NU, T>{});
-        }
-    }
-
     /**
      * @brief The law u = u* − K·z with the outer terms' demand on demand_lim.state clamped into
      *        demand_lim.lim, per input that acts on it; u itself where the demand is inside.
@@ -532,12 +495,8 @@ private:
         return out;
     }
 
-    /** @brief The command: @p u clamped into u_lim, unless it is not a number. The law keeps it, and @p asked (u before any clamp) for the integrators. */
-    [[nodiscard]] constexpr ColVec<NU, T> record(const ColVec<NU, T>& asked, const ColVec<NU, T>& u, const ColVec<NU, T>& u_ref) {
-        if (!finite(u)) {
-            refused_ = true; // a finite state and reference can still overflow
-            return held_command(u_ref);
-        }
+    /** @brief The command: @p u clamped into u_lim. The law keeps it, and @p asked (u before any clamp) for the integrators. */
+    [[nodiscard]] constexpr ColVec<NU, T> record(const ColVec<NU, T>& asked, const ColVec<NU, T>& u) {
         const ColVec<NU, T> out = u_lim.saturate(u);
         if constexpr (NI > 0) {
             integral.asked = asked;
@@ -554,7 +513,7 @@ private:
     [[nodiscard]] constexpr ColVec<NU, T> reference_law(const ColVec<NXL, T>& x, const ColVec<NXL, T>& x_ref, const ColVec<NU, T>& u_ref) {
         const ColVec<NXL + NI, T> z = detail::stacked(ColVec<NXL, T>(x - x_ref), integrators());
         const ColVec<NU, T>       u = u_ref - (K * z);
-        return record(u, limit_demand(u, z), u_ref);
+        return record(u, limit_demand(u, z));
     }
 
     /** @brief The law, then the integrators' error from @p r and the measurement, with the feedthrough @p fed (Ci·D·u) it carries added back. */
@@ -568,9 +527,7 @@ private:
         const ColVec<NI, T>&    fed
     ) {
         const ColVec<NU, T> u = reference_law(x, x_ref, u_ref);
-        if (!refused_) {
-            integral.e = ColVec<NI, T>((r - (integral.Ci * meas)) + fed);
-        }
+        integral.e = ColVec<NI, T>((r - (integral.Ci * meas)) + fed);
         return u;
     }
 
@@ -581,7 +538,7 @@ private:
         target.anchor(estimator, r, x_ref, u_ref);
         const ColVec<NXL, T> z = detail::leading<NXL>(estimator.at_command());
         const ColVec<NU, T>  u = estimator.anchor_input() - (K * z);
-        return record(u, limit_demand(u, z), u_ref);
+        return record(u, limit_demand(u, z));
     }
 
     /** @brief Integrate the held error less the applied input's feedthrough Ci·D·u, into integral.lim, unless a clamp (u_lim, or one back_calculate reported) would wind it up: integrator i holds when −K(j, i)·eᵢ points into a clamped input j. */
