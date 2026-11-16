@@ -383,4 +383,21 @@ TEST_SUITE("repetitive FIR Q") {
         CHECK(worst_u > 0.05);           // still on the rail at the peaks
         CHECK(told.last_command() == doctest::Approx(u_t));
     }
+
+    TEST_CASE("back_calculate with no lead: a clamp a ring ago does not stop this period's learning") {
+        const auto design = design::repetitive(1000.0, 250.0, 1.0, 1.0, 0); // N = 4: the ring is the period
+        REQUIRE(design.success);
+        REQUIRE(design.config.period == 4);
+        RepetitiveController<4, double> rc(design);
+        static_cast<void>(rc.control(1.0));
+        rc.back_calculate(-1.0); // cut off from above: tick 0's error is not learned
+        for (int k = 1; k < 4; ++k) {
+            static_cast<void>(rc.control(0.0));
+        }
+        static_cast<void>(rc.control(1.0)); // tick 4, sent as asked: learned
+        for (int k = 5; k < 8; ++k) {
+            static_cast<void>(rc.control(0.0));
+        }
+        CHECK(rc.control(0.0) == doctest::Approx(1.0)); // was 0: tick 4 read tick 0's flag
+    }
 }

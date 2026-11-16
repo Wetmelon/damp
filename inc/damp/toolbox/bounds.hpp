@@ -135,6 +135,9 @@ private:
             return -damp::numeric_limits<U>::max();
         }
         if constexpr (damp::numeric_limits<U>::max_exponent < damp::numeric_limits<T>::max_exponent) {
+            if (!damp::isfinite(v)) {
+                return static_cast<U>(v); // a NaN end stays one, for valid() to refuse: clamp would make it a number
+            }
             constexpr T widest = static_cast<T>(damp::numeric_limits<U>::max()); // U is narrower: its range fits in T
             return static_cast<U>(damp::clamp(v, -widest, widest));
         }

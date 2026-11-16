@@ -588,8 +588,8 @@ struct PIDController<T, PIDMode::PID> {
         if (!r.success && damp::is_constant_evaluated()) {
             detail::refuse_failed_design(r.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
-        if (detail::pid_kbc_winds_up(r.Ki, r.Kbc)) {
-            detail::refuse_failed_design(design::DesignStatus::invalid_parameter); // Kbc against Ki's sign winds the integrator up
+        if (detail::pid_kbc_winds_up(r.Ki, r.Kbc) || !r.u_lim.valid() || !r.integral_lim.valid()) {
+            detail::refuse_failed_design(design::DesignStatus::invalid_parameter); // Kbc against Ki's sign winds the integrator up, or a limit that is not a box
         }
     }
 
@@ -718,8 +718,8 @@ struct PIDController<T, PIDMode::PI> {
         if (r.Kd != T{0}) {
             detail::refuse_failed_design(); // a PI cannot realize the D term
         }
-        if (detail::pid_kbc_winds_up(r.Ki, r.Kbc)) {
-            detail::refuse_failed_design(design::DesignStatus::invalid_parameter); // Kbc against Ki's sign winds the integrator up
+        if (detail::pid_kbc_winds_up(r.Ki, r.Kbc) || !r.u_lim.valid() || !r.integral_lim.valid()) {
+            detail::refuse_failed_design(design::DesignStatus::invalid_parameter); // Kbc against Ki's sign winds the integrator up, or a limit that is not a box
         }
     }
 
@@ -1018,8 +1018,8 @@ struct ContinuousPID {
         if (!r.success && damp::is_constant_evaluated()) {
             detail::refuse_failed_design(r.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
-        if (!detail::pid_gains_in_domain(r.Kp, r.Ki, r.Kd, r.Tf, r.Kbc, r.b, r.c) || detail::pid_kbc_winds_up(r.Ki, r.Kbc)) {
-            detail::refuse_failed_design(design::DesignStatus::invalid_parameter); // a non-finite gain, Tf < 0, or Kbc against Ki's sign
+        if (!detail::pid_gains_in_domain(r.Kp, r.Ki, r.Kd, r.Tf, r.Kbc, r.b, r.c) || detail::pid_kbc_winds_up(r.Ki, r.Kbc) || !r.u_lim.valid() || !r.integral_lim.valid()) {
+            detail::refuse_failed_design(design::DesignStatus::invalid_parameter); // a non-finite gain, Tf < 0, Kbc against Ki's sign, or a limit that is not a box
         }
     }
 

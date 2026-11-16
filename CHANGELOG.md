@@ -26,12 +26,12 @@ and [known limitations](docs/known_limitations.md)).
 ### Changed
 
 - `StateFeedbackResult` and the LQR, LQI, LQG, LQGI and OFLQG runtimes take a last template argument, NRU, the input registers of the law's model (0: none); K, S and e are on [x; v(k−1); …; v(k−NRU)] then the integrators.
-- `damp::min`, `damp::max` and `damp::clamp` return by value on both backends, so a result bound to a reference cannot dangle on a temporary argument. The backends now agree: a tie or a NaN gives `min` and `max` their first argument, and `clamp` with lo > hi gives hi, where `std::clamp` is undefined.
+- `damp::min`, `damp::max` and `damp::clamp` return by value on both backends, so a result bound to a reference cannot dangle on a temporary argument. The backends now agree: a tie gives `min` and `max` their first argument (a NaN too, without `-ffast-math`), and `clamp` with lo > hi gives hi, where `std::clamp` is undefined.
 - `LQRWeights<NX, NU, NI>` is `LQRConfig<NX, NU>` for `lqr`, `lqg` and `oflqg`, and `LQIConfig<NX, NU, NI>` with `Q_integral` for `lqi` and `lqgi`: each has only its law's fields, the limits with the cost. A design called with braces, `{.Q = Q, .R = R}`, does not change.
 - `mat::pseudo_inverse`, `mat::null_space` and `mat::two_norm` return an optional, empty when the SVD fails, where they returned NaN; `matlab::pinv` and `matlab::null` follow. `design::steady_state_target` with more outputs than inputs refuses a failed factorization, where it could report NaN maps as a success.
 - `+` and `−` on matrices and views need equal shapes: a dimension of size 1 is no longer stretched to fit (NumPy's broadcast), so a missing transpose does not compile. An offset on every entry is `A + scalar`.
 - A PID with an output limit and `Kbc = 0` holds its integral against the clamp (conditional integration), where it wound up, and `back_calculate` does the same for a clamp downstream. A `Kbc` still unwinds it by back-calculation.
-- `PIDGains::discretize` and `design::esc` refuse a limit that is not a box, as the LQ and MPC designs do. In `ESCSpec`, `lower ≥ upper` no longer switches the clamp off.
+- `PIDGains::discretize`, the PID runtimes' constructors and `design::esc` refuse a limit that is not a box, as the LQ and MPC designs do. In `ESCSpec`, `lower ≥ upper` no longer switches the clamp off.
 - `ADRCController::last_command()` is the command the law returned, as on the other laws; the input its observer takes as applied is `applied()`.
 - `Bounds::as` saturates a finite end past the narrower type's range.
 - `state_feedback_core.hpp` holds only the runtime the LQ laws share. `LQRConfig`, `IntegralAction`, `NoEstimator` and `StateFeedbackResult` are in `state_feedback_types.hpp`, and the design behind them in `controllers/detail/`; `lqr.hpp`, `lqi.hpp`, `lqg.hpp`, `lqgi.hpp` and `oflqg.hpp` include all of it as before.
@@ -47,7 +47,7 @@ and [known limitations](docs/known_limitations.md)).
 - Damp's headers compile after `Arduino.h`, the order an `.ino` sketch gets: Damp undefines Arduino's `abs` macro, as `<cstdlib>` does, and no longer names anything its `F`, `PI` or binary-constant (`B1`) macros rewrite.
 - A float MPC with soft output limits solves its QP on every tick. Once the moves sat on their limits the active-set solver ended `Degenerate`, or called a feasible problem `Infeasible`, on up to every tick of a recovery from outside the limits; it now keeps an orthogonal factorization of the active constraints.
 - `solve_qp` in float no longer returns `Success` with a constraint violated past its tolerance: the point is recomputed on the active constraints after each step, and every solved point meets its rows.
-- PID back-calculation with a `Kbc` under `Ki·Ts` diverged; it takes at most the whole excess per tick.
+- PID back-calculation with a `Kbc` under half of `Ki·Ts` diverged, and overshot under `Ki·Ts`; it takes at most the whole excess per tick.
 - An LQ design refused for its limits no longer carries them into a runtime, and an `integral.lim` narrowed at run time pulls a held integrator in.
 - `PRController<float>` and `HarmonicSuppressor<float>` hold a resonance far below the sample rate, where the output used to lose its gain at ω₀ or run to Inf (f₀/fs = 5e-5). The resonant section, `PRController::resonant`, is a `PRResonator` on the output and its increment instead of a `Biquad`.
 - `KalmanFilter` and `ExtendedKalmanFilter` in float keep their covariance under a prior far wider than a reading's noise: stored as P it went indefinite within a few ticks once P₀/R passed about 10⁵, and nearly every later update was refused.

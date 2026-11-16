@@ -124,8 +124,8 @@ template<size_t NI, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size
  *
  * Runs design::lqgi. The estimator is a FixedGainObserver with design::kalman's fixed gain
  * (`estimator`). xi integrates r − Ci·y on the last update's measurement; the law is
- * u = u* − K·[x̂ − x*; xi]. The tick is update(y) then control(r), or step(r, y), with x* = 0 and
- * u* = 0; feedforward from a planned trajectory (x_ref, u_ref) is control(r, x_ref, u_ref), or
+ * u = u* − K·[x̂ − x*; xi]. The tick is step(r, y), or update(y), control(r), back_calculate,
+ * predict() (predict moves the filter and xi), with x* = 0 and u* = 0; feedforward from a planned trajectory (x_ref, u_ref) is control(r, x_ref, u_ref), or
  * step(r, x_ref, u_ref, y). The command is clamped into u_lim and xi into integral.lim (the
  * design's, LQIConfig; unbounded by default): predict() moves the filter on the clamped command
  * and holds the integrators against the clamp. back_calculate(u_sat) before it reports a stage

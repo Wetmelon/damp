@@ -177,7 +177,8 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
  * @brief Linear-quadratic Gaussian law: LQR on the Kalman filter's estimate
  *
  * Runs design::lqg. The estimator is a FixedGainObserver with design::kalman's fixed gain
- * (`estimator`). The tick is update(y) then control(), or step(y): the regulator. A design with
+ * (`estimator`). The tick is step(y), or update(y), control(), back_calculate, predict()
+ * (predict moves the filter): the regulator. A design with
  * TrackedOutputs holds those outputs at r through its steady-state target: control(r),
  * step(r, y). Feedforward from a planned trajectory (x_ref, u_ref) adds to it:
  * control([r,] x_ref, u_ref), step([r,] x_ref, u_ref, y). The command is clamped into u_lim

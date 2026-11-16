@@ -333,8 +333,10 @@ public:
         const T u_rc = static_cast<T>(config_.gain) * filtered(n - config_.lead);
 
         //! w[k] = Q·w[k-N] + e[k], unless the command that read w[k-N] (m ticks ago, the lead) was
-        //! cut off by a clamp and this error would push the next period's further past it.
-        e_last_ = winds_up(e, clamp_[(write_idx_ + MaxPeriod - config_.lead) % MaxPeriod]) ? T{0} : e;
+        //! cut off by a clamp and this error would push the next period's further past it. With no
+        //! lead that command is this tick's, and back_calculate takes the error back: the slot here
+        //! still holds the flag of the tick a ring ago.
+        e_last_ = (config_.lead > 0 && winds_up(e, clamp_[(write_idx_ + MaxPeriod - config_.lead) % MaxPeriod])) ? T{0} : e;
         mem_[write_idx_] = filtered(n) + e_last_;
         clamp_[write_idx_] = 0;
         write_idx_ = (write_idx_ + 1) % MaxPeriod;

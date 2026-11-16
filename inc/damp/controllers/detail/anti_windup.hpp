@@ -27,8 +27,9 @@ namespace detail {
  * enters the command with unit gain, so both are in the command's units.
  *
  * @param state  The integral
- * @param step   What the last tick added to it, reduced here by what is taken back: a second
- *               report of the same clamp takes nothing more
+ * @param step   What the last tick added to it, reduced here by what is taken back: reports of
+ *               a clamp take back no more than the step in all, but each takes up to its own
+ *               excess, so a clamp is reported once
  * @param excess u_sat − u_asked
  *
  * @see "Advanced PID Control" (Åström & Hägglund, 2006), §3.5: conditional integration
