@@ -153,6 +153,7 @@ struct OFLQG : private detail::StateFeedbackCore<NX, NU, T, 0, NY, Est, NZ, Stor
         }
     }
 
+    using Core::demand_lim;
     using Core::disturbance_lim;
     using Core::estimator;
     using Core::K;

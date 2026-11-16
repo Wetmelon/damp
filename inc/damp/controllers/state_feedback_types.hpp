@@ -117,13 +117,18 @@ struct IntegralAction {
  * after the law. It is a member of the runtime, `law.u_lim`, so a rail that moves is set at run
  * time. A limit that is NaN, or a lower limit above its upper one, is refused with
  * DesignStatus::invalid_parameter.
+ *
+ * demand_lim (DemandLimit) bounds what the outer states ask of one state, read as a cascade: the
+ * lean a balancing robot's position and speed ask for. Off by default; refused like u_lim, and for
+ * a state that is not the plant's or is one of its own outer terms.
  */
 template<size_t NX, size_t NU, typename T = double>
 struct LQRConfig {
-    Matrix<NX, NX, T> Q{};     ///< On the plant states x (positive semidefinite)
-    Matrix<NU, NU, T> R{};     ///< On the inputs u (positive definite)
-    Matrix<NX, NU, T> N{};     ///< Cross term between x and u (default zero)
-    Bounds<NU, T>     u_lim{}; ///< Limits on the command u, per input (default unbounded)
+    Matrix<NX, NX, T>  Q{};          ///< On the plant states x (positive semidefinite)
+    Matrix<NU, NU, T>  R{};          ///< On the inputs u (positive definite)
+    Matrix<NX, NU, T>  N{};          ///< Cross term between x and u (default zero)
+    Bounds<NU, T>      u_lim{};      ///< Limits on the command u, per input (default unbounded)
+    DemandLimit<NX, T> demand_lim{}; ///< A limit on what the outer states ask of one state (default off)
 };
 
 /** @brief Sizes from the matrices: `LQRConfig{Q, R}`. */
@@ -164,12 +169,13 @@ LQRConfig(Matrix<NX, NX, T>, Matrix<NU, NU, T>, Matrix<NX, NU, T>) -> LQRConfig<
  */
 template<size_t NX, size_t NU, size_t NI, typename T = double>
 struct LQIConfig {
-    Matrix<NX, NX, T> Q{};            ///< On the plant states x (positive semidefinite)
-    Matrix<NU, NU, T> R{};            ///< On the inputs u (positive definite)
-    Matrix<NX, NU, T> N{};            ///< Cross term between x and u (default zero)
-    Matrix<NI, NI, T> Q_integral{};   ///< On the discrete integral state ξ ≈ ∫e dt (positive definite)
-    Bounds<NU, T>     u_lim{};        ///< Limits on the command u, per input (default unbounded)
-    Bounds<NI, T>     integral_lim{}; ///< Limits on the integral state ξ, per integrator (default unbounded)
+    Matrix<NX, NX, T>       Q{};            ///< On the plant states x (positive semidefinite)
+    Matrix<NU, NU, T>       R{};            ///< On the inputs u (positive definite)
+    Matrix<NX, NU, T>       N{};            ///< Cross term between x and u (default zero)
+    Matrix<NI, NI, T>       Q_integral{};   ///< On the discrete integral state ξ ≈ ∫e dt (positive definite)
+    Bounds<NU, T>           u_lim{};        ///< Limits on the command u, per input (default unbounded)
+    Bounds<NI, T>           integral_lim{}; ///< Limits on the integral state ξ, per integrator (default unbounded)
+    DemandLimit<NX + NI, T> demand_lim{};   ///< A limit on what the outer states and integrators ask of one state (default off)
 };
 
 /** @brief Sizes from the matrices: `LQIConfig{Q, R, N, Q_integral}`. */
@@ -212,6 +218,7 @@ struct IntegralDesign {
  * | K, S, e | the gain, the Riccati solution, the closed-loop poles | always |
  * | success, status, Ts | ok or why not; the law's sample time | always |
  * | u_lim | the limits on the command (LQRConfig::u_lim) | always, default unbounded |
+ * | demand_lim | the limit on what the outer terms ask of one state (LQRConfig::demand_lim) | always, default off |
  * | kalman | the Kalman filter (design::kalman's result) | lqg, lqgi, oflqg |
  * | integral | the integrated outputs Ci, Ci·C, Ci·D, the step and the limits on ξ | NI > 0 |
  * | target | the steady-state target (design::steady_state_target's result) | oflqg; lqr and lqg with TrackedOutputs (NZ > 0) |
@@ -250,6 +257,7 @@ struct [[nodiscard]] StateFeedbackResult {
     [[no_unique_address]] Integral    integral{};                          ///< The integral action (NI > 0)
     [[no_unique_address]] Target      target{};                            ///< The steady-state target (NZ > 0)
     Bounds<NU, T>                     u_lim{};                             ///< Limits on the command the runtime returns (default unbounded)
+    DemandLimit<NX + NI, T>           demand_lim{};                        ///< A limit on what the outer terms ask of one state (LQRConfig::demand_lim; default off)
 
     /** @brief True when the design succeeded (success). */
     [[nodiscard]] constexpr explicit operator bool() const { return success; }
@@ -266,6 +274,7 @@ struct [[nodiscard]] StateFeedbackResult {
             out.target = target.template as<U>();
         }
         out.u_lim = u_lim.template as<U>();
+        out.demand_lim = demand_lim.template as<U>();
         return out;
     }
 
@@ -311,7 +320,7 @@ struct [[nodiscard]] StateFeedbackResult {
      * A law with a disturbance model holds more than these
      * states, so it has no such block. The steady-state target of TrackedOutputs is a
      * feedforward on r outside this block: the block is the regulator (r = 0). The block is the
-     * law within its limits: u_lim and the integrators' limits are not part of it.
+     * law within its limits: u_lim, the integrators' limits and demand_lim are not part of it.
      */
     [[nodiscard]] constexpr auto to_ss() const
         requires(ND == 0)

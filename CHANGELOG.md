@@ -11,6 +11,7 @@ and [known limitations](docs/known_limitations.md)).
 
 ### Added
 
+- `LQRConfig` and `LQIConfig` take `demand_lim`, a `DemandLimit`: the LQ laws bound what the gain's outer terms ask of one state, read as a cascade (a balancing robot's position and integral asking for a lean), and the integrators hold against it. Off by default, and free in a `constexpr` design's `Law`.
 - `OFLQG::disturbance_lim` clamps the disturbance estimate d̂ at each update, so a load past it (a wall the plant is held against) does not wind d̂ and the target up, the way `integral_lim` holds an LQI's integrator. Unbounded by default.
 - `design::lqr`, `lqi`, `lqg`, `lqgi`, `oflqg`, `kalman` and `steady_state_target` take an `InputDelay` after Ts: the continuous plant, its weights and its noise, the cost and the noise discretized exactly on the delayed model. A measured-state law holds the registers itself, so `update` takes the plant state; a filter carries them with no noise on them.
 - `LQRConfig`, the weights of an LQ design, takes `u_lim`, and `LQIConfig` also `integral_lim`: the LQR, LQI, LQG, LQGI and OFLQG runtimes clamp their command and their integral state to them, and hold the integrators against that clamp with no `back_calculate`. Both are members of the runtime (`law.u_lim`, `law.integral.lim`), so a limit can move at run time.

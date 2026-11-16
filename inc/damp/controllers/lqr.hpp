@@ -38,7 +38,7 @@ namespace detail {
 /** @brief design::lqr's result: the gain, the Riccati solution, the closed-loop poles, the status and Ts. */
 template<size_t NX, size_t NU, typename T, size_t NY>
 [[nodiscard]] constexpr LQRResult<NX, NU, T> lqr_result(const StateFeedbackResult<NX, NU, T, 0, NY>& r) {
-    return {r.K, r.S, r.e, r.success, r.status, r.Ts, r.Ts > T{0}, r.u_lim};
+    return {r.K, r.S, r.e, r.success, r.status, r.Ts, r.Ts > T{0}, r.u_lim, r.demand_lim};
 }
 
 } // namespace detail
@@ -175,6 +175,7 @@ struct LQR : private detail::StateFeedbackCore<NX, NU, T, 0, NY, NoEstimator, NZ
         }
     }
 
+    using Core::demand_lim;
     using Core::K;
     using Core::u_lim;
 

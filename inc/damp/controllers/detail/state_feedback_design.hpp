@@ -33,13 +33,13 @@ namespace detail {
 /** @brief The regulator's limit is usable (Bounds::valid). */
 template<size_t NX, size_t NU, typename T>
 [[nodiscard]] constexpr bool limits_valid(const LQRConfig<NX, NU, T>& w) {
-    return w.u_lim.valid();
+    return w.u_lim.valid() && w.demand_lim.template valid<NX>();
 }
 
 /** @brief The limits on the command and on the integrators are usable (Bounds::valid). */
 template<size_t NX, size_t NU, size_t NI, typename T>
 [[nodiscard]] constexpr bool limits_valid(const LQIConfig<NX, NU, NI, T>& w) {
-    return w.u_lim.valid() && w.integral_lim.valid();
+    return w.u_lim.valid() && w.integral_lim.valid() && w.demand_lim.template valid<NX>();
 }
 
 /** @brief The gain on the law's state. */
@@ -187,6 +187,7 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
     }
     if (law.success) { // the runtime's: the gain does not depend on them, and a refused design ships none
         law.u_lim = w.u_lim;
+        law.demand_lim = w.demand_lim;
         if constexpr (NI > 0) {
             law.integral.lim = w.integral_lim;
         }
@@ -211,6 +212,7 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
             out.integral = law.integral;
         }
         out.u_lim = law.u_lim;
+        out.demand_lim = law.demand_lim;
         DesignStatus status = law.status;
         if constexpr (kEstimated) {
             status = (status == DesignStatus::ok) ? filter.status : status;

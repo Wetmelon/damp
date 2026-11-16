@@ -155,6 +155,7 @@ struct LQGI : private detail::StateFeedbackCore<NX, NU, T, NI, NY, Est, 0, Store
         }
     }
 
+    using Core::demand_lim;
     using Core::estimator;
     using Core::integral;
     using Core::K;

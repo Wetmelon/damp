@@ -69,6 +69,14 @@ inline constexpr bool constant_design_usable = [] {
 }();
 
 /** @brief The law's matrices as constants of the type: the store of a `constexpr` design's Law. */
+/** @brief A DemandLimit as constants of the type: what a `constexpr` design's Law holds, in no storage. */
+template<const auto& D>
+struct ConstDemand {
+    static constexpr size_t state = D.state; ///< The state asked for (DemandLimit::none: off)
+    static constexpr auto   outer = D.outer; ///< The terms that ask
+    static constexpr auto   lim = D.lim;     ///< The most they may ask
+};
+
 template<const auto& Res, typename T>
 struct ConstantGains {
     static constexpr bool constant = true;               ///< The matrices are constants of the type
@@ -106,6 +114,13 @@ struct ConstantGains {
             return Matrix<0, 0, T>{};
         }
     }(); ///< The target per unit r
+    static constexpr auto kDemand = [] {
+        if constexpr (requires { design.demand_lim; }) {
+            return design.demand_lim;
+        } else {
+            return DemandLimit<0, T>{};
+        }
+    }(); ///< The limit on what the outer terms ask of a state (off for a gain design without one)
 
     template<size_t, size_t, typename>
     using K = ConstMatrix<kK>; ///< The gain
@@ -117,6 +132,8 @@ struct ConstantGains {
     using TargetD = ConstMatrix<kTargetD>; ///< The target per unit d̂
     template<size_t, size_t, typename>
     using TargetR = ConstMatrix<kTargetR>; ///< The target per unit r
+    template<size_t, typename>
+    using Demand = ConstDemand<kDemand>; ///< The limit on what the outer terms ask of a state
 };
 
 /** @brief The estimator of a `constexpr` design's Law: none for a measured state. */

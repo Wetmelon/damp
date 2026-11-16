@@ -151,6 +151,7 @@ struct LQI : private detail::StateFeedbackCore<NX, NU, T, NI, NY, NoEstimator, 0
         }
     }
 
+    using Core::demand_lim;
     using Core::integral;
     using Core::K;
     using Core::u_lim;
