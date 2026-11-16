@@ -179,6 +179,7 @@ struct LQI : private detail::StateFeedbackCore<NX, NU, T, NI, NY, NoEstimator, 0
     using Core::getK;
     using Core::last_command;
     using Core::predict;
+    using Core::refused;
     using Core::reset;
 };
 

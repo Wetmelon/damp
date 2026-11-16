@@ -442,23 +442,23 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`LowPassResult`](inc/damp/filters/lowpass.hpp#L56) | block | Filters & signal conditioning | Direct-form coefficients of an Nth-order low-pass, with success / status |
 | [`lowshelf`](inc/damp/filters/iir_design.hpp#L872) | function | Filters & signal conditioning | Low-shelf EQ filter: boost or cut everything below fc |
 | [`lqg`](inc/damp/controllers/lqg.hpp#L44) | function | Design-time synthesis (not PWM-rate) | The linear-quadratic Gaussian law: LQR on a steady-state Kalman filter's estimate (design::kalman(sys, noise)): runs as LQG (+5 more overloads) |
-| [`LQG`](inc/damp/controllers/lqg.hpp#L284) | function | Design-time synthesis (not PWM-rate) | LQG law{res}: the sizes, scalar and filter of design::lqg's result |
+| [`LQG`](inc/damp/controllers/lqg.hpp#L285) | function | Design-time synthesis (not PWM-rate) | LQG law{res}: the sizes, scalar and filter of design::lqg's result |
 | [`lqg`](inc/damp/matlab.hpp#L1097) | function | MATLAB®-style aliases (host) | Linear-Quadratic-Gaussian regulator design |
 | [`LQG`](inc/damp/controllers/lqg.hpp#L194) | block | Runtime controllers | Linear-quadratic Gaussian law: LQR on the Kalman filter's estimate |
 | [`lqg_from_parts`](inc/damp/controllers/lqg.hpp#L150) | function | Design-time synthesis (not PWM-rate) | Assemble an LQG design from separately computed Kalman and LQR designs |
 | [`lqgi`](inc/damp/controllers/lqgi.hpp#L41) | function | Design-time synthesis (not PWM-rate) | The linear-quadratic Gaussian law with integral action on every output: runs as LQGI (+5 more overloads) |
-| [`LQGI`](inc/damp/controllers/lqgi.hpp#L193) | function | Design-time synthesis (not PWM-rate) | LQGI law{res}: the sizes, scalar and filter of design::lqgi's result |
+| [`LQGI`](inc/damp/controllers/lqgi.hpp#L194) | function | Design-time synthesis (not PWM-rate) | LQGI law{res}: the sizes, scalar and filter of design::lqgi's result |
 | [`LQGI`](inc/damp/controllers/lqgi.hpp#L142) | block | Runtime controllers | Linear-quadratic Gaussian law with integral action on the measured outputs |
 | [`lqgreg`](inc/damp/matlab.hpp#L1113) | function | MATLAB®-style aliases (host) | Combine separate Kalman filter and LQR designs into an LQG controller |
 | [`lqgtrack`](inc/damp/matlab.hpp#L1134) | function | MATLAB®-style aliases (host) | Linear-Quadratic-Gaussian design with integral action for tracking (+2 more overloads) |
 | [`lqi`](inc/damp/controllers/lqi.hpp#L44) | function | Design-time synthesis (not PWM-rate) | The linear-quadratic regulator with integral action on every output (xi += Ts·(r − Ci·y)): runs as LQI (+5 more overloads) |
-| [`LQI`](inc/damp/controllers/lqi.hpp#L187) | function | Design-time synthesis (not PWM-rate) | LQI law{res}: the sizes and scalar of design::lqi's result |
+| [`LQI`](inc/damp/controllers/lqi.hpp#L188) | function | Design-time synthesis (not PWM-rate) | LQI law{res}: the sizes and scalar of design::lqi's result |
 | [`lqi`](inc/damp/matlab.hpp#L1058) | function | MATLAB®-style aliases (host) | Linear-Quadratic Integral design for tracking (+2 more overloads) |
 | [`LQI`](inc/damp/controllers/lqi.hpp#L138) | block | Runtime controllers | Linear-quadratic regulator with integral action, on the measured state |
 | [`LQIConfig`](inc/damp/controllers/state_feedback_types.hpp#L177) | function | Design-time synthesis (not PWM-rate) | Sizes from the matrices: `LQIConfig{Q, R, N, Q_integral}` |
 | [`LQIConfig`](inc/damp/controllers/state_feedback_types.hpp#L166) | block | Runtime controllers | What a design with integral action (lqi, lqgi) is given with the plant: LQRConfig's cost and limit, and the weight and the limits on the NI integrators |
 | [`lqr`](inc/damp/controllers/lqr.hpp#L51) | function | Design-time synthesis (not PWM-rate) | The linear-quadratic regulator on the plant (DARE on a discrete plant, CARE on a continuous one): runs as LQR (+5 more overloads) |
-| [`LQR`](inc/damp/controllers/lqr.hpp#L248) | function | Design-time synthesis (not PWM-rate) | LQR law{res}: the sizes and scalar of design::lqr's result (+2 more overloads) |
+| [`LQR`](inc/damp/controllers/lqr.hpp#L249) | function | Design-time synthesis (not PWM-rate) | LQR law{res}: the sizes and scalar of design::lqr's result (+2 more overloads) |
 | [`lqr`](inc/damp/matlab.hpp#L892) | function | MATLAB®-style aliases (host) | Continuous-time LQR design (MATLAB®'s lqr) |
 | [`LQR`](inc/damp/controllers/lqr.hpp#L152) | block | Runtime controllers | Linear-quadratic regulator on the measured state: u = u − K·(x − x ) |
 | [`lqr_gain`](inc/damp/design/riccati.hpp#L1358) | function | Design-time synthesis (not PWM-rate) | Optimal LQR state-feedback gain from a Riccati solution |
@@ -580,7 +580,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`obsvf`](inc/damp/matlab.hpp#L551) | function | MATLAB®-style aliases (host) | MATLAB® obsvf(A, B, C): observability staircase form, its orthogonal transform and rank |
 | [`OffDelayTimer`](inc/damp/toolbox/logic.hpp#L135) | block | Embedded helpers (controls-adjacent utilities) | Off-delay timer: output goes true immediately when in is true and stays true until in has been false continuously for delay |
 | [`oflqg`](inc/damp/controllers/oflqg.hpp#L66) | function | Design-time synthesis (not PWM-rate) | The offset-free linear-quadratic Gaussian law: a Kalman filter on [x; d] and the steady-state target that holds the controlled outputs at r under d̂: runs as OFLQG (+2 more overloads) |
-| [`OFLQG`](inc/damp/controllers/oflqg.hpp#L190) | function | Design-time synthesis (not PWM-rate) | OFLQG law{res}: the sizes, scalar, filter and target of design::oflqg's result |
+| [`OFLQG`](inc/damp/controllers/oflqg.hpp#L191) | function | Design-time synthesis (not PWM-rate) | OFLQG law{res}: the sizes, scalar, filter and target of design::oflqg's result |
 | [`OFLQG`](inc/damp/controllers/oflqg.hpp#L138) | block | Runtime controllers | Offset-free linear-quadratic Gaussian law: a Kalman filter on [x; d] and the steady-state target |
 | [`ofmpc`](inc/damp/controllers/ofmpc.hpp#L41) | function | Design-time synthesis (not PWM-rate) | The offset-free MPC on a discrete plant: a Kalman filter on [x; d] (noise, disturbance) and the QP posed about the steady-state target under d̂: runs as OFMPC (+1 more overload) |
 | [`OFMPC`](inc/damp/controllers/ofmpc.hpp#L136) | function | Design-time synthesis (not PWM-rate) | OFMPC law{res}: the sizes, scalar, filter and target of design::ofmpc's result (+1 more overload) |
