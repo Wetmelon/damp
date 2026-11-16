@@ -227,6 +227,34 @@ TEST_SUITE("LQ limits") {
         CHECK(hold(T{-1}) == static_cast<T>(-0.5));
     }
 
+    TEST_CASE_TEMPLATE("disturbance_lim clamps OFLQG's disturbance estimate, and moves at run time", T, float, double) {
+        const design::KalmanNoise<2, 1, double, 1> noise{.process = kNoise.process, .measurement = kNoise.measurement, .disturbance = Matrix<1, 1>{{1.0}}};
+        const auto                                 res = design::oflqg(plant(), kTs, kFree, noise, design::InputDisturbance{});
+        REQUIRE(res.success);
+        OFLQG        law{res.template as<T>()};
+        const auto   model = sampled<T>();
+        const T      load = static_cast<T>(0.5); // on the input, the plant held at r = 0 against it
+        ColVec<2, T> x{};
+        const auto   hold = [&]() {
+            T worst{0};
+            for (int k = 0; k < 3000; ++k) {
+                law.update(ColVec<1, T>((model.C * x)));
+                const ColVec<1, T> u = law.control(ColVec<1, T>{});
+                law.predict();
+                x = ColVec<2, T>((model.A * x) + (model.B * ColVec<1, T>(u + ColVec<1, T>{load})));
+                worst = damp::max(worst, damp::abs(law.disturbance_estimate()(0)));
+            }
+            return worst;
+        };
+        law.disturbance_lim = {.lower = static_cast<T>(-0.2), .upper = static_cast<T>(0.2)};
+        CHECK(hold() <= static_cast<T>(0.2));
+        CHECK(law.disturbance_estimate()(0) == static_cast<T>(0.2));
+        law.disturbance_lim.upper(0) = T{1};
+        static_cast<void>(hold());
+        CHECK(static_cast<double>(law.disturbance_estimate()(0)) == doctest::Approx(0.5).epsilon(1e-3));
+        CHECK(static_cast<double>((model.C * x)(0, 0)) == doctest::Approx(0.0).epsilon(1e-3)); // offset-free again
+    }
+
     TEST_CASE("a constexpr design's Law carries the limits, in float") {
         static constexpr auto kLqi = design::lqi(plant(), kTs, {.Q = Q, .R = 1.0, .Q_integral = 80.0, .u_lim = {.lower = -1.05, .upper = 1.05}, .integral_lim = {.lower = -0.05, .upper = 0.05}});
         static constexpr auto kLqr = design::lqr(plant(), kTs, {.Q = Q, .R = 1.0, .u_lim = {.lower = -1.05, .upper = 1.05}});

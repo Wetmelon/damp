@@ -408,7 +408,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`observability_gramian`](inc/damp/design/stability.hpp#L409) | Continuous/discrete observability Gramian W_o |
 | [`observability_matrix`](inc/damp/design/stability.hpp#L83) | Compute the observability matrix [C; CA; CA²; ...; CA^(N-1)] |
 | [`oflqg`](inc/damp/controllers/oflqg.hpp#L66) | The offset-free linear-quadratic Gaussian law: a Kalman filter on [x; d] and the steady-state target that holds the controlled outputs at r under d̂: runs as OFLQG (+2 more overloads) |
-| [`OFLQG`](inc/damp/controllers/oflqg.hpp#L191) | OFLQG law{res}: the sizes, scalar, filter and target of design::oflqg's result |
+| [`OFLQG`](inc/damp/controllers/oflqg.hpp#L194) | OFLQG law{res}: the sizes, scalar, filter and target of design::oflqg's result |
 | [`ofmpc`](inc/damp/controllers/ofmpc.hpp#L41) | The offset-free MPC on a discrete plant: a Kalman filter on [x; d] (noise, disturbance) and the QP posed about the steady-state target under d̂: runs as OFMPC (+1 more overload) |
 | [`OFMPC`](inc/damp/controllers/ofmpc.hpp#L136) | OFMPC law{res}: the sizes, scalar, filter and target of design::ofmpc's result (+1 more overload) |
 | [`option`](inc/damp/design/options.hpp#L57) | No option left: the fallback (+1 more overload) |
@@ -471,7 +471,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`HarmonicSuppressor`](inc/damp/controllers/harmonic_suppression.hpp#L164) | Multi-resonant harmonic suppressor — a parallel bank of PR resonators |
 | [`IntegralAction`](inc/damp/controllers/state_feedback_types.hpp#L93) | Offset-free by integral action: integrators on r − y, every measured output (`IntegralAction{}`) or the listed ones (`IntegralAction<2>{{0, 3}}`, in that order: the references r follow it) |
 | [`IntegralDesign`](inc/damp/controllers/state_feedback_types.hpp#L189) | The integral action of a design: the integrated outputs, their maps of the state and the input, the per-sample step and the limits on ξ |
-| [`Law`](inc/damp/controllers/law_detail.hpp#L285) | The runtime a design result deploys as, named by the result: `Law<kRes, float> law;` (+6 more overloads) |
+| [`Law`](inc/damp/controllers/law_detail.hpp#L286) | The runtime a design result deploys as, named by the result: `Law<kRes, float> law;` (+6 more overloads) |
 | [`LeadLagController`](inc/damp/controllers/lead_lag.hpp#L325) | Discrete lead-lag compensator |
 | [`LQG`](inc/damp/controllers/lqg.hpp#L194) | Linear-quadratic Gaussian law: LQR on the Kalman filter's estimate |
 | [`LQGI`](inc/damp/controllers/lqgi.hpp#L142) | Linear-quadratic Gaussian law with integral action on the measured outputs |
@@ -488,7 +488,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`MPCTerminal`](inc/damp/controllers/mpc.hpp#L225) | Opt-in terminal cost / set for `design::mpc` (default: none) |
 | [`MPCWeights`](inc/damp/controllers/mpc.hpp#L251) | Cost weights for mpc() |
 | [`NoEstimator`](inc/damp/controllers/state_feedback_types.hpp#L40) | The estimator of a law that measures its state: none, an empty type, so a `[[no_unique_address]]` member of it takes no storage |
-| [`OFLQG`](inc/damp/controllers/oflqg.hpp#L138) | Offset-free linear-quadratic Gaussian law: a Kalman filter on [x; d] and the steady-state target |
+| [`OFLQG`](inc/damp/controllers/oflqg.hpp#L140) | Offset-free linear-quadratic Gaussian law: a Kalman filter on [x; d] and the steady-state target |
 | [`OFMPC`](inc/damp/controllers/ofmpc.hpp#L81) | Offset-free constrained linear MPC: a Kalman filter on [x; d] and the QP about the steady-state target under d̂ (design::ofmpc) |
 | [`PIDController`](inc/damp/controllers/pid.hpp#L541) | Fixed-rate discrete 2-DOF PID (canonical runtime) (+3 more overloads) |
 | [`PIDGains`](inc/damp/controllers/pid.hpp#L143) | 2-DOF continuous-time PID gains, limits and setpoint weights |
@@ -534,7 +534,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`Filtered`](inc/damp/estimation/state_variable_filter.hpp#L65) | One signal after the state-variable filter: its filtered value and first two derivatives |
 | [`FirstOrderPlantEstimator`](inc/damp/estimation/parameter_estimation.hpp#L124) | Online estimator for a first-order plant's gain and time constant |
 | [`FirstOrderPlantEstimatorConfig`](inc/damp/estimation/parameter_estimation.hpp#L83) | Configuration for the first-order grey-box estimator |
-| [`FixedGainObserver`](inc/damp/estimation/fixed_gain_observer.hpp#L603) | The fixed-gain state observer: the innovation gain M held, the current form, and the optional disturbance anchor (+4 more overloads) |
+| [`FixedGainObserver`](inc/damp/estimation/fixed_gain_observer.hpp#L604) | The fixed-gain state observer: the innovation gain M held, the current form, and the optional disturbance anchor (+4 more overloads) |
 | [`FrequencyResponseEstimator`](inc/damp/estimation/frequency_response.hpp#L166) | Lock-in FRF estimator over a fixed table of NFreq bins |
 | [`FrfFeatureKind`](inc/damp/estimation/frequency_response.hpp#L435) | Peak (resonance) or valley (anti-resonance) on an FRF magnitude curve |
 | [`FrfFeatureResult`](inc/damp/estimation/frequency_response.hpp#L518) | Combined peak + valley reduction of an FRF table |
@@ -563,7 +563,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`MultiSineResult`](inc/damp/estimation/excitation/multi_sine.hpp#L102) | Multi-sine design payload |
 | [`NavFrame`](inc/damp/estimation/ins_mechanization.hpp#L76) | Local-level navigation frame for strapdown mechanization |
 | [`ParameterDriftMonitor`](inc/damp/estimation/parameter_estimation.hpp#L250) | Residual-based drift detector: has the plant moved away from the model? |
-| [`PlaceObserverResult`](inc/damp/estimation/fixed_gain_observer.hpp#L116) | Luenberger observer design result: the plant, the gains L and M, and the achieved error poles |
+| [`PlaceObserverResult`](inc/damp/estimation/fixed_gain_observer.hpp#L117) | Luenberger observer design result: the plant, the gains L and M, and the achieved error poles |
 | [`PRBS`](inc/damp/estimation/excitation/prbs.hpp#L186) | Maximal-length PRBS runtime generator (+1 more overload) |
 | [`PRBSConfig`](inc/damp/estimation/excitation/prbs.hpp#L79) | Configuration for maximal-length pseudo-random binary excitation |
 | [`PRBSResult`](inc/damp/estimation/excitation/prbs.hpp#L123) | PRBS design payload |
@@ -571,8 +571,8 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`RampConfig`](inc/damp/estimation/excitation/ramp.hpp#L31) | Configuration for a slew-rate-limited ramp excitation |
 | [`RampResult`](inc/damp/estimation/excitation/ramp.hpp#L63) | Ramp design payload |
 | [`ReadingNoiseFactor`](inc/damp/estimation/sqrt_covariance.hpp#L443) | A reading's noise covariance R factored for sqrt_measurement_update(): R = L Lᵀ, and whether R is a covariance at all |
-| [`ReducedOrderObserver`](inc/damp/estimation/fixed_gain_observer.hpp#L1057) | Reduced-order (Gopinath) state observer (runtime) (+1 more overload) |
-| [`ReducedOrderObserverResult`](inc/damp/estimation/fixed_gain_observer.hpp#L347) | Reduced-order (Gopinath) observer design result |
+| [`ReducedOrderObserver`](inc/damp/estimation/fixed_gain_observer.hpp#L1065) | Reduced-order (Gopinath) state observer (runtime) (+1 more overload) |
+| [`ReducedOrderObserverResult`](inc/damp/estimation/fixed_gain_observer.hpp#L348) | Reduced-order (Gopinath) observer design result |
 | [`RelayAutotuneConfig`](inc/damp/estimation/relay_autotune.hpp#L124) | Configuration for the relay-feedback autotuning experiment |
 | [`RelayAutotuneOutput`](inc/damp/estimation/relay_autotune.hpp#L256) | Per-tick output of RelayAutotuner::step |
 | [`RelayAutotuner`](inc/damp/estimation/relay_autotune.hpp#L275) | Runtime relay-feedback autotuner (+1 more overload) |
@@ -645,14 +645,14 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`ned_from_enu`](inc/damp/estimation/ins_mechanization.hpp#L105) | Map an ENU vector into NED (axis permute) |
 | [`pattern_row_times_factor_column`](inc/damp/estimation/sqrt_covariance.hpp#L331) | Row R of F times column J of the lower-triangular S: a term for each nonzero of the row at or below the diagonal of that column, and nothing else |
 | [`perfect_row_scale`](inc/damp/estimation/sqrt_covariance.hpp#L496) | The scale of row m of a reading that has no noise of its own: 1/√(eps·‖f‖²), its noise taken at the rounding of its own prior variance ‖f‖² = c̃ P c̃ᵀ |
-| [`place_observer`](inc/damp/estimation/fixed_gain_observer.hpp#L299) | Design a Luenberger observer by robust pole placement, in the domain of sys (+1 more overload) |
+| [`place_observer`](inc/damp/estimation/fixed_gain_observer.hpp#L300) | Design a Luenberger observer by robust pole placement, in the domain of sys (+1 more overload) |
 | [`prbs`](inc/damp/estimation/excitation/prbs.hpp#L163) | Build a PRBS design payload from a configuration |
 | [`process_noise_factor`](inc/damp/estimation/sqrt_covariance.hpp#L292) | A factor Γ of the process noise on the state, Γ Γᵀ = G Q Gᵀ, for sqrt_time_update() |
 | [`ramp`](inc/damp/estimation/excitation/ramp.hpp#L99) | Build a ramp design payload from a configuration |
 | [`reading_noise_factor`](inc/damp/estimation/sqrt_covariance.hpp#L456) | The factor of a reading's noise covariance R (positive semidefinite; only its lower triangle is read), or an invalid one when R is indefinite or not finite |
 | [`reading_row_reach`](inc/damp/estimation/sqrt_covariance.hpp#L467) | The size of the terms row m of C S is summed from, ‖\|C_m\|·\|S\|‖: what a perfect row's ‖f‖ is measured against, so that "zero" is the rounding of those terms and not a literal |
 | [`reading_times_factor`](inc/damp/estimation/sqrt_covariance.hpp#L415) | CS = C S for a lower-triangular S and a dense C (+1 more overload) |
-| [`reduced_order_observer`](inc/damp/estimation/fixed_gain_observer.hpp#L506) | Design a reduced-order (Gopinath) observer by pole placement, in the domain of sys (+1 more overload) |
+| [`reduced_order_observer`](inc/damp/estimation/fixed_gain_observer.hpp#L507) | Design a reduced-order (Gopinath) observer by pole placement, in the domain of sys (+1 more overload) |
 | [`reflect_rows_below`](inc/damp/estimation/sqrt_covariance.hpp#L174) | Apply row i's reflection of triangularize() to the rows below it: row k ← row k − s·v, with column i's sign turned when flip |
 | [`relay_autotune`](inc/damp/estimation/relay_autotune.hpp#L224) | Build a validated relay-autotune design payload |
 | [`rls_vector`](inc/damp/estimation/rls.hpp#L133) | Build vector RLS design payload |

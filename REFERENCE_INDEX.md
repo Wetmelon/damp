@@ -266,7 +266,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`fit_at_crossover`](inc/damp/design/pid_design.hpp#L607) | function | Design-time synthesis (not PWM-rate) | fit_to_response at spec.wc with every gain of sign σ = ±1 |
 | [`fit_to_response`](inc/damp/design/pid_design.hpp#L553) | function | Design-time synthesis (not PWM-rate) | The requested law with C(jω) = e^{j(−π + PM)}/P(jω), from the plant response P at ω = spec.wc |
 | [`fixed_solve`](inc/damp/simulation/solver.hpp#L286) | function | Simulation / SIL harness (host) | Fixed-step solve in one call |
-| [`FixedGainObserver`](inc/damp/estimation/fixed_gain_observer.hpp#L603) | block | Observers & estimators | The fixed-gain state observer: the innovation gain M held, the current form, and the optional disturbance anchor (+4 more overloads) |
+| [`FixedGainObserver`](inc/damp/estimation/fixed_gain_observer.hpp#L604) | block | Observers & estimators | The fixed-gain state observer: the innovation gain M held, the current form, and the optional disturbance anchor (+4 more overloads) |
 | [`FixedStepSolver`](inc/damp/simulation/solver.hpp#L145) | block | Simulation / SIL harness (host) | Fixed-step ODE solver (+1 more overload) |
 | [`floor`](inc/damp/math/math.hpp#L368) | function | Scalar math, complex & frames | Floor — largest integer ≤ x |
 | [`flux_from_Kv`](inc/damp/motor/spm.hpp#L54) | function | Motor control pack (if present) | λ from Kᵥ via torque_constant_from_Kv |
@@ -398,7 +398,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`Latch`](inc/damp/toolbox/logic.hpp#L65) | block | Embedded helpers (controls-adjacent utilities) | Set/reset latch. @tparam SetDominant which input wins when both are asserted (default: set-dominant, e.g. a trip overriding a clear) |
 | [`Law`](inc/damp/design/model_inverse.hpp#L950) | block | Design-time synthesis (not PWM-rate) | Law<kRes, T> of a `constexpr` model inverse: the same runtime on the design's matrices as constants of the type (+1 more overload) |
 | [`Law`](inc/damp/estimation/eso.hpp#L460) | block | Observers & estimators | Law<kRes, T> of a design::eso initialized at start-up: the ESO it runs as. A runtime of the same shape assigned replaces it (+5 more overloads) |
-| [`Law`](inc/damp/controllers/law_detail.hpp#L285) | block | Runtime controllers | The runtime a design result deploys as, named by the result: `Law<kRes, float> law;` (+6 more overloads) |
+| [`Law`](inc/damp/controllers/law_detail.hpp#L286) | block | Runtime controllers | The runtime a design result deploys as, named by the result: `Law<kRes, float> law;` (+6 more overloads) |
 | [`LDLT`](inc/damp/matrix/decomposition.hpp#L175) | block | Linear algebra | LDLᴴ factors with symmetric pivoting: P·A·Pᵀ = L·D·Lᴴ, D block diagonal with 1×1 and 2×2 blocks |
 | [`ldlt`](inc/damp/matrix/decomposition.hpp#L482) | function | Linear algebra | Symmetric indefinite LDLᴴ with rook pivoting: P·A·Pᵀ = L·D·Lᴴ, D block diagonal (1×1 and 2×2) |
 | [`ldlt_solve`](inc/damp/matrix/solve.hpp#L193) | function | Linear algebra | Solve AX = B via pivoted LDLᴴ (P·A·Pᵀ = L·D·Lᴴ, symmetric indefinite) |
@@ -580,8 +580,8 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`obsvf`](inc/damp/matlab.hpp#L551) | function | MATLAB®-style aliases (host) | MATLAB® obsvf(A, B, C): observability staircase form, its orthogonal transform and rank |
 | [`OffDelayTimer`](inc/damp/toolbox/logic.hpp#L135) | block | Embedded helpers (controls-adjacent utilities) | Off-delay timer: output goes true immediately when in is true and stays true until in has been false continuously for delay |
 | [`oflqg`](inc/damp/controllers/oflqg.hpp#L66) | function | Design-time synthesis (not PWM-rate) | The offset-free linear-quadratic Gaussian law: a Kalman filter on [x; d] and the steady-state target that holds the controlled outputs at r under d̂: runs as OFLQG (+2 more overloads) |
-| [`OFLQG`](inc/damp/controllers/oflqg.hpp#L191) | function | Design-time synthesis (not PWM-rate) | OFLQG law{res}: the sizes, scalar, filter and target of design::oflqg's result |
-| [`OFLQG`](inc/damp/controllers/oflqg.hpp#L138) | block | Runtime controllers | Offset-free linear-quadratic Gaussian law: a Kalman filter on [x; d] and the steady-state target |
+| [`OFLQG`](inc/damp/controllers/oflqg.hpp#L194) | function | Design-time synthesis (not PWM-rate) | OFLQG law{res}: the sizes, scalar, filter and target of design::oflqg's result |
+| [`OFLQG`](inc/damp/controllers/oflqg.hpp#L140) | block | Runtime controllers | Offset-free linear-quadratic Gaussian law: a Kalman filter on [x; d] and the steady-state target |
 | [`ofmpc`](inc/damp/controllers/ofmpc.hpp#L41) | function | Design-time synthesis (not PWM-rate) | The offset-free MPC on a discrete plant: a Kalman filter on [x; d] (noise, disturbance) and the QP posed about the steady-state target under d̂: runs as OFMPC (+1 more overload) |
 | [`OFMPC`](inc/damp/controllers/ofmpc.hpp#L136) | function | Design-time synthesis (not PWM-rate) | OFMPC law{res}: the sizes, scalar, filter and target of design::ofmpc's result (+1 more overload) |
 | [`OFMPC`](inc/damp/controllers/ofmpc.hpp#L81) | block | Runtime controllers | Offset-free constrained linear MPC: a Kalman filter on [x; d] and the QP about the steady-state target under d̂ (design::ofmpc) |
@@ -637,8 +637,8 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`place`](inc/damp/design/pole_placement.hpp#L1155) | function | Design-time synthesis (not PWM-rate) | Robust pole placement (KNV): the gain K with eig(A − B·K) at poles, in the domain of sys (+1 more overload) |
 | [`place`](inc/damp/matlab.hpp#L873) | function | MATLAB®-style aliases (host) | Robust multi-input pole placement (MATLAB®'s place) |
 | [`place_jordan`](inc/damp/design/pole_placement.hpp#L1676) | function | Design-time synthesis (not PWM-rate) | Exact pole placement with an arbitrary Jordan structure (Schmid–Ntogramatzidis–Nguyen–Pandey / Klein–Moore parametric form) (+1 more overload) |
-| [`place_observer`](inc/damp/estimation/fixed_gain_observer.hpp#L299) | function | Observers & estimators | Design a Luenberger observer by robust pole placement, in the domain of sys (+1 more overload) |
-| [`PlaceObserverResult`](inc/damp/estimation/fixed_gain_observer.hpp#L116) | block | Observers & estimators | Luenberger observer design result: the plant, the gains L and M, and the achieved error poles |
+| [`place_observer`](inc/damp/estimation/fixed_gain_observer.hpp#L300) | function | Observers & estimators | Design a Luenberger observer by robust pole placement, in the domain of sys (+1 more overload) |
+| [`PlaceObserverResult`](inc/damp/estimation/fixed_gain_observer.hpp#L117) | block | Observers & estimators | Luenberger observer design result: the plant, the gains L and M, and the achieved error poles |
 | [`PlaceResult`](inc/damp/design/pole_placement.hpp#L1076) | block | Design-time synthesis (not PWM-rate) | Pole-placement design result: the gain K, the achieved closed-loop poles e, and Ts |
 | [`PlantDisturbance`](inc/damp/design/disturbance.hpp#L65) | block | Design-time synthesis (not PWM-rate) | The plant's own disturbance channel: B_d = G and C_d = H, one disturbance per column of G (H needs as many columns) |
 | [`plot_bode`](inc/damp/simulation/plot_plotly.hpp#L424) | function | Simulation / SIL harness (host) | Plot Bode magnitude and phase as subplots |
@@ -705,9 +705,9 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`reading_row_reach`](inc/damp/estimation/sqrt_covariance.hpp#L467) | function | Observers & estimators | The size of the terms row m of C S is summed from, ‖\|C_m\|·\|S\|‖: what a perfect row's ‖f‖ is measured against, so that "zero" is the rounding of those terms and not a literal |
 | [`reading_times_factor`](inc/damp/estimation/sqrt_covariance.hpp#L415) | function | Observers & estimators | CS = C S for a lower-triangular S and a dense C (+1 more overload) |
 | [`ReadingNoiseFactor`](inc/damp/estimation/sqrt_covariance.hpp#L443) | block | Observers & estimators | A reading's noise covariance R factored for sqrt_measurement_update(): R = L Lᵀ, and whether R is a covariance at all |
-| [`reduced_order_observer`](inc/damp/estimation/fixed_gain_observer.hpp#L506) | function | Observers & estimators | Design a reduced-order (Gopinath) observer by pole placement, in the domain of sys (+1 more overload) |
-| [`ReducedOrderObserver`](inc/damp/estimation/fixed_gain_observer.hpp#L1057) | block | Observers & estimators | Reduced-order (Gopinath) state observer (runtime) (+1 more overload) |
-| [`ReducedOrderObserverResult`](inc/damp/estimation/fixed_gain_observer.hpp#L347) | block | Observers & estimators | Reduced-order (Gopinath) observer design result |
+| [`reduced_order_observer`](inc/damp/estimation/fixed_gain_observer.hpp#L507) | function | Observers & estimators | Design a reduced-order (Gopinath) observer by pole placement, in the domain of sys (+1 more overload) |
+| [`ReducedOrderObserver`](inc/damp/estimation/fixed_gain_observer.hpp#L1065) | block | Observers & estimators | Reduced-order (Gopinath) state observer (runtime) (+1 more overload) |
+| [`ReducedOrderObserverResult`](inc/damp/estimation/fixed_gain_observer.hpp#L348) | block | Observers & estimators | Reduced-order (Gopinath) observer design result |
 | [`RedundantAnalogPair`](inc/damp/toolbox/io.hpp#L91) | block | Embedded helpers (controls-adjacent utilities) | Dual-channel analog input with same-slope or opposite-slope cross-check |
 | [`reflect_rows_below`](inc/damp/estimation/sqrt_covariance.hpp#L174) | function | Observers & estimators | Apply row i's reflection of triangularize() to the rows below it: row k ← row k − s·v, with column i's sign turned when flip |
 | [`reg`](inc/damp/matlab.hpp#L762) | function | MATLAB®-style aliases (host) | Form the observer-based compensator y → u from a plant, K and L |

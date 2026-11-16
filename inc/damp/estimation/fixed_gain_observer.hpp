@@ -84,6 +84,7 @@
 #include "damp/matrix/matrix.hpp"
 #include "damp/matrix/solve.hpp"
 #include "damp/systems/state_space.hpp"
+#include "damp/toolbox/bounds.hpp"
 
 namespace damp {
 
@@ -809,6 +810,13 @@ public:
 
     /** @brief Overwrite one entry of the estimate. */
     constexpr void set_state(size_t i, T value) { x_[i] = value; }
+
+    /** @brief Clamp the disturbance estimate d̂ (absolute) into @p lim: its deviation moves, the anchor stays. */
+    constexpr void limit_disturbance(const Bounds<ND, T>& lim)
+        requires(ND > 0)
+    {
+        x_.template segment<ND>(NXE) = ColVec<ND, T>(lim.saturate(disturbance_estimate()) - anchor_.d);
+    }
 
     /** @brief Replace the innovation gain M. */
     constexpr void set_gain(const Matrix<NX, NY, T>& M_new)
