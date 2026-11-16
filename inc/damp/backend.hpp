@@ -108,7 +108,6 @@ struct tuple_element;
 namespace damp {
 using etl::array;
 using etl::bool_constant;
-using etl::clamp;
 using etl::common_type_t;
 using etl::conditional_t;
 using etl::constructible_from;
@@ -136,8 +135,6 @@ using etl::make_index_sequence;
 using etl::make_signed_t;
 using etl::make_tuple;
 using etl::make_unsigned_t;
-using etl::max;
-using etl::min;
 using etl::move;
 using etl::nullopt;
 using etl::nullopt_t;
@@ -253,30 +250,6 @@ constexpr void swap(T& a, T& b) noexcept {
     a = damp::move(b);
     b = damp::move(tmp);
 }
-
-// ETL's min/max are binary-only; supply the initializer_list overloads (by
-// value) so `damp::min({...})` / `damp::max({...})` work on this backend too,
-// matching the std backend's std::min/max(initializer_list).
-template<typename T>
-[[nodiscard]] constexpr T min(std::initializer_list<T> values) {
-    T m = *values.begin();
-    for (const T& v : values) {
-        if (v < m) {
-            m = v;
-        }
-    }
-    return m;
-}
-template<typename T>
-[[nodiscard]] constexpr T max(std::initializer_list<T> values) {
-    T m = *values.begin();
-    for (const T& v : values) {
-        if (m < v) {
-            m = v;
-        }
-    }
-    return m;
-}
 } // namespace damp
 
 #else // stdlib backend (default)
@@ -297,7 +270,6 @@ using std::array;
 using std::bit_cast;
 using std::bit_width;
 using std::bool_constant;
-using std::clamp;
 using std::common_type_t;
 using std::conditional_t;
 using std::constructible_from;
@@ -326,8 +298,6 @@ using std::make_index_sequence;
 using std::make_signed_t;
 using std::make_tuple;
 using std::make_unsigned_t;
-using std::max;
-using std::min;
 using std::move;
 using std::nullopt;
 using std::nullopt_t;
@@ -347,6 +317,59 @@ using std::type_identity_t;
 #endif
 
 namespace damp {
+
+/**
+ * @brief The smaller of a and b, by value; a tie or a NaN returns a.
+ *
+ * std::min and etl::min return a reference, which dangles once bound past a temporary argument,
+ * and disagree on which argument a tie or a NaN returns. One VMINNM on FPv5 under -ffast-math.
+ */
+template<typename T>
+[[nodiscard]] constexpr T min(const T& a, const T& b) {
+    return (b < a) ? b : a;
+}
+
+/** @brief The larger of a and b, by value; a tie or a NaN returns a. */
+template<typename T>
+[[nodiscard]] constexpr T max(const T& a, const T& b) {
+    return (a < b) ? b : a;
+}
+
+/** @brief The leftmost smallest of a non-empty list, by value. */
+template<typename T>
+[[nodiscard]] constexpr T min(std::initializer_list<T> values) {
+    T m = *values.begin();
+    for (const T& v : values) {
+        if (v < m) {
+            m = v;
+        }
+    }
+    return m;
+}
+
+/** @brief The leftmost largest of a non-empty list, by value. */
+template<typename T>
+[[nodiscard]] constexpr T max(std::initializer_list<T> values) {
+    T m = *values.begin();
+    for (const T& v : values) {
+        if (m < v) {
+            m = v;
+        }
+    }
+    return m;
+}
+
+/**
+ * @brief x clamped to [lo, hi], by value: min(max(lo, x), hi).
+ *
+ * Branch-free (a VMAXNM/VMINNM pair on FPv5 under -ffast-math) and with no precondition: for
+ * lo > hi, where std::clamp's behavior is undefined and etl::clamp returns lo below it, this
+ * returns hi on every backend. lo is compared first, so a NaN x gives lo.
+ */
+template<typename T>
+[[nodiscard]] constexpr T clamp(const T& x, const T& lo, const T& hi) {
+    return damp::min(damp::max(lo, x), hi);
+}
 
 /**
  * @brief Ordered {min, max} pair returned by value.
