@@ -75,6 +75,10 @@
 #include "damp/systems/state_space.hpp"
 #include "damp/systems/transfer_function.hpp"
 
+// Arduino.h defines PI as a macro, which would rewrite PIDMode::PI: set aside for this header.
+#pragma push_macro("PI")
+#undef PI
+
 namespace damp {
 namespace design {
 
@@ -527,3 +531,5 @@ public:
 };
 
 } // namespace damp
+
+#pragma pop_macro("PI")

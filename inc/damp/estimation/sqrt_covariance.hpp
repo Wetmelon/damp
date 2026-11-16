@@ -410,25 +410,25 @@ constexpr void sqrt_time_update(Matrix<NX, NX, T>& S, const AMatrix& A, const Ma
     triangularize<Triangular>(S, E);
 }
 
-/** @brief @p F = C S for a lower-triangular S and a dense C. */
+/** @brief @p CS = C S for a lower-triangular S and a dense C. */
 template<size_t NX, size_t NY, typename T>
-constexpr void reading_times_factor(const Matrix<NY, NX, T>& C, const Matrix<NX, NX, T>& S, Matrix<NY, NX, T>& F) {
+constexpr void reading_times_factor(const Matrix<NY, NX, T>& C, const Matrix<NX, NX, T>& S, Matrix<NY, NX, T>& CS) {
     for (size_t m = 0; m < NY; ++m) {
         for (size_t k = 0; k < NX; ++k) {
             T s{0};
             for (size_t i = k; i < NX; ++i) {
                 s += C(m, i) * S(i, k);
             }
-            F(m, k) = s;
+            CS(m, k) = s;
         }
     }
 }
 
-/** @brief @p F = C S for a lower-triangular S and a C whose zeros and ones are known at compile time. */
+/** @brief @p CS = C S for a lower-triangular S and a C whose zeros and ones are known at compile time. */
 template<const auto& P, size_t NX, size_t NY, typename T>
-[[gnu::always_inline]] constexpr void reading_times_factor(const PatternMatrix<P, T>& C, const Matrix<NX, NX, T>& S, Matrix<NY, NX, T>& F) {
+[[gnu::always_inline]] constexpr void reading_times_factor(const PatternMatrix<P, T>& C, const Matrix<NX, NX, T>& S, Matrix<NY, NX, T>& CS) {
     static_assert(PatternMatrix<P, T>::NR == NY && PatternMatrix<P, T>::NC == NX, "C is NY × NX.");
-    for_index_pairs<NY, NX>([&]<size_t M, size_t K>() __attribute__((always_inline)) { F(M, K) = pattern_row_times_factor_column<M, K>(C, S); });
+    for_index_pairs<NY, NX>([&]<size_t M, size_t K>() __attribute__((always_inline)) { CS(M, K) = pattern_row_times_factor_column<M, K>(C, S); });
 }
 
 /**
@@ -493,10 +493,10 @@ template<size_t NX, typename T, typename CMatrix>
  *         64·(NX + NY)·eps of their size: no noise and no prior variance, C P Cᵀ + R singular
  */
 template<size_t NX, size_t NY, typename T>
-[[nodiscard]] constexpr bool perfect_row_scale(const Matrix<NY, NX, T>& F, size_t m, T terms, T& scale) {
+[[nodiscard]] constexpr bool perfect_row_scale(const Matrix<NY, NX, T>& CS, size_t m, T terms, T& scale) {
     T norm2{0};
     for (size_t k = 0; k < NX; ++k) {
-        norm2 += F(m, k) * F(m, k);
+        norm2 += CS(m, k) * CS(m, k);
     }
     const T norm = damp::sqrt(norm2);
     const T rounding = T{64} * static_cast<T>(NX + NY) * eps<T>() * terms;
@@ -508,7 +508,7 @@ template<size_t NX, size_t NY, typename T>
 }
 
 /**
- * @brief Whiten a reading in place with the factor L of its noise: each row of F and of ν less the
+ * @brief Whiten a reading in place with the factor L of its noise: each row of CS and of ν less the
  *        rows before it through L, then scaled to unit noise
  *
  * The whitened reading has unit, uncorrelated noise, so its rows can be taken one at a time. A
@@ -516,17 +516,17 @@ template<size_t NX, size_t NY, typename T>
  * earlier rows are subtracted, a perfect measurement, and is scaled by perfect_row_scale().
  * Only then are the sizes of the rows' terms followed, for that row's test.
  *
- * @param F  C S on entry, C̃ S on return
+ * @param CS  C S on entry, C̃ S on return
  * @param nu The innovation on entry, whitened on return
  * @param L  Factor of the reading's noise covariance (ReadingNoiseFactor::L)
  * @param C  The reading's output matrix, read for a perfect row's test only
- * @param S  The factor F came from, read for a perfect row's test only
+ * @param S  The factor CS came from, read for a perfect row's test only
  * @return false if a perfect row has no prior variance either, or if a row's 1 + ‖f‖² is not
- *         finite: a NaN or ±Inf in C, or an innovation variance past the scalar's range. F and ν
+ *         finite: a NaN or ±Inf in C, or an innovation variance past the scalar's range. CS and ν
  *         are scratch; nothing of the filter is written.
  */
 template<size_t NX, size_t NY, typename T, typename CMatrix>
-[[nodiscard]] constexpr bool whiten_reading(Matrix<NY, NX, T>& F, ColVec<NY, T>& nu, const Matrix<NY, NY, T>& L, const CMatrix& C, const Matrix<NX, NX, T>& S) {
+[[nodiscard]] constexpr bool whiten_reading(Matrix<NY, NX, T>& CS, ColVec<NY, T>& nu, const Matrix<NY, NY, T>& L, const CMatrix& C, const Matrix<NX, NX, T>& S) {
     size_t perfect_end = 0; // one past the last row with no noise of its own
     for (size_t m = 0; m < NY; ++m) {
         if (!(L(m, m) > T{0})) {
@@ -542,7 +542,7 @@ template<size_t NX, size_t NY, typename T, typename CMatrix>
             const T l = L(m, j);
             v -= l * nu[j];
             for (size_t k = 0; k < NX; ++k) {
-                F(m, k) -= l * F(j, k);
+                CS(m, k) -= l * CS(j, k);
             }
             if (followed) {
                 terms += damp::abs(l) * reach[j];
@@ -551,7 +551,7 @@ template<size_t NX, size_t NY, typename T, typename CMatrix>
         T scale{0};
         if (L(m, m) > T{0}) {
             scale = T{1} / L(m, m);
-        } else if (!perfect_row_scale(F, m, terms, scale)) {
+        } else if (!perfect_row_scale(CS, m, terms, scale)) {
             return false; // nothing to learn from it: no noise and no prior variance
         }
         nu[m] = v * scale;
@@ -560,8 +560,8 @@ template<size_t NX, size_t NY, typename T, typename CMatrix>
         }
         T alpha{1};
         for (size_t k = 0; k < NX; ++k) {
-            F(m, k) *= scale;
-            alpha += F(m, k) * F(m, k);
+            CS(m, k) *= scale;
+            alpha += CS(m, k) * CS(m, k);
         }
         if (!damp::isfinite(alpha)) {
             return false;
@@ -572,7 +572,7 @@ template<size_t NX, size_t NY, typename T, typename CMatrix>
 
 /**
  * @brief Carlson's triangular update for row @p m of a whitened reading: S ← S T with
- *        T Tᵀ = I − f fᵀ/α, f = Sᵀc̃ᵀ the row of @p F and α = 1 + fᵀf
+ *        T Tᵀ = I − f fᵀ/α, f = Sᵀc̃ᵀ the row of @p CS and α = 1 + fᵀf
  *
  * With @f$ \alpha_k = 1 + \sum_{j \ge k} f_j^2 @f$, taken from the last column to the first,
  * @f[
@@ -585,14 +585,14 @@ template<size_t NX, size_t NY, typename T, typename CMatrix>
  * diagonal is only ever scaled by a factor in (0, 1]: no entry of the factor is the difference of
  * two covariances.
  *
- * The same T is applied to the rows of F after m, which are the later readings' f on the updated
+ * The same T is applied to the rows of CS after m, which are the later readings' f on the updated
  * factor, and their innovations move with the estimate.
  *
  * Columns past the last nonzero of f are left alone: a reading of the leading states only costs
  * its own columns.
  */
 template<size_t NX, size_t NY, typename T>
-constexpr void carlson_update(Matrix<NX, NX, T>& S, ColVec<NX, T>& x, Matrix<NY, NX, T>& F, ColVec<NY, T>& nu, size_t m) {
+constexpr void carlson_update(Matrix<NX, NX, T>& S, ColVec<NX, T>& x, Matrix<NY, NX, T>& CS, ColVec<NY, T>& nu, size_t m) {
     T      b[NX]; // √(α_{k+1}/α_k)
     T      c[NX]; // f_k/√(α_{k+1} α_k)
     T      alpha{1};
@@ -600,7 +600,7 @@ constexpr void carlson_update(Matrix<NX, NX, T>& S, ColVec<NX, T>& x, Matrix<NY,
     T      inv_root{1};
     size_t top = 0; // one past the last column f moves
     for (size_t k = NX; k-- > 0;) {
-        const T f = F(m, k);
+        const T f = CS(m, k);
         if (f == T{0}) {
             b[k] = T{1}; // an exact zero of f is the identity on its column: no square root
             c[k] = T{0};
@@ -624,16 +624,16 @@ constexpr void carlson_update(Matrix<NX, NX, T>& S, ColVec<NX, T>& x, Matrix<NY,
         for (size_t k = ((i + 1 < top) ? (i + 1) : top); k-- > 0;) {
             const T old = S(i, k);
             S(i, k) = (b[k] * old) - (c[k] * e);
-            e += old * F(m, k);
+            e += old * CS(m, k);
         }
         x[i] += e * gain;
     }
     for (size_t r = m + 1; r < NY; ++r) {
         T e{0};
         for (size_t k = top; k-- > 0;) {
-            const T old = F(r, k);
-            F(r, k) = (b[k] * old) - (c[k] * e);
-            e += old * F(m, k);
+            const T old = CS(r, k);
+            CS(r, k) = (b[k] * old) - (c[k] * e);
+            e += old * CS(m, k);
         }
         nu[r] -= e * gain;
     }
@@ -644,7 +644,7 @@ constexpr void carlson_update(Matrix<NX, NX, T>& S, ColVec<NX, T>& x, Matrix<NY,
  *        matrix C and noise covariance R = L Lᵀ
  *
  * The reading is whitened with R's factor, ν̃ = L⁻¹ν and C̃ = L⁻¹C, so a full R is handled, and
- * its rows are then taken one at a time by Carlson's update (carlson_update()). F = C̃ S is formed
+ * its rows are then taken one at a time by Carlson's update (carlson_update()). CS = C̃ S is formed
  * once: each row's update is applied to the rows after it, so no row is formed twice.
  *
  * R may be singular. A row with no noise of its own, a perfect measurement (R = 0, or a
@@ -692,14 +692,14 @@ template<size_t NX, size_t NY, typename T, typename CMatrix>
     if (!noise.valid) {
         return false; // R is not a covariance
     }
-    Matrix<NY, NX, T> F{detail::unfilled};
+    Matrix<NY, NX, T> CS{detail::unfilled};
     ColVec<NY, T>     whitened = nu;
-    reading_times_factor(C, S, F);
-    if (!whiten_reading(F, whitened, noise.L, C, S)) {
+    reading_times_factor(C, S, CS);
+    if (!whiten_reading(CS, whitened, noise.L, C, S)) {
         return false;
     }
     for (size_t m = 0; m < NY; ++m) {
-        carlson_update(S, x, F, whitened, m);
+        carlson_update(S, x, CS, whitened, m);
     }
     return true;
 }

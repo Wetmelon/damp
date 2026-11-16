@@ -149,16 +149,16 @@ template<size_t NX, size_t NU, size_t NY, size_t NI, typename T, size_t NW, size
     constexpr size_t NA = NE + NU + NI; // and what a stretch holds: [v; e]
 
     //! d/dt [x; ξ; v; e] = [A·x + B·v; −e; 0; 0], weighted by [Q 0 N 0; 0 Q_integral 0 0; Nᵀ 0 0 0; 0 0 0 0]
-    Matrix<NA, NA, T> F{};
+    Matrix<NA, NA, T> A_aug{};
     Matrix<NA, NA, T> S{};
-    F.template block<NX, NX>(0, 0) = sys.A;
-    F.template block<NX, NU>(0, NE) = sys.B;
+    A_aug.template block<NX, NX>(0, 0) = sys.A;
+    A_aug.template block<NX, NU>(0, NE) = sys.B;
     S.template block<NX, NX>(0, 0) = w.Q;
     S.template block<NX, NU>(0, NE) = w.N;
     S.template block<NU, NX>(NE, 0) = w.N.t();
     if constexpr (NI > 0) { // a regulator's LQRConfig has no Q_integral
         for (size_t i = 0; i < NI; ++i) {
-            F(NX + i, NE + NU + i) = T{-1};
+            A_aug(NX + i, NE + NU + i) = T{-1};
             for (size_t c = 0; c < NI; ++c) {
                 S(NX + i, NX + c) = w.Q_integral(i, c);
             }
@@ -214,8 +214,8 @@ template<size_t NX, size_t NU, size_t NY, size_t NI, typename T, size_t NW, size
                 M(NE + NU + i, NL + j) = CiD(i, j);
             }
         }
-        const auto W = ::damp::detail::van_loan_integral(F, S, h);
-        const auto E = mat::expm(Matrix<NA, NA, T>(F * h));
+        const auto W = ::damp::detail::van_loan_integral(A_aug, S, h);
+        const auto E = mat::expm(Matrix<NA, NA, T>(A_aug * h));
         if (!W || !E) {
             return damp::nullopt;
         }

@@ -223,8 +223,8 @@ template<typename T = float>
     const T A01 = sys_d.A(0, 1);
     const T A10 = sys_d.A(1, 0);
     const T A11 = sys_d.A(1, 1);
-    const T B0 = sys_d.B(0, 0);
-    const T B1 = sys_d.B(1, 0);
+    const T B_0 = sys_d.B(0, 0);
+    const T B_1 = sys_d.B(1, 0);
     const T C0 = sys_d.C(0, 0);
     const T C1 = sys_d.C(0, 1);
     const T D0 = sys_d.D(0, 0);
@@ -237,8 +237,8 @@ template<typename T = float>
     const T a2 = (A00 * A11) - (A01 * A10);
     return SecondOrderCoeffs<T>{
         .b0 = D0,
-        .b1 = (C0 * B0) + (C1 * B1) + (D0 * a1),
-        .b2 = (D0 * a2) + (C0 * ((A01 * B1) - (A11 * B0))) + (C1 * ((A10 * B0) - (A00 * B1))),
+        .b1 = (C0 * B_0) + (C1 * B_1) + (D0 * a1),
+        .b2 = (D0 * a2) + (C0 * ((A01 * B_1) - (A11 * B_0))) + (C1 * ((A10 * B_0) - (A00 * B_1))),
         .a1 = a1,
         .a2 = a2,
     };

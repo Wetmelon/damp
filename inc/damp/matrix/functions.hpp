@@ -416,7 +416,6 @@ template<typename T, size_t N>
     const Matrix<N, N, T> B4 = B2 * B2;
     const Matrix<N, N, T> B6 = B4 * B2;
     const Matrix<N, N, T> B8 = B6 * B2;
-    const Matrix<N, N, T> B10 = B8 * B2;
     const real_t          two_e = expm_pow2<real_t>(e);
     const real_t          cap = damp::numeric_limits<real_t>::max();
     const auto            lift = [two_e, cap](const Matrix<N, N, T>& M, int k) {
@@ -426,7 +425,7 @@ template<typename T, size_t N>
     roots.d4 = lift(B4, 4);
     roots.d6 = lift(B6, 6);
     roots.d8 = lift(B8, 8);
-    roots.d10 = lift(B10, 10);
+    roots.d10 = lift(Matrix<N, N, T>(B8 * B2), 10);
     return roots;
 }
 

@@ -38,6 +38,7 @@ and [known limitations](docs/known_limitations.md)).
 
 ### Fixed
 
+- Damp's headers compile after `Arduino.h`, the order an `.ino` sketch gets: Damp undefines Arduino's `abs` macro, as `<cstdlib>` does, and no longer names anything its `F`, `PI` or binary-constant (`B1`) macros rewrite.
 - A float MPC with soft output limits solves its QP on every tick. Once the moves sat on their limits the active-set solver ended `Degenerate`, or called a feasible problem `Infeasible`, on up to every tick of a recovery from outside the limits; it now keeps an orthogonal factorization of the active constraints.
 - `solve_qp` in float no longer returns `Success` with a constraint violated past its tolerance: the point is recomputed on the active constraints after each step, and every solved point meets its rows.
 - PID back-calculation with a `Kbc` under `Ki·Ts` diverged; it takes at most the whole excess per tick.

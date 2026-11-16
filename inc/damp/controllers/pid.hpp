@@ -20,6 +20,10 @@
 #include "damp/systems/transfer_function.hpp"
 #include "damp/toolbox/bounds.hpp"
 
+// Arduino.h defines PI as a macro, which would rewrite PIDMode::PI: set aside for this header.
+#pragma push_macro("PI")
+#undef PI
+
 namespace damp {
 namespace detail {
 
@@ -1108,3 +1112,5 @@ template<typename T>
 ContinuousPID(const design::PIDGains<T>&) -> ContinuousPID<T>;
 
 } // namespace damp
+
+#pragma pop_macro("PI")
