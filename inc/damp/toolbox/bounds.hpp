@@ -142,4 +142,46 @@ private:
     }
 };
 
+/**
+ * @brief A limit on what a state-feedback law's outer terms ask of one of its states: a cascade's
+ *        outer limit, inside one gain
+ *
+ * Read the law u = u* − K·z, z = [x − x*; ξ], as a cascade on the state s: u = −K_s·(z_s − z_c) − (the
+ * other terms), where the outer terms (the plant states and integrators listed in @ref outer) ask for
+ * z_c = −(Σ K_j·z_j)/K_s. The law clamps z_c into @ref lim, per input that acts on s (K_s ≠ 0). A
+ * balancing robot's position, speed and integral ask for a lean; this bounds the lean they may ask
+ * for, not the lean itself, which no law without a prediction can bound. The integrators hold against
+ * the clamp as against u_lim's. At a steady state the outer terms carry the input that holds it (none
+ * for a robot balanced upright; a spring's force through its position): a limit below that holds the
+ * plant short of its reference.
+ *
+ * Off by default (state = none). It is a field of the LQ designs' config, LQRConfig and LQIConfig:
+ * `.demand_lim = {.state = 2, .outer = {true, true, false, false, true}, .lim = {.lower = -0.26,
+ * .upper = 0.26}}`. A runtime that holds its matrices holds it as a member, `law.demand_lim`, to set
+ * at run time; the Law of a `constexpr` design holds it as a constant of the type, so it costs that
+ * law nothing.
+ *
+ * @tparam N The gain's plant states and integrators, NX + NI (the input registers are never outer)
+ */
+template<size_t N, typename T = double>
+struct DemandLimit {
+    static constexpr size_t none = static_cast<size_t>(-1); ///< No state: the limit is off
+
+    size_t               state{none}; ///< s: the state asked for, an index of the plant state x (none: off)
+    damp::array<bool, N> outer{};     ///< The terms that ask: the plant states, then the integrators
+    Bounds<1, T>         lim{};       ///< The most they may ask of x_s, as a deviation from the reference point (the target with one)
+
+    /** @brief The same limit in scalar type U. */
+    template<typename U>
+    [[nodiscard]] constexpr DemandLimit<N, U> as() const {
+        return {state, outer, lim.template as<U>()};
+    }
+
+    /** @brief Usable on a plant of @p NX states: off, or a plant state that is not one of its own outer terms, and a box (Bounds::valid). */
+    template<size_t NX>
+    [[nodiscard]] constexpr bool valid() const {
+        return (state == none) || (state < NX && !outer[state] && lim.valid());
+    }
+};
+
 } // namespace damp

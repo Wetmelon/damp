@@ -117,6 +117,10 @@ struct IntegralAction {
  * after the law. It is a member of the runtime, `law.u_lim`, so a rail that moves is set at run
  * time. A limit that is NaN, or a lower limit above its upper one, is refused with
  * DesignStatus::invalid_parameter.
+ *
+ * demand_lim (DemandLimit) bounds what the outer states ask of one state, read as a cascade: the
+ * lean a balancing robot's position and speed ask for. Off by default; refused like u_lim, and for
+ * a state that is not the plant's or is one of its own outer terms.
  */
 template<size_t NX, size_t NU, typename T = double>
 struct LQRConfig {
@@ -124,6 +128,7 @@ struct LQRConfig {
     Matrix<NU, NU, T> R{};     ///< On the inputs u (positive definite)
     Matrix<NX, NU, T> N{};     ///< Cross term between x and u (default zero)
     Bounds<NU, T>     u_lim{}; ///< Limits on the command u, per input (default unbounded)
+    DemandLimit<NX, T> demand_lim{}; ///< A limit on what the outer states ask of one state (default off)
 };
 
 /** @brief Sizes from the matrices: `LQRConfig{Q, R}`. */
@@ -170,6 +175,7 @@ struct LQIConfig {
     Matrix<NI, NI, T> Q_integral{};   ///< On the discrete integral state ξ ≈ ∫e dt (positive definite)
     Bounds<NU, T>     u_lim{};        ///< Limits on the command u, per input (default unbounded)
     Bounds<NI, T>     integral_lim{}; ///< Limits on the integral state ξ, per integrator (default unbounded)
+    DemandLimit<NX + NI, T> demand_lim{}; ///< A limit on what the outer states and integrators ask of one state (default off)
 };
 
 /** @brief Sizes from the matrices: `LQIConfig{Q, R, N, Q_integral}`. */
@@ -183,33 +189,6 @@ template<size_t NX, size_t NU, size_t NI, typename T>
 using lq_config = damp::conditional_t<(NI == 0), LQRConfig<NX, NU, T>, LQIConfig<NX, NU, NI, T>>;
 
 } // namespace detail
-
-/**
- * @brief A limit on what a law's outer terms ask of one of its states: a cascade's outer limit,
- *        inside one gain
- *
- * Read the law u = u* − K·z, z = [x − x*; ξ], as a cascade on the state s: u = −K_s·(z_s − z_c) − (the
- * other terms), where the outer terms (the plant states and integrators listed in @ref outer) ask for
- * z_c = −(Σ K_j·z_j)/K_s. The law clamps z_c into @ref lim, per input that acts on s (K_s ≠ 0). A
- * balancing robot's position, speed and integral ask for a lean; this bounds the lean they may ask
- * for, not the lean itself, which no law without a prediction can bound. The integrators hold against
- * the clamp as against u_lim's. At a steady state the outer terms carry the input that holds it (none
- * for a robot balanced upright; a spring's force through its position): a limit below that holds the
- * plant short of its reference.
- *
- * Off by default (state = none). Set it on the runtime: `law.demand_lim = {.state = 2, .outer = {true,
- * true, false, false, true}, .lim = {.lower = -0.26, .upper = 0.26}}`.
- *
- * @tparam N The gain's plant states and integrators, NX + NI (the input registers are never outer)
- */
-template<size_t N, typename T = double>
-struct DemandLimit {
-    static constexpr size_t none = static_cast<size_t>(-1); ///< No state: the limit is off
-
-    size_t               state{none}; ///< s: the state asked for, an index of the plant state x (none: off)
-    damp::array<bool, N> outer{};     ///< The terms that ask: the plant states, then the integrators
-    Bounds<1, T>         lim{};       ///< The most they may ask of x_s, as a deviation from the reference point (the target with one)
-};
 
 /** @brief The integral action of a design: the integrated outputs, their maps of the state and the input, the per-sample step and the limits on ξ. */
 template<size_t NI, size_t NX, size_t NU, size_t NY, typename T = double>
@@ -239,6 +218,7 @@ struct IntegralDesign {
  * | K, S, e | the gain, the Riccati solution, the closed-loop poles | always |
  * | success, status, Ts | ok or why not; the law's sample time | always |
  * | u_lim | the limits on the command (LQRConfig::u_lim) | always, default unbounded |
+ * | demand_lim | the limit on what the outer terms ask of one state (LQRConfig::demand_lim) | always, default off |
  * | kalman | the Kalman filter (design::kalman's result) | lqg, lqgi, oflqg |
  * | integral | the integrated outputs Ci, Ci·C, Ci·D, the step and the limits on ξ | NI > 0 |
  * | target | the steady-state target (design::steady_state_target's result) | oflqg; lqr and lqg with TrackedOutputs (NZ > 0) |
@@ -277,6 +257,7 @@ struct [[nodiscard]] StateFeedbackResult {
     [[no_unique_address]] Integral    integral{};                          ///< The integral action (NI > 0)
     [[no_unique_address]] Target      target{};                            ///< The steady-state target (NZ > 0)
     Bounds<NU, T>                     u_lim{};                             ///< Limits on the command the runtime returns (default unbounded)
+    DemandLimit<NX + NI, T>           demand_lim{};                        ///< A limit on what the outer terms ask of one state (LQRConfig::demand_lim; default off)
 
     /** @brief True when the design succeeded (success). */
     [[nodiscard]] constexpr explicit operator bool() const { return success; }
@@ -293,6 +274,7 @@ struct [[nodiscard]] StateFeedbackResult {
             out.target = target.template as<U>();
         }
         out.u_lim = u_lim.template as<U>();
+        out.demand_lim = demand_lim.template as<U>();
         return out;
     }
 

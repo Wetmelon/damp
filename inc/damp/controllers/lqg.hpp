@@ -158,11 +158,12 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
     if (status == DesignStatus::ok && (!::damp::detail::discrete_gain(reg) || (reg.Ts != T{0} && reg.Ts != kest.sys.Ts))) {
         status = DesignStatus::invalid_sample_time; // a continuous regulator, or the halves disagree on Ts
     }
-    if (status == DesignStatus::ok && !reg.u_lim.valid()) {
+    if (status == DesignStatus::ok && (!reg.u_lim.valid() || !reg.demand_lim.template valid<NX>())) {
         status = DesignStatus::invalid_parameter; // a regulator built by hand with a limit that is not a box
     }
     if (status == DesignStatus::ok) {
         out.u_lim = reg.u_lim;
+        out.demand_lim = reg.demand_lim;
     }
     return ::damp::detail::set_status(out, status);
 }

@@ -81,6 +81,8 @@ struct HeldGains {
     using TargetD = Matrix<R, C, T>; ///< The target per unit d̂
     template<size_t R, size_t C, typename T>
     using TargetR = Matrix<R, C, T>; ///< The target per unit r
+    template<size_t N, typename T>
+    using Demand = DemandLimit<N, T>; ///< The limit on what the outer terms ask of a state
 };
 
 /**
@@ -97,7 +99,7 @@ struct HeldGains {
  * | input registers: the inputs applied over the last NRU periods, held by the law (a measured state) | NRU | 0 |
  * | limits on the command and on the integrators | @ref u_lim, integral.lim | unbounded |
  * | a limit on the disturbance estimate d̂ (ND > 0) | @ref disturbance_lim | unbounded |
- * | a limit on what the outer terms ask of one state (design::DemandLimit) | @ref demand_lim | off |
+ * | a limit on what the outer terms ask of one state (DemandLimit) | @ref demand_lim | off |
  *
  * One tick is @ref step(): @ref predict (the time update with the input @ref back_calculate
  * recorded, else the last command), then @ref update with the measurement at sample k (the
@@ -132,7 +134,7 @@ struct HeldGains {
  *   The integrators compare the applied input with the command before the clamp, so they hold
  *   against the law's own limit as against a clamp downstream. The limits are members: set them
  *   at run time for a rail that moves. @ref demand_lim bounds what the outer terms ask of one
- *   state (design::DemandLimit), and the integrators hold against it the same way. With a disturbance model, @ref update clamps d̂ into
+ *   state (DemandLimit), and the integrators hold against it the same way. With a disturbance model, @ref update clamps d̂ into
  *   @ref disturbance_lim, so a load past it (a wall the plant is held against) does not wind d̂,
  *   and with it the target, up the way an integrator would;
  * - on a number only: a reading, a reference or a reported input that is NaN or ±Inf, or a command
@@ -183,7 +185,7 @@ struct StateFeedbackCore {
     Bounds<NU, T>                  u_lim{};     ///< Limits on the command control returns (default unbounded)
 
     [[no_unique_address]] DisturbanceLim disturbance_lim{}; ///< Limits on the disturbance estimate d̂, in d's units (ND > 0; default unbounded)
-    design::DemandLimit<NX + NI, T>      demand_lim{};      ///< A limit on what the outer terms ask of a state (default off)
+    [[no_unique_address]] Store::template Demand<NX + NI, T> demand_lim{}; ///< A limit on what the outer terms ask of a state (default off; a constant of a `constexpr` design's Law)
 
     constexpr StateFeedbackCore() = default;
 
@@ -206,6 +208,9 @@ struct StateFeedbackCore {
             K = result.K.template as<T>();
             if constexpr (requires { result.u_lim; }) {
                 u_lim = result.u_lim.template as<T>();
+            }
+            if constexpr (requires { result.demand_lim; }) {
+                demand_lim = result.demand_lim.template as<T>();
             }
         }
     }
@@ -240,6 +245,7 @@ struct StateFeedbackCore {
                 integral.lim = result.integral.lim.template as<T>();
             }
             u_lim = result.u_lim.template as<T>();
+            demand_lim = result.demand_lim.template as<T>();
             if constexpr (NZ > 0) {
                 target = Target(result.target);
             }

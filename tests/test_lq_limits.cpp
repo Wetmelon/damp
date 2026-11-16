@@ -335,11 +335,34 @@ TEST_SUITE("LQ limits") {
         CHECK(static_cast<double>(xa(0)) == doctest::Approx(5.0).epsilon(1e-3));
 
         LQI off{res.template as<T>()}; // demand_lim off again: the plain law
-        bounded.demand_lim.state = design::DemandLimit<3, T>::none;
+        bounded.demand_lim.state = DemandLimit<3, T>::none;
         bounded.reset();
         off.update(ColVec<2, T>{T{-3}, T{0}});
         bounded.update(ColVec<2, T>{T{-3}, T{0}});
         CHECK(bounded.control(r) == off.control(r));
+    }
+
+    TEST_CASE("demand_lim from the config: a constexpr design's Law holds it in no storage, and a bad one is refused") {
+        static constexpr StateSpace<2, 1, 1> kMass{.A = Matrix<2, 2>{{0.0, 1.0}, {0.0, -0.5}}, .B = Matrix<2, 1>{{0.0}, {1.0}}, .C = Matrix<1, 2>{{1.0, 0.0}}};
+        static constexpr DemandLimit<3>      kSpeed{.state = 1, .outer = {true, false, true}, .lim = {.lower = -0.3, .upper = 0.3}};
+        static constexpr auto                kBounded = design::lqi(kMass, kTs, {.Q = Q, .R = 1.0, .Q_integral = 80.0, .demand_lim = kSpeed});
+        static constexpr auto                kPlain = design::lqi(kMass, kTs, kFreeI);
+        static_assert(kBounded.success);
+        static_assert(sizeof(Law<kBounded, float>) == sizeof(Law<kPlain, float>)); // a constant of the type
+        Law<kBounded, float> constant{};
+        LQI                  held{kBounded.as<float>()};
+        CHECK(held.demand_lim.state == 1);
+        for (int k = 0; k < 50; ++k) {
+            const ColVec<2, float> x{-4.0f + (0.01f * static_cast<float>(k)), 0.0f};
+            CHECK(constant.step(ColVec<1, float>{1.0f}, x) == held.step(ColVec<1, float>{1.0f}, x));
+        }
+
+        CHECK(design::lqi(kMass, kTs, {.Q = Q, .R = 1.0, .Q_integral = 80.0, .demand_lim = {.state = 2, .outer = {true, false, false}}}).status == design::DesignStatus::invalid_parameter); // not a plant state
+        CHECK(design::lqi(kMass, kTs, {.Q = Q, .R = 1.0, .Q_integral = 80.0, .demand_lim = {.state = 1, .outer = {false, true, false}}}).status == design::DesignStatus::invalid_parameter); // asks of itself
+        CHECK(design::lqr(kMass, kTs, {.Q = Q, .R = 1.0, .demand_lim = {.state = 1, .outer = {true, false}, .lim = {.lower = 1.0, .upper = -1.0}}}).status == design::DesignStatus::invalid_parameter);
+        const auto lqr = design::lqr(kMass, kTs, {.Q = Q, .R = 1.0, .demand_lim = {.state = 1, .outer = {true, false}, .lim = {.lower = -0.3, .upper = 0.3}}});
+        REQUIRE(lqr.success);
+        CHECK(LQR{lqr}.demand_lim.state == 1); // the plain regulator's result carries it too
     }
 
     TEST_CASE("a constexpr design's Law carries the limits, in float") {
