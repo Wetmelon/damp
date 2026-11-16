@@ -404,13 +404,13 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`MeasuredDisturbance`](inc/damp/controllers/mpc.hpp#L1238) | Sizes from the matrix: `MeasuredDisturbance{Bd}` |
 | [`minreal`](inc/damp/design/minreal.hpp#L310) | Minimal realization — cancel uncontrollable and unobservable modes |
 | [`mpc`](inc/damp/controllers/mpc.hpp#L1643) | Synthesize a constrained linear MPC (condensed dense QP, Δu form) on a discrete plant (+3 more overloads) |
-| [`MPC`](inc/damp/controllers/mpc.hpp#L2518) | MPC law{res}: the sizes, scalar and terminal capacity of design::mpc's result (+1 more overload) |
+| [`MPC`](inc/damp/controllers/mpc.hpp#L2534) | MPC law{res}: the sizes, scalar and terminal capacity of design::mpc's result (+1 more overload) |
 | [`observability_gramian`](inc/damp/design/stability.hpp#L409) | Continuous/discrete observability Gramian W_o |
 | [`observability_matrix`](inc/damp/design/stability.hpp#L83) | Compute the observability matrix [C; CA; CA²; ...; CA^(N-1)] |
 | [`oflqg`](inc/damp/controllers/oflqg.hpp#L67) | The offset-free linear-quadratic Gaussian law: a Kalman filter on [x; d] and the steady-state target that holds the controlled outputs at r under d̂: runs as OFLQG (+2 more overloads) |
 | [`OFLQG`](inc/damp/controllers/oflqg.hpp#L196) | OFLQG law{res}: the sizes, scalar, filter and target of design::oflqg's result |
 | [`ofmpc`](inc/damp/controllers/ofmpc.hpp#L41) | The offset-free MPC on a discrete plant: a Kalman filter on [x; d] (noise, disturbance) and the QP posed about the steady-state target under d̂: runs as OFMPC (+1 more overload) |
-| [`OFMPC`](inc/damp/controllers/ofmpc.hpp#L136) | OFMPC law{res}: the sizes, scalar, filter and target of design::ofmpc's result (+1 more overload) |
+| [`OFMPC`](inc/damp/controllers/ofmpc.hpp#L138) | OFMPC law{res}: the sizes, scalar, filter and target of design::ofmpc's result (+1 more overload) |
 | [`option`](inc/damp/design/options.hpp#L57) | No option left: the fallback (+1 more overload) |
 | [`output_inverse`](inc/damp/design/model_inverse.hpp#L683) | The stable inverse of a discrete model: the state and input of its trajectory through a reference y on the controlled outputs, from y ₖ … y ₖ₊NP₋₁ (+1 more overload) |
 | [`phase_margin_from_damping_ratio`](inc/damp/design/pid_design.hpp#L892) | Approximate phase margin from damping ratio |
@@ -480,7 +480,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`LQR`](inc/damp/controllers/lqr.hpp#L152) | Linear-quadratic regulator on the measured state: u = u − K·(x − x ) |
 | [`LQRConfig`](inc/damp/controllers/state_feedback_types.hpp#L126) | What a regulator design (lqr, lqg, oflqg) is given with the plant: the cost, what to penalize and how much, and the limit its command runs within |
 | [`MeasuredDisturbance`](inc/damp/controllers/mpc.hpp#L1232) | A measured disturbance: a known input the controller does not command, entering the state update through Bd (a load torque, a feed rate, the ambient temperature) |
-| [`MPC`](inc/damp/controllers/mpc.hpp#L2448) | Constrained linear MPC on the measured state (design::mpc) |
+| [`MPC`](inc/damp/controllers/mpc.hpp#L2464) | Constrained linear MPC on the measured state (design::mpc) |
 | [`MPCArtifacts`](inc/damp/controllers/mpc.hpp#L345) | Condensed-QP data produced by mpc() (MPCResult::mpc), consumed by damp::MPC |
 | [`MPCConstraints`](inc/damp/controllers/mpc.hpp#L288) | Box constraints for mpc() |
 | [`MPCHorizonSuggestion`](inc/damp/controllers/mpc.hpp#L1731) | Advisory NP/NC horizon values from suggest_mpc_horizon() |
@@ -489,7 +489,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`MPCWeights`](inc/damp/controllers/mpc.hpp#L250) | Cost weights for mpc() |
 | [`NoEstimator`](inc/damp/controllers/state_feedback_types.hpp#L40) | The estimator of a law that measures its state: none, an empty type, so a `[[no_unique_address]]` member of it takes no storage |
 | [`OFLQG`](inc/damp/controllers/oflqg.hpp#L141) | Offset-free linear-quadratic Gaussian law: a Kalman filter on [x; d] and the steady-state target |
-| [`OFMPC`](inc/damp/controllers/ofmpc.hpp#L81) | Offset-free constrained linear MPC: a Kalman filter on [x; d] and the QP about the steady-state target under d̂ (design::ofmpc) |
+| [`OFMPC`](inc/damp/controllers/ofmpc.hpp#L82) | Offset-free constrained linear MPC: a Kalman filter on [x; d] and the QP about the steady-state target under d̂ (design::ofmpc) |
 | [`PIDController`](inc/damp/controllers/pid.hpp#L541) | Fixed-rate discrete 2-DOF PID (canonical runtime) (+3 more overloads) |
 | [`PIDGains`](inc/damp/controllers/pid.hpp#L143) | 2-DOF continuous-time PID gains, limits and setpoint weights |
 | [`PIDMode`](inc/damp/controllers/pid.hpp#L386) | Compile-time selection of the PID control-law structure |

@@ -11,6 +11,7 @@ and [known limitations](docs/known_limitations.md)).
 
 ### Added
 
+- `OFMPC::disturbance_lim` clamps the disturbance estimate d̂ at each update, as on `OFLQG`, and `estimator()` has a mutable overload to restart the filter or set its estimate.
 - `to_ss()` on an OFLQG design: the law as a discrete block at r = 0, its filter on [x; d] and the target's d̂ terms folded into the gain, to close on a plant other than the design's (one with another delay, say) for its poles.
 - `LQRConfig` and `LQIConfig` take `demand_lim`, a `DemandLimit`: the LQ laws bound what the gain's outer terms ask of one state, read as a cascade (a balancing robot's position and integral asking for a lean), and the integrators hold against it. Off by default, and free in a `constexpr` design's `Law`.
 - `OFLQG::disturbance_lim` clamps the disturbance estimate d̂ at each update, so a load past it (a wall the plant is held against) does not wind d̂ and the target up, the way `integral_lim` holds an LQI's integrator. Unbounded by default.

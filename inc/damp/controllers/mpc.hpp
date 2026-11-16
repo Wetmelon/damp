@@ -1947,6 +1947,8 @@ struct NoMeasuredState {};
  *   observer reconstructs the state.
  *   With a disturbance model the estimator holds deviations from the steady-state target,
  *   re-anchored each tick on the reference now (SteadyStateTarget), and the law is offset-free.
+ *   update clamps d̂ into disturbance_lim (unbounded by default), so a load past it (a wall the
+ *   plant is held against) does not wind d̂ and the target up.
  *   Without one the QP is posed about the nominal target of the reference.
  *
  * @tparam NX        Plant states
@@ -1976,6 +1978,10 @@ public:
 
     using Artifacts = design::MPCArtifacts<NXM, NU, NY, NP, NC, ND + NDE, T, NT_max>;
     using TargetResult = design::SteadyStateTargetResult<NXE, NU, ND + NDE, NY, T>;
+    using DisturbanceLim = detail::maybe<(NDE > 0), Bounds<NDE, T>, detail::OffSlot::disturbance_lim>;
+
+    /** @brief Limits on the disturbance estimate d̂, in d's units: update clamps it, as OFLQG's (NDE > 0; default unbounded). */
+    [[no_unique_address]] DisturbanceLim disturbance_lim{};
     /** @brief A design it is built from: the QP and the target, and @p Kalman, the estimator's design (NoEstimator without one). */
     template<typename Kalman>
     using ResultWith = design::MPCResult<Artifacts, Kalman, TargetResult>;
@@ -2052,6 +2058,9 @@ public:
     constexpr void update(const ColVec<NYM, T>& y) {
         if constexpr (estimated) {
             estimator_.update(y);
+            if constexpr (NDE > 0) {
+                estimator_.limit_disturbance(disturbance_lim);
+            }
         } else {
             x_ = y;
         }
@@ -2163,6 +2172,13 @@ public:
 
     /** @brief The estimator (the observer and its anchor). */
     [[nodiscard]] constexpr const Estimator& estimator() const
+        requires(estimated)
+    {
+        return estimator_;
+    }
+
+    /** @brief The estimator, to restart it (reset(x0)) or overwrite its estimate (set_state); limit d̂ with disturbance_lim. */
+    [[nodiscard]] constexpr Estimator& estimator()
         requires(estimated)
     {
         return estimator_;
