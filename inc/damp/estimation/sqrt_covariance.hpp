@@ -42,6 +42,19 @@
 #include "damp/matrix/matrix.hpp"
 #include "damp/matrix/pattern_matrix.hpp"
 
+namespace damp {
+
+/**
+ * @brief What a recursive filter's last measurement update did, its last_status(): taken, or
+ *        refused with the estimate and the covariance unchanged.
+ */
+enum class UpdateStatus : uint8_t {
+    ok,      ///< The reading was taken (or no update has run since the filter was built or reset)
+    refused, ///< R not positive semidefinite, C P Cᵀ + R singular or past the scalar's range, or the reading not finite
+};
+
+} // namespace damp
+
 namespace damp::detail {
 
 /**

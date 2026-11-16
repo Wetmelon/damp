@@ -188,16 +188,21 @@ struct ExtendedKalmanFilter {
     [[nodiscard]] constexpr bool update(const H& h, const ColVec<NY, T>& y, const damp::type_identity_t<Matrix<NY, NY, T>>& R) {
         const ColVec<NY, T> nu = y - h(x, u_);
         const auto          noise = detail::reading_noise_factor(R); // an R that is not a covariance is refused below
+        bool                taken = false;
         if constexpr (PatternMeasurement<H, NX, NU, NY, T>) {
-            return detail::sqrt_measurement_update(S, x, nu, h.jacobian(x, u_), noise);
+            taken = detail::sqrt_measurement_update(S, x, nu, h.jacobian(x, u_), noise);
         } else {
             const Matrix<NY, NX, T> C = detail::measurement_state_jacobian<NX, NU, NY, T>(h, x, u_, detail::default_jacobian_step<T>());
-            return detail::sqrt_measurement_update(S, x, nu, C, noise);
+            taken = detail::sqrt_measurement_update(S, x, nu, C, noise);
         }
+        last_status_ = taken ? UpdateStatus::ok : UpdateStatus::refused;
+        return taken;
     }
 
     /** @brief The state estimate x̂. */
     [[nodiscard]] constexpr const ColVec<NX, T>& state() const { return x; }
+    /** @brief What the last measurement update did: taken, or refused (update returned false). */
+    [[nodiscard]] constexpr UpdateStatus last_status() const { return last_status_; }
     /** @brief The estimate covariance P = S Sᵀ, formed from the factor on each call: exactly symmetric, rounded to eps·‖P‖. */
     [[nodiscard]] constexpr Matrix<NX, NX, T> covariance() const { return detail::covariance_of_factor(S); }
     /** @brief The factor S the filter carries, P = S Sᵀ: lower triangular with a non-negative diagonal. */
@@ -229,16 +234,18 @@ struct ExtendedKalmanFilter {
         x = x0;
         S = detail::covariance_factor_or_identity(P0);
         u_ = ColVec<NU, T>{};
+        last_status_ = UpdateStatus::ok;
     }
 
 private:
-    Model             model_{}; ///< Continuous dynamics ẋ = f(x, u)
-    ColVec<NX, T>     x{};      ///< Estimate
-    Matrix<NX, NX, T> S{};      ///< Lower-triangular factor of the estimate covariance, P = S Sᵀ
-    Matrix<NX, NX, T> Q{};      ///< Process-noise covariance per step
-    Matrix<NX, NX, T> Gamma{};  ///< Lower-triangular factor of Q, factored once
-    T                 Ts{};     ///< Sample time [s]; 0 (default-constructed) holds the state in predict
-    ColVec<NU, T>     u_{};     ///< The input the last predict held, for the readings' h
+    Model             model_{};                       ///< Continuous dynamics ẋ = f(x, u)
+    ColVec<NX, T>     x{};                            ///< Estimate
+    Matrix<NX, NX, T> S{};                            ///< Lower-triangular factor of the estimate covariance, P = S Sᵀ
+    Matrix<NX, NX, T> Q{};                            ///< Process-noise covariance per step
+    Matrix<NX, NX, T> Gamma{};                        ///< Lower-triangular factor of Q, factored once
+    T                 Ts{};                           ///< Sample time [s]; 0 (default-constructed) holds the state in predict
+    UpdateStatus      last_status_{UpdateStatus::ok}; ///< What the last measurement update did
+    ColVec<NU, T>     u_{};                           ///< The input the last predict held, for the readings' h
 };
 
 /** @brief Deduce the filter from its model, a struct or a captureless lambda: `ExtendedKalmanFilter ekf{f, {.Ts = Ts, .Q = Q}}`. */

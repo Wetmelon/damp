@@ -327,7 +327,10 @@ TEST_SUITE("Extended Kalman Filter") {
         ExtendedKalmanFilter<Stationary, double> ekf{Stationary{}, {.Ts = 0.1, .Q = Matrix<2, 2>::zeros(), .P0 = Matrix<2, 2>::zeros()}};
         ekf.predict(kNoInput);
         CHECK_FALSE(ekf.update(Blind{}, ColVec<1>{{1.0}}, 0.0));
+        CHECK(ekf.last_status() == UpdateStatus::refused);
         CHECK(ekf.state()[0] == 0.0); // the estimate is unchanged
+        ekf.reset(ColVec<2>{}, Matrix<2, 2>::identity());
+        CHECK(ekf.last_status() == UpdateStatus::ok);
     }
 
     TEST_CASE("sequential scalar updates with inter-measurement state clamping") {

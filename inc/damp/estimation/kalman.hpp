@@ -934,9 +934,9 @@ struct KalmanFilter {
     [[nodiscard]] constexpr bool update(const ColVec<NY, T>& y) {
         const ColVec<NY, T> nu = y - ((sys.C * x) + (sys.D * u_prev_));
         if constexpr (Store::constant) {
-            return detail::sqrt_measurement_update(S_, x, nu, detail::as_pattern_matrix<Store::kC>, Store::kReadingFactor);
+            return record(detail::sqrt_measurement_update(S_, x, nu, detail::as_pattern_matrix<Store::kC>, Store::kReadingFactor));
         } else {
-            return detail::sqrt_measurement_update(S_, x, nu, sys.C, Lr_);
+            return record(detail::sqrt_measurement_update(S_, x, nu, sys.C, Lr_));
         }
     }
 
@@ -1003,7 +1003,7 @@ struct KalmanFilter {
      *        return the state.
      *
      * One call is one complete filter tick (StateEstimator). A reading update(y) refuses skips
-     * the correction and the prediction stands.
+     * the correction and the prediction stands; last_status() says so.
      *
      * @param y Measurement taken now
      * @param u Input applied over the previous interval
@@ -1017,6 +1017,9 @@ struct KalmanFilter {
 
     /** @brief The state estimate x̂. */
     [[nodiscard]] constexpr const ColVec<NX, T>& state() const { return x; }
+
+    /** @brief What the last measurement update did: taken, or refused (update returned false, step() went on with the prediction). */
+    [[nodiscard]] constexpr UpdateStatus last_status() const { return last_status_; }
 
     /** @brief The running error covariance P = S Sᵀ, formed from the factor on each call: exactly symmetric, rounded to eps·‖P‖. */
     [[nodiscard]] constexpr Matrix<NX, NX, T> covariance() const { return detail::covariance_of_factor(S_); }
@@ -1054,8 +1057,11 @@ struct KalmanFilter {
     /** @brief Overwrite the estimate between updates (a clamp to a physical bound, an angle wrap); P and the held input are kept. */
     constexpr void set_state(const ColVec<NX, T>& x_new) { x = x_new; }
 
-    /** @brief Forget the applied input; the estimate and its covariance are left in place. */
-    constexpr void reset() { u_prev_ = ColVec<NU, T>{}; }
+    /** @brief Forget the applied input and the last status; the estimate and its covariance are left in place. */
+    constexpr void reset() {
+        u_prev_ = ColVec<NU, T>{};
+        last_status_ = UpdateStatus::ok;
+    }
 
     /**
      * @brief Replace the estimate and its covariance, and forget the applied input. Q and R stay.
@@ -1068,6 +1074,7 @@ struct KalmanFilter {
         x = x0;
         S_ = detail::covariance_factor_or_identity(P0);
         u_prev_ = ColVec<NU, T>{};
+        last_status_ = UpdateStatus::ok;
     }
 
 private:
@@ -1097,17 +1104,24 @@ private:
     /** @brief The update with innovation ν, output matrix C (dense or on its pattern) and reading covariance R, factored here. */
     template<size_t NYS, typename CMatrix>
     [[nodiscard]] constexpr bool correct(const ColVec<NYS, T>& nu, const CMatrix& C, const Matrix<NYS, NYS, T>& R) {
-        return detail::sqrt_measurement_update(S_, x, nu, C, detail::reading_noise_factor(R)); // an R that is not a covariance: fail closed
+        return record(detail::sqrt_measurement_update(S_, x, nu, C, detail::reading_noise_factor(R))); // an R that is not a covariance: fail closed
     }
 
-    [[no_unique_address]] typename Store::Model         sys{};                ///< The filter's model
-    ColVec<NX, T>                                       x{};                  ///< Estimate
-    ColVec<NU, T>                                       u_prev_{};            ///< The input the plant holds, for the feedthrough
-    Matrix<NX, NX, T>                                   S_{initial_factor()}; ///< Lower-triangular factor of the error covariance, P = S Sᵀ
-    [[no_unique_address]] typename Store::ProcessNoise  Q_{};                 ///< Process noise covariance
-    [[no_unique_address]] typename Store::ReadingNoise  R_{};                 ///< Measurement noise covariance of the model's own reading
-    [[no_unique_address]] typename Store::ProcessFactor Gamma_{};             ///< Γ, Γ Γᵀ = G Q Gᵀ, factored once
-    [[no_unique_address]] typename Store::ReadingFactor Lr_{};                ///< H R Hᵀ factored once; not valid when it is not a covariance, and update(y) then refuses
+    /** @brief Keep an update's outcome for last_status(), and pass it on. */
+    constexpr bool record(bool taken) {
+        last_status_ = taken ? UpdateStatus::ok : UpdateStatus::refused;
+        return taken;
+    }
+
+    [[no_unique_address]] typename Store::Model         sys{};                          ///< The filter's model
+    ColVec<NX, T>                                       x{};                            ///< Estimate
+    ColVec<NU, T>                                       u_prev_{};                      ///< The input the plant holds, for the feedthrough
+    Matrix<NX, NX, T>                                   S_{initial_factor()};           ///< Lower-triangular factor of the error covariance, P = S Sᵀ
+    [[no_unique_address]] typename Store::ProcessNoise  Q_{};                           ///< Process noise covariance
+    [[no_unique_address]] typename Store::ReadingNoise  R_{};                           ///< Measurement noise covariance of the model's own reading
+    [[no_unique_address]] typename Store::ProcessFactor Gamma_{};                       ///< Γ, Γ Γᵀ = G Q Gᵀ, factored once
+    [[no_unique_address]] typename Store::ReadingFactor Lr_{};                          ///< H R Hᵀ factored once; not valid when it is not a covariance, and update(y) then refuses
+    UpdateStatus                                        last_status_{UpdateStatus::ok}; ///< What the last measurement update did
 };
 
 /** @brief Deduce the filter from its design, keeping the result's scalar: KalmanFilter kf{res.as<float>()}. */
