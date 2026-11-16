@@ -8,6 +8,7 @@
 
 #include "damp/backend.hpp"
 #include "damp/design/pole_placement.hpp"
+#include "damp/design/status.hpp"
 #include "damp/math/complex.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "damp/matrix/svd.hpp"

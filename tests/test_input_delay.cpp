@@ -9,9 +9,9 @@
 #include <type_traits>
 
 #include "damp/design/status.hpp"
-#include "damp/math/math.hpp"
 #include "damp/matrix/colvec.hpp"
 #include "damp/matrix/matrix.hpp"
+#include "damp/matrix/matrix_traits.hpp"
 #include "damp/systems/discretization.hpp"
 #include "damp/systems/state_space.hpp"
 #include "doctest.h"

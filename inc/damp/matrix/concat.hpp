@@ -18,7 +18,6 @@
 #include "core.hpp"
 #include "damp/backend.hpp"
 #include "matrix_traits.hpp"
-#include "rowvec.hpp"
 
 namespace damp {
 namespace detail {

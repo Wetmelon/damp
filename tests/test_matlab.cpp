@@ -16,6 +16,7 @@
 #include "damp/controllers/lqi.hpp"
 #include "damp/controllers/lqr.hpp"
 #include "damp/controllers/pid.hpp"
+#include "damp/design/minreal.hpp"
 #include "damp/design/riccati.hpp"
 #include "damp/design/stability.hpp"
 #include "damp/design/status.hpp"

@@ -10,6 +10,7 @@
 #include <limits>
 
 #include "damp/backend.hpp"
+#include "damp/design/status.hpp"
 #include "damp/math/complex.hpp"
 #include "damp/matlab.hpp"
 #include "damp/matrix/matrix.hpp"

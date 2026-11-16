@@ -11,6 +11,7 @@
 #include "damp/backend.hpp"
 #include "damp/design/model_reduction.hpp"
 #include "damp/design/stability.hpp"
+#include "damp/design/status.hpp"
 #include "damp/matrix/eigen.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "damp/systems/state_space.hpp"

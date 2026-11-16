@@ -18,6 +18,7 @@
 #include <vector>
 
 #include "damp/backend.hpp"
+#include "damp/controllers/mpc.hpp"
 #include "damp/controllers/ofmpc.hpp"
 #include "damp/design/disturbance.hpp"
 #include "damp/math/math.hpp"

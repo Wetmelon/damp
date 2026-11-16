@@ -10,6 +10,7 @@
 
 #include "damp/backend.hpp"
 #include "damp/controllers/repetitive.hpp"
+#include "damp/design/status.hpp"
 #include "damp/math/math.hpp"
 
 #define DOCTEST_CONFIG_INCLUDE_TYPE_TRAITS

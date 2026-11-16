@@ -12,6 +12,7 @@
 #include "damp/design/pid_design.hpp"
 #include "damp/design/status.hpp"
 #include "damp/math/complex.hpp"
+#include "damp/math/math.hpp"
 #include "damp/matlab.hpp"
 #include "damp/matrix/core.hpp"
 #include "damp/systems/realization.hpp"

@@ -11,7 +11,6 @@
  * float and double; the non-dyadic case is checked against a tolerance scaled to lsb.
  */
 
-#include "damp/backend.hpp"
 #include "damp/math/math.hpp"
 #include "damp/matrix/matrix_traits.hpp"
 #include "damp/simulation/quantize.hpp"

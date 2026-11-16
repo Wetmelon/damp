@@ -9,6 +9,7 @@
 #include "damp/controllers/lqg.hpp"
 #include "damp/controllers/lqr.hpp"
 #include "damp/design/status.hpp"
+#include "damp/design/steady_state_target.hpp"
 #include "damp/estimation/fixed_gain_observer.hpp"
 #include "damp/estimation/kalman.hpp"
 #include "damp/math/math.hpp"

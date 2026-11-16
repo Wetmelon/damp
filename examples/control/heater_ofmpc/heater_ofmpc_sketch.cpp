@@ -11,7 +11,7 @@
  * heater PWM write. Closed-loop SIL: heater_ofmpc_sil.cpp (same tick).
  */
 
-#include "damp/controllers/ofmpc.hpp"
+#include "damp/controllers/mpc.hpp"
 #include "heater_ofmpc_controller.hpp"
 
 using namespace damp;

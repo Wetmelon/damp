@@ -9,8 +9,10 @@
 
 #include "damp/backend.hpp"
 #include "damp/controllers/pid.hpp"
+#include "damp/design/status.hpp"
 #include "damp/encoder/unwrap.hpp"
 #include "damp/math/math.hpp"
+#include "damp/matrix/matrix_traits.hpp"
 
 #define DOCTEST_CONFIG_INCLUDE_TYPE_TRAITS
 #include "doctest.h"

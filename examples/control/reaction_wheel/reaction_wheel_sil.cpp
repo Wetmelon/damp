@@ -12,10 +12,9 @@
 
 #include "damp/backend.hpp"
 #include "damp/controllers/adrc.hpp"
-#include "damp/controllers/lqg.hpp"
-#include "damp/controllers/lqgi.hpp"
 #include "damp/controllers/lqi.hpp"
 #include "damp/controllers/lqr.hpp"
+#include "damp/controllers/mpc.hpp"
 #include "damp/controllers/ofmpc.hpp"
 #include "damp/controllers/pid.hpp"
 #include "damp/controllers/smc.hpp"

@@ -12,6 +12,8 @@
 #include "damp/design/status.hpp"
 #include "damp/estimation/eso.hpp"
 #include "damp/math/math.hpp"
+#include "damp/matrix/colvec.hpp"
+#include "damp/matrix/matrix_traits.hpp"
 #include "damp/systems/zpk.hpp"
 
 #define DOCTEST_CONFIG_INCLUDE_TYPE_TRAITS

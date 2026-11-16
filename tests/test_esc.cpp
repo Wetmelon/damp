@@ -8,6 +8,7 @@
 #include <limits>
 #include <numbers>
 
+#include "damp/backend.hpp"
 #include "damp/controllers/esc.hpp"
 #include "damp/design/status.hpp"
 

@@ -9,6 +9,7 @@
 #include <limits>
 #include <utility>
 
+#include "damp/backend.hpp"
 #include "damp/design/qp.hpp"
 #include "damp/math/math.hpp"
 #include "damp/matlab.hpp"

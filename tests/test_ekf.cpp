@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <type_traits>
 
+#include "damp/backend.hpp"
 #include "damp/concepts.hpp"
 #include "damp/estimation/ekf.hpp"
 #include "damp/math/math.hpp"

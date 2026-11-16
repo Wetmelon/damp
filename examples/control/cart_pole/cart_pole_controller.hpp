@@ -20,6 +20,7 @@
 
 #pragma once
 
+#include "damp/controllers/law_detail.hpp"
 #include "damp/controllers/lqr.hpp"
 #include "damp/matrix/colvec.hpp"
 #include "damp/matrix/concat.hpp"

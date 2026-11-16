@@ -7,6 +7,7 @@
 #include <limits>
 
 #include "damp/design/linearization.hpp"
+#include "damp/design/status.hpp"
 #include "damp/matlab.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "damp/systems/state_space.hpp"
