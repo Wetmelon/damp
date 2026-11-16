@@ -42,6 +42,10 @@
 #include "damp/systems/transfer_function.hpp"
 #include "damp/systems/zpk.hpp"
 
+// Arduino.h defines PI as a macro, which would rewrite PIDMode::PI: set aside for this header.
+#pragma push_macro("PI")
+#undef PI
+
 namespace damp {
 
 namespace design {
@@ -1314,3 +1318,5 @@ template<typename T = double>
 
 } // namespace design
 } // namespace damp
+
+#pragma pop_macro("PI")

@@ -384,7 +384,7 @@ hammarling(const ComplexSchur<N, T>& cs, Matrix<N, M, damp::complex<T>> Bw, bool
 template<size_t N, typename T>
 [[nodiscard]] constexpr Matrix<N, N, T> real_cholesky_factor(const ComplexSchur<N, T>& cs, const Matrix<N, N, damp::complex<T>>& Rt) {
     using C = damp::complex<T>;
-    Matrix<2 * N, N, T> F{};
+    Matrix<2 * N, N, T> Gt{};
     for (size_t i = 0; i < N; ++i) {
         for (size_t j = 0; j < N; ++j) {
             C acc{};
@@ -393,11 +393,11 @@ template<size_t N, typename T>
             }
             const T sr = mat::detail::scale_by_pow2(acc.real(), cs.e[i]);
             const T si = mat::detail::scale_by_pow2(acc.imag(), cs.e[i]);
-            F(j, i) = sr; // Gᵀ: row j of Gᵀ is column j of G
-            F(N + j, i) = si;
+            Gt(j, i) = sr; // Gᵀ: row j of Gᵀ is column j of G
+            Gt(N + j, i) = si;
         }
     }
-    const auto      qr = mat::full_qr(F);
+    const auto      qr = mat::full_qr(Gt);
     Matrix<N, N, T> R{};
     for (size_t i = 0; i < N; ++i) {
         const T sign = (qr.R(i, i) < T{0}) ? T{-1} : T{1};

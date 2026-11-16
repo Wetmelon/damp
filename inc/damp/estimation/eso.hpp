@@ -71,13 +71,13 @@ struct [[nodiscard]] ESOResult {
 
     /** @brief Estimation-error dynamics (I − L C)Φ; eigenvalues e^{−ω_o T_s} (zero when Ts = 0). */
     [[nodiscard]] constexpr Matrix<NX + 1, NX + 1, T> error_dynamics() const {
-        Matrix<NX + 1, NX + 1, T> F{};
+        Matrix<NX + 1, NX + 1, T> E{};
         for (size_t i = 0; i <= NX; ++i) {
             for (size_t j = 0; j <= NX; ++j) {
-                F(i, j) = Phi(i, j) - (L(i) * Phi(0, j)); // C picks row 0
+                E(i, j) = Phi(i, j) - (L(i) * Phi(0, j)); // C picks row 0
             }
         }
-        return F;
+        return E;
     }
 
     template<typename U>

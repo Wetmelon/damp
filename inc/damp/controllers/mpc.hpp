@@ -780,20 +780,20 @@ template<size_t NXP, size_t NU, size_t NY, size_t ND, typename T>
     Ap.template block<NXP, ND>(0, NXP) = plant.Bd;
     Matrix<NPS, NU, T> Bp{};
     Bp.template block<NXP, NU>(0, 0) = plant.B;
-    //! The scaled output error e = E·p + F·u: E = [S_y⁻¹C, 0, −I], F = S_y⁻¹D
+    //! The scaled output error e = E·p + Ds·u: E = [S_y⁻¹C, 0, −I], Ds = S_y⁻¹D
     Matrix<NY, NPS, T> E{};
-    Matrix<NY, NU, T>  F{};
+    Matrix<NY, NU, T>  Ds{};
     for (size_t i = 0; i < NY; ++i) {
         for (size_t j = 0; j < NXP; ++j) {
             E(i, j) = plant.C(i, j) / scale_y(i);
         }
         E(i, NXP + ND + i) = T{-1};
         for (size_t j = 0; j < NU; ++j) {
-            F(i, j) = plant.D(i, j) / scale_y(i);
+            Ds(i, j) = plant.D(i, j) / scale_y(i);
         }
     }
     const Matrix<NPS, NY, T>  EtQ = E.transpose() * Qy;
-    const LQRCost<NPS, NU, T> integrand{.Q = EtQ * E, .R = F.transpose() * (Qy * F), .N = EtQ * F};
+    const LQRCost<NPS, NU, T> integrand{.Q = EtQ * E, .R = Ds.transpose() * (Qy * Ds), .N = EtQ * Ds};
     Matrix<NW, NW, T>         Wp{};
     const auto                c_opt = discretize_lqr_cost(Ap, Bp, integrand.Q, integrand.R, plant.Ts, integrand.N);
     if (!c_opt) {

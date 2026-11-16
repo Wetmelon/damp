@@ -209,7 +209,6 @@ residualize_states(const StateSpace<NX, NU, NY, T, NW, NV>& sys) {
         const auto A12 = take_block<NR, NE>(sys.A, 0, NR);
         const auto A21 = take_block<NE, NR>(sys.A, NR, 0);
         const auto A22 = take_block<NE, NE>(sys.A, NR, NR);
-        const auto B1 = take_block<NR, NU>(sys.B, 0, 0);
         const auto B2 = take_block<NE, NU>(sys.B, NR, 0);
         const auto C1 = take_block<NY, NR>(sys.C, 0, 0);
         const auto C2 = take_block<NY, NE>(sys.C, 0, NR);
@@ -235,7 +234,7 @@ residualize_states(const StateSpace<NX, NU, NY, T, NW, NV>& sys) {
         }
 
         const auto Ar = A11 + (sign * (A12 * (*Minv_A21)));
-        const auto Br = B1 + (sign * (A12 * (*Minv_B2)));
+        const auto Br = take_block<NR, NU>(sys.B, 0, 0) + (sign * (A12 * (*Minv_B2)));
         const auto Cr = C1 + (sign * (C2 * (*Minv_A21)));
         const auto Dr = sys.D + (sign * (C2 * (*Minv_B2)));
 

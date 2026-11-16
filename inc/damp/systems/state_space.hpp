@@ -516,7 +516,6 @@ template<
     constexpr size_t nz = NYP - NUK; // performance outputs
     constexpr size_t ny = NUK;       // measurements
 
-    const Matrix<nx, nw, T>  B1 = P.B.template block<nx, nw>(0, 0);
     const Matrix<nx, nu, T>  B2 = P.B.template block<nx, nu>(0, nw);
     const Matrix<nz, nx, T>  C1 = P.C.template block<nz, nx>(0, 0);
     const Matrix<ny, nx, T>  C2 = P.C.template block<ny, nx>(nz, 0);
@@ -553,7 +552,7 @@ template<
     out.G = Matrix<nx + nk, NWP + NWK, T>{}; // blkdiag, not the square default identity
     out.H = Matrix<nz, NVP + NVK, T>{};
     out.A.template block<nx, nx>(0, 0) = P.A + B2 * U_x;
-    out.B.template block<nx, nw>(0, 0) = B1 + B2 * U_w;
+    out.B.template block<nx, nw>(0, 0) = P.B.template block<nx, nw>(0, 0) + B2 * U_w;
     out.C.template block<nz, nx>(0, 0) = C1 + D12 * U_x;
     out.G.template block<nx, NWP>(0, 0) = P.G;
     if constexpr (nk > 0) {

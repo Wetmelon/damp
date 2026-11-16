@@ -38,6 +38,10 @@
 
 #include "damp/config.hpp" // IWYU pragma: export - pulls the profile's backend-selection macros
 
+// Arduino.h defines abs as a macro, which would rewrite damp::abs and every .abs(): <cstdlib>
+// removes it the same way. A sketch's abs() is then <cstdlib>'s and <cmath>'s.
+#undef abs
+
 namespace damp::numbers {
 
 // Mathematical constants — our own definitions (no <numbers> dependency), so the
