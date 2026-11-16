@@ -80,6 +80,7 @@ enum class OffSlot : uint8_t {
     design_target,   ///< StateFeedbackResult::target (NZ = 0)
     held_y,          ///< IntegralAction::y (no estimator: the measurement is not held)
     held_x,          ///< StateFeedbackCore::x_ (with an estimator: the state is not held)
+    disturbance_lim, ///< StateFeedbackCore::disturbance_lim (no disturbance model)
 };
 
 /**

@@ -96,6 +96,7 @@ struct HeldGains {
  * | steady-state target for r, under the disturbance model if there is one (SteadyStateTarget) | NZ | 0 |
  * | input registers: the inputs applied over the last NRU periods, held by the law (a measured state) | NRU | 0 |
  * | limits on the command and on the integrators | @ref u_lim, integral.lim | unbounded |
+ * | a limit on the disturbance estimate d̂ (ND > 0) | @ref disturbance_lim | unbounded |
  *
  * One tick is @ref step(): @ref predict (the time update with the input @ref back_calculate
  * recorded, else the last command), then @ref update with the measurement at sample k (the
@@ -129,7 +130,9 @@ struct HeldGains {
  *   input the next @ref predict takes as applied unless @ref back_calculate recorded another.
  *   The integrators compare the applied input with the command before the clamp, so they hold
  *   against the law's own limit as against a clamp downstream. The limits are members: set them
- *   at run time for a rail that moves;
+ *   at run time for a rail that moves. With a disturbance model, @ref update clamps d̂ into
+ *   @ref disturbance_lim, so a load past it (a wall the plant is held against) does not wind d̂,
+ *   and with it the target, up the way an integrator would;
  * - on a number only: a reading, a reference or a reported input that is NaN or ±Inf, or a command
  *   that comes out so, is refused (@ref refused). @ref update keeps the last state (a filter its
  *   prediction), @ref control returns the last command again and the integrators do not move, and
@@ -168,6 +171,7 @@ struct StateFeedbackCore {
     using Target = detail::maybe<(NZ > 0), SteadyStateTarget<NXE, NU, ND, NZ, T, typename Store::template TargetD<NXE + NU, ND, T>, typename Store::template TargetR<NXE + NU, NZ, T>>, detail::OffSlot::target>;
     using Integral = detail::maybe<(NI > 0), detail::IntegralAction<NI, NM, NU, (kEstimated ? NY : 0), T, typename Store::template Ci<NI, NM, T>, typename Store::template Ci_u<NI, NU, T>>, detail::OffSlot::integral>;
     using HeldX = detail::maybe<!kEstimated, ColVec<NXL, T>, detail::OffSlot::held_x>;
+    using DisturbanceLim = detail::maybe<(ND > 0), Bounds<ND, T>, detail::OffSlot::disturbance_lim>;
 
     [[no_unique_address]] Store::template K<NU, NXL + NI, T> K{}; ///< Gain on [x; xi]
 
@@ -175,6 +179,8 @@ struct StateFeedbackCore {
     [[no_unique_address]] Target   target{};    ///< The steady-state target (NZ > 0)
     [[no_unique_address]] Integral integral{};  ///< The integrators (NI > 0)
     Bounds<NU, T>                  u_lim{};     ///< Limits on the command control returns (default unbounded)
+
+    [[no_unique_address]] DisturbanceLim disturbance_lim{}; ///< Limits on the disturbance estimate d̂, in d's units (ND > 0; default unbounded)
 
     constexpr StateFeedbackCore() = default;
 
@@ -301,6 +307,9 @@ struct StateFeedbackCore {
                 integral.y = m;
             }
             estimator.update(m);
+            if constexpr (ND > 0) {
+                estimator.limit_disturbance(disturbance_lim);
+            }
         } else if constexpr (NRU == 0) {
             x_ = m;
         } else {

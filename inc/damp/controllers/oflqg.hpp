@@ -124,7 +124,9 @@ template<
  * trajectory (x_ref, u_ref) is control(r, x_ref, u_ref), or step(r, x_ref, u_ref, y). The
  * command is clamped into u_lim (the design's, LQRConfig; unbounded by default), and predict()
  * moves the filter with it, so the clamp is not taken for a disturbance; back_calculate(u_sat)
- * before it reports a stage that clamps after the law.
+ * before it reports a stage that clamps after the law. update() clamps d̂ into disturbance_lim, a
+ * member of the runtime (unbounded by default), in d's units: the most of a load the law leans
+ * against, as integral_lim on LQI.
  *
  * A design with an InputDelay (NRU > 0) has its filter on [x; v(k−1); …; v(k−NRU); d]: predict
  * shifts the applied input into the registers. x_ref is the plant's; the registers' reference is
@@ -151,6 +153,7 @@ struct OFLQG : private detail::StateFeedbackCore<NX, NU, T, 0, NY, Est, NZ, Stor
         }
     }
 
+    using Core::disturbance_lim;
     using Core::estimator;
     using Core::K;
     using Core::target;

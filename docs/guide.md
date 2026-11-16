@@ -187,7 +187,7 @@ One contract for every law:
 | Law | Output limit | What holds against the clamp |
 | --- | --- | --- |
 | `PIDController`, `PIController`, `ContinuousPID` | `u_lim` in `PIDGains` | The integral: it gives back what the tick added, up to what the clamp cut off. With a `Kbc` it unwinds by back-calculation instead |
-| `LQR`, `LQI`, `LQG`, `LQGI`, `OFLQG` | `u_lim` in `LQRConfig`, or `LQIConfig` with `integral_lim` | The integrators; the filter and the input registers move on the clamped command |
+| `LQR`, `LQI`, `LQG`, `LQGI`, `OFLQG` | `u_lim` in `LQRConfig`, or `LQIConfig` with `integral_lim` | The integrators; the filter and the input registers move on the clamped command; `OFLQG`'s d̂ stays in `disturbance_lim` |
 | `MPC`, `OFMPC` | `u_lim`, `du_lim`, `y_lim` in `MPCConstraints` | By construction: the limits are constraints of the QP |
 | `ADRCController` | `u_lim` on `ADRCResult` | The ESO runs on the clamped command |
 | `STSMCController` | `u_lim` on `STSMCResult` | The integral state |
@@ -197,7 +197,7 @@ One contract for every law:
 | `RepetitiveController` | none: it returns a correction | A sample the clamp cut off is not learned |
 | `ClassicalDOB` | none: it returns the corrected command | The estimate takes the input reported |
 
-`integral_lim` bounds the integral a law stores, so its unit is that law's: the I term in output units on a PID, ξ ≈ ∫e·dt on the LQ laws.
+`integral_lim` bounds the integral a law stores, so its unit is that law's: the I term in output units on a PID, ξ ≈ ∫e·dt on the LQ laws. `disturbance_lim` does the same for an `OFLQG`'s d̂, in d's units: a member of the runtime only, set on the law.
 
 A limit on a state or an output needs a prediction: `design::mpc` (`y_lim`, soft or hard), `design::mhe` (`x_lim` on the estimate), or an `ActionGovernor` around any law.
 
