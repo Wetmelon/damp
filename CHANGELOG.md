@@ -12,7 +12,7 @@ and [known limitations](docs/known_limitations.md)).
 ### Added
 
 - `design::lqr`, `lqi`, `lqg`, `lqgi`, `oflqg`, `kalman` and `steady_state_target` take an `InputDelay` after Ts: the continuous plant, its weights and its noise, the cost and the noise discretized exactly on the delayed model. A measured-state law holds the registers itself, so `update` takes the plant state; a filter carries them with no noise on them.
-- `LQRConfig`, the weights of an LQ design, takes `u_lim` and `integral_lim`: the LQR, LQI, LQG, LQGI and OFLQG runtimes clamp their command and their integral state to them, and hold the integrators against that clamp with no `back_calculate`. Both are members of the runtime (`law.u_lim`, `law.integral.lim`), so a limit can move at run time.
+- `LQRConfig`, the weights of an LQ design, takes `u_lim`, and `LQIConfig` also `integral_lim`: the LQR, LQI, LQG, LQGI and OFLQG runtimes clamp their command and their integral state to them, and hold the integrators against that clamp with no `back_calculate`. Both are members of the runtime (`law.u_lim`, `law.integral.lim`), so a limit can move at run time.
 - `Bounds::valid()`: no end NaN and no lower end above its upper one, the test `design::mpc` and `design::mhe` already applied.
 - `u_lim` on `ADRCResult`, `STSMCResult` and `LeadLagResult`, and as a member of their runtimes and of `ExtremumSeekingController`: the command is clamped into it and the law's memory holds against that clamp.
 - `back_calculate(u_sat, u_ff)` on `STSMCController`, `LeadLagController`, `ExtremumSeekingController`, `SmithPredictor`, `RepetitiveController` and `ClassicalDOB`: a clamp after the law is reported the same way to every law with memory.
@@ -21,7 +21,7 @@ and [known limitations](docs/known_limitations.md)).
 
 - `StateFeedbackResult` and the LQR, LQI, LQG, LQGI and OFLQG runtimes take a last template argument, NRU, the input registers of the law's model (0: none); K, S and e are on [x; v(k−1); …; v(k−NRU)] then the integrators.
 - `damp::min`, `damp::max` and `damp::clamp` return by value on both backends, so a result bound to a reference cannot dangle on a temporary argument. The backends now agree: a tie or a NaN gives `min` and `max` their first argument, and `clamp` with lo > hi gives hi, where `std::clamp` is undefined.
-- `LQRWeights` is `LQRConfig`: it carries the law's limits with the cost. A design called with braces, `{.Q = Q, .R = R}`, does not change.
+- `LQRWeights<NX, NU, NI>` is `LQRConfig<NX, NU>` for `lqr`, `lqg` and `oflqg`, and `LQIConfig<NX, NU, NI>` with `Q_integral` for `lqi` and `lqgi`: each has only its law's fields, the limits with the cost. A design called with braces, `{.Q = Q, .R = R}`, does not change.
 - `mat::pseudo_inverse`, `mat::null_space` and `mat::two_norm` return an optional, empty when the SVD fails, where they returned NaN; `matlab::pinv` and `matlab::null` follow. `design::steady_state_target` with more outputs than inputs refuses a failed factorization, where it could report NaN maps as a success.
 - `+` and `−` on matrices and views need equal shapes: a dimension of size 1 is no longer stretched to fit (NumPy's broadcast), so a missing transpose does not compile. An offset on every entry is `A + scalar`.
 - A PID with an output limit and `Kbc = 0` holds its integral against the clamp (conditional integration), where it wound up, and `back_calculate` does the same for a clamp downstream. A `Kbc` still unwinds it by back-calculation.

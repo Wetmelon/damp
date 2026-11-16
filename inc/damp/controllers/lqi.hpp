@@ -41,13 +41,13 @@ using LQIResult = StateFeedbackResult<NX, NU, T, NI, NY, NoEstimator, 0, NRU>;
  * @note Compare with MATLAB®'s lqi(sys, Q, R, N).
  */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
-[[nodiscard]] constexpr auto lqi(const StateSpace<NX, NU, NY, T, NW, NV>& sys, const LQRConfig<NX, NU, NY, T>& config) {
+[[nodiscard]] constexpr auto lqi(const StateSpace<NX, NU, NY, T, NW, NV>& sys, const LQIConfig<NX, NU, NY, T>& config) {
     return detail::state_feedback(sys, config, detail::StateFeedbackOptions{.offset_free = IntegralAction{}});
 }
 
 /** @brief The sampled-data linear-quadratic regulator with integral action on every output: runs as LQI. */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
-[[nodiscard]] constexpr auto lqi(const StateSpace<NX, NU, NY, T, NW, NV>& sys, damp::type_identity_t<T> Ts, const LQRConfig<NX, NU, NY, T>& config) {
+[[nodiscard]] constexpr auto lqi(const StateSpace<NX, NU, NY, T, NW, NV>& sys, damp::type_identity_t<T> Ts, const LQIConfig<NX, NU, NY, T>& config) {
     return detail::state_feedback(sys, Ts, config, detail::StateFeedbackOptions{.offset_free = IntegralAction{}});
 }
 
@@ -59,7 +59,7 @@ template<size_t NI, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size
     requires(NI > 0)
 [[nodiscard]] constexpr auto lqi(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
-    const LQRConfig<NX, NU, NI, T>&          config,
+    const LQIConfig<NX, NU, NI, T>&          config,
     const IntegralAction<NI>&                outputs
 ) {
     return detail::state_feedback(sys, config, detail::StateFeedbackOptions{.offset_free = outputs});
@@ -71,7 +71,7 @@ template<size_t NI, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size
 [[nodiscard]] constexpr auto lqi(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     damp::type_identity_t<T>                 Ts,
-    const LQRConfig<NX, NU, NI, T>&          config,
+    const LQIConfig<NX, NU, NI, T>&          config,
     const IntegralAction<NI>&                outputs
 ) {
     return detail::state_feedback(sys, Ts, config, detail::StateFeedbackOptions{.offset_free = outputs});
@@ -95,7 +95,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     damp::type_identity_t<T>                 Ts,
     const InputDelay<N, S>&                  delay,
-    const LQRConfig<NX, NU, NY, T>&          config
+    const LQIConfig<NX, NU, NY, T>&          config
 ) {
     return detail::state_feedback(sys, Ts, delay, config, detail::StateFeedbackOptions{.offset_free = IntegralAction{}});
 }
@@ -107,7 +107,7 @@ template<size_t NI, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     damp::type_identity_t<T>                 Ts,
     const InputDelay<N, S>&                  delay,
-    const LQRConfig<NX, NU, NI, T>&          config,
+    const LQIConfig<NX, NU, NI, T>&          config,
     const IntegralAction<NI>&                outputs
 ) {
     return detail::state_feedback(sys, Ts, delay, config, detail::StateFeedbackOptions{.offset_free = outputs});
@@ -122,7 +122,7 @@ template<size_t NI, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size
  * Runs design::lqi. xi integrates r − Ci·C·x; the law is u = u* − K·[x − x*; xi]. The tick is
  * update(x) then control(r), or step(r, x), with x* = 0 and u* = 0; feedforward from a planned
  * trajectory (x_ref, u_ref) is control(r, x_ref, u_ref), or step(r, x_ref, u_ref, x). The
- * command is clamped into u_lim and xi into integral.lim (the design's, LQRConfig; unbounded by
+ * command is clamped into u_lim and xi into integral.lim (the design's, LQIConfig; unbounded by
  * default), and predict() holds the integrators against that clamp; back_calculate(u_sat) before
  * it reports a stage that clamps after the law.
  *

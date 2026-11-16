@@ -38,7 +38,7 @@ constexpr auto sys = StateSpace<2, 1, 1>{
 } // namespace
 
 // Configure tuning parameters (control weights) for an LQI
-constexpr auto weights = design::LQRConfig<2, 1, 1>{
+constexpr auto weights = design::LQIConfig<2, 1, 1>{
     .Q = Matrix<2, 2>{
         {10.0, 0.0},
         {0.0, 1.0},
@@ -131,7 +131,7 @@ Keep the plant as `StateSpace` (or `matlab::ss` / `tf`). Discretize with `discre
 
 `[K,S,e] = lqr(sys,Q,R)` is `design::lqr(sys, {.Q, .R})` (CARE if continuous, DARE if discrete). Sampled-data (`lqrd`) is `design::lqr(sys, Ts, {.Q, .R})`.
 
-Integral action is `design::lqi`; it builds the augmented plant. Actuator saturation on that law is `.u_lim` in its `LQRConfig`, which the law clamps to and holds its integrators against, or `back_calculate` after a clamp downstream. Input and output limits over a horizon are `design::mpc`.
+Integral action is `design::lqi`; it builds the augmented plant. Actuator saturation on that law is `.u_lim` in its `LQIConfig`, which the law clamps to and holds its integrators against, or `back_calculate` after a clamp downstream. Input and output limits over a horizon are `design::mpc`.
 
 ## Coming from firmware
 
@@ -187,7 +187,7 @@ One contract for every law:
 | Law | Output limit | What holds against the clamp |
 | --- | --- | --- |
 | `PIDController`, `PIController`, `ContinuousPID` | `u_lim` in `PIDGains` | The integral: it gives back what the tick added, up to what the clamp cut off. With a `Kbc` it unwinds by back-calculation instead |
-| `LQR`, `LQI`, `LQG`, `LQGI`, `OFLQG` | `u_lim` in `LQRConfig` | The integrators; the filter and the input registers move on the clamped command |
+| `LQR`, `LQI`, `LQG`, `LQGI`, `OFLQG` | `u_lim` in `LQRConfig`, or `LQIConfig` with `integral_lim` | The integrators; the filter and the input registers move on the clamped command |
 | `MPC`, `OFMPC` | `u_lim`, `du_lim`, `y_lim` in `MPCConstraints` | By construction: the limits are constraints of the QP |
 | `ADRCController` | `u_lim` on `ADRCResult` | The ESO runs on the clamped command |
 | `STSMCController` | `u_lim` on `STSMCResult` | The integral state |

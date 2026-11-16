@@ -65,7 +65,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
     requires(detail::is_disturbance_model<Disturbance>)
 [[nodiscard]] constexpr auto oflqg(
     const StateSpace<NX, NU, NY, T, NW, NV>&                 sys,
-    const LQRConfig<NX, NU, 0, T>&                           config,
+    const LQRConfig<NX, NU, T>&                              config,
     const damp::type_identity_t<KalmanNoise<NW, NV, T, ND>>& noise,
     const Disturbance&                                       disturbance
 ) {
@@ -78,7 +78,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
 [[nodiscard]] constexpr auto oflqg(
     const StateSpace<NX, NU, NY, T, NW, NV>&                 sys,
     damp::type_identity_t<T>                                 Ts,
-    const LQRConfig<NX, NU, 0, T>&                           config,
+    const LQRConfig<NX, NU, T>&                              config,
     const damp::type_identity_t<KalmanNoise<NW, NV, T, ND>>& noise,
     const Disturbance&                                       disturbance
 ) {
@@ -104,7 +104,7 @@ template<
     const StateSpace<NX, NU, NY, T, NW, NV>&                 sys,
     damp::type_identity_t<T>                                 Ts,
     const InputDelay<N, S>&                                  delay,
-    const LQRConfig<NX, NU, 0, T>&                           config,
+    const LQRConfig<NX, NU, T>&                              config,
     const damp::type_identity_t<KalmanNoise<NW, NV, T, ND>>& noise,
     const Disturbance&                                       disturbance
 ) {

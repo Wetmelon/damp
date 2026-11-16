@@ -7,7 +7,7 @@
 
 /**
  * @file state_feedback_types.hpp
- * @brief The types of an LQ design: what it is given (LQRConfig, IntegralAction) and what it hands
+ * @brief The types of an LQ design: what it is given (LQRConfig, LQIConfig, IntegralAction) and what it hands
  *        its runtime (StateFeedbackResult, NoEstimator)
  *
  * The designs are in lqr.hpp, lqi.hpp, lqg.hpp, lqgi.hpp and oflqg.hpp (detail/state_feedback_design.hpp
@@ -20,7 +20,6 @@
 #include "damp/design/steady_state_target.hpp"
 #include "damp/estimation/fixed_gain_observer.hpp"
 #include "damp/math/complex.hpp"
-#include "damp/matrix/block.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "damp/systems/state_space.hpp"
 #include "damp/toolbox/bounds.hpp"
@@ -97,20 +96,57 @@ struct IntegralAction {
 
 /**
  * @struct LQRConfig
- * @brief What a state-feedback design is given with the plant: the cost, what to penalize and how
- *        much, and the limits its law runs within
+ * @brief What a regulator design (lqr, lqg, oflqg) is given with the plant: the cost, what to
+ *        penalize and how much, and the limit its command runs within
  *
- * The cost is the weights Q, R, N and Q_integral, in the plant's own time domain: a cost integral
- * on a continuous plant (with a Ts argument it is discretized exactly), per step on a discrete
- * one. Braces size it from the call: `{.Q = Q, .R = R}`, and `.Q_integral` with integral action.
- * Template order is NX, NU, NI (0 for a regulator), T: `LQRConfig<2, 1, 1>` is LQI on double.
+ * The cost is the weights Q, R and N, in the plant's own time domain: a cost integral on a
+ * continuous plant (with a Ts argument it is discretized exactly), per step on a discrete one.
+ * Braces size it from the call: `{.Q = Q, .R = R}`. A law with integral action takes LQIConfig.
  *
  * | Field | Penalizes | Size |
  * | --- | --- | --- |
  * | Q | the plant states x | NX × NX, positive semidefinite |
  * | R | the inputs u | NU × NU, positive definite |
  * | N | the cross term 2xᵀNu (default zero) | NX × NU |
- * | Q_integral | the discrete integral state ξ (lqi, lqgi) | NI × NI, positive definite |
+ *
+ * An R that is not positive definite is refused with DesignStatus::bad_weights.
+ *
+ * u_lim is the runtime's, not the cost's: the gain is the same with or without it.
+ * `{.Q = Q, .R = R, .u_lim = {.lower = -12.0, .upper = 12.0}}` clamps the command control
+ * returns to ±12, per input (default unbounded); back_calculate stays for a stage that clamps
+ * after the law. It is a member of the runtime, `law.u_lim`, so a rail that moves is set at run
+ * time. A limit that is NaN, or a lower limit above its upper one, is refused with
+ * DesignStatus::invalid_parameter.
+ */
+template<size_t NX, size_t NU, typename T = double>
+struct LQRConfig {
+    Matrix<NX, NX, T> Q{};     ///< On the plant states x (positive semidefinite)
+    Matrix<NU, NU, T> R{};     ///< On the inputs u (positive definite)
+    Matrix<NX, NU, T> N{};     ///< Cross term between x and u (default zero)
+    Bounds<NU, T>     u_lim{}; ///< Limits on the command u, per input (default unbounded)
+};
+
+/** @brief Sizes from the matrices: `LQRConfig{Q, R}`. */
+template<size_t NX, size_t NU, typename T>
+LQRConfig(Matrix<NX, NX, T>, Matrix<NU, NU, T>) -> LQRConfig<NX, NU, T>;
+
+/** @brief Sizes from the matrices: `LQRConfig{Q, R, N}`. */
+template<size_t NX, size_t NU, typename T>
+LQRConfig(Matrix<NX, NX, T>, Matrix<NU, NU, T>, Matrix<NX, NU, T>) -> LQRConfig<NX, NU, T>;
+
+/**
+ * @struct LQIConfig
+ * @brief What a design with integral action (lqi, lqgi) is given with the plant: LQRConfig's
+ *        cost and limit, and the weight and the limits on the NI integrators
+ *
+ * Q, R, N and u_lim are LQRConfig's. Braces size it from the call:
+ * `{.Q = Q, .R = R, .Q_integral = Qi}`. Template order is NX, NU, NI, T: `LQIConfig<2, 1, 1>`
+ * is one integrator on double.
+ *
+ * | Field | | Size |
+ * | --- | --- | --- |
+ * | Q_integral | penalizes the discrete integral state ξ | NI × NI, positive definite |
+ * | integral_lim | limits ξ, per integrator | NI, default unbounded |
  *
  * Q_integral is the cost on the Euler-integrated error ξ ≈ ∫e dt, not a block of a generic
  * augmented Q. Q, R and N are the plant cost (Van Loan on a continuous plant); Q_integral keeps
@@ -118,27 +154,16 @@ struct IntegralAction {
  * block-diagonal in Q and Q_integral: x–ξ cross terms are not a public weight and are
  * refused. The closed loop still couples x and ξ, so raising Q_integral
  * speeds the integral and moves the regulator poles too. An integrator Q_integral does not
- * weight is a mode at z = 1 the cost does not see; a design with integral action and a
- * Q_integral that is not positive definite (left out of the braces, for one) is refused with
- * DesignStatus::bad_weights, as is an R that is not positive definite.
+ * weight is a mode at z = 1 the cost does not see; a Q_integral that is not positive definite
+ * (left out of the braces, for one) is refused with DesignStatus::bad_weights.
  *
- * The limits are the runtime's, not the cost's: the gain is the same with or without them.
- *
- * | Field | Limits | Size |
- * | --- | --- | --- |
- * | u_lim | the command control returns, per input | NU, default unbounded |
- * | integral_lim | the integral state ξ, per integrator (lqi, lqgi) | NI, default unbounded |
- *
- * `{.Q = Q, .R = R, .u_lim = {.lower = -12.0, .upper = 12.0}}` clamps the command to ±12 and
- * holds the integrators against that clamp, with no back_calculate (which stays for a stage
- * that clamps after the law). integral_lim is on ξ itself, in the units of ∫e dt (the error's
- * times seconds): through the gain, ξ moves input j by K(j, NX + i)·ξᵢ. Both are members of the
- * runtime, `law.u_lim` and `law.integral.lim`, so a rail that moves is set at run time. A limit
- * that is NaN, or a lower limit above its upper one, is refused with
- * DesignStatus::invalid_parameter.
+ * The law holds its integrators against the clamp of u_lim, with no back_calculate.
+ * integral_lim is on ξ itself, in the units of ∫e dt (the error's times seconds): through the
+ * gain, ξ moves input j by K(j, NX + i)·ξᵢ. It is a member of the runtime, `law.integral.lim`,
+ * set at run time like `law.u_lim`, and refused as u_lim is.
  */
-template<size_t NX, size_t NU, size_t NI = 0, typename T = double>
-struct LQRConfig {
+template<size_t NX, size_t NU, size_t NI, typename T = double>
+struct LQIConfig {
     Matrix<NX, NX, T> Q{};            ///< On the plant states x (positive semidefinite)
     Matrix<NU, NU, T> R{};            ///< On the inputs u (positive definite)
     Matrix<NX, NU, T> N{};            ///< Cross term between x and u (default zero)
@@ -147,17 +172,17 @@ struct LQRConfig {
     Bounds<NI, T>     integral_lim{}; ///< Limits on the integral state ξ, per integrator (default unbounded)
 };
 
-/** @brief Sizes from the matrices: `LQRConfig{Q, R}`. */
-template<size_t NX, size_t NU, typename T>
-LQRConfig(Matrix<NX, NX, T>, Matrix<NU, NU, T>) -> LQRConfig<NX, NU, 0, T>;
-
-/** @brief Sizes from the matrices: `LQRConfig{Q, R, N}`. */
-template<size_t NX, size_t NU, typename T>
-LQRConfig(Matrix<NX, NX, T>, Matrix<NU, NU, T>, Matrix<NX, NU, T>) -> LQRConfig<NX, NU, 0, T>;
-
-/** @brief Sizes from the matrices: `LQRConfig{Q, R, N, Q_integral}`. */
+/** @brief Sizes from the matrices: `LQIConfig{Q, R, N, Q_integral}`. */
 template<size_t NX, size_t NU, typename T, size_t NI>
-LQRConfig(Matrix<NX, NX, T>, Matrix<NU, NU, T>, Matrix<NX, NU, T>, Matrix<NI, NI, T>) -> LQRConfig<NX, NU, NI, T>;
+LQIConfig(Matrix<NX, NX, T>, Matrix<NU, NU, T>, Matrix<NX, NU, T>, Matrix<NI, NI, T>) -> LQIConfig<NX, NU, NI, T>;
+
+namespace detail {
+
+/** @brief The config of a law with @p NI integrators: LQRConfig for none, LQIConfig with them. */
+template<size_t NX, size_t NU, size_t NI, typename T>
+using lq_config = damp::conditional_t<(NI == 0), LQRConfig<NX, NU, T>, LQIConfig<NX, NU, NI, T>>;
+
+} // namespace detail
 
 /** @brief The integral action of a design: the integrated outputs, their maps of the state and the input, the per-sample step and the limits on ξ. */
 template<size_t NI, size_t NX, size_t NU, size_t NY, typename T = double>
@@ -166,7 +191,7 @@ struct IntegralDesign {
     Matrix<NI, NX, T> Ci_x{};  ///< Ci·C: the integrated outputs as a map of the plant state (what a law that measures its state integrates)
     Matrix<NI, NU, T> Ci_u{};  ///< Ci·D: the integrated outputs' feedthrough of the input applied over the period
     T                 step{1}; ///< Per-sample integrator gain: the design's Ts (xi += Ts·e ≈ ∫e dt)
-    Bounds<NI, T>     lim{};   ///< Limits on the integral state ξ (LQRConfig::integral_lim; default unbounded)
+    Bounds<NI, T>     lim{};   ///< Limits on the integral state ξ (LQIConfig::integral_lim; default unbounded)
 
     /** @brief The same integral action in the scalar U. */
     template<typename U>

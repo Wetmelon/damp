@@ -20,7 +20,6 @@
 #include "damp/controllers/state_feedback_types.hpp"
 #include "damp/design/status.hpp"
 #include "damp/design/steady_state_target.hpp"
-#include "damp/estimation/fixed_gain_observer.hpp"
 #include "damp/math/math.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "damp/matrix/matrix_traits.hpp"
@@ -165,11 +164,12 @@ struct StateFeedbackCore {
     using Integral = detail::maybe<(NI > 0), detail::IntegralAction<NI, NM, NU, (kEstimated ? NY : 0), T, typename Store::template Ci<NI, NM, T>, typename Store::template Ci_u<NI, NU, T>>, detail::OffSlot::integral>;
     using HeldX = detail::maybe<!kEstimated, ColVec<NXL, T>, detail::OffSlot::held_x>;
 
-    [[no_unique_address]] typename Store::template K<NU, NXL + NI, T> K{};         ///< Gain on [x; xi]
-    [[no_unique_address]] Est                                         estimator{}; ///< The filter (none for a measured state)
-    [[no_unique_address]] Target                                      target{};    ///< The steady-state target (NZ > 0)
-    [[no_unique_address]] Integral                                    integral{};  ///< The integrators (NI > 0)
-    Bounds<NU, T>                                                     u_lim{};     ///< Limits on the command control returns (default unbounded)
+    [[no_unique_address]] Store::template K<NU, NXL + NI, T> K{}; ///< Gain on [x; xi]
+
+    [[no_unique_address]] Est      estimator{}; ///< The filter (none for a measured state)
+    [[no_unique_address]] Target   target{};    ///< The steady-state target (NZ > 0)
+    [[no_unique_address]] Integral integral{};  ///< The integrators (NI > 0)
+    Bounds<NU, T>                  u_lim{};     ///< Limits on the command control returns (default unbounded)
 
     constexpr StateFeedbackCore() = default;
 
@@ -331,21 +331,21 @@ struct StateFeedbackCore {
 
     /** @brief The command the last control returned: the input a predict without back_calculate uses. */
     [[nodiscard]] constexpr const ColVec<NU, T>& last_command() const
-        requires(kRecord)
+        requires kRecord
     {
         return applied_.command;
     }
 
     /** @brief The input the last predict used: back_calculate's, else the command before it. */
     [[nodiscard]] constexpr const ColVec<NU, T>& applied() const
-        requires(kRecord)
+        requires kRecord
     {
         return applied_.applied;
     }
 
     /** @brief The estimated plant state x̂ (absolute). */
     [[nodiscard]] constexpr ColVec<NX, T> state_estimate() const
-        requires(kEstimated)
+        requires kEstimated
     {
         return plant_estimate();
     }
@@ -400,7 +400,7 @@ private:
     }
 
     [[nodiscard]] constexpr ColVec<NX, T> plant_estimate() const
-        requires(kEstimated)
+        requires kEstimated
     {
         return detail::leading<NX>(estimator.state_estimate());
     }
