@@ -501,10 +501,11 @@ struct PIDController;
  * (LQR, Kalman, PR, lead-lag).
  *
  * @ref PIDMode picks the specialization (P, PI, PD, PID); each stores and
- * computes only its own terms. A design result whose gains the mode cannot
- * realize, or whose Kbc has the opposite sign to Ki, is refused at
- * construction: ill-formed under constant evaluation (`constinit` deploy), a
- * trap at runtime.
+ * computes only its own terms. A failed design, one whose gains the mode cannot
+ * realize, one whose Kbc has the opposite sign to Ki, or one with a limit that
+ * is not a box is refused at construction: ill-formed under constant evaluation
+ * (`constinit` deploy); at run time it leaves the controller invalid (valid()
+ * false, output 0), as every law does.
  *
  * Control law:
  * @f[
@@ -559,7 +560,8 @@ struct PIDController<T, PIDMode::PID> {
 
     PIDRuntimeMode runtime_mode{PIDRuntimeMode::Auto};
     T              u_track{T{0}};
-    T              u_cmd{T{0}}; ///< Last command control() returned: the u in back_calculate's u_sat − (u + u_ff)
+    T              u_cmd{T{0}};  ///< Last command control() returned: the u in back_calculate's u_sat − (u + u_ff)
+    bool           valid_{true}; ///< False when built from a design it refuses: control() returns 0
 
     constexpr PIDController() noexcept = default;
 
@@ -584,11 +586,12 @@ struct PIDController<T, PIDMode::PID> {
           Kbc(r.Kbc),
           b(r.b),
           c(r.c),
-          Ts(r.Ts) {
+          Ts(r.Ts),
+          valid_(r.success && !detail::pid_kbc_winds_up(r.Ki, r.Kbc) && r.u_lim.valid() && r.integral_lim.valid()) {
         if (!r.success && damp::is_constant_evaluated()) {
             detail::refuse_failed_design(r.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
-        if (detail::pid_kbc_winds_up(r.Ki, r.Kbc) || !r.u_lim.valid() || !r.integral_lim.valid()) {
+        if (!valid_ && damp::is_constant_evaluated()) {
             detail::refuse_failed_design(design::DesignStatus::invalid_parameter); // Kbc against Ki's sign winds the integrator up, or a limit that is not a box
         }
     }
@@ -613,7 +616,11 @@ struct PIDController<T, PIDMode::PID> {
           first(o.first),
           runtime_mode(o.runtime_mode),
           u_track(static_cast<T>(o.u_track)),
-          u_cmd(static_cast<T>(o.u_cmd)) {}
+          u_cmd(static_cast<T>(o.u_cmd)),
+          valid_(o.valid_) {}
+
+    /** @brief False when built from a design it refuses: control() returns 0. */
+    [[nodiscard]] constexpr bool valid() const { return valid_; }
 
     /**
      * @brief One fixed-rate discrete PID tick
@@ -624,6 +631,9 @@ struct PIDController<T, PIDMode::PID> {
      * integrator is pre-loaded for bumpless re-enable.
      */
     [[nodiscard]] constexpr T control(T r, T y) {
+        if (!valid_) {
+            return T{0};
+        }
         deriv = (d_a * deriv) + (d_b * detail::pid_delta(*this, (c * r) - y));
         const T p = Kp * ((b * r) - y);
         return detail::pid_step(*this, Ki * (r - y), p + deriv, p + (d_a * deriv), Ki);
@@ -677,7 +687,7 @@ struct PIDController<T, PIDMode::PID> {
  *
  * Constructing from a design with a derivative term (Kd ≠ 0), or with a Kbc of
  * the opposite sign to Ki, is refused: a compile error under constant
- * evaluation (`constinit` deploy), a trap at runtime.
+ * evaluation (`constinit` deploy), an invalid controller at run time.
  */
 template<typename T>
 struct PIDController<T, PIDMode::PI> {
@@ -694,7 +704,8 @@ struct PIDController<T, PIDMode::PI> {
 
     PIDRuntimeMode runtime_mode{PIDRuntimeMode::Auto};
     T              u_track{T{0}};
-    T              u_cmd{T{0}}; ///< Last command control() returned: the u in back_calculate's u_sat − (u + u_ff)
+    T              u_cmd{T{0}};  ///< Last command control() returned: the u in back_calculate's u_sat − (u + u_ff)
+    bool           valid_{true}; ///< False when built from a design it refuses: control() returns 0
 
     constexpr PIDController() noexcept = default;
 
@@ -711,14 +722,15 @@ struct PIDController<T, PIDMode::PI> {
           integral_lim(r.integral_lim),
           Kbc(r.Kbc),
           b(r.b),
-          Ts(r.Ts) {
+          Ts(r.Ts),
+          valid_(r.success && r.Kd == T{0} && !detail::pid_kbc_winds_up(r.Ki, r.Kbc) && r.u_lim.valid() && r.integral_lim.valid()) {
         if (!r.success && damp::is_constant_evaluated()) {
             detail::refuse_failed_design(r.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
-        if (r.Kd != T{0}) {
+        if (r.Kd != T{0} && damp::is_constant_evaluated()) {
             detail::refuse_failed_design(); // a PI cannot realize the D term
         }
-        if (detail::pid_kbc_winds_up(r.Ki, r.Kbc) || !r.u_lim.valid() || !r.integral_lim.valid()) {
+        if (!valid_ && damp::is_constant_evaluated()) {
             detail::refuse_failed_design(design::DesignStatus::invalid_parameter); // Kbc against Ki's sign winds the integrator up, or a limit that is not a box
         }
     }
@@ -736,9 +748,16 @@ struct PIDController<T, PIDMode::PI> {
           integral_step(static_cast<T>(o.integral_step)),
           runtime_mode(o.runtime_mode),
           u_track(static_cast<T>(o.u_track)),
-          u_cmd(static_cast<T>(o.u_cmd)) {}
+          u_cmd(static_cast<T>(o.u_cmd)),
+          valid_(o.valid_) {}
+
+    /** @brief False when built from a design it refuses: control() returns 0. */
+    [[nodiscard]] constexpr bool valid() const { return valid_; }
 
     [[nodiscard]] constexpr T control(T r, T y) {
+        if (!valid_) {
+            return T{0};
+        }
         const T p = Kp * ((b * r) - y);
         return detail::pid_step(*this, Ki * (r - y), p, p, Ki);
     }
@@ -787,8 +806,9 @@ struct PIDController<T, PIDMode::PI> {
  * @brief Fixed-rate discrete 2-DOF PD controller specialization
  *
  * P plus filtered derivative on (c·r − y). With no integrator there is nothing
- * to preload, so Tracking holds u_track and re-enable resumes the plain law.
- * Constructing from a design with an integral term (Ki ≠ 0) is refused.
+ * to preload, so Tracking holds u_track and re-enable resumes the plain law, and
+ * nothing for a clamp to wind up: back_calculate is a no-op. Constructing from a
+ * design with an integral term (Ki ≠ 0), or a u_lim that is not a box, is refused.
  */
 template<typename T>
 struct PIDController<T, PIDMode::PD> {
@@ -807,6 +827,7 @@ struct PIDController<T, PIDMode::PD> {
 
     PIDRuntimeMode runtime_mode{PIDRuntimeMode::Auto};
     T              u_track{T{0}};
+    bool           valid_{true}; ///< False when built from a design it refuses: control() returns 0
 
     constexpr PIDController() noexcept = default;
 
@@ -824,12 +845,16 @@ struct PIDController<T, PIDMode::PD> {
           u_lim(r.u_lim),
           b(r.b),
           c(r.c),
-          Ts(r.Ts) {
+          Ts(r.Ts),
+          valid_(r.success && r.Ki == T{0} && r.u_lim.valid()) {
         if (!r.success && damp::is_constant_evaluated()) {
             detail::refuse_failed_design(r.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
-        if (r.Ki != T{0}) {
+        if (r.Ki != T{0} && damp::is_constant_evaluated()) {
             detail::refuse_failed_design(); // a PD cannot realize the I term
+        }
+        if (!valid_ && damp::is_constant_evaluated()) {
+            detail::refuse_failed_design(design::DesignStatus::invalid_parameter); // a limit that is not a box
         }
     }
 
@@ -847,12 +872,25 @@ struct PIDController<T, PIDMode::PD> {
           deriv(static_cast<T>(o.deriv)),
           first(o.first),
           runtime_mode(o.runtime_mode),
-          u_track(static_cast<T>(o.u_track)) {}
+          u_track(static_cast<T>(o.u_track)),
+          valid_(o.valid_) {}
+
+    /** @brief False when built from a design it refuses: control() returns 0. */
+    [[nodiscard]] constexpr bool valid() const { return valid_; }
 
     [[nodiscard]] constexpr T control(T r, T y) {
+        if (!valid_) {
+            return T{0};
+        }
         deriv = (d_a * deriv) + (d_b * detail::pid_delta(*this, (c * r) - y));
         const T cmd = (runtime_mode == PIDRuntimeMode::Tracking) ? u_track : (Kp * ((b * r) - y)) + deriv;
         return u_lim.saturate(cmd);
+    }
+
+    /** @brief A clamp downstream: nothing to wind up, so nothing to take back. */
+    constexpr void back_calculate(T u_sat, T u_ff = T{0}) {
+        static_cast<void>(u_sat);
+        static_cast<void>(u_ff);
     }
 
     /** @brief Clear derivative state; keeps gains and runtime mode. */
@@ -876,7 +914,8 @@ struct PIDController<T, PIDMode::PD> {
  * @ingroup discrete_controllers
  * @brief Discrete proportional controller specialization
  *
- * Constructing from a design with an integral or derivative term is refused.
+ * Constructing from a design with an integral or derivative term, or a u_lim that
+ * is not a box, is refused. Memoryless: back_calculate is a no-op.
  */
 template<typename T>
 struct PIDController<T, PIDMode::P> {
@@ -886,6 +925,7 @@ struct PIDController<T, PIDMode::P> {
 
     PIDRuntimeMode runtime_mode{PIDRuntimeMode::Auto};
     T              u_track{T{0}};
+    bool           valid_{true}; ///< False when built from a design it refuses: control() returns 0
 
     constexpr PIDController() noexcept = default;
 
@@ -899,12 +939,15 @@ struct PIDController<T, PIDMode::P> {
         : PIDController(r.template as<T>()) {}
 
     constexpr PIDController(const design::DiscretePIDGains<T>& r) // NOLINT(google-explicit-constructor): assign-from-design
-        : Kp(r.Kp), u_lim(r.u_lim), b(r.b) {
+        : Kp(r.Kp), u_lim(r.u_lim), b(r.b), valid_(r.success && r.Ki == T{0} && r.Kd == T{0} && r.u_lim.valid()) {
         if (!r.success && damp::is_constant_evaluated()) {
             detail::refuse_failed_design(r.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
-        if (r.Ki != T{0} || r.Kd != T{0}) {
+        if ((r.Ki != T{0} || r.Kd != T{0}) && damp::is_constant_evaluated()) {
             detail::refuse_failed_design(); // a P cannot realize the I or D term
+        }
+        if (!valid_ && damp::is_constant_evaluated()) {
+            detail::refuse_failed_design(design::DesignStatus::invalid_parameter); // a limit that is not a box
         }
     }
 
@@ -914,11 +957,24 @@ struct PIDController<T, PIDMode::P> {
           u_lim(o.u_lim.template as<T>()),
           b(static_cast<T>(o.b)),
           runtime_mode(o.runtime_mode),
-          u_track(static_cast<T>(o.u_track)) {}
+          u_track(static_cast<T>(o.u_track)),
+          valid_(o.valid_) {}
+
+    /** @brief False when built from a design it refuses: control() returns 0. */
+    [[nodiscard]] constexpr bool valid() const { return valid_; }
 
     [[nodiscard]] constexpr T control(T r, T y) {
+        if (!valid_) {
+            return T{0};
+        }
         const T cmd = (runtime_mode == PIDRuntimeMode::Tracking) ? u_track : Kp * ((b * r) - y);
         return u_lim.saturate(cmd);
+    }
+
+    /** @brief A clamp downstream: nothing to wind up, so nothing to take back. */
+    constexpr void back_calculate(T u_sat, T u_ff = T{0}) {
+        static_cast<void>(u_sat);
+        static_cast<void>(u_ff);
     }
 
     constexpr void reset() {}
@@ -963,8 +1019,9 @@ using PDController = PIDController<T, PIDMode::PD>;
  * For fixed-rate embedded deploy, prefer
  * `design::pid(...).discretize(Ts)` → PIDController.
  *
- * Gains with a non-finite entry, a Tf < 0, or a Kbc of the opposite sign to Ki are
- * refused at construction: ill-formed under constant evaluation, a trap at runtime.
+ * A failed design, gains with a non-finite entry, a Tf < 0, a Kbc of the opposite sign to Ki,
+ * or a limit that is not a box are refused at construction: ill-formed under constant
+ * evaluation; at run time the controller is invalid (valid() false, output 0).
  *
  * @code
  * ContinuousPID<float> c{design::pid(2.0f, 5.0f, 0.1f)};
@@ -996,6 +1053,7 @@ struct ContinuousPID {
     T              u_track{T{0}};
     T              u_cmd{T{0}};   ///< Last command control() returned: the u in back_calculate's u_sat − (u + u_ff)
     T              Ts_last{T{0}}; ///< [s] Period of the last control() tick, which back_calculate charges
+    bool           valid_{true};  ///< False when built from a design it refuses: control() returns 0
 
     constexpr ContinuousPID() noexcept = default;
 
@@ -1014,11 +1072,12 @@ struct ContinuousPID {
           integral_lim(r.integral_lim),
           Kbc(r.Kbc),
           b(r.b),
-          c(r.c) {
+          c(r.c),
+          valid_(r.success && detail::pid_gains_in_domain(r.Kp, r.Ki, r.Kd, r.Tf, r.Kbc, r.b, r.c) && !detail::pid_kbc_winds_up(r.Ki, r.Kbc) && r.u_lim.valid() && r.integral_lim.valid()) {
         if (!r.success && damp::is_constant_evaluated()) {
             detail::refuse_failed_design(r.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
-        if (!detail::pid_gains_in_domain(r.Kp, r.Ki, r.Kd, r.Tf, r.Kbc, r.b, r.c) || detail::pid_kbc_winds_up(r.Ki, r.Kbc) || !r.u_lim.valid() || !r.integral_lim.valid()) {
+        if (!valid_ && damp::is_constant_evaluated()) {
             detail::refuse_failed_design(design::DesignStatus::invalid_parameter); // a non-finite gain, Tf < 0, Kbc against Ki's sign, or a limit that is not a box
         }
     }
@@ -1042,7 +1101,11 @@ struct ContinuousPID {
           runtime_mode(o.runtime_mode),
           u_track(static_cast<T>(o.u_track)),
           u_cmd(static_cast<T>(o.u_cmd)),
-          Ts_last(static_cast<T>(o.Ts_last)) {}
+          Ts_last(static_cast<T>(o.Ts_last)),
+          valid_(o.valid_) {}
+
+    /** @brief False when built from a design it refuses: control() returns 0. */
+    [[nodiscard]] constexpr bool valid() const { return valid_; }
 
     /**
      * @brief Compute 2-DOF PID control output with measured sample period
@@ -1051,6 +1114,9 @@ struct ContinuousPID {
      * division by zero on the derivative path); a back_calculate after such a tick is a no-op.
      */
     [[nodiscard]] constexpr T control(T r, T y, T Ts) {
+        if (!valid_) {
+            return T{0};
+        }
         const T p = Kp * ((b * r) - y);
         if (!damp::finite_positive(Ts)) {
             Ts_last = T{0};

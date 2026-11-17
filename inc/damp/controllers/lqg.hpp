@@ -282,6 +282,7 @@ struct LQG : private detail::StateFeedbackCore<NX, NU, T, 0, NY, Est, NZ, Store,
     using Core::predict;
     using Core::reset;
     using Core::state_estimate;
+    using Core::valid;
 };
 
 /** @brief LQG law{res}: the sizes, scalar and filter of design::lqg's result. */

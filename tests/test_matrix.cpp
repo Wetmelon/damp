@@ -51,6 +51,15 @@ TEST_CASE("Matrix initializer list constructor") {
     CHECK(mat(1, 1) == 4);
 }
 
+TEST_CASE("an initializer past the matrix drops the extra entries at run time: no fault") {
+    //! A constant-evaluated one does not compile; at run time it trapped.
+    volatile double    five = 5.0; // a run-time value
+    const Matrix<2, 2> mat = {{1.0, 2.0, five}, {3.0, 4.0}, {five, five}};
+    CHECK(mat == Matrix<2, 2>{{1.0, 2.0}, {3.0, 4.0}});
+    const ColVec<2> v = {1.0, 2.0, five};
+    CHECK(v(1) == 2.0);
+}
+
 TEST_CASE("A 1×1 matrix converts from its scalar") {
     constexpr Matrix<1, 1> from_scalar = 0.25;
     static_assert(from_scalar(0, 0) == 0.25);

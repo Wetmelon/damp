@@ -283,12 +283,60 @@ TEST_SUITE("PR Controller") {
         ctrl.back_calculate(u - 2.0);
         CHECK(ctrl.resonant.last_output() == doctest::Approx(y_before - (0.0001 * 2.0 / 2.0)));
 
-        // No-op when Tt == 0 (back-calculation not configured), even with excess.
+        // Tt == 0: the resonant section holds. It gives back what the tick added (from rest, its
+        // whole output), up to the excess, and a second report of the clamp takes nothing more.
         PRController<double> nctrl(design::pr({.Kp = 1.0, .Ki = 100.0, .w0 = 314.0, .wc = 10.0}, 0.0001));
         const double         un = nctrl.control(1.0);
-        double               y_noop = nctrl.resonant.last_output();
-        nctrl.back_calculate(un - 2.0); // Tt == 0 -> unchanged
-        CHECK(nctrl.resonant.last_output() == doctest::Approx(y_noop));
+        REQUIRE(nctrl.resonant.last_output() > 0.0);
+        nctrl.back_calculate(un - 2.0);
+        CHECK(nctrl.resonant.last_output() == 0.0); // was unchanged: no back-calculation configured
+        nctrl.back_calculate(un - 2.0);
+        CHECK(nctrl.resonant.last_output() == 0.0);
+    }
+
+    TEST_CASE_TEMPLATE("u_lim: the resonant section holds against the clamp, as against one reported", T, float, double) {
+        const double Ts = 1e-4;
+        const double w0 = 2.0 * std::numbers::pi * 50.0;
+        auto         res = design::pr({.Kp = 0.0, .Ki = 200.0, .w0 = w0, .wc = 5.0}, Ts);
+        res.u_lim = {.lower = -0.1, .upper = 0.1};
+        PRController<T> inside{res.template as<T>()};
+        auto            open = res;
+        open.u_lim = {};
+        PRController<T> outside{open.template as<T>()};
+        const T         lim = static_cast<T>(0.1);
+        T               peak{0};
+        for (int k = 0; k < 4000; ++k) { // 20 periods of an error at ω₀, whose gain there is Ki = 200
+            const T e = static_cast<T>(std::sin(w0 * Ts * k));
+            const T u = inside.control(e);
+            const T sent = std::clamp(outside.control(e), -lim, lim);
+            outside.back_calculate(sent);
+            CHECK(damp::abs(u - sent) <= T{64} * eps<T>() * lim);
+            peak = damp::max(peak, damp::abs(inside.resonant.last_output()));
+        }
+        CHECK(peak <= lim * static_cast<T>(1.001)); // was 200: the resonance wound up behind the clamp
+    }
+
+    TEST_CASE("a tracking time under the sample period unwinds at most the whole excess") {
+        // ΔR = (Ts/Tt)·excess overshot the realizable command past Tt < Ts and diverged past Tt < Ts/2.
+        const double         Ts = 1e-4;
+        const double         w0 = 2.0 * std::numbers::pi * 50.0;
+        PRController<double> pr{design::pr({.Kp = 0.0, .Ki = 200.0, .w0 = w0, .wc = 5.0, .Tt = Ts / 4.0}, Ts)};
+        double               peak = 0.0;
+        for (int k = 0; k < 4000; ++k) {
+            const double u = pr.control(std::sin(w0 * Ts * k));
+            pr.back_calculate(std::clamp(u, -0.1, 0.1));
+            peak = std::max(peak, std::abs(pr.resonant.last_output()));
+        }
+        CHECK(std::isfinite(peak));
+        CHECK(peak < 1.0);
+    }
+
+    TEST_CASE("a u_lim that is not a box leaves PRController invalid") {
+        auto res = design::pr({.Kp = 1.0, .Ki = 100.0, .w0 = 314.0, .wc = 10.0}, 0.0001);
+        res.u_lim = {.lower = 1.0, .upper = -1.0};
+        PRController<double> pr{res};
+        CHECK_FALSE(pr.valid());
+        CHECK(pr.control(1.0) == 0.0);
     }
 
     TEST_CASE("A continuous (Ts = 0) design leaves PRController invalid") {

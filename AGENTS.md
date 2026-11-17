@@ -123,8 +123,10 @@ the repo root.
   is reported with `back_calculate`, to the same effect. State and output
   limits are `design::mpc` (`y_lim`), `design::mhe` (`x_lim`) or an
   `ActionGovernor` around any law. A new law with memory gets all of it.
-- **Errors:** `optional` / `bool success` / `DesignStatus` / compile-time
-  constraints. No exceptions on the tick path.
+- **Errors:** `optional` / `bool success` / `DesignStatus` / `valid()` /
+  compile-time constraints. No exceptions, and no run-time faults anywhere: a
+  refusal is a compile error only under constant evaluation; at run time it is
+  reported through the result or `valid()`, and the application decides.
 
 **`matrix.hpp` includes** (order is irrelevant): `block`, `colvec`, `concat`,
 `const_matrix`, `core`, `decomposition`, `eigen`, `functions`, `generalized_eigen`,
@@ -250,7 +252,8 @@ fallthrough, shadowing); clang-tidy.
   on Result structs (`struct [[nodiscard]] FooResult`).
 - `noexcept` on user-declared move operations and `swap`. Elsewhere optional:
   `-fno-exceptions` is the guarantee.
-- No `final` / `override` (there are no virtuals). `[[noreturn]]` on trap paths.
+- No `final` / `override` (there are no virtuals). No trap paths: nothing
+  reachable at run time is `[[noreturn]]`.
 
 ### Scope
 

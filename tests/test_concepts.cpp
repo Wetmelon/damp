@@ -48,6 +48,7 @@ using namespace damp;
 // --- SisoController: u = control(r, y) --------------------------------------
 static_assert(SisoController<PIDController<double>, double>);
 static_assert(SisoController<PIController<double>, double>);
+static_assert(SisoController<PDController<double>, double>);
 static_assert(SisoController<PController<float>, float>);
 static_assert(SisoController<ADRCController<2, float>, float>);
 static_assert(SisoController<SMCController<double>, double>);

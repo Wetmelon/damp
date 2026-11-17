@@ -26,11 +26,13 @@ enum class PatternEntry : uint8_t {
 
 namespace detail {
 
-/** @brief Refuse a block of a pattern that does not fit inside it: no constant expression at compile time, a trap at run time. */
-constexpr void pattern_block_inside(size_t r0, size_t c0, size_t nr, size_t nc, size_t rows, size_t cols) {
+/** @brief Whether a block fits inside a pattern. One that does not is no constant expression at compile time; at run time the pattern is left as it is. */
+[[nodiscard]] constexpr bool pattern_block_inside(size_t r0, size_t c0, size_t nr, size_t nc, size_t rows, size_t cols) {
     if (r0 > rows || nr > rows - r0 || c0 > cols || nc > cols - c0) {
         ::damp::detail::refuse_initializer_overflow();
+        return false;
     }
+    return true;
 }
 
 } // namespace detail
@@ -63,8 +65,10 @@ struct SparsityPattern {
 
     /** @brief Exact ones on @p n entries of a diagonal starting at (@p r0, @p c0). */
     [[nodiscard]] constexpr SparsityPattern unit_diagonal(size_t r0, size_t c0, size_t n) const {
-        detail::pattern_block_inside(r0, c0, n, n, R, C);
         SparsityPattern p = *this;
+        if (!detail::pattern_block_inside(r0, c0, n, n, R, C)) {
+            return p;
+        }
         for (size_t i = 0; i < n; ++i) {
             p.entries[((r0 + i) * C) + c0 + i] = PatternEntry::one;
         }
@@ -73,8 +77,10 @@ struct SparsityPattern {
 
     /** @brief Runtime values on @p n entries of a diagonal starting at (@p r0, @p c0). */
     [[nodiscard]] constexpr SparsityPattern value_diagonal(size_t r0, size_t c0, size_t n) const {
-        detail::pattern_block_inside(r0, c0, n, n, R, C);
         SparsityPattern p = *this;
+        if (!detail::pattern_block_inside(r0, c0, n, n, R, C)) {
+            return p;
+        }
         for (size_t i = 0; i < n; ++i) {
             p.entries[((r0 + i) * C) + c0 + i] = PatternEntry::value;
         }
@@ -83,8 +89,10 @@ struct SparsityPattern {
 
     /** @brief Runtime values on a whole @p nr × @p nc block at (@p r0, @p c0). */
     [[nodiscard]] constexpr SparsityPattern values(size_t r0, size_t c0, size_t nr, size_t nc) const {
-        detail::pattern_block_inside(r0, c0, nr, nc, R, C);
         SparsityPattern p = *this;
+        if (!detail::pattern_block_inside(r0, c0, nr, nc, R, C)) {
+            return p;
+        }
         for (size_t i = 0; i < nr; ++i) {
             for (size_t j = 0; j < nc; ++j) {
                 p.entries[((r0 + i) * C) + c0 + j] = PatternEntry::value;
@@ -95,8 +103,10 @@ struct SparsityPattern {
 
     /** @brief Runtime values off the diagonal of an @p n × @p n block at (@p r0, @p c0), its diagonal left as it is. */
     [[nodiscard]] constexpr SparsityPattern values_off_diagonal(size_t r0, size_t c0, size_t n) const {
-        detail::pattern_block_inside(r0, c0, n, n, R, C);
         SparsityPattern p = *this;
+        if (!detail::pattern_block_inside(r0, c0, n, n, R, C)) {
+            return p;
+        }
         for (size_t i = 0; i < n; ++i) {
             for (size_t j = 0; j < n; ++j) {
                 if (i != j) {

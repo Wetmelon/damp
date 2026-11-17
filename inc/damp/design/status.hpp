@@ -74,47 +74,47 @@ template<typename Result>
  * None is constexpr: reached under constant evaluation (`static constinit LQR law{res};` on a
  * failed design), the call is the compile error, and the compiler's "call to non-constexpr
  * function" line carries the function's name, e.g. design_refused::not_stabilizable(). At run
- * time each traps, as refuse_failed_design() does.
+ * time each does nothing, as refuse_failed_design() does: Damp never faults.
  */
 namespace design_refused {
 
 /** @brief Refused: (A, B) cannot be stabilized, or the closed-loop certificate failed. */
-[[noreturn]] inline void not_stabilizable() noexcept {
+inline void not_stabilizable() noexcept {
     refuse_failed_design();
 }
 
 /** @brief Refused: (A, C) cannot be detected. */
-[[noreturn]] inline void not_detectable() noexcept {
+inline void not_detectable() noexcept {
     refuse_failed_design();
 }
 
 /** @brief Refused: an iteration cap was reached, or the Schur form did not isolate the stable subspace. */
-[[noreturn]] inline void not_converged() noexcept {
+inline void not_converged() noexcept {
     refuse_failed_design();
 }
 
 /** @brief Refused: the plant or the numerics are singular. */
-[[noreturn]] inline void singular() noexcept {
+inline void singular() noexcept {
     refuse_failed_design();
 }
 
 /** @brief Refused: the weights are inconsistent (Q / R not symmetric, Q not PSD, R not PD, …), or the model has a non-finite entry. */
-[[noreturn]] inline void bad_weights() noexcept {
+inline void bad_weights() noexcept {
     refuse_failed_design();
 }
 
 /** @brief Refused: pole placement cannot assign the requested spectrum. */
-[[noreturn]] inline void not_placeable() noexcept {
+inline void not_placeable() noexcept {
     refuse_failed_design();
 }
 
 /** @brief Refused: Ts ≤ 0 or non-finite, a Ts for a discrete plant, or a continuous design for a discrete runtime. */
-[[noreturn]] inline void invalid_sample_time() noexcept {
+inline void invalid_sample_time() noexcept {
     refuse_failed_design();
 }
 
 /** @brief Refused: a scalar design input outside its domain. */
-[[noreturn]] inline void invalid_parameter() noexcept {
+inline void invalid_parameter() noexcept {
     refuse_failed_design();
 }
 
@@ -126,27 +126,36 @@ namespace design_refused {
  * Dispatches to the design_refused function of @p status. A status of ok (a refusal for a
  * reason the status does not carry) takes the generic refuse_failed_design().
  */
-[[noreturn]] constexpr void refuse_failed_design(design::DesignStatus status) noexcept {
+constexpr void refuse_failed_design(design::DesignStatus status) noexcept {
     switch (status) {
         case design::DesignStatus::not_stabilizable:
             design_refused::not_stabilizable();
+            return;
         case design::DesignStatus::not_detectable:
             design_refused::not_detectable();
+            return;
         case design::DesignStatus::not_converged:
             design_refused::not_converged();
+            return;
         case design::DesignStatus::singular:
             design_refused::singular();
+            return;
         case design::DesignStatus::bad_weights:
             design_refused::bad_weights();
+            return;
         case design::DesignStatus::not_placeable:
             design_refused::not_placeable();
+            return;
         case design::DesignStatus::invalid_sample_time:
             design_refused::invalid_sample_time();
+            return;
         case design::DesignStatus::invalid_parameter:
             design_refused::invalid_parameter();
+            return;
         case design::DesignStatus::ok:
         default:
             refuse_failed_design(); // inside the switch: a trailing call would make every path non-constant
+            return;
     }
 }
 

@@ -34,6 +34,7 @@
 #include "damp/systems/state_space.hpp"
 #include "damp/systems/transfer_function.hpp"
 #include "damp/systems/zpk.hpp"
+#include "damp/toolbox/bounds.hpp"
 
 namespace damp {
 
@@ -51,6 +52,7 @@ struct [[nodiscard]] HarmonicSuppressorResult {
     T                           w_fund{};                            ///< fundamental frequency [rad/s] (for set_fundamental rescaling)
     bool                        success{false};                      ///< status == DesignStatus::ok
     DesignStatus                status{DesignStatus::not_converged}; ///< ok, or why the design failed
+    Bounds<1, T>                u_lim{};                             ///< Limits on the command (default unbounded): set here, or on the runtime
 
     /** @brief True when the design succeeded (success). */
     [[nodiscard]] constexpr explicit operator bool() const { return success; }
@@ -64,6 +66,7 @@ struct [[nodiscard]] HarmonicSuppressorResult {
         out.w_fund = static_cast<damp::remove_const_t<U>>(w_fund);
         out.success = success;
         out.status = status;
+        out.u_lim = u_lim.template as<damp::remove_const_t<U>>();
         return out;
     }
 
@@ -157,6 +160,12 @@ harmonic_suppressor(const PRSpec<T>& fundamental, T Ts, const damp::array<size_t
  * composes like any other controller. Built from @ref design::harmonic_suppressor,
  * which carries the fundamental that @ref set_fundamental rescales from.
  *
+ * The command is clamped into u_lim. Against that clamp, and one reported with
+ * back_calculate, the resonators give back what the tick added to their outputs, fundamental
+ * first, until the command meets the clamp (or unwind by back-calculation with the design's
+ * Tt): never more in all than the clamp cut off. A u_lim that is not a box is refused as a
+ * failed design is.
+ *
  * @tparam N Number of harmonics
  * @tparam T Scalar type (float or double)
  */
@@ -164,6 +173,8 @@ template<size_t N, typename T = float>
 class HarmonicSuppressor {
 public:
     static_assert(N >= 1, "HarmonicSuppressor needs at least one harmonic");
+
+    Bounds<1, T> u_lim{}; ///< Limits on the command (the result's; default unbounded): the resonators hold against them
 
     constexpr HarmonicSuppressor() = default;
 
@@ -174,9 +185,12 @@ public:
         : HarmonicSuppressor(result.template as<T>()) {}
 
     constexpr HarmonicSuppressor(const design::HarmonicSuppressorResult<N, T>& design) // NOLINT(google-explicit-constructor): assign-from-design
-        : w_fund_(design.w_fund), valid_(design.success) {
+        : u_lim(design.u_lim), w_fund_(design.w_fund), valid_(design.success && design.u_lim.valid()) {
         if (!design.success && damp::is_constant_evaluated()) {
             ::damp::detail::refuse_failed_design(design.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
+        }
+        if (!design.u_lim.valid() && damp::is_constant_evaluated()) {
+            ::damp::detail::refuse_failed_design(design::DesignStatus::invalid_parameter); // a limit that is not finite, or lower above upper
         }
         install_gains(design.gains);
         for (size_t i = 0; i < N; ++i) {
@@ -186,15 +200,17 @@ public:
 
     template<typename U>
     constexpr explicit HarmonicSuppressor(const HarmonicSuppressor<N, U>& other)
-        : Kp_(static_cast<T>(other.Kp())),
+        : u_lim(other.u_lim.template as<T>()),
+          Kp_(static_cast<T>(other.Kp())),
           w_fund_(static_cast<T>(other.fundamental())),
+          u_cmd_(static_cast<T>(other.last_command())),
           valid_(other.valid()) {
         for (size_t i = 0; i < N; ++i) {
             resonators_[i] = PRController<T>(other.resonator(i));
         }
     }
 
-    /** @brief Suppression command from the loop error (Kp once + sum of resonators). */
+    /** @brief Suppression command from the loop error (Kp once + sum of resonators), clamped into u_lim. */
     [[nodiscard]] constexpr T control(T error) {
         if (!valid_) {
             return T{0};
@@ -203,8 +219,26 @@ public:
         for (size_t i = 0; i < N; ++i) {
             u += resonators_[i].control(error);
         }
-        return u;
+        u_cmd_ = u_lim.saturate(u);
+        wind_back(u_cmd_ - u);
+        return u_cmd_;
     }
+
+    /**
+     * @brief Record the input the plant received, @p u_sat, when a stage after this one clamped
+     *        the command, and the feedforward @p u_ff added to it before that clamp
+     *
+     * The resonators take the excess u_sat − (u + u_ff) back as against u_lim, u the command the
+     * last tick returned.
+     */
+    constexpr void back_calculate(T u_sat, T u_ff = T{0}) {
+        if (valid_) {
+            wind_back(u_sat - (u_cmd_ + u_ff));
+        }
+    }
+
+    /** @brief The command the last control() returned. */
+    [[nodiscard]] constexpr T last_command() const { return u_cmd_; }
 
     /** @brief Reference-tracking overload (computes the error internally). */
     [[nodiscard]] constexpr T control(T r, T y) { return control(r - y); }
@@ -213,6 +247,7 @@ public:
         for (size_t i = 0; i < N; ++i) {
             resonators_[i].reset();
         }
+        u_cmd_ = T{0};
     }
 
     /**
@@ -260,9 +295,17 @@ private:
         }
     }
 
+    /** @brief Take a clamp's @p excess (u_sat − u_asked) back from the resonators in turn, each from what is left: no more in all than the excess. */
+    constexpr void wind_back(T excess) {
+        for (size_t i = 0; i < N; ++i) {
+            excess -= resonators_[i].wind_back(excess);
+        }
+    }
+
     damp::array<PRController<T>, N> resonators_{};
     T                               Kp_{T{0}};
     T                               w_fund_{T{0}};
+    T                               u_cmd_{T{0}}; ///< The command the last control() returned
     bool                            valid_{true};
 };
 

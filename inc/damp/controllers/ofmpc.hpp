@@ -131,6 +131,7 @@ public:
     using Core::set_input_target;
     using Core::set_limits;
     using Core::state_estimate;
+    using Core::valid;
 };
 
 /** @brief OFMPC law{res}: the sizes, scalar, filter and target of design::ofmpc's result. */

@@ -159,6 +159,7 @@ struct LQGI : private detail::StateFeedbackCore<NX, NU, T, NI, NY, Est, 0, Store
     using Core::demand_lim;
     using Core::estimator;
     using Core::integral;
+    using Core::integral_lim;
     using Core::K;
     using Core::u_lim;
 
@@ -188,6 +189,7 @@ struct LQGI : private detail::StateFeedbackCore<NX, NU, T, NI, NY, Est, 0, Store
     using Core::predict;
     using Core::reset;
     using Core::state_estimate;
+    using Core::valid;
 };
 
 /** @brief LQGI law{res}: the sizes, scalar and filter of design::lqgi's result. */

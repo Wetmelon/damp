@@ -15,6 +15,7 @@
 #include "damp/design/status.hpp"
 #include "damp/math/math.hpp"
 #include "damp/systems/transfer_function.hpp"
+#include "damp/toolbox/bounds.hpp"
 
 namespace damp {
 
@@ -41,6 +42,7 @@ struct [[nodiscard]] SMCResult {
     bool         success{false};                      ///< status == DesignStatus::ok
     DesignStatus status{DesignStatus::not_converged}; ///< ok, or why the design failed
     T            Ts{0};                               ///< [s] Sample time of the law: 0 continuous (analysis), > 0 the runtime's tick
+    Bounds<1, T> u_lim{};                             ///< Limits on the command (default unbounded): set here, or on the runtime
 
     /** @brief True when the design succeeded (success). */
     [[nodiscard]] constexpr explicit operator bool() const { return success; }
@@ -48,7 +50,7 @@ struct [[nodiscard]] SMCResult {
     /** @brief Re-cast the parameters to a different scalar type (e.g. double → float). */
     template<typename U>
     [[nodiscard]] constexpr auto as() const {
-        return SMCResult<U>{static_cast<U>(lambda), static_cast<U>(k), static_cast<U>(b0), static_cast<U>(phi), success, status, static_cast<U>(Ts)};
+        return SMCResult<U>{static_cast<U>(lambda), static_cast<U>(k), static_cast<U>(b0), static_cast<U>(phi), success, status, static_cast<U>(Ts), u_lim.template as<U>()};
     }
 
     /**
@@ -193,6 +195,8 @@ class SMCController {
     bool valid_{false}; ///< From the design's success flag; gates control().
 
 public:
+    Bounds<1, T> u_lim{}; ///< Limits on the command (the result's; default unbounded)
+
     constexpr SMCController() = default;
 
     /** @brief From a design result in another scalar: converts it with .as\<T\>() and builds from that. */
@@ -204,11 +208,14 @@ public:
     /**
      * @brief From the design result, which carries the sample time and boundary layer.
      *
-     * A failed or continuous (Ts = 0) design is ill-formed under constant evaluation; at run
-     * time it leaves the controller invalid (valid() false, output 0).
+     * A failed or continuous (Ts = 0) design, or a u_lim that is not a box, is ill-formed under
+     * constant evaluation; at run time it leaves the controller invalid (valid() false, output 0).
      */
     constexpr SMCController(const design::SMCResult<T>& result) // NOLINT(google-explicit-constructor): assign-from-design
-        : lambda(result.lambda), k(result.k), b0(result.b0), Ts_(result.Ts), phi_(result.phi), valid_(result.success && result.Ts > T{0}) {
+        : lambda(result.lambda), k(result.k), b0(result.b0), Ts_(result.Ts), phi_(result.phi), valid_(result.success && result.Ts > T{0} && result.u_lim.valid()), u_lim(result.u_lim) {
+        if (result.success && !result.u_lim.valid() && damp::is_constant_evaluated()) {
+            ::damp::detail::refuse_failed_design(design::DesignStatus::invalid_parameter); // a limit that is not finite, or lower above upper
+        }
         if ((!result.success || !(result.Ts > T{0})) && damp::is_constant_evaluated()) {
             ::damp::detail::refuse_failed_design(result.success ? design::DesignStatus::invalid_sample_time : result.status); // constant-evaluated (constinit / constexpr): a failed or continuous design does not compile
         }
@@ -216,7 +223,7 @@ public:
 
     template<typename U>
     constexpr SMCController(const SMCController<U>& other)
-        : lambda(static_cast<T>(other.lambda)), k(static_cast<T>(other.k)), b0(static_cast<T>(other.b0)), error_prev(static_cast<T>(other.error_prev)), Ts_(static_cast<T>(other.Ts_)), phi_(static_cast<T>(other.phi_)), first_(other.first_), valid_(other.valid_) {}
+        : lambda(static_cast<T>(other.lambda)), k(static_cast<T>(other.k)), b0(static_cast<T>(other.b0)), error_prev(static_cast<T>(other.error_prev)), Ts_(static_cast<T>(other.Ts_)), phi_(static_cast<T>(other.phi_)), first_(other.first_), valid_(other.valid_), u_lim(other.u_lim.template as<T>()) {}
 
     /**
      * @brief Run one control step: u = (k/b0)·sign(λ·e + ė), e = r − y.
@@ -227,7 +234,7 @@ public:
      *
      * @param r   Reference (setpoint).
      * @param y   Measurement (plant output).
-     * @return Control command `u`.
+     * @return Control command `u`, clamped into u_lim.
      */
     [[nodiscard]] constexpr T control(T r, T y) {
         // A failed or continuous design (no b0, no sampled rate): emit no correction, hold the state.
@@ -249,9 +256,15 @@ public:
         // phi <= 0: hard relay. phi > 0: saturation boundary layer sat(s/phi) — a
         // linear ramp through |s| < phi, full ±1 switching gain restored beyond it.
         if (phi_ <= T{0}) {
-            return (k / b0) * static_cast<T>(damp::sgn(s));
+            return u_lim.saturate((k / b0) * static_cast<T>(damp::sgn(s)));
         }
-        return (k / b0) * damp::clamp(s / phi_, T{-1}, T{1});
+        return u_lim.saturate((k / b0) * damp::clamp(s / phi_, T{-1}, T{1}));
+    }
+
+    /** @brief A clamp downstream: the law keeps only the last error, which no clamp winds up, so nothing to take back. */
+    constexpr void back_calculate(T u_sat, T u_ff = T{0}) {
+        static_cast<void>(u_sat);
+        static_cast<void>(u_ff);
     }
 
     [[nodiscard]] constexpr bool valid() const { return valid_; }

@@ -428,24 +428,20 @@ namespace detail {
 
 /**
  * @brief Failed design:: result passed to a runtime law. Not constexpr, so a
- * constant-evaluated constructor becomes ill-formed; at runtime it traps.
+ * constant-evaluated constructor becomes ill-formed and the error names this call.
+ *
+ * At run time it does nothing: Damp never faults. The caller carries on with what it refused,
+ * reported as such (a law with valid() false, a result with success false), and the application
+ * decides what to do.
  */
-[[noreturn]] inline void refuse_failed_design() noexcept {
-#if defined(__GNUC__) || defined(__clang__)
-    __builtin_trap();
-#elif defined(_MSC_VER)
-    __fastfail(7);
-#else
-    for (;;) {
-    }
-#endif
-}
+inline void refuse_failed_design() noexcept {}
 
 /**
  * @brief A brace initializer with more rows, columns or elements than the Matrix it initializes.
- * Not constexpr, so a constant-evaluated initialization becomes ill-formed; at runtime it traps.
+ * Not constexpr, so a constant-evaluated initialization becomes ill-formed; at run time the
+ * entries past the matrix are dropped.
  */
-[[noreturn]] inline void refuse_initializer_overflow() noexcept {
+inline void refuse_initializer_overflow() noexcept {
     refuse_failed_design();
 }
 

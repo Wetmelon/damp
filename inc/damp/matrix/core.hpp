@@ -341,7 +341,8 @@ protected:
 
     /**
      * @brief Elements of a nested initializer list; missing entries are zero. More rows or columns
-     * than the matrix has do not compile when constant-evaluated and trap at run time.
+     * than the matrix has do not compile when constant-evaluated; at run time the extra entries
+     * are dropped.
      */
     [[nodiscard]] static constexpr damp::array<T, Rows * Cols> elements_of(
         std::initializer_list<std::initializer_list<T>> init
@@ -352,11 +353,17 @@ protected:
         }
         size_t r = 0;
         for (const auto& row : init) {
+            if (r == Rows) {
+                break;
+            }
             if (row.size() > Cols) {
                 ::damp::detail::refuse_initializer_overflow();
             }
             size_t c = 0;
             for (const auto& val : row) {
+                if (c == Cols) {
+                    break;
+                }
                 out[(r * Cols) + c] = val;
                 ++c;
             }
@@ -367,7 +374,8 @@ protected:
 
     /**
      * @brief Elements of a flat row-major list (vectors); missing entries are zero. More elements
-     * than the vector has do not compile when constant-evaluated and trap at run time.
+     * than the vector has do not compile when constant-evaluated; at run time the extra ones are
+     * dropped.
      */
     [[nodiscard]] static constexpr damp::array<T, Rows * Cols> flat_elements_of(std::initializer_list<T> init) {
         damp::array<T, Rows * Cols> out{};
@@ -376,6 +384,9 @@ protected:
         }
         size_t i = 0;
         for (const auto& val : init) {
+            if (i == Rows * Cols) {
+                break;
+            }
             out[i] = val;
             ++i;
         }

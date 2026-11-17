@@ -27,6 +27,34 @@ constexpr double pi = 3.14159265358979323846;
 } // namespace
 
 TEST_SUITE("harmonic_suppression") {
+    TEST_CASE("u_lim: the bank holds against the clamp, never more in all than it cut, as against one reported") {
+        // It had no u_lim and no back_calculate: a clamp after it wound every resonance up.
+        const double                 w0 = 2.0 * pi * 50.0;
+        const double                 Ts = 1e-4;
+        const damp::array<size_t, 2> harmonics{1, 3};
+        auto                         d = design::harmonic_suppressor({.Kp = 0.0, .Ki = 200.0, .w0 = w0, .wc = 5.0}, Ts, harmonics);
+        REQUIRE(d.success);
+        d.u_lim = {.lower = -0.1, .upper = 0.1};
+        HarmonicSuppressor<2, double> inside{d};
+        auto                          open = d;
+        open.u_lim = {};
+        HarmonicSuppressor<2, double> outside{open};
+        double                        peak = 0.0;
+        for (int k = 0; k < 4000; ++k) {
+            const double e = std::sin(w0 * Ts * k) + std::sin(3.0 * w0 * Ts * k);
+            const double u = inside.control(e);
+            const double sent = std::clamp(outside.control(e), -0.1, 0.1);
+            outside.back_calculate(sent);
+            CHECK(u == doctest::Approx(sent).epsilon(1e-12).scale(0.1));
+            peak = std::max(peak, std::abs(inside.resonator(0).resonant.last_output() + inside.resonator(1).resonant.last_output()));
+        }
+        CHECK(std::abs(inside.last_command()) <= 0.1);
+        CHECK(peak <= 0.1 * 1.0001); // the resonators' sum stays inside the clamp
+
+        d.u_lim = {.lower = 1.0, .upper = -1.0};
+        CHECK_FALSE(HarmonicSuppressor<2, double>{d}.valid());
+    }
+
     TEST_CASE("synthesize validates the spec") {
         const double                 w0 = 2.0 * pi * 50.0; // 50 Hz fundamental
         const double                 Ts = 1.0 / 6000.0;    // 6 kHz loop

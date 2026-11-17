@@ -295,10 +295,12 @@ TEST_SUITE("PID Mode Control") {
 
     TEST_CASE("a Kbc of the opposite sign to Ki is refused") {
         // T_t = Kbc/Ki < 0: ΔI = Ki·(u_sat − u_unsat)/Kbc would push the integral further into
-        // the limit. discretize refuses it; constructing a runtime from such gains directly is
-        // refused like a mode mismatch, ill-formed under constant evaluation and a trap at run
-        // time, so that half cannot be a CHECK:
+        // the limit. discretize refuses it; a runtime built from such gains directly is refused
+        // like a mode mismatch: ill-formed under constant evaluation, invalid at run time.
         // static constinit PIController<double> bad{design::DiscretePIDGains<double>{.Kp = 1.0, .Ki = 0.01, .Kbc = -1.0}}; // ill-formed
+        PIController<double> direct{design::DiscretePIDGains<double>{.Kp = 1.0, .Ki = 0.01, .Kbc = -1.0}};
+        CHECK_FALSE(direct.valid());
+        CHECK(direct.control(1.0, 0.0) == 0.0);
         constexpr auto bad = design::PIDGains{.Kp = 1.0, .Ki = 2.0, .Kbc = -1.0}.discretize(0.01);
         static_assert(!bad.success);
         CHECK(bad.status == design::DesignStatus::invalid_parameter);
@@ -606,6 +608,34 @@ TEST_SUITE("PID limits") {
             CHECK(pi.control(5.0F, 0.0F) == 1.0F);
             CHECK(damp::abs(pi.integral) <= 5.0F); // I tracks the limit less P: −4, each tick
         }
+    }
+
+    TEST_CASE("a runtime built at run time from gains it refuses is invalid and sends 0, in every mode") {
+        // They trapped (__builtin_trap, a fault on the target) where every other law is invalid.
+        const Bounds<1>                  inverted{.lower = 1.0, .upper = -1.0};
+        design::DiscretePIDGains<double> g{.Kp = 1.0, .u_lim = inverted};
+        PIDController<double>            pid{g};
+        PIController<double>             pi{g};
+        PDController<double>             pd{g};
+        PController<double>              p{g};
+        ContinuousPID<double>            cpid{design::PIDGains<double>{.Kp = 1.0, .u_lim = inverted}};
+        PDController<double>             pd_of_pi{design::DiscretePIDGains<double>{.Kp = 1.0, .Ki = 0.1}}; // a PD cannot realize I
+        PController<double>              failed{design::PIDGains<double>{.Kp = 1.0}.discretize(-1.0)};     // a failed design
+        CHECK_FALSE(pid.valid());
+        CHECK_FALSE(pi.valid());
+        CHECK_FALSE(pd.valid());
+        CHECK_FALSE(p.valid());
+        CHECK_FALSE(cpid.valid());
+        CHECK_FALSE(pd_of_pi.valid());
+        CHECK_FALSE(failed.valid());
+        CHECK(pid.control(1.0, 0.0) == 0.0);
+        CHECK(pi.control(1.0, 0.0) == 0.0);
+        CHECK(pd.control(1.0, 0.0) == 0.0);
+        CHECK(p.control(1.0, 0.0) == 0.0);
+        CHECK(cpid.control(1.0, 0.0, 0.01) == 0.0);
+        CHECK(failed.control(1.0, 0.0) == 0.0);
+        CHECK(PController<double>{design::DiscretePIDGains<double>{.Kp = 1.0}}.valid());
+        CHECK(PIDController<double>{}.valid()); // a hand-built law: zero gains, valid
     }
 
     TEST_CASE("a limit that is not a box is refused, as the LQ and MPC designs refuse it") {
