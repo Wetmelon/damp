@@ -186,8 +186,8 @@ What each runtime measures, the references and limits it takes, and what it does
 |---|---|---|---|---|
 | `LQR` | state x: `update(x)` | none (regulator); `x_ref`/`u_ref`; `r` on tracked outputs (`TrackedOutputs`) | `u_lim`, `demand_lim` | `back_calculate`; `predict` shifts the `InputDelay` registers |
 | `LQG` | y, through a Kalman filter: `update(y)` | none (regulator); `x_ref`/`u_ref`; `r` on tracked outputs (`TrackedOutputs`) | `u_lim`, `demand_lim` | `back_calculate`; the filter runs on the applied input |
-| `LQI` | state x: `update(x)` | `r` on the integrated outputs, plus optional `x_ref`/`u_ref` | `u_lim`, `demand_lim`, `integral_lim` | ξ holds against the `u_lim` clamp by itself; `back_calculate` |
-| `LQGI` | y, through a Kalman filter: `update(y)` | `r` on the integrated outputs, plus optional `x_ref`/`u_ref` | `u_lim`, `demand_lim`, `integral_lim` | ξ holds against the `u_lim` clamp by itself; `back_calculate`; the filter runs on the applied input |
+| `LQI` | state x: `update(x)` | `r` on the integrated outputs, plus optional `x_ref`/`u_ref` | `u_lim`, `demand_lim`, `integral_lim` | ξ unwinds against the `u_lim` clamp by itself (`tracking_time`); `back_calculate` |
+| `LQGI` | y, through a Kalman filter: `update(y)` | `r` on the integrated outputs, plus optional `x_ref`/`u_ref` | `u_lim`, `demand_lim`, `integral_lim` | ξ unwinds against the `u_lim` clamp by itself (`tracking_time`); `back_calculate`; the filter runs on the applied input |
 | `OFLQG` | y, through a Kalman filter on [x; d]: `update(y)` | `r` on the controlled outputs, plus optional `x_ref`/`u_ref` | `u_lim`, `demand_lim`, `disturbance_lim` | `back_calculate`; the filter runs on the applied input |
 | `MPC` | state x: `update(x)` | `r` held or previewed; measured disturbance `d`; input target | `u_lim`, `du_lim`, `y_lim`, `x_lim` | `back_calculate`; `last_status()` |
 | `OFMPC` | y, through a Kalman filter on [x; d]: `update(y)` | `r` held or previewed; input target | `u_lim`, `du_lim`, `y_lim`, `x_lim`, `disturbance_lim` | `back_calculate`; `last_status()`; the filter runs on the applied input |
@@ -231,7 +231,7 @@ One contract for every law:
 | Law | Output limit | What holds against the clamp |
 | --- | --- | --- |
 | `PIDController`, `PIController`, `ContinuousPID` | `u_lim` in `PIDGains` | The integral: it gives back what the tick added, up to what the clamp cut off. With a `Kbc` it unwinds by back-calculation instead |
-| `LQR`, `LQI`, `LQG`, `LQGI`, `OFLQG` | `u_lim` in `LQRConfig`, or `LQIConfig` with `integral_lim` | The integrators: they hold (conditional integration), or with a `tracking_time` in `LQIConfig` unwind by back-calculation; the filter and the input registers move on the clamped command; `OFLQG`'s d̂ stays in `disturbance_lim` |
+| `LQR`, `LQI`, `LQG`, `LQGI`, `OFLQG` | `u_lim` in `LQRConfig`, or `LQIConfig` with `integral_lim` | The integrators unwind by back-calculation, the whole excess each tick unless `tracking_time` in `LQIConfig` slows them; the filter and the input registers move on the clamped command; `OFLQG`'s d̂ stays in `disturbance_lim` |
 | `MPC`, `OFMPC` | `u_lim`, `du_lim`, `y_lim`, `x_lim` in `MPCConstraints` | By construction: the limits are constraints of the QP; `OFMPC`'s d̂ stays in `disturbance_lim` |
 | `ADRCController` | `u_lim` on `ADRCResult` | The ESO runs on the clamped command |
 | `STSMCController` | `u_lim` on `STSMCResult` | The integral state |
