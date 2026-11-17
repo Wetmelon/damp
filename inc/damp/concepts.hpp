@@ -15,7 +15,7 @@
  *
  * | Role                     | Per-tick shape                    | Examples                          |
  * |--------------------------|-----------------------------------|-----------------------------------|
- * | SisoController           | `u = control(r, y)`               | PID, ADRC, SMC, lead-lag, PR      |
+ * | SisoController           | `u = control(r, y)`, `back_calculate(u_sat, u_ff)` | PID, ADRC, SMC, lead-lag, PR      |
  * | FeedbackRuntime          | `update(m)`, `predict()`, `back_calculate(u)` | LQR, LQI, LQG, LQGI, OFLQG, MPC, OFMPC (lifecycle) |
  * | FeedbackLaw              | FeedbackRuntime + `control(r)`, `step(r, m)` | LQI, LQGI, OFLQG, MPC, OFMPC, LQR/LQG with TrackedOutputs |
  * | StateEstimator           | `x̂ = step(y, u)`, `state()`       | FixedGainObserver (fixed gain), KalmanFilter (recursive), MHE, ESO |
@@ -79,10 +79,16 @@ namespace damp {
  * expose a runtime Ts: that would be a lie unless the coeffs are re-discretized
  * every tick. Multirate = several blocks each storing their own fixed Ts, not
  * one block driven at two rates.
+ *
+ * `back_calculate(u_sat, u_ff)` reports the input the plant received after a clamp
+ * downstream, and @p u_ff what was added to this law's command before it. Every law
+ * has it, a no-op where nothing winds up (P, PD, SMC), so a composite (Cascade,
+ * SwitchedController, SmithPredictor) passes a clamp on to the law it holds.
  */
 template<typename C, typename T>
-concept SisoController = damp::is_floating_point_v<T> && requires(C c, T r, T y) {
+concept SisoController = damp::is_floating_point_v<T> && requires(C c, T r, T y, T u_sat, T u_ff) {
     { c.control(r, y) } -> damp::convertible_to<T>;
+    c.back_calculate(u_sat, u_ff);
     c.reset();
 };
 

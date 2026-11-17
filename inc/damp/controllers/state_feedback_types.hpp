@@ -164,7 +164,7 @@ LQRConfig(Matrix<NX, NX, T>, Matrix<NU, NU, T>, Matrix<NX, NU, T>) -> LQRConfig<
  *
  * The law holds its integrators against the clamp of u_lim, with no back_calculate.
  * integral_lim is on ξ itself, in the units of ∫e dt (the error's times seconds): through the
- * gain, ξ moves input j by K(j, NX + i)·ξᵢ. It is a member of the runtime, `law.integral.lim`,
+ * gain, ξ moves input j by K(j, NX + i)·ξᵢ. It is a member of the result and of the runtime, `law.integral_lim`,
  * set at run time like `law.u_lim`, and refused as u_lim is.
  */
 template<size_t NX, size_t NU, size_t NI, typename T = double>
@@ -190,19 +190,18 @@ using lq_config = damp::conditional_t<(NI == 0), LQRConfig<NX, NU, T>, LQIConfig
 
 } // namespace detail
 
-/** @brief The integral action of a design: the integrated outputs, their maps of the state and the input, the per-sample step and the limits on ξ. */
+/** @brief The integral action of a design: the integrated outputs, their maps of the state and the input, and the per-sample step. */
 template<size_t NI, size_t NX, size_t NU, size_t NY, typename T = double>
 struct IntegralDesign {
     Matrix<NI, NY, T> Ci{};    ///< The integrated outputs: e = r − Ci·y, y = C·x + D·u
     Matrix<NI, NX, T> Ci_x{};  ///< Ci·C: the integrated outputs as a map of the plant state (what a law that measures its state integrates)
     Matrix<NI, NU, T> Ci_u{};  ///< Ci·D: the integrated outputs' feedthrough of the input applied over the period
     T                 step{1}; ///< Per-sample integrator gain: the design's Ts (xi += Ts·e ≈ ∫e dt)
-    Bounds<NI, T>     lim{};   ///< Limits on the integral state ξ (LQIConfig::integral_lim; default unbounded)
 
     /** @brief The same integral action in the scalar U. */
     template<typename U>
     [[nodiscard]] constexpr IntegralDesign<NI, NX, NU, NY, U> as() const {
-        return {Ci.template as<U>(), Ci_x.template as<U>(), Ci_u.template as<U>(), static_cast<U>(step), lim.template as<U>()};
+        return {Ci.template as<U>(), Ci_x.template as<U>(), Ci_u.template as<U>(), static_cast<U>(step)};
     }
 };
 
@@ -220,7 +219,8 @@ struct IntegralDesign {
  * | u_lim | the limits on the command (LQRConfig::u_lim) | always, default unbounded |
  * | demand_lim | the limit on what the outer terms ask of one state (LQRConfig::demand_lim) | always, default off |
  * | kalman | the Kalman filter (design::kalman's result) | lqg, lqgi, oflqg |
- * | integral | the integrated outputs Ci, Ci·C, Ci·D, the step and the limits on ξ | NI > 0 |
+ * | integral | the integrated outputs Ci, Ci·C, Ci·D and the step | NI > 0 |
+ * | integral_lim | the limits on ξ (LQIConfig::integral_lim) | NI > 0, default unbounded |
  * | target | the steady-state target (design::steady_state_target's result) | oflqg; lqr and lqg with TrackedOutputs (NZ > 0) |
  *
  * A design on a plant whose input arrives late (an InputDelay) is on the law's model
@@ -246,6 +246,7 @@ struct [[nodiscard]] StateFeedbackResult {
     static constexpr size_t ND = Filter::ND;              ///< Disturbance states of the filter
     using Integral = ::damp::detail::maybe<(NI > 0), IntegralDesign<NI, NXL, NU, NY, T>, ::damp::detail::OffSlot::design_integral>;
     using Target = ::damp::detail::maybe<(NZ > 0), SteadyStateTargetResult<NXL, NU, ND, NZ, T>, ::damp::detail::OffSlot::design_target>;
+    using IntegralLim = ::damp::detail::maybe<(NI > 0), Bounds<NI, T>, ::damp::detail::OffSlot::design_integral_lim>;
 
     Matrix<NU, NK, T>                 K{};                                 ///< Optimal gain: u = −K·[x; xi]
     Matrix<NK, NK, T>                 S{};                                 ///< Riccati solution (positive semidefinite)
@@ -258,6 +259,7 @@ struct [[nodiscard]] StateFeedbackResult {
     [[no_unique_address]] Target      target{};                            ///< The steady-state target (NZ > 0)
     Bounds<NU, T>                     u_lim{};                             ///< Limits on the command the runtime returns (default unbounded)
     DemandLimit<NX + NI, T>           demand_lim{};                        ///< A limit on what the outer terms ask of one state (LQRConfig::demand_lim; default off)
+    [[no_unique_address]] IntegralLim integral_lim{};                      ///< Limits on the integral state ξ (LQIConfig::integral_lim; NI > 0, default unbounded)
 
     /** @brief True when the design succeeded (success). */
     [[nodiscard]] constexpr explicit operator bool() const { return success; }
@@ -269,6 +271,7 @@ struct [[nodiscard]] StateFeedbackResult {
         Out out{K.template as<U>(), S.template as<U>(), array_as<damp::complex<U>>(e), success, status, static_cast<U>(Ts), kalman.template as<U>()};
         if constexpr (NI > 0) {
             out.integral = integral.template as<U>();
+            out.integral_lim = integral_lim.template as<U>();
         }
         if constexpr (NZ > 0) {
             out.target = target.template as<U>();

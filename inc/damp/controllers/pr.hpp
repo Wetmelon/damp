@@ -52,12 +52,14 @@
 
 
 #include "damp/backend.hpp"
+#include "damp/controllers/detail/anti_windup.hpp"
 #include "damp/design/status.hpp"
 #include "damp/math/math.hpp"
 #include "damp/matrix/core.hpp"
 #include "damp/systems/discretization.hpp"
 #include "damp/systems/state_space.hpp"
 #include "damp/systems/transfer_function.hpp"
+#include "damp/toolbox/bounds.hpp"
 
 namespace damp {
 
@@ -110,7 +112,7 @@ struct PRSpec {
     T Ki{}; ///< Resonant (integral) gain (finite)
     T w0{}; ///< Resonant frequency [rad/s], e.g. 2π·50 for a 50 Hz grid (> 0)
     T wc{}; ///< Resonant-term bandwidth [rad/s] (≥ 0); 0 = ideal PR, 5–15 rad/s typical non-ideal
-    T Tt{}; ///< Back-calculation tracking time [s] (≥ 0): ΔR = (Ts/Tt)(u_sat − (u + u_ff)); 0 = none
+    T Tt{}; ///< Back-calculation tracking time [s] (≥ 0): ΔR = (Ts/Tt)(u_sat − (u + u_ff)); 0: the resonant section holds against a clamp
 };
 
 /**
@@ -124,9 +126,10 @@ struct [[nodiscard]] PRResult {
     T            w0{};                                ///< Resonant frequency (rad/s)
     T            wc{};                                ///< Cutoff bandwidth of resonant term (rad/s); 0 = ideal PR
     T            Ts{};                                ///< Sampling time (seconds); 0 = continuous-time design
-    T            Tt{};                                ///< Back-calculation tracking time [s]; 0 = none
+    T            Tt{};                                ///< Back-calculation tracking time [s]; 0: the resonant section holds against a clamp
     bool         success{false};                      ///< status == DesignStatus::ok
     DesignStatus status{DesignStatus::not_converged}; ///< ok, or why the design failed
+    Bounds<1, T> u_lim{};                             ///< Limits on the command (default unbounded): set here, or on the runtime
 
     /** @brief True when the design succeeded (success). */
     [[nodiscard]] constexpr explicit operator bool() const { return success; }
@@ -135,7 +138,7 @@ struct [[nodiscard]] PRResult {
     [[nodiscard]] constexpr auto as() const {
         return PRResult<U>{
             static_cast<U>(Kp), static_cast<U>(Ki), static_cast<U>(w0), static_cast<U>(wc),
-            static_cast<U>(Ts), static_cast<U>(Tt), success, status
+            static_cast<U>(Ts), static_cast<U>(Tt), success, status, u_lim.template as<U>()
         };
     }
 
@@ -374,6 +377,17 @@ public:
         d_ += dy;
     }
 
+    /**
+     * @brief Take back what the last sample added to the output, d[n−1], as far as a clamp cut the
+     *        command off (@p excess = u_sat − u_asked), and no further (detail::hold_against_clamp)
+     * @return How far the output moved
+     */
+    [[nodiscard]] constexpr T hold_against_clamp(T excess) {
+        const T held = y_;
+        detail::hold_against_clamp(y_, d_, excess);
+        return y_ - held;
+    }
+
 private:
     template<typename>
     friend class PRResonator;
@@ -402,7 +416,12 @@ private:
  * Both use @f$s = (2/T_s)(z-1)/(z+1)@f$.
  *
  * A failed or continuous (Ts = 0) design does not compile under constant evaluation; at run time
- * it leaves the controller invalid (valid() false, output 0).
+ * it leaves the controller invalid (valid() false, output 0). So does a u_lim that is not a box.
+ *
+ * The command is clamped into u_lim. Against that clamp, and one reported with back_calculate, the
+ * resonant section gives back what the tick added to its output, as far as the clamp cut the
+ * command off (conditional integration, Tt = 0), or unwinds by back-calculation with the tracking
+ * time Tt.
  *
  * @code
  * // 50 Hz grid current regulator at 10 kHz
@@ -415,14 +434,15 @@ private:
  */
 template<typename T = float>
 struct PRController {
-    T    Kp{};
-    T    Ki{};
-    T    w0{};
-    T    wc{};
-    T    Ts{};
-    T    Tt{T{0}};      ///< Back-calculation tracking time [s]: ΔR = (Ts/Tt)(u_sat − (u + u_ff)); 0 = none
-    T    u_cmd{T{0}};   ///< Last command control() returned: the u in back_calculate's u_sat − (u + u_ff)
-    bool valid_{false}; ///< From the design's success flag; gates control()
+    T            Kp{};
+    T            Ki{};
+    T            w0{};
+    T            wc{};
+    T            Ts{};
+    T            Tt{T{0}};      ///< Back-calculation tracking time [s]: ΔR = (Ts/Tt)(u_sat − (u + u_ff)); 0: the resonant section holds
+    Bounds<1, T> u_lim{};       ///< Limits on the command (the result's; default unbounded)
+    T            u_cmd{T{0}};   ///< Last command control() returned: the u in back_calculate's u_sat − (u + u_ff)
+    bool         valid_{false}; ///< From the design's success flag; gates control()
 
     //! Discretized resonant term (inert until designed).
     PRResonator<T> resonant{};
@@ -442,7 +462,11 @@ struct PRController {
           wc(result.wc),
           Ts(result.Ts),
           Tt(result.Tt),
-          valid_(result.success && result.Ts > T{0}) {
+          u_lim(result.u_lim),
+          valid_(result.success && result.Ts > T{0} && result.u_lim.valid()) {
+        if (result.success && !result.u_lim.valid() && damp::is_constant_evaluated()) {
+            ::damp::detail::refuse_failed_design(design::DesignStatus::invalid_parameter); // a limit that is not finite, or lower above upper
+        }
         if ((!result.success || !(result.Ts > T{0})) && damp::is_constant_evaluated()) {
             ::damp::detail::refuse_failed_design(result.success ? design::DesignStatus::invalid_sample_time : result.status); // constant-evaluated (constinit / constexpr): a failed or continuous design does not compile
         }
@@ -459,6 +483,7 @@ struct PRController {
           wc(static_cast<T>(other.wc)),
           Ts(static_cast<T>(other.Ts)),
           Tt(static_cast<T>(other.Tt)),
+          u_lim(other.u_lim.template as<T>()),
           u_cmd(static_cast<T>(other.u_cmd)),
           valid_(other.valid_),
           resonant(other.resonant) {}
@@ -467,13 +492,15 @@ struct PRController {
      * @brief Compute control output
      *
      * @param error Current error (reference - measurement)
-     * @return Control output u
+     * @return Control output u, clamped into u_lim (zero if the design was invalid)
      */
     [[nodiscard]] constexpr T control(T error) {
         if (!valid_) {
             return T{0};
         }
-        u_cmd = Kp * error + resonant(error);
+        const T u = (Kp * error) + resonant(error);
+        u_cmd = u_lim.saturate(u);
+        static_cast<void>(wind_back(u_cmd - u));
         return u_cmd;
     }
 
@@ -497,23 +524,39 @@ struct PRController {
     [[nodiscard]] constexpr bool valid() const { return valid_; }
 
     /**
-     * @brief Anti-windup after a downstream clamp: ΔR = (Ts/Tt)·(u_sat − (u + u_ff))
+     * @brief Anti-windup after a downstream clamp: the resonant section holds (Tt = 0), or
+     *        ΔR = min(Ts/Tt, 1)·(u_sat − (u + u_ff))
      *
-     * Damped unwind: adds the excess of the applied command over this law's last command
-     * u (plus any feedforward @p u_ff added downstream), times Ts / Tt, to the most recent
-     * resonant output, so the next tick's resonant contribution is pulled back toward the
-     * realizable command. No Ki factor: the resonant output is already in command units, so
-     * Tt is a tracking time [s] (the PID laws' Kbc is a gain ratio instead). No-op when `Tt == 0`.
+     * With Tt = 0 the resonant output gives back what the last tick added to it, as far as the
+     * clamp cut the command off, and no further, as against u_lim. With Tt > 0, a damped unwind:
+     * the excess of the applied command over this law's last command u (plus any feedforward
+     * @p u_ff added downstream), times Ts / Tt, is added to the most recent resonant output, so
+     * the next tick's resonant contribution is pulled back toward the realizable command. No Ki
+     * factor: the resonant output is already in command units, so Tt is a tracking time [s] (the
+     * PID laws' Kbc is a gain ratio instead). It takes at most the whole excess per tick: past
+     * that it would overshoot, and past twice it diverges.
      *
      * @param u_sat Command actually applied after downstream clamping.
      * @param u_ff  Feedforward added to this law's command before the clamp (default 0).
      */
     constexpr void back_calculate(T u_sat, T u_ff = T{0}) {
-        const T u_unsat = u_cmd + u_ff;
-        if (!valid_ || Tt == T{0} || u_unsat == u_sat) {
-            return;
+        if (valid_) {
+            static_cast<void>(wind_back(u_sat - (u_cmd + u_ff)));
         }
-        resonant.shift_last_output(Ts * ((u_sat - u_unsat) / Tt));
+    }
+
+    /**
+     * @brief Take a clamp's @p excess (u_sat − u_asked) back from the resonant section: hold
+     *        (Tt = 0) or a share min(Ts/Tt, 1) of it
+     * @return How far the resonant output moved
+     */
+    [[nodiscard]] constexpr T wind_back(T excess) {
+        if (Tt == T{0}) {
+            return resonant.hold_against_clamp(excess);
+        }
+        const T shift = damp::min(Ts / Tt, T{1}) * excess;
+        resonant.shift_last_output(shift);
+        return shift;
     }
 
     /**

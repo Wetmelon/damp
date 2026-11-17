@@ -29,10 +29,10 @@ namespace damp {
 namespace detail {
 
 /**
- * @brief The integral action of a law: the integrators and their limits, the integrated outputs Ci
- *        (on the measurement) and their feedthrough Ci·D, the per-sample step, the error and the
- *        unclamped command held for the next predict, and with an estimator the measurement held
- *        from the last update (NYH = NY; 0: none).
+ * @brief The integral action of a law: the integrators, the integrated outputs Ci (on the
+ *        measurement) and their feedthrough Ci·D, the per-sample step, the error and the unclamped
+ *        command held for the next predict, and with an estimator the measurement held from the
+ *        last update (NYH = NY; 0: none). Their limits are the law's integral_lim.
  */
 template<size_t NI, size_t NC, size_t NU, size_t NYH, typename T, typename CiMatrix = Matrix<NI, NC, T>, typename CiuMatrix = Matrix<NI, NU, T>>
 struct IntegralAction {
@@ -44,7 +44,6 @@ struct IntegralAction {
     T                               step{1}; ///< Per-sample integrator gain: the design's Ts (xi += Ts·e ≈ ∫e dt)
     ColVec<NI, T>                   e{};     ///< Error held from control for the next predict, before the input's feedthrough
     [[no_unique_address]] HeldY     y{};     ///< Measurement from the last update (with an estimator)
-    Bounds<NI, T>                   lim{};   ///< Limits on xi (default unbounded)
     ColVec<NU, T>                   asked{}; ///< The law's last command before u_lim: what the applied input is compared with
 };
 
@@ -97,7 +96,7 @@ struct HeldGains {
  * | estimator (FixedGainObserver with design::kalman's gain, disturbance model) | Est | NoEstimator: the state is measured |
  * | steady-state target for r, under the disturbance model if there is one (SteadyStateTarget) | NZ | 0 |
  * | input registers: the inputs applied over the last NRU periods, held by the law (a measured state) | NRU | 0 |
- * | limits on the command and on the integrators | @ref u_lim, integral.lim | unbounded |
+ * | limits on the command and on the integrators | @ref u_lim, @ref integral_lim | unbounded |
  * | a limit on the disturbance estimate d̂ (ND > 0) | @ref disturbance_lim | unbounded |
  * | a limit on what the outer terms ask of one state (DemandLimit) | @ref demand_lim | off |
  *
@@ -128,7 +127,7 @@ struct HeldGains {
  *   control holds the part it knows, r − Ci·C·x (from the measured state, or from the
  *   measurement less the feedthrough D·u of the input it was taken under), and @ref predict
  *   subtracts Ci·D·u for the input applied, then advances xi unless the applied input shows the
- *   actuator clamping against it (conditional integration), and clamps xi into integral.lim;
+ *   actuator clamping against it (conditional integration), and clamps xi into integral_lim;
  * - within limits: @ref control returns the command clamped into @ref u_lim, and that is the
  *   input the next @ref predict takes as applied unless @ref back_calculate recorded another.
  *   The integrators compare the applied input with the command before the clamp, so they hold
@@ -137,6 +136,9 @@ struct HeldGains {
  *   state (DemandLimit), and the integrators hold against it the same way. With a disturbance model, @ref update clamps d̂ into
  *   @ref disturbance_lim, so a load past it (a wall the plant is held against) does not wind d̂,
  *   and with it the target, up the way an integrator would.
+ *
+ * A failed or continuous design leaves the law invalid at run time: valid() is false and control
+ * returns 0, as every law does (when constant-evaluated it does not compile).
  *
  * Readings, references and reported inputs are the caller's to check: a NaN or ±Inf that reaches
  * the law stays in its memory (the integrators, a filter's estimate and its anchor) until that is
@@ -177,6 +179,7 @@ struct StateFeedbackCore {
     using Integral = detail::maybe<(NI > 0), detail::IntegralAction<NI, NM, NU, (kEstimated ? NY : 0), T, typename Store::template Ci<NI, NM, T>, typename Store::template Ci_u<NI, NU, T>>, detail::OffSlot::integral>;
     using HeldX = detail::maybe<!kEstimated, ColVec<NXL, T>, detail::OffSlot::held_x>;
     using DisturbanceLim = detail::maybe<(ND > 0), Bounds<ND, T>, detail::OffSlot::disturbance_lim>;
+    using IntegralLim = detail::maybe<(NI > 0), Bounds<NI, T>, detail::OffSlot::integral_lim>;
 
     [[no_unique_address]] Store::template K<NU, NXL + NI, T> K{}; ///< Gain on [x; xi]
 
@@ -184,6 +187,8 @@ struct StateFeedbackCore {
     [[no_unique_address]] Target   target{};    ///< The steady-state target (NZ > 0)
     [[no_unique_address]] Integral integral{};  ///< The integrators (NI > 0)
     Bounds<NU, T>                  u_lim{};     ///< Limits on the command control returns (default unbounded)
+
+    [[no_unique_address]] IntegralLim integral_lim{}; ///< Limits on the integrators ξ (NI > 0; default unbounded)
 
     [[no_unique_address]] DisturbanceLim                     disturbance_lim{}; ///< Limits on the disturbance estimate d̂, in d's units (ND > 0; default unbounded)
     [[no_unique_address]] Store::template Demand<NX + NI, T> demand_lim{};      ///< A limit on what the outer terms ask of a state (default off; a constant of a `constexpr` design's Law)
@@ -199,13 +204,13 @@ struct StateFeedbackCore {
      * @brief From a gain design (design::place's PlaceResult, LQRResult; any scalar): converts K.
      *
      * A failed or continuous (not discrete) result does not compile when constant-evaluated; at run
-     * time either leaves K = 0.
+     * time either leaves the law invalid.
      */
     template<typename R>
         requires(detail::gain_result<R> && !kEstimated && NI == 0 && NZ == 0 && NRU == 0 && !Store::constant)
     constexpr StateFeedbackCore(const R& result) // NOLINT
-    {
-        if (usable(result, detail::discrete_gain(result))) {
+        : valid_(usable(result, detail::discrete_gain(result))) {
+        if (valid_) {
             K = result.K.template as<T>();
             if constexpr (requires { result.u_lim; }) {
                 u_lim = result.u_lim.template as<T>();
@@ -221,7 +226,7 @@ struct StateFeedbackCore {
      *        result carries.
      *
      * A failed or continuous result (Ts = 0) does not compile when constant-evaluated; at run
-     * time either leaves K = 0.
+     * time either leaves the law invalid.
      */
     template<size_t NXR, size_t NUR, typename U, size_t NIR, size_t NYR, typename Kalman, size_t NZR, size_t NRR>
         requires(!Store::constant)
@@ -229,7 +234,8 @@ struct StateFeedbackCore {
         constexpr bool same = NXR == NX && NUR == NU && NIR == NI && NYR == NY && NZR == NZ && NRR == NRU && damp::is_same_v<Est, detail::runtime_estimator_t<Kalman, T>>;
         static_assert(same, "This law's sizes are not the design's: let them deduce, LQG law{res}, or Law<res, T> for a member.");
         if constexpr (same) {
-            if (usable(result, result.Ts != U{0})) {
+            valid_ = usable(result, result.Ts != U{0});
+            if (valid_) {
                 K = result.K.template as<T>();
             }
             if constexpr (kEstimated) {
@@ -243,7 +249,7 @@ struct StateFeedbackCore {
             if constexpr (NI > 0) {
                 integral.Ci_u = result.integral.Ci_u.template as<T>();
                 integral.step = static_cast<T>(result.integral.step);
-                integral.lim = result.integral.lim.template as<T>();
+                integral_lim = result.integral_lim.template as<T>();
             }
             u_lim = result.u_lim.template as<T>();
             demand_lim = result.demand_lim.template as<T>();
@@ -327,6 +333,9 @@ struct StateFeedbackCore {
      *        @p r (NZ > 0, under d̂ when ND > 0).
      */
     [[nodiscard]] constexpr ColVec<NU, T> control(const ColVec<NR, T>& r, const ColVec<NX, T>& x_ref, const ColVec<NU, T>& u_ref) {
+        if (!valid_) {
+            return ColVec<NU, T>{}; // a refused design: no command
+        }
         const ColVec<NXL, T> ref = on_law_model(x_ref, u_ref);
         if constexpr (ND > 0) {
             return anchored_law(r, ref, u_ref);
@@ -384,6 +393,9 @@ struct StateFeedbackCore {
     /** @brief The gain K on [x; xi]. */
     [[nodiscard]] constexpr const Matrix<NU, NXL + NI, T>& getK() const { return K; }
 
+    /** @brief False when built from a design it refuses (failed, or continuous): control returns 0. */
+    [[nodiscard]] constexpr bool valid() const { return valid_; }
+
     /** @brief Clear the integrators and the input memory (an estimate and its anchor stay). */
     constexpr void reset() {
         if constexpr (kRecord) {
@@ -406,10 +418,11 @@ struct StateFeedbackCore {
     }
 
 private:
-    [[no_unique_address]] Record applied_{}; ///< The last command and the input back_calculate recorded
-    [[no_unique_address]] HeldX  x_{};       ///< The measured state from the last update (no estimator)
+    [[no_unique_address]] Record applied_{};   ///< The last command and the input back_calculate recorded
+    [[no_unique_address]] HeldX  x_{};         ///< The measured state from the last update (no estimator)
+    bool                         valid_{true}; ///< False when built from a design it refuses
 
-    /** @brief Whether a design's gain runs on this tick: it succeeded and is discrete. Otherwise it does not compile when constant-evaluated (the error names its status) and the law keeps K = 0. */
+    /** @brief Whether a design's gain runs on this tick: it succeeded and is discrete. Otherwise it does not compile when constant-evaluated (the error names its status) and the law is invalid. */
     template<typename R>
     [[nodiscard]] static constexpr bool usable(const R& result, bool discrete) {
         const bool ok = result.success && discrete;
@@ -541,7 +554,7 @@ private:
         return record(u, limit_demand(u, z));
     }
 
-    /** @brief Integrate the held error less the applied input's feedthrough Ci·D·u, into integral.lim, unless a clamp (u_lim, or one back_calculate reported) would wind it up: integrator i holds when −K(j, i)·eᵢ points into a clamped input j. */
+    /** @brief Integrate the held error less the applied input's feedthrough Ci·D·u, into integral_lim, unless a clamp (u_lim, or one back_calculate reported) would wind it up: integrator i holds when −K(j, i)·eᵢ points into a clamped input j. */
     constexpr void integrate()
         requires(NI > 0)
     {
@@ -562,7 +575,7 @@ private:
                 integral.xi(i) += integral.step * e(i);
             }
         }
-        integral.xi = integral.lim.saturate(integral.xi); // held or not: a limit narrowed at run time pulls xi in
+        integral.xi = integral_lim.saturate(integral.xi); // held or not: a limit narrowed at run time pulls xi in
         integral.e = ColVec<NI, T>{};
     }
 };

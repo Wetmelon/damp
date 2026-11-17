@@ -243,6 +243,7 @@ struct LQR : private detail::StateFeedbackCore<NX, NU, T, 0, NY, NoEstimator, NZ
     using Core::getK;
     using Core::predict;
     using Core::reset;
+    using Core::valid;
 };
 
 /** @brief LQR law{res}: the sizes and scalar of design::lqr's result. */

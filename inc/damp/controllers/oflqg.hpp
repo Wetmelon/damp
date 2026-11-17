@@ -189,6 +189,7 @@ struct OFLQG : private detail::StateFeedbackCore<NX, NU, T, 0, NY, Est, NZ, Stor
     using Core::predict;
     using Core::reset;
     using Core::state_estimate;
+    using Core::valid;
 };
 
 /** @brief OFLQG law{res}: the sizes, scalar, filter and target of design::oflqg's result. */

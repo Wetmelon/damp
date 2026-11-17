@@ -36,8 +36,8 @@ enum class DiscretizationMethod {
  * `*r`, `r->A`, `r.value()`, `r.has_value()` and `if (r)` read it as they read a
  * @c damp::optional, so code that needs only the model is unchanged; @c status names the cause
  * when the model is refused. A refused result holds the zero model: `*r` returns it, and
- * @c value() does not compile when constant-evaluated and traps at run time (as
- * @c std::optional::value() does without exceptions).
+ * @c value() does not compile when constant-evaluated and returns the zero model at run time,
+ * as Damp's optional does: nothing faults.
  *
  * @tparam NX Number of states
  * @tparam NU Number of inputs
@@ -77,18 +77,18 @@ struct [[nodiscard]] DiscretizationResult {
     /** @brief Member access to the model: `r->A`. */
     [[nodiscard]] constexpr value_type* operator->() { return &sys; }
 
-    /** @brief The model; a failed result does not compile when constant-evaluated and traps at run time. */
+    /** @brief The model; a failed result does not compile when constant-evaluated, and is the zero model at run time. */
     [[nodiscard]] constexpr const value_type& value() const {
         if (!success) {
-            ::damp::detail::refuse_failed_design(status); // constant-evaluated: does not compile, naming the status; run time: traps
+            ::damp::detail::refuse_failed_design(status); // constant-evaluated: does not compile, naming the status
         }
         return sys;
     }
 
-    /** @brief The model; a failed result does not compile when constant-evaluated and traps at run time. */
+    /** @brief The model; a failed result does not compile when constant-evaluated, and is the zero model at run time. */
     [[nodiscard]] constexpr value_type& value() {
         if (!success) {
-            ::damp::detail::refuse_failed_design(status); // constant-evaluated: does not compile, naming the status; run time: traps
+            ::damp::detail::refuse_failed_design(status); // constant-evaluated: does not compile, naming the status
         }
         return sys;
     }

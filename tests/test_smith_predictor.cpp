@@ -79,6 +79,8 @@ struct ProportionalPrimary {
         return k * (r - y);
     }
 
+    constexpr void back_calculate(double /*u_sat*/, double /*u_ff*/ = 0.0) {}
+
     constexpr void reset() {}
 };
 

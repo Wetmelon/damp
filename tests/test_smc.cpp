@@ -17,6 +17,18 @@
 using namespace damp;
 
 TEST_SUITE("Sliding Mode Control (SMC)") {
+    TEST_CASE("SMC u_lim clamps the relay; one that is not a box leaves the runtime invalid") {
+        auto res = design::smc(20.0, 5.0, 1.0, 1e-3);
+        res.u_lim = {.lower = -1.0, .upper = 1.0};
+        SMCController<double> law{res};
+        CHECK(law.control(1.0, 0.0) == 1.0); // k/b₀ = 5 past the limit
+        CHECK(law.control(-1.0, 0.0) == -1.0);
+        res.u_lim = {.lower = 1.0, .upper = -1.0};
+        SMCController<double> bad{res};
+        CHECK_FALSE(bad.valid());
+        CHECK(bad.control(1.0, 0.0) == 0.0);
+    }
+
     TEST_CASE("SMC gain computation") {
         float lambda = 10.0f; // Sliding surface parameter
         float k = 5.0f;       // Switching gain

@@ -189,7 +189,7 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
         law.u_lim = w.u_lim;
         law.demand_lim = w.demand_lim;
         if constexpr (NI > 0) {
-            law.integral.lim = w.integral_lim;
+            law.integral_lim = w.integral_lim;
         }
     }
     if constexpr (!kEstimated && !kTarget) {

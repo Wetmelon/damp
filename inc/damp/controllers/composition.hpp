@@ -26,6 +26,8 @@
 
 #include "damp/backend.hpp"
 #include "damp/concepts.hpp"
+#include "damp/math/math.hpp"
+#include "damp/matrix/matrix_traits.hpp" // eps
 
 namespace damp {
 
@@ -37,8 +39,19 @@ namespace damp {
  *     u_outer = outer.control(r, y_outer)
  *     u       = inner.control(u_outer, y_inner)
  *
+ * While the inner law's command is clamped, at its own u_lim or by a clamp reported with
+ * back_calculate, the inner loop cannot follow its reference, and the outer law is told its
+ * command was held at the last one the inner loop could follow, the outer command of the last
+ * tick that went out uncut: back_calculate of it. Its memory holds as against a clamp of its own
+ * (an outer PI's integral gives back what each tick added past it), where it ran on for as long
+ * as the inner loop could not follow and overshot when it could. An inner law without a u_lim
+ * tells only through back_calculate.
+ *
  * Typical use: outer position / voltage loop, inner velocity / current.
  * Alias CascadePPI for PI+PI when both loops are PIController.
+ *
+ * @see "Advanced PID Control" (Åström & Hägglund, 2006), §3.5: anti-windup by conditional
+ *      integration and by tracking
  *
  * @tparam Outer Outer controller type (SisoController)
  * @tparam Inner Inner controller type (SisoController)
@@ -60,14 +73,46 @@ public:
      * @param y_inner Inner measurement (e.g. velocity, current)
      */
     [[nodiscard]] constexpr T control(T r, T y_outer, T y_inner) {
-        const T r_inner = outer_.control(r, y_outer);
-        return inner_.control(r_inner, y_inner);
+        if (!cut_) {
+            r_held_ = r_inner_; // the last tick went out uncut: the inner loop could follow its reference
+        }
+        r_inner_ = outer_.control(r, y_outer);
+        u_cmd_ = inner_.control(r_inner_, y_inner);
+        cut_ = false;
+        if constexpr (requires { inner_.u_lim.lower(0); }) {
+            if (!(inner_.u_lim.lower(0) < u_cmd_ && u_cmd_ < inner_.u_lim.upper(0))) {
+                hold_outer(); // the inner command is on its limit
+            }
+        }
+        return u_cmd_;
+    }
+
+    /**
+     * @brief Record the input the plant received, @p u_sat, when a stage after the cascade
+     *        clamped its command, and the feedforward @p u_ff added to it before that clamp
+     *
+     * The inner law takes it; when the clamp cut the command off, the outer law holds as
+     * against the inner law's own limit.
+     */
+    constexpr void back_calculate(T u_sat, T u_ff = T{0}) {
+        inner_.back_calculate(u_sat, u_ff);
+        const T asked = u_cmd_ + u_ff;
+        if (!cut_ && damp::abs(u_sat - asked) > T{4} * eps<T>() * (damp::abs(u_sat) + damp::abs(asked))) {
+            hold_outer();
+        }
     }
 
     constexpr void reset() {
         outer_.reset();
         inner_.reset();
+        r_held_ = T{0};
+        r_inner_ = T{0};
+        u_cmd_ = T{0};
+        cut_ = false;
     }
+
+    /** @brief The command the last control() returned. */
+    [[nodiscard]] constexpr T last_command() const { return u_cmd_; }
 
     [[nodiscard]] constexpr Outer&       outer() { return outer_; }
     [[nodiscard]] constexpr const Outer& outer() const { return outer_; }
@@ -75,8 +120,18 @@ public:
     [[nodiscard]] constexpr const Inner& inner() const { return inner_; }
 
 private:
+    /** @brief The inner command was cut off this tick: the outer command holds at the last one the inner loop could follow. */
+    constexpr void hold_outer() {
+        cut_ = true;
+        outer_.back_calculate(r_held_, T{0});
+    }
+
     Outer outer_{};
     Inner inner_{};
+    T     r_held_{T{0}};  ///< The outer command of the last tick that went out uncut: where a clamp of the inner command holds it
+    T     r_inner_{T{0}}; ///< The outer command of the last tick: the inner law's reference
+    T     u_cmd_{T{0}};   ///< The command the last control() returned
+    bool  cut_{false};    ///< The last tick's inner command was cut off
 };
 
 /**
@@ -95,14 +150,18 @@ enum class SwitchMode : uint8_t {
 };
 
 /**
- * @brief Bumpless-ish switch between normal, experiment, and backup SISO laws.
+ * @brief Switch between normal, experiment, and backup SISO laws.
  *
- * All three slots are SisoControllers. On mode change, the newly active
- * controller is @c reset() so integrators do not inherit foreign state
- * (Hanus-style full bumpless needs more; this is the library's lightweight
- * default). Experiment path is still a controller shape: wrap relay/FRF
- * drivers with a small adapter if needed, or set mode to Experiment and
- * call @ref inject when u comes from outside.
+ * All three slots are SisoControllers. On mode change the newly active law is @c reset(), so
+ * integrators do not inherit foreign state. A law with a tracking mode (`track(u, y)` and
+ * `enable()`, as PIDController) is then preloaded at the next tick from the command the plant
+ * last received, at that tick's measurement, so it resumes from it: the command does not jump
+ * but by its proportional term on the error. A law without one starts from its reset state.
+ * back_calculate goes to the active law. The experiment path is still a controller shape: wrap
+ * relay/FRF drivers with a small adapter if needed, or set mode to Experiment and call
+ * @ref inject when u comes from outside.
+ *
+ * @see "Advanced PID Control" (Åström & Hägglund, 2006), §3.5: bumpless transfer by tracking
  *
  * @tparam Normal     Primary controller
  * @tparam Experiment Experiment-period controller (or dummy passthrough)
@@ -121,33 +180,44 @@ public:
     [[nodiscard]] constexpr SwitchMode mode() const { return mode_; }
 
     /**
-     * @brief Select active path; resets the newly selected controller.
+     * @brief Select active path; resets the newly selected controller, and preloads one with a
+     *        tracking mode at the next tick.
      */
     constexpr void set_mode(SwitchMode m) {
         if (m == mode_) {
             return;
         }
         mode_ = m;
-        active_reset();
+        on_active([](auto& law) { law.reset(); });
+        handover_ = true;
     }
 
     /**
      * @brief One tick of the active controller.
      */
     [[nodiscard]] constexpr T control(T r, T y) {
-        switch (mode_) {
-            case SwitchMode::Experiment:
-                last_u_ = experiment_.control(r, y);
-                break;
-            case SwitchMode::Backup:
-                last_u_ = backup_.control(r, y);
-                break;
-            case SwitchMode::Normal:
-            default:
-                last_u_ = normal_.control(r, y);
-                break;
-        }
+        on_active([&](auto& law) {
+            if constexpr (requires { law.track(applied_, y); law.enable(); }) {
+                if (handover_) {
+                    law.track(applied_, y); // the integrator takes what the plant last received
+                    law.enable();
+                }
+            }
+            last_u_ = law.control(r, y);
+        });
+        handover_ = false;
+        applied_ = last_u_;
         return last_u_;
+    }
+
+    /**
+     * @brief Record the input the plant received, @p u_sat, after a clamp downstream, and the
+     *        feedforward @p u_ff added before it: the active law takes it, and a law switched in
+     *        next starts from u_sat − u_ff.
+     */
+    constexpr void back_calculate(T u_sat, T u_ff = T{0}) {
+        on_active([&](auto& law) { law.back_calculate(u_sat, u_ff); });
+        applied_ = u_sat - u_ff;
     }
 
     /**
@@ -158,6 +228,7 @@ public:
     constexpr void inject(T u) {
         if (mode_ == SwitchMode::Experiment) {
             last_u_ = u;
+            applied_ = u;
         }
     }
 
@@ -168,6 +239,8 @@ public:
         experiment_.reset();
         backup_.reset();
         last_u_ = T{0};
+        applied_ = T{0};
+        handover_ = false;
     }
 
     [[nodiscard]] constexpr Normal&           normal() { return normal_; }
@@ -178,17 +251,19 @@ public:
     [[nodiscard]] constexpr const Backup&     backup() const { return backup_; }
 
 private:
-    constexpr void active_reset() {
+    /** @brief Call @p f on the law of the active mode. */
+    template<typename F>
+    constexpr void on_active(F&& f) {
         switch (mode_) {
             case SwitchMode::Experiment:
-                experiment_.reset();
+                f(experiment_);
                 break;
             case SwitchMode::Backup:
-                backup_.reset();
+                f(backup_);
                 break;
             case SwitchMode::Normal:
             default:
-                normal_.reset();
+                f(normal_);
                 break;
         }
     }
@@ -197,7 +272,9 @@ private:
     Experiment experiment_{};
     Backup     backup_{};
     SwitchMode mode_{SwitchMode::Normal};
-    T          last_u_{T{0}};
+    T          last_u_{T{0}};    ///< The command the last control() returned, or inject's
+    T          applied_{T{0}};   ///< What the plant last received from the switch: a law switched in starts from it
+    bool       handover_{false}; ///< A law was switched in and has not ticked yet
 };
 
 } // namespace damp

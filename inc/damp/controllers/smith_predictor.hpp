@@ -473,7 +473,7 @@ public:
      * The internal model runs on the input that reached the plant: the command just queued is
      * replaced by @p u_sat, so the prediction ŷ − ŷ_d stays the plant's, where a clamp the model
      * did not see left it predicting an output the plant never produced. The primary controller
-     * is told the same when it has a back_calculate.
+     * is told the same.
      *
      * @see "Advanced PID Control" (Åström & Hägglund, 2006), §7.5
      */
@@ -486,9 +486,7 @@ public:
             x_ += b_ * (u_sat - ring_[newest]); // no delay: the model has already stepped on this command
         }
         ring_[newest] = u_sat;
-        if constexpr (requires { primary_.back_calculate(u_sat, u_ff); }) {
-            primary_.back_calculate(u_sat, u_ff);
-        }
+        primary_.back_calculate(u_sat, u_ff);
     }
 
     /** @brief Clear primary, commands in flight, and model state */

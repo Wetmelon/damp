@@ -22,6 +22,9 @@ and [known limitations](docs/known_limitations.md)).
 - `Bounds::valid()`: no end NaN and no lower end above its upper one, the test `design::mpc` and `design::mhe` already applied.
 - `u_lim` on `ADRCResult`, `STSMCResult` and `LeadLagResult`, and as a member of their runtimes and of `ExtremumSeekingController`: the command is clamped into it and the law's memory holds against that clamp.
 - `back_calculate(u_sat, u_ff)` on `STSMCController`, `LeadLagController`, `ExtremumSeekingController`, `SmithPredictor`, `RepetitiveController` and `ClassicalDOB`: a clamp after the law is reported the same way to every law with memory.
+- `back_calculate` on every SISO law and in the `SisoController` concept: P, PD and SMC take it as a no-op, and `HarmonicSuppressor`, `Cascade` and `SwitchedController` pass a clamp on to the laws they hold.
+- `u_lim` on `PRResult`, `HarmonicSuppressorResult` and `SMCResult` and as a member of their runtimes: the command is clamped into it, and the resonators of a PR law or a harmonic bank hold against the clamp.
+- `valid()` on the PID runtimes, the LQ laws, `MPC` and `OFMPC`, as on the other laws: false when built from a design they refuse, and the law sends 0 (an MPC holds its input).
 
 ### Changed
 
@@ -41,6 +44,11 @@ and [known limitations](docs/known_limitations.md)).
 - A perfect measurement on `KalmanFilter` or `ExtendedKalmanFilter` (R = 0, or a zero-variance row of R) is taken at the rounding of its own prior variance: the estimate reads it to eps, and the covariance keeps eps times the prior there instead of zero.
 - A P₀ or a Q of `KalmanFilter` or `ExtendedKalmanFilter` may be singular, and one that is not positive semidefinite or not finite does not compile where the filter is constant-evaluated; at run time P₀ becomes the identity and such a Q adds no process noise.
 - The update of `KalmanFilter` and `ExtendedKalmanFilter` takes far less stack, about a ninth for a large filter; a `KalmanFilter` that holds its matrices is larger by the factors of its Q and R.
+- Damp never faults at run time. A PID runtime built from gains it refuses is invalid where its constructor trapped, `DiscretizationResult::value()` of a refused result is the zero model, and a matrix initializer longer than the matrix drops the extra entries; each is still a compile error under constant evaluation.
+- `Cascade` holds the outer law while the inner law's command is clamped, at its `u_lim` or by a clamp reported with `back_calculate`, so an outer integrator no longer winds up while the inner loop cannot follow.
+- `SwitchedController` starts a law with a tracking mode, a PID, from the command the plant last received when it is switched in, where it started from its reset state.
+- `PRController` with `Tt = 0` holds its resonant section against a clamp reported with `back_calculate`, where it ignored the report.
+- The integrators' limits of the LQI and LQGI runtimes and their design results are `integral_lim`, the name `LQIConfig` gives them, where they were `integral.lim`.
 
 ### Fixed
 
@@ -48,9 +56,10 @@ and [known limitations](docs/known_limitations.md)).
 - A float MPC with soft output limits solves its QP on every tick. Once the moves sat on their limits the active-set solver ended `Degenerate`, or called a feasible problem `Infeasible`, on up to every tick of a recovery from outside the limits; it now keeps an orthogonal factorization of the active constraints.
 - `solve_qp` in float no longer returns `Success` with a constraint violated past its tolerance: the point is recomputed on the active constraints after each step, and every solved point meets its rows.
 - PID back-calculation with a `Kbc` under half of `Ki·Ts` diverged, and overshot under `Ki·Ts`; it takes at most the whole excess per tick.
-- An LQ design refused for its limits no longer carries them into a runtime, and an `integral.lim` narrowed at run time pulls a held integrator in.
+- An LQ design refused for its limits no longer carries them into a runtime, and an `integral_lim` narrowed at run time pulls a held integrator in.
 - `PRController<float>` and `HarmonicSuppressor<float>` hold a resonance far below the sample rate, where the output used to lose its gain at ω₀ or run to Inf (f₀/fs = 5e-5). The resonant section, `PRController::resonant`, is a `PRResonator` on the output and its increment instead of a `Biquad`.
 - `KalmanFilter` and `ExtendedKalmanFilter` in float keep their covariance under a prior far wider than a reading's noise: stored as P it went indefinite within a few ticks once P₀/R passed about 10⁵, and nearly every later update was refused.
+- `PRController` with a tracking time `Tt` under the sample period overshot the realizable command on each unwind, and diverged under half of it; it takes at most the whole excess per tick.
 
 ## [0.2.2] — 2026-11-10
 

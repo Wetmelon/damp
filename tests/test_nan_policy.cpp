@@ -188,6 +188,7 @@ TEST_SUITE("NaN/Inf policy") {
 
     TEST_CASE("MPC from a failed design holds its input instead of dividing by zero scales") {
         MPC<2, 1, 1, 10, 3, 0, float> mpc{MPC<2, 1, 1, 10, 3, 0, float>::Result{}};
+        CHECK_FALSE(mpc.valid());
         for (const float r : kEdges) {
             const auto u = mpc.step(ColVec<1, float>{r}, ColVec<2, float>{r, -r});
             CHECK(all_finite(u));

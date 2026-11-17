@@ -6,6 +6,7 @@
 
 #include "damp/concepts.hpp"
 #include "damp/controllers/composition.hpp"
+#include "damp/controllers/pid.hpp"
 
 #define DOCTEST_CONFIG_INCLUDE_TYPE_TRAITS
 #include "doctest.h"
@@ -21,11 +22,13 @@ struct GainController {
     T                         last_r{T{0}};
     T                         last_y{T{0}};
     int                       resets{0};
+    int                       reports{0};
     [[nodiscard]] constexpr T control(T r, T y) {
         last_r = r;
         last_y = y;
         return k * (r - y);
     }
+    constexpr void back_calculate(T /*u_sat*/, T /*u_ff*/ = T{0}) { ++reports; }
     constexpr void reset() {
         last_r = T{0};
         last_y = T{0};
@@ -86,5 +89,48 @@ TEST_SUITE("Cascade and SwitchedController") {
         sw.set_mode(SwitchMode::Normal);
         CHECK(sw.normal().resets == n_before + 1);
         CHECK(sw.normal().last_y == doctest::Approx(0.0));
+
+        sw.back_calculate(0.5); // to the active law only
+        CHECK(sw.normal().reports == 1);
+        CHECK(sw.experiment().reports == 0);
+    }
+
+    TEST_CASE("Cascade holds the outer integral while the inner command is clamped") {
+        const auto                                                 outer_gains = design::PIDGains<double>{.Kp = 1.0, .Ki = 10.0}.discretize(0.01);
+        const auto                                                 inner_gains = design::PIDGains<double>{.Kp = 2.0, .u_lim = {.lower = -1.0, .upper = 1.0}}.discretize(0.01);
+        Cascade<PIController<double>, PController<double>, double> cas{PIController<double>{outer_gains}, PController<double>{inner_gains}};
+        for (int k = 0; k < 100; ++k) {
+            CHECK(cas.control(5.0, 0.0, 0.0) == 1.0); // the inner loop sits on its limit
+        }
+        CHECK(cas.outer().integral == 0.0); // was 100·Ki·Ts·5 = 50: it ran on while the inner loop could not follow
+
+        // The same through a clamp after the cascade, reported with back_calculate.
+        const auto                                                 open_inner = design::PIDGains<double>{.Kp = 2.0}.discretize(0.01);
+        Cascade<PIController<double>, PController<double>, double> told{PIController<double>{outer_gains}, PController<double>{open_inner}};
+        for (int k = 0; k < 100; ++k) {
+            told.back_calculate(damp::min(told.control(5.0, 0.0, 0.0), 1.0));
+        }
+        CHECK(told.outer().integral == 0.0);
+
+        // Once the inner loop follows again, the outer integral moves.
+        static_cast<void>(cas.control(0.4, 0.0, 0.5)); // r_inner = 0.44: inner 2·(0.44 − 0.5) inside ±1
+        CHECK(cas.outer().integral > 0.0);
+    }
+
+    TEST_CASE("SwitchedController starts a PID switched in from the command the plant last received") {
+        const auto gains = design::PIDGains<double>{.Kp = 1.0, .Ki = 10.0}.discretize(0.01);
+        using PI = PIController<double>;
+        SwitchedController<PI, PI, PI, double> sw{PI{gains}, PI{gains}, PI{gains}};
+        double                                 u = 0.0;
+        for (int k = 0; k < 50; ++k) {
+            u = sw.control(1.0, 0.0); // the integral builds: u = 1 + 0.1·50
+        }
+        CHECK(u == doctest::Approx(6.0));
+        sw.set_mode(SwitchMode::Backup);
+        CHECK(sw.control(0.5, 0.5) == doctest::Approx(u)); // at zero error: was 0, the backup's reset state
+
+        sw.back_calculate(4.0); // the plant received 4
+        sw.set_mode(SwitchMode::Normal);
+        CHECK(sw.control(0.5, 0.5) == doctest::Approx(4.0));
     }
 }

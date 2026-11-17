@@ -374,12 +374,15 @@ TEST_SUITE("DiscretizationResult") {
     }
 
     TEST_CASE("value() of a success is a constant expression; a refusal is inspected through status") {
-        //! value() of a failed result calls the non-constexpr trap, so only a success reaches it here.
+        //! value() of a failed result is no constant expression, so only a success reaches it here;
+        //! at run time it is the zero model.
         constexpr auto ok = discretize(make_lag(), 0.1);
         constexpr auto A = ok.value().A;
         static_assert(A(1, 1) > 0.0 && A(1, 1) < 1.0);
         constexpr auto refused = discretize(make_lag(), 0.1, InputDelay{0.2});
         static_assert(!refused && refused.status == DesignStatus::invalid_parameter);
+        const auto at_run_time = discretize(make_lag(), 0.1, InputDelay{0.2});
+        CHECK(at_run_time.value().A == decltype(at_run_time.sys.A){}); // the zero model: no fault
     }
 }
 

@@ -155,6 +155,7 @@ struct LQI : private detail::StateFeedbackCore<NX, NU, T, NI, NY, NoEstimator, 0
 
     using Core::demand_lim;
     using Core::integral;
+    using Core::integral_lim;
     using Core::K;
     using Core::u_lim;
 
@@ -183,6 +184,7 @@ struct LQI : private detail::StateFeedbackCore<NX, NU, T, NI, NY, NoEstimator, 0
     using Core::last_command;
     using Core::predict;
     using Core::reset;
+    using Core::valid;
 };
 
 /** @brief LQI law{res}: the sizes and scalar of design::lqi's result. */

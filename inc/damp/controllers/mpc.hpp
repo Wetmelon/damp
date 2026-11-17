@@ -2282,6 +2282,8 @@ public:
     [[nodiscard]] constexpr const InputPreview& input_target_preview() const { return u_target_; }
     /** @brief The status of the last QP solve. */
     [[nodiscard]] constexpr design::QPStatus last_status() const { return last_status_; }
+    /** @brief False when built from a failed design: control holds the last input. */
+    [[nodiscard]] constexpr bool valid() const { return art.success; }
     /** @brief The iterations of the last QP solve. */
     [[nodiscard]] constexpr size_t last_iterations() const { return last_iterations_; }
     /** @brief Soft-constraint slack ε from the last solve (0 = no output bound was relaxed) */
@@ -2621,6 +2623,7 @@ public:
     using Core::set_input_target;
     using Core::set_limits;
     using Core::state_estimate;
+    using Core::valid;
 };
 
 /** @brief MPC law{res}: the sizes, scalar, terminal capacity and bounded states of design::mpc's result. */

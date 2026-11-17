@@ -225,7 +225,7 @@ TEST_SUITE("LQ limits") {
         };
         CHECK(hold(T{1}) == static_cast<T>(0.05));
         CHECK(hold(T{-1}) == static_cast<T>(-0.02));
-        law.integral.lim.lower(0) = static_cast<T>(-0.5);
+        law.integral_lim.lower(0) = static_cast<T>(-0.5);
         CHECK(hold(T{-1}) == static_cast<T>(-0.5));
     }
 
@@ -374,7 +374,7 @@ TEST_SUITE("LQ limits") {
         Law<kLqi, float> lqi;
         Law<kLqr, float> lqr;
         CHECK(lqi.u_lim.upper(0) == 1.05f);
-        CHECK(lqi.integral.lim.lower(0) == -0.05f);
+        CHECK(lqi.integral_lim.lower(0) == -0.05f);
         CHECK(lqr.u_lim.lower(0) == -1.05f);
         lqr.update(ColVec<2, float>{{100.0f, 0.0f}});
         CHECK(lqr.control()(0) == -1.05f);
@@ -383,7 +383,7 @@ TEST_SUITE("LQ limits") {
         static constexpr auto kOpen = design::lqi(plant(), kTs, {.Q = Q, .R = 1.0, .Q_integral = 80.0});
         Law<kOpen, float>     open;
         CHECK(open.u_lim.upper(0) == damp::numeric_limits<float>::max());
-        CHECK(open.integral.lim.lower(0) == -damp::numeric_limits<float>::max());
+        CHECK(open.integral_lim.lower(0) == -damp::numeric_limits<float>::max());
     }
 
     TEST_CASE("refusals: a lower limit above its upper one") {
@@ -405,11 +405,13 @@ TEST_SUITE("LQ limits") {
         LQR law{lqr};
         law.update(ColVec<2>{{1.0, 1.0}});
         CHECK(law.control()(0) == 0.0);
+        CHECK_FALSE(law.valid());
+        CHECK(LQR{design::lqr(plant(), kTs, {.Q = Q, .R = 1.0})}.valid());
 
         const auto lqi = design::lqi(plant(), kTs, {.Q = Q, .R = 1.0, .Q_integral = 80.0, .u_lim = {.lower = nan, .upper = 1.0}, .integral_lim = {.lower = -0.1, .upper = 0.1}});
         CHECK(lqi.status == design::DesignStatus::invalid_parameter);
         CHECK(lqi.u_lim.upper(0) == damp::numeric_limits<double>::max());
-        CHECK(lqi.integral.lim.upper(0) == damp::numeric_limits<double>::max());
+        CHECK(lqi.integral_lim.upper(0) == damp::numeric_limits<double>::max());
 
         //! An LQG assembled from a regulator whose box was edited by hand is refused as the design is.
         auto reg = design::lqr(plant(), kTs, kBound);
@@ -435,7 +437,7 @@ TEST_SUITE("LQ limits") {
         law.integral.xi(0) = T{0.5};
         CHECK(tick() == static_cast<T>(kLimit));
         CHECK(law.integral.xi(0) == T{0.5}); // held against the clamp
-        law.integral.lim.upper(0) = T{0.25};
+        law.integral_lim.upper(0) = T{0.25};
         CHECK(tick() == static_cast<T>(kLimit));
         CHECK(law.integral.xi(0) == T{0.25});
     }
