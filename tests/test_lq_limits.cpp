@@ -5,7 +5,7 @@
 
 // The limits of the LQ laws: u_lim clamps the command control returns, integral_lim the integral
 // state. The oracle for u_lim is the same design without limits, clamped outside the law and told
-// with back_calculate: the two are one tick, on every runtime, so the integrators hold against the
+// with back_calculate: the two are one tick, on every runtime, so the integrators unwind against the
 // law's own clamp and a filter or the input registers move on the input that went out.
 
 #include <cmath>
@@ -137,7 +137,7 @@ TEST_SUITE("LQ limits") {
         CHECK(damp::abs(law.control()(0)) == T{5});
     }
 
-    TEST_CASE_TEMPLATE("LQI with u_lim is the law clamped outside with back_calculate: the integrator holds against its own clamp", T, float, double) {
+    TEST_CASE_TEMPLATE("LQI with u_lim is the law clamped outside with back_calculate: the integrator unwinds against its own clamp", T, float, double) {
         const auto bound = design::lqi(plant(), kTs, kBoundI);
         const auto free = design::lqi(plant(), kTs, kFreeI);
         REQUIRE(bound.success);
@@ -422,9 +422,10 @@ TEST_SUITE("LQ limits") {
         CHECK(parts.u_lim.upper(0) == damp::numeric_limits<double>::max());
     }
 
-    TEST_CASE_TEMPLATE("an integrator limit narrowed while the integrator is held pulls it in", T, float, double) {
+    TEST_CASE_TEMPLATE("an integrator limit narrowed while the command is clamped pulls the integrator in", T, float, double) {
         //! integral.lim was applied only when the integrator advanced: held against u_lim, it kept
-        //! a value outside a limit set since.
+        //! a value outside a limit set since. The integrator now tracks the clamp: it sits where the
+        //! command it asks for is the limit, and a limit set since pulls it in from there.
         const auto res = design::lqi(plant(), kTs, kBoundI);
         REQUIRE(res.success);
         LQI        law{res.template as<T>()};
@@ -436,15 +437,15 @@ TEST_SUITE("LQ limits") {
         };
         law.integral.xi(0) = T{0.5};
         CHECK(tick() == static_cast<T>(kLimit));
-        CHECK(law.integral.xi(0) == T{0.5}); // held against the clamp
+        CHECK(law.integral.xi(0) > T{0.25}); // tracking the clamp, above the limit about to be set
         law.integral_lim.upper(0) = T{0.25};
         CHECK(tick() == static_cast<T>(kLimit));
         CHECK(law.integral.xi(0) == T{0.25});
     }
 
     TEST_CASE_TEMPLATE("tracking_time: back-calculation takes min(Ts/T_t, 1) of the excess back through (du/dxi)+", T, float, double) {
-        //! The integrators could only hold against a clamp; a tracking time unwinds them, as Kbc does on a PID.
-        for (const double tt : {4.0 * kTs, 0.5 * kTs}) { // a share of 1/4, and one capped at the whole excess
+        //! The integrators could only hold against a clamp, and overshot after a long one.
+        for (const double tt : {4.0 * kTs, 0.5 * kTs, 0.0}) { // a share of 1/4, one capped at the whole excess, and the default
             auto c = kBoundI;
             c.tracking_time = tt;
             const auto res = design::lqi(plant(), kTs, c);
@@ -461,7 +462,7 @@ TEST_SUITE("LQ limits") {
             const T e = law.integral.e(0);
             const T asked = law.integral.asked(0);
             law.predict();
-            const T share = damp::min(static_cast<T>(kTs / tt), T{1});
+            const T share = (tt > kTs) ? static_cast<T>(kTs / tt) : T{1};
             const T expect = (xi + (static_cast<T>(kTs) * e)) + (share * ((u - asked) / du_dxi));
             CHECK(damp::abs(law.integral.xi(0) - expect) <= T{16} * eps<T>() * (damp::abs(xi) + damp::abs(expect) + static_cast<T>(kTs) * damp::abs(e)));
         }
@@ -487,6 +488,7 @@ TEST_SUITE("LQ limits") {
     }
 
     TEST_CASE("tracking_time: refused when negative or not finite, carried by LQGI and by a constexpr design's Law") {
+        CHECK(design::lqi(plant(), kTs, kBoundI).tracking_time == 0.0); // the default: the whole excess each tick
         auto c = kBoundI;
         c.tracking_time = -0.1;
         CHECK(design::lqi(plant(), kTs, c).status == design::DesignStatus::invalid_parameter);

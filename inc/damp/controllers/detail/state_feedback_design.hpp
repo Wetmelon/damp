@@ -208,9 +208,9 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
             law.integral_lim = w.integral_lim;
             law.tracking_time = w.tracking_time;
             if (const auto unwind = integrator_unwind<NI>(law.K)) {
-                law.integral.unwind = *unwind; // formed for any tracking time: the runtime's may be set later
-            } else if (w.tracking_time > T{0}) {
-                law = ::damp::detail::refused<decltype(law)>(DesignStatus::not_converged); // back-calculation asked for, and no SVD of the gain
+                law.integral.unwind = *unwind;
+            } else {
+                law = ::damp::detail::refused<decltype(law)>(DesignStatus::not_converged); // no SVD of the gain: nothing to unwind the integrators by
             }
         }
     }

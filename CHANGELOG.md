@@ -25,7 +25,6 @@ and [known limitations](docs/known_limitations.md)).
 - `back_calculate` on every SISO law and in the `SisoController` concept: P, PD and SMC take it as a no-op, and `HarmonicSuppressor`, `Cascade` and `SwitchedController` pass a clamp on to the laws they hold.
 - `u_lim` on `PRResult`, `HarmonicSuppressorResult` and `SMCResult` and as a member of their runtimes: the command is clamped into it, and the resonators of a PR law or a harmonic bank hold against the clamp.
 - `valid()` on the PID runtimes, the LQ laws, `MPC` and `OFMPC`, as on the other laws: false when built from a design they refuse, and the law sends 0 (an MPC holds its input).
-- `tracking_time` on `LQIConfig` and the LQI and LQGI runtimes: the integrators unwind by back-calculation against a clamp, as a PID's do with `Kbc`, where they could only hold. The default, 0, keeps conditional integration.
 
 ### Changed
 
@@ -50,6 +49,7 @@ and [known limitations](docs/known_limitations.md)).
 - `SwitchedController` starts a law with a tracking mode, a PID, from the command the plant last received when it is switched in, where it started from its reset state.
 - `PRController` with `Tt = 0` holds its resonant section against a clamp reported with `back_calculate`, where it ignored the report.
 - The integrators' limits of the LQI and LQGI runtimes and their design results are `integral_lim`, the name `LQIConfig` gives them, where they were `integral.lim`.
+- The LQI and LQGI integrators unwind against a clamp by back-calculation, where they held (conditional integration): a law recovers from a long clamp without the overshoot. `tracking_time` on `LQIConfig` and the runtimes slows it; the default takes the whole excess back each tick.
 
 ### Fixed
 
