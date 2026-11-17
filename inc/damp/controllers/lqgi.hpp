@@ -161,6 +161,7 @@ struct LQGI : private detail::StateFeedbackCore<NX, NU, T, NI, NY, Est, 0, Store
     using Core::integral;
     using Core::integral_lim;
     using Core::K;
+    using Core::tracking_time;
     using Core::u_lim;
 
     /** @brief The filter's measurement update with @p y (the integrators read it at the next control). */

@@ -38,13 +38,14 @@ template<size_t NI, size_t NC, size_t NU, size_t NYH, typename T, typename CiMat
 struct IntegralAction {
     using HeldY = maybe<(NYH > 0), ColVec<NYH, T>, OffSlot::held_y>;
 
-    ColVec<NI, T>                   xi{};    ///< Integral of the tracking error
-    [[no_unique_address]] CiMatrix  Ci{};    ///< Integrated outputs: e = r − Ci·(measurement)
-    [[no_unique_address]] CiuMatrix Ci_u{};  ///< Ci·D: the integrated outputs' feedthrough of the input
-    T                               step{1}; ///< Per-sample integrator gain: the design's Ts (xi += Ts·e ≈ ∫e dt)
-    ColVec<NI, T>                   e{};     ///< Error held from control for the next predict, before the input's feedthrough
-    [[no_unique_address]] HeldY     y{};     ///< Measurement from the last update (with an estimator)
-    ColVec<NU, T>                   asked{}; ///< The law's last command before u_lim: what the applied input is compared with
+    ColVec<NI, T>                   xi{};     ///< Integral of the tracking error
+    [[no_unique_address]] CiMatrix  Ci{};     ///< Integrated outputs: e = r − Ci·(measurement)
+    [[no_unique_address]] CiuMatrix Ci_u{};   ///< Ci·D: the integrated outputs' feedthrough of the input
+    T                               step{1};  ///< Per-sample integrator gain: the design's Ts (xi += Ts·e ≈ ∫e dt)
+    ColVec<NI, T>                   e{};      ///< Error held from control for the next predict, before the input's feedthrough
+    [[no_unique_address]] HeldY     y{};      ///< Measurement from the last update (with an estimator)
+    ColVec<NU, T>                   asked{};  ///< The law's last command before u_lim: what the applied input is compared with
+    Matrix<NI, NU, T>               unwind{}; ///< (∂u/∂ξ)⁺: what back-calculation moves ξ by per unit of a clamp's excess
 };
 
 /** @brief A gain design result other than StateFeedbackResult: K, success and Ts (PlaceResult, LQRResult). */
@@ -97,6 +98,7 @@ struct HeldGains {
  * | steady-state target for r, under the disturbance model if there is one (SteadyStateTarget) | NZ | 0 |
  * | input registers: the inputs applied over the last NRU periods, held by the law (a measured state) | NRU | 0 |
  * | limits on the command and on the integrators | @ref u_lim, @ref integral_lim | unbounded |
+ * | back-calculation for the integrators against a clamp | @ref tracking_time | 0: conditional integration |
  * | a limit on the disturbance estimate d̂ (ND > 0) | @ref disturbance_lim | unbounded |
  * | a limit on what the outer terms ask of one state (DemandLimit) | @ref demand_lim | off |
  *
@@ -127,7 +129,9 @@ struct HeldGains {
  *   control holds the part it knows, r − Ci·C·x (from the measured state, or from the
  *   measurement less the feedthrough D·u of the input it was taken under), and @ref predict
  *   subtracts Ci·D·u for the input applied, then advances xi unless the applied input shows the
- *   actuator clamping against it (conditional integration), and clamps xi into integral_lim;
+ *   actuator clamping against it (conditional integration), or with a @ref tracking_time advances
+ *   it and pulls it toward the value that asks for the input applied (back-calculation), and
+ *   clamps xi into integral_lim;
  * - within limits: @ref control returns the command clamped into @ref u_lim, and that is the
  *   input the next @ref predict takes as applied unless @ref back_calculate recorded another.
  *   The integrators compare the applied input with the command before the clamp, so they hold
@@ -180,6 +184,7 @@ struct StateFeedbackCore {
     using HeldX = detail::maybe<!kEstimated, ColVec<NXL, T>, detail::OffSlot::held_x>;
     using DisturbanceLim = detail::maybe<(ND > 0), Bounds<ND, T>, detail::OffSlot::disturbance_lim>;
     using IntegralLim = detail::maybe<(NI > 0), Bounds<NI, T>, detail::OffSlot::integral_lim>;
+    using TrackingTime = detail::maybe<(NI > 0), T, detail::OffSlot::tracking_time>;
 
     [[no_unique_address]] Store::template K<NU, NXL + NI, T> K{}; ///< Gain on [x; xi]
 
@@ -188,7 +193,8 @@ struct StateFeedbackCore {
     [[no_unique_address]] Integral integral{};  ///< The integrators (NI > 0)
     Bounds<NU, T>                  u_lim{};     ///< Limits on the command control returns (default unbounded)
 
-    [[no_unique_address]] IntegralLim integral_lim{}; ///< Limits on the integrators ξ (NI > 0; default unbounded)
+    [[no_unique_address]] IntegralLim  integral_lim{};  ///< Limits on the integrators ξ (NI > 0; default unbounded)
+    [[no_unique_address]] TrackingTime tracking_time{}; ///< [s] The integrators' back-calculation tracking time (NI > 0; 0 or less: conditional integration)
 
     [[no_unique_address]] DisturbanceLim                     disturbance_lim{}; ///< Limits on the disturbance estimate d̂, in d's units (ND > 0; default unbounded)
     [[no_unique_address]] Store::template Demand<NX + NI, T> demand_lim{};      ///< A limit on what the outer terms ask of a state (default off; a constant of a `constexpr` design's Law)
@@ -249,7 +255,9 @@ struct StateFeedbackCore {
             if constexpr (NI > 0) {
                 integral.Ci_u = result.integral.Ci_u.template as<T>();
                 integral.step = static_cast<T>(result.integral.step);
+                integral.unwind = result.integral.unwind.template as<T>();
                 integral_lim = result.integral_lim.template as<T>();
+                tracking_time = static_cast<T>(result.tracking_time);
             }
             u_lim = result.u_lim.template as<T>();
             demand_lim = result.demand_lim.template as<T>();
@@ -554,7 +562,13 @@ private:
         return record(u, limit_demand(u, z));
     }
 
-    /** @brief Integrate the held error less the applied input's feedthrough Ci·D·u, into integral_lim, unless a clamp (u_lim, or one back_calculate reported) would wind it up: integrator i holds when −K(j, i)·eᵢ points into a clamped input j. */
+    /**
+     * @brief Integrate the held error less the applied input's feedthrough Ci·D·u, into integral_lim,
+     *        against a clamp (u_lim, demand_lim, or one back_calculate reported): integrator i holds
+     *        when −K(j, i)·eᵢ points into a clamped input j (conditional integration), or with a
+     *        tracking time T_t > 0 integrates and takes back min(Ts/T_t, 1) of the excess through
+     *        (∂u/∂ξ)⁺ (back-calculation, LQIConfig::tracking_time).
+     */
     constexpr void integrate()
         requires(NI > 0)
     {
@@ -566,13 +580,18 @@ private:
             const T tol = T{4} * eps<T>() * (damp::abs(applied_.applied(j)) + damp::abs(u_req));
             excess(j) = (damp::abs(diff) > tol) ? diff : T{0};
         }
-        for (size_t i = 0; i < NI; ++i) {
-            bool winds_up = false;
-            for (size_t j = 0; j < NU; ++j) {
-                winds_up = winds_up || (K(j, NXL + i) * e(i) * excess(j) > T{0});
-            }
-            if (!winds_up) {
-                integral.xi(i) += integral.step * e(i);
+        if (tracking_time > T{0}) {
+            const T share = damp::min(integral.step / tracking_time, T{1}); // the whole excess at most: past it, an overshoot
+            integral.xi = ColVec<NI, T>((integral.xi + (integral.step * e)) + (share * (integral.unwind * excess)));
+        } else {
+            for (size_t i = 0; i < NI; ++i) {
+                bool winds_up = false;
+                for (size_t j = 0; j < NU; ++j) {
+                    winds_up = winds_up || (K(j, NXL + i) * e(i) * excess(j) > T{0});
+                }
+                if (!winds_up) {
+                    integral.xi(i) += integral.step * e(i);
+                }
             }
         }
         integral.xi = integral_lim.saturate(integral.xi); // held or not: a limit narrowed at run time pulls xi in

@@ -74,15 +74,17 @@ struct NoAppliedRecord {};
  *        one object must have distinct types, so each slot is used at most once per object.
  */
 enum class OffSlot : uint8_t {
-    target,              ///< StateFeedbackCore::target (NZ = 0)
-    integral,            ///< StateFeedbackCore::integral (NI = 0)
-    design_integral,     ///< StateFeedbackResult::integral (NI = 0)
-    design_target,       ///< StateFeedbackResult::target (NZ = 0)
-    held_y,              ///< IntegralAction::y (no estimator: the measurement is not held)
-    held_x,              ///< StateFeedbackCore::x_ (with an estimator: the state is not held)
-    disturbance_lim,     ///< StateFeedbackCore::disturbance_lim (no disturbance model)
-    integral_lim,        ///< StateFeedbackCore::integral_lim (NI = 0)
-    design_integral_lim, ///< StateFeedbackResult::integral_lim (NI = 0)
+    target,               ///< StateFeedbackCore::target (NZ = 0)
+    integral,             ///< StateFeedbackCore::integral (NI = 0)
+    design_integral,      ///< StateFeedbackResult::integral (NI = 0)
+    design_target,        ///< StateFeedbackResult::target (NZ = 0)
+    held_y,               ///< IntegralAction::y (no estimator: the measurement is not held)
+    held_x,               ///< StateFeedbackCore::x_ (with an estimator: the state is not held)
+    disturbance_lim,      ///< StateFeedbackCore::disturbance_lim (no disturbance model)
+    integral_lim,         ///< StateFeedbackCore::integral_lim (NI = 0)
+    design_integral_lim,  ///< StateFeedbackResult::integral_lim (NI = 0)
+    tracking_time,        ///< StateFeedbackCore::tracking_time (NI = 0)
+    design_tracking_time, ///< StateFeedbackResult::tracking_time (NI = 0)
 };
 
 /**

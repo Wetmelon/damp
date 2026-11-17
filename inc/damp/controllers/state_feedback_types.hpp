@@ -152,6 +152,7 @@ LQRConfig(Matrix<NX, NX, T>, Matrix<NU, NU, T>, Matrix<NX, NU, T>) -> LQRConfig<
  * | --- | --- | --- |
  * | Q_integral | penalizes the discrete integral state ξ | NI × NI, positive definite |
  * | integral_lim | limits ξ, per integrator | NI, default unbounded |
+ * | tracking_time | the integrators' back-calculation tracking time T_t [s] | ≥ 0, default 0: conditional integration |
  *
  * Q_integral is the cost on the Euler-integrated error ξ ≈ ∫e dt, not a block of a generic
  * augmented Q. Q, R and N are the plant cost (Van Loan on a continuous plant); Q_integral keeps
@@ -166,16 +167,36 @@ LQRConfig(Matrix<NX, NX, T>, Matrix<NU, NU, T>, Matrix<NX, NU, T>) -> LQRConfig<
  * integral_lim is on ξ itself, in the units of ∫e dt (the error's times seconds): through the
  * gain, ξ moves input j by K(j, NX + i)·ξᵢ. It is a member of the result and of the runtime, `law.integral_lim`,
  * set at run time like `law.u_lim`, and refused as u_lim is.
+ *
+ * tracking_time picks how the integrators meet a clamp, as PID's Kbc does. At 0, the default, an
+ * integrator holds where integrating its error would push a clamped input further (conditional
+ * integration): it stops, and keeps what it had. Above 0 it integrates as ever and is pulled toward
+ * the value that would have asked for the input applied (back-calculation),
+ * @f[
+ *   \xi \leftarrow \xi + T_s\, e + \min\!\left(\tfrac{T_s}{T_t}, 1\right)
+ *   \left(\tfrac{\partial u}{\partial \xi}\right)^{+} \left(u_{\text{applied}} - u_{\text{asked}}\right),
+ * @f]
+ * the pseudo-inverse spreading the excess over the integrators by least squares. It takes at most
+ * the whole excess per tick: past that it would overshoot the realizable command, and past twice it
+ * diverges. Back-calculation unwinds the integrators, so a law recovers from a clamp with less
+ * overshoot; it also unwinds what they carry against a constant load, which is integrated back once
+ * the clamp lets go. A tracking time of Ts takes the whole excess each tick. It is a member of the
+ * result and of the runtime, `law.tracking_time`, set at run time; one that is negative or not
+ * finite is refused.
+ *
+ * @see "Advanced PID Control" (Åström & Hägglund, 2006), §3.5: back-calculation and conditional
+ *      integration
  */
 template<size_t NX, size_t NU, size_t NI, typename T = double>
 struct LQIConfig {
-    Matrix<NX, NX, T>       Q{};            ///< On the plant states x (positive semidefinite)
-    Matrix<NU, NU, T>       R{};            ///< On the inputs u (positive definite)
-    Matrix<NX, NU, T>       N{};            ///< Cross term between x and u (default zero)
-    Matrix<NI, NI, T>       Q_integral{};   ///< On the discrete integral state ξ ≈ ∫e dt (positive definite)
-    Bounds<NU, T>           u_lim{};        ///< Limits on the command u, per input (default unbounded)
-    Bounds<NI, T>           integral_lim{}; ///< Limits on the integral state ξ, per integrator (default unbounded)
-    DemandLimit<NX + NI, T> demand_lim{};   ///< A limit on what the outer states and integrators ask of one state (default off)
+    Matrix<NX, NX, T>       Q{};             ///< On the plant states x (positive semidefinite)
+    Matrix<NU, NU, T>       R{};             ///< On the inputs u (positive definite)
+    Matrix<NX, NU, T>       N{};             ///< Cross term between x and u (default zero)
+    Matrix<NI, NI, T>       Q_integral{};    ///< On the discrete integral state ξ ≈ ∫e dt (positive definite)
+    Bounds<NU, T>           u_lim{};         ///< Limits on the command u, per input (default unbounded)
+    Bounds<NI, T>           integral_lim{};  ///< Limits on the integral state ξ, per integrator (default unbounded)
+    DemandLimit<NX + NI, T> demand_lim{};    ///< A limit on what the outer states and integrators ask of one state (default off)
+    T                       tracking_time{}; ///< [s] The integrators' back-calculation tracking time (default 0: conditional integration)
 };
 
 /** @brief Sizes from the matrices: `LQIConfig{Q, R, N, Q_integral}`. */
@@ -190,18 +211,19 @@ using lq_config = damp::conditional_t<(NI == 0), LQRConfig<NX, NU, T>, LQIConfig
 
 } // namespace detail
 
-/** @brief The integral action of a design: the integrated outputs, their maps of the state and the input, and the per-sample step. */
+/** @brief The integral action of a design: the integrated outputs, their maps of the state and the input, the per-sample step, and what back-calculation moves the integrators by. */
 template<size_t NI, size_t NX, size_t NU, size_t NY, typename T = double>
 struct IntegralDesign {
-    Matrix<NI, NY, T> Ci{};    ///< The integrated outputs: e = r − Ci·y, y = C·x + D·u
-    Matrix<NI, NX, T> Ci_x{};  ///< Ci·C: the integrated outputs as a map of the plant state (what a law that measures its state integrates)
-    Matrix<NI, NU, T> Ci_u{};  ///< Ci·D: the integrated outputs' feedthrough of the input applied over the period
-    T                 step{1}; ///< Per-sample integrator gain: the design's Ts (xi += Ts·e ≈ ∫e dt)
+    Matrix<NI, NY, T> Ci{};     ///< The integrated outputs: e = r − Ci·y, y = C·x + D·u
+    Matrix<NI, NX, T> Ci_x{};   ///< Ci·C: the integrated outputs as a map of the plant state (what a law that measures its state integrates)
+    Matrix<NI, NU, T> Ci_u{};   ///< Ci·D: the integrated outputs' feedthrough of the input applied over the period
+    T                 step{1};  ///< Per-sample integrator gain: the design's Ts (xi += Ts·e ≈ ∫e dt)
+    Matrix<NI, NU, T> unwind{}; ///< (∂u/∂ξ)⁺, the pseudo-inverse of −K on the integrators: the move of ξ that back-calculation makes per unit of a clamp's excess
 
     /** @brief The same integral action in the scalar U. */
     template<typename U>
     [[nodiscard]] constexpr IntegralDesign<NI, NX, NU, NY, U> as() const {
-        return {Ci.template as<U>(), Ci_x.template as<U>(), Ci_u.template as<U>(), static_cast<U>(step)};
+        return {Ci.template as<U>(), Ci_x.template as<U>(), Ci_u.template as<U>(), static_cast<U>(step), unwind.template as<U>()};
     }
 };
 
@@ -221,6 +243,7 @@ struct IntegralDesign {
  * | kalman | the Kalman filter (design::kalman's result) | lqg, lqgi, oflqg |
  * | integral | the integrated outputs Ci, Ci·C, Ci·D and the step | NI > 0 |
  * | integral_lim | the limits on ξ (LQIConfig::integral_lim) | NI > 0, default unbounded |
+ * | tracking_time | the integrators' back-calculation tracking time (LQIConfig::tracking_time) | NI > 0, default 0 |
  * | target | the steady-state target (design::steady_state_target's result) | oflqg; lqr and lqg with TrackedOutputs (NZ > 0) |
  *
  * A design on a plant whose input arrives late (an InputDelay) is on the law's model
@@ -247,19 +270,21 @@ struct [[nodiscard]] StateFeedbackResult {
     using Integral = ::damp::detail::maybe<(NI > 0), IntegralDesign<NI, NXL, NU, NY, T>, ::damp::detail::OffSlot::design_integral>;
     using Target = ::damp::detail::maybe<(NZ > 0), SteadyStateTargetResult<NXL, NU, ND, NZ, T>, ::damp::detail::OffSlot::design_target>;
     using IntegralLim = ::damp::detail::maybe<(NI > 0), Bounds<NI, T>, ::damp::detail::OffSlot::design_integral_lim>;
+    using TrackingTime = ::damp::detail::maybe<(NI > 0), T, ::damp::detail::OffSlot::design_tracking_time>;
 
-    Matrix<NU, NK, T>                 K{};                                 ///< Optimal gain: u = −K·[x; xi]
-    Matrix<NK, NK, T>                 S{};                                 ///< Riccati solution (positive semidefinite)
-    damp::array<damp::complex<T>, NK> e{};                                 ///< Closed-loop poles of the law's model
-    bool                              success{false};                      ///< status == DesignStatus::ok
-    DesignStatus                      status{DesignStatus::not_converged}; ///< ok, or the first failure: the gain's, the filter's, the target's
-    T                                 Ts{0};                               ///< Sample time of the law: 0 continuous (e in the s-plane), > 0 discrete
-    [[no_unique_address]] Kalman      kalman{};                            ///< The Kalman filter (lqg, lqgi, oflqg)
-    [[no_unique_address]] Integral    integral{};                          ///< The integral action (NI > 0)
-    [[no_unique_address]] Target      target{};                            ///< The steady-state target (NZ > 0)
-    Bounds<NU, T>                     u_lim{};                             ///< Limits on the command the runtime returns (default unbounded)
-    DemandLimit<NX + NI, T>           demand_lim{};                        ///< A limit on what the outer terms ask of one state (LQRConfig::demand_lim; default off)
-    [[no_unique_address]] IntegralLim integral_lim{};                      ///< Limits on the integral state ξ (LQIConfig::integral_lim; NI > 0, default unbounded)
+    Matrix<NU, NK, T>                  K{};                                 ///< Optimal gain: u = −K·[x; xi]
+    Matrix<NK, NK, T>                  S{};                                 ///< Riccati solution (positive semidefinite)
+    damp::array<damp::complex<T>, NK>  e{};                                 ///< Closed-loop poles of the law's model
+    bool                               success{false};                      ///< status == DesignStatus::ok
+    DesignStatus                       status{DesignStatus::not_converged}; ///< ok, or the first failure: the gain's, the filter's, the target's
+    T                                  Ts{0};                               ///< Sample time of the law: 0 continuous (e in the s-plane), > 0 discrete
+    [[no_unique_address]] Kalman       kalman{};                            ///< The Kalman filter (lqg, lqgi, oflqg)
+    [[no_unique_address]] Integral     integral{};                          ///< The integral action (NI > 0)
+    [[no_unique_address]] Target       target{};                            ///< The steady-state target (NZ > 0)
+    Bounds<NU, T>                      u_lim{};                             ///< Limits on the command the runtime returns (default unbounded)
+    DemandLimit<NX + NI, T>            demand_lim{};                        ///< A limit on what the outer terms ask of one state (LQRConfig::demand_lim; default off)
+    [[no_unique_address]] IntegralLim  integral_lim{};                      ///< Limits on the integral state ξ (LQIConfig::integral_lim; NI > 0, default unbounded)
+    [[no_unique_address]] TrackingTime tracking_time{};                     ///< [s] The integrators' back-calculation tracking time (LQIConfig::tracking_time; NI > 0, default 0)
 
     /** @brief True when the design succeeded (success). */
     [[nodiscard]] constexpr explicit operator bool() const { return success; }
@@ -272,6 +297,7 @@ struct [[nodiscard]] StateFeedbackResult {
         if constexpr (NI > 0) {
             out.integral = integral.template as<U>();
             out.integral_lim = integral_lim.template as<U>();
+            out.tracking_time = static_cast<U>(tracking_time);
         }
         if constexpr (NZ > 0) {
             out.target = target.template as<U>();

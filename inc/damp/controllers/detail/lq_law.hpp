@@ -162,7 +162,9 @@ struct Law<Res, T> : detail::lq_runtime<damp::remove_cvref_t<decltype(Res)>, T>:
     constexpr Law() {
         if constexpr (requires { this->integral.step; }) {
             this->integral.step = static_cast<T>(Res.integral.step);
+            this->integral.unwind = Res.integral.unwind.template as<T>();
             this->integral_lim = Res.integral_lim.template as<T>();
+            this->tracking_time = static_cast<T>(Res.tracking_time);
         }
         if constexpr (requires { Res.u_lim; }) {
             this->u_lim = Res.u_lim.template as<T>();
