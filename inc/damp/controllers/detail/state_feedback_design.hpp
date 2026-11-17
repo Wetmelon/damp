@@ -21,6 +21,7 @@
 #include "damp/design/status.hpp"
 #include "damp/design/steady_state_target.hpp"
 #include "damp/estimation/kalman.hpp"
+#include "damp/math/math.hpp"
 #include "damp/matrix/decomposition.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "damp/systems/discretization.hpp"
@@ -36,10 +37,25 @@ template<size_t NX, size_t NU, typename T>
     return w.u_lim.valid() && w.demand_lim.template valid<NX>();
 }
 
-/** @brief The limits on the command and on the integrators are usable (Bounds::valid). */
+/** @brief The limits on the command and on the integrators are usable (Bounds::valid), and the tracking time is finite and not negative. */
 template<size_t NX, size_t NU, size_t NI, typename T>
 [[nodiscard]] constexpr bool limits_valid(const LQIConfig<NX, NU, NI, T>& w) {
-    return w.u_lim.valid() && w.integral_lim.valid() && w.demand_lim.template valid<NX>();
+    return w.u_lim.valid() && w.integral_lim.valid() && w.demand_lim.template valid<NX>() && damp::finite_non_negative(w.tracking_time);
+}
+
+/**
+ * @brief (∂u/∂ξ)⁺: the pseudo-inverse of −K on the integrators, the last NI columns of @p K. A
+ *        clamp's excess Δu moves ξ by its least-squares share, ∂u/∂ξ·Δξ ≈ Δu; empty when the SVD fails.
+ */
+template<size_t NI, size_t NU, size_t NK, typename T>
+[[nodiscard]] constexpr damp::optional<Matrix<NI, NU, T>> integrator_unwind(const Matrix<NU, NK, T>& K) {
+    Matrix<NU, NI, T> du_dxi{};
+    for (size_t i = 0; i < NU; ++i) {
+        for (size_t j = 0; j < NI; ++j) {
+            du_dxi(i, j) = -K(i, NK - NI + j);
+        }
+    }
+    return mat::pseudo_inverse(du_dxi);
 }
 
 /** @brief The gain on the law's state. */
@@ -190,6 +206,12 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
         law.demand_lim = w.demand_lim;
         if constexpr (NI > 0) {
             law.integral_lim = w.integral_lim;
+            law.tracking_time = w.tracking_time;
+            if (const auto unwind = integrator_unwind<NI>(law.K)) {
+                law.integral.unwind = *unwind; // formed for any tracking time: the runtime's may be set later
+            } else if (w.tracking_time > T{0}) {
+                law = ::damp::detail::refused<decltype(law)>(DesignStatus::not_converged); // back-calculation asked for, and no SVD of the gain
+            }
         }
     }
     if constexpr (!kEstimated && !kTarget) {
@@ -210,6 +232,8 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
         Result out{law.K, law.S, law.e, law.success, law.status, law.Ts, filter};
         if constexpr (NI > 0) {
             out.integral = law.integral;
+            out.integral_lim = law.integral_lim;
+            out.tracking_time = law.tracking_time;
         }
         out.u_lim = law.u_lim;
         out.demand_lim = law.demand_lim;

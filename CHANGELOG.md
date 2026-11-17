@@ -25,6 +25,7 @@ and [known limitations](docs/known_limitations.md)).
 - `back_calculate` on every SISO law and in the `SisoController` concept: P, PD and SMC take it as a no-op, and `HarmonicSuppressor`, `Cascade` and `SwitchedController` pass a clamp on to the laws they hold.
 - `u_lim` on `PRResult`, `HarmonicSuppressorResult` and `SMCResult` and as a member of their runtimes: the command is clamped into it, and the resonators of a PR law or a harmonic bank hold against the clamp.
 - `valid()` on the PID runtimes, the LQ laws, `MPC` and `OFMPC`, as on the other laws: false when built from a design they refuse, and the law sends 0 (an MPC holds its input).
+- `tracking_time` on `LQIConfig` and the LQI and LQGI runtimes: the integrators unwind by back-calculation against a clamp, as a PID's do with `Kbc`, where they could only hold. The default, 0, keeps conditional integration.
 
 ### Changed
 

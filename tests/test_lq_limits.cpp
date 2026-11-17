@@ -441,4 +441,77 @@ TEST_SUITE("LQ limits") {
         CHECK(tick() == static_cast<T>(kLimit));
         CHECK(law.integral.xi(0) == T{0.25});
     }
+
+    TEST_CASE_TEMPLATE("tracking_time: back-calculation takes min(Ts/T_t, 1) of the excess back through (du/dxi)+", T, float, double) {
+        //! The integrators could only hold against a clamp; a tracking time unwinds them, as Kbc does on a PID.
+        for (const double tt : {4.0 * kTs, 0.5 * kTs}) { // a share of 1/4, and one capped at the whole excess
+            auto c = kBoundI;
+            c.tracking_time = tt;
+            const auto res = design::lqi(plant(), kTs, c);
+            REQUIRE(res.success);
+            LQI     law{res.template as<T>()};
+            const T du_dxi = -law.getK()(0, 2);
+            CHECK(law.tracking_time == static_cast<T>(tt));
+            CHECK(static_cast<double>(law.integral.unwind(0, 0) * du_dxi) == doctest::Approx(1.0).epsilon(1e-5));
+            law.integral.xi(0) = T{3} * static_cast<T>(kLimit) / du_dxi; // asks three times the limit
+            law.update(ColVec<2, T>{});
+            const T u = law.control(ColVec<1, T>{T{5}})(0);
+            REQUIRE(u == static_cast<T>(kLimit));
+            const T xi = law.integral.xi(0);
+            const T e = law.integral.e(0);
+            const T asked = law.integral.asked(0);
+            law.predict();
+            const T share = damp::min(static_cast<T>(kTs / tt), T{1});
+            const T expect = (xi + (static_cast<T>(kTs) * e)) + (share * ((u - asked) / du_dxi));
+            CHECK(damp::abs(law.integral.xi(0) - expect) <= T{16} * eps<T>() * (damp::abs(xi) + damp::abs(expect) + static_cast<T>(kTs) * damp::abs(e)));
+        }
+    }
+
+    TEST_CASE_TEMPLATE("tracking_time: the law's own clamp and one reported with back_calculate are one tick", T, float, double) {
+        auto bound_c = kBoundI;
+        auto free_c = kFreeI;
+        bound_c.tracking_time = free_c.tracking_time = 0.05;
+        const auto bound = design::lqi(plant(), kTs, bound_c);
+        const auto free = design::lqi(plant(), kTs, free_c);
+        REQUIRE(bound.success);
+        REQUIRE(free.success);
+        LQI  bounded{bound.template as<T>()};
+        LQI  clamped{free.template as<T>()};
+        int  saturated = 0;
+        T    y{0};
+        auto feed = [](auto& law, const ColVec<2, T>& z) { law.update(z); };
+        auto control = [](auto& law) { return law.control(ColVec<1, T>{T{1}}); };
+        CHECK(gap(sampled<T>(), bounded, clamped, feed, control, saturated, y) <= tol<T>);
+        CHECK(saturated > 10);
+        CHECK(static_cast<double>(y) == doctest::Approx(1.0).epsilon(1e-3));
+    }
+
+    TEST_CASE("tracking_time: refused when negative or not finite, carried by LQGI and by a constexpr design's Law") {
+        auto c = kBoundI;
+        c.tracking_time = -0.1;
+        CHECK(design::lqi(plant(), kTs, c).status == design::DesignStatus::invalid_parameter);
+        c.tracking_time = std::numeric_limits<double>::quiet_NaN();
+        CHECK(design::lqi(plant(), kTs, c).status == design::DesignStatus::invalid_parameter);
+
+        //! An LQGI design dropped integral_lim when it moved out of the integral action: the filter's path did not copy it.
+        auto g = kBoundI;
+        g.integral_lim = {.lower = -0.3, .upper = 0.3};
+        g.tracking_time = 0.05;
+        const auto lqgi = design::lqgi(plant(), kTs, g, kNoise);
+        REQUIRE(lqgi.success);
+        CHECK(lqgi.integral_lim.upper(0) == 0.3);
+        CHECK(lqgi.tracking_time == 0.05);
+        const LQGI law{lqgi.as<float>()};
+        CHECK(law.integral_lim.lower(0) == -0.3f);
+        CHECK(law.tracking_time == 0.05f);
+        CHECK(law.integral.unwind(0, 0) != 0.0f);
+
+        static constexpr design::LQIConfig<2, 1, 1> kTracked{.Q = Q, .R = 1.0, .Q_integral = 80.0, .u_lim = kBox, .tracking_time = 0.05};
+        static constexpr auto                       kRes = design::lqi(plant(), kTs, kTracked);
+        static_assert(kRes.success);
+        const Law<kRes, float> constant;
+        const LQI              held{kRes.as<float>()};
+        CHECK(constant.tracking_time == 0.05f);
+        CHECK(constant.integral.unwind(0, 0) == held.integral.unwind(0, 0));
+    }
 }

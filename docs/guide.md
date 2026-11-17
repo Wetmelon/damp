@@ -231,7 +231,7 @@ One contract for every law:
 | Law | Output limit | What holds against the clamp |
 | --- | --- | --- |
 | `PIDController`, `PIController`, `ContinuousPID` | `u_lim` in `PIDGains` | The integral: it gives back what the tick added, up to what the clamp cut off. With a `Kbc` it unwinds by back-calculation instead |
-| `LQR`, `LQI`, `LQG`, `LQGI`, `OFLQG` | `u_lim` in `LQRConfig`, or `LQIConfig` with `integral_lim` | The integrators; the filter and the input registers move on the clamped command; `OFLQG`'s d̂ stays in `disturbance_lim` |
+| `LQR`, `LQI`, `LQG`, `LQGI`, `OFLQG` | `u_lim` in `LQRConfig`, or `LQIConfig` with `integral_lim` | The integrators: they hold (conditional integration), or with a `tracking_time` in `LQIConfig` unwind by back-calculation; the filter and the input registers move on the clamped command; `OFLQG`'s d̂ stays in `disturbance_lim` |
 | `MPC`, `OFMPC` | `u_lim`, `du_lim`, `y_lim`, `x_lim` in `MPCConstraints` | By construction: the limits are constraints of the QP; `OFMPC`'s d̂ stays in `disturbance_lim` |
 | `ADRCController` | `u_lim` on `ADRCResult` | The ESO runs on the clamped command |
 | `STSMCController` | `u_lim` on `STSMCResult` | The integral state |
