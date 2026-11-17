@@ -328,7 +328,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`RepetitiveResult`](inc/damp/controllers/repetitive.hpp#L137) | Design result for the repetitive controller |
 | [`SMCResult`](inc/damp/controllers/smc.hpp#L37) | Tuning parameters for a first-order sliding-mode controller |
 | [`SmithPredictorResult`](inc/damp/controllers/smith_predictor.hpp#L97) | Smith predictor design result (discrete PID + FO model + delay samples) |
-| [`StateFeedbackResult`](inc/damp/controllers/state_feedback_types.hpp#L264) | A state-feedback design: the gain, and the parts the law's options add |
+| [`StateFeedbackResult`](inc/damp/controllers/state_feedback_types.hpp#L265) | A state-feedback design: the gain, and the parts the law's options add |
 | [`StateFeedforward`](inc/damp/design/model_inverse.hpp#L818) | The plant-inversion feedforward at run time: u = B⁺·(x ₖ₊₁ − x ₖ) − B⁺(A − I)·x ₖ, two matrix–vector products (+1 more overload) |
 | [`StateFeedforwardResult`](inc/damp/design/model_inverse.hpp#L60) | The plant-inversion feedforward of a discrete model: u ₖ = B⁺·(x ₖ₊₁ − x ₖ) − B⁺(A − I)·x ₖ |
 | [`StateSpaceResult`](inc/damp/design/model_result.hpp#L58) | A designed state-space model with its success / status |
@@ -393,11 +393,11 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`LQGI`](inc/damp/controllers/lqgi.hpp#L198) | LQGI law{res}: the sizes, scalar and filter of design::lqgi's result |
 | [`lqi`](inc/damp/controllers/lqi.hpp#L45) | The linear-quadratic regulator with integral action on every output (xi += Ts·(r − Ci·y)): runs as LQI (+5 more overloads) |
 | [`LQI`](inc/damp/controllers/lqi.hpp#L193) | LQI law{res}: the sizes and scalar of design::lqi's result |
-| [`LQIConfig`](inc/damp/controllers/state_feedback_types.hpp#L205) | Sizes from the matrices: `LQIConfig{Q, R, N, Q_integral}` |
+| [`LQIConfig`](inc/damp/controllers/state_feedback_types.hpp#L206) | Sizes from the matrices: `LQIConfig{Q, R, N, Q_integral}` |
 | [`lqr`](inc/damp/controllers/lqr.hpp#L52) | The linear-quadratic regulator on the plant (DARE on a discrete plant, CARE on a continuous one): runs as LQR (+5 more overloads) |
 | [`LQR`](inc/damp/controllers/lqr.hpp#L251) | LQR law{res}: the sizes and scalar of design::lqr's result (+2 more overloads) |
 | [`lqr_gain`](inc/damp/design/riccati.hpp#L1358) | Optimal LQR state-feedback gain from a Riccati solution |
-| [`LQRConfig`](inc/damp/controllers/state_feedback_types.hpp#L136) | Sizes from the matrices: `LQRConfig{Q, R}` (+1 more overload) |
+| [`LQRConfig`](inc/damp/controllers/state_feedback_types.hpp#L137) | Sizes from the matrices: `LQRConfig{Q, R}` (+1 more overload) |
 | [`lyap`](inc/damp/design/lyapunov.hpp#L452) | Solve the continuous-time Lyapunov equation A X + X Aᵀ + Q = 0 |
 | [`lyapunov_cholesky`](inc/damp/design/lyapunov.hpp#L500) | Cholesky factor of the continuous Lyapunov solution: A X + X Aᵀ + B Bᵀ = 0, X = RᵀR |
 | [`maximal_invariant_set`](inc/damp/design/invariant_set.hpp#L249) | Maximal positively invariant set of x⁺ = A x under G₀ x ≤ h₀ |
@@ -470,15 +470,15 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`ExtremumType`](inc/damp/controllers/esc.hpp#L48) | Whether ESC climbs to a maximum or descends to a minimum of the objective |
 | [`HarmonicSuppressor`](inc/damp/controllers/harmonic_suppression.hpp#L173) | Multi-resonant harmonic suppressor — a parallel bank of PR resonators |
 | [`IntegralAction`](inc/damp/controllers/state_feedback_types.hpp#L93) | Offset-free by integral action: integrators on r − y, every measured output (`IntegralAction{}`) or the listed ones (`IntegralAction<2>{{0, 3}}`, in that order: the references r follow it) |
-| [`IntegralDesign`](inc/damp/controllers/state_feedback_types.hpp#L217) | The integral action of a design: the integrated outputs, their maps of the state and the input, the per-sample step, and what back-calculation moves the integrators by |
+| [`IntegralDesign`](inc/damp/controllers/state_feedback_types.hpp#L218) | The integral action of a design: the integrated outputs, their maps of the state and the input, the per-sample step, and what back-calculation moves the integrators by |
 | [`Law`](inc/damp/controllers/law_detail.hpp#L290) | The runtime a design result deploys as, named by the result: `Law<kRes, float> law;` (+6 more overloads) |
 | [`LeadLagController`](inc/damp/controllers/lead_lag.hpp#L325) | Discrete lead-lag compensator |
 | [`LQG`](inc/damp/controllers/lqg.hpp#L198) | Linear-quadratic Gaussian law: LQR on the Kalman filter's estimate |
 | [`LQGI`](inc/damp/controllers/lqgi.hpp#L143) | Linear-quadratic Gaussian law with integral action on the measured outputs |
 | [`LQI`](inc/damp/controllers/lqi.hpp#L140) | Linear-quadratic regulator with integral action, on the measured state |
-| [`LQIConfig`](inc/damp/controllers/state_feedback_types.hpp#L192) | What a design with integral action (lqi, lqgi) is given with the plant: LQRConfig's cost and limit, and the weight and the limits on the NI integrators |
+| [`LQIConfig`](inc/damp/controllers/state_feedback_types.hpp#L193) | What a design with integral action (lqi, lqgi) is given with the plant: LQRConfig's cost and limit, and the weight and the limits on the NI integrators |
 | [`LQR`](inc/damp/controllers/lqr.hpp#L153) | Linear-quadratic regulator on the measured state: u = u − K·(x − x ) |
-| [`LQRConfig`](inc/damp/controllers/state_feedback_types.hpp#L126) | What a regulator design (lqr, lqg, oflqg) is given with the plant: the cost, what to penalize and how much, and the limit its command runs within |
+| [`LQRConfig`](inc/damp/controllers/state_feedback_types.hpp#L127) | What a regulator design (lqr, lqg, oflqg) is given with the plant: the cost, what to penalize and how much, and the limit its command runs within |
 | [`MeasuredDisturbance`](inc/damp/controllers/mpc.hpp#L1308) | A measured disturbance: a known input the controller does not command, entering the state update through Bd (a load torque, a feed rate, the ambient temperature) |
 | [`MPC`](inc/damp/controllers/mpc.hpp#L2560) | Constrained linear MPC on the measured state (design::mpc) |
 | [`MPCArtifacts`](inc/damp/controllers/mpc.hpp#L364) | Condensed-QP data produced by mpc() (MPCResult::mpc), consumed by damp::MPC |
@@ -836,7 +836,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`CTU`](inc/damp/toolbox/iec61131.hpp#L311) | CTU Counter (Count Up) |
 | [`CTUD`](inc/damp/toolbox/iec61131.hpp#L391) | CTUD Counter (Count Up Down) |
 | [`Debounce`](inc/damp/toolbox/logic.hpp#L211) | Debounce: the output adopts in only after in differs from the current output continuously for stable_time. Rejects contact bounce and brief glitches. (Not an IEC block — the one everyone hand-rolls.) |
-| [`DemandLimit`](inc/damp/toolbox/bounds.hpp#L170) | A limit on what a state-feedback law's outer terms ask of one of its states: a cascade's outer limit, inside one gain |
+| [`DemandLimit`](inc/damp/toolbox/bounds.hpp#L208) | A limit on what a state-feedback law's outer terms ask of one of its states: a cascade's outer limit, inside one gain |
 | [`DFF`](inc/damp/toolbox/iec61131.hpp#L448) | D Flip-Flop (edge-triggered data latch) |
 | [`DLATCH`](inc/damp/toolbox/iec61131.hpp#L479) | D Latch (level-sensitive / transparent latch) |
 | [`DrivePair`](inc/damp/toolbox/io.hpp#L234) | Left/right actuator pair (differential/arcade drive output) |

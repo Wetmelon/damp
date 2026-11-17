@@ -154,7 +154,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`default_tol`](inc/damp/matrix/matrix_traits.hpp#L121) | function | Linear algebra | Type-appropriate default tolerance for floating-point comparisons. float  ~7 decimal digits  → 1e-6 double ~15 decimal digits → 1e-12 |
 | [`deg2rad`](inc/damp/math/math.hpp#L571) | function | Scalar math, complex & frames | Degrees to radians, deg·π/180 |
 | [`Delay`](inc/damp/filters/delay.hpp#L26) | block | Filters & signal conditioning | Discrete-time delay buffer |
-| [`DemandLimit`](inc/damp/toolbox/bounds.hpp#L170) | block | Embedded helpers (controls-adjacent utilities) | A limit on what a state-feedback law's outer terms ask of one of its states: a cascade's outer limit, inside one gain |
+| [`DemandLimit`](inc/damp/toolbox/bounds.hpp#L208) | block | Embedded helpers (controls-adjacent utilities) | A limit on what a state-feedback law's outer terms ask of one of its states: a cascade's outer limit, inside one gain |
 | [`DesignStatus`](inc/damp/design/status.hpp#L34) | enum | Design-time synthesis (not PWM-rate) | Why a design failed, one value per cause class (not per code branch) |
 | [`det`](inc/damp/matrix/functions.hpp#L173) | function | Linear algebra | Matrix determinant det(A) |
 | [`DFF`](inc/damp/toolbox/iec61131.hpp#L448) | block | Embedded helpers (controls-adjacent utilities) | D Flip-Flop (edge-triggered data latch) |
@@ -354,7 +354,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`instantaneous_power`](inc/damp/math/transforms.hpp#L495) | function | Scalar math, complex & frames | Instantaneous active and reactive power from dq quantities (+1 more overload) |
 | [`InstantaneousPower`](inc/damp/math/transforms.hpp#L456) | block | Scalar math, complex & frames | Instantaneous active and reactive power |
 | [`IntegralAction`](inc/damp/controllers/state_feedback_types.hpp#L93) | block | Runtime controllers | Offset-free by integral action: integrators on r − y, every measured output (`IntegralAction{}`) or the listed ones (`IntegralAction<2>{{0, 3}}`, in that order: the references r follow it) |
-| [`IntegralDesign`](inc/damp/controllers/state_feedback_types.hpp#L217) | block | Runtime controllers | The integral action of a design: the integrated outputs, their maps of the state and the input, the per-sample step, and what back-calculation moves the integrators by |
+| [`IntegralDesign`](inc/damp/controllers/state_feedback_types.hpp#L218) | block | Runtime controllers | The integral action of a design: the integrated outputs, their maps of the state and the input, the per-sample step, and what back-calculation moves the integrators by |
 | [`IntegrationResult`](inc/damp/simulation/integrator.hpp#L61) | block | Simulation / SIL harness (host) | Result of an integration step |
 | [`InteriorPointSolver`](inc/damp/design/qp.hpp#L1692) | block | Design-time synthesis (not PWM-rate) | Interior-point QP solver policy for damp::MPC |
 | [`Interpolation`](inc/damp/toolbox/lookup.hpp#L41) | enum | Embedded helpers (controls-adjacent utilities) | In-range interpolant for Lut1D (2-D stays bilinear; use SplineSurface for C¹ grids) |
@@ -456,15 +456,15 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`LQI`](inc/damp/controllers/lqi.hpp#L193) | function | Design-time synthesis (not PWM-rate) | LQI law{res}: the sizes and scalar of design::lqi's result |
 | [`lqi`](inc/damp/matlab.hpp#L1057) | function | MATLAB®-style aliases (host) | Linear-Quadratic Integral design for tracking (+2 more overloads) |
 | [`LQI`](inc/damp/controllers/lqi.hpp#L140) | block | Runtime controllers | Linear-quadratic regulator with integral action, on the measured state |
-| [`LQIConfig`](inc/damp/controllers/state_feedback_types.hpp#L205) | function | Design-time synthesis (not PWM-rate) | Sizes from the matrices: `LQIConfig{Q, R, N, Q_integral}` |
-| [`LQIConfig`](inc/damp/controllers/state_feedback_types.hpp#L192) | block | Runtime controllers | What a design with integral action (lqi, lqgi) is given with the plant: LQRConfig's cost and limit, and the weight and the limits on the NI integrators |
+| [`LQIConfig`](inc/damp/controllers/state_feedback_types.hpp#L206) | function | Design-time synthesis (not PWM-rate) | Sizes from the matrices: `LQIConfig{Q, R, N, Q_integral}` |
+| [`LQIConfig`](inc/damp/controllers/state_feedback_types.hpp#L193) | block | Runtime controllers | What a design with integral action (lqi, lqgi) is given with the plant: LQRConfig's cost and limit, and the weight and the limits on the NI integrators |
 | [`lqr`](inc/damp/controllers/lqr.hpp#L52) | function | Design-time synthesis (not PWM-rate) | The linear-quadratic regulator on the plant (DARE on a discrete plant, CARE on a continuous one): runs as LQR (+5 more overloads) |
 | [`LQR`](inc/damp/controllers/lqr.hpp#L251) | function | Design-time synthesis (not PWM-rate) | LQR law{res}: the sizes and scalar of design::lqr's result (+2 more overloads) |
 | [`lqr`](inc/damp/matlab.hpp#L891) | function | MATLAB®-style aliases (host) | Continuous-time LQR design (MATLAB®'s lqr) |
 | [`LQR`](inc/damp/controllers/lqr.hpp#L153) | block | Runtime controllers | Linear-quadratic regulator on the measured state: u = u − K·(x − x ) |
 | [`lqr_gain`](inc/damp/design/riccati.hpp#L1358) | function | Design-time synthesis (not PWM-rate) | Optimal LQR state-feedback gain from a Riccati solution |
-| [`LQRConfig`](inc/damp/controllers/state_feedback_types.hpp#L136) | function | Design-time synthesis (not PWM-rate) | Sizes from the matrices: `LQRConfig{Q, R}` (+1 more overload) |
-| [`LQRConfig`](inc/damp/controllers/state_feedback_types.hpp#L126) | block | Runtime controllers | What a regulator design (lqr, lqg, oflqg) is given with the plant: the cost, what to penalize and how much, and the limit its command runs within |
+| [`LQRConfig`](inc/damp/controllers/state_feedback_types.hpp#L137) | function | Design-time synthesis (not PWM-rate) | Sizes from the matrices: `LQRConfig{Q, R}` (+1 more overload) |
+| [`LQRConfig`](inc/damp/controllers/state_feedback_types.hpp#L127) | block | Runtime controllers | What a regulator design (lqr, lqg, oflqg) is given with the plant: the cost, what to penalize and how much, and the limit its command runs within |
 | [`LQRCost`](inc/damp/design/riccati.hpp#L1578) | block | Design-time synthesis (not PWM-rate) | A quadratic cost on (x, u): state cost Q, input cost R, cross term N |
 | [`lqrd`](inc/damp/matlab.hpp#L921) | function | MATLAB®-style aliases (host) | Sampled-data LQR from a continuous plant: ZOH dynamics + Van Loan cost (MATLAB®'s lqrd) (+1 more overload) |
 | [`LQRResult`](inc/damp/design/riccati.hpp#L1517) | block | Design-time synthesis (not PWM-rate) | The LQR gain: design::lqr on a plant, discrete_lqr and continuous_lqr on given matrices |
@@ -837,7 +837,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`state_feedforward`](inc/damp/design/model_inverse.hpp#L100) | function | Design-time synthesis (not PWM-rate) | The plant-inversion feedforward of a discrete model: the input that moves x⁺ = A·x + B·u along a state reference, u ₖ the least-squares solution of B·u = x ₖ₊₁ − A·x ₖ |
 | [`state_variable_filter`](inc/damp/estimation/state_variable_filter.hpp#L97) | function | Observers & estimators | Design the filter F(s) = ω³/(s + ω)³ sampled at Ts |
 | [`StateEstimator`](inc/damp/concepts.hpp#L134) | concept | Core, configuration & backend vocabulary | State estimator: x̂ = step(y, u) — the fused per-tick form |
-| [`StateFeedbackResult`](inc/damp/controllers/state_feedback_types.hpp#L264) | block | Design-time synthesis (not PWM-rate) | A state-feedback design: the gain, and the parts the law's options add |
+| [`StateFeedbackResult`](inc/damp/controllers/state_feedback_types.hpp#L265) | block | Design-time synthesis (not PWM-rate) | A state-feedback design: the gain, and the parts the law's options add |
 | [`StateFeedforward`](inc/damp/design/model_inverse.hpp#L818) | block | Design-time synthesis (not PWM-rate) | The plant-inversion feedforward at run time: u = B⁺·(x ₖ₊₁ − x ₖ) − B⁺(A − I)·x ₖ, two matrix–vector products (+1 more overload) |
 | [`StateFeedforwardResult`](inc/damp/design/model_inverse.hpp#L60) | block | Design-time synthesis (not PWM-rate) | The plant-inversion feedforward of a discrete model: u ₖ = B⁺·(x ₖ₊₁ − x ₖ) − B⁺(A − I)·x ₖ |
 | [`StateScaling`](inc/damp/systems/realization.hpp#L39) | block | LTI systems (SS / TF / ZPK / discretize) | A model in balanced state coordinates, and the diagonal scaling that took it there |
