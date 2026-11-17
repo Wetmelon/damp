@@ -176,6 +176,50 @@ Both can hold an output at r.
 - **LQI / LQGI** adds an integrator on $`r - C_i y`$. It rejects a constant disturbance and a constant model error. Use this when the plant will not match the design model.
 - **OFLQG / OFMPC** estimate a disturbance and hold r through a steady-state target. Same job as LQI when a disturbance model fits; MPC when the actuator or output limits bind.
 
+## The laws at a glance
+
+What each runtime measures, the references and limits it takes, and what it does with a clamp after it (`back_calculate`). Every runtime has `valid()`: one built from a design it refuses sends 0 (an MPC holds its input), and when constant-evaluated it does not compile. Nothing faults at run time.
+
+### State-space laws
+
+| Runtime | Measures | References | Limits | Clamp after the law |
+|---|---|---|---|---|
+| `LQR` | state x: `update(x)` | none (regulator); `x_ref`/`u_ref`; `r` on tracked outputs (`TrackedOutputs`) | `u_lim`, `demand_lim` | `back_calculate`; `predict` shifts the `InputDelay` registers |
+| `LQG` | y, through a Kalman filter: `update(y)` | none (regulator); `x_ref`/`u_ref`; `r` on tracked outputs (`TrackedOutputs`) | `u_lim`, `demand_lim` | `back_calculate`; the filter runs on the applied input |
+| `LQI` | state x: `update(x)` | `r` on the integrated outputs, plus optional `x_ref`/`u_ref` | `u_lim`, `demand_lim`, `integral_lim` | ξ holds against the `u_lim` clamp by itself; `back_calculate` |
+| `LQGI` | y, through a Kalman filter: `update(y)` | `r` on the integrated outputs, plus optional `x_ref`/`u_ref` | `u_lim`, `demand_lim`, `integral_lim` | ξ holds against the `u_lim` clamp by itself; `back_calculate`; the filter runs on the applied input |
+| `OFLQG` | y, through a Kalman filter on [x; d]: `update(y)` | `r` on the controlled outputs, plus optional `x_ref`/`u_ref` | `u_lim`, `demand_lim`, `disturbance_lim` | `back_calculate`; the filter runs on the applied input |
+| `MPC` | state x: `update(x)` | `r` held or previewed; measured disturbance `d`; input target | `u_lim`, `du_lim`, `y_lim`, `x_lim` | `back_calculate`; `last_status()` |
+| `OFMPC` | y, through a Kalman filter on [x; d]: `update(y)` | `r` held or previewed; input target | `u_lim`, `du_lim`, `y_lim`, `x_lim`, `disturbance_lim` | `back_calculate`; `last_status()`; the filter runs on the applied input |
+
+On `MPC` and `OFMPC`, `y_lim` and `x_lim` (on the states listed in `x_states`) are soft by default, the terminal set is part of the design, and `set_limits()` moves `u_lim`, `du_lim`, `y_lim` and `x_lim` at run time.
+
+### SISO laws
+
+| Runtime | Tick | Reference | Limits | Clamp after the law |
+|---|---|---|---|---|
+| `PIDController` (PID, PI) | `control(r, y)` | `r`, with setpoint weights `b`, `c` | `u_lim`, `integral_lim` | `back_calculate` (`Kbc`; 0 means I holds), `track(u, y)`, `disable(u)` / `enable()` |
+| `PDController` | `control(r, y)` | `r`, with setpoint weights `b`, `c` | `u_lim` | `back_calculate` (no-op); `disable(u)` / `enable()` |
+| `PController` | `control(r, y)` | `r`, with setpoint weight `b` | `u_lim` | `back_calculate` (no-op); `disable(u)` / `enable()` |
+| `ContinuousPID` | `control(r, y, Ts)` | `r`, with setpoint weights `b`, `c` | `u_lim`, `integral_lim` | `back_calculate`, `track(u, y, Ts)`, `disable(u)` / `enable()` |
+| `LeadLagController` | `control(e)` or `control(r, y)` | error | `u_lim` | `back_calculate` |
+| `PRController` | `control(e)` or `control(r, y)` | error | `u_lim` | resonant section holds (`Tt` = 0) or unwinds over `Tt`; `back_calculate`; `set_frequency` |
+| `HarmonicSuppressor` | `control(e)` or `control(r, y)` | error | `u_lim` | resonators hold, fundamental first; `back_calculate`; `set_fundamental` |
+| `RepetitiveController` | `control(e)` | error | none (an add-on: the clamp is on the sum) | `back_calculate` |
+| `SmithPredictor` | `control(r, y)` | `r` | the primary law's `u_lim` | `back_calculate` (the model and the primary law) |
+| `ADRCController` | `control(r, y)` | `r` | `u_lim` | the observer runs on the clamped command; `back_calculate` |
+| `SMCController` | `control(r, y)` | `r` | `u_lim` (output also within ±k/b₀) | `back_calculate` (no-op) |
+| `STSMCController` | `control(r, y)` or `control_sliding(s)` | `r`, or the sliding variable s | `u_lim` | v holds against the clamp; `back_calculate` |
+| `ExtremumSeekingController` | `control(J, valid)` | none | `u_lim` on û and on û + dither | `back_calculate` |
+
+### Composition and safety filter
+
+| Runtime | Tick | Limits | Clamp after the law |
+|---|---|---|---|
+| `Cascade` | `control(r, y_outer, y_inner)` | each loop's own `u_lim` | `back_calculate`; the outer law holds while the inner command is clamped |
+| `SwitchedController` | `set_mode`, `control(r, y)`, `inject(u)` | each law's own `u_lim` | `back_calculate` goes to the active law; a PID switched in starts from the last applied command, others from reset |
+| `ActionGovernor` | `filter(u_des)` | A·u ≤ b (box, affine or CBF rows); `set_bounds(b)` each tick | if the projection fails it sends the last safe u |
+
 ## Limits and anti-windup
 
 One contract for every law:
@@ -192,10 +236,14 @@ One contract for every law:
 | `ADRCController` | `u_lim` on `ADRCResult` | The ESO runs on the clamped command |
 | `STSMCController` | `u_lim` on `STSMCResult` | The integral state |
 | `LeadLagController` | `u_lim` on `LeadLagResult` | The recursion runs on the clamped output |
+| `PRController` | `u_lim` on `PRResult` | The resonant section gives back what the tick added (`Tt` = 0), or unwinds over the tracking time `Tt` |
+| `HarmonicSuppressor` | `u_lim` on `HarmonicSuppressorResult` | The resonators, fundamental first, never more in all than the clamp cut |
+| `SMCController` | `u_lim` on `SMCResult` | Nothing to hold: it keeps only the last error |
 | `ExtremumSeekingController` | `u_lim` in `ESCSpec` | The operating point stays inside, and follows a clamp reported to it |
 | `SmithPredictor` | its primary's | The primary's memory; the internal model runs on the input reported |
 | `RepetitiveController` | none: it returns a correction | A sample the clamp cut off is not learned |
 | `ClassicalDOB` | none: it returns the corrected command | The estimate takes the input reported |
+| `Cascade` | each loop's own | The outer law holds at the last command the inner loop could follow |
 
 `integral_lim` bounds the integral a law stores, so its unit is that law's: the I term in output units on a PID, ξ ≈ ∫e·dt on the LQ laws. `disturbance_lim` does the same for the d̂ of an `OFLQG` or an `OFMPC`, in d's units: a member of the runtime only, set on the law.
 
@@ -203,7 +251,7 @@ A limit on a state or an output needs a prediction: `design::mpc` (`y_lim` on th
 
 References follow the same split. Every law takes the output reference `r`. The state-feedback laws also take a reference point inside the law, `control(r, x_ref, u_ref)`, which the clamp covers. A feedforward added outside any law is `u_ff`, passed to `back_calculate` so it is not taken for saturation. MPC takes `r` or a `Preview` of it, and an input preference through `set_input_target`.
 
-Not covered yet: `PRController` has a tracking time `Tt` and no `u_lim`, `HarmonicSuppressor` has neither, and `SMCController` has no `u_lim`; `STSMCController`'s integral state has no limit of its own; `Cascade` does not tell its outer loop of an inner clamp; `SwitchedController` resets the law it switches to.
+Not covered yet: `STSMCController`'s integral state has no limit of its own, and `SwitchedController` starts a law without a tracking mode (anything but a PID) from its reset state.
 
 ## Tick
 
