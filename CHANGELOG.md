@@ -7,7 +7,7 @@ and this project uses [Semantic Versioning](https://semver.org/) for tags.
 0.x releases may break API without a deprecation cycle (see [AGENTS.md](AGENTS.md)
 and [known limitations](docs/known_limitations.md)).
 
-## [Unreleased]
+## [0.3.1] — 2026-11-17
 
 The LQ integrators hold against a clamp by default again, as a PID's integral does.
 
@@ -208,6 +208,7 @@ Runtime controllers and estimators default to `float`; design synthesis defaults
 
 See [docs/known_limitations.md](docs/known_limitations.md).
 
+[0.3.1]: https://github.com/Wetmelon/damp/releases/tag/v0.3.1
 [0.3.0]: https://github.com/Wetmelon/damp/releases/tag/v0.3.0
 [0.2.2]: https://github.com/Wetmelon/damp/releases/tag/v0.2.2
 [0.2.1]: https://github.com/Wetmelon/damp/releases/tag/v0.2.1
