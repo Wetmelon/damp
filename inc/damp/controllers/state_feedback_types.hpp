@@ -120,7 +120,8 @@ struct IntegralAction {
  *
  * demand_lim (DemandLimit) bounds what the outer states ask of one state, read as a cascade: the
  * lean a balancing robot's position and speed ask for. Off by default; refused like u_lim, and for
- * a state that is not the plant's or is one of its own outer terms.
+ * a state that is not the plant's or is one of its own outer terms. It is a heuristic on the gain,
+ * not part of the design: nothing certifies the loop while it binds (DemandLimit).
  */
 template<size_t NX, size_t NU, typename T = double>
 struct LQRConfig {
