@@ -72,7 +72,7 @@ int main() {
 
 The SIL in that folder runs this tick next to a naive loop that reports the unsaturated
 request. The integrator winds on the naive path and overshoots; `back_calculate(u_sat)`
-holds it while the clamp is against the move.
+unwinds it against the clamp.
 
 ## Where the design runs
 
@@ -131,7 +131,7 @@ Keep the plant as `StateSpace` (or `matlab::ss` / `tf`). Discretize with `discre
 
 `[K,S,e] = lqr(sys,Q,R)` is `design::lqr(sys, {.Q, .R})` (CARE if continuous, DARE if discrete). Sampled-data (`lqrd`) is `design::lqr(sys, Ts, {.Q, .R})`.
 
-Integral action is `design::lqi`; it builds the augmented plant. Actuator saturation on that law is `.u_lim` in its `LQIConfig`, which the law clamps to and holds its integrators against, or `back_calculate` after a clamp downstream. Input and output limits over a horizon are `design::mpc`.
+Integral action is `design::lqi`; it builds the augmented plant. Actuator saturation on that law is `.u_lim` in its `LQIConfig`, which the law clamps to and unwinds its integrators against, or `back_calculate` after a clamp downstream. Input and output limits over a horizon are `design::mpc`.
 
 ## Coming from firmware
 
