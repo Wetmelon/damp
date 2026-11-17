@@ -116,6 +116,12 @@ Then $`\bar v = \ell / (1 - \sigma_{\max})`$, and the largest level set inside $
 
 is invariant, and every trajectory that starts in it converges to the reference. A $`\sigma_{\max} \ge 1`$ would certify the clamp globally. Damp does not compute this yet. Its limits: S is not chosen for the clamped loop, so the true region of attraction is larger than $`\mathcal{E}`$; with several inputs acting on s the closed form needs one multiplier shared between them, more conservative still, and an LMI otherwise; and the integrators' hold and `u_lim` are other nonlinearities, outside the model.
 
+## The input limit is a different clamp
+
+`demand_lim` bounds a setpoint; `u_lim` bounds the command. On a plant with a mode that is unstable on its own, a command on its limit is the worse failure: the inner terms, the only feedback that stabilizes that mode, are cut along with the rest, and the mode can run away. `demand_lim` makes that rarer, because the outer terms ask for less, but it does not keep the command inside `u_lim`: the inner terms alone can still exceed it.
+
+Glattfelder & Schaufelberger (2005) meet the same failure on an inverted pendulum driven by an electro-hydraulic actuator, and trace it to the inclination references the speed loop asks for. They keep the command off the actuator's limits by override control. The command is made a second controlled variable, to be held inside a band a margin short of the actuator's limits. A second controller regulates it at the band's edge, and min/max selectors pass whichever command is the more restrictive. Each path closes its own inclination loop, so a stabilizing loop is always closed, and with the margin the actuator never reaches its stops. They show that this widens the region the loop recovers from, where anti-windup alone cannot.
+
 ## Related work
 
 Each part of the construction is published; the combination, one finished optimal gain read as a cascade and clamped per input with the integrators held against it, was not found in the work below.
