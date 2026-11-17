@@ -158,11 +158,29 @@ private:
  * for a robot balanced upright; a spring's force through its position): a limit below that holds the
  * plant short of its reference.
  *
+ * What it does not promise. The split is a reading of the gain, not part of its design: the gain is
+ * optimal while the clamp does not bind, and while it binds the loop holds a saturation the Riccati
+ * equation never saw (a Lur'e system), which nothing certifies. The outer terms then act through a
+ * bounded demand; where they must stabilize a mode that is unstable on its own, that may not bring it
+ * back. A disturbance can still carry the state itself past @ref lim. A bound on the state with a
+ * guarantee is design::mpc's x_lim, or an ActionGovernor around the law.
+ *
+ * The closest published methods bound an intermediate quantity of a cascade too. Nested saturations
+ * clamp the intermediate control of a chain of integrators, with gains chosen so that the loop with
+ * the saturations in it is provably stable. Override control holds an intermediate variable of a
+ * process cascade within limits with a second controller and a selector. Neither reads one optimal
+ * gain as a cascade after its design.
+ *
  * Off by default (state = none). It is a field of the LQ designs' config, LQRConfig and LQIConfig:
  * `.demand_lim = {.state = 2, .outer = {true, true, false, false, true}, .lim = {.lower = -0.26,
  * .upper = 0.26}}`. A runtime that holds its matrices holds it as a member, `law.demand_lim`, to set
  * at run time; the Law of a `constexpr` design holds it as a constant of the type, so it costs that
  * law nothing.
+ *
+ * @see "Global stabilization and restricted tracking for multiple integrators with bounded controls"
+ *      (Teel, 1992), Systems & Control Letters 18(3): nested saturations
+ * @see "Control Systems with Input and Output Constraints" (Glattfelder & Schaufelberger, 2003),
+ *      Part II: override control
  *
  * @tparam N The gain's plant states and integrators, NX + NI (the input registers are never outer)
  */
