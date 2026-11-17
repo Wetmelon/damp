@@ -20,6 +20,7 @@
 #include "animate_3d.hpp"
 #include "damp/backend.hpp"
 #include "damp/math/geometry.hpp"
+#include "damp/math/math.hpp"
 #include "damp/matrix/colvec.hpp"
 #include "fmt/base.h"
 #include "fmt/core.h"
@@ -104,5 +105,15 @@ int main() {
 
     fmt::print("Frames: {}  → plots/estimation/imu_pose_3d.html\n", n);
     fmt::print("World = fixed reference frame. Ideal = integrate true ω. Dotted = integrate(ω+bias), not a filter.\n");
-    return 0;
+
+    // The bias turns the open-loop attitude away from the ideal one by at most |b_g|·t, the bound
+    // a rotation rate puts on the angle it can turn.
+    const double drift = 2.0 * damp::acos(damp::min(damp::abs((q_ideal.conjugate() * q_open_loop).w()), 1.0));
+    const double bound = b_g.norm() * static_cast<double>(n) * dt;
+    fmt::print("Open-loop attitude drift: {:.4f} rad (|b_g|·t = {:.4f} rad)\n", drift, bound);
+    const bool ok = (drift > 0.5 * bound) && (drift < 1.001 * bound);
+    if (!ok) {
+        fmt::print("FAIL: the gyro bias does not turn the open-loop attitude by between half and all of |b_g|·t\n");
+    }
+    return ok ? 0 : 1;
 }

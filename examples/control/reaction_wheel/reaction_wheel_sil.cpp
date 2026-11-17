@@ -110,5 +110,13 @@ int main() {
         u_mpc
     );
 
-    return 0;
+    // Each law, its own way, pushes back against the tilt, within the actuator's limit.
+    bool ok = mpc_art.success;
+    for (const float u : {u_cascade, u_adrc, u_smc, u_st, u_place, u_lqr, u_lqi, u_lqg, u_lqgi, u_mpc}) {
+        ok = ok && (u < 0.0f) && (u >= -u_max);
+    }
+    if (!ok) {
+        fmt::print("FAIL: a law did not push back against the tilt within |u| ≤ {}, or the MPC design failed\n", u_max);
+    }
+    return ok ? 0 : 1;
 }

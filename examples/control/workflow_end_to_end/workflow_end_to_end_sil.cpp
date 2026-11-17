@@ -23,6 +23,7 @@
 #include "damp/controllers/pr.hpp"
 #include "damp/design/linearization.hpp"
 #include "damp/design/pid_design.hpp"
+#include "damp/math/math.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "damp/simulation/integrator.hpp"
 #include "damp/simulation/simulate.hpp"
@@ -101,7 +102,7 @@ int main() {
     // plant_output has no feedthrough.
     const auto      sensor = [](const ColVec<2>& x) { return plant_output(x, ColVec<1>{}); };
     const ColVec<2> x0{0.25, 0.0};
-    const auto      sim = simulate<2, 1, 1>(plant_nonlinear, sensor, controller, solver, x0, {0.0, 2.0});
+    const auto      sim = simulate<2, 1, 1>(plant_nonlinear, sensor, controller, solver, x0, {0.0, 20.0}); // the PR's 1 Hz mode settles in about 15 s
 
     fmt::print("Workflow end-to-end summary\n");
     fmt::print("  Linearized A(1,0): {:.6f}\n", lin.A(1, 0));
@@ -111,5 +112,9 @@ int main() {
     fmt::print("  Final output: {:.6f}\n", sim.y.back()(0, 0));
     fmt::print("  Final control: {:.6f}\n", sim.u.back()(0, 0));
 
-    return 0;
+    const bool ok = pid_seed.success && (damp::abs(sim.y.back()(0, 0) - static_cast<double>(reference)) < 0.02);
+    if (!ok) {
+        fmt::print("FAIL: the nonlinear plant does not settle at r = {} under the float LQGI + PR\n", reference);
+    }
+    return ok ? 0 : 1;
 }

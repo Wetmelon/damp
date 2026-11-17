@@ -124,7 +124,7 @@ template<size_t NI, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size
  * step(r, x), or update(x), control(r), back_calculate, predict() (predict advances xi), with
  * x* = 0 and u* = 0; feedforward from a planned
  * trajectory (x_ref, u_ref) is control(r, x_ref, u_ref), or step(r, x_ref, u_ref, x). The
- * command is clamped into u_lim and xi into integral.lim (the design's, LQIConfig; unbounded by
+ * command is clamped into u_lim and xi into integral_lim (the design's, LQIConfig; unbounded by
  * default), and predict() holds the integrators against that clamp; back_calculate(u_sat) before
  * it reports a stage that clamps after the law.
  *

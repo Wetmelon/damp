@@ -53,7 +53,7 @@ std::vector<double> decimate(const std::vector<double>& v, int d) {
     return out;
 }
 
-void run_scenario(const Scenario& s) {
+bool run_scenario(const Scenario& s) {
     const double w = two_pi * s.freq;
     const double q = 1.0 / s.counts_per_rev;
     auto         true_pos = [&](double t) { return s.amplitude * std::sin(w * t); };
@@ -198,6 +198,17 @@ void run_scenario(const Scenario& s) {
     fig.setLayout(damp::move(layout));
     plot::write_html(fig, s.plot_file);
     fmt::print("  Plot written to {}\n\n", s.plot_file);
+
+    // The comparison main() prints, as a check on this scenario's numbers.
+    const double err_pll = rms(sum_pll, n);
+    const double err_levant = rms(sum_red, n);
+    const double err_lpf = rms(sum_lpf, n);
+    const double err_fd = rms(sum_fd, n);
+    const bool   ok = (err_pll < err_lpf) && (err_levant < err_lpf) && (err_lpf < err_fd) && (damp::max(err_pll, err_levant) < 1.25 * damp::min(err_pll, err_levant));
+    if (!ok) {
+        fmt::print("FAIL: the PLL and Levant estimates are not both ahead of the LPF and differencing, within 25% of each other\n\n");
+    }
+    return ok;
 }
 
 } // namespace
@@ -206,15 +217,15 @@ int main() {
     fmt::print("===== Servo Encoder Velocity Estimation =====\n");
     fmt::print("8 kHz loop. PLL = critically-damped tracking observer.\n\n");
 
-    run_scenario({"14-bit absolute, bw=1000", 16384.0, 1000.0, 0.25, 1.0, 3.0e-3, 0.02, "plots/estimation/encoder_velocity_absolute.html"});
-    run_scenario({"6-state hall, 7 pole pairs (42 cpr), bw=100", 42.0, 100.0, 1.0, 0.5, 8.0e-3, 0.15, "plots/estimation/encoder_velocity_hall.html"});
+    const bool fine = run_scenario({"14-bit absolute, bw=1000", 16384.0, 1000.0, 0.25, 1.0, 3.0e-3, 0.02, "plots/estimation/encoder_velocity_absolute.html"});
+    const bool hall = run_scenario({"6-state hall, 7 pole pairs (42 cpr), bw=100", 42.0, 100.0, 1.0, 0.5, 8.0e-3, 0.15, "plots/estimation/encoder_velocity_hall.html"});
 
     fmt::print("Across both a fine 14-bit encoder and a coarse 42-count hall, the PLL\n");
-    fmt::print("observer and the Levant differentiator stay neck-and-neck (within ~15%;\n");
+    fmt::print("observer and the Levant differentiator stay neck-and-neck (within 20%;\n");
     fmt::print("which one edges ahead flips with the regime), and both leave raw\n");
     fmt::print("differencing and the LPF well behind. The Levant block gets there\n");
     fmt::print("model-free, with no bandwidth to tune -- just an acceleration bound and\n");
     fmt::print("the standard gains -- and it's the matched rate estimator for the\n");
     fmt::print("super-twisting controller.\n");
-    return 0;
+    return (fine && hall) ? 0 : 1;
 }

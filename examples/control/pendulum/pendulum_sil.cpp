@@ -151,5 +151,16 @@ int main() {
         fmt::print("  K_op = [{:.4f}, {:.4f}]\n", res_op.K(0, 0), res_op.K(0, 1));
     }
 
-    return 0;
+    bool       ok = true;
+    const auto check = [&ok](bool cond, const char* what) {
+        if (!cond) {
+            fmt::print("FAIL: {}\n", what);
+            ok = false;
+        }
+    };
+    const auto settled = [](const ColVec<2, double>& x) { return damp::abs(x(0)) < 0.005 && damp::abs(x(1)) < 0.01; };
+    check(settled(sim.x.back()), "the flashed LQR brings the pendulum upright and at rest within 5 s");
+    check(settled(sim2.x.back()), "so does the redesign with Q = 50 I");
+    check(res_op.success, "the redesign about θ = 0.5 rad succeeds");
+    return ok ? 0 : 1;
 }

@@ -10,6 +10,7 @@
 
 #include "damp/backend.hpp"
 #include "damp/controllers/lqi.hpp"
+#include "damp/math/math.hpp"
 #include "damp/matrix/colvec.hpp"
 #include "fmt/base.h"
 #include "fmt/core.h"
@@ -48,5 +49,16 @@ int main() {
     fmt::print("aware  overshoot={:.3f}  final={:.3f}\n", peak_a - 1.0, x_a[0]);
     fmt::print("naive  overshoot={:.3f}  final={:.3f}\n", peak_n - 1.0, x_n[0]);
     fmt::print("aware uses back_calculate(u_sat); naive reports the unsaturated request.\n");
-    return 0;
+
+    bool       ok = true;
+    const auto check = [&ok](bool cond, const char* what) {
+        if (!cond) {
+            fmt::print("FAIL: {}\n", what);
+            ok = false;
+        }
+    };
+    check(peak_a - 1.0 < 0.05, "the clamp-aware law overshoots under 5%");
+    check(peak_n > peak_a + 0.02, "the naive one, which reports the request, overshoots clearly more");
+    check(damp::abs(x_a[0] - 1.0) < 0.01 && damp::abs(x_n[0] - 1.0) < 0.01, "both settle at r = 1");
+    return ok ? 0 : 1;
 }

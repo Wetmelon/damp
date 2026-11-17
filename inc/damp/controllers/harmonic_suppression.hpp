@@ -163,7 +163,7 @@ harmonic_suppressor(const PRSpec<T>& fundamental, T Ts, const damp::array<size_t
  * The command is clamped into u_lim. Against that clamp, and one reported with
  * back_calculate, the resonators give back what the tick added to their outputs, fundamental
  * first, until the command meets the clamp (or unwind by back-calculation with the design's
- * Tt): never more in all than the clamp cut off. A u_lim that is not a box is refused as a
+ * tracking_time): never more in all than the clamp cut off. A u_lim that is not a box is refused as a
  * failed design is.
  *
  * @tparam N Number of harmonics

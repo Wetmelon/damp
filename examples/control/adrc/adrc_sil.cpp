@@ -209,5 +209,16 @@ int main() {
     fig.setLayout(damp::move(layout));
     plot::write_html(fig, "plots/control/adrc_vs_pid.html");
     fmt::print("\nPlot written to plots/control/adrc_vs_pid.html\n");
-    return 0;
+
+    bool       ok = true;
+    const auto check = [&ok](bool cond, const char* what) {
+        if (!cond) {
+            fmt::print("FAIL: {}\n", what);
+            ok = false;
+        }
+    };
+    check(rms_a < rms_p, "ADRC rejects the load and the inertia change with less RMS error than the PI-D");
+    check(damp::abs(plant_adrc.theta) < 0.05, "ADRC returns to r = 0");
+    check(damp::abs(plant_pid.theta) < 0.15, "the PI-D heads back to r = 0");
+    return ok ? 0 : 1;
 }
