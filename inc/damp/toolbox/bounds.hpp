@@ -158,6 +158,19 @@ private:
  * for a robot balanced upright; a spring's force through its position): a limit below that holds the
  * plant short of its reference.
  *
+ * On the tick the law is computed as ever, u = u* − K·z, a plain product with the gain, and the clamp
+ * corrects it afterwards. For each input i that acts on s, the outer terms' share of uᵢ,
+ * oᵢ = −Σ K_ij·z_j over @ref outer, is formed again, and where oᵢ/K_is falls outside @ref lim it is
+ * replaced by K_is·clamp(oᵢ/K_is). K itself never changes. The law is piecewise linear: with K split by
+ * columns into K_out, the outer terms, and K_in = K − K_out, and k_s the column on s,
+ * @f[
+ *   u = u^* - K_{\mathrm{in}}\, z + k_s \circ \operatorname{sat}_{\mathrm{lim}}\!\left(\frac{-K_{\mathrm{out}}\, z}{k_s}\right),
+ * @f]
+ * entry by entry over the inputs, which inside @ref lim is u* − K·z. Outside it only the outer terms
+ * are bounded: the gain on s and the other terms keep their full stiffness. An input whose gain on s
+ * is rounding (|K_is| ≤ 4ε of its row's largest) is left as it is. Off, the limit costs one
+ * comparison; on, a second pass over each row of K, NU·N multiply-adds, and NU divisions.
+ *
  * What it does not promise. The split is a reading of the gain, not part of its design: the gain is
  * optimal while the clamp does not bind, and while it binds the loop holds a saturation the Riccati
  * equation never saw (a Lur'e system), which nothing certifies. The outer terms then act through a
@@ -165,11 +178,14 @@ private:
  * back. A disturbance can still carry the state itself past @ref lim. A bound on the state with a
  * guarantee is design::mpc's x_lim, or an ActionGovernor around the law.
  *
- * The closest published methods bound an intermediate quantity of a cascade too. Nested saturations
- * clamp the intermediate control of a chain of integrators, with gains chosen so that the loop with
- * the saturations in it is provably stable. Override control holds an intermediate variable of a
- * process cascade within limits with a second controller and a selector. Neither reads one optimal
- * gain as a cascade after its design.
+ * Published work has each part. A pole-placed state feedback with integral action on an unstable
+ * plant has been read as the equivalent cascade of loops, there to protect the actuator with an
+ * override. The pitch setpoint an outer position loop asks of a multirotor has been saturated, with an
+ * anti-windup compensator synthesized on generalized sector conditions. Nested saturations clamp the
+ * intermediate control of a chain of integrators, with gains chosen so that the saturated loop is
+ * provably stable. The setpoint read out of one finished optimal gain and clamped per input, with the
+ * integrators held against it, is not in that work. docs/demand_lim.md derives the construction, the
+ * loop it makes, and a regional certificate Damp does not compute yet.
  *
  * Off by default (state = none). It is a field of the LQ designs' config, LQRConfig and LQIConfig:
  * `.demand_lim = {.state = 2, .outer = {true, true, false, false, true}, .lim = {.lower = -0.26,
@@ -177,10 +193,14 @@ private:
  * at run time; the Law of a `constexpr` design holds it as a constant of the type, so it costs that
  * law nothing.
  *
+ * @see "Antiwindup and override control for exponentially unstable systems with actuator
+ *      constraints" (Glattfelder & Schaufelberger, 2005), 16th IFAC World Congress, §4: a state
+ *      feedback read as a cascade
+ * @see "Fixed-dynamics antiwindup design: application to pitch-limited position control of multirotor
+ *      unmanned aerial vehicles" (Ghignoni, Invernizzi & Lovera, 2021), IEEE Trans. Control Systems
+ *      Technology: a saturated setpoint from an outer loop
  * @see "Global stabilization and restricted tracking for multiple integrators with bounded controls"
  *      (Teel, 1992), Systems & Control Letters 18(3): nested saturations
- * @see "Control Systems with Input and Output Constraints" (Glattfelder & Schaufelberger, 2003),
- *      Part II: override control
  *
  * @tparam N The gain's plant states and integrators, NX + NI (the input registers are never outer)
  */
