@@ -153,8 +153,8 @@ private:
  * other terms), where the outer terms (the plant states and integrators listed in @ref outer) ask for
  * z_c = −(Σ K_j·z_j)/K_s. The law clamps z_c into @ref lim, per input that acts on s (K_s ≠ 0). A
  * balancing robot's position, speed and integral ask for a lean; this bounds the lean they may ask
- * for, not the lean itself, which no law without a prediction can bound. The integrators unwind
- * against the clamp as against u_lim's. At a steady state the outer terms carry the input that holds it (none
+ * for, not the lean itself, which no law without a prediction can bound. The integrators hold
+ * against the clamp as against u_lim's, or unwind with a tracking_time. At a steady state the outer terms carry the input that holds it (none
  * for a robot balanced upright; a spring's force through its position): a limit below that holds the
  * plant short of its reference.
  *

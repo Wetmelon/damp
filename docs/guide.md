@@ -72,7 +72,7 @@ int main() {
 
 The SIL in that folder runs this tick next to a naive loop that reports the unsaturated
 request. The integrator winds on the naive path and overshoots; `back_calculate(u_sat)`
-unwinds it against the clamp.
+holds it while the clamp is against the move.
 
 ## Where the design runs
 
@@ -131,7 +131,7 @@ Keep the plant as `StateSpace` (or `matlab::ss` / `tf`). Discretize with `discre
 
 `[K,S,e] = lqr(sys,Q,R)` is `design::lqr(sys, {.Q, .R})` (CARE if continuous, DARE if discrete). Sampled-data (`lqrd`) is `design::lqr(sys, Ts, {.Q, .R})`.
 
-Integral action is `design::lqi`; it builds the augmented plant. Actuator saturation on that law is `.u_lim` in its `LQIConfig`, which the law clamps to and unwinds its integrators against, or `back_calculate` after a clamp downstream. Input and output limits over a horizon are `design::mpc`.
+Integral action is `design::lqi`; it builds the augmented plant. Actuator saturation on that law is `.u_lim` in its `LQIConfig`, which the law clamps to and holds its integrators against (a `tracking_time` unwinds them instead), or `back_calculate` after a clamp downstream. Input and output limits over a horizon are `design::mpc`.
 
 ## Coming from firmware
 
@@ -186,8 +186,8 @@ What each runtime measures, the references and limits it takes, and what it does
 |---|---|---|---|---|
 | `LQR` | state x: `update(x)` | none (regulator); `x_ref`/`u_ref`; `r` on tracked outputs (`TrackedOutputs`) | `u_lim`, `demand_lim` | `back_calculate`; `predict` shifts the `InputDelay` registers |
 | `LQG` | y, through a Kalman filter: `update(y)` | none (regulator); `x_ref`/`u_ref`; `r` on tracked outputs (`TrackedOutputs`) | `u_lim`, `demand_lim` | `back_calculate`; the filter runs on the applied input |
-| `LQI` | state x: `update(x)` | `r` on the integrated outputs, plus optional `x_ref`/`u_ref` | `u_lim`, `demand_lim`, `integral_lim` | ξ unwinds against the `u_lim` clamp by itself (`tracking_time`); `back_calculate` |
-| `LQGI` | y, through a Kalman filter: `update(y)` | `r` on the integrated outputs, plus optional `x_ref`/`u_ref` | `u_lim`, `demand_lim`, `integral_lim` | ξ unwinds against the `u_lim` clamp by itself (`tracking_time`); `back_calculate`; the filter runs on the applied input |
+| `LQI` | state x: `update(x)` | `r` on the integrated outputs, plus optional `x_ref`/`u_ref` | `u_lim`, `demand_lim`, `integral_lim` | ξ holds against the `u_lim` clamp by itself, or unwinds over `tracking_time`; `back_calculate` |
+| `LQGI` | y, through a Kalman filter: `update(y)` | `r` on the integrated outputs, plus optional `x_ref`/`u_ref` | `u_lim`, `demand_lim`, `integral_lim` | ξ holds against the `u_lim` clamp by itself, or unwinds over `tracking_time`; `back_calculate`; the filter runs on the applied input |
 | `OFLQG` | y, through a Kalman filter on [x; d]: `update(y)` | `r` on the controlled outputs, plus optional `x_ref`/`u_ref` | `u_lim`, `demand_lim`, `disturbance_lim` | `back_calculate`; the filter runs on the applied input |
 | `MPC` | state x: `update(x)` | `r` held or previewed; measured disturbance `d`; input target | `u_lim`, `du_lim`, `y_lim`, `x_lim` | `back_calculate`; `last_status()` |
 | `OFMPC` | y, through a Kalman filter on [x; d]: `update(y)` | `r` held or previewed; input target | `u_lim`, `du_lim`, `y_lim`, `x_lim`, `disturbance_lim` | `back_calculate`; `last_status()`; the filter runs on the applied input |
@@ -231,7 +231,7 @@ One contract for every law:
 | Law | Output limit | What holds against the clamp |
 | --- | --- | --- |
 | `PIDController`, `PIController`, `ContinuousPID` | `u_lim` in `PIDGains` | The integral: it gives back what the tick added, up to what the clamp cut off. With a `Kbc` it unwinds by back-calculation instead |
-| `LQR`, `LQI`, `LQG`, `LQGI`, `OFLQG` | `u_lim` in `LQRConfig`, or `LQIConfig` with `integral_lim` | The integrators unwind by back-calculation, the whole excess each tick unless `tracking_time` in `LQIConfig` slows them; the filter and the input registers move on the clamped command; `OFLQG`'s d̂ stays in `disturbance_lim` |
+| `LQR`, `LQI`, `LQG`, `LQGI`, `OFLQG` | `u_lim` in `LQRConfig`, or `LQIConfig` with `integral_lim` | The integrators: they hold (conditional integration), or with a `tracking_time` in `LQIConfig` unwind by back-calculation; the filter and the input registers move on the clamped command; `OFLQG`'s d̂ stays in `disturbance_lim` |
 | `MPC`, `OFMPC` | `u_lim`, `du_lim`, `y_lim`, `x_lim` in `MPCConstraints` | By construction: the limits are constraints of the QP; `OFMPC`'s d̂ stays in `disturbance_lim` |
 | `ADRCController` | `u_lim` on `ADRCResult` | The ESO runs on the clamped command |
 | `STSMCController` | `u_lim` on `STSMCResult` | The integral state |
@@ -247,7 +247,7 @@ One contract for every law:
 
 `integral_lim` bounds the integral a law stores, so its unit is that law's: the I term in output units on a PID, ξ ≈ ∫e·dt on the LQ laws. `disturbance_lim` does the same for the d̂ of an `OFLQG` or an `OFMPC`, in d's units: a member of the runtime only, set on the law.
 
-A limit on a state or an output needs a prediction: `design::mpc` (`y_lim` on the controlled outputs, `x_lim` on any state, soft or hard), `design::mhe` (`x_lim` on the estimate), or an `ActionGovernor` around any law. `demand_lim` in `LQRConfig` and `LQIConfig` is not one: it bounds what the gain's outer terms ask of a state, read as a cascade inside one gain (the lean a balancing robot's position and integral ask for). The integrators unwind against it as against `u_lim`. It is a heuristic on the gain: nothing certifies the loop while the clamp binds. [demand_lim.md](demand_lim.md) derives it from first principles, with its limits and the published work nearest to it.
+A limit on a state or an output needs a prediction: `design::mpc` (`y_lim` on the controlled outputs, `x_lim` on any state, soft or hard), `design::mhe` (`x_lim` on the estimate), or an `ActionGovernor` around any law. `demand_lim` in `LQRConfig` and `LQIConfig` is not one: it bounds what the gain's outer terms ask of a state, read as a cascade inside one gain (the lean a balancing robot's position and integral ask for). The integrators hold against it as against `u_lim`, or unwind with a `tracking_time`. It is a heuristic on the gain: nothing certifies the loop while the clamp binds. [demand_lim.md](demand_lim.md) derives it from first principles, with its limits and the published work nearest to it.
 
 References follow the same split. Every law takes the output reference `r`. The state-feedback laws also take a reference point inside the law, `control(r, x_ref, u_ref)`, which the clamp covers. A feedforward added outside any law is `u_ff`, passed to `back_calculate` so it is not taken for saturation. MPC takes `r` or a `Preview` of it, and an input preference through `set_input_target`.
 

@@ -118,8 +118,8 @@ the repo root.
 - **Limits:** a law's output limit is `u_lim` (`Bounds`, unbounded by default):
   in the design input or on its result, a public member of the runtime, refused
   when it is not a box. The tick returns a command inside it, and with nothing
-  else set the law's memory holds against that clamp (conditional integration
-  or back-calculation, an observer or internal model on the clamped command). A clamp after the law
+  else set the law's memory holds against that clamp (conditional integration,
+  an observer or internal model on the clamped command). A clamp after the law
   is reported with `back_calculate`, to the same effect. State and output
   limits are `design::mpc` (`y_lim`), `design::mhe` (`x_lim`) or an
   `ActionGovernor` around any law. A new law with memory gets all of it.

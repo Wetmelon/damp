@@ -5,7 +5,7 @@
 
 // The limits of the LQ laws: u_lim clamps the command control returns, integral_lim the integral
 // state. The oracle for u_lim is the same design without limits, clamped outside the law and told
-// with back_calculate: the two are one tick, on every runtime, so the integrators unwind against the
+// with back_calculate: the two are one tick, on every runtime, so the integrators hold against the
 // law's own clamp and a filter or the input registers move on the input that went out.
 
 #include <cmath>
@@ -137,7 +137,7 @@ TEST_SUITE("LQ limits") {
         CHECK(damp::abs(law.control()(0)) == T{5});
     }
 
-    TEST_CASE_TEMPLATE("LQI with u_lim is the law clamped outside with back_calculate: the integrator unwinds against its own clamp", T, float, double) {
+    TEST_CASE_TEMPLATE("LQI with u_lim is the law clamped outside with back_calculate: the integrator holds against its own clamp", T, float, double) {
         const auto bound = design::lqi(plant(), kTs, kBoundI);
         const auto free = design::lqi(plant(), kTs, kFreeI);
         REQUIRE(bound.success);
@@ -422,10 +422,9 @@ TEST_SUITE("LQ limits") {
         CHECK(parts.u_lim.upper(0) == damp::numeric_limits<double>::max());
     }
 
-    TEST_CASE_TEMPLATE("an integrator limit narrowed while the command is clamped pulls the integrator in", T, float, double) {
+    TEST_CASE_TEMPLATE("an integrator limit narrowed while the integrator is held pulls it in", T, float, double) {
         //! integral.lim was applied only when the integrator advanced: held against u_lim, it kept
-        //! a value outside a limit set since. The integrator now tracks the clamp: it sits where the
-        //! command it asks for is the limit, and a limit set since pulls it in from there.
+        //! a value outside a limit set since.
         const auto res = design::lqi(plant(), kTs, kBoundI);
         REQUIRE(res.success);
         LQI        law{res.template as<T>()};
@@ -437,15 +436,15 @@ TEST_SUITE("LQ limits") {
         };
         law.integral.xi(0) = T{0.5};
         CHECK(tick() == static_cast<T>(kLimit));
-        CHECK(law.integral.xi(0) > T{0.25}); // tracking the clamp, above the limit about to be set
+        CHECK(law.integral.xi(0) == T{0.5}); // held against the clamp
         law.integral_lim.upper(0) = T{0.25};
         CHECK(tick() == static_cast<T>(kLimit));
         CHECK(law.integral.xi(0) == T{0.25});
     }
 
     TEST_CASE_TEMPLATE("tracking_time: back-calculation takes min(Ts/T_t, 1) of the excess back through (du/dxi)+", T, float, double) {
-        //! The integrators could only hold against a clamp, and overshot after a long one.
-        for (const double tt : {4.0 * kTs, 0.5 * kTs, 0.0}) { // a share of 1/4, one capped at the whole excess, and the default
+        //! The integrators could only hold against a clamp; a tracking time unwinds them, as Kbc does on a PID.
+        for (const double tt : {4.0 * kTs, kTs, 0.5 * kTs}) { // a share of 1/4, the whole excess, and one capped at it
             auto c = kBoundI;
             c.tracking_time = tt;
             const auto res = design::lqi(plant(), kTs, c);
@@ -462,7 +461,7 @@ TEST_SUITE("LQ limits") {
             const T e = law.integral.e(0);
             const T asked = law.integral.asked(0);
             law.predict();
-            const T share = (tt > kTs) ? static_cast<T>(kTs / tt) : T{1};
+            const T share = damp::min(static_cast<T>(kTs / tt), T{1});
             const T expect = (xi + (static_cast<T>(kTs) * e)) + (share * ((u - asked) / du_dxi));
             CHECK(damp::abs(law.integral.xi(0) - expect) <= T{16} * eps<T>() * (damp::abs(xi) + damp::abs(expect) + static_cast<T>(kTs) * damp::abs(e)));
         }
@@ -487,8 +486,43 @@ TEST_SUITE("LQ limits") {
         CHECK(static_cast<double>(y) == doctest::Approx(1.0).epsilon(1e-3));
     }
 
+    TEST_CASE("tracking_time 0 holds: noise that grazes the clamp leaves the law at r, where back-calculation takes it from one side") {
+        //! 0.3.0 unwound the integrators by default, the whole excess each tick. Near its limit with
+        //! noise on the reading, the law took every excursion that reached the clamp back from its
+        //! integrator and none from below, and settled short of r by many times holding's offset.
+        const auto model = sampled<double>();
+        const auto offset = [&model](double tracking_time) {
+            auto c = kBoundI;
+            c.tracking_time = tracking_time;
+            const auto res = design::lqi(plant(), kTs, c);
+            CHECK(res.success);
+            LQI           law{res.as<float>()};
+            ColVec<2>     x{};
+            unsigned      seed = 12345U;
+            double        sum = 0.0;
+            constexpr int kTicks = 6000;
+            constexpr int kTail = 3000;
+            for (int k = 0; k < kTicks; ++k) {
+                seed = (seed * 1664525U) + 1013904223U;                                               // a fixed sequence: the same on every host
+                const double noise = 0.0346 * ((static_cast<double>(seed >> 8U) / 16777216.0) - 0.5); // uniform, σ ≈ 0.01
+                law.update(ColVec<2, float>{static_cast<float>(x(0) + noise), static_cast<float>(x(1))});
+                const float u = law.control(ColVec<1, float>{1.0f})(0);
+                law.predict();
+                x = (model.A * x) + (model.B * ColVec<1>{static_cast<double>(u)});
+                if (k >= kTicks - kTail) {
+                    sum += x(0) - 1.0;
+                }
+            }
+            return sum / kTail;
+        };
+        const double held = offset(0.0);
+        const double tracked = offset(kTs);
+        CHECK(damp::abs(held) < 0.015);                    // about 0.006
+        CHECK(damp::abs(tracked) > 4.0 * damp::abs(held)); // about 0.05
+    }
+
     TEST_CASE("tracking_time: refused when negative or not finite, carried by LQGI and by a constexpr design's Law") {
-        CHECK(design::lqi(plant(), kTs, kBoundI).tracking_time == 0.0); // the default: the whole excess each tick
+        CHECK(design::lqi(plant(), kTs, kBoundI).tracking_time == 0.0); // the default: the integrators hold, as Kbc = 0 on a PID
         auto c = kBoundI;
         c.tracking_time = -0.1;
         CHECK(design::lqi(plant(), kTs, c).status == design::DesignStatus::invalid_parameter);

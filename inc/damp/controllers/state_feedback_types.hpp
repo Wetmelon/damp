@@ -153,7 +153,7 @@ LQRConfig(Matrix<NX, NX, T>, Matrix<NU, NU, T>, Matrix<NX, NU, T>) -> LQRConfig<
  * | --- | --- | --- |
  * | Q_integral | penalizes the discrete integral state ξ | NI × NI, positive definite |
  * | integral_lim | limits ξ, per integrator | NI, default unbounded |
- * | tracking_time | the integrators' back-calculation tracking time T_t [s] | ≥ 0, default 0: the whole excess each tick |
+ * | tracking_time | the integrators' back-calculation tracking time T_t [s] | ≥ 0, default 0: conditional integration |
  *
  * Q_integral is the cost on the Euler-integrated error ξ ≈ ∫e dt, not a block of a generic
  * augmented Q. Q, R and N are the plant cost (Van Loan on a continuous plant); Q_integral keeps
@@ -164,25 +164,32 @@ LQRConfig(Matrix<NX, NX, T>, Matrix<NU, NU, T>, Matrix<NX, NU, T>) -> LQRConfig<
  * weight is a mode at z = 1 the cost does not see; a Q_integral that is not positive definite
  * (left out of the braces, for one) is refused with DesignStatus::bad_weights.
  *
- * The law unwinds its integrators against the clamp of u_lim, with no back_calculate.
+ * The law holds its integrators against the clamp of u_lim, with no back_calculate.
  * integral_lim is on ξ itself, in the units of ∫e dt (the error's times seconds): through the
  * gain, ξ moves input j by K(j, NX + i)·ξᵢ. It is a member of the result and of the runtime, `law.integral_lim`,
  * set at run time like `law.u_lim`, and refused as u_lim is.
  *
- * Against a clamp the integrators integrate as ever and are pulled toward the value that would have
- * asked for the input applied (back-calculation), at the pace of tracking_time T_t:
+ * tracking_time picks how the integrators meet a clamp, as PID's Kbc does. At 0, the default, an
+ * integrator holds where integrating its error would push a clamped input further (conditional
+ * integration): it stops, and keeps what it had. Above 0 it integrates as ever and is pulled toward
+ * the value that would have asked for the input applied (back-calculation),
  * @f[
  *   \xi \leftarrow \xi + T_s\, e + \min\!\left(\tfrac{T_s}{T_t}, 1\right)
  *   \left(\tfrac{\partial u}{\partial \xi}\right)^{+} \left(u_{\text{applied}} - u_{\text{asked}}\right),
  * @f]
- * the pseudo-inverse spreading the excess over the integrators by least squares. A tracking time up
- * to Ts, 0 the default among them, takes the whole excess each tick: the integrators track the
- * clamp. A longer one takes a share, never more than the whole: past that it would overshoot the
- * realizable command, and past twice it diverges. Unwinding the integrators lets a law recover from
- * a clamp without the overshoot of conditional integration, which only stops them and keeps what
- * they had: on a cart-pole with its force limited, a step that overshot by half settles without
- * overshoot. It also unwinds what they carry against a constant load, which is integrated back
- * once the clamp lets go, and a longer tracking time recovers from a push sooner. It is a member of
+ * the pseudo-inverse spreading the excess over the integrators by least squares, T_t = Kbc/Ki on a
+ * PID. A tracking time up to Ts takes the whole excess each tick: the integrators track the clamp.
+ * A longer one takes a share, never more than the whole: past that it would overshoot the
+ * realizable command, and past twice it diverges.
+ *
+ * The two meet a clamp differently. Back-calculation recovers from a long one without the
+ * overshoot of holding: on a cart-pole with its force limited, a step that overshot by 55% while
+ * the integrators held settles without overshoot at a tracking time of Ts to 0.2 s. It also
+ * unwinds what the integrators carry against a constant load, integrated back once the clamp lets
+ * go, and it takes back each excursion of noise that reaches the clamp, from that side only: an LQI
+ * at 96% of its limit with noise on its reading settles with an offset about 13 times holding's,
+ * and a slow integrator gives back for seconds what a short clamp took from it. Holding keeps what
+ * the integrators carry, which is why it is the default, as Kbc = 0 is on a PID. It is a member of
  * the result and of the runtime, `law.tracking_time`, set at run time; one that is negative or not
  * finite is refused.
  *
@@ -198,7 +205,7 @@ struct LQIConfig {
     Bounds<NU, T>           u_lim{};         ///< Limits on the command u, per input (default unbounded)
     Bounds<NI, T>           integral_lim{};  ///< Limits on the integral state ξ, per integrator (default unbounded)
     DemandLimit<NX + NI, T> demand_lim{};    ///< A limit on what the outer states and integrators ask of one state (default off)
-    T                       tracking_time{}; ///< [s] The integrators' back-calculation tracking time (default 0, as any up to Ts: the whole excess each tick)
+    T                       tracking_time{}; ///< [s] The integrators' back-calculation tracking time (default 0: conditional integration)
 };
 
 /** @brief Sizes from the matrices: `LQIConfig{Q, R, N, Q_integral}`. */

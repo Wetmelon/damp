@@ -7,6 +7,15 @@ and this project uses [Semantic Versioning](https://semver.org/) for tags.
 0.x releases may break API without a deprecation cycle (see [AGENTS.md](AGENTS.md)
 and [known limitations](docs/known_limitations.md)).
 
+## [Unreleased]
+
+The LQ integrators hold against a clamp by default again, as a PID's integral does.
+
+### Changed
+
+- The LQI and LQGI integrators hold against a clamp (conditional integration) when `tracking_time` is 0, the default, as a PID's integral does with `Kbc = 0`. A `tracking_time` above 0 unwinds them by back-calculation, and one up to Ts takes the whole excess each tick, 0.3.0's default: set `tracking_time = Ts` to keep 0.3.0's behaviour. Near its limit with noise on the reading, that default took each excursion that reached the clamp back from the integrators, from one side only, and an LQI settled short of r by about ten times the offset of holding; a slow integrator gave back for seconds what a short clamp took from it. Back-calculation still recovers from a long clamp without holding's overshoot.
+- An LQ design whose (∂u/∂ξ)⁺ cannot be formed is refused only when it asks for back-calculation.
+
 ## [0.3.0] — 2026-11-17
 
 Designs for a plant whose input arrives late, one limits and anti-windup contract for every law (with state limits on MPC and a bound on the offset-free laws' disturbance estimate), a Kalman filter and an MPC that hold in float, no fault at run time, and Damp after `Arduino.h`. The API breaks: `LQRWeights` is now `LQRConfig`, or `LQIConfig` with integral action, and a `SisoController` needs `back_calculate`.

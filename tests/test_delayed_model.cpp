@@ -412,8 +412,7 @@ TEST_SUITE("back_calculate: the applied input through the law's own last command
     const design::KalmanNoise<2, 1> kNoiseSpring{.process = kQn, .measurement = kRn};
 
     TEST_CASE("LQGI with a clamp; without back_calculate the step predicts with the last command") {
-        // The clamped run re-recorded when the integrators went from holding to back-calculation (tracking_time).
-        constexpr double clamped[] = {35.087944686802039, 30.618034134039689, 21.026471466543484, -41.734479955975274, -15.205520548107572, 61.079424575195787, 46.349801903305504};
+        constexpr double clamped[] = {33.210771066535429, 21.698602436461023, 0.30528446320147395, -24.341242954954595, -4.0558405401675799, 67.446982029701559, 40.217762773741939};
         constexpr double unclamped[] = {65.106839026183209, 6.5445551085095417, 2.4076864909603728, -15.855437674242751, -1.7288642913350714, -58.284596307229833, 1.4312379783334563};
         const auto       res = design::lqgi(kPlantD, {.Q = kQ, .R = kR, .Q_integral = kQint}, kNoiseSpring);
         for (const bool clamp : {true, false}) {

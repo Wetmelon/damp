@@ -98,7 +98,7 @@ struct HeldGains {
  * | steady-state target for r, under the disturbance model if there is one (SteadyStateTarget) | NZ | 0 |
  * | input registers: the inputs applied over the last NRU periods, held by the law (a measured state) | NRU | 0 |
  * | limits on the command and on the integrators | @ref u_lim, @ref integral_lim | unbounded |
- * | the integrators' tracking time against a clamp (back-calculation) | @ref tracking_time | 0: the whole excess each tick |
+ * | back-calculation for the integrators against a clamp | @ref tracking_time | 0: conditional integration |
  * | a limit on the disturbance estimate d̂ (ND > 0) | @ref disturbance_lim | unbounded |
  * | a limit on what the outer terms ask of one state (DemandLimit) | @ref demand_lim | off |
  *
@@ -128,15 +128,16 @@ struct HeldGains {
  *   y = C·x + D·u the output over the period, u the input applied over it (the design's model):
  *   control holds the part it knows, r − Ci·C·x (from the measured state, or from the
  *   measurement less the feedthrough D·u of the input it was taken under), and @ref predict
- *   subtracts Ci·D·u for the input applied, advances xi, and where the applied input shows a clamp
- *   pulls it toward the value that would have asked for the input applied (back-calculation, at
- *   the pace of @ref tracking_time), and clamps xi into integral_lim;
+ *   subtracts Ci·D·u for the input applied, then advances xi unless the applied input shows the
+ *   actuator clamping against it (conditional integration), or with a @ref tracking_time advances
+ *   it and pulls it toward the value that asks for the input applied (back-calculation), and
+ *   clamps xi into integral_lim;
  * - within limits: @ref control returns the command clamped into @ref u_lim, and that is the
  *   input the next @ref predict takes as applied unless @ref back_calculate recorded another.
- *   The integrators compare the applied input with the command before the clamp, so they unwind
+ *   The integrators compare the applied input with the command before the clamp, so they hold
  *   against the law's own limit as against a clamp downstream. The limits are members: set them
  *   at run time for a rail that moves. @ref demand_lim bounds what the outer terms ask of one
- *   state (DemandLimit), and the integrators unwind against it the same way. With a disturbance model, @ref update clamps d̂ into
+ *   state (DemandLimit), and the integrators hold against it the same way. With a disturbance model, @ref update clamps d̂ into
  *   @ref disturbance_lim, so a load past it (a wall the plant is held against) does not wind d̂,
  *   and with it the target, up the way an integrator would.
  *
@@ -193,7 +194,7 @@ struct StateFeedbackCore {
     Bounds<NU, T>                  u_lim{};     ///< Limits on the command control returns (default unbounded)
 
     [[no_unique_address]] IntegralLim  integral_lim{};  ///< Limits on the integrators ξ (NI > 0; default unbounded)
-    [[no_unique_address]] TrackingTime tracking_time{}; ///< [s] The integrators' back-calculation tracking time (NI > 0; up to Ts, 0 the default: the whole excess each tick)
+    [[no_unique_address]] TrackingTime tracking_time{}; ///< [s] The integrators' back-calculation tracking time (NI > 0; 0, the default: conditional integration; up to Ts: the whole excess each tick)
 
     [[no_unique_address]] DisturbanceLim                     disturbance_lim{}; ///< Limits on the disturbance estimate d̂, in d's units (ND > 0; default unbounded)
     [[no_unique_address]] Store::template Demand<NX + NI, T> demand_lim{};      ///< A limit on what the outer terms ask of a state (default off; a constant of a `constexpr` design's Law)
@@ -562,9 +563,11 @@ private:
     }
 
     /**
-     * @brief Integrate the held error less the applied input's feedthrough Ci·D·u, take back
-     *        min(Ts/T_t, 1) of a clamp's excess (u_lim, demand_lim, or one back_calculate reported)
-     *        through (∂u/∂ξ)⁺ (back-calculation, LQIConfig::tracking_time), and clamp into integral_lim.
+     * @brief Integrate the held error less the applied input's feedthrough Ci·D·u, into integral_lim,
+     *        against a clamp (u_lim, demand_lim, or one back_calculate reported): integrator i holds
+     *        when −K(j, i)·eᵢ points into a clamped input j (conditional integration), or with a
+     *        tracking time T_t > 0 integrates and takes back min(Ts/T_t, 1) of the excess through
+     *        (∂u/∂ξ)⁺ (back-calculation, LQIConfig::tracking_time).
      */
     constexpr void integrate()
         requires(NI > 0)
@@ -577,9 +580,20 @@ private:
             const T tol = T{4} * eps<T>() * (damp::abs(applied_.applied(j)) + damp::abs(u_req));
             excess(j) = (damp::abs(diff) > tol) ? diff : T{0};
         }
-        // The whole excess at most (past it, an overshoot): any tracking time up to Ts, 0 among them.
-        const T share = (tracking_time > integral.step) ? (integral.step / tracking_time) : T{1};
-        integral.xi = ColVec<NI, T>((integral.xi + (integral.step * e)) + (share * (integral.unwind * excess)));
+        if (tracking_time > T{0}) {
+            const T share = damp::min(integral.step / tracking_time, T{1}); // the whole excess at most: past it, an overshoot
+            integral.xi = ColVec<NI, T>((integral.xi + (integral.step * e)) + (share * (integral.unwind * excess)));
+        } else {
+            for (size_t i = 0; i < NI; ++i) {
+                bool winds_up = false;
+                for (size_t j = 0; j < NU; ++j) {
+                    winds_up = winds_up || (K(j, NXL + i) * e(i) * excess(j) > T{0});
+                }
+                if (!winds_up) {
+                    integral.xi(i) += integral.step * e(i);
+                }
+            }
+        }
         integral.xi = integral_lim.saturate(integral.xi); // held or not: a limit narrowed at run time pulls xi in
         integral.e = ColVec<NI, T>{};
     }
