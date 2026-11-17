@@ -68,7 +68,7 @@ Off, the limit costs one comparison per tick. On, it costs a second pass over ea
 
 ## The integrators
 
-While the clamp holds the setpoint, the outer terms' share of the command no longer grows with them. An integrator among the outer terms would keep integrating a contribution that is thrown away, and unwind it later, with the overshoot of any windup. The law records the command before the clamp; at the next predict, integrator $`\xi_i`$ holds when integrating its error $`e_i`$ would push a clamped input j further into its clamp, $`K_{j,\xi_i}\, e_i\, (u_j^{\text{applied}} - u_j^{\text{asked}}) > 0`$ (conditional integration). The same test covers `u_lim` and a clamp reported with `back_calculate`.
+While the clamp holds the setpoint, the outer terms' share of the command no longer grows with them. An integrator among the outer terms would keep integrating a contribution that is thrown away, and unwind it later, with the overshoot of any windup. The law records the command before the clamp, and at the next predict takes the excess back from the integrators by back-calculation: they integrate as ever, then move by $`\min(T_s/T_t, 1)\,(\partial u/\partial\xi)^{+}(u^{\text{applied}} - u^{\text{asked}})`$, the whole excess each tick unless `tracking_time` in `LQIConfig` slows them. The same rule covers `u_lim` and a clamp reported with `back_calculate`.
 
 ## Steady state
 
@@ -114,7 +114,7 @@ Then $`\bar v = \ell / (1 - \sigma_{\max})`$, and the largest level set inside $
 \mathcal{E} = \{\, z : z^{\mathsf T} S z \le c^\star \,\}, \qquad c^\star = \frac{\bar v^{\,2}}{C_v S^{-1} C_v^{\mathsf T}},
 ```
 
-is invariant, and every trajectory that starts in it converges to the reference. A $`\sigma_{\max} \ge 1`$ would certify the clamp globally. Damp does not compute this yet. Its limits: S is not chosen for the clamped loop, so the true region of attraction is larger than $`\mathcal{E}`$; with several inputs acting on s the closed form needs one multiplier shared between them, more conservative still, and an LMI otherwise; and the integrators' hold and `u_lim` are other nonlinearities, outside the model.
+is invariant, and every trajectory that starts in it converges to the reference. A $`\sigma_{\max} \ge 1`$ would certify the clamp globally. Damp does not compute this yet. Its limits: S is not chosen for the clamped loop, so the true region of attraction is larger than $`\mathcal{E}`$; with several inputs acting on s the closed form needs one multiplier shared between them, more conservative still, and an LMI otherwise; and the integrators' back-calculation and `u_lim` are other nonlinearities, outside the model as written.
 
 ## The input limit is a different clamp
 
