@@ -260,5 +260,16 @@ int main() {
         nav.state().b_a[2],
         sensor_ba[0]
     );
-    return 0;
+
+    bool       ok = true;
+    const auto check = [&ok](bool cond, const char* what) {
+        if (!cond) {
+            fmt::print("FAIL: {}\n", what);
+            ok = false;
+        }
+    };
+    check(max_aid < 0.2, "position and heading aiding hold the position error under 0.2 m");
+    check(max_free > 10.0 * max_aid, "the free-running mechanization drifts more than ten times further");
+    check(damp::abs(nav.heading() - ins_heading(truth, kFrame)) < 0.01, "the heading ends within 0.01 rad of the truth");
+    return ok ? 0 : 1;
 }

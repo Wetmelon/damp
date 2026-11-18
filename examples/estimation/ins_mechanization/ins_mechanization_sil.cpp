@@ -21,6 +21,7 @@
 #include "damp/backend.hpp"
 #include "damp/estimation/ins_mechanization.hpp"
 #include "damp/math/geometry.hpp"
+#include "damp/math/math.hpp"
 #include "damp/matrix/colvec.hpp"
 #include "fmt/base.h"
 #include "fmt/core.h"
@@ -161,5 +162,16 @@ int main() {
     fmt::print("Frames: {}  → plots/estimation/ins_mechanization_3d.html\n", n);
     fmt::print("Solid green = ideal mechanization; dotted orange = open-loop with accel bias (not a filter).\n");
     fmt::print("RGB triad = ideal body axes at the vehicle (body → ENU).\n");
-    return 0;
+
+    // The accel bias carries the open-loop position away by at most ½|b_a|·t², the bound a constant
+    // acceleration of that size puts on it, whatever the attitude turns it to.
+    const double t_run = static_cast<double>(n) * dt;
+    const double drift = (mech_biased.p - truth.p).norm();
+    const double bound = 0.5 * sensor_ba.norm() * t_run * t_run;
+    fmt::print("Open-loop position drift: {:.3f} m (½|b_a|·t² = {:.3f} m)\n", drift, bound);
+    const bool ok = (drift > 0.5 * bound) && (drift < 1.001 * bound) && ((mech.p - truth.p).norm() < 1e-9 * bound);
+    if (!ok) {
+        fmt::print("FAIL: the bias-free mechanization leaves the truth, or the bias drift is not between half and all of ½|b_a|·t²\n");
+    }
+    return ok ? 0 : 1;
 }

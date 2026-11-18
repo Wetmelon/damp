@@ -197,7 +197,9 @@ Plant builders and host sim are not this ladder.
 
 Example folders: deploy header + sketch + host SIL + derivation. Gold:
 `examples/control/cart_pole/`. SIL must **call** the flashable tick — never
-re-derive the cascade “for the sim.”
+re-derive the cascade “for the sim.” A SIL checks what it prints: it returns
+nonzero when a result leaves its band (`FAIL:` and the claim), so `make` fails
+on a change in behavior, not only on a crash.
 
 ### Numerical / `-ffast-math`
 

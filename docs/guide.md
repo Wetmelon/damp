@@ -203,7 +203,7 @@ On `MPC` and `OFMPC`, `y_lim` and `x_lim` (on the states listed in `x_states`) a
 | `PController` | `control(r, y)` | `r`, with setpoint weight `b` | `u_lim` | `back_calculate` (no-op); `disable(u)` / `enable()` |
 | `ContinuousPID` | `control(r, y, Ts)` | `r`, with setpoint weights `b`, `c` | `u_lim`, `integral_lim` | `back_calculate`, `track(u, y, Ts)`, `disable(u)` / `enable()` |
 | `LeadLagController` | `control(e)` or `control(r, y)` | error | `u_lim` | `back_calculate` |
-| `PRController` | `control(e)` or `control(r, y)` | error | `u_lim` | resonant section holds (`Tt` = 0) or unwinds over `Tt`; `back_calculate`; `set_frequency` |
+| `PRController` | `control(e)` or `control(r, y)` | error | `u_lim` | resonant section holds (`tracking_time` = 0) or unwinds over `tracking_time`; `back_calculate`; `set_frequency` |
 | `HarmonicSuppressor` | `control(e)` or `control(r, y)` | error | `u_lim` | resonators hold, fundamental first; `back_calculate`; `set_fundamental` |
 | `RepetitiveController` | `control(e)` | error | none (an add-on: the clamp is on the sum) | `back_calculate` |
 | `SmithPredictor` | `control(r, y)` | `r` | the primary law's `u_lim` | `back_calculate` (the model and the primary law) |
@@ -236,7 +236,7 @@ One contract for every law:
 | `ADRCController` | `u_lim` on `ADRCResult` | The ESO runs on the clamped command |
 | `STSMCController` | `u_lim` on `STSMCResult` | The integral state |
 | `LeadLagController` | `u_lim` on `LeadLagResult` | The recursion runs on the clamped output |
-| `PRController` | `u_lim` on `PRResult` | The resonant section gives back what the tick added (`Tt` = 0), or unwinds over the tracking time `Tt` |
+| `PRController` | `u_lim` on `PRResult` | The resonant section gives back what the tick added (`tracking_time` = 0), or unwinds over `tracking_time` |
 | `HarmonicSuppressor` | `u_lim` on `HarmonicSuppressorResult` | The resonators, fundamental first, never more in all than the clamp cut |
 | `SMCController` | `u_lim` on `SMCResult` | Nothing to hold: it keeps only the last error |
 | `ExtremumSeekingController` | `u_lim` in `ESCSpec` | The operating point stays inside, and follows a clamp reported to it |

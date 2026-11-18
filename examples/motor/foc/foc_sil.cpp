@@ -83,7 +83,7 @@ RunLog run(T b) {
         // Step-response metrics, measured in the window before the disturbance.
         if (t >= t_step && t < t_dist) {
             if (!rise_found && Idq.q >= 0.98 * Iq_ref) {
-                log.rise_ms = (t - t_step) * 1e3;
+                log.rise_ms = ((t + Ts) - t_step) * 1e3; // the end of the tick that reached it
                 rise_found = true;
             }
             peak_iq = std::max(peak_iq, Idq.q);
@@ -108,7 +108,7 @@ int main() {
     const RunLog pi = run(T{1}); // standard PI (P on error)
     const RunLog ip = run(T{0}); // I-P        (P on measurement)
 
-    fmt::print("  structure |  98%% rise [ms] | overshoot [%%] | peak |Vdq| [V] | final iq [A]\n");
+    fmt::print("  structure |  98% rise [ms] | overshoot [%] | peak |Vdq| [V] | final iq [A]\n");
     fmt::print("  ----------+----------------+---------------+----------------+-------------\n");
     fmt::print("  PI  (b=1) | {:14.3f} | {:13.1f} | {:14.3f} | {:11.3f}\n", pi.rise_ms, pi.overshoot_pct, pi.peak_vmag, pi.final_iq);
     fmt::print("  I-P (b=0) | {:14.3f} | {:13.1f} | {:14.3f} | {:11.3f}\n", ip.rise_ms, ip.overshoot_pct, ip.peak_vmag, ip.final_iq);
@@ -193,5 +193,18 @@ int main() {
         plot::write_html(fig_xy, "plots/motor/foc_id_iq.html");
         fmt::print("  Plot written to plots/motor/foc_id_iq.html\n");
     }
-    return 0;
+
+    bool       ok = true;
+    const auto check = [&ok](bool cond, const char* what) {
+        if (!cond) {
+            fmt::print("FAIL: {}\n", what);
+            ok = false;
+        }
+    };
+    const auto at_ref = [](const RunLog& r) { return std::abs(r.final_iq - Iq_ref) < 0.01 * Iq_ref; };
+    check(at_ref(pi) && at_ref(ip), "both structures reject the disturbance to the same iq");
+    check(ip.overshoot_pct < 1.0 && pi.overshoot_pct > ip.overshoot_pct + 1.0, "the I-P step does not overshoot, the PI's does");
+    check(pi.rise_ms < ip.rise_ms, "the PI rises first");
+    check(pi.peak_vmag > ip.peak_vmag && pi.peak_vmag <= 1.0001 * Vmax, "the PI peaks higher into the voltage circle, and stays inside it");
+    return ok ? 0 : 1;
 }

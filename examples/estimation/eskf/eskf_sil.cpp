@@ -15,6 +15,7 @@
 
 #include "damp/estimation/sensor_fusion.hpp"
 #include "damp/math/geometry.hpp"
+#include "damp/math/math.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "eskf_estimator.hpp"
 #include "fmt/core.h"
@@ -49,5 +50,9 @@ int main() {
     fmt::print(
         "  |yaw|,|pitch|,|roll| expected near 0 (identity attitude)\n"
     );
-    return 0;
+    const bool ok = (damp::abs(e.yaw()) < 1e-3) && (damp::abs(e.pitch()) < 1e-3) && (damp::abs(e.roll()) < 1e-3);
+    if (!ok) {
+        fmt::print("FAIL: the attitude left identity at rest\n");
+    }
+    return ok ? 0 : 1;
 }

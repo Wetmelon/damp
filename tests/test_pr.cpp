@@ -257,13 +257,13 @@ TEST_SUITE("PR Controller") {
         }
     }
 
-    TEST_CASE("PR converting ctor preserves Tt and state") {
-        PRController<double> d(design::pr({.Kp = 1.0, .Ki = 100.0, .w0 = 314.0, .wc = 10.0, .Tt = 5.0}, 0.0001));
+    TEST_CASE("PR converting ctor preserves tracking_time and state") {
+        PRController<double> d(design::pr({.Kp = 1.0, .Ki = 100.0, .w0 = 314.0, .wc = 10.0, .tracking_time = 5.0}, 0.0001));
         (void)d.control(0.7);
         (void)d.control(-0.2);
 
         PRController<float> f(d); // U -> T converting ctor
-        CHECK(f.Tt == doctest::Approx(5.0f));
+        CHECK(f.tracking_time == doctest::Approx(5.0f));
         // Resonant delay line carried over.
         CHECK(f.resonant.last_output() == doctest::Approx(static_cast<float>(d.resonant.last_output())));
         // Coefficients carried over too: the next step matches within float precision.
@@ -271,7 +271,7 @@ TEST_SUITE("PR Controller") {
     }
 
     TEST_CASE("PR back_calculate unwinds resonant state") {
-        PRController<double> ctrl(design::pr({.Kp = 1.0, .Ki = 100.0, .w0 = 314.0, .wc = 10.0, .Tt = 2.0}, 0.0001));
+        PRController<double> ctrl(design::pr({.Kp = 1.0, .Ki = 100.0, .w0 = 314.0, .wc = 10.0, .tracking_time = 2.0}, 0.0001));
         const double         u = ctrl.control(1.0);
         double               y_before = ctrl.resonant.last_output();
 
@@ -279,11 +279,11 @@ TEST_SUITE("PR Controller") {
         ctrl.back_calculate(u + 0.5, 0.5);
         CHECK(ctrl.resonant.last_output() == y_before);
 
-        // Saturation: realizable command 2 below the requested one -> pull output down by Ts·2/Tt.
+        // Saturation: realizable command 2 below the requested one -> pull output down by Ts·2/tracking_time.
         ctrl.back_calculate(u - 2.0);
         CHECK(ctrl.resonant.last_output() == doctest::Approx(y_before - (0.0001 * 2.0 / 2.0)));
 
-        // Tt == 0: the resonant section holds. It gives back what the tick added (from rest, its
+        // tracking_time == 0: the resonant section holds. It gives back what the tick added (from rest, its
         // whole output), up to the excess, and a second report of the clamp takes nothing more.
         PRController<double> nctrl(design::pr({.Kp = 1.0, .Ki = 100.0, .w0 = 314.0, .wc = 10.0}, 0.0001));
         const double         un = nctrl.control(1.0);
@@ -317,10 +317,10 @@ TEST_SUITE("PR Controller") {
     }
 
     TEST_CASE("a tracking time under the sample period unwinds at most the whole excess") {
-        // ΔR = (Ts/Tt)·excess overshot the realizable command past Tt < Ts and diverged past Tt < Ts/2.
+        // ΔR = (Ts/tracking_time)·excess overshot the realizable command past tracking_time < Ts and diverged past tracking_time < Ts/2.
         const double         Ts = 1e-4;
         const double         w0 = 2.0 * std::numbers::pi * 50.0;
-        PRController<double> pr{design::pr({.Kp = 0.0, .Ki = 200.0, .w0 = w0, .wc = 5.0, .Tt = Ts / 4.0}, Ts)};
+        PRController<double> pr{design::pr({.Kp = 0.0, .Ki = 200.0, .w0 = w0, .wc = 5.0, .tracking_time = Ts / 4.0}, Ts)};
         double               peak = 0.0;
         for (int k = 0; k < 4000; ++k) {
             const double u = pr.control(std::sin(w0 * Ts * k));
@@ -361,7 +361,7 @@ TEST_SUITE("PR Controller") {
 
         const double nan = std::numeric_limits<double>::quiet_NaN();
         CHECK(design::pr({.Kp = 1.0, .Ki = 100.0, .w0 = 314.0, .wc = 10.0}, nan).status == design::DesignStatus::invalid_sample_time);
-        CHECK(design::pr({.Kp = 1.0, .Ki = 100.0, .w0 = 314.0, .wc = 10.0, .Tt = -1.0}, Ts).status == design::DesignStatus::invalid_parameter);
+        CHECK(design::pr({.Kp = 1.0, .Ki = 100.0, .w0 = 314.0, .wc = 10.0, .tracking_time = -1.0}, Ts).status == design::DesignStatus::invalid_parameter);
     }
 
     TEST_CASE("PRResult to_tf / to_ss match the PR law at DC and resonance") {

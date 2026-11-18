@@ -108,11 +108,11 @@ template<typename T>
  */
 template<typename T = double>
 struct PRSpec {
-    T Kp{}; ///< Proportional gain (finite)
-    T Ki{}; ///< Resonant (integral) gain (finite)
-    T w0{}; ///< Resonant frequency [rad/s], e.g. 2π·50 for a 50 Hz grid (> 0)
-    T wc{}; ///< Resonant-term bandwidth [rad/s] (≥ 0); 0 = ideal PR, 5–15 rad/s typical non-ideal
-    T Tt{}; ///< Back-calculation tracking time [s] (≥ 0): ΔR = (Ts/Tt)(u_sat − (u + u_ff)); 0: the resonant section holds against a clamp
+    T Kp{};            ///< Proportional gain (finite)
+    T Ki{};            ///< Resonant (integral) gain (finite)
+    T w0{};            ///< Resonant frequency [rad/s], e.g. 2π·50 for a 50 Hz grid (> 0)
+    T wc{};            ///< Resonant-term bandwidth [rad/s] (≥ 0); 0 = ideal PR, 5–15 rad/s typical non-ideal
+    T tracking_time{}; ///< Back-calculation tracking time T_t [s] (≥ 0): ΔR = min(Ts/T_t, 1)(u_sat − (u + u_ff)); 0: the resonant section holds against a clamp
 };
 
 /**
@@ -126,7 +126,7 @@ struct [[nodiscard]] PRResult {
     T            w0{};                                ///< Resonant frequency (rad/s)
     T            wc{};                                ///< Cutoff bandwidth of resonant term (rad/s); 0 = ideal PR
     T            Ts{};                                ///< Sampling time (seconds); 0 = continuous-time design
-    T            Tt{};                                ///< Back-calculation tracking time [s]; 0: the resonant section holds against a clamp
+    T            tracking_time{};                     ///< Back-calculation tracking time T_t [s]; 0: the resonant section holds against a clamp
     bool         success{false};                      ///< status == DesignStatus::ok
     DesignStatus status{DesignStatus::not_converged}; ///< ok, or why the design failed
     Bounds<1, T> u_lim{};                             ///< Limits on the command (default unbounded): set here, or on the runtime
@@ -138,7 +138,7 @@ struct [[nodiscard]] PRResult {
     [[nodiscard]] constexpr auto as() const {
         return PRResult<U>{
             static_cast<U>(Kp), static_cast<U>(Ki), static_cast<U>(w0), static_cast<U>(wc),
-            static_cast<U>(Ts), static_cast<U>(Tt), success, status, u_lim.template as<U>()
+            static_cast<U>(Ts), static_cast<U>(tracking_time), success, status, u_lim.template as<U>()
         };
     }
 
@@ -209,7 +209,7 @@ struct [[nodiscard]] PRResult {
  * `design::pr({.Kp = 1.0, .Ki = 200.0, .w0 = w, .wc = 10.0}, 1e-4)`.
  *
  * @param spec Kp and Ki finite, w0 > 0 (below Nyquist π/Ts when Ts > 0), wc ≥ 0 (0 = ideal PR),
- *             Tt ≥ 0 (0 = no back-calculation)
+ *             tracking_time ≥ 0 (0 = no back-calculation)
  * @param Ts   Sampling time [s]; 0 = continuous-time design (analysis only: the runtime refuses it). Must be ≥ 0.
  * @return PRResult with design parameters; refused with invalid_sample_time for a negative or
  *         non-finite Ts, and with invalid_parameter for any other input outside its domain
@@ -220,7 +220,7 @@ template<typename T = double>
         return ::damp::detail::refused<PRResult<T>>(DesignStatus::invalid_sample_time);
     }
     const bool ok = damp::isfinite(spec.Kp) && damp::isfinite(spec.Ki) && damp::finite_positive(spec.w0)
-                 && damp::finite_non_negative(spec.wc) && damp::finite_non_negative(spec.Tt);
+                 && damp::finite_non_negative(spec.wc) && damp::finite_non_negative(spec.tracking_time);
     // At or above Nyquist the bilinear map folds the resonance onto another frequency.
     if (!ok || ((Ts > T{0}) && !(spec.w0 * Ts < damp::numbers::pi_v<T>))) {
         return ::damp::detail::refused<PRResult<T>>(DesignStatus::invalid_parameter);
@@ -231,7 +231,7 @@ template<typename T = double>
         .w0 = spec.w0,
         .wc = spec.wc,
         .Ts = Ts,
-        .Tt = spec.Tt,
+        .tracking_time = spec.tracking_time,
         .success = true,
         .status = DesignStatus::ok,
     };
@@ -246,7 +246,7 @@ template<typename T = double>
  * same spec.
  *
  * @param fundamental The fundamental's resonator: Kp (carried on the first entry only), Ki and w0
- *                    of the fundamental, wc and Tt shared by every harmonic
+ *                    of the fundamental, wc and tracking_time shared by every harmonic
  * @param Ts          Sampling time [s]
  * @param harmonics   Array of harmonic numbers (e.g. {1, 3, 5, 7}); harmonic h gets Ki/h at h·w0
  * @return Array of PRResult, one per harmonic
@@ -264,7 +264,7 @@ pr_harmonics(const PRSpec<T>& fundamental, T Ts, const damp::array<size_t, N>& h
                 .Ki = fundamental.Ki / order,
                 .w0 = fundamental.w0 * order,
                 .wc = fundamental.wc,
-                .Tt = fundamental.Tt,
+                .tracking_time = fundamental.tracking_time,
             },
             Ts
         );
@@ -420,8 +420,8 @@ private:
  *
  * The command is clamped into u_lim. Against that clamp, and one reported with back_calculate, the
  * resonant section gives back what the tick added to its output, as far as the clamp cut the
- * command off (conditional integration, Tt = 0), or unwinds by back-calculation with the tracking
- * time Tt.
+ * command off (conditional integration, tracking_time = 0), or unwinds by back-calculation with the tracking
+ * time T_t, tracking_time.
  *
  * @code
  * // 50 Hz grid current regulator at 10 kHz
@@ -439,10 +439,10 @@ struct PRController {
     T            w0{};
     T            wc{};
     T            Ts{};
-    T            Tt{T{0}};      ///< Back-calculation tracking time [s]: ΔR = (Ts/Tt)(u_sat − (u + u_ff)); 0: the resonant section holds
-    Bounds<1, T> u_lim{};       ///< Limits on the command (the result's; default unbounded)
-    T            u_cmd{T{0}};   ///< Last command control() returned: the u in back_calculate's u_sat − (u + u_ff)
-    bool         valid_{false}; ///< From the design's success flag; gates control()
+    T            tracking_time{T{0}}; ///< Back-calculation tracking time T_t [s]: ΔR = min(Ts/T_t, 1)(u_sat − (u + u_ff)); 0: the resonant section holds
+    Bounds<1, T> u_lim{};             ///< Limits on the command (the result's; default unbounded)
+    T            u_cmd{T{0}};         ///< Last command control() returned: the u in back_calculate's u_sat − (u + u_ff)
+    bool         valid_{false};       ///< From the design's success flag; gates control()
 
     //! Discretized resonant term (inert until designed).
     PRResonator<T> resonant{};
@@ -461,7 +461,7 @@ struct PRController {
           w0(result.w0),
           wc(result.wc),
           Ts(result.Ts),
-          Tt(result.Tt),
+          tracking_time(result.tracking_time),
           u_lim(result.u_lim),
           valid_(result.success && result.Ts > T{0} && result.u_lim.valid()) {
         if (result.success && !result.u_lim.valid() && damp::is_constant_evaluated()) {
@@ -482,7 +482,7 @@ struct PRController {
           w0(static_cast<T>(other.w0)),
           wc(static_cast<T>(other.wc)),
           Ts(static_cast<T>(other.Ts)),
-          Tt(static_cast<T>(other.Tt)),
+          tracking_time(static_cast<T>(other.tracking_time)),
           u_lim(other.u_lim.template as<T>()),
           u_cmd(static_cast<T>(other.u_cmd)),
           valid_(other.valid_),
@@ -524,15 +524,15 @@ struct PRController {
     [[nodiscard]] constexpr bool valid() const { return valid_; }
 
     /**
-     * @brief Anti-windup after a downstream clamp: the resonant section holds (Tt = 0), or
-     *        ΔR = min(Ts/Tt, 1)·(u_sat − (u + u_ff))
+     * @brief Anti-windup after a downstream clamp: the resonant section holds (tracking_time = 0), or
+     *        ΔR = min(Ts/T_t, 1)·(u_sat − (u + u_ff))
      *
-     * With Tt = 0 the resonant output gives back what the last tick added to it, as far as the
-     * clamp cut the command off, and no further, as against u_lim. With Tt > 0, a damped unwind:
+     * With tracking_time = 0 the resonant output gives back what the last tick added to it, as far as the
+     * clamp cut the command off, and no further, as against u_lim. With tracking_time > 0, a damped unwind:
      * the excess of the applied command over this law's last command u (plus any feedforward
-     * @p u_ff added downstream), times Ts / Tt, is added to the most recent resonant output, so
+     * @p u_ff added downstream), times Ts / T_t, is added to the most recent resonant output, so
      * the next tick's resonant contribution is pulled back toward the realizable command. No Ki
-     * factor: the resonant output is already in command units, so Tt is a tracking time [s] (the
+     * factor: the resonant output is already in command units, so T_t is a time [s] (the
      * PID laws' Kbc is a gain ratio instead). It takes at most the whole excess per tick: past
      * that it would overshoot, and past twice it diverges.
      *
@@ -547,14 +547,14 @@ struct PRController {
 
     /**
      * @brief Take a clamp's @p excess (u_sat − u_asked) back from the resonant section: hold
-     *        (Tt = 0) or a share min(Ts/Tt, 1) of it
+     *        (tracking_time = 0) or a share min(Ts/T_t, 1) of it
      * @return How far the resonant output moved
      */
     [[nodiscard]] constexpr T wind_back(T excess) {
-        if (Tt == T{0}) {
+        if (tracking_time == T{0}) {
             return resonant.hold_against_clamp(excess);
         }
-        const T shift = damp::min(Ts / Tt, T{1}) * excess;
+        const T shift = damp::min(Ts / tracking_time, T{1}) * excess;
         resonant.shift_last_output(shift);
         return shift;
     }

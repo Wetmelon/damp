@@ -15,6 +15,7 @@
 
 #include "damp/estimation/ins_eskf.hpp"
 #include "damp/estimation/ins_mechanization.hpp"
+#include "damp/math/math.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "fmt/core.h"
 #include "ins_navigator_estimator.hpp"
@@ -34,6 +35,7 @@ int main() {
 
     InsNavigator<double> nav{kInsDesign.as<double>(), kFrame};
     const Vec3<double>   baseline{1.0, 0.0, 0.0};
+    const double         heading0 = nav.heading(baseline);
 
     constexpr int n = 200;
     for (int i = 0; i < n; ++i) {
@@ -51,5 +53,11 @@ int main() {
     fmt::print("  p = ({:.4f}, {:.4f}, {:.4f}) m\n", s.p[0], s.p[1], s.p[2]);
     fmt::print("  v = ({:.4f}, {:.4f}, {:.4f}) m/s\n", s.v[0], s.v[1], s.v[2]);
     fmt::print("  heading = {:.4f} rad\n", nav.heading(baseline));
-    return 0;
+
+    // At rest with its fixes held, the navigator stays put: no drift in p, v or heading.
+    const bool ok = (s.p.norm() < 1e-3) && (s.v.norm() < 1e-3) && (damp::abs(nav.heading(baseline) - heading0) < 1e-3);
+    if (!ok) {
+        fmt::print("FAIL: the navigator drifted at rest\n");
+    }
+    return ok ? 0 : 1;
 }

@@ -7,6 +7,17 @@ and this project uses [Semantic Versioning](https://semver.org/) for tags.
 0.x releases may break API without a deprecation cycle (see [AGENTS.md](AGENTS.md)
 and [known limitations](docs/known_limitations.md)).
 
+## [Unreleased]
+
+### Changed
+
+- `PRSpec::Tt`, `PRResult::Tt` and `PRController::Tt` are `tracking_time`, the name the LQI and LQGI runtimes give the same back-calculation tracking time.
+- Every example SIL checks what it prints and returns nonzero when a result leaves its band, so `make` fails on a change in behavior, not only on a crash. Before, 2 of 18 did.
+
+### Fixed
+
+- The FOC SIL reported a 98% rise time one tick short (0 ms for the PI), and the LPF SIL called its first-order filter second-order Butterworth. The workflow SIL ran 2 s, before its 1 Hz PR mode settled; it runs 20 s and ends at r.
+
 ## [0.3.1] — 2026-11-17
 
 The LQ integrators hold against a clamp by default again, as a PID's integral does.

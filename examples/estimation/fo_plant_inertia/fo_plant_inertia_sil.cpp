@@ -15,6 +15,7 @@
 #include <cstddef>
 
 #include "damp/estimation/parameter_estimation.hpp"
+#include "damp/math/math.hpp"
 #include "fmt/core.h"
 #include "fo_plant_inertia_estimator.hpp"
 
@@ -54,5 +55,9 @@ int main() {
         mech.b,
         b_true
     );
-    return 0;
+    const bool ok = (damp::abs(mech.J - J_true) < 0.01 * J_true) && (damp::abs(mech.b - b_true) < 0.01 * b_true);
+    if (!ok) {
+        fmt::print("FAIL: J or b more than 1% from the plant's\n");
+    }
+    return ok ? 0 : 1;
 }

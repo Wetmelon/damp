@@ -12,6 +12,7 @@
  */
 
 #include "damp/controllers/pid.hpp"
+#include "damp/math/math.hpp"
 #include "fmt/base.h"
 #include "fmt/core.h"
 #include "pid_controller.hpp"
@@ -28,12 +29,19 @@ int main() {
 
     controller.reset();
     const float r = 1.0f;
+    bool        ok = true;
     for (int i = 0; i < 10; ++i) {
         const float y = 0.0f; // mock process at rest
         const float u = control_period(controller, r, y);
         if (i == 0 || i == 9) {
             fmt::print("tick {}: u={:.4f}\n", i, u);
         }
+        // e = 1 held: Kp·e plus the integral, Ki·Ts·e more each tick from the first
+        const float expect = 4.0f + (8.0f * Ts * static_cast<float>(i + 1));
+        if (damp::abs(u - expect) > 1e-4f) {
+            fmt::print("FAIL: tick {} sent {:.6f}, not Kp·e + (k + 1)·Ki·Ts·e = {:.6f}\n", i, u, expect);
+            ok = false;
+        }
     }
-    return 0;
+    return ok ? 0 : 1;
 }

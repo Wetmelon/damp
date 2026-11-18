@@ -85,15 +85,16 @@ int main() {
 
     const double xf = damp::abs(sim.x.back()(0));
     const double thf = damp::abs(sim.x.back()(2));
-    if (xf > 0.05 || thf > 0.05) {
-        fmt::print("WARNING: final state not near origin (xf={:.4f}, |θ|={:.4f})\n", xf, thf);
-    } else {
+    const bool   ok = (xf < 0.05) && (thf < 0.05);
+    if (ok) {
         fmt::print("Regulated to origin band (|x|,|θ| < 0.05)\n");
+    } else {
+        fmt::print("FAIL: final state not near origin (xf={:.4f}, |θ|={:.4f})\n", xf, thf);
     }
 
     auto fig = plot::plot_simulation(sim, "Cart-pole LQR (nonlinear SIL)");
     plot::write_html(fig, "plots/control/cart_pole_lqr.html");
     fmt::print("\nPlot written to plots/control/cart_pole_lqr.html\n");
 
-    return 0;
+    return ok ? 0 : 1;
 }
