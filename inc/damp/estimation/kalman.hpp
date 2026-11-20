@@ -73,7 +73,11 @@ namespace design {
  * fast the disturbance may move, in the plant's time domain like @c process (a density on a
  * continuous plant, a covariance per step on a discrete one). Without one it has no entries.
  *
- * @tparam NW Process-noise inputs (columns of G); NV Measurement-noise inputs (columns of H).
+ * @tparam NW Process-noise inputs (columns of G); NV Measurement-noise inputs (columns of H). A plant
+ *            that declares none (`StateSpace<NX, NU, NY>`, NW = NV = 0) has noise on every state and
+ *            reading: the design reads it with G = I and H = I, so the noise is NX × NX and NY × NY.
+ *            A model discretized with an InputDelay counts its registers among its states, so they
+ *            take noise too: the continuous plant and the InputDelay keep them exact.
  * @tparam ND Disturbance states (0: no disturbance model).
  */
 template<size_t NW, size_t NV, typename T = double, size_t ND = 0>
@@ -109,6 +113,38 @@ KalmanNoise(Matrix<NW, NW, T>, Matrix<NV, NV, T>) -> KalmanNoise<NW, NV, T>;
 /** @brief Sizes from the matrices: `KalmanNoise{Qn, Rn, Qd}`, with the disturbance's random walk. */
 template<size_t NW, size_t NV, typename T, size_t ND>
 KalmanNoise(Matrix<NW, NW, T>, Matrix<NV, NV, T>, Matrix<ND, ND, T>) -> KalmanNoise<NW, NV, T, ND>;
+
+namespace detail {
+
+/** @brief The noise inputs a Kalman design reads: @p N (one per state, or per reading) when the plant declares none (@p NW = 0). */
+template<size_t N, size_t NW>
+inline constexpr size_t noise_inputs = (NW == 0) ? N : NW;
+
+/** @brief KalmanNoise sized to the plant: NX × NX process and NY × NY measurement noise when it declares no noise inputs. */
+template<size_t NX, size_t NY, typename T, size_t NW, size_t NV, size_t ND = 0>
+using plant_noise = KalmanNoise<noise_inputs<NX, NW>, noise_inputs<NY, NV>, T, ND>;
+
+/**
+ * @brief The plant as a Kalman design reads it: with no process-noise inputs (NW = 0), noise on
+ *        every state (G = I); with no measurement-noise inputs (NV = 0), on every reading (H = I).
+ */
+template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
+[[nodiscard]] constexpr decltype(auto) noise_model(const StateSpace<NX, NU, NY, T, NW, NV>& sys) {
+    if constexpr (NW > 0 && NV > 0) {
+        return (sys); // the plant itself
+    } else {
+        StateSpace<NX, NU, NY, T, noise_inputs<NX, NW>, noise_inputs<NY, NV>> out{.A = sys.A, .B = sys.B, .C = sys.C, .D = sys.D, .Ts = sys.Ts};
+        if constexpr (NW > 0) {
+            out.G = sys.G;
+        }
+        if constexpr (NV > 0) {
+            out.H = sys.H;
+        }
+        return out;
+    }
+}
+
+} // namespace detail
 
 /**
  * @struct KalmanResult
@@ -535,10 +571,10 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
  */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
 [[nodiscard]] constexpr auto kalman(
-    const StateSpace<NX, NU, NY, T, NW, NV>& sys,
-    const KalmanNoise<NW, NV, T>&            noise
+    const StateSpace<NX, NU, NY, T, NW, NV>&      sys,
+    const detail::plant_noise<NX, NY, T, NW, NV>& noise
 ) {
-    return detail::kalman_design<true>(sys, T{0}, noise, NoDisturbance{});
+    return detail::kalman_design<true>(detail::noise_model(sys), T{0}, noise, NoDisturbance{});
 }
 
 /**
@@ -569,14 +605,14 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
  *                     DisturbanceModel
  * @return KalmanResult on [x; d]: steady-state gains L and M, error covariance P and status
  */
-template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Disturbance, size_t ND = detail::disturbance_traits<Disturbance, NU, NY, NW>::states>
+template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Disturbance, size_t ND = detail::disturbance_traits<Disturbance, NU, NY, detail::noise_inputs<NX, NW>>::states>
     requires(detail::is_disturbance<Disturbance>::value && !damp::is_same_v<Disturbance, NoDisturbance>)
 [[nodiscard]] constexpr auto kalman(
-    const StateSpace<NX, NU, NY, T, NW, NV>&                 sys,
-    const damp::type_identity_t<KalmanNoise<NW, NV, T, ND>>& noise,
-    const Disturbance&                                       disturbance
+    const StateSpace<NX, NU, NY, T, NW, NV>&                                 sys,
+    const damp::type_identity_t<detail::plant_noise<NX, NY, T, NW, NV, ND>>& noise,
+    const Disturbance&                                                       disturbance
 ) {
-    return detail::kalman_with_disturbance<true>(sys, T{0}, noise, disturbance);
+    return detail::kalman_with_disturbance<true>(detail::noise_model(sys), T{0}, noise, disturbance);
 }
 
 /**
@@ -615,11 +651,11 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
  */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
 [[nodiscard]] constexpr auto kalman(
-    const StateSpace<NX, NU, NY, T, NW, NV>& sys,
-    damp::type_identity_t<T>                 Ts,
-    const KalmanNoise<NW, NV, T>&            noise
+    const StateSpace<NX, NU, NY, T, NW, NV>&      sys,
+    damp::type_identity_t<T>                      Ts,
+    const detail::plant_noise<NX, NY, T, NW, NV>& noise
 ) {
-    return detail::kalman_design<false>(sys, Ts, noise, NoDisturbance{});
+    return detail::kalman_design<false>(detail::noise_model(sys), Ts, noise, NoDisturbance{});
 }
 
 /**
@@ -643,15 +679,15 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
  *                     DisturbanceModel
  * @return KalmanResult on the discretized augment [x; d] (G = I), with L, M, P and status
  */
-template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Disturbance, size_t ND = detail::disturbance_traits<Disturbance, NU, NY, NW>::states>
+template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Disturbance, size_t ND = detail::disturbance_traits<Disturbance, NU, NY, detail::noise_inputs<NX, NW>>::states>
     requires(detail::is_disturbance<Disturbance>::value && !damp::is_same_v<Disturbance, NoDisturbance>)
 [[nodiscard]] constexpr auto kalman(
-    const StateSpace<NX, NU, NY, T, NW, NV>&                 sys,
-    damp::type_identity_t<T>                                 Ts,
-    const damp::type_identity_t<KalmanNoise<NW, NV, T, ND>>& noise,
-    const Disturbance&                                       disturbance
+    const StateSpace<NX, NU, NY, T, NW, NV>&                                 sys,
+    damp::type_identity_t<T>                                                 Ts,
+    const damp::type_identity_t<detail::plant_noise<NX, NY, T, NW, NV, ND>>& noise,
+    const Disturbance&                                                       disturbance
 ) {
-    return detail::kalman_with_disturbance<false>(sys, Ts, noise, disturbance);
+    return detail::kalman_with_disturbance<false>(detail::noise_model(sys), Ts, noise, disturbance);
 }
 
 /**
@@ -679,12 +715,12 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
  */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t N, typename S>
 [[nodiscard]] constexpr auto kalman(
-    const StateSpace<NX, NU, NY, T, NW, NV>& sys,
-    damp::type_identity_t<T>                 Ts,
-    const InputDelay<N, S>&                  delay,
-    const KalmanNoise<NW, NV, T>&            noise
+    const StateSpace<NX, NU, NY, T, NW, NV>&      sys,
+    damp::type_identity_t<T>                      Ts,
+    const InputDelay<N, S>&                       delay,
+    const detail::plant_noise<NX, NY, T, NW, NV>& noise
 ) {
-    return detail::kalman_design<false>(sys, Ts, noise, NoDisturbance{}, delay);
+    return detail::kalman_design<false>(detail::noise_model(sys), Ts, noise, NoDisturbance{}, delay);
 }
 
 /**
@@ -706,16 +742,16 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size
  */
 template<
     size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t N, typename S, typename Disturbance,
-    size_t ND = detail::disturbance_traits<Disturbance, NU, NY, NW>::states>
+    size_t ND = detail::disturbance_traits<Disturbance, NU, NY, detail::noise_inputs<NX, NW>>::states>
     requires(detail::is_disturbance<Disturbance>::value && !damp::is_same_v<Disturbance, NoDisturbance>)
 [[nodiscard]] constexpr auto kalman(
-    const StateSpace<NX, NU, NY, T, NW, NV>&                 sys,
-    damp::type_identity_t<T>                                 Ts,
-    const InputDelay<N, S>&                                  delay,
-    const damp::type_identity_t<KalmanNoise<NW, NV, T, ND>>& noise,
-    const Disturbance&                                       disturbance
+    const StateSpace<NX, NU, NY, T, NW, NV>&                                 sys,
+    damp::type_identity_t<T>                                                 Ts,
+    const InputDelay<N, S>&                                                  delay,
+    const damp::type_identity_t<detail::plant_noise<NX, NY, T, NW, NV, ND>>& noise,
+    const Disturbance&                                                       disturbance
 ) {
-    return detail::kalman_with_disturbance<false>(sys, Ts, noise, disturbance, delay);
+    return detail::kalman_with_disturbance<false>(detail::noise_model(sys), Ts, noise, disturbance, delay);
 }
 
 } // namespace design

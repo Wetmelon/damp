@@ -40,47 +40,47 @@ using LQGIResult = StateFeedbackResult<NX, NU, T, NI, NY, KalmanResult<NX, NU, N
  */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
 [[nodiscard]] constexpr auto lqgi(
-    const StateSpace<NX, NU, NY, T, NW, NV>& sys,
-    const LQIConfig<NX, NU, NY, T>&          config,
-    const KalmanNoise<NW, NV, T>&            noise
+    const StateSpace<NX, NU, NY, T, NW, NV>&      sys,
+    const LQIConfig<NX, NU, NY, T>&               config,
+    const detail::plant_noise<NX, NY, T, NW, NV>& noise
 ) {
-    return detail::state_feedback(sys, config, detail::StateFeedbackOptions{.noise = noise, .offset_free = IntegralAction{}});
+    return detail::state_feedback(detail::noise_model(sys), config, detail::StateFeedbackOptions{.noise = noise, .offset_free = IntegralAction{}});
 }
 
 /** @brief The sampled-data linear-quadratic Gaussian law with integral action on every output: runs as LQGI. */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
 [[nodiscard]] constexpr auto lqgi(
-    const StateSpace<NX, NU, NY, T, NW, NV>& sys,
-    damp::type_identity_t<T>                 Ts,
-    const LQIConfig<NX, NU, NY, T>&          config,
-    const KalmanNoise<NW, NV, T>&            noise
+    const StateSpace<NX, NU, NY, T, NW, NV>&      sys,
+    damp::type_identity_t<T>                      Ts,
+    const LQIConfig<NX, NU, NY, T>&               config,
+    const detail::plant_noise<NX, NY, T, NW, NV>& noise
 ) {
-    return detail::state_feedback(sys, Ts, config, detail::StateFeedbackOptions{.noise = noise, .offset_free = IntegralAction{}});
+    return detail::state_feedback(detail::noise_model(sys), Ts, config, detail::StateFeedbackOptions{.noise = noise, .offset_free = IntegralAction{}});
 }
 
 /** @brief The linear-quadratic Gaussian law with integral action on the listed outputs: runs as LQGI. */
 template<size_t NI, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
     requires(NI > 0)
 [[nodiscard]] constexpr auto lqgi(
-    const StateSpace<NX, NU, NY, T, NW, NV>& sys,
-    const LQIConfig<NX, NU, NI, T>&          config,
-    const KalmanNoise<NW, NV, T>&            noise,
-    const IntegralAction<NI>&                outputs
+    const StateSpace<NX, NU, NY, T, NW, NV>&      sys,
+    const LQIConfig<NX, NU, NI, T>&               config,
+    const detail::plant_noise<NX, NY, T, NW, NV>& noise,
+    const IntegralAction<NI>&                     outputs
 ) {
-    return detail::state_feedback(sys, config, detail::StateFeedbackOptions{.noise = noise, .offset_free = outputs});
+    return detail::state_feedback(detail::noise_model(sys), config, detail::StateFeedbackOptions{.noise = noise, .offset_free = outputs});
 }
 
 /** @brief The sampled-data linear-quadratic Gaussian law with integral action on the listed outputs: runs as LQGI. */
 template<size_t NI, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
     requires(NI > 0)
 [[nodiscard]] constexpr auto lqgi(
-    const StateSpace<NX, NU, NY, T, NW, NV>& sys,
-    damp::type_identity_t<T>                 Ts,
-    const LQIConfig<NX, NU, NI, T>&          config,
-    const KalmanNoise<NW, NV, T>&            noise,
-    const IntegralAction<NI>&                outputs
+    const StateSpace<NX, NU, NY, T, NW, NV>&      sys,
+    damp::type_identity_t<T>                      Ts,
+    const LQIConfig<NX, NU, NI, T>&               config,
+    const detail::plant_noise<NX, NY, T, NW, NV>& noise,
+    const IntegralAction<NI>&                     outputs
 ) {
-    return detail::state_feedback(sys, Ts, config, detail::StateFeedbackOptions{.noise = noise, .offset_free = outputs});
+    return detail::state_feedback(detail::noise_model(sys), Ts, config, detail::StateFeedbackOptions{.noise = noise, .offset_free = outputs});
 }
 
 /**
@@ -93,27 +93,27 @@ template<size_t NI, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size
  */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t N, typename S>
 [[nodiscard]] constexpr auto lqgi(
-    const StateSpace<NX, NU, NY, T, NW, NV>& sys,
-    damp::type_identity_t<T>                 Ts,
-    const InputDelay<N, S>&                  delay,
-    const LQIConfig<NX, NU, NY, T>&          config,
-    const KalmanNoise<NW, NV, T>&            noise
+    const StateSpace<NX, NU, NY, T, NW, NV>&      sys,
+    damp::type_identity_t<T>                      Ts,
+    const InputDelay<N, S>&                       delay,
+    const LQIConfig<NX, NU, NY, T>&               config,
+    const detail::plant_noise<NX, NY, T, NW, NV>& noise
 ) {
-    return detail::state_feedback(sys, Ts, delay, config, detail::StateFeedbackOptions{.noise = noise, .offset_free = IntegralAction{}});
+    return detail::state_feedback(detail::noise_model(sys), Ts, delay, config, detail::StateFeedbackOptions{.noise = noise, .offset_free = IntegralAction{}});
 }
 
 /** @brief The sampled-data linear-quadratic Gaussian law with integral action on the listed outputs, of a plant whose input arrives @p delay late: runs as LQGI. */
 template<size_t NI, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t N, typename S>
     requires(NI > 0)
 [[nodiscard]] constexpr auto lqgi(
-    const StateSpace<NX, NU, NY, T, NW, NV>& sys,
-    damp::type_identity_t<T>                 Ts,
-    const InputDelay<N, S>&                  delay,
-    const LQIConfig<NX, NU, NI, T>&          config,
-    const KalmanNoise<NW, NV, T>&            noise,
-    const IntegralAction<NI>&                outputs
+    const StateSpace<NX, NU, NY, T, NW, NV>&      sys,
+    damp::type_identity_t<T>                      Ts,
+    const InputDelay<N, S>&                       delay,
+    const LQIConfig<NX, NU, NI, T>&               config,
+    const detail::plant_noise<NX, NY, T, NW, NV>& noise,
+    const IntegralAction<NI>&                     outputs
 ) {
-    return detail::state_feedback(sys, Ts, delay, config, detail::StateFeedbackOptions{.noise = noise, .offset_free = outputs});
+    return detail::state_feedback(detail::noise_model(sys), Ts, delay, config, detail::StateFeedbackOptions{.noise = noise, .offset_free = outputs});
 }
 
 } // namespace design

@@ -875,3 +875,20 @@ TEST_CASE("back_calculate: a clamp is the applied input, the next move starts fr
     }
     CHECK(damp::abs(last) == doctest::Approx(0.3));
 }
+
+TEST_CASE("ofmpc reads a plant with no noise inputs as noise on every state and reading") {
+    constexpr StateSpace bare{.A = double_integrator.A, .B = double_integrator.B, .C = double_integrator.C, .Ts = Ts};
+    static_assert(std::is_same_v<decltype(bare), const StateSpace<2, 1, 1>>);
+    const auto w = move_weight(0.1);
+
+    const auto by_bare = design::ofmpc<10, 3>(bare, w, {}, kUnitNoise, design::InputDisturbance{});
+    const auto by_full = offset_free<10, 3>(w);
+    REQUIRE(by_bare.success);
+    CHECK((by_bare.kalman.M - by_full.kalman.M).norm() <= 1e-12 * by_full.kalman.M.norm());
+    CHECK((by_bare.mpc.H - by_full.mpc.H).norm() <= 1e-12 * by_full.mpc.H.norm());
+
+    //! From the continuous plant, the noise braced at the call.
+    constexpr StateSpace plant{.A = {{0.0, 1.0}, {0.0, 0.0}}, .B = {{0.0}, {1.0}}, .C = {{1.0, 0.0}}};
+    const auto           sampled = design::ofmpc<10, 3>(plant, Ts, w, {}, {.process = diag(1.0, 1.0), .measurement = 1.0, .disturbance = 1.0}, design::InputDisturbance{});
+    CHECK(sampled.success);
+}
