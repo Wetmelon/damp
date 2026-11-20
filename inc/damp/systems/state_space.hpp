@@ -129,8 +129,10 @@ template<size_t R, size_t K, size_t C, typename T>
  * @tparam NU Number of control inputs (cols of B and D)
  * @tparam NY Number of outputs (rows of C and D)
  * @tparam T  Scalar type (default double); requires floating-point
- * @tparam NW Number of process noise inputs (cols of G); default 0
- * @tparam NV Number of measurement noise inputs (cols of H); default 0
+ * @tparam NW Number of process noise inputs (cols of G); default 0: none declared, which a Kalman
+ *            design reads as noise on every state (G = I)
+ * @tparam NV Number of measurement noise inputs (cols of H); default 0: none declared, which a
+ *            Kalman design reads as noise on every reading (H = I)
  */
 template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, size_t NV = 0>
     requires damp::is_floating_point_v<T>

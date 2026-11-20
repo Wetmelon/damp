@@ -877,3 +877,39 @@ TEST_CASE("kalman(sys, Ts, noise) dispatch: one discretization, at a valid Ts") 
     bad.A = Matrix<2, 2>{{1000.0, 1.0}, {0.0, 1000.0}};
     CHECK(design::kalman(bad, 10.0, {.process = Qc, .measurement = Rc}).status == design::DesignStatus::not_converged);
 }
+
+TEST_CASE("A plant with no noise inputs takes noise on every state and reading: G = I, H = I") {
+    //! The plant as most are written, with no G or H, and the same plant with G = I and H = I.
+    constexpr StateSpace                           bare{.A = {{0.0, 1.0}, {-2.0, -0.5}}, .B = {{0.0}, {1.0}}, .C = {{1.0, 0.0}}};
+    constexpr StateSpace<2, 1, 1, double, 2, 1>    full{.A = bare.A, .B = bare.B, .C = bare.C}; // G and H default to I when square
+    constexpr design::KalmanNoise<2, 1>            noise{.process = diag(0.1, 0.3), .measurement = 0.2};
+    constexpr design::KalmanNoise<2, 1, double, 1> noise_d{.process = diag(0.1, 0.3), .measurement = 0.2, .disturbance = 0.05};
+    constexpr double                               Ts = 0.1;
+    constexpr InputDelay<2>                        late{0.15};
+    constexpr auto                                 bare_d = discretize(bare, Ts).value();
+    constexpr StateSpace<2, 1, 1, double, 2, 1>    full_d{.A = bare_d.A, .B = bare_d.B, .C = bare_d.C, .Ts = Ts}; // discretize would map G too
+    static_assert(full.G == Matrix<2, 2>::identity() && full.H == Matrix<1, 1>::identity());
+
+    //! The noise sized to the states and readings goes in as on the full plant, braced at the call too.
+    constexpr auto sampled = design::kalman(bare, Ts, {.process = diag(0.1, 0.3), .measurement = 0.2});
+    static_assert(sampled.success);
+    static_assert(sampled.M == design::kalman(full, Ts, noise).M && sampled.P == design::kalman(full, Ts, noise).P);
+    static_assert(design::kalman(bare_d, noise).M == design::kalman(full_d, noise).M);
+    static_assert(design::kalman(bare_d, noise_d, design::InputDisturbance{}).M == design::kalman(full_d, noise_d, design::InputDisturbance{}).M);
+    static_assert(design::kalman(bare, Ts, noise_d, design::InputDisturbance{}).M == design::kalman(full, Ts, noise_d, design::InputDisturbance{}).M);
+    static_assert(design::kalman(bare, Ts, late, noise).M == design::kalman(full, Ts, late, noise).M);
+    static_assert(design::kalman(bare, Ts, late, noise_d, design::InputDisturbance{}).M == design::kalman(full, Ts, late, noise_d, design::InputDisturbance{}).M);
+
+    //! A non-finite entry in the plant is refused on this path too.
+    auto bad = bare_d;
+    bad.B(1, 0) = std::numeric_limits<double>::quiet_NaN();
+    CHECK(design::kalman(bad, noise).status == design::DesignStatus::bad_weights);
+    bad = bare_d;
+    bad.D(0, 0) = std::numeric_limits<double>::quiet_NaN();
+    CHECK(design::kalman(bad, noise).status == design::DesignStatus::bad_weights);
+
+    //! A plant that declares its noise inputs keeps them: one process input, as written.
+    constexpr auto one_input = design::kalman(make_continuous_oscillator(), Ts, {.process = 0.3, .measurement = 0.2});
+    static_assert(one_input.success);
+    CHECK(one_input.M != sampled.M);
+}

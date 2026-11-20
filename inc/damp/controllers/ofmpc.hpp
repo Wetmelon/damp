@@ -36,30 +36,30 @@ namespace design {
  * As design::mpc, with the measured outputs C and D and the controlled outputs the rows the
  * disturbance spec lists (all of them without a list): see "Offset-free control" there.
  */
-template<size_t NP, size_t NC, size_t NT_max = 0, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Disturbance, size_t ND = detail::disturbance_traits<Disturbance, NU, NY, NW>::states, size_t NZ = detail::mpc_outputs<NU, NY, NW, Disturbance>, size_t NXC = 0>
+template<size_t NP, size_t NC, size_t NT_max = 0, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Disturbance, size_t ND = detail::disturbance_traits<Disturbance, NU, NY, detail::noise_inputs<NX, NW>>::states, size_t NZ = detail::mpc_outputs<NU, NY, detail::noise_inputs<NX, NW>, Disturbance>, size_t NXC = 0>
     requires(detail::is_disturbance_model<Disturbance>)
 [[nodiscard]] constexpr auto ofmpc(
-    const StateSpace<NX, NU, NY, T, NW, NV>&                 sys,
-    const MPCWeights<NU, NZ, T>&                             weights,
-    const MPCConstraints<NU, NZ, T, NXC>&                    constraints,
-    const damp::type_identity_t<KalmanNoise<NW, NV, T, ND>>& noise,
-    const Disturbance&                                       disturbance
+    const StateSpace<NX, NU, NY, T, NW, NV>&                                 sys,
+    const MPCWeights<NU, NZ, T>&                                             weights,
+    const MPCConstraints<NU, NZ, T, NXC>&                                    constraints,
+    const damp::type_identity_t<detail::plant_noise<NX, NY, T, NW, NV, ND>>& noise,
+    const Disturbance&                                                       disturbance
 ) {
-    return detail::mpc_design<true, NP, NC, NT_max>(sys, T{0}, weights, constraints, noise, disturbance);
+    return detail::mpc_design<true, NP, NC, NT_max>(detail::noise_model(sys), T{0}, weights, constraints, noise, disturbance);
 }
 
 /** @brief The sampled-data offset-free MPC: the continuous plant and cost, the QP at @p Ts (the noise densities): runs as OFMPC. */
-template<size_t NP, size_t NC, size_t NT_max = 0, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Disturbance, size_t ND = detail::disturbance_traits<Disturbance, NU, NY, NW>::states, size_t NZ = detail::mpc_outputs<NU, NY, NW, Disturbance>, size_t NXC = 0>
+template<size_t NP, size_t NC, size_t NT_max = 0, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Disturbance, size_t ND = detail::disturbance_traits<Disturbance, NU, NY, detail::noise_inputs<NX, NW>>::states, size_t NZ = detail::mpc_outputs<NU, NY, detail::noise_inputs<NX, NW>, Disturbance>, size_t NXC = 0>
     requires(detail::is_disturbance_model<Disturbance>)
 [[nodiscard]] constexpr auto ofmpc(
-    const StateSpace<NX, NU, NY, T, NW, NV>&                 plant,
-    damp::type_identity_t<T>                                 Ts,
-    const MPCWeights<NU, NZ, T>&                             weights,
-    const MPCConstraints<NU, NZ, T, NXC>&                    constraints,
-    const damp::type_identity_t<KalmanNoise<NW, NV, T, ND>>& noise,
-    const Disturbance&                                       disturbance
+    const StateSpace<NX, NU, NY, T, NW, NV>&                                 plant,
+    damp::type_identity_t<T>                                                 Ts,
+    const MPCWeights<NU, NZ, T>&                                             weights,
+    const MPCConstraints<NU, NZ, T, NXC>&                                    constraints,
+    const damp::type_identity_t<detail::plant_noise<NX, NY, T, NW, NV, ND>>& noise,
+    const Disturbance&                                                       disturbance
 ) {
-    return detail::mpc_design<false, NP, NC, NT_max>(plant, Ts, weights, constraints, noise, disturbance);
+    return detail::mpc_design<false, NP, NC, NT_max>(detail::noise_model(plant), Ts, weights, constraints, noise, disturbance);
 }
 
 } // namespace design

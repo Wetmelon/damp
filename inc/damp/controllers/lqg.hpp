@@ -44,22 +44,22 @@ using LQGResult = StateFeedbackResult<NX, NU, T, 0, NY, KalmanResult<NX, NU, NY,
  */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
 [[nodiscard]] constexpr auto lqg(
-    const StateSpace<NX, NU, NY, T, NW, NV>& sys,
-    const LQRConfig<NX, NU, T>&              config,
-    const KalmanNoise<NW, NV, T>&            noise
+    const StateSpace<NX, NU, NY, T, NW, NV>&      sys,
+    const LQRConfig<NX, NU, T>&                   config,
+    const detail::plant_noise<NX, NY, T, NW, NV>& noise
 ) {
-    return detail::state_feedback(sys, config, detail::StateFeedbackOptions{.noise = noise});
+    return detail::state_feedback(detail::noise_model(sys), config, detail::StateFeedbackOptions{.noise = noise});
 }
 
 /** @brief The sampled-data linear-quadratic Gaussian law (the process noise a density, the measurement a variance per reading): runs as LQG. */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
 [[nodiscard]] constexpr auto lqg(
-    const StateSpace<NX, NU, NY, T, NW, NV>& sys,
-    damp::type_identity_t<T>                 Ts,
-    const LQRConfig<NX, NU, T>&              config,
-    const KalmanNoise<NW, NV, T>&            noise
+    const StateSpace<NX, NU, NY, T, NW, NV>&      sys,
+    damp::type_identity_t<T>                      Ts,
+    const LQRConfig<NX, NU, T>&                   config,
+    const detail::plant_noise<NX, NY, T, NW, NV>& noise
 ) {
-    return detail::state_feedback(sys, Ts, config, detail::StateFeedbackOptions{.noise = noise});
+    return detail::state_feedback(detail::noise_model(sys), Ts, config, detail::StateFeedbackOptions{.noise = noise});
 }
 
 /**
@@ -73,24 +73,24 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
  */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NZ>
 [[nodiscard]] constexpr auto lqg(
-    const StateSpace<NX, NU, NY, T, NW, NV>& sys,
-    const LQRConfig<NX, NU, T>&              config,
-    const KalmanNoise<NW, NV, T>&            noise,
-    const TrackedOutputs<NZ>&                outputs
+    const StateSpace<NX, NU, NY, T, NW, NV>&      sys,
+    const LQRConfig<NX, NU, T>&                   config,
+    const detail::plant_noise<NX, NY, T, NW, NV>& noise,
+    const TrackedOutputs<NZ>&                     outputs
 ) {
-    return detail::state_feedback(sys, config, detail::StateFeedbackOptions{.noise = noise, .track = outputs});
+    return detail::state_feedback(detail::noise_model(sys), config, detail::StateFeedbackOptions{.noise = noise, .track = outputs});
 }
 
 /** @brief The sampled-data linear-quadratic Gaussian law holding the listed outputs at r: runs as LQG, step(r, y). */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NZ>
 [[nodiscard]] constexpr auto lqg(
-    const StateSpace<NX, NU, NY, T, NW, NV>& sys,
-    damp::type_identity_t<T>                 Ts,
-    const LQRConfig<NX, NU, T>&              config,
-    const KalmanNoise<NW, NV, T>&            noise,
-    const TrackedOutputs<NZ>&                outputs
+    const StateSpace<NX, NU, NY, T, NW, NV>&      sys,
+    damp::type_identity_t<T>                      Ts,
+    const LQRConfig<NX, NU, T>&                   config,
+    const detail::plant_noise<NX, NY, T, NW, NV>& noise,
+    const TrackedOutputs<NZ>&                     outputs
 ) {
-    return detail::state_feedback(sys, Ts, config, detail::StateFeedbackOptions{.noise = noise, .track = outputs});
+    return detail::state_feedback(detail::noise_model(sys), Ts, config, detail::StateFeedbackOptions{.noise = noise, .track = outputs});
 }
 
 /**
@@ -109,26 +109,26 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size
  */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t N, typename S>
 [[nodiscard]] constexpr auto lqg(
-    const StateSpace<NX, NU, NY, T, NW, NV>& sys,
-    damp::type_identity_t<T>                 Ts,
-    const InputDelay<N, S>&                  delay,
-    const LQRConfig<NX, NU, T>&              config,
-    const KalmanNoise<NW, NV, T>&            noise
+    const StateSpace<NX, NU, NY, T, NW, NV>&      sys,
+    damp::type_identity_t<T>                      Ts,
+    const InputDelay<N, S>&                       delay,
+    const LQRConfig<NX, NU, T>&                   config,
+    const detail::plant_noise<NX, NY, T, NW, NV>& noise
 ) {
-    return detail::state_feedback(sys, Ts, delay, config, detail::StateFeedbackOptions{.noise = noise});
+    return detail::state_feedback(detail::noise_model(sys), Ts, delay, config, detail::StateFeedbackOptions{.noise = noise});
 }
 
 /** @brief The sampled-data linear-quadratic Gaussian law of a plant whose input arrives @p delay late, holding the listed outputs at r: runs as LQG, step(r, y). */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t N, typename S, size_t NZ>
 [[nodiscard]] constexpr auto lqg(
-    const StateSpace<NX, NU, NY, T, NW, NV>& sys,
-    damp::type_identity_t<T>                 Ts,
-    const InputDelay<N, S>&                  delay,
-    const LQRConfig<NX, NU, T>&              config,
-    const KalmanNoise<NW, NV, T>&            noise,
-    const TrackedOutputs<NZ>&                outputs
+    const StateSpace<NX, NU, NY, T, NW, NV>&      sys,
+    damp::type_identity_t<T>                      Ts,
+    const InputDelay<N, S>&                       delay,
+    const LQRConfig<NX, NU, T>&                   config,
+    const detail::plant_noise<NX, NY, T, NW, NV>& noise,
+    const TrackedOutputs<NZ>&                     outputs
 ) {
-    return detail::state_feedback(sys, Ts, delay, config, detail::StateFeedbackOptions{.noise = noise, .track = outputs});
+    return detail::state_feedback(detail::noise_model(sys), Ts, delay, config, detail::StateFeedbackOptions{.noise = noise, .track = outputs});
 }
 
 /**

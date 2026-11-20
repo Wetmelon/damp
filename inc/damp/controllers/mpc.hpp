@@ -1590,7 +1590,8 @@ template<bool Discrete, size_t NP, size_t NC, size_t NT_max, size_t NX, size_t N
             "A measured disturbance with an estimator is not supported: the filter does not take it as an input."
         );
         return mpc_estimated_design<Discrete, NP, NC, NT_max>(
-            sys, Ts, weights, constraints, ::damp::detail::option<is_kalman_noise>(KalmanNoise<NW, NV, T>{}, opts...),
+            noise_model(sys), Ts, weights, constraints,
+            ::damp::detail::option<is_kalman_noise>(KalmanNoise<noise_inputs<NX, NW>, noise_inputs<NY, NV>, T>{}, opts...),
             ::damp::detail::option<is_disturbance>(NoDisturbance{}, opts...)
         );
     } else {

@@ -213,10 +213,11 @@ template<size_t N, typename T>
  */
 template<size_t NH, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV_SS>
 [[nodiscard]] constexpr MHEResult<NX, NU, NY, NH, T> mhe(
-    const StateSpace<NX, NU, NY, T, NW, NV_SS>& sys,
-    const KalmanNoise<NW, NV_SS, T>&            noise,
-    const MHEConstraints<NX, T>&                constraints = {}
+    const StateSpace<NX, NU, NY, T, NW, NV_SS>&      plant,
+    const detail::plant_noise<NX, NY, T, NW, NV_SS>& noise,
+    const MHEConstraints<NX, T>&                     constraints = {}
 ) {
+    const auto sys = detail::noise_model(plant);
     static_assert(NH >= 1, "The estimation window must cover at least two states.");
 
     constexpr size_t NV = NX * (NH + 1);

@@ -7,6 +7,8 @@
 #include <cmath>
 #include <cstddef>
 
+#include "damp/controllers/lqg.hpp"
+#include "damp/controllers/lqgi.hpp"
 #include "damp/controllers/oflqg.hpp"
 #include "damp/controllers/state_feedback_types.hpp"
 #include "damp/design/disturbance.hpp"
@@ -66,10 +68,10 @@ TEST_SUITE("Offset-free LQG: oflqg with a disturbance model") {
 
         //! The sample-time form takes the continuous plant only: a discrete one would be discretized twice.
         constexpr StateSpace<2, 1, 1> di{.A = Matrix<2, 2>{{0.0, 1.0}, {0.0, 0.0}}, .B = Matrix<2, 1>{{0.0}, {1.0}}, .C = Matrix<1, 2>{{1.0, 0.0}}};
-        constexpr auto                sampled = design::oflqg(di, 0.1, w, design::KalmanNoise<0, 0, double, 1>{}, design::InputDisturbance{});
+        constexpr auto                sampled = design::oflqg(di, 0.1, w, design::KalmanNoise<2, 1, double, 1>{}, design::InputDisturbance{});
         static_assert(sampled.success && sampled.Ts == 0.1);
-        CHECK(design::oflqg(*discretize(di, 0.1), 0.1, w, design::KalmanNoise<0, 0, double, 1>{}, design::InputDisturbance{}).status == design::DesignStatus::invalid_sample_time);
-        CHECK(design::oflqg(di, 0.0, w, design::KalmanNoise<0, 0, double, 1>{}, design::InputDisturbance{}).status == design::DesignStatus::invalid_sample_time);
+        CHECK(design::oflqg(*discretize(di, 0.1), 0.1, w, design::KalmanNoise<2, 1, double, 1>{}, design::InputDisturbance{}).status == design::DesignStatus::invalid_sample_time);
+        CHECK(design::oflqg(di, 0.0, w, design::KalmanNoise<2, 1, double, 1>{}, design::InputDisturbance{}).status == design::DesignStatus::invalid_sample_time);
     }
 
     TEST_CASE("tracks a setpoint under a constant input load") {
@@ -253,4 +255,34 @@ TEST_SUITE("Offset-free LQG: oflqg with a disturbance model") {
         CHECK(run(0.5, design::OutputDisturbance{}, true) == doctest::Approx(1.0).epsilon(1e-6));
         CHECK(run(0.5, design::InputDisturbance{}, false) == doctest::Approx(1.0).epsilon(1e-6));
     }
+}
+
+TEST_CASE("lqg, lqgi and oflqg read a plant with no noise inputs as noise on every state and reading") {
+    constexpr auto       full = make_plant(); // G = I, H = I
+    constexpr StateSpace bare{.A = full.A, .B = full.B, .C = full.C, .Ts = full.Ts};
+    static_assert(damp::is_same_v<decltype(bare), const StateSpace<2, 1, 1>>);
+
+    constexpr design::LQRConfig<2, 1>              lq{.Q = Matrix<2, 2>::identity(), .R = 0.1};
+    constexpr design::LQIConfig<2, 1, 1>           lqi{.Q = Matrix<2, 2>::identity(), .R = 0.1, .Q_integral = 1.0};
+    constexpr design::KalmanNoise<2, 1>            noise{.process = diag(0.01, 0.01), .measurement = 0.1};
+    constexpr design::KalmanNoise<2, 1, double, 1> noise_d{.process = diag(0.01, 0.01), .measurement = 0.1, .disturbance = 1.0};
+
+    constexpr auto by_bare = design::oflqg(bare, lq, noise_d, design::InputDisturbance{});
+    constexpr auto by_full = design::oflqg(full, lq, noise_d, design::InputDisturbance{});
+    static_assert(by_bare.success);
+    CHECK(by_bare.K == by_full.K);
+    CHECK(by_bare.kalman.M == by_full.kalman.M);
+
+    constexpr auto lqg_bare = design::lqg(bare, lq, noise);
+    constexpr auto lqg_full = design::lqg(full, lq, noise);
+    constexpr auto lqgi_bare = design::lqgi(bare, lqi, noise);
+    constexpr auto lqgi_full = design::lqgi(full, lqi, noise);
+    static_assert(lqg_bare.success && lqgi_bare.success);
+    CHECK(lqg_bare.kalman.M == lqg_full.kalman.M);
+    CHECK(lqgi_bare.kalman.M == lqgi_full.kalman.M);
+
+    //! From the continuous plant with a delay, the noise braced at the call.
+    constexpr StateSpace plant{.A = {{0.0, 1.0}, {0.0, 0.0}}, .B = {{0.0}, {1.0}}, .C = {{1.0, 0.0}}};
+    constexpr auto       delayed = design::oflqg(plant, 0.1, InputDelay<2>{0.15}, lq, {.process = diag(0.01, 0.01), .measurement = 0.1, .disturbance = 1.0}, design::InputDisturbance{});
+    static_assert(delayed.success);
 }

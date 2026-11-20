@@ -62,28 +62,28 @@ using OFLQGResult = StateFeedbackResult<NX, NU, T, 0, NY, KalmanResult<NX + ND, 
  * @see "Offset-free reference tracking with model predictive control" (Maeder, Borrelli &
  *      Morari, 2009), Automatica 45(9)
  */
-template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Disturbance, size_t ND = detail::disturbance_traits<Disturbance, NU, NY, NW>::states>
+template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Disturbance, size_t ND = detail::disturbance_traits<Disturbance, NU, NY, detail::noise_inputs<NX, NW>>::states>
     requires(detail::is_disturbance_model<Disturbance>)
 [[nodiscard]] constexpr auto oflqg(
-    const StateSpace<NX, NU, NY, T, NW, NV>&                 sys,
-    const LQRConfig<NX, NU, T>&                              config,
-    const damp::type_identity_t<KalmanNoise<NW, NV, T, ND>>& noise,
-    const Disturbance&                                       disturbance
+    const StateSpace<NX, NU, NY, T, NW, NV>&                                 sys,
+    const LQRConfig<NX, NU, T>&                                              config,
+    const damp::type_identity_t<detail::plant_noise<NX, NY, T, NW, NV, ND>>& noise,
+    const Disturbance&                                                       disturbance
 ) {
-    return detail::state_feedback(sys, config, detail::StateFeedbackOptions{.noise = noise, .offset_free = disturbance});
+    return detail::state_feedback(detail::noise_model(sys), config, detail::StateFeedbackOptions{.noise = noise, .offset_free = disturbance});
 }
 
 /** @brief The sampled-data offset-free linear-quadratic Gaussian law (the process and disturbance noise densities): runs as OFLQG. */
-template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Disturbance, size_t ND = detail::disturbance_traits<Disturbance, NU, NY, NW>::states>
+template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Disturbance, size_t ND = detail::disturbance_traits<Disturbance, NU, NY, detail::noise_inputs<NX, NW>>::states>
     requires(detail::is_disturbance_model<Disturbance>)
 [[nodiscard]] constexpr auto oflqg(
-    const StateSpace<NX, NU, NY, T, NW, NV>&                 sys,
-    damp::type_identity_t<T>                                 Ts,
-    const LQRConfig<NX, NU, T>&                              config,
-    const damp::type_identity_t<KalmanNoise<NW, NV, T, ND>>& noise,
-    const Disturbance&                                       disturbance
+    const StateSpace<NX, NU, NY, T, NW, NV>&                                 sys,
+    damp::type_identity_t<T>                                                 Ts,
+    const LQRConfig<NX, NU, T>&                                              config,
+    const damp::type_identity_t<detail::plant_noise<NX, NY, T, NW, NV, ND>>& noise,
+    const Disturbance&                                                       disturbance
 ) {
-    return detail::state_feedback(sys, Ts, config, detail::StateFeedbackOptions{.noise = noise, .offset_free = disturbance});
+    return detail::state_feedback(detail::noise_model(sys), Ts, config, detail::StateFeedbackOptions{.noise = noise, .offset_free = disturbance});
 }
 
 /**
@@ -99,17 +99,17 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
  */
 template<
     size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t N, typename S, typename Disturbance,
-    size_t ND = detail::disturbance_traits<Disturbance, NU, NY, NW>::states>
+    size_t ND = detail::disturbance_traits<Disturbance, NU, NY, detail::noise_inputs<NX, NW>>::states>
     requires(detail::is_disturbance_model<Disturbance>)
 [[nodiscard]] constexpr auto oflqg(
-    const StateSpace<NX, NU, NY, T, NW, NV>&                 sys,
-    damp::type_identity_t<T>                                 Ts,
-    const InputDelay<N, S>&                                  delay,
-    const LQRConfig<NX, NU, T>&                              config,
-    const damp::type_identity_t<KalmanNoise<NW, NV, T, ND>>& noise,
-    const Disturbance&                                       disturbance
+    const StateSpace<NX, NU, NY, T, NW, NV>&                                 sys,
+    damp::type_identity_t<T>                                                 Ts,
+    const InputDelay<N, S>&                                                  delay,
+    const LQRConfig<NX, NU, T>&                                              config,
+    const damp::type_identity_t<detail::plant_noise<NX, NY, T, NW, NV, ND>>& noise,
+    const Disturbance&                                                       disturbance
 ) {
-    return detail::state_feedback(sys, Ts, delay, config, detail::StateFeedbackOptions{.noise = noise, .offset_free = disturbance});
+    return detail::state_feedback(detail::noise_model(sys), Ts, delay, config, detail::StateFeedbackOptions{.noise = noise, .offset_free = disturbance});
 }
 
 } // namespace design
