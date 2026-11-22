@@ -77,7 +77,7 @@ inline constexpr auto kLaw = design::ofmpc<kHorizon, 4>(kModel, kWeights, kLimit
 template<typename Mpc>
 [[nodiscard]] inline float heater_period(Mpc& mpc, float setpoint_c, float temperature_c) {
     const auto ambient = static_cast<float>(kAmbient);
-    return mpc.step(ColVec<1, float>{setpoint_c - ambient}, ColVec<1, float>{temperature_c - ambient})[0];
+    return mpc.step(setpoint_c - ambient, temperature_c - ambient)[0];
 }
 
 /// The setpoint over the next kHorizon periods (°C), when the print job knows it ahead.
@@ -90,9 +90,9 @@ template<typename Mpc>
     const auto            ambient = static_cast<float>(kAmbient);
     typename Mpc::Preview r{};
     for (std::size_t k = 0; k < kHorizon; ++k) {
-        r[k] = ColVec<1, float>{setpoint_c[k] - ambient};
+        r[k] = setpoint_c[k] - ambient;
     }
-    return mpc.step(r, ColVec<1, float>{temperature_c - ambient})[0];
+    return mpc.step(r, temperature_c - ambient)[0];
 }
 
 } // namespace damp::examples_heater_ofmpc

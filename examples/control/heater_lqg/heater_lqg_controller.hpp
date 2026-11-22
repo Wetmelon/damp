@@ -67,10 +67,10 @@ using Heater = Law<kLaw, float>;
 /// back_calculate and predict once the power is out).
 [[nodiscard]] inline float heater_period(Heater& law, float setpoint_c, float temperature_c) {
     const auto ambient = static_cast<float>(kAmbient);
-    law.update(ColVec<1, float>{temperature_c - ambient});
-    const float requested = law.control(ColVec<1, float>{setpoint_c - ambient})(0);
+    law.update(temperature_c - ambient);
+    const float requested = law.control(setpoint_c - ambient)(0);
     const float applied = damp::clamp(requested, 0.0f, static_cast<float>(kPmax));
-    law.back_calculate(ColVec<1, float>{applied});
+    law.back_calculate(applied);
     law.predict();
     return applied;
 }
