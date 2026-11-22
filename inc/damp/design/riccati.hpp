@@ -1528,6 +1528,9 @@ struct [[nodiscard]] LQRResult {
     /** @brief True when the design succeeded (success). */
     [[nodiscard]] constexpr explicit operator bool() const { return success; }
 
+    /** @brief K's columns on the plant's states: all of K, as on a StateFeedbackResult without delay states or integrators. */
+    [[nodiscard]] constexpr const Matrix<NU, NX, T>& state_gain() const { return K; }
+
     /** @brief The result in scalar U. */
     template<typename U>
     [[nodiscard]] constexpr LQRResult<NX, NU, U> as() const {

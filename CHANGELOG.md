@@ -9,6 +9,10 @@ and [known limitations](docs/known_limitations.md)).
 
 ## [Unreleased]
 
+### Added
+
+- `state_gain()`, `delay_gain()` and `integral_gain()` on a state-feedback design's result, `state_gain()` on an `LQRResult`: K's columns on the plant's states, on the delay states of a plant whose input arrives late (the commands still on their way) and on the integrators, so a law that reads its gain needs no index into [x; v; ξ].
+
 ### Changed
 
 - An MPC or OFMPC takes its reference and its input target braced, one value per channel (`control({0.3, 0.0})`, `set_input_target({0.1, 0.2})`), or as the scalar of a single channel. `set_input_target` takes an `InputTarget`, held or per move, so a braced `{x}` no longer reads as both.

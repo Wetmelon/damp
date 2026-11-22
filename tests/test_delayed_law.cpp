@@ -458,3 +458,27 @@ TEST_SUITE("Delayed laws with a filter") {
         CHECK(design::lqgi(noisy(), kTs, InputDelay<1>{kTheta}, kWi, kNoise).status == design::DesignStatus::invalid_parameter);
     }
 }
+
+namespace {
+template<typename R>
+concept has_integral_gain = requires(const R& r) { r.integral_gain(); };
+template<typename R>
+concept has_delay_gain = requires(const R& r) { r.delay_gain(); };
+} // namespace
+
+TEST_CASE("state_gain, delay_gain and integral_gain are K's columns on x, the delay states and xi") {
+    constexpr design::LQIConfig w{.Q = Matrix<2, 2>{{10.0, 0.0}, {0.0, 1.0}}, .R = {0.1}, .Q_integral = {5.0}};
+    constexpr auto              res = design::lqi(plant(), kTs, InputDelay<2>{kTheta}, w); // K on [x(2); v(k-1), v(k-2); xi]
+    static_assert(res.success);
+    static_assert(res.state_gain()(0, 0) == res.K(0, 0) && res.state_gain()(0, 1) == res.K(0, 1));
+    static_assert(res.delay_gain()(0, 0) == res.K(0, 2) && res.delay_gain()(0, 1) == res.K(0, 3));
+    static_assert(res.integral_gain()(0, 0) == res.K(0, 4));
+
+    //! A part the law does not have is not there: no delay states without a delay, no integrators on an LQR.
+    constexpr auto lqr = design::lqr(plant(), kTs, design::LQRConfig{.Q = Matrix<2, 2>{{10.0, 0.0}, {0.0, 1.0}}, .R = {0.1}});
+    static_assert(lqr.success && lqr.state_gain() == lqr.K);
+    static_assert(!has_integral_gain<decltype(lqr)> && !has_delay_gain<decltype(lqr)>);
+    constexpr auto undelayed = design::lqi(plant(), kTs, w);
+    static_assert(undelayed.success && !has_delay_gain<decltype(undelayed)> && undelayed.integral_gain()(0, 0) == undelayed.K(0, 2));
+    CHECK(res.integral_gain()(0, 0) != 0.0);
+}

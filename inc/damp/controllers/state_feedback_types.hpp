@@ -237,6 +237,7 @@ struct IntegralDesign {
  * | Member | What it is | Present |
  * | --- | --- | --- |
  * | K, S, e | the gain, the Riccati solution, the closed-loop poles | always |
+ * | state_gain(), delay_gain(), integral_gain() | K's columns on x, on the delay states (NRU > 0) and on ξ (NI > 0) | always, and as noted |
  * | success, status, Ts | ok or why not; the law's sample time | always |
  * | u_lim | the limits on the command (LQRConfig::u_lim) | always, default unbounded |
  * | demand_lim | the limit on what the outer terms ask of one state (LQRConfig::demand_lim) | always, default off |
@@ -248,14 +249,14 @@ struct IntegralDesign {
  *
  * A design on a plant whose input arrives late (an InputDelay) is on the law's model
  * [x; v(k−1); …; v(k−NRU)]: K, S, e, the integrated outputs, the filter's model and the target
- * cover the registers. A measured-state runtime holds them, a filter carries them.
+ * cover the delay states. A measured-state runtime holds them, a filter carries them.
  *
  * @tparam NX     Plant states
  * @tparam NI     Integrators (0: none)
  * @tparam NY     Measured outputs (NX for a law without integrators or estimator)
  * @tparam Kalman The filter's design: KalmanResult, or NoEstimator for a measured state
  * @tparam NZ     Controlled outputs of the target (0: none)
- * @tparam NRU    Input registers the law holds, NRU·NU states after the plant's (0: none)
+ * @tparam NRU    Delay states per input, the commands still on their way: NRU·NU states after the plant's (0: none)
  *
  * @see "Optimal Control" (Anderson & Moore, 1990), §4 and §8
  */
@@ -264,7 +265,7 @@ struct [[nodiscard]] StateFeedbackResult {
     using Filter = ::damp::detail::estimator_traits<::damp::detail::runtime_estimator_t<Kalman, T>>;
     static constexpr bool   kEstimated = Filter::present; ///< A Kalman filter estimates the state
     static constexpr bool   kIntegral = NI > 0;           ///< The law has integral action
-    static constexpr size_t NXL = NX + (NRU * NU);        ///< The law's model: the plant, then its input registers
+    static constexpr size_t NXL = NX + (NRU * NU);        ///< The law's model: the plant, then its delay states
     static constexpr size_t NK = NXL + NI;                ///< The gain's state: the law's model and the integrators
     static constexpr size_t ND = Filter::ND;              ///< Disturbance states of the filter
     using Integral = ::damp::detail::maybe<(NI > 0), IntegralDesign<NI, NXL, NU, NY, T>, ::damp::detail::OffSlot::design_integral>;
@@ -288,6 +289,26 @@ struct [[nodiscard]] StateFeedbackResult {
 
     /** @brief True when the design succeeded (success). */
     [[nodiscard]] constexpr explicit operator bool() const { return success; }
+
+    /** @brief K's columns on the plant's states x (NU × NX): u = −state_gain()·x − … */
+    [[nodiscard]] constexpr Matrix<NU, NX, T> state_gain() const { return K.template block<NU, NX>(0, 0).to_matrix(); }
+
+    /**
+     * @brief K's columns on the delay states v(k−1) … v(k−NRU) of a plant whose input arrives late
+     *        (an InputDelay): the commands sent that have not reached it yet (NU × NRU·NU; NRU > 0).
+     */
+    [[nodiscard]] constexpr Matrix<NU, NRU * NU, T> delay_gain() const
+        requires(NRU > 0)
+    {
+        return K.template block<NU, NRU * NU>(0, NX).to_matrix();
+    }
+
+    /** @brief K's columns on the integrators ξ (NU × NI; NI > 0). */
+    [[nodiscard]] constexpr Matrix<NU, NI, T> integral_gain() const
+        requires(NI > 0)
+    {
+        return K.template block<NU, NI>(0, NXL).to_matrix();
+    }
 
     /** @brief The same design in the scalar @p U: `res.as<float>()` for the embedded runtime. */
     template<typename U>
