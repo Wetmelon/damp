@@ -101,7 +101,9 @@ struct IntegralAction {
  *
  * The cost is the weights Q, R and N, in the plant's own time domain: a cost integral on a
  * continuous plant (with a Ts argument it is discretized exactly), per step on a discrete one.
- * Braces size it from the call: `{.Q = Q, .R = R}`. A law with integral action takes LQIConfig.
+ * Braces size it from the call: `{.Q = Q, .R = R}`. Named, it takes its sizes from its fields:
+ * `LQRConfig{.Q = diag(1.0, 0.1), .R = {0.5}}` is LQRConfig<2, 1>. NU is 1 unless a field says
+ * otherwise, so one input's weight is braced, `{0.5}`. A law with integral action takes LQIConfig.
  *
  * | Field | Penalizes | Size |
  * | --- | --- | --- |
@@ -123,7 +125,7 @@ struct IntegralAction {
  * a state that is not the plant's or is one of its own outer terms. It is a heuristic on the gain,
  * not part of the design: nothing certifies the loop while it binds (DemandLimit).
  */
-template<size_t NX, size_t NU, typename T = double>
+template<size_t NX, size_t NU = 1, typename T = double>
 struct LQRConfig {
     Matrix<NX, NX, T>  Q{};          ///< On the plant states x (positive semidefinite)
     Matrix<NU, NU, T>  R{};          ///< On the inputs u (positive definite)
@@ -132,22 +134,15 @@ struct LQRConfig {
     DemandLimit<NX, T> demand_lim{}; ///< A limit on what the outer states ask of one state (default off)
 };
 
-/** @brief Sizes from the matrices: `LQRConfig{Q, R}`. */
-template<size_t NX, size_t NU, typename T>
-LQRConfig(Matrix<NX, NX, T>, Matrix<NU, NU, T>) -> LQRConfig<NX, NU, T>;
-
-/** @brief Sizes from the matrices: `LQRConfig{Q, R, N}`. */
-template<size_t NX, size_t NU, typename T>
-LQRConfig(Matrix<NX, NX, T>, Matrix<NU, NU, T>, Matrix<NX, NU, T>) -> LQRConfig<NX, NU, T>;
-
 /**
  * @struct LQIConfig
  * @brief What a design with integral action (lqi, lqgi) is given with the plant: LQRConfig's
  *        cost and limit, and the weight and the limits on the NI integrators
  *
  * Q, R, N and u_lim are LQRConfig's. Braces size it from the call:
- * `{.Q = Q, .R = R, .Q_integral = Qi}`. Template order is NX, NU, NI, T: `LQIConfig<2, 1, 1>`
- * is one integrator on double.
+ * `{.Q = Q, .R = R, .Q_integral = Qi}`. Named, it takes its sizes from its fields, NU and NI 1
+ * unless a field says otherwise: `LQIConfig{.Q = diag(10.0, 1.0), .R = {1.0}, .Q_integral = {80.0}}`
+ * is LQIConfig<2, 1, 1>, one integrator on double (template order NX, NU, NI, T).
  *
  * | Field | | Size |
  * | --- | --- | --- |
@@ -196,7 +191,7 @@ LQRConfig(Matrix<NX, NX, T>, Matrix<NU, NU, T>, Matrix<NX, NU, T>) -> LQRConfig<
  * @see "Advanced PID Control" (Åström & Hägglund, 2006), §3.5: back-calculation and conditional
  *      integration
  */
-template<size_t NX, size_t NU, size_t NI, typename T = double>
+template<size_t NX, size_t NU = 1, size_t NI = 1, typename T = double>
 struct LQIConfig {
     Matrix<NX, NX, T>       Q{};             ///< On the plant states x (positive semidefinite)
     Matrix<NU, NU, T>       R{};             ///< On the inputs u (positive definite)
@@ -207,10 +202,6 @@ struct LQIConfig {
     DemandLimit<NX + NI, T> demand_lim{};    ///< A limit on what the outer states and integrators ask of one state (default off)
     T                       tracking_time{}; ///< [s] The integrators' back-calculation tracking time (default 0: conditional integration)
 };
-
-/** @brief Sizes from the matrices: `LQIConfig{Q, R, N, Q_integral}`. */
-template<size_t NX, size_t NU, typename T, size_t NI>
-LQIConfig(Matrix<NX, NX, T>, Matrix<NU, NU, T>, Matrix<NX, NU, T>, Matrix<NI, NI, T>) -> LQIConfig<NX, NU, NI, T>;
 
 namespace detail {
 

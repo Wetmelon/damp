@@ -523,3 +523,32 @@ TEST_SUITE("LQI on a plant with feedthrough") {
         CHECK_FALSE(res.is_stable());
     }
 }
+
+TEST_CASE("LQRConfig and LQIConfig take their sizes from the fields they set") {
+    using design::LQIConfig;
+    using design::LQRConfig;
+    //! One input and one integrator unless a field says otherwise; a single weight is braced.
+    constexpr LQRConfig lq{.Q = diag(1.0, 0.1), .R = {0.5}};
+    static_assert(damp::is_same_v<decltype(lq), const LQRConfig<2, 1>>);
+    constexpr LQRConfig lq_mimo{.Q = diag(1.0, 0.1, 2.0), .R = diag(0.5, 0.5)};
+    static_assert(damp::is_same_v<decltype(lq_mimo), const LQRConfig<3, 2>>);
+    constexpr LQRConfig lq_float{.Q = diag(1.0f, 0.1f), .R = {0.5f}};
+    static_assert(damp::is_same_v<decltype(lq_float), const LQRConfig<2, 1, float>>);
+
+    //! Any fields, in any subset: the limits are braced and take the sizes the others give.
+    constexpr LQRConfig limited{.Q = diag(1.0, 0.1), .R = {0.5}, .demand_lim = {.state = 1, .outer = {true, false}, .lim = {.lower = -0.2, .upper = 0.2}}};
+    static_assert(damp::is_same_v<decltype(limited), const LQRConfig<2, 1>> && limited.demand_lim.state == 1);
+    constexpr LQRConfig positional{diag(1.0, 0.1), Matrix<1, 1>{0.5}};
+    static_assert(damp::is_same_v<decltype(positional), const LQRConfig<2, 1>>);
+
+    constexpr LQIConfig lqi{.Q = diag(10.0, 1.0), .R = {1.0}, .Q_integral = {80.0}, .tracking_time = 0.5};
+    static_assert(damp::is_same_v<decltype(lqi), const LQIConfig<2, 1, 1>> && lqi.Q_integral(0, 0) == 80.0);
+    constexpr LQIConfig lqi_two{.Q = diag(10.0, 1.0), .R = diag(1.0, 1.0), .Q_integral = diag(80.0, 80.0)};
+    static_assert(damp::is_same_v<decltype(lqi_two), const LQIConfig<2, 2, 2>>);
+
+    //! The deduced config designs as the spelled one.
+    constexpr StateSpace plant{.A = {{0.0, 1.0}, {-1.0, -0.5}}, .B = {{0.0}, {1.0}}, .C = {{1.0, 0.0}}};
+    constexpr auto       by_deduced = design::lqi(plant, 0.01, lqi);
+    constexpr auto       by_spelled = design::lqi(plant, 0.01, LQIConfig<2, 1, 1>{.Q = diag(10.0, 1.0), .R = 1.0, .Q_integral = 80.0, .tracking_time = 0.5});
+    static_assert(by_deduced.success && by_deduced.K == by_spelled.K);
+}
