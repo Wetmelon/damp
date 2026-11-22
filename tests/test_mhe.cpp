@@ -385,3 +385,16 @@ TEST_CASE("Unconstrained MHE endpoint equals the steady-state Kalman filter") {
     }
     CHECK(max_err < 1e-6);
 }
+
+TEST_CASE("mhe reads a plant with no noise inputs as noise on every state and reading") {
+    constexpr double                            Ts = 0.1;
+    constexpr StateSpace                        bare{.A = {{1.0, Ts}, {0.0, 1.0}}, .B = {{0.5 * Ts * Ts}, {Ts}}, .C = {{1.0, 0.0}}, .Ts = Ts};
+    constexpr StateSpace<2, 1, 1, double, 2, 1> full{.A = bare.A, .B = bare.B, .C = bare.C, .Ts = Ts};
+    const Matrix<2, 2>                          Q{{1.0e-4, 0.0}, {0.0, 1.0e-3}};
+    const Matrix<1, 1>                          R{{2.5e-3}};
+
+    const auto by_bare = design::mhe<4>(bare, {.process = Q, .measurement = R});
+    const auto by_full = design::mhe<4>(full, {.process = Q, .measurement = R});
+    REQUIRE(by_bare.success);
+    CHECK((by_bare.H - by_full.H).norm() <= 1e-12 * by_full.H.norm());
+}

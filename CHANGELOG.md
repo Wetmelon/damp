@@ -11,6 +11,7 @@ and [known limitations](docs/known_limitations.md)).
 
 ### Changed
 
+- A Kalman design (`kalman`, `lqg`, `lqgi`, `oflqg`, `mpc` and `ofmpc` with noise, `mhe`) reads a plant that declares no noise inputs (`StateSpace<NX, NU, NY>`) as noise on every state and reading, G = I and H = I, so its `KalmanNoise` is NX × NX and NY × NY and the plant needs no `<…, T, NW, NV>`. Before, such a plant took only a `KalmanNoise<0, 0>`.
 - `PRSpec::Tt`, `PRResult::Tt` and `PRController::Tt` are `tracking_time`, the name the LQI and LQGI runtimes give the same back-calculation tracking time.
 - Every example SIL checks what it prints and returns nonzero when a result leaves its band, so `make` fails on a change in behavior, not only on a crash. Before, 2 of 18 did.
 
