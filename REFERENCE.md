@@ -307,7 +307,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`LeadLagResult`](inc/damp/controllers/lead_lag.hpp#L64) | Lead-lag compensator design result |
 | [`LeadLagSeriesResult`](inc/damp/controllers/lead_lag.hpp#L225) | Cascaded lead+lag design result (2nd-order StateSpace + success) |
 | [`LinearizationResult`](inc/damp/design/linearization.hpp#L45) | Result of nonlinear operating-point linearization |
-| [`LQRCost`](inc/damp/design/riccati.hpp#L1578) | A quadratic cost on (x, u): state cost Q, input cost R, cross term N |
+| [`LQRCost`](inc/damp/design/riccati.hpp#L1581) | A quadratic cost on (x, u): state cost Q, input cost R, cross term N |
 | [`LQRResult`](inc/damp/design/riccati.hpp#L1517) | The LQR gain: design::lqr on a plant, discrete_lqr and continuous_lqr on given matrices |
 | [`MinimalRealizationResult`](inc/damp/design/minreal.hpp#L88) | Minimal realization result |
 | [`ModelReductionMethod`](inc/damp/design/model_reduction.hpp#L60) | How balanced_reduction and eliminate_states eliminate states |
@@ -328,7 +328,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`RepetitiveResult`](inc/damp/controllers/repetitive.hpp#L137) | Design result for the repetitive controller |
 | [`SMCResult`](inc/damp/controllers/smc.hpp#L37) | Tuning parameters for a first-order sliding-mode controller |
 | [`SmithPredictorResult`](inc/damp/controllers/smith_predictor.hpp#L97) | Smith predictor design result (discrete PID + FO model + delay samples) |
-| [`StateFeedbackResult`](inc/damp/controllers/state_feedback_types.hpp#L263) | A state-feedback design: the gain, and the parts the law's options add |
+| [`StateFeedbackResult`](inc/damp/controllers/state_feedback_types.hpp#L264) | A state-feedback design: the gain, and the parts the law's options add |
 | [`StateFeedforward`](inc/damp/design/model_inverse.hpp#L818) | The plant-inversion feedforward at run time: u = B⁺·(x ₖ₊₁ − x ₖ) − B⁺(A − I)·x ₖ, two matrix–vector products (+1 more overload) |
 | [`StateFeedforwardResult`](inc/damp/design/model_inverse.hpp#L60) | The plant-inversion feedforward of a discrete model: u ₖ = B⁺·(x ₖ₊₁ − x ₖ) − B⁺(A − I)·x ₖ |
 | [`StateSpaceResult`](inc/damp/design/model_result.hpp#L58) | A designed state-space model with its success / status |
@@ -354,16 +354,16 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`closed_loop_poles`](inc/damp/design/stability.hpp#L563) | Compute closed-loop poles (eigenvalues) with state feedback |
 | [`closed_loop_stable`](inc/damp/design/pid_design.hpp#L688) | Closed-loop certificate: den_P·den_C + num_P·num_C is Hurwitz for C_fb = Kp + Kᵢ/s + Kd s/(1 + Tf s) |
 | [`cohen_coon`](inc/damp/design/pid_design.hpp#L304) | Cohen-Coon tuning from first-order-plus-dead-time model |
-| [`continuous_lqr`](inc/damp/design/riccati.hpp#L1745) | Continuous-time Linear-Quadratic Regulator design |
+| [`continuous_lqr`](inc/damp/design/riccati.hpp#L1748) | Continuous-time Linear-Quadratic Regulator design |
 | [`ContinuousPID`](inc/damp/controllers/pid.hpp#L1178) | Deduce the runtime from its design, keeping the result's scalar |
 | [`controllability_gramian`](inc/damp/design/stability.hpp#L381) | Continuous/discrete controllability Gramian W_c |
 | [`controllability_matrix`](inc/damp/design/stability.hpp#L53) | Compute the controllability matrix [B, AB, A²B, ..., A^(N-1)B] |
 | [`current_loop_pi`](inc/damp/design/pid_design.hpp#L1302) | PI gains for an R–L current loop 1/(L s + R) at any bandwidth ω |
 | [`damping_ratio_from_overshoot_percent`](inc/damp/design/pid_design.hpp#L862) | Map percent overshoot target to equivalent damping ratio |
 | [`dare`](inc/damp/design/riccati.hpp#L1321) | Solve the Discrete Algebraic Riccati Equation (DARE) |
-| [`discrete_lqr`](inc/damp/design/riccati.hpp#L1611) | Discrete-time Linear-Quadratic Regulator design (+1 more overload) |
+| [`discrete_lqr`](inc/damp/design/riccati.hpp#L1614) | Discrete-time Linear-Quadratic Regulator design (+1 more overload) |
 | [`discrete_lyapunov_cholesky`](inc/damp/design/lyapunov.hpp#L518) | Cholesky factor of the discrete Lyapunov solution: A X Aᵀ − X + B Bᵀ = 0, X = RᵀR |
-| [`discretize_lqr_cost`](inc/damp/design/riccati.hpp#L1680) | Discretize a continuous LQR cost integral over one sample (Van Loan) |
+| [`discretize_lqr_cost`](inc/damp/design/riccati.hpp#L1683) | Discretize a continuous LQR cost integral over one sample (Van Loan) |
 | [`dlyap`](inc/damp/design/lyapunov.hpp#L478) | Solve the discrete-time Lyapunov (Stein) equation A X Aᵀ − X + Q = 0 |
 | [`eliminate_states`](inc/damp/design/model_reduction.hpp#L625) | Eliminate the listed states, by DC-matched residualization or truncation |
 | [`esc`](inc/damp/controllers/esc.hpp#L156) | Synthesize an extremum-seeking controller |
