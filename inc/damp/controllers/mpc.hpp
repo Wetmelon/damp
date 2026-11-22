@@ -243,10 +243,14 @@ enum class MPCTerminal : uint8_t {
  * bad_weights, as design::lqr does); the QP Hessian must come out positive definite, which holds
  * whenever RΔu ≻ 0 or Ru ≻ 0.
  *
+ * Named, the weights take their sizes from their fields, NU and NY 1 unless a field says
+ * otherwise: `MPCWeights{.Rdu = {1.6}}` is MPCWeights<1, 1>, `MPCWeights{.Qy = diag(20.0, 1.0)}`
+ * MPCWeights<1, 2>. MPCConstraints the same: `MPCConstraints{.u_lim = {.lower = 0.0, .upper = 40.0}}`.
+ *
  * @note Mirrors the MATLAB® mpc object's Weights.OV / Weights.MVRate /
  *       Weights.MV (+ MV Targets) / Weights.ECR.
  */
-template<size_t NU, size_t NY, typename T = double>
+template<size_t NU = 1, size_t NY = 1, typename T = double>
 struct MPCWeights {
     Matrix<NY, NY, T> Qy = Matrix<NY, NY, T>::identity();  ///< Output tracking weight, steps 1..NP−1 (per second from a continuous plant)
     Matrix<NU, NU, T> Rdu = Matrix<NU, NU, T>::identity(); ///< Move weight on Δu (on the rate Δu/Ts, per second, from a continuous plant)
@@ -292,7 +296,7 @@ struct MPCWeights {
  * @note Mirrors the MATLAB® mpc object's ManipulatedVariables Min/Max/RateMin/
  *       RateMax and OutputVariables Min/Max (+ MinECR/MaxECR).
  */
-template<size_t NU, size_t NY, typename T = double, size_t NXC = 0>
+template<size_t NU = 1, size_t NY = 1, typename T = double, size_t NXC = 0>
 struct MPCConstraints {
     Bounds<NU, T>            u_lim{};                                       ///< Input bounds (hard)
     Bounds<NU, T>            du_lim{};                                      ///< Move bounds on Δu (hard)

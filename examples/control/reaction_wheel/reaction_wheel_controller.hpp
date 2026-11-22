@@ -134,12 +134,12 @@ inline constexpr auto lqg_res = design::lqg(sysd, {.Q = Q, .R = R}, estimator_no
 inline constexpr auto lqgi_res = design::lqgi(sysd, {.Q = Q, .R = R, .Q_integral = Q_integral}, estimator_noise);
 
 // Offset-free MPC — synthesis only
-inline constexpr design::MPCWeights<NU, NY> mpc_weights{
+inline constexpr design::MPCWeights mpc_weights{
     .Qy = Matrix<NY, NY>{{20.0}},
     .Rdu = Matrix<NU, NU>{{0.1}},
 };
 
-inline constexpr design::MPCConstraints<NU, NY> mpc_limits{
+inline constexpr design::MPCConstraints mpc_limits{
     .u_lim = {
         .lower = -static_cast<double>(u_max),
         .upper = static_cast<double>(u_max),

@@ -1487,3 +1487,20 @@ TEST_CASE("back_calculate with a feedforward: the command is the law's share, an
     CHECK(x == doctest::Approx(1.0).epsilon(1e-6));
     CHECK(total == doctest::Approx(1.0).epsilon(1e-6));
 }
+
+TEST_CASE("MPCWeights and MPCConstraints take their sizes from the fields they set") {
+    using design::MPCConstraints;
+    using design::MPCWeights;
+    //! One input and one controlled output unless a field says otherwise.
+    constexpr MPCWeights siso{.Rdu = {1.6}};
+    static_assert(damp::is_same_v<decltype(siso), const MPCWeights<1, 1>> && siso.Rdu(0, 0) == 1.6);
+    constexpr MPCWeights two_outputs{.Qy = diag(20.0, 1.0), .Rdu = {0.1}};
+    static_assert(damp::is_same_v<decltype(two_outputs), const MPCWeights<1, 2>> && two_outputs.Qy_terminal == two_outputs.Qy);
+    constexpr MPCWeights two_inputs{.Rdu = diag(0.1, 0.2)};
+    static_assert(damp::is_same_v<decltype(two_inputs), const MPCWeights<2, 1>>);
+
+    constexpr MPCConstraints limits{.u_lim = {.lower = 0.0, .upper = 40.0}};
+    static_assert(damp::is_same_v<decltype(limits), const MPCConstraints<1, 1>> && limits.u_lim.upper(0) == 40.0);
+    constexpr MPCConstraints budget{.terminal = design::MPCTerminal::dare_cost, .max_qp_iterations = 40};
+    static_assert(damp::is_same_v<decltype(budget), const MPCConstraints<1, 1>> && budget.max_qp_iterations == 40);
+}
