@@ -324,7 +324,7 @@ TEST_SUITE("Input delay: a model of the plant") {
             const auto mpc = design::ofmpc<30, 4>(*model, w, c, kNoise, load);
             REQUIRE(lqg.success);
             REQUIRE(mpc.success);
-            using Est = std::remove_cvref_t<decltype(OFMPC{mpc}.estimator())>;
+            using Est = std::remove_cvref_t<decltype(OFMPC{mpc}.estimator)>;
             static_assert(Est::NXE == 2 && std::is_same_v<std::remove_cvref_t<decltype(std::declval<const Est&>().state())>, ColVec<3>>); // [x; v(k−1)], then d
 
             const auto truth = delayed_heater(theta);

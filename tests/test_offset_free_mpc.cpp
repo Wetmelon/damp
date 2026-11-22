@@ -118,9 +118,12 @@ TEST_CASE("disturbance_lim clamps OFMPC's disturbance estimate, and moves at run
     CHECK(controller.disturbance_estimate()(0) == doctest::Approx(d_load).epsilon(1e-3));
     CHECK(x(0) == doctest::Approx(0.5).epsilon(1e-3)); // offset-free again
 
-    // The filter is the law's to restart: a mutable estimator.
-    controller.estimator().reset(ColVec<3>{});
-    CHECK(controller.estimator().state() == ColVec<3>{});
+    // The filter is the law's to restart, as the LQ laws' is, from an absolute estimate: the anchor stays.
+    REQUIRE(controller.estimator.anchor_disturbance()(0) != 0.0);
+    controller.estimator.reset(ColVec<2>{0.2, 0.0}, ColVec<1>{0.05});
+    CHECK(controller.estimator.state_estimate()(0) == doctest::Approx(0.2).epsilon(1e-12));
+    CHECK(controller.estimator.state_estimate()(1) == doctest::Approx(0.0).epsilon(1e-12));
+    CHECK(controller.estimator.disturbance_estimate()(0) == doctest::Approx(0.05).epsilon(1e-12));
 }
 
 TEST_CASE("x_lim bounds an estimated state of an offset-free MPC: on the estimate's prediction") {

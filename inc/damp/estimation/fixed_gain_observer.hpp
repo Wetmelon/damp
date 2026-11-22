@@ -828,9 +828,19 @@ public:
     /** @brief Forget the applied input; the estimate and its anchor are left in place. */
     constexpr void reset() { u_prev_ = ColVec<NU, T>{}; }
 
-    /** @brief Replace the estimate and clear the innovation and the held input. The model and M stay. */
-    constexpr void reset(const ColVec<NX, T>& x0) {
-        x_ = x0;
+    /**
+     * @brief Restart the estimate at @p x0 on the law's model and @p d0 on the disturbance (ND > 0),
+     *        absolute as state_estimate() and disturbance_estimate() report them, and clear the
+     *        innovation and the held input. The model, M and the anchor stay.
+     */
+    constexpr void reset(const ColVec<NXE, T>& x0, const ColVec<ND, T>& d0 = {}) {
+        if constexpr (ND > 0) {
+            x_.template segment<NXE>(0) = ColVec<NXE, T>(x0 - anchor_.x);
+            x_.template segment<ND>(NXE) = ColVec<ND, T>(d0 - anchor_.d);
+        } else {
+            static_cast<void>(d0);
+            x_ = x0;
+        }
         innov_ = ColVec<NY, T>{};
         u_prev_ = ColVec<NU, T>{};
     }
