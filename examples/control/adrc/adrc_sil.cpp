@@ -15,12 +15,8 @@
 #include <vector>
 
 #include "adrc_controller.hpp"
-#include "damp/backend.hpp"
-#include "damp/controllers/adrc.hpp"
-#include "damp/controllers/pid.hpp"
-#include "damp/math/math.hpp"
+#include "damp/control.hpp"
 #include "damp/simulation/plot_plotly.hpp"
-#include "damp/toolbox/conditioning.hpp"
 #include "fmt/base.h"
 #include "fmt/core.h"
 #include "plotlypp/figure.hpp"

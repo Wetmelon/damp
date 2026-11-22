@@ -13,10 +13,7 @@
 
 #include <fmt/base.h>
 
-#include "damp/estimation/ins_eskf.hpp"
-#include "damp/estimation/ins_mechanization.hpp"
-#include "damp/math/math.hpp"
-#include "damp/matrix/matrix.hpp"
+#include "damp/control.hpp"
 #include "fmt/core.h"
 #include "ins_navigator_estimator.hpp"
 

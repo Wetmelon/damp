@@ -17,20 +17,7 @@
 #include <cmath>
 #include <numbers>
 
-#include "damp/analysis/analysis.hpp"
-#include "damp/controllers/lqgi.hpp"
-#include "damp/controllers/pid.hpp"
-#include "damp/controllers/pr.hpp"
-#include "damp/controllers/state_feedback.hpp"
-#include "damp/design/linearization.hpp"
-#include "damp/design/pid_design.hpp"
-#include "damp/math/math.hpp"
-#include "damp/matrix/matrix.hpp"
-#include "damp/simulation/integrator.hpp"
-#include "damp/simulation/simulate.hpp"
-#include "damp/simulation/solver.hpp"
-#include "damp/systems/discretization.hpp"
-#include "damp/systems/state_space.hpp"
+#include "damp/workbench.hpp"
 #include "fmt/base.h"
 #include "fmt/core.h"
 #include "workflow_end_to_end_controller.hpp"

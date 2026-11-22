@@ -11,9 +11,7 @@
  * estimation/ins_navigator/ (same densities).
  */
 
-#include "damp/estimation/ins_eskf.hpp"
-#include "damp/estimation/ins_mechanization.hpp"
-#include "damp/matrix/matrix.hpp"
+#include "damp/control.hpp"
 #include "ins_eskf_estimator.hpp"
 
 using namespace damp;

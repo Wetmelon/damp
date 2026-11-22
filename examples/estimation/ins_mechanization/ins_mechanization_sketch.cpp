@@ -10,8 +10,7 @@
  * Host animation: ins_mechanization_sil.cpp.
  */
 
-#include "damp/estimation/ins_mechanization.hpp"
-#include "damp/math/geometry.hpp"
+#include "damp/control.hpp"
 #include "ins_mechanization_estimator.hpp"
 
 using namespace damp;

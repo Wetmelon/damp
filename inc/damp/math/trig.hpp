@@ -4,6 +4,7 @@
 // (See accompanying file LICENSE or copy at http://www.boost.org/LICENSE_1_0.txt)
 
 #pragma once
+// IWYU pragma: private, include "damp/math/math.hpp"
 
 /**
  * @file trig.hpp
@@ -20,8 +21,8 @@
  */
 
 
-#include "constexpr_math.hpp" // detail::isfinite (bit pattern, survives -ffast-math), detail::assoc_barrier
 #include "damp/backend.hpp"
+#include "damp/math/constexpr_math.hpp" // detail::isfinite (bit pattern, survives -ffast-math), detail::assoc_barrier
 
 // Fast float/double implementations live in damp::detail as fast_* so they do
 // not overload-shadow the constexpr public API in math.hpp (damp::sin/sqrt/...).

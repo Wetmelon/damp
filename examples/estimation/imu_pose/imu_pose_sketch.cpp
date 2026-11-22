@@ -10,8 +10,7 @@
  * Host animation: imu_pose_sil.cpp.
  */
 
-#include "damp/math/geometry.hpp"
-#include "damp/matrix/matrix.hpp"
+#include "damp/control.hpp"
 #include "imu_pose_estimator.hpp"
 
 using namespace damp;

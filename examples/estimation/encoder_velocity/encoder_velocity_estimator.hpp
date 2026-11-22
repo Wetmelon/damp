@@ -19,7 +19,7 @@
 
 #pragma once
 
-#include "damp/filters/differentiator.hpp"
+#include "damp/control.hpp"
 
 namespace damp::examples_encoder_velocity {
 

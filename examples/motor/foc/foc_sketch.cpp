@@ -11,7 +11,7 @@
  * Full PI vs I-P plots: foc_sil.cpp.
  */
 
-#include "damp/math/transforms.hpp"
+#include "damp/control.hpp"
 #include "damp/motor/foc.hpp"
 #include "foc_controller.hpp"
 

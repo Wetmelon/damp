@@ -21,9 +21,7 @@
 
 #pragma once
 
-#include "damp/estimation/ins_eskf.hpp"
-#include "damp/estimation/ins_mechanization.hpp"
-#include "damp/matrix/matrix.hpp"
+#include "damp/control.hpp"
 
 namespace damp::examples_ins_eskf {
 

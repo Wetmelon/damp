@@ -13,7 +13,7 @@
  * SIL (gains + all laws one-tick): reaction_wheel_sil.cpp
  */
 
-#include "damp/controllers/pid.hpp"
+#include "damp/control.hpp"
 #include "reaction_wheel_controller.hpp"
 
 using namespace damp;

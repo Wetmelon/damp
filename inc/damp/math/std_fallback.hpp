@@ -17,8 +17,8 @@
 
 #include <cmath>
 
-#include "constexpr_math.hpp" // detail::isfinite (bit-pattern, -ffast-math safe)
-#include "damp/backend.hpp"   // damp::pair (sincos return type)
+#include "damp/backend.hpp"             // damp::pair (sincos return type)
+#include "damp/math/constexpr_math.hpp" // detail::isfinite (bit-pattern, -ffast-math safe)
 
 namespace damp {
 

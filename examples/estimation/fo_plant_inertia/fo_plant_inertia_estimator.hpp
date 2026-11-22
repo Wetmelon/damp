@@ -25,9 +25,7 @@
 
 #include <cstddef>
 
-#include "damp/backend.hpp"
-#include "damp/estimation/parameter_estimation.hpp"
-#include "damp/math/math.hpp"
+#include "damp/control.hpp"
 
 namespace damp::examples_fo_plant_inertia {
 

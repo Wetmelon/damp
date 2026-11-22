@@ -72,7 +72,7 @@
  */
 
 #include "damp/backend.hpp"
-#include "damp/controllers/law_detail.hpp"
+#include "damp/controllers/law.hpp"       // IWYU pragma: export
 #include "damp/design/pole_placement.hpp" // design::place (dual placement)
 #include "damp/design/stability.hpp"
 #include "damp/design/status.hpp"

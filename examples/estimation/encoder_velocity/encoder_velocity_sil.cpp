@@ -16,8 +16,7 @@
 #include <numbers>
 #include <vector>
 
-#include "damp/backend.hpp"
-#include "damp/filters/differentiator.hpp"
+#include "damp/control.hpp"
 #include "damp/simulation/plot_plotly.hpp"
 #include "encoder_velocity_estimator.hpp"
 #include "fmt/base.h"

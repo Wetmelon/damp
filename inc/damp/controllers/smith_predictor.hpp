@@ -68,7 +68,7 @@
 
 #include "damp/backend.hpp"
 #include "damp/concepts.hpp"
-#include "damp/controllers/law_detail.hpp"
+#include "damp/controllers/detail/law_detail.hpp"
 #include "damp/controllers/pid.hpp"
 #include "damp/design/pid_design.hpp"
 #include "damp/design/status.hpp"

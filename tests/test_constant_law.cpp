@@ -13,7 +13,7 @@
 
 #include "damp/backend.hpp"
 #include "damp/controllers/adrc.hpp"
-#include "damp/controllers/law_detail.hpp"
+#include "damp/controllers/detail/law_detail.hpp"
 #include "damp/controllers/lqg.hpp"
 #include "damp/controllers/lqgi.hpp"
 #include "damp/controllers/lqi.hpp"

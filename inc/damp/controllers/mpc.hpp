@@ -149,9 +149,9 @@
  */
 
 #include "damp/backend.hpp"
-#include "damp/controllers/law_detail.hpp"
+#include "damp/controllers/law.hpp" // IWYU pragma: export
 #include "damp/controllers/state_feedback_types.hpp"
-#include "damp/design/disturbance.hpp"
+#include "damp/design/disturbance.hpp" // IWYU pragma: export
 #include "damp/design/invariant_set.hpp"
 #include "damp/design/options.hpp"
 #include "damp/design/qp.hpp"
@@ -159,7 +159,7 @@
 #include "damp/design/status.hpp"
 #include "damp/design/steady_state_target.hpp"
 #include "damp/estimation/fixed_gain_observer.hpp"
-#include "damp/estimation/kalman.hpp"
+#include "damp/estimation/kalman.hpp" // IWYU pragma: export
 #include "damp/math/complex.hpp"
 #include "damp/math/math.hpp"
 #include "damp/matrix/block.hpp"

@@ -55,6 +55,7 @@
 #include "damp/design/pole_placement.hpp"
 #include "damp/design/qp.hpp"
 #include "damp/design/riccati.hpp"
+#include "damp/design/stability.hpp"
 #include "damp/design/status.hpp"
 #include "damp/estimation/kalman.hpp"
 #include "damp/filters/biquad.hpp"
@@ -68,7 +69,6 @@
 #include "damp/systems/transfer_function.hpp"
 #include "damp/systems/zeros.hpp"
 #include "damp/systems/zpk.hpp"
-#include "design/stability.hpp"
 
 namespace damp {
 // MATLAB®-style matrix functions

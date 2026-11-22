@@ -27,7 +27,7 @@
  */
 
 #include "damp/backend.hpp"
-#include "damp/estimation/joseph.hpp"
+#include "damp/estimation/joseph.hpp" // IWYU pragma: export
 #include "damp/math/geometry.hpp"
 #include "damp/math/math.hpp"
 #include "damp/matrix/matrix.hpp"

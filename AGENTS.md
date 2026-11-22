@@ -189,6 +189,22 @@ Plant builders and host sim are not this ladder.
   on `damp::tuple`; use `damp::get`.
 - No virtuals, heap, exceptions, or global mutable state in core.
 - No backwards-compat burden: clarity over API stability.
+- **Headers:** a name users spell is in a public header; `detail/` holds `detail::`
+  only. A public header exports (`// IWYU pragma: export`) what its users name to
+  call and deploy it: `Law` (`controllers/law.hpp`, through the header that
+  specializes it), its configs and results, and the option types only its designs
+  take (`KalmanNoise`, the disturbance specs). Vocabulary types (`Matrix`,
+  `StateSpace`, `Bounds`, `InputDelay`) are the user's own includes, or come with
+  `control.hpp`, the front door, which exports every public header,
+  `backend.hpp` and `math/math.hpp`. A part of an umbrella (`matrix/core.hpp`, …) says
+  `// IWYU pragma: private, include "damp/matrix/matrix.hpp"`, so the cleaner asks
+  for the umbrella. Every `detail/` header says `// IWYU pragma: private`, and a
+  private header's exports stop at it: a public header exports the public ones
+  its users name itself (`lqr.hpp` exports `law.hpp`, not only through
+  `detail/lq_law.hpp`). The examples include `control.hpp` (`workbench.hpp` in a
+  SIL that simulates), and only the headers outside it (`motor/`, `kinematics/`,
+  `plot_plotly.hpp`) by name. A `detail/` include that `make iwyu` asks for in an
+  example is a missing export.
 
 ### Docs (Doxygen)
 

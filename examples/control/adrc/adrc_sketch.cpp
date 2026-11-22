@@ -14,7 +14,7 @@
  */
 
 #include "adrc_controller.hpp"
-#include "damp/controllers/adrc.hpp"
+#include "damp/control.hpp"
 
 using namespace damp;
 using namespace damp::examples_adrc;

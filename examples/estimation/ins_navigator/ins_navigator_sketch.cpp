@@ -13,9 +13,7 @@
  * Host 3D SIL of the same densities: estimation/ins_eskf/
  */
 
-#include "damp/estimation/ins_eskf.hpp"
-#include "damp/estimation/ins_mechanization.hpp"
-#include "damp/matrix/matrix.hpp"
+#include "damp/control.hpp"
 #include "ins_navigator_estimator.hpp"
 
 using namespace damp;

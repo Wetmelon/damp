@@ -15,7 +15,7 @@
  */
 
 #include "damp/backend.hpp"
-#include "damp/controllers/law_detail.hpp"
+#include "damp/controllers/law.hpp"
 #include "damp/design/detail/config.hpp"
 #include "damp/design/status.hpp"
 #include "damp/design/steady_state_target.hpp"

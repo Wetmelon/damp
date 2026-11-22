@@ -47,7 +47,7 @@
 
 #include "damp/backend.hpp"
 #include "damp/controllers/detail/state_feedback_options.hpp"
-#include "damp/controllers/law_detail.hpp"
+#include "damp/controllers/law.hpp"
 #include "damp/controllers/mpc.hpp"
 #include "damp/controllers/state_feedback.hpp"
 #include "damp/controllers/state_feedback_types.hpp"

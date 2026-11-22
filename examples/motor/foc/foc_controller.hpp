@@ -14,8 +14,7 @@
 
 #pragma once
 
-#include "damp/backend.hpp"
-#include "damp/math/transforms.hpp"
+#include "damp/control.hpp"
 #include "damp/motor/foc.hpp"
 #include "damp/motor/spm.hpp"
 

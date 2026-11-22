@@ -4,6 +4,7 @@
 // (See accompanying file LICENSE or copy at http://www.boost.org/LICENSE_1_0.txt)
 
 #pragma once
+// IWYU pragma: private, include "damp/math/math.hpp"
 
 /**
  * @file math_backend.hpp
@@ -50,12 +51,12 @@ struct MathBackend;
 #if defined(DAMP_MATH_BACKEND_HEADER)
 #include DAMP_MATH_BACKEND_HEADER // IWYU pragma: keep
 #elif defined(DAMP_MATH_BACKEND_FREESTANDING)
-#include "series_backend.hpp" // IWYU pragma: keep
+#include "damp/math/series_backend.hpp" // IWYU pragma: keep
 #elif defined(DAMP_MATH_BACKEND_DAMP)
-#include "damp_backend.hpp" // IWYU pragma: keep
+#include "damp/math/damp_backend.hpp" // IWYU pragma: keep
 #else
 // Default: the std:: (\<cmath\>) backend — StdMathFallback unmodified.
-#include "std_fallback.hpp" // IWYU pragma: keep
+#include "damp/math/std_fallback.hpp" // IWYU pragma: keep
 namespace damp {
 
 template<>

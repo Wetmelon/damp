@@ -33,8 +33,7 @@
  * Example: relay autotune for a discrete plant, then apply Ziegler-Nichols.
  * @code
  * #include "damp/backend.hpp"
-#include "damp/design/status.hpp"
-#include "damp/estimation/relay_autotune.hpp"
+ * #include "damp/estimation/relay_autotune.hpp"
  * #include "damp/design/pid_design.hpp"
  *
  * using namespace damp;

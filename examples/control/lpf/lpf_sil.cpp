@@ -8,7 +8,7 @@
  * @brief Low-pass filter — host step-response demo (calls lpf_filter.hpp)
  */
 
-#include "damp/filters/filters.hpp"
+#include "damp/control.hpp"
 #include "fmt/base.h"
 #include "fmt/core.h"
 #include "lpf_filter.hpp"

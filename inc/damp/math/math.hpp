@@ -23,9 +23,9 @@
  */
 
 
-#include "constexpr_math.hpp"
 #include "damp/backend.hpp"
-#include "math_backend.hpp"
+#include "damp/math/constexpr_math.hpp" // IWYU pragma: export
+#include "damp/math/math_backend.hpp"   // IWYU pragma: export
 
 namespace damp {
 

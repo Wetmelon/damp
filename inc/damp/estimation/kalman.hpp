@@ -31,7 +31,7 @@
  */
 
 #include "damp/backend.hpp"
-#include "damp/controllers/law_detail.hpp"
+#include "damp/controllers/detail/law_detail.hpp"
 #include "damp/design/disturbance.hpp"
 #include "damp/design/options.hpp"
 #include "damp/design/riccati.hpp"

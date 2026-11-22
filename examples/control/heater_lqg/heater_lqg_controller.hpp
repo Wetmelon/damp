@@ -17,15 +17,7 @@
 
 #pragma once
 
-#include "damp/backend.hpp"
-#include "damp/controllers/detail/lq_law.hpp"
-#include "damp/controllers/oflqg.hpp"
-#include "damp/controllers/state_feedback.hpp"
-#include "damp/design/disturbance.hpp"
-#include "damp/matrix/colvec.hpp"
-#include "damp/matrix/core.hpp"
-#include "damp/systems/discretization.hpp"
-#include "damp/systems/state_space.hpp"
+#include "damp/control.hpp"
 
 namespace damp::examples_heater_lqg {
 

@@ -7,6 +7,7 @@
 #include <cmath>
 #include <cstddef>
 
+#include "damp/backend.hpp"
 #include "damp/controllers/lqg.hpp"
 #include "damp/controllers/lqgi.hpp"
 #include "damp/controllers/oflqg.hpp"

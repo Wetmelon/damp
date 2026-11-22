@@ -41,13 +41,18 @@
  */
 
 // --- Linear algebra + math core ---------------------------------------------
-#include "damp/matrix/matrix.hpp" // IWYU pragma: export
+#include "damp/backend.hpp"         // IWYU pragma: export
+#include "damp/math/complex.hpp"    // IWYU pragma: export
+#include "damp/math/math.hpp"       // IWYU pragma: export
+#include "damp/math/split_real.hpp" // IWYU pragma: export
+#include "damp/matrix/matrix.hpp"   // IWYU pragma: export
 
 // --- Runtime taxonomy (controller/estimator/source concepts) -----------------
 #include "damp/concepts.hpp" // IWYU pragma: export
 
 // --- LTI system types -------------------------------------------------------
 #include "damp/systems/discretization.hpp"    // IWYU pragma: export
+#include "damp/systems/dynamics.hpp"          // IWYU pragma: export
 #include "damp/systems/realization.hpp"       // IWYU pragma: export
 #include "damp/systems/state_space.hpp"       // IWYU pragma: export
 #include "damp/systems/transfer_function.hpp" // IWYU pragma: export
@@ -55,19 +60,22 @@
 #include "damp/systems/zpk.hpp"               // IWYU pragma: export
 
 // --- Design / CST synthesis (init / offline) --------------------------------
-#include "damp/design/config.hpp"          // IWYU pragma: export
-#include "damp/design/linearization.hpp"   // IWYU pragma: export
-#include "damp/design/lyapunov.hpp"        // IWYU pragma: export
-#include "damp/design/minreal.hpp"         // IWYU pragma: export
-#include "damp/design/model_inverse.hpp"   // IWYU pragma: export
-#include "damp/design/model_reduction.hpp" // IWYU pragma: export
-#include "damp/design/options.hpp"         // IWYU pragma: export
-#include "damp/design/pid_design.hpp"      // IWYU pragma: export
-#include "damp/design/pole_placement.hpp"  // IWYU pragma: export
-#include "damp/design/qp.hpp"              // IWYU pragma: export
-#include "damp/design/riccati.hpp"         // IWYU pragma: export
-#include "damp/design/stability.hpp"       // IWYU pragma: export
-#include "damp/design/status.hpp"          // IWYU pragma: export
+#include "damp/design/config.hpp"              // IWYU pragma: export
+#include "damp/design/invariant_set.hpp"       // IWYU pragma: export
+#include "damp/design/linearization.hpp"       // IWYU pragma: export
+#include "damp/design/lyapunov.hpp"            // IWYU pragma: export
+#include "damp/design/minreal.hpp"             // IWYU pragma: export
+#include "damp/design/model_inverse.hpp"       // IWYU pragma: export
+#include "damp/design/model_reduction.hpp"     // IWYU pragma: export
+#include "damp/design/model_result.hpp"        // IWYU pragma: export
+#include "damp/design/options.hpp"             // IWYU pragma: export
+#include "damp/design/pid_design.hpp"          // IWYU pragma: export
+#include "damp/design/pole_placement.hpp"      // IWYU pragma: export
+#include "damp/design/qp.hpp"                  // IWYU pragma: export
+#include "damp/design/riccati.hpp"             // IWYU pragma: export
+#include "damp/design/stability.hpp"           // IWYU pragma: export
+#include "damp/design/status.hpp"              // IWYU pragma: export
+#include "damp/design/steady_state_target.hpp" // IWYU pragma: export
 
 // --- Core DiD controllers ---------------------------------------------------
 #include "damp/controllers/action_governor.hpp"      // IWYU pragma: export
@@ -75,7 +83,7 @@
 #include "damp/controllers/composition.hpp"          // IWYU pragma: export
 #include "damp/controllers/esc.hpp"                  // IWYU pragma: export
 #include "damp/controllers/harmonic_suppression.hpp" // IWYU pragma: export
-#include "damp/controllers/law_detail.hpp"           // IWYU pragma: export
+#include "damp/controllers/law.hpp"                  // IWYU pragma: export
 #include "damp/controllers/lead_lag.hpp"             // IWYU pragma: export
 #include "damp/controllers/lqg.hpp"                  // IWYU pragma: export
 #include "damp/controllers/lqgi.hpp"                 // IWYU pragma: export
@@ -98,6 +106,7 @@
 #include "damp/estimation/eso.hpp"                   // IWYU pragma: export
 #include "damp/estimation/fixed_gain_observer.hpp"   // IWYU pragma: export
 #include "damp/estimation/ins_eskf.hpp"              // IWYU pragma: export
+#include "damp/estimation/ins_mechanization.hpp"     // IWYU pragma: export
 #include "damp/estimation/kalman.hpp"                // IWYU pragma: export
 #include "damp/estimation/mhe.hpp"                   // IWYU pragma: export
 #include "damp/estimation/rls.hpp"                   // IWYU pragma: export

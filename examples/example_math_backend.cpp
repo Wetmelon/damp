@@ -52,8 +52,7 @@
 #include <cstdio>
 #include <numbers>
 
-#include "damp/math/transforms.hpp"
-#include "damp/matrix/colvec.hpp"
+#include "damp/control.hpp"
 
 using namespace damp;
 

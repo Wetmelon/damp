@@ -25,7 +25,7 @@
 #include "damp/backend.hpp"
 #include "damp/math/math.hpp"
 #include "damp/matrix/matrix_traits.hpp"
-#include "state_space.hpp"
+#include "damp/systems/state_space.hpp"
 
 namespace damp {
 

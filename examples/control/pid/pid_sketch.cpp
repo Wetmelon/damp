@@ -13,7 +13,7 @@
  * SIL: pid_sil.cpp (same controller header).
  */
 
-#include "damp/controllers/pid.hpp"
+#include "damp/control.hpp"
 #include "pid_controller.hpp"
 
 using namespace damp;

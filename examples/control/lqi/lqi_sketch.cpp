@@ -11,8 +11,7 @@
  * SIL: lqi_sil.cpp (same tick).
  */
 
-#include "damp/controllers/lqi.hpp"
-#include "damp/matrix/colvec.hpp"
+#include "damp/control.hpp"
 #include "lqi_controller.hpp"
 
 using namespace damp;

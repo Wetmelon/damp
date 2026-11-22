@@ -29,27 +29,7 @@
 
 #include <cstddef>
 
-#include "damp/backend.hpp"
-#include "damp/controllers/adrc.hpp"
-#include "damp/controllers/lqg.hpp"
-#include "damp/controllers/lqgi.hpp"
-#include "damp/controllers/lqi.hpp"
-#include "damp/controllers/lqr.hpp"
-#include "damp/controllers/mpc.hpp"
-#include "damp/controllers/pid.hpp"
-#include "damp/controllers/smc.hpp"
-#include "damp/controllers/state_feedback.hpp"
-#include "damp/controllers/state_feedback_types.hpp"
-#include "damp/controllers/stsmc.hpp"
-#include "damp/design/disturbance.hpp"
-#include "damp/design/pid_design.hpp"
-#include "damp/design/pole_placement.hpp"
-#include "damp/estimation/kalman.hpp"
-#include "damp/math/complex.hpp"
-#include "damp/matrix/matrix.hpp"
-#include "damp/systems/discretization.hpp"
-#include "damp/systems/state_space.hpp"
-#include "damp/systems/transfer_function.hpp"
+#include "damp/control.hpp"
 
 namespace damp::examples_reaction_wheel {
 

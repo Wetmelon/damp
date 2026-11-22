@@ -14,8 +14,7 @@
 
 #include <cstddef>
 
-#include "damp/estimation/parameter_estimation.hpp"
-#include "damp/math/math.hpp"
+#include "damp/control.hpp"
 #include "fmt/core.h"
 #include "fo_plant_inertia_estimator.hpp"
 

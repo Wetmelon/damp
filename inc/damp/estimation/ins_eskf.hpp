@@ -65,13 +65,13 @@
  */
 
 #include "damp/backend.hpp"
+#include "damp/estimation/eskf.hpp"
+#include "damp/estimation/ins_mechanization.hpp"
 #include "damp/math/geometry.hpp"
 #include "damp/math/math.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "damp/matrix/matrix_traits.hpp"
 #include "damp/matrix/pattern_matrix.hpp"
-#include "eskf.hpp"
-#include "ins_mechanization.hpp"
 
 namespace damp {
 

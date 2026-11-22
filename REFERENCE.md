@@ -137,82 +137,82 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 
 | Name | Description |
 | ---- | ----------- |
-| [`Block`](inc/damp/matrix/block.hpp#L36) | Block view (non-owning) into a parent matrix |
-| [`ColVec`](inc/damp/matrix/colvec.hpp#L27) | Concrete Column vector specialization of Matrix<N, 1, T> |
-| [`ColView`](inc/damp/matrix/views.hpp#L330) | Non-owning column view of a matrix |
-| [`ConstMatrix`](inc/damp/matrix/const_matrix.hpp#L86) | A matrix that is a constant of its type: no storage, and a product with a vector that has no term for an entry that is exactly 0 |
-| [`ConvertsExactly`](inc/damp/matrix/matrix_traits.hpp#L76) | Matrix elements of type From convert to To without rounding: the same type, or a real into the complex of its own precision |
-| [`Diagonal`](inc/damp/matrix/views.hpp#L29) | Diagonal view of a square matrix |
-| [`EigenResult`](inc/damp/matrix/eigen.hpp#L39) | Eigenvalue computation result |
-| [`FullQR`](inc/damp/matrix/decomposition.hpp#L789) | Result of a full (complete) QR factorization |
-| [`GeneralizedEigenResult`](inc/damp/matrix/generalized_eigen.hpp#L61) | Generalized eigenvalues of A − λB: the finite ones, and how many there are |
-| [`is_matrix_element`](inc/damp/matrix/matrix_traits.hpp#L38) | True if T may be a Matrix element type |
-| [`LDLT`](inc/damp/matrix/decomposition.hpp#L175) | LDLᴴ factors with symmetric pivoting: P·A·Pᵀ = L·D·Lᴴ, D block diagonal with 1×1 and 2×2 blocks |
-| [`LowerTriangle`](inc/damp/matrix/views.hpp#L163) | Lower triangular view of a square matrix |
-| [`Matrix`](inc/damp/matrix/core.hpp#L295) | Fixed-size, stack-allocated matrix for linear algebra operations |
-| [`MatrixLike`](inc/damp/matrix/matrix_traits.hpp#L94) | Concept for any type that provides 2D matrix-like element access |
-| [`MatrixLikeOf`](inc/damp/matrix/matrix_traits.hpp#L104) | Concept for a MatrixLike type with specific dimensions |
-| [`NullSpace`](inc/damp/matrix/svd.hpp#L457) | Orthonormal basis for the null space (kernel) of a matrix |
-| [`PatternEntry`](inc/damp/matrix/pattern_matrix.hpp#L21) | What an entry of a sparsity pattern is known to be at compile time |
-| [`PatternMatrix`](inc/damp/matrix/pattern_matrix.hpp#L225) | The runtime values of a sparsity pattern, and nothing else: an entry the pattern knows has no storage, and in a product it has no term (a 0) or no multiply (a 1) |
-| [`QRDecomposition`](inc/damp/matrix/decomposition.hpp#L678) | Thin QR factorization A = QR (Householder) |
-| [`RowVec`](inc/damp/matrix/rowvec.hpp#L26) | Row vector specialization of Matrix<1, N, T> |
-| [`RowView`](inc/damp/matrix/views.hpp#L201) | Non-owning row view of a matrix |
-| [`SamePrecision`](inc/damp/matrix/matrix_traits.hpp#L83) | Two matrix element types mix in one operator without rounding: equal, or a real and the complex of its own precision |
-| [`SparsityPattern`](inc/damp/matrix/pattern_matrix.hpp#L52) | Which entries of an R × C matrix are exactly 0, exactly 1, or known only at run time |
-| [`SVDResult`](inc/damp/matrix/svd.hpp#L47) | Result of a full singular value decomposition A = U·Σ·Vᴴ |
-| [`TransposeView`](inc/damp/matrix/views.hpp#L454) | Non-owning transpose view of a matrix (zero-copy) |
-| [`UpperTriangle`](inc/damp/matrix/views.hpp#L122) | Upper triangular view of a square matrix |
+| [`Block`](inc/damp/matrix/block.hpp#L37) | Block view (non-owning) into a parent matrix |
+| [`ColVec`](inc/damp/matrix/colvec.hpp#L28) | Concrete Column vector specialization of Matrix<N, 1, T> |
+| [`ColView`](inc/damp/matrix/views.hpp#L331) | Non-owning column view of a matrix |
+| [`ConstMatrix`](inc/damp/matrix/const_matrix.hpp#L87) | A matrix that is a constant of its type: no storage, and a product with a vector that has no term for an entry that is exactly 0 |
+| [`ConvertsExactly`](inc/damp/matrix/matrix_traits.hpp#L77) | Matrix elements of type From convert to To without rounding: the same type, or a real into the complex of its own precision |
+| [`Diagonal`](inc/damp/matrix/views.hpp#L30) | Diagonal view of a square matrix |
+| [`EigenResult`](inc/damp/matrix/eigen.hpp#L40) | Eigenvalue computation result |
+| [`FullQR`](inc/damp/matrix/decomposition.hpp#L790) | Result of a full (complete) QR factorization |
+| [`GeneralizedEigenResult`](inc/damp/matrix/generalized_eigen.hpp#L62) | Generalized eigenvalues of A − λB: the finite ones, and how many there are |
+| [`is_matrix_element`](inc/damp/matrix/matrix_traits.hpp#L39) | True if T may be a Matrix element type |
+| [`LDLT`](inc/damp/matrix/decomposition.hpp#L176) | LDLᴴ factors with symmetric pivoting: P·A·Pᵀ = L·D·Lᴴ, D block diagonal with 1×1 and 2×2 blocks |
+| [`LowerTriangle`](inc/damp/matrix/views.hpp#L164) | Lower triangular view of a square matrix |
+| [`Matrix`](inc/damp/matrix/core.hpp#L296) | Fixed-size, stack-allocated matrix for linear algebra operations |
+| [`MatrixLike`](inc/damp/matrix/matrix_traits.hpp#L95) | Concept for any type that provides 2D matrix-like element access |
+| [`MatrixLikeOf`](inc/damp/matrix/matrix_traits.hpp#L105) | Concept for a MatrixLike type with specific dimensions |
+| [`NullSpace`](inc/damp/matrix/svd.hpp#L458) | Orthonormal basis for the null space (kernel) of a matrix |
+| [`PatternEntry`](inc/damp/matrix/pattern_matrix.hpp#L22) | What an entry of a sparsity pattern is known to be at compile time |
+| [`PatternMatrix`](inc/damp/matrix/pattern_matrix.hpp#L226) | The runtime values of a sparsity pattern, and nothing else: an entry the pattern knows has no storage, and in a product it has no term (a 0) or no multiply (a 1) |
+| [`QRDecomposition`](inc/damp/matrix/decomposition.hpp#L679) | Thin QR factorization A = QR (Householder) |
+| [`RowVec`](inc/damp/matrix/rowvec.hpp#L27) | Row vector specialization of Matrix<1, N, T> |
+| [`RowView`](inc/damp/matrix/views.hpp#L202) | Non-owning row view of a matrix |
+| [`SamePrecision`](inc/damp/matrix/matrix_traits.hpp#L84) | Two matrix element types mix in one operator without rounding: equal, or a real and the complex of its own precision |
+| [`SparsityPattern`](inc/damp/matrix/pattern_matrix.hpp#L53) | Which entries of an R × C matrix are exactly 0, exactly 1, or known only at run time |
+| [`SVDResult`](inc/damp/matrix/svd.hpp#L48) | Result of a full singular value decomposition A = U·Σ·Vᴴ |
+| [`TransposeView`](inc/damp/matrix/views.hpp#L455) | Non-owning transpose view of a matrix (zero-copy) |
+| [`UpperTriangle`](inc/damp/matrix/views.hpp#L123) | Upper triangular view of a square matrix |
 
 **Functions**
 
 | Name | Description |
 | ---- | ----------- |
-| [`all_of`](inc/damp/matrix/core.hpp#L1550) | Whether p holds for every entry of A: the matrix counterpart of std::all_of |
-| [`any_of`](inc/damp/matrix/core.hpp#L1574) | Whether p holds for some entry of A: the matrix counterpart of std::any_of |
-| [`backward_substitute_transpose`](inc/damp/matrix/solve.hpp#L76) | Backward substitution for Lᴴx = b (Lᵀx = b for real T) |
-| [`blkdiag`](inc/damp/matrix/concat.hpp#L132) | Block-diagonal assembly of MatrixLike arguments |
-| [`cholesky`](inc/damp/matrix/decomposition.hpp#L128) | Cholesky decomposition for positive-definite matrices |
-| [`cholesky_solve`](inc/damp/matrix/solve.hpp#L162) | Solve AX = B via Cholesky (A = LLᴴ) |
-| [`compute_eigenvalues`](inc/damp/matrix/eigen.hpp#L1154) | Compute the eigenvalues (and Schur vectors) of a real square matrix |
-| [`cos`](inc/damp/matrix/functions.hpp#L1351) | Matrix cosine via scaling and double-angle reconstruction |
-| [`cosh`](inc/damp/matrix/functions.hpp#L1385) | Matrix hyperbolic cosine cosh(A) = (exp(A) + exp(−A))/2 |
-| [`default_tol`](inc/damp/matrix/matrix_traits.hpp#L121) | Type-appropriate default tolerance for floating-point comparisons. float  ~7 decimal digits  → 1e-6 double ~15 decimal digits → 1e-12 |
-| [`det`](inc/damp/matrix/functions.hpp#L173) | Matrix determinant det(A) |
-| [`diag`](inc/damp/matrix/concat.hpp#L52) | Square diagonal matrix from scalars: diag(10.0, 0.1, 100.0, 10.0) (+4 more overloads) |
-| [`eps`](inc/damp/matrix/matrix_traits.hpp#L111) | Machine epsilon of T's real scalar (MATLAB® eps). Scale it by problem size and magnitude to build a relative tolerance |
-| [`expm`](inc/damp/matrix/functions.hpp#L696) | Matrix exponential by scaling and squaring (Al-Mohy & Higham 2009) |
-| [`forward_substitute`](inc/damp/matrix/solve.hpp#L52) | Forward substitution for Lx = b |
-| [`full_qr`](inc/damp/matrix/decomposition.hpp#L807) | Full QR factorization via Householder reflections (real or complex T) |
-| [`generalized_eigenvalues`](inc/damp/matrix/generalized_eigen.hpp#L621) | Generalized eigenvalues of the real pencil A − λB: the λ with det(A − λB) = 0 |
-| [`hcat`](inc/damp/matrix/concat.hpp#L156) | Horizontal concatenation (same row count) |
-| [`infinity_norm`](inc/damp/matrix/functions.hpp#L39) | Infinity norm ‖A‖∞: maximum absolute row sum |
-| [`inverse`](inc/damp/matrix/solve.hpp#L315) | Matrix inverse A⁻¹ via mat::solve(A, I) |
-| [`is_symmetric_or_hermitian`](inc/damp/matrix/decomposition.hpp#L89) | True if A equals its transpose (real) or conjugate transpose (complex) |
-| [`ldlt`](inc/damp/matrix/decomposition.hpp#L482) | Symmetric indefinite LDLᴴ with rook pivoting: P·A·Pᵀ = L·D·Lᴴ, D block diagonal (1×1 and 2×2) |
-| [`ldlt_solve`](inc/damp/matrix/solve.hpp#L193) | Solve AX = B via pivoted LDLᴴ (P·A·Pᵀ = L·D·Lᴴ, symmetric indefinite) |
-| [`log`](inc/damp/matrix/functions.hpp#L1028) | Principal matrix logarithm via inverse scaling and squaring |
-| [`lu_decomposition`](inc/damp/matrix/decomposition.hpp#L533) | LU decomposition with partial pivoting |
-| [`lu_solve`](inc/damp/matrix/solve.hpp#L237) | Solve AX = B via LU with partial pivoting |
-| [`null_space`](inc/damp/matrix/svd.hpp#L477) | Orthonormal basis for the null space {x : A·x = 0} via SVD |
-| [`one_norm`](inc/damp/matrix/functions.hpp#L68) | One-norm ‖A‖₁: maximum absolute column sum |
-| [`pow`](inc/damp/matrix/functions.hpp#L1131) | Integer matrix power via binary exponentiation (+1 more overload) |
-| [`pseudo_inverse`](inc/damp/matrix/svd.hpp#L426) | Moore–Penrose pseudoinverse A⁺ via SVD |
-| [`qr_decompose`](inc/damp/matrix/decomposition.hpp#L718) | Thin QR via Householder reflections |
-| [`quadratic_form`](inc/damp/matrix/core.hpp#L1379) | Symmetric congruence (quadratic) form  S = M X Mᵀ (+1 more overload) |
-| [`quadratic_form_in_place`](inc/damp/matrix/pattern_matrix.hpp#L351) | S ← F S Fᵀ in place, for a symmetric S: every multiply the pattern can skip, skipped |
-| [`rank`](inc/damp/matrix/functions.hpp#L235) | Numerical rank: the number of singular values above rel_tol·σₘₐₓ |
-| [`rank_from_svd`](inc/damp/matrix/svd.hpp#L390) | Numerical rank from a precomputed SVD result |
-| [`sin`](inc/damp/matrix/functions.hpp#L1334) | Matrix sine via scaling and double-angle reconstruction |
-| [`sincos`](inc/damp/matrix/functions.hpp#L1318) | Compute sin(A) and cos(A) together via scaling and double-angle reconstruction |
-| [`sinh`](inc/damp/matrix/functions.hpp#L1369) | Matrix hyperbolic sine sinh(A) = (exp(A) − exp(−A))/2 |
-| [`solve`](inc/damp/matrix/solve.hpp#L287) | Solve AX = B — Cholesky when Hermitian, else LU (+2 more overloads) |
-| [`sqrt`](inc/damp/matrix/functions.hpp#L982) | Principal matrix square root by the real Schur method |
-| [`svd`](inc/damp/matrix/svd.hpp#L356) | Full singular value decomposition A = U·Σ·Vᴴ (one-sided Jacobi) |
-| [`times_transpose`](inc/damp/matrix/pattern_matrix.hpp#L327) | A dense matrix times Hᵀ for a sparse H: A Hᵀ |
-| [`transform`](inc/damp/matrix/core.hpp#L1526) | Apply f to every entry, B(i, j) = f(A(i, j)): the matrix counterpart of std::transform |
-| [`two_norm`](inc/damp/matrix/functions.hpp#L105) | Spectral norm ‖A‖₂ = σₘₐₓ(A) |
-| [`vcat`](inc/damp/matrix/concat.hpp#L179) | Vertical concatenation (same column count) |
+| [`all_of`](inc/damp/matrix/core.hpp#L1551) | Whether p holds for every entry of A: the matrix counterpart of std::all_of |
+| [`any_of`](inc/damp/matrix/core.hpp#L1575) | Whether p holds for some entry of A: the matrix counterpart of std::any_of |
+| [`backward_substitute_transpose`](inc/damp/matrix/solve.hpp#L77) | Backward substitution for Lᴴx = b (Lᵀx = b for real T) |
+| [`blkdiag`](inc/damp/matrix/concat.hpp#L133) | Block-diagonal assembly of MatrixLike arguments |
+| [`cholesky`](inc/damp/matrix/decomposition.hpp#L129) | Cholesky decomposition for positive-definite matrices |
+| [`cholesky_solve`](inc/damp/matrix/solve.hpp#L163) | Solve AX = B via Cholesky (A = LLᴴ) |
+| [`compute_eigenvalues`](inc/damp/matrix/eigen.hpp#L1155) | Compute the eigenvalues (and Schur vectors) of a real square matrix |
+| [`cos`](inc/damp/matrix/functions.hpp#L1352) | Matrix cosine via scaling and double-angle reconstruction |
+| [`cosh`](inc/damp/matrix/functions.hpp#L1386) | Matrix hyperbolic cosine cosh(A) = (exp(A) + exp(−A))/2 |
+| [`default_tol`](inc/damp/matrix/matrix_traits.hpp#L122) | Type-appropriate default tolerance for floating-point comparisons. float  ~7 decimal digits  → 1e-6 double ~15 decimal digits → 1e-12 |
+| [`det`](inc/damp/matrix/functions.hpp#L174) | Matrix determinant det(A) |
+| [`diag`](inc/damp/matrix/concat.hpp#L53) | Square diagonal matrix from scalars: diag(10.0, 0.1, 100.0, 10.0) (+4 more overloads) |
+| [`eps`](inc/damp/matrix/matrix_traits.hpp#L112) | Machine epsilon of T's real scalar (MATLAB® eps). Scale it by problem size and magnitude to build a relative tolerance |
+| [`expm`](inc/damp/matrix/functions.hpp#L697) | Matrix exponential by scaling and squaring (Al-Mohy & Higham 2009) |
+| [`forward_substitute`](inc/damp/matrix/solve.hpp#L53) | Forward substitution for Lx = b |
+| [`full_qr`](inc/damp/matrix/decomposition.hpp#L808) | Full QR factorization via Householder reflections (real or complex T) |
+| [`generalized_eigenvalues`](inc/damp/matrix/generalized_eigen.hpp#L622) | Generalized eigenvalues of the real pencil A − λB: the λ with det(A − λB) = 0 |
+| [`hcat`](inc/damp/matrix/concat.hpp#L157) | Horizontal concatenation (same row count) |
+| [`infinity_norm`](inc/damp/matrix/functions.hpp#L40) | Infinity norm ‖A‖∞: maximum absolute row sum |
+| [`inverse`](inc/damp/matrix/solve.hpp#L316) | Matrix inverse A⁻¹ via mat::solve(A, I) |
+| [`is_symmetric_or_hermitian`](inc/damp/matrix/decomposition.hpp#L90) | True if A equals its transpose (real) or conjugate transpose (complex) |
+| [`ldlt`](inc/damp/matrix/decomposition.hpp#L483) | Symmetric indefinite LDLᴴ with rook pivoting: P·A·Pᵀ = L·D·Lᴴ, D block diagonal (1×1 and 2×2) |
+| [`ldlt_solve`](inc/damp/matrix/solve.hpp#L194) | Solve AX = B via pivoted LDLᴴ (P·A·Pᵀ = L·D·Lᴴ, symmetric indefinite) |
+| [`log`](inc/damp/matrix/functions.hpp#L1029) | Principal matrix logarithm via inverse scaling and squaring |
+| [`lu_decomposition`](inc/damp/matrix/decomposition.hpp#L534) | LU decomposition with partial pivoting |
+| [`lu_solve`](inc/damp/matrix/solve.hpp#L238) | Solve AX = B via LU with partial pivoting |
+| [`null_space`](inc/damp/matrix/svd.hpp#L478) | Orthonormal basis for the null space {x : A·x = 0} via SVD |
+| [`one_norm`](inc/damp/matrix/functions.hpp#L69) | One-norm ‖A‖₁: maximum absolute column sum |
+| [`pow`](inc/damp/matrix/functions.hpp#L1132) | Integer matrix power via binary exponentiation (+1 more overload) |
+| [`pseudo_inverse`](inc/damp/matrix/svd.hpp#L427) | Moore–Penrose pseudoinverse A⁺ via SVD |
+| [`qr_decompose`](inc/damp/matrix/decomposition.hpp#L719) | Thin QR via Householder reflections |
+| [`quadratic_form`](inc/damp/matrix/core.hpp#L1380) | Symmetric congruence (quadratic) form  S = M X Mᵀ (+1 more overload) |
+| [`quadratic_form_in_place`](inc/damp/matrix/pattern_matrix.hpp#L352) | S ← F S Fᵀ in place, for a symmetric S: every multiply the pattern can skip, skipped |
+| [`rank`](inc/damp/matrix/functions.hpp#L236) | Numerical rank: the number of singular values above rel_tol·σₘₐₓ |
+| [`rank_from_svd`](inc/damp/matrix/svd.hpp#L391) | Numerical rank from a precomputed SVD result |
+| [`sin`](inc/damp/matrix/functions.hpp#L1335) | Matrix sine via scaling and double-angle reconstruction |
+| [`sincos`](inc/damp/matrix/functions.hpp#L1319) | Compute sin(A) and cos(A) together via scaling and double-angle reconstruction |
+| [`sinh`](inc/damp/matrix/functions.hpp#L1370) | Matrix hyperbolic sine sinh(A) = (exp(A) − exp(−A))/2 |
+| [`solve`](inc/damp/matrix/solve.hpp#L288) | Solve AX = B — Cholesky when Hermitian, else LU (+2 more overloads) |
+| [`sqrt`](inc/damp/matrix/functions.hpp#L983) | Principal matrix square root by the real Schur method |
+| [`svd`](inc/damp/matrix/svd.hpp#L357) | Full singular value decomposition A = U·Σ·Vᴴ (one-sided Jacobi) |
+| [`times_transpose`](inc/damp/matrix/pattern_matrix.hpp#L328) | A dense matrix times Hᵀ for a sparse H: A Hᵀ |
+| [`transform`](inc/damp/matrix/core.hpp#L1527) | Apply f to every entry, B(i, j) = f(A(i, j)): the matrix counterpart of std::transform |
+| [`two_norm`](inc/damp/matrix/functions.hpp#L106) | Spectral norm ‖A‖₂ = σₘₐₓ(A) |
+| [`vcat`](inc/damp/matrix/concat.hpp#L180) | Vertical concatenation (same column count) |
 
 ## LTI systems (SS / TF / ZPK / discretize)
 
@@ -329,21 +329,21 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`QPResult`](inc/damp/design/qp.hpp#L81) | Result of a dense QP solve |
 | [`QPStatus`](inc/damp/design/qp.hpp#L48) | Termination status of a QP solve |
 | [`RepetitiveResult`](inc/damp/controllers/repetitive.hpp#L137) | Design result for the repetitive controller |
-| [`scalar_of`](inc/damp/design/detail/config.hpp#L71) | The scalar of a weight's value; double left out (+2 more overloads) |
+| [`scalar_of`](inc/damp/design/detail/config.hpp#L72) | The scalar of a weight's value; double left out (+2 more overloads) |
 | [`SMCResult`](inc/damp/controllers/smc.hpp#L37) | Tuning parameters for a first-order sliding-mode controller |
 | [`SmithPredictorResult`](inc/damp/controllers/smith_predictor.hpp#L97) | Smith predictor design result (discrete PID + FO model + delay samples) |
 | [`StateFeedbackResult`](inc/damp/controllers/state_feedback_types.hpp#L352) | A state-feedback design: the gain, and the parts the law's options add |
 | [`StateFeedforward`](inc/damp/design/model_inverse.hpp#L818) | The plant-inversion feedforward at run time: u = B⁺·(x ₖ₊₁ − x ₖ) − B⁺(A − I)·x ₖ, two matrix–vector products (+1 more overload) |
 | [`StateFeedforwardResult`](inc/damp/design/model_inverse.hpp#L60) | The plant-inversion feedforward of a discrete model: u ₖ = B⁺·(x ₖ₊₁ − x ₖ) − B⁺(A − I)·x ₖ |
 | [`StateSpaceResult`](inc/damp/design/model_result.hpp#L58) | A designed state-space model with its success / status |
-| [`SteadyStateTarget`](inc/damp/design/steady_state_target.hpp#L412) | The steady-state target at run time: (x_t, u_t) from the reference and the estimated disturbance, two matrix–vector products, and the re-anchoring of a FixedGainObserver on it (+1 more overload) |
-| [`SteadyStateTargetResult`](inc/damp/design/steady_state_target.hpp#L80) | The steady-state target maps: [x_t; u_t] per unit disturbance and per unit reference |
+| [`SteadyStateTarget`](inc/damp/design/steady_state_target.hpp#L411) | The steady-state target at run time: (x_t, u_t) from the reference and the estimated disturbance, two matrix–vector products, and the re-anchoring of a FixedGainObserver on it (+1 more overload) |
+| [`SteadyStateTargetResult`](inc/damp/design/steady_state_target.hpp#L79) | The steady-state target maps: [x_t; u_t] per unit disturbance and per unit reference |
 | [`STSMCResult`](inc/damp/controllers/stsmc.hpp#L35) | Super-twisting (second-order sliding-mode) controller design result |
 | [`TargetConfig`](inc/damp/design/config.hpp#L141) | design::steady_state_target's options as named fields: the disturbance the target holds the outputs under, and the plant's input delay |
-| [`TargetPoint`](inc/damp/design/steady_state_target.hpp#L396) | A state and the input at it: a steady state (SteadyStateTarget), or a point of a reference trajectory (OutputInverse) |
-| [`TrackedOutputs`](inc/damp/design/steady_state_target.hpp#L63) | The outputs a law without integrators or a disturbance model holds at r through its steady-state target (design::state_feedback, with or without a KalmanNoise): `TrackedOutputs{{0}}`, in that order (the references r follow it) (+1 more overload) |
+| [`TargetPoint`](inc/damp/design/steady_state_target.hpp#L395) | A state and the input at it: a steady state (SteadyStateTarget), or a point of a reference trajectory (OutputInverse) |
+| [`TrackedOutputs`](inc/damp/design/steady_state_target.hpp#L62) | The outputs a law without integrators or a disturbance model holds at r through its steady-state target (design::state_feedback, with or without a KalmanNoise): `TrackedOutputs{{0}}`, in that order (the references r follow it) (+1 more overload) |
 | [`TransferFunctionResult`](inc/damp/design/model_result.hpp#L34) | A designed transfer function with its success / status |
-| [`Unset`](inc/damp/design/detail/config.hpp#L29) | A config field left out: that feature is off, or the weight takes its default |
+| [`Unset`](inc/damp/design/detail/config.hpp#L30) | A config field left out: that feature is off, or the weight takes its default |
 | [`WarmStartActiveSetSolver`](inc/damp/design/qp.hpp#L985) | Warm-started active-set solver policy — the damp::MPC default |
 
 **Functions**
@@ -374,7 +374,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`eliminate_states`](inc/damp/design/model_reduction.hpp#L625) | Eliminate the listed states, by DC-matched residualization or truncation |
 | [`esc`](inc/damp/controllers/esc.hpp#L156) | Synthesize an extremum-seeking controller |
 | [`esc_mppt`](inc/damp/controllers/esc.hpp#L200) | MPPT-flavored ESC: maximize a power measurement by perturbing the operating point (e.g. converter duty or reference voltage) |
-| [`every_output`](inc/damp/design/detail/config.hpp#L118) | The default of a list of N outputs: left out |
+| [`every_output`](inc/damp/design/detail/config.hpp#L119) | The default of a list of N outputs: left out |
 | [`ExtremumSeekingController`](inc/damp/controllers/esc.hpp#L384) | Deduce the runtime from its design, keeping the result's scalar |
 | [`fit_at_crossover`](inc/damp/design/pid_design.hpp#L607) | fit_to_response at spec.wc with every gain of sign σ = ±1 |
 | [`fit_to_response`](inc/damp/design/pid_design.hpp#L553) | The requested law with C(jω) = e^{j(−π + PM)}/P(jω), from the plant response P at ω = spec.wc |
@@ -394,11 +394,11 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`lead_lag_direct`](inc/damp/controllers/lead_lag.hpp#L294) | Direct lead-lag specification from zero/pole locations |
 | [`LeadLagController`](inc/damp/controllers/lead_lag.hpp#L464) | Deduce the runtime from its design, keeping the result's scalar |
 | [`linearize`](inc/damp/design/linearization.hpp#L117) | Linearize a Dynamics / Measurement model about an operating point (+1 more overload) |
-| [`LQG`](inc/damp/controllers/lqg.hpp#L197) | LQG law{res}: the sizes, scalar and filter of an LQG design's result |
-| [`lqg_from_parts`](inc/damp/controllers/lqg.hpp#L59) | Assemble an LQG design from separately computed Kalman and LQR designs |
-| [`LQGI`](inc/damp/controllers/lqgi.hpp#L116) | LQGI law{res}: the sizes, scalar and filter of an LQGI design's result |
-| [`LQI`](inc/damp/controllers/lqi.hpp#L117) | LQI law{res}: the sizes and scalar of an LQI design's result |
-| [`LQR`](inc/damp/controllers/lqr.hpp#L174) | LQR law{res}: the sizes and scalar of design::state_feedback's result (+2 more overloads) |
+| [`LQG`](inc/damp/controllers/lqg.hpp#L193) | LQG law{res}: the sizes, scalar and filter of an LQG design's result |
+| [`lqg_from_parts`](inc/damp/controllers/lqg.hpp#L55) | Assemble an LQG design from separately computed Kalman and LQR designs |
+| [`LQGI`](inc/damp/controllers/lqgi.hpp#L113) | LQGI law{res}: the sizes, scalar and filter of an LQGI design's result |
+| [`LQI`](inc/damp/controllers/lqi.hpp#L114) | LQI law{res}: the sizes and scalar of an LQI design's result |
+| [`LQR`](inc/damp/controllers/lqr.hpp#L170) | LQR law{res}: the sizes and scalar of design::state_feedback's result (+2 more overloads) |
 | [`lqr_gain`](inc/damp/design/riccati.hpp#L1358) | Optimal LQR state-feedback gain from a Riccati solution |
 | [`lyap`](inc/damp/design/lyapunov.hpp#L452) | Solve the continuous-time Lyapunov equation A X + X Aᵀ + Q = 0 |
 | [`lyapunov_cholesky`](inc/damp/design/lyapunov.hpp#L500) | Cholesky factor of the continuous Lyapunov solution: A X + X Aᵀ + B Bᵀ = 0, X = RᵀR |
@@ -409,7 +409,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`MPC`](inc/damp/controllers/mpc.hpp#L2646) | MPC law{res}: the sizes, scalar, terminal capacity and bounded states of design::mpc's result (+1 more overload) |
 | [`observability_gramian`](inc/damp/design/stability.hpp#L409) | Continuous/discrete observability Gramian W_o |
 | [`observability_matrix`](inc/damp/design/stability.hpp#L83) | Compute the observability matrix [C; CA; CA²; ...; CA^(N-1)] |
-| [`OFLQG`](inc/damp/controllers/oflqg.hpp#L120) | OFLQG law{res}: the sizes, scalar, filter and target of an OFLQG design's result |
+| [`OFLQG`](inc/damp/controllers/oflqg.hpp#L117) | OFLQG law{res}: the sizes, scalar, filter and target of an OFLQG design's result |
 | [`OFMPC`](inc/damp/controllers/mpc.hpp#L2782) | OFMPC law{res}: the sizes, scalar, filter and target of an offset-free design::mpc result (+1 more overload) |
 | [`option`](inc/damp/design/options.hpp#L57) | No option left: the fallback (+1 more overload) |
 | [`output_inverse`](inc/damp/design/model_inverse.hpp#L683) | The stable inverse of a discrete model: the state and input of its trajectory through a reference y on the controlled outputs, from y ₖ … y ₖ₊NP₋₁ (+1 more overload) |
@@ -438,9 +438,9 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`solve_qp`](inc/damp/design/qp.hpp#L856) | Solve a strictly convex inequality-constrained QP (dual active-set) (+1 more overload) |
 | [`solve_qp_admm`](inc/damp/design/qp.hpp#L1420) | One-shot ADMM QP solve (cold start) |
 | [`solve_qp_interior_point`](inc/damp/design/qp.hpp#L1464) | Interior-point QP solver (primal-dual path following) |
-| [`square_matrix`](inc/damp/design/detail/config.hpp#L101) | A weight's value as an N × N Matrix in T (its size checked by the caller), or fallback when it was left out |
+| [`square_matrix`](inc/damp/design/detail/config.hpp#L102) | A weight's value as an N × N Matrix in T (its size checked by the caller), or fallback when it was left out |
 | [`stability_margin`](inc/damp/design/stability.hpp#L526) | Distance from the poles of sys to its domain's stability boundary |
-| [`state_feedback`](inc/damp/controllers/state_feedback.hpp#L184) | The linear-quadratic state-feedback law (DARE on a discrete plant, CARE on a continuous one): runs as LQR, LQI, LQG, LQGI or OFLQG, as its options say (+3 more overloads) |
+| [`state_feedback`](inc/damp/controllers/state_feedback.hpp#L186) | The linear-quadratic state-feedback law (DARE on a discrete plant, CARE on a continuous one): runs as LQR, LQI, LQG, LQGI or OFLQG, as its options say (+3 more overloads) |
 | [`state_feedforward`](inc/damp/design/model_inverse.hpp#L100) | The plant-inversion feedforward of a discrete model: the input that moves x⁺ = A·x + B·u along a state reference, u ₖ the least-squares solution of B·u = x ₖ₊₁ − A·x ₖ |
 | [`steady_state_target`](inc/damp/design/config.hpp#L273) | design::steady_state_target(sys, opts…) with the options the fields of config: the same design (+3 more overloads) |
 | [`stsmc`](inc/damp/controllers/stsmc.hpp#L101) | Synthesize super-twisting gains from a disturbance-derivative bound |
@@ -473,12 +473,12 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`HarmonicSuppressor`](inc/damp/controllers/harmonic_suppression.hpp#L173) | Multi-resonant harmonic suppressor — a parallel bank of PR resonators |
 | [`IntegralAction`](inc/damp/controllers/state_feedback_types.hpp#L285) | Integral action: integrators on r − y, with the cost and the limits that go with them. Among a design's trailing options it makes the law an LQI (an LQGI with a KalmanNoise) |
 | [`IntegralDesign`](inc/damp/controllers/state_feedback_types.hpp#L304) | The integral action of a design: the integrated outputs, their maps of the state and the input, the per-sample step, and what back-calculation moves the integrators by |
-| [`Law`](inc/damp/controllers/law_detail.hpp#L298) | The runtime a design result deploys as, named by the result: `Law<kRes, float> law;` (+6 more overloads) |
+| [`Law`](inc/damp/controllers/law.hpp#L59) | The runtime a design result deploys as, named by the result: `Law<kRes, float> law;` (+6 more overloads) |
 | [`LeadLagController`](inc/damp/controllers/lead_lag.hpp#L325) | Discrete lead-lag compensator |
-| [`LQG`](inc/damp/controllers/lqg.hpp#L105) | Linear-quadratic Gaussian law: LQR on the Kalman filter's estimate |
-| [`LQGI`](inc/damp/controllers/lqgi.hpp#L61) | Linear-quadratic Gaussian law with integral action on the measured outputs |
-| [`LQI`](inc/damp/controllers/lqi.hpp#L64) | Linear-quadratic regulator with integral action, on the measured state |
-| [`LQR`](inc/damp/controllers/lqr.hpp#L76) | Linear-quadratic regulator on the measured state: u = u − K·(x − x ) |
+| [`LQG`](inc/damp/controllers/lqg.hpp#L101) | Linear-quadratic Gaussian law: LQR on the Kalman filter's estimate |
+| [`LQGI`](inc/damp/controllers/lqgi.hpp#L58) | Linear-quadratic Gaussian law with integral action on the measured outputs |
+| [`LQI`](inc/damp/controllers/lqi.hpp#L61) | Linear-quadratic regulator with integral action, on the measured state |
+| [`LQR`](inc/damp/controllers/lqr.hpp#L72) | Linear-quadratic regulator on the measured state: u = u − K·(x − x ) |
 | [`LQRLimits`](inc/damp/controllers/state_feedback_types.hpp#L146) | The limit an LQ law's command runs within: among design::state_feedback's options |
 | [`LQRWeights`](inc/damp/controllers/state_feedback_types.hpp#L123) | The cost of an LQ design (design::state_feedback): what to penalize and how much |
 | [`MeasuredDisturbance`](inc/damp/controllers/mpc.hpp#L1312) | A measured disturbance: a known input the controller does not command, entering the state update through Bd (a load torque, a feed rate, the ambient temperature) |
@@ -490,7 +490,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`MPCTerminal`](inc/damp/controllers/mpc.hpp#L224) | Opt-in terminal cost / set for `design::mpc` (default: none) |
 | [`MPCWeights`](inc/damp/controllers/mpc.hpp#L254) | Cost weights for mpc() |
 | [`NoEstimator`](inc/damp/controllers/state_feedback_types.hpp#L41) | The estimator of a law that measures its state: none, an empty type, so a `[[no_unique_address]]` member of it takes no storage |
-| [`OFLQG`](inc/damp/controllers/oflqg.hpp#L65) | Offset-free linear-quadratic Gaussian law: a Kalman filter on [x; d] and the steady-state target |
+| [`OFLQG`](inc/damp/controllers/oflqg.hpp#L62) | Offset-free linear-quadratic Gaussian law: a Kalman filter on [x; d] and the steady-state target |
 | [`OFMPC`](inc/damp/controllers/mpc.hpp#L2724) | Offset-free constrained linear MPC: a Kalman filter on [x; d] and the QP about the steady-state target under d̂ (design::mpc with a KalmanNoise and a disturbance spec) |
 | [`PIDController`](inc/damp/controllers/pid.hpp#L542) | Fixed-rate discrete 2-DOF PID (canonical runtime) (+3 more overloads) |
 | [`PIDGains`](inc/damp/controllers/pid.hpp#L143) | 2-DOF continuous-time PID gains, limits and setpoint weights |
@@ -575,11 +575,11 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`ReadingNoiseFactor`](inc/damp/estimation/sqrt_covariance.hpp#L456) | A reading's noise covariance R factored for sqrt_measurement_update(): R = L Lᵀ, and whether R is a covariance at all |
 | [`ReducedOrderObserver`](inc/damp/estimation/fixed_gain_observer.hpp#L1075) | Reduced-order (Gopinath) state observer (runtime) (+1 more overload) |
 | [`ReducedOrderObserverResult`](inc/damp/estimation/fixed_gain_observer.hpp#L348) | Reduced-order (Gopinath) observer design result |
-| [`RelayAutotuneConfig`](inc/damp/estimation/relay_autotune.hpp#L124) | Configuration for the relay-feedback autotuning experiment |
-| [`RelayAutotuneOutput`](inc/damp/estimation/relay_autotune.hpp#L256) | Per-tick output of RelayAutotuner::step |
-| [`RelayAutotuner`](inc/damp/estimation/relay_autotune.hpp#L275) | Runtime relay-feedback autotuner (+1 more overload) |
-| [`RelayAutotuneResult`](inc/damp/estimation/relay_autotune.hpp#L183) | Relay-autotuner design payload |
-| [`RelayAutotuneStatus`](inc/damp/estimation/relay_autotune.hpp#L240) | Lifecycle state of a RelayAutotuner |
+| [`RelayAutotuneConfig`](inc/damp/estimation/relay_autotune.hpp#L123) | Configuration for the relay-feedback autotuning experiment |
+| [`RelayAutotuneOutput`](inc/damp/estimation/relay_autotune.hpp#L255) | Per-tick output of RelayAutotuner::step |
+| [`RelayAutotuner`](inc/damp/estimation/relay_autotune.hpp#L274) | Runtime relay-feedback autotuner (+1 more overload) |
+| [`RelayAutotuneResult`](inc/damp/estimation/relay_autotune.hpp#L182) | Relay-autotuner design payload |
+| [`RelayAutotuneStatus`](inc/damp/estimation/relay_autotune.hpp#L239) | Lifecycle state of a RelayAutotuner |
 | [`ResonantMode`](inc/damp/estimation/frequency_response.hpp#L446) | One extracted FRF extremum (peak or valley) |
 | [`RlsConfig`](inc/damp/estimation/rls.hpp#L62) | Common RLS configuration |
 | [`RlsVector`](inc/damp/estimation/rls.hpp#L147) | Vector runtime RLS estimator (NP parameters) (+1 more overload) |
@@ -638,7 +638,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`ins_update_position`](inc/damp/estimation/ins_eskf.hpp#L434) | Sparse position update: y = p + Rℓ |
 | [`ins_update_velocity`](inc/damp/estimation/ins_eskf.hpp#L466) | Sparse velocity update: y = v at the IMU origin (no lever-arm) |
 | [`ins_update_zupt`](inc/damp/estimation/ins_eskf.hpp#L485) | Zero-velocity update (ZUPT): velocity measurement of zero |
-| [`joseph_update`](inc/damp/estimation/joseph.hpp#L39) | P ← (I − K H) P (I − K H)ᵀ + K R Kᵀ with K = P Hᵀ S⁻¹ and S = H P Hᵀ + R, for an H whose zeros and ones are known at compile time |
+| [`joseph_update`](inc/damp/estimation/joseph.hpp#L40) | P ← (I − K H) P (I − K H)ᵀ + K R Kᵀ with K = P Hᵀ S⁻¹ and S = H P Hᵀ + R, for an H whose zeros and ones are known at compile time |
 | [`kalman`](inc/damp/estimation/kalman.hpp#L679) | Steady-state Kalman filter design (+1 more overload) |
 | [`margins_from_frf`](inc/damp/estimation/frequency_response.hpp#L840) | Gain / phase margins from a fixed on-target FRF table |
 | [`mechanize_step`](inc/damp/estimation/ins_mechanization.hpp#L209) | One dead-reckoning step from a raw IMU sample (subtracts the state's biases) |
@@ -657,7 +657,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`reading_times_factor`](inc/damp/estimation/sqrt_covariance.hpp#L428) | CS = C S for a lower-triangular S and a dense C (+1 more overload) |
 | [`reduced_order_observer`](inc/damp/estimation/fixed_gain_observer.hpp#L507) | Design a reduced-order (Gopinath) observer by pole placement, in the domain of sys (+1 more overload) |
 | [`reflect_rows_below`](inc/damp/estimation/sqrt_covariance.hpp#L187) | Apply row i's reflection of triangularize() to the rows below it: row k ← row k − s·v, with column i's sign turned when flip |
-| [`relay_autotune`](inc/damp/estimation/relay_autotune.hpp#L224) | Build a validated relay-autotune design payload |
+| [`relay_autotune`](inc/damp/estimation/relay_autotune.hpp#L223) | Build a validated relay-autotune design payload |
 | [`rls_vector`](inc/damp/estimation/rls.hpp#L132) | Build vector RLS design payload |
 | [`schroeder_multi_sine`](inc/damp/estimation/excitation/multi_sine.hpp#L191) | Build a multi-sine design payload with Schroeder phases applied |
 | [`semidefinite_factor`](inc/damp/estimation/sqrt_covariance.hpp#L116) | The lower-triangular factor S of a positive semidefinite P, P = S Sᵀ, with a zero column where a pivot vanishes |

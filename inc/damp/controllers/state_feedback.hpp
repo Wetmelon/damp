@@ -31,7 +31,7 @@
 #include "damp/backend.hpp"
 #include "damp/controllers/detail/state_feedback_design.hpp"
 #include "damp/controllers/detail/state_feedback_options.hpp"
-#include "damp/controllers/law_detail.hpp"
+#include "damp/controllers/law.hpp"
 #include "damp/controllers/lqg.hpp"   // IWYU pragma: export
 #include "damp/controllers/lqgi.hpp"  // IWYU pragma: export
 #include "damp/controllers/lqi.hpp"   // IWYU pragma: export
@@ -41,9 +41,11 @@
 #include "damp/design/detail/config.hpp"
 #include "damp/design/disturbance.hpp"
 #include "damp/design/options.hpp"
-#include "damp/design/steady_state_target.hpp"
+#include "damp/design/steady_state_target.hpp" // IWYU pragma: export
 #include "damp/estimation/kalman.hpp"
+#include "damp/matrix/matrix.hpp"
 #include "damp/systems/state_space.hpp"
+#include "damp/toolbox/bounds.hpp" // IWYU pragma: export
 
 namespace damp {
 namespace design {

@@ -12,7 +12,7 @@
 
 #include <cstddef>
 
-#include "damp/estimation/parameter_estimation.hpp"
+#include "damp/control.hpp"
 #include "fo_plant_inertia_estimator.hpp"
 
 using namespace damp;

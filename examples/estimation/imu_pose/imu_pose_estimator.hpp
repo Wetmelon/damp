@@ -20,8 +20,7 @@
 
 #pragma once
 
-#include "damp/math/geometry.hpp"
-#include "damp/matrix/matrix.hpp"
+#include "damp/control.hpp"
 
 namespace damp::examples_imu_pose {
 
