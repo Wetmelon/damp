@@ -86,6 +86,7 @@ public:
     using Reference = Core::Reference;       ///< r: held, or a Preview
     using Preview = Core::Preview;           ///< The reference at steps 1 … NP
     using InputPreview = Core::InputPreview; ///< The input target per move
+    using InputTarget = Core::InputTarget;   ///< The input target: held, braced, scalar or per move
 
     static constexpr size_t NYM = Core::NYM; ///< Measured outputs
     static constexpr size_t NDE = Core::NDE; ///< Estimated disturbance states

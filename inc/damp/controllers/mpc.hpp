@@ -2112,8 +2112,9 @@ public:
     /**
      * @brief The output reference over the prediction horizon: one value held, or a preview
      *
-     * Built implicitly from a ColVec<NY> (held over the NP steps) or from a Preview (the
-     * reference at each of steps 1 … NP), so every tick takes either. From a continuous plant
+     * Built implicitly from a ColVec<NY> (held over the NP steps), from one value per output in
+     * braces (`control({0.3, 0.0})`), from the scalar of a SISO law, or from a Preview (the
+     * reference at each of steps 1 … NP), so every tick takes any of them. From a continuous plant
      * r[k] is the reference over period k, [k·Ts, (k+1)·Ts) (the cost integrates each period),
      * so r[0] covers the period starting now. With a preview the plan
      * sees a setpoint change before it happens and starts moving ahead of it; a trajectory
@@ -2130,6 +2131,35 @@ public:
         constexpr Reference(T held_value) // NOLINT(google-explicit-constructor)
             requires(NY == 1)
             : r(held(ColVec<NY, T>{held_value})) {}
+
+        /** @brief One value per output, braced at the call (`control({0.3, 0.0})`), held over the NP steps. */
+        template<typename... V>
+            requires(NY > 1 && sizeof...(V) == NY && (damp::convertible_to<V, T> && ...))
+        constexpr Reference(V... held_values) // NOLINT(google-explicit-constructor)
+            : r(held(ColVec<NY, T>{static_cast<T>(held_values)...})) {}
+    };
+
+    /**
+     * @brief The input target u_target over the control horizon, weighted by Ru: held (a ColVec<NU>,
+     *        one value per input in braces, or the scalar of a single input) or per move (an
+     *        InputPreview, MATLAB's mv.target with preview).
+     */
+    struct InputTarget {
+        InputPreview u{}; ///< The target at moves 0 … NC − 1
+
+        constexpr InputTarget(const ColVec<NU, T>& held_value) : u(held_target(held_value)) {} // NOLINT(google-explicit-constructor)
+        constexpr InputTarget(const InputPreview& preview) : u(preview) {}                     // NOLINT(google-explicit-constructor)
+
+        /** @brief A single input's target from its scalar, held over the NC moves. */
+        constexpr InputTarget(T held_value) // NOLINT(google-explicit-constructor)
+            requires(NU == 1)
+            : u(held_target(ColVec<NU, T>{held_value})) {}
+
+        /** @brief One value per input, braced at the call (`set_input_target({0.1, 0.2})`), held over the NC moves. */
+        template<typename... V>
+            requires(NU > 1 && sizeof...(V) == NU && (damp::convertible_to<V, T> && ...))
+        constexpr InputTarget(V... held_values) // NOLINT(google-explicit-constructor)
+            : u(held_target(ColVec<NU, T>{static_cast<T>(held_values)...})) {}
     };
 
     /**
@@ -2224,11 +2254,8 @@ public:
         last_cost_ = T{0};
     }
 
-    /** @brief Override the preferred input operating point (physical units) */
-    constexpr void set_input_target(const ColVec<NU, T>& u_target) { u_target_ = held_target(u_target); }
-
-    /** @brief Input target per move over the control horizon (MATLAB's mv.target with preview); weighted by Ru. */
-    constexpr void set_input_target(const InputPreview& u_target) { u_target_ = u_target; }
+    /** @brief Override the preferred input operating point (physical units): held, or per move over the control horizon (InputTarget). */
+    constexpr void set_input_target(const InputTarget& u_target) { u_target_ = u_target.u; }
 
     /**
      * @brief Change the limits on u, Δu, the controlled outputs and the design's bounded states (MATLAB®'s online constraints)
@@ -2569,6 +2596,7 @@ public:
     using Reference = Core::Reference;                     ///< r: held, or a Preview
     using Preview = Core::Preview;                         ///< The reference at steps 1 … NP
     using InputPreview = Core::InputPreview;               ///< The input target per move
+    using InputTarget = Core::InputTarget;                 ///< The input target: held, braced, scalar or per move
     using Result = Core::template ResultWith<NoEstimator>; ///< The design it is built from
     static constexpr size_t NZ1 = Core::NZ1;               ///< QP decision size (moves + slack)
     static constexpr size_t NI1 = Core::NI1;               ///< QP constraint rows

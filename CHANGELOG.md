@@ -11,6 +11,7 @@ and [known limitations](docs/known_limitations.md)).
 
 ### Changed
 
+- An MPC or OFMPC takes its reference and its input target braced, one value per channel (`control({0.3, 0.0})`, `set_input_target({0.1, 0.2})`), or as the scalar of a single channel. `set_input_target` takes an `InputTarget`, held or per move, so a braced `{x}` no longer reads as both.
 - `LQRConfig`, `LQIConfig`, `MPCWeights` and `MPCConstraints` take their sizes from the fields a named one sets, with one input, integrator and controlled output unless a field says otherwise: `LQIConfig{.Q = diag(10.0, 1.0), .R = {1.0}, .Q_integral = {80.0}}` is `LQIConfig<2, 1, 1>`. A single weight is braced; the positional guides that kept `{.Q, .R, .demand_lim}` from deducing are gone.
 - A Kalman design (`kalman`, `lqg`, `lqgi`, `oflqg`, `mpc` and `ofmpc` with noise, `mhe`) reads a plant that declares no noise inputs (`StateSpace<NX, NU, NY>`) as noise on every state and reading, G = I and H = I, so its `KalmanNoise` is NX × NX and NY × NY and the plant needs no `<…, T, NW, NV>`. Before, such a plant took only a `KalmanNoise<0, 0>`.
 - `PRSpec::Tt`, `PRResult::Tt` and `PRController::Tt` are `tracking_time`, the name the LQI and LQGI runtimes give the same back-calculation tracking time.

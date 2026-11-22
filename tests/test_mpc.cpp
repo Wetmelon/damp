@@ -1504,3 +1504,38 @@ TEST_CASE("MPCWeights and MPCConstraints take their sizes from the fields they s
     constexpr MPCConstraints budget{.terminal = design::MPCTerminal::dare_cost, .max_qp_iterations = 40};
     static_assert(damp::is_same_v<decltype(budget), const MPCConstraints<1, 1>> && budget.max_qp_iterations == 40);
 }
+
+TEST_CASE("an MPC takes its reference and input target braced, one value per channel, or as a scalar") {
+    design::MPCWeights<1, 2> weights{};
+    weights.Ru = Matrix<1, 1>{0.1};
+    const auto art = design::mpc<8, 4>(double_integrator_full, weights, {});
+    REQUIRE(art.success);
+    const ColVec<2> x{1.0, -0.5};
+
+    //! One input: the target as its scalar or braced, as the ColVec it holds.
+    MPC by_vector{art};
+    MPC by_braces{art};
+    MPC by_scalar{art};
+    by_vector.set_input_target(ColVec<1>{-0.2});
+    by_braces.set_input_target({-0.2});
+    by_scalar.set_input_target(-0.2);
+    for (size_t k = 0; k < 4; ++k) {
+        CHECK(by_braces.input_target_preview()[k] == ColVec<1>{-0.2});
+        CHECK(by_scalar.input_target_preview()[k] == ColVec<1>{-0.2});
+    }
+
+    //! Two controlled outputs: the reference braced, one value per output.
+    const double u_vector = by_vector.step(ColVec<2>{0.3, 0.0}, x)(0);
+    CHECK(by_braces.step({0.3, 0.0}, x)(0) == doctest::Approx(u_vector).epsilon(1e-12));
+    CHECK(by_scalar.step({0.3, 0}, x)(0) == doctest::Approx(u_vector).epsilon(1e-12)); // any value that converts
+
+    //! Two inputs: the target braced, one value per input.
+    const StateSpace<2, 2, 1> two{.A = {{0.9, 0.1}, {0.0, 0.0}}, .B = {{0.1, 0.0}, {0.0, 1.0}}, .C = {{1.0, 0.0}}, .Ts = Ts};
+    design::MPCWeights<2, 1>  w2{};
+    w2.Ru = diag(0.1, 0.1);
+    const auto art2 = design::mpc<2, 1>(two, w2, {});
+    REQUIRE(art2.success);
+    MPC two_inputs{art2};
+    two_inputs.set_input_target({0.1, 0.2});
+    CHECK(two_inputs.input_target_preview()[0] == ColVec<2>{0.1, 0.2});
+}
