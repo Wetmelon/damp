@@ -2074,6 +2074,8 @@ public:
 
     /** @brief Limits on the disturbance estimate d̂, in d's units: update clamps it, as OFLQG's (NDE > 0; default unbounded). */
     [[no_unique_address]] DisturbanceLim disturbance_lim{};
+    /** @brief The filter and its anchor, as the LQ laws' estimator: restart it with estimator.reset(x0, d0) (no storage on the measured state). */
+    [[no_unique_address]] Estimator estimator{};
     /** @brief A design it is built from: the QP and the target, and @p Kalman, the estimator's design (NoEstimator without one). */
     template<typename Kalman>
     using ResultWith = design::MPCResult<Artifacts, Kalman, TargetResult>;
@@ -2093,7 +2095,7 @@ public:
     template<typename Kalman>
         requires(Traits::template built_from<Kalman>)
     constexpr explicit MPCCore(const ResultWith<Kalman>& result)
-        : art(result.mpc), estimator_(make_estimator(result.kalman)), target_(target_of(result.target)), u_target_(held_target(result.mpc.u_target)) {
+        : estimator(make_estimator(result.kalman)), art(result.mpc), target_(target_of(result.target)), u_target_(held_target(result.mpc.u_target)) {
         if (!result.success && damp::is_constant_evaluated()) {
             ::damp::detail::refuse_failed_design(result.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
@@ -2103,7 +2105,7 @@ public:
     template<typename Kalman>
         requires(Traits::template built_from<Kalman>)
     constexpr MPCCore(const ResultWith<Kalman>& result, const Solver& solver)
-        : art(result.mpc), qp_solver_(solver), estimator_(make_estimator(result.kalman)), target_(target_of(result.target)), u_target_(held_target(result.mpc.u_target)) {
+        : estimator(make_estimator(result.kalman)), art(result.mpc), qp_solver_(solver), target_(target_of(result.target)), u_target_(held_target(result.mpc.u_target)) {
         if (!result.success && damp::is_constant_evaluated()) {
             ::damp::detail::refuse_failed_design(result.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
@@ -2169,7 +2171,7 @@ public:
     constexpr void predict() {
         applied_.take();
         if constexpr (estimated) {
-            estimator_.predict(applied_.applied);
+            estimator.predict(applied_.applied);
         }
     }
 
@@ -2179,9 +2181,9 @@ public:
      */
     constexpr void update(const ColVec<NYM, T>& y) {
         if constexpr (estimated) {
-            estimator_.update(y);
+            estimator.update(y);
             if constexpr (NDE > 0) {
-                estimator_.limit_disturbance(disturbance_lim);
+                estimator.limit_disturbance(disturbance_lim);
             }
         } else {
             x_ = y;
@@ -2205,11 +2207,11 @@ public:
         const Preview& ahead = r.r;
         if constexpr (NDE > 0) {
             static_cast<void>(d); // no measured disturbance alongside an estimated one
-            target_.anchor(estimator_, r.r[0]);
-            const auto x_dev = ::damp::detail::leading<NXM>(estimator_.at_command());
-            const auto x_a = ::damp::detail::leading<NXM>(estimator_.anchor_state());
-            const auto d_a = estimator_.anchor_disturbance();
-            return record(control_impl(ahead, ColVec<NXM, T>(x_dev + x_a), d_a, ColVec<NDE, T>{}, x_a, estimator_.anchor_input(), x_dev));
+            target_.anchor(estimator, r.r[0]);
+            const auto x_dev = ::damp::detail::leading<NXM>(estimator.at_command());
+            const auto x_a = ::damp::detail::leading<NXM>(estimator.anchor_state());
+            const auto d_a = estimator.anchor_disturbance();
+            return record(control_impl(ahead, ColVec<NXM, T>(x_dev + x_a), d_a, ColVec<NDE, T>{}, x_a, estimator.anchor_input(), x_dev));
         } else {
             const ColVec<NXM, T> x = law_state();
             const auto           t = target_.equilibrium(r.r[0], d); // the steady state under the measured d
@@ -2246,7 +2248,7 @@ public:
     constexpr void reset() {
         applied_ = ::damp::detail::AppliedRecord<NU, T>{};
         if constexpr (estimated) {
-            estimator_.reset();
+            estimator.reset();
         }
         last_status_ = design::QPStatus::Success;
         last_iterations_ = 0;
@@ -2290,20 +2292,6 @@ public:
     [[nodiscard]] constexpr Solver&       qp_solver() { return qp_solver_; }
     [[nodiscard]] constexpr const Solver& qp_solver() const { return qp_solver_; }
 
-    /** @brief The estimator (the observer and its anchor). */
-    [[nodiscard]] constexpr const Estimator& estimator() const
-        requires(estimated)
-    {
-        return estimator_;
-    }
-
-    /** @brief The estimator, to restart it (reset(x0)) or overwrite its estimate (set_state); limit d̂ with disturbance_lim. */
-    [[nodiscard]] constexpr Estimator& estimator()
-        requires(estimated)
-    {
-        return estimator_;
-    }
-
     /** @brief The input the last predict held: the base of the next Δu (back_calculate's, else the command before it). */
     [[nodiscard]] constexpr const ColVec<NU, T>& applied() const { return applied_.applied; }
     /** @brief The command the last control returned: the input a predict without back_calculate holds. */
@@ -2326,7 +2314,7 @@ public:
     /** @brief The law's model state: the estimate (absolute; with the register of a delay), or the last measurement. */
     [[nodiscard]] constexpr ColVec<NX, T> state_estimate() const {
         if constexpr (estimated) {
-            return ::damp::detail::leading<NX>(estimator_.state_estimate());
+            return ::damp::detail::leading<NX>(estimator.state_estimate());
         } else {
             return x_;
         }
@@ -2336,7 +2324,7 @@ public:
     [[nodiscard]] constexpr ColVec<NDE, T> disturbance_estimate() const
         requires(NDE > 0)
     {
-        return estimator_.disturbance_estimate();
+        return estimator.disturbance_estimate();
     }
 
     /**
@@ -2378,7 +2366,7 @@ private:
     /** @brief The law's state the command decided now acts on (absolute): the estimate, or the measurement. */
     [[nodiscard]] constexpr ColVec<NXM, T> law_state() const {
         if constexpr (estimated) {
-            return ::damp::detail::leading<NXM>(estimator_.at_command());
+            return ::damp::detail::leading<NXM>(estimator.at_command());
         } else {
             return x_;
         }
@@ -2547,10 +2535,9 @@ private:
 
     Artifacts                            art{};
     Solver                               qp_solver_{};
-    [[no_unique_address]] Estimator      estimator_{}; ///< The filter and its anchor (no storage on the measured state)
-    [[no_unique_address]] MeasuredState  x_{};         ///< The last measured state (no storage with an estimator)
-    Target                               target_{};    ///< The maps to the steady-state target
-    ::damp::detail::AppliedRecord<NU, T> applied_{};   ///< The last command, and the held input (the base of Δu)
+    [[no_unique_address]] MeasuredState  x_{};       ///< The last measured state (no storage with an estimator)
+    Target                               target_{};  ///< The maps to the steady-state target
+    ::damp::detail::AppliedRecord<NU, T> applied_{}; ///< The last command, and the held input (the base of Δu)
     InputPreview                         u_target_{};
     design::QPStatus                     last_status_{design::QPStatus::Success};
     size_t                               last_iterations_{0};

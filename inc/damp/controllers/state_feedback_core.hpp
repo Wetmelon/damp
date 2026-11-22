@@ -147,7 +147,8 @@ struct HeldGains {
  * Readings, references and reported inputs are the caller's to check: a NaN or ±Inf that reaches
  * the law stays in its memory (the integrators, a filter's estimate and its anchor) until that is
  * reset. @ref reset clears the integrators and the input memory; a filter restarts with
- * estimator.reset(x0), or the whole law with `law = decltype(law){}`. damp::isfinite tests on the
+ * estimator.reset(x0, d0) (absolute, as state_estimate() reports it), or the whole law with
+ * `law = decltype(law){}`. damp::isfinite tests on the
  * bits, so it holds under -ffast-math.
  *
  * @see "Optimal Control" (Anderson & Moore, 1990), §4.1 and §8
