@@ -88,7 +88,7 @@ inline constexpr float  u_max = 12.0f;
 inline constexpr float  w_cmd_max = 8.0f;
 
 [[nodiscard]] constexpr design::PIDGains<double> design_rate_pi() {
-    auto r = design::pid_pole_placement(TransferFunction<1, 2>{.num = {1.0}, .den = {1.0 / b_u, 0.0}}, {.omega = w_rate});
+    auto r = design::pid_pole_placement(TransferFunction{.num = {1.0}, .den = {1.0 / b_u, 0.0}}, {.omega = w_rate});
     r.u_lim = {
         .lower = -static_cast<double>(u_max),
         .upper = static_cast<double>(u_max),
@@ -97,7 +97,7 @@ inline constexpr float  w_cmd_max = 8.0f;
 }
 
 [[nodiscard]] constexpr design::PIDGains<double> design_angle_pi() {
-    auto r = design::pid_pole_placement(TransferFunction<1, 2>{.num = {1.0}, .den = {1.0, 0.0}}, {.omega = w_angle});
+    auto r = design::pid_pole_placement(TransferFunction{.num = {1.0}, .den = {1.0, 0.0}}, {.omega = w_angle});
     r.u_lim = {
         .lower = -static_cast<double>(w_cmd_max),
         .upper = static_cast<double>(w_cmd_max),

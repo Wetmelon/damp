@@ -36,9 +36,9 @@ int main() {
         const float ua = control_period(aware, x_a.as<float>(), 1.0f);
         naive.update(x_n.as<float>());
 
-        const float u_req = naive.control(ColVec<1, float>{1.0f})[0];
+        const float u_req = naive.control(1.0f)[0];
         const float un = damp::clamp(u_req, static_cast<float>(u_min), static_cast<float>(u_max));
-        naive.back_calculate(ColVec<1, float>{u_req}); // unsaturated request
+        naive.back_calculate(u_req); // unsaturated request
         naive.predict();
 
         x_a = kModel.A * x_a + kModel.B * ColVec<1>{static_cast<double>(ua)};
