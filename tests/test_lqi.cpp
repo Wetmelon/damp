@@ -60,14 +60,14 @@ TEST_SUITE("LQI") {
         auto           a = LQI{r}; // uses internal integrator
         auto           b = LQI{r}; // fed a manual augmented vector
 
-        ColVec<1>       xi{{0.0}};
-        const ColVec<2> states[] = {{{0.5}, {0.0}}, {{0.4}, {-0.1}}, {{0.2}, {0.05}}};
+        ColVec<1>       xi{0.0};
+        const ColVec<2> states[] = {{0.5, 0.0}, {0.4, -0.1}, {0.2, 0.05}};
         const double    refs[] = {1.0, 1.0, 1.0};
         for (int k = 0; k < 3; ++k) {
-            const ColVec<1> y{{states[k][0]}};
-            const ColVec<1> rf{{refs[k]}};
+            const ColVec<1> y{states[k][0]};
+            const ColVec<1> rf{refs[k]};
 
-            const ColVec<3> x_aug{{states[k][0]}, {states[k][1]}, {xi[0]}};
+            const ColVec<3> x_aug{states[k][0], states[k][1], xi[0]};
             const ColVec<1> ub = -(b.K * x_aug);        // manual
             const ColVec<1> ua = a.step(rf, states[k]); // owns xi: integrates last tick's error, then the law
             CHECK(ua[0] == doctest::Approx(ub[0]).epsilon(1e-12));
@@ -83,10 +83,10 @@ TEST_SUITE("LQI") {
         REQUIRE(r.success);
 
         auto            ctrl = LQI{r};
-        ColVec<2>       x{{0.0}, {0.0}};
-        const ColVec<1> ref{{1.0}};
+        ColVec<2>       x{0.0, 0.0};
+        const ColVec<1> ref{1.0};
         for (int k = 0; k < 500; ++k) {
-            const ColVec<1> y{{x[0]}};
+            const ColVec<1> y{x[0]};
             const ColVec<1> u = ctrl.step(ref, x);
             x = sys.A * x + sys.B * u;
         }
@@ -106,9 +106,9 @@ TEST_SUITE("LQI") {
         CHECK(ss.Ts == doctest::Approx(sys.Ts));
         auto      runtime = LQI{res};
         ColVec<1> xc{};
-        ColVec<2> xp{{0.3}, {-0.1}};
+        ColVec<2> xp{0.3, -0.1};
         for (int k = 0; k < 8; ++k) {
-            const ColVec<1> r{{1.0}};
+            const ColVec<1> r{1.0};
             const ColVec<3> in{r[0], xp[0], xp[1]};
             const ColVec<1> u = ss.C * xc + ss.D * in;
             CHECK(u[0] == doctest::Approx(runtime.step(r, xp)[0]).epsilon(1e-12));
@@ -167,7 +167,7 @@ TEST_SUITE("LQI") {
         // The selector form takes the reference for the integrated output and the measured state (y = x here, C = I).
         auto            ctrl = LQI{picked.as<float>()};
         ColVec<2>       x{};
-        const ColVec<1> r{{1.0}};
+        const ColVec<1> r{1.0};
         for (int k = 0; k < 500; ++k) {
             const ColVec<2, float> y{static_cast<float>(x[0]), static_cast<float>(x[1])};
             const ColVec<1, float> u = ctrl.step(r.as<float>(), y);
@@ -187,7 +187,7 @@ TEST_SUITE("LQI") {
         CHECK_FALSE(both.success);
         auto idle = LQI{both};
         idle.update(ColVec<2>{});
-        CHECK(idle.control(ColVec<2>{{1.0}, {1.0}})[0] == 0.0); // failed design: zero output
+        CHECK(idle.control(ColVec<2>{1.0, 1.0})[0] == 0.0); // failed design: zero output
     }
 
     TEST_CASE("control / predict hold the integrator while the actuator is clamped") {
@@ -195,7 +195,7 @@ TEST_SUITE("LQI") {
         const auto r = design_lqi();
         REQUIRE(r.success);
         const double u_max = 0.2;
-        const auto   clamp_u = [&](const ColVec<1>& u) { return ColVec<1>{{damp::clamp(u[0], -u_max, u_max)}}; };
+        const auto   clamp_u = [&](const ColVec<1>& u) { return ColVec<1>{damp::clamp(u[0], -u_max, u_max)}; };
 
         const auto run = [&](bool aware) {
             auto      ctrl = LQI{r};
@@ -203,9 +203,9 @@ TEST_SUITE("LQI") {
             double    peak = 0.0;
             double    xi_peak = 0.0;
             for (int k = 0; k < 2000; ++k) {
-                const ColVec<1> y{{x[0]}};
+                const ColVec<1> y{x[0]};
                 ctrl.update(x);
-                const ColVec<1> u_req = ctrl.control(ColVec<1>{{1.0}});
+                const ColVec<1> u_req = ctrl.control(ColVec<1>{1.0});
                 const ColVec<1> u = clamp_u(u_req);
                 ctrl.back_calculate(aware ? u : u_req);
                 ctrl.predict(); // the unaware loop reports the unclamped command
@@ -224,15 +224,14 @@ TEST_SUITE("LQI") {
         // Feedforward before the clamp is not mistaken for saturation.
         auto            a = LQI{r};
         auto            b = LQI{r};
-        const ColVec<1> y{{0.1}};
-        const ColVec<2> x{{0.1}, {0.0}};
-        const ColVec<1> u_ff{{0.05}};
+        const ColVec<2> x{0.1, 0.0};
+        const ColVec<1> u_ff{0.05};
         a.update(x);
-        const ColVec<1> ua = a.control(ColVec<1>{{0.2}});
+        const ColVec<1> ua = a.control(ColVec<1>{0.2});
         a.back_calculate(ua);
         a.predict();
         b.update(x);
-        const ColVec<1> ub = b.control(ColVec<1>{{0.2}});
+        const ColVec<1> ub = b.control(ColVec<1>{0.2});
         b.back_calculate(ub + u_ff, u_ff);
         b.predict();
         CHECK(a.integral.xi[0] != 0.0);
@@ -250,26 +249,26 @@ TEST_SUITE("LQI") {
         bool       hit_lo = false;
         for (int k = 0; k < 400; ++k) {
             ctrl.update(x);
-            const double u = clamp_u(ctrl.control(ColVec<1>{{3.0}})[0]);
+            const double u = clamp_u(ctrl.control(ColVec<1>{3.0})[0]);
             hit_hi = hit_hi || (u == 0.4);
-            ctrl.back_calculate(ColVec<1>{{u}});
+            ctrl.back_calculate(ColVec<1>{u});
             ctrl.predict();
-            x = sys.A * x + sys.B * ColVec<1>{{u}};
+            x = sys.A * x + sys.B * ColVec<1>{u};
         }
         CHECK(hit_hi);
         const double xi_hi = damp::abs(ctrl.integral.xi[0]);
         for (int k = 0; k < 400; ++k) {
             ctrl.update(x);
-            const double u = clamp_u(ctrl.control(ColVec<1>{{-3.0}})[0]);
+            const double u = clamp_u(ctrl.control(ColVec<1>{-3.0})[0]);
             hit_lo = hit_lo || (u == -0.15);
-            ctrl.back_calculate(ColVec<1>{{u}});
+            ctrl.back_calculate(ColVec<1>{u});
             ctrl.predict();
-            x = sys.A * x + sys.B * ColVec<1>{{u}};
+            x = sys.A * x + sys.B * ColVec<1>{u};
         }
         CHECK(hit_lo);
         for (int k = 0; k < 2500; ++k) {
-            const double u = ctrl.step(ColVec<1>{{1.0}}, x)[0];
-            x = sys.A * x + sys.B * ColVec<1>{{u}};
+            const double u = ctrl.step(ColVec<1>{1.0}, x)[0];
+            x = sys.A * x + sys.B * ColVec<1>{u};
         }
         CHECK(x[0] == doctest::Approx(1.0).epsilon(1e-3));
         CHECK(damp::abs(ctrl.integral.xi[0]) < xi_hi);
@@ -444,7 +443,6 @@ TEST_SUITE("LQI sampled-data (continuous plant, Ts)") {
         const ColVec<1> r{1.0};
         ColVec<2>       x{};
         for (int k = 0; k < 20000; ++k) {
-            const ColVec<1> y = plant_d.C * x;
             const ColVec<1> u = law.step(r.as<float>(), x.as<float>()).as<double>();
             x = plant_d.A * x + plant_d.B * (u + ColVec<1>{0.5});
         }

@@ -190,7 +190,7 @@ TEST_SUITE("trig") {
         double worst_acos = 0.0;
         for (int i = 0; i <= 20000; ++i) {
             const float  x = static_cast<float>(-1.0 + (static_cast<double>(i) * 1e-4));
-            const double xd = x;
+            const double xd = static_cast<double>(x);
             worst_asin = std::fmax(worst_asin, std::fabs(static_cast<double>(damp::asin(x)) - std::asin(xd)));
             worst_acos = std::fmax(worst_acos, std::fabs(static_cast<double>(damp::acos(x)) - std::acos(xd)));
         }
@@ -352,11 +352,11 @@ TEST_SUITE("trig") {
             return static_cast<double>(std::fabs(static_cast<long double>(got) - ref)) / ulp;
         };
         auto ref_asin = [](double x) {
-            const long double lx = x;
+            const long double lx = static_cast<long double>(x);
             return std::atan2(lx, std::sqrt((1.0L - lx) * (1.0L + lx)));
         };
         auto ref_acos = [](double x) {
-            const long double lx = x;
+            const long double lx = static_cast<long double>(x);
             return std::atan2(std::sqrt((1.0L - lx) * (1.0L + lx)), lx);
         };
         double worst_asin = 0, worst_acos = 0, worst_atan = 0, worst_atan2 = 0;
@@ -485,7 +485,7 @@ TEST_SUITE("trig") {
         double worst_cos = 0.0;
         for (int i = 0; i <= 200000; ++i) {
             const float  x = static_cast<float>(-2.5e4 + (static_cast<double>(i) * 0.25));
-            const double xd = x;
+            const double xd = static_cast<double>(x);
             worst_sin = std::fmax(worst_sin, std::fabs(static_cast<double>(damp::sin(x)) - std::sin(xd)));
             worst_cos = std::fmax(worst_cos, std::fabs(static_cast<double>(damp::cos(x)) - std::cos(xd)));
         }

@@ -455,5 +455,9 @@ TEST_SUITE("Type aliases") {
         CHECK(qd.w() == 1.0);
         CHECK(Rf(0, 0) == 1.0f);
         CHECK(Rd(0, 0) == 1.0);
+        CHECK(ef.angle1 == 0.0f);
+        CHECK(ed.angle1 == 0.0);
+        CHECK(exf.angle1 == 0.0f);
+        CHECK(exd.angle1 == 0.0);
     }
 }

@@ -37,6 +37,7 @@ and [known limitations](docs/known_limitations.md)).
 ### Fixed
 
 - A `constexpr` design refused for its sample time now says why plain braces cause it. `fn(plant, {}, {…})` is the sampled form with Ts = 0, for a discrete plant as for a continuous one; the compile error's note at `design_refused::invalid_sample_time` names both right spellings, `fn(plant, weights, …)` for a discrete plant and `fn(plant, Ts, weights, …)` for a continuous one.
+- Inside a template, clang deduces nothing from a designated field set to a literal or a constant ([llvm/llvm-project#114870](https://github.com/llvm/llvm-project/issues/114870)), so a test's `IntegralAction{.Q = 1e6}` in a function template did not compile there: the tests name the type, `IntegralAction<double>{.Q = 1e6}`, the design's message says to, and the [known limitations](docs/known_limitations.md) list the options it reaches. `make clang-tests` builds and runs the three test runners with clang as well, and the tests and examples build on clang without a warning, a `ColVec` written flat, `ColVec<2>{a, b}`, where `ColVec<2>{{a}, {b}}` drew clang's `-Wbraced-scalar-init`.
 - The FOC SIL reported a 98% rise time one tick short (0 ms for the PI), and the LPF SIL called its first-order filter second-order Butterworth. The workflow SIL ran 2 s, before its 1 Hz PR mode settled; it runs 20 s and ends at r.
 
 ## [0.3.1] — 2026-11-17

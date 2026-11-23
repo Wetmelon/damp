@@ -63,7 +63,12 @@ struct IntegralCost {
 template<size_t NY, size_t NX, size_t NU, typename T, typename TQ, typename TI>
 [[nodiscard]] constexpr auto integral_cost(const LQRConfig<NX, NU, T>& config, const ::damp::design::IntegralAction<TQ, TI>& action) {
     constexpr size_t NI = ::damp::design::IntegralAction<TQ, TI>::NI;
-    static_assert(NI > 0, "IntegralAction::Q is the cost on the integrators: IntegralAction{.Q = ...}, a scalar for one, an NI x NI Matrix for more.");
+    static_assert(
+        NI > 0,
+        "IntegralAction::Q is the cost on the integrators: IntegralAction{.Q = ...}, a scalar for one, an NI x NI Matrix for more. "
+        "Given one inside a template? There clang deduces nothing from a .Q set to a literal or a constant (llvm/llvm-project#114870): "
+        "name the type, IntegralAction<double>{.Q = ...}."
+    );
     static_assert(square_value<TQ, NI>, "IntegralAction::Q is NI x NI, one integrator per integrated output: a Matrix, or a scalar for one.");
     static_assert(NI <= NY, "IntegralAction::Q has one integrator per integrated output: at most one per measured output.");
     IntegralCost<NX, NU, NI, T> out{};

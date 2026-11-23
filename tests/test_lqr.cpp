@@ -66,14 +66,14 @@ TEST_CASE("LQR runtime regulation and tracking laws") {
     auto ctrl = LQR{res}; // from the gain design
 
     SUBCASE("u = -K x") {
-        const ColVec<2> x{{1.0, 2.0}};
+        const ColVec<2> x{1.0, 2.0};
         ctrl.update(x);
         const auto u = ctrl.control();
         CHECK(u[0] == doctest::Approx(-(res.K(0, 0) * 1.0 + res.K(0, 1) * 2.0)));
     }
 
     SUBCASE("tracking error is zero at the reference") {
-        const ColVec<2> x{{3.0, -1.0}};
+        const ColVec<2> x{3.0, -1.0};
         ctrl.update(x);
         const auto u = ctrl.control(x, {}); // x_ref == x
         CHECK(u[0] == doctest::Approx(0.0));

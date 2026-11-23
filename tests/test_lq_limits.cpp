@@ -123,8 +123,8 @@ TEST_SUITE("LQ limits") {
         CHECK((bound.K - free.K).norm() <= 4.0 * eps<double>() * free.K.norm()); // a limit is the runtime's: the gain is the same
         LQR                law{bound.template as<T>()};
         LQR                open{free.template as<T>()};
-        const ColVec<2, T> far{{T{100}, T{-40}}};
-        const ColVec<2, T> near{{static_cast<T>(0.01), T{0}}};
+        const ColVec<2, T> far{T{100}, T{-40}};
+        const ColVec<2, T> near{static_cast<T>(0.01), T{0}};
         law.update(far);
         open.update(far);
         const T u_far = open.control()(0);
@@ -168,7 +168,7 @@ TEST_SUITE("LQ limits") {
         LQI              clamped{free.template as<T>()};
         int              saturated = 0;
         T                y{0};
-        auto             feed = [](auto& law, const ColVec<4, T>& z) { law.update(ColVec<2, T>{{z(0), z(1)}}); };
+        auto             feed = [](auto& law, const ColVec<4, T>& z) { law.update(ColVec<2, T>{z(0), z(1)}); };
         auto             control = [](auto& law) { return law.control(ColVec<1, T>{T{1}}); };
         CHECK(gap(model, bounded, clamped, feed, control, saturated, y) <= tol<T>);
         CHECK(saturated > 10);
@@ -273,8 +273,8 @@ TEST_SUITE("LQ limits") {
         LQI     bounded{res.template as<T>()};
         LQI     clamped{res.template as<T>()};
         const T lim = static_cast<T>(0.3);
-        bounded.demand_lim = DemandLimit{.state = 1, .outer = {0, 2}, .lim = {.lower = -lim, .upper = lim}}; // the position and the integrator
-        const auto&        K = clamped.K;                                                                    // [p, v, ξ]
+        bounded.demand_lim = DemandLimit{.state = 1, .outer = {0, 2}, .lim = Bounds<1, T>{.lower = -lim, .upper = lim}}; // the position and the integrator
+        const auto&        K = clamped.K;                                                                                // [p, v, ξ]
         const auto         d = discretize(mass, kTs).value();
         const auto         model = StateSpace{.A = d.A.template as<T>(), .B = d.B.template as<T>(), .C = d.C.template as<T>(), .Ts = static_cast<T>(kTs)};
         const ColVec<1, T> r{T{5}};
@@ -313,7 +313,7 @@ TEST_SUITE("LQ limits") {
         REQUIRE(of.success);
         OFLQG of_bounded{of.template as<T>()};
         OFLQG of_clamped{of.template as<T>()};
-        of_bounded.demand_lim = DemandLimit{.state = 1, .outer = {0}, .lim = {.lower = -lim, .upper = lim}};
+        of_bounded.demand_lim = DemandLimit{.state = 1, .outer = {0}, .lim = Bounds<1, T>{.lower = -lim, .upper = lim}};
         const auto& Kf = of_clamped.K;
         xa = ColVec<2, T>{};
         xb = ColVec<2, T>{};
@@ -384,7 +384,7 @@ TEST_SUITE("LQ limits") {
         CHECK(lqi.u_lim.upper(0) == 1.05f);
         CHECK(lqi.integral_lim.lower(0) == -0.05f);
         CHECK(lqr.u_lim.lower(0) == -1.05f);
-        lqr.update(ColVec<2, float>{{100.0f, 0.0f}});
+        lqr.update(ColVec<2, float>{100.0f, 0.0f});
         CHECK(lqr.control()(0) == -1.05f);
 
         // No limit given: unbounded in float too (an end at double's max is float's, not an overflow).
@@ -411,7 +411,7 @@ TEST_SUITE("LQ limits") {
         CHECK(lqr.u_lim.lower(0) == -damp::numeric_limits<double>::max());
         CHECK(lqr.u_lim.upper(0) == damp::numeric_limits<double>::max());
         LQR law{lqr};
-        law.update(ColVec<2>{{1.0, 1.0}});
+        law.update(ColVec<2>{1.0, 1.0});
         CHECK(law.control()(0) == 0.0);
         CHECK_FALSE(law.valid());
         CHECK(LQR{design::state_feedback(plant(), kTs, {.Q = Q, .R = 1.0})}.valid());

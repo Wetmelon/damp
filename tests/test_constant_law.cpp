@@ -337,8 +337,8 @@ TEST_SUITE("Law of a constexpr design") {
         const auto run = [](auto held, auto fixed) {
             double worst = 0.0;
             for (int k = 0; k < 2000; ++k) {
-                const ColVec<1> u{{second(k)}};
-                const ColVec<1> y{{reading(k)}};
+                const ColVec<1> u{second(k)};
+                const ColVec<1> y{reading(k)};
                 held.predict(u);
                 fixed.predict(u);
                 held.update(y);
@@ -357,15 +357,15 @@ TEST_SUITE("Law of a constexpr design") {
         double                 worst = 0.0;
         for (int k = 0; k < 1000; ++k) {
             const ColVec<3> x_t{0.1 * second(k), 0.0, 0.2};
-            const ColVec<1> u_t{{0.2}};
+            const ColVec<1> u_t{0.2};
             const ColVec<3> x_ref{0.0, 0.05 * second(k), 0.0};
-            const ColVec<1> u_ref{{0.01}};
+            const ColVec<1> u_ref{0.01};
             held.anchor(x_t, u_t, x_ref, u_ref);
             fixed.anchor(x_t, u_t, x_ref, u_ref);
-            held.predict(ColVec<1>{{second(k)}});
-            fixed.predict(ColVec<1>{{second(k)}});
-            held.update(ColVec<1>{{reading(k)}});
-            fixed.update(ColVec<1>{{reading(k)}});
+            held.predict(ColVec<1>{second(k)});
+            fixed.predict(ColVec<1>{second(k)});
+            held.update(ColVec<1>{reading(k)});
+            fixed.update(ColVec<1>{reading(k)});
             worst = std::max(worst, (held.state() - fixed.state()).norm());
             worst = std::max(worst, std::abs(held.disturbance_estimate()[0] - fixed.disturbance_estimate()[0]));
         }
@@ -476,8 +476,8 @@ TEST_SUITE("The other runtimes on a constexpr design") {
         Law<kEso, double>          fixed;
         double                     worst = 0.0;
         for (int k = 0; k < 2000; ++k) {
-            const auto a = held.step(ColVec<1>{{reading(k)}}, ColVec<1>{{second(k)}});
-            const auto b = fixed.step(ColVec<1>{{reading(k)}}, ColVec<1>{{second(k)}});
+            const auto a = held.step(ColVec<1>{reading(k)}, ColVec<1>{second(k)});
+            const auto b = fixed.step(ColVec<1>{reading(k)}, ColVec<1>{second(k)});
             worst = std::max(worst, (a - b).norm());
         }
         CHECK(worst < 1e-9);
@@ -508,7 +508,7 @@ TEST_SUITE("The other runtimes on a constexpr design") {
         Law<kReduced, double>          fixed;
         double                         worst = 0.0;
         for (int k = 0; k < 2000; ++k) {
-            const ColVec<1> u{{second(k)}};
+            const ColVec<1> u{second(k)};
             const auto      a = held.step(reading(k), u);
             const auto      b = fixed.step(reading(k), u);
             worst = std::max(worst, (a - b).norm());
@@ -555,8 +555,8 @@ TEST_SUITE("The other runtimes on a constexpr design") {
         Law<kOfmpc, double>          fixed;
         double                       worst = 0.0;
         for (int k = 0; k < 800; ++k) {
-            const auto a = held.step(ColVec<1>{{second(k)}}, ColVec<1>{{reading(k)}})[0];
-            const auto b = fixed.step(ColVec<1>{{second(k)}}, ColVec<1>{{reading(k)}})[0];
+            const auto a = held.step(ColVec<1>{second(k)}, ColVec<1>{reading(k)})[0];
+            const auto b = fixed.step(ColVec<1>{second(k)}, ColVec<1>{reading(k)})[0];
             worst = std::max(worst, std::abs(a - b));
         }
         CHECK(worst < 1e-9);

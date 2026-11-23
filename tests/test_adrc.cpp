@@ -679,9 +679,12 @@ TEST_SUITE("Active Disturbance Rejection Control (ADRC)") {
         res.u_lim = {.lower = -umax, .upper = umax};
         ADRCController<1, T> bounded{res.template as<T>()};
         ADRCController<1, T> outside{open.template as<T>()};
-        T                    ya{0};
-        T                    yb{0};
-        int                  saturated = 0;
+        // Two inlined copies of the law, which fast-math may round differently: a few ulps of its
+        // largest term, Kp·(r − ẑ₁)/b0 with |r| ≤ 1, not of u (clang 23 reaches 9 of them in float).
+        const T tol = T{64} * eps<T>() * static_cast<T>(res.Kp / res.b0);
+        T       ya{0};
+        T       yb{0};
+        int     saturated = 0;
         for (int k = 0; k < 4600; ++k) {
             const T r = (k < 1600) ? T{1} : static_cast<T>(0.15); // ẏ = −y + u: r = 1 is out of reach, 0.15 is not
             const T ua = bounded.control(r, ya);
@@ -689,7 +692,7 @@ TEST_SUITE("Active Disturbance Rejection Control (ADRC)") {
             outside.back_calculate(ub);
             saturated += (damp::abs(ua) >= static_cast<T>(umax)) ? 1 : 0;
             CHECK(damp::abs(ua) <= static_cast<T>(umax));
-            CHECK(damp::abs(ua - ub) <= T{64} * eps<T>());
+            CHECK(damp::abs(ua - ub) <= tol);
             CHECK(bounded.applied() == ua);
             ya += static_cast<T>(Ts) * (ua - ya);
             yb += static_cast<T>(Ts) * (ub - yb);

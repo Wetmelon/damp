@@ -29,7 +29,7 @@ int main() {
     ColVec<2> x_n{};
     double    peak_a = 0.0;
     double    peak_n = 0.0;
-    for (int k = 0; k < 800; ++k) {
+    for (int tick = 0; tick < 800; ++tick) {
         const float ua = control_period(aware, x_a.as<float>(), 1.0f);
         naive.update(x_n.as<float>());
 

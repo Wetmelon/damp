@@ -83,12 +83,12 @@ TEST_SUITE("Offset-free LQG: oflqg with a disturbance model") {
 
         auto            ctrl = OFLQG{result};
         ColVec<2>       x{0.0, 0.0};
-        const ColVec<1> r{{1.0}};
+        const ColVec<1> r{1.0};
         const double    w_true = 0.4;
         for (int k = 0; k < 400; ++k) {
-            const ColVec<1> y{{x[0]}};
+            const ColVec<1> y{x[0]};
             const ColVec<1> u = ctrl.step(r, y);
-            x = sys.A * x + sys.B * (u + ColVec<1>{{w_true}});
+            x = sys.A * x + sys.B * (u + ColVec<1>{w_true});
         }
         CHECK(x[0] == doctest::Approx(1.0).epsilon(0.05));
         CHECK(ctrl.disturbance_estimate()(0) == doctest::Approx(w_true).epsilon(0.15));
@@ -142,12 +142,12 @@ TEST_SUITE("Offset-free LQG: oflqg with a disturbance model") {
 
         OFLQG           ctrl{res};
         ColVec<4>       x{};
-        const ColVec<1> r{{0.01}};
+        const ColVec<1> r{0.01};
         const double    load_force = -0.8;
         for (int i = 0; i < 4000; ++i) {
-            const ColVec<3> y = (sys.C * x) + (model.Cd * ColVec<1>{{load_force}});
+            const ColVec<3> y = (sys.C * x) + (model.Cd * ColVec<1>{load_force});
             const ColVec<1> u = ctrl.step(r, y);
-            x = (sys.A * x) + (sys.B * u) + (model.Bd * ColVec<1>{{load_force}});
+            x = (sys.A * x) + (sys.B * u) + (model.Bd * ColVec<1>{load_force});
         }
         CHECK(x[2] == doctest::Approx(0.01).epsilon(1e-3));                                 // load held at r
         CHECK(ctrl.disturbance_estimate()(0) == doctest::Approx(load_force).epsilon(0.02)); // and the force found
@@ -165,11 +165,11 @@ TEST_SUITE("Offset-free LQG: oflqg with a disturbance model") {
         ColVec<2> xt{};
         double    worst = 0.0;
         for (int k = 0; k < 300; ++k) {
-            const ColVec<1> us = setpoint.step(ColVec<1>{{1.0}}, ColVec<1>{{xs[0]}});
-            const ColVec<1> ut = tracking.step({}, ColVec<2>{1.0, 0.0}, ColVec<1>{}, ColVec<1>{{xt[0]}});
+            const ColVec<1> us = setpoint.step(ColVec<1>{1.0}, ColVec<1>{xs[0]});
+            const ColVec<1> ut = tracking.step({}, ColVec<2>{1.0, 0.0}, ColVec<1>{}, ColVec<1>{xt[0]});
             worst = std::max(worst, std::abs(us[0] - ut[0]));
-            xs = sys.A * xs + sys.B * (us + ColVec<1>{{0.4}});
-            xt = sys.A * xt + sys.B * (ut + ColVec<1>{{0.4}});
+            xs = sys.A * xs + sys.B * (us + ColVec<1>{0.4});
+            xt = sys.A * xt + sys.B * (ut + ColVec<1>{0.4});
         }
         CHECK(worst < 1e-9);
     }
@@ -186,9 +186,9 @@ TEST_SUITE("Offset-free LQG: oflqg with a disturbance model") {
         for (int k = 0; k < 2000; ++k) {
             const double    t = k * Ts;
             const ColVec<2> x_ref{std::sin(w * t), w * std::cos(w * t)};
-            const ColVec<1> u_ref{{-w * w * std::sin(w * t)}}; // the reference's own acceleration
-            const ColVec<1> u = ctrl.step({}, x_ref, u_ref, ColVec<1>{{x[0]}});
-            x = sys.A * x + sys.B * (u + ColVec<1>{{0.4}});
+            const ColVec<1> u_ref{-w * w * std::sin(w * t)}; // the reference's own acceleration
+            const ColVec<1> u = ctrl.step({}, x_ref, u_ref, ColVec<1>{x[0]});
+            x = sys.A * x + sys.B * (u + ColVec<1>{0.4});
             if (t > 100.0) {
                 worst = std::max(worst, std::abs(x[0] - std::sin(w * (t + Ts))));
             }
@@ -217,13 +217,13 @@ TEST_SUITE("Offset-free LQG: oflqg with a disturbance model") {
         OFLQG           ctrl{result};
         ColVec<2>       x{0.0, 0.0};
         ColVec<1>       u_held{};
-        const ColVec<1> r{{1.0}};
+        const ColVec<1> r{1.0};
         double          y = 0.0;
         for (int k = 0; k < 600; ++k) {
             // Sampled before this tick's update: the held input is still u[k-1].
             y = x[0] + (0.5 * u_held(0));
-            u_held = ctrl.step(r, ColVec<1>{{y}});
-            x = sys.A * x + sys.B * (u_held + ColVec<1>{{0.4}});
+            u_held = ctrl.step(r, ColVec<1>{y});
+            x = sys.A * x + sys.B * (u_held + ColVec<1>{0.4});
         }
         CHECK(y == doctest::Approx(1.0).epsilon(1e-3));
     }
@@ -247,8 +247,8 @@ TEST_SUITE("Offset-free LQG: oflqg with a disturbance model") {
             for (int k = 0; k < 6000; ++k) {
                 const double d_in = output_bias ? 0.0 : d;
                 y = (sys.C * x)(0) + (D * (u + d_in)) + (output_bias ? d : 0.0); // the held input is u[k−1]
-                u = law.step(ColVec<1>{{1.0}}, ColVec<1>{{y}})(0);
-                x = (sys.A * x) + (sys.B * ColVec<1>{{u + d_in}});
+                u = law.step(ColVec<1>{1.0}, ColVec<1>{y})(0);
+                x = (sys.A * x) + (sys.B * ColVec<1>{u + d_in});
             }
             CHECK(law.disturbance_estimate()(0) == doctest::Approx(d).epsilon(1e-4));
             return y;

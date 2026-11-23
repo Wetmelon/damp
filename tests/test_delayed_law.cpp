@@ -124,9 +124,9 @@ TEST_SUITE("Delayed laws") {
         REQUIRE(res.success);
         REQUIRE(res.is_stable());
         LQR             law{res};
-        const ColVec<2> x0{{0.3, -0.2}};
+        const ColVec<2> x0{0.3, -0.2};
         const double    J = continuous_cost<0>(law, w, 0.0, x0, 0.0, 600);
-        const ColVec<4> z0{{0.3, -0.2, 0.0, 0.0}}; // the registers empty
+        const ColVec<4> z0{0.3, -0.2, 0.0, 0.0}; // the registers empty
         const double    predicted = (z0.t() * res.S * z0)(0, 0);
         CHECK(J == doctest::Approx(predicted).epsilon(1e-8));
     }
@@ -138,9 +138,9 @@ TEST_SUITE("Delayed laws") {
         REQUIRE(res.success);
         REQUIRE(res.is_stable());
         LQI             law{res};
-        const ColVec<2> x0{{0.3, -0.2}};
+        const ColVec<2> x0{0.3, -0.2};
         const double    J = continuous_cost<1>(law, w, ia.Q, x0, 0.1, 600);
-        const ColVec<5> q0{{0.3, -0.2, 0.0, 0.0, 0.1}}; // [x; registers empty; ξ]
+        const ColVec<5> q0{0.3, -0.2, 0.0, 0.0, 0.1}; // [x; registers empty; ξ]
         const double    predicted = (q0.t() * res.S * q0)(0, 0);
         CHECK(J == doctest::Approx(predicted).epsilon(1e-8));
     }
@@ -170,7 +170,7 @@ TEST_SUITE("Delayed laws") {
         REQUIRE(res.success);
         LQI             law{res};
         const auto&     K = law.getK();
-        const ColVec<2> x{{0.1, 0.0}};
+        const ColVec<2> x{0.1, 0.0};
         // Three ticks, each command clamped to a value of its own: the registers hold those.
         const double held[3] = {0.5, -0.25, 0.125};
         for (const double v : held) {
@@ -187,7 +187,7 @@ TEST_SUITE("Delayed laws") {
 
         // About a reference point (x*, u*), registers that hold u* are at the reference.
         LQI             fresh{res};
-        const ColVec<2> x_ref{{0.2, 0.0}};
+        const ColVec<2> x_ref{0.2, 0.0};
         const ColVec<1> u_ref{0.7};
         for (int k = 0; k < 3; ++k) {
             fresh.update(x_ref);
@@ -305,7 +305,7 @@ TEST_SUITE("Delayed laws with a filter") {
         static_assert(damp::remove_cvref_t<decltype(ctrl.A)>::rows() == 4);
         const auto model = delayed_model();
         LQG        law{res};
-        ColVec<4>  z{{0.1, 0.0, 0.0, 0.0}};
+        ColVec<4>  z{0.1, 0.0, 0.0, 0.0};
         ColVec<4>  zc = z;
         ColVec<4>  xc{};
         double     worst = 0.0;
@@ -335,7 +335,7 @@ TEST_SUITE("Delayed laws with a filter") {
         static_assert(damp::remove_cvref_t<decltype(ctrl.A)>::rows() == 5); // [x; v(k−1); v(k−2); d]
         const auto model = delayed_model();
         OFLQG      law{res};
-        ColVec<4>  z{{0.1, 0.0, 0.0, 0.0}};
+        ColVec<4>  z{0.1, 0.0, 0.0, 0.0};
         ColVec<4>  zc = z;
         ColVec<5>  xc{};
         double     worst = 0.0;
@@ -358,7 +358,7 @@ TEST_SUITE("Delayed laws with a filter") {
         // Closed on a plant a period later than the design's: the loop the block makes is the runtime's there too.
         const auto later = discretize(noisy(), kTs, InputDelay<3>{kTheta + kTs}).value();
         OFLQG      late_law{res};
-        ColVec<5>  w{{0.1, 0.0, 0.0, 0.0, 0.0}};
+        ColVec<5>  w{0.1, 0.0, 0.0, 0.0, 0.0};
         ColVec<5>  wc = w;
         xc = ColVec<5>{};
         worst = 0.0;
@@ -431,7 +431,7 @@ TEST_SUITE("Delayed laws with a filter") {
         const auto on_plant = design::state_feedback(noisy(), kTs, kW, noise, design::DisturbanceModel{.Bd = noisy().B}, InputDelay<2>{kTheta});
         REQUIRE(on_plant.success);
         const auto gamma = discretize(plant(), kTs).value().B;
-        CHECK(run(on_plant, ColVec<4>{{gamma(0, 0), gamma(1, 0), 0.0, 0.0}}, 0.0) == doctest::Approx(0.2).epsilon(1e-6));
+        CHECK(run(on_plant, ColVec<4>{gamma(0, 0), gamma(1, 0), 0.0, 0.0}, 0.0) == doctest::Approx(0.2).epsilon(1e-6));
     }
 
     TEST_CASE("a constexpr LQG with an InputDelay deploys in float on constants") {

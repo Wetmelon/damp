@@ -139,7 +139,7 @@ TEST_SUITE("LQGI") {
         for (int k = 0; k < 8; ++k) {
             const ColVec<2> in{r[0], xp[0]};
             const ColVec<1> u = ss.C * xc + ss.D * in;
-            const ColVec<1> u_rt = runtime.step(r, ColVec<1>{{xp_rt[0]}});
+            const ColVec<1> u_rt = runtime.step(r, ColVec<1>{xp_rt[0]});
             CHECK(u[0] == doctest::Approx(u_rt[0]));
             xp = sys.A * xp + sys.B * u;
             xp_rt = sys.A * xp_rt + sys.B * u_rt;
@@ -213,10 +213,10 @@ TEST_SUITE("LQGI") {
             ColVec<2> x{};
             double    peak = 0.0;
             for (int k = 0; k < 2000; ++k) {
-                const ColVec<1> y{{x[0]}};
+                const ColVec<1> y{x[0]};
                 ctrl.update(y);
-                const ColVec<1> u_req = ctrl.control(ColVec<1>{{1.0}});
-                const ColVec<1> u{{damp::clamp(u_req[0], -u_max, u_max)}};
+                const ColVec<1> u_req = ctrl.control(ColVec<1>{1.0});
+                const ColVec<1> u{damp::clamp(u_req[0], -u_max, u_max)};
                 // The unaware loop hides the clamp from the integrator (it still feeds the estimator u).
                 if (aware) {
                     ctrl.back_calculate(u);
@@ -329,7 +329,7 @@ TEST_SUITE("LQGI sampled-data (continuous plant, Ts)") {
         for (int k = 0; k < 200; ++k) {
             const ColVec<2> in{r[0], xp[0]};
             const ColVec<1> u = ss.C * xc + ss.D * in;
-            const ColVec<1> u_rt = runtime.step(r, ColVec<1>{{xp_rt[0]}});
+            const ColVec<1> u_rt = runtime.step(r, ColVec<1>{xp_rt[0]});
             CHECK(u[0] == doctest::Approx(u_rt[0]).epsilon(1e-9));
             // xi = ∫e dt in both, through the previous tick: the step holds this tick's error for its next predict.
             CHECK(xc[2] == doctest::Approx(runtime.integral.xi[0]).epsilon(1e-9));

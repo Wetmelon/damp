@@ -468,7 +468,6 @@ TEST_CASE("FixedStepSolver reports an implicit step that does not converge") {
 }
 
 TEST_CASE("FixedStepSolver restarts BDF2 after an event and before a shorter final step") {
-    const auto decay = [](double, const ColVec<1>& x) { return ColVec<1>{-x(0)}; };
     // Event: x(0.5) is reset to 1. BDF2 once mixed the pre-event x into x(0.6) and grew to 1.039.
     FixedStepSolver solver(BDF2<1>{}, 0.1);
     solver.set_event_detector([](double t, const ColVec<1>& x) {

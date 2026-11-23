@@ -234,6 +234,12 @@ struct LQIConfig {
  * `.Q`'s type is its value's: a floating-point scalar for one integrator, an NI × NI Matrix for
  * NI; the fields it sizes take braces.
  *
+ * Inside a template, clang (18 to 23 at least) deduces nothing from a `.Q` set to a literal or a
+ * constant (llvm/llvm-project#114870): `IntegralAction{.Q = 80.0}` there is `IntegralAction<>`, and
+ * the design does not compile. Name the type there, `IntegralAction<double>{.Q = 80.0}` or
+ * `IntegralAction<Matrix<2, 2>>{…}`. The other options deduced from their fields share it
+ * (docs/known_limitations.md).
+ *
  * | Field | What it is | Size | Left out |
  * | --- | --- | --- | --- |
  * | Q | the cost on the discrete integral state ξ ≈ ∫(r − y) dt | NI × NI, positive definite | required |
