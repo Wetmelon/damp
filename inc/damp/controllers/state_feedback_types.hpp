@@ -351,13 +351,14 @@ struct IntegralDesign {
 template<size_t NX, size_t NU, typename T = double, size_t NI = 0, size_t NY = NX, typename Kalman = NoEstimator, size_t NZ = 0, size_t NRU = 0>
 struct [[nodiscard]] StateFeedbackResult {
     using Filter = ::damp::detail::estimator_traits<::damp::detail::runtime_estimator_t<Kalman, T>>;
-    static constexpr bool   kEstimated = Filter::present; ///< A Kalman filter estimates the state
-    static constexpr bool   kIntegral = NI > 0;           ///< The law has integral action
-    static constexpr size_t NXL = NX + (NRU * NU);        ///< The law's model: the plant, then its delay states
-    static constexpr size_t NK = NXL + NI;                ///< The gain's state: the law's model and the integrators
-    static constexpr size_t ND = Filter::ND;              ///< Disturbance states of the filter
+    static constexpr bool   kEstimated = Filter::present;         ///< A Kalman filter estimates the state
+    static constexpr bool   kIntegral = NI > 0;                   ///< The law has integral action
+    static constexpr size_t NXL = NX + (NRU * NU);                ///< The law's model: the plant, then its delay states
+    static constexpr size_t NK = NXL + NI;                        ///< The gain's state: the law's model and the integrators
+    static constexpr size_t ND = Filter::ND;                      ///< Disturbance states of the filter
+    static constexpr size_t NXF = kEstimated ? Filter::NXE : NXL; ///< The filter's model before d: the law's, then the delay states of late readings
     using Integral = ::damp::detail::maybe<(NI > 0), IntegralDesign<NI, NXL, NU, NY, T>, ::damp::detail::OffSlot::design_integral>;
-    using Target = ::damp::detail::maybe<(NZ > 0), SteadyStateTargetResult<NXL, NU, ND, NZ, T>, ::damp::detail::OffSlot::design_target>;
+    using Target = ::damp::detail::maybe<(NZ > 0), SteadyStateTargetResult<NXF, NU, ND, NZ, T>, ::damp::detail::OffSlot::design_target>;
     using IntegralLim = ::damp::detail::maybe<(NI > 0), Bounds<NI, T>, ::damp::detail::OffSlot::design_integral_lim>;
     using TrackingTime = ::damp::detail::maybe<(NI > 0), T, ::damp::detail::OffSlot::design_tracking_time>;
 

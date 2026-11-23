@@ -576,7 +576,9 @@ InputDelay(S) -> InputDelay<1, S>;
  * state from the late readings. @ref seconds is one delay for every output, a scalar, or one per
  * output, a ColVec<NY>: `OutputDelay<2, ColVec<2>>{{0.0, 0.015}}` reads an encoder at once and
  * a camera 15 ms late. Every output gets N registers, the longest delay's. As with InputDelay,
- * N sizes the model and the delays are values.
+ * N sizes the model and the delays are values. design::kalman and design::state_feedback with a
+ * KalmanNoise take it as a trailing option on their sampled form,
+ * `kalman(plant, Ts, noise, OutputDelay<2>{0.015})`: the filter on this model, its noise exact.
  *
  * @tparam N Registers, the longest delay the model can hold in samples
  * @tparam S The delay: a scalar, the same on every output, or ColVec<NY, T>, one per output

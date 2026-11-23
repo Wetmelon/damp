@@ -1599,7 +1599,7 @@ struct is_measured_disturbance<MeasuredDisturbance<NX, NM, T>> : damp::true_type
 
 /** @brief The options design::mpc takes after the weights. */
 using mpc_options = ::damp::detail::option_set<
-    is_mpc_constraints, is_kalman_noise, is_disturbance, is_measured_disturbance, is_state_limits, is_input_delay>;
+    is_mpc_constraints, is_kalman_noise, is_disturbance, is_measured_disturbance, is_state_limits, is_input_delay, is_output_delay>;
 
 /** @brief Whether a design::mpc call has an estimator: a KalmanNoise among its options. */
 template<typename... Opts>
@@ -1776,14 +1776,15 @@ template<
     constexpr size_t ND = disturbance_traits<Spec, NU, NY, NW>::states;
     static_assert(NWN == NW && NVN == NV, "KalmanNoise is sized to the plant's noise inputs: KalmanNoise<NW, NV> for the columns of G and H.");
     static_assert(NDN == ND, "KalmanNoise carries the random walk of the spec's ND disturbances: KalmanNoise<NW, NV, T, ND>.");
-    constexpr size_t NXL = NX + (delay_registers<Delay> * NU); // the plant, then the delay states
-    constexpr size_t NXE = NXL;
+    constexpr size_t NXL = NX + (delay_registers<Delay> * NU); // the QP's: the plant, then the input's delay states
+    constexpr size_t NXE = NX + delay_states<Delay, NU, NY>;   // the filter's: then the late readings' delay states
+    const auto&      in = input_delay_of(delay);
     const auto       kf = kalman_design<Discrete>(sys, Ts, noise, spec, delay);
     using Target = SteadyStateTargetResult<NXE, NU, ND, NZ, T>;
     using Law = MPCArtifacts<NXL, NU, NZ, NP, NC, ND, T, NT_max, NXC>;
     using Result = MPCResult<Law, damp::remove_cvref_t<decltype(kf)>, Target>;
     Result     out{.kalman = kf};
-    const auto m = sampled_model(sys, Ts, Discrete, delay);
+    const auto m = sampled_model(sys, Ts, Discrete, in);
     const auto rows = selected_outputs<NY>(listed_outputs(spec));
     if (m.status != DesignStatus::ok || !rows) {
         return ::damp::detail::set_status(out, first_failure(kf.status, m.status, DesignStatus::bad_weights)); // a delay refused, or a controlled output out of range or listed twice
@@ -1799,7 +1800,7 @@ template<
         }
     }
     const auto         channels = disturbance_channels(spec, sys, m.law, Ts);
-    const auto         cost = mpc_continuous_cost<Discrete>(sys, *rows, channels.Bd_c, Ts, input_delays_of<NU>(delay, Ts));
+    const auto         cost = mpc_continuous_cost<Discrete>(sys, *rows, channels.Bd_c, Ts, input_delays_of<NU>(in, Ts));
     Matrix<NXL, ND, T> Bd{};
     if constexpr (ND > 0) {
         //! Offset-free: the target under the estimate, which rides the QP's disturbance channel
@@ -1814,7 +1815,12 @@ template<
         out.target = target_design<Discrete>(sys, Ts, spec, physical_output_weight(weights.Qy, out.mpc), delay);
     } else {
         out.mpc = mpc_impl<NP, NC, ND, NT_max>(law, Bd, Matrix<NZ, ND, T>{}, weights, constraints, cost);
-        out.target = nominal_target(m.law, law.C, law.D, physical_output_weight(weights.Qy, out.mpc), Bd);
+        if constexpr (NXE == NXL) {
+            out.target = nominal_target(m.law, law.C, law.D, physical_output_weight(weights.Qy, out.mpc), Bd);
+        } else {
+            //! On the filter's model: the late readings' delay states hold the steady output (a refused delay fails kf)
+            out.target = nominal_target(sampled_model(sys, Ts, Discrete, delay).law, law.C, law.D, physical_output_weight(weights.Qy, out.mpc), Matrix<NXE, ND, T>{});
+        }
     }
     return ::damp::detail::set_status(out, first_failure(kf.status, out.target.status, out.mpc.status));
 }
@@ -1826,10 +1832,9 @@ template<bool Discrete, size_t NP, size_t NC, size_t NT_max, size_t NX, size_t N
     using Limits = ::damp::detail::option_t<is_mpc_constraints, MPCConstraintSet<NU, NZ, T>, Opts...>;
     static_assert(is_mpc_constraints_on<Limits, NU, NZ, T>, "The limits are on the inputs and the controlled outputs: MPCConstraints<NU, NZ>.");
     const auto constraints = ::damp::detail::option<is_mpc_constraints>(MPCConstraintSet<NU, NZ, T>{}, opts...);
-    const auto delay = ::damp::detail::option<is_input_delay>(NoDelay{}, opts...);
     static_assert(
-        !Discrete || ::damp::detail::option_count<is_input_delay, Opts...> == 0,
-        "An InputDelay is sampled with the plant: give the continuous plant and Ts, mpc<NP, NC>(plant, Ts, weights, constraints, ..., InputDelay<N>{theta})."
+        !Discrete || ::damp::detail::option_count<is_input_delay, Opts...> + ::damp::detail::option_count<is_output_delay, Opts...> == 0,
+        "A delay is sampled with the plant: give the continuous plant and Ts, mpc<NP, NC>(plant, Ts, weights, constraints, ..., InputDelay<N>{theta}, OutputDelay<M>{theta})."
     );
     if constexpr (mpc_estimated<Opts...>) {
         static_assert(
@@ -1839,12 +1844,14 @@ template<bool Discrete, size_t NP, size_t NC, size_t NT_max, size_t NX, size_t N
         return mpc_estimated_design<Discrete, NP, NC, NT_max>(
             noise_model(sys), Ts, weights, constraints,
             ::damp::detail::option<is_kalman_noise>(KalmanNoise<noise_inputs<NX, NW>, noise_inputs<NY, NV>, T>{}, opts...),
-            ::damp::detail::option<is_disturbance>(NoDisturbance{}, opts...), delay
+            ::damp::detail::option<is_disturbance>(NoDisturbance{}, opts...), delays_of(opts...)
         );
     } else {
         static_assert(::damp::detail::option_count<is_disturbance, Opts...> == 0, "A disturbance spec needs KalmanNoise: the disturbance is estimated.");
+        static_assert(::damp::detail::option_count<is_output_delay, Opts...> == 0, "An OutputDelay is a late reading: it needs a KalmanNoise, a filter to carry it.");
         return mpc_measured<Discrete, NP, NC, NT_max>(
-            sys, Ts, weights, constraints, ::damp::detail::option<is_measured_disturbance>(MeasuredDisturbance<NX, 0, T>{}, opts...), delay
+            sys, Ts, weights, constraints, ::damp::detail::option<is_measured_disturbance>(MeasuredDisturbance<NX, 0, T>{}, opts...),
+            ::damp::detail::option<is_input_delay>(NoDelay{}, opts...)
         );
     }
 }
@@ -1908,7 +1915,10 @@ inline constexpr size_t mpc_outputs_in = mpc_outputs<NU, NY, noise_inputs<NX, NW
  * back_calculate recorded (else its command); a filter carries them, as design::kalman with the
  * same delay does. A delay on a discrete plant does not compile: it is sampled with the plant. A
  * discrete model with the delay built in is designed on like any plant, its delay states then part
- * of the measured state and its noise inputs named. The first outputs of the horizon are ones no
+ * of the measured state and its noise inputs named. With a KalmanNoise, OutputDelay<M>{θ} too: the
+ * reading arrives θ late, and the filter and the target are design::kalman's and
+ * steady_state_target's with the same delays, the late readings' delay states the filter's alone;
+ * the QP's model and its weights are as without it. The first outputs of the horizon are ones no
  * decision can change, so a longer delay wants a longer NP.
  *
  * Horizon. Without a terminal cost, each input's first move has to reach a predicted output
@@ -2000,7 +2010,7 @@ template<size_t NP, size_t NC, size_t NT_max = 0, size_t NX, size_t NU, size_t N
     const damp::type_identity_t<MPCConstraints<NU, detail::mpc_outputs_in<NX, NU, NY, NW, Opts...>, T>>& constraints,
     const Opts&... opts
 ) {
-    ::damp::detail::option_set<detail::is_measured_disturbance, detail::is_kalman_noise, detail::is_disturbance, detail::is_state_limits, detail::is_input_delay>::check<Opts...>();
+    ::damp::detail::option_set<detail::is_measured_disturbance, detail::is_kalman_noise, detail::is_disturbance, detail::is_state_limits, detail::is_input_delay, detail::is_output_delay>::check<Opts...>();
     return detail::mpc_design<true, NP, NC, NT_max>(sys, T{0}, weights, detail::constraint_set(constraints, opts...), opts...);
 }
 
@@ -2033,8 +2043,9 @@ template<size_t NP, size_t NC, size_t NT_max = 0, size_t NX, size_t NU, size_t N
  * @param Ts       Control period [s]
  * @param weights  Cost weights on the controlled outputs, per second
  * @param constraints The limits ({}: unbounded)
- * @param opts     As the discrete form's, a MeasuredDisturbance's B_d continuous; and InputDelay<N>{θ}, the
- *                 plant's input θ late (Input delay, above)
+ * @param opts     As the discrete form's, a MeasuredDisturbance's B_d continuous; InputDelay<N>{θ}, the
+ *                 plant's input θ late, and OutputDelay<M>{θ} with a KalmanNoise, the reading θ late
+ *                 (Input delay, above)
  * @return MPCResult: deploy with `MPC law{res}`; success = false if refused or the plant does not discretize
  */
 template<size_t NP, size_t NC, size_t NT_max = 0, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename... Opts>
@@ -2045,7 +2056,7 @@ template<size_t NP, size_t NC, size_t NT_max = 0, size_t NX, size_t NU, size_t N
     const damp::type_identity_t<MPCConstraints<NU, detail::mpc_outputs_in<NX, NU, NY, NW, Opts...>, T>>& constraints,
     const Opts&... opts
 ) {
-    ::damp::detail::option_set<detail::is_measured_disturbance, detail::is_kalman_noise, detail::is_disturbance, detail::is_state_limits, detail::is_input_delay>::check<Opts...>();
+    ::damp::detail::option_set<detail::is_measured_disturbance, detail::is_kalman_noise, detail::is_disturbance, detail::is_state_limits, detail::is_input_delay, detail::is_output_delay>::check<Opts...>();
     return detail::mpc_design<false, NP, NC, NT_max>(plant, Ts, weights, detail::constraint_set(constraints, opts...), opts...);
 }
 

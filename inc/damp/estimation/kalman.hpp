@@ -81,8 +81,9 @@ namespace design {
  * @tparam NW Process-noise inputs (columns of G); NV Measurement-noise inputs (columns of H). A plant
  *            that declares none (`StateSpace<NX, NU, NY>`, NW = NV = 0) has noise on every state and
  *            reading: the design reads it with G = I and H = I, so the noise is NX × NX and NY × NY.
- *            A model discretized with an InputDelay counts its registers among its states, so they
- *            take noise too: the continuous plant and the InputDelay keep them exact.
+ *            A model discretized with an InputDelay or an OutputDelay counts its delay states among
+ *            its states, so they take noise too: the continuous plant and the delay as an option
+ *            keep them exact.
  * @tparam ND Disturbance states (0: no disturbance model).
  */
 template<size_t NW, size_t NV, typename T = double, size_t ND = 0>
@@ -426,6 +427,123 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size
     return kalman_plain(model, KalmanNoise<NX, NV, T>{.process = *Qd, .measurement = noise.measurement});
 }
 
+/**
+ * @brief The process noise over one period on the model of a filter whose readings arrive late:
+ *        on the continuous states c (the plant's, and d's with a disturbance) at the period's end,
+ *        and on each late reading as its first delay state loads it (Van Loan)
+ *
+ * A late reading's first delay state loads R_i·c(s_i), s_i = Ts − τ_i into the period for a
+ * fraction τ_i of a sample (0 for whole samples: c(k) itself, no new noise). With
+ * n(t) = ∫₀ᵗ e^{A(t−η)} G w(η) dη and Q(t) its covariance, cov(n(Ts)) = Q(Ts),
+ * cov(n(Ts), R_i n(s_i)) = e^{A(Ts−s_i)} Q(s_i) R_iᵀ and cov(R_i n(s_i), R_j n(s_j)) =
+ * R_i e^{A(s_i−m)} Q(m) e^{Aᵀ(s_j−m)} R_jᵀ, m = min(s_i, s_j). The input's delay states and the
+ * older readings take none. @p row maps each state of c to the model's, @p first the first
+ * reading's delay state.
+ * @return nullopt on a non-finite entry or result
+ */
+template<size_t NQ, size_t NC, size_t NG, size_t NY, typename T>
+[[nodiscard]] constexpr damp::optional<Matrix<NQ, NQ, T>> late_reading_noise(
+    const Matrix<NC, NC, T>&                                 A,
+    const Matrix<NC, NG, T>&                                 G,
+    const Matrix<NG, NG, T>&                                 Qc,
+    const Matrix<NY, NC, T>&                                 R,
+    const damp::array<::damp::detail::RegisterDelay<T>, NY>& outputs,
+    T                                                        Ts,
+    const damp::array<size_t, NC>&                           row,
+    size_t                                                   first
+) {
+    const auto Q_T = discretize_process_noise(A, G, Qc, Ts);
+    if (!Q_T) {
+        return damp::nullopt;
+    }
+    Matrix<NQ, NQ, T> Q{};
+    for (size_t a = 0; a < NC; ++a) {
+        for (size_t b = 0; b < NC; ++b) {
+            Q(row[a], row[b]) = (*Q_T)(a, b);
+        }
+    }
+    damp::array<T, NY> s{};
+    for (size_t i = 0; i < NY; ++i) {
+        s[i] = (outputs[i].fraction > T{0}) ? Ts - outputs[i].fraction : T{0};
+    }
+    const auto held = [&](T t) { return discretize_process_noise(A, G, Qc, t); };
+    for (size_t i = 0; i < NY; ++i) {
+        if (!(s[i] > T{0})) {
+            continue; // whole samples: the reading loads c(k), which holds no new noise
+        }
+        const auto Qs = held(s[i]);
+        const auto E = mat::expm(Matrix<NC, NC, T>(A * (Ts - s[i])));
+        if (!Qs || !E) {
+            return damp::nullopt;
+        }
+        const Matrix<NC, NC, T> EQ = *E * *Qs;
+        for (size_t a = 0; a < NC; ++a) {
+            T v{0};
+            for (size_t c = 0; c < NC; ++c) {
+                v += EQ(a, c) * R(i, c);
+            }
+            Q(row[a], first + i) = v;
+            Q(first + i, row[a]) = v;
+        }
+        for (size_t j = 0; j < NY; ++j) {
+            if (!(s[j] > T{0})) {
+                continue;
+            }
+            const T    m = damp::min(s[i], s[j]);
+            const auto Qm = held(m);
+            const auto Ei = mat::expm(Matrix<NC, NC, T>(A * (s[i] - m)));
+            const auto Ej = mat::expm(Matrix<NC, NC, T>(A * (s[j] - m)));
+            if (!Qm || !Ei || !Ej) {
+                return damp::nullopt;
+            }
+            const Matrix<NC, NC, T> M = *Ei * *Qm * Ej->t();
+            T                       v{0};
+            for (size_t a = 0; a < NC; ++a) {
+                for (size_t b = 0; b < NC; ++b) {
+                    v += R(i, a) * M(a, b) * R(j, b);
+                }
+            }
+            Q(first + i, first + j) = v;
+        }
+    }
+    return Q;
+}
+
+/**
+ * @brief The sampled-data Kalman design on a continuous plant whose readings arrive late, and its
+ *        input too when @p delays holds an InputDelay: the filter on discretize(sys, Ts, [input,]
+ *        output), the delay states it carries.
+ *
+ * The process noise acts on the plant: over the period on its state, and on each late reading
+ * up to when it was taken (late_reading_noise); the input's delay states and the older readings
+ * take none. The measurement noise is the reading's as it arrives.
+ */
+template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename In, size_t N, typename S>
+[[nodiscard]] constexpr auto kalman_sampled(
+    const StateSpace<NX, NU, NY, T, NW, NV>&  sys,
+    T                                         Ts,
+    const KalmanNoise<NW, NV, T>&             noise,
+    const PlantDelays<In, OutputDelay<N, S>>& delays
+) {
+    constexpr size_t NXE = NX + delay_states<PlantDelays<In, OutputDelay<N, S>>, NU, NY>;
+    using Result = KalmanResult<NXE, NU, NY, T, NXE, NV>;
+    const auto m = design::detail::sampled_model(sys, Ts, false, delays);
+    const auto outputs = ::damp::detail::channel_register_delays<NY>(delays.output.seconds, Ts, N);
+    if (m.status != DesignStatus::ok || !outputs) {
+        return damp::detail::refused<Result>((m.status != DesignStatus::ok) ? m.status : DesignStatus::invalid_parameter);
+    }
+    damp::array<size_t, NX> row{};
+    for (size_t i = 0; i < NX; ++i) {
+        row[i] = i;
+    }
+    const auto Q = late_reading_noise<NXE>(sys.A, sys.G, noise.process, sys.C, *outputs, Ts, row, NX + (delay_registers<In> * NU));
+    if (!Q) {
+        return damp::detail::refused<Result>(DesignStatus::bad_weights); // a non-finite noise entry
+    }
+    StateSpace<NXE, NU, NY, T, NXE, NV> model{.A = m.law.A, .B = m.law.B, .C = m.law.C, .D = m.law.D, .G = Matrix<NXE, NXE, T>::identity(), .H = sys.H, .Ts = Ts};
+    return kalman_plain(model, KalmanNoise<NXE, NV, T>{.process = *Q, .measurement = noise.measurement});
+}
+
 /** @brief kalman_sampled(sys, Ts, noise): the plant without a delay. */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
 [[nodiscard]] constexpr KalmanResult<NX, NU, NY, T, NX, NV> kalman_sampled(
@@ -457,7 +575,7 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
     const Delay&                             delay = Delay{}
 ) {
     static_assert(!Discrete || damp::is_same_v<Delay, NoDelay>, "A delay is sampled with the plant: a continuous plant and Ts.");
-    constexpr size_t NXE = NX + (delay_registers<Delay> * NU);
+    constexpr size_t NXE = NX + delay_states<Delay, NU, NY>;
     constexpr size_t NXK = NXE + ND;
     if constexpr (ND == 0) {
         static_cast<void>(spec);
@@ -512,6 +630,24 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
                 for (size_t j = 0; j < NA; ++j) {
                     Q((i < NX) ? i : (i - NX + NXE), (j < NX) ? j : (j - NX + NXE)) = (*Qd)(i, j);
                 }
+            }
+            if constexpr (output_delay_states<Delay> > 0) {
+                //! A late reading also holds the noise up to when it was taken: [x; d] from it, the readings on x.
+                const auto outputs = ::damp::detail::channel_register_delays<NY>(delay.output.seconds, Ts, output_delay_states<Delay>);
+                if (!outputs) {
+                    return ::damp::detail::refused<Result>(DesignStatus::invalid_parameter);
+                }
+                Matrix<NY, NA, T> R{};
+                R.template block<NY, NX>(0, 0) = sys.C;
+                damp::array<size_t, NA> row{};
+                for (size_t i = 0; i < NA; ++i) {
+                    row[i] = (i < NX) ? i : (i - NX + NXE);
+                }
+                const auto Ql = late_reading_noise<NXK>(Ac, Gc, Qc, R, *outputs, Ts, row, NX + (delay_registers<Delay> * NU));
+                if (!Ql) {
+                    return ::damp::detail::refused<Result>(DesignStatus::bad_weights);
+                }
+                Q = *Ql;
             }
         }
         return with_disturbance_states<ND>(kalman_plain(aug, KalmanNoise<NWK, NV, T>{.process = Q, .measurement = noise.measurement}));
@@ -570,8 +706,8 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
 
 namespace detail {
 
-/** @brief The options kalman takes: its noise (required), a disturbance spec, an InputDelay. */
-using kalman_options = ::damp::detail::option_set<is_input_delay, is_disturbance, is_kalman_noise>;
+/** @brief The options kalman takes: its noise (required), a disturbance spec, an InputDelay, an OutputDelay. */
+using kalman_options = ::damp::detail::option_set<is_input_delay, is_output_delay, is_disturbance, is_kalman_noise>;
 
 /** @brief The disturbance states of the disturbance spec among @p Opts (0 without one). */
 template<size_t NX, size_t NU, size_t NY, size_t NW, typename... Opts>
@@ -599,7 +735,7 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
     kalman_options::check<Opts...>();
     static_assert(::damp::detail::option_count<is_kalman_noise, Opts...> == 1, "kalman needs its noise among the options: kalman(plant, Ts, KalmanNoise{.process = ..., .measurement = ...}).");
     const auto noise = noise_of<NX, NU, NY, T, NW, NV>(opts...);
-    const auto delay = ::damp::detail::option<is_input_delay>(NoDelay{}, opts...);
+    const auto delay = delays_of(opts...);
     using Disturbance = ::damp::detail::option_t<is_disturbance, NoDisturbance, Opts...>;
     if constexpr (is_disturbance_model<Disturbance>) {
         return kalman_with_disturbance<Discrete>(noise_model(sys), Ts, noise, ::damp::detail::option<is_disturbance>(NoDisturbance{}, opts...), delay);
@@ -654,8 +790,10 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
  * walk of d (G on [x; d] is [G 0; 0 I]). The augment must be detectable, rank [A − I, B_d; C, C_d]
  * = NX + ND (so ND ≤ NY), or the design is refused with DesignStatus::not_detectable; a
  * @c noise.disturbance that is not positive definite is refused with DesignStatus::bad_weights.
- * A delayed plant is the model discretize(plant, Ts, InputDelay{θ}) returns, or kalman(plant, Ts,
- * noise, InputDelay<N>{θ}) from the continuous plant.
+ * A delayed plant, its input late or its readings, is the model discretize(plant, Ts,
+ * InputDelay{θ}, OutputDelay{θ}) returns, or kalman(plant, Ts, noise, InputDelay<N>{θ},
+ * OutputDelay<M>{θ}) from the continuous plant; a delay among this form's options is refused at
+ * compile time.
  *
  * @note Compare with MATLAB®'s [kest, L, P, Mx] = kalman(sys, Q, R) or [M, P] = dlqe(A, G, C, Q, R)
  *       — the latter is matlab::dlqe in matlab.hpp.
@@ -723,16 +861,27 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
  *   reaches the plant through the delay states; a load on the plant itself, which acts at once,
  *   is DisturbanceModel{.Bd = sys.B, .Cd = sys.D} or PlantDisturbance. A delay discretize
  *   refuses (negative, not finite or longer than N samples) is refused with its status.
+ * - OutputDelay<M>{θ}: each reading arrives θ late, one θ for every output or a ColVec of one
+ *   per output. The filter is on discretize(sys, Ts, [InputDelay,] OutputDelay): the plant, the
+ *   input's delay states, then M delay states per output holding the readings already taken. Its
+ *   y is the reading that arrives now, so update(y) takes the late reading as it is, and the
+ *   estimate is the current state. The process noise is the plant's: a reading taken s into the
+ *   period holds the noise up to then, C·Q(s)·Cᵀ, and shares e^{A(Ts−s)}·Q(s)·Cᵀ with the state
+ *   at the period's end (Van Loan, exact; a reading taken at a sample holds none), so G on the
+ *   model is I. The measurement noise is on the reading as it arrives. An InputDisturbance adds
+ *   to u, which the model carries into the late readings; another spec's d reaches them as it is
+ *   now, not as it was when they were taken, which is exact at a steady state.
  *
  * @code
  * constexpr auto kf = design::kalman(plant, 0.01, design::KalmanNoise{.process = Qc, .measurement = sigma2}, InputDelay<3>{0.022});
+ * constexpr auto camera = design::kalman(plant, 0.01, design::KalmanNoise{.process = Qc, .measurement = sigma2}, OutputDelay<2>{0.015});
  * @endcode
  * @param opts   The KalmanNoise{.process, .measurement[, .disturbance]}, required: process-noise
  *               density on the NW inputs of G (positive semidefinite), per-reading measurement
  *               variance on the NV inputs of H (positive definite, no Ts scaling) and, with a
- *               disturbance spec, the density of d's random walk; a disturbance spec and an
- *               InputDelay, or neither
- * @return KalmanResult on the discretized plant, its delay states and d (G = I, or [I; 0] with a delay), with L, M, P and status
+ *               disturbance spec, the density of d's random walk; a disturbance spec, an
+ *               InputDelay and an OutputDelay, each or none
+ * @return KalmanResult on the discretized plant, its delay states and d (G = I, or [I; 0] with an InputDelay alone), with L, M, P and status
  */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename... Opts>
 [[nodiscard]] constexpr auto kalman(const StateSpace<NX, NU, NY, T, NW, NV>& sys, damp::type_identity_t<T> Ts, const Opts&... opts) {

@@ -23,7 +23,8 @@
  * | KalmanNoise | a disturbance spec | OFLQG: a filter on [x; d] and the target under d̂ |
  *
  * With Ts, InputDelay<N>{θ} among the options designs any of these on the plant whose input
- * arrives θ late. The options trail in any order, at most one of each kind (design/options.hpp).
+ * arrives θ late, and OutputDelay<M>{θ} the ones with a KalmanNoise on readings that arrive θ
+ * late. The options trail in any order, at most one of each kind (design/options.hpp).
  * This header includes the five runtimes, so the law a design names deploys from it. The matlab::
  * aliases (lqr, dlqr, lqrd, lqi, lqg, lqgtrack) take MATLAB®'s arguments and call through.
  */
@@ -85,7 +86,7 @@ template<size_t NY, size_t NX, size_t NU, typename T, typename TQ, typename TI>
 }
 
 /** @brief The options of a state-feedback design: a KalmanNoise makes it estimate the state. */
-using state_feedback_options = ::damp::detail::option_set<is_input_delay, is_integral_option, is_tracked_option, is_disturbance, is_kalman_noise, is_lqr_limits, is_demand_limit>;
+using state_feedback_options = ::damp::detail::option_set<is_input_delay, is_output_delay, is_integral_option, is_tracked_option, is_disturbance, is_kalman_noise, is_lqr_limits, is_demand_limit>;
 
 /** @brief design::state_feedback in the plant's domain (@p Sampled false) or at @p Ts: on the measured state, or on a Kalman filter's estimate with a KalmanNoise among @p opts. */
 template<bool Sampled, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename... Opts>
@@ -168,9 +169,18 @@ template<bool Sampled, size_t NX, size_t NU, size_t NY, typename T, size_t NW, s
  *   their way, a filter carries them. An InputDisturbance adds to u, so it reaches the plant through
  *   the delay states; a load on the plant itself, which acts at once, is DisturbanceModel{.Bd =
  *   sys.B, .Cd = sys.D}.
+ * - OutputDelay<M>{θ}, on the sampled form with a KalmanNoise (LQG, LQGI, OFLQG): the readings
+ *   arrive θ late. The filter is design::kalman(plant, Ts, noise, …, OutputDelay<M>{θ})'s, which
+ *   carries the delay states of the readings already taken, so the estimate is the current
+ *   state; the gain is the plant's (the input-delayed plant's with an InputDelay too) and reads
+ *   none of those delay states, and the target holds each at the steady output. update(y) takes
+ *   the reading as it arrives. An LQGI's integrators integrate that late reading, so they agree
+ *   with the gain's model at a steady state, not in a transient. A law on the measured state has
+ *   no filter to carry the late readings and is refused at compile time.
  *
  * @code
  * constexpr auto lqi = design::state_feedback(plant, 0.01, {.Q = Q, .R = {R}}, IntegralAction{.Q = 80.0}, InputDelay<3>{0.022});
+ * constexpr auto lqg = design::state_feedback(plant, 0.01, {.Q = Q, .R = {R}}, KalmanNoise{.process = Qn, .measurement = 0.01}, OutputDelay<2>{0.015});
  * constexpr auto oflqg = design::state_feedback(plant, 0.01, {.Q = Q, .R = {R}}, KalmanNoise{.process = Qn, .measurement = 0.01, .disturbance = 0.25}, InputDisturbance{});
  * static constinit Law<lqi, float> law;
  * // each tick: law.update(x); u = law.control(r); write(sat(u)); law.back_calculate(sat(u)); law.predict();

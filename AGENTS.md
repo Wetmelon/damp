@@ -105,17 +105,19 @@ the repo root.
   plant (`InputDelay{θ}` is N = 1), and a late reading `OutputDelay<N>{θ}` the
   same way; a `ColVec` of seconds gives one delay per channel. A delay is a model
   of the plant, never a parameter of a law's tick. `state_feedback` (every LQ
-  law), `kalman` and `steady_state_target` take the continuous plant and the
-  delay as a trailing option,
+  law), `kalman`, `steady_state_target` and `mpc` take the continuous plant and
+  the delay as a trailing option,
   `fn(plant, Ts, config, …, InputDelay<N>{θ})`, and design on that model, the
   cost and the noise discretized exactly; a measured-state law holds the delay
-  states (`update` takes the plant state), a filter carries them. MPC is
-  designed on the model. Many samples of dead time is a slower sample or
+  states (`update` takes the plant state), a filter carries them. `kalman`, and
+  a `state_feedback` or `mpc` with a `KalmanNoise`, take `OutputDelay<M>{θ}` the
+  same way: the filter carries the late readings' delay states, the gain and the
+  QP read none of them. Many samples of dead time is a slower sample or
   `SmithPredictor`.
 - **Design calls:** what every call needs is positional (the plant, `Ts` for a
   continuous one, the weights), so braces size it from the plant; the rest is a
   trailing pack recognized by type (`design/options.hpp`: `KalmanNoise`,
-  `InputDelay`, `IntegralAction`, `TrackedOutputs`, `LQRLimits`, `DemandLimit`, `StateLimits`,
+  `InputDelay`, `OutputDelay`, `IntegralAction`, `TrackedOutputs`, `LQRLimits`, `DemandLimit`, `StateLimits`,
   a disturbance spec, …), at most one of each kind, in any order, refused at
   compile time otherwise. What the gain does not depend on is an option, not a
   weight: an LQ design's limits are `LQRLimits{.u_lim}` and a `DemandLimit`. A
@@ -127,7 +129,7 @@ the repo root.
   a noise and a disturbance spec. An option carries its own numbers, so the
   weights are the same with or without it: `IntegralAction{.Q, .outputs, .lim,
   .tracking_time}` the integrators' cost and limits, `KalmanNoise` the noise and
-  the disturbance's walk, `InputDelay<N>{θ}` the delay. A weight an option's
+  the disturbance's walk, `InputDelay<N>{θ}` and `OutputDelay<M>{θ}` the delays. A weight an option's
   size comes from is a value (a scalar or a Matrix); `KalmanNoise` deduces its
   sizes from its fields. A list of indices is a C array (`DemandLimit::outer`,
   `TrackedOutputs::outputs`, the disturbance specs' `outputs`), so its length
