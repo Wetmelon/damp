@@ -531,7 +531,7 @@ TEST_SUITE("LQI on a plant with feedthrough") {
     }
 }
 
-TEST_CASE("LQRWeights, LQRLimits, DemandLimit, TrackedOutputs and IntegralAction take their sizes from the fields they set") {
+TEST_CASE("LQRWeights, LQRLimits, DemandLimit, TrackedOutputs, the disturbance specs and IntegralAction take their sizes from the fields they set") {
     using design::IntegralAction;
     using design::LQRWeights;
     //! One input unless a field says otherwise; a single weight is braced.
@@ -550,6 +550,11 @@ TEST_CASE("LQRWeights, LQRLimits, DemandLimit, TrackedOutputs and IntegralAction
     constexpr DemandLimit limited{.state = 1, .outer = {0, 2}, .lim = {.lower = -0.2, .upper = 0.2}};
     static_assert(damp::is_same_v<decltype(limited), const DemandLimit<2>> && limited.state == 1 && limited.outer[1] == 2);
     static_assert(damp::is_same_v<decltype(design::TrackedOutputs{{0, 2}}), design::TrackedOutputs<2>> && damp::is_same_v<decltype(design::TrackedOutputs{}), design::TrackedOutputs<0>>);
+    static_assert(damp::is_same_v<decltype(design::InputDisturbance{{0, 2}}), design::InputDisturbance<2>> && damp::is_same_v<decltype(design::OutputDisturbance{}), design::OutputDisturbance<0>>);
+    static_assert(damp::is_same_v<decltype(design::PlantDisturbance{{1}}), design::PlantDisturbance<1>>);
+    constexpr design::DisturbanceModel load{.Bd = Matrix<2, 1>{{0.0}, {1.0}}, .Cd = Matrix<1, 1>{{0.0}}, .outputs = {0}};
+    static_assert(damp::is_same_v<decltype(load), const design::DisturbanceModel<2, 1, 1, 1>> && load.outputs[0] == 0);
+    static_assert(damp::is_same_v<decltype(design::DisturbanceModel{.Bd = Matrix<2, 1>{{0.0}, {1.0}}, .Cd = Matrix<1, 1>{{0.0}}}), design::DisturbanceModel<2, 1, 1>>);
     constexpr LQRWeights positional{diag(1.0, 0.1), Matrix<1, 1>{0.5}};
     static_assert(damp::is_same_v<decltype(positional), const LQRWeights<2, 1>>);
 

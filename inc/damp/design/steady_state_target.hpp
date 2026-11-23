@@ -93,29 +93,20 @@ struct [[nodiscard]] SteadyStateTargetResult {
 
 namespace detail {
 
-/** @brief The controlled outputs a spec lists: none for NoDisturbance (every output). */
-[[nodiscard]] constexpr damp::array<size_t, 0> listed_outputs(const NoDisturbance&) {
-    return {};
-}
-
-/** @brief The controlled outputs an InputDisturbance, OutputDisturbance, PlantDisturbance or DisturbanceModel lists. */
+/** @brief The outputs a disturbance spec or TrackedOutputs lists, as an array: none when it lists none (every output). */
 template<typename Spec>
 [[nodiscard]] constexpr auto listed_outputs(const Spec& spec) {
-    return spec.outputs;
-}
-
-/** @brief The outputs TrackedOutputs lists, none for every output. */
-template<size_t NZ>
-[[nodiscard]] constexpr damp::array<size_t, NZ> listed_outputs(const TrackedOutputs<NZ>& spec) {
-    damp::array<size_t, NZ> out{};
-    if constexpr (NZ > 0) {
+    if constexpr (requires { spec.outputs; }) {
+        constexpr size_t        NZ = sizeof(spec.outputs) / sizeof(size_t);
+        damp::array<size_t, NZ> out{};
         for (size_t i = 0; i < NZ; ++i) {
             out[i] = spec.outputs[i];
         }
+        return out;
     } else {
         static_cast<void>(spec);
+        return damp::array<size_t, 0>{};
     }
-    return out;
 }
 
 /** @brief The disturbance channels of NoDisturbance: none. */

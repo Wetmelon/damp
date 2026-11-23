@@ -34,23 +34,37 @@ struct NoDisturbance {};
  * @brief An input disturbance: d adds to u, B_d = B and C_d = D, one disturbance per input.
  *
  * The usual offset-free model for a load or an actuator bias (Pannocchia & Rawlings, 2003).
+ *
+ * @ref outputs is an array, so `InputDisturbance{{0, 2}}` takes NZ from its list; `InputDisturbance{}` holds
+ * every measured output.
  * @tparam NZ Outputs held offset-free, listed in @ref outputs (0: every measured output)
  */
 template<size_t NZ = 0>
 struct InputDisturbance {
-    damp::array<size_t, NZ> outputs{}; ///< Indices of the measured outputs held offset-free, each once (none listed: all)
+    size_t outputs[NZ]{}; ///< Indices of the measured outputs held offset-free, each once (an array, so bare braces give NZ)
 };
+
+/** @brief An input disturbance, every measured output held offset-free: no list. */
+template<>
+struct InputDisturbance<0> {};
 
 /**
  * @brief An output disturbance: a bias on each reading, B_d = 0 and C_d = I, one per output.
  *
  * The model of MATLAB®'s default MPC estimator (a step on each measured output).
+ *
+ * @ref outputs is an array, so `OutputDisturbance{{0, 2}}` takes NZ from its list; `OutputDisturbance{}` holds
+ * every measured output.
  * @tparam NZ Outputs held offset-free, listed in @ref outputs (0: every measured output)
  */
 template<size_t NZ = 0>
 struct OutputDisturbance {
-    damp::array<size_t, NZ> outputs{}; ///< Indices of the measured outputs held offset-free, each once (none listed: all)
+    size_t outputs[NZ]{}; ///< Indices of the measured outputs held offset-free, each once (an array, so bare braces give NZ)
 };
+
+/** @brief An output disturbance, every measured output held offset-free: no list. */
+template<>
+struct OutputDisturbance<0> {};
 
 /**
  * @brief The plant's own disturbance channel: B_d = G and C_d = H, one disturbance per column of
@@ -59,12 +73,19 @@ struct OutputDisturbance {
  * For a plant whose G and H describe how an unmeasured force enters the dynamics and the
  * sensors (a force on the carriage that an accelerometer also reads). The process and
  * measurement noise still enter through G and H.
+ *
+ * @ref outputs is an array, so `PlantDisturbance{{0, 2}}` takes NZ from its list; `PlantDisturbance{}` holds
+ * every measured output.
  * @tparam NZ Outputs held offset-free, listed in @ref outputs (0: every measured output)
  */
 template<size_t NZ = 0>
 struct PlantDisturbance {
-    damp::array<size_t, NZ> outputs{}; ///< Indices of the measured outputs held offset-free, each once (none listed: all)
+    size_t outputs[NZ]{}; ///< Indices of the measured outputs held offset-free, each once (an array, so bare braces give NZ)
 };
+
+/** @brief The plant's own disturbance channel, every measured output held offset-free: no list. */
+template<>
+struct PlantDisturbance<0> {};
 
 /**
  * @brief An explicit disturbance model: d enters the plant's state through B_d and the readings
@@ -74,13 +95,23 @@ struct PlantDisturbance {
  * ZOH; per step on a discrete one), one row per plant state.
  *
  * @tparam NX Plant states; NY Measured outputs; ND Disturbance states
+ *
+ * @ref outputs is an array, so `DisturbanceModel{.Bd = Bd, .Cd = Cd, .outputs = {0}}` takes NZ from
+ * its list, and NX, NY and ND from the matrices; left out, every measured output is held.
  * @tparam NZ Outputs held offset-free, listed in @ref outputs (0: every measured output)
  */
 template<size_t NX, size_t NY, size_t ND, size_t NZ = 0, typename T = double>
 struct DisturbanceModel {
-    Matrix<NX, ND, T>       Bd{};      ///< How d enters the state update
-    Matrix<NY, ND, T>       Cd{};      ///< How d enters the readings directly
-    damp::array<size_t, NZ> outputs{}; ///< Indices of the measured outputs held offset-free, each once (none listed: all)
+    Matrix<NX, ND, T> Bd{};          ///< How d enters the state update
+    Matrix<NY, ND, T> Cd{};          ///< How d enters the readings directly
+    size_t            outputs[NZ]{}; ///< Indices of the measured outputs held offset-free, each once (an array, so bare braces give NZ)
+};
+
+/** @brief An explicit disturbance model holding every measured output offset-free: no list. */
+template<size_t NX, size_t NY, size_t ND, typename T>
+struct DisturbanceModel<NX, NY, ND, 0, T> {
+    Matrix<NX, ND, T> Bd{}; ///< How d enters the state update
+    Matrix<NY, ND, T> Cd{}; ///< How d enters the readings directly
 };
 
 namespace detail {
