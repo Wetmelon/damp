@@ -12,6 +12,7 @@ and [known limitations](docs/known_limitations.md)).
 ### Added
 
 - `StateSpace{.A = {{…}}, .B = {{…}}, .C = {{…}}, .G = Matrix<NX, NX>::identity(), .H = Matrix<NY, NY>::identity()}` deduces its noise inputs from the named G and H, with or without `.D` and `.Ts`: a plant with noise inputs no longer names its sizes.
+- `design/config.hpp`, a helper over the trailing design options for a caller who would name each one or keep a design's inputs in one object: `LQConfig`, `KalmanConfig`, `MPCConfig` and `TargetConfig` hold the same objects as named fields, and `state_feedback`, `kalman`, `mpc` and `steady_state_target` take one in the options' place, `design::state_feedback(plant, Ts, design::LQConfig{.weights = design::LQRWeights{.Q = Q, .R = {0.1}}, .integral = design::IntegralAction{.Q = 80.0}})`. It passes the fields that were given on as the options, so it is the same design. Every field holds a named object: the plant cannot size bare braces inside a config.
 - `state_gain()`, `delay_gain()` and `integral_gain()` on a state-feedback design's result, `state_gain()` on an `LQRResult`: K's columns on the plant's states, on the delay states of a plant whose input arrives late (the commands still on their way) and on the integrators, so a law that reads its gain needs no index into [x; v; ξ].
 
 ### Changed

@@ -129,8 +129,12 @@ the repo root.
   sizes from its fields. A list of indices is a C array (`DemandLimit::outer`,
   `TrackedOutputs::outputs`), so its length is deduced from bare braces, which
   no class member's is. Two overloads per design, `fn(sys, …, opts...)` and
-  `fn(plant, Ts, …, opts...)`; no options struct, whose members would carry the
-  options' sizes, so every call would name it on top of them.
+  `fn(plant, Ts, …, opts...)`. The pack is the spelling of the docs, examples
+  and tests. `design/config.hpp` is a helper over it, not a second design:
+  `LQConfig`, `KalmanConfig`, `MPCConfig` and `TargetConfig` hold the same
+  objects as named fields and pass the given ones on as options, so every field
+  holds a named object. A new option goes in the pack, then in the config as
+  one more field.
 - **Ticks:** estimators `predict` / `update`; controllers `control`; `step` is
   predict then update then control (m_k in, u_k out). Low-latency ISR: update →
   control → write → `back_calculate` → predict. `back_calculate(u_sat, u_ff = {})`

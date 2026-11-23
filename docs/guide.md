@@ -132,6 +132,8 @@ Keep the plant as `StateSpace` (or `matlab::ss` / `tf`). Discretize with `discre
 
 Integral action is `design::state_feedback` with an `IntegralAction{.Q}`, its own cost on the integrators; it builds the augmented plant. Actuator saturation on that law is an `LQRLimits{.u_lim}` among its options, which the law clamps to and holds its integrators against (a `tracking_time` in the `IntegralAction` unwinds them instead), or `back_calculate` after a clamp downstream. Input and output limits over a horizon are `design::mpc`.
 
+A design's options trail its call in any order, recognized by their type. For a caller who would name each one, or keep a design's inputs in one object, `damp/design/config.hpp` is a helper over them: `design::state_feedback(sys, Ts, design::LQConfig{.weights = weights, .integral = design::IntegralAction{.Q = 80.0}})` is the same design, and `KalmanConfig`, `MPCConfig` and `TargetConfig` do the same for `kalman`, `mpc` and `steady_state_target`. Every field holds a named object (`design::LQRWeights{…}`, not bare braces), which the plant cannot size inside a config.
+
 ## Coming from firmware
 
 One object, one tick. Design at compile time or init. Do not run Riccati in the PWM interrupt.

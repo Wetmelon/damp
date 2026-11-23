@@ -55,6 +55,7 @@
 #include "damp/systems/zpk.hpp"               // IWYU pragma: export
 
 // --- Design / CST synthesis (init / offline) --------------------------------
+#include "damp/design/config.hpp"          // IWYU pragma: export
 #include "damp/design/linearization.hpp"   // IWYU pragma: export
 #include "damp/design/lyapunov.hpp"        // IWYU pragma: export
 #include "damp/design/minreal.hpp"         // IWYU pragma: export

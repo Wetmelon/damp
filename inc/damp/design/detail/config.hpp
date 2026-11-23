@@ -35,8 +35,9 @@ struct Unset {
         static_cast<void>(value);
         static_assert(
             sizeof(U) == 0,
-            "This field's type comes from its value, and bare braces carry none: write the weight as a scalar or a Matrix "
-            "(80.0, diag(1.0, 2.0), Matrix<2, 2>{...})."
+            "This field's type comes from its value, and bare braces carry none: write a weight as a scalar or a Matrix "
+            "(80.0, diag(1.0, 2.0), Matrix<2, 2>{...}), and name a config field's struct (LQRConfig{...}, KalmanNoise{...}, "
+            "InputDisturbance{}, InputDelay<N>{theta}, MPCWeights{...})."
         );
     }
 };
