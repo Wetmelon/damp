@@ -10,6 +10,7 @@
 #include "damp/controllers/lqg.hpp"
 #include "damp/controllers/lqgi.hpp"
 #include "damp/controllers/oflqg.hpp"
+#include "damp/controllers/state_feedback.hpp"
 #include "damp/controllers/state_feedback_types.hpp"
 #include "damp/design/disturbance.hpp"
 #include "damp/design/status.hpp"
@@ -41,7 +42,7 @@ constexpr StateSpace<2, 1, 1, double, 2, 1> make_plant() {
 TEST_SUITE("Offset-free LQG: oflqg with a disturbance model") {
     TEST_CASE("design succeeds") {
         constexpr auto sys = make_plant();
-        constexpr auto result = design::oflqg(sys, {.Q = Matrix<2, 2>::identity(), .R = 0.1}, design::KalmanNoise{Matrix<2, 2>{{0.01, 0.0}, {0.0, 0.01}}, Matrix<1, 1>{{0.1}}, Matrix<1, 1>{{1.0}}}, design::InputDisturbance{});
+        constexpr auto result = design::state_feedback(sys, {.Q = Matrix<2, 2>::identity(), .R = 0.1}, design::KalmanNoise{Matrix<2, 2>{{0.01, 0.0}, {0.0, 0.01}}, Matrix<1, 1>{{0.1}}, Matrix<1, 1>{{1.0}}}, design::InputDisturbance{});
         static_assert(result.success);
         static_assert(result.status == design::DesignStatus::ok);
         static_assert(result.Ts == 0.1 && result.kalman.sys.Ts == 0.1); // the plant's, both halves
@@ -57,26 +58,26 @@ TEST_SUITE("Offset-free LQG: oflqg with a disturbance model") {
     }
 
     TEST_CASE("a continuous plant is refused, as by lqg; continuous plant + Ts designs at Ts") {
-        constexpr design::LQRConfig<2, 1> w{.Q = Matrix<2, 2>::identity(), .R = 0.1};
-        auto                              continuous = make_plant();
+        constexpr design::LQRWeights<2, 1> w{.Q = Matrix<2, 2>::identity(), .R = 0.1};
+        auto                               continuous = make_plant();
         continuous.Ts = 0.0;
-        const auto refused = design::oflqg(continuous, w, design::KalmanNoise<2, 1, double, 1>{}, design::InputDisturbance{});
+        const auto refused = design::state_feedback(continuous, w, design::KalmanNoise<2, 1, double, 1>{}, design::InputDisturbance{});
         CHECK_FALSE(refused.success);
         CHECK(refused.status == design::DesignStatus::invalid_sample_time);
-        const auto refused_model = design::oflqg(continuous, w, design::KalmanNoise<2, 1, double, 1>{}, design::DisturbanceModel<2, 1, 1>{.Bd = continuous.B});
+        const auto refused_model = design::state_feedback(continuous, w, design::KalmanNoise<2, 1, double, 1>{}, design::DisturbanceModel<2, 1, 1>{.Bd = continuous.B});
         CHECK(refused_model.status == design::DesignStatus::invalid_sample_time);
 
         //! The sample-time form takes the continuous plant only: a discrete one would be discretized twice.
         constexpr StateSpace<2, 1, 1> di{.A = Matrix<2, 2>{{0.0, 1.0}, {0.0, 0.0}}, .B = Matrix<2, 1>{{0.0}, {1.0}}, .C = Matrix<1, 2>{{1.0, 0.0}}};
-        constexpr auto                sampled = design::oflqg(di, 0.1, w, design::KalmanNoise<2, 1, double, 1>{}, design::InputDisturbance{});
+        constexpr auto                sampled = design::state_feedback(di, 0.1, w, design::KalmanNoise<2, 1, double, 1>{}, design::InputDisturbance{});
         static_assert(sampled.success && sampled.Ts == 0.1);
-        CHECK(design::oflqg(*discretize(di, 0.1), 0.1, w, design::KalmanNoise<2, 1, double, 1>{}, design::InputDisturbance{}).status == design::DesignStatus::invalid_sample_time);
-        CHECK(design::oflqg(di, 0.0, w, design::KalmanNoise<2, 1, double, 1>{}, design::InputDisturbance{}).status == design::DesignStatus::invalid_sample_time);
+        CHECK(design::state_feedback(*discretize(di, 0.1), 0.1, w, design::KalmanNoise<2, 1, double, 1>{}, design::InputDisturbance{}).status == design::DesignStatus::invalid_sample_time);
+        CHECK(design::state_feedback(di, 0.0, w, design::KalmanNoise<2, 1, double, 1>{}, design::InputDisturbance{}).status == design::DesignStatus::invalid_sample_time);
     }
 
     TEST_CASE("tracks a setpoint under a constant input load") {
         const auto sys = make_plant();
-        const auto result = design::oflqg(sys, {.Q = Matrix<2, 2>::identity(), .R = 0.1}, design::KalmanNoise{Matrix<2, 2>{{0.05, 0.0}, {0.0, 0.05}}, Matrix<1, 1>{{0.05}}, Matrix<1, 1>{{1.0}}}, design::InputDisturbance{});
+        const auto result = design::state_feedback(sys, {.Q = Matrix<2, 2>::identity(), .R = 0.1}, design::KalmanNoise{Matrix<2, 2>{{0.05, 0.0}, {0.0, 0.05}}, Matrix<1, 1>{{0.05}}, Matrix<1, 1>{{1.0}}}, design::InputDisturbance{});
         REQUIRE(result.success);
 
         auto            ctrl = OFLQG{result};
@@ -93,7 +94,7 @@ TEST_SUITE("Offset-free LQG: oflqg with a disturbance model") {
     }
 
     TEST_CASE("as<float> preserves success") {
-        constexpr auto result = design::oflqg(make_plant(), {.Q = Matrix<2, 2>::identity(), .R = 0.1}, design::KalmanNoise{Matrix<2, 2>{{0.01, 0.0}, {0.0, 0.01}}, Matrix<1, 1>{{0.1}}, Matrix<1, 1>{{1.0}}}, design::InputDisturbance{});
+        constexpr auto result = design::state_feedback(make_plant(), {.Q = Matrix<2, 2>::identity(), .R = 0.1}, design::KalmanNoise{Matrix<2, 2>{{0.01, 0.0}, {0.0, 0.01}}, Matrix<1, 1>{{0.1}}, Matrix<1, 1>{{1.0}}}, design::InputDisturbance{});
         constexpr auto f = result.as<float>();
         static_assert(f.success);
         CHECK(f.success);
@@ -135,7 +136,7 @@ TEST_SUITE("Offset-free LQG: oflqg with a disturbance model") {
 
         Matrix<4, 4> Q = Matrix<4, 4>::identity();
         Q(2, 2) = 1.0e4;
-        const auto res = design::oflqg(sys, {.Q = Q, .R = 1.0e-4}, design::KalmanNoise{Matrix<4, 4>::identity() * 1.0e-8, Matrix<3, 3>{{1.0e-8, 0.0, 0.0}, {0.0, 1.0e-8, 0.0}, {0.0, 0.0, 1.0e-2}}, Matrix<1, 1>{{1.0}}}, model);
+        const auto res = design::state_feedback(sys, {.Q = Q, .R = 1.0e-4}, design::KalmanNoise{Matrix<4, 4>::identity() * 1.0e-8, Matrix<3, 3>{{1.0e-8, 0.0, 0.0}, {0.0, 1.0e-8, 0.0}, {0.0, 0.0, 1.0e-2}}, Matrix<1, 1>{{1.0}}}, model);
         REQUIRE(res.success);
 
         OFLQG           ctrl{res};
@@ -155,7 +156,7 @@ TEST_SUITE("Offset-free LQG: oflqg with a disturbance model") {
         // Same design, same plant and load: step({}, x*, u*, y) with x* = [1, 0], u* = 0 must
         // produce exactly the inputs step(r = 1, {}, {}, y) does (re-anchoring makes the two filters equal).
         const auto sys = make_plant();
-        const auto result = design::oflqg(sys, {.Q = Matrix<2, 2>::identity(), .R = 0.1}, design::KalmanNoise{Matrix<2, 2>{{0.05, 0.0}, {0.0, 0.05}}, Matrix<1, 1>{{0.05}}, Matrix<1, 1>{{1.0}}}, design::InputDisturbance{});
+        const auto result = design::state_feedback(sys, {.Q = Matrix<2, 2>::identity(), .R = 0.1}, design::KalmanNoise{Matrix<2, 2>{{0.05, 0.0}, {0.0, 0.05}}, Matrix<1, 1>{{0.05}}, Matrix<1, 1>{{1.0}}}, design::InputDisturbance{});
         REQUIRE(result.success);
         OFLQG     setpoint{result};
         OFLQG     tracking{result};
@@ -174,7 +175,7 @@ TEST_SUITE("Offset-free LQG: oflqg with a disturbance model") {
 
     TEST_CASE("tracks a moving reference under a constant load") {
         const auto sys = make_plant();
-        const auto result = design::oflqg(sys, {.Q = Matrix<2, 2>{{100.0, 0.0}, {0.0, 1.0}}, .R = 0.01}, design::KalmanNoise{Matrix<2, 2>{{0.05, 0.0}, {0.0, 0.05}}, Matrix<1, 1>{{0.01}}, Matrix<1, 1>{{1.0}}}, design::InputDisturbance{});
+        const auto result = design::state_feedback(sys, {.Q = Matrix<2, 2>{{100.0, 0.0}, {0.0, 1.0}}, .R = 0.01}, design::KalmanNoise{Matrix<2, 2>{{0.05, 0.0}, {0.0, 0.05}}, Matrix<1, 1>{{0.01}}, Matrix<1, 1>{{1.0}}}, design::InputDisturbance{});
         REQUIRE(result.success);
         OFLQG        ctrl{result};
         ColVec<2>    x{};
@@ -205,7 +206,7 @@ TEST_SUITE("Offset-free LQG: oflqg with a disturbance model") {
             Matrix<1, 1>::identity(),
             0.1
         };
-        const auto result = design::oflqg(
+        const auto result = design::state_feedback(
             sys, {.Q = Matrix<2, 2>::identity(), .R = 0.1},
             design::KalmanNoise{Matrix<2, 2>{{0.05, 0.0}, {0.0, 0.05}}, Matrix<1, 1>{{0.05}}, Matrix<1, 1>{{1.0}}},
             design::DisturbanceModel<2, 1, 1>{.Bd = sys.B} // the load at the input; the sensor reads the command alone
@@ -234,8 +235,8 @@ TEST_SUITE("Offset-free LQG: oflqg with a disturbance model") {
                 Matrix<2, 2>{{0.9, 0.1}, {0.0, 0.8}}, Matrix<2, 1>{{0.0}, {0.2}}, Matrix<1, 2>{{1.0, 0.0}}, Matrix<1, 1>{{D}}, Matrix<2, 2>::identity(), Matrix<1, 1>::identity(), 0.01
             };
             const design::KalmanNoise<2, 1, double, 1> noise{.process = Matrix<2, 2>::identity() * 0.01, .measurement = 0.01, .disturbance = 0.01};
-            const design::LQRConfig<2, 1>              w{.Q = Matrix<2, 2>::identity(), .R = 1.0};
-            const auto                                 result = design::oflqg(sys, w, noise, spec);
+            const design::LQRWeights<2, 1>             w{.Q = Matrix<2, 2>::identity(), .R = 1.0};
+            const auto                                 result = design::state_feedback(sys, w, noise, spec);
             REQUIRE(result.success);
             OFLQG        law{result};
             ColVec<2>    x{};
@@ -262,27 +263,27 @@ TEST_CASE("lqg, lqgi and oflqg read a plant with no noise inputs as noise on eve
     constexpr StateSpace bare{.A = full.A, .B = full.B, .C = full.C, .Ts = full.Ts};
     static_assert(damp::is_same_v<decltype(bare), const StateSpace<2, 1, 1>>);
 
-    constexpr design::LQRConfig<2, 1>              lq{.Q = Matrix<2, 2>::identity(), .R = 0.1};
-    constexpr design::LQIConfig<2, 1, 1>           lqi{.Q = Matrix<2, 2>::identity(), .R = 0.1, .Q_integral = 1.0};
+    constexpr design::LQRWeights<2, 1>             lq{.Q = Matrix<2, 2>::identity(), .R = 0.1};
+    constexpr design::IntegralAction               integral{.Q = 1.0}; // with lq, the LQGI's cost
     constexpr design::KalmanNoise<2, 1>            noise{.process = diag(0.01, 0.01), .measurement = 0.1};
     constexpr design::KalmanNoise<2, 1, double, 1> noise_d{.process = diag(0.01, 0.01), .measurement = 0.1, .disturbance = 1.0};
 
-    constexpr auto by_bare = design::oflqg(bare, lq, noise_d, design::InputDisturbance{});
-    constexpr auto by_full = design::oflqg(full, lq, noise_d, design::InputDisturbance{});
+    constexpr auto by_bare = design::state_feedback(bare, lq, noise_d, design::InputDisturbance{});
+    constexpr auto by_full = design::state_feedback(full, lq, noise_d, design::InputDisturbance{});
     static_assert(by_bare.success);
     CHECK(by_bare.K == by_full.K);
     CHECK(by_bare.kalman.M == by_full.kalman.M);
 
-    constexpr auto lqg_bare = design::lqg(bare, lq, noise);
-    constexpr auto lqg_full = design::lqg(full, lq, noise);
-    constexpr auto lqgi_bare = design::lqgi(bare, lqi, noise);
-    constexpr auto lqgi_full = design::lqgi(full, lqi, noise);
+    constexpr auto lqg_bare = design::state_feedback(bare, lq, noise);
+    constexpr auto lqg_full = design::state_feedback(full, lq, noise);
+    constexpr auto lqgi_bare = design::state_feedback(bare, lq, noise, integral);
+    constexpr auto lqgi_full = design::state_feedback(full, lq, noise, integral);
     static_assert(lqg_bare.success && lqgi_bare.success);
     CHECK(lqg_bare.kalman.M == lqg_full.kalman.M);
     CHECK(lqgi_bare.kalman.M == lqgi_full.kalman.M);
 
     //! From the continuous plant with a delay, the noise braced at the call.
     constexpr StateSpace plant{.A = {{0.0, 1.0}, {0.0, 0.0}}, .B = {{0.0}, {1.0}}, .C = {{1.0, 0.0}}};
-    constexpr auto       delayed = design::oflqg(plant, 0.1, InputDelay<2>{0.15}, lq, {.process = diag(0.01, 0.01), .measurement = 0.1, .disturbance = 1.0}, design::InputDisturbance{});
+    constexpr auto       delayed = design::state_feedback(plant, 0.1, lq, design::KalmanNoise{.process = diag(0.01, 0.01), .measurement = 0.1, .disturbance = 1.0}, design::InputDisturbance{}, InputDelay<2>{0.15});
     static_assert(delayed.success);
 }

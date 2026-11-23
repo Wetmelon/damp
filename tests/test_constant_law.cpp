@@ -20,7 +20,7 @@
 #include "damp/controllers/lqr.hpp"
 #include "damp/controllers/mpc.hpp"
 #include "damp/controllers/oflqg.hpp"
-#include "damp/controllers/ofmpc.hpp"
+#include "damp/controllers/state_feedback.hpp"
 #include "damp/design/disturbance.hpp"
 #include "damp/design/model_inverse.hpp"
 #include "damp/design/steady_state_target.hpp"
@@ -58,18 +58,18 @@ inline constexpr Matrix<3, 3> kQ3{{1e3, 0.0, 0.0}, {0.0, 1.0, 0.0}, {0.0, 0.0, 0
 inline constexpr Matrix<2, 2> kQn{{1e-4, 0.0}, {0.0, 1e-2}};
 
 // Every family, with and without the delay register.
-inline constexpr auto kLqr = design::lqr(kPlant, {.Q = kQ2, .R = 1e-2});
-inline constexpr auto kLqrDelayed = design::lqr(kDelayed, {.Q = kQ3, .R = 1e-2});
-inline constexpr auto kLqrTrack = design::lqr(kPlant, {.Q = kQ2, .R = 1e-2}, design::TrackedOutputs<1>{{0}});
-inline constexpr auto kLqi = design::lqi(kPlant, {.Q = kQ2, .R = 1e-2, .Q_integral = 1e2});
-inline constexpr auto kLqiDelayed = design::lqi(kDelayed, {.Q = kQ3, .R = 1e-2, .Q_integral = 1e2});
-inline constexpr auto kLqg = design::lqg(kPlant, {.Q = kQ2, .R = 1e-2}, {.process = kQn, .measurement = 1e-4});
-inline constexpr auto kLqgDelayed = design::lqg(kDelayed, {.Q = kQ3, .R = 1e-2}, {.process = kQn, .measurement = 1e-4});
-inline constexpr auto kLqgTrack = design::lqg(kPlant, {.Q = kQ2, .R = 1e-2}, {.process = kQn, .measurement = 1e-4}, design::TrackedOutputs<1>{{0}});
-inline constexpr auto kLqgi = design::lqgi(kPlant, {.Q = kQ2, .R = 1e-2, .Q_integral = 1e2}, {.process = kQn, .measurement = 1e-4});
-inline constexpr auto kLqgiDelayed = design::lqgi(kDelayed, {.Q = kQ3, .R = 1e-2, .Q_integral = 1e2}, {.process = kQn, .measurement = 1e-4});
-inline constexpr auto kOflqg = design::oflqg(kPlant, {.Q = kQ2, .R = 1e-2}, {.process = kQn, .measurement = 1e-4, .disturbance = 1e-2}, design::InputDisturbance{});
-inline constexpr auto kOflqgDelayed = design::oflqg(kDelayed, {.Q = kQ3, .R = 1e-2}, {.process = kQn, .measurement = 1e-4, .disturbance = 1e-2}, design::InputDisturbance{});
+inline constexpr auto kLqr = design::state_feedback(kPlant, {.Q = kQ2, .R = 1e-2});
+inline constexpr auto kLqrDelayed = design::state_feedback(kDelayed, {.Q = kQ3, .R = 1e-2});
+inline constexpr auto kLqrTrack = design::state_feedback(kPlant, {.Q = kQ2, .R = 1e-2}, design::TrackedOutputs{{0}});
+inline constexpr auto kLqi = design::state_feedback(kPlant, {.Q = kQ2, .R = 1e-2}, design::IntegralAction{.Q = 1e2});
+inline constexpr auto kLqiDelayed = design::state_feedback(kDelayed, {.Q = kQ3, .R = 1e-2}, design::IntegralAction{.Q = 1e2});
+inline constexpr auto kLqg = design::state_feedback(kPlant, {.Q = kQ2, .R = 1e-2}, design::KalmanNoise{.process = kQn, .measurement = 1e-4});
+inline constexpr auto kLqgDelayed = design::state_feedback(kDelayed, {.Q = kQ3, .R = 1e-2}, design::KalmanNoise{.process = kQn, .measurement = 1e-4});
+inline constexpr auto kLqgTrack = design::state_feedback(kPlant, {.Q = kQ2, .R = 1e-2}, design::KalmanNoise{.process = kQn, .measurement = 1e-4}, design::TrackedOutputs{{0}});
+inline constexpr auto kLqgi = design::state_feedback(kPlant, {.Q = kQ2, .R = 1e-2}, design::KalmanNoise{.process = kQn, .measurement = 1e-4}, design::IntegralAction{.Q = 1e2});
+inline constexpr auto kLqgiDelayed = design::state_feedback(kDelayed, {.Q = kQ3, .R = 1e-2}, design::KalmanNoise{.process = kQn, .measurement = 1e-4}, design::IntegralAction{.Q = 1e2});
+inline constexpr auto kOflqg = design::state_feedback(kPlant, {.Q = kQ2, .R = 1e-2}, design::KalmanNoise{.process = kQn, .measurement = 1e-4, .disturbance = 1e-2}, design::InputDisturbance{});
+inline constexpr auto kOflqgDelayed = design::state_feedback(kDelayed, {.Q = kQ3, .R = 1e-2}, design::KalmanNoise{.process = kQn, .measurement = 1e-4, .disturbance = 1e-2}, design::InputDisturbance{});
 
 /// The same design on the runtime with members.
 template<const auto& Res, typename T>
@@ -219,7 +219,7 @@ TEST_SUITE("Law of a constexpr design") {
 
     TEST_CASE("a constexpr design runs on constants; one initialized at start-up keeps members and can be replaced") {
         static_assert(detail::constant_design<kLqg>);
-        static const auto kAtInit = design::lqg(kPlant, {.Q = kQ2, .R = 1e-2}, {.process = kQn, .measurement = 1e-4});
+        static const auto kAtInit = design::state_feedback(kPlant, {.Q = kQ2, .R = 1e-2}, design::KalmanNoise{.process = kQn, .measurement = 1e-4});
         static_assert(!detail::constant_design<kAtInit>);
         static_assert(std::is_same_v<Law<kLqg, float>::Runtime, Law<kAtInit, float>::Runtime>);
         static_assert(sizeof(Law<kAtInit, float>) == sizeof(Law<kAtInit, float>::Runtime));
@@ -228,13 +228,13 @@ TEST_SUITE("Law of a constexpr design") {
         Law<kAtInit, float> law;
         CHECK(law.K(0, 0) == static_cast<float>(kAtInit.K(0, 0)));
         const float before = law.K(0, 0);
-        law = LQG{design::lqg(kPlant, {.Q = kQ2 * 10.0, .R = 1e-2}, {.process = kQn, .measurement = 1e-4}).as<float>()};
+        law = LQG{design::state_feedback(kPlant, {.Q = kQ2 * 10.0, .R = 1e-2}, design::KalmanNoise{.process = kQn, .measurement = 1e-4}).as<float>()};
         CHECK(law.K(0, 0) > before);
 
         // The two forms are the same law.
         check_same_commands<double>(Law<kAtInit, double>{}, Law<kLqg, double>{}, [](auto& l, int k) { return l.step(ColVec<1, double>{reading(k)})[0]; });
 
-        static const auto         kKalmanAtInit = design::kalman(kPlant, {.process = kQn, .measurement = 1e-4});
+        static const auto         kKalmanAtInit = design::kalman(kPlant, design::KalmanNoise{.process = kQn, .measurement = 1e-4});
         Law<kKalmanAtInit, float> observer;
         observer.update(ColVec<1, float>{0.5F});
         CHECK(observer.valid());
@@ -329,9 +329,9 @@ TEST_SUITE("Law of a constexpr design") {
     }
 
     TEST_CASE("an observer design: the same estimate as FixedGainObserver, a Kalman gain and a placed one") {
-        static constexpr auto kKalman = design::kalman(kDelayed, {.process = kQn, .measurement = 1e-4});
+        static constexpr auto kKalman = design::kalman(kDelayed, design::KalmanNoise{.process = kQn, .measurement = 1e-4});
         static constexpr auto kPlaced = design::place_observer(kPlant, {0.9, 0.92});
-        static constexpr auto kAnchored = design::kalman(kDelayed, {.process = kQn, .measurement = 1e-4, .disturbance = 1e-2}, design::InputDisturbance{});
+        static constexpr auto kAnchored = design::kalman(kDelayed, design::KalmanNoise{.process = kQn, .measurement = 1e-4, .disturbance = 1e-2}, design::InputDisturbance{});
         static_assert(sizeof(Law<kKalman, float>) < sizeof(Law<kKalman, float>::Runtime) / 2);
 
         const auto run = [](auto held, auto fixed) {
@@ -413,7 +413,7 @@ TEST_SUITE("Law of a constexpr design") {
         };
 
         SUBCASE("one register, a model with no disturbance") {
-            static constexpr auto           kKalman = design::kalman(kDelayed, {.process = kQn, .measurement = 1e-4});
+            static constexpr auto           kKalman = design::kalman(kDelayed, design::KalmanNoise{.process = kQn, .measurement = 1e-4});
             Law<kKalman, double>::Recursive on_constants;
             KalmanFilter                    held{kKalman};
             static_assert(sizeof(on_constants) < sizeof(held));
@@ -431,28 +431,28 @@ TEST_SUITE("Law of a constexpr design") {
 
         SUBCASE("three registers: their zeros cost nothing, and the numbers are the same") {
             static constexpr auto           kModel = *discretize(mass_spring(), kTs, InputDelay<3>{3.0 * kTs});
-            static constexpr auto           kKalman = design::kalman(kModel, {.process = kQn, .measurement = 1e-4});
+            static constexpr auto           kKalman = design::kalman(kModel, design::KalmanNoise{.process = kQn, .measurement = 1e-4});
             Law<kKalman, double>::Recursive on_constants;
             KalmanFilter                    held{kKalman};
             compare(on_constants, held, 1e-12);
         }
 
         SUBCASE("a disturbance design runs on [x; d], as KalmanFilter from it does") {
-            static constexpr auto           kKalman = design::kalman(kDelayed, {.process = kQn, .measurement = 1e-4, .disturbance = 1e-2}, design::InputDisturbance{});
+            static constexpr auto           kKalman = design::kalman(kDelayed, design::KalmanNoise{.process = kQn, .measurement = 1e-4, .disturbance = 1e-2}, design::InputDisturbance{});
             Law<kKalman, double>::Recursive on_constants;
             KalmanFilter                    held{kKalman};
             compare(on_constants, held, 1e-12);
         }
 
         SUBCASE("in float, to float's precision") {
-            static constexpr auto          kKalman = design::kalman(kDelayed, {.process = kQn, .measurement = 1e-4});
+            static constexpr auto          kKalman = design::kalman(kDelayed, design::KalmanNoise{.process = kQn, .measurement = 1e-4});
             Law<kKalman, float>::Recursive on_constants;
             KalmanFilter                   held{kKalman.as<float>()};
             compare(on_constants, held, 1e-4);
         }
 
         SUBCASE("a design initialized at start-up names the filter with members") {
-            static const auto kAtInit = design::kalman(kDelayed, {.process = kQn, .measurement = 1e-4});
+            static const auto kAtInit = design::kalman(kDelayed, design::KalmanNoise{.process = kQn, .measurement = 1e-4});
             static_assert(std::is_same_v<Law<kAtInit, double>::Recursive, KalmanFilter<3, 1, 1, double, 2, 1>>);
         }
     }
@@ -548,7 +548,7 @@ TEST_SUITE("The other runtimes on a constexpr design") {
     }
 
     TEST_CASE("OFMPC: the same commands, its filter on constants and its QP unchanged") {
-        static constexpr auto kOfmpc = design::ofmpc<12, 3>(kDelayed, design::MPCWeights<1, 1>{.Rdu = 1.0}, design::MPCConstraints<1, 1>{}, {.process = kQn, .measurement = 1e-4, .disturbance = 1e-2}, design::InputDisturbance{});
+        static constexpr auto kOfmpc = design::mpc<12, 3>(kDelayed, design::MPCWeights<1, 1>{.Rdu = 1.0}, design::MPCConstraints<1, 1>{}, design::KalmanNoise{.process = kQn, .measurement = 1e-4, .disturbance = 1e-2}, design::InputDisturbance{});
         REQUIRE(kOfmpc.success);
         static_assert(sizeof(Law<kOfmpc, float>) < sizeof(Law<kOfmpc, float>::Runtime));
         Law<kOfmpc, double>::Runtime held{kOfmpc};

@@ -15,8 +15,8 @@
  */
 
 #include "damp/backend.hpp"
+#include "damp/controllers/detail/state_feedback_core.hpp"
 #include "damp/controllers/law_detail.hpp"
-#include "damp/controllers/state_feedback_core.hpp"
 #include "damp/controllers/state_feedback_types.hpp"
 #include "damp/design/status.hpp"
 #include "damp/estimation/fixed_gain_observer.hpp"
@@ -69,12 +69,17 @@ inline constexpr bool constant_design_usable = [] {
 }();
 
 /** @brief The law's matrices as constants of the type: the store of a `constexpr` design's Law. */
-/** @brief A DemandLimit as constants of the type: what a `constexpr` design's Law holds, in no storage. */
+/** @brief A design's demand limit as constants of the type: what a `constexpr` design's Law holds, in no storage. */
 template<const auto& D>
 struct ConstDemand {
-    static constexpr size_t state = D.state; ///< The state asked for (DemandLimit::none: off)
-    static constexpr auto   outer = D.outer; ///< The terms that ask
-    static constexpr auto   lim = D.lim;     ///< The most they may ask
+    static constexpr size_t state = D.state; ///< The state asked for (none: off)
+
+    /** @brief Whether term @p j asks. */
+    [[nodiscard]] static constexpr bool outer(size_t j) {
+        return D.outer(j);
+    }
+
+    static constexpr auto lim = D.lim; ///< The most they may ask
 };
 
 template<const auto& Res, typename T>
@@ -118,7 +123,7 @@ struct ConstantGains {
         if constexpr (requires { design.demand_lim; }) {
             return design.demand_lim;
         } else {
-            return DemandLimit<0, T>{};
+            return ::damp::detail::DemandTerms<0, T>{};
         }
     }(); ///< The limit on what the outer terms ask of a state (off for a gain design without one)
 

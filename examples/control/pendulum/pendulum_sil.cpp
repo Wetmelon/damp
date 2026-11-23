@@ -16,6 +16,7 @@
 
 #include "damp/backend.hpp"
 #include "damp/controllers/lqr.hpp"
+#include "damp/controllers/state_feedback.hpp"
 #include "damp/math/math.hpp"
 #include "damp/matrix/colvec.hpp"
 #include "damp/matrix/matrix.hpp"
@@ -88,7 +89,7 @@ int main() {
     // Runtime redesign (host only) — still gates on success
     fmt::print("\n===== Runtime LQR Redesign (Q = 50 I) =====\n");
     auto Q2 = Matrix<2, 2>::identity() * 50.0;
-    auto lqr_d2 = design::lqr(sys, Ts, {.Q = Q2, .R = R});
+    auto lqr_d2 = design::state_feedback(sys, Ts, {.Q = Q2, .R = R});
     if (!lqr_d2.success) {
         fmt::print("LQR redesign failed\n");
         return 1;
@@ -146,7 +147,7 @@ int main() {
     const double a22 = -b_damp / (m * L * L);
     auto         sys_op = sys;
     sys_op.A = Matrix<2, 2>{{0.0, 1.0}, {a21, a22}};
-    const auto res_op = design::lqr(sys_op, Ts, {.Q = Q, .R = R});
+    const auto res_op = design::state_feedback(sys_op, Ts, {.Q = Q, .R = R});
     if (res_op.success) {
         fmt::print("  K_op = [{:.4f}, {:.4f}]\n", res_op.K(0, 0), res_op.K(0, 1));
     }

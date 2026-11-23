@@ -7,9 +7,10 @@
 
 /**
  * @file lqi.hpp
- * @brief The linear-quadratic regulator with integral action: design::lqi, LQIResult, the LQI runtime
+ * @brief The linear-quadratic regulator with integral action: design::state_feedback with an IntegralAction, LQIResult, the LQI runtime
  *
- * design::lqi(plant, [Ts, [InputDelay<N>{θ},]] {.Q, .R, .N, .Q_integral}[, IntegralAction<NI>{.outputs = {i, …}}]) → LQIResult → LQI.
+ * design::state_feedback(plant, [Ts,] {.Q, .R, .N}, IntegralAction{.Q[, .outputs = {i, …}]}[, InputDelay<N>{θ}])
+ * (state_feedback.hpp) → LQIResult → LQI; an IntegralAction that lists no outputs integrates every one.
  * The integrators are on the plant's outputs y = C·x + D·u, as MATLAB®'s lqi: every one, so the
  * plant's C names what r holds, or the ones IntegralAction lists, in that order.
  * Q_integral is the cost on the discrete integral state, not a block of an augmented Q on [x; ξ].
@@ -21,9 +22,9 @@
 
 #include "damp/backend.hpp"
 #include "damp/controllers/detail/lq_law.hpp"                // IWYU pragma: export
+#include "damp/controllers/detail/state_feedback_core.hpp"   // IWYU pragma: export
 #include "damp/controllers/detail/state_feedback_design.hpp" // IWYU pragma: export
 #include "damp/controllers/detail/state_feedback_options.hpp"
-#include "damp/controllers/state_feedback_core.hpp"  // IWYU pragma: export
 #include "damp/controllers/state_feedback_types.hpp" // IWYU pragma: export
 #include "damp/matrix/colvec.hpp"
 #include "damp/systems/discretization.hpp"
@@ -33,86 +34,9 @@ namespace damp {
 
 namespace design {
 
-/** @brief design::lqi's result: the gain on [x; xi] and the integral action; with an input delay, on [x; v(k−1); …; v(k−NRU); xi]. */
+/** @brief an LQI design's result: the gain on [x; xi] and the integral action; with an input delay, on [x; v(k−1); …; v(k−NRU); xi]. */
 template<size_t NX, size_t NU, size_t NI, typename T = double, size_t NY = NX, size_t NRU = 0>
 using LQIResult = StateFeedbackResult<NX, NU, T, NI, NY, NoEstimator, 0, NRU>;
-
-/**
- * @brief The linear-quadratic regulator with integral action on every output (xi += Ts·(r − Ci·y)): runs as LQI.
- * @note Compare with MATLAB®'s lqi(sys, Q, R, N).
- */
-template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
-[[nodiscard]] constexpr auto lqi(const StateSpace<NX, NU, NY, T, NW, NV>& sys, const LQIConfig<NX, NU, NY, T>& config) {
-    return detail::state_feedback(sys, config, detail::StateFeedbackOptions{.offset_free = IntegralAction{}});
-}
-
-/** @brief The sampled-data linear-quadratic regulator with integral action on every output: runs as LQI. */
-template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
-[[nodiscard]] constexpr auto lqi(const StateSpace<NX, NU, NY, T, NW, NV>& sys, damp::type_identity_t<T> Ts, const LQIConfig<NX, NU, NY, T>& config) {
-    return detail::state_feedback(sys, Ts, config, detail::StateFeedbackOptions{.offset_free = IntegralAction{}});
-}
-
-/**
- * @brief The linear-quadratic regulator with integral action on the listed outputs
- *        (`IntegralAction<2>{{0, 3}}`, in that order: r follows it): runs as LQI.
- */
-template<size_t NI, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
-    requires(NI > 0)
-[[nodiscard]] constexpr auto lqi(
-    const StateSpace<NX, NU, NY, T, NW, NV>& sys,
-    const LQIConfig<NX, NU, NI, T>&          config,
-    const IntegralAction<NI>&                outputs
-) {
-    return detail::state_feedback(sys, config, detail::StateFeedbackOptions{.offset_free = outputs});
-}
-
-/** @brief The sampled-data linear-quadratic regulator with integral action on the listed outputs: runs as LQI. */
-template<size_t NI, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
-    requires(NI > 0)
-[[nodiscard]] constexpr auto lqi(
-    const StateSpace<NX, NU, NY, T, NW, NV>& sys,
-    damp::type_identity_t<T>                 Ts,
-    const LQIConfig<NX, NU, NI, T>&          config,
-    const IntegralAction<NI>&                outputs
-) {
-    return detail::state_feedback(sys, Ts, config, detail::StateFeedbackOptions{.offset_free = outputs});
-}
-
-/**
- * @brief The sampled-data LQI of a plant whose input arrives @p delay late, integral action on
- *        every output: runs as LQI on the plant's state, holding the inputs still on their way.
- *
- * The weights are the plant's, as without the delay; the cost is discretized exactly on the
- * delayed model (detail::state_feedback with an InputDelay).
- *
- * @code
- * constexpr auto res = design::lqi(plant, 0.01, InputDelay<3>{0.022}, {.Q = Q, .R = R, .Q_integral = Qi});
- * static constinit Law<res, float> law;
- * // each tick: law.update(x); u = law.control(r); write(sat(u)); law.back_calculate(sat(u)); law.predict();
- * @endcode
- */
-template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t N, typename S>
-[[nodiscard]] constexpr auto lqi(
-    const StateSpace<NX, NU, NY, T, NW, NV>& sys,
-    damp::type_identity_t<T>                 Ts,
-    const InputDelay<N, S>&                  delay,
-    const LQIConfig<NX, NU, NY, T>&          config
-) {
-    return detail::state_feedback(sys, Ts, delay, config, detail::StateFeedbackOptions{.offset_free = IntegralAction{}});
-}
-
-/** @brief The sampled-data LQI of a plant whose input arrives @p delay late, integral action on the listed outputs: runs as LQI. */
-template<size_t NI, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t N, typename S>
-    requires(NI > 0)
-[[nodiscard]] constexpr auto lqi(
-    const StateSpace<NX, NU, NY, T, NW, NV>& sys,
-    damp::type_identity_t<T>                 Ts,
-    const InputDelay<N, S>&                  delay,
-    const LQIConfig<NX, NU, NI, T>&          config,
-    const IntegralAction<NI>&                outputs
-) {
-    return detail::state_feedback(sys, Ts, delay, config, detail::StateFeedbackOptions{.offset_free = outputs});
-}
 
 } // namespace design
 
@@ -120,11 +44,11 @@ template<size_t NI, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size
  * @ingroup discrete_controllers
  * @brief Linear-quadratic regulator with integral action, on the measured state
  *
- * Runs design::lqi. xi integrates r − Ci·C·x; the law is u = u* − K·[x − x*; xi]. The tick is
+ * Runs design::state_feedback with an IntegralAction. xi integrates r − Ci·C·x; the law is u = u* − K·[x − x*; xi]. The tick is
  * step(r, x), or update(x), control(r), back_calculate, predict() (predict advances xi), with
  * x* = 0 and u* = 0; feedforward from a planned
  * trajectory (x_ref, u_ref) is control(r, x_ref, u_ref), or step(r, x_ref, u_ref, x). The
- * command is clamped into u_lim and xi into integral_lim (the design's, LQIConfig; unbounded by
+ * command is clamped into u_lim and xi into integral_lim (the design's, IntegralAction::lim; unbounded by
  * default), and predict() holds the integrators against that clamp; back_calculate(u_sat) before
  * it reports a stage that clamps after the law.
  *
@@ -142,12 +66,12 @@ struct LQI : private detail::StateFeedbackCore<NX, NU, T, NI, NY, NoEstimator, 0
 
     constexpr LQI() = default;
 
-    /** @brief From design::lqi (any scalar). */
+    /** @brief From design::state_feedback(any scalar, design::IntegralAction{}). */
     template<detail::state_feedback_result R>
         requires(!Store::constant)
     constexpr LQI(const R& result) { // NOLINT
         constexpr bool kind = R::kIntegral && !R::kEstimated;
-        static_assert(kind, "LQI runs design::lqi: this design has no integral action (LQR) or a Kalman filter (LQG, LQGI, OFLQG).");
+        static_assert(kind, "LQI runs design::state_feedback with an IntegralAction: this design has no integral action (LQR) or a Kalman filter (LQG, LQGI, OFLQG).");
         if constexpr (kind) {
             static_cast<Core&>(*this) = Core(result);
         }
@@ -188,7 +112,7 @@ struct LQI : private detail::StateFeedbackCore<NX, NU, T, NI, NY, NoEstimator, 0
     using Core::valid;
 };
 
-/** @brief LQI law{res}: the sizes and scalar of design::lqi's result. */
+/** @brief LQI law{res}: the sizes and scalar of an LQI design's result. */
 template<size_t NX, size_t NU, typename T, size_t NI, size_t NY, typename Kalman, size_t NZ, size_t NRU>
 LQI(const design::StateFeedbackResult<NX, NU, T, NI, NY, Kalman, NZ, NRU>&) -> LQI<NX, NU, NI, T, NY, detail::HeldGains, NRU>;
 

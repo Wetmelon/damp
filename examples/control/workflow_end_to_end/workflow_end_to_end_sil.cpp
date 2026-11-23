@@ -21,6 +21,7 @@
 #include "damp/controllers/lqgi.hpp"
 #include "damp/controllers/pid.hpp"
 #include "damp/controllers/pr.hpp"
+#include "damp/controllers/state_feedback.hpp"
 #include "damp/design/linearization.hpp"
 #include "damp/design/pid_design.hpp"
 #include "damp/math/math.hpp"
@@ -65,7 +66,7 @@ int main() {
     const Matrix<2, 2> Q_kf{{1e-3, 0.0}, {0.0, 1e-2}};
     const double       R_kf = 5e-3;
 
-    const auto lqgi_design = design::lqgi(sys_d, {.Q = Q, .R = R, .Q_integral = Q_integral}, {.process = Q_kf, .measurement = R_kf});
+    const auto lqgi_design = design::state_feedback(sys_d, {.Q = Q, .R = R}, design::KalmanNoise{.process = Q_kf, .measurement = R_kf}, design::IntegralAction{.Q = Q_integral});
     if (!lqgi_design.success) {
         fmt::print("LQGI synthesis failed — aborting (do not run runtime on a bad design)\n");
         return 1;

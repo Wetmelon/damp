@@ -163,7 +163,7 @@ template<size_t NX, size_t NU, size_t NY, size_t NI, typename T, size_t NW, size
     S.template block<NX, NX>(0, 0) = w.Q;
     S.template block<NX, NU>(0, NE) = w.N;
     S.template block<NU, NX>(NE, 0) = w.N.t();
-    if constexpr (NI > 0) { // a regulator's LQRConfig has no Q_integral
+    if constexpr (NI > 0) { // a regulator's cost has no Q_integral
         for (size_t i = 0; i < NI; ++i) {
             A_aug(NX + i, NE + NU + i) = T{-1};
             for (size_t c = 0; c < NI; ++c) {

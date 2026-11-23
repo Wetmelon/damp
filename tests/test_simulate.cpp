@@ -10,6 +10,7 @@
 #include "damp/backend.hpp"
 #include "damp/controllers/lqr.hpp"
 #include "damp/controllers/pid.hpp"
+#include "damp/controllers/state_feedback.hpp"
 #include "damp/math/math.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "damp/simulation/integrator.hpp"
@@ -47,7 +48,7 @@ TEST_CASE("simulate_state_feedback - pendulum converges under LQR") {
     auto R = Matrix<1, 1>{{1.0}};
     auto Ts = 0.01;
 
-    auto lqr_result = design::lqr(StateSpace{.A = A, .B = B, .C = Matrix<1, 2>{{1.0, 0.0}}}, Ts, {.Q = Q, .R = R});
+    auto lqr_result = design::state_feedback(StateSpace{.A = A, .B = B, .C = Matrix<1, 2>{{1.0, 0.0}}}, Ts, {.Q = Q, .R = R});
     CHECK(lqr_result.success);
     auto controller = LQR{lqr_result};
 

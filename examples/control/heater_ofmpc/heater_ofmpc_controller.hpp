@@ -27,7 +27,6 @@
 
 #include "damp/backend.hpp"
 #include "damp/controllers/mpc.hpp"
-#include "damp/controllers/ofmpc.hpp"
 #include "damp/design/disturbance.hpp"
 #include "damp/estimation/kalman.hpp"
 #include "damp/matrix/colvec.hpp"
@@ -71,7 +70,7 @@ inline constexpr design::KalmanNoise<1, 1, double, 1> kNoise{
 /// 12 periods ahead, 4 moves, offset-free under a heat loss at the heater's input, on the model
 /// with the dead time. Designed at compile time; a failed design does not compile into a
 /// constinit controller.
-inline constexpr auto kLaw = design::ofmpc<kHorizon, 4>(kModel, kWeights, kLimits, kNoise, design::InputDisturbance{});
+inline constexpr auto kLaw = design::mpc<kHorizon, 4>(kModel, kWeights, kLimits, kNoise, design::InputDisturbance{});
 
 /// One control period: thermistor reading in, heater power out [W].
 template<typename Mpc>

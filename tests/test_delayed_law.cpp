@@ -19,6 +19,7 @@
 #include "damp/controllers/lqi.hpp"
 #include "damp/controllers/lqr.hpp"
 #include "damp/controllers/oflqg.hpp"
+#include "damp/controllers/state_feedback.hpp"
 #include "damp/design/disturbance.hpp"
 #include "damp/design/riccati.hpp"
 #include "damp/design/status.hpp"
@@ -54,11 +55,12 @@ constexpr double kTheta = 0.14;
 /**
  * The continuous cost of the closed loop from x0 and ξ0, the registers empty: the true plant on
  * the input @p law sent kLate sub-steps earlier, ξ ramping on the error sampled at each period's
- * start, ∫ (xᵀQx + vᵀRv + ξᵀQ_integral ξ) dt summed exactly per sub-step (Van Loan on [x; ξ]
- * with [v; e] held). The law reads the plant state and holds its registers itself.
+ * start, ∫ (xᵀQx + vᵀRv + ξᵀ·q_integral·ξ) dt summed exactly per sub-step (Van Loan on [x; ξ]
+ * with [v; e] held), q_integral the IntegralAction's Q (unread for NI = 0). The law reads the
+ * plant state and holds its delay states itself.
  */
 template<size_t NI, typename L>
-double continuous_cost(L& law, const design::detail::lq_config<2, 1, NI, double>& w, const ColVec<2>& x0, double xi0, int periods) {
+double continuous_cost(L& law, const design::LQRWeights<2, 1>& w, double q_integral, const ColVec<2>& x0, double xi0, int periods) {
     constexpr size_t      NE = 2 + NI;
     constexpr size_t      NH = 1 + NI;
     const auto            p = plant();
@@ -72,7 +74,7 @@ double continuous_cost(L& law, const design::detail::lq_config<2, 1, NI, double>
     R(0, 0) = w.R(0, 0);
     if constexpr (NI > 0) {
         ext.B(2, 1) = -1.0; // ξ̇ = −e, e = the position sampled at the period's start
-        Q(2, 2) = w.Q_integral(0, 0);
+        Q(2, 2) = q_integral;
     }
     const auto cost = design::discretize_lqr_cost(ext.A, ext.B, Q, R, h).value();
     const auto step = discretize(ext, h).value();
@@ -114,35 +116,36 @@ double continuous_cost(L& law, const design::detail::lq_config<2, 1, NI, double>
 
 TEST_SUITE("Delayed laws") {
     TEST_CASE("LQR with an InputDelay: the closed loop's continuous cost is the one the design predicts") {
-        const design::LQRConfig<2, 1> w{.Q = Matrix<2, 2>{{10.0, 0.0}, {0.0, 1.0}}, .R = Matrix<1, 1>{{0.1}}};
-        const auto                    res = design::lqr(plant(), kTs, InputDelay<2>{kTheta}, w);
+        const design::LQRWeights<2, 1> w{.Q = Matrix<2, 2>{{10.0, 0.0}, {0.0, 1.0}}, .R = Matrix<1, 1>{{0.1}}};
+        const auto                     res = design::state_feedback(plant(), kTs, w, InputDelay<2>{kTheta});
         REQUIRE(res.success);
         REQUIRE(res.is_stable());
         LQR             law{res};
         const ColVec<2> x0{{0.3, -0.2}};
-        const double    J = continuous_cost<0>(law, w, x0, 0.0, 600);
+        const double    J = continuous_cost<0>(law, w, 0.0, x0, 0.0, 600);
         const ColVec<4> z0{{0.3, -0.2, 0.0, 0.0}}; // the registers empty
         const double    predicted = (z0.t() * res.S * z0)(0, 0);
         CHECK(J == doctest::Approx(predicted).epsilon(1e-8));
     }
 
     TEST_CASE("LQI with an InputDelay: the closed loop's continuous cost, integrator included, is the one the design predicts") {
-        const design::LQIConfig<2, 1, 1> w{.Q = Matrix<2, 2>{{10.0, 0.0}, {0.0, 1.0}}, .R = Matrix<1, 1>{{0.1}}, .Q_integral = Matrix<1, 1>{{5.0}}};
-        const auto                       res = design::lqi(plant(), kTs, InputDelay<2>{kTheta}, w);
+        const design::LQRWeights<2, 1> w{.Q = Matrix<2, 2>{{10.0, 0.0}, {0.0, 1.0}}, .R = Matrix<1, 1>{{0.1}}};
+        const design::IntegralAction   ia{.Q = 5.0};
+        const auto                     res = design::state_feedback(plant(), kTs, w, InputDelay<2>{kTheta}, ia);
         REQUIRE(res.success);
         REQUIRE(res.is_stable());
         LQI             law{res};
         const ColVec<2> x0{{0.3, -0.2}};
-        const double    J = continuous_cost<1>(law, w, x0, 0.1, 600);
+        const double    J = continuous_cost<1>(law, w, ia.Q, x0, 0.1, 600);
         const ColVec<5> q0{{0.3, -0.2, 0.0, 0.0, 0.1}}; // [x; registers empty; ξ]
         const double    predicted = (q0.t() * res.S * q0)(0, 0);
         CHECK(J == doctest::Approx(predicted).epsilon(1e-8));
     }
 
     TEST_CASE("an InputDelay of zero is the design without one, the registers unread") {
-        const design::LQIConfig<2, 1, 1> w{.Q = Matrix<2, 2>{{10.0, 0.0}, {0.0, 1.0}}, .R = Matrix<1, 1>{{0.1}}, .Q_integral = Matrix<1, 1>{{5.0}}};
-        const auto                       late = design::lqi(plant(), kTs, InputDelay<2>{0.0}, w);
-        const auto                       now = design::lqi(plant(), kTs, w);
+        const design::LQRWeights<2, 1> w{.Q = Matrix<2, 2>{{10.0, 0.0}, {0.0, 1.0}}, .R = Matrix<1, 1>{{0.1}}};
+        const auto                     late = design::state_feedback(plant(), kTs, w, InputDelay<2>{0.0}, design::IntegralAction{.Q = 5.0});
+        const auto                     now = design::state_feedback(plant(), kTs, w, design::IntegralAction{.Q = 5.0});
         REQUIRE(late.success);
         REQUIRE(now.success);
         const double scale = now.K.norm();
@@ -152,16 +155,15 @@ TEST_SUITE("Delayed laws") {
         CHECK(damp::abs(late.K(0, 2)) <= 1e-9 * scale);
         CHECK(damp::abs(late.K(0, 3)) <= 1e-9 * scale);
 
-        const design::LQRConfig<2, 1> wr{.Q = w.Q, .R = w.R};
-        const auto                    lqr_late = design::lqr(plant(), kTs, InputDelay<1>{0.0}, wr);
-        const auto                    lqr_now = design::lqr(plant(), kTs, wr);
+        const auto lqr_late = design::state_feedback(plant(), kTs, w, InputDelay<1>{0.0});
+        const auto lqr_now = design::state_feedback(plant(), kTs, w);
         REQUIRE(lqr_late.success);
         CHECK((lqr_late.K.template block<1, 2>(0, 0) - lqr_now.K).norm() <= 1e-9 * lqr_now.K.norm());
     }
 
     TEST_CASE("the law holds what back_calculate recorded, newest first, and a reference point holds u* in them") {
-        const design::LQIConfig<2, 1, 1> w{.Q = Matrix<2, 2>{{10.0, 0.0}, {0.0, 1.0}}, .R = Matrix<1, 1>{{0.1}}, .Q_integral = Matrix<1, 1>{{5.0}}};
-        const auto                       res = design::lqi(plant(), kTs, InputDelay<3>{0.25}, w);
+        const design::LQRWeights<2, 1> w{.Q = Matrix<2, 2>{{10.0, 0.0}, {0.0, 1.0}}, .R = Matrix<1, 1>{{0.1}}};
+        const auto                     res = design::state_feedback(plant(), kTs, w, InputDelay<3>{0.25}, design::IntegralAction{.Q = 5.0});
         REQUIRE(res.success);
         LQI             law{res};
         const auto&     K = law.getK();
@@ -196,7 +198,7 @@ TEST_SUITE("Delayed laws") {
     }
 
     TEST_CASE("a constexpr design with an InputDelay deploys in float on constants") {
-        static constexpr auto kRes = design::lqi(plant(), 0.01, InputDelay<3>{0.022}, {.Q = Matrix<2, 2>{{10.0, 0.0}, {0.0, 1.0}}, .R = Matrix<1, 1>{{0.1}}, .Q_integral = Matrix<1, 1>{{5.0}}});
+        static constexpr auto kRes = design::state_feedback(plant(), 0.01, {.Q = Matrix<2, 2>{{10.0, 0.0}, {0.0, 1.0}}, .R = Matrix<1, 1>{{0.1}}}, InputDelay<3>{0.022}, design::IntegralAction{.Q = 5.0});
         static_assert(kRes.success);
         Law<kRes, float> fast;
         LQI              ref{kRes};
@@ -215,19 +217,19 @@ TEST_SUITE("Delayed laws") {
     }
 
     TEST_CASE("refusals: a discrete plant, a delay past the registers, an input cost that is not positive definite") {
-        const design::LQRConfig<2, 1> w{.Q = Matrix<2, 2>::identity(), .R = Matrix<1, 1>{{0.1}}};
-        const auto                    discrete = discretize(plant(), kTs).value();
-        CHECK(design::lqr(discrete, kTs, InputDelay<2>{kTheta}, w).status == design::DesignStatus::invalid_sample_time);
-        CHECK(design::lqr(plant(), kTs, InputDelay<1>{kTheta}, w).status == design::DesignStatus::invalid_parameter);
-        CHECK(design::lqr(plant(), kTs, InputDelay<2>{kTheta}, {.Q = w.Q, .R = Matrix<1, 1>{{0.0}}}).status == design::DesignStatus::bad_weights);
+        const design::LQRWeights<2, 1> w{.Q = Matrix<2, 2>::identity(), .R = Matrix<1, 1>{{0.1}}};
+        const auto                     discrete = discretize(plant(), kTs).value();
+        CHECK(design::state_feedback(discrete, kTs, w, InputDelay<2>{kTheta}).status == design::DesignStatus::invalid_sample_time);
+        CHECK(design::state_feedback(plant(), kTs, w, InputDelay<1>{kTheta}).status == design::DesignStatus::invalid_parameter);
+        CHECK(design::state_feedback(plant(), kTs, {.Q = w.Q, .R = Matrix<1, 1>{{0.0}}}, InputDelay<2>{kTheta}).status == design::DesignStatus::bad_weights);
     }
 }
 
 namespace {
 
-const design::KalmanNoise<2, 1>  kNoise{.process = Matrix<2, 2>{{0.01, 0.0}, {0.0, 0.1}}, .measurement = Matrix<1, 1>{{1e-4}}};
-const design::LQRConfig<2, 1>    kW{.Q = Matrix<2, 2>{{10.0, 0.0}, {0.0, 1.0}}, .R = Matrix<1, 1>{{0.1}}};
-const design::LQIConfig<2, 1, 1> kWi{.Q = kW.Q, .R = kW.R, .Q_integral = Matrix<1, 1>{{5.0}}};
+const design::KalmanNoise<2, 1> kNoise{.process = Matrix<2, 2>{{0.01, 0.0}, {0.0, 0.1}}, .measurement = Matrix<1, 1>{{1e-4}}};
+const design::LQRWeights<2, 1>  kW{.Q = Matrix<2, 2>{{10.0, 0.0}, {0.0, 1.0}}, .R = Matrix<1, 1>{{0.1}}};
+const design::IntegralAction    kIntegral{.Q = 5.0};
 
 /// The plant with its noise channels: process noise on both states (G = I), one on the reading.
 constexpr StateSpace<2, 1, 1, double, 2, 1> noisy() {
@@ -272,8 +274,8 @@ double gap(M& measured, F& filtered, Control control, ColVec<1>& y_end) {
 
 TEST_SUITE("Delayed laws with a filter") {
     TEST_CASE("LQG with an InputDelay: the delayed LQR's gain, a filter on the delayed model that carries the registers exactly") {
-        const auto lqr = design::lqr(noisy(), kTs, InputDelay<2>{kTheta}, kW);
-        const auto res = design::lqg(noisy(), kTs, InputDelay<2>{kTheta}, kW, kNoise);
+        const auto lqr = design::state_feedback(noisy(), kTs, kW, InputDelay<2>{kTheta});
+        const auto res = design::state_feedback(noisy(), kTs, kW, kNoise, InputDelay<2>{kTheta});
         REQUIRE(res.success);
         CHECK((res.K - lqr.K).norm() == 0.0);
         const auto model = delayed_model();
@@ -286,7 +288,7 @@ TEST_SUITE("Delayed laws with a filter") {
 
         // With no delay the plant's block is the filter without one: the noise is the plant's.
         const auto now = design::kalman(noisy(), kTs, kNoise);
-        const auto late = design::kalman(noisy(), kTs, InputDelay<1>{0.0}, kNoise);
+        const auto late = design::kalman(noisy(), kTs, kNoise, InputDelay<1>{0.0});
         REQUIRE(now.success);
         REQUIRE(late.success);
         CHECK((Matrix<2, 2>(late.P.block<2, 2>(0, 0)) - now.P).norm() <= 1e-9 * now.P.norm());
@@ -294,7 +296,7 @@ TEST_SUITE("Delayed laws with a filter") {
     }
 
     TEST_CASE("to_ss of an LQG with an InputDelay is the runtime's tick, on the delayed model") {
-        const auto res = design::lqg(noisy(), kTs, InputDelay<2>{kTheta}, kW, kNoise);
+        const auto res = design::state_feedback(noisy(), kTs, kW, kNoise, InputDelay<2>{kTheta});
         REQUIRE(res.success);
         const auto ctrl = res.to_ss();
         static_assert(damp::remove_cvref_t<decltype(ctrl.A)>::rows() == 4);
@@ -324,7 +326,7 @@ TEST_SUITE("Delayed laws with a filter") {
 
     TEST_CASE("to_ss of an OFLQG with an InputDelay is the runtime's tick at r = 0, d̂ in the gain") {
         const design::KalmanNoise<2, 1, double, 1> noise{.process = kNoise.process, .measurement = kNoise.measurement, .disturbance = Matrix<1, 1>{{1.0}}};
-        const auto                                 res = design::oflqg(noisy(), kTs, InputDelay<2>{kTheta}, kW, noise, design::InputDisturbance{});
+        const auto                                 res = design::state_feedback(noisy(), kTs, kW, noise, design::InputDisturbance{}, InputDelay<2>{kTheta});
         REQUIRE(res.success);
         const auto ctrl = res.to_ss();
         static_assert(damp::remove_cvref_t<decltype(ctrl.A)>::rows() == 5); // [x; v(k−1); v(k−2); d]
@@ -372,8 +374,8 @@ TEST_SUITE("Delayed laws with a filter") {
     }
 
     TEST_CASE("LQG and LQR with an InputDelay hold r alike, the target's registers at u_t") {
-        const auto lqr = design::lqr(noisy(), kTs, InputDelay<2>{kTheta}, kW, design::TrackedOutputs{});
-        const auto lqg = design::lqg(noisy(), kTs, InputDelay<2>{kTheta}, kW, kNoise, design::TrackedOutputs{});
+        const auto lqr = design::state_feedback(noisy(), kTs, kW, design::TrackedOutputs{}, InputDelay<2>{kTheta});
+        const auto lqg = design::state_feedback(noisy(), kTs, kW, kNoise, design::TrackedOutputs{}, InputDelay<2>{kTheta});
         REQUIRE(lqr.success);
         REQUIRE(lqg.success);
         LQR       measured{lqr};
@@ -389,8 +391,8 @@ TEST_SUITE("Delayed laws with a filter") {
     }
 
     TEST_CASE("LQGI and LQI with an InputDelay integrate alike") {
-        const auto lqi = design::lqi(noisy(), kTs, InputDelay<2>{kTheta}, kWi);
-        const auto lqgi = design::lqgi(noisy(), kTs, InputDelay<2>{kTheta}, kWi, kNoise);
+        const auto lqi = design::state_feedback(noisy(), kTs, kW, InputDelay<2>{kTheta}, kIntegral);
+        const auto lqgi = design::state_feedback(noisy(), kTs, kW, kNoise, InputDelay<2>{kTheta}, kIntegral);
         REQUIRE(lqi.success);
         REQUIRE(lqgi.success);
         CHECK((lqgi.K - lqi.K).norm() == 0.0);
@@ -418,21 +420,22 @@ TEST_SUITE("Delayed laws with a filter") {
         };
 
         // An InputDisturbance adds to u, so it reaches the plant through the delay.
-        const auto at_input = design::oflqg(noisy(), kTs, InputDelay<2>{kTheta}, kW, noise, design::InputDisturbance{});
+        const auto at_input = design::state_feedback(noisy(), kTs, kW, noise, design::InputDisturbance{}, InputDelay<2>{kTheta});
         REQUIRE(at_input.success);
         CHECK(run(at_input, ColVec<4>{}, 0.4) == doctest::Approx(0.2).epsilon(1e-6));
 
         // A load on the plant itself acts at once: its channel is the plant's, the registers untouched.
-        const auto on_plant = design::oflqg(noisy(), kTs, InputDelay<2>{kTheta}, kW, noise, design::DisturbanceModel<2, 1, 1>{.Bd = noisy().B});
+        const auto on_plant = design::state_feedback(noisy(), kTs, kW, noise, design::DisturbanceModel<2, 1, 1>{.Bd = noisy().B}, InputDelay<2>{kTheta});
         REQUIRE(on_plant.success);
         const auto gamma = discretize(plant(), kTs).value().B;
         CHECK(run(on_plant, ColVec<4>{{gamma(0, 0), gamma(1, 0), 0.0, 0.0}}, 0.0) == doctest::Approx(0.2).epsilon(1e-6));
     }
 
     TEST_CASE("a constexpr LQG with an InputDelay deploys in float on constants") {
-        static constexpr auto kRes = design::lqg(
-            noisy(), 0.01, InputDelay<3>{0.022}, {.Q = Matrix<2, 2>{{10.0, 0.0}, {0.0, 1.0}}, .R = Matrix<1, 1>{{0.1}}},
-            {.process = Matrix<2, 2>{{0.01, 0.0}, {0.0, 0.1}}, .measurement = Matrix<1, 1>{{1e-4}}}
+        static constexpr auto kRes = design::state_feedback(
+            noisy(), 0.01, {.Q = Matrix<2, 2>{{10.0, 0.0}, {0.0, 1.0}}, .R = Matrix<1, 1>{{0.1}}},
+            design::KalmanNoise{.process = Matrix<2, 2>{{0.01, 0.0}, {0.0, 0.1}}, .measurement = Matrix<1, 1>{{1e-4}}},
+            InputDelay<3>{0.022}
         );
         static_assert(kRes.success);
         Law<kRes, float> fast;
@@ -453,9 +456,9 @@ TEST_SUITE("Delayed laws with a filter") {
 
     TEST_CASE("refusals with a filter: a discrete plant, a delay past the registers") {
         const auto discrete = discretize(noisy(), kTs).value();
-        CHECK(design::kalman(discrete, kTs, InputDelay<2>{kTheta}, kNoise).status == design::DesignStatus::invalid_sample_time);
-        CHECK(design::lqg(noisy(), kTs, InputDelay<1>{kTheta}, kW, kNoise).status == design::DesignStatus::invalid_parameter);
-        CHECK(design::lqgi(noisy(), kTs, InputDelay<1>{kTheta}, kWi, kNoise).status == design::DesignStatus::invalid_parameter);
+        CHECK(design::kalman(discrete, kTs, kNoise, InputDelay<2>{kTheta}).status == design::DesignStatus::invalid_sample_time);
+        CHECK(design::state_feedback(noisy(), kTs, kW, kNoise, InputDelay<1>{kTheta}).status == design::DesignStatus::invalid_parameter);
+        CHECK(design::state_feedback(noisy(), kTs, kW, kNoise, InputDelay<1>{kTheta}, kIntegral).status == design::DesignStatus::invalid_parameter);
     }
 }
 
@@ -467,18 +470,40 @@ concept has_delay_gain = requires(const R& r) { r.delay_gain(); };
 } // namespace
 
 TEST_CASE("state_gain, delay_gain and integral_gain are K's columns on x, the delay states and xi") {
-    constexpr design::LQIConfig w{.Q = Matrix<2, 2>{{10.0, 0.0}, {0.0, 1.0}}, .R = {0.1}, .Q_integral = {5.0}};
-    constexpr auto              res = design::lqi(plant(), kTs, InputDelay<2>{kTheta}, w); // K on [x(2); v(k-1), v(k-2); xi]
+    constexpr design::LQRWeights     w{.Q = Matrix<2, 2>{{10.0, 0.0}, {0.0, 1.0}}, .R = {0.1}};
+    constexpr design::IntegralAction ia{.Q = 5.0};
+    constexpr auto                   res = design::state_feedback(plant(), kTs, w, InputDelay<2>{kTheta}, ia); // K on [x(2); v(k-1), v(k-2); xi]
     static_assert(res.success);
     static_assert(res.state_gain()(0, 0) == res.K(0, 0) && res.state_gain()(0, 1) == res.K(0, 1));
     static_assert(res.delay_gain()(0, 0) == res.K(0, 2) && res.delay_gain()(0, 1) == res.K(0, 3));
     static_assert(res.integral_gain()(0, 0) == res.K(0, 4));
 
     //! A part the law does not have is not there: no delay states without a delay, no integrators on an LQR.
-    constexpr auto lqr = design::lqr(plant(), kTs, design::LQRConfig{.Q = Matrix<2, 2>{{10.0, 0.0}, {0.0, 1.0}}, .R = {0.1}});
+    constexpr auto lqr = design::state_feedback(plant(), kTs, design::LQRWeights{.Q = Matrix<2, 2>{{10.0, 0.0}, {0.0, 1.0}}, .R = {0.1}});
     static_assert(lqr.success && lqr.state_gain() == lqr.K);
     static_assert(!has_integral_gain<decltype(lqr)> && !has_delay_gain<decltype(lqr)>);
-    constexpr auto undelayed = design::lqi(plant(), kTs, w);
+    constexpr auto undelayed = design::state_feedback(plant(), kTs, w, ia);
     static_assert(undelayed.success && !has_delay_gain<decltype(undelayed)> && undelayed.integral_gain()(0, 0) == undelayed.K(0, 2));
     CHECK(res.integral_gain()(0, 0) != 0.0);
+}
+
+TEST_CASE("the designs take their features as trailing options, in any order") {
+    constexpr design::LQRWeights lq{.Q = Matrix<2, 2>{{10.0, 0.0}, {0.0, 1.0}}, .R = {0.1}};
+    constexpr InputDelay<2>      late{kTheta};
+
+    //! The integrators listed and the delay, either way round, are the same design.
+    static_assert(design::state_feedback(plant(), kTs, lq, design::IntegralAction{.Q = 5.0, .outputs = {0}}, late).K == design::state_feedback(plant(), kTs, lq, late, design::IntegralAction{.Q = 5.0, .outputs = {0}}).K);
+    static_assert(design::state_feedback(plant(), kTs, lq, late, design::IntegralAction{.Q = 5.0}).K == design::state_feedback(plant(), kTs, lq, late, design::IntegralAction{.Q = 5.0, .outputs = {0}}).K); // every output, by default
+
+    //! The disturbance and the delay, of the filter, its target and the offset-free law.
+    constexpr design::KalmanNoise<2, 1, double, 1> noise{.process = Matrix<2, 2>{{1e-3, 0.0}, {0.0, 1e-2}}, .measurement = 1e-3, .disturbance = 1e-2};
+    static_assert(design::kalman(plant(), kTs, noise, design::InputDisturbance{}, late).M == design::kalman(plant(), kTs, noise, late, design::InputDisturbance{}).M);
+    static_assert(design::steady_state_target(plant(), kTs, design::InputDisturbance{}, late).target_d == design::steady_state_target(plant(), kTs, design::InputDisturbance{}, late).target_d);
+    constexpr auto ab = design::state_feedback(plant(), kTs, lq, noise, design::InputDisturbance{}, late);
+    constexpr auto ba = design::state_feedback(plant(), kTs, lq, noise, late, design::InputDisturbance{});
+    static_assert(ab.success && ab.K == ba.K && ab.kalman.M == ba.kalman.M);
+
+    //! One result type, whatever the options: the regulator's has no integrators and no filter.
+    static_assert(decltype(design::state_feedback(plant(), kTs, lq))::NK == 2 && decltype(design::state_feedback(plant(), kTs, lq, late))::NK == 4); // K on x, then on x and its 2 delay states
+    static_assert(design::state_feedback(plant(), kTs, lq, late).delay_gain()(0, 0) == design::state_feedback(plant(), kTs, lq, late).K(0, 2));
 }

@@ -15,12 +15,12 @@
 #include "damp/controllers/lqr.hpp"
 #include "damp/controllers/mpc.hpp"
 #include "damp/controllers/oflqg.hpp"
-#include "damp/controllers/ofmpc.hpp"
 #include "damp/controllers/pid.hpp"
 #include "damp/controllers/pr.hpp"
 #include "damp/controllers/repetitive.hpp"
 #include "damp/controllers/smc.hpp"
 #include "damp/controllers/smith_predictor.hpp"
+#include "damp/controllers/state_feedback.hpp"
 #include "damp/controllers/stsmc.hpp"
 #include "damp/design/disturbance.hpp"
 #include "damp/design/qp.hpp"
@@ -68,15 +68,15 @@ static_assert(!SisoController<RelayAutotuner<double>, double>);            // an
 // The seven LQ and MPC runtimes on a two-state, one-input, one-output plant.
 using PlantFilter = FixedGainObserver<2, 1, 1, double>;                                                         // on [x]
 using LoadFilter = FixedGainObserver<3, 1, 1, double, 1>;                                                       // on [x; d], one disturbance state
-using LqrLaw = LQR<2, 1, double>;                                                                               // design::lqr
-using LqrTrackLaw = LQR<2, 1, double, 2, 1>;                                                                    // design::lqr, one tracked output
-using LqiLaw = LQI<2, 1, 1, double, 1>;                                                                         // design::lqi, one integrated output
-using LqgLaw = LQG<2, 1, 1, double, PlantFilter>;                                                               // design::lqg
-using LqgTrackLaw = LQG<2, 1, 1, double, PlantFilter, 1>;                                                       // design::lqg, one tracked output
-using LqgiLaw = LQGI<2, 1, 1, 1, double, PlantFilter>;                                                          // design::lqgi
-using OflqgLaw = OFLQG<2, 1, 1, 1, double, LoadFilter>;                                                         // design::oflqg, one controlled output
+using LqrLaw = LQR<2, 1, double>;                                                                               // design::state_feedback
+using LqrTrackLaw = LQR<2, 1, double, 2, 1>;                                                                    // design::state_feedback, one tracked output
+using LqiLaw = LQI<2, 1, 1, double, 1>;                                                                         // design::state_feedback with an IntegralAction, one integrated output
+using LqgLaw = LQG<2, 1, 1, double, PlantFilter>;                                                               // design::state_feedback with a KalmanNoise
+using LqgTrackLaw = LQG<2, 1, 1, double, PlantFilter, 1>;                                                       // design::state_feedback with a KalmanNoise, one tracked output
+using LqgiLaw = LQGI<2, 1, 1, 1, double, PlantFilter>;                                                          // design::state_feedback with a KalmanNoise and an IntegralAction
+using OflqgLaw = OFLQG<2, 1, 1, 1, double, LoadFilter>;                                                         // design::state_feedback with a KalmanNoise and a disturbance spec, one controlled output
 using MpcLaw = MPC<2, 1, 1, 10, 4, 0, double>;                                                                  // design::mpc
-using OfmpcLaw = OFMPC<2, 1, 1, 10, 4, double, design::WarmStartActiveSetSolver<5, 37, double>, 0, LoadFilter>; // design::ofmpc
+using OfmpcLaw = OFMPC<2, 1, 1, 10, 4, double, design::WarmStartActiveSetSolver<5, 37, double>, 0, LoadFilter>; // design::mpc with a KalmanNoise and a disturbance spec
 
 static_assert(FeedbackRuntime<LqrLaw, 1, 2, double>);   // m = x
 static_assert(FeedbackRuntime<LqiLaw, 1, 2, double>);   // m = x
@@ -211,7 +211,7 @@ TEST_CASE("fused step(y, u) equals the manual predict/update sequence") {
     sys.Ts = Ts;
 
     SUBCASE("KalmanFilter") {
-        const auto kd = design::kalman(sys, {.process = Matrix<2, 2>::identity(), .measurement = 0.01});
+        const auto kd = design::kalman(sys, design::KalmanNoise{.process = Matrix<2, 2>::identity(), .measurement = 0.01});
         REQUIRE(kd.success);
 
         KalmanFilter<2, 1, 1, double, 2, 1> fused{kd};
@@ -361,37 +361,37 @@ TEST_CASE("each LQ law's basic step(r, m) and control(r) equal the feedforward f
     };
 
     SUBCASE("LQR") {
-        const auto res = design::lqr(sys, {.Q = Q, .R = R});
+        const auto res = design::state_feedback(sys, {.Q = Q, .R = R});
         REQUIRE(res.success);
         check_basic_equals_full(LQR{res}, sys, state, basic_reg, full_reg);
     }
     SUBCASE("LQG") {
-        const auto res = design::lqg(sys, {.Q = Q, .R = R}, noise);
+        const auto res = design::state_feedback(sys, {.Q = Q, .R = R}, noise);
         REQUIRE(res.success);
         check_basic_equals_full(LQG{res}, sys, output, basic_reg, full_reg);
     }
     SUBCASE("LQR with a tracked output") {
-        const auto res = design::lqr(sys, {.Q = Q, .R = R}, design::TrackedOutputs{});
+        const auto res = design::state_feedback(sys, {.Q = Q, .R = R}, design::TrackedOutputs{});
         REQUIRE(res.success);
         check_basic_equals_full(LQR{res}, sys, state, basic_r, full_r);
     }
     SUBCASE("LQG with a tracked output") {
-        const auto res = design::lqg(sys, {.Q = Q, .R = R}, noise, design::TrackedOutputs{});
+        const auto res = design::state_feedback(sys, {.Q = Q, .R = R}, noise, design::TrackedOutputs{});
         REQUIRE(res.success);
         check_basic_equals_full(LQG{res}, sys, output, basic_r, full_r);
     }
     SUBCASE("LQI") {
-        const auto res = design::lqi(sys, {.Q = Q, .R = R, .Q_integral = Qi});
+        const auto res = design::state_feedback(sys, {.Q = Q, .R = R}, design::IntegralAction{.Q = Qi});
         REQUIRE(res.success);
         check_basic_equals_full(LQI{res}, sys, state, basic_r, full_r);
     }
     SUBCASE("LQGI") {
-        const auto res = design::lqgi(sys, {.Q = Q, .R = R, .Q_integral = Qi}, noise);
+        const auto res = design::state_feedback(sys, {.Q = Q, .R = R}, noise, design::IntegralAction{.Q = Qi});
         REQUIRE(res.success);
         check_basic_equals_full(LQGI{res}, sys, output, basic_r, full_r);
     }
     SUBCASE("OFLQG") {
-        const auto res = design::oflqg(sys, {.Q = Q, .R = R}, load_noise, design::InputDisturbance{});
+        const auto res = design::state_feedback(sys, {.Q = Q, .R = R}, load_noise, design::InputDisturbance{});
         REQUIRE(res.success);
         check_basic_equals_full(OFLQG{res}, sys, output, basic_r, full_r);
     }

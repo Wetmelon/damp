@@ -12,7 +12,7 @@
  * #include "damp/control.hpp"
  * using namespace damp;
  *
- * constexpr auto result = design::lqr(sys, {.Q = Q, .R = R});
+ * constexpr auto result = design::state_feedback(sys, {.Q = Q, .R = R});
  * constinit LQR controller{result.as<float>()}; // a failed design does not compile
  * // ISR: auto u = controller.step(x);
  * @endcode

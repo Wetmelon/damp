@@ -13,6 +13,7 @@
 #include "damp/backend.hpp"
 #include "damp/controllers/detail/lq_cost.hpp"
 #include "damp/controllers/lqi.hpp"
+#include "damp/controllers/state_feedback.hpp"
 #include "damp/design/riccati.hpp"
 #include "damp/design/status.hpp"
 #include "damp/math/complex.hpp"
@@ -38,13 +39,13 @@ constexpr StateSpace<2, 1, 1, double, 1, 1> make_plant() {
 }
 
 constexpr auto design_lqi() {
-    return design::lqi(make_plant(), {.Q = Matrix<2, 2>{{10.0, 0.0}, {0.0, 1.0}}, .R = 1.0, .Q_integral = 500.0});
+    return design::state_feedback(make_plant(), {.Q = Matrix<2, 2>{{10.0, 0.0}, {0.0, 1.0}}, .R = 1.0}, design::IntegralAction{.Q = 500.0});
 }
 } // namespace
 
 TEST_SUITE("LQI") {
     TEST_CASE("LQIResult::as<U>() conversion") {
-        constexpr auto lqi_d = design::lqi(StateSpace<1, 1, 1, double, 1, 1>{.A = Matrix<1, 1>{{1.0}}, .B = Matrix<1, 1>{{1.0}}, .C = Matrix<1, 1>{{1.0}}, .Ts = 1.0}, {.Q = 1.0, .R = 1.0, .Q_integral = 1.0});
+        constexpr auto lqi_d = design::state_feedback(StateSpace<1, 1, 1, double, 1, 1>{.A = Matrix<1, 1>{{1.0}}, .B = Matrix<1, 1>{{1.0}}, .C = Matrix<1, 1>{{1.0}}, .Ts = 1.0}, {.Q = 1.0, .R = 1.0}, design::IntegralAction{.Q = 1.0});
 
         constexpr auto lqi_f = lqi_d.as<float>();
 
@@ -153,9 +154,9 @@ TEST_SUITE("LQI") {
             .C = Matrix<2, 2>::identity(),
             .Ts = 0.1
         };
-        constexpr design::LQIConfig<2, 1, 1> w{.Q = Matrix<2, 2>{{10.0, 0.0}, {0.0, 1.0}}, .R = 1.0, .Q_integral = 500.0}; // design_lqi's
-        constexpr auto                       picked = design::lqi(sys2, w, design::IntegralAction<1>{{0}});
-        constexpr auto                       by_hand = design_lqi(); // C = [1 0]
+        constexpr design::LQRWeights w{.Q = Matrix<2, 2>{{10.0, 0.0}, {0.0, 1.0}}, .R = {1.0}}; // design_lqi's
+        constexpr auto               picked = design::state_feedback(sys2, w, design::IntegralAction{.Q = 500.0, .outputs = {0}});
+        constexpr auto               by_hand = design_lqi(); // C = [1 0]
         static_assert(picked.success);
         for (size_t j = 0; j < 3; ++j) {
             CHECK(picked.K(0, j) == doctest::Approx(by_hand.K(0, j)).epsilon(1e-12));
@@ -175,14 +176,14 @@ TEST_SUITE("LQI") {
         CHECK(x[0] == doctest::Approx(1.0).epsilon(1e-3));
 
         // An index past the last output is an inconsistent design input.
-        constexpr auto bad = design::lqi(sys2, w, design::IntegralAction<1>{{2}});
+        constexpr auto bad = design::state_feedback(sys2, w, design::IntegralAction{.Q = 500.0, .outputs = {2}});
         static_assert(!bad.success && bad.status == design::DesignStatus::bad_weights);
-        // Q_integral left out of the braces: the integrator is a mode at z = 1 the cost does not
-        // see (the DARE would give Kᵢ = 0 and a closed-loop pole on the unit circle).
-        constexpr auto unweighted = design::lqi(sys2, {.Q = w.Q, .R = w.R});
+        // A zero Q on the integrators: they are modes at z = 1 the cost does not see (the DARE
+        // would give Kᵢ = 0 and closed-loop poles on the unit circle).
+        constexpr auto unweighted = design::state_feedback(sys2, {.Q = w.Q, .R = w.R}, design::IntegralAction{.Q = Matrix<2, 2>{}});
         static_assert(!unweighted.success && unweighted.status == design::DesignStatus::bad_weights);
         // Integrating both outputs of a single-input plant cannot be held apart: not stabilizable.
-        const auto both = design::lqi(sys2, {.Q = Matrix<2, 2>::identity(), .R = 1.0, .Q_integral = Matrix<2, 2>::identity()}, design::IntegralAction<2>{{0, 1}});
+        const auto both = design::state_feedback(sys2, {.Q = Matrix<2, 2>::identity(), .R = 1.0}, design::IntegralAction{.Q = Matrix<2, 2>::identity(), .outputs = {0, 1}});
         CHECK_FALSE(both.success);
         auto idle = LQI{both};
         idle.update(ColVec<2>{});
@@ -290,7 +291,7 @@ TEST_CASE("LQI weights: the cross term N reaches the augmented DARE") {
     const Matrix<1, 1> Qi{{5.0}};
     const Matrix<1, 1> R{{1.0}};
     const Matrix<2, 1> N{{0.1}, {0.2}};
-    Matrix<3, 3>       Q{}; // on [x; xi]: Q and Q_integral on the diagonal
+    Matrix<3, 3>       Q{}; // on [x; xi]: Q and the IntegralAction's Q on the diagonal
     Q.block<2, 2>(0, 0) = Qx;
     Q(2, 2) = Qi(0, 0);
     Matrix<3, 1> N_aug{};
@@ -303,18 +304,18 @@ TEST_CASE("LQI weights: the cross term N reaches the augmented DARE") {
     B_aug.block<2, 1>(0, 0) = sys.B;
 
     const auto by_hand = design::discrete_lqr(A_aug, B_aug, Q, R, N_aug);
-    const auto got = design::lqi(sys, {.Q = Qx, .R = R, .N = N, .Q_integral = Qi});
+    const auto got = design::state_feedback(sys, {.Q = Qx, .R = R, .N = N}, design::IntegralAction{.Q = Qi});
     REQUIRE(by_hand.success);
     REQUIRE(got.success);
     CHECK((got.K - by_hand.K).norm() == 0.0);
-    CHECK((got.K - design::lqi(sys, {.Q = Qx, .R = R, .Q_integral = Qi}).K).norm() > 0.0); // N is not dropped
+    CHECK((got.K - design::state_feedback(sys, {.Q = Qx, .R = R}, design::IntegralAction{.Q = Qi}).K).norm() > 0.0); // N is not dropped
 }
 
 TEST_SUITE("LQI status") {
     TEST_CASE("a continuous plant is refused; Ts and status ride on the result") {
         auto continuous = make_plant();
         continuous.Ts = 0.0;
-        const auto refused = design::lqi(continuous, {.Q = Matrix<2, 2>::identity(), .R = 1.0, .Q_integral = 1.0});
+        const auto refused = design::state_feedback(continuous, {.Q = Matrix<2, 2>::identity(), .R = 1.0}, design::IntegralAction{.Q = 1.0});
         CHECK_FALSE(refused.success);
         CHECK(refused.status == design::DesignStatus::invalid_sample_time);
 
@@ -323,7 +324,7 @@ TEST_SUITE("LQI status") {
         CHECK(ok.as<float>().status == design::DesignStatus::ok);
         CHECK(ok.as<float>().Ts == 0.1f);
 
-        constexpr auto bad_index = design::lqi(make_plant(), {.Q = Matrix<2, 2>::identity(), .R = 1.0, .Q_integral = 1.0}, design::IntegralAction<1>{{1}});
+        constexpr auto bad_index = design::state_feedback(make_plant(), {.Q = Matrix<2, 2>::identity(), .R = 1.0}, design::IntegralAction{.Q = 1.0, .outputs = {1}});
         static_assert(!bad_index.success && bad_index.status == design::DesignStatus::bad_weights);
     }
 }
@@ -338,9 +339,14 @@ constexpr StateSpace<2, 1, 1> make_continuous_plant() {
     };
 }
 
-// Continuous cost on [position; velocity], u and ∫e dt.
-constexpr design::LQIConfig<2, 1, 1> continuous_weights() {
-    return {.Q = Matrix<2, 2>::diagonal({10.0, 1.0}), .R = 1.0, .Q_integral = 100.0};
+// Continuous cost on [position; velocity] and u.
+constexpr design::LQRWeights<2, 1> continuous_weights() {
+    return {.Q = Matrix<2, 2>::diagonal({10.0, 1.0}), .R = 1.0};
+}
+
+// Its integral action: the cost on ∫e dt.
+constexpr design::IntegralAction<double> continuous_integral() {
+    return {.Q = 100.0};
 }
 
 // Closed-loop poles mapped to the s-plane, s = log(z)/Ts.
@@ -394,8 +400,8 @@ TEST_SUITE("LQI sampled-data (continuous plant, Ts)") {
 
     TEST_CASE("the same continuous weights give the same continuous closed loop at 1 kHz and 10 kHz") {
         constexpr auto plant = make_continuous_plant();
-        const auto     fast = design::lqi(plant, 1e-4, continuous_weights());
-        const auto     slow = design::lqi(plant, 1e-3, continuous_weights());
+        const auto     fast = design::state_feedback(plant, 1e-4, continuous_weights(), continuous_integral());
+        const auto     slow = design::state_feedback(plant, 1e-3, continuous_weights(), continuous_integral());
         REQUIRE(fast.success);
         REQUIRE(slow.success);
         CHECK(fast.integral.step == 1e-4);
@@ -410,7 +416,7 @@ TEST_SUITE("LQI sampled-data (continuous plant, Ts)") {
         }
         MESSAGE("Ts form, 1 kHz vs 10 kHz: worst relative pole gap " << mismatch);
         CHECK(mismatch < 1e-5);
-        const auto   coarse = design::lqi(plant, 1e-2, continuous_weights()); // 100 Hz, still ~30× the loop bandwidth
+        const auto   coarse = design::state_feedback(plant, 1e-2, continuous_weights(), continuous_integral()); // 100 Hz, still ~30× the loop bandwidth
         const double coarse_mismatch = pole_mismatch(s_plane(coarse.e, 1e-2), s_fast);
         MESSAGE("Ts form, 100 Hz vs 10 kHz: worst relative pole gap " << coarse_mismatch);
         CHECK(coarse_mismatch < 1e-4); // the gap shrinks as Ts²
@@ -418,7 +424,7 @@ TEST_SUITE("LQI sampled-data (continuous plant, Ts)") {
         //! The discrete-plant form integrates with xi += Ts·e too, so the same numbers give the same loop at each rate.
         const auto discrete_plant = [&](double Ts) {
             const auto zoh = discretize(plant, Ts, DiscretizationMethod::ZOH);
-            return design::lqi(*zoh, continuous_weights());
+            return design::state_feedback(*zoh, continuous_weights(), continuous_integral());
         };
         const auto   d_fast = discrete_plant(1e-4);
         const auto   d_slow = discrete_plant(1e-3);
@@ -428,7 +434,7 @@ TEST_SUITE("LQI sampled-data (continuous plant, Ts)") {
     }
 
     TEST_CASE("it deploys constinit in float and holds the output at r against an input disturbance") {
-        static constexpr auto res = design::lqi(make_continuous_plant(), 1e-3, continuous_weights());
+        static constexpr auto res = design::state_feedback(make_continuous_plant(), 1e-3, continuous_weights(), continuous_integral());
         static constinit auto law = LQI{res.as<float>()};
         static_assert(res.success && res.integral.step == 1e-3);
         CHECK(law.integral.step == 1e-3f);
@@ -450,20 +456,20 @@ TEST_SUITE("LQI sampled-data (continuous plant, Ts)") {
 
     TEST_CASE("Ts form: selectors, and the rows that refuse") {
         constexpr auto plant = make_continuous_plant();
-        constexpr auto by_index = design::lqi(plant, 1e-3, continuous_weights(), design::IntegralAction<1>{{0}});
-        constexpr auto every = design::lqi(plant, 1e-3, continuous_weights()); // Ci = I on the one output
+        constexpr auto by_index = design::state_feedback(plant, 1e-3, continuous_weights(), design::IntegralAction{.Q = continuous_integral().Q, .outputs = {0}});
+        constexpr auto every = design::state_feedback(plant, 1e-3, continuous_weights(), continuous_integral()); // Ci = I on the one output
         static_assert(by_index.success && every.success && by_index.K == every.K);
-        static_assert(design::lqi(plant, 1e-3, continuous_weights(), design::IntegralAction<1>{{1}}).status == design::DesignStatus::bad_weights);
-        CHECK(design::lqi(plant.as<float>(), 1e-3f, {.Q = continuous_weights().Q.as<float>(), .R = 1.0f, .Q_integral = continuous_weights().Q_integral.as<float>()}).success);
+        static_assert(design::state_feedback(plant, 1e-3, continuous_weights(), design::IntegralAction{.Q = continuous_integral().Q, .outputs = {1}}).status == design::DesignStatus::bad_weights);
+        CHECK(design::state_feedback(plant.as<float>(), 1e-3f, {.Q = continuous_weights().Q.as<float>(), .R = 1.0f}, design::IntegralAction{.Q = static_cast<float>(continuous_integral().Q)}).success);
 
         //! The discrete-plant form integrates with forward Euler at the plant's Ts, as MATLAB®'s lqi does.
         CHECK(design_lqi().integral.step == make_plant().Ts);
 
         auto discrete = plant;
         discrete.Ts = 1e-3;
-        CHECK(design::lqi(discrete, 1e-3, continuous_weights()).status == design::DesignStatus::invalid_sample_time);
+        CHECK(design::state_feedback(discrete, 1e-3, continuous_weights(), continuous_integral()).status == design::DesignStatus::invalid_sample_time);
         for (const double bad : {0.0, -1e-3, std::numeric_limits<double>::quiet_NaN(), std::numeric_limits<double>::infinity()}) {
-            const auto refused = design::lqi(plant, bad, continuous_weights());
+            const auto refused = design::state_feedback(plant, bad, continuous_weights(), continuous_integral());
             CHECK_FALSE(refused.success);
             CHECK(refused.status == design::DesignStatus::invalid_sample_time);
         }
@@ -482,10 +488,11 @@ constexpr StateSpace<1, 1, 1, double, 1, 1> feedthrough_plant(double D, double T
 TEST_SUITE("LQI on a plant with feedthrough") {
     TEST_CASE("the design and the runtime integrate the same output: the deployed loop has the design's poles and y holds r") {
         for (const double D : {0.5, -2.0}) {
-            const auto plant = feedthrough_plant(D, 0.1);
-            const auto w = design::LQIConfig<1, 1, 1>{.Q = 1.0, .R = 1.0, .Q_integral = 10.0};
+            const auto                   plant = feedthrough_plant(D, 0.1);
+            const auto                   w = design::LQRWeights<1, 1>{.Q = 1.0, .R = 1.0};
+            const design::IntegralAction ia{.Q = 10.0};
             for (const bool sampled : {false, true}) {
-                const auto res = sampled ? design::lqi(feedthrough_plant(D, 0.0), 0.1, w) : design::lqi(plant, w);
+                const auto res = sampled ? design::state_feedback(feedthrough_plant(D, 0.0), 0.1, w, ia) : design::state_feedback(plant, w, ia);
                 REQUIRE(res.success);
                 REQUIRE(res.is_stable());
                 // Plant + to_ss at r = 0: [x; ξ]⁺ with u = C_c ξ + D_c·[r; x].
@@ -518,37 +525,47 @@ TEST_SUITE("LQI on a plant with feedthrough") {
     TEST_CASE("a failed design is not reported stable") {
         // C = I on a double integrator, integrating the velocity: no stabilizing gain holds it.
         const StateSpace<2, 1, 2> plant{.A = Matrix<2, 2>{{1.0, 0.1}, {0.0, 1.0}}, .B = Matrix<2, 1>{{0.005}, {0.1}}, .C = Matrix<2, 2>::identity(), .Ts = 0.1};
-        const auto                res = design::lqi(plant, {.Q = Matrix<2, 2>::identity(), .R = 1.0, .Q_integral = 1.0}, design::IntegralAction<1>{{1}});
+        const auto                res = design::state_feedback(plant, {.Q = Matrix<2, 2>::identity(), .R = 1.0}, design::IntegralAction{.Q = 1.0, .outputs = {1}});
         CHECK_FALSE(res.success);
         CHECK_FALSE(res.is_stable());
     }
 }
 
-TEST_CASE("LQRConfig and LQIConfig take their sizes from the fields they set") {
-    using design::LQIConfig;
-    using design::LQRConfig;
-    //! One input and one integrator unless a field says otherwise; a single weight is braced.
-    constexpr LQRConfig lq{.Q = diag(1.0, 0.1), .R = {0.5}};
-    static_assert(damp::is_same_v<decltype(lq), const LQRConfig<2, 1>>);
-    constexpr LQRConfig lq_mimo{.Q = diag(1.0, 0.1, 2.0), .R = diag(0.5, 0.5)};
-    static_assert(damp::is_same_v<decltype(lq_mimo), const LQRConfig<3, 2>>);
-    constexpr LQRConfig lq_float{.Q = diag(1.0f, 0.1f), .R = {0.5f}};
-    static_assert(damp::is_same_v<decltype(lq_float), const LQRConfig<2, 1, float>>);
+TEST_CASE("LQRWeights, LQRLimits, DemandLimit, TrackedOutputs and IntegralAction take their sizes from the fields they set") {
+    using design::IntegralAction;
+    using design::LQRWeights;
+    //! One input unless a field says otherwise; a single weight is braced.
+    constexpr LQRWeights lq{.Q = diag(1.0, 0.1), .R = {0.5}};
+    static_assert(damp::is_same_v<decltype(lq), const LQRWeights<2, 1>>);
+    constexpr LQRWeights lq_mimo{.Q = diag(1.0, 0.1, 2.0), .R = diag(0.5, 0.5)};
+    static_assert(damp::is_same_v<decltype(lq_mimo), const LQRWeights<3, 2>>);
+    constexpr LQRWeights lq_float{.Q = diag(1.0f, 0.1f), .R = {0.5f}};
+    static_assert(damp::is_same_v<decltype(lq_float), const LQRWeights<2, 1, float>>);
 
-    //! Any fields, in any subset: the limits are braced and take the sizes the others give.
-    constexpr LQRConfig limited{.Q = diag(1.0, 0.1), .R = {0.5}, .demand_lim = {.state = 1, .outer = {true, false}, .lim = {.lower = -0.2, .upper = 0.2}}};
-    static_assert(damp::is_same_v<decltype(limited), const LQRConfig<2, 1>> && limited.demand_lim.state == 1);
-    constexpr LQRConfig positional{diag(1.0, 0.1), Matrix<1, 1>{0.5}};
-    static_assert(damp::is_same_v<decltype(positional), const LQRConfig<2, 1>>);
+    //! The limits: one input unless u_lim says otherwise. A DemandLimit and TrackedOutputs take their lengths from their lists.
+    constexpr design::LQRLimits clamped{.u_lim = {.lower = -12.0, .upper = 12.0}};
+    static_assert(damp::is_same_v<decltype(clamped), const design::LQRLimits<1>>);
+    constexpr design::LQRLimits two{.u_lim = Bounds<2>{.lower = {-1.0, -2.0}, .upper = {1.0, 2.0}}};
+    static_assert(damp::is_same_v<decltype(two), const design::LQRLimits<2>>);
+    constexpr DemandLimit limited{.state = 1, .outer = {0, 2}, .lim = {.lower = -0.2, .upper = 0.2}};
+    static_assert(damp::is_same_v<decltype(limited), const DemandLimit<2>> && limited.state == 1 && limited.outer[1] == 2);
+    static_assert(damp::is_same_v<decltype(design::TrackedOutputs{{0, 2}}), design::TrackedOutputs<2>> && damp::is_same_v<decltype(design::TrackedOutputs{}), design::TrackedOutputs<0>>);
+    constexpr LQRWeights positional{diag(1.0, 0.1), Matrix<1, 1>{0.5}};
+    static_assert(damp::is_same_v<decltype(positional), const LQRWeights<2, 1>>);
 
-    constexpr LQIConfig lqi{.Q = diag(10.0, 1.0), .R = {1.0}, .Q_integral = {80.0}, .tracking_time = 0.5};
-    static_assert(damp::is_same_v<decltype(lqi), const LQIConfig<2, 1, 1>> && lqi.Q_integral(0, 0) == 80.0);
-    constexpr LQIConfig lqi_two{.Q = diag(10.0, 1.0), .R = diag(1.0, 1.0), .Q_integral = diag(80.0, 80.0)};
-    static_assert(damp::is_same_v<decltype(lqi_two), const LQIConfig<2, 2, 2>>);
+    //! The integrators are Q's: one for a scalar, NI for an NI × NI Matrix; the fields it sizes are braced.
+    constexpr LQRWeights     lqi{.Q = diag(10.0, 1.0), .R = {1.0}};
+    constexpr IntegralAction ia{.Q = 80.0, .tracking_time = 0.5};
+    static_assert(damp::is_same_v<decltype(ia), const IntegralAction<double>> && ia.NI == 1 && ia.Q == 80.0);
+    static_assert(damp::is_same_v<decltype(ia.lim), Bounds<1>> && damp::is_same_v<decltype(ia.outputs), damp::array<size_t, 1>>);
+    constexpr LQRWeights     lqi_two{.Q = diag(10.0, 1.0), .R = diag(1.0, 1.0)};
+    constexpr IntegralAction ia_two{.Q = diag(80.0, 80.0), .lim = {.lower = {-1.0, -2.0}, .upper = {1.0, 2.0}}};
+    static_assert(damp::is_same_v<decltype(lqi_two), const LQRWeights<2, 2>> && damp::is_same_v<decltype(ia_two), const IntegralAction<Matrix<2, 2>>> && ia_two.NI == 2);
+    static_assert(damp::is_same_v<decltype(ia_two.lim), Bounds<2>>);
 
-    //! The deduced config designs as the spelled one.
+    //! The deduced config and action design as the spelled ones.
     constexpr StateSpace plant{.A = {{0.0, 1.0}, {-1.0, -0.5}}, .B = {{0.0}, {1.0}}, .C = {{1.0, 0.0}}};
-    constexpr auto       by_deduced = design::lqi(plant, 0.01, lqi);
-    constexpr auto       by_spelled = design::lqi(plant, 0.01, LQIConfig<2, 1, 1>{.Q = diag(10.0, 1.0), .R = 1.0, .Q_integral = 80.0, .tracking_time = 0.5});
+    constexpr auto       by_deduced = design::state_feedback(plant, 0.01, lqi, ia);
+    constexpr auto       by_spelled = design::state_feedback(plant, 0.01, LQRWeights<2, 1>{.Q = diag(10.0, 1.0), .R = 1.0}, IntegralAction<double>{.Q = 80.0, .tracking_time = 0.5});
     static_assert(by_deduced.success && by_deduced.K == by_spelled.K);
 }

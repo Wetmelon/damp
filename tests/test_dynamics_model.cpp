@@ -9,6 +9,7 @@
 #include "damp/backend.hpp"
 #include "damp/concepts.hpp"
 #include "damp/controllers/lqr.hpp"
+#include "damp/controllers/state_feedback.hpp"
 #include "damp/design/linearization.hpp"
 #include "damp/estimation/ekf.hpp"
 #include "damp/estimation/ukf.hpp"
@@ -26,7 +27,7 @@ using namespace damp;
 
 // One nonlinear model, written once as a Dynamics ẋ = f(x, u) and a
 // Measurement y = h(x, u), drives everything that takes a nonlinear model: the
-// SIL plant (sim::simulate_sampled), design::linearize feeding design::lqr,
+// SIL plant (sim::simulate_sampled), design::linearize feeding design::state_feedback,
 // and the ExtendedKalmanFilter and UnscentedKalmanFilter estimating from a
 // noisy h. The model carries analytic Jacobians; wrapping it in WithoutJacobian
 // hides them, and the central differences must agree.
@@ -123,7 +124,7 @@ TEST_SUITE("Dynamics model") {
         const auto lin = design::linearize<2, 1, 1>(pendulum, sensor, ColVec<2>{}, ColVec<1>{});
         CHECK(lin.A(1, 0) == doctest::Approx(pendulum.g_over_l));
         CHECK(lin.C(0, 0) == doctest::Approx(sensor.length));
-        const auto res = design::lqr(lin.to_state_space(), Ts, {.Q = Matrix<2, 2>::diagonal({10.0, 1.0}), .R = Matrix<1, 1>{{0.1}}});
+        const auto res = design::state_feedback(lin.to_state_space(), Ts, {.Q = Matrix<2, 2>::diagonal({10.0, 1.0}), .R = Matrix<1, 1>{{0.1}}});
         REQUIRE(res.success);
         LQR law{res};
 

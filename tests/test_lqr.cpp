@@ -10,6 +10,7 @@
 
 #include "damp/backend.hpp"
 #include "damp/controllers/lqr.hpp"
+#include "damp/controllers/state_feedback.hpp"
 #include "damp/design/riccati.hpp"
 #include "damp/design/status.hpp"
 #include "damp/design/steady_state_target.hpp"
@@ -118,8 +119,8 @@ constexpr StateSpace<2, 1, 2, double> spring_plant() {
 
 } // namespace
 
-TEST_CASE("design::lqr with TrackedOutputs holds the tracked output at r") {
-    static constexpr auto res = design::lqr(spring_plant(), {.Q = Matrix<2, 2>::identity(), .R = 0.1}, design::TrackedOutputs<1>{{0}});
+TEST_CASE("design::state_feedback with TrackedOutputs holds the tracked output at r") {
+    static constexpr auto res = design::state_feedback(spring_plant(), {.Q = Matrix<2, 2>::identity(), .R = 0.1}, design::TrackedOutputs{{0}});
     static_assert(res.success);
     static constinit LQR law{res.as<float>()};
     static_assert(std::is_same_v<decltype(law), LQR<2, 1, float, 2, 1>>);
@@ -131,7 +132,7 @@ TEST_CASE("design::lqr with TrackedOutputs holds the tracked output at r") {
 
     auto            sys = spring_plant();
     LQR             tracking{res};
-    LQR             regulator{design::lqr(sys, {.Q = Matrix<2, 2>::identity(), .R = 0.1})};
+    LQR             regulator{design::state_feedback(sys, {.Q = Matrix<2, 2>::identity(), .R = 0.1})};
     ColVec<2>       xt{};
     ColVec<2>       xr{};
     const ColVec<1> r{0.3};
@@ -147,17 +148,17 @@ TEST_CASE("design::lqr with TrackedOutputs holds the tracked output at r") {
     CHECK(std::abs(xr[0] - 0.3) > 0.01);
 }
 
-TEST_CASE("design::lqr with TrackedOutputs refuses an output it cannot hold") {
+TEST_CASE("design::state_feedback with TrackedOutputs refuses an output it cannot hold") {
     // The velocity of a spring at rest is zero: no steady state holds it at r ≠ 0.
-    const auto res = design::lqr(spring_plant(), {.Q = Matrix<2, 2>::identity(), .R = 0.1}, design::TrackedOutputs<1>{{1}});
+    const auto res = design::state_feedback(spring_plant(), {.Q = Matrix<2, 2>::identity(), .R = 0.1}, design::TrackedOutputs{{1}});
     CHECK_FALSE(res.success);
     CHECK(res.status == design::DesignStatus::singular);
     // An output out of range.
-    const auto bad = design::lqr(spring_plant(), {.Q = Matrix<2, 2>::identity(), .R = 0.1}, design::TrackedOutputs<1>{{2}});
+    const auto bad = design::state_feedback(spring_plant(), {.Q = Matrix<2, 2>::identity(), .R = 0.1}, design::TrackedOutputs{{2}});
     CHECK(bad.status == design::DesignStatus::bad_weights);
 }
 
-TEST_CASE("design::lqr with TrackedOutputs refuses an output no steady state holds, with more inputs than outputs") {
+TEST_CASE("design::state_feedback with TrackedOutputs refuses an output no steady state holds, with more inputs than outputs") {
     // Two parallel input columns on a double integrator: the velocity has no steady state at r ≠ 0
     // with either input, so two redundant inputs are refused like one.
     const StateSpace<2, 2, 2> sys{
@@ -166,13 +167,13 @@ TEST_CASE("design::lqr with TrackedOutputs refuses an output no steady state hol
         .C = Matrix<2, 2>::identity(),
         .Ts = 0.1,
     };
-    const auto weights = design::LQRConfig<2, 2>{.Q = Matrix<2, 2>::identity(), .R = Matrix<2, 2>::identity()};
-    const auto res = design::lqr(sys, weights, design::TrackedOutputs<1>{{1}});
+    const auto weights = design::LQRWeights<2, 2>{.Q = Matrix<2, 2>::identity(), .R = Matrix<2, 2>::identity()};
+    const auto res = design::state_feedback(sys, weights, design::TrackedOutputs{{1}});
     CHECK_FALSE(res.success);
     CHECK(res.status == design::DesignStatus::singular);
     CHECK_FALSE(res.is_stable());
     // The position does have one (NZ < NU, the minimum-norm target), and the law holds it.
-    const auto pos = design::lqr(sys, weights, design::TrackedOutputs<1>{{0}});
+    const auto pos = design::state_feedback(sys, weights, design::TrackedOutputs{{0}});
     REQUIRE(pos.success);
     auto      law = LQR{pos};
     ColVec<2> x{};
@@ -190,7 +191,7 @@ TEST_CASE("LQRResult::to_ss closed around the plant has the design's poles") {
         .C = Matrix<2, 2>::identity(),
         .Ts = 0.1,
     };
-    const auto res = design::lqr(sys, {.Q = Matrix<2, 2>::identity(), .R = 0.1});
+    const auto res = design::state_feedback(sys, {.Q = Matrix<2, 2>::identity(), .R = 0.1});
     REQUIRE(res.success);
 
     const auto ss = res.to_ss();
@@ -256,28 +257,28 @@ TEST_CASE_TEMPLATE("discretize_lqr_cost and lqr(sys, Ts, w) keep a fast stable m
     const double tol = std::is_same_v<T, float> ? 1e-4 : 1e-9;
     for (const Case& c : cases) {
         CAPTURE(c.a);
-        const StateSpace<2, 1, 1, T>     sys{.A = Matrix<2, 2, T>{{T{-1}, T{1}}, {T{0}, static_cast<T>(c.a)}}, .B = Matrix<2, 1, T>{{T{0}}, {T{1}}}, .C = Matrix<1, 2, T>{{T{1}, T{0}}}};
-        const design::LQRConfig<2, 1, T> w{.Q = Matrix<2, 2, T>::identity(), .R = Matrix<1, 1, T>{{T{1}}}};
-        const auto                       cost = design::discretize_lqr_cost(sys.A, sys.B, w.Q, w.R, T{1});
+        const StateSpace<2, 1, 1, T>      sys{.A = Matrix<2, 2, T>{{T{-1}, T{1}}, {T{0}, static_cast<T>(c.a)}}, .B = Matrix<2, 1, T>{{T{0}}, {T{1}}}, .C = Matrix<1, 2, T>{{T{1}, T{0}}}};
+        const design::LQRWeights<2, 1, T> w{.Q = Matrix<2, 2, T>::identity(), .R = Matrix<1, 1, T>{{T{1}}}};
+        const auto                        cost = design::discretize_lqr_cost(sys.A, sys.B, w.Q, w.R, T{1});
         REQUIRE(cost.has_value());
         CHECK(static_cast<double>(cost->R(0, 0)) == doctest::Approx(c.Rd).epsilon(tol));
         CHECK(static_cast<double>(cost->N(0, 0)) == doctest::Approx(c.Nd0).epsilon(tol));
         CHECK(static_cast<double>(cost->N(1, 0)) == doctest::Approx(c.Nd1).epsilon(10.0 * tol));
-        const auto res = design::lqr(sys, T{1}, w);
+        const auto res = design::state_feedback(sys, T{1}, w);
         REQUIRE(res.success);
         CHECK(static_cast<double>(res.K(0, 0)) == doctest::Approx(c.K0).epsilon(tol));
         CHECK(static_cast<double>(res.K(0, 1)) == doctest::Approx(c.K1).epsilon(10.0 * tol));
     }
 }
 
-TEST_CASE("design::lqr on a continuous plant with Ts discretizes the cost (differs from naive)") {
+TEST_CASE("design::state_feedback on a continuous plant with Ts discretizes the cost (differs from naive)") {
     const Matrix<2, 2> A{{0.0, 1.0}, {0.0, 0.0}}; // double integrator
     const Matrix<2, 1> B{{0.0}, {1.0}};
     const Matrix<2, 2> Q{{1.0, 0.0}, {0.0, 1.0}};
     const Matrix<1, 1> R{{1.0}};
     const double       Ts = 0.2;
 
-    const auto proper = design::lqr(StateSpace{.A = A, .B = B, .C = Matrix<1, 2>{{1.0, 0.0}}}, Ts, {.Q = Q, .R = R});
+    const auto proper = design::state_feedback(StateSpace{.A = A, .B = B, .C = Matrix<1, 2>{{1.0, 0.0}}}, Ts, {.Q = Q, .R = R});
     REQUIRE(proper.success);
     CHECK(proper.Ts == Ts);
     CHECK(proper.is_stable());
@@ -365,7 +366,7 @@ TEST_CASE("matlab::dlqr and matlab::lqrd forward to the core names") {
     const double       Ts = 0.2;
 
     StateSpace<2, 1, 2> sys{.A = Ac, .B = Bc, .C = Matrix<2, 2>::identity()};
-    const auto          from_cont = design::lqr(sys, Ts, {.Q = Qc, .R = Rc});
+    const auto          from_cont = design::state_feedback(sys, Ts, {.Q = Qc, .R = Rc});
     const auto          via_lqrd = matlab::lqrd(Ac, Bc, Qc, Rc, Ts);
     REQUIRE(from_cont.success);
     REQUIRE(via_lqrd.success);
@@ -442,14 +443,14 @@ TEST_CASE("design::discrete_lqr matches scipy/control golden data") {
     CHECK(doctest::Approx(result.e[1].real()).epsilon(1e-6) == 0.7610831951563004);
 }
 
-TEST_CASE("design::lqr sampled-data design converges with expected gain scale") {
+TEST_CASE("design::state_feedback sampled-data design converges with expected gain scale") {
     constexpr Matrix<2, 2> A_c{{-1.0, 1.0}, {0.0, -2.0}};
     constexpr Matrix<2, 1> B_c{{1.0}, {0.5}};
     constexpr Matrix<2, 2> Q{{1.0, 0.0}, {0.0, 1.0}};
     constexpr Matrix<1, 1> R{{1.0}};
     constexpr double       Ts = 0.1;
 
-    constexpr auto result = design::lqr(StateSpace{.A = A_c, .B = B_c, .C = Matrix<1, 2>{{1.0, 0.0}}}, Ts, {.Q = Q, .R = R});
+    constexpr auto result = design::state_feedback(StateSpace{.A = A_c, .B = B_c, .C = Matrix<1, 2>{{1.0, 0.0}}}, Ts, {.Q = Q, .R = R});
     static_assert(result.success);
     CHECK(doctest::Approx(result.K(0, 0)).epsilon(1e-3) == 0.414);
     CHECK(doctest::Approx(result.K(0, 1)).epsilon(1e-3) == 0.231);
@@ -458,7 +459,7 @@ TEST_CASE("design::lqr sampled-data design converges with expected gain scale") 
 }
 
 // ---------------------------------------------------------------------------
-// design::lqr: one name, dispatching on the plant's time domain
+// design::state_feedback: one name, dispatching on the plant's time domain
 // ---------------------------------------------------------------------------
 
 namespace {
@@ -468,20 +469,20 @@ constexpr Matrix<1, 2> kDiC{{1.0, 0.0}};
 constexpr StateSpace   kDiPlant{.A = kDiA, .B = kDiB, .C = kDiC};
 constexpr auto         kDiDiscrete = *discretize(kDiPlant, 0.1);
 
-constexpr design::LQRConfig<2, 1> kDiW{.Q = Matrix<2, 2>::identity(), .R = 1.0};
+constexpr design::LQRWeights<2, 1> kDiW{.Q = Matrix<2, 2>::identity(), .R = 1.0};
 
 // Row 2 at compile time: continuous plant + Ts is the sampled-data design, and the law deploys from it.
-constexpr auto kSampled = design::lqr(kDiPlant, 0.2, {.Q = kDiW.Q, .R = kDiW.R});
+constexpr auto kSampled = design::state_feedback(kDiPlant, 0.2, {.Q = kDiW.Q, .R = kDiW.R});
 static_assert(kSampled.success && kSampled.status == design::DesignStatus::ok && kSampled.Ts == 0.2);
 constinit auto kSampledLaw = LQR{kSampled.as<float>()};
 static_assert(std::is_same_v<decltype(kSampledLaw), LQR<2, 1, float>>);
 
 // Row 4 at compile time: a discrete plant plus Ts is refused, even at the plant's own Ts.
-constexpr auto kTwice = design::lqr(kDiDiscrete, 0.1, kDiW);
+constexpr auto kTwice = design::state_feedback(kDiDiscrete, 0.1, kDiW);
 static_assert(!kTwice.success && kTwice.status == design::DesignStatus::invalid_sample_time);
 
 // Row 1 designs fine but is a continuous gain (Ts = 0), not a sampled law: it does not deploy.
-constexpr auto kContinuous = design::lqr(kDiPlant, kDiW);
+constexpr auto kContinuous = design::state_feedback(kDiPlant, kDiW);
 static_assert(kContinuous.success && kContinuous.Ts == 0.0);
 // constinit auto kContinuousLaw = LQR{kContinuous.as<float>()}; // ill-formed: refuse_failed_design under constant evaluation
 } // namespace
@@ -492,9 +493,9 @@ TEST_CASE("LQR from a continuous result: refused when constant-evaluated, zero g
     CHECK(law.K(0, 1) == 0.0);
 }
 
-TEST_SUITE("design::lqr dispatch table") {
+TEST_SUITE("design::state_feedback dispatch table") {
     TEST_CASE("sys.Ts = 0, no Ts: CARE, same as continuous_lqr") {
-        const auto res = design::lqr(kDiPlant, kDiW);
+        const auto res = design::state_feedback(kDiPlant, kDiW);
         const auto ref = design::continuous_lqr(kDiA, kDiB, kDiW.Q, kDiW.R);
         REQUIRE(res.success);
         CHECK(res.status == design::DesignStatus::ok);
@@ -514,7 +515,7 @@ TEST_SUITE("design::lqr dispatch table") {
     }
 
     TEST_CASE("sys.Ts > 0, no Ts: DARE on the plant as given, same as discrete_lqr") {
-        const auto res = design::lqr(kDiDiscrete, kDiW);
+        const auto res = design::state_feedback(kDiDiscrete, kDiW);
         const auto ref = design::discrete_lqr(kDiDiscrete.A, kDiDiscrete.B, kDiW.Q, kDiW.R);
         REQUIRE(res.success);
         CHECK(res.Ts == 0.1);
@@ -525,7 +526,7 @@ TEST_SUITE("design::lqr dispatch table") {
 
     TEST_CASE("sys.Ts > 0 and a Ts: refused, even when equal") {
         for (const double Ts : {0.1, 0.2}) {
-            const auto res = design::lqr(kDiDiscrete, Ts, kDiW);
+            const auto res = design::state_feedback(kDiDiscrete, Ts, kDiW);
             CHECK_FALSE(res.success);
             CHECK(res.status == design::DesignStatus::invalid_sample_time);
         }
@@ -534,24 +535,24 @@ TEST_SUITE("design::lqr dispatch table") {
     TEST_CASE("Ts <= 0 or non-finite: refused") {
         const double inf = std::numeric_limits<double>::infinity();
         for (const double Ts : {0.0, -0.1, inf, -inf}) {
-            const auto res = design::lqr(kDiPlant, Ts, kDiW);
+            const auto res = design::state_feedback(kDiPlant, Ts, kDiW);
             CHECK_FALSE(res.success);
             CHECK(res.status == design::DesignStatus::invalid_sample_time);
         }
         auto bad_plant = kDiPlant;
         bad_plant.Ts = -0.1;
-        CHECK(design::lqr(bad_plant, kDiW).status == design::DesignStatus::invalid_sample_time);
+        CHECK(design::state_feedback(bad_plant, kDiW).status == design::DesignStatus::invalid_sample_time);
         bad_plant.Ts = inf;
-        CHECK(design::lqr(bad_plant, kDiW).status == design::DesignStatus::invalid_sample_time);
+        CHECK(design::state_feedback(bad_plant, kDiW).status == design::DesignStatus::invalid_sample_time);
     }
 
     TEST_CASE("the sampled design takes discretize's status: a non-finite entry, an overflow") {
         auto bad_plant = kDiPlant;
         bad_plant.A(0, 1) = std::numeric_limits<double>::quiet_NaN();
-        CHECK(design::lqr(bad_plant, 0.1, kDiW).status == design::DesignStatus::bad_weights);
+        CHECK(design::state_feedback(bad_plant, 0.1, kDiW).status == design::DesignStatus::bad_weights);
         bad_plant.A = Matrix<2, 2>{{1000.0, 1.0}, {0.0, 1000.0}}; // e^(1000·Ts) past the range of double
-        CHECK(design::lqr(bad_plant, 10.0, kDiW).status == design::DesignStatus::not_converged);
-        CHECK(design::lqr(bad_plant, 1e-3, kDiW).success); // the same plant at a rate it fits
+        CHECK(design::state_feedback(bad_plant, 10.0, kDiW).status == design::DesignStatus::not_converged);
+        CHECK(design::state_feedback(bad_plant, 1e-3, kDiW).success); // the same plant at a rate it fits
     }
 
     TEST_CASE("an unstabilizable (A, B) DARE says not_stabilizable") {
@@ -573,13 +574,13 @@ TEST_SUITE("design::lqr dispatch table") {
 
     TEST_CASE("Q not PSD says bad_weights, CARE and DARE") {
         const Matrix<2, 2> Q{{1.0, 0.0}, {0.0, -1.0}};
-        CHECK(design::lqr(kDiPlant, {.Q = Q, .R = kDiW.R}).status == design::DesignStatus::bad_weights);
-        CHECK(design::lqr(kDiDiscrete, {.Q = Q, .R = kDiW.R}).status == design::DesignStatus::bad_weights);
+        CHECK(design::state_feedback(kDiPlant, {.Q = Q, .R = kDiW.R}).status == design::DesignStatus::bad_weights);
+        CHECK(design::state_feedback(kDiDiscrete, {.Q = Q, .R = kDiW.R}).status == design::DesignStatus::bad_weights);
     }
 
     TEST_CASE("success and status agree, and survive .as<float>()") {
-        const auto ok = design::lqr(kDiPlant, 0.2, kDiW);
-        const auto bad = design::lqr(kDiDiscrete, 0.2, kDiW);
+        const auto ok = design::state_feedback(kDiPlant, 0.2, kDiW);
+        const auto bad = design::state_feedback(kDiDiscrete, 0.2, kDiW);
         CHECK(ok.success == (ok.status == design::DesignStatus::ok));
         CHECK(bad.success == (bad.status == design::DesignStatus::ok));
         CHECK(ok.as<float>().status == design::DesignStatus::ok);
@@ -588,10 +589,10 @@ TEST_SUITE("design::lqr dispatch table") {
         CHECK_FALSE(bad.as<float>().success);
     }
 
-    TEST_CASE("design::lqr fails on a non-positive sample time") {
-        const StateSpace<2, 1, 1>     plant{.A = {{0.0, 1.0}, {0.0, 0.0}}, .B = {{0.0}, {1.0}}, .C = {{1.0, 0.0}}};
-        const design::LQRConfig<2, 1> w{.Q = Matrix<2, 2>::identity(), .R = 1.0};
-        CHECK_FALSE(design::lqr(plant, 0.0, w).success);
-        CHECK(design::lqr(plant, 0.01, w).success);
+    TEST_CASE("design::state_feedback fails on a non-positive sample time") {
+        const StateSpace<2, 1, 1>      plant{.A = {{0.0, 1.0}, {0.0, 0.0}}, .B = {{0.0}, {1.0}}, .C = {{1.0, 0.0}}};
+        const design::LQRWeights<2, 1> w{.Q = Matrix<2, 2>::identity(), .R = 1.0};
+        CHECK_FALSE(design::state_feedback(plant, 0.0, w).success);
+        CHECK(design::state_feedback(plant, 0.01, w).success);
     }
 }

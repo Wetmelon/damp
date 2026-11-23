@@ -10,7 +10,7 @@
  * @brief The disturbance a design models: NoDisturbance, InputDisturbance, OutputDisturbance, PlantDisturbance or DisturbanceModel, and the channels they enter through
  *
  * A disturbance spec is a model feature, recognized by type among design::steady_state_target's
- * options, and the disturbance argument of design::kalman, design::oflqg and design::ofmpc: ND integrating
+ * options, and the disturbance option of design::kalman, design::state_feedback and design::mpc with a KalmanNoise: ND integrating
  * disturbances d_{k+1} = d_k enter the filter's model through B_d and the readings through C_d.
  */
 

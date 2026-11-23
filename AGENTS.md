@@ -101,16 +101,36 @@ the repo root.
   `Quaternion` / `Euler` (`EulerZYX` = aerospace YPR, `EulerXYZ` = robotics RPY).
 - **LTI shape:** design continuous SS → `discretize(..., ZOH)` → step matrices.
   Prefer ZOH over hand-rolled Euler when an LTI model exists. An input delay is
-  `discretize(sys, Ts, InputDelay<N>{θ})`, θ ≤ N·Ts in N registers of the plant
-  (`InputDelay{θ}` is N = 1), and a late reading `OutputDelay<N>{θ}` the same
-  way; a `ColVec` of seconds gives one delay per channel. A delay is a model of
-  the plant, never a parameter of a law's tick. Every sampled LQ design
-  (`lqr`, `lqi`, `lqg`, `lqgi`, `oflqg`) and `kalman` / `steady_state_target`
-  take the continuous plant and an `InputDelay` and design on that model, the
-  cost and the noise discretized exactly; a measured-state law holds the
-  registers (`update` takes the plant state), a filter carries them. MPC is
+  `discretize(sys, Ts, InputDelay<N>{θ})`, θ ≤ N·Ts in N delay states of the
+  plant (`InputDelay{θ}` is N = 1), and a late reading `OutputDelay<N>{θ}` the
+  same way; a `ColVec` of seconds gives one delay per channel. A delay is a model
+  of the plant, never a parameter of a law's tick. `state_feedback` (every LQ
+  law), `kalman` and `steady_state_target` take the continuous plant and the
+  delay as a trailing option,
+  `fn(plant, Ts, config, …, InputDelay<N>{θ})`, and design on that model, the
+  cost and the noise discretized exactly; a measured-state law holds the delay
+  states (`update` takes the plant state), a filter carries them. MPC is
   designed on the model. Many samples of dead time is a slower sample or
   `SmithPredictor`.
+- **Design calls:** what every call needs is positional (the plant, `Ts` for a
+  continuous one, the weights), so braces size it from the plant; the rest is a
+  trailing pack recognized by type (`design/options.hpp`: `KalmanNoise`,
+  `InputDelay`, `IntegralAction`, `TrackedOutputs`, `LQRLimits`, `DemandLimit`,
+  a disturbance spec, …), at most one of each kind, in any order, refused at
+  compile time otherwise. What the gain does not depend on is an option, not a
+  weight: an LQ design's limits are `LQRLimits{.u_lim}` and a `DemandLimit`. The
+  options pick the law: `state_feedback` is LQR, LQI with an `IntegralAction`,
+  LQG with a `KalmanNoise`, LQGI or OFLQG with both; `mpc` is MPC, or OFMPC with
+  a noise and a disturbance spec. An option carries its own numbers, so the
+  weights are the same with or without it: `IntegralAction{.Q, .outputs, .lim,
+  .tracking_time}` the integrators' cost and limits, `KalmanNoise` the noise and
+  the disturbance's walk, `InputDelay<N>{θ}` the delay. A weight an option's
+  size comes from is a value (a scalar or a Matrix); `KalmanNoise` deduces its
+  sizes from its fields. A list of indices is a C array (`DemandLimit::outer`,
+  `TrackedOutputs::outputs`), so its length is deduced from bare braces, which
+  no class member's is. Two overloads per design, `fn(sys, …, opts...)` and
+  `fn(plant, Ts, …, opts...)`; no options struct, whose members would carry the
+  options' sizes, so every call would name it on top of them.
 - **Ticks:** estimators `predict` / `update`; controllers `control`; `step` is
   predict then update then control (m_k in, u_k out). Low-latency ISR: update →
   control → write → `back_calculate` → predict. `back_calculate(u_sat, u_ff = {})`
@@ -144,7 +164,7 @@ Plant builders and host sim are not this ladder.
 
 ### Naming
 
-- Descriptive English primary names (`design::lqr`); MATLAB-style aliases
+- Descriptive English primary names (`design::state_feedback`); MATLAB-style aliases
   (`matlab::dlqr`) call through.
 - Results: `FooResult`. Runtime ticks: short `PascalCase` (`LQR`, `PIDController`).
 

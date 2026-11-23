@@ -4,7 +4,7 @@ Compile-time controls for embedded C++. Header-only, C++20.
 
 v0.3.1 (alpha) · [CHANGELOG](CHANGELOG.md) · [Guide](docs/guide.md) · BSL-1.0 ([LICENSE](LICENSE))
 
-`design::lqr` (and the rest) run at compile time or init. The MCU keeps a small
+`design::state_feedback` (and the rest) run at compile time or init. The MCU keeps a small
 runtime and calls `step` every tick. SIL uses that same object. Hardware variants
 are `constexpr` parameters in the same headers.
 
@@ -79,7 +79,7 @@ constexpr auto sys = StateSpace{
     .B = Matrix<2, 1>{{0.0}, {1.0 / (m * L * L)}},
     .C = Matrix<1, 2>{{1.0, 0.0}},
 };
-constexpr auto result = design::lqr(sys, Ts, {.Q = Matrix<2, 2>::identity() * 10.0, .R = 1.0});
+constexpr auto result = design::state_feedback(sys, Ts, {.Q = Matrix<2, 2>::identity() * 10.0, .R = 1.0});
 
 constinit Law<result, float> pendulum; // the design's LQR, in float
 
@@ -94,7 +94,7 @@ That is the design-is-deploy path. The deploy line chooses where the design runs
 | --------- | --------------- | -------------- | --------------- | --------- |
 | `constinit Law<result, float> law;` | In the compiler | Constants of the type, in flash | Does not compile | Nonzero terms only |
 | `constinit LQR law{result.as<float>()};` | In the compiler | Members, in RAM | Does not compile | Dense |
-| `LQR law{design::lqr(plant, Ts, w).as<float>()};` | On the MCU, at init | Members, in RAM | The result's `success` is false, and the law keeps zero gains | Dense, plus the design at init |
+| `LQR law{design::state_feedback(plant, Ts, w).as<float>()};` | On the MCU, at init | Members, in RAM | The result's `success` is false, and the law keeps zero gains | Dense, plus the design at init |
 
 `Law<result, float>` is the default when the plant and the weights are known at build time. The design cannot slip to run time unnoticed: a template argument has to be a constant expression, so a result computed at run time does not compile there. The middle row keeps a compile-time design replaceable by a redesign at run time; the last row is for a plant measured or identified at start-up. More in [docs/guide.md](docs/guide.md#where-the-design-runs).
 

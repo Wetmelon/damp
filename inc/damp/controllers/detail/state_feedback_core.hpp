@@ -8,11 +8,11 @@
 /**
  * @file state_feedback_core.hpp
  * @brief The runtime the LQ laws share: detail::StateFeedbackCore, one tick with every feature
- *        (integral action, a filter, a steady-state target, input registers) optional
+ *        (integral action, a filter, a steady-state target, delay states) optional
  *
- * Each runtime set is its own header: lqr.hpp, lqi.hpp, lqg.hpp, lqgi.hpp, oflqg.hpp (design function,
- * result, runtime). The types a design hands this runtime are in state_feedback_types.hpp; the design
- * itself is detail/state_feedback_design.hpp and Law<kRes, T> detail/lq_law.hpp.
+ * The runtimes built on it are in lqr.hpp, lqi.hpp, lqg.hpp, lqgi.hpp and oflqg.hpp, the design that
+ * feeds them is design::state_feedback (state_feedback.hpp), and the types it hands them are in
+ * state_feedback_types.hpp. Law<kRes, T> is in lq_law.hpp, beside this header.
  */
 
 #include "damp/backend.hpp"
@@ -82,7 +82,7 @@ struct HeldGains {
     template<size_t R, size_t C, typename T>
     using TargetR = Matrix<R, C, T>; ///< The target per unit r
     template<size_t N, typename T>
-    using Demand = DemandLimit<N, T>; ///< The limit on what the outer terms ask of a state
+    using Demand = ::damp::detail::DemandTerms<N, T>; ///< The limit on what the outer terms ask of a state
 };
 
 /**
@@ -175,7 +175,7 @@ struct StateFeedbackCore {
     static constexpr size_t NM = kEstimated ? NY : NXL;           ///< What the integrators read: y, or the law's state
     static constexpr size_t NR = (NI > 0) ? NI : NZ;              ///< The reference r: integrated or tracked outputs (0: none)
     static_assert(!kEstimated || Traits::NXE == NXL, "The estimator is on the law's model.");
-    static_assert(NI == 0 || NZ == 0, "Integral action and a disturbance model are two offset-free choices: lqgi or oflqg, not both.");
+    static_assert(NI == 0 || NZ == 0, "Integral action and a disturbance model are two offset-free choices: an IntegralAction or a disturbance spec, not both.");
     static_assert(ND == 0 || NZ > 0, "A disturbance model tracks through its steady-state target.");
     static constexpr bool kRecord = (NI > 0) || kEstimated || (NRU > 0); ///< The law keeps its command and the applied input
     using Record = damp::conditional_t<kRecord, detail::AppliedRecord<NU, T>, detail::NoAppliedRecord>;
@@ -501,7 +501,7 @@ private:
             for (size_t j = 0; j < NX + NI; ++j) {
                 const size_t c = (j < NX) ? j : (NXL + (j - NX)); // the integrators sit after the registers
                 row = damp::max(row, damp::abs(K(i, c)));
-                if (demand_lim.outer[j]) {
+                if (demand_lim.outer(j)) {
                     outer -= K(i, c) * z(c);
                 }
             }
@@ -568,7 +568,7 @@ private:
      *        against a clamp (u_lim, demand_lim, or one back_calculate reported): integrator i holds
      *        when −K(j, i)·eᵢ points into a clamped input j (conditional integration), or with a
      *        tracking time T_t > 0 integrates and takes back min(Ts/T_t, 1) of the excess through
-     *        (∂u/∂ξ)⁺ (back-calculation, LQIConfig::tracking_time).
+     *        (∂u/∂ξ)⁺ (back-calculation, IntegralAction::tracking_time).
      */
     constexpr void integrate()
         requires(NI > 0)

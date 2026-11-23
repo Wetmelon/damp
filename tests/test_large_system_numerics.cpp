@@ -347,7 +347,7 @@ TEST_SUITE("4x4 Kalman Filter Design") {
         Matrix<4, 4> Q = Matrix<4, 4>::identity() * 0.01;
         Matrix<2, 2> R = Matrix<2, 2>::identity() * 0.1;
 
-        auto result = design::kalman(sys, {.process = Q, .measurement = R});
+        auto result = design::kalman(sys, design::KalmanNoise{.process = Q, .measurement = R});
         CHECK(result.success);
 
         // Verify L is non-zero

@@ -7,10 +7,10 @@
 
 /**
  * @file lqg.hpp
- * @brief The linear-quadratic Gaussian law: design::lqg, LQGResult, the LQG runtime
+ * @brief The linear-quadratic Gaussian law: design::state_feedback with a KalmanNoise, LQGResult, the LQG runtime
  *
- * design::lqg(plant, [Ts, [InputDelay<N>{θ},]] {.Q, .R, .N}, KalmanNoise{.process, .measurement}[, TrackedOutputs<NZ>{{i, …}}])
- * → LQGResult → LQG. With an InputDelay the filter carries the inputs still on their way.
+ * design::state_feedback(plant, [Ts,] {.Q, .R, .N}, KalmanNoise{.process, .measurement}[, TrackedOutputs{{i, …}}][, InputDelay<N>{θ}])
+ * (state_feedback.hpp) → LQGResult → LQG. With an InputDelay the filter carries the inputs still on their way.
  * step(y) is predict, update(y), control. The low-latency tick is update(y), control(),
  * back_calculate, predict. With tracked outputs: control(r), step(r, y). With
  * feedforward from a planned trajectory: control([r,] x_ref, u_ref), step([r,] x_ref, u_ref, y).
@@ -18,9 +18,9 @@
 
 #include "damp/backend.hpp"
 #include "damp/controllers/detail/lq_law.hpp"
+#include "damp/controllers/detail/state_feedback_core.hpp"
 #include "damp/controllers/detail/state_feedback_design.hpp"
 #include "damp/controllers/detail/state_feedback_options.hpp"
-#include "damp/controllers/state_feedback_core.hpp"
 #include "damp/controllers/state_feedback_types.hpp"
 #include "damp/design/riccati.hpp"
 #include "damp/design/status.hpp"
@@ -34,108 +34,15 @@ namespace damp {
 
 namespace design {
 
-/** @brief design::lqg's result: the gain and the steady-state Kalman filter. */
+/** @brief an LQG design's result: the gain and the steady-state Kalman filter. */
 template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = NX, size_t NV = NY>
 using LQGResult = StateFeedbackResult<NX, NU, T, 0, NY, KalmanResult<NX, NU, NY, T, NW, NV, 0>, 0>;
-
-/**
- * @brief The linear-quadratic Gaussian law: LQR on a steady-state Kalman filter's estimate (design::kalman(sys, noise)): runs as LQG.
- * @note Compare with MATLAB®'s lqg(sys, QXU, QWV).
- */
-template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
-[[nodiscard]] constexpr auto lqg(
-    const StateSpace<NX, NU, NY, T, NW, NV>&      sys,
-    const LQRConfig<NX, NU, T>&                   config,
-    const detail::plant_noise<NX, NY, T, NW, NV>& noise
-) {
-    return detail::state_feedback(detail::noise_model(sys), config, detail::StateFeedbackOptions{.noise = noise});
-}
-
-/** @brief The sampled-data linear-quadratic Gaussian law (the process noise a density, the measurement a variance per reading): runs as LQG. */
-template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
-[[nodiscard]] constexpr auto lqg(
-    const StateSpace<NX, NU, NY, T, NW, NV>&      sys,
-    damp::type_identity_t<T>                      Ts,
-    const LQRConfig<NX, NU, T>&                   config,
-    const detail::plant_noise<NX, NY, T, NW, NV>& noise
-) {
-    return detail::state_feedback(detail::noise_model(sys), Ts, config, detail::StateFeedbackOptions{.noise = noise});
-}
-
-/**
- * @brief The linear-quadratic Gaussian law holding the listed outputs at r through the model's
- *        steady-state target (x* = Nₓ·r, u* = Nᵤ·r, see lqr(sys, config, outputs)): runs as LQG, step(r, y).
- *
- * As for lqr: refused with DesignStatus::singular when no unique steady state holds r (NZ = NU)
- * or none holds every r (NZ < NU); with more tracked outputs than inputs (NZ > NU, as
- * TrackedOutputs{} gives on a plant with NY > NU) the target is the least-squares compromise,
- * which holds none of them exactly.
- */
-template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NZ>
-[[nodiscard]] constexpr auto lqg(
-    const StateSpace<NX, NU, NY, T, NW, NV>&      sys,
-    const LQRConfig<NX, NU, T>&                   config,
-    const detail::plant_noise<NX, NY, T, NW, NV>& noise,
-    const TrackedOutputs<NZ>&                     outputs
-) {
-    return detail::state_feedback(detail::noise_model(sys), config, detail::StateFeedbackOptions{.noise = noise, .track = outputs});
-}
-
-/** @brief The sampled-data linear-quadratic Gaussian law holding the listed outputs at r: runs as LQG, step(r, y). */
-template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NZ>
-[[nodiscard]] constexpr auto lqg(
-    const StateSpace<NX, NU, NY, T, NW, NV>&      sys,
-    damp::type_identity_t<T>                      Ts,
-    const LQRConfig<NX, NU, T>&                   config,
-    const detail::plant_noise<NX, NY, T, NW, NV>& noise,
-    const TrackedOutputs<NZ>&                     outputs
-) {
-    return detail::state_feedback(detail::noise_model(sys), Ts, config, detail::StateFeedbackOptions{.noise = noise, .track = outputs});
-}
-
-/**
- * @brief The sampled-data linear-quadratic Gaussian law of a plant whose input arrives @p delay
- *        late: runs as LQG, its filter carrying the inputs still on their way.
- *
- * The weights and the noise are the plant's, as without the delay: the gain is lqr(sys, Ts,
- * delay, config)'s and the filter design::kalman(sys, Ts, delay, noise)'s, on
- * discretize(sys, Ts, delay) (detail::state_feedback with an InputDelay).
- *
- * @code
- * constexpr auto res = design::lqg(plant, 0.01, InputDelay<3>{0.022}, {.Q = Q, .R = R}, {.process = Qn, .measurement = Rn});
- * static constinit Law<res, float> law;
- * // each tick: law.update(y); u = law.control(); write(sat(u)); law.back_calculate(sat(u)); law.predict();
- * @endcode
- */
-template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t N, typename S>
-[[nodiscard]] constexpr auto lqg(
-    const StateSpace<NX, NU, NY, T, NW, NV>&      sys,
-    damp::type_identity_t<T>                      Ts,
-    const InputDelay<N, S>&                       delay,
-    const LQRConfig<NX, NU, T>&                   config,
-    const detail::plant_noise<NX, NY, T, NW, NV>& noise
-) {
-    return detail::state_feedback(detail::noise_model(sys), Ts, delay, config, detail::StateFeedbackOptions{.noise = noise});
-}
-
-/** @brief The sampled-data linear-quadratic Gaussian law of a plant whose input arrives @p delay late, holding the listed outputs at r: runs as LQG, step(r, y). */
-template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t N, typename S, size_t NZ>
-[[nodiscard]] constexpr auto lqg(
-    const StateSpace<NX, NU, NY, T, NW, NV>&      sys,
-    damp::type_identity_t<T>                      Ts,
-    const InputDelay<N, S>&                       delay,
-    const LQRConfig<NX, NU, T>&                   config,
-    const detail::plant_noise<NX, NY, T, NW, NV>& noise,
-    const TrackedOutputs<NZ>&                     outputs
-) {
-    return detail::state_feedback(detail::noise_model(sys), Ts, delay, config, detail::StateFeedbackOptions{.noise = noise, .track = outputs});
-}
 
 /**
  * @brief Assemble an LQG design from separately computed Kalman and LQR designs
  *
  * The regulator must be discrete: a continuous one (Ts = 0) is refused with
- * DesignStatus::invalid_sample_time. A design on the plant (design::lqr) carries its sample time,
+ * DesignStatus::invalid_sample_time. A design on the plant (design::state_feedback) carries its sample time,
  * which must match kest.sys.Ts; a gain on bare matrices (discrete_lqr, matlab::dlqr) is discrete
  * with no sample time (Ts = 0), so the law takes the filter's. A failure already
  * reported by either half is kept (the regulator's first).
@@ -143,7 +50,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size
  * @note Compare with MATLAB®'s lqgreg(kest, k) — exposed as the lqgreg() alias in matlab.hpp.
  *
  * @param kest  Steady-state Kalman design (design::kalman, no options)
- * @param reg   The regulator on the measured state: the LQRResult of design::lqr, discrete_lqr or
+ * @param reg   The regulator on the measured state: the LQRResult of design::state_feedback, discrete_lqr or
  *              matlab::dlqr
  * @return The LQG design: deploy with `LQG law{res}`
  */
@@ -176,13 +83,13 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
  * @ingroup discrete_controllers
  * @brief Linear-quadratic Gaussian law: LQR on the Kalman filter's estimate
  *
- * Runs design::lqg. The estimator is a FixedGainObserver with design::kalman's fixed gain
+ * Runs design::state_feedback with a KalmanNoise. The estimator is a FixedGainObserver with design::kalman's fixed gain
  * (`estimator`). The tick is step(y), or update(y), control(), back_calculate, predict()
  * (predict moves the filter): the regulator. A design with
  * TrackedOutputs holds those outputs at r through its steady-state target: control(r),
  * step(r, y). Feedforward from a planned trajectory (x_ref, u_ref) adds to it:
  * control([r,] x_ref, u_ref), step([r,] x_ref, u_ref, y). The command is clamped into u_lim
- * (the design's, LQRConfig; unbounded by default), and predict() moves the observer with it,
+ * (the design's LQRLimits; unbounded by default), and predict() moves the observer with it,
  * or with the input back_calculate(u_sat) recorded for a stage that clamps after the law.
  *
  * A design with an InputDelay (NRU > 0) has its filter on [x; v(k−1); …; v(k−NRU)]: predict
@@ -200,12 +107,12 @@ struct LQG : private detail::StateFeedbackCore<NX, NU, T, 0, NY, Est, NZ, Store,
 
     constexpr LQG() = default;
 
-    /** @brief From design::lqg or lqg_from_parts (any scalar). */
+    /** @brief From design::state_feedback with a KalmanNoise or lqg_from_parts (any scalar). */
     template<detail::state_feedback_result R>
         requires(!Store::constant)
     constexpr LQG(const R& result) { // NOLINT
         constexpr bool kind = !R::kIntegral && R::kEstimated && R::ND == 0;
-        static_assert(kind, "LQG runs design::lqg: this design has no Kalman filter (LQR, LQI), integral action (LQGI) or a disturbance model (OFLQG).");
+        static_assert(kind, "LQG runs design::state_feedback with a KalmanNoise: this design has no Kalman filter (LQR, LQI), integral action (LQGI) or a disturbance model (OFLQG).");
         if constexpr (kind) {
             static_cast<Core&>(*this) = Core(result);
         }
@@ -285,7 +192,7 @@ struct LQG : private detail::StateFeedbackCore<NX, NU, T, 0, NY, Est, NZ, Store,
     using Core::valid;
 };
 
-/** @brief LQG law{res}: the sizes, scalar and filter of design::lqg's result. */
+/** @brief LQG law{res}: the sizes, scalar and filter of an LQG design's result. */
 template<size_t NX, size_t NU, typename T, size_t NI, size_t NY, typename Kalman, size_t NZ, size_t NRU>
 LQG(const design::StateFeedbackResult<NX, NU, T, NI, NY, Kalman, NZ, NRU>&) -> LQG<NX, NU, NY, T, detail::runtime_estimator_t<Kalman, T>, NZ, detail::HeldGains, NRU>;
 

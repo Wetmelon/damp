@@ -9,6 +9,7 @@
 #include "damp/backend.hpp"
 #include "damp/controllers/lqgi.hpp"
 #include "damp/controllers/lqi.hpp"
+#include "damp/controllers/state_feedback.hpp"
 #include "damp/design/status.hpp"
 #include "damp/estimation/fixed_gain_observer.hpp"
 #include "damp/estimation/kalman.hpp"
@@ -23,7 +24,7 @@ using namespace damp;
 
 // LQGI = LQI (state feedback with integral action) + Kalman estimator. The
 // integral state drives steady-state output error to zero for constant
-// references/disturbances. design::lqgi() was only covered indirectly;
+// references/disturbances. design::state_feedback(…, design::IntegralAction{.Q = …}) was only covered indirectly;
 // this exercises the design and the runtime tracking loop, including the
 // integrator augmentation [x; xi].
 //
@@ -44,8 +45,9 @@ constexpr StateSpace<2, 1, 1, double, 2, 1> make_plant() {
     };
 }
 
-// The cost: position, velocity, the input, and the integral of the tracking error ∫e, weighted to pull the steady-state error to 0.
-constexpr design::LQIConfig<2, 1, 1> kW{.Q = Matrix<2, 2>::identity(), .R = 0.1, .Q_integral = 1000.0};
+// The cost: position, velocity and the input; the integral action's on the integral of the tracking error ∫e, weighted to pull the steady-state error to 0.
+constexpr design::LQRWeights<2, 1> kW{.Q = Matrix<2, 2>::identity(), .R = 0.1};
+constexpr design::IntegralAction   kIntegral{.Q = 1000.0};
 } // namespace
 
 TEST_SUITE("LQGI") {
@@ -55,7 +57,7 @@ TEST_SUITE("LQGI") {
         constexpr Matrix<2, 2> Q_kf{{0.01, 0.0}, {0.0, 0.01}};
         constexpr Matrix<1, 1> R_kf{{0.1}};
 
-        constexpr auto result = design::lqgi(sys, {.Q = kW.Q, .R = R, .Q_integral = kW.Q_integral}, design::KalmanNoise{.process = Q_kf, .measurement = R_kf});
+        constexpr auto result = design::state_feedback(sys, {.Q = kW.Q, .R = R}, design::KalmanNoise{.process = Q_kf, .measurement = R_kf}, kIntegral);
         static_assert(result.success);
         static_assert(result.kalman.success);
 
@@ -70,7 +72,7 @@ TEST_SUITE("LQGI") {
         const Matrix<2, 2> Q_kf{{0.01, 0.0}, {0.0, 0.01}};
         const Matrix<1, 1> R_kf{{0.1}};
 
-        const auto result = design::lqgi(sys, {.Q = kW.Q, .R = R, .Q_integral = kW.Q_integral}, design::KalmanNoise{.process = Q_kf, .measurement = R_kf});
+        const auto result = design::state_feedback(sys, {.Q = kW.Q, .R = R}, design::KalmanNoise{.process = Q_kf, .measurement = R_kf}, kIntegral);
         REQUIRE(result.success);
 
         auto controller = LQGI{result}; // exercises kf(result.kalman)
@@ -99,7 +101,7 @@ TEST_SUITE("LQGI") {
 
     TEST_CASE("runtime LQGI tracks via the controller's own integrator (update, control(r, x_ref, u_ref), predict)") {
         const auto sys = make_plant();
-        const auto result = design::lqgi(sys, kW, {.process = Matrix<2, 2>{{0.01, 0.0}, {0.0, 0.01}}, .measurement = 0.1});
+        const auto result = design::state_feedback(sys, kW, design::KalmanNoise{.process = Matrix<2, 2>{{0.01, 0.0}, {0.0, 0.01}}, .measurement = 0.1}, kIntegral);
         REQUIRE(result.success);
 
         auto            controller = LQGI{result};
@@ -122,7 +124,7 @@ TEST_SUITE("LQGI") {
     TEST_CASE("LQGIResult::to_ss compensator tracks a reference") {
         // Validates the [r; y] -> u realization (steady-state L) by closing the loop.
         const auto sys = make_plant();
-        const auto result = design::lqgi(sys, kW, {.process = Matrix<2, 2>{{0.01, 0.0}, {0.0, 0.01}}, .measurement = 0.1});
+        const auto result = design::state_feedback(sys, kW, design::KalmanNoise{.process = Matrix<2, 2>{{0.01, 0.0}, {0.0, 0.01}}, .measurement = 0.1}, kIntegral);
         REQUIRE(result.success);
 
         const auto ss = result.to_ss();            // [x̂⁻; xi; u_prev], in [r; y], out u
@@ -155,7 +157,7 @@ TEST_SUITE("LQGI") {
 
     TEST_CASE("LQGIResult::as<float>() preserves the design") {
         const auto sys = make_plant();
-        const auto result = design::lqgi(sys, kW, {.process = Matrix<2, 2>{{0.01, 0.0}, {0.0, 0.01}}, .measurement = 0.1});
+        const auto result = design::state_feedback(sys, kW, design::KalmanNoise{.process = Matrix<2, 2>{{0.01, 0.0}, {0.0, 0.01}}, .measurement = 0.1}, kIntegral);
         REQUIRE(result.success);
 
         const auto rf = result.as<float>();
@@ -172,9 +174,9 @@ TEST_SUITE("LQGI") {
         };
         const Matrix<2, 2> Q_kf{{0.01, 0.0}, {0.0, 0.01}};
         const Matrix<2, 2> R_kf{{0.1, 0.0}, {0.0, 0.1}};
-        const auto         res = design::lqgi(sys2, kW, design::KalmanNoise{.process = Q_kf, .measurement = R_kf}, design::IntegralAction<1>{{0}});
+        const auto         res = design::state_feedback(sys2, kW, design::KalmanNoise{.process = Q_kf, .measurement = R_kf}, design::IntegralAction{.Q = kIntegral.Q, .outputs = {0}});
         REQUIRE(res.success);
-        const auto lqi_only = design::lqi(sys2, kW, design::IntegralAction<1>{{0}});
+        const auto lqi_only = design::state_feedback(sys2, kW, design::IntegralAction{.Q = kIntegral.Q, .outputs = {0}});
         CHECK(res.K(0, 2) == doctest::Approx(lqi_only.K(0, 2)));
 
         // The compensator realization takes [r (NI); y (NY)] and matches the runtime.
@@ -196,13 +198,13 @@ TEST_SUITE("LQGI") {
         }
         CHECK(xp[0] == doctest::Approx(1.0).epsilon(0.02));
 
-        const auto bad = design::lqgi(sys2, kW, design::KalmanNoise{.process = Q_kf, .measurement = R_kf}, design::IntegralAction<1>{{5}});
+        const auto bad = design::state_feedback(sys2, kW, design::KalmanNoise{.process = Q_kf, .measurement = R_kf}, design::IntegralAction{.Q = kIntegral.Q, .outputs = {5}});
         CHECK_FALSE(bad.success);
         CHECK(bad.status == design::DesignStatus::bad_weights);
     }
 
     TEST_CASE("predict holds the integrator against the clamp") {
-        const auto result = design::lqgi(make_plant(), kW, {.process = Matrix<2, 2>{{0.01, 0.0}, {0.0, 0.01}}, .measurement = 0.1});
+        const auto result = design::state_feedback(make_plant(), kW, design::KalmanNoise{.process = Matrix<2, 2>{{0.01, 0.0}, {0.0, 0.01}}, .measurement = 0.1}, kIntegral);
         REQUIRE(result.success);
         const auto   sys = make_plant();
         const double u_max = 0.2;
@@ -236,7 +238,7 @@ TEST_SUITE("LQGI") {
     }
 
     TEST_CASE("LQGI deduces sizes and scalar from its design") {
-        static constexpr auto res = design::lqgi(make_plant(), kW, {.process = Matrix<2, 2>{{0.01, 0.0}, {0.0, 0.01}}, .measurement = 0.1});
+        static constexpr auto res = design::state_feedback(make_plant(), kW, design::KalmanNoise{.process = Matrix<2, 2>{{0.01, 0.0}, {0.0, 0.01}}, .measurement = 0.1}, kIntegral);
         static constinit LQGI law{res.as<float>()}; // sizes and scalar deduced from the result
         static_assert(std::is_same_v<decltype(law), LQGI<2, 1, 1, 1, float, FixedGainObserver<2, 1, 1, float>>>);
         // A double design does not narrow to the float default.
@@ -249,12 +251,12 @@ TEST_SUITE("LQGI status") {
     TEST_CASE("a continuous plant is refused by both halves") {
         auto continuous = make_plant();
         continuous.Ts = 0.0;
-        const auto refused = design::lqgi(continuous, kW, {});
+        const auto refused = design::state_feedback(continuous, kW, design::KalmanNoise<2, 1>{}, kIntegral);
         CHECK_FALSE(refused.success);
         CHECK(refused.status == design::DesignStatus::invalid_sample_time);
         CHECK(refused.kalman.status == design::DesignStatus::invalid_sample_time);
 
-        constexpr auto ok = design::lqgi(make_plant(), kW, {});
+        constexpr auto ok = design::state_feedback(make_plant(), kW, design::KalmanNoise<2, 1>{}, kIntegral);
         static_assert(ok.success && ok.status == design::DesignStatus::ok && ok.Ts == 0.1);
         CHECK(ok.as<float>().status == design::DesignStatus::ok);
     }
@@ -271,22 +273,23 @@ constexpr StateSpace<2, 1, 1, double, 1, 1> make_continuous_plant() {
         .H = Matrix<1, 1>{{1.0}},
     };
 }
-constexpr design::LQIConfig<2, 1, 1> kContinuousWeights{.Q = Matrix<2, 2>::diagonal({10.0, 1.0}), .R = 1.0, .Q_integral = 100.0};
-constexpr design::KalmanNoise<1, 1>  kNoise{.process = 0.5, .measurement = 1e-4}; // density; per-reading variance
-constexpr double                     kTs = 1e-3;
+constexpr design::LQRWeights<2, 1>  kContinuousWeights{.Q = Matrix<2, 2>::diagonal({10.0, 1.0}), .R = 1.0};
+constexpr design::IntegralAction    kContinuousIntegral{.Q = 100.0};
+constexpr design::KalmanNoise<1, 1> kNoise{.process = 0.5, .measurement = 1e-4}; // density; per-reading variance
+constexpr double                    kTs = 1e-3;
 } // namespace
 
 TEST_SUITE("LQGI sampled-data (continuous plant, Ts)") {
     TEST_CASE("each half is its own sampled-data design; the measurement variance goes in unscaled") {
-        static constexpr auto res = design::lqgi(make_continuous_plant(), kTs, kContinuousWeights, kNoise);
+        static constexpr auto res = design::state_feedback(make_continuous_plant(), kTs, kContinuousWeights, kNoise, kContinuousIntegral);
         static_assert(res.success && res.Ts == kTs && res.kalman.sys.Ts == kTs);
         static_assert(res.integral.step == kTs);
-        static_assert(res.K == design::lqi(make_continuous_plant(), kTs, kContinuousWeights).K);
+        static_assert(res.K == design::state_feedback(make_continuous_plant(), kTs, kContinuousWeights, kContinuousIntegral).K);
         static_assert(res.kalman.M == design::kalman(make_continuous_plant(), kTs, kNoise).M);
         static_assert(res.kalman.R == kNoise.measurement);
 
         //! Braced aggregates deduce at the call, and the index form matches.
-        const auto braced = design::lqgi(make_continuous_plant(), kTs, {.Q = kContinuousWeights.Q, .R = kContinuousWeights.R, .Q_integral = kContinuousWeights.Q_integral}, design::KalmanNoise{.process = kNoise.process, .measurement = kNoise.measurement}, design::IntegralAction<1>{{0}});
+        const auto braced = design::state_feedback(make_continuous_plant(), kTs, {.Q = kContinuousWeights.Q, .R = kContinuousWeights.R}, design::KalmanNoise{.process = kNoise.process, .measurement = kNoise.measurement}, design::IntegralAction{.Q = kContinuousIntegral.Q, .outputs = {0}});
         REQUIRE(braced.success);
         for (size_t j = 0; j < 3; ++j) {
             CHECK(braced.K(0, j) == doctest::Approx(res.K(0, j)).epsilon(1e-9)); // run time vs constant-evaluated
@@ -297,7 +300,7 @@ TEST_SUITE("LQGI sampled-data (continuous plant, Ts)") {
     }
 
     TEST_CASE("it deploys constinit in float and tracks r with zero steady-state error in SIL") {
-        static constexpr auto res = design::lqgi(make_continuous_plant(), kTs, kContinuousWeights, kNoise);
+        static constexpr auto res = design::state_feedback(make_continuous_plant(), kTs, kContinuousWeights, kNoise, kContinuousIntegral);
         static constinit auto law = LQGI{res.as<float>()};
         CHECK(law.integral.step == static_cast<float>(kTs));
 
@@ -314,7 +317,7 @@ TEST_SUITE("LQGI sampled-data (continuous plant, Ts)") {
     }
 
     TEST_CASE("to_ss realizes the Ts-form runtime, integrator step included") {
-        const auto result = design::lqgi(make_continuous_plant(), kTs, kContinuousWeights, kNoise);
+        const auto result = design::state_feedback(make_continuous_plant(), kTs, kContinuousWeights, kNoise, kContinuousIntegral);
         REQUIRE(result.success);
         const auto      ss = result.to_ss();
         auto            runtime = LQGI{result};
@@ -339,12 +342,12 @@ TEST_SUITE("LQGI sampled-data (continuous plant, Ts)") {
     TEST_CASE("Ts form refuses a discrete plant and a bad Ts") {
         auto discrete = make_continuous_plant();
         discrete.Ts = kTs;
-        const auto twice = design::lqgi(discrete, kTs, kContinuousWeights, kNoise);
+        const auto twice = design::state_feedback(discrete, kTs, kContinuousWeights, kNoise, kContinuousIntegral);
         CHECK(twice.status == design::DesignStatus::invalid_sample_time);
         CHECK(twice.kalman.status == design::DesignStatus::invalid_sample_time);
-        CHECK(design::lqgi(make_continuous_plant(), 0.0, kContinuousWeights, kNoise).status == design::DesignStatus::invalid_sample_time);
-        CHECK(design::lqgi(make_continuous_plant(), -kTs, kContinuousWeights, kNoise).status == design::DesignStatus::invalid_sample_time);
-        CHECK(design::lqgi(make_continuous_plant(), kTs, kContinuousWeights, kNoise, design::IntegralAction<1>{{2}}).status == design::DesignStatus::bad_weights);
+        CHECK(design::state_feedback(make_continuous_plant(), 0.0, kContinuousWeights, kNoise, kContinuousIntegral).status == design::DesignStatus::invalid_sample_time);
+        CHECK(design::state_feedback(make_continuous_plant(), -kTs, kContinuousWeights, kNoise, kContinuousIntegral).status == design::DesignStatus::invalid_sample_time);
+        CHECK(design::state_feedback(make_continuous_plant(), kTs, kContinuousWeights, kNoise, design::IntegralAction{.Q = kContinuousIntegral.Q, .outputs = {2}}).status == design::DesignStatus::bad_weights);
     }
 }
 
@@ -359,10 +362,11 @@ TEST_SUITE("LQGI on a plant with feedthrough") {
             pc.A = Matrix<1, 1>{{-1.0}};
             pc.B = Matrix<1, 1>{{1.0}};
             pc.Ts = 0.0;
-            const auto w = design::LQIConfig<1, 1, 1>{.Q = 1.0, .R = 1.0, .Q_integral = 10.0};
-            const auto n = design::KalmanNoise<1, 1, double>{.process = 1.0, .measurement = 0.01};
+            const auto                   w = design::LQRWeights<1, 1>{.Q = 1.0, .R = 1.0};
+            const design::IntegralAction ia{.Q = 10.0};
+            const auto                   n = design::KalmanNoise<1, 1, double>{.process = 1.0, .measurement = 0.01};
             for (const bool sampled : {false, true}) {
-                const auto res = sampled ? design::lqgi(pc, 0.1, w, n) : design::lqgi(pd, w, n);
+                const auto res = sampled ? design::state_feedback(pc, 0.1, w, n, ia) : design::state_feedback(pd, w, n, ia);
                 REQUIRE(res.success);
                 auto      law = LQGI{res};
                 auto      runtime = LQGI{res};

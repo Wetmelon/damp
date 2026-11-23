@@ -371,7 +371,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
  * const auto res = design::state_feedback(plant, Ts, {.Q = Q, .R = R},
  *     design::detail::StateFeedbackOptions{.noise = design::KalmanNoise{.process = Qn, .measurement = Rn, .disturbance = Qd},
  *                                          .offset_free = design::InputDisturbance{}});
- * static constinit OFLQG law{res.as<float>()}; // the public form: design::oflqg
+ * static constinit OFLQG law{res.as<float>()}; // the public form: design::state_feedback with a KalmanNoise and a disturbance spec
  * // each tick: auto u = law.step(r, y);
  * @endcode
  *
@@ -437,6 +437,33 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size
     const Options&                            options
 ) {
     return state_feedback_design<false>(sys, static_cast<T>(Ts), config, options, delay);
+}
+
+/**
+ * @brief state_feedback for a public design's trailing options: on the plant in its own domain
+ *        (@p Sampled false), or on the continuous plant at @p Ts with the InputDelay among
+ *        @p opts if one is there. The law's own options are already in @p options.
+ */
+template<bool Sampled, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Options, typename... Opts>
+[[nodiscard]] constexpr auto state_feedback_with(
+    const StateSpace<NX, NU, NY, T, NW, NV>&  sys,
+    T                                         Ts,
+    const config_for<NX, NU, NY, T, Options>& config,
+    const Options&                            options,
+    const Opts&... opts
+) {
+    if constexpr (::damp::detail::option_count<is_input_delay, Opts...> == 0) {
+        (static_cast<void>(opts), ...);
+        if constexpr (Sampled) {
+            return detail::state_feedback(sys, Ts, config, options);
+        } else {
+            static_cast<void>(Ts);
+            return detail::state_feedback(sys, config, options);
+        }
+    } else {
+        static_assert(Sampled, "An InputDelay is sampled with the plant: give the continuous plant and Ts, fn(plant, Ts, config, ..., InputDelay<N>{theta}).");
+        return detail::state_feedback(sys, Ts, ::damp::detail::option<is_input_delay>(NoDelay{}, opts...), config, options);
+    }
 }
 
 } // namespace detail

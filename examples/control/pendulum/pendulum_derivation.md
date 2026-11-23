@@ -179,7 +179,7 @@ P(s)
 ## Control design (what the controller header does)
 
 1. Continuous plant $`(A,B)`$ as above.
-2. Discrete LQR via `design::lqr(sys, Ts, {.Q = Q, .R = R})` (ZOH dynamics + Van Loan cost, then DARE).
+2. Discrete LQR via `design::state_feedback(sys, Ts, {.Q = Q, .R = R})` (ZOH dynamics + Van Loan cost, then DARE).
 3. Cost weights:
 
 | State / input | Weight | Intent |

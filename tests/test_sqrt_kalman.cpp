@@ -276,7 +276,7 @@ constexpr StateSpace<2, 1, 1, double, 2, 1> mass_spring() {
 }
 
 /// The Kalman design on that plant with its input 2.2 samples late: [x; v(k−1); v(k−2); v(k−3)].
-inline constexpr auto kDelayedDesign = design::kalman(mass_spring(), 0.01, InputDelay<3>{0.022}, {.process = Matrix<2, 2>{{1e-4, 0.0}, {0.0, 1e-2}}, .measurement = 1e-4});
+inline constexpr auto kDelayedDesign = design::kalman(mass_spring(), 0.01, design::KalmanNoise{.process = Matrix<2, 2>{{1e-4, 0.0}, {0.0, 1e-2}}, .measurement = 1e-4}, InputDelay<3>{0.022});
 
 inline constexpr auto kSecondSensorPattern = SparsityPattern<2, 3>{}.unit_diagonal(0, 0, 1).values(1, 1, 1, 2); // [1 0 0; 0 · ·]
 
@@ -541,7 +541,7 @@ TEST_SUITE("KalmanFilter on the factor of its covariance") {
 TEST_SUITE("KalmanFilter on the factor: the model's statistics") {
     TEST_CASE_TEMPLATE("from 100 P∞ the running covariance converges to the design's steady state", T, float, double) {
         const auto sys = chain_model<double>();
-        const auto design = design::kalman(sys, {.process = chain_process_noise<double>(), .measurement = 0.04});
+        const auto design = design::kalman(sys, design::KalmanNoise{.process = chain_process_noise<double>(), .measurement = 0.04});
         REQUIRE(design.success);
         KalmanFilter<3, 1, 1, T, 3, 1> kf{
             sys.template as<T>(),
@@ -974,7 +974,7 @@ TEST_SUITE("KalmanFilter on the factor: perfect measurements") {
         sys.G = Matrix<2, 2>::identity();
         sys.H = Matrix<2, 2>::identity();
         sys.Ts = 0.01;
-        const auto design = design::kalman(sys, {.process = Matrix<2, 2>::identity() * 0.01, .measurement = Matrix<2, 2>::zeros()});
+        const auto design = design::kalman(sys, design::KalmanNoise{.process = Matrix<2, 2>::identity() * 0.01, .measurement = Matrix<2, 2>::zeros()});
         REQUIRE(design.success);
         KalmanFilter<2, 1, 2, T, 2, 2> kf{design};
         const Matrix<2, 2, T>          C = Matrix<2, 2, T>::identity();

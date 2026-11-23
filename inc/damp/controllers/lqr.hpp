@@ -7,12 +7,11 @@
 
 /**
  * @file lqr.hpp
- * @brief The linear-quadratic regulator: design::lqr, LQRResult, the LQR runtime
+ * @brief The linear-quadratic regulator: design::state_feedback, LQRResult, the LQR runtime
  *
- * design::lqr(plant, [Ts,] {.Q, .R, .N}) → LQRResult (also discrete_lqr's, riccati.hpp) → LQR;
- * design::lqr(plant, Ts, InputDelay<N>{θ}, {.Q, .R, .N}[, TrackedOutputs<NZ>{{i, …}}]) → a
- * StateFeedbackResult whose LQR holds the inputs still on their way;
- * with TrackedOutputs<NZ>{{i, …}}, a StateFeedbackResult. step(x) is predict, update(x), control
+ * design::state_feedback(plant, [Ts,] {.Q, .R, .N}[, TrackedOutputs{{i, …}}][, InputDelay<N>{θ}])
+ * (state_feedback.hpp) → StateFeedbackResult → LQR; discrete_lqr (riccati.hpp) → LQRResult → LQR.
+ * With an InputDelay the LQR holds the inputs still on their way. step(x) is predict, update(x), control
  * (predict is empty on LQR without an InputDelay). The low-latency tick is update(x), control(),
  * then back_calculate and predict() with an InputDelay. With tracked
  * outputs: control(r), step(r, x). With feedforward from a planned trajectory: control([r,]
@@ -21,9 +20,9 @@
 
 #include "damp/backend.hpp"
 #include "damp/controllers/detail/lq_law.hpp"                // IWYU pragma: export
+#include "damp/controllers/detail/state_feedback_core.hpp"   // IWYU pragma: export
 #include "damp/controllers/detail/state_feedback_design.hpp" // IWYU pragma: export
 #include "damp/controllers/detail/state_feedback_options.hpp"
-#include "damp/controllers/state_feedback_core.hpp"  // IWYU pragma: export
 #include "damp/controllers/state_feedback_types.hpp" // IWYU pragma: export
 #include "damp/design/riccati.hpp"
 #include "damp/design/steady_state_target.hpp"
@@ -36,7 +35,7 @@ namespace damp {
 namespace design {
 namespace detail {
 
-/** @brief design::lqr's result: the gain, the Riccati solution, the closed-loop poles, the status and Ts. */
+/** @brief design::state_feedback's result: the gain, the Riccati solution, the closed-loop poles, the status and Ts. */
 template<size_t NX, size_t NU, typename T, size_t NY>
 [[nodiscard]] constexpr LQRResult<NX, NU, T> lqr_result(const StateFeedbackResult<NX, NU, T, 0, NY>& r) {
     return {r.K, r.S, r.e, r.success, r.status, r.Ts, r.Ts > T{0}, r.u_lim, r.demand_lim};
@@ -44,95 +43,19 @@ template<size_t NX, size_t NU, typename T, size_t NY>
 
 } // namespace detail
 
-/**
- * @brief The linear-quadratic regulator on the plant (DARE on a discrete plant, CARE on a continuous one): runs as LQR.
- * @note Compare with MATLAB®'s lqr(sys, Q, R, N).
- */
-template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
-[[nodiscard]] constexpr LQRResult<NX, NU, T> lqr(const StateSpace<NX, NU, NY, T, NW, NV>& sys, const LQRConfig<NX, NU, T>& config) {
-    return detail::lqr_result(detail::state_feedback(sys, config, detail::StateFeedbackOptions{}));
-}
-
-/**
- * @brief The sampled-data linear-quadratic regulator: a continuous plant and its cost, the law at @p Ts (ZOH, Van Loan): runs as LQR.
- * @note Compare with MATLAB®'s lqrd(sys, Q, R, Ts).
- */
-template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
-[[nodiscard]] constexpr LQRResult<NX, NU, T> lqr(const StateSpace<NX, NU, NY, T, NW, NV>& sys, damp::type_identity_t<T> Ts, const LQRConfig<NX, NU, T>& config) {
-    return detail::lqr_result(detail::state_feedback(sys, Ts, config, detail::StateFeedbackOptions{}));
-}
-
-/**
- * @brief The linear-quadratic regulator holding the listed outputs at r through the model's
- *        steady-state target (x* = Nₓ·r, u* = Nᵤ·r): runs as LQR, step(r, x).
- *
- * The target is design::steady_state_target's on the listed outputs (TrackedOutputs{}: all of
- * them). A design is refused with DesignStatus::singular when the steady state is not unique
- * (NZ = NU) or none holds every r (NZ < NU). With more tracked outputs than inputs (NZ > NU,
- * as TrackedOutputs{} gives on a plant with NY > NU) the target is the least-squares
- * compromise, which holds none of them exactly. A model error or a constant disturbance
- * leaves an offset: lqi removes it.
- */
-template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NZ>
-[[nodiscard]] constexpr auto lqr(const StateSpace<NX, NU, NY, T, NW, NV>& sys, const LQRConfig<NX, NU, T>& config, const TrackedOutputs<NZ>& outputs) {
-    return detail::state_feedback(sys, config, detail::StateFeedbackOptions{.track = outputs});
-}
-
-/** @brief The sampled-data linear-quadratic regulator holding the listed outputs at r (see lqr(sys, config, outputs)): runs as LQR, step(r, x). */
-template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NZ>
-[[nodiscard]] constexpr auto lqr(
-    const StateSpace<NX, NU, NY, T, NW, NV>& sys,
-    damp::type_identity_t<T>                 Ts,
-    const LQRConfig<NX, NU, T>&              config,
-    const TrackedOutputs<NZ>&                outputs
-) {
-    return detail::state_feedback(sys, Ts, config, detail::StateFeedbackOptions{.track = outputs});
-}
-
-/**
- * @brief The sampled-data linear-quadratic regulator of a plant whose input arrives @p delay
- *        late: runs as LQR on the plant's state, holding the inputs still on their way.
- *
- * The weights are the plant's, as without the delay; the cost is discretized exactly on the
- * delayed model (detail::state_feedback with an InputDelay). The LQR's predict shifts the input
- * back_calculate recorded (else the last command) into its registers: step does it, and the
- * low-latency tick is update(x), control(), back_calculate(u_sat), predict().
- */
-template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t N, typename S>
-[[nodiscard]] constexpr auto lqr(
-    const StateSpace<NX, NU, NY, T, NW, NV>& sys,
-    damp::type_identity_t<T>                 Ts,
-    const InputDelay<N, S>&                  delay,
-    const LQRConfig<NX, NU, T>&              config
-) {
-    return detail::state_feedback(sys, Ts, delay, config, detail::StateFeedbackOptions{});
-}
-
-/** @brief The sampled-data linear-quadratic regulator of a plant whose input arrives @p delay late, holding the listed outputs at r (the target holds each register at u_t): runs as LQR, step(r, x). */
-template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t N, typename S, size_t NZ>
-[[nodiscard]] constexpr auto lqr(
-    const StateSpace<NX, NU, NY, T, NW, NV>& sys,
-    damp::type_identity_t<T>                 Ts,
-    const InputDelay<N, S>&                  delay,
-    const LQRConfig<NX, NU, T>&              config,
-    const TrackedOutputs<NZ>&                outputs
-) {
-    return detail::state_feedback(sys, Ts, delay, config, detail::StateFeedbackOptions{.track = outputs});
-}
-
 } // namespace design
 
 /**
  * @ingroup discrete_controllers
  * @brief Linear-quadratic regulator on the measured state: u = u* − K·(x − x*)
  *
- * Runs design::lqr, or a gain design (design::place, discrete_lqr): `LQR law{res.as<float>()}`, or
+ * Runs design::state_feedback, or a gain design (design::place, discrete_lqr): `LQR law{res.as<float>()}`, or
  * `Law<kRes, float>` for a struct member. step(x) is predict, update(x), control; predict is
  * empty without an InputDelay, so that equals update then control. The regulator is x* = 0 and u* = 0. A design with
  * TrackedOutputs holds those outputs at r through its steady-state target: control(r),
  * step(r, x). Feedforward from a planned trajectory
  * (x_ref, u_ref) adds to it: control([r,] x_ref, u_ref), step([r,] x_ref, u_ref, x). The command
- * is clamped into u_lim (design::lqr's, LQRConfig; unbounded by default, and for a gain K or a
+ * is clamped into u_lim (design::state_feedback's LQRLimits; unbounded by default, and for a gain K or a
  * design::place result). A failed or continuous design does not compile when constant-evaluated.
  *
  * @code
@@ -165,12 +88,12 @@ struct LQR : private detail::StateFeedbackCore<NX, NU, T, 0, NY, NoEstimator, NZ
         requires(detail::gain_result<R> && NZ == 0 && NRU == 0 && !Store::constant)
     constexpr LQR(const R& result) : Core(result) {} // NOLINT
 
-    /** @brief From design::lqr (any scalar). */
+    /** @brief From design::state_feedback(any scalar). */
     template<detail::state_feedback_result R>
         requires(!Store::constant)
     constexpr LQR(const R& result) { // NOLINT
         constexpr bool kind = !R::kIntegral && !R::kEstimated;
-        static_assert(kind, "LQR runs design::lqr: this design has integral action (LQI, LQGI) or a Kalman filter (LQG, OFLQG).");
+        static_assert(kind, "LQR runs design::state_feedback: this design has integral action (LQI, LQGI) or a Kalman filter (LQG, OFLQG).");
         if constexpr (kind) {
             static_cast<Core&>(*this) = Core(result);
         }
@@ -246,7 +169,7 @@ struct LQR : private detail::StateFeedbackCore<NX, NU, T, 0, NY, NoEstimator, NZ
     using Core::valid;
 };
 
-/** @brief LQR law{res}: the sizes and scalar of design::lqr's result. */
+/** @brief LQR law{res}: the sizes and scalar of design::state_feedback's result. */
 template<size_t NX, size_t NU, typename T, size_t NI, size_t NY, typename Kalman, size_t NZ, size_t NRU>
 LQR(const design::StateFeedbackResult<NX, NU, T, NI, NY, Kalman, NZ, NRU>&) -> LQR<NX, NU, T, NY, NZ, detail::HeldGains, NRU>;
 

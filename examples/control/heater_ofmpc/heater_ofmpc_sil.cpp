@@ -19,7 +19,6 @@
 
 #include "damp/backend.hpp"
 #include "damp/controllers/mpc.hpp"
-#include "damp/controllers/ofmpc.hpp"
 #include "damp/design/disturbance.hpp"
 #include "damp/math/math.hpp"
 #include "damp/simulation/plot_plotly.hpp"
@@ -228,8 +227,8 @@ void write_plot(const Trace& aware, const Trace& naive) {
 
 int main() {
     fmt::print("===== Hotend, offset-free MPC through a one-period dead time (host SIL) =====\n\n");
-    static constexpr auto naive_law = design::ofmpc<kHorizon, 4>(*discretize(kPlant, kTs), kWeights, kLimits, kNoise, design::InputDisturbance{}); // the same design, blind to the dead time
-    Law<kLaw, float>      aware_mpc;                                                                                                               // the sketch's law
+    static constexpr auto naive_law = design::mpc<kHorizon, 4>(*discretize(kPlant, kTs), kWeights, kLimits, kNoise, design::InputDisturbance{}); // the same design, blind to the dead time
+    Law<kLaw, float>      aware_mpc;                                                                                                             // the sketch's law
     Law<naive_law, float> naive_mpc;
     const Trace           aware = run(aware_mpc);
     const Trace           naive = run(naive_mpc);

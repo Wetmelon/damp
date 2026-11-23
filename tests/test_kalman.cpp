@@ -54,7 +54,7 @@ TEST_CASE("KalmanFilter from KalmanResult + fused step()") {
     sys.H(0, 0) = 1.0;
     sys.Ts = 1.0;
 
-    const auto result = design::kalman(sys, {.process = 0.1, .measurement = 0.25});
+    const auto result = design::kalman(sys, design::KalmanNoise{.process = 0.1, .measurement = 0.25});
     REQUIRE(result.success);
 
     KalmanFilter<1, 1, 1, double, 1, 1> kf{result};
@@ -79,7 +79,7 @@ TEST_CASE("FixedGainObserver runs design::kalman's fixed gain M; set_gain and re
     sys.H(0, 0) = 1.0;
     sys.Ts = 1.0;
 
-    const auto result = design::kalman(sys, {.process = 0.1, .measurement = 0.1});
+    const auto result = design::kalman(sys, design::KalmanNoise{.process = 0.1, .measurement = 0.1});
     REQUIRE(result.success);
 
     FixedGainObserver sskf{result};
@@ -112,7 +112,7 @@ TEST_CASE("Kalman design R!=0, square C (NY=NX=2)") {
     Matrix<2, 2> Q_proc = {{1e-4, 0.0}, {0.0, 1e-2}};
     Matrix<2, 2> R_meas = {{1e-2, 0.0}, {0.0, 5e-2}};
 
-    auto result = design::kalman(sys, {.process = Q_proc, .measurement = R_meas});
+    auto result = design::kalman(sys, design::KalmanNoise{.process = Q_proc, .measurement = R_meas});
     REQUIRE(result.success);
 
     // scipy: solve_discrete_are(A.T, C.T, Q, R)
@@ -137,7 +137,7 @@ TEST_CASE("Kalman design R!=0, square C (NY=NX=2)") {
         s.Ts = dt;
         Matrix<2, 2> Qp = {{1e-4, 0.0}, {0.0, 1e-2}};
         Matrix<2, 2> Rm = {{1e-2, 0.0}, {0.0, 5e-2}};
-        return design::kalman(s, {.process = Qp, .measurement = Rm});
+        return design::kalman(s, design::KalmanNoise{.process = Qp, .measurement = Rm});
     }();
     static_assert(dresult.success);
     CHECK(dresult.P(0, 0) == doctest::Approx(0.002606406390998).epsilon(1e-8));
@@ -159,7 +159,7 @@ TEST_CASE("Kalman design R!=0, non-square C (NY=1, NX=2)") {
     Matrix<2, 2> Q_proc = {{1e-4, 0.0}, {0.0, 1e-2}};
     Matrix<1, 1> R_meas = {{5e-2}};
 
-    auto result = design::kalman(sys, {.process = Q_proc, .measurement = R_meas});
+    auto result = design::kalman(sys, design::KalmanNoise{.process = Q_proc, .measurement = R_meas});
     REQUIRE(result.success);
 
     // scipy: solve_discrete_are(A.T, C.T, Q, R) with C = [[1,0]], R = [[0.05]]
@@ -183,7 +183,7 @@ TEST_CASE("Kalman design R!=0, non-square C (NY=1, NX=2)") {
         s.Ts = dt;
         Matrix<2, 2> Qp = {{1e-4, 0.0}, {0.0, 1e-2}};
         Matrix<1, 1> Rm = {{5e-2}};
-        return design::kalman(s, {.process = Qp, .measurement = Rm});
+        return design::kalman(s, design::KalmanNoise{.process = Qp, .measurement = Rm});
     }();
     static_assert(dresult.success);
     CHECK(dresult.P(0, 0) == doctest::Approx(0.017691003582802).epsilon(1e-8));
@@ -207,7 +207,7 @@ TEST_CASE("Kalman design with R=0 (perfect measurements)") {
     Matrix<2, 2> R_zero = Matrix<2, 2, double>::zeros();
 
     // kalman() should now succeed for the R=0 + square-C case
-    auto result = design::kalman(sys, {.process = Q_proc, .measurement = R_zero});
+    auto result = design::kalman(sys, design::KalmanNoise{.process = Q_proc, .measurement = R_zero});
     CHECK(result.success);
 
     // P_ss = Q_eff = G*Q*G' = Q_proc (G=I here).
@@ -236,7 +236,7 @@ TEST_CASE("Kalman design with R=0 (perfect measurements)") {
 
     Matrix<2, 2> Q2 = {{0.01, 0.0}, {0.0, 0.01}};
     Matrix<1, 1> R1_zero = Matrix<1, 1, double>::zeros();
-    auto         result1d = design::kalman(sys1d, {.process = Q2, .measurement = R1_zero});
+    auto         result1d = design::kalman(sys1d, design::KalmanNoise{.process = Q2, .measurement = R1_zero});
     CHECK(result1d.success);
 }
 
@@ -282,7 +282,7 @@ TEST_CASE("Kalman design R!=0, non-square C (NY=2, NX=4)") {
         R_meas(i, i) = 0.1;
     }
 
-    auto result = design::kalman(sys, {.process = Q_proc, .measurement = R_meas});
+    auto result = design::kalman(sys, design::KalmanNoise{.process = Q_proc, .measurement = R_meas});
     REQUIRE(result.success);
 
     // P is 4x4 symmetric
@@ -324,7 +324,7 @@ TEST_CASE("Kalman design R!=0, non-square C (NY=2, NX=4)") {
         for (size_t i = 0; i < 2; ++i) {
             Rm(i, i) = 0.1;
         }
-        return design::kalman(s, {.process = Qp, .measurement = Rm});
+        return design::kalman(s, design::KalmanNoise{.process = Qp, .measurement = Rm});
     }();
 
     static_assert(dresult.success);
@@ -366,7 +366,7 @@ TEST_CASE("Kalman design R=0, non-square C (NY=2, NX=4)") {
 
     Matrix<2, 2> R_zero = Matrix<2, 2, double>::zeros();
 
-    auto result = design::kalman(sys, {.process = Q_proc, .measurement = R_zero});
+    auto result = design::kalman(sys, design::KalmanNoise{.process = Q_proc, .measurement = R_zero});
     REQUIRE(result.success);
     CHECK(result.P(0, 0) == doctest::Approx(1.105124921972504e-02).epsilon(1e-8));
     CHECK(result.P(0, 1) == doctest::Approx(1.051249219725040e-02).epsilon(1e-8));
@@ -421,7 +421,7 @@ TEST_CASE("Kalman design R=0 (NY=1, NX=4)") {
 
     Matrix<1, 1> R_zero = Matrix<1, 1, double>::zeros();
 
-    auto result = design::kalman(sys, {.process = Qd, .measurement = R_zero});
+    auto result = design::kalman(sys, design::KalmanNoise{.process = Qd, .measurement = R_zero});
     REQUIRE(result.success);
 
     // Kalman gain (4x1): scipy reference
@@ -475,7 +475,7 @@ TEST_CASE("design::kalman rejects continuous plant (Ts=0)") {
     sys.G(0, 0) = 1.0;
     sys.H(0, 0) = 1.0;
     sys.Ts = 0.0; // continuous
-    auto result = design::kalman(sys, {.process = 0.1, .measurement = 0.1});
+    auto result = design::kalman(sys, design::KalmanNoise{.process = 0.1, .measurement = 0.1});
     CHECK_FALSE(result.success);
 }
 
@@ -566,7 +566,7 @@ TEST_CASE("design::kalman R≈0 square C uses LU solve path (L = C^{-1})") {
     sys.H = Matrix<2, 2, double>::identity();
     sys.Ts = 0.01;
     // Near-zero R → analytical L = C^{-1} = I
-    const auto result = design::kalman(sys, {.process = Matrix<2, 2, double>::identity() * 0.01, .measurement = Matrix<2, 2, double>::zeros()});
+    const auto result = design::kalman(sys, design::KalmanNoise{.process = Matrix<2, 2, double>::identity() * 0.01, .measurement = Matrix<2, 2, double>::zeros()});
     REQUIRE(result.success);
     CHECK(result.M(0, 0) == doctest::Approx(1.0).epsilon(1e-9));
     CHECK(result.M(1, 1) == doctest::Approx(1.0).epsilon(1e-9));
@@ -584,7 +584,7 @@ TEST_CASE("design::kalman matches scipy/control golden data") {
         StateSpace<2, 1, 1, double, 2, 1>{
             A, B, C, Matrix<1, 1>::zeros(), Matrix<2, 2>::identity(), Matrix<1, 1>::identity(), 1.0
         },
-        {.process = Q, .measurement = R}
+        design::KalmanNoise{.process = Q, .measurement = R}
     );
     static_assert(result.success);
     CHECK(doctest::Approx(result.M(0, 0)).epsilon(1e-3) == 0.323);
@@ -602,7 +602,7 @@ TEST_CASE("KalmanResult carries MATLAB's two gains: the innovation gain M and th
     sys.Ts = 1.0;
     constexpr Matrix<2, 2> Q{{0.1, 0.0}, {0.0, 0.1}};
     constexpr Matrix<1, 1> R{{0.5}};
-    const auto             res = design::kalman(sys, {.process = Q, .measurement = R});
+    const auto             res = design::kalman(sys, design::KalmanNoise{.process = Q, .measurement = R});
     REQUIRE(res.success);
     const Matrix<1, 1> S = (sys.C * res.P * sys.C.t()) + R;
     CHECK((res.M * S - (res.P * sys.C.t())).norm() < 1e-14);
@@ -618,7 +618,7 @@ TEST_CASE("KalmanResult carries MATLAB's two gains: the innovation gain M and th
     CHECK(p0 == doctest::Approx(c0).epsilon(1e-12));
 
     //! A design on [x; d]: both gains on the augmented model
-    const auto aug = design::kalman(sys, {.process = Q, .measurement = R, .disturbance = Matrix<1, 1>{{1e-3}}}, design::InputDisturbance{});
+    const auto aug = design::kalman(sys, design::KalmanNoise{.process = Q, .measurement = R, .disturbance = Matrix<1, 1>{{1e-3}}}, design::InputDisturbance{});
     REQUIRE(aug.success);
     CHECK((aug.L - (aug.sys.A * aug.M)).norm() <= 3.0 * damp::eps<double>() * aug.sys.A.norm() * aug.M.norm());
 
@@ -639,7 +639,7 @@ TEST_CASE("KalmanResult::as<U>() conversion") {
             Matrix<1, 1>::identity(),
             1.0
         },
-        {.process = 0.1, .measurement = 0.5}
+        design::KalmanNoise{.process = 0.1, .measurement = 0.5}
     );
     constexpr auto kalman_f = kalman_d.as<float>();
     static_assert(kalman_f.success);
@@ -659,7 +659,7 @@ TEST_CASE("design::kalman status: undetectable, continuous, ok") {
     const Matrix<2, 2> Q = Matrix<2, 2>::identity();
     const Matrix<1, 1> R{{1.0}};
 
-    const auto undetectable = design::kalman(sys, {.process = Q, .measurement = R});
+    const auto undetectable = design::kalman(sys, design::KalmanNoise{.process = Q, .measurement = R});
     CHECK_FALSE(undetectable.success);
     CHECK(undetectable.status == design::DesignStatus::not_detectable);
 
@@ -667,20 +667,23 @@ TEST_CASE("design::kalman status: undetectable, continuous, ok") {
     auto continuous = sys;
     continuous.Ts = 0.0;
     continuous.C = Matrix<1, 2>{{1.0, 1.0}};
-    const auto refused = design::kalman(continuous, {.process = Q, .measurement = R});
+    const auto refused = design::kalman(continuous, design::KalmanNoise{.process = Q, .measurement = R});
     CHECK_FALSE(refused.success);
     CHECK(refused.status == design::DesignStatus::invalid_sample_time);
 
     auto detectable = sys;
     detectable.C = Matrix<1, 2>{{1.0, 1.0}};
-    const auto ok = design::kalman(detectable, {.process = Q, .measurement = R});
+    const auto ok = design::kalman(detectable, design::KalmanNoise{.process = Q, .measurement = R});
     CHECK(ok.success);
     CHECK(ok.status == design::DesignStatus::ok);
     CHECK(ok.as<float>().status == design::DesignStatus::ok);
 
     //! A non-finite model entry is refused, also one the filter DARE never reads (B, D): the
     //! predictor x̂ = A x̂ + B u would run on it.
-    const double nan = std::numeric_limits<double>::quiet_NaN();
+    // A run-time NaN, as a model computed on the board would carry: a literal one is a value -ffinite-math-only
+    // assumes away, and once the design inlines into this test GCC drops it before the check.
+    volatile double zero = 0.0;
+    const double    nan = zero / zero;
     for (int entry = 0; entry < 3; ++entry) {
         auto bad = detectable;
         if (entry == 0) {
@@ -690,10 +693,10 @@ TEST_CASE("design::kalman status: undetectable, continuous, ok") {
         } else {
             bad.D(0, 0) = nan;
         }
-        const auto plain = design::kalman(bad, {.process = Q, .measurement = R});
+        const auto plain = design::kalman(bad, design::KalmanNoise{.process = Q, .measurement = R});
         CHECK_FALSE(plain.success);
         CHECK(plain.status == design::DesignStatus::bad_weights);
-        const auto with_disturbance = design::kalman(bad, {.process = Q, .measurement = R, .disturbance = Matrix<1, 1>{{1e-3}}}, design::InputDisturbance{});
+        const auto with_disturbance = design::kalman(bad, design::KalmanNoise{.process = Q, .measurement = R, .disturbance = Matrix<1, 1>{{1e-3}}}, design::InputDisturbance{});
         CHECK(with_disturbance.status == design::DesignStatus::bad_weights);
     }
 }
@@ -707,7 +710,7 @@ TEST_CASE("design::kalman refuses process noise that leaves a unit-circle mode u
     sys.G = Matrix<2, 1>{{1.0}, {0.0}};
     sys.H = Matrix<1, 1>{{1.0}};
     sys.Ts = 0.1;
-    const auto bias = design::kalman(sys, {.process = 1.0, .measurement = 1.0});
+    const auto bias = design::kalman(sys, design::KalmanNoise{.process = 1.0, .measurement = 1.0});
     CHECK_FALSE(bias.success);
     CHECK(bias.status == design::DesignStatus::bad_weights);
 
@@ -719,9 +722,9 @@ TEST_CASE("design::kalman refuses process noise that leaves a unit-circle mode u
     plant.G = Matrix<1, 1>{{1.0}};
     plant.H = Matrix<1, 1>{{1.0}};
     plant.Ts = 0.1;
-    const auto no_walk = design::kalman(plant, {.process = 1.0, .measurement = 1.0, .disturbance = 0.0}, design::InputDisturbance{});
+    const auto no_walk = design::kalman(plant, design::KalmanNoise{.process = 1.0, .measurement = 1.0, .disturbance = 0.0}, design::InputDisturbance{});
     CHECK(no_walk.status == design::DesignStatus::bad_weights);
-    CHECK(design::kalman(plant, {.process = 1.0, .measurement = 1.0, .disturbance = 1e-12}, design::InputDisturbance{}).success);
+    CHECK(design::kalman(plant, design::KalmanNoise{.process = 1.0, .measurement = 1.0, .disturbance = 1e-12}, design::InputDisturbance{}).success);
 }
 
 namespace {
@@ -787,7 +790,7 @@ TEST_CASE("kalman(sys, Ts, noise): a continuous plant and a noise density, again
     constexpr Matrix<1, 1> Rd{{0.2}}; // variance of each reading
     constexpr double       Ts = 0.1;
 
-    constexpr auto res = design::kalman(sys, Ts, {.process = Qc, .measurement = Rd});
+    constexpr auto res = design::kalman(sys, Ts, design::KalmanNoise{.process = Qc, .measurement = Rd});
     static_assert(res.success && res.status == design::DesignStatus::ok);
     static_assert(res.sys.Ts == Ts);
 
@@ -811,7 +814,7 @@ TEST_CASE("kalman(sys, Ts, noise): a continuous plant and a noise density, again
     CHECK(filt.gain()(0, 0) == doctest::Approx(0.15876599438771183).epsilon(1e-5));
 
     //! A float plant designs in float.
-    constexpr auto res_fd = design::kalman(sys.as<float>(), 0.1f, {.process = Qc.as<float>(), .measurement = Rd.as<float>()});
+    constexpr auto res_fd = design::kalman(sys.as<float>(), 0.1f, design::KalmanNoise{.process = Qc.as<float>(), .measurement = Rd.as<float>()});
     static_assert(res_fd.success);
     CHECK(res_fd.M(0, 0) == doctest::Approx(0.15876599438771183).epsilon(1e-4));
 }
@@ -822,13 +825,13 @@ TEST_CASE("kalman(sys, Ts, noise) is the discrete design on the ZOH plant, the V
     constexpr Matrix<1, 1> sigma2{{0.05}};
 
     for (const double Ts : {1e-3, 1e-2, 0.1}) {
-        const auto res = design::kalman(sys, Ts, {.process = Qc, .measurement = sigma2});
+        const auto res = design::kalman(sys, Ts, design::KalmanNoise{.process = Qc, .measurement = sigma2});
         REQUIRE(res.success);
         CHECK(res.R == sigma2); // no R/Ts: the per-reading variance goes in as given
 
         const auto                              zoh = discretize(StateSpace<2, 1, 1>{.A = sys.A, .B = sys.B, .C = sys.C}, Ts, DiscretizationMethod::ZOH);
         const StateSpace<2, 1, 1, double, 2, 1> sys_d{.A = zoh->A, .B = zoh->B, .C = sys.C, .D = sys.D, .G = Matrix<2, 2>::identity(), .H = sys.H, .Ts = Ts};
-        const auto                              by_hand = design::kalman(sys_d, {.process = design::discretize_process_noise(sys.A, sys.G, Qc, Ts).value(), .measurement = sigma2});
+        const auto                              by_hand = design::kalman(sys_d, design::KalmanNoise{.process = design::discretize_process_noise(sys.A, sys.G, Qc, Ts).value(), .measurement = sigma2});
         REQUIRE(by_hand.success);
         for (size_t i = 0; i < 2; ++i) {
             CHECK(res.M(i, 0) == doctest::Approx(by_hand.M(i, 0)).epsilon(1e-12));
@@ -836,9 +839,9 @@ TEST_CASE("kalman(sys, Ts, noise) is the discrete design on the ZOH plant, the V
     }
 
     //! Constant-evaluated, in double and float.
-    constexpr auto res_c = design::kalman(sys, 0.01, {.process = Qc, .measurement = sigma2});
+    constexpr auto res_c = design::kalman(sys, 0.01, design::KalmanNoise{.process = Qc, .measurement = sigma2});
     static_assert(res_c.success && res_c.R(0, 0) == 0.05);
-    constexpr auto res_f = design::kalman(sys.as<float>(), 0.01f, {.process = Qc.as<float>(), .measurement = sigma2.as<float>()});
+    constexpr auto res_f = design::kalman(sys.as<float>(), 0.01f, design::KalmanNoise{.process = Qc.as<float>(), .measurement = sigma2.as<float>()});
     static_assert(res_f.success);
     CHECK(res_f.M(0, 0) == doctest::Approx(res_c.M(0, 0)).epsilon(1e-4));
 }
@@ -850,32 +853,32 @@ TEST_CASE("kalman(sys, Ts, noise) dispatch: one discretization, at a valid Ts") 
 
     auto discrete = sys;
     discrete.Ts = 0.1;
-    const auto twice = design::kalman(discrete, 0.1, {.process = Qc, .measurement = Rc}); // even at the same Ts
+    const auto twice = design::kalman(discrete, 0.1, design::KalmanNoise{.process = Qc, .measurement = Rc}); // even at the same Ts
     CHECK_FALSE(twice.success);
     CHECK(twice.status == design::DesignStatus::invalid_sample_time);
 
     for (const double bad : {0.0, -0.1, std::numeric_limits<double>::quiet_NaN(), std::numeric_limits<double>::infinity()}) {
-        const auto refused = design::kalman(sys, bad, {.process = Qc, .measurement = Rc});
+        const auto refused = design::kalman(sys, bad, design::KalmanNoise{.process = Qc, .measurement = Rc});
         CHECK_FALSE(refused.success);
         CHECK(refused.status == design::DesignStatus::invalid_sample_time);
     }
 
     //! Continuous plant without Ts: still refused (there is no Kalman–Bucy design).
-    CHECK(design::kalman(sys, {.process = Qc, .measurement = Rc}).status == design::DesignStatus::invalid_sample_time);
+    CHECK(design::kalman(sys, design::KalmanNoise{.process = Qc, .measurement = Rc}).status == design::DesignStatus::invalid_sample_time);
 
     //! The plant takes discretize's status: a non-finite entry, or a model past the range of T.
     auto bad = sys;
     bad.B(1, 0) = std::numeric_limits<double>::quiet_NaN();
-    CHECK(design::kalman(bad, 0.1, {.process = Qc, .measurement = Rc}).status == design::DesignStatus::bad_weights);
+    CHECK(design::kalman(bad, 0.1, design::KalmanNoise{.process = Qc, .measurement = Rc}).status == design::DesignStatus::bad_weights);
     bad = sys;
     bad.G(1, 0) = std::numeric_limits<double>::quiet_NaN();
-    CHECK(design::kalman(bad, 0.1, {.process = Qc, .measurement = Rc}).status == design::DesignStatus::bad_weights);
+    CHECK(design::kalman(bad, 0.1, design::KalmanNoise{.process = Qc, .measurement = Rc}).status == design::DesignStatus::bad_weights);
     bad = sys;
     bad.C(0, 0) = std::numeric_limits<double>::quiet_NaN(); // not sampled: refused before the DARE
-    CHECK(design::kalman(bad, 0.1, {.process = Qc, .measurement = Rc}).status == design::DesignStatus::bad_weights);
+    CHECK(design::kalman(bad, 0.1, design::KalmanNoise{.process = Qc, .measurement = Rc}).status == design::DesignStatus::bad_weights);
     bad = sys;
     bad.A = Matrix<2, 2>{{1000.0, 1.0}, {0.0, 1000.0}};
-    CHECK(design::kalman(bad, 10.0, {.process = Qc, .measurement = Rc}).status == design::DesignStatus::not_converged);
+    CHECK(design::kalman(bad, 10.0, design::KalmanNoise{.process = Qc, .measurement = Rc}).status == design::DesignStatus::not_converged);
 }
 
 TEST_CASE("A plant with no noise inputs takes noise on every state and reading: G = I, H = I") {
@@ -891,25 +894,26 @@ TEST_CASE("A plant with no noise inputs takes noise on every state and reading: 
     static_assert(full.G == Matrix<2, 2>::identity() && full.H == Matrix<1, 1>::identity());
 
     //! The noise sized to the states and readings goes in as on the full plant, braced at the call too.
-    constexpr auto sampled = design::kalman(bare, Ts, {.process = diag(0.1, 0.3), .measurement = 0.2});
+    constexpr auto sampled = design::kalman(bare, Ts, design::KalmanNoise{.process = diag(0.1, 0.3), .measurement = 0.2});
     static_assert(sampled.success);
     static_assert(sampled.M == design::kalman(full, Ts, noise).M && sampled.P == design::kalman(full, Ts, noise).P);
     static_assert(design::kalman(bare_d, noise).M == design::kalman(full_d, noise).M);
     static_assert(design::kalman(bare_d, noise_d, design::InputDisturbance{}).M == design::kalman(full_d, noise_d, design::InputDisturbance{}).M);
     static_assert(design::kalman(bare, Ts, noise_d, design::InputDisturbance{}).M == design::kalman(full, Ts, noise_d, design::InputDisturbance{}).M);
-    static_assert(design::kalman(bare, Ts, late, noise).M == design::kalman(full, Ts, late, noise).M);
-    static_assert(design::kalman(bare, Ts, late, noise_d, design::InputDisturbance{}).M == design::kalman(full, Ts, late, noise_d, design::InputDisturbance{}).M);
+    static_assert(design::kalman(bare, Ts, noise, late).M == design::kalman(full, Ts, noise, late).M);
+    static_assert(design::kalman(bare, Ts, noise_d, design::InputDisturbance{}, late).M == design::kalman(full, Ts, noise_d, design::InputDisturbance{}, late).M);
 
     //! A non-finite entry in the plant is refused on this path too.
-    auto bad = bare_d;
-    bad.B(1, 0) = std::numeric_limits<double>::quiet_NaN();
+    volatile double zero = 0.0; // a run-time NaN (see the status test above)
+    auto            bad = bare_d;
+    bad.B(1, 0) = zero / zero;
     CHECK(design::kalman(bad, noise).status == design::DesignStatus::bad_weights);
     bad = bare_d;
-    bad.D(0, 0) = std::numeric_limits<double>::quiet_NaN();
+    bad.D(0, 0) = zero / zero;
     CHECK(design::kalman(bad, noise).status == design::DesignStatus::bad_weights);
 
     //! A plant that declares its noise inputs keeps them: one process input, as written.
-    constexpr auto one_input = design::kalman(make_continuous_oscillator(), Ts, {.process = 0.3, .measurement = 0.2});
+    constexpr auto one_input = design::kalman(make_continuous_oscillator(), Ts, design::KalmanNoise{.process = 0.3, .measurement = 0.2});
     static_assert(one_input.success);
     CHECK(one_input.M != sampled.M);
 }

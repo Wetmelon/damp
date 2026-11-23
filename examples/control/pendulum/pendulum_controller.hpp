@@ -22,6 +22,7 @@
 
 #include "damp/controllers/law_detail.hpp"
 #include "damp/controllers/lqr.hpp"
+#include "damp/controllers/state_feedback.hpp"
 #include "damp/matrix/colvec.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "damp/systems/state_space.hpp"
@@ -55,7 +56,7 @@ inline constexpr auto   sys = linearize_upright();
 inline constexpr auto   Q = Matrix<2, 2>::identity() * 10.0;
 inline constexpr double R = 1.0;
 
-inline constexpr auto lqr_d = design::lqr(sys, Ts, {.Q = Q, .R = R});
+inline constexpr auto lqr_d = design::state_feedback(sys, Ts, {.Q = Q, .R = R});
 
 /**
  * @brief One control period: full-state feedback u = −Kx

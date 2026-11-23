@@ -10,7 +10,7 @@
  * @brief Algebraic Riccati equation solvers (DARE/CARE) and the LQR built on them:
  *        discrete_lqr, continuous_lqr and the sampled-data cost (discretize_lqr_cost)
  *
- * The LQ designs on a plant (design::lqr, lqi, lqg, lqgi, oflqg, each in its runtime's header in
+ * The LQ designs on a plant (design::state_feedback, controllers/state_feedback.hpp, its runtimes in
  * controllers/) solve through these.
  */
 
@@ -1505,7 +1505,7 @@ namespace design {
 
 /**
  * @struct LQRResult
- * @brief The LQR gain: design::lqr on a plant, discrete_lqr and continuous_lqr on given matrices
+ * @brief The LQR gain: design::state_feedback on a plant, discrete_lqr and continuous_lqr on given matrices
  *
  * Contains the optimal gain K, Riccati solution S, and closed-loop poles. A discrete one runs
  * as an LQR (`LQR law{res}`).
@@ -1515,15 +1515,15 @@ namespace design {
  */
 template<size_t NX, size_t NU, typename T = double>
 struct [[nodiscard]] LQRResult {
-    Matrix<NU, NX, T>                 K{};                                 ///< Optimal gain: u = −Kx
-    Matrix<NX, NX, T>                 S{};                                 ///< Riccati solution (positive semidefinite)
-    damp::array<damp::complex<T>, NX> e{};                                 ///< Closed-loop poles (eigenvalues of A − BK)
-    bool                              success{false};                      ///< status == DesignStatus::ok
-    DesignStatus                      status{DesignStatus::not_converged}; ///< ok, or why the design failed
-    T                                 Ts{0};                               ///< Sample time of the law [s]: the plant's (design::lqr); 0 when it has none (continuous, or discrete_lqr on bare matrices)
-    bool                              discrete{false};                     ///< A discrete law (e in the z-plane): discrete_lqr, or design::lqr on a discrete plant or with a Ts
-    Bounds<NU, T>                     u_lim{};                             ///< Limits on the command the LQR returns (design::lqr's LQRConfig::u_lim; default unbounded)
-    DemandLimit<NX, T>                demand_lim{};                        ///< A limit on what the outer states ask of one state (LQRConfig::demand_lim; default off)
+    Matrix<NU, NX, T>                  K{};                                 ///< Optimal gain: u = −Kx
+    Matrix<NX, NX, T>                  S{};                                 ///< Riccati solution (positive semidefinite)
+    damp::array<damp::complex<T>, NX>  e{};                                 ///< Closed-loop poles (eigenvalues of A − BK)
+    bool                               success{false};                      ///< status == DesignStatus::ok
+    DesignStatus                       status{DesignStatus::not_converged}; ///< ok, or why the design failed
+    T                                  Ts{0};                               ///< Sample time of the law [s]: the plant's (design::state_feedback); 0 when it has none (continuous, or discrete_lqr on bare matrices)
+    bool                               discrete{false};                     ///< A discrete law (e in the z-plane): discrete_lqr, or design::state_feedback on a discrete plant or with a Ts
+    Bounds<NU, T>                      u_lim{};                             ///< Limits on the command the LQR returns (design::state_feedback's LQRLimits::u_lim; default unbounded)
+    ::damp::detail::DemandTerms<NX, T> demand_lim{};                        ///< A limit on what the outer states ask of one state (the design's DemandLimit; default off)
 
     /** @brief True when the design succeeded (success). */
     [[nodiscard]] constexpr explicit operator bool() const { return success; }
@@ -1595,7 +1595,7 @@ struct LQRCost {
  *
  * The gain is applied as @f$ u = -Kx @f$. The solution is found via the Discrete
  * Algebraic Riccati Equation (DARE). Bare matrices carry no sample time: the result is
- * @c discrete with @c Ts = 0; design::lqr on a plant sets the plant's Ts.
+ * @c discrete with @c Ts = 0; design::state_feedback on a plant sets the plant's Ts.
  *
  * @note Compare with MATLAB®'s dlqr(A, B, Q, R, N).
  *

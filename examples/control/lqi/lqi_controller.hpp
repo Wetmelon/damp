@@ -7,7 +7,7 @@
  * @file lqi_controller.hpp
  * @brief Position LQI with a clamp — flashable design + tick
  *
- * Canonical path: StateSpace (x = position, speed) → discretize → design::lqi → LQI →
+ * Canonical path: StateSpace (x = position, speed) → discretize → design::state_feedback with an IntegralAction → LQI →
  * saturate → back_calculate. SIL calls this same tick.
  *
  *   lqi_controller.hpp  — this file (nameplate, design::, control_period)
@@ -20,6 +20,7 @@
 
 #include "damp/controllers/law_detail.hpp"
 #include "damp/controllers/lqi.hpp"
+#include "damp/controllers/state_feedback.hpp"
 #include "damp/matrix/colvec.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "damp/systems/discretization.hpp"
@@ -49,15 +50,14 @@ inline constexpr auto sysd = discretize(sys, Ts);
 static_assert(sysd);
 
 // Design an LQI "law" on the discretized plant, and check for success
-inline constexpr auto weights = design::LQIConfig{
+inline constexpr auto weights = design::LQRWeights{
     .Q = Matrix<2, 2>{
         {10.0, 0.0},
         {0.0, 1.0},
     },
     .R = {1.0},
-    .Q_integral = {80.0},
 };
-inline constexpr auto lqi_result = design::lqi(*sysd, weights);
+inline constexpr auto lqi_result = design::state_feedback(*sysd, weights, design::IntegralAction{.Q = 80.0}); // on the position
 static_assert(lqi_result.success);
 
 /**

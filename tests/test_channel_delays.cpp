@@ -17,7 +17,7 @@
 #include "damp/controllers/lqg.hpp"
 #include "damp/controllers/mpc.hpp"
 #include "damp/controllers/oflqg.hpp"
-#include "damp/controllers/ofmpc.hpp"
+#include "damp/controllers/state_feedback.hpp"
 #include "damp/design/disturbance.hpp"
 #include "damp/design/status.hpp"
 #include "damp/estimation/fixed_gain_observer.hpp"
@@ -218,7 +218,7 @@ double u_at(int k) {
 constexpr double              kTsSpring = 0.01;
 inline constexpr auto         kLate = *discretize(mass_spring(), kTsSpring, OutputDelay<2>{1.5 * kTsSpring}); // [x; z(k−1); z(k−2)]
 inline constexpr Matrix<2, 2> kQn{{1e-6, 0.0}, {0.0, 1e-4}};
-inline constexpr auto         kLateKalman = design::kalman(kLate, {.process = kQn, .measurement = 1e-6});
+inline constexpr auto         kLateKalman = design::kalman(kLate, design::KalmanNoise{.process = kQn, .measurement = 1e-6});
 
 } // namespace
 
@@ -316,7 +316,7 @@ TEST_SUITE("Delay per channel and on the measurement") {
 
     TEST_CASE("a Kalman filter on the late reading estimates the current state; the delay-blind filter lags") {
         constexpr int n = 3000;
-        const auto    undelayed = design::kalman(*discretize(mass_spring(), kTsSpring), {.process = kQn, .measurement = 1e-6});
+        const auto    undelayed = design::kalman(*discretize(mass_spring(), kTsSpring), design::KalmanNoise{.process = kQn, .measurement = 1e-6});
         REQUIRE(kLateKalman.success);
         REQUIRE(undelayed.success);
         const auto run = [&](auto& est) {
@@ -348,7 +348,7 @@ TEST_SUITE("Delay per channel and on the measurement") {
     TEST_CASE("LQG, offset-free LQG and MPC on the late reading hold the position, under a load for the offset-free ones") {
         constexpr size_t     NS = 4;
         const Matrix<NS, NS> Q = blkdiag(Matrix<2, 2>{{1e3, 0.0}, {0.0, 0.0}}, Matrix<2, 2>{});
-        const auto           lqg = design::lqg(kLate, {.Q = Q, .R = Matrix<1, 1>{{1e-4}}}, design::KalmanNoise<2, 1>{.process = kQn, .measurement = 1e-6});
+        const auto           lqg = design::state_feedback(kLate, {.Q = Q, .R = Matrix<1, 1>{{1e-4}}}, design::KalmanNoise<2, 1>{.process = kQn, .measurement = 1e-6});
         REQUIRE(lqg.success);
         LQG      regulating{lqg};
         Truth<4> r{kLate, ColVec<4>{1.0, 0.0, 0.0, 0.0}};
@@ -360,7 +360,7 @@ TEST_SUITE("Delay per channel and on the measurement") {
         CHECK(tr.worst < 1e-6);
 
         const design::KalmanNoise noise{Matrix<2, 2>{{1e-4, 0.0}, {0.0, 1e-2}}, Matrix<1, 1>{{1e-6}}, Matrix<1, 1>{{1e-2}}};
-        const auto                oflqg = design::oflqg(kLate, {.Q = Q, .R = Matrix<1, 1>{{1e-4}}}, noise, design::InputDisturbance{});
+        const auto                oflqg = design::state_feedback(kLate, {.Q = Q, .R = Matrix<1, 1>{{1e-4}}}, noise, design::InputDisturbance{});
         REQUIRE(oflqg.success);
         OFLQG    holding{oflqg};
         Truth<4> a{kLate};
@@ -374,7 +374,7 @@ TEST_SUITE("Delay per channel and on the measurement") {
         design::MPCWeights<1, 1> w{};
         w.Qy = 1e3;
         w.Rdu = 1e-4;
-        const auto ofmpc = design::ofmpc<25, 5>(kLate, w, {}, noise, design::InputDisturbance{});
+        const auto ofmpc = design::mpc<25, 5>(kLate, w, {}, noise, design::InputDisturbance{});
         REQUIRE(ofmpc.success);
         OFMPC    planner{ofmpc};
         Truth<4> b{kLate};
