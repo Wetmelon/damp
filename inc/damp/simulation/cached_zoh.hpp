@@ -128,7 +128,7 @@ struct CachedZoh {
         const Matrix<NY, NX, T>& C,
         const Matrix<NY, NU, T>& D = {}
     ) const {
-        return StateSpace<NX, NU, NY, T>{
+        return StateSpace{
             .A = Ad,
             .B = Bd,
             .C = C,

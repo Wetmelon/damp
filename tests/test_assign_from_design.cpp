@@ -57,7 +57,7 @@ constexpr auto kNotch = design::notch(50.0, 2.0, kTs);
 constexpr auto kHighPass = design::highpass_1st(5.0, kTs);
 constexpr auto kChirp = design::chirp(design::ChirpConfig<double>{.amplitude = 1.0, .f_start_hz = 1.0, .f_end_hz = 10.0, .duration_s = 1.0}, kTs);
 constexpr auto kObserver = design::place_observer(
-    StateSpace<2, 1, 1>{
+    StateSpace{
         .A = Matrix<2, 2>{{1.0, 0.1}, {0.0, 1.0}},
         .B = Matrix<2, 1>{{0.005}, {0.1}},
         .C = Matrix<1, 2>{{1.0, 0.0}},
@@ -136,7 +136,7 @@ TEST_SUITE("assign from design") {
     }
 
     TEST_CASE("if (result) reads a design result's success") {
-        constexpr StateSpace<1, 1, 1, double, 1, 1> plant{
+        constexpr StateSpace plant{
             .A = Matrix<1, 1>{{0.95}},
             .B = Matrix<1, 1>{{1.0}},
             .C = Matrix<1, 1>{{1.0}},

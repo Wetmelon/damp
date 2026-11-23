@@ -64,8 +64,8 @@ TEST_SUITE("Disk margin") {
 
     TEST_CASE("an integrator loop tolerates any gain increase and 90° of phase; an unstable loop has no margin") {
         //! L = 2/s: S − T = (s − 2)/(s + 2), all-pass, so α = 2 exactly.
-        const StateSpace<1, 1, 1> integrator{.A = Matrix<1, 1>{{0.0}}, .B = Matrix<1, 1>{{1.0}}, .C = Matrix<1, 1>{{2.0}}};
-        const auto                dm = analysis::disk_margin(integrator);
+        const StateSpace integrator{.A = Matrix<1, 1>{{0.0}}, .B = Matrix<1, 1>{{1.0}}, .C = Matrix<1, 1>{{2.0}}};
+        const auto       dm = analysis::disk_margin(integrator);
         REQUIRE(dm.success);
         CHECK(dm.alpha == doctest::Approx(2.0));
         CHECK(dm.gain_low == doctest::Approx(0.0).scale(1.0));
@@ -131,8 +131,8 @@ TEST_SUITE("Disk margin") {
     }
 
     TEST_CASE("loop-at-a-time: a diagonal loop gives each channel's SISO disk margin") {
-        const auto                loop1 = make_loop();
-        const StateSpace<4, 2, 2> loop{
+        const auto       loop1 = make_loop();
+        const StateSpace loop{
             .A = blkdiag(loop1.A, Matrix<1, 1>{{0.0}}),
             .B = blkdiag(loop1.B, Matrix<1, 1>{{1.0}}),
             .C = blkdiag(loop1.C, Matrix<1, 1>{{2.0}}),
@@ -152,7 +152,7 @@ TEST_SUITE("Disk margin") {
         //! either loop alone. With K = diag(1, 2), S₁₁(0) = −50 gives α₁ = 2/101, and
         //! S₂₂ = s/(s + 2) gives α₂ = 2.
         const auto satellite = [](double k2) {
-            return StateSpace<2, 2, 2>{
+            return StateSpace{
                 .A = Matrix<2, 2>{{0.0, 10.0}, {-10.0, 0.0}},
                 .B = Matrix<2, 2>{{1.0, 0.0}, {0.0, k2}},
                 .C = Matrix<2, 2>{{1.0, 10.0}, {-10.0, 1.0}},
@@ -175,7 +175,7 @@ TEST_SUITE("Disk margin") {
 
     TEST_CASE("loop-at-a-time: an unstable MIMO closed loop has no margins") {
         //! Positive feedback on the satellite: A + C has eigenvalues 1 ± 20j.
-        const StateSpace<2, 2, 2> loop{
+        const StateSpace loop{
             .A = Matrix<2, 2>{{0.0, 10.0}, {-10.0, 0.0}},
             .B = Matrix<2, 2>{{-1.0, 0.0}, {0.0, -1.0}},
             .C = Matrix<2, 2>{{1.0, 10.0}, {-10.0, 1.0}},

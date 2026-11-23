@@ -162,14 +162,14 @@ TEST_SUITE("LQ limits") {
         const auto          bound = design::state_feedback(plant(), kTs, kFree, kBound, late, kIntegral);
         const auto          free = design::state_feedback(plant(), kTs, kFree, late, kIntegral);
         REQUIRE(bound.success);
-        const auto                   d = discretize(plant(), kTs, late).value();
-        const StateSpace<4, 1, 1, T> model{.A = d.A.template as<T>(), .B = d.B.template as<T>(), .C = d.C.template as<T>(), .Ts = static_cast<T>(kTs)};
-        LQI                          bounded{bound.template as<T>()};
-        LQI                          clamped{free.template as<T>()};
-        int                          saturated = 0;
-        T                            y{0};
-        auto                         feed = [](auto& law, const ColVec<4, T>& z) { law.update(ColVec<2, T>{{z(0), z(1)}}); };
-        auto                         control = [](auto& law) { return law.control(ColVec<1, T>{T{1}}); };
+        const auto       d = discretize(plant(), kTs, late).value();
+        const StateSpace model{.A = d.A.template as<T>(), .B = d.B.template as<T>(), .C = d.C.template as<T>(), .Ts = static_cast<T>(kTs)};
+        LQI              bounded{bound.template as<T>()};
+        LQI              clamped{free.template as<T>()};
+        int              saturated = 0;
+        T                y{0};
+        auto             feed = [](auto& law, const ColVec<4, T>& z) { law.update(ColVec<2, T>{{z(0), z(1)}}); };
+        auto             control = [](auto& law) { return law.control(ColVec<1, T>{T{1}}); };
         CHECK(gap(model, bounded, clamped, feed, control, saturated, y) <= tol<T>);
         CHECK(saturated > 10);
         CHECK(static_cast<double>(y) == doctest::Approx(1.0).epsilon(1e-3));
@@ -267,8 +267,8 @@ TEST_SUITE("LQ limits") {
         // oracle is the same law with the clamp outside it, as a hand-written cascade limit would be.
         // A mass on a damper: no input holds it anywhere, so the demand is 0 at rest (with a spring the
         // outer terms would carry its force).
-        constexpr StateSpace<2, 1, 1> mass{.A = Matrix<2, 2>{{0.0, 1.0}, {0.0, -0.5}}, .B = Matrix<2, 1>{{0.0}, {1.0}}, .C = Matrix<1, 2>{{1.0, 0.0}}};
-        const auto                    res = design::state_feedback(mass, kTs, kFree, kIntegral);
+        constexpr StateSpace mass{.A = Matrix<2, 2>{{0.0, 1.0}, {0.0, -0.5}}, .B = Matrix<2, 1>{{0.0}, {1.0}}, .C = Matrix<1, 2>{{1.0, 0.0}}};
+        const auto           res = design::state_feedback(mass, kTs, kFree, kIntegral);
         REQUIRE(res.success);
         LQI     bounded{res.template as<T>()};
         LQI     clamped{res.template as<T>()};
@@ -276,7 +276,7 @@ TEST_SUITE("LQ limits") {
         bounded.demand_lim = DemandLimit{.state = 1, .outer = {0, 2}, .lim = {.lower = -lim, .upper = lim}}; // the position and the integrator
         const auto&        K = clamped.K;                                                                    // [p, v, ξ]
         const auto         d = discretize(mass, kTs).value();
-        const auto         model = StateSpace<2, 1, 1, T>{.A = d.A.template as<T>(), .B = d.B.template as<T>(), .C = d.C.template as<T>(), .Ts = static_cast<T>(kTs)};
+        const auto         model = StateSpace{.A = d.A.template as<T>(), .B = d.B.template as<T>(), .C = d.C.template as<T>(), .Ts = static_cast<T>(kTs)};
         const ColVec<1, T> r{T{5}};
         ColVec<2, T>       xa{};
         ColVec<2, T>       xb{};
@@ -307,9 +307,9 @@ TEST_SUITE("LQ limits") {
         CHECK(worst <= T{64} * tol<T> * T{5});
         CHECK(static_cast<double>(xa(0)) == doctest::Approx(5.0).epsilon(1e-3)); // the integrator held, then settled
         // OFLQG: the same on the deviation from its target, d̂ standing in for the integral.
-        const design::KalmanNoise<2, 1, double, 1>  noise{.process = kNoise.process, .measurement = kNoise.measurement, .disturbance = Matrix<1, 1>{{1.0}}};
-        constexpr StateSpace<2, 1, 1, double, 2, 1> noisy{.A = mass.A, .B = mass.B, .C = mass.C, .G = Matrix<2, 2>::identity(), .H = Matrix<1, 1>::identity()};
-        const auto                                  of = design::state_feedback(noisy, kTs, kFree, noise, design::InputDisturbance{});
+        const design::KalmanNoise<2, 1, double, 1> noise{.process = kNoise.process, .measurement = kNoise.measurement, .disturbance = Matrix<1, 1>{{1.0}}};
+        constexpr StateSpace                       noisy{.A = mass.A, .B = mass.B, .C = mass.C, .G = Matrix<2, 2>::identity(), .H = Matrix<1, 1>::identity()};
+        const auto                                 of = design::state_feedback(noisy, kTs, kFree, noise, design::InputDisturbance{});
         REQUIRE(of.success);
         OFLQG of_bounded{of.template as<T>()};
         OFLQG of_clamped{of.template as<T>()};
@@ -350,10 +350,10 @@ TEST_SUITE("LQ limits") {
     }
 
     TEST_CASE("a DemandLimit among the options: a constexpr design's Law holds it in no storage, and a bad one is refused") {
-        static constexpr StateSpace<2, 1, 1> kMass{.A = Matrix<2, 2>{{0.0, 1.0}, {0.0, -0.5}}, .B = Matrix<2, 1>{{0.0}, {1.0}}, .C = Matrix<1, 2>{{1.0, 0.0}}};
-        static constexpr DemandLimit         kSpeed{.state = 1, .outer = {0, 2}, .lim = {.lower = -0.3, .upper = 0.3}}; // the position and the integrator ask for the speed
-        static constexpr auto                kBounded = design::state_feedback(kMass, kTs, kFree, kSpeed, design::IntegralAction{.Q = 80.0});
-        static constexpr auto                kPlain = design::state_feedback(kMass, kTs, kFree, kIntegral);
+        static constexpr StateSpace  kMass{.A = Matrix<2, 2>{{0.0, 1.0}, {0.0, -0.5}}, .B = Matrix<2, 1>{{0.0}, {1.0}}, .C = Matrix<1, 2>{{1.0, 0.0}}};
+        static constexpr DemandLimit kSpeed{.state = 1, .outer = {0, 2}, .lim = {.lower = -0.3, .upper = 0.3}}; // the position and the integrator ask for the speed
+        static constexpr auto        kBounded = design::state_feedback(kMass, kTs, kFree, kSpeed, design::IntegralAction{.Q = 80.0});
+        static constexpr auto        kPlain = design::state_feedback(kMass, kTs, kFree, kIntegral);
         static_assert(kBounded.success);
         static_assert(sizeof(Law<kBounded, float>) == sizeof(Law<kPlain, float>)); // a constant of the type
         Law<kBounded, float> constant{};

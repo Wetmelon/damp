@@ -40,8 +40,8 @@ inline constexpr double kTs = 5.0;       // [s] control period: the dead time, s
 // Plant: first order in degrees above ambient, the model error on the block temperature (G = 1)
 // and the thermistor noise on the reading (H = 1). The dead time is one period, one register state
 // in the model.
-inline constexpr StateSpace<1, 1, 1, double, 1, 1> kPlant{.A = {{-1.0 / kTau}}, .B = {{kGain / kTau}}, .C = {{1.0}}};
-inline constexpr auto                              kModel = *discretize(kPlant, kTs, InputDelay{kDeadTime}); // [T; P(k−1)], per period
+inline constexpr StateSpace kPlant{.A = {{-1.0 / kTau}}, .B = {{kGain / kTau}}, .C = {{1.0}}, .G = Matrix<1, 1>::identity(), .H = Matrix<1, 1>::identity()};
+inline constexpr auto       kModel = *discretize(kPlant, kTs, InputDelay{kDeadTime}); // [T; P(k−1)], per period
 
 inline constexpr std::size_t kHorizon = 12; // [periods] 60 s, two time constants
 

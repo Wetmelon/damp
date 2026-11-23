@@ -731,7 +731,7 @@ TEST_CASE("design::kalman refuses process noise that leaves a unit-circle mode u
 namespace {
 // Continuous damped oscillator, position sensor, process noise on the velocity.
 constexpr StateSpace<2, 1, 1, double, 1, 1> make_continuous_oscillator() {
-    return StateSpace<2, 1, 1, double, 1, 1>{
+    return StateSpace{
         .A = Matrix<2, 2>{{0.0, 1.0}, {-2.0, -0.5}},
         .B = Matrix<2, 1>{{0.0}, {1.0}},
         .C = Matrix<1, 2>{{1.0, 0.0}},
@@ -830,9 +830,9 @@ TEST_CASE("kalman(sys, Ts, noise) is the discrete design on the ZOH plant, the V
         REQUIRE(res.success);
         CHECK(res.R == sigma2); // no R/Ts: the per-reading variance goes in as given
 
-        const auto                              zoh = discretize(StateSpace<2, 1, 1>{.A = sys.A, .B = sys.B, .C = sys.C}, Ts, DiscretizationMethod::ZOH);
-        const StateSpace<2, 1, 1, double, 2, 1> sys_d{.A = zoh->A, .B = zoh->B, .C = sys.C, .D = sys.D, .G = Matrix<2, 2>::identity(), .H = sys.H, .Ts = Ts};
-        const auto                              by_hand = design::kalman(sys_d, design::KalmanNoise{.process = design::discretize_process_noise(sys.A, sys.G, Qc, Ts).value(), .measurement = sigma2});
+        const auto       zoh = discretize(StateSpace{.A = sys.A, .B = sys.B, .C = sys.C}, Ts, DiscretizationMethod::ZOH);
+        const StateSpace sys_d{.A = zoh->A, .B = zoh->B, .C = sys.C, .D = sys.D, .G = Matrix<2, 2>::identity(), .H = sys.H, .Ts = Ts};
+        const auto       by_hand = design::kalman(sys_d, design::KalmanNoise{.process = design::discretize_process_noise(sys.A, sys.G, Qc, Ts).value(), .measurement = sigma2});
         REQUIRE(by_hand.success);
         for (size_t i = 0; i < 2; ++i) {
             CHECK(res.M(i, 0) == doctest::Approx(by_hand.M(i, 0)).epsilon(1e-12));

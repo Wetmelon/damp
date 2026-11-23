@@ -54,7 +54,7 @@ struct [[nodiscard]] FirstOrderCoeffs {
      * simulation tooling. Inverse of `to_coeffs`.
      */
     [[nodiscard]] constexpr StateSpace<1, 1, 1, T> to_state_space(T Ts) const {
-        return StateSpace<1, 1, 1, T>{
+        return StateSpace{
             .A = Matrix<1, 1, T>{{-a1}},
             .B = Matrix<1, 1, T>{{T{1}}},
             .C = Matrix<1, 1, T>{{b1 - (a1 * b0)}},
@@ -96,7 +96,7 @@ struct [[nodiscard]] SecondOrderCoeffs {
      * simulation tooling. Inverse of `to_coeffs`.
      */
     [[nodiscard]] constexpr StateSpace<2, 1, 1, T> to_state_space(T Ts) const {
-        return StateSpace<2, 1, 1, T>{
+        return StateSpace{
             .A = Matrix<2, 2, T>{{-a1, -a2}, {T{1}, T{0}}},
             .B = Matrix<2, 1, T>{{T{1}}, {T{0}}},
             .C = Matrix<1, 2, T>{{b1 - (a1 * b0), b2 - (a2 * b0)}},

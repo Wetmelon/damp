@@ -57,7 +57,7 @@ bool contains_poles(const damp::array<complex<double>, NC>& closed_loop, const d
 }
 
 constexpr StateSpace<2, 1, 1, double, 2, 1> make_plant(double Ts) {
-    return StateSpace<2, 1, 1, double, 2, 1>{
+    return StateSpace{
         .A = Matrix<2, 2>{{1.0, Ts}, {0.0, 1.0}},
         .B = Matrix<2, 1>{{0.5 * Ts * Ts}, {Ts}},
         .C = Matrix<1, 2>{{1.0, 0.0}},
@@ -120,7 +120,7 @@ TEST_SUITE("Workflow: design, result, runtime") {
     }
 
     TEST_CASE("lqi: the runtime from the result ticks") {
-        StateSpace<2, 1, 1> sys{
+        StateSpace sys{
             .A = Matrix<2, 2>{{1.0, 0.1}, {0.0, 1.0}},
             .B = Matrix<2, 1>{{0.005}, {0.1}},
             .C = Matrix<1, 2>{{1.0, 0.0}},
@@ -153,7 +153,7 @@ TEST_SUITE("Workflow: design, result, runtime") {
         CHECK(runtime.step(r, y)(0, 0) != doctest::Approx(0.0f));
 
         // The plant reports [0; y] so the law's inputs [r; y] close by unity positive feedback.
-        const StateSpace<2, 1, 2> plant_out{
+        const StateSpace plant_out{
             .A = sys.A,
             .B = sys.B,
             .C = Matrix<2, 2>{{0.0, 0.0}, {1.0, 0.0}},
@@ -175,7 +175,7 @@ TEST_SUITE("Workflow: design, result, runtime") {
     }
 
     TEST_CASE("lqi: the runtime drives the steady-state tracking error to zero") {
-        StateSpace<2, 1, 1> sys{
+        StateSpace sys{
             .A = Matrix<2, 2>{{1.0, 0.1}, {0.0, 1.0}},
             .B = Matrix<2, 1>{{0.005}, {0.1}},
             .C = Matrix<1, 2>{{1.0, 0.0}},
@@ -208,7 +208,7 @@ TEST_SUITE("Workflow: design, result, runtime") {
 
     TEST_CASE("lqi: design at compile time, constinit runtime") {
         static constexpr auto res = [] {
-            StateSpace<2, 1, 1> sys{
+            StateSpace sys{
                 .A = Matrix<2, 2>{{1.0, 0.1}, {0.0, 1.0}},
                 .B = Matrix<2, 1>{{0.005}, {0.1}},
                 .C = Matrix<1, 2>{{1.0, 0.0}},
@@ -225,7 +225,7 @@ TEST_SUITE("Workflow: design, result, runtime") {
 
     TEST_CASE("lqi / lqgi integrate a subset of the outputs: the output list reaches to_ss and the runtime") {
         // Position and velocity sensors on a double integrator; integrate the position only.
-        constexpr StateSpace<2, 1, 2, double, 2, 2> sys{
+        constexpr StateSpace sys{
             .A = Matrix<2, 2>{{1.0, 0.1}, {0.0, 1.0}},
             .B = Matrix<2, 1>{{0.005}, {0.1}},
             .C = Matrix<2, 2>::identity(),

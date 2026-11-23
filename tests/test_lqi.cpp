@@ -117,7 +117,7 @@ TEST_SUITE("LQI") {
         }
 
         // The plant reports [0; x] so the law's inputs [r; x] close by unity positive feedback.
-        const StateSpace<2, 1, 3> plant_out{
+        const StateSpace plant_out{
             .A = sys.A,
             .B = sys.B,
             .C = Matrix<3, 2>{{0.0, 0.0}, {1.0, 0.0}, {0.0, 1.0}},
@@ -148,7 +148,7 @@ TEST_SUITE("LQI") {
 
     TEST_CASE("integrating a subset of outputs matches a hand-built single-output model") {
         // Same double integrator, two sensors (position, velocity); integrate position only.
-        constexpr StateSpace<2, 1, 2, double> sys2{
+        constexpr StateSpace sys2{
             .A = Matrix<2, 2>{{1.0, 0.1}, {0.0, 1.0}},
             .B = Matrix<2, 1>{{0.005}, {0.1}},
             .C = Matrix<2, 2>::identity(),
@@ -332,7 +332,7 @@ TEST_SUITE("LQI status") {
 namespace {
 // Continuous double integrator, position measured: the plant of the sampled-data LQI tests.
 constexpr StateSpace<2, 1, 1> make_continuous_plant() {
-    return StateSpace<2, 1, 1>{
+    return StateSpace{
         .A = Matrix<2, 2>{{0.0, 1.0}, {0.0, 0.0}},
         .B = Matrix<2, 1>{{0.0}, {1.0}},
         .C = Matrix<1, 2>{{1.0, 0.0}},
@@ -524,8 +524,8 @@ TEST_SUITE("LQI on a plant with feedthrough") {
 
     TEST_CASE("a failed design is not reported stable") {
         // C = I on a double integrator, integrating the velocity: no stabilizing gain holds it.
-        const StateSpace<2, 1, 2> plant{.A = Matrix<2, 2>{{1.0, 0.1}, {0.0, 1.0}}, .B = Matrix<2, 1>{{0.005}, {0.1}}, .C = Matrix<2, 2>::identity(), .Ts = 0.1};
-        const auto                res = design::state_feedback(plant, {.Q = Matrix<2, 2>::identity(), .R = 1.0}, design::IntegralAction{.Q = 1.0, .outputs = {1}});
+        const StateSpace plant{.A = Matrix<2, 2>{{1.0, 0.1}, {0.0, 1.0}}, .B = Matrix<2, 1>{{0.005}, {0.1}}, .C = Matrix<2, 2>::identity(), .Ts = 0.1};
+        const auto       res = design::state_feedback(plant, {.Q = Matrix<2, 2>::identity(), .R = 1.0}, design::IntegralAction{.Q = 1.0, .outputs = {1}});
         CHECK_FALSE(res.success);
         CHECK_FALSE(res.is_stable());
     }

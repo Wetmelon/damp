@@ -216,8 +216,8 @@ TEST_SUITE("Input delay") {
         static_assert(std::is_same_v<std::remove_cvref_t<decltype(*compile_time)>, StateSpace<5, 1, 1>>);
         static_assert(std::is_same_v<std::remove_cvref_t<decltype(*discretize(double_integrator(), 0.01, InputDelay<3>{0.0}))>, StateSpace<5, 1, 1>>);
 
-        const StateSpace<2, 1, 1, float> single{.A = {{0.0F, 1.0F}, {0.0F, 0.0F}}, .B = {{0.0F}, {1.0F}}, .C = {{1.0F, 0.0F}}};
-        const auto                       model = discretize(single, 0.01F, InputDelay<2>{0.015F}); // a double delay on a float plant
+        const StateSpace single{.A = {{0.0F, 1.0F}, {0.0F, 0.0F}}, .B = {{0.0F}, {1.0F}}, .C = {{1.0F, 0.0F}}};
+        const auto       model = discretize(single, 0.01F, InputDelay<2>{0.015F}); // a double delay on a float plant
         REQUIRE(model.has_value());
         CHECK(model->A(0, 3) != 0.0F); // a fraction past one whole sample reads the second register
         CHECK(model->A(0, 3) == discretize(single, 0.01F, InputDelay<2, float>{0.015F})->A(0, 3));
@@ -270,9 +270,9 @@ TEST_SUITE("Input delay") {
     }
 
     TEST_CASE("InputDelay<N> with two inputs: a register per input per sample, in order") {
-        const StateSpace<1, 2, 1> plant{.A = {{-1.0}}, .B = {{1.0, 2.0}}, .C = {{1.0}}};
-        constexpr double          Ts = 0.1;
-        const auto                model = discretize(plant, Ts, InputDelay<2>{2.0 * Ts}).value();
+        const StateSpace plant{.A = {{-1.0}}, .B = {{1.0, 2.0}}, .C = {{1.0}}};
+        constexpr double Ts = 0.1;
+        const auto       model = discretize(plant, Ts, InputDelay<2>{2.0 * Ts}).value();
         static_assert(std::is_same_v<std::remove_cvref_t<decltype(model)>, StateSpace<5, 2, 1>>);
         const auto plain = discretize(plant, Ts, DiscretizationMethod::ZOH).value();
         CHECK(model.A(0, 3) == plain.B(0, 0)); // the plant reads v(k−2), both inputs
@@ -286,9 +286,9 @@ TEST_SUITE("Input delay") {
     }
 
     TEST_CASE("InputDelay<N>: the feedthrough reads the input held at the sample instant") {
-        const StateSpace<1, 1, 1> lag{.A = {{-1.0}}, .B = {{1.0}}, .C = {{1.0}}, .D = {{0.5}}};
-        constexpr double          Ts = 0.1;
-        const auto                whole = discretize(lag, Ts, InputDelay<3>{2.0 * Ts}).value();
+        const StateSpace lag{.A = {{-1.0}}, .B = {{1.0}}, .C = {{1.0}}, .D = {{0.5}}};
+        constexpr double Ts = 0.1;
+        const auto       whole = discretize(lag, Ts, InputDelay<3>{2.0 * Ts}).value();
         CHECK(whole.D(0, 0) == 0.0);
         CHECK(whole.C(0, 2) == 0.5); // v(k−2)
         CHECK(whole.C(0, 3) == 0.0);

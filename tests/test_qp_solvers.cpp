@@ -31,7 +31,7 @@ struct QuadprogExample {
 
 constexpr double Ts = 0.1;
 
-constexpr StateSpace<2, 1, 1> double_integrator{
+constexpr StateSpace double_integrator{
     .A = {{1.0, Ts}, {0.0, 1.0}},
     .B = {{0.5 * Ts * Ts}, {Ts}},
     .C = {{1.0, 0.0}}, // the state measured, the position controlled

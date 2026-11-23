@@ -173,7 +173,7 @@ TEST_SUITE("FixedGainObserver") {
     }
 
     TEST_CASE("result carries the plant and the achieved poles; the runtime deduces from it") {
-        constexpr StateSpace<2, 1, 1> sys{
+        constexpr StateSpace sys{
             .A = Matrix<2, 2>{{1.0, 0.1}, {0.0, 1.0}},
             .B = Matrix<2, 1>{{0.005}, {0.1}},
             .C = Matrix<1, 2>{{1.0, 0.0}},
@@ -197,7 +197,7 @@ TEST_SUITE("FixedGainObserver") {
     }
 
     TEST_CASE("continuous plant with a trailing Ts: ZOH model, z = e^{s Ts} poles") {
-        constexpr StateSpace<2, 1, 1> plant{
+        constexpr StateSpace plant{
             .A = Matrix<2, 2>{{0.0, 1.0}, {0.0, 0.0}},
             .B = Matrix<2, 1>{{0.0}, {1.0}},
             .C = Matrix<1, 2>{{1.0, 0.0}},
@@ -228,10 +228,10 @@ TEST_SUITE("FixedGainObserver") {
     }
 
     TEST_CASE("observer estimate converges to the true state") {
-        constexpr Matrix<2, 2>    A{{1.0, 0.1}, {0.0, 1.0}};
-        constexpr Matrix<2, 1>    B{{0.005}, {0.1}};
-        constexpr Matrix<1, 2>    C{{1.0, 0.0}};
-        const StateSpace<2, 1, 1> sys{
+        constexpr Matrix<2, 2> A{{1.0, 0.1}, {0.0, 1.0}};
+        constexpr Matrix<2, 1> B{{0.005}, {0.1}};
+        constexpr Matrix<1, 2> C{{1.0, 0.0}};
+        const StateSpace       sys{
             .A = A,
             .B = B,
             .C = C,
@@ -261,10 +261,10 @@ TEST_SUITE("FixedGainObserver") {
 
     TEST_CASE("a singular A (a delay register): M placed on (A, C A), the register's mode pinned at z = 0") {
         // x⁺ = 0.9 x + 0.1 v, v⁺ = u: v is the command sent last period, so A has a zero row.
-        constexpr Matrix<2, 2>    A{{0.9, 0.1}, {0.0, 0.0}};
-        constexpr Matrix<2, 1>    B{{0.0}, {1.0}};
-        constexpr Matrix<1, 2>    C{{1.0, 0.0}};
-        const StateSpace<2, 1, 1> sys{.A = A, .B = B, .C = C, .Ts = 0.1};
+        constexpr Matrix<2, 2> A{{0.9, 0.1}, {0.0, 0.0}};
+        constexpr Matrix<2, 1> B{{0.0}, {1.0}};
+        constexpr Matrix<1, 2> C{{1.0, 0.0}};
+        const StateSpace       sys{.A = A, .B = B, .C = C, .Ts = 0.1};
 
         const auto result = design::place_observer(sys, {0.0, 0.3});
         REQUIRE(result.success);
@@ -314,10 +314,10 @@ TEST_SUITE("FixedGainObserver") {
     TEST_CASE("an ill-conditioned A (a mode much faster than the sample): M placed on (A, C A), never solved") {
         // κ₁(A) = 0.9 / 1e-12 = 9e11 > 1/√ε ≈ 6.7e7: A M = L would lose M's digits along the fast
         // mode, so M is placed directly on (A, C A).
-        constexpr Matrix<2, 2>    A{{0.9, 0.0}, {0.0, 1e-12}};
-        constexpr Matrix<2, 1>    B{{1.0}, {1.0}};
-        constexpr Matrix<1, 2>    C{{1.0, 1.0}}; // sees both states
-        const StateSpace<2, 1, 1> sys{.A = A, .B = B, .C = C, .Ts = 0.1};
+        constexpr Matrix<2, 2> A{{0.9, 0.0}, {0.0, 1e-12}};
+        constexpr Matrix<2, 1> B{{1.0}, {1.0}};
+        constexpr Matrix<1, 2> C{{1.0, 1.0}}; // sees both states
+        const StateSpace       sys{.A = A, .B = B, .C = C, .Ts = 0.1};
         CHECK_FALSE(design::detail::solvable_for_innovation_gain(A));
 
         //! a pole near 0 for the fast mode: M bounded, e at the request
@@ -408,7 +408,7 @@ TEST_SUITE("FixedGainObserver") {
     }
 
     TEST_CASE("from the model and an innovation gain; a continuous design is inert at run time") {
-        constexpr StateSpace<2, 1, 1> sys{
+        constexpr StateSpace sys{
             .A = Matrix<2, 2>{{1.0, 0.1}, {0.0, 1.0}},
             .B = Matrix<2, 1>{{0.005}, {0.1}},
             .C = Matrix<1, 2>{{1.0, 0.0}},
@@ -429,12 +429,12 @@ TEST_SUITE("FixedGainObserver") {
         }
 
         //! a continuous design or model is not a sampled observer: L = 0, valid() false
-        const auto continuous = design::place_observer(StateSpace<2, 1, 1>{.A = {{0.0, 1.0}, {0.0, 0.0}}, .B = {{0.0}, {1.0}}, .C = {{1.0, 0.0}}}, {-20.0, -30.0});
+        const auto continuous = design::place_observer(StateSpace{.A = {{0.0, 1.0}, {0.0, 0.0}}, .B = {{0.0}, {1.0}}, .C = {{1.0, 0.0}}}, {-20.0, -30.0});
         REQUIRE(continuous.success);
         FixedGainObserver inert{continuous};
         CHECK_FALSE(inert.valid());
         CHECK(inert.gain().norm() == 0.0);
-        FixedGainObserver inert_m{StateSpace<2, 1, 1>{.A = sys.A, .B = sys.B, .C = sys.C}, result.M};
+        FixedGainObserver inert_m{StateSpace{.A = sys.A, .B = sys.B, .C = sys.C}, result.M};
         CHECK_FALSE(inert_m.valid());
 
         //! the same observer in another scalar
@@ -456,12 +456,12 @@ TEST_SUITE("FixedGainObserver") {
     }
 
     TEST_CASE("set_state clamps the estimate between steps") {
-        constexpr Matrix<2, 2>    A{{1.0, 0.1}, {0.0, 1.0}};
-        constexpr Matrix<2, 1>    B{{0.0}, {0.1}};
-        constexpr Matrix<1, 2>    C{{1.0, 0.0}};
-        constexpr Matrix<1, 1>    D{{0.0}};
-        const StateSpace<2, 1, 1> sys{.A = A, .B = B, .C = C, .D = D, .Ts = 0.1};
-        const auto                result = design::place_observer(sys, {0.3, 0.4});
+        constexpr Matrix<2, 2> A{{1.0, 0.1}, {0.0, 1.0}};
+        constexpr Matrix<2, 1> B{{0.0}, {0.1}};
+        constexpr Matrix<1, 2> C{{1.0, 0.0}};
+        constexpr Matrix<1, 1> D{{0.0}};
+        const StateSpace       sys{.A = A, .B = B, .C = C, .D = D, .Ts = 0.1};
+        const auto             result = design::place_observer(sys, {0.3, 0.4});
         REQUIRE(result.success);
 
         FixedGainObserver<2, 1, 1, double> obs(result);
@@ -478,11 +478,11 @@ TEST_SUITE("FixedGainObserver") {
 
 TEST_SUITE("Reduced-Order FixedGainObserver") {
     TEST_CASE("encoder case: estimate velocity from measured position") {
-        constexpr double          Ts = 0.01;
-        constexpr Matrix<2, 2>    A{{1.0, Ts}, {0.0, 1.0}}; // [position; velocity]
-        constexpr Matrix<2, 1>    B{{0.0}, {Ts}};           // acceleration input
-        constexpr Matrix<1, 2>    C{{1.0, 0.0}};            // measure position (encoder)
-        const StateSpace<2, 1, 1> sys{
+        constexpr double       Ts = 0.01;
+        constexpr Matrix<2, 2> A{{1.0, Ts}, {0.0, 1.0}}; // [position; velocity]
+        constexpr Matrix<2, 1> B{{0.0}, {Ts}};           // acceleration input
+        constexpr Matrix<1, 2> C{{1.0, 0.0}};            // measure position (encoder)
+        const StateSpace       sys{
             .A = A,
             .B = B,
             .C = C,
@@ -521,11 +521,11 @@ TEST_SUITE("Reduced-Order FixedGainObserver") {
     }
 
     TEST_CASE("two unmeasured states: error poles placed and estimate converges") {
-        constexpr double          Ts = 0.01;
-        constexpr Matrix<3, 3>    A{{1.0, Ts, 0.0}, {0.0, 1.0, Ts}, {0.0, 0.0, 1.0}};
-        constexpr Matrix<3, 1>    B{{0.0}, {0.0}, {Ts}};
-        constexpr Matrix<1, 3>    C{{1.0, 0.0, 0.0}};
-        const StateSpace<3, 1, 1> sys{
+        constexpr double       Ts = 0.01;
+        constexpr Matrix<3, 3> A{{1.0, Ts, 0.0}, {0.0, 1.0, Ts}, {0.0, 0.0, 1.0}};
+        constexpr Matrix<3, 1> B{{0.0}, {0.0}, {Ts}};
+        constexpr Matrix<1, 3> C{{1.0, 0.0, 0.0}};
+        const StateSpace       sys{
             .A = A,
             .B = B,
             .C = C,
@@ -567,7 +567,7 @@ TEST_SUITE("Reduced-Order FixedGainObserver") {
         constexpr Matrix<2, 2>             A{{1.0, Ts}, {0.0, 1.0}};
         constexpr Matrix<2, 1>             B{{0.5 * Ts * Ts}, {Ts}};
         constexpr Matrix<1, 2>             C{{1.0, 0.0}};
-        const StateSpace<2, 1, 1>          sys{.A = A, .B = B, .C = C, .Ts = Ts};
+        const StateSpace                   sys{.A = A, .B = B, .C = C, .Ts = Ts};
         ReducedOrderObserver<2, 1, double> observer(design::reduced_order_observer(sys, {0.5}));
         REQUIRE(observer.valid());
 
@@ -589,16 +589,16 @@ TEST_SUITE("Reduced-Order FixedGainObserver") {
         constexpr Matrix<2, 2> A{{1.0, 0.1}, {0.0, 1.0}};
         constexpr Matrix<2, 1> B{{0.005}, {0.1}};
         constexpr Matrix<1, 2> C{{1.0, 0.0}};
-        const auto             with_d = design::reduced_order_observer(StateSpace<2, 1, 1>{.A = A, .B = B, .C = C, .D = {{0.5}}, .Ts = 0.1}, {0.5});
+        const auto             with_d = design::reduced_order_observer(StateSpace{.A = A, .B = B, .C = C, .D = {{0.5}}, .Ts = 0.1}, {0.5});
         CHECK_FALSE(with_d.success);
         CHECK(with_d.status == design::DesignStatus::bad_weights);
 
         //! Placement reads only (A, C); a NaN in B or D would ship to the runtime.
-        StateSpace<2, 1, 1> nan_b{.A = A, .B = B, .C = C, .Ts = 0.1};
+        StateSpace nan_b{.A = A, .B = B, .C = C, .Ts = 0.1};
         nan_b.B(1, 0) = std::numeric_limits<double>::quiet_NaN();
         CHECK(design::reduced_order_observer(nan_b, {0.5}).status == design::DesignStatus::bad_weights);
         CHECK(design::place_observer(nan_b, {0.3, 0.4}).status == design::DesignStatus::bad_weights);
-        StateSpace<2, 1, 1> nan_d{.A = A, .B = B, .C = C, .Ts = 0.1};
+        StateSpace nan_d{.A = A, .B = B, .C = C, .Ts = 0.1};
         nan_d.D(0, 0) = std::numeric_limits<double>::quiet_NaN();
         CHECK(design::place_observer(nan_d, {0.3, 0.4}).status == design::DesignStatus::bad_weights);
 
@@ -616,7 +616,7 @@ TEST_SUITE("Reduced-Order FixedGainObserver") {
             constexpr Matrix<2, 2> A{{1.0, 0.01}, {0.0, 1.0}};
             constexpr Matrix<2, 1> B{{0.0}, {0.01}};
             constexpr Matrix<1, 2> C{{1.0, 0.0}};
-            return design::reduced_order_observer(StateSpace<2, 1, 1>{.A = A, .B = B, .C = C, .Ts = 0.1}, {0.5});
+            return design::reduced_order_observer(StateSpace{.A = A, .B = B, .C = C, .Ts = 0.1}, {0.5});
         }();
         static_assert(result.success, "reduced-order observer must evaluate at compile time");
 
@@ -626,11 +626,11 @@ TEST_SUITE("Reduced-Order FixedGainObserver") {
     }
 
     TEST_CASE("set_internal_state overwrites the persistent recursion state") {
-        constexpr double          Ts = 0.01;
-        constexpr Matrix<2, 2>    A{{1.0, Ts}, {0.0, 1.0}};
-        constexpr Matrix<2, 1>    B{{0.0}, {Ts}};
-        constexpr Matrix<1, 2>    C{{1.0, 0.0}};
-        const StateSpace<2, 1, 1> sys{.A = A, .B = B, .C = C, .D = Matrix<1, 1>::zeros(), .Ts = Ts};
+        constexpr double       Ts = 0.01;
+        constexpr Matrix<2, 2> A{{1.0, Ts}, {0.0, 1.0}};
+        constexpr Matrix<2, 1> B{{0.0}, {Ts}};
+        constexpr Matrix<1, 2> C{{1.0, 0.0}};
+        const StateSpace       sys{.A = A, .B = B, .C = C, .D = Matrix<1, 1>::zeros(), .Ts = Ts};
 
         const auto result = design::reduced_order_observer(sys, {0.5});
         REQUIRE(result.success);

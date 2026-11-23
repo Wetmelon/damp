@@ -71,7 +71,7 @@ template<typename T = double>
         return ::damp::detail::refused<StateSpaceResult<2, 1, 2, T>>(DesignStatus::invalid_parameter);
     }
     const T w0 = T{2} * damp::numbers::pi_v<T> * f0;
-    return detail::designed(StateSpace<2, 1, 2, T>{
+    return detail::designed(StateSpace{
         .A = Matrix<2, 2, T>{
             {-alpha * w0, -w0},
             {w0, T{0}},
@@ -157,7 +157,7 @@ template<typename T = double>
     const T w0 = T{2} * damp::numbers::pi_v<T> * f0;
     const T alpha_omega = alpha * w0;
 
-    return detail::designed(StateSpace<3, 1, 2, T>{
+    return detail::designed(StateSpace{
         .A = Matrix<3, 3, T>{
             {-alpha_omega, -w0, T{0}},
             {w0, T{0}, T{0}},

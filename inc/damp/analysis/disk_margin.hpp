@@ -76,7 +76,7 @@ template<size_t NX, size_t N, size_t NW, size_t NV, typename T>
     if (!MinvC || !MinvT_Bt || !Minv) {
         return damp::nullopt;
     }
-    return StateSpace<NX, N, N, T>{
+    return StateSpace{
         .A = loop.A - (loop.B * (*MinvC)),
         .B = MinvT_Bt->transpose(),
         .C = -(*MinvC),

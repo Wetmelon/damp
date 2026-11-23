@@ -681,8 +681,8 @@ TEST_SUITE("offset-free MPC error-state estimator") {
     template<typename T>
     struct AbsoluteReplica {
         static constexpr auto law_design(double u_max) {
-            const StateSpace<4, 1, 1> plant{.A = kHeater.A, .B = kHeater.B, .C = kHeater.C, .Ts = kHeater.Ts};
-            design::MPCWeights<1, 1>  w{};
+            const StateSpace         plant{.A = kHeater.A, .B = kHeater.B, .C = kHeater.C, .Ts = kHeater.Ts};
+            design::MPCWeights<1, 1> w{};
             w.Rdu = 10.0;
             design::MPCConstraints<1, 1> c{};
             c.u_lim = {
@@ -827,7 +827,7 @@ TEST_SUITE("offset-free MPC terminal") {
 TEST_CASE("more controlled outputs than inputs: the target is an equilibrium, so d̂ stays 0 on an exact model") {
     //! The stacked least squares put the target off the equilibria: d̂ = −0.019 with no
     //! disturbance and y = (0.334, 0.334) against the measured-state MPC's (0.493, 0.493).
-    const StateSpace<2, 1, 2, double, 2, 2> plant{
+    const StateSpace plant{
         .A = {{0.9, 0.0}, {0.0, 0.8}},
         .B = {{0.1}, {0.2}},
         .C = {{1.0, 0.0}, {0.0, 1.0}},
@@ -840,7 +840,7 @@ TEST_CASE("more controlled outputs than inputs: the target is an equilibrium, so
     const design::KalmanNoise<2, 2, double, 1> noise{.process = Matrix<2, 2>::identity() * 1e-4, .measurement = Matrix<2, 2>::identity() * 1e-4, .disturbance = 1e-4};
     const auto                                 art = design::mpc<20, 5>(plant, w, design::MPCConstraints<1, 2>{}, noise, design::InputDisturbance{});
     REQUIRE(art.success);
-    const auto nominal = design::mpc<20, 5>(StateSpace<2, 1, 2>{.A = plant.A, .B = plant.B, .C = plant.C, .Ts = 0.1}, w, {});
+    const auto nominal = design::mpc<20, 5>(StateSpace{.A = plant.A, .B = plant.B, .C = plant.C, .Ts = 0.1}, w, {});
     REQUIRE(nominal.success);
     OFMPC     law{art};
     MPC       reference{nominal};

@@ -160,7 +160,7 @@ template<
 truncate_states(const StateSpace<NX, NU, NY, T, NW, NV>& sys) {
     static_assert(NR > 0 && NR <= NX, "truncate_states: 0 < NR <= NX");
     if constexpr (NW > 0) {
-        return StateSpace<NR, NU, NY, T, NW, NV>{
+        return StateSpace{
             .A = take_block<NR, NR>(sys.A, 0, 0),
             .B = take_block<NR, NU>(sys.B, 0, 0),
             .C = take_block<NY, NR>(sys.C, 0, 0),
@@ -245,7 +245,7 @@ residualize_states(const StateSpace<NX, NU, NY, T, NW, NV>& sys) {
             if (!Minv_G2) {
                 return damp::nullopt;
             }
-            return StateSpace<NR, NU, NY, T, NW, NV>{
+            return StateSpace{
                 .A = Ar,
                 .B = Br,
                 .C = Cr,

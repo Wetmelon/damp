@@ -125,7 +125,7 @@ template<size_t NX, size_t NU, size_t NY, typename T = double>
     const Matrix<NY, NU, T>& D = Matrix<NY, NU, T>::zeros(),
     T                        Ts = T{0}
 ) noexcept {
-    return StateSpace<NX, NU, NY, T>{
+    return StateSpace{
         .A = A,
         .B = B,
         .C = C,
@@ -729,7 +729,7 @@ template<size_t N, typename T>
  */
 template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, size_t NV = 0>
 [[nodiscard]] constexpr StateSpace<NX, NY, NX, T> estim(const StateSpace<NX, NU, NY, T, NW, NV>& sys, const Matrix<NX, NY, T>& L) noexcept {
-    return StateSpace<NX, NY, NX, T>{
+    return StateSpace{
         .A = sys.A - (L * sys.C),
         .B = L,
         .C = Matrix<NX, NX, T>::identity(),
@@ -764,7 +764,7 @@ template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, si
     const Matrix<NU, NX, T>&                 K,
     const Matrix<NX, NY, T>&                 L
 ) noexcept {
-    return StateSpace<NX, NY, NU, T>{
+    return StateSpace{
         .A = sys.A - (sys.B * K) - (L * sys.C) + (L * sys.D * K),
         .B = L,
         .C = -K,
@@ -778,7 +778,7 @@ namespace detail {
 /** @brief MATLAB®-shaped (A, B, p) as the design::place arguments: a continuous plant and complex poles. */
 template<size_t NX, size_t NU, typename T>
 [[nodiscard]] constexpr StateSpace<NX, NU, NX, T> place_plant(const Matrix<NX, NX, T>& A, const Matrix<NX, NU, T>& B) {
-    return StateSpace<NX, NU, NX, T>{.A = A, .B = B, .C = Matrix<NX, NX, T>::identity()};
+    return StateSpace{.A = A, .B = B, .C = Matrix<NX, NX, T>::identity()};
 }
 
 /** @brief Poles from any tuple-like of damp::complex / std::complex / real values. */

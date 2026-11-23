@@ -275,12 +275,12 @@ TEST_SUITE("Multi-rate harness") {
 
     TEST_CASE("simulate_two_rate_lti records y = Cx + Du, so a biproper plant logs its feedthrough") {
         // ẋ = −x + u, y = x + 0.5u, u held at 2: every logged sample has y = x + 1.
-        const StateSpace<1, 1, 1> sys{.A = Matrix<1, 1>{{-1.0}}, .B = Matrix<1, 1>{{1.0}}, .C = Matrix<1, 1>{{1.0}}, .D = Matrix<1, 1>{{0.5}}};
-        auto                      outer = [](double, const ColVec<1>&) { return ColVec<1>{0.0}; };
-        auto                      inner = [](double, const ColVec<1>&, const ColVec<1>&) { return ColVec<1>{2.0}; };
-        RK4<1>                    rk4;
-        FixedStepSolver           fine(rk4, 0.01);
-        const auto                tr = simulate_two_rate_lti<1, 1, 1, 1>(sys, outer, 1, inner, 1, fine, 0.1, ColVec<1>{0.0}, {0.0, 1.0});
+        const StateSpace sys{.A = Matrix<1, 1>{{-1.0}}, .B = Matrix<1, 1>{{1.0}}, .C = Matrix<1, 1>{{1.0}}, .D = Matrix<1, 1>{{0.5}}};
+        auto             outer = [](double, const ColVec<1>&) { return ColVec<1>{0.0}; };
+        auto             inner = [](double, const ColVec<1>&, const ColVec<1>&) { return ColVec<1>{2.0}; };
+        RK4<1>           rk4;
+        FixedStepSolver  fine(rk4, 0.01);
+        const auto       tr = simulate_two_rate_lti<1, 1, 1, 1>(sys, outer, 1, inner, 1, fine, 0.1, ColVec<1>{0.0}, {0.0, 1.0});
         REQUIRE(tr.success);
         REQUIRE(tr.t.size() > 2);
         for (size_t j = 0; j < tr.t.size(); ++j) {

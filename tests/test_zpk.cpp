@@ -182,7 +182,7 @@ TEST_SUITE("ZPK first-class LTI") {
     TEST_CASE("SS → TF Leverrier matches known plant") {
         // Double integrator-like: A = [0 1; 0 -1], B = [0;1], C = [1 0], D = 0
         // G(s) = 1 / (s(s+1)) = 1/(s²+s)
-        constexpr StateSpace<2, 1, 1> sys{
+        constexpr StateSpace sys{
             .A = Matrix<2, 2>{{0.0, 1.0}, {0.0, -1.0}},
             .B = Matrix<2, 1>{{0.0}, {1.0}},
             .C = Matrix<1, 2>{{1.0, 0.0}},
@@ -239,7 +239,7 @@ TEST_SUITE("ZPK first-class LTI") {
 
     TEST_CASE("SS→ZPK keeps a finite zero of a small-gain plant") {
         // G = 1e-14 (s + 2)/((s + 1)(s + 3))
-        const StateSpace<2, 1, 1> sys{
+        const StateSpace sys{
             .A = {{0.0, 1.0}, {-3.0, -4.0}},
             .B = {{0.0}, {1.0}},
             .C = {{2e-14, 1e-14}},

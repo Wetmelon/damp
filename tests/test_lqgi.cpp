@@ -265,7 +265,7 @@ TEST_SUITE("LQGI status") {
 namespace {
 // Continuous double integrator, position measured, process noise on the velocity.
 constexpr StateSpace<2, 1, 1, double, 1, 1> make_continuous_plant() {
-    return StateSpace<2, 1, 1, double, 1, 1>{
+    return StateSpace{
         .A = Matrix<2, 2>{{0.0, 1.0}, {0.0, 0.0}},
         .B = Matrix<2, 1>{{0.0}, {1.0}},
         .C = Matrix<1, 2>{{1.0, 0.0}},
@@ -355,10 +355,10 @@ TEST_SUITE("LQGI on a plant with feedthrough") {
     TEST_CASE("the design and the runtime integrate the same output: y holds r, and to_ss realizes the runtime") {
         // ẋ = −x + u, y = x + D·u; the reading at k carries the input held over the period before it.
         for (const double D : {0.5, -2.0}) {
-            const double                            a = damp::exp(-0.1);
-            const double                            b = 1.0 - a;
-            const StateSpace<1, 1, 1, double, 1, 1> pd{.A = Matrix<1, 1>{{a}}, .B = Matrix<1, 1>{{b}}, .C = Matrix<1, 1>{{1.0}}, .D = Matrix<1, 1>{{D}}, .G = Matrix<1, 1>{{1.0}}, .H = Matrix<1, 1>{{1.0}}, .Ts = 0.1};
-            StateSpace<1, 1, 1, double, 1, 1>       pc = pd;
+            const double                      a = damp::exp(-0.1);
+            const double                      b = 1.0 - a;
+            const StateSpace                  pd{.A = Matrix<1, 1>{{a}}, .B = Matrix<1, 1>{{b}}, .C = Matrix<1, 1>{{1.0}}, .D = Matrix<1, 1>{{D}}, .G = Matrix<1, 1>{{1.0}}, .H = Matrix<1, 1>{{1.0}}, .Ts = 0.1};
+            StateSpace<1, 1, 1, double, 1, 1> pc = pd;
             pc.A = Matrix<1, 1>{{-1.0}};
             pc.B = Matrix<1, 1>{{1.0}};
             pc.Ts = 0.0;

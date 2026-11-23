@@ -467,7 +467,7 @@ struct [[nodiscard]] StateFeedbackResult {
      */
     [[nodiscard]] constexpr auto to_ss() const {
         if constexpr (!kEstimated && NI == 0) {
-            return StateSpace<0, NXL, NU, T>{.A = Matrix<0, 0, T>{}, .B = Matrix<0, NXL, T>{}, .C = Matrix<NU, 0, T>{}, .D = -K, .Ts = Ts};
+            return StateSpace{.A = Matrix<0, 0, T>{}, .B = Matrix<0, NXL, T>{}, .C = Matrix<NU, 0, T>{}, .D = -K, .Ts = Ts};
         } else if constexpr (!kEstimated) {
             return integral_ss();
         } else if constexpr (NI == 0) {

@@ -308,8 +308,8 @@ TEST_SUITE("design::kalman with a disturbance spec") {
         //! The least squares on the stacked [A − I, B; C, D] traded the equilibrium rows against
         //! the outputs: x_t = [1.0089, 1.9911], u_t = 1.9429 for r = [1, 2], O(Ts) off an
         //! equilibrium, and the loop settled where the weights and Ts put it.
-        const StateSpace<2, 1, 2> chain{.A = {{-1.0, 1.0}, {0.0, -1.0}}, .B = {{0.0}, {1.0}}, .C = {{1.0, 0.0}, {0.0, 1.0}}};
-        const auto                tg = design::steady_state_target(chain, 0.1);
+        const StateSpace chain{.A = {{-1.0, 1.0}, {0.0, -1.0}}, .B = {{0.0}, {1.0}}, .C = {{1.0, 0.0}, {0.0, 1.0}}};
+        const auto       tg = design::steady_state_target(chain, 0.1);
         REQUIRE(tg.success);
         const ColVec<2> r{1.0, 2.0};
         const auto      s = tg.target_r * r;

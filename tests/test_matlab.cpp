@@ -186,7 +186,7 @@ TEST_SUITE("matlab") {
         TransferFunction<1, 2, double> bad{{1.0}, {0.0, 1.0}}; // leading den = 0
         CHECK_FALSE(matlab::c2d(bad, 0.01).has_value());
         CHECK(matlab::c2d(bad, 0.01).status == design::DesignStatus::singular);
-        const StateSpace<1, 1, 1> pole_at_2_over_Ts{.A = {{4.0}}, .B = {{1.0}}, .C = {{1.0}}};
+        const StateSpace pole_at_2_over_Ts{.A = {{4.0}}, .B = {{1.0}}, .C = {{1.0}}};
         CHECK(matlab::c2d(pole_at_2_over_Ts, 0.5, DiscretizationMethod::Tustin).status == design::DesignStatus::singular);
         CHECK_FALSE(matlab::isstable(bad));
         CHECK(matlab::isstable(good));
@@ -357,7 +357,7 @@ TEST_SUITE("matlab") {
         CHECK(I(2, 2) == doctest::Approx(1.0));
         // A mode coupled at 1e-10 on both B and C (1e-10 after balancing too) sits between √ε and
         // 1e-12: the alias once kept it while design::minreal removed it.
-        const StateSpace<2, 1, 1> weak{
+        const StateSpace weak{
             .A = Matrix<2, 2>{{-1.0, 0.0}, {0.0, -2.0}},
             .B = Matrix<2, 1>{{1.0}, {1e-10}},
             .C = Matrix<1, 2>{{1.0, 1e-10}},
@@ -367,7 +367,7 @@ TEST_SUITE("matlab") {
     }
 
     TEST_CASE("MATLAB® estim carries Ts and places the estimator poles at eig(A − LC)") {
-        const StateSpace<2, 1, 1> plant{
+        const StateSpace plant{
             .A = Matrix<2, 2>{{1.0, 0.1}, {0.0, 1.0}},
             .B = Matrix<2, 1>{{0.005}, {0.1}},
             .C = Matrix<1, 2>{{1.0, 0.0}},
@@ -624,8 +624,8 @@ TEST_SUITE("MATLAB®-Style Control Design API") {
     }
 
     TEST_CASE("d2d / upsample: forward to resample / upsample") {
-        constexpr StateSpace<1, 1, 1> sys{.A = Matrix<1, 1>{{0.9}}, .B = Matrix<1, 1>{{0.1}}, .C = Matrix<1, 1>{{1.0}}, .Ts = 0.1};
-        constexpr auto                slow = matlab::d2d(sys, 0.2);
+        constexpr StateSpace sys{.A = Matrix<1, 1>{{0.9}}, .B = Matrix<1, 1>{{0.1}}, .C = Matrix<1, 1>{{1.0}}, .Ts = 0.1};
+        constexpr auto       slow = matlab::d2d(sys, 0.2);
         static_assert(slow.has_value() && slow->Ts == 0.2);
         CHECK(slow->A(0, 0) == doctest::Approx(0.81));
         CHECK(slow->B(0, 0) == doctest::Approx(0.19));
@@ -635,7 +635,7 @@ TEST_SUITE("MATLAB®-Style Control Design API") {
     }
 
     TEST_CASE("kalmd: MATLAB's Rn/Ts, then forwards to design::kalman(sys, Ts, noise)") {
-        constexpr StateSpace<2, 1, 1, double, 1, 1> sys{
+        constexpr StateSpace sys{
             .A = Matrix<2, 2>{{0.0, 1.0}, {-2.0, -0.5}},
             .B = Matrix<2, 1>{{0.0}, {1.0}},
             .C = Matrix<1, 2>{{1.0, 0.0}},
@@ -740,7 +740,7 @@ TEST_SUITE("MATLAB®-Style Control Design API") {
 
     TEST_CASE("lqi / lqgtrack integrate a subset of the outputs, same argument as the design calls") {
         // Position and velocity sensors; integrate the position only.
-        const StateSpace<2, 1, 2, double, 2, 2> sys{
+        const StateSpace sys{
             .A = Matrix<2, 2>{{1.0, 0.1}, {0.0, 1.0}},
             .B = Matrix<2, 1>{{0.005}, {0.1}},
             .C = Matrix<2, 2>::identity(),

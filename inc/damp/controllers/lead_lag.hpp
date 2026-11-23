@@ -100,7 +100,7 @@ struct [[nodiscard]] LeadLagResult {
     [[nodiscard]] constexpr StateSpace<1, 1, 1, T> to_ss() const {
         // From C(s) = K*(s+z)/(s+p), controllable canonical form:
         // A = [-p], B = [1], C = [K*(z-p)], D = [K]
-        return StateSpace<1, 1, 1, T>{
+        return StateSpace{
             .A = Matrix<1, 1, T>{{-p}},
             .B = Matrix<1, 1, T>{{T{1}}},
             .C = Matrix<1, 1, T>{{K * (z - p)}},

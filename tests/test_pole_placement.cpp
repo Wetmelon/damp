@@ -33,7 +33,7 @@ using Cplx = damp::complex<double>;
 // A continuous plant with the given A and B (outputs = states), for the placement tests.
 template<size_t NX, size_t NU>
 constexpr StateSpace<NX, NU, NX> plant(const Matrix<NX, NX>& A, const Matrix<NX, NU>& B, double Ts = 0.0) {
-    return StateSpace<NX, NU, NX>{.A = A, .B = B, .C = Matrix<NX, NX>::identity(), .Ts = Ts};
+    return StateSpace{.A = A, .B = B, .C = Matrix<NX, NX>::identity(), .Ts = Ts};
 }
 
 // Real poles as the complex pole list place() takes.
@@ -341,8 +341,8 @@ TEST_SUITE("pole_placement") {
     TEST_CASE("distinct poles closer than an absolute 1e-7 stay distinct (fast sample, slow plant)") {
         // Two thermal nodes (τ ≈ 2000 s and 200 s) at Ts = 1e-4: the z-plane images of
         // s = −1e-3 and −2e-3 differ by 1e-7, and both were placed at the first.
-        const StateSpace<2, 1, 1> th{.A = {{-1.0 / 2000.0, 1.0 / 2000.0}, {1.0 / 200.0, -2.0 / 200.0}}, .B = {{1.0 / 2000.0}, {0.0}}, .C = {{0.0, 1.0}}};
-        const auto                res = design::place(th, {-1e-3, -2e-3}, 1e-4);
+        const StateSpace th{.A = {{-1.0 / 2000.0, 1.0 / 2000.0}, {1.0 / 200.0, -2.0 / 200.0}}, .B = {{1.0 / 2000.0}, {0.0}}, .C = {{0.0, 1.0}}};
+        const auto       res = design::place(th, {-1e-3, -2e-3}, 1e-4);
         REQUIRE(res.success);
         const double s0 = std::log(res.e[0].real()) / 1e-4;
         const double s1 = std::log(res.e[1].real()) / 1e-4;
@@ -386,9 +386,9 @@ TEST_SUITE("pole_placement") {
     }
 
     TEST_CASE("float poles equal up to rounding are one repeated pole") {
-        const StateSpace<2, 1, 1, float> di{.A = {{0.0f, 1.0f}, {0.0f, 0.0f}}, .B = {{0.0f}, {1.0f}}, .C = {{1.0f, 0.0f}}};
-        const float                      p = -1005.30969f;
-        const auto                       res = design::place(di, {damp::complex<float>{p, 0.0f}, damp::complex<float>{std::nextafter(p, 0.0f), 0.0f}});
+        const StateSpace di{.A = {{0.0f, 1.0f}, {0.0f, 0.0f}}, .B = {{0.0f}, {1.0f}}, .C = {{1.0f, 0.0f}}};
+        const float      p = -1005.30969f;
+        const auto       res = design::place(di, {damp::complex<float>{p, 0.0f}, damp::complex<float>{std::nextafter(p, 0.0f), 0.0f}});
         REQUIRE(res.success);
         CHECK(res.K(0, 0) == doctest::Approx(p * p).epsilon(1e-5));
         CHECK(res.K(0, 1) == doctest::Approx(-2.0f * p).epsilon(1e-5));
