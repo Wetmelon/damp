@@ -4,6 +4,7 @@
 // (See accompanying file LICENSE or copy at http://www.boost.org/LICENSE_1_0.txt)
 
 #pragma once
+// IWYU pragma: private, include "damp/matrix/matrix.hpp"
 
 /**
  * @file eigen.hpp
@@ -11,10 +12,10 @@
  */
 
 
-#include "core.hpp"
 #include "damp/backend.hpp"
 #include "damp/math/complex.hpp"
 #include "damp/math/math.hpp"
+#include "damp/matrix/core.hpp"
 
 namespace damp {
 namespace mat {

@@ -17,12 +17,8 @@
 #include <cstddef>
 #include <vector>
 
-#include "damp/backend.hpp"
-#include "damp/controllers/mpc.hpp"
-#include "damp/design/disturbance.hpp"
-#include "damp/math/math.hpp"
+#include "damp/control.hpp"
 #include "damp/simulation/plot_plotly.hpp"
-#include "damp/systems/discretization.hpp"
 #include "fmt/base.h"
 #include "fmt/core.h"
 #include "heater_ofmpc_controller.hpp"

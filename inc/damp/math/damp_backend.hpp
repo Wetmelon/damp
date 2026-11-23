@@ -17,9 +17,9 @@
  */
 
 // Not self-contained. Bound by math_backend.hpp after MathBackend\<T\> is declared.
-#include "math_backend.hpp"
-#include "std_fallback.hpp"
-#include "trig.hpp"
+#include "damp/math/math_backend.hpp"
+#include "damp/math/std_fallback.hpp"
+#include "damp/math/trig.hpp"
 
 namespace damp {
 

@@ -11,8 +11,7 @@
  * For LTI SIL against the same PI API, see sim::simulate_lti_siso in tests.
  */
 
-#include "damp/controllers/pid.hpp"
-#include "damp/math/math.hpp"
+#include "damp/control.hpp"
 #include "fmt/base.h"
 #include "fmt/core.h"
 #include "pid_controller.hpp"

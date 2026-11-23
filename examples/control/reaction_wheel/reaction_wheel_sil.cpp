@@ -10,15 +10,7 @@
  * Not closed-loop plant SIL. Flashable cascade: reaction_wheel_sketch.cpp.
  */
 
-#include "damp/backend.hpp"
-#include "damp/controllers/adrc.hpp"
-#include "damp/controllers/lqi.hpp"
-#include "damp/controllers/lqr.hpp"
-#include "damp/controllers/mpc.hpp"
-#include "damp/controllers/pid.hpp"
-#include "damp/controllers/smc.hpp"
-#include "damp/controllers/stsmc.hpp"
-#include "damp/matrix/colvec.hpp"
+#include "damp/control.hpp"
 #include "fmt/base.h"
 #include "fmt/core.h"
 #include "reaction_wheel_controller.hpp"

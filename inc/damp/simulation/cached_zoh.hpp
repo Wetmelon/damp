@@ -41,9 +41,9 @@
 #include "damp/matrix/colvec.hpp"
 #include "damp/matrix/functions.hpp"
 #include "damp/matrix/matrix.hpp"
+#include "damp/simulation/integrator.hpp"
+#include "damp/simulation/simulate.hpp"
 #include "damp/systems/state_space.hpp"
-#include "integrator.hpp"
-#include "simulate.hpp"
 
 namespace damp::sim {
 

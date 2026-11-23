@@ -15,8 +15,7 @@
  */
 
 #include "cart_pole_controller.hpp"
-#include "damp/controllers/lqr.hpp"
-#include "damp/matrix/colvec.hpp"
+#include "damp/control.hpp"
 
 using namespace damp;
 using namespace damp::examples_cart_pole;

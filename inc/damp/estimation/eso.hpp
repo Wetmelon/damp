@@ -28,7 +28,7 @@
  */
 
 #include "damp/backend.hpp"
-#include "damp/controllers/law_detail.hpp"
+#include "damp/controllers/law.hpp" // IWYU pragma: export
 #include "damp/design/status.hpp"
 #include "damp/math/math.hpp"
 #include "damp/matrix/colvec.hpp"

@@ -19,17 +19,13 @@
  */
 
 #include "damp/backend.hpp"
-#include "damp/controllers/detail/lq_law.hpp"                // IWYU pragma: export
-#include "damp/controllers/detail/state_feedback_core.hpp"   // IWYU pragma: export
-#include "damp/controllers/detail/state_feedback_design.hpp" // IWYU pragma: export
-#include "damp/controllers/detail/state_feedback_options.hpp"
+#include "damp/controllers/detail/lq_law.hpp" // IWYU pragma: export
+#include "damp/controllers/detail/state_feedback_core.hpp"
+#include "damp/controllers/law.hpp"                  // IWYU pragma: export
 #include "damp/controllers/state_feedback_types.hpp" // IWYU pragma: export
 #include "damp/design/riccati.hpp"
-#include "damp/design/steady_state_target.hpp"
 #include "damp/matrix/colvec.hpp"
 #include "damp/matrix/core.hpp"
-#include "damp/systems/discretization.hpp"
-#include "damp/systems/state_space.hpp"
 
 namespace damp {
 namespace design {

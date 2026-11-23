@@ -10,7 +10,7 @@
  * Host: examples toolchain. Target: copy + lpf_filter.hpp; replace mock ADC.
  */
 
-#include "damp/filters/filters.hpp"
+#include "damp/control.hpp"
 #include "lpf_filter.hpp"
 
 using namespace damp;

@@ -42,7 +42,7 @@
 
 #include "damp/backend.hpp"
 #include "damp/matrix/colvec.hpp"
-#include "integrator.hpp"
+#include "damp/simulation/integrator.hpp"
 
 namespace damp::sim {
 

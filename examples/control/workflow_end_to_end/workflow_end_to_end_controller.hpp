@@ -12,9 +12,7 @@
 
 #pragma once
 
-#include "damp/math/math.hpp"
-#include "damp/matrix/colvec.hpp"
-#include "damp/matrix/matrix.hpp"
+#include "damp/control.hpp"
 
 namespace damp::examples_workflow_e2e {
 

@@ -14,8 +14,7 @@
 #include <cstddef>
 #include <vector>
 
-#include "damp/backend.hpp"
-#include "damp/math/math.hpp"
+#include "damp/control.hpp"
 #include "fmt/core.h"
 #include "heater_lqg_controller.hpp"
 

@@ -57,9 +57,9 @@
 #include "damp/matrix/eigen.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "damp/matrix/matrix_traits.hpp"
-#include "state_space.hpp"
-#include "transfer_function.hpp"
-#include "zeros.hpp"
+#include "damp/systems/state_space.hpp"
+#include "damp/systems/transfer_function.hpp"
+#include "damp/systems/zeros.hpp"
 
 namespace damp {
 

@@ -20,12 +20,7 @@
 
 #pragma once
 
-#include "damp/controllers/law_detail.hpp"
-#include "damp/controllers/lqr.hpp"
-#include "damp/controllers/state_feedback.hpp"
-#include "damp/matrix/colvec.hpp"
-#include "damp/matrix/matrix.hpp"
-#include "damp/systems/state_space.hpp"
+#include "damp/control.hpp"
 
 namespace damp::examples_pendulum {
 

@@ -7,7 +7,6 @@
 #include <limits>
 
 #include "damp/backend.hpp"
-#include "damp/controllers/law_detail.hpp"
 #include "damp/design/model_inverse.hpp"
 #include "damp/design/status.hpp"
 #include "damp/design/steady_state_target.hpp"

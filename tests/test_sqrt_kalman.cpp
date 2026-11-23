@@ -18,7 +18,6 @@
 
 #include "damp/backend.hpp"
 #include "damp/concepts.hpp"
-#include "damp/controllers/law_detail.hpp"
 #include "damp/estimation/ekf.hpp"
 #include "damp/estimation/fixed_gain_observer.hpp" // IWYU pragma: keep (defines Law<kRes, T>::Recursive)
 #include "damp/estimation/kalman.hpp"

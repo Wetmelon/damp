@@ -17,7 +17,7 @@
 
 #pragma once
 
-#include "damp/filters/filters.hpp"
+#include "damp/control.hpp"
 
 namespace damp::examples_lpf {
 

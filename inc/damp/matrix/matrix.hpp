@@ -15,17 +15,18 @@
  *        irrelevant and the formatter may sort these freely.
  */
 
-#include "block.hpp"             // IWYU pragma: export
-#include "colvec.hpp"            // IWYU pragma: export
-#include "concat.hpp"            // IWYU pragma: export
-#include "const_matrix.hpp"      // IWYU pragma: export
-#include "core.hpp"              // IWYU pragma: export
-#include "decomposition.hpp"     // IWYU pragma: export
-#include "eigen.hpp"             // IWYU pragma: export
-#include "functions.hpp"         // IWYU pragma: export
-#include "generalized_eigen.hpp" // IWYU pragma: export
-#include "pattern_matrix.hpp"    // IWYU pragma: export
-#include "rowvec.hpp"            // IWYU pragma: export
-#include "solve.hpp"             // IWYU pragma: export
-#include "svd.hpp"               // IWYU pragma: export
-#include "views.hpp"             // IWYU pragma: export
+#include "damp/matrix/block.hpp"             // IWYU pragma: export
+#include "damp/matrix/colvec.hpp"            // IWYU pragma: export
+#include "damp/matrix/concat.hpp"            // IWYU pragma: export
+#include "damp/matrix/const_matrix.hpp"      // IWYU pragma: export
+#include "damp/matrix/core.hpp"              // IWYU pragma: export
+#include "damp/matrix/decomposition.hpp"     // IWYU pragma: export
+#include "damp/matrix/eigen.hpp"             // IWYU pragma: export
+#include "damp/matrix/functions.hpp"         // IWYU pragma: export
+#include "damp/matrix/generalized_eigen.hpp" // IWYU pragma: export
+#include "damp/matrix/matrix_traits.hpp"     // IWYU pragma: export
+#include "damp/matrix/pattern_matrix.hpp"    // IWYU pragma: export
+#include "damp/matrix/rowvec.hpp"            // IWYU pragma: export
+#include "damp/matrix/solve.hpp"             // IWYU pragma: export
+#include "damp/matrix/svd.hpp"               // IWYU pragma: export
+#include "damp/matrix/views.hpp"             // IWYU pragma: export

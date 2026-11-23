@@ -11,9 +11,7 @@
  * replace mock sensors. Finite-tick SIL: eskf_sil.cpp (same estimator header).
  */
 
-#include "damp/estimation/sensor_fusion.hpp"
-#include "damp/math/geometry.hpp"
-#include "damp/matrix/matrix.hpp"
+#include "damp/control.hpp"
 #include "eskf_estimator.hpp"
 
 using namespace damp;

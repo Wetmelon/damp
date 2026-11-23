@@ -8,10 +8,7 @@
  * @brief Position LQI — host plant, same tick as the sketch; clamp-aware vs naive
  */
 
-#include "damp/backend.hpp"
-#include "damp/controllers/lqi.hpp"
-#include "damp/math/math.hpp"
-#include "damp/matrix/colvec.hpp"
+#include "damp/control.hpp"
 #include "fmt/base.h"
 #include "fmt/core.h"
 #include "lqi_controller.hpp"

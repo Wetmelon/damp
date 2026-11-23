@@ -20,9 +20,7 @@
 
 #pragma once
 
-#include "damp/estimation/eskf.hpp"
-#include "damp/estimation/sensor_fusion.hpp"
-#include "damp/matrix/matrix.hpp"
+#include "damp/control.hpp"
 
 namespace damp::examples_eskf {
 

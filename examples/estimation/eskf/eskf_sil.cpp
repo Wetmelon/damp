@@ -13,10 +13,7 @@
 
 #include <fmt/base.h>
 
-#include "damp/estimation/sensor_fusion.hpp"
-#include "damp/math/geometry.hpp"
-#include "damp/math/math.hpp"
-#include "damp/matrix/matrix.hpp"
+#include "damp/control.hpp"
 #include "eskf_estimator.hpp"
 #include "fmt/core.h"
 

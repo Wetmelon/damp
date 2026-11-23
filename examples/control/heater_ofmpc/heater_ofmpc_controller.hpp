@@ -25,13 +25,7 @@
 
 #include <cstddef>
 
-#include "damp/backend.hpp"
-#include "damp/controllers/mpc.hpp"
-#include "damp/design/disturbance.hpp"
-#include "damp/estimation/kalman.hpp"
-#include "damp/matrix/colvec.hpp"
-#include "damp/systems/discretization.hpp"
-#include "damp/systems/state_space.hpp"
+#include "damp/control.hpp"
 
 namespace damp::examples_heater_ofmpc {
 

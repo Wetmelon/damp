@@ -4,6 +4,7 @@
 // (See accompanying file LICENSE or copy at http://www.boost.org/LICENSE_1_0.txt)
 
 #pragma once
+// IWYU pragma: private, include "damp/matrix/matrix.hpp"
 
 /**
  * @file solve.hpp
@@ -12,11 +13,11 @@
  *        solve(), and the Matrix::inverse() definition.
  */
 
-#include "core.hpp"
 #include "damp/backend.hpp"
 #include "damp/math/complex.hpp"
+#include "damp/matrix/core.hpp"
+#include "damp/matrix/decomposition.hpp"
 #include "damp/matrix/matrix_traits.hpp"
-#include "decomposition.hpp"
 
 namespace damp {
 

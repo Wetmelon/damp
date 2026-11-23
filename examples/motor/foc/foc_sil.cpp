@@ -18,8 +18,7 @@
 #include <string>
 #include <vector>
 
-#include "damp/backend.hpp"
-#include "damp/math/transforms.hpp"
+#include "damp/control.hpp"
 #include "damp/motor/foc.hpp"
 #include "damp/motor/spm.hpp"
 #include "damp/simulation/plot_plotly.hpp"

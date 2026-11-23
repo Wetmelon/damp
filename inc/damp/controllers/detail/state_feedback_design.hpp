@@ -4,6 +4,7 @@
 // (See accompanying file LICENSE or copy at http://www.boost.org/LICENSE_1_0.txt)
 
 #pragma once
+// IWYU pragma: private: a public header that exports it provides its names
 
 /**
  * @file state_feedback_design.hpp
@@ -12,9 +13,9 @@
  */
 
 #include "damp/backend.hpp"
+#include "damp/controllers/detail/law_detail.hpp"
 #include "damp/controllers/detail/lq_cost.hpp"
 #include "damp/controllers/detail/state_feedback_options.hpp"
-#include "damp/controllers/law_detail.hpp"
 #include "damp/controllers/state_feedback_types.hpp"
 #include "damp/design/disturbance.hpp"
 #include "damp/design/riccati.hpp"

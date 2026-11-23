@@ -14,16 +14,8 @@
 
 #include <vector>
 
-#include "damp/backend.hpp"
-#include "damp/controllers/lqr.hpp"
-#include "damp/controllers/state_feedback.hpp"
-#include "damp/math/math.hpp"
-#include "damp/matrix/colvec.hpp"
-#include "damp/matrix/matrix.hpp"
-#include "damp/simulation/integrator.hpp"
 #include "damp/simulation/plot_plotly.hpp"
-#include "damp/simulation/simulate.hpp"
-#include "damp/simulation/solver.hpp"
+#include "damp/workbench.hpp"
 #include "fmt/base.h"
 #include "fmt/core.h"
 #include "pendulum_controller.hpp"

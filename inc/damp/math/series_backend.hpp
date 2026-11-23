@@ -17,9 +17,9 @@
  * container backend on targets without libm.
  */
 
-#include "constexpr_math.hpp" // damp::detail::* (series; freestanding)
-#include "damp/backend.hpp"   // damp::pair (sincos return type)
-#include "math_backend.hpp"   // MathBackend<T> primary
+#include "damp/backend.hpp"             // damp::pair (sincos return type)
+#include "damp/math/constexpr_math.hpp" // damp::detail::* (series; freestanding)
+#include "damp/math/math_backend.hpp"   // MathBackend<T> primary
 
 namespace damp {
 

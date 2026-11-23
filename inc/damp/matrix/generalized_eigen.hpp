@@ -4,6 +4,7 @@
 // (See accompanying file LICENSE or copy at http://www.boost.org/LICENSE_1_0.txt)
 
 #pragma once
+// IWYU pragma: private, include "damp/matrix/matrix.hpp"
 
 /**
  * @file generalized_eigen.hpp
@@ -38,11 +39,11 @@
  */
 
 
-#include "core.hpp"
 #include "damp/backend.hpp"
 #include "damp/math/complex.hpp"
 #include "damp/math/math.hpp"
-#include "eigen.hpp" // scale_by_pow2
+#include "damp/matrix/core.hpp"
+#include "damp/matrix/eigen.hpp" // scale_by_pow2
 
 namespace damp {
 namespace mat {

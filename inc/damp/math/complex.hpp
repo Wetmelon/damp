@@ -10,7 +10,7 @@
  * @brief Complex number type for Damp math
  */
 
-#include "math.hpp"
+#include "damp/math/math.hpp"
 
 // std::complex interop is hosted-only: convenience conversions to/from
 // std::complex. Guarded so the freestanding core (no <complex>) still provides

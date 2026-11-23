@@ -26,7 +26,7 @@
  */
 
 #include "damp/backend.hpp"
-#include "damp/controllers/law_detail.hpp"
+#include "damp/controllers/law.hpp" // IWYU pragma: export
 #include "damp/design/disturbance.hpp"
 #include "damp/design/riccati.hpp"
 #include "damp/design/status.hpp"

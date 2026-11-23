@@ -13,8 +13,7 @@
  * Closed-loop SIL: pendulum_sil.cpp (same controller header).
  */
 
-#include "damp/controllers/lqr.hpp"
-#include "damp/matrix/colvec.hpp"
+#include "damp/control.hpp"
 #include "pendulum_controller.hpp"
 
 using namespace damp;

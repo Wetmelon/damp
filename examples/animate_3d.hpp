@@ -26,9 +26,8 @@
 #include <utility>
 #include <vector>
 
+#include "damp/control.hpp"
 #include "damp/kinematics/pose.hpp"
-#include "damp/math/geometry.hpp"
-#include "damp/matrix/colvec.hpp"
 #include "fmt/core.h"
 #include "nlohmann/json.hpp"
 

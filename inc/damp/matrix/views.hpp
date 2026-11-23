@@ -4,14 +4,15 @@
 // (See accompanying file LICENSE or copy at http://www.boost.org/LICENSE_1_0.txt)
 
 #pragma once
+// IWYU pragma: private, include "damp/matrix/matrix.hpp"
 
 /**
  * @file views.hpp
  * @brief Matrix view types (transpose, diagonal, triangles)
  */
 
-#include "core.hpp"
 #include "damp/backend.hpp"
+#include "damp/matrix/core.hpp"
 #include "damp/matrix/matrix_traits.hpp"
 
 namespace damp {

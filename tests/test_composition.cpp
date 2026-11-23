@@ -4,6 +4,7 @@
 // (See accompanying file LICENSE or copy at http://www.boost.org/LICENSE_1_0.txt)
 
 
+#include "damp/backend.hpp"
 #include "damp/concepts.hpp"
 #include "damp/controllers/composition.hpp"
 #include "damp/controllers/pid.hpp"

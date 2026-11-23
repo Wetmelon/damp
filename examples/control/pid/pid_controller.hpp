@@ -19,7 +19,7 @@
 
 #pragma once
 
-#include "damp/controllers/pid.hpp"
+#include "damp/control.hpp"
 
 namespace damp::examples_pid {
 

@@ -10,7 +10,7 @@
  * Host comparison plots: encoder_velocity_sil.cpp.
  */
 
-#include "damp/filters/differentiator.hpp"
+#include "damp/control.hpp"
 #include "encoder_velocity_estimator.hpp"
 
 using namespace damp;

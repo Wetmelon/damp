@@ -4,6 +4,7 @@
 // (See accompanying file LICENSE or copy at http://www.boost.org/LICENSE_1_0.txt)
 
 #pragma once
+// IWYU pragma: private, include "damp/matrix/matrix.hpp"
 
 /**
  * @file functions.hpp
@@ -12,12 +13,12 @@
  */
 
 
-#include "core.hpp"
 #include "damp/backend.hpp"
+#include "damp/matrix/core.hpp"
+#include "damp/matrix/eigen.hpp" // sqrt() uses the real Schur form
 #include "damp/matrix/matrix_traits.hpp"
-#include "eigen.hpp" // sqrt() uses the real Schur form
-#include "solve.hpp" // expm() and log() use mat::solve
-#include "svd.hpp"   // two_norm() and rank() use the SVD
+#include "damp/matrix/solve.hpp" // expm() and log() use mat::solve
+#include "damp/matrix/svd.hpp"   // two_norm() and rank() use the SVD
 
 namespace damp {
 

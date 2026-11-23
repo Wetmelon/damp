@@ -28,7 +28,7 @@
  */
 
 #include "damp/backend.hpp"
-#include "damp/controllers/law_detail.hpp"
+#include "damp/controllers/detail/law_detail.hpp"
 #include "damp/design/disturbance.hpp"
 #include "damp/design/options.hpp"
 #include "damp/design/status.hpp"
@@ -36,7 +36,6 @@
 #include "damp/matrix/matrix.hpp"
 #include "damp/matrix/solve.hpp"
 #include "damp/matrix/svd.hpp"
-#include "damp/systems/discretization.hpp"
 #include "damp/systems/state_space.hpp"
 
 namespace damp {

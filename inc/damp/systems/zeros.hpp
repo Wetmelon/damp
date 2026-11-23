@@ -39,7 +39,7 @@
 #include "damp/matrix/core.hpp"
 #include "damp/matrix/eigen.hpp"
 #include "damp/matrix/generalized_eigen.hpp"
-#include "state_space.hpp"
+#include "damp/systems/state_space.hpp"
 
 namespace damp {
 
