@@ -528,10 +528,10 @@ TEST_CASE("a config (design/config.hpp) passes each named field on as that optio
     constexpr auto held_c = design::state_feedback(sysd, design::LQConfig{.weights = lq, .tracked = design::TrackedOutputs{}});
     static_assert(std::is_same_v<decltype(held), decltype(held_c)> && held_c.success && held_c.K == held.K);
     static_assert(design::state_feedback(sysd, design::LQConfig{.weights = lq}).K == design::state_feedback(sysd, lq).K);
-    constexpr design::LQRLimits clamp{.u_lim = {.lower = -1.0, .upper = 1.0}};
-    constexpr DemandLimit       speed{.state = 1, .outer = {0, 2}, .lim = {.lower = -0.3, .upper = 0.3}}; // the position and the integrator
-    constexpr auto              bounded = design::state_feedback(plant(), kTs, lq, clamp, speed, design::IntegralAction{.Q = 5.0});
-    constexpr auto              bounded_c = design::state_feedback(plant(), kTs, design::LQConfig{.weights = lq, .limits = clamp, .demand = speed, .integral = design::IntegralAction{.Q = 5.0}});
+    constexpr design::InputLimits clamp{.u_lim = {.lower = -1.0, .upper = 1.0}};
+    constexpr DemandLimit         speed{.state = 1, .outer = {0, 2}, .lim = {.lower = -0.3, .upper = 0.3}}; // the position and the integrator
+    constexpr auto                bounded = design::state_feedback(plant(), kTs, lq, clamp, speed, design::IntegralAction{.Q = 5.0});
+    constexpr auto                bounded_c = design::state_feedback(plant(), kTs, design::LQConfig{.weights = lq, .input_limits = clamp, .demand = speed, .integral = design::IntegralAction{.Q = 5.0}});
     static_assert(bounded_c.success && bounded_c.K == bounded.K && bounded_c.u_lim.upper(0) == 1.0 && bounded_c.demand_lim.outer(2));
 
     //! The filter and the target, each with a disturbance and a delay, and each alone.
@@ -546,16 +546,16 @@ TEST_CASE("a config (design/config.hpp) passes each named field on as that optio
     static_assert(std::is_same_v<decltype(design::steady_state_target(sysd, design::TargetConfig{})), decltype(design::steady_state_target(sysd))>);
 
     //! The MPC: its weights and limits, a filter and a disturbance (OFMPC); and with every field left out, the defaults.
-    constexpr design::MPCWeights     weights{.Qy = {20.0}, .Rdu = {0.1}};
-    constexpr design::MPCConstraints limits{.u_lim = {.lower = -1.0, .upper = 1.0}};
-    constexpr auto                   ofmpc = design::mpc<4, 2>(sysd, weights, limits, noise, design::InputDisturbance{});
-    constexpr auto                   ofmpc_c = design::mpc<4, 2>(sysd, design::MPCConfig{.weights = weights, .constraints = limits, .noise = noise, .disturbance = design::InputDisturbance{}});
+    constexpr design::MPCWeights  weights{.Qy = {20.0}, .Rdu = {0.1}};
+    constexpr design::InputLimits limits{.u_lim = {.lower = -1.0, .upper = 1.0}};
+    constexpr auto                ofmpc = design::mpc<4, 2>(sysd, weights, limits, noise, design::InputDisturbance{});
+    constexpr auto                ofmpc_c = design::mpc<4, 2>(sysd, design::MPCConfig{.weights = weights, .input_limits = limits, .noise = noise, .disturbance = design::InputDisturbance{}});
     static_assert(std::is_same_v<decltype(ofmpc), decltype(ofmpc_c)> && ofmpc_c.success && ofmpc_c.kalman.M == ofmpc.kalman.M && ofmpc_c.target.target_d == ofmpc.target.target_d);
-    constexpr auto plain = design::mpc<4, 2>(plant(), kTs, {}, {});
+    constexpr auto plain = design::mpc<4, 2>(plant(), kTs, {});
     constexpr auto plain_c = design::mpc<4, 2>(plant(), kTs, design::MPCConfig{});
     static_assert(std::is_same_v<decltype(plain), decltype(plain_c)> && plain_c.success && plain.success);
     constexpr auto delayed = design::mpc<6, 2>(plant(), kTs, weights, limits, noise, design::InputDisturbance{}, late);
-    constexpr auto delayed_c = design::mpc<6, 2>(plant(), kTs, design::MPCConfig{.weights = weights, .constraints = limits, .noise = noise, .disturbance = design::InputDisturbance{}, .input_delay = late});
+    constexpr auto delayed_c = design::mpc<6, 2>(plant(), kTs, design::MPCConfig{.weights = weights, .input_limits = limits, .noise = noise, .disturbance = design::InputDisturbance{}, .input_delay = late});
     static_assert(std::is_same_v<decltype(delayed), decltype(delayed_c)> && delayed_c.success && delayed_c.kalman.M == delayed.kalman.M);
 
     //! The MPC's limits on an output and a state, its terminal cost and its QP budget, each a field; the pack takes them in any order.
@@ -563,7 +563,7 @@ TEST_CASE("a config (design/config.hpp) passes each named field on as that optio
     constexpr design::StateLimits  slow{.states = {1}, .lim = {.lower = -0.5, .upper = 0.5}};
     constexpr auto                 bounded_mpc = design::mpc<6, 6>(sysd, weights, limits, cap, slow, design::DareCost{}, design::QPIterations{30});
     constexpr auto                 bounded_mpc_c = design::mpc<6, 6>(
-        sysd, design::MPCConfig{.weights = weights, .constraints = limits, .output_limits = cap, .state_limits = slow, .terminal = design::DareCost{}, .qp_iterations = design::QPIterations{30}}
+        sysd, design::MPCConfig{.weights = weights, .input_limits = limits, .output_limits = cap, .state_limits = slow, .terminal = design::DareCost{}, .qp_iterations = design::QPIterations{30}}
     );
     constexpr auto reordered = design::mpc<6, 6>(sysd, weights, limits, design::QPIterations{30}, design::DareCost{}, slow, cap);
     static_assert(std::is_same_v<decltype(bounded_mpc), decltype(bounded_mpc_c)> && std::is_same_v<decltype(bounded_mpc), decltype(reordered)> && bounded_mpc_c.success);
@@ -571,6 +571,6 @@ TEST_CASE("a config (design/config.hpp) passes each named field on as that optio
     static_assert(bounded_mpc_c.mpc.max_qp_iterations == 30 && bounded_mpc_c.mpc.P == bounded_mpc.mpc.P && decltype(bounded_mpc.mpc)::NI == (4 * 6) + (2 * 6) + (2 * 6));
 
     //! A config is a named object: bare braces in its place stay the pack's, the default weights and limits of a discrete plant, not a period and a config.
-    static_assert(std::is_same_v<decltype(design::mpc<4, 2>(sysd, {}, {})), decltype(design::mpc<4, 2>(sysd, design::MPCConfig{}))> && design::mpc<4, 2>(sysd, {}, {}).success);
+    static_assert(std::is_same_v<decltype(design::mpc<4, 2>(sysd, {})), decltype(design::mpc<4, 2>(sysd, design::MPCConfig{}))> && design::mpc<4, 2>(sysd, {}).success);
     CHECK(lqi_c.success);
 }

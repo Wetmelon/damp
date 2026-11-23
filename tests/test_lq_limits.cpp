@@ -19,7 +19,9 @@
 #include "damp/controllers/lqr.hpp"
 #include "damp/controllers/oflqg.hpp"
 #include "damp/controllers/state_feedback.hpp"
+#include "damp/design/config.hpp"
 #include "damp/design/disturbance.hpp"
+#include "damp/design/input_limits.hpp"
 #include "damp/design/status.hpp"
 #include "damp/estimation/kalman.hpp"
 #include "damp/math/math.hpp"
@@ -53,7 +55,7 @@ constexpr Matrix<2, 2>              Q{{10.0, 0.0}, {0.0, 1.0}};
 constexpr Bounds<1>                 kBox{.lower = -kLimit, .upper = kLimit};
 constexpr design::KalmanNoise<2, 1> kNoise{.process = Matrix<2, 2>{{0.01, 0.0}, {0.0, 0.1}}, .measurement = Matrix<1, 1>{{1e-4}}};
 constexpr design::LQRWeights<2, 1>  kFree{.Q = Q, .R = 1.0};
-constexpr design::LQRLimits         kBound{.u_lim = kBox};
+constexpr design::InputLimits       kBound{.u_lim = kBox};
 constexpr design::IntegralAction    kIntegral{.Q = 80.0}; // on kFree, with kBound or without, the LQI of each
 
 // The weights have no integrators to weight or limit, and no limits; the integral action carries its own.
@@ -376,8 +378,8 @@ TEST_SUITE("LQ limits") {
     }
 
     TEST_CASE("a constexpr design's Law carries the limits, in float") {
-        static constexpr auto kLqi = design::state_feedback(plant(), kTs, {.Q = Q, .R = 1.0}, design::LQRLimits{.u_lim = {.lower = -1.05, .upper = 1.05}}, design::IntegralAction{.Q = 80.0, .lim = {.lower = -0.05, .upper = 0.05}});
-        static constexpr auto kLqr = design::state_feedback(plant(), kTs, {.Q = Q, .R = 1.0}, design::LQRLimits{.u_lim = {.lower = -1.05, .upper = 1.05}});
+        static constexpr auto kLqi = design::state_feedback(plant(), kTs, {.Q = Q, .R = 1.0}, design::InputLimits{.u_lim = {.lower = -1.05, .upper = 1.05}}, design::IntegralAction{.Q = 80.0, .lim = {.lower = -0.05, .upper = 0.05}});
+        static constexpr auto kLqr = design::state_feedback(plant(), kTs, {.Q = Q, .R = 1.0}, design::InputLimits{.u_lim = {.lower = -1.05, .upper = 1.05}});
         static_assert(kLqi.success && kLqr.success);
         Law<kLqi, float> lqi;
         Law<kLqr, float> lqr;
@@ -396,9 +398,90 @@ TEST_SUITE("LQ limits") {
 
     TEST_CASE("refusals: a lower limit above its upper one") {
         const Bounds<1> inverted{.lower = 1.0, .upper = -1.0};
-        CHECK(design::state_feedback(plant(), kTs, {.Q = Q, .R = 1.0}, design::LQRLimits{.u_lim = inverted}).status == design::DesignStatus::invalid_parameter);
+        CHECK(design::state_feedback(plant(), kTs, {.Q = Q, .R = 1.0}, design::InputLimits{.u_lim = inverted}).status == design::DesignStatus::invalid_parameter);
         CHECK(design::state_feedback(plant(), kTs, {.Q = Q, .R = 1.0}, design::IntegralAction{.Q = 80.0, .lim = inverted}).status == design::DesignStatus::invalid_parameter);
-        CHECK(design::state_feedback(plant(), kTs, {.Q = Q, .R = 1.0}, design::LQRLimits{.u_lim = inverted}, kNoise).status == design::DesignStatus::invalid_parameter);
+        CHECK(design::state_feedback(plant(), kTs, {.Q = Q, .R = 1.0}, design::InputLimits{.u_lim = inverted}, kNoise).status == design::DesignStatus::invalid_parameter);
+    }
+
+    TEST_CASE("InputLimits{.u_lim} is the LQ design and law LQRLimits gave, through the config too") {
+        //! Recorded with LQRLimits{.u_lim = kBox} before InputLimits replaced it: the gains, and the
+        //! LQI's commands on a step that drives it onto the limit.
+        const auto lqr = design::state_feedback(plant(), kTs, kFree, kBound);
+        REQUIRE(lqr.success);
+        CHECK(lqr.K(0, 0) == doctest::Approx(2.2848741073255541).epsilon(1e-12));
+        CHECK(lqr.K(0, 1) == doctest::Approx(1.9137912936610608).epsilon(1e-12));
+        CHECK(lqr.u_lim.lower(0) == -kLimit);
+        CHECK(lqr.u_lim.upper(0) == kLimit);
+
+        const auto lqi = design::state_feedback(plant(), kTs, kFree, kBound, kIntegral);
+        REQUIRE(lqi.success);
+        CHECK(lqi.K(0, 0) == doctest::Approx(8.2223504663959446).epsilon(1e-12));
+        CHECK(lqi.K(0, 1) == doctest::Approx(3.6893318033860898).epsilon(1e-12));
+        CHECK(lqi.K(0, 2) == doctest::Approx(-8.7792408363330239).epsilon(1e-12));
+        //! The commands at ticks 0, 5, 50, 150 and 299, then the output at the end.
+        const auto run = [](const auto& res) {
+            const auto             d = discretize(plant(), kTs).value();
+            LQI                    law{res};
+            ColVec<2>              z{};
+            damp::array<double, 6> out{};
+            size_t                 next = 0;
+            for (int k = 0; k < 300; ++k) {
+                law.update(z);
+                const ColVec<1> u = law.control(ColVec<1>{1.0});
+                law.predict();
+                if (k == 0 || k == 5 || k == 50 || k == 150 || k == 299) {
+                    out[next++] = u(0);
+                }
+                z = ColVec<2>((d.A * z) + (d.B * u));
+            }
+            out[next] = z(0);
+            return out;
+        };
+        const auto got = run(lqi);
+        CHECK(got[0] == 0.0);
+        CHECK(got[1] == doctest::Approx(0.40694881271785843).epsilon(1e-9));
+        CHECK(got[2] == doctest::Approx(1.0433463780799417).epsilon(1e-9));
+        CHECK(got[3] == doctest::Approx(0.55416557619751838).epsilon(1e-9));
+        CHECK(got[4] == doctest::Approx(0.92109412242830047).epsilon(1e-9));
+        CHECK(got[5] == doctest::Approx(1.0220145809046597).epsilon(1e-9));
+
+        //! LQConfig's input_limits passes the same option on.
+        const auto by_config = design::state_feedback(plant(), kTs, design::LQConfig{.weights = kFree, .input_limits = kBound, .integral = kIntegral});
+        REQUIRE(by_config.success);
+        CHECK((by_config.K - lqi.K).norm() <= 4.0 * eps<double>() * lqi.K.norm());
+        CHECK(by_config.u_lim.upper(0) == kLimit);
+        const auto again = run(by_config);
+        for (size_t i = 0; i < got.size(); ++i) {
+            CHECK(again[i] == doctest::Approx(got[i]).epsilon(1e-12));
+        }
+    }
+
+    TEST_CASE("an LQ design refuses a move limit (invalid_parameter): the law clamps u, and a move limit is the MPC's") {
+        const double                               nan = std::numeric_limits<double>::quiet_NaN();
+        constexpr design::InputLimits              moves{.u_lim = kBox, .du_lim = {.lower = -0.1, .upper = 0.1}};
+        const design::KalmanNoise<2, 1, double, 1> walk{.process = kNoise.process, .measurement = kNoise.measurement, .disturbance = Matrix<1, 1>{{1.0}}};
+        const auto                                 refused = [](const auto& res) { return !res.success && res.status == design::DesignStatus::invalid_parameter; };
+        CHECK(refused(design::state_feedback(plant(), kTs, kFree, moves)));                                   // LQR
+        CHECK(refused(design::state_feedback(plant(), kTs, kFree, moves, kIntegral)));                        // LQI
+        CHECK(refused(design::state_feedback(plant(), kTs, kFree, moves, kNoise)));                           // LQG
+        CHECK(refused(design::state_feedback(plant(), kTs, kFree, moves, kNoise, kIntegral)));                // LQGI
+        CHECK(refused(design::state_feedback(plant(), kTs, kFree, moves, walk, design::InputDisturbance{}))); // OFLQG
+        CHECK(refused(design::state_feedback(plant(), kTs, kFree, moves, InputDelay<2>{0.014})));             // on the delayed plant
+        CHECK(refused(design::state_feedback(discretize(plant(), kTs).value(), kFree, moves)));               // a discrete plant
+        CHECK(refused(design::state_feedback(plant(), kTs, design::LQConfig{.weights = kFree, .input_limits = moves})));
+
+        //! One side is a limit too, and so is a NaN; no u_lim is needed for the refusal.
+        CHECK(refused(design::state_feedback(plant(), kTs, kFree, design::InputLimits{.du_lim = {.upper = 0.1}})));
+        CHECK(refused(design::state_feedback(plant(), kTs, kFree, design::InputLimits{.du_lim = {.lower = nan}})));
+        const auto none = design::state_feedback(plant(), kTs, kFree, moves);
+        CHECK(none.u_lim.upper(0) == damp::numeric_limits<double>::max()); // a refused design ships no limits
+
+        //! An unbounded du_lim spelled out is no limit: the design of u_lim alone.
+        const auto spelled = design::state_feedback(plant(), kTs, kFree, design::InputLimits{.u_lim = kBox, .du_lim = Bounds<1>{}});
+        const auto alone = design::state_feedback(plant(), kTs, kFree, kBound);
+        REQUIRE(spelled.success);
+        CHECK((spelled.K - alone.K).norm() <= 4.0 * eps<double>() * alone.K.norm());
+        CHECK(spelled.u_lim.upper(0) == kLimit);
     }
 
     TEST_CASE("a refused design ships no limits") {
@@ -406,7 +489,7 @@ TEST_SUITE("LQ limits") {
         //! it with K = 0: control() returned a limit, not 0.
         const double    nan = std::numeric_limits<double>::quiet_NaN();
         const Bounds<1> inverted{.lower = 1.0, .upper = -1.0};
-        const auto      lqr = design::state_feedback(plant(), kTs, {.Q = Q, .R = 1.0}, design::LQRLimits{.u_lim = inverted});
+        const auto      lqr = design::state_feedback(plant(), kTs, {.Q = Q, .R = 1.0}, design::InputLimits{.u_lim = inverted});
         REQUIRE_FALSE(lqr.success);
         CHECK(lqr.u_lim.lower(0) == -damp::numeric_limits<double>::max());
         CHECK(lqr.u_lim.upper(0) == damp::numeric_limits<double>::max());
@@ -416,7 +499,7 @@ TEST_SUITE("LQ limits") {
         CHECK_FALSE(law.valid());
         CHECK(LQR{design::state_feedback(plant(), kTs, {.Q = Q, .R = 1.0})}.valid());
 
-        const auto lqi = design::state_feedback(plant(), kTs, {.Q = Q, .R = 1.0}, design::LQRLimits{.u_lim = {.lower = nan, .upper = 1.0}}, design::IntegralAction{.Q = 80.0, .lim = {.lower = -0.1, .upper = 0.1}});
+        const auto lqi = design::state_feedback(plant(), kTs, {.Q = Q, .R = 1.0}, design::InputLimits{.u_lim = {.lower = nan, .upper = 1.0}}, design::IntegralAction{.Q = 80.0, .lim = {.lower = -0.1, .upper = 0.1}});
         CHECK(lqi.status == design::DesignStatus::invalid_parameter);
         CHECK(lqi.u_lim.upper(0) == damp::numeric_limits<double>::max());
         CHECK(lqi.integral_lim.upper(0) == damp::numeric_limits<double>::max());

@@ -305,14 +305,14 @@ TEST_SUITE("Input delay: a model of the plant") {
     }
 
     TEST_CASE("offset-free LQG and MPC on the model hold the true delayed plant at r under a load; the delay-blind designs overshoot") {
-        constexpr design::MPCWeights<1, 1>  w{.Rdu = 10.0}; // per step: Qy = 1
-        constexpr design::MPCConstraints<1> c{.u_lim = {
-                                                  .lower = 0.0,
-                                                  .upper = 40.0,
-                                              }};
-        constexpr design::InputDisturbance  load{};
-        const auto                          lqg_blind = design::state_feedback(*kPlain, kLq, kNoise, load);
-        const auto                          mpc_blind = design::mpc<30, 4>(*kPlain, w, c, kNoise, load);
+        constexpr design::MPCWeights<1, 1> w{.Rdu = 10.0}; // per step: Qy = 1
+        constexpr design::InputLimits<1>   c{.u_lim = {
+                                                 .lower = 0.0,
+                                                 .upper = 40.0,
+                                             }};
+        constexpr design::InputDisturbance load{};
+        const auto                         lqg_blind = design::state_feedback(*kPlain, kLq, kNoise, load);
+        const auto                         mpc_blind = design::mpc<30, 4>(*kPlain, w, c, kNoise, load);
         REQUIRE(lqg_blind.success);
         REQUIRE(mpc_blind.success);
 
@@ -368,7 +368,7 @@ TEST_SUITE("Input delay: a model of the plant") {
         CHECK(res.kalman.R(0, 0) == 0.01); // a variance per reading: no Ts scaling
 
         // offset-free MPC from the continuous plant: the same estimator noise
-        const auto ofmpc = design::mpc<30, 4>(heater_block(), kTs, {}, {}, noise, design::InputDisturbance{});
+        const auto ofmpc = design::mpc<30, 4>(heater_block(), kTs, {}, noise, design::InputDisturbance{});
         REQUIRE(ofmpc.success);
         CHECK(max_diff(ofmpc.kalman.Q, res.kalman.Q) == 0.0);
         CHECK(ofmpc.kalman.R(0, 0) == 0.01);

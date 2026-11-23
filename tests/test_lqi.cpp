@@ -529,7 +529,7 @@ TEST_SUITE("LQI on a plant with feedthrough") {
     }
 }
 
-TEST_CASE("LQRWeights, LQRLimits, DemandLimit, TrackedOutputs, the disturbance specs and IntegralAction take their sizes from the fields they set") {
+TEST_CASE("LQRWeights, InputLimits, DemandLimit, TrackedOutputs, the disturbance specs and IntegralAction take their sizes from the fields they set") {
     using design::IntegralAction;
     using design::LQRWeights;
     //! One input unless a field says otherwise; a single weight is braced.
@@ -541,10 +541,10 @@ TEST_CASE("LQRWeights, LQRLimits, DemandLimit, TrackedOutputs, the disturbance s
     static_assert(damp::is_same_v<decltype(lq_float), const LQRWeights<2, 1, float>>);
 
     //! The limits: one input unless u_lim says otherwise. A DemandLimit and TrackedOutputs take their lengths from their lists.
-    constexpr design::LQRLimits clamped{.u_lim = {.lower = -12.0, .upper = 12.0}};
-    static_assert(damp::is_same_v<decltype(clamped), const design::LQRLimits<1>>);
-    constexpr design::LQRLimits two{.u_lim = Bounds<2>{.lower = {-1.0, -2.0}, .upper = {1.0, 2.0}}};
-    static_assert(damp::is_same_v<decltype(two), const design::LQRLimits<2>>);
+    constexpr design::InputLimits clamped{.u_lim = {.lower = -12.0, .upper = 12.0}};
+    static_assert(damp::is_same_v<decltype(clamped), const design::InputLimits<1>>);
+    constexpr design::InputLimits two{.u_lim = Bounds<2>{.lower = {-1.0, -2.0}, .upper = {1.0, 2.0}}};
+    static_assert(damp::is_same_v<decltype(two), const design::InputLimits<2>>);
     constexpr DemandLimit limited{.state = 1, .outer = {0, 2}, .lim = {.lower = -0.2, .upper = 0.2}};
     static_assert(damp::is_same_v<decltype(limited), const DemandLimit<2>> && limited.state == 1 && limited.outer[1] == 2);
     static_assert(damp::is_same_v<decltype(design::TrackedOutputs{{0, 2}}), design::TrackedOutputs<2>> && damp::is_same_v<decltype(design::TrackedOutputs{}), design::TrackedOutputs<0>>);

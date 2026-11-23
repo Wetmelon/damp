@@ -7,8 +7,8 @@
 
 /**
  * @file state_feedback_types.hpp
- * @brief The types of an LQ design: what it is given (LQRWeights, LQRLimits, IntegralAction) and what it hands
- *        its runtime (StateFeedbackResult, NoEstimator)
+ * @brief The types of an LQ design: what it is given (LQRWeights, IntegralAction; InputLimits in
+ *        design/input_limits.hpp) and what it hands its runtime (StateFeedbackResult, NoEstimator)
  *
  * The design is design::state_feedback (state_feedback.hpp); the runtimes are in lqr.hpp, lqi.hpp,
  * lqg.hpp, lqgi.hpp and oflqg.hpp, over the one they share in detail/state_feedback_core.hpp.
@@ -17,6 +17,7 @@
 #include "damp/backend.hpp"
 #include "damp/controllers/law.hpp"
 #include "damp/design/detail/config.hpp"
+#include "damp/design/input_limits.hpp"
 #include "damp/design/status.hpp"
 #include "damp/design/steady_state_target.hpp"
 #include "damp/estimation/fixed_gain_observer.hpp"
@@ -109,7 +110,7 @@ struct IntegralAction {
  * `LQRWeights{.Q = diag(1.0, 0.1), .R = {0.5}}` is LQRWeights<2, 1>. NU is 1 unless a field says
  * otherwise, so one input's weight is braced, `{0.5}`. Integral action brings its own cost:
  * IntegralAction{.Q, …} among the options. The limits the law runs within are not the cost's:
- * LQRLimits among the options.
+ * InputLimits among the options.
  *
  * | Field | Penalizes | Size |
  * | --- | --- | --- |
@@ -126,36 +127,7 @@ struct LQRWeights {
     Matrix<NX, NU, T> N{}; ///< Cross term between x and u (default zero)
 };
 
-/**
- * @struct LQRLimits
- * @brief The limit an LQ law's command runs within: among design::state_feedback's options
- *
- * The runtime's, not the cost's: the gain is the same with or without it, so it is an option and
- * not part of LQRWeights. Named, it takes its sizes from its field, one input unless u_lim says
- * otherwise (`.u_lim = Bounds<2>{…}`, or `LQRLimits<2>{…}`).
- *
- * `LQRLimits{.u_lim = {.lower = -12.0, .upper = 12.0}}` clamps the command control returns to ±12,
- * per input (default unbounded); back_calculate stays for a stage that clamps after the law. u_lim
- * is a member of the runtime, `law.u_lim`, so a rail that moves is set at run time. A limit that is
- * NaN, or a lower limit above its upper one, is refused with DesignStatus::invalid_parameter.
- *
- * The other limits are options of their own: a DemandLimit on what the outer terms ask of one state,
- * and the IntegralAction's on the integrators (.lim, .tracking_time).
- */
-template<size_t NU = 1, typename T = double>
-struct LQRLimits {
-    Bounds<NU, T> u_lim{}; ///< Limits on the command u, per input (default unbounded)
-};
-
 namespace detail {
-
-/** @brief An LQRLimits: a kind of state_feedback option. */
-template<typename O>
-struct is_lqr_limits : damp::false_type {};
-
-/** @brief LQRLimits of any size. */
-template<size_t NU, typename T>
-struct is_lqr_limits<LQRLimits<NU, T>> : damp::true_type {};
 
 /** @brief A DemandLimit: a kind of state_feedback option. */
 template<typename O>
@@ -164,14 +136,6 @@ struct is_demand_limit : damp::false_type {};
 /** @brief DemandLimit of any length. */
 template<size_t M, typename T>
 struct is_demand_limit<DemandLimit<M, T>> : damp::true_type {};
-
-/** @brief The inputs an LQRLimits' u_lim is on. */
-template<typename L>
-inline constexpr size_t limits_inputs = 0;
-
-/** @brief LQRLimits<NU, …>: NU. */
-template<size_t NU, typename T>
-inline constexpr size_t limits_inputs<LQRLimits<NU, T>> = NU;
 
 /** @brief The demand limit among @p opts on the gain's terms (@p Terms, a DemandTerms), or off without one. */
 template<typename Terms, typename... Opts>
@@ -184,10 +148,12 @@ template<typename Terms, typename... Opts>
 }
 
 /**
- * @brief The full cost a design reads: LQRWeights and LQRLimits as one, sized to the plant
+ * @brief The full cost a design reads: LQRWeights and InputLimits as one, sized to the plant
  *
- * Its u_lim comes from the LQRLimits among the options and demand_lim from the DemandLimit
- * (unbounded and off without them); the integrators add theirs in LQIConfig.
+ * Its u_lim and du_lim come from the InputLimits among the options and demand_lim from the
+ * DemandLimit (unbounded and off without them); the integrators add theirs in LQIConfig. No LQ law
+ * clamps its move, so the design refuses a bounded du_lim (limits_valid); it is carried here for
+ * the law that would.
  */
 template<size_t NX, size_t NU = 1, typename T = double>
 struct LQRConfig {
@@ -195,15 +161,22 @@ struct LQRConfig {
     Matrix<NU, NU, T>                  R{};          ///< On the inputs u (positive definite)
     Matrix<NX, NU, T>                  N{};          ///< Cross term between x and u (default zero)
     Bounds<NU, T>                      u_lim{};      ///< Limits on the command u, per input (default unbounded)
+    Bounds<NU, T>                      du_lim{};     ///< Limits on the move Δu per period (default unbounded; refused otherwise)
     ::damp::detail::DemandTerms<NX, T> demand_lim{}; ///< A limit on what the outer states ask of one state (default off)
 };
 
-/** @brief The weights, the LQRLimits and the DemandLimit among @p opts (none: unbounded, off) as the design's full cost, the demand on the plant states. */
+/** @brief The weights, the InputLimits and the DemandLimit among @p opts (none: unbounded, off) as the design's full cost, the demand on the plant states. */
 template<size_t NX, size_t NU, typename T, typename... Opts>
 [[nodiscard]] constexpr LQRConfig<NX, NU, T> lq_cost_of(const LQRWeights<NX, NU, T>& weights, const Opts&... opts) {
-    const auto limits = ::damp::detail::option<is_lqr_limits>(LQRLimits<NU, T>{}, opts...);
-    static_assert(limits_inputs<damp::remove_cvref_t<decltype(limits)>> == NU, "LQRLimits::u_lim is one Bounds per input of the plant: LQRLimits<NU>{...}, or .u_lim = Bounds<NU>{...}.");
-    return {.Q = weights.Q, .R = weights.R, .N = weights.N, .u_lim = limits.u_lim.template as<T>(), .demand_lim = demand_terms_of<::damp::detail::DemandTerms<NX, T>>(opts...)};
+    const auto limits = input_limits_of<NU, T>(opts...);
+    return {
+        .Q = weights.Q,
+        .R = weights.R,
+        .N = weights.N,
+        .u_lim = limits.u_lim,
+        .du_lim = limits.du_lim,
+        .demand_lim = demand_terms_of<::damp::detail::DemandTerms<NX, T>>(opts...),
+    };
 }
 
 } // namespace detail
@@ -218,6 +191,7 @@ struct LQIConfig {
     Matrix<NX, NU, T>                       N{};             ///< Cross term between x and u (default zero)
     Matrix<NI, NI, T>                       Q_integral{};    ///< On the discrete integral state ξ ≈ ∫e dt (positive definite)
     Bounds<NU, T>                           u_lim{};         ///< Limits on the command u, per input (default unbounded)
+    Bounds<NU, T>                           du_lim{};        ///< Limits on the move Δu per period (default unbounded; refused otherwise)
     Bounds<NI, T>                           integral_lim{};  ///< Limits on the integral state ξ, per integrator (default unbounded)
     ::damp::detail::DemandTerms<NX + NI, T> demand_lim{};    ///< A limit on what the outer states and integrators ask of one state (default off)
     T                                       tracking_time{}; ///< [s] The integrators' back-calculation tracking time (default 0: conditional integration)
@@ -255,7 +229,7 @@ struct LQIConfig {
  * refused with DesignStatus::bad_weights, and so are outputs out of range, listed twice, or left
  * out with fewer integrators than outputs.
  *
- * The law holds its integrators against the clamp of LQRLimits::u_lim, with no back_calculate. lim is on ξ
+ * The law holds its integrators against the clamp of InputLimits::u_lim, with no back_calculate. lim is on ξ
  * itself, in the units of ∫e dt (the error's times seconds): through the gain, ξ moves input j by
  * K(j, NX + i)·ξᵢ. It is a member of the result and of the runtime, `law.integral_lim`, set at run
  * time like `law.u_lim`, and refused as u_lim is.
@@ -333,7 +307,7 @@ struct IntegralDesign {
  * | K, S, e | the gain, the Riccati solution, the closed-loop poles | always |
  * | state_gain(), delay_gain(), integral_gain() | K's columns on x, on the delay states (NRU > 0) and on ξ (NI > 0) | always, and as noted |
  * | success, status, Ts | ok or why not; the law's sample time | always |
- * | u_lim | the limits on the command (LQRLimits::u_lim) | always, default unbounded |
+ * | u_lim | the limits on the command (InputLimits::u_lim) | always, default unbounded |
  * | demand_lim | the limit on what the outer terms ask of one state (the design's DemandLimit) | always, default off |
  * | kalman | the Kalman filter (design::kalman's result) | lqg, lqgi, oflqg |
  * | integral | the integrated outputs Ci, Ci·C, Ci·D and the step | NI > 0 |

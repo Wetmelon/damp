@@ -58,7 +58,7 @@ constexpr ColVec<2> plant_step(const ColVec<2>& x, double u_effective) {
 /// An offset-free design on the double integrator: an input disturbance, the position held, and any further options @p opts.
 template<size_t NP, size_t NC, size_t NT_max = 0, typename... Opts>
 constexpr auto offset_free(
-    const design::MPCWeights<1, 1>& w, const design::MPCConstraints<1>& c = {}, const design::KalmanNoise<2, 1, double, 1>& noise = kUnitNoise, const Opts&... opts
+    const design::MPCWeights<1, 1>& w, const design::InputLimits<1>& c = {}, const design::KalmanNoise<2, 1, double, 1>& noise = kUnitNoise, const Opts&... opts
 ) {
     return design::mpc<NP, NC, NT_max>(double_integrator, w, c, noise, design::InputDisturbance{}, opts...);
 }
@@ -140,10 +140,10 @@ TEST_CASE("OutputLimits index the controlled outputs: the readings a disturbance
     };
     design::MPCWeights<2, 2> w{};
     w.Rdu = Matrix<2, 2>::identity() * 0.1;
-    const design::MPCConstraints<2> limits{.u_lim = {.lower = {-1.0, -1.0}, .upper = {1.0, 1.0}}};
-    const design::KalmanNoise       noise{.process = Matrix<4, 4>::identity() * 0.01, .measurement = Matrix<3, 3>::identity() * 0.001, .disturbance = Matrix<2, 2>::identity() * 0.01};
-    const design::OutputLimits      second{.outputs = {1}, .lim = {.upper = 0.4}};
-    const design::OutputLimits      both{.outputs = {0, 1}, .lim = {.lower = {-big, -big}, .upper = {big, 0.4}}};
+    const design::InputLimits<2> limits{.u_lim = {.lower = {-1.0, -1.0}, .upper = {1.0, 1.0}}};
+    const design::KalmanNoise    noise{.process = Matrix<4, 4>::identity() * 0.01, .measurement = Matrix<3, 3>::identity() * 0.001, .disturbance = Matrix<2, 2>::identity() * 0.01};
+    const design::OutputLimits   second{.outputs = {1}, .lim = {.upper = 0.4}};
+    const design::OutputLimits   both{.outputs = {0, 1}, .lim = {.lower = {-big, -big}, .upper = {big, 0.4}}};
 
     const auto a = design::mpc<12, 4>(two_axes, w, limits, noise, design::InputDisturbance{{0, 2}}, second);
     const auto b = design::mpc<12, 4>(two_axes, w, limits, both, noise, design::InputDisturbance{{0, 2}});
@@ -182,9 +182,9 @@ TEST_CASE("OutputLimits index the controlled outputs: the readings a disturbance
 
 TEST_CASE("StateLimits bound an estimated state of an offset-free MPC: on the estimate's prediction") {
     // Only the position is measured; the speed is the filter's, bounded at 0.3 (2 without the bound).
-    const design::MPCConstraints<1> limits{.u_lim = {.lower = -2.0, .upper = 2.0}};
-    const design::StateLimits       speed{.states = {1}, .lim = {.lower = -0.3, .upper = 0.3}};
-    const auto                      art = design::mpc<15, 5>(double_integrator, move_weight(0.01), limits, speed, design::KalmanNoise{Matrix<2, 2>::identity(), Matrix<1, 1>{{0.01}}, Matrix<1, 1>{{1.0}}}, design::InputDisturbance{});
+    const design::InputLimits<1> limits{.u_lim = {.lower = -2.0, .upper = 2.0}};
+    const design::StateLimits    speed{.states = {1}, .lim = {.lower = -0.3, .upper = 0.3}};
+    const auto                   art = design::mpc<15, 5>(double_integrator, move_weight(0.01), limits, speed, design::KalmanNoise{Matrix<2, 2>::identity(), Matrix<1, 1>{{0.01}}, Matrix<1, 1>{{1.0}}}, design::InputDisturbance{});
     REQUIRE(art.success);
     const auto run = [&](double load) {
         OFMPC     controller{art};
@@ -228,7 +228,7 @@ TEST_CASE("offset-free MPC removes a sensor bias (OutputDisturbance, C_d = I)") 
     // both hold C·x + C_d·d̂ at r. Without the C_d term the reading settled at r + d.
     constexpr StateSpace<2, 1, 1, double, 2, 1> plant{.A = {{0.9, 0.1}, {0.0, 0.8}}, .B = {{0.0}, {0.2}}, .C = {{1.0, 0.0}}, .Ts = 0.01};
     const design::KalmanNoise<2, 1, double, 1>  noise{.process = Matrix<2, 2>::identity() * 0.01, .measurement = 0.01, .disturbance = 0.01};
-    const auto                                  art = design::mpc<15, 5>(plant, move_weight(0.05), {}, noise, design::OutputDisturbance{});
+    const auto                                  art = design::mpc<15, 5>(plant, move_weight(0.05), noise, design::OutputDisturbance{});
     REQUIRE(art.success);
 
     OFMPC        controller{art};
@@ -246,7 +246,7 @@ TEST_CASE("offset-free MPC removes a sensor bias (OutputDisturbance, C_d = I)") 
     // A finite output limit scales the outputs by its span, C_d·d̂ included: unscaled, the limit row
     // counted the bias 4 times, so r = 1.5 settled at 1.09 and r = 3 under a −1 bias at 3.0.
     const design::OutputLimits limit{.outputs = {0}, .lim = {.lower = -2.0, .upper = 2.0}};
-    const auto                 limited = design::mpc<15, 5>(plant, move_weight(0.05), {}, noise, design::OutputDisturbance{}, limit);
+    const auto                 limited = design::mpc<15, 5>(plant, move_weight(0.05), noise, design::OutputDisturbance{}, limit);
     REQUIRE(limited.success);
     const auto settle = [&](double b, double r) {
         OFMPC     ctl{limited};
@@ -264,7 +264,7 @@ TEST_CASE("offset-free MPC removes a sensor bias (OutputDisturbance, C_d = I)") 
 }
 
 TEST_CASE("offset-free MPC respects input limits while rejecting a load") {
-    design::MPCConstraints<1> limits{};
+    design::InputLimits<1> limits{};
     limits.u_lim = {
         .lower = -0.6,
         .upper = 0.6,
@@ -320,7 +320,7 @@ TEST_CASE("ofmpc rejects undetectable disturbance models") {
     plant.C = Matrix<1, 1>{{1.0}};
     plant.Ts = 0.1;
 
-    const auto art = design::mpc<5, 5>(plant, {}, {}, design::KalmanNoise<1, 1, double, 1>{}, design::InputDisturbance{});
+    const auto art = design::mpc<5, 5>(plant, {}, design::KalmanNoise<1, 1, double, 1>{}, design::InputDisturbance{});
     CHECK_FALSE(art.success);
     CHECK(art.status == design::DesignStatus::not_detectable);
 }
@@ -335,16 +335,16 @@ TEST_CASE("offset-free mpc is constexpr") {
 TEST_CASE("a continuous plant is refused by the discrete form; continuous plant + Ts designs at Ts") {
     auto continuous = double_integrator;
     continuous.Ts = 0.0;
-    const auto refused = design::mpc<15, 5>(continuous, {}, {}, kUnitNoise, design::InputDisturbance{});
+    const auto refused = design::mpc<15, 5>(continuous, {}, kUnitNoise, design::InputDisturbance{});
     CHECK_FALSE(refused.success);
     CHECK(refused.status == design::DesignStatus::invalid_sample_time);
-    const auto refused_model = design::mpc<15, 5>(continuous, {}, {}, kUnitNoise, design::DisturbanceModel{.Bd = continuous.B});
+    const auto refused_model = design::mpc<15, 5>(continuous, {}, kUnitNoise, design::DisturbanceModel{.Bd = continuous.B});
     CHECK_FALSE(refused_model.success);
     CHECK(refused_model.status == design::DesignStatus::invalid_sample_time);
 
     //! The sample-time form takes the continuous plant only: a discrete one would be discretized twice.
     constexpr StateSpace<2, 1, 1, double, 2, 1> di{.A = Matrix<2, 2>{{0.0, 1.0}, {0.0, 0.0}}, .B = Matrix<2, 1>{{0.0}, {1.0}}, .C = Matrix<1, 2>{{1.0, 0.0}}};
-    const auto                                  sampled = design::mpc<10, 4>(di, 0.1, {}, {}, kUnitNoise, design::InputDisturbance{});
+    const auto                                  sampled = design::mpc<10, 4>(di, 0.1, {}, kUnitNoise, design::InputDisturbance{});
     CHECK(sampled.success);
     CHECK(sampled.status == design::DesignStatus::ok);
     CHECK(sampled.kalman.sys.Ts == 0.1);
@@ -353,8 +353,8 @@ TEST_CASE("a continuous plant is refused by the discrete form; continuous plant 
     discrete.B = discretize(di, 0.1)->B;
     discrete.C = di.C;
     discrete.Ts = 0.1;
-    CHECK(design::mpc<10, 4>(discrete, 0.1, {}, {}, kUnitNoise, design::InputDisturbance{}).status == design::DesignStatus::invalid_sample_time);
-    CHECK(design::mpc<10, 4>(di, 0.0, {}, {}, kUnitNoise, design::InputDisturbance{}).status == design::DesignStatus::invalid_sample_time);
+    CHECK(design::mpc<10, 4>(discrete, 0.1, {}, kUnitNoise, design::InputDisturbance{}).status == design::DesignStatus::invalid_sample_time);
+    CHECK(design::mpc<10, 4>(di, 0.0, {}, kUnitNoise, design::InputDisturbance{}).status == design::DesignStatus::invalid_sample_time);
 }
 
 TEST_CASE("offset-free MPC deploys in float") {
@@ -379,7 +379,7 @@ TEST_CASE_TEMPLATE("offset-free MPC with soft output bounds, started outside the
     //! From the position reading alone, under an unknown load at the input. The float active set
     //! ended Degenerate on 18 of the 600 ticks from 1.5 and on 22 from 5: a row met through the
     //! slack alone lies at a sine of 2·10⁻⁴ from the active normals (qp.hpp).
-    design::MPCConstraints<1> limits{};
+    design::InputLimits<1> limits{};
     limits.u_lim = {.lower = -1.0, .upper = 1.0};
     limits.du_lim = {.lower = -0.2, .upper = 0.2};
     const auto art = offset_free<30, 10>(move_weight(0.01), limits, kUnitNoise, design::OutputLimits{.outputs = {0}, .lim = {.lower = -0.5, .upper = 0.5}});
@@ -506,8 +506,8 @@ TEST_CASE("offset-free MPC: a load force sensed by an accelerometer, the load he
     // model, given the same controlled output, explains the load force as a motor force,
     // so it believes the spring relaxed and leaves the load off by F/k.
     const CompliantDrive plant;
-    const auto           art_load = design::mpc<40, 8>(plant.sys, load_weights(), {}, drive_noise(), load_force_model(plant));
-    const auto           art_input = design::mpc<40, 8>(plant.sys, load_weights(), {}, drive_noise(), design::InputDisturbance{{2}});
+    const auto           art_load = design::mpc<40, 8>(plant.sys, load_weights(), drive_noise(), load_force_model(plant));
+    const auto           art_input = design::mpc<40, 8>(plant.sys, load_weights(), drive_noise(), design::InputDisturbance{{2}});
     REQUIRE(art_load.success);
     REQUIRE(art_input.success);
     static_assert(decltype(OFMPC{art_load})::NDE == 1);
@@ -531,8 +531,8 @@ TEST_CASE("offset-free MPC: a load force sensed by an accelerometer, the load he
 }
 
 TEST_CASE("offset-free MPC with a general disturbance model honours the input and rate limits") {
-    const CompliantDrive      plant;
-    design::MPCConstraints<1> limits{};
+    const CompliantDrive   plant;
+    design::InputLimits<1> limits{};
     limits.u_lim = {
         .lower = -1.0,
         .upper = 1.0,
@@ -566,7 +566,7 @@ TEST_CASE("offset-free MPC with a general disturbance model honours the input an
 
 TEST_CASE("offset-free MPC on the ADMM policy reports an infeasible tick like the active-set default") {
     // A held input of 2.0 outside |u| <= 0.5, which |Δu| <= 0.1 cannot reach in one move.
-    design::MPCConstraints<1> limits{};
+    design::InputLimits<1> limits{};
     limits.u_lim = {
         .lower = -0.5,
         .upper = 0.5,
@@ -605,7 +605,7 @@ TEST_CASE("offset-free MPC on the ADMM policy reports an infeasible tick like th
 
 TEST_CASE("offset-free MPC: InputDisturbance is the explicit model B_d = B, z = y") {
     const auto by_spec = offset_free<10, 4>(move_weight(0.05));
-    const auto by_model = design::mpc<10, 4>(double_integrator, move_weight(0.05), {}, kUnitNoise, design::DisturbanceModel{.Bd = double_integrator.B});
+    const auto by_model = design::mpc<10, 4>(double_integrator, move_weight(0.05), kUnitNoise, design::DisturbanceModel{.Bd = double_integrator.B});
     static_assert(std::is_same_v<decltype(by_spec), decltype(by_model)>);
     REQUIRE(by_spec.success);
     REQUIRE(by_model.success);
@@ -621,14 +621,14 @@ TEST_CASE("offset-free MPC rejects an undetectable or unsupported general distur
     design::DisturbanceModel<4, 3, 2, 1> twins{.outputs = {2}};
     twins.Bd.block<4, 1>(0, 0) = plant.sys.B;
     twins.Bd.block<4, 1>(0, 1) = plant.sys.B;
-    const auto twins_art = design::mpc<10, 4>(plant.sys, load_weights(), {}, design::KalmanNoise<4, 3, double, 2>{}, twins);
+    const auto twins_art = design::mpc<10, 4>(plant.sys, load_weights(), design::KalmanNoise<4, 3, double, 2>{}, twins);
     CHECK_FALSE(twins_art.success);
     CHECK(twins_art.status == design::DesignStatus::not_detectable);
 
     // A controlled output with feedthrough is outside the condensed MPC (D_z = 0 only).
     auto feedthrough = plant.sys;
     feedthrough.D(2, 0) = 1.0;
-    const auto refused = design::mpc<10, 4>(feedthrough, load_weights(), {}, drive_noise(), load_force_model(plant));
+    const auto refused = design::mpc<10, 4>(feedthrough, load_weights(), drive_noise(), load_force_model(plant));
     CHECK_FALSE(refused.success);
 
     // A failed design still deploys: zero estimate, finite (zero) move.
@@ -637,7 +637,7 @@ TEST_CASE("offset-free MPC rejects an undetectable or unsupported general distur
     CHECK(damp::isfinite(u(0)));
 
     // A controlled output out of range is refused.
-    CHECK(design::mpc<10, 4>(plant.sys, load_weights(), {}, drive_noise(), design::InputDisturbance{{3}}).status == design::DesignStatus::bad_weights);
+    CHECK(design::mpc<10, 4>(plant.sys, load_weights(), drive_noise(), design::InputDisturbance{{3}}).status == design::DesignStatus::bad_weights);
 }
 
 namespace {
@@ -663,7 +663,7 @@ auto heater_design(double u_max, bool terminal_weight = true) {
     if (terminal_weight) {
         w.Qy_terminal = w.Qy;
     }
-    design::MPCConstraints<1> c{};
+    design::InputLimits<1> c{};
     c.u_lim = {
         .lower = 0.0,
         .upper = u_max,
@@ -737,7 +737,7 @@ TEST_SUITE("offset-free MPC error-state estimator") {
             const StateSpace         plant{.A = kHeater.A, .B = kHeater.B, .C = kHeater.C, .Ts = kHeater.Ts};
             design::MPCWeights<1, 1> w{};
             w.Rdu = 10.0;
-            design::MPCConstraints<1> c{};
+            design::InputLimits<1> c{};
             c.u_lim = {
                 .lower = 0.0,
                 .upper = u_max,
@@ -831,7 +831,7 @@ TEST_SUITE("offset-free MPC terminal") {
     }
 
     TEST_CASE("InvariantSet with NT_max: the set moves with the estimated disturbance's target") {
-        design::MPCConstraints<1> limits{};
+        design::InputLimits<1> limits{};
         limits.u_lim = {
             .lower = -1.0,
             .upper = 1.0,
@@ -883,9 +883,9 @@ TEST_CASE("more controlled outputs than inputs: the target is an equilibrium, so
     design::MPCWeights<1, 2> w{};
     w.Rdu = 0.1;
     const design::KalmanNoise<2, 2, double, 1> noise{.process = Matrix<2, 2>::identity() * 1e-4, .measurement = Matrix<2, 2>::identity() * 1e-4, .disturbance = 1e-4};
-    const auto                                 art = design::mpc<20, 5>(plant, w, design::MPCConstraints<1>{}, noise, design::InputDisturbance{});
+    const auto                                 art = design::mpc<20, 5>(plant, w, noise, design::InputDisturbance{});
     REQUIRE(art.success);
-    const auto nominal = design::mpc<20, 5>(StateSpace{.A = plant.A, .B = plant.B, .C = plant.C, .Ts = 0.1}, w, {});
+    const auto nominal = design::mpc<20, 5>(StateSpace{.A = plant.A, .B = plant.B, .C = plant.C, .Ts = 0.1}, w);
     REQUIRE(nominal.success);
     OFMPC     law{art};
     MPC       reference{nominal};
@@ -904,7 +904,7 @@ TEST_CASE("more controlled outputs than inputs: the target is an equilibrium, so
 }
 
 TEST_CASE("back_calculate: a clamp is the applied input, the next move starts from it") {
-    design::MPCConstraints<1> limits{};
+    design::InputLimits<1> limits{};
     limits.u_lim = {.lower = -0.3, .upper = 0.3};
     const auto art = offset_free<10, 4>(move_weight(0.05), limits);
     REQUIRE(art.success);
@@ -928,7 +928,7 @@ TEST_CASE("ofmpc reads a plant with no noise inputs as noise on every state and 
     static_assert(std::is_same_v<decltype(bare), const StateSpace<2, 1, 1>>);
     const auto w = move_weight(0.1);
 
-    const auto by_bare = design::mpc<10, 3>(bare, w, {}, kUnitNoise, design::InputDisturbance{});
+    const auto by_bare = design::mpc<10, 3>(bare, w, kUnitNoise, design::InputDisturbance{});
     const auto by_full = offset_free<10, 3>(w);
     REQUIRE(by_bare.success);
     CHECK((by_bare.kalman.M - by_full.kalman.M).norm() <= 1e-12 * by_full.kalman.M.norm());
@@ -936,6 +936,6 @@ TEST_CASE("ofmpc reads a plant with no noise inputs as noise on every state and 
 
     //! From the continuous plant, the noise braced at the call.
     constexpr StateSpace plant{.A = {{0.0, 1.0}, {0.0, 0.0}}, .B = {{0.0}, {1.0}}, .C = {{1.0, 0.0}}};
-    const auto           sampled = design::mpc<10, 3>(plant, Ts, w, {}, design::KalmanNoise{.process = diag(1.0, 1.0), .measurement = 1.0, .disturbance = 1.0}, design::InputDisturbance{});
+    const auto           sampled = design::mpc<10, 3>(plant, Ts, w, design::KalmanNoise{.process = diag(1.0, 1.0), .measurement = 1.0, .disturbance = 1.0}, design::InputDisturbance{});
     CHECK(sampled.success);
 }

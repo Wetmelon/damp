@@ -51,7 +51,7 @@ template<size_t NX, size_t NU, typename T, size_t NY>
  * TrackedOutputs holds those outputs at r through its steady-state target: control(r),
  * step(r, x). Feedforward from a planned trajectory
  * (x_ref, u_ref) adds to it: control([r,] x_ref, u_ref), step([r,] x_ref, u_ref, x). The command
- * is clamped into u_lim (design::state_feedback's LQRLimits; unbounded by default, and for a gain K or a
+ * is clamped into u_lim (design::state_feedback's InputLimits; unbounded by default, and for a gain K or a
  * design::place result). A failed or continuous design does not compile when constant-evaluated.
  *
  * @code

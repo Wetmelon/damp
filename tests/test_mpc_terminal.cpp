@@ -50,7 +50,7 @@ design::MPCWeights<1, 1> move_weight(double rdu) {
 }
 
 /// |u| ≤ 1.
-constexpr design::MPCConstraints<1> kUnitInput{.u_lim = {.lower = -1.0, .upper = 1.0}};
+constexpr design::InputLimits<1> kUnitInput{.u_lim = {.lower = -1.0, .upper = 1.0}};
 
 /// The position within ±1 (@p hard: no slack).
 design::OutputLimits<1> position_box(bool hard) {
@@ -117,13 +117,13 @@ constexpr ColVec<2> plant_step(const ColVec<2>& x, double u) {
 } // namespace
 
 TEST_CASE("default mpc: no terminal rows, NI is the box formula") {
-    const auto art = design::mpc<8, 4>(double_integrator, {}, {});
+    const auto art = design::mpc<8, 4>(double_integrator, {});
     REQUIRE(art.success);
     CHECK(art.status == design::DesignStatus::ok);
     CHECK(art.mpc.n_terminal == 0);
     CHECK(art.mpc.terminal == design::detail::MPCTerminal::none);
     CHECK(std::remove_cvref_t<decltype(art.mpc)>::NI == 4 * 4); // Δu and u rows; the outputs have none without an OutputLimits
-    CHECK(std::remove_cvref_t<decltype(design::mpc<8, 4>(double_integrator, {}, {}, position_box(false)).mpc)>::NI == (4 * 4) + (2 * 8));
+    CHECK(std::remove_cvref_t<decltype(design::mpc<8, 4>(double_integrator, {}, position_box(false)).mpc)>::NI == (4 * 4) + (2 * 8));
     CHECK(art.mpc.P(0, 0) == doctest::Approx(0.0));
     CHECK(art.mpc.K_terminal(0, 0) == doctest::Approx(0.0));
 }
@@ -139,7 +139,7 @@ TEST_CASE("unconstrained DARE terminal reproduces the LQR law") {
     weights.Rdu = Matrix<1, 1>{};
     weights.Ru = R;
 
-    const auto art = design::mpc<8, 8>(double_integrator_full, weights, {}, design::DareCost{});
+    const auto art = design::mpc<8, 8>(double_integrator_full, weights, design::DareCost{});
     REQUIRE(art.success);
     CHECK(art.status == design::DesignStatus::ok);
     CHECK(art.mpc.n_terminal == 0);
@@ -351,7 +351,7 @@ TEST_CASE("float conversion keeps terminal rows and the float tick stays in budg
 }
 
 TEST_CASE("an InvariantSet with NT_max = 0 is refused as bad_weights") {
-    const auto art = design::mpc<4, 2>(double_integrator, {}, {}, design::InvariantSet{});
+    const auto art = design::mpc<4, 2>(double_integrator, {}, design::InvariantSet{});
     CHECK_FALSE(art.success);
     CHECK(art.status == design::DesignStatus::bad_weights);
 }
@@ -390,8 +390,8 @@ TEST_CASE("terminal set moves with the target: every admissible target is inside
 TEST_CASE("4-state NP=10 dare_cost design is constexpr under default ops") {
     // The Δu-form terminal cost is a DARE on z = [e; v] (6 states here): cheap enough for constinit.
     constexpr auto art = [] {
-        constexpr auto            weights = two_axes_weights();
-        design::MPCConstraints<2> limits{};
+        constexpr auto         weights = two_axes_weights();
+        design::InputLimits<2> limits{};
         limits.u_lim = {
             .lower = {-1.0, -1.0},
             .upper = {1.0, 1.0},
@@ -406,8 +406,8 @@ TEST_CASE("4-state NP=10 invariant_set design") {
     // The target-augmented set lives on [z; q] (NX + NU + NY + NU = 10 here) and needs ~160
     // facets: it is designed at initialization with the capacity raised accordingly.
     const auto art = [] {
-        constexpr auto            weights = two_axes_weights();
-        design::MPCConstraints<2> limits{};
+        constexpr auto         weights = two_axes_weights();
+        design::InputLimits<2> limits{};
         limits.u_lim = {
             .lower = {-1.0, -1.0},
             .upper = {1.0, 1.0},
