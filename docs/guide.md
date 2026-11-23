@@ -120,6 +120,7 @@ types. Bode and friends return analysis grids. New code uses `design::` and
 | ESO, ADRC                             | `design::eso` → `ESO` (observer only); `design::adrc` → `ADRCController` (ESO + PD)                              |
 | anti-windup, sat, `umax`              | `u_lim` on the design or its result: the law clamps to it and holds its memory against that clamp, with nothing else to set. `back_calculate(u_sat)` after a clamp downstream of the law. See [Limits and anti-windup](#limits-and-anti-windup) |
 | `mpcmove`, constraints                | `design::mpc` (`MPC`, or `OFMPC` with a `KalmanNoise` and a disturbance spec), `MPC.step(r, y)`                  |
+| `ManipulatedVariables` Min/Max, RateMin/RateMax | `design::InputLimits{.u_lim = {…}, .du_lim = {…}}` among `mpc`'s options, hard rows on u and Δu; left out, unbounded. `state_feedback` takes the same option for its `u_lim` and refuses a `.du_lim`: an LQ law clamps its command, and a move limit is the MPC's |
 | `OutputVariables` Min/Max, MinECR/MaxECR | `design::OutputLimits{.outputs = {i, …}, .lim = {…}}` among `mpc`'s options: rows for the controlled outputs it lists alone, soft by default (`.lower_ecr`, `.upper_ecr`; 0 is hard) |
 | `setterminal`, `Optimizer.MaxIterations` | `design::DareCost{}`, or `design::InvariantSet{.target_margin}` with `mpc<NP, NC, NT_max>`; `design::QPIterations{n}` |
 | `ManipulatedVariables` Target         | `set_input_target(u)` on the runtime (`Ru` its weight)                                                           |
@@ -133,7 +134,7 @@ Keep the plant as `StateSpace` (or `matlab::ss` / `tf`). Discretize with `discre
 
 `[K,S,e] = lqr(sys,Q,R)` is `design::state_feedback(sys, {.Q, .R})` (CARE if continuous, DARE if discrete). Sampled-data (`lqrd`) is `design::state_feedback(sys, Ts, {.Q, .R})`.
 
-Integral action is `design::state_feedback` with an `IntegralAction{.Q}`, its own cost on the integrators; it builds the augmented plant. Actuator saturation on that law is an `LQRLimits{.u_lim}` among its options, which the law clamps to and holds its integrators against (a `tracking_time` in the `IntegralAction` unwinds them instead), or `back_calculate` after a clamp downstream. Input and output limits over a horizon are `design::mpc`.
+Integral action is `design::state_feedback` with an `IntegralAction{.Q}`, its own cost on the integrators; it builds the augmented plant. Actuator saturation on that law is an `InputLimits{.u_lim}` among its options, which the law clamps to and holds its integrators against (a `tracking_time` in the `IntegralAction` unwinds them instead), or `back_calculate` after a clamp downstream. The same option carries an MPC's `.du_lim`, which an LQ design refuses: input, move and output limits over a horizon are `design::mpc`.
 
 A design's options trail its call in any order, recognized by their type. For a caller who would name each one, or keep a design's inputs in one object, `damp/design/config.hpp` is a helper over them: `design::state_feedback(sys, Ts, design::LQConfig{.weights = weights, .integral = design::IntegralAction{.Q = 80.0}})` is the same design, and `KalmanConfig`, `MPCConfig` and `TargetConfig` do the same for `kalman`, `mpc` and `steady_state_target`. Every field holds a named object (`design::LQRWeights{…}`, not bare braces), which the plant cannot size inside a config.
 
@@ -235,8 +236,8 @@ One contract for every law:
 | Law | Output limit | What holds against the clamp |
 | --- | --- | --- |
 | `PIDController`, `PIController`, `ContinuousPID` | `u_lim` in `PIDGains` | The integral: it gives back what the tick added, up to what the clamp cut off. With a `Kbc` it unwinds by back-calculation instead |
-| `LQR`, `LQI`, `LQG`, `LQGI`, `OFLQG` | `u_lim` in an `LQRLimits`, and `lim` in the `IntegralAction` | The integrators: they hold (conditional integration), or with a `tracking_time` in the `IntegralAction` unwind by back-calculation; the filter and the input registers move on the clamped command; `OFLQG`'s d̂ stays in `disturbance_lim` |
-| `MPC`, `OFMPC` | `u_lim`, `du_lim` in `MPCConstraints`, an `OutputLimits` and a `StateLimits` | By construction: the limits are constraints of the QP; `OFMPC`'s d̂ stays in `disturbance_lim` |
+| `LQR`, `LQI`, `LQG`, `LQGI`, `OFLQG` | `u_lim` in an `InputLimits` (its `du_lim` refused), and `lim` in the `IntegralAction` | The integrators: they hold (conditional integration), or with a `tracking_time` in the `IntegralAction` unwind by back-calculation; the filter and the delay states move on the clamped command; `OFLQG`'s d̂ stays in `disturbance_lim` |
+| `MPC`, `OFMPC` | `u_lim`, `du_lim` in an `InputLimits`, an `OutputLimits` and a `StateLimits` | By construction: the limits are constraints of the QP; `OFMPC`'s d̂ stays in `disturbance_lim` |
 | `ADRCController` | `u_lim` on `ADRCResult` | The ESO runs on the clamped command |
 | `STSMCController` | `u_lim` on `STSMCResult` | The integral state |
 | `LeadLagController` | `u_lim` on `LeadLagResult` | The recursion runs on the clamped output |

@@ -41,6 +41,7 @@
 #include "damp/controllers/state_feedback_types.hpp"
 #include "damp/design/detail/config.hpp"
 #include "damp/design/disturbance.hpp"
+#include "damp/design/input_limits.hpp" // IWYU pragma: export
 #include "damp/design/options.hpp"
 #include "damp/design/steady_state_target.hpp" // IWYU pragma: export
 #include "damp/estimation/kalman.hpp"
@@ -85,13 +86,14 @@ template<size_t NY, size_t NX, size_t NU, typename T, typename TQ, typename TI>
     out.cost.N = config.N;
     out.cost.Q_integral = square_matrix<NI, T>(action.Q, Matrix<NI, NI, T>{});
     out.cost.u_lim = config.u_lim;
+    out.cost.du_lim = config.du_lim;
     out.cost.integral_lim = action.lim.template as<T>();
     out.cost.tracking_time = static_cast<T>(action.tracking_time);
     return out;
 }
 
 /** @brief The options of a state-feedback design: a KalmanNoise makes it estimate the state. */
-using state_feedback_options = ::damp::detail::option_set<is_input_delay, is_output_delay, is_integral_option, is_tracked_option, is_disturbance, is_kalman_noise, is_lqr_limits, is_demand_limit>;
+using state_feedback_options = ::damp::detail::option_set<is_input_delay, is_output_delay, is_integral_option, is_tracked_option, is_disturbance, is_kalman_noise, is_input_limits, is_demand_limit>;
 
 /** @brief design::state_feedback in the plant's domain (@p Sampled false) or at @p Ts: on the measured state, or on a Kalman filter's estimate with a KalmanNoise among @p opts. */
 template<bool Sampled, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename... Opts>
@@ -134,7 +136,9 @@ template<bool Sampled, size_t NX, size_t NU, size_t NY, typename T, size_t NW, s
  * The cost is @p weights in the plant's own time domain: LQRWeights {.Q, .R, .N}, the same with
  * or without integral action, which brings its own cost. @p opts trail in any order, at most one
  * of each kind:
- * - LQRLimits{.u_lim}: the limit the law's command runs within, clamped into u_lim (LQRLimits).
+ * - InputLimits{.u_lim}: the limit the law's command runs within, clamped into u_lim (InputLimits).
+ *   An LQ law clamps its command and no move: a bounded .du_lim, the MPC's, is refused with
+ *   DesignStatus::invalid_parameter.
  * - DemandLimit{.state, .outer, .lim}: a limit on what the outer terms, listed by index (the plant
  *   states, then the integrators), ask of one state (DemandLimit). The gain is the same without
  *   either.

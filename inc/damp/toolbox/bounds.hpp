@@ -24,7 +24,7 @@
  * weight; it is not a member here.
  *
  * @see controllers/pid.hpp (Bounds<1> on output + integrator),
- *      controllers/mpc.hpp (MPCConstraints), estimation/mhe.hpp (MHEConstraints).
+ *      design/input_limits.hpp (InputLimits), estimation/mhe.hpp (MHEConstraints).
  */
 
 

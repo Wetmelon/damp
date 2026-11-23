@@ -374,7 +374,7 @@ TEST_SUITE("Delay per channel and on the measurement") {
         design::MPCWeights<1, 1> w{};
         w.Qy = 1e3;
         w.Rdu = 1e-4;
-        const auto ofmpc = design::mpc<25, 5>(kLate, w, {}, noise, design::InputDisturbance{});
+        const auto ofmpc = design::mpc<25, 5>(kLate, w, noise, design::InputDisturbance{});
         REQUIRE(ofmpc.success);
         OFMPC    planner{ofmpc};
         Truth<4> b{kLate};
@@ -391,12 +391,12 @@ TEST_SUITE("Delay per channel and on the measurement") {
         constexpr auto           model = discretize(lag, kTs, OutputDelay<5>{5.0 * kTs}).value();
         design::MPCWeights<1, 1> w{};
         w.Rdu = 0.05;
-        CHECK(design::mpc<5, 2>(model, w, {}).status == design::DesignStatus::invalid_parameter);
-        CHECK(design::mpc<6, 2>(model, w, {}).success);
+        CHECK(design::mpc<5, 2>(model, w).status == design::DesignStatus::invalid_parameter);
+        CHECK(design::mpc<6, 2>(model, w).success);
         constexpr auto h = design::suggest_mpc_horizon(model);
         static_assert(h.success);
         CHECK(h.prediction_horizon == 43); // 4τ = 3.80 s and the 0.5 s delay, as for an input delay
-        CHECK(design::mpc<h.prediction_horizon, h.control_horizon>(model, w, {}).success);
+        CHECK(design::mpc<h.prediction_horizon, h.control_horizon>(model, w).success);
     }
 
     TEST_CASE("a placed observer on the output registers: one pole per output pinned at 0, the error gone") {

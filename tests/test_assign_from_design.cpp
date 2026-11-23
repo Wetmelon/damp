@@ -161,7 +161,7 @@ TEST_SUITE("assign from design") {
         static_assert(pid); // contextual conversion under constant evaluation
         static_assert(!design::ziegler_nichols(10.0, 0.0));
 
-        const auto mpc = design::mpc<4, 2>(plant, design::MPCWeights<1, 1>{}, {});
+        const auto mpc = design::mpc<4, 2>(plant, design::MPCWeights<1, 1>{});
         REQUIRE(mpc.success);
         CHECK(static_cast<bool>(mpc));
         CHECK_FALSE(static_cast<bool>(decltype(mpc){}));

@@ -39,7 +39,7 @@ constexpr auto kLaw = design::mpc<12, 4>(kModel, kWeights, kLimits, kNoise, desi
 static constinit Law<kLaw, float> controller;  // the design's OFMPC: sizes, estimator and delay from the design, the filter on constants; a failed design does not compile
 ```
 
-After the weights come, in this order, the limits, the estimator's noise (`KalmanNoise`, so the controller runs from the thermistor reading through a Kalman filter) and the disturbance model (`InputDisturbance`, which makes it offset-free): `design::mpc<NP, NC>(model, weights, limits, noise, disturbance)`, run as `OFMPC`, whose tick is `step(r, y)`. The dead time is in the model itself.
+After the weights come the options, in any order: the limits (`InputLimits`), the estimator's noise (`KalmanNoise`, so the controller runs from the thermistor reading through a Kalman filter) and the disturbance model (`InputDisturbance`, which makes it offset-free): `design::mpc<NP, NC>(model, weights, limits, noise, disturbance)`, run as `OFMPC`, whose tick is `step(r, y)`. The dead time is in the model itself.
 
 The dead time is one control period, $`\theta = T_s`$, so the power decided now reaches the block only over the next period. The model carries the previous command as one register state, with no approximation: with $`a = e^{-T_s/\tau}`$,
 

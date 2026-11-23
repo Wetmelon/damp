@@ -38,7 +38,7 @@ auto plain_design(double ru = 0.0) {
     w.Rdu = 1.0;
     w.Ru = ru;
     w.Qy_terminal = w.Qy;
-    design::MPCConstraints<1> c{};
+    design::InputLimits<1> c{};
     c.u_lim = {
         .lower = 0.0,
         .upper = 40.0,
@@ -153,8 +153,8 @@ TEST_SUITE("MPC reference preview") {
         w.Qy = 1.0;
         w.Rdu = 1.0;
         w.Qy_terminal = w.Qy;
-        constexpr double          u_max = 40.0;
-        design::MPCConstraints<1> c{};
+        constexpr double       u_max = 40.0;
+        design::InputLimits<1> c{};
         c.u_lim = {
             .lower = 0.0,
             .upper = u_max,
