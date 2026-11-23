@@ -19,7 +19,6 @@
 #include "damp/controllers/lqr.hpp"
 #include "damp/controllers/oflqg.hpp"
 #include "damp/controllers/state_feedback.hpp"
-#include "damp/design/config.hpp"
 #include "damp/design/disturbance.hpp"
 #include "damp/design/input_limits.hpp"
 #include "damp/design/status.hpp"
@@ -444,16 +443,6 @@ TEST_SUITE("LQ limits") {
         CHECK(got[3] == doctest::Approx(0.55416557619751838).epsilon(1e-9));
         CHECK(got[4] == doctest::Approx(0.92109412242830047).epsilon(1e-9));
         CHECK(got[5] == doctest::Approx(1.0220145809046597).epsilon(1e-9));
-
-        //! LQConfig's input_limits passes the same option on.
-        const auto by_config = design::state_feedback(plant(), kTs, design::LQConfig{.weights = kFree, .input_limits = kBound, .integral = kIntegral});
-        REQUIRE(by_config.success);
-        CHECK((by_config.K - lqi.K).norm() <= 4.0 * eps<double>() * lqi.K.norm());
-        CHECK(by_config.u_lim.upper(0) == kLimit);
-        const auto again = run(by_config);
-        for (size_t i = 0; i < got.size(); ++i) {
-            CHECK(again[i] == doctest::Approx(got[i]).epsilon(1e-12));
-        }
     }
 
     TEST_CASE("an LQ design refuses a move limit (invalid_parameter): the law clamps u, and a move limit is the MPC's") {
@@ -468,7 +457,6 @@ TEST_SUITE("LQ limits") {
         CHECK(refused(design::state_feedback(plant(), kTs, kFree, moves, walk, design::InputDisturbance{}))); // OFLQG
         CHECK(refused(design::state_feedback(plant(), kTs, kFree, moves, InputDelay<2>{0.014})));             // on the delayed plant
         CHECK(refused(design::state_feedback(discretize(plant(), kTs).value(), kFree, moves)));               // a discrete plant
-        CHECK(refused(design::state_feedback(plant(), kTs, design::LQConfig{.weights = kFree, .input_limits = moves})));
 
         //! One side is a limit too, and so is a NaN; no u_lim is needed for the refusal.
         CHECK(refused(design::state_feedback(plant(), kTs, kFree, design::InputLimits{.du_lim = {.upper = 0.1}})));

@@ -10,7 +10,6 @@
 
 #include "damp/backend.hpp"
 #include "damp/controllers/mpc.hpp"
-#include "damp/design/config.hpp"
 #include "damp/design/disturbance.hpp"
 #include "damp/design/input_limits.hpp"
 #include "damp/design/qp.hpp"
@@ -300,7 +299,7 @@ TEST_CASE("InputLimits{.u_lim, .du_lim} is the QP and the commands MPCConstraint
     CHECK(got[7] == doctest::Approx(1.1791913358321511).epsilon(1e-8));
     CHECK(got[8] == doctest::Approx(-0.32435392995393764).epsilon(1e-8));
 
-    //! The same design through MPCConfig, and after another option.
+    //! The same design with the limits after another option.
     const auto same = [&](const auto& other) {
         REQUIRE(other.success);
         const auto& b = other.mpc;
@@ -316,7 +315,6 @@ TEST_CASE("InputLimits{.u_lim, .du_lim} is the QP and the commands MPCConstraint
             CHECK(commands[i] == doctest::Approx(got[i]).epsilon(1e-9));
         }
     };
-    same(design::mpc<10, 4>(double_integrator, design::MPCConfig{.weights = w, .input_limits = limits}));
     same(design::mpc<10, 4>(double_integrator, w, design::QPIterations{220}, limits));
 
     //! Limits in another scalar are read in the plant's.
