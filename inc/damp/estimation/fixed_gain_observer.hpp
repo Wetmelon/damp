@@ -592,6 +592,8 @@ struct HeldObserver {
  *   setpoint that term is zero and the deviation observer is the absolute one in exact arithmetic.
  * - An input delay is in the model discretize(plant, Ts, InputDelay<N>{θ}) returns: its registers
  *   v(k−1) … v(k−N) are states like any other, the first loaded through B.
+ * - A design with a MeasuredDisturbance takes it as inputs after u (NU counts both): predict([u; d]),
+ *   the d the plant held over the period, and an anchor's input is [u_a; d_a].
  *
  * A failed or continuous (Ts = 0) design, or a continuous model, does not compile when
  * constant-evaluated; at run time it installs M = 0 (an open-loop predictor) and valid() is false.

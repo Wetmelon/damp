@@ -98,6 +98,7 @@ struct HeldGains {
  * | estimator (FixedGainObserver with design::kalman's gain, disturbance model) | Est | NoEstimator: the state is measured |
  * | steady-state target for r, under the disturbance model if there is one (SteadyStateTarget) | NZ | 0 |
  * | input registers: the inputs applied over the last NRU periods, held by the law (a measured state) | NRU | 0 |
+ * | a measured disturbance d: the target under it, and the filter's known input after u | NMD | 0 |
  * | limits on the command and on the integrators | @ref u_lim, @ref integral_lim | unbounded |
  * | back-calculation for the integrators against a clamp | @ref tracking_time | 0: conditional integration |
  * | a limit on the disturbance estimate d̂ (ND > 0) | @ref disturbance_lim | unbounded |
@@ -133,6 +134,12 @@ struct HeldGains {
  *   actuator clamping against it (conditional integration), or with a @ref tracking_time advances
  *   it and pulls it toward the value that asks for the input applied (back-calculation), and
  *   clamps xi into integral_lim;
+ * - with a measured disturbance (NMD > 0): the target is the steady state under it too, x_t and
+ *   u_t moving with d (under [d̂; d] with a disturbance model, which then estimates only what d
+ *   does not account for); a law whose r is not the target's (a regulator, an LQI) takes the
+ *   steady state under d that holds every output, or the integrated outputs, at 0, its r still
+ *   the integrators'. The control and step that take d record it, and a filter's next
+ *   @ref predict holds it over the period with the input, as the plant does;
  * - within limits: @ref control returns the command clamped into @ref u_lim, and that is the
  *   input the next @ref predict takes as applied unless @ref back_calculate recorded another.
  *   The integrators compare the applied input with the command before the clamp, so they hold
@@ -164,8 +171,9 @@ struct HeldGains {
  * @tparam NZ  Controlled outputs of the steady-state target (0: none)
  * @tparam Store Where the matrices live: HeldGains (members), or constants of the type (Law of a `constexpr` design)
  * @tparam NRU Input registers the law holds, NRU·NU states after the plant's (0: none)
+ * @tparam NMD  Measured-disturbance inputs (0: none): a filter takes them after u
  */
-template<size_t NX, size_t NU, typename T, size_t NI, size_t NY, typename Est, size_t NZ, typename Store = HeldGains, size_t NRU = 0>
+template<size_t NX, size_t NU, typename T, size_t NI, size_t NY, typename Est, size_t NZ, typename Store = HeldGains, size_t NRU = 0, size_t NMD = 0>
 struct StateFeedbackCore {
     using Traits = detail::estimator_traits<Est>;
     static constexpr bool   kEstimated = Traits::present;         ///< A filter estimates the state
@@ -178,20 +186,26 @@ struct StateFeedbackCore {
     static_assert(!kEstimated || Traits::NXE >= NXL, "The estimator is on the law's model, the delay states of late readings after it.");
     static_assert(NI == 0 || NZ == 0, "Integral action and a disturbance model are two offset-free choices: an IntegralAction or a disturbance spec, not both.");
     static_assert(ND == 0 || NZ > 0, "A disturbance model tracks through its steady-state target.");
+    static_assert(!kEstimated || Traits::NUK == NU + NMD, "The filter takes the inputs, then the measured disturbance: design::state_feedback's with a MeasuredDisturbance.");
+    static constexpr bool kTarget = (NZ > 0) || (NMD > 0);               ///< A steady-state target: for r, or under a measured d
     static constexpr bool kRecord = (NI > 0) || kEstimated || (NRU > 0); ///< The law keeps its command and the applied input
     using Record = damp::conditional_t<kRecord, detail::AppliedRecord<NU, T>, detail::NoAppliedRecord>;
 
-    using Target = detail::maybe<(NZ > 0), SteadyStateTarget<NXE, NU, ND, NZ, T, typename Store::template TargetD<NXE + NU, ND, T>, typename Store::template TargetR<NXE + NU, NZ, T>>, detail::OffSlot::target>;
+    using Target = detail::maybe<
+        kTarget,
+        SteadyStateTarget<NXE, NU, ND + NMD, NZ, T, typename Store::template TargetD<NXE + NU, ND + NMD, T>, typename Store::template TargetR<NXE + NU, NZ, T>>,
+        detail::OffSlot::target>;
     using Integral = detail::maybe<(NI > 0), detail::IntegralAction<NI, NM, NU, (kEstimated ? NY : 0), T, typename Store::template Ci<NI, NM, T>, typename Store::template Ci_u<NI, NU, T>>, detail::OffSlot::integral>;
     using HeldX = detail::maybe<!kEstimated, ColVec<NXL, T>, detail::OffSlot::held_x>;
     using DisturbanceLim = detail::maybe<(ND > 0), Bounds<ND, T>, detail::OffSlot::disturbance_lim>;
     using IntegralLim = detail::maybe<(NI > 0), Bounds<NI, T>, detail::OffSlot::integral_lim>;
     using TrackingTime = detail::maybe<(NI > 0), T, detail::OffSlot::tracking_time>;
+    using HeldMeasured = detail::maybe<(kEstimated && NMD > 0), ColVec<NMD, T>, detail::OffSlot::held_measured>;
 
     [[no_unique_address]] Store::template K<NU, NXL + NI, T> K{}; ///< Gain on [x; xi]
 
     [[no_unique_address]] Est      estimator{}; ///< The filter (none for a measured state)
-    [[no_unique_address]] Target   target{};    ///< The steady-state target (NZ > 0)
+    [[no_unique_address]] Target   target{};    ///< The steady-state target (NZ > 0, or NMD > 0: under the measured d)
     [[no_unique_address]] Integral integral{};  ///< The integrators (NI > 0)
     Bounds<NU, T>                  u_lim{};     ///< Limits on the command control returns (default unbounded)
 
@@ -215,7 +229,7 @@ struct StateFeedbackCore {
      * time either leaves the law invalid.
      */
     template<typename R>
-        requires(detail::gain_result<R> && !kEstimated && NI == 0 && NZ == 0 && NRU == 0 && !Store::constant)
+        requires(detail::gain_result<R> && !kEstimated && NI == 0 && NZ == 0 && NRU == 0 && NMD == 0 && !Store::constant)
     constexpr StateFeedbackCore(const R& result) // NOLINT
         : valid_(usable(result, detail::discrete_gain(result))) {
         if (valid_) {
@@ -236,10 +250,11 @@ struct StateFeedbackCore {
      * A failed or continuous result (Ts = 0) does not compile when constant-evaluated; at run
      * time either leaves the law invalid.
      */
-    template<size_t NXR, size_t NUR, typename U, size_t NIR, size_t NYR, typename Kalman, size_t NZR, size_t NRR>
+    template<size_t NXR, size_t NUR, typename U, size_t NIR, size_t NYR, typename Kalman, size_t NZR, size_t NRR, size_t NMR>
         requires(!Store::constant)
-    constexpr StateFeedbackCore(const design::StateFeedbackResult<NXR, NUR, U, NIR, NYR, Kalman, NZR, NRR>& result) { // NOLINT
-        constexpr bool same = NXR == NX && NUR == NU && NIR == NI && NYR == NY && NZR == NZ && NRR == NRU && damp::is_same_v<Est, detail::runtime_estimator_t<Kalman, T>>;
+    constexpr StateFeedbackCore(const design::StateFeedbackResult<NXR, NUR, U, NIR, NYR, Kalman, NZR, NRR, NMR>& result) { // NOLINT
+        constexpr bool same = NXR == NX && NUR == NU && NIR == NI && NYR == NY && NZR == NZ && NRR == NRU && NMR == NMD
+                           && damp::is_same_v<Est, detail::runtime_estimator_t<Kalman, T>>;
         static_assert(same, "This law's sizes are not the design's: let them deduce, LQG law{res}, or Law<res, T> for a member.");
         if constexpr (same) {
             valid_ = usable(result, damp::finite_positive(result.Ts));
@@ -263,7 +278,7 @@ struct StateFeedbackCore {
             }
             u_lim = result.u_lim.template as<T>();
             demand_lim = result.demand_lim.template as<T>();
-            if constexpr (NZ > 0) {
+            if constexpr (kTarget) {
                 target = Target(result.target);
             }
         }
@@ -301,7 +316,9 @@ struct StateFeedbackCore {
         if constexpr (NI > 0) {
             integrate();
         }
-        if constexpr (kEstimated) {
+        if constexpr (kEstimated && NMD > 0) {
+            estimator.predict(detail::stacked(applied_.applied, measured_)); // the measured d the last control took, held over the period
+        } else if constexpr (kEstimated) {
             estimator.predict(applied_.applied);
         }
         if constexpr (NRU > 0 && !kEstimated) {
@@ -342,7 +359,9 @@ struct StateFeedbackCore {
      *        clamped into u_lim: integral action on @p r (NI > 0), or the steady-state target for
      *        @p r (NZ > 0, under d̂ when ND > 0).
      */
-    [[nodiscard]] constexpr ColVec<NU, T> control(const ColVec<NR, T>& r, const ColVec<NX, T>& x_ref, const ColVec<NU, T>& u_ref) {
+    [[nodiscard]] constexpr ColVec<NU, T> control(const ColVec<NR, T>& r, const ColVec<NX, T>& x_ref, const ColVec<NU, T>& u_ref)
+        requires(NMD == 0)
+    {
         if (!valid_) {
             return ColVec<NU, T>{}; // a refused design: no command
         }
@@ -363,11 +382,56 @@ struct StateFeedbackCore {
         }
     }
 
+    /**
+     * @brief control(@p r, @p x_ref, @p u_ref) under the measured disturbance @p d (NMD > 0): the target
+     *        for @p r (none on a regulator; an LQI's integrators keep r) under d, and under d̂ too
+     *        with a disturbance model, about (x*, u*). @p d is held for a filter's next predict.
+     */
+    [[nodiscard]] constexpr ColVec<NU, T> control(const ColVec<NR, T>& r, const ColVec<NX, T>& x_ref, const ColVec<NU, T>& u_ref, const ColVec<NMD, T>& d)
+        requires(NMD > 0)
+    {
+        if constexpr (kEstimated) {
+            measured_ = d; // the plant holds it over the period, as it holds the input
+        }
+        if (!valid_) {
+            return ColVec<NU, T>{}; // a refused design: no command
+        }
+        const ColVec<NXL, T> ref = detail::on_law_model<NRU>(x_ref, u_ref);
+        if constexpr (ND > 0) {
+            target.anchor(estimator, r, detail::on_filter_model<NXE>(ref), u_ref, d); // under [d̂; d]
+            const ColVec<NXL, T> z = detail::leading<NXL>(estimator.at_command());
+            const ColVec<NU, T>  u = detail::leading<NU>(estimator.anchor_input()) - (K * z);
+            return record(u, limit_demand(u, z));
+        } else {
+            const auto           p = target.equilibrium(target_reference(r), d); // on the law's model: each delay state at u_t
+            const ColVec<NXL, T> x_a = ref + detail::leading<NXL>(p.x);
+            const ColVec<NU, T>  u_a = u_ref + p.u;
+            if constexpr (NI > 0 && kEstimated) {
+                return integral_law(r, law_state(), x_a, u_a, integral.y, ColVec<NI, T>(integral.Ci_u * applied_.applied));
+            } else if constexpr (NI > 0) {
+                return integral_law(r, x_, x_a, u_a, x_, ColVec<NI, T>{});
+            } else {
+                return reference_law(law_state(), x_a, u_a);
+            }
+        }
+    }
+
     /** @brief One tick: predict(), update(@p m), then control(@p r, @p x_ref, @p u_ref). */
-    [[nodiscard]] constexpr ColVec<NU, T> step(const ColVec<NR, T>& r, const ColVec<NX, T>& x_ref, const ColVec<NU, T>& u_ref, const ColVec<NIn, T>& m) {
+    [[nodiscard]] constexpr ColVec<NU, T> step(const ColVec<NR, T>& r, const ColVec<NX, T>& x_ref, const ColVec<NU, T>& u_ref, const ColVec<NIn, T>& m)
+        requires(NMD == 0)
+    {
         predict();
         update(m);
         return control(r, x_ref, u_ref);
+    }
+
+    /** @brief One tick: predict(), update(@p m), then control(@p r, @p x_ref, @p u_ref, @p d): the reference and its feedforward, then what was read. */
+    [[nodiscard]] constexpr ColVec<NU, T> step(const ColVec<NR, T>& r, const ColVec<NX, T>& x_ref, const ColVec<NU, T>& u_ref, const ColVec<NMD, T>& d, const ColVec<NIn, T>& m)
+        requires(NMD > 0)
+    {
+        predict();
+        update(m);
+        return control(r, x_ref, u_ref, d);
     }
 
     // ---- state ---------------------------------------------------------------------------
@@ -425,12 +489,26 @@ struct StateFeedbackCore {
         if constexpr (NRU > 0 && !kEstimated) {
             x_ = ColVec<NXL, T>{};
         }
+        if constexpr (kEstimated && NMD > 0) {
+            measured_ = ColVec<NMD, T>{};
+        }
     }
 
 private:
-    [[no_unique_address]] Record applied_{};   ///< The last command and the input back_calculate recorded
-    [[no_unique_address]] HeldX  x_{};         ///< The measured state from the last update (no estimator)
-    bool                         valid_{true}; ///< False when built from a design it refuses
+    [[no_unique_address]] Record       applied_{};   ///< The last command and the input back_calculate recorded
+    [[no_unique_address]] HeldX        x_{};         ///< The measured state from the last update (no estimator)
+    [[no_unique_address]] HeldMeasured measured_{};  ///< The measured disturbance the last control took, for the filter's next predict (NMD > 0)
+    bool                               valid_{true}; ///< False when built from a design it refuses
+
+    /** @brief The target's reference: @p r when the target holds it, none when the law's r is the integrators' (NI > 0) or it has none. */
+    [[nodiscard]] static constexpr ColVec<NZ, T> target_reference(const ColVec<NR, T>& r) {
+        if constexpr (NI > 0) {
+            static_cast<void>(r);
+            return ColVec<NZ, T>{};
+        } else {
+            return r;
+        }
+    }
 
     /** @brief Whether a design's gain runs on this tick: it succeeded and is discrete. Otherwise it does not compile when constant-evaluated (the error names its status) and the law is invalid. */
     template<typename R>

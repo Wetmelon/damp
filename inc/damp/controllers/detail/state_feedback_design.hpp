@@ -190,6 +190,46 @@ template<bool Discrete, size_t NI, size_t NX, size_t NU, size_t NY, typename T, 
 }
 
 /**
+ * @brief The target of an LQ law with a measured disturbance, on the model of @p sys with @p delay:
+ *        under [d̂; d] holding at r the outputs its spec or TrackedOutputs lists (@p Held), else
+ *        the steady state under d that holds at 0 the integrated outputs @p Ci (an LQI's, NI > 0,
+ *        whose integrators then hold r) or every output (a regulator), with no map of r.
+ *
+ * The law is u = u_t − K·(x − x_t) about it: for a d held constant, as the MPC holds it over its
+ * horizon, that is the LQ law in the deviation from the steady state under d, so no term beyond
+ * the target is optimal.
+ */
+template<bool Held, bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Spec, size_t NI, size_t NM, typename Delay>
+[[nodiscard]] constexpr auto measured_target(
+    const StateSpace<NX, NU, NY, T, NW, NV>&                               sys,
+    T                                                                      Ts,
+    const Spec&                                                            spec,
+    const Matrix<NI, NY, T>&                                               Ci,
+    const damp::optional<Matrix<NX + delay_states<Delay, NU, NY>, NM, T>>& Bm,
+    const Delay&                                                           delay
+) {
+    constexpr size_t NXE = NX + delay_states<Delay, NU, NY>;
+    if constexpr (Held) {
+        static_cast<void>(Ci);
+        using Result = SteadyStateTargetResult<NXE, NU, disturbance_traits<Spec, NU, NY, NW>::states + NM, target_outputs<Spec, NU, NY, NW>, T>;
+        if (!Bm) {
+            return ::damp::detail::refused<Result>(DesignStatus::bad_weights); // a non-finite B_d
+        }
+        return target_design<Discrete>(sys, Ts, spec, target_weight<Spec, NU, NY, NW, T>::identity(), delay, *Bm);
+    } else {
+        static_cast<void>(spec);
+        if (!Bm) {
+            return ::damp::detail::refused<SteadyStateTargetResult<NXE, NU, NM, 0, T>>(DesignStatus::bad_weights); // a non-finite B_d
+        }
+        if constexpr (NI > 0) {
+            return held_at_zero<Discrete>(sys, Ts, Ci, delay, *Bm);
+        } else {
+            return held_at_zero<Discrete>(sys, Ts, Matrix<NY, NY, T>::identity(), delay, *Bm);
+        }
+    }
+}
+
+/**
  * @brief The design on checked options: the law, then the filter and the target they ask for, on
  *        the plant or on its model with the input registers of @p delay; status the first failure.
  */
@@ -204,8 +244,10 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
     using O = options_traits<Options>;
     constexpr size_t NI = integrator_count<NY, Options>;
     constexpr size_t NRU = delay_registers<Delay>;
+    constexpr size_t NM = measured_count<Options>;
     constexpr bool   kEstimated = !is_unset<typename O::noise>;
-    constexpr bool   kTarget = !is_unset<typename O::disturbance> || !is_unset<typename O::track>;
+    constexpr bool   kHeld = !is_unset<typename O::disturbance> || !is_unset<typename O::track>; // r is the target's
+    constexpr bool   kTarget = kHeld || (NM > 0);                                                // a measured d moves every law's target
     const auto       spec = disturbance_of(opts);
 
     const auto Ci = integrated_selector<NI, NY, T>(integral_action_of(opts));
@@ -234,15 +276,16 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
         using SpecT = damp::remove_cvref_t<decltype(spec)>;
         constexpr size_t NDS = disturbance_traits<SpecT, NU, NY, NW>::listed;
         constexpr size_t NZS = (NDS == 0) ? NY : NDS; // the spec's outputs, or every output
-        constexpr size_t NZ = kTarget ? NZS : 0;
+        constexpr size_t NZ = kHeld ? NZS : 0;
+        const auto       Bm = measured_channel<Discrete>(sys, Ts, measured_disturbance_of<NX, T>(opts), delay); // d on the model, none on the input's delay states
         const auto       filter = [&] {
             if constexpr (kEstimated) {
-                return kalman_design<Discrete>(sys, Ts, opts.noise, spec, delay);
+                return with_measured_inputs(kalman_design<Discrete>(sys, Ts, opts.noise, spec, delay), Bm); // d a known input after u
             } else {
                 return NoEstimator{};
             }
         }();
-        using Result = StateFeedbackResult<NX, NU, T, NI, (kEstimated ? NY : NX), damp::remove_cvref_t<decltype(filter)>, NZ, NRU>;
+        using Result = StateFeedbackResult<NX, NU, T, NI, (kEstimated ? NY : NX), damp::remove_cvref_t<decltype(filter)>, NZ, NRU, NM>;
         Result out{law.K, law.S, law.e, law.success, law.status, law.Ts, filter};
         if constexpr (NI > 0) {
             out.integral = law.integral;
@@ -255,8 +298,12 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
         if constexpr (kEstimated) {
             status = (status == DesignStatus::ok) ? filter.status : status;
         }
-        if constexpr (kTarget) {
+        if constexpr (kTarget && NM == 0) {
             out.target = target_design<Discrete>(sys, Ts, spec, target_weight<SpecT, NU, NY, NW, T>::identity(), delay);
+        } else if constexpr (kTarget) {
+            out.target = measured_target<kHeld, Discrete>(sys, Ts, spec, Ci ? *Ci : Matrix<NI, NY, T>{}, Bm, delay);
+        }
+        if constexpr (kTarget) {
             status = (status == DesignStatus::ok) ? out.target.status : status;
         }
         return ::damp::detail::set_status(out, status);

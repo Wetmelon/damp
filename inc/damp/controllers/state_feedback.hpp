@@ -21,6 +21,7 @@
  * | KalmanNoise | IntegralAction | LQGI (lqgtrack) |
  * | KalmanNoise | TrackedOutputs | LQG holding the outputs at r |
  * | KalmanNoise | a disturbance spec | OFLQG: a filter on [x; d] and the target under d̂ |
+ * | either | MeasuredDisturbance{Bd}, beside any of these | the same law, its target under the d it reads each tick |
  *
  * With Ts, InputDelay<N>{θ} among the options designs any of these on the plant whose input
  * arrives θ late, and OutputDelay<M>{θ} the ones with a KalmanNoise on readings that arrive θ
@@ -93,7 +94,8 @@ template<size_t NY, size_t NX, size_t NU, typename T, typename TQ, typename TI>
 }
 
 /** @brief The options of a state-feedback design: a KalmanNoise makes it estimate the state. */
-using state_feedback_options = ::damp::detail::option_set<is_input_delay, is_output_delay, is_integral_option, is_tracked_option, is_disturbance, is_kalman_noise, is_input_limits, is_demand_limit>;
+using state_feedback_options = ::damp::detail::
+    option_set<is_input_delay, is_output_delay, is_integral_option, is_tracked_option, is_disturbance, is_measured_disturbance, is_kalman_noise, is_input_limits, is_demand_limit>;
 
 /** @brief design::state_feedback in the plant's domain (@p Sampled false) or at @p Ts: on the measured state, or on a Kalman filter's estimate with a KalmanNoise among @p opts. */
 template<bool Sampled, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename... Opts>
@@ -110,12 +112,14 @@ template<bool Sampled, size_t NX, size_t NU, size_t NY, typename T, size_t NW, s
     static_assert(kFilter || !kDisturbance, "A disturbance spec is estimated by a Kalman filter: give its KalmanNoise among the options.");
     static_assert(!(kIntegral && kDisturbance), "Integral action and a disturbance model are two offset-free choices: give an IntegralAction or a disturbance spec, not both.");
     const auto track = ::damp::detail::option<is_tracked_option>(Unset{}, opts...);
+    static_cast<void>(measured_of<NX, T>(opts...)); // its checks: one, on the plant's states
+    const auto measured = ::damp::detail::option<is_measured_disturbance>(Unset{}, opts...);
     const auto run = [&](const auto& cost, const auto& offset_free) {
         if constexpr (kFilter) {
-            const StateFeedbackOptions options{.noise = noise_of<NX, NU, NY, T, NW, NV>(opts...), .offset_free = offset_free, .track = track};
+            const StateFeedbackOptions options{.noise = noise_of<NX, NU, NY, T, NW, NV>(opts...), .offset_free = offset_free, .track = track, .measured = measured};
             return state_feedback_with<Sampled>(noise_model(sys), Ts, cost, options, opts...);
         } else {
-            const StateFeedbackOptions options{.offset_free = offset_free, .track = track};
+            const StateFeedbackOptions options{.offset_free = offset_free, .track = track, .measured = measured};
             return state_feedback_with<Sampled>(sys, Ts, cost, options, opts...);
         }
     };
@@ -172,6 +176,18 @@ template<bool Sampled, size_t NX, size_t NU, size_t NY, typename T, size_t NW, s
  *   detectable (ND ≤ NY), else DesignStatus::not_detectable; a target needs a unique steady state
  *   for NZ = NU, else DesignStatus::singular. An IntegralAction and a disturbance spec are two
  *   offset-free choices, refused together.
+ * - MeasuredDisturbance{.Bd}: a disturbance the law reads each tick, entering the plant's state
+ *   through B_d (continuous with Ts, ZOH'd with the plant: d held over the period). The gain is the
+ *   same; the target is the steady state under d, so the law is u = u_t(r, d) − K·(x − x_t(r, d)),
+ *   the target the MPC poses its QP about. For a d held constant, as the MPC holds it over its
+ *   horizon, that is the LQ-optimal law in the deviation from that steady state: no term beyond the
+ *   target. A law whose r is not the target's takes the steady state under d that holds at 0 every
+ *   output (a regulator, control(d)) or its integrated outputs (LQI, LQGI: d is fed forward, and the
+ *   integrators hold r and take up what the model leaves). A filter takes d as a known input after
+ *   u, its model's B [B, B_d] and its noise unchanged, and with a disturbance spec the target is
+ *   under [d̂; d], so d̂ estimates only what d does not account for. The runtime takes d after the
+ *   reference and its feedforward: control(r, d), step(r, d, m), control(r, x_ref, u_ref, d),
+ *   step(r, x_ref, u_ref, d, m). With an InputDelay d enters the plant, not the delay states.
  * - InputDelay<N>{θ}, on the sampled form state_feedback(plant, Ts, weights, …): the plant's input
  *   arrives θ late. The weights and the noise are the plant's, as without the delay; the cost is
  *   discretized exactly on the delayed model; a law on the measured state holds the inputs still on

@@ -561,6 +561,44 @@ template<size_t ND, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size
     return KalmanResult<NX, NU, NY, T, NW, NV, ND>{result.sys, result.Q, result.R, result.L, result.M, result.P, result.success, result.status};
 }
 
+/** @brief A filter design with the channel @p Bm of NM > 0 measured inputs after u (with_measured_inputs): B and D widened, the gain kept. */
+template<size_t NXE, size_t NM, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t ND>
+[[nodiscard]] constexpr KalmanResult<NX, NU + NM, NY, T, NW, NV, ND> widened(const KalmanResult<NX, NU, NY, T, NW, NV, ND>& result, const damp::optional<Matrix<NXE, NM, T>>& Bm) {
+    KalmanResult<NX, NU + NM, NY, T, NW, NV, ND> out{.Q = result.Q, .R = result.R, .L = result.L, .M = result.M, .P = result.P, .success = result.success, .status = result.status};
+    out.sys = StateSpace<NX, NU + NM, NY, T, NW, NV>{.A = result.sys.A, .C = result.sys.C, .G = result.sys.G, .H = result.sys.H, .Ts = result.sys.Ts};
+    out.sys.B.template block<NX, NU>(0, 0) = result.sys.B;
+    out.sys.D.template block<NY, NU>(0, 0) = result.sys.D;
+    if (Bm) {
+        out.sys.B.template block<NXE, NM>(0, NU) = *Bm;
+    } else if (out.success) {
+        out = ::damp::detail::refused<decltype(out)>(DesignStatus::bad_weights); // a non-finite B_d
+    }
+    return out;
+}
+
+/**
+ * @brief A filter design that takes a measured disturbance as NM known inputs after u: its model's
+ *        B is [B, B_m] and D is [D, 0], B_m the disturbance's channel @p Bm on the model before
+ *        the estimated disturbance (measured_channel; zero on d's rows, which do not move).
+ *
+ * The filter DARE reads neither B nor D, so M, L and P are the design's without it: d is not
+ * noise. A channel that is not finite (nullopt) refuses the design with DesignStatus::bad_weights.
+ * With none (NM = 0) the design is returned as it is.
+ */
+template<size_t NXE, size_t NM, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t ND>
+[[nodiscard]] constexpr KalmanResult<NX, NU + NM, NY, T, NW, NV, ND> with_measured_inputs(
+    const KalmanResult<NX, NU, NY, T, NW, NV, ND>& result,
+    const damp::optional<Matrix<NXE, NM, T>>&      Bm
+) {
+    static_assert(NXE + ND == NX, "The measured channel is on the filter's model before its disturbance states.");
+    if constexpr (NM == 0) {
+        static_cast<void>(Bm);
+        return result;
+    } else {
+        return widened(result, Bm);
+    }
+}
+
 /**
  * @brief The Kalman design, plain or on [x; d]: the filter's model (the plant, its input registers
  *        when @p delay is an InputDelay, then the disturbance), in the plant's own time domain
@@ -706,8 +744,20 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
 
 namespace detail {
 
-/** @brief The options kalman takes: its noise (required), a disturbance spec, an InputDelay, an OutputDelay. */
-using kalman_options = ::damp::detail::option_set<is_input_delay, is_output_delay, is_disturbance, is_kalman_noise>;
+/** @brief The options kalman takes: its noise (required), a disturbance spec, a MeasuredDisturbance, an InputDelay, an OutputDelay. */
+using kalman_options = ::damp::detail::option_set<is_input_delay, is_output_delay, is_disturbance, is_measured_disturbance, is_kalman_noise>;
+
+/** @brief A filter design @p kf on @p sys with the measured disturbance @p measured as known inputs after u (with_measured_inputs); itself without one (NM = 0). */
+template<bool Discrete, size_t NXK, size_t NU, size_t NY, typename T, size_t NWK, size_t NVK, size_t ND, size_t NX, size_t NYP, size_t NW, size_t NV, size_t NM, typename Delay>
+[[nodiscard]] constexpr auto measured_filter(
+    const KalmanResult<NXK, NU, NY, T, NWK, NVK, ND>& kf,
+    const StateSpace<NX, NU, NYP, T, NW, NV>&         sys,
+    T                                                 Ts,
+    const MeasuredDisturbance<NX, NM, T>&             measured,
+    const Delay&                                      delay
+) {
+    return with_measured_inputs(kf, measured_channel<Discrete>(sys, Ts, measured, delay));
+}
 
 /** @brief The disturbance states of the disturbance spec among @p Opts (0 without one). */
 template<size_t NX, size_t NU, size_t NY, size_t NW, typename... Opts>
@@ -736,11 +786,13 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
     static_assert(::damp::detail::option_count<is_kalman_noise, Opts...> == 1, "kalman needs its noise among the options: kalman(plant, Ts, KalmanNoise{.process = ..., .measurement = ...}).");
     const auto noise = noise_of<NX, NU, NY, T, NW, NV>(opts...);
     const auto delay = delays_of(opts...);
+    const auto measured = measured_of<NX, T>(opts...);
     using Disturbance = ::damp::detail::option_t<is_disturbance, NoDisturbance, Opts...>;
     if constexpr (is_disturbance_model<Disturbance>) {
-        return kalman_with_disturbance<Discrete>(noise_model(sys), Ts, noise, ::damp::detail::option<is_disturbance>(NoDisturbance{}, opts...), delay);
+        const auto kf = kalman_with_disturbance<Discrete>(noise_model(sys), Ts, noise, ::damp::detail::option<is_disturbance>(NoDisturbance{}, opts...), delay);
+        return measured_filter<Discrete>(kf, sys, Ts, measured, delay);
     } else {
-        return kalman_design<Discrete>(noise_model(sys), Ts, noise, NoDisturbance{}, delay);
+        return measured_filter<Discrete>(kalman_design<Discrete>(noise_model(sys), Ts, noise, NoDisturbance{}, delay), sys, Ts, measured, delay);
     }
 }
 
@@ -783,7 +835,9 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
  * stabilizing filter and is refused with DesignStatus::bad_weights.
  *
  * @p opts trail in any order: a disturbance spec puts the filter on [x; d], ND integrating
- * disturbances after the plant state; without one it is the plain filter on x. The spec says
+ * disturbances after the plant state; without one it is the plain filter on x. A
+ * MeasuredDisturbance{.Bd} adds known inputs after u, B on the model [B, B_d] and D [D, 0], the
+ * gain unchanged (see kalman(sys, Ts, opts…)). The spec says
  * where d enters: InputDisturbance (B_d = B, C_d = D), OutputDisturbance (a bias on each reading,
  * B_d = 0, C_d = I), PlantDisturbance (the plant's G and H) or DisturbanceModel (explicit B_d and
  * C_d). The process noise enters through G as without one, and @c noise.disturbance is the random
@@ -852,6 +906,12 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
  *   period of ẋ = Ax + Bu + B_d d + Gw, ḋ = w_d with the densities @c noise.process on w and
  *   @c noise.disturbance on w_d (Van Loan, cross terms included: the walk of d moves x within
  *   the period), so G on [x; d] is I.
+ * - MeasuredDisturbance{.Bd}: a disturbance read each tick, a known input after u. The model's B
+ *   is [B, B_d] (B_d continuous, ZOH'd with the plant; none on the input's delay states; on a late
+ *   reading's what the plant moved under it until the reading was taken) and D is [D, 0]; the
+ *   noise and so M, L and P are the design's without it, d being no noise. Predict with [u; d],
+ *   the d the plant held over the period. Beside a disturbance spec the readings no longer carry
+ *   the part of a load d accounts for, so d̂ estimates only the rest.
  * - InputDelay<N>{θ}: the filter is on the model discretize(sys, Ts, delay), the plant then the
  *   delay states v(k−1) … v(k−N) of the inputs still on their way. The process noise acts on
  *   the plant, not through the delay: Q_d is the plant's over the period (Van Loan) and the delay

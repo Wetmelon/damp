@@ -149,10 +149,10 @@ struct constant_estimator {
     using type = NoEstimator; ///< NoEstimator
 };
 
-/** @brief A design with a filter runs its FixedGainObserver on constants of the type. */
-template<const auto& Res, typename T, size_t NX, size_t NU, typename U, size_t NI, size_t NY, size_t NXK, size_t NW, size_t NV, size_t ND, size_t NZ, size_t NRU>
-struct constant_estimator<Res, T, design::StateFeedbackResult<NX, NU, U, NI, NY, design::KalmanResult<NXK, NU, NY, U, NW, NV, ND>, NZ, NRU>> {
-    using type = FixedGainObserver<NXK, NU, NY, T, ND, ConstantObserver<Res, T, NXK - ND>>; ///< The observer and the disturbance
+/** @brief A design with a filter runs its FixedGainObserver on constants of the type: NUK inputs, u and then a measured disturbance's. */
+template<const auto& Res, typename T, size_t NX, size_t NU, typename U, size_t NI, size_t NY, size_t NXK, size_t NUK, size_t NW, size_t NV, size_t ND, size_t NZ, size_t NRU, size_t NM>
+struct constant_estimator<Res, T, design::StateFeedbackResult<NX, NU, U, NI, NY, design::KalmanResult<NXK, NUK, NY, U, NW, NV, ND>, NZ, NRU, NM>> {
+    using type = FixedGainObserver<NXK, NUK, NY, T, ND, ConstantObserver<Res, T, NXK - ND>>; ///< The observer and the disturbance
 };
 
 } // namespace detail

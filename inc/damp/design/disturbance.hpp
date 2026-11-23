@@ -7,15 +7,19 @@
 
 /**
  * @file disturbance.hpp
- * @brief The disturbance a design models: NoDisturbance, InputDisturbance, OutputDisturbance, PlantDisturbance or DisturbanceModel, and the channels they enter through
+ * @brief The disturbance a design models: NoDisturbance, InputDisturbance, OutputDisturbance, PlantDisturbance or DisturbanceModel, and the channels they enter through; and a MeasuredDisturbance, one it is given
  *
  * A disturbance spec is a model feature, recognized by type among design::steady_state_target's
  * options, and the disturbance option of design::kalman, design::state_feedback and design::mpc with a KalmanNoise: ND integrating
  * disturbances d_{k+1} = d_k enter the filter's model through B_d and the readings through C_d.
+ * A MeasuredDisturbance is the other kind, an input the law reads each tick: the option of
+ * design::state_feedback, design::mpc and design::kalman, alone or beside a disturbance spec,
+ * whose d̂ then estimates only what it does not measure.
  */
 
 
 #include "damp/backend.hpp"
+#include "damp/controllers/detail/law_detail.hpp"
 #include "damp/design/options.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "damp/systems/discretization.hpp"
@@ -115,6 +119,139 @@ struct DisturbanceModel<NX, NY, ND, 0, T> {
     Matrix<NX, ND, T> Bd{}; ///< How d enters the state update
     Matrix<NY, ND, T> Cd{}; ///< How d enters the readings directly
 };
+
+/**
+ * @brief A measured disturbance: a known input the controller does not command, entering the
+ *        plant's state through @c Bd (a load torque, a feed rate, the ambient temperature), read
+ *        each tick.
+ *
+ * A trailing option of design::state_feedback, design::mpc and design::kalman. The law's target is
+ * the steady state under it, u = u_t(r, d) − K·(x − x_t(r, d)) on an LQ law and the QP posed about
+ * that target on an MPC, which also holds d over its horizon; the runtime takes it each tick,
+ * after the reference and its feedforward: control(r, d), control(r, x_ref, u_ref, d),
+ * step(r, d, m), step(r, x_ref, u_ref, d, m). A filter (a KalmanNoise) takes it as a known input
+ * after u, its model's B being [B, B_d] and its noise unchanged, so beside a disturbance spec its
+ * d̂ estimates only the part of a load that is not measured.
+ *
+ * B_d is in the plant's time domain: continuous on a continuous plant, discretized with it by ZOH
+ * (d held over the period), per step on a discrete one. On a plant whose input arrives late
+ * (InputDelay) d enters the plant, not the delay states: it is not a command. On readings that
+ * arrive late (OutputDelay) it reaches them as the plant moved under it until each was taken.
+ * Unlike a disturbance spec it is not rescaled and does not reach the readings directly.
+ *
+ * `MeasuredDisturbance{Bd}` and `MeasuredDisturbance{.Bd = Bd}` take NX, NM and the scalar from
+ * the matrix.
+ *
+ * @note Compare with MATLAB®'s measured-disturbance channels (setmpcsignals 'MD').
+ * @tparam NX Plant states; NM Measured-disturbance inputs
+ */
+template<size_t NX, size_t NM, typename T = double>
+struct MeasuredDisturbance {
+    Matrix<NX, NM, T> Bd{}; ///< How the measured disturbance enters the plant's state update
+};
+
+/** @brief Sizes from the matrix: `MeasuredDisturbance{Bd}`. */
+template<size_t NX, size_t NM, typename T>
+MeasuredDisturbance(Matrix<NX, NM, T>) -> MeasuredDisturbance<NX, NM, T>;
+
+namespace detail {
+
+/** @brief Not a measured disturbance. */
+template<typename>
+struct is_measured_disturbance : damp::false_type {};
+
+/** @brief MeasuredDisturbance, as a kind of trailing option (options.hpp). */
+template<size_t NX, size_t NM, typename T>
+struct is_measured_disturbance<MeasuredDisturbance<NX, NM, T>> : damp::true_type {};
+
+/** @brief The inputs a measured disturbance carries: NM, none for anything else (Unset, a call without one). */
+template<typename M>
+inline constexpr size_t measured_inputs = 0;
+
+/** @brief MeasuredDisturbance<NX, NM>: NM inputs. */
+template<size_t NX, size_t NM, typename T>
+inline constexpr size_t measured_inputs<MeasuredDisturbance<NX, NM, T>> = NM;
+
+/** @brief The measured disturbance among a call's options, on a plant of NX states in T: none (NM = 0) without one. */
+template<size_t NX, typename T, typename... Opts>
+[[nodiscard]] constexpr auto measured_of(const Opts&... opts) {
+    static_assert(
+        ::damp::detail::option_count<is_measured_disturbance, Opts...> <= 1,
+        "One MeasuredDisturbance carries every measured input: MeasuredDisturbance{.Bd = Bd}, a column of Bd per input."
+    );
+    using M = ::damp::detail::option_t<is_measured_disturbance, MeasuredDisturbance<NX, 0, T>, Opts...>;
+    static_assert(
+        damp::is_same_v<M, MeasuredDisturbance<NX, measured_inputs<M>, T>>,
+        "The measured disturbance enters the plant's states: MeasuredDisturbance{.Bd = Matrix<NX, NM>{...}}, a row per plant state, in the plant's scalar."
+    );
+    return ::damp::detail::option<is_measured_disturbance>(MeasuredDisturbance<NX, 0, T>{}, opts...);
+}
+
+/**
+ * @brief Where a measured disturbance enters the model a design is on: its B_d on the plant's
+ *        states, ZOH'd with a continuous plant at @p Ts (d held over the period), per step on a
+ *        discrete one (@p Discrete); none on an input's delay states; and on a late reading's
+ *        delay states what the plant moved under it until the reading was taken.
+ *
+ * The late readings' rows are those of discretize(StateSpace{A, B_d, C}, Ts, OutputDelay) on its
+ * delay states: a reading taken s into the period loads C·∫₀ˢ e^{Aη} dη·B_d·d, whatever the
+ * input's delay, so a model with both delays reads exactly the same d.
+ * @return The channel on the model's NX + delay_states rows; nullopt on a non-finite entry
+ */
+template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NM, typename Delay>
+[[nodiscard]] constexpr damp::optional<Matrix<NX + delay_states<Delay, NU, NY>, NM, T>> measured_channel(
+    const StateSpace<NX, NU, NY, T, NW, NV>& sys,
+    T                                        Ts,
+    const MeasuredDisturbance<NX, NM, T>&    measured,
+    const Delay&                             delay
+) {
+    constexpr size_t                                NRY = output_delay_states<Delay>;
+    Matrix<NX + delay_states<Delay, NU, NY>, NM, T> out{};
+    if constexpr (NM == 0) {
+        static_cast<void>(sys);
+        static_cast<void>(Ts);
+        static_cast<void>(measured);
+        static_cast<void>(delay);
+        return out; // none: no exponential to take
+    } else if (!mat::all_of(measured.Bd, [](T v) { return damp::isfinite(v); })) {
+        return damp::nullopt; // the exponential would carry it; refused before
+    } else if constexpr (Discrete) {
+        static_cast<void>(Ts);
+        static_cast<void>(delay);
+        out.template block<NX, NM>(0, 0) = measured.Bd;
+    } else if constexpr (NRY == 0) {
+        static_cast<void>(delay);
+        const auto d = ::damp::discretize(StateSpace<NX, NM, 1, T>{.A = sys.A, .B = measured.Bd}, Ts);
+        if (!d) {
+            return damp::nullopt;
+        }
+        out.template block<NX, NM>(0, 0) = d->B;
+    } else {
+        const auto d = ::damp::discretize(StateSpace<NX, NM, NY, T>{.A = sys.A, .B = measured.Bd, .C = sys.C}, Ts, delay.output);
+        if (!d) {
+            return damp::nullopt;
+        }
+        constexpr size_t first = NX + (delay_registers<Delay> * NU); // the late readings' delay states, after the input's
+        out.template block<NX, NM>(0, 0) = d->B.template block<NX, NM>(0, 0);
+        out.template block<NRY * NY, NM>(first, 0) = d->B.template block<NRY * NY, NM>(NX, 0);
+    }
+    return out;
+}
+
+/** @brief @p left then @p right, side by side: the channels of an estimated disturbance, then a measured one's. */
+template<size_t R, size_t CL, size_t CR, typename T>
+[[nodiscard]] constexpr Matrix<R, CL + CR, T> side_by_side(const Matrix<R, CL, T>& left, const Matrix<R, CR, T>& right) {
+    Matrix<R, CL + CR, T> out{};
+    if constexpr (CL > 0) {
+        out.template block<R, CL>(0, 0) = left;
+    }
+    if constexpr (CR > 0) {
+        out.template block<R, CR>(0, CL) = right;
+    }
+    return out;
+}
+
+} // namespace detail
 
 namespace detail {
 
