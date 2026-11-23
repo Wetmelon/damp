@@ -39,7 +39,7 @@ enum class DesignStatus : uint8_t {
     singular,            ///< Plant or numerics singular: rank-deficient B, R + BᵀSB, innovation covariance
     bad_weights,         ///< Design inputs inconsistent: Q / R not symmetric, Q not PSD, R not PD, cross term not PSD, a mode on the stability boundary Q does not weight, Q_integral not PD with integral action, an output index outside [0, NY), a model or noise entry that is not finite
     not_placeable,       ///< Pole placement cannot assign the requested spectrum
-    invalid_sample_time, ///< Ts ≤ 0 or non-finite, Ts given for an already-discrete plant, or no design for this time domain
+    invalid_sample_time, ///< Ts ≤ 0 or non-finite, Ts given for an already-discrete plant, or no design for this time domain. Ts = 0 is often plain braces in the Ts slot: fn(plant, {}, …) is the sampled form
     invalid_parameter,   ///< A scalar design input outside its domain: a cutoff outside (0, Nyquist), a non-positive gain, time constant, damping or bandwidth
 };
 
@@ -108,7 +108,13 @@ inline void not_placeable() noexcept {
     refuse_failed_design();
 }
 
-/** @brief Refused: Ts ≤ 0 or non-finite, a Ts for a discrete plant, or a continuous design for a discrete runtime. */
+/**
+ * @brief Refused: Ts ≤ 0 or non-finite, a Ts for a discrete plant, or a continuous design for a discrete runtime.
+ *
+ * Plain braces in the second argument are the sample time: fn(plant, {}, {…}) is the sampled
+ * form with Ts = 0, whichever plant it is given. A discrete plant's design takes no Ts,
+ * fn(plant, weights, options…); a continuous plant's takes one above 0, fn(plant, Ts, weights, options…).
+ */
 inline void invalid_sample_time() noexcept {
     refuse_failed_design();
 }
