@@ -11,6 +11,7 @@
 
 #include <cmath>
 #include <cstddef>
+#include <type_traits>
 #include <vector>
 
 #include "damp/backend.hpp"
@@ -18,8 +19,10 @@
 #include "damp/controllers/lqgi.hpp"
 #include "damp/controllers/lqi.hpp"
 #include "damp/controllers/lqr.hpp"
+#include "damp/controllers/mpc.hpp"
 #include "damp/controllers/oflqg.hpp"
 #include "damp/controllers/state_feedback.hpp"
+#include "damp/design/config.hpp"
 #include "damp/design/disturbance.hpp"
 #include "damp/design/riccati.hpp"
 #include "damp/design/status.hpp"
@@ -506,4 +509,53 @@ TEST_CASE("the designs take their features as trailing options, in any order") {
     //! One result type, whatever the options: the regulator's has no integrators and no filter.
     static_assert(decltype(design::state_feedback(plant(), kTs, lq))::NK == 2 && decltype(design::state_feedback(plant(), kTs, lq, late))::NK == 4); // K on x, then on x and its 2 delay states
     static_assert(design::state_feedback(plant(), kTs, lq, late).delay_gain()(0, 0) == design::state_feedback(plant(), kTs, lq, late).K(0, 2));
+}
+
+TEST_CASE("a config (design/config.hpp) passes each named field on as that option: the same design") {
+    constexpr design::LQRWeights                   lq{.Q = Matrix<2, 2>{{10.0, 0.0}, {0.0, 1.0}}, .R = {0.1}};
+    constexpr InputDelay<2>                        late{kTheta};
+    constexpr design::KalmanNoise<2, 1, double, 1> noise{.process = Matrix<2, 2>{{1e-3, 0.0}, {0.0, 1e-2}}, .measurement = 1e-3, .disturbance = 1e-2};
+    constexpr auto                                 sysd = discretize(plant(), kTs).value();
+
+    //! The LQ law, sampled and on the discrete plant: integrators and a delay, a filter and a disturbance, tracked outputs, the cost alone.
+    constexpr auto lqi = design::state_feedback(plant(), kTs, lq, design::IntegralAction{.Q = 5.0}, late);
+    constexpr auto lqi_c = design::state_feedback(plant(), kTs, design::LQConfig{.weights = lq, .integral = design::IntegralAction{.Q = 5.0}, .delay = late});
+    static_assert(std::is_same_v<decltype(lqi), decltype(lqi_c)> && lqi_c.success && lqi_c.K == lqi.K);
+    constexpr auto of = design::state_feedback(sysd, lq, noise, design::InputDisturbance{});
+    constexpr auto of_c = design::state_feedback(sysd, design::LQConfig{.weights = lq, .noise = noise, .disturbance = design::InputDisturbance{}});
+    static_assert(std::is_same_v<decltype(of), decltype(of_c)> && of_c.success && of_c.K == of.K && of_c.kalman.M == of.kalman.M);
+    constexpr auto held = design::state_feedback(sysd, lq, design::TrackedOutputs{});
+    constexpr auto held_c = design::state_feedback(sysd, design::LQConfig{.weights = lq, .tracked = design::TrackedOutputs{}});
+    static_assert(std::is_same_v<decltype(held), decltype(held_c)> && held_c.success && held_c.K == held.K);
+    static_assert(design::state_feedback(sysd, design::LQConfig{.weights = lq}).K == design::state_feedback(sysd, lq).K);
+    constexpr design::LQRLimits clamp{.u_lim = {.lower = -1.0, .upper = 1.0}};
+    constexpr DemandLimit       speed{.state = 1, .outer = {0, 2}, .lim = {.lower = -0.3, .upper = 0.3}}; // the position and the integrator
+    constexpr auto              bounded = design::state_feedback(plant(), kTs, lq, clamp, speed, design::IntegralAction{.Q = 5.0});
+    constexpr auto              bounded_c = design::state_feedback(plant(), kTs, design::LQConfig{.weights = lq, .limits = clamp, .demand = speed, .integral = design::IntegralAction{.Q = 5.0}});
+    static_assert(bounded_c.success && bounded_c.K == bounded.K && bounded_c.u_lim.upper(0) == 1.0 && bounded_c.demand_lim.outer(2));
+
+    //! The filter and the target, each with a disturbance and a delay, and each alone.
+    constexpr design::KalmanNoise plain_noise{.process = Matrix<2, 2>{{1e-3, 0.0}, {0.0, 1e-2}}, .measurement = 1e-3};
+    constexpr auto                filter = design::kalman(plant(), kTs, noise, design::InputDisturbance{}, late);
+    constexpr auto                filter_c = design::kalman(plant(), kTs, design::KalmanConfig{.noise = noise, .disturbance = design::InputDisturbance{}, .delay = late});
+    static_assert(std::is_same_v<decltype(filter), decltype(filter_c)> && filter_c.success && filter_c.M == filter.M);
+    static_assert(design::kalman(sysd, design::KalmanConfig{.noise = plain_noise}).M == design::kalman(sysd, plain_noise).M);
+    constexpr auto target = design::steady_state_target(plant(), kTs, design::InputDisturbance{}, late);
+    constexpr auto target_c = design::steady_state_target(plant(), kTs, design::TargetConfig{.disturbance = design::InputDisturbance{}, .delay = late});
+    static_assert(std::is_same_v<decltype(target), decltype(target_c)> && target_c.success && target_c.target_d == target.target_d);
+    static_assert(std::is_same_v<decltype(design::steady_state_target(sysd, design::TargetConfig{})), decltype(design::steady_state_target(sysd))>);
+
+    //! The MPC: its weights and limits, a filter and a disturbance (OFMPC); and with every field left out, the defaults.
+    constexpr design::MPCWeights     weights{.Qy = {20.0}, .Rdu = {0.1}};
+    constexpr design::MPCConstraints limits{.u_lim = {.lower = -1.0, .upper = 1.0}};
+    constexpr auto                   ofmpc = design::mpc<4, 2>(sysd, weights, limits, noise, design::InputDisturbance{});
+    constexpr auto                   ofmpc_c = design::mpc<4, 2>(sysd, design::MPCConfig{.weights = weights, .constraints = limits, .noise = noise, .disturbance = design::InputDisturbance{}});
+    static_assert(std::is_same_v<decltype(ofmpc), decltype(ofmpc_c)> && ofmpc_c.success && ofmpc_c.kalman.M == ofmpc.kalman.M && ofmpc_c.target.target_d == ofmpc.target.target_d);
+    constexpr auto plain = design::mpc<4, 2>(plant(), kTs, {}, {});
+    constexpr auto plain_c = design::mpc<4, 2>(plant(), kTs, design::MPCConfig{});
+    static_assert(std::is_same_v<decltype(plain), decltype(plain_c)> && plain_c.success && plain.success);
+
+    //! A config is a named object: bare braces in its place stay the pack's, the default weights and limits of a discrete plant, not a period and a config.
+    static_assert(std::is_same_v<decltype(design::mpc<4, 2>(sysd, {}, {})), decltype(design::mpc<4, 2>(sysd, design::MPCConfig{}))> && design::mpc<4, 2>(sysd, {}, {}).success);
+    CHECK(lqi_c.success);
 }
