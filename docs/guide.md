@@ -121,9 +121,10 @@ types. Bode and friends return analysis grids. New code uses `design::` and
 | anti-windup, sat, `umax`              | `u_lim` on the design or its result: the law clamps to it and holds its memory against that clamp, with nothing else to set. `back_calculate(u_sat)` after a clamp downstream of the law. See [Limits and anti-windup](#limits-and-anti-windup) |
 | `mpcmove`, constraints                | `design::mpc` (`MPC`, or `OFMPC` with a `KalmanNoise` and a disturbance spec), `MPC.step(r, y)`                  |
 | `ManipulatedVariables` Min/Max, RateMin/RateMax | `design::InputLimits{.u_lim = {…}, .du_lim = {…}}` among `mpc`'s options, hard rows on u and Δu; left out, unbounded. `state_feedback` takes the same option for its `u_lim` and refuses a `.du_lim`: an LQ law clamps its command, and a move limit is the MPC's |
-| `OutputVariables` Min/Max, MinECR/MaxECR | `design::OutputLimits{.outputs = {i, …}, .lim = {…}}` among `mpc`'s options: rows for the controlled outputs it lists alone, soft by default (`.lower_ecr`, `.upper_ecr`; 0 is hard) |
+| `OutputVariables` Min/Max, MinECR/MaxECR | `design::OutputLimits{.outputs = {i, …}, .lim = {…}}` among `mpc`'s options, the plant's outputs: rows for the ones it lists alone, soft by default (`.lower_ecr`, `.upper_ecr`; 0 is hard) |
+| `Weights.OV`, a reference on some outputs | `MPCWeights::Qy` on every output of the plant; r on the outputs the target holds: a `TrackedOutputs{{i, …}}` among `mpc`'s options, or with a disturbance spec its `.outputs`. The others are weighed toward that steady state's values |
 | `setterminal`, `Optimizer.MaxIterations` | `design::DareCost{}`, or `design::InvariantSet{.target_margin}` with `mpc<NP, NC, NT_max>`; `design::QPIterations{n}` |
-| `ManipulatedVariables` Target         | `set_input_target(u)` on the runtime (`Ru` its weight)                                                           |
+| `ManipulatedVariables` Target         | `Ru` weighs the input from the steady-state target's by default; `set_input_target(u)` on the runtime replaces it, `clear_input_target()` returns to it |
 | `bode`, `nyquist`, `margin`, `rlocus` | `workbench.hpp`; `analysis::` or `matlab::bode`                                                                  |
 | `lsim`, `step`, `forced_response`     | `sim::simulate*` on the host                                                                                     |
 | ISR, float, no malloc                 | `control.hpp`, `.as<float>()`, `constinit`, `step` in the interrupt                                              |
@@ -161,7 +162,7 @@ PID: `design::pidtune` or `design::pid(Kp, Ki, Kd)` → `.discretize(Ts)` → `P
 | I want to                                    | Start with                                                        | Example                                                                                               |
 | -------------------------------------------- | ----------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
 | Regulate a fully measured plant              | `design::state_feedback` → `LQR`, `step(x)`                                  | [`examples/control/pendulum/`](../examples/control/pendulum/)                                         |
-| Hold listed outputs at r, trusting the model | `design::state_feedback` with `TrackedOutputs`                     | [`examples/control/cart_pole/`](../examples/control/cart_pole/)                                       |
+| Hold listed outputs at r, trusting the model | `design::state_feedback` or `design::mpc` with `TrackedOutputs`    | [`examples/control/cart_pole/`](../examples/control/cart_pole/)                                       |
 | Reject a constant disturbance / model offset | `design::state_feedback` with an `IntegralAction`, or a `KalmanNoise` and a disturbance spec | [`examples/control/lqi/`](../examples/control/lqi/), [`heater_lqg/`](../examples/control/heater_lqg/) |
 | Estimate the state from y                    | `design::state_feedback` with a `KalmanNoise` or `design::kalman` → `KalmanFilter` / `FixedGainObserver` | [`examples/estimation/eskf/`](../examples/estimation/eskf/)                                           |
 | Estimate a lumped disturbance from y, u      | `design::eso` → `ESO` (no plant A, B, C)                          | [`inc/damp/estimation/eso.hpp`](../inc/damp/estimation/eso.hpp)                                       |
@@ -177,7 +178,7 @@ Copy an example folder. SIL calls the same tick as the sketch.
 
 Both can hold an output at r.
 
-- **TrackedOutputs + LQR / LQG** uses the model's steady-state maps $`x^* = N_x r`$, $`u^* = N_u r`$. Offset-free only if the model is right and there is no unmatched load.
+- **TrackedOutputs + LQR / LQG / MPC** uses the model's steady-state maps $`x^* = N_x r`$, $`u^* = N_u r`$. Offset-free only if the model is right and there is no unmatched load. An MPC weighs every output and pulls the ones r does not name toward $`C x^*`$.
 - **LQI / LQGI** adds an integrator on $`r - C_i y`$. It rejects a constant disturbance and a constant model error. Use this when the plant will not match the design model.
 - **OFLQG / OFMPC** estimate a disturbance and hold r through a steady-state target. Same job as LQI when a disturbance model fits; MPC when the actuator or output limits bind.
 
@@ -194,10 +195,10 @@ What each runtime measures, the references and limits it takes, and what it does
 | `LQI` | state x: `update(x)` | `r` on the integrated outputs, plus optional `x_ref`/`u_ref` | `u_lim`, `demand_lim`, `integral_lim` | ξ holds against the `u_lim` clamp by itself, or unwinds over `tracking_time`; `back_calculate` |
 | `LQGI` | y, through a Kalman filter: `update(y)` | `r` on the integrated outputs, plus optional `x_ref`/`u_ref` | `u_lim`, `demand_lim`, `integral_lim` | ξ holds against the `u_lim` clamp by itself, or unwinds over `tracking_time`; `back_calculate`; the filter runs on the applied input |
 | `OFLQG` | y, through a Kalman filter on [x; d]: `update(y)` | `r` on the controlled outputs, plus optional `x_ref`/`u_ref` | `u_lim`, `demand_lim`, `disturbance_lim` | `back_calculate`; the filter runs on the applied input |
-| `MPC` | state x: `update(x)` | `r` held or previewed; measured disturbance `d`; input target | `u_lim`, `du_lim`, `y_lim`, `x_lim` | `back_calculate`; `last_status()` |
-| `OFMPC` | y, through a Kalman filter on [x; d]: `update(y)` | `r` held or previewed; input target | `u_lim`, `du_lim`, `y_lim`, `x_lim`, `disturbance_lim` | `back_calculate`; `last_status()`; the filter runs on the applied input |
+| `MPC` | state x: `update(x)` | `r` held or previewed, on the outputs the target holds (`TrackedOutputs`, else every output); measured disturbance `d`; input target | `u_lim`, `du_lim`, `y_lim`, `x_lim` | `back_calculate`; `last_status()` |
+| `OFMPC` | y, through a Kalman filter on [x; d]: `update(y)` | `r` held or previewed, on the outputs the disturbance spec lists (else every output); input target | `u_lim`, `du_lim`, `y_lim`, `x_lim`, `disturbance_lim` | `back_calculate`; `last_status()`; the filter runs on the applied input |
 
-On `MPC` and `OFMPC`, `y_lim` and `x_lim` bound the controlled outputs an `OutputLimits` option lists and the states a `StateLimits` lists, soft by default; the terminal ingredient (`DareCost`, `InvariantSet`) is part of the design, and `set_limits()` moves `u_lim`, `du_lim`, `y_lim` and `x_lim` at run time.
+On `MPC` and `OFMPC`, the QP weighs every output of the plant, `y_lim` and `x_lim` bound the outputs an `OutputLimits` option lists and the states a `StateLimits` lists, soft by default; the terminal ingredient (`DareCost`, `InvariantSet`) is part of the design, and `set_limits()` moves `u_lim`, `du_lim`, `y_lim` and `x_lim` at run time.
 
 ### SISO laws
 
@@ -252,9 +253,9 @@ One contract for every law:
 
 `integral_lim` bounds the integral a law stores, so its unit is that law's: the I term in output units on a PID, ξ ≈ ∫e·dt on the LQ laws. `disturbance_lim` does the same for the d̂ of an `OFLQG` or an `OFMPC`, in d's units: a member of the runtime only, set on the law.
 
-A limit on a state or an output needs a prediction: `design::mpc` (an `OutputLimits` on the controlled outputs, a `StateLimits` on any state, soft or hard), `design::mhe` (`x_lim` on the estimate), or an `ActionGovernor` around any law. A `DemandLimit` among an LQ design's options is not one: it bounds what the gain's outer terms ask of a state, read as a cascade inside one gain (the lean a balancing robot's position and integral ask for). The integrators hold against it as against `u_lim`, or unwind with a `tracking_time`. It is a heuristic on the gain: nothing certifies the loop while the clamp binds. [demand_lim.md](demand_lim.md) derives it from first principles, with its limits and the published work nearest to it.
+A limit on a state or an output needs a prediction: `design::mpc` (an `OutputLimits` on any output, a `StateLimits` on any state, soft or hard), `design::mhe` (`x_lim` on the estimate), or an `ActionGovernor` around any law. A `DemandLimit` among an LQ design's options is not one: it bounds what the gain's outer terms ask of a state, read as a cascade inside one gain (the lean a balancing robot's position and integral ask for). The integrators hold against it as against `u_lim`, or unwind with a `tracking_time`. It is a heuristic on the gain: nothing certifies the loop while the clamp binds. [demand_lim.md](demand_lim.md) derives it from first principles, with its limits and the published work nearest to it.
 
-References follow the same split. Every law takes the output reference `r`. The state-feedback laws also take a reference point inside the law, `control(r, x_ref, u_ref)`, which the clamp covers. A feedforward added outside any law is `u_ff`, passed to `back_calculate` so it is not taken for saturation. MPC takes `r` or a `Preview` of it, and an input preference through `set_input_target`.
+References follow the same split. Every law takes the output reference `r`. The state-feedback laws also take a reference point inside the law, `control(r, x_ref, u_ref)`, which the clamp covers. A feedforward added outside any law is `u_ff`, passed to `back_calculate` so it is not taken for saturation. MPC takes `r` or a `Preview` of it, each step's target from it, and weighs the input from the target's: an input preference replaces that through `set_input_target`, and `clear_input_target` restores it.
 
 Not covered yet: `STSMCController`'s integral state has no limit of its own, and `SwitchedController` starts a law without a tracking mode (anything but a PID) from its reset state.
 
