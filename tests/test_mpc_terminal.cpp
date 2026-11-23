@@ -49,20 +49,17 @@ design::MPCWeights<1, 1> move_weight(double rdu) {
     return w;
 }
 
-/// |u| ≤ 1 and the position within ±1 (@p hard: no slack).
-design::MPCConstraints<1, 1> unit_box(bool hard) {
-    design::MPCConstraints<1, 1> limits{};
-    limits.u_lim = {
-        .lower = -1.0,
-        .upper = 1.0,
-    };
-    limits.y_lim.lower(0) = -1.0;
-    limits.y_lim.upper(0) = 1.0;
+/// |u| ≤ 1.
+constexpr design::MPCConstraints<1> kUnitInput{.u_lim = {.lower = -1.0, .upper = 1.0}};
+
+/// The position within ±1 (@p hard: no slack).
+design::OutputLimits<1> position_box(bool hard) {
+    design::OutputLimits<1> position{.outputs = {0}, .lim = {.lower = -1.0, .upper = 1.0}};
     if (hard) {
-        limits.y_lower_ecr(0) = 0.0;
-        limits.y_upper_ecr(0) = 0.0;
+        position.lower_ecr(0) = 0.0;
+        position.upper_ecr(0) = 0.0;
     }
-    return limits;
+    return position;
 }
 
 /// The four-state plant: two double integrators, the state measured; both positions tracked and bounded.
@@ -124,8 +121,9 @@ TEST_CASE("default mpc: no terminal rows, NI is the box formula") {
     REQUIRE(art.success);
     CHECK(art.status == design::DesignStatus::ok);
     CHECK(art.mpc.n_terminal == 0);
-    CHECK(art.mpc.terminal == design::MPCTerminal::none);
-    CHECK(std::remove_cvref_t<decltype(art.mpc)>::NI == (4 * 4) + (2 * 8));
+    CHECK(art.mpc.terminal == design::detail::MPCTerminal::none);
+    CHECK(std::remove_cvref_t<decltype(art.mpc)>::NI == 4 * 4); // Δu and u rows; the outputs have none without an OutputLimits
+    CHECK(std::remove_cvref_t<decltype(design::mpc<8, 4>(double_integrator, {}, {}, position_box(false)).mpc)>::NI == (4 * 4) + (2 * 8));
     CHECK(art.mpc.P(0, 0) == doctest::Approx(0.0));
     CHECK(art.mpc.K_terminal(0, 0) == doctest::Approx(0.0));
 }
@@ -141,10 +139,7 @@ TEST_CASE("unconstrained DARE terminal reproduces the LQR law") {
     weights.Rdu = Matrix<1, 1>{};
     weights.Ru = R;
 
-    design::MPCConstraints<1, 2> limits{};
-    limits.terminal = design::MPCTerminal::dare_cost;
-
-    const auto art = design::mpc<8, 8>(double_integrator_full, weights, limits);
+    const auto art = design::mpc<8, 8>(double_integrator_full, weights, {}, design::DareCost{});
     REQUIRE(art.success);
     CHECK(art.status == design::DesignStatus::ok);
     CHECK(art.mpc.n_terminal == 0);
@@ -181,7 +176,7 @@ TEST_CASE("unconstrained DARE terminal reproduces the LQR law") {
 
 TEST_CASE("short-horizon SIL is infeasible without the set and recursively feasible with it") {
     const auto weights = move_weight(0.01);
-    auto       limits = unit_box(true);
+    const auto position = position_box(true);
 
     const ColVec<1> r{0.9}; // the target (x_t, u_t) = ([0.9, 0], 0)
     // Fast approach to a near-limit setpoint: 4-step reachable to the MPI set,
@@ -190,7 +185,7 @@ TEST_CASE("short-horizon SIL is infeasible without the set and recursively feasi
 
     bool saw_infeasible = false;
     {
-        const auto art = design::mpc<4, 2>(double_integrator, weights, limits);
+        const auto art = design::mpc<4, 2>(double_integrator, weights, kUnitInput, position);
         REQUIRE(art.success);
         MPC       controller{art};
         ColVec<2> x = x0;
@@ -205,11 +200,10 @@ TEST_CASE("short-horizon SIL is infeasible without the set and recursively feasi
     }
     CHECK(saw_infeasible);
 
-    limits.terminal = design::MPCTerminal::invariant_set;
-    const auto art = design::mpc<4, 4, 64>(double_integrator, weights, limits);
+    const auto art = design::mpc<4, 4, 64>(double_integrator, weights, kUnitInput, position, design::InvariantSet{});
     REQUIRE(art.success);
     REQUIRE(art.mpc.n_terminal > 0);
-    CHECK(art.mpc.terminal == design::MPCTerminal::invariant_set);
+    CHECK(art.mpc.terminal == design::detail::MPCTerminal::invariant_set);
 
     MPC       controller{art};
     ColVec<2> x = x0;
@@ -222,6 +216,75 @@ TEST_CASE("short-horizon SIL is infeasible without the set and recursively feasi
         CHECK(x(0) <= 1.0 + 1e-6);
         CHECK(x(0) >= -1.0 - 1e-6);
     }
+}
+
+TEST_CASE("DareCost and InvariantSet are the terminal ingredients MPCConstraints' terminal mode gave") {
+    //! The numbers MPCConstraints{.terminal = MPCTerminal::dare_cost} and {.terminal = invariant_set,
+    //! .terminal_target_margin} gave on these designs before the options replaced them.
+    const auto weights = move_weight(0.01);
+    const auto dare = design::mpc<10, 10>(double_integrator, weights, kUnitInput, position_box(false), design::DareCost{});
+    REQUIRE(dare.success);
+    CHECK(dare.mpc.terminal == design::detail::MPCTerminal::dare_cost);
+    CHECK(dare.mpc.n_terminal == 0);
+    CHECK(dare.mpc.P(0, 0) == doctest::Approx(1.0965552578151061).epsilon(1e-10));
+    CHECK(dare.mpc.P(1, 1) == doctest::Approx(0.056434107620236471).epsilon(1e-10));
+    CHECK(dare.mpc.P(2, 2) == doctest::Approx(0.0060475875124775674).epsilon(1e-10));
+    CHECK(dare.mpc.K_terminal(0, 0) == doctest::Approx(3.1434107620236484).epsilon(1e-10));
+    CHECK(dare.mpc.K_terminal(0, 1) == doctest::Approx(1.3787694394278474).epsilon(1e-10));
+    CHECK(dare.mpc.K_terminal(0, 2) == doctest::Approx(0.6047587512477568).epsilon(1e-10));
+    CHECK(dare.mpc.H(0, 0) == doctest::Approx(5.1646379276333167).epsilon(1e-10));
+    {
+        MPC       law{dare};
+        ColVec<2> x{0.5, 0.8};
+        for (size_t k = 0; k <= 20; ++k) {
+            const auto u = law.step(ColVec<1>{0.9}, x);
+            if (k == 0) {
+                CHECK(u(0) == doctest::Approx(-0.017088475124310592).epsilon(1e-8));
+            }
+            if (k == 5) {
+                CHECK(u(0) == doctest::Approx(-1.0).epsilon(1e-12));
+            }
+            if (k == 20) {
+                CHECK(u(0) == doctest::Approx(-0.0041662305933684307).epsilon(1e-8));
+            }
+            x = plant_step(x, u(0));
+        }
+    }
+
+    //! The set takes its margin from the option: 48 facets at the default 5 %, 42 at 10 %.
+    struct Margin {
+        double margin;
+        size_t facets;
+    };
+    for (const Margin m : {Margin{0.05, 48}, Margin{0.1, 42}}) {
+        CAPTURE(m.margin);
+        const auto set = design::mpc<4, 4, 64>(double_integrator, weights, kUnitInput, position_box(true), design::InvariantSet{.target_margin = m.margin});
+        REQUIRE(set.success);
+        CHECK(set.mpc.terminal == design::detail::MPCTerminal::invariant_set);
+        CHECK(set.mpc.n_terminal == m.facets);
+        CHECK(set.mpc.h_terminal(0) == doctest::Approx(1.0));
+        CHECK(set.mpc.G_terminal(0, 0) == doctest::Approx(1.0));
+        CHECK(set.mpc.G_terminal_target(0, 0) == doctest::Approx(1.0));
+        MPC       law{set};
+        ColVec<2> x{0.5, 0.8};
+        for (size_t k = 0; k <= 10; ++k) {
+            const auto u = law.step(ColVec<1>{0.9}, x);
+            REQUIRE(law.last_status() == design::QPStatus::Success);
+            if (k == 0) {
+                CHECK(u(0) == doctest::Approx(-0.2058527959246389).epsilon(1e-8));
+            }
+            if (k == 3) {
+                CHECK(u(0) == doctest::Approx(-0.94818294297025996).epsilon(1e-8));
+            }
+            if (k == 10) {
+                CHECK(u(0) == doctest::Approx(-0.31028923330465674).epsilon(1e-8));
+            }
+            x = plant_step(x, u(0));
+        }
+    }
+    CHECK(design::mpc<4, 4, 64>(double_integrator, weights, kUnitInput, position_box(true), design::InvariantSet{.target_margin = 1.0}).status == design::DesignStatus::invalid_parameter);
+    CHECK(design::mpc<4, 4, 64>(double_integrator, weights, kUnitInput, position_box(true), design::InvariantSet{.target_margin = 0.0}).status == design::DesignStatus::invalid_parameter);
+    CHECK(design::mpc<4, 4, 64>(double_integrator, weights, kUnitInput, position_box(true), design::InvariantSet{.target_margin = 0.1}).mpc.terminal == design::detail::MPCTerminal::invariant_set);
 }
 
 TEST_CASE("maximal_invariant_set matches a hand-derived 2-state MPI polytope") {
@@ -260,10 +323,7 @@ TEST_CASE("maximal_invariant_set reports empty on inconsistent G0 h0") {
 
 TEST_CASE("float conversion keeps terminal rows and the float tick stays in budget") {
     const auto weights = move_weight(0.01);
-    auto       limits = unit_box(true);
-    limits.terminal = design::MPCTerminal::invariant_set;
-
-    const auto art = design::mpc<4, 4, 64>(double_integrator, weights, limits);
+    const auto art = design::mpc<4, 4, 64>(double_integrator, weights, kUnitInput, position_box(true), design::InvariantSet{});
     REQUIRE(art.success);
     const auto art_f = art.as<float>();
     CHECK(art_f.success);
@@ -290,19 +350,15 @@ TEST_CASE("float conversion keeps terminal rows and the float tick stays in budg
     }
 }
 
-TEST_CASE("invariant_set with NT_max = 0 is refused as bad_weights") {
-    design::MPCConstraints<1, 1> limits{};
-    limits.terminal = design::MPCTerminal::invariant_set;
-    const auto art = design::mpc<4, 2>(double_integrator, {}, limits);
+TEST_CASE("an InvariantSet with NT_max = 0 is refused as bad_weights") {
+    const auto art = design::mpc<4, 2>(double_integrator, {}, {}, design::InvariantSet{});
     CHECK_FALSE(art.success);
     CHECK(art.status == design::DesignStatus::bad_weights);
 }
 
 TEST_CASE("terminal set moves with the target: every admissible target is inside, a near-bound overshoot is not") {
     const auto weights = move_weight(0.01);
-    auto       limits = unit_box(false);
-    limits.terminal = design::MPCTerminal::invariant_set;
-    const auto art = design::mpc<4, 4, 64>(double_integrator, weights, limits);
+    const auto art = design::mpc<4, 4, 64>(double_integrator, weights, kUnitInput, position_box(false), design::InvariantSet{});
     REQUIRE(art.success);
     REQUIRE(art.mpc.n_terminal > 0);
 
@@ -334,14 +390,13 @@ TEST_CASE("terminal set moves with the target: every admissible target is inside
 TEST_CASE("4-state NP=10 dare_cost design is constexpr under default ops") {
     // The Δu-form terminal cost is a DARE on z = [e; v] (6 states here): cheap enough for constinit.
     constexpr auto art = [] {
-        constexpr auto               weights = two_axes_weights();
-        design::MPCConstraints<2, 2> limits{};
+        constexpr auto            weights = two_axes_weights();
+        design::MPCConstraints<2> limits{};
         limits.u_lim = {
             .lower = {-1.0, -1.0},
             .upper = {1.0, 1.0},
         };
-        limits.terminal = design::MPCTerminal::dare_cost;
-        return design::mpc<10, 4>(two_axes, weights, limits);
+        return design::mpc<10, 4>(two_axes, weights, limits, design::DareCost{});
     }();
     static_assert(art.success);
     static_assert(art.mpc.P(4, 4) > 0.0); // the v block carries the move cost
@@ -351,18 +406,14 @@ TEST_CASE("4-state NP=10 invariant_set design") {
     // The target-augmented set lives on [z; q] (NX + NU + NY + NU = 10 here) and needs ~160
     // facets: it is designed at initialization with the capacity raised accordingly.
     const auto art = [] {
-        constexpr auto               weights = two_axes_weights();
-        design::MPCConstraints<2, 2> limits{};
+        constexpr auto            weights = two_axes_weights();
+        design::MPCConstraints<2> limits{};
         limits.u_lim = {
             .lower = {-1.0, -1.0},
             .upper = {1.0, 1.0},
         };
-        limits.y_lim = {
-            .lower = {-1.0, -1.0},
-            .upper = {1.0, 1.0},
-        };
-        limits.terminal = design::MPCTerminal::invariant_set;
-        return design::mpc<10, 10, 192>(two_axes, weights, limits);
+        const design::OutputLimits positions{.outputs = {0, 1}, .lim = {.lower = {-1.0, -1.0}, .upper = {1.0, 1.0}}};
+        return design::mpc<10, 10, 192>(two_axes, weights, limits, positions, design::InvariantSet{});
     }();
     REQUIRE(art.success);
     CHECK(art.mpc.n_terminal > 64);
@@ -395,21 +446,19 @@ TEST_CASE("maximal_invariant_set does not depend on the units of h") {
 TEST_CASE("invariant_set with a control horizon shorter than the prediction horizon is refused") {
     //! The shifted plan holds the input over moves NC … NP − 1, so it is not admissible and the
     //! hard terminal rows went infeasible on the nominal plant (24 of 359 starts, NP = 4, NC = 2).
-    auto limits = unit_box(true);
-    limits.terminal = design::MPCTerminal::invariant_set;
-    const auto short_nc = design::mpc<4, 2, 64>(double_integrator, move_weight(0.01), limits);
+    const auto position = position_box(true);
+    const auto short_nc = design::mpc<4, 2, 64>(double_integrator, move_weight(0.01), kUnitInput, position, design::InvariantSet{});
     CHECK_FALSE(short_nc.success);
     CHECK(short_nc.status == design::DesignStatus::invalid_parameter);
-    CHECK(design::mpc<4, 4, 64>(double_integrator, move_weight(0.01), limits).success);
+    CHECK(design::mpc<4, 4, 64>(double_integrator, move_weight(0.01), kUnitInput, position, design::InvariantSet{}).success);
 }
 
 TEST_CASE("MaxIterations with an invariant_set holds unless the iterate is primal feasible") {
-    auto limits = unit_box(true);
-    limits.terminal = design::MPCTerminal::invariant_set;
+    const auto      position = position_box(true);
     const ColVec<1> r{0.9};
     const ColVec<2> x0{0.5, 0.8};
 
-    const auto art_ok = design::mpc<4, 4, 64>(double_integrator, move_weight(0.01), limits);
+    const auto art_ok = design::mpc<4, 4, 64>(double_integrator, move_weight(0.01), kUnitInput, position, design::InvariantSet{});
     REQUIRE(art_ok.success);
     REQUIRE(art_ok.mpc.n_terminal > 0);
     MPC        ok{art_ok};
@@ -418,8 +467,7 @@ TEST_CASE("MaxIterations with an invariant_set holds unless the iterate is prima
     CHECK(u_ok(0) >= -1.0);
     CHECK(u_ok(0) <= 1.0);
 
-    limits.max_qp_iterations = 1;
-    const auto art = design::mpc<4, 4, 64>(double_integrator, move_weight(0.01), limits);
+    const auto art = design::mpc<4, 4, 64>(double_integrator, move_weight(0.01), kUnitInput, position, design::InvariantSet{}, design::QPIterations{1});
     REQUIRE(art.success);
     MPC        controller{art};
     const auto u0 = controller.step(r, x0);

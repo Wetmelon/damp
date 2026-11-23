@@ -121,10 +121,12 @@ the repo root.
 - **Design calls:** what every call needs is positional (the plant, `Ts` for a
   continuous one, the weights), so braces size it from the plant; the rest is a
   trailing pack recognized by type (`design/options.hpp`: `KalmanNoise`,
-  `InputDelay`, `OutputDelay`, `IntegralAction`, `TrackedOutputs`, `LQRLimits`, `DemandLimit`, `StateLimits`,
-  a disturbance spec, …), at most one of each kind, in any order, refused at
-  compile time otherwise. What the gain does not depend on is an option, not a
-  weight: an LQ design's limits are `LQRLimits{.u_lim}` and a `DemandLimit`. A
+  `InputDelay`, `OutputDelay`, `IntegralAction`, `TrackedOutputs`, `LQRLimits`, `DemandLimit`, `OutputLimits`,
+  `StateLimits`, `DareCost`, `InvariantSet`, `QPIterations`, a disturbance spec, …), at most one of each
+  kind, in any order, refused at compile time otherwise. What the gain does not depend on is an option, not a
+  weight: an LQ design's limits are `LQRLimits{.u_lim}` and a `DemandLimit`; an MPC's output and state
+  limits, its terminal ingredient and its QP budget are `OutputLimits`, `StateLimits`, `DareCost` or
+  `InvariantSet` and `QPIterations`, and an operating point is the runtime's (`set_input_target`). A
   delay is an option of every sampled design (`InputDelay<N>{θ}` with the
   continuous plant and `Ts`), the runtime holding or filtering its delay states;
   a model with the delay built in is the plant route, for a model one holds. The
@@ -136,7 +138,7 @@ the repo root.
   the disturbance's walk, `InputDelay<N>{θ}` and `OutputDelay<M>{θ}` the delays. A weight an option's
   size comes from is a value (a scalar or a Matrix); `KalmanNoise` deduces its
   sizes from its fields. A list of indices is a C array (`DemandLimit::outer`,
-  `TrackedOutputs::outputs`, the disturbance specs' `outputs`), so its length
+  `TrackedOutputs::outputs`, `OutputLimits::outputs`, `StateLimits::states`, the disturbance specs' `outputs`), so its length
   is deduced from bare braces, which no class member's is; the type with none
   listed (NZ = 0) is a specialization without the array. Two overloads per design, `fn(sys, …, opts...)` and
   `fn(plant, Ts, …, opts...)`. The pack is the spelling of the docs, examples
@@ -155,7 +157,7 @@ the repo root.
   else set the law's memory holds against that clamp (conditional integration,
   an observer or internal model on the clamped command). A clamp after the law
   is reported with `back_calculate`, to the same effect. State and output
-  limits are `design::mpc` (`y_lim`), `design::mhe` (`x_lim`) or an
+  limits are `design::mpc` (`OutputLimits`, `StateLimits`), `design::mhe` (`x_lim`) or an
   `ActionGovernor` around any law. A new law with memory gets all of it.
 - **Errors:** `optional` / `bool success` / `DesignStatus` / `valid()` /
   compile-time constraints. No exceptions, and no run-time faults anywhere: a

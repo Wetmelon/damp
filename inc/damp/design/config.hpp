@@ -34,7 +34,7 @@
  * | --- | --- | --- |
  * | state_feedback | LQConfig | weights (required), limits, demand, integral, noise, disturbance, tracked, input_delay, output_delay |
  * | kalman | KalmanConfig | noise (required), disturbance, input_delay, output_delay |
- * | mpc | MPCConfig | weights, constraints, state_limits, noise, disturbance, measured, input_delay, output_delay |
+ * | mpc | MPCConfig | weights, constraints, output_limits, state_limits, terminal, qp_iterations, noise, disturbance, measured, input_delay, output_delay |
  * | steady_state_target | TargetConfig | disturbance, input_delay, output_delay |
  *
  * A field left out is off (MPC's weights and constraints: their defaults). A field's type is a
@@ -122,8 +122,11 @@ struct KalmanConfig {
  * | Field | Holds | Left out |
  * | --- | --- | --- |
  * | weights | MPCWeights{.Qy, .Rdu, …}, per prediction step | Qy = I, RΔu = I |
- * | constraints | MPCConstraints{.u_lim, .du_lim, .y_lim, …} | unbounded |
+ * | constraints | MPCConstraints{.u_lim, .du_lim}: the hard limits on u and Δu | unbounded |
+ * | output_limits | OutputLimits{.outputs, .lim}: limits on the controlled outputs it lists | none |
  * | state_limits | StateLimits{.states, .lim}: limits on states it does not track | none |
+ * | terminal | DareCost{} or InvariantSet{.target_margin}: a terminal cost, or the cost and a set | the plain cost |
+ * | qp_iterations | QPIterations{n}: the QP's iteration budget per tick | 10·(NZ + 1 + NI + 1) |
  * | noise | KalmanNoise{.process, .measurement[, .disturbance]}: the MPC on a Kalman filter's estimate | the state measured |
  * | disturbance | a disturbance spec, with a noise: OFMPC, offset-free | no disturbance estimated |
  * | measured | MeasuredDisturbance{Bd}: a disturbance input measured each tick | none |
@@ -133,21 +136,27 @@ struct KalmanConfig {
 template<
     typename TWeights = detail::Unset,
     typename TConstraints = detail::Unset,
+    typename TOutputLimits = detail::Unset,
     typename TStateLimits = detail::Unset,
+    typename TTerminal = detail::Unset,
+    typename TQPIterations = detail::Unset,
     typename TNoise = detail::Unset,
     typename TDisturbance = detail::Unset,
     typename TMeasured = detail::Unset,
     typename TInputDelay = detail::Unset,
     typename TOutputDelay = detail::Unset>
 struct MPCConfig {
-    TWeights     weights{};      ///< MPCWeights{…}: the cost on the controlled outputs and the moves (left out: Qy = I, RΔu = I)
-    TConstraints constraints{};  ///< MPCConstraints{…}: the limits, the terminal ingredients and the QP budget (left out: unbounded)
-    TStateLimits state_limits{}; ///< StateLimits{.states, .lim}: limits on states it does not track
-    TNoise       noise{};        ///< KalmanNoise{…}: the MPC on a Kalman filter's estimate (left out: the state measured)
-    TDisturbance disturbance{};  ///< Where an integrating disturbance enters, with a noise: OFMPC
-    TMeasured    measured{};     ///< MeasuredDisturbance{Bd}: a disturbance input measured each tick
-    TInputDelay  input_delay{};  ///< InputDelay<N>{θ}: the plant's input arrives θ late (with Ts)
-    TOutputDelay output_delay{}; ///< OutputDelay<M>{θ}: the readings arrive θ late (with Ts and a noise)
+    TWeights      weights{};       ///< MPCWeights{…}: the cost on the controlled outputs and the moves (left out: Qy = I, RΔu = I)
+    TConstraints  constraints{};   ///< MPCConstraints{.u_lim, .du_lim}: the hard limits on u and Δu (left out: unbounded)
+    TOutputLimits output_limits{}; ///< OutputLimits{.outputs, .lim}: limits on the controlled outputs it lists
+    TStateLimits  state_limits{};  ///< StateLimits{.states, .lim}: limits on states it does not track
+    TTerminal     terminal{};      ///< DareCost{} or InvariantSet{.target_margin}: the terminal ingredient (left out: the plain cost)
+    TQPIterations qp_iterations{}; ///< QPIterations{n}: the QP's iteration budget per tick (left out: the default)
+    TNoise        noise{};         ///< KalmanNoise{…}: the MPC on a Kalman filter's estimate (left out: the state measured)
+    TDisturbance  disturbance{};   ///< Where an integrating disturbance enters, with a noise: OFMPC
+    TMeasured     measured{};      ///< MeasuredDisturbance{Bd}: a disturbance input measured each tick
+    TInputDelay   input_delay{};   ///< InputDelay<N>{θ}: the plant's input arrives θ late (with Ts)
+    TOutputDelay  output_delay{};  ///< OutputDelay<M>{θ}: the readings arrive θ late (with Ts and a noise)
 };
 
 /** @brief design::steady_state_target's options as named fields: the disturbance the target holds the outputs under, and the plant's delays. */
@@ -207,12 +216,15 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
 }
 
 /** @brief design::mpc(sys, [Ts,] weights, constraints, opts…) from an MPCConfig: the weights and the limits sized to the plant (their defaults left out), the other fields passed on. */
-template<size_t NP, size_t NC, size_t NT_max, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename TW, typename TC, typename TS, typename TN, typename TD, typename TM, typename TDl, typename TO, typename... Period>
-[[nodiscard]] constexpr auto mpc_from(const StateSpace<NX, NU, NY, T, NW, NV>& sys, const MPCConfig<TW, TC, TS, TN, TD, TM, TDl, TO>& config, Period... Ts) {
+template<size_t NP, size_t NC, size_t NT_max, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename TW, typename TC, typename TL, typename TS, typename TT, typename TQ, typename TN, typename TD, typename TM, typename TDl, typename TO, typename... Period>
+[[nodiscard]] constexpr auto mpc_from(const StateSpace<NX, NU, NY, T, NW, NV>& sys, const MPCConfig<TW, TC, TL, TS, TT, TQ, TN, TD, TM, TDl, TO>& config, Period... Ts) {
     constexpr size_t NZ = mpc_outputs_in<NX, NU, NY, NW, TD>;
     static_assert(is_unset<TW> || damp::is_same_v<TW, MPCWeights<NU, NZ, T>>, "MPCConfig::weights is the plant's MPCWeights<NU, NZ, T>: one weight per input and controlled output, in its scalar.");
-    static_assert(is_unset<TC> || is_mpc_constraints_on<TC, NU, NZ, T>, "MPCConfig::constraints is the plant's MPCConstraints<NU, NZ, T>: limits on its inputs and controlled outputs, in its scalar.");
+    static_assert(is_unset<TC> || is_mpc_constraints_on<TC, NU, T>, "MPCConfig::constraints is the plant's MPCConstraints<NU, T>: limits on its inputs, in its scalar.");
+    static_assert(is_unset<TL> || is_output_limits<TL>::value, "MPCConfig::output_limits is OutputLimits{.outputs = {i, ...}, .lim = {...}}.");
     static_assert(is_unset<TS> || is_state_limits<TS>::value, "MPCConfig::state_limits is StateLimits{.states = {i, ...}, .lim = {...}}.");
+    static_assert(is_unset<TT> || is_mpc_terminal<TT>::value, "MPCConfig::terminal is DareCost{} or InvariantSet{.target_margin = ...}.");
+    static_assert(is_unset<TQ> || is_qp_iterations<TQ>::value, "MPCConfig::qp_iterations is QPIterations{n}.");
     static_assert(is_unset<TN> || is_kalman_noise<TN>::value, "MPCConfig::noise is KalmanNoise{.process = ..., .measurement = ...}.");
     static_assert(is_unset<TD> || is_disturbance_model<TD>, "MPCConfig::disturbance is InputDisturbance{}, OutputDisturbance{}, PlantDisturbance{} or DisturbanceModel{.Bd, .Cd}.");
     static_assert(is_unset<TM> || is_measured_disturbance<TM>::value, "MPCConfig::measured is MeasuredDisturbance{Bd}.");
@@ -227,14 +239,15 @@ template<size_t NP, size_t NC, size_t NT_max, size_t NX, size_t NU, size_t NY, t
     }();
     const auto constraints = [&] {
         if constexpr (is_unset<TC>) {
-            return MPCConstraints<NU, NZ, T>{};
+            return MPCConstraints<NU, T>{};
         } else {
             return config.constraints;
         }
     }();
     return forward_set(
         [&](const auto&... options) { return design::mpc<NP, NC, NT_max>(sys, Ts..., weights, constraints, options...); },
-        config.state_limits, config.noise, config.disturbance, config.measured, config.input_delay, config.output_delay
+        config.output_limits, config.state_limits, config.terminal, config.qp_iterations, config.noise, config.disturbance, config.measured, config.input_delay,
+        config.output_delay
     );
 }
 
