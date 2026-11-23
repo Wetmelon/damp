@@ -417,10 +417,10 @@ struct CompliantDrive {
     }
 
     [[nodiscard]] ColVec<3> measure(const ColVec<4>& x, double load_force) const {
-        return (sys.C * x) + (Cd_load * ColVec<1>{{load_force}});
+        return (sys.C * x) + (Cd_load * ColVec<1>{load_force});
     }
     [[nodiscard]] ColVec<4> step(const ColVec<4>& x, double u, double load_force) const {
-        return (sys.A * x) + (sys.B * ColVec<1>{{u}}) + (G_load * ColVec<1>{{load_force}});
+        return (sys.A * x) + (sys.B * ColVec<1>{u}) + (G_load * ColVec<1>{load_force});
     }
 };
 
@@ -464,7 +464,7 @@ TEST_CASE("offset-free MPC: a load force sensed by an accelerometer, the load he
     OFMPC           c_input{art_input};
     ColVec<4>       x_load{};
     ColVec<4>       x_input{};
-    const ColVec<1> r{{0.01}};
+    const ColVec<1> r{0.01};
     const double    force = -0.8;
     for (int i = 0; i < 1500; ++i) {
         x_load = plant.step(x_load, c_load.step(r, plant.measure(x_load, force))(0), force);
@@ -493,7 +493,7 @@ TEST_CASE("offset-free MPC with a general disturbance model honours the input an
 
     OFMPC           ctrl{art};
     ColVec<4>       x{};
-    const ColVec<1> r{{0.01}};
+    const ColVec<1> r{0.01};
     const double    force = -0.8; // holding it takes u = 0.8 of the ±1 authority
     double          u_prev = 0.0;
     double          worst_u = 0.0;
@@ -581,7 +581,7 @@ TEST_CASE("offset-free MPC rejects an undetectable or unsupported general distur
 
     // A failed design still deploys: zero estimate, finite (zero) move.
     OFMPC      idle{refused};
-    const auto u = idle.step(ColVec<1>{{0.01}}, ColVec<3>{});
+    const auto u = idle.step(ColVec<1>{0.01}, ColVec<3>{});
     CHECK(damp::isfinite(u(0)));
 
     // A controlled output out of range is refused.

@@ -279,7 +279,7 @@ TEST_SUITE("FixedGainObserver") {
         FixedGainObserver observer{result};
         ColVec<2>         x{0.4, -0.2};
         for (int k = 0; k < 40; ++k) {
-            const ColVec<1> u{{0.2 * damp::sin(0.3 * k)}};
+            const ColVec<1> u{0.2 * damp::sin(0.3 * k)};
             x = A * x + B * u;
             observer.step(C * x, u);
         }
@@ -338,7 +338,7 @@ TEST_SUITE("FixedGainObserver") {
         ColVec<2>         x{0.4, -0.2};
         double            scale = x.norm();
         for (int k = 0; k < 40; ++k) {
-            const ColVec<1> u{{0.2 * damp::sin(0.3 * k)}};
+            const ColVec<1> u{0.2 * damp::sin(0.3 * k)};
             x = A * x + B * u;
             scale = damp::max(scale, x.norm());
             observer.step((C * x).as<float>(), u.as<float>());
@@ -400,7 +400,7 @@ TEST_SUITE("FixedGainObserver") {
 
         ColVec<2> x{1.0, -0.5};
         for (int k = 0; k < 400; ++k) {
-            const ColVec<1> u{{0.1}};
+            const ColVec<1> u{0.1};
             x = sys.A * x + sys.B * u;
             obs.step(sys.C * x, u);
         }
@@ -423,8 +423,8 @@ TEST_SUITE("FixedGainObserver") {
         static_assert(std::is_same_v<decltype(from_matrices), FixedGainObserver<2, 1, 1, double>>);
         CHECK(from_matrices.valid());
         for (int k = 0; k < 10; ++k) {
-            const ColVec<1> y{{0.1 * k}};
-            const ColVec<1> u{{0.5}};
+            const ColVec<1> y{0.1 * k};
+            const ColVec<1> u{0.5};
             CHECK((from_design.step(y, u) - from_matrices.step(y, u)).norm() == 0.0);
         }
 

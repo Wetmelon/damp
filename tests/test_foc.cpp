@@ -60,7 +60,7 @@ TEST_SUITE("FOC Controller") {
         constexpr float                  omega = 6000.0f;
         constexpr float                  zeta = 1.0f;
         constexpr float                  b = 0.0f;
-        constexpr auto                   via_kernel = damp::design::pid_pole_placement(damp::TransferFunction<1, 2>{.num = {1.0}, .den = {L, R}}, {.omega = omega, .zeta = zeta, .b = b});
+        constexpr auto                   via_kernel = damp::design::pid_pole_placement(damp::TransferFunction<1, 2, float>{.num = {1.0F}, .den = {L, R}}, {.omega = omega, .zeta = zeta, .b = b});
         damp::motor::FOController<float> foc({.d = L, .q = L}, R, 0.0f);
         foc.tune(omega, zeta, b);
         CHECK(foc.dctrl.Kp == doctest::Approx(via_kernel.Kp));

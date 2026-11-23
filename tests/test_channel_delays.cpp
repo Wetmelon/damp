@@ -198,7 +198,7 @@ struct Truth {
     StateSpace<NS, 1, 1, double, 2, 1> m{};
     ColVec<NS>                         x{};
     [[nodiscard]] ColVec<1>            y() const { return ColVec<1>(m.C * x); }
-    void                               step(double u, double load = 0.0) { x = ColVec<NS>((m.A * x) + (m.B * ColVec<1>{{u + load}})); }
+    void                               step(double u, double load = 0.0) { x = ColVec<NS>((m.A * x) + (m.B * ColVec<1>{u + load})); }
 };
 
 /// Largest |value| over the last quarter of a run.
@@ -273,7 +273,7 @@ TEST_SUITE("Delay per channel and on the measurement") {
             for (int k = 0; k < 40; ++k) {
                 ColVec<2> u{};
                 u[j] = command(k, j);
-                const ColVec<1> uj{{u[j]}};
+                const ColVec<1> uj{u[j]};
                 const ColVec<2> yb = (both.C * xb) + (both.D * u);
                 const ColVec<2> ys = (single.C * xs) + (single.D * uj);
                 gap = std::fmax(gap, (yb - ys).norm());
@@ -332,7 +332,7 @@ TEST_SUITE("Delay per channel and on the measurement") {
                     }
                 }();
                 e.add(k, n, std::abs(x_hat[0] - t.x[0]) + std::abs(x_hat[1] - t.x[1]));
-                est.predict(ColVec<1>{{u_at(k)}});
+                est.predict(ColVec<1>{u_at(k)});
                 t.step(u_at(k));
             }
             return e.worst;
@@ -366,7 +366,7 @@ TEST_SUITE("Delay per channel and on the measurement") {
         Truth<4> a{kLate};
         Tail     ta;
         for (int k = 0; k < 2000; ++k) {
-            a.step(holding.step(ColVec<1>{{0.3}}, a.y())[0], (k > 500) ? 0.5 : 0.0);
+            a.step(holding.step(ColVec<1>{0.3}, a.y())[0], (k > 500) ? 0.5 : 0.0);
             ta.add(k, 2000, a.x[0] - 0.3);
         }
         CHECK(ta.worst < 1e-4);
@@ -380,7 +380,7 @@ TEST_SUITE("Delay per channel and on the measurement") {
         Truth<4> b{kLate};
         Tail     tb;
         for (int k = 0; k < 2000; ++k) {
-            b.step(planner.step(ColVec<1>{{0.2}}, b.y())[0], (k > 500) ? 0.5 : 0.0);
+            b.step(planner.step(ColVec<1>{0.2}, b.y())[0], (k > 500) ? 0.5 : 0.0);
             tb.add(k, 2000, b.x[0] - 0.2);
         }
         CHECK(tb.worst < 1e-4);
@@ -411,7 +411,7 @@ TEST_SUITE("Delay per channel and on the measurement") {
         for (int k = 0; k < 600; ++k) {
             observer.update(t.y());
             e.add(k, 600, std::abs(observer.state_estimate()[0] - t.x[0]) + std::abs(observer.state_estimate()[1] - t.x[1]));
-            observer.predict(ColVec<1>{{u_at(k)}});
+            observer.predict(ColVec<1>{u_at(k)});
             t.step(u_at(k));
         }
         CHECK(e.worst < 1e-9);
@@ -424,14 +424,14 @@ TEST_SUITE("Delay per channel and on the measurement") {
         double                                   scale = 0.0;
         Truth<4>                                 t{kLate, ColVec<4>{0.5, 0.0, 0.0, 0.0}};
         for (int k = 0; k < 400; ++k) {
-            const ColVec<1, float> y{{static_cast<float>(t.y()[0])}};
+            const ColVec<1, float> y{static_cast<float>(t.y()[0])};
             deployed.update(y);
             held.update(y);
             for (size_t i = 0; i < 4; ++i) {
                 gap = std::fmax(gap, static_cast<double>(std::abs(deployed.state_estimate()[i] - held.state_estimate()[i])));
                 scale = std::fmax(scale, static_cast<double>(std::abs(held.state_estimate()[i])));
             }
-            const ColVec<1, float> u{{static_cast<float>(u_at(k))}};
+            const ColVec<1, float> u{static_cast<float>(u_at(k))};
             deployed.predict(u);
             held.predict(u);
             t.step(u_at(k));

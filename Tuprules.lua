@@ -64,15 +64,30 @@ end
 -- with 64-byte-aligned vmovdqa64 onto a stack Windows x64 only aligns to 16 bytes. The
 -- process dies (0xC0000005) whenever ASLR leaves the slot misaligned: the adaptive ODE
 -- tests hit it. Clang is clean either way; -mtune keeps the host scheduling without that instruction selection.
-CXXFLAGS = "-O3 -std=c++20 -mtune=native -ffunction-sections -fdata-sections "
+CXXFLAGS_COMMON = "-O3 -std=c++20 -mtune=native -ffunction-sections -fdata-sections "
 -- clang: raise fold-expression nesting (default 2048). Matrix copy historically
 -- used an index_sequence fold over Rows*Cols; large fixed-N LU copies exceed that.
+CXXFLAGS_CLANG = "-fbracket-depth=16384 "
+-- GCC: compile-time designs of about 10 states or more exceed the default 2^25 constexpr ops.
+CXXFLAGS_GCC = "-fconstexpr-ops-limit=67108864 "
 if string.find(CXX, "clang", 1, true) then
-    CXXFLAGS = CXXFLAGS .. "-fbracket-depth=16384 "
+    CXXFLAGS = CXXFLAGS_COMMON .. CXXFLAGS_CLANG
 else
-    -- GCC: compile-time designs of about 10 states or more exceed the default 2^25 constexpr ops.
-    CXXFLAGS = CXXFLAGS .. "-fconstexpr-ops-limit=67108864 "
+    CXXFLAGS = CXXFLAGS_COMMON .. CXXFLAGS_GCC
 end
+
+-- clang's flags whatever CXX is: clang-tests/Tupfile.lua builds the test suites with clang too
+-- (make clang-tests), with the flags a CONFIG_CXX=clang++ build gives them.
+CLANG_CXXFLAGS = CXXFLAGS_COMMON .. CXXFLAGS_CLANG
+CLANG_WARNINGS = WARNINGS_COMMON .. " " .. WARNINGS_CLANG
+-- The main suite's on clang (tests/Tupfile.lua, clang-tests/Tupfile.lua). Its consteval designs
+-- exceed clang's default budget (.clangd matches). Product sketches must not: examples build at
+-- the default, and tools/clang_budget_check.sh checks them. -fno-finite-math-only because these
+-- tests spell NaN and Inf as numeric_limits constants, which clang folds to poison under
+-- finite-math-only (a NaN the design then never sees). tests/damp_backend keeps the flag and
+-- checks data that arrives at run time, which is what firmware sees.
+CLANG_TEST_CXXFLAGS = "-fconstexpr-steps=100000000 -fno-finite-math-only"
+
 LDFLAGS = "-O3 -mtune=native -ffunction-sections -fdata-sections -Wl,--gc-sections"
 -- example_drive_governor --live needs Winsock (and joy optional); unused on other exes
 if on_windows then

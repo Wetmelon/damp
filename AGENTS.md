@@ -31,6 +31,7 @@ tree.
 ```bash
 make              # format + compiledb + build + run tests
 make tests        # build tests, then run
+make clang-tests  # build the three test runners with clang too, then run (about 70 s)
 tup --quiet tests # compile tests only
 ```
 
@@ -40,7 +41,10 @@ formatting, the test runner, both backend runners, examples (built *and* run),
 the embedded/freestanding/workbench/no-C++-headers contract checks, and the
 `REFERENCE.md` regen.
 `tup tests`, `test_runner`, or a hand-built subset are for iterating, not a
-substitute.
+substitute. `make` builds with g++ (and checks that the product sketches fit
+clang's constexpr budget); a change to deduction, templates or NaN handling
+also wants `make clang-tests`, which builds the runners with clang
+(`clang-tests/`, skipped without clang++ 19+ on PATH).
 
 **Windows: run `make` from PowerShell or cmd, not Git Bash.** Under Git Bash,
 Git's MSYS `sh` comes first on PATH. MSYS tools write `*-pipe-nt-*` files that
@@ -185,6 +189,9 @@ Plant builders and host sim are not this ladder.
 - Braces always on `if`/`for`/`while`. ~One-screen functions (~50 lines).
 - Templated literals: `T{1}` / `T{0.5}`; non-dyadic decimals
   `static_cast<T>(0.98)`.
+- A `ColVec` is written flat, `ColVec<2>{a, b}` and `ColVec<1>{x}`; a `Matrix` by
+  rows, `Matrix<2, 1>{{a}, {b}}`. Braces around each entry of a `ColVec` build the
+  same vector and draw clang's `-Wbraced-scalar-init`.
 - Tolerances: scale `eps<T>()` to the data (size and magnitude) so results don't
   depend on units; `default_tol<T>()` only for convergence of an
   already-relative quantity. Always `damp::` math and backed aliases in

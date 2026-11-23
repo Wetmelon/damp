@@ -101,7 +101,7 @@ struct Truth {
     [[nodiscard]] ColVec<1>           y() const { return ColVec<1>(m.C * x); }
     [[nodiscard]] double              position() const { return x[0]; }
     [[nodiscard]] ColVec<2>           plant() const { return ColVec<2>{x[0], x[1]}; }
-    void                              step(double u, double load = 0.0) { x = m.A * x + m.B * ColVec<1>{{u + load}}; }
+    void                              step(double u, double load = 0.0) { x = m.A * x + m.B * ColVec<1>{u + load}; }
 };
 
 /// The delayed model's state as a measured-state law reads it: the plant state and the input applied last period.
@@ -172,14 +172,15 @@ void check_measured_laws(double theta) {
     }
     CHECK(ta.worst < 1e-6);
 
-    const auto lqi = design::state_feedback(model, {.Q = position_weight_on<N>(1e3), .R = Matrix<1, 1>{{1e-7}}}, design::IntegralAction{.Q = 1e6});
+    // Named: in a template, clang deduces nothing from .Q = 1e6 (docs/known_limitations.md).
+    const auto lqi = design::state_feedback(model, {.Q = position_weight_on<N>(1e3), .R = Matrix<1, 1>{{1e-7}}}, design::IntegralAction<double>{.Q = 1e6});
     REQUIRE(lqi.success);
     LQI              integrating{lqi};
     Truth<NS>        b{truth};
     AppliedInputs<N> applied_b;
     Tail             tb;
     for (int k = 0; k < 2000; ++k) {
-        const double u = integrating.step(ColVec<1>{{0.3}}, applied_b.after(b.plant()))[0];
+        const double u = integrating.step(ColVec<1>{0.3}, applied_b.after(b.plant()))[0];
         b.step(u, 0.2);
         applied_b.push(u);
         tb.add(k, 2000, b.position() - 0.3);
@@ -196,7 +197,7 @@ void check_measured_laws(double theta) {
     AppliedInputs<N> applied_c;
     Tail             tc;
     for (int k = 0; k < 1500; ++k) {
-        const double u = planner.step(ColVec<1>{{0.2}}, applied_c.after(c.plant()))[0];
+        const double u = planner.step(ColVec<1>{0.2}, applied_c.after(c.plant()))[0];
         c.step(u);
         applied_c.push(u);
         tc.add(k, 1500, c.position() - 0.2);
@@ -212,13 +213,13 @@ void check_output_laws(double theta) {
     const auto       truth = test::register_form<N>(mass_spring(), kTs, theta);
 
     const design::KalmanNoise lqgi_noise{.process = Matrix<2, 2>::identity(), .measurement = Matrix<1, 1>{{1e-6}}};
-    const auto                lqgi = design::state_feedback(model, {.Q = position_weight_on<N>(1e3), .R = Matrix<1, 1>{{1e-7}}}, lqgi_noise, design::IntegralAction{.Q = 1e6});
+    const auto                lqgi = design::state_feedback(model, {.Q = position_weight_on<N>(1e3), .R = Matrix<1, 1>{{1e-7}}}, lqgi_noise, design::IntegralAction<double>{.Q = 1e6});
     REQUIRE(lqgi.success);
     LQGI      integrating{lqgi};
     Truth<NS> a{truth};
     Tail      ta;
     for (int k = 0; k < 2000; ++k) {
-        a.step(integrating.step(ColVec<1>{{0.3}}, a.y())[0], 0.2);
+        a.step(integrating.step(ColVec<1>{0.3}, a.y())[0], 0.2);
         ta.add(k, 2000, a.position() - 0.3);
     }
     CHECK(ta.worst < 1e-4);
@@ -230,7 +231,7 @@ void check_output_laws(double theta) {
     Truth<NS> b{truth};
     Tail      tb;
     for (int k = 0; k < 2000; ++k) {
-        b.step(holding.step(ColVec<1>{{0.3}}, b.y())[0], (k > 500) ? 0.5 : 0.0);
+        b.step(holding.step(ColVec<1>{0.3}, b.y())[0], (k > 500) ? 0.5 : 0.0);
         tb.add(k, 2000, b.position() - 0.3);
     }
     CHECK(tb.worst < 1e-4);
@@ -244,7 +245,7 @@ void check_output_laws(double theta) {
     Truth<NS> c{truth};
     Tail      tc;
     for (int k = 0; k < 2000; ++k) {
-        c.step(planner.step(ColVec<1>{{0.2}}, c.y())[0], (k > 500) ? 0.5 : 0.0);
+        c.step(planner.step(ColVec<1>{0.2}, c.y())[0], (k > 500) ? 0.5 : 0.0);
         tc.add(k, 2000, c.position() - 0.2);
     }
     CHECK(tc.worst < 1e-4);
@@ -254,8 +255,8 @@ void check_output_laws(double theta) {
     Truth<NS> d{truth};
     Tail      td;
     for (int k = 0; k < 2000; ++k) {
-        const ColVec<1, float> y{{static_cast<float>(d.y()[0])}};
-        d.step(static_cast<double>(single.step(ColVec<1, float>{{0.3F}}, y)[0]), (k > 500) ? 0.5 : 0.0);
+        const ColVec<1, float> y{static_cast<float>(d.y()[0])};
+        d.step(static_cast<double>(single.step(ColVec<1, float>{0.3F}, y)[0]), (k > 500) ? 0.5 : 0.0);
         td.add(k, 2000, d.position() - 0.3);
     }
     CHECK(td.worst < 1e-3);
@@ -281,7 +282,7 @@ void check_placed_observer(double Ts) {
     for (int k = 0; k < 600; ++k) {
         observer.update(t.y());
         e.add(k, 600, std::abs(observer.state_estimate()[0] - t.x[0]) + std::abs(observer.state_estimate()[1] - t.x[1]));
-        observer.predict(ColVec<1>{{u_at(k)}});
+        observer.predict(ColVec<1>{u_at(k)});
         t.step(u_at(k));
     }
     CHECK(e.worst < 1e-9);
@@ -320,7 +321,7 @@ void check_estimators(double theta) {
                 }
             }();
             e.add(k, n, std::abs(x_hat[0] - t.x[0]) + std::abs(x_hat[1] - t.x[1]));
-            est.predict(ColVec<1>{{u_at(k)}});
+            est.predict(ColVec<1>{u_at(k)});
             t.step(u_at(k));
         }
         CHECK(e.worst < 1e-6);
@@ -336,7 +337,7 @@ void check_estimators(double theta) {
     Truth<NS>                t{truth, x0};
     Tail                     e;
     for (int k = 0; k < n; ++k) {
-        const auto x_hat = mhe.step(t.y(), ColVec<1>{{u_at(k - 1)}});
+        const auto x_hat = mhe.step(t.y(), ColVec<1>{u_at(k - 1)});
         e.add(k, n, x_hat[1] - t.x[1]);
         t.step(u_at(k));
     }
@@ -395,7 +396,7 @@ TEST_SUITE("Design on the delayed model") {
             constexpr int                      n = 2000;
             for (int k = 0; k < n; ++k) {
                 const ColVec<1> y = t.y();
-                const ColVec<1> u{{u_at(k)}};
+                const ColVec<1> u{u_at(k)};
                 aware.update(y);
                 naive.update(y);
                 ea.add(k, n, aware.state()[1] - t.x[1]);
@@ -425,8 +426,8 @@ TEST_SUITE("Design on the delayed model") {
         Truth<3>        a{kReg1};
         Truth<3>        b{kReg1};
         const double    u_star = 4.0 * 0.3;
-        const ColVec<1> r{{0.3}};
-        const ColVec<1> u_ref{{u_star}};
+        const ColVec<1> r{0.3};
+        const ColVec<1> u_ref{u_star};
         Tail            ta;
         Tail            tb;
         constexpr int   n = 2000;
@@ -456,7 +457,7 @@ TEST_SUITE("Design on the delayed model") {
             const auto      truth = test::register_form<1>(mass_spring(), kTs, theta);
             Truth<3>        a{truth};
             Truth<3>        b{truth};
-            const ColVec<1> r{{0.3}};
+            const ColVec<1> r{0.3};
             double          u_last = 0.0;
             Tail            ta;
             Tail            tb;
@@ -528,7 +529,7 @@ TEST_SUITE("Design on the delayed model") {
             OFMPC           cb{naive};
             Truth<3>        a{kReg1};
             Truth<3>        b{kReg1};
-            const ColVec<1> r{{0.2}};
+            const ColVec<1> r{0.2};
             Tail            ta;
             Tail            tb;
             constexpr int   n = 2000;
@@ -648,7 +649,7 @@ TEST_SUITE("Design on the delayed model") {
         CHECK(aware.target.target_d == design::steady_state_target(mass_spring(), kTs, design::InputDisturbance{}, InputDelay{kTs}).target_d);
         OFMPC           ca{aware};
         Truth<3>        a{kReg1};
-        const ColVec<1> r{{0.2}};
+        const ColVec<1> r{0.2};
         Tail            ta;
         constexpr int   n = 2000;
         for (int k = 0; k < n; ++k) {
@@ -677,7 +678,7 @@ TEST_SUITE("Design on the delayed model") {
         CHECK(both.target.target_d == design::steady_state_target(mass_spring(), kTs, design::InputDisturbance{}, in, out).target_d);
         OFMPC           cb{both};
         Truth<5>        b{discretize(mass_spring(), kTs, in, out).value()};
-        const ColVec<1> r{{0.2}};
+        const ColVec<1> r{0.2};
         Tail            tb;
         constexpr int   n = 2000;
         for (int k = 0; k < n; ++k) {
@@ -733,9 +734,9 @@ TEST_SUITE("Design on the delayed model") {
             tc.add(k, n, c.position() - xs[0]);
             tb.add(k, n, b.position() - xs[0]);
             const ColVec<3> x_ref{xs[0], xs[1], u_star(t)};
-            a.step(ca.step({}, x_ref, ColVec<1>{{u_star(t + kTs)}}, a.y())[0], 0.3);
-            c.step(cc.step({}, x_ref, ColVec<1>{{u_star(t)}}, c.y())[0], 0.3);
-            b.step(std::clamp(cb.step({}, xs, ColVec<1>{{u_star(t)}}, b.y())[0], -1e6, 1e6), 0.3);
+            a.step(ca.step({}, x_ref, ColVec<1>{u_star(t + kTs)}, a.y())[0], 0.3);
+            c.step(cc.step({}, x_ref, ColVec<1>{u_star(t)}, c.y())[0], 0.3);
+            b.step(std::clamp(cb.step({}, xs, ColVec<1>{u_star(t)}, b.y())[0], -1e6, 1e6), 0.3);
         }
         CHECK(ta.worst < 2e-6); // of the 0.2 amplitude, under the load
         CHECK(ta.worst < tc.worst);
@@ -752,7 +753,7 @@ TEST_SUITE("Design on the delayed model") {
         Tail                     e;
         constexpr int            n = 1200;
         for (int k = 0; k < n; ++k) {
-            const auto x_hat = mhe.step(t.y(), ColVec<1>{{u_at(k - 1)}});
+            const auto x_hat = mhe.step(t.y(), ColVec<1>{u_at(k - 1)});
             e.add(k, n, x_hat[1] - t.x[1]);
             t.step(u_at(k));
         }
@@ -820,7 +821,7 @@ TEST_SUITE("Design on the delayed model") {
             const double requested = law.control()[0];
             const double u = std::clamp(requested, -0.5, 0.5);
             clamped += (u != requested) ? 1 : 0;
-            law.back_calculate(ColVec<1>{{u}});
+            law.back_calculate(ColVec<1>{u});
             law.predict();
             applied.push(u);
             t.step(u);
@@ -916,7 +917,7 @@ TEST_SUITE("Design on the delayed model") {
         static constexpr auto                              res = design::state_feedback(model, {.Q = blkdiag(Matrix<1, 1>{{1.0}}, Matrix<2, 2>{}), .R = 0.1}, design::KalmanNoise{.process = 0.05, .measurement = 0.001});
         static_assert(res.success);
         static constinit LQG law{res.as<float>()};
-        CHECK(std::isfinite(law.step(ColVec<1, float>{{1.0F}})[0]));
+        CHECK(std::isfinite(law.step(ColVec<1, float>{1.0F})[0]));
     }
 
     TEST_CASE("a disturbance in G is discretized with the plant and kept off the register") {
@@ -985,7 +986,7 @@ TEST_SUITE("Design on the delayed model") {
         constexpr int                      n = 2000;
         for (int k = 0; k < n; ++k) {
             const ColVec<1> y = t.y();
-            const ColVec<1> u{{u_at(k)}};
+            const ColVec<1> u{u_at(k)};
             aware.update(y);
             naive.update(y);
             ea.add(k, n, aware.state()[1] - t.x[1]);
@@ -1028,7 +1029,7 @@ TEST_SUITE("Design on the delayed model") {
         static_assert(decltype(of)::NK == 2); // the gain reads the plant's state alone
         OFLQG           cof{of};
         Truth<4>        a{discretize(mass_spring(), kTs, OutputDelay<2>{1.4 * kTs}).value()};
-        const ColVec<1> r{{0.3}};
+        const ColVec<1> r{0.3};
         Tail            ta;
         constexpr int   n = 3000;
         for (int k = 0; k < n; ++k) {

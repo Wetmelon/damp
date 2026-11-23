@@ -267,7 +267,7 @@ TEST_SUITE("NPY export") {
         unsigned char pre[10]{};
         REQUIRE(std::fread(pre, 1, 10, f) == 10);
         std::fclose(f);
-        const std::size_t hdr_len = pre[8] | (pre[9] << 8);
+        const auto hdr_len = static_cast<std::size_t>(pre[8] | (pre[9] << 8));
         CHECK((10 + hdr_len) % 64 == 0);
     }
 }

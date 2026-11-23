@@ -332,7 +332,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`scalar_of`](inc/damp/design/detail/config.hpp#L72) | The scalar of a weight's value; double left out (+2 more overloads) |
 | [`SMCResult`](inc/damp/controllers/smc.hpp#L37) | Tuning parameters for a first-order sliding-mode controller |
 | [`SmithPredictorResult`](inc/damp/controllers/smith_predictor.hpp#L97) | Smith predictor design result (discrete PID + FO model + delay samples) |
-| [`StateFeedbackResult`](inc/damp/controllers/state_feedback_types.hpp#L352) | A state-feedback design: the gain, and the parts the law's options add |
+| [`StateFeedbackResult`](inc/damp/controllers/state_feedback_types.hpp#L358) | A state-feedback design: the gain, and the parts the law's options add |
 | [`StateFeedforward`](inc/damp/design/model_inverse.hpp#L818) | The plant-inversion feedforward at run time: u = B⁺·(x ₖ₊₁ − x ₖ) − B⁺(A − I)·x ₖ, two matrix–vector products (+1 more overload) |
 | [`StateFeedforwardResult`](inc/damp/design/model_inverse.hpp#L60) | The plant-inversion feedforward of a discrete model: u ₖ = B⁺·(x ₖ₊₁ − x ₖ) − B⁺(A − I)·x ₖ |
 | [`StateSpaceResult`](inc/damp/design/model_result.hpp#L58) | A designed state-space model with its success / status |
@@ -440,7 +440,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`solve_qp_interior_point`](inc/damp/design/qp.hpp#L1464) | Interior-point QP solver (primal-dual path following) |
 | [`square_matrix`](inc/damp/design/detail/config.hpp#L102) | A weight's value as an N × N Matrix in T (its size checked by the caller), or fallback when it was left out |
 | [`stability_margin`](inc/damp/design/stability.hpp#L526) | Distance from the poles of sys to its domain's stability boundary |
-| [`state_feedback`](inc/damp/controllers/state_feedback.hpp#L196) | The linear-quadratic state-feedback law (DARE on a discrete plant, CARE on a continuous one): runs as LQR, LQI, LQG, LQGI or OFLQG, as its options say (+3 more overloads) |
+| [`state_feedback`](inc/damp/controllers/state_feedback.hpp#L201) | The linear-quadratic state-feedback law (DARE on a discrete plant, CARE on a continuous one): runs as LQR, LQI, LQG, LQGI or OFLQG, as its options say (+3 more overloads) |
 | [`state_feedforward`](inc/damp/design/model_inverse.hpp#L100) | The plant-inversion feedforward of a discrete model: the input that moves x⁺ = A·x + B·u along a state reference, u ₖ the least-squares solution of B·u = x ₖ₊₁ − A·x ₖ |
 | [`steady_state_target`](inc/damp/design/config.hpp#L294) | design::steady_state_target(sys, opts…) with the options the fields of config: the same design (+3 more overloads) |
 | [`stsmc`](inc/damp/controllers/stsmc.hpp#L101) | Synthesize super-twisting gains from a disturbance-derivative bound |
@@ -471,8 +471,8 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`ExtremumSeekingController`](inc/damp/controllers/esc.hpp#L236) | Extremum-seeking controller runtime (model-free online optimizer) |
 | [`ExtremumType`](inc/damp/controllers/esc.hpp#L48) | Whether ESC climbs to a maximum or descends to a minimum of the objective |
 | [`HarmonicSuppressor`](inc/damp/controllers/harmonic_suppression.hpp#L173) | Multi-resonant harmonic suppressor — a parallel bank of PR resonators |
-| [`IntegralAction`](inc/damp/controllers/state_feedback_types.hpp#L285) | Integral action: integrators on r − y, with the cost and the limits that go with them. Among a design's trailing options it makes the law an LQI (an LQGI with a KalmanNoise) |
-| [`IntegralDesign`](inc/damp/controllers/state_feedback_types.hpp#L304) | The integral action of a design: the integrated outputs, their maps of the state and the input, the per-sample step, and what back-calculation moves the integrators by |
+| [`IntegralAction`](inc/damp/controllers/state_feedback_types.hpp#L291) | Integral action: integrators on r − y, with the cost and the limits that go with them. Among a design's trailing options it makes the law an LQI (an LQGI with a KalmanNoise) |
+| [`IntegralDesign`](inc/damp/controllers/state_feedback_types.hpp#L310) | The integral action of a design: the integrated outputs, their maps of the state and the input, the per-sample step, and what back-calculation moves the integrators by |
 | [`Law`](inc/damp/controllers/law.hpp#L59) | The runtime a design result deploys as, named by the result: `Law<kRes, float> law;` (+6 more overloads) |
 | [`LeadLagController`](inc/damp/controllers/lead_lag.hpp#L325) | Discrete lead-lag compensator |
 | [`LQG`](inc/damp/controllers/lqg.hpp#L101) | Linear-quadratic Gaussian law: LQR on the Kalman filter's estimate |

@@ -60,7 +60,7 @@ TEST_SUITE("Input delay") {
                 worst = std::max({worst, std::abs(xa[0] - p), std::abs(xa[1] - v), std::abs(xa[2] - u_at(k - 1))});
                 hold(u_at(k - 1), frac * Ts);
                 hold(u_at(k), (1.0 - frac) * Ts);
-                xa = model->A * xa + model->B * ColVec<1>{{u_at(k)}};
+                xa = model->A * xa + model->B * ColVec<1>{u_at(k)};
             }
             CHECK(worst < 1e-12 * 1e3); // states grow to ~10³ over the run
         }
@@ -113,7 +113,7 @@ TEST_SUITE("Input delay") {
                 worst = std::max({worst, std::abs(xa[0] - p), std::abs(xa[1] - v), std::abs(xa[2] - u_at(k - 1))});
                 hold(u_at(k - 1), frac * Ts);
                 hold(u_at(k), (1.0 - frac) * Ts);
-                xa = model.A * xa + model.B * ColVec<1>{{u_at(k)}};
+                xa = model.A * xa + model.B * ColVec<1>{u_at(k)};
             }
             CHECK(worst < 1e-12 * 1e3);
         }
@@ -255,7 +255,7 @@ TEST_SUITE("Input delay") {
             worst = std::max({worst, std::abs(xa[0] - p), std::abs(xa[1] - v), std::abs(xa[2] - u_at(k - 1)), std::abs(xa[3] - u_at(k - 2)), std::abs(xa[4] - u_at(k - 3))});
             hold(u_at(k - 3), frac * Ts);
             hold(u_at(k - 2), (1.0 - frac) * Ts);
-            xa = model->A * xa + model->B * ColVec<1>{{u_at(k)}};
+            xa = model->A * xa + model->B * ColVec<1>{u_at(k)};
         }
         CHECK(worst < 1e-12 * 1e3); // states grow to ~10³ over the run
     }

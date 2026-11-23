@@ -62,9 +62,9 @@ static_assert(lqi_result.success);
 template<typename T>
 [[nodiscard]] T control_period(Law<lqi_result, T>& law, const ColVec<2, T>& x, T r) {
     law.update(x);
-    const T u = law.control(ColVec<1, T>{{r}})[0];
+    const T u = law.control(ColVec<1, T>{r})[0];
     const T u_sat = damp::clamp(u, static_cast<T>(u_min), static_cast<T>(u_max));
-    law.back_calculate(ColVec<1, T>{{u_sat}});
+    law.back_calculate(ColVec<1, T>{u_sat});
     law.predict();
     return u_sat;
 }

@@ -3,13 +3,14 @@
 #
 #   make                 format, build everything, check docs, run all tests  ← final check
 #   make tests           build and run the test suites only
+#   make clang-tests     build and run the test suites with clang too (not part of make)
 #   make examples        build and run the examples
 #   make ci              the lean gate: style, REFERENCE drift, tests, contracts, smoke
 #   make tidy | iwyu | fix_includes    clang-based hygiene (see "Code hygiene")
 #
 # On Windows run make from PowerShell or cmd, not Git Bash (see AGENTS.md).
 
-.PHONY: all format compiledb build tests examples examples-force sils \
+.PHONY: all format compiledb build tests clang-tests examples examples-force sils \
         refs docs doxygen-style-check reference-check embedded-check freestanding-check workbench-check nostd-check ci \
         clangdb tidy iwyu fix_includes target-smoke targets
 
@@ -64,16 +65,30 @@ endef
 # ---------------------------------------------------------------------------
 
 # Full build = tests, examples (built and run) and the embedded/freestanding
-# contract checks, all in the tup DAG.
+# contract checks, all in the tup DAG. Not the clang build of the tests (clang-tests/),
+# which only make clang-tests builds.
 all: format build refs doxygen-style-check
 	$(run_tests)
 
 build: format compiledb
-	@$(TUP)
+	@$(TUP) tests examples checks
 
 tests: format compiledb
 	@$(TUP) tests
 	$(run_tests)
+
+# The three runners built with clang as well as the build's g++ (clang-tests/Tupfile.lua): clang
+# deduces and folds differently enough to fail where g++ passes, as in a function template's
+# IntegralAction{.Q = 1e6}. Skipped, and passing, without clang++ 19+ on PATH (tools/clang_cxx.sh
+# leaves the runners empty) or when the build is clang already (make tests runs them).
+CLANG_RUNNERS = clang-tests/build/test_runner.exe clang-tests/build/test_damp_backend.exe \
+                clang-tests/build/test_etl_backend.exe
+clang-tests:
+	@$(TUP) clang-tests
+	@failed=0; for t in $(CLANG_RUNNERS); do \
+		if [ ! -s $$t ]; then echo "clang-tests: skipped (no clang++ 19+ on PATH, or the build is clang)"; exit 0; fi; \
+		./$$t || failed=1; \
+	done; exit $$failed
 
 format:
 	@clang-format -i $$(find inc $(wildcard sil) -name '*.hpp') \

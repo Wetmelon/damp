@@ -362,7 +362,7 @@ TEST_SUITE("constexpr_math") {
         static_assert(damp::exp(-800.0) == 0.0);
 
         // float specialization stays finite/zero past its narrower range
-        CEXPR_APPROX(damp::exp(10.0f), std::exp(10.0), 1e-5);
+        CEXPR_APPROX(static_cast<double>(damp::exp(10.0f)), std::exp(10.0), 1e-5);
         // Type-scaled saturation (float overflows ~88.7, not at the double 709 gate)
         static_assert(damp::exp(100.0f) == std::numeric_limits<float>::max());
         static_assert(damp::exp(-120.0f) == 0.0f);
@@ -697,7 +697,10 @@ TEST_SUITE("constexpr_math") {
     TEST_CASE("pow with a mixed float/double exponent keeps the real exponent") {
         volatile float xf = 2.0F;
         CHECK(damp::pow(static_cast<float>(xf), 0.5) == doctest::Approx(std::sqrt(2.0F)));
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdouble-promotion" // a float exponent on a double base is the case under test
         CHECK(damp::pow(2.0, 2.5F) == doctest::Approx(std::pow(2.0, 2.5)));
+#pragma GCC diagnostic pop
         constexpr float cf = damp::pow(2.0F, 0.5);
         CHECK(cf == doctest::Approx(std::sqrt(2.0F)));
         static_assert(damp::pow(2.0F, 3) == 8.0F); // integer exponent stays exact

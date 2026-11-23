@@ -34,7 +34,6 @@ TEST_SUITE("Embedded Umbrella") {
 
         auto                   runtime = LQI{res.as<float>()};
         const ColVec<2, float> x{1.0f, 0.0f};
-        const ColVec<1, float> y{1.0f};
         const ColVec<1, float> r{0.0f};
         const auto             u = runtime.step(r, x);
         CHECK(u(0, 0) != doctest::Approx(0.0f));

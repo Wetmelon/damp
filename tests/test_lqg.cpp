@@ -83,8 +83,8 @@ TEST_SUITE("LQG") {
 
         ColVec<2> x{1.0, 0.0}; // start displaced by 1 m
         for (int k = 0; k < 200; ++k) {
-            const ColVec<1> y{{x[0]}}; // measure position
-            controller.update(y);      // Kalman correct
+            const ColVec<1> y{x[0]}; // measure position
+            controller.update(y);    // Kalman correct
             const ColVec<1> u = controller.control();
             x = sys.A * x + sys.B * u; // advance true plant
             controller.back_calculate(u);
@@ -108,7 +108,7 @@ TEST_SUITE("LQG") {
         ColVec<2> x{1.0, 0.0};
         ColVec<1> last_u{};
         for (int k = 0; k < 200; ++k) {
-            const ColVec<1> y{{x[0]}};
+            const ColVec<1> y{x[0]};
             last_u = controller.step(y);
             x = sys.A * x + sys.B * last_u;
         }
@@ -134,7 +134,7 @@ TEST_SUITE("LQG") {
         const double u_max = 0.05; // tight clamp forces saturation early on
         ColVec<1>    u_applied{};
         for (int k = 0; k < 50; ++k) {
-            const ColVec<1> y{{x[0]}};
+            const ColVec<1> y{x[0]};
             controller.back_calculate(u_applied);
             ColVec<1> u = controller.step(y);
             CHECK(controller.applied()[0] == u_applied[0]); // predicted with last tick's clamped input
@@ -166,7 +166,7 @@ TEST_SUITE("LQG") {
         ColVec<1>       u_applied{};
         const ColVec<2> x_ref{0.2, 0.0};
         for (int k = 0; k < 40; ++k) {
-            const ColVec<1> y{{x[0]}};
+            const ColVec<1> y{x[0]};
             fused.back_calculate(u_applied);
             const ColVec<1> u_fused = fused.step(x_ref, {}, y);
             split.back_calculate(u_applied);
@@ -176,7 +176,7 @@ TEST_SUITE("LQG") {
             CHECK(u_fused[0] == doctest::Approx(u_split[0]).epsilon(1e-12));
             CHECK(fused.estimator.state()[0] == doctest::Approx(split.estimator.state()[0]).epsilon(1e-12));
             CHECK(fused.estimator.state()[1] == doctest::Approx(split.estimator.state()[1]).epsilon(1e-12));
-            u_applied = ColVec<1>{{damp::clamp(u_fused[0], -0.05, 0.05)}};
+            u_applied = ColVec<1>{damp::clamp(u_fused[0], -0.05, 0.05)};
             x = sys.A * x + sys.B * u_applied;
         }
 
@@ -186,9 +186,9 @@ TEST_SUITE("LQG") {
         ColVec<2> xi{1.0, 0.0};
         ColVec<2> xe{1.0, 0.0};
         for (int k = 0; k < 40; ++k) {
-            const ColVec<1> ui = implicit.step(ColVec<1>{{xi[0]}});
+            const ColVec<1> ui = implicit.step(ColVec<1>{xi[0]});
             explicit_u.back_calculate(explicit_u.last_command());
-            const ColVec<1> ue = explicit_u.step(ColVec<1>{{xe[0]}});
+            const ColVec<1> ue = explicit_u.step(ColVec<1>{xe[0]});
             CHECK(ui[0] == doctest::Approx(ue[0]).epsilon(1e-12));
             CHECK(implicit.last_command()[0] == ui[0]);
             xi = sys.A * xi + sys.B * ui;
@@ -240,7 +240,7 @@ TEST_SUITE("LQG") {
         CHECK(controller.estimator.gain()(1, 0) == doctest::Approx(result.kalman.M(1, 0)));
 
         // One update applies that L: x̂⁺ = x̂ + L (y − C x̂) from zero state.
-        const ColVec<1> y{{1.0}};
+        const ColVec<1> y{1.0};
         controller.update(y);
         const ColVec<2> xhat = controller.estimator.state();
         CHECK(xhat[0] == doctest::Approx(result.kalman.M(0, 0) * 1.0));
@@ -263,13 +263,13 @@ TEST_SUITE("LQG") {
         CHECK(ss.Ts == doctest::Approx(sys.Ts));
 
         auto      runtime = LQG{result};
-        ColVec<2> xc{{0.0}, {0.0}};
-        ColVec<2> xp{{1.0}, {0.0}};
+        ColVec<2> xc{0.0, 0.0};
+        ColVec<2> xp{1.0, 0.0};
         ColVec<2> xp_rt = xp;
         for (int k = 0; k < 8; ++k) {
-            const ColVec<1> y{{xp[0]}};
+            const ColVec<1> y{xp[0]};
             const ColVec<1> u = ss.C * xc + ss.D * y;
-            const ColVec<1> u_rt = runtime.step(ColVec<1>{{xp_rt[0]}});
+            const ColVec<1> u_rt = runtime.step(ColVec<1>{xp_rt[0]});
             CHECK(u[0] == doctest::Approx(u_rt[0]));
             xp = sys.A * xp + sys.B * u;
             xp_rt = sys.A * xp_rt + sys.B * u_rt;
@@ -277,7 +277,7 @@ TEST_SUITE("LQG") {
         }
 
         for (int k = 0; k < 200; ++k) {
-            const ColVec<1> y{{xp[0]}};
+            const ColVec<1> y{xp[0]};
             const ColVec<1> u = ss.C * xc + ss.D * y;
             xp = sys.A * xp + sys.B * u;
             xc = ss.A * xc + ss.B * y;
@@ -356,7 +356,7 @@ TEST_SUITE("LQG") {
         ColVec<2>       x{};
         const ColVec<1> r{0.5};
         for (int k = 0; k < 600; ++k) {
-            const ColVec<1> u = law.step(r, ColVec<1>{{x[0]}});
+            const ColVec<1> u = law.step(r, ColVec<1>{x[0]});
             x = (sys.A * x) + (sys.B * u);
         }
         CHECK(x[0] == doctest::Approx(0.5).epsilon(1e-9));
@@ -440,7 +440,7 @@ TEST_SUITE("LQG status") {
         auto      law = LQG{res};
         ColVec<2> x{1.0, 0.0};
         for (int k = 0; k < 400; ++k) {
-            const ColVec<1> u = law.step(ColVec<1>{{x[0]}});
+            const ColVec<1> u = law.step(ColVec<1>{x[0]});
             x = res.kalman.sys.A * x + res.kalman.sys.B * u;
         }
         CHECK(damp::abs(x[0]) < 1e-3);

@@ -25,13 +25,12 @@ static void delayMicroseconds(int) {}
 #endif
 
 // 14-bit absolute encoder scenario defaults
-static constexpr double kCpr = 16384.0;
 static constexpr double kBw = 1000.0;
 
 static PllObserver                       pll{kBw};
 static RobustExactDifferentiator<double> levant{2.0 * 0.25 * (2.0 * 3.141592653589793 * 1.0) * (2.0 * 3.141592653589793 * 1.0), dt};
 
-// Mock quantized position [turns] — replace with encoder counts / cpr
+// Mock quantized position [turns] — replace with encoder counts / cpr (16384 for a 14-bit encoder)
 static double read_encoder_turns() {
     return 0.0;
 }

@@ -389,7 +389,7 @@ TEST_SUITE("FixedGainObserver and SteadyStateTarget") {
         ColVec<2> ref{};
         ColVec<1> u_held{};
         for (int k = 0; k < 100; ++k) {
-            const ColVec<1> u{{0.2 * std::sin(0.1 * k)}};
+            const ColVec<1> u{0.2 * std::sin(0.1 * k)};
             const ColVec<1> y{(kPlantD.C * x)(0, 0)};
             est.update(y);
             ref = ref + res.M * (y - (kPlantD.C * ref + kPlantD.D * u_held)); // the textbook update, the feedthrough on the held input
@@ -413,9 +413,9 @@ TEST_SUITE("FixedGainObserver and SteadyStateTarget") {
         FixedGainObserver<3, 1, 1, double>    absf{res}; // the design on [x; d] as an absolute observer
         static_assert(std::is_same_v<decltype(FixedGainObserver{res}), decltype(dev)>);
         ColVec<2> x{0.05, 0.0};
-        ColVec<1> u{{0.1}};
+        ColVec<1> u{0.1};
         for (int k = 0; k < 40; ++k) {
-            const ColVec<1> y{{(kPlantD.C * x)(0, 0)}};
+            const ColVec<1> y{(kPlantD.C * x)(0, 0)};
             dev.predict(u);
             absf.predict(u);
             if (k == 16) {
@@ -433,14 +433,14 @@ TEST_SUITE("FixedGainObserver and SteadyStateTarget") {
             if (k == 15) {
                 const auto xhat = dev.state_estimate();
                 const auto dhat = dev.disturbance_estimate();
-                const auto p = target.equilibrium(ColVec<1>{{0.2}}, dhat);
+                const auto p = target.equilibrium(ColVec<1>{0.2}, dhat);
                 dev.anchor(p.x, p.u);
                 CHECK((dev.state_estimate() - xhat).norm() < 1e-12);
                 CHECK((dev.disturbance_estimate() - dhat).norm() < 1e-12);
                 CHECK((dev.anchor_state() - p.x).norm() == 0.0); // the anchor moved; the estimate did not
             }
             x = kPlantD.A * x + kPlantD.B * u;
-            u = ColVec<1>{{0.1 * std::sin(0.2 * k)}};
+            u = ColVec<1>{0.1 * std::sin(0.2 * k)};
         }
     }
 
@@ -465,8 +465,8 @@ TEST_SUITE("FixedGainObserver and SteadyStateTarget") {
         constexpr int    n = 1500;
         constexpr double kForce = 0.5;
         for (int k = 0; k < n; ++k) {
-            const ColVec<1> r{{((k / 300) % 2 == 0) ? 0.3 : -0.2}};
-            const ColVec<1> y{{(kPlantD.C * x)(0, 0)}};
+            const ColVec<1> r{((k / 300) % 2 == 0) ? 0.3 : -0.2};
+            const ColVec<1> y{(kPlantD.C * x)(0, 0)};
             const double    u_old = law.step(r, y)[0];
 
             est.predict(u_new);
@@ -477,7 +477,7 @@ TEST_SUITE("FixedGainObserver and SteadyStateTarget") {
             worst = std::max(worst, std::abs(u_old - u_new[0]));
             scale = std::max(scale, std::abs(u_old));
             const double force = (k > n / 3) ? kForce : 0.0;
-            x = kPlantD.A * x + kPlantD.B * ColVec<1>{{sent + force}};
+            x = kPlantD.A * x + kPlantD.B * ColVec<1>{sent + force};
             sent = u_old;
         }
         MESSAGE("|Δu| / max |u| = ", worst / scale, ", |d̂ − load| = ", std::abs(est.disturbance_estimate()[0] - kForce));
@@ -489,13 +489,13 @@ TEST_SUITE("FixedGainObserver and SteadyStateTarget") {
 
     TEST_CASE("the target from r alone, and with a disturbance about a reference point") {
         const SteadyStateTarget target{design::steady_state_target(kPlantD)};
-        const auto              p = target.equilibrium(ColVec<1>{{0.3}});
+        const auto              p = target.equilibrium(ColVec<1>{0.3});
         CHECK(std::abs((kPlantD.C * p.x)(0, 0) - 0.3) < 1e-12);
         CHECK((kPlantD.A * p.x + kPlantD.B * p.u - p.x).norm() < 1e-12); // a steady state
 
         const SteadyStateTarget with_d{design::steady_state_target(kPlantD, design::InputDisturbance{})};
-        const auto              q = with_d.equilibrium(ColVec<1>{{0.3}}, ColVec<1>{{0.1}});
-        CHECK((kPlantD.A * q.x + kPlantD.B * (q.u + ColVec<1>{{0.1}}) - q.x).norm() < 1e-12); // the input cancels the load
+        const auto              q = with_d.equilibrium(ColVec<1>{0.3}, ColVec<1>{0.1});
+        CHECK((kPlantD.A * q.x + kPlantD.B * (q.u + ColVec<1>{0.1}) - q.x).norm() < 1e-12); // the input cancels the load
         CHECK(std::abs((kPlantD.C * q.x)(0, 0) - 0.3) < 1e-12);
     }
 }

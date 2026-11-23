@@ -565,11 +565,11 @@ TEST_SUITE("Resampling (d2d / upsample)") {
         for (size_t k = 0; k < 30; ++k) {
             const double u = (k == 0) ? 1.0 : 0.0;
             const double y = (sys.C * x)(0, 0) + (sys.D(0, 0) * u);
-            x = sys.A * x + sys.B * ColVec<1>{{u}};
+            x = sys.A * x + sys.B * ColVec<1>{u};
             for (size_t r = 0; r < 3; ++r) {
                 const double uu = (k == 0 && r == 0) ? 1.0 : 0.0;
                 const double yu = (up.C * xu)(0, 0) + (up.D(0, 0) * uu);
-                xu = up.A * xu + up.B * ColVec<1>{{uu}};
+                xu = up.A * xu + up.B * ColVec<1>{uu};
                 CHECK(yu == doctest::Approx(r == 0 ? y : 0.0).epsilon(1e-12).scale(1.0));
             }
         }
