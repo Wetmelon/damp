@@ -546,6 +546,115 @@ TEST_SUITE("Design on the delayed model") {
         }
     }
 
+    TEST_CASE("the MPC's output cost over a delayed period is the continuous integral: a switch inside the period, then a whole period and a fraction") {
+        // s = [z; u′; r′], z = [x; v(k−1); …]: the plant holds the older command until the switch,
+        // then the newer, the command itself when the delay is shorter than a period. The oracle
+        // integrates (C·x(t)/s_y − r′)ᵀ·Q_y·(…) by Simpson's rule on the exactly sampled plant.
+        const auto check = [](auto delay_states, double theta) {
+            constexpr size_t N = decltype(delay_states)::value;
+            constexpr size_t NX = 2 + N;
+            const auto       p = mass_spring();
+            const auto       split = ::damp::detail::channel_register_delays<1>(theta, kTs, N);
+            REQUIRE(split.has_value());
+            const design::detail::MpcContinuousCost<2, 1, 1, 0, double> plant{.A = p.A, .B = p.B, .C = p.C, .Ts = kTs, .on = true, .inputs = *split};
+            const Matrix<1, 1>                                          Qy{{3.0}};
+            const ColVec<1>                                             su{2.0};
+            const ColVec<1>                                             sy{0.5};
+            const auto                                                  W = design::detail::mpc_delayed_period_cost<NX>(plant, Qy, su, sy);
+            REQUIRE(W.has_value());
+            ColVec<NX + 2> sv{};
+            for (size_t i = 0; i < NX + 2; ++i) {
+                sv[i] = 0.3 + (0.7 * static_cast<double>(i)) - (0.2 * static_cast<double>(i * i)); // z, then u′, then r′
+            }
+            constexpr int M = 2000; // 5 µs steps: the switches fall on nodes
+            const double  h = kTs / M;
+            const auto    step = discretize(StateSpace<2, 1, 1>{.A = p.A, .B = p.B, .C = p.C}, h).value();
+            const auto    half = discretize(StateSpace<2, 1, 1>{.A = p.A, .B = p.B, .C = p.C}, h / 2.0).value();
+            ColVec<2>     x{sv[0], sv[1]};
+            const auto    held = [&](int i) { // the input the plant holds over sub-step i
+                const double t = h * (i + 0.5);
+                const bool   before = (*split)[0].fraction > 0.0 && t < (*split)[0].fraction;
+                const size_t age = (*split)[0].whole + (before ? 1 : 0);
+                return (age == 0) ? su[0] * sv[NX] : sv[1 + age]; // the command u = s_u·u′, or a delay state
+            };
+            const auto e = [&](const ColVec<2>& xs) { return ((p.C * xs)(0, 0) / sy[0]) - sv[NX + 1]; };
+            double     sum = 0.0;
+            double     prev = e(x);
+            ColVec<2>  mid{};
+            for (int i = 0; i < M; ++i) {
+                const ColVec<1> v{held(i)};
+                // Simpson on [t_i, t_i+1], the midpoint from the exact half-step model
+                mid = ColVec<2>((half.A * x) + (half.B * v));
+                x = ColVec<2>((step.A * x) + (step.B * v));
+                const double next = e(x);
+                const double em = e(mid);
+                sum += (h / 6.0) * Qy(0, 0) * ((prev * prev) + (4.0 * em * em) + (next * next));
+                prev = next;
+            }
+            const double quad = (sv.transpose() * (*W * sv))(0, 0);
+            CHECK(quad == doctest::Approx(sum).epsilon(1e-9));
+        };
+        check(std::integral_constant<size_t, 1>{}, 0.4 * kTs); // inside the period: v(k−1), then the command
+        check(std::integral_constant<size_t, 2>{}, 1.4 * kTs); // v(k−2), then v(k−1)
+        check(std::integral_constant<size_t, 1>{}, kTs);       // a whole period: v(k−1) all of it
+    }
+
+    TEST_CASE("MPC with an InputDelay takes the plant's state and holds the commands on their way; the delay-blind MPC rings") {
+        // The design from the continuous plant with the delay as an option, per-second weights; the
+        // runtime takes the plant's state and holds the delay states itself. The true plant is the
+        // register form of each delay.
+        const design::MPCWeights<1, 1> w{.Qy = {1e6}, .Rdu = {1e-6}}; // per second: 1e4 and 1e-4 per step at Ts = 0.01
+        const auto                     naive = design::mpc<40, 10>(mass_spring(), kTs, w, {});
+        REQUIRE(naive.success);
+        const auto run = [&](const auto& aware, double theta, bool blind_rings) {
+            REQUIRE(aware.success);
+            MPC             ca{aware};
+            MPC             cb{naive};
+            const auto      truth = test::register_form<1>(mass_spring(), kTs, theta);
+            Truth<3>        a{truth};
+            Truth<3>        b{truth};
+            const ColVec<1> r{0.2};
+            Tail            ta;
+            Tail            tb;
+            constexpr int   n = 800;
+            for (int k = 0; k < n; ++k) {
+                a.step(ca.step(r, a.plant())[0]); // the plant's state only
+                b.step(std::clamp(cb.step(r, b.plant())[0], -1e6, 1e6));
+                ta.add(k, n, a.position() - 0.2);
+                tb.add(k, n, b.position() - 0.2);
+            }
+            CHECK(ta.worst < 1e-6);
+            if (blind_rings) {
+                CHECK(tb.worst > 1e-2);
+            }
+        };
+        run(design::mpc<40, 10>(mass_spring(), kTs, w, {}, InputDelay{0.4 * kTs}), 0.4 * kTs, false); // at 0.4·Ts the delay-blind MPC still holds
+        run(design::mpc<40, 10>(mass_spring(), kTs, w, {}, InputDelay{kTs}), kTs, true);
+    }
+
+    TEST_CASE("offset-free MPC with an InputDelay: design::kalman's filter with the same delay, offset-free under a load") {
+        // The noise as densities of the continuous plant; the filter and the target are the ones
+        // design::kalman and design::steady_state_target give with the same options.
+        const design::MPCWeights<1, 1> w{.Qy = {1e5}, .Rdu = {1e-10}};
+        const design::KalmanNoise      noise{Matrix<2, 2>{{1e-2, 0.0}, {0.0, 1.0}}, Matrix<1, 1>{{1e-6}}, Matrix<1, 1>{{1.0}}};
+        const auto                     aware = design::mpc<40, 10>(mass_spring(), kTs, w, {}, noise, design::InputDisturbance{}, InputDelay{kTs});
+        REQUIRE(aware.success);
+        CHECK(aware.kalman.M == design::kalman(mass_spring(), kTs, noise, design::InputDisturbance{}, InputDelay{kTs}).M);
+        CHECK(aware.target.target_d == design::steady_state_target(mass_spring(), kTs, design::InputDisturbance{}, InputDelay{kTs}).target_d);
+        OFMPC           ca{aware};
+        Truth<3>        a{kReg1};
+        const ColVec<1> r{{0.2}};
+        Tail            ta;
+        constexpr int   n = 2000;
+        for (int k = 0; k < n; ++k) {
+            const double load = (k > n / 4) ? 0.5 : 0.0;
+            a.step(ca.step(r, a.y())[0], load);
+            ta.add(k, n, a.position() - 0.2);
+        }
+        CHECK(ta.worst < 1e-5);
+        CHECK(ca.disturbance_estimate()(0) == doctest::Approx(0.5).epsilon(1e-3));
+    }
+
     TEST_CASE("the offset-free LQG on the delayed model tracks a moving reference, its feedforward one period ahead") {
         // The register holds the input the plant receives this period, so the reference point
         // for the delayed model is [x*(t); u*(t)] with the input reference u*(t + Ts): the

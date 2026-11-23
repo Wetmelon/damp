@@ -554,6 +554,9 @@ TEST_CASE("a config (design/config.hpp) passes each named field on as that optio
     constexpr auto plain = design::mpc<4, 2>(plant(), kTs, {}, {});
     constexpr auto plain_c = design::mpc<4, 2>(plant(), kTs, design::MPCConfig{});
     static_assert(std::is_same_v<decltype(plain), decltype(plain_c)> && plain_c.success && plain.success);
+    constexpr auto delayed = design::mpc<6, 2>(plant(), kTs, weights, limits, noise, design::InputDisturbance{}, late);
+    constexpr auto delayed_c = design::mpc<6, 2>(plant(), kTs, design::MPCConfig{.weights = weights, .constraints = limits, .noise = noise, .disturbance = design::InputDisturbance{}, .delay = late});
+    static_assert(std::is_same_v<decltype(delayed), decltype(delayed_c)> && delayed_c.success && delayed_c.kalman.M == delayed.kalman.M);
 
     //! A config is a named object: bare braces in its place stay the pack's, the default weights and limits of a discrete plant, not a period and a config.
     static_assert(std::is_same_v<decltype(design::mpc<4, 2>(sysd, {}, {})), decltype(design::mpc<4, 2>(sysd, design::MPCConfig{}))> && design::mpc<4, 2>(sysd, {}, {}).success);
