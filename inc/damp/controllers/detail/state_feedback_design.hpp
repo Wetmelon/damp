@@ -167,12 +167,13 @@ template<size_t NI, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size
 /** @brief The gain of a design: on the plant (law_design), or on the model with the input registers of @p delay (delayed_law_design). */
 template<bool Discrete, size_t NI, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Delay>
 [[nodiscard]] constexpr auto gain_design(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T Ts, const lq_config<NX, NU, NI, T>& w, const Matrix<NI, NY, T>& Ci, const Delay& delay) {
-    if constexpr (damp::is_same_v<Delay, NoDelay>) {
+    using In = damp::remove_cvref_t<decltype(input_delay_of(delay))>;
+    if constexpr (damp::is_same_v<In, NoDelay>) {
         static_cast<void>(delay);
-        return law_design<Discrete, NI>(sys, Ts, w, Ci);
+        return law_design<Discrete, NI>(sys, Ts, w, Ci); // a late reading leaves the gain the plant's: only the filter carries it
     } else {
         static_assert(!Discrete, "A delay is sampled with the plant: a continuous plant and Ts.");
-        return delayed_law_design<NI>(sys, Ts, delay, w, Ci);
+        return delayed_law_design<NI>(sys, Ts, input_delay_of(delay), w, Ci);
     }
 }
 
@@ -340,7 +341,9 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
  * A delay is a model of the plant: state_feedback(sys, Ts, InputDelay<N>{θ}, config, options)
  * designs on discretize(sys, Ts, InputDelay<N>{θ}) with the cost discretized exactly, every
  * option as here. A measured-state law holds the registers v(k−1) … v(k−N); a filter carries
- * them as states of its model, with no process noise on them.
+ * them as states of its model, with no process noise on them. An OutputDelay<M>{θ} (a late
+ * reading, with a KalmanNoise) adds delay states to the filter alone: the gain is the one
+ * without it, and the target holds the late readings' delay states at the steady output.
  *
  * @par Offset-free control by a disturbance model
  * A disturbance model in `.offset_free` (InputDisturbance, OutputDisturbance, PlantDisturbance,
@@ -440,6 +443,18 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size
     return state_feedback_design<false>(sys, static_cast<T>(Ts), config, options, delay);
 }
 
+/** @brief state_feedback(sys, Ts, delay, config, options) with the reading late too: the filter carries the readings' delay states, the gain is the input-delayed plant's. */
+template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename In, typename Out, typename Options>
+[[nodiscard]] constexpr auto state_feedback(
+    const StateSpace<NX, NU, NY, T, NW, NV>&  sys,
+    damp::type_identity_t<T>                  Ts,
+    const PlantDelays<In, Out>&               delays,
+    const config_for<NX, NU, NY, T, Options>& config,
+    const Options&                            options
+) {
+    return state_feedback_design<false>(sys, static_cast<T>(Ts), config, options, delays);
+}
+
 /**
  * @brief state_feedback for a public design's trailing options: on the plant in its own domain
  *        (@p Sampled false), or on the continuous plant at @p Ts with the InputDelay among
@@ -453,7 +468,8 @@ template<bool Sampled, size_t NX, size_t NU, size_t NY, typename T, size_t NW, s
     const Options&                            options,
     const Opts&... opts
 ) {
-    if constexpr (::damp::detail::option_count<is_input_delay, Opts...> == 0) {
+    constexpr bool kLate = ::damp::detail::option_count<is_output_delay, Opts...> > 0;
+    if constexpr (::damp::detail::option_count<is_input_delay, Opts...> == 0 && !kLate) {
         (static_cast<void>(opts), ...);
         if constexpr (Sampled) {
             return detail::state_feedback(sys, Ts, config, options);
@@ -462,8 +478,9 @@ template<bool Sampled, size_t NX, size_t NU, size_t NY, typename T, size_t NW, s
             return detail::state_feedback(sys, config, options);
         }
     } else {
-        static_assert(Sampled, "An InputDelay is sampled with the plant: give the continuous plant and Ts, fn(plant, Ts, config, ..., InputDelay<N>{theta}).");
-        return detail::state_feedback(sys, Ts, ::damp::detail::option<is_input_delay>(NoDelay{}, opts...), config, options);
+        static_assert(Sampled, "A delay is sampled with the plant: give the continuous plant and Ts, fn(plant, Ts, config, ..., InputDelay<N>{theta}, OutputDelay<M>{theta}).");
+        static_assert(!kLate || !is_unset<typename options_traits<Options>::noise>, "An OutputDelay is a late reading: it needs a KalmanNoise, a filter to carry it.");
+        return detail::state_feedback(sys, Ts, delays_of(opts...), config, options);
     }
 }
 

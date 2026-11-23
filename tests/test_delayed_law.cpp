@@ -519,7 +519,7 @@ TEST_CASE("a config (design/config.hpp) passes each named field on as that optio
 
     //! The LQ law, sampled and on the discrete plant: integrators and a delay, a filter and a disturbance, tracked outputs, the cost alone.
     constexpr auto lqi = design::state_feedback(plant(), kTs, lq, design::IntegralAction{.Q = 5.0}, late);
-    constexpr auto lqi_c = design::state_feedback(plant(), kTs, design::LQConfig{.weights = lq, .integral = design::IntegralAction{.Q = 5.0}, .delay = late});
+    constexpr auto lqi_c = design::state_feedback(plant(), kTs, design::LQConfig{.weights = lq, .integral = design::IntegralAction{.Q = 5.0}, .input_delay = late});
     static_assert(std::is_same_v<decltype(lqi), decltype(lqi_c)> && lqi_c.success && lqi_c.K == lqi.K);
     constexpr auto of = design::state_feedback(sysd, lq, noise, design::InputDisturbance{});
     constexpr auto of_c = design::state_feedback(sysd, design::LQConfig{.weights = lq, .noise = noise, .disturbance = design::InputDisturbance{}});
@@ -537,11 +537,11 @@ TEST_CASE("a config (design/config.hpp) passes each named field on as that optio
     //! The filter and the target, each with a disturbance and a delay, and each alone.
     constexpr design::KalmanNoise plain_noise{.process = Matrix<2, 2>{{1e-3, 0.0}, {0.0, 1e-2}}, .measurement = 1e-3};
     constexpr auto                filter = design::kalman(plant(), kTs, noise, design::InputDisturbance{}, late);
-    constexpr auto                filter_c = design::kalman(plant(), kTs, design::KalmanConfig{.noise = noise, .disturbance = design::InputDisturbance{}, .delay = late});
+    constexpr auto                filter_c = design::kalman(plant(), kTs, design::KalmanConfig{.noise = noise, .disturbance = design::InputDisturbance{}, .input_delay = late});
     static_assert(std::is_same_v<decltype(filter), decltype(filter_c)> && filter_c.success && filter_c.M == filter.M);
     static_assert(design::kalman(sysd, design::KalmanConfig{.noise = plain_noise}).M == design::kalman(sysd, plain_noise).M);
     constexpr auto target = design::steady_state_target(plant(), kTs, design::InputDisturbance{}, late);
-    constexpr auto target_c = design::steady_state_target(plant(), kTs, design::TargetConfig{.disturbance = design::InputDisturbance{}, .delay = late});
+    constexpr auto target_c = design::steady_state_target(plant(), kTs, design::TargetConfig{.disturbance = design::InputDisturbance{}, .input_delay = late});
     static_assert(std::is_same_v<decltype(target), decltype(target_c)> && target_c.success && target_c.target_d == target.target_d);
     static_assert(std::is_same_v<decltype(design::steady_state_target(sysd, design::TargetConfig{})), decltype(design::steady_state_target(sysd))>);
 
@@ -555,7 +555,7 @@ TEST_CASE("a config (design/config.hpp) passes each named field on as that optio
     constexpr auto plain_c = design::mpc<4, 2>(plant(), kTs, design::MPCConfig{});
     static_assert(std::is_same_v<decltype(plain), decltype(plain_c)> && plain_c.success && plain.success);
     constexpr auto delayed = design::mpc<6, 2>(plant(), kTs, weights, limits, noise, design::InputDisturbance{}, late);
-    constexpr auto delayed_c = design::mpc<6, 2>(plant(), kTs, design::MPCConfig{.weights = weights, .constraints = limits, .noise = noise, .disturbance = design::InputDisturbance{}, .delay = late});
+    constexpr auto delayed_c = design::mpc<6, 2>(plant(), kTs, design::MPCConfig{.weights = weights, .constraints = limits, .noise = noise, .disturbance = design::InputDisturbance{}, .input_delay = late});
     static_assert(std::is_same_v<decltype(delayed), decltype(delayed_c)> && delayed_c.success && delayed_c.kalman.M == delayed.kalman.M);
 
     //! A config is a named object: bare braces in its place stay the pack's, the default weights and limits of a discrete plant, not a period and a config.

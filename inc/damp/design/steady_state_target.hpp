@@ -139,7 +139,7 @@ struct disturbance_traits<TrackedOutputs<NZ>, NU, NY, NW> {
 };
 
 /** @brief The options steady_state_target takes: the model features of the design (a KalmanNoise is ignored). */
-using target_options = ::damp::detail::option_set<is_disturbance, is_kalman_noise, is_input_delay>;
+using target_options = ::damp::detail::option_set<is_disturbance, is_kalman_noise, is_input_delay, is_output_delay>;
 
 /** @brief The controlled outputs of a target under @p Spec: those it lists, else every output. */
 template<typename Spec, size_t NU, size_t NY, size_t NW>
@@ -231,7 +231,7 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
     const target_weight<Spec, NU, NY, NW, T>& Q = target_weight<Spec, NU, NY, NW, T>::identity(),
     const Delay&                              delay = Delay{}
 ) {
-    constexpr size_t NXE = NX + (delay_registers<Delay> * NU);
+    constexpr size_t NXE = NX + delay_states<Delay, NU, NY>;
     constexpr size_t NXL = NXE;
     constexpr size_t ND = disturbance_traits<Spec, NU, NY, NW>::states;
     constexpr size_t NZ = target_outputs<Spec, NU, NY, NW>;
@@ -349,7 +349,7 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename... Opts>
 [[nodiscard]] constexpr auto steady_state_target(const StateSpace<NX, NU, NY, T, NW, NV>& sys, const Opts&... opts) {
     detail::target_options::check<Opts...>();
-    static_assert(::damp::detail::option_count<detail::is_input_delay, Opts...> == 0, "An InputDelay is sampled with the plant: give the continuous plant and Ts.");
+    static_assert(::damp::detail::option_count<detail::is_input_delay, Opts...> + ::damp::detail::option_count<detail::is_output_delay, Opts...> == 0, "A delay is sampled with the plant: give the continuous plant and Ts.");
     return detail::target_design<true>(
         sys, T{0}, ::damp::detail::option<detail::is_disturbance>(NoDisturbance{}, opts...)
     );
@@ -361,21 +361,24 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
  *        design::kalman(sys, Ts, noise, opts…).
  *
  * With InputDelay<N>{θ} among @p opts the model is the plant whose input arrives θ late, the
- * plant then its delay states v(k−1) … v(k−N); at a steady state each holds u_t.
+ * plant then its delay states v(k−1) … v(k−N); at a steady state each holds u_t. With
+ * OutputDelay<M>{θ}, the model of design::kalman(sys, Ts, noise, …, OutputDelay<M>{θ}), its
+ * readings late: the target is on that model, so each of the readings' delay states holds the
+ * steady output, the state a law with that filter anchors on.
  *
  * @param sys   Continuous plant (sys.Ts = 0)
  * @param Ts    Sampling time of the law [s]
- * @param opts  The model features of the design, in any order: a disturbance spec, an InputDelay
+ * @param opts  The model features of the design, in any order: a disturbance spec, an InputDelay,
+ *              an OutputDelay
  */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename... Opts>
 [[nodiscard]] constexpr auto steady_state_target(const StateSpace<NX, NU, NY, T, NW, NV>& sys, damp::type_identity_t<T> Ts, const Opts&... opts) {
     detail::target_options::check<Opts...>();
     const auto spec = ::damp::detail::option<detail::is_disturbance>(NoDisturbance{}, opts...);
-    if constexpr (::damp::detail::option_count<detail::is_input_delay, Opts...> == 0) {
+    if constexpr (::damp::detail::option_count<detail::is_input_delay, Opts...> + ::damp::detail::option_count<detail::is_output_delay, Opts...> == 0) {
         return detail::target_design<false>(sys, Ts, spec);
     } else {
-        const auto delay = ::damp::detail::option<detail::is_input_delay>(detail::NoDelay{}, opts...);
-        return detail::target_design<false>(sys, Ts, spec, detail::target_weight<damp::remove_cvref_t<decltype(spec)>, NU, NY, NW, T>::identity(), delay);
+        return detail::target_design<false>(sys, Ts, spec, detail::target_weight<damp::remove_cvref_t<decltype(spec)>, NU, NY, NW, T>::identity(), detail::delays_of(opts...));
     }
 }
 

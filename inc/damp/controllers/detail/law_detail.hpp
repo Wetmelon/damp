@@ -13,6 +13,7 @@
  */
 
 #include "damp/backend.hpp"
+#include "damp/design/options.hpp"
 #include "damp/design/status.hpp"
 #include "damp/matrix/colvec.hpp"
 #include "damp/matrix/matrix.hpp"
@@ -197,6 +198,61 @@ struct is_input_delay : damp::false_type {};
 template<size_t N, typename S>
 struct is_input_delay<InputDelay<N, S>> : damp::true_type {};
 
+/** @brief Not an OutputDelay: a kind of trailing design option (options.hpp). */
+template<typename>
+struct is_output_delay : damp::false_type {};
+
+/** @brief OutputDelay<N>: the late reading a sampled filter design is on, given among its trailing options. */
+template<size_t N, typename S>
+struct is_output_delay<OutputDelay<N, S>> : damp::true_type {};
+
+/** @brief A design's delays when its reading arrives late: the input's (NoDelay or an InputDelay), then the OutputDelay. */
+template<typename In, typename Out>
+struct PlantDelays {
+    In  input{};  ///< NoDelay, or the InputDelay
+    Out output{}; ///< The OutputDelay
+};
+
+/** @brief PlantDelays: the input's delay states, the ones a law holds. */
+template<typename In, typename Out>
+inline constexpr size_t delay_registers<PlantDelays<In, Out>> = delay_registers<In>;
+
+/** @brief The delay states per output a late reading adds (NRY): none without an OutputDelay. */
+template<typename Delay>
+inline constexpr size_t output_delay_states = 0;
+
+/** @brief PlantDelays with an OutputDelay<N>: N per output. */
+template<typename In, size_t N, typename S>
+inline constexpr size_t output_delay_states<PlantDelays<In, OutputDelay<N, S>>> = N;
+
+/** @brief The delay states a design's delay adds after the plant's NX: NRU per input, then NRY per output. */
+template<typename Delay, size_t NU, size_t NY>
+inline constexpr size_t delay_states = (delay_registers<Delay> * NU) + (output_delay_states<Delay> * NY);
+
+/** @brief The input part of a design's delay, the one its law holds: NoDelay or an InputDelay. */
+template<typename Delay>
+[[nodiscard]] constexpr const Delay& input_delay_of(const Delay& delay) {
+    return delay;
+}
+
+/** @brief PlantDelays: its InputDelay, or NoDelay. */
+template<typename In, typename Out>
+[[nodiscard]] constexpr const In& input_delay_of(const PlantDelays<In, Out>& delay) {
+    return delay.input;
+}
+
+/** @brief The delays among a design's options: NoDelay, the InputDelay, or PlantDelays when an OutputDelay is there. */
+template<typename... Opts>
+[[nodiscard]] constexpr auto delays_of(const Opts&... opts) {
+    const auto input = ::damp::detail::option<is_input_delay>(NoDelay{}, opts...);
+    if constexpr (::damp::detail::option_count<is_output_delay, Opts...> == 0) {
+        return input;
+    } else {
+        const auto output = ::damp::detail::option<is_output_delay>(NoDelay{}, opts...);
+        return PlantDelays<damp::remove_cvref_t<decltype(input)>, damp::remove_cvref_t<decltype(output)>>{input, output};
+    }
+}
+
 /** @brief sampled_model(sys, Ts, discrete), the model of a design without a delay. */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
 [[nodiscard]] constexpr SampledModel<NX, NU, NY, T, NW, NV> sampled_model(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T Ts, bool discrete, NoDelay) {
@@ -221,6 +277,40 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size
         return out; // a delay is sampled with the plant: there is no delayed model of a discrete one
     }
     const auto d = ::damp::discretize(sys, Ts, delay);
+    if (!d) {
+        out.status = d.status;
+        return out;
+    }
+    out.law = *d;
+    return out;
+}
+
+/**
+ * @brief The model of a continuous @p sys sampled at @p Ts with its reading late, and its input
+ *        too when @p delays holds an InputDelay: discretize(sys, Ts, [input,] output), the plant,
+ *        the input's delay states, then the readings' v(k−1) … and z(k−1) … .
+ * @return status as the InputDelay overload's
+ */
+template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename In, size_t N, typename S>
+[[nodiscard]] constexpr SampledModel<NX + delay_states<PlantDelays<In, OutputDelay<N, S>>, NU, NY>, NU, NY, T, NW, NV> sampled_model(
+    const StateSpace<NX, NU, NY, T, NW, NV>&  sys,
+    T                                         Ts,
+    bool                                      discrete,
+    const PlantDelays<In, OutputDelay<N, S>>& delays
+) {
+    SampledModel<NX + delay_states<PlantDelays<In, OutputDelay<N, S>>, NU, NY>, NU, NY, T, NW, NV> out{
+        .status = discrete ? DesignStatus::invalid_sample_time : plant_status(sys, Ts, false)
+    };
+    if (out.status != DesignStatus::ok) {
+        return out; // a delay is sampled with the plant: there is no delayed model of a discrete one
+    }
+    const auto d = [&] {
+        if constexpr (damp::is_same_v<In, NoDelay>) {
+            return ::damp::discretize(sys, Ts, delays.output);
+        } else {
+            return ::damp::discretize(sys, Ts, delays.input, delays.output);
+        }
+    }();
     if (!d) {
         out.status = d.status;
         return out;

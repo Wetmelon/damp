@@ -175,7 +175,7 @@ struct StateFeedbackCore {
     static constexpr size_t NIn = kEstimated ? NY : NX;           ///< What update takes: y, or the plant state
     static constexpr size_t NM = kEstimated ? NY : NXL;           ///< What the integrators read: y, or the law's state
     static constexpr size_t NR = (NI > 0) ? NI : NZ;              ///< The reference r: integrated or tracked outputs (0: none)
-    static_assert(!kEstimated || Traits::NXE == NXL, "The estimator is on the law's model.");
+    static_assert(!kEstimated || Traits::NXE >= NXL, "The estimator is on the law's model, the delay states of late readings after it.");
     static_assert(NI == 0 || NZ == 0, "Integral action and a disturbance model are two offset-free choices: an IntegralAction or a disturbance spec, not both.");
     static_assert(ND == 0 || NZ > 0, "A disturbance model tracks through its steady-state target.");
     static constexpr bool kRecord = (NI > 0) || kEstimated || (NRU > 0); ///< The law keeps its command and the applied input
@@ -351,7 +351,7 @@ struct StateFeedbackCore {
             return anchored_law(r, ref, u_ref);
         } else if constexpr (NZ > 0) {
             const auto p = target.equilibrium(r); // on the law's model: each register at u_t
-            return reference_law(law_state(), ColVec<NXL, T>(ref + p.x), ColVec<NU, T>(u_ref + p.u));
+            return reference_law(law_state(), ColVec<NXL, T>(ref + detail::leading<NXL>(p.x)), ColVec<NU, T>(u_ref + p.u));
         } else if constexpr (NI > 0 && kEstimated) {
             // y was measured under the input the last predict applied: take its feedthrough out.
             return integral_law(r, law_state(), ref, u_ref, integral.y, ColVec<NI, T>(integral.Ci_u * applied_.applied));
@@ -460,6 +460,19 @@ private:
         }
     }
 
+    /** @brief The reference point on the filter's model: the law's, then 0 on the delay states of late readings, which the gain does not read. */
+    [[nodiscard]] static constexpr ColVec<NXE, T> on_filter_model(const ColVec<NXL, T>& ref) {
+        if constexpr (NXE == NXL) {
+            return ref;
+        } else {
+            ColVec<NXE, T> out{};
+            for (size_t i = 0; i < NXL; ++i) {
+                out(i) = ref(i);
+            }
+            return out;
+        }
+    }
+
     /** @brief The reference point on the law's model: x*, then u* in each input register. */
     [[nodiscard]] static constexpr ColVec<NXL, T> on_law_model(const ColVec<NX, T>& x_ref, const ColVec<NU, T>& u_ref) {
         if constexpr (NRU == 0) {
@@ -558,7 +571,7 @@ private:
     [[nodiscard]] constexpr ColVec<NU, T> anchored_law(const ColVec<NZ, T>& r, const ColVec<NXL, T>& x_ref, const ColVec<NU, T>& u_ref)
         requires(ND > 0)
     {
-        target.anchor(estimator, r, x_ref, u_ref);
+        target.anchor(estimator, r, on_filter_model(x_ref), u_ref);
         const ColVec<NXL, T> z = detail::leading<NXL>(estimator.at_command());
         const ColVec<NU, T>  u = estimator.anchor_input() - (K * z);
         return record(u, limit_demand(u, z));
