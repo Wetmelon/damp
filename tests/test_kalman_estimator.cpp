@@ -156,7 +156,7 @@ TEST_SUITE("Design options by type") {
         static_assert(std::is_same_v<option_t<is_disturbance, design::NoDisturbance, Noise, design::OutputDisturbance<2>>, design::OutputDisturbance<2>>);
         static_assert(std::is_same_v<option_t<is_disturbance, design::NoDisturbance, Noise>, design::NoDisturbance>);
 
-        constexpr auto spec = damp::detail::option<is_disturbance>(design::NoDisturbance{}, Noise{}, design::OutputDisturbance<2>{{0, 3}});
+        constexpr auto spec = damp::detail::option<is_disturbance>(design::NoDisturbance{}, Noise{}, design::OutputDisturbance{{0, 3}});
         static_assert(std::is_same_v<std::remove_cvref_t<decltype(spec)>, design::OutputDisturbance<2>>);
         static_assert(spec.outputs[1] == 3);
         constexpr auto none = damp::detail::option<is_disturbance>(design::NoDisturbance{}, Noise{});
@@ -337,9 +337,9 @@ TEST_SUITE("design::kalman with a disturbance spec") {
     TEST_CASE("an explicit model and the listed outputs") {
         auto sys = discretize(two_sensors(), kTs).value();
         sys.G = Matrix<2, 2>::identity(); // the process noise on the states
-        const auto old = design::state_feedback(sys, {.Q = kQ, .R = kR}, design::KalmanNoise{kQp, Matrix<2, 2>{{1e-6, 0.0}, {0.0, 1e-4}}, kQd}, design::DisturbanceModel<2, 2, 1, 1>{.Bd = sys.B, .outputs = {{0}}});
+        const auto old = design::state_feedback(sys, {.Q = kQ, .R = kR}, design::KalmanNoise{kQp, Matrix<2, 2>{{1e-6, 0.0}, {0.0, 1e-4}}, kQd}, design::DisturbanceModel<2, 2, 1, 1>{.Bd = sys.B, .outputs = {0}});
         REQUIRE(old.success);
-        const design::DisturbanceModel<2, 2, 1, 1> spec{.Bd = sys.B, .outputs = {{0}}};
+        const design::DisturbanceModel<2, 2, 1, 1> spec{.Bd = sys.B, .outputs = {0}};
         const auto                                 filt = design::kalman(sys, design::KalmanNoise{.process = kQp, .measurement = Matrix<2, 2>{{1e-6, 0.0}, {0.0, 1e-4}}, .disturbance = kQd}, spec);
         const auto                                 tg = design::steady_state_target(sys, spec);
         REQUIRE(filt.success);
@@ -366,7 +366,7 @@ TEST_SUITE("design::kalman with a disturbance spec") {
         CHECK(undetectable.status == design::DesignStatus::not_detectable);
         CHECK(design::kalman(integrator, design::KalmanNoise{.process = Matrix<1, 1>{{1e-4}}, .measurement = Matrix<1, 1>{{1e-6}}, .disturbance = kQd}, design::InputDisturbance{}).success);
 
-        CHECK(design::steady_state_target(kPlantD, design::InputDisturbance<1>{{1}}).status == design::DesignStatus::bad_weights);
+        CHECK(design::steady_state_target(kPlantD, design::InputDisturbance{{1}}).status == design::DesignStatus::bad_weights);
         CHECK(design::kalman(mass_spring(), design::KalmanNoise{.process = kQp, .measurement = kRn, .disturbance = kQd}, design::InputDisturbance{}).status == design::DesignStatus::invalid_sample_time);
     }
 }
@@ -606,7 +606,7 @@ TEST_SUITE("FixedGainObserver: the anchored law against the textbook form") {
         auto plant = discretize(four_readings(), kTs).value();
         plant.G = Matrix<4, 4>::identity();
         const auto                                 whole = discretize(plant, kTs, InputDelay{kTs}).value(); // [x; v(k−1)]
-        const design::DisturbanceModel<6, 4, 2, 2> load_model{.Bd = padded<2>(plant.B), .outputs = {{0, 1}}};
+        const design::DisturbanceModel<6, 4, 2, 2> load_model{.Bd = padded<2>(plant.B), .outputs = {0, 1}};
         const auto                                 art = design::state_feedback(whole, {.Q = kQ6, .R = kR2}, design::KalmanNoise{kQn4, kRn4, kQd2}, load_model);
         REQUIRE(art.success);
         OFLQG law{art};
@@ -648,7 +648,7 @@ TEST_SUITE("FixedGainObserver: the anchored law against the textbook form") {
         pc.D(0, 1) = 0.1;
         auto plant = discretize(pc, kTs).value();
         plant.G = Matrix<4, 4>::identity();
-        const auto art = design::state_feedback(plant, {.Q = kQ4, .R = kR2}, design::KalmanNoise{kQn4, kRn4, kQd2}, design::InputDisturbance<2>{{0, 1}});
+        const auto art = design::state_feedback(plant, {.Q = kQ4, .R = kR2}, design::KalmanNoise{kQn4, kRn4, kQd2}, design::InputDisturbance{{0, 1}});
         REQUIRE(art.success);
         OFLQG law{art};
         auto  oracle = textbook_law(art);

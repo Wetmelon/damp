@@ -127,8 +127,9 @@ the repo root.
   the disturbance's walk, `InputDelay<N>{θ}` the delay. A weight an option's
   size comes from is a value (a scalar or a Matrix); `KalmanNoise` deduces its
   sizes from its fields. A list of indices is a C array (`DemandLimit::outer`,
-  `TrackedOutputs::outputs`), so its length is deduced from bare braces, which
-  no class member's is. Two overloads per design, `fn(sys, …, opts...)` and
+  `TrackedOutputs::outputs`, the disturbance specs' `outputs`), so its length
+  is deduced from bare braces, which no class member's is; the type with none
+  listed (NZ = 0) is a specialization without the array. Two overloads per design, `fn(sys, …, opts...)` and
   `fn(plant, Ts, …, opts...)`. The pack is the spelling of the docs, examples
   and tests. `design/config.hpp` is a helper over it, not a second design:
   `LQConfig`, `KalmanConfig`, `MPCConfig` and `TargetConfig` hold the same

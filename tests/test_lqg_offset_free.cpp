@@ -131,7 +131,7 @@ TEST_SUITE("Offset-free LQG: oflqg with a disturbance model") {
         sys.B = disc->B.template block<4, 1>(0, 0);
         sys.Ts = Ts;
 
-        design::DisturbanceModel<4, 3, 1, 1> model{.outputs = {{1}}}; // hold the load position, output 1
+        design::DisturbanceModel<4, 3, 1, 1> model{.outputs = {1}}; // hold the load position, output 1
         model.Bd = disc->B.template block<4, 1>(0, 1);
         model.Cd(2, 0) = 1.0 / m;
 

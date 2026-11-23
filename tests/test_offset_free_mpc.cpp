@@ -432,7 +432,7 @@ design::MPCWeights<1, 1> load_weights() {
 
 /// The load force where it acts, felt by the accelerometer; the load position (row 2) held.
 design::DisturbanceModel<4, 3, 1, 1> load_force_model(const CompliantDrive& plant) {
-    return design::DisturbanceModel<4, 3, 1, 1>{.Bd = plant.G_load, .Cd = plant.Cd_load, .outputs = {{2}}};
+    return design::DisturbanceModel{.Bd = plant.G_load, .Cd = plant.Cd_load, .outputs = {2}};
 }
 
 /// The estimator's noise on the drive: the encoder exact, the accelerometer noisy, the load position unread.
@@ -453,7 +453,7 @@ TEST_CASE("offset-free MPC: a load force sensed by an accelerometer, the load he
     // so it believes the spring relaxed and leaves the load off by F/k.
     const CompliantDrive plant;
     const auto           art_load = design::mpc<40, 8>(plant.sys, load_weights(), {}, drive_noise(), load_force_model(plant));
-    const auto           art_input = design::mpc<40, 8>(plant.sys, load_weights(), {}, drive_noise(), design::InputDisturbance<1>{{2}});
+    const auto           art_input = design::mpc<40, 8>(plant.sys, load_weights(), {}, drive_noise(), design::InputDisturbance{{2}});
     REQUIRE(art_load.success);
     REQUIRE(art_input.success);
     static_assert(decltype(OFMPC{art_load})::NDE == 1);
@@ -565,7 +565,7 @@ TEST_CASE("offset-free MPC rejects an undetectable or unsupported general distur
     // Two disturbances that both enter exactly as the input does: the sensors cannot tell
     // them apart (rank [A−I, Bd; C, Cd] < NX + ND).
     const CompliantDrive                 plant;
-    design::DisturbanceModel<4, 3, 2, 1> twins{.outputs = {{2}}};
+    design::DisturbanceModel<4, 3, 2, 1> twins{.outputs = {2}};
     twins.Bd.block<4, 1>(0, 0) = plant.sys.B;
     twins.Bd.block<4, 1>(0, 1) = plant.sys.B;
     const auto twins_art = design::mpc<10, 4>(plant.sys, load_weights(), {}, design::KalmanNoise<4, 3, double, 2>{}, twins);
@@ -584,7 +584,7 @@ TEST_CASE("offset-free MPC rejects an undetectable or unsupported general distur
     CHECK(damp::isfinite(u(0)));
 
     // A controlled output out of range is refused.
-    CHECK(design::mpc<10, 4>(plant.sys, load_weights(), {}, drive_noise(), design::InputDisturbance<1>{{3}}).status == design::DesignStatus::bad_weights);
+    CHECK(design::mpc<10, 4>(plant.sys, load_weights(), {}, drive_noise(), design::InputDisturbance{{3}}).status == design::DesignStatus::bad_weights);
 }
 
 namespace {

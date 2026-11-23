@@ -174,7 +174,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`disk_margin`](inc/damp/analysis/disk_margin.hpp#L158) | function | Frequency-domain analysis (host) | Disk margin of a SISO loop L under unity negative feedback |
 | [`diskmargin`](inc/damp/matlab.hpp#L1331) | function | MATLAB®-style aliases (host) | Disk margin of a SISO loop (+1 more overload) |
 | [`DiskMarginResult`](inc/damp/analysis/disk_margin.hpp#L36) | block | Frequency-domain analysis (host) | Disk margin of a SISO loop: the disk size α and the gain and phase margins it guarantees |
-| [`DisturbanceModel`](inc/damp/design/disturbance.hpp#L80) | block | Design-time synthesis (not PWM-rate) | An explicit disturbance model: d enters the plant's state through B_d and the readings through C_d |
+| [`DisturbanceModel`](inc/damp/design/disturbance.hpp#L104) | block | Design-time synthesis (not PWM-rate) | An explicit disturbance model: d enters the plant's state through B_d and the readings through C_d (+1 more overload) |
 | [`DLATCH`](inc/damp/toolbox/iec61131.hpp#L479) | block | Embedded helpers (controls-adjacent utilities) | D Latch (level-sensitive / transparent latch) |
 | [`dlqe`](inc/damp/matlab.hpp#L959) | function | MATLAB®-style aliases (host) | Discrete linear-quadratic estimator from matrices (MATLAB®'s dlqe) |
 | [`dlqr`](inc/damp/matlab.hpp#L907) | function | MATLAB®-style aliases (host) | Discrete-time Linear-Quadratic Regulator design (MATLAB®'s dlqr) |
@@ -335,7 +335,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`infinity_norm`](inc/damp/matrix/functions.hpp#L40) | function | Linear algebra | Infinity norm ‖A‖∞: maximum absolute row sum |
 | [`initial`](inc/damp/analysis/time_response.hpp#L246) | function | Frequency-domain analysis (host) | Initial-condition (free) response of a (MIMO) state-space system |
 | [`InputDelay`](inc/damp/systems/discretization.hpp#L559) | block | LTI systems (SS / TF / ZPK / discretize) | An input delay of θ = seconds, in up to N registers (0 ≤ θ ≤ N·Ts): each register state holds the inputs already sent, v(k−1) … v(k−N). `discretize(sys, Ts, InputDelay<N>{θ})` returns that model; design on it like any other. `InputDelay{θ}` is N = 1 (+1 more overload) |
-| [`InputDisturbance`](inc/damp/design/disturbance.hpp#L40) | block | Design-time synthesis (not PWM-rate) | An input disturbance: d adds to u, B_d = B and C_d = D, one disturbance per input |
+| [`InputDisturbance`](inc/damp/design/disturbance.hpp#L43) | block | Design-time synthesis (not PWM-rate) | An input disturbance: d adds to u, B_d = B and C_d = D, one disturbance per input (+1 more overload) |
 | [`ins_aid_position`](inc/damp/estimation/ins_eskf.hpp#L386) | function | Observers & estimators | Predicted antenna / marker position with body lever-arm |
 | [`ins_apply_correction`](inc/damp/estimation/ins_eskf.hpp#L372) | function | Observers & estimators | Inject filter correction into x and reset the error state |
 | [`ins_error_jacobian`](inc/damp/estimation/ins_eskf.hpp#L280) | function | Observers & estimators | Discrete error-state transition for one IMU step, on its sparsity pattern |
@@ -592,7 +592,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`optional`](inc/damp/backend.hpp#L186) | block | Core, configuration & backend vocabulary | The optional of a toolchain with no C++ standard headers (ETL_NO_STL) |
 | [`output_inverse`](inc/damp/design/model_inverse.hpp#L683) | function | Design-time synthesis (not PWM-rate) | The stable inverse of a discrete model: the state and input of its trajectory through a reference y on the controlled outputs, from y ₖ … y ₖ₊NP₋₁ (+1 more overload) |
 | [`OutputDelay`](inc/damp/systems/discretization.hpp#L585) | block | LTI systems (SS / TF / ZPK / discretize) | A measurement delay of θ = seconds, in up to N registers (0 ≤ θ ≤ N·Ts): the reading that arrives at sample k is y(t_k − θ). `discretize(sys, Ts, OutputDelay<N>{θ})` returns that model; design on it like any other. `OutputDelay{θ}` is N = 1 (+1 more overload) |
-| [`OutputDisturbance`](inc/damp/design/disturbance.hpp#L51) | block | Design-time synthesis (not PWM-rate) | An output disturbance: a bias on each reading, B_d = 0 and C_d = I, one per output |
+| [`OutputDisturbance`](inc/damp/design/disturbance.hpp#L61) | block | Design-time synthesis (not PWM-rate) | An output disturbance: a bias on each reading, B_d = 0 and C_d = I, one per output (+1 more overload) |
 | [`OutputInverse`](inc/damp/design/model_inverse.hpp#L861) | block | Design-time synthesis (not PWM-rate) | The stable inverse at run time: the reference point (x , u ) from the output reference over the preview, seven matrix–vector products and the zero dynamics' state (+1 more overload) |
 | [`OutputInverseResult`](inc/damp/design/model_inverse.hpp#L144) | block | Design-time synthesis (not PWM-rate) | The stable inverse of a discrete model over a preview of NP output samples |
 | [`pade`](inc/damp/matlab.hpp#L1384) | function | MATLAB®-style aliases (host) | Padé approximation of order N (1 or 2) of the pure delay e^{−sT} |
@@ -638,7 +638,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`place_observer`](inc/damp/estimation/fixed_gain_observer.hpp#L300) | function | Observers & estimators | Design a Luenberger observer by robust pole placement, in the domain of sys (+1 more overload) |
 | [`PlaceObserverResult`](inc/damp/estimation/fixed_gain_observer.hpp#L117) | block | Observers & estimators | Luenberger observer design result: the plant, the gains L and M, and the achieved error poles |
 | [`PlaceResult`](inc/damp/design/pole_placement.hpp#L1076) | block | Design-time synthesis (not PWM-rate) | Pole-placement design result: the gain K, the achieved closed-loop poles e, and Ts |
-| [`PlantDisturbance`](inc/damp/design/disturbance.hpp#L65) | block | Design-time synthesis (not PWM-rate) | The plant's own disturbance channel: B_d = G and C_d = H, one disturbance per column of G (H needs as many columns) |
+| [`PlantDisturbance`](inc/damp/design/disturbance.hpp#L82) | block | Design-time synthesis (not PWM-rate) | The plant's own disturbance channel: B_d = G and C_d = H, one disturbance per column of G (H needs as many columns) (+1 more overload) |
 | [`plot_bode`](inc/damp/simulation/plot_plotly.hpp#L424) | function | Simulation / SIL harness (host) | Plot Bode magnitude and phase as subplots |
 | [`plot_line`](inc/damp/simulation/plot_plotly.hpp#L493) | function | Simulation / SIL harness (host) | Simple line plot of time vs value |
 | [`plot_simulation`](inc/damp/simulation/plot_plotly.hpp#L345) | function | Simulation / SIL harness (host) | Plot simulation results with subplots for states, outputs, and inputs |
@@ -850,7 +850,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`steady_state_target`](inc/damp/design/config.hpp#L273) | function | Design-time synthesis (not PWM-rate) | design::steady_state_target(sys, opts…) with the options the fields of config: the same design (+3 more overloads) |
 | [`steady_state_vdq`](inc/damp/motor/spm.hpp#L78) | function | Motor control pack (if present) | Steady-state Vdq (rotor frame) |
 | [`steady_state_voltage_magnitude`](inc/damp/motor/spm.hpp#L91) | function | Motor control pack (if present) | \|Vdq\| at a steady-state operating point |
-| [`SteadyStateTarget`](inc/damp/design/steady_state_target.hpp#L411) | block | Design-time synthesis (not PWM-rate) | The steady-state target at run time: (x_t, u_t) from the reference and the estimated disturbance, two matrix–vector products, and the re-anchoring of a FixedGainObserver on it (+1 more overload) |
+| [`SteadyStateTarget`](inc/damp/design/steady_state_target.hpp#L402) | block | Design-time synthesis (not PWM-rate) | The steady-state target at run time: (x_t, u_t) from the reference and the estimated disturbance, two matrix–vector products, and the re-anchoring of a FixedGainObserver on it (+1 more overload) |
 | [`SteadyStateTargetResult`](inc/damp/design/steady_state_target.hpp#L79) | block | Design-time synthesis (not PWM-rate) | The steady-state target maps: [x_t; u_t] per unit disturbance and per unit reference |
 | [`steer_map`](inc/damp/toolbox/io.hpp#L344) | function | Embedded helpers (controls-adjacent utilities) | Curve-driven steering map — arbitrary `(throttle, turn)` geometry |
 | [`steinhart_hart`](inc/damp/toolbox/thermistor.hpp#L127) | function | Embedded helpers (controls-adjacent utilities) | Fit the Steinhart-Hart coefficients from three calibration points |
@@ -891,7 +891,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`SymplecticEuler`](inc/damp/simulation/integrator.hpp#L296) | block | Simulation / SIL harness (host) | Semi-implicit (symplectic) Euler for mechanical systems |
 | [`tan`](inc/damp/math/math.hpp#L214) | function | Scalar math, complex & frames | Tangent |
 | [`TargetConfig`](inc/damp/design/config.hpp#L141) | block | Design-time synthesis (not PWM-rate) | design::steady_state_target's options as named fields: the disturbance the target holds the outputs under, and the plant's input delay |
-| [`TargetPoint`](inc/damp/design/steady_state_target.hpp#L395) | block | Design-time synthesis (not PWM-rate) | A state and the input at it: a steady state (SteadyStateTarget), or a point of a reference trajectory (OutputInverse) |
+| [`TargetPoint`](inc/damp/design/steady_state_target.hpp#L386) | block | Design-time synthesis (not PWM-rate) | A state and the input at it: a steady state (SteadyStateTarget), or a point of a reference trajectory (OutputInverse) |
 | [`tf`](inc/damp/matlab.hpp#L85) | function | MATLAB®-style aliases (host) | MATLAB®-style transfer function constructor (+1 more overload) |
 | [`tf2sos`](inc/damp/matlab.hpp#L182) | function | MATLAB®-style aliases (host) | MATLAB®-style transfer function → second-order sections, from MATLAB®'s z⁻¹ vectors (+1 more overload) |
 | [`tf2zpk`](inc/damp/matlab.hpp#L157) | function | MATLAB®-style aliases (host) | MATLAB® short alias for to_zpk (transfer function → zero-pole-gain) |

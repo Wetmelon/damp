@@ -293,10 +293,10 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`CommandProjectionResult`](inc/damp/controllers/action_governor.hpp#L89) | Result of an affine command projection |
 | [`DareMethod`](inc/damp/design/riccati.hpp#L1188) | DARE solver selection for dare() |
 | [`DesignStatus`](inc/damp/design/status.hpp#L34) | Why a design failed, one value per cause class (not per code branch) |
-| [`DisturbanceModel`](inc/damp/design/disturbance.hpp#L80) | An explicit disturbance model: d enters the plant's state through B_d and the readings through C_d |
+| [`DisturbanceModel`](inc/damp/design/disturbance.hpp#L104) | An explicit disturbance model: d enters the plant's state through B_d and the readings through C_d (+1 more overload) |
 | [`ESCResult`](inc/damp/controllers/esc.hpp#L90) | Extremum-seeking design result: the discrete realization the runtime runs |
 | [`HarmonicSuppressorResult`](inc/damp/controllers/harmonic_suppression.hpp#L49) | Design result for a multi-resonant harmonic suppressor |
-| [`InputDisturbance`](inc/damp/design/disturbance.hpp#L40) | An input disturbance: d adds to u, B_d = B and C_d = D, one disturbance per input |
+| [`InputDisturbance`](inc/damp/design/disturbance.hpp#L43) | An input disturbance: d adds to u, B_d = B and C_d = D, one disturbance per input (+1 more overload) |
 | [`InteriorPointSolver`](inc/damp/design/qp.hpp#L1692) | Interior-point QP solver policy for damp::MPC |
 | [`InvariantSetResult`](inc/damp/design/invariant_set.hpp#L39) | Maximal positively invariant polytope G e ≤ h of x⁺ = A x |
 | [`JordanBlock`](inc/damp/design/pole_placement.hpp#L485) | One Jordan mini-block of a desired closed-loop spectrum |
@@ -318,13 +318,13 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`NoDisturbance`](inc/damp/design/disturbance.hpp#L31) | No disturbance model (the default): the plain filter on x |
 | [`option_set`](inc/damp/design/options.hpp#L82) | The kinds of option a design call accepts: check<Opts...>() refuses, at compile time, an option of no listed kind and a kind given twice |
 | [`option_type`](inc/damp/design/options.hpp#L41) | The type of the first option of the kind Is among Opts, else Default (+1 more overload) |
-| [`OutputDisturbance`](inc/damp/design/disturbance.hpp#L51) | An output disturbance: a bias on each reading, B_d = 0 and C_d = I, one per output |
+| [`OutputDisturbance`](inc/damp/design/disturbance.hpp#L61) | An output disturbance: a bias on each reading, B_d = 0 and C_d = I, one per output (+1 more overload) |
 | [`OutputInverse`](inc/damp/design/model_inverse.hpp#L861) | The stable inverse at run time: the reference point (x , u ) from the output reference over the preview, seven matrix–vector products and the zero dynamics' state (+1 more overload) |
 | [`OutputInverseResult`](inc/damp/design/model_inverse.hpp#L144) | The stable inverse of a discrete model over a preview of NP output samples |
 | [`PIDPolePlacementSpec`](inc/damp/design/pid_design.hpp#L916) | Closed-loop targets for the continuous pid_pole_placement forms |
 | [`PIDTuneSpec`](inc/damp/design/pid_design.hpp#L453) | Knobs for plant-aware pidtune |
 | [`PlaceResult`](inc/damp/design/pole_placement.hpp#L1076) | Pole-placement design result: the gain K, the achieved closed-loop poles e, and Ts |
-| [`PlantDisturbance`](inc/damp/design/disturbance.hpp#L65) | The plant's own disturbance channel: B_d = G and C_d = H, one disturbance per column of G (H needs as many columns) |
+| [`PlantDisturbance`](inc/damp/design/disturbance.hpp#L82) | The plant's own disturbance channel: B_d = G and C_d = H, one disturbance per column of G (H needs as many columns) (+1 more overload) |
 | [`PRResult`](inc/damp/controllers/pr.hpp#L123) | Proportional-Resonant controller design result |
 | [`QPResult`](inc/damp/design/qp.hpp#L81) | Result of a dense QP solve |
 | [`QPStatus`](inc/damp/design/qp.hpp#L48) | Termination status of a QP solve |
@@ -336,11 +336,11 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`StateFeedforward`](inc/damp/design/model_inverse.hpp#L818) | The plant-inversion feedforward at run time: u = B⁺·(x ₖ₊₁ − x ₖ) − B⁺(A − I)·x ₖ, two matrix–vector products (+1 more overload) |
 | [`StateFeedforwardResult`](inc/damp/design/model_inverse.hpp#L60) | The plant-inversion feedforward of a discrete model: u ₖ = B⁺·(x ₖ₊₁ − x ₖ) − B⁺(A − I)·x ₖ |
 | [`StateSpaceResult`](inc/damp/design/model_result.hpp#L58) | A designed state-space model with its success / status |
-| [`SteadyStateTarget`](inc/damp/design/steady_state_target.hpp#L411) | The steady-state target at run time: (x_t, u_t) from the reference and the estimated disturbance, two matrix–vector products, and the re-anchoring of a FixedGainObserver on it (+1 more overload) |
+| [`SteadyStateTarget`](inc/damp/design/steady_state_target.hpp#L402) | The steady-state target at run time: (x_t, u_t) from the reference and the estimated disturbance, two matrix–vector products, and the re-anchoring of a FixedGainObserver on it (+1 more overload) |
 | [`SteadyStateTargetResult`](inc/damp/design/steady_state_target.hpp#L79) | The steady-state target maps: [x_t; u_t] per unit disturbance and per unit reference |
 | [`STSMCResult`](inc/damp/controllers/stsmc.hpp#L35) | Super-twisting (second-order sliding-mode) controller design result |
 | [`TargetConfig`](inc/damp/design/config.hpp#L141) | design::steady_state_target's options as named fields: the disturbance the target holds the outputs under, and the plant's input delay |
-| [`TargetPoint`](inc/damp/design/steady_state_target.hpp#L395) | A state and the input at it: a steady state (SteadyStateTarget), or a point of a reference trajectory (OutputInverse) |
+| [`TargetPoint`](inc/damp/design/steady_state_target.hpp#L386) | A state and the input at it: a steady state (SteadyStateTarget), or a point of a reference trajectory (OutputInverse) |
 | [`TrackedOutputs`](inc/damp/design/steady_state_target.hpp#L62) | The outputs a law without integrators or a disturbance model holds at r through its steady-state target (design::state_feedback, with or without a KalmanNoise): `TrackedOutputs{{0}}`, in that order (the references r follow it) (+1 more overload) |
 | [`TransferFunctionResult`](inc/damp/design/model_result.hpp#L34) | A designed transfer function with its success / status |
 | [`Unset`](inc/damp/design/detail/config.hpp#L30) | A config field left out: that feature is off, or the weight takes its default |
