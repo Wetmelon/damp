@@ -7,7 +7,7 @@
 
 /**
  * @file discretization.hpp
- * @brief c2d / d2d: discretize a plant; InputDelay and OutputDelay in N registers; Tustin pre-warp
+ * @brief c2d / d2d: discretize a plant; InputDelay and OutputDelay in N delay states; Tustin pre-warp
  */
 
 #include "damp/backend.hpp"
@@ -538,58 +538,58 @@ template<size_t N, typename T>
 }
 
 /**
- * @brief An input delay of θ = @ref seconds, in up to N registers (0 ≤ θ ≤ N·Ts): each register
+ * @brief An input delay of θ = @ref seconds, in up to N delay states (0 ≤ θ ≤ N·Ts): each delay state
  *        state holds the inputs already sent, v(k−1) … v(k−N). `discretize(sys, Ts, InputDelay<N>{θ})`
  *        returns that model; design on it like any other. `InputDelay{θ}` is N = 1.
  *
  * @ref seconds is one delay for every input, a scalar, or one per input, a ColVec<NU>:
  * `InputDelay<3, ColVec<2>>{{0.012, 0.025}}` holds a 12 ms and a 25 ms actuator in three
- * registers. N sizes the model and the delays are values, so the model's type is the same for any
- * delays up to N·Ts, ones measured at init included. Every input gets N registers, the longest
- * delay's; a shorter one leaves its last registers unread. Each register is a state of every matrix
- * the law runs on. On a `constexpr` design, Law runs on those matrices as constants, so a register
+ * delay states. N sizes the model and the delays are values, so the model's type is the same for any
+ * delays up to N·Ts, ones measured at init included. Every input gets N delay states, the longest
+ * delay's; a shorter one leaves its last delay states unread. Each delay state is a state of every matrix
+ * the law runs on. On a `constexpr` design, Law runs on those matrices as constants, so a delay state
  * costs only its nonzero terms; a runtime holding its matrices pays for every state,
  * (NX + N·NU)² per tick for a filter's products and more for a recursive KalmanFilter. For many
  * samples of dead time, sample slower or, for a single loop, use SmithPredictor.
  *
- * @tparam N Registers, the longest delay the model can hold in samples
+ * @tparam N Delay states, the longest delay the model can hold in samples
  * @tparam S The delay: a scalar, the same on every input, or ColVec<NU, T>, one per input
  */
 template<size_t N = 1, typename S = double>
 struct InputDelay {
-    static_assert(N >= 1, "InputDelay holds at least one register: a plant without delay is discretize(sys, Ts).");
+    static_assert(N >= 1, "InputDelay holds at least one delay state: a plant without delay is discretize(sys, Ts).");
     S seconds{}; ///< [s] delay between a command and the plant receiving it, 0 ≤ θ ≤ N·Ts, for every input or per input
 };
 
-/** @brief One register, the delay's type from the seconds: `InputDelay{theta}`. */
+/** @brief One delay state, the delay's type from the seconds: `InputDelay{theta}`. */
 template<typename S>
 InputDelay(S) -> InputDelay<1, S>;
 
 /**
- * @brief A measurement delay of θ = @ref seconds, in up to N registers (0 ≤ θ ≤ N·Ts): the reading
+ * @brief A measurement delay of θ = @ref seconds, in up to N delay states (0 ≤ θ ≤ N·Ts): the reading
  *        that arrives at sample k is y(t_k − θ). `discretize(sys, Ts, OutputDelay<N>{θ})` returns
  *        that model; design on it like any other. `OutputDelay{θ}` is N = 1.
  *
  * A sensor that reports late (a camera pipeline, a GPS fix, a reading over a bus, a sensor's own
- * filter) is a plant whose output is delayed: each register holds a reading already taken, and the
+ * filter) is a plant whose output is delayed: each delay state holds a reading already taken, and the
  * model's y is the one that arrives now. A filter designed on that model estimates the current
  * state from the late readings. @ref seconds is one delay for every output, a scalar, or one per
  * output, a ColVec<NY>: `OutputDelay<2, ColVec<2>>{{0.0, 0.015}}` reads an encoder at once and
- * a camera 15 ms late. Every output gets N registers, the longest delay's. As with InputDelay,
+ * a camera 15 ms late. Every output gets N delay states, the longest delay's. As with InputDelay,
  * N sizes the model and the delays are values. design::kalman and design::state_feedback with a
  * KalmanNoise take it as a trailing option on their sampled form,
  * `kalman(plant, Ts, noise, OutputDelay<2>{0.015})`: the filter on this model, its noise exact.
  *
- * @tparam N Registers, the longest delay the model can hold in samples
+ * @tparam N Delay states, the longest delay the model can hold in samples
  * @tparam S The delay: a scalar, the same on every output, or ColVec<NY, T>, one per output
  */
 template<size_t N = 1, typename S = double>
 struct OutputDelay {
-    static_assert(N >= 1, "OutputDelay holds at least one register: a plant without delay is discretize(sys, Ts).");
+    static_assert(N >= 1, "OutputDelay holds at least one delay state: a plant without delay is discretize(sys, Ts).");
     S seconds{}; ///< [s] age of the reading that arrives at a sample, 0 ≤ θ ≤ N·Ts, for every output or per output
 };
 
-/** @brief One register, the delay's type from the seconds: `OutputDelay{theta}`. */
+/** @brief One delay state, the delay's type from the seconds: `OutputDelay{theta}`. */
 template<typename S>
 OutputDelay(S) -> OutputDelay<1, S>;
 
@@ -730,15 +730,15 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
 }
 
 /**
- * @brief The plant state, then NRU input registers, then NRY output registers
+ * @brief The plant state, then NRU input delay states, then NRY output delay states
  *
- * State [x; v(k−1); …; v(k−NRU); z(k−1) … ]: input register m holds every input sent m periods ago
+ * State [x; v(k−1); …; v(k−NRU); z(k−1) … ]: input delay state m holds every input sent m periods ago
  * and loads from the one before it, the first from v(k). The plant moves by @p step, each input
- * read in the register its delay d_j + τ_j points at. Output register 1 loads the reading a time
+ * read in the delay state its delay d_j + τ_j points at. Output delay state 1 loads the reading a time
  * s_i into the period, s_i = Ts − τ_i for a fraction of a sample and 0 for whole ones, C times
- * @p readings[i] plus D on the input held then; each register after it loads from the one before.
- * Output i reads register d_i + 1 (a fraction) or d_i (whole), or the plant itself with no delay.
- * The input registers are commands already sent: no process noise. An output register carries the
+ * @p readings[i] plus D on the input held then; each delay state after it loads from the one before.
+ * Output i reads delay state d_i + 1 (a fraction) or d_i (whole), or the plant itself with no delay.
+ * The input delay states are commands already sent: no process noise. An output delay state carries the
  * noise of the reading it holds, C·∫₀^{s}e^{Aη}dη G, so a whole-sample one carries none.
  */
 template<size_t NRU, size_t NRY, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
@@ -751,12 +751,12 @@ template<size_t NRU, size_t NRY, size_t NX, size_t NU, size_t NY, typename T, si
 ) {
     constexpr size_t                  NS = NX + (NRU * NU) + (NRY * NY);
     StateSpace<NS, NU, NY, T, NW, NV> out{};
-    out.G = Matrix<NS, NW, T>{}; // not the square default identity: the registers get only what is set below
+    out.G = Matrix<NS, NW, T>{}; // not the square default identity: the delay states get only what is set below
     out.H = plant.H;
     out.Ts = plant.Ts;
     const auto input_register = [](size_t m, size_t j) { return NX + ((m - 1) * NU) + j; };
     const auto output_register = [](size_t m, size_t i) { return NX + (NRU * NU) + ((m - 1) * NY) + i; };
-    const auto add_input = [&](size_t row, size_t j, size_t age, T c) { // c·v_j(k − age): v(k) itself, or its register
+    const auto add_input = [&](size_t row, size_t j, size_t age, T c) { // c·v_j(k − age): v(k) itself, or its delay state
         if (age == 0) {
             out.B(row, j) += c;
         } else {
@@ -843,7 +843,7 @@ template<size_t NRU, size_t NRY, size_t NX, size_t NU, size_t NY, typename T, si
 }
 
 /**
- * @brief The plant discretized with NRU input registers and NRY output registers, from each
+ * @brief The plant discretized with NRU input delay states and NRY output delay states, from each
  *        channel's delay split
  *
  * Whole samples take any method and a model already discrete at Ts. A fraction of a sample on any
@@ -946,7 +946,7 @@ template<size_t NRU, size_t NRY, size_t NX, size_t NU, size_t NY, typename T, si
 /**
  * @brief Discretize with an input delay of up to N samples: NX + N·NU states, whatever the delay.
  *
- * The model carries the delay θ = d·Ts + τ (0 ≤ τ < Ts) in N registers: within each period the
+ * The model carries the delay θ = d·Ts + τ (0 ≤ τ < Ts) in N delay states: within each period the
  * plant holds v(k−d−1) until τ, then v(k−d), so
  * @f[
  *   x_{k+1} = \Phi x_k + \Gamma_0 v_{k-d} + \Gamma_1 v_{k-d-1},\qquad
@@ -958,7 +958,7 @@ template<size_t NRU, size_t NRY, size_t NX, size_t NU, size_t NY, typename T, si
  * (`InputDelay<N, ColVec<NU>>`), each input's column of Γ₀ and Γ₁ uses its own d and τ. A fraction
  * of a sample needs ZOH and a continuous plant; whole samples work with any @p method and on a
  * model that is already discrete (same Ts). A delay shorter than N samples leaves the last
- * registers unread.
+ * delay states unread.
  *
  * G is not delayed: a physical disturbance in G of the continuous plant (a load force,
  * friction) gets its exact ZOH entry on the plant states, the B_d that design::PlantDisturbance
@@ -971,17 +971,17 @@ template<size_t NRU, size_t NRY, size_t NX, size_t NU, size_t NY, typename T, si
  * @endcode
  * The model has the same type for any delay up to N samples; design on it like any plant:
  * `design::mpc<NP, NC>(model, weights, constraints)`, with NP long enough for a command to land
- * (design::mpc refuses one too short). A state weight covers the registers, none on them:
+ * (design::mpc refuses one too short). A state weight covers the delay states, none on them:
  * `{.Q = blkdiag(Q, Matrix<N * NU, N * NU>{}), .R = R}`. A law that measures its state reads
- * [x; u(k−1); …; u(k−N)], the inputs it applied; a filter estimates the registers like any other
+ * [x; u(k−1); …; u(k−N)], the inputs it applied; a filter estimates the delay states like any other
  * state. The sampled LQ designs (design::state_feedback) and design::kalman take
  * the continuous plant and the delay instead, design::state_feedback(plant, Ts, weights,
  * noise,
  InputDelay<N>{θ}): the plant's weights and noise, the cost and the noise discretized exactly on this
- * model, and a law that holds the registers itself or a filter that carries them.
- * design::place_observer needs every register read, and A pins NU of the register poles at 0,
- * one per input. It places a pole at most NY times, so with more registers than that put the
- * other register poles near 0 but apart (1e-3, 2e-3, …), or use design::kalman.
+ * model, and a law that holds the delay states itself or a filter that carries them.
+ * design::place_observer needs every delay state read, and A pins NU of the delay-state poles at 0,
+ * one per input. It places a pole at most NY times, so with more delay states than that put the
+ * other delay-state poles near 0 but apart (1e-3, 2e-3, …), or use design::kalman.
  *
  * @note Compare with MATLAB®'s c2d on a model with InputDelay, then absorbDelay.
  * @see "Digital Control of Dynamic Systems" (Franklin, Powell, Workman, 1998), §4.3.3
@@ -1008,26 +1008,26 @@ template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, si
  * @brief Discretize with a measurement delay of up to N samples: NX + N·NY states, whatever the delay.
  *
  * The reading that arrives at sample k is the one taken θ = d·Ts + τ earlier (0 ≤ τ < Ts),
- * @f$ y_k = C\,x(t_k - \theta) + D\,u(t_k - \theta) @f$. The first register loads the reading
+ * @f$ y_k = C\,x(t_k - \theta) + D\,u(t_k - \theta) @f$. The first delay state loads the reading
  * taken @f$ s = T_s - \tau @f$ into each period (@f$ s = 0 @f$ for a whole number of samples),
  * @f[
  *   z_{1,k+1} = C e^{A s} x_k + \Big(C \int_0^{s} e^{A\eta}\,d\eta\,B + D\Big) u_k
  *             + C \int_0^{s} e^{A\eta}\,d\eta\,G\, w_k ,
  * @f]
- * each register after it loads the one before, @f$ z_{m,k+1} = z_{m-1,k} @f$, and the model reads
+ * each delay state after it loads the one before, @f$ z_{m,k+1} = z_{m-1,k} @f$, and the model reads
  * @f$ y_k = z_{d+1,k} @f$ (a fraction) or @f$ z_{d,k} @f$ (whole samples) plus H v. That is exact
  * for a held input and for the noise held over each period, the convention of discretize's G;
- * a whole-sample register holds @f$ C x + D u @f$ at a sample instant and takes no noise of its
+ * a whole-sample delay state holds @f$ C x + D u @f$ at a sample instant and takes no noise of its
  * own. With one delay per output (`OutputDelay<N, ColVec<NY>>`), each output has its own s and
- * register; an output with no delay reads the plant directly. A fraction of a sample needs ZOH and
+ * delay state; an output with no delay reads the plant directly. A fraction of a sample needs ZOH and
  * a continuous plant; whole samples work with any @p method and on a model already discrete.
  *
  * A filter on this model (design::kalman, KalmanFilter, an LQG design's) estimates the current
- * state from the late readings; the registers are observable through y. A state weight covers the
- * registers, none on them: `{.Q = blkdiag(Q, Matrix<N * NY, N * NY>{}), .R = R}`. MPC predicts
+ * state from the late readings; the delay states are observable through y. A state weight covers the
+ * delay states, none on them: `{.Q = blkdiag(Q, Matrix<N * NY, N * NY>{}), .R = R}`. MPC predicts
  * the delayed output, and design::mpc and suggest_mpc_horizon count its dead time like an input
- * delay's. design::place_observer needs every register read, and A pins NY of the register poles
- * at 0, one per output (nothing in A reads the oldest register); place the others freely.
+ * delay's. design::place_observer needs every delay state read, and A pins NY of the delay-state poles
+ * at 0, one per output (nothing in A reads the oldest delay state); place the others freely.
  *
  * @code
  * constexpr auto late = discretize(plant, 0.01, OutputDelay{0.004});                 // NX + NY states
@@ -1053,10 +1053,10 @@ template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, si
 
 /**
  * @brief Discretize with an input delay of up to NI samples and a measurement delay of up to NO:
- *        NX + NI·NU + NO·NY states, [x; input registers; output registers].
+ *        NX + NI·NU + NO·NY states, [x; input delay states; output delay states].
  *
  * The two discretize overloads at once: the plant moves as with InputDelay, and each reading
- * loaded into the output registers sees the inputs the plant held when it was taken. Statuses as
+ * loaded into the output delay states sees the inputs the plant held when it was taken. Statuses as
  * those overloads.
  *
  * @code

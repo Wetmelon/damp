@@ -222,9 +222,9 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | ---- | ----------- |
 | [`DiscretizationMethod`](inc/damp/systems/discretization.hpp#L27) | Discretization methods for continuous-time state-space systems |
 | [`DiscretizationResult`](inc/damp/systems/discretization.hpp#L50) | A discretized or resampled model with its success / status, read like an optional |
-| [`InputDelay`](inc/damp/systems/discretization.hpp#L559) | An input delay of θ = seconds, in up to N registers (0 ≤ θ ≤ N·Ts): each register state holds the inputs already sent, v(k−1) … v(k−N). `discretize(sys, Ts, InputDelay<N>{θ})` returns that model; design on it like any other. `InputDelay{θ}` is N = 1 (+1 more overload) |
+| [`InputDelay`](inc/damp/systems/discretization.hpp#L559) | An input delay of θ = seconds, in up to N delay states (0 ≤ θ ≤ N·Ts): each delay state state holds the inputs already sent, v(k−1) … v(k−N). `discretize(sys, Ts, InputDelay<N>{θ})` returns that model; design on it like any other. `InputDelay{θ}` is N = 1 (+1 more overload) |
 | [`LeverrierResult`](inc/damp/systems/zpk.hpp#L512) | Faddeev–LeVerrier characteristic polynomial and adjoint coefficient matrices |
-| [`OutputDelay`](inc/damp/systems/discretization.hpp#L587) | A measurement delay of θ = seconds, in up to N registers (0 ≤ θ ≤ N·Ts): the reading that arrives at sample k is y(t_k − θ). `discretize(sys, Ts, OutputDelay<N>{θ})` returns that model; design on it like any other. `OutputDelay{θ}` is N = 1 (+1 more overload) |
+| [`OutputDelay`](inc/damp/systems/discretization.hpp#L587) | A measurement delay of θ = seconds, in up to N delay states (0 ≤ θ ≤ N·Ts): the reading that arrives at sample k is y(t_k − θ). `discretize(sys, Ts, OutputDelay<N>{θ})` returns that model; design on it like any other. `OutputDelay{θ}` is N = 1 (+1 more overload) |
 | [`PolyRootsResult`](inc/damp/systems/zpk.hpp#L91) | Roots of a real polynomial given highest power first |
 | [`SsFeed`](inc/damp/systems/state_space.hpp#L674) | One term of a linear output mix: k · y_iy |
 | [`StaircaseFormResult`](inc/damp/systems/realization.hpp#L643) | A model in staircase coordinates, the orthogonal transform that took it there, and its rank |
