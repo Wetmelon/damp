@@ -99,7 +99,30 @@ struct [[nodiscard]] QPResult {
     }
 };
 
+/**
+ * @struct QPIterations
+ * @brief A QP's iteration budget per tick, among the options of design::mpc and design::mhe
+ *        (left out: each design's default)
+ *
+ * `QPIterations{40}` caps each tick's active-set solve at 40 iterations, which bounds the tick's
+ * worst-case time. Left out, the budget is 10·(NZ + 1 + NI + 1) for the MPC (NZ the moves, NI the
+ * constraint rows) and 10·(NV + NIB) for the MHE (MHEResult's window states and box rows). A solve that runs out reports MaxIterations through last_status(), and the
+ * runtime applies or holds as damp::MPC and damp::MHE describe. Both designs refuse a budget of 0
+ * (invalid_parameter): not one active-set step.
+ */
+struct QPIterations {
+    size_t budget{0}; ///< Active-set iterations per tick, ≥ 1
+};
+
 namespace detail {
+
+/** @brief A QPIterations: a kind of design::mpc and design::mhe option. */
+template<typename O>
+struct is_qp_iterations : damp::false_type {};
+
+/** @brief QPIterations. */
+template<>
+struct is_qp_iterations<QPIterations> : damp::true_type {};
 
 /** @brief A ColVec with every entry set to value (bound-vector construction helper) */
 template<size_t N, typename T>

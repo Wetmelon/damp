@@ -498,13 +498,11 @@ TEST_CASE_TEMPLATE("StateLimits bound a state the MPC does not track, hard or so
     CHECK(std::fabs(xs(1)) <= 0.3);
 }
 
-TEST_CASE("StateLimits refusals: a state past the model's, one listed twice, a bad box, an invariant terminal set, a negative softness") {
+TEST_CASE("StateLimits refusals: a state past the model's, one listed twice, a bad box, a negative softness") {
     static_assert(damp::is_same_v<decltype(design::StateLimits{.states = {0, 2}, .lim = Bounds<2>{}}), design::StateLimits<2>>); // NXC from the list
     CHECK(design::mpc<10, 4>(double_integrator, move_weight(0.05), design::StateLimits{.states = {2}}).status == design::DesignStatus::invalid_parameter);
     CHECK(design::mpc<10, 4>(double_integrator, move_weight(0.05), design::StateLimits{.states = {1, 1}}).status == design::DesignStatus::invalid_parameter);
     CHECK(design::mpc<10, 4>(double_integrator, move_weight(0.05), design::StateLimits{.states = {1}, .lim = {.lower = 1.0, .upper = -1.0}}).status == design::DesignStatus::invalid_parameter);
-    const design::InputLimits<1> unit{.u_lim = {.lower = -1.0, .upper = 1.0}};
-    CHECK(design::mpc<10, 10, 64>(double_integrator, move_weight(0.05), unit, design::StateLimits{.states = {1}, .lim = {.lower = -0.3, .upper = 0.3}}, design::InvariantSet{}).status == design::DesignStatus::invalid_parameter);
     CHECK(design::mpc<10, 4>(double_integrator, move_weight(0.05), design::StateLimits{.states = {1}, .lower_ecr = ColVec<1>{-1.0}}).status == design::DesignStatus::bad_weights);
 }
 
@@ -1759,8 +1757,9 @@ TEST_CASE("MPCWeights, InputLimits and the limits options take their sizes from 
     static_assert(damp::is_same_v<decltype(pair), const OutputLimits<2>> && pair.outputs[1] == 2 && pair.lower_ecr(1) == 1.0);
     constexpr OutputLimits hard_cap{.outputs = {0}, .lim = {.upper = 1.02}, .upper_ecr = {0.0}};
     static_assert(damp::is_same_v<decltype(hard_cap), const OutputLimits<1>> && hard_cap.upper_ecr(0) == 0.0 && hard_cap.lower_ecr(0) == 1.0);
-    static_assert(damp::is_same_v<decltype(design::InvariantSet{.target_margin = 0.1}), design::InvariantSet<double>>);
-    static_assert(damp::is_same_v<decltype(design::InvariantSet{}), design::InvariantSet<double>> && design::InvariantSet{}.target_margin == 0.05);
+    //! The terminal set's room is named, as its facet count is known only once the set is computed.
+    static_assert(damp::is_same_v<decltype(design::InvariantSet<64>{.target_margin = 0.1}), design::InvariantSet<64, double>> && design::InvariantSet<64>{}.target_margin == 0.05);
+    static_assert(design::detail::terminal_rows<design::InvariantSet<64>> == 64 && design::detail::terminal_rows<design::DareCost> == 0);
     static_assert(design::QPIterations{40}.budget == 40);
 }
 

@@ -247,10 +247,11 @@ TEST_CASE("MHE on a tight QP budget still returns an estimate inside the box") {
         .C = {{1.0}},
         .Ts = 0.1,
     };
-    design::MHEConstraints<1> limits{.max_qp_iterations = 2};
+    design::MHEConstraints<1> limits{};
     limits.x_lim.lower(0) = 0.0;
-    const auto art = design::mhe<8>(tank, {.process = 1e-4, .measurement = 2.5e-3}, limits);
+    const auto art = design::mhe<8>(tank, {.process = 1e-4, .measurement = 2.5e-3}, limits, design::QPIterations{2});
     REQUIRE(art.success);
+    CHECK(art.max_qp_iterations == 2);
     MHE estimator{art};
 
     double lowest = 1.0;
@@ -262,6 +263,26 @@ TEST_CASE("MHE on a tight QP budget still returns an estimate inside the box") {
         }
     }
     CHECK(lowest >= 0.0);
+}
+
+TEST_CASE("MHE takes its QP budget as QPIterations, after the limits: left out the default, 0 refused") {
+    constexpr StateSpace<1, 1, 1, double, 1, 1> tank{.A = {{0.90}}, .B = {{0.10}}, .C = {{1.0}}, .Ts = 0.1};
+    const auto                                  plain = design::mhe<8>(tank, {.process = 1e-4, .measurement = 2.5e-3});
+    REQUIRE(plain.success);
+    CHECK(plain.max_qp_iterations == 10 * (9 + 18)); // 10·(NV + NIB): 9 window states, 18 box rows
+
+    //! The same window QP, its budget the option's; braces stand in for unbounded limits.
+    const auto budget = design::mhe<8>(tank, {.process = 1e-4, .measurement = 2.5e-3}, {}, design::QPIterations{20});
+    REQUIRE(budget.success);
+    CHECK(budget.max_qp_iterations == 20);
+    CHECK(budget.H == plain.H);
+    CHECK(budget.b_bound == plain.b_bound);
+    static_assert(design::mhe<3>(tank, {.process = 1e-4, .measurement = 2.5e-3}, {}, design::QPIterations{7}).max_qp_iterations == 7);
+
+    //! Not one active-set step, as design::mpc refuses it.
+    const auto none = design::mhe<8>(tank, {.process = 1e-4, .measurement = 2.5e-3}, {}, design::QPIterations{0});
+    CHECK_FALSE(none.success);
+    CHECK(none.status == design::DesignStatus::invalid_parameter);
 }
 
 TEST_CASE("MHE with a state pinned at zero by equal limits solves every tick") {

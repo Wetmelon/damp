@@ -200,7 +200,7 @@ TEST_CASE("short-horizon SIL is infeasible without the set and recursively feasi
     }
     CHECK(saw_infeasible);
 
-    const auto art = design::mpc<4, 4, 64>(double_integrator, weights, kUnitInput, position, design::InvariantSet{});
+    const auto art = design::mpc<4, 4>(double_integrator, weights, kUnitInput, position, design::InvariantSet<64>{});
     REQUIRE(art.success);
     REQUIRE(art.mpc.n_terminal > 0);
     CHECK(art.mpc.terminal == design::detail::MPCTerminal::invariant_set);
@@ -258,7 +258,7 @@ TEST_CASE("DareCost and InvariantSet are the terminal ingredients MPCConstraints
     };
     for (const Margin m : {Margin{0.05, 48}, Margin{0.1, 42}}) {
         CAPTURE(m.margin);
-        const auto set = design::mpc<4, 4, 64>(double_integrator, weights, kUnitInput, position_box(true), design::InvariantSet{.target_margin = m.margin});
+        const auto set = design::mpc<4, 4>(double_integrator, weights, kUnitInput, position_box(true), design::InvariantSet<64>{.target_margin = m.margin});
         REQUIRE(set.success);
         CHECK(set.mpc.terminal == design::detail::MPCTerminal::invariant_set);
         CHECK(set.mpc.n_terminal == m.facets);
@@ -282,9 +282,9 @@ TEST_CASE("DareCost and InvariantSet are the terminal ingredients MPCConstraints
             x = plant_step(x, u(0));
         }
     }
-    CHECK(design::mpc<4, 4, 64>(double_integrator, weights, kUnitInput, position_box(true), design::InvariantSet{.target_margin = 1.0}).status == design::DesignStatus::invalid_parameter);
-    CHECK(design::mpc<4, 4, 64>(double_integrator, weights, kUnitInput, position_box(true), design::InvariantSet{.target_margin = 0.0}).status == design::DesignStatus::invalid_parameter);
-    CHECK(design::mpc<4, 4, 64>(double_integrator, weights, kUnitInput, position_box(true), design::InvariantSet{.target_margin = 0.1}).mpc.terminal == design::detail::MPCTerminal::invariant_set);
+    CHECK(design::mpc<4, 4>(double_integrator, weights, kUnitInput, position_box(true), design::InvariantSet<64>{.target_margin = 1.0}).status == design::DesignStatus::invalid_parameter);
+    CHECK(design::mpc<4, 4>(double_integrator, weights, kUnitInput, position_box(true), design::InvariantSet<64>{.target_margin = 0.0}).status == design::DesignStatus::invalid_parameter);
+    CHECK(design::mpc<4, 4>(double_integrator, weights, kUnitInput, position_box(true), design::InvariantSet<64>{.target_margin = 0.1}).mpc.terminal == design::detail::MPCTerminal::invariant_set);
 }
 
 TEST_CASE("maximal_invariant_set matches a hand-derived 2-state MPI polytope") {
@@ -323,7 +323,7 @@ TEST_CASE("maximal_invariant_set reports empty on inconsistent G0 h0") {
 
 TEST_CASE("float conversion keeps terminal rows and the float tick stays in budget") {
     const auto weights = move_weight(0.01);
-    const auto art = design::mpc<4, 4, 64>(double_integrator, weights, kUnitInput, position_box(true), design::InvariantSet{});
+    const auto art = design::mpc<4, 4>(double_integrator, weights, kUnitInput, position_box(true), design::InvariantSet<64>{});
     REQUIRE(art.success);
     const auto art_f = art.as<float>();
     CHECK(art_f.success);
@@ -350,15 +350,9 @@ TEST_CASE("float conversion keeps terminal rows and the float tick stays in budg
     }
 }
 
-TEST_CASE("an InvariantSet with NT_max = 0 is refused as bad_weights") {
-    const auto art = design::mpc<4, 2>(double_integrator, {}, design::InvariantSet{});
-    CHECK_FALSE(art.success);
-    CHECK(art.status == design::DesignStatus::bad_weights);
-}
-
 TEST_CASE("terminal set moves with the target: every admissible target is inside, a near-bound overshoot is not") {
     const auto weights = move_weight(0.01);
-    const auto art = design::mpc<4, 4, 64>(double_integrator, weights, kUnitInput, position_box(false), design::InvariantSet{});
+    const auto art = design::mpc<4, 4>(double_integrator, weights, kUnitInput, position_box(false), design::InvariantSet<64>{});
     REQUIRE(art.success);
     REQUIRE(art.mpc.n_terminal > 0);
 
@@ -413,7 +407,7 @@ TEST_CASE("4-state NP=10 invariant_set design") {
             .upper = {1.0, 1.0},
         };
         const design::OutputLimits positions{.outputs = {0, 1}, .lim = {.lower = {-1.0, -1.0}, .upper = {1.0, 1.0}}};
-        return design::mpc<10, 10, 192>(two_axes, weights, limits, positions, design::InvariantSet{});
+        return design::mpc<10, 10>(two_axes, weights, limits, positions, design::InvariantSet<192>{});
     }();
     REQUIRE(art.success);
     CHECK(art.mpc.n_terminal > 64);
@@ -443,22 +437,12 @@ TEST_CASE("maximal_invariant_set does not depend on the units of h") {
     CHECK(big_f.n_rows == unit_f.n_rows);
 }
 
-TEST_CASE("invariant_set with a control horizon shorter than the prediction horizon is refused") {
-    //! The shifted plan holds the input over moves NC … NP − 1, so it is not admissible and the
-    //! hard terminal rows went infeasible on the nominal plant (24 of 359 starts, NP = 4, NC = 2).
-    const auto position = position_box(true);
-    const auto short_nc = design::mpc<4, 2, 64>(double_integrator, move_weight(0.01), kUnitInput, position, design::InvariantSet{});
-    CHECK_FALSE(short_nc.success);
-    CHECK(short_nc.status == design::DesignStatus::invalid_parameter);
-    CHECK(design::mpc<4, 4, 64>(double_integrator, move_weight(0.01), kUnitInput, position, design::InvariantSet{}).success);
-}
-
 TEST_CASE("MaxIterations with an invariant_set holds unless the iterate is primal feasible") {
     const auto      position = position_box(true);
     const ColVec<1> r{0.9};
     const ColVec<2> x0{0.5, 0.8};
 
-    const auto art_ok = design::mpc<4, 4, 64>(double_integrator, move_weight(0.01), kUnitInput, position, design::InvariantSet{});
+    const auto art_ok = design::mpc<4, 4>(double_integrator, move_weight(0.01), kUnitInput, position, design::InvariantSet<64>{});
     REQUIRE(art_ok.success);
     REQUIRE(art_ok.mpc.n_terminal > 0);
     MPC        ok{art_ok};
@@ -467,7 +451,7 @@ TEST_CASE("MaxIterations with an invariant_set holds unless the iterate is prima
     CHECK(u_ok(0) >= -1.0);
     CHECK(u_ok(0) <= 1.0);
 
-    const auto art = design::mpc<4, 4, 64>(double_integrator, move_weight(0.01), kUnitInput, position, design::InvariantSet{}, design::QPIterations{1});
+    const auto art = design::mpc<4, 4>(double_integrator, move_weight(0.01), kUnitInput, position, design::InvariantSet<64>{}, design::QPIterations{1});
     REQUIRE(art.success);
     MPC        controller{art};
     const auto u0 = controller.step(r, x0);

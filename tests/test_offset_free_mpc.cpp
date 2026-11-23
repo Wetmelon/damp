@@ -56,11 +56,11 @@ constexpr ColVec<2> plant_step(const ColVec<2>& x, double u_effective) {
 }
 
 /// An offset-free design on the double integrator: an input disturbance, the position held, and any further options @p opts.
-template<size_t NP, size_t NC, size_t NT_max = 0, typename... Opts>
+template<size_t NP, size_t NC, typename... Opts>
 constexpr auto offset_free(
     const design::MPCWeights<1, 1>& w, const design::InputLimits<1>& c = {}, const design::KalmanNoise<2, 1, double, 1>& noise = kUnitNoise, const Opts&... opts
 ) {
-    return design::mpc<NP, NC, NT_max>(double_integrator, w, c, noise, design::InputDisturbance{}, opts...);
+    return design::mpc<NP, NC>(double_integrator, w, c, noise, design::InputDisturbance{}, opts...);
 }
 
 design::MPCWeights<1, 1> move_weight(double rdu) {
@@ -836,7 +836,7 @@ TEST_SUITE("offset-free MPC terminal") {
         CHECK(mat::cholesky(art.mpc.P).has_value());
     }
 
-    TEST_CASE("InvariantSet with NT_max: the set moves with the estimated disturbance's target") {
+    TEST_CASE("an InvariantSet: the set moves with the estimated disturbance's target") {
         design::InputLimits<1> limits{};
         limits.u_lim = {
             .lower = -1.0,
@@ -844,7 +844,7 @@ TEST_SUITE("offset-free MPC terminal") {
         };
         const design::OutputLimits position{.outputs = {0}, .lim = {.lower = -1.0, .upper = 1.0}};
 
-        const auto art = offset_free<4, 4, 64>(move_weight(0.01), limits, kUnitNoise, position, design::InvariantSet{});
+        const auto art = offset_free<4, 4>(move_weight(0.01), limits, kUnitNoise, position, design::InvariantSet<64>{});
         REQUIRE(art.success);
         REQUIRE(art.mpc.n_terminal > 0);
         CHECK(art.mpc.terminal == design::detail::MPCTerminal::invariant_set);
@@ -865,13 +865,6 @@ TEST_SUITE("offset-free MPC terminal") {
         }
         CHECK(x(0) == doctest::Approx(0.0).scale(1.0).epsilon(1e-3));
         CHECK(law.disturbance_estimate()(0) == doctest::Approx(0.2).epsilon(1e-3));
-    }
-
-    TEST_CASE("an InvariantSet without NT_max is refused as bad_weights") {
-        const auto art = offset_free<4, 2>({}, {}, kUnitNoise, design::InvariantSet{});
-        CHECK_FALSE(art.success);
-        CHECK(art.status == design::DesignStatus::bad_weights);
-        CHECK(art.mpc.status == design::DesignStatus::bad_weights);
     }
 }
 
