@@ -179,7 +179,7 @@ template<typename T = double>
     NavFrame           frame,
     T                  g = kStandardGravity<T>
 ) {
-    if (!(dt > T{0})) {
+    if (!damp::finite_positive(dt)) {
         return x;
     }
     const Vec3<T> a_n = x.q.rotate(a_b) + gravity_nav(frame, g);

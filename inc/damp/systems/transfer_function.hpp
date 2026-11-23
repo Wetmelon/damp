@@ -70,10 +70,17 @@ template<size_t N, typename T>
     for (size_t i = 0; i < N; ++i) {
         a[i] = static_cast<W>(p[i]);
     }
-    const R margin = static_cast<R>(N) * static_cast<R>(eps<T>());
+    const R    margin = static_cast<R>(N) * static_cast<R>(eps<T>());
+    const auto finite = [](const W& v) {
+        if constexpr (damp::is_floating_point_v<W>) {
+            return damp::isfinite(v);
+        } else {
+            return damp::isfinite(v.real()) && damp::isfinite(v.imag());
+        }
+    };
     for (size_t n = N; n-- > 1;) {
-        const W k = a[n] / a[0];
-        if (!(damp::abs(k) < R{1} - margin)) {
+        const W k = a[n] / a[0]; // a NaN or ±Inf coefficient, or a zero a[0], is refused by the bit test
+        if (!finite(k) || !(damp::abs(k) < R{1} - margin)) {
             return false;
         }
         const damp::array<W, N> prev = a;

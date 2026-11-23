@@ -161,7 +161,7 @@ template<typename T = float>
  */
 template<typename T = float>
 [[nodiscard]] constexpr T modulation_index(const AlphaBeta<T>& v_ab, T v_dc) {
-    if (!(v_dc > T{0})) {
+    if (!damp::finite_positive(v_dc)) {
         return T{0};
     }
     const T v_lin = linear_modulation_voltage(v_dc);
@@ -226,7 +226,7 @@ template<typename T = float>
 template<typename T = float>
 [[nodiscard]] constexpr T thipwm_zero_sequence(const AlphaBeta<T>& v_ab) {
     const T mag = damp::hypot(v_ab.alpha, v_ab.beta);
-    if (!(mag > T{0})) {
+    if (!damp::finite_positive(mag)) {
         return T{0};
     }
     const T th = damp::atan2(v_ab.beta, v_ab.alpha);
@@ -400,7 +400,7 @@ template<typename T = float>
 [[nodiscard]] constexpr SvmDuties<T>
 modulation_duty_cycles(const AlphaBeta<T>& v_ab, T v_dc, PwmScheme scheme = PwmScheme::Svpwm) {
     // Degenerate / reverse bus: no meaningful duty map — park mid-rail (zero voltage).
-    if (!(v_dc > T{0})) {
+    if (!damp::finite_positive(v_dc)) {
         return SvmDuties<T>{.duties = {static_cast<T>(0.5), static_cast<T>(0.5), static_cast<T>(0.5)}, .is_clipped = true};
     }
 
@@ -466,7 +466,7 @@ template<typename T = float>
 template<typename T = float>
 [[nodiscard]] constexpr SvmDuties<T> six_step_duty_cycles(const AlphaBeta<T>& v_ab) {
     const T mag = damp::hypot(v_ab.alpha, v_ab.beta);
-    if (!(mag > T{0})) {
+    if (!damp::finite_positive(mag)) {
         return SvmDuties<T>{.duties = {static_cast<T>(0.5), static_cast<T>(0.5), static_cast<T>(0.5)}, .is_clipped = true};
     }
     const T th = damp::atan2(v_ab.beta, v_ab.alpha);

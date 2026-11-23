@@ -50,6 +50,16 @@ template<typename T>
     }
 }
 
+/** @brief A period that fires: > 0, and finite for a floating time type (by the bit test, so a NaN never fires under -ffast-math). */
+template<typename T>
+[[nodiscard]] constexpr bool timer_period_valid(T period) {
+    if constexpr (damp::is_floating_point_v<T>) {
+        return damp::finite_positive(period);
+    } else {
+        return period > T{0};
+    }
+}
+
 /** @brief True once @p elapsed has reached @p preset (up to the accumulation slack). */
 template<typename T>
 [[nodiscard]] constexpr bool timer_reached(T elapsed, T preset) {
@@ -171,9 +181,9 @@ public:
     constexpr Periodic() = default;
     constexpr explicit Periodic(T period_) : period(period_) {}
 
-    /** @brief Advance by @p dt; returns true once per elapsed period (never when period ≤ 0). */
+    /** @brief Advance by @p dt; returns true once per elapsed period (never when period ≤ 0 or not finite). */
     constexpr bool operator()(T dt) {
-        if (!(period > T{0})) {
+        if (!detail::timer_period_valid(period)) {
             return false;
         }
         if (damp::is_integral_v<T> && phase_ > T{0} && dt > damp::numeric_limits<T>::max() - phase_) {

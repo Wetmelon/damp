@@ -78,7 +78,7 @@ struct CachedZoh {
     [[nodiscard]] static CachedZoh from(const Matrix<NX, NX, T>& A, const Matrix<NX, NU, T>& B, T step) {
         CachedZoh z{};
         z.h = step;
-        if (!(step > T{0})) {
+        if (!damp::finite_positive(step)) {
             z.Ad = Matrix<NX, NX, T>::identity();
             z.Bd = Matrix<NX, NU, T>::zeros();
             return z;
@@ -205,7 +205,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
     T                                        h
 ) {
     const T span = t_span.second - t_span.first;
-    if (!(h > T{0}) || !(span > T{0})) {
+    if (!damp::finite_positive(h) || !damp::finite_positive(span)) {
         SimulationResult<NX, NU, NY, T> sim;
         sim.t.push_back(t_span.first);
         sim.x.push_back(x0);

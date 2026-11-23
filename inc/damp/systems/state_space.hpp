@@ -80,6 +80,9 @@ constexpr Matrix<R, C, T> default_noise_matrix() {
  */
 template<typename T>
 [[nodiscard]] constexpr bool same_sample_time(T ts1, T ts2) {
+    if (!damp::isfinite(ts1) || !damp::isfinite(ts2)) {
+        return false; // first: under -ffast-math, x86 reads NaN == 0 as true
+    }
     if (ts1 == T{0} && ts2 == T{0}) {
         return true;
     }
@@ -160,8 +163,13 @@ struct StateSpace {
         };
     }
 
-    [[nodiscard]] constexpr bool is_discrete() const { return Ts > T{0}; }
-    [[nodiscard]] constexpr bool is_continuous() const { return Ts == T{0}; }
+    /**
+     * @brief Ts finite and > 0. A NaN, ±Inf or negative Ts is neither discrete nor continuous: no
+     *        time domain, which every design and analysis that reads one refuses.
+     */
+    [[nodiscard]] constexpr bool is_discrete() const { return damp::finite_positive(Ts); }
+    /** @brief Ts exactly 0, tested finite first: under -ffast-math x86 reads NaN == 0 as true. */
+    [[nodiscard]] constexpr bool is_continuous() const { return damp::isfinite(Ts) && Ts == T{0}; }
 };
 
 /**

@@ -61,7 +61,7 @@ struct [[nodiscard]] SMCResult {
      */
     [[nodiscard]] constexpr TransferFunction<2, 1, T> to_tf() const {
         TransferFunction<2, 1, T> tf{};
-        if (!success || !(phi > T{0}) || !(b0 > T{0})) {
+        if (!success || !damp::finite_positive(phi) || !damp::finite_positive(b0)) {
             return tf;
         }
         const T g = k / (b0 * phi);
@@ -212,7 +212,7 @@ public:
      * constant evaluation; at run time it leaves the controller invalid (valid() false, output 0).
      */
     constexpr SMCController(const design::SMCResult<T>& result) // NOLINT(google-explicit-constructor): assign-from-design
-        : lambda(result.lambda), k(result.k), b0(result.b0), Ts_(result.Ts), phi_(result.phi), valid_(result.success && result.Ts > T{0} && result.u_lim.valid()), u_lim(result.u_lim) {
+        : lambda(result.lambda), k(result.k), b0(result.b0), Ts_(result.Ts), phi_(result.phi), valid_(result.success && damp::finite_positive(result.Ts) && result.u_lim.valid()), u_lim(result.u_lim) {
         if (result.success && !result.u_lim.valid() && damp::is_constant_evaluated()) {
             ::damp::detail::refuse_failed_design(design::DesignStatus::invalid_parameter); // a limit that is not finite, or lower above upper
         }

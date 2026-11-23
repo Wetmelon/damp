@@ -145,27 +145,30 @@ struct RelayAutotuneConfig {
     }
 
     [[nodiscard]] constexpr bool valid() const {
-        if (amplitude <= T{0}) {
+        if (!damp::finite_positive(amplitude)) {
             return false;
         }
-        if (amplitude_neg < T{0}) {
+        if (!damp::finite_non_negative(amplitude_neg)) {
             return false;
         }
         // ε is in output units; whether the limit cycle clears it (a > ε) is checked at run time.
-        if (hysteresis < T{0}) {
+        if (!damp::finite_non_negative(hysteresis)) {
+            return false;
+        }
+        if (!damp::isfinite(setpoint)) {
             return false;
         }
         // The relay levels must fit inside u_lim: a clipped level is not the d that Kᵤ = 4d/(πa) uses.
-        if (!(u_lim.lower(0) <= u_bias - d_neg()) || !(u_bias + d_pos() <= u_lim.upper(0))) {
+        if (!damp::isfinite(u_bias) || !u_lim.valid() || !(u_lim.lower(0) <= u_bias - d_neg()) || !(u_bias + d_pos() <= u_lim.upper(0))) {
             return false;
         }
         if (measure_cycles < size_t{2}) {
             return false;
         }
-        if (period_tolerance <= T{0}) {
+        if (!damp::finite_positive(period_tolerance)) {
             return false;
         }
-        if (max_duration <= T{0}) {
+        if (!damp::finite_positive(max_duration)) {
             return false;
         }
         return true;
@@ -287,7 +290,7 @@ public:
      * @param design Relay-autotune design payload.
      */
     constexpr RelayAutotuner(const design::RelayAutotuneResult<T>& design) // NOLINT(google-explicit-constructor): assign-from-design
-        : config_(design.config), Ts_(design.Ts), valid_design_(design.success && design.Ts > T{0}), status_(valid_design_ ? RelayAutotuneStatus::Idle : RelayAutotuneStatus::Failed) {
+        : config_(design.config), Ts_(design.Ts), valid_design_(design.success && damp::finite_positive(design.Ts)), status_(valid_design_ ? RelayAutotuneStatus::Idle : RelayAutotuneStatus::Failed) {
         if (!design.success && damp::is_constant_evaluated()) {
             ::damp::detail::refuse_failed_design(design.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }

@@ -129,9 +129,12 @@ struct [[nodiscard]] SecondOrderCoeffs {
  */
 template<typename T = float>
 [[nodiscard]] constexpr FirstOrderCoeffs<T> to_coeffs(const StateSpace<1, 1, 1, T>& sys, T Ts = T{0}) {
+    if (!sys.is_discrete() && !sys.is_continuous()) {
+        return ::damp::detail::refused<FirstOrderCoeffs<T>>(DesignStatus::invalid_sample_time); // no time domain
+    }
     StateSpace<1, 1, 1, T> sys_d = sys;
-    if (sys.Ts == T{0}) {
-        if (!(Ts > T{0})) {
+    if (sys.is_continuous()) {
+        if (!damp::finite_positive(Ts)) {
             return ::damp::detail::refused<FirstOrderCoeffs<T>>(DesignStatus::invalid_sample_time);
         }
         auto opt = discretize(sys, Ts, DiscretizationMethod::Tustin);
@@ -159,7 +162,7 @@ template<typename T = float>
  */
 template<typename T = float>
 [[nodiscard]] constexpr FirstOrderCoeffs<T> to_coeffs(const TransferFunction<1, 2, T>& tf, T Ts) {
-    if (!(Ts > T{0})) {
+    if (!damp::finite_positive(Ts)) {
         return ::damp::detail::refused<FirstOrderCoeffs<T>>(DesignStatus::invalid_sample_time);
     }
     const auto sys_c = tf.to_state_space();
@@ -182,7 +185,7 @@ template<typename T = float>
  */
 template<typename T = float>
 [[nodiscard]] constexpr FirstOrderCoeffs<T> to_coeffs(const TransferFunction<2, 2, T>& tf, T Ts) {
-    if (!(Ts > T{0})) {
+    if (!damp::finite_positive(Ts)) {
         return ::damp::detail::refused<FirstOrderCoeffs<T>>(DesignStatus::invalid_sample_time);
     }
     const auto sys_c = tf.to_state_space();
@@ -207,9 +210,12 @@ template<typename T = float>
  */
 template<typename T = float>
 [[nodiscard]] constexpr SecondOrderCoeffs<T> to_coeffs(const StateSpace<2, 1, 1, T>& sys, T Ts = T{0}) {
+    if (!sys.is_discrete() && !sys.is_continuous()) {
+        return ::damp::detail::refused<SecondOrderCoeffs<T>>(DesignStatus::invalid_sample_time); // no time domain
+    }
     StateSpace<2, 1, 1, T> sys_d = sys;
-    if (sys.Ts == T{0}) {
-        if (!(Ts > T{0})) {
+    if (sys.is_continuous()) {
+        if (!damp::finite_positive(Ts)) {
             return ::damp::detail::refused<SecondOrderCoeffs<T>>(DesignStatus::invalid_sample_time);
         }
         auto opt = discretize(sys, Ts, DiscretizationMethod::Tustin);
@@ -255,7 +261,7 @@ template<typename T = float>
  */
 template<typename T = float>
 [[nodiscard]] constexpr SecondOrderCoeffs<T> to_coeffs(const TransferFunction<3, 3, T>& tf, T Ts) {
-    if (!(Ts > T{0})) {
+    if (!damp::finite_positive(Ts)) {
         return ::damp::detail::refused<SecondOrderCoeffs<T>>(DesignStatus::invalid_sample_time);
     }
     const auto sys_c = tf.to_state_space();
@@ -279,7 +285,7 @@ namespace detail {
  */
 template<typename T>
 [[nodiscard]] constexpr bool valid_cutoff(T f, T Ts) {
-    return (Ts > T{0}) && (f > T{0}) && ((T{2} * f * Ts) < T{1});
+    return damp::finite_positive(Ts) && damp::finite_positive(f) && ((T{2} * f * Ts) < T{1});
 }
 
 /** @brief Why a discrete design was refused: invalid_sample_time if @p Ts is the cause, else invalid_parameter. */
@@ -296,7 +302,7 @@ template<typename Result>
 
 template<typename T>
 [[nodiscard]] constexpr bool valid_Q(T Q) {
-    return Q > T{0};
+    return damp::finite_positive(Q);
 }
 
 /**
@@ -357,7 +363,7 @@ template<typename T>
  */
 template<typename T = double>
 [[nodiscard]] constexpr TransferFunctionResult<2, 2, T> lowpass_1st(T fc) {
-    if (!(fc > T{0})) {
+    if (!damp::finite_positive(fc)) {
         return detail::invalid<TransferFunctionResult<2, 2, T>>();
     }
     const T tau = T{1} / (T{2} * damp::numbers::pi_v<T> * fc);
@@ -414,7 +420,7 @@ template<typename T = float>
  */
 template<typename T = double>
 [[nodiscard]] constexpr TransferFunctionResult<2, 2, T> highpass_1st(T fc) {
-    if (!(fc > T{0})) {
+    if (!damp::finite_positive(fc)) {
         return detail::invalid<TransferFunctionResult<2, 2, T>>();
     }
     const T omega_c = T{2} * damp::numbers::pi_v<T> * fc;
@@ -471,7 +477,7 @@ template<typename T = float>
  */
 template<typename T = double>
 [[nodiscard]] constexpr TransferFunctionResult<3, 3, T> lowpass_2nd(T fc, T Q = damp::numbers::inv_sqrt2_v<T>) {
-    if (!(fc > T{0}) || !detail::valid_Q(Q)) {
+    if (!damp::finite_positive(fc) || !detail::valid_Q(Q)) {
         return detail::invalid<TransferFunctionResult<3, 3, T>>();
     }
     const T omega_0 = T{2} * damp::numbers::pi_v<T> * fc;
@@ -550,7 +556,7 @@ template<typename T = float>
  */
 template<typename T = double>
 [[nodiscard]] constexpr TransferFunctionResult<3, 3, T> highpass_2nd(T fc, T Q = damp::numbers::inv_sqrt2_v<T>) {
-    if (!(fc > T{0}) || !detail::valid_Q(Q)) {
+    if (!damp::finite_positive(fc) || !detail::valid_Q(Q)) {
         return detail::invalid<TransferFunctionResult<3, 3, T>>();
     }
     const T omega_0 = T{2} * damp::numbers::pi_v<T> * fc;
@@ -606,7 +612,7 @@ template<typename T = float>
  */
 template<typename T = double>
 [[nodiscard]] constexpr TransferFunctionResult<3, 3, T> bandpass(T f0, T Q) {
-    if (!(f0 > T{0}) || !detail::valid_Q(Q)) {
+    if (!damp::finite_positive(f0) || !detail::valid_Q(Q)) {
         return detail::invalid<TransferFunctionResult<3, 3, T>>();
     }
     const T omega_0 = T{2} * damp::numbers::pi_v<T> * f0;
@@ -658,7 +664,7 @@ template<typename T = float>
  */
 template<typename T = double>
 [[nodiscard]] constexpr TransferFunctionResult<3, 3, T> notch(T f0, T Q) {
-    if (!(f0 > T{0}) || !detail::valid_Q(Q)) {
+    if (!damp::finite_positive(f0) || !detail::valid_Q(Q)) {
         return detail::invalid<TransferFunctionResult<3, 3, T>>();
     }
     const T omega_0 = T{2} * damp::numbers::pi_v<T> * f0;
@@ -715,7 +721,7 @@ template<typename T = float>
  */
 template<typename T = double>
 [[nodiscard]] constexpr TransferFunctionResult<3, 3, T> allpass(T f0, T Q) {
-    if (!(f0 > T{0}) || !detail::valid_Q(Q)) {
+    if (!damp::finite_positive(f0) || !detail::valid_Q(Q)) {
         return detail::invalid<TransferFunctionResult<3, 3, T>>();
     }
     const T omega_0 = T{2} * damp::numbers::pi_v<T> * f0;

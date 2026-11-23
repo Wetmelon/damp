@@ -67,11 +67,11 @@ public:
      * @brief Configure for second-derivative bound @p L at sample time @p dt.
      * @param L       Bound on |f̈| (for a position signal, the acceleration bound). Must be > 0.
      * @param dt      Sample time [s]. Must be > 0.
-     * @param lambda0 First gain (default 1.5).
-     * @param lambda1 Second gain (default 1.1).
+     * @param lambda0 First gain (default 1.5). Must be > 0.
+     * @param lambda1 Second gain (default 1.1). Must be > 0.
      */
     constexpr RobustExactDifferentiator(T L, T dt, T lambda0 = static_cast<T>(1.5), T lambda1 = static_cast<T>(1.1))
-        : L_(L), sqrt_L_(damp::sqrt(L)), dt_(dt), lambda0_(lambda0), lambda1_(lambda1), valid_(L > T{0} && dt > T{0}) {}
+        : L_(L), sqrt_L_(damp::sqrt(L)), dt_(dt), lambda0_(lambda0), lambda1_(lambda1), valid_(damp::finite_positive(L) && damp::finite_positive(dt) && damp::finite_positive(lambda0) && damp::finite_positive(lambda1)) {}
 
     /**
      * @brief Feed one sample; advance the differentiator one step.

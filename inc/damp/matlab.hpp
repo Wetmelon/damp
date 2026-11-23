@@ -1496,6 +1496,9 @@ template<size_t NV, size_t NI, size_t NE, typename T = double>
 template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, size_t NV = 0>
 [[nodiscard]] constexpr damp::optional<Matrix<NX, NX, T>>
 gram(const StateSpace<NX, NU, NY, T, NW, NV>& sys, char kind = 'c') {
+    if (!sys.is_discrete() && !sys.is_continuous()) {
+        return damp::nullopt; // no time domain
+    }
     if (kind == 'o' || kind == 'O') {
         return stability::observability_gramian(sys.A, sys.C, sys.is_discrete());
     }

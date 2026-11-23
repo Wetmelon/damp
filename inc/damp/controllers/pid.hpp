@@ -50,6 +50,13 @@ template<typename T>
         && damp::isfinite(Kbc) && damp::isfinite(b) && damp::isfinite(c);
 }
 
+/** @brief True when every gain a discrete PID runtime reads is finite (bit tests, so a NaN is refused under -ffast-math). */
+template<typename R>
+[[nodiscard]] constexpr bool pid_discrete_gains_finite(const R& r) {
+    return damp::isfinite(r.Kp) && damp::isfinite(r.Ki) && damp::isfinite(r.Kd) && damp::isfinite(r.d_a) && damp::isfinite(r.d_b)
+        && damp::isfinite(r.Kbc) && damp::isfinite(r.b) && damp::isfinite(r.c);
+}
+
 } // namespace detail
 
 namespace design {
@@ -299,7 +306,7 @@ struct [[nodiscard]] PIDGains {
      * @return The realization, or nullopt when K_d ≠ 0 and T_f ≤ 0 (an unfiltered derivative is not proper)
      */
     [[nodiscard]] constexpr damp::optional<StateSpace<2, 2, 1, T>> to_ss_2dof() const {
-        if ((Kd != T{0}) && !(Tf > T{0})) {
+        if ((Kd != T{0}) && !damp::finite_positive(Tf)) {
             return damp::nullopt;
         }
         StateSpace<2, 2, 1, T> out{};
@@ -587,12 +594,12 @@ struct PIDController<T, PIDMode::PID> {
           b(r.b),
           c(r.c),
           Ts(r.Ts),
-          valid_(r.success && !detail::pid_kbc_winds_up(r.Ki, r.Kbc) && r.u_lim.valid() && r.integral_lim.valid()) {
+          valid_(r.success && detail::pid_discrete_gains_finite(r) && !detail::pid_kbc_winds_up(r.Ki, r.Kbc) && r.u_lim.valid() && r.integral_lim.valid()) {
         if (!r.success && damp::is_constant_evaluated()) {
             detail::refuse_failed_design(r.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
         if (!valid_ && damp::is_constant_evaluated()) {
-            detail::refuse_failed_design(design::DesignStatus::invalid_parameter); // Kbc against Ki's sign winds the integrator up, or a limit that is not a box
+            detail::refuse_failed_design(design::DesignStatus::invalid_parameter); // a non-finite gain, Kbc against Ki's sign winds the integrator up, or a limit that is not a box
         }
     }
 
@@ -723,7 +730,7 @@ struct PIDController<T, PIDMode::PI> {
           Kbc(r.Kbc),
           b(r.b),
           Ts(r.Ts),
-          valid_(r.success && r.Kd == T{0} && !detail::pid_kbc_winds_up(r.Ki, r.Kbc) && r.u_lim.valid() && r.integral_lim.valid()) {
+          valid_(r.success && detail::pid_discrete_gains_finite(r) && r.Kd == T{0} && !detail::pid_kbc_winds_up(r.Ki, r.Kbc) && r.u_lim.valid() && r.integral_lim.valid()) {
         if (!r.success && damp::is_constant_evaluated()) {
             detail::refuse_failed_design(r.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
@@ -731,7 +738,7 @@ struct PIDController<T, PIDMode::PI> {
             detail::refuse_failed_design(); // a PI cannot realize the D term
         }
         if (!valid_ && damp::is_constant_evaluated()) {
-            detail::refuse_failed_design(design::DesignStatus::invalid_parameter); // Kbc against Ki's sign winds the integrator up, or a limit that is not a box
+            detail::refuse_failed_design(design::DesignStatus::invalid_parameter); // a non-finite gain, Kbc against Ki's sign winds the integrator up, or a limit that is not a box
         }
     }
 
@@ -846,7 +853,7 @@ struct PIDController<T, PIDMode::PD> {
           b(r.b),
           c(r.c),
           Ts(r.Ts),
-          valid_(r.success && r.Ki == T{0} && r.u_lim.valid()) {
+          valid_(r.success && detail::pid_discrete_gains_finite(r) && r.Ki == T{0} && r.u_lim.valid()) {
         if (!r.success && damp::is_constant_evaluated()) {
             detail::refuse_failed_design(r.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
@@ -939,7 +946,7 @@ struct PIDController<T, PIDMode::P> {
         : PIDController(r.template as<T>()) {}
 
     constexpr PIDController(const design::DiscretePIDGains<T>& r) // NOLINT(google-explicit-constructor): assign-from-design
-        : Kp(r.Kp), u_lim(r.u_lim), b(r.b), valid_(r.success && r.Ki == T{0} && r.Kd == T{0} && r.u_lim.valid()) {
+        : Kp(r.Kp), u_lim(r.u_lim), b(r.b), valid_(r.success && detail::pid_discrete_gains_finite(r) && r.Ki == T{0} && r.Kd == T{0} && r.u_lim.valid()) {
         if (!r.success && damp::is_constant_evaluated()) {
             detail::refuse_failed_design(r.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }

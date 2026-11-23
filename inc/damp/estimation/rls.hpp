@@ -69,14 +69,17 @@ struct RlsConfig {
     Bounds<NP, scalar_type> theta_lim{}; ///< Per-parameter projection box (real T only; default unbounded)
 
     [[nodiscard]] constexpr bool valid() const {
-        if (lambda <= scalar_type{0}) {
+        if (!damp::finite_positive(lambda)) {
             return false;
         }
         if (lambda > scalar_type{1}) {
             return false;
         }
-        if (p0 <= scalar_type{0}) {
+        if (!damp::finite_positive(p0)) {
             return false;
+        }
+        if (projection_enabled && !theta_lim.valid()) {
+            return false; // the box projection clamps to: finite ends, lower ≤ upper
         }
         return true;
     }
@@ -179,7 +182,7 @@ public:
         const T             denom = static_cast<T>(config_.lambda) + dot(phi, p_phi);
         // denom ≥ λ > 0 while P ≥ 0; otherwise P is corrupt: skip without
         // poisoning P or theta.
-        if (!(detail::real_part(denom) > scalar_type{0})) {
+        if (!damp::finite_positive(detail::real_part(denom))) {
             return false;
         }
 

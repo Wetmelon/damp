@@ -149,7 +149,7 @@ template<
     MultiRateConfig<T>      config
 ) {
     SimulationResult<NX, NU, NY, T> sim{};
-    if (!(config.Ts_base > T{0}) || !(t_span.second > t_span.first)) {
+    if (!damp::finite_positive(config.Ts_base) || !damp::isfinite(t_span.first) || !damp::isfinite(t_span.second) || !(t_span.second > t_span.first)) {
         sim.success = false;
         return sim;
     }
@@ -276,7 +276,7 @@ template<
     MultiRateConfig<T>      config
 ) {
     TwoRateSimulationResult<NX, NU, NY, NR, T> sim{};
-    if (!(config.Ts_base > T{0}) || !(t_span.second > t_span.first) || outer_div == 0 || inner_div == 0) {
+    if (!damp::finite_positive(config.Ts_base) || !damp::isfinite(t_span.first) || !damp::isfinite(t_span.second) || !(t_span.second > t_span.first) || outer_div == 0 || inner_div == 0) {
         sim.success = false;
         return sim;
     }

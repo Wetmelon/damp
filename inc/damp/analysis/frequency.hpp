@@ -270,6 +270,9 @@ template<size_t NX, size_t NW, size_t NV, typename T>
 ) {
     using Cplx = damp::complex<T>;
     BodeResult<T> result;
+    if (!sys.is_discrete() && !sys.is_continuous()) {
+        return result; // no time domain: no points
+    }
     result.points.reserve(omega.size());
 
     for (const auto& w : omega) {
@@ -502,6 +505,9 @@ template<size_t NX, size_t NW, size_t NV, typename T>
 ) {
     using Cplx = damp::complex<T>;
     NyquistResult<T> result;
+    if (!sys.is_discrete() && !sys.is_continuous()) {
+        return result; // no time domain: no points
+    }
     result.points.reserve(omega.size());
 
     for (const auto& w : omega) {
@@ -588,6 +594,9 @@ template<size_t NX, size_t NW, size_t NV, typename T>
     using Cplx = damp::complex<T>;
 
     LoopResponseResult<T> result;
+    if (!loop.is_discrete() && !loop.is_continuous()) {
+        return result; // no time domain: no points
+    }
     result.open_loop.points.reserve(omega.size());
     result.sensitivity.points.reserve(omega.size());
     result.complementary_sensitivity.points.reserve(omega.size());
@@ -832,6 +841,9 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
     constexpr size_t NS = (NY < NU) ? NY : NU;
 
     SigmaResult<NS, T> result;
+    if (!sys.is_discrete() && !sys.is_continuous()) {
+        return result; // no time domain: no points
+    }
     result.points.reserve(omega.size());
 
     for (const auto& w : omega) {
@@ -999,7 +1011,9 @@ struct [[nodiscard]] MiddlebrookResult {
 /**
  * @brief FRF evaluation point: jω (continuous) or e^{jωTs} (discrete)
  *
- * Matches the auto-dispatch used by bode() / nyquist() / loop_response().
+ * Matches the auto-dispatch used by bode() / nyquist() / loop_response(). Only Ts = 0 is jω: a
+ * model with no time domain (Ts NaN, ±Inf or negative) takes the e^{jωTs} branch, so a NaN Ts
+ * gives a NaN point, never the continuous one. The impedance functions refuse such a model first.
  */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
 [[nodiscard]] constexpr damp::complex<T> frf_s_or_z(
@@ -1007,7 +1021,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
     T                                        omega
 ) {
     using Cplx = damp::complex<T>;
-    if (sys.is_discrete()) {
+    if (!sys.is_continuous()) {
         const auto [s, c] = damp::sincos(omega * sys.Ts);
         return Cplx{c, s};
     }
@@ -1034,6 +1048,9 @@ template<size_t NX, size_t NW, size_t NV, typename T>
 ) {
     using Cplx = damp::complex<T>;
     ImpedanceResult<T> result;
+    if (!admittance_sys.is_discrete() && !admittance_sys.is_continuous()) {
+        return result; // no time domain: no points
+    }
     result.points.reserve(omega.size());
 
     for (const auto& w : omega) {
@@ -1076,6 +1093,9 @@ template<size_t NX, size_t NW, size_t NV, typename T>
 ) {
     using Cplx = damp::complex<T>;
     ImpedanceResult<T> result;
+    if (!impedance_sys.is_discrete() && !impedance_sys.is_continuous()) {
+        return result; // no time domain: no points
+    }
     result.points.reserve(omega.size());
 
     for (const auto& w : omega) {

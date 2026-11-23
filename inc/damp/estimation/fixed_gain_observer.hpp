@@ -147,7 +147,7 @@ struct [[nodiscard]] PlaceObserverResult {
             return false; // a refused design's e is zero-filled
         }
         for (size_t i = 0; i < NX; ++i) {
-            if (sys.Ts > T{0} ? !(e[i].abs() < T{1}) : !(e[i].real() < T{0})) {
+            if (sys.is_discrete() ? !(e[i].abs() < T{1}) : !(e[i].real() < T{0})) {
                 return false;
             }
         }
@@ -231,6 +231,9 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
     static_assert(NY <= NX, "An observer cannot place more poles than states (NY <= NX).");
     PlaceObserverResult<NX, NU, NY, T, NW, NV> out{};
     out.sys = sys;
+    if (!sys.is_discrete() && !sys.is_continuous()) {
+        return ::damp::detail::set_status(out, DesignStatus::invalid_sample_time); // no time domain
+    }
     if (!finite_model(sys)) {
         return ::damp::detail::set_status(out, DesignStatus::bad_weights); // placement reads only A and C; the runtime runs B and D
     }
@@ -241,7 +244,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
         return ::damp::detail::set_status(out, status);
     }
     out.L = Lt.transpose();
-    if (sys.Ts > T{0}) {
+    if (sys.is_discrete()) {
         return with_innovation_gain(out, poles);
     }
     out.e = stability::closed_loop_poles(Matrix<NX, NX, T>(sys.A.transpose()), Matrix<NX, NY, T>(sys.C.transpose()), Lt);
@@ -412,6 +415,9 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
 
     Result result{};
     result.Ts = sys.Ts;
+    if (!sys.is_discrete() && !sys.is_continuous()) {
+        return ::damp::detail::set_status(result, DesignStatus::invalid_sample_time); // no time domain
+    }
     if (!finite_model(sys)) {
         return ::damp::detail::set_status(result, DesignStatus::bad_weights); // placement does not read B; Gu does
     }
@@ -874,7 +880,7 @@ private:
     /** @brief Whether a gain runs: a successful design on a discrete model. Otherwise it does not compile when constant-evaluated (the error names the status). */
     template<typename U>
     [[nodiscard]] static constexpr bool usable(bool success, design::DesignStatus status, U Ts) {
-        const bool ok = success && Ts > U{0};
+        const bool ok = success && damp::finite_positive(Ts);
         if (!ok && damp::is_constant_evaluated()) {
             ::damp::detail::refuse_failed_design(success ? design::DesignStatus::invalid_sample_time : status); // constant-evaluated (constinit / constexpr): a failed or continuous design does not compile
         }
@@ -1087,7 +1093,7 @@ public:
     template<typename U>
         requires(!Store::constant)
     constexpr ReducedOrderObserver(const design::ReducedOrderObserverResult<NX, NU, U>& result) // NOLINT(google-explicit-constructor): assign-from-design
-        : valid_(result.success && result.Ts > U{0}) {
+        : valid_(result.success && damp::finite_positive(result.Ts)) {
         if (!valid_ && damp::is_constant_evaluated()) {
             ::damp::detail::refuse_failed_design(result.success ? design::DesignStatus::invalid_sample_time : result.status); // constant-evaluated (constinit / constexpr): a failed or continuous design does not compile
         }

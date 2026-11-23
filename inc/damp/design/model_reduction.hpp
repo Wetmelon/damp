@@ -214,6 +214,9 @@ residualize_states(const StateSpace<NX, NU, NY, T, NW, NV>& sys) {
         const auto C2 = take_block<NY, NE>(sys.C, 0, NR);
 
         // M^{-1} [A21 B2 G2]  with M = A22 (cont., via −M^{-1}) or (I−A22) (disc.)
+        if (!sys.is_discrete() && !sys.is_continuous()) {
+            return damp::nullopt; // no time domain
+        }
         Matrix<NE, NE, T> M{};
         T                 sign = T{1}; // discrete: +; continuous applied as − below
         if (sys.is_continuous()) {
@@ -348,6 +351,10 @@ square_root_balance_factors(const StateSpace<NX, NU, NY, T, NW, NV>& sys) {
     const auto finite = [](T v) { return damp::isfinite(v); };
     if (!mat::all_of(sys.A, finite) || !mat::all_of(sys.B, finite) || !mat::all_of(sys.C, finite) || !mat::all_of(sys.D, finite)) {
         out.status = DesignStatus::bad_weights;
+        return out;
+    }
+    if (!sys.is_discrete() && !sys.is_continuous()) {
+        out.status = DesignStatus::invalid_sample_time; // no time domain
         return out;
     }
 

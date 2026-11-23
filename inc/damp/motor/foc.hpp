@@ -213,7 +213,7 @@ struct FOController {
         DqCommand<T> cmd;
         // Non-positive ceiling: the bus cannot support a voltage. Unwind the PI
         // toward zero; do not treat it as "no limit".
-        if (!(Vmax > T{0})) {
+        if (!damp::finite_positive(Vmax)) {
             dctrl.back_calculate(T{0});
             qctrl.back_calculate(T{0});
             cmd.is_saturated = true;

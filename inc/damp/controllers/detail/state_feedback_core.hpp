@@ -242,7 +242,7 @@ struct StateFeedbackCore {
         constexpr bool same = NXR == NX && NUR == NU && NIR == NI && NYR == NY && NZR == NZ && NRR == NRU && damp::is_same_v<Est, detail::runtime_estimator_t<Kalman, T>>;
         static_assert(same, "This law's sizes are not the design's: let them deduce, LQG law{res}, or Law<res, T> for a member.");
         if constexpr (same) {
-            valid_ = usable(result, result.Ts != U{0});
+            valid_ = usable(result, damp::finite_positive(result.Ts));
             if (valid_) {
                 K = result.K.template as<T>();
             }

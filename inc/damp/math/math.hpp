@@ -455,11 +455,11 @@ constexpr int sgn(T val) {
  * @f$ s(u) = \tfrac{u}{8}(15 - 10u^2 + 3u^4) @f$ on @f$ u = x/w \in [-1, 1] @f$: value ±1 and
  * zero first and second derivatives at the band edges (C²), slope 15/(8w) through zero.
  * Unlike tanh or x/(|x|+ε) it reaches ±1 exactly, so outside the band it is the true sign,
- * and it costs a few multiplies. @p width ≤ 0 gives the plain sign.
+ * and it costs a few multiplies. @p width ≤ 0, or not finite, gives the plain sign.
  */
 template<typename T>
 [[nodiscard]] constexpr T smooth_sign(T x, T width) {
-    if (!(width > T{0})) {
+    if (!detail::isfinite(width) || !(width > T{0})) {
         return static_cast<T>(sgn(x));
     }
     if (x >= width) {
@@ -584,7 +584,7 @@ constexpr T deg2rad(T deg) {
  * Once ulp(x) approaches the period (|x| ≳ range/ε) the product above no longer
  * holds the remainder; the result then falls back to the exact remainder of x
  * and stays in [min, max), but x itself no longer resolves the angle. An empty
- * interval (max ≤ min) returns min.
+ * interval (max ≤ min), or one whose width is not finite, returns min.
  *
  * @tparam T Numeric type (floating-point)
  */
@@ -592,7 +592,7 @@ template<typename T>
     requires damp::is_floating_point_v<T>
 constexpr T wrap(T x, T min, T max) noexcept {
     const T range = max - min;
-    if (!(range > T{0})) {
+    if (!damp::finite_positive(range)) {
         return min;
     }
     const T midpoint = min + (range / T{2});

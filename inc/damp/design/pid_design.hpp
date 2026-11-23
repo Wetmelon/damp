@@ -266,14 +266,14 @@ amigo_kappa_tau(T Ks, T Ku, T Tu) {
     }
     const T tau = damp::sqrt((prod * prod) - T{1}) / wu;
     const T L = (damp::numbers::pi_v<T> - damp::atan(wu * tau)) / wu;
-    if (!(L > T{0}) || !(tau > T{0})) {
+    if (!detail::positive_finite(L) || !detail::positive_finite(tau)) {
         return detail::pid_invalid<T>();
     }
     const T LpT = L + tau;
     const T Kp = (static_cast<T>(0.15) / Ks) + ((static_cast<T>(0.35) - (L * tau / (LpT * LpT))) * tau / (Ks * L));
     const T Ti = (static_cast<T>(0.35) * L)
                + (T{13} * L * tau * tau / ((tau * tau) + (T{12} * L * tau) + (T{7} * L * L)));
-    if (!(Ti > T{0}) || !(Kp > T{0})) {
+    if (!detail::positive_finite(Ti) || !detail::positive_finite(Kp)) {
         return detail::pid_invalid<T>();
     }
     const T Ki = Kp / Ti;
@@ -587,7 +587,7 @@ template<typename T>
             res.Ki = (res.Kd > T{0}) ? ((res.Kp * res.Kp) / (T{4} * res.Kd)) : T{0};
         } break;
     }
-    if (!(res.Kp > T{0}) || res.Ki < T{0} || res.Kd < T{0} || ((spec.mode == PIDMode::PID) && !(res.Kd > T{0}))) {
+    if (!detail::positive_finite(res.Kp) || !damp::finite_non_negative(res.Ki) || !damp::finite_non_negative(res.Kd) || ((spec.mode == PIDMode::PID) && !(res.Kd > T{0}))) {
         return ::damp::detail::refused<PIDGains<T>>(DesignStatus::not_placeable);
     }
     res.Kbc = res.Ki / w; // tracking time T_t = Kbc/Ki = 1/ω_c
@@ -812,7 +812,7 @@ pidtune(const damp::StateSpace<NX, 1, 1, T, NW, NV>& sys, const PIDTuneSpec<T>& 
     if (!pidtune_detail::valid_spec(spec)) {
         return detail::pid_invalid<T>();
     }
-    if (sys.Ts != T{0}) {
+    if (!damp::isfinite(sys.Ts) || sys.Ts != T{0}) {
         return ::damp::detail::refused<PIDGains<T>>(DesignStatus::invalid_sample_time);
     }
     const auto              plant = ::damp::ss2tf(sys);
@@ -886,13 +886,13 @@ template<typename T = double>
  * as 1/(√(1+4ζ⁴) + 2ζ²) to avoid cancellation at large ζ.
  *
  * @param zeta Damping ratio
- * @return Phase margin in degrees; 30° fallback for ζ ≤ 0
+ * @return Phase margin in degrees; 30° fallback for ζ ≤ 0 or not finite
  */
 template<typename T = double>
 [[nodiscard]] constexpr T phase_margin_from_damping_ratio(T zeta) {
     constexpr T pi = damp::numbers::pi_v<T>;
 
-    if (!(zeta > T{0})) {
+    if (!detail::positive_finite(zeta)) {
         return T{30};
     }
 
@@ -972,7 +972,7 @@ template<typename T = double>
         return detail::pid_invalid<T>();
     }
     const T Kp = (T{2} * spec.zeta * spec.omega * a1) - a0;
-    if (!(Kp > T{0})) {
+    if (!detail::positive_finite(Kp)) {
         return ::damp::detail::refused<PIDGains<T>>(DesignStatus::not_placeable);
     }
     // Parallel form: T_t = Kbc/Ki. Kbc = |Kp| ⇒ T_t = T_i (Åström default).
@@ -1038,14 +1038,14 @@ template<typename T = double>
     const T c2 = (w * w) + (two_zw * wi);
     const T c3 = w * w * wi;
     const T inv_Tf = (c1 + wf) - (a1 / a2);
-    if (!(inv_Tf > T{0})) {
+    if (!detail::positive_finite(inv_Tf)) {
         return ::damp::detail::refused<PIDGains<T>>(DesignStatus::not_placeable);
     }
     const T Tf = T{1} / inv_Tf;
     const T Ki = a2 * Tf * (c3 * wf);
     const T Kp = (a2 * Tf * (c3 + (c2 * wf))) - a0 - (Ki * Tf);
     const T Kd = (a2 * Tf * (c2 + (c1 * wf))) - a1 - ((a0 + Kp) * Tf);
-    if (!(Kp > T{0}) || !(Kd >= T{0})) {
+    if (!detail::positive_finite(Kp) || !damp::finite_non_negative(Kd)) {
         return ::damp::detail::refused<PIDGains<T>>(DesignStatus::not_placeable);
     }
     PIDGains<T> r{};
@@ -1202,7 +1202,7 @@ struct AllPoleTF {
 template<size_t NX, typename T, size_t NW, size_t NV>
 [[nodiscard]] constexpr AllPoleTF<NX, T> all_pole_tf(const StateSpace<NX, 1, 1, T, NW, NV>& sys) {
     const StateSpace plant{.A = sys.A, .B = sys.B, .C = sys.C, .D = sys.D, .Ts = sys.Ts};
-    if (plant.Ts != T{0}) {
+    if (!damp::isfinite(plant.Ts) || plant.Ts != T{0}) {
         return {.status = DesignStatus::invalid_sample_time};
     }
     if (plant.D(0, 0) != T{0}) {

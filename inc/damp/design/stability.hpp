@@ -481,8 +481,11 @@ template<size_t NX, size_t NY, typename T = double>
  */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
 [[nodiscard]] constexpr bool is_stabilizable(const StateSpace<NX, NU, NY, T, NW, NV>& sys) {
-    return sys.Ts > T{0} ? !detail::uncontrollable_unstable_mode<true>(sys.A, sys.B, false)
-                         : !detail::uncontrollable_unstable_mode<false>(sys.A, sys.B, false);
+    if (!sys.is_discrete() && !sys.is_continuous()) {
+        return false; // no time domain: no stability region
+    }
+    return sys.is_discrete() ? !detail::uncontrollable_unstable_mode<true>(sys.A, sys.B, false)
+                             : !detail::uncontrollable_unstable_mode<false>(sys.A, sys.B, false);
 }
 
 /**
@@ -499,12 +502,15 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
  */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
 [[nodiscard]] constexpr bool is_stable(const StateSpace<NX, NU, NY, T, NW, NV>& sys) {
+    if (!sys.is_discrete() && !sys.is_continuous()) {
+        return false; // no time domain: no stability region
+    }
     const auto eigen = mat::compute_eigenvalues(sys.A);
     if (!eigen.success) {
         return false;
     }
     for (size_t i = 0; i < NX; ++i) {
-        if (sys.Ts > T{0} ? !(damp::abs(eigen.values[i]) < T{1}) : !(eigen.values[i].real() < T{0})) {
+        if (sys.is_discrete() ? !(damp::abs(eigen.values[i]) < T{1}) : !(eigen.values[i].real() < T{0})) {
             return false;
         }
     }
@@ -525,17 +531,18 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
 [[nodiscard]] constexpr T stability_margin(const StateSpace<NX, NU, NY, T, NW, NV>& sys) {
     const auto eigen = mat::compute_eigenvalues(sys.A);
-    if (!eigen.success) {
-        return T{-1}; // negative margin signals "not provably stable"
+    if (!eigen.success || (!sys.is_discrete() && !sys.is_continuous())) {
+        return T{-1}; // negative margin signals "not provably stable"; also no time domain
     }
-    T worst = sys.Ts > T{0} ? T{0} : -damp::numeric_limits<T>::max(); // finite sentinel: NX = 0 has no eigenvalue to start from
+    const bool discrete = sys.is_discrete();
+    T          worst = discrete ? T{0} : -damp::numeric_limits<T>::max(); // finite sentinel: NX = 0 has no eigenvalue to start from
     for (size_t i = 0; i < NX; ++i) {
-        const T v = sys.Ts > T{0} ? eigen.values[i].abs() : eigen.values[i].real();
+        const T v = discrete ? eigen.values[i].abs() : eigen.values[i].real();
         if (v > worst) {
             worst = v;
         }
     }
-    return sys.Ts > T{0} ? (T{1} - worst) : -worst;
+    return discrete ? (T{1} - worst) : -worst;
 }
 
 /**

@@ -260,6 +260,15 @@ Host tests and PIO target smoke use `-ffast-math`. Design `constexpr` stays
 abstract IEEE; runtime hardens around fast-math (`damp::isfinite` is bit-pattern
 based; no fragile cancellations; no ±Inf sentinels).
 
+A guard that refuses a floating-point value tests it with `damp::isfinite`,
+`damp::finite_positive` or `damp::finite_non_negative`, never with a comparison
+alone (`!(x > 0)`, `x <= 0`, `!(lo <= hi)`, `x != x`, `std::isnan`): under
+`-ffinite-math-only` a comparison on a NaN may come out either way (g++ `-O3`
+folds `!(x > 0)` to `x <= 0`, and x86 reads `NaN == 0` as true). A value that
+must be finite refuses +Inf too; unbounded is `numeric_limits::max()`. A test of
+a guard builds its NaN from bits at run time (through a volatile), as
+`tests/test_nan_guards.cpp` does.
+
 The same code must also hold where multiply-adds fuse (Cortex-M4F/M7, x86-64-v3) and under GCC 15, which folds more of fast-math. Two rules follow. A decision never waits for a cancellation to round to exactly 0: test the operands, or a tolerance scaled to them. A test never expects two inlined copies of the same formula to agree bit for bit: compare to a few ulps of the operands. Check a change with `-march=x86-64-v3` on the host.
 
 ### Safety profile

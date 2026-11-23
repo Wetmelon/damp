@@ -198,11 +198,12 @@ public:
 
     /**
      * @brief Temperature in kelvin for a measured resistance [Ω]. A resistance past the
-     * model's hot end (R ≤ 0 or 1/T ≤ 0, e.g. a shorted sensor) reads as the largest finite
-     * temperature, so over-temperature protection trips instead of seeing ±∞.
+     * model's hot end (R ≤ 0 or 1/T ≤ 0, e.g. a shorted sensor), or one that is not finite (a
+     * NaN reading, +∞), reads as the largest finite temperature, so over-temperature protection
+     * trips instead of seeing ±∞ or NaN.
      */
     [[nodiscard]] constexpr T kelvin(T resistance) const {
-        if (!(resistance > T{0})) {
+        if (!damp::finite_positive(resistance)) {
             return damp::numeric_limits<T>::max(); // a dead short: hottest reading
         }
         const T ln_r = damp::log(resistance);

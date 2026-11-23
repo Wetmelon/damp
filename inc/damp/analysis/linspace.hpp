@@ -77,7 +77,7 @@ constexpr std::vector<T> geomspace(T start, T end, size_t num) {
     }
     const bool both_pos = (start > T{0}) && (end > T{0});
     const bool both_neg = (start < T{0}) && (end < T{0});
-    if (!(both_pos || both_neg)) {
+    if (!damp::isfinite(start) || !damp::isfinite(end) || !(both_pos || both_neg)) {
         return result;
     }
     const T sign = both_neg ? T{-1} : T{1};
@@ -114,7 +114,7 @@ template<typename T = double>
     requires std::is_floating_point_v<T>
 constexpr std::vector<T> arange(T start, T stop, T step) {
     std::vector<T> result;
-    if (step == T{0}) {
+    if (step == T{0} || !damp::isfinite(start) || !damp::isfinite(stop) || !damp::isfinite(step)) {
         return result;
     }
     if (step > T{0}) {

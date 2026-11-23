@@ -198,7 +198,8 @@ template<
     for (const auto& m : plant.modes) {
         finite_modes = finite_modes && mat::all_of(m.A, finite) && mat::all_of(m.B, finite);
     }
-    if (!(t_span.second > t_span.first) || mode0 >= NModes || !finite_modes) {
+    if (!damp::isfinite(t_span.first) || !damp::isfinite(t_span.second) || !(t_span.second > t_span.first) || mode0 >= NModes
+        || !finite_modes) {
         tr.success = false; // a non-finite mode would fail its exponential
         return tr;
     }
@@ -226,7 +227,7 @@ template<
         if (t_next > tf) {
             t_next = tf;
         }
-        if (!(t_next > t)) {
+        if (!damp::isfinite(t_next) || !(t_next > t)) {
             // A non-advancing schedule cannot be honoured: report it instead of
             // silently integrating the rest of the run open-loop in one mode.
             tr.success = false;
@@ -236,7 +237,7 @@ template<
         const auto& sys = plant.modes[mode];
         const T     h_seg = t_next - t;
 
-        if (config.log == LogPolicy::FixedStride && config.h_fine > T{0}) {
+        if (config.log == LogPolicy::FixedStride && damp::finite_positive(config.h_fine)) {
             // Fine samples at t + k·h_fine (no running-sum drift). Full fine steps
             // share one CachedZoh; a shorter final remainder uses Exact.
             const auto        zoh = CachedZoh<NX, NU, T>::from(sys.A, sys.B, config.h_fine);

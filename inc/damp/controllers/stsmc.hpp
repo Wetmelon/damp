@@ -231,7 +231,7 @@ public:
           k_lin_(result.k_lin),
           phi_(result.phi),
           Ts_(result.Ts),
-          valid_(result.success && result.Ts > T{0} && result.u_lim.valid()) {
+          valid_(result.success && damp::finite_positive(result.Ts) && result.u_lim.valid()) {
         if (result.success && !result.u_lim.valid() && damp::is_constant_evaluated()) {
             ::damp::detail::refuse_failed_design(design::DesignStatus::invalid_parameter); // a limit that is not finite, or lower above upper
         }

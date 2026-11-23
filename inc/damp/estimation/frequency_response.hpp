@@ -186,7 +186,7 @@ public:
      * @return Block length in samples (>= 1)
      */
     [[nodiscard]] static constexpr size_t coherent_block_size(T freq_hz, T fs_hz, size_t cycles) {
-        if (!(freq_hz > T{0}) || !(fs_hz > T{0}) || cycles == 0) {
+        if (!damp::finite_positive(freq_hz) || !damp::finite_positive(fs_hz) || cycles == 0) {
             return 1;
         }
         const T n = static_cast<T>(cycles) * fs_hz / freq_hz;
@@ -366,7 +366,7 @@ public:
 
 private:
     [[nodiscard]] constexpr bool bin_ok(size_t index, T freq_hz, size_t block_size) const {
-        return index < NFreq && freq_hz > T{0} && freq_hz < fs_ / T{2} && block_size > 0;
+        return index < NFreq && damp::finite_positive(freq_hz) && damp::isfinite(fs_) && freq_hz < fs_ / T{2} && block_size > 0;
     }
 
     [[nodiscard]] constexpr T omega_of(T freq_hz) const { return (T{2} * damp::numbers::pi_v<T> * freq_hz) / fs_; }
