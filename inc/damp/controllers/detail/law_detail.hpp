@@ -124,6 +124,42 @@ template<size_t N, size_t M, typename T>
     return x;
 }
 
+/**
+ * @brief A reference point (@p x_ref, @p u_ref) on a law's model: x*, then u* in each of its NRU
+ *        delay states per input, the input that holds the point. Shared by the LQ and MPC runtimes.
+ */
+template<size_t NRU, size_t NX, size_t NU, typename T>
+[[nodiscard]] constexpr ColVec<NX + (NRU * NU), T> on_law_model(const ColVec<NX, T>& x_ref, const ColVec<NU, T>& u_ref) {
+    if constexpr (NRU == 0) {
+        static_cast<void>(u_ref);
+        return x_ref;
+    } else {
+        ColVec<NX + (NRU * NU), T> out{};
+        for (size_t i = 0; i < NX; ++i) {
+            out(i) = x_ref(i);
+        }
+        for (size_t i = NX; i < NX + (NRU * NU); ++i) {
+            out(i) = u_ref((i - NX) % NU);
+        }
+        return out;
+    }
+}
+
+/** @brief A reference point @p ref on a filter's model of N states: the law's, then 0 on the delay states of late readings, which the law does not read. */
+template<size_t N, size_t M, typename T>
+[[nodiscard]] constexpr ColVec<N, T> on_filter_model(const ColVec<M, T>& ref) {
+    static_assert(M <= N, "The filter's model holds the law's.");
+    if constexpr (N == M) {
+        return ref;
+    } else {
+        ColVec<N, T> out{};
+        for (size_t i = 0; i < M; ++i) {
+            out(i) = ref(i);
+        }
+        return out;
+    }
+}
+
 } // namespace detail
 
 namespace design {
