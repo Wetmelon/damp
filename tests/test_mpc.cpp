@@ -383,7 +383,7 @@ TEST_CASE("an OFMPC on the sampled form with InputLimits is the QP and the comma
     CHECK(z(0) == doctest::Approx(1.0915662238798631).epsilon(1e-8));
 }
 
-TEST_CASE("set_limits changes the input limit at run time; a bad limit is refused") {
+TEST_CASE("u_lim, a member, changes the input limit from the next tick; a bad limit is refused there") {
     design::InputLimits<1> limits{};
     limits.u_lim = {
         .lower = -0.5,
@@ -392,14 +392,12 @@ TEST_CASE("set_limits changes the input limit at run time; a bad limit is refuse
     const auto art = design::mpc<20, 8>(double_integrator, move_weight(0.05), limits);
     REQUIRE(art.success);
 
-    MPC  controller{art};
-    auto lim = controller.limits();
-    CHECK(lim.u_lim.upper(0) == 0.5);
-    CHECK(lim.du_lim.upper(0) == std::numeric_limits<double>::max()); // the design left Δu unbounded
+    MPC controller{art};
+    CHECK(controller.u_lim.upper(0) == 0.5);
+    CHECK(controller.du_lim.upper(0) == std::numeric_limits<double>::max()); // the design left Δu unbounded
 
-    lim.u_lim.upper(0) = 0.2;
-    REQUIRE(controller.set_limits(lim));
-    CHECK(controller.limits().u_lim.upper(0) == 0.2);
+    controller.u_lim = {.lower = -0.5, .upper = 0.2};
+    CHECK(controller.u_lim.upper(0) == 0.2);
 
     ColVec<2>       x{};
     const ColVec<1> r{1.0};
@@ -414,10 +412,11 @@ TEST_CASE("set_limits changes the input limit at run time; a bad limit is refuse
     CHECK(u_peak == doctest::Approx(0.2));
     CHECK(x(0) == doctest::Approx(1.0).epsilon(0.02));
 
-    auto bad = controller.limits();
-    bad.u_lim.lower(0) = 0.3; // above u.upper
-    CHECK_FALSE(controller.set_limits(bad));
-    CHECK(controller.limits().u_lim.lower(0) == -0.5); // unchanged
+    controller.u_lim = {.lower = 0.3, .upper = 0.2}; // lower above upper: refused by the next tick
+    CHECK(controller.step(r, x)(0) <= 0.2 + 1e-9);
+    CHECK(controller.last_status() == design::QPStatus::LimitsRefused);
+    CHECK(controller.u_lim.lower(0) == -0.5); // the limits in force
+    CHECK(controller.u_lim.upper(0) == 0.2);
 }
 
 TEST_CASE("hard output constraint caps the predicted response") {
@@ -477,15 +476,15 @@ TEST_CASE_TEMPLATE("StateLimits bound a state the MPC does not track, hard or so
     CHECK(peak <= 0.3 + (std::is_same_v<T, float> ? 1e-5 : 1e-9)); // hard: plant == model, so the predicted cap holds
     CHECK(x(0) == doctest::Approx(1.0).epsilon(0.02));             // and the position still settles
 
-    auto lim = bounded.limits();
-    CHECK(lim.x_lim.upper(0) == T(0.3));
-    lim.x_lim.upper(0) = T(0.15);
-    REQUIRE(bounded.set_limits(lim));
+    CHECK(bounded.x_lim.upper(0) == T(0.3));
+    bounded.x_lim = {.lower = T(-0.3), .upper = T(0.15)};
     bounded.reset();
     static_cast<void>(run(bounded, peak));
     CHECK(peak <= 0.15 + (std::is_same_v<T, float> ? 1e-5 : 1e-9));
-    lim.x_lim.lower(0) = T(1.0); // above its upper end
-    CHECK_FALSE(bounded.set_limits(lim));
+    bounded.x_lim = {.lower = T(1.0), .upper = T(0.15)}; // above its upper end
+    static_cast<void>(bounded.step(ColVec<1, T>{T{1}}, ColVec<2, T>{}));
+    CHECK(bounded.last_status() == design::QPStatus::LimitsRefused);
+    CHECK(bounded.x_lim.lower(0) == T(-0.3));
 
     // Soft (the default): started past the bound, every tick solves and the speed comes back inside.
     const auto soft_art = design::mpc<20, 8>(double_integrator, move_weight(0.01), limits, design::StateLimits{.states = {1}, .lim = {.lower = -0.3, .upper = 0.3}});
@@ -590,12 +589,10 @@ TEST_CASE("OutputLimits on two of four outputs is the QP of every output listed,
     CHECK(p_peak <= 0.4 + 1e-9); // hard: plant == model
 
     //! At run time the limits are the listed outputs', in the order listed.
-    auto lim = la.limits();
-    static_assert(std::is_same_v<decltype(lim.y_lim), Bounds<2>>);
-    CHECK(lim.y_lim.upper(1) == 0.4);
-    lim.y_lim.upper(1) = 0.35;
-    REQUIRE(la.set_limits(lim));
-    CHECK(la.limits().y_lim.upper(1) == 0.35);
+    static_assert(std::is_convertible_v<decltype(la.y_lim), Bounds<2>> && !std::is_convertible_v<decltype(la.y_lim), Bounds<4>>);
+    CHECK(la.y_lim.upper(1) == 0.4);
+    la.y_lim = {.lower = la.y_lim.lower, .upper = {0.3, 0.35}};
+    CHECK(la.y_lim.upper(1) == 0.35);
 }
 
 TEST_CASE("OutputLimits refusals: an output past the controlled ones, one listed twice, a bad box, a negative softness") {
@@ -931,7 +928,7 @@ TEST_CASE("Law names an MPC member's type by its design") {
     static constexpr auto                 capped = design::mpc<3, 3>(double_integrator, {}, cap, design::DareCost{});
     Law<capped, double>                   capped_law{};
     MPC                                   capped_plain{capped};
-    static_assert(std::is_same_v<std::remove_cvref_t<decltype(capped_law.limits().y_lim)>, Bounds<1>> && decltype(capped_plain)::NI1 == (4 * 3) + (2 * 3) + 1);
+    static_assert(std::is_convertible_v<decltype(capped_law.y_lim), Bounds<1>> && decltype(capped_plain)::NI1 == (4 * 3) + (2 * 3) + 1);
     CHECK(capped_law.step(r, x)(0) == capped_plain.step(r, x)(0));
     static constexpr StateSpace<2, 1, 1, double, 2, 1> measured{.A = double_integrator.A, .B = double_integrator.B, .C = double_integrator.C, .Ts = Ts};
     static constexpr auto                              of = design::mpc<3, 3>(measured, {}, design::KalmanNoise<2, 1, double, 1>{}, design::InputDisturbance{}, cap);
@@ -1416,7 +1413,7 @@ TEST_CASE("one hard output side by designated initializer leaves the other side 
 }
 
 TEST_CASE("design::mpc refuses NaN or inverted limits, negative softness and indefinite weights") {
-    //! The design accepted what set_limits refuses (u_lim {1, −1}: std::clamp with lo > hi on
+    //! The design accepted what the runtime's limits refuse (u_lim {1, −1}: std::clamp with lo > hi on
     //! every tick), and output weights design::state_feedback refuses.
     design::InputLimits<1> inverted{};
     inverted.u_lim = {.lower = 1.0, .upper = -1.0};

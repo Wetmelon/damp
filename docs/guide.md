@@ -198,7 +198,7 @@ What each runtime measures, the references and limits it takes, and what it does
 | `MPC` | state x: `update(x)` | `r` held or previewed, on the outputs the target holds (`TrackedOutputs`, else every output); measured disturbance `d`; input target | `u_lim`, `du_lim`, `y_lim`, `x_lim` | `back_calculate`; `last_status()` |
 | `OFMPC` | y, through a Kalman filter on [x; d]: `update(y)` | `r` held or previewed, on the outputs the disturbance spec lists (else every output); input target | `u_lim`, `du_lim`, `y_lim`, `x_lim`, `disturbance_lim` | `back_calculate`; `last_status()`; the filter runs on the applied input |
 
-On `MPC` and `OFMPC`, the QP weighs every output of the plant, `y_lim` and `x_lim` bound the outputs an `OutputLimits` option lists and the states a `StateLimits` lists, soft by default; the terminal ingredient (`DareCost`, `InvariantSet`) is part of the design, and `set_limits()` moves `u_lim`, `du_lim`, `y_lim` and `x_lim` at run time.
+On `MPC` and `OFMPC`, the QP weighs every output of the plant, `y_lim` and `x_lim` bound the outputs an `OutputLimits` option lists and the states a `StateLimits` lists, soft by default; the terminal ingredient (`DareCost`, `InvariantSet`) is part of the design. `u_lim`, `du_lim`, `y_lim` and `x_lim` are public members, as the LQ laws' limits are, `y_lim` and `x_lim` on the listed outputs and states in their order and absent without their option. They are assigned whole, `mpc.u_lim = {.lower = -0.3, .upper = 0.3}`, and read as a `Bounds` (`mpc.u_lim.upper(0)`); the next tick takes them into the QP's bound rows, and a tick with nothing assigned rebuilds nothing. That tick refuses every limit assigned since the last when one is not a box, or, with an `InvariantSet`, when one moves: it solves on the limits in force, the members read them back, and `last_status()` is `LimitsRefused` for that tick.
 
 ### SISO laws
 
@@ -230,7 +230,7 @@ On `MPC` and `OFMPC`, the QP weighs every output of the plant, `y_lim` and `x_li
 
 One contract for every law:
 
-- **`u_lim`** is the output limit, a `Bounds` (`{.lower = -12.0, .upper = 12.0}`), unbounded by default. It is a field of the design input where the design takes a struct, and of the result otherwise. The runtime holds it as a public member, so a rail that moves is set per tick. A limit that is not a box (an end not finite, or lower above upper) is refused.
+- **`u_lim`** is the output limit, a `Bounds` (`{.lower = -12.0, .upper = 12.0}`), unbounded by default. It is a field of the design input where the design takes a struct, and of the result otherwise. The runtime holds it as a public member, assigned the same way on every law, `law.u_lim = {.lower = -9.0, .upper = 9.0}`, so a rail that moves is set per tick: the next tick clamps to it, and an MPC's next tick takes it into its QP's rows. A design refuses a limit that is not a box (an end not finite, or lower above upper). At run time an MPC's tick refuses one (`LimitsRefused`) and keeps the limits in force; the other laws clamp to what they are given, unchecked.
 - **The tick returns a command inside `u_lim`**, and the law's memory holds against that clamp with nothing else to set: an integral does not run on behind it, and an observer or internal model takes the clamped command as the input applied.
 - **`back_calculate(u_sat, u_ff = {})`** reports a clamp after the law: `u_sat` is what the plant received, `u_ff` what was added to the law's command before the clamp. The law's memory holds against it the same way.
 

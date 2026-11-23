@@ -285,7 +285,7 @@ struct MPCWeights {
  * Soft by default (ECR coefficient 1): lower_ecr(i) is the softness of the lim.lower(i) rows and
  * upper_ecr(i) that of the lim.upper(i) rows. Set one to 0 to make that side hard. A larger ECR
  * relaxes that bound more readily relative to the others. A listed output left unbounded has its
- * rows all the same, for set_limits to move at run time (MPCLimits::y_lim, in the order of
+ * rows all the same, for the runtime's y_lim member to move at run time (in the order of
  * outputs). design::mpc refuses an index past the plant's outputs or listed twice, a NaN limit
  * or a lower limit above its upper one (invalid_parameter), and a negative or non-finite ECR
  * (bad_weights).
@@ -332,8 +332,8 @@ struct DareCost {};
  * region makes every tick Infeasible, and the runtime holds its input. Size NP for the reference
  * range. design::mpc refuses NC < NP (the shifted plan needs a free move at every step), a margin
  * outside (0, 1) and a StateLimits, whose rows the set does not cover (invalid_parameter), and
- * NT_max = 0 (bad_weights). The runtime's set_limits is refused, the set being built for the
- * design's limits.
+ * NT_max = 0 (bad_weights). The runtime refuses a change of its limit members (LimitsRefused),
+ * the set being built for the design's limits.
  */
 template<typename T = double>
 struct InvariantSet {
@@ -366,7 +366,7 @@ struct QPIterations {
  * softness of each side (0 = hard). design::mpc refuses a state index past the model's or listed
  * twice, a NaN limit or a lower limit above its upper one, and state limits with an
  * InvariantSet, whose rows do not cover the states (invalid_parameter); a negative
- * or non-finite ECR is refused with bad_weights. The runtime moves lim with set_limits (MPCLimits::x_lim).
+ * or non-finite ECR is refused with bad_weights. The runtime's x_lim member moves lim at run time.
  */
 template<size_t NXC, typename T = double>
 struct StateLimits {
@@ -518,23 +518,6 @@ template<size_t NU, typename T, typename... Opts>
 }
 
 } // namespace detail
-
-/**
- * @brief The limits an MPC takes at run time (MATLAB®'s online constraints): u, Δu, the
- *        outputs its design's OutputLimits lists and the states its StateLimits lists,
- *        in physical units. A field left out is unbounded.
- *
- * The softness (ECR), the terminal ingredient and the QP budget stay as designed. `auto l =
- * mpc.limits(); l.u_lim.upper = …; mpc.set_limits(l);` changes one. y_lim(i) and x_lim(i) are
- * the bounds of the i-th output and state their option lists.
- */
-template<size_t NU, size_t NYC = 0, typename T = double, size_t NXC = 0>
-struct MPCLimits {
-    Bounds<NU, T>  u_lim{};  ///< Input bounds
-    Bounds<NU, T>  du_lim{}; ///< Move bounds on Δu
-    Bounds<NYC, T> y_lim{};  ///< Bounds on the outputs the design's OutputLimits lists
-    Bounds<NXC, T> x_lim{};  ///< Bounds on the states the design's StateLimits lists
-};
 
 /**
  * @struct MPCArtifacts
@@ -758,12 +741,13 @@ template<size_t NX, size_t NY, size_t NU, size_t NYC, typename T, size_t NXC>
 }
 
 /**
- * @brief Write the box rows of the QP's bound vector from @p lim with the design's scales: Δu and
- *        u over the control horizon, the bounded outputs and states over the
- *        prediction horizon.
+ * @brief Write the box rows of the QP's bound vector from the limits @p art holds (its
+ *        constraints) with the design's scales: Δu and u over the control horizon, the bounded
+ *        outputs and states over the prediction horizon.
  */
 template<size_t NX, size_t NU, size_t NY, size_t NP, size_t NC, size_t ND, typename T, size_t NT_max, size_t NXC, size_t NYC>
-constexpr void mpc_box_bounds(MPCArtifacts<NX, NU, NY, NP, NC, ND, T, NT_max, NXC, NYC>& art, const MPCLimits<NU, NYC, T, NXC>& lim) {
+constexpr void mpc_box_bounds(MPCArtifacts<NX, NU, NY, NP, NC, ND, T, NT_max, NXC, NYC>& art) {
+    const auto&      lim = art.constraints;
     constexpr size_t NZ = NC * NU;
     constexpr size_t NYCS = NP * NYC;
     constexpr size_t r_du_hi = 0;
@@ -783,7 +767,7 @@ constexpr void mpc_box_bounds(MPCArtifacts<NX, NU, NY, NP, NC, ND, T, NT_max, NX
     }
     for (size_t kb = 0; kb < NP; ++kb) {
         for (size_t j = 0; j < NYC; ++j) {
-            const T sy = art.scale_y(art.constraints.y_outputs[j]);
+            const T sy = art.scale_y(lim.y_outputs[j]);
             art.b_bound(r_y_hi + (kb * NYC) + j) = scaled_bound(lim.y_lim.upper(j), sy);
             art.b_bound(r_y_lo + (kb * NYC) + j) = scaled_bound(-lim.y_lim.lower(j), sy);
         }
@@ -1419,7 +1403,7 @@ template<size_t NP, size_t NC, size_t ND, size_t NT_max = 0, size_t NX, size_t N
         return ::damp::detail::set_status(art, DesignStatus::bad_weights); // as design::state_feedback: indefinite, asymmetric or non-finite
     }
     if (!constraints.u_lim.valid() || !constraints.du_lim.valid()) {
-        return ::damp::detail::set_status(art, DesignStatus::invalid_parameter); // as set_limits: a NaN or inverted limit
+        return ::damp::detail::set_status(art, DesignStatus::invalid_parameter); // as the runtime's limit members: a NaN or inverted limit
     }
     if (!mpc_signal_bounds_valid<NX, NY>(constraints) || (NXC > 0 && constraints.terminal == MPCTerminal::invariant_set)) {
         return ::damp::detail::set_status(art, DesignStatus::invalid_parameter); // an index past the model's or listed twice, a bad box, or a set that does not cover the states
@@ -1589,7 +1573,7 @@ template<size_t NP, size_t NC, size_t ND, size_t NT_max = 0, size_t NX, size_t N
             }
         }
     }
-    detail::mpc_box_bounds(art, MPCLimits<NU, NYC, T, NXC>{constraints.u_lim, constraints.du_lim, constraints.y_lim, constraints.x_lim});
+    detail::mpc_box_bounds(art);
 
     if constexpr (NT_max > 0) {
         if (constraints.terminal == MPCTerminal::invariant_set) {
@@ -2401,6 +2385,94 @@ struct mpc_estimator_traits<FixedGainObserver<NXK, NU, NY, T, ND, Store>> {
 /** @brief No measured state: the estimator holds the state. */
 struct NoMeasuredState {};
 
+struct MPCBoundsAccess;
+
+/**
+ * @brief A limit member of an MPC runtime (u_lim, du_lim, y_lim, x_lim): a box the next tick
+ *        takes into the QP's rows when it is assigned
+ *
+ * Assigned whole, from a Bounds or braces (`mpc.u_lim = {.lower = -0.3, .upper = 0.3}`, an end
+ * left out unbounded, `= {}` both) or from another member, it is marked assigned, and the next
+ * control or step checks it and rewrites the QP's bound rows and the command's clamp from it, or
+ * refuses it and reads back the limits in force (see damp::MPC). Its ends read as a Bounds' do,
+ * `mpc.u_lim.lower(0)` or the vector `mpc.u_lim.lower`, and it converts to a Bounds; they are
+ * read-only, so no entry changes without the mark. It holds the box and one byte.
+ */
+template<size_t N, typename T>
+class MPCBounds {
+public:
+    /** @brief One end of the box, read-only: an entry by index, or the vector. */
+    class End {
+    public:
+        constexpr End(const End&) = default;
+
+        /** @brief The end of channel @p i. */
+        [[nodiscard]] constexpr T operator()(size_t i) const { return v_(i); }
+
+        /** @brief The end of every channel. */
+        [[nodiscard]] constexpr operator const ColVec<N, T>&() const { return v_; } // NOLINT(google-explicit-constructor)
+
+    private:
+        friend class MPCBounds;
+        constexpr explicit End(const ColVec<N, T>& v) : v_(v) {}
+        constexpr End& operator=(const End&) = default;
+        ColVec<N, T>   v_{};
+    };
+
+    End lower{Bounds<N, T>{}.lower}; ///< lower(i) ≤ x(i), read-only
+    End upper{Bounds<N, T>{}.upper}; ///< x(i) ≤ upper(i), read-only
+
+    /** @brief The limits in force @p b (the design's): nothing for the tick to take in. */
+    constexpr explicit MPCBounds(const Bounds<N, T>& b) : lower(b.lower), upper(b.upper) {}
+    constexpr MPCBounds(const MPCBounds&) = default;
+
+    /** @brief Assign another member's box: the next tick takes it in (so does copying a whole runtime, the same limits). */
+    constexpr MPCBounds& operator=(const MPCBounds& other) {
+        lower = other.lower;
+        upper = other.upper;
+        assigned_ = 1;
+        return *this;
+    }
+
+    /** @brief Assign the box @p b: the next tick takes it in. */
+    constexpr MPCBounds& operator=(const Bounds<N, T>& b) {
+        lower.v_ = b.lower;
+        upper.v_ = b.upper;
+        assigned_ = 1;
+        return *this;
+    }
+
+    /** @brief The box, as a Bounds. */
+    [[nodiscard]] constexpr operator Bounds<N, T>() const { return Bounds<N, T>{lower.v_, upper.v_}; } // NOLINT(google-explicit-constructor)
+
+private:
+    friend struct MPCBoundsAccess;
+
+    /** @brief Hold @p in_force, the limits the tick took in or kept, with nothing left to take in. */
+    constexpr void settle(const Bounds<N, T>& in_force) {
+        lower.v_ = in_force.lower;
+        upper.v_ = in_force.upper;
+        assigned_ = 0;
+    }
+
+    uint8_t assigned_{0}; ///< 1 from an assignment until the next tick takes it in or refuses it
+};
+
+/** @brief What an MPC runtime's tick reads and writes of its limit members besides an assignment: the mark, and the limits it settles on. */
+struct MPCBoundsAccess {
+    /** @brief 1 when @p b was assigned since the last tick, else 0. */
+    template<size_t N, typename T>
+    [[nodiscard]] static constexpr unsigned assigned(const MPCBounds<N, T>& b) {
+        return b.assigned_;
+    }
+
+    /** @brief Clear @p b's mark, holding @p in_force. */
+    template<size_t N, typename T>
+    static constexpr void settle(MPCBounds<N, T>& b, const Bounds<N, T>& in_force) {
+        b.settle(in_force);
+    }
+};
+
 /**
  * @brief Runtime constrained MPC controller (fixed per-tick iteration budget)
  *
@@ -2431,6 +2503,21 @@ struct NoMeasuredState {};
  * y_r the target's output for r when the target holds fewer than all of them, plus move and
  * input-target terms, with no ‖x − x_ref‖ term (see the file comment). The input target is the
  * target's input for r at each move, unless set_input_target set one.
+ *
+ * The limits are public members, named as the LQ laws' (MATLAB®'s online constraints), in
+ * physical units: @ref u_lim and @ref du_lim, @ref y_lim on the outputs the design's OutputLimits
+ * lists and @ref x_lim on the states its StateLimits lists, in the order listed (no storage
+ * without the option). Each is an MPCBounds, assigned whole, `mpc.u_lim = {.lower = -0.3,
+ * .upper = 0.3}`, and read as a Bounds, `mpc.u_lim.upper(0)`. The QP's bound rows are scaled copies
+ * of them, so the tick after an assignment checks every limit and rewrites the rows and the
+ * command's clamp from them; a tick with nothing assigned rebuilds nothing, at the cost of one
+ * branch. That tick refuses every limit assigned since the last one when one is not a box (an end
+ * NaN, or lower above upper), or, with an InvariantSet, when one differs from the limits in force,
+ * the set being built for the design's: it solves on the limits in force, the members read them
+ * back, and last_status() is LimitsRefused for that tick, in place of its solve's status. A
+ * setter would refuse a bad limit at the call; a member is caught one tick later. The softness
+ * (ECR), the terminal ingredient and the QP budget stay as designed: the ECR is in the constraint
+ * matrix, which the solver's cache takes as constant.
  *
  * One tick is @ref step(): @ref predict holds the input the plant received over [k−1, k)
  * (the base of the next Δu) and runs the estimator's time update, @ref update takes the
@@ -2488,7 +2575,17 @@ public:
     using Artifacts = design::MPCArtifacts<NXM, NU, NY, NP, NC, ND + NDE, T, NT_max, NXC, NYC>;
     using TargetResult = design::SteadyStateTargetResult<NXE, NU, ND + NDE, NREF, T>;
     using DisturbanceLim = detail::maybe<(NDE > 0), Bounds<NDE, T>, detail::OffSlot::disturbance_lim>;
+    using OutputLim = detail::maybe<(NYC > 0), MPCBounds<NYC, T>, detail::OffSlot::y_lim>;
+    using StateLim = detail::maybe<(NXC > 0), MPCBounds<NXC, T>, detail::OffSlot::x_lim>;
 
+    /** @brief Limits on the command, the QP's u rows and the clamp: the design's InputLimits::u_lim until assigned, taken in by the next tick. */
+    MPCBounds<NU, T> u_lim{Bounds<NU, T>{}};
+    /** @brief Limits on the move Δu, the QP's Δu rows and the clamp: the design's InputLimits::du_lim until assigned, taken in by the next tick. */
+    MPCBounds<NU, T> du_lim{Bounds<NU, T>{}};
+    /** @brief Limits on the outputs the design's OutputLimits lists, in its order: its lim until assigned, taken in by the next tick (no storage without one). */
+    [[no_unique_address]] OutputLim y_lim{limit_member<OutputLim>(Bounds<NYC, T>{})};
+    /** @brief Limits on the states the design's StateLimits lists, in its order: its lim until assigned, taken in by the next tick (no storage without one). */
+    [[no_unique_address]] StateLim x_lim{limit_member<StateLim>(Bounds<NXC, T>{})};
     /** @brief Limits on the disturbance estimate d̂, in d's units: update clamps it, as OFLQG's (NDE > 0; default unbounded). */
     [[no_unique_address]] DisturbanceLim disturbance_lim{};
     /** @brief The filter and its anchor, as the LQ laws' estimator: restart it with estimator.reset(x0, d0) (no storage on the measured state). */
@@ -2513,7 +2610,14 @@ public:
     template<typename Kalman>
         requires(Traits::template built_from<Kalman>)
     constexpr explicit MPCCore(const ResultWith<Kalman>& result)
-        : estimator(make_estimator(result.kalman)), art(artifacts_of(result)), target_(target_of(result.target)), y_r_(held_map(art, target_)) {
+        : u_lim(result.mpc.constraints.u_lim),
+          du_lim(result.mpc.constraints.du_lim),
+          y_lim(limit_member<OutputLim>(result.mpc.constraints.y_lim)),
+          x_lim(limit_member<StateLim>(result.mpc.constraints.x_lim)),
+          estimator(make_estimator(result.kalman)),
+          art(artifacts_of(result)),
+          target_(target_of(result.target)),
+          y_r_(held_map(art, target_)) {
         if (!result.success && damp::is_constant_evaluated()) {
             ::damp::detail::refuse_failed_design(result.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
@@ -2523,7 +2627,15 @@ public:
     template<typename Kalman>
         requires(Traits::template built_from<Kalman>)
     constexpr MPCCore(const ResultWith<Kalman>& result, const Solver& solver)
-        : estimator(make_estimator(result.kalman)), art(artifacts_of(result)), qp_solver_(solver), target_(target_of(result.target)), y_r_(held_map(art, target_)) {
+        : u_lim(result.mpc.constraints.u_lim),
+          du_lim(result.mpc.constraints.du_lim),
+          y_lim(limit_member<OutputLim>(result.mpc.constraints.y_lim)),
+          x_lim(limit_member<StateLim>(result.mpc.constraints.x_lim)),
+          estimator(make_estimator(result.kalman)),
+          art(artifacts_of(result)),
+          qp_solver_(solver),
+          target_(target_of(result.target)),
+          y_r_(held_map(art, target_)) {
         if (!result.success && damp::is_constant_evaluated()) {
             ::damp::detail::refuse_failed_design(result.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
@@ -2713,35 +2825,6 @@ public:
     constexpr void clear_input_target() { follow_target_ = true; }
 
 
-    /**
-     * @brief Change the limits on u, Δu and the outputs and states the design bounds (its OutputLimits and StateLimits; MATLAB®'s online constraints)
-     *
-     * The QP keeps its Hessian, constraint matrix, scaling and softness; the bound vector and the
-     * fallback clamp take the new limits from the next control. Refused (false, limits unchanged)
-     * when a limit is NaN, a lower limit is above its upper one, or the design has a terminal
-     * invariant set, which was built for the design's limits.
-     */
-    [[nodiscard]] constexpr bool set_limits(const design::MPCLimits<NU, NYC, T, NXC>& lim) {
-        if (art.terminal == design::detail::MPCTerminal::invariant_set) {
-            return false;
-        }
-        if (!lim.u_lim.valid() || !lim.du_lim.valid() || !lim.y_lim.valid() || !lim.x_lim.valid()) {
-            return false;
-        }
-        design::detail::mpc_box_bounds(art, lim);
-        art.constraints.u_lim = lim.u_lim;
-        art.constraints.du_lim = lim.du_lim;
-        art.constraints.y_lim = lim.y_lim;
-        art.constraints.x_lim = lim.x_lim;
-        return true;
-    }
-
-    /** @brief The limits in force (the design's, or the last set_limits). */
-    [[nodiscard]] constexpr design::MPCLimits<NU, NYC, T, NXC> limits() const {
-        const auto& c = art.constraints;
-        return {c.u_lim, c.du_lim, c.y_lim, c.x_lim};
-    }
-
     /** @brief Access the solver policy (stateful solvers expose warm-start caches here) */
     [[nodiscard]] constexpr Solver&       qp_solver() { return qp_solver_; }
     [[nodiscard]] constexpr const Solver& qp_solver() const { return qp_solver_; }
@@ -2754,7 +2837,7 @@ public:
     [[nodiscard]] constexpr const ColVec<NU, T>& input_target() const { return u_target_[0]; }
     /** @brief The input target of every move over the control horizon, as input_target(). */
     [[nodiscard]] constexpr const InputPreview& input_target_preview() const { return u_target_; }
-    /** @brief The status of the last QP solve. */
+    /** @brief The status of the last QP solve, or LimitsRefused on a tick that refused a limit assigned before it (it solved on the limits in force). */
     [[nodiscard]] constexpr design::QPStatus last_status() const { return last_status_; }
     /** @brief False when built from a failed design: control holds the last input. */
     [[nodiscard]] constexpr bool valid() const { return art.success; }
@@ -2854,6 +2937,72 @@ private:
         }
     }
 
+    /** @brief A limit member holding @p in_force, or nothing for a limit the design has none of. */
+    template<typename Lim, size_t N>
+    [[nodiscard]] static constexpr Lim limit_member(const Bounds<N, T>& in_force) {
+        if constexpr (N > 0) {
+            return Lim{in_force};
+        } else {
+            static_cast<void>(in_force);
+            return Lim{};
+        }
+    }
+
+    /** @brief Whether a limit member was assigned since the last tick (one load and test per member, one branch at the caller). */
+    [[nodiscard]] constexpr bool limits_assigned() const {
+        unsigned assigned = MPCBoundsAccess::assigned(u_lim) | MPCBoundsAccess::assigned(du_lim);
+        if constexpr (NYC > 0) {
+            assigned |= MPCBoundsAccess::assigned(y_lim);
+        }
+        if constexpr (NXC > 0) {
+            assigned |= MPCBoundsAccess::assigned(x_lim);
+        }
+        return assigned != 0U;
+    }
+
+    /**
+     * @brief Take in the limit members assigned since the last tick: the QP's bound rows and the
+     *        clamp from every member (true), or none of them (false) when one is not a box, or
+     *        with an InvariantSet when one differs from the limits in force. Either way the
+     *        members then hold the limits in force, with nothing left to take in.
+     */
+    constexpr bool take_limits() {
+        auto&               held = art.constraints; // the limits in force: the rows' and the clamp's
+        const Bounds<NU, T> u = u_lim;
+        const Bounds<NU, T> du = du_lim;
+        Bounds<NYC, T>      y = held.y_lim;
+        Bounds<NXC, T>      xs = held.x_lim;
+        if constexpr (NYC > 0) {
+            y = y_lim;
+        }
+        if constexpr (NXC > 0) {
+            xs = x_lim;
+        }
+        const bool boxes = u.valid() && du.valid() && y.valid() && xs.valid();
+        const auto same = [&] {
+            return u.lower == held.u_lim.lower && u.upper == held.u_lim.upper && du.lower == held.du_lim.lower && du.upper == held.du_lim.upper && y.lower == held.y_lim.lower
+                && y.upper == held.y_lim.upper && xs.lower == held.x_lim.lower && xs.upper == held.x_lim.upper;
+        };
+        //! Compared only once every end is finite: under -ffast-math a NaN compares unpredictably.
+        const bool taken = boxes && (art.terminal != design::detail::MPCTerminal::invariant_set || same());
+        if (taken) {
+            held.u_lim = u;
+            held.du_lim = du;
+            held.y_lim = y;
+            held.x_lim = xs;
+            design::detail::mpc_box_bounds(art);
+        }
+        MPCBoundsAccess::settle(u_lim, held.u_lim);
+        MPCBoundsAccess::settle(du_lim, held.du_lim);
+        if constexpr (NYC > 0) {
+            MPCBoundsAccess::settle(y_lim, held.y_lim);
+        }
+        if constexpr (NXC > 0) {
+            MPCBoundsAccess::settle(x_lim, held.x_lim);
+        }
+        return taken;
+    }
+
 
     /** @brief The law's state the command decided now acts on (absolute): the estimate, or the measurement. */
     [[nodiscard]] constexpr ColVec<NXM, T> law_state() const {
@@ -2888,6 +3037,10 @@ private:
         // A failed (or default) design has zero scale factors: hold the last input.
         if (!art.success) {
             return ColVec<NU, T>(applied_.applied - applied_.feedforward);
+        }
+        bool refused = false; // a limit assigned since the last tick and refused
+        if (limits_assigned()) {
+            refused = !take_limits(); // only after an assignment: otherwise the rows stand as built
         }
         constexpr T sentinel = design::unbounded_bound<T>();
         constexpr T skip_threshold = sentinel / T{4};
@@ -2980,7 +3133,7 @@ private:
         // seeds each solve with the previous active set; the artifacts' QP
         // matrices are constant by construction, so its cache contract holds.
         const auto qp = qp_solver_(art.H, f, art.A_con, b, art.max_qp_iterations);
-        last_status_ = qp.status;
+        last_status_ = refused ? design::QPStatus::LimitsRefused : qp.status;
         last_iterations_ = qp.iterations;
         last_slack_ = qp.x(NZ);
         last_cost_ = qp.objective;
@@ -3069,6 +3222,11 @@ private:
  * records what went out, predict() holds it as the base of the next move. A failed design does
  * not compile when constant-evaluated.
  *
+ * The limits are members, u_lim, du_lim, y_lim and x_lim, assigned whole as an LQ law's u_lim
+ * (`law.u_lim = {.lower = -0.3, .upper = 0.3}`) and read as a Bounds: the next tick takes an
+ * assignment into the QP's rows, or refuses it (last_status() LimitsRefused) and keeps the limits
+ * in force, and a tick with none rebuilds nothing.
+ *
  * @code
  * static constinit MPC law{kRes.as<float>()};
  * law.update(x);
@@ -3145,6 +3303,7 @@ public:
     using Core::applied;
     using Core::back_calculate;
     using Core::clear_input_target;
+    using Core::du_lim;
     using Core::input_target;
     using Core::input_target_preview;
     using Core::last_command;
@@ -3152,14 +3311,15 @@ public:
     using Core::last_iterations;
     using Core::last_slack;
     using Core::last_status;
-    using Core::limits;
     using Core::predict;
     using Core::qp_solver;
     using Core::reset;
     using Core::set_input_target;
-    using Core::set_limits;
     using Core::state_estimate;
+    using Core::u_lim;
     using Core::valid;
+    using Core::x_lim;
+    using Core::y_lim;
 };
 
 /** @brief MPC law{res}: the sizes, scalar, terminal capacity, bounded states and held outputs of design::mpc's result. */
@@ -3198,7 +3358,7 @@ concept filtered_mpc_design = mpc_design<Res, T> && mpc_runtime<damp::remove_cvr
 
 } // namespace detail
 
-/** @brief Law<kRes, T> of a `constexpr` OFMPC design: the same law, its filter on the design's matrices as constants of the type. The QP's data stays in members: set_limits rewrites it. */
+/** @brief Law<kRes, T> of a `constexpr` OFMPC design: the same law, its filter on the design's matrices as constants of the type. The QP's data stays in members: the tick after a limit member is assigned rewrites its bound rows. */
 template<const auto& Res, typename T>
     requires(detail::filtered_mpc_design<Res, T> && detail::constant_design<Res>)
 struct Law<Res, T> : detail::mpc_runtime<damp::remove_cvref_t<decltype(Res)>, T>::template on_constants<Res> {
@@ -3236,8 +3396,9 @@ namespace damp {
  * from the target. The tick is update(y) then control(r), or step(r, y) for both; @p r is the
  * reference of the outputs the target holds (held, or a Preview). back_calculate(u_sat) records what went
  * out, predict() moves the observer with it. update() clamps d̂ into disturbance_lim, a member
- * (unbounded by default), in d's units, as OFLQG's. A failed design does not compile when
- * constant-evaluated.
+ * (unbounded by default), in d's units, as OFLQG's. The QP's limits are members as MPC's are,
+ * u_lim, du_lim, y_lim and x_lim, which the next tick takes in when assigned. A failed design does
+ * not compile when constant-evaluated.
  *
  * @note Compare with MATLAB®'s mpcmove(mpcobj, xc, ym, r) with its default disturbance model.
  */
@@ -3281,6 +3442,7 @@ public:
     using Core::clear_input_target;
     using Core::disturbance_estimate;
     using Core::disturbance_lim;
+    using Core::du_lim;
     using Core::estimator;
     using Core::input_target;
     using Core::input_target_preview;
@@ -3289,14 +3451,15 @@ public:
     using Core::last_iterations;
     using Core::last_slack;
     using Core::last_status;
-    using Core::limits;
     using Core::predict;
     using Core::qp_solver;
     using Core::reset;
     using Core::set_input_target;
-    using Core::set_limits;
     using Core::state_estimate;
+    using Core::u_lim;
     using Core::valid;
+    using Core::x_lim;
+    using Core::y_lim;
 };
 
 /** @brief OFMPC law{res}: the sizes, scalar, filter, target and held outputs of an offset-free design::mpc result. */

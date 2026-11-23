@@ -163,7 +163,9 @@ the repo root.
   an observer or internal model on the clamped command). A clamp after the law
   is reported with `back_calculate`, to the same effect. Move, state and output
   limits are `design::mpc` (`InputLimits::du_lim`, `OutputLimits`, `StateLimits`), `design::mhe` (`x_lim`) or an
-  `ActionGovernor` around any law. A new law with memory gets all of it.
+  `ActionGovernor` around any law. A new law with memory gets all of it. An MPC's limits are members
+  too (`u_lim`, `du_lim`, `y_lim`, `x_lim`), assigned whole: the next tick takes them into the QP's
+  rows or refuses them (`LimitsRefused`), and rebuilds nothing when none was assigned.
 - **Errors:** `optional` / `bool success` / `DesignStatus` / `valid()` /
   compile-time constraints. No exceptions, and no run-time faults anywhere: a
   refusal is a compile error only under constant evaluation; at run time it is

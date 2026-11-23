@@ -40,9 +40,10 @@ namespace damp::design {
  *
  * An LQ law clamps its command; a move limit is the MPC's, whose QP plans the moves within it.
  * u_lim is a member of an LQ runtime, `law.u_lim`, so a rail that moves is set at run time, and
- * back_calculate stays for a stage that clamps after the law. An MPC's set_limits moves both
- * (MPCLimits). Either design refuses a limit that is NaN, or a lower limit above its upper one,
- * with DesignStatus::invalid_parameter.
+ * back_calculate stays for a stage that clamps after the law. An MPC's runtime has both as
+ * members, `mpc.u_lim` and `mpc.du_lim`, which its next tick takes into the QP's rows. Either
+ * design refuses a limit that is NaN, or a lower limit above its upper one, with
+ * DesignStatus::invalid_parameter.
  *
  * The other limits are options of their own: a DemandLimit on what an LQ gain's outer terms ask
  * of one state, an IntegralAction's on its integrators, and an MPC's OutputLimits and StateLimits.

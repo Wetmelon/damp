@@ -88,6 +88,8 @@ enum class OffSlot : uint8_t {
     tracking_time,        ///< StateFeedbackCore::tracking_time (NI = 0)
     design_tracking_time, ///< StateFeedbackResult::tracking_time (NI = 0)
     held_outputs,         ///< MPC's map from the reference to the target's outputs (every output held: r is the QP's reference)
+    y_lim,                ///< MPC's y_lim (no OutputLimits)
+    x_lim,                ///< MPC's x_lim (no StateLimits)
 };
 
 /**

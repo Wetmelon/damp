@@ -53,6 +53,7 @@ enum class QPStatus : uint8_t {
     NotPositiveDefinite, ///< H failed its Cholesky factorization
     Unbounded,           ///< (ADMM) The objective decreases without bound on the feasible set: H d = 0, A d ≤ 0, fᵀd < 0
     NonFinite,           ///< The data or an iterate holds a NaN or an infinity: no solution is reported
+    LimitsRefused,       ///< (MPC runtime) A limit assigned since the last tick was refused, not a box or moved under an InvariantSet: the tick solved on the limits in force
 };
 
 /**
