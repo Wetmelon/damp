@@ -135,4 +135,4 @@ Each part of the construction is published; the combination, one finished optima
 | Farrell, Polycarpou, Sharma & Dong, *Command filtered backstepping*, IEEE TAC 54(6), 2009 | Limits the magnitude of virtual controls (commanded intermediate states) in backstepping, with compensated tracking errors | Nonlinear backstepping, designed with the limits |
 | Garone, Di Cairano & Kolmanovsky, *Reference and command governors for systems with constraints*, Automatica 75, 2017 | Shapes the external reference of a stabilized loop so state constraints hold, with a guarantee | Acts on the reference outside the law, not on a setpoint inside the gain |
 
-A bound on the state itself, with a guarantee, is `design::mpc`'s `x_lim` or an `ActionGovernor` around the law. `demand_lim` bounds what the outer terms ask, which no law without a prediction can turn into a bound on the state.
+A bound on the state itself, with a guarantee, is a `StateLimits` on `design::mpc` or an `ActionGovernor` around the law. `demand_lim` bounds what the outer terms ask, which no law without a prediction can turn into a bound on the state.

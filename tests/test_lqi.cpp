@@ -555,6 +555,7 @@ TEST_CASE("LQRWeights, LQRLimits, DemandLimit, TrackedOutputs, the disturbance s
     constexpr design::DisturbanceModel load{.Bd = Matrix<2, 1>{{0.0}, {1.0}}, .Cd = Matrix<1, 1>{{0.0}}, .outputs = {0}};
     static_assert(damp::is_same_v<decltype(load), const design::DisturbanceModel<2, 1, 1, 1>> && load.outputs[0] == 0);
     static_assert(damp::is_same_v<decltype(design::DisturbanceModel{.Bd = Matrix<2, 1>{{0.0}, {1.0}}, .Cd = Matrix<1, 1>{{0.0}}}), design::DisturbanceModel<2, 1, 1>>);
+    static_assert(damp::is_same_v<decltype(design::DisturbanceModel{.Bd = Matrix<2, 1>{{0.0}, {1.0}}, .outputs = {0}}), design::DisturbanceModel<2, 0, 1, 1>>); // C_d left out
     constexpr LQRWeights positional{diag(1.0, 0.1), Matrix<1, 1>{0.5}};
     static_assert(damp::is_same_v<decltype(positional), const LQRWeights<2, 1>>);
 

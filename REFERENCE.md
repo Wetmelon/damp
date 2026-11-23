@@ -293,7 +293,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`CommandProjectionResult`](inc/damp/controllers/action_governor.hpp#L89) | Result of an affine command projection |
 | [`DareMethod`](inc/damp/design/riccati.hpp#L1188) | DARE solver selection for dare() |
 | [`DesignStatus`](inc/damp/design/status.hpp#L34) | Why a design failed, one value per cause class (not per code branch) |
-| [`DisturbanceModel`](inc/damp/design/disturbance.hpp#L104) | An explicit disturbance model: d enters the plant's state through B_d and the readings through C_d (+1 more overload) |
+| [`DisturbanceModel`](inc/damp/design/disturbance.hpp#L106) | An explicit disturbance model: d enters the plant's state through B_d and the readings through C_d (+1 more overload) |
 | [`ESCResult`](inc/damp/controllers/esc.hpp#L90) | Extremum-seeking design result: the discrete realization the runtime runs |
 | [`HarmonicSuppressorResult`](inc/damp/controllers/harmonic_suppression.hpp#L49) | Design result for a multi-resonant harmonic suppressor |
 | [`InputDisturbance`](inc/damp/design/disturbance.hpp#L43) | An input disturbance: d adds to u, B_d = B and C_d = D, one disturbance per input (+1 more overload) |
@@ -313,8 +313,8 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`LQRResult`](inc/damp/design/riccati.hpp#L1517) | The LQR gain: design::state_feedback on a plant, discrete_lqr and continuous_lqr on given matrices |
 | [`MinimalRealizationResult`](inc/damp/design/minreal.hpp#L88) | Minimal realization result |
 | [`ModelReductionMethod`](inc/damp/design/model_reduction.hpp#L60) | How balanced_reduction and eliminate_states eliminate states |
-| [`MPCConfig`](inc/damp/design/config.hpp#L131) | design::mpc's weights, constraints and options as named fields |
-| [`MPCResult`](inc/damp/controllers/mpc.hpp#L1331) | An MPC design: the condensed QP, the estimator when there is one, and the steady-state target the runtime poses the QP about; consumed by damp::MPC |
+| [`MPCConfig`](inc/damp/design/config.hpp#L133) | design::mpc's weights, constraints and options as named fields |
+| [`MPCResult`](inc/damp/controllers/mpc.hpp#L1418) | An MPC design: the condensed QP, the estimator when there is one, and the steady-state target the runtime poses the QP about; consumed by damp::MPC |
 | [`NoDisturbance`](inc/damp/design/disturbance.hpp#L31) | No disturbance model (the default): the plain filter on x |
 | [`option_set`](inc/damp/design/options.hpp#L82) | The kinds of option a design call accepts: check<Opts...>() refuses, at compile time, an option of no listed kind and a kind given twice |
 | [`option_type`](inc/damp/design/options.hpp#L41) | The type of the first option of the kind Is among Opts, else Default (+1 more overload) |
@@ -339,7 +339,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`SteadyStateTarget`](inc/damp/design/steady_state_target.hpp#L402) | The steady-state target at run time: (x_t, u_t) from the reference and the estimated disturbance, two matrix–vector products, and the re-anchoring of a FixedGainObserver on it (+1 more overload) |
 | [`SteadyStateTargetResult`](inc/damp/design/steady_state_target.hpp#L79) | The steady-state target maps: [x_t; u_t] per unit disturbance and per unit reference |
 | [`STSMCResult`](inc/damp/controllers/stsmc.hpp#L35) | Super-twisting (second-order sliding-mode) controller design result |
-| [`TargetConfig`](inc/damp/design/config.hpp#L141) | design::steady_state_target's options as named fields: the disturbance the target holds the outputs under, and the plant's input delay |
+| [`TargetConfig`](inc/damp/design/config.hpp#L144) | design::steady_state_target's options as named fields: the disturbance the target holds the outputs under, and the plant's input delay |
 | [`TargetPoint`](inc/damp/design/steady_state_target.hpp#L386) | A state and the input at it: a steady state (SteadyStateTarget), or a point of a reference trajectory (OutputInverse) |
 | [`TrackedOutputs`](inc/damp/design/steady_state_target.hpp#L62) | The outputs a law without integrators or a disturbance model holds at r through its steady-state target (design::state_feedback, with or without a KalmanNoise): `TrackedOutputs{{0}}`, in that order (the references r follow it) (+1 more overload) |
 | [`TransferFunctionResult`](inc/damp/design/model_result.hpp#L34) | A designed transfer function with its success / status |
@@ -386,7 +386,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`is_observable`](inc/damp/design/stability.hpp#L460) | Check if a system is observable |
 | [`is_stabilizable`](inc/damp/design/stability.hpp#L483) | Check if (A, B) of sys is a stabilizable pair, in the domain of sys |
 | [`is_stable`](inc/damp/design/stability.hpp#L501) | Stability of a state-space model, in the domain of sys |
-| [`kalman`](inc/damp/design/config.hpp#L249) | design::kalman(sys, opts…) with the noise and the options the fields of config: the same design (+1 more overload) |
+| [`kalman`](inc/damp/design/config.hpp#L253) | design::kalman(sys, opts…) with the noise and the options the fields of config: the same design (+1 more overload) |
 | [`lag`](inc/damp/controllers/lead_lag.hpp#L198) | Design a lag compensator from desired low-frequency gain boost |
 | [`lambda_tuning`](inc/damp/design/pid_design.hpp#L433) | Lambda tuning for FOPDT model |
 | [`lead`](inc/damp/controllers/lead_lag.hpp#L145) | Design a lead compensator from desired phase boost at a target frequency |
@@ -403,14 +403,14 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`lyap`](inc/damp/design/lyapunov.hpp#L452) | Solve the continuous-time Lyapunov equation A X + X Aᵀ + Q = 0 |
 | [`lyapunov_cholesky`](inc/damp/design/lyapunov.hpp#L500) | Cholesky factor of the continuous Lyapunov solution: A X + X Aᵀ + B Bᵀ = 0, X = RᵀR |
 | [`maximal_invariant_set`](inc/damp/design/invariant_set.hpp#L249) | Maximal positively invariant set of x⁺ = A x under G₀ x ≤ h₀ |
-| [`MeasuredDisturbance`](inc/damp/controllers/mpc.hpp#L1318) | Sizes from the matrix: `MeasuredDisturbance{Bd}` |
+| [`MeasuredDisturbance`](inc/damp/controllers/mpc.hpp#L1405) | Sizes from the matrix: `MeasuredDisturbance{Bd}` |
 | [`minreal`](inc/damp/design/minreal.hpp#L310) | Minimal realization — cancel uncontrollable and unobservable modes |
-| [`mpc`](inc/damp/controllers/mpc.hpp#L1746) | Synthesize a constrained linear MPC (condensed dense QP, Δu form) on a discrete plant (+3 more overloads) |
-| [`MPC`](inc/damp/controllers/mpc.hpp#L2646) | MPC law{res}: the sizes, scalar, terminal capacity and bounded states of design::mpc's result (+1 more overload) |
+| [`mpc`](inc/damp/controllers/mpc.hpp#L1841) | Synthesize a constrained linear MPC (condensed dense QP, Δu form) on a discrete plant (+3 more overloads) |
+| [`MPC`](inc/damp/controllers/mpc.hpp#L2740) | MPC law{res}: the sizes, scalar, terminal capacity and bounded states of design::mpc's result (+1 more overload) |
 | [`observability_gramian`](inc/damp/design/stability.hpp#L409) | Continuous/discrete observability Gramian W_o |
 | [`observability_matrix`](inc/damp/design/stability.hpp#L83) | Compute the observability matrix [C; CA; CA²; ...; CA^(N-1)] |
 | [`OFLQG`](inc/damp/controllers/oflqg.hpp#L117) | OFLQG law{res}: the sizes, scalar, filter and target of an OFLQG design's result |
-| [`OFMPC`](inc/damp/controllers/mpc.hpp#L2782) | OFMPC law{res}: the sizes, scalar, filter and target of an offset-free design::mpc result (+1 more overload) |
+| [`OFMPC`](inc/damp/controllers/mpc.hpp#L2876) | OFMPC law{res}: the sizes, scalar, filter and target of an offset-free design::mpc result (+1 more overload) |
 | [`option`](inc/damp/design/options.hpp#L57) | No option left: the fallback (+1 more overload) |
 | [`output_inverse`](inc/damp/design/model_inverse.hpp#L683) | The stable inverse of a discrete model: the state and input of its trajectory through a reference y on the controlled outputs, from y ₖ … y ₖ₊NP₋₁ (+1 more overload) |
 | [`phase_margin_from_damping_ratio`](inc/damp/design/pid_design.hpp#L892) | Approximate phase margin from damping ratio |
@@ -442,11 +442,11 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`stability_margin`](inc/damp/design/stability.hpp#L526) | Distance from the poles of sys to its domain's stability boundary |
 | [`state_feedback`](inc/damp/controllers/state_feedback.hpp#L186) | The linear-quadratic state-feedback law (DARE on a discrete plant, CARE on a continuous one): runs as LQR, LQI, LQG, LQGI or OFLQG, as its options say (+3 more overloads) |
 | [`state_feedforward`](inc/damp/design/model_inverse.hpp#L100) | The plant-inversion feedforward of a discrete model: the input that moves x⁺ = A·x + B·u along a state reference, u ₖ the least-squares solution of B·u = x ₖ₊₁ − A·x ₖ |
-| [`steady_state_target`](inc/damp/design/config.hpp#L273) | design::steady_state_target(sys, opts…) with the options the fields of config: the same design (+3 more overloads) |
+| [`steady_state_target`](inc/damp/design/config.hpp#L277) | design::steady_state_target(sys, opts…) with the options the fields of config: the same design (+3 more overloads) |
 | [`stsmc`](inc/damp/controllers/stsmc.hpp#L101) | Synthesize super-twisting gains from a disturbance-derivative bound |
 | [`stsmc_gains`](inc/damp/controllers/stsmc.hpp#L145) | Super-twisting controller from gains you specify directly |
 | [`STSMCController`](inc/damp/controllers/stsmc.hpp#L363) | Deduce the runtime from its design, keeping the result's scalar |
-| [`suggest_mpc_horizon`](inc/damp/controllers/mpc.hpp#L1841) | Suggest MPC horizons from an explicit settling-time target (+1 more overload) |
+| [`suggest_mpc_horizon`](inc/damp/controllers/mpc.hpp#L1935) | Suggest MPC horizons from an explicit settling-time target (+1 more overload) |
 | [`tyreus_luyben`](inc/damp/design/pid_design.hpp#L216) | Tyreus-Luyben tuning from ultimate gain and ultimate period |
 | [`unbounded_bound`](inc/damp/design/qp.hpp#L66) | Sentinel bound treated as "no constraint" on that row |
 | [`valid_spec`](inc/damp/design/pid_design.hpp#L481) | The spec's scalar domain: ωc > 0, 0 < PM < 180°, Tf ≥ 0, all finite |
@@ -481,17 +481,17 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`LQR`](inc/damp/controllers/lqr.hpp#L72) | Linear-quadratic regulator on the measured state: u = u − K·(x − x ) |
 | [`LQRLimits`](inc/damp/controllers/state_feedback_types.hpp#L146) | The limit an LQ law's command runs within: among design::state_feedback's options |
 | [`LQRWeights`](inc/damp/controllers/state_feedback_types.hpp#L123) | The cost of an LQ design (design::state_feedback): what to penalize and how much |
-| [`MeasuredDisturbance`](inc/damp/controllers/mpc.hpp#L1312) | A measured disturbance: a known input the controller does not command, entering the state update through Bd (a load torque, a feed rate, the ambient temperature) |
-| [`MPC`](inc/damp/controllers/mpc.hpp#L2574) | Constrained linear MPC on the measured state (design::mpc) |
-| [`MPCArtifacts`](inc/damp/controllers/mpc.hpp#L368) | Condensed-QP data produced by mpc() (MPCResult::mpc), consumed by damp::MPC |
-| [`MPCConstraints`](inc/damp/controllers/mpc.hpp#L300) | Box constraints for mpc() |
-| [`MPCHorizonSuggestion`](inc/damp/controllers/mpc.hpp#L1817) | Advisory NP/NC horizon values from suggest_mpc_horizon() |
-| [`MPCLimits`](inc/damp/controllers/mpc.hpp#L343) | The limits an MPC takes at run time (MATLAB®'s online constraints): u, Δu, the controlled outputs and the states its design bounds (x_states), in physical units. A field left out is unbounded |
+| [`MeasuredDisturbance`](inc/damp/controllers/mpc.hpp#L1399) | A measured disturbance: a known input the controller does not command, entering the state update through Bd (a load torque, a feed rate, the ambient temperature) |
+| [`MPC`](inc/damp/controllers/mpc.hpp#L2668) | Constrained linear MPC on the measured state (design::mpc) |
+| [`MPCArtifacts`](inc/damp/controllers/mpc.hpp#L455) | Condensed-QP data produced by mpc() (MPCResult::mpc), consumed by damp::MPC |
+| [`MPCConstraints`](inc/damp/controllers/mpc.hpp#L293) | Box constraints for mpc() |
+| [`MPCHorizonSuggestion`](inc/damp/controllers/mpc.hpp#L1911) | Advisory NP/NC horizon values from suggest_mpc_horizon() |
+| [`MPCLimits`](inc/damp/controllers/mpc.hpp#L430) | The limits an MPC takes at run time (MATLAB®'s online constraints): u, Δu, the controlled outputs and the states its design bounds (StateLimits), in physical units. A field left out is unbounded |
 | [`MPCTerminal`](inc/damp/controllers/mpc.hpp#L224) | Opt-in terminal cost / set for `design::mpc` (default: none) |
 | [`MPCWeights`](inc/damp/controllers/mpc.hpp#L254) | Cost weights for mpc() |
 | [`NoEstimator`](inc/damp/controllers/state_feedback_types.hpp#L41) | The estimator of a law that measures its state: none, an empty type, so a `[[no_unique_address]]` member of it takes no storage |
 | [`OFLQG`](inc/damp/controllers/oflqg.hpp#L62) | Offset-free linear-quadratic Gaussian law: a Kalman filter on [x; d] and the steady-state target |
-| [`OFMPC`](inc/damp/controllers/mpc.hpp#L2724) | Offset-free constrained linear MPC: a Kalman filter on [x; d] and the QP about the steady-state target under d̂ (design::mpc with a KalmanNoise and a disturbance spec) |
+| [`OFMPC`](inc/damp/controllers/mpc.hpp#L2818) | Offset-free constrained linear MPC: a Kalman filter on [x; d] and the QP about the steady-state target under d̂ (design::mpc with a KalmanNoise and a disturbance spec) |
 | [`PIDController`](inc/damp/controllers/pid.hpp#L542) | Fixed-rate discrete 2-DOF PID (canonical runtime) (+3 more overloads) |
 | [`PIDGains`](inc/damp/controllers/pid.hpp#L143) | 2-DOF continuous-time PID gains, limits and setpoint weights |
 | [`PIDMode`](inc/damp/controllers/pid.hpp#L386) | Compile-time selection of the PID control-law structure |
@@ -503,6 +503,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`RepetitiveController`](inc/damp/controllers/repetitive.hpp#L288) | Plug-in repetitive controller runtime (fixed-size internal model) |
 | [`SMCController`](inc/damp/controllers/smc.hpp#L183) | First-order sliding-mode controller (SMC) for a SISO plant |
 | [`SmithPredictor`](inc/damp/controllers/smith_predictor.hpp#L329) | Smith predictor runtime: SISO primary + FO model + pure delay |
+| [`StateLimits`](inc/damp/controllers/mpc.hpp#L334) | Limits on states an MPC does not track: among design::mpc's options |
 | [`STSMCController`](inc/damp/controllers/stsmc.hpp#L207) | Super-twisting controller (second-order sliding mode) |
 | [`SwitchedController`](inc/damp/controllers/composition.hpp#L173) | Switch between normal, experiment, and backup SISO laws |
 | [`SwitchMode`](inc/damp/controllers/composition.hpp#L146) | Which path owns the plant command |

@@ -125,10 +125,11 @@ TEST_CASE("disturbance_lim clamps OFMPC's disturbance estimate, and moves at run
     CHECK(controller.estimator.disturbance_estimate()(0) == doctest::Approx(0.05).epsilon(1e-12));
 }
 
-TEST_CASE("x_lim bounds an estimated state of an offset-free MPC: on the estimate's prediction") {
+TEST_CASE("StateLimits bound an estimated state of an offset-free MPC: on the estimate's prediction") {
     // Only the position is measured; the speed is the filter's, bounded at 0.3 (2 without the bound).
-    design::MPCConstraints<1, 1, double, 1> limits{.u_lim = {.lower = -2.0, .upper = 2.0}, .x_states = {1}, .x_lim = {.lower = -0.3, .upper = 0.3}};
-    const auto                              art = design::mpc<15, 5>(double_integrator, move_weight(0.01), limits, design::KalmanNoise{Matrix<2, 2>::identity(), Matrix<1, 1>{{0.01}}, Matrix<1, 1>{{1.0}}}, design::InputDisturbance{});
+    const design::MPCConstraints<1, 1> limits{.u_lim = {.lower = -2.0, .upper = 2.0}};
+    const design::StateLimits          speed{.states = {1}, .lim = {.lower = -0.3, .upper = 0.3}};
+    const auto                         art = design::mpc<15, 5>(double_integrator, move_weight(0.01), limits, speed, design::KalmanNoise{Matrix<2, 2>::identity(), Matrix<1, 1>{{0.01}}, Matrix<1, 1>{{1.0}}}, design::InputDisturbance{});
     REQUIRE(art.success);
     const auto run = [&](double load) {
         OFMPC     controller{art};
@@ -283,7 +284,7 @@ TEST_CASE("a continuous plant is refused by the discrete form; continuous plant 
     const auto refused = design::mpc<15, 5>(continuous, {}, {}, kUnitNoise, design::InputDisturbance{});
     CHECK_FALSE(refused.success);
     CHECK(refused.status == design::DesignStatus::invalid_sample_time);
-    const auto refused_model = design::mpc<15, 5>(continuous, {}, {}, kUnitNoise, design::DisturbanceModel<2, 1, 1>{.Bd = continuous.B});
+    const auto refused_model = design::mpc<15, 5>(continuous, {}, {}, kUnitNoise, design::DisturbanceModel{.Bd = continuous.B});
     CHECK_FALSE(refused_model.success);
     CHECK(refused_model.status == design::DesignStatus::invalid_sample_time);
 
@@ -552,7 +553,7 @@ TEST_CASE("offset-free MPC on the ADMM policy reports an infeasible tick like th
 
 TEST_CASE("offset-free MPC: InputDisturbance is the explicit model B_d = B, z = y") {
     const auto by_spec = offset_free<10, 4>(move_weight(0.05));
-    const auto by_model = design::mpc<10, 4>(double_integrator, move_weight(0.05), {}, kUnitNoise, design::DisturbanceModel<2, 1, 1>{.Bd = double_integrator.B});
+    const auto by_model = design::mpc<10, 4>(double_integrator, move_weight(0.05), {}, kUnitNoise, design::DisturbanceModel{.Bd = double_integrator.B});
     static_assert(std::is_same_v<decltype(by_spec), decltype(by_model)>);
     REQUIRE(by_spec.success);
     REQUIRE(by_model.success);

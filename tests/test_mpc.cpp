@@ -307,16 +307,14 @@ TEST_CASE("hard output constraint caps the predicted response") {
     CHECK(x(0) == doctest::Approx(1.0).epsilon(0.02));
 }
 
-TEST_CASE_TEMPLATE("x_lim bounds a state the MPC does not track, hard or soft, and moves at run time", T, double, float) {
+TEST_CASE_TEMPLATE("StateLimits bound a state the MPC does not track, hard or soft, and move at run time", T, double, float) {
     // The position is tracked, the speed only bounded: a step of 1 at full input would run past 0.3.
-    design::MPCConstraints<1, 1, double, 1> limits{};
-    limits.u_lim = {.lower = -1.0, .upper = 1.0};
-    limits.x_states = {1};
-    limits.x_lim = {.lower = -0.3, .upper = 0.3};
-    limits.x_upper_ecr(0) = 0.0; // hard above
-    const auto art = design::mpc<20, 8>(double_integrator, move_weight(0.01), limits);
+    const design::MPCConstraints<1, 1> limits{.u_lim = {.lower = -1.0, .upper = 1.0}};
+    design::StateLimits                speed{.states = {1}, .lim = {.lower = -0.3, .upper = 0.3}};
+    speed.upper_ecr(0) = 0.0; // hard above
+    const auto art = design::mpc<20, 8>(double_integrator, move_weight(0.01), limits, speed);
     REQUIRE(art.success);
-    const auto free_art = design::mpc<20, 8>(double_integrator, move_weight(0.01), {.u_lim = limits.u_lim});
+    const auto free_art = design::mpc<20, 8>(double_integrator, move_weight(0.01), limits);
     REQUIRE(free_art.success);
 
     MPC        bounded{art.template as<T>()};
@@ -351,8 +349,7 @@ TEST_CASE_TEMPLATE("x_lim bounds a state the MPC does not track, hard or soft, a
     CHECK_FALSE(bounded.set_limits(lim));
 
     // Soft (the default): started past the bound, every tick solves and the speed comes back inside.
-    design::MPCConstraints<1, 1, double, 1> soft{.u_lim = {.lower = -1.0, .upper = 1.0}, .x_states = {1}, .x_lim = {.lower = -0.3, .upper = 0.3}};
-    const auto                              soft_art = design::mpc<20, 8>(double_integrator, move_weight(0.01), soft);
+    const auto soft_art = design::mpc<20, 8>(double_integrator, move_weight(0.01), limits, design::StateLimits{.states = {1}, .lim = {.lower = -0.3, .upper = 0.3}});
     REQUIRE(soft_art.success);
     MPC       recovering{soft_art.template as<T>()};
     ColVec<2> xs{0.0, 0.8};
@@ -364,17 +361,14 @@ TEST_CASE_TEMPLATE("x_lim bounds a state the MPC does not track, hard or soft, a
     CHECK(std::fabs(xs(1)) <= 0.3);
 }
 
-TEST_CASE("x_lim refusals: a state past the model's, one listed twice, and an invariant terminal set") {
-    design::MPCConstraints<1, 1, double, 1> past{.x_states = {2}};
-    CHECK(design::mpc<10, 4>(double_integrator, move_weight(0.05), past).status == design::DesignStatus::invalid_parameter);
-    design::MPCConstraints<1, 1, double, 2> twice{.x_states = {1, 1}};
-    CHECK(design::mpc<10, 4>(double_integrator, move_weight(0.05), twice).status == design::DesignStatus::invalid_parameter);
-    design::MPCConstraints<1, 1, double, 1> inverted{.x_states = {1}, .x_lim = {.lower = 1.0, .upper = -1.0}};
-    CHECK(design::mpc<10, 4>(double_integrator, move_weight(0.05), inverted).status == design::DesignStatus::invalid_parameter);
-    design::MPCConstraints<1, 1, double, 1> with_set{.u_lim = {.lower = -1.0, .upper = 1.0}, .x_states = {1}, .x_lim = {.lower = -0.3, .upper = 0.3}, .terminal = design::MPCTerminal::invariant_set};
-    CHECK(design::mpc<10, 10, 64>(double_integrator, move_weight(0.05), with_set).status == design::DesignStatus::invalid_parameter);
-    design::MPCConstraints<1, 1, double, 1> negative_ecr{.x_states = {1}, .x_lower_ecr = ColVec<1>{-1.0}};
-    CHECK(design::mpc<10, 4>(double_integrator, move_weight(0.05), negative_ecr).status == design::DesignStatus::bad_weights);
+TEST_CASE("StateLimits refusals: a state past the model's, one listed twice, a bad box, an invariant terminal set, a negative softness") {
+    static_assert(damp::is_same_v<decltype(design::StateLimits{.states = {0, 2}, .lim = Bounds<2>{}}), design::StateLimits<2>>); // NXC from the list
+    CHECK(design::mpc<10, 4>(double_integrator, move_weight(0.05), {}, design::StateLimits{.states = {2}}).status == design::DesignStatus::invalid_parameter);
+    CHECK(design::mpc<10, 4>(double_integrator, move_weight(0.05), {}, design::StateLimits{.states = {1, 1}}).status == design::DesignStatus::invalid_parameter);
+    CHECK(design::mpc<10, 4>(double_integrator, move_weight(0.05), {}, design::StateLimits{.states = {1}, .lim = {.lower = 1.0, .upper = -1.0}}).status == design::DesignStatus::invalid_parameter);
+    const design::MPCConstraints<1, 1> with_set{.u_lim = {.lower = -1.0, .upper = 1.0}, .terminal = design::MPCTerminal::invariant_set};
+    CHECK(design::mpc<10, 10, 64>(double_integrator, move_weight(0.05), with_set, design::StateLimits{.states = {1}, .lim = {.lower = -0.3, .upper = 0.3}}).status == design::DesignStatus::invalid_parameter);
+    CHECK(design::mpc<10, 4>(double_integrator, move_weight(0.05), {}, design::StateLimits{.states = {1}, .lower_ecr = ColVec<1>{-1.0}}).status == design::DesignStatus::bad_weights);
 }
 
 TEST_CASE("soft output constraint recovers from an infeasible start") {

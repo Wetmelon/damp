@@ -138,9 +138,9 @@ using config_for = lq_config<NX, NU, integrator_count<NY, Options>, T>;
 template<typename Spec, size_t NX, size_t NY, typename T>
 inline constexpr bool disturbance_fits = true;
 
-/** @brief A DisturbanceModel fits a plant of its sizes and scalar. */
+/** @brief A DisturbanceModel fits a plant of its sizes and scalar (NY 0: C_d left out). */
 template<size_t NXD, size_t NYD, size_t ND, size_t NZ, typename U, size_t NX, size_t NY, typename T>
-inline constexpr bool disturbance_fits<DisturbanceModel<NXD, NYD, ND, NZ, U>, NX, NY, T> = (NXD == NX) && (NYD == NY) && damp::is_same_v<U, T>;
+inline constexpr bool disturbance_fits<DisturbanceModel<NXD, NYD, ND, NZ, U>, NX, NY, T> = (NXD == NX) && (NYD == NY || NYD == 0) && damp::is_same_v<U, T>;
 
 /** @brief Each field of the options is its own kind of option: a message per mistake. @return Every field is */
 template<size_t NX, size_t NY, typename T, typename Options>

@@ -525,7 +525,7 @@ consteval bool kalman_disturbance_ok() {
         return false;
     } else if constexpr (requires(const Disturbance& d) { d.Bd; }) {
         constexpr size_t NZ = disturbance_traits<Disturbance, NU, NY, NW>::listed;
-        return damp::is_same_v<Disturbance, DisturbanceModel<NX, NY, ND, NZ, T>>;
+        return damp::is_same_v<Disturbance, DisturbanceModel<NX, NY, ND, NZ, T>> || damp::is_same_v<Disturbance, DisturbanceModel<NX, 0, ND, NZ, T>>;
     } else {
         return true;
     }
@@ -540,8 +540,8 @@ consteval void reject_kalman_disturbance() {
     } else if constexpr (requires(const Disturbance& d) { d.Bd; }) {
         constexpr size_t NZ = disturbance_traits<Disturbance, NU, NY, NW>::listed;
         static_assert(
-            damp::is_same_v<Disturbance, DisturbanceModel<NX, NY, ND, NZ, T>>,
-            "The DisturbanceModel is on the plant's states and outputs, in the plant's scalar."
+            damp::is_same_v<Disturbance, DisturbanceModel<NX, NY, ND, NZ, T>> || damp::is_same_v<Disturbance, DisturbanceModel<NX, 0, ND, NZ, T>>,
+            "The DisturbanceModel is on the plant's states and outputs (or leaves C_d out), in the plant's scalar."
         );
     }
 }

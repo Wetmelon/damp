@@ -246,9 +246,9 @@ TEST_SUITE("design::kalman with a disturbance spec") {
         const design::KalmanNoise<2, 1, double, 1> nn{kQp, kRn, kQd};
 
         //! a whole sample; the load on the plant, undelayed: B_d = [B; 0], so the register stays exact
-        const auto                              whole = discretize(kPlantD, kTs, InputDelay{kTs}).value();
-        const design::DisturbanceModel<3, 1, 1> load{.Bd = padded<1>(kPlantD.B)};
-        const auto                              old = design::state_feedback(whole, {.Q = kQ3, .R = kR}, nn, load);
+        const auto                     whole = discretize(kPlantD, kTs, InputDelay{kTs}).value();
+        const design::DisturbanceModel load{.Bd = padded<1>(kPlantD.B)};
+        const auto                     old = design::state_feedback(whole, {.Q = kQ3, .R = kR}, nn, load);
         REQUIRE(old.success);
         const auto filt = design::kalman(whole, nn, load);
         const auto tg = design::steady_state_target(whole, load);
@@ -280,12 +280,14 @@ TEST_SUITE("design::kalman with a disturbance spec") {
 
     TEST_CASE("a non-finite DisturbanceModel::Bd is refused, on a continuous plant and on a discrete one") {
         //! It returned success with a NaN target_d: the target has no filter to refuse it.
-        const design::DisturbanceModel<2, 1, 1> bad{.Bd = Matrix<2, 1>{{0.0}, {std::numeric_limits<double>::quiet_NaN()}}};
-        const auto                              continuous = design::steady_state_target(mass_spring(), kTs, bad);
+        const design::DisturbanceModel bad{.Bd = Matrix<2, 1>{{0.0}, {std::numeric_limits<double>::quiet_NaN()}}};
+        const auto                     continuous = design::steady_state_target(mass_spring(), kTs, bad);
         CHECK_FALSE(continuous.success);
         CHECK(continuous.status == design::DesignStatus::bad_weights);
         CHECK(design::steady_state_target(plant_d(), bad).status == design::DesignStatus::bad_weights);
-        CHECK(design::steady_state_target(mass_spring(), kTs, design::DisturbanceModel<2, 1, 1>{.Bd = mass_spring().B}).success);
+        CHECK(design::steady_state_target(mass_spring(), kTs, design::DisturbanceModel{.Bd = mass_spring().B}).success);
+        //! C_d left out (NY 0) is C_d zero on the plant's outputs: the same target.
+        CHECK(design::steady_state_target(mass_spring(), kTs, design::DisturbanceModel{.Bd = mass_spring().B}).target_d == design::steady_state_target(mass_spring(), kTs, design::DisturbanceModel<2, 1, 1>{.Bd = mass_spring().B}).target_d);
     }
 
     TEST_CASE("a discrete plant with a non-finite entry is refused, as a continuous one is") {
@@ -337,11 +339,11 @@ TEST_SUITE("design::kalman with a disturbance spec") {
     TEST_CASE("an explicit model and the listed outputs") {
         auto sys = discretize(two_sensors(), kTs).value();
         sys.G = Matrix<2, 2>::identity(); // the process noise on the states
-        const auto old = design::state_feedback(sys, {.Q = kQ, .R = kR}, design::KalmanNoise{kQp, Matrix<2, 2>{{1e-6, 0.0}, {0.0, 1e-4}}, kQd}, design::DisturbanceModel<2, 2, 1, 1>{.Bd = sys.B, .outputs = {0}});
+        const auto old = design::state_feedback(sys, {.Q = kQ, .R = kR}, design::KalmanNoise{kQp, Matrix<2, 2>{{1e-6, 0.0}, {0.0, 1e-4}}, kQd}, design::DisturbanceModel{.Bd = sys.B, .outputs = {0}});
         REQUIRE(old.success);
-        const design::DisturbanceModel<2, 2, 1, 1> spec{.Bd = sys.B, .outputs = {0}};
-        const auto                                 filt = design::kalman(sys, design::KalmanNoise{.process = kQp, .measurement = Matrix<2, 2>{{1e-6, 0.0}, {0.0, 1e-4}}, .disturbance = kQd}, spec);
-        const auto                                 tg = design::steady_state_target(sys, spec);
+        const design::DisturbanceModel spec{.Bd = sys.B, .outputs = {0}};
+        const auto                     filt = design::kalman(sys, design::KalmanNoise{.process = kQp, .measurement = Matrix<2, 2>{{1e-6, 0.0}, {0.0, 1e-4}}, .disturbance = kQd}, spec);
+        const auto                     tg = design::steady_state_target(sys, spec);
         REQUIRE(filt.success);
         REQUIRE(tg.success);
         CHECK(gap(filt.M, old.kalman.M) < 1e-12);
@@ -445,7 +447,7 @@ TEST_SUITE("FixedGainObserver and SteadyStateTarget") {
     TEST_CASE("the estimator, the target and the gain run the offset-free law's commands, on a delayed plant") {
         const design::KalmanNoise<2, 1, double, 1> nn{kQp, kRn, kQd};
         const auto                                 whole = discretize(kPlantD, kTs, InputDelay{kTs}).value(); // [x; v(k−1)]
-        const design::DisturbanceModel<3, 1, 1>    load{.Bd = padded<1>(kPlantD.B)};                          // the load on the plant, undelayed
+        const design::DisturbanceModel             load{.Bd = padded<1>(kPlantD.B)};                          // the load on the plant, undelayed
         const auto                                 old = design::state_feedback(whole, {.Q = kQ3, .R = kR}, nn, load);
         REQUIRE(old.success);
         OFLQG             law{old};
@@ -605,9 +607,9 @@ TEST_SUITE("FixedGainObserver: the anchored law against the textbook form") {
         //! The corexy shape: the commands one period late, a load at both inputs; the model is the plant with its registers
         auto plant = discretize(four_readings(), kTs).value();
         plant.G = Matrix<4, 4>::identity();
-        const auto                                 whole = discretize(plant, kTs, InputDelay{kTs}).value(); // [x; v(k−1)]
-        const design::DisturbanceModel<6, 4, 2, 2> load_model{.Bd = padded<2>(plant.B), .outputs = {0, 1}};
-        const auto                                 art = design::state_feedback(whole, {.Q = kQ6, .R = kR2}, design::KalmanNoise{kQn4, kRn4, kQd2}, load_model);
+        const auto                     whole = discretize(plant, kTs, InputDelay{kTs}).value(); // [x; v(k−1)]
+        const design::DisturbanceModel load_model{.Bd = padded<2>(plant.B), .outputs = {0, 1}};
+        const auto                     art = design::state_feedback(whole, {.Q = kQ6, .R = kR2}, design::KalmanNoise{kQn4, kRn4, kQd2}, load_model);
         REQUIRE(art.success);
         OFLQG law{art};
         static_assert(decltype(law.estimator)::NXE == 6 && decltype(law.disturbance_estimate())::rows() == 2);
