@@ -113,7 +113,7 @@ TEST_SUITE("Analysis - Controllability and Observability") {
 TEST_SUITE("Analysis - Bode Response") {
     TEST_CASE("First-order lowpass Bode data") {
         // G(s) = 1/(s+1), DC gain = 0 dB, -3dB at ω=1 rad/s
-        StateSpace<1, 1, 1> sys{
+        StateSpace sys{
             .A = Matrix<1, 1>{{-1.0}},
             .B = Matrix<1, 1>{{1.0}},
             .C = Matrix<1, 1>{{1.0}},
@@ -139,9 +139,9 @@ TEST_SUITE("Analysis - Bode Response") {
     TEST_CASE("Second-order system Bode response") {
         // G(s) = wn²/(s² + 2*zeta*wn*s + wn²)
         // wn = 10 rad/s, zeta = 0.5
-        double              wn = 10.0;
-        double              zeta = 0.5;
-        StateSpace<2, 1, 1> sys{
+        double     wn = 10.0;
+        double     zeta = 0.5;
+        StateSpace sys{
             .A = Matrix<2, 2>{{0.0, 1.0}, {-wn * wn, -2 * zeta * wn}},
             .B = Matrix<2, 1>{{0.0}, {wn * wn}},
             .C = Matrix<1, 2>{{1.0, 0.0}},
@@ -186,7 +186,7 @@ TEST_SUITE("Analysis - Stability Margins") {
     TEST_CASE("Gain and phase margin of first-order system") {
         // G(s) = 10/(s+1) — gain margin infinite (phase never crosses -180°)
         // Phase margin: at crossover |G(jω)| = 1, find phase
-        StateSpace<1, 1, 1> sys{
+        StateSpace sys{
             .A = Matrix<1, 1>{{-1.0}},
             .B = Matrix<1, 1>{{10.0}},
             .C = Matrix<1, 1>{{1.0}},
@@ -210,8 +210,8 @@ TEST_SUITE("Analysis - Stability Margins") {
     TEST_CASE("Phase margin of integrator with gain") {
         // G(s) = K/s — always 90° phase lag, PM = 90° when |G|=1 at ω=K
         // Use state-space: A=0, B=K, C=1, D=0
-        double              K = 5.0;
-        StateSpace<1, 1, 1> sys{
+        double     K = 5.0;
+        StateSpace sys{
             .A = Matrix<1, 1>{{0.0}},
             .B = Matrix<1, 1>{{K}},
             .C = Matrix<1, 1>{{1.0}},
@@ -256,7 +256,7 @@ TEST_SUITE("Analysis - Phase Wrapping") {
 TEST_SUITE("Analysis - DC Gain") {
     TEST_CASE("DC gain of first-order system") {
         // G(s) = 5/(s+2) — DC gain = 5/2 = 2.5
-        StateSpace<1, 1, 1> sys{
+        StateSpace sys{
             .A = Matrix<1, 1>{{-2.0}},
             .B = Matrix<1, 1>{{5.0}},
             .C = Matrix<1, 1>{{1.0}},
@@ -271,7 +271,7 @@ TEST_SUITE("Analysis - DC Gain") {
     TEST_CASE("DC gain of discrete system") {
         // Discrete first-order: A=0.9, B=0.1, C=1, D=0
         // DC gain = C*(I-A)^{-1}*B = 1*(1-0.9)^{-1}*0.1 = 10*0.1 = 1.0
-        StateSpace<1, 1, 1> sys{
+        StateSpace sys{
             .A = Matrix<1, 1>{{0.9}},
             .B = Matrix<1, 1>{{0.1}},
             .C = Matrix<1, 1>{{1.0}},
@@ -362,7 +362,7 @@ TEST_SUITE("Analysis - Unwrapped Margins and Discrete Bode") {
     }
 
     TEST_CASE("Discrete bode evaluates frequency response on unit circle") {
-        StateSpace<1, 1, 1> sys{
+        StateSpace sys{
             .A = Matrix<1, 1>{{0.9}},
             .B = Matrix<1, 1>{{0.1}},
             .C = Matrix<1, 1>{{1.0}},
@@ -388,7 +388,7 @@ TEST_SUITE("Analysis - Unwrapped Margins and Discrete Bode") {
 TEST_SUITE("Analysis - Loop and Nyquist Utilities") {
     TEST_CASE("Continuous-time loop response returns L, S, T and Nyquist data") {
         // L(s) = 10/(s+1)
-        StateSpace<1, 1, 1> loop{
+        StateSpace loop{
             .A = Matrix<1, 1>{{-1.0}},
             .B = Matrix<1, 1>{{10.0}},
             .C = Matrix<1, 1>{{1.0}},
@@ -420,7 +420,7 @@ TEST_SUITE("Analysis - Loop and Nyquist Utilities") {
     }
 
     TEST_CASE("Discrete-time nyquist utility matches direct FRF") {
-        StateSpace<1, 1, 1> sys{
+        StateSpace sys{
             .A = Matrix<1, 1>{{0.9}},
             .B = Matrix<1, 1>{{0.1}},
             .C = Matrix<1, 1>{{1.0}},
@@ -444,7 +444,7 @@ TEST_SUITE("Analysis - Loop and Nyquist Utilities") {
 TEST_SUITE("Analysis - Loop Summary Convenience") {
     TEST_CASE("loop_metrics condenses common robustness metrics in one call") {
         // L(s) = 10/(s+1)
-        StateSpace<1, 1, 1> loop{
+        StateSpace loop{
             .A = Matrix<1, 1>{{-1.0}},
             .B = Matrix<1, 1>{{10.0}},
             .C = Matrix<1, 1>{{1.0}},
@@ -474,7 +474,7 @@ TEST_SUITE("Analysis - Loop Summary Convenience") {
     }
 
     TEST_CASE("summarize_loop_response matches explicit loop_response post-processing") {
-        StateSpace<1, 1, 1> loop{
+        StateSpace loop{
             .A = Matrix<1, 1>{{-2.0}},
             .B = Matrix<1, 1>{{6.0}},
             .C = Matrix<1, 1>{{1.0}},
@@ -523,7 +523,7 @@ TEST_SUITE("Analysis - Loop Summary Convenience") {
 TEST_SUITE("Analysis - Nichols") {
     TEST_CASE("Nichols from Bode matches phase and magnitude") {
         // G(s) = 1/(s+1)
-        StateSpace<1, 1, 1> sys{
+        StateSpace sys{
             .A = Matrix<1, 1>{{-1.0}},
             .B = Matrix<1, 1>{{1.0}},
             .C = Matrix<1, 1>{{1.0}},
@@ -573,7 +573,7 @@ TEST_SUITE("Analysis - Nichols") {
 TEST_SUITE("Analysis - Sigma") {
     TEST_CASE("SISO sigma matches Bode magnitude") {
         // G(s) = 1/(s+1) → σ₁ = |G|
-        StateSpace<1, 1, 1> sys{
+        StateSpace sys{
             .A = Matrix<1, 1>{{-1.0}},
             .B = Matrix<1, 1>{{1.0}},
             .C = Matrix<1, 1>{{1.0}},
@@ -600,7 +600,7 @@ TEST_SUITE("Analysis - Sigma") {
         // Two independent channels: G = diag(1/(s+1), 2/(s+2))
         // At s=0: G = diag(1, 1) → σ = {1, 1}
         // Realized as block-diagonal SS:
-        StateSpace<2, 2, 2> sys{
+        StateSpace sys{
             .A = Matrix<2, 2>{{-1.0, 0.0}, {0.0, -2.0}},
             .B = Matrix<2, 2>{{1.0, 0.0}, {0.0, 2.0}},
             .C = Matrix<2, 2>{{1.0, 0.0}, {0.0, 1.0}},
@@ -626,7 +626,7 @@ TEST_SUITE("Analysis - Sigma") {
     }
 
     TEST_CASE("Discrete H-infinity norm includes DC") {
-        StateSpace<1, 1, 1, double> s{
+        StateSpace s{
             .A = Matrix<1, 1>{{0.999}},
             .B = Matrix<1, 1>{{0.001}},
             .C = Matrix<1, 1>{{1.0}},
@@ -643,7 +643,7 @@ TEST_SUITE("Analysis - Sigma") {
 TEST_SUITE("Analysis - Root Locus") {
     TEST_CASE("rlocus at k=0 recovers open-loop poles") {
         // G(s) = 1/(s+1) → open-loop pole at -1
-        StateSpace<1, 1, 1> sys{
+        StateSpace sys{
             .A = Matrix<1, 1>{{-1.0}},
             .B = Matrix<1, 1>{{1.0}},
             .C = Matrix<1, 1>{{1.0}},
@@ -664,7 +664,7 @@ TEST_SUITE("Analysis - Root Locus") {
 
     TEST_CASE("rlocus first-order closed-loop pole is -(1+k)") {
         // A_cl = -1 - k → pole = -(1+k)
-        StateSpace<1, 1, 1> sys{
+        StateSpace sys{
             .A = Matrix<1, 1>{{-1.0}},
             .B = Matrix<1, 1>{{1.0}},
             .C = Matrix<1, 1>{{1.0}},
@@ -724,7 +724,7 @@ TEST_SUITE("Analysis - Root Locus") {
 TEST_SUITE("Analysis - Contour pole skip (optional FRF)") {
     TEST_CASE("bode/nyquist/sigma omit jω-axis poles without Inf/NaN") {
         // Pure integrator G(s)=1/s — pole at s=0. Evaluating at ω=0 is singular.
-        StateSpace<1, 1, 1> sys{
+        StateSpace sys{
             .A = Matrix<1, 1>{{0.0}},
             .B = Matrix<1, 1>{{1.0}},
             .C = Matrix<1, 1>{{1.0}},
@@ -799,13 +799,13 @@ TEST_SUITE("Analysis - Margins over several crossings") {
     TEST_CASE("a zero divisor on the grid is skipped, not reported as −300 dB") {
         const std::vector<double> omega{0.0, 0.1, 1.0};
         // Y = s/(s+1): Y(0) = 0, so Z = 1/Y is not finite at ω = 0.
-        const StateSpace<1, 1, 1> Y{.A = {{-1.0}}, .B = {{1.0}}, .C = {{-1.0}}, .D = {{1.0}}};
-        const auto                Z = analysis::impedance_from_admittance(Y, omega);
+        const StateSpace Y{.A = {{-1.0}}, .B = {{1.0}}, .C = {{-1.0}}, .D = {{1.0}}};
+        const auto       Z = analysis::impedance_from_admittance(Y, omega);
         REQUIRE(Z.points.size() == 2);
         CHECK(Z.points[0].omega == doctest::Approx(0.1));
         // L = −1/(s+1): 1 + L = 0 at ω = 0, a closed-loop pole on the grid.
-        const StateSpace<1, 1, 1> L{.A = {{-1.0}}, .B = {{1.0}}, .C = {{-1.0}}};
-        const auto                lr = analysis::loop_response(L, omega);
+        const StateSpace L{.A = {{-1.0}}, .B = {{1.0}}, .C = {{-1.0}}};
+        const auto       lr = analysis::loop_response(L, omega);
         REQUIRE(lr.sensitivity.points.size() == 2);
         CHECK(lr.open_loop.points.size() == 2);
         CHECK(lr.sensitivity.points[0].omega == doctest::Approx(0.1));

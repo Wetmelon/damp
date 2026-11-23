@@ -100,7 +100,7 @@ bool has_jordan_structure(
 // A continuous plant with the given A and B (outputs = states).
 template<size_t NX, size_t NU>
 constexpr StateSpace<NX, NU, NX> plant(const Matrix<NX, NX, double>& A, const Matrix<NX, NU, double>& B) {
-    return StateSpace<NX, NU, NX>{.A = A, .B = B, .C = Matrix<NX, NX, double>::identity()};
+    return StateSpace{.A = A, .B = B, .C = Matrix<NX, NX, double>::identity()};
 }
 
 template<size_t R, size_t C>

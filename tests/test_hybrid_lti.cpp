@@ -25,7 +25,7 @@ using namespace damp;
 using namespace damp::sim;
 
 namespace {
-const StateSpace<1, 1, 1> integ{.A = Matrix<1, 1>{{0.0}}, .B = Matrix<1, 1>{{1.0}}, .C = Matrix<1, 1>{{1.0}}, .Ts = 0.0};
+const StateSpace integ{.A = Matrix<1, 1>{{0.0}}, .B = Matrix<1, 1>{{1.0}}, .C = Matrix<1, 1>{{1.0}}, .Ts = 0.0};
 
 } // namespace
 

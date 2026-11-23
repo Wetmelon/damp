@@ -30,7 +30,7 @@ namespace {
 constexpr double Ts = 0.1;
 
 // Double integrator, ZOH-discretized at Ts = 0.1, the state measured, the position the controlled output.
-constexpr StateSpace<2, 1, 1> double_integrator{
+constexpr StateSpace double_integrator{
     .A = {{1.0, Ts}, {0.0, 1.0}},
     .B = {{0.5 * Ts * Ts}, {Ts}},
     .C = {{1.0, 0.0}},
@@ -38,7 +38,7 @@ constexpr StateSpace<2, 1, 1> double_integrator{
 };
 
 // Same plant with every state a controlled output (C = I), for the LQR-equivalence tests.
-constexpr StateSpace<2, 1, 2> double_integrator_full{
+constexpr StateSpace double_integrator_full{
     .A = {{1.0, Ts}, {0.0, 1.0}},
     .B = {{0.5 * Ts * Ts}, {Ts}},
     .C = {{1.0, 0.0}, {0.0, 1.0}},
@@ -620,7 +620,7 @@ TEST_CASE("automatic scaling is consistent with the unscaled problem") {
 
 TEST_CASE("scaling handles badly-conditioned mixed units") {
     // Milli-scale actuator driving a kilo-scale output: DC gain 1e6.
-    constexpr StateSpace<1, 1, 1> plant{
+    constexpr StateSpace plant{
         .A = {{0.9}},
         .B = {{1000.0}},
         .C = {{100.0}},
@@ -777,7 +777,7 @@ TEST_CASE("MPC accepts a custom QP solver policy") {
 TEST_CASE("horizon advisor reads the dominant time constant") {
     // First-order plant, pole at 0.9: tau = -Ts/ln(0.9) = 0.9491 s;
     // 4*tau = 3.796 s at Ts = 0.1 -> NP = 38, NC = 20% = 8.
-    constexpr StateSpace<1, 1, 1> plant{
+    constexpr StateSpace plant{
         .A = {{0.9}},
         .B = {{1.0}},
         .C = {{1.0}},
@@ -792,9 +792,9 @@ TEST_CASE("horizon advisor reads the dominant time constant") {
 }
 
 TEST_CASE("horizon advisor covers the dead time, so its horizon is one design::mpc accepts") {
-    constexpr StateSpace<1, 1, 1> lag{.A = {{0.9}}, .B = {{0.1}}, .C = {{1.0}}, .Ts = Ts};
-    constexpr auto                model = discretize(lag, Ts, InputDelay<5>{5.0 * Ts}).value();
-    constexpr auto                h = design::suggest_mpc_horizon(model);
+    constexpr StateSpace lag{.A = {{0.9}}, .B = {{0.1}}, .C = {{1.0}}, .Ts = Ts};
+    constexpr auto       model = discretize(lag, Ts, InputDelay<5>{5.0 * Ts}).value();
+    constexpr auto       h = design::suggest_mpc_horizon(model);
     static_assert(h.success);
     CHECK(h.prediction_horizon == 43); // 4τ = 3.80 s and the 0.5 s delay, at Ts = 0.1
     CHECK(design::mpc<h.prediction_horizon, h.control_horizon>(model, move_weight(0.05), {}).success);
@@ -856,7 +856,7 @@ TEST_CASE("to_ss realizes the unconstrained runtime, and closed around the plant
     }
 
     // The plant reports [0; x], so the law's inputs [r; x] close by unity positive feedback.
-    const StateSpace<2, 1, 3> plant_out{
+    const StateSpace plant_out{
         .A = double_integrator.A,
         .B = double_integrator.B,
         .C = Matrix<3, 2>{{0.0, 0.0}, {1.0, 0.0}, {0.0, 1.0}},
@@ -961,7 +961,7 @@ TEST_CASE("MPC step is predict, update, then control; the no-input step holds th
 namespace {
 
 /// A damped mass, the position controlled, continuous.
-constexpr StateSpace<2, 1, 1> kDampedMass{.A = {{0.0, 1.0}, {-2.0, -0.6}}, .B = {{0.0}, {1.5}}, .C = {{1.0, 0.0}}};
+constexpr StateSpace kDampedMass{.A = {{0.0, 1.0}, {-2.0, -0.6}}, .B = {{0.0}, {1.5}}, .C = {{1.0, 0.0}}};
 
 /// The position at every @p every-th tick of a 3 s step to 1 under @p art's runtime, on the plant sampled at @p h.
 template<typename Result>
@@ -1076,7 +1076,7 @@ TEST_CASE("the continuous-plant terminal cost is the cost-to-go of the period co
 }
 
 TEST_CASE("mpc rejects any nonzero feedthrough, whatever its units") {
-    StateSpace<2, 1, 1> sys{
+    StateSpace sys{
         .A = {{1.0, 0.1}, {0.0, 1.0}},
         .B = {{0.005}, {0.1}},
         .C = {{1.0, 0.0}},
@@ -1106,18 +1106,18 @@ TEST_CASE("suggest_mpc_horizon does not read a defective integrator as a slow po
     REQUIRE(T3i.has_value());
     const StateSpace<3, 1, 1> triple{.A = T3 * J3 * *T3i, .B = {{0.0}, {0.0}, {1.0}}, .C = {{1.0, 0.0, 0.0}}, .Ts = 0.1};
     CHECK_FALSE(design::suggest_mpc_horizon(triple).success);
-    const StateSpace<2, 1, 1> slow{.A = {{0.99, 0.0}, {0.0, 0.5}}, .B = {{1.0}, {1.0}}, .C = {{1.0, 1.0}}, .Ts = 0.1};
+    const StateSpace slow{.A = {{0.99, 0.0}, {0.0, 0.5}}, .B = {{1.0}, {1.0}}, .C = {{1.0, 1.0}}, .Ts = 0.1};
     CHECK(design::suggest_mpc_horizon(slow).time_constant == doctest::Approx(-0.1 / damp::log(0.99)));
 
     // A genuinely stable pole still yields a suggestion.
-    const StateSpace<1, 1, 1> stable{.A = {{0.9}}, .B = {{1.0}}, .C = {{1.0}}, .Ts = 0.1};
+    const StateSpace stable{.A = {{0.9}}, .B = {{1.0}}, .C = {{1.0}}, .Ts = 0.1};
     CHECK(design::suggest_mpc_horizon(stable).success);
     CHECK_FALSE(design::suggest_mpc_horizon(1e300, 1e-300).success); // NP not representable
 }
 
 TEST_CASE("a measured disturbance with a terminal cost settles on r: the target is the steady state under d") {
     //! The target ignored d, so V_f pulled the plan toward the d = 0 steady state: y = 0.969 for r = 1.
-    const StateSpace<1, 1, 1>    plant{.A = {{0.9}}, .B = {{0.1}}, .C = {{1.0}}, .Ts = 0.1};
+    const StateSpace             plant{.A = {{0.9}}, .B = {{0.1}}, .C = {{1.0}}, .Ts = 0.1};
     design::MPCConstraints<1, 1> limits{};
     limits.terminal = design::MPCTerminal::dare_cost;
     const auto art = design::mpc<10, 10>(plant, move_weight(0.1), limits, design::MeasuredDisturbance{Matrix<1, 1>{{0.1}}});
@@ -1218,16 +1218,16 @@ TEST_CASE("a horizon no output sees an input's first move in is refused") {
     }
 
     SUBCASE("one input of two: the other reaching the output does not save it") {
-        const StateSpace<2, 2, 1>      two{.A = {{0.9, 0.1}, {0.0, 0.0}}, .B = {{0.1, 0.0}, {0.0, 1.0}}, .C = {{1.0, 0.0}}, .Ts = Ts}; // u₁ a step behind u₀
+        const StateSpace               two{.A = {{0.9, 0.1}, {0.0, 0.0}}, .B = {{0.1, 0.0}, {0.0, 1.0}}, .C = {{1.0, 0.0}}, .Ts = Ts}; // u₁ a step behind u₀
         const design::MPCWeights<2, 1> w{};
         CHECK(design::mpc<1, 1>(two, w, {}).status == design::DesignStatus::invalid_parameter);
         CHECK(design::mpc<2, 1>(two, w, {}).success);
     }
 
     SUBCASE("relative to the plant's size: a small gain is not a blind input") {
-        const StateSpace<2, 1, 1> tiny{.A = double_integrator.A, .B = double_integrator.B * 1e-9, .C = double_integrator.C, .Ts = Ts};
+        const StateSpace tiny{.A = double_integrator.A, .B = double_integrator.B * 1e-9, .C = double_integrator.C, .Ts = Ts};
         CHECK(design::mpc<1, 1>(tiny, move_weight(0.05), {}).success);
-        const StateSpace<2, 1, 1> tinier{.A = double_integrator.A, .B = double_integrator.B * 1e-11, .C = double_integrator.C, .Ts = Ts};
+        const StateSpace tinier{.A = double_integrator.A, .B = double_integrator.B * 1e-11, .C = double_integrator.C, .Ts = Ts};
         CHECK(design::mpc<2, 1>(discretize(tinier, Ts, InputDelay{Ts}).value(), move_weight(0.05), {}).success);
     }
 
@@ -1235,10 +1235,10 @@ TEST_CASE("a horizon no output sees an input's first move in is refused") {
         //! The test compared C A^k B with max|C|·max|B|, and a register's 1 set max|B|.
         for (const float unit : {1.0F, 1e3F}) {
             CAPTURE(unit);
-            constexpr float                  ts = 1e-3F;
-            const StateSpace<2, 1, 1, float> plant{.A = {{1.0F, ts}, {0.0F, 1.0F}}, .B = {{0.5F * ts * ts * unit}, {ts * unit}}, .C = {{1.0F, 0.0F}}, .Ts = ts};
-            const auto                       model = discretize(plant, ts, InputDelay{ts}).value();
-            design::MPCWeights<1, 1, float>  w{};
+            constexpr float                 ts = 1e-3F;
+            const StateSpace                plant{.A = {{1.0F, ts}, {0.0F, 1.0F}}, .B = {{0.5F * ts * ts * unit}, {ts * unit}}, .C = {{1.0F, 0.0F}}, .Ts = ts};
+            const auto                      model = discretize(plant, ts, InputDelay{ts}).value();
+            design::MPCWeights<1, 1, float> w{};
             w.Rdu = 1e-6F;
             CHECK(design::mpc<2, 1>(model, w, {}).success);
             CHECK(design::mpc<1, 1>(model, w, {}).status == design::DesignStatus::invalid_parameter);
@@ -1262,7 +1262,7 @@ TEST_CASE("a horizon no output sees an input's first move in is refused") {
                     Q = Q * G;
                 }
             }
-            const StateSpace<7, 1, 1> rotated{.A = Q * model.A * Q.transpose(), .B = Q * model.B, .C = model.C * Q.transpose(), .Ts = Ts};
+            const StateSpace rotated{.A = Q * model.A * Q.transpose(), .B = Q * model.B, .C = model.C * Q.transpose(), .Ts = Ts};
             CHECK(design::mpc<5, 1>(rotated, move_weight(0.05), {}).status == design::DesignStatus::invalid_parameter);
             CHECK(design::mpc<6, 1>(rotated, move_weight(0.05), {}).success);
         }
@@ -1270,8 +1270,8 @@ TEST_CASE("a horizon no output sees an input's first move in is refused") {
 
     SUBCASE("an input an Ru weight steers to its target is not blind, while some input sees") {
         //! u₁ reaches y only a step later; at NP = 1 its Ru weight holds it at its target.
-        const StateSpace<2, 2, 1> two{.A = {{0.9, 0.1}, {0.0, 0.0}}, .B = {{0.1, 0.0}, {0.0, 1.0}}, .C = {{1.0, 0.0}}, .Ts = Ts};
-        design::MPCWeights<2, 1>  w{};
+        const StateSpace         two{.A = {{0.9, 0.1}, {0.0, 0.0}}, .B = {{0.1, 0.0}, {0.0, 1.0}}, .C = {{1.0, 0.0}}, .Ts = Ts};
+        design::MPCWeights<2, 1> w{};
         w.Ru = Matrix<2, 2>{{0.0, 0.0}, {0.0, 1.0}};
         w.u_target = ColVec<2>{0.0, 5.0};
         const auto res = design::mpc<1, 1>(two, w, {});
@@ -1471,8 +1471,8 @@ TEST_CASE_TEMPLATE("MPC under a hard output ceiling below the reference: a solve
 
 TEST_CASE("back_calculate with a feedforward: the command is the law's share, and the loop settles on r") {
     //! The held input already carried u_ff, the user added it again: y = 1.092 for u_ff = 0.2.
-    const StateSpace<1, 1, 1> plant{.A = {{0.9}}, .B = {{0.1}}, .C = {{1.0}}, .Ts = 0.1};
-    const auto                art = design::mpc<10, 3>(plant, move_weight(0.1), {});
+    const StateSpace plant{.A = {{0.9}}, .B = {{0.1}}, .C = {{1.0}}, .Ts = 0.1};
+    const auto       art = design::mpc<10, 3>(plant, move_weight(0.1), {});
     REQUIRE(art.success);
     MPC    law{art};
     double x = 0.0;
@@ -1529,8 +1529,8 @@ TEST_CASE("an MPC takes its reference and input target braced, one value per cha
     CHECK(by_scalar.step({0.3, 0}, x)(0) == doctest::Approx(u_vector).epsilon(1e-12)); // any value that converts
 
     //! Two inputs: the target braced, one value per input.
-    const StateSpace<2, 2, 1> two{.A = {{0.9, 0.1}, {0.0, 0.0}}, .B = {{0.1, 0.0}, {0.0, 1.0}}, .C = {{1.0, 0.0}}, .Ts = Ts};
-    design::MPCWeights<2, 1>  w2{};
+    const StateSpace         two{.A = {{0.9, 0.1}, {0.0, 0.0}}, .B = {{0.1, 0.0}, {0.0, 1.0}}, .C = {{1.0, 0.0}}, .Ts = Ts};
+    design::MPCWeights<2, 1> w2{};
     w2.Ru = diag(0.1, 0.1);
     const auto art2 = design::mpc<2, 1>(two, w2, {});
     REQUIRE(art2.success);

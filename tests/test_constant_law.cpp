@@ -518,8 +518,8 @@ TEST_SUITE("The other runtimes on a constexpr design") {
     }
 
     TEST_CASE("StateFeedforward and OutputInverse: the same reference points") {
-        static constexpr StateSpace<2, 2, 2> kSquare{.A = {{0.9, 0.1}, {0.0, 0.8}}, .B = {{1.0, 0.0}, {0.0, 1.0}}, .C = {{1.0, 0.0}, {0.0, 1.0}}, .Ts = 0.01};
-        static constexpr auto                kFeedforward = design::state_feedforward(kSquare);
+        static constexpr StateSpace kSquare{.A = {{0.9, 0.1}, {0.0, 0.8}}, .B = {{1.0, 0.0}, {0.0, 1.0}}, .C = {{1.0, 0.0}, {0.0, 1.0}}, .Ts = 0.01};
+        static constexpr auto       kFeedforward = design::state_feedforward(kSquare);
         REQUIRE(kFeedforward.success);
         static_assert(sizeof(Law<kFeedforward, float>) < sizeof(Law<kFeedforward, float>::Runtime));
         Law<kFeedforward, double>::Runtime held_ff{kFeedforward};

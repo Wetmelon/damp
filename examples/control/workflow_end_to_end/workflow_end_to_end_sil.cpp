@@ -31,7 +31,7 @@ using namespace damp::examples_workflow_e2e;
 int main() {
     const auto lin = design::linearize<2, 1, 1>(plant_nonlinear, plant_output, kXop, kUop);
 
-    StateSpace<2, 1, 1, double, 2, 1> sys_c{
+    StateSpace sys_c{
         .A = lin.A,
         .B = lin.B,
         .C = lin.C,

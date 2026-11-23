@@ -39,17 +39,17 @@ static_assert([] {
 
 constexpr auto sys = StateSpace{.A = Matrix<2, 2>{{0.0, 1.0}, {9.81, -0.1}}, .B = Matrix<2, 1>{{0.0}, {1.0}}, .C = Matrix<1, 2>{{1.0, 0.0}}};
 
-constexpr auto kLqr = design::state_feedback(sys, 0.01, {.Q = Matrix<2, 2>::identity() * 10.0, .R = 1.0});
-constexpr auto kEso = design::eso<2>(40.0, 20.0, 1e-3);
-constexpr auto kPid = design::pid(2.0, 5.0, 0.1).discretize(0.01);
-constexpr StateSpace<2, 1, 1, double, 1, 1> noisy{.A = sys.A, .B = sys.B, .C = sys.C, .G = Matrix<2, 1>{{0.0}, {1.0}}, .H = Matrix<1, 1>{{1.0}}};
-constexpr auto kLqg = design::state_feedback(noisy, 0.01, {.Q = Matrix<2, 2>::identity() * 10.0, .R = 1.0}, design::KalmanNoise<1, 1>{.process = 0.5, .measurement = 1e-4});
+constexpr auto       kLqr = design::state_feedback(sys, 0.01, {.Q = Matrix<2, 2>::identity() * 10.0, .R = 1.0});
+constexpr auto       kEso = design::eso<2>(40.0, 20.0, 1e-3);
+constexpr auto       kPid = design::pid(2.0, 5.0, 0.1).discretize(0.01);
+constexpr StateSpace noisy{.A = sys.A, .B = sys.B, .C = sys.C, .G = Matrix<2, 1>{{0.0}, {1.0}}, .H = Matrix<1, 1>{{1.0}}};
+constexpr auto       kLqg = design::state_feedback(noisy, 0.01, {.Q = Matrix<2, 2>::identity() * 10.0, .R = 1.0}, design::KalmanNoise<1, 1>{.process = 0.5, .measurement = 1e-4});
 static_assert(kLqr.success && kEso.success && kLqg.success);
 
-static constinit LQR           lqr{kLqr.as<float>()};
-static constinit ESO           eso{kEso.as<float>()};
-static constinit PIDController pid{kPid.as<float>()};
-static constinit LQG           lqg{kLqg.as<float>()};
+static constinit LQR              lqr{kLqr.as<float>()};
+static constinit ESO              eso{kEso.as<float>()};
+static constinit PIDController    pid{kPid.as<float>()};
+static constinit LQG              lqg{kLqg.as<float>()};
 static constinit Law<kLqr, float> lqr_on_constants; // the same law, its gains constants of the type
 
 } // namespace

@@ -342,7 +342,7 @@ TEST_SUITE("PID Design - Margin helpers") {
 
 TEST_SUITE("PID Design - Plant pidtune") {
     TEST_CASE("PI at ωc on 1/(s+1)") {
-        constexpr StateSpace<1, 1, 1> sys{
+        constexpr StateSpace sys{
             .A = Matrix<1, 1>{{-1.0}},
             .B = Matrix<1, 1>{{1.0}},
             .C = Matrix<1, 1>{{1.0}},
@@ -358,7 +358,7 @@ TEST_SUITE("PID Design - Plant pidtune") {
     }
 
     TEST_CASE("PIDTuneSpec copies Tf and 2-DOF weights") {
-        constexpr StateSpace<1, 1, 1> sys{
+        constexpr StateSpace sys{
             .A = Matrix<1, 1>{{-1.0}},
             .B = Matrix<1, 1>{{1.0}},
             .C = Matrix<1, 1>{{1.0}},
@@ -380,7 +380,7 @@ TEST_SUITE("PID Design - Plant pidtune") {
     }
 
     TEST_CASE("1-DOF pidtune is unchanged when b=c=1") {
-        constexpr StateSpace<1, 1, 1> sys{
+        constexpr StateSpace sys{
             .A = Matrix<1, 1>{{-1.0}},
             .B = Matrix<1, 1>{{1.0}},
             .C = Matrix<1, 1>{{1.0}},
@@ -402,7 +402,7 @@ TEST_SUITE("PID Design - Plant pidtune") {
     }
 
     TEST_CASE("I-P pidtune matches 1-DOF T −3 dB") {
-        constexpr StateSpace<1, 1, 1> sys{
+        constexpr StateSpace sys{
             .A = Matrix<1, 1>{{-1.0}},
             .B = Matrix<1, 1>{{1.0}},
             .C = Matrix<1, 1>{{1.0}},
@@ -455,10 +455,10 @@ TEST_SUITE("PID Design - Plant pidtune") {
     }
 
     TEST_CASE("PI-D pidtune on LC does not sign-flip") {
-        constexpr double          L = 100e-6;
-        constexpr double          C = 100e-6;
-        constexpr double          R = 4.0;
-        const StateSpace<2, 1, 1> sys{
+        constexpr double L = 100e-6;
+        constexpr double C = 100e-6;
+        constexpr double R = 4.0;
+        const StateSpace sys{
             .A = Matrix<2, 2>{{0.0, -1.0 / L}, {1.0 / C, -1.0 / (R * C)}},
             .B = Matrix<2, 1>{{1.0 / L}, {0.0}},
             .C = Matrix<1, 2>{{0.0, 1.0}},
@@ -486,24 +486,24 @@ TEST_SUITE("PID Design - Plant pidtune") {
     TEST_CASE("pidtune refuses a law that cannot realize the crossover with positive gains") {
         using design::DesignStatus;
         // 1/(s(s+1)) at ωc = 1 needs phase lead for 60°: a PI would need Ki < 0.
-        constexpr StateSpace<2, 1, 1> type1{.A = {{0.0, 1.0}, {0.0, -1.0}}, .B = {{0.0}, {1.0}}, .C = {{1.0, 0.0}}};
+        constexpr StateSpace type1{.A = {{0.0, 1.0}, {0.0, -1.0}}, .B = {{0.0}, {1.0}}, .C = {{1.0, 0.0}}};
         CHECK(design::pidtune(type1, {.wc = 1.0, .mode = PIDMode::PI}).status == DesignStatus::not_placeable);
         // 1/(s+1)² at ωc = 2: the PI fit had Ki < 0 and an unstable closed loop.
-        constexpr StateSpace<2, 1, 1> lag2{.A = {{-1.0, 1.0}, {0.0, -1.0}}, .B = {{0.0}, {1.0}}, .C = {{1.0, 0.0}}};
+        constexpr StateSpace lag2{.A = {{-1.0, 1.0}, {0.0, -1.0}}, .B = {{0.0}, {1.0}}, .C = {{1.0, 0.0}}};
         CHECK(design::pidtune(lag2, {.wc = 2.0, .mode = PIDMode::PI}).status == DesignStatus::not_placeable);
         // 1/(s+1)³ at ωc = 3: every law needed Kp < 0.
-        constexpr StateSpace<3, 1, 1> lag3{.A = {{-1.0, 1.0, 0.0}, {0.0, -1.0, 1.0}, {0.0, 0.0, -1.0}}, .B = {{0.0}, {0.0}, {1.0}}, .C = {{1.0, 0.0, 0.0}}};
+        constexpr StateSpace lag3{.A = {{-1.0, 1.0, 0.0}, {0.0, -1.0, 1.0}, {0.0, 0.0, -1.0}}, .B = {{0.0}, {0.0}, {1.0}}, .C = {{1.0, 0.0, 0.0}}};
         CHECK(design::pidtune(lag3, {.wc = 3.0, .mode = PIDMode::PI}).status == DesignStatus::not_placeable);
         CHECK(design::pidtune(lag3, {.wc = 3.0, .mode = PIDMode::PID}).status == DesignStatus::not_placeable);
         // 1/(s+1): a PD at ωc = 5 would need Kd < 0, a PID at ωc = 0.1 Kp < 0.
-        constexpr StateSpace<1, 1, 1> lag1{.A = {{-1.0}}, .B = {{1.0}}, .C = {{1.0}}};
+        constexpr StateSpace lag1{.A = {{-1.0}}, .B = {{1.0}}, .C = {{1.0}}};
         CHECK(design::pidtune(lag1, {.wc = 5.0, .mode = PIDMode::PD}).status == DesignStatus::not_placeable);
         CHECK(design::pidtune(lag1, {.wc = 0.1, .mode = PIDMode::PID}).status == DesignStatus::not_placeable);
     }
 
     TEST_CASE("pidtune refuses an unstable closed loop (P on 1/(s+1)³ above the ultimate frequency)") {
         // Kp = 1/|P(j3)| = 10^1.5 > 8, the ultimate gain of 1/(s+1)³.
-        constexpr StateSpace<3, 1, 1> lag3{.A = {{-1.0, 1.0, 0.0}, {0.0, -1.0, 1.0}, {0.0, 0.0, -1.0}}, .B = {{0.0}, {0.0}, {1.0}}, .C = {{1.0, 0.0, 0.0}}};
+        constexpr StateSpace lag3{.A = {{-1.0, 1.0, 0.0}, {0.0, -1.0, 1.0}, {0.0, 0.0, -1.0}}, .B = {{0.0}, {0.0}, {1.0}}, .C = {{1.0, 0.0, 0.0}}};
         CHECK(design::pidtune(lag3, {.wc = 3.0, .mode = PIDMode::P}).status == design::DesignStatus::not_stabilizable);
         CHECK(design::pidtune(lag3, {.wc = 0.5, .mode = PIDMode::P}).success);
     }
@@ -512,11 +512,11 @@ TEST_SUITE("PID Design - Plant pidtune") {
         using design::DesignStatus;
         // 1/(s+1)³ with time scaled by 1000 has every closed-loop root scaled by 1000. The Routh
         // test compared the leading coefficient with c[n] ~ ωc³ and refused the fast copy.
-        constexpr StateSpace<3, 1, 1> lag3{.A = {{-1.0, 1.0, 0.0}, {0.0, -1.0, 1.0}, {0.0, 0.0, -1.0}}, .B = {{0.0}, {0.0}, {1.0}}, .C = {{1.0, 0.0, 0.0}}};
-        constexpr double              a = 1000.0;
-        constexpr StateSpace<3, 1, 1> fast{.A = {{-a, a, 0.0}, {0.0, -a, a}, {0.0, 0.0, -a}}, .B = {{0.0}, {0.0}, {a}}, .C = {{1.0, 0.0, 0.0}}};
-        const auto                    slow_g = design::pidtune(lag3, {.wc = 0.5, .Tf = 0.2});
-        const auto                    fast_g = design::pidtune(fast, {.wc = 500.0, .Tf = 2e-4});
+        constexpr StateSpace lag3{.A = {{-1.0, 1.0, 0.0}, {0.0, -1.0, 1.0}, {0.0, 0.0, -1.0}}, .B = {{0.0}, {0.0}, {1.0}}, .C = {{1.0, 0.0, 0.0}}};
+        constexpr double     a = 1000.0;
+        constexpr StateSpace fast{.A = {{-a, a, 0.0}, {0.0, -a, a}, {0.0, 0.0, -a}}, .B = {{0.0}, {0.0}, {a}}, .C = {{1.0, 0.0, 0.0}}};
+        const auto           slow_g = design::pidtune(lag3, {.wc = 0.5, .Tf = 0.2});
+        const auto           fast_g = design::pidtune(fast, {.wc = 500.0, .Tf = 2e-4});
         REQUIRE(slow_g.success);
         REQUIRE(fast_g.success);
         CHECK(fast_g.Kp == doctest::Approx(slow_g.Kp).epsilon(1e-9));
@@ -527,12 +527,12 @@ TEST_SUITE("PID Design - Plant pidtune") {
         CHECK(design::pidtune(fast, {.wc = 1750.0, .mode = PIDMode::P}).status == DesignStatus::not_stabilizable);
 
         // A float PI at ωc = 1000 rad/s on 1/(s+1) was refused above ωc ≈ 200 rad/s.
-        constexpr StateSpace<1, 1, 1, float> lag1f{.A = {{-1.0f}}, .B = {{1.0f}}, .C = {{1.0f}}};
-        const auto                           f = design::pidtune(lag1f, design::PIDTuneSpec<float>{.wc = 1000.0f, .mode = PIDMode::PI});
+        constexpr StateSpace lag1f{.A = {{-1.0f}}, .B = {{1.0f}}, .C = {{1.0f}}};
+        const auto           f = design::pidtune(lag1f, design::PIDTuneSpec<float>{.wc = 1000.0f, .mode = PIDMode::PI});
         REQUIRE(f.success);
         CHECK(static_cast<double>(f.Kp) == doctest::Approx(-0.5 + (std::sqrt(3.0) / 2.0 * 1000.0)).epsilon(1e-5));
         // An R–L current loop 1000/(s + 100) at 1 kHz, in float.
-        constexpr StateSpace<1, 1, 1, float> rl{.A = {{-100.0f}}, .B = {{1000.0f}}, .C = {{1.0f}}};
+        constexpr StateSpace rl{.A = {{-100.0f}}, .B = {{1000.0f}}, .C = {{1.0f}}};
         CHECK(design::pidtune(rl, design::PIDTuneSpec<float>{.wc = 6283.0f, .mode = PIDMode::PI}).success);
     }
 
@@ -570,15 +570,15 @@ TEST_SUITE("PID Design - Plant pidtune") {
     }
 
     TEST_CASE("pidtune P meets the crossover: |Kp P(jωc)| = 1") {
-        constexpr StateSpace<1, 1, 1> lag1{.A = {{-1.0}}, .B = {{1.0}}, .C = {{1.0}}};
-        const auto                    p = design::pidtune(lag1, {.wc = 2.0, .mode = PIDMode::P});
+        constexpr StateSpace lag1{.A = {{-1.0}}, .B = {{1.0}}, .C = {{1.0}}};
+        const auto           p = design::pidtune(lag1, {.wc = 2.0, .mode = PIDMode::P});
         REQUIRE(p.success);
         CHECK(p.Kp == doctest::Approx(std::sqrt(5.0)));
     }
 
     TEST_CASE("pidtune meets |L| = 1 and the phase margin with a derivative filter") {
-        constexpr StateSpace<2, 1, 1> type1{.A = {{0.0, 1.0}, {0.0, -1.0}}, .B = {{0.0}, {1.0}}, .C = {{1.0, 0.0}}};
-        constexpr StateSpace<3, 1, 1> lag3{.A = {{-1.0, 1.0, 0.0}, {0.0, -1.0, 1.0}, {0.0, 0.0, -1.0}}, .B = {{0.0}, {0.0}, {1.0}}, .C = {{1.0, 0.0, 0.0}}};
+        constexpr StateSpace type1{.A = {{0.0, 1.0}, {0.0, -1.0}}, .B = {{0.0}, {1.0}}, .C = {{1.0, 0.0}}};
+        constexpr StateSpace lag3{.A = {{-1.0, 1.0, 0.0}, {0.0, -1.0, 1.0}, {0.0, 0.0, -1.0}}, .B = {{0.0}, {0.0}, {1.0}}, .C = {{1.0, 0.0, 0.0}}};
         for (const double Tf : {0.0, 0.1, 0.3}) {
             for (const auto mode : {PIDMode::PD, PIDMode::PID}) {
                 const auto g = design::pidtune(type1, {.wc = 1.0, .mode = mode, .Tf = Tf});
@@ -598,26 +598,26 @@ TEST_SUITE("PID Design - Plant pidtune") {
 
     TEST_CASE("pidtune refuses a non-finite or out-of-range spec") {
         using design::DesignStatus;
-        constexpr StateSpace<1, 1, 1> lag1{.A = {{-1.0}}, .B = {{1.0}}, .C = {{1.0}}};
+        constexpr StateSpace lag1{.A = {{-1.0}}, .B = {{1.0}}, .C = {{1.0}}};
         CHECK(design::pidtune(lag1, {.wc = 1.0, .phase_margin_deg = std::nan("")}).status == design::DesignStatus::invalid_parameter);
         CHECK(design::pidtune(lag1, {.wc = 1.0, .phase_margin_deg = 0.0}).status == design::DesignStatus::invalid_parameter);
         CHECK(design::pidtune(lag1, {.wc = 1.0, .phase_margin_deg = 180.0}).status == design::DesignStatus::invalid_parameter);
         CHECK(design::pidtune(lag1, {.wc = 1.0, .Tf = -0.1}).status == design::DesignStatus::invalid_parameter);
         CHECK(design::pidtune(lag1, {.wc = std::nan("")}).status == design::DesignStatus::invalid_parameter);
-        constexpr StateSpace<1, 1, 1> sampled{.A = {{0.9}}, .B = {{1.0}}, .C = {{1.0}}, .Ts = 0.01};
+        constexpr StateSpace sampled{.A = {{0.9}}, .B = {{1.0}}, .C = {{1.0}}, .Ts = 0.01};
         CHECK(design::pidtune(sampled, {.wc = 1.0}).status == DesignStatus::invalid_sample_time);
     }
 
     TEST_CASE("pidtune and pid_pole_placement accept a plant with noise channels") {
-        constexpr StateSpace<2, 1, 1, double, 2, 1> noisy{
+        constexpr StateSpace noisy{
             .A = {{0.0, 1.0}, {0.0, -1.0}},
             .B = {{0.0}, {1.0}},
             .C = {{1.0, 0.0}},
             .G = Matrix<2, 2>::identity(),
             .H = Matrix<1, 1>::identity(),
         };
-        constexpr StateSpace<2, 1, 1> plain{.A = noisy.A, .B = noisy.B, .C = noisy.C};
-        const auto                    a = design::pidtune(noisy, {.wc = 1.0});
+        constexpr StateSpace plain{.A = noisy.A, .B = noisy.B, .C = noisy.C};
+        const auto           a = design::pidtune(noisy, {.wc = 1.0});
         REQUIRE(a.success);
         CHECK(a.Kp == design::pidtune(plain, {.wc = 1.0}).Kp);
         const auto p = design::pid_pole_placement(noisy, {.omega = 3.0});
@@ -637,7 +637,7 @@ TEST_SUITE("PID Design - Plant pidtune") {
     }
 
     TEST_CASE("matlab::pidtune(sys, wc) is 60° PID") {
-        constexpr StateSpace<2, 1, 1> sys{
+        constexpr StateSpace sys{
             .A = Matrix<2, 2>{{0.0, 1.0}, {-1.0, -0.5}},
             .B = Matrix<2, 1>{{0.0}, {1.0}},
             .C = Matrix<1, 2>{{1.0, 0.0}},
@@ -659,7 +659,7 @@ TEST_SUITE("PID Design - Plant pidtune") {
         static_assert(pi->B(0, 0) == 1.0);
         static_assert(pi->C(0, 0) == 4.0);
         static_assert(pi->D(0, 0) == 2.0);
-        constexpr auto L = *series(*pi, StateSpace<1, 1, 1>{
+        constexpr auto L = *series(*pi, StateSpace{
                                             .A = {{-1.0}},
                                             .B = {{1.0}},
                                             .C = {{1.0}},
@@ -888,7 +888,7 @@ TEST_SUITE("PID Design - Back-calculation seed") {
     }
 
     TEST_CASE("pidtune seeds Kbc for a tracking time of 1/ωc") {
-        constexpr StateSpace<1, 1, 1> sys{.A = {{-1.0}}, .B = {{1.0}}, .C = {{1.0}}};
+        constexpr StateSpace sys{.A = {{-1.0}}, .B = {{1.0}}, .C = {{1.0}}};
         for (const double wc : {1.5, 2.0, 8.0}) { // below ωc = tan 30° the plant lags too little: C would need Kp < 0
             for (const auto mode : {PIDMode::PI, PIDMode::PID}) {
                 const auto g = design::pidtune(sys, {.wc = wc, .mode = mode});
@@ -1124,7 +1124,7 @@ TEST_SUITE("PID Design - PI Pole Placement (first-order plant)") {
     TEST_CASE("state-space overloads give the transfer-function overloads' gains") {
         // First order: 2.5/(1e-3 s + 0.8) as ẋ = −800 x + u, y = 2500 x.
         constexpr double                   b0 = 2.5, a1 = 1.0e-3, a0 = 0.8, omega = 1500.0;
-        constexpr StateSpace<1, 1, 1>      first{.A = {{-a0 / a1}}, .B = {{1.0}}, .C = {{b0 / a1}}};
+        constexpr StateSpace               first{.A = {{-a0 / a1}}, .B = {{1.0}}, .C = {{b0 / a1}}};
         constexpr TransferFunction<1, 2>   first_tf{.num = {b0}, .den = {a1, a0}};
         constexpr TransferFunction<1, 2>   first_monic{.num = {b0 / a1}, .den = {1.0, a0 / a1}}; // ss2tf of `first`
         constexpr design::PIDGains<double> pi_ss = design::pid_pole_placement(first, {.omega = omega});
@@ -1151,7 +1151,7 @@ TEST_SUITE("PID Design - PI Pole Placement (first-order plant)") {
 
         // Second order: mass-spring-damper 1/(m s² + b s + k) with states (x, v).
         constexpr double                 m = 0.05, b = 0.1, k = 2.0, w = 40.0;
-        constexpr StateSpace<2, 1, 1>    msd{.A = {{0.0, 1.0}, {-k / m, -b / m}}, .B = {{0.0}, {1.0 / m}}, .C = {{1.0, 0.0}}};
+        constexpr StateSpace             msd{.A = {{0.0, 1.0}, {-k / m, -b / m}}, .B = {{0.0}, {1.0 / m}}, .C = {{1.0, 0.0}}};
         constexpr TransferFunction<1, 3> msd_tf{.num = {1.0}, .den = {m, b, k}};
         const auto                       pid_ss = design::pid_pole_placement(msd, {.omega = w, .omega_i = w / 8.0});
         const auto                       pid_tf = design::pid_pole_placement(msd_tf, {.omega = w, .omega_i = w / 8.0});
@@ -1174,20 +1174,20 @@ TEST_SUITE("PID Design - PI Pole Placement (first-order plant)") {
         using design::DesignStatus;
         constexpr double m = 0.05, b = 0.1, k = 2.0;
         // C = [1, 0.01]: y = x + 0.01 v, so G(s) = (0.01 s + 1)/(m s² + b s + k) has a zero at −100.
-        constexpr StateSpace<2, 1, 1> zero{.A = {{0.0, 1.0}, {-k / m, -b / m}}, .B = {{0.0}, {1.0 / m}}, .C = {{1.0, 0.01}}};
-        const auto                    with_zero = design::pid_pole_placement(zero, {.omega = 40.0});
+        constexpr StateSpace zero{.A = {{0.0, 1.0}, {-k / m, -b / m}}, .B = {{0.0}, {1.0 / m}}, .C = {{1.0, 0.01}}};
+        const auto           with_zero = design::pid_pole_placement(zero, {.omega = 40.0});
         CHECK_FALSE(with_zero.success);
         CHECK(with_zero.status == design::DesignStatus::invalid_parameter);
         CHECK(with_zero.Kp == 0.0);
 
-        constexpr StateSpace<1, 1, 1> feedthrough{.A = {{-1.0}}, .B = {{1.0}}, .C = {{1.0}}, .D = {{0.5}}};
+        constexpr StateSpace feedthrough{.A = {{-1.0}}, .B = {{1.0}}, .C = {{1.0}}, .D = {{0.5}}};
         CHECK(design::pid_pole_placement(feedthrough, {.omega = 10.0}).status == design::DesignStatus::invalid_parameter);
         CHECK(design::pid_pole_placement(feedthrough, damp::array<damp::complex<double>, 2>{-50.0, -90.0}, 0.01).status == design::DesignStatus::invalid_parameter);
 
-        constexpr StateSpace<1, 1, 1> no_gain{.A = {{-1.0}}, .B = {{1.0}}, .C = {{0.0}}};
+        constexpr StateSpace no_gain{.A = {{-1.0}}, .B = {{1.0}}, .C = {{0.0}}};
         CHECK(design::pid_pole_placement(no_gain, {.omega = 10.0}).status == design::DesignStatus::invalid_parameter);
 
-        constexpr StateSpace<1, 1, 1> sampled{.A = {{0.9}}, .B = {{1.0}}, .C = {{1.0}}, .Ts = 0.01};
+        constexpr StateSpace sampled{.A = {{0.9}}, .B = {{1.0}}, .C = {{1.0}}, .Ts = 0.01};
         CHECK(design::pid_pole_placement(sampled, {.omega = 10.0}).status == DesignStatus::invalid_sample_time);
         CHECK(design::pid_pole_placement(sampled, damp::array<damp::complex<double>, 2>{-50.0, -90.0}, 0.01).status == DesignStatus::invalid_sample_time);
     }
@@ -1252,8 +1252,8 @@ TEST_SUITE("PID Design - success / status") {
     }
 
     TEST_CASE("pidtune reports a refused crossover") {
-        const StateSpace<1, 1, 1> sys{.A = {{-1.0}}, .B = {{1.0}}, .C = {{1.0}}};
-        const auto                r = design::pidtune(sys, design::PIDTuneSpec<double>{.wc = 0.0});
+        const StateSpace sys{.A = {{-1.0}}, .B = {{1.0}}, .C = {{1.0}}};
+        const auto       r = design::pidtune(sys, design::PIDTuneSpec<double>{.wc = 0.0});
         CHECK_FALSE(r.success);
         CHECK(r.status == design::DesignStatus::invalid_parameter);
     }

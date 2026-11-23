@@ -44,7 +44,7 @@ double max_abs_diff(const Matrix<R, C>& A, const Matrix<R, C>& B) {
 
 /// Fully controllable + observable second-order plant.
 StateSpace<2, 1, 1> coupled_minimal() {
-    return StateSpace<2, 1, 1>{
+    return StateSpace{
         .A = Matrix<2, 2>{{-2.0, 1.0}, {0.0, -3.0}},
         .B = Matrix<2, 1>{{1.0}, {1.0}},
         .C = Matrix<1, 2>{{1.0, 0.0}},
@@ -80,7 +80,7 @@ TEST_SUITE("minreal") {
     TEST_CASE("uncontrollable mode is removed") {
         // A = diag(-1,-2), B drives only state 0; C sees both.
         // I/O map is 1/(s+1); state 1 never enters from u.
-        const StateSpace<2, 1, 1> sys{
+        const StateSpace sys{
             .A = Matrix<2, 2>{{-1.0, 0.0}, {0.0, -2.0}},
             .B = Matrix<2, 1>{{1.0}, {0.0}},
             .C = Matrix<1, 2>{{1.0, 1.0}},
@@ -111,7 +111,7 @@ TEST_SUITE("minreal") {
 
     TEST_CASE("unobservable mode is removed") {
         // A = diag(-1,-2), both states driven; C sees only state 0.
-        const StateSpace<2, 1, 1> sys{
+        const StateSpace sys{
             .A = Matrix<2, 2>{{-1.0, 0.0}, {0.0, -2.0}},
             .B = Matrix<2, 1>{{1.0}, {1.0}},
             .C = Matrix<1, 2>{{1.0, 0.0}},
@@ -169,7 +169,7 @@ TEST_SUITE("minreal") {
 
     TEST_CASE("both uncontrollable and unobservable modes") {
         // State 0: CO (pole -1). State 1: unctrl. State 2: unobs.
-        const StateSpace<3, 1, 1> sys{
+        const StateSpace sys{
             .A = Matrix<3, 3>{{-1.0, 0.0, 0.0}, {0.0, -2.0, 0.0}, {0.0, 0.0, -3.0}},
             .B = Matrix<3, 1>{{1.0}, {0.0}, {1.0}},
             .C = Matrix<1, 3>{{1.0, 1.0, 0.0}},
@@ -189,7 +189,7 @@ TEST_SUITE("minreal") {
 
     TEST_CASE("MIMO: remove unobservable state") {
         // 2-state, 2-in, 1-out: second state driven but not seen
-        const StateSpace<2, 2, 1> sys{
+        const StateSpace sys{
             .A = Matrix<2, 2>{{-1.0, 0.0}, {0.0, -4.0}},
             .B = Matrix<2, 2>{{1.0, 0.0}, {0.0, 1.0}},
             .C = Matrix<1, 2>{{1.0, 0.0}},
@@ -208,7 +208,7 @@ TEST_SUITE("minreal") {
     }
 
     TEST_CASE("discrete-time non-minimal plant") {
-        const StateSpace<2, 1, 1> sys{
+        const StateSpace sys{
             .A = Matrix<2, 2>{{0.5, 0.0}, {0.0, 0.2}},
             .B = Matrix<2, 1>{{1.0}, {0.0}},
             .C = Matrix<1, 2>{{1.0, 1.0}},
@@ -244,7 +244,7 @@ TEST_SUITE("minreal") {
     }
 
     TEST_CASE("constexpr minreal on uncontrollable pair") {
-        constexpr StateSpace<2, 1, 1> sys{
+        constexpr StateSpace sys{
             .A = Matrix<2, 2>{{-1.0, 0.0}, {0.0, -2.0}},
             .B = Matrix<2, 1>{{1.0}, {0.0}},
             .C = Matrix<1, 2>{{1.0, 0.0}},
@@ -328,7 +328,7 @@ TEST_SUITE("minreal and controllability with a spread spectrum") {
         }
         const Matrix<4, 1> B{{1.0}, {1.0}, {1.0}, {1.0}};
         CHECK(stability::is_controllable(A, B));
-        const StateSpace<4, 1, 1> sys{.A = A, .B = B, .C = B.transpose()};
+        const StateSpace sys{.A = A, .B = B, .C = B.transpose()};
         CHECK(design::minreal(sys).order == 4);
     }
 }
@@ -337,7 +337,7 @@ TEST_SUITE("minreal: units, noise inputs and non-finite models") {
     TEST_CASE("an SI-unit hydraulic actuator keeps all three states") {
         // x = [position m, velocity m/s, pressure Pa]: Ap/m = 1e-4 beside β/V·Ap = 1e9. Without
         // balancing the coupling read as a cancellation and minreal returned order 0.
-        const StateSpace<3, 1, 1> hyd{
+        const StateSpace hyd{
             .A = Matrix<3, 3>{{0.0, 1.0, 0.0}, {0.0, -10.0, 1e-4}, {0.0, -1e9, -1e-3}},
             .B = Matrix<3, 1>{{0.0}, {0.0}, {1e8}},
             .C = Matrix<1, 3>{{1.0, 0.0, 0.0}},
@@ -361,7 +361,7 @@ TEST_SUITE("minreal: units, noise inputs and non-finite models") {
         REQUIRE(mr.success);
         CHECK(mr.order == 2);
         // Without noise inputs the disturbance state is uncontrollable and goes.
-        const StateSpace<2, 1, 1> plain{.A = aug.A, .B = aug.B, .C = aug.C, .Ts = 0.01};
+        const StateSpace plain{.A = aug.A, .B = aug.B, .C = aug.C, .Ts = 0.01};
         CHECK(minreal(plain).order == 1);
     }
 

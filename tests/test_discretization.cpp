@@ -108,7 +108,7 @@ TEST_SUITE("Control Design: Discretization") {
 
     // Test 4: Default method is ZOH
     TEST_CASE("eval_frf returns nullopt at a continuous pole") {
-        StateSpace<1, 1, 1> sys{.A = {{-1.0}}, .B = {{1.0}}, .C = {{1.0}}};
+        StateSpace sys{.A = {{-1.0}}, .B = {{1.0}}, .C = {{1.0}}};
         // s = -1 is a pole of 1/(s+1)
         CHECK_FALSE(eval_frf(sys, damp::complex<double>{-1.0, 0.0}).has_value());
         // s = j is fine
@@ -163,13 +163,13 @@ TEST_SUITE("Control Design: Discretization") {
     }
 
     TEST_CASE("discretize refuses Ts <= 0 and a discrete model at another rate, and passes one at the same rate") {
-        const StateSpace<1, 1, 1> cont{.A = {{-1.0}}, .B = {{1.0}}, .C = {{1.0}}};
+        const StateSpace cont{.A = {{-1.0}}, .B = {{1.0}}, .C = {{1.0}}};
         CHECK(discretize(cont, 0.0).status == design::DesignStatus::invalid_sample_time);
         CHECK(discretize(cont, -0.01).status == design::DesignStatus::invalid_sample_time);
-        static_assert(!discretize(StateSpace<1, 1, 1>{.A = {{-1.0}}, .B = {{1.0}}, .C = {{1.0}}}, -1.0));
+        static_assert(!discretize(StateSpace{.A = {{-1.0}}, .B = {{1.0}}, .C = {{1.0}}}, -1.0));
 
-        const StateSpace<1, 1, 1> disc{.A = {{-0.5}}, .B = {{0.1}}, .C = {{1.0}}, .Ts = 0.01};
-        const auto                other_rate = discretize(disc, 0.001);
+        const StateSpace disc{.A = {{-0.5}}, .B = {{0.1}}, .C = {{1.0}}, .Ts = 0.01};
+        const auto       other_rate = discretize(disc, 0.001);
         CHECK_FALSE(other_rate);
         CHECK(other_rate.status == design::DesignStatus::invalid_sample_time);
         const auto same_rate = discretize(disc, 0.01, DiscretizationMethod::Tustin);
@@ -208,9 +208,9 @@ TEST_SUITE("Control Design: Discretization") {
     }
 
     TEST_CASE("discretize refuses a model that overflows within one period") {
-        const StateSpace<1, 1, 1> fast{.A = {{1000.0}}, .B = {{1.0}}, .C = {{1.0}}};
+        const StateSpace fast{.A = {{1000.0}}, .B = {{1.0}}, .C = {{1.0}}};
         CHECK(discretize(fast, 10.0).status == design::DesignStatus::not_converged);
-        const StateSpace<2, 1, 1> coupled{.A = {{1000.0, 1.0}, {0.0, 1000.0}}, .B = {{0.0}, {1.0}}, .C = {{1.0, 0.0}}};
+        const StateSpace coupled{.A = {{1000.0, 1.0}, {0.0, 1000.0}}, .B = {{0.0}, {1.0}}, .C = {{1.0, 0.0}}};
         CHECK(discretize(coupled, 10.0).status == design::DesignStatus::not_converged);
         CHECK(discretize(coupled, 1e-3)); // the same plant at a rate it fits
     }
@@ -236,8 +236,8 @@ TEST_SUITE("Control Design: Discretization") {
 
     TEST_CASE("ZOH is accurate for a nearly-singular A") {
         // B_d = (e^{a Ts} − 1)/a ≈ Ts; the A⁻¹(e^{ATs} − I) form cancels.
-        const StateSpace<1, 1, 1> sys{.A = {{-1e-12}}, .B = {{1.0}}, .C = {{1.0}}};
-        const auto                d = discretize(sys, 1e-3, DiscretizationMethod::ZOH);
+        const StateSpace sys{.A = {{-1e-12}}, .B = {{1.0}}, .C = {{1.0}}};
+        const auto       d = discretize(sys, 1e-3, DiscretizationMethod::ZOH);
         REQUIRE(d.has_value());
         CHECK(d->B(0, 0) == doctest::Approx(1e-3).epsilon(1e-12));
     }
@@ -248,7 +248,7 @@ TEST_SUITE("DiscretizationResult") {
 
     // A lag with a noise input on each side, so G and H ride through every path.
     constexpr StateSpace<2, 1, 1, double, 1, 1> make_lag() {
-        return StateSpace<2, 1, 1, double, 1, 1>{
+        return StateSpace{
             .A = Matrix<2, 2>{{-1.0, 0.5}, {0.0, -3.0}},
             .B = Matrix<2, 1>{{0.0}, {2.0}},
             .C = Matrix<1, 2>{{1.0, 0.0}},
@@ -301,8 +301,8 @@ TEST_SUITE("DiscretizationResult") {
         check_model_close(*euler, detail::discretize_forward_euler_impl(sys, 0.1));
 
         //! Tustin: the closed forms of a first-order lag (as in the test above).
-        const StateSpace<1, 1, 1> lag{.A = {{-1.0}}, .B = {{1.0}}, .C = {{1.0}}};
-        const auto                tustin = discretize(lag, 0.1, DiscretizationMethod::Tustin);
+        const StateSpace lag{.A = {{-1.0}}, .B = {{1.0}}, .C = {{1.0}}};
+        const auto       tustin = discretize(lag, 0.1, DiscretizationMethod::Tustin);
         REQUIRE(tustin.has_value());
         CHECK(tustin->A(0, 0) == doctest::Approx(1.9 / 2.1).epsilon(1e-14));
         CHECK(tustin->D(0, 0) == doctest::Approx(0.05 / 1.05).epsilon(1e-14));
@@ -332,8 +332,8 @@ TEST_SUITE("DiscretizationResult") {
         const double   inf = std::numeric_limits<double>::infinity();
 
         //! Plain discretize.
-        const StateSpace<1, 1, 1> pole_at_2_over_Ts{.A = {{4.0}}, .B = {{1.0}}, .C = {{1.0}}}; // I − A·Ts/2 = 0 at Ts = 0.5
-        const auto                singular = discretize(pole_at_2_over_Ts, 0.5, DiscretizationMethod::Tustin);
+        const StateSpace pole_at_2_over_Ts{.A = {{4.0}}, .B = {{1.0}}, .C = {{1.0}}}; // I − A·Ts/2 = 0 at Ts = 0.5
+        const auto       singular = discretize(pole_at_2_over_Ts, 0.5, DiscretizationMethod::Tustin);
         CHECK_FALSE(singular);
         CHECK_FALSE(singular.success);
         CHECK(singular.status == DesignStatus::singular);
@@ -344,7 +344,7 @@ TEST_SUITE("DiscretizationResult") {
         CHECK(discretize(sys, 0.01, static_cast<DiscretizationMethod>(7)).status == DesignStatus::invalid_parameter);
         CHECK(discretize(sys, nan).status == DesignStatus::invalid_sample_time);
         CHECK(discretize(sys, inf, DiscretizationMethod::Tustin).status == DesignStatus::invalid_sample_time);
-        const StateSpace<2, 1, 1> nan_plant{.A = {{0.0, 1.0}, {-4.0, nan}}, .B = {{0.0}, {1.0}}, .C = {{1.0, 0.0}}};
+        const StateSpace nan_plant{.A = {{0.0, 1.0}, {-4.0, nan}}, .B = {{0.0}, {1.0}}, .C = {{1.0, 0.0}}};
         CHECK(discretize(nan_plant, 0.01).status == DesignStatus::bad_weights); // expm used to return I: Ad = I, Bd = 0
         CHECK(discretize(nan_plant, 0.01, InputDelay{0.004}).status == DesignStatus::bad_weights);
 
@@ -368,7 +368,7 @@ TEST_SUITE("DiscretizationResult") {
         CHECK(resample(sys, 0.1).status == DesignStatus::invalid_sample_time); // continuous
         CHECK(resample(fast, 0.0).status == DesignStatus::invalid_sample_time);
         CHECK(resample(fast, nan).status == DesignStatus::invalid_sample_time);
-        const StateSpace<1, 1, 1> alternating{.A = {{-0.5}}, .B = {{1.0}}, .C = {{1.0}}, .Ts = 0.1};
+        const StateSpace alternating{.A = {{-0.5}}, .B = {{1.0}}, .C = {{1.0}}, .Ts = 0.1};
         CHECK(resample(alternating, 0.15).status == DesignStatus::not_converged); // z < 0: no real logarithm
         CHECK(resample(alternating, 0.2).status == DesignStatus::ok);
     }
@@ -440,7 +440,7 @@ TEST_SUITE("Tustin pre-warping") {
 namespace {
 // Damped oscillator (complex poles) with a process-noise input, continuous.
 constexpr StateSpace<2, 1, 1, double, 1, 1> make_resample_plant() {
-    return StateSpace<2, 1, 1, double, 1, 1>{
+    return StateSpace{
         .A = Matrix<2, 2>{{0.0, 1.0}, {-4.0, -0.8}},
         .B = Matrix<2, 1>{{0.0}, {2.0}},
         .C = Matrix<1, 2>{{1.0, 0.5}},
@@ -506,7 +506,7 @@ TEST_SUITE("Resampling (d2d / upsample)") {
     TEST_CASE_TEMPLATE("resample keeps a graded thermal model at a few eps", T, float, double) {
         // States in units 10⁴ apart; the logarithm of the ZOH block [[Ad, Bd], [0, I]] took its
         // square roots on the unbalanced matrix, one Schur form each: 2878 eps (float), 2·10⁴ (double).
-        const StateSpace<3, 1, 3, T> sys{
+        const StateSpace sys{
             .A = Matrix<3, 3, T>{{T(-0.5), T(2e-3), T(0)}, {T(300), T(-8), T(1e-2)}, {T(0), T(5e3), T(-40)}},
             .B = Matrix<3, 1, T>{{T(10)}, {T(0)}, {T(0)}},
             .C = Matrix<3, 3, T>::identity(),
@@ -541,7 +541,7 @@ TEST_SUITE("Resampling (d2d / upsample)") {
 
         //! A pole at z = −0.5 alternates sign every sample: no real logarithm, so no fractional
         //! resample; an integer ratio is still a plain power.
-        const StateSpace<1, 1, 1, double> alternating{
+        const StateSpace alternating{
             .A = Matrix<1, 1>{{-0.5}},
             .B = Matrix<1, 1>{{1.0}},
             .C = Matrix<1, 1>{{1.0}},

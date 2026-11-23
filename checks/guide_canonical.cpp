@@ -17,7 +17,7 @@ constexpr double k = 1.0; // N/m
 constexpr double c = 0.5; // N·s/m
 
 // x = [position, speed], u = force, y = position. G(s) = 1 / (m s² + c s + k)
-constexpr auto sys = StateSpace<2, 1, 1>{
+constexpr auto sys = StateSpace{
     .A = Matrix<2, 2>{{0.0, 1.0}, {-k / m, -c / m}},
     .B = Matrix<2, 1>{{0.0}, {1.0 / m}},
     .C = Matrix<1, 2>{{1.0, 0.0}},

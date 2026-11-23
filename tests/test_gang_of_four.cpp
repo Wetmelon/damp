@@ -22,7 +22,7 @@ namespace {
 using Cplx = damp::complex<double>;
 
 // P(s) = 1/(s + 1).
-constexpr StateSpace<1, 1, 1> kLag{
+constexpr StateSpace kLag{
     .A = Matrix<1, 1>{{-1.0}},
     .B = Matrix<1, 1>{{1.0}},
     .C = Matrix<1, 1>{{1.0}},
@@ -32,7 +32,7 @@ constexpr StateSpace<1, 1, 1> kLag{
 constexpr design::PIDGains<double> kPI{.Kp = 2.0, .Ki = 3.0};
 
 // A coupled 2×2 plant and a static 2×2 controller.
-constexpr StateSpace<2, 2, 2> kPlant2{
+constexpr StateSpace kPlant2{
     .A = Matrix<2, 2>{{-1.0, 0.4}, {0.0, -2.0}},
     .B = Matrix<2, 2>{{1.0, 0.0}, {0.3, 1.0}},
     .C = Matrix<2, 2>{{1.0, 0.5}, {0.2, 1.0}},
@@ -109,7 +109,7 @@ TEST_SUITE("Gang of four") {
 
     TEST_CASE("Peak sensitivity from norm_hinf bounds a dense grid from above") {
         // P = 1/(s + 1)², C = 20: closed-loop ζ = 1/√21, so |S| peaks above 1 at a finite frequency.
-        constexpr StateSpace<2, 1, 1> lag2{
+        constexpr StateSpace lag2{
             .A = Matrix<2, 2>{{-1.0, 1.0}, {0.0, -1.0}},
             .B = Matrix<2, 1>{{0.0}, {1.0}},
             .C = Matrix<1, 2>{{1.0, 0.0}},
@@ -129,7 +129,7 @@ TEST_SUITE("Gang of four") {
     }
 
     TEST_CASE("Unstable closed loop: success, not stable, and norm_hinf refuses") {
-        constexpr StateSpace<1, 1, 1> unstable{
+        constexpr StateSpace unstable{
             .A = Matrix<1, 1>{{1.0}},
             .B = Matrix<1, 1>{{1.0}},
             .C = Matrix<1, 1>{{1.0}},

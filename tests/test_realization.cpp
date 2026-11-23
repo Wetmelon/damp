@@ -24,7 +24,7 @@ namespace {
 // A well-scaled 3-state model, then the same plant with states in wildly different units
 // (x_bad = S·x, S = diag(1e6, 1e-3, 1)).
 constexpr StateSpace<3, 1, 1> make_nice() {
-    return StateSpace<3, 1, 1>{
+    return StateSpace{
         .A = Matrix<3, 3>{{-1.0, 2.0, 0.0}, {-3.0, -4.0, 1.0}, {0.5, 0.0, -2.0}},
         .B = Matrix<3, 1>{{1.0}, {0.5}, {0.0}},
         .C = Matrix<1, 3>{{1.0, 0.0, 2.0}},
@@ -112,7 +112,7 @@ TEST_SUITE("State balancing (prescale / ssbal)") {
         static_assert(bal_f.exponent[0] == bal.exponent[0]);
         CHECK(bal.as<float>().sys.A(0, 1) == doctest::Approx(bal_f.sys.A(0, 1)));
 
-        constexpr StateSpace<2, 1, 1> even{
+        constexpr StateSpace even{
             .A = Matrix<2, 2>{{-1.0, 1.0}, {-1.0, -1.0}},
             .B = Matrix<2, 1>{{1.0}, {1.0}},
             .C = Matrix<1, 2>{{1.0, 1.0}}
@@ -132,7 +132,7 @@ TEST_SUITE("State balancing (prescale / ssbal)") {
         //! Couplings of 100 and 0.01 beside poles at −1000: balancing the couplings takes
         //! exponents +2 and −2 (κ(D) = 16) for a norm a fraction of a percent smaller, which
         //! does not pay, so the states stay as they are.
-        constexpr StateSpace<2, 1, 1> stiff{
+        constexpr StateSpace stiff{
             .A = Matrix<2, 2>{{-1000.0, 100.0}, {0.01, -1000.0}},
             .B = Matrix<2, 1>{{1.0}, {1.0}},
             .C = Matrix<1, 2>{{1.0, 1.0}}
@@ -151,7 +151,7 @@ TEST_SUITE("State balancing (prescale / ssbal)") {
 namespace {
 // Non-normal 4-state model: one complex pair and two real modes, badly scaled on purpose.
 constexpr StateSpace<4, 1, 2, double, 1, 1> make_modal_plant() {
-    return StateSpace<4, 1, 2, double, 1, 1>{
+    return StateSpace{
         .A = Matrix<4, 4>{{-1.0, 2.0, 0.5, 0.0}, {-3.0, -1.0, 1.0, 0.2}, {0.3, 0.0, -4.0, 10.0}, {0.0, 0.1, 0.0, -0.5}},
         .B = Matrix<4, 1>{{1.0}, {0.0}, {2.0}, {-1.0}},
         .C = Matrix<2, 4>{{1.0, 0.0, 0.0, 1.0}, {0.0, 1.0, 0.5, 0.0}},
@@ -233,17 +233,17 @@ TEST_SUITE("Modal canonical form (canon)") {
         CHECK(mat::det(res_f.sys.A) == doctest::Approx(mat::det(res_d.sys.A)).epsilon(1e-4));
 
         //! A repeated eigenvalue with a full set of eigenvectors is already modal.
-        constexpr StateSpace<2, 1, 1> repeated{.A = Matrix<2, 2>{{-2.0, 0.0}, {0.0, -2.0}}, .B = Matrix<2, 1>{{1.0}, {1.0}}, .C = Matrix<1, 2>{{1.0, 0.0}}};
-        constexpr auto                rep = modal_form(repeated);
+        constexpr StateSpace repeated{.A = Matrix<2, 2>{{-2.0, 0.0}, {0.0, -2.0}}, .B = Matrix<2, 1>{{1.0}, {1.0}}, .C = Matrix<1, 2>{{1.0, 0.0}}};
+        constexpr auto       rep = modal_form(repeated);
         static_assert(rep.success && rep.sys.A(0, 1) == 0.0 && rep.sys.A(1, 0) == 0.0);
 
         //! A double integrator is a Jordan block: no modal form.
-        constexpr StateSpace<2, 1, 1> jordan{.A = Matrix<2, 2>{{0.0, 1.0}, {0.0, 0.0}}, .B = Matrix<2, 1>{{0.0}, {1.0}}, .C = Matrix<1, 2>{{1.0, 0.0}}};
-        constexpr auto                defective = modal_form(jordan);
+        constexpr StateSpace jordan{.A = Matrix<2, 2>{{0.0, 1.0}, {0.0, 0.0}}, .B = Matrix<2, 1>{{0.0}, {1.0}}, .C = Matrix<1, 2>{{1.0, 0.0}}};
+        constexpr auto       defective = modal_form(jordan);
         static_assert(!defective.success && defective.status == design::DesignStatus::singular);
 
         //! One state: the model itself.
-        constexpr StateSpace<1, 1, 1> one{.A = Matrix<1, 1>{{-3.0}}, .B = Matrix<1, 1>{{2.0}}, .C = Matrix<1, 1>{{1.0}}};
+        constexpr StateSpace one{.A = Matrix<1, 1>{{-3.0}}, .B = Matrix<1, 1>{{2.0}}, .C = Matrix<1, 1>{{1.0}}};
         static_assert(modal_form(one).success && modal_form(one).sys.A(0, 0) == -3.0);
     }
 
@@ -268,7 +268,7 @@ constexpr StateSpace<3, 1, 1> make_scrambled() {
 
 // x₃ is decoupled from the input: (A, b) has a 2-state controllable part.
 constexpr StateSpace<3, 1, 1> make_uncontrollable() {
-    const StateSpace<3, 1, 1> plain{
+    const StateSpace plain{
         .A = Matrix<3, 3>{{-1.0, 0.0, 0.0}, {1.0, -2.0, 0.0}, {0.0, 0.0, -3.0}},
         .B = Matrix<3, 1>{{1.0}, {0.0}, {0.0}},
         .C = Matrix<1, 3>{{1.0, 1.0, 1.0}},
@@ -280,7 +280,7 @@ constexpr StateSpace<3, 1, 1> make_uncontrollable() {
 // Its dual: x₃ invisible to the output, a 2-state observable part.
 constexpr StateSpace<3, 1, 1> make_unobservable() {
     const auto c = make_uncontrollable();
-    return StateSpace<3, 1, 1>{.A = c.A.transpose(), .B = c.C.transpose(), .C = c.B.transpose(), .D = c.D};
+    return StateSpace{.A = c.A.transpose(), .B = c.C.transpose(), .C = c.B.transpose(), .D = c.D};
 }
 
 template<size_t R, size_t C>
@@ -440,8 +440,8 @@ TEST_SUITE("Similarity, canonical and staircase forms (ss2ss, canon companion, c
         //! det[B AB] = 1e11 with B = 1e9: controllable, whatever the input's scale.
         for (const double b : {1e9, 1.0, 1e-9}) {
             CAPTURE(b);
-            const StateSpace<2, 1, 1> sys{.A = {{-1.0, 0.0}, {1e-7, -2.0}}, .B = {{b}, {0.0}}, .C = {{0.0, 1.0}}};
-            const auto                st = controllability_staircase(sys);
+            const StateSpace sys{.A = {{-1.0, 0.0}, {1e-7, -2.0}}, .B = {{b}, {0.0}}, .C = {{0.0, 1.0}}};
+            const auto       st = controllability_staircase(sys);
             CHECK(st.success);
             CHECK(st.rank == 2);
         }

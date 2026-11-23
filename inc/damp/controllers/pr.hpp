@@ -177,7 +177,7 @@ struct [[nodiscard]] PRResult {
      */
     [[nodiscard]] constexpr StateSpace<2, 1, 1, T> to_ss() const {
         const T c_res = (wc > T{0}) ? (T{2} * Ki * wc) : Ki;
-        return StateSpace<2, 1, 1, T>{
+        return StateSpace{
             .A = Matrix<2, 2, T>{{T{0}, T{1}}, {-w0 * w0, -T{2} * wc}},
             .B = Matrix<2, 1, T>{{T{0}}, {T{1}}},
             .C = Matrix<1, 2, T>{{T{0}, c_res}},

@@ -387,9 +387,9 @@ TEST_SUITE("Delay per channel and on the measurement") {
     }
 
     TEST_CASE("MPC counts an output delay's dead time: a horizon the move cannot reach is refused, the suggestion covers it") {
-        constexpr StateSpace<1, 1, 1> lag{.A = {{0.9}}, .B = {{0.1}}, .C = {{1.0}}, .Ts = kTs};
-        constexpr auto                model = discretize(lag, kTs, OutputDelay<5>{5.0 * kTs}).value();
-        design::MPCWeights<1, 1>      w{};
+        constexpr StateSpace     lag{.A = {{0.9}}, .B = {{0.1}}, .C = {{1.0}}, .Ts = kTs};
+        constexpr auto           model = discretize(lag, kTs, OutputDelay<5>{5.0 * kTs}).value();
+        design::MPCWeights<1, 1> w{};
         w.Rdu = 0.05;
         CHECK(design::mpc<5, 2>(model, w, {}).status == design::DesignStatus::invalid_parameter);
         CHECK(design::mpc<6, 2>(model, w, {}).success);

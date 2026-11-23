@@ -776,7 +776,7 @@ template<size_t NX, typename T = double, size_t NW = 0, size_t NV = 0>
 to_transfer_function(const StateSpace<NX, 1, 1, T, NW, NV>& sys) {
     const StateSpaceZPKResult<NX, T> factors = to_zpk(sys);
     if (!factors.success) {
-        return zpk_detail::ss_to_tf_full(StateSpace<NX, 1, 1, T>{.A = sys.A, .B = sys.B, .C = sys.C, .D = sys.D, .Ts = sys.Ts});
+        return zpk_detail::ss_to_tf_full(StateSpace{.A = sys.A, .B = sys.B, .C = sys.C, .D = sys.D, .Ts = sys.Ts});
     }
     damp::array<damp::complex<T>, NX + 1> num_c{}; // num_c[k] multiplies sᵏ
     damp::array<damp::complex<T>, NX + 1> den_c{};

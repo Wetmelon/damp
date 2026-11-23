@@ -282,7 +282,7 @@ TEST_CASE("simulate_lti - biproper plant includes D*u in y") {
 }
 
 TEST_CASE("simulate_lti_siso records y = Cx + Du") {
-    const StateSpace<1, 1, 1> sys{
+    const StateSpace sys{
         .A = Matrix<1, 1>{{-1.0}},
         .B = Matrix<1, 1>{{1.0}},
         .C = Matrix<1, 1>{{0.0}},

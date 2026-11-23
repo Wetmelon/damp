@@ -28,7 +28,7 @@ using namespace damp;
 namespace {
 
 /// First-order heater block, K = 6, τ = 30 s, Ts = 2 s (no delay: the preview is the point here).
-constexpr auto        kModel = discretize(StateSpace<1, 1, 1>{.A = {{-1.0 / 30.0}}, .B = {{6.0 / 30.0}}, .C = {{1.0}}}, 2.0);
+constexpr auto        kModel = discretize(StateSpace{.A = {{-1.0 / 30.0}}, .B = {{6.0 / 30.0}}, .C = {{1.0}}}, 2.0);
 constexpr std::size_t NP = 20;
 constexpr std::size_t NC = 4;
 

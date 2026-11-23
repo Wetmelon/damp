@@ -81,7 +81,7 @@ struct [[nodiscard]] LinearizationResult {
      * @brief Convert Jacobians into a continuous-time state-space model
      */
     [[nodiscard]] constexpr StateSpace<NX, NU, NY, T> to_state_space() const {
-        return StateSpace<NX, NU, NY, T>{
+        return StateSpace{
             .A = A,
             .B = B,
             .C = C,

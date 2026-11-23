@@ -1543,7 +1543,7 @@ struct [[nodiscard]] LQRResult {
      * @return StateSpace with 0 states, NX inputs (x), NU outputs (u)
      */
     [[nodiscard]] constexpr StateSpace<0, NX, NU, T> to_ss() const {
-        return StateSpace<0, NX, NU, T>{
+        return StateSpace{
             .A = Matrix<0, 0, T>{},
             .B = Matrix<0, NX, T>{},
             .C = Matrix<NU, 0, T>{},

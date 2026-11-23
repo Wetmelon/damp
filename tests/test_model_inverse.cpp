@@ -38,12 +38,12 @@ constexpr StateSpace<5, 2, 2> mimo_minimum_phase() {
     };
     const Matrix<5, 2> B{{0.0, 0.0}, {1.0, 0.5}, {0.0, 0.0}, {0.0, 0.0}, {-0.3, 1.0}};
     const Matrix<2, 5> C{{-0.5, 1.0, 0.0, 0.0, 0.0}, {0.0, 0.0, 0.3, 1.0, 0.0}};
-    return StateSpace<5, 2, 2>{.A = A, .B = B, .C = C, .Ts = 0.1};
+    return StateSpace{.A = A, .B = B, .C = C, .Ts = 0.1};
 }
 
 /** (z − 2)/((z − 0.5)(z − 0.6)(z + 0.2)): relative degree 2, one zero outside the unit circle. */
 constexpr StateSpace<3, 1, 1> siso_nonminimum_phase() {
-    return StateSpace<3, 1, 1>{
+    return StateSpace{
         .A = Matrix<3, 3>{{0.0, 1.0, 0.0}, {0.0, 0.0, 1.0}, {-0.06, -0.08, 0.9}},
         .B = Matrix<3, 1>{{0.0}, {0.0}, {1.0}},
         .C = Matrix<1, 3>{{-2.0, 1.0, 0.0}},
@@ -56,7 +56,7 @@ constexpr StateSpace<3, 1, 1> siso_nonminimum_phase() {
  * zeros 1 ± 1.22i outside the unit circle, which the Schur form holds as one 2×2 block.
  */
 constexpr StateSpace<4, 1, 1> siso_complex_zeros() {
-    return StateSpace<4, 1, 1>{
+    return StateSpace{
         .A = Matrix<4, 4>{{0.0, 1.0, 0.0, 0.0}, {0.0, 0.0, 1.0, 0.0}, {0.0, 0.0, 0.0, 1.0}, {0.018, -0.036, -0.35, 1.2}},
         .B = Matrix<4, 1>{{0.0}, {0.0}, {0.0}, {1.0}},
         .C = Matrix<1, 4>{{2.5, -2.0, 1.0, 0.0}},
@@ -66,7 +66,7 @@ constexpr StateSpace<4, 1, 1> siso_complex_zeros() {
 
 /** 1/(s(s + 1)(s + 2)) under ZOH at 0.1 s: relative degree 1, sampling zeros at −3.47 and −0.25. */
 StateSpace<3, 1, 1> sampled_third_order() {
-    const StateSpace<3, 1, 1> plant{
+    const StateSpace plant{
         .A = Matrix<3, 3>{{0.0, 1.0, 0.0}, {0.0, 0.0, 1.0}, {0.0, -2.0, -3.0}},
         .B = Matrix<3, 1>{{0.0}, {0.0}, {1.0}},
         .C = Matrix<1, 3>{{1.0, 0.0, 0.0}},
@@ -221,7 +221,7 @@ TEST_SUITE("Model inverse: plant-inversion feedforward and the stable output inv
     }
 
     TEST_CASE("state_feedforward refuses a rank-deficient B and a continuous model") {
-        const StateSpace<3, 2, 1> alike{
+        const StateSpace alike{
             .A = Matrix<3, 3>::identity() * 0.9,
             .B = Matrix<3, 2>{{1.0, 2.0}, {2.0, 4.0}, {0.0, 0.0}},
             .C = Matrix<1, 3>{{1.0, 0.0, 0.0}},
@@ -240,8 +240,8 @@ TEST_SUITE("Model inverse: plant-inversion feedforward and the stable output inv
         for (const double tau : {1e-4, 1e-6}) {
             for (const bool b1_last : {false, true}) {
                 INFO("tau ", tau, ", b1 last ", b1_last);
-                const Matrix<4, 3, T>        B = hidden_dependency<4>(tau, b1_last).template as<T>();
-                const StateSpace<4, 3, 1, T> sys{
+                const Matrix<4, 3, T> B = hidden_dependency<4>(tau, b1_last).template as<T>();
+                const StateSpace      sys{
                     .A = Matrix<4, 4, T>::identity() * T(0.9),
                     .B = B,
                     .C = Matrix<1, 4, T>{{T(1), T(0), T(0), T(0)}},
@@ -252,7 +252,7 @@ TEST_SUITE("Model inverse: plant-inversion feedforward and the stable output inv
                 CHECK(ff.status == design::DesignStatus::singular);
 
                 // The decoupling matrix of y = x, three outputs of relative degree 1, is B itself.
-                const StateSpace<3, 3, 3, T> square{
+                const StateSpace square{
                     .A = Matrix<3, 3, T>::identity() * T(0.5),
                     .B = hidden_dependency<3>(tau, b1_last).template as<T>(),
                     .C = Matrix<3, 3, T>::identity(),
@@ -262,7 +262,7 @@ TEST_SUITE("Model inverse: plant-inversion feedforward and the stable output inv
             }
         }
         // Columns of different sizes are not a dependency.
-        const StateSpace<4, 3, 1, T> scaled{
+        const StateSpace scaled{
             .A = Matrix<4, 4, T>::identity() * T(0.9),
             .B = Matrix<4, 3, T>{{T(1), T(0), T(0)}, {T(0), T(1e-3), T(0)}, {T(0), T(0), T(1e3)}, {T(0), T(0), T(0)}},
             .C = Matrix<1, 4, T>{{T(1), T(0), T(0), T(0)}},
@@ -386,7 +386,7 @@ TEST_SUITE("Model inverse: plant-inversion feedforward and the stable output inv
 
     TEST_CASE("output_inverse refuses what it cannot invert") {
         // The zero at −1 of a sampled double integrator: no bounded inverse.
-        const StateSpace<2, 1, 1> double_integrator{
+        const StateSpace double_integrator{
             .A = Matrix<2, 2>{{0.0, 1.0}, {0.0, 0.0}},
             .B = Matrix<2, 1>{{0.0}, {1.0}},
             .C = Matrix<1, 2>{{1.0, 0.0}},
@@ -394,7 +394,7 @@ TEST_SUITE("Model inverse: plant-inversion feedforward and the stable output inv
         CHECK(design::output_inverse<8>(*discretize(double_integrator, 0.01)).status == design::DesignStatus::singular);
 
         // Two outputs that read the same combination: the decoupling matrix is singular.
-        const StateSpace<2, 2, 2> twin{
+        const StateSpace twin{
             .A = Matrix<2, 2>{{0.5, 0.0}, {0.0, 0.6}},
             .B = Matrix<2, 2>::identity(),
             .C = Matrix<2, 2>{{1.0, 1.0}, {2.0, 2.0}},
@@ -403,7 +403,7 @@ TEST_SUITE("Model inverse: plant-inversion feedforward and the stable output inv
         CHECK(design::output_inverse<3>(twin).status == design::DesignStatus::singular);
 
         // An output no input reaches.
-        const StateSpace<2, 1, 1> unreached{
+        const StateSpace unreached{
             .A = Matrix<2, 2>{{0.5, 0.0}, {0.0, 0.6}},
             .B = Matrix<2, 1>{{1.0}, {0.0}},
             .C = Matrix<1, 2>{{0.0, 1.0}},
@@ -436,7 +436,7 @@ TEST_SUITE("model inverse: roundoff in A − B·D*⁻¹C* and non-finite models"
             S(i, i) = d[i];
             S_inv(i, i) = 1.0 / d[i];
         }
-        const StateSpace<5, 2, 2> scaled{.A = S_inv * sys.A * S, .B = S_inv * sys.B, .C = sys.C * S, .Ts = 0.1};
+        const StateSpace scaled{.A = S_inv * sys.A * S, .B = S_inv * sys.B, .C = sys.C * S, .Ts = 0.1};
         for (const auto& model : {sys.as<float>(), scaled.as<float>()}) {
             const auto inv = design::output_inverse<3>(model);
             REQUIRE(inv.success);

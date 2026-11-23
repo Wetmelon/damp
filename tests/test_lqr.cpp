@@ -109,7 +109,7 @@ namespace {
 // u = −K·x settles off the reference without the target's feedforward.
 constexpr StateSpace<2, 1, 2, double> spring_plant() {
     constexpr double Ts = 0.05;
-    return StateSpace<2, 1, 2, double>{
+    return StateSpace{
         .A = Matrix<2, 2>{{1.0, Ts}, {-4.0 * Ts, 1.0 - (0.5 * Ts)}},
         .B = Matrix<2, 1>{{0.0}, {Ts}},
         .C = Matrix<2, 2>::identity(),
@@ -161,7 +161,7 @@ TEST_CASE("design::state_feedback with TrackedOutputs refuses an output it canno
 TEST_CASE("design::state_feedback with TrackedOutputs refuses an output no steady state holds, with more inputs than outputs") {
     // Two parallel input columns on a double integrator: the velocity has no steady state at r ≠ 0
     // with either input, so two redundant inputs are refused like one.
-    const StateSpace<2, 2, 2> sys{
+    const StateSpace sys{
         .A = Matrix<2, 2>{{1.0, 0.1}, {0.0, 1.0}},
         .B = Matrix<2, 2>{{0.005, 0.01}, {0.1, 0.2}},
         .C = Matrix<2, 2>::identity(),
@@ -185,7 +185,7 @@ TEST_CASE("design::state_feedback with TrackedOutputs refuses an output no stead
 
 TEST_CASE("LQRResult::to_ss closed around the plant has the design's poles") {
     // The plant reports its state, the law's input; unity positive feedback closes u = −Kx.
-    const StateSpace<2, 1, 2> sys{
+    const StateSpace sys{
         .A = Matrix<2, 2>{{1.0, 0.1}, {0.0, 1.0}},
         .B = Matrix<2, 1>{{0.005}, {0.1}},
         .C = Matrix<2, 2>::identity(),
@@ -257,7 +257,7 @@ TEST_CASE_TEMPLATE("discretize_lqr_cost and lqr(sys, Ts, w) keep a fast stable m
     const double tol = std::is_same_v<T, float> ? 1e-4 : 1e-9;
     for (const Case& c : cases) {
         CAPTURE(c.a);
-        const StateSpace<2, 1, 1, T>      sys{.A = Matrix<2, 2, T>{{T{-1}, T{1}}, {T{0}, static_cast<T>(c.a)}}, .B = Matrix<2, 1, T>{{T{0}}, {T{1}}}, .C = Matrix<1, 2, T>{{T{1}, T{0}}}};
+        const StateSpace                  sys{.A = Matrix<2, 2, T>{{T{-1}, T{1}}, {T{0}, static_cast<T>(c.a)}}, .B = Matrix<2, 1, T>{{T{0}}, {T{1}}}, .C = Matrix<1, 2, T>{{T{1}, T{0}}}};
         const design::LQRWeights<2, 1, T> w{.Q = Matrix<2, 2, T>::identity(), .R = Matrix<1, 1, T>{{T{1}}}};
         const auto                        cost = design::discretize_lqr_cost(sys.A, sys.B, w.Q, w.R, T{1});
         REQUIRE(cost.has_value());
@@ -365,9 +365,9 @@ TEST_CASE("matlab::dlqr and matlab::lqrd forward to the core names") {
     const Matrix<1, 1> Rc{{1.0}};
     const double       Ts = 0.2;
 
-    StateSpace<2, 1, 2> sys{.A = Ac, .B = Bc, .C = Matrix<2, 2>::identity()};
-    const auto          from_cont = design::state_feedback(sys, Ts, {.Q = Qc, .R = Rc});
-    const auto          via_lqrd = matlab::lqrd(Ac, Bc, Qc, Rc, Ts);
+    StateSpace sys{.A = Ac, .B = Bc, .C = Matrix<2, 2>::identity()};
+    const auto from_cont = design::state_feedback(sys, Ts, {.Q = Qc, .R = Rc});
+    const auto via_lqrd = matlab::lqrd(Ac, Bc, Qc, Rc, Ts);
     REQUIRE(from_cont.success);
     REQUIRE(via_lqrd.success);
     CHECK(via_lqrd.Ts == Ts);
@@ -590,7 +590,7 @@ TEST_SUITE("design::state_feedback dispatch table") {
     }
 
     TEST_CASE("design::state_feedback fails on a non-positive sample time") {
-        const StateSpace<2, 1, 1>      plant{.A = {{0.0, 1.0}, {0.0, 0.0}}, .B = {{0.0}, {1.0}}, .C = {{1.0, 0.0}}};
+        const StateSpace               plant{.A = {{0.0, 1.0}, {0.0, 0.0}}, .B = {{0.0}, {1.0}}, .C = {{1.0, 0.0}}};
         const design::LQRWeights<2, 1> w{.Q = Matrix<2, 2>::identity(), .R = 1.0};
         CHECK_FALSE(design::state_feedback(plant, 0.0, w).success);
         CHECK(design::state_feedback(plant, 0.01, w).success);

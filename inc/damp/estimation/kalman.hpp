@@ -374,7 +374,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
     if (sys.Ts != T{0} || !damp::finite_positive(Ts)) {
         return damp::detail::refused<Result>(DesignStatus::invalid_sample_time); // one discretization, at a valid Ts
     }
-    const auto plant_d = ::damp::discretize(StateSpace<NX, NU, NY, T>{.A = sys.A, .B = sys.B, .C = sys.C, .D = sys.D}, Ts);
+    const auto plant_d = ::damp::discretize(StateSpace{.A = sys.A, .B = sys.B, .C = sys.C, .D = sys.D}, Ts);
     if (!plant_d) {
         return damp::detail::refused<Result>(plant_d.status); // a non-finite A or B, or an overflow
     }
@@ -382,7 +382,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
     if (!Qd) {
         return damp::detail::refused<Result>(DesignStatus::bad_weights); // a non-finite G or noise entry
     }
-    const StateSpace<NX, NU, NY, T, NX, NV> sys_d{
+    const StateSpace sys_d{
         .A = plant_d->A,
         .B = plant_d->B,
         .C = sys.C,

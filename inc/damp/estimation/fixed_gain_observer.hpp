@@ -945,9 +945,9 @@ struct ConstantObserver {
     };
     using Gain = ConstMatrix<kM>; ///< M
 
-    static constexpr ConstMatrix<kLawA>        law_A{};                                                        ///< A on the law's model
-    static constexpr ConstMatrix<kLawB>        law_B{};                                                        ///< B on the law's model
-    static constexpr StateSpace<NX, NU, NY, T> model{.A = kA, .B = kB, .C = kC, .D = kD, .Ts = filter.sys.Ts}; ///< What model() reads
+    static constexpr ConstMatrix<kLawA> law_A{};                                                        ///< A on the law's model
+    static constexpr ConstMatrix<kLawB> law_B{};                                                        ///< B on the law's model
+    static constexpr StateSpace         model{.A = kA, .B = kB, .C = kC, .D = kD, .Ts = filter.sys.Ts}; ///< What model() reads
 };
 
 /** @brief The runtime an observer design runs as: none for anything else. */

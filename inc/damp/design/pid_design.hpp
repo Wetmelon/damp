@@ -1201,7 +1201,7 @@ struct AllPoleTF {
  */
 template<size_t NX, typename T, size_t NW, size_t NV>
 [[nodiscard]] constexpr AllPoleTF<NX, T> all_pole_tf(const StateSpace<NX, 1, 1, T, NW, NV>& sys) {
-    const StateSpace<NX, 1, 1, T> plant{.A = sys.A, .B = sys.B, .C = sys.C, .D = sys.D, .Ts = sys.Ts};
+    const StateSpace plant{.A = sys.A, .B = sys.B, .C = sys.C, .D = sys.D, .Ts = sys.Ts};
     if (plant.Ts != T{0}) {
         return {.status = DesignStatus::invalid_sample_time};
     }

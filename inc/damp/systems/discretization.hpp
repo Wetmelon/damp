@@ -130,7 +130,7 @@ template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, si
     T                                        sampling_time
 ) {
     // A_d = I + A·Ts, B_d = B·Ts; C/D unchanged. Scale G like B when NW > 0.
-    return StateSpace<NX, NU, NY, T, NW, NV>{
+    return StateSpace{
         .A = Matrix<NX, NX, T>::identity() + (sys.A * sampling_time),
         .B = sys.B * sampling_time,
         .C = sys.C,
@@ -196,7 +196,7 @@ template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, si
         return damp::nullopt;
     }
 
-    return StateSpace<NX, NU, NY, T, NW, NV>{
+    return StateSpace{
         .A = leading_rows_block<NX, NX>(*E, 0),
         .B = leading_rows_block<NX, NU>(*E, NX),
         .C = sys.C,
@@ -428,7 +428,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
             }
         }
     }
-    return detail::discretized(StateSpace<NX, NU, NY, T, NW, NV>{
+    return detail::discretized(StateSpace{
         .A = detail::leading_rows_block<NX, NX>(*E, 0),
         .B = detail::leading_rows_block<NX, NU>(*E, NX),
         .C = sys.C,

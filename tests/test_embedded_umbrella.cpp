@@ -19,7 +19,7 @@ using namespace damp;
 TEST_SUITE("Embedded Umbrella") {
     TEST_CASE("damp/control.hpp alone supports compile-time synthesis + runtime control") {
         constexpr auto res = [] {
-            StateSpace<2, 1, 1> sys{
+            StateSpace sys{
                 .A = Matrix<2, 2>{{1.0, 0.1}, {0.0, 1.0}},
                 .B = Matrix<2, 1>{{0.005}, {0.1}},
                 .C = Matrix<1, 2>{{1.0, 0.0}},

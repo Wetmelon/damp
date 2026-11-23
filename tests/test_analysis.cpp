@@ -127,7 +127,7 @@ TEST_CASE("lsim returns empty result when u and time lengths disagree") {
 
 TEST_CASE("discrete step/lsim empty when host grid Ts disagrees with sys.Ts") {
     // Discrete plant at 100 Hz; grid at 50 Hz must not silently re-label steps.
-    StateSpace<1, 1, 1> sys{
+    StateSpace sys{
         .A = Matrix<1, 1>{{0.9}},
         .B = Matrix<1, 1>{{0.1}},
         .C = Matrix<1, 1>{{1.0}},
@@ -229,7 +229,7 @@ TEST_CASE("pzmap of a state matrix returns eigenvalue poles") {
 
 TEST_CASE("pzmap of a state-space system adds the transmission zeros") {
     // (s + 4)/((s + 1)(s + 2)) in companion form
-    const StateSpace<2, 1, 1> sys{
+    const StateSpace sys{
         .A = Matrix<2, 2>{{0.0, 1.0}, {-2.0, -3.0}},
         .B = Matrix<2, 1>{{0.0}, {1.0}},
         .C = Matrix<1, 2>{{4.0, 1.0}},
@@ -350,7 +350,7 @@ TEST_CASE("pzmap ignores leading-zero padding of a TF numerator") {
 }
 
 TEST_CASE("Discrete impulse is the unit-pulse response") {
-    StateSpace<1, 1, 1, double> s{
+    StateSpace s{
         .A = Matrix<1, 1>{{0.5}},
         .B = Matrix<1, 1>{{1.0}},
         .C = Matrix<1, 1>{{1.0}},

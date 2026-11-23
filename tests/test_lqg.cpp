@@ -412,7 +412,7 @@ TEST_SUITE("LQG status") {
     }
 
     TEST_CASE("lqg(sys, Ts, w, noise): a continuous plant with continuous cost and a noise density") {
-        constexpr StateSpace<2, 1, 1, double, 1, 1> continuous{
+        constexpr StateSpace continuous{
             .A = Matrix<2, 2>{{0.0, 1.0}, {0.0, 0.0}},
             .B = Matrix<2, 1>{{0.0}, {1.0}},
             .C = Matrix<1, 2>{{1.0, 0.0}},
@@ -466,7 +466,7 @@ TEST_SUITE("LQG status") {
         CHECK(ok.success);
         CHECK(ok.status == design::DesignStatus::ok);
 
-        constexpr StateSpace<2, 1, 1> continuous{
+        constexpr StateSpace continuous{
             .A = Matrix<2, 2>{{0.0, 1.0}, {0.0, 0.0}},
             .B = Matrix<2, 1>{{0.0}, {1.0}},
             .C = Matrix<1, 2>{{1.0, 0.0}},

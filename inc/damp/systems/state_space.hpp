@@ -229,6 +229,14 @@ StateSpace(Matrix<NX, NX, T>, Matrix<NX, NU, T>, Matrix<NY, NX, T>, T) -> StateS
 template<size_t NX, size_t NU, size_t NY, typename T>
 StateSpace(Matrix<NX, NX, T>, Matrix<NX, NU, T>, Matrix<NY, NX, T>, Matrix<NY, NU, T>, T) -> StateSpace<NX, NU, NY, T>;
 
+/** @brief Sizes, noise inputs and scalar type from Matrix members (A, B, C, G, H). */
+template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
+StateSpace(Matrix<NX, NX, T>, Matrix<NX, NU, T>, Matrix<NY, NX, T>, Matrix<NX, NW, T>, Matrix<NY, NV, T>) -> StateSpace<NX, NU, NY, T, NW, NV>;
+
+/** @brief Sizes, noise inputs and scalar type from Matrix members (A, B, C, G, H) and Ts. */
+template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
+StateSpace(Matrix<NX, NX, T>, Matrix<NX, NU, T>, Matrix<NY, NX, T>, Matrix<NX, NW, T>, Matrix<NY, NV, T>, T) -> StateSpace<NX, NU, NY, T, NW, NV>;
+
 /** @brief Sizes, noise inputs and scalar type from Matrix members (A, B, C, D, G, H). */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
 StateSpace(Matrix<NX, NX, T>, Matrix<NX, NU, T>, Matrix<NY, NX, T>, Matrix<NY, NU, T>, Matrix<NX, NW, T>, Matrix<NY, NV, T>)

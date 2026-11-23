@@ -287,7 +287,7 @@ TEST_CASE("StateSpace Negative Feedback") {
 TEST_CASE("StateSpace feedback static gain K=2 closes pole at -3") {
     // Plant G(s) = 1/(s+1); negative feedback of static gain K=2
     // Closed loop: G/(1+KG) = 1/(s+3), pole at -3
-    StateSpace<1, 1, 1> plant{
+    StateSpace plant{
         .A = {{-1.0}},
         .B = {{1.0}},
         .C = {{1.0}},
@@ -363,8 +363,8 @@ TEST_CASE("StateSpace Constexpr") {
 }
 
 TEST_CASE("StateSpace interconnect rejects mismatched sample times") {
-    StateSpace<1, 1, 1> cont{.A = {{-1.0}}, .B = {{1.0}}, .C = {{1.0}}, .Ts = 0.0};
-    StateSpace<1, 1, 1> disc{.A = {{-0.9}}, .B = {{1.0}}, .C = {{1.0}}, .Ts = 0.01};
+    StateSpace cont{.A = {{-1.0}}, .B = {{1.0}}, .C = {{1.0}}, .Ts = 0.0};
+    StateSpace disc{.A = {{-0.9}}, .B = {{1.0}}, .C = {{1.0}}, .Ts = 0.01};
     CHECK_FALSE(series(cont, disc).has_value());
     CHECK_FALSE(parallel(cont, disc).has_value());
     CHECK_FALSE(feedback(cont, disc).has_value());
@@ -372,8 +372,8 @@ TEST_CASE("StateSpace interconnect rejects mismatched sample times") {
 
 TEST_CASE("StateSpace feedback rejects singular algebraic loop") {
     // D1 = 1, D2 = -1 ⇒ I + D2 D1 = 0 (singular)
-    StateSpace<1, 1, 1> sys1{.A = {{-1.0}}, .B = {{1.0}}, .C = {{1.0}}, .D = {{1.0}}};
-    StateSpace<1, 1, 1> sys2{.A = {{-2.0}}, .B = {{1.0}}, .C = {{1.0}}, .D = {{-1.0}}};
+    StateSpace sys1{.A = {{-1.0}}, .B = {{1.0}}, .C = {{1.0}}, .D = {{1.0}}};
+    StateSpace sys2{.A = {{-2.0}}, .B = {{1.0}}, .C = {{1.0}}, .D = {{-1.0}}};
     CHECK_FALSE(feedback(sys1, sys2).has_value());
 }
 
@@ -381,7 +381,7 @@ TEST_CASE("feedback refuses an algebraic loop lost to cancellation, relative to 
     const double eps = std::numeric_limits<double>::epsilon();
     for (const double scale : {1.0, 1048576.0}) {
         CAPTURE(scale);
-        const StateSpace<1, 1, 1> sys1{.A = {{-1.0}}, .B = {{1.0}}, .C = {{1.0}}, .D = {{scale}}};
+        const StateSpace sys1{.A = {{-1.0}}, .B = {{1.0}}, .C = {{1.0}}, .D = {{scale}}};
         CHECK_FALSE(feedback(sys1, ss_gain(-(1.0 + (4.0 * eps)) / scale)).has_value()); // 1 + D₂D₁ = −4·eps (LU alone accepts it)
         CHECK_FALSE(feedback(sys1, ss_gain((-1.0 + 1e-15) / scale)).has_value());
         const auto ok = feedback(sys1, ss_gain(-0.25 / scale)); // well posed: 1 + D₂D₁ = 3/4
@@ -393,8 +393,8 @@ TEST_CASE("feedback refuses an algebraic loop lost to cancellation, relative to 
 TEST_CASE("feedback accepts MIMO loops whose channels do not interact, whatever their gains") {
     //! The scale is the size of the terms D₂·D₁ is formed from, not ‖D₂‖·‖D₁‖.
     const auto loop = []<typename T>(T d1a, T d1b, T d2a, T d2b) {
-        const StateSpace<1, 2, 2, T> plant{.A = {{T{-1}}}, .B = {{T{1}, T{1}}}, .C = {{T{1}}, {T{1}}}, .D = {{d1a, T{0}}, {T{0}, d1b}}};
-        const StateSpace<1, 2, 2, T> ctrl{.A = {{T{-2}}}, .B = {{T{1}, T{1}}}, .C = {{T{1}}, {T{1}}}, .D = {{d2a, T{0}}, {T{0}, d2b}}};
+        const StateSpace plant{.A = {{T{-1}}}, .B = {{T{1}, T{1}}}, .C = {{T{1}}, {T{1}}}, .D = {{d1a, T{0}}, {T{0}, d1b}}};
+        const StateSpace ctrl{.A = {{T{-2}}}, .B = {{T{1}, T{1}}}, .C = {{T{1}}, {T{1}}}, .D = {{d2a, T{0}}, {T{0}, d2b}}};
         return feedback(plant, ctrl);
     };
     CHECK(loop(1e7, 0.0, 0.0, 1e7).has_value());                                                                 // D₂D₁ = 0
@@ -405,10 +405,10 @@ TEST_CASE("feedback accepts MIMO loops whose channels do not interact, whatever 
 
 TEST_CASE("StateSpace * matches MATLAB series order") {
     // MATLAB: sys1*sys2 ≡ series(sys2, sys1) ≡ u → sys2 → sys1
-    StateSpace<1, 1, 1> a{.A = {{-1.0}}, .B = {{1.0}}, .C = {{1.0}}};
-    StateSpace<1, 1, 1> b{.A = {{-2.0}}, .B = {{1.0}}, .C = {{1.0}}};
-    auto                via_star = *(a * b);
-    auto                via_series = *series(b, a);
+    StateSpace a{.A = {{-1.0}}, .B = {{1.0}}, .C = {{1.0}}};
+    StateSpace b{.A = {{-2.0}}, .B = {{1.0}}, .C = {{1.0}}};
+    auto       via_star = *(a * b);
+    auto       via_series = *series(b, a);
     CHECK(via_star.A(0, 0) == doctest::Approx(via_series.A(0, 0)));
     CHECK(via_star.A(1, 1) == doctest::Approx(via_series.A(1, 1)));
 }
@@ -475,7 +475,7 @@ TEST_CASE("series and parallel preserve process/measurement noise G/H") {
 }
 
 TEST_CASE("select slices a MIMO plant") {
-    constexpr StateSpace<1, 1, 2> P{
+    constexpr StateSpace P{
         .A = {{-1.0}},
         .B = {{1.0}},
         .C = {{1.0}, {2.0}},
@@ -491,7 +491,7 @@ TEST_CASE("select slices a MIMO plant") {
 
 TEST_CASE("mix of y into u is G/(1-G)") {
     // G = 1/(s+1), two identical outputs. v = u + y0 ⇒ y0/u = 1/s.
-    constexpr StateSpace<1, 1, 2> P{
+    constexpr StateSpace P{
         .A = {{-1.0}},
         .B = {{1.0}},
         .C = {{1.0}, {1.0}},
@@ -557,7 +557,7 @@ TEST_CASE("feedback_read closes the loop on G_loop and reads G_out, noise map in
 TEST_CASE("ss_gain / mix_outputs are constexpr") {
     constexpr auto K = ss_gain(3.0);
     static_assert(K.D(0, 0) == 3.0);
-    constexpr StateSpace<1, 1, 2> P{
+    constexpr StateSpace P{
         .A = {{-1.0}},
         .B = {{1.0}},
         .C = {{1.0}, {4.0}},
@@ -673,14 +673,14 @@ TEST_SUITE("lft (lower linear fractional transformation)") {
 
     TEST_CASE("a 2-input / 2-output plant matches python-control's lft (MATLAB's lft convention)") {
         //! P: [w; u] → [z; y]; K: y → u with feedthrough, so W = 1/(1 − D22·DK) = 1/1.28.
-        constexpr StateSpace<2, 2, 2> P{
+        constexpr StateSpace P{
             .A = {{0.0, 1.0}, {-2.0, -0.5}},
             .B = {{0.0, 0.0}, {1.0, 2.0}},
             .C = {{1.0, 0.0}, {0.5, 1.0}},
             .D = {{0.1, 0.2}, {0.3, 0.4}},
         };
-        constexpr StateSpace<1, 1, 1> K{.A = {{-3.0}}, .B = {{1.5}}, .C = {{-2.0}}, .D = {{-0.7}}};
-        constexpr auto                closed = lft(P, K);
+        constexpr StateSpace K{.A = {{-3.0}}, .B = {{1.5}}, .C = {{-2.0}}, .D = {{-0.7}}};
+        constexpr auto       closed = lft(P, K);
         static_assert(closed.has_value() && closed->Ts == 0.0);
 
         //! control.ss(A, B, C, D).lft(control.ss(AK, BK, CK, DK)), python-control 0.10.2.
@@ -703,7 +703,7 @@ TEST_SUITE("lft (lower linear fractional transformation)") {
     TEST_CASE("lft refuses an ill-posed loop and mismatched sample times") {
         //! w and u both drive the one state; z = y = x, and y also reads u through D22.
         const auto check_loops = [](double d22_scale) {
-            StateSpace<1, 2, 2> P{.A = {{-1.0}}, .B = {{1.0, 1.0}}, .C = {{1.0}, {1.0}}, .D = {{0.0, 0.0}, {0.0, d22_scale}}};
+            StateSpace          P{.A = {{-1.0}}, .B = {{1.0, 1.0}}, .C = {{1.0}, {1.0}}, .D = {{0.0, 0.0}, {0.0, d22_scale}}};
             StateSpace<0, 1, 1> K{};
             const double        eps = std::numeric_limits<double>::epsilon();
 
@@ -721,8 +721,8 @@ TEST_SUITE("lft (lower linear fractional transformation)") {
         //! D22 scaled by 2²⁰ and DK by 2⁻²⁰: the same verdicts, the test is relative to the data.
         check_loops(1048576.0);
 
-        const StateSpace<1, 2, 2> P{.A = {{-1.0}}, .B = {{1.0, 1.0}}, .C = {{1.0}, {1.0}}};
-        const StateSpace<1, 1, 1> K_discrete{.A = {{0.5}}, .B = {{1.0}}, .C = {{1.0}}, .Ts = 0.01};
+        const StateSpace P{.A = {{-1.0}}, .B = {{1.0, 1.0}}, .C = {{1.0}, {1.0}}};
+        const StateSpace K_discrete{.A = {{0.5}}, .B = {{1.0}}, .C = {{1.0}}, .Ts = 0.01};
         CHECK_FALSE(lft(P, K_discrete).has_value());
     }
 }
@@ -757,14 +757,14 @@ TEST_CASE("series does not route measurement noise into process-noise columns") 
 }
 
 TEST_CASE("sample-time match is relative") {
-    const StateSpace<1, 1, 1> a{.A = {{0.5}}, .B = {{1.0}}, .C = {{1.0}}, .Ts = 1e-13};
-    const StateSpace<1, 1, 1> b{.A = {{0.5}}, .B = {{1.0}}, .C = {{1.0}}, .Ts = 2e-13};
+    const StateSpace a{.A = {{0.5}}, .B = {{1.0}}, .C = {{1.0}}, .Ts = 1e-13};
+    const StateSpace b{.A = {{0.5}}, .B = {{1.0}}, .C = {{1.0}}, .Ts = 2e-13};
     CHECK_FALSE(series(a, b).has_value());
 }
 
 TEST_CASE("mix accepts a high but finite algebraic-loop gain") {
     // v = u + y with D = 1 − 1e-10: 1 − D is small but not lost to roundoff.
-    const StateSpace<1, 1, 1> P{.A = {{-1.0}}, .B = {{1.0}}, .C = {{1.0}}, .D = {{1.0 - 1e-13}}};
-    const auto                m = mix(P, 0, 1.0, damp::array<SsFeed<double>, 1>{SsFeed<double>{0, 1.0}});
+    const StateSpace P{.A = {{-1.0}}, .B = {{1.0}}, .C = {{1.0}}, .D = {{1.0 - 1e-13}}};
+    const auto       m = mix(P, 0, 1.0, damp::array<SsFeed<double>, 1>{SsFeed<double>{0, 1.0}});
     CHECK(m.has_value());
 }

@@ -27,7 +27,7 @@ namespace {
 constexpr double Ts = 0.1;
 
 /// The state measured; the position is the controlled output the tests track and bound.
-constexpr StateSpace<2, 1, 1> double_integrator{
+constexpr StateSpace double_integrator{
     .A = {{1.0, Ts}, {0.0, 1.0}},
     .B = {{0.5 * Ts * Ts}, {Ts}},
     .C = {{1.0, 0.0}},
@@ -35,7 +35,7 @@ constexpr StateSpace<2, 1, 1> double_integrator{
 };
 
 /// Every state a controlled output (C = I), for the LQR-equivalence test.
-constexpr StateSpace<2, 1, 2> double_integrator_full{
+constexpr StateSpace double_integrator_full{
     .A = {{1.0, Ts}, {0.0, 1.0}},
     .B = {{0.5 * Ts * Ts}, {Ts}},
     .C = {{1.0, 0.0}, {0.0, 1.0}},
@@ -66,7 +66,7 @@ design::MPCConstraints<1, 1> unit_box(bool hard) {
 }
 
 /// The four-state plant: two double integrators, the state measured; both positions tracked and bounded.
-constexpr StateSpace<4, 2, 2> two_axes{
+constexpr StateSpace two_axes{
     .A = {{1.0, Ts, 0.0, 0.0}, {0.0, 1.0, 0.0, 0.0}, {0.0, 0.0, 1.0, Ts}, {0.0, 0.0, 0.0, 1.0}},
     .B = {{0.5 * Ts * Ts, 0.0}, {Ts, 0.0}, {0.0, 0.5 * Ts * Ts}, {0.0, Ts}},
     .C = {{1.0, 0.0, 0.0, 0.0}, {0.0, 0.0, 1.0, 0.0}},

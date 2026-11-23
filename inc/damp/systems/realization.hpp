@@ -342,7 +342,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
         return detail::set_status(out, Status::singular);
     }
     out.transform = *Xinv;
-    out.sys = StateSpace<NX, NU, NY, T, NW, NV>{
+    out.sys = StateSpace{
         .A = Am,
         .B = *Bm,
         .C = sys.C * X,
@@ -378,7 +378,7 @@ similarity_transform(const StateSpace<NX, NU, NY, T, NW, NV>& sys, const Matrix<
         return detail::set_status(out, design::DesignStatus::singular);
     }
     out.transform = transform;
-    out.sys = StateSpace<NX, NU, NY, T, NW, NV>{
+    out.sys = StateSpace{
         .A = ATinvT->transpose(),
         .B = transform * sys.B,
         .C = CTinvT->transpose(),
@@ -532,7 +532,7 @@ template<size_t NX, typename T, size_t NW, size_t NV>
         return detail::set_status(out, design::DesignStatus::singular);
     }
     out.transform = Tt->transpose();
-    out.sys = StateSpace<NX, 1, 1, T, NW, NV>{
+    out.sys = StateSpace{
         .A = Ac,
         .B = en,
         .C = CcT->transpose(),
@@ -580,7 +580,7 @@ template<size_t NX, typename T, size_t NW, size_t NV>
         return detail::set_status(out, design::DesignStatus::singular);
     }
     out.transform = *Tm;
-    out.sys = StateSpace<NX, 1, 1, T, NW, NV>{
+    out.sys = StateSpace{
         .A = Ao,
         .B = out.transform * sys.B,
         .C = en.transpose(),
@@ -623,7 +623,7 @@ template<size_t NX, typename T, size_t NW, size_t NV>
     }
     const Matrix<NX, NX, T> Az = detail::phase_variable_A(*alpha).transpose();
     out.transform = *Winv;
-    out.sys = StateSpace<NX, 1, 1, T, NW, NV>{
+    out.sys = StateSpace{
         .A = Az,
         .B = detail::unit_column<NX, T>(0),
         .C = sys.C * Wc,
@@ -856,7 +856,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
     };
     const auto                                 d = controllability_staircase(dual);
     StaircaseFormResult<NX, NU, NY, T, NW, NV> out{};
-    out.sys = StateSpace<NX, NU, NY, T, NW, NV>{
+    out.sys = StateSpace{
         .A = d.sys.A.transpose(),
         .B = d.sys.C.transpose(),
         .C = d.sys.B.transpose(),

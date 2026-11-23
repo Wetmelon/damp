@@ -122,8 +122,8 @@ TEST_SUITE("Cached ZOH") {
     }
 
     TEST_CASE("simulate_cached_zoh over a span never steps past tf") {
-        const StateSpace<1, 1, 1> sys{.A = Matrix<1, 1>{{-1.0}}, .B = Matrix<1, 1>{{1.0}}, .C = Matrix<1, 1>{{1.0}}, .Ts = 0.0};
-        const auto                sim = simulate_cached_zoh(sys, ColVec<1>{0.0}, ColVec<1>{1.0}, {0.0, 1.0}, 0.4);
+        const StateSpace sys{.A = Matrix<1, 1>{{-1.0}}, .B = Matrix<1, 1>{{1.0}}, .C = Matrix<1, 1>{{1.0}}, .Ts = 0.0};
+        const auto       sim = simulate_cached_zoh(sys, ColVec<1>{0.0}, ColVec<1>{1.0}, {0.0, 1.0}, 0.4);
         CHECK(sim.t.back() <= 1.0);
         CHECK(sim.t.size() == 3); // 0, 0.4, 0.8
         const auto exact = simulate_cached_zoh(sys, ColVec<1>{0.0}, ColVec<1>{1.0}, {0.0, 0.3}, 0.1);
