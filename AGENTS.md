@@ -118,7 +118,10 @@ the repo root.
   `InputDelay`, `IntegralAction`, `TrackedOutputs`, `LQRLimits`, `DemandLimit`, `StateLimits`,
   a disturbance spec, …), at most one of each kind, in any order, refused at
   compile time otherwise. What the gain does not depend on is an option, not a
-  weight: an LQ design's limits are `LQRLimits{.u_lim}` and a `DemandLimit`. The
+  weight: an LQ design's limits are `LQRLimits{.u_lim}` and a `DemandLimit`. A
+  delay is an option of every sampled design (`InputDelay<N>{θ}` with the
+  continuous plant and `Ts`), the runtime holding or filtering its delay states;
+  a model with the delay built in is the plant route, for a model one holds. The
   options pick the law: `state_feedback` is LQR, LQI with an `IntegralAction`,
   LQG with a `KalmanNoise`, LQGI or OFLQG with both; `mpc` is MPC, or OFMPC with
   a noise and a disturbance spec. An option carries its own numbers, so the

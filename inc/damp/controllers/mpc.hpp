@@ -892,6 +892,8 @@ struct MpcContinuousCost {
     Matrix<NY, NU, T>   D{};       ///< Their feedthrough
     T                   Ts{0};     ///< Period [s]
     bool                on{false}; ///< Whether the design is from the continuous plant
+
+    damp::array<::damp::detail::RegisterDelay<T>, NU> inputs{}; ///< Each input's delay, d·Ts + τ (none: zero)
 };
 
 /**
@@ -962,6 +964,128 @@ template<size_t NXP, size_t NU, size_t NY, size_t ND, typename T>
     return (W + W.transpose()) * static_cast<T>(0.5);
 }
 
+/**
+ * @brief mpc_period_cost on a plant whose input arrives late: the output cost of one period as a
+ *        quadratic form on s = [z; u′; d; r′], z = [x; v(k−1); …; v(k−N)] the delayed model's state
+ *
+ * Within the period input j holds v_j(k − d_j − 1) until its switch at τ_j, then v_j(k − d_j), the
+ * command u′ itself when d_j = 0 (discretize with an InputDelay). The switches cut the period
+ * into stretches over which every input holds one value. Over each, Van Loan gives the exact
+ * cost of [x; d; r′] from the stretch's start under the held value, and the exponential carries
+ * the start to the next stretch. The start and the held values are linear maps of s, so the
+ * stretches sum to a quadratic form on it, as delayed_cost does for the LQ designs.
+ */
+template<size_t NX, size_t NXP, size_t NU, size_t NY, size_t ND, typename T>
+[[nodiscard]] constexpr damp::optional<Matrix<NX + NU + ND + NY, NX + NU + ND + NY, T>> mpc_delayed_period_cost(
+    const MpcContinuousCost<NXP, NU, NY, ND, T>& plant,
+    const Matrix<NY, NY, T>&                     Qy,
+    const ColVec<NU, T>&                         scale_u,
+    const ColVec<NY, T>&                         scale_y
+) {
+    constexpr size_t    NPS = NXP + ND + NY;    // p = [x; d; r′], d and r′ held
+    constexpr size_t    NW = NPS + NU;          // w = [p; v], v the input the plant holds
+    constexpr size_t    NS = NX + NU + ND + NY; // s = [z; u′; d; r′]
+    Matrix<NPS, NPS, T> Ap{};
+    Ap.template block<NXP, NXP>(0, 0) = plant.A;
+    Ap.template block<NXP, ND>(0, NXP) = plant.Bd;
+    Matrix<NPS, NU, T> Bp{};
+    Bp.template block<NXP, NU>(0, 0) = plant.B;
+    Matrix<NY, NPS, T> E{};
+    Matrix<NY, NU, T>  Ds{};
+    for (size_t i = 0; i < NY; ++i) {
+        for (size_t j = 0; j < NXP; ++j) {
+            E(i, j) = plant.C(i, j) / scale_y(i);
+        }
+        E(i, NXP + ND + i) = T{-1};
+        for (size_t j = 0; j < NU; ++j) {
+            Ds(i, j) = plant.D(i, j) / scale_y(i);
+        }
+    }
+    const Matrix<NPS, NY, T>  EtQ = E.transpose() * Qy;
+    const Matrix<NPS, NPS, T> Qp = EtQ * E;
+    const Matrix<NU, NU, T>   Rp = Ds.transpose() * (Qy * Ds);
+    const Matrix<NPS, NU, T>  Np = EtQ * Ds;
+    Matrix<NW, NW, T>         flow{}; // d/dt [p; v] = [Ap·p + Bp·v; 0]
+    flow.template block<NPS, NPS>(0, 0) = Ap;
+    flow.template block<NPS, NU>(0, NPS) = Bp;
+
+    //! The stretches: 0, each switch once in time order, then Ts.
+    damp::array<T, NU + 2> edge{};
+    size_t                 cuts = 1;
+    for (size_t j = 0; j < NU; ++j) {
+        const T tau = plant.inputs[j].fraction;
+        bool    seen = !(tau > T{0});
+        for (size_t c = 1; c < cuts; ++c) {
+            seen = seen || (edge[c] == tau);
+        }
+        if (!seen) {
+            size_t c = cuts++;
+            for (; c > 1 && edge[c - 1] > tau; --c) {
+                edge[c] = edge[c - 1];
+            }
+            edge[c] = tau;
+        }
+    }
+    edge[cuts] = plant.Ts;
+
+    //! p at the period's start as a map of s: the plant's states of z, d and r′
+    Matrix<NPS, NS, T> start{};
+    for (size_t i = 0; i < NXP; ++i) {
+        start(i, i) = T{1};
+    }
+    for (size_t j = 0; j < ND + NY; ++j) {
+        start(NXP + j, NX + NU + j) = T{1};
+    }
+    Matrix<NS, NS, T> total{};
+    for (size_t c = 0; c < cuts; ++c) {
+        const T a = edge[c];
+        const T h = edge[c + 1] - a;
+        if (!(h > T{0})) {
+            continue;
+        }
+        Matrix<NW, NS, T> M{}; // [p; v] at the stretch's start
+        M.template block<NPS, NS>(0, 0) = start;
+        for (size_t j = 0; j < NU; ++j) {
+            const bool   before = plant.inputs[j].fraction > T{0} && a < plant.inputs[j].fraction;
+            const size_t age = plant.inputs[j].whole + (before ? 1 : 0);
+            if (age == 0) {
+                M(NPS + j, NX + j) = scale_u(j); // the command itself, u = S_u·u′
+            } else {
+                M(NPS + j, NXP + ((age - 1) * NU) + j) = T{1}; // a delay state, in physical units
+            }
+        }
+        const auto c_opt = discretize_lqr_cost(Ap, Bp, Qp, Rp, h, Np);
+        const auto F = mat::expm(Matrix<NW, NW, T>(flow * h));
+        if (!c_opt || !F) {
+            return damp::nullopt;
+        }
+        Matrix<NW, NW, T> Wp{};
+        Wp.template block<NPS, NPS>(0, 0) = c_opt->Q;
+        Wp.template block<NPS, NU>(0, NPS) = c_opt->N;
+        Wp.template block<NU, NPS>(NPS, 0) = c_opt->N.transpose();
+        Wp.template block<NU, NU>(NPS, NPS) = c_opt->R;
+        total = total + (M.transpose() * (Wp * M));
+        start = Matrix<NPS, NW, T>(F->template block<NPS, NW>(0, 0)) * M; // p at the next stretch's start
+    }
+    return (total + total.transpose()) * static_cast<T>(0.5);
+}
+
+/** @brief The output cost of one period on the law's model of @p NX states: the plant's own (mpc_period_cost), or the delayed one when the model carries delay states. */
+template<size_t NX, size_t NXP, size_t NU, size_t NY, size_t ND, typename T>
+[[nodiscard]] constexpr damp::optional<Matrix<NX + NU + ND + NY, NX + NU + ND + NY, T>> mpc_model_period_cost(
+    const MpcContinuousCost<NXP, NU, NY, ND, T>& plant,
+    const Matrix<NY, NY, T>&                     Qy,
+    const ColVec<NU, T>&                         scale_u,
+    const ColVec<NY, T>&                         scale_y
+) {
+    if constexpr (NX == NXP) {
+        return mpc_period_cost(plant, Qy, scale_u, scale_y);
+    } else {
+        static_assert(NX > NXP && (NX - NXP) % NU == 0, "The law's model is the plant, then the delay states of its inputs.");
+        return mpc_delayed_period_cost<NX>(plant, Qy, scale_u, scale_y);
+    }
+}
+
 /** @brief The output part of the stage cost on the law's state and the scaled input (r′ = 0, d = 0), from a period cost on [x; u′; d; r′]. */
 template<size_t NX, size_t NU, size_t NS, typename T>
 [[nodiscard]] constexpr MpcStageCost<NX, NU, T> mpc_stage_of(const Matrix<NS, NS, T>& W) {
@@ -1009,9 +1133,8 @@ template<size_t NP, size_t NC, size_t NXP, size_t NX, size_t NU, size_t NY, size
         art.F_r = T{2} * QG.transpose();
         return true;
     }
-    static_assert(NX == NXP, "The prediction model is the plant.");
-    const auto W_opt = mpc_period_cost(plant, weights.Qy, art.scale_u, art.scale_y);
-    const auto W_last_opt = dare_on ? W_opt : mpc_period_cost(plant, weights.Qy_terminal, art.scale_u, art.scale_y);
+    const auto W_opt = mpc_model_period_cost<NX>(plant, weights.Qy, art.scale_u, art.scale_y);
+    const auto W_last_opt = dare_on ? W_opt : mpc_model_period_cost<NX>(plant, weights.Qy_terminal, art.scale_u, art.scale_y);
     if (!W_opt || !W_last_opt) {
         return false;
     }
@@ -1265,7 +1388,7 @@ template<size_t NP, size_t NC, size_t ND, size_t NT_max = 0, size_t NX, size_t N
         Gamma_z.template block<NU, NU>(NX, j * NU) = Matrix<NU, NU, T>::identity();
     }
     if (dare_on) {
-        const auto stage = plant.on ? mpc_stage_of<NX, NU>(*mpc_period_cost(plant, weights.Qy, art.scale_u, art.scale_y)) // formed above
+        const auto stage = plant.on ? mpc_stage_of<NX, NU>(*mpc_model_period_cost<NX>(plant, weights.Qy, art.scale_u, art.scale_y)) // formed above
                                     : MpcStageCost<NX, NU, T>{.Q_x = Cs.transpose() * (weights.Qy * Cs)};
         const auto st = mpc_dare_lqr(sys.A, Bs, stage, Rdu, Ru, art.P, art.K_terminal);
         if (st != DesignStatus::ok) {
@@ -1413,8 +1536,11 @@ MeasuredDisturbance(Matrix<NX, NM, T>) -> MeasuredDisturbance<NX, NM, T>;
  * @tparam Estimator design::kalman's result with the design's options, or NoEstimator when the
  *                   measurement is the state
  * @tparam Target    SteadyStateTargetResult on the estimator's model (the law's without one)
+ * @tparam NRU       Delay states the runtime holds per input: a measured-state MPC on a plant whose
+ *                   input arrives late (InputDelay), NRU·NU states after the plant's (0: none; a
+ *                   filter carries its own)
  */
-template<typename Law, typename Estimator, typename Target>
+template<typename Law, typename Estimator, typename Target, size_t NRU = 0>
 struct [[nodiscard]] MPCResult {
     Law                             mpc{};                               ///< The Δu QP on the law's model
     [[no_unique_address]] Estimator kalman{};                            ///< The filter's design (nothing when the measurement is the state)
@@ -1433,7 +1559,7 @@ struct [[nodiscard]] MPCResult {
         using TargetU = decltype(target.template as<U>());
         const LawU         law = mpc.template as<U>();
         const DesignStatus st = (status == DesignStatus::ok) ? law.status : status;
-        return MPCResult<LawU, EstimatorU, TargetU>{law, kalman.template as<U>(), target.template as<U>(), st == DesignStatus::ok, st};
+        return MPCResult<LawU, EstimatorU, TargetU, NRU>{law, kalman.template as<U>(), target.template as<U>(), st == DesignStatus::ok, st};
     }
 };
 
@@ -1473,7 +1599,7 @@ struct is_measured_disturbance<MeasuredDisturbance<NX, NM, T>> : damp::true_type
 
 /** @brief The options design::mpc takes after the weights. */
 using mpc_options = ::damp::detail::option_set<
-    is_mpc_constraints, is_kalman_noise, is_disturbance, is_measured_disturbance, is_state_limits>;
+    is_mpc_constraints, is_kalman_noise, is_disturbance, is_measured_disturbance, is_state_limits, is_input_delay>;
 
 /** @brief Whether a design::mpc call has an estimator: a KalmanNoise among its options. */
 template<typename... Opts>
@@ -1546,14 +1672,15 @@ template<size_t NZ, typename T, typename Art>
  */
 template<bool Discrete, size_t NZ, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t ND>
 [[nodiscard]] constexpr MpcContinuousCost<NX, NU, NZ, ND, T> mpc_continuous_cost(
-    const StateSpace<NX, NU, NY, T, NW, NV>& sys,
-    const damp::array<size_t, NZ>&           rows,
-    const Matrix<NX, ND, T>&                 Bd_c,
-    T                                        Ts
+    const StateSpace<NX, NU, NY, T, NW, NV>&                 sys,
+    const damp::array<size_t, NZ>&                           rows,
+    const Matrix<NX, ND, T>&                                 Bd_c,
+    T                                                        Ts,
+    const damp::array<::damp::detail::RegisterDelay<T>, NU>& inputs = {}
 ) {
     MpcContinuousCost<NX, NU, NZ, ND, T> out{};
     if constexpr (!Discrete) {
-        out = MpcContinuousCost<NX, NU, NZ, ND, T>{.A = sys.A, .B = sys.B, .Bd = Bd_c, .Ts = Ts, .on = true};
+        out = MpcContinuousCost<NX, NU, NZ, ND, T>{.A = sys.A, .B = sys.B, .Bd = Bd_c, .Ts = Ts, .on = true, .inputs = inputs};
         for (size_t i = 0; i < NZ; ++i) {
             for (size_t j = 0; j < NX; ++j) {
                 out.C(i, j) = sys.C(rows[i], j);
@@ -1567,8 +1694,22 @@ template<bool Discrete, size_t NZ, size_t NX, size_t NU, size_t NY, typename T, 
         static_cast<void>(rows);
         static_cast<void>(Bd_c);
         static_cast<void>(Ts);
+        static_cast<void>(inputs);
     }
     return out;
+}
+
+/** @brief Each input's delay as discretize split it, d·Ts + τ: none without an InputDelay. */
+template<size_t NU, typename T, typename Delay>
+[[nodiscard]] constexpr damp::array<::damp::detail::RegisterDelay<T>, NU> input_delays_of(const Delay& delay, T Ts) {
+    if constexpr (is_input_delay<Delay>::value) {
+        const auto split = ::damp::detail::channel_register_delays<NU>(delay.seconds, Ts, delay_registers<Delay>);
+        return split ? *split : damp::array<::damp::detail::RegisterDelay<T>, NU>{}; // sampled_model refused a delay discretize does not take
+    } else {
+        static_cast<void>(delay);
+        static_cast<void>(Ts);
+        return {};
+    }
 }
 
 /**
@@ -1576,20 +1717,21 @@ template<bool Discrete, size_t NZ, size_t NX, size_t NU, size_t NY, typename T, 
  *        the QP on the plant's model, the
  *        measured-disturbance channel, and the nominal target.
  */
-template<bool Discrete, size_t NP, size_t NC, size_t NT_max, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NXC, size_t NXD, size_t NM>
+template<bool Discrete, size_t NP, size_t NC, size_t NT_max, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NXC, size_t NXD, size_t NM, typename Delay = NoDelay>
 [[nodiscard]] constexpr auto mpc_measured(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     T                                        Ts,
     const MPCWeights<NU, NY, T>&             weights,
     const MPCConstraintSet<NU, NY, T, NXC>&  constraints,
-    const MeasuredDisturbance<NXD, NM, T>&   measured
+    const MeasuredDisturbance<NXD, NM, T>&   measured,
+    const Delay&                             delay = Delay{}
 ) {
     static_assert(NM == 0 || NXD == NX, "The measured disturbance enters the plant's states: MeasuredDisturbance<NX, NM>.");
-    constexpr size_t NXL = NX;
+    constexpr size_t NXL = NX + (delay_registers<Delay> * NU); // the plant, then the delay states
     using Law = MPCArtifacts<NXL, NU, NY, NP, NC, NM, T, NT_max, NXC>;
     using Target = SteadyStateTargetResult<NXL, NU, NM, NY, T>;
-    using Result = MPCResult<Law, NoEstimator, Target>;
-    const auto m = sampled_model(sys, Ts, Discrete);
+    using Result = MPCResult<Law, NoEstimator, Target, delay_registers<Delay>>; // the runtime holds the delay states
+    const auto m = sampled_model(sys, Ts, Discrete, delay);
     if (m.status != DesignStatus::ok) {
         return ::damp::detail::refused<Result>(m.status);
     }
@@ -1608,7 +1750,7 @@ template<bool Discrete, size_t NP, size_t NC, size_t NT_max, size_t NX, size_t N
         static_cast<void>(measured);
     }
     Result     out{};
-    const auto cost = mpc_continuous_cost<Discrete>(sys, *selected_outputs<NY>(damp::array<size_t, 0>{}), measured.Bd, Ts);
+    const auto cost = mpc_continuous_cost<Discrete>(sys, *selected_outputs<NY>(damp::array<size_t, 0>{}), measured.Bd, Ts, input_delays_of<NU>(delay, Ts));
     out.mpc = mpc_impl<NP, NC, NM, NT_max>(m.law, Bd, Matrix<NY, NM, T>{}, weights, constraints, cost);
     out.target = nominal_target(m.law, m.law.C, m.law.D, physical_output_weight(weights.Qy, out.mpc), Bd);
     return ::damp::detail::set_status(out, out.mpc.status);
@@ -1621,26 +1763,27 @@ template<bool Discrete, size_t NP, size_t NC, size_t NT_max, size_t NX, size_t N
  */
 template<
     bool Discrete, size_t NP, size_t NC, size_t NT_max, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NZ, size_t NWN, size_t NVN,
-    size_t NDN, typename Spec, size_t NXC>
+    size_t NDN, typename Spec, size_t NXC, typename Delay = NoDelay>
 [[nodiscard]] constexpr auto mpc_estimated_design(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     T                                        Ts,
     const MPCWeights<NU, NZ, T>&             weights,
     const MPCConstraintSet<NU, NZ, T, NXC>&  constraints,
     const KalmanNoise<NWN, NVN, T, NDN>&     noise,
-    const Spec&                              spec
+    const Spec&                              spec,
+    const Delay&                             delay = Delay{}
 ) {
     constexpr size_t ND = disturbance_traits<Spec, NU, NY, NW>::states;
     static_assert(NWN == NW && NVN == NV, "KalmanNoise is sized to the plant's noise inputs: KalmanNoise<NW, NV> for the columns of G and H.");
     static_assert(NDN == ND, "KalmanNoise carries the random walk of the spec's ND disturbances: KalmanNoise<NW, NV, T, ND>.");
-    constexpr size_t NXL = NX;
+    constexpr size_t NXL = NX + (delay_registers<Delay> * NU); // the plant, then the delay states
     constexpr size_t NXE = NXL;
-    const auto       kf = kalman_design<Discrete>(sys, Ts, noise, spec);
+    const auto       kf = kalman_design<Discrete>(sys, Ts, noise, spec, delay);
     using Target = SteadyStateTargetResult<NXE, NU, ND, NZ, T>;
     using Law = MPCArtifacts<NXL, NU, NZ, NP, NC, ND, T, NT_max, NXC>;
     using Result = MPCResult<Law, damp::remove_cvref_t<decltype(kf)>, Target>;
     Result     out{.kalman = kf};
-    const auto m = sampled_model(sys, Ts, Discrete);
+    const auto m = sampled_model(sys, Ts, Discrete, delay);
     const auto rows = selected_outputs<NY>(listed_outputs(spec));
     if (m.status != DesignStatus::ok || !rows) {
         return ::damp::detail::set_status(out, first_failure(kf.status, m.status, DesignStatus::bad_weights)); // a delay refused, or a controlled output out of range or listed twice
@@ -1656,7 +1799,7 @@ template<
         }
     }
     const auto         channels = disturbance_channels(spec, sys, m.law, Ts);
-    const auto         cost = mpc_continuous_cost<Discrete>(sys, *rows, channels.Bd_c, Ts);
+    const auto         cost = mpc_continuous_cost<Discrete>(sys, *rows, channels.Bd_c, Ts, input_delays_of<NU>(delay, Ts));
     Matrix<NXL, ND, T> Bd{};
     if constexpr (ND > 0) {
         //! Offset-free: the target under the estimate, which rides the QP's disturbance channel
@@ -1668,7 +1811,7 @@ template<
             }
         }
         out.mpc = mpc_impl<NP, NC, ND, NT_max>(law, Bd, Cd, weights, constraints, cost);
-        out.target = target_design<Discrete>(sys, Ts, spec, physical_output_weight(weights.Qy, out.mpc));
+        out.target = target_design<Discrete>(sys, Ts, spec, physical_output_weight(weights.Qy, out.mpc), delay);
     } else {
         out.mpc = mpc_impl<NP, NC, ND, NT_max>(law, Bd, Matrix<NZ, ND, T>{}, weights, constraints, cost);
         out.target = nominal_target(m.law, law.C, law.D, physical_output_weight(weights.Qy, out.mpc), Bd);
@@ -1683,6 +1826,11 @@ template<bool Discrete, size_t NP, size_t NC, size_t NT_max, size_t NX, size_t N
     using Limits = ::damp::detail::option_t<is_mpc_constraints, MPCConstraintSet<NU, NZ, T>, Opts...>;
     static_assert(is_mpc_constraints_on<Limits, NU, NZ, T>, "The limits are on the inputs and the controlled outputs: MPCConstraints<NU, NZ>.");
     const auto constraints = ::damp::detail::option<is_mpc_constraints>(MPCConstraintSet<NU, NZ, T>{}, opts...);
+    const auto delay = ::damp::detail::option<is_input_delay>(NoDelay{}, opts...);
+    static_assert(
+        !Discrete || ::damp::detail::option_count<is_input_delay, Opts...> == 0,
+        "An InputDelay is sampled with the plant: give the continuous plant and Ts, mpc<NP, NC>(plant, Ts, weights, constraints, ..., InputDelay<N>{theta})."
+    );
     if constexpr (mpc_estimated<Opts...>) {
         static_assert(
             ::damp::detail::option_count<is_measured_disturbance, Opts...> == 0,
@@ -1691,12 +1839,12 @@ template<bool Discrete, size_t NP, size_t NC, size_t NT_max, size_t NX, size_t N
         return mpc_estimated_design<Discrete, NP, NC, NT_max>(
             noise_model(sys), Ts, weights, constraints,
             ::damp::detail::option<is_kalman_noise>(KalmanNoise<noise_inputs<NX, NW>, noise_inputs<NY, NV>, T>{}, opts...),
-            ::damp::detail::option<is_disturbance>(NoDisturbance{}, opts...)
+            ::damp::detail::option<is_disturbance>(NoDisturbance{}, opts...), delay
         );
     } else {
         static_assert(::damp::detail::option_count<is_disturbance, Opts...> == 0, "A disturbance spec needs KalmanNoise: the disturbance is estimated.");
         return mpc_measured<Discrete, NP, NC, NT_max>(
-            sys, Ts, weights, constraints, ::damp::detail::option<is_measured_disturbance>(MeasuredDisturbance<NX, 0, T>{}, opts...)
+            sys, Ts, weights, constraints, ::damp::detail::option<is_measured_disturbance>(MeasuredDisturbance<NX, 0, T>{}, opts...), delay
         );
     }
 }
@@ -1751,9 +1899,17 @@ inline constexpr size_t mpc_outputs_in = mpc_outputs<NU, NY, noise_inputs<NX, NW
  * output without cost does not pull it). An equilibrium leaves the QP the absolute one; the
  * terminal cost and set are on the deviation from it.
  *
- * Input delay. A delay is a model of the plant: design on discretize(plant, Ts, InputDelay<N>{θ}),
- * whose register states the QP's model carries like any other. The first outputs of the horizon
- * are ones no decision can change, so a longer delay wants a longer NP.
+ * Input delay. On the sampled form, mpc<NP, NC>(plant, Ts, weights, constraints, …, InputDelay<N>{θ})
+ * designs on the plant whose input arrives θ late, the model discretize(plant, Ts, InputDelay<N>{θ}):
+ * the plant, then the delay states v(k−1) … v(k−N), the commands still on their way. The weights
+ * and the noise are the plant's, as without the delay; the output cost is integrated exactly over
+ * each period, the plant holding the older command until each input's switch. A measured-state MPC
+ * takes the plant's state, update(x), and holds the delay states itself from the input
+ * back_calculate recorded (else its command); a filter carries them, as design::kalman with the
+ * same delay does. A delay on a discrete plant does not compile: it is sampled with the plant. A
+ * discrete model with the delay built in is designed on like any plant, its delay states then part
+ * of the measured state and its noise inputs named. The first outputs of the horizon are ones no
+ * decision can change, so a longer delay wants a longer NP.
  *
  * Horizon. Without a terminal cost, each input's first move has to reach a predicted output
  * within NP steps, or the law would never use that input: a shorter horizon, NP = 1 on a model
@@ -1844,7 +2000,7 @@ template<size_t NP, size_t NC, size_t NT_max = 0, size_t NX, size_t NU, size_t N
     const damp::type_identity_t<MPCConstraints<NU, detail::mpc_outputs_in<NX, NU, NY, NW, Opts...>, T>>& constraints,
     const Opts&... opts
 ) {
-    ::damp::detail::option_set<detail::is_measured_disturbance, detail::is_kalman_noise, detail::is_disturbance, detail::is_state_limits>::check<Opts...>();
+    ::damp::detail::option_set<detail::is_measured_disturbance, detail::is_kalman_noise, detail::is_disturbance, detail::is_state_limits, detail::is_input_delay>::check<Opts...>();
     return detail::mpc_design<true, NP, NC, NT_max>(sys, T{0}, weights, detail::constraint_set(constraints, opts...), opts...);
 }
 
@@ -1877,7 +2033,8 @@ template<size_t NP, size_t NC, size_t NT_max = 0, size_t NX, size_t NU, size_t N
  * @param Ts       Control period [s]
  * @param weights  Cost weights on the controlled outputs, per second
  * @param constraints The limits ({}: unbounded)
- * @param opts     MeasuredDisturbance<NX, NM>{.Bd}: a disturbance input measured each tick, B_d continuous, or none
+ * @param opts     As the discrete form's, a MeasuredDisturbance's B_d continuous; and InputDelay<N>{θ}, the
+ *                 plant's input θ late (Input delay, above)
  * @return MPCResult: deploy with `MPC law{res}`; success = false if refused or the plant does not discretize
  */
 template<size_t NP, size_t NC, size_t NT_max = 0, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename... Opts>
@@ -1888,7 +2045,7 @@ template<size_t NP, size_t NC, size_t NT_max = 0, size_t NX, size_t NU, size_t N
     const damp::type_identity_t<MPCConstraints<NU, detail::mpc_outputs_in<NX, NU, NY, NW, Opts...>, T>>& constraints,
     const Opts&... opts
 ) {
-    ::damp::detail::option_set<detail::is_measured_disturbance, detail::is_kalman_noise, detail::is_disturbance, detail::is_state_limits>::check<Opts...>();
+    ::damp::detail::option_set<detail::is_measured_disturbance, detail::is_kalman_noise, detail::is_disturbance, detail::is_state_limits, detail::is_input_delay>::check<Opts...>();
     return detail::mpc_design<false, NP, NC, NT_max>(plant, Ts, weights, detail::constraint_set(constraints, opts...), opts...);
 }
 
@@ -2143,19 +2300,20 @@ struct NoMeasuredState {};
  * @note Compare with MATLAB®'s mpcmove(mpcobj, xc, ym, r, v).
  * @see design::mpc
  */
-template<size_t NX, size_t NU, size_t NY, size_t NP, size_t NC, size_t ND, typename T, typename Solver, size_t NT_max, typename Estimator, size_t NXC = 0>
+template<size_t NX, size_t NU, size_t NY, size_t NP, size_t NC, size_t ND, typename T, typename Solver, size_t NT_max, typename Estimator, size_t NXC = 0, size_t NRU = 0>
     requires damp::is_floating_point_v<T>
 class MPCCore {
     using Traits = detail::mpc_estimator_traits<Estimator>;
 
 public:
-    static constexpr bool   estimated = Traits::estimated;                  ///< Whether a Kalman filter reconstructs the state
-    static constexpr size_t NDE = Traits::disturbances;                     ///< Estimated disturbance states (0: not offset-free)
-    static constexpr size_t NXM = NX;                                       ///< States of the prediction model
-    static constexpr size_t NYM = estimated ? Traits::outputs : NX;         ///< Measured outputs (the state without an estimator)
-    static constexpr size_t NXE = estimated ? (Traits::states - NDE) : NXM; ///< States of the estimator's model before the disturbance
+    static constexpr bool   estimated = Traits::estimated;                       ///< Whether a Kalman filter reconstructs the state
+    static constexpr size_t NDE = Traits::disturbances;                          ///< Estimated disturbance states (0: not offset-free)
+    static constexpr size_t NXM = NX;                                            ///< States of the prediction model
+    static constexpr size_t NYM = estimated ? Traits::outputs : NX - (NRU * NU); ///< Measured outputs (the plant's state without an estimator; the law holds its delay states)
+    static constexpr size_t NXE = estimated ? (Traits::states - NDE) : NXM;      ///< States of the estimator's model before the disturbance
     static_assert(!estimated || ND == 0, "A measured disturbance with an estimator is not supported.");
     static_assert(damp::is_same_v<Estimator, NoEstimator> || estimated, "The estimator is a FixedGainObserver, or NoEstimator for the measured state.");
+    static_assert(NRU == 0 || !estimated, "A filter carries the delay states itself.");
 
     using Artifacts = design::MPCArtifacts<NXM, NU, NY, NP, NC, ND + NDE, T, NT_max, NXC>;
     using TargetResult = design::SteadyStateTargetResult<NXE, NU, ND + NDE, NY, T>;
@@ -2167,7 +2325,7 @@ public:
     [[no_unique_address]] Estimator estimator{};
     /** @brief A design it is built from: the QP and the target, and @p Kalman, the estimator's design (NoEstimator without one). */
     template<typename Kalman>
-    using ResultWith = design::MPCResult<Artifacts, Kalman, TargetResult>;
+    using ResultWith = design::MPCResult<Artifacts, Kalman, TargetResult, NRU>;
     static constexpr size_t NXA = Artifacts::NXA;
     static constexpr size_t NZ = Artifacts::NZ;
     static constexpr size_t NZ1 = Artifacts::NZ1;
@@ -2261,6 +2419,16 @@ public:
         applied_.take();
         if constexpr (estimated) {
             estimator.predict(applied_.applied);
+        } else if constexpr (NRU > 0) {
+            //! The delay states [v(k−1); …; v(k−NRU)] move a period on: the input the plant just received is the newest.
+            for (size_t b = NRU - 1; b > 0; --b) {
+                for (size_t j = 0; j < NU; ++j) {
+                    x_(NYM + (b * NU) + j) = x_(NYM + ((b - 1) * NU) + j);
+                }
+            }
+            for (size_t j = 0; j < NU; ++j) {
+                x_(NYM + j) = applied_.applied(j);
+            }
         }
     }
 
@@ -2274,8 +2442,12 @@ public:
             if constexpr (NDE > 0) {
                 estimator.limit_disturbance(disturbance_lim);
             }
-        } else {
+        } else if constexpr (NRU == 0) {
             x_ = y;
+        } else {
+            for (size_t i = 0; i < NYM; ++i) {
+                x_(i) = y(i); // the plant's state; the delay states are the law's own
+            }
         }
     }
 
@@ -2338,6 +2510,8 @@ public:
         applied_ = ::damp::detail::AppliedRecord<NU, T>{};
         if constexpr (estimated) {
             estimator.reset();
+        } else if constexpr (NRU > 0) {
+            x_ = MeasuredState{}; // no input on its way, as the held input
         }
         last_status_ = design::QPStatus::Success;
         last_iterations_ = 0;
@@ -2664,9 +2838,10 @@ template<
     typename T = float,
     typename Solver = design::WarmStartActiveSetSolver<(NC * NU) + 1, (4 * NC * NU) + (2 * NP * NY) + 1, T>,
     size_t NT_max = 0,
-    size_t NXC = 0>
-class MPC : private detail::MPCCore<NX, NU, NY, NP, NC, ND, T, Solver, NT_max, NoEstimator, NXC> {
-    using Core = detail::MPCCore<NX, NU, NY, NP, NC, ND, T, Solver, NT_max, NoEstimator, NXC>;
+    size_t NXC = 0,
+    size_t NRU = 0>
+class MPC : private detail::MPCCore<NX, NU, NY, NP, NC, ND, T, Solver, NT_max, NoEstimator, NXC, NRU> {
+    using Core = detail::MPCCore<NX, NU, NY, NP, NC, ND, T, Solver, NT_max, NoEstimator, NXC, NRU>;
 
 public:
     using Reference = Core::Reference;                     ///< r: held, or a Preview
@@ -2685,8 +2860,8 @@ public:
     /** @brief From design::mpc with a specific solver instance (for stateful solver policies). */
     constexpr MPC(const Result& result, const Solver& solver) : Core(result, solver) {}
 
-    /** @brief Hold the measured state @p x for the next control. */
-    constexpr void update(const ColVec<NX, T>& x) { Core::update(x); }
+    /** @brief Hold the measured state @p x for the next control: the plant's (a design with an InputDelay holds the delay states itself). */
+    constexpr void update(const ColVec<Core::NYM, T>& x) { Core::update(x); }
 
     /** @brief The move at the state of the last update: u = u_prev + Δu₀, clamped to the u and Δu boxes. */
     [[nodiscard]] constexpr ColVec<NU, T> control(const Reference& r)
@@ -2703,14 +2878,14 @@ public:
     }
 
     /** @brief One tick: predict(), update(@p x), then control(@p r). */
-    [[nodiscard]] constexpr ColVec<NU, T> step(const Reference& r, const ColVec<NX, T>& x)
+    [[nodiscard]] constexpr ColVec<NU, T> step(const Reference& r, const ColVec<Core::NYM, T>& x)
         requires(ND == 0)
     {
         return Core::step(r, ColVec<0, T>{}, x);
     }
 
     /** @brief One tick: predict(), update(@p x), then control(@p r, @p d). */
-    [[nodiscard]] constexpr ColVec<NU, T> step(const Reference& r, const ColVec<ND, T>& d, const ColVec<NX, T>& x)
+    [[nodiscard]] constexpr ColVec<NU, T> step(const Reference& r, const ColVec<ND, T>& d, const ColVec<Core::NYM, T>& x)
         requires(ND > 0)
     {
         return Core::step(r, d, x);
@@ -2736,14 +2911,14 @@ public:
 };
 
 /** @brief MPC law{res}: the sizes, scalar, terminal capacity and bounded states of design::mpc's result. */
-template<size_t NXM, size_t NU, size_t NY, size_t NP, size_t NC, size_t ND, typename T, size_t NT, size_t NXC>
-MPC(const design::MPCResult<design::MPCArtifacts<NXM, NU, NY, NP, NC, ND, T, NT, NXC>, NoEstimator, design::SteadyStateTargetResult<NXM, NU, ND, NY, T>>&)
-    -> MPC<NXM, NU, NY, NP, NC, ND, T, design::WarmStartActiveSetSolver<(NC * NU) + 1, design::MPCArtifacts<NXM, NU, NY, NP, NC, ND, T, NT, NXC>::NI1, T>, NT, NXC>;
+template<size_t NXM, size_t NU, size_t NY, size_t NP, size_t NC, size_t ND, typename T, size_t NT, size_t NXC, size_t NRU>
+MPC(const design::MPCResult<design::MPCArtifacts<NXM, NU, NY, NP, NC, ND, T, NT, NXC>, NoEstimator, design::SteadyStateTargetResult<NXM, NU, ND, NY, T>, NRU>&)
+    -> MPC<NXM, NU, NY, NP, NC, ND, T, design::WarmStartActiveSetSolver<(NC * NU) + 1, design::MPCArtifacts<NXM, NU, NY, NP, NC, ND, T, NT, NXC>::NI1, T>, NT, NXC, NRU>;
 
 /** @brief MPC law{res, solver}: as MPC law{res}, with that solver. */
-template<size_t NXM, size_t NU, size_t NY, size_t NP, size_t NC, size_t ND, typename T, size_t NT, size_t NXC, typename Solver>
-MPC(const design::MPCResult<design::MPCArtifacts<NXM, NU, NY, NP, NC, ND, T, NT, NXC>, NoEstimator, design::SteadyStateTargetResult<NXM, NU, ND, NY, T>>&, const Solver&)
-    -> MPC<NXM, NU, NY, NP, NC, ND, T, Solver, NT, NXC>;
+template<size_t NXM, size_t NU, size_t NY, size_t NP, size_t NC, size_t ND, typename T, size_t NT, size_t NXC, size_t NRU, typename Solver>
+MPC(const design::MPCResult<design::MPCArtifacts<NXM, NU, NY, NP, NC, ND, T, NT, NXC>, NoEstimator, design::SteadyStateTargetResult<NXM, NU, ND, NY, T>, NRU>&, const Solver&)
+    -> MPC<NXM, NU, NY, NP, NC, ND, T, Solver, NT, NXC, NRU>;
 
 namespace detail {
 
@@ -2752,9 +2927,9 @@ template<typename R, typename T>
 struct mpc_runtime {};
 
 /** @brief design::mpc runs as MPC. */
-template<size_t NXM, size_t NU, size_t NY, size_t NP, size_t NC, size_t ND, typename U, size_t NT, size_t NXC, typename T>
-struct mpc_runtime<design::MPCResult<design::MPCArtifacts<NXM, NU, NY, NP, NC, ND, U, NT, NXC>, NoEstimator, design::SteadyStateTargetResult<NXM, NU, ND, NY, U>>, T> {
-    using type = MPC<NXM, NU, NY, NP, NC, ND, T, design::WarmStartActiveSetSolver<(NC * NU) + 1, design::MPCArtifacts<NXM, NU, NY, NP, NC, ND, T, NT, NXC>::NI1, T>, NT, NXC>; ///< MPC
+template<size_t NXM, size_t NU, size_t NY, size_t NP, size_t NC, size_t ND, typename U, size_t NT, size_t NXC, size_t NRU, typename T>
+struct mpc_runtime<design::MPCResult<design::MPCArtifacts<NXM, NU, NY, NP, NC, ND, U, NT, NXC>, NoEstimator, design::SteadyStateTargetResult<NXM, NU, ND, NY, U>, NRU>, T> {
+    using type = MPC<NXM, NU, NY, NP, NC, ND, T, design::WarmStartActiveSetSolver<(NC * NU) + 1, design::MPCArtifacts<NXM, NU, NY, NP, NC, ND, T, NT, NXC>::NI1, T>, NT, NXC, NRU>; ///< MPC
 };
 
 } // namespace detail
