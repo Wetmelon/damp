@@ -83,8 +83,8 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     const std::vector<T>&                    time
 ) {
-    if (time.empty()) {
-        return damp::nullopt;
+    if (time.empty() || (!sys.is_discrete() && !sys.is_continuous())) {
+        return damp::nullopt; // no grid, or no time domain
     }
     T dt = T{1};
     if (time.size() > 1) {
@@ -92,7 +92,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
     } else if (sys.is_discrete()) {
         dt = sys.Ts;
     }
-    if (!(dt > T{0})) {
+    if (!damp::finite_positive(dt)) {
         return damp::nullopt;
     }
     // Uniform grid: every spacing matches dt to O(√eps) relative, plus the
@@ -100,7 +100,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
     const T rel = damp::sqrt(eps<T>());
     for (size_t k = 2; k < time.size(); ++k) {
         const T tol = (rel * dt) + (T{4} * eps<T>() * damp::abs(time[k]));
-        if (!(damp::abs((time[k] - time[k - 1]) - dt) <= tol)) {
+        if (!damp::isfinite(time[k]) || !(damp::abs((time[k] - time[k - 1]) - dt) <= tol)) {
             return damp::nullopt; // non-uniform grid
         }
     }

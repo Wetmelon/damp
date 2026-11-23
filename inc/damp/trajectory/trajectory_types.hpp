@@ -27,6 +27,7 @@
 
 
 #include "damp/backend.hpp"
+#include "damp/math/math.hpp"
 
 namespace damp {
 
@@ -52,11 +53,11 @@ struct TrajectoryLimits {
 
     /** @brief Trapezoidal validity: positive v/a/d limits (jerk is not required). */
     [[nodiscard]] constexpr bool valid() const {
-        return (max_velocity > T{0}) && (max_acceleration > T{0}) && (max_deceleration > T{0});
+        return damp::finite_positive(max_velocity) && damp::finite_positive(max_acceleration) && damp::finite_positive(max_deceleration);
     }
 
     /** @brief S-curve validity: additionally requires a positive jerk limit. */
-    [[nodiscard]] constexpr bool valid_jerk_limited() const { return valid() && (max_jerk > T{0}); }
+    [[nodiscard]] constexpr bool valid_jerk_limited() const { return valid() && damp::finite_positive(max_jerk); }
 };
 
 /**

@@ -1452,7 +1452,7 @@ template<size_t NP, size_t NC, size_t ND, size_t NT_max = 0, size_t NX, size_t N
 
     if constexpr (NT_max > 0) {
         if (constraints.terminal == MPCTerminal::invariant_set) {
-            if (!(constraints.terminal_target_margin > T{0}) || !(constraints.terminal_target_margin < T{1})) {
+            if (!damp::finite_positive(constraints.terminal_target_margin) || !(constraints.terminal_target_margin < T{1})) {
                 return ::damp::detail::set_status(art, DesignStatus::invalid_parameter);
             }
             //! The set of w = [z; q] under w⁺ = blkdiag(A_z − B_z·K, I)·w: valid for every target
@@ -2102,7 +2102,7 @@ struct MPCHorizonSuggestion {
 template<typename T>
 [[nodiscard]] constexpr MPCHorizonSuggestion<T> suggest_mpc_horizon(T settling_time, T Ts) {
     MPCHorizonSuggestion<T> s{};
-    if (!(settling_time > T{0}) || !(Ts > T{0})) {
+    if (!damp::finite_positive(settling_time) || !damp::finite_positive(Ts)) {
         return s;
     }
     const T steps = settling_time / Ts;
@@ -2147,7 +2147,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
     T                                        settle_time_constants = T{4}
 ) {
     MPCHorizonSuggestion<T> s{};
-    if (!(sys.Ts > T{0})) {
+    if (!damp::finite_positive(sys.Ts)) {
         return s;
     }
 

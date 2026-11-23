@@ -185,7 +185,7 @@ template<size_t MaxTaps, typename T>
 
 template<typename T>
 [[nodiscard]] constexpr bool valid_fc(T fc) {
-    return (fc > T{0}) && (fc < static_cast<T>(0.5));
+    return damp::finite_positive(fc) && (fc < static_cast<T>(0.5));
 }
 
 template<typename T>

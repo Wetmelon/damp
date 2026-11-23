@@ -406,7 +406,7 @@ public:
      *                        an upper end ≤ 0 or past the stability cap means the cap,
      *                        0.9·2·atan(1/k) / (2π·Ts) (default: both)
      *
-     * valid() is false unless Ts > 0, k > 0, the band is non-empty and the initial guess
+     * valid() is false unless Ts > 0, k > 0, Γ ≥ 0 (each finite), the band is non-empty and the initial guess
      * is below its upper end.
      */
     constexpr SogiFll(
@@ -419,10 +419,11 @@ public:
         k_(sogi_gain),
         gamma_(fll_gain),
         omega_(two_pi() * initial_freq_hz),
-        omega_min_(two_pi() * (freq_lim_hz.lower(0) > T{0} ? freq_lim_hz.lower(0) : static_cast<T>(0.5))),
+        omega_min_(two_pi() * (damp::finite_positive(freq_lim_hz.lower(0)) ? freq_lim_hz.lower(0) : static_cast<T>(0.5))),
         omega_max_(two_pi() * upper_frequency(freq_lim_hz.upper(0), Ts, sogi_gain)),
         valid_(
-            Ts > T{0} && damp::isfinite(Ts) && sogi_gain > T{0} && initial_freq_hz > T{0} && omega_min_ < omega_max_
+            Ts > T{0} && damp::isfinite(Ts) && damp::finite_positive(sogi_gain) && damp::finite_non_negative(fll_gain) && damp::finite_positive(initial_freq_hz)
+            && omega_min_ < omega_max_
             && omega_ <= omega_max_
         ) {}
 
@@ -489,11 +490,11 @@ private:
 
     /** @brief Upper clamp [Hz]: @p hi when in (0, cap), else the cap, 90 % of the loop's stability bound 2·atan(1/k) / (2π·Ts). */
     static constexpr T upper_frequency(T hi, T Ts, T k) {
-        if (!(k > T{0}) || !(Ts > T{0})) {
+        if (!damp::finite_positive(k) || !damp::finite_positive(Ts)) {
             return T{0}; // no band: the constructor marks the tracker invalid
         }
         const T cap = static_cast<T>(0.9) * T{2} * damp::atan(T{1} / k) / (two_pi() * Ts);
-        return (hi > T{0} && hi < cap) ? hi : cap;
+        return (damp::finite_positive(hi) && hi < cap) ? hi : cap;
     }
 
     T    Ts_{T{1}};

@@ -96,7 +96,7 @@ struct [[nodiscard]] StateVariableFilterResult {
 template<typename T = double>
 [[nodiscard]] constexpr StateVariableFilterResult<T> state_variable_filter(T omega, T Ts) {
     StateVariableFilterResult<T> r{.omega = omega};
-    if (!(omega > T{0}) || !(Ts > T{0})) {
+    if (!damp::finite_positive(omega) || !damp::finite_positive(Ts)) {
         return r;
     }
     // x⃛_f = ω³(u − x_f) − 3ω² ẋ_f − 3ω ẍ_f in companion form.

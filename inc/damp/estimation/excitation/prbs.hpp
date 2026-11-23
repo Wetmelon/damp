@@ -198,7 +198,7 @@ public:
      * @param design Validated design payload.
      */
     constexpr PRBS(const design::PRBSResult<T>& design) // NOLINT(google-explicit-constructor): assign-from-design
-        : config_(design.config), Ts_(design.Ts), valid_(design.success && design.Ts > T{0}) {
+        : config_(design.config), Ts_(design.Ts), valid_(design.success && damp::finite_positive(design.Ts)) {
         if (!design.success && damp::is_constant_evaluated()) {
             ::damp::detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }

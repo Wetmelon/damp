@@ -113,7 +113,7 @@ struct [[nodiscard]] ADRCResult {
      */
     [[nodiscard]] constexpr StateSpace<NX + 1, 2, 1, T> to_ss_2dof() const {
         StateSpace<NX + 1, 2, 1, T> sys{};
-        if (!success || !(b0 > T{0})) {
+        if (!success || !damp::finite_positive(b0)) {
             return sys;
         }
         if constexpr (NX == 1) {
@@ -384,7 +384,7 @@ public:
     constexpr void back_calculate(T u_sat, [[maybe_unused]] T u_ff = T{0}) { eso_.back_calculate(u_sat, u_ff); }
 
     /** @brief A successful discrete (Ts > 0) design with b0 > 0; gates control(). */
-    [[nodiscard]] constexpr bool valid() const { return eso_.valid() && b0 > T{0}; }
+    [[nodiscard]] constexpr bool valid() const { return eso_.valid() && damp::finite_positive(b0); }
 
     /** @brief ESO state [ŷ, (ŷ̇,) f̂] — plot these when commissioning. */
     [[nodiscard]] constexpr const ColVec<NX + 1, T>& observer() const { return eso_.state(); }

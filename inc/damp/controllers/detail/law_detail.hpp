@@ -143,7 +143,7 @@ struct SampledModel {
  */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
 [[nodiscard]] constexpr DesignStatus plant_status(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T Ts, bool discrete) {
-    if (discrete ? !damp::finite_positive(sys.Ts) : (sys.Ts != T{0} || !damp::finite_positive(Ts))) {
+    if (discrete ? !damp::finite_positive(sys.Ts) : (!damp::isfinite(sys.Ts) || sys.Ts != T{0} || !damp::finite_positive(Ts))) {
         return DesignStatus::invalid_sample_time; // the plant's own time domain, one discretization
     }
     const auto finite = [](T v) { return damp::isfinite(v); };

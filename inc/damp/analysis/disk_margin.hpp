@@ -151,14 +151,17 @@ template<size_t NX, size_t N, typename T>
  * @see loop_at_a_time_disk_margin() for a MIMO loop
  *
  * @param loop   Open-loop SISO L (continuous or discrete)
- * @param skew   Disk skew σ (default 0, the balanced disk)
- * @return Disk margin α, gain interval, phase margin and critical frequency
+ * @param skew   Disk skew σ (default 0, the balanced disk), finite
+ * @return Disk margin α, gain interval, phase margin and critical frequency; success false for a non-finite skew
  */
 template<size_t NX, size_t NW, size_t NV, typename T>
 [[nodiscard]] constexpr DiskMarginResult<T> disk_margin(const StateSpace<NX, 1, 1, T, NW, NV>& loop, std::type_identity_t<T> skew = T{0}) {
     const auto S = detail::sensitivity_realization(loop);
     if (!S || !stability::is_stable(*S)) {
         return DiskMarginResult<T>{.skew = skew};
+    }
+    if (!damp::isfinite(skew)) {
+        return DiskMarginResult<T>{.skew = skew, .stable = true}; // no disk to size: success false
     }
     return detail::disk_margin_from_peak(norm_hinf(detail::disk_channel(*S, 0, skew)), skew);
 }
@@ -187,8 +190,8 @@ template<size_t NX, size_t NW, size_t NV, typename T>
  * @see disk_margin()
  *
  * @param loop Open-loop square MIMO L (continuous or discrete), N inputs and N outputs
- * @param skew Disk skew σ (default 0, the balanced disk)
- * @return Per-channel disk margins, nominal stability and success
+ * @param skew Disk skew σ (default 0, the balanced disk), finite
+ * @return Per-channel disk margins, nominal stability and success (false for a non-finite skew)
  */
 template<size_t NX, size_t N, size_t NW, size_t NV, typename T>
 [[nodiscard]] constexpr LoopDiskMarginResult<N, T> loop_at_a_time_disk_margin(
@@ -204,6 +207,9 @@ template<size_t NX, size_t N, size_t NW, size_t NV, typename T>
         return out;
     }
     out.stable = true;
+    if (!damp::isfinite(skew)) {
+        return out; // no disk to size: success false
+    }
     out.success = true;
     for (size_t i = 0; i < N; ++i) {
         out.channel[i] = detail::disk_margin_from_peak(norm_hinf(detail::disk_channel(*S, i, skew)), skew);

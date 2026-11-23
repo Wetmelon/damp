@@ -105,11 +105,16 @@ template<typename T = double>
 
 /**
  * @brief Max positive i_q for an SPM (i_d = 0) at electrical speed.
+ *
+ * 0 when a limit, Lq or λ is not finite and positive, or the speed is not finite.
  */
 template<typename T = double>
 [[nodiscard]] constexpr T max_iq(T omega_e, T Vmax, T Imax, T Lq, T R, T lambda) {
-    if (!(Imax > T{0}) || !(Vmax > T{0}) || !(Lq > T{0}) || !(lambda > T{0})) {
+    if (!damp::finite_positive(Imax) || !damp::finite_positive(Vmax) || !damp::finite_positive(Lq) || !damp::finite_positive(lambda)) {
         return T{0};
+    }
+    if (!damp::isfinite(omega_e)) {
+        return T{0}; // no speed to size the voltage limit against: no current
     }
     if (!(damp::abs(omega_e) > T{0})) {
         if (R > T{0}) {
@@ -122,7 +127,7 @@ template<typename T = double>
     const T a = (we * Lq) * (we * Lq) + (R * R);
     const T b = T{2} * R * we * lambda;
     const T c = (we * lambda) * (we * lambda) - (Vmax * Vmax);
-    if (!(a > T{0})) {
+    if (!damp::finite_positive(a)) {
         return T{0};
     }
     const T disc = (b * b) - (T{4} * a * c);
@@ -130,7 +135,7 @@ template<typename T = double>
         return T{0};
     }
     const T iq_pos = (-b + damp::sqrt(disc)) / (T{2} * a);
-    if (!(iq_pos > T{0})) {
+    if (!damp::finite_positive(iq_pos)) {
         return T{0};
     }
     return damp::min(Imax, iq_pos);
@@ -169,7 +174,7 @@ struct TorqueSpeedPoint {
 template<typename T = double>
 [[nodiscard]] constexpr TorqueSpeedPoint<T>
 max_torque_at_speed(T omega_mech, T Vmax, T Imax, T Lq, T R, T lambda, T pole_pairs) {
-    if (!(pole_pairs > T{0})) {
+    if (!damp::finite_positive(pole_pairs)) {
         return TorqueSpeedPoint<T>{};
     }
     const T omega_elec = damp::abs(omega_mech) * pole_pairs;
@@ -204,7 +209,7 @@ torque_speed_envelope(T omega_mech_max, T Vmax, T Imax, T Lq, T R, T lambda, T p
     if (N == 0) {
         return table;
     }
-    if (!(omega_mech_max > T{0})) {
+    if (!damp::finite_positive(omega_mech_max)) {
         for (size_t i = 0; i < N; ++i) {
             table[i] = max_torque_at_speed(T{0}, Vmax, Imax, Lq, R, lambda, pole_pairs);
         }

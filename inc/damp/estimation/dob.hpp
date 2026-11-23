@@ -31,29 +31,29 @@ struct DOBConfig {
 
     using scalar_type = scalar_type_t<T>;
 
-    scalar_type gain{scalar_type{0.1}};
+    scalar_type gain{static_cast<scalar_type>(0.1)};
     scalar_type leak{scalar_type{0}};
     scalar_type innovation_deadband{scalar_type{0}};
     scalar_type max_disturbance_magnitude{scalar_type{0}};
     bool        clamp_enabled{false};
 
     [[nodiscard]] constexpr bool valid() const {
-        if (gain < scalar_type{0}) {
+        if (!damp::finite_non_negative(gain)) {
             return false;
         }
         if (gain > scalar_type{1}) {
             return false;
         }
-        if (leak < scalar_type{0}) {
+        if (!damp::finite_non_negative(leak)) {
             return false;
         }
         if (leak >= scalar_type{1}) {
             return false;
         }
-        if (innovation_deadband < scalar_type{0}) {
+        if (!damp::finite_non_negative(innovation_deadband)) {
             return false;
         }
-        if (max_disturbance_magnitude < scalar_type{0}) {
+        if (!damp::finite_non_negative(max_disturbance_magnitude)) {
             return false;
         }
         return true;
@@ -125,6 +125,15 @@ template<typename T>
  */
 template<size_t N, typename T>
 [[nodiscard]] constexpr bool leading_coefficient_negligible(const damp::array<T, N>& p) {
+    if constexpr (damp::is_floating_point_v<T>) {
+        if (!damp::isfinite(p[0])) {
+            return true; // a NaN or ±Inf leading coefficient: refused, under -ffast-math too
+        }
+    } else {
+        if (!damp::isfinite(p[0].real()) || !damp::isfinite(p[0].imag())) {
+            return true;
+        }
+    }
     scalar_type_t<T> scale{0};
     for (size_t i = 0; i < N; ++i) {
         scale = damp::max(scale, damp::abs(p[i]));

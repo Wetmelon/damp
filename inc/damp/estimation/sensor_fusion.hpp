@@ -213,7 +213,7 @@ template<typename T>
 constexpr void eskf_attitude_predict(
     ErrorStateKalmanFilter<6, T>& eskf, Quaternion<T>& q_nom, Vec3<T>& b_g_nom, const Vec3<T>& gyro_meas, T dt
 ) {
-    if (!(dt > T{0})) {
+    if (!damp::finite_positive(dt)) {
         return;
     }
     const Vec3<T> omega = gyro_meas - b_g_nom;
@@ -242,7 +242,7 @@ template<typename T>
 [[nodiscard]] constexpr bool eskf_accel_gate_ok(const Vec3<T>& accel, const Vec3<T>& g_nav, T gate) {
     const T g_norm = g_nav.norm();
     const T a_norm = accel.norm();
-    if (!(a_norm > T{0}) || !damp::isfinite(a_norm) || !(g_norm > T{0})) {
+    if (!(a_norm > T{0}) || !damp::isfinite(a_norm) || !damp::finite_positive(g_norm)) {
         return false;
     }
     if (gate > T{0} && damp::abs(a_norm / g_norm - T{1}) > gate) {

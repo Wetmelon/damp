@@ -138,7 +138,7 @@ struct [[nodiscard]] SmithPredictorResult {
      */
     [[nodiscard]] constexpr PIDGains<T> primary_pid() const {
         PIDGains<T> c{};
-        if (!success || !(Ts > T{0})) {
+        if (!success || !damp::finite_positive(Ts)) {
             return c;
         }
         c.Kp = pid.Kp;
@@ -401,15 +401,15 @@ public:
      * (ADRC, lead-lag, custom law, etc.).
      *
      * @param primary        Primary controller instance
-     * @param a              Discrete FO pole
-     * @param b              Discrete FO gain
+     * @param a              Discrete FO pole (finite)
+     * @param b              Discrete FO gain (finite and nonzero)
      * @param delay_samples  Integer pure delay (≤ MaxDelay)
      */
     constexpr SmithPredictor(const Primary& primary, T a, T b, size_t delay_samples)
         : primary_(primary),
           a_(a),
           b_(b),
-          valid_(delay_samples <= MaxDelay && b != T{0}),
+          valid_(delay_samples <= MaxDelay && damp::isfinite(a) && damp::isfinite(b) && b != T{0}),
           delay_samples_(delay_samples) {}
 
     /**

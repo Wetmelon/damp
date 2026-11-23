@@ -341,7 +341,7 @@ public:
         : Phi_(result.Phi),
           Gamma_(result.Gamma),
           L_(result.L),
-          valid_(result.success && result.Ts > T{0}) {
+          valid_(result.success && damp::finite_positive(result.Ts)) {
         if ((!result.success || !(result.Ts > T{0})) && damp::is_constant_evaluated()) {
             ::damp::detail::refuse_failed_design(result.success ? design::DesignStatus::invalid_sample_time : result.status); // constant-evaluated (constinit / constexpr): a failed or continuous design does not compile
         }

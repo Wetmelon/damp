@@ -65,7 +65,7 @@ public:
      */
     constexpr Goertzel(T freq_hz, T Ts, size_t block_size)
         : n_(block_size) {
-        const bool ok = (block_size >= 1) && (Ts > T{0}) && damp::isfinite(Ts) && (freq_hz >= T{0})
+        const bool ok = (block_size >= 1) && (Ts > T{0}) && damp::isfinite(Ts) && damp::finite_non_negative(freq_hz)
                      && (freq_hz * Ts < T{0.5});
         if (!ok) {
             n_ = 0;

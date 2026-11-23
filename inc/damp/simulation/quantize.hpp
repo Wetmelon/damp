@@ -64,7 +64,7 @@ namespace damp::sim {
  */
 template<typename T>
 [[nodiscard]] constexpr T quantize(T x, T lsb, T lo, T hi) {
-    if (!(lsb > T{0})) {
+    if (!damp::finite_positive(lsb)) {
         return damp::clamp(x, lo, hi);
     }
     return damp::clamp(lsb * damp::nearbyint(x / lsb), lo, hi);

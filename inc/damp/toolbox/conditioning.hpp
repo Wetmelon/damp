@@ -182,7 +182,7 @@ template<typename T>
 template<typename T>
 [[nodiscard]] constexpr T scaled_deadband(T x, T deadzone) {
     const T m = damp::abs(x);
-    if (m <= deadzone || !(deadzone < T{1})) { // a dead zone of the whole span passes nothing
+    if (m <= deadzone || !damp::isfinite(deadzone) || !(deadzone < T{1})) { // a dead zone of the whole span passes nothing
         return T{0};
     }
     return damp::copysign((m - deadzone) / (T{1} - deadzone), x);
@@ -232,8 +232,8 @@ public:
             init_ = true;
             return y_;
         }
-        if (!(dt > T{0})) {
-            return y_; // non-positive step: hold output (no reverse / NaN rate·dt)
+        if (!damp::finite_positive(dt)) {
+            return y_; // non-positive or non-finite step: hold output (no reverse / NaN rate·dt)
         }
         const T max_up = rate_up_ * dt;
         const T max_down = rate_down_ * dt;

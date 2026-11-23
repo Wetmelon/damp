@@ -284,7 +284,7 @@ template<typename T = double>
     T                    dt
 ) {
     PatternMatrix<kInsTransitionPattern, T> F{};
-    if (!(dt > T{0})) {
+    if (!damp::finite_positive(dt)) {
         return F; // the identity
     }
 

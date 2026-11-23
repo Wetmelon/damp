@@ -12,6 +12,7 @@
 
 
 #include "damp/backend.hpp"
+#include "damp/math/math.hpp"
 
 namespace damp {
 /**
@@ -32,7 +33,7 @@ namespace damp {
 template<typename T>
 [[nodiscard]] constexpr size_t comb_notch_window(T f_notch_hz, T Ts) {
     const T cycles = f_notch_hz * Ts; // f_notch / fs
-    if (!(f_notch_hz > T{0}) || !(Ts > T{0}) || !(cycles > T{0}) || !(cycles < T{1})) {
+    if (!damp::finite_positive(f_notch_hz) || !damp::finite_positive(Ts) || !(cycles > T{0}) || !(cycles < T{1})) {
         return 0;
     }
     const T n = (T{1} / cycles) + static_cast<T>(0.5);

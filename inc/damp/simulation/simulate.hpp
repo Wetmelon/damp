@@ -244,7 +244,7 @@ SimulationResult<NX, NU, NY, T> simulate_sampled(
     const T                         t0 = t_span.first;
     const T                         tf = t_span.second;
     const std::size_t               stride = (log_stride == 0) ? 1 : log_stride;
-    if (!(Ts > T{0}) || !(tf > t0)) {
+    if (!damp::finite_positive(Ts) || !damp::isfinite(t0) || !damp::isfinite(tf) || !(tf > t0)) {
         sim.success = false;
         return sim;
     }
@@ -484,6 +484,10 @@ SimulationResult<NX, NU, NY, T> simulate_discrete_nonlinear(
     size_t               n_steps
 ) {
     SimulationResult<NX, NU, NY, T> sim;
+    if (!damp::finite_positive(Ts)) {
+        sim.success = false; // no sample time
+        return sim;
+    }
     sim.t.reserve(n_steps + 1);
     sim.x.reserve(n_steps + 1);
     sim.y.reserve(n_steps + 1);
@@ -529,6 +533,10 @@ SimulationResult<NX, NU, NY, T> simulate_discrete(
     size_t                                   n_steps
 ) {
     SimulationResult<NX, NU, NY, T> sim;
+    if (!sys.is_discrete() && !sys.is_continuous()) {
+        sim.success = false; // no time domain: no time labels
+        return sim;
+    }
     sim.t.reserve(n_steps + 1);
     sim.x.reserve(n_steps + 1);
     sim.y.reserve(n_steps + 1);

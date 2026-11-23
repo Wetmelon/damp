@@ -87,7 +87,8 @@ struct FirstOrderPlantEstimatorConfig {
     T confidence_scale{static_cast<T>(1e-3)};  ///< Covariance trace at which confidence() reads 0.5
 
     [[nodiscard]] constexpr bool valid() const {
-        return Ts > T{0} && forgetting > T{0} && forgetting <= T{1} && initial_covariance > T{0} && confidence_scale > T{0};
+        return damp::finite_positive(Ts) && damp::finite_positive(forgetting) && forgetting <= T{1} && damp::finite_positive(initial_covariance)
+            && damp::finite_positive(confidence_scale);
     }
 };
 
@@ -194,7 +195,7 @@ public:
     [[nodiscard]] constexpr bool valid() const {
         constexpr T edge = static_cast<T>(1e-6);
         const T     a = rls_.state().theta(0);
-        return config_valid_ && rls_.valid() && rls_.state().initialized && a > edge && a < T{1} - edge;
+        return config_valid_ && rls_.valid() && rls_.state().initialized && damp::isfinite(a) && a > edge && a < T{1} - edge;
     }
 
     /**

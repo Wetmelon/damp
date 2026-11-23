@@ -286,15 +286,18 @@ private:
     /** @brief Compute the scaled-unscented-transform mean/covariance weights. */
     constexpr void compute_weights() {
         const T n = static_cast<T>(NX);
-        lambda = (p.alpha * p.alpha * (n + p.kappa)) - n;
+        // A non-finite α, β or κ has no transform to scale: the plain unscented transform, λ = 0
+        // and no prior term in Wc[0].
+        const bool tuned = damp::isfinite(p.alpha) && damp::isfinite(p.beta) && damp::isfinite(p.kappa);
+        lambda = tuned ? ((p.alpha * p.alpha * (n + p.kappa)) - n) : T{0};
         // n + λ = α²(n + κ) must be positive (α = 0 or κ ≤ −n divides by zero):
         // fall back to the plain unscented transform, λ = 0.
-        if (!(n + lambda > T{0})) {
+        if (!damp::finite_positive(n + lambda)) {
             lambda = T{0};
         }
         const T denom = n + lambda;
         Wm[0] = lambda / denom;
-        Wc[0] = (lambda / denom) + (static_cast<T>(1) - (p.alpha * p.alpha) + p.beta);
+        Wc[0] = (lambda / denom) + (tuned ? (static_cast<T>(1) - (p.alpha * p.alpha) + p.beta) : T{0});
         const T w = static_cast<T>(1) / (static_cast<T>(2) * denom);
         for (size_t i = 1; i < NSP; ++i) {
             Wm[i] = w;

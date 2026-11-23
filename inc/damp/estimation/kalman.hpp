@@ -372,7 +372,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
     const KalmanNoise<NW, NV, T>&            noise
 ) {
     using Result = KalmanResult<NX, NU, NY, T, NX, NV>;
-    if (sys.Ts != T{0} || !damp::finite_positive(Ts)) {
+    if (!damp::isfinite(sys.Ts) || sys.Ts != T{0} || !damp::finite_positive(Ts)) {
         return damp::detail::refused<Result>(DesignStatus::invalid_sample_time); // one discretization, at a valid Ts
     }
     const auto plant_d = ::damp::discretize(StateSpace{.A = sys.A, .B = sys.B, .C = sys.C, .D = sys.D}, Ts);

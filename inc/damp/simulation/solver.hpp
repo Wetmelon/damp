@@ -59,7 +59,7 @@ namespace detail {
 template<typename T>
 [[nodiscard]] constexpr size_t step_count(T t0, T tf, T h) {
     const T n = (tf - t0) / h;
-    if (!(n > T{0})) {
+    if (!damp::finite_positive(n)) {
         return 0;
     }
     return static_cast<size_t>(damp::ceil(n - (T{64} * eps<T>() * n)));
@@ -170,7 +170,7 @@ public:
 
         result.t.push_back(t);
         result.x.push_back(x);
-        if (!(h_ > T{0}) || !(tf >= t0)) {
+        if (!damp::finite_positive(h_) || !damp::isfinite(t0) || !damp::isfinite(tf) || !(tf >= t0)) {
             result.success = false; // forward integration with a positive step only
             return result;
         }
@@ -417,6 +417,20 @@ public:
      * @param t_span Pair {t0, tf}
      * @return SolveResult with full time/state history
      */
+    /**
+     * @brief Whether the options can drive a solve: tolerances, first and min step finite and ≥ 0, max
+     *        step, safety and the step factors finite and > 0. solve() fails on any other.
+     */
+    [[nodiscard]] constexpr bool options_valid() const {
+        for (size_t i = 0; i < NX; ++i) {
+            if (!damp::finite_non_negative(opts_.atol[i]) || !damp::finite_non_negative(opts_.rtol[i])) {
+                return false;
+            }
+        }
+        return damp::finite_non_negative(opts_.first_step) && damp::finite_non_negative(opts_.min_step) && damp::finite_positive(opts_.max_step)
+            && damp::finite_positive(opts_.safety) && damp::finite_positive(opts_.min_factor) && damp::finite_positive(opts_.max_factor);
+    }
+
     template<typename F>
     SolveResult<NX, T> solve(const F& f, const ColVec<NX, T>& x0, const damp::pair<T, T>& t_span) const {
         if constexpr (requires { integrator_.reset(); }) {
@@ -431,8 +445,8 @@ public:
 
         result.t.push_back(t);
         result.x.push_back(x);
-        if (!(tf >= t0)) {
-            result.success = false; // forward integration only
+        if (!damp::isfinite(t0) || !damp::isfinite(tf) || !(tf >= t0) || !options_valid()) {
+            result.success = false; // forward integration only, with usable options
             return result;
         }
         const T span = tf - t0;
@@ -507,7 +521,7 @@ public:
             if (last_step) {
                 target_step = remaining;
             }
-            if (!(target_step > T{0})) {
+            if (!damp::finite_positive(target_step)) {
                 result.success = false;
                 return result;
             }

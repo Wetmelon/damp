@@ -200,7 +200,7 @@ template<typename T = double>
 [[nodiscard]] constexpr ESCResult<T> esc_mppt(const ESCSpec<T>& spec, T Ts) {
     ESCSpec<T> mppt = spec;
     mppt.type = ExtremumType::Maximize;
-    if (mppt.lp_cutoff_hz == T{0}) {
+    if (damp::isfinite(mppt.lp_cutoff_hz) && mppt.lp_cutoff_hz == T{0}) {
         mppt.lp_cutoff_hz = spec.dither_freq_hz / T{5};
     }
     return esc(mppt, Ts);

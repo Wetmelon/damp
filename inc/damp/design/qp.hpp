@@ -140,7 +140,7 @@ template<typename U, size_t N, typename T>
  */
 template<typename T>
 [[nodiscard]] constexpr T floor_scalar(T v) {
-    if (!(damp::abs(v) < T{1} / eps<T>())) {
+    if (!damp::isfinite(v) || !(damp::abs(v) < T{1} / eps<T>())) {
         return v;
     }
     T fl = static_cast<T>(static_cast<long long>(v));

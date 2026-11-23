@@ -42,6 +42,9 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
 [[nodiscard]] constexpr damp::optional<Matrix<NY, NU, T>> dcgain(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys
 ) noexcept {
+    if (!sys.is_discrete() && !sys.is_continuous()) {
+        return damp::nullopt; // no time domain
+    }
     Matrix<NX, NX, T> M;
     if (sys.is_continuous()) {
         // G(0) = C * A^{-1} * B + D, but we want -A^{-1} since G(s) = C(sI-A)^{-1}B + D at s=0
@@ -78,6 +81,9 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
 [[nodiscard]] constexpr damp::optional<T> norm_h2(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys
 ) {
+    if (!sys.is_discrete() && !sys.is_continuous()) {
+        return damp::nullopt; // no time domain
+    }
     const bool discrete = sys.is_discrete();
 
     // Nonzero feedthrough: infinite in continuous time, finite (DᵀD term) in discrete.
@@ -340,8 +346,8 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
 ) {
     using Cplx = damp::complex<T>;
     HinfNormResult<T> out{};
-    if (!(tol > T{0})) {
-        return out;
+    if (!damp::finite_positive(tol) || (!sys.is_discrete() && !sys.is_continuous())) {
+        return out; // no tolerance, or no time domain
     }
     if constexpr (NX == 0) {
         out.gain = detail::largest_singular_value(sys.D);

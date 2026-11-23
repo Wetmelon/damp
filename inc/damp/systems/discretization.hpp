@@ -880,7 +880,7 @@ template<size_t NRU, size_t NRY, size_t NX, size_t NU, size_t NY, typename T, si
         const Response step{.at = sampling_time, .Phi = base->A, .fresh = base->B, .noise = base->G};
         return discretized(delay_registers<NRU, NRY>(*base, step, readings, inputs, outputs));
     }
-    if (sys.Ts != T{0}) {
+    if (!damp::isfinite(sys.Ts) || sys.Ts != T{0}) {
         return refused<Result>(DesignStatus::invalid_sample_time); // a fraction of a sample needs the continuous plant
     }
     if (method != DiscretizationMethod::ZOH) {

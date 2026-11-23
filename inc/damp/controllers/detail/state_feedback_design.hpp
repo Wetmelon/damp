@@ -80,7 +80,7 @@ template<bool Discrete, size_t NI, size_t NX, size_t NU, size_t NY, typename T, 
         return ::damp::detail::refused<Result>(DesignStatus::bad_weights); // R not positive definite, on every route
     }
     if constexpr (Discrete && NI == 0) {
-        if (sys.Ts == T{0}) {
+        if (sys.is_continuous()) {
             const auto lq = continuous_lqr(sys.A, sys.B, w.Q, w.R, w.N);
             return with_gain(Result{}, lq);
         }

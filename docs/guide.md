@@ -179,7 +179,7 @@ Both can hold an output at r.
 
 ## The laws at a glance
 
-What each runtime measures, the references and limits it takes, and what it does with a clamp after it (`back_calculate`). Every runtime has `valid()`: one built from a design it refuses sends 0 (an MPC holds its input), and when constant-evaluated it does not compile. Nothing faults at run time.
+What each runtime measures, the references and limits it takes, and what it does with a clamp after it (`back_calculate`). Every runtime has `valid()`: one built from a design it refuses sends 0 (an MPC holds its input), and when constant-evaluated it does not compile. Nothing faults at run time. A NaN or ±Inf parameter is refused like any other out of its domain, but a reading is not checked on the tick: a NaN measurement gives a NaN command, so check readings with `damp::isfinite` before the tick ([known limitations](known_limitations.md)).
 
 ### State-space laws
 

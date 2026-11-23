@@ -1046,7 +1046,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
     T                                        Ts,
     StateSpace<NX, NU, NY, T, NW, NV>&       out
 ) {
-    if (sys.Ts != T{0} || !(Ts > T{0}) || !damp::isfinite(Ts)) {
+    if (!damp::isfinite(sys.Ts) || sys.Ts != T{0} || !(Ts > T{0}) || !damp::isfinite(Ts)) {
         return DesignStatus::invalid_sample_time;
     }
     const auto sampled = discretize(sys, Ts, DiscretizationMethod::ZOH);
@@ -1112,6 +1112,9 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
 ) {
     PlaceResult<NX, NU, T> out{};
     out.Ts = sys.Ts;
+    if (!sys.is_discrete() && !sys.is_continuous()) {
+        return ::damp::detail::set_status(out, DesignStatus::invalid_sample_time); // no time domain
+    }
     const DesignStatus status = place_gain(sys.A, sys.B, poles, out.K);
     if (status == DesignStatus::ok) {
         out.e = stability::closed_loop_poles(sys.A, sys.B, out.K);
@@ -1594,7 +1597,10 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size
     const JordanOptions<T>&                  opts
 ) {
     using Result = JordanPlaceResult<NX, NU, T>;
-    if (!(opts.alpha >= T{0}) || !(opts.alpha <= T{1})) {
+    if (!sys.is_discrete() && !sys.is_continuous()) {
+        return ::damp::detail::refused<Result>(DesignStatus::invalid_sample_time); // no time domain
+    }
+    if (!damp::finite_non_negative(opts.alpha) || !(opts.alpha <= T{1})) {
         return ::damp::detail::refused<Result>(DesignStatus::bad_weights);
     }
     for (size_t b = 0; b < NB; ++b) {

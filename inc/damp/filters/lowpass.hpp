@@ -34,7 +34,7 @@ namespace damp {
  */
 template<typename T = double>
 [[nodiscard]] constexpr T continuous_lpf_exact_step(T y, T u, T omega_c, T h) {
-    if (!(h > T{0}) || !(omega_c > T{0})) {
+    if (!damp::finite_positive(h) || !damp::finite_positive(omega_c)) {
         return y;
     }
     return u + ((y - u) * damp::exp(-omega_c * h));

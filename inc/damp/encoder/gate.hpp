@@ -47,12 +47,12 @@ struct EncoderGateConfig {
     T tolerance{T{0}};
     /**
      * @brief [counts/s²] fastest the axis can accelerate; the window widens by ½·a·t² with the time since the
-     * last accepted reading, so it opens up across dropped readings.
+     * last accepted reading, so it opens up across dropped readings. ≤ 0, or not finite: no widening.
      */
     T max_accel{T{0}};
     /**
      * @brief [s] no accepted reading for longer than this raises the stale fault, and the gate re-locks
-     * (≤ 0: never stale).
+     * (≤ 0, or not finite: never stale).
      */
     T stale_time{static_cast<T>(0.01)};
     /**
@@ -108,7 +108,15 @@ template<typename T = float>
 class EncoderGate {
 public:
     constexpr EncoderGate() noexcept = default;
-    constexpr explicit EncoderGate(const EncoderGateConfig<T>& config) noexcept : cfg_(config) {}
+    constexpr explicit EncoderGate(const EncoderGateConfig<T>& config) noexcept : cfg_(config) {
+        // Once here, so the tick tests a finite value: a non-finite limit is off, as one ≤ 0 is.
+        if (!damp::isfinite(cfg_.max_accel)) {
+            cfg_.max_accel = T{0};
+        }
+        if (!damp::isfinite(cfg_.stale_time)) {
+            cfg_.stale_time = T{0};
+        }
+    }
 
     /**
      * @brief Judge a reading.
@@ -176,9 +184,9 @@ private:
 
     [[nodiscard]] static constexpr T saturated(T t) { return (t < max_time) ? t : max_time; }
 
-    /** @brief Inside the window after @p t seconds? Off when tolerance ≤ 0. */
+    /** @brief Inside the window after @p t seconds? Off when tolerance ≤ 0 or not finite. */
     [[nodiscard]] constexpr bool within(T deviation, T t) const {
-        if (!(cfg_.tolerance > T{0})) {
+        if (!damp::finite_positive(cfg_.tolerance)) {
             return true;
         }
         const T accel = (cfg_.max_accel > T{0}) ? cfg_.max_accel : T{0};
