@@ -127,10 +127,12 @@ TEST_CASE("disturbance_lim clamps OFMPC's disturbance estimate, and moves at run
     CHECK(controller.estimator.disturbance_estimate()(0) == doctest::Approx(0.05).epsilon(1e-12));
 }
 
-TEST_CASE("OutputLimits index the controlled outputs: the readings a disturbance spec lists, in its order") {
+TEST_CASE("OutputLimits index the plant's outputs; a disturbance spec's list is the outputs r holds") {
     //! Three readings (two positions and the first axis's speed), the positions held offset-free:
-    //! InputDisturbance{{0, 2}} makes readings 0 and 2 the controlled outputs, so OutputLimits'
-    //! index 1 is reading 2. Before the option this was y_lim on the two controlled outputs.
+    //! InputDisturbance{{0, 2}} holds readings 0 and 2 at r, and the QP weighs and bounds every
+    //! reading, so OutputLimits' index 2 is reading 2. Before the weights covered every output they
+    //! and the limits were on the two listed ones (MPCWeights<2, 2>, the bound at index 1); a zero
+    //! weight on the speed reproduces that design, and the numbers below were recorded with it.
     constexpr double              big = damp::numeric_limits<double>::max();
     constexpr StateSpace<4, 2, 3> two_axes{
         .A = {{1.0, Ts, 0.0, 0.0}, {0.0, 1.0, 0.0, 0.0}, {0.0, 0.0, 1.0, Ts}, {0.0, 0.0, 0.0, 1.0}},
@@ -138,19 +140,20 @@ TEST_CASE("OutputLimits index the controlled outputs: the readings a disturbance
         .C = {{1.0, 0.0, 0.0, 0.0}, {0.0, 1.0, 0.0, 0.0}, {0.0, 0.0, 1.0, 0.0}},
         .Ts = Ts,
     };
-    design::MPCWeights<2, 2> w{};
+    design::MPCWeights<2, 3> w{.Qy = diag(1.0, 0.0, 1.0)}; // the speed unweighted, as when the weights were on the listed outputs alone
+    w.Qy_terminal = w.Qy;
     w.Rdu = Matrix<2, 2>::identity() * 0.1;
     const design::InputLimits<2> limits{.u_lim = {.lower = {-1.0, -1.0}, .upper = {1.0, 1.0}}};
     const design::KalmanNoise    noise{.process = Matrix<4, 4>::identity() * 0.01, .measurement = Matrix<3, 3>::identity() * 0.001, .disturbance = Matrix<2, 2>::identity() * 0.01};
-    const design::OutputLimits   second{.outputs = {1}, .lim = {.upper = 0.4}};
-    const design::OutputLimits   both{.outputs = {0, 1}, .lim = {.lower = {-big, -big}, .upper = {big, 0.4}}};
+    const design::OutputLimits   second{.outputs = {2}, .lim = {.upper = 0.4}};
+    const design::OutputLimits   both{.outputs = {0, 2}, .lim = {.lower = {-big, -big}, .upper = {big, 0.4}}};
 
     const auto a = design::mpc<12, 4>(two_axes, w, limits, noise, design::InputDisturbance{{0, 2}}, second);
     const auto b = design::mpc<12, 4>(two_axes, w, limits, both, noise, design::InputDisturbance{{0, 2}});
     REQUIRE(a.success);
     REQUIRE(b.success);
     static_assert(std::remove_cvref_t<decltype(a.mpc)>::NI == (4 * 8) + (2 * 12) && std::remove_cvref_t<decltype(b.mpc)>::NI == (4 * 8) + (2 * 12 * 2));
-    CHECK(design::mpc<12, 4>(two_axes, w, limits, noise, design::InputDisturbance{{0, 2}}, design::OutputLimits{.outputs = {2}}).status == design::DesignStatus::invalid_parameter); // two controlled outputs, not three readings
+    CHECK(design::mpc<12, 4>(two_axes, w, limits, noise, design::InputDisturbance{{0, 2}}, design::OutputLimits{.outputs = {3}}).status == design::DesignStatus::invalid_parameter); // three readings
 
     OFMPC           la{a};
     OFMPC           lb{b};
@@ -477,12 +480,15 @@ struct CompliantDrive {
     }
 };
 
-design::MPCWeights<1, 1> load_weights() {
-    design::MPCWeights<1, 1> w{};
-    w.Qy = 1.0e6;
+/// The load position (row 2) weighed alone: the design the weights on the listed output gave.
+design::MPCWeights<1, 3> load_weights() {
+    design::MPCWeights<1, 3> w{};
+    w.Qy = diag(0.0, 0.0, 1.0e6);
+    w.Qy_terminal = diag(0.0, 0.0, 1.0); // that design's terminal weight, MPCWeights<1, 1>'s default
     w.Rdu = 1.0;
     return w;
 }
+
 
 /// The load force where it acts, felt by the accelerometer; the load position (row 2) held.
 design::DisturbanceModel<4, 3, 1, 1> load_force_model(const CompliantDrive& plant) {

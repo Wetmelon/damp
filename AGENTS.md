@@ -129,7 +129,10 @@ the repo root.
   a `.du_lim`: its law clamps u), and an LQ design bounds what its outer terms ask of a state with a
   `DemandLimit`; an MPC's output and state limits, its terminal ingredient and its QP budget are
   `OutputLimits`, `StateLimits`, `DareCost` or `InvariantSet` and `QPIterations`, and an operating
-  point is the runtime's (`set_input_target`). A
+  point is the runtime's (`set_input_target`; Ru is measured from the target's input otherwise).
+  Both families hold r through one target, `steady_state_target`'s: on the outputs a disturbance
+  spec's `.outputs` lists, or without one a `TrackedOutputs`, every output when neither lists any;
+  an MPC's QP weighs and bounds every plant output, the others toward the target's values. A
   delay is an option of every sampled design (`InputDelay<N>{θ}` with the
   continuous plant and `Ts`), the runtime holding or filtering its delay states;
   a model with the delay built in is the plant route, for a model one holds. The
