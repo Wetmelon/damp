@@ -9,7 +9,7 @@
  *        with a disturbance spec, the FixedGainObserver running its gain, and SteadyStateTarget.
  *
  * The disturbance-augmented filter and the target are checked against the offset-free design they
- * compose into (design::oflqg, OFLQG): the same gains, maps and commands. A delayed plant is a
+ * compose into (design::state_feedback with a KalmanNoise and a disturbance spec, OFLQG): the same gains, maps and commands. A delayed plant is a
  * model, discretize(plant, Ts, InputDelay{θ}), designed on like any other: its register holds a
  * command already sent, so the filter puts no gain on it and
  * its plant part is the undelayed filter, and the target is the undelayed steady state with the
@@ -27,6 +27,7 @@
 #include "damp/backend.hpp"
 #include "damp/controllers/lqg.hpp"
 #include "damp/controllers/oflqg.hpp"
+#include "damp/controllers/state_feedback.hpp"
 #include "damp/controllers/state_feedback_types.hpp"
 #include "damp/design/disturbance.hpp"
 #include "damp/design/options.hpp"
@@ -162,7 +163,7 @@ TEST_SUITE("Design options by type") {
         static_assert(std::is_same_v<std::remove_cvref_t<decltype(none)>, design::NoDisturbance>);
     }
 
-    TEST_CASE("an unknown type or a kind given twice is refused; a delay is the plant's model, not an option") {
+    TEST_CASE("an unknown type or a kind given twice is refused; an InputDelay is an option of the sampled designs") {
         using TargetSet = design::detail::target_options;
         static_assert(TargetSet::known<> && TargetSet::unique<>);
         static_assert(TargetSet::known<design::OutputDisturbance<>> && TargetSet::known<design::DisturbanceModel<2, 1, 1>>);
@@ -170,9 +171,10 @@ TEST_SUITE("Design options by type") {
         static_assert(!TargetSet::unique<design::InputDisturbance<>, design::NoDisturbance>);                                       // two disturbance specs
         static_assert(TargetSet::known<Noise, design::InputDisturbance<>> && TargetSet::unique<Noise, design::InputDisturbance<>>); // the target takes the noise and ignores it
         static_assert(!TargetSet::unique<Noise, Noise>);
-        //! discretize(plant, Ts, InputDelay{θ}) is the delayed plant: the target does not take the delay.
-        //! design::kalman takes the disturbance as an argument, not an option.
-        static_assert(!TargetSet::known<InputDelay<>>);
+        //! The sampled target and kalman take the delay and the disturbance among their options, as every sampled design does.
+        static_assert(TargetSet::known<InputDelay<>, design::InputDisturbance<>> && !TargetSet::unique<InputDelay<>, InputDelay<2>>);
+        using KalmanSet = design::detail::kalman_options;
+        static_assert(KalmanSet::known<Noise, design::InputDisturbance<>, InputDelay<>> && !KalmanSet::unique<Noise, Noise>); // its noise is one of them
     }
 }
 
@@ -213,7 +215,7 @@ TEST_SUITE("design::kalman with a disturbance spec") {
         const auto                      plain = design::kalman(kPlantD, n);
         static_assert(std::is_same_v<std::remove_cvref_t<decltype(plain)>, design::KalmanResult<2, 1, 1, double, 2, 1>>);
         REQUIRE(plain.success);
-        CHECK((design::kalman(mass_spring(), kTs, n).M - design::lqg(mass_spring(), kTs, {.Q = kQ, .R = kR}, n).kalman.M).norm() == 0.0);
+        CHECK((design::kalman(mass_spring(), kTs, n).M - design::state_feedback(mass_spring(), kTs, {.Q = kQ, .R = kR}, n).kalman.M).norm() == 0.0);
 
         //! a whole sample on the discrete plant: x⁺ = A x + B v(k−1)
         check_register_known<2>(discretize(kPlantD, kTs, InputDelay{kTs}).value(), kPlantD, n);
@@ -225,7 +227,7 @@ TEST_SUITE("design::kalman with a disturbance spec") {
     }
 
     TEST_CASE("an input disturbance is the offset-free filter and target of oflqg") {
-        const auto old = design::oflqg(kPlantD, {.Q = kQ, .R = kR}, design::KalmanNoise{kQp, kRn, kQd}, design::InputDisturbance{});
+        const auto old = design::state_feedback(kPlantD, {.Q = kQ, .R = kR}, design::KalmanNoise{kQp, kRn, kQd}, design::InputDisturbance{});
         REQUIRE(old.success);
         const auto filt = design::kalman(kPlantD, design::KalmanNoise{.process = kQp, .measurement = kRn, .disturbance = kQd}, design::InputDisturbance{});
         const auto tg = design::steady_state_target(kPlantD, design::InputDisturbance{});
@@ -246,7 +248,7 @@ TEST_SUITE("design::kalman with a disturbance spec") {
         //! a whole sample; the load on the plant, undelayed: B_d = [B; 0], so the register stays exact
         const auto                              whole = discretize(kPlantD, kTs, InputDelay{kTs}).value();
         const design::DisturbanceModel<3, 1, 1> load{.Bd = padded<1>(kPlantD.B)};
-        const auto                              old = design::oflqg(whole, {.Q = kQ3, .R = kR}, nn, load);
+        const auto                              old = design::state_feedback(whole, {.Q = kQ3, .R = kR}, nn, load);
         REQUIRE(old.success);
         const auto filt = design::kalman(whole, nn, load);
         const auto tg = design::steady_state_target(whole, load);
@@ -263,7 +265,7 @@ TEST_SUITE("design::kalman with a disturbance spec") {
         //! a fraction of a period from the continuous plant; d adds to the command, so it enters the register too: B_d = B = [Γ₀; I]
         auto part = discretize(mass_spring(), kTs, InputDelay{0.4 * kTs}).value();
         part.G = padded<1>(Matrix<2, 2>::identity());
-        const auto old_c = design::oflqg(part, {.Q = kQ3, .R = kR}, nn, design::InputDisturbance{});
+        const auto old_c = design::state_feedback(part, {.Q = kQ3, .R = kR}, nn, design::InputDisturbance{});
         REQUIRE(old_c.success);
         const auto filt_c = design::kalman(part, nn, design::InputDisturbance{});
         const auto tg_c = design::steady_state_target(part, design::InputDisturbance{});
@@ -335,7 +337,7 @@ TEST_SUITE("design::kalman with a disturbance spec") {
     TEST_CASE("an explicit model and the listed outputs") {
         auto sys = discretize(two_sensors(), kTs).value();
         sys.G = Matrix<2, 2>::identity(); // the process noise on the states
-        const auto old = design::oflqg(sys, {.Q = kQ, .R = kR}, design::KalmanNoise{kQp, Matrix<2, 2>{{1e-6, 0.0}, {0.0, 1e-4}}, kQd}, design::DisturbanceModel<2, 2, 1, 1>{.Bd = sys.B, .outputs = {{0}}});
+        const auto old = design::state_feedback(sys, {.Q = kQ, .R = kR}, design::KalmanNoise{kQp, Matrix<2, 2>{{1e-6, 0.0}, {0.0, 1e-4}}, kQd}, design::DisturbanceModel<2, 2, 1, 1>{.Bd = sys.B, .outputs = {{0}}});
         REQUIRE(old.success);
         const design::DisturbanceModel<2, 2, 1, 1> spec{.Bd = sys.B, .outputs = {{0}}};
         const auto                                 filt = design::kalman(sys, design::KalmanNoise{.process = kQp, .measurement = Matrix<2, 2>{{1e-6, 0.0}, {0.0, 1e-4}}, .disturbance = kQd}, spec);
@@ -371,14 +373,14 @@ TEST_SUITE("design::kalman with a disturbance spec") {
 
 TEST_SUITE("FixedGainObserver and SteadyStateTarget") {
     TEST_CASE("the disturbance spec sets the noise's disturbance count, so the noise is a braced list") {
-        const auto braced = design::kalman(kPlantD, {.process = kQp, .measurement = kRn, .disturbance = kQd}, design::InputDisturbance{});
+        const auto braced = design::kalman(kPlantD, design::KalmanNoise{.process = kQp, .measurement = kRn, .disturbance = kQd}, design::InputDisturbance{});
         const auto typed = design::kalman(kPlantD, design::KalmanNoise{.process = kQp, .measurement = kRn, .disturbance = kQd}, design::InputDisturbance{});
         REQUIRE(braced.success);
         CHECK((braced.M - typed.M).norm() == 0.0);
     }
 
     TEST_CASE("no options: the plain filter, with the input it holds") {
-        const auto        res = design::kalman(kPlantD, {.process = kQp, .measurement = kRn});
+        const auto        res = design::kalman(kPlantD, design::KalmanNoise{.process = kQp, .measurement = kRn});
         FixedGainObserver est{res};
         static_assert(sizeof(KalmanFilter<2, 1, 1, double, 2, 1>) > sizeof(est)); // no P, Q, R, G or H
         ColVec<2> x{0.1, 0.0};
@@ -444,7 +446,7 @@ TEST_SUITE("FixedGainObserver and SteadyStateTarget") {
         const design::KalmanNoise<2, 1, double, 1> nn{kQp, kRn, kQd};
         const auto                                 whole = discretize(kPlantD, kTs, InputDelay{kTs}).value(); // [x; v(k−1)]
         const design::DisturbanceModel<3, 1, 1>    load{.Bd = padded<1>(kPlantD.B)};                          // the load on the plant, undelayed
-        const auto                                 old = design::oflqg(whole, {.Q = kQ3, .R = kR}, nn, load);
+        const auto                                 old = design::state_feedback(whole, {.Q = kQ3, .R = kR}, nn, load);
         REQUIRE(old.success);
         OFLQG             law{old};
         FixedGainObserver est{design::kalman(whole, nn, load)};
@@ -605,7 +607,7 @@ TEST_SUITE("FixedGainObserver: the anchored law against the textbook form") {
         plant.G = Matrix<4, 4>::identity();
         const auto                                 whole = discretize(plant, kTs, InputDelay{kTs}).value(); // [x; v(k−1)]
         const design::DisturbanceModel<6, 4, 2, 2> load_model{.Bd = padded<2>(plant.B), .outputs = {{0, 1}}};
-        const auto                                 art = design::oflqg(whole, {.Q = kQ6, .R = kR2}, design::KalmanNoise{kQn4, kRn4, kQd2}, load_model);
+        const auto                                 art = design::state_feedback(whole, {.Q = kQ6, .R = kR2}, design::KalmanNoise{kQn4, kRn4, kQd2}, load_model);
         REQUIRE(art.success);
         OFLQG law{art};
         static_assert(decltype(law.estimator)::NXE == 6 && decltype(law.disturbance_estimate())::rows() == 2);
@@ -646,7 +648,7 @@ TEST_SUITE("FixedGainObserver: the anchored law against the textbook form") {
         pc.D(0, 1) = 0.1;
         auto plant = discretize(pc, kTs).value();
         plant.G = Matrix<4, 4>::identity();
-        const auto art = design::oflqg(plant, {.Q = kQ4, .R = kR2}, design::KalmanNoise{kQn4, kRn4, kQd2}, design::InputDisturbance<2>{{0, 1}});
+        const auto art = design::state_feedback(plant, {.Q = kQ4, .R = kR2}, design::KalmanNoise{kQn4, kRn4, kQd2}, design::InputDisturbance<2>{{0, 1}});
         REQUIRE(art.success);
         OFLQG law{art};
         auto  oracle = textbook_law(art);
@@ -680,7 +682,7 @@ TEST_SUITE("FixedGainObserver: the anchored law against the textbook form") {
         constexpr double theta = 0.6 * kTs;
         auto             whole = discretize(four_readings(), kTs, InputDelay{theta}).value(); // [x; v(k−1)], the hold split at θ
         whole.G = padded<2>(Matrix<4, 4>::identity());                                        // the process noise on the plant's states
-        const auto art = design::lqg(whole, {.Q = kQ6, .R = kR2}, design::KalmanNoise{.process = kQn4, .measurement = kRn4});
+        const auto art = design::state_feedback(whole, {.Q = kQ6, .R = kR2}, design::KalmanNoise{.process = kQn4, .measurement = kRn4});
         REQUIRE(art.success);
         LQG law{art};
 
@@ -688,7 +690,7 @@ TEST_SUITE("FixedGainObserver: the anchored law against the textbook form") {
         //! period, Γ₀u(k) + Γ₁u(k−1), with Γ₀, Γ₁ from the register form (built apart from discretize)
         auto plant = discretize(four_readings(), kTs).value();
         plant.G = Matrix<4, 4>::identity();
-        const auto plain = design::kalman(plant, {.process = kQn4, .measurement = kRn4});
+        const auto plain = design::kalman(plant, design::KalmanNoise{.process = kQn4, .measurement = kRn4});
         REQUIRE(plain.success);
         const auto         truth = test::register_form<1>(four_readings(), kTs, theta);
         const Matrix<4, 2> gamma0 = truth.B.block<4, 2>(0, 0);

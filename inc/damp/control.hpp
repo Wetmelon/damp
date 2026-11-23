@@ -12,7 +12,7 @@
  * Compile-time control design in the same tree as firmware
  * (variant gains as @c constexpr), with the same runtime objects usable in SIL.
  *
- * Start here on the MCU: @c StateSpace (or TF / ZPK), @c design::lqr / @c lqi / @c pidtune / @c kalman,
+ * Start here on the MCU: @c StateSpace (or TF / ZPK), @c design::state_feedback / @c pidtune / @c kalman,
  * @c Law<kRes, float> on a @c constexpr design, then @c step in the interrupt. Same objects in SIL.
  *
  * This umbrella is the embeddable surface:
@@ -32,7 +32,7 @@
  * #include "damp/control.hpp"          // MCU / embeddable path
  * using namespace damp;
  *
- * constexpr auto res = design::lqr(sys_d, {.Q = Q, .R = R});
+ * constexpr auto res = design::state_feedback(sys_d, {.Q = Q, .R = R});
  * constinit LQR controller{res.as<float>()}; // a failed design does not compile
  * // ISR: auto u = controller.step(x);
  * @endcode
@@ -82,12 +82,12 @@
 #include "damp/controllers/lqr.hpp"                  // IWYU pragma: export
 #include "damp/controllers/mpc.hpp"                  // IWYU pragma: export
 #include "damp/controllers/oflqg.hpp"                // IWYU pragma: export
-#include "damp/controllers/ofmpc.hpp"                // IWYU pragma: export
 #include "damp/controllers/pid.hpp"                  // IWYU pragma: export
 #include "damp/controllers/pr.hpp"                   // IWYU pragma: export
 #include "damp/controllers/repetitive.hpp"           // IWYU pragma: export
 #include "damp/controllers/smc.hpp"                  // IWYU pragma: export
 #include "damp/controllers/smith_predictor.hpp"      // IWYU pragma: export
+#include "damp/controllers/state_feedback.hpp"       // IWYU pragma: export
 #include "damp/controllers/stsmc.hpp"                // IWYU pragma: export
 
 // --- Core design-is-deploy estimators ---------------------------------------

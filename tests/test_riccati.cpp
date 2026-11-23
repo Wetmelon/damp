@@ -12,6 +12,7 @@
 #include "damp/backend.hpp"
 #include "damp/controllers/lqi.hpp"
 #include "damp/controllers/lqr.hpp"
+#include "damp/controllers/state_feedback.hpp"
 #include "damp/design/riccati.hpp"
 #include "damp/design/stability.hpp"
 #include "damp/design/status.hpp"
@@ -705,10 +706,10 @@ TEST_CASE("10-state LQI and steady-state Kalman designs fit a 2^26 constexpr bud
     // must stay designable at compile time.
     constexpr auto sys = mass_chain();
     // A stiff integrator weight on ∫e: the budget tripwire needs a well-separated closed loop.
-    constexpr auto lqi = design::lqi(sys, {.Q = Matrix<10, 10>::identity(), .R = Matrix<2, 2>::identity(), .Q_integral = Matrix<2, 2>::identity() * (1.0 / (0.01 * 0.01))});
+    constexpr auto lqi = design::state_feedback(sys, {.Q = Matrix<10, 10>::identity(), .R = Matrix<2, 2>::identity()}, design::IntegralAction{.Q = Matrix<2, 2>::identity() * (1.0 / (0.01 * 0.01))});
     static_assert(lqi.success);
     constexpr StateSpace<10, 2, 2, double, 10, 2> noisy{.A = sys.A, .B = sys.B, .C = sys.C, .G = Matrix<10, 10>::identity(), .H = Matrix<2, 2>::identity(), .Ts = sys.Ts};
-    constexpr auto                                kf = design::kalman(noisy, {.process = Matrix<10, 10>::identity() * 1e-4, .measurement = Matrix<2, 2>::identity() * 1e-2});
+    constexpr auto                                kf = design::kalman(noisy, design::KalmanNoise{.process = Matrix<10, 10>::identity() * 1e-4, .measurement = Matrix<2, 2>::identity() * 1e-2});
     static_assert(kf.success);
     CHECK(lqi.success);
     CHECK(kf.success);
@@ -1053,15 +1054,15 @@ TEST_SUITE("Riccati refusals") {
         }
     }
 
-    TEST_CASE("discrete_lqr and design::lqr refuse an R that is not positive definite, as continuous_lqr does") {
+    TEST_CASE("discrete_lqr and design::state_feedback refuse an R that is not positive definite, as continuous_lqr does") {
         const auto disc = design::discrete_lqr(Matrix<1, 1>{{0.95}}, Matrix<1, 1>{{1.0}}, Matrix<1, 1>{{1.0}}, Matrix<1, 1>{{0.0}});
         CHECK(disc.status == design::DesignStatus::bad_weights);
         const auto cont = design::continuous_lqr(Matrix<1, 1>{{0.95}}, Matrix<1, 1>{{1.0}}, Matrix<1, 1>{{1.0}}, Matrix<1, 1>{{0.0}});
         CHECK(cont.status == design::DesignStatus::bad_weights);
         const StateSpace<1, 1, 1> plant{.A = Matrix<1, 1>{{0.95}}, .B = Matrix<1, 1>{{1.0}}, .C = Matrix<1, 1>{{1.0}}, .Ts = 0.1};
-        CHECK(design::lqr(plant, {.Q = 1.0, .R = 0.0}).status == design::DesignStatus::bad_weights);
+        CHECK(design::state_feedback(plant, {.Q = 1.0, .R = 0.0}).status == design::DesignStatus::bad_weights);
         const StateSpace<1, 1, 1> plant_c{.A = Matrix<1, 1>{{-1.0}}, .B = Matrix<1, 1>{{1.0}}, .C = Matrix<1, 1>{{1.0}}};
-        CHECK(design::lqr(plant_c, 0.1, {.Q = 1.0, .R = 0.0}).status == design::DesignStatus::bad_weights);
+        CHECK(design::state_feedback(plant_c, 0.1, {.Q = 1.0, .R = 0.0}).status == design::DesignStatus::bad_weights);
         // dare() itself keeps R ≥ 0 for the estimator dual.
         CHECK(dare(Matrix<1, 1>{{0.95}}, Matrix<1, 1>{{1.0}}, Matrix<1, 1>{{1.0}}, Matrix<1, 1>{{0.0}}).has_value());
     }

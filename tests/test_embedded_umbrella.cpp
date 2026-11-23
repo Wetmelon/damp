@@ -27,7 +27,7 @@ TEST_SUITE("Embedded Umbrella") {
                 .Ts = 0.1
             };
             const Matrix<1, 1> R{{0.1}};
-            return damp::design::lqi(sys, {.Q = Matrix<2, 2>::identity(), .R = R, .Q_integral = 10.0});
+            return damp::design::state_feedback(sys, {.Q = Matrix<2, 2>::identity(), .R = R}, damp::design::IntegralAction{.Q = 10.0});
         }();
 
         static_assert(res.success, "synthesis must succeed at compile time via control.hpp alone");

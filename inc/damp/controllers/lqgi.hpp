@@ -7,19 +7,19 @@
 
 /**
  * @file lqgi.hpp
- * @brief The linear-quadratic Gaussian law with integral action: design::lqgi, LQGIResult, the LQGI runtime
+ * @brief The linear-quadratic Gaussian law with integral action: design::state_feedback with a KalmanNoise and an IntegralAction, LQGIResult, the LQGI runtime
  *
- * design::lqgi(plant, [Ts, [InputDelay<N>{θ},]] {.Q, .R, .N, .Q_integral}, KalmanNoise{.process, .measurement}[, IntegralAction<NI>{.outputs = {i, …}}])
- * → LQGIResult → LQGI. With an InputDelay the filter carries the inputs still on their way. step(r, y) is predict, update(y), control(r). The low-latency tick is
+ * design::state_feedback(plant, [Ts,] {.Q, .R, .N}, KalmanNoise{.process, .measurement}, IntegralAction{.Q[, .outputs = {i, …}]}[, InputDelay<N>{θ}])
+ * (state_feedback.hpp) → LQGIResult → LQGI. With an InputDelay the filter carries the inputs still on their way. step(r, y) is predict, update(y), control(r). The low-latency tick is
  * update(y), control(r), back_calculate, predict. With feedforward from a
  * planned trajectory: control(r, x_ref, u_ref), step(r, x_ref, u_ref, y).
  */
 
 #include "damp/backend.hpp"
 #include "damp/controllers/detail/lq_law.hpp"
+#include "damp/controllers/detail/state_feedback_core.hpp"
 #include "damp/controllers/detail/state_feedback_design.hpp"
 #include "damp/controllers/detail/state_feedback_options.hpp"
-#include "damp/controllers/state_feedback_core.hpp"
 #include "damp/controllers/state_feedback_types.hpp"
 #include "damp/estimation/kalman.hpp"
 #include "damp/matrix/colvec.hpp"
@@ -30,91 +30,9 @@ namespace damp {
 
 namespace design {
 
-/** @brief design::lqgi's result: the gain on [x; xi], the Kalman filter and the integral action. */
+/** @brief an LQGI design's result: the gain on [x; xi], the Kalman filter and the integral action. */
 template<size_t NX, size_t NU, size_t NY, size_t NI, typename T = double, size_t NW = NX, size_t NV = NY>
 using LQGIResult = StateFeedbackResult<NX, NU, T, NI, NY, KalmanResult<NX, NU, NY, T, NW, NV, 0>, 0>;
-
-/**
- * @brief The linear-quadratic Gaussian law with integral action on every output: runs as LQGI.
- * @note Compare with MATLAB®'s lqgtrack.
- */
-template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
-[[nodiscard]] constexpr auto lqgi(
-    const StateSpace<NX, NU, NY, T, NW, NV>&      sys,
-    const LQIConfig<NX, NU, NY, T>&               config,
-    const detail::plant_noise<NX, NY, T, NW, NV>& noise
-) {
-    return detail::state_feedback(detail::noise_model(sys), config, detail::StateFeedbackOptions{.noise = noise, .offset_free = IntegralAction{}});
-}
-
-/** @brief The sampled-data linear-quadratic Gaussian law with integral action on every output: runs as LQGI. */
-template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
-[[nodiscard]] constexpr auto lqgi(
-    const StateSpace<NX, NU, NY, T, NW, NV>&      sys,
-    damp::type_identity_t<T>                      Ts,
-    const LQIConfig<NX, NU, NY, T>&               config,
-    const detail::plant_noise<NX, NY, T, NW, NV>& noise
-) {
-    return detail::state_feedback(detail::noise_model(sys), Ts, config, detail::StateFeedbackOptions{.noise = noise, .offset_free = IntegralAction{}});
-}
-
-/** @brief The linear-quadratic Gaussian law with integral action on the listed outputs: runs as LQGI. */
-template<size_t NI, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
-    requires(NI > 0)
-[[nodiscard]] constexpr auto lqgi(
-    const StateSpace<NX, NU, NY, T, NW, NV>&      sys,
-    const LQIConfig<NX, NU, NI, T>&               config,
-    const detail::plant_noise<NX, NY, T, NW, NV>& noise,
-    const IntegralAction<NI>&                     outputs
-) {
-    return detail::state_feedback(detail::noise_model(sys), config, detail::StateFeedbackOptions{.noise = noise, .offset_free = outputs});
-}
-
-/** @brief The sampled-data linear-quadratic Gaussian law with integral action on the listed outputs: runs as LQGI. */
-template<size_t NI, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
-    requires(NI > 0)
-[[nodiscard]] constexpr auto lqgi(
-    const StateSpace<NX, NU, NY, T, NW, NV>&      sys,
-    damp::type_identity_t<T>                      Ts,
-    const LQIConfig<NX, NU, NI, T>&               config,
-    const detail::plant_noise<NX, NY, T, NW, NV>& noise,
-    const IntegralAction<NI>&                     outputs
-) {
-    return detail::state_feedback(detail::noise_model(sys), Ts, config, detail::StateFeedbackOptions{.noise = noise, .offset_free = outputs});
-}
-
-/**
- * @brief The sampled-data linear-quadratic Gaussian law with integral action on every output, of
- *        a plant whose input arrives @p delay late: runs as LQGI, its filter carrying the inputs
- *        still on their way.
- *
- * The weights and the noise are the plant's, as without the delay: the gain is lqi(sys, Ts,
- * delay, config)'s and the filter design::kalman(sys, Ts, delay, noise)'s.
- */
-template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t N, typename S>
-[[nodiscard]] constexpr auto lqgi(
-    const StateSpace<NX, NU, NY, T, NW, NV>&      sys,
-    damp::type_identity_t<T>                      Ts,
-    const InputDelay<N, S>&                       delay,
-    const LQIConfig<NX, NU, NY, T>&               config,
-    const detail::plant_noise<NX, NY, T, NW, NV>& noise
-) {
-    return detail::state_feedback(detail::noise_model(sys), Ts, delay, config, detail::StateFeedbackOptions{.noise = noise, .offset_free = IntegralAction{}});
-}
-
-/** @brief The sampled-data linear-quadratic Gaussian law with integral action on the listed outputs, of a plant whose input arrives @p delay late: runs as LQGI. */
-template<size_t NI, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t N, typename S>
-    requires(NI > 0)
-[[nodiscard]] constexpr auto lqgi(
-    const StateSpace<NX, NU, NY, T, NW, NV>&      sys,
-    damp::type_identity_t<T>                      Ts,
-    const InputDelay<N, S>&                       delay,
-    const LQIConfig<NX, NU, NI, T>&               config,
-    const detail::plant_noise<NX, NY, T, NW, NV>& noise,
-    const IntegralAction<NI>&                     outputs
-) {
-    return detail::state_feedback(detail::noise_model(sys), Ts, delay, config, detail::StateFeedbackOptions{.noise = noise, .offset_free = outputs});
-}
 
 } // namespace design
 
@@ -122,12 +40,12 @@ template<size_t NI, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size
  * @ingroup discrete_controllers
  * @brief Linear-quadratic Gaussian law with integral action on the measured outputs
  *
- * Runs design::lqgi. The estimator is a FixedGainObserver with design::kalman's fixed gain
+ * Runs design::state_feedback with a KalmanNoise and an IntegralAction. The estimator is a FixedGainObserver with design::kalman's fixed gain
  * (`estimator`). xi integrates r − Ci·y on the last update's measurement; the law is
  * u = u* − K·[x̂ − x*; xi]. The tick is step(r, y), or update(y), control(r), back_calculate,
  * predict() (predict moves the filter and xi), with x* = 0 and u* = 0; feedforward from a planned trajectory (x_ref, u_ref) is control(r, x_ref, u_ref), or
  * step(r, x_ref, u_ref, y). The command is clamped into u_lim and xi into integral_lim (the
- * design's, LQIConfig; unbounded by default): predict() moves the filter on the clamped command
+ * design's, IntegralAction::lim; unbounded by default): predict() moves the filter on the clamped command
  * and holds the integrators against the clamp. back_calculate(u_sat) before it reports a stage
  * that clamps after the law.
  *
@@ -145,12 +63,12 @@ struct LQGI : private detail::StateFeedbackCore<NX, NU, T, NI, NY, Est, 0, Store
 
     constexpr LQGI() = default;
 
-    /** @brief From design::lqgi (any scalar). */
+    /** @brief From design::state_feedback(any scalar, design::IntegralAction{}). */
     template<detail::state_feedback_result R>
         requires(!Store::constant)
     constexpr LQGI(const R& result) { // NOLINT
         constexpr bool kind = R::kIntegral && R::kEstimated;
-        static_assert(kind, "LQGI runs design::lqgi: this design has no Kalman filter (LQR, LQI) or no integral action (LQG, OFLQG).");
+        static_assert(kind, "LQGI runs design::state_feedback with a KalmanNoise and an IntegralAction: this design has no Kalman filter (LQR, LQI) or no integral action (LQG, OFLQG).");
         if constexpr (kind) {
             static_cast<Core&>(*this) = Core(result);
         }
@@ -193,7 +111,7 @@ struct LQGI : private detail::StateFeedbackCore<NX, NU, T, NI, NY, Est, 0, Store
     using Core::valid;
 };
 
-/** @brief LQGI law{res}: the sizes, scalar and filter of design::lqgi's result. */
+/** @brief LQGI law{res}: the sizes, scalar and filter of an LQGI design's result. */
 template<size_t NX, size_t NU, typename T, size_t NI, size_t NY, typename Kalman, size_t NZ, size_t NRU>
 LQGI(const design::StateFeedbackResult<NX, NU, T, NI, NY, Kalman, NZ, NRU>&) -> LQGI<NX, NU, NY, NI, T, detail::runtime_estimator_t<Kalman, T>, detail::HeldGains, NRU>;
 

@@ -198,7 +198,7 @@ slices of a single output.
 ## Control design (what `cart_pole_controller.hpp` does)
 
 1. Continuous plant $`(A,B)`$ as above.
-2. Discrete LQR via `design::lqr(sys, Ts, {.Q = Q, .R = R})`: a continuous plant plus `Ts` discretizes the dynamics (ZOH) and the cost (Van Loan), then solves the DARE.
+2. Discrete LQR via `design::state_feedback(sys, Ts, {.Q = Q, .R = R})`: a continuous plant plus `Ts` discretizes the dynamics (ZOH) and the cost (Van Loan), then solves the DARE.
 3. Cost weights (diagonal $`Q`$, $`R = 1`$):
 
 | State | $`Q_{ii}`$ | Intent |

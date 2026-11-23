@@ -45,7 +45,7 @@ namespace design {
 
 /**
  * @brief The outputs a law without integrators or a disturbance model holds at r through its
- *        steady-state target (design::lqr, design::lqg): `TrackedOutputs<1>{{0}}`, in that order
+ *        steady-state target (design::state_feedback, with or without a KalmanNoise): `TrackedOutputs{{0}}`, in that order
  *        (the references r follow it).
  *
  * The target is the model's: x* = Nₓ·r, u* = Nᵤ·r. A model error or a constant disturbance
@@ -54,12 +54,19 @@ namespace design {
  * @see "Feedback Control of Dynamic Systems" (Franklin, Powell & Emami-Naeini), the reference
  *      input of state-space design (N_x, N_u)
  *
+ * @ref outputs is an array, so `TrackedOutputs{{0, 2}}` takes NZ from its list; `TrackedOutputs{}` is
+ * every measured output.
+ *
  * @tparam NZ Outputs held at r, listed in @ref outputs (0: every measured output)
  */
 template<size_t NZ = 0>
 struct TrackedOutputs {
-    damp::array<size_t, NZ> outputs{}; ///< Indices of the measured outputs held at r, each once (none listed: all)
+    size_t outputs[NZ]{}; ///< Indices of the measured outputs held at r, each once
 };
+
+/** @brief Every measured output held at r: no list. */
+template<>
+struct TrackedOutputs<0> {};
 
 /**
  * @struct SteadyStateTargetResult
@@ -98,6 +105,20 @@ template<typename Spec>
     return spec.outputs;
 }
 
+/** @brief The outputs TrackedOutputs lists, none for every output. */
+template<size_t NZ>
+[[nodiscard]] constexpr damp::array<size_t, NZ> listed_outputs(const TrackedOutputs<NZ>& spec) {
+    damp::array<size_t, NZ> out{};
+    if constexpr (NZ > 0) {
+        for (size_t i = 0; i < NZ; ++i) {
+            out[i] = spec.outputs[i];
+        }
+    } else {
+        static_cast<void>(spec);
+    }
+    return out;
+}
+
 /** @brief The disturbance channels of NoDisturbance: none. */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NXE, size_t NWE, size_t NVE>
 [[nodiscard]] constexpr DisturbanceChannels<NX, NXE, NY, 0, T> disturbance_channels(
@@ -128,7 +149,7 @@ struct disturbance_traits<TrackedOutputs<NZ>, NU, NY, NW> {
 };
 
 /** @brief The options steady_state_target takes: the model features of the design (a KalmanNoise is ignored). */
-using target_options = ::damp::detail::option_set<is_disturbance, is_kalman_noise>;
+using target_options = ::damp::detail::option_set<is_disturbance, is_kalman_noise, is_input_delay>;
 
 /** @brief The controlled outputs of a target under @p Spec: those it lists, else every output. */
 template<typename Spec, size_t NU, size_t NY, size_t NW>
@@ -338,6 +359,7 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename... Opts>
 [[nodiscard]] constexpr auto steady_state_target(const StateSpace<NX, NU, NY, T, NW, NV>& sys, const Opts&... opts) {
     detail::target_options::check<Opts...>();
+    static_assert(::damp::detail::option_count<detail::is_input_delay, Opts...> == 0, "An InputDelay is sampled with the plant: give the continuous plant and Ts.");
     return detail::target_design<true>(
         sys, T{0}, ::damp::detail::option<detail::is_disturbance>(NoDisturbance{}, opts...)
     );
@@ -348,38 +370,23 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
  *        steady_state_target(sys, opts…)): on the discrete filter's model of
  *        design::kalman(sys, Ts, noise, opts…).
  *
+ * With InputDelay<N>{θ} among @p opts the model is the plant whose input arrives θ late, the
+ * plant then its delay states v(k−1) … v(k−N); at a steady state each holds u_t.
+ *
  * @param sys   Continuous plant (sys.Ts = 0)
  * @param Ts    Sampling time of the law [s]
- * @param opts  The model features of the design, in any order
+ * @param opts  The model features of the design, in any order: a disturbance spec, an InputDelay
  */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename... Opts>
 [[nodiscard]] constexpr auto steady_state_target(const StateSpace<NX, NU, NY, T, NW, NV>& sys, damp::type_identity_t<T> Ts, const Opts&... opts) {
     detail::target_options::check<Opts...>();
-    return detail::target_design<false>(
-        sys, Ts, ::damp::detail::option<detail::is_disturbance>(NoDisturbance{}, opts...)
-    );
-}
-
-/**
- * @brief The steady-state target of a law on a continuous plant whose input arrives @p delay
- *        late: on the filter's model of design::kalman(sys, Ts, delay, noise, opts…), the plant
- *        and its registers v(k−1) … v(k−N). At a steady state each register holds u_t.
- *
- * @param sys    Continuous plant (sys.Ts = 0)
- * @param Ts     Sampling time of the law [s]
- * @param delay  InputDelay<N>{θ}: θ ≤ N·Ts
- * @param opts   The model features of the design, in any order
- */
-template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t N, typename S, typename... Opts>
-[[nodiscard]] constexpr auto steady_state_target(
-    const StateSpace<NX, NU, NY, T, NW, NV>& sys,
-    damp::type_identity_t<T>                 Ts,
-    const InputDelay<N, S>&                  delay,
-    const Opts&... opts
-) {
-    detail::target_options::check<Opts...>();
     const auto spec = ::damp::detail::option<detail::is_disturbance>(NoDisturbance{}, opts...);
-    return detail::target_design<false>(sys, Ts, spec, detail::target_weight<damp::remove_cvref_t<decltype(spec)>, NU, NY, NW, T>::identity(), delay);
+    if constexpr (::damp::detail::option_count<detail::is_input_delay, Opts...> == 0) {
+        return detail::target_design<false>(sys, Ts, spec);
+    } else {
+        const auto delay = ::damp::detail::option<detail::is_input_delay>(detail::NoDelay{}, opts...);
+        return detail::target_design<false>(sys, Ts, spec, detail::target_weight<damp::remove_cvref_t<decltype(spec)>, NU, NY, NW, T>::identity(), delay);
+    }
 }
 
 } // namespace design

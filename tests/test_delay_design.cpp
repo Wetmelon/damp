@@ -23,7 +23,7 @@
 #include "damp/controllers/lqr.hpp"
 #include "damp/controllers/mpc.hpp"
 #include "damp/controllers/oflqg.hpp"
-#include "damp/controllers/ofmpc.hpp"
+#include "damp/controllers/state_feedback.hpp"
 #include "damp/design/disturbance.hpp"
 #include "damp/design/riccati.hpp"
 #include "damp/design/status.hpp"
@@ -152,7 +152,7 @@ void check_measured_laws(double theta) {
     ColVec<NS>       x0{};
     x0[0] = 1.0;
 
-    const auto lqr = design::lqr(model, {.Q = position_weight_on<N>(1e4), .R = Matrix<1, 1>{{1e-4}}});
+    const auto lqr = design::state_feedback(model, {.Q = position_weight_on<N>(1e4), .R = Matrix<1, 1>{{1e-4}}});
     REQUIRE(lqr.success);
     CHECK(lqr.is_stable());
     LQR              regulator{lqr};
@@ -167,7 +167,7 @@ void check_measured_laws(double theta) {
     }
     CHECK(ta.worst < 1e-6);
 
-    const auto lqi = design::lqi(model, {.Q = position_weight_on<N>(1e3), .R = Matrix<1, 1>{{1e-7}}, .Q_integral = Matrix<1, 1>{{1e6}}});
+    const auto lqi = design::state_feedback(model, {.Q = position_weight_on<N>(1e3), .R = Matrix<1, 1>{{1e-7}}}, design::IntegralAction{.Q = 1e6});
     REQUIRE(lqi.success);
     LQI              integrating{lqi};
     Truth<NS>        b{truth};
@@ -207,7 +207,7 @@ void check_output_laws(double theta) {
     const auto       truth = test::register_form<N>(mass_spring(), kTs, theta);
 
     const design::KalmanNoise lqgi_noise{.process = Matrix<2, 2>::identity(), .measurement = Matrix<1, 1>{{1e-6}}};
-    const auto                lqgi = design::lqgi(model, {.Q = position_weight_on<N>(1e3), .R = Matrix<1, 1>{{1e-7}}, .Q_integral = Matrix<1, 1>{{1e6}}}, lqgi_noise);
+    const auto                lqgi = design::state_feedback(model, {.Q = position_weight_on<N>(1e3), .R = Matrix<1, 1>{{1e-7}}}, lqgi_noise, design::IntegralAction{.Q = 1e6});
     REQUIRE(lqgi.success);
     LQGI      integrating{lqgi};
     Truth<NS> a{truth};
@@ -219,7 +219,7 @@ void check_output_laws(double theta) {
     CHECK(ta.worst < 1e-4);
 
     const design::KalmanNoise noise{Matrix<2, 2>{{1e-4, 0.0}, {0.0, 1e-2}}, Matrix<1, 1>{{1e-6}}, Matrix<1, 1>{{1e-2}}};
-    const auto                oflqg = design::oflqg(model, {.Q = position_weight_on<N>(1e3), .R = Matrix<1, 1>{{1e-4}}}, noise, design::InputDisturbance{});
+    const auto                oflqg = design::state_feedback(model, {.Q = position_weight_on<N>(1e3), .R = Matrix<1, 1>{{1e-4}}}, noise, design::InputDisturbance{});
     REQUIRE(oflqg.success);
     OFLQG     holding{oflqg};
     Truth<NS> b{truth};
@@ -233,7 +233,7 @@ void check_output_laws(double theta) {
     design::MPCWeights<1, 1> w{};
     w.Qy = 1e3;
     w.Rdu = 1e-4;
-    const auto ofmpc = design::ofmpc<20 + N, 5>(model, w, {}, noise, design::InputDisturbance{});
+    const auto ofmpc = design::mpc<20 + N, 5>(model, w, {}, noise, design::InputDisturbance{});
     REQUIRE(ofmpc.success);
     OFMPC     planner{ofmpc};
     Truth<NS> c{truth};
@@ -348,7 +348,7 @@ TEST_SUITE("Design on the delayed model") {
         // period late; it measures the last applied input as its third state.
         const Matrix<1, 1> R{{1e-4}};
         const auto         naive = design::discrete_lqr(kUndelayed.A, kUndelayed.B, Matrix<2, 2>{{1e4, 0.0}, {0.0, 0.0}}, R);
-        const auto         aware = design::lqr(kDelayed, {.Q = position_weight(1e4), .R = R});
+        const auto         aware = design::state_feedback(kDelayed, {.Q = position_weight(1e4), .R = R});
         REQUIRE(naive.success);
         REQUIRE(aware.success);
         CHECK(aware.is_stable());
@@ -382,8 +382,8 @@ TEST_SUITE("Design on the delayed model") {
         const Matrix<1, 1> Rn{{1e-6}};
         for (const double theta : {0.4 * kTs, kTs}) {
             const auto                         model = discretize(mass_spring(), kTs, InputDelay{theta}).value();
-            FixedGainObserver<3, 1, 1, double> aware{design::kalman(model, {.process = Qn, .measurement = Rn})};
-            FixedGainObserver<2, 1, 1, double> naive{design::kalman(kUndelayed, {.process = Qn, .measurement = Rn})};
+            FixedGainObserver<3, 1, 1, double> aware{design::kalman(model, design::KalmanNoise{.process = Qn, .measurement = Rn})};
+            FixedGainObserver<2, 1, 1, double> naive{design::kalman(kUndelayed, design::KalmanNoise{.process = Qn, .measurement = Rn})};
             Truth<3>                           t{test::register_form<1>(mass_spring(), kTs, theta), ColVec<3>{0.5, -0.2, 0.0}};
             Tail                               ea;
             Tail                               eb;
@@ -411,8 +411,8 @@ TEST_SUITE("Design on the delayed model") {
         const Matrix<1, 1>        Qi{{1e6}}; // on ∫e
         const Matrix<1, 1>        R{{1e-7}};
         const design::KalmanNoise noise{.process = Matrix<2, 2>::identity(), .measurement = Matrix<1, 1>{{1e-6}}};
-        const auto                aware = design::lqgi(kDelayed, {.Q = position_weight(1e3), .R = R, .Q_integral = Qi}, noise);
-        const auto                naive = design::lqgi(kUndelayed, {.Q = Matrix<2, 2>{{1e3, 0.0}, {0.0, 0.0}}, .R = R, .Q_integral = Qi}, noise);
+        const auto                aware = design::state_feedback(kDelayed, {.Q = position_weight(1e3), .R = R}, noise, design::IntegralAction{.Q = Qi});
+        const auto                naive = design::state_feedback(kUndelayed, {.Q = Matrix<2, 2>{{1e3, 0.0}, {0.0, 0.0}}, .R = R}, noise, design::IntegralAction{.Q = Qi});
         REQUIRE(aware.success);
         REQUIRE(naive.success);
         LQGI            ca{aware};
@@ -442,8 +442,8 @@ TEST_SUITE("Design on the delayed model") {
         const Matrix<1, 1> R{{1e-4}};
         for (const double theta : {0.4 * kTs, kTs}) {
             const auto model = discretize(mass_spring(), kTs, InputDelay{theta}).value();
-            const auto lqi = design::lqi(model, {.Q = position_weight(1e3), .R = R, .Q_integral = Qi});
-            const auto lqgi = design::lqgi(model, {.Q = position_weight(1e3), .R = R, .Q_integral = Qi}, {.process = Matrix<2, 2>::identity(), .measurement = 1e-6});
+            const auto lqi = design::state_feedback(model, {.Q = position_weight(1e3), .R = R}, design::IntegralAction{.Q = Qi});
+            const auto lqgi = design::state_feedback(model, {.Q = position_weight(1e3), .R = R}, design::KalmanNoise{.process = Matrix<2, 2>::identity(), .measurement = 1e-6}, design::IntegralAction{.Q = Qi});
             REQUIRE(lqi.success);
             REQUIRE(lqgi.success);
             LQI             li{lqi};
@@ -515,7 +515,7 @@ TEST_SUITE("Design on the delayed model") {
         w.Qy = 1e3;
         w.Rdu = 1e-8;
         const design::KalmanNoise noise{Matrix<2, 2>{{1e-4, 0.0}, {0.0, 1e-2}}, Matrix<1, 1>{{1e-6}}, Matrix<1, 1>{{1e-2}}};
-        const auto                naive = design::ofmpc<40, 10>(kUndelayedG, w, {}, noise, design::DisturbanceModel<2, 1, 1>{.Bd = kUndelayedG.B});
+        const auto                naive = design::mpc<40, 10>(kUndelayedG, w, {}, noise, design::DisturbanceModel<2, 1, 1>{.Bd = kUndelayedG.B});
         REQUIRE(naive.success);
         const auto run = [&](const auto& aware) {
             REQUIRE(aware.success);
@@ -539,10 +539,10 @@ TEST_SUITE("Design on the delayed model") {
             CHECK(ca.disturbance_estimate()(0) == doctest::Approx(0.5).epsilon(1e-3));
         };
         SUBCASE("a load on the plant states, not delayed (B_d zero on the register)") {
-            run(design::ofmpc<40, 10>(kDelayedG, w, {}, noise, design::DisturbanceModel<3, 1, 1>{.Bd = kLoadOnPlant}));
+            run(design::mpc<40, 10>(kDelayedG, w, {}, noise, design::DisturbanceModel<3, 1, 1>{.Bd = kLoadOnPlant}));
         }
         SUBCASE("an input disturbance, delayed with the command through the register") {
-            run(design::ofmpc<40, 10>(kDelayedG, w, {}, noise, design::InputDisturbance{}));
+            run(design::mpc<40, 10>(kDelayedG, w, {}, noise, design::InputDisturbance{}));
         }
     }
 
@@ -556,8 +556,8 @@ TEST_SUITE("Design on the delayed model") {
         // fast enough that the delay destabilizes it.
         const Matrix<1, 1>        R{{1e-7}};
         const design::KalmanNoise noise{Matrix<2, 2>{{1e-4, 0.0}, {0.0, 1e-2}}, Matrix<1, 1>{{1e-6}}, Matrix<1, 1>{{1e-2}}};
-        const auto                aware = design::oflqg(kDelayedG, {.Q = position_weight(1e4), .R = R}, noise, design::DisturbanceModel<3, 1, 1>{.Bd = kLoadOnPlant});
-        const auto                naive = design::oflqg(kUndelayedG, {.Q = Matrix<2, 2>{{1e4, 0.0}, {0.0, 0.0}}, .R = R}, noise, design::DisturbanceModel<2, 1, 1>{.Bd = kUndelayedG.B});
+        const auto                aware = design::state_feedback(kDelayedG, {.Q = position_weight(1e4), .R = R}, noise, design::DisturbanceModel<3, 1, 1>{.Bd = kLoadOnPlant});
+        const auto                naive = design::state_feedback(kUndelayedG, {.Q = Matrix<2, 2>{{1e4, 0.0}, {0.0, 0.0}}, .R = R}, noise, design::DisturbanceModel<2, 1, 1>{.Bd = kUndelayedG.B});
         REQUIRE(aware.success);
         REQUIRE(naive.success);
 
@@ -633,8 +633,8 @@ TEST_SUITE("Design on the delayed model") {
         // longest to travel, so x(k+N) = Aᴺx + Σⱼ Aʲ⁻¹·B·v(k−j).
         constexpr size_t N = 5;
         const auto       model = discretize(mass_spring(), kTs, InputDelay<N>{N * kTs}).value();
-        const auto       free = design::lqr(kUndelayed, {.Q = Matrix<2, 2>{{1e4, 0.0}, {0.0, 0.0}}, .R = Matrix<1, 1>{{1e-4}}});
-        const auto       held = design::lqr(model, {.Q = position_weight_on<N>(1e4), .R = Matrix<1, 1>{{1e-4}}});
+        const auto       free = design::state_feedback(kUndelayed, {.Q = Matrix<2, 2>{{1e4, 0.0}, {0.0, 0.0}}, .R = Matrix<1, 1>{{1e-4}}});
+        const auto       held = design::state_feedback(model, {.Q = position_weight_on<N>(1e4), .R = Matrix<1, 1>{{1e-4}}});
         REQUIRE(free.success);
         REQUIRE(held.success);
         Matrix<1, 2 + N> expected{};
@@ -654,7 +654,7 @@ TEST_SUITE("Design on the delayed model") {
         constexpr size_t NS = 2 + N;
         const auto       model = discretize(mass_spring(), kTs, InputDelay<N>{N * kTs}).value();
         const auto       truth = test::register_form<N>(mass_spring(), kTs, N * kTs);
-        const auto       res = design::lqg(model, {.Q = position_weight_on<N>(1e4), .R = Matrix<1, 1>{{1e-4}}}, design::KalmanNoise<2, 1>{.process = Matrix<2, 2>::identity(), .measurement = 1e-6});
+        const auto       res = design::state_feedback(model, {.Q = position_weight_on<N>(1e4), .R = Matrix<1, 1>{{1e-4}}}, design::KalmanNoise<2, 1>{.process = Matrix<2, 2>::identity(), .measurement = 1e-6});
         REQUIRE(res.success);
         LQG        law{res};
         ColVec<NS> x0{};
@@ -743,7 +743,7 @@ TEST_SUITE("Design on the delayed model") {
             CHECK(e.worst < 1e-4);
         };
 
-        const auto lq = design::oflqg(model, {.Q = blkdiag(Matrix<2, 2>::identity() * 1e3, Matrix<4, 4>{}), .R = Matrix<2, 2>::identity() * 1e-2}, noise, design::InputDisturbance{});
+        const auto lq = design::state_feedback(model, {.Q = blkdiag(Matrix<2, 2>::identity() * 1e3, Matrix<4, 4>{}), .R = Matrix<2, 2>::identity() * 1e-2}, noise, design::InputDisturbance{});
         REQUIRE(lq.success);
         OFLQG holding{lq};
         run(holding);
@@ -752,7 +752,7 @@ TEST_SUITE("Design on the delayed model") {
         w.Qy = Matrix<2, 2>::identity() * 1e3;
         w.Qy_terminal = w.Qy;
         w.Rdu = Matrix<2, 2>::identity() * 1e-2;
-        const auto mpc = design::ofmpc<30, 5>(model, w, {}, noise, design::InputDisturbance{});
+        const auto mpc = design::mpc<30, 5>(model, w, {}, noise, design::InputDisturbance{});
         REQUIRE(mpc.success);
         OFMPC planning{mpc};
         run(planning);
@@ -761,7 +761,7 @@ TEST_SUITE("Design on the delayed model") {
     TEST_CASE("a law on N registers is designed at compile time and deployed in float") {
         static constexpr StateSpace<1, 1, 1, double, 1, 1> lag{.A = {{-1.0}}, .B = {{1.0}}, .C = {{1.0}}};
         static constexpr auto                              model = *discretize(lag, 0.05, InputDelay<2>{0.075});
-        static constexpr auto                              res = design::lqg(model, {.Q = blkdiag(Matrix<1, 1>{{1.0}}, Matrix<2, 2>{}), .R = 0.1}, {.process = 0.05, .measurement = 0.001});
+        static constexpr auto                              res = design::state_feedback(model, {.Q = blkdiag(Matrix<1, 1>{{1.0}}, Matrix<2, 2>{}), .R = 0.1}, design::KalmanNoise{.process = 0.05, .measurement = 0.001});
         static_assert(res.success);
         static constinit LQG law{res.as<float>()};
         CHECK(std::isfinite(law.step(ColVec<1, float>{{1.0F}})[0]));

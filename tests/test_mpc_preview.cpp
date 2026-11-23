@@ -14,7 +14,6 @@
 
 #include "damp/backend.hpp"
 #include "damp/controllers/mpc.hpp"
-#include "damp/controllers/ofmpc.hpp"
 #include "damp/design/disturbance.hpp"
 #include "damp/estimation/kalman.hpp"
 #include "damp/math/math.hpp"
@@ -161,7 +160,7 @@ TEST_SUITE("MPC reference preview") {
             .upper = u_max,
         };
         StateSpace<1, 1, 1, double, 1, 1> plant{.A = kModel->A, .B = kModel->B, .C = kModel->C, .Ts = kModel->Ts}; // process noise on the state
-        const auto                        art = design::ofmpc<NP, NC>(plant, w, c, design::KalmanNoise{Matrix<1, 1>{{0.01}}, Matrix<1, 1>{{0.01}}, Matrix<1, 1>{{0.05}}}, design::InputDisturbance{});
+        const auto                        art = design::mpc<NP, NC>(plant, w, c, design::KalmanNoise{Matrix<1, 1>{{0.01}}, Matrix<1, 1>{{0.01}}, Matrix<1, 1>{{0.05}}}, design::InputDisturbance{});
         REQUIRE(art.success);
         OFMPC  a{art};
         OFMPC  b{art};

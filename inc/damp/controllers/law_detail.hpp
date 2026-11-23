@@ -188,6 +188,14 @@ inline constexpr size_t delay_registers = 0;
 template<size_t N, typename S>
 inline constexpr size_t delay_registers<InputDelay<N, S>> = N;
 
+/** @brief Not an InputDelay: a kind of trailing design option (options.hpp). */
+template<typename>
+struct is_input_delay : damp::false_type {};
+
+/** @brief InputDelay<N>: the delay a sampled design is on, given among its trailing options. */
+template<size_t N, typename S>
+struct is_input_delay<InputDelay<N, S>> : damp::true_type {};
+
 /** @brief sampled_model(sys, Ts, discrete), the model of a design without a delay. */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
 [[nodiscard]] constexpr SampledModel<NX, NU, NY, T, NW, NV> sampled_model(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T Ts, bool discrete, NoDelay) {
@@ -266,7 +274,7 @@ template<typename Ts>
  * members, and assigning a runtime of the same shape replaces them.
  *
  * @code
- * inline constexpr auto kRes = design::lqg(plant, {.Q = Q, .R = R}, {.process = Qn, .measurement = Rn});
+ * inline constexpr auto kRes = design::state_feedback(plant, {.Q = Q, .R = R}, design::KalmanNoise{.process = Qn, .measurement = Rn});
  *
  * struct Axis {
  *     Law<kRes, float> law; // the design's law, in float
@@ -279,7 +287,7 @@ template<typename Ts>
  * (estimation/fixed_gain_observer.hpp: FixedGainObserver, ReducedOrderObserver), design::eso (estimation/eso.hpp),
  * design::adrc (controllers/adrc.hpp) and the model inverses (design/model_inverse.hpp:
  * StateFeedforward, OutputInverse), which all run on constants when kRes is `constexpr`, and MPC
- * (controllers/mpc.hpp, ofmpc.hpp), whose QP data stays in members and whose OFMPC filter is on constants.
+ * (controllers/mpc.hpp), whose QP data stays in members and whose OFMPC filter is on constants.
  * design::kalman's Law also names its recursive filter, `Law<kRes, float>::Recursive`: the KalmanFilter
  * of the same model and noise, on the same constants when kRes is `constexpr`.
  *
@@ -288,7 +296,7 @@ template<typename Ts>
  */
 template<const auto& Res, typename T>
 struct Law {
-    static_assert(sizeof(T) == 0, "Law<res, T>: res is not a design result a law is built from; include its runtime's header (controllers/lqr.hpp, lqi.hpp, lqg.hpp, lqgi.hpp, oflqg.hpp, mpc.hpp, ofmpc.hpp, adrc.hpp, estimation/fixed_gain_observer.hpp, estimation/eso.hpp, design/model_inverse.hpp)");
+    static_assert(sizeof(T) == 0, "Law<res, T>: res is not a design result a law is built from; include its runtime's header (controllers/lqr.hpp, lqi.hpp, lqg.hpp, lqgi.hpp, oflqg.hpp, mpc.hpp, adrc.hpp, estimation/fixed_gain_observer.hpp, estimation/eso.hpp, design/model_inverse.hpp)");
 };
 
 } // namespace damp

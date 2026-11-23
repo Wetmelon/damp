@@ -13,6 +13,7 @@
 
 #include "damp/backend.hpp"
 #include "damp/controllers/state_feedback_types.hpp"
+#include "damp/design/detail/config.hpp"
 #include "damp/design/disturbance.hpp"
 #include "damp/design/options.hpp"
 #include "damp/design/steady_state_target.hpp"
@@ -24,23 +25,6 @@ namespace design {
 namespace detail {
 
 /**
- * @brief An option left out of StateFeedbackOptions: that feature is off.
- *
- * Bare braces for the options, `{.noise = …}`, give every field this type, and the
- * conversion says to name the struct: `design::StateFeedbackOptions{.noise = …}`.
- */
-struct Unset {
-    constexpr Unset() = default;
-
-    /** @brief Bare braces reach this: it does not compile, and says to name the options struct. */
-    template<typename U>
-    constexpr Unset(const U& value) { // NOLINT(google-explicit-constructor): implicit, so bare braces reach the message
-        static_cast<void>(value);
-        static_assert(sizeof(U) == 0, "Name the options struct: design::StateFeedbackOptions{.noise = ...}. Bare braces cannot carry an option's type.");
-    }
-};
-
-/**
  * @brief The features of a state-feedback law, one named field each; leave a field out and the
  *        feature is off.
  *
@@ -49,7 +33,7 @@ struct Unset {
  * | Field | Value | The law gets |
  * | --- | --- | --- |
  * | `.noise` | design::KalmanNoise{.process, .measurement} | a Kalman filter: the law measures y, not x (LQG) |
- * | `.offset_free` | design::IntegralAction{}, or a disturbance model: InputDisturbance, OutputDisturbance, PlantDisturbance or DisturbanceModel | no steady-state error on the outputs r tracks (LQI, LQGI, OFLQG): by integrators on r − y, or by a disturbance the filter estimates (needs `.noise`) |
+ * | `.offset_free` | design::detail::IntegralAction{}, or a disturbance model: InputDisturbance, OutputDisturbance, PlantDisturbance or DisturbanceModel | no steady-state error on the outputs r tracks (LQI, LQGI, OFLQG): by integrators on r − y, or by a disturbance the filter estimates (needs `.noise`) |
  * | `.track` | design::TrackedOutputs{} | the outputs r holds through the model's steady-state target, with no offset-free action (LQR, LQG) |
  *
  * @code
@@ -62,13 +46,9 @@ struct Unset {
 template<typename NoiseT = Unset, typename OffsetFreeT = Unset, typename TrackT = Unset>
 struct StateFeedbackOptions {
     NoiseT      noise{};       ///< design::KalmanNoise{.process, .measurement}: estimate the state with a Kalman filter
-    OffsetFreeT offset_free{}; ///< design::IntegralAction{}, or a disturbance model the filter estimates: no steady-state error
+    OffsetFreeT offset_free{}; ///< design::detail::IntegralAction{}, or a disturbance model the filter estimates: no steady-state error
     TrackT      track{};       ///< design::TrackedOutputs{}: the outputs r holds through the steady-state target
 };
-
-/** @brief Whether an option was left out. */
-template<typename O>
-inline constexpr bool is_unset = damp::is_same_v<O, Unset>;
 
 /** @brief Not integral action. */
 template<typename>
@@ -133,6 +113,18 @@ struct integrated_count<Matrix<R, C, U>, NY> {
     static constexpr size_t value = R;             ///< NI
 };
 
+/** @brief Not the public IntegralAction, as a kind of trailing option (options.hpp). */
+template<typename O>
+struct is_integral_option : damp::false_type {};
+
+/** @brief design::IntegralAction{.Q, …}. */
+template<typename TQ, typename T>
+struct is_integral_option<::damp::design::IntegralAction<TQ, T>> : damp::true_type {};
+
+/** @brief TrackedOutputs, as a kind of trailing option (options.hpp). */
+template<typename O>
+struct is_tracked_option : damp::bool_constant<is_tracked_outputs<O>> {};
+
 /** @brief NI of a design's options. */
 template<size_t NY, typename Options>
 inline constexpr size_t integrator_count = integrated_count<typename options_traits<Options>::integrate, NY>::value;
@@ -163,13 +155,13 @@ consteval bool fields_valid() {
     static_assert(noise, "The noise is design::KalmanNoise{.process = ..., .measurement = ...}.");
     static_assert(
         choice,
-        "options.offset_free is design::IntegralAction{} (integrators on r - y), or a disturbance model the Kalman filter estimates: "
+        "options.offset_free is design::detail::IntegralAction{} (integrators on r - y), or a disturbance model the Kalman filter estimates: "
         "design::InputDisturbance{}, OutputDisturbance{}, PlantDisturbance{} or DisturbanceModel{.Bd, .Cd}. Leave it out for neither."
     );
     static_assert(fits, "The DisturbanceModel is on the plant's states and outputs, in the plant's scalar.");
     static_assert(integrate, "The integrated outputs Ci·y: Ci is an NI x NY matrix, a column per measured output.");
-    static_assert(track, "options.track is design::TrackedOutputs{} (every output) or TrackedOutputs<NZ>{{i, ...}}.");
-    static_assert(one_reference, "Integral action and a disturbance model already hold r: .track is for a law with neither (lqr, lqg).");
+    static_assert(track, "options.track is design::TrackedOutputs{} (every output) or TrackedOutputs{{i, ...}}.");
+    static_assert(one_reference, "Integral action and a disturbance model already hold r: TrackedOutputs is for a law with neither (LQR, LQG).");
     return noise && choice && fits && integrate && track && one_reference;
 }
 

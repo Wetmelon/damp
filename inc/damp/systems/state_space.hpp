@@ -169,10 +169,12 @@ struct StateSpace {
  *        optionally `.D` and `.Ts`, with no template arguments.
  *
  * A braced list deduces the bounds of a C array, not the size of a Matrix, so each guide
- * takes A, B, C (and D) as `const T (&)[R][C]`. The guides match by position: a model with
- * noise inputs G / H names its sizes (`StateSpace<NX, NU, NY, T, NW, NV>{…}`); a G braced into
- * the deduced NW = 0 is refused like any oversized Matrix initializer (a compile error when
- * constant-evaluated). Literals must all be one floating type (`1.0`, not `1`).
+ * takes A, B, C (and D) as `const T (&)[R][C]`. The guides match by position, so each list of
+ * members in use has its own. Noise inputs G and H take their sizes from named matrices,
+ * `.G = Matrix<NX, NX>::identity(), .H = Matrix<NY, NY>::identity()`; braced, they name their
+ * sizes (`StateSpace<NX, NU, NY, T, NW, NV>{…}`), and a G braced into the deduced NW = 0 is
+ * refused like any oversized Matrix initializer (a compile error when constant-evaluated).
+ * Literals must all be one floating type (`1.0`, not `1`).
  */
 template<size_t NX, size_t NU, size_t NY, typename T>
 StateSpace(const T (&)[NX][NX], const T (&)[NX][NU], const T (&)[NY][NX]) -> StateSpace<NX, NU, NY, T>;
@@ -188,6 +190,25 @@ StateSpace(const T (&)[NX][NX], const T (&)[NX][NU], const T (&)[NY][NX], T) -> 
 /** @copydoc StateSpace(const T (&)[NX][NX], const T (&)[NX][NU], const T (&)[NY][NX]) */
 template<size_t NX, size_t NU, size_t NY, typename T>
 StateSpace(const T (&)[NX][NX], const T (&)[NX][NU], const T (&)[NY][NX], const T (&)[NY][NU], T) -> StateSpace<NX, NU, NY, T>;
+
+/** @brief Sizes from the braces (A, B, C), the noise inputs from the named G and H. */
+template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
+StateSpace(const T (&)[NX][NX], const T (&)[NX][NU], const T (&)[NY][NX], Matrix<NX, NW, T>, Matrix<NY, NV, T>) -> StateSpace<NX, NU, NY, T, NW, NV>;
+
+/** @brief Sizes from the braces (A, B, C, D), the noise inputs from the named G and H. */
+template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
+StateSpace(const T (&)[NX][NX], const T (&)[NX][NU], const T (&)[NY][NX], const T (&)[NY][NU], Matrix<NX, NW, T>, Matrix<NY, NV, T>)
+    -> StateSpace<NX, NU, NY, T, NW, NV>;
+
+/** @brief Sizes from the braces (A, B, C), the noise inputs from the named G and H, and Ts. */
+template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
+StateSpace(const T (&)[NX][NX], const T (&)[NX][NU], const T (&)[NY][NX], Matrix<NX, NW, T>, Matrix<NY, NV, T>, T)
+    -> StateSpace<NX, NU, NY, T, NW, NV>;
+
+/** @brief Sizes from the braces (A, B, C, D), the noise inputs from the named G and H, and Ts. */
+template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
+StateSpace(const T (&)[NX][NX], const T (&)[NX][NU], const T (&)[NY][NX], const T (&)[NY][NU], Matrix<NX, NW, T>, Matrix<NY, NV, T>, T)
+    -> StateSpace<NX, NU, NY, T, NW, NV>;
 
 // From matrices already sized: `StateSpace{.A = A, .B = B, .C = C}`. A user-declared guide
 // switches off the implicit aggregate deduction, so these restate it for the member lists in use.

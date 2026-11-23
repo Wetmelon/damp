@@ -12,6 +12,7 @@
 #include "damp/controllers/lqgi.hpp"
 #include "damp/controllers/lqi.hpp"
 #include "damp/controllers/pr.hpp"
+#include "damp/controllers/state_feedback.hpp"
 #include "damp/design/status.hpp"
 #include "damp/estimation/kalman.hpp"
 #include "damp/math/complex.hpp"
@@ -78,7 +79,7 @@ constexpr Matrix<1, 1> kRKf{{0.1}};
 TEST_SUITE("Workflow: design, result, runtime") {
     TEST_CASE("lqg: the runtime from the result ticks, and to_ss closed around the plant has the regulator and estimator poles") {
         const auto sys = make_plant(0.1);
-        const auto res = design::lqg(sys, {.Q = Matrix<2, 2>::identity(), .R = kR}, design::KalmanNoise{.process = kQKf, .measurement = kRKf});
+        const auto res = design::state_feedback(sys, {.Q = Matrix<2, 2>::identity(), .R = kR}, design::KalmanNoise{.process = kQKf, .measurement = kRKf});
         REQUIRE(res.success);
 
         LQG runtime{res.as<float>()};
@@ -100,7 +101,7 @@ TEST_SUITE("Workflow: design, result, runtime") {
 
     TEST_CASE("lqg + PR: both runtimes from their results, the PR on the tracking error") {
         const auto sys = make_plant(0.001);
-        const auto lqg = design::lqg(sys, {.Q = Matrix<2, 2>::identity(), .R = kR}, design::KalmanNoise{.process = kQKf, .measurement = kRKf});
+        const auto lqg = design::state_feedback(sys, {.Q = Matrix<2, 2>::identity(), .R = kR}, design::KalmanNoise{.process = kQKf, .measurement = kRKf});
         const auto pr = design::pr({.Kp = 0.0, .Ki = 10.0, .w0 = 2.0 * std::numbers::pi, .wc = 5.0}, 0.001);
         REQUIRE(lqg.success);
         REQUIRE(pr.success);
@@ -126,7 +127,7 @@ TEST_SUITE("Workflow: design, result, runtime") {
             .D = Matrix<1, 1>::zeros(),
             .Ts = 0.1
         };
-        const auto res = design::lqi(sys, {.Q = kQx, .R = kR, .Q_integral = kQInt});
+        const auto res = design::state_feedback(sys, {.Q = kQx, .R = kR}, design::IntegralAction{.Q = kQInt});
         REQUIRE(res.success);
 
         auto                   runtime = LQI{res.as<float>()};
@@ -138,7 +139,7 @@ TEST_SUITE("Workflow: design, result, runtime") {
 
     TEST_CASE("lqgi: the runtime from the result ticks, and to_ss closed around the plant has the servo and estimator poles") {
         const auto sys = make_plant(0.1);
-        const auto res = design::lqgi(sys, {.Q = kQx, .R = kR, .Q_integral = kQInt}, design::KalmanNoise{.process = kQKf, .measurement = kRKf});
+        const auto res = design::state_feedback(sys, {.Q = kQx, .R = kR}, design::KalmanNoise{.process = kQKf, .measurement = kRKf}, design::IntegralAction{.Q = kQInt});
         REQUIRE(res.success);
 
         LQGI                   runtime{res.as<float>()};
@@ -181,7 +182,7 @@ TEST_SUITE("Workflow: design, result, runtime") {
             .D = Matrix<1, 1>::zeros(),
             .Ts = 0.1
         };
-        const auto res = design::lqi(sys, {.Q = kQx, .R = kR, .Q_integral = kQInt});
+        const auto res = design::state_feedback(sys, {.Q = kQx, .R = kR}, design::IntegralAction{.Q = kQInt});
         REQUIRE(res.success);
 
         // Closed-loop simulation against the (linear, discrete) design plant.
@@ -214,7 +215,7 @@ TEST_SUITE("Workflow: design, result, runtime") {
                 .D = Matrix<1, 1>::zeros(),
                 .Ts = 0.1
             };
-            return design::lqi(sys, {.Q = kQx, .R = kR, .Q_integral = kQInt});
+            return design::state_feedback(sys, {.Q = kQx, .R = kR}, design::IntegralAction{.Q = kQInt});
         }();
         static constinit LQI law{res.as<float>()}; // a failed design does not compile
 
@@ -233,7 +234,7 @@ TEST_SUITE("Workflow: design, result, runtime") {
             .Ts = 0.1,
         };
 
-        constexpr auto by_index = design::lqi(sys, {.Q = kQx, .R = kR, .Q_integral = kQInt}, design::IntegralAction<1>{{0}});
+        constexpr auto by_index = design::state_feedback(sys, {.Q = kQx, .R = kR}, design::IntegralAction{.Q = kQInt, .outputs = {0}});
         static_assert(by_index.success);
         // The law integrates r − y₀ only: in [r; y; x], the integrator row reads [Ts, −Ts, 0, 0, 0] (xi += Ts·e).
         const auto servo = by_index.to_ss();
@@ -252,7 +253,7 @@ TEST_SUITE("Workflow: design, result, runtime") {
 
         // LQGI: the same argument, an estimator underneath.
         const Matrix<2, 2> R_kf{{0.1, 0.0}, {0.0, 0.1}};
-        const auto         lqgi_index = design::lqgi(sys, {.Q = kQx, .R = kR, .Q_integral = kQInt}, design::KalmanNoise{.process = kQKf, .measurement = R_kf}, design::IntegralAction<1>{{0}});
+        const auto         lqgi_index = design::state_feedback(sys, {.Q = kQx, .R = kR}, design::KalmanNoise{.process = kQKf, .measurement = R_kf}, design::IntegralAction{.Q = kQInt, .outputs = {0}});
         REQUIRE(lqgi_index.success);
         CHECK(lqgi_index.K(0, 2) == doctest::Approx(by_index.K(0, 2)));
         // In [r; y], the integrator row (state NX) reads −Ts·y₀ only.
@@ -268,8 +269,8 @@ TEST_SUITE("Workflow: design, result, runtime") {
         CHECK(xp(0) == doctest::Approx(1.0).epsilon(0.02));
 
         // An index past the last output is an inconsistent design input, in either design.
-        const auto lqi_bad = design::lqi(sys, {.Q = kQx, .R = kR, .Q_integral = kQInt}, design::IntegralAction<1>{{2}});
-        const auto lqgi_bad = design::lqgi(sys, {.Q = kQx, .R = kR, .Q_integral = kQInt}, design::KalmanNoise{.process = kQKf, .measurement = R_kf}, design::IntegralAction<1>{{2}});
+        const auto lqi_bad = design::state_feedback(sys, {.Q = kQx, .R = kR}, design::IntegralAction{.Q = kQInt, .outputs = {2}});
+        const auto lqgi_bad = design::state_feedback(sys, {.Q = kQx, .R = kR}, design::KalmanNoise{.process = kQKf, .measurement = R_kf}, design::IntegralAction{.Q = kQInt, .outputs = {2}});
         CHECK_FALSE(lqi_bad.success);
         CHECK(lqi_bad.status == design::DesignStatus::bad_weights);
         CHECK_FALSE(lqgi_bad.success);

@@ -6,11 +6,11 @@ The fewest lines that design and step an offset-free LQG on a plant with a trans
 
 ## The law
 
-Take the horizon and the power limits away from the MPC and what is left is an offset-free LQG: an LQR on the same model with the same output weight, the same disturbance-augmented Kalman filter, and a steady-state target computed from the estimated heat loss $`\hat w`$ so that $`y \to r`$ under it (`design::oflqg(kModel, weights, noise, design::InputDisturbance{})`, run as `OFLQG`). It is the law the MPC applies whenever no constraint is active.
+Take the horizon and the power limits away from the MPC and what is left is an offset-free LQG: an LQR on the same model with the same output weight, the same disturbance-augmented Kalman filter, and a steady-state target computed from the estimated heat loss $`\hat w`$ so that $`y \to r`$ under it (`design::state_feedback(kModel, weights, noise, design::InputDisturbance{})`, run as `OFLQG`). It is the law the MPC applies whenever no constraint is active.
 
 ```cpp
 constexpr auto kModel = *discretize(kPlant, kTs, InputDelay{kDeadTime}); // [T; P(k−1)]: the dead time is one period
-constexpr auto kLaw = design::oflqg(kModel, {.Q = Q, .R = R}, noise, design::InputDisturbance{});
+constexpr auto kLaw = design::state_feedback(kModel, {.Q = Q, .R = R}, noise, design::InputDisturbance{});
 using Heater = Law<kLaw, float>; // the runtime, named by the result: OFLQG
 ```
 

@@ -17,7 +17,7 @@
  * | ------- | ---- |
  * | `ss`, `tf`, `zpk` | `matlab::ss` / `tf` / `zpk` → `StateSpace`, `TransferFunction`, `ZPK` |
  * | `c2d`, `d2d` | `matlab::c2d` / `d2d` → `discretize` |
- * | `lqr`, `dlqr`, `lqrd`, `lqi`, `lqg` | `matlab::lqr` … → `design::lqr` / `lqi` / `lqg` |
+ * | `lqr`, `dlqr`, `lqrd`, `lqi`, `lqg` | `matlab::lqr` … → `design::state_feedback` |
  * | `place`, `acker` | `matlab::place` / `acker` → `design::place` |
  * | `pidtune` | `matlab::pidtune` → `design::pidtune` |
  * | `kalmd`, `dlqe` | `matlab::kalmd` / `dlqe` → `design::kalman` |
@@ -47,6 +47,7 @@
 #include "damp/controllers/lqi.hpp"
 #include "damp/controllers/lqr.hpp"
 #include "damp/controllers/pid.hpp"
+#include "damp/controllers/state_feedback.hpp"
 #include "damp/design/linearization.hpp"
 #include "damp/design/minreal.hpp"
 #include "damp/design/model_reduction.hpp"
@@ -792,10 +793,10 @@ template<size_t NX, typename T>
 
 /**
  * @brief MATLAB®'s Q on [x; xi] as the design's Q and Q_integral; nullopt when its x–xi blocks
- *        are not zero (design::lqi weights the two blocks apart).
+ *        are not zero (design::state_feedback with an IntegralAction weights the two blocks apart).
  */
 template<size_t NX, size_t NI, size_t NU, typename T>
-[[nodiscard]] constexpr damp::optional<design::LQIConfig<NX, NU, NI, T>> split_integral_weight(const Matrix<NX + NI, NX + NI, T>& Q_aug, const Matrix<NU, NU, T>& R) {
+[[nodiscard]] constexpr damp::optional<design::detail::LQIConfig<NX, NU, NI, T>> split_integral_weight(const Matrix<NX + NI, NX + NI, T>& Q_aug, const Matrix<NU, NU, T>& R) {
     for (size_t i = 0; i < NX; ++i) {
         for (size_t j = 0; j < NI; ++j) {
             if (Q_aug(i, NX + j) != T{0} || Q_aug(NX + j, i) != T{0}) {
@@ -803,13 +804,13 @@ template<size_t NX, size_t NI, size_t NU, typename T>
             }
         }
     }
-    return design::LQIConfig<NX, NU, NI, T>{.Q = Q_aug.template block<NX, NX>(0, 0), .R = R, .Q_integral = Q_aug.template block<NI, NI>(NX, NX)};
+    return design::detail::LQIConfig<NX, NU, NI, T>{.Q = Q_aug.template block<NX, NX>(0, 0), .R = R, .Q_integral = Q_aug.template block<NI, NI>(NX, NX)};
 }
 
 /** @brief An index list as the design's IntegralAction. */
 template<size_t NI>
-[[nodiscard]] constexpr design::IntegralAction<NI> integrated_list(const size_t (&outputs)[NI]) {
-    design::IntegralAction<NI> sel{};
+[[nodiscard]] constexpr design::detail::IntegralAction<NI> integrated_list(const size_t (&outputs)[NI]) {
+    design::detail::IntegralAction<NI> sel{};
     for (size_t i = 0; i < NI; ++i) {
         sel.outputs[i] = outputs[i];
     }
@@ -820,7 +821,7 @@ template<size_t NI>
 template<size_t NI, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Options>
 [[nodiscard]] constexpr auto integral_design(const StateSpace<NX, NU, NY, T, NW, NV>& sys, const Matrix<NX + NI, NX + NI, T>& Q_aug, const Matrix<NU, NU, T>& R, const Options& options) {
     const auto w = split_integral_weight<NX, NI>(Q_aug, R);
-    auto       res = design::detail::state_feedback(sys, w ? *w : design::LQIConfig<NX, NU, NI, T>{}, options);
+    auto       res = design::detail::state_feedback(sys, w ? *w : design::detail::LQIConfig<NX, NU, NI, T>{}, options);
     if (!w) {
         res = ::damp::detail::refused<decltype(res)>(design::DesignStatus::bad_weights); // x–xi cross weights
     }
@@ -915,7 +916,7 @@ template<size_t NX, size_t NU, typename T = double>
 
 /**
  * @brief Sampled-data LQR from a continuous plant: ZOH dynamics + Van Loan cost (MATLAB®'s lqrd)
- * @note Forwards to design::lqr(sys, Ts, w). Compare with MATLAB®'s lqrd(A, B, Q, R, Ts, N).
+ * @note Forwards to design::state_feedback(sys, Ts, w). Compare with MATLAB®'s lqrd(A, B, Q, R, Ts, N).
  */
 template<size_t NX, size_t NU, typename T = double>
 [[nodiscard]] constexpr auto lqrd(
@@ -926,12 +927,12 @@ template<size_t NX, size_t NU, typename T = double>
     T                        Ts,
     const Matrix<NX, NU, T>& N = Matrix<NX, NU, T>{}
 ) {
-    return design::lqr(StateSpace<NX, NU, 1, T>{.A = A, .B = B}, Ts, {Q, R, N});
+    return design::state_feedback(StateSpace<NX, NU, 1, T>{.A = A, .B = B}, Ts, {Q, R, N});
 }
 
 /**
  * @brief Sampled-data LQR from a continuous state-space plant (MATLAB®'s lqrd)
- * @note Forwards to design::lqr(sys, Ts, w). Compare with MATLAB®'s lqrd(sys, Q, R, Ts).
+ * @note Forwards to design::state_feedback(sys, Ts, w). Compare with MATLAB®'s lqrd(sys, Q, R, Ts).
  */
 template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, size_t NV = 0>
 [[nodiscard]] constexpr auto lqrd(
@@ -941,7 +942,7 @@ template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, si
     T                                        Ts,
     const Matrix<NX, NU, T>&                 N = Matrix<NX, NU, T>{}
 ) {
-    return design::lqr(sys, Ts, {Q, R, N});
+    return design::state_feedback(sys, Ts, {Q, R, N});
 }
 
 /**
@@ -962,7 +963,7 @@ template<size_t NX, size_t NW, size_t NY, typename T = double>
     const Matrix<NW, NW, T>& Q,
     const Matrix<NY, NY, T>& R
 ) {
-    return design::kalman(StateSpace<NX, 1, NY, T, NW, NY>{.A = A, .C = C, .G = G, .H = Matrix<NY, NY, T>::identity(), .Ts = T{1}}, {.process = Q, .measurement = R});
+    return design::kalman(StateSpace<NX, 1, NY, T, NW, NY>{.A = A, .C = C, .G = G, .H = Matrix<NY, NY, T>::identity(), .Ts = T{1}}, design::KalmanNoise{.process = Q, .measurement = R});
 }
 
 /**
@@ -970,7 +971,7 @@ template<size_t NX, size_t NW, size_t NY, typename T = double>
  *
  * Keeps MATLAB's convention: @p Rn is a continuous intensity, and the measurement variance
  * per reading is Rd = Rn/Ts (an integrate-and-dump sampler). Converts, then forwards to
- * design::kalman(sys, Ts, {.process = Qn, .measurement = Rn/Ts}): ZOH plant, Van Loan process
+ * design::kalman(sys, Ts, design::KalmanNoise{.process = Qn, .measurement = Rn/Ts}): ZOH plant, Van Loan process
  * noise. Qn enters through the plant's G and Rn through its H. design::kalman itself takes
  * the per-reading variance directly (see design::KalmanNoise).
  *
@@ -985,7 +986,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
     std::type_identity_t<T>                  Ts
 ) {
     const T per_reading = damp::finite_positive(Ts) ? T{1} / Ts : T{1}; // a bad Ts is refused by design::kalman
-    return design::kalman(sys, Ts, {.process = Qn, .measurement = Matrix<NV, NV, T>(Rn * per_reading)});
+    return design::kalman(sys, Ts, design::KalmanNoise{.process = Qn, .measurement = Matrix<NV, NV, T>(Rn * per_reading)});
 }
 
 /**
@@ -1021,12 +1022,12 @@ template<size_t NX, size_t NU, size_t NY, typename T = double>
 /**
  * @brief Output-weighted LQR for a state-space plant.
  *
- * Follows the plant's time domain through @ref design::lqr(): CARE when
+ * Follows the plant's time domain through @ref design::state_feedback(): CARE when
  * @p sys.Ts == 0, DARE when @p sys.Ts > 0. Same @f$Q_x/N/R_u@f$ map as the
  * matrix overload.
  *
  * @note Compare with MATLAB®'s [K,S,e] = lqry(sys, Qy, R).
- * @see lqry(A,B,C,D,Qy,R), design::lqr
+ * @see lqry(A,B,C,D,Qy,R), design::state_feedback
  */
 template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, size_t NV = 0>
 [[nodiscard]] constexpr auto lqry(
@@ -1037,7 +1038,7 @@ template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, si
     const Matrix<NX, NX, T> Qx = sys.C.transpose() * Qy * sys.C;
     const Matrix<NX, NU, T> N = sys.C.transpose() * Qy * sys.D;
     const Matrix<NU, NU, T> Ru = R + (sys.D.transpose() * Qy * sys.D);
-    return design::lqr(sys, {Qx, Ru, N});
+    return design::state_feedback(sys, {Qx, Ru, N});
 }
 
 /**
@@ -1051,7 +1052,7 @@ template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, si
  * Integrates every output. To integrate a subset, add an index list, `lqi(sys, Q, R, {0, 3})`,
  * or an NI×NY selector Ci.
  *
- * @note Alias for design::lqi. Compare with MATLAB®'s lqi(sys, Q, R).
+ * @note Alias for design::state_feedback with an IntegralAction. Compare with MATLAB®'s lqi(sys, Q, R).
  */
 template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, size_t NV = 0>
 [[nodiscard]] constexpr auto lqi(
@@ -1059,7 +1060,7 @@ template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, si
     const Matrix<NX + NY, NX + NY, T>&       Q,
     const Matrix<NU, NU, T>&                 R
 ) {
-    return detail::integral_design<NY>(sys, Q, R, design::detail::StateFeedbackOptions{.offset_free = design::IntegralAction{}});
+    return detail::integral_design<NY>(sys, Q, R, design::detail::StateFeedbackOptions{.offset_free = design::detail::IntegralAction{}});
 }
 
 /** @brief LQI integrating the outputs @p Ci selects (NI×NY). Discrete plants only. */
@@ -1090,7 +1091,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size
  * Discrete plants only (@p sys.Ts > 0); a continuous @p sys is refused with
  * DesignStatus::invalid_sample_time.
  *
- * @note Alias for design::lqg. Compare with MATLAB®'s lqg(sys, ...).
+ * @note Alias for design::state_feedback with a KalmanNoise. Compare with MATLAB®'s lqg(sys, ...).
  */
 template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, size_t NV = 0>
 [[nodiscard]] constexpr auto lqg(
@@ -1101,7 +1102,7 @@ template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, si
     const Matrix<NV, NV, T>&                 R_kf,
     const Matrix<NX, NU, T>&                 N = Matrix<NX, NU, T>{}
 ) {
-    return design::lqg(sys, {Q_lqr, R_lqr, N}, {Q_kf, R_kf});
+    return design::state_feedback(sys, {Q_lqr, R_lqr, N}, design::KalmanNoise{Q_kf, R_kf});
 }
 
 /**
@@ -1111,7 +1112,7 @@ template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, si
 template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = NX, size_t NV = NY, typename Reg>
 [[nodiscard]] constexpr auto lqgreg(
     const design::KalmanResult<NX, NU, NY, T, NW, NV>& kest,
-    const Reg&                                         reg // design::lqr's result, or dlqr's
+    const Reg&                                         reg // design::state_feedback's result, or dlqr's
 ) {
     return design::lqg_from_parts(kest, reg);
 }
@@ -1126,7 +1127,7 @@ template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = NX, s
  * DesignStatus::bad_weights. Integrates every output. To integrate a subset, add an index
  * list, `lqgtrack(sys, Q_aug, R, Q_kf, R_kf, {0, 3})`, or an NI×NY selector Ci.
  *
- * @note Alias for design::lqgi. Compare with
+ * @note Alias for design::state_feedback with a KalmanNoise and an IntegralAction. Compare with
  *       MATLAB®'s lqgtrack(...).
  */
 template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, size_t NV = 0>
@@ -1137,7 +1138,7 @@ template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, si
     const Matrix<NW, NW, T>&                 Q_kf,
     const Matrix<NV, NV, T>&                 R_kf
 ) {
-    return detail::integral_design<NY>(sys, Q_aug, R, design::detail::StateFeedbackOptions{.noise = design::KalmanNoise{Q_kf, R_kf}, .offset_free = design::IntegralAction{}});
+    return detail::integral_design<NY>(sys, Q_aug, R, design::detail::StateFeedbackOptions{.noise = design::KalmanNoise{Q_kf, R_kf}, .offset_free = design::detail::IntegralAction{}});
 }
 
 /** @brief LQG servo integrating the outputs @p Ci selects (NI×NY). Discrete plants only. */

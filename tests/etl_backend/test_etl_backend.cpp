@@ -136,7 +136,7 @@ TEST_SUITE("freestanding math") {
             .B = damp::Matrix<2, 1>{{0.0}, {1.0}},
             .C = damp::Matrix<1, 2>{{1.0, 0.0}},
         };
-        constexpr auto res = damp::design::lqr(sys, 0.01, {.Q = damp::Matrix<2, 2>::identity() * 10.0, .R = 1.0});
+        constexpr auto res = damp::design::state_feedback(sys, 0.01, {.Q = damp::Matrix<2, 2>::identity() * 10.0, .R = 1.0});
         static_assert(res.success);
         damp::LQR law{res.as<float>()};
         law.update(damp::ColVec<2, float>{opaque(0.1F), 0.0F});

@@ -8,8 +8,8 @@
 /**
  * @file mpc.hpp
  * @brief Constrained linear MPC: condensed-QP synthesis (`design::mpc`) and the fixed-budget
- *        runtime (`damp::MPC`), on the measured state or through a Kalman estimator, offset-free
- *        with a disturbance model, with an opt-in DARE terminal cost and Gilbert–Tan positively
+ *        runtimes, `damp::MPC` on the measured state and `damp::OFMPC` through a Kalman
+ *        estimator, offset-free with a disturbance model, with an opt-in DARE terminal cost and Gilbert–Tan positively
  *        invariant terminal set.
  *
  * Finite-horizon constrained control of a discrete-time plant
@@ -98,7 +98,7 @@
  *
  * Feedthrough is not supported: the controlled outputs must have @f$ D = 0 @f$ (synthesis
  * fails otherwise). Offset-free tracking under plant/model mismatch or unmeasured
- * disturbances needs a disturbance model and an estimator (design::ofmpc, ofmpc.hpp); the velocity form alone rejects only what its integral action sees
+ * disturbances needs a disturbance model and an estimator (design::mpc with a KalmanNoise and a disturbance spec); the velocity form alone rejects only what its integral action sees
  * through the measured state.
  *
  * Unbounded constraint entries use the `numeric_limits` sentinels
@@ -141,8 +141,8 @@
  *
  * // From the position reading alone, offset-free under an unmeasured load at the input:
  * constexpr StateSpace<2, 1, 1, double, 2, 1> plant{.A = sys.A, .B = sys.B, .C = sys.C, .Ts = 0.1};
- * constexpr auto of = design::ofmpc<15, 5>(plant, {}, {.u_lim = {.lower = -0.5, .upper = 0.5}}, design::KalmanNoise{Qn, Rn, Qd},
- *                                          design::InputDisturbance{}); // ofmpc.hpp
+ * constexpr auto of = design::mpc<15, 5>(plant, {}, {.u_lim = {.lower = -0.5, .upper = 0.5}}, design::KalmanNoise{Qn, Rn, Qd},
+ *                                          design::InputDisturbance{});
  * static constinit OFMPC offset_free{of.as<float>()};
  * // each tick: u = offset_free.step(ColVec<1, float>{r}, ColVec<1, float>{y});
  * @endcode
@@ -240,7 +240,7 @@ enum class MPCTerminal : uint8_t {
  * input deviation integrated over time, RΔu the input rate Δu/Ts, so a change of Ts keeps
  * their meaning (see design::mpc).
  * All weight matrices are symmetric positive semidefinite (design::mpc refuses others with
- * bad_weights, as design::lqr does); the QP Hessian must come out positive definite, which holds
+ * bad_weights, as design::state_feedback does); the QP Hessian must come out positive definite, which holds
  * whenever RΔu ≻ 0 or Ru ≻ 0.
  *
  * Named, the weights take their sizes from their fields, NU and NY 1 unless a field says
@@ -512,7 +512,7 @@ struct [[nodiscard]] MPCArtifacts {
 
 namespace detail {
 
-/** @brief A weight matrix design::mpc accepts: finite, symmetric and positive semidefinite (as design::lqr's). */
+/** @brief A weight matrix design::mpc accepts: finite, symmetric and positive semidefinite (as design::state_feedback's). */
 template<size_t N, typename T>
 [[nodiscard]] constexpr bool mpc_weight_valid(const Matrix<N, N, T>& W) {
     return mat::is_symmetric_or_hermitian(W) && ::damp::detail::is_psd(W);
@@ -1079,7 +1079,7 @@ template<size_t NP, size_t NC, size_t ND, size_t NT_max = 0, size_t NX, size_t N
         }
     }
     if (!mpc_weights_valid(weights, constraints)) {
-        return ::damp::detail::set_status(art, DesignStatus::bad_weights); // as design::lqr: indefinite, asymmetric or non-finite
+        return ::damp::detail::set_status(art, DesignStatus::bad_weights); // as design::state_feedback: indefinite, asymmetric or non-finite
     }
     if (!constraints.u_lim.valid() || !constraints.du_lim.valid() || !constraints.y_lim.valid()) {
         return ::damp::detail::set_status(art, DesignStatus::invalid_parameter); // as set_limits: a NaN or inverted limit
@@ -1608,6 +1608,14 @@ template<bool Discrete, size_t NP, size_t NC, size_t NT_max, size_t NX, size_t N
 
 } // namespace detail
 
+namespace detail {
+
+/** @brief The controlled outputs of an MPC with the options @p Opts: those its disturbance spec lists, else every output. */
+template<size_t NX, size_t NU, size_t NY, size_t NW, typename... Opts>
+inline constexpr size_t mpc_outputs_in = mpc_outputs<NU, NY, noise_inputs<NX, NW>, ::damp::detail::option_t<is_disturbance, NoDisturbance, Opts...>>;
+
+} // namespace detail
+
 /**
  * @brief Synthesize a constrained linear MPC (condensed dense QP, Δu form) on a discrete plant
  *
@@ -1637,7 +1645,7 @@ template<bool Discrete, size_t NP, size_t NC, size_t NT_max, size_t NX, size_t N
  * Measured state. design::mpc's runtime takes the plant state x as its measurement
  * (update(x)), and the plant's C still defines the controlled outputs y = C·x that r, Qy and
  * the y bounds refer to (NY = rows of C), as the LQI on a measured state integrates r − C·x.
- * For design::ofmpc, C and D are the measured outputs, the filter reconstructs the state from
+ * For design::mpc with a KalmanNoise and a disturbance spec, C and D are the measured outputs, the filter reconstructs the state from
  * them, and the QP is on the controlled outputs, the rows of C the disturbance spec lists (all
  * of them without one).
  *
@@ -1660,7 +1668,7 @@ template<bool Discrete, size_t NP, size_t NC, size_t NT_max, size_t NX, size_t N
  *
  * ## Offset-free control
  *
- * design::ofmpc is the offset-free MPC of Muske and
+ * design::mpc with a KalmanNoise and a disturbance spec is the offset-free MPC of Muske and
  * Badgwell and of Pannocchia and Rawlings. The plant model is augmented with ND integrating
  * disturbances,
  * @f[
@@ -1727,26 +1735,22 @@ template<bool Discrete, size_t NP, size_t NC, size_t NT_max, size_t NX, size_t N
  * @param sys      Discrete-time plant (Ts > 0); C the controlled outputs, D = 0
  * @param weights  Cost weights on the controlled outputs, per prediction step (default: Qy = I, RΔu = I)
  * @param constraints The limits ({}: unbounded)
+ * @param opts     In any order: MeasuredDisturbance<NX, NM>{.Bd}, a disturbance input measured each tick
+ *                 (control(r, d)); or a KalmanNoise, the MPC then on a Kalman filter's estimate from the
+ *                 measured outputs C and D, offset-free with a disturbance spec (runs as OFMPC: the
+ *                 filter on [x; d], the QP posed about the steady-state target under d̂, the
+ *                 controlled outputs the rows the spec lists, all of them without a list)
  * @return MPCResult: deploy with `MPC law{res}`
  */
-template<size_t NP, size_t NC, size_t NT_max = 0, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NXC = 0>
+template<size_t NP, size_t NC, size_t NT_max = 0, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NXC = 0, typename... Opts>
 [[nodiscard]] constexpr auto mpc(
-    const StateSpace<NX, NU, NY, T, NW, NV>& sys,
-    const MPCWeights<NU, NY, T>&             weights,
-    const MPCConstraints<NU, NY, T, NXC>&    constraints
+    const StateSpace<NX, NU, NY, T, NW, NV>&                                                         sys,
+    const damp::type_identity_t<MPCWeights<NU, detail::mpc_outputs_in<NX, NU, NY, NW, Opts...>, T>>& weights,
+    const MPCConstraints<NU, detail::mpc_outputs_in<NX, NU, NY, NW, Opts...>, T, NXC>&               constraints,
+    const Opts&... opts
 ) {
-    return detail::mpc_design<true, NP, NC, NT_max>(sys, T{0}, weights, constraints);
-}
-
-/** @brief design::mpc on a discrete plant with a measured disturbance input @p md (Bd), given each tick: runs as MPC. */
-template<size_t NP, size_t NC, size_t NT_max = 0, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NM, size_t NXC = 0>
-[[nodiscard]] constexpr auto mpc(
-    const StateSpace<NX, NU, NY, T, NW, NV>& sys,
-    const MPCWeights<NU, NY, T>&             weights,
-    const MPCConstraints<NU, NY, T, NXC>&    constraints,
-    const MeasuredDisturbance<NX, NM, T>&    md
-) {
-    return detail::mpc_design<true, NP, NC, NT_max>(sys, T{0}, weights, constraints, md);
+    ::damp::detail::option_set<detail::is_measured_disturbance, detail::is_kalman_noise, detail::is_disturbance>::check<Opts...>();
+    return detail::mpc_design<true, NP, NC, NT_max>(sys, T{0}, weights, constraints, opts...);
 }
 
 /**
@@ -1779,28 +1783,19 @@ template<size_t NP, size_t NC, size_t NT_max = 0, size_t NX, size_t NU, size_t N
  * @param Ts       Control period [s]
  * @param weights  Cost weights on the controlled outputs, per second
  * @param constraints The limits ({}: unbounded)
+ * @param opts     MeasuredDisturbance<NX, NM>{.Bd}: a disturbance input measured each tick, B_d continuous, or none
  * @return MPCResult: deploy with `MPC law{res}`; success = false if refused or the plant does not discretize
  */
-template<size_t NP, size_t NC, size_t NT_max = 0, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NXC = 0>
+template<size_t NP, size_t NC, size_t NT_max = 0, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NXC = 0, typename... Opts>
 [[nodiscard]] constexpr auto mpc(
-    const StateSpace<NX, NU, NY, T, NW, NV>& plant,
-    damp::type_identity_t<T>                 Ts,
-    const MPCWeights<NU, NY, T>&             weights,
-    const MPCConstraints<NU, NY, T, NXC>&    constraints
+    const StateSpace<NX, NU, NY, T, NW, NV>&                                                         plant,
+    damp::type_identity_t<T>                                                                         Ts,
+    const damp::type_identity_t<MPCWeights<NU, detail::mpc_outputs_in<NX, NU, NY, NW, Opts...>, T>>& weights,
+    const MPCConstraints<NU, detail::mpc_outputs_in<NX, NU, NY, NW, Opts...>, T, NXC>&               constraints,
+    const Opts&... opts
 ) {
-    return detail::mpc_design<false, NP, NC, NT_max>(plant, Ts, weights, constraints);
-}
-
-/** @brief The sampled-data design::mpc with a measured disturbance input @p md (Bd continuous): runs as MPC. */
-template<size_t NP, size_t NC, size_t NT_max = 0, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NM, size_t NXC = 0>
-[[nodiscard]] constexpr auto mpc(
-    const StateSpace<NX, NU, NY, T, NW, NV>& plant,
-    damp::type_identity_t<T>                 Ts,
-    const MPCWeights<NU, NY, T>&             weights,
-    const MPCConstraints<NU, NY, T, NXC>&    constraints,
-    const MeasuredDisturbance<NX, NM, T>&    md
-) {
-    return detail::mpc_design<false, NP, NC, NT_max>(plant, Ts, weights, constraints, md);
+    ::damp::detail::option_set<detail::is_measured_disturbance, detail::is_kalman_noise, detail::is_disturbance>::check<Opts...>();
+    return detail::mpc_design<false, NP, NC, NT_max>(plant, Ts, weights, constraints, opts...);
 }
 
 /**
@@ -2658,7 +2653,7 @@ MPC(const design::MPCResult<design::MPCArtifacts<NXM, NU, NY, NP, NC, ND, T, NT,
 
 namespace detail {
 
-/** @brief The runtime an MPC design runs as, in the scalar @p T: none for other results (ofmpc.hpp adds OFMPC). */
+/** @brief The runtime an MPC design runs as, in the scalar @p T: none for other results (OFMPC below adds its own). */
 template<typename R, typename T>
 struct mpc_runtime {};
 
@@ -2705,5 +2700,103 @@ struct Law<Res, T> : detail::mpc_runtime<damp::remove_cvref_t<decltype(Res)>, T>
 
     using Runtime::operator=;
 };
+
+} // namespace damp
+
+// The offset-free MPC: design::mpc with a noise and a disturbance spec runs as OFMPC.
+namespace damp {
+
+/**
+ * @ingroup discrete_controllers
+ * @brief Offset-free constrained linear MPC: a Kalman filter on [x; d] and the QP about the
+ *        steady-state target under d̂ (design::mpc with a KalmanNoise and a disturbance spec)
+ *
+ * The estimator is a FixedGainObserver with design::kalman's fixed gain, holding deviations
+ * from the target. The tick is update(y) then control(r), or step(r, y) for both; @p r is the
+ * controlled outputs' reference (held, or a Preview). back_calculate(u_sat) records what went
+ * out, predict() moves the observer with it. update() clamps d̂ into disturbance_lim, a member
+ * (unbounded by default), in d's units, as OFLQG's. A failed design does not compile when
+ * constant-evaluated.
+ *
+ * @note Compare with MATLAB®'s mpcmove(mpcobj, xc, ym, r) with its default disturbance model.
+ */
+template<size_t NX, size_t NU, size_t NY, size_t NP, size_t NC, typename T, typename Solver, size_t NT_max, typename Estimator, size_t NXC = 0>
+class OFMPC : private detail::MPCCore<NX, NU, NY, NP, NC, 0, T, Solver, NT_max, Estimator, NXC> {
+    using Core = detail::MPCCore<NX, NU, NY, NP, NC, 0, T, Solver, NT_max, Estimator, NXC>;
+
+public:
+    using Reference = Core::Reference;       ///< r: held, or a Preview
+    using Preview = Core::Preview;           ///< The reference at steps 1 … NP
+    using InputPreview = Core::InputPreview; ///< The input target per move
+    using InputTarget = Core::InputTarget;   ///< The input target: held, braced, scalar or per move
+
+    static constexpr size_t NYM = Core::NYM; ///< Measured outputs
+    static constexpr size_t NDE = Core::NDE; ///< Estimated disturbance states
+    static constexpr size_t NZ1 = Core::NZ1; ///< QP decision size (moves + slack)
+    static constexpr size_t NI1 = Core::NI1; ///< QP constraint rows
+    static_assert(NDE > 0, "OFMPC runs design::mpc with a KalmanNoise and a disturbance spec: the filter estimates a disturbance.");
+
+    constexpr OFMPC() = default;
+
+    /** @brief From design::mpc with a KalmanNoise and a disturbance spec (its filter with any noise inputs). A failed design is a compile error when constant-evaluated. */
+    template<typename Kalman>
+    constexpr explicit OFMPC(const design::MPCResult<typename Core::Artifacts, Kalman, typename Core::TargetResult>& result) : Core(result) {}
+
+    /** @brief From that design with a specific solver instance (for stateful solver policies). */
+    template<typename Kalman>
+    constexpr OFMPC(const design::MPCResult<typename Core::Artifacts, Kalman, typename Core::TargetResult>& result, const Solver& solver) : Core(result, solver) {}
+
+    /** @brief The filter's measurement update with @p y. */
+    constexpr void update(const ColVec<NYM, T>& y) { Core::update(y); }
+
+    /** @brief The move about the target for @p r under d̂: u = u_prev + Δu₀, clamped to the u and Δu boxes. */
+    [[nodiscard]] constexpr ColVec<NU, T> control(const Reference& r) { return Core::control(r, ColVec<0, T>{}); }
+
+    /** @brief One tick: predict(), update(@p y), then control(@p r). */
+    [[nodiscard]] constexpr ColVec<NU, T> step(const Reference& r, const ColVec<NYM, T>& y) { return Core::step(r, ColVec<0, T>{}, y); }
+
+    using Core::applied;
+    using Core::back_calculate;
+    using Core::disturbance_estimate;
+    using Core::disturbance_lim;
+    using Core::estimator;
+    using Core::input_target;
+    using Core::input_target_preview;
+    using Core::last_command;
+    using Core::last_cost;
+    using Core::last_iterations;
+    using Core::last_slack;
+    using Core::last_status;
+    using Core::limits;
+    using Core::predict;
+    using Core::qp_solver;
+    using Core::reset;
+    using Core::set_input_target;
+    using Core::set_limits;
+    using Core::state_estimate;
+    using Core::valid;
+};
+
+/** @brief OFMPC law{res}: the sizes, scalar, filter and target of an offset-free design::mpc result. */
+template<size_t NXM, size_t NU, size_t NY, size_t NP, size_t NC, size_t ND, typename T, size_t NT, size_t NXC, size_t NXK, size_t NYM, size_t NW, size_t NV, size_t NXE>
+OFMPC(const design::MPCResult<design::MPCArtifacts<NXM, NU, NY, NP, NC, ND, T, NT, NXC>, design::KalmanResult<NXK, NU, NYM, T, NW, NV, ND>, design::SteadyStateTargetResult<NXE, NU, ND, NY, T>>&)
+    -> OFMPC<NXM, NU, NY, NP, NC, T, design::WarmStartActiveSetSolver<(NC * NU) + 1, design::MPCArtifacts<NXM, NU, NY, NP, NC, ND, T, NT, NXC>::NI1, T>, NT, FixedGainObserver<NXK, NU, NYM, T, ND>, NXC>;
+
+/** @brief OFMPC law{res, solver}: as OFMPC law{res}, with that solver. */
+template<size_t NXM, size_t NU, size_t NY, size_t NP, size_t NC, size_t ND, typename T, size_t NT, size_t NXC, size_t NXK, size_t NYM, size_t NW, size_t NV, size_t NXE, typename Solver>
+OFMPC(const design::MPCResult<design::MPCArtifacts<NXM, NU, NY, NP, NC, ND, T, NT, NXC>, design::KalmanResult<NXK, NU, NYM, T, NW, NV, ND>, design::SteadyStateTargetResult<NXE, NU, ND, NY, T>>&, const Solver&) -> OFMPC<NXM, NU, NY, NP, NC, T, Solver, NT, FixedGainObserver<NXK, NU, NYM, T, ND>, NXC>;
+
+namespace detail {
+
+/** @brief An offset-free design::mpc runs as OFMPC. */
+template<size_t NXM, size_t NU, size_t NY, size_t NP, size_t NC, size_t ND, typename U, size_t NT, size_t NXC, size_t NXK, size_t NYM, size_t NW, size_t NV, size_t NXE, typename T>
+struct mpc_runtime<design::MPCResult<design::MPCArtifacts<NXM, NU, NY, NP, NC, ND, U, NT, NXC>, design::KalmanResult<NXK, NU, NYM, U, NW, NV, ND>, design::SteadyStateTargetResult<NXE, NU, ND, NY, U>>, T> {
+    using type = OFMPC<NXM, NU, NY, NP, NC, T, design::WarmStartActiveSetSolver<(NC * NU) + 1, design::MPCArtifacts<NXM, NU, NY, NP, NC, ND, T, NT, NXC>::NI1, T>, NT, FixedGainObserver<NXK, NU, NYM, T, ND>, NXC>; ///< OFMPC
+    static constexpr bool filtered = true;                                                                                                                                                                           ///< Its filter can run on the design's constants
+    template<const auto& Res>
+    using on_constants = OFMPC<NXM, NU, NY, NP, NC, T, design::WarmStartActiveSetSolver<(NC * NU) + 1, design::MPCArtifacts<NXM, NU, NY, NP, NC, ND, T, NT, NXC>::NI1, T>, NT, FixedGainObserver<NXK, NU, NYM, T, ND, ConstantObserver<Res, T, NXK - ND>>, NXC>; ///< OFMPC with its filter on the design's constants
+};
+
+} // namespace detail
 
 } // namespace damp

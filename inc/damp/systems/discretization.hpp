@@ -972,9 +972,10 @@ template<size_t NRU, size_t NRY, size_t NX, size_t NU, size_t NY, typename T, si
  * (design::mpc refuses one too short). A state weight covers the registers, none on them:
  * `{.Q = blkdiag(Q, Matrix<N * NU, N * NU>{}), .R = R}`. A law that measures its state reads
  * [x; u(k−1); …; u(k−N)], the inputs it applied; a filter estimates the registers like any other
- * state. The sampled LQ designs (design::lqr, lqi, lqg, lqgi, oflqg) and design::kalman take
- * the continuous plant and the delay instead, design::lqg(plant, Ts, InputDelay<N>{θ}, weights,
- * noise): the plant's weights and noise, the cost and the noise discretized exactly on this
+ * state. The sampled LQ designs (design::state_feedback) and design::kalman take
+ * the continuous plant and the delay instead, design::state_feedback(plant, Ts, weights,
+ * noise,
+ InputDelay<N>{θ}): the plant's weights and noise, the cost and the noise discretized exactly on this
  * model, and a law that holds the registers itself or a filter that carries them.
  * design::place_observer needs every register read, and A pins NU of the register poles at 0,
  * one per input. It places a pole at most NY times, so with more registers than that put the
@@ -1019,7 +1020,7 @@ template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, si
  * register; an output with no delay reads the plant directly. A fraction of a sample needs ZOH and
  * a continuous plant; whole samples work with any @p method and on a model already discrete.
  *
- * A filter on this model (design::kalman, KalmanFilter, design::lqg's) estimates the current
+ * A filter on this model (design::kalman, KalmanFilter, an LQG design's) estimates the current
  * state from the late readings; the registers are observable through y. A state weight covers the
  * registers, none on them: `{.Q = blkdiag(Q, Matrix<N * NY, N * NY>{}), .R = R}`. MPC predicts
  * the delayed output, and design::mpc and suggest_mpc_horizon count its dead time like an input

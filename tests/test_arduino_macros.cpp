@@ -63,7 +63,7 @@ constexpr auto sys = StateSpace{
     .B = Matrix<2, 1>{{0.0}, {1.0}},
     .C = Matrix<1, 2>{{1.0, 0.0}},
 };
-constexpr auto res = design::lqr(sys, 0.01, {.Q = Matrix<2, 2>::identity() * 10.0, .R = 1.0});
+constexpr auto res = design::state_feedback(sys, 0.01, {.Q = Matrix<2, 2>::identity() * 10.0, .R = 1.0});
 
 } // namespace
 

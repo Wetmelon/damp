@@ -388,7 +388,7 @@ TEST_SUITE("FixedGainObserver") {
         sys.B = {{0.005}, {0.1}};
         sys.C = {{1.0, 0.0}};
         sys.Ts = 0.1;
-        const auto kf = design::kalman(sys, {.process = Matrix<2, 2>::identity() * 1e-3, .measurement = 1e-2});
+        const auto kf = design::kalman(sys, design::KalmanNoise{.process = Matrix<2, 2>::identity() * 1e-3, .measurement = 1e-2});
         REQUIRE(kf.success);
 
         FixedGainObserver obs{kf};

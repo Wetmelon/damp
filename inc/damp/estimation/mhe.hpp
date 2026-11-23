@@ -253,7 +253,7 @@ template<size_t NH, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size
     const Matrix<NY, NY, T> Wr = Wr_opt.value();
 
     const StateSpace<NX, NU, NY, T, NX, NY> sys_noise{.A = sys.A, .B = sys.B, .C = sys.C, .Ts = sys.Ts};
-    const auto                              kf = kalman(sys_noise, {.process = Q_process, .measurement = R_measurement});
+    const auto                              kf = kalman(sys_noise, KalmanNoise{.process = Q_process, .measurement = R_measurement});
     if (!kf.success) {
         return ::damp::detail::set_status(art, kf.status);
     }

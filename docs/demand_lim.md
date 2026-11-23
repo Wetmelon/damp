@@ -45,10 +45,10 @@ entry by entry over the inputs.
 
 ## Example: a balancing robot
 
-The state is $`x = [p,\ \dot p,\ \theta,\ \dot\theta]`$, with an integrator ξ on the position error, and the gain one row $`K = [k_p,\ k_v,\ k_\theta,\ k_\omega,\ k_\xi]`$. Take the lean θ as s, and position, speed and ξ as the outer terms:
+The state is $`x = [p,\ \dot p,\ \theta,\ \dot\theta]`$, with an integrator ξ on the position error, and the gain one row $`K = [k_p,\ k_v,\ k_\theta,\ k_\omega,\ k_\xi]`$. Take the lean θ as s, and position, speed and ξ as the outer terms, listed by index (the plant states 0 to 3, then the integrator, 4), a `DemandLimit` among the design's options:
 
 ```cpp
-.demand_lim = {.state = 2, .outer = {true, true, false, false, true}, .lim = {.lower = -0.26, .upper = 0.26}}
+DemandLimit{.state = 2, .outer = {0, 1, 4}, .lim = {.lower = -0.26, .upper = 0.26}}
 ```
 
 ```mermaid
@@ -62,13 +62,13 @@ A position error that asks for a lean of 0.5 rad gets 0.26. The robot drives bac
 
 ## On the tick
 
-The runtime computes $`u^* - K z`$ as ever, a plain product with the gain. The clamp corrects it afterwards ([`limit_demand`](../inc/damp/controllers/state_feedback_core.hpp)): per input i, it forms the outer terms' share $`o_i = -\sum_{j \in O} K_{ij} z_j`$ again, takes $`z_{c,i} = o_i / K_{is}`$, and where the clamp changes it adds $`K_{is}\operatorname{sat}(z_{c,i}) - o_i`$ to $`u_i`$. K itself never changes. An input whose gain on s is rounding, $`|K_{is}| \le 4\varepsilon`$ times its row's largest gain, is left as it is. Then the command is clamped into `u_lim`.
+The runtime computes $`u^* - K z`$ as ever, a plain product with the gain. The clamp corrects it afterwards ([`limit_demand`](../inc/damp/controllers/detail/state_feedback_core.hpp)): per input i, it forms the outer terms' share $`o_i = -\sum_{j \in O} K_{ij} z_j`$ again, takes $`z_{c,i} = o_i / K_{is}`$, and where the clamp changes it adds $`K_{is}\operatorname{sat}(z_{c,i}) - o_i`$ to $`u_i`$. K itself never changes. An input whose gain on s is rounding, $`|K_{is}| \le 4\varepsilon`$ times its row's largest gain, is left as it is. Then the command is clamped into `u_lim`.
 
 Off, the limit costs one comparison per tick. On, it costs a second pass over each row of K, $`N_U (N_X + N_I)`$ multiply-adds, and $`N_U`$ divisions. A `Law<kRes>` of a `constexpr` design holds the limit as a constant of the type.
 
 ## The integrators
 
-While the clamp holds the setpoint, the outer terms' share of the command no longer grows with them. An integrator among the outer terms would keep integrating a contribution that is thrown away, and unwind it later, with the overshoot of any windup. The law records the command before the clamp; at the next predict, integrator $`\xi_i`$ holds when integrating its error $`e_i`$ would push a clamped input j further into its clamp, $`K_{j,\xi_i}\, e_i\, (u_j^{\text{applied}} - u_j^{\text{asked}}) > 0`$ (conditional integration, the default). With a `tracking_time` $`T_t`$ in `LQIConfig` they integrate as ever and move by $`\min(T_s/T_t, 1)\,(\partial u/\partial\xi)^{+}(u^{\text{applied}} - u^{\text{asked}})`$ instead (back-calculation). The same rule covers `u_lim` and a clamp reported with `back_calculate`.
+While the clamp holds the setpoint, the outer terms' share of the command no longer grows with them. An integrator among the outer terms would keep integrating a contribution that is thrown away, and unwind it later, with the overshoot of any windup. The law records the command before the clamp; at the next predict, integrator $`\xi_i`$ holds when integrating its error $`e_i`$ would push a clamped input j further into its clamp, $`K_{j,\xi_i}\, e_i\, (u_j^{\text{applied}} - u_j^{\text{asked}}) > 0`$ (conditional integration, the default). With a `tracking_time` $`T_t`$ in the `IntegralAction` they integrate as ever and move by $`\min(T_s/T_t, 1)\,(\partial u/\partial\xi)^{+}(u^{\text{applied}} - u^{\text{asked}})`$ instead (back-calculation). The same rule covers `u_lim` and a clamp reported with `back_calculate`.
 
 ## Steady state
 

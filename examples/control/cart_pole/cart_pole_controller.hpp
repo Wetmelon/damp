@@ -22,6 +22,7 @@
 
 #include "damp/controllers/law_detail.hpp"
 #include "damp/controllers/lqr.hpp"
+#include "damp/controllers/state_feedback.hpp"
 #include "damp/matrix/colvec.hpp"
 #include "damp/matrix/concat.hpp"
 #include "damp/matrix/matrix.hpp"
@@ -74,7 +75,7 @@ inline constexpr auto Q = diag(10.0, 0.1, 100.0, 10.0); // x, ẋ, θ, θ̇
 inline constexpr double R = 1.0;
 
 // Continuous plant + Ts: ZOH dynamics and Van Loan cost, then a 4×4 DARE at compile time.
-inline constexpr auto lqr_d = design::lqr(sys, Ts, {.Q = Q, .R = R});
+inline constexpr auto lqr_d = design::state_feedback(sys, Ts, {.Q = Q, .R = R});
 
 /**
  * @brief One control period: full-state feedback u = −Kx

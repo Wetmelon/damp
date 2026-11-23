@@ -25,17 +25,16 @@ constexpr auto sys = StateSpace<2, 1, 1>{
 } // namespace
 
 // Configure tuning parameters (control weights) for an LQI
-constexpr auto weights = design::LQIConfig<2, 1, 1>{
+constexpr auto weights = design::LQRWeights{
     .Q = Matrix<2, 2>{
         {10.0, 0.0},
         {0.0, 1.0},
     },
-    .R = 1.0,
-    .Q_integral = 80.0,
+    .R = {1.0},
 };
 
 // Discretize the plant and solve the DARE
-constexpr auto res = design::lqi(sys, Ts, weights);
+constexpr auto res = design::state_feedback(sys, Ts, weights, design::IntegralAction{.Q = 80.0}); // on the position
 
 // The design's LQI in single precision, its gains constants of the type; a failed design does not compile
 constinit Law<res, float> law;

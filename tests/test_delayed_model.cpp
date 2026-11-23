@@ -32,7 +32,7 @@
 #include "damp/controllers/lqr.hpp"
 #include "damp/controllers/mpc.hpp"
 #include "damp/controllers/oflqg.hpp"
-#include "damp/controllers/ofmpc.hpp"
+#include "damp/controllers/state_feedback.hpp"
 #include "damp/design/disturbance.hpp"
 #include "damp/design/riccati.hpp"
 #include "damp/estimation/kalman.hpp"
@@ -100,8 +100,8 @@ double max_diff(const Matrix<R, C>& a, const Matrix<R, C>& b) {
 }
 
 /// The delay-free cost per step, and the same on the delayed model: the temperature weighted, the register not.
-constexpr design::LQRConfig<1, 1> kLq{.Q = 1.0, .R = 0.02};
-constexpr design::LQRConfig<2, 1> kLqModel{.Q = {{1.0, 0.0}, {0.0, 0.0}}, .R = 0.02};
+constexpr design::LQRWeights<1, 1> kLq{.Q = 1.0, .R = 0.02};
+constexpr design::LQRWeights<2, 1> kLqModel{.Q = {{1.0, 0.0}, {0.0, 0.0}}, .R = 0.02};
 
 /// The offset-free designs' noise per step: model error on the block, the reading, the heat loss's walk.
 constexpr design::KalmanNoise<1, 1, double, 1> kNoise{.process = 0.02, .measurement = 0.01, .disturbance = 0.1};
@@ -204,7 +204,7 @@ TEST_SUITE("Input delay: a model of the plant") {
         const double pole = phi - (gam * k0); // the delay-free closed loop
 
         constexpr auto model = *discretize(heater_block(), kTs, InputDelay{kTs});
-        constexpr auto res = design::lqr(model, kLqModel);
+        constexpr auto res = design::state_feedback(model, kLqModel);
         static_assert(res.success);
         CHECK(res.K(0, 0) == doctest::Approx(k0 * phi).epsilon(1e-10));
         CHECK(res.K(0, 1) == doctest::Approx(k0 * gam).epsilon(1e-10));
@@ -236,7 +236,7 @@ TEST_SUITE("Input delay: a model of the plant") {
         // The delay-blind gain K₀ on the same plant: x(k+1) = Φx(k) − ΓK₀x(k−1), poles of modulus
         // √(ΓK₀) (complex here: Φ² < 4ΓK₀), a ring that decays by √(ΓK₀) per step instead of the pole above.
         REQUIRE(phi * phi < 4.0 * gam * k0);
-        const auto blind = design::lqr(*kPlain, kLq);
+        const auto blind = design::state_feedback(*kPlain, kLq);
         REQUIRE(blind.success);
         CHECK(blind.K(0, 0) == doctest::Approx(k0).epsilon(1e-10));
         const double  rho = std::sqrt(gam * k0);
@@ -267,7 +267,7 @@ TEST_SUITE("Input delay: a model of the plant") {
         REQUIRE(lq0.success);
         Matrix<3, 3> Q3{};
         Q3.block<2, 2>(0, 0) = kQ; // on the plant states, not the register
-        const auto spring = design::lqr(discretize(kPlantD, kTsSpring, InputDelay{kTsSpring}).value(), {.Q = Q3, .R = kR});
+        const auto spring = design::state_feedback(discretize(kPlantD, kTsSpring, InputDelay{kTsSpring}).value(), {.Q = Q3, .R = kR});
         REQUIRE(spring.success);
         Matrix<1, 3> K_pred{};
         K_pred.block<1, 2>(0, 0) = lq0.K * kPlantD.A;
@@ -279,7 +279,7 @@ TEST_SUITE("Input delay: a model of the plant") {
         // The register is a command already sent: no noise reaches it, so the filter's gain on it
         // is zero and predict loads it with the input the plant received.
         constexpr auto model = *discretize(heater_block(), kTs, InputDelay{kFrac});
-        constexpr auto res = design::lqg(model, kLqModel, design::KalmanNoise<1, 1>{.process = 0.02, .measurement = 0.01});
+        constexpr auto res = design::state_feedback(model, kLqModel, design::KalmanNoise<1, 1>{.process = 0.02, .measurement = 0.01});
         static_assert(res.success);
         CHECK(damp::abs(res.kalman.M(1, 0)) <= 1e-12 * damp::abs(res.kalman.M(0, 0)));
 
@@ -311,8 +311,8 @@ TEST_SUITE("Input delay: a model of the plant") {
                                                      .upper = 40.0,
                                                  }};
         constexpr design::InputDisturbance     load{};
-        const auto                             lqg_blind = design::oflqg(*kPlain, kLq, kNoise, load);
-        const auto                             mpc_blind = design::ofmpc<30, 4>(*kPlain, w, c, kNoise, load);
+        const auto                             lqg_blind = design::state_feedback(*kPlain, kLq, kNoise, load);
+        const auto                             mpc_blind = design::mpc<30, 4>(*kPlain, w, c, kNoise, load);
         REQUIRE(lqg_blind.success);
         REQUIRE(mpc_blind.success);
 
@@ -320,8 +320,8 @@ TEST_SUITE("Input delay: a model of the plant") {
             CAPTURE(theta);
             const auto model = discretize(heater_block(), kTs, InputDelay{theta});
             REQUIRE(model.has_value());
-            const auto lqg = design::oflqg(*model, kLqModel, kNoise, load);
-            const auto mpc = design::ofmpc<30, 4>(*model, w, c, kNoise, load);
+            const auto lqg = design::state_feedback(*model, kLqModel, kNoise, load);
+            const auto mpc = design::mpc<30, 4>(*model, w, c, kNoise, load);
             REQUIRE(lqg.success);
             REQUIRE(mpc.success);
             using Est = std::remove_cvref_t<decltype(OFMPC{mpc}.estimator)>;
@@ -353,9 +353,9 @@ TEST_SUITE("Input delay: a model of the plant") {
 
         // the regulator is lqr(plant, Ts, w), and the noise the closed form of
         // ∫ e^{Aη} Qc e^{Aᵀη} dη on the input-disturbance augment [a b; 0 0]
-        const auto res = design::oflqg(heater_block(), kTs, kLq, noise, design::InputDisturbance{});
+        const auto res = design::state_feedback(heater_block(), kTs, kLq, noise, design::InputDisturbance{});
         REQUIRE(res.success);
-        CHECK(max_diff(res.K, design::lqr(heater_block(), kTs, kLq).K) == 0.0);
+        CHECK(max_diff(res.K, design::state_feedback(heater_block(), kTs, kLq).K) == 0.0);
         const double e1 = std::exp(a * kTs) - 1.0;
         const double e2 = std::exp(2.0 * a * kTs) - 1.0;
         const double g = b / a;
@@ -368,7 +368,7 @@ TEST_SUITE("Input delay: a model of the plant") {
         CHECK(res.kalman.R(0, 0) == 0.01); // a variance per reading: no Ts scaling
 
         // offset-free MPC from the continuous plant: the same estimator noise
-        const auto ofmpc = design::ofmpc<30, 4>(heater_block(), kTs, {}, {}, noise, design::InputDisturbance{});
+        const auto ofmpc = design::mpc<30, 4>(heater_block(), kTs, {}, {}, noise, design::InputDisturbance{});
         REQUIRE(ofmpc.success);
         CHECK(max_diff(ofmpc.kalman.Q, res.kalman.Q) == 0.0);
         CHECK(ofmpc.kalman.R(0, 0) == 0.01);
@@ -414,7 +414,7 @@ TEST_SUITE("back_calculate: the applied input through the law's own last command
     TEST_CASE("LQGI with a clamp; without back_calculate the step predicts with the last command") {
         constexpr double clamped[] = {33.210771066535429, 21.698602436461023, 0.30528446320147395, -24.341242954954595, -4.0558405401675799, 67.446982029701559, 40.217762773741939};
         constexpr double unclamped[] = {65.106839026183209, 6.5445551085095417, 2.4076864909603728, -15.855437674242751, -1.7288642913350714, -58.284596307229833, 1.4312379783334563};
-        const auto       res = design::lqgi(kPlantD, {.Q = kQ, .R = kR, .Q_integral = kQint}, kNoiseSpring);
+        const auto       res = design::state_feedback(kPlantD, {.Q = kQ, .R = kR}, kNoiseSpring, design::IntegralAction{.Q = kQint});
         for (const bool clamp : {true, false}) {
             LQGI      law{res};
             ColVec<2> x{};
@@ -435,7 +435,7 @@ TEST_SUITE("back_calculate: the applied input through the law's own last command
     }
 
     TEST_CASE("a feedforward inside the limits is not saturation: the integrator runs as without one") {
-        auto      with_ff = LQI{design::lqi(kPlantD, {.Q = kQ, .R = kR, .Q_integral = kQint})};
+        auto      with_ff = LQI{design::state_feedback(kPlantD, {.Q = kQ, .R = kR}, design::IntegralAction{.Q = kQint})};
         auto      plain = with_ff;
         ColVec<2> x{};
         double    xi_scale = 0.0;
@@ -452,7 +452,7 @@ TEST_SUITE("back_calculate: the applied input through the law's own last command
         CHECK(damp::abs(with_ff.integral.xi[0] - plain.integral.xi[0]) <= 16.0 * damp::eps<double>() * xi_scale);
 
         // The same input reported without its feedforward reads as a clamp and holds an integrator.
-        auto      misread = LQI{design::lqi(kPlantD, {.Q = kQ, .R = kR, .Q_integral = kQint})};
+        auto      misread = LQI{design::state_feedback(kPlantD, {.Q = kQ, .R = kR}, design::IntegralAction{.Q = kQint})};
         auto      reference = misread;
         ColVec<2> z{};
         bool      held = false;

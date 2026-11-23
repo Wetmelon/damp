@@ -172,10 +172,10 @@ All designs share the plant above. Weights for model-based linear laws:
 | ADRC | `design::adrc<2>(wc=8, wo=40, b0=b_u, Ts)` | Treats $`\ddot\theta = f + b_0 u`$ |
 | SMC / STSMC | `design::smc` / `design::stsmc` | Sliding on $`e,\dot e`$ (ST continuous $`u`$) |
 | Place | `design::place(plant, {-8,-12}, Ts)` | Discrete gain from s-plane poles on the continuous plant |
-| LQR | `design::lqr(sysd, {.Q = Q, .R = R})` | Infinite-horizon discrete (DARE on the ZOH model) |
-| LQI | `design::lqi(sysd, {.Q = Q, .R = R, .Q_integral = Q_integral})` | Integrator on $`r-y`$ |
-| LQG / LQGI | `design::lqg` / `lqgi` | Separation + Kalman from $`y`$ |
-| OF-MPC | `design::ofmpc<10,4>` | Synthesis only; no constraint SIL |
+| LQR | `design::state_feedback(sysd, lqr_weights)` | Infinite-horizon discrete (DARE on the ZOH model) |
+| LQI | `design::state_feedback(sysd, lqr_weights, integral)` | Integrator on $`r-y`$ |
+| LQG / LQGI | `design::state_feedback(sysd, lqr_weights, estimator_noise[, integral])` | Separation + Kalman from $`y`$ |
+| OF-MPC | `design::mpc<10,4>` with a `KalmanNoise` and a disturbance | Synthesis only; no constraint SIL |
 
 Cascade tick: $`\omega^* =`$ outer angle PI, $`u =`$ inner rate PI
 (`cascade_period`). Full-state laws use $`u = -Kx`$ (plus integral / KF / MPC as appropriate).

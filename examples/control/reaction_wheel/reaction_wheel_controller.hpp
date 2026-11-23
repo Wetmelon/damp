@@ -36,9 +36,10 @@
 #include "damp/controllers/lqi.hpp"
 #include "damp/controllers/lqr.hpp"
 #include "damp/controllers/mpc.hpp"
-#include "damp/controllers/ofmpc.hpp"
 #include "damp/controllers/pid.hpp"
 #include "damp/controllers/smc.hpp"
+#include "damp/controllers/state_feedback.hpp"
+#include "damp/controllers/state_feedback_types.hpp"
 #include "damp/controllers/stsmc.hpp"
 #include "damp/design/disturbance.hpp"
 #include "damp/design/pid_design.hpp"
@@ -62,24 +63,28 @@ inline constexpr size_t NY = 1;
 
 // Continuous plant + identity noise channels so Kalman-based designs have a
 // well-posed process/measurement model (G, H = I).
-inline constexpr StateSpace<NX, NU, NY, double, NX, NY> plant{
+inline constexpr StateSpace plant{
     .A = {{0.0, 1.0}, {w0 * w0, 0.0}},
     .B = {{0.0}, {b_u}},
     .C = {{1.0, 0.0}},
-    .D = {},
     .G = Matrix<NX, NX>::identity(),
     .H = Matrix<NY, NY>::identity(),
-    .Ts = 0.0,
 };
 
 inline constexpr auto sysd = *discretize(plant, Ts, DiscretizationMethod::ZOH);
 
 // Shared LQ* weights
-inline constexpr auto Q = Matrix<NX, NX>::diagonal({40.0, 4.0});
-inline constexpr auto R = Matrix<NU, NU>{{1.0}};
-inline constexpr auto Q_integral = Matrix<NY, NY>{{80.0}};
-inline constexpr auto Q_kf = Matrix<NX, NX>::diagonal({1e-4, 1e-3});
-inline constexpr auto R_kf = Matrix<NY, NY>{{1e-3}};
+inline constexpr design::LQRWeights lqr_weights = {
+    .Q = Matrix<NX, NX>::diagonal({40.0, 4.0}),
+    .R = {1.0},
+};
+
+inline constexpr design::IntegralAction integral = {.Q = 80.0};
+
+inline constexpr design::KalmanNoise estimator_noise = {
+    .process = Matrix<NX, NX>::diagonal({1e-4, 1e-3}),
+    .measurement = 1e-3,
+};
 
 // Cascade PI
 inline constexpr double w_rate = 25.0; // [rad/s] inner rate-loop bandwidth
@@ -125,29 +130,30 @@ inline constexpr auto place_res = design::place(plant, place_poles_s, Ts); // s-
 static_assert(place_res.success);
 
 // Implement full state feedback controllers
-inline constexpr auto lqr_res = design::lqr(sysd, {.Q = Q, .R = R});
-inline constexpr auto lqi_res = design::lqi(sysd, {.Q = Q, .R = R, .Q_integral = Q_integral});
-
-// Estimator noise in <units> (per tick?  Van Loan?)
-inline constexpr auto estimator_noise = design::KalmanNoise{.process = Q_kf, .measurement = R_kf};
-inline constexpr auto lqg_res = design::lqg(sysd, {.Q = Q, .R = R}, estimator_noise);
-inline constexpr auto lqgi_res = design::lqgi(sysd, {.Q = Q, .R = R, .Q_integral = Q_integral}, estimator_noise);
+inline constexpr auto lqr_res = design::state_feedback(sysd, lqr_weights);
+inline constexpr auto lqi_res = design::state_feedback(sysd, lqr_weights, integral);
+inline constexpr auto lqg_res = design::state_feedback(sysd, lqr_weights, estimator_noise);
+inline constexpr auto lqgi_res = design::state_feedback(sysd, lqr_weights, estimator_noise, integral);
 
 // Offset-free MPC — synthesis only
-inline constexpr design::MPCWeights mpc_weights{
-    .Qy = Matrix<NY, NY>{{20.0}},
-    .Rdu = Matrix<NU, NU>{{0.1}},
-};
-
-inline constexpr design::MPCConstraints mpc_limits{
-    .u_lim = {
-        .lower = -static_cast<double>(u_max),
-        .upper = static_cast<double>(u_max),
+inline constexpr auto mpc_art = design::mpc<10, 4>(
+    sysd,
+    design::MPCWeights{
+        .Qy = {{20.0}},
+        .Rdu = {{0.1}},
     },
-};
-
-inline constexpr auto mpc_art = design::ofmpc<10, 4>(
-    sysd, mpc_weights, mpc_limits, {.process = Q_kf, .measurement = R_kf, .disturbance = 1e-2}, design::InputDisturbance{}
+    design::MPCConstraints{
+        .u_lim = {
+            .lower = -static_cast<double>(u_max),
+            .upper = static_cast<double>(u_max),
+        },
+    },
+    design::KalmanNoise{
+        .process = estimator_noise.process,
+        .measurement = estimator_noise.measurement,
+        .disturbance = 1e-2,
+    },
+    design::InputDisturbance{}
 );
 
 /**

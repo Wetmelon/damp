@@ -18,12 +18,12 @@
  * @code
  * using namespace damp;
  * // discrete plant: per-step process covariance, per-reading measurement variance
- * constexpr auto res = design::kalman(sys, {.process = Qd, .measurement = sigma2});
+ * constexpr auto res = design::kalman(sys, design::KalmanNoise{.process = Qd, .measurement = sigma2});
  * // continuous plant: process-noise density (Van Loan'd), the same per-reading variance
- * constexpr auto res_c = design::kalman(sys_c, Ts, {.process = Qc, .measurement = sigma2});
+ * constexpr auto res_c = design::kalman(sys_c, Ts, design::KalmanNoise{.process = Qc, .measurement = sigma2});
  * // a filter on [x; d]: noise.disturbance is the random walk of d
  * // (the disturbance spec sets the count, so the noise is a plain braced list)
- * constexpr auto res_d = design::kalman(sys, {.process = Qd, .measurement = sigma2, .disturbance = Qdd}, design::InputDisturbance{});
+ * constexpr auto res_d = design::kalman(sys, design::KalmanNoise{.process = Qd, .measurement = sigma2, .disturbance = Qdd}, design::InputDisturbance{});
  * static constinit FixedGainObserver obs{res};     // the fixed gain M (fixed_gain_observer.hpp); a failed design does not compile
  * static constinit KalmanFilter filt{res};  // the recursive filter, P∞ its initial P
  * // each tick: auto xhat = obs.step(y, u);  // or obs.predict(u); obs.update(y, u); for a split tick
@@ -33,6 +33,7 @@
 #include "damp/backend.hpp"
 #include "damp/controllers/law_detail.hpp"
 #include "damp/design/disturbance.hpp"
+#include "damp/design/options.hpp"
 #include "damp/design/riccati.hpp"
 #include "damp/design/status.hpp"
 #include "damp/estimation/sqrt_covariance.hpp"
@@ -52,7 +53,7 @@ namespace design {
  * @brief The estimator's noise: process noise on the plant's noise inputs (through G),
  *        measurement noise on the sensors (through H)
  *
- * The meaning of @c process follows the plant's time domain, as LQRConfig does. On a
+ * The meaning of @c process follows the plant's time domain, as LQRWeights does. On a
  * continuous plant (the `kalman(sys, Ts, noise)` form) it is a power spectral density, the
  * intensity of white noise in ẋ = Ax + Bu + Gw; the design integrates it over one sample
  * (Van Loan, @ref discretize_process_noise), so the same density gives the same filter
@@ -64,9 +65,13 @@ namespace design {
  * converts a density with R/Ts, which assumes an integrate-and-dump sampler whose noise
  * bandwidth tracks Ts; damp does not (matlab::kalmd keeps that convention).
  *
+ * A design takes the noise among its trailing options, and the noise deduces its sizes from its
+ * fields: a matrix gives its own, a scalar is 1 × 1 (`KalmanNoise{.process = diag(1e-6, 1e-2),
+ * .measurement = 0.01}` is KalmanNoise<2, 1>). The design refuses one not sized to its plant.
+ *
  * @code
- * design::kalman(continuous_sys, Ts, {.process = Qc, .measurement = sigma2});
- * design::kalman(discrete_sys, {.process = Qd, .measurement = sigma2});
+ * design::kalman(continuous_sys, Ts, design::KalmanNoise{.process = Qc, .measurement = sigma2});
+ * design::kalman(discrete_sys, design::KalmanNoise{.process = Qd, .measurement = sigma2});
  * @endcode
  *
  * With a disturbance model (a filter on [x; d]), @c disturbance is the random walk of d: how
@@ -106,13 +111,56 @@ struct KalmanNoise {
     Matrix<ND, ND, T> disturbance = Matrix<ND, ND, T>::identity();
 };
 
-/** @brief Sizes from the matrices: `KalmanNoise{Qn, Rn}`. */
+// Sizes from the fields, in order: `KalmanNoise{.process = diag(…), .measurement = 0.01}`. A matrix
+// gives its size, a scalar (one floating type throughout) is 1 × 1, and .disturbance is optional. The
+// scalar guides take a floating type only, so two matrices of one type deduce as matrices.
+
+/** @brief Sizes from the fields: process and measurement matrices. */
 template<size_t NW, size_t NV, typename T>
 KalmanNoise(Matrix<NW, NW, T>, Matrix<NV, NV, T>) -> KalmanNoise<NW, NV, T>;
-
-/** @brief Sizes from the matrices: `KalmanNoise{Qn, Rn, Qd}`, with the disturbance's random walk. */
-template<size_t NW, size_t NV, typename T, size_t ND>
+/** @brief Sizes from the fields: a process matrix, one reading. */
+template<size_t NW, typename T>
+    requires damp::is_floating_point_v<T>
+KalmanNoise(Matrix<NW, NW, T>, T) -> KalmanNoise<NW, 1, T>;
+/** @brief Sizes from the fields: one process input, a measurement matrix. */
+template<size_t NV, typename T>
+    requires damp::is_floating_point_v<T>
+KalmanNoise(T, Matrix<NV, NV, T>) -> KalmanNoise<1, NV, T>;
+/** @brief Sizes from the fields: one process input, one reading. */
+template<typename T>
+    requires damp::is_floating_point_v<T>
+KalmanNoise(T, T) -> KalmanNoise<1, 1, T>;
+/** @brief Sizes from the fields, with the disturbance's walk: three matrices. */
+template<size_t NW, size_t NV, size_t ND, typename T>
 KalmanNoise(Matrix<NW, NW, T>, Matrix<NV, NV, T>, Matrix<ND, ND, T>) -> KalmanNoise<NW, NV, T, ND>;
+/** @brief Sizes from the fields, with the disturbance's walk: one disturbance. */
+template<size_t NW, size_t NV, typename T>
+    requires damp::is_floating_point_v<T>
+KalmanNoise(Matrix<NW, NW, T>, Matrix<NV, NV, T>, T) -> KalmanNoise<NW, NV, T, 1>;
+/** @brief Sizes from the fields, with the disturbance's walk: one reading. */
+template<size_t NW, size_t ND, typename T>
+    requires damp::is_floating_point_v<T>
+KalmanNoise(Matrix<NW, NW, T>, T, Matrix<ND, ND, T>) -> KalmanNoise<NW, 1, T, ND>;
+/** @brief Sizes from the fields, with the disturbance's walk: one reading, one disturbance. */
+template<size_t NW, typename T>
+    requires damp::is_floating_point_v<T>
+KalmanNoise(Matrix<NW, NW, T>, T, T) -> KalmanNoise<NW, 1, T, 1>;
+/** @brief Sizes from the fields, with the disturbance's walk: one process input. */
+template<size_t NV, size_t ND, typename T>
+    requires damp::is_floating_point_v<T>
+KalmanNoise(T, Matrix<NV, NV, T>, Matrix<ND, ND, T>) -> KalmanNoise<1, NV, T, ND>;
+/** @brief Sizes from the fields, with the disturbance's walk: one process input, one disturbance. */
+template<size_t NV, typename T>
+    requires damp::is_floating_point_v<T>
+KalmanNoise(T, Matrix<NV, NV, T>, T) -> KalmanNoise<1, NV, T, 1>;
+/** @brief Sizes from the fields, with the disturbance's walk: one process input, one reading. */
+template<size_t ND, typename T>
+    requires damp::is_floating_point_v<T>
+KalmanNoise(T, T, Matrix<ND, ND, T>) -> KalmanNoise<1, 1, T, ND>;
+/** @brief Sizes from the fields, with the disturbance's walk: scalars throughout. */
+template<typename T>
+    requires damp::is_floating_point_v<T>
+KalmanNoise(T, T, T) -> KalmanNoise<1, 1, T, 1>;
 
 namespace detail {
 
@@ -520,6 +568,48 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
 
 } // namespace detail
 
+namespace detail {
+
+/** @brief The options kalman takes: its noise (required), a disturbance spec, an InputDelay. */
+using kalman_options = ::damp::detail::option_set<is_input_delay, is_disturbance, is_kalman_noise>;
+
+/** @brief The disturbance states of the disturbance spec among @p Opts (0 without one). */
+template<size_t NX, size_t NU, size_t NY, size_t NW, typename... Opts>
+inline constexpr size_t disturbance_states_in = disturbance_traits<::damp::detail::option_t<is_disturbance, NoDisturbance, Opts...>, NU, NY, noise_inputs<NX, NW>>::states;
+
+/** @brief The KalmanNoise a filter on this plant with the options @p Opts takes. */
+template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename... Opts>
+using noise_for = plant_noise<NX, NY, T, NW, NV, disturbance_states_in<NX, NU, NY, NW, Opts...>>;
+
+/** @brief The KalmanNoise among @p Opts, checked against the size the plant needs. */
+template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename... Opts>
+[[nodiscard]] constexpr noise_for<NX, NU, NY, T, NW, NV, Opts...> noise_of(const Opts&... opts) {
+    using Noise = ::damp::detail::option_t<is_kalman_noise, noise_for<NX, NU, NY, T, NW, NV, Opts...>, Opts...>;
+    static_assert(
+        damp::is_same_v<Noise, noise_for<NX, NU, NY, T, NW, NV, Opts...>>,
+        "The KalmanNoise is sized to the plant: .process NX x NX (or the columns of G when the plant names them), .measurement NY x NY, "
+        "and with a disturbance spec .disturbance ND x ND (its states), in the plant's scalar."
+    );
+    return ::damp::detail::option<is_kalman_noise>(noise_for<NX, NU, NY, T, NW, NV, Opts...>{}, opts...);
+}
+
+/** @brief design::kalman with its trailing options, in the plant's own domain (@p Discrete) or at @p Ts. */
+template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename... Opts>
+[[nodiscard]] constexpr auto kalman_with(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T Ts, const Opts&... opts) {
+    kalman_options::check<Opts...>();
+    static_assert(::damp::detail::option_count<is_kalman_noise, Opts...> == 1, "kalman needs its noise among the options: kalman(plant, Ts, KalmanNoise{.process = ..., .measurement = ...}).");
+    const auto noise = noise_of<NX, NU, NY, T, NW, NV>(opts...);
+    const auto delay = ::damp::detail::option<is_input_delay>(NoDelay{}, opts...);
+    using Disturbance = ::damp::detail::option_t<is_disturbance, NoDisturbance, Opts...>;
+    if constexpr (is_disturbance_model<Disturbance>) {
+        return kalman_with_disturbance<Discrete>(noise_model(sys), Ts, noise, ::damp::detail::option<is_disturbance>(NoDisturbance{}, opts...), delay);
+    } else {
+        return kalman_design<Discrete>(noise_model(sys), Ts, noise, NoDisturbance{}, delay);
+    }
+}
+
+} // namespace detail
+
 /**
  * @brief Steady-state Kalman filter design
  *
@@ -554,65 +644,40 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
  * both. A dual DARE that cannot be stabilized means (A, C) is not detectable and is reported
  * as DesignStatus::not_detectable. Process noise that leaves a mode on the unit circle
  * unexcited (GQGᵀ does not reach it, e.g. a constant bias with no noise on it) has no
- * stabilizing filter and is refused with DesignStatus::bad_weights. Without a disturbance
- * argument this is the plain filter on x.
+ * stabilizing filter and is refused with DesignStatus::bad_weights.
+ *
+ * @p opts trail in any order: a disturbance spec puts the filter on [x; d], ND integrating
+ * disturbances after the plant state; without one it is the plain filter on x. The spec says
+ * where d enters: InputDisturbance (B_d = B, C_d = D), OutputDisturbance (a bias on each reading,
+ * B_d = 0, C_d = I), PlantDisturbance (the plant's G and H) or DisturbanceModel (explicit B_d and
+ * C_d). The process noise enters through G as without one, and @c noise.disturbance is the random
+ * walk of d (G on [x; d] is [G 0; 0 I]). The augment must be detectable, rank [A − I, B_d; C, C_d]
+ * = NX + ND (so ND ≤ NY), or the design is refused with DesignStatus::not_detectable; a
+ * @c noise.disturbance that is not positive definite is refused with DesignStatus::bad_weights.
+ * A delayed plant is the model discretize(plant, Ts, InputDelay{θ}) returns, or kalman(plant, Ts,
+ * noise, InputDelay<N>{θ}) from the continuous plant.
  *
  * @note Compare with MATLAB®'s [kest, L, P, Mx] = kalman(sys, Q, R) or [M, P] = dlqe(A, G, C, Q, R)
  *       — the latter is matlab::dlqe in matlab.hpp.
  *
  * @see dare — control-form DARE solver; filter form via dual (Aᵀ, Cᵀ, …)
- * @see design::lqg — pairs this M with LQR’s K
+ * @see design::state_feedback with a KalmanNoise — pairs this M with LQR’s K
  * @see "Optimal State Estimation" (Simon, 2006), §5.3–5.4
  *
  * @param sys    Discrete-time state-space system (Ts > 0)
- * @param noise  {.process, .measurement}: per-step process covariance (NW × NW, positive
- *               semidefinite) and per-reading measurement variance (NV × NV, positive definite)
- * @return KalmanResult containing the steady-state gains L and M, error covariance P and status
- */
-template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
-[[nodiscard]] constexpr auto kalman(
-    const StateSpace<NX, NU, NY, T, NW, NV>&      sys,
-    const detail::plant_noise<NX, NY, T, NW, NV>& noise
-) {
-    return detail::kalman_design<true>(detail::noise_model(sys), T{0}, noise, NoDisturbance{});
-}
-
-/**
- * @brief Steady-state Kalman filter on [x; d]
- *
- * As kalman(sys, noise), with ND integrating disturbances after the plant state. @p disturbance
- * says where d enters: InputDisturbance (B_d = B, C_d = D), OutputDisturbance (a bias on each
- * reading, B_d = 0, C_d = I), PlantDisturbance (the plant's G and H) or DisturbanceModel
- * (explicit B_d and C_d). The process noise enters through G as without one, and
- * @c noise.disturbance is the random walk of d (G on [x; d] is [G 0; 0 I]). The augment must be
- * detectable, rank [A − I, B_d; C, C_d] = NX + ND (so ND ≤ NY), or the design is refused with
- * DesignStatus::not_detectable; a @c noise.disturbance that is not positive definite is refused
- * with DesignStatus::bad_weights. A delayed plant is the model discretize(plant, Ts, InputDelay{θ})
- * returns, or kalman(plant, Ts, InputDelay<N>{θ}, noise, disturbance) from the continuous plant.
- *
  * @see "Disturbance Models for Offset-Free Model-Predictive Control" (Pannocchia & Rawlings,
  *      2003), AIChE Journal 49(2)
  * @see "Disturbance modeling for offset-free linear model predictive control" (Muske &
  *      Badgwell, 2002), Journal of Process Control 12(5)
- *
- * @param sys          Discrete-time state-space system (Ts > 0)
- * @param noise        {.process, .measurement, .disturbance}: the per-step process covariance
- *                     (positive semidefinite), the random walk of d (positive definite: each d
- *                     is a mode at z = 1 that only its walk moves, so a zero walk is refused
- *                     with DesignStatus::bad_weights), and the per-reading measurement variance
- *                     (positive definite)
- * @param disturbance  Where d enters: InputDisturbance, OutputDisturbance, PlantDisturbance or
- *                     DisturbanceModel
- * @return KalmanResult on [x; d]: steady-state gains L and M, error covariance P and status
+ * @param opts   The KalmanNoise{.process, .measurement[, .disturbance]}, required: per-step process
+ *               covariance (NW × NW, positive semidefinite), per-reading measurement variance
+ *               (NV × NV, positive definite) and, with a disturbance spec, the random walk of d
+ *               (positive definite); and a disturbance spec, or none
+ * @return KalmanResult, on [x; d] with a disturbance spec: the gains L and M, error covariance P and status
  */
-template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Disturbance, size_t ND = detail::disturbance_traits<Disturbance, NU, NY, detail::noise_inputs<NX, NW>>::states>
-    requires(detail::is_disturbance<Disturbance>::value && !damp::is_same_v<Disturbance, NoDisturbance>)
-[[nodiscard]] constexpr auto kalman(
-    const StateSpace<NX, NU, NY, T, NW, NV>&                                 sys,
-    const damp::type_identity_t<detail::plant_noise<NX, NY, T, NW, NV, ND>>& noise,
-    const Disturbance&                                                       disturbance
-) {
-    return detail::kalman_with_disturbance<true>(detail::noise_model(sys), T{0}, noise, disturbance);
+template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename... Opts>
+[[nodiscard]] constexpr auto kalman(const StateSpace<NX, NU, NY, T, NW, NV>& sys, const Opts&... opts) {
+    return detail::kalman_with<true>(sys, T{0}, opts...);
 }
 
 /**
@@ -644,114 +709,34 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
  *
  * @param sys    Continuous plant (sys.Ts = 0; uses A, B, C, D, G, H)
  * @param Ts     Sampling time of the filter [s]
- * @param noise  {.process, .measurement}: process-noise density on the NW inputs of G
- *               (positive semidefinite) and per-reading measurement variance on the NV
- *               inputs of H (positive definite, no Ts scaling)
- * @return KalmanResult on the discretized plant (NW = NX), with L, M, P and status
- */
-template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
-[[nodiscard]] constexpr auto kalman(
-    const StateSpace<NX, NU, NY, T, NW, NV>&      sys,
-    damp::type_identity_t<T>                      Ts,
-    const detail::plant_noise<NX, NY, T, NW, NV>& noise
-) {
-    return detail::kalman_design<false>(detail::noise_model(sys), Ts, noise, NoDisturbance{});
-}
-
-/**
- * @brief Sampled-data Kalman filter on [x; d] for a continuous plant
- *
- * As kalman(sys, Ts, noise), with a disturbance argument. The process noise on [x; d] is one
- * period of ẋ = Ax + Bu + B_d d + Gw, ḋ = w_d with the densities @c noise.process on w and
- * @c noise.disturbance on w_d (Van Loan, cross terms included: the walk of d moves x within the
- * period), so G on [x; d] is I.
- *
- * @see "Disturbance Models for Offset-Free Model-Predictive Control" (Pannocchia & Rawlings,
- *      2003), AIChE Journal 49(2)
- * @see "Disturbance modeling for offset-free linear model predictive control" (Muske &
- *      Badgwell, 2002), Journal of Process Control 12(5)
- *
- * @param sys          Continuous plant (sys.Ts = 0)
- * @param Ts           Sampling time of the filter [s]
- * @param noise        {.process, .measurement, .disturbance}: process-noise density, per-reading
- *                     measurement variance (no Ts scaling), and the density of d's random walk
- * @param disturbance  Where d enters: InputDisturbance, OutputDisturbance, PlantDisturbance or
- *                     DisturbanceModel
- * @return KalmanResult on the discretized augment [x; d] (G = I), with L, M, P and status
- */
-template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Disturbance, size_t ND = detail::disturbance_traits<Disturbance, NU, NY, detail::noise_inputs<NX, NW>>::states>
-    requires(detail::is_disturbance<Disturbance>::value && !damp::is_same_v<Disturbance, NoDisturbance>)
-[[nodiscard]] constexpr auto kalman(
-    const StateSpace<NX, NU, NY, T, NW, NV>&                                 sys,
-    damp::type_identity_t<T>                                                 Ts,
-    const damp::type_identity_t<detail::plant_noise<NX, NY, T, NW, NV, ND>>& noise,
-    const Disturbance&                                                       disturbance
-) {
-    return detail::kalman_with_disturbance<false>(detail::noise_model(sys), Ts, noise, disturbance);
-}
-
-/**
- * @brief Sampled-data Kalman filter for a continuous plant whose input arrives @p delay late
- *
- * As kalman(sys, Ts, noise), on the model discretize(sys, Ts, delay): the plant, then the
- * registers v(k−1) … v(k−N) of the inputs still on their way. The process noise acts on the
- * plant, not through the delay: Q_d is the plant's over the period (Van Loan) and the registers
- * take none, so G on the model is [I; 0]. The filter carries the registers exactly: predict
- * shifts the applied input in, their covariance is zero and no reading moves them. The result
- * runs on FixedGainObserver or KalmanFilter like any other.
- *
- * Refused as kalman(sys, Ts, noise), and with discretize's status for a delay it refuses
- * (negative, not finite or longer than N samples).
+ * @p opts trail in any order, at most one of each kind:
+ * - A disturbance spec, as for kalman(sys, noise, opts…). The process noise on [x; d] is one
+ *   period of ẋ = Ax + Bu + B_d d + Gw, ḋ = w_d with the densities @c noise.process on w and
+ *   @c noise.disturbance on w_d (Van Loan, cross terms included: the walk of d moves x within
+ *   the period), so G on [x; d] is I.
+ * - InputDelay<N>{θ}: the filter is on the model discretize(sys, Ts, delay), the plant then the
+ *   delay states v(k−1) … v(k−N) of the inputs still on their way. The process noise acts on
+ *   the plant, not through the delay: Q_d is the plant's over the period (Van Loan) and the delay
+ *   states take none, so G on the model is [I; 0]. The filter carries them exactly: predict
+ *   shifts the applied input in, their covariance is zero and no reading moves them. A
+ *   disturbance enters where its spec says on that model: an InputDisturbance adds to u, so it
+ *   reaches the plant through the delay states; a load on the plant itself, which acts at once,
+ *   is DisturbanceModel{.Bd = sys.B, .Cd = sys.D} or PlantDisturbance. A delay discretize
+ *   refuses (negative, not finite or longer than N samples) is refused with its status.
  *
  * @code
- * constexpr auto kf = design::kalman(plant, 0.01, InputDelay<3>{0.022}, {.process = Qc, .measurement = sigma2});
+ * constexpr auto kf = design::kalman(plant, 0.01, design::KalmanNoise{.process = Qc, .measurement = sigma2}, InputDelay<3>{0.022});
  * @endcode
- *
- * @param sys    Continuous plant (sys.Ts = 0)
- * @param Ts     Sampling time of the filter [s]
- * @param delay  InputDelay<N>{θ}: θ ≤ N·Ts, one for every input or a ColVec of one per input
- * @param noise  {.process, .measurement}: process-noise density, per-reading measurement variance
- * @return KalmanResult on [x; v(k−1); …; v(k−N)] (G = [I; 0]), with L, M, P and status
+ * @param opts   The KalmanNoise{.process, .measurement[, .disturbance]}, required: process-noise
+ *               density on the NW inputs of G (positive semidefinite), per-reading measurement
+ *               variance on the NV inputs of H (positive definite, no Ts scaling) and, with a
+ *               disturbance spec, the density of d's random walk; a disturbance spec and an
+ *               InputDelay, or neither
+ * @return KalmanResult on the discretized plant, its delay states and d (G = I, or [I; 0] with a delay), with L, M, P and status
  */
-template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t N, typename S>
-[[nodiscard]] constexpr auto kalman(
-    const StateSpace<NX, NU, NY, T, NW, NV>&      sys,
-    damp::type_identity_t<T>                      Ts,
-    const InputDelay<N, S>&                       delay,
-    const detail::plant_noise<NX, NY, T, NW, NV>& noise
-) {
-    return detail::kalman_design<false>(detail::noise_model(sys), Ts, noise, NoDisturbance{}, delay);
-}
-
-/**
- * @brief Sampled-data Kalman filter on [x; v(k−1); …; v(k−N); d] for a continuous plant whose
- *        input arrives @p delay late
- *
- * As kalman(sys, Ts, noise, disturbance), on the delayed model. A disturbance enters where its
- * spec says on that model: an InputDisturbance adds to u, so it reaches the plant through the
- * registers and its walk moves x only through them; a load on the plant itself, which acts at
- * once, is DisturbanceModel{.Bd = sys.B, .Cd = sys.D} or PlantDisturbance, on the plant's states.
- *
- * @param sys          Continuous plant (sys.Ts = 0)
- * @param Ts           Sampling time of the filter [s]
- * @param delay        InputDelay<N>{θ}: θ ≤ N·Ts
- * @param noise        {.process, .measurement, .disturbance}: densities and the per-reading variance
- * @param disturbance  Where d enters: InputDisturbance, OutputDisturbance, PlantDisturbance or
- *                     DisturbanceModel
- * @return KalmanResult on [x; v(k−1); …; v(k−N); d] (G = I), with L, M, P and status
- */
-template<
-    size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t N, typename S, typename Disturbance,
-    size_t ND = detail::disturbance_traits<Disturbance, NU, NY, detail::noise_inputs<NX, NW>>::states>
-    requires(detail::is_disturbance<Disturbance>::value && !damp::is_same_v<Disturbance, NoDisturbance>)
-[[nodiscard]] constexpr auto kalman(
-    const StateSpace<NX, NU, NY, T, NW, NV>&                                 sys,
-    damp::type_identity_t<T>                                                 Ts,
-    const InputDelay<N, S>&                                                  delay,
-    const damp::type_identity_t<detail::plant_noise<NX, NY, T, NW, NV, ND>>& noise,
-    const Disturbance&                                                       disturbance
-) {
-    return detail::kalman_with_disturbance<false>(detail::noise_model(sys), Ts, noise, disturbance, delay);
+template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename... Opts>
+[[nodiscard]] constexpr auto kalman(const StateSpace<NX, NU, NY, T, NW, NV>& sys, damp::type_identity_t<T> Ts, const Opts&... opts) {
+    return detail::kalman_with<false>(sys, Ts, opts...);
 }
 
 } // namespace design
@@ -884,7 +869,7 @@ struct ConstantKalman {
  *
  * A design on [x; d] (design::kalman with a disturbance) runs here as the absolute filter on the
  * whole augmented state. An input delay is in the model discretize(plant, Ts, InputDelay<N>{θ})
- * returns, which design::kalman(plant, Ts, InputDelay<N>{θ}, noise) designs on from the continuous
+ * returns, which design::kalman(plant, Ts, noise, InputDelay<N>{θ}) designs on from the continuous
  * plant: its registers v(k−1) … v(k−N) are states like any other, with zero rows in the factor.
  *
  * On a `constexpr` design::kalman, `Law<kRes, float>::Recursive` is this filter with the design's

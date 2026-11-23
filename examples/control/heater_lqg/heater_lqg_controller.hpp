@@ -20,6 +20,7 @@
 #include "damp/backend.hpp"
 #include "damp/controllers/detail/lq_law.hpp"
 #include "damp/controllers/oflqg.hpp"
+#include "damp/controllers/state_feedback.hpp"
 #include "damp/design/disturbance.hpp"
 #include "damp/matrix/colvec.hpp"
 #include "damp/matrix/core.hpp"
@@ -45,13 +46,13 @@ inline constexpr auto                              kModel = *discretize(kPlant, 
 // Design on the model, per period: weight on the temperature and on the power itself (the
 // register unweighted); model error on the block, thermistor noise, and how fast the unknown heat
 // loss may drift (0.01 and 0.05 per second over the 5 s period).
-inline constexpr auto kLaw = design::oflqg(
+inline constexpr auto kLaw = design::state_feedback(
     kModel,
     {
         .Q = {{1.0, 0.0}, {0.0, 0.0}},
         .R = 0.02,
     },
-    {
+    design::KalmanNoise{
         .process = 0.05,
         .measurement = 0.01,
         .disturbance = 0.25,

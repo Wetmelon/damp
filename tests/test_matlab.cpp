@@ -16,6 +16,7 @@
 #include "damp/controllers/lqi.hpp"
 #include "damp/controllers/lqr.hpp"
 #include "damp/controllers/pid.hpp"
+#include "damp/controllers/state_feedback.hpp"
 #include "damp/design/minreal.hpp"
 #include "damp/design/riccati.hpp"
 #include "damp/design/stability.hpp"
@@ -612,7 +613,7 @@ TEST_SUITE("MATLAB®-Style Control Design API") {
         const Matrix<1, 1> R{{0.5}};
 
         const StateSpace<2, 1, 1, double, 2, 1> sys{.A = A, .C = C, .G = G, .H = Matrix<1, 1>{{1.0}}, .Ts = 0.01};
-        const auto                              via_kalman = design::kalman(sys, {.process = Q, .measurement = R});
+        const auto                              via_kalman = design::kalman(sys, design::KalmanNoise{.process = Q, .measurement = R});
         const auto                              via_dlqe = matlab::dlqe(A, G, C, Q, R);
         REQUIRE(via_kalman.success);
         REQUIRE(via_dlqe.success);
@@ -649,10 +650,10 @@ TEST_SUITE("MATLAB®-Style Control Design API") {
         CHECK((kest.L - (kest.sys.A * kest.M)).norm() == 0.0); // MATLAB®'s L, the predictor gain
 
         //! design::kalman takes the per-reading variance itself: kalmd's Rd = 0.2 gives the same filter.
-        constexpr auto same = design::kalman(sys, 0.1, {.process = 0.3, .measurement = 0.2});
+        constexpr auto same = design::kalman(sys, 0.1, design::KalmanNoise{.process = 0.3, .measurement = 0.2});
         CHECK(same.M(0, 0) == doctest::Approx(kest.M(0, 0)).epsilon(1e-12));
         //! ...while passing kalmd's Rn there is a 10× more trusted sensor, a different (larger) gain.
-        constexpr auto unscaled = design::kalman(sys, 0.1, {.process = 0.3, .measurement = 0.02});
+        constexpr auto unscaled = design::kalman(sys, 0.1, design::KalmanNoise{.process = 0.3, .measurement = 0.02});
         CHECK(unscaled.M(0, 0) > kest.M(0, 0));
 
         //! A bad Ts is refused, not divided by.
@@ -753,7 +754,7 @@ TEST_SUITE("MATLAB®-Style Control Design API") {
         const Matrix<2, 2> R_kf{{0.1, 0.0}, {0.0, 0.1}};
         const Matrix<1, 2> pick_position{{1.0, 0.0}};
 
-        const auto direct = design::lqi(sys, {.Q = Matrix<2, 2>::identity(), .R = R, .Q_integral = 10.0}, design::IntegralAction<1>{{0}});
+        const auto direct = design::state_feedback(sys, {.Q = Matrix<2, 2>::identity(), .R = R}, design::IntegralAction{.Q = 10.0, .outputs = {0}});
         const auto by_index = matlab::lqi(sys, Q_aug, R, {0});
         const auto by_selector = matlab::lqi(sys, Q_aug, R, pick_position);
         const auto track_index = matlab::lqgtrack(sys, Q_aug, R, Q_kf, R_kf, {0});
@@ -796,12 +797,12 @@ TEST_SUITE("MATLAB®-Style Control Design API") {
         // Create Kalman result
         Matrix<2, 2> Q_kf{{0.01, 0.0}, {0.0, 0.01}};
         Matrix<1, 1> R_kf{{0.1}};
-        auto         kf_result = design::kalman(sys, {.process = Q_kf, .measurement = R_kf});
+        auto         kf_result = design::kalman(sys, design::KalmanNoise{.process = Q_kf, .measurement = R_kf});
 
         // The regulator on the same discrete plant
         Matrix<2, 2> Q_lqr = Matrix<2, 2>::identity();
         Matrix<1, 1> R_lqr{{0.1}};
-        auto         lqr_result = design::lqr(sys, {.Q = Q_lqr, .R = R_lqr});
+        auto         lqr_result = design::state_feedback(sys, {.Q = Q_lqr, .R = R_lqr});
 
         auto lqg_result = matlab::lqgreg(kf_result, lqr_result);
         CHECK(lqg_result.success);

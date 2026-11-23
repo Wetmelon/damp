@@ -9,7 +9,6 @@
 
 #include "damp/backend.hpp"
 #include "damp/controllers/mpc.hpp"
-#include "damp/controllers/ofmpc.hpp"
 #include "damp/design/disturbance.hpp"
 #include "damp/design/qp.hpp"
 #include "damp/design/riccati.hpp"
@@ -1169,7 +1168,7 @@ TEST_CASE("one hard output side by designated initializer leaves the other side 
 
 TEST_CASE("design::mpc refuses NaN or inverted limits, negative softness and indefinite weights") {
     //! The design accepted what set_limits refuses (u_lim {1, −1}: std::clamp with lo > hi on
-    //! every tick), and output weights design::lqr refuses.
+    //! every tick), and output weights design::state_feedback refuses.
     design::MPCConstraints<1, 1> inverted{};
     inverted.u_lim = {.lower = 1.0, .upper = -1.0};
     CHECK(design::mpc<6, 2>(double_integrator, move_weight(1.0), inverted).status == design::DesignStatus::invalid_parameter);
@@ -1290,8 +1289,8 @@ TEST_CASE("a horizon no output sees an input's first move in is refused") {
         const auto                                 model = discretize(lag, Ts, InputDelay{Ts}).value();
         const design::KalmanNoise<1, 1, double, 1> noise{.process = 0.01, .measurement = 0.001, .disturbance = 0.01};
         const design::MPCConstraints<1, 1>         none{};
-        CHECK(design::ofmpc<1, 1>(model, move_weight(0.05), none, noise, design::InputDisturbance{}).status == design::DesignStatus::invalid_parameter);
-        CHECK(design::ofmpc<2, 1>(model, move_weight(0.05), none, noise, design::InputDisturbance{}).success);
+        CHECK(design::mpc<1, 1>(model, move_weight(0.05), none, noise, design::InputDisturbance{}).status == design::DesignStatus::invalid_parameter);
+        CHECK(design::mpc<2, 1>(model, move_weight(0.05), none, noise, design::InputDisturbance{}).success);
     }
 }
 

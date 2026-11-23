@@ -169,7 +169,7 @@ private:
  * entry by entry over the inputs, which inside @ref lim is u* − K·z. Outside it only the outer terms
  * are bounded: the gain on s and the other terms keep their full stiffness. An input whose gain on s
  * is rounding (|K_is| ≤ 4ε of its row's largest) is left as it is. Off, the limit costs one
- * comparison; on, a second pass over each row of K, NU·N multiply-adds, and NU divisions.
+ * comparison; on, a second pass over each row of K, NU·(NX + NI) multiply-adds, and NU divisions.
  *
  * What it does not promise. The split is a reading of the gain, not part of its design: the gain is
  * optimal while the clamp does not bind, and while it binds the loop holds a saturation the Riccati
@@ -187,11 +187,18 @@ private:
  * integrators held against it, is not in that work. docs/demand_lim.md derives the construction, the
  * loop it makes, and a regional certificate Damp does not compute yet.
  *
- * Off by default (state = none). It is a field of the LQ designs' config, LQRConfig and LQIConfig:
- * `.demand_lim = {.state = 2, .outer = {true, true, false, false, true}, .lim = {.lower = -0.26,
- * .upper = 0.26}}`. A runtime that holds its matrices holds it as a member, `law.demand_lim`, to set
- * at run time; the Law of a `constexpr` design holds it as a constant of the type, so it costs that
- * law nothing.
+ * A design takes it among its trailing options (design::state_feedback), the terms that ask listed
+ * by index in @ref outer: the plant states 0 … NX − 1, then the integrators NX … NX + NI − 1 (the
+ * delay states of a plant whose input arrives late are never outer).
+ * `DemandLimit{.state = 2, .outer = {0, 1, 4}, .lim = {.lower = -0.26, .upper = 0.26}}`: the
+ * position, the speed and the integrator ask for the lean, x₂, at most 0.26 either way. @ref outer
+ * is an array, so the limit takes M, how many terms ask, from its list. A state that is not the
+ * plant's, an index past the terms, one listed twice, the state among its own outer terms, or a
+ * box Bounds::valid refuses is refused with DesignStatus::invalid_parameter.
+ *
+ * A runtime that holds its matrices holds it as a member, `law.demand_lim`, set at run time from a
+ * DemandLimit (`law.demand_lim = DemandLimit{…}`, and `law.demand_lim = {}` turns it off); the Law of
+ * a `constexpr` design holds it as a constant of the type, so it costs that law nothing.
  *
  * @see "Antiwindup and override control for exponentially unstable systems with actuator
  *      constraints" (Glattfelder & Schaufelberger, 2005), 16th IFAC World Congress, §4: a state
@@ -202,27 +209,85 @@ private:
  * @see "Global stabilization and restricted tracking for multiple integrators with bounded controls"
  *      (Teel, 1992), Systems & Control Letters 18(3): nested saturations
  *
- * @tparam N The gain's plant states and integrators, NX + NI (the input registers are never outer)
+ * @tparam M The terms that ask, listed in @ref outer
+ */
+template<size_t M, typename T = double>
+struct DemandLimit {
+    static_assert(M > 0, "DemandLimit lists the terms that ask by index: .outer = {i, ...}, at least one.");
+
+    size_t       state{static_cast<size_t>(-1)}; ///< s: the state asked for, an index of the plant state x (required)
+    size_t       outer[M]{};                     ///< The terms that ask, by index: plant states 0 … NX − 1, then the integrators (an array, so M is its list's length)
+    Bounds<1, T> lim{};                          ///< The most they may ask of x_s, as a deviation from the reference point (the target with one)
+};
+
+namespace detail {
+
+/**
+ * @brief A DemandLimit as a law holds it: one flag per term of the gain, the plant states then the
+ *        integrators
+ *
+ * Made from a DemandLimit, whose list it reads; default-constructed it is off. An index past the N
+ * terms, one listed twice or a state that is none of them leaves it unusable: valid() refuses it
+ * at design, and the law reads it as off.
  */
 template<size_t N, typename T = double>
-struct DemandLimit {
+class DemandTerms {
+public:
     static constexpr size_t none = static_cast<size_t>(-1); ///< No state: the limit is off
 
-    size_t               state{none}; ///< s: the state asked for, an index of the plant state x (none: off)
-    damp::array<bool, N> outer{};     ///< The terms that ask: the plant states, then the integrators
-    Bounds<1, T>         lim{};       ///< The most they may ask of x_s, as a deviation from the reference point (the target with one)
+    size_t       state{none}; ///< s: the state asked for (none: off)
+    Bounds<1, T> lim{};       ///< The most the outer terms may ask of x_s
+
+    /** @brief Off. */
+    constexpr DemandTerms() = default;
+
+    /** @brief The limit @p d on N terms, its outer terms flagged. */
+    template<size_t M, typename U>
+    constexpr DemandTerms(const DemandLimit<M, U>& d) // NOLINT(google-explicit-constructor): law.demand_lim = DemandLimit{…}
+        : state{d.state}, lim{d.lim.template as<T>()}, usable_{d.state < N} {
+        for (size_t j = 0; j < M; ++j) {
+            const size_t i = d.outer[j];
+            if (i >= N || outer_[i]) {
+                usable_ = false; // past the terms, or listed twice
+            } else {
+                outer_[i] = true;
+            }
+        }
+        if (!usable_) {
+            state = none; // the law reads it as off
+        }
+    }
+
+    /** @brief Whether term @p j asks. */
+    [[nodiscard]] constexpr bool outer(size_t j) const {
+        return outer_[j];
+    }
 
     /** @brief The same limit in scalar type U. */
     template<typename U>
-    [[nodiscard]] constexpr DemandLimit<N, U> as() const {
-        return {state, outer, lim.template as<U>()};
+    [[nodiscard]] constexpr DemandTerms<N, U> as() const {
+        DemandTerms<N, U> out{};
+        out.state = state;
+        out.lim = lim.template as<U>();
+        out.outer_ = outer_;
+        out.usable_ = usable_;
+        return out;
     }
 
-    /** @brief Usable on a plant of @p NX states: off, or a plant state that is not one of its own outer terms, and a box (Bounds::valid). */
+    /** @brief Usable on a plant of @p NX states: off, or its list read whole, a plant state that is not one of its own outer terms, and a box (Bounds::valid). */
     template<size_t NX>
     [[nodiscard]] constexpr bool valid() const {
-        return (state == none) || (state < NX && !outer[state] && lim.valid());
+        return usable_ && ((state == none) || (state < NX && !outer_[state] && lim.valid()));
     }
+
+private:
+    template<size_t, typename>
+    friend class DemandTerms;
+
+    damp::array<bool, N> outer_{};      ///< One flag per term
+    bool                 usable_{true}; ///< The list was read whole
 };
+
+} // namespace detail
 
 } // namespace damp

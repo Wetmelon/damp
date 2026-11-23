@@ -72,7 +72,7 @@ TEST_CASE("example: tank-level estimator that cannot report a negative level") {
     tank_noise.B = tank.B;
     tank_noise.C = tank.C;
     tank_noise.Ts = tank.Ts;
-    const auto kf_design = design::kalman(tank_noise, {.process = Q, .measurement = R});
+    const auto kf_design = design::kalman(tank_noise, design::KalmanNoise{.process = Q, .measurement = R});
     REQUIRE(kf_design.success);
     KalmanFilter<1, 1, 1, double, 1, 1> kf{kf_design};
     kf.set_state(ColVec<1>{0.5});
@@ -125,7 +125,7 @@ TEST_CASE("unconstrained MHE matches the steady-state Kalman filter") {
     REQUIRE(art.success);
     MHE estimator{art};
 
-    const auto kf_design = design::kalman(plant, {.process = Q, .measurement = R});
+    const auto kf_design = design::kalman(plant, design::KalmanNoise{.process = Q, .measurement = R});
     REQUIRE(kf_design.success);
     KalmanFilter<2, 1, 1, double, 2, 1> kf{kf_design};
 
@@ -366,7 +366,7 @@ TEST_CASE("Unconstrained MHE endpoint equals the steady-state Kalman filter") {
     const auto art = design::mhe<8>(plant, {.process = Q, .measurement = R});
     REQUIRE(art.success);
     MHE        estimator{art};
-    const auto kf_design = design::kalman(plant, {.process = Q, .measurement = R});
+    const auto kf_design = design::kalman(plant, design::KalmanNoise{.process = Q, .measurement = R});
     REQUIRE(kf_design.success);
     KalmanFilter<2, 1, 1, double, 2, 1> kf{kf_design};
 

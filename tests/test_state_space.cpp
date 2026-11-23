@@ -587,6 +587,16 @@ TEST_CASE("StateSpace deduces its sizes and scalar from braces") {
     static_assert(std::is_same_v<decltype(all), const StateSpace<1, 2, 2, double>>);
     static_assert(all.C(1, 0) == 3.0 && all.D(1, 1) == 1.0 && all.Ts == 0.1);
     CHECK(all.is_discrete());
+
+    //! Noise inputs named: G and H give NW and NV, with or without D and Ts.
+    constexpr StateSpace noisy{.A = {{0.0, 1.0}, {1.0, 0.0}}, .B = {{0.0}, {1.0}}, .C = {{1.0, 0.0}}, .G = Matrix<2, 2>::identity(), .H = Matrix<1, 1>::identity()};
+    static_assert(std::is_same_v<decltype(noisy), const StateSpace<2, 1, 1, double, 2, 1>> && noisy.G(1, 1) == 1.0 && noisy.H(0, 0) == 1.0);
+    constexpr StateSpace noisy_d{.A = {{0.5}}, .B = {{1.0}}, .C = {{1.0}}, .D = {{0.2}}, .G = Matrix<1, 2>{{1.0, 0.5}}, .H = Matrix<1, 1>{{0.1}}};
+    static_assert(std::is_same_v<decltype(noisy_d), const StateSpace<1, 1, 1, double, 2, 1>> && noisy_d.D(0, 0) == 0.2 && noisy_d.G(0, 1) == 0.5);
+    constexpr StateSpace noisy_ts{.A = {{0.9f}}, .B = {{1.0f}}, .C = {{1.0f}}, .G = Matrix<1, 1, float>::identity(), .H = Matrix<1, 1, float>::identity(), .Ts = 0.01f};
+    static_assert(std::is_same_v<decltype(noisy_ts), const StateSpace<1, 1, 1, float, 1, 1>> && noisy_ts.Ts == 0.01f);
+    constexpr StateSpace noisy_all{.A = {{0.5}}, .B = {{1.0}}, .C = {{1.0}}, .D = {{0.2}}, .G = Matrix<1, 1>::identity(), .H = Matrix<1, 1>::identity(), .Ts = 0.1};
+    static_assert(std::is_same_v<decltype(noisy_all), const StateSpace<1, 1, 1, double, 1, 1>> && noisy_all.D(0, 0) == 0.2 && noisy_all.Ts == 0.1);
 }
 
 namespace {

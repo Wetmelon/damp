@@ -111,7 +111,7 @@ Discrete plant: `discretize(sys_c, Ts, ZOH)`.
 
 1. PID seed (optional side path): `design::pidtune(sys_c, {.wc = 20.0, .phase_margin_deg = PM})`,
    PID, with PM from `phase_margin_from_damping_ratio` at the damping of a 10% overshoot.
-2. LQGI: `design::lqgi(sys_d, {.Q = Q, .R = R, .Q_integral = Q_integral}, design::KalmanNoise{.process = Q_kf, .measurement = R_kf})` with
+2. LQGI: `design::state_feedback(sys_d, {.Q = Q, .R = R}, design::KalmanNoise{.process = Q_kf, .measurement = R_kf}, design::IntegralAction{.Q = Q_integral})` with
 
 ```math
 Q

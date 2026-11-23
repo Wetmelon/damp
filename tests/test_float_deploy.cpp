@@ -140,7 +140,7 @@ constexpr auto kf_d = design::kalman(
         Matrix<1, 1>::identity(),
         1.0
     },
-    {.process = Matrix<2, 2>{{0.1, 0.0}, {0.0, 0.1}}, .measurement = 0.5}
+    design::KalmanNoise{.process = Matrix<2, 2>{{0.1, 0.0}, {0.0, 0.1}}, .measurement = 0.5}
 );
 static_assert(kf_d.success);
 constexpr auto kf_f = kf_d.as<float>();

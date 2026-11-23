@@ -1,6 +1,6 @@
 # Position LQI with a clamp
 
-The shortest path that still shows design-is-deploy: a mass-spring-damper, `design::lqi`, an actuator that cannot do what the law asked, and `back_calculate` so the integrator sees the force that actually went out.
+The shortest path that still shows design-is-deploy: a mass-spring-damper, `design::state_feedback` with an `IntegralAction`, an actuator that cannot do what the law asked, and `back_calculate` so the integrator sees the force that actually went out.
 
 Numbers match [`lqi_controller.hpp`](lqi_controller.hpp) ($`m`$, $`k`$, $`c`$). The sketch and the SIL call [`control_period`](lqi_controller.hpp): update → control → clamp → `back_calculate` → predict.
 

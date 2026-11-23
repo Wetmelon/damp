@@ -19,6 +19,7 @@
 #include "damp/controllers/pr.hpp"
 #include "damp/controllers/repetitive.hpp"
 #include "damp/controllers/smc.hpp"
+#include "damp/controllers/state_feedback.hpp"
 #include "damp/controllers/stsmc.hpp"
 #include "damp/design/pid_design.hpp"
 #include "damp/estimation/eso.hpp"
@@ -144,14 +145,14 @@ TEST_SUITE("assign from design") {
             .Ts = 1.0,
         };
 
-        const auto lqr = design::lqr(plant, {.Q = Matrix<1, 1>{{1.0}}, .R = Matrix<1, 1>{{0.1}}});
-        const auto lqr_bad = design::lqr(plant, {.Q = Matrix<1, 1>{{-1.0}}, .R = Matrix<1, 1>{{0.1}}}); // Q not PSD
+        const auto lqr = design::state_feedback(plant, {.Q = Matrix<1, 1>{{1.0}}, .R = Matrix<1, 1>{{0.1}}});
+        const auto lqr_bad = design::state_feedback(plant, {.Q = Matrix<1, 1>{{-1.0}}, .R = Matrix<1, 1>{{0.1}}}); // Q not PSD
         REQUIRE(lqr.success);
         REQUIRE_FALSE(lqr_bad.success);
         CHECK(static_cast<bool>(lqr));
         CHECK_FALSE(static_cast<bool>(lqr_bad));
 
-        const auto kalman = design::kalman(plant, {.process = Matrix<1, 1>{{0.1}}, .measurement = Matrix<1, 1>{{0.25}}});
+        const auto kalman = design::kalman(plant, design::KalmanNoise{.process = Matrix<1, 1>{{0.1}}, .measurement = Matrix<1, 1>{{0.25}}});
         REQUIRE(kalman.success);
         CHECK(static_cast<bool>(kalman));
         CHECK_FALSE(static_cast<bool>(decltype(kalman){}));

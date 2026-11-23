@@ -15,7 +15,6 @@
 #include "damp/controllers/lqi.hpp"
 #include "damp/controllers/lqr.hpp"
 #include "damp/controllers/mpc.hpp"
-#include "damp/controllers/ofmpc.hpp"
 #include "damp/controllers/pid.hpp"
 #include "damp/controllers/smc.hpp"
 #include "damp/controllers/stsmc.hpp"
@@ -34,7 +33,7 @@ static constinit SMCController         smc{smc_res.as<float>()};
 static constinit STSMCController       stsmc{stsmc_res.as<float>()};
 static constinit Law<place_res, float> place_ctrl;
 // Each design runs as the law named by its result, on its matrices as constants: LQR on the measured
-// state (design::place, design::lqr), LQI with integrators, LQG with the Kalman estimator, LQGI with both,
+// state (design::place, design::state_feedback), LQI with integrators, LQG with the Kalman estimator, LQGI with both,
 // and OFMPC with its filter on constants.
 static constinit Law<lqr_res, float>  lqr;
 static constinit Law<lqi_res, float>  lqi;

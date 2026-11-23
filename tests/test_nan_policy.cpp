@@ -19,7 +19,6 @@
 #include "damp/controllers/lqgi.hpp"
 #include "damp/controllers/lqi.hpp"
 #include "damp/controllers/mpc.hpp"
-#include "damp/controllers/ofmpc.hpp"
 #include "damp/controllers/pid.hpp"
 #include "damp/controllers/pr.hpp"
 #include "damp/controllers/repetitive.hpp"
@@ -195,7 +194,7 @@ TEST_SUITE("NaN/Inf policy") {
             CHECK(u[0] == 0.0f);
         }
         using OffsetFree = OFMPC<2, 1, 1, 10, 3, float, design::WarmStartActiveSetSolver<4, 33, float>, 0, FixedGainObserver<3, 1, 1, float, 1>>;
-        const auto failed = design::ofmpc<10, 3>(StateSpace<2, 1, 1, float, 2, 1>{}, {}, {}, {}, design::InputDisturbance{}); // a continuous plant: refused
+        const auto failed = design::mpc<10, 3>(StateSpace<2, 1, 1, float, 2, 1>{}, {}, {}, design::KalmanNoise<2, 1, float, 1>{}, design::InputDisturbance{}); // a continuous plant: refused
         REQUIRE_FALSE(failed.success);
         OffsetFree ofmpc{failed};
         CHECK(all_finite(ofmpc.step(ColVec<1, float>{1.0f}, ColVec<1, float>{0.5f})));

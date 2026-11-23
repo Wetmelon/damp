@@ -55,7 +55,7 @@ freestanding)
         '#include "damp/control.hpp"' \
         'using namespace damp;' \
         'constexpr auto sys = StateSpace{.A = Matrix<2, 2>{{0.0, 1.0}, {9.81, -0.1}}, .B = Matrix<2, 1>{{0.0}, {1.0}}, .C = Matrix<1, 2>{{1.0, 0.0}}};' \
-        'constexpr auto res = design::lqr(sys, 0.01, {.Q = Matrix<2, 2>::identity() * 10.0, .R = 1.0});' \
+        'constexpr auto res = design::state_feedback(sys, 0.01, {.Q = Matrix<2, 2>::identity() * 10.0, .R = 1.0});' \
         'static_assert(res.success);' \
         'int main() { LQR law{res.as<float>()}; law.update(ColVec<2, float>{0.1F, 0.0F}); return damp::isfinite(law.control()(0, 0)) ? 0 : 1; }' >"$probe"
 
