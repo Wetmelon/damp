@@ -94,13 +94,15 @@ struct PlantDisturbance<0> {};
  * B_d is in the plant's time domain (continuous on a continuous plant, discretized with it by
  * ZOH; per step on a discrete one), one row per plant state.
  *
- * @tparam NX Plant states; NY Measured outputs; ND Disturbance states
+ * @tparam NX Plant states; NY Measured outputs (0: d reaches no reading, C_d = 0); ND Disturbance states
  *
  * @ref outputs is an array, so `DisturbanceModel{.Bd = Bd, .Cd = Cd, .outputs = {0}}` takes NZ from
- * its list, and NX, NY and ND from the matrices; left out, every measured output is held.
+ * its list, and NX, NY and ND from the matrices; left out, every measured output is held. With
+ * @ref Cd left out, d does not reach the readings: `DisturbanceModel{.Bd = sys.B}` is
+ * DisturbanceModel<NX, 0, ND>, and the design reads C_d as zero on the plant's outputs.
  * @tparam NZ Outputs held offset-free, listed in @ref outputs (0: every measured output)
  */
-template<size_t NX, size_t NY, size_t ND, size_t NZ = 0, typename T = double>
+template<size_t NX, size_t NY = 0, size_t ND = 1, size_t NZ = 0, typename T = double>
 struct DisturbanceModel {
     Matrix<NX, ND, T> Bd{};          ///< How d enters the state update
     Matrix<NY, ND, T> Cd{};          ///< How d enters the readings directly
@@ -277,15 +279,19 @@ template<size_t NZ, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size
     return DisturbanceChannels<NX, NXE, NY, NW, T>{.Bd = model.G, .Cd = plant.H, .Bd_c = plant.G};
 }
 
-/** @brief An explicit model: B_d on the plant's states (ZOH'd on a continuous plant), C_d as given. */
-template<size_t ND, size_t NZ, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NXE, size_t NWE, size_t NVE>
+/** @brief An explicit model: B_d on the plant's states (ZOH'd on a continuous plant), C_d as given (zero left out). */
+template<size_t NYD, size_t ND, size_t NZ, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NXE, size_t NWE, size_t NVE>
 [[nodiscard]] constexpr DisturbanceChannels<NX, NXE, NY, ND, T> disturbance_channels(
-    const DisturbanceModel<NX, NY, ND, NZ, T>& spec,
-    const StateSpace<NX, NU, NY, T, NW, NV>&   plant,
+    const DisturbanceModel<NX, NYD, ND, NZ, T>& spec,
+    const StateSpace<NX, NU, NY, T, NW, NV>&    plant,
     const StateSpace<NXE, NU, NY, T, NWE, NVE>&,
     T Ts
 ) {
-    DisturbanceChannels<NX, NXE, NY, ND, T> out{.Cd = spec.Cd, .Bd_c = spec.Bd};
+    static_assert(NYD == 0 || NYD == NY, "The DisturbanceModel's C_d is on the plant's outputs, or left out.");
+    DisturbanceChannels<NX, NXE, NY, ND, T> out{.Bd_c = spec.Bd};
+    if constexpr (NYD > 0) {
+        out.Cd = spec.Cd;
+    }
     if (plant.Ts == T{0}) {
         // plant.A has already been sampled, so the exponential fails only on a non-finite B_d; it is
         // carried into Bd, which design::kalman refuses (not_detectable) and steady_state_target

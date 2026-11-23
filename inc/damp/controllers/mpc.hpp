@@ -168,7 +168,7 @@
 #include "damp/matrix/matrix.hpp"
 #include "damp/systems/discretization.hpp"
 #include "damp/systems/state_space.hpp"
-#include "damp/toolbox/bounds.hpp"
+#include "damp/toolbox/bounds.hpp" // IWYU pragma: export
 
 namespace damp {
 
@@ -283,38 +283,85 @@ struct MPCWeights {
  * softness of the y_lim.lower(i) rows and y_upper_ecr(i) that of the y_lim.upper(i) rows. Set
  * one to 0 to make that side of the channel hard. A larger ECR relaxes that bound more readily
  * relative to the others. design::mpc refuses a NaN limit or a lower limit above its upper one
- * (invalid_parameter), and a negative or non-finite ECR (bad_weights).
- *
- * x_lim bounds NXC states of the prediction model, listed in x_states (a delayed model's input
- * registers come after the plant's states), over the whole prediction horizon, soft by default
- * like y_lim: a lean, a speed or a temperature the law must keep within without tracking it.
- * `design::MPCConstraints<1, 1, double, 1>{.x_states = {2}, .x_lim = {.lower = -0.26, .upper = 0.26}}`
- * bounds state 2; the type names NXC, since braces cannot. design::mpc refuses a state index past
- * the model's or listed twice, and x_lim with MPCTerminal::invariant_set, whose rows do not cover
- * the states (invalid_parameter).
+ * (invalid_parameter), and a negative or non-finite ECR (bad_weights). Limits on states the MPC
+ * does not track are an option of their own, StateLimits.
  *
  * @note Mirrors the MATLAB® mpc object's ManipulatedVariables Min/Max/RateMin/
  *       RateMax and OutputVariables Min/Max (+ MinECR/MaxECR).
  */
-template<size_t NU = 1, size_t NY = 1, typename T = double, size_t NXC = 0>
+template<size_t NU = 1, size_t NY = 1, typename T = double>
 struct MPCConstraints {
-    Bounds<NU, T>            u_lim{};                                       ///< Input bounds (hard)
-    Bounds<NU, T>            du_lim{};                                      ///< Move bounds on Δu (hard)
-    Bounds<NY, T>            y_lim{};                                       ///< Output bounds (soft through y_lower_ecr, y_upper_ecr)
-    ColVec<NY, T>            y_lower_ecr{detail::filled_vector<NY>(T{1})};  ///< Softness of the y_lim.lower rows, ≥ 0 (0 = hard; MATLAB's MinECR)
-    ColVec<NY, T>            y_upper_ecr{detail::filled_vector<NY>(T{1})};  ///< Softness of the y_lim.upper rows, ≥ 0 (0 = hard; MATLAB's MaxECR)
-    damp::array<size_t, NXC> x_states{};                                    ///< The states x_lim bounds: indices of the prediction model's state, each once
-    Bounds<NXC, T>           x_lim{};                                       ///< State bounds on x_states (soft through x_lower_ecr, x_upper_ecr)
-    ColVec<NXC, T>           x_lower_ecr{detail::filled_vector<NXC>(T{1})}; ///< Softness of the x_lim.lower rows, ≥ 0 (0 = hard)
-    ColVec<NXC, T>           x_upper_ecr{detail::filled_vector<NXC>(T{1})}; ///< Softness of the x_lim.upper rows, ≥ 0 (0 = hard)
-    MPCTerminal              terminal{MPCTerminal::none};                   ///< Opt-in DARE cost / Gilbert–Tan set
-    T                        terminal_target_margin{static_cast<T>(0.05)};  ///< invariant_set: half-range fraction a tracked target keeps clear of each bound
-    size_t                   max_qp_iterations{0};                          ///< Per-tick QP iteration budget (0: 10·(NZ+1 + NI+1))
+    Bounds<NU, T> u_lim{};                                      ///< Input bounds (hard)
+    Bounds<NU, T> du_lim{};                                     ///< Move bounds on Δu (hard)
+    Bounds<NY, T> y_lim{};                                      ///< Output bounds (soft through y_lower_ecr, y_upper_ecr)
+    ColVec<NY, T> y_lower_ecr{detail::filled_vector<NY>(T{1})}; ///< Softness of the y_lim.lower rows, ≥ 0 (0 = hard; MATLAB's MinECR)
+    ColVec<NY, T> y_upper_ecr{detail::filled_vector<NY>(T{1})}; ///< Softness of the y_lim.upper rows, ≥ 0 (0 = hard; MATLAB's MaxECR)
+    MPCTerminal   terminal{MPCTerminal::none};                  ///< Opt-in DARE cost / Gilbert–Tan set
+    T             terminal_target_margin{static_cast<T>(0.05)}; ///< invariant_set: half-range fraction a tracked target keeps clear of each bound
+    size_t        max_qp_iterations{0};                         ///< Per-tick QP iteration budget (0: 10·(NZ+1 + NI+1))
 
     /** @brief The constraints in another scalar. */
     template<typename U>
-    [[nodiscard]] constexpr MPCConstraints<NU, NY, U, NXC> as() const {
-        return MPCConstraints<NU, NY, U, NXC>{
+    [[nodiscard]] constexpr MPCConstraints<NU, NY, U> as() const {
+        return MPCConstraints<NU, NY, U>{
+            u_lim.template as<U>(),
+            du_lim.template as<U>(),
+            y_lim.template as<U>(),
+            ColVec<NY, U>{y_lower_ecr.template as<U>()},
+            ColVec<NY, U>{y_upper_ecr.template as<U>()},
+            terminal,
+            static_cast<U>(terminal_target_margin),
+            max_qp_iterations,
+        };
+    }
+};
+
+/**
+ * @struct StateLimits
+ * @brief Limits on states an MPC does not track: among design::mpc's options
+ *
+ * lim bounds the NXC states of the prediction model listed in states (a delayed model's delay
+ * states come after the plant's states), over the whole prediction horizon, soft by default like
+ * MPCConstraints::y_lim: a lean, a speed or a temperature the law must keep within without
+ * tracking it. `StateLimits{.states = {2}, .lim = {.lower = -0.26, .upper = 0.26}}` bounds state 2;
+ * states is an array, so the limits take NXC from its list. lower_ecr(i) and upper_ecr(i) are the
+ * softness of each side (0 = hard). design::mpc refuses a state index past the model's or listed
+ * twice, a NaN limit or a lower limit above its upper one, and state limits with
+ * MPCTerminal::invariant_set, whose rows do not cover the states (invalid_parameter); a negative
+ * or non-finite ECR is refused with bad_weights. The runtime moves lim with set_limits (MPCLimits::x_lim).
+ */
+template<size_t NXC, typename T = double>
+struct StateLimits {
+    static_assert(NXC > 0, "StateLimits lists the states it bounds: .states = {i, ...}, at least one.");
+
+    size_t         states[NXC]{};                               ///< Indices of the prediction model's states bounded, each once (an array, so bare braces give NXC)
+    Bounds<NXC, T> lim{};                                       ///< Their bounds (soft through lower_ecr, upper_ecr)
+    ColVec<NXC, T> lower_ecr{detail::filled_vector<NXC>(T{1})}; ///< Softness of the lim.lower rows, ≥ 0 (0 = hard)
+    ColVec<NXC, T> upper_ecr{detail::filled_vector<NXC>(T{1})}; ///< Softness of the lim.upper rows, ≥ 0 (0 = hard)
+};
+
+namespace detail {
+
+/** @brief MPCConstraints and StateLimits as the design reads them: NXC bounded states (0: none). */
+template<size_t NU, size_t NY, typename T = double, size_t NXC = 0>
+struct MPCConstraintSet {
+    Bounds<NU, T>            u_lim{};                                       ///< Input bounds (hard)
+    Bounds<NU, T>            du_lim{};                                      ///< Move bounds on Δu (hard)
+    Bounds<NY, T>            y_lim{};                                       ///< Output bounds (soft through y_lower_ecr, y_upper_ecr)
+    ColVec<NY, T>            y_lower_ecr{detail::filled_vector<NY>(T{1})};  ///< Softness of the y_lim.lower rows
+    ColVec<NY, T>            y_upper_ecr{detail::filled_vector<NY>(T{1})};  ///< Softness of the y_lim.upper rows
+    damp::array<size_t, NXC> x_states{};                                    ///< The bounded states (StateLimits::states)
+    Bounds<NXC, T>           x_lim{};                                       ///< Their bounds (StateLimits::lim)
+    ColVec<NXC, T>           x_lower_ecr{detail::filled_vector<NXC>(T{1})}; ///< Softness of the x_lim.lower rows
+    ColVec<NXC, T>           x_upper_ecr{detail::filled_vector<NXC>(T{1})}; ///< Softness of the x_lim.upper rows
+    MPCTerminal              terminal{MPCTerminal::none};                   ///< Opt-in DARE cost / Gilbert–Tan set
+    T                        terminal_target_margin{static_cast<T>(0.05)};  ///< invariant_set: half-range fraction a tracked target keeps clear of each bound
+    size_t                   max_qp_iterations{0};                          ///< Per-tick QP iteration budget
+
+    /** @brief The constraints in another scalar. */
+    template<typename U>
+    [[nodiscard]] constexpr MPCConstraintSet<NU, NY, U, NXC> as() const {
+        return MPCConstraintSet<NU, NY, U, NXC>{
             u_lim.template as<U>(),
             du_lim.template as<U>(),
             y_lim.template as<U>(),
@@ -331,9 +378,49 @@ struct MPCConstraints {
     }
 };
 
+/** @brief A StateLimits: a kind of design::mpc option. */
+template<typename O>
+struct is_state_limits : damp::false_type {};
+
+/** @brief StateLimits of any length. */
+template<size_t NXC, typename T>
+struct is_state_limits<StateLimits<NXC, T>> : damp::true_type {};
+
+/** @brief The constraints and the StateLimits among @p opts (none: no bounded state) as the design's set. */
+template<size_t NU, size_t NY, typename T, typename... Opts>
+[[nodiscard]] constexpr auto constraint_set(const MPCConstraints<NU, NY, T>& c, const Opts&... opts) {
+    const auto with = [&]<size_t NXC>(MPCConstraintSet<NU, NY, T, NXC> out) {
+        out.u_lim = c.u_lim;
+        out.du_lim = c.du_lim;
+        out.y_lim = c.y_lim;
+        out.y_lower_ecr = c.y_lower_ecr;
+        out.y_upper_ecr = c.y_upper_ecr;
+        out.terminal = c.terminal;
+        out.terminal_target_margin = c.terminal_target_margin;
+        out.max_qp_iterations = c.max_qp_iterations;
+        return out;
+    };
+    if constexpr (::damp::detail::option_count<is_state_limits, Opts...> == 0) {
+        return with(MPCConstraintSet<NU, NY, T, 0>{});
+    } else {
+        const auto                       limits = ::damp::detail::option<is_state_limits>(0, opts...);
+        constexpr size_t                 NXC = sizeof(limits.states) / sizeof(size_t);
+        MPCConstraintSet<NU, NY, T, NXC> out{};
+        for (size_t i = 0; i < NXC; ++i) {
+            out.x_states[i] = limits.states[i];
+        }
+        out.x_lim = limits.lim.template as<T>();
+        out.x_lower_ecr = ColVec<NXC, T>{limits.lower_ecr.template as<T>()};
+        out.x_upper_ecr = ColVec<NXC, T>{limits.upper_ecr.template as<T>()};
+        return with(out);
+    }
+}
+
+} // namespace detail
+
 /**
  * @brief The limits an MPC takes at run time (MATLAB®'s online constraints): u, Δu, the
- *        controlled outputs and the states its design bounds (x_states), in physical units. A
+ *        controlled outputs and the states its design bounds (StateLimits), in physical units. A
  *        field left out is unbounded.
  *
  * The softness (ECR), the terminal ingredients and the QP budget stay in MPCConstraints: they
@@ -344,7 +431,7 @@ struct MPCLimits {
     Bounds<NU, T>  u_lim{};  ///< Input bounds
     Bounds<NU, T>  du_lim{}; ///< Move bounds on Δu
     Bounds<NY, T>  y_lim{};  ///< Output bounds
-    Bounds<NXC, T> x_lim{};  ///< Bounds on the design's x_states
+    Bounds<NXC, T> x_lim{};  ///< Bounds on the states the design's StateLimits lists
 };
 
 /**
@@ -362,7 +449,7 @@ struct MPCLimits {
  * @tparam NX       States of the prediction model
  * @tparam NY       Controlled outputs
  * @tparam ND       Disturbance channels: the measured disturbances, or the estimated ones
- * @tparam NXC      States with bounds (MPCConstraints::x_states; 0: none)
+ * @tparam NXC      States with bounds (the design's StateLimits; 0: none)
  */
 template<size_t NX, size_t NU, size_t NY, size_t NP, size_t NC, size_t ND = 0, typename T = double, size_t NT_max = 0, size_t NXC = 0>
 struct [[nodiscard]] MPCArtifacts {
@@ -375,31 +462,31 @@ struct [[nodiscard]] MPCArtifacts {
     static constexpr size_t NI = NI_box + NT_max;                      ///< Box-constraint rows (+ terminal capacity)
     static constexpr size_t NI1 = NI + 1;                              ///< QP constraint rows (+ ε ≥ 0)
 
-    Matrix<NZ1, NZ1, T>            H{};                                 ///< QP Hessian (positive definite)
-    Matrix<NZ, NXA, T>             F_x{};                               ///< Gradient state map
-    Matrix<NZ, NYS, T>             F_r{};                               ///< Gradient reference map, one scaled reference per prediction step (preview)
-    Matrix<NZ, NZ, T>              F_ut{};                              ///< Gradient input-target map, one scaled target per move
-    Matrix<NI1, NZ1, T>            A_con{};                             ///< Constraint rows: A_con·[Z;ε] ≤ b_bound + B_map·x̃0
-    ColVec<NI1, T>                 b_bound{};                           ///< Constant bound term (sentinel rows disabled)
-    Matrix<NI1, NXA, T>            B_map{};                             ///< State-dependent bound term
-    Matrix<NY, NX, T>              C{};                                 ///< Output map of the prediction model (the target's output)
-    Matrix<NY, ND, T>              Cd{};                                ///< The disturbance channels into the outputs (C_{d,z}; zero for measured ones)
-    ColVec<NU, T>                  scale_u{};                           ///< Input scale factors
-    ColVec<NY, T>                  scale_y{};                           ///< Output scale factors
-    ColVec<NXC, T>                 scale_x{};                           ///< Scale factors of the bounded states
-    ColVec<NU, T>                  u_target{};                          ///< Initial input target (physical units)
-    MPCConstraints<NU, NY, T, NXC> constraints{};                       ///< Original limits (runtime clamp fallback)
-    size_t                         max_qp_iterations{};                 ///< Per-tick QP iteration budget
-    Matrix<NX + NU, NX + NU, T>    P{};                                 ///< Terminal cost on z = [x − x_t; u′_prev − u′_t] (zero when unused)
-    Matrix<NU, NX + NU, T>         K_terminal{};                        ///< Terminal move law Δu′ = −K·z
-    Matrix<NT_max, NX + NU, T>     G_terminal{};                        ///< Terminal-set rows on z; first n_terminal used
-    Matrix<NT_max, NY + NU, T>     G_terminal_target{};                 ///< Their target terms: G·z + G_target·[y_t; u_t] ≤ h
-    ColVec<NT_max, T>              h_terminal{};                        ///< Terminal-set offsets
-    size_t                         n_terminal{0};                       ///< Live terminal-set rows
-    MPCTerminal                    terminal{MPCTerminal::none};         ///< Requested terminal mode
-    DesignStatus                   status{DesignStatus::not_converged}; ///< ok, or why the design failed
-    bool                           success{false};                      ///< status == DesignStatus::ok
-    T                              Ts{0};                               ///< Sample time of the law [s]
+    Matrix<NZ1, NZ1, T>                      H{};                                 ///< QP Hessian (positive definite)
+    Matrix<NZ, NXA, T>                       F_x{};                               ///< Gradient state map
+    Matrix<NZ, NYS, T>                       F_r{};                               ///< Gradient reference map, one scaled reference per prediction step (preview)
+    Matrix<NZ, NZ, T>                        F_ut{};                              ///< Gradient input-target map, one scaled target per move
+    Matrix<NI1, NZ1, T>                      A_con{};                             ///< Constraint rows: A_con·[Z;ε] ≤ b_bound + B_map·x̃0
+    ColVec<NI1, T>                           b_bound{};                           ///< Constant bound term (sentinel rows disabled)
+    Matrix<NI1, NXA, T>                      B_map{};                             ///< State-dependent bound term
+    Matrix<NY, NX, T>                        C{};                                 ///< Output map of the prediction model (the target's output)
+    Matrix<NY, ND, T>                        Cd{};                                ///< The disturbance channels into the outputs (C_{d,z}; zero for measured ones)
+    ColVec<NU, T>                            scale_u{};                           ///< Input scale factors
+    ColVec<NY, T>                            scale_y{};                           ///< Output scale factors
+    ColVec<NXC, T>                           scale_x{};                           ///< Scale factors of the bounded states
+    ColVec<NU, T>                            u_target{};                          ///< Initial input target (physical units)
+    detail::MPCConstraintSet<NU, NY, T, NXC> constraints{};                       ///< Original limits (runtime clamp fallback)
+    size_t                                   max_qp_iterations{};                 ///< Per-tick QP iteration budget
+    Matrix<NX + NU, NX + NU, T>              P{};                                 ///< Terminal cost on z = [x − x_t; u′_prev − u′_t] (zero when unused)
+    Matrix<NU, NX + NU, T>                   K_terminal{};                        ///< Terminal move law Δu′ = −K·z
+    Matrix<NT_max, NX + NU, T>               G_terminal{};                        ///< Terminal-set rows on z; first n_terminal used
+    Matrix<NT_max, NY + NU, T>               G_terminal_target{};                 ///< Their target terms: G·z + G_target·[y_t; u_t] ≤ h
+    ColVec<NT_max, T>                        h_terminal{};                        ///< Terminal-set offsets
+    size_t                                   n_terminal{0};                       ///< Live terminal-set rows
+    MPCTerminal                              terminal{MPCTerminal::none};         ///< Requested terminal mode
+    DesignStatus                             status{DesignStatus::not_converged}; ///< ok, or why the design failed
+    bool                                     success{false};                      ///< status == DesignStatus::ok
+    T                                        Ts{0};                               ///< Sample time of the law [s]
 
     /** @brief True when the design succeeded (success). */
     [[nodiscard]] constexpr explicit operator bool() const { return success; }
@@ -520,7 +607,7 @@ template<size_t N, typename T>
 
 /** @brief The weights and softness design::mpc accepts: PSD weights, a finite positive ECR weight, finite ECR coefficients ≥ 0. */
 template<size_t NU, size_t NY, typename T, size_t NXC>
-[[nodiscard]] constexpr bool mpc_weights_valid(const MPCWeights<NU, NY, T>& w, const MPCConstraints<NU, NY, T, NXC>& c) {
+[[nodiscard]] constexpr bool mpc_weights_valid(const MPCWeights<NU, NY, T>& w, const MPCConstraintSet<NU, NY, T, NXC>& c) {
     const auto softness = [](T v) { return damp::isfinite(v) && v >= T{0}; };
     return mpc_weight_valid(w.Qy) && mpc_weight_valid(w.Qy_terminal) && mpc_weight_valid(w.Rdu) && mpc_weight_valid(w.Ru)
         && damp::isfinite(w.ecr_weight) && w.ecr_weight > T{0} && mat::all_of(w.u_target, [](T v) { return damp::isfinite(v); })
@@ -530,7 +617,7 @@ template<size_t NU, size_t NY, typename T, size_t NXC>
 
 /** @brief The bounded states are the model's, each listed once. */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NXC>
-[[nodiscard]] constexpr bool mpc_state_bounds_valid(const MPCConstraints<NU, NY, T, NXC>& c) {
+[[nodiscard]] constexpr bool mpc_state_bounds_valid(const MPCConstraintSet<NU, NY, T, NXC>& c) {
     for (size_t i = 0; i < NXC; ++i) {
         if (c.x_states[i] >= NX) {
             return false;
@@ -728,13 +815,13 @@ constexpr void mpc_push_box_row(
  */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NXC, size_t NA = NX + NU + NY + NU, size_t NG = (4 * NY) + (6 * NU)>
 constexpr void mpc_terminal_rows(
-    const Matrix<NY, NX, T>&              C,
-    const Matrix<NU, NX + NU, T>&         K,
-    const ColVec<NU, T>&                  scale_u,
-    const ColVec<NY, T>&                  scale_y,
-    const MPCConstraints<NU, NY, T, NXC>& c,
-    Matrix<NG, NA, T>&                    G0,
-    ColVec<NG, T>&                        h0
+    const Matrix<NY, NX, T>&                C,
+    const Matrix<NU, NX + NU, T>&           K,
+    const ColVec<NU, T>&                    scale_u,
+    const ColVec<NY, T>&                    scale_y,
+    const MPCConstraintSet<NU, NY, T, NXC>& c,
+    Matrix<NG, NA, T>&                      G0,
+    ColVec<NG, T>&                          h0
 ) {
     constexpr size_t NZD = NX + NU;
     h0 = filled_vector<NG>(unbounded_bound<T>());
@@ -1039,7 +1126,7 @@ template<size_t NP, size_t NC, size_t ND, size_t NT_max = 0, size_t NX, size_t N
     const Matrix<NX, ND, T>&                     Bd,
     const Matrix<NY, ND, T>&                     Cd,
     const MPCWeights<NU, NY, T>&                 weights,
-    const MPCConstraints<NU, NY, T, NXC>&        constraints,
+    const MPCConstraintSet<NU, NY, T, NXC>&      constraints,
     const MpcContinuousCost<NXP, NU, NY, ND, T>& plant
 ) {
     static_assert(NP >= 1, "Prediction horizon must be at least one step.");
@@ -1357,16 +1444,24 @@ template<typename>
 struct is_mpc_constraints : damp::false_type {};
 
 /** @brief MPCConstraints. */
+template<size_t NU, size_t NY, typename T>
+struct is_mpc_constraints<MPCConstraints<NU, NY, T>> : damp::true_type {};
+
+/** @brief The set the design reads them as. */
 template<size_t NU, size_t NY, typename T, size_t NXC>
-struct is_mpc_constraints<MPCConstraints<NU, NY, T, NXC>> : damp::true_type {};
+struct is_mpc_constraints<MPCConstraintSet<NU, NY, T, NXC>> : damp::true_type {};
 
 /** @brief MPCConstraints on NU inputs and NY controlled outputs in T, any bounded states. */
 template<typename C, size_t NU, size_t NY, typename T>
 inline constexpr bool is_mpc_constraints_on = false;
 
-/** @brief MPCConstraints<NU, NY, T, NXC>. */
+/** @brief MPCConstraints<NU, NY, T>. */
+template<size_t NU, size_t NY, typename T>
+inline constexpr bool is_mpc_constraints_on<MPCConstraints<NU, NY, T>, NU, NY, T> = true;
+
+/** @brief MPCConstraintSet<NU, NY, T, NXC>. */
 template<size_t NU, size_t NY, typename T, size_t NXC>
-inline constexpr bool is_mpc_constraints_on<MPCConstraints<NU, NY, T, NXC>, NU, NY, T> = true;
+inline constexpr bool is_mpc_constraints_on<MPCConstraintSet<NU, NY, T, NXC>, NU, NY, T> = true;
 
 /** @brief Not a measured disturbance. */
 template<typename>
@@ -1378,7 +1473,7 @@ struct is_measured_disturbance<MeasuredDisturbance<NX, NM, T>> : damp::true_type
 
 /** @brief The options design::mpc takes after the weights. */
 using mpc_options = ::damp::detail::option_set<
-    is_mpc_constraints, is_kalman_noise, is_disturbance, is_measured_disturbance>;
+    is_mpc_constraints, is_kalman_noise, is_disturbance, is_measured_disturbance, is_state_limits>;
 
 /** @brief Whether a design::mpc call has an estimator: a KalmanNoise among its options. */
 template<typename... Opts>
@@ -1486,7 +1581,7 @@ template<bool Discrete, size_t NP, size_t NC, size_t NT_max, size_t NX, size_t N
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     T                                        Ts,
     const MPCWeights<NU, NY, T>&             weights,
-    const MPCConstraints<NU, NY, T, NXC>&    constraints,
+    const MPCConstraintSet<NU, NY, T, NXC>&  constraints,
     const MeasuredDisturbance<NXD, NM, T>&   measured
 ) {
     static_assert(NM == 0 || NXD == NX, "The measured disturbance enters the plant's states: MeasuredDisturbance<NX, NM>.");
@@ -1531,7 +1626,7 @@ template<
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     T                                        Ts,
     const MPCWeights<NU, NZ, T>&             weights,
-    const MPCConstraints<NU, NZ, T, NXC>&    constraints,
+    const MPCConstraintSet<NU, NZ, T, NXC>&  constraints,
     const KalmanNoise<NWN, NVN, T, NDN>&     noise,
     const Spec&                              spec
 ) {
@@ -1585,9 +1680,9 @@ template<
 template<bool Discrete, size_t NP, size_t NC, size_t NT_max, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NZ, typename... Opts>
 [[nodiscard]] constexpr auto mpc_design(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T Ts, const MPCWeights<NU, NZ, T>& weights, const Opts&... opts) {
     mpc_options::check<Opts...>();
-    using Limits = ::damp::detail::option_t<is_mpc_constraints, MPCConstraints<NU, NZ, T>, Opts...>;
+    using Limits = ::damp::detail::option_t<is_mpc_constraints, MPCConstraintSet<NU, NZ, T>, Opts...>;
     static_assert(is_mpc_constraints_on<Limits, NU, NZ, T>, "The limits are on the inputs and the controlled outputs: MPCConstraints<NU, NZ>.");
-    const auto constraints = ::damp::detail::option<is_mpc_constraints>(MPCConstraints<NU, NZ, T>{}, opts...);
+    const auto constraints = ::damp::detail::option<is_mpc_constraints>(MPCConstraintSet<NU, NZ, T>{}, opts...);
     if constexpr (mpc_estimated<Opts...>) {
         static_assert(
             ::damp::detail::option_count<is_measured_disturbance, Opts...> == 0,
@@ -1637,7 +1732,8 @@ inline constexpr size_t mpc_outputs_in = mpc_outputs<NU, NY, noise_inputs<NX, NW
  * | --- | --- |
  * | mpc<NP, NC>(plant, [Ts,] weights, constraints) | MPC: the state measured |
  * | mpc<NP, NC>(plant, [Ts,] weights, constraints, MeasuredDisturbance{Bd}) | MPC with a known disturbance input, given each tick |
- * | ofmpc<NP, NC>(plant, [Ts,] weights, constraints, noise, disturbance) | OFMPC: a Kalman filter on [x; d], offset-free (below) |
+ * | mpc<NP, NC>(plant, [Ts,] weights, constraints, noise, disturbance) | OFMPC: a Kalman filter on [x; d], offset-free (below) |
+ * | … plus StateLimits{.states, .lim} | the same, with limits on states it does not track |
  *
  * The constraints are the box limits on u, Δu and the controlled outputs, the terminal
  * ingredients and the QP budget (`{}`: unbounded, none).
@@ -1731,7 +1827,6 @@ inline constexpr size_t mpc_outputs_in = mpc_outputs<NU, NY, noise_inputs<NX, NW
  * @tparam NP     Prediction horizon (steps)
  * @tparam NC     Control horizon (moves, NC ≤ NP)
  * @tparam NT_max Terminal-set row capacity (default 0; required > 0 for invariant_set)
- * @tparam NXC    States with bounds, deduced from @p constraints (MPCConstraints::x_states; 0 for braces)
  * @param sys      Discrete-time plant (Ts > 0); C the controlled outputs, D = 0
  * @param weights  Cost weights on the controlled outputs, per prediction step (default: Qy = I, RΔu = I)
  * @param constraints The limits ({}: unbounded)
@@ -1739,18 +1834,18 @@ inline constexpr size_t mpc_outputs_in = mpc_outputs<NU, NY, noise_inputs<NX, NW
  *                 (control(r, d)); or a KalmanNoise, the MPC then on a Kalman filter's estimate from the
  *                 measured outputs C and D, offset-free with a disturbance spec (runs as OFMPC: the
  *                 filter on [x; d], the QP posed about the steady-state target under d̂, the
- *                 controlled outputs the rows the spec lists, all of them without a list)
+ *                 controlled outputs the rows the spec lists, all of them without a list); and StateLimits{.states, .lim}, limits on states the QP does not track
  * @return MPCResult: deploy with `MPC law{res}`
  */
-template<size_t NP, size_t NC, size_t NT_max = 0, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NXC = 0, typename... Opts>
+template<size_t NP, size_t NC, size_t NT_max = 0, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename... Opts>
 [[nodiscard]] constexpr auto mpc(
-    const StateSpace<NX, NU, NY, T, NW, NV>&                                                         sys,
-    const damp::type_identity_t<MPCWeights<NU, detail::mpc_outputs_in<NX, NU, NY, NW, Opts...>, T>>& weights,
-    const MPCConstraints<NU, detail::mpc_outputs_in<NX, NU, NY, NW, Opts...>, T, NXC>&               constraints,
+    const StateSpace<NX, NU, NY, T, NW, NV>&                                                             sys,
+    const damp::type_identity_t<MPCWeights<NU, detail::mpc_outputs_in<NX, NU, NY, NW, Opts...>, T>>&     weights,
+    const damp::type_identity_t<MPCConstraints<NU, detail::mpc_outputs_in<NX, NU, NY, NW, Opts...>, T>>& constraints,
     const Opts&... opts
 ) {
-    ::damp::detail::option_set<detail::is_measured_disturbance, detail::is_kalman_noise, detail::is_disturbance>::check<Opts...>();
-    return detail::mpc_design<true, NP, NC, NT_max>(sys, T{0}, weights, constraints, opts...);
+    ::damp::detail::option_set<detail::is_measured_disturbance, detail::is_kalman_noise, detail::is_disturbance, detail::is_state_limits>::check<Opts...>();
+    return detail::mpc_design<true, NP, NC, NT_max>(sys, T{0}, weights, detail::constraint_set(constraints, opts...), opts...);
 }
 
 /**
@@ -1775,7 +1870,6 @@ template<size_t NP, size_t NC, size_t NT_max = 0, size_t NX, size_t NU, size_t N
  * @tparam NP     Prediction horizon (steps)
  * @tparam NC     Control horizon (moves, NC ≤ NP)
  * @tparam NT_max Terminal-set row capacity (default 0; required > 0 for invariant_set)
- * @tparam NXC    States with bounds, deduced from @p constraints (MPCConstraints::x_states; 0 for braces)
  * @see "Computing Integrals Involving the Matrix Exponential" (Van Loan, 1978), IEEE TAC 23(3)
  * @see lqr(plant, Ts, …) for the same discretization of an LQ cost
  *
@@ -1786,16 +1880,16 @@ template<size_t NP, size_t NC, size_t NT_max = 0, size_t NX, size_t NU, size_t N
  * @param opts     MeasuredDisturbance<NX, NM>{.Bd}: a disturbance input measured each tick, B_d continuous, or none
  * @return MPCResult: deploy with `MPC law{res}`; success = false if refused or the plant does not discretize
  */
-template<size_t NP, size_t NC, size_t NT_max = 0, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NXC = 0, typename... Opts>
+template<size_t NP, size_t NC, size_t NT_max = 0, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename... Opts>
 [[nodiscard]] constexpr auto mpc(
-    const StateSpace<NX, NU, NY, T, NW, NV>&                                                         plant,
-    damp::type_identity_t<T>                                                                         Ts,
-    const damp::type_identity_t<MPCWeights<NU, detail::mpc_outputs_in<NX, NU, NY, NW, Opts...>, T>>& weights,
-    const MPCConstraints<NU, detail::mpc_outputs_in<NX, NU, NY, NW, Opts...>, T, NXC>&               constraints,
+    const StateSpace<NX, NU, NY, T, NW, NV>&                                                             plant,
+    damp::type_identity_t<T>                                                                             Ts,
+    const damp::type_identity_t<MPCWeights<NU, detail::mpc_outputs_in<NX, NU, NY, NW, Opts...>, T>>&     weights,
+    const damp::type_identity_t<MPCConstraints<NU, detail::mpc_outputs_in<NX, NU, NY, NW, Opts...>, T>>& constraints,
     const Opts&... opts
 ) {
-    ::damp::detail::option_set<detail::is_measured_disturbance, detail::is_kalman_noise, detail::is_disturbance>::check<Opts...>();
-    return detail::mpc_design<false, NP, NC, NT_max>(plant, Ts, weights, constraints, opts...);
+    ::damp::detail::option_set<detail::is_measured_disturbance, detail::is_kalman_noise, detail::is_disturbance, detail::is_state_limits>::check<Opts...>();
+    return detail::mpc_design<false, NP, NC, NT_max>(plant, Ts, weights, detail::constraint_set(constraints, opts...), opts...);
 }
 
 /**
@@ -2044,7 +2138,7 @@ struct NoMeasuredState {};
  * @tparam NT_max    Terminal-set row capacity (default 0)
  * @tparam Estimator FixedGainObserver, or NoEstimator for the measured state; it holds the
  *                   disturbance when there is one
- * @tparam NXC       States with bounds (MPCConstraints::x_states; 0: none)
+ * @tparam NXC       States with bounds (the design's StateLimits; 0: none)
  *
  * @note Compare with MATLAB®'s mpcmove(mpcobj, xc, ym, r, v).
  * @see design::mpc

@@ -515,7 +515,7 @@ TEST_SUITE("Design on the delayed model") {
         w.Qy = 1e3;
         w.Rdu = 1e-8;
         const design::KalmanNoise noise{Matrix<2, 2>{{1e-4, 0.0}, {0.0, 1e-2}}, Matrix<1, 1>{{1e-6}}, Matrix<1, 1>{{1e-2}}};
-        const auto                naive = design::mpc<40, 10>(kUndelayedG, w, {}, noise, design::DisturbanceModel<2, 1, 1>{.Bd = kUndelayedG.B});
+        const auto                naive = design::mpc<40, 10>(kUndelayedG, w, {}, noise, design::DisturbanceModel{.Bd = kUndelayedG.B});
         REQUIRE(naive.success);
         const auto run = [&](const auto& aware) {
             REQUIRE(aware.success);
@@ -539,7 +539,7 @@ TEST_SUITE("Design on the delayed model") {
             CHECK(ca.disturbance_estimate()(0) == doctest::Approx(0.5).epsilon(1e-3));
         };
         SUBCASE("a load on the plant states, not delayed (B_d zero on the register)") {
-            run(design::mpc<40, 10>(kDelayedG, w, {}, noise, design::DisturbanceModel<3, 1, 1>{.Bd = kLoadOnPlant}));
+            run(design::mpc<40, 10>(kDelayedG, w, {}, noise, design::DisturbanceModel{.Bd = kLoadOnPlant}));
         }
         SUBCASE("an input disturbance, delayed with the command through the register") {
             run(design::mpc<40, 10>(kDelayedG, w, {}, noise, design::InputDisturbance{}));
@@ -556,8 +556,8 @@ TEST_SUITE("Design on the delayed model") {
         // fast enough that the delay destabilizes it.
         const Matrix<1, 1>        R{{1e-7}};
         const design::KalmanNoise noise{Matrix<2, 2>{{1e-4, 0.0}, {0.0, 1e-2}}, Matrix<1, 1>{{1e-6}}, Matrix<1, 1>{{1e-2}}};
-        const auto                aware = design::state_feedback(kDelayedG, {.Q = position_weight(1e4), .R = R}, noise, design::DisturbanceModel<3, 1, 1>{.Bd = kLoadOnPlant});
-        const auto                naive = design::state_feedback(kUndelayedG, {.Q = Matrix<2, 2>{{1e4, 0.0}, {0.0, 0.0}}, .R = R}, noise, design::DisturbanceModel<2, 1, 1>{.Bd = kUndelayedG.B});
+        const auto                aware = design::state_feedback(kDelayedG, {.Q = position_weight(1e4), .R = R}, noise, design::DisturbanceModel{.Bd = kLoadOnPlant});
+        const auto                naive = design::state_feedback(kUndelayedG, {.Q = Matrix<2, 2>{{1e4, 0.0}, {0.0, 0.0}}, .R = R}, noise, design::DisturbanceModel{.Bd = kUndelayedG.B});
         REQUIRE(aware.success);
         REQUIRE(naive.success);
 

@@ -65,7 +65,7 @@ TEST_SUITE("Offset-free LQG: oflqg with a disturbance model") {
         const auto refused = design::state_feedback(continuous, w, design::KalmanNoise<2, 1, double, 1>{}, design::InputDisturbance{});
         CHECK_FALSE(refused.success);
         CHECK(refused.status == design::DesignStatus::invalid_sample_time);
-        const auto refused_model = design::state_feedback(continuous, w, design::KalmanNoise<2, 1, double, 1>{}, design::DisturbanceModel<2, 1, 1>{.Bd = continuous.B});
+        const auto refused_model = design::state_feedback(continuous, w, design::KalmanNoise<2, 1, double, 1>{}, design::DisturbanceModel{.Bd = continuous.B});
         CHECK(refused_model.status == design::DesignStatus::invalid_sample_time);
 
         //! The sample-time form takes the continuous plant only: a discrete one would be discretized twice.
@@ -210,7 +210,7 @@ TEST_SUITE("Offset-free LQG: oflqg with a disturbance model") {
         const auto result = design::state_feedback(
             sys, {.Q = Matrix<2, 2>::identity(), .R = 0.1},
             design::KalmanNoise{Matrix<2, 2>{{0.05, 0.0}, {0.0, 0.05}}, Matrix<1, 1>{{0.05}}, Matrix<1, 1>{{1.0}}},
-            design::DisturbanceModel<2, 1, 1>{.Bd = sys.B} // the load at the input; the sensor reads the command alone
+            design::DisturbanceModel{.Bd = sys.B} // the load at the input; the sensor reads the command alone
         );
         REQUIRE(result.success);
 

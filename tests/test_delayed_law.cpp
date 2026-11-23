@@ -428,7 +428,7 @@ TEST_SUITE("Delayed laws with a filter") {
         CHECK(run(at_input, ColVec<4>{}, 0.4) == doctest::Approx(0.2).epsilon(1e-6));
 
         // A load on the plant itself acts at once: its channel is the plant's, the registers untouched.
-        const auto on_plant = design::state_feedback(noisy(), kTs, kW, noise, design::DisturbanceModel<2, 1, 1>{.Bd = noisy().B}, InputDelay<2>{kTheta});
+        const auto on_plant = design::state_feedback(noisy(), kTs, kW, noise, design::DisturbanceModel{.Bd = noisy().B}, InputDelay<2>{kTheta});
         REQUIRE(on_plant.success);
         const auto gamma = discretize(plant(), kTs).value().B;
         CHECK(run(on_plant, ColVec<4>{{gamma(0, 0), gamma(1, 0), 0.0, 0.0}}, 0.0) == doctest::Approx(0.2).epsilon(1e-6));

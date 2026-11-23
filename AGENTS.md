@@ -115,7 +115,7 @@ the repo root.
 - **Design calls:** what every call needs is positional (the plant, `Ts` for a
   continuous one, the weights), so braces size it from the plant; the rest is a
   trailing pack recognized by type (`design/options.hpp`: `KalmanNoise`,
-  `InputDelay`, `IntegralAction`, `TrackedOutputs`, `LQRLimits`, `DemandLimit`,
+  `InputDelay`, `IntegralAction`, `TrackedOutputs`, `LQRLimits`, `DemandLimit`, `StateLimits`,
   a disturbance spec, …), at most one of each kind, in any order, refused at
   compile time otherwise. What the gain does not depend on is an option, not a
   weight: an LQ design's limits are `LQRLimits{.u_lim}` and a `DemandLimit`. The
