@@ -385,7 +385,7 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
     if (!rows) {
         return ::damp::detail::refused<Result>(DesignStatus::bad_weights); // a controlled output out of range or listed twice
     }
-    const auto ch = disturbance_channels(spec, sys, m.law, Ts);
+    const auto ch = on_late_readings(spec, disturbance_channels(spec, sys, m.law, Ts), sys, Ts, delay); // the filter's: d on a late reading as it was when taken
     if (!mat::all_of(ch.Bd, [](T v) { return damp::isfinite(v); }) || !mat::all_of(ch.Cd, [](T v) { return damp::isfinite(v); })) {
         return ::damp::detail::refused<Result>(DesignStatus::bad_weights); // a non-finite B_d or C_d
     }

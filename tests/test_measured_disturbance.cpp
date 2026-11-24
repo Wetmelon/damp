@@ -154,6 +154,20 @@ TEST_SUITE("MeasuredDisturbance") {
         CHECK(law.control(x_ref, u_ref, d)(0) == doctest::Approx(u_ref(0) + t(2) - (md.K * dev)(0)).epsilon(1e-12));
     }
 
+    TEST_CASE("a regulator with more outputs than inputs holds the equilibrium nearest 0 under d; TrackedOutputs with r = 0 holds the one listed") {
+        //! At rest x₂ = x₁ + d: no steady state holds both readings at 0, so the regulator's
+        //! target is the least squares of y, holding neither. Listed, x₂ is held at r = 0.
+        constexpr Matrix<2, 1> load_c{{0.0}, {1.0}};
+        const auto             both = design::state_feedback(kLagsC, kTs, kWeights, design::MeasuredDisturbance{load_c});
+        const auto             one = design::state_feedback(kLagsC, kTs, kWeights, design::TrackedOutputs{{1}}, design::MeasuredDisturbance{load_c});
+        REQUIRE(both.success);
+        REQUIRE(one.success);
+        CHECK(both.target.target_d(0, 0) == doctest::Approx(-0.5).epsilon(1e-9));
+        CHECK(both.target.target_d(1, 0) == doctest::Approx(0.5).epsilon(1e-9));
+        CHECK(one.target.target_d(0, 0) == doctest::Approx(-1.0).epsilon(1e-9));
+        CHECK(std::abs(one.target.target_d(1, 0)) < 1e-9);
+    }
+
     TEST_CASE("an LQI feeds the measured load forward: the same steady state with its integrators where they were") {
         const design::IntegralAction action{.Q = 10.0, .outputs = {1}};
         const auto                   md = design::state_feedback(*kLags, kWeights, action, design::MeasuredDisturbance{kLoadOnX2});

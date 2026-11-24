@@ -634,7 +634,8 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
         if (!finite_filter_model(m.law, noise.process, noise.measurement)) {
             return ::damp::detail::refused<Result>(DesignStatus::bad_weights); // before the detectability test reads C
         }
-        const auto ch = disturbance_channels(spec, sys, m.law, Ts);
+        const auto given = disturbance_channels(spec, sys, m.law, Ts);
+        const auto ch = on_late_readings(spec, given, sys, Ts, delay); // d on a late reading as it was when taken
         if (!augment_detectable(m.law.A, m.law.C, ch.Bd, ch.Cd)) {
             return ::damp::detail::refused<Result>(DesignStatus::not_detectable);
         }
@@ -670,13 +671,17 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
                 }
             }
             if constexpr (output_delay_states<Delay> > 0) {
-                //! A late reading also holds the noise up to when it was taken: [x; d] from it, the readings on x.
+                //! A late reading also holds the noise up to when it was taken: [x; d] from it, the
+                //! readings on x, and on d through C_d where d is held (an InputDisturbance's rides u).
                 const auto outputs = ::damp::detail::channel_delay_splits<NY>(delay.output.seconds, Ts, output_delay_states<Delay>);
                 if (!outputs) {
                     return ::damp::detail::refused<Result>(DesignStatus::invalid_parameter);
                 }
                 Matrix<NY, NA, T> R{};
                 R.template block<NY, NX>(0, 0) = sys.C;
+                if constexpr (held_on_late_readings<Spec, Delay>) {
+                    R.template block<NY, ND>(0, NX) = given.Cd;
+                }
                 damp::array<size_t, NA> row{};
                 for (size_t i = 0; i < NA; ++i) {
                     row[i] = (i < NX) ? i : (i - NX + NXE);
@@ -929,8 +934,10 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
  *   period holds the noise up to then, C·Q(s)·Cᵀ, and shares e^{A(Ts−s)}·Q(s)·Cᵀ with the state
  *   at the period's end (Van Loan, exact; a reading taken at a sample holds none), so G on the
  *   model is I. The measurement noise is on the reading as it arrives. An InputDisturbance adds
- *   to u, which the model carries into the late readings; another spec's d reaches them as it is
- *   now, not as it was when they were taken, which is exact at a steady state.
+ *   to u, which the model carries into the late readings; another spec's d is a state of the
+ *   plant held over the period, so each reading holds d as it was when taken: what the plant moved
+ *   under it until then and C_d·d, and in the noise its walk up to then. The model is the delayed
+ *   discretization of [A, B_d; 0, 0] read through [C, C_d], d last.
  *
  * @code
  * constexpr auto kf = design::kalman(plant, 0.01, design::KalmanNoise{.process = Qc, .measurement = sigma2}, InputDelay<3>{0.022});
