@@ -290,6 +290,10 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
  * (a pole repeated more than NY times, or complex poles not in adjacent conjugate
  * pairs), singular if C (or C A, on a numerically singular A) is rank-deficient.
  *
+ * The bare observer gain. A law's filter placed the same way, on the model its design builds
+ * (the delay states and a disturbance spec's states included), is ObserverPoles{…} among
+ * design::state_feedback's options, in place of a KalmanNoise.
+ *
  * @note Compare with MATLAB®'s L = place(A', C', p)' and the current estimator's Mx = A \ L.
  * @see "Digital Control of Dynamic Systems" (Franklin, Powell & Workman, 1998), §8.2 (current estimator)
  *

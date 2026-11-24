@@ -1507,8 +1507,9 @@ namespace design {
  * @struct LQRResult
  * @brief The LQR gain: design::state_feedback on a plant, discrete_lqr and continuous_lqr on given matrices
  *
- * Contains the optimal gain K, Riccati solution S, and closed-loop poles. A discrete one runs
- * as an LQR (`LQR law{res}`).
+ * Contains the optimal gain K, Riccati solution S, and closed-loop poles: the bare gain
+ * (MATLAB®'s lqr and dlqr). The law of the same weights, which a runtime runs, is
+ * design::state_feedback(sys, [Ts,] LQRWeights{.Q, .R, .N}, opts…); no runtime takes an LQRResult.
  *
  * @note Compare with MATLAB®'s [K,S,P] = dlqr(...) output structure.
  * @see "Optimal Control" (Anderson & Moore, 1990), §4.3

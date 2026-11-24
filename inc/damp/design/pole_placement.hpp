@@ -39,8 +39,11 @@
  * with a trailing `Ts` is refused (DesignStatus::invalid_sample_time), so a discrete
  * model is never discretized a second time.
  *
- * The result is a PlaceResult, a gain design that LQR runs: `LQR law{res}`
- * deploys it, and a continuous result is refused there under constant evaluation.
+ * The result is a PlaceResult, the bare gain (MATLAB®'s place and acker). A law placed at the
+ * same poles is design::state_feedback(sys, [Ts,] Poles{…}, opts…), the same placement on the
+ * law's model, with every option of an LQ design (a target, limits, integrators, a filter, a
+ * disturbance model, delays), and it runs as LQR, LQI, LQG, LQGI or OFLQG; no runtime takes a
+ * PlaceResult.
  *
  * Observer gains (A − LC) are the dual: design::place_observer in estimation/fixed_gain_observer.hpp.
  *
@@ -1063,10 +1066,10 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
  * @struct PlaceResult
  * @brief Pole-placement design result: the gain K, the achieved closed-loop poles e, and Ts
  *
- * A gain design, so it runs as LQR:
- * `LQR law{res.as<float>()}`, or `static constinit LQR law{res}`
- * for a discrete design. `e` holds eig(A − BK) computed from the gain, not the requested
- * poles; `Ts` is the law's sample time (0 for a continuous gain).
+ * The bare gain: a law placed at the same poles, which a runtime runs, is
+ * design::state_feedback(sys, [Ts,] Poles{…}, opts…) (`static constinit Law<kRes, float> law;`).
+ * `e` holds eig(A − BK) computed from the gain, not the requested poles; `Ts` is the law's
+ * sample time (0 for a continuous gain).
  *
  * @tparam NX Number of states
  * @tparam NU Number of inputs
@@ -1153,6 +1156,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
  * @return PlaceResult with K, e = eig(A − BK) and Ts = sys.Ts
  *
  * @note Compare with MATLAB®'s K = place(A, B, p), and K = acker(A, B, p) for a single input.
+ *       The law around the gain is design::state_feedback(sys, Poles{…}, opts…).
  */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
 [[nodiscard]] constexpr PlaceResult<NX, NU, T> place(

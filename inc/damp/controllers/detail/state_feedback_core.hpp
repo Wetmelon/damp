@@ -23,7 +23,6 @@
 #include "damp/design/steady_state_target.hpp"
 #include "damp/math/math.hpp"
 #include "damp/matrix/matrix.hpp"
-#include "damp/matrix/matrix_traits.hpp"
 #include "damp/toolbox/bounds.hpp"
 
 namespace damp {
@@ -63,16 +62,10 @@ struct HandoverFade {
     bool                        pending{false}; ///< A track since the last command: the next takes e = u_tracked − u_law
 };
 
-/** @brief A gain design result other than StateFeedbackResult: K, success and Ts (PlaceResult, LQRResult). */
-template<typename R>
-concept gain_result = requires(const R& r) {
-    r.success;
-    r.Ts;
-    r.K;
-    requires MatrixLike<damp::remove_cvref_t<decltype(r.K)>>;
-} && !is_state_feedback_result<R>::value;
-
-/** @brief A gain design is discrete: its @c discrete flag (LQRResult), else a sample time Ts > 0 (PlaceResult, StateFeedbackResult). */
+/**
+ * @brief A gain design is discrete: its @c discrete flag (an LQRResult, which lqgreg combines
+ *        with a filter), else a sample time Ts > 0 (StateFeedbackResult).
+ */
 template<typename R>
 [[nodiscard]] constexpr bool discrete_gain(const R& r) {
     if constexpr (requires { r.discrete; }) {
@@ -274,25 +267,6 @@ struct StateFeedbackCore {
     constexpr explicit StateFeedbackCore(const Matrix<NU, NXL + NI, T>& K_)
         requires(!kEstimated && !Store::constant)
         : K(K_) {}
-
-    /**
-     * @brief From a gain design (design::place's PlaceResult, LQRResult; any scalar): converts K.
-     *
-     * A failed or continuous (not discrete) result does not compile when constant-evaluated; at run
-     * time either leaves the law invalid.
-     */
-    template<typename R>
-        requires(detail::gain_result<R> && !kEstimated && NI == 0 && NZ == 0 && NRU == 0 && NMD == 0 && !Store::constant)
-    constexpr StateFeedbackCore(const R& result) // NOLINT
-        : valid_(usable(result, detail::discrete_gain(result))) {
-        if (valid_) {
-            K = result.K.template as<T>();
-            if constexpr (requires { result.limits; }) {
-                u_lim_ = result.limits.input.template as<T>();
-                demand_lim_ = result.limits.demand.template as<T>();
-            }
-        }
-    }
 
     /**
      * @brief From an LQ design (any scalar): the gain, and the filter, integrators and target the

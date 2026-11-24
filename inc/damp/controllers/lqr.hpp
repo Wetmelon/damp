@@ -7,10 +7,11 @@
 
 /**
  * @file lqr.hpp
- * @brief The linear-quadratic regulator: design::state_feedback, LQRResult, the LQR runtime
+ * @brief The linear-quadratic regulator: design::state_feedback's law on the measured state, the LQR runtime
  *
- * design::state_feedback(plant, [Ts,] {.Q, .R, .N}[, TrackedOutputs{{i, …}}][, MeasuredDisturbance{Bd}][, InputDelay<N>{θ}])
- * (state_feedback.hpp) → StateFeedbackResult → LQR; discrete_lqr (riccati.hpp) → LQRResult → LQR.
+ * design::state_feedback(plant, [Ts,] {.Q, .R, .N} or Poles{…}[, TrackedOutputs{{i, …}}][, MeasuredDisturbance{Bd}][, InputDelay<N>{θ}])
+ * (state_feedback.hpp) → StateFeedbackResult → LQR. discrete_lqr and design::place (riccati.hpp,
+ * pole_placement.hpp) are the bare gains: no runtime takes their results.
  * With an InputDelay the LQR holds the inputs still on their way. step(x) is predict, update(x), control
  * (predict is empty on LQR without an InputDelay). The low-latency tick is update(x), control(),
  * then back_calculate and predict() with an InputDelay. While another source drives the plant,
@@ -35,16 +36,16 @@ namespace damp {
  * @ingroup discrete_controllers
  * @brief Linear-quadratic regulator on the measured state: u = u* − K·(x − x*)
  *
- * Runs design::state_feedback, or a gain design (design::place, discrete_lqr): `LQR law{res.as<float>()}`, or
- * `Law<kRes, float>` for a struct member. step(x) is predict, update(x), control; predict is
- * empty without an InputDelay, so that equals update then control. The regulator is x* = 0 and u* = 0. A design with
- * TrackedOutputs holds those outputs at r through its steady-state target: control(r),
- * step(r, x). Feedforward from a planned trajectory
- * (x_ref, u_ref) adds to it: control([r,] x_ref, u_ref), step([r,] x_ref, u_ref, x). The command
- * is clamped into design::state_feedback's InputLimits, and its move into an InputRateLimits
- * (unbounded by default, and for a gain K or a design::place result), and a DemandLimit bounds what the outer terms ask of a state: limits() reads
- * them and set_limits() moves them at run time, as on an MPC. A failed or continuous design does not
- * compile when constant-evaluated.
+ * Runs design::state_feedback, with LQRWeights or Poles: `LQR law{res.as<float>()}`, or
+ * `Law<kRes, float>` for a struct member. step(x) is predict, update(x), control; predict is empty
+ * without an InputDelay, so that equals update then control. The regulator is x* = 0 and u* = 0. A design with
+ * TrackedOutputs holds those outputs at r through its steady-state target: control(r), step(r, x).
+ * Feedforward from a planned trajectory (x_ref, u_ref) adds to it: control([r,] x_ref, u_ref),
+ * step([r,] x_ref, u_ref, x). The command is clamped into design::state_feedback's InputLimits, and
+ * its move into an InputRateLimits (unbounded by default, and for a gain K of its own), and a
+ * DemandLimit bounds what the outer terms ask of a state: limits() reads them and set_limits()
+ * moves them at run time, as on an MPC. A failed or continuous design does not compile when
+ * constant-evaluated.
  *
  * @code
  * static constinit LQR law{kRes.as<float>()};
@@ -86,11 +87,6 @@ struct LQR : private detail::StateFeedbackCore<NX, NU, T, 0, NY, NoEstimator, NZ
     constexpr explicit LQR(const Matrix<NU, NX, T>& K_)
         requires(NZ == 0 && NRU == 0 && NM == 0 && !HO && !Store::constant)
         : Core(K_) {}
-
-    /** @brief From a gain design (design::place's PlaceResult, LQRResult; any scalar). */
-    template<typename R>
-        requires(detail::gain_result<R> && NZ == 0 && NRU == 0 && NM == 0 && !HO && !Store::constant)
-    constexpr LQR(const R& result) : Core(result) {} // NOLINT
 
     /** @brief From design::state_feedback(any scalar). */
     template<detail::state_feedback_result R>
@@ -293,22 +289,7 @@ LQR(const design::StateFeedbackResult<NX, NU, T, NI, NY, Kalman, NZ, NRU, NM, ND
 template<size_t NU, size_t NX, typename T>
 LQR(const Matrix<NU, NX, T>&) -> LQR<NX, NU, T>;
 
-/** @brief LQR law{res}: the sizes of a gain design (design::place, LQRResult). */
-template<typename R>
-    requires detail::gain_result<R>
-LQR(const R& r) -> LQR<damp::remove_cvref_t<decltype(r.K)>::cols(), damp::remove_cvref_t<decltype(r.K)>::rows(), typename damp::remove_cvref_t<decltype(r.K)>::value_type>;
-
 namespace detail {
-
-/** @brief A gain design (LQRResult, design::place's PlaceResult) runs as LQR. */
-template<typename R, typename T>
-    requires gain_result<R>
-struct lq_runtime<R, T> {
-    using Gain = damp::remove_cvref_t<decltype(damp::declval<const R&>().K)>;
-    using type = LQR<Gain::cols(), Gain::rows(), T>; ///< LQR
-    template<typename, typename Store>
-    using on_constants = LQR<Gain::cols(), Gain::rows(), T, Gain::cols(), 0, Store>; ///< LQR on the design's constants
-};
 
 /** @brief An LQ design with no integrators or filter runs as LQR (with its tracked outputs, NZ > 0, and its measured disturbance, NM > 0). */
 template<size_t NX, size_t NU, typename U, size_t NY, size_t NZ, size_t NRU, size_t NM, size_t NDU, bool HO, typename T>

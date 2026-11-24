@@ -111,9 +111,10 @@ types. Bode and friends return analysis grids. New code uses `design::` and
 | `OutputDelay`, a late sensor          | In the filter's design, on the continuous plant with `Ts` and a `KalmanNoise`: `design::kalman(plant, Ts, noise, OutputDelay<N>{θ})`, and the same on `state_feedback` (LQG, LQGI, OFLQG), `steady_state_target` and `mpc` (OFMPC). The reading that arrives now was taken θ ago; the filter holds the readings on their way in N delay states per output and estimates the current state, and the gain or the QP reads none of them. One delay per output: `OutputDelay<N, ColVec<NY>>{{θ₁, θ₂}}`; with an `InputDelay` too, both options. A discrete model with it built in, `discretize(sys, Ts, InputDelay{θu}, OutputDelay{θy})`, is designed on like any plant. |
 | A tick that costs only its nonzero terms | `static constinit Law<kRes, float> law;` on a `constexpr` design: the same ticks, the matrices constants of the type, no RAM for them and no code for an exact 0 (MPC keeps its QP data in members, and OFMPC's filter alone is on constants). A member a redesign assigns is `Law<kRes, float>::Runtime`. On a `design::kalman`, `Law<kRes, float>::Recursive` is the recursive `KalmanFilter` on the same constants. |
 | A Jacobian with a fixed shape, in a filter | `SparsityPattern` + `PatternMatrix<kPattern, float>`: `eskf.predict(F)`, `eskf.update_innovation(nu, H, R)`, `kf.update(y, C, R)`, or an EKF measurement whose `jacobian(x, u)` returns one. The zeros and ones are known at compile time, so they cost nothing; the values stay runtime. |
-| `lqr`, `dlqr`, `lqrd`                 | `design::state_feedback(sys, …)` or `design::state_feedback(sys, Ts, …)`; `matlab::lqr` / `dlqr` / `lqrd`                              |
+| `lqr`, `dlqr`, `lqrd`                 | `design::state_feedback(sys, …)` or `design::state_feedback(sys, Ts, …)` for a law; `matlab::lqr` / `dlqr` / `lqrd` (and `design::discrete_lqr`) for the bare gain |
 | `lqi`, `lqg`, `lqgtrack`              | `design::state_feedback` with an `IntegralAction`, a `KalmanNoise`, or both                                      |
-| `place`, `acker`                      | `design::place`; `matlab::place` / `acker`                                                                       |
+| `place`, `acker`                      | `design::place` for a gain (`matlab::place` / `acker`); `design::state_feedback(sys, [Ts,] design::Poles{…}, …)` for a law, the gain placed and every option of the LQ design (a target, limits, integrators, a filter, delays), on the LQ runtimes |
+| `estim`, `reg` with placed gains      | `design::ObserverPoles{…}` in place of a `KalmanNoise` among `state_feedback`'s options: the law's filter placed, its error poles eig((I − MC)A) of the current form it runs; with `Poles` too for the regulator. `matlab::estim` / `reg` build the block from gains you hold |
 | `pidtune`, Ziegler–Nichols            | `design::pidtune`, `design::ziegler_nichols_*`; then `.discretize(Ts)` → `PIDController`                         |
 | `kalman`, `lqe`, `dlqe`, `kalmd`      | `design::kalman` → `FixedGainObserver` (fixed gain on the law) or `KalmanFilter` (P each tick)                          |
 | observer, FixedGainObserver                  | `FixedGainObserver{design::kalman(...)}`                                                                                |
@@ -133,7 +134,7 @@ types. Bode and friends return analysis grids. New code uses `design::` and
 
 ## Coming from MATLAB®
 
-Keep the plant as `StateSpace` (or `matlab::ss` / `tf`). Discretize with `discretize` or `matlab::c2d`. Design with `matlab::lqr` if you want that spelling; deploy with `LQR law{res.as<float>()}` and `law.step(x)` — there is no `lsim` of a gain matrix on the MCU.
+Keep the plant as `StateSpace` (or `matlab::ss` / `tf`). Discretize with `discretize` or `matlab::c2d`. Design the law with `design::state_feedback` (`matlab::lqr` and `dlqr` give the bare gain, as MATLAB®'s do, which no runtime takes); deploy with `LQR law{res.as<float>()}` and `law.step(x)` — there is no `lsim` of a gain matrix on the MCU.
 
 `[K,S,e] = lqr(sys,Q,R)` is `design::state_feedback(sys, {.Q, .R})` (CARE if continuous, DARE if discrete). Sampled-data (`lqrd`) is `design::state_feedback(sys, Ts, {.Q, .R})`.
 

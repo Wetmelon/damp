@@ -33,7 +33,7 @@ namespace detail {
  *
  * | Field | Value | The law gets |
  * | --- | --- | --- |
- * | `.noise` | design::KalmanNoise{.process, .measurement} | a Kalman filter: the law measures y, not x (LQG) |
+ * | `.noise` | design::KalmanNoise{.process, .measurement}, or the PlacedPoles of an ObserverPoles | a Kalman filter, or a placed one: the law measures y, not x (LQG) |
  * | `.offset_free` | design::detail::IntegralAction{}, or a disturbance model: InputDisturbance, OutputDisturbance, PlantDisturbance or DisturbanceModel | no steady-state error on the outputs r tracks (LQI, LQGI, OFLQG): by integrators on r − y, or by a disturbance the filter estimates (needs `.noise`) |
  * | `.track` | design::TrackedOutputs{} | the outputs r holds through the model's steady-state target, with no offset-free action (LQR, LQG) |
  * | `.measured` | design::MeasuredDisturbance{Bd} | a disturbance read each tick: the target under it, and the filter's known input after u |
@@ -143,7 +143,7 @@ template<size_t NX, size_t NY, typename T, typename Options>
 consteval bool fields_valid() {
     using O = options_traits<Options>;
     using F = O::offset_free;
-    constexpr bool noise = is_unset<typename O::noise> || is_kalman_noise<typename O::noise>::value;
+    constexpr bool noise = is_unset<typename O::noise> || is_kalman_noise<typename O::noise>::value || is_placed<typename O::noise>;
     constexpr bool choice = is_unset<F> || is_integral_action<F> || is_disturbance_model<F>;
     constexpr bool fits = disturbance_fits<typename O::disturbance, NX, NY, T>;
     constexpr bool integrate = is_unset<typename O::integrate> || integrated_count<typename O::integrate, NY>::selection;
@@ -151,7 +151,7 @@ consteval bool fields_valid() {
     constexpr bool one_reference = is_unset<typename O::track> || is_unset<typename O::integrate>; // beside a disturbance model: check_held_outputs
     using M = O::measured;
     constexpr bool measured = is_unset<M> || damp::is_same_v<M, MeasuredDisturbance<NX, measured_inputs<M>, T>>;
-    static_assert(noise, "The noise is design::KalmanNoise{.process = ..., .measurement = ...}.");
+    static_assert(noise, "The filter is design::KalmanNoise{.process = ..., .measurement = ...}, or ObserverPoles{...}.");
     static_assert(
         choice,
         "options.offset_free is design::detail::IntegralAction{} (integrators on r - y), or a disturbance model the Kalman filter estimates: "
@@ -178,8 +178,8 @@ consteval bool features_valid() {
         }
     }();
     constexpr bool estimated = kNoise || is_unset<typename O::disturbance>;
-    constexpr bool sized = !kNoise || damp::is_same_v<typename O::noise, KalmanNoise<NW, NV, T, ND>>;
-    static_assert(estimated, "A disturbance model is estimated by the Kalman filter: give its noise, with .disturbance the disturbance's random walk.");
+    constexpr bool sized = !kNoise || is_placed<typename O::noise> || damp::is_same_v<typename O::noise, KalmanNoise<NW, NV, T, ND>>; // the poles' count is checked where NX is known
+    static_assert(estimated, "A disturbance model is estimated by the law's filter: give its noise, with .disturbance the disturbance's random walk, or its ObserverPoles.");
     static_assert(
         sized || !estimated,
         "The noise is sized to the plant: .process NW x NW (the columns of G), .measurement NV x NV (the columns of H), in the plant's scalar; with a disturbance model, also .disturbance ND x ND (the random walk of d), else none."

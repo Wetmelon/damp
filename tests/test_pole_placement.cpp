@@ -11,6 +11,7 @@
 
 #include "damp/backend.hpp"
 #include "damp/controllers/lqr.hpp"
+#include "damp/controllers/state_feedback.hpp"
 #include "damp/design/pole_placement.hpp"
 #include "damp/design/stability.hpp"
 #include "damp/design/status.hpp"
@@ -305,17 +306,20 @@ TEST_SUITE("pole_placement") {
         CHECK((Acl * Acl * Acl).norm() < 1e-9); // nilpotent
     }
 
-    TEST_CASE("PlaceResult deploys through LQR") {
-        Matrix<2, 2>   A = {{1.0, 0.01}, {0.0, 1.0}};
-        Matrix<2, 1>   B = {{0.00005}, {0.01}};
-        constexpr auto res = design::place(StateSpace<2, 1, 2>{.A = {{1.0, 0.01}, {0.0, 1.0}}, .B = {{0.00005}, {0.01}}, .C = Matrix<2, 2>::identity(), .Ts = 0.01}, {0.9, 0.95});
-        static_assert(res.success);
+    TEST_CASE("a placed law deploys through LQR: state_feedback with Poles, design::place's gain") {
+        Matrix<2, 2>         A = {{1.0, 0.01}, {0.0, 1.0}};
+        Matrix<2, 1>         B = {{0.00005}, {0.01}};
+        constexpr StateSpace sys{.A = Matrix<2, 2>{{1.0, 0.01}, {0.0, 1.0}}, .B = Matrix<2, 1>{{0.00005}, {0.01}}, .C = Matrix<2, 2>::identity(), .Ts = 0.01};
+        constexpr auto       res = design::state_feedback(sys, design::Poles{0.9, 0.95});
+        constexpr auto       gain = design::place(sys, {0.9, 0.95}); // the bare gain
+        static_assert(res.success && gain.success);
 
         static constinit LQR law{res.as<float>()};
         static_assert(std::is_same_v<decltype(law), LQR<2, 1, float>>);
         LQR<2, 1, float> assigned = res; // assign-from-design
-        CHECK(law.K(0, 0) == doctest::Approx(static_cast<float>(res.K(0, 0))));
-        CHECK(assigned.K(0, 1) == doctest::Approx(static_cast<float>(res.K(0, 1))));
+        CHECK(law.K(0, 0) == doctest::Approx(static_cast<float>(gain.K(0, 0))));
+        CHECK(assigned.K(0, 1) == doctest::Approx(static_cast<float>(gain.K(0, 1))));
+        static_assert(!std::is_constructible_v<LQR<2, 1, float>, design::PlaceResult<2, 1>>); // the bare gain runs on no runtime
 
         const auto e = stability::closed_loop_poles(A, B, res.K);
         CHECK(std::min(e[0].real(), e[1].real()) == doctest::Approx(0.9).epsilon(1e-9));
@@ -409,8 +413,8 @@ TEST_SUITE("pole_placement") {
         CHECK_FALSE(res.is_stable()); // e is all zeros, inside the unit circle
     }
 
-    TEST_CASE("a continuous PlaceResult is refused: zero gain at run time, no compile constant-evaluated") {
-        constexpr auto continuous = design::place(StateSpace<2, 1, 2>{.A = {{0.0, 1.0}, {0.0, 0.0}}, .B = {{0.0}, {1.0}}, .C = Matrix<2, 2>::identity()}, {-2.0, -3.0});
+    TEST_CASE("a continuous placed law is refused: zero gain at run time, no compile constant-evaluated") {
+        constexpr auto continuous = design::state_feedback(StateSpace<2, 1, 2>{.A = {{0.0, 1.0}, {0.0, 0.0}}, .B = {{0.0}, {1.0}}, .C = Matrix<2, 2>::identity()}, design::Poles{-2.0, -3.0});
         static_assert(continuous.success && continuous.Ts == 0.0);
         // static constinit LQR law{continuous}; // ill-formed: refuse_failed_design under constant evaluation
         const LQR law{continuous}; // a continuous gain on a discrete tick: loaded as a failed design

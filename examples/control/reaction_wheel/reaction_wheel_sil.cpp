@@ -25,7 +25,7 @@ static constinit SMCController         smc{smc_res.as<float>()};
 static constinit STSMCController       stsmc{stsmc_res.as<float>()};
 static constinit Law<place_res, float> place_ctrl;
 // Each design runs as the law named by its result, on its matrices as constants: LQR on the measured
-// state (design::place, design::state_feedback), LQI with integrators, LQG with the Kalman estimator, LQGI with both,
+// state (design::state_feedback with Poles or weights), LQI with integrators, LQG with the Kalman estimator, LQGI with both,
 // and OFMPC with its filter on constants.
 static constinit Law<lqr_res, float>  lqr;
 static constinit Law<lqi_res, float>  lqi;
@@ -51,8 +51,8 @@ int main() {
 
     fmt::print(
         "place_sampled (s=[{:.3g},{:.3g}], Ts={:.3g}) K = [{:.4g}, {:.4g}]\n",
-        place_poles_s[0].real(),
-        place_poles_s[1].real(),
+        place_poles_s.poles[0].real(),
+        place_poles_s.poles[1].real(),
         Ts,
         place_ctrl.K(0, 0),
         place_ctrl.K(0, 1)

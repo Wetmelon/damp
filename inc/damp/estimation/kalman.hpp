@@ -215,6 +215,9 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
  * the plant, then the ND disturbance states; @c M, @c L and @c P are the steady-state gains and
  * covariance on that whole model.
  *
+ * A state-feedback design with ObserverPoles in place of its KalmanNoise carries its filter in
+ * this shape too, on the same model: @c M and @c L placed, @c Q, @c R and @c P zero (no noise).
+ *
  * @tparam ND Disturbance states, last in the filter's state (0: none)
  *
  * @see "Optimal State Estimation" (Simon, 2006), §5.3

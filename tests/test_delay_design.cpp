@@ -386,9 +386,10 @@ TEST_SUITE("Design on the delayed model") {
         // circle (|z| ≈ 1.22). The design on the delayed model plans with the command landing a
         // period late; it measures the last applied input as its third state.
         const Matrix<1, 1> R{{1e-4}};
-        const auto         naive = design::discrete_lqr(kUndelayed.A, kUndelayed.B, Matrix<2, 2>{{1e4, 0.0}, {0.0, 0.0}}, R);
+        const auto         naive = design::state_feedback(kUndelayed, {.Q = Matrix<2, 2>{{1e4, 0.0}, {0.0, 0.0}}, .R = R});
         const auto         aware = design::state_feedback(kDelayed, {.Q = position_weight(1e4), .R = R});
         REQUIRE(naive.success);
+        CHECK((naive.K - design::discrete_lqr(kUndelayed.A, kUndelayed.B, Matrix<2, 2>{{1e4, 0.0}, {0.0, 0.0}}, R).K).norm() == 0.0); // the bare gain's
         REQUIRE(aware.success);
         CHECK(aware.is_stable());
 

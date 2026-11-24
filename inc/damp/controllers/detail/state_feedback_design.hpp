@@ -15,6 +15,7 @@
 #include "damp/backend.hpp"
 #include "damp/controllers/detail/law_detail.hpp"
 #include "damp/controllers/detail/lq_cost.hpp"
+#include "damp/controllers/detail/placed_design.hpp"
 #include "damp/controllers/detail/state_feedback_options.hpp"
 #include "damp/controllers/state_feedback_types.hpp"
 #include "damp/design/disturbance.hpp"
@@ -166,17 +167,46 @@ template<size_t NI, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size
     }
 }
 
-/** @brief The gain of a design: on the plant (law_design), or on the model with the input delay states of @p delay (delayed_law_design). */
-template<bool Discrete, size_t NI, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Delay>
-[[nodiscard]] constexpr auto gain_design(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T Ts, const lq_config<NX, NU, NI, T>& w, const Matrix<NI, NY, T>& Ci, const Delay& delay) {
+/**
+ * @brief The gain of a design: the LQ gain of @p w's weights (@p gain LQGain), on the plant
+ *        (law_design) or on the model with the input delay states of @p delay (delayed_law_design),
+ *        or the gain placed at @p gain's poles on the same model (placed_law_design).
+ */
+template<bool Discrete, size_t NI, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Delay, typename Gain = LQGain>
+[[nodiscard]] constexpr auto gain_design(
+    const StateSpace<NX, NU, NY, T, NW, NV>& sys,
+    T                                        Ts,
+    const lq_config<NX, NU, NI, T>&          w,
+    const Matrix<NI, NY, T>&                 Ci,
+    const Delay&                             delay,
+    const Gain&                              gain = Gain{}
+) {
     using In = damp::remove_cvref_t<decltype(input_delay_of(delay))>;
-    if constexpr (damp::is_same_v<In, NoDelay>) {
+    if constexpr (is_placed<Gain>) {
+        static_assert(!Discrete || damp::is_same_v<In, NoDelay>, "A delay is sampled with the plant: a continuous plant and Ts.");
+        static_cast<void>(w); // its weights are the LQ gain's; the limits it carries are the runtime's
+        return placed_law_design<Discrete, NI>(sys, Ts, gain, Ci, input_delay_of(delay));
+    } else if constexpr (damp::is_same_v<In, NoDelay>) {
+        static_cast<void>(gain);
         static_cast<void>(delay);
         return law_design<Discrete, NI>(sys, Ts, w, Ci); // a late reading leaves the gain the plant's: only the filter carries it
     } else {
         static_assert(!Discrete, "A delay is sampled with the plant: a continuous plant and Ts.");
+        static_cast<void>(gain);
         return delayed_law_design<NI>(sys, Ts, input_delay_of(delay), w, Ci);
     }
+}
+
+/** @brief The Kalman filter of a design with a KalmanNoise (kalman_design). */
+template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t ND, typename Spec, typename Delay>
+[[nodiscard]] constexpr auto filter_design(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T Ts, const KalmanNoise<NW, NV, T, ND>& noise, const Spec& spec, const Delay& delay) {
+    return kalman_design<Discrete>(sys, Ts, noise, spec, delay);
+}
+
+/** @brief The placed filter of a design with ObserverPoles (placed_filter_design): the Kalman design's type, its gain placed. */
+template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NP, typename Spec, typename Delay>
+[[nodiscard]] constexpr auto filter_design(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T Ts, const PlacedPoles<NP, T>& poles, const Spec& spec, const Delay& delay) {
+    return placed_filter_design<Discrete>(sys, Ts, poles, spec, delay);
 }
 
 /**
@@ -222,16 +252,18 @@ template<bool Held, bool Discrete, size_t NX, size_t NU, size_t NY, typename T, 
 }
 
 /**
- * @brief The design on checked options: the law, then the filter and the target they ask for, on
- *        the plant or on its model with the input delay states of @p delay; status the first failure.
+ * @brief The design on checked options: the law (the LQ gain of @p w, or placed at @p gain's
+ *        poles), then the filter and the target they ask for, on the plant or on its model with
+ *        the input delay states of @p delay; status the first failure.
  */
-template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Options, typename Delay = NoDelay>
+template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Options, typename Delay = NoDelay, typename Gain = LQGain>
 [[nodiscard]] constexpr auto designed(
     const StateSpace<NX, NU, NY, T, NW, NV>&  sys,
     T                                         Ts,
     const config_for<NX, NU, NY, T, Options>& w,
     const Options&                            opts,
-    const Delay&                              delay = Delay{}
+    const Delay&                              delay = Delay{},
+    const Gain&                               gain = Gain{}
 ) {
     using O = options_traits<Options>;
     constexpr size_t NI = integrator_count<NY, Options>;
@@ -243,7 +275,7 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
     const auto       spec = disturbance_of(opts);
 
     const auto Ci = integrated_selector<NI, NY, T>(integral_action_of(opts));
-    auto       law = gain_design<Discrete>(sys, Ts, w, Ci ? *Ci : Matrix<NI, NY, T>{}, delay);
+    auto       law = gain_design<Discrete>(sys, Ts, w, Ci ? *Ci : Matrix<NI, NY, T>{}, delay, gain);
     if (!Ci) {
         law = ::damp::detail::refused<decltype(law)>(DesignStatus::bad_weights); // an integrated output out of range or listed twice
     } else if (law.success && !limits_valid(w)) {
@@ -272,7 +304,7 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
         const auto       Bm = measured_channel<Discrete>(sys, Ts, measured_disturbance_of<NX, T>(opts), delay); // d on the model, none on the input's delay states
         const auto       filter = [&] {
             if constexpr (kEstimated) {
-                return with_measured_inputs(kalman_design<Discrete>(sys, Ts, opts.noise, spec, delay), Bm); // d a known input after u
+                return with_measured_inputs(filter_design<Discrete>(sys, Ts, opts.noise, spec, delay), Bm); // d a known input after u
             } else {
                 return NoEstimator{};
             }
@@ -307,13 +339,14 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
  *        @p Ts, with its input @p delay late when that is an InputDelay, once the options pass
  *        their checks: a mistake stops here with its message alone.
  */
-template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Options, typename Delay = NoDelay>
+template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Options, typename Delay = NoDelay, typename Gain = LQGain>
 [[nodiscard]] constexpr auto state_feedback_design(
     const StateSpace<NX, NU, NY, T, NW, NV>&  sys,
     T                                         Ts,
     const config_for<NX, NU, NY, T, Options>& w,
     const Options&                            opts,
-    const Delay&                              delay = Delay{}
+    const Delay&                              delay = Delay{},
+    const Gain&                               gain = Gain{}
 ) {
     if constexpr (!options_traits<Options>::named) {
         static_assert(options_traits<Options>::named, "The options are design::StateFeedbackOptions{.noise = ..., .offset_free = ...}: one named field per feature.");
@@ -323,7 +356,7 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
     } else if constexpr (!features_valid<NU, NY, T, NW, NV, Options>()) {
         return StateFeedbackResult<NX, NU, T>{}; // features_valid says why
     } else {
-        return designed<Discrete>(sys, Ts, w, opts, delay);
+        return designed<Discrete>(sys, Ts, w, opts, delay, gain);
     }
 }
 
@@ -509,29 +542,31 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
 /**
  * @brief state_feedback for a public design's trailing options: on the plant in its own domain
  *        (@p Sampled false), or on the continuous plant at @p Ts with the InputDelay among
- *        @p opts if one is there. The law's own options are already in @p options.
+ *        @p opts if one is there, the gain the LQ one of @p config or placed (@p gain). The law's
+ *        own options are already in @p options.
  */
-template<bool Sampled, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Options, typename... Opts>
+template<bool Sampled, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Options, typename Gain, typename... Opts>
 [[nodiscard]] constexpr auto state_feedback_with(
     const StateSpace<NX, NU, NY, T, NW, NV>&  sys,
     T                                         Ts,
     const config_for<NX, NU, NY, T, Options>& config,
     const Options&                            options,
+    const Gain&                               gain,
     const Opts&... opts
 ) {
     constexpr bool kLate = ::damp::detail::option_count<is_output_delay, Opts...> > 0;
     if constexpr (::damp::detail::option_count<is_input_delay, Opts...> == 0 && !kLate) {
         (static_cast<void>(opts), ...);
         if constexpr (Sampled) {
-            return detail::state_feedback(sys, Ts, config, options);
+            return state_feedback_design<false>(sys, Ts, config, options, NoDelay{}, gain);
         } else {
             static_cast<void>(Ts);
-            return detail::state_feedback(sys, config, options);
+            return state_feedback_design<true>(sys, T{0}, config, options, NoDelay{}, gain);
         }
     } else {
         static_assert(Sampled, "A delay is sampled with the plant: give the continuous plant and Ts, fn(plant, Ts, config, ..., InputDelay<N>{theta}, OutputDelay<M>{theta}).");
-        static_assert(!kLate || !is_unset<typename options_traits<Options>::noise>, "An OutputDelay is a late reading: it needs a KalmanNoise, a filter to carry it.");
-        return detail::state_feedback(sys, Ts, delays_of(opts...), config, options);
+        static_assert(!kLate || !is_unset<typename options_traits<Options>::noise>, "An OutputDelay is a late reading: it needs a filter to carry it, a KalmanNoise or ObserverPoles.");
+        return state_feedback_design<false>(sys, Ts, config, options, delays_of(opts...), gain);
     }
 }
 
