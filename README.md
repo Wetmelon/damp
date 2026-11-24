@@ -108,7 +108,7 @@ If you know MATLAB® (`c2d`, `lqr`, `pidtune`, `kalman`) or you are writing an I
 | `constexpr` on design | Plants, gains, and `design::…` results evaluate at compile time (or init). A runtime built from a `constexpr` result refuses a failed one, so a failed design is a build failure, not a silent wrong gain. At init, check `result.success`. |
 | `Law<result, float>` or `.as<float>()` | Design stays in `double` for numerics; deploy is `float` for the MCU. Convert once at the boundary instead of mixing precisions on every tick. |
 | `constinit` on the runtime object | Controllers and estimators in static storage with constant initialization: state lands in the binary image (`.hex` / load image), not via a dynamic constructor during `__start`. No heap and no first-use setup in the interrupt. |
-| `StateSpace` / `TransferFunction` / `ZPK` | Shared LTI types for plants and interconnections (series `*`, feedback `/`, `discretize`, …). Prefer these over ad-hoc `A`/`B` arrays local to one module. |
+| `StateSpace` / `TransferFunction` / `ZPK` | Shared LTI types for plants and interconnections (series `*`, parallel `+`, `feedback`, `discretize`, …). Prefer these over ad-hoc `A`/`B` arrays local to one module. |
 | `damp::` math (and aliases), not `std::` on target | `damp::sin` / `sqrt` / `exp` / … go through `MathBackend<T>` (constexpr-friendly at design time, swappable on target). Same for `damp::array`, `optional`, `clamp`, and the other backed aliases — raw `std::` skips that path and freestanding builds. |
 
 Also: keep `design::…` out of the PWM ISR; prefer `mat::solve` over forming inverses;
