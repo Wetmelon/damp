@@ -576,6 +576,17 @@ template<typename... Opts>
 template<size_t NX, size_t NU, size_t NY, size_t NP, size_t NC, size_t ND = 0, typename T = double, size_t NT_max = 0, size_t NXC = 0, size_t NYC = 0, size_t NDU = 0>
 struct [[nodiscard]] MPCArtifacts {
     static_assert(NDU == 0 || NDU == NU, "A move limit bounds every input: an InputRateLimits on the plant's NU.");
+    using scalar = T;                                                               ///< The scalar of its matrices
+    static constexpr size_t nx = NX;                                                ///< States of the prediction model
+    static constexpr size_t nu = NU;                                                ///< Inputs
+    static constexpr size_t ny = NY;                                                ///< Outputs the QP predicts and weighs
+    static constexpr size_t np = NP;                                                ///< Prediction horizon
+    static constexpr size_t nc = NC;                                                ///< Control horizon
+    static constexpr size_t nd = ND;                                                ///< Disturbance channels: the estimated ones, then the measured ones
+    static constexpr size_t nt_max = NT_max;                                        ///< Terminal-set rows it has room for
+    static constexpr size_t nxc = NXC;                                              ///< Bounded states
+    static constexpr size_t nyc = NYC;                                              ///< Bounded outputs
+    static constexpr size_t ndu = NDU;                                              ///< Inputs with a move limit
     static constexpr size_t NXA = NX + NU + ND;                                     ///< Augmented state size [x; u'_prev; d]
     static constexpr size_t NYS = NP * NY;                                          ///< Stacked outputs over the prediction horizon (the reference)
     static constexpr size_t NYCS = NP * NYC;                                        ///< Stacked bounded outputs over the prediction horizon
@@ -3556,11 +3567,13 @@ inline constexpr size_t mpc_measured_disturbances = NDQ - mpc_estimator_traits<r
  * @brief MPC law{res}: every size of design::mpc's result, its scalar and its filter: on the
  *        measured state, or through its filter's FixedGainObserver (OFMPC with a disturbance spec);
  *        with a MeasuredDisturbance the QP and the target have NDQ = ND̂ + ND disturbance channels.
+ *
+ * The guide names the artifacts' sizes as its own parameters, where mpc_runtime reads them
+ * (MPCArtifacts::nx, …): OFMPC, an alias, deduces through this guide, and a size it reads off a
+ * member is one it cannot deduce.
  */
-template<
-    size_t NXM, size_t NU, size_t NY, size_t NP, size_t NC, size_t NDQ, typename T, size_t NT, size_t NXC, size_t NYC, size_t NDU, typename Kalman, size_t NXE, size_t NZT, size_t NRU,
-    size_t NH>
-MPC(const design::MPCResult<design::MPCArtifacts<NXM, NU, NY, NP, NC, NDQ, T, NT, NXC, NYC, NDU>, Kalman, design::SteadyStateTargetResult<NXE, NU, NDQ, NZT, T>, NRU, NH>&) -> MPC<
+template<size_t NXM, size_t NU, size_t NY, size_t NP, size_t NC, size_t NDQ, typename T, size_t NT, size_t NXC, size_t NYC, size_t NDU, typename Kalman, typename Target, size_t NRU, size_t NH>
+MPC(const design::MPCResult<design::MPCArtifacts<NXM, NU, NY, NP, NC, NDQ, T, NT, NXC, NYC, NDU>, Kalman, Target, NRU, NH>&) -> MPC<
     NXM,
     NU,
     NY,
@@ -3578,10 +3591,8 @@ MPC(const design::MPCResult<design::MPCArtifacts<NXM, NU, NY, NP, NC, NDQ, T, NT
     detail::runtime_estimator_t<Kalman, T>>;
 
 /** @brief MPC law{res, solver}: as MPC law{res}, with that solver. */
-template<
-    size_t NXM, size_t NU, size_t NY, size_t NP, size_t NC, size_t NDQ, typename T, size_t NT, size_t NXC, size_t NYC, size_t NDU, typename Kalman, size_t NXE, size_t NZT, size_t NRU,
-    size_t NH, typename Solver>
-MPC(const design::MPCResult<design::MPCArtifacts<NXM, NU, NY, NP, NC, NDQ, T, NT, NXC, NYC, NDU>, Kalman, design::SteadyStateTargetResult<NXE, NU, NDQ, NZT, T>, NRU, NH>&, const Solver&)
+template<size_t NXM, size_t NU, size_t NY, size_t NP, size_t NC, size_t NDQ, typename T, size_t NT, size_t NXC, size_t NYC, size_t NDU, typename Kalman, typename Target, size_t NRU, size_t NH, typename Solver>
+MPC(const design::MPCResult<design::MPCArtifacts<NXM, NU, NY, NP, NC, NDQ, T, NT, NXC, NYC, NDU>, Kalman, Target, NRU, NH>&, const Solver&)
     -> MPC<NXM, NU, NY, NP, NC, detail::mpc_measured_disturbances<Kalman, NDQ, T>, T, Solver, NT, NXC, NYC, NRU, NH, NDU, detail::runtime_estimator_t<Kalman, T>>;
 
 namespace detail {
@@ -3591,27 +3602,25 @@ template<typename R, typename T>
 struct mpc_runtime {};
 
 /** @brief design::mpc runs as MPC: on the measured state, or with its filter, on members or on the design's constants. */
-template<
-    size_t NXM, size_t NU, size_t NY, size_t NP, size_t NC, size_t NDQ, typename U, size_t NT, size_t NXC, size_t NYC, size_t NDU, typename Kalman, size_t NXE, size_t NZT, size_t NRU,
-    size_t NH, typename T>
-struct mpc_runtime<design::MPCResult<design::MPCArtifacts<NXM, NU, NY, NP, NC, NDQ, U, NT, NXC, NYC, NDU>, Kalman, design::SteadyStateTargetResult<NXE, NU, NDQ, NZT, U>, NRU, NH>, T> {
+template<typename Art, typename Kalman, typename Target, size_t NRU, size_t NH, typename T>
+struct mpc_runtime<design::MPCResult<Art, Kalman, Target, NRU, NH>, T> {
     /** @brief The design's MPC with the estimator @p Estimator. */
     template<typename Estimator>
     using with = MPC<
-        NXM,
-        NU,
-        NY,
-        NP,
-        NC,
-        mpc_measured_disturbances<Kalman, NDQ, T>,
+        Art::nx,
+        Art::nu,
+        Art::ny,
+        Art::np,
+        Art::nc,
+        mpc_measured_disturbances<Kalman, Art::nd, T>,
         T,
-        typename mpc_default_solver<design::MPCArtifacts<NXM, NU, NY, NP, NC, NDQ, T, NT, NXC, NYC, NDU>, T>::type,
-        NT,
-        NXC,
-        NYC,
+        typename mpc_default_solver<Art, T>::type,
+        Art::nt_max,
+        Art::nxc,
+        Art::nyc,
         NRU,
         NH,
-        NDU,
+        Art::ndu,
         Estimator>;
     using type = with<runtime_estimator_t<Kalman, T>>;                      ///< MPC, its filter's matrices members
     static constexpr bool filtered = !damp::is_same_v<Kalman, NoEstimator>; ///< Whether it has a filter, which can run on the design's constants
