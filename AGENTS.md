@@ -123,7 +123,7 @@ the repo root.
   continuous one, the weights), so braces size it from the plant; the rest is a
   trailing pack recognized by type (`design/options.hpp`: `KalmanNoise`,
   `InputDelay`, `OutputDelay`, `IntegralAction`, `TrackedOutputs`, `InputLimits`, `DemandLimit`, `OutputLimits`,
-  `StateLimits`, `DareCost`, `InvariantSet`, `QPIterations`, a disturbance spec, …), at most one of each
+  `StateLimits`, `DareCost`, `InvariantSet`, `QPIterations`, a disturbance spec, `MeasuredDisturbance`, …), at most one of each
   kind, in any order, refused at compile time otherwise. What the gain does not depend on is an option, not a
   weight: the limits on u and Δu are `InputLimits{.u_lim, .du_lim}` in both families (an LQ design refuses
   a `.du_lim`: its law clamps u), and an LQ design bounds what its outer terms ask of a state with a
@@ -138,7 +138,8 @@ the repo root.
   a model with the delay built in is the plant route, for a model one holds. The
   options pick the law: `state_feedback` is LQR, LQI with an `IntegralAction`,
   LQG with a `KalmanNoise`, LQGI or OFLQG with both; `mpc` is MPC, or OFMPC with
-  a noise and a disturbance spec. An option carries its own numbers, so the
+  a noise and a disturbance spec; a `MeasuredDisturbance` adds to any of them, the target under d and a filter's known
+  input after u. An option carries its own numbers, so the
   weights are the same with or without it: `IntegralAction{.Q, .outputs, .lim,
   .tracking_time}` the integrators' cost and limits, `KalmanNoise` the noise and
   the disturbance's walk, `InputDelay<N>{θ}` and `OutputDelay<M>{θ}` the delays. A weight an option's

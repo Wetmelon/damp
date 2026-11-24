@@ -14,9 +14,9 @@
  *
  * Finite-horizon constrained control of a discrete-time plant
  * @f$ x_{k+1} = A x_k + B u_k + B_d d_k,\; y_k = C x_k @f$ (roadmap #14), where
- * @f$ u @f$ are the manipulated inputs and @f$ d @f$ optional disturbances: measured ones
- * (feedforward inputs the controller knows but does not command) or the estimate of an
- * unmeasured one (offset-free control, see design::mpc).
+ * @f$ u @f$ are the manipulated inputs and @f$ d @f$ optional disturbances: the estimate of an
+ * unmeasured one (offset-free control, see design::mpc), measured ones (feedforward inputs the
+ * controller knows but does not command, a MeasuredDisturbance), or both, the estimated first.
  * The move increments @f$ \Delta u @f$ are the decision variables (the
  * "velocity form"): the state is augmented as @f$ \tilde x = [x;\, u_{prev};\, d] @f$
  * so the held input and the disturbance are carried by the prediction
@@ -559,7 +559,7 @@ struct MPCLimits {
  *
  * @tparam NX       States of the prediction model
  * @tparam NY       Outputs the QP predicts and weighs: every row of the plant's C
- * @tparam ND       Disturbance channels: the measured disturbances, or the estimated ones
+ * @tparam ND       Disturbance channels: the estimated disturbances, then the measured ones
  * @tparam NXC      States with bounds (the design's StateLimits; 0: none)
  * @tparam NYC      Outputs with bounds (the design's OutputLimits; 0: none)
  */
@@ -1655,28 +1655,6 @@ template<size_t NP, size_t NC, size_t ND, size_t NT_max = 0, size_t NX, size_t N
 } // namespace detail
 
 /**
- * @brief A measured disturbance: a known input the controller does not command, entering the
- *        state update through @c Bd (a load torque, a feed rate, the ambient temperature).
- *
- * Given to design::mpc on the measured state, it adds the channel to the prediction model, and
- * the runtime takes the disturbance each tick (MPC::step(r, d, x)). It is held over the
- * horizon and not rescaled, and the steady-state target is the one under it, so a terminal
- * cost or set holds about the steady state d moves the plant to. B_d is in the plant's time domain: continuous on a continuous
- * plant (discretized with it by ZOH), per step on a discrete one.
- *
- * @note Compare with MATLAB®'s measured-disturbance channels (setmpcsignals 'MD').
- * @tparam NX Plant states; NM Measured-disturbance inputs
- */
-template<size_t NX, size_t NM, typename T = double>
-struct MeasuredDisturbance {
-    Matrix<NX, NM, T> Bd{}; ///< How the measured disturbance enters the state update
-};
-
-/** @brief Sizes from the matrix: `MeasuredDisturbance{Bd}`. */
-template<size_t NX, size_t NM, typename T>
-MeasuredDisturbance(Matrix<NX, NM, T>) -> MeasuredDisturbance<NX, NM, T>;
-
-/**
  * @struct MPCResult
  * @brief An MPC design: the condensed QP, the estimator when there is one, and the steady-state
  *        target the runtime poses the QP about; consumed by damp::MPC
@@ -1716,14 +1694,6 @@ struct [[nodiscard]] MPCResult {
 };
 
 namespace detail {
-
-/** @brief Not a measured disturbance. */
-template<typename>
-struct is_measured_disturbance : damp::false_type {};
-
-/** @brief MeasuredDisturbance. */
-template<size_t NX, size_t NM, typename T>
-struct is_measured_disturbance<MeasuredDisturbance<NX, NM, T>> : damp::true_type {};
 
 /** @brief The options design::mpc takes after the weights. */
 using mpc_options = ::damp::detail::option_set<
@@ -1807,29 +1777,6 @@ template<size_t NU, size_t NW, typename Spec, size_t NY, typename T>
     return Q;
 }
 
-/**
- * @brief The spec a measured-state MPC's target is designed on: the outputs @p held lists, under the
- *        measured disturbance as a disturbance of the steady state that no reading feels
- *        (DisturbanceModel{.Bd, .outputs}, C_d = 0), or the TrackedOutputs alone without one.
- */
-template<size_t NXD, size_t NM, typename T, size_t NS>
-[[nodiscard]] constexpr auto measured_target_spec(const MeasuredDisturbance<NXD, NM, T>& measured, const TrackedOutputs<NS>& held) {
-    if constexpr (NM == 0) {
-        static_cast<void>(measured);
-        return held;
-    } else {
-        DisturbanceModel<NXD, 0, NM, NS, T> spec{.Bd = measured.Bd};
-        if constexpr (NS > 0) {
-            for (size_t i = 0; i < NS; ++i) {
-                spec.outputs[i] = held.outputs[i];
-            }
-        } else {
-            static_cast<void>(held);
-        }
-        return spec;
-    }
-}
-
 /** @brief The spec a filtered MPC's target is designed on: the disturbance model, which holds the outputs it lists, else the outputs @p held lists (TrackedOutputs, no disturbance). */
 template<typename Spec, size_t NS>
 [[nodiscard]] constexpr auto target_spec_of(const Spec& spec, const TrackedOutputs<NS>& held) {
@@ -1884,43 +1831,34 @@ template<size_t NU, typename T, typename Delay>
  *        design::steady_state_target on the outputs @p held lists, under the measured d.
  */
 template<
-    bool Discrete, size_t NP, size_t NC, size_t NT_max, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NYC, size_t NXC, size_t NXD, size_t NM,
-    size_t NS, typename Delay = NoDelay>
+    bool Discrete, size_t NP, size_t NC, size_t NT_max, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NYC, size_t NXC, size_t NM, size_t NS,
+    typename Delay = NoDelay>
 [[nodiscard]] constexpr auto mpc_measured(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     T                                        Ts,
     const MPCWeights<NU, NY, T>&             weights,
     const MPCConstraintSet<NU, NYC, T, NXC>& constraints,
-    const MeasuredDisturbance<NXD, NM, T>&   measured,
+    const MeasuredDisturbance<NX, NM, T>&    measured,
     const TrackedOutputs<NS>&                held,
     const Delay&                             delay = Delay{}
 ) {
-    static_assert(NM == 0 || NXD == NX, "The measured disturbance enters the plant's states: MeasuredDisturbance<NX, NM>.");
     constexpr size_t NXL = NX + (delay_registers<Delay> * NU); // the plant, then the delay states
-    const auto       spec = measured_target_spec(measured, held);
     using Law = MPCArtifacts<NXL, NU, NY, NP, NC, NM, T, NT_max, NXC, NYC>;
-    using Target = SteadyStateTargetResult<NXL, NU, NM, target_outputs<damp::remove_cvref_t<decltype(spec)>, NU, NY, NW>, T>;
+    using Target = SteadyStateTargetResult<NXL, NU, NM, target_outputs<TrackedOutputs<NS>, NU, NY, NW>, T>;
     using Result = MPCResult<Law, NoEstimator, Target, delay_registers<Delay>, NS>; // the runtime holds the delay states
     const auto m = sampled_model(sys, Ts, Discrete, delay);
     if (m.status != DesignStatus::ok) {
         return ::damp::detail::refused<Result>(m.status);
     }
-    Matrix<NXL, NM, T> Bd{};
-    if constexpr (NM > 0) {
-        if constexpr (Discrete) {
-            Bd.template block<NX, NM>(0, 0) = measured.Bd;
-        } else {
-            const auto d = ::damp::discretize(StateSpace<NX, NM, 1, T>{.A = sys.A, .B = measured.Bd}, Ts);
-            if (!d) {
-                return ::damp::detail::refused<Result>(d.status); // a non-finite B_d (bad_weights)
-            }
-            Bd.template block<NX, NM>(0, 0) = d->B;
-        }
+    //! d on the plant's states, ZOH'd with a continuous one; none on the delay states
+    const auto Bd = measured_channel<Discrete>(sys, Ts, measured, delay);
+    if (!Bd) {
+        return ::damp::detail::refused<Result>(DesignStatus::bad_weights); // a non-finite B_d
     }
     Result     out{};
     const auto cost = mpc_continuous_cost<Discrete>(sys, measured.Bd, Ts, input_delays_of<NU>(delay, Ts));
-    out.mpc = mpc_impl<NP, NC, NM, NT_max>(m.law, Bd, Matrix<NY, NM, T>{}, weights, constraints, cost);
-    out.target = target_design<Discrete>(sys, Ts, spec, held_weight<NU, NW>(physical_output_weight(weights.Qy, out.mpc), spec), delay);
+    out.mpc = mpc_impl<NP, NC, NM, NT_max>(m.law, *Bd, Matrix<NY, NM, T>{}, weights, constraints, cost);
+    out.target = target_design<Discrete>(sys, Ts, held, held_weight<NU, NW>(physical_output_weight(weights.Qy, out.mpc), held), delay, *Bd);
     return ::damp::detail::set_status(out, first_failure(out.mpc.status, out.target.status));
 }
 
@@ -1928,11 +1866,13 @@ template<
  * @brief The MPC through an estimator: the filter of design::kalman with the same options, the
  *        QP on the law's model and every output with the disturbance channel, and the target of
  *        design::steady_state_target: under the disturbance spec, holding the outputs it lists,
- *        else on the outputs @p held lists.
+ *        else on the outputs @p held lists. A @p measured disturbance (NM > 0) is the filter's
+ *        known input after u, and the QP's and the target's channels after the estimated ones:
+ *        [d̂; d], so d̂ estimates what d does not account for.
  */
 template<
     bool Discrete, size_t NP, size_t NC, size_t NT_max, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NWN, size_t NVN, size_t NDN,
-    typename Spec, size_t NS, size_t NYC, size_t NXC, typename Delay = NoDelay>
+    typename Spec, size_t NS, size_t NYC, size_t NXC, size_t NM, typename Delay = NoDelay>
 [[nodiscard]] constexpr auto mpc_estimated_design(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     T                                        Ts,
@@ -1941,6 +1881,7 @@ template<
     const KalmanNoise<NWN, NVN, T, NDN>&     noise,
     const Spec&                              spec,
     const TrackedOutputs<NS>&                held,
+    const MeasuredDisturbance<NX, NM, T>&    measured,
     const Delay&                             delay = Delay{}
 ) {
     constexpr size_t ND = disturbance_traits<Spec, NU, NY, NW>::states;
@@ -1949,27 +1890,33 @@ template<
     constexpr size_t NXL = NX + (delay_registers<Delay> * NU); // the QP's: the plant, then the input's delay states
     constexpr size_t NXE = NX + delay_states<Delay, NU, NY>;   // the filter's: then the late readings' delay states
     const auto&      in = input_delay_of(delay);
-    const auto       kf = kalman_design<Discrete>(sys, Ts, noise, spec, delay);
+    const auto       Bm = measured_channel<Discrete>(sys, Ts, measured, delay); // on the filter's model
+    const auto       kf = with_measured_inputs(kalman_design<Discrete>(sys, Ts, noise, spec, delay), Bm);
     const auto       aim = target_spec_of(spec, held);
     using Aim = damp::remove_cvref_t<decltype(aim)>;
-    using Target = SteadyStateTargetResult<NXE, NU, ND, target_outputs<Aim, NU, NY, NW>, T>;
-    using Law = MPCArtifacts<NXL, NU, NY, NP, NC, ND, T, NT_max, NXC, NYC>;
+    using Target = SteadyStateTargetResult<NXE, NU, ND + NM, target_outputs<Aim, NU, NY, NW>, T>;
+    using Law = MPCArtifacts<NXL, NU, NY, NP, NC, ND + NM, T, NT_max, NXC, NYC>;
     using Result = MPCResult<Law, damp::remove_cvref_t<decltype(kf)>, Target, delay_registers<Delay>, disturbance_traits<Aim, NU, NY, NW>::listed>; // the filter carries the delay states
     Result     out{.kalman = kf};
     const auto m = sampled_model(sys, Ts, Discrete, in);
-    if (m.status != DesignStatus::ok) {
-        return ::damp::detail::set_status(out, first_failure(kf.status, m.status)); // a delay refused
+    if (m.status != DesignStatus::ok || !Bm) {
+        return ::damp::detail::set_status(out, first_failure(kf.status, m.status, Bm ? DesignStatus::ok : DesignStatus::bad_weights)); // a delay refused, a non-finite B_d
     }
-    //! The QP predicts, weighs and bounds every output of the law's model, the estimate riding B_d and C_d
+    //! The QP predicts, weighs and bounds every output of the law's model, the estimate riding B_d and C_d, then the measured d riding its channel
     const auto         channels = disturbance_channels(spec, sys, m.law, Ts);
-    const auto         cost = mpc_continuous_cost<Discrete>(sys, channels.Bd_c, Ts, input_delays_of<NU>(in, Ts));
+    const auto         cost = mpc_continuous_cost<Discrete>(sys, side_by_side(channels.Bd_c, measured.Bd), Ts, input_delays_of<NU>(in, Ts));
     Matrix<NXL, ND, T> Bd{};
     if constexpr (ND > 0) {
         Bd = channels.Bd.template block<NXL, ND>(0, 0);
     }
-    out.mpc = mpc_impl<NP, NC, ND, NT_max>(m.law, Bd, channels.Cd, weights, constraints, cost);
-    //! On the filter's model: under d̂ with a disturbance spec; a late reading's delay states hold the steady output
-    out.target = target_design<Discrete>(sys, Ts, aim, held_weight<NU, NW>(physical_output_weight(weights.Qy, out.mpc), aim), delay);
+    if constexpr (NM == 0) {
+        out.mpc = mpc_impl<NP, NC, ND, NT_max>(m.law, Bd, channels.Cd, weights, constraints, cost);
+    } else {
+        const Matrix<NXL, NM, T> Bm_law = Bm->template block<NXL, NM>(0, 0); // the law's model: before the late readings' delay states
+        out.mpc = mpc_impl<NP, NC, ND + NM, NT_max>(m.law, side_by_side(Bd, Bm_law), side_by_side(channels.Cd, Matrix<NY, NM, T>{}), weights, constraints, cost);
+    }
+    //! On the filter's model: under d̂ with a disturbance spec, and d; a late reading's delay states hold the steady output
+    out.target = target_design<Discrete>(sys, Ts, aim, held_weight<NU, NW>(physical_output_weight(weights.Qy, out.mpc), aim), delay, *Bm);
     return ::damp::detail::set_status(out, first_failure(kf.status, out.target.status, out.mpc.status));
 }
 
@@ -1982,23 +1929,17 @@ template<bool Discrete, size_t NP, size_t NC, size_t NT_max, size_t NX, size_t N
         !Discrete || ::damp::detail::option_count<is_input_delay, Opts...> + ::damp::detail::option_count<is_output_delay, Opts...> == 0,
         "A delay is sampled with the plant: give the continuous plant and Ts, mpc<NP, NC>(plant, Ts, weights, ..., InputDelay<N>{theta}, OutputDelay<M>{theta})."
     );
+    const auto measured = measured_of<NX, T>(opts...);
     if constexpr (mpc_estimated<Opts...>) {
-        static_assert(
-            ::damp::detail::option_count<is_measured_disturbance, Opts...> == 0,
-            "A measured disturbance with an estimator is not supported: the filter does not take it as an input."
-        );
         return mpc_estimated_design<Discrete, NP, NC, NT_max>(
             noise_model(sys), Ts, weights, constraints,
             ::damp::detail::option<is_kalman_noise>(KalmanNoise<noise_inputs<NX, NW>, noise_inputs<NY, NV>, T>{}, opts...),
-            ::damp::detail::option<is_disturbance>(NoDisturbance{}, opts...), held, delays_of(opts...)
+            ::damp::detail::option<is_disturbance>(NoDisturbance{}, opts...), held, measured, delays_of(opts...)
         );
     } else {
         static_assert(::damp::detail::option_count<is_disturbance, Opts...> == 0, "A disturbance spec needs KalmanNoise: the disturbance is estimated.");
         static_assert(::damp::detail::option_count<is_output_delay, Opts...> == 0, "An OutputDelay is a late reading: it needs a KalmanNoise, a filter to carry it.");
-        return mpc_measured<Discrete, NP, NC, NT_max>(
-            sys, Ts, weights, constraints, ::damp::detail::option<is_measured_disturbance>(MeasuredDisturbance<NX, 0, T>{}, opts...), held,
-            ::damp::detail::option<is_input_delay>(NoDelay{}, opts...)
-        );
+        return mpc_measured<Discrete, NP, NC, NT_max>(sys, Ts, weights, constraints, measured, held, ::damp::detail::option<is_input_delay>(NoDelay{}, opts...));
     }
 }
 
@@ -2026,6 +1967,7 @@ template<bool Discrete, size_t NP, size_t NC, size_t NT_max, size_t NX, size_t N
  * | mpc<NP, NC>(plant, [Ts,] weights) | MPC: the state measured |
  * | mpc<NP, NC>(plant, [Ts,] weights, MeasuredDisturbance{Bd}) | MPC with a known disturbance input, given each tick |
  * | mpc<NP, NC>(plant, [Ts,] weights, noise, disturbance) | OFMPC: a Kalman filter on [x; d], offset-free (below) |
+ * | mpc<NP, NC>(plant, [Ts,] weights, noise, disturbance, MeasuredDisturbance{Bd}) | OFMPC that also takes d each tick: d̂ estimates the rest (below) |
  * | … plus InputLimits{.u_lim, .du_lim} | the same, with hard limits on u and Δu |
  * | … plus OutputLimits{.outputs, .lim} | the same, with limits on the outputs it lists |
  * | … plus StateLimits{.states, .lim} | the same, with limits on states it does not track |
@@ -2117,6 +2059,13 @@ template<bool Discrete, size_t NP, size_t NC, size_t NT_max, size_t NX, size_t N
  * the readings match the model with @f$ \hat d @f$ and z = r whatever the true disturbance or
  * model error: no offset under constant disturbances and plant/model mismatch.
  *
+ * A MeasuredDisturbance beside the spec is the filter's known input after u, its model's B
+ * [B, B_m] (design::kalman with it), and the QP's and the target's channels after the estimated
+ * ones, [d̂; d]: the target holds z at r under both, the QP holds d over the horizon, and since
+ * the readings no longer carry the part of a load d accounts for, d̂ estimates only the rest. The
+ * runtime takes d after the reference and its feedforward, step(r, d, y), and the next predict
+ * moves the filter with it.
+ *
  * The spec's @c outputs lists the rows of the measured outputs held offset-free, z (all of them
  * when it lists none), as in the OFLQG; r is on z, while the weights and an OutputLimits are on
  * every output, so DisturbanceModel{.Bd = …, .outputs = {0}} on a plant with four readings
@@ -2157,10 +2106,11 @@ template<bool Discrete, size_t NP, size_t NC, size_t NT_max, size_t NX, size_t N
  * @param weights  Cost weights on every output of the plant, per prediction step (default: Qy = I, RΔu = I)
  * @param opts     In any order: InputLimits{.u_lim, .du_lim}, the hard limits on u and Δu;
  *                 MeasuredDisturbance<NX, NM>{.Bd}, a disturbance input measured each tick
- *                 (control(r, d)); or a KalmanNoise, the MPC then on a Kalman filter's estimate from the
+ *                 (control(r, d)); a KalmanNoise, the MPC then on a Kalman filter's estimate from the
  *                 measured outputs C and D, offset-free with a disturbance spec (runs as OFMPC: the
  *                 filter on [x; d], the QP posed about the steady-state target under d̂, which holds
- *                 the rows the spec lists, all of them without a list); TrackedOutputs{{i, …}}
+ *                 the rows the spec lists, all of them without a list), with a MeasuredDisturbance
+ *                 too its filter's input after u and the target under [d̂; d]; TrackedOutputs{{i, …}}
  *                 without a disturbance spec, the outputs r holds through the target;
  *                 OutputLimits{.outputs, .lim}, limits on the outputs it lists;
  *                 StateLimits{.states, .lim}, limits on states the QP does not track; DareCost{} or
@@ -2385,6 +2335,7 @@ template<typename Estimator>
 struct mpc_estimator_traits {
     static constexpr bool   estimated = false; ///< Whether there is a filter
     static constexpr size_t states = 0;        ///< NXK: the filter's states
+    static constexpr size_t inputs = 0;        ///< Its inputs: u, then a measured disturbance's
     static constexpr size_t outputs = 0;       ///< NY: the readings it takes
     static constexpr size_t disturbances = 0;  ///< ND: its disturbance states
 
@@ -2398,6 +2349,7 @@ template<size_t NXK, size_t NU, size_t NY, typename T, size_t ND, typename Store
 struct mpc_estimator_traits<FixedGainObserver<NXK, NU, NY, T, ND, Store>> {
     static constexpr bool   estimated = true;  ///< Whether there is a filter
     static constexpr size_t states = NXK;      ///< NXK: the filter's states
+    static constexpr size_t inputs = NU;       ///< Its inputs: u, then a measured disturbance's
     static constexpr size_t outputs = NY;      ///< NY: the readings it takes
     static constexpr size_t disturbances = ND; ///< ND: its disturbance states
 
@@ -2458,10 +2410,13 @@ struct NoMeasuredState {};
  *   update clamps d̂ into disturbance_lim (unbounded by default), so a load past it (a wall the
  *   plant is held against) does not wind d̂ and the target up.
  *   Without one the QP is posed about the target of the reference without a disturbance.
+ *   A measured disturbance is the filter's known input after u: control records it and the next
+ *   predict holds it over the period with the input, and the target and the QP's channels are
+ *   [d̂; d], so d̂ estimates only what d does not account for.
  *
  * @tparam NX        Plant states
  * @tparam NY        Outputs: the QP's weights and predictions, every row of the plant's C
- * @tparam ND        Measured-disturbance inputs (0: none)
+ * @tparam ND        Measured-disturbance inputs (0: none); through a filter, its inputs after u
  * @tparam Solver    QP solver policy (default: the warm-started Goldfarb–Idnani active set)
  * @tparam NT_max    Terminal-set row capacity (default 0)
  * @tparam Estimator FixedGainObserver, or NoEstimator for the measured state; it holds the
@@ -2490,14 +2445,14 @@ public:
     static constexpr size_t NXP = NX - (NRU * NU);                          ///< The plant's states: the model's before its delay states, a reference point x_ref's
     static constexpr size_t NYM = estimated ? Traits::outputs : NXP;        ///< Measured outputs (the plant's state without an estimator; the law holds its delay states)
     static constexpr size_t NXE = estimated ? (Traits::states - NDE) : NXM; ///< States of the estimator's model before the disturbance
-    static_assert(!estimated || ND == 0, "A measured disturbance with an estimator is not supported.");
     static_assert(damp::is_same_v<Estimator, NoEstimator> || estimated, "The estimator is a FixedGainObserver, or NoEstimator for the measured state.");
+    static_assert(!estimated || Traits::inputs == NU + ND, "The filter takes the inputs, then the measured disturbance: FixedGainObserver<NXK, NU + ND, …> of design::mpc with a MeasuredDisturbance.");
     static_assert(!estimated || NXE >= NXM, "The filter's model holds the law's, the delay states of late readings after it.");
 
     static constexpr size_t NREF = (NH == 0) ? NY : NH; ///< References r: one per output the target holds
 
-    using Artifacts = design::MPCArtifacts<NXM, NU, NY, NP, NC, ND + NDE, T, NT_max, NXC, NYC>;
-    using TargetResult = design::SteadyStateTargetResult<NXE, NU, ND + NDE, NREF, T>;
+    using Artifacts = design::MPCArtifacts<NXM, NU, NY, NP, NC, NDE + ND, T, NT_max, NXC, NYC>; ///< The QP: its disturbance channels [d̂; d]
+    using TargetResult = design::SteadyStateTargetResult<NXE, NU, NDE + ND, NREF, T>;           ///< The target per unit [d̂; d] and r
     using DisturbanceLim = detail::maybe<(NDE > 0), Bounds<NDE, T>, detail::OffSlot::disturbance_lim>;
 
     /** @brief Limits on the disturbance estimate d̂, in d's units: update clamps it, as OFLQG's (NDE > 0; default unbounded). */
@@ -2602,7 +2557,9 @@ public:
      */
     constexpr void predict() {
         applied_.take();
-        if constexpr (estimated) {
+        if constexpr (estimated && ND > 0) {
+            estimator.predict(::damp::detail::stacked(applied_.applied, measured_)); // the measured d the last control took, held over the period
+        } else if constexpr (estimated) {
             estimator.predict(applied_.applied);
         } else if constexpr (NRU > 0) {
             //! The delay states [v(k−1); …; v(k−NRU)] move a period on: the input the plant just received is the newest.
@@ -2654,8 +2611,11 @@ public:
      */
     [[nodiscard]] constexpr ColVec<NU, T> control(const Reference& r, const ColVec<ND, T>& d) {
         const Preview& ahead = r.r;
-        if constexpr (NDE > 0) {
-            static_cast<void>(d); // no measured disturbance alongside an estimated one
+        hold_measured(d);
+        if constexpr (NDE > 0 && ND > 0) {
+            target_.anchor(estimator, r.r[0], ColVec<NXE, T>{}, ColVec<NU, T>{}, d); // under [d̂; d]
+            return record(anchored_impl(ahead, d));
+        } else if constexpr (NDE > 0) {
             target_.anchor(estimator, r.r[0]);
             const auto x_dev = ::damp::detail::leading<NXM>(estimator.at_command());
             const auto x_a = ::damp::detail::leading<NXM>(estimator.anchor_state());
@@ -2693,8 +2653,11 @@ public:
     [[nodiscard]] constexpr ColVec<NU, T> control(const Reference& r, const ColVec<NXP, T>& x_ref, const ColVec<NU, T>& u_ref, const ColVec<ND, T>& d) {
         const ColVec<NXM, T> ref = ::damp::detail::on_law_model<NRU>(x_ref, u_ref);
         const auto&          ahead = fed_preview(r.r, ref);
-        if constexpr (NDE > 0) {
-            static_cast<void>(d); // no measured disturbance alongside an estimated one
+        hold_measured(d);
+        if constexpr (NDE > 0 && ND > 0) {
+            target_.anchor(estimator, r.r[0], ::damp::detail::on_filter_model<NXE>(ref), u_ref, d); // under [d̂; d]
+            return record(anchored_impl(ahead, d));
+        } else if constexpr (NDE > 0) {
             target_.anchor(estimator, r.r[0], ::damp::detail::on_filter_model<NXE>(ref), u_ref);
             const auto x_dev = ::damp::detail::leading<NXM>(estimator.at_command());
             const auto x_a = ::damp::detail::leading<NXM>(estimator.anchor_state());
@@ -2743,6 +2706,9 @@ public:
     /** @brief Reset the controller memory (the held input returns to zero); a state estimate is left in place. */
     constexpr void reset() {
         applied_ = ::damp::detail::AppliedRecord<NU, T>{};
+        if constexpr (estimated && ND > 0) {
+            measured_ = ColVec<ND, T>{};
+        }
         if constexpr (estimated) {
             estimator.reset();
         } else if constexpr (NRU > 0) {
@@ -2853,9 +2819,29 @@ public:
     }
 
 private:
-    using Target = SteadyStateTarget<NXE, NU, ND + NDE, NREF, T>;
+    using Target = SteadyStateTarget<NXE, NU, NDE + ND, NREF, T>;
     using MeasuredState = damp::conditional_t<estimated, detail::NoMeasuredState, ColVec<NX, T>>;
     using HeldMap = detail::maybe<(NH > 0), Matrix<NY, NREF, T>, detail::OffSlot::held_outputs>;
+    using HeldMeasured = detail::maybe<(estimated && ND > 0), ColVec<ND, T>, detail::OffSlot::held_measured>;
+
+    /** @brief Keep the measured disturbance @p d for the filter's next predict (nothing on the measured state, which has no filter to move). */
+    constexpr void hold_measured(const ColVec<ND, T>& d) {
+        if constexpr (estimated && ND > 0) {
+            measured_ = d;
+        } else {
+            static_cast<void>(d);
+        }
+    }
+
+    /** @brief The QP about the anchor the target just set under [d̂; @p d]: the estimated channels at d̂'s anchor, the measured at @p d (NDE > 0, ND > 0). */
+    constexpr ColVec<NU, T> anchored_impl(const Preview& ahead, const ColVec<ND, T>& d)
+        requires(NDE > 0 && ND > 0)
+    {
+        const auto x_dev = ::damp::detail::leading<NXM>(estimator.at_command());
+        const auto x_a = ::damp::detail::leading<NXM>(estimator.anchor_state());
+        const auto dq = ::damp::detail::stacked(estimator.anchor_disturbance(), d);
+        return control_impl(ahead, ColVec<NXM, T>(x_dev + x_a), dq, ColVec<NDE + ND, T>{}, x_a, ::damp::detail::leading<NU>(estimator.anchor_input()), x_dev);
+    }
 
     /** @brief The estimator from its design; nothing on the measured state. */
     template<typename Kalman>
@@ -2948,20 +2934,20 @@ private:
 
     /**
      * @brief The QP about the target (x_t, u_t): @p x the absolute state for the bounds,
-     *        @p x_dev = x − x_t for the gradient, @p dq the disturbance channels (absolute) and
-     *        @p dq_dev their deviation from the target's (zero: the target holds under the
-     *        estimated or measured disturbance).
+     *        @p x_dev = x − x_t for the gradient, @p dq the disturbance channels (absolute), the
+     *        estimated then the measured, and @p dq_dev their deviation from the target's (zero:
+     *        the target holds under both).
      */
     constexpr ColVec<NU, T> control_impl(
         const Preview&             r,
         const ColVec<NXM, T>&      x,
-        const ColVec<ND + NDE, T>& dq,
-        const ColVec<ND + NDE, T>& dq_dev,
+        const ColVec<NDE + ND, T>& dq,
+        const ColVec<NDE + ND, T>& dq_dev,
         const ColVec<NXM, T>&      x_t,
         const ColVec<NU, T>&       u_t,
         const ColVec<NXM, T>&      x_dev
     ) {
-        constexpr size_t NDQ = ND + NDE;
+        constexpr size_t NDQ = NDE + ND;
         // A failed (or default) design has zero scale factors: hold the last input.
         if (!art.success) {
             return ColVec<NU, T>(applied_.applied - applied_.feedforward);
@@ -3125,6 +3111,7 @@ private:
     [[no_unique_address]] MeasuredState  x_{};                 ///< The last measured state (no storage with an estimator)
     Target                               target_{};            ///< The maps to the steady-state target
     [[no_unique_address]] HeldMap        y_r_{};               ///< The target's outputs per unit reference (NH > 0)
+    [[no_unique_address]] HeldMeasured   measured_{};          ///< The measured disturbance the last control took, for the filter's next predict (with a filter and ND > 0)
     ::damp::detail::AppliedRecord<NU, T> applied_{};           ///< The last command, and the held input (the base of Δu)
     InputPreview                         u_target_{};          ///< The input target of each move: the target's input the last control used, or the one set
     bool                                 follow_target_{true}; ///< Whether Ru pulls toward the target's input (no set_input_target since clear_input_target)
@@ -3349,13 +3336,18 @@ namespace damp {
  * (unbounded by default), in d's units, as OFLQG's. A failed design does not compile when
  * constant-evaluated.
  *
- * @note Compare with MATLAB®'s mpcmove(mpcobj, xc, ym, r) with its default disturbance model.
+ * A design with a MeasuredDisturbance (NM > 0, its filter's inputs after u) takes d each tick,
+ * after the reference and its feedforward: control(r, d), step(r, d, y), control(r, x_ref, u_ref,
+ * d), step(r, x_ref, u_ref, d, y). The target is under [d̂; d], and predict moves the filter with
+ * the input and the d the last control took.
+ *
+ * @note Compare with MATLAB®'s mpcmove(mpcobj, xc, ym, r, v) with its default disturbance model.
  */
 template<
     size_t NX, size_t NU, size_t NY, size_t NP, size_t NC, typename T, typename Solver, size_t NT_max, typename Estimator, size_t NXC = 0, size_t NYC = 0, size_t NRU = 0,
     size_t NH = 0>
-class OFMPC : private detail::MPCCore<NX, NU, NY, NP, NC, 0, T, Solver, NT_max, Estimator, NXC, NYC, NRU, NH> {
-    using Core = detail::MPCCore<NX, NU, NY, NP, NC, 0, T, Solver, NT_max, Estimator, NXC, NYC, NRU, NH>;
+class OFMPC : private detail::MPCCore<NX, NU, NY, NP, NC, detail::mpc_estimator_traits<Estimator>::inputs - NU, T, Solver, NT_max, Estimator, NXC, NYC, NRU, NH> {
+    using Core = detail::MPCCore<NX, NU, NY, NP, NC, detail::mpc_estimator_traits<Estimator>::inputs - NU, T, Solver, NT_max, Estimator, NXC, NYC, NRU, NH>;
 
 public:
     using Reference = Core::Reference;       ///< r: held, or a Preview
@@ -3363,10 +3355,11 @@ public:
     using InputPreview = Core::InputPreview; ///< The input target per move
     using InputTarget = Core::InputTarget;   ///< The input target: held, braced, scalar or per move
 
-    static constexpr size_t NYM = Core::NYM; ///< Measured outputs
-    static constexpr size_t NDE = Core::NDE; ///< Estimated disturbance states
-    static constexpr size_t NZ1 = Core::NZ1; ///< QP decision size (moves + slack)
-    static constexpr size_t NI1 = Core::NI1; ///< QP constraint rows
+    static constexpr size_t NYM = Core::NYM;                                           ///< Measured outputs
+    static constexpr size_t NDE = Core::NDE;                                           ///< Estimated disturbance states
+    static constexpr size_t NM = detail::mpc_estimator_traits<Estimator>::inputs - NU; ///< Measured-disturbance inputs, the filter's after u (0: none)
+    static constexpr size_t NZ1 = Core::NZ1;                                           ///< QP decision size (moves + slack)
+    static constexpr size_t NI1 = Core::NI1;                                           ///< QP constraint rows
     static_assert(NDE > 0, "OFMPC runs design::mpc with a KalmanNoise and a disturbance spec: the filter estimates a disturbance.");
 
     constexpr OFMPC() = default;
@@ -3383,19 +3376,59 @@ public:
     constexpr void update(const ColVec<NYM, T>& y) { Core::update(y); }
 
     /** @brief The move about the target for @p r under d̂: u = u_prev + Δu₀, clamped to the u and Δu boxes. */
-    [[nodiscard]] constexpr ColVec<NU, T> control(const Reference& r) { return Core::control(r, ColVec<0, T>{}); }
+    [[nodiscard]] constexpr ColVec<NU, T> control(const Reference& r)
+        requires(NM == 0)
+    {
+        return Core::control(r, ColVec<0, T>{});
+    }
 
     /** @brief control(@p r) about the planned trajectory (@p x_ref, @p u_ref), which adds to the target's under d̂: feedforward, as OFLQG's control(r, x_ref, u_ref). */
-    [[nodiscard]] constexpr ColVec<NU, T> control(const Reference& r, const ColVec<Core::NXP, T>& x_ref, const ColVec<NU, T>& u_ref) {
+    [[nodiscard]] constexpr ColVec<NU, T> control(const Reference& r, const ColVec<Core::NXP, T>& x_ref, const ColVec<NU, T>& u_ref)
+        requires(NM == 0)
+    {
         return Core::control(r, x_ref, u_ref, ColVec<0, T>{});
     }
 
+    /** @brief The move about the target for @p r under d̂ and the measured disturbance @p d, held over the horizon; the next predict moves the filter with it. */
+    [[nodiscard]] constexpr ColVec<NU, T> control(const Reference& r, const ColVec<NM, T>& d)
+        requires(NM > 0)
+    {
+        return Core::control(r, d);
+    }
+
+    /** @brief control(@p r, @p d) about the planned trajectory (@p x_ref, @p u_ref): the reference and its feedforward, then the measured disturbance. */
+    [[nodiscard]] constexpr ColVec<NU, T> control(const Reference& r, const ColVec<Core::NXP, T>& x_ref, const ColVec<NU, T>& u_ref, const ColVec<NM, T>& d)
+        requires(NM > 0)
+    {
+        return Core::control(r, x_ref, u_ref, d);
+    }
+
     /** @brief One tick: predict(), update(@p y), then control(@p r). */
-    [[nodiscard]] constexpr ColVec<NU, T> step(const Reference& r, const ColVec<NYM, T>& y) { return Core::step(r, ColVec<0, T>{}, y); }
+    [[nodiscard]] constexpr ColVec<NU, T> step(const Reference& r, const ColVec<NYM, T>& y)
+        requires(NM == 0)
+    {
+        return Core::step(r, ColVec<0, T>{}, y);
+    }
 
     /** @brief One tick: predict(), update(@p y), then control(@p r, @p x_ref, @p u_ref), the feedforward form. */
-    [[nodiscard]] constexpr ColVec<NU, T> step(const Reference& r, const ColVec<Core::NXP, T>& x_ref, const ColVec<NU, T>& u_ref, const ColVec<NYM, T>& y) {
+    [[nodiscard]] constexpr ColVec<NU, T> step(const Reference& r, const ColVec<Core::NXP, T>& x_ref, const ColVec<NU, T>& u_ref, const ColVec<NYM, T>& y)
+        requires(NM == 0)
+    {
         return Core::step(r, x_ref, u_ref, ColVec<0, T>{}, y);
+    }
+
+    /** @brief One tick: predict(), update(@p y), then control(@p r, @p d). */
+    [[nodiscard]] constexpr ColVec<NU, T> step(const Reference& r, const ColVec<NM, T>& d, const ColVec<NYM, T>& y)
+        requires(NM > 0)
+    {
+        return Core::step(r, d, y);
+    }
+
+    /** @brief One tick: predict(), update(@p y), then control(@p r, @p x_ref, @p u_ref, @p d). */
+    [[nodiscard]] constexpr ColVec<NU, T> step(const Reference& r, const ColVec<Core::NXP, T>& x_ref, const ColVec<NU, T>& u_ref, const ColVec<NM, T>& d, const ColVec<NYM, T>& y)
+        requires(NM > 0)
+    {
+        return Core::step(r, x_ref, u_ref, d, y);
     }
 
     using Core::applied;
@@ -3421,24 +3454,35 @@ public:
     using Core::valid;
 };
 
-/** @brief OFMPC law{res}: the sizes, scalar, filter, target, delay states and held outputs of an offset-free design::mpc result. */
-template<size_t NXM, size_t NU, size_t NY, size_t NP, size_t NC, size_t ND, typename T, size_t NT, size_t NXC, size_t NYC, size_t NXK, size_t NYM, size_t NW, size_t NV, size_t NXE, size_t NZT, size_t NRU, size_t NH>
-OFMPC(const design::MPCResult<design::MPCArtifacts<NXM, NU, NY, NP, NC, ND, T, NT, NXC, NYC>, design::KalmanResult<NXK, NU, NYM, T, NW, NV, ND>, design::SteadyStateTargetResult<NXE, NU, ND, NZT, T>, NRU, NH>&)
-    -> OFMPC<NXM, NU, NY, NP, NC, T, design::WarmStartActiveSetSolver<(NC * NU) + 1, design::MPCArtifacts<NXM, NU, NY, NP, NC, ND, T, NT, NXC, NYC>::NI1, T>, NT, FixedGainObserver<NXK, NU, NYM, T, ND>, NXC, NYC, NRU, NH>;
+/**
+ * @brief OFMPC law{res}: the sizes, scalar, filter, target, delay states and held outputs of an offset-free design::mpc result; with a
+ *        MeasuredDisturbance its filter takes NUK = NU + NM inputs and the QP and the target NDQ = ND + NM disturbance channels.
+ */
+template<
+    size_t NXM, size_t NU, size_t NY, size_t NP, size_t NC, size_t NDQ, typename T, size_t NT, size_t NXC, size_t NYC, size_t NXK, size_t NUK, size_t NYM, size_t NW, size_t NV, size_t ND,
+    size_t NXE, size_t NZT, size_t NRU, size_t NH>
+OFMPC(const design::MPCResult<design::MPCArtifacts<NXM, NU, NY, NP, NC, NDQ, T, NT, NXC, NYC>, design::KalmanResult<NXK, NUK, NYM, T, NW, NV, ND>, design::SteadyStateTargetResult<NXE, NU, NDQ, NZT, T>, NRU, NH>&)
+    -> OFMPC<NXM, NU, NY, NP, NC, T, design::WarmStartActiveSetSolver<(NC * NU) + 1, design::MPCArtifacts<NXM, NU, NY, NP, NC, NDQ, T, NT, NXC, NYC>::NI1, T>, NT, FixedGainObserver<NXK, NUK, NYM, T, ND>, NXC, NYC, NRU, NH>;
 
 /** @brief OFMPC law{res, solver}: as OFMPC law{res}, with that solver. */
-template<size_t NXM, size_t NU, size_t NY, size_t NP, size_t NC, size_t ND, typename T, size_t NT, size_t NXC, size_t NYC, size_t NXK, size_t NYM, size_t NW, size_t NV, size_t NXE, size_t NZT, size_t NRU, size_t NH, typename Solver>
-OFMPC(const design::MPCResult<design::MPCArtifacts<NXM, NU, NY, NP, NC, ND, T, NT, NXC, NYC>, design::KalmanResult<NXK, NU, NYM, T, NW, NV, ND>, design::SteadyStateTargetResult<NXE, NU, ND, NZT, T>, NRU, NH>&, const Solver&) -> OFMPC<NXM, NU, NY, NP, NC, T, Solver, NT, FixedGainObserver<NXK, NU, NYM, T, ND>, NXC, NYC, NRU, NH>;
+template<
+    size_t NXM, size_t NU, size_t NY, size_t NP, size_t NC, size_t NDQ, typename T, size_t NT, size_t NXC, size_t NYC, size_t NXK, size_t NUK, size_t NYM, size_t NW, size_t NV, size_t ND,
+    size_t NXE, size_t NZT, size_t NRU, size_t NH, typename Solver>
+OFMPC(const design::MPCResult<design::MPCArtifacts<NXM, NU, NY, NP, NC, NDQ, T, NT, NXC, NYC>, design::KalmanResult<NXK, NUK, NYM, T, NW, NV, ND>, design::SteadyStateTargetResult<NXE, NU, NDQ, NZT, T>, NRU, NH>&, const Solver&)
+    -> OFMPC<NXM, NU, NY, NP, NC, T, Solver, NT, FixedGainObserver<NXK, NUK, NYM, T, ND>, NXC, NYC, NRU, NH>;
 
 namespace detail {
 
-/** @brief An offset-free design::mpc runs as OFMPC. */
-template<size_t NXM, size_t NU, size_t NY, size_t NP, size_t NC, size_t ND, typename U, size_t NT, size_t NXC, size_t NYC, size_t NXK, size_t NYM, size_t NW, size_t NV, size_t NXE, size_t NZT, size_t NRU, size_t NH, typename T>
-struct mpc_runtime<design::MPCResult<design::MPCArtifacts<NXM, NU, NY, NP, NC, ND, U, NT, NXC, NYC>, design::KalmanResult<NXK, NU, NYM, U, NW, NV, ND>, design::SteadyStateTargetResult<NXE, NU, ND, NZT, U>, NRU, NH>, T> {
-    using type = OFMPC<NXM, NU, NY, NP, NC, T, design::WarmStartActiveSetSolver<(NC * NU) + 1, design::MPCArtifacts<NXM, NU, NY, NP, NC, ND, T, NT, NXC, NYC>::NI1, T>, NT, FixedGainObserver<NXK, NU, NYM, T, ND>, NXC, NYC, NRU, NH>; ///< OFMPC
-    static constexpr bool filtered = true;                                                                                                                                                                                              ///< Its filter can run on the design's constants
+/** @brief An offset-free design::mpc runs as OFMPC, its filter taking u then any measured disturbance (NUK inputs). */
+template<
+    size_t NXM, size_t NU, size_t NY, size_t NP, size_t NC, size_t NDQ, typename U, size_t NT, size_t NXC, size_t NYC, size_t NXK, size_t NUK, size_t NYM, size_t NW, size_t NV, size_t ND,
+    size_t NXE, size_t NZT, size_t NRU, size_t NH, typename T>
+struct mpc_runtime<design::MPCResult<design::MPCArtifacts<NXM, NU, NY, NP, NC, NDQ, U, NT, NXC, NYC>, design::KalmanResult<NXK, NUK, NYM, U, NW, NV, ND>, design::SteadyStateTargetResult<NXE, NU, NDQ, NZT, U>, NRU, NH>, T> {
+    using Solver = design::WarmStartActiveSetSolver<(NC * NU) + 1, design::MPCArtifacts<NXM, NU, NY, NP, NC, NDQ, T, NT, NXC, NYC>::NI1, T>; ///< The QP's solver
+    using type = OFMPC<NXM, NU, NY, NP, NC, T, Solver, NT, FixedGainObserver<NXK, NUK, NYM, T, ND>, NXC, NYC, NRU, NH>;                      ///< OFMPC
+    static constexpr bool filtered = true;                                                                                                   ///< Its filter can run on the design's constants
     template<const auto& Res>
-    using on_constants = OFMPC<NXM, NU, NY, NP, NC, T, design::WarmStartActiveSetSolver<(NC * NU) + 1, design::MPCArtifacts<NXM, NU, NY, NP, NC, ND, T, NT, NXC, NYC>::NI1, T>, NT, FixedGainObserver<NXK, NU, NYM, T, ND, ConstantObserver<Res, T, NXK - ND>>, NXC, NYC, NRU, NH>; ///< OFMPC with its filter on the design's constants
+    using on_constants = OFMPC<NXM, NU, NY, NP, NC, T, Solver, NT, FixedGainObserver<NXK, NUK, NYM, T, ND, ConstantObserver<Res, T, NXK - ND>>, NXC, NYC, NRU, NH>; ///< OFMPC with its filter on the design's constants
 };
 
 } // namespace detail

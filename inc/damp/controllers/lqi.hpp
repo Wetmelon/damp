@@ -55,11 +55,17 @@ using LQIResult = StateFeedbackResult<NX, NU, T, NI, NY, NoEstimator, 0, NRU>;
  *
  * @note Compare with MATLAB®'s lqi.
  *
+ * A design with a MeasuredDisturbance (NM > 0) feeds d forward through the steady state under it
+ * that holds the integrated outputs at 0, u = u_t(d) − K·[x − x_t(d); xi], and the integrators
+ * hold r and take up what the model leaves: control(r, d), step(r, d, x), control(r, x_ref,
+ * u_ref, d), step(r, x_ref, u_ref, d, x).
+ *
  * @tparam NRU Input registers the law holds (0: none)
+ * @tparam NM  Measured-disturbance inputs (0: none)
  */
-template<size_t NX, size_t NU, size_t NI, typename T = float, size_t NY = NX, typename Store = detail::HeldGains, size_t NRU = 0>
-struct LQI : private detail::StateFeedbackCore<NX, NU, T, NI, NY, NoEstimator, 0, Store, NRU> {
-    using Core = detail::StateFeedbackCore<NX, NU, T, NI, NY, NoEstimator, 0, Store, NRU>; ///< The shared implementation
+template<size_t NX, size_t NU, size_t NI, typename T = float, size_t NY = NX, typename Store = detail::HeldGains, size_t NRU = 0, size_t NM = 0>
+struct LQI : private detail::StateFeedbackCore<NX, NU, T, NI, NY, NoEstimator, 0, Store, NRU, NM> {
+    using Core = detail::StateFeedbackCore<NX, NU, T, NI, NY, NoEstimator, 0, Store, NRU, NM>; ///< The shared implementation
 
     constexpr LQI() = default;
 
@@ -85,19 +91,59 @@ struct LQI : private detail::StateFeedbackCore<NX, NU, T, NI, NY, NoEstimator, 0
     constexpr void update(const ColVec<NX, T>& x) { Core::update(x); }
 
     /** @brief u = −K·[x; xi] at the state of the last update: the basic call, x* = 0 and u* = 0; holds r − Ci·C·x for the next predict. */
-    [[nodiscard]] constexpr ColVec<NU, T> control(const ColVec<NI, T>& r) { return Core::control(r, ColVec<NX, T>{}, ColVec<NU, T>{}); }
+    [[nodiscard]] constexpr ColVec<NU, T> control(const ColVec<NI, T>& r)
+        requires(NM == 0)
+    {
+        return Core::control(r, ColVec<NX, T>{}, ColVec<NU, T>{});
+    }
 
     /** @brief u = u* − K·[x − x*; xi] at the state of the last update: feedforward from a planned trajectory (x*, u*). */
-    [[nodiscard]] constexpr ColVec<NU, T> control(const ColVec<NI, T>& r, const ColVec<NX, T>& x_ref, const ColVec<NU, T>& u_ref) {
+    [[nodiscard]] constexpr ColVec<NU, T> control(const ColVec<NI, T>& r, const ColVec<NX, T>& x_ref, const ColVec<NU, T>& u_ref)
+        requires(NM == 0)
+    {
         return Core::control(r, x_ref, u_ref);
     }
 
     /** @brief One tick: predict(), update(@p x), then control(@p r). The basic call. */
-    [[nodiscard]] constexpr ColVec<NU, T> step(const ColVec<NI, T>& r, const ColVec<NX, T>& x) { return Core::step(r, ColVec<NX, T>{}, ColVec<NU, T>{}, x); }
+    [[nodiscard]] constexpr ColVec<NU, T> step(const ColVec<NI, T>& r, const ColVec<NX, T>& x)
+        requires(NM == 0)
+    {
+        return Core::step(r, ColVec<NX, T>{}, ColVec<NU, T>{}, x);
+    }
 
     /** @brief One tick: predict(), update(@p x), then control(@p r, @p x_ref, @p u_ref), the feedforward form. */
-    [[nodiscard]] constexpr ColVec<NU, T> step(const ColVec<NI, T>& r, const ColVec<NX, T>& x_ref, const ColVec<NU, T>& u_ref, const ColVec<NX, T>& x) {
+    [[nodiscard]] constexpr ColVec<NU, T> step(const ColVec<NI, T>& r, const ColVec<NX, T>& x_ref, const ColVec<NU, T>& u_ref, const ColVec<NX, T>& x)
+        requires(NM == 0)
+    {
         return Core::step(r, x_ref, u_ref, x);
+    }
+
+    /** @brief control(@p r) under the measured disturbance @p d: the target under it, after the reference. */
+    [[nodiscard]] constexpr ColVec<NU, T> control(const ColVec<NI, T>& r, const ColVec<NM, T>& d)
+        requires(NM > 0)
+    {
+        return Core::control(r, ColVec<NX, T>{}, ColVec<NU, T>{}, d);
+    }
+
+    /** @brief control(@p r, @p d) about the planned trajectory (@p x_ref, @p u_ref): the reference and its feedforward, then the measured disturbance. */
+    [[nodiscard]] constexpr ColVec<NU, T> control(const ColVec<NI, T>& r, const ColVec<NX, T>& x_ref, const ColVec<NU, T>& u_ref, const ColVec<NM, T>& d)
+        requires(NM > 0)
+    {
+        return Core::control(r, x_ref, u_ref, d);
+    }
+
+    /** @brief One tick: predict(), update(@p x), then control(@p r, @p d). */
+    [[nodiscard]] constexpr ColVec<NU, T> step(const ColVec<NI, T>& r, const ColVec<NM, T>& d, const ColVec<NX, T>& x)
+        requires(NM > 0)
+    {
+        return Core::step(r, ColVec<NX, T>{}, ColVec<NU, T>{}, d, x);
+    }
+
+    /** @brief One tick: predict(), update(@p x), then control(@p r, @p x_ref, @p u_ref, @p d). */
+    [[nodiscard]] constexpr ColVec<NU, T> step(const ColVec<NI, T>& r, const ColVec<NX, T>& x_ref, const ColVec<NU, T>& u_ref, const ColVec<NM, T>& d, const ColVec<NX, T>& x)
+        requires(NM > 0)
+    {
+        return Core::step(r, x_ref, u_ref, d, x);
     }
 
     using Core::applied;
@@ -110,18 +156,18 @@ struct LQI : private detail::StateFeedbackCore<NX, NU, T, NI, NY, NoEstimator, 0
 };
 
 /** @brief LQI law{res}: the sizes and scalar of an LQI design's result. */
-template<size_t NX, size_t NU, typename T, size_t NI, size_t NY, typename Kalman, size_t NZ, size_t NRU>
-LQI(const design::StateFeedbackResult<NX, NU, T, NI, NY, Kalman, NZ, NRU>&) -> LQI<NX, NU, NI, T, NY, detail::HeldGains, NRU>;
+template<size_t NX, size_t NU, typename T, size_t NI, size_t NY, typename Kalman, size_t NZ, size_t NRU, size_t NM>
+LQI(const design::StateFeedbackResult<NX, NU, T, NI, NY, Kalman, NZ, NRU, NM>&) -> LQI<NX, NU, NI, T, NY, detail::HeldGains, NRU, NM>;
 
 namespace detail {
 
 /** @brief An LQ design with integrators and no filter runs as LQI. */
-template<size_t NX, size_t NU, typename U, size_t NI, size_t NY, size_t NRU, typename T>
+template<size_t NX, size_t NU, typename U, size_t NI, size_t NY, size_t NRU, size_t NM, typename T>
     requires(NI > 0)
-struct lq_runtime<design::StateFeedbackResult<NX, NU, U, NI, NY, NoEstimator, 0, NRU>, T> {
-    using type = LQI<NX, NU, NI, T, NY, HeldGains, NRU>; ///< LQI
+struct lq_runtime<design::StateFeedbackResult<NX, NU, U, NI, NY, NoEstimator, 0, NRU, NM>, T> {
+    using type = LQI<NX, NU, NI, T, NY, HeldGains, NRU, NM>; ///< LQI
     template<typename, typename Store>
-    using on_constants = LQI<NX, NU, NI, T, NY, Store, NRU>; ///< LQI on the design's constants
+    using on_constants = LQI<NX, NU, NI, T, NY, Store, NRU, NM>; ///< LQI on the design's constants
 };
 
 } // namespace detail

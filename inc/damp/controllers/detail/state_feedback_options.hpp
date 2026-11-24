@@ -36,6 +36,7 @@ namespace detail {
  * | `.noise` | design::KalmanNoise{.process, .measurement} | a Kalman filter: the law measures y, not x (LQG) |
  * | `.offset_free` | design::detail::IntegralAction{}, or a disturbance model: InputDisturbance, OutputDisturbance, PlantDisturbance or DisturbanceModel | no steady-state error on the outputs r tracks (LQI, LQGI, OFLQG): by integrators on r − y, or by a disturbance the filter estimates (needs `.noise`) |
  * | `.track` | design::TrackedOutputs{} | the outputs r holds through the model's steady-state target, with no offset-free action (LQR, LQG) |
+ * | `.measured` | design::MeasuredDisturbance{Bd} | a disturbance read each tick: the target under it, and the filter's known input after u |
  *
  * @code
  * design::StateFeedbackOptions{.noise = design::KalmanNoise{.process = Qn, .measurement = Rn}, .offset_free = design::InputDisturbance{}}
@@ -44,11 +45,12 @@ namespace detail {
  * Each field's type is a template argument deduced from what you put in it, so the sizes an
  * option carries (the outputs listed, a latency) size the result.
  */
-template<typename NoiseT = Unset, typename OffsetFreeT = Unset, typename TrackT = Unset>
+template<typename NoiseT = Unset, typename OffsetFreeT = Unset, typename TrackT = Unset, typename MeasuredT = Unset>
 struct StateFeedbackOptions {
     NoiseT      noise{};       ///< design::KalmanNoise{.process, .measurement}: estimate the state with a Kalman filter
     OffsetFreeT offset_free{}; ///< design::detail::IntegralAction{}, or a disturbance model the filter estimates: no steady-state error
     TrackT      track{};       ///< design::TrackedOutputs{}: the outputs r holds through the steady-state target
+    MeasuredT   measured{};    ///< design::MeasuredDisturbance{Bd}: a disturbance read each tick, the target under it
 };
 
 /** @brief Not integral action. */
@@ -72,17 +74,19 @@ struct options_traits {
     using disturbance = Unset;           ///< .offset_free when it is a disturbance model
     using integrate = Unset;             ///< .offset_free when it is integral action
     using track = Unset;                 ///< .track
+    using measured = Unset;              ///< .measured
 };
 
 /** @brief The field types of a StateFeedbackOptions. */
-template<typename NoiseT, typename OffsetFreeT, typename TrackT>
-struct options_traits<StateFeedbackOptions<NoiseT, OffsetFreeT, TrackT>> {
+template<typename NoiseT, typename OffsetFreeT, typename TrackT, typename MeasuredT>
+struct options_traits<StateFeedbackOptions<NoiseT, OffsetFreeT, TrackT, MeasuredT>> {
     static constexpr bool named = true;                                                             ///< A StateFeedbackOptions
     using noise = NoiseT;                                                                           ///< .noise
     using offset_free = OffsetFreeT;                                                                ///< .offset_free
     using disturbance = damp::conditional_t<is_disturbance_model<OffsetFreeT>, OffsetFreeT, Unset>; ///< .offset_free when it is a disturbance model
     using integrate = damp::conditional_t<is_integral_action<OffsetFreeT>, OffsetFreeT, Unset>;     ///< .offset_free when it is integral action
     using track = TrackT;                                                                           ///< .track
+    using measured = MeasuredT;                                                                     ///< .measured
 };
 
 /** @brief How many outputs a selection integrates on a plant with NY outputs: none for anything but a selection. */
@@ -122,6 +126,10 @@ inline constexpr size_t integrator_count = integrated_count<typename options_tra
 template<size_t NX, size_t NU, size_t NY, typename T, typename Options>
 using config_for = lq_config<NX, NU, integrator_count<NY, Options>, T>;
 
+/** @brief The measured-disturbance inputs of a design's options: none without a MeasuredDisturbance. */
+template<typename Options>
+inline constexpr size_t measured_count = measured_inputs<typename options_traits<Options>::measured>;
+
 /** @brief Whether a disturbance spec fits the plant: a DisturbanceModel on its states and outputs, in its scalar. */
 template<typename Spec, size_t NX, size_t NY, typename T>
 inline constexpr bool disturbance_fits = true;
@@ -141,6 +149,8 @@ consteval bool fields_valid() {
     constexpr bool integrate = is_unset<typename O::integrate> || integrated_count<typename O::integrate, NY>::selection;
     constexpr bool track = is_unset<typename O::track> || is_tracked_outputs<typename O::track>;
     constexpr bool one_reference = is_unset<typename O::track> || is_unset<F>;
+    using M = O::measured;
+    constexpr bool measured = is_unset<M> || damp::is_same_v<M, MeasuredDisturbance<NX, measured_inputs<M>, T>>;
     static_assert(noise, "The noise is design::KalmanNoise{.process = ..., .measurement = ...}.");
     static_assert(
         choice,
@@ -151,7 +161,8 @@ consteval bool fields_valid() {
     static_assert(integrate, "The integrated outputs Ci·y: Ci is an NI x NY matrix, a column per measured output.");
     static_assert(track, "options.track is design::TrackedOutputs{} (every output) or TrackedOutputs{{i, ...}}.");
     static_assert(one_reference, "Integral action and a disturbance model already hold r: TrackedOutputs is for a law with neither (LQR, LQG).");
-    return noise && choice && fits && integrate && track && one_reference;
+    static_assert(measured, "options.measured is design::MeasuredDisturbance{.Bd = Matrix<NX, NM>{...}}: a row per plant state, in the plant's scalar.");
+    return noise && choice && fits && integrate && track && one_reference && measured;
 }
 
 /** @brief The features go together and the noise is sized to the plant: a message per mistake. @return They do and it is */
@@ -186,6 +197,17 @@ template<typename Options>
     } else {
         static_cast<void>(opts);
         return NoDisturbance{};
+    }
+}
+
+/** @brief The measured disturbance of the options, on a plant of NX states in T: none (NM = 0) without one. */
+template<size_t NX, typename T, typename Options>
+[[nodiscard]] constexpr auto measured_disturbance_of(const Options& opts) {
+    if constexpr (is_unset<typename options_traits<Options>::measured>) {
+        static_cast<void>(opts);
+        return MeasuredDisturbance<NX, 0, T>{};
+    } else {
+        return opts.measured;
     }
 }
 

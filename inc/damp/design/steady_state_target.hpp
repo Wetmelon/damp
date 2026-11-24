@@ -232,56 +232,25 @@ template<typename Spec, size_t NU, size_t NY, size_t NW, typename T>
 using target_weight = Matrix<target_outputs<Spec, NU, NY, NW>, target_outputs<Spec, NU, NY, NW>, T>;
 
 /**
- * @brief The target maps on the filter's model of @p sys under the options (see
- *        steady_state_target), in the plant's time domain (@p Discrete) or sampled at @p Ts,
- *        with the input registers of @p delay when it is an InputDelay. With NZ > NU, @p Q weighs
- *        the controlled outputs' least squares (MPC's cost).
+ * @brief The target maps of a model: [A − I, B; C_z, D_z]·[x_t; u_t] = [−B_d·d; r − C_{d,z}·d]
+ *        solved for unit d and r, @p M the left side (see steady_state_target). With NZ > NU,
+ *        @p Q weighs the controlled outputs' least squares (MPC's cost).
  */
-template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Spec, typename Delay = NoDelay>
-[[nodiscard]] constexpr auto target_design(
-    const StateSpace<NX, NU, NY, T, NW, NV>&  sys,
-    T                                         Ts,
-    const Spec&                               spec,
-    const target_weight<Spec, NU, NY, NW, T>& Q = target_weight<Spec, NU, NY, NW, T>::identity(),
-    const Delay&                              delay = Delay{}
+template<size_t NXE, size_t NU, size_t NZ, size_t ND, typename T>
+[[nodiscard]] constexpr SteadyStateTargetResult<NXE, NU, ND, NZ, T> target_solve(
+    const Matrix<NXE + NZ, NXE + NU, T>& M,
+    const Matrix<NXE, ND, T>&            Bd,
+    const Matrix<NZ, ND, T>&             Cdz,
+    const Matrix<NZ, NZ, T>&             Q
 ) {
-    constexpr size_t NXE = NX + delay_states<Delay, NU, NY>;
-    constexpr size_t NXL = NXE;
-    constexpr size_t ND = disturbance_traits<Spec, NU, NY, NW>::states;
-    constexpr size_t NZ = target_outputs<Spec, NU, NY, NW>;
     using Result = SteadyStateTargetResult<NXE, NU, ND, NZ, T>;
-    const auto m = sampled_model(sys, Ts, Discrete, delay);
-    if (m.status != DesignStatus::ok) {
-        return ::damp::detail::refused<Result>(m.status);
-    }
-    const auto rows = selected_outputs<NY>(listed_outputs(spec));
-    if (!rows) {
-        return ::damp::detail::refused<Result>(DesignStatus::bad_weights); // a controlled output out of range or listed twice
-    }
-    const auto ch = disturbance_channels(spec, sys, m.law, Ts);
-    if (!mat::all_of(ch.Bd, [](T v) { return damp::isfinite(v); }) || !mat::all_of(ch.Cd, [](T v) { return damp::isfinite(v); })) {
-        return ::damp::detail::refused<Result>(DesignStatus::bad_weights); // a non-finite B_d or C_d
-    }
-
-    //! [A − I, B; C_z, D_z]: z the listed rows of the law's model
-    Matrix<NXE + NZ, NXE + NU, T> M{};
-    M.template block<NXE, NXE>(0, 0) = m.law.A - Matrix<NXE, NXE, T>::identity();
-    M.template block<NXE, NU>(0, NXE) = m.law.B;
-    for (size_t i = 0; i < NZ; ++i) {
-        for (size_t j = 0; j < NXL; ++j) {
-            M(NXE + i, j) = m.law.C((*rows)[i], j);
-        }
-        for (size_t j = 0; j < NU; ++j) {
-            M(NXE + i, NXE + j) = m.law.D((*rows)[i], j);
-        }
-    }
     //! d enters the state update through B_d and the controlled outputs through their C_d rows:
     //! z = C_z x + D_z u + C_{d,z} d is held at r.
     Matrix<NXE + NZ, ND, T> rhs_d{};
-    rhs_d.template block<NXE, ND>(0, 0) = -ch.Bd;
+    rhs_d.template block<NXE, ND>(0, 0) = -Bd;
     for (size_t i = 0; i < NZ; ++i) {
         for (size_t j = 0; j < ND; ++j) {
-            rhs_d(NXE + i, j) = -ch.Cd((*rows)[i], j);
+            rhs_d(NXE + i, j) = -Cdz(i, j);
         }
     }
     Matrix<NXE + NZ, NZ, T> rhs_r{};
@@ -302,7 +271,7 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
         out = equilibrium_target<NXE, NU>(
             Matrix<NXE, NXE + NU, T>(M.template block<NXE, NXE + NU>(0, 0)),
             Matrix<NZ, NXE + NU, T>(M.template block<NZ, NXE + NU>(NXE, 0)),
-            ch.Bd,
+            Bd,
             Matrix<NZ, ND, T>(rhs_d.template block<NZ, ND>(NXE, 0) * T{-1}),
             Q
         );
@@ -326,6 +295,104 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
         }
     }
     return ::damp::detail::set_status(out, DesignStatus::ok);
+}
+
+/** @brief [A − I, B; C_z, D_z] of a model, C_z and D_z its outputs @p Cz, @p Dz held at r. */
+template<size_t NXE, size_t NU, size_t NZ, typename T>
+[[nodiscard]] constexpr Matrix<NXE + NZ, NXE + NU, T> target_system(
+    const Matrix<NXE, NXE, T>& A,
+    const Matrix<NXE, NU, T>&  B,
+    const Matrix<NZ, NXE, T>&  Cz,
+    const Matrix<NZ, NU, T>&   Dz
+) {
+    Matrix<NXE + NZ, NXE + NU, T> M{};
+    M.template block<NXE, NXE>(0, 0) = A - Matrix<NXE, NXE, T>::identity();
+    M.template block<NXE, NU>(0, NXE) = B;
+    M.template block<NZ, NXE>(NXE, 0) = Cz;
+    M.template block<NZ, NU>(NXE, NXE) = Dz;
+    return M;
+}
+
+/**
+ * @brief The target maps on the filter's model of @p sys under the options (see
+ *        steady_state_target), in the plant's time domain (@p Discrete) or sampled at @p Ts,
+ *        with the delay states of @p delay. With NZ > NU, @p Q weighs
+ *        the controlled outputs' least squares (MPC's cost). @p measured, a measured
+ *        disturbance's channel on the same model (measured_channel), adds its NM columns after
+ *        the spec's: target_d is then [x_t; u_t] per unit [d̂; d], and the measured d reaches
+ *        no reading directly.
+ */
+template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Spec, typename Delay = NoDelay, size_t NM = 0>
+[[nodiscard]] constexpr auto target_design(
+    const StateSpace<NX, NU, NY, T, NW, NV>&               sys,
+    T                                                      Ts,
+    const Spec&                                            spec,
+    const target_weight<Spec, NU, NY, NW, T>&              Q = target_weight<Spec, NU, NY, NW, T>::identity(),
+    const Delay&                                           delay = Delay{},
+    const Matrix<NX + delay_states<Delay, NU, NY>, NM, T>& measured = Matrix<NX + delay_states<Delay, NU, NY>, NM, T>{}
+) {
+    constexpr size_t NXE = NX + delay_states<Delay, NU, NY>;
+    constexpr size_t ND = disturbance_traits<Spec, NU, NY, NW>::states;
+    constexpr size_t NZ = target_outputs<Spec, NU, NY, NW>;
+    using Result = SteadyStateTargetResult<NXE, NU, ND + NM, NZ, T>;
+    const auto m = sampled_model(sys, Ts, Discrete, delay);
+    if (m.status != DesignStatus::ok) {
+        return ::damp::detail::refused<Result>(m.status);
+    }
+    const auto rows = selected_outputs<NY>(listed_outputs(spec));
+    if (!rows) {
+        return ::damp::detail::refused<Result>(DesignStatus::bad_weights); // a controlled output out of range or listed twice
+    }
+    const auto ch = disturbance_channels(spec, sys, m.law, Ts);
+    if (!mat::all_of(ch.Bd, [](T v) { return damp::isfinite(v); }) || !mat::all_of(ch.Cd, [](T v) { return damp::isfinite(v); })) {
+        return ::damp::detail::refused<Result>(DesignStatus::bad_weights); // a non-finite B_d or C_d
+    }
+
+    //! [A − I, B; C_z, D_z]: z the listed rows of the law's model, C_{d,z} the same rows of C_d
+    Matrix<NZ, NXE, T>     Cz{};
+    Matrix<NZ, NU, T>      Dz{};
+    Matrix<NZ, ND + NM, T> Cdz{};
+    for (size_t i = 0; i < NZ; ++i) {
+        for (size_t j = 0; j < NXE; ++j) {
+            Cz(i, j) = m.law.C((*rows)[i], j);
+        }
+        for (size_t j = 0; j < NU; ++j) {
+            Dz(i, j) = m.law.D((*rows)[i], j);
+        }
+        for (size_t j = 0; j < ND; ++j) {
+            Cdz(i, j) = ch.Cd((*rows)[i], j);
+        }
+    }
+    return target_solve<NXE, NU>(target_system(m.law.A, m.law.B, Cz, Dz), side_by_side(ch.Bd, measured), Cdz, Q);
+}
+
+/**
+ * @brief The target of a law whose r is not the target's (an LQ regulator, an LQI) under a
+ *        measured disturbance alone: the steady state that holds @p S·y at 0 under d on the
+ *        model of @p sys with @p delay, @p measured the disturbance's channel on it. Only its
+ *        map of d is kept (target_r has no columns): an LQ regulator holds every output at 0
+ *        (S = I), an LQI its integrated outputs (S = Ci), whose integrators then hold r.
+ */
+template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NS, typename Delay, size_t NM>
+[[nodiscard]] constexpr SteadyStateTargetResult<NX + delay_states<Delay, NU, NY>, NU, NM, 0, T> held_at_zero(
+    const StateSpace<NX, NU, NY, T, NW, NV>&               sys,
+    T                                                      Ts,
+    const Matrix<NS, NY, T>&                               S,
+    const Delay&                                           delay,
+    const Matrix<NX + delay_states<Delay, NU, NY>, NM, T>& measured
+) {
+    constexpr size_t NXE = NX + delay_states<Delay, NU, NY>;
+    using Result = SteadyStateTargetResult<NXE, NU, NM, 0, T>;
+    const auto m = sampled_model(sys, Ts, Discrete, delay);
+    if (m.status != DesignStatus::ok) {
+        return ::damp::detail::refused<Result>(m.status);
+    }
+    const auto full = target_solve<NXE, NU>(
+        target_system(m.law.A, m.law.B, Matrix<NS, NXE, T>(S * m.law.C), Matrix<NS, NU, T>(S * m.law.D)), measured, Matrix<NS, NM, T>{}, Matrix<NS, NS, T>::identity()
+    );
+    Result out{};
+    out.target_d = full.target_d;
+    return ::damp::detail::set_status(out, full.status);
 }
 
 } // namespace detail
@@ -465,6 +532,21 @@ struct SteadyStateTarget {
     ) const {
         const auto p = equilibrium(r, estimator.disturbance_estimate());
         estimator.anchor(ColVec<NX, T>(p.x + x_ref), ColVec<NU, T>(p.u + u_ref), x_ref, u_ref);
+    }
+
+    /**
+     * @brief anchor(estimator, r, x_ref, u_ref) under the measured disturbance @p d too: the target
+     *        for @p r under [d̂; d], its last NM columns d's, and the estimator's anchor input [u_a; d],
+     *        its measured inputs after u (design::kalman with a MeasuredDisturbance), so its next
+     *        predict moves the deviation by B_d·(d⁺ − d) as d changes.
+     */
+    template<typename Estimator, size_t NM>
+        requires(NM > 0 && NM < ND)
+    constexpr void anchor(Estimator& estimator, const ColVec<NZ, T>& r, const ColVec<NX, T>& x_ref, const ColVec<NU, T>& u_ref, const ColVec<NM, T>& d) const {
+        const auto               d_hat = estimator.disturbance_estimate();
+        const auto               p = equilibrium(r, ::damp::detail::stacked(d_hat, d));
+        const ColVec<NU + NM, T> u_a = ::damp::detail::stacked(ColVec<NU, T>(p.u + u_ref), d);
+        estimator.anchor(ColVec<NX, T>(p.x + x_ref), u_a, x_ref, ::damp::detail::stacked(u_ref, ColVec<NM, T>{}));
     }
 };
 

@@ -55,6 +55,7 @@ struct estimator_traits {
     static constexpr bool   present = false; ///< A filter runs
     static constexpr size_t NXE = 0;         ///< Filter states before the disturbance
     static constexpr size_t ND = 0;          ///< Disturbance states
+    static constexpr size_t NUK = 0;         ///< Inputs it takes: u, then a measured disturbance's
 };
 
 /** @brief A FixedGainObserver's sizes. */
@@ -63,6 +64,7 @@ struct estimator_traits<FixedGainObserver<NXK, NU, NY, T, ND_, Store>> {
     static constexpr bool   present = true;  ///< A filter runs
     static constexpr size_t NXE = NXK - ND_; ///< Filter states before the disturbance
     static constexpr size_t ND = ND_;        ///< Disturbance states
+    static constexpr size_t NUK = NU;        ///< Inputs it takes: u, then a measured disturbance's
 };
 
 /** @brief The runtime of a design's filter half: none for a measured state. */
@@ -313,7 +315,12 @@ struct IntegralDesign {
  * | integral | the integrated outputs Ci, Ci·C, Ci·D and the step | NI > 0 |
  * | integral_lim | the limits on ξ (IntegralAction::lim) | NI > 0, default unbounded |
  * | tracking_time | the integrators' back-calculation tracking time (IntegralAction::tracking_time) | NI > 0, default 0 |
- * | target | the steady-state target (design::steady_state_target's result) | oflqg; lqr and lqg with TrackedOutputs (NZ > 0) |
+ * | target | the steady-state target (design::steady_state_target's result) | oflqg; lqr and lqg with TrackedOutputs (NZ > 0); any law with a MeasuredDisturbance (NM > 0) |
+ *
+ * With a MeasuredDisturbance (NM > 0) the target is the steady state under it: target_d is [x_t; u_t]
+ * per unit [d̂; d], the filter's disturbance then the measured one, and on a law whose r is not the
+ * target's (a regulator, NZ = 0, holding every output at 0; an LQI or LQGI, its integrated outputs)
+ * it has no target_r. The filter takes d as a known input after u: its model's B is [B, B_d].
  *
  * A design on a plant whose input arrives late (an InputDelay) is on the law's model
  * [x; v(k−1); …; v(k−NRU)]: K, S, e, the integrated outputs, the filter's model and the target
@@ -325,10 +332,11 @@ struct IntegralDesign {
  * @tparam Kalman The filter's design: KalmanResult, or NoEstimator for a measured state
  * @tparam NZ     Controlled outputs of the target (0: none)
  * @tparam NRU    Delay states per input, the commands still on their way: NRU·NU states after the plant's (0: none)
+ * @tparam NM     Measured-disturbance inputs (MeasuredDisturbance; 0: none)
  *
  * @see "Optimal Control" (Anderson & Moore, 1990), §4 and §8
  */
-template<size_t NX, size_t NU, typename T = double, size_t NI = 0, size_t NY = NX, typename Kalman = NoEstimator, size_t NZ = 0, size_t NRU = 0>
+template<size_t NX, size_t NU, typename T = double, size_t NI = 0, size_t NY = NX, typename Kalman = NoEstimator, size_t NZ = 0, size_t NRU = 0, size_t NM = 0>
 struct [[nodiscard]] StateFeedbackResult {
     using Filter = ::damp::detail::estimator_traits<::damp::detail::runtime_estimator_t<Kalman, T>>;
     static constexpr bool   kEstimated = Filter::present;         ///< A Kalman filter estimates the state
@@ -338,7 +346,7 @@ struct [[nodiscard]] StateFeedbackResult {
     static constexpr size_t ND = Filter::ND;                      ///< Disturbance states of the filter
     static constexpr size_t NXF = kEstimated ? Filter::NXE : NXL; ///< The filter's model before d: the law's, then the delay states of late readings
     using Integral = ::damp::detail::maybe<(NI > 0), IntegralDesign<NI, NXL, NU, NY, T>, ::damp::detail::OffSlot::design_integral>;
-    using Target = ::damp::detail::maybe<(NZ > 0), SteadyStateTargetResult<NXF, NU, ND, NZ, T>, ::damp::detail::OffSlot::design_target>;
+    using Target = ::damp::detail::maybe<(NZ > 0 || NM > 0), SteadyStateTargetResult<NXF, NU, ND + NM, NZ, T>, ::damp::detail::OffSlot::design_target>;
     using IntegralLim = ::damp::detail::maybe<(NI > 0), Bounds<NI, T>, ::damp::detail::OffSlot::design_integral_lim>;
     using TrackingTime = ::damp::detail::maybe<(NI > 0), T, ::damp::detail::OffSlot::design_tracking_time>;
 
@@ -350,7 +358,7 @@ struct [[nodiscard]] StateFeedbackResult {
     T                                       Ts{0};                               ///< Sample time of the law: 0 continuous (e in the s-plane), > 0 discrete
     [[no_unique_address]] Kalman            kalman{};                            ///< The Kalman filter (state_feedback with a KalmanNoise: LQG, LQGI, OFLQG)
     [[no_unique_address]] Integral          integral{};                          ///< The integral action (NI > 0)
-    [[no_unique_address]] Target            target{};                            ///< The steady-state target (NZ > 0)
+    [[no_unique_address]] Target            target{};                            ///< The steady-state target (NZ > 0, or NM > 0: under the measured disturbance)
     Bounds<NU, T>                           u_lim{};                             ///< Limits on the command the runtime returns (default unbounded)
     ::damp::detail::DemandTerms<NX + NI, T> demand_lim{};                        ///< A limit on what the outer terms ask of one state (the design's DemandLimit; default off)
     [[no_unique_address]] IntegralLim       integral_lim{};                      ///< Limits on the integral state ξ (IntegralAction::lim; NI > 0, default unbounded)
@@ -382,14 +390,14 @@ struct [[nodiscard]] StateFeedbackResult {
     /** @brief The same design in the scalar @p U: `res.as<float>()` for the embedded runtime. */
     template<typename U>
     [[nodiscard]] constexpr auto as() const {
-        using Out = StateFeedbackResult<NX, NU, U, NI, NY, damp::remove_cvref_t<decltype(kalman.template as<U>())>, NZ, NRU>;
+        using Out = StateFeedbackResult<NX, NU, U, NI, NY, damp::remove_cvref_t<decltype(kalman.template as<U>())>, NZ, NRU, NM>;
         Out out{K.template as<U>(), S.template as<U>(), array_as<damp::complex<U>>(e), success, status, static_cast<U>(Ts), kalman.template as<U>()};
         if constexpr (NI > 0) {
             out.integral = integral.template as<U>();
             out.integral_lim = integral_lim.template as<U>();
             out.tracking_time = static_cast<U>(tracking_time);
         }
-        if constexpr (NZ > 0) {
+        if constexpr (NZ > 0 || NM > 0) {
             out.target = target.template as<U>();
         }
         out.u_lim = u_lim.template as<U>();
@@ -444,7 +452,9 @@ struct [[nodiscard]] StateFeedbackResult {
      * block, with TrackedOutputs and with a disturbance model alike: the block is the regulator
      * (r = 0). It closes on any plant its y is read from, one with another delay among them:
      * u = C_c s + D_c y, its sign included. The block is the
-     * law within its limits: u_lim, the integrators' limits and demand_lim are not part of it.
+     * law within its limits: u_lim, the integrators' limits and demand_lim are not part of it. A
+     * measured disturbance (NM > 0) is a feedforward outside it as r is: the block is the law at
+     * d = 0, its filter on the plant's inputs alone.
      */
     [[nodiscard]] constexpr auto to_ss() const {
         if constexpr (!kEstimated && NI == 0) {
@@ -491,10 +501,26 @@ private:
         }
     }
 
+    /** @brief The filter's model on the plant's inputs: itself, or without the measured disturbance's columns of B and D after them (NM > 0). */
+    [[nodiscard]] constexpr decltype(auto) commanded_model() const {
+        if constexpr (NM == 0) {
+            return (kalman.sys);
+        } else {
+            constexpr size_t NF = NXL + ND;
+            return StateSpace<NF, NU, NY, T>{
+                .A = kalman.sys.A,
+                .B = kalman.sys.B.template block<NF, NU>(0, 0).to_matrix(),
+                .C = kalman.sys.C,
+                .D = kalman.sys.D.template block<NY, NU>(0, 0).to_matrix(),
+                .Ts = kalman.sys.Ts,
+            };
+        }
+    }
+
     /** @brief The current-estimator law: the filter's estimate x̂(k−1|k−1) is the state ([x̂; d̂] with a disturbance model). */
     [[nodiscard]] constexpr StateSpace<NXL + ND, NY, NU, T> estimator_ss() const {
         constexpr size_t NF = NXL + ND;
-        const auto&      sys = kalman.sys;
+        const auto&      sys = commanded_model();
         const auto       Kf = filter_gain();
         const auto       ImMC = Matrix<NF, NF, T>::identity() - (kalman.M * sys.C);
         const auto       Ac = (ImMC * (sys.A - (sys.B * Kf))) + ((kalman.M * sys.D) * Kf);
@@ -504,7 +530,7 @@ private:
     /** @brief The current-estimator law with integrators: the state is [x̂(k|k−1); ξ; u_prev], the inputs [r; y] (to_ss()). */
     [[nodiscard]] constexpr StateSpace<NXL + NI + NU, NI + NY, NU, T> integral_estimator_ss() const {
         constexpr size_t         NS = NXL + NI + NU;
-        const auto&              sys = kalman.sys;
+        const auto&              sys = commanded_model();
         const auto&              M = kalman.M;
         const Matrix<NU, NXL, T> Kx = K.template block<NU, NXL>(0, 0);
         const Matrix<NU, NI, T>  Ki = K.template block<NU, NI>(0, NXL);
@@ -561,8 +587,8 @@ template<typename R>
 struct is_state_feedback_result : damp::false_type {};
 
 /** @brief A StateFeedbackResult. */
-template<size_t NX, size_t NU, typename T, size_t NI, size_t NY, typename Kalman, size_t NZ, size_t NRU>
-struct is_state_feedback_result<design::StateFeedbackResult<NX, NU, T, NI, NY, Kalman, NZ, NRU>> : damp::true_type {};
+template<size_t NX, size_t NU, typename T, size_t NI, size_t NY, typename Kalman, size_t NZ, size_t NRU, size_t NM>
+struct is_state_feedback_result<design::StateFeedbackResult<NX, NU, T, NI, NY, Kalman, NZ, NRU, NM>> : damp::true_type {};
 
 /**
  * @brief A StateFeedbackResult of any sizes. A runtime's constructor takes one and reads its kind
