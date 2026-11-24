@@ -10,11 +10,13 @@
 
 #include "damp/backend.hpp"
 #include "damp/controllers/mpc.hpp"
+#include "damp/controllers/state_feedback_types.hpp"
 #include "damp/design/disturbance.hpp"
 #include "damp/design/input_limits.hpp"
 #include "damp/design/qp.hpp"
 #include "damp/design/riccati.hpp"
 #include "damp/design/status.hpp"
+#include "damp/estimation/fixed_gain_observer.hpp"
 #include "damp/estimation/kalman.hpp"
 #include "damp/math/complex.hpp"
 #include "damp/math/math.hpp"
@@ -897,6 +899,30 @@ TEST_CASE("mpc is constexpr") {
     static_assert(art.mpc.max_qp_iterations > 0);
 }
 
+namespace {
+
+/// Whether a law reports a state estimate: one with a filter.
+template<typename L>
+concept estimates_state = requires(const L& law) { law.state_estimate(); };
+
+/// Whether a law reports a disturbance estimate: one whose filter estimates a disturbance.
+template<typename L>
+concept estimates_disturbance = requires(const L& law) { law.disturbance_estimate(); };
+
+/// Whether a law's step takes these arguments.
+template<typename L, typename... A>
+concept steps_with = requires(L& law, const A&... a) { law.step(a...); };
+
+/// Whether a law's control takes these arguments.
+template<typename L, typename... A>
+concept controls_with = requires(L& law, const A&... a) { law.control(a...); };
+
+/// Whether a law's track takes these arguments.
+template<typename L, typename... A>
+concept tracks_with = requires(L& law, const A&... a) { law.track(a...); };
+
+} // namespace
+
 TEST_CASE("Law names an MPC member's type by its design") {
     static constexpr auto art = design::mpc<3, 3>(double_integrator, {}, design::TrackedOutputs{});
     struct Loop {
@@ -907,6 +933,8 @@ TEST_CASE("Law names an MPC member's type by its design") {
     const ColVec<1> r{1.0};
     const ColVec<2> x{0.0, 0.0};
     CHECK(loop.mpc.step(r, x)(0) == plain.step(r, x)(0));
+    static_assert(!estimates_state<decltype(plain)> && !estimates_disturbance<decltype(plain)>); // no filter: the state is measured
+    static_assert(std::is_same_v<decltype(plain.estimator), NoEstimator> && std::is_empty_v<NoEstimator>);
 
     //! With an OutputLimits, and offset-free with one: the law's QP carries the bounded outputs' rows.
     static constexpr design::OutputLimits cap{.outputs = {0}, .upper = {0.5}, .upper_ecr = {0.0}};
@@ -920,6 +948,75 @@ TEST_CASE("Law names an MPC member's type by its design") {
     Law<of, double>                                    of_law{};
     OFMPC                                              of_plain{of};
     CHECK(of_law.step(r, ColVec<1>{0.0})(0) == doctest::Approx(of_plain.step(r, ColVec<1>{0.0})(0)).epsilon(1e-12));
+}
+
+TEST_CASE("MPC through a filter without a disturbance: update(y) on the outputs, and Law runs it on constants") {
+    //! design::mpc with a KalmanNoise and no disturbance spec: the filter reconstructs the state
+    //! from the position alone and the QP is posed about the target of r. The plant starts away
+    //! from the filter's estimate, so the filter has to find it, and then the loop settles on r.
+    static constexpr auto kRes = design::mpc<15, 5>(double_integrator, design::MPCWeights<1, 1>{.Rdu = 0.05}, design::KalmanNoise{.process = diag(1e-4, 1e-4), .measurement = 1e-4}, design::TrackedOutputs{});
+    static_assert(kRes.success);
+    MPC law{kRes};
+    using Filtered = decltype(law);
+    static_assert(Filtered::NYM == 1 && Filtered::NDE == 0 && Filtered::NM == 0); // the reading, no disturbance state, nothing measured
+    static_assert(estimates_state<Filtered> && !estimates_disturbance<Filtered>);
+    static_assert(std::is_same_v<decltype(law.estimator), FixedGainObserver<2, 1, 1, double>>);
+    static_assert(std::is_same_v<decltype(law.limits().disturbance), Bounds<0>>);
+    static_assert(std::is_same_v<Law<kRes, double>::Runtime, Filtered>);
+    static_assert(sizeof(Law<kRes, float>) < sizeof(Law<kRes, float>::Runtime)); // the filter's matrices are constants of the type
+
+    Law<kRes, double> fixed;
+    ColVec<2>         x{0.4, 0.0};
+    double            worst = 0.0;
+    for (int k = 0; k < 300; ++k) {
+        const ColVec<1> y{x(0)};
+        const ColVec<1> u = law.step(ColVec<1>{1.0}, y);
+        worst = std::fmax(worst, std::fabs(u(0) - fixed.step(ColVec<1>{1.0}, y)(0)));
+        x = plant_step(x, u(0));
+    }
+    CHECK(x(0) == doctest::Approx(1.0).epsilon(1e-6));
+    CHECK(x(1) == doctest::Approx(0.0).scale(1.0).epsilon(1e-6));
+    CHECK((law.state_estimate() - x).norm() < 1e-6);
+    CHECK(worst < 1e-9);
+}
+
+TEST_CASE("MPC through a filter with neither a TrackedOutputs nor a disturbance spec is a regulator: step(y)") {
+    //! The noise alone: the regulator of the measured state, through the filter. It takes no r,
+    //! brings an unknown state to rest at 0, and its Law on constants gives the same commands.
+    static constexpr auto kRes = design::mpc<15, 5>(double_integrator, design::MPCWeights<1, 1>{.Rdu = 0.05}, design::KalmanNoise{.process = diag(1e-4, 1e-4), .measurement = 1e-4});
+    static_assert(kRes.success);
+    MPC law{kRes};
+    using Regulator = decltype(law);
+    using V1 = ColVec<1>;
+    static_assert(Regulator::NYM == 1 && Regulator::NDE == 0 && estimates_state<Regulator>);
+    static_assert(controls_with<Regulator> && steps_with<Regulator, V1> && tracks_with<Regulator, V1, V1>); // control(), step(y), track(u, y)
+    static_assert(!controls_with<Regulator, V1> && !steps_with<Regulator, V1, V1>);                         // no r
+    static_assert(std::is_same_v<Law<kRes, double>::Runtime, Regulator>);
+
+    Law<kRes, double> fixed;
+    ColVec<2>         x{0.4, 0.0};
+    double            worst = 0.0;
+    for (int k = 0; k < 300; ++k) {
+        const V1 y{x(0)};
+        const V1 u = law.step(y);
+        worst = std::fmax(worst, std::fabs(u(0) - fixed.step(y)(0)));
+        x = plant_step(x, u(0));
+    }
+    CHECK(x.norm() < 1e-6);
+    CHECK((law.state_estimate() - x).norm() < 1e-6);
+    CHECK(worst < 1e-9);
+}
+
+TEST_CASE("Law of a failed MPC design: a constexpr one does not compile, one made at start-up holds its input") {
+    //! Law refuses a failed constexpr design with a static_assert whose error names its status, on
+    //! the measured state as through a filter (checked by hand: a requires expression cannot see a
+    //! static_assert). A design initialized at start-up is not known at compile time: its Law
+    //! forms, valid() is false, and it holds its input, as an MPC built from it does.
+    static const auto kStartUp = design::mpc<10, 4>(double_integrator, design::MPCWeights<1, 1>{.Qy = Matrix<1, 1>{{-1.0}}}, design::TrackedOutputs{});
+    REQUIRE(kStartUp.status == design::DesignStatus::bad_weights);
+    Law<kStartUp, double> law;
+    CHECK_FALSE(law.valid());
+    CHECK(law.step(ColVec<1>{1.0}, ColVec<2>{0.5, 0.0})(0) == 0.0);
 }
 
 TEST_CASE("Law<kRes, T> of an OFMPC on the design's constants takes set_limits as OFMPC does") {

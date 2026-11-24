@@ -11,7 +11,7 @@
  *
  * FixedGainObserver is the fixed-gain observer: it holds a gain and the plant model, and its gain comes
  * from design::place_observer (pole placement) or design::kalman (the steady-state Kalman gain: the
- * filter DARE). It is the estimator inside LQG, LQGI, OFLQG and OFMPC, with the disturbance anchor
+ * filter DARE). It is the estimator inside LQG, LQGI, OFLQG and an MPC through a filter, with the disturbance anchor
  * the offset-free laws use. For a covariance that updates (R or C changing per reading) use
  * KalmanFilter (kalman.hpp).
  *
@@ -564,7 +564,7 @@ struct HeldObserver {
  * Built from design::kalman (the steady-state Kalman gain: the filter DARE), from
  * design::place_observer (pole placement), or from the model and a gain. Either result carries the
  * innovation gain M (MATLAB®'s Mx) and the predictor gain L = A M (MATLAB®'s L); the observer runs
- * M. It is the estimator inside LQG, LQGI, OFLQG and OFMPC. A fixed Kalman gain costs about
+ * M. It is the estimator inside LQG, LQGI, OFLQG and an MPC through a filter. A fixed Kalman gain costs about
  * 2–13 % of the recursive filter's multiply-accumulates per tick (2.4 % at 10 states, 6 outputs),
  * with no per-tick solve and no failure path; for a covariance that updates (R or C changing per
  * reading) use KalmanFilter.
