@@ -57,13 +57,20 @@ TEST_CASE("discrete_lqr scalar gain matches hand solution") {
 }
 
 TEST_CASE("LQR runtime regulation and tracking laws") {
-    const design::LQRResult<2, 1> res = design::discrete_lqr(
+    const auto res = design::state_feedback(
+        StateSpace{.A = Matrix<2, 2>{{1.0, 0.1}, {0.0, 1.0}}, .B = Matrix<2, 1>{{0.0}, {0.1}}, .C = Matrix<2, 2>::identity(), .Ts = 0.1},
+        {.Q = Matrix<2, 2>{{1.0, 0.0}, {0.0, 1.0}}, .R = Matrix<1, 1>{{1.0}}}
+    );
+    REQUIRE(res.success);
+    //! The bare gain of the same weights: the law's K, so its commands are the ones an LQR of an LQRResult gave.
+    const design::LQRResult<2, 1> gain = design::discrete_lqr(
         Matrix<2, 2>{{1.0, 0.1}, {0.0, 1.0}}, Matrix<2, 1>{{0.0}, {0.1}},
         Matrix<2, 2>{{1.0, 0.0}, {0.0, 1.0}}, Matrix<1, 1>{{1.0}}
     );
-    REQUIRE(res.success);
+    CHECK((res.K - gain.K).norm() == 0.0);
+    static_assert(!std::is_constructible_v<LQR<2, 1, double>, design::LQRResult<2, 1>>); // no runtime takes the bare gain
 
-    auto ctrl = LQR{res}; // from the gain design
+    auto ctrl = LQR{res}; // from the design
 
     SUBCASE("u = -K x") {
         const ColVec<2> x{1.0, 2.0};
@@ -81,9 +88,9 @@ TEST_CASE("LQR runtime regulation and tracking laws") {
 }
 
 namespace {
-constexpr auto ctad_res = design::discrete_lqr(
-    Matrix<2, 2>{{1.0, 0.1}, {0.0, 1.0}}, Matrix<2, 1>{{0.0}, {0.1}},
-    Matrix<2, 2>{{1.0, 0.0}, {0.0, 1.0}}, Matrix<1, 1>{{1.0}}
+constexpr auto ctad_res = design::state_feedback(
+    StateSpace{.A = Matrix<2, 2>{{1.0, 0.1}, {0.0, 1.0}}, .B = Matrix<2, 1>{{0.0}, {0.1}}, .C = Matrix<2, 2>::identity(), .Ts = 0.1},
+    {.Q = Matrix<2, 2>{{1.0, 0.0}, {0.0, 1.0}}, .R = Matrix<1, 1>{{1.0}}}
 );
 constinit auto ctad_law = LQR{ctad_res.as<float>()}; // sizes and scalar deduced from the result
 

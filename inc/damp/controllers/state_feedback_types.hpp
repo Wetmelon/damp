@@ -20,6 +20,7 @@
 #include "damp/controllers/law.hpp"
 #include "damp/design/detail/config.hpp"
 #include "damp/design/input_limits.hpp" // IWYU pragma: export
+#include "damp/design/options.hpp"
 #include "damp/design/status.hpp"
 #include "damp/design/steady_state_target.hpp"
 #include "damp/estimation/fixed_gain_observer.hpp"
@@ -132,6 +133,145 @@ struct LQRWeights {
 };
 
 namespace detail {
+
+/** @brief The scalar of a pole as written: a floating-point number is its own. */
+template<typename P>
+struct pole_scalar {
+    using type = P; ///< The number's type
+};
+
+/** @brief A damp::complex: its parts'. */
+template<typename U>
+struct pole_scalar<damp::complex<U>> {
+    using type = U; ///< The parts' type
+};
+
+} // namespace detail
+
+/**
+ * @struct Poles
+ * @brief The closed-loop poles of a placed design (design::state_feedback): the weights' slot,
+ *        in place of LQRWeights
+ *
+ * `design::state_feedback(plant, Ts, Poles{-8.0, -12.0}, opts...)` places eig(A − B·K) where the
+ * list says, by design::place's machinery (KNV, Ackermann for one input), and builds the same law
+ * the LQ weights would, with every option: the result and its runtime are the LQ design's types.
+ * The count is the plant's states plus the integrators of an IntegralAction, refused at compile
+ * time otherwise; an InputDelay's delay states, which only hold inputs already sent, take theirs
+ * at 0 (deadbeat), and a disturbance spec's states none, since the target cancels them.
+ *
+ * The list is in the plant's own time domain, as design::place takes it: rad/s (s-plane) on the
+ * sampled form, mapped to z = e^{s·Ts}; z-plane on a discrete plant. Complex poles come as
+ * adjacent conjugate pairs, `Poles{damp::complex{-1.0, 2.0}, damp::complex{-1.0, -2.0}}`, and a
+ * real one converts, `Poles{-5.0, -5.0}`. The count and the scalar are deduced from the entries,
+ * with bare braces (a deduction guide over the C array): the first entry's scalar, real or
+ * complex, is the list's.
+ *
+ * @tparam N The poles listed
+ * @tparam T Their scalar (the plant's, or converted to it)
+ */
+template<size_t N, typename T = double>
+struct Poles {
+    static_assert(damp::is_floating_point_v<T>, "A pole is a floating-point number or a damp::complex of one: Poles{-5.0, -5.0}, Poles{damp::complex{-1.0, 2.0}, damp::complex{-1.0, -2.0}}.");
+
+    damp::complex<T> poles[N]{}; ///< The closed-loop poles, adjacent conjugate pairs
+};
+
+/** @brief Poles{p, …}: the count from the list, the scalar from its first entry. */
+template<typename P, typename... Rest>
+Poles(P, Rest...) -> Poles<1 + sizeof...(Rest), typename detail::pole_scalar<P>::type>;
+
+/**
+ * @struct ObserverPoles
+ * @brief The error poles of a placed filter (design::state_feedback): a trailing option, in place
+ *        of KalmanNoise
+ *
+ * `design::state_feedback(plant, Ts, weights, ObserverPoles{-40.0, -40.0, -40.0}, InputDisturbance{})`
+ * gives the law's filter a placed gain where a KalmanNoise gives it the steady-state Kalman gain:
+ * the same FixedGainObserver in the current form, x̂[k|k] = x̂[k|k−1] + M·(y − C·x̂[k|k−1] − D·u), on
+ * the same model, so the result and its runtime are the Kalman design's types. The poles are the
+ * eigenvalues of its error dynamics, e[k|k] = (I − M·C)·A·e[k−1|k−1], the same as those of the
+ * predictor error (A − L·C), L = A·M. Any weights take it, LQRWeights or Poles.
+ *
+ * The count is the plant's states plus the disturbance spec's (none without one), refused at
+ * compile time otherwise. The delay states take theirs at 0: an InputDelay's hold inputs already
+ * sent, which the readings do not correct, and a late reading's (OutputDelay) are placed at 0
+ * with the rest. Units, pairs and deduction are Poles'.
+ *
+ * @tparam N The poles listed
+ * @tparam T Their scalar (the plant's, or converted to it)
+ */
+template<size_t N, typename T = double>
+struct ObserverPoles {
+    static_assert(damp::is_floating_point_v<T>, "A pole is a floating-point number or a damp::complex of one: ObserverPoles{-40.0, -40.0}.");
+
+    damp::complex<T> poles[N]{}; ///< The filter's error poles, adjacent conjugate pairs
+};
+
+/** @brief ObserverPoles{p, …}: the count from the list, the scalar from its first entry. */
+template<typename P, typename... Rest>
+ObserverPoles(P, Rest...) -> ObserverPoles<1 + sizeof...(Rest), typename detail::pole_scalar<P>::type>;
+
+namespace detail {
+
+/** @brief Not a weights spec. */
+template<typename W>
+struct is_weight_spec : damp::false_type {};
+
+/** @brief LQRWeights. */
+template<size_t NX, size_t NU, typename T>
+struct is_weight_spec<LQRWeights<NX, NU, T>> : damp::true_type {};
+
+/** @brief Poles. */
+template<size_t N, typename T>
+struct is_weight_spec<Poles<N, T>> : damp::true_type {};
+
+/** @brief Not ObserverPoles. */
+template<typename O>
+struct is_observer_poles : damp::false_type {};
+
+/** @brief ObserverPoles. */
+template<size_t N, typename T>
+struct is_observer_poles<ObserverPoles<N, T>> : damp::true_type {};
+
+/** @brief Not a filter spec. */
+template<typename O>
+struct is_filter_spec : damp::false_type {};
+
+/** @brief KalmanNoise: the Kalman gain. */
+template<size_t NW, size_t NV, typename T, size_t ND>
+struct is_filter_spec<KalmanNoise<NW, NV, T, ND>> : damp::true_type {};
+
+/** @brief ObserverPoles: a placed gain. */
+template<size_t N, typename T>
+struct is_filter_spec<ObserverPoles<N, T>> : damp::true_type {};
+
+/** @brief A list of poles in the scalar @p T, as the placement takes them. */
+template<typename T, size_t N, typename U>
+[[nodiscard]] constexpr damp::array<damp::complex<T>, N> pole_list(const damp::complex<U> (&poles)[N]) {
+    damp::array<damp::complex<T>, N> out{};
+    for (size_t i = 0; i < N; ++i) {
+        out[i] = damp::complex<T>(poles[i]);
+    }
+    return out;
+}
+
+/** @brief The poles of a placed gain or filter, in the plant's scalar: the gain's or the filter's, and the design adds 0 for the delay states. */
+template<size_t N, typename T>
+struct PlacedPoles {
+    damp::array<damp::complex<T>, N> poles{}; ///< The poles listed, in the time domain of the plant
+};
+
+/** @brief Not a placed spec: the LQ gain, or the Kalman filter. */
+template<typename G>
+inline constexpr bool is_placed = false;
+
+/** @brief Placed. */
+template<size_t N, typename T>
+inline constexpr bool is_placed<PlacedPoles<N, T>> = true;
+
+/** @brief The gain of a design is the LQ one, from its weights. */
+struct LQGain {};
 
 /** @brief A DemandLimit: a kind of state_feedback option. */
 template<typename O>
@@ -343,11 +483,11 @@ struct IntegralDesign {
  *
  * | Member | What it is | Present |
  * | --- | --- | --- |
- * | K, S, e | the gain, the Riccati solution, the closed-loop poles | always |
+ * | K, S, e | the gain, the Riccati solution (zero for a gain placed at Poles), the closed-loop poles | always |
  * | state_gain(), delay_gain(), integral_gain() | K's columns on x, on the delay states (NRU > 0) and on ξ (NI > 0) | always, and as noted |
  * | success, status, Ts | ok or why not; the law's sample time | always |
  * | limits | the limits the law starts with, its limits(): input (InputLimits), input_rate (InputRateLimits, NDU > 0), integral (IntegralAction::limits, NI > 0), demand (DemandLimit), disturbance (ND > 0, unbounded: the runtime's) | always, default unbounded, the demand limit off |
- * | kalman | the Kalman filter (design::kalman's result) | lqg, lqgi, oflqg |
+ * | kalman | the Kalman filter (design::kalman's result), or the filter placed at ObserverPoles in its shape | lqg, lqgi, oflqg |
  * | integral | the integrated outputs Ci, Ci·C, Ci·D and the step | NI > 0 |
  * | tracking_time | the integrators' back-calculation tracking time (IntegralAction::tracking_time) | NI > 0, default 0 |
  * | target | the steady-state target (design::steady_state_target's result) | oflqg; lqr and lqg with TrackedOutputs (NZ > 0); any law with a MeasuredDisturbance (NM > 0) |
@@ -390,7 +530,7 @@ struct [[nodiscard]] StateFeedbackResult {
     using FadeTime = ::damp::detail::maybe<HO, T, ::damp::detail::OffSlot::design_fade_time>;
 
     Matrix<NU, NK, T>                           K{};                                 ///< Optimal gain: u = −K·[x; xi]
-    Matrix<NK, NK, T>                           S{};                                 ///< Riccati solution (positive semidefinite)
+    Matrix<NK, NK, T>                           S{};                                 ///< Riccati solution (positive semidefinite; zero for a gain placed at Poles)
     damp::array<damp::complex<T>, NK>           e{};                                 ///< Closed-loop poles of the law's model
     bool                                        success{false};                      ///< status == DesignStatus::ok
     DesignStatus                                status{DesignStatus::not_converged}; ///< ok, or the first failure: the gain's, the filter's, the target's

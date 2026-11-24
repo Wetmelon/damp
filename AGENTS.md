@@ -120,8 +120,9 @@ the repo root.
   QP read none of them. Many samples of dead time is a slower sample or
   `SmithPredictor`.
 - **Design calls:** what every call needs is positional (the plant, `Ts` for a
-  continuous one, the weights), so braces size it from the plant; the rest is a
-  trailing pack recognized by type (`design/options.hpp`: `KalmanNoise`,
+  continuous one, the weights: `state_feedback`'s `LQRWeights`, or `Poles{…}` for the
+  gain placed there), so braces size it from the plant; the rest is a
+  trailing pack recognized by type (`design/options.hpp`: `KalmanNoise`, `ObserverPoles`,
   `InputDelay`, `OutputDelay`, `IntegralAction`, `TrackedOutputs`, `InputLimits`, `InputRateLimits`, `DemandLimit`,
   `OutputLimits`, `StateLimits`, `DareCost`, `InvariantSet`, `QPIterations`, a disturbance spec, `MeasuredDisturbance`, `Handover`, …),
   at most one of each kind, in any order, refused at compile time otherwise. What the gain does not depend on is an
@@ -140,7 +141,8 @@ the repo root.
   continuous plant and `Ts`), the runtime holding or filtering its delay states;
   a model with the delay built in is the plant route, for a model one holds. The
   options pick the law: `state_feedback` is LQR, LQI with an `IntegralAction`,
-  LQG with a `KalmanNoise`, LQGI or OFLQG with both; `mpc` is MPC, or OFMPC with
+  LQG with a `KalmanNoise` (or `ObserverPoles`, the filter placed), LQGI or OFLQG with both,
+  its weights `LQRWeights` or `Poles` for any of them, the same result and runtime; `mpc` is MPC, or OFMPC with
   a noise and a disturbance spec; a `MeasuredDisturbance` adds to any of them, the target under d and a filter's known
   input after u. An option carries its own numbers, so the
   weights are the same with or without it: `IntegralAction{.Q, .outputs, .limits,

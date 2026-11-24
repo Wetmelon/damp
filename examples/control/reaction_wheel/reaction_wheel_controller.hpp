@@ -18,7 +18,7 @@
  *
  *   1. Cascade PI (θ → ω* → u)     — industry default for a rate-capable axis
  *   2. ADRC / SMC / STSMC          — light-model SISO alternatives on θ
- *   3. place / LQR / LQI           — full-state linear design
+ *   3. placed / LQR / LQI          — full-state linear design
  *   4. LQG / LQGI                  — state feedback + Kalman from y
  *   5. Offset-free MPC             — constrained predictive (synthesis only here)
  *
@@ -103,10 +103,10 @@ static_assert(adrc_res.success);
 inline constexpr auto smc_res = design::smc(10.0, 8.0, b_u, Ts, 0.05); // λ, k, b0, Ts, boundary layer φ
 inline constexpr auto stsmc_res = design::stsmc(4.0, Ts, 10.0);
 
-// Full-state linear design
-inline constexpr damp::array<damp::complex<double>, NX> place_poles_s{-8.0, -12.0};
+// Full-state linear design: the same design call, placed at s-plane poles or weighted
+inline constexpr design::Poles place_poles_s{-8.0, -12.0};
 
-inline constexpr auto place_res = design::place(plant, place_poles_s, Ts); // s-plane poles, sampled at Ts
+inline constexpr auto place_res = design::state_feedback(plant, Ts, place_poles_s); // s-plane poles, sampled at Ts: an LQR placed
 static_assert(place_res.success);
 
 // Implement full state feedback controllers

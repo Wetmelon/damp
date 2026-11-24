@@ -9,10 +9,12 @@
  * @file state_feedback.hpp
  * @brief design::state_feedback: the linear-quadratic state-feedback designs, the law picked by its options
  *
- * design::state_feedback(plant, [Ts,] config, opts...) → StateFeedbackResult, which runs
- * as the law its options name (`Law<kRes, T>`, or `LQI law{res}`):
+ * design::state_feedback(plant, [Ts,] weights, opts...) → StateFeedbackResult, which runs
+ * as the law its options name (`Law<kRes, T>`, or `LQI law{res}`). The weights are LQRWeights
+ * {.Q, .R, .N}, the LQ gain, or Poles{…}, the gain placed there; a KalmanNoise among the options
+ * gives the law a Kalman filter, ObserverPoles{…} a placed one, any of them with any weights:
  *
- * | KalmanNoise among the options | Other options | Law |
+ * | KalmanNoise (or ObserverPoles) among the options | Other options | Law |
  * | --- | --- | --- |
  * | — | none | LQR on the measured state (MATLAB®'s lqr, lqrd) |
  * | — | IntegralAction{.Q[, .outputs = {i, …}]}: its own cost, every output unless it lists them | LQI (lqi) |
@@ -116,9 +118,23 @@ template<size_t NX, size_t NU, typename T, size_t NI, size_t NY, typename Kalman
     return ::damp::detail::set_status(out, (law.status == DesignStatus::ok && !usable) ? DesignStatus::invalid_parameter : law.status);
 }
 
-/** @brief The options of a state-feedback design: a KalmanNoise makes it estimate the state. */
-using state_feedback_options = ::damp::detail::
-    option_set<is_input_delay, is_output_delay, is_integral_option, is_tracked_option, is_disturbance, is_measured_disturbance, is_kalman_noise, is_input_limits, is_input_rate_limits, is_demand_limit, is_handover>;
+/**
+ * @brief The options of a state-feedback design: a filter spec (a KalmanNoise or ObserverPoles)
+ *        makes it estimate the state. A weights spec among them is the weights given twice.
+ */
+using state_feedback_options = ::damp::detail::option_set<
+    is_input_delay,
+    is_output_delay,
+    is_integral_option,
+    is_tracked_option,
+    is_disturbance,
+    is_measured_disturbance,
+    is_filter_spec,
+    is_input_limits,
+    is_input_rate_limits,
+    is_demand_limit,
+    is_handover,
+    is_weight_spec>;
 
 /**
  * @brief A design's result with the InputRateLimits among @p opts (NDU = NU), or itself without one:
@@ -150,31 +166,67 @@ consteval size_t integrators_of() {
     }
 }
 
-/** @brief design::state_feedback in the plant's domain (@p Sampled false) or at @p Ts: on the measured state, or on a Kalman filter's estimate with a KalmanNoise among @p opts. */
-template<bool Sampled, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename... Opts>
-[[nodiscard]] constexpr auto state_feedback_design_of(
+/** @brief The poles a spec lists: none for anything but Poles and ObserverPoles. */
+template<typename S>
+inline constexpr size_t listed_poles = 0;
+
+/** @brief Poles: N. */
+template<size_t N, typename U>
+inline constexpr size_t listed_poles<Poles<N, U>> = N;
+
+/** @brief ObserverPoles: N. */
+template<size_t N, typename U>
+inline constexpr size_t listed_poles<ObserverPoles<N, U>> = N;
+
+/** @brief The gain a design's weights spec asks for: the LQ gain of LQRWeights. */
+template<typename T>
+[[nodiscard]] constexpr LQGain gain_spec_of(const LQGain& lq) {
+    return lq;
+}
+
+/** @brief Poles: the gain placed there, in the plant's scalar. */
+template<typename T, size_t N, typename U>
+[[nodiscard]] constexpr PlacedPoles<N, T> gain_spec_of(const Poles<N, U>& poles) {
+    return {pole_list<T>(poles.poles)};
+}
+
+/** @brief ObserverPoles: the filter's gain placed there, in the plant's scalar. */
+template<typename T, size_t N, typename U>
+[[nodiscard]] constexpr PlacedPoles<N, T> observer_spec_of(const ObserverPoles<N, U>& poles) {
+    return {pole_list<T>(poles.poles)};
+}
+
+/** @brief The filter spec among @p opts: the KalmanNoise sized to the plant, or ObserverPoles (observer_spec_of). */
+template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename... Opts>
+[[nodiscard]] constexpr auto filter_spec_of(const Opts&... opts) {
+    if constexpr (::damp::detail::option_count<is_observer_poles, Opts...> > 0) {
+        return observer_spec_of<T>(::damp::detail::option<is_observer_poles>(Unset{}, opts...));
+    } else {
+        return noise_of<NX, NU, NY, T, NW, NV>(opts...);
+    }
+}
+
+/** @brief state_feedback_design_of once the poles' counts are the plant's: the design, its gain the LQ one or placed (@p gain). */
+template<bool Sampled, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Gain, typename... Opts>
+[[nodiscard]] constexpr auto state_feedback_counted(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     T                                        Ts,
     const LQRConfig<NX, NU, T>&              config,
+    const Gain&                              gain,
     const Opts&... opts
 ) {
-    check_held_outputs<NU, NY, integrators_of<Opts...>(), Opts...>(); // the target's: one TrackedOutputs, none beside a disturbance spec, at most NU held
-    state_feedback_options::check<Opts...>();
-    constexpr bool kFilter = ::damp::detail::option_count<is_kalman_noise, Opts...> > 0;
+    constexpr bool kFilter = ::damp::detail::option_count<is_filter_spec, Opts...> > 0;
     constexpr bool kIntegral = ::damp::detail::option_count<is_integral_option, Opts...> > 0;
-    constexpr bool kDisturbance = ::damp::detail::option_count<is_disturbance, Opts...> > 0;
-    static_assert(kFilter || !kDisturbance, "A disturbance spec is estimated by a Kalman filter: give its KalmanNoise among the options.");
-    static_assert(!(kIntegral && kDisturbance), "Integral action and a disturbance model are two offset-free choices: give an IntegralAction or a disturbance spec, not both.");
-    const auto track = ::damp::detail::option<is_tracked_option>(Unset{}, opts...);
+    const auto     track = ::damp::detail::option<is_tracked_option>(Unset{}, opts...);
     static_cast<void>(measured_of<NX, T>(opts...)); // its checks: one, on the plant's states
     const auto measured = ::damp::detail::option<is_measured_disturbance>(Unset{}, opts...);
     const auto run = [&](const auto& cost, const auto& offset_free) {
         if constexpr (kFilter) {
-            const StateFeedbackOptions options{.noise = noise_of<NX, NU, NY, T, NW, NV>(opts...), .offset_free = offset_free, .track = track, .measured = measured};
-            return state_feedback_with<Sampled>(noise_model(sys), Ts, cost, options, opts...);
+            const StateFeedbackOptions options{.noise = filter_spec_of<NX, NU, NY, T, NW, NV>(opts...), .offset_free = offset_free, .track = track, .measured = measured};
+            return state_feedback_with<Sampled>(noise_model(sys), Ts, cost, options, gain, opts...);
         } else {
             const StateFeedbackOptions options{.offset_free = offset_free, .track = track, .measured = measured};
-            return state_feedback_with<Sampled>(sys, Ts, cost, options, opts...);
+            return state_feedback_with<Sampled>(sys, Ts, cost, options, gain, opts...);
         }
     };
     const auto law = [&] {
@@ -193,14 +245,61 @@ template<bool Sampled, size_t NX, size_t NU, size_t NY, typename T, size_t NW, s
     }
 }
 
+/**
+ * @brief design::state_feedback in the plant's own domain (@p Sampled false) or at @p Ts: the LQ
+ *        gain of @p config (@p gain LQGain) or placed at Poles, on the measured state, or on a
+ *        filter's estimate with a KalmanNoise or ObserverPoles among @p opts.
+ */
+template<bool Sampled, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Gain, typename... Opts>
+[[nodiscard]] constexpr auto state_feedback_design_of(
+    const StateSpace<NX, NU, NY, T, NW, NV>& sys,
+    T                                        Ts,
+    const LQRConfig<NX, NU, T>&              config,
+    const Gain&                              weights,
+    const Opts&... opts
+) {
+    check_held_outputs<NU, NY, integrators_of<Opts...>(), Opts...>(); // the target's: one TrackedOutputs, none beside a disturbance spec, at most NU held
+    state_feedback_options::check<Opts...>();
+    static_assert(
+        ::damp::detail::option_count<is_weight_spec, Opts...> == 0,
+        "The weights given twice: LQRWeights{...} or Poles{...} is the one argument after the plant (and Ts), state_feedback(plant, [Ts,] weights, opts...)."
+    );
+    constexpr bool kFilter = ::damp::detail::option_count<is_filter_spec, Opts...> > 0;
+    constexpr bool kIntegral = ::damp::detail::option_count<is_integral_option, Opts...> > 0;
+    constexpr bool kDisturbance = ::damp::detail::option_count<is_disturbance, Opts...> > 0;
+    static_assert(kFilter || !kDisturbance, "A disturbance spec is estimated by the law's filter: give a KalmanNoise or ObserverPoles among the options.");
+    static_assert(!(kIntegral && kDisturbance), "Integral action and a disturbance model are two offset-free choices: give an IntegralAction or a disturbance spec, not both.");
+    constexpr size_t NK = NX + integrators_of<Opts...>();                       // the poles Poles lists
+    constexpr size_t NKF = NX + disturbance_states_in<NX, NU, NY, NW, Opts...>; // and ObserverPoles
+    constexpr size_t NF = listed_poles<::damp::detail::option_t<is_observer_poles, Unset, Opts...>>;
+    constexpr bool   kGainCount = damp::is_same_v<Gain, LQGain> || (listed_poles<Gain> == NK);
+    constexpr bool   kFilterCount = (::damp::detail::option_count<is_observer_poles, Opts...> == 0) || (NF == NKF);
+    if constexpr (!kGainCount || !kFilterCount) {
+        if constexpr (!kGainCount) {
+            static_cast<void>(controller_pole_count<NK, listed_poles<Gain>>());
+        } else {
+            static_cast<void>(observer_pole_count<NKF, NF>());
+        }
+        static_cast<void>(weights);
+        static_cast<void>(sys);
+        static_cast<void>(Ts);
+        static_cast<void>(config);
+        (static_cast<void>(opts), ...);
+        return StateFeedbackResult<NX, NU, T>{}; // the count says which: nothing further
+    } else {
+        return state_feedback_counted<Sampled>(sys, Ts, config, gain_spec_of<T>(weights), opts...);
+    }
+}
+
 } // namespace detail
 
 /**
  * @brief The linear-quadratic state-feedback law (DARE on a discrete plant, CARE on a continuous one): runs as LQR, LQI, LQG, LQGI or OFLQG, as its options say.
  *
  * The cost is @p weights in the plant's own time domain: LQRWeights {.Q, .R, .N}, the same with
- * or without integral action, which brings its own cost. @p opts trail in any order, at most one
- * of each kind:
+ * or without integral action, which brings its own cost. Poles{…} in their place places the gain
+ * instead, with the same options (state_feedback(sys, poles, opts…)). @p opts trail in any order,
+ * at most one of each kind:
  * - InputLimits{.lower, .upper}: the limits the law's command runs within, clamped into them
  *   (InputLimits).
  * - InputRateLimits{.lower, .upper}: the limits on the command's move per period: each tick the
@@ -221,6 +320,11 @@ template<bool Sampled, size_t NX, size_t NU, size_t NY, typename T, size_t NW, s
  * - KalmanNoise{.process, .measurement[, .disturbance]}: the law runs on a steady-state Kalman
  *   filter's estimate of the state (design::kalman's): LQG, LQGI with an IntegralAction. The noise is
  *   sized to the plant: NX × NX process noise (the columns of G when it names them), NY × NY readings.
+ * - ObserverPoles{…}, in place of the KalmanNoise: the same filter on the same model, its gain
+ *   placed. The poles are those of its error dynamics, (I − M·C)·A in the current form it runs
+ *   (the same as A − L·C's, L = A·M), one per plant state and disturbance state; the delay
+ *   states take theirs at 0. Mixed with either weights: LQRWeights with ObserverPoles, Poles with
+ *   a KalmanNoise.
  * - A disturbance spec, with a KalmanNoise: runs as OFLQG, the filter on [x; d] and the target under
  *   d̂. It says where d enters: InputDisturbance (B_d = B), OutputDisturbance (a bias on each
  *   reading), PlantDisturbance (the plant's own G and H) or DisturbanceModel (explicit, with the
@@ -295,7 +399,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
     const damp::type_identity_t<LQRWeights<NX, NU, T>>& weights,
     const Opts&... opts
 ) {
-    return detail::state_feedback_design_of<false>(sys, T{0}, detail::lq_cost_of(weights, opts...), opts...);
+    return detail::state_feedback_design_of<false>(sys, T{0}, detail::lq_cost_of(weights, opts...), detail::LQGain{}, opts...);
 }
 
 /**
@@ -309,7 +413,56 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
     const damp::type_identity_t<LQRWeights<NX, NU, T>>& weights,
     const Opts&... opts
 ) {
-    return detail::state_feedback_design_of<true>(sys, Ts, detail::lq_cost_of(weights, opts...), opts...);
+    return detail::state_feedback_design_of<true>(sys, Ts, detail::lq_cost_of(weights, opts...), detail::LQGain{}, opts...);
+}
+
+/**
+ * @brief The state-feedback law placed at @p poles: the gain with eig(A − B·K) where they say, and
+ *        every option of state_feedback(sys, weights, opts…), in the plant's own time domain.
+ *
+ * In place of the weights, Poles{…} (design::place's machinery: KNV, the Jordan construction,
+ * Ackermann's gain for one input). The poles are the plant's states', then the integrators' of an
+ * IntegralAction, z-plane on a discrete plant (s-plane, a continuous gain for analysis, on a
+ * continuous one with no option that samples it); a wrong count does not compile. The options
+ * are the LQ design's and mean the same: the target, the limits, the integrators (their .Q, a cost,
+ * is not read: it sizes them), a filter (a KalmanNoise, or ObserverPoles for a placed one), a
+ * disturbance spec, a MeasuredDisturbance. The result is the LQ design's type, S zero, and runs
+ * on the same runtime.
+ *
+ * Refused with DesignStatus::invalid_parameter for a pole that is not finite, not_placeable for a
+ * mode the input does not reach or a pole repeated more times than placement takes (design::place),
+ * singular for a rank-deficient B; the other statuses as the LQ design's.
+ *
+ * @code
+ * constexpr auto placed = design::state_feedback(discrete_plant, design::Poles{0.9, 0.95});
+ * static constinit Law<placed, float> law; // the LQR of the same shape
+ * @endcode
+ * @note Compare with MATLAB®'s place(A, B, p) and acker, then reg or lqgtrack's law around it.
+ */
+template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t N, typename U, typename... Opts>
+[[nodiscard]] constexpr auto state_feedback(const StateSpace<NX, NU, NY, T, NW, NV>& sys, const Poles<N, U>& poles, const Opts&... opts) {
+    return detail::state_feedback_design_of<false>(sys, T{0}, detail::lq_cost_of(LQRWeights<NX, NU, T>{}, opts...), poles, opts...);
+}
+
+/**
+ * @brief The sampled-data state-feedback law placed at @p poles: s-plane poles in rad/s, mapped
+ *        to z = e^{s·Ts} on the ZOH model, with the options of state_feedback(sys, Ts, weights, opts…).
+ *
+ * The gain is design::place(sys, poles, Ts)'s on the plant, and on the law's model with its
+ * integrators and an InputDelay's delay states otherwise: the delay states, which only hold the
+ * commands still on their way, take their poles at 0 (deadbeat), on top of the list. With one
+ * input the gain is unique; with several, a pole is placed at most NU times, so an InputDelay of
+ * N ≥ 2 delay states per input is refused with not_placeable.
+ *
+ * @code
+ * constexpr auto lqi = design::state_feedback(plant, 0.01, design::Poles{-8.0, -12.0, -4.0}, IntegralAction{.Q = 80.0});
+ * constexpr auto adrc_like = design::state_feedback(chain, 0.001, design::Poles{-8.0, -8.0}, design::ObserverPoles{-40.0, -40.0, -40.0}, design::InputDisturbance{});
+ * @endcode
+ * @note Compare with MATLAB®'s place(A, B, exp(p·Ts)) on c2d(sys, Ts).
+ */
+template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t N, typename U, typename... Opts>
+[[nodiscard]] constexpr auto state_feedback(const StateSpace<NX, NU, NY, T, NW, NV>& sys, damp::type_identity_t<T> Ts, const Poles<N, U>& poles, const Opts&... opts) {
+    return detail::state_feedback_design_of<true>(sys, Ts, detail::lq_cost_of(LQRWeights<NX, NU, T>{}, opts...), poles, opts...);
 }
 
 } // namespace design
