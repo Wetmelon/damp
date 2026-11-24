@@ -63,14 +63,6 @@ inline constexpr bool is_integral_action<IntegralAction<NI>> = true;
 template<size_t R, size_t C, typename U>
 inline constexpr bool is_integral_action<Matrix<R, C, U>> = true;
 
-/** @brief Not TrackedOutputs. */
-template<typename>
-inline constexpr bool is_tracked_outputs = false;
-
-/** @brief TrackedOutputs. */
-template<size_t NZ>
-inline constexpr bool is_tracked_outputs<TrackedOutputs<NZ>> = true;
-
 /** @brief The fields of an options type: none for anything but StateFeedbackOptions. */
 template<typename Options>
 struct options_traits {
@@ -121,10 +113,6 @@ struct is_integral_option : damp::false_type {};
 /** @brief design::IntegralAction{.Q, …}. */
 template<typename TQ, typename T>
 struct is_integral_option<::damp::design::IntegralAction<TQ, T>> : damp::true_type {};
-
-/** @brief TrackedOutputs, as a kind of trailing option (options.hpp). */
-template<typename O>
-struct is_tracked_option : damp::bool_constant<is_tracked_outputs<O>> {};
 
 /** @brief NI of a design's options. */
 template<size_t NY, typename Options>

@@ -44,11 +44,13 @@ namespace design {
 
 /**
  * @brief The outputs a law without integrators or a disturbance model holds at r through its
- *        steady-state target (design::state_feedback, with or without a KalmanNoise): `TrackedOutputs{{0}}`, in that order
+ *        steady-state target (design::state_feedback and design::mpc, with or without a KalmanNoise): `TrackedOutputs{{0}}`, in that order
  *        (the references r follow it).
  *
  * The target is the model's: x* = Nₓ·r, u* = Nᵤ·r. A model error or a constant disturbance
- * leaves an offset; integral action (lqi, lqgi) or a disturbance model (oflqg) removes it.
+ * leaves an offset; integral action (lqi, lqgi) or a disturbance model (oflqg, an offset-free
+ * mpc, whose spec's outputs are the held ones) removes it. An MPC's QP still weighs every output,
+ * those it does not list toward C·x*.
  *
  * @see "Feedback Control of Dynamic Systems" (Franklin, Powell & Emami-Naeini), the reference
  *      input of state-space design (N_x, N_u)
@@ -137,6 +139,18 @@ struct disturbance_traits<TrackedOutputs<NZ>, NU, NY, NW> {
     static constexpr size_t states = 0;  ///< ND
     static constexpr size_t listed = NZ; ///< NZ listed
 };
+
+/** @brief Not TrackedOutputs. */
+template<typename>
+inline constexpr bool is_tracked_outputs = false;
+
+/** @brief TrackedOutputs. */
+template<size_t NZ>
+inline constexpr bool is_tracked_outputs<TrackedOutputs<NZ>> = true;
+
+/** @brief TrackedOutputs, as a kind of trailing option (options.hpp): design::state_feedback's and design::mpc's. */
+template<typename O>
+struct is_tracked_option : damp::bool_constant<is_tracked_outputs<O>> {};
 
 /** @brief The options steady_state_target takes: the model features of the design (a KalmanNoise is ignored). */
 using target_options = ::damp::detail::option_set<is_disturbance, is_kalman_noise, is_input_delay, is_output_delay>;
