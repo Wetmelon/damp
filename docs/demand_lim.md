@@ -1,6 +1,6 @@
-# `demand_lim`: a cascade limit inside one gain
+# `DemandLimit`: a cascade limit inside one gain
 
-A state-feedback gain acts on every state at once. A cascade of loops has a point between them, the setpoint the outer loop hands the inner one, where a limit goes: the lean a balancing robot's position loop may ask for, the speed a position loop may ask of a drive. One LQ gain has no such point. `demand_lim` reads one inside it and clamps it. This note derives the construction, what it does to the loop, what it costs, and what it does not guarantee.
+A state-feedback gain acts on every state at once. A cascade of loops has a point between them, the setpoint the outer loop hands the inner one, where a limit goes: the lean a balancing robot's position loop may ask for, the speed a position loop may ask of a drive. One LQ gain has no such point. A `DemandLimit` reads one inside it and clamps it. This note derives the construction, what it does to the loop, what it costs, and what it does not guarantee.
 
 ## The cascade inside a gain
 
@@ -26,7 +26,7 @@ This is an identity, not an approximation: the same law, written as an inner loo
 
 ## The clamp
 
-`demand_lim` clamps that setpoint into an interval $`[\ell_-, \ell_+]`$, a deviation of s from its reference:
+A `DemandLimit` clamps that setpoint into an interval $`[\ell_-, \ell_+]`$, a deviation of s from its reference:
 
 ```math
 u_i' = -K_{is}\,\bigl(z_s - \operatorname{sat}(z_{c,i})\bigr) \;-\; \sum_{j \in R} K_{ij}\, z_j
@@ -48,7 +48,7 @@ entry by entry over the inputs.
 The state is $`x = [p,\ \dot p,\ \theta,\ \dot\theta]`$, with an integrator ξ on the position error, and the gain one row $`K = [k_p,\ k_v,\ k_\theta,\ k_\omega,\ k_\xi]`$. Take the lean θ as s, and position, speed and ξ as the outer terms, listed by index (the plant states 0 to 3, then the integrator, 4), a `DemandLimit` among the design's options:
 
 ```cpp
-DemandLimit{.state = 2, .outer = {0, 1, 4}, .lim = {.lower = -0.26, .upper = 0.26}}
+DemandLimit{.state = 2, .outer = {0, 1, 4}, .lower = -0.26, .upper = 0.26}
 ```
 
 ```mermaid
@@ -62,13 +62,13 @@ A position error that asks for a lean of 0.5 rad gets 0.26. The robot drives bac
 
 ## On the tick
 
-The runtime computes $`u^* - K z`$ as ever, a plain product with the gain. The clamp corrects it afterwards ([`limit_demand`](../inc/damp/controllers/detail/state_feedback_core.hpp)): per input i, it forms the outer terms' share $`o_i = -\sum_{j \in O} K_{ij} z_j`$ again, takes $`z_{c,i} = o_i / K_{is}`$, and where the clamp changes it adds $`K_{is}\operatorname{sat}(z_{c,i}) - o_i`$ to $`u_i`$. K itself never changes. An input whose gain on s is rounding, $`|K_{is}| \le 4\varepsilon`$ times its row's largest gain, is left as it is. Then the command is clamped into `u_lim`.
+The runtime computes $`u^* - K z`$ as ever, a plain product with the gain. The clamp corrects it afterwards ([`limit_demand`](../inc/damp/controllers/detail/state_feedback_core.hpp)): per input i, it forms the outer terms' share $`o_i = -\sum_{j \in O} K_{ij} z_j`$ again, takes $`z_{c,i} = o_i / K_{is}`$, and where the clamp changes it adds $`K_{is}\operatorname{sat}(z_{c,i}) - o_i`$ to $`u_i`$. K itself never changes. An input whose gain on s is rounding, $`|K_{is}| \le 4\varepsilon`$ times its row's largest gain, is left as it is. Then the command is clamped into its input limits.
 
 Off, the limit costs one comparison per tick. On, it costs a second pass over each row of K, $`N_U (N_X + N_I)`$ multiply-adds, and $`N_U`$ divisions. A `Law<kRes>` of a `constexpr` design holds the limit as a constant of the type.
 
 ## The integrators
 
-While the clamp holds the setpoint, the outer terms' share of the command no longer grows with them. An integrator among the outer terms would keep integrating a contribution that is thrown away, and unwind it later, with the overshoot of any windup. The law records the command before the clamp; at the next predict, integrator $`\xi_i`$ holds when integrating its error $`e_i`$ would push a clamped input j further into its clamp, $`K_{j,\xi_i}\, e_i\, (u_j^{\text{applied}} - u_j^{\text{asked}}) > 0`$ (conditional integration, the default). With a `tracking_time` $`T_t`$ in the `IntegralAction` they integrate as ever and move by $`\min(T_s/T_t, 1)\,(\partial u/\partial\xi)^{+}(u^{\text{applied}} - u^{\text{asked}})`$ instead (back-calculation). The same rule covers `u_lim` and a clamp reported with `back_calculate`.
+While the clamp holds the setpoint, the outer terms' share of the command no longer grows with them. An integrator among the outer terms would keep integrating a contribution that is thrown away, and unwind it later, with the overshoot of any windup. The law records the command before the clamp; at the next predict, integrator $`\xi_i`$ holds when integrating its error $`e_i`$ would push a clamped input j further into its clamp, $`K_{j,\xi_i}\, e_i\, (u_j^{\text{applied}} - u_j^{\text{asked}}) > 0`$ (conditional integration, the default). With a `tracking_time` $`T_t`$ in the `IntegralAction` they integrate as ever and move by $`\min(T_s/T_t, 1)\,(\partial u/\partial\xi)^{+}(u^{\text{applied}} - u^{\text{asked}})`$ instead (back-calculation). The same rule covers the input limits and a clamp reported with `back_calculate`.
 
 ## Steady state
 
@@ -94,7 +94,7 @@ That is a Lur'e system: a linear loop with a static nonlinearity in feedback. Th
 
 While the clamp does not bind, the loop is the LQ loop, and the design's guarantees hold. While it binds, the gain was never designed for it: the Riccati equation saw no saturation. Nothing in the design certifies the clamped loop, and two things are known.
 
-A global certificate of the usual kind cannot exist for the cases `demand_lim` is for. The circle criterion over the sector $`[0, 1]`$, or any quadratic Lyapunov function certified against it, proves the loop stable for every slope in that sector, the slope-1 loop with the outer feedback removed among them. On a balancing robot that loop has no feedback on position: the position mode is an integrator, marginally stable, and the certificate fails. It fails because the test asks for too much, not necessarily because the robot diverges: with the lean bounded but kept, the outer terms still push it back. Whether they always bring it back is not settled by a sector test.
+A global certificate of the usual kind cannot exist for the cases a `DemandLimit` is for. The circle criterion over the sector $`[0, 1]`$, or any quadratic Lyapunov function certified against it, proves the loop stable for every slope in that sector, the slope-1 loop with the outer feedback removed among them. On a balancing robot that loop has no feedback on position: the position mode is an integrator, marginally stable, and the certificate fails. It fails because the test asks for too much, not necessarily because the robot diverges: with the lean bounded but kept, the outer terms still push it back. Whether they always bring it back is not settled by a sector test.
 
 A regional certificate can exist. Where $`|v_i| \le \bar v`$, the dead zone's slope is at most $`\sigma = 1 - \ell / \bar v`$, with $`\ell = \min(-\ell_-, \ell_+)`$, so inside that region the loop never loses more than the fraction σ of its outer feedback. The generalized sector condition then gives a level set of a quadratic Lyapunov function inside which every trajectory converges. With the design's own Riccati solution S as that function, for one input acting on s, the S-procedure multiplier can be eliminated in closed form. With $`M = S - A_{\text{cl}}^{\mathsf T} S A_{\text{cl}}`$ (the LQ stage cost on the closed loop, $`M \succ 0`$ when it is positive definite), $`b = -A_{\text{cl}}^{\mathsf T} S B k_s`$, $`c = C_v^{\mathsf T}`$, and
 
@@ -114,11 +114,11 @@ Then $`\bar v = \ell / (1 - \sigma_{\max})`$, and the largest level set inside $
 \mathcal{E} = \{\, z : z^{\mathsf T} S z \le c^\star \,\}, \qquad c^\star = \frac{\bar v^{\,2}}{C_v S^{-1} C_v^{\mathsf T}},
 ```
 
-is invariant, and every trajectory that starts in it converges to the reference. A $`\sigma_{\max} \ge 1`$ would certify the clamp globally. Damp does not compute this yet. Its limits: S is not chosen for the clamped loop, so the true region of attraction is larger than $`\mathcal{E}`$; with several inputs acting on s the closed form needs one multiplier shared between them, more conservative still, and an LMI otherwise; and the integrators' hold or back-calculation and `u_lim` are other nonlinearities, outside the model as written.
+is invariant, and every trajectory that starts in it converges to the reference. A $`\sigma_{\max} \ge 1`$ would certify the clamp globally. Damp does not compute this yet. Its limits: S is not chosen for the clamped loop, so the true region of attraction is larger than $`\mathcal{E}`$; with several inputs acting on s the closed form needs one multiplier shared between them, more conservative still, and an LMI otherwise; and the integrators' hold or back-calculation and the input limits are other nonlinearities, outside the model as written.
 
 ## The input limit is a different clamp
 
-`demand_lim` bounds a setpoint; `u_lim` bounds the command. On a plant with a mode that is unstable on its own, a command on its limit is the worse failure: the inner terms, the only feedback that stabilizes that mode, are cut along with the rest, and the mode can run away. `demand_lim` makes that rarer, because the outer terms ask for less, but it does not keep the command inside `u_lim`: the inner terms alone can still exceed it.
+A `DemandLimit` bounds a setpoint; the `InputLimits` bound the command. On a plant with a mode that is unstable on its own, a command on its limit is the worse failure: the inner terms, the only feedback that stabilizes that mode, are cut along with the rest, and the mode can run away. A `DemandLimit` makes that rarer, because the outer terms ask for less, but it does not keep the command inside its input limits: the inner terms alone can still exceed it.
 
 Glattfelder & Schaufelberger (2005) meet the same failure on an inverted pendulum driven by an electro-hydraulic actuator, and trace it to the inclination references the speed loop asks for. They keep the command off the actuator's limits by override control. The command is made a second controlled variable, to be held inside a band a margin short of the actuator's limits. A second controller regulates it at the band's edge, and min/max selectors pass whichever command is the more restrictive. Each path closes its own inclination loop, so a stabilizing loop is always closed, and with the margin the actuator never reaches its stops. They show that this widens the region the loop recovers from, where anti-windup alone cannot.
 
@@ -131,8 +131,8 @@ Each part of the construction is published; the combination, one finished optima
 | Glattfelder & Schaufelberger, [*Antiwindup and override control for exponentially unstable systems with actuator constraints*](https://skoge.folk.ntnu.no/prost/proceedings/ifac2005/Fullpapers/02398.pdf), 16th IFAC World Congress, 2005 | Reads a pole-placed state feedback with integral action on an inverted pendulum as the equivalent cascade, speed → inclination → actuator (§4), and traces the loss of stability to excessive inclination references from the speed controller (§5.1). Certified with the circle and Popov tests | Bounds the actuator signal with override selectors; does not clamp the inclination reference |
 | Ghignoni, Invernizzi & Lovera, [*Fixed-dynamics antiwindup design: application to pitch-limited position control of multirotor UAVs*](https://re.public.polimi.it/handle/11311/1156321), IEEE Trans. Control Systems Technology, 2021 | Saturates the pitch setpoint a multirotor's outer position loop asks for, with an anti-windup compensator synthesized on generalized sector conditions, for open-loop unstable plants | An explicit cascade of separate loops, and a synthesized compensator in place of conditional integration |
 | Teel, *Global stabilization and restricted tracking for multiple integrators with bounded controls*, Systems & Control Letters 18(3), 1992 | Nested saturations: clamps the intermediate control of a chain of integrators, with gains chosen so the saturated loop is globally stable | The saturations are part of the design, and the law is not an optimal gain |
-| Tarbouriech, Prieur & Gomes da Silva, *Stability analysis and stabilization of systems presenting nested saturations*, IEEE TAC 51(8), 2006 | Treats saturations inside a feedback as dead zones, with a generalized sector condition and LMIs for a region of attraction | The analysis a certificate of `demand_lim` would use; no cascade reading of a gain |
+| Tarbouriech, Prieur & Gomes da Silva, *Stability analysis and stabilization of systems presenting nested saturations*, IEEE TAC 51(8), 2006 | Treats saturations inside a feedback as dead zones, with a generalized sector condition and LMIs for a region of attraction | The analysis a certificate of a `DemandLimit` would use; no cascade reading of a gain |
 | Farrell, Polycarpou, Sharma & Dong, *Command filtered backstepping*, IEEE TAC 54(6), 2009 | Limits the magnitude of virtual controls (commanded intermediate states) in backstepping, with compensated tracking errors | Nonlinear backstepping, designed with the limits |
 | Garone, Di Cairano & Kolmanovsky, *Reference and command governors for systems with constraints*, Automatica 75, 2017 | Shapes the external reference of a stabilized loop so state constraints hold, with a guarantee | Acts on the reference outside the law, not on a setpoint inside the gain |
 
-A bound on the state itself, with a guarantee, is a `StateLimits` on `design::mpc` or an `ActionGovernor` around the law. `demand_lim` bounds what the outer terms ask, which no law without a prediction can turn into a bound on the state.
+A bound on the state itself, with a guarantee, is a `StateLimits` on `design::mpc` or an `ActionGovernor` around the law. A `DemandLimit` bounds what the outer terms ask, which no law without a prediction can turn into a bound on the state.

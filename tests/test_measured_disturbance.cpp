@@ -508,7 +508,10 @@ TEST_SUITE("MeasuredDisturbance") {
         static_assert(std::is_same_v<decltype(LQG{lqg}), LQG<2, 1, 2, double, FixedGainObserver<2, 1, 2, double>>>); // no input column for d
         static_assert(std::is_same_v<decltype(oflqg.kalman), design::KalmanResult<3, 1, 2, double, 3, 2, 1>>);
         static_assert(decltype(OFMPC{ofmpc})::NM == 0);
-        //! The sizes on the base this was built on (x86-64): no member, no padding for d.
+        //! The sizes on the base this was built on (x86-64): no member, no padding for d. The MPCs'
+        //! are those without Δu rows (2992, 3184 and 3504 with them, before InputRateLimits), and the
+        //! results' hold their limits as one StateFeedbackLimits, with a two-byte empty box for each
+        //! limit the law lacks (144 and 752 before).
         if constexpr (sizeof(size_t) == 8) {
             CHECK(sizeof(LQR{lqr}) == 88);
             CHECK(sizeof(LQR{lqr.as<float>()}) == 48);
@@ -519,11 +522,11 @@ TEST_SUITE("MeasuredDisturbance") {
             CHECK(sizeof(LQGI{lqgi}) == 472);
             CHECK(sizeof(OFLQG{oflqg}) == 488);
             CHECK(sizeof(OFLQG{oflqg.as<float>()}) == 256);
-            CHECK(sizeof(MPC{mpc}) == 2984); // one output held, TrackedOutputs{{1}}: 2992 holding both
-            CHECK(sizeof(MPC{mpcm}) == 3176);
-            CHECK(sizeof(OFMPC{ofmpc}) == 3504);
-            CHECK(sizeof(oflqg) == 752);
-            CHECK(sizeof(lqr) == 144);
+            CHECK(sizeof(MPC{mpc}) == 2392); // one output held, TrackedOutputs{{1}}: 2400 holding both
+            CHECK(sizeof(MPC{mpcm}) == 2520);
+            CHECK(sizeof(OFMPC{ofmpc}) == 2848);
+            CHECK(sizeof(oflqg) == 776);
+            CHECK(sizeof(lqr) == 160);
         }
         //! A measured d on a measured state adds the target's map of it and nothing to keep between ticks.
         const auto lqrm = design::state_feedback(*kLags, kWeights, design::TrackedOutputs{{1}}, design::MeasuredDisturbance{kLoadOnX2});

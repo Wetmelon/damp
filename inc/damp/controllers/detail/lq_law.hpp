@@ -127,8 +127,8 @@ struct ConstantGains {
         }
     }(); ///< The target per unit r
     static constexpr auto kDemand = [] {
-        if constexpr (requires { design.demand_lim; }) {
-            return design.demand_lim;
+        if constexpr (requires { design.limits; }) {
+            return design.limits.demand;
         } else {
             return ::damp::detail::DemandTerms<damp::remove_cvref_t<decltype(design.K)>::cols(), T>{};
         }
@@ -155,8 +155,8 @@ struct constant_estimator {
 };
 
 /** @brief A design with a filter runs its FixedGainObserver on constants of the type: NUK inputs, u and then a measured disturbance's. */
-template<const auto& Res, typename T, size_t NX, size_t NU, typename U, size_t NI, size_t NY, size_t NXK, size_t NUK, size_t NW, size_t NV, size_t ND, size_t NZ, size_t NRU, size_t NM>
-struct constant_estimator<Res, T, design::StateFeedbackResult<NX, NU, U, NI, NY, design::KalmanResult<NXK, NUK, NY, U, NW, NV, ND>, NZ, NRU, NM>> {
+template<const auto& Res, typename T, size_t NX, size_t NU, typename U, size_t NI, size_t NY, size_t NXK, size_t NUK, size_t NW, size_t NV, size_t ND, size_t NZ, size_t NRU, size_t NM, size_t NDU>
+struct constant_estimator<Res, T, design::StateFeedbackResult<NX, NU, U, NI, NY, design::KalmanResult<NXK, NUK, NY, U, NW, NV, ND>, NZ, NRU, NM, NDU>> {
     using type = FixedGainObserver<NXK, NUK, NY, T, ND, ConstantObserver<Res, T, NXK - ND>>; ///< The observer and the disturbance
 };
 
@@ -181,10 +181,11 @@ struct Law<Res, T> : detail::lq_runtime<damp::remove_cvref_t<decltype(Res)>, T>:
             this->integral.step = static_cast<T>(Res.integral.step);
             this->integral.unwind = Res.integral.unwind.template as<T>();
             this->tracking_time = static_cast<T>(Res.tracking_time);
-            lim.integral_lim = Res.integral_lim.template as<T>();
+            lim.integral = Res.limits.integral.template as<T>();
         }
-        if constexpr (requires { Res.u_lim; }) {
-            lim.u_lim = Res.u_lim.template as<T>();
+        if constexpr (requires { Res.limits; }) {
+            lim.input = Res.limits.input.template as<T>();
+            lim.input_rate = Res.limits.input_rate.template as<T>();
         }
         if (!this->set_limits(lim) && damp::is_constant_evaluated()) {
             detail::refuse_failed_design(design::DesignStatus::invalid_parameter); // a result whose limits were edited by hand

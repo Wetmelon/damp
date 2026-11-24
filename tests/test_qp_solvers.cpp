@@ -120,17 +120,10 @@ TEST_CASE("warm-start solver is constexpr") {
 TEST_CASE("warm-start default MPC matches the stateless policy tick for tick") {
     design::MPCWeights<1, 1> weights{};
     weights.Rdu = 0.05;
-    design::InputLimits<1> limits{};
-    limits.u_lim = {
-        .lower = -0.5,
-        .upper = 0.5,
-    };
-    limits.du_lim = {
-        .lower = -0.2,
-        .upper = 0.2,
-    };
+    design::InputLimits<1>     limits{.lower = {-0.5}, .upper = {0.5}};
+    design::InputRateLimits<1> moves{.lower = {-0.2}, .upper = {0.2}};
 
-    const auto art = design::mpc<15, 5>(double_integrator, weights, limits, design::TrackedOutputs{});
+    const auto art = design::mpc<15, 5>(double_integrator, weights, limits, moves, design::TrackedOutputs{});
     REQUIRE(art.success);
 
     MPC warm{art}; // WarmStartActiveSetSolver is the default policy
@@ -186,11 +179,7 @@ TEST_CASE("ADMM warm start cuts the iteration count on a repeated solve") {
 TEST_CASE("ADMM solver policy drives the MPC like the active-set default") {
     design::MPCWeights<1, 1> weights{};
     weights.Rdu = 0.05;
-    design::InputLimits<1> limits{};
-    limits.u_lim = {
-        .lower = -0.5,
-        .upper = 0.5,
-    };
+    design::InputLimits<1> limits{.lower = {-0.5}, .upper = {0.5}};
 
     const auto art = design::mpc<15, 5>(double_integrator, weights, limits, design::QPIterations{20000}, design::TrackedOutputs{});
     REQUIRE(art.success);
@@ -324,17 +313,10 @@ TEST_CASE("ADMM reports an MPC's infeasible constraint set like the active-set d
     // back in range) solves again.
     design::MPCWeights<1, 1> weights{};
     weights.Rdu = 0.05;
-    design::InputLimits<1> limits{};
-    limits.u_lim = {
-        .lower = -0.5,
-        .upper = 0.5,
-    };
-    limits.du_lim = {
-        .lower = -0.1,
-        .upper = 0.1,
-    };
+    design::InputLimits<1>     limits{.lower = {-0.5}, .upper = {0.5}};
+    design::InputRateLimits<1> moves{.lower = {-0.1}, .upper = {0.1}};
 
-    const auto art = design::mpc<15, 5>(double_integrator, weights, limits, design::QPIterations{20000}, design::TrackedOutputs{});
+    const auto art = design::mpc<15, 5>(double_integrator, weights, limits, moves, design::QPIterations{20000}, design::TrackedOutputs{});
     REQUIRE(art.success);
 
     using Ctl = decltype(MPC{art});
@@ -401,11 +383,7 @@ TEST_CASE("interior point flags an infeasible constraint set") {
 TEST_CASE("interior-point solver policy drives the MPC like the active-set default") {
     design::MPCWeights<1, 1> weights{};
     weights.Rdu = 0.05;
-    design::InputLimits<1> limits{};
-    limits.u_lim = {
-        .lower = -0.5,
-        .upper = 0.5,
-    };
+    design::InputLimits<1> limits{.lower = {-0.5}, .upper = {0.5}};
 
     const auto art = design::mpc<15, 5>(double_integrator, weights, limits, design::TrackedOutputs{});
     REQUIRE(art.success);

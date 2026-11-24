@@ -540,12 +540,12 @@ TEST_CASE("LQRWeights, InputLimits, DemandLimit, TrackedOutputs, the disturbance
     constexpr LQRWeights lq_float{.Q = diag(1.0f, 0.1f), .R = {0.5f}};
     static_assert(damp::is_same_v<decltype(lq_float), const LQRWeights<2, 1, float>>);
 
-    //! The limits: one input unless u_lim says otherwise. A DemandLimit and TrackedOutputs take their lengths from their lists.
-    constexpr design::InputLimits clamped{.u_lim = {.lower = -12.0, .upper = 12.0}};
+    //! The limits: one input unless an end's type says otherwise. A DemandLimit and TrackedOutputs take their lengths from their lists.
+    constexpr design::InputLimits clamped{.lower = {-12.0}, .upper = {12.0}};
     static_assert(damp::is_same_v<decltype(clamped), const design::InputLimits<1>>);
-    constexpr design::InputLimits two{.u_lim = Bounds<2>{.lower = {-1.0, -2.0}, .upper = {1.0, 2.0}}};
+    constexpr design::InputLimits two{.lower = ColVec<2>{-1.0, -2.0}, .upper = ColVec<2>{1.0, 2.0}};
     static_assert(damp::is_same_v<decltype(two), const design::InputLimits<2>>);
-    constexpr DemandLimit limited{.state = 1, .outer = {0, 2}, .lim = {.lower = -0.2, .upper = 0.2}};
+    constexpr DemandLimit limited{.state = 1, .outer = {0, 2}, .lower = -0.2, .upper = 0.2};
     static_assert(damp::is_same_v<decltype(limited), const DemandLimit<2>> && limited.state == 1 && limited.outer[1] == 2);
     static_assert(damp::is_same_v<decltype(design::TrackedOutputs{{0, 2}}), design::TrackedOutputs<2>> && damp::is_same_v<decltype(design::TrackedOutputs{}), design::TrackedOutputs<0>>);
     static_assert(damp::is_same_v<decltype(design::InputDisturbance{{0, 2}}), design::InputDisturbance<2>> && damp::is_same_v<decltype(design::OutputDisturbance{}), design::OutputDisturbance<0>>);
@@ -561,11 +561,11 @@ TEST_CASE("LQRWeights, InputLimits, DemandLimit, TrackedOutputs, the disturbance
     constexpr LQRWeights     lqi{.Q = diag(10.0, 1.0), .R = {1.0}};
     constexpr IntegralAction ia{.Q = 80.0, .tracking_time = 0.5};
     static_assert(damp::is_same_v<decltype(ia), const IntegralAction<double>> && ia.NI == 1 && ia.Q == 80.0);
-    static_assert(damp::is_same_v<decltype(ia.lim), Bounds<1>> && damp::is_same_v<decltype(ia.outputs), damp::array<size_t, 1>>);
+    static_assert(damp::is_same_v<decltype(ia.limits), Bounds<1>> && damp::is_same_v<decltype(ia.outputs), damp::array<size_t, 1>>);
     constexpr LQRWeights     lqi_two{.Q = diag(10.0, 1.0), .R = diag(1.0, 1.0)};
-    constexpr IntegralAction ia_two{.Q = diag(80.0, 80.0), .lim = {.lower = {-1.0, -2.0}, .upper = {1.0, 2.0}}};
+    constexpr IntegralAction ia_two{.Q = diag(80.0, 80.0), .limits = {.lower = {-1.0, -2.0}, .upper = {1.0, 2.0}}};
     static_assert(damp::is_same_v<decltype(lqi_two), const LQRWeights<2, 2>> && damp::is_same_v<decltype(ia_two), const IntegralAction<Matrix<2, 2>>> && ia_two.NI == 2);
-    static_assert(damp::is_same_v<decltype(ia_two.lim), Bounds<2>>);
+    static_assert(damp::is_same_v<decltype(ia_two.limits), Bounds<2>>);
 
     //! The deduced config and action design as the spelled ones.
     constexpr StateSpace plant{.A = {{0.0, 1.0}, {-1.0, -0.5}}, .B = {{0.0}, {1.0}}, .C = {{1.0, 0.0}}};

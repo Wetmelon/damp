@@ -49,10 +49,7 @@ inline constexpr std::size_t kHorizon = 12; // [periods] 60 s, two time constant
 /// Rdu = 1.6, which moves the power gently (see the derivation).
 inline constexpr design::MPCWeights kWeights{.Rdu = {1.6}};
 /// The cartridge: 0 … Pmax.
-inline constexpr design::InputLimits kLimits{.u_lim = {
-                                                 .lower = 0.0,
-                                                 .upper = kPmax,
-                                             }};
+inline constexpr design::InputLimits kLimits{.lower = {0.0}, .upper = {kPmax}};
 /// Model error on the block, thermistor noise (one reading's variance), and how fast the unknown
 /// heat loss may drift, per period (0.01 and 0.05 per second over 5 s).
 inline constexpr design::KalmanNoise<1, 1, double, 1> kNoise{

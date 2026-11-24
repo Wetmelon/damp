@@ -122,13 +122,15 @@ the repo root.
 - **Design calls:** what every call needs is positional (the plant, `Ts` for a
   continuous one, the weights), so braces size it from the plant; the rest is a
   trailing pack recognized by type (`design/options.hpp`: `KalmanNoise`,
-  `InputDelay`, `OutputDelay`, `IntegralAction`, `TrackedOutputs`, `InputLimits`, `DemandLimit`, `OutputLimits`,
-  `StateLimits`, `DareCost`, `InvariantSet`, `QPIterations`, a disturbance spec, `MeasuredDisturbance`, …), at most one of each
-  kind, in any order, refused at compile time otherwise. What the gain does not depend on is an option, not a
-  weight: the limits on u and Δu are `InputLimits{.u_lim, .du_lim}` in both families (an LQ design refuses
-  a `.du_lim`: its law clamps u), and an LQ design bounds what its outer terms ask of a state with a
-  `DemandLimit`; an MPC's output and state limits, its terminal ingredient and its QP budget are
-  `OutputLimits`, `StateLimits`, `DareCost` or `InvariantSet` and `QPIterations`, and an operating
+  `InputDelay`, `OutputDelay`, `IntegralAction`, `TrackedOutputs`, `InputLimits`, `InputRateLimits`, `DemandLimit`,
+  `OutputLimits`, `StateLimits`, `DareCost`, `InvariantSet`, `QPIterations`, a disturbance spec, `MeasuredDisturbance`, …),
+  at most one of each kind, in any order, refused at compile time otherwise. What the gain does not depend on is an
+  option, not a weight: the limits on u and on Δu are `InputLimits{.lower, .upper}` and
+  `InputRateLimits{.lower, .upper}` in both families (an LQ law clamps its command and its move, an MPC's QP carries
+  rows for each, the Δu rows only with an `InputRateLimits`), and an LQ design bounds what its outer terms ask of a
+  state with a `DemandLimit{.state, .outer, .lower, .upper}`; an MPC's output and state limits, its terminal ingredient and its QP budget are
+  `OutputLimits{.outputs, .lower, .upper}`, `StateLimits{.states, .lower, .upper}`, `DareCost` or `InvariantSet` and
+  `QPIterations`, and an operating
   point is the runtime's (`set_input_target`; Ru is measured from the target's input otherwise).
   Both families hold r through one target, `steady_state_target`'s: on the outputs a disturbance
   spec's `.outputs` lists, or without one a `TrackedOutputs`, every output when the one given
@@ -141,11 +143,13 @@ the repo root.
   LQG with a `KalmanNoise`, LQGI or OFLQG with both; `mpc` is MPC, or OFMPC with
   a noise and a disturbance spec; a `MeasuredDisturbance` adds to any of them, the target under d and a filter's known
   input after u. An option carries its own numbers, so the
-  weights are the same with or without it: `IntegralAction{.Q, .outputs, .lim,
+  weights are the same with or without it: `IntegralAction{.Q, .outputs, .limits,
   .tracking_time}` the integrators' cost and limits, `KalmanNoise` the noise and
   the disturbance's walk, `InputDelay<N>{θ}` and `OutputDelay<M>{θ}` the delays. A weight an option's
   size comes from is a value (a scalar or a Matrix); `KalmanNoise` deduces its
-  sizes from its fields. A list of indices is a C array (`DemandLimit::outer`,
+  sizes from its fields. A limit option's ends are flat, `.lower` and `.upper`, each unbounded when left out, as a
+  `Bounds`' are (vectors written flat, `{-0.5}` for one channel; a `DemandLimit`'s scalars); a box inside an option
+  that is not a limit is `.limits` (`IntegralAction`). A list of indices is a C array (`DemandLimit::outer`,
   `TrackedOutputs::outputs`, `OutputLimits::outputs`, `StateLimits::states`, the disturbance specs' `outputs`), so its length
   is deduced from bare braces, which no class member's is; the type with none
   listed (NZ = 0) is a specialization without the array. Two overloads per design, `fn(sys, …, opts...)` and
@@ -158,16 +162,20 @@ the repo root.
   predict then update then control (m_k in, u_k out). Low-latency ISR: update →
   control → write → `back_calculate` → predict. `back_calculate(u_sat, u_ff = {})`
   records the applied input.
-- **Limits:** a law's output limit is `u_lim` (`Bounds`, unbounded by default):
-  in the design input or on its result, refused when it is not a box. The LQ
-  laws and the MPCs read their run-time limits with `limits()` and set them with
+- **Limits:** a law's output limit is a `Bounds`, unbounded by default: an
+  `InputLimits` among an LQ or MPC design's options, `u_lim` in the design input
+  or on the result of the others, refused when it is not a box. The LQ laws and
+  the MPCs read their run-time limits with `limits()` and set them with
   `set_limits(lim)`, which refuses one that is not a box (false, nothing
-  changed); the other runtimes hold `u_lim` as a public member. The tick returns
-  a command inside `u_lim`, and with nothing
-  else set the law's memory holds against that clamp (conditional integration,
-  an observer or internal model on the clamped command). A clamp after the law
-  is reported with `back_calculate`, to the same effect. Move, state and output
-  limits are `design::mpc` (`InputLimits::du_lim`, `OutputLimits`, `StateLimits`), `design::mhe` (`x_lim`) or an
+  changed): `StateFeedbackLimits` and `MPCLimits`, which start with `input` (then
+  `input_rate`) and end with `disturbance`, and a design result holds the same
+  struct as `limits`. The other runtimes hold `u_lim` as a public member. The
+  tick returns a command inside its limits, and with nothing else set the law's
+  memory holds against that clamp (conditional integration, an observer or
+  internal model on the clamped command). A clamp after the law is reported with
+  `back_calculate`, to the same effect. A move limit is an `InputRateLimits`
+  (clamped on an LQ law, rows of an MPC's QP); state and output limits are
+  `design::mpc` (`OutputLimits`, `StateLimits`), `design::mhe` (`x_lim`) or an
   `ActionGovernor` around any law. A new law with memory gets all of it.
 - **Errors:** `optional` / `bool success` / `DesignStatus` / `valid()` /
   compile-time constraints. No exceptions, and no run-time faults anywhere: a

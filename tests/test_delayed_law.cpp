@@ -512,12 +512,12 @@ TEST_CASE("the designs take their features as trailing options, in any order") {
     //! The MPC's limits on an output and a state, its terminal cost and its QP budget, in any order; bare braces are the default weights.
     constexpr auto                 sysd = discretize(plant(), kTs).value();
     constexpr design::MPCWeights   weights{.Qy = {20.0}, .Rdu = {0.1}};
-    constexpr design::InputLimits  limits{.u_lim = {.lower = -1.0, .upper = 1.0}};
-    constexpr design::OutputLimits cap{.outputs = {0}, .lim = {.upper = 1.0}, .upper_ecr = {0.0}};
-    constexpr design::StateLimits  slow{.states = {1}, .lim = {.lower = -0.5, .upper = 0.5}};
+    constexpr design::InputLimits  limits{.lower = {-1.0}, .upper = {1.0}};
+    constexpr design::OutputLimits cap{.outputs = {0}, .upper = {1.0}, .upper_ecr = {0.0}};
+    constexpr design::StateLimits  slow{.states = {1}, .lower = {-0.5}, .upper = {0.5}};
     constexpr auto                 bounded = design::mpc<6, 6>(sysd, weights, limits, cap, slow, design::DareCost{}, design::QPIterations{30}, design::TrackedOutputs{});
     constexpr auto                 reordered = design::mpc<6, 6>(sysd, weights, limits, design::QPIterations{30}, design::DareCost{}, slow, cap, design::TrackedOutputs{});
     static_assert(std::is_same_v<decltype(bounded), decltype(reordered)> && bounded.success && reordered.mpc.H == bounded.mpc.H && reordered.mpc.A_con == bounded.mpc.A_con && reordered.mpc.b_bound == bounded.mpc.b_bound);
-    static_assert(reordered.mpc.max_qp_iterations == 30 && reordered.mpc.P == bounded.mpc.P && decltype(bounded.mpc)::NI == (4 * 6) + (2 * 6) + (2 * 6));
+    static_assert(reordered.mpc.max_qp_iterations == 30 && reordered.mpc.P == bounded.mpc.P && decltype(bounded.mpc)::NI == (2 * 6) + (2 * 6) + (2 * 6));
     static_assert(design::mpc<4, 2>(sysd, {}, design::TrackedOutputs{}).success && design::mpc<4, 2>(plant(), kTs, {}, design::TrackedOutputs{}).success); // on a discrete plant, and on the plant at Ts
 }

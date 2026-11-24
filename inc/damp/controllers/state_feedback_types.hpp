@@ -7,9 +7,10 @@
 
 /**
  * @file state_feedback_types.hpp
- * @brief The types of an LQ design: what it is given (LQRWeights, IntegralAction; InputLimits in
- *        design/input_limits.hpp), what it hands its runtime (StateFeedbackResult, NoEstimator) and
- *        the limits the runtime takes at run time (StateFeedbackLimits)
+ * @brief The types of an LQ design: what it is given (LQRWeights, IntegralAction; InputLimits and
+ *        InputRateLimits in design/input_limits.hpp) and what it hands its runtime
+ *        (StateFeedbackResult, NoEstimator; the limits it takes at run time, StateFeedbackLimits, in
+ *        design/input_limits.hpp)
  *
  * The design is design::state_feedback (state_feedback.hpp); the runtimes are in lqr.hpp, lqi.hpp,
  * lqg.hpp, lqgi.hpp and oflqg.hpp, over the one they share in detail/state_feedback_core.hpp.
@@ -18,7 +19,7 @@
 #include "damp/backend.hpp"
 #include "damp/controllers/law.hpp"
 #include "damp/design/detail/config.hpp"
-#include "damp/design/input_limits.hpp"
+#include "damp/design/input_limits.hpp" // IWYU pragma: export
 #include "damp/design/status.hpp"
 #include "damp/design/steady_state_target.hpp"
 #include "damp/estimation/fixed_gain_observer.hpp"
@@ -153,10 +154,9 @@ template<typename Terms, typename... Opts>
 /**
  * @brief The full cost a design reads: LQRWeights and InputLimits as one, sized to the plant
  *
- * Its u_lim and du_lim come from the InputLimits among the options and demand_lim from the
- * DemandLimit (unbounded and off without them); the integrators add theirs in LQIConfig. No LQ law
- * clamps its move, so the design refuses a bounded du_lim (limits_valid); it is carried here for
- * the law that would.
+ * Its u_lim comes from the InputLimits among the options and demand_lim from the DemandLimit
+ * (unbounded and off without them); the integrators add theirs in LQIConfig. The move limit, an
+ * InputRateLimits, sizes the result and is read by the public design (state_feedback_design_of).
  */
 template<size_t NX, size_t NU = 1, typename T = double>
 struct LQRConfig {
@@ -164,20 +164,17 @@ struct LQRConfig {
     Matrix<NU, NU, T>                  R{};          ///< On the inputs u (positive definite)
     Matrix<NX, NU, T>                  N{};          ///< Cross term between x and u (default zero)
     Bounds<NU, T>                      u_lim{};      ///< Limits on the command u, per input (default unbounded)
-    Bounds<NU, T>                      du_lim{};     ///< Limits on the move Δu per period (default unbounded; refused otherwise)
     ::damp::detail::DemandTerms<NX, T> demand_lim{}; ///< A limit on what the outer states ask of one state (default off)
 };
 
 /** @brief The weights, the InputLimits and the DemandLimit among @p opts (none: unbounded, off) as the design's full cost, the demand on the plant states. */
 template<size_t NX, size_t NU, typename T, typename... Opts>
 [[nodiscard]] constexpr LQRConfig<NX, NU, T> lq_cost_of(const LQRWeights<NX, NU, T>& weights, const Opts&... opts) {
-    const auto limits = input_limits_of<NU, T>(opts...);
     return {
         .Q = weights.Q,
         .R = weights.R,
         .N = weights.N,
-        .u_lim = limits.u_lim,
-        .du_lim = limits.du_lim,
+        .u_lim = input_limits_of<NU, T>(opts...),
         .demand_lim = demand_terms_of<::damp::detail::DemandTerms<NX, T>>(opts...),
     };
 }
@@ -194,7 +191,6 @@ struct LQIConfig {
     Matrix<NX, NU, T>                       N{};             ///< Cross term between x and u (default zero)
     Matrix<NI, NI, T>                       Q_integral{};    ///< On the discrete integral state ξ ≈ ∫e dt (positive definite)
     Bounds<NU, T>                           u_lim{};         ///< Limits on the command u, per input (default unbounded)
-    Bounds<NU, T>                           du_lim{};        ///< Limits on the move Δu per period (default unbounded; refused otherwise)
     Bounds<NI, T>                           integral_lim{};  ///< Limits on the integral state ξ, per integrator (default unbounded)
     ::damp::detail::DemandTerms<NX + NI, T> demand_lim{};    ///< A limit on what the outer states and integrators ask of one state (default off)
     T                                       tracking_time{}; ///< [s] The integrators' back-calculation tracking time (default 0: conditional integration)
@@ -221,7 +217,7 @@ struct LQIConfig {
  * | --- | --- | --- | --- |
  * | Q | the cost on the discrete integral state ξ ≈ ∫(r − y) dt | NI × NI, positive definite | required |
  * | outputs | the integrated outputs y = C·x + D·u, in that order (r follows it) | NI | every output (NI = NY) |
- * | lim | limits on ξ, per integrator | NI | unbounded |
+ * | limits | limits on ξ, per integrator, a Bounds | NI | unbounded |
  * | tracking_time | the integrators' back-calculation tracking time T_t [s] | ≥ 0 | 0: conditional integration |
  *
  * Q is the cost on the Euler-integrated error ξ ≈ ∫e dt, not a block of a generic augmented Q.
@@ -232,10 +228,10 @@ struct LQIConfig {
  * refused with DesignStatus::bad_weights, and so are outputs out of range, listed twice, or left
  * out with fewer integrators than outputs.
  *
- * The law holds its integrators against the clamp of InputLimits::u_lim, with no back_calculate. lim is on ξ
- * itself, in the units of ∫e dt (the error's times seconds): through the gain, ξ moves input j by
- * K(j, NX + i)·ξᵢ. It is a member of the result and of the runtime, `law.integral_lim`, set at run
- * time like `law.u_lim`, and refused as u_lim is.
+ * The law holds its integrators against the clamp of the InputLimits (and of an InputRateLimits),
+ * with no back_calculate. limits is on ξ itself, in the units of ∫e dt (the error's times seconds):
+ * through the gain, ξ moves input j by K(j, NX + i)·ξᵢ. The runtime moves it at run time with
+ * set_limits (StateFeedbackLimits::integral), and refuses it as it refuses the InputLimits.
  *
  * tracking_time picks how the integrators meet a clamp, as PID's Kbc does. At 0, the default, an
  * integrator holds where integrating its error would push a clamped input further (conditional
@@ -270,7 +266,7 @@ struct IntegralAction {
 
     TQ                                             Q{};                                  ///< On ξ ≈ ∫(r − y) dt (NI × NI, positive definite)
     damp::type_identity_t<damp::array<size_t, NI>> outputs = detail::every_output<NI>(); ///< The integrated outputs, in order (left out: every one)
-    damp::type_identity_t<Bounds<NI, T>>           lim{};                                ///< Limits on ξ, per integrator (default unbounded)
+    damp::type_identity_t<Bounds<NI, T>>           limits{};                             ///< Limits on ξ, per integrator (default unbounded)
     damp::type_identity_t<T>                       tracking_time{};                      ///< [s] Back-calculation tracking time (default 0: conditional integration)
 };
 
@@ -310,11 +306,9 @@ struct IntegralDesign {
  * | K, S, e | the gain, the Riccati solution, the closed-loop poles | always |
  * | state_gain(), delay_gain(), integral_gain() | K's columns on x, on the delay states (NRU > 0) and on ξ (NI > 0) | always, and as noted |
  * | success, status, Ts | ok or why not; the law's sample time | always |
- * | u_lim | the limits on the command (InputLimits::u_lim) | always, default unbounded |
- * | demand_lim | the limit on what the outer terms ask of one state (the design's DemandLimit) | always, default off |
+ * | limits | the limits the law starts with, its limits(): input (InputLimits), input_rate (InputRateLimits, NDU > 0), integral (IntegralAction::limits, NI > 0), demand (DemandLimit), disturbance (ND > 0, unbounded: the runtime's) | always, default unbounded, the demand limit off |
  * | kalman | the Kalman filter (design::kalman's result) | lqg, lqgi, oflqg |
  * | integral | the integrated outputs Ci, Ci·C, Ci·D and the step | NI > 0 |
- * | integral_lim | the limits on ξ (IntegralAction::lim) | NI > 0, default unbounded |
  * | tracking_time | the integrators' back-calculation tracking time (IntegralAction::tracking_time) | NI > 0, default 0 |
  * | target | the steady-state target (design::steady_state_target's result) | oflqg; lqr and lqg with TrackedOutputs (NZ > 0); any law with a MeasuredDisturbance (NM > 0) |
  *
@@ -334,10 +328,11 @@ struct IntegralDesign {
  * @tparam NZ     Controlled outputs of the target (0: none)
  * @tparam NRU    Delay states per input, the commands still on their way: NRU·NU states after the plant's (0: none)
  * @tparam NM     Measured-disturbance inputs (MeasuredDisturbance; 0: none)
+ * @tparam NDU    Inputs with a move limit: NU with an InputRateLimits (0: none)
  *
  * @see "Optimal Control" (Anderson & Moore, 1990), §4 and §8
  */
-template<size_t NX, size_t NU, typename T = double, size_t NI = 0, size_t NY = NX, typename Kalman = NoEstimator, size_t NZ = 0, size_t NRU = 0, size_t NM = 0>
+template<size_t NX, size_t NU, typename T = double, size_t NI = 0, size_t NY = NX, typename Kalman = NoEstimator, size_t NZ = 0, size_t NRU = 0, size_t NM = 0, size_t NDU = 0>
 struct [[nodiscard]] StateFeedbackResult {
     using Filter = ::damp::detail::estimator_traits<::damp::detail::runtime_estimator_t<Kalman, T>>;
     static constexpr bool   kEstimated = Filter::present;         ///< A Kalman filter estimates the state
@@ -348,22 +343,19 @@ struct [[nodiscard]] StateFeedbackResult {
     static constexpr size_t NXF = kEstimated ? Filter::NXE : NXL; ///< The filter's model before d: the law's, then the delay states of late readings
     using Integral = ::damp::detail::maybe<(NI > 0), IntegralDesign<NI, NXL, NU, NY, T>, ::damp::detail::OffSlot::design_integral>;
     using Target = ::damp::detail::maybe<(NZ > 0 || NM > 0), SteadyStateTargetResult<NXF, NU, ND + NM, NZ, T>, ::damp::detail::OffSlot::design_target>;
-    using IntegralLim = ::damp::detail::maybe<(NI > 0), Bounds<NI, T>, ::damp::detail::OffSlot::design_integral_lim>;
     using TrackingTime = ::damp::detail::maybe<(NI > 0), T, ::damp::detail::OffSlot::design_tracking_time>;
 
-    Matrix<NU, NK, T>                       K{};                                 ///< Optimal gain: u = −K·[x; xi]
-    Matrix<NK, NK, T>                       S{};                                 ///< Riccati solution (positive semidefinite)
-    damp::array<damp::complex<T>, NK>       e{};                                 ///< Closed-loop poles of the law's model
-    bool                                    success{false};                      ///< status == DesignStatus::ok
-    DesignStatus                            status{DesignStatus::not_converged}; ///< ok, or the first failure: the gain's, the filter's, the target's
-    T                                       Ts{0};                               ///< Sample time of the law: 0 continuous (e in the s-plane), > 0 discrete
-    [[no_unique_address]] Kalman            kalman{};                            ///< The Kalman filter (state_feedback with a KalmanNoise: LQG, LQGI, OFLQG)
-    [[no_unique_address]] Integral          integral{};                          ///< The integral action (NI > 0)
-    [[no_unique_address]] Target            target{};                            ///< The steady-state target (NZ > 0, or NM > 0: under the measured disturbance)
-    Bounds<NU, T>                           u_lim{};                             ///< Limits on the command the runtime returns (default unbounded)
-    ::damp::detail::DemandTerms<NX + NI, T> demand_lim{};                        ///< A limit on what the outer terms ask of one state (the design's DemandLimit; default off)
-    [[no_unique_address]] IntegralLim       integral_lim{};                      ///< Limits on the integral state ξ (IntegralAction::lim; NI > 0, default unbounded)
-    [[no_unique_address]] TrackingTime      tracking_time{};                     ///< [s] The integrators' back-calculation tracking time (IntegralAction::tracking_time; NI > 0, default 0)
+    Matrix<NU, NK, T>                           K{};                                 ///< Optimal gain: u = −K·[x; xi]
+    Matrix<NK, NK, T>                           S{};                                 ///< Riccati solution (positive semidefinite)
+    damp::array<damp::complex<T>, NK>           e{};                                 ///< Closed-loop poles of the law's model
+    bool                                        success{false};                      ///< status == DesignStatus::ok
+    DesignStatus                                status{DesignStatus::not_converged}; ///< ok, or the first failure: the gain's, the filter's, the target's
+    T                                           Ts{0};                               ///< Sample time of the law: 0 continuous (e in the s-plane), > 0 discrete
+    [[no_unique_address]] Kalman                kalman{};                            ///< The Kalman filter (state_feedback with a KalmanNoise: LQG, LQGI, OFLQG)
+    [[no_unique_address]] Integral              integral{};                          ///< The integral action (NI > 0)
+    [[no_unique_address]] Target                target{};                            ///< The steady-state target (NZ > 0, or NM > 0: under the measured disturbance)
+    StateFeedbackLimits<NX, NU, T, NI, ND, NDU> limits{};                            ///< The limits the law starts with, its limits() (default unbounded, the demand limit off)
+    [[no_unique_address]] TrackingTime          tracking_time{};                     ///< [s] The integrators' back-calculation tracking time (IntegralAction::tracking_time; NI > 0, default 0)
 
     /** @brief True when the design succeeded (success). */
     [[nodiscard]] constexpr explicit operator bool() const { return success; }
@@ -391,18 +383,35 @@ struct [[nodiscard]] StateFeedbackResult {
     /** @brief The same design in the scalar @p U: `res.as<float>()` for the embedded runtime. */
     template<typename U>
     [[nodiscard]] constexpr auto as() const {
-        using Out = StateFeedbackResult<NX, NU, U, NI, NY, damp::remove_cvref_t<decltype(kalman.template as<U>())>, NZ, NRU, NM>;
+        using Out = StateFeedbackResult<NX, NU, U, NI, NY, damp::remove_cvref_t<decltype(kalman.template as<U>())>, NZ, NRU, NM, NDU>;
         Out out{K.template as<U>(), S.template as<U>(), array_as<damp::complex<U>>(e), success, status, static_cast<U>(Ts), kalman.template as<U>()};
         if constexpr (NI > 0) {
             out.integral = integral.template as<U>();
-            out.integral_lim = integral_lim.template as<U>();
             out.tracking_time = static_cast<U>(tracking_time);
         }
         if constexpr (NZ > 0 || NM > 0) {
             out.target = target.template as<U>();
         }
-        out.u_lim = u_lim.template as<U>();
-        out.demand_lim = demand_lim.template as<U>();
+        out.limits = limits.template as<U>();
+        return out;
+    }
+
+    /**
+     * @brief The same design with the move limit @p rate: an InputRateLimits among the options
+     *        (NDU = NU). A refused design ships none, as it ships no other limit.
+     */
+    [[nodiscard]] constexpr StateFeedbackResult<NX, NU, T, NI, NY, Kalman, NZ, NRU, NM, NU> with_input_rate(const Bounds<NU, T>& rate) const
+        requires(NDU == 0)
+    {
+        StateFeedbackResult<NX, NU, T, NI, NY, Kalman, NZ, NRU, NM, NU> out{K, S, e, success, status, Ts, kalman, integral, target};
+        out.limits.input = limits.input;
+        out.limits.integral = limits.integral;
+        out.limits.demand = limits.demand;
+        out.limits.disturbance = limits.disturbance;
+        if (success) {
+            out.limits.input_rate = rate;
+        }
+        out.tracking_time = tracking_time;
         return out;
     }
 
@@ -453,7 +462,7 @@ struct [[nodiscard]] StateFeedbackResult {
      * block, with TrackedOutputs and with a disturbance model alike: the block is the regulator
      * (r = 0). It closes on any plant its y is read from, one with another delay among them:
      * u = C_c s + D_c y, its sign included. The block is the
-     * law within its limits: u_lim, the integrators' limits and demand_lim are not part of it. A
+     * law within its limits: the limits on the command, its move and the integrators, and the demand limit, are not part of it. A
      * measured disturbance (NM > 0) is a feedforward outside it as r is: the block is the law at
      * d = 0, its filter on the plant's inputs alone.
      */
@@ -579,27 +588,6 @@ private:
     }
 };
 
-/**
- * @brief The limits an LQ law takes at run time: u, the integrators ξ, what the outer terms ask of
- *        a state and the disturbance estimate d̂, in physical units. A field left out is unbounded
- *        (the demand limit off), and one the law does not have is empty.
- *
- * The gain, the filter and the target stay as designed. `auto l = law.limits(); l.u_lim.upper = …;
- * law.set_limits(l);` changes one, as on an MPC (MPCLimits); `l.demand_lim = DemandLimit{…}` sets
- * the demand limit, and `l.demand_lim = {}` turns it off.
- *
- * @tparam NX Plant states (the demand limit's terms: these, then the integrators)
- * @tparam NI Integrators (0: none, integral_lim empty)
- * @tparam ND Disturbance states of the filter (0: none, disturbance_lim empty)
- */
-template<size_t NX, size_t NU, typename T = double, size_t NI = 0, size_t ND = 0>
-struct StateFeedbackLimits {
-    Bounds<NU, T>                           u_lim{};           ///< Limits on the command
-    Bounds<NI, T>                           integral_lim{};    ///< Limits on the integrators ξ (NI > 0)
-    ::damp::detail::DemandTerms<NX + NI, T> demand_lim{};      ///< A limit on what the outer terms ask of one state (a DemandLimit; default off)
-    Bounds<ND, T>                           disturbance_lim{}; ///< Limits on the disturbance estimate d̂, in d's units (ND > 0)
-};
-
 } // namespace design
 
 namespace detail {
@@ -609,8 +597,8 @@ template<typename R>
 struct is_state_feedback_result : damp::false_type {};
 
 /** @brief A StateFeedbackResult. */
-template<size_t NX, size_t NU, typename T, size_t NI, size_t NY, typename Kalman, size_t NZ, size_t NRU, size_t NM>
-struct is_state_feedback_result<design::StateFeedbackResult<NX, NU, T, NI, NY, Kalman, NZ, NRU, NM>> : damp::true_type {};
+template<size_t NX, size_t NU, typename T, size_t NI, size_t NY, typename Kalman, size_t NZ, size_t NRU, size_t NM, size_t NDU>
+struct is_state_feedback_result<design::StateFeedbackResult<NX, NU, T, NI, NY, Kalman, NZ, NRU, NM, NDU>> : damp::true_type {};
 
 /**
  * @brief A StateFeedbackResult of any sizes. A runtime's constructor takes one and reads its kind

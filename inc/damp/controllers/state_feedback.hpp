@@ -87,15 +87,33 @@ template<size_t NY, size_t NX, size_t NU, typename T, typename TQ, typename TI>
     out.cost.N = config.N;
     out.cost.Q_integral = square_matrix<NI, T>(action.Q, Matrix<NI, NI, T>{});
     out.cost.u_lim = config.u_lim;
-    out.cost.du_lim = config.du_lim;
-    out.cost.integral_lim = action.lim.template as<T>();
+    out.cost.integral_lim = action.limits.template as<T>();
     out.cost.tracking_time = static_cast<T>(action.tracking_time);
     return out;
 }
 
 /** @brief The options of a state-feedback design: a KalmanNoise makes it estimate the state. */
 using state_feedback_options = ::damp::detail::
-    option_set<is_input_delay, is_output_delay, is_integral_option, is_tracked_option, is_disturbance, is_measured_disturbance, is_kalman_noise, is_input_limits, is_demand_limit>;
+    option_set<is_input_delay, is_output_delay, is_integral_option, is_tracked_option, is_disturbance, is_measured_disturbance, is_kalman_noise, is_input_limits, is_input_rate_limits, is_demand_limit>;
+
+/**
+ * @brief A design's result with the InputRateLimits among @p opts (NDU = NU), or itself without one:
+ *        refused with DesignStatus::invalid_parameter when the box is not one, as the InputLimits are.
+ */
+template<size_t NU, typename T, typename Result, typename... Opts>
+[[nodiscard]] constexpr auto with_rate_limits(const Result& res, const Opts&... opts) {
+    if constexpr (rate_limited_inputs<NU, Opts...> == 0) {
+        (static_cast<void>(opts), ...);
+        return res;
+    } else {
+        const Bounds<NU, T> rate = input_rate_limits_of<NU, T>(opts...);
+        const auto          out = res.with_input_rate(rate);
+        if (res.success && !rate.valid()) {
+            return ::damp::detail::refused<damp::remove_cvref_t<decltype(out)>>(DesignStatus::invalid_parameter); // an end NaN or ±Inf, or the lower above the upper
+        }
+        return out;
+    }
+}
 
 /** @brief The integrators of a state-feedback design's options: an IntegralAction's NI, else none. */
 template<typename... Opts>
@@ -138,9 +156,9 @@ template<bool Sampled, size_t NX, size_t NU, size_t NY, typename T, size_t NW, s
     if constexpr (kIntegral) {
         auto integral = integral_cost<NY>(config, ::damp::detail::option<is_integral_option>(Unset{}, opts...));
         integral.cost.demand_lim = demand_terms_of<decltype(integral.cost.demand_lim)>(opts...); // its outer terms may be the integrators
-        return run(integral.cost, integral.integral);
+        return with_rate_limits<NU, T>(run(integral.cost, integral.integral), opts...);
     } else {
-        return run(config, ::damp::detail::option<is_disturbance>(Unset{}, opts...));
+        return with_rate_limits<NU, T>(run(config, ::damp::detail::option<is_disturbance>(Unset{}, opts...)), opts...);
     }
 }
 
@@ -152,13 +170,15 @@ template<bool Sampled, size_t NX, size_t NU, size_t NY, typename T, size_t NW, s
  * The cost is @p weights in the plant's own time domain: LQRWeights {.Q, .R, .N}, the same with
  * or without integral action, which brings its own cost. @p opts trail in any order, at most one
  * of each kind:
- * - InputLimits{.u_lim}: the limit the law's command runs within, clamped into u_lim (InputLimits).
- *   An LQ law clamps its command and no move: a bounded .du_lim, the MPC's, is refused with
- *   DesignStatus::invalid_parameter.
- * - DemandLimit{.state, .outer, .lim}: a limit on what the outer terms, listed by index (the plant
+ * - InputLimits{.lower, .upper}: the limits the law's command runs within, clamped into them
+ *   (InputLimits).
+ * - InputRateLimits{.lower, .upper}: the limits on the command's move per period: each tick the
+ *   command is clamped into them about the input applied last tick, and into the InputLimits
+ *   (InputRateLimits). The law's memory holds against both clamps.
+ * - DemandLimit{.state, .outer, .lower, .upper}: a limit on what the outer terms, listed by index (the plant
  *   states, then the integrators), ask of one state (DemandLimit). The gain is the same without
  *   either.
- * - IntegralAction{.Q, .outputs, .lim, .tracking_time}: integrators on the listed
+ * - IntegralAction{.Q, .outputs, .limits, .tracking_time}: integrators on the listed
  *   outputs y = C·x + D·u, in that order (r follows it), every output when it lists none, with
  *   their cost .Q (NI × NI, a scalar for one), their limits and tracking time: runs as LQI,
  *   xi += Ts·(r − Ci·y).

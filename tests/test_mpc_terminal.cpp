@@ -51,11 +51,11 @@ design::MPCWeights<1, 1> move_weight(double rdu) {
 }
 
 /// |u| ≤ 1.
-constexpr design::InputLimits<1> kUnitInput{.u_lim = {.lower = -1.0, .upper = 1.0}};
+constexpr design::InputLimits<1> kUnitInput{.lower = {-1.0}, .upper = {1.0}};
 
 /// The position within ±1 (@p hard: no slack).
 design::OutputLimits<1> position_box(bool hard) {
-    design::OutputLimits<1> position{.outputs = {0}, .lim = {.lower = -1.0, .upper = 1.0}};
+    design::OutputLimits<1> position{.outputs = {0}, .lower = {-1.0}, .upper = {1.0}};
     if (hard) {
         position.lower_ecr(0) = 0.0;
         position.upper_ecr(0) = 0.0;
@@ -123,8 +123,8 @@ TEST_CASE("default mpc: no terminal rows, NI is the box formula") {
     CHECK(art.status == design::DesignStatus::ok);
     CHECK(art.mpc.n_terminal == 0);
     CHECK(art.mpc.terminal == design::detail::MPCTerminal::none);
-    CHECK(std::remove_cvref_t<decltype(art.mpc)>::NI == 4 * 4); // Δu and u rows; the outputs have none without an OutputLimits
-    CHECK(std::remove_cvref_t<decltype(design::mpc<8, 4>(double_integrator, {}, position_box(false), design::TrackedOutputs{}).mpc)>::NI == (4 * 4) + (2 * 8));
+    CHECK(std::remove_cvref_t<decltype(art.mpc)>::NI == 2 * 4); // u rows; Δu has none without an InputRateLimits, the outputs none without an OutputLimits
+    CHECK(std::remove_cvref_t<decltype(design::mpc<8, 4>(double_integrator, {}, position_box(false), design::TrackedOutputs{}).mpc)>::NI == (2 * 4) + (2 * 8));
     CHECK(art.mpc.P(0, 0) == doctest::Approx(0.0));
     CHECK(art.mpc.K_terminal(0, 0) == doctest::Approx(0.0));
 }
@@ -387,11 +387,7 @@ TEST_CASE("4-state NP=10 dare_cost design is constexpr under default ops") {
     // The Δu-form terminal cost is a DARE on z = [e; v] (6 states here): cheap enough for constinit.
     constexpr auto art = [] {
         constexpr auto         weights = two_axes_weights();
-        design::InputLimits<2> limits{};
-        limits.u_lim = {
-            .lower = {-1.0, -1.0},
-            .upper = {1.0, 1.0},
-        };
+        design::InputLimits<2> limits{.lower = {-1.0, -1.0}, .upper = {1.0, 1.0}};
         return design::mpc<10, 4>(two_axes, weights, limits, design::DareCost{}, design::TrackedOutputs{});
     }();
     static_assert(art.success);
@@ -402,13 +398,9 @@ TEST_CASE("4-state NP=10 invariant_set design") {
     // The target-augmented set lives on [z; q] (NX + NU + NY + NU = 10 here) and needs ~160
     // facets: it is designed at initialization with the capacity raised accordingly.
     const auto art = [] {
-        constexpr auto         weights = two_axes_weights();
-        design::InputLimits<2> limits{};
-        limits.u_lim = {
-            .lower = {-1.0, -1.0},
-            .upper = {1.0, 1.0},
-        };
-        const design::OutputLimits positions{.outputs = {0, 1}, .lim = {.lower = {-1.0, -1.0}, .upper = {1.0, 1.0}}};
+        constexpr auto             weights = two_axes_weights();
+        design::InputLimits<2>     limits{.lower = {-1.0, -1.0}, .upper = {1.0, 1.0}};
+        const design::OutputLimits positions{.outputs = {0, 1}, .lower = {-1.0, -1.0}, .upper = {1.0, 1.0}};
         return design::mpc<10, 10>(two_axes, weights, limits, positions, design::InvariantSet<192>{}, design::TrackedOutputs{});
     }();
     REQUIRE(art.success);
@@ -482,13 +474,13 @@ TEST_CASE("with an InvariantSet set_limits refuses a change of the QP's limits: 
     const ColVec<1> r{0.9};
 
     auto lim = law.limits();
-    lim.u_lim = {.lower = -0.8, .upper = 0.8};
+    lim.input = {.lower = -0.8, .upper = 0.8};
     CHECK_FALSE(law.set_limits(lim));
-    CHECK(law.limits().u_lim.upper(0) == 1.0);
+    CHECK(law.limits().input.upper(0) == 1.0);
     lim = law.limits();
-    lim.y_lim = {.lower = -1.0, .upper = 0.9};
+    lim.output = {.lower = -1.0, .upper = 0.9};
     CHECK_FALSE(law.set_limits(lim));
-    CHECK(law.limits().y_lim.upper(0) == 1.0);
+    CHECK(law.limits().output.upper(0) == 1.0);
     CHECK(law.set_limits(law.limits()));
     for (size_t k = 0; k < 30; ++k) {
         const auto u = law.step(r, x);

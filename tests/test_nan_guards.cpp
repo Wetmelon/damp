@@ -801,11 +801,11 @@ TEST_SUITE("NaN guards") {
         constexpr StateSpace     plant{.A = {{1.0, 0.1}, {0.0, 1.0}}, .B = {{0.005}, {0.1}}, .C = {{1.0, 0.0}}, .Ts = 0.1};
         const auto               weights = design::LQRWeights<2, 1>{.Q = Matrix<2, 2>::identity(), .R = 0.01};
         const auto               noise = design::KalmanNoise<2, 1, double, 1>{.process = Matrix<2, 2>::identity() * 1e-3, .measurement = Matrix<1, 1>{{1e-4}}, .disturbance = Matrix<1, 1>{{1.0}}};
-        const auto               lqi = design::state_feedback(plant, weights, design::IntegralAction<double>{.Q = 1.0});
+        const auto               lqi = design::state_feedback(plant, weights, design::IntegralAction<double>{.Q = 1.0}, design::InputRateLimits<1>{.lower = {-0.5}, .upper = {0.5}});
         const auto               oflqg = design::state_feedback(StateSpace<2, 1, 1, double, 2, 1>{.A = plant.A, .B = plant.B, .C = plant.C, .Ts = plant.Ts}, weights, noise, design::InputDisturbance{});
         design::MPCWeights<1, 1> mpc_weights{};
         mpc_weights.Rdu = 0.05;
-        const auto mpc = design::mpc<10, 4>(plant, mpc_weights, design::InputLimits<1>{.u_lim = {.lower = -1.0, .upper = 1.0}}, design::OutputLimits<1>{.outputs = {0}, .lim = {.lower = -2.0, .upper = 2.0}}, design::TrackedOutputs{});
+        const auto mpc = design::mpc<10, 4>(plant, mpc_weights, design::InputLimits<1>{.lower = {-1.0}, .upper = {1.0}}, design::InputRateLimits<1>{.lower = {-0.5}, .upper = {0.5}}, design::OutputLimits<1>{.outputs = {0}, .lower = {-2.0}, .upper = {2.0}}, design::TrackedOutputs{});
         const auto ofmpc = design::mpc<10, 4>(StateSpace<2, 1, 1, double, 2, 1>{.A = plant.A, .B = plant.B, .C = plant.C, .Ts = plant.Ts}, mpc_weights, noise, design::InputDisturbance{});
         REQUIRE(lqi.success);
         REQUIRE(oflqg.success);
@@ -822,46 +822,50 @@ TEST_SUITE("NaN guards") {
         for (const T bad : non_finite<T>()) {
             for (const T end : {bad, -bad}) {
                 auto l = lq_before;
-                l.u_lim.upper(0) = end;
+                l.input.upper(0) = end;
                 CHECK_FALSE(lq.set_limits(l));
                 l = lq_before;
-                l.u_lim.lower(0) = end;
+                l.input.lower(0) = end;
                 CHECK_FALSE(lq.set_limits(l));
                 l = lq_before;
-                l.integral_lim.upper(0) = end;
+                l.input_rate.lower(0) = end;
                 CHECK_FALSE(lq.set_limits(l));
                 l = lq_before;
-                l.demand_lim = DemandLimit{.state = 1, .outer = {0}, .lim = Bounds<1, T>{.lower = end, .upper = T{1}}};
+                l.integral.upper(0) = end;
                 CHECK_FALSE(lq.set_limits(l));
-                l.demand_lim = DemandLimit{.state = 1, .outer = {0}, .lim = Bounds<1, T>{.lower = T{-1}, .upper = end}};
+                l = lq_before;
+                l.demand = DemandLimit{.state = 1, .outer = {0}, .lower = end, .upper = T{1}};
+                CHECK_FALSE(lq.set_limits(l));
+                l.demand = DemandLimit{.state = 1, .outer = {0}, .lower = T{-1}, .upper = end};
                 CHECK_FALSE(lq.set_limits(l));
                 //! A demand limit's box went through as<T>(), which reads an infinite end as unbounded, before it was tested: the design took one.
-                CHECK(design::state_feedback(plant, weights, DemandLimit{.state = 1, .outer = {0}, .lim = Bounds<1>{.lower = -1.0, .upper = static_cast<double>(end)}}).status == DesignStatus::invalid_parameter);
+                CHECK(design::state_feedback(plant, weights, DemandLimit{.state = 1, .outer = {0}, .lower = -1.0, .upper = static_cast<double>(end)}).status == DesignStatus::invalid_parameter);
                 auto o = of_before;
-                o.disturbance_lim.lower(0) = end;
+                o.disturbance.lower(0) = end;
                 CHECK_FALSE(of.set_limits(o));
                 auto m = mpc_before;
-                m.u_lim.upper(0) = end;
+                m.input.upper(0) = end;
                 CHECK_FALSE(law.set_limits(m));
                 m = mpc_before;
-                m.du_lim.lower(0) = end;
+                m.input_rate.lower(0) = end;
                 CHECK_FALSE(law.set_limits(m));
                 m = mpc_before;
-                m.y_lim.upper(0) = end;
+                m.output.upper(0) = end;
                 CHECK_FALSE(law.set_limits(m));
                 auto om = ofmpc_before;
-                om.disturbance_lim.upper(0) = end;
+                om.disturbance.upper(0) = end;
                 CHECK_FALSE(of_law.set_limits(om));
             }
         }
-        CHECK(lq.limits().u_lim.upper(0) == lq_before.u_lim.upper(0));
-        CHECK(lq.limits().integral_lim.upper(0) == lq_before.integral_lim.upper(0));
-        CHECK(lq.limits().demand_lim.state == lq_before.demand_lim.state);
-        CHECK(of.limits().disturbance_lim.lower(0) == of_before.disturbance_lim.lower(0));
-        CHECK(law.limits().u_lim.upper(0) == T{1});
-        CHECK(law.limits().du_lim.lower(0) == mpc_before.du_lim.lower(0));
-        CHECK(law.limits().y_lim.upper(0) == T{2});
-        CHECK(of_law.limits().disturbance_lim.upper(0) == ofmpc_before.disturbance_lim.upper(0));
+        CHECK(lq.limits().input.upper(0) == lq_before.input.upper(0));
+        CHECK(lq.limits().input_rate.lower(0) == T{-0.5});
+        CHECK(lq.limits().integral.upper(0) == lq_before.integral.upper(0));
+        CHECK(lq.limits().demand.state == lq_before.demand.state);
+        CHECK(of.limits().disturbance.lower(0) == of_before.disturbance.lower(0));
+        CHECK(law.limits().input.upper(0) == T{1});
+        CHECK(law.limits().input_rate.lower(0) == T{-0.5});
+        CHECK(law.limits().output.upper(0) == T{2});
+        CHECK(of_law.limits().disturbance.upper(0) == ofmpc_before.disturbance.upper(0));
         static_cast<void>(law.step(ColVec<1, T>{T{1}}, ColVec<2, T>{}));
         CHECK(law.last_status() == design::QPStatus::Success);
     }

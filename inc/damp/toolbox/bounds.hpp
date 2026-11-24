@@ -151,22 +151,22 @@ private:
  *
  * Read the law u = u* − K·z, z = [x − x*; ξ], as a cascade on the state s: u = −K_s·(z_s − z_c) − (the
  * other terms), where the outer terms (the plant states and integrators listed in @ref outer) ask for
- * z_c = −(Σ K_j·z_j)/K_s. The law clamps z_c into @ref lim, per input that acts on s (K_s ≠ 0). A
+ * z_c = −(Σ K_j·z_j)/K_s. The law clamps z_c into [@ref lower, @ref upper], per input that acts on s (K_s ≠ 0). A
  * balancing robot's position, speed and integral ask for a lean; this bounds the lean they may ask
  * for, not the lean itself, which no law without a prediction can bound. The integrators hold
- * against the clamp as against u_lim's, or unwind with a tracking_time. At a steady state the outer terms carry the input that holds it (none
+ * against the clamp as against the InputLimits', or unwind with a tracking_time. At a steady state the outer terms carry the input that holds it (none
  * for a robot balanced upright; a spring's force through its position): a limit below that holds the
  * plant short of its reference.
  *
  * On the tick the law is computed as ever, u = u* − K·z, a plain product with the gain, and the clamp
  * corrects it afterwards. For each input i that acts on s, the outer terms' share of uᵢ,
- * oᵢ = −Σ K_ij·z_j over @ref outer, is formed again, and where oᵢ/K_is falls outside @ref lim it is
+ * oᵢ = −Σ K_ij·z_j over @ref outer, is formed again, and where oᵢ/K_is falls outside its box it is
  * replaced by K_is·clamp(oᵢ/K_is). K itself never changes. The law is piecewise linear: with K split by
  * columns into K_out, the outer terms, and K_in = K − K_out, and k_s the column on s,
  * @f[
  *   u = u^* - K_{\mathrm{in}}\, z + k_s \circ \operatorname{sat}_{\mathrm{lim}}\!\left(\frac{-K_{\mathrm{out}}\, z}{k_s}\right),
  * @f]
- * entry by entry over the inputs, which inside @ref lim is u* − K·z. Outside it only the outer terms
+ * entry by entry over the inputs, which inside the box is u* − K·z. Outside it only the outer terms
  * are bounded: the gain on s and the other terms keep their full stiffness. An input whose gain on s
  * is rounding (|K_is| ≤ 4ε of its row's largest) is left as it is. Off, the limit costs one
  * comparison; on, a second pass over each row of K, NU·(NX + NI) multiply-adds, and NU divisions.
@@ -175,8 +175,8 @@ private:
  * optimal while the clamp does not bind, and while it binds the loop holds a saturation the Riccati
  * equation never saw (a Lur'e system), which nothing certifies. The outer terms then act through a
  * bounded demand; where they must stabilize a mode that is unstable on its own, that may not bring it
- * back. A disturbance can still carry the state itself past @ref lim. A bound on the state with a
- * guarantee is design::mpc's x_lim, or an ActionGovernor around the law.
+ * back. A disturbance can still carry the state itself past the box. A bound on the state with a
+ * guarantee is design::mpc's StateLimits, or an ActionGovernor around the law.
  *
  * Published work has each part. A pole-placed state feedback with integral action on an unstable
  * plant has been read as the equivalent cascade of loops, there to protect the actuator with an
@@ -190,15 +190,16 @@ private:
  * A design takes it among its trailing options (design::state_feedback), the terms that ask listed
  * by index in @ref outer: the plant states 0 … NX − 1, then the integrators NX … NX + NI − 1 (the
  * delay states of a plant whose input arrives late are never outer).
- * `DemandLimit{.state = 2, .outer = {0, 1, 4}, .lim = {.lower = -0.26, .upper = 0.26}}`: the
- * position, the speed and the integrator ask for the lean, x₂, at most 0.26 either way. @ref outer
- * is an array, so the limit takes M, how many terms ask, from its list. A state that is not the
- * plant's, an index past the terms, one listed twice, the state among its own outer terms, or a
- * box Bounds::valid refuses is refused with DesignStatus::invalid_parameter.
+ * `DemandLimit{.state = 2, .outer = {0, 1, 4}, .lower = -0.26, .upper = 0.26}`: the position, the
+ * speed and the integrator ask for the lean, x₂, at most 0.26 either way. @ref outer is an array,
+ * so the limit takes M, how many terms ask, from its list; the ends are scalars, one state's, and
+ * one left out is unbounded. A state that is not the plant's, an index past the terms, one listed
+ * twice, the state among its own outer terms, or a box Bounds::valid refuses (an end NaN or ±Inf,
+ * or the lower above the upper) is refused with DesignStatus::invalid_parameter.
  *
  * A runtime that holds its matrices holds it with its other limits, read with `limits()` and set at
- * run time with `set_limits()` (`auto l = law.limits(); l.demand_lim = DemandLimit{…};
- * law.set_limits(l);`, and `l.demand_lim = {}` turns it off); the Law of a `constexpr` design holds
+ * run time with `set_limits()` (`auto l = law.limits(); l.demand = DemandLimit{…};
+ * law.set_limits(l);`, and `l.demand = {}` turns it off); the Law of a `constexpr` design holds
  * it as a constant of the type, so it costs that law nothing, and its set_limits refuses another.
  *
  * @see "Antiwindup and override control for exponentially unstable systems with actuator
@@ -216,9 +217,10 @@ template<size_t M, typename T = double>
 struct DemandLimit {
     static_assert(M > 0, "DemandLimit lists the terms that ask by index: .outer = {i, ...}, at least one.");
 
-    size_t       state{static_cast<size_t>(-1)}; ///< s: the state asked for, an index of the plant state x (required)
-    size_t       outer[M]{};                     ///< The terms that ask, by index: plant states 0 … NX − 1, then the integrators (an array, so M is its list's length)
-    Bounds<1, T> lim{};                          ///< The most they may ask of x_s, as a deviation from the reference point (the target with one)
+    size_t state{static_cast<size_t>(-1)};         ///< s: the state asked for, an index of the plant state x (required)
+    size_t outer[M]{};                             ///< The terms that ask, by index: plant states 0 … NX − 1, then the integrators (an array, so M is its list's length)
+    T      lower{-damp::numeric_limits<T>::max()}; ///< The lowest they may ask of x_s, as a deviation from the reference point (the target with one; default unbounded)
+    T      upper{damp::numeric_limits<T>::max()};  ///< The highest they may ask of x_s, as that deviation (default unbounded)
 };
 
 namespace detail {
@@ -245,8 +247,8 @@ public:
 
     /** @brief The limit @p d on N terms, its outer terms flagged. Its box is tested in U, before as<T>() reads an infinite end as unbounded. */
     template<size_t M, typename U>
-    constexpr DemandTerms(const DemandLimit<M, U>& d) // NOLINT(google-explicit-constructor): limits.demand_lim = DemandLimit{…}
-        : state{d.state}, lim{d.lim.template as<T>()}, usable_{d.state < N && d.lim.valid()} {
+    constexpr DemandTerms(const DemandLimit<M, U>& d) // NOLINT(google-explicit-constructor): limits.demand = DemandLimit{…}
+        : state{d.state}, lim{box(d).template as<T>()}, usable_{d.state < N && box(d).valid()} {
         for (size_t j = 0; j < M; ++j) {
             const size_t i = d.outer[j];
             if (i >= N || outer_[i]) {
@@ -301,6 +303,12 @@ public:
 private:
     template<size_t, typename>
     friend class DemandTerms;
+
+    /** @brief The box of a DemandLimit's ends, in its own scalar. */
+    template<size_t M, typename U>
+    [[nodiscard]] static constexpr Bounds<1, U> box(const DemandLimit<M, U>& d) {
+        return Bounds<1, U>{.lower = ColVec<1, U>{d.lower}, .upper = ColVec<1, U>{d.upper}};
+    }
 
     damp::array<bool, N> outer_{};      ///< One flag per term
     bool                 usable_{true}; ///< The list was read whole

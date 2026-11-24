@@ -66,17 +66,17 @@ static_assert(!SisoController<RelayAutotuner<double>, double>);            // an
 
 // --- FeedbackRuntime: lifecycle only (update, predict, back_calculate, reset) ---
 // The seven LQ and MPC runtimes on a two-state, one-input, one-output plant.
-using PlantFilter = FixedGainObserver<2, 1, 1, double>;                                                         // on [x]
-using LoadFilter = FixedGainObserver<3, 1, 1, double, 1>;                                                       // on [x; d], one disturbance state
-using LqrLaw = LQR<2, 1, double>;                                                                               // design::state_feedback
-using LqrTrackLaw = LQR<2, 1, double, 2, 1>;                                                                    // design::state_feedback, one tracked output
-using LqiLaw = LQI<2, 1, 1, double, 1>;                                                                         // design::state_feedback with an IntegralAction, one integrated output
-using LqgLaw = LQG<2, 1, 1, double, PlantFilter>;                                                               // design::state_feedback with a KalmanNoise
-using LqgTrackLaw = LQG<2, 1, 1, double, PlantFilter, 1>;                                                       // design::state_feedback with a KalmanNoise, one tracked output
-using LqgiLaw = LQGI<2, 1, 1, 1, double, PlantFilter>;                                                          // design::state_feedback with a KalmanNoise and an IntegralAction
-using OflqgLaw = OFLQG<2, 1, 1, 1, double, LoadFilter>;                                                         // design::state_feedback with a KalmanNoise and a disturbance spec, one controlled output
-using MpcLaw = MPC<2, 1, 1, 10, 4, 0, double>;                                                                  // design::mpc with TrackedOutputs{}: NH defaults to every output
-using OfmpcLaw = OFMPC<2, 1, 1, 10, 4, double, design::WarmStartActiveSetSolver<5, 17, double>, 0, LoadFilter>; // design::mpc with a KalmanNoise and a disturbance spec
+using PlantFilter = FixedGainObserver<2, 1, 1, double>;                                                        // on [x]
+using LoadFilter = FixedGainObserver<3, 1, 1, double, 1>;                                                      // on [x; d], one disturbance state
+using LqrLaw = LQR<2, 1, double>;                                                                              // design::state_feedback
+using LqrTrackLaw = LQR<2, 1, double, 2, 1>;                                                                   // design::state_feedback, one tracked output
+using LqiLaw = LQI<2, 1, 1, double, 1>;                                                                        // design::state_feedback with an IntegralAction, one integrated output
+using LqgLaw = LQG<2, 1, 1, double, PlantFilter>;                                                              // design::state_feedback with a KalmanNoise
+using LqgTrackLaw = LQG<2, 1, 1, double, PlantFilter, 1>;                                                      // design::state_feedback with a KalmanNoise, one tracked output
+using LqgiLaw = LQGI<2, 1, 1, 1, double, PlantFilter>;                                                         // design::state_feedback with a KalmanNoise and an IntegralAction
+using OflqgLaw = OFLQG<2, 1, 1, 1, double, LoadFilter>;                                                        // design::state_feedback with a KalmanNoise and a disturbance spec, one controlled output
+using MpcLaw = MPC<2, 1, 1, 10, 4, 0, double>;                                                                 // design::mpc with TrackedOutputs{}: NH defaults to every output
+using OfmpcLaw = OFMPC<2, 1, 1, 10, 4, double, design::WarmStartActiveSetSolver<5, 9, double>, 0, LoadFilter>; // design::mpc with a KalmanNoise and a disturbance spec
 
 static_assert(FeedbackRuntime<LqrLaw, 1, 2, double>);   // m = x
 static_assert(FeedbackRuntime<LqiLaw, 1, 2, double>);   // m = x

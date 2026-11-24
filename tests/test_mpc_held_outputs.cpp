@@ -370,7 +370,7 @@ TEST_SUITE("MPC held outputs") {
         first_only.Qy_terminal = first_only.Qy;
         CHECK(design::mpc<10, 4>(through, first_only, design::TrackedOutputs{{0}}).success);
         CHECK(design::mpc<10, 4>(through, both_weighed(), design::TrackedOutputs{{0}}).status == design::DesignStatus::bad_weights);
-        CHECK(design::mpc<10, 4>(through, first_only, design::TrackedOutputs{{0}}, design::OutputLimits{.outputs = {1}, .lim = {.upper = 1.0}}).status == design::DesignStatus::bad_weights);
+        CHECK(design::mpc<10, 4>(through, first_only, design::TrackedOutputs{{0}}, design::OutputLimits{.outputs = {1}, .upper = {1.0}}).status == design::DesignStatus::bad_weights);
     }
 }
 
@@ -411,8 +411,8 @@ TEST_SUITE("MPC regulator") {
 
         //! It stores no map of r, and no target: the (x + u) × y entries of TrackedOutputs{}'s go.
         if constexpr (sizeof(size_t) == 8) {
-            CHECK(sizeof(a) == 12208);
-            CHECK(sizeof(b) == 12280);
+            CHECK(sizeof(a) == 9616);
+            CHECK(sizeof(b) == 9688);
         }
     }
 
@@ -449,8 +449,8 @@ TEST_SUITE("MPC regulator") {
         CHECK(a.control(ColVec<1>{w})(0) == doctest::Approx(b.control(ColVec<2>{}, ColVec<1>{w})(0)).epsilon(1e-12));
         CHECK(a.control(ColVec<2>{}, ColVec<2>{}, ColVec<1>{w})(1) == doctest::Approx(b.control(ColVec<2>{}, ColVec<2>{}, ColVec<2>{}, ColVec<1>{w})(1)).epsilon(1e-12));
         if constexpr (sizeof(size_t) == 8) {
-            CHECK(sizeof(a) == 12656);
-            CHECK(sizeof(b) == 12720);
+            CHECK(sizeof(a) == 9904);
+            CHECK(sizeof(b) == 9968);
         }
     }
 
