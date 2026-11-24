@@ -140,9 +140,11 @@ the repo root.
   delay is an option of every sampled design (`InputDelay<N>{θ}` with the
   continuous plant and `Ts`), the runtime holding or filtering its delay states;
   a model with the delay built in is the plant route, for a model one holds. The
-  options pick the law: `state_feedback` is LQR, LQI with an `IntegralAction`,
-  LQG with a `KalmanNoise` (or `ObserverPoles`, the filter placed), LQGI or OFLQG with both,
-  its weights `LQRWeights` or `Poles` for any of them, the same result and runtime; `mpc` is MPC, or OFMPC with
+  options pick the law: `state_feedback`'s runtime is `StateFeedback`, and five
+  names name what the options produce, each an alias of it that refuses another
+  kind's design: LQR, LQI with an `IntegralAction`, LQG with a `KalmanNoise` (or
+  `ObserverPoles`, the filter placed), LQGI with both, OFLQG with a filter and a
+  disturbance spec, its weights `LQRWeights` or `Poles` for any of them, the same result and runtime; `mpc` is MPC, or OFMPC with
   a noise and a disturbance spec; a `MeasuredDisturbance` adds to any of them, the target under d and a filter's known
   input after u. An option carries its own numbers, so the
   weights are the same with or without it: `IntegralAction{.Q, .outputs, .limits,

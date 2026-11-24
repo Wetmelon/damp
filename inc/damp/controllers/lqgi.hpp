@@ -7,7 +7,7 @@
 
 /**
  * @file lqgi.hpp
- * @brief The linear-quadratic Gaussian law with integral action: design::state_feedback with a KalmanNoise and an IntegralAction, LQGIResult, the LQGI runtime
+ * @brief The linear-quadratic Gaussian law with integral action: LQGI, the StateFeedback of design::state_feedback with a KalmanNoise and an IntegralAction, and LQGIResult
  *
  * design::state_feedback(plant, [Ts,] {.Q, .R, .N}, KalmanNoise{.process, .measurement}, IntegralAction{.Q[, .outputs = {i, …}]}[, InputDelay<N>{θ}])
  * (state_feedback.hpp) → LQGIResult → LQGI. With an InputDelay the filter carries the inputs still on their way. step(r, y) is predict, update(y), control(r). The low-latency tick is
@@ -19,10 +19,10 @@
 #include "damp/backend.hpp"
 #include "damp/controllers/detail/lq_law.hpp" // IWYU pragma: export
 #include "damp/controllers/detail/state_feedback_core.hpp"
-#include "damp/controllers/law.hpp"                  // IWYU pragma: export
-#include "damp/controllers/state_feedback_types.hpp" // IWYU pragma: export
-#include "damp/estimation/kalman.hpp"                // IWYU pragma: export
-#include "damp/matrix/colvec.hpp"
+#include "damp/controllers/law.hpp"                    // IWYU pragma: export
+#include "damp/controllers/state_feedback_runtime.hpp" // IWYU pragma: export
+#include "damp/controllers/state_feedback_types.hpp"   // IWYU pragma: export
+#include "damp/estimation/kalman.hpp"                  // IWYU pragma: export
 
 namespace damp {
 
@@ -36,7 +36,7 @@ using LQGIResult = StateFeedbackResult<NX, NU, T, NI, NY, KalmanResult<NX, NU, N
 
 /**
  * @ingroup discrete_controllers
- * @brief Linear-quadratic Gaussian law with integral action on the measured outputs
+ * @brief Linear-quadratic Gaussian law with integral action on the measured outputs: the StateFeedback of a design with a filter and integrators
  *
  * Runs design::state_feedback with a KalmanNoise and an IntegralAction. The estimator is a FixedGainObserver with design::kalman's fixed gain
  * (`estimator`). xi integrates r − Ci·y on the last update's measurement; the law is
@@ -65,147 +65,24 @@ using LQGIResult = StateFeedbackResult<NX, NU, T, NI, NY, KalmanResult<NX, NU, N
  * control here would return u (u clamped into its input limits): exactly with NI ≥ NU, the
  * least-squares ξ with fewer. A design::Handover fades what the preload leaves.
  *
- * @tparam NRU Input delay states of the filter's model (0: none)
- * @tparam NM  Measured-disturbance inputs (0: none)
- * @tparam NDU Inputs with a move limit (an InputRateLimits: NU; 0: none)
- * @tparam HO  Whether the law fades what the preload leaves after a track (a Handover; false: none)
+ * The alias takes a filter (Est a FixedGainObserver) that estimates no disturbance, and
+ * integrators (NI > 0), so `LQGI law{res}` refuses a design without either. StateFeedback lists
+ * the members and the tick.
+ *
+ * @tparam NX    Plant states
+ * @tparam NU    Inputs
+ * @tparam NY    Measured outputs
+ * @tparam NI    Integrators (at least one)
+ * @tparam T     Scalar
+ * @tparam Est   The filter: a FixedGainObserver on the law's model, with no disturbance states
+ * @tparam Store Where the matrices live (detail::HeldGains: members)
+ * @tparam NRU   Input delay states per input of the filter's model (0: none)
+ * @tparam NM    Measured-disturbance inputs (0: none)
+ * @tparam NDU   Inputs with a move limit (an InputRateLimits: NU; 0: none)
+ * @tparam HO    Whether the law fades what the preload leaves after a track (a Handover; false: none)
  */
 template<size_t NX, size_t NU, size_t NY, size_t NI, typename T, typename Est, typename Store = detail::HeldGains, size_t NRU = 0, size_t NM = 0, size_t NDU = 0, bool HO = false>
-struct LQGI : private detail::StateFeedbackCore<NX, NU, T, NI, NY, Est, 0, Store, NRU, NM, NDU, HO> {
-    using Core = detail::StateFeedbackCore<NX, NU, T, NI, NY, Est, 0, Store, NRU, NM, NDU, HO>; ///< The shared implementation
-
-    constexpr LQGI() = default;
-
-    /** @brief From design::state_feedback(any scalar, design::IntegralAction{}). */
-    template<detail::state_feedback_result R>
-        requires(!Store::constant)
-    constexpr LQGI(const R& result) { // NOLINT
-        constexpr bool kind = R::kIntegral && R::kEstimated;
-        static_assert(kind, "LQGI runs design::state_feedback with a KalmanNoise and an IntegralAction: this design has no Kalman filter (LQR, LQI) or no integral action (LQG, OFLQG).");
-        if constexpr (kind) {
-            static_cast<Core&>(*this) = Core(result);
-        }
-    }
-
-    using Core::estimator;
-    using Core::integral;
-    using Core::K;
-    using Core::tracking_time;
-
-    /** @brief The filter's measurement update with @p y (the integrators read it at the next control). */
-    constexpr void update(const ColVec<NY, T>& y) { Core::update(y); }
-
-    /** @brief u = −K·[x̂; xi]: the basic call, x* = 0 and u* = 0; holds r − Ci·y for the next predict. */
-    [[nodiscard]] constexpr ColVec<NU, T> control(const ColVec<NI, T>& r)
-        requires(NM == 0)
-    {
-        return Core::control(r, ColVec<NX, T>{}, ColVec<NU, T>{});
-    }
-
-    /** @brief u = u* − K·[x̂ − x*; xi]: feedforward from a planned trajectory (x*, u*); holds r − Ci·y for the next predict. */
-    [[nodiscard]] constexpr ColVec<NU, T> control(const ColVec<NI, T>& r, const ColVec<NX, T>& x_ref, const ColVec<NU, T>& u_ref)
-        requires(NM == 0)
-    {
-        return Core::control(r, x_ref, u_ref);
-    }
-
-    /** @brief One tick: predict(), update(@p y), then control(@p r). The basic call. */
-    [[nodiscard]] constexpr ColVec<NU, T> step(const ColVec<NI, T>& r, const ColVec<NY, T>& y)
-        requires(NM == 0)
-    {
-        return Core::step(r, ColVec<NX, T>{}, ColVec<NU, T>{}, y);
-    }
-
-    /** @brief In place of step(r, y) while another source drives the plant: its predict() and update(y), then the memory that starts the next command from @p u, the input applied. */
-    constexpr void track(const ColVec<NU, T>& u, const ColVec<NI, T>& r, const ColVec<NY, T>& y)
-        requires(NM == 0)
-    {
-        Core::track(u, r, ColVec<NX, T>{}, ColVec<NU, T>{}, y);
-    }
-
-    /** @brief One tick: predict(), update(@p y), then control(@p r, @p x_ref, @p u_ref), the feedforward form. */
-    [[nodiscard]] constexpr ColVec<NU, T> step(const ColVec<NI, T>& r, const ColVec<NX, T>& x_ref, const ColVec<NU, T>& u_ref, const ColVec<NY, T>& y)
-        requires(NM == 0)
-    {
-        return Core::step(r, x_ref, u_ref, y);
-    }
-
-    /** @brief In place of step(r, x_ref, u_ref, y) while another source drives the plant: its predict() and update(y), then the memory that starts the next command from @p u, the input applied. */
-    constexpr void track(const ColVec<NU, T>& u, const ColVec<NI, T>& r, const ColVec<NX, T>& x_ref, const ColVec<NU, T>& u_ref, const ColVec<NY, T>& y)
-        requires(NM == 0)
-    {
-        Core::track(u, r, x_ref, u_ref, y);
-    }
-
-    /** @brief control(@p r) under the measured disturbance @p d: the target under it, after the reference. */
-    [[nodiscard]] constexpr ColVec<NU, T> control(const ColVec<NI, T>& r, const ColVec<NM, T>& d)
-        requires(NM > 0)
-    {
-        return Core::control(r, ColVec<NX, T>{}, ColVec<NU, T>{}, d);
-    }
-
-    /** @brief control(@p r, @p d) about the planned trajectory (@p x_ref, @p u_ref): the reference and its feedforward, then the measured disturbance. */
-    [[nodiscard]] constexpr ColVec<NU, T> control(const ColVec<NI, T>& r, const ColVec<NX, T>& x_ref, const ColVec<NU, T>& u_ref, const ColVec<NM, T>& d)
-        requires(NM > 0)
-    {
-        return Core::control(r, x_ref, u_ref, d);
-    }
-
-    /** @brief One tick: predict(), update(@p y), then control(@p r, @p d). */
-    [[nodiscard]] constexpr ColVec<NU, T> step(const ColVec<NI, T>& r, const ColVec<NM, T>& d, const ColVec<NY, T>& y)
-        requires(NM > 0)
-    {
-        return Core::step(r, ColVec<NX, T>{}, ColVec<NU, T>{}, d, y);
-    }
-
-    /** @brief In place of step(r, d, y) while another source drives the plant: its predict() and update(y), then the memory that starts the next command from @p u, the input applied. */
-    constexpr void track(const ColVec<NU, T>& u, const ColVec<NI, T>& r, const ColVec<NM, T>& d, const ColVec<NY, T>& y)
-        requires(NM > 0)
-    {
-        Core::track(u, r, ColVec<NX, T>{}, ColVec<NU, T>{}, d, y);
-    }
-
-    /** @brief One tick: predict(), update(@p y), then control(@p r, @p x_ref, @p u_ref, @p d). */
-    [[nodiscard]] constexpr ColVec<NU, T> step(const ColVec<NI, T>& r, const ColVec<NX, T>& x_ref, const ColVec<NU, T>& u_ref, const ColVec<NM, T>& d, const ColVec<NY, T>& y)
-        requires(NM > 0)
-    {
-        return Core::step(r, x_ref, u_ref, d, y);
-    }
-
-    /** @brief In place of step(r, x_ref, u_ref, d, y) while another source drives the plant: its predict() and update(y), then the memory that starts the next command from @p u, the input applied. */
-    constexpr void track(const ColVec<NU, T>& u, const ColVec<NI, T>& r, const ColVec<NX, T>& x_ref, const ColVec<NU, T>& u_ref, const ColVec<NM, T>& d, const ColVec<NY, T>& y)
-        requires(NM > 0)
-    {
-        Core::track(u, r, x_ref, u_ref, d, y);
-    }
-
-    using Core::applied;
-    using Core::back_calculate;
-    using Core::getK;
-    using Core::last_command;
-    using Core::limits;
-    using Core::predict;
-    using Core::reset;
-    using Core::set_limits;
-    using Core::state_estimate;
-    using Core::valid;
-};
-
-/** @brief LQGI law{res}: the sizes, scalar and filter of an LQGI design's result. */
-template<size_t NX, size_t NU, typename T, size_t NI, size_t NY, typename Kalman, size_t NZ, size_t NRU, size_t NM, size_t NDU, bool HO>
-LQGI(const design::StateFeedbackResult<NX, NU, T, NI, NY, Kalman, NZ, NRU, NM, NDU, HO>&) -> LQGI<NX, NU, NY, NI, T, detail::runtime_estimator_t<Kalman, T>, detail::HeldGains, NRU, NM, NDU, HO>;
-
-namespace detail {
-
-/** @brief An LQ design with a filter and integrators runs as LQGI. */
-template<size_t NX, size_t NU, typename U, size_t NI, size_t NY, typename Kalman, size_t NRU, size_t NM, size_t NDU, bool HO, typename T>
-    requires(NI > 0 && !damp::is_same_v<Kalman, NoEstimator>)
-struct lq_runtime<design::StateFeedbackResult<NX, NU, U, NI, NY, Kalman, 0, NRU, NM, NDU, HO>, T> {
-    using type = LQGI<NX, NU, NY, NI, T, runtime_estimator_t<Kalman, T>, HeldGains, NRU, NM, NDU, HO>; ///< LQGI
-    template<typename Est, typename Store>
-    using on_constants = LQGI<NX, NU, NY, NI, T, Est, Store, NRU, NM, NDU, HO>; ///< LQGI on the design's constants
-};
-
-} // namespace detail
+    requires(NI > 0 && detail::runs_filter<Est> && !detail::estimates_disturbance<Est>)
+using LQGI = StateFeedback<NX, NU, T, NI, NY, Est, 0, Store, NRU, NM, NDU, HO>;
 
 } // namespace damp

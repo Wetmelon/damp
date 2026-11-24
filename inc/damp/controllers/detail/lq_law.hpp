@@ -8,11 +8,10 @@
 
 /**
  * @file lq_law.hpp
- * @brief Law<kRes, T> of an LQ design: the runtime the design names, on members or on the
- *        design's matrices as constants of the type
+ * @brief Law<kRes, T> of an LQ design: the StateFeedback of the design's kind, on members or on
+ *        the design's matrices as constants of the type
  *
- * Each runtime's header (lqr.hpp, lqi.hpp, lqg.hpp, lqgi.hpp, oflqg.hpp) specializes
- * detail::lq_runtime for the designs it runs.
+ * state_feedback_runtime.hpp specializes detail::lq_runtime for the designs StateFeedback runs.
  */
 
 #include "damp/backend.hpp"
@@ -30,7 +29,7 @@ namespace damp {
 
 namespace detail {
 
-/** @brief The runtime an LQ design runs as, in the scalar @p T (specialized by lqr.hpp, lqi.hpp, lqg.hpp, lqgi.hpp, oflqg.hpp). */
+/** @brief The runtime an LQ design runs as, in the scalar @p T (specialized by state_feedback_runtime.hpp). */
 template<typename R, typename T>
 struct lq_runtime {};
 
@@ -43,7 +42,7 @@ concept lq_design = requires {
 
 } // namespace detail
 
-/** @brief Law<kRes, T> of an LQ design initialized at start-up: the runtime it runs as (LQR, LQI, LQG, LQGI, OFLQG), default-constructed from the design. A runtime of the same shape assigned replaces it. */
+/** @brief Law<kRes, T> of an LQ design initialized at start-up: the StateFeedback it runs as (an LQR, LQI, LQG, LQGI or OFLQG), default-constructed from the design. A runtime of the same shape assigned replaces it. */
 template<const auto& Res, typename T>
     requires detail::lq_design<Res, T>
 struct Law<Res, T> : detail::lq_runtime<damp::remove_cvref_t<decltype(Res)>, T>::type {
@@ -170,7 +169,7 @@ struct constant_estimator<Res, T, design::StateFeedbackResult<NX, NU, U, NI, NY,
 
 } // namespace detail
 
-/** @brief Law<kRes, T> of a `constexpr` LQ design: the same runtime on the design's matrices as constants of the type. */
+/** @brief Law<kRes, T> of a `constexpr` LQ design: the same StateFeedback on the design's matrices as constants of the type. */
 template<const auto& Res, typename T>
     requires(detail::lq_design<Res, T> && detail::constant_design<Res>)
 struct Law<Res, T> : detail::lq_runtime<damp::remove_cvref_t<decltype(Res)>, T>::template on_constants<typename detail::constant_estimator<Res, T>::type, detail::ConstantGains<Res, T>> {

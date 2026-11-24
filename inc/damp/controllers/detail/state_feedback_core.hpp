@@ -11,8 +11,9 @@
  * @brief The runtime the LQ laws share: detail::StateFeedbackCore, one tick with every feature
  *        (integral action, a filter, a steady-state target, delay states) optional
  *
- * The runtimes built on it are in lqr.hpp, lqi.hpp, lqg.hpp, lqgi.hpp and oflqg.hpp, the design that
- * feeds them is design::state_feedback (state_feedback.hpp), and the types it hands them are in
+ * The runtime built on it is StateFeedback (state_feedback_runtime.hpp), which LQR, LQI, LQG, LQGI
+ * and OFLQG (lqr.hpp, lqi.hpp, lqg.hpp, lqgi.hpp, oflqg.hpp) alias; the design that feeds it is
+ * design::state_feedback (state_feedback.hpp), and the types it hands it are in
  * state_feedback_types.hpp. Law<kRes, T> is in lq_law.hpp, beside this header.
  */
 
@@ -94,10 +95,10 @@ struct HeldGains {
 };
 
 /**
- * @brief The implementation the state-feedback runtimes share: u = u* − K·(x̂ − x*), every feature
+ * @brief The implementation of the state-feedback runtime: u = u* − K·(x̂ − x*), every feature
  *        optional and free when off.
  *
- * LQR, LQI, LQG, LQGI and OFLQG wrap it, each exposing one update, one control and one step.
+ * StateFeedback wraps it, exposing the update, controls, steps and tracks its design has.
  *
  * | Feature | Parameter | Off |
  * | --- | --- | --- |
@@ -280,7 +281,7 @@ struct StateFeedbackCore {
     constexpr StateFeedbackCore(const design::StateFeedbackResult<NXR, NUR, U, NIR, NYR, Kalman, NZR, NRR, NMR, NDR, HOR>& result) { // NOLINT
         constexpr bool same = NXR == NX && NUR == NU && NIR == NI && NYR == NY && NZR == NZ && NRR == NRU && NMR == NMD && NDR == NDU && HOR == HO
                            && damp::is_same_v<Est, detail::runtime_estimator_t<Kalman, T>>;
-        static_assert(same, "This law's sizes are not the design's: let them deduce, LQG law{res}, or Law<res, T> for a member.");
+        static_assert(same, "This law is not the design's, in its sizes or its kind: let it deduce, StateFeedback law{res} or its kind's name (LQG law{res}), or Law<res, T> for a member.");
         if constexpr (same) {
             valid_ = usable(result, damp::finite_positive(result.Ts));
             if (valid_) {

@@ -43,8 +43,9 @@ namespace damp {
  * };
  * @endcode
  *
- * The runtime's header defines it for the results that runtime is built from: the LQ runtimes
- * (controllers/lqr.hpp, lqi.hpp, lqg.hpp, lqgi.hpp, oflqg.hpp) and the observers
+ * The runtime's header defines it for the results that runtime is built from: StateFeedback, the
+ * LQ runtime (controllers/state_feedback_runtime.hpp, which lqr.hpp, lqi.hpp, lqg.hpp, lqgi.hpp and
+ * oflqg.hpp include), and the observers
  * (estimation/fixed_gain_observer.hpp: FixedGainObserver, ReducedOrderObserver), design::eso (estimation/eso.hpp),
  * design::adrc (controllers/adrc.hpp) and the model inverses (design/model_inverse.hpp:
  * StateFeedforward, OutputInverse), which all run on constants when kRes is `constexpr`, and MPC
@@ -57,7 +58,7 @@ namespace damp {
  */
 template<const auto& Res, typename T>
 struct Law {
-    static_assert(sizeof(T) == 0, "Law<res, T>: res is not a design result a law is built from; include its runtime's header (controllers/lqr.hpp, lqi.hpp, lqg.hpp, lqgi.hpp, oflqg.hpp, mpc.hpp, adrc.hpp, estimation/fixed_gain_observer.hpp, estimation/eso.hpp, design/model_inverse.hpp)");
+    static_assert(sizeof(T) == 0, "Law<res, T>: res is not a design result a law is built from; include its runtime's header (controllers/state_feedback_runtime.hpp or lqr.hpp, lqi.hpp, lqg.hpp, lqgi.hpp, oflqg.hpp, mpc.hpp, adrc.hpp, estimation/fixed_gain_observer.hpp, estimation/eso.hpp, design/model_inverse.hpp)");
 };
 
 } // namespace damp
