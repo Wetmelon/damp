@@ -9,7 +9,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`acker`](inc/damp/matlab.hpp#L849) | function | MATLAB®-style aliases (host) | Single-input pole placement (MATLAB®'s acker) |
 | [`acos`](inc/damp/math/math.hpp#L149) | function | Scalar math, complex & frames | Arccosine ∈ [0, π]. Input is clamped to [−1, 1] in both paths |
 | [`ActionGovernor`](inc/damp/controllers/action_governor.hpp#L235) | block | Runtime controllers | Runtime action governor — QP projection of u_des onto A u ≤ b |
-| [`ActiveSetSolver`](inc/damp/design/qp.hpp#L949) | block | Design-time synthesis (not PWM-rate) | Default QP solver policy: the Goldfarb–Idnani active-set solve_qp() |
+| [`ActiveSetSolver`](inc/damp/design/qp.hpp#L972) | block | Design-time synthesis (not PWM-rate) | Default QP solver policy: the Goldfarb–Idnani active-set solve_qp() |
 | [`AdaptationGate`](inc/damp/estimation/parameter_estimation.hpp#L338) | block | Observers & estimators | Gated-adaptation policy: decide whether a parameter update is safe to apply |
 | [`adaptive_solve`](inc/damp/simulation/solver.hpp#L828) | function | Simulation / SIL harness (host) | Adaptive-step solve in one call |
 | [`AdaptiveLut1D`](inc/damp/toolbox/lookup.hpp#L427) | block | Embedded helpers (controls-adjacent utilities) | Adaptive 1-D lookup: fixed breakpoints, online-updated cell values |
@@ -18,8 +18,8 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`AdaptiveStepIntegrator`](inc/damp/simulation/integrator.hpp#L133) | concept | Simulation / SIL harness (host) | Integrator that reports a genuine embedded local-error estimate |
 | [`AdaptiveStepSolver`](inc/damp/simulation/solver.hpp#L404) | block | Simulation / SIL harness (host) | Adaptive-step ODE solver (+1 more overload) |
 | [`AdaptOutOfRange`](inc/damp/toolbox/lookup.hpp#L47) | enum | Embedded helpers (controls-adjacent utilities) | How AdaptiveLut1D / AdaptiveLut2D treat samples outside the breakpoint span |
-| [`AdmmSettings`](inc/damp/design/qp.hpp#L1050) | block | Design-time synthesis (not PWM-rate) | Tuning parameters for the ADMM QP solver |
-| [`AdmmSolver`](inc/damp/design/qp.hpp#L1131) | block | Design-time synthesis (not PWM-rate) | ADMM (OSQP-style) QP solver policy — warm-started, fixed-cost iterations |
+| [`AdmmSettings`](inc/damp/design/qp.hpp#L1073) | block | Design-time synthesis (not PWM-rate) | Tuning parameters for the ADMM QP solver |
+| [`AdmmSolver`](inc/damp/design/qp.hpp#L1154) | block | Design-time synthesis (not PWM-rate) | ADMM (OSQP-style) QP solver policy — warm-started, fixed-cost iterations |
 | [`adrc`](inc/damp/controllers/adrc.hpp#L207) | function | Design-time synthesis (not PWM-rate) | Active Disturbance Rejection Control design |
 | [`ADRCController`](inc/damp/controllers/adrc.hpp#L413) | function | Design-time synthesis (not PWM-rate) | Deduce the runtime from its design, keeping the result's scalar |
 | [`ADRCController`](inc/damp/controllers/adrc.hpp#L258) | block | Runtime controllers | Active Disturbance Rejection Control (ADRC) |
@@ -35,8 +35,8 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`AnalogCrossResult`](inc/damp/toolbox/conditioning.hpp#L487) | block | Embedded helpers (controls-adjacent utilities) | Output of cross_check_analog |
 | [`AnalogCrossStatus`](inc/damp/toolbox/conditioning.hpp#L473) | enum | Embedded helpers (controls-adjacent utilities) | Result of comparing two redundant analog channels |
 | [`AnalogInput`](inc/damp/toolbox/io.hpp#L47) | block | Embedded helpers (controls-adjacent utilities) | A single analog input: range/fault check on the raw reading, then affine calibration to engineering units |
-| [`AnalyticDynamics`](inc/damp/concepts.hpp#L236) | concept | Core, configuration & backend vocabulary | Dynamics that provide their own Jacobians: f.jacobian(x, u) → DynamicsJacobian |
-| [`AnalyticMeasurement`](inc/damp/concepts.hpp#L256) | concept | Core, configuration & backend vocabulary | A Measurement that provides its own Jacobians: h.jacobian(x, u) → MeasurementJacobian |
+| [`AnalyticDynamics`](inc/damp/concepts.hpp#L238) | concept | Core, configuration & backend vocabulary | Dynamics that provide their own Jacobians: f.jacobian(x, u) → DynamicsJacobian |
+| [`AnalyticMeasurement`](inc/damp/concepts.hpp#L258) | concept | Core, configuration & backend vocabulary | A Measurement that provides its own Jacobians: h.jacobian(x, u) → MeasurementJacobian |
 | [`any_of`](inc/damp/matrix/core.hpp#L1575) | function | Linear algebra | Whether p holds for some entry of A: the matrix counterpart of std::any_of |
 | [`apply_wet_plotly_shell`](inc/damp/simulation/plot_plotly.hpp#L66) | function | Simulation / SIL harness (host) | Apply damp's full-window HTML shell to plotlypp-generated markup |
 | [`arange`](inc/damp/analysis/linspace.hpp#L115) | function | Frequency-domain analysis (host) | Half-open arithmetic range [start, stop) with step step (+2 more overloads) |
@@ -143,6 +143,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`damp`](inc/damp/analysis/poles.hpp#L70) | function | Frequency-domain analysis (host) | Compute natural frequency and damping for each pole |
 | [`damping_ratio_from_overshoot_percent`](inc/damp/design/pid_design.hpp#L862) | function | Design-time synthesis (not PWM-rate) | Map percent overshoot target to equivalent damping ratio |
 | [`dare`](inc/damp/design/riccati.hpp#L1321) | function | Design-time synthesis (not PWM-rate) | Solve the Discrete Algebraic Riccati Equation (DARE) |
+| [`DareCost`](inc/damp/controllers/mpc.hpp#L328) | block | Runtime controllers | A terminal cost for design::mpc, among its options: at most one terminal ingredient |
 | [`DareMethod`](inc/damp/design/riccati.hpp#L1188) | enum | Design-time synthesis (not PWM-rate) | DARE solver selection for dare() |
 | [`db2mag`](inc/damp/math/math.hpp#L549) | function | Scalar math, complex & frames | Decibels to magnitude, 10^(db/20) |
 | [`dcgain`](inc/damp/analysis/norms.hpp#L42) | function | Frequency-domain analysis (host) | Compute DC gain of a continuous-time system |
@@ -154,7 +155,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`default_tol`](inc/damp/matrix/matrix_traits.hpp#L122) | function | Linear algebra | Type-appropriate default tolerance for floating-point comparisons. float  ~7 decimal digits  → 1e-6 double ~15 decimal digits → 1e-12 |
 | [`deg2rad`](inc/damp/math/math.hpp#L571) | function | Scalar math, complex & frames | Degrees to radians, deg·π/180 |
 | [`Delay`](inc/damp/filters/delay.hpp#L26) | block | Filters & signal conditioning | Discrete-time delay buffer |
-| [`DemandLimit`](inc/damp/toolbox/bounds.hpp#L215) | block | Embedded helpers (controls-adjacent utilities) | A limit on what a state-feedback law's outer terms ask of one of its states: a cascade's outer limit, inside one gain |
+| [`DemandLimit`](inc/damp/toolbox/bounds.hpp#L217) | block | Embedded helpers (controls-adjacent utilities) | A limit on what a state-feedback law's outer terms ask of one of its states: a cascade's outer limit, inside one gain |
 | [`DesignStatus`](inc/damp/design/status.hpp#L34) | enum | Design-time synthesis (not PWM-rate) | Why a design failed, one value per cause class (not per code branch) |
 | [`det`](inc/damp/matrix/functions.hpp#L174) | function | Linear algebra | Matrix determinant det(A) |
 | [`DFF`](inc/damp/toolbox/iec61131.hpp#L448) | block | Embedded helpers (controls-adjacent utilities) | D Flip-Flop (edge-triggered data latch) |
@@ -170,11 +171,11 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`DiscretizationResult`](inc/damp/systems/discretization.hpp#L50) | block | LTI systems (SS / TF / ZPK / discretize) | A discretized or resampled model with its success / status, read like an optional |
 | [`discretize`](inc/damp/systems/discretization.hpp#L330) | function | LTI systems (SS / TF / ZPK / discretize) | Discretize a continuous-time state-space system (+3 more overloads) |
 | [`discretize_lqr_cost`](inc/damp/design/riccati.hpp#L1683) | function | Design-time synthesis (not PWM-rate) | Discretize a continuous LQR cost integral over one sample (Van Loan) |
-| [`discretize_process_noise`](inc/damp/estimation/kalman.hpp#L354) | function | Observers & estimators | Discretize continuous process noise over one sample (Van Loan) |
+| [`discretize_process_noise`](inc/damp/estimation/kalman.hpp#L357) | function | Observers & estimators | Discretize continuous process noise over one sample (Van Loan) |
 | [`disk_margin`](inc/damp/analysis/disk_margin.hpp#L158) | function | Frequency-domain analysis (host) | Disk margin of a SISO loop L under unity negative feedback |
 | [`diskmargin`](inc/damp/matlab.hpp#L1331) | function | MATLAB®-style aliases (host) | Disk margin of a SISO loop (+1 more overload) |
 | [`DiskMarginResult`](inc/damp/analysis/disk_margin.hpp#L36) | block | Frequency-domain analysis (host) | Disk margin of a SISO loop: the disk size α and the gain and phase margins it guarantees |
-| [`DisturbanceModel`](inc/damp/design/disturbance.hpp#L106) | block | Design-time synthesis (not PWM-rate) | An explicit disturbance model: d enters the plant's state through B_d and the readings through C_d (+1 more overload) |
+| [`DisturbanceModel`](inc/damp/design/disturbance.hpp#L117) | block | Design-time synthesis (not PWM-rate) | An explicit disturbance model: d enters the plant's state through B_d and the readings through C_d (+1 more overload) |
 | [`DLATCH`](inc/damp/toolbox/iec61131.hpp#L479) | block | Embedded helpers (controls-adjacent utilities) | D Latch (level-sensitive / transparent latch) |
 | [`dlqe`](inc/damp/matlab.hpp#L959) | function | MATLAB®-style aliases (host) | Discrete linear-quadratic estimator from matrices (MATLAB®'s dlqe) |
 | [`dlqr`](inc/damp/matlab.hpp#L907) | function | MATLAB®-style aliases (host) | Discrete-time Linear-Quadratic Regulator design (MATLAB®'s dlqr) |
@@ -190,8 +191,8 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`DrivePair`](inc/damp/toolbox/io.hpp#L234) | block | Embedded helpers (controls-adjacent utilities) | Left/right actuator pair (differential/arcade drive output) |
 | [`DsogiPll`](inc/damp/filters/pll.hpp#L313) | block | Filters & signal conditioning | Dual-SOGI three-phase positive-sequence PLL (DSOGI-PLL) |
 | [`duties_from_phase_voltages`](inc/damp/motor/modulation.hpp#L362) | function | Motor control pack (if present) | Map phase voltages + zero-sequence to clamped half-bridge duties |
-| [`Dynamics`](inc/damp/concepts.hpp#L198) | concept | Core, configuration & backend vocabulary | Continuous-time nonlinear dynamics ẋ = f(x, u): a callable returning ẋ as a ColVec<NX, T> |
-| [`DynamicsJacobian`](inc/damp/concepts.hpp#L217) | block | Core, configuration & backend vocabulary | Analytic Jacobians of a Dynamics model at (x, u), returned by its jacobian(x, u) |
+| [`Dynamics`](inc/damp/concepts.hpp#L200) | concept | Core, configuration & backend vocabulary | Continuous-time nonlinear dynamics ẋ = f(x, u): a callable returning ẋ as a ColVec<NX, T> |
+| [`DynamicsJacobian`](inc/damp/concepts.hpp#L219) | block | Core, configuration & backend vocabulary | Analytic Jacobians of a Dynamics model at (x, u), returned by its jacobian(x, u) |
 | [`eig`](inc/damp/matlab.hpp#L669) | function | MATLAB®-style aliases (host) | MATLAB® short alias for the eigenvalues of a square matrix |
 | [`EigenResult`](inc/damp/matrix/eigen.hpp#L40) | block | Linear algebra | Eigenvalue computation result |
 | [`eliminate_states`](inc/damp/design/model_reduction.hpp#L632) | function | Design-time synthesis (not PWM-rate) | Eliminate the listed states, by DC-matched residualization or truncation |
@@ -221,9 +222,9 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`estim`](inc/damp/matlab.hpp#L731) | function | MATLAB®-style aliases (host) | Form the state estimator from a plant and an estimator gain |
 | [`Euler`](inc/damp/math/geometry.hpp#L223) | block | Scalar math, complex & frames | Intrinsic Euler angles for sequence Order (default ZYX aerospace YPR) |
 | [`EulerOrder`](inc/damp/math/geometry.hpp#L52) | enum | Scalar math, complex & frames | Intrinsic Euler angle sequence (axis order of successive principal rotations) |
-| [`eval_frf`](inc/damp/systems/state_space.hpp#L271) | function | LTI systems (SS / TF / ZPK / discretize) | Evaluate frequency response of a state-space system |
+| [`eval_frf`](inc/damp/systems/state_space.hpp#L286) | function | LTI systems (SS / TF / ZPK / discretize) | Evaluate frequency response of a state-space system |
 | [`EventSimConfig`](inc/damp/simulation/hybrid.hpp#L67) | block | Simulation / SIL harness (host) | Configuration for event-driven hybrid / multi-rate style runs |
-| [`every_output`](inc/damp/design/detail/config.hpp#L119) | function | Design-time synthesis (not PWM-rate) | The default of a list of N outputs: left out |
+| [`every_output`](inc/damp/design/detail/config.hpp#L118) | function | Design-time synthesis (not PWM-rate) | The default of a list of N outputs: left out |
 | [`Exact`](inc/damp/simulation/integrator.hpp#L185) | block | Simulation / SIL harness (host) | Exact integrator for LTI systems |
 | [`exact_lti_step`](inc/damp/simulation/hybrid.hpp#L304) | function | Simulation / SIL harness (host) | Exact open-loop step of a single continuous LTI system |
 | [`exp`](inc/damp/math/math.hpp#L231) | function | Scalar math, complex & frames | Exponential function |
@@ -245,9 +246,9 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`factorial`](inc/damp/trajectory/trajectory_types.hpp#L208) | function | Trajectory value types | k! (exact for modest k in float/double; used up through nonic BVP / jets) |
 | [`falling_factorial`](inc/damp/trajectory/trajectory_types.hpp#L221) | function | Trajectory value types | Falling factorial i·(i−1)···(i−k+1) = i! / (i−k)! — the k-th derivative coefficient of tⁱ. Zero when i < k |
 | [`FallingEdge`](inc/damp/toolbox/logic.hpp#L47) | block | Embedded helpers (controls-adjacent utilities) | Falling-edge detector: true on the tick x goes true → false |
-| [`feedback`](inc/damp/systems/state_space.hpp#L429) | function | LTI systems (SS / TF / ZPK / discretize) | Negative feedback: y = sys1(u − sys2(y)) (+1 more overload) |
-| [`feedback_read`](inc/damp/systems/state_space.hpp#L865) | function | LTI systems (SS / TF / ZPK / discretize) | Unity (or weighted) negative feedback around G_loop, read G_out |
-| [`FeedbackLaw`](inc/damp/concepts.hpp#L121) | concept | Core, configuration & backend vocabulary | An LQ or MPC law that holds outputs at r: control(r) and step(r, m) |
+| [`feedback`](inc/damp/systems/state_space.hpp#L444) | function | LTI systems (SS / TF / ZPK / discretize) | Negative feedback: y = sys1(u − sys2(y)) (+1 more overload) |
+| [`feedback_read`](inc/damp/systems/state_space.hpp#L924) | function | LTI systems (SS / TF / ZPK / discretize) | Unity (or weighted) negative feedback around G_loop, read G_out |
+| [`FeedbackLaw`](inc/damp/concepts.hpp#L122) | concept | Core, configuration & backend vocabulary | An LQ or MPC law that holds outputs at r: control(r), step(r, m), and track(u, r, m) in place of step while another source drives the plant (u the input applied) |
 | [`FeedbackRuntime`](inc/damp/concepts.hpp#L107) | concept | Core, configuration & backend vocabulary | Shared lifecycle of an LQ or MPC runtime: measurement, time update, applied input |
 | [`Filtered`](inc/damp/estimation/state_variable_filter.hpp#L65) | block | Observers & estimators | One signal after the state-variable filter: its filtered value and first two derivatives |
 | [`finish_extremum`](inc/damp/estimation/frequency_response.hpp#L629) | function | Observers & estimators | Half-power (peaks) or double-power (valleys) bandwidth → ζ |
@@ -268,7 +269,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`fit_at_crossover`](inc/damp/design/pid_design.hpp#L607) | function | Design-time synthesis (not PWM-rate) | fit_to_response at spec.wc with every gain of sign σ = ±1 |
 | [`fit_to_response`](inc/damp/design/pid_design.hpp#L553) | function | Design-time synthesis (not PWM-rate) | The requested law with C(jω) = e^{j(−π + PM)}/P(jω), from the plant response P at ω = spec.wc |
 | [`fixed_solve`](inc/damp/simulation/solver.hpp#L286) | function | Simulation / SIL harness (host) | Fixed-step solve in one call |
-| [`FixedGainObserver`](inc/damp/estimation/fixed_gain_observer.hpp#L610) | block | Observers & estimators | The fixed-gain state observer: the innovation gain M held, the current form, and the optional disturbance anchor (+4 more overloads) |
+| [`FixedGainObserver`](inc/damp/estimation/fixed_gain_observer.hpp#L616) | block | Observers & estimators | The fixed-gain state observer: the innovation gain M held, the current form, and the optional disturbance anchor (+4 more overloads) |
 | [`FixedStepSolver`](inc/damp/simulation/solver.hpp#L145) | block | Simulation / SIL harness (host) | Fixed-step ODE solver (+1 more overload) |
 | [`floor`](inc/damp/math/math.hpp#L368) | function | Scalar math, complex & frames | Floor — largest integer ≤ x |
 | [`flux_from_Kv`](inc/damp/motor/spm.hpp#L54) | function | Motor control pack (if present) | λ from Kᵥ via torque_constant_from_Kv |
@@ -299,6 +300,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`gram`](inc/damp/matlab.hpp#L1498) | function | MATLAB®-style aliases (host) | MATLAB® alias for the controllability/observability Gramian of a system |
 | [`gravity_nav`](inc/damp/estimation/ins_mechanization.hpp#L92) | function | Observers & estimators | Gravity vector in the local-level frame [m/s²] |
 | [`h_pattern`](inc/damp/toolbox/io.hpp#L285) | function | Embedded helpers (controls-adjacent utilities) | H-pattern (dual-lever / tank) drive: one lever per track, no mixing |
+| [`Handover`](inc/damp/controllers/state_feedback_types.hpp#L438) | block | Runtime controllers | Bumpless handover for a law with nothing to preload: the first command after track() is the input tracked, and the law's own takes over with the time constant fade_time. Among design::state_feedback's trailing options |
 | [`hankel_singular_values`](inc/damp/design/model_reduction.hpp#L513) | function | Design-time synthesis (not PWM-rate) | Hankel singular values of a stable state-space system |
 | [`hankelsv`](inc/damp/matlab.hpp#L352) | function | MATLAB®-style aliases (host) | MATLAB® short alias for design::hankel_singular_values |
 | [`harmonic_suppressor`](inc/damp/controllers/harmonic_suppression.hpp#L129) | function | Design-time synthesis (not PWM-rate) | Synthesize a multi-resonant harmonic suppressor |
@@ -335,7 +337,9 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`infinity_norm`](inc/damp/matrix/functions.hpp#L40) | function | Linear algebra | Infinity norm ‖A‖∞: maximum absolute row sum |
 | [`initial`](inc/damp/analysis/time_response.hpp#L246) | function | Frequency-domain analysis (host) | Initial-condition (free) response of a (MIMO) state-space system |
 | [`InputDelay`](inc/damp/systems/discretization.hpp#L559) | block | LTI systems (SS / TF / ZPK / discretize) | An input delay of θ = seconds, in up to N delay states (0 ≤ θ ≤ N·Ts): each delay state state holds the inputs already sent, v(k−1) … v(k−N). `discretize(sys, Ts, InputDelay<N>{θ})` returns that model; design on it like any other. `InputDelay{θ}` is N = 1 (+1 more overload) |
-| [`InputDisturbance`](inc/damp/design/disturbance.hpp#L43) | block | Design-time synthesis (not PWM-rate) | An input disturbance: d adds to u, B_d = B and C_d = D, one disturbance per input (+1 more overload) |
+| [`InputDisturbance`](inc/damp/design/disturbance.hpp#L52) | block | Design-time synthesis (not PWM-rate) | An input disturbance: d adds to u, B_d = B and C_d = D, one disturbance per input (+1 more overload) |
+| [`InputLimits`](inc/damp/design/input_limits.hpp#L57) | block | Design-time synthesis (not PWM-rate) | The limits on a law's command u, per input: among design::state_feedback's and design::mpc's options |
+| [`InputRateLimits`](inc/damp/design/input_limits.hpp#L91) | block | Design-time synthesis (not PWM-rate) | The limits on a law's move Δu = u_k − u_{k−1} per period, per input: among design::state_feedback's and design::mpc's options |
 | [`ins_aid_position`](inc/damp/estimation/ins_eskf.hpp#L386) | function | Observers & estimators | Predicted antenna / marker position with body lever-arm |
 | [`ins_apply_correction`](inc/damp/estimation/ins_eskf.hpp#L372) | function | Observers & estimators | Inject filter correction into x and reset the error state |
 | [`ins_error_jacobian`](inc/damp/estimation/ins_eskf.hpp#L280) | function | Observers & estimators | Discrete error-state transition for one IMU step, on its sparsity pattern |
@@ -354,11 +358,12 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`InsState`](inc/damp/estimation/ins_mechanization.hpp#L138) | block | Observers & estimators | Nominal strapdown navigation state (external to the ESKF error state) |
 | [`instantaneous_power`](inc/damp/math/transforms.hpp#L495) | function | Scalar math, complex & frames | Instantaneous active and reactive power from dq quantities (+1 more overload) |
 | [`InstantaneousPower`](inc/damp/math/transforms.hpp#L456) | block | Scalar math, complex & frames | Instantaneous active and reactive power |
-| [`IntegralAction`](inc/damp/controllers/state_feedback_types.hpp#L291) | block | Runtime controllers | Integral action: integrators on r − y, with the cost and the limits that go with them. Among a design's trailing options it makes the law an LQI (an LQGI with a KalmanNoise) |
-| [`IntegralDesign`](inc/damp/controllers/state_feedback_types.hpp#L310) | block | Runtime controllers | The integral action of a design: the integrated outputs, their maps of the state and the input, the per-sample step, and what back-calculation moves the integrators by |
+| [`IntegralAction`](inc/damp/controllers/state_feedback_types.hpp#L405) | block | Runtime controllers | Integral action: integrators on r − y, with the cost and the limits that go with them. Among a design's trailing options it makes the law an LQI (an LQGI with a KalmanNoise) |
+| [`IntegralDesign`](inc/damp/controllers/state_feedback_types.hpp#L464) | block | Runtime controllers | The integral action of a design: the integrated outputs, their maps of the state and the input, the per-sample step, and what back-calculation moves the integrators by |
 | [`IntegrationResult`](inc/damp/simulation/integrator.hpp#L61) | block | Simulation / SIL harness (host) | Result of an integration step |
-| [`InteriorPointSolver`](inc/damp/design/qp.hpp#L1692) | block | Design-time synthesis (not PWM-rate) | Interior-point QP solver policy for damp::MPC |
+| [`InteriorPointSolver`](inc/damp/design/qp.hpp#L1715) | block | Design-time synthesis (not PWM-rate) | Interior-point QP solver policy for damp::MPC |
 | [`Interpolation`](inc/damp/toolbox/lookup.hpp#L41) | enum | Embedded helpers (controls-adjacent utilities) | In-range interpolant for Lut1D (2-D stays bilinear; use SplineSurface for C¹ grids) |
+| [`InvariantSet`](inc/damp/controllers/mpc.hpp#L355) | block | Runtime controllers | A terminal cost and set for design::mpc, among its options: DareCost's cost and the maximal positively invariant set of its terminal law, with room for NT_max rows (at most one terminal ingredient) |
 | [`InvariantSetResult`](inc/damp/design/invariant_set.hpp#L39) | block | Design-time synthesis (not PWM-rate) | Maximal positively invariant polytope G e ≤ h of x⁺ = A x |
 | [`inverse`](inc/damp/matrix/solve.hpp#L316) | function | Linear algebra | Matrix inverse A⁻¹ via mat::solve(A, I) |
 | [`inverse_clarke_transform`](inc/damp/math/transforms.hpp#L307) | function | Scalar math, complex & frames | Inverse Clarke transform (αβ → abc) |
@@ -384,25 +389,23 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`iso_c_drive`](inc/damp/toolbox/io.hpp#L304) | function | Embedded helpers (controls-adjacent utilities) | ISO-C (single-stick, coordinated / curvature) drive |
 | [`isstable`](inc/damp/matlab.hpp#L1355) | function | MATLAB®-style aliases (host) | Stability predicate for a state-space model (+1 more overload) |
 | [`Jet`](inc/damp/trajectory/trajectory_types.hpp#L97) | block | Trajectory value types | Truncated jet of a scalar motion sample: d[k] = s⁽ᵏ⁾ |
-| [`JordanBlock`](inc/damp/design/pole_placement.hpp#L485) | block | Design-time synthesis (not PWM-rate) | One Jordan mini-block of a desired closed-loop spectrum |
-| [`JordanObjective`](inc/damp/design/pole_placement.hpp#L1194) | enum | Design-time synthesis (not PWM-rate) | How place_jordan spends the free parameter of the Klein–Moore family (Schmid et al.) |
-| [`JordanOptions`](inc/damp/design/pole_placement.hpp#L1207) | block | Design-time synthesis (not PWM-rate) | Options for place_jordan |
-| [`JordanPlaceResult`](inc/damp/design/pole_placement.hpp#L1222) | block | Design-time synthesis (not PWM-rate) | place_jordan result: the PlaceResult fields plus the achieved robustness metrics |
+| [`JordanBlock`](inc/damp/design/pole_placement.hpp#L488) | block | Design-time synthesis (not PWM-rate) | One Jordan mini-block of a desired closed-loop spectrum |
+| [`JordanObjective`](inc/damp/design/pole_placement.hpp#L1198) | enum | Design-time synthesis (not PWM-rate) | How place_jordan spends the free parameter of the Klein–Moore family (Schmid et al.) |
+| [`JordanOptions`](inc/damp/design/pole_placement.hpp#L1211) | block | Design-time synthesis (not PWM-rate) | Options for place_jordan |
+| [`JordanPlaceResult`](inc/damp/design/pole_placement.hpp#L1226) | block | Design-time synthesis (not PWM-rate) | place_jordan result: the PlaceResult fields plus the achieved robustness metrics |
 | [`joseph_update`](inc/damp/estimation/joseph.hpp#L40) | function | Observers & estimators | P ← (I − K H) P (I − K H)ᵀ + K R Kᵀ with K = P Hᵀ S⁻¹ and S = H P Hᵀ + R, for an H whose zeros and ones are known at compile time |
-| [`kalman`](inc/damp/design/config.hpp#L270) | function | Design-time synthesis (not PWM-rate) | design::kalman(sys, opts…) with the noise and the options the fields of config: the same design (+1 more overload) |
-| [`kalman`](inc/damp/estimation/kalman.hpp#L817) | function | Observers & estimators | Steady-state Kalman filter design (+1 more overload) |
-| [`KalmanConfig`](inc/damp/design/config.hpp#L112) | block | Design-time synthesis (not PWM-rate) | design::kalman's options as named fields |
-| [`KalmanFilter`](inc/damp/estimation/kalman.hpp#L1039) | block | Observers & estimators | The recursive Kalman filter: the covariance propagates each tick as its triangular factor, and the gain is formed from it (+2 more overloads) |
-| [`KalmanFilterConfig`](inc/damp/estimation/kalman.hpp#L904) | block | Observers & estimators | Configuration of a KalmanFilter built from a model rather than from design::kalman |
+| [`kalman`](inc/damp/estimation/kalman.hpp#L879) | function | Observers & estimators | Steady-state Kalman filter design (+1 more overload) |
+| [`KalmanFilter`](inc/damp/estimation/kalman.hpp#L1109) | block | Observers & estimators | The recursive Kalman filter: the covariance propagates each tick as its triangular factor, and the gain is formed from it (+2 more overloads) |
+| [`KalmanFilterConfig`](inc/damp/estimation/kalman.hpp#L974) | block | Observers & estimators | Configuration of a KalmanFilter built from a model rather than from design::kalman |
 | [`KalmanNoise`](inc/damp/estimation/kalman.hpp#L90) | block | Observers & estimators | The estimator's noise: process noise on the plant's noise inputs (through G), measurement noise on the sensors (through H) (+12 more overloads) |
-| [`KalmanResult`](inc/damp/estimation/kalman.hpp#L223) | block | Observers & estimators | Steady-state Kalman filter design result |
+| [`KalmanResult`](inc/damp/estimation/kalman.hpp#L226) | block | Observers & estimators | Steady-state Kalman filter design result |
 | [`kalmd`](inc/damp/matlab.hpp#L982) | function | MATLAB®-style aliases (host) | Discrete Kalman estimator for a continuous plant and continuous noise (MATLAB®'s kalmd) |
 | [`lag`](inc/damp/controllers/lead_lag.hpp#L198) | function | Design-time synthesis (not PWM-rate) | Design a lag compensator from desired low-frequency gain boost |
 | [`lambda_tuning`](inc/damp/design/pid_design.hpp#L433) | function | Design-time synthesis (not PWM-rate) | Lambda tuning for FOPDT model |
 | [`Latch`](inc/damp/toolbox/logic.hpp#L65) | block | Embedded helpers (controls-adjacent utilities) | Set/reset latch. @tparam SetDominant which input wins when both are asserted (default: set-dominant, e.g. a trip overriding a clear) |
 | [`Law`](inc/damp/design/model_inverse.hpp#L950) | block | Design-time synthesis (not PWM-rate) | Law<kRes, T> of a `constexpr` model inverse: the same runtime on the design's matrices as constants of the type (+1 more overload) |
 | [`Law`](inc/damp/estimation/eso.hpp#L460) | block | Observers & estimators | Law<kRes, T> of a design::eso initialized at start-up: the ESO it runs as. A runtime of the same shape assigned replaces it (+5 more overloads) |
-| [`Law`](inc/damp/controllers/law.hpp#L59) | block | Runtime controllers | The runtime a design result deploys as, named by the result: `Law<kRes, float> law;` (+6 more overloads) |
+| [`Law`](inc/damp/controllers/law.hpp#L60) | block | Runtime controllers | The runtime a design result deploys as, named by the result: `Law<kRes, float> law;` (+6 more overloads) |
 | [`LDLT`](inc/damp/matrix/decomposition.hpp#L176) | block | Linear algebra | LDLᴴ factors with symmetric pivoting: P·A·Pᵀ = L·D·Lᴴ, D block diagonal with 1×1 and 2×2 blocks |
 | [`ldlt`](inc/damp/matrix/decomposition.hpp#L483) | function | Linear algebra | Symmetric indefinite LDLᴴ with rook pivoting: P·A·Pᵀ = L·D·Lᴴ, D block diagonal (1×1 and 2×2) |
 | [`ldlt_solve`](inc/damp/matrix/solve.hpp#L194) | function | Linear algebra | Solve AX = B via pivoted LDLᴴ (P·A·Pᵀ = L·D·Lᴴ, symmetric indefinite) |
@@ -416,7 +419,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`lerp`](inc/damp/toolbox/scaling.hpp#L33) | function | Embedded helpers (controls-adjacent utilities) | Linear interpolation between a and b by fraction t |
 | [`leverrier_num_scale`](inc/damp/systems/zpk.hpp#L578) | function | LTI systems (SS / TF / ZPK / discretize) | Magnitude scale of each strictly proper Leverrier numerator coefficient |
 | [`LeverrierResult`](inc/damp/systems/zpk.hpp#L512) | block | LTI systems (SS / TF / ZPK / discretize) | Faddeev–LeVerrier characteristic polynomial and adjoint coefficient matrices |
-| [`lft`](inc/damp/systems/state_space.hpp#L543) | function | LTI systems (SS / TF / ZPK / discretize) | Lower linear fractional transformation: K closes the loop from P's last outputs to its last inputs |
+| [`lft`](inc/damp/systems/state_space.hpp#L558) | function | LTI systems (SS / TF / ZPK / discretize) | Lower linear fractional transformation: K closes the loop from P's last outputs to its last inputs |
 | [`LIMIT`](inc/damp/toolbox/iec61131.hpp#L590) | function | Embedded helpers (controls-adjacent utilities) | LIMIT (IEC 61131-3 selection function): clamp in to [mn, mx] |
 | [`linear_modulation_voltage`](inc/damp/motor/modulation.hpp#L125) | function | Motor control pack (if present) | Peak phase voltage at the linear SVPWM hexagon limit |
 | [`linear_screw`](inc/damp/toolbox/actuator.hpp#L168) | function | Embedded helpers (controls-adjacent utilities) | Build a ServoAxis for a linear axis driven by a leadscrew/belt |
@@ -445,27 +448,17 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`lowpass_sections`](inc/damp/filters/biquad.hpp#L462) | function | Filters & signal conditioning | Nth-order Butterworth low-pass at cutoff fc as second-order sections, any order |
 | [`LowPassResult`](inc/damp/filters/lowpass.hpp#L55) | block | Filters & signal conditioning | Direct-form coefficients of an Nth-order low-pass, with success / status |
 | [`lowshelf`](inc/damp/filters/iir_design.hpp#L878) | function | Filters & signal conditioning | Low-shelf EQ filter: boost or cut everything below fc |
-| [`LQConfig`](inc/damp/design/config.hpp#L89) | block | Design-time synthesis (not PWM-rate) | design::state_feedback's weights and options as named fields |
-| [`LQG`](inc/damp/controllers/lqg.hpp#L193) | function | Design-time synthesis (not PWM-rate) | LQG law{res}: the sizes, scalar and filter of an LQG design's result |
 | [`lqg`](inc/damp/matlab.hpp#L1097) | function | MATLAB®-style aliases (host) | Linear-Quadratic-Gaussian regulator design |
-| [`LQG`](inc/damp/controllers/lqg.hpp#L101) | block | Runtime controllers | Linear-quadratic Gaussian law: LQR on the Kalman filter's estimate |
-| [`lqg_from_parts`](inc/damp/controllers/lqg.hpp#L55) | function | Design-time synthesis (not PWM-rate) | Assemble an LQG design from separately computed Kalman and LQR designs |
-| [`LQGI`](inc/damp/controllers/lqgi.hpp#L113) | function | Design-time synthesis (not PWM-rate) | LQGI law{res}: the sizes, scalar and filter of an LQGI design's result |
-| [`LQGI`](inc/damp/controllers/lqgi.hpp#L58) | block | Runtime controllers | Linear-quadratic Gaussian law with integral action on the measured outputs |
+| [`lqg_from_parts`](inc/damp/controllers/lqg.hpp#L56) | function | Design-time synthesis (not PWM-rate) | Assemble an LQG design from separately computed Kalman and LQR designs |
 | [`lqgreg`](inc/damp/matlab.hpp#L1113) | function | MATLAB®-style aliases (host) | Combine separate Kalman filter and LQR designs into an LQG controller |
 | [`lqgtrack`](inc/damp/matlab.hpp#L1134) | function | MATLAB®-style aliases (host) | Linear-Quadratic-Gaussian design with integral action for tracking (+2 more overloads) |
-| [`LQI`](inc/damp/controllers/lqi.hpp#L114) | function | Design-time synthesis (not PWM-rate) | LQI law{res}: the sizes and scalar of an LQI design's result |
 | [`lqi`](inc/damp/matlab.hpp#L1058) | function | MATLAB®-style aliases (host) | Linear-Quadratic Integral design for tracking (+2 more overloads) |
-| [`LQI`](inc/damp/controllers/lqi.hpp#L61) | block | Runtime controllers | Linear-quadratic regulator with integral action, on the measured state |
-| [`LQR`](inc/damp/controllers/lqr.hpp#L170) | function | Design-time synthesis (not PWM-rate) | LQR law{res}: the sizes and scalar of design::state_feedback's result (+2 more overloads) |
 | [`lqr`](inc/damp/matlab.hpp#L892) | function | MATLAB®-style aliases (host) | Continuous-time LQR design (MATLAB®'s lqr) |
-| [`LQR`](inc/damp/controllers/lqr.hpp#L72) | block | Runtime controllers | Linear-quadratic regulator on the measured state: u = u − K·(x − x ) |
 | [`lqr_gain`](inc/damp/design/riccati.hpp#L1358) | function | Design-time synthesis (not PWM-rate) | Optimal LQR state-feedback gain from a Riccati solution |
 | [`LQRCost`](inc/damp/design/riccati.hpp#L1581) | block | Design-time synthesis (not PWM-rate) | A quadratic cost on (x, u): state cost Q, input cost R, cross term N |
 | [`lqrd`](inc/damp/matlab.hpp#L922) | function | MATLAB®-style aliases (host) | Sampled-data LQR from a continuous plant: ZOH dynamics + Van Loan cost (MATLAB®'s lqrd) (+1 more overload) |
-| [`LQRLimits`](inc/damp/controllers/state_feedback_types.hpp#L146) | block | Runtime controllers | The limit an LQ law's command runs within: among design::state_feedback's options |
-| [`LQRResult`](inc/damp/design/riccati.hpp#L1517) | block | Design-time synthesis (not PWM-rate) | The LQR gain: design::state_feedback on a plant, discrete_lqr and continuous_lqr on given matrices |
-| [`LQRWeights`](inc/damp/controllers/state_feedback_types.hpp#L123) | block | Runtime controllers | The cost of an LQ design (design::state_feedback): what to penalize and how much |
+| [`LQRResult`](inc/damp/design/riccati.hpp#L1518) | block | Design-time synthesis (not PWM-rate) | The LQR gain: design::state_feedback on a plant, discrete_lqr and continuous_lqr on given matrices |
+| [`LQRWeights`](inc/damp/controllers/state_feedback_types.hpp#L130) | block | Runtime controllers | The cost of an LQ design (design::state_feedback): what to penalize and how much |
 | [`lqry`](inc/damp/matlab.hpp#L1008) | function | MATLAB®-style aliases (host) | Output-weighted continuous LQR (state cost Q = Cᵀ Q_y C) (+1 more overload) |
 | [`lsim`](inc/damp/analysis/time_response.hpp#L284) | function | Frequency-domain analysis (host) | Forced time response of a (MIMO) state-space system to an input signal (+1 more overload) |
 | [`LsimInfo`](inc/damp/analysis/time_response.hpp#L513) | block | Frequency-domain analysis (host) | Transient characteristics of an arbitrary response signal |
@@ -498,16 +491,15 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`max_iq`](inc/damp/motor/spm.hpp#L112) | function | Motor control pack (if present) | Max positive i_q for an SPM (i_d = 0) at electrical speed |
 | [`max_torque_at_speed`](inc/damp/motor/spm.hpp#L176) | function | Motor control pack (if present) | SPM max-torque point at a mechanical speed (i_d = 0 only) |
 | [`maximal_invariant_set`](inc/damp/design/invariant_set.hpp#L249) | function | Design-time synthesis (not PWM-rate) | Maximal positively invariant set of x⁺ = A x under G₀ x ≤ h₀ |
-| [`MeasuredDisturbance`](inc/damp/controllers/mpc.hpp#L1528) | function | Design-time synthesis (not PWM-rate) | Sizes from the matrix: `MeasuredDisturbance{Bd}` |
-| [`MeasuredDisturbance`](inc/damp/controllers/mpc.hpp#L1522) | block | Runtime controllers | A measured disturbance: a known input the controller does not command, entering the state update through Bd (a load torque, a feed rate, the ambient temperature) |
-| [`Measurement`](inc/damp/concepts.hpp#L211) | concept | Core, configuration & backend vocabulary | Nonlinear measurement y = h(x, u): a callable returning y as a ColVec<NY, T> |
-| [`MeasurementJacobian`](inc/damp/concepts.hpp#L224) | block | Core, configuration & backend vocabulary | Analytic Jacobians of a Measurement model at (x, u), returned by its jacobian(x, u) |
+| [`MeasuredDisturbance`](inc/damp/design/disturbance.hpp#L165) | block | Design-time synthesis (not PWM-rate) | A measured disturbance: a known input the controller does not command, entering the plant's state through Bd (a load torque, a feed rate, the ambient temperature), read each tick (+1 more overload) |
+| [`Measurement`](inc/damp/concepts.hpp#L213) | concept | Core, configuration & backend vocabulary | Nonlinear measurement y = h(x, u): a callable returning y as a ColVec<NY, T> |
+| [`MeasurementJacobian`](inc/damp/concepts.hpp#L226) | block | Core, configuration & backend vocabulary | Analytic Jacobians of a Measurement model at (x, u), returned by its jacobian(x, u) |
 | [`mechanize_step`](inc/damp/estimation/ins_mechanization.hpp#L209) | function | Observers & estimators | One dead-reckoning step from a raw IMU sample (subtracts the state's biases) |
 | [`mechanize_step_from_corrected`](inc/damp/estimation/ins_mechanization.hpp#L174) | function | Observers & estimators | One dead-reckoning step from an IMU sample (strapdown mechanization) |
 | [`MedianFilter`](inc/damp/filters/median.hpp#L33) | block | Filters & signal conditioning | Sliding-window median filter — nonlinear spike/outlier rejection |
-| [`mhe`](inc/damp/estimation/mhe.hpp#L215) | function | Observers & estimators | Synthesize a constrained moving-horizon estimator |
-| [`MHE`](inc/damp/estimation/mhe.hpp#L335) | block | Observers & estimators | Runtime moving-horizon estimator (fixed per-tick iteration budget) (+1 more overload) |
-| [`MHEConstraints`](inc/damp/estimation/mhe.hpp#L96) | block | Observers & estimators | Box constraints on the estimated states (applied to every window state) and the QP budget |
+| [`mhe`](inc/damp/estimation/mhe.hpp#L217) | function | Observers & estimators | Synthesize a constrained moving-horizon estimator |
+| [`MHE`](inc/damp/estimation/mhe.hpp#L343) | block | Observers & estimators | Runtime moving-horizon estimator (fixed per-tick iteration budget) (+1 more overload) |
+| [`MHEConstraints`](inc/damp/estimation/mhe.hpp#L97) | block | Observers & estimators | Box constraints on the estimated states, applied to every window state |
 | [`MHEResult`](inc/damp/estimation/mhe.hpp#L116) | block | Observers & estimators | Window QP data produced by mhe(), consumed by damp::MHE |
 | [`middlebrook`](inc/damp/analysis/frequency.hpp#L1133) | function | Frequency-domain analysis (host) | Middlebrook stability analysis of a cascaded source and load from their impedances |
 | [`MiddlebrookResult`](inc/damp/analysis/frequency.hpp#L939) | block | Frequency-domain analysis (host) | Result of Middlebrook minor loop gain analysis |
@@ -517,8 +509,8 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`minreal`](inc/damp/design/minreal.hpp#L310) | function | Design-time synthesis (not PWM-rate) | Minimal realization — cancel uncontrollable and unobservable modes |
 | [`minreal`](inc/damp/matlab.hpp#L334) | function | MATLAB®-style aliases (host) | MATLAB® short alias for design::minreal, with its default tolerance √ε |
 | [`minreal_zpk`](inc/damp/systems/zpk.hpp#L827) | function | LTI systems (SS / TF / ZPK / discretize) | Cancel matching pole-zero pairs on a ZPK model |
-| [`mix`](inc/damp/systems/state_space.hpp#L747) | function | LTI systems (SS / TF / ZPK / discretize) | Fold plant outputs into one input: v = g u + Σ kᵢ yᵢ (+1 more overload) |
-| [`mix_outputs`](inc/damp/systems/state_space.hpp#L824) | function | LTI systems (SS / TF / ZPK / discretize) | Linear combination of outputs: y = Σ αⱼ yⱼ |
+| [`mix`](inc/damp/systems/state_space.hpp#L806) | function | LTI systems (SS / TF / ZPK / discretize) | Fold plant outputs into one input: v = g u + Σ kᵢ yᵢ (+1 more overload) |
+| [`mix_outputs`](inc/damp/systems/state_space.hpp#L883) | function | LTI systems (SS / TF / ZPK / discretize) | Linear combination of outputs: y = Σ αⱼ yⱼ |
 | [`modal_form`](inc/damp/systems/realization.hpp#L287) | function | LTI systems (SS / TF / ZPK / discretize) | Real modal canonical form: A block diagonal, one block per mode |
 | [`ModeExtractorConfig`](inc/damp/estimation/frequency_response.hpp#L473) | block | Observers & estimators | Configuration for FRF peak / valley extraction |
 | [`ModeExtractorResult`](inc/damp/estimation/frequency_response.hpp#L490) | block | Observers & estimators | Result of reducing an FRF table to at most MaxModes peaks (resonances) |
@@ -530,17 +522,14 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`Modulator`](inc/damp/motor/modulation.hpp#L498) | block | Motor control pack (if present) | Thin scheme-holding wrapper for FOC / deploy paths |
 | [`motor_constant`](inc/damp/motor/spm.hpp#L62) | function | Motor control pack (if present) | Motor constant Kₘ = Kₜ / √R [Nm/√W] |
 | [`MovingAverage`](inc/damp/filters/moving_average.hpp#L67) | block | Filters & signal conditioning | Moving-average (boxcar) filter — also a DC-preserving harmonic-notch comb |
-| [`mpc`](inc/damp/controllers/mpc.hpp#L2007) | function | Design-time synthesis (not PWM-rate) | Synthesize a constrained linear MPC (condensed dense QP, Δu form) on a discrete plant (+3 more overloads) |
-| [`MPC`](inc/damp/controllers/mpc.hpp#L2926) | function | Design-time synthesis (not PWM-rate) | MPC law{res}: the sizes, scalar, terminal capacity and bounded states of design::mpc's result (+1 more overload) |
-| [`MPC`](inc/damp/controllers/mpc.hpp#L2854) | block | Runtime controllers | Constrained linear MPC on the measured state (design::mpc) |
-| [`MPCArtifacts`](inc/damp/controllers/mpc.hpp#L455) | block | Runtime controllers | Condensed-QP data produced by mpc() (MPCResult::mpc), consumed by damp::MPC |
-| [`MPCConfig`](inc/damp/design/config.hpp#L142) | block | Design-time synthesis (not PWM-rate) | design::mpc's weights, constraints and options as named fields |
-| [`MPCConstraints`](inc/damp/controllers/mpc.hpp#L293) | block | Runtime controllers | Box constraints for mpc() |
-| [`MPCHorizonSuggestion`](inc/damp/controllers/mpc.hpp#L2079) | block | Runtime controllers | Advisory NP/NC horizon values from suggest_mpc_horizon() |
-| [`MPCLimits`](inc/damp/controllers/mpc.hpp#L430) | block | Runtime controllers | The limits an MPC takes at run time (MATLAB®'s online constraints): u, Δu, the controlled outputs and the states its design bounds (StateLimits), in physical units. A field left out is unbounded |
-| [`MPCResult`](inc/damp/controllers/mpc.hpp#L1544) | block | Design-time synthesis (not PWM-rate) | An MPC design: the condensed QP, the estimator when there is one, and the steady-state target the runtime poses the QP about; consumed by damp::MPC |
-| [`MPCTerminal`](inc/damp/controllers/mpc.hpp#L224) | enum | Runtime controllers | Opt-in terminal cost / set for `design::mpc` (default: none) |
-| [`MPCWeights`](inc/damp/controllers/mpc.hpp#L254) | block | Runtime controllers | Cost weights for mpc() |
+| [`mpc`](inc/damp/controllers/mpc.hpp#L2144) | function | Design-time synthesis (not PWM-rate) | Synthesize a constrained linear MPC (condensed dense QP, Δu form) on a discrete plant (+1 more overload) |
+| [`MPC`](inc/damp/controllers/mpc.hpp#L3571) | function | Design-time synthesis (not PWM-rate) | MPC law{res}: every size of design::mpc's result, its scalar and its filter: on the measured state, or through its filter's FixedGainObserver (OFMPC with a disturbance spec); with a MeasuredDisturbance the QP and the target have NDQ = ND̂ + ND disturbance channels (+1 more overload) |
+| [`MPC`](inc/damp/controllers/mpc.hpp#L3304) | block | Runtime controllers | Constrained linear MPC (design::mpc): on the measured state, or on the outputs through a Kalman filter, offset-free when the filter estimates a disturbance (OFMPC) |
+| [`MPCArtifacts`](inc/damp/controllers/mpc.hpp#L581) | block | Runtime controllers | Condensed-QP data produced by mpc() (MPCResult::mpc), consumed by damp::MPC |
+| [`MPCHorizonSuggestion`](inc/damp/controllers/mpc.hpp#L2208) | block | Runtime controllers | Advisory NP/NC horizon values from suggest_mpc_horizon() |
+| [`MPCLimits`](inc/damp/controllers/mpc.hpp#L552) | block | Runtime controllers | The limits an MPC takes at run time (MATLAB®'s online constraints): u, Δu, the outputs its design's OutputLimits lists, the states its StateLimits lists and the disturbance estimate d̂, in physical units. A field left out is unbounded, and one the law does not have is empty |
+| [`MPCResult`](inc/damp/controllers/mpc.hpp#L1700) | block | Design-time synthesis (not PWM-rate) | An MPC design: the condensed QP, the estimator when there is one, and the steady-state target the runtime poses the QP about; consumed by damp::MPC |
+| [`MPCWeights`](inc/damp/controllers/mpc.hpp#L265) | block | Runtime controllers | Cost weights for mpc() |
 | [`mstogi`](inc/damp/filters/sogi.hpp#L153) | function | Filters & signal conditioning | Mixed Second/Third-Order Generalized Integrator (MSTOGI) (+1 more overload) |
 | [`MSTOGI`](inc/damp/filters/sogi.hpp#L299) | block | Filters & signal conditioning | Runtime MSTOGI with exact resonator and forward-Euler washout |
 | [`mul_linear`](inc/damp/systems/zpk.hpp#L158) | function | LTI systems (SS / TF / ZPK / discretize) | Multiply a polynomial of degree by (s − root) in place; poly[k] multiplies sᵏ |
@@ -559,8 +548,8 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`NicholsPoint`](inc/damp/analysis/frequency.hpp#L694) | block | Frequency-domain analysis (host) | Single-point Nichols chart sample (open-loop phase vs magnitude) |
 | [`NicholsResult`](inc/damp/analysis/frequency.hpp#L706) | block | Frequency-domain analysis (host) | Nichols chart locus across a frequency sweep |
 | [`NlmsFilter`](inc/damp/filters/fir.hpp#L573) | block | Filters & signal conditioning | Normalized LMS adaptive FIR filter |
-| [`NoDisturbance`](inc/damp/design/disturbance.hpp#L31) | block | Design-time synthesis (not PWM-rate) | No disturbance model (the default): the plain filter on x |
-| [`NoEstimator`](inc/damp/controllers/state_feedback_types.hpp#L41) | block | Runtime controllers | The estimator of a law that measures its state: none, an empty type, so a `[[no_unique_address]]` member of it takes no storage |
+| [`NoDisturbance`](inc/damp/design/disturbance.hpp#L40) | block | Design-time synthesis (not PWM-rate) | No disturbance model (the default): the plain filter on x |
+| [`NoEstimator`](inc/damp/controllers/state_feedback_types.hpp#L46) | block | Runtime controllers | The estimator of a law that measures its state: none, an empty type, so a `[[no_unique_address]]` member of it takes no storage |
 | [`norm`](inc/damp/matlab.hpp#L1514) | function | MATLAB®-style aliases (host) | MATLAB® alias for the H2 system norm norm(sys,2) |
 | [`norm_h2`](inc/damp/analysis/norms.hpp#L81) | function | Frequency-domain analysis (host) | H2 norm of a state-space system |
 | [`norm_hinf`](inc/damp/analysis/norms.hpp#L343) | function | Frequency-domain analysis (host) | H∞ norm of a stable state-space system, sup σ̄(G) over the imaginary axis or the unit circle, and its frequency |
@@ -576,13 +565,11 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`observability_matrix`](inc/damp/design/stability.hpp#L83) | function | Design-time synthesis (not PWM-rate) | Compute the observability matrix [C; CA; CA²; ...; CA^(N-1)] |
 | [`observability_staircase`](inc/damp/systems/realization.hpp#L848) | function | LTI systems (SS / TF / ZPK / discretize) | Observability staircase form: the observable part split off by an orthogonal transform |
 | [`observable_canonical_form`](inc/damp/systems/realization.hpp#L566) | function | LTI systems (SS / TF / ZPK / discretize) | Observable canonical form of a SISO model: ones on A's subdiagonal, −α in its last column, C = eₙᵀ |
+| [`ObserverPoles`](inc/damp/controllers/state_feedback_types.hpp#L214) | function | Design-time synthesis (not PWM-rate) | ObserverPoles{p, …}: the count from the list, the scalar from its first entry |
+| [`ObserverPoles`](inc/damp/controllers/state_feedback_types.hpp#L206) | block | Runtime controllers | The error poles of a placed filter (design::state_feedback): a trailing option, in place of KalmanNoise |
 | [`obsv`](inc/damp/matlab.hpp#L402) | function | MATLAB®-style aliases (host) | MATLAB® short alias for observability_matrix (+1 more overload) |
 | [`obsvf`](inc/damp/matlab.hpp#L551) | function | MATLAB®-style aliases (host) | MATLAB® obsvf(A, B, C): observability staircase form, its orthogonal transform and rank |
 | [`OffDelayTimer`](inc/damp/toolbox/logic.hpp#L135) | block | Embedded helpers (controls-adjacent utilities) | Off-delay timer: output goes true immediately when in is true and stays true until in has been false continuously for delay |
-| [`OFLQG`](inc/damp/controllers/oflqg.hpp#L117) | function | Design-time synthesis (not PWM-rate) | OFLQG law{res}: the sizes, scalar, filter and target of an OFLQG design's result |
-| [`OFLQG`](inc/damp/controllers/oflqg.hpp#L62) | block | Runtime controllers | Offset-free linear-quadratic Gaussian law: a Kalman filter on [x; d] and the steady-state target |
-| [`OFMPC`](inc/damp/controllers/mpc.hpp#L3062) | function | Design-time synthesis (not PWM-rate) | OFMPC law{res}: the sizes, scalar, filter and target of an offset-free design::mpc result (+1 more overload) |
-| [`OFMPC`](inc/damp/controllers/mpc.hpp#L3004) | block | Runtime controllers | Offset-free constrained linear MPC: a Kalman filter on [x; d] and the QP about the steady-state target under d̂ (design::mpc with a KalmanNoise and a disturbance spec) |
 | [`OnDelayTimer`](inc/damp/toolbox/logic.hpp#L99) | block | Embedded helpers (controls-adjacent utilities) | On-delay timer: output goes true once in has been held true continuously for delay; drops immediately when in goes false |
 | [`one_norm`](inc/damp/matrix/functions.hpp#L69) | function | Linear algebra | One-norm ‖A‖₁: maximum absolute column sum |
 | [`ones`](inc/damp/matlab.hpp#L618) | function | MATLAB®-style aliases (host) | N×N matrix of ones |
@@ -592,9 +579,10 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`optional`](inc/damp/backend.hpp#L186) | block | Core, configuration & backend vocabulary | The optional of a toolchain with no C++ standard headers (ETL_NO_STL) |
 | [`output_inverse`](inc/damp/design/model_inverse.hpp#L683) | function | Design-time synthesis (not PWM-rate) | The stable inverse of a discrete model: the state and input of its trajectory through a reference y on the controlled outputs, from y ₖ … y ₖ₊NP₋₁ (+1 more overload) |
 | [`OutputDelay`](inc/damp/systems/discretization.hpp#L587) | block | LTI systems (SS / TF / ZPK / discretize) | A measurement delay of θ = seconds, in up to N delay states (0 ≤ θ ≤ N·Ts): the reading that arrives at sample k is y(t_k − θ). `discretize(sys, Ts, OutputDelay<N>{θ})` returns that model; design on it like any other. `OutputDelay{θ}` is N = 1 (+1 more overload) |
-| [`OutputDisturbance`](inc/damp/design/disturbance.hpp#L61) | block | Design-time synthesis (not PWM-rate) | An output disturbance: a bias on each reading, B_d = 0 and C_d = I, one per output (+1 more overload) |
+| [`OutputDisturbance`](inc/damp/design/disturbance.hpp#L70) | block | Design-time synthesis (not PWM-rate) | An output disturbance: a bias on each reading, B_d = 0 and C_d = I, one per output (+1 more overload) |
 | [`OutputInverse`](inc/damp/design/model_inverse.hpp#L861) | block | Design-time synthesis (not PWM-rate) | The stable inverse at run time: the reference point (x , u ) from the output reference over the preview, seven matrix–vector products and the zero dynamics' state (+1 more overload) |
 | [`OutputInverseResult`](inc/damp/design/model_inverse.hpp#L144) | block | Design-time synthesis (not PWM-rate) | The stable inverse of a discrete model over a preview of NP output samples |
+| [`OutputLimits`](inc/damp/controllers/mpc.hpp#L308) | block | Runtime controllers | Limits on an MPC's outputs: among design::mpc's options |
 | [`pade`](inc/damp/matlab.hpp#L1384) | function | MATLAB®-style aliases (host) | Padé approximation of order N (1 or 2) of the pure delay e^{−sT} |
 | [`pade_delay_1st`](inc/damp/filters/pade.hpp#L33) | function | Filters & signal conditioning | First-order Pade approximation of time delay (+1 more overload) |
 | [`pade_delay_2nd`](inc/damp/filters/pade.hpp#L85) | function | Filters & signal conditioning | Second-order Pade approximation of time delay (+1 more overload) |
@@ -602,14 +590,14 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`panel_legend`](inc/damp/simulation/plot_plotly.hpp#L299) | function | Simulation / SIL harness (host) | Per-panel legend box just right of a stacked subplot band |
 | [`panel_legend_id`](inc/damp/simulation/plot_plotly.hpp#L285) | function | Simulation / SIL harness (host) | Legend id for subplot row (1-based): "legend", "legend2", … |
 | [`panel_x_domain`](inc/damp/simulation/plot_plotly.hpp#L275) | function | Simulation / SIL harness (host) | Horizontal domain for stacked multi-panel x-axes |
-| [`parallel`](inc/damp/systems/state_space.hpp#L362) | function | LTI systems (SS / TF / ZPK / discretize) | Parallel connection (shared input, summed outputs) |
+| [`parallel`](inc/damp/systems/state_space.hpp#L377) | function | LTI systems (SS / TF / ZPK / discretize) | Parallel connection (shared input, summed outputs) |
 | [`ParameterDriftMonitor`](inc/damp/estimation/parameter_estimation.hpp#L251) | block | Observers & estimators | Residual-based drift detector: has the plant moved away from the model? |
-| [`ParameterEstimator`](inc/damp/concepts.hpp#L162) | concept | Core, configuration & backend vocabulary | Online grey-box parameter estimator: physical parameters + gating |
+| [`ParameterEstimator`](inc/damp/concepts.hpp#L164) | concept | Core, configuration & backend vocabulary | Online grey-box parameter estimator: physical parameters + gating |
 | [`park_transform`](inc/damp/math/transforms.hpp#L354) | function | Scalar math, complex & frames | Park transform (αβ → dq) |
 | [`pattern_row_times_factor_column`](inc/damp/estimation/sqrt_covariance.hpp#L344) | function | Observers & estimators | Row R of F times column J of the lower-triangular S: a term for each nonzero of the row at or below the diagonal of that column, and nothing else |
 | [`PatternEntry`](inc/damp/matrix/pattern_matrix.hpp#L22) | enum | Linear algebra | What an entry of a sparsity pattern is known to be at compile time |
 | [`PatternMatrix`](inc/damp/matrix/pattern_matrix.hpp#L226) | block | Linear algebra | The runtime values of a sparsity pattern, and nothing else: an entry the pattern knows has no storage, and in a product it has no term (a 0) or no multiply (a 1) |
-| [`PatternMeasurement`](inc/damp/concepts.hpp#L248) | concept | Core, configuration & backend vocabulary | A Measurement whose jacobian(x, u) returns C = ∂h/∂x as an NY × NX PatternMatrix: zeros and ones known at compile time, the other entries computed at (x, u) |
+| [`PatternMeasurement`](inc/damp/concepts.hpp#L250) | concept | Core, configuration & backend vocabulary | A Measurement whose jacobian(x, u) returns C = ∂h/∂x as an NY × NX PatternMatrix: zeros and ones known at compile time, the other entries computed at (x, u) |
 | [`peaking`](inc/damp/filters/iir_design.hpp#L853) | function | Filters & signal conditioning | Peaking (bell) EQ filter: boost or cut a band around f0 |
 | [`perfect_row_scale`](inc/damp/estimation/sqrt_covariance.hpp#L509) | function | Observers & estimators | The scale of row m of a reading that has no noise of its own: 1/√(eps·‖f‖²), its noise taken at the rounding of its own prior variance ‖f‖² = c̃ P c̃ᵀ |
 | [`Periodic`](inc/damp/toolbox/timing.hpp#L177) | block | Embedded helpers (controls-adjacent utilities) | Periodic trigger — fires once per elapsed period |
@@ -632,13 +620,13 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`PIDTuneSpec`](inc/damp/design/pid_design.hpp#L453) | block | Design-time synthesis (not PWM-rate) | Knobs for plant-aware pidtune |
 | [`PiecewiseLTI`](inc/damp/simulation/hybrid.hpp#L93) | block | Simulation / SIL harness (host) | Plant: NModes continuous LTI pieces (same state/input/output dimensions) |
 | [`pinv`](inc/damp/matlab.hpp#L641) | function | MATLAB®-style aliases (host) | MATLAB® short alias for the Moore–Penrose pseudoinverse: an optional, empty when the SVD fails |
-| [`place`](inc/damp/design/pole_placement.hpp#L1158) | function | Design-time synthesis (not PWM-rate) | Robust pole placement (KNV): the gain K with eig(A − B·K) at poles, in the domain of sys (+1 more overload) |
+| [`place`](inc/damp/design/pole_placement.hpp#L1162) | function | Design-time synthesis (not PWM-rate) | Robust pole placement (KNV): the gain K with eig(A − B·K) at poles, in the domain of sys (+1 more overload) |
 | [`place`](inc/damp/matlab.hpp#L873) | function | MATLAB®-style aliases (host) | Robust multi-input pole placement (MATLAB®'s place) |
-| [`place_jordan`](inc/damp/design/pole_placement.hpp#L1682) | function | Design-time synthesis (not PWM-rate) | Exact pole placement with an arbitrary Jordan structure (Schmid–Ntogramatzidis–Nguyen–Pandey / Klein–Moore parametric form) (+1 more overload) |
-| [`place_observer`](inc/damp/estimation/fixed_gain_observer.hpp#L303) | function | Observers & estimators | Design a Luenberger observer by robust pole placement, in the domain of sys (+1 more overload) |
+| [`place_jordan`](inc/damp/design/pole_placement.hpp#L1686) | function | Design-time synthesis (not PWM-rate) | Exact pole placement with an arbitrary Jordan structure (Schmid–Ntogramatzidis–Nguyen–Pandey / Klein–Moore parametric form) (+1 more overload) |
+| [`place_observer`](inc/damp/estimation/fixed_gain_observer.hpp#L307) | function | Observers & estimators | Design a Luenberger observer by robust pole placement, in the domain of sys (+1 more overload) |
 | [`PlaceObserverResult`](inc/damp/estimation/fixed_gain_observer.hpp#L117) | block | Observers & estimators | Luenberger observer design result: the plant, the gains L and M, and the achieved error poles |
-| [`PlaceResult`](inc/damp/design/pole_placement.hpp#L1076) | block | Design-time synthesis (not PWM-rate) | Pole-placement design result: the gain K, the achieved closed-loop poles e, and Ts |
-| [`PlantDisturbance`](inc/damp/design/disturbance.hpp#L82) | block | Design-time synthesis (not PWM-rate) | The plant's own disturbance channel: B_d = G and C_d = H, one disturbance per column of G (H needs as many columns) (+1 more overload) |
+| [`PlaceResult`](inc/damp/design/pole_placement.hpp#L1079) | block | Design-time synthesis (not PWM-rate) | Pole-placement design result: the gain K, the achieved closed-loop poles e, and Ts |
+| [`PlantDisturbance`](inc/damp/design/disturbance.hpp#L91) | block | Design-time synthesis (not PWM-rate) | The plant's own disturbance channel: B_d = G and C_d = H, one disturbance per column of G (H needs as many columns) (+1 more overload) |
 | [`plot_bode`](inc/damp/simulation/plot_plotly.hpp#L424) | function | Simulation / SIL harness (host) | Plot Bode magnitude and phase as subplots |
 | [`plot_line`](inc/damp/simulation/plot_plotly.hpp#L493) | function | Simulation / SIL harness (host) | Simple line plot of time vs value |
 | [`plot_simulation`](inc/damp/simulation/plot_plotly.hpp#L345) | function | Simulation / SIL harness (host) | Plot simulation results with subplots for states, outputs, and inputs |
@@ -647,7 +635,9 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`plots_root_for`](inc/damp/simulation/plot_plotly.hpp#L120) | function | Simulation / SIL harness (host) | Walk up from dir until a directory named "plots" is found |
 | [`pole`](inc/damp/matlab.hpp#L1229) | function | MATLAB®-style aliases (host) | MATLAB® short alias for the open-loop poles of a system |
 | [`PoleInfo`](inc/damp/analysis/poles.hpp#L52) | block | Frequency-domain analysis (host) | Natural frequency and damping ratio for each pole |
+| [`Poles`](inc/damp/controllers/state_feedback_types.hpp#L183) | function | Design-time synthesis (not PWM-rate) | Poles{p, …}: the count from the list, the scalar from its first entry |
 | [`poles`](inc/damp/analysis/poles.hpp#L40) | function | Frequency-domain analysis (host) | Compute open-loop poles (eigenvalues of A matrix) |
+| [`Poles`](inc/damp/controllers/state_feedback_types.hpp#L175) | block | Runtime controllers | The closed-loop poles of a placed design (design::state_feedback): the weights' slot, in place of LQRWeights |
 | [`PoleZeroMap`](inc/damp/analysis/poles.hpp#L98) | block | Frequency-domain analysis (host) | Poles and zeros of a system, for pole-zero plotting |
 | [`poly_horner`](inc/damp/toolbox/scaling.hpp#L136) | function | Embedded helpers (controls-adjacent utilities) | Evaluate a polynomial at x by Horner's method |
 | [`poly_roots`](inc/damp/analysis/poles.hpp#L146) | function | Frequency-domain analysis (host) | Roots of a polynomial given highest power first (MATLAB® `roots`) |
@@ -677,6 +667,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`PwmScheme`](inc/damp/motor/modulation.hpp#L77) | enum | Motor control pack (if present) | Carrier-based three-phase VSI modulation scheme |
 | [`pzmap`](inc/damp/analysis/poles.hpp#L169) | function | Frequency-domain analysis (host) | Pole-zero map of a SISO transfer function (MATLAB® `pzmap(tf)`) (+2 more overloads) |
 | [`pzplot`](inc/damp/simulation/plot_plotly.hpp#L850) | function | Simulation / SIL harness (host) | Plot a pole-zero map on the complex plane (poles as ×, zeros as ○) |
+| [`QPIterations`](inc/damp/design/qp.hpp#L113) | block | Design-time synthesis (not PWM-rate) | A QP's iteration budget per tick, among the options of design::mpc and design::mhe (left out: each design's default) |
 | [`QPResult`](inc/damp/design/qp.hpp#L81) | block | Design-time synthesis (not PWM-rate) | Result of a dense QP solve |
 | [`QPStatus`](inc/damp/design/qp.hpp#L48) | enum | Design-time synthesis (not PWM-rate) | Termination status of a QP solve |
 | [`qr_decompose`](inc/damp/matrix/decomposition.hpp#L719) | function | Linear algebra | Thin QR via Householder reflections |
@@ -703,9 +694,9 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`reading_row_reach`](inc/damp/estimation/sqrt_covariance.hpp#L480) | function | Observers & estimators | The size of the terms row m of C S is summed from, ‖\|C_m\|·\|S\|‖: what a perfect row's ‖f‖ is measured against, so that "zero" is the rounding of those terms and not a literal |
 | [`reading_times_factor`](inc/damp/estimation/sqrt_covariance.hpp#L428) | function | Observers & estimators | CS = C S for a lower-triangular S and a dense C (+1 more overload) |
 | [`ReadingNoiseFactor`](inc/damp/estimation/sqrt_covariance.hpp#L456) | block | Observers & estimators | A reading's noise covariance R factored for sqrt_measurement_update(): R = L Lᵀ, and whether R is a covariance at all |
-| [`reduced_order_observer`](inc/damp/estimation/fixed_gain_observer.hpp#L513) | function | Observers & estimators | Design a reduced-order (Gopinath) observer by pole placement, in the domain of sys (+1 more overload) |
-| [`ReducedOrderObserver`](inc/damp/estimation/fixed_gain_observer.hpp#L1081) | block | Observers & estimators | Reduced-order (Gopinath) state observer (runtime) (+1 more overload) |
-| [`ReducedOrderObserverResult`](inc/damp/estimation/fixed_gain_observer.hpp#L351) | block | Observers & estimators | Reduced-order (Gopinath) observer design result |
+| [`reduced_order_observer`](inc/damp/estimation/fixed_gain_observer.hpp#L517) | function | Observers & estimators | Design a reduced-order (Gopinath) observer by pole placement, in the domain of sys (+1 more overload) |
+| [`ReducedOrderObserver`](inc/damp/estimation/fixed_gain_observer.hpp#L1087) | block | Observers & estimators | Reduced-order (Gopinath) state observer (runtime) (+1 more overload) |
+| [`ReducedOrderObserverResult`](inc/damp/estimation/fixed_gain_observer.hpp#L355) | block | Observers & estimators | Reduced-order (Gopinath) observer design result |
 | [`RedundantAnalogPair`](inc/damp/toolbox/io.hpp#L91) | block | Embedded helpers (controls-adjacent utilities) | Dual-channel analog input with same-slope or opposite-slope cross-check |
 | [`reflect_rows_below`](inc/damp/estimation/sqrt_covariance.hpp#L187) | function | Observers & estimators | Apply row i's reflection of triangularize() to the rows below it: row k ← row k − s·v, with column i's sign turned when flip |
 | [`reg`](inc/damp/matlab.hpp#L762) | function | MATLAB®-style aliases (host) | Form the observer-based compensator y → u from a plant, K and L |
@@ -741,7 +732,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`RowView`](inc/damp/matrix/views.hpp#L202) | block | Linear algebra | Non-owning row view of a matrix |
 | [`RS`](inc/damp/toolbox/iec61131.hpp#L89) | block | Embedded helpers (controls-adjacent utilities) | RS Latch (Reset-Set Latch) |
 | [`SamePrecision`](inc/damp/matrix/matrix_traits.hpp#L84) | concept | Linear algebra | Two matrix element types mix in one operator without rounding: equal, or a real and the complex of its own precision |
-| [`scalar_of`](inc/damp/design/detail/config.hpp#L72) | block | Design-time synthesis (not PWM-rate) | The scalar of a weight's value; double left out (+2 more overloads) |
+| [`scalar_of`](inc/damp/design/detail/config.hpp#L71) | block | Design-time synthesis (not PWM-rate) | The scalar of a weight's value; double left out (+2 more overloads) |
 | [`scaled_deadband`](inc/damp/toolbox/conditioning.hpp#L183) | function | Embedded helpers (controls-adjacent utilities) | Center dead zone that rescales the surviving range back to full span |
 | [`schroeder_multi_sine`](inc/damp/estimation/excitation/multi_sine.hpp#L191) | function | Observers & estimators | Build a multi-sine design payload with Schroeder phases applied |
 | [`schur_stable`](inc/damp/systems/transfer_function.hpp#L66) | function | LTI systems (SS / TF / ZPK / discretize) | True if every root of z^(N−1)·p(z⁻¹) lies strictly inside the unit circle (Schur–Cohn) |
@@ -749,10 +740,10 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`SecondOrderCoeffs`](inc/damp/filters/iir_design.hpp#L71) | block | Filters & signal conditioning | DSP coefficients for second-order IIR filter |
 | [`SecondOrderSectionsResult`](inc/damp/filters/biquad.hpp#L40) | block | Filters & signal conditioning | An IIR filter as a cascade of second-order sections: the result BiquadCascade runs |
 | [`SEL`](inc/damp/toolbox/iec61131.hpp#L598) | function | Embedded helpers (controls-adjacent utilities) | SEL (IEC 61131-3 binary selection): g ? in1 : in0 |
-| [`select`](inc/damp/systems/state_space.hpp#L706) | function | LTI systems (SS / TF / ZPK / discretize) | SISO channel slice y_iy / u_iu |
+| [`select`](inc/damp/systems/state_space.hpp#L765) | function | LTI systems (SS / TF / ZPK / discretize) | SISO channel slice y_iy / u_iu |
 | [`semidefinite_factor`](inc/damp/estimation/sqrt_covariance.hpp#L116) | function | Observers & estimators | The lower-triangular factor S of a positive semidefinite P, P = S Sᵀ, with a zero column where a pivot vanishes |
 | [`SequenceComponents`](inc/damp/math/transforms.hpp#L513) | block | Scalar math, complex & frames | Symmetrical (sequence) components of a three-phase phasor set |
-| [`series`](inc/damp/systems/state_space.hpp#L306) | function | LTI systems (SS / TF / ZPK / discretize) | Series connection: sys2 follows sys1 (u → sys1 → sys2 → y) |
+| [`series`](inc/damp/systems/state_space.hpp#L321) | function | LTI systems (SS / TF / ZPK / discretize) | Series connection: sys2 follows sys1 (u → sys1 → sys2 → y) |
 | [`ServoAxis`](inc/damp/toolbox/actuator.hpp#L105) | block | Embedded helpers (controls-adjacent utilities) | One servoactuator transmission: SI joint unit ⟷ drive (motor) units |
 | [`ServoBank`](inc/damp/toolbox/actuator.hpp#L231) | block | Embedded helpers (controls-adjacent utilities) | A bank of ServoAxis transmissions: maps a synchronized multi-axis TrajectoryState array straight to drive commands in one call |
 | [`ServoCommand`](inc/damp/toolbox/actuator.hpp#L82) | block | Embedded helpers (controls-adjacent utilities) | A drive-native servoactuator setpoint: position, velocity, torque |
@@ -762,7 +753,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`SigmaPoint`](inc/damp/analysis/frequency.hpp#L779) | block | Frequency-domain analysis (host) | Singular values of G(jω) at one frequency |
 | [`SigmaResult`](inc/damp/analysis/frequency.hpp#L793) | block | Frequency-domain analysis (host) | Singular-value frequency response over a grid |
 | [`SignalRange`](inc/damp/toolbox/conditioning.hpp#L350) | block | Embedded helpers (controls-adjacent utilities) | The measuring span and wire-fault limits of an analog input (NAMUR NE43 pattern) |
-| [`SignalSource`](inc/damp/concepts.hpp#L147) | concept | Core, configuration & backend vocabulary | Self-clocked signal source: u = step(), finished when done() |
+| [`SignalSource`](inc/damp/concepts.hpp#L149) | concept | Core, configuration & backend vocabulary | Self-clocked signal source: u = step(), finished when done() |
 | [`SignalStatus`](inc/damp/toolbox/conditioning.hpp#L318) | enum | Embedded helpers (controls-adjacent utilities) | Classification of an analog input against its valid/fault bands |
 | [`simc`](inc/damp/design/pid_design.hpp#L372) | function | Design-time synthesis (not PWM-rate) | SIMC (Skogestad Internal Model Control) tuning for FOPDT models |
 | [`similarity_transform`](inc/damp/systems/realization.hpp#L372) | function | LTI systems (SS / TF / ZPK / discretize) | Change the state basis to z = T·x: (T·A·T⁻¹, T·B, C·T⁻¹, D), and T·G for the noise input |
@@ -808,10 +799,10 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`SOGI`](inc/damp/filters/sogi.hpp#L226) | block | Filters & signal conditioning | Runtime SOGI quadrature-signal generator (live-frequency resonator) |
 | [`SogiFll`](inc/damp/filters/sogi.hpp#L396) | block | Filters & signal conditioning | SOGI with a Frequency-Locked Loop — self-tuning single-tone tracker |
 | [`solve`](inc/damp/matrix/solve.hpp#L288) | function | Linear algebra | Solve AX = B — Cholesky when Hermitian, else LU (+2 more overloads) |
-| [`solve_miqp`](inc/damp/design/qp.hpp#L1745) | function | Design-time synthesis (not PWM-rate) | Mixed-integer QP by branch and bound over the active-set relaxation |
-| [`solve_qp`](inc/damp/design/qp.hpp#L856) | function | Design-time synthesis (not PWM-rate) | Solve a strictly convex inequality-constrained QP (dual active-set) (+1 more overload) |
-| [`solve_qp_admm`](inc/damp/design/qp.hpp#L1420) | function | Design-time synthesis (not PWM-rate) | One-shot ADMM QP solve (cold start) |
-| [`solve_qp_interior_point`](inc/damp/design/qp.hpp#L1464) | function | Design-time synthesis (not PWM-rate) | Interior-point QP solver (primal-dual path following) |
+| [`solve_miqp`](inc/damp/design/qp.hpp#L1768) | function | Design-time synthesis (not PWM-rate) | Mixed-integer QP by branch and bound over the active-set relaxation |
+| [`solve_qp`](inc/damp/design/qp.hpp#L879) | function | Design-time synthesis (not PWM-rate) | Solve a strictly convex inequality-constrained QP (dual active-set) (+1 more overload) |
+| [`solve_qp_admm`](inc/damp/design/qp.hpp#L1443) | function | Design-time synthesis (not PWM-rate) | One-shot ADMM QP solve (cold start) |
+| [`solve_qp_interior_point`](inc/damp/design/qp.hpp#L1487) | function | Design-time synthesis (not PWM-rate) | Interior-point QP solver (primal-dual path following) |
 | [`SolveResult`](inc/damp/simulation/solver.hpp#L86) | block | Simulation / SIL harness (host) | Result of an ODE solve operation |
 | [`SparsityPattern`](inc/damp/matrix/pattern_matrix.hpp#L53) | block | Linear algebra | Which entries of an R × C matrix are exactly 0, exactly 1, or known only at run time |
 | [`specific_force_at_rest`](inc/damp/estimation/ins_mechanization.hpp#L226) | function | Observers & estimators | Specific force [m/s²] a stationary IMU measures for the given orientation |
@@ -822,37 +813,40 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`sqrt_measurement_update`](inc/damp/estimation/sqrt_covariance.hpp#L704) | function | Observers & estimators | Measurement update of the factor and the estimate with a reading of innovation ν, output matrix C and noise covariance R = L Lᵀ |
 | [`sqrt_time_update`](inc/damp/estimation/sqrt_covariance.hpp#L414) | function | Observers & estimators | Time update of the factor: S ← the lower-triangular factor of A S Sᵀ Aᵀ + Γ Γᵀ |
 | [`sqrtm`](inc/damp/matlab.hpp#L694) | function | MATLAB®-style aliases (host) | MATLAB® short alias for the principal matrix square root (mat::sqrt) |
-| [`square_matrix`](inc/damp/design/detail/config.hpp#L102) | function | Design-time synthesis (not PWM-rate) | A weight's value as an N × N Matrix in T (its size checked by the caller), or fallback when it was left out |
+| [`square_matrix`](inc/damp/design/detail/config.hpp#L101) | function | Design-time synthesis (not PWM-rate) | A weight's value as an N × N Matrix in T (its size checked by the caller), or fallback when it was left out |
 | [`SR`](inc/damp/toolbox/iec61131.hpp#L61) | block | Embedded helpers (controls-adjacent utilities) | SR Latch (Set-dominant Set-Reset Latch) |
 | [`ss`](inc/damp/matlab.hpp#L121) | function | MATLAB®-style aliases (host) | MATLAB®-style state-space model constructor |
 | [`ss2ss`](inc/damp/matlab.hpp#L531) | function | MATLAB®-style aliases (host) | MATLAB® ss2ss(sys, T): the model in the state z = T·x |
 | [`ss2tf`](inc/damp/systems/zpk.hpp#L806) | function | LTI systems (SS / TF / ZPK / discretize) | MATLAB®-style alias for SISO to_transfer_function |
 | [`ss2zpk`](inc/damp/matlab.hpp#L227) | function | MATLAB®-style aliases (host) | MATLAB® short alias for SISO to_zpk (state space → zero-pole-gain) |
-| [`ss_gain`](inc/damp/systems/state_space.hpp#L693) | function | LTI systems (SS / TF / ZPK / discretize) | Static gain y = k u (no states) |
+| [`ss_gain`](inc/damp/systems/state_space.hpp#L752) | function | LTI systems (SS / TF / ZPK / discretize) | Static gain y = k u (no states) |
 | [`ssbal`](inc/damp/matlab.hpp#L490) | function | MATLAB®-style aliases (host) | MATLAB® ssbal: diagonal state balancing of [A B; C 0] |
-| [`SsFeed`](inc/damp/systems/state_space.hpp#L682) | block | LTI systems (SS / TF / ZPK / discretize) | One term of a linear output mix: k · y_iy |
+| [`SsFeed`](inc/damp/systems/state_space.hpp#L741) | block | LTI systems (SS / TF / ZPK / discretize) | One term of a linear output mix: k · y_iy |
 | [`stability_margin`](inc/damp/design/stability.hpp#L532) | function | Design-time synthesis (not PWM-rate) | Distance from the poles of sys to its domain's stability boundary |
 | [`StaircaseFormResult`](inc/damp/systems/realization.hpp#L643) | block | LTI systems (SS / TF / ZPK / discretize) | A model in staircase coordinates, the orthogonal transform that took it there, and its rank |
-| [`state_feedback`](inc/damp/controllers/state_feedback.hpp#L201) | function | Design-time synthesis (not PWM-rate) | The linear-quadratic state-feedback law (DARE on a discrete plant, CARE on a continuous one): runs as LQR, LQI, LQG, LQGI or OFLQG, as its options say (+3 more overloads) |
+| [`state_feedback`](inc/damp/controllers/state_feedback.hpp#L399) | function | Design-time synthesis (not PWM-rate) | The linear-quadratic state-feedback law (DARE on a discrete plant, CARE on a continuous one): runs as StateFeedback, an LQR, LQI, LQG, LQGI or OFLQG as its options say (+3 more overloads) |
 | [`state_feedforward`](inc/damp/design/model_inverse.hpp#L100) | function | Design-time synthesis (not PWM-rate) | The plant-inversion feedforward of a discrete model: the input that moves x⁺ = A·x + B·u along a state reference, u ₖ the least-squares solution of B·u = x ₖ₊₁ − A·x ₖ |
 | [`state_variable_filter`](inc/damp/estimation/state_variable_filter.hpp#L97) | function | Observers & estimators | Design the filter F(s) = ω³/(s + ω)³ sampled at Ts |
-| [`StateEstimator`](inc/damp/concepts.hpp#L134) | concept | Core, configuration & backend vocabulary | State estimator: x̂ = step(y, u) — the fused per-tick form |
-| [`StateFeedbackResult`](inc/damp/controllers/state_feedback_types.hpp#L358) | block | Design-time synthesis (not PWM-rate) | A state-feedback design: the gain, and the parts the law's options add |
+| [`StateEstimator`](inc/damp/concepts.hpp#L136) | concept | Core, configuration & backend vocabulary | State estimator: x̂ = step(y, u) — the fused per-tick form |
+| [`StateFeedback`](inc/damp/controllers/state_feedback_runtime.hpp#L345) | function | Design-time synthesis (not PWM-rate) | StateFeedback law{res}: the sizes, scalar, filter and target of design::state_feedback's result (+1 more overload) |
+| [`StateFeedback`](inc/damp/controllers/state_feedback_runtime.hpp#L131) | block | Runtime controllers | The runtime of every LQ design, u = u − K·(x̂ − x ) on the measured state or a filter's estimate: LQR, LQI, LQG, LQGI and OFLQG name its kinds |
+| [`StateFeedbackLimits`](inc/damp/design/input_limits.hpp#L113) | block | Design-time synthesis (not PWM-rate) | The limits an LQ law takes at run time: u, its move, the integrators ξ, what the outer terms ask of a state and the disturbance estimate d̂, in physical units. A field left out is unbounded (the demand limit off), and one the law does not have is empty |
+| [`StateFeedbackResult`](inc/damp/controllers/state_feedback_types.hpp#L520) | block | Design-time synthesis (not PWM-rate) | A state-feedback design: the gain, and the parts the law's options add |
 | [`StateFeedforward`](inc/damp/design/model_inverse.hpp#L818) | block | Design-time synthesis (not PWM-rate) | The plant-inversion feedforward at run time: u = B⁺·(x ₖ₊₁ − x ₖ) − B⁺(A − I)·x ₖ, two matrix–vector products (+1 more overload) |
 | [`StateFeedforwardResult`](inc/damp/design/model_inverse.hpp#L60) | block | Design-time synthesis (not PWM-rate) | The plant-inversion feedforward of a discrete model: u ₖ = B⁺·(x ₖ₊₁ − x ₖ) − B⁺(A − I)·x ₖ |
-| [`StateLimits`](inc/damp/controllers/mpc.hpp#L334) | block | Runtime controllers | Limits on states an MPC does not track: among design::mpc's options |
+| [`StateLimits`](inc/damp/controllers/mpc.hpp#L381) | block | Runtime controllers | Limits on states an MPC does not track: among design::mpc's options |
 | [`StateScaling`](inc/damp/systems/realization.hpp#L39) | block | LTI systems (SS / TF / ZPK / discretize) | A model in balanced state coordinates, and the diagonal scaling that took it there |
-| [`StateSpace`](inc/damp/systems/state_space.hpp#L142) | block | LTI systems (SS / TF / ZPK / discretize) | State-space representation for linear time-invariant systems (discrete or continuous) (+16 more overloads) |
+| [`StateSpace`](inc/damp/systems/state_space.hpp#L157) | block | LTI systems (SS / TF / ZPK / discretize) | State-space representation for linear time-invariant systems (discrete or continuous) (+16 more overloads) |
 | [`StateSpaceResult`](inc/damp/design/model_result.hpp#L58) | block | Design-time synthesis (not PWM-rate) | A designed state-space model with its success / status |
 | [`StateSpaceZPKResult`](inc/damp/systems/zpk.hpp#L656) | block | LTI systems (SS / TF / ZPK / discretize) | SISO state-space → ZPK conversion result with runtime zero count |
 | [`StateTransformResult`](inc/damp/systems/realization.hpp#L125) | block | LTI systems (SS / TF / ZPK / discretize) | A model in new state coordinates z = transform·x, and the transform that took it there |
 | [`StateVariableFilter`](inc/damp/estimation/state_variable_filter.hpp#L127) | block | Observers & estimators | State-variable filter over NS signals: filtered values and derivatives, no differentiation |
 | [`StateVariableFilterResult`](inc/damp/estimation/state_variable_filter.hpp#L76) | block | Observers & estimators | Discretized state-variable filter (shared by every channel) |
-| [`steady_state_target`](inc/damp/design/config.hpp#L294) | function | Design-time synthesis (not PWM-rate) | design::steady_state_target(sys, opts…) with the options the fields of config: the same design (+3 more overloads) |
+| [`steady_state_target`](inc/damp/design/steady_state_target.hpp#L504) | function | Design-time synthesis (not PWM-rate) | The steady-state target of a law on a discrete plant: the maps from the estimated disturbance and the reference to [x_t; u_t] (+1 more overload) |
 | [`steady_state_vdq`](inc/damp/motor/spm.hpp#L78) | function | Motor control pack (if present) | Steady-state Vdq (rotor frame) |
 | [`steady_state_voltage_magnitude`](inc/damp/motor/spm.hpp#L91) | function | Motor control pack (if present) | \|Vdq\| at a steady-state operating point |
-| [`SteadyStateTarget`](inc/damp/design/steady_state_target.hpp#L405) | block | Design-time synthesis (not PWM-rate) | The steady-state target at run time: (x_t, u_t) from the reference and the estimated disturbance, two matrix–vector products, and the re-anchoring of a FixedGainObserver on it (+1 more overload) |
-| [`SteadyStateTargetResult`](inc/damp/design/steady_state_target.hpp#L79) | block | Design-time synthesis (not PWM-rate) | The steady-state target maps: [x_t; u_t] per unit disturbance and per unit reference |
+| [`SteadyStateTarget`](inc/damp/design/steady_state_target.hpp#L554) | block | Design-time synthesis (not PWM-rate) | The steady-state target at run time: (x_t, u_t) from the reference and the estimated disturbance, two matrix–vector products, and the re-anchoring of a FixedGainObserver on it (+1 more overload) |
+| [`SteadyStateTargetResult`](inc/damp/design/steady_state_target.hpp#L89) | block | Design-time synthesis (not PWM-rate) | The steady-state target maps: [x_t; u_t] per unit disturbance and per unit reference |
 | [`steer_map`](inc/damp/toolbox/io.hpp#L344) | function | Embedded helpers (controls-adjacent utilities) | Curve-driven steering map — arbitrary `(throttle, turn)` geometry |
 | [`steinhart_hart`](inc/damp/toolbox/thermistor.hpp#L127) | function | Embedded helpers (controls-adjacent utilities) | Fit the Steinhart-Hart coefficients from three calibration points |
 | [`step`](inc/damp/analysis/time_response.hpp#L164) | function | Frequency-domain analysis (host) | Step response of a (MIMO) state-space system (+1 more overload) |
@@ -877,8 +871,8 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`STSMCController`](inc/damp/controllers/stsmc.hpp#L363) | function | Design-time synthesis (not PWM-rate) | Deduce the runtime from its design, keeping the result's scalar |
 | [`STSMCController`](inc/damp/controllers/stsmc.hpp#L207) | block | Runtime controllers | Super-twisting controller (second-order sliding mode) |
 | [`STSMCResult`](inc/damp/controllers/stsmc.hpp#L35) | block | Design-time synthesis (not PWM-rate) | Super-twisting (second-order sliding-mode) controller design result |
-| [`subtract`](inc/damp/systems/state_space.hpp#L624) | function | LTI systems (SS / TF / ZPK / discretize) | Differencing connection: outputs y = y₁ − y₂ |
-| [`suggest_mpc_horizon`](inc/damp/controllers/mpc.hpp#L2103) | function | Design-time synthesis (not PWM-rate) | Suggest MPC horizons from an explicit settling-time target (+1 more overload) |
+| [`subtract`](inc/damp/systems/state_space.hpp#L639) | function | LTI systems (SS / TF / ZPK / discretize) | Differencing connection: outputs y = y₁ − y₂ |
+| [`suggest_mpc_horizon`](inc/damp/controllers/mpc.hpp#L2232) | function | Design-time synthesis (not PWM-rate) | Suggest MPC horizons from an explicit settling-time target (+1 more overload) |
 | [`summarize_loop_response`](inc/damp/analysis/frequency.hpp#L465) | function | Frequency-domain analysis (host) | Summarize loop_response() results into one compact metrics struct |
 | [`svd`](inc/damp/matrix/svd.hpp#L357) | function | Linear algebra | Full singular value decomposition A = U·Σ·Vᴴ (one-sided Jacobi) |
 | [`svd`](inc/damp/matlab.hpp#L632) | function | MATLAB®-style aliases (host) | MATLAB® short alias for the singular value decomposition |
@@ -891,8 +885,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`symmetrical_components`](inc/damp/math/transforms.hpp#L541) | function | Scalar math, complex & frames | Forward symmetrical-component (Fortescue) transform (abc → 012) |
 | [`SymplecticEuler`](inc/damp/simulation/integrator.hpp#L296) | block | Simulation / SIL harness (host) | Semi-implicit (symplectic) Euler for mechanical systems |
 | [`tan`](inc/damp/math/math.hpp#L214) | function | Scalar math, complex & frames | Tangent |
-| [`TargetConfig`](inc/damp/design/config.hpp#L155) | block | Design-time synthesis (not PWM-rate) | design::steady_state_target's options as named fields: the disturbance the target holds the outputs under, and the plant's delays |
-| [`TargetPoint`](inc/damp/design/steady_state_target.hpp#L389) | block | Design-time synthesis (not PWM-rate) | A state and the input at it: a steady state (SteadyStateTarget), or a point of a reference trajectory (OutputInverse) |
+| [`TargetPoint`](inc/damp/design/steady_state_target.hpp#L538) | block | Design-time synthesis (not PWM-rate) | A state and the input at it: a steady state (SteadyStateTarget), or a point of a reference trajectory (OutputInverse) |
 | [`tf`](inc/damp/matlab.hpp#L85) | function | MATLAB®-style aliases (host) | MATLAB®-style transfer function constructor (+1 more overload) |
 | [`tf2sos`](inc/damp/matlab.hpp#L182) | function | MATLAB®-style aliases (host) | MATLAB®-style transfer function → second-order sections, from MATLAB®'s z⁻¹ vectors (+1 more overload) |
 | [`tf2zpk`](inc/damp/matlab.hpp#L157) | function | MATLAB®-style aliases (host) | MATLAB® short alias for to_zpk (transfer function → zero-pole-gain) |
@@ -922,7 +915,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`torque_speed_envelope`](inc/damp/motor/spm.hpp#L207) | function | Motor control pack (if present) | Fixed table of SPM torque–speed envelope samples (host / LUT bake) |
 | [`TorqueSpeedPoint`](inc/damp/motor/spm.hpp#L148) | block | Motor control pack (if present) | One sample of the SPM torque–speed envelope (MTPA i_d=0 branch) |
 | [`TP`](inc/damp/toolbox/iec61131.hpp#L259) | block | Embedded helpers (controls-adjacent utilities) | TP Timer (Timer Pulse) |
-| [`TrackedOutputs`](inc/damp/design/steady_state_target.hpp#L62) | block | Design-time synthesis (not PWM-rate) | The outputs a law without integrators or a disturbance model holds at r through its steady-state target (design::state_feedback, with or without a KalmanNoise): `TrackedOutputs{{0}}`, in that order (the references r follow it) (+1 more overload) |
+| [`TrackedOutputs`](inc/damp/design/steady_state_target.hpp#L68) | block | Design-time synthesis (not PWM-rate) | The outputs a law without integrators or a disturbance model holds at r through its steady-state target (design::state_feedback and design::mpc, with or without a KalmanNoise, and design::steady_state_target, the target alone): `TrackedOutputs{{0}}`, in that order (the references r follow it). Left out, the law is a regulator and takes no r (+1 more overload) |
 | [`TrajectoryBoundary`](inc/damp/trajectory/trajectory_types.hpp#L180) | block | Trajectory value types | Boundary conditions at one endpoint of a polynomial trajectory: a position and its time derivatives through jerk |
 | [`TrajectoryLimits`](inc/damp/trajectory/trajectory_types.hpp#L47) | block | Trajectory value types | Asymmetric kinematic limits for a trapezoidal or S-curve motion profile |
 | [`TrajectoryState`](inc/damp/trajectory/trajectory_types.hpp#L78) | block | Trajectory value types | A point on a motion profile: commanded position, velocity, acceleration |
@@ -955,7 +948,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`valid_spec`](inc/damp/design/pid_design.hpp#L481) | function | Design-time synthesis (not PWM-rate) | The spec's scalar domain: ωc > 0, 0 < PM < 180°, Tf ≥ 0, all finite |
 | [`vcat`](inc/damp/matrix/concat.hpp#L180) | function | Linear algebra | Vertical concatenation (same column count) |
 | [`voltage_circle_radius`](inc/damp/motor/foc.hpp#L57) | function | Motor control pack (if present) | SVPWM voltage-circle radius Vₘₐₓ = m · Vdc / √3 |
-| [`WarmStartActiveSetSolver`](inc/damp/design/qp.hpp#L985) | block | Design-time synthesis (not PWM-rate) | Warm-started active-set solver policy — the damp::MPC default |
+| [`WarmStartActiveSetSolver`](inc/damp/design/qp.hpp#L1008) | block | Design-time synthesis (not PWM-rate) | Warm-started active-set solver policy — the damp::MPC default |
 | [`whiten_reading`](inc/damp/estimation/sqrt_covariance.hpp#L542) | function | Observers & estimators | Whiten a reading in place with the factor L of its noise: each row of CS and of ν less the rows before it through L, then scaled to unit noise |
 | [`with_schroeder_phases`](inc/damp/estimation/excitation/multi_sine.hpp#L168) | function | Observers & estimators | Assign Schroeder low-crest-factor phases to a multi-sine tone table |
 | [`wrap`](inc/damp/math/math.hpp#L593) | function | Scalar math, complex & frames | Wrap x into the half-open interval [min, max) (period max − min) |
