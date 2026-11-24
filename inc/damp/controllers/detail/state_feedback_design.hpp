@@ -8,15 +8,14 @@
 
 /**
  * @file state_feedback_design.hpp
- * @brief The design behind lqr, lqi, lqg, lqgi and oflqg: detail::state_feedback, the gain on the
- *        plant or on its model with input delay states, then the filter and the target the options ask for
+ * @brief The design behind design::state_feedback: detail::designed, the gain on the plant or on its
+ *        model with input delay states, then the filter and the target the options ask for
  */
 
 #include "damp/backend.hpp"
 #include "damp/controllers/detail/law_detail.hpp"
 #include "damp/controllers/detail/lq_cost.hpp"
 #include "damp/controllers/detail/placed_design.hpp"
-#include "damp/controllers/detail/state_feedback_options.hpp"
 #include "damp/controllers/state_feedback_types.hpp"
 #include "damp/design/disturbance.hpp"
 #include "damp/design/input_limits.hpp"
@@ -251,34 +250,56 @@ template<bool Held, bool Discrete, size_t NX, size_t NU, size_t NY, typename T, 
     }
 }
 
-/**
- * @brief The design on checked options: the law (the LQ gain of @p w, or placed at @p gain's
- *        poles), then the filter and the target they ask for, on the plant or on its model with
- *        the input delay states of @p delay; status the first failure.
- */
-template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Options, typename Delay = NoDelay, typename Gain = LQGain>
-[[nodiscard]] constexpr auto designed(
-    const StateSpace<NX, NU, NY, T, NW, NV>&  sys,
-    T                                         Ts,
-    const config_for<NX, NU, NY, T, Options>& w,
-    const Options&                            opts,
-    const Delay&                              delay = Delay{},
-    const Gain&                               gain = Gain{}
-) {
-    using O = options_traits<Options>;
-    constexpr size_t NI = integrator_count<NY, Options>;
-    constexpr size_t NRU = input_delay_states<Delay>;
-    constexpr size_t NM = measured_count<Options>;
-    constexpr bool   kEstimated = !is_unset<typename O::noise>;
-    constexpr bool   kHeld = !is_unset<typename O::disturbance> || !is_unset<typename O::track>; // r is the target's
-    constexpr bool   kTarget = kHeld || (NM > 0);                                                // a measured d moves every law's target
-    const auto       spec = disturbance_of(opts);
+/** @brief Ci of integral action: the identity for every output, else the listed rows; nullopt for an index out of range or listed twice. */
+template<size_t NI, size_t NY, typename T, size_t NS>
+[[nodiscard]] constexpr damp::optional<Matrix<NI, NY, T>> integrated_selector(const IntegralAction<NS>& sel) {
+    if constexpr (NS == 0) {
+        static_cast<void>(sel);
+        return Matrix<NY, NY, T>::identity();
+    } else {
+        const auto rows = selected_outputs<NY>(sel.outputs);
+        if (!rows) {
+            return damp::nullopt;
+        }
+        Matrix<NI, NY, T> Ci{};
+        for (size_t i = 0; i < NI; ++i) {
+            Ci(i, (*rows)[i]) = T{1};
+        }
+        return Ci;
+    }
+}
 
-    const auto Ci = integrated_selector<NI, NY, T>(integral_action_of(opts));
-    auto       law = gain_design<Discrete>(sys, Ts, w, Ci ? *Ci : Matrix<NI, NY, T>{}, delay, gain);
-    if (!Ci) {
-        law = ::damp::detail::refused<decltype(law)>(DesignStatus::bad_weights); // an integrated output out of range or listed twice
-    } else if (law.success && !limits_valid(w)) {
+/**
+ * @brief The state-feedback design: the law (the LQ gain of @p w, or placed at @p gain's poles,
+ *        LQGain or PlacedPoles) with the integrators of @p Ci (NI > 0), then the filter of
+ *        @p filter (a KalmanNoise, the PlacedPoles of ObserverPoles, or Unset for none) and the
+ *        target its options ask for: under the disturbance model @p offset_free, else on the
+ *        outputs @p track lists (TrackedOutputs), under the measured disturbance @p measured
+ *        (NM = 0: none); on the plant in its own domain (@p Discrete) or sampled at @p Ts, with
+ *        the delay states of @p delay. NoDisturbance is the absent offset-free spec and track.
+ * @return The result; status the first failure: the gain's, the limits', the filter's, the target's
+ */
+template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NI, typename Filter, typename OffsetFree, typename Track, size_t NM, typename Delay, typename Gain>
+[[nodiscard]] constexpr auto designed(
+    const StateSpace<NX, NU, NY, T, NW, NV>& sys,
+    T                                        Ts,
+    const lq_config<NX, NU, NI, T>&          w,
+    const Matrix<NI, NY, T>&                 Ci,
+    const Filter&                            filter,
+    const OffsetFree&                        offset_free,
+    const Track&                             track,
+    const MeasuredDisturbance<NX, NM, T>&    measured,
+    const Delay&                             delay,
+    const Gain&                              gain
+) {
+    constexpr size_t NRU = input_delay_states<Delay>;
+    constexpr bool   kEstimated = !is_unset<Filter>;
+    constexpr bool   kHeld = is_disturbance_model<OffsetFree> || is_tracked_outputs<Track>; // r is the target's
+    constexpr bool   kTarget = kHeld || (NM > 0);                                           // a measured d moves every law's target
+    const auto       spec = target_spec_of(offset_free, track);
+
+    auto law = gain_design<Discrete>(sys, Ts, w, Ci, delay, gain);
+    if (law.success && !limits_valid(w)) {
         law = ::damp::detail::refused<decltype(law)>(DesignStatus::invalid_parameter); // a limit that is NaN, or a lower one above its upper one
     }
     if (law.success) { // the runtime's: the gain does not depend on them, and a refused design ships none
@@ -295,22 +316,26 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
         }
     }
     if constexpr (!kEstimated && !kTarget) {
+        static_cast<void>(filter);
+        static_cast<void>(spec);
+        static_cast<void>(measured);
         return law;
     } else {
         using SpecT = damp::remove_cvref_t<decltype(spec)>;
         constexpr size_t NDS = disturbance_traits<SpecT, NU, NY, NW>::listed;
         constexpr size_t NZS = (NDS == 0) ? NY : NDS; // the spec's outputs, or every output
         constexpr size_t NZ = kHeld ? NZS : 0;
-        const auto       Bm = measured_channel<Discrete>(sys, Ts, measured_disturbance_of<NX, T>(opts), delay); // d on the model, none on the input's delay states
-        const auto       filter = [&] {
+        const auto       Bm = measured_channel<Discrete>(sys, Ts, measured, delay); // d on the model, none on the input's delay states
+        const auto       estimator = [&] {
             if constexpr (kEstimated) {
-                return with_measured_inputs(filter_design<Discrete>(sys, Ts, opts.noise, spec, delay), Bm); // d a known input after u
+                return with_measured_inputs(filter_design<Discrete>(sys, Ts, filter, spec, delay), Bm); // d a known input after u
             } else {
+                static_cast<void>(filter);
                 return NoEstimator{};
             }
         }();
-        using Result = StateFeedbackResult<NX, NU, T, NI, ((kEstimated || NI > 0) ? NY : NX), damp::remove_cvref_t<decltype(filter)>, NZ, NRU, NM>; // the law's: an LQI's integrators read y
-        Result out{law.K, law.S, law.e, law.success, law.status, law.Ts, filter};
+        using Result = StateFeedbackResult<NX, NU, T, NI, ((kEstimated || NI > 0) ? NY : NX), damp::remove_cvref_t<decltype(estimator)>, NZ, NRU, NM>; // the law's: an LQI's integrators read y
+        Result out{law.K, law.S, law.e, law.success, law.status, law.Ts, estimator};
         if constexpr (NI > 0) {
             out.integral = law.integral;
             out.limits.integral = law.limits.integral;
@@ -320,253 +345,17 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
         out.limits.demand = law.limits.demand;
         DesignStatus status = law.status;
         if constexpr (kEstimated) {
-            status = (status == DesignStatus::ok) ? filter.status : status;
+            status = (status == DesignStatus::ok) ? estimator.status : status;
         }
         if constexpr (kTarget && NM == 0) {
             out.target = target_design<Discrete>(sys, Ts, spec, delay);
         } else if constexpr (kTarget) {
-            out.target = measured_target<kHeld, Discrete>(sys, Ts, spec, Ci ? *Ci : Matrix<NI, NY, T>{}, Bm, delay);
+            out.target = measured_target<kHeld, Discrete>(sys, Ts, spec, Ci, Bm, delay);
         }
         if constexpr (kTarget) {
             status = (status == DesignStatus::ok) ? out.target.status : status;
         }
         return ::damp::detail::set_status(out, status);
-    }
-}
-
-/**
- * @brief The state-feedback design on @p sys in its own time domain (@p Discrete) or sampled at
- *        @p Ts, with its input @p delay late when that is an InputDelay, once the options pass
- *        their checks: a mistake stops here with its message alone.
- */
-template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Options, typename Delay = NoDelay, typename Gain = LQGain>
-[[nodiscard]] constexpr auto state_feedback_design(
-    const StateSpace<NX, NU, NY, T, NW, NV>&  sys,
-    T                                         Ts,
-    const config_for<NX, NU, NY, T, Options>& w,
-    const Options&                            opts,
-    const Delay&                              delay = Delay{},
-    const Gain&                               gain = Gain{}
-) {
-    if constexpr (!options_traits<Options>::named) {
-        static_assert(options_traits<Options>::named, "The options are design::StateFeedbackOptions{.noise = ..., .offset_free = ...}: one named field per feature.");
-        return StateFeedbackResult<NX, NU, T>{};
-    } else if constexpr (!fields_valid<NX, NY, T, Options>()) {
-        return StateFeedbackResult<NX, NU, T>{}; // fields_valid says which field
-    } else if constexpr (!features_valid<NU, NY, T, NW, NV, Options>()) {
-        return StateFeedbackResult<NX, NU, T>{}; // features_valid says why
-    } else {
-        return designed<Discrete>(sys, Ts, w, opts, delay, gain);
-    }
-}
-
-/**
- * @brief The linear-quadratic state-feedback law for a plant, in the plant's own time domain
- *
- * The law u = −K·x minimizes the weighted cost of @p config; @p options adds the features of the
- * law, one named field each (StateFeedbackOptions). A discrete plant (@c sys.Ts > 0) gets the
- * discrete law (DARE) at its own Ts; a continuous plant with no options gets the continuous law
- * (CARE, Ts = 0), for analysis: only a discrete law deploys. For a digital law from a continuous
- * plant, pass the sample time: state_feedback(sys, Ts, config, options).
- *
- * @f[
- *   J = \sum_k \bigl( x_k^\top Q x_k + u_k^\top R u_k + 2 x_k^\top N u_k + \xi_k^\top Q_\xi \xi_k \bigr)
- * @f]
- *
- * With `.offset_free = IntegralAction{}`, the integrators ξ advance by xi += Ts·(r − Ci·y)
- * (MATLAB®'s discrete lqi, so ξ ≈ ∫e dt and Q_integral means what it does on the sampled route).
- * An input delay on a discrete plant is part of its model: design on the one
- * discretize(plant, Ts, InputDelay<N>{θ}) returns, whose delay states are states like any other, or from
- * the continuous plant with state_feedback(sys, Ts, InputDelay<N>{θ}, config, options).
- * The other options are state_feedback(sys, Ts, config, options)'s.
- *
- * Refused with DesignStatus::invalid_sample_time for a negative or non-finite sys.Ts, or a
- * continuous plant with any option; with DesignStatus::bad_weights for a listed output out
- * of range or listed twice.
- *
- * @note Compare with MATLAB®'s lqr(sys, Q, R, N), lqi, lqg and lqgtrack, which also follow the
- *       plant's domain.
- *
- * @param sys      Plant (A, B, C, D, G, H and Ts)
- * @param config   LQRConfig, or LQIConfig with integral action: the cost, in the plant's time domain, and the limits
- * @param options  design::StateFeedbackOptions{…}: the law's features (default none)
- * @return StateFeedbackResult: the runtime its design names runs it
- */
-template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Options>
-[[nodiscard]] constexpr auto state_feedback(
-    const StateSpace<NX, NU, NY, T, NW, NV>&  sys,
-    const config_for<NX, NU, NY, T, Options>& config,
-    const Options&                            options
-) {
-    return state_feedback_design<true>(sys, T{0}, config, options);
-}
-
-/**
- * @brief The sampled-data state-feedback law: a continuous plant and its cost, the digital law at
- *        @p Ts
- *
- * Discretizes the dynamics (ZOH) and the cost integral exactly (Van Loan, discretize_lqr_cost),
- * then solves the discrete problem, so the weights mean the same at any rate. @p options adds
- * the law's features, one named field each:
- *
- * | Option | The law |
- * | --- | --- |
- * | `.noise = KalmanNoise{.process, .measurement}` | estimates x with a Kalman filter from y (design::kalman(sys, Ts, noise)): the process noise a density, the measurement a variance per reading |
- * | `.offset_free = IntegralAction{}` or `IntegralAction<NI>{{i, …}}` | integrates r − Ci·y: ξ̇ = r − Ci·y, so ξ = ∫e dt and Q_integral holds at any rate |
- * | `.offset_free = InputDisturbance{}`, … | estimates a disturbance d and holds r through the steady-state target under it (OFLQG, below; needs `.noise`) |
- *
- * @par Integral action
- * The integrator advances by xi += Ts·(r − Ci·y) on each sampled error, and the cost integral
- * is taken over each sample with the plant running on the held input and ξ ramping on the held
- * error (Van Loan), so the closed-loop poles on the result are those of the deployed loop.
- * Constant references and disturbances leave no steady-state error on the integrated outputs.
- *
- * @par Input delay
- * A delay is a model of the plant: state_feedback(sys, Ts, InputDelay<N>{θ}, config, options)
- * designs on discretize(sys, Ts, InputDelay<N>{θ}) with the cost discretized exactly, every
- * option as here. A measured-state law holds the delay states v(k−1) … v(k−N); a filter carries
- * them as states of its model, with no process noise on them. An OutputDelay<M>{θ} (a late
- * reading, with a KalmanNoise) adds delay states to the filter alone: the gain is the one
- * without it, and the target holds the late readings' delay states at the steady output.
- *
- * @par Offset-free control by a disturbance model
- * A disturbance model in `.offset_free` (InputDisturbance, OutputDisturbance, PlantDisturbance,
- * DisturbanceModel) augments the filter's model with integrating disturbances,
- * @f[
- *   x_{k+1} = A x_k + B u_k + B_d d_k,\qquad d_{k+1} = d_k,\qquad y_k = C x_k + C_d d_k + D u_k ,
- * @f]
- * the filter estimates @f$ [\hat x;\, \hat d] @f$ (the random walk of d is noise.disturbance, positive definite),
- * and the steady-state target holds the controlled outputs z (the rows the spec lists, all
- * without a list) at r under d̂:
- * @f[
- *   \begin{bmatrix} A-I & B \\ C_z & D_z \end{bmatrix}
- *   \begin{bmatrix} x_t \\ u_t \end{bmatrix}
- *   =
- *   \begin{bmatrix} -B_d\hat d \\ r - C_{d,z}\hat d \end{bmatrix},
- * @f]
- * so the law is @f$ u = u_t - K(\hat x - x_t) @f$ with the plain gain. Where d enters: an input
- * disturbance adds to u (B_d = B), an output disturbance is a bias on each reading (C_d = I),
- * PlantDisturbance is the plant's own G and H, DisturbanceModel is explicit. The augment must be
- * detectable (ND ≤ NY), else DesignStatus::not_detectable; a target needs a unique steady state
- * for NZ = NU, else DesignStatus::singular.
- *
- * Refused with DesignStatus::invalid_sample_time when @p Ts is not finite and positive, or when
- * @p sys is already discrete, even at the same Ts (a second discretization is the bug this
- * signature rules out); with DesignStatus::bad_weights for a listed output out of range or listed twice. The status is
- * the first failure: the gain's, the filter's, then the target's.
- *
- * @code
- * const auto res = design::state_feedback(plant, Ts, {.Q = Q, .R = R},
- *     design::detail::StateFeedbackOptions{.noise = design::KalmanNoise{.process = Qn, .measurement = Rn, .disturbance = Qd},
- *                                          .offset_free = design::InputDisturbance{}});
- * static constinit OFLQG law{res.as<float>()}; // the public form: design::state_feedback with a KalmanNoise and a disturbance spec
- * // each tick: auto u = law.step(r, y);
- * @endcode
- *
- * @note Compare with MATLAB®'s lqrd(sys, Q, R, Ts); lqi, lqg and lqgtrack on a continuous plant,
- *       followed by c2d; and for the offset-free law, its mpc with a disturbance model, without
- *       a QP.
- * @see "Optimal Control" (Anderson & Moore, 1990), §4 and §8
- * @see "Computing Integrals Involving the Matrix Exponential" (Van Loan, 1978)
- * @see "Disturbance Models for Offset-Free Model-Predictive Control" (Pannocchia & Rawlings,
- *      2003), AIChE Journal 49(2)
- * @see "Offset-free reference tracking with model predictive control" (Maeder, Borrelli &
- *      Morari, 2009), Automatica 45(9)
- *
- * @param sys      Continuous plant (sys.Ts = 0; A, B, C, D, G, H)
- * @param Ts       Sampling time of the law [s]
- * @param config   LQRConfig, or LQIConfig with integral action: the continuous cost, a cost integral, and the limits
- * @param options  design::StateFeedbackOptions{…}: the law's features (default none)
- * @return StateFeedbackResult on the discretized plant: the runtime its design names runs it
- */
-template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Options>
-[[nodiscard]] constexpr auto state_feedback(
-    const StateSpace<NX, NU, NY, T, NW, NV>&  sys,
-    damp::type_identity_t<T>                  Ts,
-    const config_for<NX, NU, NY, T, Options>& config,
-    const Options&                            options
-) {
-    return state_feedback_design<false>(sys, Ts, config, options);
-}
-
-/**
- * @brief The sampled-data state-feedback law of a continuous plant whose input arrives @p delay
- *        late: the weights and the noise on the plant, the law on [x; v(k−1); …; v(k−N)]
- *
- * The model is discretize(sys, Ts, delay), and the cost integral is discretized on it exactly:
- * the plant runs on the input it holds within each period, which switches at the delay's
- * fraction of a sample (delayed_cost). The delay states take no weight of their own, so the weights
- * of @p config are the plant's, as for the design without a delay, and mean the same at any Ts
- * and any delay.
- *
- * The options are state_feedback(sys, Ts, config, options)'s, each on the delayed model. A
- * measured-state law (LQR, LQI) holds the delay states: update takes the plant state, and predict
- * shifts in the input back_calculate recorded. A filter (`.noise`) is design::kalman(sys, Ts,
- * delay, noise): the process noise acts on the plant, none on the delay states, which it carries
- * exactly. A target holds each delay state at u_t. x_ref is the plant's and the delay states'
- * reference is u_ref, on every law.
- *
- * Refused as state_feedback(sys, Ts, config, options), and with discretize's status for a delay
- * it refuses (negative, not finite or longer than N samples).
- *
- * @param sys      Continuous plant (sys.Ts = 0)
- * @param Ts       Sampling time of the law [s]
- * @param delay    InputDelay<N>{θ}: θ ≤ N·Ts, one for every input or a ColVec of one per input
- * @param config   LQRConfig, or LQIConfig with integral action: the continuous cost on the plant, a cost integral, and the limits
- * @param options  design::StateFeedbackOptions{…}: the law's features (default none)
- * @return StateFeedbackResult with NRU = N: the runtime its design names runs it
- */
-template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t N, typename S, typename Options>
-[[nodiscard]] constexpr auto state_feedback(
-    const StateSpace<NX, NU, NY, T, NW, NV>&  sys,
-    damp::type_identity_t<T>                  Ts,
-    const InputDelay<N, S>&                   delay,
-    const config_for<NX, NU, NY, T, Options>& config,
-    const Options&                            options
-) {
-    return state_feedback_design<false>(sys, static_cast<T>(Ts), config, options, delay);
-}
-
-/** @brief state_feedback(sys, Ts, delay, config, options) with the reading late too: the filter carries the readings' delay states, the gain is the input-delayed plant's. */
-template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename In, typename Out, typename Options>
-[[nodiscard]] constexpr auto state_feedback(
-    const StateSpace<NX, NU, NY, T, NW, NV>&  sys,
-    damp::type_identity_t<T>                  Ts,
-    const PlantDelays<In, Out>&               delays,
-    const config_for<NX, NU, NY, T, Options>& config,
-    const Options&                            options
-) {
-    return state_feedback_design<false>(sys, static_cast<T>(Ts), config, options, delays);
-}
-
-/**
- * @brief state_feedback for a public design's trailing options: on the plant in its own domain
- *        (@p Sampled false), or on the continuous plant at @p Ts with the InputDelay among
- *        @p opts if one is there, the gain the LQ one of @p config or placed (@p gain). The law's
- *        own options are already in @p options.
- */
-template<bool Sampled, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Options, typename Gain, typename... Opts>
-[[nodiscard]] constexpr auto state_feedback_with(
-    const StateSpace<NX, NU, NY, T, NW, NV>&  sys,
-    T                                         Ts,
-    const config_for<NX, NU, NY, T, Options>& config,
-    const Options&                            options,
-    const Gain&                               gain,
-    const Opts&... opts
-) {
-    constexpr bool kLate = ::damp::detail::option_count<is_output_delay, Opts...> > 0;
-    if constexpr (::damp::detail::option_count<is_input_delay, Opts...> == 0 && !kLate) {
-        (static_cast<void>(opts), ...);
-        if constexpr (Sampled) {
-            return state_feedback_design<false>(sys, Ts, config, options, NoDelay{}, gain);
-        } else {
-            static_cast<void>(Ts);
-            return state_feedback_design<true>(sys, T{0}, config, options, NoDelay{}, gain);
-        }
-    } else {
-        static_assert(Sampled, "A delay is sampled with the plant: give the continuous plant and Ts, fn(plant, Ts, config, ..., InputDelay<N>{theta}, OutputDelay<M>{theta}).");
-        static_assert(!kLate || !is_unset<typename options_traits<Options>::noise>, "An OutputDelay is a late reading: it needs a filter to carry it, a KalmanNoise or ObserverPoles.");
-        return state_feedback_design<false>(sys, Ts, config, options, delays_of(opts...), gain);
     }
 }
 
