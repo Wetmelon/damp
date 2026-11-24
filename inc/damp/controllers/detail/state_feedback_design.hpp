@@ -34,26 +34,16 @@ namespace damp {
 namespace design {
 namespace detail {
 
-/**
- * @brief The move limit an LQ law takes: none. A law clamps its command, not its move, so a
- *        bounded du_lim (InputLimits::du_lim, the MPC's) is refused; a law that clamps Δu would
- *        test du_lim.valid() here and ship it as u_lim is shipped.
- */
-template<size_t NU, typename T>
-[[nodiscard]] constexpr bool move_limit_valid(const Bounds<NU, T>& du_lim) {
-    return unlimited(du_lim);
-}
-
-/** @brief The regulator's limits are usable (Bounds::valid), and its move unbounded (move_limit_valid). */
+/** @brief The regulator's limits are usable (Bounds::valid). */
 template<size_t NX, size_t NU, typename T>
 [[nodiscard]] constexpr bool limits_valid(const LQRConfig<NX, NU, T>& w) {
-    return w.u_lim.valid() && move_limit_valid(w.du_lim) && w.demand_lim.template valid<NX>();
+    return w.u_lim.valid() && w.demand_lim.template valid<NX>();
 }
 
-/** @brief The limits on the command and on the integrators are usable (Bounds::valid), the move unbounded (move_limit_valid), and the tracking time is finite and not negative. */
+/** @brief The limits on the command and on the integrators are usable (Bounds::valid), and the tracking time is finite and not negative. */
 template<size_t NX, size_t NU, size_t NI, typename T>
 [[nodiscard]] constexpr bool limits_valid(const LQIConfig<NX, NU, NI, T>& w) {
-    return w.u_lim.valid() && move_limit_valid(w.du_lim) && w.integral_lim.valid() && w.demand_lim.template valid<NX>() && damp::finite_non_negative(w.tracking_time);
+    return w.u_lim.valid() && w.integral_lim.valid() && w.demand_lim.template valid<NX>() && damp::finite_non_negative(w.tracking_time);
 }
 
 /**
@@ -257,13 +247,13 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
     if (!Ci) {
         law = ::damp::detail::refused<decltype(law)>(DesignStatus::bad_weights); // an integrated output out of range or listed twice
     } else if (law.success && !limits_valid(w)) {
-        law = ::damp::detail::refused<decltype(law)>(DesignStatus::invalid_parameter); // a limit that is NaN, a lower one above its upper one, or a move limit
+        law = ::damp::detail::refused<decltype(law)>(DesignStatus::invalid_parameter); // a limit that is NaN, or a lower one above its upper one
     }
     if (law.success) { // the runtime's: the gain does not depend on them, and a refused design ships none
-        law.u_lim = w.u_lim;
-        law.demand_lim = w.demand_lim;
+        law.limits.input = w.u_lim;
+        law.limits.demand = w.demand_lim;
         if constexpr (NI > 0) {
-            law.integral_lim = w.integral_lim;
+            law.limits.integral = w.integral_lim;
             law.tracking_time = w.tracking_time;
             if (const auto unwind = integrator_unwind<NI>(law.K)) {
                 law.integral.unwind = *unwind; // formed for any tracking time: the runtime's may be set later
@@ -291,11 +281,11 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
         Result out{law.K, law.S, law.e, law.success, law.status, law.Ts, filter};
         if constexpr (NI > 0) {
             out.integral = law.integral;
-            out.integral_lim = law.integral_lim;
+            out.limits.integral = law.limits.integral;
             out.tracking_time = law.tracking_time;
         }
-        out.u_lim = law.u_lim;
-        out.demand_lim = law.demand_lim;
+        out.limits.input = law.limits.input;
+        out.limits.demand = law.limits.demand;
         DesignStatus status = law.status;
         if constexpr (kEstimated) {
             status = (status == DesignStatus::ok) ? filter.status : status;

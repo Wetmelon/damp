@@ -45,9 +45,9 @@ using LQIResult = StateFeedbackResult<NX, NU, T, NI, NY, NoEstimator, 0, NRU>;
  * step(r, x), or update(x), control(r), back_calculate, predict() (predict advances xi), with
  * x* = 0 and u* = 0; feedforward from a planned
  * trajectory (x_ref, u_ref) is control(r, x_ref, u_ref), or step(r, x_ref, u_ref, x). The
- * command is clamped into u_lim and xi into integral_lim (the design's, IntegralAction::lim; unbounded by
- * default; limits() reads them and set_limits() moves them at run time), and predict() holds the
- * integrators against that clamp; back_calculate(u_sat) before it reports a stage that clamps after
+ * command is clamped into the design's InputLimits, its move into an InputRateLimits, and xi into
+ * IntegralAction::limits (unbounded by default; limits() reads them and set_limits() moves them at
+ * run time), and predict() holds the integrators against those clamps; back_calculate(u_sat) before it reports a stage that clamps after
  * the law.
  *
  * A design with an InputDelay (NRU > 0) runs on [x; v(k−1); …; v(k−NRU); xi]: update takes the
@@ -63,10 +63,11 @@ using LQIResult = StateFeedbackResult<NX, NU, T, NI, NY, NoEstimator, 0, NRU>;
  *
  * @tparam NRU Input delay states the law holds (0: none)
  * @tparam NM  Measured-disturbance inputs (0: none)
+ * @tparam NDU Inputs with a move limit (an InputRateLimits: NU; 0: none)
  */
-template<size_t NX, size_t NU, size_t NI, typename T = float, size_t NY = NX, typename Store = detail::HeldGains, size_t NRU = 0, size_t NM = 0>
-struct LQI : private detail::StateFeedbackCore<NX, NU, T, NI, NY, NoEstimator, 0, Store, NRU, NM> {
-    using Core = detail::StateFeedbackCore<NX, NU, T, NI, NY, NoEstimator, 0, Store, NRU, NM>; ///< The shared implementation
+template<size_t NX, size_t NU, size_t NI, typename T = float, size_t NY = NX, typename Store = detail::HeldGains, size_t NRU = 0, size_t NM = 0, size_t NDU = 0>
+struct LQI : private detail::StateFeedbackCore<NX, NU, T, NI, NY, NoEstimator, 0, Store, NRU, NM, NDU> {
+    using Core = detail::StateFeedbackCore<NX, NU, T, NI, NY, NoEstimator, 0, Store, NRU, NM, NDU>; ///< The shared implementation
 
     constexpr LQI() = default;
 
@@ -156,18 +157,18 @@ struct LQI : private detail::StateFeedbackCore<NX, NU, T, NI, NY, NoEstimator, 0
 };
 
 /** @brief LQI law{res}: the sizes and scalar of an LQI design's result. */
-template<size_t NX, size_t NU, typename T, size_t NI, size_t NY, typename Kalman, size_t NZ, size_t NRU, size_t NM>
-LQI(const design::StateFeedbackResult<NX, NU, T, NI, NY, Kalman, NZ, NRU, NM>&) -> LQI<NX, NU, NI, T, NY, detail::HeldGains, NRU, NM>;
+template<size_t NX, size_t NU, typename T, size_t NI, size_t NY, typename Kalman, size_t NZ, size_t NRU, size_t NM, size_t NDU>
+LQI(const design::StateFeedbackResult<NX, NU, T, NI, NY, Kalman, NZ, NRU, NM, NDU>&) -> LQI<NX, NU, NI, T, NY, detail::HeldGains, NRU, NM, NDU>;
 
 namespace detail {
 
 /** @brief An LQ design with integrators and no filter runs as LQI. */
-template<size_t NX, size_t NU, typename U, size_t NI, size_t NY, size_t NRU, size_t NM, typename T>
+template<size_t NX, size_t NU, typename U, size_t NI, size_t NY, size_t NRU, size_t NM, size_t NDU, typename T>
     requires(NI > 0)
-struct lq_runtime<design::StateFeedbackResult<NX, NU, U, NI, NY, NoEstimator, 0, NRU, NM>, T> {
-    using type = LQI<NX, NU, NI, T, NY, HeldGains, NRU, NM>; ///< LQI
+struct lq_runtime<design::StateFeedbackResult<NX, NU, U, NI, NY, NoEstimator, 0, NRU, NM, NDU>, T> {
+    using type = LQI<NX, NU, NI, T, NY, HeldGains, NRU, NM, NDU>; ///< LQI
     template<typename, typename Store>
-    using on_constants = LQI<NX, NU, NI, T, NY, Store, NRU, NM>; ///< LQI on the design's constants
+    using on_constants = LQI<NX, NU, NI, T, NY, Store, NRU, NM, NDU>; ///< LQI on the design's constants
 };
 
 } // namespace detail

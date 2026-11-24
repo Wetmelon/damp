@@ -3,8 +3,8 @@
 // Distributed under the Boost Software License, Version 1.0.
 // (See accompanying file LICENSE or copy at http://www.boost.org/LICENSE_1_0.txt)
 
-// The limits of the LQ laws: u_lim clamps the command control returns, the IntegralAction's lim the
-// integral state. The oracle for u_lim is the same design without limits, clamped outside the law and
+// The limits of the LQ laws: the InputLimits clamp the command control returns, an InputRateLimits its
+// move, the IntegralAction's limits the integral state. The oracle for each is the same design without limits, clamped outside the law and
 // told with back_calculate: the two are one tick, on every runtime, so the integrators hold against
 // the law's own clamp and a filter or the delay states move on the input that went out.
 
@@ -56,26 +56,28 @@ constexpr Matrix<2, 2>              Q{{10.0, 0.0}, {0.0, 1.0}};
 constexpr Bounds<1>                 kBox{.lower = -kLimit, .upper = kLimit};
 constexpr design::KalmanNoise<2, 1> kNoise{.process = Matrix<2, 2>{{0.01, 0.0}, {0.0, 0.1}}, .measurement = Matrix<1, 1>{{1e-4}}};
 constexpr design::LQRWeights<2, 1>  kFree{.Q = Q, .R = 1.0};
-constexpr design::InputLimits       kBound{.u_lim = kBox};
+constexpr design::InputLimits       kBound{.lower = kBox.lower, .upper = kBox.upper};
 constexpr design::IntegralAction    kIntegral{.Q = 80.0}; // on kFree, with kBound or without, the LQI of each
+constexpr double                    kStep = 0.002;        // a move limit that binds on a step of r: 0.2 a second
+constexpr design::InputRateLimits   kRate{.lower = {-kStep}, .upper = {kStep}};
 
 // The weights have no integrators to weight or limit, and no limits; the integral action carries its own.
 template<typename C>
 concept integral_fields = requires(C c) {
     c.Q_integral;
-    c.integral_lim;
+    c.integral;
 };
 template<typename C>
 concept integral_action_fields = requires(C c) {
     c.Q;
-    c.lim;
+    c.limits;
     c.tracking_time;
 };
 static_assert(!integral_fields<design::LQRWeights<2, 1>> && !integral_action_fields<design::LQRWeights<2, 1>>);
 static_assert(integral_action_fields<design::IntegralAction<double>>);
 
 /**
- * Run @p bounded (its design carries u_lim) and @p clamped (the same design without, clamped
+ * Run @p bounded (its design carries the InputLimits) and @p clamped (the same design without, clamped
  * outside and told with back_calculate), each on its own copy of @p model from rest.
  * @return the largest gap between their commands, relative to the limit; @p saturated counts the
  *         ticks the bounded law sat on its limit, @p y_end its output at the end
@@ -105,6 +107,43 @@ T gap(const StateSpace<NXM, 1, 1, T>& model, A& bounded, B& clamped, Feed feed, 
     return worst / lim;
 }
 
+/**
+ * Run @p rated (its design carries kRate) and @p outside (the same design without, its command's
+ * move clamped outside and told with back_calculate), each on its own copy of @p model from rest,
+ * toward r = 1.
+ * @return the largest gap between their commands; @p bound counts the ticks the clamp bound, @p y_end
+ *         the rated loop's output at the end
+ */
+template<size_t NXM, typename T, typename A, typename B, typename Feed>
+T slew_gap(const StateSpace<NXM, 1, 1, T>& model, A& rated, B& outside, Feed feed, int& bound, T& y_end) {
+    const T        step = static_cast<T>(kStep);
+    ColVec<NXM, T> za{};
+    ColVec<NXM, T> zb{};
+    T              prev{0}; // the base of the first move: 0, as an MPC's held input
+    T              last{0}; // the rated law's own
+    T              worst{0};
+    bound = 0;
+    for (int k = 0; k < 3000; ++k) {
+        feed(rated, za);
+        feed(outside, zb);
+        const ColVec<1, T> ua = rated.control(ColVec<1, T>{T{1}});
+        const T            asked = outside.control(ColVec<1, T>{T{1}})(0);
+        const ColVec<1, T> ub{damp::clamp(asked, prev - step, prev + step)};
+        outside.back_calculate(ub);
+        rated.predict();
+        outside.predict();
+        bound += (ub(0) != asked) ? 1 : 0;
+        CHECK(damp::abs(ua(0) - last) <= step + (T{4} * eps<T>() * (damp::abs(last) + step))); // never more than the limit from its last command, to the rounding of the sum
+        last = ua(0);
+        worst = damp::max(worst, damp::abs(ua(0) - ub(0)));
+        prev = ub(0);
+        za = ColVec<NXM, T>((model.A * za) + (model.B * ua));
+        zb = ColVec<NXM, T>((model.A * zb) + (model.B * ub));
+    }
+    y_end = (model.C * za)(0, 0);
+    return worst;
+}
+
 /// A few hundred ticks of a closed loop keep a rounding difference near its size: well under this.
 template<typename T>
 constexpr T tol = T{1024} * eps<T>();
@@ -118,7 +157,7 @@ StateSpace<2, 1, 1, T> sampled() {
 } // namespace
 
 TEST_SUITE("LQ limits") {
-    TEST_CASE_TEMPLATE("LQR: control returns the command clamped into u_lim, and no limit is no clamp", T, float, double) {
+    TEST_CASE_TEMPLATE("LQR: control returns the command clamped into its InputLimits, and no limit is no clamp", T, float, double) {
         const auto free = design::state_feedback(plant(), kTs, kFree);
         const auto bound = design::state_feedback(plant(), kTs, kFree, kBound);
         REQUIRE(free.success);
@@ -140,15 +179,15 @@ TEST_SUITE("LQ limits") {
 
         // A rail that moves is set at run time.
         auto lim = law.limits();
-        CHECK(lim.u_lim.upper(0) == static_cast<T>(kLimit));
-        lim.u_lim = {.lower = T{-5}, .upper = T{5}};
+        CHECK(lim.input.upper(0) == static_cast<T>(kLimit));
+        lim.input = {.lower = T{-5}, .upper = T{5}};
         REQUIRE(law.set_limits(lim));
-        CHECK(law.limits().u_lim.upper(0) == T{5});
+        CHECK(law.limits().input.upper(0) == T{5});
         law.update(far);
         CHECK(damp::abs(law.control()(0)) == T{5});
     }
 
-    TEST_CASE_TEMPLATE("LQI with u_lim is the law clamped outside with back_calculate: the integrator holds against its own clamp", T, float, double) {
+    TEST_CASE_TEMPLATE("LQI with InputLimits is the law clamped outside with back_calculate: the integrator holds against its own clamp", T, float, double) {
         const auto bound = design::state_feedback(plant(), kTs, kFree, kBound, kIntegral);
         const auto free = design::state_feedback(plant(), kTs, kFree, kIntegral);
         REQUIRE(bound.success);
@@ -181,7 +220,7 @@ TEST_SUITE("LQ limits") {
         CHECK(static_cast<double>(y) == doctest::Approx(1.0).epsilon(1e-3));
     }
 
-    TEST_CASE_TEMPLATE("LQGI and OFLQG with u_lim: the filter predicts with the clamped command", T, float, double) {
+    TEST_CASE_TEMPLATE("LQGI and OFLQG with InputLimits: the filter predicts with the clamped command", T, float, double) {
         auto feed = [](auto& law, const ColVec<2, T>& z) { law.update(ColVec<1, T>{z(0)}); };
         auto control = [](auto& law) { return law.control(ColVec<1, T>{T{1}}); };
         int  saturated = 0;
@@ -217,12 +256,12 @@ TEST_SUITE("LQ limits") {
         // An LQG assembled from its halves keeps the regulator's limits.
         const auto parts = design::lqg_from_parts(design::kalman(plant(), kTs, kNoise), design::state_feedback(plant(), kTs, kFree, kBound));
         REQUIRE(parts.success);
-        CHECK(parts.u_lim.upper(0) == kLimit);
+        CHECK(parts.limits.input.upper(0) == kLimit);
     }
 
-    TEST_CASE_TEMPLATE("the integral action's lim clamps the integral state, and moves at run time", T, float, double) {
+    TEST_CASE_TEMPLATE("the integral action's limits clamp the integral state, and move at run time", T, float, double) {
         auto ia = kIntegral;
-        ia.lim = {.lower = -0.02, .upper = 0.05};
+        ia.limits = {.lower = -0.02, .upper = 0.05};
         const auto res = design::state_feedback(plant(), kTs, kFree, ia);
         REQUIRE(res.success);
         LQI        law{res.template as<T>()};
@@ -237,12 +276,12 @@ TEST_SUITE("LQ limits") {
         CHECK(hold(T{1}) == static_cast<T>(0.05));
         CHECK(hold(T{-1}) == static_cast<T>(-0.02));
         auto lim = law.limits();
-        lim.integral_lim.lower(0) = static_cast<T>(-0.5);
+        lim.integral.lower(0) = static_cast<T>(-0.5);
         REQUIRE(law.set_limits(lim));
         CHECK(hold(T{-1}) == static_cast<T>(-0.5));
     }
 
-    TEST_CASE_TEMPLATE("disturbance_lim clamps OFLQG's disturbance estimate, and moves at run time", T, float, double) {
+    TEST_CASE_TEMPLATE("the disturbance limit clamps OFLQG's disturbance estimate, and moves at run time", T, float, double) {
         const design::KalmanNoise<2, 1, double, 1> noise{.process = kNoise.process, .measurement = kNoise.measurement, .disturbance = Matrix<1, 1>{{1.0}}};
         const auto                                 res = design::state_feedback(plant(), kTs, kFree, noise, design::InputDisturbance{});
         REQUIRE(res.success);
@@ -262,18 +301,18 @@ TEST_SUITE("LQ limits") {
             return worst;
         };
         auto lim = law.limits();
-        lim.disturbance_lim = {.lower = static_cast<T>(-0.2), .upper = static_cast<T>(0.2)};
+        lim.disturbance = {.lower = static_cast<T>(-0.2), .upper = static_cast<T>(0.2)};
         REQUIRE(law.set_limits(lim));
         CHECK(hold() <= static_cast<T>(0.2));
         CHECK(law.disturbance_estimate()(0) == static_cast<T>(0.2));
-        lim.disturbance_lim.upper(0) = T{1};
+        lim.disturbance.upper(0) = T{1};
         REQUIRE(law.set_limits(lim));
         static_cast<void>(hold());
         CHECK(static_cast<double>(law.disturbance_estimate()(0)) == doctest::Approx(0.5).epsilon(1e-3));
         CHECK(static_cast<double>((model.C * x)(0, 0)) == doctest::Approx(0.0).epsilon(1e-3)); // offset-free again
     }
 
-    TEST_CASE_TEMPLATE("demand_lim is the outer terms' demand clamped outside with back_calculate", T, float, double) {
+    TEST_CASE_TEMPLATE("a DemandLimit is the outer terms' demand clamped outside with back_calculate", T, float, double) {
         // Read as a cascade on the speed: position and the integral ask for a speed, at most 0.3. The
         // oracle is the same law with the clamp outside it, as a hand-written cascade limit would be.
         // A mass on a damper: no input holds it anywhere, so the demand is 0 at rest (with a spring the
@@ -285,7 +324,7 @@ TEST_SUITE("LQ limits") {
         LQI     clamped{res.template as<T>()};
         const T lim = static_cast<T>(0.3);
         auto    limits = bounded.limits();
-        limits.demand_lim = DemandLimit{.state = 1, .outer = {0, 2}, .lim = Bounds<1, T>{.lower = -lim, .upper = lim}}; // the position and the integrator
+        limits.demand = DemandLimit{.state = 1, .outer = {0, 2}, .lower = -lim, .upper = lim}; // the position and the integrator
         REQUIRE(bounded.set_limits(limits));
         const auto&        K = clamped.K; // [p, v, ξ]
         const auto         d = discretize(mass, kTs).value();
@@ -327,7 +366,7 @@ TEST_SUITE("LQ limits") {
         OFLQG of_bounded{of.template as<T>()};
         OFLQG of_clamped{of.template as<T>()};
         auto  of_limits = of_bounded.limits();
-        of_limits.demand_lim = DemandLimit{.state = 1, .outer = {0}, .lim = Bounds<1, T>{.lower = -lim, .upper = lim}};
+        of_limits.demand = DemandLimit{.state = 1, .outer = {0}, .lower = -lim, .upper = lim};
         REQUIRE(of_bounded.set_limits(of_limits));
         const auto& Kf = of_clamped.K;
         xa = ColVec<2, T>{};
@@ -356,8 +395,8 @@ TEST_SUITE("LQ limits") {
         CHECK(worst <= T{64} * tol<T> * T{5});
         CHECK(static_cast<double>(xa(0)) == doctest::Approx(5.0).epsilon(1e-3));
 
-        LQI off{res.template as<T>()}; // demand_lim off again: the plain law
-        limits.demand_lim = {};
+        LQI off{res.template as<T>()}; // the demand limit off again: the plain law
+        limits.demand = {};
         REQUIRE(bounded.set_limits(limits));
         bounded.reset();
         off.update(ColVec<2, T>{T{-3}, T{0}});
@@ -367,15 +406,15 @@ TEST_SUITE("LQ limits") {
 
     TEST_CASE("a DemandLimit among the options: a constexpr design's Law holds it in no storage, and a bad one is refused") {
         static constexpr StateSpace  kMass{.A = Matrix<2, 2>{{0.0, 1.0}, {0.0, -0.5}}, .B = Matrix<2, 1>{{0.0}, {1.0}}, .C = Matrix<1, 2>{{1.0, 0.0}}};
-        static constexpr DemandLimit kSpeed{.state = 1, .outer = {0, 2}, .lim = {.lower = -0.3, .upper = 0.3}}; // the position and the integrator ask for the speed
+        static constexpr DemandLimit kSpeed{.state = 1, .outer = {0, 2}, .lower = -0.3, .upper = 0.3}; // the position and the integrator ask for the speed
         static constexpr auto        kBounded = design::state_feedback(kMass, kTs, kFree, kSpeed, design::IntegralAction{.Q = 80.0});
         static constexpr auto        kPlain = design::state_feedback(kMass, kTs, kFree, kIntegral);
         static_assert(kBounded.success);
         static_assert(sizeof(Law<kBounded, float>) == sizeof(Law<kPlain, float>)); // a constant of the type
         Law<kBounded, float> constant{};
         LQI                  held{kBounded.as<float>()};
-        CHECK(held.limits().demand_lim.state == 1);
-        CHECK(constant.limits().demand_lim.same(held.limits().demand_lim)); // limits() reports the constant
+        CHECK(held.limits().demand.state == 1);
+        CHECK(constant.limits().demand.same(held.limits().demand)); // limits() reports the constant
         for (int k = 0; k < 50; ++k) {
             const ColVec<2, float> x{-4.0f + (0.01f * static_cast<float>(k)), 0.0f};
             CHECK(constant.step(ColVec<1, float>{1.0f}, x) == held.step(ColVec<1, float>{1.0f}, x));
@@ -383,50 +422,50 @@ TEST_SUITE("LQ limits") {
 
         CHECK(design::state_feedback(kMass, kTs, kFree, DemandLimit{.state = 2, .outer = {0}}, design::IntegralAction{.Q = 80.0}).status == design::DesignStatus::invalid_parameter); // not a plant state
         CHECK(design::state_feedback(kMass, kTs, kFree, DemandLimit{.state = 1, .outer = {1}}, design::IntegralAction{.Q = 80.0}).status == design::DesignStatus::invalid_parameter); // asks of itself
-        CHECK(design::state_feedback(kMass, kTs, kFree, DemandLimit{.state = 1, .outer = {0}, .lim = {.lower = 1.0, .upper = -1.0}}).status == design::DesignStatus::invalid_parameter);
+        CHECK(design::state_feedback(kMass, kTs, kFree, DemandLimit{.state = 1, .outer = {0}, .lower = 1.0, .upper = -1.0}).status == design::DesignStatus::invalid_parameter);
         CHECK(design::state_feedback(kMass, kTs, kFree, DemandLimit{.state = 1, .outer = {2}}).status == design::DesignStatus::invalid_parameter);                                       // the integrator, on a law without one
         CHECK(design::state_feedback(kMass, kTs, kFree, DemandLimit{.state = 1, .outer = {0, 0}}, design::IntegralAction{.Q = 80.0}).status == design::DesignStatus::invalid_parameter); // listed twice
         CHECK(design::state_feedback(kMass, kTs, kFree, DemandLimit{.outer = {0}}).status == design::DesignStatus::invalid_parameter);                                                   // no state
-        const auto lqr = design::state_feedback(kMass, kTs, kFree, DemandLimit{.state = 1, .outer = {0}, .lim = {.lower = -0.3, .upper = 0.3}});
+        const auto lqr = design::state_feedback(kMass, kTs, kFree, DemandLimit{.state = 1, .outer = {0}, .lower = -0.3, .upper = 0.3});
         REQUIRE(lqr.success);
-        CHECK(LQR{lqr}.limits().demand_lim.state == 1); // the plain regulator's result carries it too
+        CHECK(LQR{lqr}.limits().demand.state == 1); // the plain regulator's result carries it too
     }
 
     TEST_CASE("a constexpr design's Law carries the limits, in float") {
-        static constexpr auto kLqi = design::state_feedback(plant(), kTs, {.Q = Q, .R = 1.0}, design::InputLimits{.u_lim = {.lower = -1.05, .upper = 1.05}}, design::IntegralAction{.Q = 80.0, .lim = {.lower = -0.05, .upper = 0.05}});
-        static constexpr auto kLqr = design::state_feedback(plant(), kTs, {.Q = Q, .R = 1.0}, design::InputLimits{.u_lim = {.lower = -1.05, .upper = 1.05}});
+        static constexpr auto kLqi = design::state_feedback(plant(), kTs, {.Q = Q, .R = 1.0}, design::InputLimits{.lower = {-1.05}, .upper = {1.05}}, design::IntegralAction{.Q = 80.0, .limits = {.lower = -0.05, .upper = 0.05}});
+        static constexpr auto kLqr = design::state_feedback(plant(), kTs, {.Q = Q, .R = 1.0}, design::InputLimits{.lower = {-1.05}, .upper = {1.05}});
         static_assert(kLqi.success && kLqr.success);
         Law<kLqi, float> lqi;
         Law<kLqr, float> lqr;
-        CHECK(lqi.limits().u_lim.upper(0) == 1.05f);
-        CHECK(lqi.limits().integral_lim.lower(0) == -0.05f);
-        CHECK(lqr.limits().u_lim.lower(0) == -1.05f);
+        CHECK(lqi.limits().input.upper(0) == 1.05f);
+        CHECK(lqi.limits().integral.lower(0) == -0.05f);
+        CHECK(lqr.limits().input.lower(0) == -1.05f);
         lqr.update(ColVec<2, float>{100.0f, 0.0f});
         CHECK(lqr.control()(0) == -1.05f);
 
         // No limit given: unbounded in float too (an end at double's max is float's, not an overflow).
         static constexpr auto kOpen = design::state_feedback(plant(), kTs, {.Q = Q, .R = 1.0}, design::IntegralAction{.Q = 80.0});
         Law<kOpen, float>     open;
-        CHECK(open.limits().u_lim.upper(0) == damp::numeric_limits<float>::max());
-        CHECK(open.limits().integral_lim.lower(0) == -damp::numeric_limits<float>::max());
+        CHECK(open.limits().input.upper(0) == damp::numeric_limits<float>::max());
+        CHECK(open.limits().integral.lower(0) == -damp::numeric_limits<float>::max());
     }
 
     TEST_CASE("refusals: a lower limit above its upper one") {
         const Bounds<1> inverted{.lower = 1.0, .upper = -1.0};
-        CHECK(design::state_feedback(plant(), kTs, {.Q = Q, .R = 1.0}, design::InputLimits{.u_lim = inverted}).status == design::DesignStatus::invalid_parameter);
-        CHECK(design::state_feedback(plant(), kTs, {.Q = Q, .R = 1.0}, design::IntegralAction{.Q = 80.0, .lim = inverted}).status == design::DesignStatus::invalid_parameter);
-        CHECK(design::state_feedback(plant(), kTs, {.Q = Q, .R = 1.0}, design::InputLimits{.u_lim = inverted}, kNoise).status == design::DesignStatus::invalid_parameter);
+        CHECK(design::state_feedback(plant(), kTs, {.Q = Q, .R = 1.0}, design::InputLimits{.lower = inverted.lower, .upper = inverted.upper}).status == design::DesignStatus::invalid_parameter);
+        CHECK(design::state_feedback(plant(), kTs, {.Q = Q, .R = 1.0}, design::IntegralAction{.Q = 80.0, .limits = inverted}).status == design::DesignStatus::invalid_parameter);
+        CHECK(design::state_feedback(plant(), kTs, {.Q = Q, .R = 1.0}, design::InputLimits{.lower = inverted.lower, .upper = inverted.upper}, kNoise).status == design::DesignStatus::invalid_parameter);
     }
 
-    TEST_CASE("InputLimits{.u_lim} is the LQ design and law LQRLimits gave, through the config too") {
+    TEST_CASE("InputLimits is the LQ design and law LQRLimits gave, through the config too") {
         //! Recorded with LQRLimits{.u_lim = kBox} before InputLimits replaced it: the gains, and the
         //! LQI's commands on a step that drives it onto the limit.
         const auto lqr = design::state_feedback(plant(), kTs, kFree, kBound);
         REQUIRE(lqr.success);
         CHECK(lqr.K(0, 0) == doctest::Approx(2.2848741073255541).epsilon(1e-12));
         CHECK(lqr.K(0, 1) == doctest::Approx(1.9137912936610608).epsilon(1e-12));
-        CHECK(lqr.u_lim.lower(0) == -kLimit);
-        CHECK(lqr.u_lim.upper(0) == kLimit);
+        CHECK(lqr.limits.input.lower(0) == -kLimit);
+        CHECK(lqr.limits.input.upper(0) == kLimit);
 
         const auto lqi = design::state_feedback(plant(), kTs, kFree, kBound, kIntegral);
         REQUIRE(lqi.success);
@@ -461,31 +500,179 @@ TEST_SUITE("LQ limits") {
         CHECK(got[5] == doctest::Approx(1.0220145809046597).epsilon(1e-9));
     }
 
-    TEST_CASE("an LQ design refuses a move limit (invalid_parameter): the law clamps u, and a move limit is the MPC's") {
+    TEST_CASE("an LQR with an InputRateLimits is the same LQR followed by a slew clamp and back_calculate") {
+        const auto rated = design::state_feedback(plant(), kTs, kFree, kBound, kRate);
+        const auto plain = design::state_feedback(plant(), kTs, kFree, kBound);
+        REQUIRE(rated.success);
+        static_assert(std::is_same_v<decltype(rated.limits.input_rate), Bounds<1>> && std::is_same_v<decltype(plain.limits.input_rate), Bounds<0>>);
+        CHECK((rated.K - plain.K).norm() <= 4.0 * eps<double>() * plain.K.norm()); // the gain is the same
+        CHECK(rated.limits.input_rate.upper(0) == kStep);
+        const auto d = discretize(plant(), kTs).value();
+        //! @p pass: the share of the command a stage after the law lets through, reported to the
+        //! rated law with back_calculate when @p report (else its base is its last command).
+        const auto run = [&](bool report, double pass) {
+            LQR       law{rated};
+            LQR       outside{plain};
+            ColVec<2> za{3.0, -1.0};
+            ColVec<2> zb = za;
+            double    prev = 0.0; // the base of the first move, as an MPC's held input
+            double    worst = 0.0;
+            int       bound = 0;
+            for (int k = 0; k < 4000; ++k) {
+                law.update(za);
+                outside.update(zb);
+                const double ua = law.control()(0);
+                const double asked = outside.control()(0);
+                const double ub = damp::clamp(asked, prev - kStep, prev + kStep); // the slew clamp, by hand
+                bound += (ub != asked) ? 1 : 0;
+                worst = damp::max(worst, damp::abs(ua - ub));
+                CHECK(damp::abs(ua - prev) <= kStep + 1e-12); // never more than the limit from the input applied last tick
+                prev = pass * ub;                             // what went out
+                if (report) {
+                    law.back_calculate(ColVec<1>{prev});
+                }
+                outside.back_calculate(ColVec<1>{prev});
+                za = (d.A * za) + (d.B * ColVec<1>{prev});
+                zb = (d.A * zb) + (d.B * ColVec<1>{prev});
+            }
+            CHECK(bound > 10); // the far start drives the move onto its limit
+            CHECK(worst <= 1e-12);
+            return za;
+        };
+        CHECK(run(false, 1.0).norm() <= 1e-6); // the regulator settles
+        CHECK(run(true, 0.9).norm() <= 1e-6);
+    }
+
+    TEST_CASE("an LQ law clamps its move into the InputLimits as well; where the boxes do not meet, the InputLimits win") {
+        constexpr double step = 0.1;
+        LQR              law{design::state_feedback(plant(), kTs, kFree, kBound, design::InputRateLimits{.lower = {-step}, .upper = {step}})};
+        law.update(ColVec<2>{-100.0, 0.0});
+        double prev = 0.0;
+        for (int k = 0; k < 20; ++k) { // up by a step a tick until the input box stops it
+            const double u = law.control()(0);
+            CHECK(u == doctest::Approx(damp::min(prev + step, kLimit)).epsilon(1e-15));
+            prev = u;
+        }
+        CHECK(prev == kLimit);
+        auto lim = law.limits();
+        lim.input = {.lower = -0.5, .upper = 0.5}; // u_prev = 1.05 now lies outside the input box
+        REQUIRE(law.set_limits(lim));
+        CHECK(law.control()(0) == 0.5); // [0.95, 1.15] and [−0.5, 0.5] do not meet: the input box's nearest end
+        law.update(ColVec<2>{100.0, 0.0});
+        CHECK(law.control()(0) == doctest::Approx(0.5 - step).epsilon(1e-15)); // then a move from there
+
+        //! After reset() the next move is from 0, as an MPC's.
+        law.reset();
+        CHECK(law.control()(0) == doctest::Approx(-step).epsilon(1e-15));
+    }
+
+    TEST_CASE_TEMPLATE("an LQ law's memory holds against its rate clamp as against one outside it: LQI, delayed LQI, LQGI, OFLQG", T, float, double) {
+        //! The rated law and the free one clamped outside with back_calculate are one tick: the
+        //! integrators compare the input applied with the one asked, a filter and the delay states
+        //! move on the clamped command.
+        const auto measured = [](auto& law, const ColVec<2, T>& z) { law.update(z); };
+        const auto read = [](auto& law, const auto& z) { law.update(ColVec<1, T>{z(0)}); };
+        int        bound = 0;
+        T          y{0};
+
+        LQI lqi{design::state_feedback(plant(), kTs, kFree, kRate, kIntegral).template as<T>()};
+        LQI lqi_out{design::state_feedback(plant(), kTs, kFree, kIntegral).template as<T>()};
+        CHECK(slew_gap(sampled<T>(), lqi, lqi_out, measured, bound, y) <= tol<T>);
+        CHECK(bound > 10);
+        CHECK(static_cast<double>(y) == doctest::Approx(1.0).epsilon(1e-3)); // the integrator held: no windup left to unwind
+
+        const InputDelay<2> late{0.014};
+        const auto          dl = discretize(plant(), kTs, late).value();
+        const StateSpace    delayed{.A = dl.A.template as<T>(), .B = dl.B.template as<T>(), .C = dl.C.template as<T>(), .Ts = static_cast<T>(kTs)};
+        LQI                 lqi_late{design::state_feedback(plant(), kTs, kFree, late, kRate, kIntegral).template as<T>()};
+        LQI                 lqi_late_out{design::state_feedback(plant(), kTs, kFree, late, kIntegral).template as<T>()};
+        const auto          plant_state = [](auto& law, const ColVec<4, T>& z) { law.update(ColVec<2, T>{z(0), z(1)}); };
+        CHECK(slew_gap(delayed, lqi_late, lqi_late_out, plant_state, bound, y) <= tol<T>);
+        CHECK(bound > 10);
+        CHECK(static_cast<double>(y) == doctest::Approx(1.0).epsilon(1e-3));
+
+        LQGI lqgi{design::state_feedback(plant(), kTs, kFree, kRate, kNoise, kIntegral).template as<T>()};
+        LQGI lqgi_out{design::state_feedback(plant(), kTs, kFree, kNoise, kIntegral).template as<T>()};
+        CHECK(slew_gap(sampled<T>(), lqgi, lqgi_out, read, bound, y) <= tol<T>);
+        CHECK(bound > 10);
+        CHECK(static_cast<double>(y) == doctest::Approx(1.0).epsilon(1e-3));
+
+        const design::KalmanNoise<2, 1, double, 1> walk{.process = kNoise.process, .measurement = kNoise.measurement, .disturbance = Matrix<1, 1>{{1.0}}};
+        OFLQG                                      of{design::state_feedback(plant(), kTs, kFree, kRate, walk, design::InputDisturbance{}).template as<T>()};
+        OFLQG                                      of_out{design::state_feedback(plant(), kTs, kFree, walk, design::InputDisturbance{}).template as<T>()};
+        CHECK(slew_gap(sampled<T>(), of, of_out, read, bound, y) <= tol<T>);
+        CHECK(bound > 10);
+        CHECK(static_cast<double>(y) == doctest::Approx(1.0).epsilon(1e-3));
+    }
+
+    TEST_CASE("an LQ law's move limit is in its limits() only with the option, and set_limits moves it or refuses a bad one") {
+        LQR rated{design::state_feedback(plant(), kTs, kFree, kRate)};
+        LQR plain{design::state_feedback(plant(), kTs, kFree)};
+        static_assert(std::is_same_v<decltype(rated.limits().input_rate), Bounds<1>> && std::is_same_v<decltype(plain.limits().input_rate), Bounds<0>>);
+        auto lim = rated.limits();
+        CHECK(lim.input_rate.lower(0) == -kStep);
+        lim.input_rate = {.lower = -0.25, .upper = 0.5};
+        REQUIRE(rated.set_limits(lim));
+        rated.update(ColVec<2>{-100.0, 0.0});
+        CHECK(rated.control()(0) == 0.5);
+        rated.update(ColVec<2>{100.0, 0.0});
+        CHECK(rated.control()(0) == 0.25);
+        const double nan = std::numeric_limits<double>::quiet_NaN();
+        for (const Bounds<1>& bad : {Bounds<1>{.lower = 0.1, .upper = -0.1}, Bounds<1>{.lower = nan}, Bounds<1>{.upper = nan}}) {
+            auto refused = rated.limits();
+            refused.input_rate = bad;
+            CHECK_FALSE(rated.set_limits(refused));
+            CHECK(rated.limits().input_rate.upper(0) == 0.5); // nothing changed
+        }
+    }
+
+    TEST_CASE("an LQ design refuses an InputRateLimits that is not a box (invalid_parameter) and ships no limits") {
         const double                               nan = std::numeric_limits<double>::quiet_NaN();
-        constexpr design::InputLimits              moves{.u_lim = kBox, .du_lim = {.lower = -0.1, .upper = 0.1}};
+        constexpr design::InputRateLimits          inverted{.lower = {0.1}, .upper = {-0.1}};
         const design::KalmanNoise<2, 1, double, 1> walk{.process = kNoise.process, .measurement = kNoise.measurement, .disturbance = Matrix<1, 1>{{1.0}}};
         const auto                                 refused = [](const auto& res) { return !res.success && res.status == design::DesignStatus::invalid_parameter; };
-        CHECK(refused(design::state_feedback(plant(), kTs, kFree, moves)));                                   // LQR
-        CHECK(refused(design::state_feedback(plant(), kTs, kFree, moves, kIntegral)));                        // LQI
-        CHECK(refused(design::state_feedback(plant(), kTs, kFree, moves, kNoise)));                           // LQG
-        CHECK(refused(design::state_feedback(plant(), kTs, kFree, moves, kNoise, kIntegral)));                // LQGI
-        CHECK(refused(design::state_feedback(plant(), kTs, kFree, moves, walk, design::InputDisturbance{}))); // OFLQG
-        CHECK(refused(design::state_feedback(plant(), kTs, kFree, moves, InputDelay<2>{0.014})));             // on the delayed plant
-        CHECK(refused(design::state_feedback(discretize(plant(), kTs).value(), kFree, moves)));               // a discrete plant
+        CHECK(refused(design::state_feedback(plant(), kTs, kFree, kBound, inverted)));                           // LQR
+        CHECK(refused(design::state_feedback(plant(), kTs, kFree, inverted, kIntegral)));                        // LQI
+        CHECK(refused(design::state_feedback(plant(), kTs, kFree, inverted, kNoise)));                           // LQG
+        CHECK(refused(design::state_feedback(plant(), kTs, kFree, inverted, kNoise, kIntegral)));                // LQGI
+        CHECK(refused(design::state_feedback(plant(), kTs, kFree, inverted, walk, design::InputDisturbance{}))); // OFLQG
+        CHECK(refused(design::state_feedback(plant(), kTs, kFree, inverted, InputDelay<2>{0.014})));             // on the delayed plant
+        CHECK(refused(design::state_feedback(discretize(plant(), kTs).value(), kFree, inverted)));               // a discrete plant
+        CHECK(refused(design::state_feedback(plant(), kTs, kFree, design::InputRateLimits{.upper = {nan}})));
+        CHECK(refused(design::state_feedback(plant(), kTs, kFree, design::InputRateLimits{.lower = {nan}})));
+        const auto none = design::state_feedback(plant(), kTs, kFree, kBound, inverted);
+        CHECK(none.limits.input.upper(0) == damp::numeric_limits<double>::max()); // a refused design ships no limits
+        CHECK(none.limits.input_rate.upper(0) == damp::numeric_limits<double>::max());
 
-        //! One side is a limit too, and so is a NaN; no u_lim is needed for the refusal.
-        CHECK(refused(design::state_feedback(plant(), kTs, kFree, design::InputLimits{.du_lim = {.upper = 0.1}})));
-        CHECK(refused(design::state_feedback(plant(), kTs, kFree, design::InputLimits{.du_lim = {.lower = nan}})));
-        const auto none = design::state_feedback(plant(), kTs, kFree, moves);
-        CHECK(none.u_lim.upper(0) == damp::numeric_limits<double>::max()); // a refused design ships no limits
+        //! Unbounded, it changes no command: the law of the InputLimits alone.
+        LQR spelled{design::state_feedback(plant(), kTs, kFree, kBound, design::InputRateLimits<1>{})};
+        LQR alone{design::state_feedback(plant(), kTs, kFree, kBound)};
+        for (const ColVec<2>& x : {ColVec<2>{3.0, -1.0}, ColVec<2>{0.01, 0.0}}) {
+            spelled.update(x);
+            alone.update(x);
+            CHECK(spelled.control() == alone.control());
+        }
+    }
 
-        //! An unbounded du_lim spelled out is no limit: the design of u_lim alone.
-        const auto spelled = design::state_feedback(plant(), kTs, kFree, design::InputLimits{.u_lim = kBox, .du_lim = Bounds<1>{}});
-        const auto alone = design::state_feedback(plant(), kTs, kFree, kBound);
-        REQUIRE(spelled.success);
-        CHECK((spelled.K - alone.K).norm() <= 4.0 * eps<double>() * alone.K.norm());
-        CHECK(spelled.u_lim.upper(0) == kLimit);
+    TEST_CASE("a constexpr design's Law with an InputRateLimits is the runtime's law, and set_limits moves its move limit") {
+        static constexpr auto             kRes = design::state_feedback(plant(), kTs, kFree, kBound, kRate, kIntegral);
+        static constinit Law<kRes, float> at_start{};
+        Law<kRes, float>                  constant{};
+        LQI                               held{kRes.as<float>()};
+        CHECK(at_start.limits().input_rate.upper(0) == static_cast<float>(kStep));
+        for (int k = 0; k < 50; ++k) {
+            const ColVec<2, float> x{-4.0f + (0.01f * static_cast<float>(k)), 0.0f};
+            CHECK(constant.step(ColVec<1, float>{1.0f}, x) == held.step(ColVec<1, float>{1.0f}, x));
+        }
+        auto lim = constant.limits();
+        lim.input_rate = {.lower = -0.01f, .upper = 0.01f};
+        REQUIRE(constant.set_limits(lim));
+        REQUIRE(held.set_limits(lim));
+        for (int k = 0; k < 50; ++k) {
+            const ColVec<2, float> x{-4.0f, 0.0f};
+            const ColVec<1, float> u = constant.step(ColVec<1, float>{1.0f}, x);
+            CHECK(u == held.step(ColVec<1, float>{1.0f}, x));
+        }
     }
 
     TEST_CASE("a refused design ships no limits") {
@@ -493,39 +680,39 @@ TEST_SUITE("LQ limits") {
         //! it with K = 0: control() returned a limit, not 0.
         const double    nan = std::numeric_limits<double>::quiet_NaN();
         const Bounds<1> inverted{.lower = 1.0, .upper = -1.0};
-        const auto      lqr = design::state_feedback(plant(), kTs, {.Q = Q, .R = 1.0}, design::InputLimits{.u_lim = inverted});
+        const auto      lqr = design::state_feedback(plant(), kTs, {.Q = Q, .R = 1.0}, design::InputLimits{.lower = inverted.lower, .upper = inverted.upper});
         REQUIRE_FALSE(lqr.success);
-        CHECK(lqr.u_lim.lower(0) == -damp::numeric_limits<double>::max());
-        CHECK(lqr.u_lim.upper(0) == damp::numeric_limits<double>::max());
+        CHECK(lqr.limits.input.lower(0) == -damp::numeric_limits<double>::max());
+        CHECK(lqr.limits.input.upper(0) == damp::numeric_limits<double>::max());
         LQR law{lqr};
         law.update(ColVec<2>{1.0, 1.0});
         CHECK(law.control()(0) == 0.0);
         CHECK_FALSE(law.valid());
         CHECK(LQR{design::state_feedback(plant(), kTs, {.Q = Q, .R = 1.0})}.valid());
 
-        const auto lqi = design::state_feedback(plant(), kTs, {.Q = Q, .R = 1.0}, design::InputLimits{.u_lim = {.lower = nan, .upper = 1.0}}, design::IntegralAction{.Q = 80.0, .lim = {.lower = -0.1, .upper = 0.1}});
+        const auto lqi = design::state_feedback(plant(), kTs, {.Q = Q, .R = 1.0}, design::InputLimits{.lower = {nan}, .upper = {1.0}}, design::IntegralAction{.Q = 80.0, .limits = {.lower = -0.1, .upper = 0.1}});
         CHECK(lqi.status == design::DesignStatus::invalid_parameter);
-        CHECK(lqi.u_lim.upper(0) == damp::numeric_limits<double>::max());
-        CHECK(lqi.integral_lim.upper(0) == damp::numeric_limits<double>::max());
+        CHECK(lqi.limits.input.upper(0) == damp::numeric_limits<double>::max());
+        CHECK(lqi.limits.integral.upper(0) == damp::numeric_limits<double>::max());
 
         //! An LQG assembled from a regulator whose box was edited by hand is refused as the design is.
         auto reg = design::state_feedback(plant(), kTs, kFree, kBound);
         REQUIRE(reg.success);
-        reg.u_lim = inverted;
+        reg.limits.input = inverted;
         const auto parts = design::lqg_from_parts(design::kalman(plant(), kTs, kNoise), reg);
         CHECK(parts.status == design::DesignStatus::invalid_parameter);
-        CHECK(parts.u_lim.upper(0) == damp::numeric_limits<double>::max());
+        CHECK(parts.limits.input.upper(0) == damp::numeric_limits<double>::max());
     }
 
     TEST_CASE_TEMPLATE("an integrator limit narrowed while the integrator is held pulls it in", T, float, double) {
-        //! integral.lim was applied only when the integrator advanced: held against u_lim, it kept
+        //! The integrators' limit was applied only when the integrator advanced: held against the input limits, it kept
         //! a value outside a limit set since.
         const auto res = design::state_feedback(plant(), kTs, kFree, kBound, kIntegral);
         REQUIRE(res.success);
         LQI        law{res.template as<T>()};
         const auto tick = [&] {
             law.update(ColVec<2, T>{});
-            const T u = law.control(ColVec<1, T>{T{100}})(0); // far above what u_lim allows
+            const T u = law.control(ColVec<1, T>{T{100}})(0); // far above what the input limits allow
             law.predict();
             return u;
         };
@@ -533,7 +720,7 @@ TEST_SUITE("LQ limits") {
         CHECK(tick() == static_cast<T>(kLimit));
         CHECK(law.integral.xi(0) == T{0.5}); // held against the clamp
         auto lim = law.limits();
-        lim.integral_lim.upper(0) = T{0.25};
+        lim.integral.upper(0) = T{0.25};
         REQUIRE(law.set_limits(lim));
         CHECK(tick() == static_cast<T>(kLimit));
         CHECK(law.integral.xi(0) == T{0.25});
@@ -625,16 +812,16 @@ TEST_SUITE("LQ limits") {
         ia.tracking_time = std::numeric_limits<double>::quiet_NaN();
         CHECK(design::state_feedback(plant(), kTs, kFree, kBound, ia).status == design::DesignStatus::invalid_parameter);
 
-        //! An LQGI design dropped integral_lim when it moved out of the integral action: the filter's path did not copy it.
+        //! An LQGI design dropped the integrators' limits when they moved out of the integral action: the filter's path did not copy it.
         auto g = kIntegral;
-        g.lim = {.lower = -0.3, .upper = 0.3};
+        g.limits = {.lower = -0.3, .upper = 0.3};
         g.tracking_time = 0.05;
         const auto lqgi = design::state_feedback(plant(), kTs, kFree, kBound, kNoise, g);
         REQUIRE(lqgi.success);
-        CHECK(lqgi.integral_lim.upper(0) == 0.3);
+        CHECK(lqgi.limits.integral.upper(0) == 0.3);
         CHECK(lqgi.tracking_time == 0.05);
         const LQGI law{lqgi.as<float>()};
-        CHECK(law.limits().integral_lim.lower(0) == -0.3f);
+        CHECK(law.limits().integral.lower(0) == -0.3f);
         CHECK(law.tracking_time == 0.05f);
         CHECK(law.integral.unwind(0, 0) != 0.0f);
 
@@ -648,7 +835,7 @@ TEST_SUITE("LQ limits") {
     }
 
     TEST_CASE("set_limits refuses a box whose lower end is above its upper one, or a demand limit the law cannot hold, and changes nothing") {
-        //! The limits were public members, and nothing checked one set at run time: an inverted u_lim
+        //! The limits were public members, and nothing checked one set at run time: an inverted input limit
         //! clamped every command to its upper end.
         const auto res = design::state_feedback(plant(), kTs, kFree, kBound, kIntegral);
         REQUIRE(res.success);
@@ -658,37 +845,37 @@ TEST_SUITE("LQ limits") {
         const auto      refused = [&](const auto& lim) {
             const bool taken = law.set_limits(lim);
             const auto now = law.limits();
-            return !taken && now.u_lim.lower(0) == before.u_lim.lower(0) && now.u_lim.upper(0) == before.u_lim.upper(0)
-                && now.integral_lim.lower(0) == before.integral_lim.lower(0) && now.integral_lim.upper(0) == before.integral_lim.upper(0)
-                && now.demand_lim.same(before.demand_lim);
+            return !taken && now.input.lower(0) == before.input.lower(0) && now.input.upper(0) == before.input.upper(0)
+                && now.integral.lower(0) == before.integral.lower(0) && now.integral.upper(0) == before.integral.upper(0)
+                && now.demand.same(before.demand);
         };
         auto lim = before;
-        lim.u_lim = inverted;
-        lim.integral_lim = {.lower = -0.1, .upper = 0.1}; // a good limit beside it is not taken either
+        lim.input = inverted;
+        lim.integral = {.lower = -0.1, .upper = 0.1}; // a good limit beside it is not taken either
         CHECK(refused(lim));
         lim = before;
-        lim.integral_lim = inverted;
+        lim.integral = inverted;
         CHECK(refused(lim));
         lim = before;
-        lim.demand_lim = DemandLimit{.state = 2, .outer = {0}}; // the integrator: not a plant state
+        lim.demand = DemandLimit{.state = 2, .outer = {0}}; // the integrator: not a plant state
         CHECK(refused(lim));
-        lim.demand_lim = DemandLimit{.state = 1, .outer = {1}}; // asks of itself
+        lim.demand = DemandLimit{.state = 1, .outer = {1}}; // asks of itself
         CHECK(refused(lim));
-        lim.demand_lim = DemandLimit{.state = 1, .outer = {3}}; // past the terms
+        lim.demand = DemandLimit{.state = 1, .outer = {3}}; // past the terms
         CHECK(refused(lim));
-        lim.demand_lim = DemandLimit{.state = 1, .outer = {0, 0}}; // listed twice
+        lim.demand = DemandLimit{.state = 1, .outer = {0, 0}}; // listed twice
         CHECK(refused(lim));
-        lim.demand_lim = DemandLimit{.state = 1, .outer = {0}, .lim = inverted};
+        lim.demand = DemandLimit{.state = 1, .outer = {0}, .lower = inverted.lower(0), .upper = inverted.upper(0)};
         CHECK(refused(lim));
         law.update(ColVec<2>{100.0, 0.0});
         CHECK(law.control(ColVec<1>{0.0})(0) == -kLimit); // the design's box, still
 
-        //! Every LQ law refuses one, and OFLQG an inverted disturbance_lim too.
+        //! Every LQ law refuses one, and OFLQG an inverted disturbance limit too.
         const auto inverted_refused = [&](auto runtime) {
             auto       l = runtime.limits();
-            const auto u = l.u_lim;
-            l.u_lim = inverted;
-            return !runtime.set_limits(l) && runtime.limits().u_lim.lower(0) == u.lower(0) && runtime.limits().u_lim.upper(0) == u.upper(0);
+            const auto u = l.input;
+            l.input = inverted;
+            return !runtime.set_limits(l) && runtime.limits().input.lower(0) == u.lower(0) && runtime.limits().input.upper(0) == u.upper(0);
         };
         const design::KalmanNoise<2, 1, double, 1> walk{.process = kNoise.process, .measurement = kNoise.measurement, .disturbance = Matrix<1, 1>{{1.0}}};
         CHECK(inverted_refused(LQR{design::state_feedback(plant(), kTs, kFree, kBound)}));
@@ -697,33 +884,33 @@ TEST_SUITE("LQ limits") {
         OFLQG of{design::state_feedback(plant(), kTs, kFree, kBound, walk, design::InputDisturbance{})};
         CHECK(inverted_refused(of));
         auto d = of.limits();
-        d.disturbance_lim = inverted;
+        d.disturbance = inverted;
         CHECK_FALSE(of.set_limits(d));
-        CHECK(of.limits().disturbance_lim.upper(0) == damp::numeric_limits<double>::max());
-        d.disturbance_lim = {.lower = -0.2, .upper = 0.2};
+        CHECK(of.limits().disturbance.upper(0) == damp::numeric_limits<double>::max());
+        d.disturbance = {.lower = -0.2, .upper = 0.2};
         CHECK(of.set_limits(d));
-        CHECK(of.limits().disturbance_lim.upper(0) == 0.2);
+        CHECK(of.limits().disturbance.upper(0) == 0.2);
     }
 
     TEST_CASE("a constexpr design's Law sets its limits as the runtime does, its demand limit a constant it reports and keeps") {
         static constexpr StateSpace  kMass{.A = Matrix<2, 2>{{0.0, 1.0}, {0.0, -0.5}}, .B = Matrix<2, 1>{{0.0}, {1.0}}, .C = Matrix<1, 2>{{1.0, 0.0}}};
-        static constexpr DemandLimit kSpeed{.state = 1, .outer = {0, 2}, .lim = {.lower = -0.3, .upper = 0.3}};
+        static constexpr DemandLimit kSpeed{.state = 1, .outer = {0, 2}, .lower = -0.3, .upper = 0.3};
         static constexpr auto        kRes = design::state_feedback(kMass, kTs, kFree, kBound, kSpeed, design::IntegralAction{.Q = 80.0});
         static_assert(kRes.success);
         static constinit Law<kRes, float> at_start{}; // set_limits in the constructor, constant-evaluated
         Law<kRes, float>                  constant{};
         LQI                               held{kRes.as<float>()};
-        CHECK(at_start.limits().u_lim.upper(0) == static_cast<float>(kLimit));
-        CHECK(at_start.limits().integral_lim.upper(0) == damp::numeric_limits<float>::max());
+        CHECK(at_start.limits().input.upper(0) == static_cast<float>(kLimit));
+        CHECK(at_start.limits().integral.upper(0) == damp::numeric_limits<float>::max());
         auto lim = constant.limits();
-        CHECK(lim.demand_lim.same(held.limits().demand_lim));
-        CHECK(lim.demand_lim.state == 1);
-        lim.u_lim = {.lower = -0.5f, .upper = 0.5f};
-        lim.integral_lim = {.lower = -0.2f, .upper = 0.2f};
+        CHECK(lim.demand.same(held.limits().demand));
+        CHECK(lim.demand.state == 1);
+        lim.input = {.lower = -0.5f, .upper = 0.5f};
+        lim.integral = {.lower = -0.2f, .upper = 0.2f};
         REQUIRE(constant.set_limits(lim));
         REQUIRE(held.set_limits(lim));
-        CHECK(constant.limits().u_lim.upper(0) == 0.5f);
-        CHECK(constant.limits().integral_lim.lower(0) == -0.2f);
+        CHECK(constant.limits().input.upper(0) == 0.5f);
+        CHECK(constant.limits().integral.lower(0) == -0.2f);
         for (int k = 0; k < 50; ++k) {
             const ColVec<2, float> x{-4.0f + (0.01f * static_cast<float>(k)), 0.0f};
             const ColVec<1, float> u = constant.step(ColVec<1, float>{1.0f}, x);
@@ -733,14 +920,14 @@ TEST_SUITE("LQ limits") {
 
         //! Another demand limit, or none, is refused on constants (nothing changed); the runtime with members takes it.
         auto other = lim;
-        other.u_lim = {.lower = -0.1f, .upper = 0.1f};
-        other.demand_lim = DemandLimit{.state = 1, .outer = {0}, .lim = Bounds<1, float>{.lower = -0.3f, .upper = 0.3f}};
+        other.input = {.lower = -0.1f, .upper = 0.1f};
+        other.demand = DemandLimit{.state = 1, .outer = {0}, .lower = -0.3f, .upper = 0.3f};
         CHECK_FALSE(constant.set_limits(other));
-        other.demand_lim = {};
+        other.demand = {};
         CHECK_FALSE(constant.set_limits(other));
-        CHECK(constant.limits().u_lim.upper(0) == 0.5f);
+        CHECK(constant.limits().input.upper(0) == 0.5f);
         CHECK(held.set_limits(other));
-        CHECK(held.limits().demand_lim.state == detail::DemandTerms<3, float>::none);
+        CHECK(held.limits().demand.state == detail::DemandTerms<3, float>::none);
     }
 
     TEST_CASE("the limits take no storage of their own: each LQ law is the size it was with public limits") {
@@ -771,6 +958,37 @@ TEST_SUITE("LQ limits") {
         }
     }
 
+    TEST_CASE("an InputRateLimits costs an LQ law its box, and the last command where it keeps no record; a law without one is the size it was") {
+        //! The sizes without the option are the test above's, recorded before InputRateLimits. With
+        //! it a law holds the box (NU ends a side), and an LQR, which keeps no record of its
+        //! command, the base of its next move too; the others read it from the record they keep
+        //! for their integrators, filter or delay states.
+        static constexpr design::KalmanNoise<2, 1, double, 1> kWalk{.process = kNoise.process, .measurement = kNoise.measurement, .disturbance = Matrix<1, 1>{{1.0}}};
+        static constexpr auto                                 kLqr = design::state_feedback(plant(), kTs, kFree, kRate);
+        static constexpr auto                                 kLqi = design::state_feedback(plant(), kTs, kFree, kIntegral, kRate);
+        static constexpr auto                                 kLqg = design::state_feedback(plant(), kTs, kFree, kNoise, kRate);
+        static constexpr auto                                 kLqgi = design::state_feedback(plant(), kTs, kFree, kNoise, kIntegral, kRate);
+        static constexpr auto                                 kOflqg = design::state_feedback(plant(), kTs, kFree, kWalk, design::InputDisturbance{}, kRate);
+        static_assert(std::is_same_v<decltype(LQR{design::state_feedback(plant(), kTs, kFree)}), LQR<2, 1, double>>); // without: the type it was
+        if constexpr (sizeof(void*) == 8) {
+            CHECK(sizeof(LQR{kLqr.as<float>()}) == 48 + 16);
+            CHECK(sizeof(LQI{kLqi.as<float>()}) == 112 + 8);
+            CHECK(sizeof(LQG{kLqg.as<float>()}) == 128 + 8);
+            CHECK(sizeof(LQGI{kLqgi.as<float>()}) == 176 + 8);
+            CHECK(sizeof(OFLQG{kOflqg.as<float>()}) == 224 + 8);
+            CHECK(sizeof(LQR{kLqr}) == 88 + 24);
+            CHECK(sizeof(LQI{kLqi}) == 216 + 16);
+            CHECK(sizeof(LQG{kLqg}) == 240 + 16);
+            CHECK(sizeof(LQGI{kLqgi}) == 336 + 16);
+            CHECK(sizeof(OFLQG{kOflqg}) == 424 + 16);
+            CHECK(sizeof(Law<kLqr, float>) == 20 + 12);
+            CHECK(sizeof(Law<kLqi, float>) == 68 + 8);
+            CHECK(sizeof(Law<kLqg, float>) == 44 + 8);
+            CHECK(sizeof(Law<kLqgi, float>) == 80 + 8);
+            CHECK(sizeof(Law<kOflqg, float>) == 80 + 8);
+        }
+    }
+
     TEST_CASE("an LQ law's limits and an MPC's are read and set the same way, and both bind from the next tick") {
         constexpr StateSpace     double_integrator{.A = {{1.0, 0.1}, {0.0, 1.0}}, .B = {{0.005}, {0.1}}, .C = {{1.0, 0.0}}, .Ts = 0.1};
         design::MPCWeights<1, 1> w{};
@@ -789,19 +1007,19 @@ TEST_SUITE("LQ limits") {
 
         auto lq_lim = lqr.limits();
         auto mpc_lim = law.limits();
-        lq_lim.u_lim = {.lower = -0.1, .upper = 0.1};
-        mpc_lim.u_lim = {.lower = -0.1, .upper = 0.1};
+        lq_lim.input = {.lower = -0.1, .upper = 0.1};
+        mpc_lim.input = {.lower = -0.1, .upper = 0.1};
         REQUIRE(lqr.set_limits(lq_lim));
         REQUIRE(law.set_limits(mpc_lim));
         CHECK(lqr.control()(0) == 0.1);
         CHECK(law.control()(0) == doctest::Approx(0.1).epsilon(1e-12));
         CHECK(law.last_status() == design::QPStatus::Success);
 
-        lq_lim.u_lim = {.lower = 0.1, .upper = -0.1};
-        mpc_lim.u_lim = {.lower = 0.1, .upper = -0.1};
+        lq_lim.input = {.lower = 0.1, .upper = -0.1};
+        mpc_lim.input = {.lower = 0.1, .upper = -0.1};
         CHECK_FALSE(lqr.set_limits(lq_lim));
         CHECK_FALSE(law.set_limits(mpc_lim));
-        CHECK(lqr.limits().u_lim.upper(0) == 0.1);
-        CHECK(law.limits().u_lim.upper(0) == 0.1);
+        CHECK(lqr.limits().input.upper(0) == 0.1);
+        CHECK(law.limits().input.upper(0) == 0.1);
     }
 }

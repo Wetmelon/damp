@@ -56,7 +56,7 @@ design::MPCWeights<1, 2> both_weighed() {
 }
 
 /// A move limit: the same in the plant's frame and in one shifted by the planned point.
-constexpr design::InputLimits kMoveLim{.du_lim = {.lower = -0.2, .upper = 0.2}};
+constexpr design::InputRateLimits kMoveLim{.lower = {-0.2}, .upper = {0.2}};
 
 /// The planned state at tick @p k: a slow swing about (0.4, 0.4), the lags apart.
 ColVec<2> planned(size_t k) {
@@ -323,7 +323,7 @@ TEST_SUITE("MPC feedforward") {
     TEST_CASE("the output limits stay absolute: x_ref moves the cost's point, not the bounds") {
         //! The planned point puts x₂ at 1; a hard x₂ ≤ 0.6 holds it at 0.6, on the output itself, as
         //! MATLAB's limits are on the plant's outputs. A bound that rides the point is moved at run time.
-        const auto bounded = design::mpc<20, 5>(kLags, both_weighed(), design::TrackedOutputs{{1}}, design::OutputLimits{.outputs = {1}, .lim = {.upper = 0.6}, .upper_ecr = {0.0}});
+        const auto bounded = design::mpc<20, 5>(kLags, both_weighed(), design::TrackedOutputs{{1}}, design::OutputLimits{.outputs = {1}, .upper = {0.6}, .upper_ecr = {0.0}});
         const auto unbounded = design::mpc<20, 5>(kLags, both_weighed(), design::TrackedOutputs{{1}});
         REQUIRE(bounded.success);
         REQUIRE(unbounded.success);

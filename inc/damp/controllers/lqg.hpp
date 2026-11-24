@@ -63,12 +63,12 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
     if (status == DesignStatus::ok && (!::damp::detail::discrete_gain(reg) || (reg.Ts != T{0} && reg.Ts != kest.sys.Ts))) {
         status = DesignStatus::invalid_sample_time; // a continuous regulator, or the halves disagree on Ts
     }
-    if (status == DesignStatus::ok && (!reg.u_lim.valid() || !reg.demand_lim.template valid<NX>())) {
+    if (status == DesignStatus::ok && (!reg.limits.input.valid() || !reg.limits.demand.template valid<NX>())) {
         status = DesignStatus::invalid_parameter; // a regulator built by hand with a limit that is not a box
     }
     if (status == DesignStatus::ok) {
-        out.u_lim = reg.u_lim;
-        out.demand_lim = reg.demand_lim;
+        out.limits.input = reg.limits.input;
+        out.limits.demand = reg.limits.demand;
     }
     return ::damp::detail::set_status(out, status);
 }
@@ -84,9 +84,9 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
  * (predict moves the filter): the regulator. A design with
  * TrackedOutputs holds those outputs at r through its steady-state target: control(r),
  * step(r, y). Feedforward from a planned trajectory (x_ref, u_ref) adds to it:
- * control([r,] x_ref, u_ref), step([r,] x_ref, u_ref, y). The command is clamped into u_lim
- * (the design's InputLimits; unbounded by default; limits() reads it and set_limits() moves it at
- * run time), and predict() moves the observer with it,
+ * control([r,] x_ref, u_ref), step([r,] x_ref, u_ref, y). The command is clamped into the
+ * design's InputLimits, and its move into an InputRateLimits (unbounded by default; limits() reads
+ * them and set_limits() moves them at run time), and predict() moves the observer with it,
  * or with the input back_calculate(u_sat) recorded for a stage that clamps after the law.
  *
  * A design with an InputDelay (NRU > 0) has its filter on [x; v(k−1); …; v(k−NRU)]: predict
@@ -103,10 +103,11 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
  * @tparam NZ Tracked outputs: the size of r (0: none, the regulator)
  * @tparam NRU Input delay states of the filter's model (0: none)
  * @tparam NM Measured-disturbance inputs (0: none)
+ * @tparam NDU Inputs with a move limit (an InputRateLimits: NU; 0: none)
  */
-template<size_t NX, size_t NU, size_t NY, typename T, typename Est, size_t NZ = 0, typename Store = detail::HeldGains, size_t NRU = 0, size_t NM = 0>
-struct LQG : private detail::StateFeedbackCore<NX, NU, T, 0, NY, Est, NZ, Store, NRU, NM> {
-    using Core = detail::StateFeedbackCore<NX, NU, T, 0, NY, Est, NZ, Store, NRU, NM>; ///< The shared implementation
+template<size_t NX, size_t NU, size_t NY, typename T, typename Est, size_t NZ = 0, typename Store = detail::HeldGains, size_t NRU = 0, size_t NM = 0, size_t NDU = 0>
+struct LQG : private detail::StateFeedbackCore<NX, NU, T, 0, NY, Est, NZ, Store, NRU, NM, NDU> {
+    using Core = detail::StateFeedbackCore<NX, NU, T, 0, NY, Est, NZ, Store, NRU, NM, NDU>; ///< The shared implementation
 
     constexpr LQG() = default;
 
@@ -252,18 +253,18 @@ struct LQG : private detail::StateFeedbackCore<NX, NU, T, 0, NY, Est, NZ, Store,
 };
 
 /** @brief LQG law{res}: the sizes, scalar and filter of an LQG design's result. */
-template<size_t NX, size_t NU, typename T, size_t NI, size_t NY, typename Kalman, size_t NZ, size_t NRU, size_t NM>
-LQG(const design::StateFeedbackResult<NX, NU, T, NI, NY, Kalman, NZ, NRU, NM>&) -> LQG<NX, NU, NY, T, detail::runtime_estimator_t<Kalman, T>, NZ, detail::HeldGains, NRU, NM>;
+template<size_t NX, size_t NU, typename T, size_t NI, size_t NY, typename Kalman, size_t NZ, size_t NRU, size_t NM, size_t NDU>
+LQG(const design::StateFeedbackResult<NX, NU, T, NI, NY, Kalman, NZ, NRU, NM, NDU>&) -> LQG<NX, NU, NY, T, detail::runtime_estimator_t<Kalman, T>, NZ, detail::HeldGains, NRU, NM, NDU>;
 
 namespace detail {
 
 /** @brief An LQ design with a filter and no integrators or disturbance model runs as LQG (with its tracked outputs, NZ > 0). */
-template<size_t NX, size_t NU, typename U, size_t NY, typename Kalman, size_t NZ, size_t NRU, size_t NM, typename T>
-    requires(!damp::is_same_v<Kalman, NoEstimator> && design::StateFeedbackResult<NX, NU, U, 0, NY, Kalman, NZ, NRU, NM>::ND == 0)
-struct lq_runtime<design::StateFeedbackResult<NX, NU, U, 0, NY, Kalman, NZ, NRU, NM>, T> {
-    using type = LQG<NX, NU, NY, T, runtime_estimator_t<Kalman, T>, NZ, HeldGains, NRU, NM>; ///< LQG
+template<size_t NX, size_t NU, typename U, size_t NY, typename Kalman, size_t NZ, size_t NRU, size_t NM, size_t NDU, typename T>
+    requires(!damp::is_same_v<Kalman, NoEstimator> && design::StateFeedbackResult<NX, NU, U, 0, NY, Kalman, NZ, NRU, NM, NDU>::ND == 0)
+struct lq_runtime<design::StateFeedbackResult<NX, NU, U, 0, NY, Kalman, NZ, NRU, NM, NDU>, T> {
+    using type = LQG<NX, NU, NY, T, runtime_estimator_t<Kalman, T>, NZ, HeldGains, NRU, NM, NDU>; ///< LQG
     template<typename Est, typename Store>
-    using on_constants = LQG<NX, NU, NY, T, Est, NZ, Store, NRU, NM>; ///< LQG on the design's constants
+    using on_constants = LQG<NX, NU, NY, T, Est, NZ, Store, NRU, NM, NDU>; ///< LQG on the design's constants
 };
 
 } // namespace detail

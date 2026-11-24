@@ -40,8 +40,8 @@ namespace damp {
  * TrackedOutputs holds those outputs at r through its steady-state target: control(r),
  * step(r, x). Feedforward from a planned trajectory
  * (x_ref, u_ref) adds to it: control([r,] x_ref, u_ref), step([r,] x_ref, u_ref, x). The command
- * is clamped into u_lim (design::state_feedback's InputLimits; unbounded by default, and for a gain K or a
- * design::place result), and a DemandLimit bounds what the outer terms ask of a state: limits() reads
+ * is clamped into design::state_feedback's InputLimits, and its move into an InputRateLimits
+ * (unbounded by default, and for a gain K or a design::place result), and a DemandLimit bounds what the outer terms ask of a state: limits() reads
  * them and set_limits() moves them at run time, as on an MPC. A failed or continuous design does not
  * compile when constant-evaluated.
  *
@@ -64,10 +64,11 @@ namespace damp {
  * @tparam NZ Tracked outputs: the size of r (0: none, the regulator)
  * @tparam NRU Input delay states the law holds (0: none)
  * @tparam NM Measured-disturbance inputs (0: none)
+ * @tparam NDU Inputs with a move limit (an InputRateLimits: NU; 0: none)
  */
-template<size_t NX, size_t NU, typename T = float, size_t NY = NX, size_t NZ = 0, typename Store = detail::HeldGains, size_t NRU = 0, size_t NM = 0>
-struct LQR : private detail::StateFeedbackCore<NX, NU, T, 0, NY, NoEstimator, NZ, Store, NRU, NM> {
-    using Core = detail::StateFeedbackCore<NX, NU, T, 0, NY, NoEstimator, NZ, Store, NRU, NM>; ///< The shared implementation
+template<size_t NX, size_t NU, typename T = float, size_t NY = NX, size_t NZ = 0, typename Store = detail::HeldGains, size_t NRU = 0, size_t NM = 0, size_t NDU = 0>
+struct LQR : private detail::StateFeedbackCore<NX, NU, T, 0, NY, NoEstimator, NZ, Store, NRU, NM, NDU> {
+    using Core = detail::StateFeedbackCore<NX, NU, T, 0, NY, NoEstimator, NZ, Store, NRU, NM, NDU>; ///< The shared implementation
 
     constexpr LQR() = default;
 
@@ -219,8 +220,8 @@ struct LQR : private detail::StateFeedbackCore<NX, NU, T, 0, NY, NoEstimator, NZ
 };
 
 /** @brief LQR law{res}: the sizes and scalar of design::state_feedback's result. */
-template<size_t NX, size_t NU, typename T, size_t NI, size_t NY, typename Kalman, size_t NZ, size_t NRU, size_t NM>
-LQR(const design::StateFeedbackResult<NX, NU, T, NI, NY, Kalman, NZ, NRU, NM>&) -> LQR<NX, NU, T, NY, NZ, detail::HeldGains, NRU, NM>;
+template<size_t NX, size_t NU, typename T, size_t NI, size_t NY, typename Kalman, size_t NZ, size_t NRU, size_t NM, size_t NDU>
+LQR(const design::StateFeedbackResult<NX, NU, T, NI, NY, Kalman, NZ, NRU, NM, NDU>&) -> LQR<NX, NU, T, NY, NZ, detail::HeldGains, NRU, NM, NDU>;
 
 /** @brief LQR law{K}: the sizes of a gain matrix. */
 template<size_t NU, size_t NX, typename T>
@@ -244,11 +245,11 @@ struct lq_runtime<R, T> {
 };
 
 /** @brief An LQ design with no integrators or filter runs as LQR (with its tracked outputs, NZ > 0, and its measured disturbance, NM > 0). */
-template<size_t NX, size_t NU, typename U, size_t NY, size_t NZ, size_t NRU, size_t NM, typename T>
-struct lq_runtime<design::StateFeedbackResult<NX, NU, U, 0, NY, NoEstimator, NZ, NRU, NM>, T> {
-    using type = LQR<NX, NU, T, NY, NZ, HeldGains, NRU, NM>; ///< LQR
+template<size_t NX, size_t NU, typename U, size_t NY, size_t NZ, size_t NRU, size_t NM, size_t NDU, typename T>
+struct lq_runtime<design::StateFeedbackResult<NX, NU, U, 0, NY, NoEstimator, NZ, NRU, NM, NDU>, T> {
+    using type = LQR<NX, NU, T, NY, NZ, HeldGains, NRU, NM, NDU>; ///< LQR
     template<typename, typename Store>
-    using on_constants = LQR<NX, NU, T, NY, NZ, Store, NRU, NM>; ///< LQR on the design's constants
+    using on_constants = LQR<NX, NU, T, NY, NZ, Store, NRU, NM, NDU>; ///< LQR on the design's constants
 };
 
 } // namespace detail

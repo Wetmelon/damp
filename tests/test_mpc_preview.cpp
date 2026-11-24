@@ -38,12 +38,8 @@ auto plain_design(double ru = 0.0) {
     w.Rdu = 1.0;
     w.Ru = ru;
     w.Qy_terminal = w.Qy;
-    design::InputLimits<1> c{};
-    c.u_lim = {
-        .lower = 0.0,
-        .upper = 40.0,
-    };
-    const auto art = design::mpc<NP, NC>(*kModel, w, c, design::TrackedOutputs{});
+    design::InputLimits<1> c{.lower = {0.0}, .upper = {40.0}};
+    const auto             art = design::mpc<NP, NC>(*kModel, w, c, design::TrackedOutputs{});
     REQUIRE(art.success);
     return art;
 }
@@ -153,12 +149,8 @@ TEST_SUITE("MPC reference preview") {
         w.Qy = 1.0;
         w.Rdu = 1.0;
         w.Qy_terminal = w.Qy;
-        constexpr double       u_max = 40.0;
-        design::InputLimits<1> c{};
-        c.u_lim = {
-            .lower = 0.0,
-            .upper = u_max,
-        };
+        constexpr double                  u_max = 40.0;
+        design::InputLimits<1>            c{.lower = {0.0}, .upper = {u_max}};
         StateSpace<1, 1, 1, double, 1, 1> plant{.A = kModel->A, .B = kModel->B, .C = kModel->C, .Ts = kModel->Ts}; // process noise on the state
         const auto                        art = design::mpc<NP, NC>(plant, w, c, design::KalmanNoise{Matrix<1, 1>{{0.01}}, Matrix<1, 1>{{0.01}}, Matrix<1, 1>{{0.05}}}, design::InputDisturbance{});
         REQUIRE(art.success);

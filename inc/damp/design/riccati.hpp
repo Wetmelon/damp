@@ -16,6 +16,7 @@
 
 
 #include "damp/backend.hpp"
+#include "damp/design/input_limits.hpp"
 #include "damp/design/lyapunov.hpp"
 #include "damp/design/stability.hpp"
 #include "damp/design/status.hpp"
@@ -26,7 +27,6 @@
 #include "damp/matrix/functions.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "damp/systems/state_space.hpp"
-#include "damp/toolbox/bounds.hpp"
 
 namespace damp {
 
@@ -1515,15 +1515,14 @@ namespace design {
  */
 template<size_t NX, size_t NU, typename T = double>
 struct [[nodiscard]] LQRResult {
-    Matrix<NU, NX, T>                  K{};                                 ///< Optimal gain: u = −Kx
-    Matrix<NX, NX, T>                  S{};                                 ///< Riccati solution (positive semidefinite)
-    damp::array<damp::complex<T>, NX>  e{};                                 ///< Closed-loop poles (eigenvalues of A − BK)
-    bool                               success{false};                      ///< status == DesignStatus::ok
-    DesignStatus                       status{DesignStatus::not_converged}; ///< ok, or why the design failed
-    T                                  Ts{0};                               ///< Sample time of the law [s]: the plant's (design::state_feedback); 0 when it has none (continuous, or discrete_lqr on bare matrices)
-    bool                               discrete{false};                     ///< A discrete law (e in the z-plane): discrete_lqr, or design::state_feedback on a discrete plant or with a Ts
-    Bounds<NU, T>                      u_lim{};                             ///< Limits on the command the LQR returns (design::state_feedback's InputLimits::u_lim; default unbounded)
-    ::damp::detail::DemandTerms<NX, T> demand_lim{};                        ///< A limit on what the outer states ask of one state (the design's DemandLimit; default off)
+    Matrix<NU, NX, T>                 K{};                                 ///< Optimal gain: u = −Kx
+    Matrix<NX, NX, T>                 S{};                                 ///< Riccati solution (positive semidefinite)
+    damp::array<damp::complex<T>, NX> e{};                                 ///< Closed-loop poles (eigenvalues of A − BK)
+    bool                              success{false};                      ///< status == DesignStatus::ok
+    DesignStatus                      status{DesignStatus::not_converged}; ///< ok, or why the design failed
+    T                                 Ts{0};                               ///< Sample time of the law [s]: the plant's (design::state_feedback); 0 when it has none (continuous, or discrete_lqr on bare matrices)
+    bool                              discrete{false};                     ///< A discrete law (e in the z-plane): discrete_lqr, or design::state_feedback on a discrete plant or with a Ts
+    StateFeedbackLimits<NX, NU, T>    limits{};                            ///< The limits the LQR starts with, its limits() (default unbounded, the demand limit off)
 
     /** @brief True when the design succeeded (success). */
     [[nodiscard]] constexpr explicit operator bool() const { return success; }
@@ -1534,7 +1533,7 @@ struct [[nodiscard]] LQRResult {
     /** @brief The result in scalar U. */
     template<typename U>
     [[nodiscard]] constexpr LQRResult<NX, NU, U> as() const {
-        return {K.template as<U>(), S.template as<U>(), array_as<damp::complex<U>>(e), success, status, static_cast<U>(Ts), discrete, u_lim.template as<U>(), demand_lim.template as<U>()};
+        return {K.template as<U>(), S.template as<U>(), array_as<damp::complex<U>>(e), success, status, static_cast<U>(Ts), discrete, limits.template as<U>()};
     }
 
     /**

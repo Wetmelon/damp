@@ -123,10 +123,8 @@ inline constexpr auto mpc_art = design::mpc<10, 4>(
         .Rdu = {{0.1}},
     },
     design::InputLimits{
-        .u_lim = {
-            .lower = -static_cast<double>(u_max),
-            .upper = static_cast<double>(u_max),
-        },
+        .lower = {-static_cast<double>(u_max)},
+        .upper = {static_cast<double>(u_max)},
     },
     design::KalmanNoise{
         .process = estimator_noise.process,
