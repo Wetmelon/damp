@@ -63,26 +63,26 @@ template<typename Result, size_t NK, size_t NU, typename T>
  *        integrators @p integ (NI > 0), in the design's @p Result. A continuous plant with no Ts
  *        and no integrators gets the continuous law (CARE).
  */
-template<typename Result, bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NI>
+template<typename Result, Domain D, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NI>
 [[nodiscard]] constexpr Result law_design(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T Ts, const LQRWeights<NX, NU, T>& w, const Integrators<NI, NY, T>& integ) {
     const auto& Ci = integ.Ci;
     if (!mat::cholesky(w.R).has_value()) {
         return ::damp::detail::refused<Result>(DesignStatus::bad_weights); // R not positive definite, on every route
     }
-    if constexpr (Discrete && NI == 0) {
+    if constexpr ((D == Domain::plant) && NI == 0) {
         if (sys.is_continuous()) {
             const auto lq = continuous_lqr(sys.A, sys.B, w.Q, w.R, w.N);
             return with_gain(Result{}, lq);
         }
     }
-    const auto m = sampled_model(sys, Ts, Discrete);
+    const auto m = sampled_model(sys, Ts, D);
     if (m.status != DesignStatus::ok) {
         return ::damp::detail::refused<Result>(m.status);
     }
-    const T h = Discrete ? sys.Ts : Ts;
+    const T h = (D == Domain::plant) ? sys.Ts : Ts;
     if constexpr (NI == 0) {
         LQRCost<NX, NU, T> cd{w.Q, w.R, w.N};
-        if constexpr (!Discrete) {
+        if constexpr (D == Domain::sampled) {
             const auto c = discretize_lqr_cost(sys.A, sys.B, w.Q, w.R, Ts, w.N);
             if (!c) {
                 return ::damp::detail::refused<Result>(DesignStatus::bad_weights); // the plant was sampled: a non-finite weight
@@ -99,7 +99,7 @@ template<typename Result, bool Discrete, size_t NX, size_t NU, size_t NY, typena
         // input applied over the period, and so does this model on both routes.
         const auto              im = integral_model(m.law.A, m.law.B, m.law.C, m.law.D, Ci, h);
         LQRCost<NX + NI, NU, T> cd = stacked_weights(w, integ.Q);
-        if constexpr (!Discrete) {
+        if constexpr (D == Domain::sampled) {
             const auto c = sampled_integral_cost(sys.A, sys.B, sys.C, sys.D, Ci, cd, Ts);
             if (!c) {
                 return ::damp::detail::refused<Result>(DesignStatus::bad_weights); // the plant was sampled: a non-finite weight
@@ -134,7 +134,7 @@ template<typename Result, size_t NX, size_t NU, size_t NY, typename T, size_t NW
             return ::damp::detail::refused<Result>(DesignStatus::bad_weights); // an unweighted integrator
         }
     }
-    const auto m = sampled_model(sys, Ts, false, delay); // a continuous plant, a usable Ts, finite entries, a delay discretize takes
+    const auto m = sampled_model(sys, Ts, Domain::sampled, delay); // a continuous plant, a usable Ts, finite entries, a delay discretize takes
     if (m.status != DesignStatus::ok) {
         return ::damp::detail::refused<Result>(m.status);
     }
@@ -160,7 +160,7 @@ template<typename Result, size_t NX, size_t NU, size_t NY, typename T, size_t NW
  *        (delayed_law_design), or the gain placed at @p gain's poles on the same model
  *        (placed_law_design); with the integrators @p integ (NI > 0).
  */
-template<typename Result, bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NI, typename Delay, typename Gain>
+template<typename Result, Domain D, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NI, typename Delay, typename Gain>
 [[nodiscard]] constexpr Result gain_design(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     T                                        Ts,
@@ -172,27 +172,28 @@ template<typename Result, bool Discrete, size_t NX, size_t NU, size_t NY, typena
     using In = damp::remove_cvref_t<decltype(input_delay_of(delay))>;
     if constexpr (is_placed<Gain>) {
         static_cast<void>(w); // the LQ gain's
-        return placed_law_design<Result, Discrete, NI>(sys, Ts, gain, integ.Ci, input_delay_of(delay));
+        return placed_law_design<Result, D, NI>(sys, Ts, gain, integ.Ci, input_delay_of(delay));
     } else if constexpr (damp::is_same_v<In, NoDelay>) {
         static_cast<void>(gain);
         static_cast<void>(delay);
-        return law_design<Result, Discrete>(sys, Ts, w, integ); // a late reading leaves the gain the plant's: only the filter carries it
+        return law_design<Result, D>(sys, Ts, w, integ); // a late reading leaves the gain the plant's: only the filter carries it
     } else {
         static_cast<void>(gain);
         return delayed_law_design<Result>(sys, Ts, input_delay_of(delay), w, integ); // a delay only on the sampled form: check_delays
     }
 }
 
-/** @brief The Kalman filter of a design with a KalmanNoise (kalman_design). */
-template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t ND, typename Spec, typename Delay>
-[[nodiscard]] constexpr auto filter_design(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T Ts, const KalmanNoise<NW, NV, T, ND>& noise, const Spec& spec, const Delay& delay) {
-    return kalman_design<Discrete>(sys, Ts, noise, spec, delay);
-}
-
-/** @brief The placed filter of a design with ObserverPoles (placed_filter_design): the Kalman design's type, its gain placed. */
-template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NP, typename Spec, typename Delay>
-[[nodiscard]] constexpr auto filter_design(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T Ts, const PlacedPoles<NP, T>& poles, const Spec& spec, const Delay& delay) {
-    return placed_filter_design<Discrete>(sys, Ts, poles, spec, delay);
+/**
+ * @brief The filter of a design: the Kalman filter of a KalmanNoise (kalman_design), or the filter
+ *        placed at ObserverPoles' PlacedPoles (placed_filter_design), the Kalman design's type.
+ */
+template<Domain D, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Filter, typename Spec, typename Delay>
+[[nodiscard]] constexpr auto filter_design(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T Ts, const Filter& filter, const Spec& spec, const Delay& delay) {
+    if constexpr (is_placed<Filter>) {
+        return placed_filter_design<D>(sys, Ts, filter, spec, delay);
+    } else {
+        return kalman_design<D>(sys, Ts, filter, spec, delay);
+    }
 }
 
 /**
@@ -207,7 +208,7 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
  * horizon, that is the LQ law in the deviation from the steady state under d, so no term beyond
  * the target is optimal.
  */
-template<bool Held, bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Spec, size_t NI, size_t NM, typename Delay>
+template<bool Held, Domain D, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Spec, size_t NI, size_t NM, typename Delay>
 [[nodiscard]] constexpr auto measured_target(
     const StateSpace<NX, NU, NY, T, NW, NV>&                               sys,
     T                                                                      Ts,
@@ -223,16 +224,16 @@ template<bool Held, bool Discrete, size_t NX, size_t NU, size_t NY, typename T, 
         if (!Bm) {
             return ::damp::detail::refused<Result>(DesignStatus::bad_weights); // a non-finite B_d
         }
-        return target_design<Discrete>(sys, Ts, spec, delay, *Bm);
+        return target_design<D>(sys, Ts, spec, delay, *Bm);
     } else {
         static_cast<void>(spec);
         if (!Bm) {
             return ::damp::detail::refused<SteadyStateTargetResult<NXE, NU, NM, 0, T>>(DesignStatus::bad_weights); // a non-finite B_d
         }
         if constexpr (NI > 0) {
-            return held_at_zero<Discrete>(sys, Ts, Ci, delay, *Bm);
+            return held_at_zero<D>(sys, Ts, Ci, delay, *Bm);
         } else {
-            return held_at_zero<Discrete>(sys, Ts, Matrix<NY, NY, T>::identity(), delay, *Bm);
+            return held_at_zero<D>(sys, Ts, Matrix<NY, NY, T>::identity(), delay, *Bm);
         }
     }
 }
@@ -297,12 +298,12 @@ template<typename Result, size_t NX, size_t NU, typename T, size_t NI, size_t ND
  *        ObserverPoles, or Unset for none) and the target its options ask for: under the
  *        disturbance model @p offset_free, else on the outputs @p track lists (TrackedOutputs),
  *        under the measured disturbance @p measured (NM = 0: none); on the plant in its own domain
- *        (@p Discrete) or sampled at @p Ts, with the delay states of @p delay. NoDisturbance is the
+ *        (@p D plant) or sampled at @p Ts, with the delay states of @p delay. NoDisturbance is the
  *        absent offset-free spec and track. The result's type is worked out first and filled once.
  * @return The result; status the first failure: the gain's, the limits', the filter's, the target's
  */
 template<
-    bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NI, size_t NDU, typename Filter, typename OffsetFree, typename Track, size_t NM,
+    Domain D, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NI, size_t NDU, typename Filter, typename OffsetFree, typename Track, size_t NM,
     typename Delay, typename Gain, typename Fade>
 [[nodiscard]] constexpr auto designed(
     const StateSpace<NX, NU, NY, T, NW, NV>&          sys,
@@ -322,10 +323,10 @@ template<
     constexpr bool kHeld = is_disturbance_model<OffsetFree> || is_tracked_outputs<Track>; // r is the target's
     constexpr bool kTarget = kHeld || (NM > 0);                                           // a measured d moves every law's target
     const auto     spec = target_spec_of(offset_free, track);
-    const auto     Bm = measured_channel<Discrete>(sys, Ts, measured, delay); // d on the model, none on the input's delay states
+    const auto     Bm = measured_channel<D>(sys, Ts, measured, delay); // d on the model, none on the input's delay states
     const auto     estimator = [&] {
         if constexpr (kEstimated) {
-            return with_measured_inputs(filter_design<Discrete>(sys, Ts, filter, spec, delay), Bm); // d a known input after u
+            return with_measured_inputs(filter_design<D>(sys, Ts, filter, spec, delay), Bm); // d a known input after u
         } else {
             static_cast<void>(filter);
             return NoEstimator{};
@@ -335,16 +336,16 @@ template<
     constexpr size_t NYL = (kEstimated || NI > 0) ? NY : NX; // what the law reads: y with a filter or integrators, else x
     using Result = StateFeedbackResult<NX, NU, T, NI, NYL, damp::remove_cvref_t<decltype(estimator)>, NZ, input_delay_states<Delay>, NM, NDU, !is_unset<Fade>>;
 
-    Result       out = with_limits(gain_design<Result, Discrete>(sys, Ts, w, integ, delay, gain), limits, integ.tracking_time, handover);
+    Result       out = with_limits(gain_design<Result, D>(sys, Ts, w, integ, delay, gain), limits, integ.tracking_time, handover);
     DesignStatus status = out.status;
     out.kalman = estimator;
     if constexpr (kEstimated) {
         status = (status == DesignStatus::ok) ? estimator.status : status;
     }
     if constexpr (kTarget && NM == 0) {
-        out.target = target_design<Discrete>(sys, Ts, spec, delay);
+        out.target = target_design<D>(sys, Ts, spec, delay);
     } else if constexpr (kTarget) {
-        out.target = measured_target<kHeld, Discrete>(sys, Ts, spec, integ.Ci, Bm, delay);
+        out.target = measured_target<kHeld, D>(sys, Ts, spec, integ.Ci, Bm, delay);
     } else {
         static_cast<void>(Bm);
     }

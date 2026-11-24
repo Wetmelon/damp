@@ -172,6 +172,16 @@ template<size_t N, size_t M, typename T>
 namespace design {
 namespace detail {
 
+/**
+ * @brief The time domain of a design: the plant's own (fn(sys, …): a discrete plant at its Ts, or
+ *        a continuous one for a continuous gain), or sampled at Ts from a continuous plant
+ *        (fn(plant, Ts, …)).
+ */
+enum class Domain : uint8_t {
+    plant,   ///< The plant's own domain
+    sampled, ///< Sampled at Ts from the continuous plant
+};
+
 /** @brief The discrete model a design is on, and whether the plant was accepted. */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
 struct SampledModel {
@@ -180,14 +190,14 @@ struct SampledModel {
 };
 
 /**
- * @brief Whether a design takes @p sys: in its own time domain (@p discrete) or continuous with a
- *        usable @p Ts, every entry finite.
+ * @brief Whether a design takes @p sys: in its own time domain (@p domain plant) or continuous
+ *        with a usable @p Ts (sampled), every entry finite.
  * @return invalid_sample_time for a plant in the other time domain or a Ts that is not finite and
  *         positive; bad_weights for a non-finite entry of A, B, C, D, G or H; else ok
  */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
-[[nodiscard]] constexpr DesignStatus plant_status(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T Ts, bool discrete) {
-    if (discrete ? !damp::finite_positive(sys.Ts) : (!damp::isfinite(sys.Ts) || sys.Ts != T{0} || !damp::finite_positive(Ts))) {
+[[nodiscard]] constexpr DesignStatus plant_status(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T Ts, Domain domain) {
+    if ((domain == Domain::plant) ? !damp::finite_positive(sys.Ts) : (!damp::isfinite(sys.Ts) || sys.Ts != T{0} || !damp::finite_positive(Ts))) {
         return DesignStatus::invalid_sample_time; // the plant's own time domain, one discretization
     }
     const auto finite = [](T v) { return damp::isfinite(v); };
@@ -199,18 +209,18 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
 }
 
 /**
- * @brief The discrete model of @p sys: itself on a discrete plant (@p discrete), else sampled at
- *        @p Ts (ZOH) by discretize.
+ * @brief The discrete model of @p sys: itself in the plant's own domain (@p domain plant), else
+ *        sampled at @p Ts (ZOH) by discretize.
  * @return status plant_status's; else discretize's not_converged for a model that overflows
  *         within one period
  */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
-[[nodiscard]] constexpr SampledModel<NX, NU, NY, T, NW, NV> sampled_model(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T Ts, bool discrete) {
-    SampledModel<NX, NU, NY, T, NW, NV> out{.status = plant_status(sys, Ts, discrete)};
+[[nodiscard]] constexpr SampledModel<NX, NU, NY, T, NW, NV> sampled_model(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T Ts, Domain domain) {
+    SampledModel<NX, NU, NY, T, NW, NV> out{.status = plant_status(sys, Ts, domain)};
     if (out.status != DesignStatus::ok) {
         return out;
     }
-    if (discrete) {
+    if (domain == Domain::plant) {
         out.law = sys;
         return out;
     }
@@ -282,13 +292,13 @@ template<typename... Opts>
 
 /**
  * @brief The compile-time check of a design's delays, the same in every design: an InputDelay or
- *        an OutputDelay among @p Opts only on its sampled form (@p Sampled), fn(plant, Ts, …), whose
+ *        an OutputDelay among @p Opts only on its sampled form (@p D sampled), fn(plant, Ts, …), whose
  *        continuous plant the delay is sampled with.
  * @return They are
  */
-template<bool Sampled, typename... Opts>
+template<Domain D, typename... Opts>
 consteval bool check_delays() {
-    constexpr bool ok = Sampled || (::damp::detail::option_count<kind::InputDelay, Opts...> + ::damp::detail::option_count<kind::OutputDelay, Opts...> == 0);
+    constexpr bool ok = (D == Domain::sampled) || (::damp::detail::option_count<kind::InputDelay, Opts...> + ::damp::detail::option_count<kind::OutputDelay, Opts...> == 0);
     static_assert(ok, "A delay is sampled with the plant: give the continuous plant and Ts, fn(plant, Ts, ..., InputDelay<N>{theta}, OutputDelay<M>{theta}).");
     return ok;
 }
@@ -307,10 +317,10 @@ consteval bool check_filtered() {
     return spec && late;
 }
 
-/** @brief sampled_model(sys, Ts, discrete), the model of a design without a delay. */
+/** @brief sampled_model(sys, Ts, domain), the model of a design without a delay. */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
-[[nodiscard]] constexpr SampledModel<NX, NU, NY, T, NW, NV> sampled_model(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T Ts, bool discrete, NoDelay) {
-    return sampled_model(sys, Ts, discrete);
+[[nodiscard]] constexpr SampledModel<NX, NU, NY, T, NW, NV> sampled_model(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T Ts, Domain domain, NoDelay) {
+    return sampled_model(sys, Ts, domain);
 }
 
 /**
@@ -323,10 +333,10 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size
 [[nodiscard]] constexpr SampledModel<NX + (N * NU), NU, NY, T, NW, NV> sampled_model(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     T                                        Ts,
-    bool                                     discrete,
+    Domain                                   domain,
     const InputDelay<N, S>&                  delay
 ) {
-    SampledModel<NX + (N * NU), NU, NY, T, NW, NV> out{.status = discrete ? DesignStatus::invalid_sample_time : plant_status(sys, Ts, false)};
+    SampledModel<NX + (N * NU), NU, NY, T, NW, NV> out{.status = (domain == Domain::plant) ? DesignStatus::invalid_sample_time : plant_status(sys, Ts, Domain::sampled)};
     if (out.status != DesignStatus::ok) {
         return out; // a delay is sampled with the plant: there is no delayed model of a discrete one
     }
@@ -349,11 +359,11 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
 [[nodiscard]] constexpr SampledModel<NX + delay_states<PlantDelays<In, OutputDelay<N, S>>, NU, NY>, NU, NY, T, NW, NV> sampled_model(
     const StateSpace<NX, NU, NY, T, NW, NV>&  sys,
     T                                         Ts,
-    bool                                      discrete,
+    Domain                                    domain,
     const PlantDelays<In, OutputDelay<N, S>>& delays
 ) {
     SampledModel<NX + delay_states<PlantDelays<In, OutputDelay<N, S>>, NU, NY>, NU, NY, T, NW, NV> out{
-        .status = discrete ? DesignStatus::invalid_sample_time : plant_status(sys, Ts, false)
+        .status = (domain == Domain::plant) ? DesignStatus::invalid_sample_time : plant_status(sys, Ts, Domain::sampled)
     };
     if (out.status != DesignStatus::ok) {
         return out; // a delay is sampled with the plant: there is no delayed model of a discrete one

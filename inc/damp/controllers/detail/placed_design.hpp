@@ -58,10 +58,10 @@ consteval bool observer_pole_count() {
     return kPolesExpected == kPolesGiven;
 }
 
-/** @brief The listed poles mapped into the model's domain, z = e^{s·Ts} on a sampled one (@p Sampled), then 0 for the @p NZ states placed deadbeat. */
-template<size_t NZ, bool Sampled, size_t NP, typename T>
+/** @brief The listed poles mapped into the model's domain, z = e^{s·Ts} on a sampled one (@p D sampled), then 0 for the @p NZ states placed deadbeat. */
+template<size_t NZ, Domain D, size_t NP, typename T>
 [[nodiscard]] constexpr damp::array<damp::complex<T>, NP + NZ> with_deadbeat(const damp::array<damp::complex<T>, NP>& listed, T Ts) {
-    const auto                             mapped = Sampled ? poles_s_to_z(listed, Ts) : listed;
+    const auto                             mapped = (D == Domain::sampled) ? poles_s_to_z(listed, Ts) : listed;
     damp::array<damp::complex<T>, NP + NZ> out{};
     for (size_t i = 0; i < NP; ++i) {
         out[i] = mapped[i];
@@ -88,7 +88,7 @@ template<size_t NZ, bool Sampled, size_t NP, typename T>
  *         invalid_parameter for a pole that is not finite, sampled_model's for the plant,
  *         design::place's otherwise (not_placeable, singular)
  */
-template<typename Result, bool Discrete, size_t NI, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NP, typename In>
+template<typename Result, Domain D, size_t NI, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NP, typename In>
 [[nodiscard]] constexpr Result placed_law_design(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T Ts, const PlacedPoles<NP, T>& placed, const Matrix<NI, NY, T>& Ci, const In& delay) {
     constexpr size_t NRU = input_delay_states<In>;
     constexpr size_t NXL = NX + (NRU * NU); // the law's model: the plant, then the delay states
@@ -97,7 +97,7 @@ template<typename Result, bool Discrete, size_t NI, size_t NX, size_t NU, size_t
     if (!finite_poles(placed.poles)) {
         return ::damp::detail::refused<Result>(DesignStatus::invalid_parameter); // before z = e^{s·Ts} maps −∞ to 0
     }
-    if constexpr (Discrete && NI == 0 && NRU == 0) {
+    if constexpr ((D == Domain::plant) && NI == 0 && NRU == 0) {
         if (sys.is_continuous()) {
             const auto gain = place_on(sys, placed.poles); // the continuous gain, for analysis
             Result     out{};
@@ -106,11 +106,11 @@ template<typename Result, bool Discrete, size_t NI, size_t NX, size_t NU, size_t
             return ::damp::detail::set_status(out, gain.status);
         }
     }
-    const auto m = sampled_model(sys, Ts, Discrete, delay);
+    const auto m = sampled_model(sys, Ts, D, delay);
     if (m.status != DesignStatus::ok) {
         return ::damp::detail::refused<Result>(m.status);
     }
-    const T                  h = Discrete ? sys.Ts : Ts;
+    const T                  h = (D == Domain::plant) ? sys.Ts : Ts;
     Result                   out{.Ts = h};
     StateSpace<NK, NU, 1, T> law{.Ts = h};
     if constexpr (NI == 0) {
@@ -122,38 +122,38 @@ template<typename Result, bool Discrete, size_t NI, size_t NX, size_t NU, size_t
         law.B = im.B;
         out.integral = IntegralDesign<NI, NXL, NU, NY, T>{Ci, Ci * m.law.C, Ci * m.law.D, h};
     }
-    const auto gain = place_on(law, with_deadbeat<NRU * NU, !Discrete>(placed.poles, Ts));
+    const auto gain = place_on(law, with_deadbeat<NRU * NU, D>(placed.poles, Ts));
     out.K = gain.K;
     out.e = gain.e;
     return ::damp::detail::set_status(out, gain.status);
 }
 
 /** @brief The noise inputs of the filter's model as kalman_design gives them: the plant's or its states, then d's or none. */
-template<bool Discrete, size_t ND, size_t NX, size_t NU, size_t NY, size_t NW, typename Delay>
-inline constexpr size_t placed_noise_inputs = (ND > 0) ? (Discrete ? (NW + ND) : (NX + delay_states<Delay, NU, NY> + ND))
-                                                       : (Discrete ? NW : ((output_delay_states<Delay> > 0) ? (NX + delay_states<Delay, NU, NY>) : NX));
+template<Domain D, size_t ND, size_t NX, size_t NU, size_t NY, size_t NW, typename Delay>
+inline constexpr size_t placed_noise_inputs = (ND > 0) ? ((D == Domain::plant) ? (NW + ND) : (NX + delay_states<Delay, NU, NY> + ND))
+                                                       : ((D == Domain::plant) ? NW : ((output_delay_states<Delay> > 0) ? (NX + delay_states<Delay, NU, NY>) : NX));
 
 /**
  * @brief The filter's model a design on @p sys with @p spec and @p delay estimates on, as
  *        kalman_design builds it: the plant, its delay states, then the disturbance's, with the noise
  *        inputs G the Kalman design gives it (none of the noise is read here).
  */
-template<bool Discrete, size_t ND, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Spec, typename Delay>
+template<Domain D, size_t ND, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Spec, typename Delay>
 [[nodiscard]] constexpr auto placed_filter_model(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T Ts, const Spec& spec, const Delay& delay) {
     constexpr size_t                      NXE = NX + delay_states<Delay, NU, NY>;
     constexpr size_t                      NXK = NXE + ND;
-    constexpr size_t                      NWK = placed_noise_inputs<Discrete, ND, NX, NU, NY, NW, Delay>;
+    constexpr size_t                      NWK = placed_noise_inputs<D, ND, NX, NU, NY, NW, Delay>;
     SampledModel<NXK, NU, NY, T, NWK, NV> out{};
-    const auto                            m = sampled_model(sys, Ts, Discrete, delay);
+    const auto                            m = sampled_model(sys, Ts, D, delay);
     out.status = m.status;
     if (m.status != DesignStatus::ok) {
         return out;
     }
-    const T h = Discrete ? sys.Ts : Ts;
+    const T h = (D == Domain::plant) ? sys.Ts : Ts;
     if constexpr (ND == 0) {
         static_cast<void>(spec);
         out.law = StateSpace<NXK, NU, NY, T, NWK, NV>{.A = m.law.A, .B = m.law.B, .C = m.law.C, .D = m.law.D, .H = sys.H, .Ts = h};
-        if constexpr (Discrete) {
+        if constexpr (D == Domain::plant) {
             out.law.G = m.law.G;
         } else {
             out.law.G = Matrix<NXK, NWK, T>{};
@@ -164,7 +164,7 @@ template<bool Discrete, size_t ND, size_t NX, size_t NU, size_t NY, typename T, 
     } else {
         const auto ch = disturbance_channels(spec, sys, m.law, Ts);
         out.law = disturbance_augment<NWK>(m.law, ch.Bd, ch.Cd, h);
-        if constexpr (Discrete) {
+        if constexpr (D == Domain::plant) {
             out.law.G.template block<NXE, NW>(0, 0) = m.law.G;
             out.law.G.template block<ND, ND>(NXE, NW) = Matrix<ND, ND, T>::identity();
         } else {
@@ -201,7 +201,7 @@ template<bool Discrete, size_t ND, size_t NX, size_t NU, size_t NY, typename T, 
  *         model's, then design::place_observer's (not_placeable for an unobservable mode,
  *         singular for a rank-deficient C)
  */
-template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NP, typename Spec, typename Delay = NoDelay>
+template<Domain D, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NP, typename Spec, typename Delay = NoDelay>
 [[nodiscard]] constexpr auto placed_filter_design(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     T                                        Ts,
@@ -216,8 +216,8 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
     constexpr size_t NXK = NX + NVS + NWS + ND;
     constexpr size_t NC = NXK - NVS; // the core the gain is placed on: the plant, the late readings, d
     static_assert(NP == NX + ND, "The poles listed are the plant's and the disturbance's.");
-    const auto m = placed_filter_model<Discrete, ND>(sys, Ts, spec, delay);
-    using Filter = KalmanResult<NXK, NU, NY, T, placed_noise_inputs<Discrete, ND, NX, NU, NY, NW, Delay>, NV, ND>;
+    const auto m = placed_filter_model<D, ND>(sys, Ts, spec, delay);
+    using Filter = KalmanResult<NXK, NU, NY, T, placed_noise_inputs<D, ND, NX, NU, NY, NW, Delay>, NV, ND>;
     if (!finite_poles(placed.poles)) {
         return ::damp::detail::refused<Filter>(DesignStatus::invalid_parameter);
     }
@@ -264,7 +264,7 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
             core.C(y, c) = v;
         }
     }
-    const auto placed_core = place_observer_on(core, with_deadbeat<NWS, !Discrete>(placed.poles, Ts));
+    const auto placed_core = place_observer_on(core, with_deadbeat<NWS, D>(placed.poles, Ts));
     if (!placed_core.success) {
         return ::damp::detail::refused<Filter>(placed_core.status);
     }

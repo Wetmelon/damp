@@ -189,8 +189,8 @@ TEST_SUITE("Disturbance specs") {
         static_assert(disturbance_traits<design::OutputDisturbance<2>, 2, 3, 4>::listed == 2);
         static_assert(disturbance_traits<design::PlantDisturbance<>, 2, 3, 4>::states == 4);
         static_assert(disturbance_traits<design::DisturbanceModel<5, 3, 1>, 2, 3, 4>::states == 1);
-        static_assert(design::detail::disturbance_states<2, 3, 4, design::KalmanNoise<4, 3, double, 3>, design::OutputDisturbance<>> == 3);
-        static_assert(design::detail::disturbance_states<2, 3, 4, design::KalmanNoise<4, 3>> == 0);
+        static_assert(design::detail::disturbance_states_in<5, 2, 3, 4, design::KalmanNoise<4, 3, double, 3>, design::OutputDisturbance<>> == 3);
+        static_assert(design::detail::disturbance_states_in<5, 2, 3, 4, design::KalmanNoise<4, 3>> == 0);
     }
 
     TEST_CASE("the controlled outputs: the listed ones, checked, or all") {

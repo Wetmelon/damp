@@ -220,7 +220,7 @@ struct DisturbanceChannels {
 /**
  * @brief Where a disturbance d held over the period enters the model a design is on, d entering
  *        the plant's states through @p Bd and the readings through @p Cd: B_d ZOH'd with a
- *        continuous plant at @p Ts, per step on a discrete one (@p Discrete), on the plant's
+ *        continuous plant at @p Ts, per step on a discrete one (@p D plant), on the plant's
  *        states; none on an input's delay states; and on a late reading's delay states what the
  *        plant moved under d and what C_d read of it when the reading was taken.
  *
@@ -233,7 +233,7 @@ struct DisturbanceChannels {
  * @return The channels, @c Bd on the model's NX + delay_states rows and @c Bd_c = @p Bd; nullopt
  *         on a non-finite entry
  */
-template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t ND, typename Delay>
+template<Domain D, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t ND, typename Delay>
 [[nodiscard]] constexpr damp::optional<DisturbanceChannels<NX, NX + delay_states<Delay, NU, NY>, NY, ND, T>> held_channel(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     T                                        Ts,
@@ -252,7 +252,7 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
         return out; // none: no exponential to take
     } else if (!mat::all_of(Bd, finite) || !mat::all_of(Cd, finite)) {
         return damp::nullopt; // the exponential would carry it; refused before
-    } else if constexpr (Discrete) {
+    } else if constexpr (D == Domain::plant) {
         static_cast<void>(Ts);
         static_cast<void>(delay);
         out.Bd.template block<NX, ND>(0, 0) = Bd;
@@ -279,19 +279,19 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
 /**
  * @brief Where a measured disturbance enters the model a design is on (held_channel, C_d = 0): its
  *        B_d on the plant's states, ZOH'd with a continuous plant at @p Ts (d held over the
- *        period), per step on a discrete one (@p Discrete); none on an input's delay states; and
+ *        period), per step on a discrete one (@p D plant); none on an input's delay states; and
  *        on a late reading's delay states what the plant moved under it until the reading was
  *        taken, C·∫₀ˢ e^{Aη} dη·B_d·d.
  * @return The channel on the model's NX + delay_states rows; nullopt on a non-finite entry
  */
-template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NM, typename Delay>
+template<Domain D, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NM, typename Delay>
 [[nodiscard]] constexpr damp::optional<Matrix<NX + delay_states<Delay, NU, NY>, NM, T>> measured_channel(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     T                                        Ts,
     const MeasuredDisturbance<NX, NM, T>&    measured,
     const Delay&                             delay
 ) {
-    const auto channel = held_channel<Discrete>(sys, Ts, measured.Bd, Matrix<NY, NM, T>{}, delay);
+    const auto channel = held_channel<D>(sys, Ts, measured.Bd, Matrix<NY, NM, T>{}, delay);
     if (!channel) {
         return damp::nullopt;
     }
@@ -380,17 +380,6 @@ struct disturbance_traits<DisturbanceModel<NXD, NYD, ND, NZ, T>, NU, NY, NW> {
     static constexpr size_t states = ND; ///< ND
     static constexpr size_t listed = NZ; ///< NZ listed
 };
-
-/** @brief The disturbance spec among a call's options (NoDisturbance when none is given). */
-template<typename... Opts>
-using disturbance_option_t = ::damp::detail::option_t<kind::Disturbance, NoDisturbance, Opts...>;
-
-/** @brief ND of the disturbance spec among a call's options. */
-template<size_t NU, size_t NY, size_t NW, typename... Opts>
-inline constexpr size_t disturbance_states = disturbance_traits<disturbance_option_t<Opts...>, NU, NY, NW>::states;
-} // namespace detail
-
-namespace detail {
 
 /**
  * @brief The listed measured outputs, checked (in range, each once), or every output when none
@@ -521,7 +510,7 @@ template<typename Spec, size_t NX, size_t NXE, size_t NY, size_t ND, typename T,
     static_cast<void>(spec);
     if constexpr (held_on_late_readings<Spec, Delay>) {
         static_assert(NXE == NX + delay_states<Delay, NU, NY>, "The channels are on the filter's model, with its delay states.");
-        const auto held = held_channel<false>(sys, Ts, ch.Bd_c, ch.Cd, delay); // a late reading needs the continuous plant
+        const auto held = held_channel<Domain::sampled>(sys, Ts, ch.Bd_c, ch.Cd, delay); // a late reading needs the continuous plant
         return held ? *held : ch;
     } else {
         static_cast<void>(sys);

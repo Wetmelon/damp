@@ -167,7 +167,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
  * @brief state_feedback_design_of once the options pass their checks: the options read by kind
  *        and the design on them (designed), its gain the LQ one or placed (@p gain).
  */
-template<bool Sampled, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Gain, typename... Opts>
+template<Domain D, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Gain, typename... Opts>
 [[nodiscard]] constexpr auto state_feedback_counted(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     T                                        Ts,
@@ -199,9 +199,9 @@ template<bool Sampled, size_t NX, size_t NU, size_t NY, typename T, size_t NW, s
     }
     const auto design = [&](const Integrators<NI, NY, T>& integ) {
         if constexpr (kFilter) {
-            return designed<!Sampled>(noise_model(sys), Ts, weights, integ, limits, filter, offset_free, track, measured, delay, gain, handover);
+            return designed<D>(noise_model(sys), Ts, weights, integ, limits, filter, offset_free, track, measured, delay, gain, handover);
         } else {
-            return designed<!Sampled>(sys, Ts, weights, integ, limits, filter, offset_free, track, measured, delay, gain, handover);
+            return designed<D>(sys, Ts, weights, integ, limits, filter, offset_free, track, measured, delay, gain, handover);
         }
     };
     if constexpr (::damp::detail::option_count<kind::IntegralAction, Opts...> > 0) { // there without a .Q too: integrators_of refuses it
@@ -219,11 +219,11 @@ template<bool Sampled, size_t NX, size_t NU, size_t NY, typename T, size_t NW, s
 }
 
 /**
- * @brief design::state_feedback in the plant's own domain (@p Sampled false) or at @p Ts: the LQ
+ * @brief design::state_feedback in the plant's own domain (@p D plant) or at @p Ts: the LQ
  *        gain of @p lq (@p weights LQRWeights) or placed at Poles, on the measured state, or on a
  *        filter's estimate with a KalmanNoise or ObserverPoles among @p opts.
  */
-template<bool Sampled, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Gain, typename... Opts>
+template<Domain D, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Gain, typename... Opts>
 [[nodiscard]] constexpr auto state_feedback_design_of(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     T                                        Ts,
@@ -247,7 +247,7 @@ template<bool Sampled, size_t NX, size_t NU, size_t NY, typename T, size_t NW, s
     constexpr bool kTracked = ::damp::detail::option_count<kind::TrackedOutputs, Opts...> > 0;
     static_assert(!(kIntegral && kDisturbance), "Integral action and a disturbance model are two offset-free choices: give an IntegralAction or a disturbance spec, not both.");
     static_assert(!(kIntegral && kTracked), "Integral action already holds r: TrackedOutputs is for a law without it (LQR, LQG).");
-    constexpr bool   kModelFits = check_delays<Sampled, Opts...>() && check_filtered<kFilter, Opts...>() && check_disturbance<NX, NY, T, Opts...>();
+    constexpr bool   kModelFits = check_delays<D, Opts...>() && check_filtered<kFilter, Opts...>() && check_disturbance<NX, NY, T, Opts...>();
     constexpr bool   kOptionsFit = kModelFits && !(kIntegral && (kDisturbance || kTracked));
     constexpr size_t NK = NX + integrator_count<Opts...>();                     // the poles Poles lists
     constexpr size_t NKF = NX + disturbance_states_in<NX, NU, NY, NW, Opts...>; // and ObserverPoles
@@ -267,7 +267,7 @@ template<bool Sampled, size_t NX, size_t NU, size_t NY, typename T, size_t NW, s
         (static_cast<void>(opts), ...);
         return StateFeedbackResult<NX, NU, T>{}; // the message says which: nothing further
     } else {
-        return state_feedback_counted<Sampled>(sys, Ts, lq, gain_spec_of<T>(weights), opts...);
+        return state_feedback_counted<D>(sys, Ts, lq, gain_spec_of<T>(weights), opts...);
     }
 }
 
@@ -379,7 +379,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
     const damp::type_identity_t<LQRWeights<NX, NU, T>>& weights,
     const Opts&... opts
 ) {
-    return detail::state_feedback_design_of<false>(sys, T{0}, weights, detail::LQGain{}, opts...);
+    return detail::state_feedback_design_of<detail::Domain::plant>(sys, T{0}, weights, detail::LQGain{}, opts...);
 }
 
 /**
@@ -393,7 +393,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
     const damp::type_identity_t<LQRWeights<NX, NU, T>>& weights,
     const Opts&... opts
 ) {
-    return detail::state_feedback_design_of<true>(sys, Ts, weights, detail::LQGain{}, opts...);
+    return detail::state_feedback_design_of<detail::Domain::sampled>(sys, Ts, weights, detail::LQGain{}, opts...);
 }
 
 /**
@@ -421,7 +421,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
  */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t N, typename U, typename... Opts>
 [[nodiscard]] constexpr auto state_feedback(const StateSpace<NX, NU, NY, T, NW, NV>& sys, const Poles<N, U>& poles, const Opts&... opts) {
-    return detail::state_feedback_design_of<false>(sys, T{0}, LQRWeights<NX, NU, T>{}, poles, opts...);
+    return detail::state_feedback_design_of<detail::Domain::plant>(sys, T{0}, LQRWeights<NX, NU, T>{}, poles, opts...);
 }
 
 /**
@@ -442,7 +442,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size
  */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t N, typename U, typename... Opts>
 [[nodiscard]] constexpr auto state_feedback(const StateSpace<NX, NU, NY, T, NW, NV>& sys, damp::type_identity_t<T> Ts, const Poles<N, U>& poles, const Opts&... opts) {
-    return detail::state_feedback_design_of<true>(sys, Ts, LQRWeights<NX, NU, T>{}, poles, opts...);
+    return detail::state_feedback_design_of<detail::Domain::sampled>(sys, Ts, LQRWeights<NX, NU, T>{}, poles, opts...);
 }
 
 } // namespace design

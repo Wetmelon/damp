@@ -819,7 +819,7 @@ template<size_t NI, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size
 ) {
     const design::LQRWeights<NX, NU, T>          w{.Q = Q_aug.template block<NX, NX>(0, 0), .R = R};
     const design::detail::Integrators<NI, NY, T> integ{.Ci = Ci ? *Ci : Matrix<NI, NY, T>{}, .Q = Q_aug.template block<NI, NI>(NX, NX)};
-    auto                                         res = design::detail::designed<true>(
+    auto                                         res = design::detail::designed<design::detail::Domain::plant>(
         sys, T{0}, w, integ, design::StateFeedbackLimits<NX, NU, T, NI>{}, noise, design::NoDisturbance{}, design::NoDisturbance{}, design::MeasuredDisturbance<NX, 0, T>{},
         design::detail::NoDelay{}, design::detail::LQGain{}, design::detail::Unset{}
     );
