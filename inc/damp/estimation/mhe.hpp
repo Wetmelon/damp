@@ -168,7 +168,7 @@ namespace detail {
 
 /**
  * @brief The window's covariance W + δ I, δ = √ε·max diag(W): invertible when W is singular
- *        (noise on fewer channels than states, deterministic delay registers).
+ *        (noise on fewer channels than states, deterministic delay states).
  */
 template<size_t N, typename T>
 [[nodiscard]] constexpr Matrix<N, N, T> window_covariance(const Matrix<N, N, T>& W) {
@@ -190,7 +190,7 @@ template<size_t N, typename T>
  * inverses of @f$ G Q G^\top + \delta_q I @f$ and @f$ H R H^\top + \delta_r I @f$, each
  * @f$ \delta = \sqrt{\varepsilon}\, \max_i W_{ii} @f$ of its own matrix. G Q Gᵀ is singular
  * whenever the noise drives fewer channels than states (a G with fewer columns than rows, or
- * the delay registers of discretize(plant, Ts, InputDelay{θ}), which get no noise); δ keeps
+ * the delay states of discretize(plant, Ts, InputDelay{θ}), which get no noise); δ keeps
  * the window solvable. The arrival weight is the inverse of the steady-state Kalman
  * covariance on the same two covariances, so the unconstrained estimator agrees with that
  * Kalman filter.

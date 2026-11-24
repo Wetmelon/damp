@@ -27,8 +27,8 @@
 #include "damp/systems/state_space.hpp"
 
 #define DOCTEST_CONFIG_INCLUDE_TYPE_TRAITS
+#include "delay_state_form.hpp"
 #include "doctest.h"
-#include "register_form.hpp"
 
 using namespace damp;
 
@@ -653,7 +653,7 @@ namespace {
 constexpr StateSpace<1, 1, 1, double, 1, 1> kBlock{.A = {{-1.0 / 30.0}}, .B = {{6.0 / 30.0}}, .C = {{1.0}}};
 
 constexpr StateSpace<4, 1, 1, double, 1, 1> heater_model() {
-    auto m = test::register_form<3>(kBlock, 2.0, 5.0);
+    auto m = test::delay_state_form<3>(kBlock, 2.0, 5.0);
     m.G = Matrix<4, 1>{{1.0}, {0.0}, {0.0}, {0.0}};
     return m;
 }

@@ -89,7 +89,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
  * or with the input back_calculate(u_sat) recorded for a stage that clamps after the law.
  *
  * A design with an InputDelay (NRU > 0) has its filter on [x; v(k−1); …; v(k−NRU)]: predict
- * shifts the applied input into the registers. x_ref is the plant's; the registers' reference is
+ * shifts the applied input into the delay states. x_ref is the plant's; the delay states' reference is
  * u_ref.
  *
  * @note Compare with MATLAB®'s lqg.
@@ -100,7 +100,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
  * control([r,] d), step([r,] d, y), control([r,] x_ref, u_ref, d), step([r,] x_ref, u_ref, d, y).
  *
  * @tparam NZ Tracked outputs: the size of r (0: none, the regulator)
- * @tparam NRU Input registers of the filter's model (0: none)
+ * @tparam NRU Input delay states of the filter's model (0: none)
  * @tparam NM Measured-disturbance inputs (0: none)
  */
 template<size_t NX, size_t NU, size_t NY, typename T, typename Est, size_t NZ = 0, typename Store = detail::HeldGains, size_t NRU = 0, size_t NM = 0>

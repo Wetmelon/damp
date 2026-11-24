@@ -4,7 +4,7 @@
 // (See accompanying file LICENSE or copy at http://www.boost.org/LICENSE_1_0.txt)
 
 // Delay per channel, and on the measurement. discretize(plant, Ts, OutputDelay<N>{θ}) holds a late
-// reading in N output registers, and InputDelay / OutputDelay take a ColVec with one delay per
+// reading in N output delay states, and InputDelay / OutputDelay take a ColVec with one delay per
 // channel. The oracle is the continuous plant integrated on a fine grid with each command arriving
 // θ_j late and each reading taken θ_i before it arrives; the discrete model has to read the same.
 // The designs then run on that model like on any other plant.
@@ -293,7 +293,7 @@ TEST_SUITE("Delay per channel and on the measurement") {
         CHECK(discretize(two_by_two(), kTs, OutputDelay<2>{2.0 * kTs}, DiscretizationMethod::Tustin).success);
         const auto none = *discretize(two_by_two(), kTs, OutputDelay<2>{0.0});
         CHECK(same(Matrix<3, 3>(none.A.block<3, 3>(0, 0)), discrete.A));
-        CHECK(same(Matrix<2, 3>(none.C.block<2, 3>(0, 0)), discrete.C)); // no delay: the plant's own reading, the registers unread
+        CHECK(same(Matrix<2, 3>(none.C.block<2, 3>(0, 0)), discrete.C)); // no delay: the plant's own reading, the delay states unread
         CHECK(same(none.D, discrete.D));
     }
 
@@ -399,7 +399,7 @@ TEST_SUITE("Delay per channel and on the measurement") {
         CHECK(design::mpc<h.prediction_horizon, h.control_horizon>(model, w).success);
     }
 
-    TEST_CASE("a placed observer on the output registers: one pole per output pinned at 0, the error gone") {
+    TEST_CASE("a placed observer on the output delay states: one pole per output pinned at 0, the error gone") {
         const auto                      model = discretize(mass_spring(), kTsSpring, OutputDelay<2>{2.0 * kTsSpring}).value();
         damp::array<complex<double>, 4> poles{complex<double>{0.9, 0.0}, complex<double>{0.92, 0.0}, complex<double>{0.0, 0.0}, complex<double>{1e-3, 0.0}};
         const auto                      placed = design::place_observer(model, poles);

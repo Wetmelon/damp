@@ -34,20 +34,20 @@ A controller that does not know about the delay sees the temperature still low a
 The whole design and runtime:
 
 ```cpp
-constexpr auto kModel = *discretize(kPlant, kTs, InputDelay{kDeadTime});  // 5 s at 5 s: one period, one register state
+constexpr auto kModel = *discretize(kPlant, kTs, InputDelay{kDeadTime});  // 5 s at 5 s: one period, one delay state
 constexpr auto kLaw = design::mpc<12, 4>(kModel, kWeights, kLimits, kNoise, design::InputDisturbance{});
 static constinit Law<kLaw, float> controller;  // the design's OFMPC: sizes, estimator and delay from the design, the filter on constants; a failed design does not compile
 ```
 
 After the weights come the options, in any order: the limits (`InputLimits`), the estimator's noise (`KalmanNoise`, so the controller runs from the thermistor reading through a Kalman filter) and the disturbance model (`InputDisturbance`, which makes it offset-free): `design::mpc<NP, NC>(model, weights, limits, noise, disturbance)`, run as `OFMPC`, whose tick is `step(r, y)`. The dead time is in the model itself.
 
-The dead time is one control period, $`\theta = T_s`$, so the power decided now reaches the block only over the next period. The model carries the previous command as one register state, with no approximation: with $`a = e^{-T_s/\tau}`$,
+The dead time is one control period, $`\theta = T_s`$, so the power decided now reaches the block only over the next period. The model carries the previous command as one delay state, with no approximation: with $`a = e^{-T_s/\tau}`$,
 
 ```math
 x_{k+1} = a\,x_k + \Gamma_1\,v_{k-1},\qquad \Gamma_1 = K\,(1 - a),
 ```
 
-and the command $`v_k`$ loads the register, $`[x_k;\ v_{k-1}]`$. A dead time shorter than the period, $`0 < \theta < T_s`$, is exact too: within each period the block sees the previous command for $`\theta`$ and the current one for the rest,
+and the command $`v_k`$ loads the delay state, $`[x_k;\ v_{k-1}]`$. A dead time shorter than the period, $`0 < \theta < T_s`$, is exact too: within each period the block sees the previous command for $`\theta`$ and the current one for the rest,
 
 ```math
 x_{k+1} = a\,x_k + \Gamma_0\,v_k + \Gamma_1\,v_{k-1},\qquad
@@ -55,9 +55,9 @@ x_{k+1} = a\,x_k + \Gamma_0\,v_k + \Gamma_1\,v_{k-1},\qquad
 \Gamma_1 = K\,e^{-(T_s-\theta)/\tau}\bigl(1 - e^{-\theta/\tau}\bigr)
 ```
 
-The register is not a guess, the controller sent it, so it carries no process noise. A Padé approximation would instead add a non-minimum-phase zero that is only right at low frequency.
+The delay state is not a guess, the controller sent it, so it carries no process noise. A Padé approximation would instead add a non-minimum-phase zero that is only right at low frequency.
 
-A longer dead time means more registers, `InputDelay<N>{θ}`, or sampling slower, as here: 5 s is six samples per 30 s time constant, plenty for a thermal plant, and the model stays small. A single loop whose dead time spans many samples is a job for `SmithPredictor`.
+A longer dead time means more delay states, `InputDelay<N>{θ}`, or sampling slower, as here: 5 s is six samples per 30 s time constant, plenty for a thermal plant, and the model stays small. A single loop whose dead time spans many samples is a job for `SmithPredictor`.
 
 ---
 

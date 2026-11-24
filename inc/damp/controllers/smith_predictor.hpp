@@ -31,7 +31,7 @@
  *
  * It is the dead-time compensator for a single loop whose delay spans many samples. The
  * state-space laws (LQR, LQI, LQG, LQGI, OFLQG, MPC, OFMPC) take an input delay of N samples in the
- * model `discretize(sys, Ts, InputDelay<N>{θ})` returns, one state per register. The classic Smith structure is
+ * model `discretize(sys, Ts, InputDelay<N>{θ})` returns, one state per delay state. The classic Smith structure is
  * not internally stable for an open-loop unstable plant: the model path ŷ − ŷ_d runs open
  * loop, so the plant's unstable pole stays in the map from a load disturbance to the output.
  *

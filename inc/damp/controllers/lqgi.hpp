@@ -47,7 +47,7 @@ using LQGIResult = StateFeedbackResult<NX, NU, T, NI, NY, KalmanResult<NX, NU, N
  * that clamps after the law.
  *
  * A design with an InputDelay (NRU > 0) has its filter on [x; v(k−1); …; v(k−NRU)]: predict
- * shifts the applied input into the registers. x_ref is the plant's; the registers' reference is
+ * shifts the applied input into the delay states. x_ref is the plant's; the delay states' reference is
  * u_ref.
  *
  * @note Compare with MATLAB®'s lqgtrack.
@@ -56,7 +56,7 @@ using LQGIResult = StateFeedbackResult<NX, NU, T, NI, NY, KalmanResult<NX, NU, N
  * as a known input after u: control(r, d), step(r, d, y), control(r, x_ref, u_ref, d),
  * step(r, x_ref, u_ref, d, y).
  *
- * @tparam NRU Input registers of the filter's model (0: none)
+ * @tparam NRU Input delay states of the filter's model (0: none)
  * @tparam NM  Measured-disturbance inputs (0: none)
  */
 template<size_t NX, size_t NU, size_t NY, size_t NI, typename T, typename Est, typename Store = detail::HeldGains, size_t NRU = 0, size_t NM = 0>

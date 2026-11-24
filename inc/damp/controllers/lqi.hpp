@@ -51,7 +51,7 @@ using LQIResult = StateFeedbackResult<NX, NU, T, NI, NY, NoEstimator, 0, NRU>;
  *
  * A design with an InputDelay (NRU > 0) runs on [x; v(k−1); …; v(k−NRU); xi]: update takes the
  * plant state x, and predict shifts the input back_calculate recorded (else the last command)
- * into the registers, so it runs every tick. x_ref is the plant's; the registers' reference is u_ref.
+ * into the delay states, so it runs every tick. x_ref is the plant's; the delay states' reference is u_ref.
  *
  * @note Compare with MATLAB®'s lqi.
  *
@@ -60,7 +60,7 @@ using LQIResult = StateFeedbackResult<NX, NU, T, NI, NY, NoEstimator, 0, NRU>;
  * hold r and take up what the model leaves: control(r, d), step(r, d, x), control(r, x_ref,
  * u_ref, d), step(r, x_ref, u_ref, d, x).
  *
- * @tparam NRU Input registers the law holds (0: none)
+ * @tparam NRU Input delay states the law holds (0: none)
  * @tparam NM  Measured-disturbance inputs (0: none)
  */
 template<size_t NX, size_t NU, size_t NI, typename T = float, size_t NY = NX, typename Store = detail::HeldGains, size_t NRU = 0, size_t NM = 0>
@@ -87,7 +87,7 @@ struct LQI : private detail::StateFeedbackCore<NX, NU, T, NI, NY, NoEstimator, 0
     using Core::tracking_time;
     using Core::u_lim;
 
-    /** @brief Hold the measured plant state @p x for the next control (the input registers are the law's). */
+    /** @brief Hold the measured plant state @p x for the next control (the input delay states are the law's). */
     constexpr void update(const ColVec<NX, T>& x) { Core::update(x); }
 
     /** @brief u = −K·[x; xi] at the state of the last update: the basic call, x* = 0 and u* = 0; holds r − Ci·C·x for the next predict. */

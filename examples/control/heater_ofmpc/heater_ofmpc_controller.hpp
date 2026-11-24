@@ -13,11 +13,11 @@
  *   heater_ofmpc_sketch.cpp      — Arduino setup/loop
  *   heater_ofmpc_sil.cpp         — host plant: the MPC vs the same MPC blind to the delay,
  *                                  and the setpoint known ahead vs held
- *   heater_ofmpc_derivation.md   — FOPDT, the delay register, offset-free MPC, preview
+ *   heater_ofmpc_derivation.md   — FOPDT, the delay state, offset-free MPC, preview
  *
  * A 3D-printer hotend: a 40 W cartridge in an aluminium block, read by a thermistor. Heat
  * takes 5 s to reach the thermistor, one control period. The model carries the power already sent
- * as a register state, so the MPC plans from where the block will be when the power it decides
+ * as a delay state, so the MPC plans from where the block will be when the power it decides
  * now arrives, and stops heating before the thermistor has seen the heat it already put in.
  */
 
@@ -38,7 +38,7 @@ inline constexpr double kAmbient = 25.0; // [°C] assumed; the disturbance estim
 inline constexpr double kTs = 5.0;       // [s] control period: the dead time, so it is one sample
 
 // Plant: first order in degrees above ambient, the model error on the block temperature (G = 1)
-// and the thermistor noise on the reading (H = 1). The dead time is one period, one register state
+// and the thermistor noise on the reading (H = 1). The dead time is one period, one delay state
 // in the model.
 inline constexpr StateSpace kPlant{.A = {{-1.0 / kTau}}, .B = {{kGain / kTau}}, .C = {{1.0}}, .G = Matrix<1, 1>::identity(), .H = Matrix<1, 1>::identity()};
 inline constexpr auto       kModel = *discretize(kPlant, kTs, InputDelay{kDeadTime}); // [T; P(k−1)], per period

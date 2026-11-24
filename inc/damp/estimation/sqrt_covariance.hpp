@@ -86,7 +86,7 @@ template<size_t N, typename T>
  *        where a pivot vanishes
  *
  * The Cholesky recursion in state order, for a covariance that may be singular: all zeros, a state
- * known exactly (a delay register, whose row and column are zero), or states that are exact
+ * known exactly (a delay state, whose row and column are zero), or states that are exact
  * combinations of earlier ones. mat::cholesky() refuses those, since a solve cannot use them; a
  * factor can.
  *
@@ -181,7 +181,7 @@ template<size_t N, typename T>
  *        with column i's sign turned when @p flip
  *
  * A row the reflection does not move (its product with v is exactly zero: a state known exactly,
- * a delay register) is left as it is.
+ * a delay state) is left as it is.
  */
 template<size_t N, size_t M, typename T>
 constexpr void reflect_rows_below(Matrix<N, N, T>& W, Matrix<N, M, T>& E, size_t i, size_t width, T v0, T beta, bool flip) {
@@ -223,7 +223,7 @@ constexpr void reflect_rows_below(Matrix<N, N, T>& W, Matrix<N, M, T>& E, size_t
  *
  * Householder and not modified Gram–Schmidt, for three reasons. It runs in the storage of W and E
  * with no second array, where Gram–Schmidt keeps the orthogonalized rows beside the factor. A row
- * that is zero (a state known exactly, a delay register) is no reflection; Gram–Schmidt divides
+ * that is zero (a state known exactly, a delay state) is no reflection; Gram–Schmidt divides
  * by its norm. And its error is a backward error of a few eps on each row of [W E] relative to
  * that row's own norm, so a state in small units keeps its digits beside one in large units.
  *
@@ -289,7 +289,7 @@ inline constexpr bool noise_factor_is_triangular = (NW >= NX);
  * @brief A factor Γ of the process noise on the state, Γ Γᵀ = G Q Gᵀ, for sqrt_time_update()
  *
  * Q is factored by semidefinite_factor(), so a singular Q is taken as it is: a noise input with no
- * variance, or a model whose G has zero rows for its delay registers. With fewer noise inputs
+ * variance, or a model whose G has zero rows for its delay states. With fewer noise inputs
  * than states Γ is G Q½, NX × NW and dense. Otherwise it is triangularized once to NX × NX lower
  * triangular, which is all the time update reads and costs it a third less.
  *

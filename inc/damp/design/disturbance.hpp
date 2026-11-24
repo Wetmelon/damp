@@ -231,7 +231,7 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
         if (!d) {
             return damp::nullopt;
         }
-        constexpr size_t first = NX + (delay_registers<Delay> * NU); // the late readings' delay states, after the input's
+        constexpr size_t first = NX + (input_delay_states<Delay> * NU); // the late readings' delay states, after the input's
         out.template block<NX, NM>(0, 0) = d->B.template block<NX, NM>(0, 0);
         out.template block<NRY * NY, NM>(first, 0) = d->B.template block<NRY * NY, NM>(NX, 0);
     }
@@ -376,7 +376,7 @@ struct DisturbanceChannels {
 
 /**
  * @brief An input disturbance: B_d = B of the filter's model (delayed with u), C_d = its D. On a
- *        model with input registers its walk reaches the plant through them, so none of it acts
+ *        model with input delay states its walk reaches the plant through them, so none of it acts
  *        within the period (B_d,c = 0).
  */
 template<size_t NZ, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NXE, size_t NWE, size_t NVE>
@@ -404,7 +404,7 @@ template<size_t NZ, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size
     return DisturbanceChannels<NX, NXE, NY, NY, T>{.Cd = Matrix<NY, NY, T>::identity()};
 }
 
-/** @brief The plant's channel: B_d = G of the filter's model (off the registers), C_d = H. */
+/** @brief The plant's channel: B_d = G of the filter's model (off the delay states), C_d = H. */
 template<size_t NZ, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NXE, size_t NWE, size_t NVE>
 [[nodiscard]] constexpr DisturbanceChannels<NX, NXE, NY, NW, T> disturbance_channels(
     const PlantDisturbance<NZ>&,

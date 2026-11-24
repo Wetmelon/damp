@@ -51,7 +51,7 @@ using OFLQGResult = StateFeedbackResult<NX, NU, T, 0, NY, KalmanResult<NX + ND, 
  * against, as integral_lim on LQI.
  *
  * A design with an InputDelay (NRU > 0) has its filter on [x; v(k−1); …; v(k−NRU); d]: predict
- * shifts the applied input into the registers. x_ref is the plant's; the registers' reference is
+ * shifts the applied input into the delay states. x_ref is the plant's; the delay states' reference is
  * u_ref.
  *
  * @note Compare with MATLAB®'s lqg with an integrated-white-noise disturbance model (setoutdist / setindist).
@@ -60,7 +60,7 @@ using OFLQGResult = StateFeedbackResult<NX, NU, T, 0, NY, KalmanResult<NX + ND, 
  * its target hold r under [d̂; d], so d̂ estimates only the part of a load d does not measure:
  * control(r, d), step(r, d, y), control(r, x_ref, u_ref, d), step(r, x_ref, u_ref, d, y).
  *
- * @tparam NRU Input registers of the filter's model (0: none)
+ * @tparam NRU Input delay states of the filter's model (0: none)
  * @tparam NM  Measured-disturbance inputs (0: none)
  */
 template<size_t NX, size_t NU, size_t NY, size_t NZ, typename T, typename Est, typename Store = detail::HeldGains, size_t NRU = 0, size_t NM = 0>

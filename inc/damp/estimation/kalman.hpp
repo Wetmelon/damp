@@ -397,11 +397,11 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
 
 /**
  * @brief The sampled-data Kalman design on a continuous plant whose input arrives @p delay late:
- *        the filter on discretize(sys, Ts, delay), the registers states it carries.
+ *        the filter on discretize(sys, Ts, delay), carrying its delay states.
  *
  * The process noise acts on the plant, not through the delay: Q_d over the period is the plant's
- * (discretize_process_noise), the registers take none, and the filter's model is the delayed one
- * with G = [I; 0]. The registers hold the inputs applied, which predict shifts in, so their
+ * (discretize_process_noise), the delay states take none, and the filter's model is the delayed one
+ * with G = [I; 0]. The delay states hold the inputs applied, which predict shifts in, so their
  * covariance is zero and the readings do not move them.
  */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t N, typename S>
@@ -443,14 +443,14 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size
  */
 template<size_t NQ, size_t NC, size_t NG, size_t NY, typename T>
 [[nodiscard]] constexpr damp::optional<Matrix<NQ, NQ, T>> late_reading_noise(
-    const Matrix<NC, NC, T>&                                 A,
-    const Matrix<NC, NG, T>&                                 G,
-    const Matrix<NG, NG, T>&                                 Qc,
-    const Matrix<NY, NC, T>&                                 R,
-    const damp::array<::damp::detail::RegisterDelay<T>, NY>& outputs,
-    T                                                        Ts,
-    const damp::array<size_t, NC>&                           row,
-    size_t                                                   first
+    const Matrix<NC, NC, T>&                              A,
+    const Matrix<NC, NG, T>&                              G,
+    const Matrix<NG, NG, T>&                              Qc,
+    const Matrix<NY, NC, T>&                              R,
+    const damp::array<::damp::detail::DelaySplit<T>, NY>& outputs,
+    T                                                     Ts,
+    const damp::array<size_t, NC>&                        row,
+    size_t                                                first
 ) {
     const auto Q_T = discretize_process_noise(A, G, Qc, Ts);
     if (!Q_T) {
@@ -528,7 +528,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
     constexpr size_t NXE = NX + delay_states<PlantDelays<In, OutputDelay<N, S>>, NU, NY>;
     using Result = KalmanResult<NXE, NU, NY, T, NXE, NV>;
     const auto m = design::detail::sampled_model(sys, Ts, false, delays);
-    const auto outputs = ::damp::detail::channel_register_delays<NY>(delays.output.seconds, Ts, N);
+    const auto outputs = ::damp::detail::channel_delay_splits<NY>(delays.output.seconds, Ts, N);
     if (m.status != DesignStatus::ok || !outputs) {
         return damp::detail::refused<Result>((m.status != DesignStatus::ok) ? m.status : DesignStatus::invalid_parameter);
     }
@@ -536,7 +536,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
     for (size_t i = 0; i < NX; ++i) {
         row[i] = i;
     }
-    const auto Q = late_reading_noise<NXE>(sys.A, sys.G, noise.process, sys.C, *outputs, Ts, row, NX + (delay_registers<In> * NU));
+    const auto Q = late_reading_noise<NXE>(sys.A, sys.G, noise.process, sys.C, *outputs, Ts, row, NX + (input_delay_states<In> * NU));
     if (!Q) {
         return damp::detail::refused<Result>(DesignStatus::bad_weights); // a non-finite noise entry
     }
@@ -600,7 +600,7 @@ template<size_t NXE, size_t NM, size_t NX, size_t NU, size_t NY, typename T, siz
 }
 
 /**
- * @brief The Kalman design, plain or on [x; d]: the filter's model (the plant, its input registers
+ * @brief The Kalman design, plain or on [x; d]: the filter's model (the plant, its input delay states
  *        when @p delay is an InputDelay, then the disturbance), in the plant's own time domain
  *        (@p Discrete) or sampled at @p Ts.
  */
@@ -671,7 +671,7 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
             }
             if constexpr (output_delay_states<Delay> > 0) {
                 //! A late reading also holds the noise up to when it was taken: [x; d] from it, the readings on x.
-                const auto outputs = ::damp::detail::channel_register_delays<NY>(delay.output.seconds, Ts, output_delay_states<Delay>);
+                const auto outputs = ::damp::detail::channel_delay_splits<NY>(delay.output.seconds, Ts, output_delay_states<Delay>);
                 if (!outputs) {
                     return ::damp::detail::refused<Result>(DesignStatus::invalid_parameter);
                 }
@@ -681,7 +681,7 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
                 for (size_t i = 0; i < NA; ++i) {
                     row[i] = (i < NX) ? i : (i - NX + NXE);
                 }
-                const auto Ql = late_reading_noise<NXK>(Ac, Gc, Qc, R, *outputs, Ts, row, NX + (delay_registers<Delay> * NU));
+                const auto Ql = late_reading_noise<NXK>(Ac, Gc, Qc, R, *outputs, Ts, row, NX + (input_delay_states<Delay> * NU));
                 if (!Ql) {
                     return ::damp::detail::refused<Result>(DesignStatus::bad_weights);
                 }
@@ -986,7 +986,7 @@ struct HeldKalman {
  *        KalmanFilter that Law<kRes, T>::Recursive names
  *
  * A and C are also patterns holding their values, so the products A S and C S have no term for an
- * exact zero (a delay register's) and no multiply for an exact one. The factors of G Q Gᵀ and
+ * exact zero (a delay state's) and no multiply for an exact one. The factors of G Q Gᵀ and
  * H R Hᵀ are constants, and the covariance starts at the design's steady state, factored in the
  * design's own scalar.
  *
@@ -1079,11 +1079,11 @@ struct ConstantKalman {
  * A design on [x; d] (design::kalman with a disturbance) runs here as the absolute filter on the
  * whole augmented state. An input delay is in the model discretize(plant, Ts, InputDelay<N>{θ})
  * returns, which design::kalman(plant, Ts, noise, InputDelay<N>{θ}) designs on from the continuous
- * plant: its registers v(k−1) … v(k−N) are states like any other, with zero rows in the factor.
+ * plant: its delay states v(k−1) … v(k−N) are states like any other, with zero rows in the factor.
  *
  * On a `constexpr` design::kalman, `Law<kRes, float>::Recursive` is this filter with the design's
  * model and noise as constants of the type (@p Store): no RAM for them, and the products A S and
- * C S have no term for an exact zero, a delay register's. The factor starts at the design's
+ * C S have no term for an exact zero, a delay state's. The factor starts at the design's
  * steady state. A reading of another C, D or R (update(y, C, R)) runs dense, as with members.
  *
  * @tparam NX Filter states

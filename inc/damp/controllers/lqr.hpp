@@ -29,18 +29,6 @@
 #include "damp/matrix/core.hpp"
 
 namespace damp {
-namespace design {
-namespace detail {
-
-/** @brief design::state_feedback's result: the gain, the Riccati solution, the closed-loop poles, the status and Ts. */
-template<size_t NX, size_t NU, typename T, size_t NY>
-[[nodiscard]] constexpr LQRResult<NX, NU, T> lqr_result(const StateFeedbackResult<NX, NU, T, 0, NY>& r) {
-    return {r.K, r.S, r.e, r.success, r.status, r.Ts, r.Ts > T{0}, r.u_lim, r.demand_lim};
-}
-
-} // namespace detail
-
-} // namespace design
 
 /**
  * @ingroup discrete_controllers
@@ -64,7 +52,7 @@ template<size_t NX, size_t NU, typename T, size_t NY>
  * @note Compare with MATLAB®'s lqr / lqrd.
  *
  * A design with an InputDelay (NRU > 0) runs on [x; v(k−1); …; v(k−NRU)]: update takes the plant
- * state, and predict shifts the applied input into the registers, so it is no longer empty.
+ * state, and predict shifts the applied input into the delay states, so it is no longer empty.
  *
  * A design with a MeasuredDisturbance (NM > 0) takes d each tick and holds the target under it,
  * u = u_t(r, d) − K·(x − x_t(r, d)): control(r, d), step(r, d, x), and with feedforward
@@ -72,7 +60,7 @@ template<size_t NX, size_t NU, typename T, size_t NY>
  * output at 0 under d: control(d), step(d, x), control(x_ref, u_ref, d), step(x_ref, u_ref, d, x).
  *
  * @tparam NZ Tracked outputs: the size of r (0: none, the regulator)
- * @tparam NRU Input registers the law holds (0: none)
+ * @tparam NRU Input delay states the law holds (0: none)
  * @tparam NM Measured-disturbance inputs (0: none)
  */
 template<size_t NX, size_t NU, typename T = float, size_t NY = NX, size_t NZ = 0, typename Store = detail::HeldGains, size_t NRU = 0, size_t NM = 0>

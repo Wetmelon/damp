@@ -662,9 +662,9 @@ TEST_SUITE("KalmanFilter on the factor: singular covariances and refused reading
         CHECK(worst <= 64.0); // eps·P₀₀ against the Joseph form in double: 12.7 measured
     }
 
-    TEST_CASE_TEMPLATE("a delay-register model, its Q singular: the registers hold the inputs exactly, with zero rows in the factor", T, float, double) {
+    TEST_CASE_TEMPLATE("a delay-state model, its Q singular: the delay states hold the inputs exactly, with zero rows in the factor", T, float, double) {
         // A mass on a spring whose input arrives 1.5 samples late: [x; v(k−1); v(k−2)], the
-        // process noise on the plant only (G has no row for a register).
+        // process noise on the plant only (G has no row for a delay state).
         const auto model = *discretize(mass_spring(), 0.01, InputDelay<2>{0.015});
         const auto sys = model.template as<T>();
         static_assert(std::is_same_v<decltype(sys), const StateSpace<4, 1, 1, T, 2, 1>>);
@@ -699,8 +699,8 @@ TEST_SUITE("KalmanFilter on the factor: singular covariances and refused reading
         CHECK(worst <= 128.0); // eps·‖P‖ against the Joseph form in double, four states: 25.9 measured
     }
 
-    TEST_CASE_TEMPLATE("Law<kRes, T>::Recursive, the filter on a design's constants: the same factor, the registers' zeros known at compile time", T, float, double) {
-        // The design's steady state seeds both filters; the registers have no covariance in it.
+    TEST_CASE_TEMPLATE("Law<kRes, T>::Recursive, the filter on a design's constants: the same factor, the delay states' zeros known at compile time", T, float, double) {
+        // The design's steady state seeds both filters; the delay states have no covariance in it.
         static_assert(kDelayedDesign.success);
         typename Law<kDelayedDesign, T>::Recursive on_constants;
         KalmanFilter<5, 1, 1, T, 2, 1>             held{kDelayedDesign};
@@ -1168,7 +1168,7 @@ TEST_SUITE("the square-root covariance kernel") {
             E(3, j) *= static_cast<T>(1e-6);
         }
         check.template operator()<false>(W, E);
-        // A zero row (a register), and a row that is already its diagonal entry, negative.
+        // A zero row (a delay state), and a row that is already its diagonal entry, negative.
         Matrix<4, 4, T> Wz{};
         Matrix<4, 3, T> Ez{};
         random(Wz, 1.0);

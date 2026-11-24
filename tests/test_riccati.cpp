@@ -518,7 +518,7 @@ TEST_SUITE("is_stabilizable") {
     }
 
     TEST_CASE("a badly scaled change of coordinates does not change the verdict (balancing)") {
-        // T = diag(1, 1e6, 1, 1e-4) mixes scales across A's rows the way a delay register copying an
+        // T = diag(1, 1e6, 1, 1e-4) mixes scales across A's rows the way a delay state copying an
         // accelerometer row does. Stabilizability is invariant under it.
         Matrix<4, 4> A = Matrix<4, 4>::identity();
         A(0, 1) = 1.0;
@@ -543,10 +543,10 @@ TEST_SUITE("is_stabilizable") {
         CHECK_FALSE(discrete_stabilizable(As, Bs_axis0)); // axis 1 still has no input
     }
 
-    TEST_CASE_TEMPLATE("an accelerometer register next to an integrator disturbance: the dual is detectable", T, float, double) {
-        // Mass-spring at 1 kHz with k/m = 1e5. A register copies the accelerometer row −k/m·x₁ + d one
+    TEST_CASE_TEMPLATE("an accelerometer delay state next to an integrator disturbance: the dual is detectable", T, float, double) {
+        // Mass-spring at 1 kHz with k/m = 1e5. A delay state copies the accelerometer row −k/m·x₁ + d one
         // sample late (entries of 1e5 next to rows of 1e-3); d is an integrator disturbance. Outputs: the
-        // position and the register. Row scaling alone called the dual not detectable; the pair itself is
+        // position and the delay state. Row scaling alone called the dual not detectable; the pair itself is
         // not stabilizable (d has no input) in either precision.
         const T         dt = static_cast<T>(1e-3);
         const T         km = static_cast<T>(1e5);

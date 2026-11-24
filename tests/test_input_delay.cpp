@@ -14,8 +14,8 @@
 #include "damp/matrix/matrix_traits.hpp"
 #include "damp/systems/discretization.hpp"
 #include "damp/systems/state_space.hpp"
+#include "delay_state_form.hpp"
 #include "doctest.h"
-#include "register_form.hpp"
 
 using namespace damp;
 
@@ -38,8 +38,8 @@ double u_at(int k) {
 } // namespace
 
 TEST_SUITE("Input delay") {
-    TEST_CASE("the register model is exact against the continuous plant for a delay of up to one sample") {
-        // θ = 0.4·Ts: during each sample the plant holds u(k−1) for 0.4·Ts, then u(k); the register
+    TEST_CASE("the delay-state model is exact against the continuous plant for a delay of up to one sample") {
+        // θ = 0.4·Ts: during each sample the plant holds u(k−1) for 0.4·Ts, then u(k); the delay state
         // holds u(k−1). θ = Ts: it holds u(k−1) for the whole sample.
         constexpr double Ts = 0.01;
         for (const double frac : {0.4, 1.0}) {
@@ -119,7 +119,7 @@ TEST_SUITE("Input delay") {
         }
     }
 
-    TEST_CASE("no delay leaves the register empty; a whole sample is Γ₀ = 0, Γ₁ = Γ; continuous and discrete models agree") {
+    TEST_CASE("no delay leaves the delay state empty; a whole sample is Γ₀ = 0, Γ₁ = Γ; continuous and discrete models agree") {
         constexpr double Ts = 0.01;
         const auto       plain = discretize(double_integrator(), Ts, DiscretizationMethod::ZOH).value();
         for (const double theta : {0.0, Ts}) {
@@ -138,10 +138,10 @@ TEST_SUITE("Input delay") {
             const Matrix<2, 1> expect1 = (theta == 0.0) ? Matrix<2, 1>{} : plain.B;
             CHECK((gamma0 - expect0).norm() < 1e-15);
             CHECK((gamma1 - expect1).norm() < 1e-15);
-            CHECK(a->B(2, 0) == 1.0); // the register loads u(k)
+            CHECK(a->B(2, 0) == 1.0); // the delay state loads u(k)
             CHECK(a->A(2, 2) == 0.0);
         }
-        // A whole sample with another method: the register feeds that method's Γ.
+        // A whole sample with another method: the delay state feeds that method's Γ.
         const auto tustin = discretize(double_integrator(), Ts, DiscretizationMethod::Tustin).value();
         const auto late = discretize(double_integrator(), Ts, InputDelay{Ts}, DiscretizationMethod::Tustin);
         REQUIRE(late.has_value());
@@ -151,7 +151,7 @@ TEST_SUITE("Input delay") {
 
     TEST_CASE("the feedthrough reads the input the plant holds at the sample instant") {
         // y = x + 0.5·u on a first-order lag: with no delay the plant holds u(k) at the sample instant,
-        // with any delay in (0, Ts] it still holds u(k−1), the register.
+        // with any delay in (0, Ts] it still holds u(k−1), the delay state.
         StateSpace<1, 1, 1> lag{};
         lag.A(0, 0) = -1.0;
         lag.B(0, 0) = 1.0;
@@ -169,7 +169,7 @@ TEST_SUITE("Input delay") {
         }
     }
 
-    TEST_CASE("the register is a command already sent: no process noise reaches it") {
+    TEST_CASE("the delay state is a command already sent: no process noise reaches it") {
         const StateSpace<2, 1, 1, double, 2, 1> plant{.A = double_integrator().A, .B = double_integrator().B, .C = double_integrator().C, .G = Matrix<2, 2>::identity()};
         for (const double theta : {0.004, 0.01}) {
             CAPTURE(theta);
@@ -180,7 +180,7 @@ TEST_SUITE("Input delay") {
         }
     }
 
-    TEST_CASE("the register gets no process noise when NW == NX + NU (G is not the square default identity)") {
+    TEST_CASE("the delay state gets no process noise when NW == NX + NU (G is not the square default identity)") {
         const StateSpace<2, 1, 1, double, 3> plant{.A = double_integrator().A, .B = double_integrator().B, .C = double_integrator().C, .G = {{1.0, 0.0, 0.0}, {0.0, 1.0, 0.0}}};
         for (const double theta : {0.0, 0.004, 0.01}) {
             CAPTURE(theta);
@@ -219,17 +219,17 @@ TEST_SUITE("Input delay") {
         const StateSpace single{.A = {{0.0F, 1.0F}, {0.0F, 0.0F}}, .B = {{0.0F}, {1.0F}}, .C = {{1.0F, 0.0F}}};
         const auto       model = discretize(single, 0.01F, InputDelay<2>{0.015F}); // a double delay on a float plant
         REQUIRE(model.has_value());
-        CHECK(model->A(0, 3) != 0.0F); // a fraction past one whole sample reads the second register
+        CHECK(model->A(0, 3) != 0.0F); // a fraction past one whole sample reads the second delay state
         CHECK(model->A(0, 3) == discretize(single, 0.01F, InputDelay<2, float>{0.015F})->A(0, 3));
     }
 
-    TEST_CASE("InputDelay<N> against the register form, built apart from discretize") {
+    TEST_CASE("InputDelay<N> against the delay-state form, built apart from discretize") {
         constexpr double Ts = 0.01;
         for (const double periods : {0.0, 0.4, 1.0, 1.4, 2.0, 2.4, 3.0}) {
             CAPTURE(periods);
             const auto model = discretize(double_integrator(), Ts, InputDelay<3>{periods * Ts});
             REQUIRE(model.has_value());
-            const auto oracle = test::register_form<3>(double_integrator(), Ts, periods * Ts);
+            const auto oracle = test::delay_state_form<3>(double_integrator(), Ts, periods * Ts);
             CHECK((model->A - oracle.A).norm() < 1e-15);
             CHECK((model->B - oracle.B).norm() < 1e-15);
             CHECK((model->C - oracle.C).norm() == 0.0);
@@ -237,7 +237,7 @@ TEST_SUITE("Input delay") {
         }
     }
 
-    TEST_CASE("InputDelay<N> is exact against the continuous plant; the registers hold the inputs sent") {
+    TEST_CASE("InputDelay<N> is exact against the continuous plant; the delay states hold the inputs sent") {
         // θ = 2.4·Ts: over each sample the plant holds u(k−3) for 0.4·Ts, then u(k−2).
         constexpr double Ts = 0.01;
         constexpr double frac = 0.4;
@@ -260,16 +260,16 @@ TEST_SUITE("Input delay") {
         CHECK(worst < 1e-12 * 1e3); // states grow to ~10³ over the run
     }
 
-    TEST_CASE("InputDelay<N>: a delay shorter than the capacity leaves the last registers unread") {
+    TEST_CASE("InputDelay<N>: a delay shorter than the capacity leaves the last delay states unread") {
         constexpr double Ts = 0.01;
-        const auto       model = discretize(double_integrator(), Ts, InputDelay<4>{1.4 * Ts}).value(); // two registers read, two not
+        const auto       model = discretize(double_integrator(), Ts, InputDelay<4>{1.4 * Ts}).value(); // two delay states read, two not
         CHECK(Matrix<2, 1>(model.A.block<2, 1>(0, 2)).norm() != 0.0);
         CHECK(Matrix<2, 1>(model.A.block<2, 1>(0, 3)).norm() != 0.0);
         CHECK(Matrix<2, 2>(model.A.block<2, 2>(0, 4)).norm() == 0.0);
         CHECK(model.A(5, 4) == 1.0); // the chain still shifts
     }
 
-    TEST_CASE("InputDelay<N> with two inputs: a register per input per sample, in order") {
+    TEST_CASE("InputDelay<N> with two inputs: a delay state per input per sample, in order") {
         const StateSpace plant{.A = {{-1.0}}, .B = {{1.0, 2.0}}, .C = {{1.0}}};
         constexpr double Ts = 0.1;
         const auto       model = discretize(plant, Ts, InputDelay<2>{2.0 * Ts}).value();
@@ -278,7 +278,7 @@ TEST_SUITE("Input delay") {
         CHECK(model.A(0, 3) == plain.B(0, 0)); // the plant reads v(k−2), both inputs
         CHECK(model.A(0, 4) == plain.B(0, 1));
         CHECK(model.A(0, 1) == 0.0);
-        CHECK(model.B(1, 0) == 1.0); // the first register loads v(k)
+        CHECK(model.B(1, 0) == 1.0); // the first delay state loads v(k)
         CHECK(model.B(2, 1) == 1.0);
         CHECK(model.A(3, 1) == 1.0); // the second loads the first
         CHECK(model.A(4, 2) == 1.0);
@@ -300,7 +300,7 @@ TEST_SUITE("Input delay") {
         CHECK(none.D(0, 0) == 0.5);
     }
 
-    TEST_CASE("InputDelay<N>: no process noise reaches any register") {
+    TEST_CASE("InputDelay<N>: no process noise reaches any delay state") {
         const StateSpace<2, 1, 1, double, 2, 1> plant{.A = double_integrator().A, .B = double_integrator().B, .C = double_integrator().C, .G = Matrix<2, 2>::identity()};
         const auto                              model = discretize(plant, 0.01, InputDelay<3>{0.024}).value();
         CHECK(Matrix<3, 2>(model.G.block<3, 2>(2, 0)).norm() == 0.0);

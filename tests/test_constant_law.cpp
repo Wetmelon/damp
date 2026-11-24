@@ -57,7 +57,7 @@ inline constexpr Matrix<2, 2> kQ2{{1e3, 0.0}, {0.0, 1.0}};
 inline constexpr Matrix<3, 3> kQ3{{1e3, 0.0, 0.0}, {0.0, 1.0, 0.0}, {0.0, 0.0, 0.0}};
 inline constexpr Matrix<2, 2> kQn{{1e-4, 0.0}, {0.0, 1e-2}};
 
-// Every family, with and without the delay register.
+// Every family, with and without the delay state.
 inline constexpr auto kLqr = design::state_feedback(kPlant, {.Q = kQ2, .R = 1e-2});
 inline constexpr auto kLqrDelayed = design::state_feedback(kDelayed, {.Q = kQ3, .R = 1e-2});
 inline constexpr auto kLqrTrack = design::state_feedback(kPlant, {.Q = kQ2, .R = 1e-2}, design::TrackedOutputs{{0}});
@@ -209,7 +209,7 @@ TEST_SUITE("Law of a constexpr design") {
         static_assert(sizeof(Law<kOflqgDelayed, float>) < sizeof(Law<kOflqgDelayed, float>::Runtime) / 2);
         static_assert(std::is_empty_v<detail::ConstantObserver<kLqg, float, 2>::Model>);
 
-        // The delay register's row of A, and of M, is no code at all.
+        // The delay state's row of A, and of M, is no code at all.
         using Observer = detail::ConstantObserver<kLqgDelayed, float, 3>;
         static_assert(detail::nonzero_columns<Observer::kA, 2>.n == 0);
         static_assert(detail::nonzero_columns<Observer::kM, 2>.n == 0);
@@ -412,7 +412,7 @@ TEST_SUITE("Law of a constexpr design") {
             static_assert(!std::is_same_v<std::remove_cvref_t<decltype(on_constants)>, Held>);
         };
 
-        SUBCASE("one register, a model with no disturbance") {
+        SUBCASE("one delay state, a model with no disturbance") {
             static constexpr auto           kKalman = design::kalman(kDelayed, design::KalmanNoise{.process = kQn, .measurement = 1e-4});
             Law<kKalman, double>::Recursive on_constants;
             KalmanFilter                    held{kKalman};
@@ -429,7 +429,7 @@ TEST_SUITE("Law of a constexpr design") {
             CHECK(gap(on_constants.covariance(), held.covariance()) <= 1e-12);
         }
 
-        SUBCASE("three registers: their zeros cost nothing, and the numbers are the same") {
+        SUBCASE("three delay states: their zeros cost nothing, and the numbers are the same") {
             static constexpr auto           kModel = *discretize(mass_spring(), kTs, InputDelay<3>{3.0 * kTs});
             static constexpr auto           kKalman = design::kalman(kModel, design::KalmanNoise{.process = kQn, .measurement = 1e-4});
             Law<kKalman, double>::Recursive on_constants;

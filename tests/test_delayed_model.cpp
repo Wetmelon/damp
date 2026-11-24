@@ -8,11 +8,11 @@
  * @brief Laws on a plant with an input delay of at most one sample, and the applied input they
  *        predict with.
  *
- * The delay is part of the plant model: discretize(plant, Ts, InputDelay{θ}) appends one register
+ * The delay is part of the plant model: discretize(plant, Ts, InputDelay{θ}) appends one delay state
  * state v(k−1), checked against the block's closed-form response. A law designed on that model
- * (per-step weights, none on the register) is, for one whole sample, the delay-free law on the
+ * (per-step weights, none on the delay state) is, for one whole sample, the delay-free law on the
  * state predicted one sample ahead, K₀·[Φ Γ], with the delay-free closed-loop pole; its Kalman
- * filter's register state is the input back_calculate recorded; offset-free LQG and MPC on the
+ * filter's delay state is the input back_calculate recorded; offset-free LQG and MPC on the
  * model hold the true delayed plant at r under a load. Without a delay: the Van Loan noise of the
  * offset-free LQG's disturbance augment, and back_calculate's anti-windup against recorded runs.
  */
@@ -66,7 +66,7 @@ constexpr auto kPlain = discretize(heater_block(), kTs);
  * The heater with an input delay θ ≤ Ts as the true plant, from the block's closed-form response
  * (no discretize): within a period it holds v(k−1) for θ, then v(k), so
  * x(k+1) = e^{a·Ts}·x + Γ₀·v(k) + Γ₁·v(k−1), Γ₀ = (e^{a(Ts−θ)} − 1)·b/a, Γ₁ = e^{a(Ts−θ)}·(e^{aθ} − 1)·b/a,
- * and the register holds v(k−1). State [x; v(k−1)].
+ * and the delay state holds v(k−1). State [x; v(k−1)].
  */
 StateSpace<2, 1, 1> delayed_heater(double theta) {
     const double        tail = std::exp(kA * (kTs - theta));
@@ -99,7 +99,7 @@ double max_diff(const Matrix<R, C>& a, const Matrix<R, C>& b) {
     return worst;
 }
 
-/// The delay-free cost per step, and the same on the delayed model: the temperature weighted, the register not.
+/// The delay-free cost per step, and the same on the delayed model: the temperature weighted, the delay state not.
 constexpr design::LQRWeights<1, 1> kLq{.Q = 1.0, .R = 0.02};
 constexpr design::LQRWeights<2, 1> kLqModel{.Q = {{1.0, 0.0}, {0.0, 0.0}}, .R = 0.02};
 
@@ -158,15 +158,15 @@ const Matrix<1, 1> kRn{{1e-4}};
 } // namespace
 
 TEST_SUITE("Input delay: a model of the plant") {
-    TEST_CASE("InputDelay: one register state, for no delay, a fraction of a sample or a whole sample") {
-        static_assert(std::is_same_v<decltype(InputDelay{kFrac}), InputDelay<1, double>>); // one register, the scalar from the seconds
+    TEST_CASE("InputDelay: one delay state, for no delay, a fraction of a sample or a whole sample") {
+        static_assert(std::is_same_v<decltype(InputDelay{kFrac}), InputDelay<1, double>>); // one delay state, the scalar from the seconds
         constexpr auto none = discretize(heater_block(), kTs, InputDelay{0.0});
         constexpr auto frac = discretize(heater_block(), kTs, InputDelay{kFrac});
         constexpr auto whole = discretize(heater_block(), kTs, InputDelay{kTs});
         static_assert(none.has_value() && frac.has_value() && whole.has_value());
         static_assert(std::is_same_v<decltype(none), decltype(whole)>); // NX + NU states for any delay up to a sample
 
-        // against the closed-form response, the register loading the command in each
+        // against the closed-form response, the delay state loading the command in each
         for (const double theta : {0.0, kFrac, kTs}) {
             CAPTURE(theta);
             const auto got = *discretize(heater_block(), kTs, InputDelay{theta});
@@ -266,7 +266,7 @@ TEST_SUITE("Input delay: a model of the plant") {
         const auto lq0 = design::discrete_lqr(kPlantD.A, kPlantD.B, kQ, kR);
         REQUIRE(lq0.success);
         Matrix<3, 3> Q3{};
-        Q3.block<2, 2>(0, 0) = kQ; // on the plant states, not the register
+        Q3.block<2, 2>(0, 0) = kQ; // on the plant states, not the delay state
         const auto spring = design::state_feedback(discretize(kPlantD, kTsSpring, InputDelay{kTsSpring}).value(), {.Q = Q3, .R = kR});
         REQUIRE(spring.success);
         Matrix<1, 3> K_pred{};
@@ -275,8 +275,8 @@ TEST_SUITE("Input delay: a model of the plant") {
         CHECK((spring.K - K_pred).norm() < 1e-9 * K_pred.norm());
     }
 
-    TEST_CASE("the Kalman filter's register state is the input back_calculate recorded, else the last command") {
-        // The register is a command already sent: no noise reaches it, so the filter's gain on it
+    TEST_CASE("the Kalman filter's delay state is the input back_calculate recorded, else the last command") {
+        // The delay state is a command already sent: no noise reaches it, so the filter's gain on it
         // is zero and predict loads it with the input the plant received.
         constexpr auto model = *discretize(heater_block(), kTs, InputDelay{kFrac});
         constexpr auto res = design::state_feedback(model, kLqModel, design::KalmanNoise<1, 1>{.process = 0.02, .measurement = 0.01});

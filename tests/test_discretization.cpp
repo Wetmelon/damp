@@ -307,7 +307,7 @@ TEST_SUITE("DiscretizationResult") {
         CHECK(tustin->A(0, 0) == doctest::Approx(1.9 / 2.1).epsilon(1e-14));
         CHECK(tustin->D(0, 0) == doctest::Approx(0.05 / 1.05).epsilon(1e-14));
 
-        //! A whole-sample delay: the register model built on the plain ZOH model.
+        //! A whole-sample delay: the delay-state model built on the plain ZOH model.
         const auto late = discretize(sys, 0.1, InputDelay{0.1});
         REQUIRE(late);
         CHECK(late.status == DesignStatus::ok);

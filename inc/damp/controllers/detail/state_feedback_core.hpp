@@ -97,7 +97,7 @@ struct HeldGains {
  * | integral action on r − Ci·y | NI, NY | 0 |
  * | estimator (FixedGainObserver with design::kalman's gain, disturbance model) | Est | NoEstimator: the state is measured |
  * | steady-state target for r, under the disturbance model if there is one (SteadyStateTarget) | NZ | 0 |
- * | input registers: the inputs applied over the last NRU periods, held by the law (a measured state) | NRU | 0 |
+ * | input delay states: the inputs applied over the last NRU periods, held by the law (a measured state) | NRU | 0 |
  * | a measured disturbance d: the target under it, and the filter's known input after u | NMD | 0 |
  * | limits on the command and on the integrators | @ref u_lim, @ref integral_lim | unbounded |
  * | back-calculation for the integrators against a clamp | @ref tracking_time | 0: conditional integration |
@@ -112,11 +112,11 @@ struct HeldGains {
  * trailing predict is the next sample's time update. For a measured-state LQR, predict is
  * empty, so step(x) equals update then control.
  *
- * With input registers (NRU > 0, a design on a plant whose input arrives late) the law's model is
+ * With input delay states (NRU > 0, a design on a plant whose input arrives late) the law's model is
  * [x; v(k−1); …; v(k−NRU)]. On a measured state update takes the plant state x, and the law holds
  * the inputs it applied: @ref predict shifts the input back_calculate recorded (else the last
- * command) into the first register, so it runs every tick, as step does. A filter carries them as
- * states of its model, shifted by its own predict. The reference point of a register is u*: an
+ * command) into the first delay state, so it runs every tick, as step does. A filter carries them as
+ * states of its model, shifted by its own predict. The reference point of a delay state is u*: an
  * input held there is the one the law would send at the reference, so x_ref is the plant's.
  *
  * The law:
@@ -170,14 +170,14 @@ struct HeldGains {
  * @tparam Est Estimator: FixedGainObserver (the fixed Kalman gain of design::kalman), or NoEstimator for a measured state
  * @tparam NZ  Controlled outputs of the steady-state target (0: none)
  * @tparam Store Where the matrices live: HeldGains (members), or constants of the type (Law of a `constexpr` design)
- * @tparam NRU Input registers the law holds, NRU·NU states after the plant's (0: none)
+ * @tparam NRU Input delay states the law holds, NRU·NU states after the plant's (0: none)
  * @tparam NMD  Measured-disturbance inputs (0: none): a filter takes them after u
  */
 template<size_t NX, size_t NU, typename T, size_t NI, size_t NY, typename Est, size_t NZ, typename Store = HeldGains, size_t NRU = 0, size_t NMD = 0>
 struct StateFeedbackCore {
     using Traits = detail::estimator_traits<Est>;
     static constexpr bool   kEstimated = Traits::present;         ///< A filter estimates the state
-    static constexpr size_t NXL = NX + (NRU * NU);                ///< The law's model: the plant, then its input registers
+    static constexpr size_t NXL = NX + (NRU * NU);                ///< The law's model: the plant, then its input delay states
     static constexpr size_t ND = Traits::ND;                      ///< Disturbance states of the estimator
     static constexpr size_t NXE = kEstimated ? Traits::NXE : NXL; ///< The filter's model before the disturbance (the law's without one)
     static constexpr size_t NIn = kEstimated ? NY : NX;           ///< What update takes: y, or the plant state
@@ -322,7 +322,7 @@ struct StateFeedbackCore {
             estimator.predict(applied_.applied);
         }
         if constexpr (NRU > 0 && !kEstimated) {
-            for (size_t i = NXL; i-- > NX + NU;) { // oldest first: each register takes the one before it
+            for (size_t i = NXL; i-- > NX + NU;) { // oldest first: each delay state takes the one before it
                 x_(i) = x_(i - NU);
             }
             for (size_t j = 0; j < NU; ++j) {
@@ -334,7 +334,7 @@ struct StateFeedbackCore {
     /**
      * @brief Measurement update: the filter's with the outputs @p m (the integrators read them at
      *        the next control), or, with no filter, the plant state @p m held for the next control
-     *        (the input registers after it are the law's own).
+     *        (the input delay states after it are the law's own).
      */
     constexpr void update(const ColVec<NIn, T>& m) {
         if constexpr (kEstimated) {
@@ -369,7 +369,7 @@ struct StateFeedbackCore {
         if constexpr (ND > 0) {
             return anchored_law(r, ref, u_ref);
         } else if constexpr (NZ > 0) {
-            const auto p = target.equilibrium(r); // on the law's model: each register at u_t
+            const auto p = target.equilibrium(r); // on the law's model: each delay state at u_t
             return reference_law(law_state(), ColVec<NXL, T>(ref + detail::leading<NXL>(p.x)), ColVec<NU, T>(u_ref + p.u));
         } else if constexpr (NI > 0 && kEstimated) {
             // y was measured under the input the last predict applied: take its feedthrough out.
@@ -561,7 +561,7 @@ private:
             T       outer{0}; // −Σ K_j·z_j over the outer terms: the command they make
             T       row{0};   // the row's largest gain, for the test on k_s
             for (size_t j = 0; j < NX + NI; ++j) {
-                const size_t c = (j < NX) ? j : (NXL + (j - NX)); // the integrators sit after the registers
+                const size_t c = (j < NX) ? j : (NXL + (j - NX)); // the integrators sit after the delay states
                 row = damp::max(row, damp::abs(K(i, c)));
                 if (demand_lim.outer(j)) {
                     outer -= K(i, c) * z(c);
