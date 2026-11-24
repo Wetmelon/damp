@@ -5,7 +5,8 @@
 #   make tests           build and run the test suites only
 #   make clang-tests     build and run the test suites with clang too (not part of make)
 #   make examples        build and run the examples
-#   make ci              the lean gate: style, REFERENCE drift, tests, contracts, smoke
+#   make ci              the lean gate: style, tests, contracts, smoke
+#   make refs            regenerate REFERENCE*.md: on main after merges, not in a PR
 #   make tidy | iwyu | fix_includes    clang-based hygiene (see "Code hygiene")
 #
 # On Windows run make from PowerShell or cmd, not Git Bash (see AGENTS.md).
@@ -67,7 +68,7 @@ endef
 # Full build = tests, examples (built and run) and the embedded/freestanding
 # contract checks, all in the tup DAG. Not the clang build of the tests (clang-tests/),
 # which only make clang-tests builds.
-all: format build refs doxygen-style-check
+all: format build doxygen-style-check
 	$(run_tests)
 
 build: format compiledb
@@ -133,7 +134,8 @@ docs: refs
 doxygen-style-check:
 	@$(PYTHON) tools/doxygen_style_check.py
 
-# Regenerate REFERENCE*.md and fail if the committed copies are stale.
+# Regenerate REFERENCE*.md and fail if the committed copies are stale. For main: a PR
+# leaves REFERENCE*.md alone, so a stacked PR doesn't conflict on them.
 reference-check: refs
 	@git diff --exit-code -- REFERENCE.md REFERENCE_INDEX.md
 
@@ -151,7 +153,7 @@ nostd-check:
 	@$(TUP) checks/build/nostd.ok
 
 # Lean gate: no formatting, no examples, no boards. Needs `tup init` on a fresh clone.
-ci: doxygen-style-check reference-check
+ci: doxygen-style-check
 	@$(TUP) tests checks/build/embedded.ok checks/build/freestanding.ok checks/build/workbench.ok checks/build/nostd.ok
 	$(run_tests)
 	@$(MAKE) --no-print-directory target-smoke

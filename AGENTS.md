@@ -37,9 +37,10 @@ tup --quiet tests # compile tests only
 
 **Final check: always run `make`.** Before reporting work as done, run plain
 `make` and confirm it exits 0. It is the only command that covers everything:
-formatting, the test runner, both backend runners, examples (built *and* run),
-the embedded/freestanding/workbench/no-C++-headers contract checks, and the
-`REFERENCE.md` regen.
+formatting, the test runner, both backend runners, examples (built *and* run)
+and the embedded/freestanding/workbench/no-C++-headers contract checks.
+It doesn't regenerate `REFERENCE*.md`: a PR leaves them alone, so stacked PRs
+don't conflict on them, and `make refs` regenerates them on `main` after merges.
 `tup tests`, `test_runner`, or a hand-built subset are for iterating, not a
 substitute. `make` builds with g++ (and checks that the product sketches fit
 clang's constexpr budget); a change to deduction, templates or NaN handling
