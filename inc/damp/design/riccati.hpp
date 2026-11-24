@@ -1522,7 +1522,7 @@ struct [[nodiscard]] LQRResult {
     DesignStatus                       status{DesignStatus::not_converged}; ///< ok, or why the design failed
     T                                  Ts{0};                               ///< Sample time of the law [s]: the plant's (design::state_feedback); 0 when it has none (continuous, or discrete_lqr on bare matrices)
     bool                               discrete{false};                     ///< A discrete law (e in the z-plane): discrete_lqr, or design::state_feedback on a discrete plant or with a Ts
-    Bounds<NU, T>                      u_lim{};                             ///< Limits on the command the LQR returns (design::state_feedback's LQRLimits::u_lim; default unbounded)
+    Bounds<NU, T>                      u_lim{};                             ///< Limits on the command the LQR returns (design::state_feedback's InputLimits::u_lim; default unbounded)
     ::damp::detail::DemandTerms<NX, T> demand_lim{};                        ///< A limit on what the outer states ask of one state (the design's DemandLimit; default off)
 
     /** @brief True when the design succeeded (success). */

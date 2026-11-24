@@ -85,7 +85,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
  * TrackedOutputs holds those outputs at r through its steady-state target: control(r),
  * step(r, y). Feedforward from a planned trajectory (x_ref, u_ref) adds to it:
  * control([r,] x_ref, u_ref), step([r,] x_ref, u_ref, y). The command is clamped into u_lim
- * (the design's LQRLimits; unbounded by default), and predict() moves the observer with it,
+ * (the design's InputLimits; unbounded by default), and predict() moves the observer with it,
  * or with the input back_calculate(u_sat) recorded for a stage that clamps after the law.
  *
  * A design with an InputDelay (NRU > 0) has its filter on [x; v(k−1); …; v(k−NRU)]: predict

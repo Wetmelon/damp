@@ -38,9 +38,9 @@
  * target (MPC for tracking), as hard inequalities on @f$ z_N @f$: one set valid for every
  * target that keeps @c target_margin of each half-range clear of its bounds, the
  * target moving each row's offset at run time. Without either the cost is the plain
- * Qy / Qy_terminal one. Subject to box constraints on @f$ u @f$, @f$ \Delta u @f$ (hard), and
- * on the controlled outputs an @ref damp::design::OutputLimits "OutputLimits" lists (soft by
- * default) over the horizon.
+ * Qy / Qy_terminal one. Subject to box constraints on @f$ u @f$ and @f$ \Delta u @f$ (hard, an
+ * @ref damp::design::InputLimits "InputLimits"), and on the controlled outputs an
+ * @ref damp::design::OutputLimits "OutputLimits" lists (soft by default) over the horizon.
  *
  * That cost, with weights per step, is the discrete-plant form's. The continuous-plant form
  * design::mpc(plant, Ts, …) takes the weights per second and integrates the output error over
@@ -133,7 +133,7 @@
  *     .C = {{1.0, 0.0}}, // the controlled output: the position
  *     .Ts = 0.1,
  * };
- * constexpr design::MPCConstraints<1> limits{.u_lim = {.lower = -0.5, .upper = 0.5}, .du_lim = {.lower = -0.2, .upper = 0.2}};
+ * constexpr design::InputLimits limits{.u_lim = {.lower = -0.5, .upper = 0.5}, .du_lim = {.lower = -0.2, .upper = 0.2}};
  * constexpr auto art = design::mpc<15, 5>(sys, {}, limits);
  * // The position kept under 1.02, hard, and a DARE terminal cost:
  * constexpr auto capped = design::mpc<15, 15>(sys, {}, limits, design::OutputLimits{.outputs = {0}, .lim = {.upper = 1.02}, .upper_ecr = {0.0}},
@@ -144,8 +144,8 @@
  *
  * // From the position reading alone, offset-free under an unmeasured load at the input:
  * constexpr StateSpace<2, 1, 1, double, 2, 1> plant{.A = sys.A, .B = sys.B, .C = sys.C, .Ts = 0.1};
- * constexpr auto of = design::mpc<15, 5>(plant, {}, {.u_lim = {.lower = -0.5, .upper = 0.5}}, design::KalmanNoise{Qn, Rn, Qd},
- *                                          design::InputDisturbance{});
+ * constexpr auto of = design::mpc<15, 5>(plant, {}, design::InputLimits{.u_lim = {.lower = -0.5, .upper = 0.5}},
+ *                                          design::KalmanNoise{Qn, Rn, Qd}, design::InputDisturbance{});
  * static constinit OFMPC offset_free{of.as<float>()};
  * // each tick: u = offset_free.step(ColVec<1, float>{r}, ColVec<1, float>{y});
  * @endcode
@@ -154,7 +154,8 @@
 #include "damp/backend.hpp"
 #include "damp/controllers/law.hpp" // IWYU pragma: export
 #include "damp/controllers/state_feedback_types.hpp"
-#include "damp/design/disturbance.hpp" // IWYU pragma: export
+#include "damp/design/disturbance.hpp"  // IWYU pragma: export
+#include "damp/design/input_limits.hpp" // IWYU pragma: export
 #include "damp/design/invariant_set.hpp"
 #include "damp/design/options.hpp"
 #include "damp/design/qp.hpp"
@@ -230,7 +231,7 @@ enum class MPCTerminal : uint8_t {
  *
  * Named, the weights take their sizes from their fields, NU and NY 1 unless a field says
  * otherwise: `MPCWeights{.Rdu = {1.6}}` is MPCWeights<1, 1>, `MPCWeights{.Qy = diag(20.0, 1.0)}`
- * MPCWeights<1, 2>. MPCConstraints the same: `MPCConstraints{.u_lim = {.lower = 0.0, .upper = 40.0}}`.
+ * MPCWeights<1, 2>, and InputLimits the same: `InputLimits{.u_lim = {.lower = 0.0, .upper = 40.0}}`.
  *
  * Ru pulls each input toward its input target, an operating point the runtime holds
  * (set_input_target, zero until set), not part of the cost's design.
@@ -256,30 +257,6 @@ struct MPCWeights {
             Qy_terminal.template as<U>(),
             static_cast<U>(ecr_weight),
         };
-    }
-};
-
-/**
- * @struct MPCConstraints
- * @brief The input and move limits of mpc()
- *
- * Unbounded by default (numeric_limits sentinels). Both are hard and apply over the control
- * horizon (actuator physics). design::mpc refuses a NaN limit or a lower limit above its upper
- * one (invalid_parameter). The rest trails the call as options of their own: OutputLimits on the
- * controlled outputs, StateLimits on states the MPC does not track, a terminal ingredient
- * (DareCost or InvariantSet) and the QP budget (QPIterations).
- *
- * @note Mirrors the MATLAB® mpc object's ManipulatedVariables Min/Max/RateMin/RateMax.
- */
-template<size_t NU = 1, typename T = double>
-struct MPCConstraints {
-    Bounds<NU, T> u_lim{};  ///< Input bounds (hard)
-    Bounds<NU, T> du_lim{}; ///< Move bounds on Δu (hard)
-
-    /** @brief The constraints in another scalar. */
-    template<typename U>
-    [[nodiscard]] constexpr MPCConstraints<NU, U> as() const {
-        return MPCConstraints<NU, U>{u_lim.template as<U>(), du_lim.template as<U>()};
     }
 };
 
@@ -335,7 +312,7 @@ struct DareCost {};
  *
  * The set of the terminal law Δu′ = −K·z, augmented with the constant target (MPC for tracking),
  * as hard rows on z_N: one set valid for every target that keeps target_margin of each
- * half-range clear of its bounds (u_lim, du_lim and the OutputLimits), the target moving each
+ * half-range clear of its bounds (the InputLimits and the OutputLimits), the target moving each
  * row's offset at run time. `InvariantSet{.target_margin = 0.05}`. That set has more facets than
  * a zero-target one (a 2-state double integrator ~48): give it room, mpc<NP, NC, NT_max>, and
  * design it at initialization, since constant-evaluated it exceeds GCC's default
@@ -395,9 +372,9 @@ struct StateLimits {
 namespace detail {
 
 /**
- * @brief MPCConstraints and the options design::mpc reads with them (OutputLimits, StateLimits,
- *        the terminal ingredient, QPIterations) as the design reads them: NYC bounded controlled
- *        outputs and NXC bounded states (0: none).
+ * @brief The options design::mpc's QP reads (InputLimits, OutputLimits, StateLimits, the terminal
+ *        ingredient, QPIterations) as the design reads them: NYC bounded controlled outputs and
+ *        NXC bounded states (0: none).
  */
 template<size_t NU, size_t NYC = 0, typename T = double, size_t NXC = 0>
 struct MPCConstraintSet {
@@ -493,15 +470,17 @@ constexpr void copy_listed(damp::array<size_t, N>& to, const size_t (&from)[N]) 
 }
 
 /**
- * @brief The constraints and the options among @p opts that the QP reads, as the design's set: the
- *        OutputLimits (none: no bounded output), the StateLimits (none: no bounded state), the
- *        terminal ingredient (none: the plain cost) and the QP budget (none: the default).
+ * @brief The options among @p opts that the QP reads, as the design's set on the plant's NU inputs
+ *        in its scalar @p T: the InputLimits (none: unbounded), the OutputLimits (none: no bounded
+ *        output), the StateLimits (none: no bounded state), the terminal ingredient (none: the
+ *        plain cost) and the QP budget (none: the default).
  */
 template<size_t NU, typename T, typename... Opts>
-[[nodiscard]] constexpr auto constraint_set(const MPCConstraints<NU, T>& c, const Opts&... opts) {
+[[nodiscard]] constexpr auto constraint_set(const Opts&... opts) {
     constexpr size_t                  NYC = limits_listed<::damp::detail::option_t<is_output_limits, void, Opts...>>;
     constexpr size_t                  NXC = limits_listed<::damp::detail::option_t<is_state_limits, void, Opts...>>;
-    MPCConstraintSet<NU, NYC, T, NXC> out{.u_lim = c.u_lim, .du_lim = c.du_lim};
+    const auto                        input = input_limits_of<NU, T>(opts...);
+    MPCConstraintSet<NU, NYC, T, NXC> out{.u_lim = input.u_lim, .du_lim = input.du_lim};
     if constexpr (NYC > 0) {
         const auto limits = ::damp::detail::option<is_output_limits>(0, opts...);
         copy_listed(out.y_outputs, limits.outputs);
@@ -1699,30 +1678,6 @@ struct [[nodiscard]] MPCResult {
 
 namespace detail {
 
-/** @brief Not the limits of an MPC. */
-template<typename>
-struct is_mpc_constraints : damp::false_type {};
-
-/** @brief MPCConstraints. */
-template<size_t NU, typename T>
-struct is_mpc_constraints<MPCConstraints<NU, T>> : damp::true_type {};
-
-/** @brief The set the design reads them as. */
-template<size_t NU, size_t NYC, typename T, size_t NXC>
-struct is_mpc_constraints<MPCConstraintSet<NU, NYC, T, NXC>> : damp::true_type {};
-
-/** @brief MPCConstraints on NU inputs in T (the set: any bounded outputs and states). */
-template<typename C, size_t NU, typename T>
-inline constexpr bool is_mpc_constraints_on = false;
-
-/** @brief MPCConstraints<NU, T>. */
-template<size_t NU, typename T>
-inline constexpr bool is_mpc_constraints_on<MPCConstraints<NU, T>, NU, T> = true;
-
-/** @brief MPCConstraintSet<NU, NYC, T, NXC>. */
-template<size_t NU, size_t NYC, typename T, size_t NXC>
-inline constexpr bool is_mpc_constraints_on<MPCConstraintSet<NU, NYC, T, NXC>, NU, T> = true;
-
 /** @brief Not a measured disturbance. */
 template<typename>
 struct is_measured_disturbance : damp::false_type {};
@@ -1731,9 +1686,9 @@ struct is_measured_disturbance : damp::false_type {};
 template<size_t NX, size_t NM, typename T>
 struct is_measured_disturbance<MeasuredDisturbance<NX, NM, T>> : damp::true_type {};
 
-/** @brief The options design::mpc takes after the weights: the constraints as the design reads them, then the trailing ones. */
+/** @brief The options design::mpc takes after the weights. */
 using mpc_options = ::damp::detail::option_set<
-    is_mpc_constraints, is_kalman_noise, is_disturbance, is_measured_disturbance, is_output_limits, is_state_limits, is_mpc_terminal, is_qp_iterations,
+    is_input_limits, is_kalman_noise, is_disturbance, is_measured_disturbance, is_output_limits, is_state_limits, is_mpc_terminal, is_qp_iterations,
     is_input_delay, is_output_delay>;
 
 /**
@@ -1743,10 +1698,7 @@ using mpc_options = ::damp::detail::option_set<
  */
 template<typename... Opts>
 constexpr void check_mpc_options() {
-    static_assert(
-        ::damp::detail::option_count<is_mpc_constraints, Opts...> == 0,
-        "MPCConstraints{.u_lim, .du_lim} is positional, after the weights: mpc<NP, NC>(plant, [Ts,] weights, constraints, opts...)."
-    );
+    static_assert(::damp::detail::option_count<is_input_limits, Opts...> <= 1, "One InputLimits bounds every input: InputLimits{.u_lim = {...}, .du_lim = {...}}.");
     static_assert(::damp::detail::option_count<is_output_limits, Opts...> <= 1, "One OutputLimits lists every bounded output: OutputLimits{.outputs = {i, ...}, .lim = {...}}.");
     static_assert(::damp::detail::option_count<is_state_limits, Opts...> <= 1, "One StateLimits lists every bounded state: StateLimits{.states = {i, ...}, .lim = {...}}.");
     static_assert(
@@ -1755,9 +1707,7 @@ constexpr void check_mpc_options() {
     );
     static_assert(::damp::detail::option_count<is_qp_iterations, Opts...> <= 1, "One QP budget: QPIterations{n}.");
     static_assert(!(damp::is_integral_v<damp::remove_cvref_t<Opts>> || ...), "The QP's iteration budget is QPIterations{n}; the terminal set's room is mpc<NP, NC, NT_max>.");
-    ::damp::detail::option_set<
-        is_measured_disturbance, is_kalman_noise, is_disturbance, is_output_limits, is_state_limits, is_mpc_terminal, is_qp_iterations, is_input_delay,
-        is_output_delay>::check<Opts...>();
+    mpc_options::check<Opts...>();
 }
 
 /** @brief Whether a design::mpc call has an estimator: a KalmanNoise among its options. */
@@ -1984,16 +1934,13 @@ template<
     return ::damp::detail::set_status(out, first_failure(kf.status, out.target.status, out.mpc.status));
 }
 
-/** @brief design::mpc in the plant's time domain (@p Discrete) or sampled at @p Ts: the options sorted by kind. */
+/** @brief design::mpc in the plant's time domain (@p Discrete) or sampled at @p Ts, once the options pass check_mpc_options: the options sorted by kind. */
 template<bool Discrete, size_t NP, size_t NC, size_t NT_max, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NZ, typename... Opts>
 [[nodiscard]] constexpr auto mpc_design(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T Ts, const MPCWeights<NU, NZ, T>& weights, const Opts&... opts) {
-    mpc_options::check<Opts...>();
-    using Limits = ::damp::detail::option_t<is_mpc_constraints, MPCConstraintSet<NU, 0, T>, Opts...>;
-    static_assert(is_mpc_constraints_on<Limits, NU, T>, "The limits are on the plant's inputs, in its scalar: MPCConstraints<NU, T>.");
-    const auto constraints = ::damp::detail::option<is_mpc_constraints>(MPCConstraintSet<NU, 0, T>{}, opts...);
+    const auto constraints = constraint_set<NU, T>(opts...);
     static_assert(
         !Discrete || ::damp::detail::option_count<is_input_delay, Opts...> + ::damp::detail::option_count<is_output_delay, Opts...> == 0,
-        "A delay is sampled with the plant: give the continuous plant and Ts, mpc<NP, NC>(plant, Ts, weights, constraints, ..., InputDelay<N>{theta}, OutputDelay<M>{theta})."
+        "A delay is sampled with the plant: give the continuous plant and Ts, mpc<NP, NC>(plant, Ts, weights, ..., InputDelay<N>{theta}, OutputDelay<M>{theta})."
     );
     if constexpr (mpc_estimated<Opts...>) {
         static_assert(
@@ -2044,18 +1991,19 @@ inline constexpr size_t mpc_outputs_in = mpc_outputs<NU, NY, noise_inputs<NX, NW
  *
  * | Design | Runtime |
  * | --- | --- |
- * | mpc<NP, NC>(plant, [Ts,] weights, constraints) | MPC: the state measured |
- * | mpc<NP, NC>(plant, [Ts,] weights, constraints, MeasuredDisturbance{Bd}) | MPC with a known disturbance input, given each tick |
- * | mpc<NP, NC>(plant, [Ts,] weights, constraints, noise, disturbance) | OFMPC: a Kalman filter on [x; d], offset-free (below) |
+ * | mpc<NP, NC>(plant, [Ts,] weights) | MPC: the state measured |
+ * | mpc<NP, NC>(plant, [Ts,] weights, MeasuredDisturbance{Bd}) | MPC with a known disturbance input, given each tick |
+ * | mpc<NP, NC>(plant, [Ts,] weights, noise, disturbance) | OFMPC: a Kalman filter on [x; d], offset-free (below) |
+ * | … plus InputLimits{.u_lim, .du_lim} | the same, with hard limits on u and Δu |
  * | … plus OutputLimits{.outputs, .lim} | the same, with limits on the controlled outputs it lists |
  * | … plus StateLimits{.states, .lim} | the same, with limits on states it does not track |
  * | … plus DareCost{} or mpc<NP, NC, NT_max> and InvariantSet{.target_margin} | the same, with a terminal cost, or that cost and a terminal set |
  * | … plus QPIterations{n} | the same, its QP capped at n iterations a tick |
  *
- * The constraints are the hard limits on u and Δu (`{}`: unbounded). The rest trails as
- * options, at most one of each kind, in any order: the limits on the controlled outputs and on
- * the states, the terminal ingredient (none: the plain cost) and the QP budget (none: the
- * default, 10·(NZ + 1 + NI + 1)).
+ * The plant and the weights are positional, so braces size the weights from the plant. The rest
+ * trails as options, at most one of each kind, in any order: the hard limits on u and Δu (none:
+ * unbounded), the limits on the controlled outputs and on the states, the terminal ingredient
+ * (none: the plain cost) and the QP budget (none: the default, 10·(NZ + 1 + NI + 1)).
  *
  * Measured state. design::mpc's runtime takes the plant state x as its measurement
  * (update(x)), and the plant's C still defines the controlled outputs y = C·x that r, Qy and
@@ -2070,7 +2018,7 @@ inline constexpr size_t mpc_outputs_in = mpc_outputs<NU, NY, noise_inputs<NX, NW
  * output without cost does not pull it). An equilibrium leaves the QP the absolute one; the
  * terminal cost and set are on the deviation from it.
  *
- * Input delay. On the sampled form, mpc<NP, NC>(plant, Ts, weights, constraints, …, InputDelay<N>{θ})
+ * Input delay. On the sampled form, mpc<NP, NC>(plant, Ts, weights, …, InputDelay<N>{θ})
  * designs on the plant whose input arrives θ late, the model discretize(plant, Ts, InputDelay<N>{θ}):
  * the plant, then the delay states v(k−1) … v(k−N), the commands still on their way. The weights
  * and the noise are the plant's, as without the delay; the output cost is integrated exactly over
@@ -2146,7 +2094,7 @@ inline constexpr size_t mpc_outputs_in = mpc_outputs<NU, NY, noise_inputs<NX, NW
  *
  * @note Compare with MATLAB®'s mpc(plant, Ts, p, m) — p = NP, m = NC — with its built-in
  *       estimator (setindist / setoutdist, getEstimator) and mpcmove(mpcobj, xc, ym, r).
- * @see MPCWeights, MPCConstraints, OutputLimits, StateLimits, DareCost, InvariantSet, QPIterations, damp::MPC,
+ * @see MPCWeights, InputLimits, OutputLimits, StateLimits, DareCost, InvariantSet, QPIterations, damp::MPC,
  *      design::kalman, design::steady_state_target
  * @see Maciejowski, "Predictive Control with Constraints," 2002, ch. 2–3
  * @see "Disturbance modeling for offset-free linear model predictive control" (Muske &
@@ -2161,8 +2109,8 @@ inline constexpr size_t mpc_outputs_in = mpc_outputs<NU, NY, noise_inputs<NX, NW
  * @tparam NT_max Terminal-set row capacity (default 0; required > 0 for an InvariantSet)
  * @param sys      Discrete-time plant (Ts > 0); C the controlled outputs, D = 0
  * @param weights  Cost weights on the controlled outputs, per prediction step (default: Qy = I, RΔu = I)
- * @param constraints The hard limits on u and Δu ({}: unbounded)
- * @param opts     In any order: MeasuredDisturbance<NX, NM>{.Bd}, a disturbance input measured each tick
+ * @param opts     In any order: InputLimits{.u_lim, .du_lim}, the hard limits on u and Δu;
+ *                 MeasuredDisturbance<NX, NM>{.Bd}, a disturbance input measured each tick
  *                 (control(r, d)); or a KalmanNoise, the MPC then on a Kalman filter's estimate from the
  *                 measured outputs C and D, offset-free with a disturbance spec (runs as OFMPC: the
  *                 filter on [x; d], the QP posed about the steady-state target under d̂, the
@@ -2176,11 +2124,10 @@ template<size_t NP, size_t NC, size_t NT_max = 0, size_t NX, size_t NU, size_t N
 [[nodiscard]] constexpr auto mpc(
     const StateSpace<NX, NU, NY, T, NW, NV>&                                                         sys,
     const damp::type_identity_t<MPCWeights<NU, detail::mpc_outputs_in<NX, NU, NY, NW, Opts...>, T>>& weights,
-    const damp::type_identity_t<MPCConstraints<NU, T>>&                                              constraints,
     const Opts&... opts
 ) {
     detail::check_mpc_options<Opts...>();
-    return detail::mpc_design<true, NP, NC, NT_max>(sys, T{0}, weights, detail::constraint_set(constraints, opts...), opts...);
+    return detail::mpc_design<true, NP, NC, NT_max>(sys, T{0}, weights, opts...);
 }
 
 /**
@@ -2211,7 +2158,6 @@ template<size_t NP, size_t NC, size_t NT_max = 0, size_t NX, size_t NU, size_t N
  * @param plant    Continuous-time plant (Ts = 0)
  * @param Ts       Control period [s]
  * @param weights  Cost weights on the controlled outputs, per second
- * @param constraints The hard limits on u and Δu ({}: unbounded)
  * @param opts     As the discrete form's, a MeasuredDisturbance's B_d continuous; InputDelay<N>{θ}, the
  *                 plant's input θ late, and OutputDelay<M>{θ} with a KalmanNoise, the reading θ late
  *                 (Input delay, above)
@@ -2222,11 +2168,10 @@ template<size_t NP, size_t NC, size_t NT_max = 0, size_t NX, size_t NU, size_t N
     const StateSpace<NX, NU, NY, T, NW, NV>&                                                         plant,
     damp::type_identity_t<T>                                                                         Ts,
     const damp::type_identity_t<MPCWeights<NU, detail::mpc_outputs_in<NX, NU, NY, NW, Opts...>, T>>& weights,
-    const damp::type_identity_t<MPCConstraints<NU, T>>&                                              constraints,
     const Opts&... opts
 ) {
     detail::check_mpc_options<Opts...>();
-    return detail::mpc_design<false, NP, NC, NT_max>(plant, Ts, weights, detail::constraint_set(constraints, opts...), opts...);
+    return detail::mpc_design<false, NP, NC, NT_max>(plant, Ts, weights, opts...);
 }
 
 /**
@@ -2241,7 +2186,7 @@ template<size_t NP, size_t NC, size_t NT_max = 0, size_t NX, size_t NU, size_t N
  * @code
  * constexpr auto h = design::suggest_mpc_horizon(sys);
  * static_assert(h.success);
- * constexpr auto art = design::mpc<h.prediction_horizon, h.control_horizon>(sys, {}, {});
+ * constexpr auto art = design::mpc<h.prediction_horizon, h.control_horizon>(sys, {});
  * @endcode
  */
 template<typename T = double>

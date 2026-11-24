@@ -32,12 +32,12 @@
  *
  * | Design | Config | Fields, in this order |
  * | --- | --- | --- |
- * | state_feedback | LQConfig | weights (required), limits, demand, integral, noise, disturbance, tracked, input_delay, output_delay |
+ * | state_feedback | LQConfig | weights (required), input_limits, demand, integral, noise, disturbance, tracked, input_delay, output_delay |
  * | kalman | KalmanConfig | noise (required), disturbance, input_delay, output_delay |
- * | mpc | MPCConfig | weights, constraints, output_limits, state_limits, terminal, qp_iterations, noise, disturbance, measured, input_delay, output_delay |
+ * | mpc | MPCConfig | weights, input_limits, output_limits, state_limits, terminal, qp_iterations, noise, disturbance, measured, input_delay, output_delay |
  * | steady_state_target | TargetConfig | disturbance, input_delay, output_delay |
  *
- * A field left out is off (MPC's weights and constraints: their defaults). A field's type is a
+ * A field left out is off (MPC's weights: their defaults). A field's type is a
  * template parameter, so a config names no sizes, and the plant cannot size bare braces in it:
  * every field holds a named object, the weights too. `LQRWeights{.Q = Q, .R = {0.1}}` takes its states
  * and its scalar from Q and its inputs from R, one input when R is braced; write the sizes when
@@ -53,6 +53,7 @@
 #include "damp/controllers/state_feedback_types.hpp"
 #include "damp/design/detail/config.hpp"
 #include "damp/design/disturbance.hpp"
+#include "damp/design/input_limits.hpp"
 #include "damp/design/options.hpp"
 #include "damp/design/steady_state_target.hpp"
 #include "damp/estimation/kalman.hpp"
@@ -67,7 +68,7 @@ namespace design {
  * | Field | Holds | Makes the law |
  * | --- | --- | --- |
  * | weights | LQRWeights{.Q, .R, .N}, in the plant's time domain (required) | LQR |
- * | limits | LQRLimits{.u_lim}: the command clamped | the same law, its command bounded |
+ * | input_limits | InputLimits{.u_lim}: the command clamped (a bounded .du_lim is refused) | the same law, its command bounded |
  * | demand | DemandLimit{.state, .outer, .lim}: what the outer terms ask of one state, bounded | the same law, read as a cascade |
  * | integral | IntegralAction{.Q, .outputs, .lim, .tracking_time} | LQI |
  * | noise | KalmanNoise{.process, .measurement[, .disturbance]} | LQG (LQGI with integral) |
@@ -78,7 +79,7 @@ namespace design {
  */
 template<
     typename TWeights = detail::Unset,
-    typename TLimits = detail::Unset,
+    typename TInputLimits = detail::Unset,
     typename TDemand = detail::Unset,
     typename TIntegral = detail::Unset,
     typename TNoise = detail::Unset,
@@ -88,7 +89,7 @@ template<
     typename TOutputDelay = detail::Unset>
 struct LQConfig {
     TWeights     weights{};      ///< LQRWeights{.Q, .R, .N}: the cost (required)
-    TLimits      limits{};       ///< LQRLimits{.u_lim}: the limit the command runs within
+    TInputLimits input_limits{}; ///< InputLimits{.u_lim}: the limit the command runs within
     TDemand      demand{};       ///< DemandLimit{.state, .outer, .lim}: a limit on what the outer terms ask of one state
     TIntegral    integral{};     ///< IntegralAction{.Q, …}: integrators on r − y (LQI)
     TNoise       noise{};        ///< KalmanNoise{.process, .measurement}: the law on a Kalman filter's estimate (LQG)
@@ -117,12 +118,12 @@ struct KalmanConfig {
 };
 
 /**
- * @brief design::mpc's weights, constraints and options as named fields
+ * @brief design::mpc's weights and options as named fields
  *
  * | Field | Holds | Left out |
  * | --- | --- | --- |
  * | weights | MPCWeights{.Qy, .Rdu, …}, per prediction step | Qy = I, RΔu = I |
- * | constraints | MPCConstraints{.u_lim, .du_lim}: the hard limits on u and Δu | unbounded |
+ * | input_limits | InputLimits{.u_lim, .du_lim}: the hard limits on u and Δu | unbounded |
  * | output_limits | OutputLimits{.outputs, .lim}: limits on the controlled outputs it lists | none |
  * | state_limits | StateLimits{.states, .lim}: limits on states it does not track | none |
  * | terminal | DareCost{} or InvariantSet{.target_margin}: a terminal cost, or the cost and a set | the plain cost |
@@ -135,7 +136,7 @@ struct KalmanConfig {
  */
 template<
     typename TWeights = detail::Unset,
-    typename TConstraints = detail::Unset,
+    typename TInputLimits = detail::Unset,
     typename TOutputLimits = detail::Unset,
     typename TStateLimits = detail::Unset,
     typename TTerminal = detail::Unset,
@@ -147,7 +148,7 @@ template<
     typename TOutputDelay = detail::Unset>
 struct MPCConfig {
     TWeights      weights{};       ///< MPCWeights{…}: the cost on the controlled outputs and the moves (left out: Qy = I, RΔu = I)
-    TConstraints  constraints{};   ///< MPCConstraints{.u_lim, .du_lim}: the hard limits on u and Δu (left out: unbounded)
+    TInputLimits  input_limits{};  ///< InputLimits{.u_lim, .du_lim}: the hard limits on u and Δu (left out: unbounded)
     TOutputLimits output_limits{}; ///< OutputLimits{.outputs, .lim}: limits on the controlled outputs it lists
     TStateLimits  state_limits{};  ///< StateLimits{.states, .lim}: limits on states it does not track
     TTerminal     terminal{};      ///< DareCost{} or InvariantSet{.target_margin}: the terminal ingredient (left out: the plain cost)
@@ -191,7 +192,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
 [[nodiscard]] constexpr auto state_feedback_from(const StateSpace<NX, NU, NY, T, NW, NV>& sys, const LQConfig<TW, TL, TDm, TI, TN, TD, TT, TDl, TO>& config, Period... Ts) {
     static_assert(!is_unset<TW>, "LQConfig::weights is the design's cost: .weights = LQRWeights{.Q = ..., .R = {...}}.");
     static_assert(damp::is_same_v<TW, LQRWeights<NX, NU, T>>, "LQConfig::weights is the plant's LQRWeights<NX, NU, T>: sized to its states and inputs, in its scalar.");
-    static_assert(is_unset<TL> || is_lqr_limits<TL>::value, "LQConfig::limits is LQRLimits{.u_lim = {...}}.");
+    static_assert(is_unset<TL> || is_input_limits<TL>::value, "LQConfig::input_limits is InputLimits{.u_lim = {...}}.");
     static_assert(is_unset<TDm> || is_demand_limit<TDm>::value, "LQConfig::demand is DemandLimit{.state = s, .outer = {i, ...}, .lim = {...}}.");
     static_assert(is_unset<TI> || is_integral_option<TI>::value, "LQConfig::integral is IntegralAction{.Q = ...}.");
     static_assert(is_unset<TN> || is_kalman_noise<TN>::value, "LQConfig::noise is KalmanNoise{.process = ..., .measurement = ...}.");
@@ -201,7 +202,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
     static_assert(is_unset<TO> || is_output_delay<TO>::value, "LQConfig::output_delay is OutputDelay<M>{theta}.");
     return forward_set(
         [&](const auto&... options) { return design::state_feedback(sys, Ts..., config.weights, options...); },
-        config.limits, config.demand, config.integral, config.noise, config.disturbance, config.tracked, config.input_delay, config.output_delay
+        config.input_limits, config.demand, config.integral, config.noise, config.disturbance, config.tracked, config.input_delay, config.output_delay
     );
 }
 
@@ -215,12 +216,12 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
     return forward_set([&](const auto&... options) { return design::kalman(sys, Ts..., options...); }, config.noise, config.disturbance, config.input_delay, config.output_delay);
 }
 
-/** @brief design::mpc(sys, [Ts,] weights, constraints, opts…) from an MPCConfig: the weights and the limits sized to the plant (their defaults left out), the other fields passed on. */
+/** @brief design::mpc(sys, [Ts,] weights, opts…) from an MPCConfig: the weights sized to the plant (their default left out), the other fields passed on. */
 template<size_t NP, size_t NC, size_t NT_max, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename TW, typename TC, typename TL, typename TS, typename TT, typename TQ, typename TN, typename TD, typename TM, typename TDl, typename TO, typename... Period>
 [[nodiscard]] constexpr auto mpc_from(const StateSpace<NX, NU, NY, T, NW, NV>& sys, const MPCConfig<TW, TC, TL, TS, TT, TQ, TN, TD, TM, TDl, TO>& config, Period... Ts) {
     constexpr size_t NZ = mpc_outputs_in<NX, NU, NY, NW, TD>;
     static_assert(is_unset<TW> || damp::is_same_v<TW, MPCWeights<NU, NZ, T>>, "MPCConfig::weights is the plant's MPCWeights<NU, NZ, T>: one weight per input and controlled output, in its scalar.");
-    static_assert(is_unset<TC> || is_mpc_constraints_on<TC, NU, T>, "MPCConfig::constraints is the plant's MPCConstraints<NU, T>: limits on its inputs, in its scalar.");
+    static_assert(is_unset<TC> || is_input_limits<TC>::value, "MPCConfig::input_limits is InputLimits{.u_lim = {...}, .du_lim = {...}}.");
     static_assert(is_unset<TL> || is_output_limits<TL>::value, "MPCConfig::output_limits is OutputLimits{.outputs = {i, ...}, .lim = {...}}.");
     static_assert(is_unset<TS> || is_state_limits<TS>::value, "MPCConfig::state_limits is StateLimits{.states = {i, ...}, .lim = {...}}.");
     static_assert(is_unset<TT> || is_mpc_terminal<TT>::value, "MPCConfig::terminal is DareCost{} or InvariantSet{.target_margin = ...}.");
@@ -237,17 +238,10 @@ template<size_t NP, size_t NC, size_t NT_max, size_t NX, size_t NU, size_t NY, t
             return config.weights;
         }
     }();
-    const auto constraints = [&] {
-        if constexpr (is_unset<TC>) {
-            return MPCConstraints<NU, T>{};
-        } else {
-            return config.constraints;
-        }
-    }();
     return forward_set(
-        [&](const auto&... options) { return design::mpc<NP, NC, NT_max>(sys, Ts..., weights, constraints, options...); },
-        config.output_limits, config.state_limits, config.terminal, config.qp_iterations, config.noise, config.disturbance, config.measured, config.input_delay,
-        config.output_delay
+        [&](const auto&... options) { return design::mpc<NP, NC, NT_max>(sys, Ts..., weights, options...); },
+        config.input_limits, config.output_limits, config.state_limits, config.terminal, config.qp_iterations, config.noise, config.disturbance, config.measured,
+        config.input_delay, config.output_delay
     );
 }
 
@@ -263,8 +257,8 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
 } // namespace detail
 
 // A config is a named object. Its first field's type has no default here, so braces in a config's
-// place deduce none and stay the pack's: mpc<NP, NC>(sys, {}, {}) is the default weights and
-// limits, not a period and a config.
+// place deduce none and stay the pack's: mpc<NP, NC>(sys, {}) is the default weights, not a
+// config, and mpc<NP, NC>(plant, Ts, {}) the same at Ts.
 
 /** @brief design::state_feedback(sys, weights, opts…) with the weights and the options the fields of @p config: the same design. */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename C0, typename... C>
@@ -290,13 +284,13 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
     return detail::kalman_from(sys, config, Ts);
 }
 
-/** @brief design::mpc<NP, NC>(sys, weights, constraints, opts…) with them the fields of @p config: the same design. */
+/** @brief design::mpc<NP, NC>(sys, weights, opts…) with them the fields of @p config: the same design. */
 template<size_t NP, size_t NC, size_t NT_max = 0, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename C0, typename... C>
 [[nodiscard]] constexpr auto mpc(const StateSpace<NX, NU, NY, T, NW, NV>& sys, const MPCConfig<C0, C...>& config) {
     return detail::mpc_from<NP, NC, NT_max>(sys, config);
 }
 
-/** @brief design::mpc<NP, NC>(plant, Ts, weights, constraints, opts…), on a continuous plant sampled at @p Ts, with them the fields of @p config. */
+/** @brief design::mpc<NP, NC>(plant, Ts, weights, opts…), on a continuous plant sampled at @p Ts, with them the fields of @p config. */
 template<size_t NP, size_t NC, size_t NT_max = 0, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename C0, typename... C>
 [[nodiscard]] constexpr auto mpc(const StateSpace<NX, NU, NY, T, NW, NV>& plant, damp::type_identity_t<T> Ts, const MPCConfig<C0, C...>& config) {
     return detail::mpc_from<NP, NC, NT_max>(plant, config, Ts);

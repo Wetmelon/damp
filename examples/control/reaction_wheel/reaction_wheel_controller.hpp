@@ -122,7 +122,7 @@ inline constexpr auto mpc_art = design::mpc<10, 4>(
         .Qy = {{20.0}},
         .Rdu = {{0.1}},
     },
-    design::MPCConstraints{
+    design::InputLimits{
         .u_lim = {
             .lower = -static_cast<double>(u_max),
             .upper = static_cast<double>(u_max),

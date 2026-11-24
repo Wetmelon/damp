@@ -970,7 +970,7 @@ template<size_t NRU, size_t NRY, size_t NX, size_t NU, size_t NY, typename T, si
  * constexpr auto each = discretize(plant2, 0.01, InputDelay<3, ColVec<2>>{{0.012, 0.025}}); // a delay per input
  * @endcode
  * The model has the same type for any delay up to N samples; design on it like any plant:
- * `design::mpc<NP, NC>(model, weights, constraints)`, with NP long enough for a command to land
+ * `design::mpc<NP, NC>(model, weights)`, with NP long enough for a command to land
  * (design::mpc refuses one too short). A state weight covers the delay states, none on them:
  * `{.Q = blkdiag(Q, Matrix<N * NU, N * NU>{}), .R = R}`. A law that measures its state reads
  * [x; u(k−1); …; u(k−N)], the inputs it applied; a filter estimates the delay states like any other

@@ -120,7 +120,7 @@ TEST_CASE("warm-start solver is constexpr") {
 TEST_CASE("warm-start default MPC matches the stateless policy tick for tick") {
     design::MPCWeights<1, 1> weights{};
     weights.Rdu = 0.05;
-    design::MPCConstraints<1> limits{};
+    design::InputLimits<1> limits{};
     limits.u_lim = {
         .lower = -0.5,
         .upper = 0.5,
@@ -186,7 +186,7 @@ TEST_CASE("ADMM warm start cuts the iteration count on a repeated solve") {
 TEST_CASE("ADMM solver policy drives the MPC like the active-set default") {
     design::MPCWeights<1, 1> weights{};
     weights.Rdu = 0.05;
-    design::MPCConstraints<1> limits{};
+    design::InputLimits<1> limits{};
     limits.u_lim = {
         .lower = -0.5,
         .upper = 0.5,
@@ -324,7 +324,7 @@ TEST_CASE("ADMM reports an MPC's infeasible constraint set like the active-set d
     // back in range) solves again.
     design::MPCWeights<1, 1> weights{};
     weights.Rdu = 0.05;
-    design::MPCConstraints<1> limits{};
+    design::InputLimits<1> limits{};
     limits.u_lim = {
         .lower = -0.5,
         .upper = 0.5,
@@ -401,7 +401,7 @@ TEST_CASE("interior point flags an infeasible constraint set") {
 TEST_CASE("interior-point solver policy drives the MPC like the active-set default") {
     design::MPCWeights<1, 1> weights{};
     weights.Rdu = 0.05;
-    design::MPCConstraints<1> limits{};
+    design::InputLimits<1> limits{};
     limits.u_lim = {
         .lower = -0.5,
         .upper = 0.5,

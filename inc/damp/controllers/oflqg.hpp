@@ -44,7 +44,7 @@ using OFLQGResult = StateFeedbackResult<NX, NU, T, 0, NY, KalmanResult<NX + ND, 
  * step(r, y), or update(y), control(r), back_calculate, predict() (predict moves the filter),
  * with x* = 0 and u* = 0; feedforward from a planned
  * trajectory (x_ref, u_ref) is control(r, x_ref, u_ref), or step(r, x_ref, u_ref, y). The
- * command is clamped into u_lim (the design's LQRLimits; unbounded by default), and predict()
+ * command is clamped into u_lim (the design's InputLimits; unbounded by default), and predict()
  * moves the filter with it, so the clamp is not taken for a disturbance; back_calculate(u_sat)
  * before it reports a stage that clamps after the law. update() clamps d̂ into disturbance_lim, a
  * member of the runtime (unbounded by default), in d's units: the most of a load the law leans
