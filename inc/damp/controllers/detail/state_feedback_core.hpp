@@ -49,6 +49,20 @@ struct IntegralAction {
     Matrix<NI, NU, T>               unwind{}; ///< (∂u/∂ξ)⁺: what back-calculation moves ξ by per unit of a clamp's excess
 };
 
+/**
+ * @brief The fade of a law designed with a Handover: the mismatch its command carries after a
+ *        track, and the factor it decays by each tick, held (@p Held) or a constant of the type on
+ *        a `constexpr` design's Law.
+ */
+template<size_t NU, typename T, bool Held>
+struct HandoverFade {
+    using Decay = maybe<Held, T, OffSlot::fade_decay>;
+
+    ColVec<NU, T>               offset{};       ///< While pending, the input tracked; then e, the mismatch the command carries
+    [[no_unique_address]] Decay decay{};        ///< exp(−Ts/fade_time): e's factor per tick
+    bool                        pending{false}; ///< A track since the last command: the next takes e = u_tracked − u_law
+};
+
 /** @brief A gain design result other than StateFeedbackResult: K, success and Ts (PlaceResult, LQRResult). */
 template<typename R>
 concept gain_result = requires(const R& r) {
@@ -104,6 +118,7 @@ struct HeldGains {
  * | back-calculation for the integrators against a clamp | @ref tracking_time | 0: conditional integration |
  * | a limit on the disturbance estimate d̂ (ND > 0) | @ref limits and @ref set_limits: disturbance | unbounded |
  * | a limit on what the outer terms ask of one state (DemandLimit) | @ref limits and @ref set_limits: demand | off |
+ * | a fade of the mismatch after a @ref track (design::Handover) | HO | false: the first step is the law's own command |
  *
  * One tick is @ref step(): @ref predict (the time update with the input @ref back_calculate
  * recorded, else the last command), then @ref update with the measurement at sample k (the
@@ -112,6 +127,35 @@ struct HeldGains {
  * The low-latency ISR is update(m_k) → control → write → back_calculate(u) → predict(): the
  * trailing predict is the next sample's time update. For a measured-state LQR, predict is
  * empty, so step(x) equals update then control.
+ *
+ * While another source drives the plant (an operator, another law), @ref track(u, …) takes step's
+ * place, its arguments step's with the input applied first: the same predict and update, then,
+ * instead of a command, the memory that makes control at this state, with these arguments, return
+ * u. u is the applied input the next predict takes (as back_calculate(u) records it): the filter
+ * predicts with it, and with the measured d, so d̂ keeps learning the load, the input's delay
+ * states hold it, and a move limit (NDU > 0) is about it, so the first command after a track moves
+ * at most input_rate from u. The integrators are preloaded through (∂u/∂ξ)⁺, the map
+ * back-calculation moves them by, so that the command before the clamps is u: exactly with at
+ * least as many integrators as inputs, the least-squares ξ (the command nearest u, Euclidean in
+ * u's units) with fewer, then clamped into the integrators' limits, which leaves the command short
+ * of u by what that clamp took. They compare the applied u with u itself at the next predict, so
+ * they neither hold nor unwind on the gap between the law's command and u. A u outside the input
+ * limits is one the law cannot emit: the preload is toward u clamped into them, the input the first
+ * command hands over from, while the filter, the delay states and the move limit take the u the
+ * plant received. There is no mode: the law tracks for as long as the caller calls track, and the
+ * first step after it hands over. track adds no storage and no work to step. It runs the law once
+ * (twice with integrators, the second at the preloaded ξ), so last_command() is the law's own
+ * command at this state, u's mismatch with it the bump a handover without a preload would make. A
+ * law ticked update → control → write → back_calculate → predict calls predict() once after the
+ * last track, as step does at its start.
+ *
+ * A law with nothing to preload (LQR, LQG, an OFLQG away from a steady state) hands over with the
+ * bump of its own command, within a move limit's box about u, unless its design took a
+ * design::Handover (HO): then its first command after a track stores e = u_tracked − u_law,
+ * u_tracked clamped into the input limits, and adds it, e decaying by exp(−Ts/fade_time) each tick;
+ * the sum is clamped into the limits, and the integrators take e as a feedforward, not as
+ * saturation (an LQI's, for what its preload leaves). Without HO there is no storage and no
+ * per-tick work for it.
  *
  * With input delay states (NRU > 0, a design on a plant whose input arrives late) the law's model is
  * [x; v(k−1); …; v(k−NRU)]. On a measured state update takes the plant state x, and the law holds
@@ -179,8 +223,9 @@ struct HeldGains {
  * @tparam NRU Input delay states the law holds, NRU·NU states after the plant's (0: none)
  * @tparam NMD  Measured-disturbance inputs (0: none): a filter takes them after u
  * @tparam NDU  Inputs with a move limit (an InputRateLimits: NU; 0: none)
+ * @tparam HO   Whether the command fades the mismatch after a track (design::Handover; false: none)
  */
-template<size_t NX, size_t NU, typename T, size_t NI, size_t NY, typename Est, size_t NZ, typename Store = HeldGains, size_t NRU = 0, size_t NMD = 0, size_t NDU = 0>
+template<size_t NX, size_t NU, typename T, size_t NI, size_t NY, typename Est, size_t NZ, typename Store = HeldGains, size_t NRU = 0, size_t NMD = 0, size_t NDU = 0, bool HO = false>
 struct StateFeedbackCore {
     using Traits = detail::estimator_traits<Est>;
     static constexpr bool   kEstimated = Traits::present;         ///< A filter estimates the state
@@ -212,7 +257,8 @@ struct StateFeedbackCore {
     using RateLim = detail::maybe<(NDU > 0), Bounds<NDU, T>, detail::OffSlot::input_rate>;
     using HeldCommand = detail::maybe<(NDU > 0 && !kRecord), ColVec<NU, T>, detail::OffSlot::held_command>; ///< The base of the move limit where no record keeps it
     using Demand = Store::template Demand<NX + NI, T>;                                                      ///< The demand limit as the store holds it: a member, or constants of the type
-    using Limits = design::StateFeedbackLimits<NX, NU, T, NI, ND, NDU>;                                     ///< What limits() returns and set_limits() takes
+    using Fade = detail::maybe<HO, HandoverFade<NU, T, !Store::constant>, detail::OffSlot::handover>;
+    using Limits = design::StateFeedbackLimits<NX, NU, T, NI, ND, NDU>; ///< What limits() returns and set_limits() takes
 
     [[no_unique_address]] Store::template K<NU, NXL + NI, T> K{}; ///< Gain on [x; xi]
 
@@ -255,10 +301,10 @@ struct StateFeedbackCore {
      * A failed or continuous result (Ts = 0) does not compile when constant-evaluated; at run
      * time either leaves the law invalid.
      */
-    template<size_t NXR, size_t NUR, typename U, size_t NIR, size_t NYR, typename Kalman, size_t NZR, size_t NRR, size_t NMR, size_t NDR>
+    template<size_t NXR, size_t NUR, typename U, size_t NIR, size_t NYR, typename Kalman, size_t NZR, size_t NRR, size_t NMR, size_t NDR, bool HOR>
         requires(!Store::constant)
-    constexpr StateFeedbackCore(const design::StateFeedbackResult<NXR, NUR, U, NIR, NYR, Kalman, NZR, NRR, NMR, NDR>& result) { // NOLINT
-        constexpr bool same = NXR == NX && NUR == NU && NIR == NI && NYR == NY && NZR == NZ && NRR == NRU && NMR == NMD && NDR == NDU
+    constexpr StateFeedbackCore(const design::StateFeedbackResult<NXR, NUR, U, NIR, NYR, Kalman, NZR, NRR, NMR, NDR, HOR>& result) { // NOLINT
+        constexpr bool same = NXR == NX && NUR == NU && NIR == NI && NYR == NY && NZR == NZ && NRR == NRU && NMR == NMD && NDR == NDU && HOR == HO
                            && damp::is_same_v<Est, detail::runtime_estimator_t<Kalman, T>>;
         static_assert(same, "This law's sizes are not the design's: let them deduce, LQG law{res}, or Law<res, T> for a member.");
         if constexpr (same) {
@@ -288,6 +334,11 @@ struct StateFeedbackCore {
             demand_lim_ = result.limits.demand.template as<T>();
             if constexpr (kTarget) {
                 target = Target(result.target);
+            }
+            if constexpr (HO) {
+                if (valid_) {
+                    handover_.decay = static_cast<T>(damp::exp(-result.Ts / result.fade_time)); // a design that succeeded: fade_time > 0
+                }
             }
         }
     }
@@ -445,6 +496,28 @@ struct StateFeedbackCore {
         return control(r, x_ref, u_ref, d);
     }
 
+    /**
+     * @brief In place of step(@p r, @p x_ref, @p u_ref, @p m) while another source drives the plant:
+     *        predict(), update(@p m), then the memory that makes the next command start from @p u,
+     *        the input applied now (the class comment).
+     */
+    constexpr void track(const ColVec<NU, T>& u, const ColVec<NR, T>& r, const ColVec<NX, T>& x_ref, const ColVec<NU, T>& u_ref, const ColVec<NIn, T>& m)
+        requires(NMD == 0)
+    {
+        predict();
+        update(m);
+        follow(u, [&] { return control(r, x_ref, u_ref); });
+    }
+
+    /** @brief track(@p u, @p r, @p x_ref, @p u_ref, @p m) under the measured disturbance @p d, held for the filter's next predict. */
+    constexpr void track(const ColVec<NU, T>& u, const ColVec<NR, T>& r, const ColVec<NX, T>& x_ref, const ColVec<NU, T>& u_ref, const ColVec<NMD, T>& d, const ColVec<NIn, T>& m)
+        requires(NMD > 0)
+    {
+        predict();
+        update(m);
+        follow(u, [&] { return control(r, x_ref, u_ref, d); });
+    }
+
     // ---- limits --------------------------------------------------------------------------
 
     /**
@@ -553,6 +626,10 @@ struct StateFeedbackCore {
         if constexpr (NDU > 0 && !kRecord) {
             last_ = ColVec<NU, T>{}; // the next move from 0, as an MPC's
         }
+        if constexpr (HO) {
+            handover_.offset = ColVec<NU, T>{}; // the factor is the design's
+            handover_.pending = false;
+        }
     }
 
 private:
@@ -565,6 +642,7 @@ private:
     [[no_unique_address]] Record         applied_{};         ///< The last command and the input back_calculate recorded
     [[no_unique_address]] HeldX          x_{};               ///< The measured state from the last update (no estimator)
     [[no_unique_address]] HeldMeasured   measured_{};        ///< The measured disturbance the last control took, for the filter's next predict (NMD > 0)
+    [[no_unique_address]] Fade           handover_{};        ///< The mismatch the command fades after a track (HO)
     bool                                 valid_{true};       ///< False when built from a design it refuses
 
     /** @brief A limit the law holds (N > 0), or the empty box of one it does not have: what limits() reports. */
@@ -667,11 +745,78 @@ private:
     }
 
     /**
+     * @brief The command: @p u clamped into its limits, with HO the handover's mismatch added first. The
+     *        law keeps it, and @p asked (u before any clamp, the mismatch with it) for the integrators.
+     */
+    [[nodiscard]] constexpr ColVec<NU, T> record(const ColVec<NU, T>& asked, const ColVec<NU, T>& u) {
+        if constexpr (HO) {
+            const ColVec<NU, T> e = fade(u);
+            return emit(ColVec<NU, T>(asked + e), ColVec<NU, T>(u + e)); // a feedforward to the integrators, not saturation
+        } else {
+            return emit(asked, u);
+        }
+    }
+
+    /** @brief The handover's mismatch this command carries: e = u_tracked − @p u on the first after a track, then e decayed once per command. */
+    constexpr ColVec<NU, T> fade(const ColVec<NU, T>& u)
+        requires HO
+    {
+        if (handover_.pending) {
+            handover_.offset = ColVec<NU, T>(handover_.offset - u);
+            handover_.pending = false;
+        }
+        const ColVec<NU, T> e = handover_.offset;
+        if constexpr (Store::constant) {
+            handover_.offset = ColVec<NU, T>(e * Store::kFadeDecay);
+        } else {
+            handover_.offset = ColVec<NU, T>(e * handover_.decay);
+        }
+        return e;
+    }
+
+    /**
+     * @brief The memory a track leaves: the law's command at this state (@p law runs control), the
+     *        integrators preloaded toward @p u clamped into the input limits and the command again
+     *        at them, and @p u recorded as the input applied: the base of the next move, and the
+     *        command the integrators compare it with. With HO the next command takes the mismatch
+     *        with that clamped u.
+     */
+    template<typename Control>
+    constexpr void follow(const ColVec<NU, T>& u, const Control& law) {
+        const ColVec<NU, T> from = u_lim_.saturate(u); // the law cannot emit more: what it hands over from
+        if constexpr (HO) {
+            handover_.offset = ColVec<NU, T>{}; // the law's own command, with no fade
+            handover_.pending = false;
+        }
+        if constexpr (kRecord) {
+            static_cast<void>(law());
+            if constexpr (NI > 0) {
+                if (valid_) {
+                    const ColVec<NI, T> xi = integral.xi + (integral.unwind * ColVec<NU, T>(from - integral.asked));
+                    integral.xi = integral_lim_.saturate(xi); // least squares with NI < NU, short of u where the limit binds
+                    static_cast<void>(law());                 // the error, the command before the clamps and the command at that ξ
+                }
+                integral.asked = u; // what the applied u is compared with: no excess to hold or unwind
+            }
+            applied_.record(u, ColVec<NU, T>{}); // all of it the law's from here: the next move is from u
+        } else if constexpr (NDU > 0) {
+            static_cast<void>(law); // no memory but the move's base
+            last_ = u;
+        } else {
+            static_cast<void>(law); // no memory: the state is all update holds
+        }
+        if constexpr (HO) {
+            handover_.offset = from;
+            handover_.pending = true;
+        }
+    }
+
+    /**
      * @brief The command: @p u clamped into its move's box about u_prev (NDU > 0), then into the
      *        input box, which wins where the two do not meet. The law keeps it, and @p asked (u
      *        before any clamp) for the integrators.
      */
-    [[nodiscard]] constexpr ColVec<NU, T> record(const ColVec<NU, T>& asked, const ColVec<NU, T>& u) {
+    [[nodiscard]] constexpr ColVec<NU, T> emit(const ColVec<NU, T>& asked, const ColVec<NU, T>& u) {
         const ColVec<NU, T> out = u_lim_.saturate(moved(u));
         if constexpr (NI > 0) {
             integral.asked = asked;

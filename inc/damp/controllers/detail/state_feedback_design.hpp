@@ -277,7 +277,7 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
                 return NoEstimator{};
             }
         }();
-        using Result = StateFeedbackResult<NX, NU, T, NI, (kEstimated ? NY : NX), damp::remove_cvref_t<decltype(filter)>, NZ, NRU, NM>;
+        using Result = StateFeedbackResult<NX, NU, T, NI, ((kEstimated || NI > 0) ? NY : NX), damp::remove_cvref_t<decltype(filter)>, NZ, NRU, NM>; // the law's: an LQI's integrators read y
         Result out{law.K, law.S, law.e, law.success, law.status, law.Ts, filter};
         if constexpr (NI > 0) {
             out.integral = law.integral;

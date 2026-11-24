@@ -270,6 +270,46 @@ struct IntegralAction {
     damp::type_identity_t<T>                       tracking_time{};                      ///< [s] Back-calculation tracking time (default 0: conditional integration)
 };
 
+/**
+ * @brief Bumpless handover for a law with nothing to preload: the first command after track() is
+ *        the input tracked, and the law's own takes over with the time constant fade_time. Among
+ *        design::state_feedback's trailing options.
+ *
+ * While another source drives the plant (an operator, another law), the caller calls the law's
+ * track(u, …) in place of step(…), u the input applied. An LQI or LQGI preloads its integrators so
+ * that its first command is u, and an OFLQG at a steady state has learned the load into d̂; an LQR
+ * or LQG has nothing to preload, and an OFLQG not at a steady state has a transient. With this
+ * option the first step after a track stores the mismatch e = u − u_law and adds it to the command,
+ * e decaying by exp(−Ts/fade_time) each tick. The sum is clamped into the input limits, and the
+ * integrators take e as a feedforward, not as saturation. An LQI or LQGI takes it too, for what the
+ * preload leaves: the least-squares remainder with fewer integrators than inputs, or a ξ held at
+ * its limit. Without it the first step is the law's own command, and the law pays nothing for it:
+ * no storage, no per-tick work. With it the law holds NU values, the factor and a flag, and adds e
+ * to each command. design::mpc refuses it: an offset outside the QP would break its constraints,
+ * and the MPC's handover is its held input, the base of its first move.
+ *
+ * | Field | What it is | Left out |
+ * | --- | --- | --- |
+ * | fade_time | [s] the time constant e decays with, finite and > 0 | required |
+ *
+ * A fade_time that is not finite and positive is refused with DesignStatus::invalid_parameter.
+ */
+struct Handover {
+    double fade_time{0}; ///< [s] The time constant the mismatch decays with: exp(−Ts/fade_time) per tick
+};
+
+namespace detail {
+
+/** @brief A Handover: a kind of state_feedback option. */
+template<typename O>
+struct is_handover : damp::false_type {};
+
+/** @brief Handover. */
+template<>
+struct is_handover<Handover> : damp::true_type {};
+
+} // namespace detail
+
 namespace detail {
 
 /** @brief The config of a law with @p NI integrators: the full cost (LQRConfig) for none, LQIConfig with them. */
@@ -311,6 +351,7 @@ struct IntegralDesign {
  * | integral | the integrated outputs Ci, Ci·C, Ci·D and the step | NI > 0 |
  * | tracking_time | the integrators' back-calculation tracking time (IntegralAction::tracking_time) | NI > 0, default 0 |
  * | target | the steady-state target (design::steady_state_target's result) | oflqg; lqr and lqg with TrackedOutputs (NZ > 0); any law with a MeasuredDisturbance (NM > 0) |
+ * | fade_time | the handover's fade time (Handover::fade_time) | HO, a design with a Handover |
  *
  * With a MeasuredDisturbance (NM > 0) the target is the steady state under it: target_d is [x_t; u_t]
  * per unit [d̂; d], the filter's disturbance then the measured one, and on a law whose r is not the
@@ -329,14 +370,16 @@ struct IntegralDesign {
  * @tparam NRU    Delay states per input, the commands still on their way: NRU·NU states after the plant's (0: none)
  * @tparam NM     Measured-disturbance inputs (MeasuredDisturbance; 0: none)
  * @tparam NDU    Inputs with a move limit: NU with an InputRateLimits (0: none)
+ * @tparam HO     Whether the law fades the mismatch after a track (a Handover among the options; false: none)
  *
  * @see "Optimal Control" (Anderson & Moore, 1990), §4 and §8
  */
-template<size_t NX, size_t NU, typename T = double, size_t NI = 0, size_t NY = NX, typename Kalman = NoEstimator, size_t NZ = 0, size_t NRU = 0, size_t NM = 0, size_t NDU = 0>
+template<size_t NX, size_t NU, typename T = double, size_t NI = 0, size_t NY = NX, typename Kalman = NoEstimator, size_t NZ = 0, size_t NRU = 0, size_t NM = 0, size_t NDU = 0, bool HO = false>
 struct [[nodiscard]] StateFeedbackResult {
     using Filter = ::damp::detail::estimator_traits<::damp::detail::runtime_estimator_t<Kalman, T>>;
     static constexpr bool   kEstimated = Filter::present;         ///< A Kalman filter estimates the state
     static constexpr bool   kIntegral = NI > 0;                   ///< The law has integral action
+    static constexpr bool   kHandover = HO;                       ///< The law fades the mismatch after a track (Handover)
     static constexpr size_t NXL = NX + (NRU * NU);                ///< The law's model: the plant, then its delay states
     static constexpr size_t NK = NXL + NI;                        ///< The gain's state: the law's model and the integrators
     static constexpr size_t ND = Filter::ND;                      ///< Disturbance states of the filter
@@ -344,6 +387,7 @@ struct [[nodiscard]] StateFeedbackResult {
     using Integral = ::damp::detail::maybe<(NI > 0), IntegralDesign<NI, NXL, NU, NY, T>, ::damp::detail::OffSlot::design_integral>;
     using Target = ::damp::detail::maybe<(NZ > 0 || NM > 0), SteadyStateTargetResult<NXF, NU, ND + NM, NZ, T>, ::damp::detail::OffSlot::design_target>;
     using TrackingTime = ::damp::detail::maybe<(NI > 0), T, ::damp::detail::OffSlot::design_tracking_time>;
+    using FadeTime = ::damp::detail::maybe<HO, T, ::damp::detail::OffSlot::design_fade_time>;
 
     Matrix<NU, NK, T>                           K{};                                 ///< Optimal gain: u = −K·[x; xi]
     Matrix<NK, NK, T>                           S{};                                 ///< Riccati solution (positive semidefinite)
@@ -356,6 +400,7 @@ struct [[nodiscard]] StateFeedbackResult {
     [[no_unique_address]] Target                target{};                            ///< The steady-state target (NZ > 0, or NM > 0: under the measured disturbance)
     StateFeedbackLimits<NX, NU, T, NI, ND, NDU> limits{};                            ///< The limits the law starts with, its limits() (default unbounded, the demand limit off)
     [[no_unique_address]] TrackingTime          tracking_time{};                     ///< [s] The integrators' back-calculation tracking time (IntegralAction::tracking_time; NI > 0, default 0)
+    [[no_unique_address]] FadeTime              fade_time{};                         ///< [s] The handover's fade time (Handover::fade_time; HO)
 
     /** @brief True when the design succeeded (success). */
     [[nodiscard]] constexpr explicit operator bool() const { return success; }
@@ -383,7 +428,7 @@ struct [[nodiscard]] StateFeedbackResult {
     /** @brief The same design in the scalar @p U: `res.as<float>()` for the embedded runtime. */
     template<typename U>
     [[nodiscard]] constexpr auto as() const {
-        using Out = StateFeedbackResult<NX, NU, U, NI, NY, damp::remove_cvref_t<decltype(kalman.template as<U>())>, NZ, NRU, NM, NDU>;
+        using Out = StateFeedbackResult<NX, NU, U, NI, NY, damp::remove_cvref_t<decltype(kalman.template as<U>())>, NZ, NRU, NM, NDU, HO>;
         Out out{K.template as<U>(), S.template as<U>(), array_as<damp::complex<U>>(e), success, status, static_cast<U>(Ts), kalman.template as<U>()};
         if constexpr (NI > 0) {
             out.integral = integral.template as<U>();
@@ -391,6 +436,9 @@ struct [[nodiscard]] StateFeedbackResult {
         }
         if constexpr (NZ > 0 || NM > 0) {
             out.target = target.template as<U>();
+        }
+        if constexpr (HO) {
+            out.fade_time = static_cast<U>(fade_time);
         }
         out.limits = limits.template as<U>();
         return out;
@@ -400,10 +448,10 @@ struct [[nodiscard]] StateFeedbackResult {
      * @brief The same design with the move limit @p rate: an InputRateLimits among the options
      *        (NDU = NU). A refused design ships none, as it ships no other limit.
      */
-    [[nodiscard]] constexpr StateFeedbackResult<NX, NU, T, NI, NY, Kalman, NZ, NRU, NM, NU> with_input_rate(const Bounds<NU, T>& rate) const
+    [[nodiscard]] constexpr StateFeedbackResult<NX, NU, T, NI, NY, Kalman, NZ, NRU, NM, NU, HO> with_input_rate(const Bounds<NU, T>& rate) const
         requires(NDU == 0)
     {
-        StateFeedbackResult<NX, NU, T, NI, NY, Kalman, NZ, NRU, NM, NU> out{K, S, e, success, status, Ts, kalman, integral, target};
+        StateFeedbackResult<NX, NU, T, NI, NY, Kalman, NZ, NRU, NM, NU, HO> out{K, S, e, success, status, Ts, kalman, integral, target};
         out.limits.input = limits.input;
         out.limits.integral = limits.integral;
         out.limits.demand = limits.demand;
@@ -412,6 +460,9 @@ struct [[nodiscard]] StateFeedbackResult {
             out.limits.input_rate = rate;
         }
         out.tracking_time = tracking_time;
+        if constexpr (HO) {
+            out.fade_time = fade_time;
+        }
         return out;
     }
 
@@ -597,8 +648,8 @@ template<typename R>
 struct is_state_feedback_result : damp::false_type {};
 
 /** @brief A StateFeedbackResult. */
-template<size_t NX, size_t NU, typename T, size_t NI, size_t NY, typename Kalman, size_t NZ, size_t NRU, size_t NM, size_t NDU>
-struct is_state_feedback_result<design::StateFeedbackResult<NX, NU, T, NI, NY, Kalman, NZ, NRU, NM, NDU>> : damp::true_type {};
+template<size_t NX, size_t NU, typename T, size_t NI, size_t NY, typename Kalman, size_t NZ, size_t NRU, size_t NM, size_t NDU, bool HO>
+struct is_state_feedback_result<design::StateFeedbackResult<NX, NU, T, NI, NY, Kalman, NZ, NRU, NM, NDU, HO>> : damp::true_type {};
 
 /**
  * @brief A StateFeedbackResult of any sizes. A runtime's constructor takes one and reads its kind

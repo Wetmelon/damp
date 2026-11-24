@@ -21,6 +21,7 @@
 #include "damp/controllers/state_feedback_types.hpp"
 #include "damp/design/status.hpp"
 #include "damp/estimation/fixed_gain_observer.hpp"
+#include "damp/math/math.hpp"
 #include "damp/matrix/const_matrix.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "damp/toolbox/bounds.hpp"
@@ -133,6 +134,13 @@ struct ConstantGains {
             return ::damp::detail::DemandTerms<damp::remove_cvref_t<decltype(design.K)>::cols(), T>{};
         }
     }(); ///< The limit on what the outer terms ask of a state (off for a gain design without one)
+    static constexpr T kFadeDecay = [] {
+        if constexpr (requires { requires damp::remove_cvref_t<decltype(design)>::kHandover; }) {
+            return damp::exp(-design.Ts / design.fade_time);
+        } else {
+            return T{0};
+        }
+    }(); ///< The handover fade's factor per tick, exp(−Ts/fade_time) (0 without a Handover)
 
     template<size_t, size_t, typename>
     using K = ConstMatrix<kK>; ///< The gain
@@ -155,8 +163,8 @@ struct constant_estimator {
 };
 
 /** @brief A design with a filter runs its FixedGainObserver on constants of the type: NUK inputs, u and then a measured disturbance's. */
-template<const auto& Res, typename T, size_t NX, size_t NU, typename U, size_t NI, size_t NY, size_t NXK, size_t NUK, size_t NW, size_t NV, size_t ND, size_t NZ, size_t NRU, size_t NM, size_t NDU>
-struct constant_estimator<Res, T, design::StateFeedbackResult<NX, NU, U, NI, NY, design::KalmanResult<NXK, NUK, NY, U, NW, NV, ND>, NZ, NRU, NM, NDU>> {
+template<const auto& Res, typename T, size_t NX, size_t NU, typename U, size_t NI, size_t NY, size_t NXK, size_t NUK, size_t NW, size_t NV, size_t ND, size_t NZ, size_t NRU, size_t NM, size_t NDU, bool HO>
+struct constant_estimator<Res, T, design::StateFeedbackResult<NX, NU, U, NI, NY, design::KalmanResult<NXK, NUK, NY, U, NW, NV, ND>, NZ, NRU, NM, NDU, HO>> {
     using type = FixedGainObserver<NXK, NUK, NY, T, ND, ConstantObserver<Res, T, NXK - ND>>; ///< The observer and the disturbance
 };
 

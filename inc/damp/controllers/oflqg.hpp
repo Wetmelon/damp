@@ -12,7 +12,8 @@
  * design::state_feedback(plant, [Ts,] {.Q, .R, .N}, KalmanNoise{.process, .measurement, .disturbance}, disturbance[, InputDelay<N>{θ}])
  * (state_feedback.hpp) → OFLQGResult → OFLQG. With an InputDelay the filter carries the inputs still on their way. step(r, y) is predict, update(y), control(r). The low-latency tick is update(y),
  * control(r), back_calculate, predict. With feedforward from a planned
- * trajectory: control(r, x_ref, u_ref), step(r, x_ref, u_ref, y).
+ * trajectory: control(r, x_ref, u_ref), step(r, x_ref, u_ref, y). While another source drives the
+ * plant, track(u, r, y) takes step's place: d̂ learns the load under u.
  */
 
 #include "damp/backend.hpp"
@@ -60,13 +61,22 @@ using OFLQGResult = StateFeedbackResult<NX, NU, T, 0, NY, KalmanResult<NX + ND, 
  * its target hold r under [d̂; d], so d̂ estimates only the part of a load d does not measure:
  * control(r, d), step(r, d, y), control(r, x_ref, u_ref, d), step(r, x_ref, u_ref, d, y).
  *
+ * While another source drives the plant (an operator, another law), track(u, …) takes the place of
+ * each step(…), its arguments step's with the input applied first: track(u, r, y),
+ * track(u, r, x_ref, u_ref, y), track(u, r, d, y), track(u, r, x_ref, u_ref, d, y). The filter
+ * predicts with u, so d̂ learns the load the other source holds against: at a steady state the
+ * target's input is then u and the first step returns it. Away from one the law's command differs
+ * by its transient, which a design::Handover fades by exp(−Ts/fade_time) each tick, within its
+ * input limits.
+ *
  * @tparam NRU Input delay states of the filter's model (0: none)
  * @tparam NM  Measured-disturbance inputs (0: none)
  * @tparam NDU Inputs with a move limit (an InputRateLimits: NU; 0: none)
+ * @tparam HO  Whether the law fades the mismatch after a track (a Handover; false: none)
  */
-template<size_t NX, size_t NU, size_t NY, size_t NZ, typename T, typename Est, typename Store = detail::HeldGains, size_t NRU = 0, size_t NM = 0, size_t NDU = 0>
-struct OFLQG : private detail::StateFeedbackCore<NX, NU, T, 0, NY, Est, NZ, Store, NRU, NM, NDU> {
-    using Core = detail::StateFeedbackCore<NX, NU, T, 0, NY, Est, NZ, Store, NRU, NM, NDU>; ///< The shared implementation
+template<size_t NX, size_t NU, size_t NY, size_t NZ, typename T, typename Est, typename Store = detail::HeldGains, size_t NRU = 0, size_t NM = 0, size_t NDU = 0, bool HO = false>
+struct OFLQG : private detail::StateFeedbackCore<NX, NU, T, 0, NY, Est, NZ, Store, NRU, NM, NDU, HO> {
+    using Core = detail::StateFeedbackCore<NX, NU, T, 0, NY, Est, NZ, Store, NRU, NM, NDU, HO>; ///< The shared implementation
 
     constexpr OFLQG() = default;
 
@@ -109,11 +119,25 @@ struct OFLQG : private detail::StateFeedbackCore<NX, NU, T, 0, NY, Est, NZ, Stor
         return Core::step(r, ColVec<NX, T>{}, ColVec<NU, T>{}, y);
     }
 
+    /** @brief In place of step(r, y) while another source drives the plant: its predict() and update(y), then the memory that starts the next command from @p u, the input applied. */
+    constexpr void track(const ColVec<NU, T>& u, const ColVec<NZ, T>& r, const ColVec<NY, T>& y)
+        requires(NM == 0)
+    {
+        Core::track(u, r, ColVec<NX, T>{}, ColVec<NU, T>{}, y);
+    }
+
     /** @brief One tick: predict(), update(@p y), then control(@p r, @p x_ref, @p u_ref), the feedforward form. */
     [[nodiscard]] constexpr ColVec<NU, T> step(const ColVec<NZ, T>& r, const ColVec<NX, T>& x_ref, const ColVec<NU, T>& u_ref, const ColVec<NY, T>& y)
         requires(NM == 0)
     {
         return Core::step(r, x_ref, u_ref, y);
+    }
+
+    /** @brief In place of step(r, x_ref, u_ref, y) while another source drives the plant: its predict() and update(y), then the memory that starts the next command from @p u, the input applied. */
+    constexpr void track(const ColVec<NU, T>& u, const ColVec<NZ, T>& r, const ColVec<NX, T>& x_ref, const ColVec<NU, T>& u_ref, const ColVec<NY, T>& y)
+        requires(NM == 0)
+    {
+        Core::track(u, r, x_ref, u_ref, y);
     }
 
     /** @brief control(@p r) under the measured disturbance @p d: the target under it, after the reference. */
@@ -137,11 +161,25 @@ struct OFLQG : private detail::StateFeedbackCore<NX, NU, T, 0, NY, Est, NZ, Stor
         return Core::step(r, ColVec<NX, T>{}, ColVec<NU, T>{}, d, y);
     }
 
+    /** @brief In place of step(r, d, y) while another source drives the plant: its predict() and update(y), then the memory that starts the next command from @p u, the input applied. */
+    constexpr void track(const ColVec<NU, T>& u, const ColVec<NZ, T>& r, const ColVec<NM, T>& d, const ColVec<NY, T>& y)
+        requires(NM > 0)
+    {
+        Core::track(u, r, ColVec<NX, T>{}, ColVec<NU, T>{}, d, y);
+    }
+
     /** @brief One tick: predict(), update(@p y), then control(@p r, @p x_ref, @p u_ref, @p d). */
     [[nodiscard]] constexpr ColVec<NU, T> step(const ColVec<NZ, T>& r, const ColVec<NX, T>& x_ref, const ColVec<NU, T>& u_ref, const ColVec<NM, T>& d, const ColVec<NY, T>& y)
         requires(NM > 0)
     {
         return Core::step(r, x_ref, u_ref, d, y);
+    }
+
+    /** @brief In place of step(r, x_ref, u_ref, d, y) while another source drives the plant: its predict() and update(y), then the memory that starts the next command from @p u, the input applied. */
+    constexpr void track(const ColVec<NU, T>& u, const ColVec<NZ, T>& r, const ColVec<NX, T>& x_ref, const ColVec<NU, T>& u_ref, const ColVec<NM, T>& d, const ColVec<NY, T>& y)
+        requires(NM > 0)
+    {
+        Core::track(u, r, x_ref, u_ref, d, y);
     }
 
     using Core::applied;
@@ -158,18 +196,18 @@ struct OFLQG : private detail::StateFeedbackCore<NX, NU, T, 0, NY, Est, NZ, Stor
 };
 
 /** @brief OFLQG law{res}: the sizes, scalar, filter and target of an OFLQG design's result. */
-template<size_t NX, size_t NU, typename T, size_t NI, size_t NY, typename Kalman, size_t NZ, size_t NRU, size_t NM, size_t NDU>
-OFLQG(const design::StateFeedbackResult<NX, NU, T, NI, NY, Kalman, NZ, NRU, NM, NDU>&) -> OFLQG<NX, NU, NY, NZ, T, detail::runtime_estimator_t<Kalman, T>, detail::HeldGains, NRU, NM, NDU>;
+template<size_t NX, size_t NU, typename T, size_t NI, size_t NY, typename Kalman, size_t NZ, size_t NRU, size_t NM, size_t NDU, bool HO>
+OFLQG(const design::StateFeedbackResult<NX, NU, T, NI, NY, Kalman, NZ, NRU, NM, NDU, HO>&) -> OFLQG<NX, NU, NY, NZ, T, detail::runtime_estimator_t<Kalman, T>, detail::HeldGains, NRU, NM, NDU, HO>;
 
 namespace detail {
 
 /** @brief An LQ design with a disturbance model runs as OFLQG. */
-template<size_t NX, size_t NU, typename U, size_t NY, typename Kalman, size_t NZ, size_t NRU, size_t NM, size_t NDU, typename T>
-    requires(design::StateFeedbackResult<NX, NU, U, 0, NY, Kalman, NZ, NRU, NM, NDU>::ND > 0)
-struct lq_runtime<design::StateFeedbackResult<NX, NU, U, 0, NY, Kalman, NZ, NRU, NM, NDU>, T> {
-    using type = OFLQG<NX, NU, NY, NZ, T, runtime_estimator_t<Kalman, T>, HeldGains, NRU, NM, NDU>; ///< OFLQG
+template<size_t NX, size_t NU, typename U, size_t NY, typename Kalman, size_t NZ, size_t NRU, size_t NM, size_t NDU, bool HO, typename T>
+    requires(design::StateFeedbackResult<NX, NU, U, 0, NY, Kalman, NZ, NRU, NM, NDU, HO>::ND > 0)
+struct lq_runtime<design::StateFeedbackResult<NX, NU, U, 0, NY, Kalman, NZ, NRU, NM, NDU, HO>, T> {
+    using type = OFLQG<NX, NU, NY, NZ, T, runtime_estimator_t<Kalman, T>, HeldGains, NRU, NM, NDU, HO>; ///< OFLQG
     template<typename Est, typename Store>
-    using on_constants = OFLQG<NX, NU, NY, NZ, T, Est, Store, NRU, NM, NDU>; ///< OFLQG on the design's constants
+    using on_constants = OFLQG<NX, NU, NY, NZ, T, Est, Store, NRU, NM, NDU, HO>; ///< OFLQG on the design's constants
 };
 
 } // namespace detail
