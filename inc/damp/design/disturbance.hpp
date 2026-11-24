@@ -12,9 +12,11 @@
  * A disturbance spec is a model feature, recognized by type among design::steady_state_target's
  * options, and the disturbance option of design::kalman, design::state_feedback and design::mpc with a KalmanNoise: ND integrating
  * disturbances d_{k+1} = d_k enter the filter's model through B_d and the readings through C_d.
- * On readings that arrive late (OutputDelay) d is a state of the plant held over the period, so
- * each reading holds d as it was when the reading was taken (held_channel); an InputDisturbance's
- * adds to u, which the model carries there. A MeasuredDisturbance is the other kind, an input the
+ * A spec's .outputs are the ones the target holds at r, every measured output when it lists none,
+ * and at most one per input: a longer list, or none on a plant with more outputs than inputs,
+ * does not compile. On readings that arrive late (OutputDelay) d is a state of the plant held
+ * over the period, so each reading holds d as it was when the reading was taken (held_channel);
+ * an InputDisturbance's adds to u, which the model carries there. A MeasuredDisturbance is the other kind, an input the
  * law reads each tick: the option of design::state_feedback, design::mpc, design::kalman and
  * design::steady_state_target, alone or beside a disturbance spec, whose d̂ then estimates only
  * what it does not measure.
@@ -142,10 +144,10 @@ struct DisturbanceModel<NX, NY, ND, 0, T> {
  *
  * A regulator (no r: no disturbance spec, TrackedOutputs or IntegralAction) holds every output at
  * 0 under d, where a steady state can. With as many outputs as inputs and no unique steady state
- * it is refused (DesignStatus::singular). With more outputs than inputs none holds them all (a
- * motor law that reads both speed and current under a load torque), and its target is the
- * equilibrium whose outputs are nearest 0 in least squares, which holds none of them. To hold
- * some, list them, `TrackedOutputs{{i, …}}`, and pass r = 0.
+ * it is refused (DesignStatus::singular). With more outputs than inputs no steady state holds
+ * them all (a motor law that reads both speed and current under a load torque), and the design
+ * does not compile: list the ones it holds, at most one per input, `TrackedOutputs{{i, …}}`, and
+ * pass r = 0.
  *
  * B_d is in the plant's time domain: continuous on a continuous plant, discretized with it by ZOH
  * (d held over the period), per step on a discrete one. On a plant whose input arrives late

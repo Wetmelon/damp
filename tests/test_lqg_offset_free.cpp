@@ -55,7 +55,7 @@ TEST_SUITE("Offset-free LQG: oflqg with a disturbance model") {
         //! A velocity held at r: [A−I, B; C, D] is singular (the first column is zero), so there is no unique target.
         auto velocity = sys;
         velocity.C = Matrix<1, 2>{{0.0, 1.0}};
-        CHECK(design::steady_state_target(velocity).status == design::DesignStatus::singular);
+        CHECK(design::steady_state_target(velocity, design::TrackedOutputs{}).status == design::DesignStatus::singular);
     }
 
     TEST_CASE("a continuous plant is refused, as by lqg; continuous plant + Ts designs at Ts") {

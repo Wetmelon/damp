@@ -52,6 +52,12 @@ constexpr auto kLags = discretize(kLagsC, kTs);
 /// The same with noise on both states and both readings, for a filter.
 constexpr StateSpace<2, 1, 2, double, 2, 2> kNoisyLags{.A = kLags->A, .B = kLags->B, .C = kLags->C, .Ts = kTs};
 
+/// The lags read at x₂ alone, sampled at kTs: one output per input, so a regulator holds every output.
+constexpr StateSpace<2, 1, 1> kSecond{.A = kLags->A, .B = kLags->B, .C = {{0.0, 1.0}}, .Ts = kTs};
+
+/// The same, continuous.
+constexpr StateSpace<2, 1, 1> kSecondC{.A = kLagsC.A, .B = kLagsC.B, .C = {{0.0, 1.0}}};
+
 /// A load on the second lag, per step: x₂ takes kTs·w more each period.
 constexpr Matrix<2, 1> kLoadOnX2{{0.0}, {kTs}};
 
@@ -129,12 +135,11 @@ TEST_SUITE("MeasuredDisturbance") {
 
     TEST_CASE("the regulator holds every output at 0 under d: control(d) and step(d, x), and its feedforward form") {
         //! One reading, x₂: the regulator's target holds it at 0 under the load.
-        constexpr StateSpace<2, 1, 1> second{.A = kLags->A, .B = kLags->B, .C = {{0.0, 1.0}}, .Ts = kTs};
-        const auto                    md = design::state_feedback(second, kWeights, design::MeasuredDisturbance{kLoadOnX2});
+        const auto md = design::state_feedback(kSecond, kWeights, design::MeasuredDisturbance{kLoadOnX2});
         REQUIRE(md.success);
         static_assert(std::is_same_v<decltype(md.target.target_r), Matrix<3, 0>>); // no r
         LQR       law{md};
-        LQR       blind{design::state_feedback(second, kWeights)};
+        LQR       blind{design::state_feedback(kSecond, kWeights)};
         ColVec<2> x{};
         ColVec<2> xb{};
         for (size_t k = 0; k < 400; ++k) {
@@ -154,18 +159,23 @@ TEST_SUITE("MeasuredDisturbance") {
         CHECK(law.control(x_ref, u_ref, d)(0) == doctest::Approx(u_ref(0) + t(2) - (md.K * dev)(0)).epsilon(1e-12));
     }
 
-    TEST_CASE("a regulator with more outputs than inputs holds the equilibrium nearest 0 under d; TrackedOutputs with r = 0 holds the one listed") {
-        //! At rest x₂ = x₁ + d: no steady state holds both readings at 0, so the regulator's
-        //! target is the least squares of y, holding neither. Listed, x₂ is held at r = 0.
+    TEST_CASE("a regulator with more outputs than inputs lists the one it holds under d: TrackedOutputs with r = 0") {
+        //! At rest x₂ = x₁ + d: no steady state holds both readings at 0. Holding both took the
+        //! least squares, x = (−0.5·d, 0.5·d), which held neither, and no longer compiles.
+        //! Listed, x₂ is held at r = 0, and x₁ sits at −d.
         constexpr Matrix<2, 1> load_c{{0.0}, {1.0}};
-        const auto             both = design::state_feedback(kLagsC, kTs, kWeights, design::MeasuredDisturbance{load_c});
         const auto             one = design::state_feedback(kLagsC, kTs, kWeights, design::TrackedOutputs{{1}}, design::MeasuredDisturbance{load_c});
-        REQUIRE(both.success);
         REQUIRE(one.success);
-        CHECK(both.target.target_d(0, 0) == doctest::Approx(-0.5).epsilon(1e-9));
-        CHECK(both.target.target_d(1, 0) == doctest::Approx(0.5).epsilon(1e-9));
         CHECK(one.target.target_d(0, 0) == doctest::Approx(-1.0).epsilon(1e-9));
         CHECK(std::abs(one.target.target_d(1, 0)) < 1e-9);
+        const auto load = discretize(StateSpace<2, 1, 1>{.A = kLagsC.A, .B = load_c}, kTs).value();
+        LQR        law{one};
+        ColVec<2>  x{};
+        for (size_t k = 0; k < 400; ++k) {
+            x = (kLags->A * x) + (kLags->B * law.step(0.0, ColVec<1>{0.4}, x)) + (load.B * ColVec<1>{0.4});
+        }
+        CHECK(std::abs(x(1)) < 1e-9);                       // the listed reading at 0
+        CHECK(x(0) == doctest::Approx(-0.4).epsilon(1e-9)); // the other where the steady state puts it
     }
 
     TEST_CASE("an LQI feeds the measured load forward: the same steady state with its integrators where they were") {
@@ -375,8 +385,8 @@ TEST_SUITE("MeasuredDisturbance") {
     }
 
     TEST_CASE("to_ss is the law at d = 0, its filter on the plant's inputs: the block of the design without it") {
-        const auto                     lqg = design::state_feedback(kNoisyLags, kWeights, kNoise, design::MeasuredDisturbance{kLoadOnX2});
-        const auto                     lqg_plain = design::state_feedback(kNoisyLags, kWeights, kNoise);
+        const auto                     lqg = design::state_feedback(kNoisyLags, kWeights, kNoise, design::TrackedOutputs{{1}}, design::MeasuredDisturbance{kLoadOnX2});
+        const auto                     lqg_plain = design::state_feedback(kNoisyLags, kWeights, kNoise, design::TrackedOutputs{{1}});
         const design::DisturbanceModel spec{.Bd = kLoadOnX2, .outputs = {1}};
         const auto                     of = design::state_feedback(kNoisyLags, kWeights, kLoadNoise, spec, design::MeasuredDisturbance{kLoadOnX2});
         const auto                     of_plain = design::state_feedback(kNoisyLags, kWeights, kLoadNoise, spec);
@@ -453,15 +463,15 @@ TEST_SUITE("MeasuredDisturbance") {
         Matrix<2, 1> bad = kLoadOnX2;
         bad(1, 0) = std::numeric_limits<double>::quiet_NaN();
         CHECK(design::state_feedback(*kLags, kWeights, design::TrackedOutputs{{1}}, design::MeasuredDisturbance{bad}).status == design::DesignStatus::bad_weights);
-        CHECK(design::state_feedback(kNoisyLags, kWeights, kNoise, design::MeasuredDisturbance{bad}).status == design::DesignStatus::bad_weights);
+        CHECK(design::state_feedback(kNoisyLags, kWeights, kNoise, design::TrackedOutputs{{1}}, design::MeasuredDisturbance{bad}).status == design::DesignStatus::bad_weights);
         CHECK(design::kalman(kNoisyLags, kNoise, design::MeasuredDisturbance{bad}).status == design::DesignStatus::bad_weights);
-        CHECK(design::mpc<10, 4>(kNoisyLags, both_weighed(), kLoadNoise, design::InputDisturbance{}, design::MeasuredDisturbance{bad}).status == design::DesignStatus::bad_weights);
-        CHECK(design::mpc<10, 4>(*kLags, both_weighed(), design::MeasuredDisturbance{bad}).status == design::DesignStatus::bad_weights);
+        CHECK(design::mpc<10, 4>(kNoisyLags, both_weighed(), kLoadNoise, design::InputDisturbance{{1}}, design::MeasuredDisturbance{bad}).status == design::DesignStatus::bad_weights);
+        CHECK(design::mpc<10, 4>(*kLags, both_weighed(), design::TrackedOutputs{{1}}, design::MeasuredDisturbance{bad}).status == design::DesignStatus::bad_weights);
     }
 
     TEST_CASE("Law<kRes, T> of a constexpr design with a measured disturbance runs on its constants as the runtime does") {
         static constexpr auto kOflqg = design::state_feedback(kNoisyLags, kWeights, kLoadNoise, design::DisturbanceModel{.Bd = kLoadOnX2, .outputs = {1}}, design::MeasuredDisturbance{kLoadOnX2});
-        static constexpr auto kLqr = design::state_feedback(*kLags, kWeights, design::MeasuredDisturbance{kLoadOnX2});
+        static constexpr auto kLqr = design::state_feedback(kSecond, kWeights, design::MeasuredDisturbance{kLoadOnX2});
         static constexpr auto kOfmpc = design::mpc<6, 2>(kNoisyLags, both_weighed(), kLoadNoise, design::InputDisturbance{{1}}, design::MeasuredDisturbance{kLoadOnX2});
         static_assert(kOflqg.success && kLqr.success && kOfmpc.success);
         Law<kOfmpc, float> f;
@@ -490,8 +500,8 @@ TEST_SUITE("MeasuredDisturbance") {
         const auto lqgt = design::state_feedback(kNoisyLags, kWeights, kNoise, design::TrackedOutputs{{1}});
         const auto lqgi = design::state_feedback(kNoisyLags, kWeights, kNoise, design::IntegralAction{.Q = Matrix<2, 2>::identity()});
         const auto oflqg = design::state_feedback(kNoisyLags, kWeights, kLoadNoise, design::DisturbanceModel{.Bd = kLoadOnX2, .outputs = {1}});
-        const auto mpc = design::mpc<10, 4>(*kLags, {});
-        const auto mpcm = design::mpc<10, 4>(*kLags, {}, design::MeasuredDisturbance{kLoadOnX2});
+        const auto mpc = design::mpc<10, 4>(*kLags, {}, design::TrackedOutputs{{1}});
+        const auto mpcm = design::mpc<10, 4>(*kLags, {}, design::TrackedOutputs{{1}}, design::MeasuredDisturbance{kLoadOnX2});
         const auto ofmpc = design::mpc<10, 4>(kNoisyLags, {}, kLoadNoise, design::DisturbanceModel{.Bd = kLoadOnX2, .outputs = {1}});
         static_assert(std::is_same_v<decltype(lqr), const design::StateFeedbackResult<2, 1, double>>);
         static_assert(std::is_same_v<decltype(LQR{lqr}), LQR<2, 1, double>>);
@@ -509,8 +519,8 @@ TEST_SUITE("MeasuredDisturbance") {
             CHECK(sizeof(LQGI{lqgi}) == 472);
             CHECK(sizeof(OFLQG{oflqg}) == 488);
             CHECK(sizeof(OFLQG{oflqg.as<float>()}) == 256);
-            CHECK(sizeof(MPC{mpc}) == 2992);
-            CHECK(sizeof(MPC{mpcm}) == 3184);
+            CHECK(sizeof(MPC{mpc}) == 2984); // one output held, TrackedOutputs{{1}}: 2992 holding both
+            CHECK(sizeof(MPC{mpcm}) == 3176);
             CHECK(sizeof(OFMPC{ofmpc}) == 3504);
             CHECK(sizeof(oflqg) == 752);
             CHECK(sizeof(lqr) == 144);
@@ -549,11 +559,13 @@ TEST_SUITE("MeasuredDisturbance") {
         CHECK(same_target(tgm, mpcm.target));
         CHECK(same_map(tgm.target_r, tg.target_r));
 
-        //! With no list, every output: the target without a TrackedOutputs, and the LQR's with TrackedOutputs{}.
-        const auto every = design::steady_state_target(*kLags, design::TrackedOutputs{});
-        static_assert(std::is_same_v<decltype(every), const decltype(design::steady_state_target(*kLags))>);
-        CHECK(same_target(every, design::steady_state_target(*kLags)));
-        CHECK(same_target(every, design::state_feedback(*kLags, kWeights, design::TrackedOutputs{}).target));
+        //! TrackedOutputs{}, every output, on a plant with no more outputs than inputs: the list of
+        //! all of them, and the LQR's and the MPC's with TrackedOutputs{}.
+        const auto every = design::steady_state_target(kSecond, design::TrackedOutputs{});
+        static_assert(std::is_same_v<decltype(every), const decltype(design::steady_state_target(kSecond, design::TrackedOutputs{{0}}))>);
+        CHECK(same_target(every, design::steady_state_target(kSecond, design::TrackedOutputs{{0}})));
+        CHECK(same_target(every, design::state_feedback(kSecond, kWeights, design::TrackedOutputs{}).target));
+        CHECK(same_target(every, design::mpc<10, 4>(kSecond, {}, design::TrackedOutputs{}).target));
 
         //! The steady state it gives under d is the one both laws hold, and their command there.
         const SteadyStateTarget target{tgm};
@@ -684,7 +696,8 @@ TEST_SUITE("MeasuredDisturbance") {
 
         //! An output out of range or listed twice, as the LQR refuses it.
         CHECK(design::steady_state_target(*kLags, design::TrackedOutputs{{2}}).status == design::DesignStatus::bad_weights);
-        CHECK(design::steady_state_target(kLagsC, kTs, design::TrackedOutputs{{1, 1}}).status == design::DesignStatus::bad_weights);
+        constexpr StateSpace<2, 2, 2> two{.A = kLagsC.A, .B = Matrix<2, 2>::identity(), .C = Matrix<2, 2>::identity()}; // two listed: two inputs
+        CHECK(design::steady_state_target(two, kTs, design::TrackedOutputs{{1, 1}}).status == design::DesignStatus::bad_weights);
         CHECK(design::state_feedback(*kLags, kWeights, design::TrackedOutputs{{2}}).status == design::DesignStatus::bad_weights);
 
         Matrix<2, 1> bad = kLoadOnX2;
@@ -693,7 +706,7 @@ TEST_SUITE("MeasuredDisturbance") {
         const design::TrackedOutputs      held{{1}};
         CHECK(design::steady_state_target(*kLags, held, nan).status == design::DesignStatus::bad_weights);
         CHECK(design::steady_state_target(kNoisyLags, design::InputDisturbance{{1}}, nan).status == design::DesignStatus::bad_weights);
-        CHECK(design::steady_state_target(kLagsC, kTs, nan).status == design::DesignStatus::bad_weights);
+        CHECK(design::steady_state_target(kLagsC, kTs, held, nan).status == design::DesignStatus::bad_weights);
         CHECK(design::steady_state_target(kLagsC, kTs, held, nan, InputDelay<2>{0.15}, OutputDelay{0.04}).status == design::DesignStatus::bad_weights);
         CHECK(design::state_feedback(*kLags, kWeights, held, nan).status == design::DesignStatus::bad_weights);
         //! A sample time the plant refuses is refused first, as the designs refuse it.
@@ -704,18 +717,17 @@ TEST_SUITE("MeasuredDisturbance") {
         CHECK(design::steady_state_target(kLagsC, 0.0, held, nan).status == sf.status);
     }
 
-    TEST_CASE("a target without a TrackedOutputs or a MeasuredDisturbance is the one it was: its type and its size") {
-        constexpr StateSpace<2, 1, 1> second{.A = kLags->A, .B = kLags->B, .C = {{0.0, 1.0}}, .Ts = kTs}; // one reading, x₂
-        const auto                    a = design::steady_state_target(second);
-        const auto                    b = design::steady_state_target(*kLags, design::DisturbanceModel{.Bd = kLoadOnX2, .outputs = {1}});
-        const auto                    c = design::steady_state_target(kLagsC, kTs, design::InputDisturbance{{1}}, InputDelay<2>{0.15});
-        const auto                    e = design::steady_state_target(kLagsC, kTs, design::InputDisturbance{{1}}, InputDelay{0.05}, OutputDelay{0.04});
-        const auto                    f = design::steady_state_target(kLagsC, kTs);
+    TEST_CASE("a target without a MeasuredDisturbance is the one it was: its type and its size") {
+        const auto a = design::steady_state_target(kSecond, design::TrackedOutputs{});
+        const auto b = design::steady_state_target(*kLags, design::DisturbanceModel{.Bd = kLoadOnX2, .outputs = {1}});
+        const auto c = design::steady_state_target(kLagsC, kTs, design::InputDisturbance{{1}}, InputDelay<2>{0.15});
+        const auto e = design::steady_state_target(kLagsC, kTs, design::InputDisturbance{{1}}, InputDelay{0.05}, OutputDelay{0.04});
+        const auto f = design::steady_state_target(kSecondC, kTs, design::TrackedOutputs{});
         static_assert(std::is_same_v<decltype(a), const design::SteadyStateTargetResult<2, 1, 0, 1, double>>);
         static_assert(std::is_same_v<decltype(b), const design::SteadyStateTargetResult<2, 1, 1, 1, double>>);
         static_assert(std::is_same_v<decltype(c), const design::SteadyStateTargetResult<4, 1, 1, 1, double>>);
         static_assert(std::is_same_v<decltype(e), const design::SteadyStateTargetResult<5, 1, 1, 1, double>>);
-        static_assert(std::is_same_v<decltype(f), const design::SteadyStateTargetResult<2, 1, 0, 2, double>>);
+        static_assert(std::is_same_v<decltype(f), const design::SteadyStateTargetResult<2, 1, 0, 1, double>>);
         static_assert(std::is_same_v<decltype(SteadyStateTarget{a}), SteadyStateTarget<2, 1, 0, 1, double>>);
         //! The sizes on the base this was built on (x86-64): no column, no member for either.
         if constexpr (sizeof(size_t) == 8) {
@@ -723,13 +735,14 @@ TEST_SUITE("MeasuredDisturbance") {
             CHECK(sizeof(b) == 56);
             CHECK(sizeof(c) == 88);
             CHECK(sizeof(e) == 104);
-            CHECK(sizeof(f) == 64);
+            CHECK(sizeof(f) == 40);
             CHECK(sizeof(SteadyStateTarget{a}) == 32);
             CHECK(sizeof(SteadyStateTarget{b}) == 48);
         }
         //! A TrackedOutputs sizes r's map by its list, and a MeasuredDisturbance adds d's NM columns after the spec's.
         static_assert(std::is_same_v<decltype(design::steady_state_target(kLagsC, kTs, design::TrackedOutputs{{1}})), design::SteadyStateTargetResult<2, 1, 0, 1, double>>);
-        static_assert(std::is_same_v<decltype(design::steady_state_target(second, design::MeasuredDisturbance{kLoadOnX2})), design::SteadyStateTargetResult<2, 1, 1, 1, double>>);
+        static_assert(std::is_same_v<decltype(design::steady_state_target(kSecond, design::TrackedOutputs{}, design::MeasuredDisturbance{kLoadOnX2})), design::SteadyStateTargetResult<2, 1, 1, 1, double>>);
+        static_assert(std::is_same_v<decltype(design::steady_state_target(kSecond, design::MeasuredDisturbance{kLoadOnX2})), design::SteadyStateTargetResult<2, 1, 1, 0, double>>); // the regulator's: no r
         static_assert(std::is_same_v<decltype(design::steady_state_target(*kLags, design::InputDisturbance{{1}}, design::MeasuredDisturbance{kLoadOnX2})), design::SteadyStateTargetResult<2, 1, 2, 1, double>>);
     }
 }

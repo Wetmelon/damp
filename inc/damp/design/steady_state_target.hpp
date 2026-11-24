@@ -18,8 +18,8 @@
  *   \begin{bmatrix} -B_d\hat d \\ r - C_{d,z}\hat d \end{bmatrix},
  * @f]
  * solved once at design time for unit d and r, so the runtime target is two matrix–vector
- * products (with NZ < NU the minimum-norm solution; with NZ > NU the equilibrium whose outputs
- * are closest to r in the least-squares sense). Shared by the laws that track through a target
+ * products (with NZ < NU the minimum-norm solution). More held outputs than inputs does not
+ * compile: no steady state holds them all. Shared by the laws that track through a target
  * (OFLQG, OFMPC); a law with a disturbance model re-anchors its estimator (a FixedGainObserver
  * with design::kalman's fixed gain) on it. A MeasuredDisturbance d, read each tick, enters
  * beside d̂ through its own B_d (none on the readings): the right side is then under [d̂; d].
@@ -47,13 +47,14 @@ namespace design {
  * @brief The outputs a law without integrators or a disturbance model holds at r through its
  *        steady-state target (design::state_feedback and design::mpc, with or without a KalmanNoise,
  *        and design::steady_state_target, the target alone): `TrackedOutputs{{0}}`, in that order
- *        (the references r follow it).
+ *        (the references r follow it). Left out, the law is a regulator and takes no r.
  *
  * The target is the model's: x* = Nₓ·r, u* = Nᵤ·r. A model error or a constant disturbance
  * leaves an offset; integral action (lqi, lqgi) or a disturbance model (oflqg, an offset-free
  * mpc, whose spec's outputs are the held ones) removes it. An MPC's QP still weighs every output,
  * those it does not list toward C·x*. Beside a disturbance spec it does not compile: the spec's
- * .outputs are the held ones.
+ * .outputs are the held ones. Nor does a list longer than the plant's inputs, or TrackedOutputs{}
+ * on a plant with more outputs than inputs: a steady state holds at most one output per input.
  *
  * @see "Feedback Control of Dynamic Systems" (Franklin, Powell & Emami-Naeini), the reference
  *      input of state-space design (N_x, N_u)
@@ -163,12 +164,52 @@ struct is_tracked_option : damp::bool_constant<is_tracked_outputs<O>> {};
 template<typename... Opts>
 inline constexpr bool held_in_one_place = (::damp::detail::option_count<is_tracked_option, Opts...> == 0) || !(is_disturbance_model<damp::remove_cvref_t<Opts>> || ...);
 
+/** @brief The controlled outputs of a target under @p Spec: those it lists, else every output. */
+template<typename Spec, size_t NU, size_t NY, size_t NW>
+inline constexpr size_t target_outputs = (disturbance_traits<Spec, NU, NY, NW>::listed == 0) ? NY : disturbance_traits<Spec, NU, NY, NW>::listed;
+
 /**
- * @brief The compile-time check of the outputs a design's target holds at r, the same in every
- *        design that holds r through one (design::state_feedback, design::mpc,
- *        design::steady_state_target): one TrackedOutputs, and none beside a disturbance spec.
+ * @brief The outputs a target under @p Aim (target_spec_of) holds at r: those a disturbance spec or
+ *        a TrackedOutputs lists, every output when it lists none; none for a regulator
+ *        (NoDisturbance), which takes no r.
  */
-template<typename... Opts>
+template<typename Aim, size_t NY>
+inline constexpr size_t reference_outputs = damp::is_same_v<Aim, NoDisturbance> ? 0 : target_outputs<Aim, 0, NY, 0>;
+
+/**
+ * @brief How many outputs the target of a design with @p Opts holds, at r or at 0: those a
+ *        disturbance spec lists, else those a TrackedOutputs lists, every one of the NY when its
+ *        list is empty; with neither the design is a regulator, whose target under a
+ *        MeasuredDisturbance holds every output at 0, or an LQI's @p NI integrated ones, and
+ *        which has none without one.
+ */
+template<size_t NU, size_t NY, size_t NI, typename... Opts>
+consteval size_t held_count() {
+    using Spec = ::damp::detail::option_t<is_disturbance, NoDisturbance, Opts...>;
+    using Held = ::damp::detail::option_t<is_tracked_option, NoDisturbance, Opts...>;
+    if constexpr (is_disturbance_model<Spec>) {
+        return target_outputs<Spec, NU, NY, 0>;
+    } else if constexpr (is_tracked_outputs<Held>) {
+        return target_outputs<Held, NU, NY, 0>;
+    } else if constexpr (::damp::detail::option_count<is_measured_disturbance, Opts...> > 0) {
+        return (NI > 0) ? NI : NY;
+    } else {
+        return 0;
+    }
+}
+
+/**
+ * @brief The compile-time check of the outputs a design's target holds, the same in every design
+ *        with one (design::state_feedback, design::mpc, design::steady_state_target): one
+ *        TrackedOutputs, none beside a disturbance spec, and at most NU outputs held.
+ *
+ * A steady state holds at most one output per input: with more, none holds them all, and the
+ * nearest one in least squares holds none of them, so a design that asks for more does not
+ * compile and names the outputs it holds. A regulator (no spec, no TrackedOutputs) has a target
+ * only under a MeasuredDisturbance, which holds every output at 0, or, on an LQI, its @p NI
+ * integrated outputs (0: no IntegralAction).
+ */
+template<size_t NU, size_t NY, size_t NI, typename... Opts>
 constexpr void check_held_outputs() {
     static_assert(::damp::detail::option_count<is_tracked_option, Opts...> <= 1, "One TrackedOutputs lists every output the target holds at r: TrackedOutputs{{i, ...}}.");
     static_assert(
@@ -176,115 +217,45 @@ constexpr void check_held_outputs() {
         "A disturbance spec holds the outputs it lists at r: give them as its .outputs, InputDisturbance{{i, ...}} or "
         "DisturbanceModel{.Bd = ..., .outputs = {i, ...}}, not as TrackedOutputs."
     );
+    static_assert(
+        held_count<NU, NY, NI, Opts...>() <= NU,
+        "No steady state holds more outputs than the plant has inputs: list the ones the target holds, at most one per input, "
+        "TrackedOutputs{{i, ...}} (r = 0 for a regulator under a MeasuredDisturbance) or a disturbance spec's .outputs = {i, ...}; "
+        "an LQI under a MeasuredDisturbance holds its IntegralAction's .outputs."
+    );
 }
 
 /**
- * @brief The spec a target is designed on, from a design's disturbance spec and TrackedOutputs:
- *        the disturbance model, which holds the outputs it lists, else the outputs @p held lists
- *        (every output when it lists none). design::mpc's and design::steady_state_target's.
+ * @brief The spec a target is designed on, from a design's disturbance spec and TrackedOutputs, the
+ *        one pick of every design: the disturbance model, which holds the outputs it lists, else
+ *        the outputs a TrackedOutputs @p held lists (every output when it lists none), else
+ *        NoDisturbance, a regulator, which holds nothing at r. Anything else in either place (a
+ *        NoDisturbance, an IntegralAction, an option left out) is not a spec.
  */
-template<typename Spec, size_t NS>
-[[nodiscard]] constexpr auto target_spec_of(const Spec& spec, const TrackedOutputs<NS>& held) {
+template<typename Spec, typename Held>
+[[nodiscard]] constexpr auto target_spec_of(const Spec& spec, const Held& held) {
+    static_cast<void>(spec);
+    static_cast<void>(held);
     if constexpr (is_disturbance_model<Spec>) {
-        static_cast<void>(held);
         return spec;
-    } else {
-        static_cast<void>(spec);
+    } else if constexpr (is_tracked_outputs<Held>) {
         return held;
+    } else {
+        return NoDisturbance{};
     }
 }
 
 /** @brief The options steady_state_target takes: the model features of the design (a KalmanNoise is ignored). */
 using target_options = ::damp::detail::option_set<is_disturbance, is_tracked_option, is_measured_disturbance, is_kalman_noise, is_input_delay, is_output_delay>;
 
-/** @brief The controlled outputs of a target under @p Spec: those it lists, else every output. */
-template<typename Spec, size_t NU, size_t NY, size_t NW>
-inline constexpr size_t target_outputs = (disturbance_traits<Spec, NU, NY, NW>::listed == 0) ? NY : disturbance_traits<Spec, NU, NY, NW>::listed;
-
-/**
- * @brief The target maps over the model's equilibria: [x_t; u_t] = s_d·d + N·w, with N a basis of
- *        the kernel of E = [A − I, B], s_d E's minimum-norm solution for −B_d, and w the least
- *        squares of ‖S·[x_t; u_t] + C_{d,z}·d − r‖²_Q, S = [C_z, D_z].
- *
- * Always an equilibrium of the model (when one exists for d) and the unique steady state when
- * there is one. A reference no steady state holds (more outputs than inputs, or a velocity on a
- * position plant) gets the closest one measured by Q, and an output Q does not weight does not
- * pull it. Q enters as W = Σ^{1/2}·Uᵀ (Q = U·Σ·Uᵀ, symmetric positive semidefinite) before the
- * pseudoinverse, so its rank cut sees the conditioning of W·S·N rather than of its square; N
- * keeps the columns outside the kernel at exactly zero, so no rank decision falls on roundoff.
- */
-template<size_t NXE, size_t NU, size_t NZ, size_t ND, typename T>
-[[nodiscard]] constexpr SteadyStateTargetResult<NXE, NU, ND, NZ, T> equilibrium_target(
-    const Matrix<NXE, NXE + NU, T>& E,
-    const Matrix<NZ, NXE + NU, T>&  S,
-    const Matrix<NXE, ND, T>&       Bd,
-    const Matrix<NZ, ND, T>&        Cdz,
-    const Matrix<NZ, NZ, T>&        Q
-) {
-    constexpr size_t NS = NXE + NU;
-    using Result = SteadyStateTargetResult<NXE, NU, ND, NZ, T>;
-    const auto e = mat::svd(E);
-    const auto q = mat::svd(Q);
-    if (!e.success || !q.success) {
-        return ::damp::detail::refused<Result>(DesignStatus::not_converged); // a non-finite entry, or the sweeps ran out
-    }
-    const size_t      rank = mat::rank_from_svd(e);
-    Matrix<NS, NS, T> N{};
-    for (size_t c = rank; c < NS; ++c) {
-        for (size_t i = 0; i < NS; ++i) {
-            N(i, c) = e.singular_V(i, c);
-        }
-    }
-    Matrix<NZ, NZ, T> W{};
-    for (size_t i = 0; i < NZ; ++i) {
-        const T root = damp::sqrt(q.singular_values[i]);
-        for (size_t j = 0; j < NZ; ++j) {
-            W(i, j) = root * q.singular_U(j, i);
-        }
-    }
-    const auto least_squares = mat::pseudo_inverse(Matrix<NZ, NS, T>(W * (S * N)));
-    if (!least_squares) {
-        return ::damp::detail::refused<Result>(DesignStatus::not_converged); // its sweeps ran out
-    }
-    const Matrix<NS, NZ, T> G = N * Matrix<NS, NZ, T>(*least_squares * W);
-    Result                  out{};
-    out.target_r = G;
-    if constexpr (ND > 0) {
-        //! s_d = E⁺·(−B_d) = −V·Σ⁺·Uᵀ·B_d over the rank nonzero singular values
-        const Matrix<NXE, ND, T> UtB = e.singular_U.transpose() * Bd;
-        Matrix<NS, ND, T>        sd{};
-        for (size_t k = 0; k < rank; ++k) {
-            const T inv = T{1} / e.singular_values[k];
-            for (size_t i = 0; i < NS; ++i) {
-                for (size_t c = 0; c < ND; ++c) {
-                    sd(i, c) -= e.singular_V(i, k) * inv * UtB(k, c);
-                }
-            }
-        }
-        out.target_d = sd - (G * Matrix<NZ, ND, T>((S * sd) + Cdz));
-    } else {
-        static_cast<void>(Bd);
-        static_cast<void>(Cdz);
-    }
-    return ::damp::detail::set_status(out, DesignStatus::ok);
-}
-
-/** @brief The output weight of a target's least squares when the caller has none: the identity. */
-template<typename Spec, size_t NU, size_t NY, size_t NW, typename T>
-using target_weight = Matrix<target_outputs<Spec, NU, NY, NW>, target_outputs<Spec, NU, NY, NW>, T>;
-
 /**
  * @brief The target maps of a model: [A − I, B; C_z, D_z]·[x_t; u_t] = [−B_d·d; r − C_{d,z}·d]
- *        solved for unit d and r, @p M the left side (see steady_state_target). With NZ > NU,
- *        @p Q weighs the controlled outputs' least squares (MPC's cost).
+ *        solved for unit d and r, @p M the left side (see steady_state_target): square with
+ *        NZ = NU, the minimum-norm solution with fewer. More (NZ > NU) does not reach it from a
+ *        design: check_held_outputs refuses it at compile time.
  */
 template<size_t NXE, size_t NU, size_t NZ, size_t ND, typename T>
-[[nodiscard]] constexpr SteadyStateTargetResult<NXE, NU, ND, NZ, T> target_solve(
-    const Matrix<NXE + NZ, NXE + NU, T>& M,
-    const Matrix<NXE, ND, T>&            Bd,
-    const Matrix<NZ, ND, T>&             Cdz,
-    const Matrix<NZ, NZ, T>&             Q
-) {
+[[nodiscard]] constexpr SteadyStateTargetResult<NXE, NU, ND, NZ, T> target_solve(const Matrix<NXE + NZ, NXE + NU, T>& M, const Matrix<NXE, ND, T>& Bd, const Matrix<NZ, ND, T>& Cdz) {
     using Result = SteadyStateTargetResult<NXE, NU, ND, NZ, T>;
     //! d enters the state update through B_d and the controlled outputs through their C_d rows:
     //! z = C_z x + D_z u + C_{d,z} d is held at r.
@@ -306,17 +277,6 @@ template<size_t NXE, size_t NU, size_t NZ, size_t ND, typename T>
         }
         out.target_d = td.value();
         out.target_r = tr.value();
-    } else if constexpr (NZ > NU) {
-        //! NZ > NU: no steady state holds every r. Least squares on the stacked system would trade
-        //! the equilibrium rows against the outputs (the law would chase a state it cannot hold),
-        //! so the target is the equilibrium closest to r.
-        out = equilibrium_target<NXE, NU>(
-            Matrix<NXE, NXE + NU, T>(M.template block<NXE, NXE + NU>(0, 0)),
-            Matrix<NZ, NXE + NU, T>(M.template block<NZ, NXE + NU>(NXE, 0)),
-            Bd,
-            Matrix<NZ, ND, T>(rhs_d.template block<NZ, ND>(NXE, 0) * T{-1}),
-            Q
-        );
     } else {
         const auto Mp = mat::pseudo_inverse(M);
         if (!Mp) {
@@ -358,18 +318,15 @@ template<size_t NXE, size_t NU, size_t NZ, typename T>
 /**
  * @brief The target maps on the filter's model of @p sys under the options (see
  *        steady_state_target), in the plant's time domain (@p Discrete) or sampled at @p Ts,
- *        with the delay states of @p delay. With NZ > NU, @p Q weighs
- *        the controlled outputs' least squares (MPC's cost). @p measured, a measured
- *        disturbance's channel on the same model (measured_channel), adds its NM columns after
- *        the spec's: target_d is then [x_t; u_t] per unit [d̂; d], and the measured d reaches
- *        no reading directly.
+ *        with the delay states of @p delay. @p measured, a measured disturbance's channel on
+ *        the same model (measured_channel), adds its NM columns after the spec's: target_d is
+ *        then [x_t; u_t] per unit [d̂; d], and the measured d reaches no reading directly.
  */
 template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Spec, typename Delay = NoDelay, size_t NM = 0>
 [[nodiscard]] constexpr auto target_design(
     const StateSpace<NX, NU, NY, T, NW, NV>&               sys,
     T                                                      Ts,
     const Spec&                                            spec,
-    const target_weight<Spec, NU, NY, NW, T>&              Q = target_weight<Spec, NU, NY, NW, T>::identity(),
     const Delay&                                           delay = Delay{},
     const Matrix<NX + delay_states<Delay, NU, NY>, NM, T>& measured = Matrix<NX + delay_states<Delay, NU, NY>, NM, T>{}
 ) {
@@ -405,7 +362,7 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
             Cdz(i, j) = ch.Cd((*rows)[i], j);
         }
     }
-    return target_solve<NXE, NU>(target_system(m.law.A, m.law.B, Cz, Dz), side_by_side(ch.Bd, measured), Cdz, Q);
+    return target_solve<NXE, NU>(target_system(m.law.A, m.law.B, Cz, Dz), side_by_side(ch.Bd, measured), Cdz);
 }
 
 /**
@@ -429,38 +386,73 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
     if (m.status != DesignStatus::ok) {
         return ::damp::detail::refused<Result>(m.status);
     }
-    const auto full = target_solve<NXE, NU>(
-        target_system(m.law.A, m.law.B, Matrix<NS, NXE, T>(S * m.law.C), Matrix<NS, NU, T>(S * m.law.D)), measured, Matrix<NS, NM, T>{}, Matrix<NS, NS, T>::identity()
-    );
-    Result out{};
+    const auto full = target_solve<NXE, NU>(target_system(m.law.A, m.law.B, Matrix<NS, NXE, T>(S * m.law.C), Matrix<NS, NU, T>(S * m.law.D)), measured, Matrix<NS, NM, T>{});
+    Result     out{};
     out.target_d = full.target_d;
     return ::damp::detail::set_status(out, full.status);
 }
 
 /**
- * @brief steady_state_target on its options, on the model of @p sys with @p delay: target_design
- *        on the outputs the laws hold (target_spec_of: the disturbance spec's, else the
- *        TrackedOutputs', else every output) and, after the spec's columns, a MeasuredDisturbance's
- *        channel on that model (measured_channel), the target every design with the same options
- *        holds. Without one (NM = 0) the channel has no columns: the spec's target alone.
+ * @brief The target a design holds on its pick @p aim (target_spec_of), @p measured a measured
+ *        disturbance's channel on the model of @p sys with @p delay: target_design on a
+ *        disturbance spec or a TrackedOutputs; a regulator's (NoDisturbance) the steady state
+ *        under d that holds every output at 0 (held_at_zero), or none without a measured d, the
+ *        target x = 0, u = 0, with no map at all. design::mpc's and design::steady_state_target's;
+ *        design::state_feedback's is the same, an LQI holding its integrated outputs at 0.
+ */
+template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Aim, typename Delay, size_t NM>
+[[nodiscard]] constexpr auto held_target(
+    const StateSpace<NX, NU, NY, T, NW, NV>&               sys,
+    T                                                      Ts,
+    const Aim&                                             aim,
+    const Delay&                                           delay,
+    const Matrix<NX + delay_states<Delay, NU, NY>, NM, T>& measured
+) {
+    if constexpr (!damp::is_same_v<Aim, NoDisturbance>) {
+        return target_design<Discrete>(sys, Ts, aim, delay, measured);
+    } else if constexpr (NM > 0) {
+        return held_at_zero<Discrete>(sys, Ts, Matrix<NY, NY, T>::identity(), delay, measured);
+    } else {
+        static_cast<void>(sys);
+        static_cast<void>(Ts);
+        static_cast<void>(delay);
+        static_cast<void>(measured);
+        SteadyStateTargetResult<NX + delay_states<Delay, NU, NY>, NU, 0, 0, T> none{};
+        return ::damp::detail::set_status(none, DesignStatus::ok);
+    }
+}
+
+/**
+ * @brief steady_state_target on its options, on the model of @p sys with @p delay: held_target on
+ *        the outputs the laws hold (target_spec_of: the disturbance spec's, else the
+ *        TrackedOutputs', else a regulator's under a MeasuredDisturbance) and, after the spec's
+ *        columns, the MeasuredDisturbance's channel on that model (measured_channel), the target
+ *        every design with the same options holds. Without one (NM = 0) the channel has no
+ *        columns: the spec's target alone. With neither a spec nor a TrackedOutputs nor a
+ *        MeasuredDisturbance there is nothing to hold, and it does not compile.
  * @return refused as the model is (a sample time, a delay), else with DesignStatus::bad_weights
  *         for a non-finite B_d
  */
 template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Delay, typename... Opts>
 [[nodiscard]] constexpr auto target_with(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T Ts, const Delay& delay, const Opts&... opts) {
-    check_held_outputs<Opts...>();
+    check_held_outputs<NU, NY, 0, Opts...>();
     target_options::check<Opts...>();
-    const auto spec = target_spec_of(::damp::detail::option<is_disturbance>(NoDisturbance{}, opts...), ::damp::detail::option<is_tracked_option>(TrackedOutputs<>{}, opts...));
-    using Spec = damp::remove_cvref_t<decltype(spec)>;
+    const auto       spec = target_spec_of(::damp::detail::option<is_disturbance>(NoDisturbance{}, opts...), ::damp::detail::option<is_tracked_option>(NoDisturbance{}, opts...));
     const auto       measured = measured_of<NX, T>(opts...);
     constexpr size_t NM = measured_inputs<damp::remove_cvref_t<decltype(measured)>>;
-    const auto       channel = measured_channel<Discrete>(sys, Ts, measured, delay);
+    static_assert(
+        !damp::is_same_v<damp::remove_cvref_t<decltype(spec)>, NoDisturbance> || NM > 0,
+        "steady_state_target holds the outputs a TrackedOutputs or a disturbance spec lists: TrackedOutputs{} for every output, "
+        "TrackedOutputs{{i, ...}} for some. With neither it is a regulator's, which holds nothing at r: give it a MeasuredDisturbance "
+        "for the steady state under d."
+    );
+    const auto channel = measured_channel<Discrete>(sys, Ts, measured, delay);
+    using Result = decltype(held_target<Discrete>(sys, Ts, spec, delay, *channel));
     if (!channel) {
-        using Result = SteadyStateTargetResult<NX + delay_states<Delay, NU, NY>, NU, disturbance_traits<Spec, NU, NY, NW>::states + NM, target_outputs<Spec, NU, NY, NW>, T>;
         const auto m = sampled_model(sys, Ts, Discrete, delay);
         return ::damp::detail::refused<Result>((m.status != DesignStatus::ok) ? m.status : DesignStatus::bad_weights); // the model's refusal first, as the designs'; else a non-finite B_d
     }
-    return target_design<Discrete>(sys, Ts, spec, target_weight<Spec, NU, NY, NW, T>::identity(), delay, *channel);
+    return held_target<Discrete>(sys, Ts, spec, delay, *channel);
 }
 
 } // namespace detail
@@ -473,12 +465,16 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
  * [A − I, B; C_z, D_z]·[x_t; u_t] = [−B_d d; r − C_{d,z} d] on the filter's model of
  * design::kalman with the same options: C_z and D_z are the rows of the measured outputs the
  * laws hold at r, those the disturbance spec lists, else those a TrackedOutputs lists, all of
- * them when neither lists any; B_d and C_d the spec's channels, C_{d,z} the same rows of C_d
- * (none without a spec: the target from r alone). With NZ = NU the system is square and
- * solved; with NZ < NU, the minimum-norm solution; with NZ > NU no steady state holds every r,
- * and the target is the steady state (A − I)·x_t + B·u_t = −B_d·d whose outputs are closest
- * to r in the least-squares sense.
- * Offset-free control needs the steady state to exist, NZ ≤ NU, and the augment detectable
+ * them when the one given lists none; B_d and C_d the spec's channels, C_{d,z} the same rows of
+ * C_d (none without a spec: the target from r alone). With neither a spec nor a TrackedOutputs
+ * it is a regulator's target, as design::state_feedback and design::mpc then are: no map of r,
+ * and under a MeasuredDisturbance the steady state that holds every output at 0. Without a
+ * MeasuredDisturbance too it would hold nothing, and does not compile: TrackedOutputs{} holds
+ * every output at r. With NZ = NU the system is square and
+ * solved; with NZ < NU, the minimum-norm solution. With NZ > NU no steady state holds every r,
+ * and the design does not compile: a plant with more outputs than inputs lists the ones r
+ * holds, at most NU, in a TrackedOutputs or the spec's .outputs.
+ * Offset-free control needs the steady state to exist and the augment detectable
  * (design::kalman checks it).
  *
  * A MeasuredDisturbance{.Bd} among @p opts, a disturbance read each tick, adds its own B_d to
@@ -490,8 +486,8 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
  * NZ < NU and no steady state holds every r (the system is rank deficient); with
  * DesignStatus::bad_weights for a controlled output out of range or listed twice, or a
  * non-finite entry of the plant, B_d or C_d, or of a MeasuredDisturbance's B_d. An option of
- * a kind given twice, or a TrackedOutputs beside a disturbance spec, does not compile, as in
- * design::state_feedback and design::mpc.
+ * a kind given twice, a TrackedOutputs beside a disturbance spec, or more held outputs than
+ * inputs does not compile, as in design::state_feedback and design::mpc.
  *
  * @see "Offset-free reference tracking with model predictive control" (Maeder, Borrelli &
  *      Morari, 2009), Automatica 45(9)
@@ -500,7 +496,8 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
  *
  * @param sys   Discrete-time plant (Ts > 0)
  * @param opts  The model features of the design, in any order: a disturbance spec or a
- *              TrackedOutputs, a MeasuredDisturbance (a KalmanNoise is accepted and ignored)
+ *              TrackedOutputs, a MeasuredDisturbance (one of the three at least; a KalmanNoise is
+ *              accepted and ignored)
  * @return SteadyStateTargetResult with the maps and status
  */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename... Opts>
@@ -551,7 +548,7 @@ struct TargetPoint {
  * on the absolute state, anchor() for one on the estimator's deviation (ND > 0).
  *
  * @tparam NX States of the filter's model before the disturbance; ND Disturbance states;
- *            NZ Controlled outputs
+ *            NZ Controlled outputs (0: a regulator's target, TargetR then any empty type)
  */
 template<size_t NX, size_t NU, size_t ND, size_t NZ, typename T = float, typename TargetD = Matrix<NX + NU, ND, T>, typename TargetR = Matrix<NX + NU, NZ, T>>
 struct SteadyStateTarget {
@@ -570,14 +567,20 @@ struct SteadyStateTarget {
         }
     }
 
-    /** @brief The steady state (x_t, u_t) that holds z = @p r under the disturbance @p d. */
+    /** @brief The steady state (x_t, u_t) that holds z = @p r under the disturbance @p d (a regulator's, NZ = 0: under d alone). */
     [[nodiscard]] constexpr TargetPoint<NX, NU, T> equilibrium(const ColVec<NZ, T>& r, const ColVec<ND, T>& d = ColVec<ND, T>{}) const {
         ColVec<NX + NU, T> s{};
-        if constexpr (ND > 0) {
+        if constexpr (ND > 0 && NZ > 0) {
             s = (target_d * d) + (target_r * r);
-        } else {
+        } else if constexpr (ND > 0) {
+            static_cast<void>(r);
+            s = target_d * d; // no map of r: TargetR may hold nothing
+        } else if constexpr (NZ > 0) {
             static_cast<void>(d);
             s = target_r * r;
+        } else {
+            static_cast<void>(r);
+            static_cast<void>(d);
         }
         TargetPoint<NX, NU, T> p{};
         for (size_t i = 0; i < NX; ++i) {

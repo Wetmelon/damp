@@ -87,7 +87,9 @@ enum class OffSlot : uint8_t {
     design_integral_lim,  ///< StateFeedbackResult::integral_lim (NI = 0)
     tracking_time,        ///< StateFeedbackCore::tracking_time (NI = 0)
     design_tracking_time, ///< StateFeedbackResult::tracking_time (NI = 0)
-    held_outputs,         ///< MPC's map from the reference to the target's outputs (every output held: r is the QP's reference)
+    held_outputs,         ///< MPC's map from the reference to the target's outputs (every output held: r is the QP's reference; none for a regulator)
+    mpc_target,           ///< MPC's steady-state target (a regulator without a disturbance: x = 0, u = 0)
+    mpc_target_r,         ///< MPC's target per unit r (a regulator: no r)
     held_measured,        ///< The measured disturbance a filter's next predict holds (no filter, or no MeasuredDisturbance)
 };
 

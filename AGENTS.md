@@ -131,8 +131,9 @@ the repo root.
   `OutputLimits`, `StateLimits`, `DareCost` or `InvariantSet` and `QPIterations`, and an operating
   point is the runtime's (`set_input_target`; Ru is measured from the target's input otherwise).
   Both families hold r through one target, `steady_state_target`'s: on the outputs a disturbance
-  spec's `.outputs` lists, or without one a `TrackedOutputs`, every output when neither lists any;
-  an MPC's QP weighs and bounds every plant output, the others toward the target's values. A
+  spec's `.outputs` lists, or without one a `TrackedOutputs`, every output when the one given
+  lists none, at most one per input; with neither the law is a regulator and takes no r, an MPC
+  as an LQR. An MPC's QP weighs and bounds every plant output, the others toward the target's values. A
   delay is an option of every sampled design (`InputDelay<N>{θ}` with the
   continuous plant and `Ts`), the runtime holding or filtering its delay states;
   a model with the delay built in is the plant route, for a model one holds. The

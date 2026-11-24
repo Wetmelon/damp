@@ -75,7 +75,7 @@ using LqgLaw = LQG<2, 1, 1, double, PlantFilter>;                               
 using LqgTrackLaw = LQG<2, 1, 1, double, PlantFilter, 1>;                                                       // design::state_feedback with a KalmanNoise, one tracked output
 using LqgiLaw = LQGI<2, 1, 1, 1, double, PlantFilter>;                                                          // design::state_feedback with a KalmanNoise and an IntegralAction
 using OflqgLaw = OFLQG<2, 1, 1, 1, double, LoadFilter>;                                                         // design::state_feedback with a KalmanNoise and a disturbance spec, one controlled output
-using MpcLaw = MPC<2, 1, 1, 10, 4, 0, double>;                                                                  // design::mpc
+using MpcLaw = MPC<2, 1, 1, 10, 4, 0, double>;                                                                  // design::mpc with TrackedOutputs{}: NH defaults to every output
 using OfmpcLaw = OFMPC<2, 1, 1, 10, 4, double, design::WarmStartActiveSetSolver<5, 17, double>, 0, LoadFilter>; // design::mpc with a KalmanNoise and a disturbance spec
 
 static_assert(FeedbackRuntime<LqrLaw, 1, 2, double>);   // m = x
@@ -150,6 +150,19 @@ static_assert(!ControlsWith<MpcLaw, V1, D0> && !StepsWith<MpcLaw, V1, D0, X2>);
 static_assert(StepsWithEmptyD<MpcMdLaw> && ControlsWithEmptyD<MpcMdLaw>);
 static_assert(ControlsWith<MpcMdLaw, V1, V1> && StepsWith<MpcMdLaw, V1, V1, X2>); // control(r, d), step(r, d, x)
 static_assert(!ControlsWith<MpcMdLaw, V1> && !StepsWith<MpcMdLaw, V1, X2>);
+
+// An MPC with no TrackedOutputs is a regulator (NH = 0), as LQR is: no r, and no r form.
+using MpcSolver = design::WarmStartActiveSetSolver<5, 17, double>;
+using MpcRegulator = MPC<2, 1, 1, 10, 4, 0, double, MpcSolver, 0, 0, 0, 0, 0>;   // design::mpc
+using MpcMdRegulator = MPC<2, 1, 1, 10, 4, 1, double, MpcSolver, 0, 0, 0, 0, 0>; // design::mpc with a MeasuredDisturbance
+static_assert(FeedbackRuntime<MpcRegulator, 1, 2, double> && !FeedbackLaw<MpcRegulator, 1, 1, 2, double>);
+static_assert(ControlsWith<MpcRegulator> && StepsWith<MpcRegulator, X2>);                             // control(), step(x)
+static_assert(ControlsWith<MpcRegulator, X2, V1> && StepsWith<MpcRegulator, X2, V1, X2>);             // control(x_ref, u_ref), step(x_ref, u_ref, x)
+static_assert(!ControlsWith<MpcRegulator, V1> && !StepsWith<MpcRegulator, V1, X2>);                   // no control(r), no step(r, x)
+static_assert(!ControlsWith<MpcLaw> && !StepsWith<MpcLaw, X2>);                                       // a tracking design always takes r
+static_assert(ControlsWith<MpcMdRegulator, V1> && StepsWith<MpcMdRegulator, V1, X2>);                 // control(d), step(d, x)
+static_assert(ControlsWith<MpcMdRegulator, X2, V1, V1> && StepsWith<MpcMdRegulator, X2, V1, V1, X2>); // control(x_ref, u_ref, d), step(x_ref, u_ref, d, x)
+static_assert(!ControlsWith<MpcMdRegulator> && !ControlsWith<MpcMdRegulator, V1, V1>);                // d always passed, and no r
 
 // --- StateEstimator: step(y, u) + state() ------------------------------------
 static_assert(StateEstimator<KalmanFilter<2, 1, 1, double, 2, 1>, 2, 1, 1, double>);   // recursive

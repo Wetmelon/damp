@@ -130,7 +130,7 @@ TEST_CASE("warm-start default MPC matches the stateless policy tick for tick") {
         .upper = 0.2,
     };
 
-    const auto art = design::mpc<15, 5>(double_integrator, weights, limits);
+    const auto art = design::mpc<15, 5>(double_integrator, weights, limits, design::TrackedOutputs{});
     REQUIRE(art.success);
 
     MPC warm{art}; // WarmStartActiveSetSolver is the default policy
@@ -192,7 +192,7 @@ TEST_CASE("ADMM solver policy drives the MPC like the active-set default") {
         .upper = 0.5,
     };
 
-    const auto art = design::mpc<15, 5>(double_integrator, weights, limits, design::QPIterations{20000});
+    const auto art = design::mpc<15, 5>(double_integrator, weights, limits, design::QPIterations{20000}, design::TrackedOutputs{});
     REQUIRE(art.success);
 
     using Ctl = decltype(MPC{art});
@@ -334,7 +334,7 @@ TEST_CASE("ADMM reports an MPC's infeasible constraint set like the active-set d
         .upper = 0.1,
     };
 
-    const auto art = design::mpc<15, 5>(double_integrator, weights, limits, design::QPIterations{20000});
+    const auto art = design::mpc<15, 5>(double_integrator, weights, limits, design::QPIterations{20000}, design::TrackedOutputs{});
     REQUIRE(art.success);
 
     using Ctl = decltype(MPC{art});
@@ -407,7 +407,7 @@ TEST_CASE("interior-point solver policy drives the MPC like the active-set defau
         .upper = 0.5,
     };
 
-    const auto art = design::mpc<15, 5>(double_integrator, weights, limits);
+    const auto art = design::mpc<15, 5>(double_integrator, weights, limits, design::TrackedOutputs{});
     REQUIRE(art.success);
 
     MPC exact{art};

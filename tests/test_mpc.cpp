@@ -186,15 +186,14 @@ TEST_CASE("unconstrained MPC with a DARE terminal weight reproduces the LQR law"
     weights.Rdu = Matrix<1, 1>{}; // no move penalty: pure LQ cost
     weights.Ru = R;
 
-    const auto art = design::mpc<8, 8>(double_integrator_full, weights); // a free move every step: equals LQR
+    const auto art = design::mpc<8, 8>(double_integrator_full, weights); // a free move every step: equals LQR; no TrackedOutputs, a regulator
     REQUIRE(art.success);
 
-    MPC             controller{art};
-    ColVec<2>       x{1.0, -0.5};
-    const ColVec<2> r{}; // regulation
+    MPC       controller{art};
+    ColVec<2> x{1.0, -0.5};
 
     for (size_t k = 0; k < 30; ++k) {
-        const auto   u_mpc = controller.step(r, x);
+        const auto   u_mpc = controller.step(x);
         const double u_lqr = -((lqr.K(0, 0) * x(0)) + (lqr.K(0, 1) * x(1)));
         CHECK(u_mpc(0) == doctest::Approx(u_lqr).epsilon(1e-6));
         CHECK(controller.last_status() == design::QPStatus::Success);
@@ -216,7 +215,7 @@ TEST_CASE("constrained MPC tracks a step within u and du limits") {
         .upper = 0.2,
     };
 
-    const auto art = design::mpc<20, 8>(double_integrator, weights, limits);
+    const auto art = design::mpc<20, 8>(double_integrator, weights, limits, design::TrackedOutputs{});
     REQUIRE(art.success);
 
     MPC             controller{art};
@@ -252,7 +251,7 @@ TEST_CASE("InputLimits{.u_lim, .du_lim} is the QP and the commands MPCConstraint
     //! Recorded with the positional MPCConstraints<1>{.u_lim, .du_lim} before InputLimits replaced it.
     const design::InputLimits limits{.u_lim = {.lower = -0.5, .upper = 0.5}, .du_lim = {.lower = -0.2, .upper = 0.2}};
     const auto                w = move_weight(0.05);
-    const auto                art = design::mpc<10, 4>(double_integrator, w, limits);
+    const auto                art = design::mpc<10, 4>(double_integrator, w, limits, design::TrackedOutputs{});
     REQUIRE(art.success);
     const auto& a = art.mpc;
     CHECK(a.H(0, 0) == doctest::Approx(1.3666500000000006).epsilon(1e-12));
@@ -315,16 +314,16 @@ TEST_CASE("InputLimits{.u_lim, .du_lim} is the QP and the commands MPCConstraint
             CHECK(commands[i] == doctest::Approx(got[i]).epsilon(1e-9));
         }
     };
-    same(design::mpc<10, 4>(double_integrator, w, design::QPIterations{220}, limits));
+    same(design::mpc<10, 4>(double_integrator, w, design::QPIterations{220}, limits, design::TrackedOutputs{}));
 
     //! Limits in another scalar are read in the plant's.
-    const auto in_float = design::mpc<10, 4>(double_integrator, w, design::InputLimits<1, float>{.u_lim = {.lower = -0.5f, .upper = 0.5f}, .du_lim = {.lower = -0.25f, .upper = 0.25f}});
+    const auto in_float = design::mpc<10, 4>(double_integrator, w, design::InputLimits<1, float>{.u_lim = {.lower = -0.5f, .upper = 0.5f}, .du_lim = {.lower = -0.25f, .upper = 0.25f}}, design::TrackedOutputs{});
     REQUIRE(in_float.success);
     CHECK(in_float.mpc.b_bound(0) == 0.25);
     CHECK(in_float.mpc.b_bound(8) == 0.5);
 
     //! Left out, u and Δu are unbounded: sentinel rows, and the cost of the bounded design (its scale is 1 too).
-    const auto free = design::mpc<10, 4>(double_integrator, w);
+    const auto free = design::mpc<10, 4>(double_integrator, w, design::TrackedOutputs{});
     REQUIRE(free.success);
     CHECK(free.mpc.constraints.u_lim.upper(0) == damp::numeric_limits<double>::max());
     CHECK(free.mpc.constraints.du_lim.lower(0) == -damp::numeric_limits<double>::max());
@@ -332,7 +331,7 @@ TEST_CASE("InputLimits{.u_lim, .du_lim} is the QP and the commands MPCConstraint
         CHECK(free.mpc.b_bound(i) >= design::unbounded_bound<double>() / 4.0);
     }
     CHECK((free.mpc.H - a.H).norm() <= 4.0 * eps<double>() * a.H.norm());
-    const auto spelled = design::mpc<10, 4>(double_integrator, w, design::InputLimits<1>{});
+    const auto spelled = design::mpc<10, 4>(double_integrator, w, design::InputLimits<1>{}, design::TrackedOutputs{});
     REQUIRE(spelled.success);
     for (size_t i = 0; i < 16; ++i) {
         CHECK(spelled.mpc.b_bound(i) >= design::unbounded_bound<double>() / 4.0);
@@ -387,7 +386,7 @@ TEST_CASE("set_limits changes the input limit at run time; a bad limit is refuse
         .lower = -0.5,
         .upper = 0.5,
     };
-    const auto art = design::mpc<20, 8>(double_integrator, move_weight(0.05), limits);
+    const auto art = design::mpc<20, 8>(double_integrator, move_weight(0.05), limits, design::TrackedOutputs{});
     REQUIRE(art.success);
 
     MPC  controller{art};
@@ -429,7 +428,7 @@ TEST_CASE("hard output constraint caps the predicted response") {
     // An overshoot limiter on the position, hard: no slack allowed.
     const design::OutputLimits cap{.outputs = {0}, .lim = {.upper = 1.02}, .upper_ecr = {0.0}};
 
-    const auto art = design::mpc<20, 8>(double_integrator, weights, limits, cap);
+    const auto art = design::mpc<20, 8>(double_integrator, weights, limits, cap, design::TrackedOutputs{});
     REQUIRE(art.success);
 
     MPC             controller{art};
@@ -449,9 +448,9 @@ TEST_CASE_TEMPLATE("StateLimits bound a state the MPC does not track, hard or so
     const design::InputLimits<1> limits{.u_lim = {.lower = -1.0, .upper = 1.0}};
     design::StateLimits          speed{.states = {1}, .lim = {.lower = -0.3, .upper = 0.3}};
     speed.upper_ecr(0) = 0.0; // hard above
-    const auto art = design::mpc<20, 8>(double_integrator, move_weight(0.01), limits, speed);
+    const auto art = design::mpc<20, 8>(double_integrator, move_weight(0.01), limits, speed, design::TrackedOutputs{});
     REQUIRE(art.success);
-    const auto free_art = design::mpc<20, 8>(double_integrator, move_weight(0.01), limits);
+    const auto free_art = design::mpc<20, 8>(double_integrator, move_weight(0.01), limits, design::TrackedOutputs{});
     REQUIRE(free_art.success);
 
     MPC        bounded{art.template as<T>()};
@@ -486,7 +485,7 @@ TEST_CASE_TEMPLATE("StateLimits bound a state the MPC does not track, hard or so
     CHECK_FALSE(bounded.set_limits(lim));
 
     // Soft (the default): started past the bound, every tick solves and the speed comes back inside.
-    const auto soft_art = design::mpc<20, 8>(double_integrator, move_weight(0.01), limits, design::StateLimits{.states = {1}, .lim = {.lower = -0.3, .upper = 0.3}});
+    const auto soft_art = design::mpc<20, 8>(double_integrator, move_weight(0.01), limits, design::StateLimits{.states = {1}, .lim = {.lower = -0.3, .upper = 0.3}}, design::TrackedOutputs{});
     REQUIRE(soft_art.success);
     MPC       recovering{soft_art.template as<T>()};
     ColVec<2> xs{0.0, 0.8};
@@ -500,10 +499,10 @@ TEST_CASE_TEMPLATE("StateLimits bound a state the MPC does not track, hard or so
 
 TEST_CASE("StateLimits refusals: a state past the model's, one listed twice, a bad box, a negative softness") {
     static_assert(damp::is_same_v<decltype(design::StateLimits{.states = {0, 2}, .lim = Bounds<2>{}}), design::StateLimits<2>>); // NXC from the list
-    CHECK(design::mpc<10, 4>(double_integrator, move_weight(0.05), design::StateLimits{.states = {2}}).status == design::DesignStatus::invalid_parameter);
-    CHECK(design::mpc<10, 4>(double_integrator, move_weight(0.05), design::StateLimits{.states = {1, 1}}).status == design::DesignStatus::invalid_parameter);
-    CHECK(design::mpc<10, 4>(double_integrator, move_weight(0.05), design::StateLimits{.states = {1}, .lim = {.lower = 1.0, .upper = -1.0}}).status == design::DesignStatus::invalid_parameter);
-    CHECK(design::mpc<10, 4>(double_integrator, move_weight(0.05), design::StateLimits{.states = {1}, .lower_ecr = ColVec<1>{-1.0}}).status == design::DesignStatus::bad_weights);
+    CHECK(design::mpc<10, 4>(double_integrator, move_weight(0.05), design::StateLimits{.states = {2}}, design::TrackedOutputs{}).status == design::DesignStatus::invalid_parameter);
+    CHECK(design::mpc<10, 4>(double_integrator, move_weight(0.05), design::StateLimits{.states = {1, 1}}, design::TrackedOutputs{}).status == design::DesignStatus::invalid_parameter);
+    CHECK(design::mpc<10, 4>(double_integrator, move_weight(0.05), design::StateLimits{.states = {1}, .lim = {.lower = 1.0, .upper = -1.0}}, design::TrackedOutputs{}).status == design::DesignStatus::invalid_parameter);
+    CHECK(design::mpc<10, 4>(double_integrator, move_weight(0.05), design::StateLimits{.states = {1}, .lower_ecr = ColVec<1>{-1.0}}, design::TrackedOutputs{}).status == design::DesignStatus::bad_weights);
 }
 
 TEST_CASE("OutputLimits on two of four outputs is the QP of every output listed, the others at ±max, in fewer rows") {
@@ -527,14 +526,15 @@ TEST_CASE("OutputLimits on two of four outputs is the QP of every output listed,
     design::OutputLimits every{.outputs = {0, 1, 2, 3}, .lim = {.lower = {-big, -0.3, -big, -big}, .upper = {big, 0.3, 0.4, big}}};
     every.upper_ecr(2) = 0.0;
 
-    const auto a = design::mpc<12, 4>(two_axes, w, limits, subset);
-    const auto b = design::mpc<12, 4>(two_axes, w, limits, every);
+    const design::TrackedOutputs positions{{0, 2}}; // r on the positions, one per input
+    const auto                   a = design::mpc<12, 4>(two_axes, w, limits, subset, positions);
+    const auto                   b = design::mpc<12, 4>(two_axes, w, limits, every, positions);
     REQUIRE(a.success);
     REQUIRE(b.success);
     using A = std::remove_cvref_t<decltype(a.mpc)>;
     using B = std::remove_cvref_t<decltype(b.mpc)>;
     static_assert(A::NI == (4 * 8) + (2 * 12 * 2) && B::NI == (4 * 8) + (2 * 12 * 4)); // 2·NP rows per bounded output
-    static_assert(std::remove_cvref_t<decltype(design::mpc<12, 4>(two_axes, w, limits).mpc)>::NI == 4 * 8);
+    static_assert(std::remove_cvref_t<decltype(design::mpc<12, 4>(two_axes, w, limits, positions).mpc)>::NI == 4 * 8);
     CHECK(B::NI == 128); // y_lim's rows on every output
     for (size_t i = 0; i < 4; ++i) {
         CHECK(a.mpc.scale_y(i) == b.mpc.scale_y(i));
@@ -559,7 +559,7 @@ TEST_CASE("OutputLimits on two of four outputs is the QP of every output listed,
     MPC             la{a};
     MPC             lb{b};
     ColVec<4>       x{};
-    const ColVec<4> r{1.0, 0.0, 0.5, 0.0};
+    const ColVec<2> r{1.0, 0.5}; // the speeds at the target's 0
     double          v_peak = 0.0;
     double          p_peak = 0.0;
     for (size_t k = 0; k < 60; ++k) {
@@ -595,25 +595,25 @@ TEST_CASE("OutputLimits on two of four outputs is the QP of every output listed,
 }
 
 TEST_CASE("OutputLimits refusals: an output past the controlled ones, one listed twice, a bad box, a negative softness") {
-    CHECK(design::mpc<10, 4>(double_integrator, move_weight(0.05), design::OutputLimits{.outputs = {1}}).status == design::DesignStatus::invalid_parameter);
-    CHECK(design::mpc<10, 4>(double_integrator_full, design::MPCWeights<1, 2>{}, design::OutputLimits{.outputs = {1, 1}}).status == design::DesignStatus::invalid_parameter);
-    CHECK(design::mpc<10, 4>(double_integrator, move_weight(0.05), design::OutputLimits{.outputs = {0}, .lim = {.lower = 1.0, .upper = -1.0}}).status == design::DesignStatus::invalid_parameter);
-    CHECK(design::mpc<10, 4>(double_integrator, move_weight(0.05), design::OutputLimits{.outputs = {0}, .lower_ecr = {-1.0}}).status == design::DesignStatus::bad_weights);
-    CHECK(design::mpc<10, 4>(double_integrator_full, design::MPCWeights<1, 2>{}, design::OutputLimits{.outputs = {1}}).success); // the speed, output 1 of C = I
+    CHECK(design::mpc<10, 4>(double_integrator, move_weight(0.05), design::OutputLimits{.outputs = {1}}, design::TrackedOutputs{}).status == design::DesignStatus::invalid_parameter);
+    CHECK(design::mpc<10, 4>(double_integrator_full, design::MPCWeights<1, 2>{}, design::TrackedOutputs{{0}}, design::OutputLimits{.outputs = {1, 1}}).status == design::DesignStatus::invalid_parameter);
+    CHECK(design::mpc<10, 4>(double_integrator, move_weight(0.05), design::OutputLimits{.outputs = {0}, .lim = {.lower = 1.0, .upper = -1.0}}, design::TrackedOutputs{}).status == design::DesignStatus::invalid_parameter);
+    CHECK(design::mpc<10, 4>(double_integrator, move_weight(0.05), design::OutputLimits{.outputs = {0}, .lower_ecr = {-1.0}}, design::TrackedOutputs{}).status == design::DesignStatus::bad_weights);
+    CHECK(design::mpc<10, 4>(double_integrator_full, design::MPCWeights<1, 2>{}, design::TrackedOutputs{{0}}, design::OutputLimits{.outputs = {1}}).success); // the speed, output 1 of C = I
 }
 
 TEST_CASE("QPIterations sets the QP's budget; left out, the default 10·(NZ + 1 + NI + 1)") {
-    const auto set = design::mpc<10, 4>(double_integrator, move_weight(0.05), design::QPIterations{40});
-    const auto left_out = design::mpc<10, 4>(double_integrator, move_weight(0.05));
+    const auto set = design::mpc<10, 4>(double_integrator, move_weight(0.05), design::QPIterations{40}, design::TrackedOutputs{});
+    const auto left_out = design::mpc<10, 4>(double_integrator, move_weight(0.05), design::TrackedOutputs{});
     REQUIRE(set.success);
     REQUIRE(left_out.success);
     CHECK(set.mpc.max_qp_iterations == 40);
-    CHECK(left_out.mpc.max_qp_iterations == 10 * (5 + 16 + 1));                                                                                 // no output rows without an OutputLimits
-    CHECK(design::mpc<10, 4>(double_integrator, move_weight(0.05), design::OutputLimits{.outputs = {0}}).mpc.max_qp_iterations == 420);         // with them, as before
-    CHECK(design::mpc<10, 4>(double_integrator, move_weight(0.05), design::QPIterations{0}).status == design::DesignStatus::invalid_parameter); // not one active-set step
+    CHECK(left_out.mpc.max_qp_iterations == 10 * (5 + 16 + 1));                                                                                                           // no output rows without an OutputLimits
+    CHECK(design::mpc<10, 4>(double_integrator, move_weight(0.05), design::OutputLimits{.outputs = {0}}, design::TrackedOutputs{}).mpc.max_qp_iterations == 420);         // with them, as before
+    CHECK(design::mpc<10, 4>(double_integrator, move_weight(0.05), design::QPIterations{0}, design::TrackedOutputs{}).status == design::DesignStatus::invalid_parameter); // not one active-set step
 
     //! The runtime solves within it: a budget of one leaves a constrained tick MaxIterations.
-    MPC  capped{design::mpc<10, 4>(double_integrator, move_weight(0.05), design::InputLimits{.u_lim = {.lower = -0.1, .upper = 0.1}}, design::QPIterations{1})};
+    MPC  capped{design::mpc<10, 4>(double_integrator, move_weight(0.05), design::InputLimits{.u_lim = {.lower = -0.1, .upper = 0.1}}, design::QPIterations{1}, design::TrackedOutputs{})};
     auto u = capped.step(1.0, ColVec<2>{});
     CHECK(capped.last_iterations() <= 1);
     CHECK(capped.last_status() == design::QPStatus::MaxIterations);
@@ -640,7 +640,7 @@ TEST_CASE("soft output constraint recovers from an infeasible start") {
     {
         design::OutputLimits hard = ceiling;
         hard.upper_ecr(0) = 0.0;
-        const auto art = design::mpc<20, 8>(double_integrator, weights, limits, hard);
+        const auto art = design::mpc<20, 8>(double_integrator, weights, limits, hard, design::TrackedOutputs{});
         REQUIRE(art.success);
         MPC        controller{art};
         const auto u = controller.step(r, x0);
@@ -651,7 +651,7 @@ TEST_CASE("soft output constraint recovers from an infeasible start") {
     // Soft variant (default ECR = 1): solvable from the violated start, slack
     // active initially, and the loop still converges to the reference.
     {
-        const auto art = design::mpc<20, 8>(double_integrator, weights, limits, ceiling);
+        const auto art = design::mpc<20, 8>(double_integrator, weights, limits, ceiling, design::TrackedOutputs{});
         REQUIRE(art.success);
         MPC controller{art};
 
@@ -674,7 +674,7 @@ TEST_CASE("soft output constraint recovers from an infeasible start") {
 TEST_CASE("an infeasible tick holds the last applied input inside the u box") {
     design::InputLimits<1> hard{};
     hard.u_lim = {.lower = -1.0, .upper = 1.0};
-    const auto art = design::mpc<20, 8>(double_integrator, move_weight(0.01), hard, design::OutputLimits{.outputs = {0}, .lim = {.upper = 1.0}, .upper_ecr = {0.0}});
+    const auto art = design::mpc<20, 8>(double_integrator, move_weight(0.01), hard, design::OutputLimits{.outputs = {0}, .lim = {.upper = 1.0}, .upper_ecr = {0.0}}, design::TrackedOutputs{});
     REQUIRE(art.success);
     MPC             controller{art};
     ColVec<2>       x{};
@@ -700,7 +700,7 @@ TEST_CASE("MaxIterations with hard output rows holds unless the iterate is prima
     design::InputLimits<1> limits{};
     limits.u_lim = {.lower = -1.0, .upper = 1.0};
     const design::OutputLimits cap{.outputs = {0}, .lim = {.upper = 1.02}, .upper_ecr = {0.0}};
-    const auto                 art = design::mpc<30, 10>(double_integrator, move_weight(0.01), limits, cap, design::QPIterations{1});
+    const auto                 art = design::mpc<30, 10>(double_integrator, move_weight(0.01), limits, cap, design::QPIterations{1}, design::TrackedOutputs{});
     REQUIRE(art.success);
     MPC             controller{art};
     ColVec<2>       x{};
@@ -725,7 +725,7 @@ TEST_CASE("MaxIterations with hard output rows holds unless the iterate is prima
 TEST_CASE("hard output rows with ill-scaled u and y boxes stay inside both") {
     design::InputLimits<1> limits{};
     limits.u_lim = {.lower = -1.0e6, .upper = 1.0e6};
-    const auto art = design::mpc<20, 8>(double_integrator, move_weight(0.01), limits, design::OutputLimits{.outputs = {0}, .lim = {.upper = 1.02}, .upper_ecr = {0.0}});
+    const auto art = design::mpc<20, 8>(double_integrator, move_weight(0.01), limits, design::OutputLimits{.outputs = {0}, .lim = {.upper = 1.02}, .upper_ecr = {0.0}}, design::TrackedOutputs{});
     REQUIRE(art.success);
     MPC             controller{art};
     ColVec<2>       x{};
@@ -757,7 +757,7 @@ TEST_CASE("measured-disturbance feedforward cancels a known load") {
     const double    d_load = 0.4;
 
     // With MD feedforward:
-    const auto art_md = design::mpc<15, 5>(double_integrator, weights, limits, design::MeasuredDisturbance{Bd});
+    const auto art_md = design::mpc<15, 5>(double_integrator, weights, limits, design::MeasuredDisturbance{Bd}, design::TrackedOutputs{});
     REQUIRE(art_md.success);
     MPC       md_controller{art_md};
     ColVec<2> x_md{};
@@ -769,7 +769,7 @@ TEST_CASE("measured-disturbance feedforward cancels a known load") {
     }
 
     // Baseline without MD, same load applied to the plant:
-    const auto art_base = design::mpc<15, 5>(double_integrator, weights, limits);
+    const auto art_base = design::mpc<15, 5>(double_integrator, weights, limits, design::TrackedOutputs{});
     REQUIRE(art_base.success);
     MPC       base_controller{art_base};
     ColVec<2> x_base{};
@@ -792,7 +792,7 @@ TEST_CASE("input target pulls the input when tracking is indifferent") {
     weights.Ru = 1.0;
     weights.Rdu = 0.1;
 
-    const auto art = design::mpc<5, 5>(double_integrator, weights);
+    const auto art = design::mpc<5, 5>(double_integrator, weights, design::TrackedOutputs{});
     REQUIRE(art.success);
 
     MPC             controller{art};
@@ -833,8 +833,8 @@ TEST_CASE("automatic scaling is consistent with the unscaled problem") {
 
     const auto weights_unit = move_weight(0.05);
 
-    const auto art_scaled = design::mpc<12, 4>(double_integrator, weights_scaled, wide, wide_y);
-    const auto art_unit = design::mpc<12, 4>(double_integrator, weights_unit);
+    const auto art_scaled = design::mpc<12, 4>(double_integrator, weights_scaled, wide, wide_y, design::TrackedOutputs{});
+    const auto art_unit = design::mpc<12, 4>(double_integrator, weights_unit, design::TrackedOutputs{});
     REQUIRE(art_scaled.success);
     REQUIRE(art_unit.success);
     CHECK(art_scaled.mpc.scale_u(0) == doctest::Approx(20.0));
@@ -871,7 +871,7 @@ TEST_CASE("scaling handles badly-conditioned mixed units") {
     };
     const design::OutputLimits range{.outputs = {0}, .lim = {.lower = 0.0, .upper = 1000.0}};
 
-    const auto art = design::mpc<10, 4>(plant, design::MPCWeights<1, 1>{}, limits, range);
+    const auto art = design::mpc<10, 4>(plant, design::MPCWeights<1, 1>{}, limits, range, design::TrackedOutputs{});
     REQUIRE(art.success);
 
     MPC             controller{art};
@@ -892,27 +892,27 @@ TEST_CASE("mpc rejects invalid plants") {
     // Continuous-time (Ts = 0): must be discretized first.
     StateSpace<2, 1, 1> continuous = double_integrator;
     continuous.Ts = 0.0;
-    CHECK(design::mpc<5, 5>(continuous, {}).status == design::DesignStatus::invalid_sample_time);
+    CHECK(design::mpc<5, 5>(continuous, {}, design::TrackedOutputs{}).status == design::DesignStatus::invalid_sample_time);
 
     // Feedthrough (D != 0) is unsupported.
     StateSpace<2, 1, 1> feedthrough = double_integrator;
     feedthrough.D(0, 0) = 1.0;
-    CHECK(!design::mpc<5, 5>(feedthrough, {}).success);
+    CHECK(!design::mpc<5, 5>(feedthrough, {}, design::TrackedOutputs{}).success);
 
     // Non-positive slack penalty cannot keep the Hessian PD.
     design::MPCWeights<1, 1> weights{};
     weights.ecr_weight = 0.0;
-    CHECK(!design::mpc<5, 5>(double_integrator, weights).success);
+    CHECK(!design::mpc<5, 5>(double_integrator, weights, design::TrackedOutputs{}).success);
 }
 
 TEST_CASE("mpc is constexpr") {
-    constexpr auto art = design::mpc<3, 3>(double_integrator, {});
+    constexpr auto art = design::mpc<3, 3>(double_integrator, {}, design::TrackedOutputs{});
     static_assert(art.success);
     static_assert(art.mpc.max_qp_iterations > 0);
 }
 
 TEST_CASE("Law names an MPC member's type by its design") {
-    static constexpr auto art = design::mpc<3, 3>(double_integrator, {});
+    static constexpr auto art = design::mpc<3, 3>(double_integrator, {}, design::TrackedOutputs{});
     struct Loop {
         Law<art, double> mpc; // the design's law
     };
@@ -924,7 +924,7 @@ TEST_CASE("Law names an MPC member's type by its design") {
 
     //! With an OutputLimits, and offset-free with one: the law's QP carries the bounded outputs' rows.
     static constexpr design::OutputLimits cap{.outputs = {0}, .lim = {.upper = 0.5}, .upper_ecr = {0.0}};
-    static constexpr auto                 capped = design::mpc<3, 3>(double_integrator, {}, cap, design::DareCost{});
+    static constexpr auto                 capped = design::mpc<3, 3>(double_integrator, {}, cap, design::DareCost{}, design::TrackedOutputs{});
     Law<capped, double>                   capped_law{};
     MPC                                   capped_plain{capped};
     static_assert(std::is_same_v<std::remove_cvref_t<decltype(capped_law.limits().y_lim)>, Bounds<1>> && decltype(capped_plain)::NI1 == (4 * 3) + (2 * 3) + 1);
@@ -937,7 +937,7 @@ TEST_CASE("Law names an MPC member's type by its design") {
 }
 
 TEST_CASE("artifact float conversion maps the unbounded sentinels safely") {
-    constexpr auto art = design::mpc<3, 3>(double_integrator, {});
+    constexpr auto art = design::mpc<3, 3>(double_integrator, {}, design::TrackedOutputs{});
     constexpr auto art_f = art.as<float>();
     static_assert(art_f.success);
 
@@ -957,7 +957,7 @@ TEST_CASE("MPC runtime runs in float") {
         .upper = 0.5,
     };
 
-    const auto art = design::mpc<10, 4>(double_integrator, weights, limits);
+    const auto art = design::mpc<10, 4>(double_integrator, weights, limits, design::TrackedOutputs{});
     REQUIRE(art.success);
 
     MPC                    controller{art.as<float>()};
@@ -1001,7 +1001,7 @@ struct CountingSolver {
 TEST_CASE("MPC accepts a custom QP solver policy") {
     auto weights = move_weight(0.05);
 
-    const auto art = design::mpc<8, 4>(double_integrator, weights);
+    const auto art = design::mpc<8, 4>(double_integrator, weights, design::TrackedOutputs{});
     REQUIRE(art.success);
 
     MPC reference{art};
@@ -1044,7 +1044,7 @@ TEST_CASE("horizon advisor covers the dead time, so its horizon is one design::m
     constexpr auto       h = design::suggest_mpc_horizon(model);
     static_assert(h.success);
     CHECK(h.prediction_horizon == 43); // 4τ = 3.80 s and the 0.5 s delay, at Ts = 0.1
-    CHECK(design::mpc<h.prediction_horizon, h.control_horizon>(model, move_weight(0.05)).success);
+    CHECK(design::mpc<h.prediction_horizon, h.control_horizon>(model, move_weight(0.05), design::TrackedOutputs{}).success);
     CHECK(design::suggest_mpc_horizon(lag).prediction_horizon == 38); // no delay: unchanged
 }
 
@@ -1086,7 +1086,7 @@ TEST_CASE("to_ss of the LQR-equivalent design is the LQR gain on x and no memory
 }
 
 TEST_CASE("to_ss realizes the unconstrained runtime, and closed around the plant is stable with unit DC gain") {
-    const auto art = design::mpc<15, 5>(double_integrator, move_weight(0.05));
+    const auto art = design::mpc<15, 5>(double_integrator, move_weight(0.05), design::TrackedOutputs{});
     REQUIRE(art.success);
     const auto ss = art.mpc.to_ss(); // state u_prev, in [r; x], out u
 
@@ -1128,7 +1128,7 @@ TEST_CASE("to_ss realizes the unconstrained runtime, and closed around the plant
 }
 
 TEST_CASE("to_ss takes a measured disturbance between r and x, in the tick's order") {
-    const auto art = design::mpc<15, 5>(double_integrator, move_weight(0.05), design::MeasuredDisturbance{double_integrator.B});
+    const auto art = design::mpc<15, 5>(double_integrator, move_weight(0.05), design::MeasuredDisturbance{double_integrator.B}, design::TrackedOutputs{});
     REQUIRE(art.success);
     const auto ss = art.mpc.to_ss(); // in [r; d; x]
     MPC        runtime{art};
@@ -1146,7 +1146,7 @@ TEST_CASE("to_ss takes a measured disturbance between r and x, in the tick's ord
 }
 
 TEST_CASE("MPC reset and bumpless seeding") {
-    const auto art = design::mpc<5, 5>(double_integrator, {});
+    const auto art = design::mpc<5, 5>(double_integrator, {}, design::TrackedOutputs{});
     REQUIRE(art.success);
 
     MPC controller{art};
@@ -1167,7 +1167,7 @@ TEST_CASE("MPC step is predict, update, then control; the no-input step holds th
         .lower = -1.0,
         .upper = 1.0,
     };
-    const auto art = design::mpc<15, 5>(double_integrator, weights, limits);
+    const auto art = design::mpc<15, 5>(double_integrator, weights, limits, design::TrackedOutputs{});
     REQUIRE(art.success);
 
     // A downstream clamp tighter than the MPC's: the applied input is the base of the next move.
@@ -1234,7 +1234,7 @@ TEST_CASE("the continuous-plant design's QP is the Van Loan integral of its cont
     constexpr size_t         NP = 6;
     constexpr size_t         NC = 3;
     design::MPCWeights<1, 1> w{.Qy = 2.0, .Rdu = 0.3, .Ru = 0.5, .Qy_terminal = 2.0};
-    const auto               art = design::mpc<NP, NC>(kDampedMass, h, w);
+    const auto               art = design::mpc<NP, NC>(kDampedMass, h, w, design::TrackedOutputs{});
     REQUIRE(art.success);
 
     // Hand-built: the reference a constant state, the period's cost one Van Loan exponential.
@@ -1290,10 +1290,10 @@ TEST_CASE("halving the period at fixed continuous weights keeps the closed loop"
     // same numbers taken per step (the discrete-plant form) weigh the output twice as often at
     // the finer period and give a different loop.
     const design::MPCWeights<1, 1> w{.Qy = 50.0, .Rdu = 0.5};
-    const auto                     coarse = step_response(design::mpc<20, 4>(kDampedMass, 0.1, w), 0.1, 1);
-    const auto                     fine = step_response(design::mpc<40, 8>(kDampedMass, 0.05, w), 0.05, 2);
-    const auto                     coarse_d = step_response(design::mpc<20, 4>(discretize(kDampedMass, 0.1).value(), w), 0.1, 1);
-    const auto                     fine_d = step_response(design::mpc<40, 8>(discretize(kDampedMass, 0.05).value(), w), 0.05, 2);
+    const auto                     coarse = step_response(design::mpc<20, 4>(kDampedMass, 0.1, w, design::TrackedOutputs{}), 0.1, 1);
+    const auto                     fine = step_response(design::mpc<40, 8>(kDampedMass, 0.05, w, design::TrackedOutputs{}), 0.05, 2);
+    const auto                     coarse_d = step_response(design::mpc<20, 4>(discretize(kDampedMass, 0.1).value(), w, design::TrackedOutputs{}), 0.1, 1);
+    const auto                     fine_d = step_response(design::mpc<40, 8>(discretize(kDampedMass, 0.05).value(), w, design::TrackedOutputs{}), 0.05, 2);
     double                         gap = 0.0;
     double                         gap_per_step = 0.0;
     for (size_t j = 0; j < 30; ++j) {
@@ -1310,8 +1310,8 @@ TEST_CASE("the continuous-plant terminal cost is the cost-to-go of the period co
     // With NC = NP and V_f the exact cost-to-go of the stage the QP sums, the first move is the
     // infinite-horizon law whatever NP is (Bellman), if and only if the two costs agree.
     const design::MPCWeights<1, 1> w{.Qy = 5.0, .Rdu = 0.2, .Ru = 0.1};
-    const auto                     short_h = design::mpc<3, 3>(kDampedMass, 0.1, w, design::DareCost{});
-    const auto                     long_h = design::mpc<7, 7>(kDampedMass, 0.1, w, design::DareCost{});
+    const auto                     short_h = design::mpc<3, 3>(kDampedMass, 0.1, w, design::DareCost{}, design::TrackedOutputs{});
+    const auto                     long_h = design::mpc<7, 7>(kDampedMass, 0.1, w, design::DareCost{}, design::TrackedOutputs{});
     REQUIRE(short_h.success);
     REQUIRE(long_h.success);
     const auto a = short_h.mpc.to_ss(); // the feedback from x and u_prev is exact with a terminal cost
@@ -1329,9 +1329,9 @@ TEST_CASE("mpc rejects any nonzero feedthrough, whatever its units") {
         .D = {{1e-13}}, // e.g. y in V, u in MW: real feedthrough, tiny number
         .Ts = 0.1,
     };
-    CHECK_FALSE(design::mpc<5, 2>(sys, {}).success);
+    CHECK_FALSE(design::mpc<5, 2>(sys, {}, design::TrackedOutputs{}).success);
     sys.D = Matrix<1, 1>{};
-    CHECK(design::mpc<5, 2>(sys, {}).success);
+    CHECK(design::mpc<5, 2>(sys, {}, design::TrackedOutputs{}).success);
 }
 
 TEST_CASE("suggest_mpc_horizon does not read a defective integrator as a slow pole") {
@@ -1364,7 +1364,7 @@ TEST_CASE("suggest_mpc_horizon does not read a defective integrator as a slow po
 TEST_CASE("a measured disturbance with a terminal cost settles on r: the target is the steady state under d") {
     //! The target ignored d, so V_f pulled the plan toward the d = 0 steady state: y = 0.969 for r = 1.
     const StateSpace plant{.A = {{0.9}}, .B = {{0.1}}, .C = {{1.0}}, .Ts = 0.1};
-    const auto       art = design::mpc<10, 10>(plant, move_weight(0.1), design::DareCost{}, design::MeasuredDisturbance{Matrix<1, 1>{{0.1}}});
+    const auto       art = design::mpc<10, 10>(plant, move_weight(0.1), design::DareCost{}, design::MeasuredDisturbance{Matrix<1, 1>{{0.1}}}, design::TrackedOutputs{});
     REQUIRE(art.success);
     MPC       law{art};
     double    x = 0.0;
@@ -1381,7 +1381,7 @@ TEST_CASE("as<float>() refuses a Hessian that does not factor in float") {
     //! It kept success: constinit compiled and every float tick returned NotPositiveDefinite.
     design::InputLimits<1> limits{};
     limits.u_lim = {.lower = -1.0, .upper = 1.0};
-    const auto art = design::mpc<40, 10>(double_integrator, move_weight(1e-3), limits);
+    const auto art = design::mpc<40, 10>(double_integrator, move_weight(1e-3), limits, design::TrackedOutputs{});
     REQUIRE(art.success);
     const auto art_f = art.as<float>();
     CHECK_FALSE(art_f.success);
@@ -1398,7 +1398,7 @@ TEST_CASE("one hard output side by designated initializer leaves the other side 
         .lim = {.lower = 0.2, .upper = 1.0},
         .upper_ecr = {0.0},
     };
-    const auto art = design::mpc<10, 3>(double_integrator, move_weight(0.1), limits, band);
+    const auto art = design::mpc<10, 3>(double_integrator, move_weight(0.1), limits, band, design::TrackedOutputs{});
     REQUIRE(art.success);
     MPC        controller{art};
     const auto u = controller.step(ColVec<1>{0.5}, ColVec<2>{}); // y = 0 starts below the soft lower bound
@@ -1416,37 +1416,37 @@ TEST_CASE("design::mpc refuses NaN or inverted limits, negative softness and ind
     //! every tick), and output weights design::state_feedback refuses.
     design::InputLimits<1> inverted{};
     inverted.u_lim = {.lower = 1.0, .upper = -1.0};
-    CHECK(design::mpc<6, 2>(double_integrator, move_weight(1.0), inverted).status == design::DesignStatus::invalid_parameter);
+    CHECK(design::mpc<6, 2>(double_integrator, move_weight(1.0), inverted, design::TrackedOutputs{}).status == design::DesignStatus::invalid_parameter);
     design::InputLimits<1> nan_du{};
     nan_du.du_lim.upper(0) = std::numeric_limits<double>::quiet_NaN();
-    CHECK(design::mpc<6, 2>(double_integrator, move_weight(1.0), nan_du).status == design::DesignStatus::invalid_parameter);
-    CHECK(design::mpc<6, 2>(double_integrator, move_weight(1.0), design::OutputLimits{.outputs = {0}, .upper_ecr = {-1.0}}).status == design::DesignStatus::bad_weights);
+    CHECK(design::mpc<6, 2>(double_integrator, move_weight(1.0), nan_du, design::TrackedOutputs{}).status == design::DesignStatus::invalid_parameter);
+    CHECK(design::mpc<6, 2>(double_integrator, move_weight(1.0), design::OutputLimits{.outputs = {0}, .upper_ecr = {-1.0}}, design::TrackedOutputs{}).status == design::DesignStatus::bad_weights);
 
     design::MPCWeights<1, 1> negative{};
     negative.Qy = -0.05;
     negative.Qy_terminal = -0.05;
-    CHECK(design::mpc<6, 2>(double_integrator, negative).status == design::DesignStatus::bad_weights);
+    CHECK(design::mpc<6, 2>(double_integrator, negative, design::TrackedOutputs{}).status == design::DesignStatus::bad_weights);
     design::MPCWeights<1, 2> asymmetric{};
     asymmetric.Qy = Matrix<2, 2>{{1.0, 5.0}, {0.0, 1.0}};
-    CHECK(design::mpc<6, 2>(double_integrator_full, asymmetric).status == design::DesignStatus::bad_weights);
-    CHECK(design::mpc<6, 2>(double_integrator, move_weight(1.0)).success);
+    CHECK(design::mpc<6, 2>(double_integrator_full, asymmetric, design::TrackedOutputs{{0}}).status == design::DesignStatus::bad_weights);
+    CHECK(design::mpc<6, 2>(double_integrator, move_weight(1.0), design::TrackedOutputs{}).success);
 }
 
 TEST_CASE("a horizon no output sees an input's first move in is refused") {
     //! It succeeded, and the law returned u = 0 at any error: no output in the horizon could
     //! pay for a move, and the move weight charged for one.
     const auto delayed = discretize(double_integrator, Ts, InputDelay{Ts}).value(); // [x; u(k−1)]
-    const auto blind = design::mpc<1, 1>(delayed, move_weight(0.05));
+    const auto blind = design::mpc<1, 1>(delayed, move_weight(0.05), design::TrackedOutputs{});
     CHECK_FALSE(blind.success);
     CHECK(blind.status == design::DesignStatus::invalid_parameter);
 
-    const auto sees = design::mpc<2, 1>(delayed, move_weight(0.05));
+    const auto sees = design::mpc<2, 1>(delayed, move_weight(0.05), design::TrackedOutputs{});
     REQUIRE(sees.success);
     MPC law{sees};
     CHECK(law.step(ColVec<1>{1.0}, ColVec<3>{})(0) > 0.0);
 
     SUBCASE("a terminal cost weights the delay state, so it sees past the horizon") {
-        const auto res = design::mpc<1, 1>(delayed, move_weight(0.05), design::DareCost{});
+        const auto res = design::mpc<1, 1>(delayed, move_weight(0.05), design::DareCost{}, design::TrackedOutputs{});
         REQUIRE(res.success);
         MPC with_terminal{res};
         CHECK(with_terminal.step(ColVec<1>{1.0}, ColVec<3>{})(0) > 0.0);
@@ -1454,22 +1454,22 @@ TEST_CASE("a horizon no output sees an input's first move in is refused") {
 
     SUBCASE("the plant's relative degree, with no delay at all") {
         const StateSpace<2, 1, 1> euler{.A = double_integrator.A, .B = {{0.0}, {Ts}}, .C = double_integrator.C, .Ts = Ts}; // C·B = 0
-        CHECK(design::mpc<1, 1>(euler, move_weight(0.05)).status == design::DesignStatus::invalid_parameter);
-        CHECK(design::mpc<2, 1>(euler, move_weight(0.05)).success);
+        CHECK(design::mpc<1, 1>(euler, move_weight(0.05), design::TrackedOutputs{}).status == design::DesignStatus::invalid_parameter);
+        CHECK(design::mpc<2, 1>(euler, move_weight(0.05), design::TrackedOutputs{}).success);
     }
 
     SUBCASE("one input of two: the other reaching the output does not save it") {
         const StateSpace               two{.A = {{0.9, 0.1}, {0.0, 0.0}}, .B = {{0.1, 0.0}, {0.0, 1.0}}, .C = {{1.0, 0.0}}, .Ts = Ts}; // u₁ a step behind u₀
         const design::MPCWeights<2, 1> w{};
-        CHECK(design::mpc<1, 1>(two, w).status == design::DesignStatus::invalid_parameter);
-        CHECK(design::mpc<2, 1>(two, w).success);
+        CHECK(design::mpc<1, 1>(two, w, design::TrackedOutputs{}).status == design::DesignStatus::invalid_parameter);
+        CHECK(design::mpc<2, 1>(two, w, design::TrackedOutputs{}).success);
     }
 
     SUBCASE("relative to the plant's size: a small gain is not a blind input") {
         const StateSpace tiny{.A = double_integrator.A, .B = double_integrator.B * 1e-9, .C = double_integrator.C, .Ts = Ts};
-        CHECK(design::mpc<1, 1>(tiny, move_weight(0.05)).success);
+        CHECK(design::mpc<1, 1>(tiny, move_weight(0.05), design::TrackedOutputs{}).success);
         const StateSpace tinier{.A = double_integrator.A, .B = double_integrator.B * 1e-11, .C = double_integrator.C, .Ts = Ts};
-        CHECK(design::mpc<2, 1>(discretize(tinier, Ts, InputDelay{Ts}).value(), move_weight(0.05)).success);
+        CHECK(design::mpc<2, 1>(discretize(tinier, Ts, InputDelay{Ts}).value(), move_weight(0.05), design::TrackedOutputs{}).success);
     }
 
     SUBCASE("relative to the data: a delay state, float and the input's units do not refuse a horizon that sees") {
@@ -1481,8 +1481,8 @@ TEST_CASE("a horizon no output sees an input's first move in is refused") {
             const auto                      model = discretize(plant, ts, InputDelay{ts}).value();
             design::MPCWeights<1, 1, float> w{};
             w.Rdu = 1e-6F;
-            CHECK(design::mpc<2, 1>(model, w).success);
-            CHECK(design::mpc<1, 1>(model, w).status == design::DesignStatus::invalid_parameter);
+            CHECK(design::mpc<2, 1>(model, w, design::TrackedOutputs{}).success);
+            CHECK(design::mpc<1, 1>(model, w, design::TrackedOutputs{}).status == design::DesignStatus::invalid_parameter);
         }
     }
 
@@ -1504,8 +1504,8 @@ TEST_CASE("a horizon no output sees an input's first move in is refused") {
                 }
             }
             const StateSpace rotated{.A = Q * model.A * Q.transpose(), .B = Q * model.B, .C = model.C * Q.transpose(), .Ts = Ts};
-            CHECK(design::mpc<5, 1>(rotated, move_weight(0.05)).status == design::DesignStatus::invalid_parameter);
-            CHECK(design::mpc<6, 1>(rotated, move_weight(0.05)).success);
+            CHECK(design::mpc<5, 1>(rotated, move_weight(0.05), design::TrackedOutputs{}).status == design::DesignStatus::invalid_parameter);
+            CHECK(design::mpc<6, 1>(rotated, move_weight(0.05), design::TrackedOutputs{}).success);
         }
     }
 
@@ -1514,7 +1514,7 @@ TEST_CASE("a horizon no output sees an input's first move in is refused") {
         const StateSpace         two{.A = {{0.9, 0.1}, {0.0, 0.0}}, .B = {{0.1, 0.0}, {0.0, 1.0}}, .C = {{1.0, 0.0}}, .Ts = Ts};
         design::MPCWeights<2, 1> w{};
         w.Ru = Matrix<2, 2>{{0.0, 0.0}, {0.0, 1.0}};
-        const auto res = design::mpc<1, 1>(two, w);
+        const auto res = design::mpc<1, 1>(two, w, design::TrackedOutputs{});
         REQUIRE(res.success);
         MPC steered{res};
         steered.set_input_target({0.0, 5.0});
@@ -1522,7 +1522,7 @@ TEST_CASE("a horizon no output sees an input's first move in is refused") {
 
         auto only_ru = move_weight(0.05); // no input reaches the output: refused, Ru or not
         only_ru.Ru = 1.0;
-        CHECK(design::mpc<1, 1>(delayed, only_ru).status == design::DesignStatus::invalid_parameter);
+        CHECK(design::mpc<1, 1>(delayed, only_ru, design::TrackedOutputs{}).status == design::DesignStatus::invalid_parameter);
     }
 
     SUBCASE("the offset-free design too") {
@@ -1541,7 +1541,7 @@ TEST_CASE_TEMPLATE("MPC with soft output bounds, started outside them, solves ev
     //! ticks from x₀ = 1.5, which this test did not count, and on 295 from x₀ = 20: with the moves
     //! pinned by their limits a row is met through the slack alone, at a sine of 2·10⁻⁴ to the
     //! active normals (qp.hpp).
-    const auto art = design::mpc<30, 10>(double_integrator, move_weight(0.01), soft_box(), soft_y);
+    const auto art = design::mpc<30, 10>(double_integrator, move_weight(0.01), soft_box(), soft_y, design::TrackedOutputs{});
     REQUIRE(art.success);
     using Recorder = RecordingSolver<11, 101, T>;
     MPC controller{art.template as<T>(), Recorder{}};
@@ -1600,7 +1600,7 @@ TEST_CASE("float MPC solves with a slack weight 10 times the default") {
     //! 100 times the default it is on the floor, and past that some ticks end Degenerate.
     auto weights = move_weight(0.01);
     weights.ecr_weight = 1.0e6;
-    const auto art = design::mpc<30, 10>(double_integrator, weights, soft_box(), soft_y);
+    const auto art = design::mpc<30, 10>(double_integrator, weights, soft_box(), soft_y, design::TrackedOutputs{});
     REQUIRE(art.success);
     for (const double x0 : {1.5, 20.0}) {
         CAPTURE(x0);
@@ -1623,7 +1623,7 @@ TEST_CASE_TEMPLATE("MPC rests on a soft output bound the reference lies beyond",
     design::InputLimits<1> limits{};
     limits.u_lim = {.lower = -1.0, .upper = 1.0};
     limits.du_lim = {.lower = -0.2, .upper = 0.2};
-    const auto art = design::mpc<30, 10>(double_integrator, move_weight(0.01), limits, design::OutputLimits{.outputs = {0}, .lim = {.upper = 0.5}});
+    const auto art = design::mpc<30, 10>(double_integrator, move_weight(0.01), limits, design::OutputLimits{.outputs = {0}, .lim = {.upper = 0.5}}, design::TrackedOutputs{});
     REQUIRE(art.success);
     MPC controller{art.template as<T>()};
     MPC reference{art};
@@ -1668,7 +1668,7 @@ TEST_CASE_TEMPLATE("MPC under a hard output ceiling below the reference: a solve
     SUBCASE("the moves limited") {
         limits.du_lim = {.lower = -0.2, .upper = 0.2};
     }
-    const auto art = design::mpc<20, 8>(double_integrator, move_weight(0.01), limits, design::OutputLimits{.outputs = {0}, .lim = {.upper = 0.8}, .upper_ecr = {0.0}});
+    const auto art = design::mpc<20, 8>(double_integrator, move_weight(0.01), limits, design::OutputLimits{.outputs = {0}, .lim = {.upper = 0.8}, .upper_ecr = {0.0}}, design::TrackedOutputs{});
     REQUIRE(art.success);
     using Recorder = RecordingSolver<9, 73, T>;
     MPC controller{art.template as<T>(), Recorder{}};
@@ -1710,7 +1710,7 @@ TEST_CASE_TEMPLATE("MPC under a hard output ceiling below the reference: a solve
 TEST_CASE("back_calculate with a feedforward: the command is the law's share, and the loop settles on r") {
     //! The held input already carried u_ff, the user added it again: y = 1.092 for u_ff = 0.2.
     const StateSpace plant{.A = {{0.9}}, .B = {{0.1}}, .C = {{1.0}}, .Ts = 0.1};
-    const auto       art = design::mpc<10, 3>(plant, move_weight(0.1));
+    const auto       art = design::mpc<10, 3>(plant, move_weight(0.1), design::TrackedOutputs{});
     REQUIRE(art.success);
     MPC    law{art};
     double x = 0.0;
@@ -1766,7 +1766,7 @@ TEST_CASE("MPCWeights, InputLimits and the limits options take their sizes from 
 TEST_CASE("an MPC takes its reference and input target braced, one value per channel, or as a scalar") {
     design::MPCWeights<1, 2> weights{};
     weights.Ru = Matrix<1, 1>{0.1};
-    const auto art = design::mpc<8, 4>(double_integrator_full, weights);
+    const auto art = design::mpc<8, 4>(double_integrator_full, weights, design::TrackedOutputs{{0}});
     REQUIRE(art.success);
     const ColVec<2> x{1.0, -0.5};
 
@@ -1782,18 +1782,24 @@ TEST_CASE("an MPC takes its reference and input target braced, one value per cha
         CHECK(by_scalar.input_target_preview()[k] == ColVec<1>{-0.2});
     }
 
-    //! Two controlled outputs: the reference braced, one value per output.
-    const double u_vector = by_vector.step(ColVec<2>{0.3, 0.0}, x)(0);
-    CHECK(by_braces.step({0.3, 0.0}, x)(0) == doctest::Approx(u_vector).epsilon(1e-12));
-    CHECK(by_scalar.step({0.3, 0}, x)(0) == doctest::Approx(u_vector).epsilon(1e-12)); // any value that converts
+    //! One held output: the reference as its scalar, or the ColVec it is.
+    const double u_vector = by_vector.step(ColVec<1>{0.3}, x)(0);
+    CHECK(by_scalar.step(0.3, x)(0) == doctest::Approx(u_vector).epsilon(1e-12));
 
-    //! Two inputs: the target braced, one value per input.
-    const StateSpace         two{.A = {{0.9, 0.1}, {0.0, 0.0}}, .B = {{0.1, 0.0}, {0.0, 1.0}}, .C = {{1.0, 0.0}}, .Ts = Ts};
-    design::MPCWeights<2, 1> w2{};
+    //! Two inputs, both outputs held: the target and the reference braced, one value per channel.
+    const StateSpace         two{.A = {{0.9, 0.1}, {0.0, 0.0}}, .B = {{0.1, 0.0}, {0.0, 1.0}}, .C = {{1.0, 0.0}, {0.0, 1.0}}, .Ts = Ts};
+    design::MPCWeights<2, 2> w2{};
     w2.Ru = diag(0.1, 0.1);
-    const auto art2 = design::mpc<2, 1>(two, w2);
+    const auto art2 = design::mpc<2, 1>(two, w2, design::TrackedOutputs{});
     REQUIRE(art2.success);
     MPC two_inputs{art2};
+    MPC two_braced{art2};
+    MPC two_mixed{art2};
+    MPC two_converted{art2};
     two_inputs.set_input_target({0.1, 0.2});
     CHECK(two_inputs.input_target_preview()[0] == ColVec<2>{0.1, 0.2});
+    const ColVec<2> x2{0.4, -0.1};
+    const double    u_two = two_braced.step(ColVec<2>{0.3, 0.0}, x2)(0);
+    CHECK(two_mixed.step({0.3, 0.0}, x2)(0) == doctest::Approx(u_two).epsilon(1e-12));
+    CHECK(two_converted.step({0.3, 0}, x2)(0) == doctest::Approx(u_two).epsilon(1e-12)); // any value that converts
 }

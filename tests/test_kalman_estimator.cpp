@@ -291,49 +291,32 @@ TEST_SUITE("design::kalman with a disturbance spec") {
     }
 
     TEST_CASE("a discrete plant with a non-finite entry is refused, as a continuous one is") {
-        //! The discrete plant skipped discretize's check: a NaN A gave success with a finite target
-        //! (NZ > NU), a NaN B came back singular.
+        //! The discrete plant skipped discretize's check: a NaN A gave success with a finite target,
+        //! a NaN B came back singular.
         const double nan = std::numeric_limits<double>::quiet_NaN();
         auto         nan_a = plant_d();
         nan_a.A(0, 0) = nan;
         CHECK(design::steady_state_target(nan_a, design::InputDisturbance{}).status == design::DesignStatus::bad_weights);
         auto nan_b = plant_d();
         nan_b.B(1, 0) = nan;
-        CHECK(design::steady_state_target(nan_b).status == design::DesignStatus::bad_weights);
+        CHECK(design::steady_state_target(nan_b, design::TrackedOutputs{}).status == design::DesignStatus::bad_weights);
         auto nan_c = discretize(two_sensors(), kTs).value();
         nan_c.C(1, 1) = nan;
-        CHECK(design::steady_state_target(nan_c).status == design::DesignStatus::bad_weights);
-        CHECK(design::steady_state_target(plant_d()).success);
+        CHECK(design::steady_state_target(nan_c, design::TrackedOutputs{{1}}).status == design::DesignStatus::bad_weights);
+        CHECK(design::steady_state_target(plant_d(), design::TrackedOutputs{}).success);
     }
 
-    TEST_CASE("more outputs than inputs: the target is the equilibrium closest to r") {
-        //! The least squares on the stacked [A − I, B; C, D] traded the equilibrium rows against
-        //! the outputs: x_t = [1.0089, 1.9911], u_t = 1.9429 for r = [1, 2], O(Ts) off an
-        //! equilibrium, and the loop settled where the weights and Ts put it.
+    TEST_CASE("more outputs than inputs: the target holds the one listed, exactly") {
+        //! Both outputs held, r = [1, 2], took the least squares, x₁ = x₂ = u = 1.5, which held
+        //! neither; it no longer compiles. Listed, either output is held at its r.
         const StateSpace chain{.A = {{-1.0, 1.0}, {0.0, -1.0}}, .B = {{0.0}, {1.0}}, .C = {{1.0, 0.0}, {0.0, 1.0}}};
-        const auto       tg = design::steady_state_target(chain, 0.1);
-        REQUIRE(tg.success);
-        const ColVec<2> r{1.0, 2.0};
-        const auto      s = tg.target_r * r;
-        CHECK(s(0) == doctest::Approx(1.5).epsilon(1e-9)); // x₁ = x₂ = u at every steady state: the mean of r
-        CHECK(s(1) == doctest::Approx(1.5).epsilon(1e-9));
-        CHECK(s(2) == doctest::Approx(1.5).epsilon(1e-9));
-    }
-
-    TEST_CASE("the equilibrium target refuses a factorization that failed") {
-        //! equilibrium_target read its SVDs and the pseudoinverse unchecked: a NaN in the output
-        //! weight came back a success with every map NaN.
-        const Matrix<1, 2> E{{-0.1, 0.1}};            // x⁺ = 0.9·x + 0.1·u: [A − I, B]
-        const Matrix<2, 2> S{{1.0, 0.0}, {2.0, 0.0}}; // two outputs of the one state
-        Matrix<2, 2>       Q = Matrix<2, 2>::identity();
-        const auto         held = design::detail::equilibrium_target<1, 1>(E, S, Matrix<1, 0>{}, Matrix<2, 0>{}, Q);
-        REQUIRE(held.success);
-        CHECK(held.target_r(0, 0) == doctest::Approx(held.target_r(1, 0)).epsilon(1e-12)); // x_t = u_t at every steady state
-        Q(0, 1) = std::numeric_limits<double>::quiet_NaN();
-        const auto refused = design::detail::equilibrium_target<1, 1>(E, S, Matrix<1, 0>{}, Matrix<2, 0>{}, Q);
-        CHECK_FALSE(refused.success);
-        CHECK(refused.status == design::DesignStatus::not_converged);
-        CHECK(refused.target_r.norm() == 0.0); // a refused design ships no map
+        for (const auto& tg : {design::steady_state_target(chain, 0.1, design::TrackedOutputs{{0}}), design::steady_state_target(chain, 0.1, design::TrackedOutputs{{1}})}) {
+            REQUIRE(tg.success);
+            const auto s = tg.target_r * ColVec<1>{2.0};
+            CHECK(s(0) == doctest::Approx(2.0).epsilon(1e-12)); // x₁ = x₂ = u at every steady state
+            CHECK(s(1) == doctest::Approx(2.0).epsilon(1e-12));
+            CHECK(s(2) == doctest::Approx(2.0).epsilon(1e-12));
+        }
     }
 
     TEST_CASE("an explicit model and the listed outputs") {
@@ -488,7 +471,7 @@ TEST_SUITE("FixedGainObserver and SteadyStateTarget") {
     }
 
     TEST_CASE("the target from r alone, and with a disturbance about a reference point") {
-        const SteadyStateTarget target{design::steady_state_target(kPlantD)};
+        const SteadyStateTarget target{design::steady_state_target(kPlantD, design::TrackedOutputs{})};
         const auto              p = target.equilibrium(ColVec<1>{0.3});
         CHECK(std::abs((kPlantD.C * p.x)(0, 0) - 0.3) < 1e-12);
         CHECK((kPlantD.A * p.x + kPlantD.B * p.u - p.x).norm() < 1e-12); // a steady state

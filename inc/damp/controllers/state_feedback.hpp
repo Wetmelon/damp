@@ -97,6 +97,17 @@ template<size_t NY, size_t NX, size_t NU, typename T, typename TQ, typename TI>
 using state_feedback_options = ::damp::detail::
     option_set<is_input_delay, is_output_delay, is_integral_option, is_tracked_option, is_disturbance, is_measured_disturbance, is_kalman_noise, is_input_limits, is_demand_limit>;
 
+/** @brief The integrators of a state-feedback design's options: an IntegralAction's NI, else none. */
+template<typename... Opts>
+consteval size_t integrators_of() {
+    using Action = ::damp::detail::option_t<is_integral_option, Unset, Opts...>;
+    if constexpr (is_unset<Action>) {
+        return 0;
+    } else {
+        return Action::NI;
+    }
+}
+
 /** @brief design::state_feedback in the plant's domain (@p Sampled false) or at @p Ts: on the measured state, or on a Kalman filter's estimate with a KalmanNoise among @p opts. */
 template<bool Sampled, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename... Opts>
 [[nodiscard]] constexpr auto state_feedback_design_of(
@@ -105,7 +116,7 @@ template<bool Sampled, size_t NX, size_t NU, size_t NY, typename T, size_t NW, s
     const LQRConfig<NX, NU, T>&              config,
     const Opts&... opts
 ) {
-    check_held_outputs<Opts...>(); // the target's: one TrackedOutputs, and none beside a disturbance spec
+    check_held_outputs<NU, NY, integrators_of<Opts...>(), Opts...>(); // the target's: one TrackedOutputs, none beside a disturbance spec, at most NU held
     state_feedback_options::check<Opts...>();
     constexpr bool kFilter = ::damp::detail::option_count<is_kalman_noise, Opts...> > 0;
     constexpr bool kIntegral = ::damp::detail::option_count<is_integral_option, Opts...> > 0;
@@ -153,9 +164,9 @@ template<bool Sampled, size_t NX, size_t NU, size_t NY, typename T, size_t NW, s
  *   xi += Ts·(r − Ci·y).
  * - TrackedOutputs{{i, …}}: the listed outputs held at r through the model's steady-state target
  *   (x* = Nₓ·r, u* = Nᵤ·r): step(r, x). Refused with DesignStatus::singular when the steady state is
- *   not unique (NZ = NU) or none holds every r (NZ < NU); with more tracked outputs than inputs the
- *   target is the least-squares compromise, which holds none exactly. A model error or a constant
- *   disturbance leaves an offset: an IntegralAction removes it.
+ *   not unique (NZ = NU) or none holds every r (NZ < NU); more tracked outputs than inputs does not
+ *   compile, as no steady state holds them all. A model error or a constant disturbance leaves an
+ *   offset: an IntegralAction removes it.
  * - KalmanNoise{.process, .measurement[, .disturbance]}: the law runs on a steady-state Kalman
  *   filter's estimate of the state (design::kalman's): LQG, LQGI with an IntegralAction. The noise is
  *   sized to the plant: NX × NX process noise (the columns of G when it names them), NY × NY readings.
@@ -175,8 +186,9 @@ template<bool Sampled, size_t NX, size_t NU, size_t NY, typename T, size_t NW, s
  *   @f]
  *   so the law is @f$ u = u_t - K(\hat x - x_t) @f$ with the plain gain. The augment must be
  *   detectable (ND ≤ NY), else DesignStatus::not_detectable; a target needs a unique steady state
- *   for NZ = NU, else DesignStatus::singular. An IntegralAction and a disturbance spec are two
- *   offset-free choices, refused together.
+ *   for NZ = NU, else DesignStatus::singular, and more held outputs than inputs (a spec that lists
+ *   none, on a plant with more outputs than inputs) does not compile. An IntegralAction and a
+ *   disturbance spec are two offset-free choices, refused together.
  * - MeasuredDisturbance{.Bd}: a disturbance the law reads each tick, entering the plant's state
  *   through B_d (continuous with Ts, ZOH'd with the plant: d held over the period). The gain is the
  *   same; the target is the steady state under d, so the law is u = u_t(r, d) − K·(x − x_t(r, d)),
@@ -184,11 +196,14 @@ template<bool Sampled, size_t NX, size_t NU, size_t NY, typename T, size_t NW, s
  *   horizon, that is the LQ-optimal law in the deviation from that steady state: no term beyond the
  *   target. A law whose r is not the target's takes the steady state under d that holds at 0 every
  *   output (a regulator, control(d)) or its integrated outputs (LQI, LQGI: d is fed forward, and the
- *   integrators hold r and take up what the model leaves). A filter takes d as a known input after
- *   u, its model's B [B, B_d] and its noise unchanged, and with a disturbance spec the target is
- *   under [d̂; d], so d̂ estimates only what d does not account for. The runtime takes d after the
- *   reference and its feedforward: control(r, d), step(r, d, m), control(r, x_ref, u_ref, d),
- *   step(r, x_ref, u_ref, d, m). With an InputDelay d enters the plant, not the delay states.
+ *   integrators hold r and take up what the model leaves). That is at most NU outputs, as any
+ *   target's: a regulator on a plant with more outputs than inputs does not compile under a
+ *   MeasuredDisturbance, and lists the ones it holds, TrackedOutputs{{i, …}} with r = 0. A filter
+ *   takes d as a known input after u, its model's B [B, B_d] and its noise unchanged, and with a
+ *   disturbance spec the target is under [d̂; d], so d̂ estimates only what d does not account for.
+ *   The runtime takes d after the reference and its feedforward: control(r, d), step(r, d, m),
+ *   control(r, x_ref, u_ref, d), step(r, x_ref, u_ref, d, m). With an InputDelay d enters the
+ *   plant, not the delay states.
  * - InputDelay<N>{θ}, on the sampled form state_feedback(plant, Ts, weights, …): the plant's input
  *   arrives θ late. The weights and the noise are the plant's, as without the delay; the cost is
  *   discretized exactly on the delayed model; a law on the measured state holds the inputs still on

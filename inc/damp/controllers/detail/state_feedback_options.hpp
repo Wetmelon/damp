@@ -187,17 +187,10 @@ consteval bool features_valid() {
     return estimated && sized;
 }
 
-/** @brief The spec of the options' steady-state target: the disturbance model, else the tracked outputs; NoDisturbance without either. */
+/** @brief The spec of the options' steady-state target, target_spec_of's pick as every design's: the disturbance model, else the tracked outputs; NoDisturbance without either. */
 template<typename Options>
 [[nodiscard]] constexpr auto disturbance_of(const Options& opts) {
-    if constexpr (!is_unset<typename options_traits<Options>::disturbance>) {
-        return opts.offset_free;
-    } else if constexpr (!is_unset<typename options_traits<Options>::track>) {
-        return opts.track;
-    } else {
-        static_cast<void>(opts);
-        return NoDisturbance{};
-    }
+    return target_spec_of(opts.offset_free, opts.track);
 }
 
 /** @brief The measured disturbance of the options, on a plant of NX states in T: none (NM = 0) without one. */

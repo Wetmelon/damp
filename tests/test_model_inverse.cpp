@@ -348,7 +348,7 @@ TEST_SUITE("Model inverse: plant-inversion feedforward and the stable output inv
         const auto sys = sampled_third_order();
         const auto res = design::output_inverse<30>(sys);
         REQUIRE(res.success);
-        const auto target = design::steady_state_target(sys);
+        const auto target = design::steady_state_target(sys, design::TrackedOutputs{});
         REQUIRE(target.success);
         // Per unit output: x_hold is O(1); u_hold carries x_hold's rounding through D*⁻¹ (u_zero).
         const double tol_x = 1024.0 * kEps;
