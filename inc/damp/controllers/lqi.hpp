@@ -7,7 +7,7 @@
 
 /**
  * @file lqi.hpp
- * @brief The linear-quadratic regulator with integral action: design::state_feedback with an IntegralAction, LQIResult, the LQI runtime
+ * @brief The linear-quadratic regulator with integral action: LQI, the StateFeedback of design::state_feedback with an IntegralAction, and LQIResult
  *
  * design::state_feedback(plant, [Ts,] {.Q, .R, .N}, IntegralAction{.Q[, .outputs = {i, …}]}[, InputDelay<N>{θ}])
  * (state_feedback.hpp) → LQIResult → LQI; an IntegralAction that lists no outputs integrates every one.
@@ -24,9 +24,9 @@
 #include "damp/backend.hpp"
 #include "damp/controllers/detail/lq_law.hpp" // IWYU pragma: export
 #include "damp/controllers/detail/state_feedback_core.hpp"
-#include "damp/controllers/law.hpp"                  // IWYU pragma: export
-#include "damp/controllers/state_feedback_types.hpp" // IWYU pragma: export
-#include "damp/matrix/colvec.hpp"
+#include "damp/controllers/law.hpp"                    // IWYU pragma: export
+#include "damp/controllers/state_feedback_runtime.hpp" // IWYU pragma: export
+#include "damp/controllers/state_feedback_types.hpp"   // IWYU pragma: export
 
 namespace damp {
 
@@ -40,7 +40,7 @@ using LQIResult = StateFeedbackResult<NX, NU, T, NI, NY, NoEstimator, 0, NRU>;
 
 /**
  * @ingroup discrete_controllers
- * @brief Linear-quadratic regulator with integral action, on the measured state
+ * @brief Linear-quadratic regulator with integral action, on the measured state: the StateFeedback of a design with integrators and no filter
  *
  * Runs design::state_feedback with an IntegralAction. xi integrates r − Ci·C·x; the law is u = u* − K·[x − x*; xi]. The tick is
  * step(r, x), or update(x), control(r), back_calculate, predict() (predict advances xi), with
@@ -71,145 +71,22 @@ using LQIResult = StateFeedbackResult<NX, NU, T, NI, NY, NoEstimator, 0, NRU>;
  * period changed, at most an InputRateLimits' rate. A design::Handover fades what the preload
  * leaves.
  *
- * @tparam NRU Input delay states the law holds (0: none)
- * @tparam NM  Measured-disturbance inputs (0: none)
- * @tparam NDU Inputs with a move limit (an InputRateLimits: NU; 0: none)
- * @tparam HO  Whether the law fades what the preload leaves after a track (a Handover; false: none)
+ * The alias takes integrators (NI > 0) on the measured state, so `LQI law{res}` refuses a design
+ * without them or with a filter. StateFeedback lists the members and the tick.
+ *
+ * @tparam NX    Plant states
+ * @tparam NU    Inputs
+ * @tparam NI    Integrators (at least one)
+ * @tparam T     Scalar
+ * @tparam NY    Measured outputs, the ones the integrators read through C
+ * @tparam Store Where the matrices live (detail::HeldGains: members)
+ * @tparam NRU   Input delay states per input the law holds (0: none)
+ * @tparam NM    Measured-disturbance inputs (0: none)
+ * @tparam NDU   Inputs with a move limit (an InputRateLimits: NU; 0: none)
+ * @tparam HO    Whether the law fades what the preload leaves after a track (a Handover; false: none)
  */
 template<size_t NX, size_t NU, size_t NI, typename T = float, size_t NY = NX, typename Store = detail::HeldGains, size_t NRU = 0, size_t NM = 0, size_t NDU = 0, bool HO = false>
-struct LQI : private detail::StateFeedbackCore<NX, NU, T, NI, NY, NoEstimator, 0, Store, NRU, NM, NDU, HO> {
-    using Core = detail::StateFeedbackCore<NX, NU, T, NI, NY, NoEstimator, 0, Store, NRU, NM, NDU, HO>; ///< The shared implementation
-
-    constexpr LQI() = default;
-
-    /** @brief From design::state_feedback(any scalar, design::IntegralAction{}). */
-    template<detail::state_feedback_result R>
-        requires(!Store::constant)
-    constexpr LQI(const R& result) { // NOLINT
-        constexpr bool kind = R::kIntegral && !R::kEstimated;
-        static_assert(kind, "LQI runs design::state_feedback with an IntegralAction: this design has no integral action (LQR) or a Kalman filter (LQG, LQGI, OFLQG).");
-        if constexpr (kind) {
-            static_cast<Core&>(*this) = Core(result);
-        }
-    }
-
-    using Core::integral;
-    using Core::K;
-    using Core::tracking_time;
-
-    /** @brief Hold the measured plant state @p x for the next control (the input delay states are the law's). */
-    constexpr void update(const ColVec<NX, T>& x) { Core::update(x); }
-
-    /** @brief u = −K·[x; xi] at the state of the last update: the basic call, x* = 0 and u* = 0; holds r − Ci·C·x for the next predict. */
-    [[nodiscard]] constexpr ColVec<NU, T> control(const ColVec<NI, T>& r)
-        requires(NM == 0)
-    {
-        return Core::control(r, ColVec<NX, T>{}, ColVec<NU, T>{});
-    }
-
-    /** @brief u = u* − K·[x − x*; xi] at the state of the last update: feedforward from a planned trajectory (x*, u*). */
-    [[nodiscard]] constexpr ColVec<NU, T> control(const ColVec<NI, T>& r, const ColVec<NX, T>& x_ref, const ColVec<NU, T>& u_ref)
-        requires(NM == 0)
-    {
-        return Core::control(r, x_ref, u_ref);
-    }
-
-    /** @brief One tick: predict(), update(@p x), then control(@p r). The basic call. */
-    [[nodiscard]] constexpr ColVec<NU, T> step(const ColVec<NI, T>& r, const ColVec<NX, T>& x)
-        requires(NM == 0)
-    {
-        return Core::step(r, ColVec<NX, T>{}, ColVec<NU, T>{}, x);
-    }
-
-    /** @brief In place of step(r, x) while another source drives the plant: its predict() and update(x), then the memory that starts the next command from @p u, the input applied. */
-    constexpr void track(const ColVec<NU, T>& u, const ColVec<NI, T>& r, const ColVec<NX, T>& x)
-        requires(NM == 0)
-    {
-        Core::track(u, r, ColVec<NX, T>{}, ColVec<NU, T>{}, x);
-    }
-
-    /** @brief One tick: predict(), update(@p x), then control(@p r, @p x_ref, @p u_ref), the feedforward form. */
-    [[nodiscard]] constexpr ColVec<NU, T> step(const ColVec<NI, T>& r, const ColVec<NX, T>& x_ref, const ColVec<NU, T>& u_ref, const ColVec<NX, T>& x)
-        requires(NM == 0)
-    {
-        return Core::step(r, x_ref, u_ref, x);
-    }
-
-    /** @brief In place of step(r, x_ref, u_ref, x) while another source drives the plant: its predict() and update(x), then the memory that starts the next command from @p u, the input applied. */
-    constexpr void track(const ColVec<NU, T>& u, const ColVec<NI, T>& r, const ColVec<NX, T>& x_ref, const ColVec<NU, T>& u_ref, const ColVec<NX, T>& x)
-        requires(NM == 0)
-    {
-        Core::track(u, r, x_ref, u_ref, x);
-    }
-
-    /** @brief control(@p r) under the measured disturbance @p d: the target under it, after the reference. */
-    [[nodiscard]] constexpr ColVec<NU, T> control(const ColVec<NI, T>& r, const ColVec<NM, T>& d)
-        requires(NM > 0)
-    {
-        return Core::control(r, ColVec<NX, T>{}, ColVec<NU, T>{}, d);
-    }
-
-    /** @brief control(@p r, @p d) about the planned trajectory (@p x_ref, @p u_ref): the reference and its feedforward, then the measured disturbance. */
-    [[nodiscard]] constexpr ColVec<NU, T> control(const ColVec<NI, T>& r, const ColVec<NX, T>& x_ref, const ColVec<NU, T>& u_ref, const ColVec<NM, T>& d)
-        requires(NM > 0)
-    {
-        return Core::control(r, x_ref, u_ref, d);
-    }
-
-    /** @brief One tick: predict(), update(@p x), then control(@p r, @p d). */
-    [[nodiscard]] constexpr ColVec<NU, T> step(const ColVec<NI, T>& r, const ColVec<NM, T>& d, const ColVec<NX, T>& x)
-        requires(NM > 0)
-    {
-        return Core::step(r, ColVec<NX, T>{}, ColVec<NU, T>{}, d, x);
-    }
-
-    /** @brief In place of step(r, d, x) while another source drives the plant: its predict() and update(x), then the memory that starts the next command from @p u, the input applied. */
-    constexpr void track(const ColVec<NU, T>& u, const ColVec<NI, T>& r, const ColVec<NM, T>& d, const ColVec<NX, T>& x)
-        requires(NM > 0)
-    {
-        Core::track(u, r, ColVec<NX, T>{}, ColVec<NU, T>{}, d, x);
-    }
-
-    /** @brief One tick: predict(), update(@p x), then control(@p r, @p x_ref, @p u_ref, @p d). */
-    [[nodiscard]] constexpr ColVec<NU, T> step(const ColVec<NI, T>& r, const ColVec<NX, T>& x_ref, const ColVec<NU, T>& u_ref, const ColVec<NM, T>& d, const ColVec<NX, T>& x)
-        requires(NM > 0)
-    {
-        return Core::step(r, x_ref, u_ref, d, x);
-    }
-
-    /** @brief In place of step(r, x_ref, u_ref, d, x) while another source drives the plant: its predict() and update(x), then the memory that starts the next command from @p u, the input applied. */
-    constexpr void track(const ColVec<NU, T>& u, const ColVec<NI, T>& r, const ColVec<NX, T>& x_ref, const ColVec<NU, T>& u_ref, const ColVec<NM, T>& d, const ColVec<NX, T>& x)
-        requires(NM > 0)
-    {
-        Core::track(u, r, x_ref, u_ref, d, x);
-    }
-
-    using Core::applied;
-    using Core::back_calculate;
-    using Core::getK;
-    using Core::last_command;
-    using Core::limits;
-    using Core::predict;
-    using Core::reset;
-    using Core::set_limits;
-    using Core::valid;
-};
-
-/** @brief LQI law{res}: the sizes and scalar of an LQI design's result. */
-template<size_t NX, size_t NU, typename T, size_t NI, size_t NY, typename Kalman, size_t NZ, size_t NRU, size_t NM, size_t NDU, bool HO>
-LQI(const design::StateFeedbackResult<NX, NU, T, NI, NY, Kalman, NZ, NRU, NM, NDU, HO>&) -> LQI<NX, NU, NI, T, NY, detail::HeldGains, NRU, NM, NDU, HO>;
-
-namespace detail {
-
-/** @brief An LQ design with integrators and no filter runs as LQI. */
-template<size_t NX, size_t NU, typename U, size_t NI, size_t NY, size_t NRU, size_t NM, size_t NDU, bool HO, typename T>
     requires(NI > 0)
-struct lq_runtime<design::StateFeedbackResult<NX, NU, U, NI, NY, NoEstimator, 0, NRU, NM, NDU, HO>, T> {
-    using type = LQI<NX, NU, NI, T, NY, HeldGains, NRU, NM, NDU, HO>; ///< LQI
-    template<typename, typename Store>
-    using on_constants = LQI<NX, NU, NI, T, NY, Store, NRU, NM, NDU, HO>; ///< LQI on the design's constants
-};
-
-} // namespace detail
+using LQI = StateFeedback<NX, NU, T, NI, NY, NoEstimator, 0, Store, NRU, NM, NDU, HO>;
 
 } // namespace damp

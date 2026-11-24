@@ -9,12 +9,13 @@
  * @file state_feedback.hpp
  * @brief design::state_feedback: the linear-quadratic state-feedback designs, the law picked by its options
  *
- * design::state_feedback(plant, [Ts,] weights, opts...) → StateFeedbackResult, which runs
- * as the law its options name (`Law<kRes, T>`, or `LQI law{res}`). The weights are LQRWeights
+ * design::state_feedback(plant, [Ts,] weights, opts...) → StateFeedbackResult, which runs as
+ * StateFeedback (`Law<kRes, T>`, or `StateFeedback law{res}`) of the kind its options name, each
+ * kind's name an alias of it that takes only that kind's design (`LQI law{res}`). The weights are LQRWeights
  * {.Q, .R, .N}, the LQ gain, or Poles{…}, the gain placed there; a KalmanNoise among the options
  * gives the law a Kalman filter, ObserverPoles{…} a placed one, any of them with any weights:
  *
- * | KalmanNoise (or ObserverPoles) among the options | Other options | Law |
+ * | KalmanNoise (or ObserverPoles) among the options | Other options | Kind |
  * | --- | --- | --- |
  * | — | none | LQR on the measured state (MATLAB®'s lqr, lqrd) |
  * | — | IntegralAction{.Q[, .outputs = {i, …}]}: its own cost, every output unless it lists them | LQI (lqi) |
@@ -28,7 +29,7 @@
  * With Ts, InputDelay<N>{θ} among the options designs any of these on the plant whose input
  * arrives θ late, and OutputDelay<M>{θ} the ones with a KalmanNoise on readings that arrive θ
  * late. The options trail in any order, at most one of each kind (design/options.hpp).
- * This header includes the five runtimes, so the law a design names deploys from it. The matlab::
+ * This header includes StateFeedback and the five names, so the law a design names deploys from it. The matlab::
  * aliases (lqr, dlqr, lqrd, lqi, lqg, lqgtrack) take MATLAB®'s arguments and call through.
  */
 
@@ -36,11 +37,12 @@
 #include "damp/controllers/detail/state_feedback_design.hpp"
 #include "damp/controllers/detail/state_feedback_options.hpp"
 #include "damp/controllers/law.hpp"
-#include "damp/controllers/lqg.hpp"   // IWYU pragma: export
-#include "damp/controllers/lqgi.hpp"  // IWYU pragma: export
-#include "damp/controllers/lqi.hpp"   // IWYU pragma: export
-#include "damp/controllers/lqr.hpp"   // IWYU pragma: export
-#include "damp/controllers/oflqg.hpp" // IWYU pragma: export
+#include "damp/controllers/lqg.hpp"                    // IWYU pragma: export
+#include "damp/controllers/lqgi.hpp"                   // IWYU pragma: export
+#include "damp/controllers/lqi.hpp"                    // IWYU pragma: export
+#include "damp/controllers/lqr.hpp"                    // IWYU pragma: export
+#include "damp/controllers/oflqg.hpp"                  // IWYU pragma: export
+#include "damp/controllers/state_feedback_runtime.hpp" // IWYU pragma: export
 #include "damp/controllers/state_feedback_types.hpp"
 #include "damp/design/detail/config.hpp"
 #include "damp/design/disturbance.hpp"
@@ -294,7 +296,7 @@ template<bool Sampled, size_t NX, size_t NU, size_t NY, typename T, size_t NW, s
 } // namespace detail
 
 /**
- * @brief The linear-quadratic state-feedback law (DARE on a discrete plant, CARE on a continuous one): runs as LQR, LQI, LQG, LQGI or OFLQG, as its options say.
+ * @brief The linear-quadratic state-feedback law (DARE on a discrete plant, CARE on a continuous one): runs as StateFeedback, an LQR, LQI, LQG, LQGI or OFLQG as its options say.
  *
  * The cost is @p weights in the plant's own time domain: LQRWeights {.Q, .R, .N}, the same with
  * or without integral action, which brings its own cost. Poles{…} in their place places the gain

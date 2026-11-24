@@ -113,7 +113,7 @@ types. Bode and friends return analysis grids. New code uses `design::` and
 | A Jacobian with a fixed shape, in a filter | `SparsityPattern` + `PatternMatrix<kPattern, float>`: `eskf.predict(F)`, `eskf.update_innovation(nu, H, R)`, `kf.update(y, C, R)`, or an EKF measurement whose `jacobian(x, u)` returns one. The zeros and ones are known at compile time, so they cost nothing; the values stay runtime. |
 | `lqr`, `dlqr`, `lqrd`                 | `design::state_feedback(sys, …)` or `design::state_feedback(sys, Ts, …)` for a law; `matlab::lqr` / `dlqr` / `lqrd` (and `design::discrete_lqr`) for the bare gain |
 | `lqi`, `lqg`, `lqgtrack`              | `design::state_feedback` with an `IntegralAction`, a `KalmanNoise`, or both                                      |
-| `place`, `acker`                      | `design::place` for a gain (`matlab::place` / `acker`); `design::state_feedback(sys, [Ts,] design::Poles{…}, …)` for a law, the gain placed and every option of the LQ design (a target, limits, integrators, a filter, delays), on the LQ runtimes |
+| `place`, `acker`                      | `design::place` for a gain (`matlab::place` / `acker`); `design::state_feedback(sys, [Ts,] design::Poles{…}, …)` for a law, the gain placed and every option of the LQ design (a target, limits, integrators, a filter, delays), on `StateFeedback`, the LQ runtime |
 | `estim`, `reg` with placed gains      | `design::ObserverPoles{…}` in place of a `KalmanNoise` among `state_feedback`'s options: the law's filter placed, its error poles eig((I − MC)A) of the current form it runs; with `Poles` too for the regulator. `matlab::estim` / `reg` build the block from gains you hold |
 | `pidtune`, Ziegler–Nichols            | `design::pidtune`, `design::ziegler_nichols_*`; then `.discretize(Ts)` → `PIDController`                         |
 | `kalman`, `lqe`, `dlqe`, `kalmd`      | `design::kalman` → `FixedGainObserver` (fixed gain on the law) or `KalmanFilter` (P each tick)                          |
@@ -164,7 +164,7 @@ PID: `design::pidtune` or `design::pid(Kp, Ki, Kd)` → `.discretize(Ts)` → `P
 
 | I want to                                    | Start with                                                        | Example                                                                                               |
 | -------------------------------------------- | ----------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| Regulate a fully measured plant              | `design::state_feedback` → `LQR`, `step(x)`                                  | [`examples/control/pendulum/`](../examples/control/pendulum/)                                         |
+| Regulate a fully measured plant              | `design::state_feedback` → `StateFeedback` (an `LQR`), `step(x)`             | [`examples/control/pendulum/`](../examples/control/pendulum/)                                         |
 | Hold listed outputs at r, trusting the model | `design::state_feedback` or `design::mpc` with `TrackedOutputs`    | [`examples/control/cart_pole/`](../examples/control/cart_pole/)                                       |
 | Reject a constant disturbance / model offset | `design::state_feedback` with an `IntegralAction`, or a `KalmanNoise` and a disturbance spec | [`examples/control/lqi/`](../examples/control/lqi/), [`heater_lqg/`](../examples/control/heater_lqg/) |
 | Feed a measured load forward                 | `design::state_feedback` or `design::mpc` with a `MeasuredDisturbance`, a disturbance spec beside it for the part it does not measure | [`tests/test_measured_disturbance.cpp`](../tests/test_measured_disturbance.cpp) |
@@ -191,6 +191,8 @@ Both can hold an output at r.
 What each runtime measures, the references and limits it takes, and what it does with a clamp after it (`back_calculate`). Every runtime has `valid()`: one built from a design it refuses sends 0 (an MPC holds its input), and when constant-evaluated it does not compile. Nothing faults at run time. A NaN or ±Inf parameter is refused like any other out of its domain, but a reading is not checked on the tick: a NaN measurement gives a NaN command, so check readings with `damp::isfinite` before the tick ([known limitations](known_limitations.md)).
 
 ### State-space laws
+
+The five LQ rows are one runtime, `StateFeedback`, which deduces from any LQ design (`StateFeedback law{res}`, or `Law<kRes, T>`) and has the members its design carries. `LQR`, `LQG`, `LQI`, `LQGI` and `OFLQG` name what the options produce: each is an alias of it that refuses another kind's design, so `LQG law{res}` of an LQI's does not compile.
 
 | Runtime | Measures | References | Limits | Clamp after the law |
 |---|---|---|---|---|

@@ -12,8 +12,9 @@
  *        (StateFeedbackResult, NoEstimator; the limits it takes at run time, StateFeedbackLimits, in
  *        design/input_limits.hpp)
  *
- * The design is design::state_feedback (state_feedback.hpp); the runtimes are in lqr.hpp, lqi.hpp,
- * lqg.hpp, lqgi.hpp and oflqg.hpp, over the one they share in detail/state_feedback_core.hpp.
+ * The design is design::state_feedback (state_feedback.hpp); the runtime is StateFeedback
+ * (state_feedback_runtime.hpp), which LQR, LQI, LQG, LQGI and OFLQG (lqr.hpp, lqi.hpp, lqg.hpp,
+ * lqgi.hpp, oflqg.hpp) alias, over detail/state_feedback_core.hpp.
  */
 
 #include "damp/backend.hpp"
@@ -478,7 +479,8 @@ struct IntegralDesign {
  * @struct StateFeedbackResult
  * @brief A state-feedback design: the gain, and the parts the law's options add
  *
- * Its template arguments are the runtime's: LQR, LQI, LQG, LQGI or OFLQG, the one its design names, deduces them from it. The
+ * Its template arguments are the runtime's: StateFeedback deduces them from it, and so does the name of
+ * its kind, LQR, LQI, LQG, LQGI or OFLQG, which refuses another kind's. The
  * gain is on the law's state [x; xi]: the plant, then the integrators (NI > 0).
  *
  * | Member | What it is | Present |
@@ -792,9 +794,8 @@ template<size_t NX, size_t NU, typename T, size_t NI, size_t NY, typename Kalman
 struct is_state_feedback_result<design::StateFeedbackResult<NX, NU, T, NI, NY, Kalman, NZ, NRU, NM, NDU, HO>> : damp::true_type {};
 
 /**
- * @brief A StateFeedbackResult of any sizes. A runtime's constructor takes one and reads its kind
- *        from the result's own constants (kIntegral, kEstimated, ND), so a parameter added to the
- *        result does not reach the runtimes' constructors.
+ * @brief A StateFeedbackResult of any sizes: what StateFeedback's constructor takes, so a parameter
+ *        added to the result does not reach the constructor's signature.
  */
 template<typename R>
 concept state_feedback_result = is_state_feedback_result<R>::value;
