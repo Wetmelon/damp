@@ -14,6 +14,7 @@
 
 #include "damp/backend.hpp"
 #include "damp/controllers/adrc.hpp"
+#include "damp/controllers/detail/lq_cost.hpp"
 #include "damp/controllers/law.hpp"
 #include "damp/controllers/lqg.hpp"
 #include "damp/controllers/lqi.hpp"
@@ -23,7 +24,6 @@
 #include "damp/controllers/state_feedback_types.hpp"
 #include "damp/design/disturbance.hpp"
 #include "damp/design/pole_placement.hpp"
-#include "damp/design/stability.hpp"
 #include "damp/design/status.hpp"
 #include "damp/design/steady_state_target.hpp"
 #include "damp/estimation/fixed_gain_observer.hpp"

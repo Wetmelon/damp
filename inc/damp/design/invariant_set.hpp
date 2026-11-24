@@ -265,14 +265,14 @@ maximal_invariant_set(const Matrix<NX, NX, T>& A, const Matrix<NG, NX, T>& G0, c
         const auto a = detail::matrix_row(G0, i);
         if (detail::row_is_zero(a, g_scale)) {
             if (h0(i) < T{0}) {
-                return damp::detail::set_status(out, DesignStatus::not_converged);
+                return detail::set_status(out, DesignStatus::not_converged);
             }
             continue;
         }
         ++n_usable;
     }
     if (n_usable > NT_max) {
-        return damp::detail::set_status(out, DesignStatus::not_converged);
+        return detail::set_status(out, DesignStatus::not_converged);
     }
 
     for (size_t i = 0; i < NG; ++i) {
@@ -287,10 +287,10 @@ maximal_invariant_set(const Matrix<NX, NX, T>& A, const Matrix<NG, NX, T>& G0, c
     }
 
     if (!(detail::chebyshev_radius(out.G, out.h, out.n_rows) > T{0})) {
-        return damp::detail::set_status(out, DesignStatus::not_converged);
+        return detail::set_status(out, DesignStatus::not_converged);
     }
     if (out.n_rows == 0) {
-        return damp::detail::set_status(out, DesignStatus::ok);
+        return detail::set_status(out, DesignStatus::ok);
     }
 
     Matrix<NX, NX, T> A_pow = Matrix<NX, NX, T>::identity();
@@ -313,7 +313,7 @@ maximal_invariant_set(const Matrix<NX, NX, T>& A, const Matrix<NG, NX, T>& G0, c
             }
             const auto red = detail::row_redundancy(out.G, out.h, a, h0(i));
             if (red == detail::RowRedundancy::empty) {
-                return damp::detail::set_status(out, DesignStatus::not_converged);
+                return detail::set_status(out, DesignStatus::not_converged);
             }
             if (red == detail::RowRedundancy::redundant) {
                 continue;
@@ -326,17 +326,17 @@ maximal_invariant_set(const Matrix<NX, NX, T>& A, const Matrix<NG, NX, T>& G0, c
         }
         if (n_pending == 0) {
             if (!(detail::chebyshev_radius(out.G, out.h, out.n_rows) > T{0})) {
-                return damp::detail::set_status(out, DesignStatus::not_converged);
+                return detail::set_status(out, DesignStatus::not_converged);
             }
-            return damp::detail::set_status(out, DesignStatus::ok);
+            return detail::set_status(out, DesignStatus::ok);
         }
         for (size_t p = 0; p < n_pending; ++p) {
             if (!detail::append_facet(out.G, out.h, out.n_rows, detail::matrix_row(pending_G, p), pending_h(p))) {
-                return damp::detail::set_status(out, DesignStatus::not_converged);
+                return detail::set_status(out, DesignStatus::not_converged);
             }
         }
     }
-    return damp::detail::set_status(out, DesignStatus::not_converged);
+    return detail::set_status(out, DesignStatus::not_converged);
 }
 
 } // namespace design

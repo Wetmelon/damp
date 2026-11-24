@@ -145,10 +145,10 @@ template<typename T = double>
 [[nodiscard]] constexpr LeadLagResult<T> lead(T phi_max, T wc, T Ts) {
     // Valid lead requires 0 < phi_max < pi/2 (else alpha <= 0) and wc > 0.
     if (!damp::finite_positive(phi_max) || !(phi_max < damp::numbers::pi_v<T> / T{2}) || !damp::finite_positive(wc)) {
-        return ::damp::detail::refused<LeadLagResult<T>>(DesignStatus::invalid_parameter);
+        return detail::refused<LeadLagResult<T>>(DesignStatus::invalid_parameter);
     }
     if (!damp::finite_non_negative(Ts)) {
-        return ::damp::detail::refused<LeadLagResult<T>>(DesignStatus::invalid_sample_time);
+        return detail::refused<LeadLagResult<T>>(DesignStatus::invalid_sample_time);
     }
 
     // alpha = (1 - sin(phi)) / (1 + sin(phi))
@@ -199,10 +199,10 @@ template<typename T = double>
     // Valid lag requires a real DC boost, a positive crossover, and a positive margin.
     if (!damp::isfinite(dc_gain_boost) || !(dc_gain_boost > T{1}) || !damp::finite_positive(wc)
         || !damp::finite_positive(margin_factor)) {
-        return ::damp::detail::refused<LeadLagResult<T>>(DesignStatus::invalid_parameter);
+        return detail::refused<LeadLagResult<T>>(DesignStatus::invalid_parameter);
     }
     if (!damp::finite_non_negative(Ts)) {
-        return ::damp::detail::refused<LeadLagResult<T>>(DesignStatus::invalid_sample_time);
+        return detail::refused<LeadLagResult<T>>(DesignStatus::invalid_sample_time);
     }
 
     // Place zero at wc / margin_factor
@@ -261,10 +261,10 @@ lead_lag(T phi_max, T wc, T dc_gain_boost, T Ts, T margin_factor = T{10}) {
     const auto lag_r = lag(dc_gain_boost, wc, Ts, margin_factor);
 
     if (!lead_r.success) {
-        return ::damp::detail::refused<LeadLagSeriesResult<T>>(lead_r.status);
+        return detail::refused<LeadLagSeriesResult<T>>(lead_r.status);
     }
     if (!lag_r.success) {
-        return ::damp::detail::refused<LeadLagSeriesResult<T>>(lag_r.status);
+        return detail::refused<LeadLagSeriesResult<T>>(lag_r.status);
     }
 
     // Cascade: series connection of lead and lag state-space representations
@@ -293,10 +293,10 @@ lead_lag(T phi_max, T wc, T dc_gain_boost, T Ts, T margin_factor = T{10}) {
 template<typename T = double>
 [[nodiscard]] constexpr LeadLagResult<T> lead_lag_direct(T K, T z, T p, T Ts) {
     if (!damp::isfinite(K) || !damp::finite_positive(z) || !damp::finite_positive(p)) {
-        return ::damp::detail::refused<LeadLagResult<T>>(DesignStatus::invalid_parameter);
+        return detail::refused<LeadLagResult<T>>(DesignStatus::invalid_parameter);
     }
     if (!damp::finite_non_negative(Ts)) {
-        return ::damp::detail::refused<LeadLagResult<T>>(DesignStatus::invalid_sample_time);
+        return detail::refused<LeadLagResult<T>>(DesignStatus::invalid_sample_time);
     }
     return LeadLagResult<T>{K, z, p, Ts, true, DesignStatus::ok};
 }
@@ -353,10 +353,10 @@ struct LeadLagController {
           u_lim(result.u_lim),
           valid_(result.success && damp::finite_positive(result.Ts) && damp::finite_positive(result.z) && damp::finite_positive(result.p) && result.u_lim.valid()) {
         if (result.success && !result.u_lim.valid() && damp::is_constant_evaluated()) {
-            ::damp::detail::refuse_failed_design(design::DesignStatus::invalid_parameter); // a limit that is not finite, or lower above upper
+            detail::refuse_failed_design(design::DesignStatus::invalid_parameter); // a limit that is not finite, or lower above upper
         }
         if ((!result.success || !(result.Ts > T{0})) && damp::is_constant_evaluated()) {
-            ::damp::detail::refuse_failed_design(result.success ? design::DesignStatus::invalid_sample_time : result.status); // constant-evaluated (constinit / constexpr): a failed or continuous design does not compile
+            detail::refuse_failed_design(result.success ? design::DesignStatus::invalid_sample_time : result.status); // constant-evaluated (constinit / constexpr): a failed or continuous design does not compile
         }
         if (valid_) {
             compute_coefficients(result.Ts);

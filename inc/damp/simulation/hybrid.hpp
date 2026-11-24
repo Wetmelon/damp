@@ -107,7 +107,7 @@ struct HybridEventAction {
     ColVec<NX, T> x{};    ///< State for the next segment: the event's x, or its projection / reset
 };
 
-namespace hybrid_detail {
+namespace detail {
 
 template<size_t NX, size_t NU, size_t NY, typename T>
 [[nodiscard]] constexpr ColVec<NY, T> output_of(
@@ -149,7 +149,7 @@ template<size_t NX, size_t NU, typename T>
     return exact.evolve(A, B, x, u, h).x; // finite modes (checked on entry): the exponential succeeds
 }
 
-} // namespace hybrid_detail
+} // namespace detail
 
 /**
  * @brief Simulate a piecewise-LTI plant with Exact integration between events
@@ -214,7 +214,7 @@ template<
     T             t = t0;
 
     const auto& sys0 = plant.modes[mode];
-    hybrid_detail::push_sample(tr, t, x, hybrid_detail::output_of(sys0, x, u), u, static_cast<std::uint32_t>(mode));
+    detail::push_sample(tr, t, x, detail::output_of(sys0, x, u), u, static_cast<std::uint32_t>(mode));
 
     std::size_t events = 0;
     while (t < tf) {
@@ -247,22 +247,22 @@ template<
                 const T t_k = detail::grid_time(t, t_next, config.h_fine, k, n_fine);
                 const T h = t_k - t_cursor;
                 x = (k < n_fine || h == config.h_fine) ? zoh.step(x, u)
-                                                       : hybrid_detail::exact_step(exact, sys.A, sys.B, x, u, h);
+                                                       : detail::exact_step(exact, sys.A, sys.B, x, u, h);
                 t_cursor = t_k;
                 if (k < n_fine) {
-                    hybrid_detail::push_sample(
-                        tr, t_cursor, x, hybrid_detail::output_of(sys, x, u), u, static_cast<std::uint32_t>(mode)
+                    detail::push_sample(
+                        tr, t_cursor, x, detail::output_of(sys, x, u), u, static_cast<std::uint32_t>(mode)
                     );
                 }
             }
             t = t_next;
         } else {
-            x = hybrid_detail::exact_step(exact, sys.A, sys.B, x, u, h_seg);
+            x = detail::exact_step(exact, sys.A, sys.B, x, u, h_seg);
             t = t_next;
         }
 
-        const ColVec<NY, T> y = hybrid_detail::output_of(plant.modes[mode], x, u);
-        hybrid_detail::push_sample(tr, t, x, y, u, static_cast<std::uint32_t>(mode));
+        const ColVec<NY, T> y = detail::output_of(plant.modes[mode], x, u);
+        detail::push_sample(tr, t, x, y, u, static_cast<std::uint32_t>(mode));
 
         if (t >= tf) {
             break;
@@ -281,14 +281,14 @@ template<
         tr.event_count = events;
 
         // Re-log after projection / mode change (same t, new discrete state)
-        const ColVec<NY, T> y2 = hybrid_detail::output_of(plant.modes[mode], x, u);
+        const ColVec<NY, T> y2 = detail::output_of(plant.modes[mode], x, u);
         if (!tr.t.empty() && tr.t.back() == t) {
             tr.x.back() = x;
             tr.y.back() = y2;
             tr.u.back() = u;
             tr.mode.back() = static_cast<std::uint32_t>(mode);
         } else {
-            hybrid_detail::push_sample(tr, t, x, y2, u, static_cast<std::uint32_t>(mode));
+            detail::push_sample(tr, t, x, y2, u, static_cast<std::uint32_t>(mode));
         }
     }
 
@@ -308,7 +308,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
     T                                        h
 ) {
     Exact<NX, T> exact{};
-    return hybrid_detail::exact_step(exact, sys.A, sys.B, x, u, h);
+    return detail::exact_step(exact, sys.A, sys.B, x, u, h);
 }
 
 /**
@@ -349,7 +349,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
     T            ta = t0;
     T            tb = t1;
     const T      ga = g(x0);
-    if (same_side(ga, g(hybrid_detail::exact_step(exact, sys.A, sys.B, x0, u, t1 - t0)))) {
+    if (same_side(ga, g(detail::exact_step(exact, sys.A, sys.B, x0, u, t1 - t0)))) {
         return t1; // no sign change — return endpoint
     }
     for (int i = 0; i < max_iter && (tb - ta) > t_tol; ++i) {
@@ -357,7 +357,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
         if (!(tm > ta && tm < tb)) {
             break;
         }
-        const T gm = g(hybrid_detail::exact_step(exact, sys.A, sys.B, x0, u, tm - t0));
+        const T gm = g(detail::exact_step(exact, sys.A, sys.B, x0, u, tm - t0));
         if (same_side(ga, gm)) {
             ta = tm;
         } else {

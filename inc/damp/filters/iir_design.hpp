@@ -130,16 +130,16 @@ struct [[nodiscard]] SecondOrderCoeffs {
 template<typename T = float>
 [[nodiscard]] constexpr FirstOrderCoeffs<T> to_coeffs(const StateSpace<1, 1, 1, T>& sys, T Ts = T{0}) {
     if (!sys.is_discrete() && !sys.is_continuous()) {
-        return ::damp::detail::refused<FirstOrderCoeffs<T>>(DesignStatus::invalid_sample_time); // no time domain
+        return detail::refused<FirstOrderCoeffs<T>>(DesignStatus::invalid_sample_time); // no time domain
     }
     StateSpace<1, 1, 1, T> sys_d = sys;
     if (sys.is_continuous()) {
         if (!damp::finite_positive(Ts)) {
-            return ::damp::detail::refused<FirstOrderCoeffs<T>>(DesignStatus::invalid_sample_time);
+            return detail::refused<FirstOrderCoeffs<T>>(DesignStatus::invalid_sample_time);
         }
         auto opt = discretize(sys, Ts, DiscretizationMethod::Tustin);
         if (!opt) {
-            return ::damp::detail::refused<FirstOrderCoeffs<T>>(DesignStatus::singular);
+            return detail::refused<FirstOrderCoeffs<T>>(DesignStatus::singular);
         }
         sys_d = *opt;
     }
@@ -163,15 +163,15 @@ template<typename T = float>
 template<typename T = float>
 [[nodiscard]] constexpr FirstOrderCoeffs<T> to_coeffs(const TransferFunction<1, 2, T>& tf, T Ts) {
     if (!damp::finite_positive(Ts)) {
-        return ::damp::detail::refused<FirstOrderCoeffs<T>>(DesignStatus::invalid_sample_time);
+        return detail::refused<FirstOrderCoeffs<T>>(DesignStatus::invalid_sample_time);
     }
     const auto sys_c = tf.to_state_space();
     if (!sys_c) {
-        return ::damp::detail::refused<FirstOrderCoeffs<T>>(DesignStatus::singular);
+        return detail::refused<FirstOrderCoeffs<T>>(DesignStatus::singular);
     }
     const auto sys_d = discretize(*sys_c, Ts, DiscretizationMethod::Tustin);
     if (!sys_d) {
-        return ::damp::detail::refused<FirstOrderCoeffs<T>>(DesignStatus::singular);
+        return detail::refused<FirstOrderCoeffs<T>>(DesignStatus::singular);
     }
     return to_coeffs(*sys_d);
 }
@@ -186,15 +186,15 @@ template<typename T = float>
 template<typename T = float>
 [[nodiscard]] constexpr FirstOrderCoeffs<T> to_coeffs(const TransferFunction<2, 2, T>& tf, T Ts) {
     if (!damp::finite_positive(Ts)) {
-        return ::damp::detail::refused<FirstOrderCoeffs<T>>(DesignStatus::invalid_sample_time);
+        return detail::refused<FirstOrderCoeffs<T>>(DesignStatus::invalid_sample_time);
     }
     const auto sys_c = tf.to_state_space();
     if (!sys_c) {
-        return ::damp::detail::refused<FirstOrderCoeffs<T>>(DesignStatus::singular);
+        return detail::refused<FirstOrderCoeffs<T>>(DesignStatus::singular);
     }
     const auto sys_d = discretize(*sys_c, Ts, DiscretizationMethod::Tustin);
     if (!sys_d) {
-        return ::damp::detail::refused<FirstOrderCoeffs<T>>(DesignStatus::singular);
+        return detail::refused<FirstOrderCoeffs<T>>(DesignStatus::singular);
     }
     return to_coeffs(*sys_d);
 }
@@ -211,16 +211,16 @@ template<typename T = float>
 template<typename T = float>
 [[nodiscard]] constexpr SecondOrderCoeffs<T> to_coeffs(const StateSpace<2, 1, 1, T>& sys, T Ts = T{0}) {
     if (!sys.is_discrete() && !sys.is_continuous()) {
-        return ::damp::detail::refused<SecondOrderCoeffs<T>>(DesignStatus::invalid_sample_time); // no time domain
+        return detail::refused<SecondOrderCoeffs<T>>(DesignStatus::invalid_sample_time); // no time domain
     }
     StateSpace<2, 1, 1, T> sys_d = sys;
     if (sys.is_continuous()) {
         if (!damp::finite_positive(Ts)) {
-            return ::damp::detail::refused<SecondOrderCoeffs<T>>(DesignStatus::invalid_sample_time);
+            return detail::refused<SecondOrderCoeffs<T>>(DesignStatus::invalid_sample_time);
         }
         auto opt = discretize(sys, Ts, DiscretizationMethod::Tustin);
         if (!opt) {
-            return ::damp::detail::refused<SecondOrderCoeffs<T>>(DesignStatus::singular);
+            return detail::refused<SecondOrderCoeffs<T>>(DesignStatus::singular);
         }
         sys_d = *opt;
     }
@@ -262,15 +262,15 @@ template<typename T = float>
 template<typename T = float>
 [[nodiscard]] constexpr SecondOrderCoeffs<T> to_coeffs(const TransferFunction<3, 3, T>& tf, T Ts) {
     if (!damp::finite_positive(Ts)) {
-        return ::damp::detail::refused<SecondOrderCoeffs<T>>(DesignStatus::invalid_sample_time);
+        return detail::refused<SecondOrderCoeffs<T>>(DesignStatus::invalid_sample_time);
     }
     const auto sys_c = tf.to_state_space();
     if (!sys_c) {
-        return ::damp::detail::refused<SecondOrderCoeffs<T>>(DesignStatus::singular);
+        return detail::refused<SecondOrderCoeffs<T>>(DesignStatus::singular);
     }
     const auto sys_d = discretize(*sys_c, Ts, DiscretizationMethod::Tustin);
     if (!sys_d) {
-        return ::damp::detail::refused<SecondOrderCoeffs<T>>(DesignStatus::singular);
+        return detail::refused<SecondOrderCoeffs<T>>(DesignStatus::singular);
     }
     return to_coeffs(*sys_d);
 }
@@ -297,7 +297,7 @@ template<typename T>
 /** @brief A model refused for an out-of-domain parameter (fc ≤ 0, Q ≤ 0, ζ ≤ 0, delay < 0). */
 template<typename Result>
 [[nodiscard]] constexpr Result invalid() {
-    return ::damp::detail::refused<Result>(DesignStatus::invalid_parameter);
+    return refused<Result>(DesignStatus::invalid_parameter);
 }
 
 template<typename T>
@@ -342,7 +342,7 @@ template<typename T>
     // Every caller's a0 is a sum of positive terms (> 0 for valid f/Q/gain); guard
     // only the degenerate zero — return a zero section, not ±∞ coeffs.
     if (!(damp::abs(a0) > T{0})) {
-        return ::damp::detail::refused<SecondOrderCoeffs<T>>(DesignStatus::singular);
+        return refused<SecondOrderCoeffs<T>>(DesignStatus::singular);
     }
     const T inv = T{1} / a0;
     return SecondOrderCoeffs<T>{b0 * inv, b1 * inv, b2 * inv, a1 * inv, a2 * inv};
@@ -385,7 +385,7 @@ template<typename T = double>
 template<typename T = float>
 [[nodiscard]] constexpr FirstOrderCoeffs<T> lowpass_1st(T fc, T Ts) {
     if (!detail::valid_cutoff(fc, Ts)) {
-        return ::damp::detail::refused<FirstOrderCoeffs<T>>(detail::cutoff_status(Ts));
+        return detail::refused<FirstOrderCoeffs<T>>(detail::cutoff_status(Ts));
     }
     // Bilinear: s ← k (1 − z⁻¹)/(1 + z⁻¹), k prewarped to ωc.
     // Pole gives a1; numerator is forced to unit DC by construction so
@@ -444,7 +444,7 @@ template<typename T = double>
 template<typename T = float>
 [[nodiscard]] constexpr FirstOrderCoeffs<T> highpass_1st(T fc, T Ts) {
     if (!detail::valid_cutoff(fc, Ts)) {
-        return ::damp::detail::refused<FirstOrderCoeffs<T>>(detail::cutoff_status(Ts));
+        return detail::refused<FirstOrderCoeffs<T>>(detail::cutoff_status(Ts));
     }
     // Prewarped bilinear of H(s) = s/(s+ωc). Pin a1 from the pole; force exact
     // DC null (b1 = −b0) and unit Nyquist gain H(−1) = 1 by construction:
@@ -505,7 +505,7 @@ template<typename T = double>
 template<typename T = float>
 [[nodiscard]] constexpr SecondOrderCoeffs<T> lowpass_2nd(T fc, T Q, T Ts) {
     if (!detail::valid_cutoff(fc, Ts) || !detail::valid_Q(Q)) {
-        return ::damp::detail::refused<SecondOrderCoeffs<T>>(detail::cutoff_status(Ts));
+        return detail::refused<SecondOrderCoeffs<T>>(detail::cutoff_status(Ts));
     }
     // Discretize H(s) = ω₀² / (s² + (ω₀/Q)s + ω₀²) with the bilinear transform
     // s ← k·(1 − z⁻¹)/(1 + z⁻¹), k prewarped to ω₀. Clearing (1 + z⁻¹)² gives a
@@ -584,7 +584,7 @@ template<typename T = double>
 template<typename T = float>
 [[nodiscard]] constexpr SecondOrderCoeffs<T> highpass_2nd(T fc, T Q, T Ts) {
     if (!detail::valid_cutoff(fc, Ts) || !detail::valid_Q(Q)) {
-        return ::damp::detail::refused<SecondOrderCoeffs<T>>(detail::cutoff_status(Ts));
+        return detail::refused<SecondOrderCoeffs<T>>(detail::cutoff_status(Ts));
     }
     const T w0 = T{2} * damp::numbers::pi_v<T> * fc * Ts;
     const auto [s, c] = damp::sincos(w0);
@@ -639,7 +639,7 @@ template<typename T = double>
 template<typename T = float>
 [[nodiscard]] constexpr SecondOrderCoeffs<T> bandpass(T f0, T Q, T Ts) {
     if (!detail::valid_cutoff(f0, Ts) || !detail::valid_Q(Q)) {
-        return ::damp::detail::refused<SecondOrderCoeffs<T>>(detail::cutoff_status(Ts));
+        return detail::refused<SecondOrderCoeffs<T>>(detail::cutoff_status(Ts));
     }
     const T w0 = T{2} * damp::numbers::pi_v<T> * f0 * Ts;
     const auto [s, c] = damp::sincos(w0);
@@ -696,7 +696,7 @@ template<typename T = double>
 template<typename T = float>
 [[nodiscard]] constexpr SecondOrderCoeffs<T> notch(T f0, T Q, T Ts) {
     if (!detail::valid_cutoff(f0, Ts) || !detail::valid_Q(Q)) {
-        return ::damp::detail::refused<SecondOrderCoeffs<T>>(detail::cutoff_status(Ts));
+        return detail::refused<SecondOrderCoeffs<T>>(detail::cutoff_status(Ts));
     }
     const T w0 = T{2} * damp::numbers::pi_v<T> * f0 * Ts;
     const auto [s, c] = damp::sincos(w0);
@@ -751,7 +751,7 @@ template<typename T = double>
 template<typename T = float>
 [[nodiscard]] constexpr SecondOrderCoeffs<T> allpass(T f0, T Q, T Ts) {
     if (!detail::valid_cutoff(f0, Ts) || !detail::valid_Q(Q)) {
-        return ::damp::detail::refused<SecondOrderCoeffs<T>>(detail::cutoff_status(Ts));
+        return detail::refused<SecondOrderCoeffs<T>>(detail::cutoff_status(Ts));
     }
     const auto [s, c] = damp::sincos(T{2} * damp::numbers::pi_v<T> * f0 * Ts);
     const T alpha = s / (T{2} * Q);
@@ -800,7 +800,7 @@ template<size_t Order, typename T = double>
         opt = (lowpass_2nd(fc, q1).tf * lowpass_2nd(fc, q2).tf).to_state_space();
     }
     if (!opt) {
-        return ::damp::detail::refused<Result>(DesignStatus::singular);
+        return detail::refused<Result>(DesignStatus::singular);
     }
     return detail::designed(*opt);
 }
@@ -824,7 +824,7 @@ template<size_t Order, typename T = float>
 [[nodiscard]] constexpr StateSpaceResult<Order, 1, 1, T> butterworth_lowpass(T fc, T Ts) {
     using Result = StateSpaceResult<Order, 1, 1, T>;
     if (!detail::valid_cutoff(fc, Ts)) {
-        return ::damp::detail::refused<Result>(detail::cutoff_status(Ts));
+        return detail::refused<Result>(detail::cutoff_status(Ts));
     }
     const auto proto = butterworth_lowpass<Order, T>(detail::prewarped_frequency(fc, Ts));
     if (!proto.success) {
@@ -832,7 +832,7 @@ template<size_t Order, typename T = float>
     }
     const auto sys_d = discretize(proto.sys, Ts, DiscretizationMethod::Tustin);
     if (!sys_d) {
-        return ::damp::detail::refused<Result>(DesignStatus::singular);
+        return detail::refused<Result>(DesignStatus::singular);
     }
     return detail::designed(*sys_d);
 }
@@ -852,7 +852,7 @@ template<size_t Order, typename T = float>
 template<typename T = float>
 [[nodiscard]] constexpr SecondOrderCoeffs<T> peaking(T f0, T Q, T gain_db, T Ts) {
     if (!detail::valid_cutoff(f0, Ts) || !detail::valid_Q(Q)) {
-        return ::damp::detail::refused<SecondOrderCoeffs<T>>(detail::cutoff_status(Ts));
+        return detail::refused<SecondOrderCoeffs<T>>(detail::cutoff_status(Ts));
     }
     const T A = damp::pow(T{10}, gain_db / T{40});
     const T w0 = T{2} * damp::numbers::pi_v<T> * f0 * Ts;
@@ -877,7 +877,7 @@ template<typename T = float>
 template<typename T = float>
 [[nodiscard]] constexpr SecondOrderCoeffs<T> lowshelf(T fc, T gain_db, T Ts, T Q = damp::numbers::inv_sqrt2_v<T>) {
     if (!detail::valid_cutoff(fc, Ts) || !detail::valid_Q(Q)) {
-        return ::damp::detail::refused<SecondOrderCoeffs<T>>(detail::cutoff_status(Ts));
+        return detail::refused<SecondOrderCoeffs<T>>(detail::cutoff_status(Ts));
     }
     const T A = damp::pow(T{10}, gain_db / T{40});
     const T w0 = T{2} * damp::numbers::pi_v<T> * fc * Ts;
@@ -909,7 +909,7 @@ template<typename T = float>
 template<typename T = float>
 [[nodiscard]] constexpr SecondOrderCoeffs<T> highshelf(T fc, T gain_db, T Ts, T Q = damp::numbers::inv_sqrt2_v<T>) {
     if (!detail::valid_cutoff(fc, Ts) || !detail::valid_Q(Q)) {
-        return ::damp::detail::refused<SecondOrderCoeffs<T>>(detail::cutoff_status(Ts));
+        return detail::refused<SecondOrderCoeffs<T>>(detail::cutoff_status(Ts));
     }
     const T A = damp::pow(T{10}, gain_db / T{40});
     const T w0 = T{2} * damp::numbers::pi_v<T> * fc * Ts;

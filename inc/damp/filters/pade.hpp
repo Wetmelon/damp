@@ -32,7 +32,7 @@ namespace design {
 template<typename T = double>
 [[nodiscard]] constexpr TransferFunctionResult<2, 2, T> pade_delay_1st(T T_delay) {
     if (!(T_delay > T{0}) || !damp::isfinite(T_delay)) {
-        return ::damp::detail::refused<TransferFunctionResult<2, 2, T>>(DesignStatus::invalid_parameter);
+        return detail::refused<TransferFunctionResult<2, 2, T>>(DesignStatus::invalid_parameter);
     }
     const T half_T = T_delay / T{2};
     return detail::designed(TransferFunction<2, 2, T>{
@@ -55,7 +55,7 @@ template<typename T = double>
 template<typename T = float>
 [[nodiscard]] constexpr TransferFunctionResult<2, 2, T> pade_delay_1st(T T_delay, T Ts) {
     if (!(Ts > T{0}) || !damp::isfinite(Ts)) {
-        return ::damp::detail::refused<TransferFunctionResult<2, 2, T>>(DesignStatus::invalid_sample_time);
+        return detail::refused<TransferFunctionResult<2, 2, T>>(DesignStatus::invalid_sample_time);
     }
     const auto tf_c = pade_delay_1st<T>(T_delay);
     if (!tf_c.success) {
@@ -63,11 +63,11 @@ template<typename T = float>
     }
     const auto sys_c_opt = tf_c.tf.to_state_space();
     if (!sys_c_opt) {
-        return ::damp::detail::refused<TransferFunctionResult<2, 2, T>>(DesignStatus::singular);
+        return detail::refused<TransferFunctionResult<2, 2, T>>(DesignStatus::singular);
     }
     const auto sys_d_opt = discretize(*sys_c_opt, Ts, DiscretizationMethod::Tustin);
     if (!sys_d_opt) {
-        return ::damp::detail::refused<TransferFunctionResult<2, 2, T>>(DesignStatus::singular);
+        return detail::refused<TransferFunctionResult<2, 2, T>>(DesignStatus::singular);
     }
     return detail::designed(::damp::to_transfer_function(*sys_d_opt));
 }
@@ -84,7 +84,7 @@ template<typename T = float>
 template<typename T = double>
 [[nodiscard]] constexpr TransferFunctionResult<3, 3, T> pade_delay_2nd(T T_delay) {
     if (!(T_delay > T{0}) || !damp::isfinite(T_delay)) {
-        return ::damp::detail::refused<TransferFunctionResult<3, 3, T>>(DesignStatus::invalid_parameter);
+        return detail::refused<TransferFunctionResult<3, 3, T>>(DesignStatus::invalid_parameter);
     }
     const T half_T = T_delay / T{2};
     const T T_sq_12 = T_delay * T_delay / T{12};
@@ -108,7 +108,7 @@ template<typename T = double>
 template<typename T = float>
 [[nodiscard]] constexpr TransferFunctionResult<3, 3, T> pade_delay_2nd(T T_delay, T Ts) {
     if (!(Ts > T{0}) || !damp::isfinite(Ts)) {
-        return ::damp::detail::refused<TransferFunctionResult<3, 3, T>>(DesignStatus::invalid_sample_time);
+        return detail::refused<TransferFunctionResult<3, 3, T>>(DesignStatus::invalid_sample_time);
     }
     const auto tf_c = pade_delay_2nd<T>(T_delay);
     if (!tf_c.success) {
@@ -116,11 +116,11 @@ template<typename T = float>
     }
     const auto sys_c_opt = tf_c.tf.to_state_space();
     if (!sys_c_opt) {
-        return ::damp::detail::refused<TransferFunctionResult<3, 3, T>>(DesignStatus::singular);
+        return detail::refused<TransferFunctionResult<3, 3, T>>(DesignStatus::singular);
     }
     const auto sys_d_opt = discretize(*sys_c_opt, Ts, DiscretizationMethod::Tustin);
     if (!sys_d_opt) {
-        return ::damp::detail::refused<TransferFunctionResult<3, 3, T>>(DesignStatus::singular);
+        return detail::refused<TransferFunctionResult<3, 3, T>>(DesignStatus::singular);
     }
     return detail::designed(::damp::to_transfer_function(*sys_d_opt));
 }

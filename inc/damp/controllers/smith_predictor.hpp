@@ -200,13 +200,13 @@ template<typename T>
 template<typename T>
 [[nodiscard]] constexpr SmithPredictorResult<T> smith_result(const DiscretePIDGains<T>& pid, T K, T tau, T L, T Ts) {
     if (!pid.success) {
-        return ::damp::detail::refused<SmithPredictorResult<T>>(pid.status);
+        return refused<SmithPredictorResult<T>>(pid.status);
     }
     // ZOH discrete FO: G(z) = b / (z - a)
     const T a = damp::exp(-Ts / tau);
     const T b = K * (T{1} - a);
     if (!damp::isfinite(b) || b == T{0}) {
-        return ::damp::detail::refused<SmithPredictorResult<T>>(DesignStatus::invalid_parameter);
+        return refused<SmithPredictorResult<T>>(DesignStatus::invalid_parameter);
     }
     SmithPredictorResult<T> out{
         .pid = pid,
@@ -219,7 +219,7 @@ template<typename T>
         .tau = tau,
         .L = L,
     };
-    ::damp::detail::set_status(out, DesignStatus::ok);
+    set_status(out, DesignStatus::ok);
     return out;
 }
 
@@ -254,7 +254,7 @@ template<typename T = double>
 [[nodiscard]] constexpr SmithPredictorResult<T> smith_predictor_from_fopdt(T K, T tau, T L, T Ts, T tau_c = T{0}) {
     const DesignStatus plant = detail::smith_plant_status(K, tau, L, Ts);
     if (plant != DesignStatus::ok) {
-        return ::damp::detail::refused<SmithPredictorResult<T>>(plant);
+        return detail::refused<SmithPredictorResult<T>>(plant);
     }
 
     const T tau_c_eff = (tau_c > T{0}) ? tau_c : tau;
@@ -262,7 +262,7 @@ template<typename T = double>
     // Primary controller on delay-free FO plant (Smith: hide L from C)
     const PIDGains<T> cont = simc(K, T{0}, tau, tau_c_eff, PIDMode::PI);
     if (!cont.success) {
-        return ::damp::detail::refused<SmithPredictorResult<T>>(cont.status);
+        return detail::refused<SmithPredictorResult<T>>(cont.status);
     }
     return detail::smith_result(cont.discretize(Ts), K, tau, L, Ts);
 }
@@ -293,7 +293,7 @@ template<typename T = double>
 ) {
     const DesignStatus plant = detail::smith_plant_status(K, tau, L, Ts);
     if (plant != DesignStatus::ok) {
-        return ::damp::detail::refused<SmithPredictorResult<T>>(plant);
+        return detail::refused<SmithPredictorResult<T>>(plant);
     }
     return detail::smith_result(pid.discretize(Ts), K, tau, L, Ts);
 }
@@ -370,7 +370,7 @@ public:
         : SmithPredictor(Primary(result.pid), result.a, result.b, result.delay_samples) {
         valid_ = valid_ && result.success;
         if (!valid_ && damp::is_constant_evaluated()) {
-            ::damp::detail::refuse_failed_design(result.success ? design::DesignStatus::invalid_parameter : result.status); // constant-evaluated (constinit / constexpr): a failed design, or a delay past MaxDelay, does not compile
+            detail::refuse_failed_design(result.success ? design::DesignStatus::invalid_parameter : result.status); // constant-evaluated (constinit / constexpr): a failed design, or a delay past MaxDelay, does not compile
         }
     }
 

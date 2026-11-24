@@ -149,7 +149,7 @@ template<size_t N, typename T = double>
     }
 }
 
-namespace zpk_detail {
+namespace detail {
 
 /**
  * @brief Multiply a polynomial of @p degree by (s − @p root) in place; poly[k] multiplies sᵏ.
@@ -163,7 +163,7 @@ constexpr void mul_linear(Poly& poly, size_t degree, C root) {
     poly[0] = -root * poly[0];
 }
 
-} // namespace zpk_detail
+} // namespace detail
 
 // ============================================================================
 // ZPK type
@@ -233,7 +233,7 @@ struct ZPK {
         damp::array<damp::complex<T>, Nz + 1> num_c{};
         num_c[0] = damp::complex<T>{gain, T{0}};
         for (size_t i = 0; i < Nz; ++i) {
-            zpk_detail::mul_linear(num_c, i, zeros[i]);
+            detail::mul_linear(num_c, i, zeros[i]);
         }
         for (size_t k = 0; k < Nz + 1; ++k) {
             tf.num[k] = num_c[Nz - k].real(); // num_c[k] multiplies s^k
@@ -242,7 +242,7 @@ struct ZPK {
         damp::array<damp::complex<T>, Np + 1> den_c{};
         den_c[0] = damp::complex<T>{T{1}, T{0}};
         for (size_t i = 0; i < Np; ++i) {
-            zpk_detail::mul_linear(den_c, i, poles[i]);
+            detail::mul_linear(den_c, i, poles[i]);
         }
         for (size_t k = 0; k < Np + 1; ++k) {
             tf.den[k] = den_c[Np - k].real();
@@ -497,7 +497,7 @@ to_zpk(const TransferFunction<Nnum, Nden, T>& tf) {
 // SS → TF / ZPK (SISO)
 // ============================================================================
 
-namespace zpk_detail {
+namespace detail {
 
 /**
  * @brief Faddeev–LeVerrier characteristic polynomial and adjoint coefficient matrices
@@ -642,7 +642,7 @@ template<size_t NX, typename T, size_t NW, size_t NV>
     return missed ? markov : num;
 }
 
-} // namespace zpk_detail
+} // namespace detail
 
 /**
  * @brief SISO state-space → ZPK conversion result with runtime zero count
@@ -776,24 +776,24 @@ template<size_t NX, typename T = double, size_t NW = 0, size_t NV = 0>
 to_transfer_function(const StateSpace<NX, 1, 1, T, NW, NV>& sys) {
     const StateSpaceZPKResult<NX, T> factors = to_zpk(sys);
     if (!factors.success) {
-        return zpk_detail::ss_to_tf_full(StateSpace{.A = sys.A, .B = sys.B, .C = sys.C, .D = sys.D, .Ts = sys.Ts});
+        return detail::ss_to_tf_full(StateSpace{.A = sys.A, .B = sys.B, .C = sys.C, .D = sys.D, .Ts = sys.Ts});
     }
     damp::array<damp::complex<T>, NX + 1> num_c{}; // num_c[k] multiplies sᵏ
     damp::array<damp::complex<T>, NX + 1> den_c{};
     num_c[0] = damp::complex<T>{factors.gain, T{0}};
     den_c[0] = damp::complex<T>{T{1}, T{0}};
     for (size_t i = 0; i < factors.n_zeros; ++i) {
-        zpk_detail::mul_linear(num_c, i, factors.zeros[i]);
+        detail::mul_linear(num_c, i, factors.zeros[i]);
     }
     for (size_t i = 0; i < NX; ++i) {
-        zpk_detail::mul_linear(den_c, i, factors.poles[i]);
+        detail::mul_linear(den_c, i, factors.poles[i]);
     }
     TransferFunction<NX + 1, NX + 1, T> tf{};
     for (size_t k = 0; k <= NX; ++k) {
         tf.den[k] = den_c[NX - k].real();
         tf.num[k] = (NX - k <= factors.n_zeros) ? num_c[NX - k].real() : T{0}; // right-aligned on the constant term
     }
-    tf.num = zpk_detail::markov_checked_numerator(sys, tf.den, tf.num);
+    tf.num = detail::markov_checked_numerator(sys, tf.den, tf.num);
     return tf;
 }
 

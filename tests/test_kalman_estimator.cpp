@@ -29,6 +29,7 @@
 #include "damp/controllers/oflqg.hpp"
 #include "damp/controllers/state_feedback.hpp"
 #include "damp/controllers/state_feedback_types.hpp"
+#include "damp/design/detail/config.hpp"
 #include "damp/design/disturbance.hpp"
 #include "damp/design/options.hpp"
 #include "damp/design/status.hpp"
@@ -143,8 +144,8 @@ void check_delay_states_known(
 } // namespace
 
 TEST_SUITE("Design options by type") {
-    using damp::detail::option_count;
-    using damp::detail::option_t;
+    using damp::design::detail::option_count;
+    using damp::design::detail::option_t;
     using Disturbance = design::kind::Disturbance;
     using KalmanNoise = design::kind::KalmanNoise;
     using Noise = design::KalmanNoise<2, 1, double, 1>;
@@ -167,10 +168,10 @@ TEST_SUITE("Design options by type") {
         static_assert(std::is_same_v<option_t<Disturbance, design::NoDisturbance, Noise, design::OutputDisturbance<2>>, design::OutputDisturbance<2>>);
         static_assert(std::is_same_v<option_t<Disturbance, design::NoDisturbance, Noise>, design::NoDisturbance>);
 
-        constexpr auto spec = damp::detail::option<Disturbance>(design::NoDisturbance{}, Noise{}, design::OutputDisturbance{{0, 3}});
+        constexpr auto spec = damp::design::detail::option<Disturbance>(design::NoDisturbance{}, Noise{}, design::OutputDisturbance{{0, 3}});
         static_assert(std::is_same_v<std::remove_cvref_t<decltype(spec)>, design::OutputDisturbance<2>>);
         static_assert(spec.outputs[1] == 3);
-        constexpr auto none = damp::detail::option<Disturbance>(design::NoDisturbance{}, Noise{});
+        constexpr auto none = damp::design::detail::option<Disturbance>(design::NoDisturbance{}, Noise{});
         static_assert(std::is_same_v<std::remove_cvref_t<decltype(none)>, design::NoDisturbance>);
     }
 

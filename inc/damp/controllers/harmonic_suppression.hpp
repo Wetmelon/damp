@@ -128,17 +128,17 @@ template<size_t N, typename T = double>
 [[nodiscard]] constexpr HarmonicSuppressorResult<N, T>
 harmonic_suppressor(const PRSpec<T>& fundamental, T Ts, const damp::array<size_t, N>& harmonics) {
     if (!damp::finite_positive(Ts)) {
-        return ::damp::detail::refused<HarmonicSuppressorResult<N, T>>(DesignStatus::invalid_sample_time);
+        return detail::refused<HarmonicSuppressorResult<N, T>>(DesignStatus::invalid_sample_time);
     }
     for (size_t i = 0; i < N; ++i) {
         if (harmonics[i] == 0) {
-            return ::damp::detail::refused<HarmonicSuppressorResult<N, T>>(DesignStatus::invalid_parameter); // 0th harmonic (DC) is not a resonant target
+            return detail::refused<HarmonicSuppressorResult<N, T>>(DesignStatus::invalid_parameter); // 0th harmonic (DC) is not a resonant target
         }
     }
     const auto gains = pr_harmonics(fundamental, Ts, harmonics);
     for (size_t i = 0; i < N; ++i) {
         if (!gains[i].success) {
-            return ::damp::detail::refused<HarmonicSuppressorResult<N, T>>(gains[i].status);
+            return detail::refused<HarmonicSuppressorResult<N, T>>(gains[i].status);
         }
     }
     return HarmonicSuppressorResult<N, T>{
@@ -187,10 +187,10 @@ public:
     constexpr HarmonicSuppressor(const design::HarmonicSuppressorResult<N, T>& design) // NOLINT(google-explicit-constructor): assign-from-design
         : u_lim(design.u_lim), w_fund_(design.w_fund), valid_(design.success && design.u_lim.valid()) {
         if (!design.success && damp::is_constant_evaluated()) {
-            ::damp::detail::refuse_failed_design(design.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
+            detail::refuse_failed_design(design.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
         if (!design.u_lim.valid() && damp::is_constant_evaluated()) {
-            ::damp::detail::refuse_failed_design(design::DesignStatus::invalid_parameter); // a limit that is not finite, or lower above upper
+            detail::refuse_failed_design(design::DesignStatus::invalid_parameter); // a limit that is not finite, or lower above upper
         }
         install_gains(design.gains);
         for (size_t i = 0; i < N; ++i) {

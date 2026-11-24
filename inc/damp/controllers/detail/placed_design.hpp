@@ -95,7 +95,7 @@ template<typename Result, Domain D, size_t NI, size_t NX, size_t NU, size_t NY, 
     constexpr size_t NK = NXL + NI;
     static_assert(NP + (NRU * NU) == NK, "The poles listed are the plant's and the integrators'.");
     if (!finite_poles(placed.poles)) {
-        return ::damp::detail::refused<Result>(DesignStatus::invalid_parameter); // before z = e^{s·Ts} maps −∞ to 0
+        return refused<Result>(DesignStatus::invalid_parameter); // before z = e^{s·Ts} maps −∞ to 0
     }
     if constexpr ((D == Domain::plant) && NI == 0 && NRU == 0) {
         if (sys.is_continuous()) {
@@ -103,12 +103,12 @@ template<typename Result, Domain D, size_t NI, size_t NX, size_t NU, size_t NY, 
             Result     out{};
             out.K = gain.K;
             out.e = gain.e;
-            return ::damp::detail::set_status(out, gain.status);
+            return set_status(out, gain.status);
         }
     }
     const auto m = sampled_model(sys, Ts, D, delay);
     if (m.status != DesignStatus::ok) {
-        return ::damp::detail::refused<Result>(m.status);
+        return refused<Result>(m.status);
     }
     const T                  h = (D == Domain::plant) ? sys.Ts : Ts;
     Result                   out{.Ts = h};
@@ -125,7 +125,7 @@ template<typename Result, Domain D, size_t NI, size_t NX, size_t NU, size_t NY, 
     const auto gain = place_on(law, with_deadbeat<NRU * NU, D>(placed.poles, Ts));
     out.K = gain.K;
     out.e = gain.e;
-    return ::damp::detail::set_status(out, gain.status);
+    return set_status(out, gain.status);
 }
 
 /** @brief The noise inputs of the filter's model as kalman_design gives them: the plant's or its states, then d's or none. */
@@ -219,10 +219,10 @@ template<Domain D, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_
     const auto m = placed_filter_model<D, ND>(sys, Ts, spec, delay);
     using Filter = KalmanResult<NXK, NU, NY, T, placed_noise_inputs<D, ND, NX, NU, NY, NW, Delay>, NV, ND>;
     if (!finite_poles(placed.poles)) {
-        return ::damp::detail::refused<Filter>(DesignStatus::invalid_parameter);
+        return refused<Filter>(DesignStatus::invalid_parameter);
     }
     if (m.status != DesignStatus::ok) {
-        return ::damp::detail::refused<Filter>(m.status);
+        return refused<Filter>(m.status);
     }
     const auto&        A = m.law.A;
     const auto&        C = m.law.C;
@@ -266,7 +266,7 @@ template<Domain D, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_
     }
     const auto placed_core = place_observer_on(core, with_deadbeat<NWS, D>(placed.poles, Ts));
     if (!placed_core.success) {
-        return ::damp::detail::refused<Filter>(placed_core.status);
+        return refused<Filter>(placed_core.status);
     }
     Filter                   out{.sys = m.law};
     const Matrix<NVS, NY, T> Mv = Gv * placed_core.M;
@@ -279,7 +279,7 @@ template<Domain D, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_
         }
     }
     out.L = A * out.M;
-    return ::damp::detail::set_status(out, DesignStatus::ok);
+    return set_status(out, DesignStatus::ok);
 }
 
 } // namespace detail

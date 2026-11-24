@@ -641,8 +641,8 @@ TEST_SUITE("Active Disturbance Rejection Control (ADRC)") {
             CAPTURE(woTs);
             const auto r1 = design::adrc<1>(10.0, woTs / Ts, 2.0, Ts);
             const auto r2 = design::adrc<2>(10.0, woTs / Ts, 2.0, Ts);
-            const auto c1 = zpk_detail::leverrier(r1.as_eso().error_dynamics()).den;
-            const auto c2 = zpk_detail::leverrier(r2.as_eso().error_dynamics()).den;
+            const auto c1 = ::damp::detail::leverrier(r1.as_eso().error_dynamics()).den;
+            const auto c2 = ::damp::detail::leverrier(r2.as_eso().error_dynamics()).den;
             const auto e1 = repeated_root_poly<2>(lambda);
             const auto e2 = repeated_root_poly<3>(lambda);
             // Coefficients of order 1–3: rounding of a few products, 1e-12 absolute.

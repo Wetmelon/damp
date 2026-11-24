@@ -220,7 +220,7 @@ template<size_t NH, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size
     const MHEConstraints<NX, T>&                     constraints = {},
     const Opts&... opts
 ) {
-    ::damp::detail::option_set<kind::QPIterations>::check<Opts...>();
+    detail::option_set<kind::QPIterations>::check<Opts...>();
     const auto sys = detail::noise_model(plant);
     static_assert(NH >= 1, "The estimation window must cover at least two states.");
 
@@ -229,22 +229,22 @@ template<size_t NH, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size
 
     MHEResult<NX, NU, NY, NH, T> art{};
     art.constraints = constraints;
-    art.max_qp_iterations = ::damp::detail::option<kind::QPIterations>(QPIterations{10 * (NV + NIB)}, opts...).budget;
+    art.max_qp_iterations = detail::option<kind::QPIterations>(QPIterations{10 * (NV + NIB)}, opts...).budget;
 
     if (!damp::finite_positive(sys.Ts)) {
-        return ::damp::detail::set_status(art, DesignStatus::invalid_sample_time); // discrete plants only
+        return detail::set_status(art, DesignStatus::invalid_sample_time); // discrete plants only
     }
     if (!detail::finite_filter_model(sys, noise.process, noise.measurement)) {
-        return ::damp::detail::set_status(art, DesignStatus::bad_weights);
+        return detail::set_status(art, DesignStatus::bad_weights);
     }
     if (!constraints.x_lim.valid()) {
-        return ::damp::detail::set_status(art, DesignStatus::invalid_parameter); // as design::mpc's limits
+        return detail::set_status(art, DesignStatus::invalid_parameter); // as design::mpc's limits
     }
     if (art.max_qp_iterations == 0) {
-        return ::damp::detail::set_status(art, DesignStatus::invalid_parameter); // QPIterations{0}: not one active-set step, as design::mpc
+        return detail::set_status(art, DesignStatus::invalid_parameter); // QPIterations{0}: not one active-set step, as design::mpc
     }
     if (!mat::all_of(sys.D, [](T v) { return v == T{0}; })) {
-        return ::damp::detail::set_status(art, DesignStatus::bad_weights); // feedthrough unsupported
+        return detail::set_status(art, DesignStatus::bad_weights); // feedthrough unsupported
     }
 
     // Weights: W_q = Q⁻¹, W_r = R⁻¹, W_a = P∞⁻¹ (steady-state Kalman covariance), on the noise
@@ -254,7 +254,7 @@ template<size_t NH, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size
     const auto              Wq_opt = mat::solve(Q_process, Matrix<NX, NX, T>::identity());
     const auto              Wr_opt = mat::solve(R_measurement, Matrix<NY, NY, T>::identity());
     if (!Wq_opt || !Wr_opt) {
-        return ::damp::detail::set_status(art, DesignStatus::bad_weights); // a zero or indefinite covariance
+        return detail::set_status(art, DesignStatus::bad_weights); // a zero or indefinite covariance
     }
     const Matrix<NX, NX, T> Wq = Wq_opt.value();
     const Matrix<NY, NY, T> Wr = Wr_opt.value();
@@ -262,11 +262,11 @@ template<size_t NH, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size
     const StateSpace<NX, NU, NY, T, NX, NY> sys_noise{.A = sys.A, .B = sys.B, .C = sys.C, .Ts = sys.Ts};
     const auto                              kf = kalman(sys_noise, KalmanNoise{.process = Q_process, .measurement = R_measurement});
     if (!kf.success) {
-        return ::damp::detail::set_status(art, kf.status);
+        return detail::set_status(art, kf.status);
     }
     const auto Wa_opt = mat::solve(kf.P, Matrix<NX, NX, T>::identity());
     if (!Wa_opt) {
-        return ::damp::detail::set_status(art, DesignStatus::singular);
+        return detail::set_status(art, DesignStatus::singular);
     }
     const Matrix<NX, NX, T> Wa = Wa_opt.value();
 
@@ -314,9 +314,9 @@ template<size_t NH, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size
     }
 
     if (!mat::cholesky(art.H)) {
-        return ::damp::detail::set_status(art, DesignStatus::singular);
+        return detail::set_status(art, DesignStatus::singular);
     }
-    return ::damp::detail::set_status(art, DesignStatus::ok);
+    return detail::set_status(art, DesignStatus::ok);
 }
 
 } // namespace design
@@ -353,7 +353,7 @@ public:
     constexpr MHE(const Result& result) // NOLINT(google-explicit-constructor): assign-from-design
         : art(result), valid_(result.success) {
         if (!result.success && damp::is_constant_evaluated()) {
-            ::damp::detail::refuse_failed_design(result.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
+            detail::refuse_failed_design(result.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
     }
 

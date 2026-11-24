@@ -484,14 +484,14 @@ balanced_realization(const StateSpace<NX, NU, NY, T, NW, NV>& sys) {
     using Result = BalancedRealizationResult<NX, NU, NY, T, NW, NV>;
     const auto factors = detail::square_root_balance_factors(sys);
     if (factors.status != DesignStatus::ok) {
-        return ::damp::detail::refused<Result>(factors.status);
+        return detail::refused<Result>(factors.status);
     }
     if (factors.rank < NX) {
-        return ::damp::detail::refused<Result>(DesignStatus::singular);
+        return detail::refused<Result>(DesignStatus::singular);
     }
     const auto tf = detail::make_balancing_transforms<NX>(factors);
     Result     out{.balanced = detail::project_balanced(sys, tf), .sigma = factors.sigma, .transform = tf.Tmat};
-    return ::damp::detail::set_status(out, DesignStatus::ok);
+    return detail::set_status(out, DesignStatus::ok);
 }
 
 /**
@@ -566,11 +566,11 @@ template<
 
     const auto factors = detail::square_root_balance_factors(sys);
     if (factors.status != DesignStatus::ok) {
-        return ::damp::detail::refused<Result>(factors.status);
+        return detail::refused<Result>(factors.status);
     }
     const size_t needed = (method == ModelReductionMethod::Truncate) ? NR : NX;
     if (factors.rank < needed) {
-        return ::damp::detail::refused<Result>(DesignStatus::singular);
+        return detail::refused<Result>(DesignStatus::singular);
     }
 
     Result out{};
@@ -581,14 +581,14 @@ template<
 
     if (method == ModelReductionMethod::Truncate) {
         out.reduced = detail::project_balanced(sys, detail::make_balancing_transforms<NR>(factors));
-        return ::damp::detail::set_status(out, DesignStatus::ok);
+        return detail::set_status(out, DesignStatus::ok);
     }
     const auto red = detail::residualize_states<NR>(detail::project_balanced(sys, detail::make_balancing_transforms<NX>(factors)));
     if (!red) {
-        return ::damp::detail::set_status(out, DesignStatus::singular);
+        return detail::set_status(out, DesignStatus::singular);
     }
     out.reduced = *red;
-    return ::damp::detail::set_status(out, DesignStatus::ok);
+    return detail::set_status(out, DesignStatus::ok);
 }
 
 /**

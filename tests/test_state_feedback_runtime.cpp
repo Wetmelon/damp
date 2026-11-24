@@ -26,13 +26,13 @@
 #include "damp/controllers/state_feedback_types.hpp"
 #include "damp/design/disturbance.hpp"
 #include "damp/design/input_limits.hpp"
-#include "damp/design/options.hpp"
+#include "damp/design/riccati.hpp"
 #include "damp/estimation/fixed_gain_observer.hpp"
 #include "damp/estimation/kalman.hpp"
 #include "damp/matrix/colvec.hpp"
 #include "damp/matrix/matrix.hpp"
+#include "damp/systems/discretization.hpp"
 #include "damp/systems/state_space.hpp"
-#include "damp/toolbox/bounds.hpp"
 #include "doctest.h"
 
 using namespace damp;

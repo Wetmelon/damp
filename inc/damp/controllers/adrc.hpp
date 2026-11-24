@@ -210,12 +210,12 @@ template<size_t NX, typename T = double>
     const bool ok = damp::isfinite(wc) && damp::isfinite(wo) && damp::isfinite(b0) && (wc > T{0})
                  && (wo > T{0}) && (b0 > T{0});
     if (!ok) {
-        return ::damp::detail::refused<ADRCResult<NX, T>>(DesignStatus::invalid_parameter);
+        return detail::refused<ADRCResult<NX, T>>(DesignStatus::invalid_parameter);
     }
 
     const auto e = eso<NX>(wo, b0, Ts);
     if (!e.success) {
-        return ::damp::detail::refused<ADRCResult<NX, T>>(e.status);
+        return detail::refused<ADRCResult<NX, T>>(e.status);
     }
 
     return ADRCResult<NX, T>{
@@ -273,7 +273,7 @@ class ADRCController {
             return result.as_eso();
         }
         if (damp::is_constant_evaluated()) {
-            ::damp::detail::refuse_failed_design(design::DesignStatus::invalid_parameter); // a limit that is not finite, or lower above upper
+            detail::refuse_failed_design(design::DesignStatus::invalid_parameter); // a limit that is not finite, or lower above upper
         }
         return ::damp::detail::refused<design::ESOResult<NX, T>>(design::DesignStatus::invalid_parameter);
     }
@@ -309,7 +309,7 @@ public:
           eso_(observer_of(result)),
           u_lim(result.u_lim.valid() ? result.u_lim : Bounds<1, T>{}) {
         if ((!result.success || !(result.Ts > T{0})) && damp::is_constant_evaluated()) {
-            ::damp::detail::refuse_failed_design(result.success ? design::DesignStatus::invalid_sample_time : result.status); // constant-evaluated (constinit / constexpr): a failed or continuous design does not compile
+            detail::refuse_failed_design(result.success ? design::DesignStatus::invalid_sample_time : result.status); // constant-evaluated (constinit / constexpr): a failed or continuous design does not compile
         }
     }
 

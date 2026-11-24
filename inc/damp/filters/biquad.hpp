@@ -258,12 +258,12 @@ template<size_t NS, size_t MZ, size_t MP, typename T>
 ) {
     using Result = SecondOrderSectionsResult<NS, T>;
     if (nz > np || !damp::isfinite(gain)) { // more zeros than poles: not causal in z
-        return ::damp::detail::refused<Result>(DesignStatus::invalid_parameter);
+        return refused<Result>(DesignStatus::invalid_parameter);
     }
     const auto zg = group_roots(zeros, nz);
     const auto pg = group_roots(poles, np);
     if (!zg.success || !pg.success) {
-        return ::damp::detail::refused<Result>(DesignStatus::not_converged);
+        return refused<Result>(DesignStatus::not_converged);
     }
 
     const size_t n_zg = (zg.count < MZ) ? zg.count : MZ;
@@ -323,7 +323,7 @@ template<size_t NS, size_t MZ, size_t MP, typename T>
     }
     for (size_t j = 0; j < n_zg; ++j) {
         if (!taken[j]) {
-            return ::damp::detail::refused<Result>(DesignStatus::invalid_parameter);
+            return refused<Result>(DesignStatus::invalid_parameter);
         }
     }
     for (size_t k = n_pg; k < NS; ++k) {
@@ -332,7 +332,7 @@ template<size_t NS, size_t MZ, size_t MP, typename T>
     out.sections[0].b0 *= gain;
     out.sections[0].b1 *= gain;
     out.sections[0].b2 *= gain;
-    return ::damp::detail::set_status(out, DesignStatus::ok);
+    return set_status(out, DesignStatus::ok);
 }
 
 } // namespace detail
@@ -374,21 +374,21 @@ template<size_t Nnum, size_t Nden, typename T>
     using Result = SecondOrderSectionsResult<NS, T>;
     for (size_t i = 0; i < Nnum; ++i) {
         if (!damp::isfinite(tf.num[i])) {
-            return ::damp::detail::refused<Result>(DesignStatus::invalid_parameter);
+            return detail::refused<Result>(DesignStatus::invalid_parameter);
         }
     }
     for (size_t i = 0; i < Nden; ++i) {
         if (!damp::isfinite(tf.den[i])) {
-            return ::damp::detail::refused<Result>(DesignStatus::invalid_parameter);
+            return detail::refused<Result>(DesignStatus::invalid_parameter);
         }
     }
     const auto zr = detail::finite_roots(tf.num);
     const auto pr = detail::finite_roots(tf.den);
     if (pr.lead == T{0}) {
-        return ::damp::detail::refused<Result>(DesignStatus::invalid_parameter);
+        return detail::refused<Result>(DesignStatus::invalid_parameter);
     }
     if (!zr.success || !pr.success) {
-        return ::damp::detail::refused<Result>(DesignStatus::not_converged);
+        return detail::refused<Result>(DesignStatus::not_converged);
     }
     return detail::sections_from_roots<NS>(zr.roots, zr.count, pr.roots, pr.count, zr.lead / pr.lead);
 }
@@ -411,12 +411,12 @@ template<size_t Nz, size_t Np, typename T>
     using Result = SecondOrderSectionsResult<NS, T>;
     for (size_t i = 0; i < Nz; ++i) {
         if (!damp::isfinite(sys.zeros[i].real()) || !damp::isfinite(sys.zeros[i].imag())) {
-            return ::damp::detail::refused<Result>(DesignStatus::invalid_parameter);
+            return detail::refused<Result>(DesignStatus::invalid_parameter);
         }
     }
     for (size_t j = 0; j < Np; ++j) {
         if (!damp::isfinite(sys.poles[j].real()) || !damp::isfinite(sys.poles[j].imag())) {
-            return ::damp::detail::refused<Result>(DesignStatus::invalid_parameter);
+            return detail::refused<Result>(DesignStatus::invalid_parameter);
         }
     }
     return detail::sections_from_roots<NS>(sys.zeros, Nz, sys.poles, Np, sys.gain);
@@ -462,7 +462,7 @@ template<size_t N, typename T = double>
 [[nodiscard]] constexpr SecondOrderSectionsResult<(N + 1) / 2, T> lowpass_sections(T fc, T Ts) {
     using Result = SecondOrderSectionsResult<(N + 1) / 2, T>;
     if (!detail::valid_cutoff(fc, Ts)) {
-        return ::damp::detail::refused<Result>(detail::cutoff_status(Ts));
+        return detail::refused<Result>(detail::cutoff_status(Ts));
     }
     Result out{};
     size_t s = 0;
@@ -474,10 +474,10 @@ template<size_t N, typename T = double>
     }
     for (const auto& c : out.sections) {
         if (!c.success) {
-            return ::damp::detail::refused<Result>(c.status);
+            return detail::refused<Result>(c.status);
         }
     }
-    return ::damp::detail::set_status(out, DesignStatus::ok);
+    return detail::set_status(out, DesignStatus::ok);
 }
 
 /**
@@ -498,7 +498,7 @@ template<size_t N, typename T = double>
 [[nodiscard]] constexpr SecondOrderSectionsResult<(N + 1) / 2, T> highpass_sections(T fc, T Ts) {
     using Result = SecondOrderSectionsResult<(N + 1) / 2, T>;
     if (!detail::valid_cutoff(fc, Ts)) {
-        return ::damp::detail::refused<Result>(detail::cutoff_status(Ts));
+        return detail::refused<Result>(detail::cutoff_status(Ts));
     }
     Result out{};
     size_t s = 0;
@@ -510,10 +510,10 @@ template<size_t N, typename T = double>
     }
     for (const auto& c : out.sections) {
         if (!c.success) {
-            return ::damp::detail::refused<Result>(c.status);
+            return detail::refused<Result>(c.status);
         }
     }
-    return ::damp::detail::set_status(out, DesignStatus::ok);
+    return detail::set_status(out, DesignStatus::ok);
 }
 
 } // namespace design
@@ -546,7 +546,7 @@ public:
     constexpr Biquad(const design::SecondOrderCoeffs<T>& c) // NOLINT(google-explicit-constructor): assign-from-design
         : b0_(c.b0), b1_(c.b1), b2_(c.b2), a1_(c.a1), a2_(c.a2) {
         if (!c.success && damp::is_constant_evaluated()) {
-            ::damp::detail::refuse_failed_design(c.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
+            detail::refuse_failed_design(c.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
     }
 
@@ -636,7 +636,7 @@ public:
     /** @brief From a sections design. A failed design does not compile when constant-evaluated; at run time it outputs 0. */
     constexpr BiquadCascade(const design::SecondOrderSectionsResult<NSections, T>& result) { // NOLINT(google-explicit-constructor): assign-from-design
         if (!result.success && damp::is_constant_evaluated()) {
-            ::damp::detail::refuse_failed_design(result.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
+            detail::refuse_failed_design(result.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
         for (size_t i = 0; i < NSections; ++i) {
             sections_[i] = Biquad<T>(result.sections[i]);

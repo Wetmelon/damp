@@ -500,8 +500,8 @@ constexpr void copy_listed(damp::array<size_t, N>& to, const size_t (&from)[N]) 
  */
 template<size_t NU, typename T, typename... Opts>
 [[nodiscard]] constexpr auto constraint_set(const Opts&... opts) {
-    constexpr size_t                       NXC = limits_listed<::damp::detail::option_t<kind::StateLimits, void, Opts...>>;
-    constexpr size_t                       NYC = limits_listed<::damp::detail::option_t<kind::OutputLimits, void, Opts...>>;
+    constexpr size_t                       NXC = limits_listed<option_t<kind::StateLimits, void, Opts...>>;
+    constexpr size_t                       NYC = limits_listed<option_t<kind::OutputLimits, void, Opts...>>;
     constexpr size_t                       NDU = rate_limited_inputs<NU, Opts...>;
     MPCConstraintSet<NU, NXC, NYC, T, NDU> out{};
     out.limits.input = input_limits_of<NU, T>(opts...);
@@ -509,14 +509,14 @@ template<size_t NU, typename T, typename... Opts>
         out.limits.input_rate = input_rate_limits_of<NU, T>(opts...);
     }
     if constexpr (NYC > 0) {
-        const auto limits = ::damp::detail::the<kind::OutputLimits>(opts...);
+        const auto limits = the<kind::OutputLimits>(opts...);
         copy_listed(out.y_outputs, limits.outputs);
         out.limits.output = box_of<T>(limits.lower, limits.upper);
         out.y_lower_ecr = ColVec<NYC, T>{limits.lower_ecr.template as<T>()};
         out.y_upper_ecr = ColVec<NYC, T>{limits.upper_ecr.template as<T>()};
     }
     if constexpr (NXC > 0) {
-        const auto limits = ::damp::detail::the<kind::StateLimits>(opts...);
+        const auto limits = the<kind::StateLimits>(opts...);
         copy_listed(out.x_states, limits.states);
         out.limits.state = box_of<T>(limits.lower, limits.upper);
         out.x_lower_ecr = ColVec<NXC, T>{limits.lower_ecr.template as<T>()};
@@ -528,12 +528,12 @@ template<size_t NU, typename T, typename... Opts>
 /** @brief The terminal ingredient among @p opts in the scalar @p T: DareCost, an InvariantSet and its margin, or none. */
 template<typename T, typename... Opts>
 [[nodiscard]] constexpr MPCTerminalChoice<T> terminal_choice(const Opts&... opts) {
-    using Terminal = ::damp::detail::option_t<kind::Terminal, void, Opts...>;
+    using Terminal = option_t<kind::Terminal, void, Opts...>;
     if constexpr (damp::is_same_v<Terminal, DareCost>) {
         (static_cast<void>(opts), ...);
         return {.kind = MPCTerminal::dare_cost};
     } else if constexpr (!damp::is_same_v<Terminal, void>) {
-        return {.kind = MPCTerminal::invariant_set, .target_margin = static_cast<T>(::damp::detail::the<kind::Terminal>(opts...).target_margin)};
+        return {.kind = MPCTerminal::invariant_set, .target_margin = static_cast<T>(the<kind::Terminal>(opts...).target_margin)};
     } else {
         (static_cast<void>(opts), ...);
         return {};
@@ -543,8 +543,8 @@ template<typename T, typename... Opts>
 /** @brief The QP budget among @p opts: QPIterations::budget, or none for the design's default. */
 template<typename... Opts>
 [[nodiscard]] constexpr damp::optional<size_t> qp_budget_of(const Opts&... opts) {
-    if constexpr (::damp::detail::option_count<kind::QPIterations, Opts...> > 0) {
-        return ::damp::detail::the<kind::QPIterations>(opts...).budget;
+    if constexpr (option_count<kind::QPIterations, Opts...> > 0) {
+        return the<kind::QPIterations>(opts...).budget;
     } else {
         (static_cast<void>(opts), ...);
         return damp::nullopt;
@@ -1456,27 +1456,27 @@ template<size_t NP, size_t NC, size_t ND, size_t NT_max = 0, size_t NX, size_t N
     }
 
     if (!(sys.Ts > T{0}) || !damp::isfinite(sys.Ts)) {
-        return ::damp::detail::set_status(art, DesignStatus::invalid_sample_time);
+        return set_status(art, DesignStatus::invalid_sample_time);
     }
     for (size_t r = 0; r < NY; ++r) {
         for (size_t c = 0; c < NU; ++c) {
             if ((!damp::isfinite(sys.D(r, c)) || sys.D(r, c) != T{0}) && mpc_output_used(weights, constraints, r)) {
-                return ::damp::detail::set_status(art, DesignStatus::bad_weights); // the prediction is y = C·x: no feedthrough (a NaN one either) on an output the QP weighs or bounds
+                return set_status(art, DesignStatus::bad_weights); // the prediction is y = C·x: no feedthrough (a NaN one either) on an output the QP weighs or bounds
             }
         }
     }
     if (!mpc_weights_valid(weights, constraints)) {
-        return ::damp::detail::set_status(art, DesignStatus::bad_weights); // as design::state_feedback: indefinite, asymmetric or non-finite
+        return set_status(art, DesignStatus::bad_weights); // as design::state_feedback: indefinite, asymmetric or non-finite
     }
     const auto& lim = constraints.limits;
     if (!lim.input.valid() || !lim.input_rate.valid()) {
-        return ::damp::detail::set_status(art, DesignStatus::invalid_parameter); // as set_limits: a NaN, infinite or inverted limit
+        return set_status(art, DesignStatus::invalid_parameter); // as set_limits: a NaN, infinite or inverted limit
     }
     if (!mpc_signal_bounds_valid<NX, NY>(constraints)) {
-        return ::damp::detail::set_status(art, DesignStatus::invalid_parameter); // an index past the model's or listed twice, or a bad box
+        return set_status(art, DesignStatus::invalid_parameter); // an index past the model's or listed twice, or a bad box
     }
     if (art.max_qp_iterations == 0) {
-        return ::damp::detail::set_status(art, DesignStatus::invalid_parameter); // QPIterations{0}: not one active-set step
+        return set_status(art, DesignStatus::invalid_parameter); // QPIterations{0}: not one active-set step
     }
 
     for (size_t j = 0; j < NU; ++j) {
@@ -1529,7 +1529,7 @@ template<size_t NP, size_t NC, size_t ND, size_t NT_max = 0, size_t NX, size_t N
     const auto pred = mpc_predictions<NP, NC, NXA, NX, NU, NY, T>(Aa, Ba, Ca);
     //! A terminal cost weights the state at NP, delay states included, so it sees past the horizon.
     if (terminal.kind == MPCTerminal::none && !mpc_first_moves_reach_outputs<NP>(Aa, Ba, Ca, weights.Ru)) {
-        return ::damp::detail::set_status(art, DesignStatus::invalid_parameter);
+        return set_status(art, DesignStatus::invalid_parameter);
     }
 
     //! On a continuous plant the move and input weights are per second: R_Δu on the rate Δu/Ts, R_u over the period
@@ -1539,7 +1539,7 @@ template<size_t NP, size_t NC, size_t ND, size_t NT_max = 0, size_t NX, size_t N
     Matrix<NZ, NZ, T>       Hm{};
     Matrix<NZ, NXA, T>      Fx{};
     if (!mpc_output_cost(art, pred, Aa, Ba, weights, plant, dare_on, Hm, Fx)) {
-        return ::damp::detail::set_status(art, DesignStatus::bad_weights); // the plant was sampled: a non-finite weight
+        return set_status(art, DesignStatus::bad_weights); // the plant was sampled: a non-finite weight
     }
     for (size_t i = 0; i < NC; ++i) {
         for (size_t j = 0; j < NC; ++j) {
@@ -1573,7 +1573,7 @@ template<size_t NP, size_t NC, size_t ND, size_t NT_max = 0, size_t NX, size_t N
                                     : MpcStageCost<NX, NU, T>{.Q_x = Cs.transpose() * (weights.Qy * Cs)};
         const auto st = mpc_dare_lqr(sys.A, Bs, stage, Rdu, Ru, art.P, art.K_terminal);
         if (st != DesignStatus::ok) {
-            return ::damp::detail::set_status(art, st);
+            return set_status(art, st);
         }
         const auto HP = Gamma_z.transpose() * (art.P * Gamma_z);
         const auto FP = Gamma_z.transpose() * (art.P * Phi_z);
@@ -1643,7 +1643,7 @@ template<size_t NP, size_t NC, size_t ND, size_t NT_max = 0, size_t NX, size_t N
     if constexpr (NT_max > 0) {
         if (terminal.kind == MPCTerminal::invariant_set) {
             if (!damp::finite_positive(terminal.target_margin) || !(terminal.target_margin < T{1})) {
-                return ::damp::detail::set_status(art, DesignStatus::invalid_parameter);
+                return set_status(art, DesignStatus::invalid_parameter);
             }
             //! The set of w = [z; q] under w⁺ = blkdiag(A_z − B_z·K, I)·w: valid for every target
             //! q = [y_t; u_t] in the tightened boxes, the target entering each row's offset.
@@ -1659,7 +1659,7 @@ template<size_t NP, size_t NC, size_t ND, size_t NT_max = 0, size_t NX, size_t N
             mpc_terminal_rows<NX, NU, NY, T>(sys.C, art.K_terminal, art.scale_u, art.scale_y, constraints, terminal.target_margin, G0, h0);
             const auto inv = maximal_invariant_set<NT_max>(A_w, G0, h0);
             if (!inv.success) {
-                return ::damp::detail::set_status(art, inv.status);
+                return set_status(art, inv.status);
             }
             //! Keep the rows that constrain z; the rest bound the target alone (a design assumption).
             size_t kept = 0;
@@ -1688,9 +1688,9 @@ template<size_t NP, size_t NC, size_t ND, size_t NT_max = 0, size_t NX, size_t N
     art.b_bound(NI) = T{0};
 
     if (!mat::cholesky(art.H)) {
-        return ::damp::detail::set_status(art, DesignStatus::singular);
+        return set_status(art, DesignStatus::singular);
     }
-    return ::damp::detail::set_status(art, DesignStatus::ok);
+    return set_status(art, DesignStatus::ok);
 }
 
 } // namespace detail
@@ -1737,7 +1737,7 @@ struct [[nodiscard]] MPCResult {
 namespace detail {
 
 /** @brief The options design::mpc takes after the weights. */
-using mpc_options = ::damp::detail::option_set<
+using mpc_options = option_set<
     kind::InputLimits, kind::InputRateLimits, kind::KalmanNoise, kind::Disturbance, kind::MeasuredDisturbance, kind::TrackedOutputs, kind::OutputLimits, kind::StateLimits,
     kind::Terminal, kind::QPIterations, kind::InputDelay, kind::OutputDelay, kind::Handover>; // a Handover only for its message
 
@@ -1751,25 +1751,25 @@ using mpc_options = ::damp::detail::option_set<
 template<size_t NP, size_t NC, size_t NU, size_t NY, typename... Opts>
 constexpr void check_mpc_options() {
     static_assert(
-        ::damp::detail::option_count<kind::Handover, Opts...> == 0,
+        option_count<kind::Handover, Opts...> == 0,
         "Handover is an LQ law's: an offset added outside the QP would break its constraints. An MPC hands over from the input track() holds, the base of its first move."
     );
     mpc_options::check<Opts...>();            // a kind it does not take, a kind given twice
     check_held_outputs<NU, NY, 0, Opts...>(); // the target's: none beside a disturbance spec, at most NU held
-    constexpr bool kSet = ::damp::detail::option_count<kind::Terminal, Opts...> == 1 && terminal_rows<::damp::detail::option_t<kind::Terminal, void, Opts...>> > 0;
+    constexpr bool kSet = option_count<kind::Terminal, Opts...> == 1 && terminal_rows<option_t<kind::Terminal, void, Opts...>> > 0;
     static_assert(
         !kSet || NC == NP,
         "An InvariantSet needs a free move at every step for the shifted plan: mpc<NP, NP>, or DareCost{} for the terminal cost alone."
     );
     static_assert(
-        !kSet || ::damp::detail::option_count<kind::StateLimits, Opts...> == 0,
+        !kSet || option_count<kind::StateLimits, Opts...> == 0,
         "An InvariantSet's rows do not cover a StateLimits: bound an output that reads the state with OutputLimits{...}, or take DareCost{} for the cost alone."
     );
 }
 
 /** @brief Whether a design::mpc call has an estimator: a KalmanNoise among its options. */
 template<typename... Opts>
-inline constexpr bool mpc_estimated = ::damp::detail::option_count<kind::KalmanNoise, Opts...> > 0;
+inline constexpr bool mpc_estimated = option_count<kind::KalmanNoise, Opts...> > 0;
 
 /** @brief The first status that is not ok among @p statuses, else ok. */
 template<typename... S>
@@ -1862,18 +1862,18 @@ template<
     using Result = MPCResult<Law, NoEstimator, Target, input_delay_states<Delay>, reference_outputs<Held, NY>>; // the runtime holds the delay states
     const auto m = sampled_model(sys, Ts, D, delay);
     if (m.status != DesignStatus::ok) {
-        return ::damp::detail::refused<Result>(m.status);
+        return refused<Result>(m.status);
     }
     //! d on the plant's states, ZOH'd with a continuous one; none on the delay states
     const auto Bd = measured_channel<D>(sys, Ts, measured, delay);
     if (!Bd) {
-        return ::damp::detail::refused<Result>(DesignStatus::bad_weights); // a non-finite B_d
+        return refused<Result>(DesignStatus::bad_weights); // a non-finite B_d
     }
     Result     out{};
     const auto cost = mpc_continuous_cost<D>(sys, measured.Bd, Ts, input_delays_of<NU>(delay, Ts));
     out.mpc = mpc_impl<NP, NC, NM, NT_max>(m.law, *Bd, Matrix<NY, NM, T>{}, weights, constraints, terminal, budget, cost);
     out.target = held_target<D>(sys, Ts, held, delay, *Bd);
-    return ::damp::detail::set_status(out, first_failure(out.mpc.status, out.target.status, in_output_order<NY>(held) ? DesignStatus::ok : DesignStatus::bad_weights));
+    return set_status(out, first_failure(out.mpc.status, out.target.status, in_output_order<NY>(held) ? DesignStatus::ok : DesignStatus::bad_weights));
 }
 
 /**
@@ -1913,7 +1913,7 @@ template<
     Result     out{.kalman = kf};
     const auto m = sampled_model(sys, Ts, D, in);
     if (m.status != DesignStatus::ok || !Bm) {
-        return ::damp::detail::set_status(out, first_failure(kf.status, m.status, Bm ? DesignStatus::ok : DesignStatus::bad_weights)); // a delay refused, a non-finite B_d
+        return set_status(out, first_failure(kf.status, m.status, Bm ? DesignStatus::ok : DesignStatus::bad_weights)); // a delay refused, a non-finite B_d
     }
     //! The QP predicts, weighs and bounds every output of the law's model, the estimate riding B_d and C_d, then the measured d riding its channel
     const auto         channels = disturbance_channels(spec, sys, m.law, Ts);
@@ -1930,7 +1930,7 @@ template<
     }
     //! On the filter's model: under d̂ with a disturbance spec, and d; a late reading's delay states hold the steady output
     out.target = held_target<D>(sys, Ts, aim, delay, *Bm);
-    return ::damp::detail::set_status(out, first_failure(kf.status, out.target.status, out.mpc.status, in_output_order<NY>(aim) ? DesignStatus::ok : DesignStatus::bad_weights));
+    return set_status(out, first_failure(kf.status, out.target.status, out.mpc.status, in_output_order<NY>(aim) ? DesignStatus::ok : DesignStatus::bad_weights));
 }
 
 /**
@@ -1939,24 +1939,24 @@ template<
  *        InvariantSet's (none without one).
  */
 template<Domain D, size_t NP, size_t NC, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename... Opts>
-[[nodiscard]] constexpr auto mpc_design(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T Ts, const MPCWeights<NU, NY, T>& weights, const Opts&... opts) {
+[[nodiscard]] constexpr auto mpc_with(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T Ts, const MPCWeights<NU, NY, T>& weights, const Opts&... opts) {
     constexpr bool   kEstimated = mpc_estimated<Opts...>;
     constexpr bool   kModelFits = check_delays<D, Opts...>() && check_filtered<kEstimated, Opts...>() && check_disturbance<NX, NY, T, Opts...>();
-    constexpr size_t NT_max = terminal_rows<::damp::detail::option_t<kind::Terminal, void, Opts...>>;
+    constexpr size_t NT_max = terminal_rows<option_t<kind::Terminal, void, Opts...>>;
     const auto       constraints = constraint_set<NU, T>(opts...);
     const auto       terminal = terminal_choice<T>(opts...);
     const auto       budget = qp_budget_of(opts...);
-    const auto       held = ::damp::detail::option<kind::TrackedOutputs>(NoDisturbance{}, opts...); // none: a regulator
+    const auto       held = option<kind::TrackedOutputs>(NoDisturbance{}, opts...); // none: a regulator
     const auto       measured = measured_of<NX, T>(opts...);
     if constexpr (!kModelFits) {
         return mpc_measured<D, NP, NC, NT_max>(sys, Ts, weights, constraints, terminal, budget, measured, held); // the message says why: nothing further
     } else if constexpr (kEstimated) {
         return mpc_estimated_design<D, NP, NC, NT_max>(
-            noise_model(sys), Ts, weights, constraints, terminal, budget, noise_of<NX, NU, NY, T, NW, NV>(opts...), ::damp::detail::option<kind::Disturbance>(NoDisturbance{}, opts...),
+            noise_model(sys), Ts, weights, constraints, terminal, budget, noise_of<NX, NU, NY, T, NW, NV>(opts...), option<kind::Disturbance>(NoDisturbance{}, opts...),
             held, measured, delays_of(opts...)
         );
     } else {
-        return mpc_measured<D, NP, NC, NT_max>(sys, Ts, weights, constraints, terminal, budget, measured, held, ::damp::detail::option<kind::InputDelay>(NoDelay{}, opts...));
+        return mpc_measured<D, NP, NC, NT_max>(sys, Ts, weights, constraints, terminal, budget, measured, held, option<kind::InputDelay>(NoDelay{}, opts...));
     }
 }
 
@@ -2148,7 +2148,7 @@ template<Domain D, size_t NP, size_t NC, size_t NX, size_t NU, size_t NY, typena
 template<size_t NP, size_t NC, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename... Opts>
 [[nodiscard]] constexpr auto mpc(const StateSpace<NX, NU, NY, T, NW, NV>& sys, const damp::type_identity_t<MPCWeights<NU, NY, T>>& weights, const Opts&... opts) {
     detail::check_mpc_options<NP, NC, NU, NY, Opts...>();
-    return detail::mpc_design<detail::Domain::plant, NP, NC>(sys, T{0}, weights, opts...);
+    return detail::mpc_with<detail::Domain::plant, NP, NC>(sys, T{0}, weights, opts...);
 }
 
 /**
@@ -2191,7 +2191,7 @@ template<size_t NP, size_t NC, size_t NX, size_t NU, size_t NY, typename T, size
     const Opts&... opts
 ) {
     detail::check_mpc_options<NP, NC, NU, NY, Opts...>();
-    return detail::mpc_design<detail::Domain::sampled, NP, NC>(plant, Ts, weights, opts...);
+    return detail::mpc_with<detail::Domain::sampled, NP, NC>(plant, Ts, weights, opts...);
 }
 
 /**
@@ -2513,7 +2513,7 @@ public:
     constexpr explicit MPCCore(const ResultWith<Kalman>& result)
         : estimator(make_estimator(result.kalman)), art(artifacts_of(result)), target_(target_of(result.target)), y_r_(held_map(art, target_)) {
         if (!result.success && damp::is_constant_evaluated()) {
-            ::damp::detail::refuse_failed_design(result.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
+            refuse_failed_design(result.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
     }
 
@@ -2523,7 +2523,7 @@ public:
     constexpr MPCCore(const ResultWith<Kalman>& result, const Solver& solver)
         : estimator(make_estimator(result.kalman)), art(artifacts_of(result)), qp_solver_(solver), target_(target_of(result.target)), y_r_(held_map(art, target_)) {
         if (!result.success && damp::is_constant_evaluated()) {
-            ::damp::detail::refuse_failed_design(result.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
+            refuse_failed_design(result.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
     }
 

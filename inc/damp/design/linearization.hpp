@@ -123,14 +123,14 @@ template<size_t NX, size_t NU, size_t NY, typename T = double, typename F, typen
 ) {
     using Result = LinearizationResult<NX, NU, NY, T>;
     if (!damp::isfinite(epsilon)) {
-        return ::damp::detail::refused<Result>(DesignStatus::invalid_parameter);
+        return detail::refused<Result>(DesignStatus::invalid_parameter);
     }
     if (epsilon <= T{0}) {
         epsilon = ::damp::detail::default_jacobian_step<T>();
     }
     const auto finite = [](T v) { return damp::isfinite(v); };
     if (!mat::all_of(x_op, finite) || !mat::all_of(u_op, finite)) {
-        return ::damp::detail::refused<Result>(DesignStatus::bad_weights);
+        return detail::refused<Result>(DesignStatus::bad_weights);
     }
     const DynamicsJacobian<NX, NU, T>        fj = ::damp::detail::dynamics_jacobian<NX, NU, T>(dynamics, x_op, u_op, epsilon);
     const MeasurementJacobian<NX, NU, NY, T> hj = ::damp::detail::measurement_jacobian<NX, NU, NY, T>(output, x_op, u_op, epsilon);
@@ -146,7 +146,7 @@ template<size_t NX, size_t NU, size_t NY, typename T = double, typename F, typen
     };
     const bool finite_result = mat::all_of(out.A, finite) && mat::all_of(out.B, finite) && mat::all_of(out.C, finite)
                             && mat::all_of(out.D, finite) && mat::all_of(out.y_op, finite);
-    return ::damp::detail::set_status(out, finite_result ? DesignStatus::ok : DesignStatus::bad_weights);
+    return detail::set_status(out, finite_result ? DesignStatus::ok : DesignStatus::bad_weights);
 }
 
 /**

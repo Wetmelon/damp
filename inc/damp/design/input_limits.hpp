@@ -19,7 +19,6 @@
 
 #include "damp/backend.hpp"
 #include "damp/design/options.hpp"
-#include "damp/math/math.hpp"
 #include "damp/matrix/colvec.hpp"
 #include "damp/matrix/core.hpp"
 #include "damp/toolbox/bounds.hpp"
@@ -149,7 +148,7 @@ template<typename T, size_t N, typename U>
 /** @brief The box of the option of the kind @p Kind among @p opts, on the plant's NU inputs in its scalar @p T (none: unbounded). */
 template<typename Kind, size_t NU, typename T, typename Fallback, typename... Opts>
 [[nodiscard]] constexpr Bounds<NU, T> input_box_of(const Opts&... opts) {
-    using Given = ::damp::detail::option_t<Kind, Fallback, Opts...>;
+    using Given = option_t<Kind, Fallback, Opts...>;
     if constexpr (input_limits_inputs<Given> != NU) {
         static_assert(
             input_limits_inputs<Given> == NU,
@@ -158,7 +157,7 @@ template<typename Kind, size_t NU, typename T, typename Fallback, typename... Op
         );
         return Bounds<NU, T>{};
     } else {
-        const auto o = ::damp::detail::option<Kind>(Fallback{}, opts...);
+        const auto o = option<Kind>(Fallback{}, opts...);
         return box_of<T>(o.lower, o.upper);
     }
 }
@@ -171,7 +170,7 @@ template<size_t NU, typename T, typename... Opts>
 
 /** @brief Inputs with a move limit among @p opts: NU with an InputRateLimits, else 0. */
 template<size_t NU, typename... Opts>
-inline constexpr size_t rate_limited_inputs = (::damp::detail::option_count<kind::InputRateLimits, Opts...> > 0) ? NU : 0;
+inline constexpr size_t rate_limited_inputs = (option_count<kind::InputRateLimits, Opts...> > 0) ? NU : 0;
 
 /** @brief The InputRateLimits among @p opts on the plant's NU inputs, in its scalar @p T (none: unbounded). */
 template<size_t NU, typename T, typename... Opts>

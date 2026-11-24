@@ -177,7 +177,7 @@ template<typename T>
 template<typename T, size_t MaxQHalf>
 [[nodiscard]] constexpr RepetitiveResult<T, MaxQHalf> repetitive_result(const RepetitiveConfig<T, MaxQHalf>& config) {
     RepetitiveResult<T, MaxQHalf> out{.config = config};
-    ::damp::detail::set_status(out, config.valid() ? DesignStatus::ok : DesignStatus::invalid_parameter);
+    set_status(out, config.valid() ? DesignStatus::ok : DesignStatus::invalid_parameter);
     return out;
 }
 } // namespace detail
@@ -301,7 +301,7 @@ public:
     constexpr RepetitiveController(const design::RepetitiveResult<T, MaxQHalf>& result) // NOLINT(google-explicit-constructor): assign-from-design
         : config_(result.config), valid_(result.success && result.config.period + result.config.q_half <= MaxPeriod) {
         if (!valid_ && damp::is_constant_evaluated()) {
-            ::damp::detail::refuse_failed_design(result.success ? design::DesignStatus::invalid_parameter : result.status); // constant-evaluated (constinit / constexpr): a failed design, or one MaxPeriod cannot hold, does not compile
+            detail::refuse_failed_design(result.success ? design::DesignStatus::invalid_parameter : result.status); // constant-evaluated (constinit / constexpr): a failed design, or one MaxPeriod cannot hold, does not compile
         }
     }
 

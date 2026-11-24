@@ -405,8 +405,8 @@ TEST_SUITE("Extended State Observer (ESO)") {
             CAPTURE(woTs);
             const auto r1 = design::eso<1>(woTs / Ts, 2.0, Ts);
             const auto r2 = design::eso<2>(woTs / Ts, 2.0, Ts);
-            const auto c1 = zpk_detail::leverrier(r1.error_dynamics()).den;
-            const auto c2 = zpk_detail::leverrier(r2.error_dynamics()).den;
+            const auto c1 = ::damp::detail::leverrier(r1.error_dynamics()).den;
+            const auto c2 = ::damp::detail::leverrier(r2.error_dynamics()).den;
             const auto e1 = repeated_root_poly<2>(lambda);
             const auto e2 = repeated_root_poly<3>(lambda);
             for (size_t i = 0; i < 3; ++i) {

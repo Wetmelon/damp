@@ -169,7 +169,7 @@ inline constexpr bool is_tracked_outputs<TrackedOutputs<NZ>> = true;
 
 /** @brief Whether a design's options name its held outputs in one place: no TrackedOutputs beside a disturbance spec, whose .outputs are the held ones. */
 template<typename... Opts>
-inline constexpr bool held_in_one_place = (::damp::detail::option_count<kind::TrackedOutputs, Opts...> == 0) || !(DisturbanceSpec<Opts> || ...);
+inline constexpr bool held_in_one_place = (option_count<kind::TrackedOutputs, Opts...> == 0) || !(DisturbanceSpec<Opts> || ...);
 
 /** @brief The controlled outputs of a target under @p Spec: those it lists, else every output. */
 template<typename Spec, size_t NU, size_t NY, size_t NW>
@@ -192,13 +192,13 @@ inline constexpr size_t reference_outputs = damp::is_same_v<Aim, NoDisturbance> 
  */
 template<size_t NU, size_t NY, size_t NI, typename... Opts>
 consteval size_t held_count() {
-    using Spec = ::damp::detail::option_t<kind::Disturbance, NoDisturbance, Opts...>;
-    using Held = ::damp::detail::option_t<kind::TrackedOutputs, NoDisturbance, Opts...>;
+    using Spec = option_t<kind::Disturbance, NoDisturbance, Opts...>;
+    using Held = option_t<kind::TrackedOutputs, NoDisturbance, Opts...>;
     if constexpr (DisturbanceSpec<Spec>) {
         return target_outputs<Spec, NU, NY, 0>;
     } else if constexpr (is_tracked_outputs<Held>) {
         return target_outputs<Held, NU, NY, 0>;
-    } else if constexpr (::damp::detail::option_count<kind::MeasuredDisturbance, Opts...> > 0) {
+    } else if constexpr (option_count<kind::MeasuredDisturbance, Opts...> > 0) {
         return (NI > 0) ? NI : NY;
     } else {
         return 0;
@@ -253,7 +253,7 @@ template<typename Spec, typename Held>
 }
 
 /** @brief The options steady_state_target takes: the model features of the design (a KalmanNoise is ignored). */
-using target_options = ::damp::detail::option_set<kind::Disturbance, kind::TrackedOutputs, kind::MeasuredDisturbance, kind::KalmanNoise, kind::InputDelay, kind::OutputDelay>;
+using target_options = option_set<kind::Disturbance, kind::TrackedOutputs, kind::MeasuredDisturbance, kind::KalmanNoise, kind::InputDelay, kind::OutputDelay>;
 
 /**
  * @brief The target maps of a model: [A − I, B; C_z, D_z]·[x_t; u_t] = [−B_d·d; r − C_{d,z}·d]
@@ -280,14 +280,14 @@ template<size_t NXE, size_t NU, size_t NZ, size_t ND, typename T>
         const auto td = mat::solve(M, rhs_d);
         const auto tr = mat::solve(M, rhs_r);
         if (!td || !tr) {
-            return ::damp::detail::refused<Result>(DesignStatus::singular); // no unique steady state for these outputs
+            return refused<Result>(DesignStatus::singular); // no unique steady state for these outputs
         }
         out.target_d = td.value();
         out.target_r = tr.value();
     } else {
         const auto Mp = mat::pseudo_inverse(M);
         if (!Mp) {
-            return ::damp::detail::refused<Result>(DesignStatus::not_converged); // its sweeps ran out: M is finite here
+            return refused<Result>(DesignStatus::not_converged); // its sweeps ran out: M is finite here
         }
         out.target_d = *Mp * rhs_d;
         out.target_r = *Mp * rhs_r;
@@ -299,11 +299,11 @@ template<size_t NXE, size_t NU, size_t NZ, size_t ND, typename T>
             const T res_d = Matrix<NXE + NZ, ND, T>((M * out.target_d) - rhs_d).norm();
             const T res_r = Matrix<NXE + NZ, NZ, T>((M * out.target_r) - rhs_r).norm();
             if (!(res_d <= tol * ((M.norm() * out.target_d.norm()) + rhs_d.norm())) || !(res_r <= tol * ((M.norm() * out.target_r.norm()) + rhs_r.norm()))) {
-                return ::damp::detail::refused<Result>(DesignStatus::singular); // no steady state holds every r
+                return refused<Result>(DesignStatus::singular); // no steady state holds every r
             }
         }
     }
-    return ::damp::detail::set_status(out, DesignStatus::ok);
+    return set_status(out, DesignStatus::ok);
 }
 
 /** @brief [A − I, B; C_z, D_z] of a model, C_z and D_z its outputs @p Cz, @p Dz held at r. */
@@ -343,15 +343,15 @@ template<Domain D, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_
     using Result = SteadyStateTargetResult<NXE, NU, ND + NM, NZ, T>;
     const auto m = sampled_model(sys, Ts, D, delay);
     if (m.status != DesignStatus::ok) {
-        return ::damp::detail::refused<Result>(m.status);
+        return refused<Result>(m.status);
     }
     const auto rows = selected_outputs<NY>(listed_outputs(spec));
     if (!rows) {
-        return ::damp::detail::refused<Result>(DesignStatus::bad_weights); // a controlled output out of range or listed twice
+        return refused<Result>(DesignStatus::bad_weights); // a controlled output out of range or listed twice
     }
     const auto ch = on_late_readings(spec, disturbance_channels(spec, sys, m.law, Ts), sys, Ts, delay); // the filter's: d on a late reading as it was when taken
     if (!mat::all_of(ch.Bd, [](T v) { return damp::isfinite(v); }) || !mat::all_of(ch.Cd, [](T v) { return damp::isfinite(v); })) {
-        return ::damp::detail::refused<Result>(DesignStatus::bad_weights); // a non-finite B_d or C_d
+        return refused<Result>(DesignStatus::bad_weights); // a non-finite B_d or C_d
     }
 
     //! [A − I, B; C_z, D_z]: z the listed rows of the law's model, C_{d,z} the same rows of C_d
@@ -391,12 +391,12 @@ template<Domain D, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_
     using Result = SteadyStateTargetResult<NXE, NU, NM, 0, T>;
     const auto m = sampled_model(sys, Ts, D, delay);
     if (m.status != DesignStatus::ok) {
-        return ::damp::detail::refused<Result>(m.status);
+        return refused<Result>(m.status);
     }
     const auto full = target_solve<NXE, NU>(target_system(m.law.A, m.law.B, Matrix<NS, NXE, T>(S * m.law.C), Matrix<NS, NU, T>(S * m.law.D)), measured, Matrix<NS, NM, T>{});
     Result     out{};
     out.target_d = full.target_d;
-    return ::damp::detail::set_status(out, full.status);
+    return set_status(out, full.status);
 }
 
 /**
@@ -433,7 +433,7 @@ template<Domain D, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_
         static_cast<void>(delay);
         static_cast<void>(measured);
         SteadyStateTargetResult<NX + delay_states<Delay, NU, NY>, NU, 0, 0, T> none{};
-        return ::damp::detail::set_status(none, DesignStatus::ok);
+        return set_status(none, DesignStatus::ok);
     }
 }
 
@@ -444,7 +444,7 @@ template<Domain D, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_
     using Result = held_target_t<Spec, NX, NU, NY, NW, Delay, NM, T>;
     if (!channel) {
         const auto m = sampled_model(sys, Ts, D, delay);
-        return ::damp::detail::refused<Result>((m.status != DesignStatus::ok) ? m.status : DesignStatus::bad_weights); // the model's refusal first, as the designs'; else a non-finite B_d
+        return refused<Result>((m.status != DesignStatus::ok) ? m.status : DesignStatus::bad_weights); // the model's refusal first, as the designs'; else a non-finite B_d
     }
     return held_target<D>(sys, Ts, spec, delay, *channel);
 }
@@ -465,7 +465,7 @@ template<Domain D, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_
     target_options::check<Opts...>();
     check_held_outputs<NU, NY, 0, Opts...>();
     constexpr bool   kModelFits = check_delays<D, Opts...>() && check_disturbance<NX, NY, T, Opts...>();
-    const auto       spec = target_spec_of(::damp::detail::option<kind::Disturbance>(NoDisturbance{}, opts...), ::damp::detail::option<kind::TrackedOutputs>(NoDisturbance{}, opts...));
+    const auto       spec = target_spec_of(option<kind::Disturbance>(NoDisturbance{}, opts...), option<kind::TrackedOutputs>(NoDisturbance{}, opts...));
     const auto       measured = measured_of<NX, T>(opts...);
     constexpr size_t NM = measured_inputs<damp::remove_cvref_t<decltype(measured)>>;
     static_assert(
@@ -591,7 +591,7 @@ struct SteadyStateTarget {
     constexpr SteadyStateTarget(const design::SteadyStateTargetResult<NX, NU, ND, NZ, U>& result) // NOLINT
         : target_d(result.target_d.template as<T>()), target_r(result.target_r.template as<T>()) {
         if (!result.success && damp::is_constant_evaluated()) {
-            ::damp::detail::refuse_failed_design(result.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
+            detail::refuse_failed_design(result.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
     }
 

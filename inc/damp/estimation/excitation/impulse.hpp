@@ -93,7 +93,7 @@ public:
           width_(design.config.width_samples),
           valid_(design.success) {
         if (!design.success && damp::is_constant_evaluated()) {
-            ::damp::detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed design does not compile
+            detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
     }
 

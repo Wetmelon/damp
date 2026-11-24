@@ -101,24 +101,24 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
     using Result = StateFeedforwardResult<NX, NU, T>;
     static_assert(NU <= NX, "state_feedforward: more inputs than states cannot have a full-column-rank B.");
     if (!damp::finite_positive(sys.Ts)) {
-        return ::damp::detail::refused<Result>(DesignStatus::invalid_sample_time);
+        return detail::refused<Result>(DesignStatus::invalid_sample_time);
     }
     const auto finite = [](T v) { return damp::isfinite(v); };
     if (!mat::all_of(sys.A, finite) || !mat::all_of(sys.B, finite)) {
-        return ::damp::detail::refused<Result>(DesignStatus::bad_weights);
+        return detail::refused<Result>(DesignStatus::bad_weights);
     }
     if (mat::rank(sys.B) < NU) {
-        return ::damp::detail::refused<Result>(DesignStatus::singular); // B loses rank: an input does nothing the others cannot
+        return detail::refused<Result>(DesignStatus::singular); // B loses rank: an input does nothing the others cannot
     }
     const auto qr = mat::qr_decompose(sys.B);
     const auto B_pinv = mat::solve(qr.R.upper_triangle(), Matrix<NU, NX, T>(qr.Q.transpose()));
     if (!B_pinv) {
-        return ::damp::detail::refused<Result>(DesignStatus::singular);
+        return detail::refused<Result>(DesignStatus::singular);
     }
     Result out{};
     out.B_pinv = B_pinv.value();
     out.drift = out.B_pinv * (sys.A - Matrix<NX, NX, T>::identity());
-    return ::damp::detail::set_status(out, DesignStatus::ok);
+    return detail::set_status(out, DesignStatus::ok);
 }
 
 // ---- Output reference → state and input -------------------------------------------------
@@ -593,7 +593,7 @@ template<size_t NP, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size
         if (leads) {
             const auto lead_u = mat::lu_solve(dec.D, lead);
             if (!lead_u) {
-                return ::damp::detail::refused<Result>(DesignStatus::singular);
+                return refused<Result>(DesignStatus::singular);
             }
             Gu += lead_u.value();
         }
@@ -608,7 +608,7 @@ template<size_t NP, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size
     }
     const auto rest = mat::lu_solve(Matrix<NX, NX, T>(Matrix<NX, NX, T>::identity() - out.zero_dynamics), Gs_sum); // Σ
     if (!rest) {
-        return ::damp::detail::refused<Result>(DesignStatus::singular);
+        return refused<Result>(DesignStatus::singular);
     }
     out.x_hold = Gx_sum + rest.value();
     out.u_hold = Gu_sum - (K_dec * rest.value());
@@ -628,9 +628,9 @@ template<size_t NP, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size
         }
     }
     if (!holds_steady_state(sys.A, sys.B, Cz, Dz, out.x_hold, out.u_hold)) {
-        return ::damp::detail::refused<Result>(DesignStatus::not_converged);
+        return refused<Result>(DesignStatus::not_converged);
     }
-    return ::damp::detail::set_status(out, DesignStatus::ok);
+    return set_status(out, DesignStatus::ok);
 }
 
 } // namespace detail
@@ -687,11 +687,11 @@ template<size_t NP, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size
     static_assert(((NS == 0) ? NY : NS) == NU, "output_inverse: list as many controlled outputs as the model has inputs.");
     using Result = OutputInverseResult<NX, NU, NP, T>;
     if (!damp::finite_positive(sys.Ts)) {
-        return ::damp::detail::refused<Result>(DesignStatus::invalid_sample_time);
+        return detail::refused<Result>(DesignStatus::invalid_sample_time);
     }
     const auto rows = detail::selected_outputs<NY>(outputs);
     if (!rows) {
-        return ::damp::detail::refused<Result>(DesignStatus::bad_weights);
+        return detail::refused<Result>(DesignStatus::bad_weights);
     }
     Matrix<NU, NX, T> Cz{};
     Matrix<NU, NU, T> Dz{};
@@ -703,19 +703,19 @@ template<size_t NP, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size
     //! The decoupling structure, then the inverse dynamics A_z and its input B·D*⁻¹.
     const auto dec = detail::decoupling(sys.A, sys.B, Cz, Dz);
     if (dec.status != DesignStatus::ok) {
-        return ::damp::detail::refused<Result>(dec.status);
+        return detail::refused<Result>(dec.status);
     }
     size_t r_max = 0;
     for (size_t i = 0; i < NU; ++i) {
         r_max = damp::max(r_max, dec.r[i]);
     }
     if (r_max + 1 > NP) {
-        return ::damp::detail::refused<Result>(DesignStatus::invalid_parameter); // the preview does not reach the inputs' effect
+        return detail::refused<Result>(DesignStatus::invalid_parameter); // the preview does not reach the inputs' effect
     }
     const auto K_dec = mat::lu_solve(dec.D, dec.C);                        // D*⁻¹·C*
     const auto Bz_t = mat::lu_solve(dec.D.transpose(), sys.B.transpose()); // (B·D*⁻¹)ᵀ
     if (!K_dec || !Bz_t) {
-        return ::damp::detail::refused<Result>(DesignStatus::singular);
+        return detail::refused<Result>(DesignStatus::singular);
     }
     //! A − B·D*⁻¹C* cancels whole entries to roundoff; balancing would scale that noise up to the
     //! size of the real entries and spread the exponents over decades, so it is zeroed first, by
@@ -732,12 +732,12 @@ template<size_t NP, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size
     }
     const auto sch = detail::disk_ordered_schur(Az);
     if (sch.status != DesignStatus::ok) {
-        return ::damp::detail::refused<Result>(sch.status);
+        return detail::refused<Result>(sch.status);
     }
     const Matrix<NX, NU, T> B_schur = sch.to_schur(Matrix<NX, NU, T>(Bz_t->transpose()));
     const auto              anti = detail::anticausal_preview<NP>(sch, B_schur, dec.r);
     if (!anti) {
-        return ::damp::detail::refused<Result>(DesignStatus::singular);
+        return detail::refused<Result>(DesignStatus::singular);
     }
     return detail::assemble_inverse<NP>(sys, Cz, Dz, dec, K_dec.value(), sch, B_schur, anti.value());
 }
@@ -827,7 +827,7 @@ struct StateFeedforward {
     constexpr StateFeedforward(const design::StateFeedforwardResult<NX, NU, U>& result) // NOLINT
         : B_pinv(result.B_pinv.template as<T>()), drift(result.drift.template as<T>()) {
         if (!result.success && damp::is_constant_evaluated()) {
-            ::damp::detail::refuse_failed_design(result.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
+            detail::refuse_failed_design(result.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
     }
 
@@ -885,7 +885,7 @@ struct OutputInverse {
           zero_preview(result.zero_preview.template as<T>()),
           u_zero(result.u_zero.template as<T>()) {
         if (!result.success && damp::is_constant_evaluated()) {
-            ::damp::detail::refuse_failed_design(result.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
+            detail::refuse_failed_design(result.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
     }
 

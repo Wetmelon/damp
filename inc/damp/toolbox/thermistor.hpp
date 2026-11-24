@@ -192,7 +192,7 @@ public:
      */
     constexpr explicit Thermistor(const design::ThermistorResult<T>& fit) : a_(fit.a), b_(fit.b), c_(fit.c) {
         if (!fit.success && damp::is_constant_evaluated()) {
-            ::damp::detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed fit does not compile
+            detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed fit does not compile
         }
     }
 
