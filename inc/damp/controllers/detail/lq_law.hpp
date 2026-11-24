@@ -35,10 +35,7 @@ struct lq_runtime {};
 
 /** @brief An LQ design: a result that has a runtime in lq_runtime. */
 template<const auto& Res, typename T>
-concept lq_design = requires {
-    typename lq_runtime<damp::remove_cvref_t<decltype(Res)>, T>::type;
-    Res.success;
-};
+concept lq_design = requires { typename lq_runtime<damp::remove_cvref_t<decltype(Res)>, T>::type; };
 
 } // namespace detail
 
@@ -56,21 +53,6 @@ struct Law<Res, T> : detail::lq_runtime<damp::remove_cvref_t<decltype(Res)>, T>:
 
 namespace detail {
 
-/** @brief A design a Law can run on constants: it succeeded and is discrete. Anything else does not compile, and the error names its status. */
-template<const auto& Res>
-inline constexpr bool constant_design_usable = [] {
-    const bool ok = Res.success && discrete_gain(Res);
-    if (!ok) {
-        if constexpr (requires { Res.status; }) {
-            refuse_failed_design(Res.success ? design::DesignStatus::invalid_sample_time : Res.status);
-        } else {
-            refuse_failed_design();
-        }
-    }
-    return ok;
-}();
-
-/** @brief The law's matrices as constants of the type: the store of a `constexpr` design's Law. */
 /** @brief A design's demand limit as constants of the type: what a `constexpr` design's Law holds, in no storage. */
 template<const auto& D>
 struct ConstDemand {
@@ -89,52 +71,46 @@ struct ConstDemand {
     }
 };
 
+/** @brief The law's matrices as constants of the type: the store of a `constexpr` design's Law. */
 template<const auto& Res, typename T>
 struct ConstantGains {
+    using Design = damp::remove_cvref_t<decltype(Res)>;  ///< The design's type: its constants say what it carries
     static constexpr bool constant = true;               ///< The matrices are constants of the type
     static constexpr auto design = Res.template as<T>(); ///< The design, in the runtime's scalar
     static constexpr auto kK = design.K;                 ///< K
     static constexpr auto kCi = [] {
-        if constexpr (requires { design.integral.Ci; }) {
-            if constexpr (damp::remove_cvref_t<decltype(design)>::kEstimated) {
-                return design.integral.Ci; // on the measurement y
-            } else {
-                return design.integral.Ci_x; // on the measured state: Ci·C
-            }
-        } else {
+        if constexpr (!Design::kIntegral) {
             return Matrix<0, 0, T>{};
+        } else if constexpr (Design::kEstimated) {
+            return design.integral.Ci; // on the measurement y
+        } else {
+            return design.integral.Ci_x; // on the measured state: Ci·C
         }
     }(); ///< The integrated outputs
     static constexpr auto kCiu = [] {
-        if constexpr (requires { design.integral.Ci_u; }) {
+        if constexpr (Design::kIntegral) {
             return design.integral.Ci_u;
         } else {
             return Matrix<0, 0, T>{};
         }
     }(); ///< Their feedthrough
     static constexpr auto kTargetD = [] {
-        if constexpr (requires { design.target.target_d; }) {
+        if constexpr (Design::kTarget) {
             return design.target.target_d;
         } else {
             return Matrix<0, 0, T>{};
         }
     }(); ///< The target per unit d̂
     static constexpr auto kTargetR = [] {
-        if constexpr (requires { design.target.target_r; }) {
+        if constexpr (Design::kTarget) {
             return design.target.target_r;
         } else {
             return Matrix<0, 0, T>{};
         }
     }(); ///< The target per unit r
-    static constexpr auto kDemand = [] {
-        if constexpr (requires { design.limits; }) {
-            return design.limits.demand;
-        } else {
-            return ::damp::detail::DemandTerms<damp::remove_cvref_t<decltype(design.K)>::cols(), T>{};
-        }
-    }(); ///< The limit on what the outer terms ask of a state (off without one)
-    static constexpr T kFadeDecay = [] {
-        if constexpr (requires { requires damp::remove_cvref_t<decltype(design)>::kHandover; }) {
+    static constexpr auto kDemand = design.limits.demand; ///< The limit on what the outer terms ask of a state (off without one)
+    static constexpr T    kFadeDecay = [] {
+        if constexpr (Design::kHandover) {
             return damp::exp(-design.Ts / design.fade_time);
         } else {
             return T{0};
@@ -175,7 +151,7 @@ template<const auto& Res, typename T>
 struct Law<Res, T> : detail::lq_runtime<damp::remove_cvref_t<decltype(Res)>, T>::template on_constants<typename detail::constant_estimator<Res, T>::type, detail::ConstantGains<Res, T>> {
     using Runtime = detail::lq_runtime<damp::remove_cvref_t<decltype(Res)>, T>::type; ///< The runtime with members: the type of a member a redesign assigns
 
-    static_assert(detail::constant_design_usable<Res>);
+    static_assert(detail::constant_design_runs(Res.success, Res.status, Res.Ts)); // a failed or continuous design does not compile: the error names its status
 
     /**
      * @brief The design's law: its matrices and its demand limit are the type's, its integrator step
@@ -184,16 +160,14 @@ struct Law<Res, T> : detail::lq_runtime<damp::remove_cvref_t<decltype(Res)>, T>:
      */
     constexpr Law() {
         auto lim = this->limits();
-        if constexpr (requires { this->integral.step; }) {
+        if constexpr (damp::remove_cvref_t<decltype(Res)>::kIntegral) {
             this->integral.step = static_cast<T>(Res.integral.step);
             this->integral.unwind = Res.integral.unwind.template as<T>();
             this->tracking_time = static_cast<T>(Res.tracking_time);
             lim.integral = Res.limits.integral.template as<T>();
         }
-        if constexpr (requires { Res.limits; }) {
-            lim.input = Res.limits.input.template as<T>();
-            lim.input_rate = Res.limits.input_rate.template as<T>();
-        }
+        lim.input = Res.limits.input.template as<T>();
+        lim.input_rate = Res.limits.input_rate.template as<T>();
         if (!this->set_limits(lim) && damp::is_constant_evaluated()) {
             detail::refuse_failed_design(design::DesignStatus::invalid_parameter); // a result whose limits were edited by hand
         }
