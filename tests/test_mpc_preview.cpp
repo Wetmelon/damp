@@ -43,7 +43,7 @@ auto plain_design(double ru = 0.0) {
         .lower = 0.0,
         .upper = 40.0,
     };
-    const auto art = design::mpc<NP, NC>(*kModel, w, c);
+    const auto art = design::mpc<NP, NC>(*kModel, w, c, design::TrackedOutputs{});
     REQUIRE(art.success);
     return art;
 }

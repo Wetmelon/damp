@@ -386,7 +386,7 @@ TEST_SUITE("Delayed laws with a filter") {
         CHECK(gap(measured, filtered, [](auto& law) { return law.control(ColVec<1>{0.5}); }, y) <= 1e-9);
         CHECK(y(0) == doctest::Approx(0.5).epsilon(1e-6));
 
-        const auto target = design::steady_state_target(noisy(), kTs, InputDelay<2>{kTheta});
+        const auto target = design::steady_state_target(noisy(), kTs, design::TrackedOutputs{}, InputDelay<2>{kTheta});
         REQUIRE(target.success);
         CHECK(target.target_r(2, 0) == doctest::Approx(target.target_r(4, 0)).epsilon(1e-12)); // [x_t; v(k−1); v(k−2); u_t]
         CHECK(target.target_r(3, 0) == doctest::Approx(target.target_r(4, 0)).epsilon(1e-12));
@@ -515,9 +515,9 @@ TEST_CASE("the designs take their features as trailing options, in any order") {
     constexpr design::InputLimits  limits{.u_lim = {.lower = -1.0, .upper = 1.0}};
     constexpr design::OutputLimits cap{.outputs = {0}, .lim = {.upper = 1.0}, .upper_ecr = {0.0}};
     constexpr design::StateLimits  slow{.states = {1}, .lim = {.lower = -0.5, .upper = 0.5}};
-    constexpr auto                 bounded = design::mpc<6, 6>(sysd, weights, limits, cap, slow, design::DareCost{}, design::QPIterations{30});
-    constexpr auto                 reordered = design::mpc<6, 6>(sysd, weights, limits, design::QPIterations{30}, design::DareCost{}, slow, cap);
+    constexpr auto                 bounded = design::mpc<6, 6>(sysd, weights, limits, cap, slow, design::DareCost{}, design::QPIterations{30}, design::TrackedOutputs{});
+    constexpr auto                 reordered = design::mpc<6, 6>(sysd, weights, limits, design::QPIterations{30}, design::DareCost{}, slow, cap, design::TrackedOutputs{});
     static_assert(std::is_same_v<decltype(bounded), decltype(reordered)> && bounded.success && reordered.mpc.H == bounded.mpc.H && reordered.mpc.A_con == bounded.mpc.A_con && reordered.mpc.b_bound == bounded.mpc.b_bound);
     static_assert(reordered.mpc.max_qp_iterations == 30 && reordered.mpc.P == bounded.mpc.P && decltype(bounded.mpc)::NI == (4 * 6) + (2 * 6) + (2 * 6));
-    static_assert(design::mpc<4, 2>(sysd, {}).success && design::mpc<4, 2>(plant(), kTs, {}).success); // on a discrete plant, and on the plant at Ts
+    static_assert(design::mpc<4, 2>(sysd, {}, design::TrackedOutputs{}).success && design::mpc<4, 2>(plant(), kTs, {}, design::TrackedOutputs{}).success); // on a discrete plant, and on the plant at Ts
 }

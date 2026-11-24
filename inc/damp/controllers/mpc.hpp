@@ -147,9 +147,9 @@
  *     .Ts = 0.1,
  * };
  * constexpr design::InputLimits limits{.u_lim = {.lower = -0.5, .upper = 0.5}, .du_lim = {.lower = -0.2, .upper = 0.2}};
- * constexpr auto art = design::mpc<15, 5>(sys, {}, limits);
+ * constexpr auto art = design::mpc<15, 5>(sys, {}, limits, design::TrackedOutputs{}); // r on every output; left out, a regulator: step(x)
  * // The position kept under 1.02, hard, and a DARE terminal cost:
- * constexpr auto capped = design::mpc<15, 15>(sys, {}, limits, design::OutputLimits{.outputs = {0}, .lim = {.upper = 1.02}, .upper_ecr = {0.0}},
+ * constexpr auto capped = design::mpc<15, 15>(sys, {}, limits, design::TrackedOutputs{}, design::OutputLimits{.outputs = {0}, .lim = {.upper = 1.02}, .upper_ecr = {0.0}},
  *                                             design::DareCost{});
  * static constinit MPC controller{art.as<float>()}; // a failed design does not compile
  * // each tick: u = controller.step(ColVec<1, float>{r}, x); // the state x measured
@@ -1655,8 +1655,9 @@ template<size_t NP, size_t NC, size_t ND, size_t NT_max = 0, size_t NX, size_t N
  * @tparam NRU       Delay states per input of a plant whose input arrives late (InputDelay), NRU·NU
  *                   states of the law's model after the plant's (0: none): the measured-state
  *                   runtime holds them, a filter carries them
- * @tparam NH        Outputs the target holds, as a TrackedOutputs or the disturbance spec lists
- *                   them (0: every output, r the QP's reference on each)
+ * @tparam NH        Outputs the target holds at r, as a TrackedOutputs or the disturbance spec lists
+ *                   them, NY when it lists none (r then the QP's reference on each output); 0: a
+ *                   regulator, which takes no r
  */
 template<typename Law, typename Estimator, typename Target, size_t NRU = 0, size_t NH = 0>
 struct [[nodiscard]] MPCResult {
@@ -1689,17 +1690,18 @@ using mpc_options = ::damp::detail::option_set<
     is_qp_iterations, is_input_delay, is_output_delay>;
 
 /**
- * @brief The compile-time check of a design::mpc<NP, NC> call's trailing options: a kind it does
- *        not take or one given twice is refused, with a message naming the spelling for the
- *        limits, the held outputs, the terminal ingredient and the QP budget, and so is an
- *        InvariantSet with NC < NP or with a StateLimits.
+ * @brief The compile-time check of a design::mpc<NP, NC> call's trailing options on a plant with
+ *        NU inputs and NY outputs: a kind it does not take or one given twice is refused, with a
+ *        message naming the spelling for the limits, the held outputs, the terminal ingredient
+ *        and the QP budget, and so is an InvariantSet with NC < NP or with a StateLimits, and a
+ *        target that holds more outputs than NU (a regulator's under a measured d: every output).
  */
-template<size_t NP, size_t NC, typename... Opts>
+template<size_t NP, size_t NC, size_t NU, size_t NY, typename... Opts>
 constexpr void check_mpc_options() {
     static_assert(::damp::detail::option_count<is_input_limits, Opts...> <= 1, "One InputLimits bounds every input: InputLimits{.u_lim = {...}, .du_lim = {...}}.");
     static_assert(::damp::detail::option_count<is_output_limits, Opts...> <= 1, "One OutputLimits lists every bounded output: OutputLimits{.outputs = {i, ...}, .lim = {...}}.");
     static_assert(::damp::detail::option_count<is_state_limits, Opts...> <= 1, "One StateLimits lists every bounded state: StateLimits{.states = {i, ...}, .lim = {...}}.");
-    check_held_outputs<Opts...>(); // the target's: one TrackedOutputs, and none beside a disturbance spec
+    check_held_outputs<NU, NY, 0, Opts...>(); // the target's: one TrackedOutputs, none beside a disturbance spec, at most NU held
     static_assert(
         ::damp::detail::option_count<is_mpc_terminal, Opts...> <= 1,
         "One terminal ingredient: DareCost{} for the cost, or InvariantSet<N>{.target_margin = ...} for the cost and the set, not both."
@@ -1728,46 +1730,6 @@ template<typename... S>
     DesignStatus out = DesignStatus::ok;
     ((out = (out == DesignStatus::ok) ? statuses : out), ...);
     return out;
-}
-
-/**
- * @brief The output weight of the cost in physical units: S_y⁻¹·Q_y·S_y⁻¹ with the QP's output
- *        scales of a design that succeeded (@p art), else the identity.
- */
-template<size_t NZ, typename T, typename Art>
-[[nodiscard]] constexpr Matrix<NZ, NZ, T> physical_output_weight(const Matrix<NZ, NZ, T>& Qy, const Art& art) {
-    if (!art.success) {
-        return Matrix<NZ, NZ, T>::identity(); // a refused design has no scales; its target is not used
-    }
-    Matrix<NZ, NZ, T> Q{};
-    for (size_t i = 0; i < NZ; ++i) {
-        for (size_t j = 0; j < NZ; ++j) {
-            Q(i, j) = Qy(i, j) / (art.scale_y(i) * art.scale_y(j));
-        }
-    }
-    return Q;
-}
-
-/**
- * @brief The weight of the target's least squares (more held outputs than inputs): the rows and
- *        columns of the cost's output weight @p W on the outputs @p spec holds, every output when it
- *        lists none. An index out of range or listed twice gives the identity: the target refuses
- *        the list.
- */
-template<size_t NU, size_t NW, typename Spec, size_t NY, typename T>
-[[nodiscard]] constexpr target_weight<Spec, NU, NY, NW, T> held_weight(const Matrix<NY, NY, T>& W, const Spec& spec) {
-    constexpr size_t NZ = target_outputs<Spec, NU, NY, NW>;
-    const auto       rows = selected_outputs<NY>(listed_outputs(spec));
-    if (!rows) {
-        return Matrix<NZ, NZ, T>::identity();
-    }
-    Matrix<NZ, NZ, T> Q{};
-    for (size_t i = 0; i < NZ; ++i) {
-        for (size_t j = 0; j < NZ; ++j) {
-            Q(i, j) = W((*rows)[i], (*rows)[j]);
-        }
-    }
-    return Q;
 }
 
 /**
@@ -1807,12 +1769,34 @@ template<size_t NU, typename T, typename Delay>
 }
 
 /**
+ * @brief Whether the runtime can read r on the outputs @p aim holds: fewer than every output, every
+ *        output with no list, or a list of all NY in the plant's order. With every output held
+ *        the runtime takes r itself as the QP's reference on each output, so a full list in
+ *        another order is refused (DesignStatus::bad_weights).
+ */
+template<size_t NY, typename Aim>
+[[nodiscard]] constexpr bool in_output_order(const Aim& aim) {
+    const auto list = listed_outputs(aim);
+    if constexpr (disturbance_traits<Aim, 0, NY, 0>::listed == NY) {
+        for (size_t i = 0; i < NY; ++i) {
+            if (list[i] != i) {
+                return false;
+            }
+        }
+    } else {
+        static_cast<void>(list);
+    }
+    return true;
+}
+
+/**
  * @brief The MPC on the measured state: the measurement is x, the QP on the plant's model and its
  *        outputs C·x with the measured-disturbance channel, and the target of
- *        design::steady_state_target on the outputs @p held lists, under the measured d.
+ *        design::steady_state_target with the same options (held_target): on the outputs a
+ *        TrackedOutputs @p held lists, else a regulator's (NoDisturbance), under the measured d.
  */
 template<
-    bool Discrete, size_t NP, size_t NC, size_t NT_max, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NYC, size_t NXC, size_t NM, size_t NS,
+    bool Discrete, size_t NP, size_t NC, size_t NT_max, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NYC, size_t NXC, size_t NM, typename Held,
     typename Delay = NoDelay>
 [[nodiscard]] constexpr auto mpc_measured(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
@@ -1820,13 +1804,13 @@ template<
     const MPCWeights<NU, NY, T>&             weights,
     const MPCConstraintSet<NU, NYC, T, NXC>& constraints,
     const MeasuredDisturbance<NX, NM, T>&    measured,
-    const TrackedOutputs<NS>&                held,
+    const Held&                              held,
     const Delay&                             delay = Delay{}
 ) {
     constexpr size_t NXL = NX + (input_delay_states<Delay> * NU); // the plant, then the delay states
     using Law = MPCArtifacts<NXL, NU, NY, NP, NC, NM, T, NT_max, NXC, NYC>;
-    using Target = SteadyStateTargetResult<NXL, NU, NM, target_outputs<TrackedOutputs<NS>, NU, NY, NW>, T>;
-    using Result = MPCResult<Law, NoEstimator, Target, input_delay_states<Delay>, NS>; // the runtime holds the delay states
+    using Target = decltype(held_target<Discrete>(sys, Ts, held, delay, Matrix<NXL, NM, T>{}));
+    using Result = MPCResult<Law, NoEstimator, Target, input_delay_states<Delay>, reference_outputs<Held, NY>>; // the runtime holds the delay states
     const auto m = sampled_model(sys, Ts, Discrete, delay);
     if (m.status != DesignStatus::ok) {
         return ::damp::detail::refused<Result>(m.status);
@@ -1839,21 +1823,21 @@ template<
     Result     out{};
     const auto cost = mpc_continuous_cost<Discrete>(sys, measured.Bd, Ts, input_delays_of<NU>(delay, Ts));
     out.mpc = mpc_impl<NP, NC, NM, NT_max>(m.law, *Bd, Matrix<NY, NM, T>{}, weights, constraints, cost);
-    out.target = target_design<Discrete>(sys, Ts, held, held_weight<NU, NW>(physical_output_weight(weights.Qy, out.mpc), held), delay, *Bd);
-    return ::damp::detail::set_status(out, first_failure(out.mpc.status, out.target.status));
+    out.target = held_target<Discrete>(sys, Ts, held, delay, *Bd);
+    return ::damp::detail::set_status(out, first_failure(out.mpc.status, out.target.status, in_output_order<NY>(held) ? DesignStatus::ok : DesignStatus::bad_weights));
 }
 
 /**
  * @brief The MPC through an estimator: the filter of design::kalman with the same options, the
  *        QP on the law's model and every output with the disturbance channel, and the target of
  *        design::steady_state_target: under the disturbance spec, holding the outputs it lists,
- *        else on the outputs @p held lists. A @p measured disturbance (NM > 0) is the filter's
- *        known input after u, and the QP's and the target's channels after the estimated ones:
- *        [d̂; d], so d̂ estimates what d does not account for.
+ *        else on the outputs a TrackedOutputs @p held lists, else a regulator's. A @p measured
+ *        disturbance (NM > 0) is the filter's known input after u, and the QP's and the target's
+ *        channels after the estimated ones: [d̂; d], so d̂ estimates what d does not account for.
  */
 template<
     bool Discrete, size_t NP, size_t NC, size_t NT_max, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NWN, size_t NVN, size_t NDN,
-    typename Spec, size_t NS, size_t NYC, size_t NXC, size_t NM, typename Delay = NoDelay>
+    typename Spec, typename Held, size_t NYC, size_t NXC, size_t NM, typename Delay = NoDelay>
 [[nodiscard]] constexpr auto mpc_estimated_design(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     T                                        Ts,
@@ -1861,7 +1845,7 @@ template<
     const MPCConstraintSet<NU, NYC, T, NXC>& constraints,
     const KalmanNoise<NWN, NVN, T, NDN>&     noise,
     const Spec&                              spec,
-    const TrackedOutputs<NS>&                held,
+    const Held&                              held,
     const MeasuredDisturbance<NX, NM, T>&    measured,
     const Delay&                             delay = Delay{}
 ) {
@@ -1875,9 +1859,9 @@ template<
     const auto       kf = with_measured_inputs(kalman_design<Discrete>(sys, Ts, noise, spec, delay), Bm);
     const auto       aim = target_spec_of(spec, held);
     using Aim = damp::remove_cvref_t<decltype(aim)>;
-    using Target = SteadyStateTargetResult<NXE, NU, ND + NM, target_outputs<Aim, NU, NY, NW>, T>;
+    using Target = decltype(held_target<Discrete>(sys, Ts, aim, delay, Matrix<NXE, NM, T>{}));
     using Law = MPCArtifacts<NXL, NU, NY, NP, NC, ND + NM, T, NT_max, NXC, NYC>;
-    using Result = MPCResult<Law, damp::remove_cvref_t<decltype(kf)>, Target, input_delay_states<Delay>, disturbance_traits<Aim, NU, NY, NW>::listed>; // the filter carries the delay states
+    using Result = MPCResult<Law, damp::remove_cvref_t<decltype(kf)>, Target, input_delay_states<Delay>, reference_outputs<Aim, NY>>; // the filter carries the delay states
     Result     out{.kalman = kf};
     const auto m = sampled_model(sys, Ts, Discrete, in);
     if (m.status != DesignStatus::ok || !Bm) {
@@ -1897,8 +1881,8 @@ template<
         out.mpc = mpc_impl<NP, NC, ND + NM, NT_max>(m.law, side_by_side(Bd, Bm_law), side_by_side(channels.Cd, Matrix<NY, NM, T>{}), weights, constraints, cost);
     }
     //! On the filter's model: under d̂ with a disturbance spec, and d; a late reading's delay states hold the steady output
-    out.target = target_design<Discrete>(sys, Ts, aim, held_weight<NU, NW>(physical_output_weight(weights.Qy, out.mpc), aim), delay, *Bm);
-    return ::damp::detail::set_status(out, first_failure(kf.status, out.target.status, out.mpc.status));
+    out.target = held_target<Discrete>(sys, Ts, aim, delay, *Bm);
+    return ::damp::detail::set_status(out, first_failure(kf.status, out.target.status, out.mpc.status, in_output_order<NY>(aim) ? DesignStatus::ok : DesignStatus::bad_weights));
 }
 
 /**
@@ -1910,7 +1894,7 @@ template<bool Discrete, size_t NP, size_t NC, size_t NX, size_t NU, size_t NY, t
 [[nodiscard]] constexpr auto mpc_design(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T Ts, const MPCWeights<NU, NY, T>& weights, const Opts&... opts) {
     constexpr size_t NT_max = terminal_rows<::damp::detail::option_t<is_mpc_terminal, void, Opts...>>;
     const auto       constraints = constraint_set<NU, T>(opts...);
-    const auto       held = ::damp::detail::option<is_tracked_option>(TrackedOutputs<>{}, opts...);
+    const auto       held = ::damp::detail::option<is_tracked_option>(NoDisturbance{}, opts...); // none: a regulator
     static_assert(
         !Discrete || ::damp::detail::option_count<is_input_delay, Opts...> + ::damp::detail::option_count<is_output_delay, Opts...> == 0,
         "A delay is sampled with the plant: give the continuous plant and Ts, mpc<NP, NC>(plant, Ts, weights, ..., InputDelay<N>{theta}, OutputDelay<M>{theta})."
@@ -1950,22 +1934,23 @@ template<bool Discrete, size_t NP, size_t NC, size_t NX, size_t NU, size_t NY, t
  *
  * | Design | Runtime |
  * | --- | --- |
- * | mpc<NP, NC>(plant, [Ts,] weights) | MPC: the state measured |
- * | mpc<NP, NC>(plant, [Ts,] weights, MeasuredDisturbance{Bd}) | MPC with a known disturbance input, given each tick |
+ * | mpc<NP, NC>(plant, [Ts,] weights) | MPC: the state measured, a regulator (no r: control(), step(x)), as LQR |
+ * | mpc<NP, NC>(plant, [Ts,] weights, TrackedOutputs{}) | MPC holding every output at r: step(r, x) |
+ * | mpc<NP, NC>(plant, [Ts,] weights, MeasuredDisturbance{Bd}) | MPC with a known disturbance input, given each tick: a regulator under d, step(d, x) |
  * | mpc<NP, NC>(plant, [Ts,] weights, noise, disturbance) | OFMPC: a Kalman filter on [x; d], offset-free (below) |
  * | mpc<NP, NC>(plant, [Ts,] weights, noise, disturbance, MeasuredDisturbance{Bd}) | OFMPC that also takes d each tick: d̂ estimates the rest (below) |
  * | … plus InputLimits{.u_lim, .du_lim} | the same, with hard limits on u and Δu |
  * | … plus OutputLimits{.outputs, .lim} | the same, with limits on the outputs it lists |
  * | … plus StateLimits{.states, .lim} | the same, with limits on states it does not track |
- * | … plus TrackedOutputs{{i, …}}, without a disturbance spec | the same, r on the outputs it lists, held through the target |
+ * | … plus TrackedOutputs{{i, …}}, without a disturbance spec | the same, r on the outputs it lists, held through the target (TrackedOutputs{}: every output) |
  * | … plus DareCost{} or InvariantSet<NT_max>{.target_margin} | the same, with a terminal cost, or that cost and a terminal set in room for NT_max rows |
  * | … plus QPIterations{n} | the same, its QP capped at n iterations a tick |
  *
  * The plant and the weights are positional, so braces size the weights from the plant. The rest
  * trails as options, at most one of each kind, in any order: the hard limits on u and Δu (none:
- * unbounded), the limits on the outputs and on the states, the outputs r holds (none: every
- * output), the terminal ingredient (none: the plain cost) and the QP budget (none: the default,
- * 10·(NZ + 1 + NI + 1)).
+ * unbounded), the limits on the outputs and on the states, the outputs r holds (none: a
+ * regulator, which takes no r), the terminal ingredient (none: the plain cost) and the QP budget
+ * (none: the default, 10·(NZ + 1 + NI + 1)).
  *
  * Outputs. The QP predicts, weighs and bounds every output of the plant, the rows of C: Qy is
  * NY × NY and an OutputLimits index is a row of C. On the measured state design::mpc's runtime
@@ -1976,12 +1961,18 @@ template<bool Discrete, size_t NP, size_t NC, size_t NX, size_t NU, size_t NY, t
  * The target. The runtime poses the QP about the steady state (x_t, u_t) of the reference, the
  * target of design::steady_state_target with the design's options, as the LQ laws do. It holds at
  * r the outputs a TrackedOutputs lists, or with a disturbance spec those its outputs lists, under
- * the estimated disturbance; every output when neither lists any, and under a measured
+ * the estimated disturbance, every output when the one given lists none, and under a measured
  * disturbance on the measured state. r is on those outputs, in their order: TrackedOutputs{{0}}
- * on a plant with four outputs takes a scalar r. With NZ = NU held outputs the steady state is
- * unique or the design is refused (DesignStatus::singular), with fewer the minimum-norm steady
- * state that holds every r (refused when none does), and with more the equilibrium closest to r
- * in the Qy-weighted norm (an output without cost does not pull it). The QP's reference on each
+ * on a plant with four outputs takes a scalar r, and a list of every output is in the plant's
+ * order (another is refused, DesignStatus::bad_weights: with every output held the runtime reads
+ * r as the QP's reference on each). With neither a TrackedOutputs nor a spec the design is a
+ * regulator, as an LQR is: no r, the QP posed about x = 0, u = 0, or under a MeasuredDisturbance
+ * about the steady state that holds every output at 0; the runtime stores no map of r and takes
+ * control(), step(x), control(d), step(d, x). With NZ = NU held outputs the steady state is
+ * unique or the design is refused (DesignStatus::singular), and with fewer the minimum-norm
+ * steady state that holds every r (refused when none does). More held outputs than inputs does
+ * not compile, as no steady state holds them all: a plant with more outputs than inputs lists the
+ * ones r holds, at most NU, in a TrackedOutputs or the spec's .outputs. The QP's reference on each
  * output at each step is r itself when the target holds every output, else that steady state's
  * output for r at that step, so an output r does not list settles where the target puts it,
  * the lean at which gravity balances a load. Ru weighs the input's deviation from the target's
@@ -2057,8 +2048,9 @@ template<bool Discrete, size_t NP, size_t NC, size_t NX, size_t NU, size_t NY, t
  * every output, so DisturbanceModel{.Bd = …, .outputs = {0}} on a plant with four readings
  * weighs all four and holds the first at a scalar r, the others at the target's. Offset-free
  * tracking of every listed output needs NZ ≤ NU and a steady state that reaches any r;
- * with NZ = NU the target is unique or the design is refused (DesignStatus::singular), and with
- * more listed outputs than inputs it is the least-squares compromise. The augment must be
+ * with NZ = NU the target is unique or the design is refused (DesignStatus::singular), and more
+ * listed outputs than inputs, or no list on a plant with more outputs than inputs, does not
+ * compile. The augment must be
  * detectable, rank [A − I, B_d; C, C_d] = NX + ND (so ND ≤ NY), or the design is refused with
  * DesignStatus::not_detectable: an output disturbance on a plant with a pole at z = 1 is not,
  * which is why MATLAB® falls back to input disturbances on integrating plants.
@@ -2096,7 +2088,8 @@ template<bool Discrete, size_t NP, size_t NC, size_t NX, size_t NU, size_t NY, t
  *                 filter on [x; d], the QP posed about the steady-state target under d̂, which holds
  *                 the rows the spec lists, all of them without a list), with a MeasuredDisturbance
  *                 too its filter's input after u and the target under [d̂; d]; TrackedOutputs{{i, …}}
- *                 without a disturbance spec, the outputs r holds through the target;
+ *                 without a disturbance spec, the outputs r holds through the target (TrackedOutputs{}:
+ *                 every output; neither it nor a spec: a regulator, no r);
  *                 OutputLimits{.outputs, .lim}, limits on the outputs it lists;
  *                 StateLimits{.states, .lim}, limits on states the QP does not track; DareCost{} or
  *                 InvariantSet<NT_max>{.target_margin}, a terminal ingredient; and QPIterations{n}, the QP's budget
@@ -2104,7 +2097,7 @@ template<bool Discrete, size_t NP, size_t NC, size_t NX, size_t NU, size_t NY, t
  */
 template<size_t NP, size_t NC, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename... Opts>
 [[nodiscard]] constexpr auto mpc(const StateSpace<NX, NU, NY, T, NW, NV>& sys, const damp::type_identity_t<MPCWeights<NU, NY, T>>& weights, const Opts&... opts) {
-    detail::check_mpc_options<NP, NC, Opts...>();
+    detail::check_mpc_options<NP, NC, NU, NY, Opts...>();
     return detail::mpc_design<true, NP, NC>(sys, T{0}, weights, opts...);
 }
 
@@ -2147,7 +2140,7 @@ template<size_t NP, size_t NC, size_t NX, size_t NU, size_t NY, typename T, size
     const damp::type_identity_t<MPCWeights<NU, NY, T>>& weights,
     const Opts&... opts
 ) {
-    detail::check_mpc_options<NP, NC, Opts...>();
+    detail::check_mpc_options<NP, NC, NU, NY, Opts...>();
     return detail::mpc_design<false, NP, NC>(plant, Ts, weights, opts...);
 }
 
@@ -2409,8 +2402,10 @@ struct NoMeasuredState {};
  * @tparam NYC       Outputs with bounds (the design's OutputLimits; 0: none)
  * @tparam NRU       Delay states per input of an InputDelay (0: none): the law holds them on a
  *                   measured state, the filter carries them
- * @tparam NH        Outputs the target holds, listed by a TrackedOutputs or the disturbance spec
- *                   (0: every output, r the QP's reference on each)
+ * @tparam NH        Outputs the target holds at r, listed by a TrackedOutputs or the disturbance
+ *                   spec; NY: every output, r the QP's reference on each; 0: a regulator, no r,
+ *                   the QP about the steady state under d (x = 0, u = 0 without one), with no
+ *                   map of r stored
  *
  * @note Compare with MATLAB®'s mpcmove(mpcobj, xc, ym, r, v).
  * @see design::mpc
@@ -2433,7 +2428,9 @@ public:
     static_assert(!estimated || Traits::inputs == NU + ND, "The filter takes the inputs, then the measured disturbance: FixedGainObserver<NXK, NU + ND, …> of design::mpc with a MeasuredDisturbance.");
     static_assert(!estimated || NXE >= NXM, "The filter's model holds the law's, the delay states of late readings after it.");
 
-    static constexpr size_t NREF = (NH == 0) ? NY : NH; ///< References r: one per output the target holds
+    static constexpr size_t NREF = NH;                     ///< References r: one per output the target holds (0: a regulator)
+    static constexpr bool   kTarget = (NH + NDE + ND) > 0; ///< A steady-state target to store: of r, or under a disturbance
+    static_assert(NH <= NY, "The target holds at most every output: NH ≤ NY.");
 
     using Artifacts = design::MPCArtifacts<NXM, NU, NY, NP, NC, NDE + ND, T, NT_max, NXC, NYC>; ///< The QP: its disturbance channels [d̂; d]
     using TargetResult = design::SteadyStateTargetResult<NXE, NU, NDE + ND, NREF, T>;           ///< The target per unit [d̂; d] and r
@@ -2607,7 +2604,7 @@ public:
             return record(control_impl(ahead, ColVec<NXM, T>(x_dev + x_a), d_a, ColVec<NDE, T>{}, x_a, estimator.anchor_input(), x_dev));
         } else {
             const ColVec<NXM, T> x = law_state();
-            const auto           t = target_.equilibrium(r.r[0], d); // the steady state under the measured d
+            const auto           t = steady(r.r[0], d); // the steady state under the measured d
             const auto           x_t = ::damp::detail::leading<NXM>(t.x);
             return record(control_impl(ahead, x, d, ColVec<ND, T>{}, x_t, t.u, ColVec<NXM, T>(x - x_t)));
         }
@@ -2649,7 +2646,7 @@ public:
             return record(control_impl(ahead, ColVec<NXM, T>(x_dev + x_a), d_a, ColVec<NDE, T>{}, x_a, estimator.anchor_input(), x_dev));
         } else {
             const ColVec<NXM, T> x = law_state();
-            const auto           t = target_.equilibrium(r.r[0], d); // the steady state under the measured d
+            const auto           t = steady(r.r[0], d); // the steady state under the measured d
             const auto           x_a = ColVec<NXM, T>(::damp::detail::leading<NXM>(t.x) + ref);
             return record(control_impl(ahead, x, d, ColVec<ND, T>{}, x_a, ColVec<NU, T>(t.u + u_ref), ColVec<NXM, T>(x - x_a)));
         }
@@ -2802,10 +2799,18 @@ public:
         return [&]<size_t... I>(damp::index_sequence<I...>) { return InputPreview{{(static_cast<void>(I), u)...}}; }(damp::make_index_sequence<NC>{});
     }
 
+    /** @brief A regulator's reference (NH = 0): none. */
+    [[nodiscard]] static constexpr Reference no_reference()
+        requires(NH == 0)
+    {
+        return Reference{Preview{}};
+    }
+
 private:
-    using Target = SteadyStateTarget<NXE, NU, NDE + ND, NREF, T>;
+    using TargetR = detail::maybe<(NREF > 0), Matrix<NXE + NU, NREF, T>, detail::OffSlot::mpc_target_r>;
+    using Target = detail::maybe<kTarget, SteadyStateTarget<NXE, NU, NDE + ND, NREF, T, Matrix<NXE + NU, NDE + ND, T>, TargetR>, detail::OffSlot::mpc_target>;
     using MeasuredState = damp::conditional_t<estimated, detail::NoMeasuredState, ColVec<NX, T>>;
-    using HeldMap = detail::maybe<(NH > 0), Matrix<NY, NREF, T>, detail::OffSlot::held_outputs>;
+    using HeldMap = detail::maybe<(NH > 0 && NH < NY), Matrix<NY, NREF, T>, detail::OffSlot::held_outputs>;
     using HeldMeasured = detail::maybe<(estimated && ND > 0), ColVec<ND, T>, detail::OffSlot::held_measured>;
 
     /** @brief Keep the measured disturbance @p d for the filter's next predict (nothing on the measured state, which has no filter to move). */
@@ -2849,21 +2854,37 @@ private:
         return a;
     }
 
-    /** @brief The runtime target from its design, refused only by this constructor. */
-
+    /** @brief The runtime target from its design, refused only by this constructor; nothing for a regulator without a disturbance. */
     [[nodiscard]] static constexpr Target target_of(const TargetResult& design) {
         Target t{};
-        t.target_d = design.target_d;
-        t.target_r = design.target_r;
+        if constexpr (kTarget) {
+            t.target_d = design.target_d;
+            if constexpr (NREF > 0) {
+                t.target_r = design.target_r;
+            }
+        } else {
+            static_cast<void>(design);
+        }
         return t;
     }
 
+    /** @brief The steady state for @p r0 under the measured @p d: the target's, or x = 0, u = 0 for a regulator without a disturbance. */
+    [[nodiscard]] constexpr TargetPoint<NXE, NU, T> steady(const ColVec<NREF, T>& r0, const ColVec<ND, T>& d) const {
+        if constexpr (kTarget) {
+            return target_.equilibrium(r0, d);
+        } else {
+            static_cast<void>(r0);
+            static_cast<void>(d);
+            return TargetPoint<NXE, NU, T>{};
+        }
+    }
+
     /**
-     * @brief The target's outputs per unit reference, C·Nₓ (NH > 0): a step of the preview moves
-     *        the QP's reference on every output by it, the held outputs by the step of r.
+     * @brief The target's outputs per unit reference, C·Nₓ (0 < NH < NY): a step of the preview
+     *        moves the QP's reference on every output by it, the held outputs by the step of r.
      */
     [[nodiscard]] static constexpr HeldMap held_map(const Artifacts& a, const Target& t) {
-        if constexpr (NH > 0) {
+        if constexpr (NH > 0 && NH < NY) {
             Matrix<NY, NREF, T> m{};
             for (size_t i = 0; i < NY; ++i) {
                 for (size_t j = 0; j < NREF; ++j) {
@@ -2886,10 +2907,11 @@ private:
     /**
      * @brief The preview a feedforward's QP reads: every output held, each step's reference moved by
      *        C·@p ref, the outputs of the reference point; with fewer held, @p r itself, since each
-     *        step's reference is the target's output, which moves with the target.
+     *        step's reference is the target's output, which moves with the target (a regulator's,
+     *        none, the anchor's outputs).
      */
     [[nodiscard]] constexpr decltype(auto) fed_preview(const Preview& r, const ColVec<NXM, T>& ref) const {
-        if constexpr (NH == 0) {
+        if constexpr (NH == NY) {
             const ColVec<NY, T> y_ref = art.C * ref;
             Preview             out = r;
             for (size_t kb = 0; kb < NP; ++kb) {
@@ -2964,18 +2986,20 @@ private:
         if constexpr (NDQ > 0) {
             y_t = y_t + (art.Cd * dq);
         }
-        ColVec<NYS, T> r_dev{};
+        ColVec<NYS, T> r_dev{}; // a regulator's (NH = 0): zero, each step's reference the anchor's outputs
         for (size_t kb = 0; kb < NP; ++kb) {
-            if constexpr (NH > 0) {
+            if constexpr (NH == NY) {
+                for (size_t i = 0; i < NY; ++i) {
+                    r_dev((kb * NY) + i) = (r[kb](i) - y_t(i)) / art.scale_y(i);
+                }
+            } else if constexpr (NH > 0) {
                 //! The target's output for r[kb]: y_t moved by C·Nₓ·(r[kb] − r[0]), the held outputs at r[kb], the others where it puts them
                 const ColVec<NY, T> dy = y_r_ * ColVec<NREF, T>(r[kb] - r[0]);
                 for (size_t i = 0; i < NY; ++i) {
                     r_dev((kb * NY) + i) = dy(i) / art.scale_y(i);
                 }
             } else {
-                for (size_t i = 0; i < NY; ++i) {
-                    r_dev((kb * NY) + i) = (r[kb](i) - y_t(i)) / art.scale_y(i);
-                }
+                static_cast<void>(r);
             }
         }
         //! Ru's anchor at each move: the target's input for r there (u_t moved by Nᵤ·(r[jm] − r[0])), or the input target set
@@ -2984,8 +3008,10 @@ private:
             for (size_t j = 0; j < NU; ++j) {
                 if (follow_target_) {
                     T du{0};
-                    for (size_t c = 0; c < NREF; ++c) {
-                        du += target_.target_r(NXE + j, c) * (r[jm](c) - r[0](c));
+                    if constexpr (NREF > 0) {
+                        for (size_t c = 0; c < NREF; ++c) {
+                            du += target_.target_r(NXE + j, c) * (r[jm](c) - r[0](c));
+                        }
                     }
                     u_target_[jm](j) = u_t(j) + du;
                     ut_dev((jm * NU) + j) = du / art.scale_u(j);
@@ -3093,8 +3119,8 @@ private:
     Artifacts                            art{};
     Solver                               qp_solver_{};
     [[no_unique_address]] MeasuredState  x_{};                 ///< The last measured state (no storage with an estimator)
-    Target                               target_{};            ///< The maps to the steady-state target
-    [[no_unique_address]] HeldMap        y_r_{};               ///< The target's outputs per unit reference (NH > 0)
+    [[no_unique_address]] Target         target_{};            ///< The maps to the steady-state target (none for a regulator without a disturbance)
+    [[no_unique_address]] HeldMap        y_r_{};               ///< The target's outputs per unit reference (0 < NH < NY)
     [[no_unique_address]] HeldMeasured   measured_{};          ///< The measured disturbance the last control took, for the filter's next predict (with a filter and ND > 0)
     ::damp::detail::AppliedRecord<NU, T> applied_{};           ///< The last command, and the held input (the base of Δu)
     InputPreview                         u_target_{};          ///< The input target of each move: the target's input the last control used, or the one set
@@ -3116,12 +3142,14 @@ private:
  * as well, control(r, d) and step(r, d, x); one without has no d argument. Feedforward from a
  * planned trajectory (x_ref, u_ref) adds to the target, as on LQR: control(r, x_ref, u_ref) and
  * step(r, x_ref, u_ref, x), or control(r, x_ref, u_ref, d) and step(r, x_ref, u_ref, d, x), the
- * reference and its feedforward first, then what was measured. back_calculate(u_sat)
- * records what went out, predict() holds it as the base of the next move. A failed design does
- * not compile when constant-evaluated.
+ * reference and its feedforward first, then what was measured. A design with no TrackedOutputs
+ * is a regulator (NH = 0), as LQR is: it takes no r, control() and step(x), control(d) and
+ * step(d, x) about the steady state under d, and the feedforward forms without r; it stores no
+ * map of r. back_calculate(u_sat) records what went out, predict() holds it as the base of the
+ * next move. A failed design does not compile when constant-evaluated.
  *
  * @code
- * static constinit MPC law{kRes.as<float>()};
+ * static constinit MPC law{kRes.as<float>()}; // design::mpc<NP, NC>(plant, w, TrackedOutputs{})
  * law.update(x);
  * u = law.control(r);
  * @endcode
@@ -3141,7 +3169,7 @@ template<
     size_t NXC = 0,
     size_t NYC = 0,
     size_t NRU = 0,
-    size_t NH = 0>
+    size_t NH = NY>
 class MPC : private detail::MPCCore<NX, NU, NY, NP, NC, ND, T, Solver, NT_max, NoEstimator, NXC, NYC, NRU, NH> {
     using Core = detail::MPCCore<NX, NU, NY, NP, NC, ND, T, Solver, NT_max, NoEstimator, NXC, NYC, NRU, NH>;
 
@@ -3167,58 +3195,114 @@ public:
 
     /** @brief The move at the state of the last update: u = u_prev + Δu₀, clamped to the u and Δu boxes. */
     [[nodiscard]] constexpr ColVec<NU, T> control(const Reference& r)
-        requires(ND == 0)
+        requires(NH > 0 && ND == 0)
     {
         return Core::control(r, ColVec<0, T>{});
     }
 
     /** @brief The move at the state of the last update under the measured disturbance @p d, held over the horizon. */
     [[nodiscard]] constexpr ColVec<NU, T> control(const Reference& r, const ColVec<ND, T>& d)
-        requires(ND > 0)
+        requires(NH > 0 && ND > 0)
     {
         return Core::control(r, d);
     }
 
     /** @brief control(@p r) about the planned trajectory (@p x_ref, @p u_ref), which adds to the target's: feedforward, as LQR's control(r, x_ref, u_ref). */
     [[nodiscard]] constexpr ColVec<NU, T> control(const Reference& r, const ColVec<Core::NXP, T>& x_ref, const ColVec<NU, T>& u_ref)
-        requires(ND == 0)
+        requires(NH > 0 && ND == 0)
     {
         return Core::control(r, x_ref, u_ref, ColVec<0, T>{});
     }
 
     /** @brief control(@p r, @p d) about the planned trajectory (@p x_ref, @p u_ref): the reference and its feedforward, then the measured disturbance. */
     [[nodiscard]] constexpr ColVec<NU, T> control(const Reference& r, const ColVec<Core::NXP, T>& x_ref, const ColVec<NU, T>& u_ref, const ColVec<ND, T>& d)
-        requires(ND > 0)
+        requires(NH > 0 && ND > 0)
     {
         return Core::control(r, x_ref, u_ref, d);
     }
 
+    /** @brief The regulator's move at the state of the last update (NH = 0): the QP about x = 0, u = 0, as LQR's control(). */
+    [[nodiscard]] constexpr ColVec<NU, T> control()
+        requires(NH == 0 && ND == 0)
+    {
+        return Core::control(Core::no_reference(), ColVec<0, T>{});
+    }
+
+    /** @brief The regulator's move under the measured disturbance @p d, held over the horizon: the QP about the steady state under d that holds every output at 0. */
+    [[nodiscard]] constexpr ColVec<NU, T> control(const ColVec<ND, T>& d)
+        requires(NH == 0 && ND > 0)
+    {
+        return Core::control(Core::no_reference(), d);
+    }
+
+    /** @brief The regulator's move about the planned trajectory (@p x_ref, @p u_ref): the QP about that point, as LQR's control(x_ref, u_ref). */
+    [[nodiscard]] constexpr ColVec<NU, T> control(const ColVec<Core::NXP, T>& x_ref, const ColVec<NU, T>& u_ref)
+        requires(NH == 0 && ND == 0)
+    {
+        return Core::control(Core::no_reference(), x_ref, u_ref, ColVec<0, T>{});
+    }
+
+    /** @brief control(@p d) about the planned trajectory (@p x_ref, @p u_ref), which adds to the steady state under d. */
+    [[nodiscard]] constexpr ColVec<NU, T> control(const ColVec<Core::NXP, T>& x_ref, const ColVec<NU, T>& u_ref, const ColVec<ND, T>& d)
+        requires(NH == 0 && ND > 0)
+    {
+        return Core::control(Core::no_reference(), x_ref, u_ref, d);
+    }
+
     /** @brief One tick: predict(), update(@p x), then control(@p r). */
     [[nodiscard]] constexpr ColVec<NU, T> step(const Reference& r, const ColVec<Core::NYM, T>& x)
-        requires(ND == 0)
+        requires(NH > 0 && ND == 0)
     {
         return Core::step(r, ColVec<0, T>{}, x);
     }
 
     /** @brief One tick: predict(), update(@p x), then control(@p r, @p d). */
     [[nodiscard]] constexpr ColVec<NU, T> step(const Reference& r, const ColVec<ND, T>& d, const ColVec<Core::NYM, T>& x)
-        requires(ND > 0)
+        requires(NH > 0 && ND > 0)
     {
         return Core::step(r, d, x);
     }
 
     /** @brief One tick: predict(), update(@p x), then control(@p r, @p x_ref, @p u_ref), the feedforward form. */
     [[nodiscard]] constexpr ColVec<NU, T> step(const Reference& r, const ColVec<Core::NXP, T>& x_ref, const ColVec<NU, T>& u_ref, const ColVec<Core::NYM, T>& x)
-        requires(ND == 0)
+        requires(NH > 0 && ND == 0)
     {
         return Core::step(r, x_ref, u_ref, ColVec<0, T>{}, x);
     }
 
     /** @brief One tick: predict(), update(@p x), then control(@p r, @p x_ref, @p u_ref, @p d). */
     [[nodiscard]] constexpr ColVec<NU, T> step(const Reference& r, const ColVec<Core::NXP, T>& x_ref, const ColVec<NU, T>& u_ref, const ColVec<ND, T>& d, const ColVec<Core::NYM, T>& x)
-        requires(ND > 0)
+        requires(NH > 0 && ND > 0)
     {
         return Core::step(r, x_ref, u_ref, d, x);
+    }
+
+    /** @brief The regulator's tick: predict(), update(@p x), then control(). */
+    [[nodiscard]] constexpr ColVec<NU, T> step(const ColVec<Core::NYM, T>& x)
+        requires(NH == 0 && ND == 0)
+    {
+        return Core::step(Core::no_reference(), ColVec<0, T>{}, x);
+    }
+
+    /** @brief The regulator's tick: predict(), update(@p x), then control(@p d). */
+    [[nodiscard]] constexpr ColVec<NU, T> step(const ColVec<ND, T>& d, const ColVec<Core::NYM, T>& x)
+        requires(NH == 0 && ND > 0)
+    {
+        return Core::step(Core::no_reference(), d, x);
+    }
+
+    /** @brief The regulator's tick: predict(), update(@p x), then control(@p x_ref, @p u_ref). */
+    [[nodiscard]] constexpr ColVec<NU, T> step(const ColVec<Core::NXP, T>& x_ref, const ColVec<NU, T>& u_ref, const ColVec<Core::NYM, T>& x)
+        requires(NH == 0 && ND == 0)
+    {
+        return Core::step(Core::no_reference(), x_ref, u_ref, ColVec<0, T>{}, x);
+    }
+
+    /** @brief The regulator's tick: predict(), update(@p x), then control(@p x_ref, @p u_ref, @p d). */
+    [[nodiscard]] constexpr ColVec<NU, T> step(const ColVec<Core::NXP, T>& x_ref, const ColVec<NU, T>& u_ref, const ColVec<ND, T>& d, const ColVec<Core::NYM, T>& x)
+        requires(NH == 0 && ND > 0)
+    {
+        return Core::step(Core::no_reference(), x_ref, u_ref, d, x);
     }
 
     using Core::applied;
@@ -3325,11 +3409,15 @@ namespace damp {
  * d), step(r, x_ref, u_ref, d, y). The target is under [d̂; d], and predict moves the filter with
  * the input and the d the last control took.
  *
+ * It always takes r: its disturbance spec holds the outputs it lists at r, every output when it
+ * lists none, as OFLQG's. It has no regulator form, as OFLQG has none; MPC's regulator is on the
+ * measured state.
+ *
  * @note Compare with MATLAB®'s mpcmove(mpcobj, xc, ym, r, v) with its default disturbance model.
  */
 template<
     size_t NX, size_t NU, size_t NY, size_t NP, size_t NC, typename T, typename Solver, size_t NT_max, typename Estimator, size_t NXC = 0, size_t NYC = 0, size_t NRU = 0,
-    size_t NH = 0>
+    size_t NH = NY>
 class OFMPC : private detail::MPCCore<NX, NU, NY, NP, NC, detail::mpc_estimator_traits<Estimator>::inputs - NU, T, Solver, NT_max, Estimator, NXC, NYC, NRU, NH> {
     using Core = detail::MPCCore<NX, NU, NY, NP, NC, detail::mpc_estimator_traits<Estimator>::inputs - NU, T, Solver, NT_max, Estimator, NXC, NYC, NRU, NH>;
 
@@ -3345,6 +3433,7 @@ public:
     static constexpr size_t NZ1 = Core::NZ1;                                           ///< QP decision size (moves + slack)
     static constexpr size_t NI1 = Core::NI1;                                           ///< QP constraint rows
     static_assert(NDE > 0, "OFMPC runs design::mpc with a KalmanNoise and a disturbance spec: the filter estimates a disturbance.");
+    static_assert(NH > 0, "OFMPC holds its disturbance spec's outputs at r, every output when it lists none: it takes r.");
 
     constexpr OFMPC() = default;
 

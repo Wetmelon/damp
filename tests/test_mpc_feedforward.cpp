@@ -114,10 +114,10 @@ TEST_SUITE("MPC feedforward") {
         //! planned point, to roundoff. u_ref is the input that holds the point, so the shifted law
         //! holds u − u_ref and keeps its default input target, the target's input.
         const double u_ref = 0.4;
-        SUBCASE("every output held: r on both") {
-            const auto art = design::mpc<20, 5>(kLags, both_weighed(), kMoveLim);
+        SUBCASE("TrackedOutputs: r on the first output, the second where the target puts it") {
+            const auto art = design::mpc<20, 5>(kLags, both_weighed(), kMoveLim, design::TrackedOutputs{{0}});
             REQUIRE(art.success);
-            CHECK(against_shifted(MPC{art}, MPC{art}, [](size_t k) { return (k < 60) ? ColVec<2>{} : ColVec<2>{0.2, 0.2}; }, u_ref) < 1e-9);
+            CHECK(against_shifted(MPC{art}, MPC{art}, [](size_t k) { return (k < 60) ? 0.0 : 0.2; }, u_ref) < 1e-9);
         }
         SUBCASE("TrackedOutputs: r on the second output, the first where the target puts it") {
             const auto art = design::mpc<20, 5>(kLags, both_weighed(), kMoveLim, design::TrackedOutputs{{1}});
@@ -125,13 +125,13 @@ TEST_SUITE("MPC feedforward") {
             CHECK(against_shifted(MPC{art}, MPC{art}, [](size_t k) { return (k < 60) ? 0.0 : 0.3; }, u_ref) < 1e-9);
         }
         SUBCASE("a Preview of r: each step's target from the preview, moved by the feedforward") {
-            const auto every = design::mpc<20, 5>(kLags, both_weighed(), kMoveLim);
+            const auto first = design::mpc<20, 5>(kLags, both_weighed(), kMoveLim, design::TrackedOutputs{{0}});
             const auto tracked = design::mpc<20, 5>(kLags, both_weighed(), kMoveLim, design::TrackedOutputs{{1}});
-            REQUIRE(every.success);
+            REQUIRE(first.success);
             REQUIRE(tracked.success);
-            using Every = decltype(MPC{every});
+            using First = decltype(MPC{first});
             using Tracked = decltype(MPC{tracked});
-            CHECK(against_shifted(MPC{every}, MPC{every}, ramp_preview<Every::Preview, 2>, u_ref) < 1e-9);
+            CHECK(against_shifted(MPC{first}, MPC{first}, ramp_preview<First::Preview, 1>, u_ref) < 1e-9);
             CHECK(against_shifted(MPC{tracked}, MPC{tracked}, ramp_preview<Tracked::Preview, 1>, u_ref) < 1e-9);
         }
     }
@@ -224,7 +224,7 @@ TEST_SUITE("MPC feedforward") {
     TEST_CASE("a measured-state MPC with an InputDelay pads x_ref with u_ref on the delay states it holds") {
         //! At the planned point each input on its way is u_ref, as the LQ laws pad it. The shifted
         //! law holds its own inputs, u − u_ref: the same QP once its delay states start there.
-        const auto art = design::mpc<20, 5>(kLagsC, kTs, both_weighed(), kMoveLim, InputDelay<2>{1.5 * kTs});
+        const auto art = design::mpc<20, 5>(kLagsC, kTs, both_weighed(), kMoveLim, design::TrackedOutputs{{1}}, InputDelay<2>{1.5 * kTs});
         REQUIRE(art.success);
         const auto   truth = discretize(kLagsC, kTs, InputDelay<2>{1.5 * kTs}).value(); // [x; v(k−1); v(k−2)]
         const double u_ref = 0.4;
@@ -242,8 +242,8 @@ TEST_SUITE("MPC feedforward") {
             const ColVec<2> x_ref = planned(k);
             const double    r = (k < 60) ? 0.0 : 0.3;
             hand.back_calculate(ColVec<1>{u_prev - u_ref});
-            const double u = fed.step(ColVec<2>{r, r}, x_ref, ColVec<1>{u_ref}, plant)(0);
-            gap.add(u, hand.step(ColVec<2>{r, r}, plant - x_ref)(0) + u_ref);
+            const double u = fed.step(r, x_ref, ColVec<1>{u_ref}, plant)(0);
+            gap.add(u, hand.step(r, plant - x_ref)(0) + u_ref);
             x = (truth.A * x) + (truth.B * ColVec<1>{u});
             u_prev = u;
         }
@@ -323,15 +323,15 @@ TEST_SUITE("MPC feedforward") {
     TEST_CASE("the output limits stay absolute: x_ref moves the cost's point, not the bounds") {
         //! The planned point puts x₂ at 1; a hard x₂ ≤ 0.6 holds it at 0.6, on the output itself, as
         //! MATLAB's limits are on the plant's outputs. A bound that rides the point is moved at run time.
-        const auto bounded = design::mpc<20, 5>(kLags, both_weighed(), design::OutputLimits{.outputs = {1}, .lim = {.upper = 0.6}, .upper_ecr = {0.0}});
-        const auto unbounded = design::mpc<20, 5>(kLags, both_weighed());
+        const auto bounded = design::mpc<20, 5>(kLags, both_weighed(), design::TrackedOutputs{{1}}, design::OutputLimits{.outputs = {1}, .lim = {.upper = 0.6}, .upper_ecr = {0.0}});
+        const auto unbounded = design::mpc<20, 5>(kLags, both_weighed(), design::TrackedOutputs{{1}});
         REQUIRE(bounded.success);
         REQUIRE(unbounded.success);
         const auto settle = [](auto law) {
             ColVec<2> x{};
             double    peak = 0.0;
             for (size_t k = 0; k < 300; ++k) {
-                x = lags_step(x, law.step(ColVec<2>{}, ColVec<2>{1.0, 1.0}, ColVec<1>{1.0}, x)(0));
+                x = lags_step(x, law.step(0.0, ColVec<2>{1.0, 1.0}, ColVec<1>{1.0}, x)(0));
                 peak = std::max(peak, x(1));
             }
             return ColVec<2>{x(1), peak};

@@ -8,6 +8,7 @@
 
 #include "damp/backend.hpp"
 #include "damp/controllers/mpc.hpp"
+#include "damp/controllers/state_feedback.hpp"
 #include "damp/design/invariant_set.hpp"
 #include "damp/design/qp.hpp"
 #include "damp/design/riccati.hpp"
@@ -117,13 +118,13 @@ constexpr ColVec<2> plant_step(const ColVec<2>& x, double u) {
 } // namespace
 
 TEST_CASE("default mpc: no terminal rows, NI is the box formula") {
-    const auto art = design::mpc<8, 4>(double_integrator, {});
+    const auto art = design::mpc<8, 4>(double_integrator, {}, design::TrackedOutputs{});
     REQUIRE(art.success);
     CHECK(art.status == design::DesignStatus::ok);
     CHECK(art.mpc.n_terminal == 0);
     CHECK(art.mpc.terminal == design::detail::MPCTerminal::none);
     CHECK(std::remove_cvref_t<decltype(art.mpc)>::NI == 4 * 4); // Δu and u rows; the outputs have none without an OutputLimits
-    CHECK(std::remove_cvref_t<decltype(design::mpc<8, 4>(double_integrator, {}, position_box(false)).mpc)>::NI == (4 * 4) + (2 * 8));
+    CHECK(std::remove_cvref_t<decltype(design::mpc<8, 4>(double_integrator, {}, position_box(false), design::TrackedOutputs{}).mpc)>::NI == (4 * 4) + (2 * 8));
     CHECK(art.mpc.P(0, 0) == doctest::Approx(0.0));
     CHECK(art.mpc.K_terminal(0, 0) == doctest::Approx(0.0));
 }
@@ -139,7 +140,7 @@ TEST_CASE("unconstrained DARE terminal reproduces the LQR law") {
     weights.Rdu = Matrix<1, 1>{};
     weights.Ru = R;
 
-    const auto art = design::mpc<8, 8>(double_integrator_full, weights, design::DareCost{});
+    const auto art = design::mpc<8, 8>(double_integrator_full, weights, design::DareCost{}); // a regulator, as the LQR
     REQUIRE(art.success);
     CHECK(art.status == design::DesignStatus::ok);
     CHECK(art.mpc.n_terminal == 0);
@@ -155,14 +156,15 @@ TEST_CASE("unconstrained DARE terminal reproduces the LQR law") {
     CHECK(art.mpc.P(2, 2) == doctest::Approx(0.0).scale(1.0).epsilon(1e-8));
     CHECK(art.mpc.K_terminal(0, 2) == doctest::Approx(1.0).epsilon(1e-8));
 
-    MPC             controller{art};
-    ColVec<2>       x{1.0, -0.5};
-    const ColVec<2> r{};
-    double          V_prev = -1.0;
+    MPC       controller{art};
+    LQR       regulator{design::state_feedback(double_integrator_full, {.Q = Q, .R = R})}; // the LQR regulator: the same ticks, step(x)
+    ColVec<2> x{1.0, -0.5};
+    double    V_prev = -1.0;
     for (size_t k = 0; k < 30; ++k) {
-        const auto   u_mpc = controller.step(r, x);
+        const auto   u_mpc = controller.step(x);
         const double u_lqr = -((lqr.K(0, 0) * x(0)) + (lqr.K(0, 1) * x(1)));
         CHECK(u_mpc(0) == doctest::Approx(u_lqr).epsilon(1e-6));
+        CHECK(u_mpc(0) == doctest::Approx(regulator.step(x)(0)).epsilon(1e-6));
         CHECK(controller.last_status() == design::QPStatus::Success);
         CHECK(damp::isfinite(controller.last_cost()));
         const double V = (x(0) * ((lqr.S(0, 0) * x(0)) + (lqr.S(0, 1) * x(1)))) + (x(1) * ((lqr.S(1, 0) * x(0)) + (lqr.S(1, 1) * x(1))));
@@ -185,7 +187,7 @@ TEST_CASE("short-horizon SIL is infeasible without the set and recursively feasi
 
     bool saw_infeasible = false;
     {
-        const auto art = design::mpc<4, 2>(double_integrator, weights, kUnitInput, position);
+        const auto art = design::mpc<4, 2>(double_integrator, weights, kUnitInput, position, design::TrackedOutputs{});
         REQUIRE(art.success);
         MPC       controller{art};
         ColVec<2> x = x0;
@@ -200,7 +202,7 @@ TEST_CASE("short-horizon SIL is infeasible without the set and recursively feasi
     }
     CHECK(saw_infeasible);
 
-    const auto art = design::mpc<4, 4>(double_integrator, weights, kUnitInput, position, design::InvariantSet<64>{});
+    const auto art = design::mpc<4, 4>(double_integrator, weights, kUnitInput, position, design::InvariantSet<64>{}, design::TrackedOutputs{});
     REQUIRE(art.success);
     REQUIRE(art.mpc.n_terminal > 0);
     CHECK(art.mpc.terminal == design::detail::MPCTerminal::invariant_set);
@@ -222,7 +224,7 @@ TEST_CASE("DareCost and InvariantSet are the terminal ingredients MPCConstraints
     //! The numbers MPCConstraints{.terminal = MPCTerminal::dare_cost} and {.terminal = invariant_set,
     //! .terminal_target_margin} gave on these designs before the options replaced them.
     const auto weights = move_weight(0.01);
-    const auto dare = design::mpc<10, 10>(double_integrator, weights, kUnitInput, position_box(false), design::DareCost{});
+    const auto dare = design::mpc<10, 10>(double_integrator, weights, kUnitInput, position_box(false), design::DareCost{}, design::TrackedOutputs{});
     REQUIRE(dare.success);
     CHECK(dare.mpc.terminal == design::detail::MPCTerminal::dare_cost);
     CHECK(dare.mpc.n_terminal == 0);
@@ -258,7 +260,7 @@ TEST_CASE("DareCost and InvariantSet are the terminal ingredients MPCConstraints
     };
     for (const Margin m : {Margin{0.05, 48}, Margin{0.1, 42}}) {
         CAPTURE(m.margin);
-        const auto set = design::mpc<4, 4>(double_integrator, weights, kUnitInput, position_box(true), design::InvariantSet<64>{.target_margin = m.margin});
+        const auto set = design::mpc<4, 4>(double_integrator, weights, kUnitInput, position_box(true), design::InvariantSet<64>{.target_margin = m.margin}, design::TrackedOutputs{});
         REQUIRE(set.success);
         CHECK(set.mpc.terminal == design::detail::MPCTerminal::invariant_set);
         CHECK(set.mpc.n_terminal == m.facets);
@@ -282,9 +284,9 @@ TEST_CASE("DareCost and InvariantSet are the terminal ingredients MPCConstraints
             x = plant_step(x, u(0));
         }
     }
-    CHECK(design::mpc<4, 4>(double_integrator, weights, kUnitInput, position_box(true), design::InvariantSet<64>{.target_margin = 1.0}).status == design::DesignStatus::invalid_parameter);
-    CHECK(design::mpc<4, 4>(double_integrator, weights, kUnitInput, position_box(true), design::InvariantSet<64>{.target_margin = 0.0}).status == design::DesignStatus::invalid_parameter);
-    CHECK(design::mpc<4, 4>(double_integrator, weights, kUnitInput, position_box(true), design::InvariantSet<64>{.target_margin = 0.1}).mpc.terminal == design::detail::MPCTerminal::invariant_set);
+    CHECK(design::mpc<4, 4>(double_integrator, weights, kUnitInput, position_box(true), design::InvariantSet<64>{.target_margin = 1.0}, design::TrackedOutputs{}).status == design::DesignStatus::invalid_parameter);
+    CHECK(design::mpc<4, 4>(double_integrator, weights, kUnitInput, position_box(true), design::InvariantSet<64>{.target_margin = 0.0}, design::TrackedOutputs{}).status == design::DesignStatus::invalid_parameter);
+    CHECK(design::mpc<4, 4>(double_integrator, weights, kUnitInput, position_box(true), design::InvariantSet<64>{.target_margin = 0.1}, design::TrackedOutputs{}).mpc.terminal == design::detail::MPCTerminal::invariant_set);
 }
 
 TEST_CASE("maximal_invariant_set matches a hand-derived 2-state MPI polytope") {
@@ -323,7 +325,7 @@ TEST_CASE("maximal_invariant_set reports empty on inconsistent G0 h0") {
 
 TEST_CASE("float conversion keeps terminal rows and the float tick stays in budget") {
     const auto weights = move_weight(0.01);
-    const auto art = design::mpc<4, 4>(double_integrator, weights, kUnitInput, position_box(true), design::InvariantSet<64>{});
+    const auto art = design::mpc<4, 4>(double_integrator, weights, kUnitInput, position_box(true), design::InvariantSet<64>{}, design::TrackedOutputs{});
     REQUIRE(art.success);
     const auto art_f = art.as<float>();
     CHECK(art_f.success);
@@ -352,7 +354,7 @@ TEST_CASE("float conversion keeps terminal rows and the float tick stays in budg
 
 TEST_CASE("terminal set moves with the target: every admissible target is inside, a near-bound overshoot is not") {
     const auto weights = move_weight(0.01);
-    const auto art = design::mpc<4, 4>(double_integrator, weights, kUnitInput, position_box(false), design::InvariantSet<64>{});
+    const auto art = design::mpc<4, 4>(double_integrator, weights, kUnitInput, position_box(false), design::InvariantSet<64>{}, design::TrackedOutputs{});
     REQUIRE(art.success);
     REQUIRE(art.mpc.n_terminal > 0);
 
@@ -390,7 +392,7 @@ TEST_CASE("4-state NP=10 dare_cost design is constexpr under default ops") {
             .lower = {-1.0, -1.0},
             .upper = {1.0, 1.0},
         };
-        return design::mpc<10, 4>(two_axes, weights, limits, design::DareCost{});
+        return design::mpc<10, 4>(two_axes, weights, limits, design::DareCost{}, design::TrackedOutputs{});
     }();
     static_assert(art.success);
     static_assert(art.mpc.P(4, 4) > 0.0); // the v block carries the move cost
@@ -407,7 +409,7 @@ TEST_CASE("4-state NP=10 invariant_set design") {
             .upper = {1.0, 1.0},
         };
         const design::OutputLimits positions{.outputs = {0, 1}, .lim = {.lower = {-1.0, -1.0}, .upper = {1.0, 1.0}}};
-        return design::mpc<10, 10>(two_axes, weights, limits, positions, design::InvariantSet<192>{});
+        return design::mpc<10, 10>(two_axes, weights, limits, positions, design::InvariantSet<192>{}, design::TrackedOutputs{});
     }();
     REQUIRE(art.success);
     CHECK(art.mpc.n_terminal > 64);
@@ -442,7 +444,7 @@ TEST_CASE("MaxIterations with an invariant_set holds unless the iterate is prima
     const ColVec<1> r{0.9};
     const ColVec<2> x0{0.5, 0.8};
 
-    const auto art_ok = design::mpc<4, 4>(double_integrator, move_weight(0.01), kUnitInput, position, design::InvariantSet<64>{});
+    const auto art_ok = design::mpc<4, 4>(double_integrator, move_weight(0.01), kUnitInput, position, design::InvariantSet<64>{}, design::TrackedOutputs{});
     REQUIRE(art_ok.success);
     REQUIRE(art_ok.mpc.n_terminal > 0);
     MPC        ok{art_ok};
@@ -451,7 +453,7 @@ TEST_CASE("MaxIterations with an invariant_set holds unless the iterate is prima
     CHECK(u_ok(0) >= -1.0);
     CHECK(u_ok(0) <= 1.0);
 
-    const auto art = design::mpc<4, 4>(double_integrator, move_weight(0.01), kUnitInput, position, design::InvariantSet<64>{}, design::QPIterations{1});
+    const auto art = design::mpc<4, 4>(double_integrator, move_weight(0.01), kUnitInput, position, design::InvariantSet<64>{}, design::QPIterations{1}, design::TrackedOutputs{});
     REQUIRE(art.success);
     MPC        controller{art};
     const auto u0 = controller.step(r, x0);

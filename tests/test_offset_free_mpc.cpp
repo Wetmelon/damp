@@ -748,7 +748,7 @@ TEST_SUITE("offset-free MPC error-state estimator") {
                 .lower = 0.0,
                 .upper = u_max,
             };
-            return design::mpc<30, 4>(plant, w, c, design::MeasuredDisturbance{kHeater.B});
+            return design::mpc<30, 4>(plant, w, c, design::MeasuredDisturbance{kHeater.B}, design::TrackedOutputs{});
         }
         using Law = decltype(MPC{law_design(1.0).template as<T>()});
 
@@ -868,9 +868,11 @@ TEST_SUITE("offset-free MPC terminal") {
     }
 }
 
-TEST_CASE("more controlled outputs than inputs: the target is an equilibrium, so d̂ stays 0 on an exact model") {
+TEST_CASE("more outputs than inputs: the listed one held, an equilibrium, so d̂ stays 0 on an exact model") {
     //! The stacked least squares put the target off the equilibria: d̂ = −0.019 with no
-    //! disturbance and y = (0.334, 0.334) against the measured-state MPC's (0.493, 0.493).
+    //! disturbance and y = (0.334, 0.334) against the measured-state MPC's (0.493, 0.493), the
+    //! least squares of r = (1, 0) over the equilibria x₁ = x₂ = u. Both outputs held no longer
+    //! compiles; the first, listed, is held at r = 1, and the second sits at the target's 1.
     const StateSpace plant{
         .A = {{0.9, 0.0}, {0.0, 0.8}},
         .B = {{0.1}, {0.2}},
@@ -882,9 +884,9 @@ TEST_CASE("more controlled outputs than inputs: the target is an equilibrium, so
     design::MPCWeights<1, 2> w{};
     w.Rdu = 0.1;
     const design::KalmanNoise<2, 2, double, 1> noise{.process = Matrix<2, 2>::identity() * 1e-4, .measurement = Matrix<2, 2>::identity() * 1e-4, .disturbance = 1e-4};
-    const auto                                 art = design::mpc<20, 5>(plant, w, noise, design::InputDisturbance{});
+    const auto                                 art = design::mpc<20, 5>(plant, w, noise, design::InputDisturbance{{0}});
     REQUIRE(art.success);
-    const auto nominal = design::mpc<20, 5>(StateSpace{.A = plant.A, .B = plant.B, .C = plant.C, .Ts = 0.1}, w);
+    const auto nominal = design::mpc<20, 5>(StateSpace{.A = plant.A, .B = plant.B, .C = plant.C, .Ts = 0.1}, w, design::TrackedOutputs{{0}});
     REQUIRE(nominal.success);
     OFMPC     law{art};
     MPC       reference{nominal};
@@ -892,12 +894,14 @@ TEST_CASE("more controlled outputs than inputs: the target is an equilibrium, so
     ColVec<2> x_ref{};
     ColVec<1> u{};
     for (size_t k = 0; k < 600; ++k) {
-        u = law.step(ColVec<2>{1.0, 0.0}, x);
+        u = law.step(1.0, x);
         x = ColVec<2>{(0.9 * x(0)) + (0.1 * u(0)), (0.8 * x(1)) + (0.2 * u(0))};
-        const auto u_ref = reference.step(ColVec<2>{1.0, 0.0}, x_ref);
+        const auto u_ref = reference.step(1.0, x_ref);
         x_ref = ColVec<2>{(0.9 * x_ref(0)) + (0.1 * u_ref(0)), (0.8 * x_ref(1)) + (0.2 * u_ref(0))};
     }
     CHECK(law.disturbance_estimate()(0) == doctest::Approx(0.0).scale(1.0).epsilon(1e-9));
+    CHECK(x(0) == doctest::Approx(1.0).epsilon(1e-6)); // held at r
+    CHECK(x(1) == doctest::Approx(1.0).epsilon(1e-6)); // where the steady state puts it
     CHECK(x(0) == doctest::Approx(x_ref(0)).epsilon(1e-6));
     CHECK(x(1) == doctest::Approx(x_ref(1)).epsilon(1e-6));
 }

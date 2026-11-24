@@ -189,7 +189,7 @@ void check_measured_laws(double theta) {
     design::MPCWeights<1, 1> w{};
     w.Qy = 1e4;
     w.Rdu = 1e-4;
-    const auto mpc = design::mpc<20 + N, 5>(model, w);
+    const auto mpc = design::mpc<20 + N, 5>(model, w, design::TrackedOutputs{});
     REQUIRE(mpc.success);
     MPC              planner{mpc};
     Truth<NS>        c{truth};
@@ -515,10 +515,10 @@ TEST_SUITE("Design on the delayed model") {
         design::MPCWeights<1, 1> w{};
         w.Qy = 1e4;
         w.Rdu = 1e-4;
-        const auto naive = design::mpc<40, 10>(kUndelayed, w);
+        const auto naive = design::mpc<40, 10>(kUndelayed, w, design::TrackedOutputs{});
         REQUIRE(naive.success);
         for (const double theta : {0.4 * kTs, kTs}) {
-            const auto aware = design::mpc<40, 10>(discretize(mass_spring(), kTs, InputDelay{theta}).value(), w);
+            const auto aware = design::mpc<40, 10>(discretize(mass_spring(), kTs, InputDelay{theta}).value(), w, design::TrackedOutputs{});
             REQUIRE(aware.success);
             MPC             ca{aware};
             MPC             cb{naive};
@@ -643,7 +643,7 @@ TEST_SUITE("Design on the delayed model") {
         // runtime takes the plant's state and holds the delay states itself. The true plant is the
         // delay-state form of each delay.
         const design::MPCWeights<1, 1> w{.Qy = {1e6}, .Rdu = {1e-6}}; // per second: 1e4 and 1e-4 per step at Ts = 0.01
-        const auto                     naive = design::mpc<40, 10>(mass_spring(), kTs, w);
+        const auto                     naive = design::mpc<40, 10>(mass_spring(), kTs, w, design::TrackedOutputs{});
         REQUIRE(naive.success);
         const auto run = [&](const auto& aware, double theta, bool blind_rings) {
             REQUIRE(aware.success);
@@ -667,8 +667,8 @@ TEST_SUITE("Design on the delayed model") {
                 CHECK(tb.worst > 1e-2);
             }
         };
-        run(design::mpc<40, 10>(mass_spring(), kTs, w, InputDelay{0.4 * kTs}), 0.4 * kTs, false); // at 0.4·Ts the delay-blind MPC still holds
-        run(design::mpc<40, 10>(mass_spring(), kTs, w, InputDelay{kTs}), kTs, true);
+        run(design::mpc<40, 10>(mass_spring(), kTs, w, InputDelay{0.4 * kTs}, design::TrackedOutputs{}), 0.4 * kTs, false); // at 0.4·Ts the delay-blind MPC still holds
+        run(design::mpc<40, 10>(mass_spring(), kTs, w, InputDelay{kTs}, design::TrackedOutputs{}), kTs, true);
     }
 
     TEST_CASE("offset-free MPC with an InputDelay: design::kalman's filter with the same delay, offset-free under a load") {
@@ -723,7 +723,7 @@ TEST_SUITE("Design on the delayed model") {
 
         //! Without a disturbance the target is the nominal one, on the filter's model: the readings' delay states at the steady output
         const design::KalmanNoise noise{.process = Matrix<2, 2>{{1e-2, 0.0}, {0.0, 1.0}}, .measurement = Matrix<1, 1>{{1e-6}}};
-        const auto                late = design::mpc<40, 10>(mass_spring(), kTs, w, noise, out);
+        const auto                late = design::mpc<40, 10>(mass_spring(), kTs, w, noise, design::TrackedOutputs{}, out);
         REQUIRE(late.success);
         CHECK(late.target.target_r(0, 0) == doctest::Approx(1.0).epsilon(1e-9)); // per unit r: the position
         CHECK(late.target.target_r(2, 0) == doctest::Approx(1.0).epsilon(1e-9)); // and both readings on their way

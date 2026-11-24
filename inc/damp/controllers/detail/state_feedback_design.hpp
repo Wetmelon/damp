@@ -193,7 +193,9 @@ template<bool Discrete, size_t NI, size_t NX, size_t NU, size_t NY, typename T, 
  * @brief The target of an LQ law with a measured disturbance, on the model of @p sys with @p delay:
  *        under [d̂; d] holding at r the outputs its spec or TrackedOutputs lists (@p Held), else
  *        the steady state under d that holds at 0 the integrated outputs @p Ci (an LQI's, NI > 0,
- *        whose integrators then hold r) or every output (a regulator), with no map of r.
+ *        whose integrators then hold r) or every output (a regulator), with no map of r. Either
+ *        holds at most NU outputs (check_held_outputs): a regulator on a plant with more outputs
+ *        than inputs does not compile under a measured d, and lists the ones it holds at r = 0.
  *
  * The law is u = u_t − K·(x − x_t) about it: for a d held constant, as the MPC holds it over its
  * horizon, that is the LQ law in the deviation from the steady state under d, so no term beyond
@@ -215,7 +217,7 @@ template<bool Held, bool Discrete, size_t NX, size_t NU, size_t NY, typename T, 
         if (!Bm) {
             return ::damp::detail::refused<Result>(DesignStatus::bad_weights); // a non-finite B_d
         }
-        return target_design<Discrete>(sys, Ts, spec, target_weight<Spec, NU, NY, NW, T>::identity(), delay, *Bm);
+        return target_design<Discrete>(sys, Ts, spec, delay, *Bm);
     } else {
         static_cast<void>(spec);
         if (!Bm) {
@@ -299,7 +301,7 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
             status = (status == DesignStatus::ok) ? filter.status : status;
         }
         if constexpr (kTarget && NM == 0) {
-            out.target = target_design<Discrete>(sys, Ts, spec, target_weight<SpecT, NU, NY, NW, T>::identity(), delay);
+            out.target = target_design<Discrete>(sys, Ts, spec, delay);
         } else if constexpr (kTarget) {
             out.target = measured_target<kHeld, Discrete>(sys, Ts, spec, Ci ? *Ci : Matrix<NI, NY, T>{}, Bm, delay);
         }
