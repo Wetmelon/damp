@@ -9,7 +9,7 @@
 /**
  * @file state_feedback_design.hpp
  * @brief The design behind lqr, lqi, lqg, lqgi and oflqg: detail::state_feedback, the gain on the
- *        plant or on its model with input registers, then the filter and the target the options ask for
+ *        plant or on its model with input delay states, then the filter and the target the options ask for
  */
 
 #include "damp/backend.hpp"
@@ -161,7 +161,7 @@ template<size_t NI, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size
         return ::damp::detail::refused<Result>(m.status);
     }
     const auto& model = m.law;
-    const auto  inputs = ::damp::detail::channel_register_delays<NU>(delay.seconds, Ts, N); // as discretize accepted them
+    const auto  inputs = ::damp::detail::channel_delay_splits<NU>(delay.seconds, Ts, N); // as discretize accepted them
     const auto  cost = inputs ? delayed_cost(sys, model, *inputs, Ci, w, Ts) : damp::nullopt;
     if (!cost) {
         return ::damp::detail::refused<Result>(DesignStatus::bad_weights); // a non-finite weight on the sampled plant
@@ -176,7 +176,7 @@ template<size_t NI, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size
     }
 }
 
-/** @brief The gain of a design: on the plant (law_design), or on the model with the input registers of @p delay (delayed_law_design). */
+/** @brief The gain of a design: on the plant (law_design), or on the model with the input delay states of @p delay (delayed_law_design). */
 template<bool Discrete, size_t NI, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Delay>
 [[nodiscard]] constexpr auto gain_design(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T Ts, const lq_config<NX, NU, NI, T>& w, const Matrix<NI, NY, T>& Ci, const Delay& delay) {
     using In = damp::remove_cvref_t<decltype(input_delay_of(delay))>;
@@ -231,7 +231,7 @@ template<bool Held, bool Discrete, size_t NX, size_t NU, size_t NY, typename T, 
 
 /**
  * @brief The design on checked options: the law, then the filter and the target they ask for, on
- *        the plant or on its model with the input registers of @p delay; status the first failure.
+ *        the plant or on its model with the input delay states of @p delay; status the first failure.
  */
 template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Options, typename Delay = NoDelay>
 [[nodiscard]] constexpr auto designed(
@@ -243,7 +243,7 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
 ) {
     using O = options_traits<Options>;
     constexpr size_t NI = integrator_count<NY, Options>;
-    constexpr size_t NRU = delay_registers<Delay>;
+    constexpr size_t NRU = input_delay_states<Delay>;
     constexpr size_t NM = measured_count<Options>;
     constexpr bool   kEstimated = !is_unset<typename O::noise>;
     constexpr bool   kHeld = !is_unset<typename O::disturbance> || !is_unset<typename O::track>; // r is the target's
@@ -351,7 +351,7 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
  * With `.offset_free = IntegralAction{}`, the integrators ξ advance by xi += Ts·(r − Ci·y)
  * (MATLAB®'s discrete lqi, so ξ ≈ ∫e dt and Q_integral means what it does on the sampled route).
  * An input delay on a discrete plant is part of its model: design on the one
- * discretize(plant, Ts, InputDelay<N>{θ}) returns, its registers states like any other, or from
+ * discretize(plant, Ts, InputDelay<N>{θ}) returns, whose delay states are states like any other, or from
  * the continuous plant with state_feedback(sys, Ts, InputDelay<N>{θ}, config, options).
  * The other options are state_feedback(sys, Ts, config, options)'s.
  *
@@ -399,7 +399,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
  * @par Input delay
  * A delay is a model of the plant: state_feedback(sys, Ts, InputDelay<N>{θ}, config, options)
  * designs on discretize(sys, Ts, InputDelay<N>{θ}) with the cost discretized exactly, every
- * option as here. A measured-state law holds the registers v(k−1) … v(k−N); a filter carries
+ * option as here. A measured-state law holds the delay states v(k−1) … v(k−N); a filter carries
  * them as states of its model, with no process noise on them. An OutputDelay<M>{θ} (a late
  * reading, with a KalmanNoise) adds delay states to the filter alone: the gain is the one
  * without it, and the target holds the late readings' delay states at the steady output.
@@ -470,15 +470,15 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
  *
  * The model is discretize(sys, Ts, delay), and the cost integral is discretized on it exactly:
  * the plant runs on the input it holds within each period, which switches at the delay's
- * fraction of a sample (delayed_cost). The registers take no weight of their own, so the weights
+ * fraction of a sample (delayed_cost). The delay states take no weight of their own, so the weights
  * of @p config are the plant's, as for the design without a delay, and mean the same at any Ts
  * and any delay.
  *
  * The options are state_feedback(sys, Ts, config, options)'s, each on the delayed model. A
- * measured-state law (LQR, LQI) holds the registers: update takes the plant state, and predict
+ * measured-state law (LQR, LQI) holds the delay states: update takes the plant state, and predict
  * shifts in the input back_calculate recorded. A filter (`.noise`) is design::kalman(sys, Ts,
- * delay, noise): the process noise acts on the plant, none on the registers, which it carries
- * exactly. A target holds each register at u_t. x_ref is the plant's and the registers'
+ * delay, noise): the process noise acts on the plant, none on the delay states, which it carries
+ * exactly. A target holds each delay state at u_t. x_ref is the plant's and the delay states'
  * reference is u_ref, on every law.
  *
  * Refused as state_feedback(sys, Ts, config, options), and with discretize's status for a delay

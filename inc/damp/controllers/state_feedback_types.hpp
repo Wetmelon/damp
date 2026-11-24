@@ -434,7 +434,7 @@ struct [[nodiscard]] StateFeedbackResult {
      * | Kalman filter, disturbance model (OFLQG) | [x̂; d̂](k−1\|k−1) | y | u |
      * | Kalman filter, integrators | [x̂(k\|k−1); ξ; u_prev] | [r; y] | u |
      *
-     * With input registers, x is the law's model [x; v(k−1); …], the state of the delayed plant the
+     * With input delay states, x is the law's model [x; v(k−1); …], the state of the delayed plant the
      * loop closes on.
      *
      * With integrators, @f$ u = -K_x x - K_i \xi @f$ reads the current ξ, then

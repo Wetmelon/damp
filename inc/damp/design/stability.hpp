@@ -236,8 +236,8 @@ template<size_t NX, size_t NU, typename T>
  * the rank tolerance has to absorb.
  *
  * The rank tolerance is relative to the largest singular value, so the test matrix is
- * conditioned first, by operations that do not change its rank. Balancing (a delay
- * register that copies a 10⁵-gain accelerometer row into A otherwise puts that row next
+ * conditioned first, by operations that do not change its rank. Balancing (a delay state
+ * that copies a 10⁵-gain accelerometer row into A otherwise puts that row next
  * to rows of 10⁻³, and the tolerance reads the small ones as zero). Then every B column is
  * brought to A's scale: a large-magnitude input (or, for the dual, a large-gain sensor row)
  * cannot hide the others. Then every row is brought to unit size, so a decoupled state's

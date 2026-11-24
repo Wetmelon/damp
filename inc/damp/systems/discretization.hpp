@@ -597,7 +597,7 @@ namespace detail {
 
 /** @brief A delay written as d·Ts + τ. */
 template<typename T>
-struct RegisterDelay {
+struct DelaySplit {
     size_t whole{0};       ///< d, the whole periods
     T      fraction{T{0}}; ///< [s] τ, 0 ≤ τ < Ts: when the held input switches within the period
 };
@@ -609,7 +609,7 @@ struct RegisterDelay {
  *         samples, or Ts is not finite and positive.
  */
 template<typename T>
-[[nodiscard]] constexpr damp::optional<RegisterDelay<T>> register_delay(T seconds, T sampling_time, size_t capacity) {
+[[nodiscard]] constexpr damp::optional<DelaySplit<T>> split_delay(T seconds, T sampling_time, size_t capacity) {
     if (!damp::isfinite(seconds) || !(seconds >= T{0}) || !damp::finite_positive(sampling_time)) {
         return damp::nullopt;
     }
@@ -617,8 +617,8 @@ template<typename T>
     if (seconds > (static_cast<T>(capacity) * sampling_time) + tol) {
         return damp::nullopt;
     }
-    RegisterDelay<T> out{static_cast<size_t>(seconds / sampling_time), T{0}}; // at most capacity: checked above
-    const T          rest = seconds - (static_cast<T>(out.whole) * sampling_time);
+    DelaySplit<T> out{static_cast<size_t>(seconds / sampling_time), T{0}}; // at most capacity: checked above
+    const T       rest = seconds - (static_cast<T>(out.whole) * sampling_time);
     if (rest > sampling_time - tol) {
         ++out.whole;
     } else if (rest > tol && out.whole < capacity) {
@@ -645,12 +645,12 @@ template<typename T, typename S>
     }
 }
 
-/** @brief Each channel's delay split by register_delay, or nullopt if any is refused. */
+/** @brief Each channel's delay split by split_delay, or nullopt if any is refused. */
 template<size_t NC, typename T, typename S>
-[[nodiscard]] constexpr damp::optional<damp::array<RegisterDelay<T>, NC>> channel_register_delays(const S& seconds, T sampling_time, size_t capacity) {
-    damp::array<RegisterDelay<T>, NC> out{};
+[[nodiscard]] constexpr damp::optional<damp::array<DelaySplit<T>, NC>> channel_delay_splits(const S& seconds, T sampling_time, size_t capacity) {
+    damp::array<DelaySplit<T>, NC> out{};
     for (size_t j = 0; j < NC; ++j) {
-        const auto split = register_delay(channel_seconds<T>(seconds, j), sampling_time, capacity);
+        const auto split = split_delay(channel_seconds<T>(seconds, j), sampling_time, capacity);
         if (!split) {
             return damp::nullopt;
         }
@@ -692,7 +692,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,  // continuous
     const StateSpace<NX, NU, NY, T, NW, NV>& at_s, // discretize_zoh_impl(sys, s)
     T                                        s,
-    const damp::array<RegisterDelay<T>, NU>& inputs
+    const damp::array<DelaySplit<T>, NU>&    inputs
 ) {
     PeriodResponse<NX, NU, NW, T>     out{.at = s, .Phi = at_s.A, .noise = at_s.G};
     StateSpace<NX, NU, NY, T, NW, NV> head{}; // over [0, τ]: ∫₀^τ e^{Aη}dη B
@@ -742,25 +742,25 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
  * noise of the reading it holds, C·∫₀^{s}e^{Aη}dη G, so a whole-sample one carries none.
  */
 template<size_t NRU, size_t NRY, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
-[[nodiscard]] constexpr StateSpace<NX + (NRU * NU) + (NRY * NY), NU, NY, T, NW, NV> delay_registers(
+[[nodiscard]] constexpr StateSpace<NX + (NRU * NU) + (NRY * NY), NU, NY, T, NW, NV> with_delay_states(
     const StateSpace<NX, NU, NY, T, NW, NV>&              plant, // the discrete plant: its C, D, H and Ts
     const PeriodResponse<NX, NU, NW, T>&                  step,  // over the whole period
     const damp::array<PeriodResponse<NX, NU, NW, T>, NY>& readings,
-    const damp::array<RegisterDelay<T>, NU>&              inputs,
-    const damp::array<RegisterDelay<T>, NY>&              outputs
+    const damp::array<DelaySplit<T>, NU>&                 inputs,
+    const damp::array<DelaySplit<T>, NY>&                 outputs
 ) {
     constexpr size_t                  NS = NX + (NRU * NU) + (NRY * NY);
     StateSpace<NS, NU, NY, T, NW, NV> out{};
     out.G = Matrix<NS, NW, T>{}; // not the square default identity: the delay states get only what is set below
     out.H = plant.H;
     out.Ts = plant.Ts;
-    const auto input_register = [](size_t m, size_t j) { return NX + ((m - 1) * NU) + j; };
-    const auto output_register = [](size_t m, size_t i) { return NX + (NRU * NU) + ((m - 1) * NY) + i; };
+    const auto input_delay_state = [](size_t m, size_t j) { return NX + ((m - 1) * NU) + j; };
+    const auto output_delay_state = [](size_t m, size_t i) { return NX + (NRU * NU) + ((m - 1) * NY) + i; };
     const auto add_input = [&](size_t row, size_t j, size_t age, T c) { // c·v_j(k − age): v(k) itself, or its delay state
         if (age == 0) {
             out.B(row, j) += c;
         } else {
-            out.A(row, input_register(age, j)) += c;
+            out.A(row, input_delay_state(age, j)) += c;
         }
     };
     const auto held_age = [&](size_t j, T s) { // the age of the value input j holds s into the period
@@ -779,16 +779,16 @@ template<size_t NRU, size_t NRY, size_t NX, size_t NU, size_t NY, typename T, si
     }
     if constexpr (NRU > 0) {
         for (size_t j = 0; j < NU; ++j) {
-            out.B(input_register(1, j), j) = T{1};
+            out.B(input_delay_state(1, j), j) = T{1};
             for (size_t m = 2; m <= NRU; ++m) {
-                out.A(input_register(m, j), input_register(m - 1, j)) = T{1};
+                out.A(input_delay_state(m, j), input_delay_state(m - 1, j)) = T{1};
             }
         }
     }
     if constexpr (NRY > 0) {
         for (size_t i = 0; i < NY; ++i) {
             const auto&  at = readings[i];
-            const size_t row = output_register(1, i);
+            const size_t row = output_delay_state(1, i);
             for (size_t c = 0; c < NX; ++c) {
                 T v{0};
                 for (size_t l = 0; l < NX; ++l) {
@@ -817,14 +817,14 @@ template<size_t NRU, size_t NRY, size_t NX, size_t NU, size_t NY, typename T, si
                 out.G(row, w) = v;
             }
             for (size_t m = 2; m <= NRY; ++m) {
-                out.A(output_register(m, i), output_register(m - 1, i)) = T{1};
+                out.A(output_delay_state(m, i), output_delay_state(m - 1, i)) = T{1};
             }
         }
     }
     for (size_t i = 0; i < NY; ++i) {
         const size_t lag = outputs[i].whole + ((outputs[i].fraction > T{0}) ? 1 : 0);
         if (lag > 0) {
-            out.C(i, output_register(lag, i)) = T{1};
+            out.C(i, output_delay_state(lag, i)) = T{1};
             continue;
         }
         for (size_t c = 0; c < NX; ++c) {
@@ -835,7 +835,7 @@ template<size_t NRU, size_t NRY, size_t NX, size_t NU, size_t NY, typename T, si
             if (age == 0) {
                 out.D(i, j) = plant.D(i, j);
             } else {
-                out.C(i, input_register(age, j)) = plant.D(i, j);
+                out.C(i, input_delay_state(age, j)) = plant.D(i, j);
             }
         }
     }
@@ -854,8 +854,8 @@ template<size_t NRU, size_t NRY, size_t NX, size_t NU, size_t NY, typename T, si
 [[nodiscard]] constexpr DiscretizationResult<NX + (NRU * NU) + (NRY * NY), NU, NY, T, NW, NV> discretize_delayed(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     T                                        sampling_time,
-    const damp::array<RegisterDelay<T>, NU>& inputs,
-    const damp::array<RegisterDelay<T>, NY>& outputs,
+    const damp::array<DelaySplit<T>, NU>&    inputs,
+    const damp::array<DelaySplit<T>, NY>&    outputs,
     DiscretizationMethod                     method
 ) {
     using Result = DiscretizationResult<NX + (NRU * NU) + (NRY * NY), NU, NY, T, NW, NV>;
@@ -878,7 +878,7 @@ template<size_t NRU, size_t NRY, size_t NX, size_t NU, size_t NY, typename T, si
             return refused<Result>(base.status);
         }
         const Response step{.at = sampling_time, .Phi = base->A, .fresh = base->B, .noise = base->G};
-        return discretized(delay_registers<NRU, NRY>(*base, step, readings, inputs, outputs));
+        return discretized(with_delay_states<NRU, NRY>(*base, step, readings, inputs, outputs));
     }
     if (!damp::isfinite(sys.Ts) || sys.Ts != T{0}) {
         return refused<Result>(DesignStatus::invalid_sample_time); // a fraction of a sample needs the continuous plant
@@ -915,7 +915,7 @@ template<size_t NRU, size_t NRY, size_t NX, size_t NU, size_t NY, typename T, si
         }
         readings[i] = *r;
     }
-    return discretized(delay_registers<NRU, NRY>(*full, *step, readings, inputs, outputs));
+    return discretized(with_delay_states<NRU, NRY>(*full, *step, readings, inputs, outputs));
 }
 
 /** @brief discretize_delayed from the delays as InputDelay and OutputDelay hold them: invalid_parameter if one is refused. */
@@ -933,8 +933,8 @@ template<size_t NRU, size_t NRY, size_t NX, size_t NU, size_t NY, typename T, si
     if (!damp::finite_positive(sampling_time)) {
         return refused<Result>(design::DesignStatus::invalid_sample_time);
     }
-    const auto inputs = channel_register_delays<NU>(input_seconds, sampling_time, NRU);
-    const auto outputs = channel_register_delays<NY>(output_seconds, sampling_time, NRY);
+    const auto inputs = channel_delay_splits<NU>(input_seconds, sampling_time, NRU);
+    const auto outputs = channel_delay_splits<NY>(output_seconds, sampling_time, NRY);
     if (!inputs || !outputs) {
         return refused<Result>(design::DesignStatus::invalid_parameter);
     }

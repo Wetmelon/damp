@@ -24,7 +24,7 @@ namespace damp {
  * kRes is a named result with static storage (namespace scope, or a `static` member or local).
  *
  * On a `constexpr` kRes the design's matrices are constants of the type: they take no RAM, and a
- * coefficient that is exactly 0 is no code, which removes the sparse work of a delay register, a
+ * coefficient that is exactly 0 is no code, which removes the sparse work of a delay state, a
  * plant with an integrator or a measurement of a single state. The ticks and the numbers are the
  * runtime's own. Nothing can replace them, so a member a redesign assigns is
  * `Law<kRes, float>::Runtime law{kRes.as<float>()};`. The coefficients move from RAM to flash, as

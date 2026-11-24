@@ -196,9 +196,9 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
         DesignStatus      status = place_gain(At, CAt, poles, Mt);
         if (status != DesignStatus::ok) {
             //! That pair is rank-deficient by construction, and a repeated pole at 0 (two or more
-            //! delay registers) reaches a rank test that reads roundoff. L places the poles, and an
+            //! delay states) reaches a rank test that reads roundoff. L places the poles, and an
             //! M with A M = L has them too: eig((I − M C) A) = eig(A − L C). A⁺L is such an M only
-            //! where L lies in A's range, which a request on a pinned register mode can leave.
+            //! where L lies in A's range, which a request on a pinned delay state's mode can leave.
             if (const auto A_pinv = mat::pseudo_inverse(out.sys.A)) {
                 const Matrix<NX, NY, T> M_L = *A_pinv * out.L;
                 const T                 tol = T{64} * static_cast<T>(NX) * eps<T>() * ((out.sys.A.norm() * M_L.norm()) + out.L.norm());
@@ -269,11 +269,11 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
  * κ₁(A)·ε relative, amplified along the directions A nearly erases. Past that bound M keeps
  * fewer than half its digits, and the error puts large components into x̂[k|k], which the next
  * predict erases but u = −K x̂[k|k] reads. A singular or ill-conditioned A (a pure delay, a
- * register state, a mode much faster than the sample rate) takes the direct placement instead,
+ * delay state, a mode much faster than the sample rate) takes the direct placement instead,
  * which never divides by A: Mᵀ = place(Aᵀ, (C A)ᵀ, p), then L = A M. The modes in A's (near)
  * null space are (nearly) unobservable through C A, and the status is the one that placement
  * reports, unless M = A⁺ L has the requested poles: where that pair's rank deficit decides the
- * placement (a pole at 0 repeated, on two or more delay registers), any M with A M = L has them.
+ * placement (a pole at 0 repeated, on two or more delay states), any M with A M = L has them.
  *
  * A mode the plant forgets within a sample (an eigenvalue λ of A near 0) has a current-form
  * error pole near 0 for any bounded gain: request a pole near 0 for it. A slow pole requested
@@ -590,7 +590,7 @@ struct HeldObserver {
  *   anchors the deviation carries the reference point's own motion over the period,
  *   @f$ A x^* + B u^* - x^* @f$, so a reference need not be a trajectory of the model; at a
  *   setpoint that term is zero and the deviation observer is the absolute one in exact arithmetic.
- * - An input delay is in the model discretize(plant, Ts, InputDelay<N>{θ}) returns: its registers
+ * - An input delay is in the model discretize(plant, Ts, InputDelay<N>{θ}) returns: its delay states
  *   v(k−1) … v(k−N) are states like any other, the first loaded through B.
  * - A design with a MeasuredDisturbance takes it as inputs after u (NU counts both): predict([u; d]),
  *   the d the plant held over the period, and an anchor's input is [u_a; d_a].

@@ -1023,7 +1023,7 @@ struct MpcContinuousCost {
     T                   Ts{0};     ///< Period [s]
     bool                on{false}; ///< Whether the design is from the continuous plant
 
-    damp::array<::damp::detail::RegisterDelay<T>, NU> inputs{}; ///< Each input's delay, d·Ts + τ (none: zero)
+    damp::array<::damp::detail::DelaySplit<T>, NU> inputs{}; ///< Each input's delay, d·Ts + τ (none: zero)
 };
 
 /**
@@ -1793,10 +1793,10 @@ template<typename Spec, size_t NS>
  */
 template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t ND>
 [[nodiscard]] constexpr MpcContinuousCost<NX, NU, NY, ND, T> mpc_continuous_cost(
-    const StateSpace<NX, NU, NY, T, NW, NV>&                 sys,
-    const Matrix<NX, ND, T>&                                 Bd_c,
-    T                                                        Ts,
-    const damp::array<::damp::detail::RegisterDelay<T>, NU>& inputs = {}
+    const StateSpace<NX, NU, NY, T, NW, NV>&              sys,
+    const Matrix<NX, ND, T>&                              Bd_c,
+    T                                                     Ts,
+    const damp::array<::damp::detail::DelaySplit<T>, NU>& inputs = {}
 ) {
     MpcContinuousCost<NX, NU, NY, ND, T> out{};
     if constexpr (!Discrete) {
@@ -1812,10 +1812,10 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
 
 /** @brief Each input's delay as discretize split it, d·Ts + τ: none without an InputDelay. */
 template<size_t NU, typename T, typename Delay>
-[[nodiscard]] constexpr damp::array<::damp::detail::RegisterDelay<T>, NU> input_delays_of(const Delay& delay, T Ts) {
+[[nodiscard]] constexpr damp::array<::damp::detail::DelaySplit<T>, NU> input_delays_of(const Delay& delay, T Ts) {
     if constexpr (is_input_delay<Delay>::value) {
-        const auto split = ::damp::detail::channel_register_delays<NU>(delay.seconds, Ts, delay_registers<Delay>);
-        return split ? *split : damp::array<::damp::detail::RegisterDelay<T>, NU>{}; // sampled_model refused a delay discretize does not take
+        const auto split = ::damp::detail::channel_delay_splits<NU>(delay.seconds, Ts, input_delay_states<Delay>);
+        return split ? *split : damp::array<::damp::detail::DelaySplit<T>, NU>{}; // sampled_model refused a delay discretize does not take
     } else {
         static_cast<void>(delay);
         static_cast<void>(Ts);
@@ -1840,10 +1840,10 @@ template<
     const TrackedOutputs<NS>&                held,
     const Delay&                             delay = Delay{}
 ) {
-    constexpr size_t NXL = NX + (delay_registers<Delay> * NU); // the plant, then the delay states
+    constexpr size_t NXL = NX + (input_delay_states<Delay> * NU); // the plant, then the delay states
     using Law = MPCArtifacts<NXL, NU, NY, NP, NC, NM, T, NT_max, NXC, NYC>;
     using Target = SteadyStateTargetResult<NXL, NU, NM, target_outputs<TrackedOutputs<NS>, NU, NY, NW>, T>;
-    using Result = MPCResult<Law, NoEstimator, Target, delay_registers<Delay>, NS>; // the runtime holds the delay states
+    using Result = MPCResult<Law, NoEstimator, Target, input_delay_states<Delay>, NS>; // the runtime holds the delay states
     const auto m = sampled_model(sys, Ts, Discrete, delay);
     if (m.status != DesignStatus::ok) {
         return ::damp::detail::refused<Result>(m.status);
@@ -1885,8 +1885,8 @@ template<
     constexpr size_t ND = disturbance_traits<Spec, NU, NY, NW>::states;
     static_assert(NWN == NW && NVN == NV, "KalmanNoise is sized to the plant's noise inputs: KalmanNoise<NW, NV> for the columns of G and H.");
     static_assert(NDN == ND, "KalmanNoise carries the random walk of the spec's ND disturbances: KalmanNoise<NW, NV, T, ND>.");
-    constexpr size_t NXL = NX + (delay_registers<Delay> * NU); // the QP's: the plant, then the input's delay states
-    constexpr size_t NXE = NX + delay_states<Delay, NU, NY>;   // the filter's: then the late readings' delay states
+    constexpr size_t NXL = NX + (input_delay_states<Delay> * NU); // the QP's: the plant, then the input's delay states
+    constexpr size_t NXE = NX + delay_states<Delay, NU, NY>;      // the filter's: then the late readings' delay states
     const auto&      in = input_delay_of(delay);
     const auto       Bm = measured_channel<Discrete>(sys, Ts, measured, delay); // on the filter's model
     const auto       kf = with_measured_inputs(kalman_design<Discrete>(sys, Ts, noise, spec, delay), Bm);
@@ -1894,7 +1894,7 @@ template<
     using Aim = damp::remove_cvref_t<decltype(aim)>;
     using Target = SteadyStateTargetResult<NXE, NU, ND + NM, target_outputs<Aim, NU, NY, NW>, T>;
     using Law = MPCArtifacts<NXL, NU, NY, NP, NC, ND + NM, T, NT_max, NXC, NYC>;
-    using Result = MPCResult<Law, damp::remove_cvref_t<decltype(kf)>, Target, delay_registers<Delay>, disturbance_traits<Aim, NU, NY, NW>::listed>; // the filter carries the delay states
+    using Result = MPCResult<Law, damp::remove_cvref_t<decltype(kf)>, Target, input_delay_states<Delay>, disturbance_traits<Aim, NU, NY, NW>::listed>; // the filter carries the delay states
     Result     out{.kalman = kf};
     const auto m = sampled_model(sys, Ts, Discrete, in);
     if (m.status != DesignStatus::ok || !Bm) {

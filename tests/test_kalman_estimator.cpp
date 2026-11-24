@@ -10,10 +10,10 @@
  *
  * The disturbance-augmented filter and the target are checked against the offset-free design they
  * compose into (design::state_feedback with a KalmanNoise and a disturbance spec, OFLQG): the same gains, maps and commands. A delayed plant is a
- * model, discretize(plant, Ts, InputDelay{θ}), designed on like any other: its register holds a
+ * model, discretize(plant, Ts, InputDelay{θ}), designed on like any other: its delay state holds a
  * command already sent, so the filter puts no gain on it and
  * its plant part is the undelayed filter, and the target is the undelayed steady state with the
- * register holding the input that reaches the plant. The law's filter, run in deviations from the
+ * delay state holding the input that reaches the plant. The law's filter, run in deviations from the
  * target it is anchored on, is checked against the textbook offset-free law on the absolute state,
  * u = u_t − K(x̂ − x_t): the same estimates and commands.
  */
@@ -38,8 +38,8 @@
 #include "damp/matrix/matrix.hpp"
 #include "damp/systems/discretization.hpp"
 #include "damp/systems/state_space.hpp"
+#include "delay_state_form.hpp"
 #include "doctest.h"
-#include "register_form.hpp"
 
 using namespace damp;
 
@@ -80,7 +80,7 @@ const Matrix<2, 2> kQp{{1e-6, 0.0}, {0.0, 1e-4}};
 const Matrix<1, 1> kRn{{1e-6}};
 const Matrix<1, 1> kQd{{1e-3}};
 const Matrix<2, 2> kQ{{1e3, 0.0}, {0.0, 1.0}};
-const Matrix<3, 3> kQ3{{1e3, 0.0, 0.0}, {0.0, 1.0, 0.0}, {0.0, 0.0, 0.0}}; // kQ on [x; v(k−1)], the register unweighted
+const Matrix<3, 3> kQ3{{1e3, 0.0, 0.0}, {0.0, 1.0, 0.0}, {0.0, 0.0, 0.0}}; // kQ on [x; v(k−1)], the delay state unweighted
 const Matrix<1, 1> kR{{1e-2}};
 
 template<typename A, typename B>
@@ -104,7 +104,7 @@ ColVec<N> lead(const ColVec<M>& v) {
     return out;
 }
 
-/// The rows of @p m on the plant of a delayed model [x; v(k−1)]: m, then NU zero rows for the register.
+/// The rows of @p m on the plant of a delayed model [x; v(k−1)]: m, then NU zero rows for the delay state.
 template<size_t NU, size_t NX, size_t NC>
 Matrix<NX + NU, NC> padded(const Matrix<NX, NC>& m) {
     Matrix<NX + NU, NC> out{};
@@ -114,16 +114,16 @@ Matrix<NX + NU, NC> padded(const Matrix<NX, NC>& m) {
 
 /**
  * The filter on a delayed model [x; v(k−1)] against the plain filter on the undelayed plant. The
- * register is loaded with the command and gets no process noise: it is known exactly, so its
+ * delay state is loaded with the command and gets no process noise: it is known exactly, so its
  * covariance and gain are zero and the plant's part solves the undelayed Riccati equation.
  */
 template<size_t NX, size_t NXD, size_t NU, size_t NY, size_t NW, size_t NV>
-void check_register_known(
+void check_delay_states_known(
     const StateSpace<NXD, NU, NY, double, NW, NV>& delayed,
     const StateSpace<NX, NU, NY, double, NW, NV>&  undelayed,
     const design::KalmanNoise<NW, NV>&             n
 ) {
-    static_assert(NXD == NX + NU, "The delayed model is the plant, then one register per input.");
+    static_assert(NXD == NX + NU, "The delayed model is the plant, then one delay state per input.");
     const auto filt = design::kalman(delayed, n);
     const auto ref = design::kalman(undelayed, n);
     static_assert(std::is_same_v<std::remove_cvref_t<decltype(filt)>, design::KalmanResult<NXD, NU, NY, double, NW, NV>>);
@@ -210,7 +210,7 @@ TEST_SUITE("Disturbance specs") {
 }
 
 TEST_SUITE("design::kalman with a disturbance spec") {
-    TEST_CASE("no options is the plain filter; on a delayed plant the register is known: no gain on it, the plant's part the undelayed filter") {
+    TEST_CASE("no options is the plain filter; on a delayed plant the delay state is known: no gain on it, the plant's part the undelayed filter") {
         const design::KalmanNoise<2, 1> n{.process = kQp, .measurement = kRn};
         const auto                      plain = design::kalman(kPlantD, n);
         static_assert(std::is_same_v<std::remove_cvref_t<decltype(plain)>, design::KalmanResult<2, 1, 1, double, 2, 1>>);
@@ -218,12 +218,12 @@ TEST_SUITE("design::kalman with a disturbance spec") {
         CHECK((design::kalman(mass_spring(), kTs, n).M - design::state_feedback(mass_spring(), kTs, {.Q = kQ, .R = kR}, n).kalman.M).norm() == 0.0);
 
         //! a whole sample on the discrete plant: x⁺ = A x + B v(k−1)
-        check_register_known<2>(discretize(kPlantD, kTs, InputDelay{kTs}).value(), kPlantD, n);
+        check_delay_states_known<2>(discretize(kPlantD, kTs, InputDelay{kTs}).value(), kPlantD, n);
 
         //! a fraction of a period from the continuous plant: x⁺ = Φx + Γ₀v(k) + Γ₁v(k−1), the process noise on the plant's states
         auto part = discretize(mass_spring(), kTs, InputDelay{0.4 * kTs}).value();
         part.G = padded<1>(Matrix<2, 2>::identity());
-        check_register_known<2>(part, kPlantD, n);
+        check_delay_states_known<2>(part, kPlantD, n);
     }
 
     TEST_CASE("an input disturbance is the offset-free filter and target of oflqg") {
@@ -240,12 +240,12 @@ TEST_SUITE("design::kalman with a disturbance spec") {
         CHECK(gap(tg.target_r, old.target.target_r) < 1e-12);
     }
 
-    TEST_CASE("on a delayed plant: the composed design's filter and target, the undelayed steady state with the register at the input") {
+    TEST_CASE("on a delayed plant: the composed design's filter and target, the undelayed steady state with the delay state at the input") {
         // The mass-spring holds x = r with u = 4r − d under a load d at its input (ẍ = −4x − 0.4ẋ + u + d).
-        // ZOH keeps that steady state and a delay moves none: the register holds what reaches the plant.
+        // ZOH keeps that steady state and a delay moves none: the delay state holds what reaches the plant.
         const design::KalmanNoise<2, 1, double, 1> nn{kQp, kRn, kQd};
 
-        //! a whole sample; the load on the plant, undelayed: B_d = [B; 0], so the register stays exact
+        //! a whole sample; the load on the plant, undelayed: B_d = [B; 0], so the delay state stays exact
         const auto                     whole = discretize(kPlantD, kTs, InputDelay{kTs}).value();
         const design::DisturbanceModel load{.Bd = padded<1>(kPlantD.B)};
         const auto                     old = design::state_feedback(whole, {.Q = kQ3, .R = kR}, nn, load);
@@ -258,11 +258,11 @@ TEST_SUITE("design::kalman with a disturbance spec") {
         CHECK(gap(filt.M, old.kalman.M) < 1e-12);
         CHECK(gap(tg.target_d, old.target.target_d) < 1e-12);
         CHECK(gap(tg.target_r, old.target.target_r) < 1e-12);
-        CHECK(std::abs(filt.M(2, 0)) < 1e-12 * filt.M.norm());                       // a command already sent: no gain on the register
+        CHECK(std::abs(filt.M(2, 0)) < 1e-12 * filt.M.norm());                       // a command already sent: no gain on the delay state
         CHECK(gap(tg.target_r, Matrix<4, 1>{{1.0}, {0.0}, {4.0}, {4.0}}) < 1e-12);   // [x_t; v_t; u_t] per unit r
-        CHECK(gap(tg.target_d, Matrix<4, 1>{{0.0}, {0.0}, {-1.0}, {-1.0}}) < 1e-12); // u_t = −d, and the register holds it
+        CHECK(gap(tg.target_d, Matrix<4, 1>{{0.0}, {0.0}, {-1.0}, {-1.0}}) < 1e-12); // u_t = −d, and the delay state holds it
 
-        //! a fraction of a period from the continuous plant; d adds to the command, so it enters the register too: B_d = B = [Γ₀; I]
+        //! a fraction of a period from the continuous plant; d adds to the command, so it enters the delay state too: B_d = B = [Γ₀; I]
         auto part = discretize(mass_spring(), kTs, InputDelay{0.4 * kTs}).value();
         part.G = padded<1>(Matrix<2, 2>::identity());
         const auto old_c = design::state_feedback(part, {.Q = kQ3, .R = kR}, nn, design::InputDisturbance{});
@@ -275,7 +275,7 @@ TEST_SUITE("design::kalman with a disturbance spec") {
         CHECK(gap(tg_c.target_d, old_c.target.target_d) < 1e-12);
         CHECK(gap(tg_c.target_r, old_c.target.target_r) < 1e-12);
         CHECK(gap(tg_c.target_r, Matrix<4, 1>{{1.0}, {0.0}, {4.0}, {4.0}}) < 1e-12);
-        CHECK(gap(tg_c.target_d, Matrix<4, 1>{{0.0}, {0.0}, {0.0}, {-1.0}}) < 1e-12); // the register holds u_t + d = 4r
+        CHECK(gap(tg_c.target_d, Matrix<4, 1>{{0.0}, {0.0}, {0.0}, {-1.0}}) < 1e-12); // the delay state holds u_t + d = 4r
     }
 
     TEST_CASE("a non-finite DisturbanceModel::Bd is refused, on a continuous plant and on a discrete one") {
@@ -594,7 +594,7 @@ const Matrix<4, 4> kRn4{{1e-6, 0.0, 0.0, 0.0}, {0.0, 1e-6, 0.0, 0.0}, {0.0, 0.0,
 const Matrix<2, 2> kQd2 = Matrix<2, 2>::identity() * 1e-2;
 const Matrix<4, 4> kQ4{{1e3, 0.0, 0.0, 0.0}, {0.0, 0.0, 0.0, 0.0}, {0.0, 0.0, 1e3, 0.0}, {0.0, 0.0, 0.0, 0.0}};
 const Matrix<6, 6> kQ6 = [] {
-    Matrix<6, 6> q{}; // kQ4 on [x; v(k−1)], the registers unweighted
+    Matrix<6, 6> q{}; // kQ4 on [x; v(k−1)], the delay states unweighted
     q.block<4, 4>(0, 0) = kQ4;
     return q;
 }();
@@ -604,7 +604,7 @@ const Matrix<2, 2> kR2 = Matrix<2, 2>::identity() * 1e-3;
 
 TEST_SUITE("FixedGainObserver: the anchored law against the textbook form") {
     TEST_CASE("an input delay and a load at both inputs: the textbook law's estimates and commands") {
-        //! The corexy shape: the commands one period late, a load at both inputs; the model is the plant with its registers
+        //! The corexy shape: the commands one period late, a load at both inputs; the model is the plant with its delay states
         auto plant = discretize(four_readings(), kTs).value();
         plant.G = Matrix<4, 4>::identity();
         const auto                     whole = discretize(plant, kTs, InputDelay{kTs}).value(); // [x; v(k−1)]
@@ -615,8 +615,8 @@ TEST_SUITE("FixedGainObserver: the anchored law against the textbook form") {
         static_assert(decltype(law.estimator)::NXE == 6 && decltype(law.disturbance_estimate())::rows() == 2);
         auto oracle = textbook_law(art);
 
-        //! the truth: the register form, built apart from discretize; the load enters with the command
-        Truth<6>        t{test::register_form<1>(four_readings(), kTs, kTs)};
+        //! the truth: the delay-state form, built apart from discretize; the load enters with the command
+        Truth<6>        t{test::delay_state_form<1>(four_readings(), kTs, kTs)};
         const ColVec<2> load{0.3, -0.2};
         ColVec<2>       u{};
         Gap             du;
@@ -635,7 +635,7 @@ TEST_SUITE("FixedGainObserver: the anchored law against the textbook form") {
             u = u_law;
             t.step(u, (k > n / 3) ? load : ColVec<2>{});
         }
-        MESSAGE("commands ", du.relative(), ", estimate (registers included) ", dx.relative(), ", disturbance ", dd.relative(), ", |d̂ − load| ", (law.disturbance_estimate() - load).norm());
+        MESSAGE("commands ", du.relative(), ", estimate (delay states included) ", dx.relative(), ", disturbance ", dd.relative(), ", |d̂ − load| ", (law.disturbance_estimate() - load).norm());
         CHECK(du.relative() < 1e-12);
         CHECK(dx.relative() < 1e-12);
         CHECK(dd.relative() < 1e-12);
@@ -680,7 +680,7 @@ TEST_SUITE("FixedGainObserver: the anchored law against the textbook form") {
         CHECK(t.x.norm() < 1.0); // the loop held
     }
 
-    TEST_CASE("no disturbance, a fraction of a period of input delay: the register known, the plant's estimate the undelayed filter's") {
+    TEST_CASE("no disturbance, a fraction of a period of input delay: the delay state known, the plant's estimate the undelayed filter's") {
         constexpr double theta = 0.6 * kTs;
         auto             whole = discretize(four_readings(), kTs, InputDelay{theta}).value(); // [x; v(k−1)], the hold split at θ
         whole.G = padded<2>(Matrix<4, 4>::identity());                                        // the process noise on the plant's states
@@ -689,12 +689,12 @@ TEST_SUITE("FixedGainObserver: the anchored law against the textbook form") {
         LQG law{art};
 
         //! The oracle: the plain filter on the undelayed plant, fed what the plant receives over each
-        //! period, Γ₀u(k) + Γ₁u(k−1), with Γ₀, Γ₁ from the register form (built apart from discretize)
+        //! period, Γ₀u(k) + Γ₁u(k−1), with Γ₀, Γ₁ from the delay-state form (built apart from discretize)
         auto plant = discretize(four_readings(), kTs).value();
         plant.G = Matrix<4, 4>::identity();
         const auto plain = design::kalman(plant, design::KalmanNoise{.process = kQn4, .measurement = kRn4});
         REQUIRE(plain.success);
-        const auto         truth = test::register_form<1>(four_readings(), kTs, theta);
+        const auto         truth = test::delay_state_form<1>(four_readings(), kTs, theta);
         const Matrix<4, 2> gamma0 = truth.B.block<4, 2>(0, 0);
         const Matrix<4, 2> gamma1 = truth.A.block<4, 2>(0, 4);
 
@@ -713,12 +713,12 @@ TEST_SUITE("FixedGainObserver: the anchored law against the textbook form") {
 
             const ColVec<6> est = law.state_estimate();
             dx.add(lead<4>(est), x_book);
-            dv.add(ColVec<2>{est(4), est(5)}, u); // the register: the command sent last period
+            dv.add(ColVec<2>{est(4), est(5)}, u); // the delay state: the command sent last period
             u_before = u;
             u = u_law;
             t.step(u, ColVec<2>{});
         }
-        MESSAGE("plant estimate ", dx.relative(), ", register ", dv.relative());
+        MESSAGE("plant estimate ", dx.relative(), ", delay state ", dv.relative());
         CHECK(dx.relative() < 1e-12);
         CHECK(dv.relative() < 1e-12);
         CHECK(std::abs(t.x[0]) < 1e-3); // regulated

@@ -259,7 +259,7 @@ TEST_SUITE("FixedGainObserver") {
         CHECK(xhat(1, 0) == doctest::Approx(x(1, 0)).epsilon(1e-4));
     }
 
-    TEST_CASE("a singular A (a delay register): M placed on (A, C A), the register's mode pinned at z = 0") {
+    TEST_CASE("a singular A (a delay state): M placed on (A, C A), the delay state's mode pinned at z = 0") {
         // x⁺ = 0.9 x + 0.1 v, v⁺ = u: v is the command sent last period, so A has a zero row.
         constexpr Matrix<2, 2> A{{0.9, 0.1}, {0.0, 0.0}};
         constexpr Matrix<2, 1> B{{0.0}, {1.0}};
@@ -285,7 +285,7 @@ TEST_SUITE("FixedGainObserver") {
         }
         CHECK((observer.state() - x).norm() < 1e-12);
 
-        // The register's mode is unobservable through C A: a pole anywhere else is not placeable.
+        // The delay state's mode is unobservable through C A: a pole anywhere else is not placeable.
         const auto pinned = design::place_observer(sys, {0.2, 0.3});
         CHECK_FALSE(pinned.success);
         CHECK(pinned.status == design::DesignStatus::not_placeable);

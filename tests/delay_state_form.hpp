@@ -6,8 +6,8 @@
 #pragma once
 
 /**
- * @file register_form.hpp
- * @brief Test oracle: the register form of an input delay, every command in flight a state.
+ * @file delay_state_form.hpp
+ * @brief Test oracle: the delay-state form of an input delay, every command in flight a state.
  *
  * The plants the delayed laws are run on, and the reference designs they are checked
  * against: a delay-augmented model is an ordinary StateSpace, and any delay-free design on it
@@ -53,7 +53,7 @@ struct DelaySplit {
  * process noise.
  */
 template<size_t D, size_t NX, size_t NU, size_t NY, size_t NW, size_t NV>
-[[nodiscard]] constexpr StateSpace<NX + (NU * D), NU, NY, double, NW, NV> register_form(
+[[nodiscard]] constexpr StateSpace<NX + (NU * D), NU, NY, double, NW, NV> delay_state_form(
     const StateSpace<NX, NU, NY, double, NW, NV>& plant,
     double                                        Ts,
     double                                        seconds

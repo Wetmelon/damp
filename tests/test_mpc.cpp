@@ -1472,8 +1472,8 @@ TEST_CASE("a horizon no output sees an input's first move in is refused") {
         CHECK(design::mpc<2, 1>(discretize(tinier, Ts, InputDelay{Ts}).value(), move_weight(0.05)).success);
     }
 
-    SUBCASE("relative to the data: a delay register, float and the input's units do not refuse a horizon that sees") {
-        //! The test compared C A^k B with max|C|·max|B|, and a register's 1 set max|B|.
+    SUBCASE("relative to the data: a delay state, float and the input's units do not refuse a horizon that sees") {
+        //! The test compared C A^k B with max|C|·max|B|, and a delay state's 1 set max|B|.
         for (const float unit : {1.0F, 1e3F}) {
             CAPTURE(unit);
             constexpr float                 ts = 1e-3F;

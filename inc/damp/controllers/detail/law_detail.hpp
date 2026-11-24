@@ -220,13 +220,13 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
 /** @brief No input delay: a design's model is the plant's own (sampled_model). */
 struct NoDelay {};
 
-/** @brief The input registers a delay adds to the model, per input: none without one. */
+/** @brief The delay states an InputDelay adds to the model, per input: none without one. */
 template<typename Delay>
-inline constexpr size_t delay_registers = 0;
+inline constexpr size_t input_delay_states = 0;
 
-/** @brief InputDelay<N>: N registers per input. */
+/** @brief InputDelay<N>: N delay states per input. */
 template<size_t N, typename S>
-inline constexpr size_t delay_registers<InputDelay<N, S>> = N;
+inline constexpr size_t input_delay_states<InputDelay<N, S>> = N;
 
 /** @brief Not an InputDelay: a kind of trailing design option (options.hpp). */
 template<typename>
@@ -253,7 +253,7 @@ struct PlantDelays {
 
 /** @brief PlantDelays: the input's delay states, the ones a law holds. */
 template<typename In, typename Out>
-inline constexpr size_t delay_registers<PlantDelays<In, Out>> = delay_registers<In>;
+inline constexpr size_t input_delay_states<PlantDelays<In, Out>> = input_delay_states<In>;
 
 /** @brief The delay states per output a late reading adds (NRY): none without an OutputDelay. */
 template<typename Delay>
@@ -265,7 +265,7 @@ inline constexpr size_t output_delay_states<PlantDelays<In, OutputDelay<N, S>>> 
 
 /** @brief The delay states a design's delay adds after the plant's NX: NRU per input, then NRY per output. */
 template<typename Delay, size_t NU, size_t NY>
-inline constexpr size_t delay_states = (delay_registers<Delay> * NU) + (output_delay_states<Delay> * NY);
+inline constexpr size_t delay_states = (input_delay_states<Delay> * NU) + (output_delay_states<Delay> * NY);
 
 /** @brief The input part of a design's delay, the one its law holds: NoDelay or an InputDelay. */
 template<typename Delay>
@@ -299,7 +299,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
 
 /**
  * @brief The model of a continuous @p sys sampled at @p Ts with its input @p delay late:
- *        discretize(sys, Ts, delay), the plant then the registers v(k−1) … v(k−N).
+ *        discretize(sys, Ts, delay), the plant then the delay states v(k−1) … v(k−N).
  * @return status as sampled_model's for a continuous plant (a discrete one is invalid_sample_time),
  *         then discretize's for a delay it refuses
  */
