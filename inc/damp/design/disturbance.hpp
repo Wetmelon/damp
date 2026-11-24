@@ -127,6 +127,7 @@ struct PlantDisturbance<0> {
 template<size_t NX, size_t NY = 0, size_t ND = 1, size_t NZ = 0, typename T = double>
 struct DisturbanceModel {
     using option_kind = kind::Disturbance; ///< Its kind of design option
+    static constexpr size_t ny = NY;       ///< Readings C_d is on (0: left out)
     static constexpr size_t nd = ND;       ///< Disturbance states
     Matrix<NX, ND, T>       Bd{};          ///< How d enters the state update
     Matrix<NY, ND, T>       Cd{};          ///< How d enters the readings directly
@@ -137,6 +138,7 @@ struct DisturbanceModel {
 template<size_t NX, size_t NY, size_t ND, typename T>
 struct DisturbanceModel<NX, NY, ND, 0, T> {
     using option_kind = kind::Disturbance; ///< Its kind of design option
+    static constexpr size_t ny = NY;       ///< Readings C_d is on (0: left out)
     static constexpr size_t nd = ND;       ///< Disturbance states
     Matrix<NX, ND, T>       Bd{};          ///< How d enters the state update
     Matrix<NY, ND, T>       Cd{};          ///< How d enters the readings directly
@@ -420,70 +422,56 @@ template<size_t NY, size_t NS>
 }
 
 /**
- * @brief An input disturbance: B_d = B of the filter's model (delayed with u), C_d = its D. On a
- *        model with input delay states its walk reaches the plant through them, so none of it acts
- *        within the period (B_d,c = 0).
+ * @brief The channels a disturbance spec enters through: into the discrete state update of the
+ *        filter's @p model (the plant, then its delay states), into the readings, and into the
+ *        continuous @p plant (Van Loan of the walk); none without a disturbance model
+ *        (NoDisturbance, TrackedOutputs).
+ *
+ * | Spec | B_d | C_d |
+ * | --- | --- | --- |
+ * | InputDisturbance | the model's B: d adds to u, through any delay states, so on a model with them none of its walk acts within the period (B_d,c = 0) | the model's D |
+ * | OutputDisturbance | 0 | I: a bias on each reading |
+ * | PlantDisturbance | the model's G, off the delay states | the plant's H |
+ * | DisturbanceModel | its B_d on the plant's states, ZOH'd on a continuous plant | its C_d (zero left out) |
  */
-template<size_t NZ, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NXE, size_t NWE, size_t NVE>
-[[nodiscard]] constexpr DisturbanceChannels<NX, NXE, NY, NU, T> disturbance_channels(
-    const InputDisturbance<NZ>&,
+template<typename Spec, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NXE, size_t NWE, size_t NVE>
+[[nodiscard]] constexpr DisturbanceChannels<NX, NXE, NY, disturbance_states<Spec, NU, NY, NW>, T> disturbance_channels(
+    const Spec&                                 spec,
     const StateSpace<NX, NU, NY, T, NW, NV>&    plant,
     const StateSpace<NXE, NU, NY, T, NWE, NVE>& model,
-    T
+    T                                           Ts
 ) {
-    if constexpr (NXE == NX) {
-        return DisturbanceChannels<NX, NXE, NY, NU, T>{.Bd = model.B, .Cd = model.D, .Bd_c = plant.B};
+    constexpr size_t ND = disturbance_states<Spec, NU, NY, NW>;
+    using Channels = DisturbanceChannels<NX, NXE, NY, ND, T>;
+    if constexpr (instance_of<Spec, InputDisturbance>) {
+        if constexpr (NXE == NX) {
+            return Channels{.Bd = model.B, .Cd = model.D, .Bd_c = plant.B};
+        } else {
+            return Channels{.Bd = model.B, .Cd = model.D};
+        }
+    } else if constexpr (instance_of<Spec, OutputDisturbance>) {
+        return Channels{.Cd = Matrix<NY, NY, T>::identity()};
+    } else if constexpr (instance_of<Spec, PlantDisturbance>) {
+        static_assert(NV == NW && NWE == NW, "PlantDisturbance takes C_d = H: H needs one column per column of G.");
+        return Channels{.Bd = model.G, .Cd = plant.H, .Bd_c = plant.G};
+    } else if constexpr (DisturbanceSpec<Spec>) {
+        Channels out{.Bd_c = spec.Bd};
+        if constexpr (Spec::ny > 0) {
+            out.Cd = spec.Cd;
+        }
+        if (plant.Ts == T{0}) {
+            // plant.A has already been sampled, so the exponential fails only on a non-finite B_d; it is
+            // carried into Bd, which design::kalman refuses (not_detectable) and steady_state_target
+            // refuses (invalid_parameter).
+            const auto d = ::damp::detail::discretize_zoh_impl(StateSpace<NX, ND, 1, T>{.A = plant.A, .B = spec.Bd}, Ts);
+            out.Bd.template block<NX, ND>(0, 0) = d ? d->B : spec.Bd;
+        } else {
+            out.Bd.template block<NX, ND>(0, 0) = spec.Bd;
+        }
+        return out;
     } else {
-        return DisturbanceChannels<NX, NXE, NY, NU, T>{.Bd = model.B, .Cd = model.D};
+        return Channels{};
     }
-}
-
-/** @brief An output disturbance: a bias on each reading, B_d = 0, C_d = I. */
-template<size_t NZ, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NXE, size_t NWE, size_t NVE>
-[[nodiscard]] constexpr DisturbanceChannels<NX, NXE, NY, NY, T> disturbance_channels(
-    const OutputDisturbance<NZ>&,
-    const StateSpace<NX, NU, NY, T, NW, NV>&,
-    const StateSpace<NXE, NU, NY, T, NWE, NVE>&,
-    T
-) {
-    return DisturbanceChannels<NX, NXE, NY, NY, T>{.Cd = Matrix<NY, NY, T>::identity()};
-}
-
-/** @brief The plant's channel: B_d = G of the filter's model (off the delay states), C_d = H. */
-template<size_t NZ, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NXE, size_t NWE, size_t NVE>
-[[nodiscard]] constexpr DisturbanceChannels<NX, NXE, NY, NW, T> disturbance_channels(
-    const PlantDisturbance<NZ>&,
-    const StateSpace<NX, NU, NY, T, NW, NV>&    plant,
-    const StateSpace<NXE, NU, NY, T, NWE, NVE>& model,
-    T
-) {
-    static_assert(NV == NW && NWE == NW, "PlantDisturbance takes C_d = H: H needs one column per column of G.");
-    return DisturbanceChannels<NX, NXE, NY, NW, T>{.Bd = model.G, .Cd = plant.H, .Bd_c = plant.G};
-}
-
-/** @brief An explicit model: B_d on the plant's states (ZOH'd on a continuous plant), C_d as given (zero left out). */
-template<size_t NYD, size_t ND, size_t NZ, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NXE, size_t NWE, size_t NVE>
-[[nodiscard]] constexpr DisturbanceChannels<NX, NXE, NY, ND, T> disturbance_channels(
-    const DisturbanceModel<NX, NYD, ND, NZ, T>& spec,
-    const StateSpace<NX, NU, NY, T, NW, NV>&    plant,
-    const StateSpace<NXE, NU, NY, T, NWE, NVE>&,
-    T Ts
-) {
-    static_assert(NYD == 0 || NYD == NY, "The DisturbanceModel's C_d is on the plant's outputs, or left out.");
-    DisturbanceChannels<NX, NXE, NY, ND, T> out{.Bd_c = spec.Bd};
-    if constexpr (NYD > 0) {
-        out.Cd = spec.Cd;
-    }
-    if (plant.Ts == T{0}) {
-        // plant.A has already been sampled, so the exponential fails only on a non-finite B_d; it is
-        // carried into Bd, which design::kalman refuses (not_detectable) and steady_state_target
-        // refuses (invalid_parameter).
-        const auto d = ::damp::detail::discretize_zoh_impl(StateSpace<NX, ND, 1, T>{.A = plant.A, .B = spec.Bd}, Ts);
-        out.Bd.template block<NX, ND>(0, 0) = d ? d->B : spec.Bd;
-    } else {
-        out.Bd.template block<NX, ND>(0, 0) = spec.Bd;
-    }
-    return out;
 }
 
 /**

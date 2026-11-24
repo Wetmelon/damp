@@ -208,31 +208,6 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
     return DesignStatus::ok;
 }
 
-/**
- * @brief The discrete model of @p sys: itself in the plant's own domain (@p domain plant), else
- *        sampled at @p Ts (ZOH) by discretize.
- * @return status plant_status's; else discretize's not_converged for a model that overflows
- *         within one period
- */
-template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
-[[nodiscard]] constexpr SampledModel<NX, NU, NY, T, NW, NV> sampled_model(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T Ts, Domain domain) {
-    SampledModel<NX, NU, NY, T, NW, NV> out{.status = plant_status(sys, Ts, domain)};
-    if (out.status != DesignStatus::ok) {
-        return out;
-    }
-    if (domain == Domain::plant) {
-        out.law = sys;
-        return out;
-    }
-    const auto d = ::damp::discretize(sys, Ts);
-    if (!d) {
-        out.status = d.status;
-        return out;
-    }
-    out.law = *d;
-    return out;
-}
-
 /** @brief No input delay: a design's model is the plant's own (sampled_model). */
 struct NoDelay {};
 
@@ -317,62 +292,45 @@ consteval bool check_filtered() {
     return spec && late;
 }
 
-/** @brief sampled_model(sys, Ts, domain), the model of a design without a delay. */
-template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
-[[nodiscard]] constexpr SampledModel<NX, NU, NY, T, NW, NV> sampled_model(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T Ts, Domain domain, NoDelay) {
-    return sampled_model(sys, Ts, domain);
-}
-
 /**
- * @brief The model of a continuous @p sys sampled at @p Ts with its input @p delay late:
- *        discretize(sys, Ts, delay), the plant then the delay states v(k−1) … v(k−N).
- * @return status as sampled_model's for a continuous plant (a discrete one is invalid_sample_time),
- *         then discretize's for a delay it refuses
+ * @brief The discrete model a design on @p sys is on: itself in the plant's own domain (@p domain
+ *        plant), else sampled at @p Ts (ZOH) by discretize, with the delay states of @p delay: an
+ *        InputDelay's v(k−1) … v(k−N) after the plant's, then a late reading's (PlantDelays with an
+ *        OutputDelay).
+ * @return status plant_status's; invalid_sample_time for a delay in the plant's own domain, which
+ *         has no delayed model; else discretize's: not_converged for a model that overflows within
+ *         one period, its refusal of a delay
  */
-template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t N, typename S>
-[[nodiscard]] constexpr SampledModel<NX + (N * NU), NU, NY, T, NW, NV> sampled_model(
+template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Delay = NoDelay>
+[[nodiscard]] constexpr SampledModel<NX + delay_states<Delay, NU, NY>, NU, NY, T, NW, NV> sampled_model(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     T                                        Ts,
     Domain                                   domain,
-    const InputDelay<N, S>&                  delay
+    const Delay&                             delay = Delay{}
 ) {
-    SampledModel<NX + (N * NU), NU, NY, T, NW, NV> out{.status = (domain == Domain::plant) ? DesignStatus::invalid_sample_time : plant_status(sys, Ts, Domain::sampled)};
-    if (out.status != DesignStatus::ok) {
-        return out; // a delay is sampled with the plant: there is no delayed model of a discrete one
-    }
-    const auto d = ::damp::discretize(sys, Ts, delay);
-    if (!d) {
-        out.status = d.status;
-        return out;
-    }
-    out.law = *d;
-    return out;
-}
+    constexpr bool kDelayed = !damp::is_same_v<Delay, NoDelay>;
 
-/**
- * @brief The model of a continuous @p sys sampled at @p Ts with its reading late, and its input
- *        too when @p delays holds an InputDelay: discretize(sys, Ts, [input,] output), the plant,
- *        the input's delay states, then the readings' v(k−1) … and z(k−1) … .
- * @return status as the InputDelay overload's
- */
-template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename In, size_t N, typename S>
-[[nodiscard]] constexpr SampledModel<NX + delay_states<PlantDelays<In, OutputDelay<N, S>>, NU, NY>, NU, NY, T, NW, NV> sampled_model(
-    const StateSpace<NX, NU, NY, T, NW, NV>&  sys,
-    T                                         Ts,
-    Domain                                    domain,
-    const PlantDelays<In, OutputDelay<N, S>>& delays
-) {
-    SampledModel<NX + delay_states<PlantDelays<In, OutputDelay<N, S>>, NU, NY>, NU, NY, T, NW, NV> out{
-        .status = (domain == Domain::plant) ? DesignStatus::invalid_sample_time : plant_status(sys, Ts, Domain::sampled)
+    SampledModel<NX + delay_states<Delay, NU, NY>, NU, NY, T, NW, NV> out{
+        .status = (kDelayed && domain == Domain::plant) ? DesignStatus::invalid_sample_time : plant_status(sys, Ts, domain)
     };
     if (out.status != DesignStatus::ok) {
-        return out; // a delay is sampled with the plant: there is no delayed model of a discrete one
+        return out;
+    }
+    if constexpr (!kDelayed) {
+        if (domain == Domain::plant) {
+            out.law = sys;
+            return out;
+        }
     }
     const auto d = [&] {
-        if constexpr (damp::is_same_v<In, NoDelay>) {
-            return ::damp::discretize(sys, Ts, delays.output);
+        if constexpr (!kDelayed) {
+            return ::damp::discretize(sys, Ts);
+        } else if constexpr (OptionOf<Delay, kind::InputDelay>) {
+            return ::damp::discretize(sys, Ts, delay);
+        } else if constexpr (input_delay_states<Delay> == 0) {
+            return ::damp::discretize(sys, Ts, delay.output); // a late reading alone
         } else {
-            return ::damp::discretize(sys, Ts, delays.input, delays.output);
+            return ::damp::discretize(sys, Ts, delay.input, delay.output);
         }
     }();
     if (!d) {
