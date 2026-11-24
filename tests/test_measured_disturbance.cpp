@@ -522,9 +522,9 @@ TEST_SUITE("MeasuredDisturbance") {
             CHECK(sizeof(LQGI{lqgi}) == 472);
             CHECK(sizeof(OFLQG{oflqg}) == 488);
             CHECK(sizeof(OFLQG{oflqg.as<float>()}) == 256);
-            CHECK(sizeof(MPC{mpc}) == 2392); // one output held, TrackedOutputs{{1}}: 2400 holding both
-            CHECK(sizeof(MPC{mpcm}) == 2520);
-            CHECK(sizeof(OFMPC{ofmpc}) == 2848);
+            CHECK(sizeof(MPC{mpc}) == 2368); // one output held, TrackedOutputs{{1}}: 2376 holding both
+            CHECK(sizeof(MPC{mpcm}) == 2496);
+            CHECK(sizeof(OFMPC{ofmpc}) == 2824);
             CHECK(sizeof(oflqg) == 776);
             CHECK(sizeof(lqr) == 160);
         }
