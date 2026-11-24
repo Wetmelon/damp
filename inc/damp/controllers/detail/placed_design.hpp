@@ -209,7 +209,7 @@ template<Domain D, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_
     const Spec&                              spec,
     const Delay&                             delay = Delay{}
 ) {
-    constexpr size_t ND = disturbance_traits<Spec, NU, NY, NW>::states;
+    constexpr size_t ND = disturbance_states<Spec, NU, NY, NW>;
     static_assert(ND <= NY, "Estimating ND disturbances needs at least ND independent readings (ND <= NY).");
     constexpr size_t NVS = input_delay_states<Delay> * NU;  // the input's delay states, after the plant's
     constexpr size_t NWS = output_delay_states<Delay> * NY; // a late reading's, after those

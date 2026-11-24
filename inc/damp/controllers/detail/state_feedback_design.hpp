@@ -219,7 +219,7 @@ template<bool Held, Domain D, size_t NX, size_t NU, size_t NY, typename T, size_
     constexpr size_t NXE = NX + delay_states<Delay, NU, NY>;
     if constexpr (Held) {
         static_cast<void>(Ci);
-        using Result = SteadyStateTargetResult<NXE, NU, disturbance_traits<Spec, NU, NY, NW>::states + NM, target_outputs<Spec, NU, NY, NW>, T>;
+        using Result = SteadyStateTargetResult<NXE, NU, disturbance_states<Spec, NU, NY, NW> + NM, target_outputs<Spec, NY>, T>;
         if (!Bm) {
             return refused<Result>(DesignStatus::bad_weights); // a non-finite B_d
         }
@@ -331,7 +331,7 @@ template<
             return NoEstimator{};
         }
     }();
-    constexpr size_t NZ = kHeld ? target_outputs<damp::remove_cvref_t<decltype(spec)>, NU, NY, NW> : 0;
+    constexpr size_t NZ = kHeld ? target_outputs<damp::remove_cvref_t<decltype(spec)>, NY> : 0;
     constexpr size_t NYL = (kEstimated || NI > 0) ? NY : NX; // what the law reads: y with a filter or integrators, else x
     using Result = StateFeedbackResult<NX, NU, T, NI, NYL, damp::remove_cvref_t<decltype(estimator)>, NZ, input_delay_states<Delay>, NM, NDU, !is_unset<Fade>>;
 

@@ -1824,7 +1824,7 @@ template<size_t NU, typename T, typename Delay>
 template<size_t NY, typename Aim>
 [[nodiscard]] constexpr bool in_output_order(const Aim& aim) {
     const auto list = listed_outputs(aim);
-    if constexpr (disturbance_traits<Aim, 0, NY, 0>::listed == NY) {
+    if constexpr (outputs_listed<Aim> == NY) {
         for (size_t i = 0; i < NY; ++i) {
             if (list[i] != i) {
                 return false;
@@ -1900,8 +1900,8 @@ template<
     const MeasuredDisturbance<NX, NM, T>&         measured,
     const Delay&                                  delay = Delay{}
 ) {
-    constexpr size_t ND = disturbance_traits<Spec, NU, NY, NW>::states; // the noise's NDN, sized by noise_of
-    constexpr size_t NXL = NX + (input_delay_states<Delay> * NU);       // the QP's: the plant, then the input's delay states (the filter's has the late readings' after them)
+    constexpr size_t ND = disturbance_states<Spec, NU, NY, NW>;   // the noise's NDN, sized by noise_of
+    constexpr size_t NXL = NX + (input_delay_states<Delay> * NU); // the QP's: the plant, then the input's delay states (the filter's has the late readings' after them)
     const auto&      in = input_delay_of(delay);
     const auto       Bm = measured_channel<D>(sys, Ts, measured, delay); // on the filter's model
     const auto       kf = with_measured_inputs(kalman_design<D>(sys, Ts, noise, spec, delay), Bm);

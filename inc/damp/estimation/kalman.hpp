@@ -721,7 +721,7 @@ template<Domain D, size_t NXK, size_t NU, size_t NY, typename T, size_t NWK, siz
 
 /** @brief The disturbance states of the disturbance spec among @p Opts (0 without one). */
 template<size_t NX, size_t NU, size_t NY, size_t NW, typename... Opts>
-inline constexpr size_t disturbance_states_in = disturbance_traits<option_t<kind::Disturbance, NoDisturbance, Opts...>, NU, NY, noise_inputs<NX, NW>>::states;
+inline constexpr size_t disturbance_states_in = disturbance_states<option_t<kind::Disturbance, NoDisturbance, Opts...>, NU, NY, noise_inputs<NX, NW>>;
 
 /** @brief The KalmanNoise a filter on this plant with the options @p Opts takes. */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename... Opts>

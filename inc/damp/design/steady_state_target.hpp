@@ -110,15 +110,11 @@ struct [[nodiscard]] SteadyStateTargetResult {
 
 namespace detail {
 
-/** @brief A spec that lists outputs: a disturbance spec or TrackedOutputs with an .outputs list (none: every output). */
-template<typename S>
-concept ListsOutputs = requires(const S& spec) { spec.outputs; };
-
 /** @brief The outputs a disturbance spec or TrackedOutputs lists, as an array: none when it lists none (every output). */
 template<typename Spec>
 [[nodiscard]] constexpr auto listed_outputs(const Spec& spec) {
     if constexpr (ListsOutputs<Spec>) {
-        constexpr size_t        NZ = sizeof(spec.outputs) / sizeof(size_t);
+        constexpr size_t        NZ = outputs_listed<Spec>;
         damp::array<size_t, NZ> out{};
         for (size_t i = 0; i < NZ; ++i) {
             out[i] = spec.outputs[i];
@@ -152,13 +148,6 @@ template<size_t NZ, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size
     return {};
 }
 
-/** @brief Tracked outputs: no disturbance states. */
-template<size_t NZ, size_t NU, size_t NY, size_t NW>
-struct disturbance_traits<TrackedOutputs<NZ>, NU, NY, NW> {
-    static constexpr size_t states = 0;  ///< ND
-    static constexpr size_t listed = NZ; ///< NZ listed
-};
-
 /** @brief Not TrackedOutputs. */
 template<typename>
 inline constexpr bool is_tracked_outputs = false;
@@ -171,9 +160,9 @@ inline constexpr bool is_tracked_outputs<TrackedOutputs<NZ>> = true;
 template<typename... Opts>
 inline constexpr bool held_in_one_place = (option_count<kind::TrackedOutputs, Opts...> == 0) || !(DisturbanceSpec<Opts> || ...);
 
-/** @brief The controlled outputs of a target under @p Spec: those it lists, else every output. */
-template<typename Spec, size_t NU, size_t NY, size_t NW>
-inline constexpr size_t target_outputs = (disturbance_traits<Spec, NU, NY, NW>::listed == 0) ? NY : disturbance_traits<Spec, NU, NY, NW>::listed;
+/** @brief The controlled outputs of a target under @p Spec on NY outputs: those it lists, else every output. */
+template<typename Spec, size_t NY>
+inline constexpr size_t target_outputs = (outputs_listed<Spec> == 0) ? NY : outputs_listed<Spec>;
 
 /**
  * @brief The outputs a target under @p Aim (target_spec_of) holds at r: those a disturbance spec or
@@ -181,7 +170,7 @@ inline constexpr size_t target_outputs = (disturbance_traits<Spec, NU, NY, NW>::
  *        (NoDisturbance), which takes no r.
  */
 template<typename Aim, size_t NY>
-inline constexpr size_t reference_outputs = damp::is_same_v<Aim, NoDisturbance> ? 0 : target_outputs<Aim, 0, NY, 0>;
+inline constexpr size_t reference_outputs = damp::is_same_v<Aim, NoDisturbance> ? 0 : target_outputs<Aim, NY>;
 
 /**
  * @brief How many outputs the target of a design with @p Opts holds, at r or at 0: those a
@@ -195,9 +184,9 @@ consteval size_t held_count() {
     using Spec = option_t<kind::Disturbance, NoDisturbance, Opts...>;
     using Held = option_t<kind::TrackedOutputs, NoDisturbance, Opts...>;
     if constexpr (DisturbanceSpec<Spec>) {
-        return target_outputs<Spec, NU, NY, 0>;
+        return target_outputs<Spec, NY>;
     } else if constexpr (is_tracked_outputs<Held>) {
-        return target_outputs<Held, NU, NY, 0>;
+        return target_outputs<Held, NY>;
     } else if constexpr (option_count<kind::MeasuredDisturbance, Opts...> > 0) {
         return (NI > 0) ? NI : NY;
     } else {
@@ -338,8 +327,8 @@ template<Domain D, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_
     const Matrix<NX + delay_states<Delay, NU, NY>, NM, T>& measured = Matrix<NX + delay_states<Delay, NU, NY>, NM, T>{}
 ) {
     constexpr size_t NXE = NX + delay_states<Delay, NU, NY>;
-    constexpr size_t ND = disturbance_traits<Spec, NU, NY, NW>::states;
-    constexpr size_t NZ = target_outputs<Spec, NU, NY, NW>;
+    constexpr size_t ND = disturbance_states<Spec, NU, NY, NW>;
+    constexpr size_t NZ = target_outputs<Spec, NY>;
     using Result = SteadyStateTargetResult<NXE, NU, ND + NM, NZ, T>;
     const auto m = sampled_model(sys, Ts, D, delay);
     if (m.status != DesignStatus::ok) {
@@ -405,7 +394,7 @@ template<Domain D, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_
  *        [x_t; u_t] per unit [d̂; d] (the spec's states, then NM), per unit r on the outputs it holds.
  */
 template<typename Aim, size_t NX, size_t NU, size_t NY, size_t NW, typename Delay, size_t NM, typename T>
-using held_target_t = SteadyStateTargetResult<NX + delay_states<Delay, NU, NY>, NU, disturbance_traits<Aim, NU, NY, NW>::states + NM, reference_outputs<Aim, NY>, T>;
+using held_target_t = SteadyStateTargetResult<NX + delay_states<Delay, NU, NY>, NU, disturbance_states<Aim, NU, NY, NW> + NM, reference_outputs<Aim, NY>, T>;
 
 /**
  * @brief The target a design holds on its pick @p aim (target_spec_of), @p measured a measured
