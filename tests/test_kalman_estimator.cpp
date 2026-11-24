@@ -152,6 +152,15 @@ TEST_SUITE("Design options by type") {
     TEST_CASE("each kind found in any order, its default when absent, its sizes in its type") {
         static_assert(design::OptionOf<design::OutputDisturbance<2>, Disturbance> && design::OptionOf<const Noise&, KalmanNoise>);
         static_assert(!design::OptionOf<Noise, Disturbance> && !design::OptionOf<double, Disturbance>);
+        //! The named concepts the designs check with.
+        static_assert(design::DisturbanceSpec<design::InputDisturbance<>> && !design::DisturbanceSpec<design::NoDisturbance>);
+        static_assert(design::DisturbanceModelFor<design::DisturbanceModel<2, 1, 1>, 2, 1, double> && design::DisturbanceModelFor<design::DisturbanceModel<2, 0, 1>, 2, 1, double>);
+        static_assert(!design::DisturbanceModelFor<design::DisturbanceModel<3, 1, 1>, 2, 1, double> && !design::DisturbanceModelFor<design::DisturbanceModel<2, 1, 1>, 2, 1, float>);
+        static_assert(design::DisturbanceModelFor<design::OutputDisturbance<2>, 2, 1, double>);
+        static_assert(design::detail::ListsOutputs<design::OutputDisturbance<2>> && !design::detail::ListsOutputs<design::OutputDisturbance<>>);
+        static_assert(design::GainSpec<design::LQRWeights<2>> && design::GainSpec<design::Poles<2>> && !design::GainSpec<Noise>);
+        static_assert(design::FilterSpec<Noise> && design::FilterSpec<design::ObserverPoles<3>> && !design::FilterSpec<design::Poles<3>>);
+        static_assert(design::detail::SquareWeight<double, 1> && design::detail::SquareWeight<Matrix<2, 2>, 2> && !design::detail::SquareWeight<double, 2> && !design::detail::SquareWeight<Matrix<2, 1>, 2>);
         static_assert(option_count<Disturbance, Noise, design::OutputDisturbance<2>> == 1);
         static_assert(option_count<KalmanNoise, design::OutputDisturbance<2>, Noise> == 1);
         static_assert(option_count<Disturbance, Noise> == 0);

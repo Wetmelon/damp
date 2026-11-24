@@ -23,6 +23,7 @@ and [known limitations](docs/known_limitations.md)).
 - `StateSpace{.A = {{…}}, .B = {{…}}, .C = {{…}}, .G = Matrix<NX, NX>::identity(), .H = Matrix<NY, NY>::identity()}` deduces its noise inputs from the named G and H, with or without `.D` and `.Ts`, and so does `StateSpace{.A = A, .B = B, .C = C, .G = G, .H = H}` from named matrices: a plant with noise inputs no longer names its sizes.
 - `state_gain()`, `delay_gain()` and `integral_gain()` on a state-feedback design's result, `state_gain()` on an `LQRResult`: K's columns on the plant's states, on the delay states of a plant whose input arrives late (the commands still on their way) and on the integrators, so a law that reads its gain needs no index into [x; v; ξ].
 - The `StateSpace` operators `*`, `+` and `-` take the optional an earlier one returned, on either side, so a chain composes and is checked once: `const auto L = P * C * F; if (L) { … }`, `nullopt` when any link refuses. Before, `a * b * c` did not compile.
+- `design::DisturbanceSpec`, `DisturbanceModelFor`, `FilterSpec` and `GainSpec` name what the designs check an option against, so a test can ask whether a spec fits a plant.
 
 ### Changed
 

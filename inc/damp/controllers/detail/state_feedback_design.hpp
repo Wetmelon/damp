@@ -320,8 +320,8 @@ template<
     const Fade&                                       handover
 ) {
     constexpr bool kEstimated = !is_unset<Filter>;
-    constexpr bool kHeld = is_disturbance_model<OffsetFree> || is_tracked_outputs<Track>; // r is the target's
-    constexpr bool kTarget = kHeld || (NM > 0);                                           // a measured d moves every law's target
+    constexpr bool kHeld = DisturbanceSpec<OffsetFree> || is_tracked_outputs<Track>; // r is the target's
+    constexpr bool kTarget = kHeld || (NM > 0);                                      // a measured d moves every law's target
     const auto     spec = target_spec_of(offset_free, track);
     const auto     Bm = measured_channel<D>(sys, Ts, measured, delay); // d on the model, none on the input's delay states
     const auto     estimator = [&] {

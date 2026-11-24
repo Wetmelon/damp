@@ -72,7 +72,7 @@ template<size_t NY, typename T, typename TQ, typename TI>
         "Given one inside a template? There clang deduces nothing from a .Q set to a literal or a constant (llvm/llvm-project#114870): "
         "name the type, IntegralAction<double>{.Q = ...}."
     );
-    static_assert(square_value<TQ, NI>, "IntegralAction::Q is NI x NI, one integrator per integrated output: a Matrix, or a scalar for one.");
+    static_assert(NI == 0 || SquareWeight<TQ, NI>, "IntegralAction::Q is NI x NI, one integrator per integrated output: a Matrix, or a scalar for one.");
     static_assert(NI <= NY, "IntegralAction::Q has one integrator per integrated output: at most one per measured output.");
     damp::array<size_t, NI> outputs = action.outputs;
     if constexpr (NI == NY) {
@@ -234,7 +234,7 @@ template<Domain D, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_
     check_held_outputs<NU, NY, integrator_count<Opts...>(), Opts...>(); // the target's: one TrackedOutputs, none beside a disturbance spec, at most NU held
     state_feedback_options::check<Opts...>();
     static_assert(
-        ::damp::detail::option_count<kind::Weights, Opts...> == 0,
+        !(GainSpec<Opts> || ...),
         "The weights given twice: LQRWeights{...} or Poles{...} is the one argument after the plant (and Ts), state_feedback(plant, [Ts,] weights, opts...)."
     );
     static_assert(

@@ -313,18 +313,11 @@ template<size_t R, size_t CL, size_t CR, typename T>
 
 } // namespace detail
 
+/** @brief A disturbance spec with states: InputDisturbance, OutputDisturbance, PlantDisturbance or DisturbanceModel (every spec but NoDisturbance). */
+template<typename S>
+concept DisturbanceSpec = OptionOf<S, kind::Disturbance> && !damp::is_same_v<damp::remove_cvref_t<S>, NoDisturbance>;
+
 namespace detail {
-
-/** @brief A disturbance model with states: every disturbance spec but NoDisturbance. */
-template<typename Spec>
-inline constexpr bool is_disturbance_model = OptionOf<Spec, kind::Disturbance> && !damp::is_same_v<Spec, NoDisturbance>;
-
-/**
- * @brief The sizes of a disturbance spec on a plant with NU inputs, NY outputs and NW columns of
- *        G: @c states (ND) and @c listed (the NZ of its outputs list, 0 for all).
- */
-template<typename Spec, size_t NU, size_t NY, size_t NW>
-struct disturbance_traits;
 
 /** @brief Whether a disturbance spec fits a plant of NX states and NY outputs in T: a DisturbanceModel of those sizes (C_d left out or NY rows) and scalar; every other spec. */
 template<typename Spec, size_t NX, size_t NY, typename T>
@@ -334,14 +327,30 @@ inline constexpr bool disturbance_fits = true;
 template<size_t NXD, size_t NYD, size_t ND, size_t NZ, typename U, size_t NX, size_t NY, typename T>
 inline constexpr bool disturbance_fits<DisturbanceModel<NXD, NYD, ND, NZ, U>, NX, NY, T> = (NXD == NX) && (NYD == NY || NYD == 0) && damp::is_same_v<U, T>;
 
+} // namespace detail
+
+/** @brief A disturbance spec on a plant of NX states and NY outputs in T: a DisturbanceModel of those sizes and scalar, or a spec that takes the plant's own. */
+template<typename S, size_t NX, size_t NY, typename T>
+concept DisturbanceModelFor = DisturbanceSpec<S> && detail::disturbance_fits<damp::remove_cvref_t<S>, NX, NY, T>;
+
+namespace detail {
+
+/**
+ * @brief The sizes of a disturbance spec on a plant with NU inputs, NY outputs and NW columns of
+ *        G: @c states (ND) and @c listed (the NZ of its outputs list, 0 for all).
+ */
+template<typename Spec, size_t NU, size_t NY, size_t NW>
+struct disturbance_traits;
+
 /**
  * @brief The compile-time check of the disturbance spec among @p Opts, the same in every design:
- *        it fits the plant of NX states and NY outputs in T (disturbance_fits).
- * @return It does
+ *        none, or one on the plant of NX states and NY outputs in T (DisturbanceModelFor).
+ * @return It is
  */
 template<size_t NX, size_t NY, typename T, typename... Opts>
 consteval bool check_disturbance() {
-    constexpr bool fits = disturbance_fits<::damp::detail::option_t<kind::Disturbance, NoDisturbance, Opts...>, NX, NY, T>;
+    using Spec = ::damp::detail::option_t<kind::Disturbance, NoDisturbance, Opts...>;
+    constexpr bool fits = !DisturbanceSpec<Spec> || DisturbanceModelFor<Spec, NX, NY, T>;
     static_assert(fits, "The DisturbanceModel is on the plant's states and outputs (or leaves C_d out), in the plant's scalar.");
     return fits;
 }
@@ -488,7 +497,7 @@ inline constexpr bool is_input_disturbance<InputDisturbance<NZ>> = true;
  *        with states but InputDisturbance, whose d adds to u and so rides the model's own B and D.
  */
 template<typename Spec, typename Delay>
-inline constexpr bool held_on_late_readings = is_disturbance_model<Spec> && !is_input_disturbance<Spec> && (output_delay_states<Delay> > 0);
+inline constexpr bool held_on_late_readings = DisturbanceSpec<Spec> && !is_input_disturbance<Spec> && (output_delay_states<Delay> > 0);
 
 /**
  * @brief A disturbance's channels @p ch (disturbance_channels) on the filter's model with the

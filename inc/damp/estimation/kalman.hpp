@@ -760,7 +760,7 @@ template<Domain D, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_
         static_cast<void>(delay);
         static_cast<void>(measured);
         return KalmanResult<NX, NU, NY, T>{}; // the message says why: nothing further
-    } else if constexpr (is_disturbance_model<Disturbance>) {
+    } else if constexpr (DisturbanceSpec<Disturbance>) {
         const auto kf = kalman_design<D>(noise_model(sys), Ts, noise, ::damp::detail::the<kind::Disturbance>(opts...), delay);
         return measured_filter<D>(kf, sys, Ts, measured, delay);
     } else {
