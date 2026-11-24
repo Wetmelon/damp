@@ -963,7 +963,7 @@ struct ConstantObserver {
 };
 
 /** @brief The runtime an observer design runs as: none for anything else. */
-template<const auto& Res, typename T, typename R = damp::remove_cvref_t<decltype(Res)>>
+template<const auto& Res, typename T, typename R = detail::design_t<Res>>
 struct observer_runtime {};
 
 /** @brief design::kalman: the observer and its disturbance. */
@@ -981,7 +981,7 @@ struct observer_runtime<Res, T, design::PlaceObserverResult<NX, NU, NY, U, NW, N
 };
 
 /** @brief The recursive filter a design also runs as, named Law<kRes, T>::Recursive: none but design::kalman's. */
-template<const auto& Res, typename T, bool OnConstants, typename R = damp::remove_cvref_t<decltype(Res)>>
+template<const auto& Res, typename T, bool OnConstants, typename R = detail::design_t<Res>>
 struct recursive_filter_of {};
 
 /** @brief design::kalman: the KalmanFilter of the same model and noise, on the design's constants when it is `constexpr`. */
@@ -1205,7 +1205,7 @@ ReducedOrderObserver(const design::ReducedOrderObserverResult<NX, NU, T>&) -> Re
 namespace detail {
 
 /** @brief The runtime a reduced-observer design runs as: none for anything else. */
-template<const auto& Res, typename T, typename R = damp::remove_cvref_t<decltype(Res)>>
+template<const auto& Res, typename T, typename R = detail::design_t<Res>>
 struct reduced_observer_runtime {};
 
 /** @brief design::reduced_order_observer: with members, or on its constants. */

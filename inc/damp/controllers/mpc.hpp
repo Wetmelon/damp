@@ -575,6 +575,10 @@ template<typename... Opts>
  */
 template<size_t NX, size_t NU, size_t NY, size_t NP, size_t NC, size_t ND = 0, typename T = double, size_t NT_max = 0, size_t NXC = 0, size_t NYC = 0, size_t NDU = 0>
 struct [[nodiscard]] MPCArtifacts {
+    /** @brief The artifacts in another scalar: as<U>()'s type. */
+    template<typename U>
+    using as_t = MPCArtifacts<NX, NU, NY, NP, NC, ND, U, NT_max, NXC, NYC, NDU>;
+
     static_assert(NDU == 0 || NDU == NU, "A move limit bounds every input: an InputRateLimits on the plant's NU.");
     using scalar = T;                                                               ///< The scalar of its matrices
     static constexpr size_t nx = NX;                                                ///< States of the prediction model
@@ -628,8 +632,8 @@ struct [[nodiscard]] MPCArtifacts {
 
     /** @brief The artifacts in another scalar; refused (singular) when H does not factor in it. */
     template<typename U>
-    [[nodiscard]] constexpr MPCArtifacts<NX, NU, NY, NP, NC, ND, U, NT_max, NXC, NYC, NDU> as() const {
-        MPCArtifacts<NX, NU, NY, NP, NC, ND, U, NT_max, NXC, NYC, NDU> out{
+    [[nodiscard]] constexpr as_t<U> as() const {
+        as_t<U> out{
             .H = H.template as<U>(),
             .F_x = F_x.template as<U>(),
             .F_r = F_r.template as<U>(),
@@ -1722,12 +1726,11 @@ struct [[nodiscard]] MPCResult {
     /** @brief The design in another scalar; refused when the QP's Hessian does not factor in it. */
     template<typename U>
     [[nodiscard]] constexpr auto as() const {
-        using LawU = decltype(mpc.template as<U>());
-        using EstimatorU = decltype(kalman.template as<U>());
-        using TargetU = decltype(target.template as<U>());
-        const LawU         law = mpc.template as<U>();
+        const auto         law = mpc.template as<U>();
         const DesignStatus st = (status == DesignStatus::ok) ? law.status : status;
-        return MPCResult<LawU, EstimatorU, TargetU, NRU, NH>{law, kalman.template as<U>(), target.template as<U>(), st == DesignStatus::ok, st};
+        return MPCResult<typename Law::template as_t<U>, typename Estimator::template as_t<U>, typename Target::template as_t<U>, NRU, NH>{
+            law, kalman.template as<U>(), target.template as<U>(), st == DesignStatus::ok, st
+        };
     }
 };
 
@@ -1855,7 +1858,7 @@ template<
 ) {
     constexpr size_t NXL = NX + (input_delay_states<Delay> * NU); // the plant, then the delay states
     using Law = MPCArtifacts<NXL, NU, NY, NP, NC, NM, T, NT_max, NXC, NYC, NDU>;
-    using Target = decltype(held_target<Discrete>(sys, Ts, held, delay, Matrix<NXL, NM, T>{}));
+    using Target = held_target_t<Held, NX, NU, NY, NW, Delay, NM, T>;
     using Result = MPCResult<Law, NoEstimator, Target, input_delay_states<Delay>, reference_outputs<Held, NY>>; // the runtime holds the delay states
     const auto m = sampled_model(sys, Ts, Discrete, delay);
     if (m.status != DesignStatus::ok) {
@@ -1898,14 +1901,13 @@ template<
     const Delay&                                  delay = Delay{}
 ) {
     constexpr size_t ND = disturbance_traits<Spec, NU, NY, NW>::states; // the noise's NDN, sized by noise_of
-    constexpr size_t NXL = NX + (input_delay_states<Delay> * NU);       // the QP's: the plant, then the input's delay states
-    constexpr size_t NXE = NX + delay_states<Delay, NU, NY>;            // the filter's: then the late readings' delay states
+    constexpr size_t NXL = NX + (input_delay_states<Delay> * NU);       // the QP's: the plant, then the input's delay states (the filter's has the late readings' after them)
     const auto&      in = input_delay_of(delay);
     const auto       Bm = measured_channel<Discrete>(sys, Ts, measured, delay); // on the filter's model
     const auto       kf = with_measured_inputs(kalman_design<Discrete>(sys, Ts, noise, spec, delay), Bm);
     const auto       aim = target_spec_of(spec, held);
     using Aim = damp::remove_cvref_t<decltype(aim)>;
-    using Target = decltype(held_target<Discrete>(sys, Ts, aim, delay, Matrix<NXE, NM, T>{}));
+    using Target = held_target_t<Aim, NX, NU, NY, NW, Delay, NM, T>;
     using Law = MPCArtifacts<NXL, NU, NY, NP, NC, ND + NM, T, NT_max, NXC, NYC, NDU>;
     using Result = MPCResult<Law, damp::remove_cvref_t<decltype(kf)>, Target, input_delay_states<Delay>, reference_outputs<Aim, NY>>; // the filter carries the delay states
     Result     out{.kalman = kf};
@@ -3630,11 +3632,11 @@ struct mpc_runtime<design::MPCResult<Art, Kalman, Target, NRU, NH>, T> {
 
 /** @brief An MPC design. */
 template<const auto& Res, typename T>
-concept mpc_design = requires { typename mpc_runtime<damp::remove_cvref_t<decltype(Res)>, T>::type; };
+concept mpc_design = requires { typename mpc_runtime<detail::design_t<Res>, T>::type; };
 
 /** @brief An MPC design with a filter, which can run on the design's constants. */
 template<const auto& Res, typename T>
-concept filtered_mpc_design = mpc_design<Res, T> && mpc_runtime<damp::remove_cvref_t<decltype(Res)>, T>::filtered;
+concept filtered_mpc_design = mpc_design<Res, T> && mpc_runtime<detail::design_t<Res>, T>::filtered;
 
 /**
  * @brief Whether the Law of the MPC design @p Res runs: a `constexpr` design only when it
@@ -3655,10 +3657,10 @@ template<const auto& Res>
 /** @brief Law<kRes, T> of a `constexpr` MPC design with a filter: the same law, its filter on the design's matrices as constants of the type. The QP's data stays in members: set_limits rewrites it. */
 template<const auto& Res, typename T>
     requires(detail::filtered_mpc_design<Res, T> && detail::constant_design<Res>)
-struct Law<Res, T> : detail::mpc_runtime<damp::remove_cvref_t<decltype(Res)>, T>::template on_constants<Res> {
-    using Base = detail::mpc_runtime<damp::remove_cvref_t<decltype(Res)>, T>::template on_constants<Res>; ///< The runtime on constants
-    using Runtime = detail::mpc_runtime<damp::remove_cvref_t<decltype(Res)>, T>::type;                    ///< The runtime with members: the type of a member a redesign assigns
-    static_assert(detail::constant_design_runs(Res.success, Res.status));                                 // a failed design does not compile: the error names its status
+struct Law<Res, T> : detail::mpc_runtime<detail::design_t<Res>, T>::template on_constants<Res> {
+    using Base = detail::mpc_runtime<detail::design_t<Res>, T>::template on_constants<Res>; ///< The runtime on constants
+    using Runtime = detail::mpc_runtime<detail::design_t<Res>, T>::type;                    ///< The runtime with members: the type of a member a redesign assigns
+    static_assert(detail::constant_design_runs(Res.success, Res.status));                   // a failed design does not compile: the error names its status
 
     /** @brief The design's law. */
     constexpr Law() : Base{Res.template as<T>()} {}
@@ -3667,9 +3669,9 @@ struct Law<Res, T> : detail::mpc_runtime<damp::remove_cvref_t<decltype(Res)>, T>
 /** @brief Law<kRes, T> of an MPC design: its MPC, default-constructed from the design. A failed `constexpr` design does not compile, as with a filter. */
 template<const auto& Res, typename T>
     requires detail::mpc_design<Res, T>
-struct Law<Res, T> : detail::mpc_runtime<damp::remove_cvref_t<decltype(Res)>, T>::type {
-    using Runtime = detail::mpc_runtime<damp::remove_cvref_t<decltype(Res)>, T>::type; ///< The runtime the design runs as
-    static_assert(detail::mpc_law_runs<Res>());                                        // a failed constexpr design does not compile: the error names its status
+struct Law<Res, T> : detail::mpc_runtime<detail::design_t<Res>, T>::type {
+    using Runtime = detail::mpc_runtime<detail::design_t<Res>, T>::type; ///< The runtime the design runs as
+    static_assert(detail::mpc_law_runs<Res>());                          // a failed constexpr design does not compile: the error names its status
 
     /** @brief The design's law. */
     constexpr Law() : Runtime{Res.template as<T>()} {}

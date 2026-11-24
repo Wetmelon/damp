@@ -90,6 +90,10 @@ struct TrackedOutputs<0> {
  */
 template<size_t NX, size_t NU, size_t ND, size_t NZ, typename T = double>
 struct [[nodiscard]] SteadyStateTargetResult {
+    /** @brief The maps in another scalar: as<U>()'s type. */
+    template<typename U>
+    using as_t = SteadyStateTargetResult<NX, NU, ND, NZ, U>;
+
     Matrix<NX + NU, ND, T> target_d{};                          ///< [x_t; u_t] per unit estimated disturbance, then per unit measured disturbance
     Matrix<NX + NU, NZ, T> target_r{};                          ///< [x_t; u_t] per unit controlled-output reference
     bool                   success{false};                      ///< status == DesignStatus::ok
@@ -392,6 +396,14 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
 }
 
 /**
+ * @brief The target held_target returns for the pick @p Aim on the model of a plant of NX states,
+ *        NU inputs, NY outputs and NW noise inputs with @p Delay, under NM measured disturbances:
+ *        [x_t; u_t] per unit [d̂; d] (the spec's states, then NM), per unit r on the outputs it holds.
+ */
+template<typename Aim, size_t NX, size_t NU, size_t NY, size_t NW, typename Delay, size_t NM, typename T>
+using held_target_t = SteadyStateTargetResult<NX + delay_states<Delay, NU, NY>, NU, disturbance_traits<Aim, NU, NY, NW>::states + NM, reference_outputs<Aim, NY>, T>;
+
+/**
  * @brief The target a design holds on its pick @p aim (target_spec_of), @p measured a measured
  *        disturbance's channel on the model of @p sys with @p delay: target_design on a
  *        disturbance spec or a TrackedOutputs; a regulator's (NoDisturbance) the steady state
@@ -400,7 +412,7 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
  *        design::state_feedback's is the same, an LQI holding its integrated outputs at 0.
  */
 template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Aim, typename Delay, size_t NM>
-[[nodiscard]] constexpr auto held_target(
+[[nodiscard]] constexpr held_target_t<Aim, NX, NU, NY, NW, Delay, NM, T> held_target(
     const StateSpace<NX, NU, NY, T, NW, NV>&               sys,
     T                                                      Ts,
     const Aim&                                             aim,
@@ -425,7 +437,7 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
 template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Spec, typename Delay, size_t NM>
 [[nodiscard]] constexpr auto held_target_under(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T Ts, const Spec& spec, const Delay& delay, const MeasuredDisturbance<NX, NM, T>& measured) {
     const auto channel = measured_channel<Discrete>(sys, Ts, measured, delay);
-    using Result = decltype(held_target<Discrete>(sys, Ts, spec, delay, *channel));
+    using Result = held_target_t<Spec, NX, NU, NY, NW, Delay, NM, T>;
     if (!channel) {
         const auto m = sampled_model(sys, Ts, Discrete, delay);
         return ::damp::detail::refused<Result>((m.status != DesignStatus::ok) ? m.status : DesignStatus::bad_weights); // the model's refusal first, as the designs'; else a non-finite B_d

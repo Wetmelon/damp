@@ -44,6 +44,10 @@ struct KalmanResult;
  *        `[[no_unique_address]]` member of it takes no storage.
  */
 struct NoEstimator {
+    /** @brief The estimator in another scalar: still none. */
+    template<typename U>
+    using as_t = NoEstimator;
+
     /** @brief Any scalar: still nothing. */
     template<typename U>
     [[nodiscard]] constexpr NoEstimator as() const {
@@ -476,7 +480,7 @@ struct [[nodiscard]] StateFeedbackResult {
     /** @brief The same design in the scalar @p U: `res.as<float>()` for the embedded runtime. */
     template<typename U>
     [[nodiscard]] constexpr auto as() const {
-        using Out = StateFeedbackResult<NX, NU, U, NI, NY, damp::remove_cvref_t<decltype(kalman.template as<U>())>, NZ, NRU, NM, NDU, HO>;
+        using Out = StateFeedbackResult<NX, NU, U, NI, NY, typename Kalman::template as_t<U>, NZ, NRU, NM, NDU, HO>;
         Out out{K.template as<U>(), S.template as<U>(), array_as<damp::complex<U>>(e), success, status, static_cast<U>(Ts), kalman.template as<U>()};
         if constexpr (NI > 0) {
             out.integral = integral.template as<U>();

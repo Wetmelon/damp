@@ -276,8 +276,7 @@ template<typename... Opts>
     if constexpr (::damp::detail::option_count<kind::OutputDelay, Opts...> == 0) {
         return input;
     } else {
-        const auto output = ::damp::detail::the<kind::OutputDelay>(opts...);
-        return PlantDelays<damp::remove_cvref_t<decltype(input)>, damp::remove_cvref_t<decltype(output)>>{input, output};
+        return PlantDelays<::damp::detail::option_t<kind::InputDelay, NoDelay, Opts...>, ::damp::detail::option_t<kind::OutputDelay, NoDelay, Opts...>>{input, ::damp::detail::the<kind::OutputDelay>(opts...)};
     }
 }
 
@@ -378,6 +377,10 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
 } // namespace design
 
 namespace detail {
+
+/** @brief The type of the design @p Res that a Law runs, without its const: the result type its runtime is looked up by. */
+template<const auto& Res>
+using design_t = damp::remove_cvref_t<decltype(Res)>;
 
 /** @brief Whether a design's numbers can be part of a type: it is `constexpr`, not initialized at start-up. */
 template<const auto& Res>

@@ -35,15 +35,15 @@ struct lq_runtime {};
 
 /** @brief An LQ design: a result that has a runtime in lq_runtime. */
 template<const auto& Res, typename T>
-concept lq_design = requires { typename lq_runtime<damp::remove_cvref_t<decltype(Res)>, T>::type; };
+concept lq_design = requires { typename lq_runtime<detail::design_t<Res>, T>::type; };
 
 } // namespace detail
 
 /** @brief Law<kRes, T> of an LQ design initialized at start-up: the StateFeedback it runs as (an LQR, LQI, LQG, LQGI or OFLQG), default-constructed from the design. A runtime of the same shape assigned replaces it. */
 template<const auto& Res, typename T>
     requires detail::lq_design<Res, T>
-struct Law<Res, T> : detail::lq_runtime<damp::remove_cvref_t<decltype(Res)>, T>::type {
-    using Runtime = detail::lq_runtime<damp::remove_cvref_t<decltype(Res)>, T>::type; ///< The runtime the design runs as
+struct Law<Res, T> : detail::lq_runtime<detail::design_t<Res>, T>::type {
+    using Runtime = detail::lq_runtime<detail::design_t<Res>, T>::type; ///< The runtime the design runs as
 
     /** @brief The design's law. */
     constexpr Law() : Runtime{Res.template as<T>()} {}
@@ -74,7 +74,7 @@ struct ConstDemand {
 /** @brief The law's matrices as constants of the type: the store of a `constexpr` design's Law. */
 template<const auto& Res, typename T>
 struct ConstantGains {
-    using Design = damp::remove_cvref_t<decltype(Res)>;  ///< The design's type: its constants say what it carries
+    using Design = detail::design_t<Res>;                ///< The design's type: its constants say what it carries
     static constexpr bool constant = true;               ///< The matrices are constants of the type
     static constexpr auto design = Res.template as<T>(); ///< The design, in the runtime's scalar
     static constexpr auto kK = design.K;                 ///< K
@@ -132,7 +132,7 @@ struct ConstantGains {
 };
 
 /** @brief The estimator of a `constexpr` design's Law: none for a measured state. */
-template<const auto& Res, typename T, typename R = damp::remove_cvref_t<decltype(Res)>>
+template<const auto& Res, typename T, typename R = detail::design_t<Res>>
 struct constant_estimator {
     using type = NoEstimator; ///< NoEstimator
 };
@@ -148,8 +148,8 @@ struct constant_estimator<Res, T, design::StateFeedbackResult<NX, NU, U, NI, NY,
 /** @brief Law<kRes, T> of a `constexpr` LQ design: the same StateFeedback on the design's matrices as constants of the type. */
 template<const auto& Res, typename T>
     requires(detail::lq_design<Res, T> && detail::constant_design<Res>)
-struct Law<Res, T> : detail::lq_runtime<damp::remove_cvref_t<decltype(Res)>, T>::template on_constants<typename detail::constant_estimator<Res, T>::type, detail::ConstantGains<Res, T>> {
-    using Runtime = detail::lq_runtime<damp::remove_cvref_t<decltype(Res)>, T>::type; ///< The runtime with members: the type of a member a redesign assigns
+struct Law<Res, T> : detail::lq_runtime<detail::design_t<Res>, T>::template on_constants<typename detail::constant_estimator<Res, T>::type, detail::ConstantGains<Res, T>> {
+    using Runtime = detail::lq_runtime<detail::design_t<Res>, T>::type; ///< The runtime with members: the type of a member a redesign assigns
 
     static_assert(detail::constant_design_runs(Res.success, Res.status, Res.Ts)); // a failed or continuous design does not compile: the error names its status
 
@@ -160,7 +160,7 @@ struct Law<Res, T> : detail::lq_runtime<damp::remove_cvref_t<decltype(Res)>, T>:
      */
     constexpr Law() {
         auto lim = this->limits();
-        if constexpr (damp::remove_cvref_t<decltype(Res)>::kIntegral) {
+        if constexpr (detail::design_t<Res>::kIntegral) {
             this->integral.step = static_cast<T>(Res.integral.step);
             this->integral.unwind = Res.integral.unwind.template as<T>();
             this->tracking_time = static_cast<T>(Res.tracking_time);
