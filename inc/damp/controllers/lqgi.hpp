@@ -42,7 +42,8 @@ using LQGIResult = StateFeedbackResult<NX, NU, T, NI, NY, KalmanResult<NX, NU, N
  * u = u* − K·[x̂ − x*; xi]. The tick is step(r, y), or update(y), control(r), back_calculate,
  * predict() (predict moves the filter and xi), with x* = 0 and u* = 0; feedforward from a planned trajectory (x_ref, u_ref) is control(r, x_ref, u_ref), or
  * step(r, x_ref, u_ref, y). The command is clamped into u_lim and xi into integral_lim (the
- * design's, IntegralAction::lim; unbounded by default): predict() moves the filter on the clamped command
+ * design's, IntegralAction::lim; unbounded by default; limits() reads them and set_limits() moves
+ * them at run time): predict() moves the filter on the clamped command
  * and holds the integrators against the clamp. back_calculate(u_sat) before it reports a stage
  * that clamps after the law.
  *
@@ -76,13 +77,10 @@ struct LQGI : private detail::StateFeedbackCore<NX, NU, T, NI, NY, Est, 0, Store
         }
     }
 
-    using Core::demand_lim;
     using Core::estimator;
     using Core::integral;
-    using Core::integral_lim;
     using Core::K;
     using Core::tracking_time;
-    using Core::u_lim;
 
     /** @brief The filter's measurement update with @p y (the integrators read it at the next control). */
     constexpr void update(const ColVec<NY, T>& y) { Core::update(y); }
@@ -147,8 +145,10 @@ struct LQGI : private detail::StateFeedbackCore<NX, NU, T, NI, NY, Est, 0, Store
     using Core::back_calculate;
     using Core::getK;
     using Core::last_command;
+    using Core::limits;
     using Core::predict;
     using Core::reset;
+    using Core::set_limits;
     using Core::state_estimate;
     using Core::valid;
 };

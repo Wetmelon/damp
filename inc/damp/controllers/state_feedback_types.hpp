@@ -8,7 +8,8 @@
 /**
  * @file state_feedback_types.hpp
  * @brief The types of an LQ design: what it is given (LQRWeights, IntegralAction; InputLimits in
- *        design/input_limits.hpp) and what it hands its runtime (StateFeedbackResult, NoEstimator)
+ *        design/input_limits.hpp), what it hands its runtime (StateFeedbackResult, NoEstimator) and
+ *        the limits the runtime takes at run time (StateFeedbackLimits)
  *
  * The design is design::state_feedback (state_feedback.hpp); the runtimes are in lqr.hpp, lqi.hpp,
  * lqg.hpp, lqgi.hpp and oflqg.hpp, over the one they share in detail/state_feedback_core.hpp.
@@ -576,6 +577,27 @@ private:
         }
         return {.A = Ac, .B = Bc, .C = Cc, .D = Dc, .Ts = Ts};
     }
+};
+
+/**
+ * @brief The limits an LQ law takes at run time: u, the integrators ξ, what the outer terms ask of
+ *        a state and the disturbance estimate d̂, in physical units. A field left out is unbounded
+ *        (the demand limit off), and one the law does not have is empty.
+ *
+ * The gain, the filter and the target stay as designed. `auto l = law.limits(); l.u_lim.upper = …;
+ * law.set_limits(l);` changes one, as on an MPC (MPCLimits); `l.demand_lim = DemandLimit{…}` sets
+ * the demand limit, and `l.demand_lim = {}` turns it off.
+ *
+ * @tparam NX Plant states (the demand limit's terms: these, then the integrators)
+ * @tparam NI Integrators (0: none, integral_lim empty)
+ * @tparam ND Disturbance states of the filter (0: none, disturbance_lim empty)
+ */
+template<size_t NX, size_t NU, typename T = double, size_t NI = 0, size_t ND = 0>
+struct StateFeedbackLimits {
+    Bounds<NU, T>                           u_lim{};           ///< Limits on the command
+    Bounds<NI, T>                           integral_lim{};    ///< Limits on the integrators ξ (NI > 0)
+    ::damp::detail::DemandTerms<NX + NI, T> demand_lim{};      ///< A limit on what the outer terms ask of one state (a DemandLimit; default off)
+    Bounds<ND, T>                           disturbance_lim{}; ///< Limits on the disturbance estimate d̂, in d's units (ND > 0)
 };
 
 } // namespace design

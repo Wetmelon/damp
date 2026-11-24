@@ -200,7 +200,7 @@ What each runtime measures, the references and limits it takes, and what it does
 | `MPC` | state x: `update(x)` | `r` held or previewed, on the outputs the target holds (`TrackedOutputs`, else every output), plus optional `x_ref`/`u_ref`; measured disturbance `d`; input target | `u_lim`, `du_lim`, `y_lim`, `x_lim` | `back_calculate`; `last_status()` |
 | `OFMPC` | y, through a Kalman filter on [x; d]: `update(y)` | `r` held or previewed, on the outputs the disturbance spec lists (else every output), plus optional `x_ref`/`u_ref`; measured disturbance `d`; input target | `u_lim`, `du_lim`, `y_lim`, `x_lim`, `disturbance_lim` | `back_calculate`; `last_status()`; the filter runs on the applied input |
 
-On `MPC` and `OFMPC`, the QP weighs every output of the plant, `y_lim` and `x_lim` bound the outputs an `OutputLimits` option lists and the states a `StateLimits` lists, soft by default; the terminal ingredient (`DareCost`, `InvariantSet`) is part of the design, and `set_limits()` moves `u_lim`, `du_lim`, `y_lim` and `x_lim` at run time.
+Every law in this table reads its run-time limits with `limits()` and sets them with `set_limits()`, the fields its Limits column lists: an LQ law's `StateFeedbackLimits` (`u_lim`, `integral_lim`, `demand_lim`, `disturbance_lim`), an MPC's `MPCLimits` (`u_lim`, `du_lim`, `y_lim`, `x_lim`, `disturbance_lim`), a field the law does not have empty. On `MPC` and `OFMPC`, the QP weighs every output of the plant, `y_lim` and `x_lim` bound the outputs an `OutputLimits` option lists and the states a `StateLimits` lists, soft by default; the terminal ingredient (`DareCost`, `InvariantSet`) is part of the design, and with an `InvariantSet` `set_limits()` refuses a change of `u_lim`, `du_lim` or `y_lim`, which the set was built for.
 
 ### SISO laws
 
@@ -232,15 +232,15 @@ On `MPC` and `OFMPC`, the QP weighs every output of the plant, `y_lim` and `x_li
 
 One contract for every law:
 
-- **`u_lim`** is the output limit, a `Bounds` (`{.lower = -12.0, .upper = 12.0}`), unbounded by default. It is a field of the design input where the design takes a struct, and of the result otherwise. The runtime holds it as a public member, so a rail that moves is set per tick. A limit that is not a box (an end not finite, or lower above upper) is refused.
+- **`u_lim`** is the output limit, a `Bounds` (`{.lower = -12.0, .upper = 12.0}`), unbounded by default. It is a field of the design input where the design takes a struct, and of the result otherwise. A limit that is not a box (an end not finite, or lower above upper) is refused. A rail that moves is set per tick: the LQ laws and the MPCs read their run-time limits with `limits()` and set them with `set_limits(lim)`, which refuses one that is not a box and changes nothing (`auto l = law.limits(); l.u_lim = {…}; law.set_limits(l);`); the other laws hold `u_lim` as a public member.
 - **The tick returns a command inside `u_lim`**, and the law's memory holds against that clamp with nothing else to set: an integral does not run on behind it, and an observer or internal model takes the clamped command as the input applied.
 - **`back_calculate(u_sat, u_ff = {})`** reports a clamp after the law: `u_sat` is what the plant received, `u_ff` what was added to the law's command before the clamp. The law's memory holds against it the same way.
 
 | Law | Output limit | What holds against the clamp |
 | --- | --- | --- |
 | `PIDController`, `PIController`, `ContinuousPID` | `u_lim` in `PIDGains` | The integral: it gives back what the tick added, up to what the clamp cut off. With a `Kbc` it unwinds by back-calculation instead |
-| `LQR`, `LQI`, `LQG`, `LQGI`, `OFLQG` | `u_lim` in an `InputLimits` (its `du_lim` refused), and `lim` in the `IntegralAction` | The integrators: they hold (conditional integration), or with a `tracking_time` in the `IntegralAction` unwind by back-calculation; the filter and the delay states move on the clamped command; `OFLQG`'s d̂ stays in `disturbance_lim` |
-| `MPC`, `OFMPC` | `u_lim`, `du_lim` in an `InputLimits`, an `OutputLimits` and a `StateLimits` | By construction: the limits are constraints of the QP; `OFMPC`'s d̂ stays in `disturbance_lim` |
+| `LQR`, `LQI`, `LQG`, `LQGI`, `OFLQG` | `u_lim` in an `InputLimits` (its `du_lim` refused), `lim` in the `IntegralAction` and a `DemandLimit`; at run time `set_limits()` | The integrators: they hold (conditional integration), or with a `tracking_time` in the `IntegralAction` unwind by back-calculation; the filter and the delay states move on the clamped command; `OFLQG`'s d̂ stays in `disturbance_lim` |
+| `MPC`, `OFMPC` | `u_lim`, `du_lim` in an `InputLimits`, an `OutputLimits` and a `StateLimits`; at run time `set_limits()` | By construction: the limits are constraints of the QP; `OFMPC`'s d̂ stays in `disturbance_lim` |
 | `ADRCController` | `u_lim` on `ADRCResult` | The ESO runs on the clamped command |
 | `STSMCController` | `u_lim` on `STSMCResult` | The integral state |
 | `LeadLagController` | `u_lim` on `LeadLagResult` | The recursion runs on the clamped output |
@@ -253,7 +253,7 @@ One contract for every law:
 | `ClassicalDOB` | none: it returns the corrected command | The estimate takes the input reported |
 | `Cascade` | each loop's own | The outer law holds at the last command the inner loop could follow |
 
-`integral_lim` bounds the integral a law stores, so its unit is that law's: the I term in output units on a PID, ξ ≈ ∫e·dt on the LQ laws. `disturbance_lim` does the same for the d̂ of an `OFLQG` or an `OFMPC`, in d's units: a member of the runtime only, set on the law.
+`integral_lim` bounds the integral a law stores, so its unit is that law's: the I term in output units on a PID, ξ ≈ ∫e·dt on the LQ laws. `disturbance_lim` does the same for the d̂ of an `OFLQG` or an `OFMPC`, in d's units: the runtime's alone, set on the law with `set_limits()`.
 
 A limit on a state or an output needs a prediction: `design::mpc` (an `OutputLimits` on any output, a `StateLimits` on any state, soft or hard), `design::mhe` (`x_lim` on the estimate), or an `ActionGovernor` around any law. A `DemandLimit` among an LQ design's options is not one: it bounds what the gain's outer terms ask of a state, read as a cascade inside one gain (the lean a balancing robot's position and integral ask for). The integrators hold against it as against `u_lim`, or unwind with a `tracking_time`. It is a heuristic on the gain: nothing certifies the loop while the clamp binds. [demand_lim.md](demand_lim.md) derives it from first principles, with its limits and the published work nearest to it.
 

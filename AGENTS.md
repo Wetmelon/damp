@@ -159,8 +159,11 @@ the repo root.
   control → write → `back_calculate` → predict. `back_calculate(u_sat, u_ff = {})`
   records the applied input.
 - **Limits:** a law's output limit is `u_lim` (`Bounds`, unbounded by default):
-  in the design input or on its result, a public member of the runtime, refused
-  when it is not a box. The tick returns a command inside it, and with nothing
+  in the design input or on its result, refused when it is not a box. The LQ
+  laws and the MPCs read their run-time limits with `limits()` and set them with
+  `set_limits(lim)`, which refuses one that is not a box (false, nothing
+  changed); the other runtimes hold `u_lim` as a public member. The tick returns
+  a command inside `u_lim`, and with nothing
   else set the law's memory holds against that clamp (conditional integration,
   an observer or internal model on the clamped command). A clamp after the law
   is reported with `back_calculate`, to the same effect. Move, state and output

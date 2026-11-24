@@ -343,7 +343,8 @@ struct DareCost {};
  * range. InvariantSet<0> does not compile, nor InvariantSet{} without a room, nor design::mpc
  * with NC < NP (the shifted plan needs a free move at every step) or with a StateLimits, whose
  * rows the set does not cover. A margin outside (0, 1) is refused (invalid_parameter). The
- * runtime's set_limits is refused, the set being built for the design's limits.
+ * runtime's set_limits refuses a change of the u, Δu and output limits, which the set was built
+ * for; an OFMPC's disturbance_lim still moves.
  */
 template<size_t NT_max = 0, typename T = double>
 struct InvariantSet {
@@ -523,19 +524,24 @@ template<size_t NU, typename T, typename... Opts>
 
 /**
  * @brief The limits an MPC takes at run time (MATLAB®'s online constraints): u, Δu, the
- *        outputs its design's OutputLimits lists and the states its StateLimits lists,
- *        in physical units. A field left out is unbounded.
+ *        outputs its design's OutputLimits lists, the states its StateLimits lists and the
+ *        disturbance estimate d̂, in physical units. A field left out is unbounded, and one the
+ *        law does not have is empty.
  *
  * The softness (ECR), the terminal ingredient and the QP budget stay as designed. `auto l =
- * mpc.limits(); l.u_lim.upper = …; mpc.set_limits(l);` changes one. y_lim(i) and x_lim(i) are
- * the bounds of the i-th output and state their option lists.
+ * mpc.limits(); l.u_lim.upper = …; mpc.set_limits(l);` changes one, as on an LQ law
+ * (StateFeedbackLimits). y_lim(i) and x_lim(i) are the bounds of the i-th output and state their
+ * option lists.
+ *
+ * @tparam ND Disturbance states of the filter (0: none, disturbance_lim empty; an OFMPC's)
  */
-template<size_t NU, size_t NYC = 0, typename T = double, size_t NXC = 0>
+template<size_t NU, size_t NYC = 0, typename T = double, size_t NXC = 0, size_t ND = 0>
 struct MPCLimits {
-    Bounds<NU, T>  u_lim{};  ///< Input bounds
-    Bounds<NU, T>  du_lim{}; ///< Move bounds on Δu
-    Bounds<NYC, T> y_lim{};  ///< Bounds on the outputs the design's OutputLimits lists
-    Bounds<NXC, T> x_lim{};  ///< Bounds on the states the design's StateLimits lists
+    Bounds<NU, T>  u_lim{};           ///< Input bounds
+    Bounds<NU, T>  du_lim{};          ///< Move bounds on Δu
+    Bounds<NYC, T> y_lim{};           ///< Bounds on the outputs the design's OutputLimits lists
+    Bounds<NXC, T> x_lim{};           ///< Bounds on the states the design's StateLimits lists
+    Bounds<ND, T>  disturbance_lim{}; ///< Limits on the disturbance estimate d̂, in d's units (ND > 0)
 };
 
 /**
@@ -764,8 +770,8 @@ template<size_t NX, size_t NY, size_t NU, size_t NYC, typename T, size_t NXC>
  *        u over the control horizon, the bounded outputs and states over the
  *        prediction horizon.
  */
-template<size_t NX, size_t NU, size_t NY, size_t NP, size_t NC, size_t ND, typename T, size_t NT_max, size_t NXC, size_t NYC>
-constexpr void mpc_box_bounds(MPCArtifacts<NX, NU, NY, NP, NC, ND, T, NT_max, NXC, NYC>& art, const MPCLimits<NU, NYC, T, NXC>& lim) {
+template<size_t NX, size_t NU, size_t NY, size_t NP, size_t NC, size_t ND, typename T, size_t NT_max, size_t NXC, size_t NYC, size_t NDE>
+constexpr void mpc_box_bounds(MPCArtifacts<NX, NU, NY, NP, NC, ND, T, NT_max, NXC, NYC>& art, const MPCLimits<NU, NYC, T, NXC, NDE>& lim) {
     constexpr size_t NZ = NC * NU;
     constexpr size_t NYCS = NP * NYC;
     constexpr size_t r_du_hi = 0;
@@ -2435,9 +2441,8 @@ public:
     using Artifacts = design::MPCArtifacts<NXM, NU, NY, NP, NC, NDE + ND, T, NT_max, NXC, NYC>; ///< The QP: its disturbance channels [d̂; d]
     using TargetResult = design::SteadyStateTargetResult<NXE, NU, NDE + ND, NREF, T>;           ///< The target per unit [d̂; d] and r
     using DisturbanceLim = detail::maybe<(NDE > 0), Bounds<NDE, T>, detail::OffSlot::disturbance_lim>;
+    using Limits = design::MPCLimits<NU, NYC, T, NXC, NDE>; ///< What limits() returns and set_limits() takes
 
-    /** @brief Limits on the disturbance estimate d̂, in d's units: update clamps it, as OFLQG's (NDE > 0; default unbounded). */
-    [[no_unique_address]] DisturbanceLim disturbance_lim{};
     /** @brief The filter and its anchor, as the LQ laws' estimator: restart it with estimator.reset(x0, d0) (no storage on the measured state). */
     [[no_unique_address]] Estimator estimator{};
     /** @brief A design it is built from: the QP and the target, and @p Kalman, the estimator's design (NoEstimator without one). */
@@ -2563,7 +2568,7 @@ public:
         if constexpr (estimated) {
             estimator.update(y);
             if constexpr (NDE > 0) {
-                estimator.limit_disturbance(disturbance_lim);
+                estimator.limit_disturbance(disturbance_lim_);
             }
         } else if constexpr (NRU == 0) {
             x_ = y;
@@ -2719,32 +2724,46 @@ public:
 
 
     /**
-     * @brief Change the limits on u, Δu and the outputs and states the design bounds (its OutputLimits and StateLimits; MATLAB®'s online constraints)
+     * @brief Change the limits on u, Δu, the outputs and states the design bounds (its OutputLimits and StateLimits; MATLAB®'s online constraints) and the disturbance estimate d̂ (design::MPCLimits)
      *
      * The QP keeps its Hessian, constraint matrix, scaling and softness; the bound vector and the
-     * fallback clamp take the new limits from the next control. Refused (false, limits unchanged)
-     * when a limit is NaN, a lower limit is above its upper one, or the design has a terminal
-     * invariant set, which was built for the design's limits.
+     * fallback clamp take the new limits from the next control, and the next update clamps d̂
+     * into disturbance_lim. Refused (false, limits unchanged) when an end is NaN or ±Inf or a
+     * lower end is above its upper one, and on a design with a terminal invariant set, which was
+     * built for the design's u, Δu, output and state limits, when one of those is not the one in
+     * force.
      */
-    [[nodiscard]] constexpr bool set_limits(const design::MPCLimits<NU, NYC, T, NXC>& lim) {
+    [[nodiscard]] constexpr bool set_limits(const Limits& lim) {
+        if (!lim.u_lim.valid() || !lim.du_lim.valid() || !lim.y_lim.valid() || !lim.x_lim.valid() || !lim.disturbance_lim.valid()) {
+            return false;
+        }
+        auto&      c = art.constraints;
+        const auto same = [](const auto& a, const auto& b) { return a.lower == b.lower && a.upper == b.upper; }; // both boxes: their ends are numbers
         if (art.terminal == design::detail::MPCTerminal::invariant_set) {
-            return false;
+            if (!same(lim.u_lim, c.u_lim) || !same(lim.du_lim, c.du_lim) || !same(lim.y_lim, c.y_lim) || !same(lim.x_lim, c.x_lim)) {
+                return false; // the set's
+            }
+        } else {
+            design::detail::mpc_box_bounds(art, lim);
+            c.u_lim = lim.u_lim;
+            c.du_lim = lim.du_lim;
+            c.y_lim = lim.y_lim;
+            c.x_lim = lim.x_lim;
         }
-        if (!lim.u_lim.valid() || !lim.du_lim.valid() || !lim.y_lim.valid() || !lim.x_lim.valid()) {
-            return false;
+        if constexpr (NDE > 0) {
+            disturbance_lim_ = lim.disturbance_lim;
         }
-        design::detail::mpc_box_bounds(art, lim);
-        art.constraints.u_lim = lim.u_lim;
-        art.constraints.du_lim = lim.du_lim;
-        art.constraints.y_lim = lim.y_lim;
-        art.constraints.x_lim = lim.x_lim;
         return true;
     }
 
     /** @brief The limits in force (the design's, or the last set_limits). */
-    [[nodiscard]] constexpr design::MPCLimits<NU, NYC, T, NXC> limits() const {
+    [[nodiscard]] constexpr Limits limits() const {
         const auto& c = art.constraints;
-        return {c.u_lim, c.du_lim, c.y_lim, c.x_lim};
+        if constexpr (NDE > 0) {
+            return {c.u_lim, c.du_lim, c.y_lim, c.x_lim, disturbance_lim_};
+        } else {
+            return {c.u_lim, c.du_lim, c.y_lim, c.x_lim, Bounds<0, T>{}};
+        }
     }
 
     /** @brief Access the solver policy (stateful solvers expose warm-start caches here) */
@@ -3116,6 +3135,7 @@ private:
         return true;
     }
 
+    [[no_unique_address]] DisturbanceLim disturbance_lim_{}; ///< Limits on the disturbance estimate d̂, in d's units: update clamps it, as OFLQG's (NDE > 0; default unbounded)
     Artifacts                            art{};
     Solver                               qp_solver_{};
     [[no_unique_address]] MeasuredState  x_{};                 ///< The last measured state (no storage with an estimator)
@@ -3400,8 +3420,9 @@ namespace damp {
  * reference of the outputs the target holds (held, or a Preview). Feedforward from a planned
  * trajectory (x_ref, u_ref) adds to the target, as on OFLQG: control(r, x_ref, u_ref) and
  * step(r, x_ref, u_ref, y). back_calculate(u_sat) records what went
- * out, predict() moves the observer with it. update() clamps d̂ into disturbance_lim, a member
- * (unbounded by default), in d's units, as OFLQG's. A failed design does not compile when
+ * out, predict() moves the observer with it. update() clamps d̂ into disturbance_lim (the
+ * runtime's alone; unbounded by default), in d's units, as OFLQG's: limits() reads it and
+ * set_limits() moves it at run time, with the QP's limits. A failed design does not compile when
  * constant-evaluated.
  *
  * A design with a MeasuredDisturbance (NM > 0, its filter's inputs after u) takes d each tick,
@@ -3508,7 +3529,6 @@ public:
     using Core::back_calculate;
     using Core::clear_input_target;
     using Core::disturbance_estimate;
-    using Core::disturbance_lim;
     using Core::estimator;
     using Core::input_target;
     using Core::input_target_preview;

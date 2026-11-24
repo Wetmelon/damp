@@ -46,8 +46,9 @@ using LQIResult = StateFeedbackResult<NX, NU, T, NI, NY, NoEstimator, 0, NRU>;
  * x* = 0 and u* = 0; feedforward from a planned
  * trajectory (x_ref, u_ref) is control(r, x_ref, u_ref), or step(r, x_ref, u_ref, x). The
  * command is clamped into u_lim and xi into integral_lim (the design's, IntegralAction::lim; unbounded by
- * default), and predict() holds the integrators against that clamp; back_calculate(u_sat) before
- * it reports a stage that clamps after the law.
+ * default; limits() reads them and set_limits() moves them at run time), and predict() holds the
+ * integrators against that clamp; back_calculate(u_sat) before it reports a stage that clamps after
+ * the law.
  *
  * A design with an InputDelay (NRU > 0) runs on [x; v(k−1); …; v(k−NRU); xi]: update takes the
  * plant state x, and predict shifts the input back_calculate recorded (else the last command)
@@ -80,12 +81,9 @@ struct LQI : private detail::StateFeedbackCore<NX, NU, T, NI, NY, NoEstimator, 0
         }
     }
 
-    using Core::demand_lim;
     using Core::integral;
-    using Core::integral_lim;
     using Core::K;
     using Core::tracking_time;
-    using Core::u_lim;
 
     /** @brief Hold the measured plant state @p x for the next control (the input delay states are the law's). */
     constexpr void update(const ColVec<NX, T>& x) { Core::update(x); }
@@ -150,8 +148,10 @@ struct LQI : private detail::StateFeedbackCore<NX, NU, T, NI, NY, NoEstimator, 0
     using Core::back_calculate;
     using Core::getK;
     using Core::last_command;
+    using Core::limits;
     using Core::predict;
     using Core::reset;
+    using Core::set_limits;
     using Core::valid;
 };
 

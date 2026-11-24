@@ -469,3 +469,31 @@ TEST_CASE("MaxIterations with an invariant_set holds unless the iterate is prima
         CHECK(u1(0) == doctest::Approx(u0(0)));
     }
 }
+
+TEST_CASE("with an InvariantSet set_limits refuses a change of the QP's limits: they and the QP stay the design's") {
+    //! The set was built for the design's limits, so a change of any of them is refused, and the
+    //! law plans as one never asked does. The limits in force are taken: nothing moves.
+    const auto art = design::mpc<4, 4>(double_integrator, move_weight(0.01), kUnitInput, position_box(true), design::InvariantSet<64>{}, design::TrackedOutputs{});
+    REQUIRE(art.success);
+    REQUIRE(art.mpc.n_terminal > 0);
+    MPC             law{art};
+    MPC             twin{art};   // never asked
+    ColVec<2>       x{0.5, 0.8}; // a fast approach the set keeps feasible
+    const ColVec<1> r{0.9};
+
+    auto lim = law.limits();
+    lim.u_lim = {.lower = -0.8, .upper = 0.8};
+    CHECK_FALSE(law.set_limits(lim));
+    CHECK(law.limits().u_lim.upper(0) == 1.0);
+    lim = law.limits();
+    lim.y_lim = {.lower = -1.0, .upper = 0.9};
+    CHECK_FALSE(law.set_limits(lim));
+    CHECK(law.limits().y_lim.upper(0) == 1.0);
+    CHECK(law.set_limits(law.limits()));
+    for (size_t k = 0; k < 30; ++k) {
+        const auto u = law.step(r, x);
+        CHECK(law.last_status() == design::QPStatus::Success);
+        CHECK(twin.step(r, x)(0) == doctest::Approx(u(0)).epsilon(1e-12));
+        x = plant_step(x, u(0));
+    }
+}

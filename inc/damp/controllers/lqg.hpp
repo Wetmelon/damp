@@ -85,7 +85,8 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
  * TrackedOutputs holds those outputs at r through its steady-state target: control(r),
  * step(r, y). Feedforward from a planned trajectory (x_ref, u_ref) adds to it:
  * control([r,] x_ref, u_ref), step([r,] x_ref, u_ref, y). The command is clamped into u_lim
- * (the design's InputLimits; unbounded by default), and predict() moves the observer with it,
+ * (the design's InputLimits; unbounded by default; limits() reads it and set_limits() moves it at
+ * run time), and predict() moves the observer with it,
  * or with the input back_calculate(u_sat) recorded for a stage that clamps after the law.
  *
  * A design with an InputDelay (NRU > 0) has its filter on [x; v(k−1); …; v(k−NRU)]: predict
@@ -120,10 +121,8 @@ struct LQG : private detail::StateFeedbackCore<NX, NU, T, 0, NY, Est, NZ, Store,
         }
     }
 
-    using Core::demand_lim;
     using Core::estimator;
     using Core::K;
-    using Core::u_lim;
 
     /** @brief The filter's measurement update with @p y. */
     constexpr void update(const ColVec<NY, T>& y) { Core::update(y); }
@@ -244,8 +243,10 @@ struct LQG : private detail::StateFeedbackCore<NX, NU, T, 0, NY, Est, NZ, Store,
     using Core::back_calculate;
     using Core::getK;
     using Core::last_command;
+    using Core::limits;
     using Core::predict;
     using Core::reset;
+    using Core::set_limits;
     using Core::state_estimate;
     using Core::valid;
 };
