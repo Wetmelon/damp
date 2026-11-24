@@ -421,6 +421,18 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
     }
 }
 
+/** @brief target_with once its options fit: held_target under the measured disturbance's channel on the model of @p sys with @p delay. */
+template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Spec, typename Delay, size_t NM>
+[[nodiscard]] constexpr auto held_target_under(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T Ts, const Spec& spec, const Delay& delay, const MeasuredDisturbance<NX, NM, T>& measured) {
+    const auto channel = measured_channel<Discrete>(sys, Ts, measured, delay);
+    using Result = decltype(held_target<Discrete>(sys, Ts, spec, delay, *channel));
+    if (!channel) {
+        const auto m = sampled_model(sys, Ts, Discrete, delay);
+        return ::damp::detail::refused<Result>((m.status != DesignStatus::ok) ? m.status : DesignStatus::bad_weights); // the model's refusal first, as the designs'; else a non-finite B_d
+    }
+    return held_target<Discrete>(sys, Ts, spec, delay, *channel);
+}
+
 /**
  * @brief steady_state_target on its options, on the model of @p sys with @p delay: held_target on
  *        the outputs the laws hold (target_spec_of: the disturbance spec's, else the
@@ -434,8 +446,9 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
  */
 template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Delay, typename... Opts>
 [[nodiscard]] constexpr auto target_with(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T Ts, const Delay& delay, const Opts&... opts) {
-    check_held_outputs<NU, NY, 0, Opts...>();
     target_options::check<Opts...>();
+    check_held_outputs<NU, NY, 0, Opts...>();
+    constexpr bool   kModelFits = check_delays<!Discrete, Opts...>() && check_disturbance<NX, NY, T, Opts...>();
     const auto       spec = target_spec_of(::damp::detail::option<kind::Disturbance>(NoDisturbance{}, opts...), ::damp::detail::option<kind::TrackedOutputs>(NoDisturbance{}, opts...));
     const auto       measured = measured_of<NX, T>(opts...);
     constexpr size_t NM = measured_inputs<damp::remove_cvref_t<decltype(measured)>>;
@@ -445,13 +458,14 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
         "TrackedOutputs{{i, ...}} for some. With neither it is a regulator's, which holds nothing at r: give it a MeasuredDisturbance "
         "for the steady state under d."
     );
-    const auto channel = measured_channel<Discrete>(sys, Ts, measured, delay);
-    using Result = decltype(held_target<Discrete>(sys, Ts, spec, delay, *channel));
-    if (!channel) {
-        const auto m = sampled_model(sys, Ts, Discrete, delay);
-        return ::damp::detail::refused<Result>((m.status != DesignStatus::ok) ? m.status : DesignStatus::bad_weights); // the model's refusal first, as the designs'; else a non-finite B_d
+    if constexpr (!kModelFits) {
+        static_cast<void>(sys);
+        static_cast<void>(Ts);
+        static_cast<void>(delay);
+        return SteadyStateTargetResult<NX, NU, 0, 0, T>{}; // the message says why: nothing further
+    } else {
+        return held_target_under<Discrete>(sys, Ts, spec, delay, measured);
     }
-    return held_target<Discrete>(sys, Ts, spec, delay, *channel);
 }
 
 } // namespace detail
@@ -501,7 +515,6 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
  */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename... Opts>
 [[nodiscard]] constexpr auto steady_state_target(const StateSpace<NX, NU, NY, T, NW, NV>& sys, const Opts&... opts) {
-    static_assert(::damp::detail::option_count<kind::InputDelay, Opts...> + ::damp::detail::option_count<kind::OutputDelay, Opts...> == 0, "A delay is sampled with the plant: give the continuous plant and Ts.");
     return detail::target_with<true>(sys, T{0}, detail::NoDelay{}, opts...);
 }
 

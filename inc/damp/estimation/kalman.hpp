@@ -616,7 +616,6 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
     const Spec&                              spec,
     const Delay&                             delay = Delay{}
 ) {
-    static_assert(!Discrete || damp::is_same_v<Delay, NoDelay>, "A delay is sampled with the plant: a continuous plant and Ts.");
     constexpr size_t NXE = NX + delay_states<Delay, NU, NY>;
     constexpr size_t NXK = NXE + ND;
     if constexpr (ND == 0) {
@@ -701,58 +700,6 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
     }
 }
 
-/** @brief True when the noise's ND is the disturbance's and an explicit model is on this plant. */
-template<typename Disturbance, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t ND>
-consteval bool kalman_disturbance_ok() {
-    if constexpr (disturbance_traits<Disturbance, NU, NY, NW>::states != ND) {
-        return false;
-    } else if constexpr (requires(const Disturbance& d) { d.Bd; }) {
-        constexpr size_t NZ = disturbance_traits<Disturbance, NU, NY, NW>::listed;
-        return damp::is_same_v<Disturbance, DisturbanceModel<NX, NY, ND, NZ, T>> || damp::is_same_v<Disturbance, DisturbanceModel<NX, 0, ND, NZ, T>>;
-    } else {
-        return true;
-    }
-}
-
-/** @brief The message for a disturbance that does not fit the noise or the plant. Not a success path. */
-template<typename Disturbance, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t ND>
-consteval void reject_kalman_disturbance() {
-    constexpr bool sized = disturbance_traits<Disturbance, NU, NY, NW>::states == ND;
-    if constexpr (!sized) {
-        static_assert(sized, "KalmanNoise carries the random walk of the disturbance's ND states: KalmanNoise<NW, NV, T, ND>.");
-    } else if constexpr (requires(const Disturbance& d) { d.Bd; }) {
-        constexpr size_t NZ = disturbance_traits<Disturbance, NU, NY, NW>::listed;
-        static_assert(
-            damp::is_same_v<Disturbance, DisturbanceModel<NX, NY, ND, NZ, T>> || damp::is_same_v<Disturbance, DisturbanceModel<NX, 0, ND, NZ, T>>,
-            "The DisturbanceModel is on the plant's states and outputs (or leaves C_d out), in the plant's scalar."
-        );
-    }
-}
-
-/**
- * @brief kalman(sys[, Ts], noise, disturbance), once the disturbance fits. A mistake stops here,
- *        before the filter DARE.
- */
-template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t ND, typename Disturbance, typename Delay = NoDelay>
-[[nodiscard]] constexpr auto kalman_with_disturbance(
-    const StateSpace<NX, NU, NY, T, NW, NV>& sys,
-    T                                        Ts,
-    const KalmanNoise<NW, NV, T, ND>&        noise,
-    const Disturbance&                       disturbance,
-    const Delay&                             delay = Delay{}
-) {
-    if constexpr (kalman_disturbance_ok<Disturbance, NX, NU, NY, T, NW, ND>()) {
-        return kalman_design<Discrete>(sys, Ts, noise, disturbance, delay);
-    } else {
-        reject_kalman_disturbance<Disturbance, NX, NU, NY, T, NW, ND>();
-        return KalmanResult<NX, NU, NY, T>{};
-    }
-}
-
-} // namespace detail
-
-namespace detail {
-
 /** @brief The options kalman takes: its noise (required), a disturbance spec, a MeasuredDisturbance, an InputDelay, an OutputDelay. */
 using kalman_options = ::damp::detail::option_set<kind::InputDelay, kind::OutputDelay, kind::Disturbance, kind::MeasuredDisturbance, kind::KalmanNoise>;
 
@@ -780,12 +727,18 @@ using noise_for = plant_noise<NX, NY, T, NW, NV, disturbance_states_in<NX, NU, N
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename... Opts>
 [[nodiscard]] constexpr noise_for<NX, NU, NY, T, NW, NV, Opts...> noise_of(const Opts&... opts) {
     using Noise = ::damp::detail::option_t<kind::KalmanNoise, noise_for<NX, NU, NY, T, NW, NV, Opts...>, Opts...>;
+    constexpr bool sized = damp::is_same_v<Noise, noise_for<NX, NU, NY, T, NW, NV, Opts...>>;
     static_assert(
-        damp::is_same_v<Noise, noise_for<NX, NU, NY, T, NW, NV, Opts...>>,
+        sized,
         "The KalmanNoise is sized to the plant: .process NX x NX (or the columns of G when the plant names them), .measurement NY x NY, "
         "and with a disturbance spec .disturbance ND x ND (its states), in the plant's scalar."
     );
-    return ::damp::detail::option<kind::KalmanNoise>(noise_for<NX, NU, NY, T, NW, NV, Opts...>{}, opts...);
+    if constexpr (sized) {
+        return ::damp::detail::option<kind::KalmanNoise>(noise_for<NX, NU, NY, T, NW, NV, Opts...>{}, opts...);
+    } else {
+        (static_cast<void>(opts), ...);
+        return noise_for<NX, NU, NY, T, NW, NV, Opts...>{}; // the message says why: nothing further
+    }
 }
 
 /** @brief design::kalman with its trailing options, in the plant's own domain (@p Discrete) or at @p Ts. */
@@ -793,12 +746,18 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
 [[nodiscard]] constexpr auto kalman_with(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T Ts, const Opts&... opts) {
     kalman_options::check<Opts...>();
     static_assert(::damp::detail::option_count<kind::KalmanNoise, Opts...> == 1, "kalman needs its noise among the options: kalman(plant, Ts, KalmanNoise{.process = ..., .measurement = ...}).");
-    const auto noise = noise_of<NX, NU, NY, T, NW, NV>(opts...);
-    const auto delay = delays_of(opts...);
-    const auto measured = measured_of<NX, T>(opts...);
+    constexpr bool kModelFits = check_delays<!Discrete, Opts...>() && check_disturbance<NX, NY, T, Opts...>();
+    const auto     noise = noise_of<NX, NU, NY, T, NW, NV>(opts...);
+    const auto     delay = delays_of(opts...);
+    const auto     measured = measured_of<NX, T>(opts...);
     using Disturbance = ::damp::detail::option_t<kind::Disturbance, NoDisturbance, Opts...>;
-    if constexpr (is_disturbance_model<Disturbance>) {
-        const auto kf = kalman_with_disturbance<Discrete>(noise_model(sys), Ts, noise, ::damp::detail::option<kind::Disturbance>(NoDisturbance{}, opts...), delay);
+    if constexpr (!kModelFits) {
+        static_cast<void>(noise);
+        static_cast<void>(delay);
+        static_cast<void>(measured);
+        return KalmanResult<NX, NU, NY, T>{}; // the message says why: nothing further
+    } else if constexpr (is_disturbance_model<Disturbance>) {
+        const auto kf = kalman_design<Discrete>(noise_model(sys), Ts, noise, ::damp::detail::the<kind::Disturbance>(opts...), delay);
         return measured_filter<Discrete>(kf, sys, Ts, measured, delay);
     } else {
         return measured_filter<Discrete>(kalman_design<Discrete>(noise_model(sys), Ts, noise, NoDisturbance{}, delay), sys, Ts, measured, delay);

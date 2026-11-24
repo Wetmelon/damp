@@ -148,8 +148,8 @@ consteval void at_most_one() {
 }
 
 /**
- * @brief The kinds of option a design call accepts: check<Opts...>() refuses, at compile time, an
- *        option of no listed kind and a kind given twice (at_most_one).
+ * @brief The kinds of option a design call accepts: check<Opts...>() refuses, at compile time, a
+ *        number, an option of no listed kind and a kind given twice (at_most_one).
  */
 template<typename... Kinds>
 struct option_set {
@@ -168,7 +168,9 @@ struct option_set {
     /** @brief The compile-time check of a call's options. */
     template<typename... Opts>
     static constexpr void check() {
-        static_assert(known<Opts...>, "An option of a type this design does not take: the trailing options are recognized by type.");
+        constexpr bool numbers = (damp::is_integral_v<damp::remove_cvref_t<Opts>> || ...);
+        static_assert(!numbers, "A number is not an option: a QP's iteration budget is QPIterations{n}, and an MPC's terminal set's room InvariantSet<N>{...}.");
+        static_assert(numbers || known<Opts...>, "An option of a type this design does not take: the trailing options are recognized by type.");
         (at_most_one<Kinds, option_count<Kinds, Opts...>>(), ...);
     }
 };

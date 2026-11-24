@@ -218,14 +218,6 @@ template<bool Sampled, size_t NX, size_t NU, size_t NY, typename T, size_t NW, s
     }
 }
 
-/** @brief Whether a disturbance spec fits the plant: a DisturbanceModel on its states and outputs, in its scalar. */
-template<typename Spec, size_t NX, size_t NY, typename T>
-inline constexpr bool disturbance_fits = true;
-
-/** @brief A DisturbanceModel fits a plant of its sizes and scalar (NY 0: C_d left out). */
-template<size_t NXD, size_t NYD, size_t ND, size_t NZ, typename U, size_t NX, size_t NY, typename T>
-inline constexpr bool disturbance_fits<DisturbanceModel<NXD, NYD, ND, NZ, U>, NX, NY, T> = (NXD == NX) && (NYD == NY || NYD == 0) && damp::is_same_v<U, T>;
-
 /**
  * @brief design::state_feedback in the plant's own domain (@p Sampled false) or at @p Ts: the LQ
  *        gain of @p lq (@p weights LQRWeights) or placed at Poles, on the measured state, or on a
@@ -252,17 +244,11 @@ template<bool Sampled, size_t NX, size_t NU, size_t NY, typename T, size_t NW, s
     constexpr bool kFilter = (FilterSpec<Opts> || ...);
     constexpr bool kIntegral = ::damp::detail::option_count<kind::IntegralAction, Opts...> > 0;
     constexpr bool kDisturbance = ::damp::detail::option_count<kind::Disturbance, Opts...> > 0;
-    constexpr bool kDelay = ::damp::detail::option_count<kind::InputDelay, Opts...> + ::damp::detail::option_count<kind::OutputDelay, Opts...> > 0;
-    constexpr bool kLate = ::damp::detail::option_count<kind::OutputDelay, Opts...> > 0;
-    constexpr bool kFits = disturbance_fits<::damp::detail::option_t<kind::Disturbance, NoDisturbance, Opts...>, NX, NY, T>;
     constexpr bool kTracked = ::damp::detail::option_count<kind::TrackedOutputs, Opts...> > 0;
-    static_assert(kFilter || !kDisturbance, "A disturbance spec is estimated by the law's filter: give a KalmanNoise or ObserverPoles among the options.");
     static_assert(!(kIntegral && kDisturbance), "Integral action and a disturbance model are two offset-free choices: give an IntegralAction or a disturbance spec, not both.");
     static_assert(!(kIntegral && kTracked), "Integral action already holds r: TrackedOutputs is for a law without it (LQR, LQG).");
-    static_assert(kFits, "The DisturbanceModel is on the plant's states and outputs, in the plant's scalar.");
-    static_assert(Sampled || !kDelay, "A delay is sampled with the plant: give the continuous plant and Ts, fn(plant, Ts, config, ..., InputDelay<N>{theta}, OutputDelay<M>{theta}).");
-    static_assert(!kLate || kFilter, "An OutputDelay is a late reading: it needs a filter to carry it, a KalmanNoise or ObserverPoles.");
-    constexpr bool   kOptionsFit = (kFilter || !kDisturbance) && !(kIntegral && (kDisturbance || kTracked)) && kFits && (Sampled || !kDelay) && (!kLate || kFilter);
+    constexpr bool   kModelFits = check_delays<Sampled, Opts...>() && check_filtered<kFilter, Opts...>() && check_disturbance<NX, NY, T, Opts...>();
+    constexpr bool   kOptionsFit = kModelFits && !(kIntegral && (kDisturbance || kTracked));
     constexpr size_t NK = NX + integrator_count<Opts...>();                     // the poles Poles lists
     constexpr size_t NKF = NX + disturbance_states_in<NX, NU, NY, NW, Opts...>; // and ObserverPoles
     constexpr size_t NF = listed_poles<::damp::detail::option_t<kind::ObserverPoles, Unset, Opts...>>;

@@ -171,7 +171,6 @@ template<typename Result, bool Discrete, size_t NX, size_t NU, size_t NY, typena
 ) {
     using In = damp::remove_cvref_t<decltype(input_delay_of(delay))>;
     if constexpr (is_placed<Gain>) {
-        static_assert(!Discrete || damp::is_same_v<In, NoDelay>, "A delay is sampled with the plant: a continuous plant and Ts.");
         static_cast<void>(w); // the LQ gain's
         return placed_law_design<Result, Discrete, NI>(sys, Ts, gain, integ.Ci, input_delay_of(delay));
     } else if constexpr (damp::is_same_v<In, NoDelay>) {
@@ -179,9 +178,8 @@ template<typename Result, bool Discrete, size_t NX, size_t NU, size_t NY, typena
         static_cast<void>(delay);
         return law_design<Result, Discrete>(sys, Ts, w, integ); // a late reading leaves the gain the plant's: only the filter carries it
     } else {
-        static_assert(!Discrete, "A delay is sampled with the plant: a continuous plant and Ts.");
         static_cast<void>(gain);
-        return delayed_law_design<Result>(sys, Ts, input_delay_of(delay), w, integ);
+        return delayed_law_design<Result>(sys, Ts, input_delay_of(delay), w, integ); // a delay only on the sampled form: check_delays
     }
 }
 
