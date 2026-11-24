@@ -96,30 +96,6 @@ template<size_t NY, size_t NX, size_t NU, typename T, typename TQ, typename TI>
 }
 
 /**
- * @brief @p law with a Handover: the same design, its fade_time the option's. Refused with
- *        DesignStatus::invalid_parameter for a fade_time that is not finite and positive (a design
- *        that failed keeps its own status).
- */
-template<size_t NX, size_t NU, typename T, size_t NI, size_t NY, typename Kalman, size_t NZ, size_t NRU, size_t NM, size_t NDU>
-[[nodiscard]] constexpr StateFeedbackResult<NX, NU, T, NI, NY, Kalman, NZ, NRU, NM, NDU, true> with_handover(
-    const StateFeedbackResult<NX, NU, T, NI, NY, Kalman, NZ, NRU, NM, NDU>& law,
-    const Handover&                                                         handover
-) {
-    StateFeedbackResult<NX, NU, T, NI, NY, Kalman, NZ, NRU, NM, NDU, true> out{law.K, law.S, law.e, law.success, law.status, law.Ts, law.kalman};
-    if constexpr (NI > 0) {
-        out.integral = law.integral;
-        out.tracking_time = law.tracking_time;
-    }
-    if constexpr (NZ > 0 || NM > 0) {
-        out.target = law.target;
-    }
-    out.limits = law.limits;
-    out.fade_time = static_cast<T>(handover.fade_time);
-    const bool usable = damp::finite_positive(handover.fade_time) && damp::finite_positive(out.fade_time); // and still > 0 in the plant's scalar
-    return ::damp::detail::set_status(out, (law.status == DesignStatus::ok && !usable) ? DesignStatus::invalid_parameter : law.status);
-}
-
-/**
  * @brief The options of a state-feedback design: a filter spec (a KalmanNoise or ObserverPoles)
  *        makes it estimate the state. A weights spec among them is the weights given twice.
  */
@@ -136,25 +112,6 @@ using state_feedback_options = ::damp::detail::option_set<
     is_demand_limit,
     is_handover,
     is_weight_spec>;
-
-/**
- * @brief A design's result with the InputRateLimits among @p opts (NDU = NU), or itself without one:
- *        refused with DesignStatus::invalid_parameter when the box is not one, as the InputLimits are.
- */
-template<size_t NU, typename T, typename Result, typename... Opts>
-[[nodiscard]] constexpr auto with_rate_limits(const Result& res, const Opts&... opts) {
-    if constexpr (rate_limited_inputs<NU, Opts...> == 0) {
-        (static_cast<void>(opts), ...);
-        return res;
-    } else {
-        const Bounds<NU, T> rate = input_rate_limits_of<NU, T>(opts...);
-        const auto          out = res.with_input_rate(rate);
-        if (res.success && !rate.valid()) {
-            return ::damp::detail::refused<damp::remove_cvref_t<decltype(out)>>(DesignStatus::invalid_parameter); // an end NaN or ±Inf, or the lower above the upper
-        }
-        return out;
-    }
-}
 
 /** @brief The integrators of a state-feedback design's options: an IntegralAction's NI, else none. */
 template<typename... Opts>
@@ -232,32 +189,33 @@ template<bool Sampled, size_t NX, size_t NU, size_t NY, typename T, size_t NW, s
     const auto track = ::damp::detail::option<is_tracked_option>(NoDisturbance{}, opts...);
     const auto measured = measured_of<NX, T>(opts...);
     const auto delay = delays_of(opts...);
-    const auto design = [&](const auto& cost, const auto& Ci) {
-        if constexpr (kFilter) {
-            return designed<!Sampled>(noise_model(sys), Ts, cost, Ci, filter, offset_free, track, measured, delay, gain);
+    const auto rate = [&] {
+        if constexpr (rate_limited_inputs<NU, Opts...> > 0) {
+            return input_rate_limits_of<NU, T>(opts...);
         } else {
-            return designed<!Sampled>(sys, Ts, cost, Ci, filter, offset_free, track, measured, delay, gain);
-        }
-    };
-    const auto law = [&] {
-        if constexpr (kIntegral) {
-            constexpr size_t NI = integrators_of<Opts...>();
-            auto             integral = integral_cost<NY>(config, ::damp::detail::option<is_integral_option>(Unset{}, opts...));
-            integral.cost.demand_lim = demand_terms_of<decltype(integral.cost.demand_lim)>(opts...); // its outer terms may be the integrators
-            const auto Ci = integrated_selector<NI, NY, T>(integral.integral);
-            auto       out = design(integral.cost, Ci ? *Ci : Matrix<NI, NY, T>{});
-            if (!Ci) {
-                out = ::damp::detail::refused<decltype(out)>(DesignStatus::bad_weights); // an integrated output out of range or listed twice
-            }
-            return with_rate_limits<NU, T>(out, opts...);
-        } else {
-            return with_rate_limits<NU, T>(design(config, Matrix<0, NY, T>{}), opts...);
+            return Bounds<0, T>{};
         }
     }();
-    if constexpr (::damp::detail::option_count<is_handover, Opts...> == 0) {
-        return law;
+    const auto handover = ::damp::detail::option<is_handover>(Unset{}, opts...);
+    const auto design = [&](const auto& cost, const auto& Ci) {
+        if constexpr (kFilter) {
+            return designed<!Sampled>(noise_model(sys), Ts, cost, Ci, rate, filter, offset_free, track, measured, delay, gain, handover);
+        } else {
+            return designed<!Sampled>(sys, Ts, cost, Ci, rate, filter, offset_free, track, measured, delay, gain, handover);
+        }
+    };
+    if constexpr (kIntegral) {
+        constexpr size_t NI = integrators_of<Opts...>();
+        auto             integral = integral_cost<NY>(config, ::damp::detail::option<is_integral_option>(Unset{}, opts...));
+        integral.cost.demand_lim = demand_terms_of<decltype(integral.cost.demand_lim)>(opts...); // its outer terms may be the integrators
+        const auto Ci = integrated_selector<NI, NY, T>(integral.integral);
+        auto       out = design(integral.cost, Ci ? *Ci : Matrix<NI, NY, T>{});
+        if (!Ci) {
+            out = ::damp::detail::refused<decltype(out)>(DesignStatus::bad_weights); // an integrated output out of range or listed twice
+        }
+        return out;
     } else {
-        return with_handover(law, ::damp::detail::option<is_handover>(Handover{}, opts...));
+        return design(config, Matrix<0, NY, T>{});
     }
 }
 

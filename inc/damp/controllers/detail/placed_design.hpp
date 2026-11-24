@@ -84,17 +84,16 @@ template<size_t NZ, bool Sampled, size_t NP, typename T>
  * pole is placed at most NU times, so N ≥ 2 delay states per input (a deadbeat chain, which is
  * defective) is refused with not_placeable.
  *
- * @return The result law_design gives the LQ weights, S zero (no Riccati equation); status
+ * @return The design's @p Result as law_design fills it for the LQ weights, S zero (no Riccati equation); status
  *         invalid_parameter for a pole that is not finite, sampled_model's for the plant,
  *         design::place's otherwise (not_placeable, singular)
  */
-template<bool Discrete, size_t NI, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NP, typename In>
-[[nodiscard]] constexpr auto placed_law_design(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T Ts, const PlacedPoles<NP, T>& placed, const Matrix<NI, NY, T>& Ci, const In& delay) {
+template<typename Result, bool Discrete, size_t NI, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NP, typename In>
+[[nodiscard]] constexpr Result placed_law_design(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T Ts, const PlacedPoles<NP, T>& placed, const Matrix<NI, NY, T>& Ci, const In& delay) {
     constexpr size_t NRU = input_delay_states<In>;
     constexpr size_t NXL = NX + (NRU * NU); // the law's model: the plant, then the delay states
     constexpr size_t NK = NXL + NI;
     static_assert(NP + (NRU * NU) == NK, "The poles listed are the plant's and the integrators'.");
-    using Result = StateFeedbackResult<NX, NU, T, NI, ((NI > 0) ? NY : NX), NoEstimator, 0, NRU>;
     if (!finite_poles(placed.poles)) {
         return ::damp::detail::refused<Result>(DesignStatus::invalid_parameter); // before z = e^{s·Ts} maps −∞ to 0
     }

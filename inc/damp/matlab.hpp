@@ -822,8 +822,8 @@ template<size_t NI, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size
 ) {
     const auto w = split_integral_weight<NX, NI>(Q_aug, R);
     auto       res = design::detail::designed<true>(
-        sys, T{0}, w ? *w : design::detail::LQIConfig<NX, NU, NI, T>{}, Ci, noise, design::NoDisturbance{}, design::NoDisturbance{}, design::MeasuredDisturbance<NX, 0, T>{},
-        design::detail::NoDelay{}, design::detail::LQGain{}
+        sys, T{0}, w ? *w : design::detail::LQIConfig<NX, NU, NI, T>{}, Ci, Bounds<0, T>{}, noise, design::NoDisturbance{}, design::NoDisturbance{},
+        design::MeasuredDisturbance<NX, 0, T>{}, design::detail::NoDelay{}, design::detail::LQGain{}, design::detail::Unset{}
     );
     if (!w) {
         res = ::damp::detail::refused<decltype(res)>(design::DesignStatus::bad_weights); // x–xi cross weights
