@@ -94,14 +94,15 @@ namespace design {
 namespace detail {
 
 /**
- * @brief Integral action as a design reads it: integrators on r − y, every measured output
- *        (`IntegralAction{}`) or the listed ones (`IntegralAction<2>{{0, 3}}`, in that order:
- *        the references r follow it). design::IntegralAction{.Q, …} makes it.
- * @tparam NI Outputs integrated, listed in @ref outputs (0: every measured output)
+ * @brief Integral action as a design reads it: integrators on r − Ci·y, Ci an NI × NY matrix, with
+ *        their cost and tracking time. design::IntegralAction{…} makes one from the outputs it
+ *        lists; matlab::lqi(sys, Q, R, Ci) takes any Ci. NI = 0: none.
  */
-template<size_t NI = 0>
-struct IntegralAction {
-    damp::array<size_t, NI> outputs{}; ///< Indices of the integrated outputs, each once (none listed: all)
+template<size_t NI, size_t NY, typename T>
+struct Integrators {
+    Matrix<NI, NY, T> Ci{};            ///< The integrated outputs: e = r − Ci·y
+    Matrix<NI, NI, T> Q{};             ///< The cost on ξ ≈ ∫e dt (positive definite)
+    T                 tracking_time{}; ///< [s] Back-calculation tracking time (0: conditional integration)
 };
 
 } // namespace detail
@@ -292,51 +293,6 @@ template<typename Terms, typename... Opts>
     }
 }
 
-/**
- * @brief The full cost a design reads: LQRWeights and InputLimits as one, sized to the plant
- *
- * Its u_lim comes from the InputLimits among the options and demand_lim from the DemandLimit
- * (unbounded and off without them); the integrators add theirs in LQIConfig. The move limit, an
- * InputRateLimits, sizes the result and is read by the public design (state_feedback_design_of).
- */
-template<size_t NX, size_t NU = 1, typename T = double>
-struct LQRConfig {
-    Matrix<NX, NX, T>                  Q{};          ///< On the plant states x (positive semidefinite)
-    Matrix<NU, NU, T>                  R{};          ///< On the inputs u (positive definite)
-    Matrix<NX, NU, T>                  N{};          ///< Cross term between x and u (default zero)
-    Bounds<NU, T>                      u_lim{};      ///< Limits on the command u, per input (default unbounded)
-    ::damp::detail::DemandTerms<NX, T> demand_lim{}; ///< A limit on what the outer states ask of one state (default off)
-};
-
-/** @brief The weights, the InputLimits and the DemandLimit among @p opts (none: unbounded, off) as the design's full cost, the demand on the plant states. */
-template<size_t NX, size_t NU, typename T, typename... Opts>
-[[nodiscard]] constexpr LQRConfig<NX, NU, T> lq_cost_of(const LQRWeights<NX, NU, T>& weights, const Opts&... opts) {
-    return {
-        .Q = weights.Q,
-        .R = weights.R,
-        .N = weights.N,
-        .u_lim = input_limits_of<NU, T>(opts...),
-        .demand_lim = demand_terms_of<::damp::detail::DemandTerms<NX, T>>(opts...),
-    };
-}
-
-} // namespace detail
-
-namespace detail {
-
-/** @brief The full cost and an IntegralAction sized to the plant, NI integrators: what a design reads them as. */
-template<size_t NX, size_t NU = 1, size_t NI = 1, typename T = double>
-struct LQIConfig {
-    Matrix<NX, NX, T>                       Q{};             ///< On the plant states x (positive semidefinite)
-    Matrix<NU, NU, T>                       R{};             ///< On the inputs u (positive definite)
-    Matrix<NX, NU, T>                       N{};             ///< Cross term between x and u (default zero)
-    Matrix<NI, NI, T>                       Q_integral{};    ///< On the discrete integral state ξ ≈ ∫e dt (positive definite)
-    Bounds<NU, T>                           u_lim{};         ///< Limits on the command u, per input (default unbounded)
-    Bounds<NI, T>                           integral_lim{};  ///< Limits on the integral state ξ, per integrator (default unbounded)
-    ::damp::detail::DemandTerms<NX + NI, T> demand_lim{};    ///< A limit on what the outer states and integrators ask of one state (default off)
-    T                                       tracking_time{}; ///< [s] The integrators' back-calculation tracking time (default 0: conditional integration)
-};
-
 } // namespace detail
 
 /**
@@ -456,14 +412,6 @@ struct is_handover : damp::false_type {};
 /** @brief Handover. */
 template<>
 struct is_handover<Handover> : damp::true_type {};
-
-} // namespace detail
-
-namespace detail {
-
-/** @brief The config of a law with @p NI integrators: the full cost (LQRConfig) for none, LQIConfig with them. */
-template<size_t NX, size_t NU, size_t NI, typename T>
-using lq_config = damp::conditional_t<(NI == 0), LQRConfig<NX, NU, T>, LQIConfig<NX, NU, NI, T>>;
 
 } // namespace detail
 

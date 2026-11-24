@@ -34,18 +34,6 @@ namespace damp {
 namespace design {
 namespace detail {
 
-/** @brief The regulator's limits are usable (Bounds::valid). */
-template<size_t NX, size_t NU, typename T>
-[[nodiscard]] constexpr bool limits_valid(const LQRConfig<NX, NU, T>& w) {
-    return w.u_lim.valid() && w.demand_lim.template valid<NX>();
-}
-
-/** @brief The limits on the command and on the integrators are usable (Bounds::valid), and the tracking time is finite and not negative. */
-template<size_t NX, size_t NU, size_t NI, typename T>
-[[nodiscard]] constexpr bool limits_valid(const LQIConfig<NX, NU, NI, T>& w) {
-    return w.u_lim.valid() && w.integral_lim.valid() && w.demand_lim.template valid<NX>() && damp::finite_non_negative(w.tracking_time);
-}
-
 /**
  * @brief (∂u/∂ξ)⁺: the pseudo-inverse of −K on the integrators, the last NI columns of @p K. A
  *        clamp's excess Δu moves ξ by its least-squares share, ∂u/∂ξ·Δξ ≈ Δu; empty when the SVD fails.
@@ -72,11 +60,12 @@ template<typename Result, size_t NK, size_t NU, typename T>
 
 /**
  * @brief The law on a measured state: the gain on [x; xi] for the cost of @p w, and the
- *        integrators of @p Ci (NI > 0), in the design's @p Result. A continuous plant with no Ts
+ *        integrators @p integ (NI > 0), in the design's @p Result. A continuous plant with no Ts
  *        and no integrators gets the continuous law (CARE).
  */
-template<typename Result, bool Discrete, size_t NI, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
-[[nodiscard]] constexpr Result law_design(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T Ts, const lq_config<NX, NU, NI, T>& w, const Matrix<NI, NY, T>& Ci) {
+template<typename Result, bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NI>
+[[nodiscard]] constexpr Result law_design(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T Ts, const LQRWeights<NX, NU, T>& w, const Integrators<NI, NY, T>& integ) {
+    const auto& Ci = integ.Ci;
     if (!mat::cholesky(w.R).has_value()) {
         return ::damp::detail::refused<Result>(DesignStatus::bad_weights); // R not positive definite, on every route
     }
@@ -102,14 +91,14 @@ template<typename Result, bool Discrete, size_t NI, size_t NX, size_t NU, size_t
         }
         return with_gain(Result{.Ts = h}, discrete_lqr(m.law.A, m.law.B, cd));
     } else {
-        if (!mat::cholesky(w.Q_integral).has_value()) {
+        if (!mat::cholesky(integ.Q).has_value()) {
             return ::damp::detail::refused<Result>(DesignStatus::bad_weights); // an unweighted integrator: a mode at z = 1 the cost does not see
         }
-        // Forward-Euler integrator xi += h·e (MATLAB®'s discrete lqi): xi ≈ ∫e dt, so Q_integral
+        // Forward-Euler integrator xi += h·e (MATLAB®'s discrete lqi): xi ≈ ∫e dt, so its cost
         // means the same on either route. The runtime integrates e = r − Ci·(C·x + D·u), u the
         // input applied over the period, and so does this model on both routes.
         const auto              im = integral_model(m.law.A, m.law.B, m.law.C, m.law.D, Ci, h);
-        LQRCost<NX + NI, NU, T> cd = stacked_weights(w);
+        LQRCost<NX + NI, NU, T> cd = stacked_weights(w, integ.Q);
         if constexpr (!Discrete) {
             const auto c = sampled_integral_cost(sys.A, sys.B, sys.C, sys.D, Ci, cd, Ts);
             if (!c) {
@@ -126,21 +115,22 @@ template<typename Result, bool Discrete, size_t NI, size_t NX, size_t NU, size_t
 /**
  * @brief The law on a measured state of a continuous plant whose input arrives @p delay late:
  *        the gain on [x; v(k−1); …; v(k−N); ξ] for the continuous cost of @p w, exact (delayed_cost),
- *        and the integrators of @p Ci (NI > 0), in the design's @p Result.
+ *        and the integrators @p integ (NI > 0), in the design's @p Result.
  */
-template<typename Result, size_t NI, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t N, typename S>
+template<typename Result, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t N, typename S, size_t NI>
 [[nodiscard]] constexpr Result delayed_law_design(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     T                                        Ts,
     const InputDelay<N, S>&                  delay,
-    const lq_config<NX, NU, NI, T>&          w,
-    const Matrix<NI, NY, T>&                 Ci
+    const LQRWeights<NX, NU, T>&             w,
+    const Integrators<NI, NY, T>&            integ
 ) {
+    const auto& Ci = integ.Ci;
     if (!mat::cholesky(w.R).has_value()) {
         return ::damp::detail::refused<Result>(DesignStatus::bad_weights); // R not positive definite
     }
     if constexpr (NI > 0) {
-        if (!mat::cholesky(w.Q_integral).has_value()) {
+        if (!mat::cholesky(integ.Q).has_value()) {
             return ::damp::detail::refused<Result>(DesignStatus::bad_weights); // an unweighted integrator
         }
     }
@@ -150,7 +140,7 @@ template<typename Result, size_t NI, size_t NX, size_t NU, size_t NY, typename T
     }
     const auto& model = m.law;
     const auto  inputs = ::damp::detail::channel_delay_splits<NU>(delay.seconds, Ts, N); // as discretize accepted them
-    const auto  cost = inputs ? delayed_cost(sys, model, *inputs, Ci, w, Ts) : damp::nullopt;
+    const auto  cost = inputs ? delayed_cost(sys, model, *inputs, Ci, w, integ.Q, Ts) : damp::nullopt;
     if (!cost) {
         return ::damp::detail::refused<Result>(DesignStatus::bad_weights); // a non-finite weight on the sampled plant
     }
@@ -165,33 +155,33 @@ template<typename Result, size_t NI, size_t NX, size_t NU, size_t NY, typename T
 }
 
 /**
- * @brief The gain of a design in its @p Result: the LQ gain of @p w's weights (@p gain LQGain), on
- *        the plant (law_design) or on the model with the input delay states of @p delay
+ * @brief The gain of a design in its @p Result: the LQ gain of @p w (@p gain LQGain), on the plant
+ *        (law_design) or on the model with the input delay states of @p delay
  *        (delayed_law_design), or the gain placed at @p gain's poles on the same model
- *        (placed_law_design).
+ *        (placed_law_design); with the integrators @p integ (NI > 0).
  */
-template<typename Result, bool Discrete, size_t NI, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Delay, typename Gain>
+template<typename Result, bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NI, typename Delay, typename Gain>
 [[nodiscard]] constexpr Result gain_design(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     T                                        Ts,
-    const lq_config<NX, NU, NI, T>&          w,
-    const Matrix<NI, NY, T>&                 Ci,
+    const LQRWeights<NX, NU, T>&             w,
+    const Integrators<NI, NY, T>&            integ,
     const Delay&                             delay,
     const Gain&                              gain
 ) {
     using In = damp::remove_cvref_t<decltype(input_delay_of(delay))>;
     if constexpr (is_placed<Gain>) {
         static_assert(!Discrete || damp::is_same_v<In, NoDelay>, "A delay is sampled with the plant: a continuous plant and Ts.");
-        static_cast<void>(w); // its weights are the LQ gain's; the limits it carries are the runtime's
-        return placed_law_design<Result, Discrete, NI>(sys, Ts, gain, Ci, input_delay_of(delay));
+        static_cast<void>(w); // the LQ gain's
+        return placed_law_design<Result, Discrete, NI>(sys, Ts, gain, integ.Ci, input_delay_of(delay));
     } else if constexpr (damp::is_same_v<In, NoDelay>) {
         static_cast<void>(gain);
         static_cast<void>(delay);
-        return law_design<Result, Discrete, NI>(sys, Ts, w, Ci); // a late reading leaves the gain the plant's: only the filter carries it
+        return law_design<Result, Discrete>(sys, Ts, w, integ); // a late reading leaves the gain the plant's: only the filter carries it
     } else {
         static_assert(!Discrete, "A delay is sampled with the plant: a continuous plant and Ts.");
         static_cast<void>(gain);
-        return delayed_law_design<Result, NI>(sys, Ts, input_delay_of(delay), w, Ci);
+        return delayed_law_design<Result>(sys, Ts, input_delay_of(delay), w, integ);
     }
 }
 
@@ -249,40 +239,35 @@ template<bool Held, bool Discrete, size_t NX, size_t NU, size_t NY, typename T, 
     }
 }
 
-/** @brief Ci of integral action: the identity for every output, else the listed rows; nullopt for an index out of range or listed twice. */
-template<size_t NI, size_t NY, typename T, size_t NS>
-[[nodiscard]] constexpr damp::optional<Matrix<NI, NY, T>> integrated_selector(const IntegralAction<NS>& sel) {
-    if constexpr (NS == 0) {
-        static_cast<void>(sel);
-        return Matrix<NY, NY, T>::identity();
-    } else {
-        const auto rows = selected_outputs<NY>(sel.outputs);
-        if (!rows) {
-            return damp::nullopt;
-        }
-        Matrix<NI, NY, T> Ci{};
-        for (size_t i = 0; i < NI; ++i) {
-            Ci(i, (*rows)[i]) = T{1};
-        }
-        return Ci;
+/** @brief Ci of the integrators on the listed outputs, one row each; nullopt for an index out of range or listed twice. */
+template<size_t NI, size_t NY, typename T>
+[[nodiscard]] constexpr damp::optional<Matrix<NI, NY, T>> output_selector(const damp::array<size_t, NI>& outputs) {
+    const auto rows = selected_outputs<NY>(outputs);
+    if (!rows) {
+        return damp::nullopt;
     }
+    Matrix<NI, NY, T> Ci{};
+    for (size_t i = 0; i < NI; ++i) {
+        Ci(i, (*rows)[i]) = T{1};
+    }
+    return Ci;
 }
 
 /**
- * @brief @p law with the limits it runs within, the command's @p w.u_lim, its move @p rate, the
- *        demand limit and the integrators' limits and tracking time, and the fade time of
- *        @p handover (a Handover; Unset for none). A refused design ships none.
+ * @brief @p law with the @p limits it runs within (the command's, its move's, the integrators' and
+ *        the demand limit), the integrators' @p tracking_time and the fade time of @p handover (a
+ *        Handover; Unset for none). A refused design ships none.
  * @return Refused with DesignStatus::invalid_parameter for a limit that is not a box (an end NaN
  *         or ±Inf, or a lower end above its upper one), a negative tracking time or a fade time
  *         that is not finite and positive; not_converged when back-calculation is asked for and
  *         the gain has no SVD; else @p law, a failed one as it is
  */
-template<size_t NX, size_t NU, size_t NI, typename Result, typename T, size_t NDU, typename Fade>
-[[nodiscard]] constexpr Result with_limits(Result law, const lq_config<NX, NU, NI, T>& w, const Bounds<NDU, T>& rate, const Fade& handover) {
+template<typename Result, size_t NX, size_t NU, typename T, size_t NI, size_t NDU, typename Fade>
+[[nodiscard]] constexpr Result with_limits(Result law, const StateFeedbackLimits<NX, NU, T, NI, 0, NDU>& limits, T tracking_time, const Fade& handover) {
     if (!law.success) {
         return law;
     }
-    bool usable = limits_valid(w) && rate.valid();
+    bool usable = limits.input.valid() && limits.input_rate.valid() && limits.integral.valid() && limits.demand.template valid<NX>() && damp::finite_non_negative(tracking_time);
     if constexpr (!is_unset<Fade>) {
         law.fade_time = static_cast<T>(handover.fade_time);
         usable = usable && damp::finite_positive(handover.fade_time) && damp::finite_positive(law.fade_time); // and still > 0 in the plant's scalar
@@ -292,15 +277,15 @@ template<size_t NX, size_t NU, size_t NI, typename Result, typename T, size_t ND
     if (!usable) {
         return ::damp::detail::refused<Result>(DesignStatus::invalid_parameter);
     }
-    law.limits.input = w.u_lim;
-    law.limits.input_rate = rate;
-    law.limits.demand = w.demand_lim;
+    law.limits.input = limits.input;
+    law.limits.input_rate = limits.input_rate;
+    law.limits.integral = limits.integral;
+    law.limits.demand = limits.demand;
     if constexpr (NI > 0) {
-        law.limits.integral = w.integral_lim;
-        law.tracking_time = w.tracking_time;
+        law.tracking_time = tracking_time;
         if (const auto unwind = integrator_unwind<NI>(law.K)) {
             law.integral.unwind = *unwind; // formed for any tracking time: the runtime's may be set later
-        } else if (w.tracking_time > T{0}) {
+        } else if (tracking_time > T{0}) {
             return ::damp::detail::refused<Result>(DesignStatus::not_converged); // back-calculation asked for, and no SVD of the gain
         }
     }
@@ -309,7 +294,7 @@ template<size_t NX, size_t NU, size_t NI, typename Result, typename T, size_t ND
 
 /**
  * @brief The state-feedback design: the law (the LQ gain of @p w, or placed at @p gain's poles,
- *        LQGain or PlacedPoles) with the integrators of @p Ci (NI > 0) and its limits
+ *        LQGain or PlacedPoles) with the integrators @p integ (NI > 0) and its @p limits
  *        (with_limits), then the filter of @p filter (a KalmanNoise, the PlacedPoles of
  *        ObserverPoles, or Unset for none) and the target its options ask for: under the
  *        disturbance model @p offset_free, else on the outputs @p track lists (TrackedOutputs),
@@ -322,18 +307,18 @@ template<
     bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NI, size_t NDU, typename Filter, typename OffsetFree, typename Track, size_t NM,
     typename Delay, typename Gain, typename Fade>
 [[nodiscard]] constexpr auto designed(
-    const StateSpace<NX, NU, NY, T, NW, NV>& sys,
-    T                                        Ts,
-    const lq_config<NX, NU, NI, T>&          w,
-    const Matrix<NI, NY, T>&                 Ci,
-    const Bounds<NDU, T>&                    rate,
-    const Filter&                            filter,
-    const OffsetFree&                        offset_free,
-    const Track&                             track,
-    const MeasuredDisturbance<NX, NM, T>&    measured,
-    const Delay&                             delay,
-    const Gain&                              gain,
-    const Fade&                              handover
+    const StateSpace<NX, NU, NY, T, NW, NV>&          sys,
+    T                                                 Ts,
+    const LQRWeights<NX, NU, T>&                      w,
+    const Integrators<NI, NY, T>&                     integ,
+    const StateFeedbackLimits<NX, NU, T, NI, 0, NDU>& limits,
+    const Filter&                                     filter,
+    const OffsetFree&                                 offset_free,
+    const Track&                                      track,
+    const MeasuredDisturbance<NX, NM, T>&             measured,
+    const Delay&                                      delay,
+    const Gain&                                       gain,
+    const Fade&                                       handover
 ) {
     constexpr bool kEstimated = !is_unset<Filter>;
     constexpr bool kHeld = is_disturbance_model<OffsetFree> || is_tracked_outputs<Track>; // r is the target's
@@ -352,7 +337,7 @@ template<
     constexpr size_t NYL = (kEstimated || NI > 0) ? NY : NX; // what the law reads: y with a filter or integrators, else x
     using Result = StateFeedbackResult<NX, NU, T, NI, NYL, damp::remove_cvref_t<decltype(estimator)>, NZ, input_delay_states<Delay>, NM, NDU, !is_unset<Fade>>;
 
-    Result       out = with_limits<NX, NU, NI>(gain_design<Result, Discrete>(sys, Ts, w, Ci, delay, gain), w, rate, handover);
+    Result       out = with_limits(gain_design<Result, Discrete>(sys, Ts, w, integ, delay, gain), limits, integ.tracking_time, handover);
     DesignStatus status = out.status;
     out.kalman = estimator;
     if constexpr (kEstimated) {
@@ -361,7 +346,7 @@ template<
     if constexpr (kTarget && NM == 0) {
         out.target = target_design<Discrete>(sys, Ts, spec, delay);
     } else if constexpr (kTarget) {
-        out.target = measured_target<kHeld, Discrete>(sys, Ts, spec, Ci, Bm, delay);
+        out.target = measured_target<kHeld, Discrete>(sys, Ts, spec, integ.Ci, Bm, delay);
     } else {
         static_cast<void>(Bm);
     }
