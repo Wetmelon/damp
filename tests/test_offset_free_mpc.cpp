@@ -13,9 +13,11 @@
 #include <cmath>
 #include <cstddef>
 #include <type_traits>
+#include <utility>
 
 #include "damp/backend.hpp"
 #include "damp/controllers/mpc.hpp"
+#include "damp/controllers/state_feedback_types.hpp"
 #include "damp/design/disturbance.hpp"
 #include "damp/design/qp.hpp"
 #include "damp/design/status.hpp"
@@ -930,4 +932,42 @@ TEST_CASE("ofmpc reads a plant with no noise inputs as noise on every state and 
     constexpr StateSpace plant{.A = {{0.0, 1.0}, {0.0, 0.0}}, .B = {{0.0}, {1.0}}, .C = {{1.0, 0.0}}};
     const auto           sampled = design::mpc<10, 3>(plant, Ts, w, design::KalmanNoise{.process = diag(1.0, 1.0), .measurement = 1.0, .disturbance = 1.0}, design::InputDisturbance{});
     CHECK(sampled.success);
+}
+
+namespace {
+
+/// Whether `OFMPC law{res}` deduces from a design of type R.
+template<typename R>
+concept runs_as_ofmpc = requires(const R& res) { OFMPC{res}; };
+
+/// Whether OFMPC takes the estimator E, spelled out.
+template<typename E>
+concept ofmpc_takes = requires { typename OFMPC<2, 1, 1, 10, 3, double, design::WarmStartActiveSetSolver<4, 7, double>, 0, E>; };
+
+} // namespace
+
+TEST_CASE("OFMPC is the MPC of an offset-free design, and refuses a design without a disturbance") {
+    using OffsetFree = decltype(offset_free<10, 3>(move_weight(0.1)));
+    using Filtered = decltype(design::mpc<10, 3>(double_integrator, move_weight(0.1), design::KalmanNoise<2, 1>{}, design::TrackedOutputs{}));
+    using Measured = decltype(design::mpc<10, 3>(double_integrator, move_weight(0.1), design::TrackedOutputs{}));
+    static_assert(runs_as_ofmpc<OffsetFree>);
+    static_assert(!runs_as_ofmpc<Filtered>); // a filter that estimates no disturbance runs as MPC
+    static_assert(!runs_as_ofmpc<Measured>); // and so does the measured state
+    static_assert(std::is_same_v<decltype(OFMPC{std::declval<const OffsetFree&>()}), decltype(MPC{std::declval<const OffsetFree&>()})>);
+    static_assert(ofmpc_takes<FixedGainObserver<3, 1, 1, double, 1>>);
+    static_assert(!ofmpc_takes<FixedGainObserver<2, 1, 1, double>> && !ofmpc_takes<NoEstimator>);
+
+    //! The same law under either name.
+    const auto art = offset_free<10, 3>(move_weight(0.1));
+    REQUIRE(art.success);
+    OFMPC     offset_free_law{art};
+    MPC       law{art};
+    ColVec<2> x{};
+    for (int k = 0; k < 50; ++k) {
+        const ColVec<1> y{x(0)};
+        const ColVec<1> u = law.step(ColVec<1>{1.0}, y);
+        CHECK(offset_free_law.step(ColVec<1>{1.0}, y)(0) == u(0));
+        x = plant_step(x, u(0) + 0.2);
+    }
+    CHECK(law.disturbance_estimate()(0) == offset_free_law.disturbance_estimate()(0));
 }

@@ -1084,7 +1084,7 @@ struct ConstantKalman {
  * For a fixed (steady-state) gain, run the design on FixedGainObserver: `FixedGainObserver obs{design::kalman(sys, noise)}`
  * — about 6 % of the recursive filter's multiply-accumulates per tick at 10 states and 6 outputs,
  * no square root, no failure path. FixedGainObserver is also the estimator inside LQG, LQGI, OFLQG and
- * OFMPC, with the disturbance anchor the offset-free laws use.
+ * an MPC through a filter, with the disturbance anchor the offset-free laws use.
  *
  * A design on [x; d] (design::kalman with a disturbance) runs here as the absolute filter on the
  * whole augmented state. An input delay is in the model discretize(plant, Ts, InputDelay<N>{θ})
