@@ -172,7 +172,7 @@
 #include "damp/design/input_limits.hpp" // IWYU pragma: export
 #include "damp/design/invariant_set.hpp"
 #include "damp/design/options.hpp"
-#include "damp/design/qp.hpp"
+#include "damp/design/qp.hpp" // IWYU pragma: export
 #include "damp/design/riccati.hpp"
 #include "damp/design/status.hpp"
 #include "damp/design/steady_state_target.hpp" // IWYU pragma: export
@@ -325,41 +325,35 @@ struct DareCost {};
 /**
  * @struct InvariantSet
  * @brief A terminal cost and set for design::mpc, among its options: DareCost's cost and the
- *        maximal positively invariant set of its terminal law (at most one terminal ingredient)
+ *        maximal positively invariant set of its terminal law, with room for NT_max rows (at most
+ *        one terminal ingredient)
  *
  * The set of the terminal law Δu′ = −K·z, augmented with the constant target (MPC for tracking),
  * as hard rows on z_N: one set valid for every target that keeps target_margin of each
  * half-range clear of its bounds (the InputLimits and the OutputLimits), the target moving each
- * row's offset at run time. `InvariantSet{.target_margin = 0.05}`. That set has more facets than
- * a zero-target one (a 2-state double integrator ~48): give it room, mpc<NP, NC, NT_max>, and
- * design it at initialization, since constant-evaluated it exceeds GCC's default
- * -fconstexpr-ops-limit.
+ * row's offset at run time. `InvariantSet<64>{.target_margin = 0.05}`. NT_max is the room the QP
+ * keeps for the set's rows, and it is named because the facet count is known only once the set
+ * is computed: a target-augmented set has more than a zero-target one (a 2-state double
+ * integrator ~48), and one that does not fit is refused (not_converged). Design it at
+ * initialization, since constant-evaluated it exceeds GCC's default -fconstexpr-ops-limit.
  *
  * The set's rows are hard and the target is the steady state of r[0], so the QP is feasible only
  * from states that reach the set within NP steps for that target: a reference step outside that
  * region makes every tick Infeasible, and the runtime holds its input. Size NP for the reference
- * range. design::mpc refuses NC < NP (the shifted plan needs a free move at every step), a margin
- * outside (0, 1) and a StateLimits, whose rows the set does not cover (invalid_parameter), and
- * NT_max = 0 (bad_weights). The runtime's set_limits is refused, the set being built for the
- * design's limits.
+ * range. InvariantSet<0> does not compile, nor InvariantSet{} without a room, nor design::mpc
+ * with NC < NP (the shifted plan needs a free move at every step) or with a StateLimits, whose
+ * rows the set does not cover. A margin outside (0, 1) is refused (invalid_parameter). The
+ * runtime's set_limits is refused, the set being built for the design's limits.
  */
-template<typename T = double>
+template<size_t NT_max = 0, typename T = double>
 struct InvariantSet {
-    T target_margin{static_cast<T>(0.05)}; ///< The fraction of each half-range a tracked target keeps clear of its bounds, in (0, 1)
-};
+    static_assert(
+        NT_max > 0,
+        "InvariantSet<N>{.target_margin = ...} names the room N the QP keeps for the terminal set's rows, at least its facet count "
+        "(~48 on a 2-state double integrator): the count is known only once the set is computed."
+    );
 
-/**
- * @struct QPIterations
- * @brief The QP's iteration budget per tick, among design::mpc's options (left out:
- *        10·(NZ + 1 + NI + 1), NZ the moves and NI the constraint rows)
- *
- * `QPIterations{40}` caps each tick's active-set solve at 40 iterations, which bounds the tick's
- * worst-case time. A solve that runs out reports MaxIterations through last_status(), and the
- * runtime applies or holds as damp::MPC describes. design::mpc refuses a budget of 0
- * (invalid_parameter).
- */
-struct QPIterations {
-    size_t budget{0}; ///< Active-set iterations per tick, ≥ 1
+    T target_margin{static_cast<T>(0.05)}; ///< The fraction of each half-range a tracked target keeps clear of its bounds, in (0, 1)
 };
 
 /**
@@ -372,9 +366,9 @@ struct QPIterations {
  * tracking it. `StateLimits{.states = {2}, .lim = {.lower = -0.26, .upper = 0.26}}` bounds state 2;
  * states is an array, so the limits take NXC from its list. lower_ecr(i) and upper_ecr(i) are the
  * softness of each side (0 = hard). design::mpc refuses a state index past the model's or listed
- * twice, a NaN limit or a lower limit above its upper one, and state limits with an
- * InvariantSet, whose rows do not cover the states (invalid_parameter); a negative
- * or non-finite ECR is refused with bad_weights. The runtime moves lim with set_limits (MPCLimits::x_lim).
+ * twice, a NaN limit or a lower limit above its upper one (invalid_parameter), and a negative
+ * or non-finite ECR with bad_weights. With an InvariantSet, whose rows do not cover the states,
+ * it does not compile. The runtime moves lim with set_limits (MPCLimits::x_lim).
  */
 template<size_t NXC, typename T = double>
 struct StateLimits {
@@ -455,16 +449,16 @@ template<>
 struct is_mpc_terminal<DareCost> : damp::true_type {};
 
 /** @brief InvariantSet. */
-template<typename T>
-struct is_mpc_terminal<InvariantSet<T>> : damp::true_type {};
+template<size_t NT_max, typename T>
+struct is_mpc_terminal<InvariantSet<NT_max, T>> : damp::true_type {};
 
-/** @brief A QPIterations: a kind of design::mpc option. */
+/** @brief The rows a terminal ingredient keeps in the QP: none for DareCost, or with none given. */
 template<typename O>
-struct is_qp_iterations : damp::false_type {};
+inline constexpr size_t terminal_rows = 0;
 
-/** @brief QPIterations. */
-template<>
-struct is_qp_iterations<QPIterations> : damp::true_type {};
+/** @brief An InvariantSet keeps NT_max. */
+template<size_t NT_max, typename T>
+inline constexpr size_t terminal_rows<InvariantSet<NT_max, T>> = NT_max;
 
 /** @brief How many entries a limits option lists: none without one. */
 template<typename O>
@@ -1410,9 +1404,6 @@ template<size_t NP, size_t NC, size_t ND, size_t NT_max = 0, size_t NX, size_t N
         art.h_terminal(i) = unbounded_bound<T>();
     }
 
-    if (constraints.terminal == MPCTerminal::invariant_set && NT_max == 0) {
-        return ::damp::detail::set_status(art, DesignStatus::bad_weights);
-    }
     if (!(sys.Ts > T{0}) || !damp::isfinite(sys.Ts)) {
         return ::damp::detail::set_status(art, DesignStatus::invalid_sample_time);
     }
@@ -1429,11 +1420,8 @@ template<size_t NP, size_t NC, size_t ND, size_t NT_max = 0, size_t NX, size_t N
     if (!constraints.u_lim.valid() || !constraints.du_lim.valid()) {
         return ::damp::detail::set_status(art, DesignStatus::invalid_parameter); // as set_limits: a NaN or inverted limit
     }
-    if (!mpc_signal_bounds_valid<NX, NY>(constraints) || (NXC > 0 && constraints.terminal == MPCTerminal::invariant_set)) {
-        return ::damp::detail::set_status(art, DesignStatus::invalid_parameter); // an index past the model's or listed twice, a bad box, or a set that does not cover the states
-    }
-    if (constraints.terminal == MPCTerminal::invariant_set && NC < NP) {
-        return ::damp::detail::set_status(art, DesignStatus::invalid_parameter); // the shifted plan needs a free move at every step
+    if (!mpc_signal_bounds_valid<NX, NY>(constraints)) {
+        return ::damp::detail::set_status(art, DesignStatus::invalid_parameter); // an index past the model's or listed twice, or a bad box
     }
     if (art.max_qp_iterations == 0) {
         return ::damp::detail::set_status(art, DesignStatus::invalid_parameter); // QPIterations{0}: not one active-set step
@@ -1701,11 +1689,12 @@ using mpc_options = ::damp::detail::option_set<
     is_qp_iterations, is_input_delay, is_output_delay>;
 
 /**
- * @brief The compile-time check of a design::mpc call's trailing options: a kind it does not take
- *        or one given twice is refused, with a message naming the spelling for the limits, the
- *        held outputs, the terminal ingredient and the QP budget.
+ * @brief The compile-time check of a design::mpc<NP, NC> call's trailing options: a kind it does
+ *        not take or one given twice is refused, with a message naming the spelling for the
+ *        limits, the held outputs, the terminal ingredient and the QP budget, and so is an
+ *        InvariantSet with NC < NP or with a StateLimits.
  */
-template<typename... Opts>
+template<size_t NP, size_t NC, typename... Opts>
 constexpr void check_mpc_options() {
     static_assert(::damp::detail::option_count<is_input_limits, Opts...> <= 1, "One InputLimits bounds every input: InputLimits{.u_lim = {...}, .du_lim = {...}}.");
     static_assert(::damp::detail::option_count<is_output_limits, Opts...> <= 1, "One OutputLimits lists every bounded output: OutputLimits{.outputs = {i, ...}, .lim = {...}}.");
@@ -1718,10 +1707,19 @@ constexpr void check_mpc_options() {
     );
     static_assert(
         ::damp::detail::option_count<is_mpc_terminal, Opts...> <= 1,
-        "One terminal ingredient: DareCost{} for the cost, or InvariantSet{.target_margin = ...} for the cost and the set, not both."
+        "One terminal ingredient: DareCost{} for the cost, or InvariantSet<N>{.target_margin = ...} for the cost and the set, not both."
     );
     static_assert(::damp::detail::option_count<is_qp_iterations, Opts...> <= 1, "One QP budget: QPIterations{n}.");
-    static_assert(!(damp::is_integral_v<damp::remove_cvref_t<Opts>> || ...), "The QP's iteration budget is QPIterations{n}; the terminal set's room is mpc<NP, NC, NT_max>.");
+    static_assert(!(damp::is_integral_v<damp::remove_cvref_t<Opts>> || ...), "The QP's iteration budget is QPIterations{n}; the terminal set's room is InvariantSet<N>{...}.");
+    constexpr bool kSet = terminal_rows<::damp::detail::option_t<is_mpc_terminal, void, Opts...>> > 0;
+    static_assert(
+        !kSet || NC == NP,
+        "An InvariantSet needs a free move at every step for the shifted plan: mpc<NP, NP>, or DareCost{} for the terminal cost alone."
+    );
+    static_assert(
+        !kSet || ::damp::detail::option_count<is_state_limits, Opts...> == 0,
+        "An InvariantSet's rows do not cover a StateLimits: bound an output that reads the state with OutputLimits{...}, or take DareCost{} for the cost alone."
+    );
     mpc_options::check<Opts...>();
 }
 
@@ -1920,11 +1918,16 @@ template<
     return ::damp::detail::set_status(out, first_failure(kf.status, out.target.status, out.mpc.status));
 }
 
-/** @brief design::mpc in the plant's time domain (@p Discrete) or sampled at @p Ts, once the options pass check_mpc_options: the options sorted by kind. */
-template<bool Discrete, size_t NP, size_t NC, size_t NT_max, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename... Opts>
+/**
+ * @brief design::mpc in the plant's time domain (@p Discrete) or sampled at @p Ts, once the options
+ *        pass check_mpc_options: the options sorted by kind, the QP's room for terminal rows the
+ *        InvariantSet's (none without one).
+ */
+template<bool Discrete, size_t NP, size_t NC, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename... Opts>
 [[nodiscard]] constexpr auto mpc_design(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T Ts, const MPCWeights<NU, NY, T>& weights, const Opts&... opts) {
-    const auto constraints = constraint_set<NU, T>(opts...);
-    const auto held = ::damp::detail::option<is_tracked_option>(TrackedOutputs<>{}, opts...);
+    constexpr size_t NT_max = terminal_rows<::damp::detail::option_t<is_mpc_terminal, void, Opts...>>;
+    const auto       constraints = constraint_set<NU, T>(opts...);
+    const auto       held = ::damp::detail::option<is_tracked_option>(TrackedOutputs<>{}, opts...);
     static_assert(
         !Discrete || ::damp::detail::option_count<is_input_delay, Opts...> + ::damp::detail::option_count<is_output_delay, Opts...> == 0,
         "A delay is sampled with the plant: give the continuous plant and Ts, mpc<NP, NC>(plant, Ts, weights, ..., InputDelay<N>{theta}, OutputDelay<M>{theta})."
@@ -1972,7 +1975,7 @@ template<bool Discrete, size_t NP, size_t NC, size_t NT_max, size_t NX, size_t N
  * | … plus OutputLimits{.outputs, .lim} | the same, with limits on the outputs it lists |
  * | … plus StateLimits{.states, .lim} | the same, with limits on states it does not track |
  * | … plus TrackedOutputs{{i, …}}, without a disturbance spec | the same, r on the outputs it lists, held through the target |
- * | … plus DareCost{} or mpc<NP, NC, NT_max> and InvariantSet{.target_margin} | the same, with a terminal cost, or that cost and a terminal set |
+ * | … plus DareCost{} or InvariantSet<NT_max>{.target_margin} | the same, with a terminal cost, or that cost and a terminal set in room for NT_max rows |
  * | … plus QPIterations{n} | the same, its QP capped at n iterations a tick |
  *
  * The plant and the weights are positional, so braces size the weights from the plant. The rest
@@ -2100,8 +2103,7 @@ template<bool Discrete, size_t NP, size_t NC, size_t NT_max, size_t NX, size_t N
  *      Morari, 2009), Automatica 45(9)
  *
  * @tparam NP     Prediction horizon (steps)
- * @tparam NC     Control horizon (moves, NC ≤ NP)
- * @tparam NT_max Terminal-set row capacity (default 0; required > 0 for an InvariantSet)
+ * @tparam NC     Control horizon (moves, NC ≤ NP; NC = NP with an InvariantSet)
  * @param sys      Discrete-time plant (Ts > 0); C its outputs, D = 0 on those the QP weighs or bounds
  * @param weights  Cost weights on every output of the plant, per prediction step (default: Qy = I, RΔu = I)
  * @param opts     In any order: InputLimits{.u_lim, .du_lim}, the hard limits on u and Δu;
@@ -2114,13 +2116,13 @@ template<bool Discrete, size_t NP, size_t NC, size_t NT_max, size_t NX, size_t N
  *                 without a disturbance spec, the outputs r holds through the target;
  *                 OutputLimits{.outputs, .lim}, limits on the outputs it lists;
  *                 StateLimits{.states, .lim}, limits on states the QP does not track; DareCost{} or
- *                 InvariantSet{.target_margin}, a terminal ingredient; and QPIterations{n}, the QP's budget
+ *                 InvariantSet<NT_max>{.target_margin}, a terminal ingredient; and QPIterations{n}, the QP's budget
  * @return MPCResult: deploy with `MPC law{res}`
  */
-template<size_t NP, size_t NC, size_t NT_max = 0, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename... Opts>
+template<size_t NP, size_t NC, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename... Opts>
 [[nodiscard]] constexpr auto mpc(const StateSpace<NX, NU, NY, T, NW, NV>& sys, const damp::type_identity_t<MPCWeights<NU, NY, T>>& weights, const Opts&... opts) {
-    detail::check_mpc_options<Opts...>();
-    return detail::mpc_design<true, NP, NC, NT_max>(sys, T{0}, weights, opts...);
+    detail::check_mpc_options<NP, NC, Opts...>();
+    return detail::mpc_design<true, NP, NC>(sys, T{0}, weights, opts...);
 }
 
 /**
@@ -2143,8 +2145,7 @@ template<size_t NP, size_t NC, size_t NT_max = 0, size_t NX, size_t NU, size_t N
  * not finite and positive, and as the discrete form is otherwise.
  *
  * @tparam NP     Prediction horizon (steps)
- * @tparam NC     Control horizon (moves, NC ≤ NP)
- * @tparam NT_max Terminal-set row capacity (default 0; required > 0 for an InvariantSet)
+ * @tparam NC     Control horizon (moves, NC ≤ NP; NC = NP with an InvariantSet)
  * @see "Computing Integrals Involving the Matrix Exponential" (Van Loan, 1978), IEEE TAC 23(3)
  * @see lqr(plant, Ts, …) for the same discretization of an LQ cost
  *
@@ -2156,15 +2157,15 @@ template<size_t NP, size_t NC, size_t NT_max = 0, size_t NX, size_t NU, size_t N
  *                 (Input delay, above)
  * @return MPCResult: deploy with `MPC law{res}`; success = false if refused or the plant does not discretize
  */
-template<size_t NP, size_t NC, size_t NT_max = 0, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename... Opts>
+template<size_t NP, size_t NC, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename... Opts>
 [[nodiscard]] constexpr auto mpc(
     const StateSpace<NX, NU, NY, T, NW, NV>&            plant,
     damp::type_identity_t<T>                            Ts,
     const damp::type_identity_t<MPCWeights<NU, NY, T>>& weights,
     const Opts&... opts
 ) {
-    detail::check_mpc_options<Opts...>();
-    return detail::mpc_design<false, NP, NC, NT_max>(plant, Ts, weights, opts...);
+    detail::check_mpc_options<NP, NC, Opts...>();
+    return detail::mpc_design<false, NP, NC>(plant, Ts, weights, opts...);
 }
 
 /**
@@ -2418,7 +2419,7 @@ struct NoMeasuredState {};
  * @tparam NY        Outputs: the QP's weights and predictions, every row of the plant's C
  * @tparam ND        Measured-disturbance inputs (0: none); through a filter, its inputs after u
  * @tparam Solver    QP solver policy (default: the warm-started Goldfarb–Idnani active set)
- * @tparam NT_max    Terminal-set row capacity (default 0)
+ * @tparam NT_max    Terminal-set rows: the room of the design's InvariantSet<NT_max> (0: none)
  * @tparam Estimator FixedGainObserver, or NoEstimator for the measured state; it holds the
  *                   disturbance when there is one
  * @tparam NXC       States with bounds (the design's StateLimits; 0: none)

@@ -59,9 +59,9 @@
  *      (Rawlings, Mayne & Diehl, 2017), ch. 4
  *
  * @code
- * // Level estimator that can never report a negative level:
+ * // Level estimator that can never report a negative level, its QP capped at 20 iterations a tick:
  * constexpr design::MHEConstraints<1> limits{.x_lim = {.lower = 0.0, .upper = std::numeric_limits<double>::max()}};
- * constexpr auto res = design::mhe<8>(tank, {.process = Q, .measurement = R}, limits);
+ * constexpr auto res = design::mhe<8>(tank, {.process = Q, .measurement = R}, limits, design::QPIterations{20});
  * static constinit MHE estimator{res.as<float>()}; // a failed design does not compile
  * // each tick: x_hat = estimator.step(y, u_previous);
  * @endcode
@@ -69,7 +69,8 @@
 
 
 #include "damp/backend.hpp"
-#include "damp/design/qp.hpp"
+#include "damp/design/options.hpp"
+#include "damp/design/qp.hpp" // IWYU pragma: export
 #include "damp/design/status.hpp"
 #include "damp/estimation/kalman.hpp"
 #include "damp/math/math.hpp"
@@ -86,7 +87,7 @@ namespace design {
 
 /**
  * @struct MHEConstraints
- * @brief Box constraints on the estimated states (applied to every window state) and the QP budget
+ * @brief Box constraints on the estimated states, applied to every window state
  *
  * Defaults are unbounded (numeric_limits sentinels) — with no finite bounds the
  * estimator is an unconstrained least-squares smoother matching the Kalman
@@ -94,12 +95,11 @@ namespace design {
  */
 template<size_t NX, typename T = double>
 struct MHEConstraints {
-    Bounds<NX, T> x_lim{};              ///< State bounds (default unbounded); no NaN end, lower ≤ upper
-    size_t        max_qp_iterations{0}; ///< Per-tick QP budget (0 → 10·(NV + NIB))
+    Bounds<NX, T> x_lim{}; ///< State bounds (default unbounded); no NaN end, lower ≤ upper
 
     template<typename U>
     [[nodiscard]] constexpr MHEConstraints<NX, U> as() const {
-        return MHEConstraints<NX, U>{x_lim.template as<U>(), max_qp_iterations};
+        return MHEConstraints<NX, U>{x_lim.template as<U>()};
     }
 };
 
@@ -197,8 +197,8 @@ template<size_t N, typename T>
  *
  * Status: invalid_sample_time if the plant is not discrete; bad_weights on a non-finite model
  * or noise entry, a feedthrough D ≠ 0 or a zero covariance; invalid_parameter on a state limit
- * with a NaN end or lower > upper; design::kalman's status if the arrival filter fails;
- * singular if P∞ or the window Hessian is not positive definite.
+ * with a NaN end or lower > upper, or a QPIterations{0}; design::kalman's status if the arrival
+ * filter fails; singular if P∞ or the window Hessian is not positive definite.
  *
  * Q is the trust in the model (smaller = dynamics enforced harder); R the trust in the
  * sensor — the same covariances a Kalman filter design uses, and a good design reuses exactly
@@ -208,15 +208,20 @@ template<size_t N, typename T>
  * @param sys          Discrete-time plant (Ts > 0, D = 0); G and H carry the noise
  * @param noise        Process-noise covariance Q (NW × NW) and measurement-noise covariance R
  *                     (NV × NV), positive semidefinite
- * @param constraints  State box limits (default: unbounded) and the per-tick QP budget
+ * @param constraints  State box limits (default: unbounded)
+ * @param opts         QPIterations{n}, the per-tick QP budget (left out: 10·(NV + NIB), the
+ *                     MHEResult's window states and box rows)
  * @return MHEResult for damp::MHE
  */
-template<size_t NH, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV_SS>
+template<size_t NH, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV_SS, typename... Opts>
 [[nodiscard]] constexpr MHEResult<NX, NU, NY, NH, T> mhe(
     const StateSpace<NX, NU, NY, T, NW, NV_SS>&      plant,
     const detail::plant_noise<NX, NY, T, NW, NV_SS>& noise,
-    const MHEConstraints<NX, T>&                     constraints = {}
+    const MHEConstraints<NX, T>&                     constraints = {},
+    const Opts&... opts
 ) {
+    static_assert(!(damp::is_integral_v<damp::remove_cvref_t<Opts>> || ...), "The QP's iteration budget is QPIterations{n}.");
+    ::damp::detail::option_set<detail::is_qp_iterations>::check<Opts...>();
     const auto sys = detail::noise_model(plant);
     static_assert(NH >= 1, "The estimation window must cover at least two states.");
 
@@ -225,7 +230,7 @@ template<size_t NH, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size
 
     MHEResult<NX, NU, NY, NH, T> art{};
     art.constraints = constraints;
-    art.max_qp_iterations = (constraints.max_qp_iterations == 0) ? 10 * (NV + NIB) : constraints.max_qp_iterations;
+    art.max_qp_iterations = ::damp::detail::option<detail::is_qp_iterations>(QPIterations{10 * (NV + NIB)}, opts...).budget;
 
     if (!damp::finite_positive(sys.Ts)) {
         return ::damp::detail::set_status(art, DesignStatus::invalid_sample_time); // discrete plants only
@@ -235,6 +240,9 @@ template<size_t NH, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size
     }
     if (!constraints.x_lim.valid()) {
         return ::damp::detail::set_status(art, DesignStatus::invalid_parameter); // as design::mpc's limits
+    }
+    if (art.max_qp_iterations == 0) {
+        return ::damp::detail::set_status(art, DesignStatus::invalid_parameter); // QPIterations{0}: not one active-set step, as design::mpc
     }
     if (!mat::all_of(sys.D, [](T v) { return v == T{0}; })) {
         return ::damp::detail::set_status(art, DesignStatus::bad_weights); // feedthrough unsupported
