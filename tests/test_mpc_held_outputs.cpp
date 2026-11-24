@@ -16,7 +16,6 @@
 #include "damp/backend.hpp"
 #include "damp/controllers/mpc.hpp"
 #include "damp/controllers/state_feedback.hpp"
-#include "damp/design/config.hpp"
 #include "damp/design/disturbance.hpp"
 #include "damp/design/qp.hpp"
 #include "damp/design/status.hpp"
@@ -229,12 +228,7 @@ TEST_SUITE("MPC held outputs") {
         CHECK(same_map(art.target.target_r, lqg.target.target_r)); // the LQG's with the same TrackedOutputs
     }
 
-    TEST_CASE("MPCConfig::tracked passes TrackedOutputs on; TrackedOutputs{} is every output, as left out") {
-        const auto pack = design::mpc<10, 4>(*kLags, both_weighed(), design::TrackedOutputs{{1}});
-        const auto named = design::mpc<10, 4>(*kLags, design::MPCConfig{.weights = both_weighed(), .tracked = design::TrackedOutputs{{1}}});
-        static_assert(std::is_same_v<decltype(pack), decltype(named)>);
-        CHECK(pack.target.target_r == named.target.target_r);
-        CHECK(pack.mpc.H == named.mpc.H);
+    TEST_CASE("TrackedOutputs{} is every output, as left out") {
         static_assert(std::is_same_v<decltype(design::mpc<10, 4>(*kLags, both_weighed(), design::TrackedOutputs{})), decltype(design::mpc<10, 4>(*kLags, both_weighed()))>);
         CHECK(same_map(design::mpc<10, 4>(*kLags, both_weighed(), design::TrackedOutputs{}).target.target_r, design::mpc<10, 4>(*kLags, both_weighed()).target.target_r));
     }

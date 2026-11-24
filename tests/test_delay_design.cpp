@@ -27,7 +27,6 @@
 #include "damp/controllers/mpc.hpp"
 #include "damp/controllers/oflqg.hpp"
 #include "damp/controllers/state_feedback.hpp"
-#include "damp/design/config.hpp"
 #include "damp/design/disturbance.hpp"
 #include "damp/design/riccati.hpp"
 #include "damp/design/status.hpp"
@@ -695,8 +694,6 @@ TEST_SUITE("Design on the delayed model") {
         CHECK(late.target.target_r(0, 0) == doctest::Approx(1.0).epsilon(1e-9)); // per unit r: the position
         CHECK(late.target.target_r(2, 0) == doctest::Approx(1.0).epsilon(1e-9)); // and both readings on their way
         CHECK(late.target.target_r(3, 0) == doctest::Approx(1.0).epsilon(1e-9));
-        const auto named = design::mpc<40, 10>(mass_spring(), kTs, design::MPCConfig{.weights = w, .noise = noise, .output_delay = out});
-        CHECK(named.kalman.M == late.kalman.M); // the config passes the same option on
     }
 
     TEST_CASE("the offset-free LQG on the delayed model tracks a moving reference, its feedforward one period ahead") {
@@ -966,11 +963,6 @@ TEST_SUITE("Design on the delayed model") {
         CHECK(frac.Q(0, 2) == doctest::Approx(EQ(0, 0)).epsilon(1e-9));
         CHECK(frac.Q(1, 2) == doctest::Approx(EQ(1, 0)).epsilon(1e-9));
         CHECK(frac.Q(3, 3) == 0.0); // the older reading holds no new noise
-
-        const auto named = design::kalman(mass_spring(), kTs, design::KalmanConfig{.noise = design::KalmanNoise{.process = Qc, .measurement = Rn}, .output_delay = OutputDelay<2>{1.4 * kTs}});
-        for (size_t i = 0; i < 4; ++i) {
-            CHECK(named.M(i, 0) == frac.M(i, 0)); // the config passes the same option on
-        }
     }
 
     TEST_CASE("a filter told the reading is late converges on the true state and its LQG regulates; the ones that take it as current lag") {
