@@ -7,11 +7,14 @@
  * @file test_measured_disturbance.cpp
  * @brief MeasuredDisturbance in both families: the LQ laws' target under the measured d, the
  *        filter that takes it as a known input after u, and a measured and an estimated
- *        disturbance together, in the OFLQG and the OFMPC.
+ *        disturbance together, in the OFLQG and the OFMPC; and design::steady_state_target
+ *        under it, the target those laws hold.
  */
 
+#include <bit>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <limits>
 #include <type_traits>
 
@@ -75,6 +78,21 @@ bool same_map(const Matrix<R, C>& a, const Matrix<R, C>& b, double tol = 1e-12) 
     return Matrix<R, C>(a - b).norm() <= tol * (1.0 + a.norm());
 }
 
+/// A load on x₂, continuous: x₂' gains w.
+constexpr Matrix<2, 1> kLoadOnX2C{{0.0}, {1.0}};
+
+/// A quiet NaN from its bits, read through a volatile so the compiler cannot fold it.
+double runtime_nan() {
+    volatile std::uint64_t bits = 0x7ff8000000000000ull;
+    return std::bit_cast<double>(static_cast<std::uint64_t>(bits));
+}
+
+/// Whether two targets hold the same maps of d and r.
+template<typename A, typename B>
+bool same_target(const A& a, const B& b) {
+    return same_map(a.target_d, b.target_d) && same_map(a.target_r, b.target_r);
+}
+
 } // namespace
 
 TEST_SUITE("MeasuredDisturbance") {
@@ -87,7 +105,7 @@ TEST_SUITE("MeasuredDisturbance") {
         static_assert(std::is_same_v<decltype(md.target.target_d), Matrix<3, 1>>);
 
         //! The target is the MPC's: steady_state_target's under d, on the same held output.
-        const auto same = design::steady_state_target(*kLags, design::DisturbanceModel{.Bd = kLoadOnX2, .outputs = {1}});
+        const auto same = design::steady_state_target(*kLags, design::TrackedOutputs{{1}}, design::MeasuredDisturbance{kLoadOnX2});
         CHECK(same_map(md.target.target_d, same.target_d));
         CHECK(same_map(md.target.target_r, same.target_r));
         const auto mpc = design::mpc<20, 5>(*kLags, both_weighed(), design::MeasuredDisturbance{kLoadOnX2}, design::TrackedOutputs{{1}});
@@ -486,5 +504,218 @@ TEST_SUITE("MeasuredDisturbance") {
         //! A measured d on a measured state adds the target's map of it and nothing to keep between ticks.
         const auto lqrm = design::state_feedback(*kLags, kWeights, design::TrackedOutputs{{1}}, design::MeasuredDisturbance{kLoadOnX2});
         CHECK(sizeof(LQR{lqrm}) <= sizeof(LQR{lqrt}) + (3 * sizeof(double)));
+    }
+
+    TEST_CASE("steady_state_target holds the outputs a TrackedOutputs lists: the LQR's and the MPC's target, with and without a MeasuredDisturbance") {
+        const design::TrackedOutputs      held{{1}}; // one output of the two
+        const design::MeasuredDisturbance load{kLoadOnX2};
+        const auto                        tg = design::steady_state_target(*kLags, held);
+        const auto                        lqr = design::state_feedback(*kLags, kWeights, held);
+        const auto                        mpc = design::mpc<20, 5>(*kLags, both_weighed(), held);
+        REQUIRE(tg.success);
+        REQUIRE(lqr.success);
+        REQUIRE(mpc.success);
+        static_assert(std::is_same_v<decltype(tg), const design::SteadyStateTargetResult<2, 1, 0, 1, double>>);
+        static_assert(std::is_same_v<decltype(tg), const decltype(lqr.target)>); // the laws' own target
+        static_assert(std::is_same_v<decltype(tg), const decltype(mpc.target)>);
+        CHECK(same_target(tg, lqr.target));
+        CHECK(same_target(tg, mpc.target));
+        CHECK(tg.target_r(1, 0) == doctest::Approx(1.0).epsilon(1e-12)); // x₂ at r: the listed output
+
+        //! Under a measured d: d's column after the (empty) spec's, r's map the same.
+        const auto tgm = design::steady_state_target(*kLags, held, load);
+        const auto lqrm = design::state_feedback(*kLags, kWeights, held, load);
+        const auto mpcm = design::mpc<20, 5>(*kLags, both_weighed(), held, load);
+        REQUIRE(tgm.success);
+        REQUIRE(lqrm.success);
+        REQUIRE(mpcm.success);
+        static_assert(std::is_same_v<decltype(tgm), const decltype(lqrm.target)>);
+        static_assert(std::is_same_v<decltype(tgm), const decltype(mpcm.target)>);
+        CHECK(same_target(tgm, lqrm.target));
+        CHECK(same_target(tgm, mpcm.target));
+        CHECK(same_map(tgm.target_r, tg.target_r));
+
+        //! With no list, every output: the target without a TrackedOutputs, and the LQR's with TrackedOutputs{}.
+        const auto every = design::steady_state_target(*kLags, design::TrackedOutputs{});
+        static_assert(std::is_same_v<decltype(every), const decltype(design::steady_state_target(*kLags))>);
+        CHECK(same_target(every, design::steady_state_target(*kLags)));
+        CHECK(same_target(every, design::state_feedback(*kLags, kWeights, design::TrackedOutputs{}).target));
+
+        //! The steady state it gives under d is the one both laws hold, and their command there.
+        const SteadyStateTarget target{tgm};
+        const double            r = 0.7;
+        const double            w = 0.4;
+        const auto              p = target.equilibrium(ColVec<1>{r}, ColVec<1>{w});
+        LQR                     law{lqrm};
+        MPC                     ctl{mpcm};
+        ColVec<2>               x{};
+        ColVec<2>               xm{};
+        for (size_t k = 0; k < 400; ++k) {
+            x = lags_step(x, law.step(r, ColVec<1>{w}, x)(0), w);
+            xm = lags_step(xm, ctl.step(r, ColVec<1>{w}, xm)(0), w);
+        }
+        CHECK(Matrix<2, 1>(x - p.x).norm() < 1e-9);
+        CHECK(Matrix<2, 1>(xm - p.x).norm() < 1e-9);
+        CHECK(law.control(r, ColVec<1>{w})(0) == doctest::Approx(p.u(0)).epsilon(1e-9));
+        CHECK(ctl.applied()(0) == doctest::Approx(p.u(0)).epsilon(1e-9));
+    }
+
+    TEST_CASE("with a disturbance spec, steady_state_target is under [d̂; d], the OFLQG's and the OFMPC's target") {
+        const design::DisturbanceModel    spec{.Bd = kLoadOnX2, .outputs = {1}};
+        const design::MeasuredDisturbance load{kLoadOnX2};
+        const auto                        tg = design::steady_state_target(kNoisyLags, spec, load);
+        const auto                        of = design::state_feedback(kNoisyLags, kWeights, kLoadNoise, spec, load);
+        const auto                        ofm = design::mpc<20, 5>(kNoisyLags, both_weighed(), kLoadNoise, spec, load);
+        REQUIRE(tg.success);
+        REQUIRE(of.success);
+        REQUIRE(ofm.success);
+        static_assert(std::is_same_v<decltype(tg.target_d), Matrix<3, 2>>); // d̂'s column, then d's
+        CHECK(same_target(tg, of.target));
+        CHECK(same_target(tg, ofm.target));
+        //! Its measured column is the target's without the spec, on the output the spec holds, and a spec's own on that channel.
+        const Matrix<3, 1> measured = tg.target_d.block<3, 1>(0, 1).to_matrix();
+        CHECK(same_map(measured, design::steady_state_target(*kLags, design::TrackedOutputs{{1}}, load).target_d));
+        CHECK(same_map(measured, design::steady_state_target(*kLags, design::DisturbanceModel{.Bd = kLoadOnX2, .outputs = {1}}).target_d));
+
+        //! The OFLQG settles at its steady state under [d̂; d], d̂ the part not measured.
+        const SteadyStateTarget target{tg};
+        OFLQG                   law{of};
+        ColVec<2>               x{};
+        for (size_t k = 0; k < 800; ++k) {
+            x = lags_step(x, law.step(0.7, ColVec<1>{0.4}, x)(0), 0.55);
+        }
+        const auto p = target.equilibrium(ColVec<1>{0.7}, ColVec<2>{law.disturbance_estimate()(0), 0.4});
+        CHECK(Matrix<2, 1>(x - p.x).norm() < 1e-9);
+        CHECK(law.last_command()(0) == doctest::Approx(p.u(0)).epsilon(1e-9));
+    }
+
+    TEST_CASE("steady_state_target with an InputDelay: the laws' target on the delayed model, d on the plant, not the delay states") {
+        const design::TrackedOutputs      held{{1}};
+        const design::MeasuredDisturbance load{kLoadOnX2C};
+        const InputDelay<2>               late{0.15};
+        const auto                        plain = design::steady_state_target(kLagsC, kTs, held, late);
+        REQUIRE(plain.success);
+        CHECK(same_target(plain, design::state_feedback(kLagsC, kTs, kWeights, held, late).target));
+        CHECK(same_target(plain, design::mpc<20, 5>(kLagsC, kTs, both_weighed(), held, late).target));
+
+        const auto tg = design::steady_state_target(kLagsC, kTs, held, load, late);
+        const auto lqr = design::state_feedback(kLagsC, kTs, kWeights, held, load, late);
+        const auto mpc = design::mpc<20, 5>(kLagsC, kTs, both_weighed(), held, load, late);
+        REQUIRE(tg.success);
+        REQUIRE(lqr.success);
+        REQUIRE(mpc.success);
+        static_assert(std::is_same_v<decltype(tg.target_d), Matrix<5, 1>>); // [x; v(k−1); v(k−2)] then u
+        static_assert(std::is_same_v<decltype(tg), const decltype(lqr.target)>);
+        CHECK(same_target(tg, lqr.target));
+        CHECK(same_target(tg, mpc.target));
+        //! Each delay state holds u_t under d: d does not travel through them.
+        CHECK(tg.target_d(2, 0) == doctest::Approx(tg.target_d(4, 0)).epsilon(1e-12));
+        CHECK(tg.target_d(3, 0) == doctest::Approx(tg.target_d(4, 0)).epsilon(1e-12));
+
+        //! With an input disturbance estimated beside it, holding the same output: the OFLQG's and the OFMPC's.
+        const design::InputDisturbance spec{{1}};
+        const auto                     spec_tg = design::steady_state_target(kLagsC, kTs, spec, load, late);
+        const auto                     of = design::state_feedback(kLagsC, kTs, kWeights, kLoadNoise, spec, load, late);
+        const auto                     ofm = design::mpc<20, 5>(kLagsC, kTs, both_weighed(), kLoadNoise, spec, load, late);
+        REQUIRE(spec_tg.success);
+        REQUIRE(of.success);
+        REQUIRE(ofm.success);
+        static_assert(std::is_same_v<decltype(spec_tg.target_d), Matrix<5, 2>>);
+        CHECK(same_target(spec_tg, of.target));
+        CHECK(same_target(spec_tg, ofm.target));
+    }
+
+    TEST_CASE("steady_state_target with an OutputDelay: the filter's model, d on the late readings' delay states") {
+        const design::TrackedOutputs      held{{1}};
+        const design::MeasuredDisturbance load{kLoadOnX2C};
+        const OutputDelay<1>              reading{0.04};
+        const auto                        tg = design::steady_state_target(kLagsC, kTs, held, load, reading);
+        const auto                        lqg = design::state_feedback(kLagsC, kTs, kWeights, kNoise, held, load, reading);
+        const auto                        mpc = design::mpc<20, 5>(kLagsC, kTs, both_weighed(), kNoise, held, load, reading);
+        REQUIRE(tg.success);
+        REQUIRE(lqg.success);
+        REQUIRE(mpc.success);
+        static_assert(std::is_same_v<decltype(tg.target_d), Matrix<5, 1>>); // [x; both readings on their way] then u
+        CHECK(same_target(tg, lqg.target));
+        CHECK(same_target(tg, mpc.target));
+        //! Each late reading holds the steady output, C·x_t = x_t.
+        CHECK(tg.target_d(2, 0) == doctest::Approx(tg.target_d(0, 0)).epsilon(1e-12));
+        CHECK(tg.target_d(3, 0) == doctest::Approx(tg.target_d(1, 0)).epsilon(1e-12));
+
+        //! Both delays, and an input disturbance estimated beside d.
+        const design::InputDisturbance spec{{1}};
+        const InputDelay<1>            in{0.05};
+        const auto                     spec_tg = design::steady_state_target(kLagsC, kTs, spec, load, in, reading);
+        const auto                     of = design::state_feedback(kLagsC, kTs, kWeights, kLoadNoise, spec, load, in, reading);
+        const auto                     ofm = design::mpc<20, 5>(kLagsC, kTs, both_weighed(), kLoadNoise, spec, load, in, reading);
+        REQUIRE(spec_tg.success);
+        REQUIRE(of.success);
+        REQUIRE(ofm.success);
+        static_assert(std::is_same_v<decltype(spec_tg.target_d), Matrix<6, 2>>); // [x; v(k−1); the readings] then u
+        CHECK(same_target(spec_tg, of.target));
+        CHECK(same_target(spec_tg, ofm.target));
+    }
+
+    TEST_CASE("steady_state_target refuses what the designs refuse: an option twice, a TrackedOutputs beside a spec, a bad list, a non-finite B_d") {
+        using M = design::MeasuredDisturbance<2, 1>;
+        using Held = design::TrackedOutputs<1>;
+        using Targets = design::detail::target_options;
+        static_assert(Targets::known<M, Held, InputDelay<>, OutputDelay<>>);
+        static_assert(!Targets::unique<M, M> && !Targets::unique<Held, Held>);
+        static_assert(!design::detail::state_feedback_options::unique<M, M> && !design::detail::mpc_options::unique<M, M> && !design::detail::kalman_options::unique<M, M>);
+        //! The held outputs in one place, in every design that holds r: a spec's .outputs, or a TrackedOutputs without one.
+        static_assert(!design::detail::held_in_one_place<design::InputDisturbance<1>, Held>);
+        static_assert(!design::detail::held_in_one_place<Held, design::DisturbanceModel<2, 0, 1, 1>, M>);
+        static_assert(design::detail::held_in_one_place<Held, M, InputDelay<>> && design::detail::held_in_one_place<design::NoDisturbance, Held>);
+
+        //! An output out of range or listed twice, as the LQR refuses it.
+        CHECK(design::steady_state_target(*kLags, design::TrackedOutputs{{2}}).status == design::DesignStatus::bad_weights);
+        CHECK(design::steady_state_target(kLagsC, kTs, design::TrackedOutputs{{1, 1}}).status == design::DesignStatus::bad_weights);
+        CHECK(design::state_feedback(*kLags, kWeights, design::TrackedOutputs{{2}}).status == design::DesignStatus::bad_weights);
+
+        Matrix<2, 1> bad = kLoadOnX2;
+        bad(1, 0) = runtime_nan();
+        const design::MeasuredDisturbance nan{bad};
+        const design::TrackedOutputs      held{{1}};
+        CHECK(design::steady_state_target(*kLags, held, nan).status == design::DesignStatus::bad_weights);
+        CHECK(design::steady_state_target(kNoisyLags, design::InputDisturbance{{1}}, nan).status == design::DesignStatus::bad_weights);
+        CHECK(design::steady_state_target(kLagsC, kTs, nan).status == design::DesignStatus::bad_weights);
+        CHECK(design::steady_state_target(kLagsC, kTs, held, nan, InputDelay<2>{0.15}, OutputDelay{0.04}).status == design::DesignStatus::bad_weights);
+        CHECK(design::state_feedback(*kLags, kWeights, held, nan).status == design::DesignStatus::bad_weights);
+        //! A sample time the plant refuses is refused first, as the designs refuse it.
+        const design::MeasuredDisturbance load{kLoadOnX2C};
+        const auto                        sf = design::state_feedback(kLagsC, 0.0, kWeights, held, load);
+        CHECK(sf.status == design::DesignStatus::invalid_sample_time);
+        CHECK(design::steady_state_target(kLagsC, 0.0, held, load).status == sf.status);
+        CHECK(design::steady_state_target(kLagsC, 0.0, held, nan).status == sf.status);
+    }
+
+    TEST_CASE("a target without a TrackedOutputs or a MeasuredDisturbance is the one it was: its type and its size") {
+        constexpr StateSpace<2, 1, 1> second{.A = kLags->A, .B = kLags->B, .C = {{0.0, 1.0}}, .Ts = kTs}; // one reading, x₂
+        const auto                    a = design::steady_state_target(second);
+        const auto                    b = design::steady_state_target(*kLags, design::DisturbanceModel{.Bd = kLoadOnX2, .outputs = {1}});
+        const auto                    c = design::steady_state_target(kLagsC, kTs, design::InputDisturbance{{1}}, InputDelay<2>{0.15});
+        const auto                    e = design::steady_state_target(kLagsC, kTs, design::InputDisturbance{{1}}, InputDelay{0.05}, OutputDelay{0.04});
+        const auto                    f = design::steady_state_target(kLagsC, kTs);
+        static_assert(std::is_same_v<decltype(a), const design::SteadyStateTargetResult<2, 1, 0, 1, double>>);
+        static_assert(std::is_same_v<decltype(b), const design::SteadyStateTargetResult<2, 1, 1, 1, double>>);
+        static_assert(std::is_same_v<decltype(c), const design::SteadyStateTargetResult<4, 1, 1, 1, double>>);
+        static_assert(std::is_same_v<decltype(e), const design::SteadyStateTargetResult<5, 1, 1, 1, double>>);
+        static_assert(std::is_same_v<decltype(f), const design::SteadyStateTargetResult<2, 1, 0, 2, double>>);
+        static_assert(std::is_same_v<decltype(SteadyStateTarget{a}), SteadyStateTarget<2, 1, 0, 1, double>>);
+        //! The sizes on the base this was built on (x86-64): no column, no member for either.
+        if constexpr (sizeof(size_t) == 8) {
+            CHECK(sizeof(a) == 40);
+            CHECK(sizeof(b) == 56);
+            CHECK(sizeof(c) == 88);
+            CHECK(sizeof(e) == 104);
+            CHECK(sizeof(f) == 64);
+            CHECK(sizeof(SteadyStateTarget{a}) == 32);
+            CHECK(sizeof(SteadyStateTarget{b}) == 48);
+        }
+        //! A TrackedOutputs sizes r's map by its list, and a MeasuredDisturbance adds d's NM columns after the spec's.
+        static_assert(std::is_same_v<decltype(design::steady_state_target(kLagsC, kTs, design::TrackedOutputs{{1}})), design::SteadyStateTargetResult<2, 1, 0, 1, double>>);
+        static_assert(std::is_same_v<decltype(design::steady_state_target(second, design::MeasuredDisturbance{kLoadOnX2})), design::SteadyStateTargetResult<2, 1, 1, 1, double>>);
+        static_assert(std::is_same_v<decltype(design::steady_state_target(*kLags, design::InputDisturbance{{1}}, design::MeasuredDisturbance{kLoadOnX2})), design::SteadyStateTargetResult<2, 1, 2, 1, double>>);
     }
 }

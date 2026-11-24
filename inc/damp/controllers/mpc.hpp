@@ -1699,12 +1699,7 @@ constexpr void check_mpc_options() {
     static_assert(::damp::detail::option_count<is_input_limits, Opts...> <= 1, "One InputLimits bounds every input: InputLimits{.u_lim = {...}, .du_lim = {...}}.");
     static_assert(::damp::detail::option_count<is_output_limits, Opts...> <= 1, "One OutputLimits lists every bounded output: OutputLimits{.outputs = {i, ...}, .lim = {...}}.");
     static_assert(::damp::detail::option_count<is_state_limits, Opts...> <= 1, "One StateLimits lists every bounded state: StateLimits{.states = {i, ...}, .lim = {...}}.");
-    static_assert(::damp::detail::option_count<is_tracked_option, Opts...> <= 1, "One TrackedOutputs lists every output the target holds at r: TrackedOutputs{{i, ...}}.");
-    static_assert(
-        ::damp::detail::option_count<is_tracked_option, Opts...> == 0 || !(is_disturbance_model<damp::remove_cvref_t<Opts>> || ...),
-        "A disturbance spec holds the outputs it lists at r: give them as its .outputs, InputDisturbance{{i, ...}} or "
-        "DisturbanceModel{.Bd = ..., .outputs = {i, ...}}, not as TrackedOutputs."
-    );
+    check_held_outputs<Opts...>(); // the target's: one TrackedOutputs, and none beside a disturbance spec
     static_assert(
         ::damp::detail::option_count<is_mpc_terminal, Opts...> <= 1,
         "One terminal ingredient: DareCost{} for the cost, or InvariantSet<N>{.target_margin = ...} for the cost and the set, not both."
@@ -1773,18 +1768,6 @@ template<size_t NU, size_t NW, typename Spec, size_t NY, typename T>
         }
     }
     return Q;
-}
-
-/** @brief The spec a filtered MPC's target is designed on: the disturbance model, which holds the outputs it lists, else the outputs @p held lists (TrackedOutputs, no disturbance). */
-template<typename Spec, size_t NS>
-[[nodiscard]] constexpr auto target_spec_of(const Spec& spec, const TrackedOutputs<NS>& held) {
-    if constexpr (is_disturbance_model<Spec>) {
-        static_cast<void>(held);
-        return spec;
-    } else {
-        static_cast<void>(spec);
-        return held;
-    }
 }
 
 /**

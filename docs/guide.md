@@ -125,7 +125,7 @@ types. Bode and friends return analysis grids. New code uses `design::` and
 | `Weights.OV`, a reference on some outputs | `MPCWeights::Qy` on every output of the plant; r on the outputs the target holds: a `TrackedOutputs{{i, …}}` among `mpc`'s options, or with a disturbance spec its `.outputs`. The others are weighed toward that steady state's values |
 | `setterminal`, `Optimizer.MaxIterations` | `design::DareCost{}`, or `design::InvariantSet<NT_max>{.target_margin}` with room for NT_max rows; `design::QPIterations{n}` |
 | `ManipulatedVariables` Target         | `Ru` weighs the input from the steady-state target's by default; `set_input_target(u)` on the runtime replaces it, `clear_input_target()` returns to it |
-| `setmpcsignals` MD, a measured disturbance | `design::MeasuredDisturbance{.Bd = Bd}` among the options of `mpc`, `state_feedback` (every LQ law) and `kalman`, B_d continuous with `Ts`: the target is the steady state under d, and the runtime takes it after the reference and its feedforward, `step(r, d, y)`. A filter takes d as a known input after u, so beside a disturbance spec d̂ estimates only the part it does not measure |
+| `setmpcsignals` MD, a measured disturbance | `design::MeasuredDisturbance{.Bd = Bd}` among the options of `mpc`, `state_feedback` (every LQ law), `kalman` and `steady_state_target`, B_d continuous with `Ts`: the target is the steady state under d, `target_d` per unit [d̂; d], and the runtime takes it after the reference and its feedforward, `step(r, d, y)`. A filter takes d as a known input after u, so beside a disturbance spec d̂ estimates only the part it does not measure |
 | `bode`, `nyquist`, `margin`, `rlocus` | `workbench.hpp`; `analysis::` or `matlab::bode`                                                                  |
 | `lsim`, `step`, `forced_response`     | `sim::simulate*` on the host                                                                                     |
 | ISR, float, no malloc                 | `control.hpp`, `.as<float>()`, `constinit`, `step` in the interrupt                                              |
@@ -180,7 +180,7 @@ Copy an example folder. SIL calls the same tick as the sketch.
 
 Both can hold an output at r.
 
-- **TrackedOutputs + LQR / LQG / MPC** uses the model's steady-state maps $`x^* = N_x r`$, $`u^* = N_u r`$. Offset-free only if the model is right and there is no unmatched load. An MPC weighs every output and pulls the ones r does not name toward $`C x^*`$.
+- **TrackedOutputs + LQR / LQG / MPC** uses the model's steady-state maps $`x^* = N_x r`$, $`u^* = N_u r`$, those of `design::steady_state_target` with the same options. Offset-free only if the model is right and there is no unmatched load. An MPC weighs every output and pulls the ones r does not name toward $`C x^*`$.
 - **LQI / LQGI** adds an integrator on $`r - C_i y`$. It rejects a constant disturbance and a constant model error. Use this when the plant will not match the design model.
 - **OFLQG / OFMPC** estimate a disturbance and hold r through a steady-state target. Same job as LQI when a disturbance model fits; MPC when the actuator or output limits bind.
 
