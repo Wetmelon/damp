@@ -179,7 +179,8 @@ struct pole_scalar<damp::complex<U>> {
  */
 template<size_t N, typename T = double>
 struct Poles {
-    using option_kind = kind::Weights; ///< Its kind of design option
+    using option_kind = kind::Weights;  ///< Its kind of design option
+    static constexpr size_t listed = N; ///< The poles it lists
     static_assert(damp::is_floating_point_v<T>, "A pole is a floating-point number or a damp::complex of one: Poles{-5.0, -5.0}, Poles{damp::complex{-1.0, 2.0}, damp::complex{-1.0, -2.0}}.");
 
     damp::complex<T> poles[N]{}; ///< The closed-loop poles, adjacent conjugate pairs
@@ -212,6 +213,7 @@ Poles(P, Rest...) -> Poles<1 + sizeof...(Rest), typename detail::pole_scalar<P>:
 template<size_t N, typename T = double>
 struct ObserverPoles {
     using option_kind = kind::ObserverPoles; ///< Its kind of design option
+    static constexpr size_t listed = N;      ///< The poles it lists
     static_assert(damp::is_floating_point_v<T>, "A pole is a floating-point number or a damp::complex of one: ObserverPoles{-40.0, -40.0}.");
 
     damp::complex<T> poles[N]{}; ///< The filter's error poles, adjacent conjugate pairs
@@ -246,14 +248,6 @@ template<size_t N, typename T>
 struct PlacedPoles {
     damp::array<damp::complex<T>, N> poles{}; ///< The poles listed, in the time domain of the plant
 };
-
-/** @brief Not a placed spec: the LQ gain, or the Kalman filter. */
-template<typename G>
-inline constexpr bool is_placed = false;
-
-/** @brief Placed. */
-template<size_t N, typename T>
-inline constexpr bool is_placed<PlacedPoles<N, T>> = true;
 
 /** @brief The gain of a design is the LQ one, from its weights. */
 struct LQGain {};

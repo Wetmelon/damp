@@ -307,6 +307,7 @@ struct MPCWeights {
 template<size_t NYC, typename T = double>
 struct OutputLimits {
     using option_kind = kind::OutputLimits; ///< Its kind of design option
+    static constexpr size_t listed = NYC;   ///< The outputs it bounds
     static_assert(NYC > 0, "OutputLimits lists the outputs it bounds: .outputs = {i, ...}, at least one; leave it out for none.");
 
     size_t         outputs[NYC]{};                                                       ///< Indices of the plant's outputs bounded, each once (an array, so bare braces give NYC)
@@ -328,6 +329,7 @@ struct OutputLimits {
  */
 struct DareCost {
     using option_kind = kind::Terminal; ///< Its kind of design option
+    static constexpr size_t rows = 0;   ///< The terminal rows it keeps in the QP: none
 };
 
 /**
@@ -356,7 +358,8 @@ struct DareCost {
  */
 template<size_t NT_max = 0, typename T = double>
 struct InvariantSet {
-    using option_kind = kind::Terminal; ///< Its kind of design option
+    using option_kind = kind::Terminal;    ///< Its kind of design option
+    static constexpr size_t rows = NT_max; ///< The terminal rows it keeps room for in the QP
     static_assert(
         NT_max > 0,
         "InvariantSet<N>{.target_margin = ...} names the room N the QP keeps for the terminal set's rows, at least its facet count "
@@ -384,6 +387,7 @@ struct InvariantSet {
 template<size_t NXC, typename T = double>
 struct StateLimits {
     using option_kind = kind::StateLimits; ///< Its kind of design option
+    static constexpr size_t listed = NXC;  ///< The states it bounds
     static_assert(NXC > 0, "StateLimits lists the states it bounds: .states = {i, ...}, at least one.");
 
     size_t         states[NXC]{};                                                        ///< Indices of the prediction model's states bounded, each once (an array, so bare braces give NXC)
@@ -464,25 +468,15 @@ struct MPCTerminalChoice {
     T           target_margin{static_cast<T>(0)}; ///< InvariantSet::target_margin (an InvariantSet's)
 };
 
-/** @brief The rows a terminal ingredient keeps in the QP: none for DareCost, or with none given. */
-template<typename O>
-inline constexpr size_t terminal_rows = 0;
-
-/** @brief An InvariantSet keeps NT_max. */
-template<size_t NT_max, typename T>
-inline constexpr size_t terminal_rows<InvariantSet<NT_max, T>> = NT_max;
-
-/** @brief How many entries a limits option lists: none without one. */
-template<typename O>
-inline constexpr size_t limits_listed = 0;
-
-/** @brief An OutputLimits lists NYC outputs. */
-template<size_t NYC, typename T>
-inline constexpr size_t limits_listed<OutputLimits<NYC, T>> = NYC;
-
-/** @brief A StateLimits lists NXC states. */
-template<size_t NXC, typename T>
-inline constexpr size_t limits_listed<StateLimits<NXC, T>> = NXC;
+/** @brief The rows the terminal ingredient among @p Opts keeps in the QP: an InvariantSet's room, none for DareCost or with none given. */
+template<typename... Opts>
+inline constexpr size_t terminal_rows = [] {
+    if constexpr (option_count<kind::Terminal, Opts...> == 0) {
+        return size_t{0};
+    } else {
+        return option_t<kind::Terminal, void, Opts...>::rows;
+    }
+}();
 
 /** @brief Copy a limits option's index list into the set's array. */
 template<size_t N>
@@ -500,8 +494,8 @@ constexpr void copy_listed(damp::array<size_t, N>& to, const size_t (&from)[N]) 
  */
 template<size_t NU, typename T, typename... Opts>
 [[nodiscard]] constexpr auto constraint_set(const Opts&... opts) {
-    constexpr size_t                       NXC = limits_listed<option_t<kind::StateLimits, void, Opts...>>;
-    constexpr size_t                       NYC = limits_listed<option_t<kind::OutputLimits, void, Opts...>>;
+    constexpr size_t                       NXC = listed_by<kind::StateLimits, Opts...>;
+    constexpr size_t                       NYC = listed_by<kind::OutputLimits, Opts...>;
     constexpr size_t                       NDU = rate_limited_inputs<NU, Opts...>;
     MPCConstraintSet<NU, NXC, NYC, T, NDU> out{};
     out.limits.input = input_limits_of<NU, T>(opts...);
@@ -1756,7 +1750,7 @@ constexpr void check_mpc_options() {
     );
     mpc_options::check<Opts...>();            // a kind it does not take, a kind given twice
     check_held_outputs<NU, NY, 0, Opts...>(); // the target's: none beside a disturbance spec, at most NU held
-    constexpr bool kSet = option_count<kind::Terminal, Opts...> == 1 && terminal_rows<option_t<kind::Terminal, void, Opts...>> > 0;
+    constexpr bool kSet = option_count<kind::Terminal, Opts...> == 1 && terminal_rows<Opts...> > 0;
     static_assert(
         !kSet || NC == NP,
         "An InvariantSet needs a free move at every step for the shifted plan: mpc<NP, NP>, or DareCost{} for the terminal cost alone."
@@ -1942,7 +1936,7 @@ template<Domain D, size_t NP, size_t NC, size_t NX, size_t NU, size_t NY, typena
 [[nodiscard]] constexpr auto mpc_with(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T Ts, const MPCWeights<NU, NY, T>& weights, const Opts&... opts) {
     constexpr bool   kEstimated = mpc_estimated<Opts...>;
     constexpr bool   kModelFits = check_delays<D, Opts...>() && check_filtered<kEstimated, Opts...>() && check_disturbance<NX, NY, T, Opts...>();
-    constexpr size_t NT_max = terminal_rows<option_t<kind::Terminal, void, Opts...>>;
+    constexpr size_t NT_max = terminal_rows<Opts...>;
     const auto       constraints = constraint_set<NU, T>(opts...);
     const auto       terminal = terminal_choice<T>(opts...);
     const auto       budget = qp_budget_of(opts...);

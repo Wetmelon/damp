@@ -126,14 +126,6 @@ template<typename Spec>
     }
 }
 
-/** @brief Not TrackedOutputs. */
-template<typename>
-inline constexpr bool is_tracked_outputs = false;
-
-/** @brief TrackedOutputs. */
-template<size_t NZ>
-inline constexpr bool is_tracked_outputs<TrackedOutputs<NZ>> = true;
-
 /** @brief Whether a design's options name its held outputs in one place: no TrackedOutputs beside a disturbance spec, whose .outputs are the held ones. */
 template<typename... Opts>
 inline constexpr bool held_in_one_place = (option_count<kind::TrackedOutputs, Opts...> == 0) || !(DisturbanceSpec<Opts> || ...);
@@ -163,7 +155,7 @@ consteval size_t held_count() {
     using Held = option_t<kind::TrackedOutputs, NoDisturbance, Opts...>;
     if constexpr (DisturbanceSpec<Spec>) {
         return target_outputs<Spec, NY>;
-    } else if constexpr (is_tracked_outputs<Held>) {
+    } else if constexpr (OptionOf<Held, kind::TrackedOutputs>) {
         return target_outputs<Held, NY>;
     } else if constexpr (option_count<kind::MeasuredDisturbance, Opts...> > 0) {
         return (NI > 0) ? NI : NY;
@@ -212,7 +204,7 @@ template<typename Spec, typename Held>
     static_cast<void>(held);
     if constexpr (DisturbanceSpec<Spec>) {
         return spec;
-    } else if constexpr (is_tracked_outputs<Held>) {
+    } else if constexpr (OptionOf<Held, kind::TrackedOutputs>) {
         return held;
     } else {
         return NoDisturbance{};
@@ -434,7 +426,7 @@ template<Domain D, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_
     constexpr bool   kModelFits = check_delays<D, Opts...>() && check_disturbance<NX, NY, T, Opts...>();
     const auto       spec = target_spec_of(option<kind::Disturbance>(NoDisturbance{}, opts...), option<kind::TrackedOutputs>(NoDisturbance{}, opts...));
     const auto       measured = measured_of<NX, T>(opts...);
-    constexpr size_t NM = measured_inputs<damp::remove_cvref_t<decltype(measured)>>;
+    constexpr size_t NM = option_t<kind::MeasuredDisturbance, MeasuredDisturbance<NX, 0, T>, Opts...>::inputs;
     static_assert(
         !damp::is_same_v<damp::remove_cvref_t<decltype(spec)>, NoDisturbance> || NM > 0,
         "steady_state_target holds the outputs a TrackedOutputs or a disturbance spec lists: TrackedOutputs{} for every output, "

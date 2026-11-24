@@ -181,7 +181,8 @@ struct DisturbanceModel<NX, NY, ND, 0, T> {
 template<size_t NX, size_t NM, typename T = double>
 struct MeasuredDisturbance {
     using option_kind = kind::MeasuredDisturbance; ///< Its kind of design option
-    Matrix<NX, NM, T> Bd{};                        ///< How the measured disturbance enters the plant's state update
+    static constexpr size_t inputs = NM;           ///< The measured inputs it carries
+    Matrix<NX, NM, T>       Bd{};                  ///< How the measured disturbance enters the plant's state update
 };
 
 /** @brief Sizes from the matrix: `MeasuredDisturbance{Bd}`. */
@@ -190,20 +191,12 @@ MeasuredDisturbance(Matrix<NX, NM, T>) -> MeasuredDisturbance<NX, NM, T>;
 
 namespace detail {
 
-/** @brief The inputs a measured disturbance carries: NM, none for anything else (Unset, a call without one). */
-template<typename M>
-inline constexpr size_t measured_inputs = 0;
-
-/** @brief MeasuredDisturbance<NX, NM>: NM inputs. */
-template<size_t NX, size_t NM, typename T>
-inline constexpr size_t measured_inputs<MeasuredDisturbance<NX, NM, T>> = NM;
-
 /** @brief The measured disturbance among a call's options, on a plant of NX states in T: none (NM = 0) without one. */
 template<size_t NX, typename T, typename... Opts>
 [[nodiscard]] constexpr auto measured_of(const Opts&... opts) {
     using M = option_t<kind::MeasuredDisturbance, MeasuredDisturbance<NX, 0, T>, Opts...>;
     static_assert(
-        damp::is_same_v<M, MeasuredDisturbance<NX, measured_inputs<M>, T>>,
+        damp::is_same_v<M, MeasuredDisturbance<NX, M::inputs, T>>,
         "The measured disturbance enters the plant's states: MeasuredDisturbance{.Bd = Matrix<NX, NM>{...}}, a row per plant state, in the plant's scalar."
     );
     return option<kind::MeasuredDisturbance>(MeasuredDisturbance<NX, 0, T>{}, opts...);

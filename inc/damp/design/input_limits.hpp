@@ -54,6 +54,7 @@ namespace damp::design {
  */
 template<size_t NU = 1, typename T = double>
 struct InputLimits {
+    static constexpr size_t inputs = NU;                                               ///< The inputs it bounds
     using option_kind = kind::InputLimits;                                             ///< Its kind of design option
     ColVec<NU, T> lower = Matrix<NU, 1, T>::constant(-damp::numeric_limits<T>::max()); ///< The lowest command per input (default unbounded)
     ColVec<NU, T> upper = Matrix<NU, 1, T>::constant(damp::numeric_limits<T>::max());  ///< The highest command per input (default unbounded)
@@ -89,6 +90,7 @@ struct InputLimits {
  */
 template<size_t NU = 1, typename T = double>
 struct InputRateLimits {
+    static constexpr size_t inputs = NU;                                               ///< The inputs whose move it bounds
     using option_kind = kind::InputRateLimits;                                         ///< Its kind of design option
     ColVec<NU, T> lower = Matrix<NU, 1, T>::constant(-damp::numeric_limits<T>::max()); ///< The lowest move per period, per input (default unbounded)
     ColVec<NU, T> upper = Matrix<NU, 1, T>::constant(damp::numeric_limits<T>::max());  ///< The highest move per period, per input (default unbounded)
@@ -127,18 +129,6 @@ struct StateFeedbackLimits {
 
 namespace detail {
 
-/** @brief The inputs an input limit option is on (0: none given). */
-template<typename L>
-inline constexpr size_t input_limits_inputs = 0;
-
-/** @brief InputLimits<NU, …>: NU. */
-template<size_t NU, typename T>
-inline constexpr size_t input_limits_inputs<InputLimits<NU, T>> = NU;
-
-/** @brief InputRateLimits<NU, …>: NU. */
-template<size_t NU, typename T>
-inline constexpr size_t input_limits_inputs<InputRateLimits<NU, T>> = NU;
-
 /** @brief The box of a limit option's @p lower and @p upper ends, in the scalar @p T: Bounds::as, so an unbounded end stays one. */
 template<typename T, size_t N, typename U>
 [[nodiscard]] constexpr Bounds<N, T> box_of(const ColVec<N, U>& lower, const ColVec<N, U>& upper) {
@@ -149,9 +139,9 @@ template<typename T, size_t N, typename U>
 template<typename Kind, size_t NU, typename T, typename Fallback, typename... Opts>
 [[nodiscard]] constexpr Bounds<NU, T> input_box_of(const Opts&... opts) {
     using Given = option_t<Kind, Fallback, Opts...>;
-    if constexpr (input_limits_inputs<Given> != NU) {
+    if constexpr (Given::inputs != NU) {
         static_assert(
-            input_limits_inputs<Given> == NU,
+            Given::inputs == NU,
             "InputLimits and InputRateLimits bound each input of the plant: InputLimits<NU>{...}, or .lower = ColVec<NU>{...}. "
             "Given in a template? There clang deduces nothing from a field set to a constant declared outside it (llvm/llvm-project#114870): name the size."
         );

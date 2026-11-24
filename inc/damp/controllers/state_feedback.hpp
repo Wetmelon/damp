@@ -124,18 +124,6 @@ consteval size_t integrator_count() {
     }
 }
 
-/** @brief The poles a spec lists: none for anything but Poles and ObserverPoles. */
-template<typename S>
-inline constexpr size_t listed_poles = 0;
-
-/** @brief Poles: N. */
-template<size_t N, typename U>
-inline constexpr size_t listed_poles<Poles<N, U>> = N;
-
-/** @brief ObserverPoles: N. */
-template<size_t N, typename U>
-inline constexpr size_t listed_poles<ObserverPoles<N, U>> = N;
-
 /** @brief The gain a design's weights spec asks for: the LQ gain of LQRWeights. */
 template<typename T>
 [[nodiscard]] constexpr LQGain gain_spec_of(const LQGain& lq) {
@@ -252,12 +240,12 @@ template<Domain D, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_
     constexpr bool   kOptionsFit = kModelFits && !(kIntegral && (kDisturbance || kTracked));
     constexpr size_t NK = NX + integrator_count<Opts...>();                     // the poles Poles lists
     constexpr size_t NKF = NX + disturbance_states_in<NX, NU, NY, NW, Opts...>; // and ObserverPoles
-    constexpr size_t NF = listed_poles<option_t<kind::ObserverPoles, Unset, Opts...>>;
-    constexpr bool   kGainCount = damp::is_same_v<Gain, LQGain> || (listed_poles<Gain> == NK);
+    constexpr size_t NF = listed_by<kind::ObserverPoles, Opts...>;
+    constexpr bool   kGainCount = damp::is_same_v<Gain, LQGain> || (listed_by<kind::Weights, Gain> == NK);
     constexpr bool   kFilterCount = (option_count<kind::ObserverPoles, Opts...> == 0) || (NF == NKF);
     if constexpr (!kGainCount || !kFilterCount || !kOptionsFit) {
         if constexpr (!kGainCount) {
-            static_cast<void>(controller_pole_count<NK, listed_poles<Gain>>());
+            static_cast<void>(controller_pole_count<NK, listed_by<kind::Weights, Gain>>());
         } else if constexpr (!kFilterCount) {
             static_cast<void>(observer_pole_count<NKF, NF>());
         }
