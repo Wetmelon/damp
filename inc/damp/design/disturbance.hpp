@@ -12,9 +12,12 @@
  * A disturbance spec is a model feature, recognized by type among design::steady_state_target's
  * options, and the disturbance option of design::kalman, design::state_feedback and design::mpc with a KalmanNoise: ND integrating
  * disturbances d_{k+1} = d_k enter the filter's model through B_d and the readings through C_d.
- * A MeasuredDisturbance is the other kind, an input the law reads each tick: the option of
- * design::state_feedback, design::mpc, design::kalman and design::steady_state_target, alone or
- * beside a disturbance spec, whose d̂ then estimates only what it does not measure.
+ * On readings that arrive late (OutputDelay) d is a state of the plant held over the period, so
+ * each reading holds d as it was when the reading was taken (held_channel); an InputDisturbance's
+ * adds to u, which the model carries there. A MeasuredDisturbance is the other kind, an input the
+ * law reads each tick: the option of design::state_feedback, design::mpc, design::kalman and
+ * design::steady_state_target, alone or beside a disturbance spec, whose d̂ then estimates only
+ * what it does not measure.
  */
 
 
@@ -96,7 +99,9 @@ struct PlantDisturbance<0> {};
  *        through C_d.
  *
  * B_d is in the plant's time domain (continuous on a continuous plant, discretized with it by
- * ZOH; per step on a discrete one), one row per plant state.
+ * ZOH; per step on a discrete one), one row per plant state. On readings that arrive late
+ * (OutputDelay) each holds what the plant moved under d until it was taken, and C_d·d as it was
+ * then: the filter's model is the delayed discretization of [A, B_d; 0, 0] read through [C, C_d].
  *
  * @tparam NX Plant states; NY Measured outputs (0: d reaches no reading, C_d = 0); ND Disturbance states
  *
@@ -134,6 +139,13 @@ struct DisturbanceModel<NX, NY, ND, 0, T> {
  * KalmanNoise) takes it as a known input after u, its model's B being [B, B_d] and its noise
  * unchanged, so beside a disturbance spec its d̂ estimates only the part of a load that is not
  * measured.
+ *
+ * A regulator (no r: no disturbance spec, TrackedOutputs or IntegralAction) holds every output at
+ * 0 under d, where a steady state can. With as many outputs as inputs and no unique steady state
+ * it is refused (DesignStatus::singular). With more outputs than inputs none holds them all (a
+ * motor law that reads both speed and current under a load torque), and its target is the
+ * equilibrium whose outputs are nearest 0 in least squares, which holds none of them. To hold
+ * some, list them, `TrackedOutputs{{i, …}}`, and pass r = 0.
  *
  * B_d is in the plant's time domain: continuous on a continuous plant, discretized with it by ZOH
  * (d held over the period), per step on a discrete one. On a plant whose input arrives late
@@ -190,14 +202,82 @@ template<size_t NX, typename T, typename... Opts>
 }
 
 /**
- * @brief Where a measured disturbance enters the model a design is on: its B_d on the plant's
- *        states, ZOH'd with a continuous plant at @p Ts (d held over the period), per step on a
- *        discrete one (@p Discrete); none on an input's delay states; and on a late reading's
- *        delay states what the plant moved under it until the reading was taken.
+ * @brief Where a disturbance enters: @c Bd on the filter's model before the disturbance (NXE
+ *        states), @c Cd on the readings, and @c Bd_c on the continuous plant (the Van Loan noise
+ *        of a continuous design).
+ */
+template<size_t NX, size_t NXE, size_t NY, size_t ND, typename T>
+struct DisturbanceChannels {
+    Matrix<NXE, ND, T> Bd{};   ///< Into the discrete state update of the filter's model
+    Matrix<NY, ND, T>  Cd{};   ///< Into the readings
+    Matrix<NX, ND, T>  Bd_c{}; ///< Into the continuous plant (Van Loan of the random walk)
+};
+
+/**
+ * @brief Where a disturbance d held over the period enters the model a design is on, d entering
+ *        the plant's states through @p Bd and the readings through @p Cd: B_d ZOH'd with a
+ *        continuous plant at @p Ts, per step on a discrete one (@p Discrete), on the plant's
+ *        states; none on an input's delay states; and on a late reading's delay states what the
+ *        plant moved under d and what C_d read of it when the reading was taken.
  *
- * The late readings' rows are those of discretize(StateSpace{A, B_d, C}, Ts, OutputDelay) on its
- * delay states: a reading taken s into the period loads C·∫₀ˢ e^{Aη} dη·B_d·d, whatever the
- * input's delay, so a model with both delays reads exactly the same d.
+ * The model is the delayed discretization of the plant with d as a state of no dynamics,
+ * [A, B_d; 0, 0] read through [C, C_d]; its d columns are those of
+ * discretize(StateSpace{A, B_d, C, C_d}, Ts, OutputDelay) on the delay states: a reading taken s
+ * into the period loads (C·∫₀ˢ e^{Aη} dη·B_d + C_d)·d, whatever the input's delay, so a model
+ * with both delays reads exactly the same d, and @c Cd keeps C_d on an output read at once, none
+ * on a late one. Without an OutputDelay @c Cd is @p Cd.
+ * @return The channels, @c Bd on the model's NX + delay_states rows and @c Bd_c = @p Bd; nullopt
+ *         on a non-finite entry
+ */
+template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t ND, typename Delay>
+[[nodiscard]] constexpr damp::optional<DisturbanceChannels<NX, NX + delay_states<Delay, NU, NY>, NY, ND, T>> held_channel(
+    const StateSpace<NX, NU, NY, T, NW, NV>& sys,
+    T                                        Ts,
+    const Matrix<NX, ND, T>&                 Bd,
+    const Matrix<NY, ND, T>&                 Cd,
+    const Delay&                             delay
+) {
+    constexpr size_t                                                     NRY = output_delay_states<Delay>;
+    DisturbanceChannels<NX, NX + delay_states<Delay, NU, NY>, NY, ND, T> out{.Cd = Cd, .Bd_c = Bd};
+    const auto                                                           finite = [](T v) { return damp::isfinite(v); };
+    if constexpr (ND == 0) {
+        static_cast<void>(sys);
+        static_cast<void>(Ts);
+        static_cast<void>(delay);
+        static_cast<void>(finite);
+        return out; // none: no exponential to take
+    } else if (!mat::all_of(Bd, finite) || !mat::all_of(Cd, finite)) {
+        return damp::nullopt; // the exponential would carry it; refused before
+    } else if constexpr (Discrete) {
+        static_cast<void>(Ts);
+        static_cast<void>(delay);
+        out.Bd.template block<NX, ND>(0, 0) = Bd;
+    } else if constexpr (NRY == 0) {
+        static_cast<void>(delay);
+        const auto d = ::damp::discretize(StateSpace<NX, ND, 1, T>{.A = sys.A, .B = Bd}, Ts);
+        if (!d) {
+            return damp::nullopt;
+        }
+        out.Bd.template block<NX, ND>(0, 0) = d->B;
+    } else {
+        const auto d = ::damp::discretize(StateSpace<NX, ND, NY, T>{.A = sys.A, .B = Bd, .C = sys.C, .D = Cd}, Ts, delay.output);
+        if (!d) {
+            return damp::nullopt;
+        }
+        constexpr size_t first = NX + (input_delay_states<Delay> * NU); // the late readings' delay states, after the input's
+        out.Bd.template block<NX, ND>(0, 0) = d->B.template block<NX, ND>(0, 0);
+        out.Bd.template block<NRY * NY, ND>(first, 0) = d->B.template block<NRY * NY, ND>(NX, 0);
+        out.Cd = d->D;
+    }
+    return out;
+}
+
+/**
+ * @brief Where a measured disturbance enters the model a design is on (held_channel, C_d = 0): its
+ *        B_d on the plant's states, ZOH'd with a continuous plant at @p Ts (d held over the
+ *        period), per step on a discrete one (@p Discrete); none on an input's delay states; and
+ *        on a late reading's delay states what the plant moved under it until the reading was
+ *        taken, C·∫₀ˢ e^{Aη} dη·B_d·d.
  * @return The channel on the model's NX + delay_states rows; nullopt on a non-finite entry
  */
 template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NM, typename Delay>
@@ -207,37 +287,11 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
     const MeasuredDisturbance<NX, NM, T>&    measured,
     const Delay&                             delay
 ) {
-    constexpr size_t                                NRY = output_delay_states<Delay>;
-    Matrix<NX + delay_states<Delay, NU, NY>, NM, T> out{};
-    if constexpr (NM == 0) {
-        static_cast<void>(sys);
-        static_cast<void>(Ts);
-        static_cast<void>(measured);
-        static_cast<void>(delay);
-        return out; // none: no exponential to take
-    } else if (!mat::all_of(measured.Bd, [](T v) { return damp::isfinite(v); })) {
-        return damp::nullopt; // the exponential would carry it; refused before
-    } else if constexpr (Discrete) {
-        static_cast<void>(Ts);
-        static_cast<void>(delay);
-        out.template block<NX, NM>(0, 0) = measured.Bd;
-    } else if constexpr (NRY == 0) {
-        static_cast<void>(delay);
-        const auto d = ::damp::discretize(StateSpace<NX, NM, 1, T>{.A = sys.A, .B = measured.Bd}, Ts);
-        if (!d) {
-            return damp::nullopt;
-        }
-        out.template block<NX, NM>(0, 0) = d->B;
-    } else {
-        const auto d = ::damp::discretize(StateSpace<NX, NM, NY, T>{.A = sys.A, .B = measured.Bd, .C = sys.C}, Ts, delay.output);
-        if (!d) {
-            return damp::nullopt;
-        }
-        constexpr size_t first = NX + (input_delay_states<Delay> * NU); // the late readings' delay states, after the input's
-        out.template block<NX, NM>(0, 0) = d->B.template block<NX, NM>(0, 0);
-        out.template block<NRY * NY, NM>(first, 0) = d->B.template block<NRY * NY, NM>(NX, 0);
+    const auto channel = held_channel<Discrete>(sys, Ts, measured.Bd, Matrix<NY, NM, T>{}, delay);
+    if (!channel) {
+        return damp::nullopt;
     }
-    return out;
+    return channel->Bd;
 }
 
 /** @brief @p left then @p right, side by side: the channels of an estimated disturbance, then a measured one's. */
@@ -365,18 +419,6 @@ template<size_t NY, size_t NS>
 }
 
 /**
- * @brief Where a disturbance enters: @c Bd on the filter's model before the disturbance (NXE
- *        states), @c Cd on the readings, and @c Bd_c on the continuous plant (the Van Loan noise
- *        of a continuous design).
- */
-template<size_t NX, size_t NXE, size_t NY, size_t ND, typename T>
-struct DisturbanceChannels {
-    Matrix<NXE, ND, T> Bd{};   ///< Into the discrete state update of the filter's model
-    Matrix<NY, ND, T>  Cd{};   ///< Into the readings
-    Matrix<NX, ND, T>  Bd_c{}; ///< Into the continuous plant (Van Loan of the random walk)
-};
-
-/**
  * @brief An input disturbance: B_d = B of the filter's model (delayed with u), C_d = its D. On a
  *        model with input delay states its walk reaches the plant through them, so none of it acts
  *        within the period (B_d,c = 0).
@@ -441,6 +483,52 @@ template<size_t NYD, size_t ND, size_t NZ, size_t NX, size_t NU, size_t NY, type
         out.Bd.template block<NX, ND>(0, 0) = spec.Bd;
     }
     return out;
+}
+
+/** @brief Not an InputDisturbance. */
+template<typename>
+inline constexpr bool is_input_disturbance = false;
+
+/** @brief InputDisturbance: d adds to u. */
+template<size_t NZ>
+inline constexpr bool is_input_disturbance<InputDisturbance<NZ>> = true;
+
+/**
+ * @brief Whether a spec's d reaches a late reading as it was when the reading was taken, a state of
+ *        the plant held over the period (held_channel): with an OutputDelay in @p Delay, every spec
+ *        with states but InputDisturbance, whose d adds to u and so rides the model's own B and D.
+ */
+template<typename Spec, typename Delay>
+inline constexpr bool held_on_late_readings = is_disturbance_model<Spec> && !is_input_disturbance<Spec> && (output_delay_states<Delay> > 0);
+
+/**
+ * @brief A disturbance's channels @p ch (disturbance_channels) on the filter's model with the
+ *        delays @p delay: on readings that arrive late, the held_channel of its continuous B_d and
+ *        its C_d, d reaching each reading as it was when the reading was taken. Without an
+ *        OutputDelay, and for an InputDisturbance, @p ch itself.
+ *
+ * A non-finite B_d or C_d keeps @p ch, which carries it to the design's refusal; @p sys.A has
+ * already been sampled, so the exponential fails on nothing else.
+ */
+template<typename Spec, size_t NX, size_t NXE, size_t NY, size_t ND, typename T, size_t NU, size_t NW, size_t NV, typename Delay>
+[[nodiscard]] constexpr DisturbanceChannels<NX, NXE, NY, ND, T> on_late_readings(
+    const Spec&                                    spec,
+    const DisturbanceChannels<NX, NXE, NY, ND, T>& ch,
+    const StateSpace<NX, NU, NY, T, NW, NV>&       sys,
+    T                                              Ts,
+    const Delay&                                   delay
+) {
+    static_cast<void>(spec);
+    if constexpr (held_on_late_readings<Spec, Delay>) {
+        static_assert(NXE == NX + delay_states<Delay, NU, NY>, "The channels are on the filter's model, with its delay states.");
+        const auto held = held_channel<false>(sys, Ts, ch.Bd_c, ch.Cd, delay); // a late reading needs the continuous plant
+        return held ? *held : ch;
+    } else {
+        static_cast<void>(sys);
+        static_cast<void>(Ts);
+        static_cast<void>(delay);
+        return ch;
+    }
 }
 
 /**

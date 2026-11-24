@@ -343,6 +343,40 @@ void check_estimators(double theta) {
     CHECK(e.worst < 1e-6);
 }
 
+/// The mass-spring with d as a state of no dynamics, d pushing the mass through @p Bd and reaching
+/// the reading through @p Cd: [x; d], [A, B_d; 0, 0] read through [C, C_d].
+StateSpace<3, 1, 1> held_disturbance(const Matrix<2, 1>& Bd, const Matrix<1, 1>& Cd) {
+    const auto          p = mass_spring();
+    StateSpace<3, 1, 1> s{};
+    s.A.block<2, 2>(0, 0) = p.A;
+    s.A.block<2, 1>(0, 2) = Bd;
+    s.B.block<2, 1>(0, 0) = p.B;
+    s.C.block<1, 2>(0, 0) = p.C;
+    s.C.block<1, 1>(0, 2) = Cd;
+    return s;
+}
+
+/// The largest gap in A, B, C and D between a filter's model, [x; delay states; d], and @p held,
+/// discretize's model of held_disturbance, [x; d; delay states].
+template<size_t N, size_t NW, size_t NV>
+double held_model_gap(const StateSpace<N, 1, 1, double, NW, NV>& filter, const StateSpace<N, 1, 1>& held) {
+    const auto at = [](size_t i) { return (i < 2) ? i : ((i + 1 < N) ? i + 1 : size_t{2}); }; // the filter's state i in held's order
+    double     gap = std::abs(filter.D(0, 0) - held.D(0, 0));
+    for (size_t i = 0; i < N; ++i) {
+        for (size_t j = 0; j < N; ++j) {
+            gap = std::max(gap, std::abs(filter.A(i, j) - held.A(at(i), at(j))));
+        }
+        gap = std::max(gap, std::abs(filter.B(i, 0) - held.B(at(i), 0)));
+        gap = std::max(gap, std::abs(filter.C(0, i) - held.C(0, at(i))));
+    }
+    return gap;
+}
+
+/// A force on the mass that the reading also sees, and the noise of a filter estimating it.
+const Matrix<2, 1>                         kForce{{0.0}, {1.0}};
+const Matrix<1, 1>                         kBias{{0.5}};
+const design::KalmanNoise<2, 1, double, 1> kHeldNoise{Matrix<2, 2>{{1e-4, 0.0}, {0.0, 1e-2}}, Matrix<1, 1>{{1e-6}}, Matrix<1, 1>{{1e-2}}};
+
 } // namespace
 
 TEST_SUITE("Design on the delayed model") {
@@ -1043,5 +1077,114 @@ TEST_SUITE("Design on the delayed model") {
             tb.add(k, 2 * n, b.position() - 0.3);
         }
         CHECK(tb.worst < 1e-4);
+    }
+
+    TEST_CASE("an estimated d on a late reading: the filter is on the delayed model of the plant with d held, each reading holding d as it was when taken") {
+        // d is a state of no dynamics, [A, B_d; 0, 0] read through [C, C_d], discretized with the
+        // delays as the plant is: the reading taken s into a period holds what the plant moved
+        // under d until then and what C_d read of it. An OutputDisturbance is B_d = 0, C_d = 1.
+        const OutputDelay<2>           late{1.4 * kTs};
+        const InputDelay<1>            in{0.4 * kTs};
+        const design::DisturbanceModel dm{.Bd = kForce, .Cd = kBias};
+        const auto                     held = held_disturbance(kForce, kBias);
+        const auto                     offset = held_disturbance(Matrix<2, 1>{}, Matrix<1, 1>{{1.0}});
+        const auto                     a = design::kalman(mass_spring(), kTs, kHeldNoise, dm, late);
+        const auto                     b = design::kalman(mass_spring(), kTs, kHeldNoise, dm, in, late);
+        const auto                     c = design::kalman(mass_spring(), kTs, kHeldNoise, design::OutputDisturbance{}, late);
+        const auto                     e = design::kalman(mass_spring(), kTs, kHeldNoise, design::OutputDisturbance{}, in, late);
+        REQUIRE(a.success);
+        REQUIRE(b.success);
+        REQUIRE(c.success);
+        REQUIRE(e.success);
+        const auto held_late = discretize(held, kTs, late).value();
+        const auto held_both = discretize(held, kTs, in, late).value();
+        CHECK(held_model_gap(a.sys, held_late) < 1e-12);
+        CHECK(held_model_gap(b.sys, held_both) < 1e-12);
+        CHECK(held_model_gap(c.sys, discretize(offset, kTs, late).value()) < 1e-12);
+        CHECK(held_model_gap(e.sys, discretize(offset, kTs, in, late).value()) < 1e-12);
+        //! A PlantDisturbance is B_d = G, C_d = H: the same force and bias named on the plant.
+        const StateSpace<2, 1, 1, double, 1, 1>    gh{.A = mass_spring().A, .B = mass_spring().B, .C = mass_spring().C, .G = kForce, .H = kBias};
+        const design::KalmanNoise<1, 1, double, 1> gh_noise{Matrix<1, 1>{{1e-2}}, Matrix<1, 1>{{1e-6}}, Matrix<1, 1>{{1e-2}}};
+        const auto                                 p = design::kalman(gh, kTs, gh_noise, design::PlantDisturbance{}, in, late);
+        REQUIRE(p.success);
+        CHECK(held_model_gap(p.sys, held_both) < 1e-12);
+        //! The reading that arrives reads d as it was, in its delay state, which loads
+        //! C·∫₀ˢ e^{Aη} dη·B_d + C_d, s = 0.6·Ts into the period.
+        const auto moved = discretize(StateSpace<2, 1, 1>{.A = mass_spring().A, .B = kForce, .C = mass_spring().C}, 0.6 * kTs).value();
+        CHECK(a.sys.C(0, 4) == 0.0);
+        CHECK(a.sys.A(2, 4) == doctest::Approx(moved.B(0, 0) + kBias(0, 0)).epsilon(1e-12));
+        CHECK(moved.B(0, 0) > 1e-6);
+
+        //! The OFLQG's and the OFMPC's filter is that one.
+        const design::MPCWeights<1, 1> w{.Qy = {1e3}, .Rdu = {1e-3}};
+        const auto                     of = design::state_feedback(mass_spring(), kTs, {.Q = Matrix<2, 2>{{1e3, 0.0}, {0.0, 0.0}}, .R = {1e-3}}, kHeldNoise, dm, in, late);
+        const auto                     ofm = design::mpc<20, 5>(mass_spring(), kTs, w, kHeldNoise, dm, in, late);
+        REQUIRE(of.success);
+        REQUIRE(ofm.success);
+        CHECK(held_model_gap(of.kalman.sys, held_both) < 1e-12);
+        CHECK(held_model_gap(ofm.kalman.sys, held_both) < 1e-12);
+
+        //! The reading's noise holds d's walk up to when it was taken: [C, C_d]·Q(s)·[C, C_d]ᵀ on [x; d].
+        Matrix<3, 3> Qc{};
+        Qc.block<2, 2>(0, 0) = kHeldNoise.process;
+        Qc(2, 2) = kHeldNoise.disturbance(0, 0);
+        const auto Qs = design::discretize_process_noise(offset.A, Matrix<3, 3>::identity(), Qc, 0.6 * kTs);
+        REQUIRE(Qs);
+        CHECK(c.Q(2, 2) == doctest::Approx((*Qs)(0, 0) + (2.0 * (*Qs)(0, 2)) + (*Qs)(2, 2)).epsilon(1e-9));
+
+        //! The target holds a late reading's delay states at the steady output, C·x_t + C_d·d̂: per
+        //! unit d̂ the output r holds does not move.
+        const auto tg = design::steady_state_target(mass_spring(), kTs, dm, late);
+        REQUIRE(tg.success);
+        static_assert(std::is_same_v<decltype(tg.target_d), Matrix<5, 1>>); // [x; the readings on their way] then u
+        CHECK(tg.target_d(0, 0) == doctest::Approx(-0.5).epsilon(1e-12));
+        CHECK(std::abs(tg.target_d(2, 0)) < 1e-12);
+        CHECK(std::abs(tg.target_d(3, 0)) < 1e-12);
+        CHECK(tg.target_r(2, 0) == doctest::Approx(1.0).epsilon(1e-12));
+    }
+
+    TEST_CASE("after a step in an estimated d, an OFLQG on a late reading predicts every reading exactly, and its d̂ settles at d") {
+        // The true plant is the delayed model of the plant with d held, d stepping to 0.2 at k0.
+        // Told the step at once (reset to the true state), the filter predicts each late reading
+        // exactly: those taken before the step hold the old d, the first taken after it what the
+        // plant moved under the new one until then, and d̂ stays at d. Not told, d̂ settles at d
+        // and the output at r.
+        const OutputDelay<2> late{1.4 * kTs};
+        const auto           of = design::state_feedback(mass_spring(), kTs, {.Q = Matrix<2, 2>{{1e3, 0.0}, {0.0, 0.0}}, .R = {1e-3}}, kHeldNoise, design::DisturbanceModel{.Bd = kForce, .Cd = kBias}, late);
+        REQUIRE(of.success);
+        const auto truth = discretize(held_disturbance(kForce, kBias), kTs, late).value(); // [x; d; z(k−1); z(k−2)]
+        for (const bool told : {true, false}) {
+            CAPTURE(told);
+            OFLQG           law{of};
+            ColVec<5>       s{};
+            const ColVec<1> r{0.3};
+            constexpr int   k0 = 1500;
+            constexpr int   n = 4000;
+            double          before = 0.0; // the largest prediction error on the reading, before the step and after it
+            double          after = 0.0;
+            double          drift = 0.0; // the largest |d̂ − d| after the step
+            for (int k = 0; k < n; ++k) {
+                const double u = law.step(r, truth.C * s)[0];
+                double&      worst = (k <= k0) ? before : after;
+                worst = std::max(worst, std::abs(law.estimator.innovation()(0)));
+                if (k > k0) {
+                    drift = std::max(drift, std::abs(law.estimator.disturbance_estimate()(0) - 0.2));
+                }
+                if (k == k0) {
+                    s(2) = 0.2; // held from this period on
+                    if (told) {
+                        law.estimator.reset(ColVec<4>{s(0), s(1), s(3), s(4)}, ColVec<1>{0.2});
+                    }
+                }
+                s = (truth.A * s) + (truth.B * ColVec<1>{u});
+            }
+            CHECK(before < 1e-12);
+            if (told) {
+                CHECK(after < 1e-12);
+                CHECK(drift < 1e-12);
+            }
+            CHECK(law.estimator.disturbance_estimate()(0) == doctest::Approx(0.2).epsilon(1e-9));
+            CHECK((truth.C * s)(0) == doctest::Approx(0.3).epsilon(1e-9));
+        }
     }
 }
