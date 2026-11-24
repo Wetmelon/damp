@@ -55,10 +55,12 @@ constexpr ColVec<2> plant_step(const ColVec<2>& x, double u_effective) {
     };
 }
 
-/// An offset-free design on the double integrator: an input disturbance, the position held.
-template<size_t NP, size_t NC, size_t NT_max = 0>
-constexpr auto offset_free(const design::MPCWeights<1, 1>& w, const design::MPCConstraints<1, 1>& c = {}, const design::KalmanNoise<2, 1, double, 1>& noise = kUnitNoise) {
-    return design::mpc<NP, NC, NT_max>(double_integrator, w, c, noise, design::InputDisturbance{});
+/// An offset-free design on the double integrator: an input disturbance, the position held, and any further options @p opts.
+template<size_t NP, size_t NC, size_t NT_max = 0, typename... Opts>
+constexpr auto offset_free(
+    const design::MPCWeights<1, 1>& w, const design::MPCConstraints<1>& c = {}, const design::KalmanNoise<2, 1, double, 1>& noise = kUnitNoise, const Opts&... opts
+) {
+    return design::mpc<NP, NC, NT_max>(double_integrator, w, c, noise, design::InputDisturbance{}, opts...);
 }
 
 design::MPCWeights<1, 1> move_weight(double rdu) {
@@ -125,11 +127,64 @@ TEST_CASE("disturbance_lim clamps OFMPC's disturbance estimate, and moves at run
     CHECK(controller.estimator.disturbance_estimate()(0) == doctest::Approx(0.05).epsilon(1e-12));
 }
 
+TEST_CASE("OutputLimits index the controlled outputs: the readings a disturbance spec lists, in its order") {
+    //! Three readings (two positions and the first axis's speed), the positions held offset-free:
+    //! InputDisturbance{{0, 2}} makes readings 0 and 2 the controlled outputs, so OutputLimits'
+    //! index 1 is reading 2. Before the option this was y_lim on the two controlled outputs.
+    constexpr double              big = damp::numeric_limits<double>::max();
+    constexpr StateSpace<4, 2, 3> two_axes{
+        .A = {{1.0, Ts, 0.0, 0.0}, {0.0, 1.0, 0.0, 0.0}, {0.0, 0.0, 1.0, Ts}, {0.0, 0.0, 0.0, 1.0}},
+        .B = {{0.5 * Ts * Ts, 0.0}, {Ts, 0.0}, {0.0, 0.5 * Ts * Ts}, {0.0, Ts}},
+        .C = {{1.0, 0.0, 0.0, 0.0}, {0.0, 1.0, 0.0, 0.0}, {0.0, 0.0, 1.0, 0.0}},
+        .Ts = Ts,
+    };
+    design::MPCWeights<2, 2> w{};
+    w.Rdu = Matrix<2, 2>::identity() * 0.1;
+    const design::MPCConstraints<2> limits{.u_lim = {.lower = {-1.0, -1.0}, .upper = {1.0, 1.0}}};
+    const design::KalmanNoise       noise{.process = Matrix<4, 4>::identity() * 0.01, .measurement = Matrix<3, 3>::identity() * 0.001, .disturbance = Matrix<2, 2>::identity() * 0.01};
+    const design::OutputLimits      second{.outputs = {1}, .lim = {.upper = 0.4}};
+    const design::OutputLimits      both{.outputs = {0, 1}, .lim = {.lower = {-big, -big}, .upper = {big, 0.4}}};
+
+    const auto a = design::mpc<12, 4>(two_axes, w, limits, noise, design::InputDisturbance{{0, 2}}, second);
+    const auto b = design::mpc<12, 4>(two_axes, w, limits, both, noise, design::InputDisturbance{{0, 2}});
+    REQUIRE(a.success);
+    REQUIRE(b.success);
+    static_assert(std::remove_cvref_t<decltype(a.mpc)>::NI == (4 * 8) + (2 * 12) && std::remove_cvref_t<decltype(b.mpc)>::NI == (4 * 8) + (2 * 12 * 2));
+    CHECK(design::mpc<12, 4>(two_axes, w, limits, noise, design::InputDisturbance{{0, 2}}, design::OutputLimits{.outputs = {2}}).status == design::DesignStatus::invalid_parameter); // two controlled outputs, not three readings
+
+    OFMPC           la{a};
+    OFMPC           lb{b};
+    ColVec<4>       x{};
+    const ColVec<2> load{0.1, -0.1};
+    double          peak = 0.0;
+    for (size_t k = 0; k < 60; ++k) {
+        const ColVec<3> y = two_axes.C * x;
+        const auto      ua = la.step(ColVec<2>{1.0, 0.5}, y);
+        const auto      ub = lb.step(ColVec<2>{1.0, 0.5}, y);
+        CHECK(ua(0) == doctest::Approx(ub(0)).epsilon(1e-12));
+        CHECK(ua(1) == doctest::Approx(ub(1)).epsilon(1e-12));
+        //! What y_lim = {.lower = {−max, −max}, .upper = {max, 0.4}} gave.
+        if (k == 5) {
+            CHECK(ua(1) == doctest::Approx(0.60094661314027675).epsilon(1e-8));
+        }
+        if (k == 8) {
+            CHECK(ua(0) == doctest::Approx(0.89143486515705095).epsilon(1e-8));
+            CHECK(ua(1) == doctest::Approx(-0.80115779012431809).epsilon(1e-8));
+        }
+        if (k == 15) {
+            CHECK(ua(1) == doctest::Approx(0.0080972289661150956).epsilon(1e-8));
+        }
+        x = (two_axes.A * x) + (two_axes.B * (ua + load));
+        peak = damp::max(peak, x(2));
+    }
+    CHECK(peak <= 0.4 + 0.02); // reading 2, soft, held near its bound under the load
+}
+
 TEST_CASE("StateLimits bound an estimated state of an offset-free MPC: on the estimate's prediction") {
     // Only the position is measured; the speed is the filter's, bounded at 0.3 (2 without the bound).
-    const design::MPCConstraints<1, 1> limits{.u_lim = {.lower = -2.0, .upper = 2.0}};
-    const design::StateLimits          speed{.states = {1}, .lim = {.lower = -0.3, .upper = 0.3}};
-    const auto                         art = design::mpc<15, 5>(double_integrator, move_weight(0.01), limits, speed, design::KalmanNoise{Matrix<2, 2>::identity(), Matrix<1, 1>{{0.01}}, Matrix<1, 1>{{1.0}}}, design::InputDisturbance{});
+    const design::MPCConstraints<1> limits{.u_lim = {.lower = -2.0, .upper = 2.0}};
+    const design::StateLimits       speed{.states = {1}, .lim = {.lower = -0.3, .upper = 0.3}};
+    const auto                      art = design::mpc<15, 5>(double_integrator, move_weight(0.01), limits, speed, design::KalmanNoise{Matrix<2, 2>::identity(), Matrix<1, 1>{{0.01}}, Matrix<1, 1>{{1.0}}}, design::InputDisturbance{});
     REQUIRE(art.success);
     const auto run = [&](double load) {
         OFMPC     controller{art};
@@ -188,11 +243,10 @@ TEST_CASE("offset-free MPC removes a sensor bias (OutputDisturbance, C_d = I)") 
     CHECK(y == doctest::Approx(1.0).epsilon(1e-6));
     CHECK(controller.disturbance_estimate()(0) == doctest::Approx(bias).epsilon(1e-4));
 
-    // A finite y_lim scales the outputs by its span, C_d·d̂ included: unscaled, the limit row
+    // A finite output limit scales the outputs by its span, C_d·d̂ included: unscaled, the limit row
     // counted the bias 4 times, so r = 1.5 settled at 1.09 and r = 3 under a −1 bias at 3.0.
-    design::MPCConstraints<1, 1> limits{};
-    limits.y_lim = {.lower = -2.0, .upper = 2.0};
-    const auto limited = design::mpc<15, 5>(plant, move_weight(0.05), limits, noise, design::OutputDisturbance{});
+    const design::OutputLimits limit{.outputs = {0}, .lim = {.lower = -2.0, .upper = 2.0}};
+    const auto                 limited = design::mpc<15, 5>(plant, move_weight(0.05), {}, noise, design::OutputDisturbance{}, limit);
     REQUIRE(limited.success);
     const auto settle = [&](double b, double r) {
         OFMPC     ctl{limited};
@@ -210,7 +264,7 @@ TEST_CASE("offset-free MPC removes a sensor bias (OutputDisturbance, C_d = I)") 
 }
 
 TEST_CASE("offset-free MPC respects input limits while rejecting a load") {
-    design::MPCConstraints<1, 1> limits{};
+    design::MPCConstraints<1> limits{};
     limits.u_lim = {
         .lower = -0.6,
         .upper = 0.6,
@@ -325,11 +379,10 @@ TEST_CASE_TEMPLATE("offset-free MPC with soft output bounds, started outside the
     //! From the position reading alone, under an unknown load at the input. The float active set
     //! ended Degenerate on 18 of the 600 ticks from 1.5 and on 22 from 5: a row met through the
     //! slack alone lies at a sine of 2·10⁻⁴ from the active normals (qp.hpp).
-    design::MPCConstraints<1, 1> limits{};
+    design::MPCConstraints<1> limits{};
     limits.u_lim = {.lower = -1.0, .upper = 1.0};
     limits.du_lim = {.lower = -0.2, .upper = 0.2};
-    limits.y_lim = {.lower = -0.5, .upper = 0.5};
-    const auto art = offset_free<30, 10>(move_weight(0.01), limits);
+    const auto art = offset_free<30, 10>(move_weight(0.01), limits, kUnitNoise, design::OutputLimits{.outputs = {0}, .lim = {.lower = -0.5, .upper = 0.5}});
     REQUIRE(art.success);
     constexpr double load = 0.3; // unknown to the controller
     for (const double x0 : {1.5, 5.0}) {
@@ -478,8 +531,8 @@ TEST_CASE("offset-free MPC: a load force sensed by an accelerometer, the load he
 }
 
 TEST_CASE("offset-free MPC with a general disturbance model honours the input and rate limits") {
-    const CompliantDrive         plant;
-    design::MPCConstraints<1, 1> limits{};
+    const CompliantDrive      plant;
+    design::MPCConstraints<1> limits{};
     limits.u_lim = {
         .lower = -1.0,
         .upper = 1.0,
@@ -513,7 +566,7 @@ TEST_CASE("offset-free MPC with a general disturbance model honours the input an
 
 TEST_CASE("offset-free MPC on the ADMM policy reports an infeasible tick like the active-set default") {
     // A held input of 2.0 outside |u| <= 0.5, which |Δu| <= 0.1 cannot reach in one move.
-    design::MPCConstraints<1, 1> limits{};
+    design::MPCConstraints<1> limits{};
     limits.u_lim = {
         .lower = -0.5,
         .upper = 0.5,
@@ -522,8 +575,7 @@ TEST_CASE("offset-free MPC on the ADMM policy reports an infeasible tick like th
         .lower = -0.1,
         .upper = 0.1,
     };
-    limits.max_qp_iterations = 20000;
-    const auto art = offset_free<15, 5>(move_weight(0.05), limits);
+    const auto art = offset_free<15, 5>(move_weight(0.05), limits, kUnitNoise, design::QPIterations{20000});
     REQUIRE(art.success);
 
     using Ctl = decltype(OFMPC{art});
@@ -611,7 +663,7 @@ auto heater_design(double u_max, bool terminal_weight = true) {
     if (terminal_weight) {
         w.Qy_terminal = w.Qy;
     }
-    design::MPCConstraints<1, 1> c{};
+    design::MPCConstraints<1> c{};
     c.u_lim = {
         .lower = 0.0,
         .upper = u_max,
@@ -685,7 +737,7 @@ TEST_SUITE("offset-free MPC error-state estimator") {
             const StateSpace         plant{.A = kHeater.A, .B = kHeater.B, .C = kHeater.C, .Ts = kHeater.Ts};
             design::MPCWeights<1, 1> w{};
             w.Rdu = 10.0;
-            design::MPCConstraints<1, 1> c{};
+            design::MPCConstraints<1> c{};
             c.u_lim = {
                 .lower = 0.0,
                 .upper = u_max,
@@ -764,38 +816,32 @@ TEST_SUITE("offset-free MPC terminal") {
         const auto art = offset_free<8, 4>({});
         REQUIRE(art.success);
         CHECK(art.mpc.n_terminal == 0);
-        CHECK(art.mpc.terminal == design::MPCTerminal::none);
+        CHECK(art.mpc.terminal == design::detail::MPCTerminal::none);
         static_assert(decltype(OFMPC{art})::NYM == 1); // the measurement is the reading y, not the state: a filter reconstructs x
         static_assert(decltype(OFMPC{art})::NDE == 1);
     }
 
-    TEST_CASE("dare_cost fills a PD terminal Hessian") {
-        design::MPCConstraints<1, 1> c{};
-        c.terminal = design::MPCTerminal::dare_cost;
-        const auto art = offset_free<8, 4>({}, c);
+    TEST_CASE("DareCost fills a PD terminal Hessian") {
+        const auto art = offset_free<8, 4>({}, {}, kUnitNoise, design::DareCost{});
         REQUIRE(art.success);
         CHECK(art.mpc.n_terminal == 0);
-        CHECK(art.mpc.terminal == design::MPCTerminal::dare_cost);
+        CHECK(art.mpc.terminal == design::detail::MPCTerminal::dare_cost);
         CHECK(art.mpc.P(0, 0) != doctest::Approx(0.0));
         CHECK(mat::cholesky(art.mpc.P).has_value());
     }
 
-    TEST_CASE("invariant_set with NT_max: the set moves with the estimated disturbance's target") {
-        design::MPCConstraints<1, 1> limits{};
+    TEST_CASE("InvariantSet with NT_max: the set moves with the estimated disturbance's target") {
+        design::MPCConstraints<1> limits{};
         limits.u_lim = {
             .lower = -1.0,
             .upper = 1.0,
         };
-        limits.y_lim = {
-            .lower = -1.0,
-            .upper = 1.0,
-        };
-        limits.terminal = design::MPCTerminal::invariant_set;
+        const design::OutputLimits position{.outputs = {0}, .lim = {.lower = -1.0, .upper = 1.0}};
 
-        const auto art = offset_free<4, 4, 64>(move_weight(0.01), limits);
+        const auto art = offset_free<4, 4, 64>(move_weight(0.01), limits, kUnitNoise, position, design::InvariantSet{});
         REQUIRE(art.success);
         REQUIRE(art.mpc.n_terminal > 0);
-        CHECK(art.mpc.terminal == design::MPCTerminal::invariant_set);
+        CHECK(art.mpc.terminal == design::detail::MPCTerminal::invariant_set);
 
         OFMPC law{art};
         static_assert(decltype(law)::NI1 == (4 * 4) + (2 * 4) + 64 + 1);
@@ -815,10 +861,8 @@ TEST_SUITE("offset-free MPC terminal") {
         CHECK(law.disturbance_estimate()(0) == doctest::Approx(0.2).epsilon(1e-3));
     }
 
-    TEST_CASE("invariant_set without NT_max is refused as bad_weights") {
-        design::MPCConstraints<1, 1> limits{};
-        limits.terminal = design::MPCTerminal::invariant_set;
-        const auto art = offset_free<4, 2>({}, limits);
+    TEST_CASE("an InvariantSet without NT_max is refused as bad_weights") {
+        const auto art = offset_free<4, 2>({}, {}, kUnitNoise, design::InvariantSet{});
         CHECK_FALSE(art.success);
         CHECK(art.status == design::DesignStatus::bad_weights);
         CHECK(art.mpc.status == design::DesignStatus::bad_weights);
@@ -839,7 +883,7 @@ TEST_CASE("more controlled outputs than inputs: the target is an equilibrium, so
     design::MPCWeights<1, 2> w{};
     w.Rdu = 0.1;
     const design::KalmanNoise<2, 2, double, 1> noise{.process = Matrix<2, 2>::identity() * 1e-4, .measurement = Matrix<2, 2>::identity() * 1e-4, .disturbance = 1e-4};
-    const auto                                 art = design::mpc<20, 5>(plant, w, design::MPCConstraints<1, 2>{}, noise, design::InputDisturbance{});
+    const auto                                 art = design::mpc<20, 5>(plant, w, design::MPCConstraints<1>{}, noise, design::InputDisturbance{});
     REQUIRE(art.success);
     const auto nominal = design::mpc<20, 5>(StateSpace{.A = plant.A, .B = plant.B, .C = plant.C, .Ts = 0.1}, w, {});
     REQUIRE(nominal.success);
@@ -860,7 +904,7 @@ TEST_CASE("more controlled outputs than inputs: the target is an equilibrium, so
 }
 
 TEST_CASE("back_calculate: a clamp is the applied input, the next move starts from it") {
-    design::MPCConstraints<1, 1> limits{};
+    design::MPCConstraints<1> limits{};
     limits.u_lim = {.lower = -0.3, .upper = 0.3};
     const auto art = offset_free<10, 4>(move_weight(0.05), limits);
     REQUIRE(art.success);

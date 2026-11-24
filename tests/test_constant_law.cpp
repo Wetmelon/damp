@@ -548,7 +548,7 @@ TEST_SUITE("The other runtimes on a constexpr design") {
     }
 
     TEST_CASE("OFMPC: the same commands, its filter on constants and its QP unchanged") {
-        static constexpr auto kOfmpc = design::mpc<12, 3>(kDelayed, design::MPCWeights<1, 1>{.Rdu = 1.0}, design::MPCConstraints<1, 1>{}, design::KalmanNoise{.process = kQn, .measurement = 1e-4, .disturbance = 1e-2}, design::InputDisturbance{});
+        static constexpr auto kOfmpc = design::mpc<12, 3>(kDelayed, design::MPCWeights<1, 1>{.Rdu = 1.0}, design::MPCConstraints<1>{}, design::KalmanNoise{.process = kQn, .measurement = 1e-4, .disturbance = 1e-2}, design::InputDisturbance{});
         REQUIRE(kOfmpc.success);
         static_assert(sizeof(Law<kOfmpc, float>) < sizeof(Law<kOfmpc, float>::Runtime));
         Law<kOfmpc, double>::Runtime held{kOfmpc};

@@ -558,6 +558,18 @@ TEST_CASE("a config (design/config.hpp) passes each named field on as that optio
     constexpr auto delayed_c = design::mpc<6, 2>(plant(), kTs, design::MPCConfig{.weights = weights, .constraints = limits, .noise = noise, .disturbance = design::InputDisturbance{}, .input_delay = late});
     static_assert(std::is_same_v<decltype(delayed), decltype(delayed_c)> && delayed_c.success && delayed_c.kalman.M == delayed.kalman.M);
 
+    //! The MPC's limits on an output and a state, its terminal cost and its QP budget, each a field; the pack takes them in any order.
+    constexpr design::OutputLimits cap{.outputs = {0}, .lim = {.upper = 1.0}, .upper_ecr = {0.0}};
+    constexpr design::StateLimits  slow{.states = {1}, .lim = {.lower = -0.5, .upper = 0.5}};
+    constexpr auto                 bounded_mpc = design::mpc<6, 6>(sysd, weights, limits, cap, slow, design::DareCost{}, design::QPIterations{30});
+    constexpr auto                 bounded_mpc_c = design::mpc<6, 6>(
+        sysd, design::MPCConfig{.weights = weights, .constraints = limits, .output_limits = cap, .state_limits = slow, .terminal = design::DareCost{}, .qp_iterations = design::QPIterations{30}}
+    );
+    constexpr auto reordered = design::mpc<6, 6>(sysd, weights, limits, design::QPIterations{30}, design::DareCost{}, slow, cap);
+    static_assert(std::is_same_v<decltype(bounded_mpc), decltype(bounded_mpc_c)> && std::is_same_v<decltype(bounded_mpc), decltype(reordered)> && bounded_mpc_c.success);
+    static_assert(bounded_mpc_c.mpc.H == bounded_mpc.mpc.H && bounded_mpc_c.mpc.A_con == bounded_mpc.mpc.A_con && bounded_mpc_c.mpc.b_bound == bounded_mpc.mpc.b_bound && reordered.mpc.H == bounded_mpc.mpc.H);
+    static_assert(bounded_mpc_c.mpc.max_qp_iterations == 30 && bounded_mpc_c.mpc.P == bounded_mpc.mpc.P && decltype(bounded_mpc.mpc)::NI == (4 * 6) + (2 * 6) + (2 * 6));
+
     //! A config is a named object: bare braces in its place stay the pack's, the default weights and limits of a discrete plant, not a period and a config.
     static_assert(std::is_same_v<decltype(design::mpc<4, 2>(sysd, {}, {})), decltype(design::mpc<4, 2>(sysd, design::MPCConfig{}))> && design::mpc<4, 2>(sysd, {}, {}).success);
     CHECK(lqi_c.success);

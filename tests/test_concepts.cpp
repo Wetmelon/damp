@@ -76,7 +76,7 @@ using LqgTrackLaw = LQG<2, 1, 1, double, PlantFilter, 1>;                       
 using LqgiLaw = LQGI<2, 1, 1, 1, double, PlantFilter>;                                                          // design::state_feedback with a KalmanNoise and an IntegralAction
 using OflqgLaw = OFLQG<2, 1, 1, 1, double, LoadFilter>;                                                         // design::state_feedback with a KalmanNoise and a disturbance spec, one controlled output
 using MpcLaw = MPC<2, 1, 1, 10, 4, 0, double>;                                                                  // design::mpc
-using OfmpcLaw = OFMPC<2, 1, 1, 10, 4, double, design::WarmStartActiveSetSolver<5, 37, double>, 0, LoadFilter>; // design::mpc with a KalmanNoise and a disturbance spec
+using OfmpcLaw = OFMPC<2, 1, 1, 10, 4, double, design::WarmStartActiveSetSolver<5, 17, double>, 0, LoadFilter>; // design::mpc with a KalmanNoise and a disturbance spec
 
 static_assert(FeedbackRuntime<LqrLaw, 1, 2, double>);   // m = x
 static_assert(FeedbackRuntime<LqiLaw, 1, 2, double>);   // m = x
