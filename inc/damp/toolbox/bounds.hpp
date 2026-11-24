@@ -196,9 +196,10 @@ private:
  * plant's, an index past the terms, one listed twice, the state among its own outer terms, or a
  * box Bounds::valid refuses is refused with DesignStatus::invalid_parameter.
  *
- * A runtime that holds its matrices holds it as a member, `law.demand_lim`, set at run time from a
- * DemandLimit (`law.demand_lim = DemandLimit{…}`, and `law.demand_lim = {}` turns it off); the Law of
- * a `constexpr` design holds it as a constant of the type, so it costs that law nothing.
+ * A runtime that holds its matrices holds it with its other limits, read with `limits()` and set at
+ * run time with `set_limits()` (`auto l = law.limits(); l.demand_lim = DemandLimit{…};
+ * law.set_limits(l);`, and `l.demand_lim = {}` turns it off); the Law of a `constexpr` design holds
+ * it as a constant of the type, so it costs that law nothing, and its set_limits refuses another.
  *
  * @see "Antiwindup and override control for exponentially unstable systems with actuator
  *      constraints" (Glattfelder & Schaufelberger, 2005), 16th IFAC World Congress, §4: a state
@@ -227,8 +228,9 @@ namespace detail {
  *        integrators
  *
  * Made from a DemandLimit, whose list it reads; default-constructed it is off. An index past the N
- * terms, one listed twice or a state that is none of them leaves it unusable: valid() refuses it
- * at design, and the law reads it as off.
+ * terms, one listed twice, a state that is none of them or a box that is not one (an end NaN or
+ * ±Inf, or the lower above the upper) leaves it unusable: valid() refuses it at design and in
+ * set_limits, and the law reads it as off.
  */
 template<size_t N, typename T = double>
 class DemandTerms {
@@ -241,10 +243,10 @@ public:
     /** @brief Off. */
     constexpr DemandTerms() = default;
 
-    /** @brief The limit @p d on N terms, its outer terms flagged. */
+    /** @brief The limit @p d on N terms, its outer terms flagged. Its box is tested in U, before as<T>() reads an infinite end as unbounded. */
     template<size_t M, typename U>
-    constexpr DemandTerms(const DemandLimit<M, U>& d) // NOLINT(google-explicit-constructor): law.demand_lim = DemandLimit{…}
-        : state{d.state}, lim{d.lim.template as<T>()}, usable_{d.state < N} {
+    constexpr DemandTerms(const DemandLimit<M, U>& d) // NOLINT(google-explicit-constructor): limits.demand_lim = DemandLimit{…}
+        : state{d.state}, lim{d.lim.template as<T>()}, usable_{d.state < N && d.lim.valid()} {
         for (size_t j = 0; j < M; ++j) {
             const size_t i = d.outer[j];
             if (i >= N || outer_[i]) {
@@ -278,6 +280,22 @@ public:
     template<size_t NX>
     [[nodiscard]] constexpr bool valid() const {
         return usable_ && ((state == none) || (state < NX && !outer_[state] && lim.valid()));
+    }
+
+    /** @brief Whether @p o is the same limit: both off, or the same state, outer terms and box (both valid, so their ends are numbers). */
+    [[nodiscard]] constexpr bool same(const DemandTerms& o) const {
+        if (state == none || o.state == none) {
+            return state == o.state;
+        }
+        if (state != o.state || lim.lower(0) != o.lim.lower(0) || lim.upper(0) != o.lim.upper(0)) {
+            return false;
+        }
+        for (size_t j = 0; j < N; ++j) {
+            if (outer_[j] != o.outer_[j]) {
+                return false;
+            }
+        }
+        return true;
     }
 
 private:

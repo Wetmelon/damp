@@ -936,6 +936,65 @@ TEST_CASE("Law names an MPC member's type by its design") {
     CHECK(of_law.step(r, ColVec<1>{0.0})(0) == doctest::Approx(of_plain.step(r, ColVec<1>{0.0})(0)).epsilon(1e-12));
 }
 
+TEST_CASE("Law<kRes, T> of an OFMPC on the design's constants takes set_limits as OFMPC does") {
+    static constexpr StateSpace<2, 1, 1, double, 2, 1> measured{.A = double_integrator.A, .B = double_integrator.B, .C = double_integrator.C, .Ts = Ts};
+    static constexpr design::OutputLimits              kSoftCap{.outputs = {0}, .lim = {.upper = 0.8}};
+    static constexpr auto                              kOnConstants = design::mpc<3, 3>(measured, {}, design::KalmanNoise<2, 1, double, 1>{}, design::InputDisturbance{}, kSoftCap);
+    Law<kOnConstants, double>                          law{};
+    OFMPC                                              plain{kOnConstants};
+    auto                                               lim = law.limits();
+    lim.u_lim = {.lower = -0.4, .upper = 0.4};
+    lim.y_lim = {.upper = 0.5};
+    lim.disturbance_lim = {.lower = -0.5, .upper = 0.5};
+    REQUIRE(law.set_limits(lim));
+    REQUIRE(plain.set_limits(law.limits()));
+    CHECK(plain.limits().disturbance_lim.upper(0) == 0.5);
+
+    ColVec<2> x{};
+    for (size_t k = 0; k < 50; ++k) {
+        const auto u = law.step(ColVec<1>{0.6}, ColVec<1>{x(0)});
+        REQUIRE(law.last_status() == design::QPStatus::Success);
+        CHECK(plain.step(ColVec<1>{0.6}, ColVec<1>{x(0)})(0) == doctest::Approx(u(0)).epsilon(1e-12));
+        CHECK(std::fabs(u(0)) <= 0.4 + 1e-12);
+        if (k == 10) {
+            CHECK(u(0) == doctest::Approx(0.4).epsilon(1e-12)); // on the new limit, the design's being unbounded
+        }
+        if (k == 20) {
+            CHECK(u(0) == doctest::Approx(-0.4).epsilon(1e-12));
+        }
+        x = plant_step(x, u(0));
+    }
+    CHECK(law.limits().y_lim.upper(0) == 0.5);
+}
+
+TEST_CASE("the run-time limits take no storage of their own: MPC and OFMPC are the sizes they were with a public disturbance_lim") {
+    //! Recorded on x86-64 with OFMPC's disturbance_lim a public member: limits() and set_limits()
+    //! read and write the same member, and a measured-state MPC holds none.
+    static constexpr StateSpace<2, 1, 1, double, 2, 1> measured{.A = double_integrator.A, .B = double_integrator.B, .C = double_integrator.C, .Ts = Ts};
+    static constexpr design::InputLimits<1>            kHalf{.u_lim = {.lower = -0.5, .upper = 0.5}};
+    static constexpr design::OutputLimits              kCap{.outputs = {0}, .lim = {.upper = 0.8}};
+    static constexpr auto                              kMpc = design::mpc<10, 4>(double_integrator, {}, kHalf, design::TrackedOutputs{});
+    static constexpr auto                              kCapped = design::mpc<10, 4>(double_integrator, {}, kHalf, kCap, design::StateLimits{.states = {1}, .lim = {.lower = -0.3, .upper = 0.3}}, design::TrackedOutputs{});
+    static constexpr auto                              kOf = design::mpc<10, 4>(measured, {}, kHalf, design::KalmanNoise<2, 1, double, 1>{}, design::InputDisturbance{});
+    static constexpr auto                              kOfCapped = design::mpc<10, 4>(measured, {}, kHalf, kCap, design::KalmanNoise<2, 1, double, 1>{}, design::InputDisturbance{});
+    static_assert(std::is_same_v<decltype(MPC{kMpc}.limits().disturbance_lim), Bounds<0>>);
+    static_assert(std::is_same_v<decltype(OFMPC{kOf}.limits().disturbance_lim), Bounds<1>>);
+    if constexpr (sizeof(void*) == 8) {
+        CHECK(sizeof(MPC{kMpc.as<float>()}) == 1376);
+        CHECK(sizeof(MPC{kCapped.as<float>()}) == 2856);
+        CHECK(sizeof(OFMPC{kOf.as<float>()}) == 1608);
+        CHECK(sizeof(OFMPC{kOfCapped.as<float>()}) == 2432);
+        CHECK(sizeof(MPC{kMpc}) == 2624);
+        CHECK(sizeof(MPC{kCapped}) == 5576);
+        CHECK(sizeof(OFMPC{kOf}) == 3072);
+        CHECK(sizeof(OFMPC{kOfCapped}) == 4704);
+        CHECK(sizeof(Law<kMpc, float>) == 1376);
+        CHECK(sizeof(Law<kCapped, float>) == 2856);
+        CHECK(sizeof(Law<kOf, float>) == 1520);
+        CHECK(sizeof(Law<kOfCapped, float>) == 2344);
+    }
+}
+
 TEST_CASE("artifact float conversion maps the unbounded sentinels safely") {
     constexpr auto art = design::mpc<3, 3>(double_integrator, {}, design::TrackedOutputs{});
     constexpr auto art_f = art.as<float>();

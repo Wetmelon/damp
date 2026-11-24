@@ -41,7 +41,9 @@ namespace damp {
  * step(r, x). Feedforward from a planned trajectory
  * (x_ref, u_ref) adds to it: control([r,] x_ref, u_ref), step([r,] x_ref, u_ref, x). The command
  * is clamped into u_lim (design::state_feedback's InputLimits; unbounded by default, and for a gain K or a
- * design::place result). A failed or continuous design does not compile when constant-evaluated.
+ * design::place result), and a DemandLimit bounds what the outer terms ask of a state: limits() reads
+ * them and set_limits() moves them at run time, as on an MPC. A failed or continuous design does not
+ * compile when constant-evaluated.
  *
  * @code
  * static constinit LQR law{kRes.as<float>()};
@@ -90,9 +92,7 @@ struct LQR : private detail::StateFeedbackCore<NX, NU, T, 0, NY, NoEstimator, NZ
         }
     }
 
-    using Core::demand_lim;
     using Core::K;
-    using Core::u_lim;
 
     /** @brief Hold the measured state @p x for the next control. */
     constexpr void update(const ColVec<NX, T>& x) { Core::update(x); }
@@ -211,8 +211,10 @@ struct LQR : private detail::StateFeedbackCore<NX, NU, T, 0, NY, NoEstimator, NZ
 
     using Core::back_calculate;
     using Core::getK;
+    using Core::limits;
     using Core::predict;
     using Core::reset;
+    using Core::set_limits;
     using Core::valid;
 };
 

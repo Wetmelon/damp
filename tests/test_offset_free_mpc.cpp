@@ -111,10 +111,14 @@ TEST_CASE("disturbance_lim clamps OFMPC's disturbance estimate, and moves at run
         }
         return worst;
     };
-    controller.disturbance_lim = {.lower = -0.1, .upper = 0.1};
+    auto lim = controller.limits();
+    CHECK(lim.disturbance_lim.upper(0) == damp::numeric_limits<double>::max()); // unbounded by default
+    lim.disturbance_lim = {.lower = -0.1, .upper = 0.1};
+    REQUIRE(controller.set_limits(lim));
     CHECK(hold() <= 0.1);
     CHECK(controller.disturbance_estimate()(0) == 0.1);
-    controller.disturbance_lim.upper(0) = 1.0;
+    lim.disturbance_lim.upper(0) = 1.0;
+    REQUIRE(controller.set_limits(lim));
     static_cast<void>(hold());
     CHECK(controller.disturbance_estimate()(0) == doctest::Approx(d_load).epsilon(1e-3));
     CHECK(x(0) == doctest::Approx(0.5).epsilon(1e-3)); // offset-free again
@@ -865,6 +869,23 @@ TEST_SUITE("offset-free MPC terminal") {
         }
         CHECK(x(0) == doctest::Approx(0.0).scale(1.0).epsilon(1e-3));
         CHECK(law.disturbance_estimate()(0) == doctest::Approx(0.2).epsilon(1e-3));
+
+        //! The set was built for the QP's limits, not d̂'s: set_limits moves disturbance_lim and
+        //! refuses a change of the others, changing nothing then.
+        auto lim = law.limits();
+        lim.disturbance_lim = {.lower = -0.1, .upper = 0.1};
+        REQUIRE(law.set_limits(lim));
+        CHECK(law.limits().disturbance_lim.upper(0) == 0.1);
+        lim.disturbance_lim = {.lower = -0.05, .upper = 0.05};
+        lim.u_lim = {.lower = -0.8, .upper = 0.8};
+        CHECK_FALSE(law.set_limits(lim));
+        CHECK(law.limits().disturbance_lim.upper(0) == 0.1);
+        CHECK(law.limits().u_lim.upper(0) == 1.0);
+        for (size_t k = 0; k < 50; ++k) {
+            static_cast<void>(law.step(r, ColVec<1>{x(0)}));
+            x = plant_step(x, law.last_command()(0) + 0.2);
+        }
+        CHECK(law.disturbance_estimate()(0) == 0.1); // held at its limit, short of the load
     }
 }
 

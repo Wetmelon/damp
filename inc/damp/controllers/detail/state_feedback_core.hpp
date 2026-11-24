@@ -33,7 +33,7 @@ namespace detail {
  * @brief The integral action of a law: the integrators, the integrated outputs Ci (on the
  *        measurement) and their feedthrough Ci·D, the per-sample step, the error and the unclamped
  *        command held for the next predict, and with an estimator the measurement held from the
- *        last update (NYH = NY; 0: none). Their limits are the law's integral_lim.
+ *        last update (NYH = NY; 0: none). Their limits are the law's (StateFeedbackLimits::integral_lim).
  */
 template<size_t NI, size_t NC, size_t NU, size_t NYH, typename T, typename CiMatrix = Matrix<NI, NC, T>, typename CiuMatrix = Matrix<NI, NU, T>>
 struct IntegralAction {
@@ -99,10 +99,10 @@ struct HeldGains {
  * | steady-state target for r, under the disturbance model if there is one (SteadyStateTarget) | NZ | 0 |
  * | input delay states: the inputs applied over the last NRU periods, held by the law (a measured state) | NRU | 0 |
  * | a measured disturbance d: the target under it, and the filter's known input after u | NMD | 0 |
- * | limits on the command and on the integrators | @ref u_lim, @ref integral_lim | unbounded |
+ * | limits on the command and on the integrators | @ref limits and @ref set_limits: u_lim, integral_lim | unbounded |
  * | back-calculation for the integrators against a clamp | @ref tracking_time | 0: conditional integration |
- * | a limit on the disturbance estimate d̂ (ND > 0) | @ref disturbance_lim | unbounded |
- * | a limit on what the outer terms ask of one state (DemandLimit) | @ref demand_lim | off |
+ * | a limit on the disturbance estimate d̂ (ND > 0) | @ref limits and @ref set_limits: disturbance_lim | unbounded |
+ * | a limit on what the outer terms ask of one state (DemandLimit) | @ref limits and @ref set_limits: demand_lim | off |
  *
  * One tick is @ref step(): @ref predict (the time update with the input @ref back_calculate
  * recorded, else the last command), then @ref update with the measurement at sample k (the
@@ -140,14 +140,15 @@ struct HeldGains {
  *   steady state under d that holds every output, or the integrated outputs, at 0, its r still
  *   the integrators'. The control and step that take d record it, and a filter's next
  *   @ref predict holds it over the period with the input, as the plant does;
- * - within limits: @ref control returns the command clamped into @ref u_lim, and that is the
- *   input the next @ref predict takes as applied unless @ref back_calculate recorded another.
- *   The integrators compare the applied input with the command before the clamp, so they hold
- *   against the law's own limit as against a clamp downstream. The limits are members: set them
- *   at run time for a rail that moves. @ref demand_lim bounds what the outer terms ask of one
- *   state (DemandLimit), and the integrators hold against it the same way. With a disturbance model, @ref update clamps d̂ into
- *   @ref disturbance_lim, so a load past it (a wall the plant is held against) does not wind d̂,
- *   and with it the target, up the way an integrator would.
+ * - within limits (design::StateFeedbackLimits): @ref control returns the command clamped into
+ *   u_lim, and that is the input the next @ref predict takes as applied unless @ref back_calculate
+ *   recorded another. The integrators compare the applied input with the command before the
+ *   clamp, so they hold against the law's own limit as against a clamp downstream. @ref limits
+ *   reads the limits and @ref set_limits moves them at run time, for a rail that moves, and
+ *   refuses one that is not a box. demand_lim bounds what the outer terms ask of one state
+ *   (DemandLimit), and the integrators hold against it the same way. With a disturbance model,
+ *   @ref update clamps d̂ into disturbance_lim, so a load past it (a wall the plant is held
+ *   against) does not wind d̂, and with it the target, up the way an integrator would.
  *
  * A failed or continuous design leaves the law invalid at run time: valid() is false and control
  * returns 0, as every law does (when constant-evaluated it does not compile).
@@ -201,19 +202,16 @@ struct StateFeedbackCore {
     using IntegralLim = detail::maybe<(NI > 0), Bounds<NI, T>, detail::OffSlot::integral_lim>;
     using TrackingTime = detail::maybe<(NI > 0), T, detail::OffSlot::tracking_time>;
     using HeldMeasured = detail::maybe<(kEstimated && NMD > 0), ColVec<NMD, T>, detail::OffSlot::held_measured>;
+    using Demand = Store::template Demand<NX + NI, T>;             ///< The demand limit as the store holds it: a member, or constants of the type
+    using Limits = design::StateFeedbackLimits<NX, NU, T, NI, ND>; ///< What limits() returns and set_limits() takes
 
     [[no_unique_address]] Store::template K<NU, NXL + NI, T> K{}; ///< Gain on [x; xi]
 
     [[no_unique_address]] Est      estimator{}; ///< The filter (none for a measured state)
     [[no_unique_address]] Target   target{};    ///< The steady-state target (NZ > 0, or NMD > 0: under the measured d)
     [[no_unique_address]] Integral integral{};  ///< The integrators (NI > 0)
-    Bounds<NU, T>                  u_lim{};     ///< Limits on the command control returns (default unbounded)
 
-    [[no_unique_address]] IntegralLim  integral_lim{};  ///< Limits on the integrators ξ (NI > 0; default unbounded)
     [[no_unique_address]] TrackingTime tracking_time{}; ///< [s] The integrators' back-calculation tracking time (NI > 0; 0, the default: conditional integration; up to Ts: the whole excess each tick)
-
-    [[no_unique_address]] DisturbanceLim                     disturbance_lim{}; ///< Limits on the disturbance estimate d̂, in d's units (ND > 0; default unbounded)
-    [[no_unique_address]] Store::template Demand<NX + NI, T> demand_lim{};      ///< A limit on what the outer terms ask of a state (default off; a constant of a `constexpr` design's Law)
 
     constexpr StateFeedbackCore() = default;
 
@@ -235,10 +233,10 @@ struct StateFeedbackCore {
         if (valid_) {
             K = result.K.template as<T>();
             if constexpr (requires { result.u_lim; }) {
-                u_lim = result.u_lim.template as<T>();
+                u_lim_ = result.u_lim.template as<T>();
             }
             if constexpr (requires { result.demand_lim; }) {
-                demand_lim = result.demand_lim.template as<T>();
+                demand_lim_ = result.demand_lim.template as<T>();
             }
         }
     }
@@ -273,11 +271,11 @@ struct StateFeedbackCore {
                 integral.Ci_u = result.integral.Ci_u.template as<T>();
                 integral.step = static_cast<T>(result.integral.step);
                 integral.unwind = result.integral.unwind.template as<T>();
-                integral_lim = result.integral_lim.template as<T>();
+                integral_lim_ = result.integral_lim.template as<T>();
                 tracking_time = static_cast<T>(result.tracking_time);
             }
-            u_lim = result.u_lim.template as<T>();
-            demand_lim = result.demand_lim.template as<T>();
+            u_lim_ = result.u_lim.template as<T>();
+            demand_lim_ = result.demand_lim.template as<T>();
             if constexpr (kTarget) {
                 target = Target(result.target);
             }
@@ -343,7 +341,7 @@ struct StateFeedbackCore {
             }
             estimator.update(m);
             if constexpr (ND > 0) {
-                estimator.limit_disturbance(disturbance_lim);
+                estimator.limit_disturbance(disturbance_lim_);
             }
         } else if constexpr (NRU == 0) {
             x_ = m;
@@ -434,6 +432,49 @@ struct StateFeedbackCore {
         return control(r, x_ref, u_ref, d);
     }
 
+    // ---- limits --------------------------------------------------------------------------
+
+    /**
+     * @brief Change the limits on u, on the integrators ξ and on the disturbance estimate d̂, and
+     *        the limit on what the outer terms ask of a state (design::StateFeedbackLimits)
+     *
+     * The gain, the filter and the target keep their design; the next control clamps into the new
+     * u_lim and demand_lim, the next predict ξ into integral_lim and the next update d̂ into
+     * disturbance_lim. Refused (false, limits unchanged) when an end is NaN or ±Inf, a lower end
+     * is above its upper one, or the demand limit is not one this law can hold (a state that is not
+     * the plant's or that is among its own outer terms, an index past the terms, one listed twice),
+     * and on a `constexpr` design's Law, whose demand limit is a constant of the type, when it is
+     * not the design's.
+     */
+    [[nodiscard]] constexpr bool set_limits(const Limits& lim) {
+        if (!lim.u_lim.valid() || !lim.integral_lim.valid() || !lim.disturbance_lim.valid() || !lim.demand_lim.template valid<NX>()) {
+            return false;
+        }
+        if constexpr (Store::constant) {
+            if (!lim.demand_lim.same(demand_lim_.terms())) {
+                return false; // a constant of the type
+            }
+        } else {
+            demand_lim_ = Demand(lim.demand_lim);
+        }
+        // Each limit is copied, then moved in: a copy assignment's self-test compares addresses,
+        // which g++ cannot evaluate on a `constinit` Law under construction (its constructor sets
+        // the design's limits here).
+        u_lim_ = Bounds<NU, T>(lim.u_lim);
+        if constexpr (NI > 0) {
+            integral_lim_ = Bounds<NI, T>(lim.integral_lim);
+        }
+        if constexpr (ND > 0) {
+            disturbance_lim_ = Bounds<ND, T>(lim.disturbance_lim);
+        }
+        return true;
+    }
+
+    /** @brief The limits in force (the design's, or the last set_limits). */
+    [[nodiscard]] constexpr Limits limits() const {
+        return Limits{u_lim_, held_bounds<NI>(integral_lim_), held_demand(), held_bounds<ND>(disturbance_lim_)};
+    }
+
     // ---- state ---------------------------------------------------------------------------
 
     /** @brief The command the last control returned: the input a predict without back_calculate uses. */
@@ -495,10 +536,34 @@ struct StateFeedbackCore {
     }
 
 private:
-    [[no_unique_address]] Record       applied_{};   ///< The last command and the input back_calculate recorded
-    [[no_unique_address]] HeldX        x_{};         ///< The measured state from the last update (no estimator)
-    [[no_unique_address]] HeldMeasured measured_{};  ///< The measured disturbance the last control took, for the filter's next predict (NMD > 0)
-    bool                               valid_{true}; ///< False when built from a design it refuses
+    Bounds<NU, T>                        u_lim_{};           ///< Limits on the command control returns (default unbounded)
+    [[no_unique_address]] IntegralLim    integral_lim_{};    ///< Limits on the integrators ξ (NI > 0; default unbounded)
+    [[no_unique_address]] DisturbanceLim disturbance_lim_{}; ///< Limits on the disturbance estimate d̂, in d's units (ND > 0; default unbounded)
+    [[no_unique_address]] Demand         demand_lim_{};      ///< A limit on what the outer terms ask of a state (default off; a constant of a `constexpr` design's Law)
+    [[no_unique_address]] Record         applied_{};         ///< The last command and the input back_calculate recorded
+    [[no_unique_address]] HeldX          x_{};               ///< The measured state from the last update (no estimator)
+    [[no_unique_address]] HeldMeasured   measured_{};        ///< The measured disturbance the last control took, for the filter's next predict (NMD > 0)
+    bool                                 valid_{true};       ///< False when built from a design it refuses
+
+    /** @brief A limit the law holds (N > 0), or the empty box of one it does not have: what limits() reports. */
+    template<size_t N, typename Held>
+    [[nodiscard]] static constexpr Bounds<N, T> held_bounds(const Held& held) {
+        if constexpr (N > 0) {
+            return held;
+        } else {
+            static_cast<void>(held);
+            return Bounds<0, T>{};
+        }
+    }
+
+    /** @brief The demand limit as limits() reports it: the member, or a `constexpr` design's constant. */
+    [[nodiscard]] constexpr ::damp::detail::DemandTerms<NX + NI, T> held_demand() const {
+        if constexpr (Store::constant) {
+            return demand_lim_.terms();
+        } else {
+            return demand_lim_;
+        }
+    }
 
     /** @brief The target's reference: @p r when the target holds it, none when the law's r is the integrators' (NI > 0) or it has none. */
     [[nodiscard]] static constexpr ColVec<NZ, T> target_reference(const ColVec<NR, T>& r) {
@@ -551,7 +616,7 @@ private:
      *        demand_lim.lim, per input that acts on it; u itself where the demand is inside.
      */
     [[nodiscard]] constexpr ColVec<NU, T> limit_demand(const ColVec<NU, T>& u, const ColVec<NXL + NI, T>& z) const {
-        const size_t s = demand_lim.state;
+        const size_t s = demand_lim_.state;
         if (s >= NX) {
             return u; // off (none), or not a plant state
         }
@@ -563,7 +628,7 @@ private:
             for (size_t j = 0; j < NX + NI; ++j) {
                 const size_t c = (j < NX) ? j : (NXL + (j - NX)); // the integrators sit after the delay states
                 row = damp::max(row, damp::abs(K(i, c)));
-                if (demand_lim.outer(j)) {
+                if (demand_lim_.outer(j)) {
                     outer -= K(i, c) * z(c);
                 }
             }
@@ -571,7 +636,7 @@ private:
                 continue; // this input does not act on s: its gain there is rounding
             }
             const T demand = outer / k_s;
-            const T allowed = demand_lim.lim.saturate(demand);
+            const T allowed = demand_lim_.lim.saturate(demand);
             if (allowed != demand) {
                 out(i) += (k_s * allowed) - outer;
             }
@@ -581,7 +646,7 @@ private:
 
     /** @brief The command: @p u clamped into u_lim. The law keeps it, and @p asked (u before any clamp) for the integrators. */
     [[nodiscard]] constexpr ColVec<NU, T> record(const ColVec<NU, T>& asked, const ColVec<NU, T>& u) {
-        const ColVec<NU, T> out = u_lim.saturate(u);
+        const ColVec<NU, T> out = u_lim_.saturate(u);
         if constexpr (NI > 0) {
             integral.asked = asked;
         } else {
@@ -657,7 +722,7 @@ private:
                 }
             }
         }
-        integral.xi = integral_lim.saturate(integral.xi); // held or not: a limit narrowed at run time pulls xi in
+        integral.xi = integral_lim_.saturate(integral.xi); // held or not: a limit narrowed at run time pulls xi in
         integral.e = ColVec<NI, T>{};
     }
 };

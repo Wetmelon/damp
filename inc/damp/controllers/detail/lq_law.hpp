@@ -82,6 +82,11 @@ struct ConstDemand {
     }
 
     static constexpr auto lim = D.lim; ///< The most they may ask
+
+    /** @brief The limit as a runtime that holds its matrices holds it: what limits() reports. */
+    [[nodiscard]] static constexpr auto terms() {
+        return D;
+    }
 };
 
 template<const auto& Res, typename T>
@@ -125,7 +130,7 @@ struct ConstantGains {
         if constexpr (requires { design.demand_lim; }) {
             return design.demand_lim;
         } else {
-            return ::damp::detail::DemandTerms<0, T>{};
+            return ::damp::detail::DemandTerms<damp::remove_cvref_t<decltype(design.K)>::cols(), T>{};
         }
     }(); ///< The limit on what the outer terms ask of a state (off for a gain design without one)
 
@@ -165,16 +170,24 @@ struct Law<Res, T> : detail::lq_runtime<damp::remove_cvref_t<decltype(Res)>, T>:
 
     static_assert(detail::constant_design_usable<Res>);
 
-    /** @brief The design's law: its matrices are the type's, its integrator step and its limits members. */
+    /**
+     * @brief The design's law: its matrices and its demand limit are the type's, its integrator step
+     *        and its other limits members (a limit set_limits refuses does not compile when
+     *        constant-evaluated).
+     */
     constexpr Law() {
+        auto lim = this->limits();
         if constexpr (requires { this->integral.step; }) {
             this->integral.step = static_cast<T>(Res.integral.step);
             this->integral.unwind = Res.integral.unwind.template as<T>();
-            this->integral_lim = Res.integral_lim.template as<T>();
             this->tracking_time = static_cast<T>(Res.tracking_time);
+            lim.integral_lim = Res.integral_lim.template as<T>();
         }
         if constexpr (requires { Res.u_lim; }) {
-            this->u_lim = Res.u_lim.template as<T>();
+            lim.u_lim = Res.u_lim.template as<T>();
+        }
+        if (!this->set_limits(lim) && damp::is_constant_evaluated()) {
+            detail::refuse_failed_design(design::DesignStatus::invalid_parameter); // a result whose limits were edited by hand
         }
     }
 
