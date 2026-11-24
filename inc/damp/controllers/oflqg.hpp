@@ -7,10 +7,10 @@
 
 /**
  * @file oflqg.hpp
- * @brief The offset-free linear-quadratic Gaussian law: OFLQG, the StateFeedback of design::state_feedback with a KalmanNoise and a disturbance spec, and OFLQGResult
+ * @brief The offset-free linear-quadratic Gaussian law: OFLQG, the StateFeedback of design::state_feedback with a KalmanNoise and a disturbance spec
  *
  * design::state_feedback(plant, [Ts,] {.Q, .R, .N}, KalmanNoise{.process, .measurement, .disturbance}, disturbance[, InputDelay<N>{θ}])
- * (state_feedback.hpp) → OFLQGResult → OFLQG. With an InputDelay the filter carries the inputs still on their way. step(r, y) is predict, update(y), control(r). The low-latency tick is update(y),
+ * (state_feedback.hpp) → StateFeedbackResult → OFLQG. With an InputDelay the filter carries the inputs still on their way. step(r, y) is predict, update(y), control(r). The low-latency tick is update(y),
  * control(r), back_calculate, predict. With feedforward from a planned
  * trajectory: control(r, x_ref, u_ref), step(r, x_ref, u_ref, y). While another source drives the
  * plant, track(u, r, y) takes step's place: d̂ learns the load under u.
@@ -26,14 +26,6 @@
 #include "damp/estimation/kalman.hpp"                  // IWYU pragma: export
 
 namespace damp {
-
-namespace design {
-
-/** @brief an OFLQG design's result: the gain, the Kalman filter on [x; d] and the steady-state target. */
-template<size_t NX, size_t NU, size_t NY, size_t ND, size_t NZ, typename T = double, size_t NW = NX, size_t NV = NY>
-using OFLQGResult = StateFeedbackResult<NX, NU, T, 0, NY, KalmanResult<NX + ND, NU, NY, T, NW + ND, NV, ND>, NZ>;
-
-} // namespace design
 
 /**
  * @ingroup discrete_controllers

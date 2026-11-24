@@ -65,6 +65,7 @@ and [known limitations](docs/known_limitations.md)).
 ### Removed
 
 - `LQR` no longer runs a bare gain, `design::place`'s `PlaceResult` or `discrete_lqr`'s `LQRResult` (a breaking change: the releases through 0.3.1 ran both), so `design::state_feedback` is the one way to build a law: `LQR law{design::place(plant, poles, Ts)}` becomes `LQR law{design::state_feedback(plant, Ts, design::Poles{…})}` and `LQR law{design::discrete_lqr(A, B, Q, R)}` becomes `LQR law{design::state_feedback(sys, {.Q = Q, .R = R})}`, the same gains. `design::place`, `place_observer`, `discrete_lqr`, `continuous_lqr` and their `matlab::` aliases stay the bare gains, as MATLAB®'s are.
+- `design::OFLQGResult`, an alias nothing used: an OFLQG design returns a `StateFeedbackResult`, as every LQ design does, and `OFLQG law{res}` or `Law<kRes, T>` deploys it.
 
 ### Fixed
 
