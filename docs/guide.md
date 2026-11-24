@@ -119,6 +119,7 @@ types. Bode and friends return analysis grids. New code uses `design::` and
 | observer, FixedGainObserver                  | `FixedGainObserver{design::kalman(...)}`                                                                                |
 | ESO, ADRC                             | `design::eso` → `ESO` (observer only); `design::adrc` → `ADRCController` (ESO + PD)                              |
 | anti-windup, sat, `umax`              | An `InputLimits` among an LQ or MPC design's options, `u_lim` on another design or its result: the law clamps to it and holds its memory against that clamp, with nothing else to set. `back_calculate(u_sat)` after a clamp downstream of the law. See [Limits and anti-windup](#limits-and-anti-windup) |
+| bumpless transfer, manual mode, takeover | `law.track(u, …)` in place of `law.step(…)` on every LQ law and MPC while another source drives the plant, then `step` hands over from u; `design::Handover{.fade_time}` among `state_feedback`'s options for a law with nothing to preload. See [Bumpless handover](#bumpless-handover) |
 | `mpcmove`, constraints                | `design::mpc` (`MPC`, or `OFMPC` with a `KalmanNoise` and a disturbance spec), `MPC.step(r, y)` with a `TrackedOutputs{}` (every output) or a list; with neither a regulator, as `lqr`: `MPC.step(x)`, no r |
 | `ManipulatedVariables` Min/Max, RateMin/RateMax | Min/Max → `design::InputLimits{.lower = {…}, .upper = {…}}`; RateMin/RateMax → `design::InputRateLimits{.lower = {…}, .upper = {…}}`, per sample. Among `mpc`'s options, hard rows on u and on Δu, the Δu rows only with an `InputRateLimits`; among `state_feedback`'s, a clamp on the command and on its move about the input applied last tick. Left out, unbounded |
 | `OutputVariables` Min/Max, MinECR/MaxECR | `design::OutputLimits{.outputs = {i, …}, .lower = {…}, .upper = {…}}` among `mpc`'s options, the plant's outputs: rows for the ones it lists alone, soft by default (`.lower_ecr`, `.upper_ecr`; 0 is hard) |
@@ -261,9 +262,29 @@ References follow the same split. Every law takes the output reference `r`. The 
 
 Not covered yet: `STSMCController`'s integral state has no limit of its own, and `SwitchedController` starts a law without a tracking mode (anything but a PID) from its reset state.
 
+## Bumpless handover
+
+While another source drives the plant (an operator, another law), call the law's `track(u, …)` in place of `step(…)`: each `step` overload has a twin with step's arguments and the applied input first. It predicts and updates as `step` does, then sets the law's memory so that its command at this state, with these arguments, would be u. There is no mode flag: the law tracks for as long as `track` is called, and the first `step` after it starts from u.
+
+```cpp
+law.track(u_applied, r, y); // in place of step(r, y) while another source drives
+u = law.step(r, y);         // handover: the first command starts from u_applied
+```
+
+| Law | What `track` leaves |
+| --- | --- |
+| `LQI`, `LQGI` | ξ preloaded through (∂u/∂ξ)⁺, back-calculation's map: exact with as many integrators as inputs, the least-squares ξ with fewer, then clamped into the integrators' limits (`IntegralAction::limits`) |
+| `LQG`, `LQGI`, `OFLQG`, `OFMPC` | the filter predicts with u, and the measured d: an offset-free filter learns the load, so at a steady state the first command is u |
+| any law with an `InputDelay` | the delay states hold u |
+| any law with an `InputRateLimits` | the move's base is u: the first command moves at most the rate from u, on an LQ law as on an MPC |
+| `MPC`, `OFMPC` | u_prev = u: `Rdu` and, with an `InputRateLimits`, the Δu box shape the first moves. No QP is solved while tracking, and the solver's warm start stays as the last solve left it |
+| `LQR`, `LQG`, an `OFLQG` away from a steady state | nothing to preload: the first step is the law's own command. With `design::Handover{.fade_time}` among the design's options it is u, and the mismatch e = u − u_law decays by exp(−Ts/fade_time) each tick, within the input limits; the integrators take e as a feedforward |
+
+A u outside the input limits is one the law cannot emit: an LQ law hands over from u clamped into them, while the filter and the delay states take the u the plant received. `track` adds nothing to `step`, and a law without a `Handover` is the type and size it was. A law on the low-latency tick calls `predict()` once after the last `track`, as `step` does at its start.
+
 ## Tick
 
-`step(r, m)` is predict, then update(m), then control. Low-latency ISR: update → control → write → `back_calculate` → predict. After a clamp, pass the applied input to `back_calculate(u_sat, u_ff)`.
+`step(r, m)` is predict, then update(m), then control. Low-latency ISR: update → control → write → `back_calculate` → predict. After a clamp, pass the applied input to `back_calculate(u_sat, u_ff)`. While another source drives the plant, `track(u, r, m)` takes the place of `step(r, m)` ([Bumpless handover](#bumpless-handover)).
 
 Readings, references and reported inputs are the application's to check, with `damp::isfinite` (on the bits, so it holds under `-ffast-math`): what to do when a sensor fails, stop, hold or switch to a backup, is the application's call. A NaN or ±Inf that reaches a law stays in its memory until that is reset: `reset()` clears the integrators, a filter restarts with `estimator.reset(x0)`, and `law = decltype(law){}` starts the whole law over.
 

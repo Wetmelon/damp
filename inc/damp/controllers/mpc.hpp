@@ -1724,7 +1724,7 @@ namespace detail {
 /** @brief The options design::mpc takes after the weights. */
 using mpc_options = ::damp::detail::option_set<
     is_input_limits, is_input_rate_limits, is_kalman_noise, is_disturbance, is_measured_disturbance, is_tracked_option, is_output_limits, is_state_limits,
-    is_mpc_terminal, is_qp_iterations, is_input_delay, is_output_delay>;
+    is_mpc_terminal, is_qp_iterations, is_input_delay, is_output_delay, is_handover>; // a Handover only for its message
 
 /**
  * @brief The compile-time check of a design::mpc<NP, NC> call's trailing options on a plant with
@@ -1745,6 +1745,10 @@ constexpr void check_mpc_options() {
         "One terminal ingredient: DareCost{} for the cost, or InvariantSet<N>{.target_margin = ...} for the cost and the set, not both."
     );
     static_assert(::damp::detail::option_count<is_qp_iterations, Opts...> <= 1, "One QP budget: QPIterations{n}.");
+    static_assert(
+        ::damp::detail::option_count<is_handover, Opts...> == 0,
+        "Handover is an LQ law's: an offset added outside the QP would break its constraints. An MPC hands over from the input track() holds, the base of its first move."
+    );
     static_assert(!(damp::is_integral_v<damp::remove_cvref_t<Opts>> || ...), "The QP's iteration budget is QPIterations{n}; the terminal set's room is InvariantSet<N>{...}.");
     constexpr bool kSet = terminal_rows<::damp::detail::option_t<is_mpc_terminal, void, Opts...>> > 0;
     static_assert(
@@ -2725,6 +2729,44 @@ public:
         return control(r, x_ref, u_ref, d);
     }
 
+    /**
+     * @brief In place of step(@p r, @p d, @p y) while another source drives the plant: predict(),
+     *        update(@p y), then @p u, the input applied now, held for the next predict as the base
+     *        of the next move.
+     *
+     * The filter is anchored on the target for @p r and takes @p d at its next predict, as control
+     * would, so d̂ keeps learning the load; the delay states hold u. The first step after a track
+     * plans from u_prev = u: Rdu and, with an InputRateLimits, the Δu box shape the moves away from
+     * it, and the first command is u when the plan at this state holds it. A u outside the u box is
+     * held as the plant received it, for the filter: the QP's u rows pull the plan back inside, and
+     * the safety clamp returns a command in the box whatever the solve. No QP is solved while
+     * tracking: the solver's warm start stays as the last solve left it (a cached factor of H and
+     * that solve's active set, a hint that costs iterations, never correctness), and last_status(),
+     * last_command() and the input target are the last control's. qp_solver().reset() drops the
+     * hint, and the factor with it.
+     */
+    constexpr void track(const ColVec<NU, T>& u, const Reference& r, const ColVec<ND, T>& d, const ColVec<NYM, T>& y) {
+        track(u, r, ColVec<NXP, T>{}, ColVec<NU, T>{}, d, y);
+    }
+
+    /** @brief In place of step(@p r, @p x_ref, @p u_ref, @p d, @p y), the feedforward form: track(@p u, @p r, @p d, @p y) with the filter anchored about the planned point. */
+    constexpr void track(const ColVec<NU, T>& u, const Reference& r, const ColVec<NXP, T>& x_ref, const ColVec<NU, T>& u_ref, const ColVec<ND, T>& d, const ColVec<NYM, T>& y) {
+        predict();
+        update(y);
+        hold_measured(d);
+        if constexpr (NDE > 0) {
+            const auto ref = ::damp::detail::on_filter_model<NXE>(::damp::detail::on_law_model<NRU>(x_ref, u_ref));
+            if constexpr (ND > 0) {
+                target_.anchor(estimator, r.r[0], ref, u_ref, d); // under [d̂; d]
+            } else {
+                target_.anchor(estimator, r.r[0], ref, u_ref);
+            }
+        } else {
+            static_cast<void>(r);
+        }
+        applied_.record(u, ColVec<NU, T>{});
+    }
+
     /** @brief Reset the controller memory (the held input returns to zero); a state estimate is left in place. */
     constexpr void reset() {
         applied_ = ::damp::detail::AppliedRecord<NU, T>{};
@@ -3196,15 +3238,19 @@ private:
  * @brief Constrained linear MPC on the measured state (design::mpc)
  *
  * The tick is update(x) then control(r), or step(r, x) for both; @p r is the reference of the
- * outputs the target holds (held, or a Preview over the horizon). A design with a measured disturbance takes it
- * as well, control(r, d) and step(r, d, x); one without has no d argument. Feedforward from a
- * planned trajectory (x_ref, u_ref) adds to the target, as on LQR: control(r, x_ref, u_ref) and
- * step(r, x_ref, u_ref, x), or control(r, x_ref, u_ref, d) and step(r, x_ref, u_ref, d, x), the
- * reference and its feedforward first, then what was measured. A design with no TrackedOutputs
- * is a regulator (NH = 0), as LQR is: it takes no r, control() and step(x), control(d) and
- * step(d, x) about the steady state under d, and the feedforward forms without r; it stores no
- * map of r. back_calculate(u_sat) records what went out, predict() holds it as the base of the
- * next move. A failed design does not compile when constant-evaluated.
+ * outputs the target holds (held, or a Preview over the horizon). A design with a measured
+ * disturbance takes it as well, control(r, d) and step(r, d, x); one without has no d argument.
+ * Feedforward from a planned trajectory (x_ref, u_ref) adds to the target, as on LQR:
+ * control(r, x_ref, u_ref) and step(r, x_ref, u_ref, x), or control(r, x_ref, u_ref, d) and
+ * step(r, x_ref, u_ref, d, x), the reference and its feedforward first, then what was measured. A
+ * design with no TrackedOutputs is a regulator (NH = 0), as LQR is: it takes no r, control() and
+ * step(x), control(d) and step(d, x) about the steady state under d, and the feedforward forms
+ * without r; it stores no map of r. back_calculate(u_sat) records what went out, predict() holds it
+ * as the base of the next move. A failed design does not compile when constant-evaluated. While
+ * another source drives the plant, track(u, r, x) takes the place of step(r, x), and so in each of
+ * its forms, the regulator's track(u, x) too, u the input applied first: the next move plans from
+ * u_prev = u, so Rdu and, with an InputRateLimits, the Δu box shape the moves away from it. No QP
+ * is solved while tracking, and the solver's warm start is left as the last solve left it.
  *
  * @code
  * static constinit MPC law{kRes.as<float>()}; // design::mpc<NP, NC>(plant, w, TrackedOutputs{})
@@ -3315,11 +3361,25 @@ public:
         return Core::step(r, ColVec<0, T>{}, x);
     }
 
+    /** @brief In place of step(r, x) while another source drives the plant: its predict() and update(x), then the memory that starts the next command from @p u, the input applied. */
+    constexpr void track(const ColVec<NU, T>& u, const Reference& r, const ColVec<Core::NYM, T>& x)
+        requires(NH > 0 && ND == 0)
+    {
+        Core::track(u, r, ColVec<0, T>{}, x);
+    }
+
     /** @brief One tick: predict(), update(@p x), then control(@p r, @p d). */
     [[nodiscard]] constexpr ColVec<NU, T> step(const Reference& r, const ColVec<ND, T>& d, const ColVec<Core::NYM, T>& x)
         requires(NH > 0 && ND > 0)
     {
         return Core::step(r, d, x);
+    }
+
+    /** @brief In place of step(r, d, x) while another source drives the plant: its predict() and update(x), then the memory that starts the next command from @p u, the input applied. */
+    constexpr void track(const ColVec<NU, T>& u, const Reference& r, const ColVec<ND, T>& d, const ColVec<Core::NYM, T>& x)
+        requires(NH > 0 && ND > 0)
+    {
+        Core::track(u, r, d, x);
     }
 
     /** @brief One tick: predict(), update(@p x), then control(@p r, @p x_ref, @p u_ref), the feedforward form. */
@@ -3329,11 +3389,25 @@ public:
         return Core::step(r, x_ref, u_ref, ColVec<0, T>{}, x);
     }
 
+    /** @brief In place of step(r, x_ref, u_ref, x) while another source drives the plant: its predict() and update(x), then the memory that starts the next command from @p u, the input applied. */
+    constexpr void track(const ColVec<NU, T>& u, const Reference& r, const ColVec<Core::NXP, T>& x_ref, const ColVec<NU, T>& u_ref, const ColVec<Core::NYM, T>& x)
+        requires(NH > 0 && ND == 0)
+    {
+        Core::track(u, r, x_ref, u_ref, ColVec<0, T>{}, x);
+    }
+
     /** @brief One tick: predict(), update(@p x), then control(@p r, @p x_ref, @p u_ref, @p d). */
     [[nodiscard]] constexpr ColVec<NU, T> step(const Reference& r, const ColVec<Core::NXP, T>& x_ref, const ColVec<NU, T>& u_ref, const ColVec<ND, T>& d, const ColVec<Core::NYM, T>& x)
         requires(NH > 0 && ND > 0)
     {
         return Core::step(r, x_ref, u_ref, d, x);
+    }
+
+    /** @brief In place of step(r, x_ref, u_ref, d, x) while another source drives the plant: its predict() and update(x), then the memory that starts the next command from @p u, the input applied. */
+    constexpr void track(const ColVec<NU, T>& u, const Reference& r, const ColVec<Core::NXP, T>& x_ref, const ColVec<NU, T>& u_ref, const ColVec<ND, T>& d, const ColVec<Core::NYM, T>& x)
+        requires(NH > 0 && ND > 0)
+    {
+        Core::track(u, r, x_ref, u_ref, d, x);
     }
 
     /** @brief The regulator's tick: predict(), update(@p x), then control(). */
@@ -3343,11 +3417,25 @@ public:
         return Core::step(Core::no_reference(), ColVec<0, T>{}, x);
     }
 
+    /** @brief In place of step(x) while another source drives the plant: its predict() and update(x), then the memory that starts the next command from @p u, the input applied. */
+    constexpr void track(const ColVec<NU, T>& u, const ColVec<Core::NYM, T>& x)
+        requires(NH == 0 && ND == 0)
+    {
+        Core::track(u, Core::no_reference(), ColVec<0, T>{}, x);
+    }
+
     /** @brief The regulator's tick: predict(), update(@p x), then control(@p d). */
     [[nodiscard]] constexpr ColVec<NU, T> step(const ColVec<ND, T>& d, const ColVec<Core::NYM, T>& x)
         requires(NH == 0 && ND > 0)
     {
         return Core::step(Core::no_reference(), d, x);
+    }
+
+    /** @brief In place of step(d, x) while another source drives the plant: its predict() and update(x), then the memory that starts the next command from @p u, the input applied. */
+    constexpr void track(const ColVec<NU, T>& u, const ColVec<ND, T>& d, const ColVec<Core::NYM, T>& x)
+        requires(NH == 0 && ND > 0)
+    {
+        Core::track(u, Core::no_reference(), d, x);
     }
 
     /** @brief The regulator's tick: predict(), update(@p x), then control(@p x_ref, @p u_ref). */
@@ -3357,11 +3445,25 @@ public:
         return Core::step(Core::no_reference(), x_ref, u_ref, ColVec<0, T>{}, x);
     }
 
+    /** @brief In place of step(x_ref, u_ref, x) while another source drives the plant: its predict() and update(x), then the memory that starts the next command from @p u, the input applied. */
+    constexpr void track(const ColVec<NU, T>& u, const ColVec<Core::NXP, T>& x_ref, const ColVec<NU, T>& u_ref, const ColVec<Core::NYM, T>& x)
+        requires(NH == 0 && ND == 0)
+    {
+        Core::track(u, Core::no_reference(), x_ref, u_ref, ColVec<0, T>{}, x);
+    }
+
     /** @brief The regulator's tick: predict(), update(@p x), then control(@p x_ref, @p u_ref, @p d). */
     [[nodiscard]] constexpr ColVec<NU, T> step(const ColVec<Core::NXP, T>& x_ref, const ColVec<NU, T>& u_ref, const ColVec<ND, T>& d, const ColVec<Core::NYM, T>& x)
         requires(NH == 0 && ND > 0)
     {
         return Core::step(Core::no_reference(), x_ref, u_ref, d, x);
+    }
+
+    /** @brief In place of step(x_ref, u_ref, d, x) while another source drives the plant: its predict() and update(x), then the memory that starts the next command from @p u, the input applied. */
+    constexpr void track(const ColVec<NU, T>& u, const ColVec<Core::NXP, T>& x_ref, const ColVec<NU, T>& u_ref, const ColVec<ND, T>& d, const ColVec<Core::NYM, T>& x)
+        requires(NH == 0 && ND > 0)
+    {
+        Core::track(u, Core::no_reference(), x_ref, u_ref, d, x);
     }
 
     using Core::applied;
@@ -3473,6 +3575,11 @@ namespace damp {
  * lists none, as OFLQG's. It has no regulator form, as OFLQG has none; MPC's regulator is on the
  * measured state.
  *
+ * While another source drives the plant, track(u, r, y) takes the place of step(r, y), and so in
+ * each of its forms, u the input applied first: the filter predicts with u, so d̂ learns the load
+ * the other source holds against, and the next move plans from u_prev = u. At a steady state the
+ * first command is u.
+ *
  * @note Compare with MATLAB®'s mpcmove(mpcobj, xc, ym, r, v) with its default disturbance model.
  */
 template<
@@ -3543,11 +3650,25 @@ public:
         return Core::step(r, ColVec<0, T>{}, y);
     }
 
+    /** @brief In place of step(r, y) while another source drives the plant: its predict() and update(y), then the memory that starts the next command from @p u, the input applied. */
+    constexpr void track(const ColVec<NU, T>& u, const Reference& r, const ColVec<NYM, T>& y)
+        requires(NM == 0)
+    {
+        Core::track(u, r, ColVec<0, T>{}, y);
+    }
+
     /** @brief One tick: predict(), update(@p y), then control(@p r, @p x_ref, @p u_ref), the feedforward form. */
     [[nodiscard]] constexpr ColVec<NU, T> step(const Reference& r, const ColVec<Core::NXP, T>& x_ref, const ColVec<NU, T>& u_ref, const ColVec<NYM, T>& y)
         requires(NM == 0)
     {
         return Core::step(r, x_ref, u_ref, ColVec<0, T>{}, y);
+    }
+
+    /** @brief In place of step(r, x_ref, u_ref, y) while another source drives the plant: its predict() and update(y), then the memory that starts the next command from @p u, the input applied. */
+    constexpr void track(const ColVec<NU, T>& u, const Reference& r, const ColVec<Core::NXP, T>& x_ref, const ColVec<NU, T>& u_ref, const ColVec<NYM, T>& y)
+        requires(NM == 0)
+    {
+        Core::track(u, r, x_ref, u_ref, ColVec<0, T>{}, y);
     }
 
     /** @brief One tick: predict(), update(@p y), then control(@p r, @p d). */
@@ -3557,11 +3678,25 @@ public:
         return Core::step(r, d, y);
     }
 
+    /** @brief In place of step(r, d, y) while another source drives the plant: its predict() and update(y), then the memory that starts the next command from @p u, the input applied. */
+    constexpr void track(const ColVec<NU, T>& u, const Reference& r, const ColVec<NM, T>& d, const ColVec<NYM, T>& y)
+        requires(NM > 0)
+    {
+        Core::track(u, r, d, y);
+    }
+
     /** @brief One tick: predict(), update(@p y), then control(@p r, @p x_ref, @p u_ref, @p d). */
     [[nodiscard]] constexpr ColVec<NU, T> step(const Reference& r, const ColVec<Core::NXP, T>& x_ref, const ColVec<NU, T>& u_ref, const ColVec<NM, T>& d, const ColVec<NYM, T>& y)
         requires(NM > 0)
     {
         return Core::step(r, x_ref, u_ref, d, y);
+    }
+
+    /** @brief In place of step(r, x_ref, u_ref, d, y) while another source drives the plant: its predict() and update(y), then the memory that starts the next command from @p u, the input applied. */
+    constexpr void track(const ColVec<NU, T>& u, const Reference& r, const ColVec<Core::NXP, T>& x_ref, const ColVec<NU, T>& u_ref, const ColVec<NM, T>& d, const ColVec<NYM, T>& y)
+        requires(NM > 0)
+    {
+        Core::track(u, r, x_ref, u_ref, d, y);
     }
 
     using Core::applied;

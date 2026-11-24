@@ -92,9 +92,33 @@ template<size_t NY, size_t NX, size_t NU, typename T, typename TQ, typename TI>
     return out;
 }
 
+/**
+ * @brief @p law with a Handover: the same design, its fade_time the option's. Refused with
+ *        DesignStatus::invalid_parameter for a fade_time that is not finite and positive (a design
+ *        that failed keeps its own status).
+ */
+template<size_t NX, size_t NU, typename T, size_t NI, size_t NY, typename Kalman, size_t NZ, size_t NRU, size_t NM, size_t NDU>
+[[nodiscard]] constexpr StateFeedbackResult<NX, NU, T, NI, NY, Kalman, NZ, NRU, NM, NDU, true> with_handover(
+    const StateFeedbackResult<NX, NU, T, NI, NY, Kalman, NZ, NRU, NM, NDU>& law,
+    const Handover&                                                         handover
+) {
+    StateFeedbackResult<NX, NU, T, NI, NY, Kalman, NZ, NRU, NM, NDU, true> out{law.K, law.S, law.e, law.success, law.status, law.Ts, law.kalman};
+    if constexpr (NI > 0) {
+        out.integral = law.integral;
+        out.tracking_time = law.tracking_time;
+    }
+    if constexpr (NZ > 0 || NM > 0) {
+        out.target = law.target;
+    }
+    out.limits = law.limits;
+    out.fade_time = static_cast<T>(handover.fade_time);
+    const bool usable = damp::finite_positive(handover.fade_time) && damp::finite_positive(out.fade_time); // and still > 0 in the plant's scalar
+    return ::damp::detail::set_status(out, (law.status == DesignStatus::ok && !usable) ? DesignStatus::invalid_parameter : law.status);
+}
+
 /** @brief The options of a state-feedback design: a KalmanNoise makes it estimate the state. */
 using state_feedback_options = ::damp::detail::
-    option_set<is_input_delay, is_output_delay, is_integral_option, is_tracked_option, is_disturbance, is_measured_disturbance, is_kalman_noise, is_input_limits, is_input_rate_limits, is_demand_limit>;
+    option_set<is_input_delay, is_output_delay, is_integral_option, is_tracked_option, is_disturbance, is_measured_disturbance, is_kalman_noise, is_input_limits, is_input_rate_limits, is_demand_limit, is_handover>;
 
 /**
  * @brief A design's result with the InputRateLimits among @p opts (NDU = NU), or itself without one:
@@ -153,12 +177,19 @@ template<bool Sampled, size_t NX, size_t NU, size_t NY, typename T, size_t NW, s
             return state_feedback_with<Sampled>(sys, Ts, cost, options, opts...);
         }
     };
-    if constexpr (kIntegral) {
-        auto integral = integral_cost<NY>(config, ::damp::detail::option<is_integral_option>(Unset{}, opts...));
-        integral.cost.demand_lim = demand_terms_of<decltype(integral.cost.demand_lim)>(opts...); // its outer terms may be the integrators
-        return with_rate_limits<NU, T>(run(integral.cost, integral.integral), opts...);
+    const auto law = [&] {
+        if constexpr (kIntegral) {
+            auto integral = integral_cost<NY>(config, ::damp::detail::option<is_integral_option>(Unset{}, opts...));
+            integral.cost.demand_lim = demand_terms_of<decltype(integral.cost.demand_lim)>(opts...); // its outer terms may be the integrators
+            return with_rate_limits<NU, T>(run(integral.cost, integral.integral), opts...);
+        } else {
+            return with_rate_limits<NU, T>(run(config, ::damp::detail::option<is_disturbance>(Unset{}, opts...)), opts...);
+        }
+    }();
+    if constexpr (::damp::detail::option_count<is_handover, Opts...> == 0) {
+        return law;
     } else {
-        return with_rate_limits<NU, T>(run(config, ::damp::detail::option<is_disturbance>(Unset{}, opts...)), opts...);
+        return with_handover(law, ::damp::detail::option<is_handover>(Handover{}, opts...));
     }
 }
 
@@ -224,6 +255,11 @@ template<bool Sampled, size_t NX, size_t NU, size_t NY, typename T, size_t NW, s
  *   The runtime takes d after the reference and its feedforward: control(r, d), step(r, d, m),
  *   control(r, x_ref, u_ref, d), step(r, x_ref, u_ref, d, m). With an InputDelay d enters the
  *   plant, not the delay states.
+ * - Handover{.fade_time}: the first command after the runtime's track(u, …) is u, the mismatch
+ *   with the law's own decaying by exp(−Ts/fade_time) each tick (Handover), for the laws with
+ *   nothing to preload: LQR, LQG and an OFLQG's transient (an LQI's or LQGI's preload is exact with
+ *   NI ≥ NU; with it they fade what the preload leaves). The gain is the same; a fade_time that is not
+ *   finite and positive is refused with DesignStatus::invalid_parameter.
  * - InputDelay<N>{θ}, on the sampled form state_feedback(plant, Ts, weights, …): the plant's input
  *   arrives θ late. The weights and the noise are the plant's, as without the delay; the cost is
  *   discretized exactly on the delayed model; a law on the measured state holds the inputs still on

@@ -92,6 +92,9 @@ enum class OffSlot : uint8_t {
     held_measured,        ///< The measured disturbance a filter's next predict holds (no filter, or no MeasuredDisturbance)
     input_rate,           ///< StateFeedbackCore's move limit (no InputRateLimits)
     held_command,         ///< StateFeedbackCore's base of the move limit on a law that keeps no applied record (no InputRateLimits, or a record kept)
+    handover,             ///< StateFeedbackCore's handover fade (no Handover)
+    design_fade_time,     ///< StateFeedbackResult::fade_time (no Handover)
+    fade_decay,           ///< The handover fade's factor (a constant of the type on a `constexpr` design's Law)
 };
 
 /**

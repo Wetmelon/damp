@@ -123,7 +123,7 @@ the repo root.
   continuous one, the weights), so braces size it from the plant; the rest is a
   trailing pack recognized by type (`design/options.hpp`: `KalmanNoise`,
   `InputDelay`, `OutputDelay`, `IntegralAction`, `TrackedOutputs`, `InputLimits`, `InputRateLimits`, `DemandLimit`,
-  `OutputLimits`, `StateLimits`, `DareCost`, `InvariantSet`, `QPIterations`, a disturbance spec, `MeasuredDisturbance`, …),
+  `OutputLimits`, `StateLimits`, `DareCost`, `InvariantSet`, `QPIterations`, a disturbance spec, `MeasuredDisturbance`, `Handover`, …),
   at most one of each kind, in any order, refused at compile time otherwise. What the gain does not depend on is an
   option, not a weight: the limits on u and on Δu are `InputLimits{.lower, .upper}` and
   `InputRateLimits{.lower, .upper}` in both families (an LQ law clamps its command and its move, an MPC's QP carries
@@ -161,7 +161,13 @@ the repo root.
 - **Ticks:** estimators `predict` / `update`; controllers `control`; `step` is
   predict then update then control (m_k in, u_k out). Low-latency ISR: update →
   control → write → `back_calculate` → predict. `back_calculate(u_sat, u_ff = {})`
-  records the applied input.
+  records the applied input. While another source drives the plant, every LQ law
+  and MPC takes `track(u, …)` in place of `step(…)`, a twin of each overload with
+  the applied input first (void, no mode flag): predict, update, then the memory
+  that makes control here return u (u recorded as applied, an LQI's ξ preloaded
+  through `unwind`, an MPC's u_prev = u, no QP solved). A law with nothing to
+  preload takes `design::Handover{.fade_time}`, which fades the first command's
+  mismatch; `track` and a law without it cost `step` nothing.
 - **Limits:** a law's output limit is a `Bounds`, unbounded by default: an
   `InputLimits` among an LQ or MPC design's options, `u_lim` in the design input
   or on the result of the others, refused when it is not a box. The LQ laws and

@@ -17,7 +17,7 @@
  * |--------------------------|-----------------------------------|-----------------------------------|
  * | SisoController           | `u = control(r, y)`, `back_calculate(u_sat, u_ff)` | PID, ADRC, SMC, lead-lag, PR      |
  * | FeedbackRuntime          | `update(m)`, `predict()`, `back_calculate(u)` | LQR, LQI, LQG, LQGI, OFLQG, MPC, OFMPC (lifecycle) |
- * | FeedbackLaw              | FeedbackRuntime + `control(r)`, `step(r, m)` | LQI, LQGI, OFLQG, MPC, OFMPC, LQR/LQG with TrackedOutputs |
+ * | FeedbackLaw              | FeedbackRuntime + `control(r)`, `step(r, m)`, `track(u, r, m)` | LQI, LQGI, OFLQG, OFMPC, LQR/LQG/MPC with TrackedOutputs |
  * | StateEstimator           | `x̂ = step(y, u)`, `state()`       | FixedGainObserver (fixed gain), KalmanFilter (recursive), MHE, ESO |
  * | SignalSource             | `u = step()`, `done()`            | Chirp, PRBS, StepTrain, Ramp, MultiSine, SteppedSine, Impulse, Step |
  * | ParameterEstimator       | `parameters()`, `valid()`,        | FirstOrderPlantEstimator          |
@@ -112,15 +112,17 @@ concept FeedbackRuntime = requires(C c, const ColVec<NM, T>& m, const ColVec<NU,
 };
 
 /**
- * @brief An LQ or MPC law that holds outputs at r: control(r) and step(r, m).
+ * @brief An LQ or MPC law that holds outputs at r: control(r), step(r, m), and track(u, r, m) in
+ *        place of step while another source drives the plant (u the input applied).
  *
- * LQI, LQGI, OFLQG, MPC, OFMPC, and LQR/LQG with TrackedOutputs. A regulator (LQR/LQG
- * with no tracked outputs) is FeedbackRuntime only: control(), step(m).
+ * LQI, LQGI, OFLQG, OFMPC, and LQR/LQG/MPC with TrackedOutputs. A regulator (LQR/LQG/MPC
+ * with no tracked outputs) is FeedbackRuntime only: control(), step(m), track(u, m).
  */
 template<typename C, size_t NU, size_t NR, size_t NM, typename T>
-concept FeedbackLaw = FeedbackRuntime<C, NU, NM, T> && requires(C c, const ColVec<NR, T>& r, const ColVec<NM, T>& m) {
+concept FeedbackLaw = FeedbackRuntime<C, NU, NM, T> && requires(C c, const ColVec<NU, T>& u, const ColVec<NR, T>& r, const ColVec<NM, T>& m) {
     { c.control(r) } -> damp::convertible_to<ColVec<NU, T>>;
     { c.step(r, m) } -> damp::convertible_to<ColVec<NU, T>>;
+    c.track(u, r, m);
 };
 
 /**
