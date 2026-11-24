@@ -306,6 +306,7 @@ struct MPCWeights {
  */
 template<size_t NYC, typename T = double>
 struct OutputLimits {
+    using option_kind = kind::OutputLimits; ///< Its kind of design option
     static_assert(NYC > 0, "OutputLimits lists the outputs it bounds: .outputs = {i, ...}, at least one; leave it out for none.");
 
     size_t         outputs[NYC]{};                                                       ///< Indices of the plant's outputs bounded, each once (an array, so bare braces give NYC)
@@ -325,7 +326,9 @@ struct OutputLimits {
  * stability argument rests on shifting the last plan and appending the terminal move, which needs
  * a free move at every step: it holds with NC = NP. Cheap enough for constinit. `DareCost{}`.
  */
-struct DareCost {};
+struct DareCost {
+    using option_kind = kind::Terminal; ///< Its kind of design option
+};
 
 /**
  * @struct InvariantSet
@@ -353,6 +356,7 @@ struct DareCost {};
  */
 template<size_t NT_max = 0, typename T = double>
 struct InvariantSet {
+    using option_kind = kind::Terminal; ///< Its kind of design option
     static_assert(
         NT_max > 0,
         "InvariantSet<N>{.target_margin = ...} names the room N the QP keeps for the terminal set's rows, at least its facet count "
@@ -379,6 +383,7 @@ struct InvariantSet {
  */
 template<size_t NXC, typename T = double>
 struct StateLimits {
+    using option_kind = kind::StateLimits; ///< Its kind of design option
     static_assert(NXC > 0, "StateLimits lists the states it bounds: .states = {i, ...}, at least one.");
 
     size_t         states[NXC]{};                                                        ///< Indices of the prediction model's states bounded, each once (an array, so bare braces give NXC)
@@ -433,34 +438,6 @@ struct MPCConstraintSet {
     }
 };
 
-/** @brief An OutputLimits: a kind of design::mpc option. */
-template<typename O>
-struct is_output_limits : damp::false_type {};
-
-/** @brief OutputLimits of any length. */
-template<size_t NYC, typename T>
-struct is_output_limits<OutputLimits<NYC, T>> : damp::true_type {};
-
-/** @brief A StateLimits: a kind of design::mpc option. */
-template<typename O>
-struct is_state_limits : damp::false_type {};
-
-/** @brief StateLimits of any length. */
-template<size_t NXC, typename T>
-struct is_state_limits<StateLimits<NXC, T>> : damp::true_type {};
-
-/** @brief A terminal ingredient: a kind of design::mpc option, DareCost or InvariantSet. */
-template<typename O>
-struct is_mpc_terminal : damp::false_type {};
-
-/** @brief DareCost. */
-template<>
-struct is_mpc_terminal<DareCost> : damp::true_type {};
-
-/** @brief InvariantSet. */
-template<size_t NT_max, typename T>
-struct is_mpc_terminal<InvariantSet<NT_max, T>> : damp::true_type {};
-
 /** @brief The rows a terminal ingredient keeps in the QP: none for DareCost, or with none given. */
 template<typename O>
 inline constexpr size_t terminal_rows = 0;
@@ -498,36 +475,36 @@ constexpr void copy_listed(damp::array<size_t, N>& to, const size_t (&from)[N]) 
  */
 template<size_t NU, typename T, typename... Opts>
 [[nodiscard]] constexpr auto constraint_set(const Opts&... opts) {
-    constexpr size_t                       NYC = limits_listed<::damp::detail::option_t<is_output_limits, void, Opts...>>;
-    constexpr size_t                       NXC = limits_listed<::damp::detail::option_t<is_state_limits, void, Opts...>>;
+    constexpr size_t                       NYC = limits_listed<::damp::detail::option_t<kind::OutputLimits, void, Opts...>>;
+    constexpr size_t                       NXC = limits_listed<::damp::detail::option_t<kind::StateLimits, void, Opts...>>;
     constexpr size_t                       NDU = rate_limited_inputs<NU, Opts...>;
     MPCConstraintSet<NU, NYC, T, NXC, NDU> out{.input = input_limits_of<NU, T>(opts...)};
     if constexpr (NDU > 0) {
         out.input_rate = input_rate_limits_of<NU, T>(opts...);
     }
     if constexpr (NYC > 0) {
-        const auto limits = ::damp::detail::option<is_output_limits>(0, opts...);
+        const auto limits = ::damp::detail::the<kind::OutputLimits>(opts...);
         copy_listed(out.y_outputs, limits.outputs);
         out.output = box_of<T>(limits.lower, limits.upper);
         out.y_lower_ecr = ColVec<NYC, T>{limits.lower_ecr.template as<T>()};
         out.y_upper_ecr = ColVec<NYC, T>{limits.upper_ecr.template as<T>()};
     }
     if constexpr (NXC > 0) {
-        const auto limits = ::damp::detail::option<is_state_limits>(0, opts...);
+        const auto limits = ::damp::detail::the<kind::StateLimits>(opts...);
         copy_listed(out.x_states, limits.states);
         out.state = box_of<T>(limits.lower, limits.upper);
         out.x_lower_ecr = ColVec<NXC, T>{limits.lower_ecr.template as<T>()};
         out.x_upper_ecr = ColVec<NXC, T>{limits.upper_ecr.template as<T>()};
     }
-    using Terminal = ::damp::detail::option_t<is_mpc_terminal, void, Opts...>;
+    using Terminal = ::damp::detail::option_t<kind::Terminal, void, Opts...>;
     if constexpr (damp::is_same_v<Terminal, DareCost>) {
         out.terminal = MPCTerminal::dare_cost;
     } else if constexpr (!damp::is_same_v<Terminal, void>) {
         out.terminal = MPCTerminal::invariant_set;
-        out.terminal_target_margin = static_cast<T>(::damp::detail::option<is_mpc_terminal>(0, opts...).target_margin);
+        out.terminal_target_margin = static_cast<T>(::damp::detail::the<kind::Terminal>(opts...).target_margin);
     }
-    if constexpr (::damp::detail::option_count<is_qp_iterations, Opts...> > 0) {
-        out.max_qp_iterations = ::damp::detail::option<is_qp_iterations>(0, opts...).budget;
+    if constexpr (::damp::detail::option_count<kind::QPIterations, Opts...> > 0) {
+        out.max_qp_iterations = ::damp::detail::the<kind::QPIterations>(opts...).budget;
     }
     return out;
 }
@@ -1723,8 +1700,8 @@ namespace detail {
 
 /** @brief The options design::mpc takes after the weights. */
 using mpc_options = ::damp::detail::option_set<
-    is_input_limits, is_input_rate_limits, is_kalman_noise, is_disturbance, is_measured_disturbance, is_tracked_option, is_output_limits, is_state_limits,
-    is_mpc_terminal, is_qp_iterations, is_input_delay, is_output_delay, is_handover>; // a Handover only for its message
+    kind::InputLimits, kind::InputRateLimits, kind::KalmanNoise, kind::Disturbance, kind::MeasuredDisturbance, kind::TrackedOutputs, kind::OutputLimits, kind::StateLimits,
+    kind::Terminal, kind::QPIterations, kind::InputDelay, kind::OutputDelay, kind::Handover>; // a Handover only for its message
 
 /**
  * @brief The compile-time check of a design::mpc<NP, NC> call's trailing options on a plant with
@@ -1735,36 +1712,27 @@ using mpc_options = ::damp::detail::option_set<
  */
 template<size_t NP, size_t NC, size_t NU, size_t NY, typename... Opts>
 constexpr void check_mpc_options() {
-    static_assert(::damp::detail::option_count<is_input_limits, Opts...> <= 1, "One InputLimits bounds every input: InputLimits{.lower = {...}, .upper = {...}}.");
-    static_assert(::damp::detail::option_count<is_input_rate_limits, Opts...> <= 1, "One InputRateLimits bounds every input's move: InputRateLimits{.lower = {...}, .upper = {...}}.");
-    static_assert(::damp::detail::option_count<is_output_limits, Opts...> <= 1, "One OutputLimits lists every bounded output: OutputLimits{.outputs = {i, ...}, .lower = {...}, .upper = {...}}.");
-    static_assert(::damp::detail::option_count<is_state_limits, Opts...> <= 1, "One StateLimits lists every bounded state: StateLimits{.states = {i, ...}, .lower = {...}, .upper = {...}}.");
-    check_held_outputs<NU, NY, 0, Opts...>(); // the target's: one TrackedOutputs, none beside a disturbance spec, at most NU held
+    static_assert(!(damp::is_integral_v<damp::remove_cvref_t<Opts>> || ...), "The QP's iteration budget is QPIterations{n}; the terminal set's room is InvariantSet<N>{...}.");
     static_assert(
-        ::damp::detail::option_count<is_mpc_terminal, Opts...> <= 1,
-        "One terminal ingredient: DareCost{} for the cost, or InvariantSet<N>{.target_margin = ...} for the cost and the set, not both."
-    );
-    static_assert(::damp::detail::option_count<is_qp_iterations, Opts...> <= 1, "One QP budget: QPIterations{n}.");
-    static_assert(
-        ::damp::detail::option_count<is_handover, Opts...> == 0,
+        ::damp::detail::option_count<kind::Handover, Opts...> == 0,
         "Handover is an LQ law's: an offset added outside the QP would break its constraints. An MPC hands over from the input track() holds, the base of its first move."
     );
-    static_assert(!(damp::is_integral_v<damp::remove_cvref_t<Opts>> || ...), "The QP's iteration budget is QPIterations{n}; the terminal set's room is InvariantSet<N>{...}.");
-    constexpr bool kSet = terminal_rows<::damp::detail::option_t<is_mpc_terminal, void, Opts...>> > 0;
+    mpc_options::check<Opts...>();            // a kind it does not take, a kind given twice
+    check_held_outputs<NU, NY, 0, Opts...>(); // the target's: none beside a disturbance spec, at most NU held
+    constexpr bool kSet = ::damp::detail::option_count<kind::Terminal, Opts...> == 1 && terminal_rows<::damp::detail::option_t<kind::Terminal, void, Opts...>> > 0;
     static_assert(
         !kSet || NC == NP,
         "An InvariantSet needs a free move at every step for the shifted plan: mpc<NP, NP>, or DareCost{} for the terminal cost alone."
     );
     static_assert(
-        !kSet || ::damp::detail::option_count<is_state_limits, Opts...> == 0,
+        !kSet || ::damp::detail::option_count<kind::StateLimits, Opts...> == 0,
         "An InvariantSet's rows do not cover a StateLimits: bound an output that reads the state with OutputLimits{...}, or take DareCost{} for the cost alone."
     );
-    mpc_options::check<Opts...>();
 }
 
 /** @brief Whether a design::mpc call has an estimator: a KalmanNoise among its options. */
 template<typename... Opts>
-inline constexpr bool mpc_estimated = ::damp::detail::option_count<is_kalman_noise, Opts...> > 0;
+inline constexpr bool mpc_estimated = ::damp::detail::option_count<kind::KalmanNoise, Opts...> > 0;
 
 /** @brief The first status that is not ok among @p statuses, else ok. */
 template<typename... S>
@@ -1800,7 +1768,7 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
 /** @brief Each input's delay as discretize split it, d·Ts + τ: none without an InputDelay. */
 template<size_t NU, typename T, typename Delay>
 [[nodiscard]] constexpr damp::array<::damp::detail::DelaySplit<T>, NU> input_delays_of(const Delay& delay, T Ts) {
-    if constexpr (is_input_delay<Delay>::value) {
+    if constexpr (OptionOf<Delay, kind::InputDelay>) {
         const auto split = ::damp::detail::channel_delay_splits<NU>(delay.seconds, Ts, input_delay_states<Delay>);
         return split ? *split : damp::array<::damp::detail::DelaySplit<T>, NU>{}; // sampled_model refused a delay discretize does not take
     } else {
@@ -1934,24 +1902,24 @@ template<
  */
 template<bool Discrete, size_t NP, size_t NC, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename... Opts>
 [[nodiscard]] constexpr auto mpc_design(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T Ts, const MPCWeights<NU, NY, T>& weights, const Opts&... opts) {
-    constexpr size_t NT_max = terminal_rows<::damp::detail::option_t<is_mpc_terminal, void, Opts...>>;
+    constexpr size_t NT_max = terminal_rows<::damp::detail::option_t<kind::Terminal, void, Opts...>>;
     const auto       constraints = constraint_set<NU, T>(opts...);
-    const auto       held = ::damp::detail::option<is_tracked_option>(NoDisturbance{}, opts...); // none: a regulator
+    const auto       held = ::damp::detail::option<kind::TrackedOutputs>(NoDisturbance{}, opts...); // none: a regulator
     static_assert(
-        !Discrete || ::damp::detail::option_count<is_input_delay, Opts...> + ::damp::detail::option_count<is_output_delay, Opts...> == 0,
+        !Discrete || ::damp::detail::option_count<kind::InputDelay, Opts...> + ::damp::detail::option_count<kind::OutputDelay, Opts...> == 0,
         "A delay is sampled with the plant: give the continuous plant and Ts, mpc<NP, NC>(plant, Ts, weights, ..., InputDelay<N>{theta}, OutputDelay<M>{theta})."
     );
     const auto measured = measured_of<NX, T>(opts...);
     if constexpr (mpc_estimated<Opts...>) {
         return mpc_estimated_design<Discrete, NP, NC, NT_max>(
             noise_model(sys), Ts, weights, constraints,
-            ::damp::detail::option<is_kalman_noise>(KalmanNoise<noise_inputs<NX, NW>, noise_inputs<NY, NV>, T>{}, opts...),
-            ::damp::detail::option<is_disturbance>(NoDisturbance{}, opts...), held, measured, delays_of(opts...)
+            ::damp::detail::the<kind::KalmanNoise>(opts...),
+            ::damp::detail::option<kind::Disturbance>(NoDisturbance{}, opts...), held, measured, delays_of(opts...)
         );
     } else {
-        static_assert(::damp::detail::option_count<is_disturbance, Opts...> == 0, "A disturbance spec needs KalmanNoise: the disturbance is estimated.");
-        static_assert(::damp::detail::option_count<is_output_delay, Opts...> == 0, "An OutputDelay is a late reading: it needs a KalmanNoise, a filter to carry it.");
-        return mpc_measured<Discrete, NP, NC, NT_max>(sys, Ts, weights, constraints, measured, held, ::damp::detail::option<is_input_delay>(NoDelay{}, opts...));
+        static_assert(::damp::detail::option_count<kind::Disturbance, Opts...> == 0, "A disturbance spec needs KalmanNoise: the disturbance is estimated.");
+        static_assert(::damp::detail::option_count<kind::OutputDelay, Opts...> == 0, "An OutputDelay is a late reading: it needs a KalmanNoise, a filter to carry it.");
+        return mpc_measured<Discrete, NP, NC, NT_max>(sys, Ts, weights, constraints, measured, held, ::damp::detail::option<kind::InputDelay>(NoDelay{}, opts...));
     }
 }
 

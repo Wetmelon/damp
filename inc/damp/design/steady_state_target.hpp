@@ -66,12 +66,15 @@ namespace design {
  */
 template<size_t NZ = 0>
 struct TrackedOutputs {
-    size_t outputs[NZ]{}; ///< Indices of the measured outputs held at r, each once
+    using option_kind = kind::TrackedOutputs; ///< Its kind of design option
+    size_t outputs[NZ]{};                     ///< Indices of the measured outputs held at r, each once
 };
 
 /** @brief Every measured output held at r: no list. */
 template<>
-struct TrackedOutputs<0> {};
+struct TrackedOutputs<0> {
+    using option_kind = kind::TrackedOutputs; ///< Its kind of design option
+};
 
 /**
  * @struct SteadyStateTargetResult
@@ -156,13 +159,9 @@ inline constexpr bool is_tracked_outputs = false;
 template<size_t NZ>
 inline constexpr bool is_tracked_outputs<TrackedOutputs<NZ>> = true;
 
-/** @brief TrackedOutputs, as a kind of trailing option (options.hpp): design::state_feedback's, design::mpc's and design::steady_state_target's. */
-template<typename O>
-struct is_tracked_option : damp::bool_constant<is_tracked_outputs<O>> {};
-
 /** @brief Whether a design's options name its held outputs in one place: no TrackedOutputs beside a disturbance spec, whose .outputs are the held ones. */
 template<typename... Opts>
-inline constexpr bool held_in_one_place = (::damp::detail::option_count<is_tracked_option, Opts...> == 0) || !(is_disturbance_model<damp::remove_cvref_t<Opts>> || ...);
+inline constexpr bool held_in_one_place = (::damp::detail::option_count<kind::TrackedOutputs, Opts...> == 0) || !(is_disturbance_model<damp::remove_cvref_t<Opts>> || ...);
 
 /** @brief The controlled outputs of a target under @p Spec: those it lists, else every output. */
 template<typename Spec, size_t NU, size_t NY, size_t NW>
@@ -185,13 +184,13 @@ inline constexpr size_t reference_outputs = damp::is_same_v<Aim, NoDisturbance> 
  */
 template<size_t NU, size_t NY, size_t NI, typename... Opts>
 consteval size_t held_count() {
-    using Spec = ::damp::detail::option_t<is_disturbance, NoDisturbance, Opts...>;
-    using Held = ::damp::detail::option_t<is_tracked_option, NoDisturbance, Opts...>;
+    using Spec = ::damp::detail::option_t<kind::Disturbance, NoDisturbance, Opts...>;
+    using Held = ::damp::detail::option_t<kind::TrackedOutputs, NoDisturbance, Opts...>;
     if constexpr (is_disturbance_model<Spec>) {
         return target_outputs<Spec, NU, NY, 0>;
     } else if constexpr (is_tracked_outputs<Held>) {
         return target_outputs<Held, NU, NY, 0>;
-    } else if constexpr (::damp::detail::option_count<is_measured_disturbance, Opts...> > 0) {
+    } else if constexpr (::damp::detail::option_count<kind::MeasuredDisturbance, Opts...> > 0) {
         return (NI > 0) ? NI : NY;
     } else {
         return 0;
@@ -200,8 +199,9 @@ consteval size_t held_count() {
 
 /**
  * @brief The compile-time check of the outputs a design's target holds, the same in every design
- *        with one (design::state_feedback, design::mpc, design::steady_state_target): one
- *        TrackedOutputs, none beside a disturbance spec, and at most NU outputs held.
+ *        with one (design::state_feedback, design::mpc, design::steady_state_target): no
+ *        TrackedOutputs beside a disturbance spec, and at most NU outputs held. One TrackedOutputs
+ *        at most is the design's option set's check.
  *
  * A steady state holds at most one output per input: with more, none holds them all, and the
  * nearest one in least squares holds none of them, so a design that asks for more does not
@@ -211,7 +211,6 @@ consteval size_t held_count() {
  */
 template<size_t NU, size_t NY, size_t NI, typename... Opts>
 constexpr void check_held_outputs() {
-    static_assert(::damp::detail::option_count<is_tracked_option, Opts...> <= 1, "One TrackedOutputs lists every output the target holds at r: TrackedOutputs{{i, ...}}.");
     static_assert(
         held_in_one_place<Opts...>,
         "A disturbance spec holds the outputs it lists at r: give them as its .outputs, InputDisturbance{{i, ...}} or "
@@ -246,7 +245,7 @@ template<typename Spec, typename Held>
 }
 
 /** @brief The options steady_state_target takes: the model features of the design (a KalmanNoise is ignored). */
-using target_options = ::damp::detail::option_set<is_disturbance, is_tracked_option, is_measured_disturbance, is_kalman_noise, is_input_delay, is_output_delay>;
+using target_options = ::damp::detail::option_set<kind::Disturbance, kind::TrackedOutputs, kind::MeasuredDisturbance, kind::KalmanNoise, kind::InputDelay, kind::OutputDelay>;
 
 /**
  * @brief The target maps of a model: [A − I, B; C_z, D_z]·[x_t; u_t] = [−B_d·d; r − C_{d,z}·d]
@@ -437,7 +436,7 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
 [[nodiscard]] constexpr auto target_with(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T Ts, const Delay& delay, const Opts&... opts) {
     check_held_outputs<NU, NY, 0, Opts...>();
     target_options::check<Opts...>();
-    const auto       spec = target_spec_of(::damp::detail::option<is_disturbance>(NoDisturbance{}, opts...), ::damp::detail::option<is_tracked_option>(NoDisturbance{}, opts...));
+    const auto       spec = target_spec_of(::damp::detail::option<kind::Disturbance>(NoDisturbance{}, opts...), ::damp::detail::option<kind::TrackedOutputs>(NoDisturbance{}, opts...));
     const auto       measured = measured_of<NX, T>(opts...);
     constexpr size_t NM = measured_inputs<damp::remove_cvref_t<decltype(measured)>>;
     static_assert(
@@ -502,7 +501,7 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
  */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename... Opts>
 [[nodiscard]] constexpr auto steady_state_target(const StateSpace<NX, NU, NY, T, NW, NV>& sys, const Opts&... opts) {
-    static_assert(::damp::detail::option_count<detail::is_input_delay, Opts...> + ::damp::detail::option_count<detail::is_output_delay, Opts...> == 0, "A delay is sampled with the plant: give the continuous plant and Ts.");
+    static_assert(::damp::detail::option_count<kind::InputDelay, Opts...> + ::damp::detail::option_count<kind::OutputDelay, Opts...> == 0, "A delay is sampled with the plant: give the continuous plant and Ts.");
     return detail::target_with<true>(sys, T{0}, detail::NoDelay{}, opts...);
 }
 

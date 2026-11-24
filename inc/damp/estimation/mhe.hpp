@@ -221,7 +221,7 @@ template<size_t NH, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size
     const Opts&... opts
 ) {
     static_assert(!(damp::is_integral_v<damp::remove_cvref_t<Opts>> || ...), "The QP's iteration budget is QPIterations{n}.");
-    ::damp::detail::option_set<detail::is_qp_iterations>::check<Opts...>();
+    ::damp::detail::option_set<kind::QPIterations>::check<Opts...>();
     const auto sys = detail::noise_model(plant);
     static_assert(NH >= 1, "The estimation window must cover at least two states.");
 
@@ -230,7 +230,7 @@ template<size_t NH, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size
 
     MHEResult<NX, NU, NY, NH, T> art{};
     art.constraints = constraints;
-    art.max_qp_iterations = ::damp::detail::option<detail::is_qp_iterations>(QPIterations{10 * (NV + NIB)}, opts...).budget;
+    art.max_qp_iterations = ::damp::detail::option<kind::QPIterations>(QPIterations{10 * (NV + NIB)}, opts...).budget;
 
     if (!damp::finite_positive(sys.Ts)) {
         return ::damp::detail::set_status(art, DesignStatus::invalid_sample_time); // discrete plants only

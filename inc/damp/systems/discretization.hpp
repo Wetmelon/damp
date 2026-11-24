@@ -11,6 +11,7 @@
  */
 
 #include "damp/backend.hpp"
+#include "damp/design/options.hpp"
 #include "damp/design/status.hpp"
 #include "damp/math/math.hpp"
 #include "damp/matrix/matrix.hpp"
@@ -558,7 +559,8 @@ template<size_t N, typename T>
 template<size_t N = 1, typename S = double>
 struct InputDelay {
     static_assert(N >= 1, "InputDelay holds at least one delay state: a plant without delay is discretize(sys, Ts).");
-    S seconds{}; ///< [s] delay between a command and the plant receiving it, 0 ≤ θ ≤ N·Ts, for every input or per input
+    using option_kind = design::kind::InputDelay; ///< Its kind of design option
+    S seconds{};                                  ///< [s] delay between a command and the plant receiving it, 0 ≤ θ ≤ N·Ts, for every input or per input
 };
 
 /** @brief One delay state, the delay's type from the seconds: `InputDelay{theta}`. */
@@ -586,7 +588,8 @@ InputDelay(S) -> InputDelay<1, S>;
 template<size_t N = 1, typename S = double>
 struct OutputDelay {
     static_assert(N >= 1, "OutputDelay holds at least one delay state: a plant without delay is discretize(sys, Ts).");
-    S seconds{}; ///< [s] age of the reading that arrives at a sample, 0 ≤ θ ≤ N·Ts, for every output or per output
+    using option_kind = design::kind::OutputDelay; ///< Its kind of design option
+    S seconds{};                                   ///< [s] age of the reading that arrives at a sample, 0 ≤ θ ≤ N·Ts, for every output or per output
 };
 
 /** @brief One delay state, the delay's type from the seconds: `OutputDelay{theta}`. */

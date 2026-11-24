@@ -55,6 +55,7 @@ namespace damp::design {
  */
 template<size_t NU = 1, typename T = double>
 struct InputLimits {
+    using option_kind = kind::InputLimits;                                             ///< Its kind of design option
     ColVec<NU, T> lower = Matrix<NU, 1, T>::constant(-damp::numeric_limits<T>::max()); ///< The lowest command per input (default unbounded)
     ColVec<NU, T> upper = Matrix<NU, 1, T>::constant(damp::numeric_limits<T>::max());  ///< The highest command per input (default unbounded)
 };
@@ -89,6 +90,7 @@ struct InputLimits {
  */
 template<size_t NU = 1, typename T = double>
 struct InputRateLimits {
+    using option_kind = kind::InputRateLimits;                                         ///< Its kind of design option
     ColVec<NU, T> lower = Matrix<NU, 1, T>::constant(-damp::numeric_limits<T>::max()); ///< The lowest move per period, per input (default unbounded)
     ColVec<NU, T> upper = Matrix<NU, 1, T>::constant(damp::numeric_limits<T>::max());  ///< The highest move per period, per input (default unbounded)
 };
@@ -126,22 +128,6 @@ struct StateFeedbackLimits {
 
 namespace detail {
 
-/** @brief An InputLimits: a kind of design::state_feedback and design::mpc option. */
-template<typename O>
-struct is_input_limits : damp::false_type {};
-
-/** @brief InputLimits of any size. */
-template<size_t NU, typename T>
-struct is_input_limits<InputLimits<NU, T>> : damp::true_type {};
-
-/** @brief An InputRateLimits: a kind of design::state_feedback and design::mpc option. */
-template<typename O>
-struct is_input_rate_limits : damp::false_type {};
-
-/** @brief InputRateLimits of any size. */
-template<size_t NU, typename T>
-struct is_input_rate_limits<InputRateLimits<NU, T>> : damp::true_type {};
-
 /** @brief The inputs an input limit option is on (0: none given). */
 template<typename L>
 inline constexpr size_t input_limits_inputs = 0;
@@ -160,10 +146,10 @@ template<typename T, size_t N, typename U>
     return Bounds<N, U>{.lower = lower, .upper = upper}.template as<T>();
 }
 
-/** @brief The box of the option of the kind @p Is among @p opts, on the plant's NU inputs in its scalar @p T (none: unbounded). */
-template<template<typename> class Is, size_t NU, typename T, typename Fallback, typename... Opts>
+/** @brief The box of the option of the kind @p Kind among @p opts, on the plant's NU inputs in its scalar @p T (none: unbounded). */
+template<typename Kind, size_t NU, typename T, typename Fallback, typename... Opts>
 [[nodiscard]] constexpr Bounds<NU, T> input_box_of(const Opts&... opts) {
-    using Given = ::damp::detail::option_t<Is, Fallback, Opts...>;
+    using Given = ::damp::detail::option_t<Kind, Fallback, Opts...>;
     if constexpr (input_limits_inputs<Given> != NU) {
         static_assert(
             input_limits_inputs<Given> == NU,
@@ -172,7 +158,7 @@ template<template<typename> class Is, size_t NU, typename T, typename Fallback, 
         );
         return Bounds<NU, T>{};
     } else {
-        const auto o = ::damp::detail::option<Is>(Fallback{}, opts...);
+        const auto o = ::damp::detail::option<Kind>(Fallback{}, opts...);
         return box_of<T>(o.lower, o.upper);
     }
 }
@@ -180,17 +166,17 @@ template<template<typename> class Is, size_t NU, typename T, typename Fallback, 
 /** @brief The InputLimits among @p opts on the plant's NU inputs, in its scalar @p T (none: unbounded). */
 template<size_t NU, typename T, typename... Opts>
 [[nodiscard]] constexpr Bounds<NU, T> input_limits_of(const Opts&... opts) {
-    return input_box_of<is_input_limits, NU, T, InputLimits<NU, T>>(opts...);
+    return input_box_of<kind::InputLimits, NU, T, InputLimits<NU, T>>(opts...);
 }
 
 /** @brief Inputs with a move limit among @p opts: NU with an InputRateLimits, else 0. */
 template<size_t NU, typename... Opts>
-inline constexpr size_t rate_limited_inputs = (::damp::detail::option_count<is_input_rate_limits, Opts...> > 0) ? NU : 0;
+inline constexpr size_t rate_limited_inputs = (::damp::detail::option_count<kind::InputRateLimits, Opts...> > 0) ? NU : 0;
 
 /** @brief The InputRateLimits among @p opts on the plant's NU inputs, in its scalar @p T (none: unbounded). */
 template<size_t NU, typename T, typename... Opts>
 [[nodiscard]] constexpr Bounds<NU, T> input_rate_limits_of(const Opts&... opts) {
-    return input_box_of<is_input_rate_limits, NU, T, InputRateLimits<NU, T>>(opts...);
+    return input_box_of<kind::InputRateLimits, NU, T, InputRateLimits<NU, T>>(opts...);
 }
 
 } // namespace detail

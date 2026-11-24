@@ -129,9 +129,10 @@ struct Integrators {
  */
 template<size_t NX, size_t NU = 1, typename T = double>
 struct LQRWeights {
-    Matrix<NX, NX, T> Q{}; ///< On the plant states x (positive semidefinite)
-    Matrix<NU, NU, T> R{}; ///< On the inputs u (positive definite)
-    Matrix<NX, NU, T> N{}; ///< Cross term between x and u (default zero)
+    using option_kind = kind::Weights; ///< Its kind of design option
+    Matrix<NX, NX, T> Q{};             ///< On the plant states x (positive semidefinite)
+    Matrix<NU, NU, T> R{};             ///< On the inputs u (positive definite)
+    Matrix<NX, NU, T> N{};             ///< Cross term between x and u (default zero)
 };
 
 namespace detail {
@@ -174,6 +175,7 @@ struct pole_scalar<damp::complex<U>> {
  */
 template<size_t N, typename T = double>
 struct Poles {
+    using option_kind = kind::Weights; ///< Its kind of design option
     static_assert(damp::is_floating_point_v<T>, "A pole is a floating-point number or a damp::complex of one: Poles{-5.0, -5.0}, Poles{damp::complex{-1.0, 2.0}, damp::complex{-1.0, -2.0}}.");
 
     damp::complex<T> poles[N]{}; ///< The closed-loop poles, adjacent conjugate pairs
@@ -205,6 +207,7 @@ Poles(P, Rest...) -> Poles<1 + sizeof...(Rest), typename detail::pole_scalar<P>:
  */
 template<size_t N, typename T = double>
 struct ObserverPoles {
+    using option_kind = kind::ObserverPoles; ///< Its kind of design option
     static_assert(damp::is_floating_point_v<T>, "A pole is a floating-point number or a damp::complex of one: ObserverPoles{-40.0, -40.0}.");
 
     damp::complex<T> poles[N]{}; ///< The filter's error poles, adjacent conjugate pairs
@@ -214,39 +217,11 @@ struct ObserverPoles {
 template<typename P, typename... Rest>
 ObserverPoles(P, Rest...) -> ObserverPoles<1 + sizeof...(Rest), typename detail::pole_scalar<P>::type>;
 
+/** @brief The spec of a law's filter: a KalmanNoise for the Kalman gain, or ObserverPoles for a placed one. */
+template<typename F>
+concept FilterSpec = OptionOf<F, kind::KalmanNoise> || OptionOf<F, kind::ObserverPoles>;
+
 namespace detail {
-
-/** @brief Not a weights spec. */
-template<typename W>
-struct is_weight_spec : damp::false_type {};
-
-/** @brief LQRWeights. */
-template<size_t NX, size_t NU, typename T>
-struct is_weight_spec<LQRWeights<NX, NU, T>> : damp::true_type {};
-
-/** @brief Poles. */
-template<size_t N, typename T>
-struct is_weight_spec<Poles<N, T>> : damp::true_type {};
-
-/** @brief Not ObserverPoles. */
-template<typename O>
-struct is_observer_poles : damp::false_type {};
-
-/** @brief ObserverPoles. */
-template<size_t N, typename T>
-struct is_observer_poles<ObserverPoles<N, T>> : damp::true_type {};
-
-/** @brief Not a filter spec. */
-template<typename O>
-struct is_filter_spec : damp::false_type {};
-
-/** @brief KalmanNoise: the Kalman gain. */
-template<size_t NW, size_t NV, typename T, size_t ND>
-struct is_filter_spec<KalmanNoise<NW, NV, T, ND>> : damp::true_type {};
-
-/** @brief ObserverPoles: a placed gain. */
-template<size_t N, typename T>
-struct is_filter_spec<ObserverPoles<N, T>> : damp::true_type {};
 
 /** @brief A list of poles in the scalar @p T, as the placement takes them. */
 template<typename T, size_t N, typename U>
@@ -275,21 +250,13 @@ inline constexpr bool is_placed<PlacedPoles<N, T>> = true;
 /** @brief The gain of a design is the LQ one, from its weights. */
 struct LQGain {};
 
-/** @brief A DemandLimit: a kind of state_feedback option. */
-template<typename O>
-struct is_demand_limit : damp::false_type {};
-
-/** @brief DemandLimit of any length. */
-template<size_t M, typename T>
-struct is_demand_limit<DemandLimit<M, T>> : damp::true_type {};
-
 /** @brief The demand limit among @p opts on the gain's terms (@p Terms, a DemandTerms), or off without one. */
 template<typename Terms, typename... Opts>
 [[nodiscard]] constexpr Terms demand_terms_of(const Opts&... opts) {
-    if constexpr (::damp::detail::option_count<is_demand_limit, Opts...> == 0) {
+    if constexpr (::damp::detail::option_count<kind::DemandLimit, Opts...> == 0) {
         return Terms{};
     } else {
-        return Terms(::damp::detail::option<is_demand_limit>(Unset{}, opts...));
+        return Terms(::damp::detail::the<kind::DemandLimit>(opts...));
     }
 }
 
@@ -359,6 +326,7 @@ template<typename Terms, typename... Opts>
  */
 template<typename TQ = detail::Unset, typename T = detail::scalar_of_t<TQ>>
 struct IntegralAction {
+    using option_kind = kind::IntegralAction;         ///< Its kind of design option
     static constexpr size_t NI = detail::size_of<TQ>; ///< Integrators
 
     TQ                                             Q{};                                  ///< On ξ ≈ ∫(r − y) dt (NI × NI, positive definite)
@@ -392,28 +360,9 @@ struct IntegralAction {
  * A fade_time that is not finite and positive is refused with DesignStatus::invalid_parameter.
  */
 struct Handover {
-    double fade_time{0}; ///< [s] The time constant the mismatch decays with: exp(−Ts/fade_time) per tick
+    using option_kind = kind::Handover; ///< Its kind of design option
+    double fade_time{0};                ///< [s] The time constant the mismatch decays with: exp(−Ts/fade_time) per tick
 };
-
-namespace detail {
-
-/** @brief Not the public IntegralAction, as a kind of trailing option (options.hpp). */
-template<typename O>
-struct is_integral_option : damp::false_type {};
-
-/** @brief design::IntegralAction{.Q, …}. */
-template<typename TQ, typename T>
-struct is_integral_option<::damp::design::IntegralAction<TQ, T>> : damp::true_type {};
-
-/** @brief A Handover: a kind of state_feedback option. */
-template<typename O>
-struct is_handover : damp::false_type {};
-
-/** @brief Handover. */
-template<>
-struct is_handover<Handover> : damp::true_type {};
-
-} // namespace detail
 
 /** @brief The integral action of a design: the integrated outputs, their maps of the state and the input, the per-sample step, and what back-calculation moves the integrators by. */
 template<size_t NI, size_t NX, size_t NU, size_t NY, typename T = double>

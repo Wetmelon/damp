@@ -163,7 +163,8 @@ the repo root.
   config struct. A named option in a pack is left out, combined, forwarded and
   deduced inside a template; a designated-initializer aggregate's fields would
   carry the options' sizes, and clang does not deduce one inside a template
-  (llvm #114870). A new option is a new type in the pack.
+  (llvm #114870). A new option is a new type in the pack, which names its kind,
+  `using option_kind = design::kind::…;` (a new kind is a tag in `design/options.hpp`).
 - **Ticks:** estimators `predict` / `update`; controllers `control`; `step` is
   predict then update then control (m_k in, u_k out). Low-latency ISR: update →
   control → write → `back_calculate` → predict. `back_calculate(u_sat, u_ff = {})`
