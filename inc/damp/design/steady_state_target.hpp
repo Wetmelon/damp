@@ -21,7 +21,8 @@
  * products (with NZ < NU the minimum-norm solution; with NZ > NU the equilibrium whose outputs
  * are closest to r in the least-squares sense). Shared by the laws that track through a target
  * (OFLQG, OFMPC); a law with a disturbance model re-anchors its estimator (a FixedGainObserver
- * with design::kalman's fixed gain) on it.
+ * with design::kalman's fixed gain) on it. A MeasuredDisturbance d, read each tick, enters
+ * beside d̂ through its own B_d (none on the readings): the right side is then under [d̂; d].
  *
  * @see "Disturbance Models for Offset-Free Model-Predictive Control" (Pannocchia & Rawlings,
  *      2003), AIChE Journal 49(2)
@@ -44,13 +45,15 @@ namespace design {
 
 /**
  * @brief The outputs a law without integrators or a disturbance model holds at r through its
- *        steady-state target (design::state_feedback and design::mpc, with or without a KalmanNoise): `TrackedOutputs{{0}}`, in that order
+ *        steady-state target (design::state_feedback and design::mpc, with or without a KalmanNoise,
+ *        and design::steady_state_target, the target alone): `TrackedOutputs{{0}}`, in that order
  *        (the references r follow it).
  *
  * The target is the model's: x* = Nₓ·r, u* = Nᵤ·r. A model error or a constant disturbance
  * leaves an offset; integral action (lqi, lqgi) or a disturbance model (oflqg, an offset-free
  * mpc, whose spec's outputs are the held ones) removes it. An MPC's QP still weighs every output,
- * those it does not list toward C·x*.
+ * those it does not list toward C·x*. Beside a disturbance spec it does not compile: the spec's
+ * .outputs are the held ones.
  *
  * @see "Feedback Control of Dynamic Systems" (Franklin, Powell & Emami-Naeini), the reference
  *      input of state-space design (N_x, N_u)
@@ -73,13 +76,17 @@ struct TrackedOutputs<0> {};
  * @struct SteadyStateTargetResult
  * @brief The steady-state target maps: [x_t; u_t] per unit disturbance and per unit reference
  *
+ * With a MeasuredDisturbance, target_d is per unit [d̂; d], the estimated disturbance's columns
+ * then the measured one's NM, as every law's target is: SteadyStateTarget::equilibrium(r, [d̂; d])
+ * gives the (x_t, u_t) the law holds under that d.
+ *
  * @tparam NX States of the filter's model before the disturbance (the plant)
- * @tparam ND Disturbance states (0: the target from r alone)
+ * @tparam ND Disturbance columns: the spec's states, then a MeasuredDisturbance's inputs (0: the target from r alone)
  * @tparam NZ Controlled outputs (the listed measured outputs, or all of them)
  */
 template<size_t NX, size_t NU, size_t ND, size_t NZ, typename T = double>
 struct [[nodiscard]] SteadyStateTargetResult {
-    Matrix<NX + NU, ND, T> target_d{};                          ///< [x_t; u_t] per unit estimated disturbance
+    Matrix<NX + NU, ND, T> target_d{};                          ///< [x_t; u_t] per unit estimated disturbance, then per unit measured disturbance
     Matrix<NX + NU, NZ, T> target_r{};                          ///< [x_t; u_t] per unit controlled-output reference
     bool                   success{false};                      ///< status == DesignStatus::ok
     DesignStatus           status{DesignStatus::not_converged}; ///< ok, or why the target is refused
@@ -148,12 +155,47 @@ inline constexpr bool is_tracked_outputs = false;
 template<size_t NZ>
 inline constexpr bool is_tracked_outputs<TrackedOutputs<NZ>> = true;
 
-/** @brief TrackedOutputs, as a kind of trailing option (options.hpp): design::state_feedback's and design::mpc's. */
+/** @brief TrackedOutputs, as a kind of trailing option (options.hpp): design::state_feedback's, design::mpc's and design::steady_state_target's. */
 template<typename O>
 struct is_tracked_option : damp::bool_constant<is_tracked_outputs<O>> {};
 
+/** @brief Whether a design's options name its held outputs in one place: no TrackedOutputs beside a disturbance spec, whose .outputs are the held ones. */
+template<typename... Opts>
+inline constexpr bool held_in_one_place = (::damp::detail::option_count<is_tracked_option, Opts...> == 0) || !(is_disturbance_model<damp::remove_cvref_t<Opts>> || ...);
+
+/**
+ * @brief The compile-time check of the outputs a design's target holds at r, the same in every
+ *        design that holds r through one (design::state_feedback, design::mpc,
+ *        design::steady_state_target): one TrackedOutputs, and none beside a disturbance spec.
+ */
+template<typename... Opts>
+constexpr void check_held_outputs() {
+    static_assert(::damp::detail::option_count<is_tracked_option, Opts...> <= 1, "One TrackedOutputs lists every output the target holds at r: TrackedOutputs{{i, ...}}.");
+    static_assert(
+        held_in_one_place<Opts...>,
+        "A disturbance spec holds the outputs it lists at r: give them as its .outputs, InputDisturbance{{i, ...}} or "
+        "DisturbanceModel{.Bd = ..., .outputs = {i, ...}}, not as TrackedOutputs."
+    );
+}
+
+/**
+ * @brief The spec a target is designed on, from a design's disturbance spec and TrackedOutputs:
+ *        the disturbance model, which holds the outputs it lists, else the outputs @p held lists
+ *        (every output when it lists none). design::mpc's and design::steady_state_target's.
+ */
+template<typename Spec, size_t NS>
+[[nodiscard]] constexpr auto target_spec_of(const Spec& spec, const TrackedOutputs<NS>& held) {
+    if constexpr (is_disturbance_model<Spec>) {
+        static_cast<void>(held);
+        return spec;
+    } else {
+        static_cast<void>(spec);
+        return held;
+    }
+}
+
 /** @brief The options steady_state_target takes: the model features of the design (a KalmanNoise is ignored). */
-using target_options = ::damp::detail::option_set<is_disturbance, is_kalman_noise, is_input_delay, is_output_delay>;
+using target_options = ::damp::detail::option_set<is_disturbance, is_tracked_option, is_measured_disturbance, is_kalman_noise, is_input_delay, is_output_delay>;
 
 /** @brief The controlled outputs of a target under @p Spec: those it lists, else every output. */
 template<typename Spec, size_t NU, size_t NY, size_t NW>
@@ -395,6 +437,32 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
     return ::damp::detail::set_status(out, full.status);
 }
 
+/**
+ * @brief steady_state_target on its options, on the model of @p sys with @p delay: target_design
+ *        on the outputs the laws hold (target_spec_of: the disturbance spec's, else the
+ *        TrackedOutputs', else every output) and, after the spec's columns, a MeasuredDisturbance's
+ *        channel on that model (measured_channel), the target every design with the same options
+ *        holds. Without one (NM = 0) the channel has no columns: the spec's target alone.
+ * @return refused as the model is (a sample time, a delay), else with DesignStatus::bad_weights
+ *         for a non-finite B_d
+ */
+template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Delay, typename... Opts>
+[[nodiscard]] constexpr auto target_with(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T Ts, const Delay& delay, const Opts&... opts) {
+    check_held_outputs<Opts...>();
+    target_options::check<Opts...>();
+    const auto spec = target_spec_of(::damp::detail::option<is_disturbance>(NoDisturbance{}, opts...), ::damp::detail::option<is_tracked_option>(TrackedOutputs<>{}, opts...));
+    using Spec = damp::remove_cvref_t<decltype(spec)>;
+    const auto       measured = measured_of<NX, T>(opts...);
+    constexpr size_t NM = measured_inputs<damp::remove_cvref_t<decltype(measured)>>;
+    const auto       channel = measured_channel<Discrete>(sys, Ts, measured, delay);
+    if (!channel) {
+        using Result = SteadyStateTargetResult<NX + delay_states<Delay, NU, NY>, NU, disturbance_traits<Spec, NU, NY, NW>::states + NM, target_outputs<Spec, NU, NY, NW>, T>;
+        const auto m = sampled_model(sys, Ts, Discrete, delay);
+        return ::damp::detail::refused<Result>((m.status != DesignStatus::ok) ? m.status : DesignStatus::bad_weights); // the model's refusal first, as the designs'; else a non-finite B_d
+    }
+    return target_design<Discrete>(sys, Ts, spec, target_weight<Spec, NU, NY, NW, T>::identity(), delay, *channel);
+}
+
 } // namespace detail
 
 /**
@@ -404,18 +472,26 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
  * Solves, for unit d and r,
  * [A − I, B; C_z, D_z]·[x_t; u_t] = [−B_d d; r − C_{d,z} d] on the filter's model of
  * design::kalman with the same options: C_z and D_z are the rows of the measured outputs the
- * disturbance spec lists (all of them when it lists none, or with NoDisturbance), B_d and C_d
- * its channels, C_{d,z} the same rows of C_d (none with NoDisturbance: the target from r
- * alone). With NZ = NU the system is square and solved; with NZ < NU, the minimum-norm
- * solution; with NZ > NU no steady state holds every r, and the target is the steady state
- * (A − I)·x_t + B·u_t = −B_d·d whose outputs are closest to r in the least-squares sense.
+ * laws hold at r, those the disturbance spec lists, else those a TrackedOutputs lists, all of
+ * them when neither lists any; B_d and C_d the spec's channels, C_{d,z} the same rows of C_d
+ * (none without a spec: the target from r alone). With NZ = NU the system is square and
+ * solved; with NZ < NU, the minimum-norm solution; with NZ > NU no steady state holds every r,
+ * and the target is the steady state (A − I)·x_t + B·u_t = −B_d·d whose outputs are closest
+ * to r in the least-squares sense.
  * Offset-free control needs the steady state to exist, NZ ≤ NU, and the augment detectable
  * (design::kalman checks it).
+ *
+ * A MeasuredDisturbance{.Bd} among @p opts, a disturbance read each tick, adds its own B_d to
+ * the state rows' right side (none to the outputs'), its NM columns after the spec's: target_d
+ * is then [x_t; u_t] per unit [d̂; d], the target design::state_feedback and design::mpc hold
+ * with the same options, and a design without one is the type it was.
  *
  * Refused with DesignStatus::singular when NZ = NU and the steady state is not unique, or
  * NZ < NU and no steady state holds every r (the system is rank deficient); with
  * DesignStatus::bad_weights for a controlled output out of range or listed twice, or a
- * non-finite entry of the plant, B_d or C_d.
+ * non-finite entry of the plant, B_d or C_d, or of a MeasuredDisturbance's B_d. An option of
+ * a kind given twice, or a TrackedOutputs beside a disturbance spec, does not compile, as in
+ * design::state_feedback and design::mpc.
  *
  * @see "Offset-free reference tracking with model predictive control" (Maeder, Borrelli &
  *      Morari, 2009), Automatica 45(9)
@@ -423,17 +499,14 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
  *      Badgwell, 2002), Journal of Process Control 12(5)
  *
  * @param sys   Discrete-time plant (Ts > 0)
- * @param opts  The model features of the design, in any order: a disturbance spec
- *              (a KalmanNoise is accepted and ignored)
+ * @param opts  The model features of the design, in any order: a disturbance spec or a
+ *              TrackedOutputs, a MeasuredDisturbance (a KalmanNoise is accepted and ignored)
  * @return SteadyStateTargetResult with the maps and status
  */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename... Opts>
 [[nodiscard]] constexpr auto steady_state_target(const StateSpace<NX, NU, NY, T, NW, NV>& sys, const Opts&... opts) {
-    detail::target_options::check<Opts...>();
     static_assert(::damp::detail::option_count<detail::is_input_delay, Opts...> + ::damp::detail::option_count<detail::is_output_delay, Opts...> == 0, "A delay is sampled with the plant: give the continuous plant and Ts.");
-    return detail::target_design<true>(
-        sys, T{0}, ::damp::detail::option<detail::is_disturbance>(NoDisturbance{}, opts...)
-    );
+    return detail::target_with<true>(sys, T{0}, detail::NoDelay{}, opts...);
 }
 
 /**
@@ -447,20 +520,18 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
  * readings late: the target is on that model, so each of the readings' delay states holds the
  * steady output, the state a law with that filter anchors on.
  *
+ * A MeasuredDisturbance's B_d is continuous, ZOH'd with the plant (d held over the period). It
+ * enters the plant's states, none of an InputDelay's delay states, and an OutputDelay's as the
+ * plant moved under it until each reading was taken: the channel design::kalman's filter takes.
+ *
  * @param sys   Continuous plant (sys.Ts = 0)
  * @param Ts    Sampling time of the law [s]
- * @param opts  The model features of the design, in any order: a disturbance spec, an InputDelay,
- *              an OutputDelay
+ * @param opts  The model features of the design, in any order: a disturbance spec or a
+ *              TrackedOutputs, a MeasuredDisturbance, an InputDelay, an OutputDelay
  */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename... Opts>
 [[nodiscard]] constexpr auto steady_state_target(const StateSpace<NX, NU, NY, T, NW, NV>& sys, damp::type_identity_t<T> Ts, const Opts&... opts) {
-    detail::target_options::check<Opts...>();
-    const auto spec = ::damp::detail::option<detail::is_disturbance>(NoDisturbance{}, opts...);
-    if constexpr (::damp::detail::option_count<detail::is_input_delay, Opts...> + ::damp::detail::option_count<detail::is_output_delay, Opts...> == 0) {
-        return detail::target_design<false>(sys, Ts, spec);
-    } else {
-        return detail::target_design<false>(sys, Ts, spec, detail::target_weight<damp::remove_cvref_t<decltype(spec)>, NU, NY, NW, T>::identity(), detail::delays_of(opts...));
-    }
+    return detail::target_with<false>(sys, Ts, detail::delays_of(opts...), opts...);
 }
 
 } // namespace design

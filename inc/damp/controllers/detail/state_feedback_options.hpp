@@ -148,7 +148,7 @@ consteval bool fields_valid() {
     constexpr bool fits = disturbance_fits<typename O::disturbance, NX, NY, T>;
     constexpr bool integrate = is_unset<typename O::integrate> || integrated_count<typename O::integrate, NY>::selection;
     constexpr bool track = is_unset<typename O::track> || is_tracked_outputs<typename O::track>;
-    constexpr bool one_reference = is_unset<typename O::track> || is_unset<F>;
+    constexpr bool one_reference = is_unset<typename O::track> || is_unset<typename O::integrate>; // beside a disturbance model: check_held_outputs
     using M = O::measured;
     constexpr bool measured = is_unset<M> || damp::is_same_v<M, MeasuredDisturbance<NX, measured_inputs<M>, T>>;
     static_assert(noise, "The noise is design::KalmanNoise{.process = ..., .measurement = ...}.");
@@ -160,7 +160,7 @@ consteval bool fields_valid() {
     static_assert(fits, "The DisturbanceModel is on the plant's states and outputs, in the plant's scalar.");
     static_assert(integrate, "The integrated outputs Ci·y: Ci is an NI x NY matrix, a column per measured output.");
     static_assert(track, "options.track is design::TrackedOutputs{} (every output) or TrackedOutputs{{i, ...}}.");
-    static_assert(one_reference, "Integral action and a disturbance model already hold r: TrackedOutputs is for a law with neither (LQR, LQG).");
+    static_assert(one_reference, "Integral action already holds r: TrackedOutputs is for a law without it (LQR, LQG).");
     static_assert(measured, "options.measured is design::MeasuredDisturbance{.Bd = Matrix<NX, NM>{...}}: a row per plant state, in the plant's scalar.");
     return noise && choice && fits && integrate && track && one_reference && measured;
 }

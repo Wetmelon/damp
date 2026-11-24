@@ -105,6 +105,7 @@ template<bool Sampled, size_t NX, size_t NU, size_t NY, typename T, size_t NW, s
     const LQRConfig<NX, NU, T>&              config,
     const Opts&... opts
 ) {
+    check_held_outputs<Opts...>(); // the target's: one TrackedOutputs, and none beside a disturbance spec
     state_feedback_options::check<Opts...>();
     constexpr bool kFilter = ::damp::detail::option_count<is_kalman_noise, Opts...> > 0;
     constexpr bool kIntegral = ::damp::detail::option_count<is_integral_option, Opts...> > 0;

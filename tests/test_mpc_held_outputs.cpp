@@ -163,7 +163,7 @@ TEST_SUITE("MPC held outputs") {
         SUBCASE("under a measured disturbance, the target under it") {
             const auto md = design::mpc<20, 5>(*kLags, both_weighed(), design::MeasuredDisturbance{kLoadOnX2}, design::TrackedOutputs{{1}});
             REQUIRE(md.success);
-            const auto same = design::steady_state_target(*kLags, design::DisturbanceModel{.Bd = kLoadOnX2, .outputs = {1}});
+            const auto same = design::steady_state_target(*kLags, design::TrackedOutputs{{1}}, design::MeasuredDisturbance{kLoadOnX2});
             CHECK(same_map(md.target.target_d, same.target_d));
             CHECK(same_map(md.target.target_r, same.target_r));
             MPC          ml{md};

@@ -13,8 +13,8 @@
  * options, and the disturbance option of design::kalman, design::state_feedback and design::mpc with a KalmanNoise: ND integrating
  * disturbances d_{k+1} = d_k enter the filter's model through B_d and the readings through C_d.
  * A MeasuredDisturbance is the other kind, an input the law reads each tick: the option of
- * design::state_feedback, design::mpc and design::kalman, alone or beside a disturbance spec,
- * whose d̂ then estimates only what it does not measure.
+ * design::state_feedback, design::mpc, design::kalman and design::steady_state_target, alone or
+ * beside a disturbance spec, whose d̂ then estimates only what it does not measure.
  */
 
 
@@ -125,13 +125,15 @@ struct DisturbanceModel<NX, NY, ND, 0, T> {
  *        plant's state through @c Bd (a load torque, a feed rate, the ambient temperature), read
  *        each tick.
  *
- * A trailing option of design::state_feedback, design::mpc and design::kalman. The law's target is
- * the steady state under it, u = u_t(r, d) − K·(x − x_t(r, d)) on an LQ law and the QP posed about
- * that target on an MPC, which also holds d over its horizon; the runtime takes it each tick,
- * after the reference and its feedforward: control(r, d), control(r, x_ref, u_ref, d),
- * step(r, d, m), step(r, x_ref, u_ref, d, m). A filter (a KalmanNoise) takes it as a known input
- * after u, its model's B being [B, B_d] and its noise unchanged, so beside a disturbance spec its
- * d̂ estimates only the part of a load that is not measured.
+ * A trailing option of design::state_feedback, design::mpc, design::kalman and
+ * design::steady_state_target. The law's target is the steady state under it, steady_state_target's
+ * with the same options (target_d per unit [d̂; d]): u = u_t(r, d) − K·(x − x_t(r, d)) on an LQ law
+ * and the QP posed about that target on an MPC, which also holds d over its horizon; the runtime
+ * takes it each tick, after the reference and its feedforward: control(r, d),
+ * control(r, x_ref, u_ref, d), step(r, d, m), step(r, x_ref, u_ref, d, m). A filter (a
+ * KalmanNoise) takes it as a known input after u, its model's B being [B, B_d] and its noise
+ * unchanged, so beside a disturbance spec its d̂ estimates only the part of a load that is not
+ * measured.
  *
  * B_d is in the plant's time domain: continuous on a continuous plant, discretized with it by ZOH
  * (d held over the period), per step on a discrete one. On a plant whose input arrives late
