@@ -19,7 +19,8 @@
  * | @c series(sys1, sys2) | @c series(sys1,sys2) | @f$ u \to \mathrm{sys1} \to \mathrm{sys2} \to y @f$ |
  * | @c sys2 * sys1 | @c sys2*sys1 | same as @c series(sys1,sys2) |
  * | @c parallel / @c + | @c parallel / @c + | shared @f$u@f$, sum outputs |
- * | @c feedback / @c / | @c feedback | negative feedback @f$ y = \mathrm{sys1}(r - \mathrm{sys2}(y)) @f$ |
+ * | @c subtract / @c - | @c - | shared @f$u@f$, @f$ y = y_1 - y_2 @f$ |
+ * | @c feedback | @c feedback | negative feedback @f$ y = \mathrm{sys1}(r - \mathrm{sys2}(y)) @f$ |
  * | @c lft(P,K) | @c lft(P,K) | K closes P's last outputs to its last inputs (u = K y); w → z open |
  * | @c select(sys,iy,iu) | @c sys(iy+1,iu+1) | SISO slice |
  * | @c mix | — | @f$ v = g u + \sum k_i y_i @f$ on one input column |
@@ -27,6 +28,20 @@
  *
  * Mismatched sample times or a singular algebraic loop return
  * @c damp::nullopt (MATLAB® errors in those cases).
+ *
+ * The operators `*`, `+` and `-` also take that optional, on either side, so a chain composes
+ * and is checked once: an empty operand gives @c nullopt, and `P * C * F` is
+ * `series(series(F, C), P)`.
+ *
+ * There is no `/`: MATLAB®'s is right division (`a/b` is a·inv(b)), so feedback is spelled
+ * @c feedback only.
+ *
+ * @code
+ * const auto L = P * C * F; // damp::optional<StateSpace<…>>
+ * if (L) {
+ *     // *L is the series path
+ * }
+ * @endcode
  *
  * @code
  * using namespace damp;
@@ -42,7 +57,7 @@
  * @see discretize() in systems/discretization.hpp
  * @see TransferFunction::to_state_space()
  * @see "Feedback Control of Dynamic Systems" (Franklin, Powell & Emami-Naeini)
- * @note Compare with MATLAB®'s ss, series, parallel, feedback, lft, and * / + operators.
+ * @note Compare with MATLAB®'s ss, series, parallel, feedback, lft, and the *, + and - operators.
  */
 
 
@@ -110,8 +125,8 @@ template<size_t R, size_t K, size_t C, typename T>
  *
  * Fixed-size, stack-allocated LTI container. @c Ts == 0 is continuous; @c Ts > 0 is discrete.
  * Process/measurement noise channels @c G (NX×NW) and @c H (NY×NV) are preserved through
- * interconnection operators (* series, + parallel, − differencing, / feedback) when the
- * composition succeeds.
+ * interconnections (* series, + parallel, − differencing, @ref feedback) when the composition
+ * succeeds.
  *
  * Discrete-time (@c Ts > 0):
  * @f[
@@ -634,43 +649,87 @@ template<
 
 // --- Operators (MATLAB®-compatible; return optional like the free functions) ---
 
-template<
-    size_t NX1, size_t NU1, size_t NY1, size_t NW1, size_t NV1,
-    size_t NX2, size_t NU2, size_t NY2, size_t NW2, size_t NV2,
-    typename T>
-[[nodiscard]] constexpr auto operator+(
-    const StateSpace<NX1, NU1, NY1, T, NW1, NV1>& sys1,
-    const StateSpace<NX2, NU2, NY2, T, NW2, NV2>& sys2
-) {
-    return parallel(sys1, sys2);
+namespace detail {
+
+/** @brief True for a StateSpace. */
+template<typename S>
+inline constexpr bool is_state_space_v = false;
+
+/** @brief True for a StateSpace. */
+template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
+inline constexpr bool is_state_space_v<StateSpace<NX, NU, NY, T, NW, NV>> = true;
+
+/** @brief An operand of the StateSpace operators: a system, or the optional one an earlier operator returned. */
+template<typename S>
+concept state_space_operand = is_state_space_v<S> || (is_state_space_v<typename S::value_type> && damp::is_same_v<S, damp::optional<typename S::value_type>>);
+
+/** @brief Whether an operand holds a system: a StateSpace always, an optional when engaged. */
+template<state_space_operand S>
+[[nodiscard]] constexpr bool holds_system([[maybe_unused]] const S& operand) {
+    if constexpr (is_state_space_v<S>) {
+        return true;
+    } else {
+        return operand.has_value();
+    }
 }
 
-template<
-    size_t NX1, size_t NU1, size_t NY1, size_t NW1, size_t NV1,
-    size_t NX2, size_t NU2, size_t NY2, size_t NW2, size_t NV2,
-    typename T>
-[[nodiscard]] constexpr auto operator-(
-    const StateSpace<NX1, NU1, NY1, T, NW1, NV1>& sys1,
-    const StateSpace<NX2, NU2, NY2, T, NW2, NV2>& sys2
-) {
-    return subtract(sys1, sys2);
+/** @brief The system an operand holds: itself, or the optional's value (when @ref holds_system). */
+template<state_space_operand S>
+[[nodiscard]] constexpr const auto& held_system(const S& operand) {
+    if constexpr (is_state_space_v<S>) {
+        return operand;
+    } else {
+        return *operand;
+    }
+}
+
+} // namespace detail
+
+/**
+ * @brief Parallel connection matching MATLAB®: @c sys1 + sys2 ≡ @c parallel(sys1, sys2)
+ *
+ * Either operand may be the optional an earlier operator returned, so a chain is checked once:
+ * an empty operand gives @c nullopt.
+ */
+template<detail::state_space_operand S1, detail::state_space_operand S2>
+[[nodiscard]] constexpr auto operator+(const S1& sys1, const S2& sys2) {
+    using Result = decltype(parallel(detail::held_system(sys1), detail::held_system(sys2)));
+    if (!detail::holds_system(sys1) || !detail::holds_system(sys2)) {
+        return Result{};
+    }
+    return parallel(detail::held_system(sys1), detail::held_system(sys2));
+}
+
+/**
+ * @brief Differencing connection: @c sys1 - sys2 ≡ @c subtract(sys1, sys2)
+ *
+ * Either operand may be the optional an earlier operator returned, so a chain is checked once:
+ * an empty operand gives @c nullopt.
+ */
+template<detail::state_space_operand S1, detail::state_space_operand S2>
+[[nodiscard]] constexpr auto operator-(const S1& sys1, const S2& sys2) {
+    using Result = decltype(subtract(detail::held_system(sys1), detail::held_system(sys2)));
+    if (!detail::holds_system(sys1) || !detail::holds_system(sys2)) {
+        return Result{};
+    }
+    return subtract(detail::held_system(sys1), detail::held_system(sys2));
 }
 
 /**
  * @brief Series product matching MATLAB®: @c sys1 * sys2 ≡ @c series(sys2, sys1)
  *
  * Signal path: @f$ u \to \mathrm{sys2} \to \mathrm{sys1} \to y @f$
- * (right factor acts first). Prefer @ref series when reading left-to-right.
+ * (right factor acts first), so `a * b * c` is `series(series(c, b), a)`. Prefer @ref series
+ * when reading left-to-right. Either operand may be the optional an earlier operator returned,
+ * so a chain is checked once: an empty operand gives @c nullopt.
  */
-template<
-    size_t NX1, size_t NU1, size_t NY1, size_t NW1, size_t NV1,
-    size_t NX2, size_t NU2, size_t NY2, size_t NW2, size_t NV2,
-    typename T>
-[[nodiscard]] constexpr auto operator*(
-    const StateSpace<NX1, NU1, NY1, T, NW1, NV1>& sys1,
-    const StateSpace<NX2, NU2, NY2, T, NW2, NV2>& sys2
-) {
-    return series(sys2, sys1);
+template<detail::state_space_operand S1, detail::state_space_operand S2>
+[[nodiscard]] constexpr auto operator*(const S1& sys1, const S2& sys2) {
+    using Result = decltype(series(detail::held_system(sys2), detail::held_system(sys1)));
+    if (!detail::holds_system(sys1) || !detail::holds_system(sys2)) {
+        return Result{};
+    }
+    return series(detail::held_system(sys2), detail::held_system(sys1));
 }
 
 /**

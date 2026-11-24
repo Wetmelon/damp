@@ -413,6 +413,77 @@ TEST_CASE("StateSpace * matches MATLAB series order") {
     CHECK(via_star.A(1, 1) == doctest::Approx(via_series.A(1, 1)));
 }
 
+namespace {
+/** @brief Every matrix and the sample time equal, entry for entry. */
+template<typename S>
+constexpr bool same_system(const S& x, const S& y) {
+    return x.A == y.A && x.B == y.B && x.C == y.C && x.D == y.D && x.G == y.G && x.H == y.H && x.Ts == y.Ts;
+}
+
+//! Small integers: every product and sum is exact, so how a chain groups its links cannot round.
+constexpr StateSpace<1, 1, 1, double, 1, 1> kChainA{.A = {{-1.0}}, .B = {{2.0}}, .C = {{3.0}}, .D = {{1.0}}, .G = {{2.0}}, .H = {{1.0}}};
+constexpr StateSpace<2, 1, 1, double, 2, 1> kChainB{
+    .A = {{0.0, 1.0}, {-2.0, -3.0}},
+    .B = {{0.0}, {1.0}},
+    .C = {{1.0, 2.0}},
+    .D = {{-1.0}},
+    .G = {{1.0, 0.0}, {0.0, 2.0}},
+    .H = {{3.0}},
+};
+constexpr StateSpace<1, 1, 1, double, 1, 1> kChainC{.A = {{-4.0}}, .B = {{1.0}}, .C = {{-2.0}}, .D = {{2.0}}, .G = {{1.0}}, .H = {{-1.0}}};
+
+// Two operands: the types the free functions return, as before.
+static_assert(std::is_same_v<decltype(kChainA * kChainB), decltype(series(kChainB, kChainA))>);
+static_assert(std::is_same_v<decltype(kChainA * kChainB), damp::optional<StateSpace<3, 1, 1, double, 3, 2>>>);
+static_assert(std::is_same_v<decltype(kChainA + kChainB), decltype(parallel(kChainA, kChainB))>);
+static_assert(std::is_same_v<decltype(kChainA - kChainB), decltype(subtract(kChainA, kChainB))>);
+// A chain: one optional of the whole, whichever side the optional links are on.
+static_assert(std::is_same_v<decltype(kChainA * kChainB * kChainC), damp::optional<StateSpace<4, 1, 1, double, 4, 3>>>);
+static_assert(std::is_same_v<decltype(kChainA * (kChainB * kChainC)), damp::optional<StateSpace<4, 1, 1, double, 4, 3>>>);
+static_assert(std::is_same_v<decltype((kChainA + kChainB) - kChainC), damp::optional<StateSpace<4, 1, 1, double, 4, 3>>>);
+static_assert(std::is_same_v<decltype((kChainA * kChainC) + (kChainB * kChainC)), damp::optional<StateSpace<5, 1, 1, double, 5, 4>>>);
+
+// Composed at compile time, and a * b * c is series(series(c, b), a).
+static_assert(same_system(*(kChainA * kChainB * kChainC), *series(*series(kChainC, kChainB), kChainA)));
+} // namespace
+
+TEST_CASE("StateSpace operators give the free functions' results on two systems") {
+    const auto a = kChainA;
+    const auto b = kChainB;
+    const auto c = kChainC;
+    CHECK(same_system(*(a * b), *series(b, a)));
+    CHECK(same_system(*(a + c), *parallel(a, c)));
+    CHECK(same_system(*(a - c), *subtract(a, c)));
+}
+
+TEST_CASE("StateSpace operators chain, and equal the nested free functions") {
+    const auto a = kChainA;
+    const auto b = kChainB;
+    const auto c = kChainC;
+    CHECK(same_system(*(a * b * c), *series(*series(c, b), a)));
+    CHECK(same_system(*(a * (b * c)), *series(*series(c, b), a)));
+    CHECK(same_system(*((a + b) - c), *subtract(*parallel(a, b), c)));
+    CHECK(same_system(*(a * b + c), *parallel(*series(b, a), c)));
+    CHECK(same_system(*((a - c) * b), *series(b, *subtract(a, c))));
+    CHECK(same_system(*(a * (b + c)), *series(*parallel(b, c), a)));
+    CHECK(same_system(*((a * c) - (b * a)), *subtract(*series(c, a), *series(a, b))));
+}
+
+TEST_CASE("StateSpace chain with a sample-time mismatch at any link is nullopt at the end") {
+    auto a = kChainA;
+    auto b = kChainB;
+    a.Ts = 0.01;
+    b.Ts = 0.01;
+    const auto c = kChainC; // continuous
+    REQUIRE((a * b).has_value());
+    CHECK_FALSE((a * b * c).has_value());             // the last link
+    CHECK_FALSE((c * a * b).has_value());             // the first link, carried through the second
+    CHECK_FALSE((a * (b * c)).has_value());           // an empty right operand
+    CHECK_FALSE(((a * b) + (c - c)).has_value());     // two engaged operands of different Ts
+    CHECK_FALSE(((c * a) - (b * a)).has_value());     // an empty left operand, an engaged right one
+    CHECK_FALSE(((a - c) * b + (a * b)).has_value()); // a mixed chain
+}
+
 TEST_CASE("Statespace 2x2 with noise") {
     StateSpace<2, 1, 1, double, 2, 1> sys = {
         .A = {{0.0, 1.0}, {-2.0, -3.0}},
