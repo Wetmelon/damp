@@ -169,6 +169,7 @@ static_assert(StateEstimator<KalmanFilter<2, 1, 1, double, 2, 1>, 2, 1, 1, doubl
 static_assert(StateEstimator<FixedGainObserver<2, 1, 1, double>, 2, 1, 1, double>);    // fixed gain
 static_assert(StateEstimator<FixedGainObserver<3, 1, 1, double, 1>, 3, 1, 1, double>); // fixed gain, anchored
 static_assert(StateEstimator<MHE<1, 1, 1, 4, double>, 1, 1, 1, double>);
+static_assert(StateEstimator<MHE<1, 1, 1, 4, double, 1>, 1, 1, 1, double>);         // a StateLimits on one state
 static_assert(StateEstimator<ReducedOrderObserver<3, 1, double>, 3, 1, 1, double>); // reduced order
 static_assert(StateEstimator<ESO<1, double>, 2, 1, 1, double>);                     // 1st-order plant, z = [ŷ, f̂]
 static_assert(StateEstimator<ESO<2, double>, 3, 1, 1, double>);                     // 2nd-order plant, z = [ŷ, ẏ, f̂]
@@ -290,6 +291,18 @@ TEST_CASE("fused step(y, u) equals the manual predict/update sequence") {
             const ColVec    u{0.1};
             const auto      xf = est.step(y, u); // no predict/update split: step returns the window's last state
             CHECK(est.state()(0) == doctest::Approx(xf(0)));
+        }
+
+        //! The same with a hard ceiling under the readings: the runtime sized by the design.
+        const auto bounded = design::mhe<4>(tank, {.process = 1e-4, .measurement = 1e-3}, design::StateLimits{.states = {0}, .upper = {0.35}, .upper_ecr = {0.0}});
+        REQUIRE(bounded.success);
+        MHE capped{bounded};
+        static_assert(damp::is_same_v<decltype(capped), MHE<1, 1, 1, 4, double, 1>>);
+        for (int k = 0; k < 20; ++k) {
+            const ColVec<1> y{0.3 + (0.01 * k)};
+            const auto      xf = capped.step(y, ColVec{0.1});
+            CHECK(capped.state()(0) == doctest::Approx(xf(0)));
+            CHECK(xf(0) <= 0.35);
         }
     }
 }

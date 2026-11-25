@@ -112,6 +112,30 @@ inline constexpr size_t listed_by = [] {
     }
 }();
 
+/** @brief Copy a limits option's index list (OutputLimits::outputs, StateLimits::states) into a design's array. */
+template<size_t N>
+constexpr void copy_listed(damp::array<size_t, N>& to, const size_t (&from)[N]) {
+    for (size_t i = 0; i < N; ++i) {
+        to[i] = from[i];
+    }
+}
+
+/** @brief Each index of @p list is below @p N and listed once. */
+template<size_t N, size_t M>
+[[nodiscard]] constexpr bool indices_valid(const damp::array<size_t, M>& list) {
+    for (size_t i = 0; i < M; ++i) {
+        if (list[i] >= N) {
+            return false;
+        }
+        for (size_t j = 0; j < i; ++j) {
+            if (list[j] == list[i]) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 /**
  * @brief The option of the kind @p Kind among @p opts, or @p fallback when none is.
  * @return A copy of the option, with its own type (option_t), so its sizes are known

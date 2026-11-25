@@ -179,6 +179,7 @@
 #include "damp/design/options.hpp"
 #include "damp/design/qp.hpp" // IWYU pragma: export
 #include "damp/design/riccati.hpp"
+#include "damp/design/state_limits.hpp" // IWYU pragma: export
 #include "damp/design/status.hpp"
 #include "damp/design/steady_state_target.hpp" // IWYU pragma: export
 #include "damp/estimation/fixed_gain_observer.hpp"
@@ -199,29 +200,9 @@ namespace design {
 
 namespace detail {
 
-// filled_vector / convert_bounds (sentinel machinery) live in design/qp.hpp's
-// detail — shared with the MHE and any other bound-carrying design function.
-
-/** @brief Scale factor from a constraint range: (max − min) when both finite, else 1. */
-template<typename T>
-[[nodiscard]] constexpr T scale_from_range(T lo, T hi) {
-    constexpr T thresh = damp::numeric_limits<T>::max() / T{4};
-    if (lo <= -thresh || lo >= thresh || hi >= thresh || hi <= -thresh) {
-        return T{1};
-    }
-    const T span = hi - lo;
-    return (span > T{0}) ? span : T{1};
-}
-
-/** @brief Divide a bound by a scale factor, leaving unbounded sentinels untouched. */
-template<typename T>
-[[nodiscard]] constexpr T scaled_bound(T bound, T scale) {
-    constexpr T thresh = damp::numeric_limits<T>::max() / T{4};
-    if (bound >= thresh || bound <= -thresh) {
-        return bound;
-    }
-    return bound / scale;
-}
+// filled_vector, convert_bounds, scale_from_range and scaled_bound (the sentinel and scaling
+// machinery) live in design/qp.hpp's detail, shared with the MHE; copy_listed and indices_valid
+// in design/options.hpp's.
 
 /** @brief The terminal ingredient a design::mpc call was given, as its result records it (internal: the options are DareCost and InvariantSet). */
 enum class MPCTerminal : uint8_t {
@@ -371,34 +352,6 @@ struct InvariantSet {
 };
 
 /**
- * @struct StateLimits
- * @brief Limits on states an MPC does not track: among design::mpc's options
- *
- * lower and upper bound the NXC states of the prediction model listed in states (a delayed model's
- * delay states come after the plant's states), over the whole prediction horizon, soft by default
- * like OutputLimits: a lean, a speed or a temperature the law must keep within without tracking
- * it. `StateLimits{.states = {2}, .lower = {-0.26}, .upper = {0.26}}` bounds state 2; states is an
- * array, so the limits take NXC from its list, and an end left out is unbounded. lower_ecr(i) and
- * upper_ecr(i) are the softness of each side (0 = hard). design::mpc refuses a state index past
- * the model's or listed twice, an end NaN or ±Inf or a lower end above its upper one
- * (invalid_parameter), and a negative or non-finite ECR with bad_weights. With an InvariantSet,
- * whose rows do not cover the states, it does not compile. The runtime moves the bounds with
- * set_limits (MPCLimits::state).
- */
-template<size_t NXC, typename T = double>
-struct StateLimits {
-    using option_kind = kind::StateLimits; ///< Its kind of design option
-    static constexpr size_t listed = NXC;  ///< The states it bounds
-    static_assert(NXC > 0, "StateLimits lists the states it bounds: .states = {i, ...}, at least one.");
-
-    size_t         states[NXC]{};                                                        ///< Indices of the prediction model's states bounded, each once (an array, so bare braces give NXC)
-    ColVec<NXC, T> lower = Matrix<NXC, 1, T>::constant(-damp::numeric_limits<T>::max()); ///< Their lowest values (default unbounded; soft through lower_ecr)
-    ColVec<NXC, T> upper = Matrix<NXC, 1, T>::constant(damp::numeric_limits<T>::max());  ///< Their highest values (default unbounded; soft through upper_ecr)
-    ColVec<NXC, T> lower_ecr{detail::filled_vector<NXC>(T{1})};                          ///< Softness of the lower rows, ≥ 0 (0 = hard)
-    ColVec<NXC, T> upper_ecr{detail::filled_vector<NXC>(T{1})};                          ///< Softness of the upper rows, ≥ 0 (0 = hard)
-};
-
-/**
  * @brief The limits an MPC takes at run time (MATLAB®'s online constraints): u, Δu, the
  *        outputs its design's OutputLimits lists, the states its StateLimits lists and the
  *        disturbance estimate d̂, in physical units. A field left out is unbounded, and one the
@@ -478,14 +431,6 @@ inline constexpr size_t terminal_rows = [] {
         return option_t<kind::Terminal, void, Opts...>::rows;
     }
 }();
-
-/** @brief Copy a limits option's index list into the set's array. */
-template<size_t N>
-constexpr void copy_listed(damp::array<size_t, N>& to, const size_t (&from)[N]) {
-    for (size_t i = 0; i < N; ++i) {
-        to[i] = from[i];
-    }
-}
 
 /**
  * @brief The limits among @p opts that the QP reads, as the design's set on the plant's NU inputs
@@ -765,26 +710,10 @@ template<size_t NU, size_t NY, typename T, size_t NYC, size_t NXC, size_t NDU>
     return used;
 }
 
-/** @brief Each index of @p list is below @p N and listed once. */
-template<size_t N, size_t M>
-[[nodiscard]] constexpr bool mpc_indices_valid(const damp::array<size_t, M>& list) {
-    for (size_t i = 0; i < M; ++i) {
-        if (list[i] >= N) {
-            return false;
-        }
-        for (size_t j = 0; j < i; ++j) {
-            if (list[j] == list[i]) {
-                return false;
-            }
-        }
-    }
-    return true;
-}
-
 /** @brief The bounded states are the model's and the bounded outputs the plant's, each listed once, inside valid boxes. */
 template<size_t NX, size_t NY, size_t NU, size_t NYC, typename T, size_t NXC, size_t NDU>
 [[nodiscard]] constexpr bool mpc_signal_bounds_valid(const MPCConstraintSet<NU, NXC, NYC, T, NDU>& c) {
-    return mpc_indices_valid<NX>(c.x_states) && c.limits.state.valid() && mpc_indices_valid<NY>(c.y_outputs) && c.limits.output.valid();
+    return indices_valid<NX>(c.x_states) && c.limits.state.valid() && indices_valid<NY>(c.y_outputs) && c.limits.output.valid();
 }
 
 /**
@@ -3648,20 +3577,6 @@ concept mpc_design = requires { typename mpc_runtime<detail::design_t<Res>, T>::
 template<const auto& Res, typename T>
 concept filtered_mpc_design = mpc_design<Res, T> && mpc_runtime<detail::design_t<Res>, T>::filtered;
 
-/**
- * @brief Whether the Law of the MPC design @p Res runs: a `constexpr` design only when it
- *        succeeded (a failed one does not compile, and the error names its status), one
- *        initialized at start-up always (valid() reports it).
- */
-template<const auto& Res>
-[[nodiscard]] consteval bool mpc_law_runs() {
-    if constexpr (constant_design<Res>) {
-        return constant_design_runs(Res.success, Res.status);
-    } else {
-        return true;
-    }
-}
-
 } // namespace detail
 
 /** @brief Law<kRes, T> of a `constexpr` MPC design with a filter: the same law, its filter on the design's matrices as constants of the type. The QP's data stays in members: set_limits rewrites it. */
@@ -3681,7 +3596,7 @@ template<const auto& Res, typename T>
     requires detail::mpc_design<Res, T>
 struct Law<Res, T> : detail::mpc_runtime<detail::design_t<Res>, T>::type {
     using Runtime = detail::mpc_runtime<detail::design_t<Res>, T>::type; ///< The runtime the design runs as
-    static_assert(detail::mpc_law_runs<Res>());                          // a failed constexpr design does not compile: the error names its status
+    static_assert(detail::member_law_runs<Res>());                       // a failed constexpr design does not compile: the error names its status
 
     /** @brief The design's law. */
     constexpr Law() : Runtime{Res.template as<T>()} {}

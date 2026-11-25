@@ -183,14 +183,17 @@ the repo root.
   `set_limits(lim)`, which refuses one that is not a box (false, nothing
   changed): `StateFeedbackLimits` and `MPCLimits`, which start with `input` (then
   `input_rate`) and end with `disturbance`, and a design result holds the same
-  struct as `limits`. The other runtimes hold `u_lim` as a public member. The
+  struct as `limits`. The MHE does the same with `MHELimits`, its `state` the
+  bounds of the states its `StateLimits` lists. The other runtimes hold `u_lim`
+  as a public member. The
   tick returns a command inside its limits, and with nothing else set the law's
   memory holds against that clamp (conditional integration, an observer or
   internal model on the clamped command). A clamp after the law is reported with
   `back_calculate`, to the same effect. A move limit is an `InputRateLimits`
   (clamped on an LQ law, rows of an MPC's QP); state and output limits are
-  `design::mpc` (`OutputLimits`, `StateLimits`), `design::mhe` (`x_lim`) or an
-  `ActionGovernor` around any law. A new law with memory gets all of it.
+  `design::mpc` (`OutputLimits`, `StateLimits`), `design::mhe` (`StateLimits`,
+  soft or hard as the MPC's) or an `ActionGovernor` around any law. A new law
+  with memory gets all of it.
 - **Errors:** `optional` / `bool success` / `DesignStatus` / `valid()` /
   compile-time constraints. No exceptions, and no run-time faults anywhere: a
   refusal is a compile error only under constant evaluation; at run time it is

@@ -74,6 +74,7 @@
 #include "damp/design/qp.hpp"                  // IWYU pragma: export
 #include "damp/design/riccati.hpp"             // IWYU pragma: export
 #include "damp/design/stability.hpp"           // IWYU pragma: export
+#include "damp/design/state_limits.hpp"        // IWYU pragma: export
 #include "damp/design/status.hpp"              // IWYU pragma: export
 #include "damp/design/steady_state_target.hpp" // IWYU pragma: export
 
