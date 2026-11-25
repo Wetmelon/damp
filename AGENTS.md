@@ -145,7 +145,7 @@ the repo root.
   kind's design: LQR, LQI with an `IntegralAction`, LQG with a `KalmanNoise` (or
   `ObserverPoles`, the filter placed), LQGI with both, OFLQG with a filter and a
   disturbance spec, its weights `LQRWeights` or `Poles` for any of them, the same result and runtime; `mpc` runs as one
-  runtime, `MPC`, on the measured state or through a filter with a `KalmanNoise`, and `OFMPC` names the
+  runtime, `MPC`, on the measured state or through a filter with a `KalmanNoise` (or `ObserverPoles`), and `OFMPC` names the
   offset-free one, with a noise and a disturbance spec (an alias: `OFMPC law{res}` refuses a design without a
   disturbance); a `MeasuredDisturbance` adds to any of them, the target under d and a filter's known
   input after u. An option carries its own numbers, so the

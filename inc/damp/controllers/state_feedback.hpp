@@ -136,22 +136,6 @@ template<typename T, size_t N, typename U>
     return {pole_list<T>(poles.poles)};
 }
 
-/** @brief ObserverPoles: the filter's gain placed there, in the plant's scalar. */
-template<typename T, size_t N, typename U>
-[[nodiscard]] constexpr PlacedPoles<N, T> observer_spec_of(const ObserverPoles<N, U>& poles) {
-    return {pole_list<T>(poles.poles)};
-}
-
-/** @brief The filter spec among @p opts: the KalmanNoise sized to the plant, or ObserverPoles (observer_spec_of). */
-template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename... Opts>
-[[nodiscard]] constexpr auto filter_spec_of(const Opts&... opts) {
-    if constexpr (option_count<kind::ObserverPoles, Opts...> > 0) {
-        return observer_spec_of<T>(the<kind::ObserverPoles>(opts...));
-    } else {
-        return noise_of<NX, NU, NY, T, NW, NV>(opts...);
-    }
-}
-
 /**
  * @brief state_feedback_design_of once the options pass their checks: the options read by kind
  *        and the design on them (designed), its gain the LQ one or placed (@p gain).

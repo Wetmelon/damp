@@ -8,7 +8,7 @@
 /**
  * @file mpc.hpp
  * @brief Constrained linear MPC: condensed-QP synthesis (`design::mpc`) and the fixed-budget
- *        runtime `damp::MPC`, on the measured state or through a Kalman estimator, offset-free
+ *        runtime `damp::MPC`, on the measured state or through a filter (Kalman, or placed at ObserverPoles), offset-free
  *        with a disturbance model (`damp::OFMPC`), with an opt-in DARE terminal cost and
  *        Gilbert–Tan positively invariant terminal set.
  *
@@ -170,10 +170,11 @@
  */
 
 #include "damp/backend.hpp"
-#include "damp/controllers/law.hpp" // IWYU pragma: export
-#include "damp/controllers/state_feedback_types.hpp"
-#include "damp/design/disturbance.hpp"  // IWYU pragma: export
-#include "damp/design/input_limits.hpp" // IWYU pragma: export
+#include "damp/controllers/detail/placed_design.hpp"
+#include "damp/controllers/law.hpp"                  // IWYU pragma: export
+#include "damp/controllers/state_feedback_types.hpp" // IWYU pragma: export
+#include "damp/design/disturbance.hpp"               // IWYU pragma: export
+#include "damp/design/input_limits.hpp"              // IWYU pragma: export
 #include "damp/design/invariant_set.hpp"
 #include "damp/design/options.hpp"
 #include "damp/design/qp.hpp" // IWYU pragma: export
@@ -1732,8 +1733,8 @@ namespace detail {
 
 /** @brief The options design::mpc takes after the weights. */
 using mpc_options = option_set<
-    kind::InputLimits, kind::InputRateLimits, kind::KalmanNoise, kind::Disturbance, kind::MeasuredDisturbance, kind::TrackedOutputs, kind::OutputLimits, kind::StateLimits,
-    kind::Terminal, kind::QPIterations, kind::InputDelay, kind::OutputDelay, kind::Handover>; // a Handover only for its message
+    kind::InputLimits, kind::InputRateLimits, kind::KalmanNoise, kind::ObserverPoles, kind::Disturbance, kind::MeasuredDisturbance, kind::TrackedOutputs, kind::OutputLimits,
+    kind::StateLimits, kind::Terminal, kind::QPIterations, kind::InputDelay, kind::OutputDelay, kind::Handover>; // a Handover only for its message
 
 /**
  * @brief The compile-time check of a design::mpc<NP, NC> call's trailing options on a plant with
@@ -1748,7 +1749,11 @@ constexpr void check_mpc_options() {
         option_count<kind::Handover, Opts...> == 0,
         "Handover is an LQ law's: an offset added outside the QP would break its constraints. An MPC hands over from the input track() holds, the base of its first move."
     );
-    mpc_options::check<Opts...>();            // a kind it does not take, a kind given twice
+    mpc_options::check<Opts...>(); // a kind it does not take, a kind given twice
+    static_assert(
+        option_count<kind::KalmanNoise, Opts...> + option_count<kind::ObserverPoles, Opts...> <= 1,
+        "One filter: a KalmanNoise for the Kalman gain, or ObserverPoles for a placed one, not both."
+    );
     check_held_outputs<NU, NY, 0, Opts...>(); // the target's: none beside a disturbance spec, at most NU held
     constexpr bool kSet = option_count<kind::Terminal, Opts...> == 1 && terminal_rows<Opts...> > 0;
     static_assert(
@@ -1761,9 +1766,9 @@ constexpr void check_mpc_options() {
     );
 }
 
-/** @brief Whether a design::mpc call has an estimator: a KalmanNoise among its options. */
+/** @brief Whether a design::mpc call has an estimator: a KalmanNoise or ObserverPoles among its options. */
 template<typename... Opts>
-inline constexpr bool mpc_estimated = option_count<kind::KalmanNoise, Opts...> > 0;
+inline constexpr bool mpc_estimated = (FilterSpec<Opts> || ...);
 
 /** @brief The first status that is not ok among @p statuses, else ok. */
 template<typename... S>
@@ -1871,16 +1876,18 @@ template<
 }
 
 /**
- * @brief The MPC through an estimator: the filter of design::kalman with the same options, the
- *        QP on the law's model and every output with the disturbance channel, and the target of
- *        design::steady_state_target: under the disturbance spec, holding the outputs it lists,
- *        else on the outputs a TrackedOutputs @p held lists, else a regulator's. A @p measured
- *        disturbance (NM > 0) is the filter's known input after u, and the QP's and the target's
- *        channels after the estimated ones: [d̂; d], so d̂ estimates what d does not account for.
+ * @brief The MPC through an estimator: the filter of @p filter (a KalmanNoise, design::kalman's
+ *        with the same options, or ObserverPoles' PlacedPoles, design::state_feedback's placed
+ *        one: filter_design), the QP on the law's model and every output with the disturbance
+ *        channel, and the target of design::steady_state_target: under the disturbance spec,
+ *        holding the outputs it lists, else on the outputs a TrackedOutputs @p held lists, else a
+ *        regulator's. A @p measured disturbance (NM > 0) is the filter's known input after u, and
+ *        the QP's and the target's channels after the estimated ones: [d̂; d], so d̂ estimates
+ *        what d does not account for.
  */
 template<
-    Domain D, size_t NP, size_t NC, size_t NT_max, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NWN, size_t NVN, size_t NDN,
-    typename Spec, typename Held, size_t NYC, size_t NXC, size_t NDU, size_t NM, typename Delay = NoDelay>
+    Domain D, size_t NP, size_t NC, size_t NT_max, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Filter, typename Spec,
+    typename Held, size_t NYC, size_t NXC, size_t NDU, size_t NM, typename Delay = NoDelay>
 [[nodiscard]] constexpr auto mpc_estimated_design(
     const StateSpace<NX, NU, NY, T, NW, NV>&      sys,
     T                                             Ts,
@@ -1888,17 +1895,17 @@ template<
     const MPCConstraintSet<NU, NXC, NYC, T, NDU>& constraints,
     const MPCTerminalChoice<T>&                   terminal,
     const damp::optional<size_t>&                 budget,
-    const KalmanNoise<NWN, NVN, T, NDN>&          noise,
+    const Filter&                                 filter,
     const Spec&                                   spec,
     const Held&                                   held,
     const MeasuredDisturbance<NX, NM, T>&         measured,
     const Delay&                                  delay = Delay{}
 ) {
-    constexpr size_t ND = disturbance_states<Spec, NU, NY, NW>;   // the noise's NDN, sized by noise_of
+    constexpr size_t ND = disturbance_states<Spec, NU, NY, NW>;   // a KalmanNoise's NDN, sized by noise_of
     constexpr size_t NXL = NX + (input_delay_states<Delay> * NU); // the QP's: the plant, then the input's delay states (the filter's has the late readings' after them)
     const auto&      in = input_delay_of(delay);
     const auto       Bm = measured_channel<D>(sys, Ts, measured, delay); // on the filter's model
-    const auto       kf = with_measured_inputs(kalman_design<D>(sys, Ts, noise, spec, delay), Bm);
+    const auto       kf = with_measured_inputs(filter_design<D>(sys, Ts, filter, spec, delay), Bm);
     const auto       aim = target_spec_of(spec, held);
     using Aim = damp::remove_cvref_t<decltype(aim)>;
     using Target = held_target_t<Aim, NX, NU, NY, NW, Delay, NM, T>;
@@ -1936,18 +1943,24 @@ template<Domain D, size_t NP, size_t NC, size_t NX, size_t NU, size_t NY, typena
 [[nodiscard]] constexpr auto mpc_with(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T Ts, const MPCWeights<NU, NY, T>& weights, const Opts&... opts) {
     constexpr bool   kEstimated = mpc_estimated<Opts...>;
     constexpr bool   kModelFits = check_delays<D, Opts...>() && check_filtered<kEstimated, Opts...>() && check_disturbance<NX, NY, T, Opts...>();
+    constexpr size_t NKF = NX + disturbance_states_in<NX, NU, NY, NW, Opts...>; // the poles ObserverPoles lists
+    constexpr size_t NF = listed_by<kind::ObserverPoles, Opts...>;
+    constexpr bool   kFilterCount = (option_count<kind::ObserverPoles, Opts...> == 0) || (NF == NKF);
     constexpr size_t NT_max = terminal_rows<Opts...>;
     const auto       constraints = constraint_set<NU, T>(opts...);
     const auto       terminal = terminal_choice<T>(opts...);
     const auto       budget = qp_budget_of(opts...);
     const auto       held = option<kind::TrackedOutputs>(NoDisturbance{}, opts...); // none: a regulator
     const auto       measured = measured_of<NX, T>(opts...);
-    if constexpr (!kModelFits) {
+    if constexpr (!kModelFits || !kFilterCount) {
+        if constexpr (kModelFits) {
+            static_cast<void>(observer_pole_count<NKF, NF>());
+        }
         return mpc_measured<D, NP, NC, NT_max>(sys, Ts, weights, constraints, terminal, budget, measured, held); // the message says why: nothing further
     } else if constexpr (kEstimated) {
         return mpc_estimated_design<D, NP, NC, NT_max>(
-            noise_model(sys), Ts, weights, constraints, terminal, budget, noise_of<NX, NU, NY, T, NW, NV>(opts...), option<kind::Disturbance>(NoDisturbance{}, opts...),
-            held, measured, delays_of(opts...)
+            noise_model(sys), Ts, weights, constraints, terminal, budget, filter_spec_of<NX, NU, NY, T, NW, NV>(opts...),
+            option<kind::Disturbance>(NoDisturbance{}, opts...), held, measured, delays_of(opts...)
         );
     } else {
         return mpc_measured<D, NP, NC, NT_max>(sys, Ts, weights, constraints, terminal, budget, measured, held, option<kind::InputDelay>(NoDelay{}, opts...));
@@ -2131,7 +2144,10 @@ template<Domain D, size_t NP, size_t NC, size_t NX, size_t NU, size_t NY, typena
  *                 measured outputs C and D (update(y)), offset-free with a disturbance spec (OFMPC: the
  *                 filter on [x; d], the QP posed about the steady-state target under d̂, which holds
  *                 the rows the spec lists, all of them without a list), with a MeasuredDisturbance
- *                 too its filter's input after u and the target under [d̂; d]; TrackedOutputs{{i, …}}
+ *                 too its filter's input after u and the target under [d̂; d]; or ObserverPoles{…} in
+ *                 place of the KalmanNoise, the same filter on the same model with its error poles
+ *                 placed there, as design::state_feedback places an LQG's, one per plant state and per
+ *                 disturbance state (a delay state's at 0); TrackedOutputs{{i, …}}
  *                 without a disturbance spec, the outputs r holds through the target (TrackedOutputs{}:
  *                 every output; neither it nor a spec: a regulator, no r);
  *                 OutputLimits{.outputs, .lower, .upper}, limits on the outputs it lists;

@@ -184,19 +184,6 @@ template<typename Result, Domain D, size_t NX, size_t NU, size_t NY, typename T,
 }
 
 /**
- * @brief The filter of a design: the Kalman filter of a KalmanNoise (kalman_design), or the filter
- *        placed at ObserverPoles' PlacedPoles (placed_filter_design), the Kalman design's type.
- */
-template<Domain D, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Filter, typename Spec, typename Delay>
-[[nodiscard]] constexpr auto filter_design(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T Ts, const Filter& filter, const Spec& spec, const Delay& delay) {
-    if constexpr (OptionOf<Filter, kind::KalmanNoise>) {
-        return kalman_design<D>(sys, Ts, filter, spec, delay);
-    } else {
-        return placed_filter_design<D>(sys, Ts, filter, spec, delay);
-    }
-}
-
-/**
  * @brief The target of an LQ law with a measured disturbance, on the model of @p sys with @p delay:
  *        under [d̂; d] holding at r the outputs its spec or TrackedOutputs lists (@p Held), else
  *        the steady state under d that holds at 0 the integrated outputs @p Ci (an LQI's, NI > 0,
