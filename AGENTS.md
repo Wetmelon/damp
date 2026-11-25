@@ -110,18 +110,19 @@ the repo root.
   plant (`InputDelay{θ}` is N = 1), and a late reading `OutputDelay<N>{θ}` the
   same way; a `ColVec` of seconds gives one delay per channel. A delay is a model
   of the plant, never a parameter of a law's tick. `state_feedback` (every LQ
-  law), `kalman`, `steady_state_target` and `mpc` take the continuous plant and
+  law), `kalman`, `observer` (the filter placed at its error poles, `kalman`'s
+  counterpart), `steady_state_target` and `mpc` take the continuous plant and
   the delay as a trailing option,
   `fn(plant, Ts, config, …, InputDelay<N>{θ})`, and design on that model, the
   cost and the noise discretized exactly; a measured-state law holds the delay
-  states (`update` takes the plant state), a filter carries them. `kalman`, and
-  a `state_feedback` or `mpc` with a `KalmanNoise`, take `OutputDelay<M>{θ}` the
-  same way: the filter carries the late readings' delay states, the gain and the
-  QP read none of them. Many samples of dead time is a slower sample or
-  `SmithPredictor`.
+  states (`update` takes the plant state), a filter carries them. `kalman` and
+  `observer`, and a `state_feedback` or `mpc` with a `KalmanNoise` (or
+  `ObserverPoles`), take `OutputDelay<M>{θ}` the same way: the filter carries
+  the late readings' delay states, the gain and the QP read none of them. Many
+  samples of dead time is a slower sample or `SmithPredictor`.
 - **Design calls:** what every call needs is positional (the plant, `Ts` for a
   continuous one, the weights: `state_feedback`'s `LQRWeights`, or `Poles{…}` for the
-  gain placed there), so braces size it from the plant; the rest is a
+  gain placed there; `observer`'s error poles `{p, …}`), so braces size it from the plant; the rest is a
   trailing pack recognized by type (`design/options.hpp`: `KalmanNoise`, `ObserverPoles`,
   `InputDelay`, `OutputDelay`, `IntegralAction`, `TrackedOutputs`, `InputLimits`, `InputRateLimits`, `DemandLimit`,
   `OutputLimits`, `StateLimits`, `DareCost`, `InvariantSet`, `QPIterations`, a disturbance spec, `MeasuredDisturbance`, `Handover`, …),

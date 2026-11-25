@@ -49,7 +49,9 @@
 #include "damp/design/options.hpp"
 #include "damp/design/status.hpp"
 #include "damp/design/steady_state_target.hpp" // IWYU pragma: export
+#include "damp/estimation/detail/placed_filter.hpp"
 #include "damp/estimation/kalman.hpp"
+#include "damp/estimation/observer.hpp" // IWYU pragma: export
 #include "damp/matrix/matrix.hpp"
 #include "damp/systems/state_space.hpp"
 #include "damp/toolbox/bounds.hpp" // IWYU pragma: export

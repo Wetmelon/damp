@@ -110,6 +110,7 @@
 #include "damp/estimation/ins_mechanization.hpp"     // IWYU pragma: export
 #include "damp/estimation/kalman.hpp"                // IWYU pragma: export
 #include "damp/estimation/mhe.hpp"                   // IWYU pragma: export
+#include "damp/estimation/observer.hpp"              // IWYU pragma: export
 #include "damp/estimation/rls.hpp"                   // IWYU pragma: export
 #include "damp/estimation/sensor_fusion.hpp"         // IWYU pragma: export
 #include "damp/estimation/state_variable_filter.hpp" // IWYU pragma: export

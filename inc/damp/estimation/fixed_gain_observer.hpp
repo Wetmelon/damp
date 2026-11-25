@@ -10,8 +10,9 @@
  * @brief The fixed-gain state observer (FixedGainObserver) and its pole-placement designs.
  *
  * FixedGainObserver is the fixed-gain observer: it holds a gain and the plant model, and its gain comes
- * from design::place_observer (pole placement) or design::kalman (the steady-state Kalman gain: the
- * filter DARE). It is the estimator inside LQG, LQGI, OFLQG and an MPC through a filter, with the disturbance anchor
+ * from design::place_observer (pole placement on the plant), design::observer (pole placement on the
+ * model design::kalman builds, with its options: observer.hpp) or design::kalman (the steady-state
+ * Kalman gain: the filter DARE). It is the estimator inside LQG, LQGI, OFLQG and an MPC through a filter, with the disturbance anchor
  * the offset-free laws use. For a covariance that updates (R or C changing per reading) use
  * KalmanFilter (kalman.hpp).
  *
@@ -290,9 +291,10 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
  * (a pole repeated more than NY times, or complex poles not in adjacent conjugate
  * pairs), singular if C (or C A, on a numerically singular A) is rank-deficient.
  *
- * The bare observer gain. A law's filter placed the same way, on the model its design builds
- * (the delay states and a disturbance spec's states included), is ObserverPoles{…} among
- * design::state_feedback's options, in place of a KalmanNoise.
+ * The bare observer gain. A filter placed the same way on the model design::kalman builds (the
+ * delay states and a disturbance spec's states included) is design::observer(sys, [Ts,] {p, …},
+ * opts…), and a law's is ObserverPoles{…} among design::state_feedback's or design::mpc's options,
+ * in place of a KalmanNoise.
  *
  * @note Compare with MATLAB®'s L = place(A', C', p)' and the current estimator's Mx = A \ L.
  * @see "Digital Control of Dynamic Systems" (Franklin, Powell & Workman, 1998), §8.2 (current estimator)
