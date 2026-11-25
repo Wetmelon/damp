@@ -320,12 +320,12 @@ template<size_t NXE, size_t NU, size_t NZ, typename T>
 
 /**
  * @brief The target maps on the filter's model of @p sys under the options (see
- *        steady_state_target), in the plant's time domain (@p Discrete) or sampled at @p Ts,
+ *        steady_state_target), in the plant's time domain (@p D plant) or sampled at @p Ts,
  *        with the delay states of @p delay. @p measured, a measured disturbance's channel on
  *        the same model (measured_channel), adds its NM columns after the spec's: target_d is
  *        then [x_t; u_t] per unit [d̂; d], and the measured d reaches no reading directly.
  */
-template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Spec, typename Delay = NoDelay, size_t NM = 0>
+template<Domain D, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Spec, typename Delay = NoDelay, size_t NM = 0>
 [[nodiscard]] constexpr auto target_design(
     const StateSpace<NX, NU, NY, T, NW, NV>&               sys,
     T                                                      Ts,
@@ -337,7 +337,7 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
     constexpr size_t ND = disturbance_traits<Spec, NU, NY, NW>::states;
     constexpr size_t NZ = target_outputs<Spec, NU, NY, NW>;
     using Result = SteadyStateTargetResult<NXE, NU, ND + NM, NZ, T>;
-    const auto m = sampled_model(sys, Ts, Discrete, delay);
+    const auto m = sampled_model(sys, Ts, D, delay);
     if (m.status != DesignStatus::ok) {
         return ::damp::detail::refused<Result>(m.status);
     }
@@ -375,7 +375,7 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
  *        map of d is kept (target_r has no columns): an LQ regulator holds every output at 0
  *        (S = I), an LQI its integrated outputs (S = Ci), whose integrators then hold r.
  */
-template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NS, typename Delay, size_t NM>
+template<Domain D, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NS, typename Delay, size_t NM>
 [[nodiscard]] constexpr SteadyStateTargetResult<NX + delay_states<Delay, NU, NY>, NU, NM, 0, T> held_at_zero(
     const StateSpace<NX, NU, NY, T, NW, NV>&               sys,
     T                                                      Ts,
@@ -385,7 +385,7 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
 ) {
     constexpr size_t NXE = NX + delay_states<Delay, NU, NY>;
     using Result = SteadyStateTargetResult<NXE, NU, NM, 0, T>;
-    const auto m = sampled_model(sys, Ts, Discrete, delay);
+    const auto m = sampled_model(sys, Ts, D, delay);
     if (m.status != DesignStatus::ok) {
         return ::damp::detail::refused<Result>(m.status);
     }
@@ -411,7 +411,7 @@ using held_target_t = SteadyStateTargetResult<NX + delay_states<Delay, NU, NY>, 
  *        target x = 0, u = 0, with no map at all. design::mpc's and design::steady_state_target's;
  *        design::state_feedback's is the same, an LQI holding its integrated outputs at 0.
  */
-template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Aim, typename Delay, size_t NM>
+template<Domain D, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Aim, typename Delay, size_t NM>
 [[nodiscard]] constexpr held_target_t<Aim, NX, NU, NY, NW, Delay, NM, T> held_target(
     const StateSpace<NX, NU, NY, T, NW, NV>&               sys,
     T                                                      Ts,
@@ -420,9 +420,9 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
     const Matrix<NX + delay_states<Delay, NU, NY>, NM, T>& measured
 ) {
     if constexpr (!damp::is_same_v<Aim, NoDisturbance>) {
-        return target_design<Discrete>(sys, Ts, aim, delay, measured);
+        return target_design<D>(sys, Ts, aim, delay, measured);
     } else if constexpr (NM > 0) {
-        return held_at_zero<Discrete>(sys, Ts, Matrix<NY, NY, T>::identity(), delay, measured);
+        return held_at_zero<D>(sys, Ts, Matrix<NY, NY, T>::identity(), delay, measured);
     } else {
         static_cast<void>(sys);
         static_cast<void>(Ts);
@@ -434,15 +434,15 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
 }
 
 /** @brief target_with once its options fit: held_target under the measured disturbance's channel on the model of @p sys with @p delay. */
-template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Spec, typename Delay, size_t NM>
+template<Domain D, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Spec, typename Delay, size_t NM>
 [[nodiscard]] constexpr auto held_target_under(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T Ts, const Spec& spec, const Delay& delay, const MeasuredDisturbance<NX, NM, T>& measured) {
-    const auto channel = measured_channel<Discrete>(sys, Ts, measured, delay);
+    const auto channel = measured_channel<D>(sys, Ts, measured, delay);
     using Result = held_target_t<Spec, NX, NU, NY, NW, Delay, NM, T>;
     if (!channel) {
-        const auto m = sampled_model(sys, Ts, Discrete, delay);
+        const auto m = sampled_model(sys, Ts, D, delay);
         return ::damp::detail::refused<Result>((m.status != DesignStatus::ok) ? m.status : DesignStatus::bad_weights); // the model's refusal first, as the designs'; else a non-finite B_d
     }
-    return held_target<Discrete>(sys, Ts, spec, delay, *channel);
+    return held_target<D>(sys, Ts, spec, delay, *channel);
 }
 
 /**
@@ -456,11 +456,11 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
  * @return refused as the model is (a sample time, a delay), else with DesignStatus::bad_weights
  *         for a non-finite B_d
  */
-template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Delay, typename... Opts>
+template<Domain D, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Delay, typename... Opts>
 [[nodiscard]] constexpr auto target_with(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T Ts, const Delay& delay, const Opts&... opts) {
     target_options::check<Opts...>();
     check_held_outputs<NU, NY, 0, Opts...>();
-    constexpr bool   kModelFits = check_delays<!Discrete, Opts...>() && check_disturbance<NX, NY, T, Opts...>();
+    constexpr bool   kModelFits = check_delays<D, Opts...>() && check_disturbance<NX, NY, T, Opts...>();
     const auto       spec = target_spec_of(::damp::detail::option<kind::Disturbance>(NoDisturbance{}, opts...), ::damp::detail::option<kind::TrackedOutputs>(NoDisturbance{}, opts...));
     const auto       measured = measured_of<NX, T>(opts...);
     constexpr size_t NM = measured_inputs<damp::remove_cvref_t<decltype(measured)>>;
@@ -476,7 +476,7 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
         static_cast<void>(delay);
         return SteadyStateTargetResult<NX, NU, 0, 0, T>{}; // the message says why: nothing further
     } else {
-        return held_target_under<Discrete>(sys, Ts, spec, delay, measured);
+        return held_target_under<D>(sys, Ts, spec, delay, measured);
     }
 }
 
@@ -527,7 +527,7 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
  */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename... Opts>
 [[nodiscard]] constexpr auto steady_state_target(const StateSpace<NX, NU, NY, T, NW, NV>& sys, const Opts&... opts) {
-    return detail::target_with<true>(sys, T{0}, detail::NoDelay{}, opts...);
+    return detail::target_with<detail::Domain::plant>(sys, T{0}, detail::NoDelay{}, opts...);
 }
 
 /**
@@ -552,7 +552,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
  */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename... Opts>
 [[nodiscard]] constexpr auto steady_state_target(const StateSpace<NX, NU, NY, T, NW, NV>& sys, damp::type_identity_t<T> Ts, const Opts&... opts) {
-    return detail::target_with<false>(sys, Ts, detail::delays_of(opts...), opts...);
+    return detail::target_with<detail::Domain::sampled>(sys, Ts, detail::delays_of(opts...), opts...);
 }
 
 } // namespace design

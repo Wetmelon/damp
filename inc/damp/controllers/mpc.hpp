@@ -1781,9 +1781,9 @@ template<typename... S>
 
 /**
  * @brief The continuous stage cost of a design from @p sys at @p Ts: the plant, its outputs and the
- *        disturbance's continuous channel @p Bd_c; off on a discrete plant (@p Discrete).
+ *        disturbance's continuous channel @p Bd_c; off on a discrete plant (@p D plant).
  */
-template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t ND>
+template<Domain D, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t ND>
 [[nodiscard]] constexpr MpcContinuousCost<NX, NU, NY, ND, T> mpc_continuous_cost(
     const StateSpace<NX, NU, NY, T, NW, NV>&              sys,
     const Matrix<NX, ND, T>&                              Bd_c,
@@ -1791,7 +1791,7 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
     const damp::array<::damp::detail::DelaySplit<T>, NU>& inputs = {}
 ) {
     MpcContinuousCost<NX, NU, NY, ND, T> out{};
-    if constexpr (!Discrete) {
+    if constexpr (D == Domain::sampled) {
         out = MpcContinuousCost<NX, NU, NY, ND, T>{.A = sys.A, .B = sys.B, .Bd = Bd_c, .C = sys.C, .D = sys.D, .Ts = Ts, .on = true, .inputs = inputs};
     } else {
         static_cast<void>(sys);
@@ -1843,7 +1843,7 @@ template<size_t NY, typename Aim>
  *        TrackedOutputs @p held lists, else a regulator's (NoDisturbance), under the measured d.
  */
 template<
-    bool Discrete, size_t NP, size_t NC, size_t NT_max, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NYC, size_t NXC, size_t NDU, size_t NM, typename Held,
+    Domain D, size_t NP, size_t NC, size_t NT_max, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NYC, size_t NXC, size_t NDU, size_t NM, typename Held,
     typename Delay = NoDelay>
 [[nodiscard]] constexpr auto mpc_measured(
     const StateSpace<NX, NU, NY, T, NW, NV>&      sys,
@@ -1860,19 +1860,19 @@ template<
     using Law = MPCArtifacts<NXL, NU, NY, NP, NC, NM, T, NT_max, NXC, NYC, NDU>;
     using Target = held_target_t<Held, NX, NU, NY, NW, Delay, NM, T>;
     using Result = MPCResult<Law, NoEstimator, Target, input_delay_states<Delay>, reference_outputs<Held, NY>>; // the runtime holds the delay states
-    const auto m = sampled_model(sys, Ts, Discrete, delay);
+    const auto m = sampled_model(sys, Ts, D, delay);
     if (m.status != DesignStatus::ok) {
         return ::damp::detail::refused<Result>(m.status);
     }
     //! d on the plant's states, ZOH'd with a continuous one; none on the delay states
-    const auto Bd = measured_channel<Discrete>(sys, Ts, measured, delay);
+    const auto Bd = measured_channel<D>(sys, Ts, measured, delay);
     if (!Bd) {
         return ::damp::detail::refused<Result>(DesignStatus::bad_weights); // a non-finite B_d
     }
     Result     out{};
-    const auto cost = mpc_continuous_cost<Discrete>(sys, measured.Bd, Ts, input_delays_of<NU>(delay, Ts));
+    const auto cost = mpc_continuous_cost<D>(sys, measured.Bd, Ts, input_delays_of<NU>(delay, Ts));
     out.mpc = mpc_impl<NP, NC, NM, NT_max>(m.law, *Bd, Matrix<NY, NM, T>{}, weights, constraints, terminal, budget, cost);
-    out.target = held_target<Discrete>(sys, Ts, held, delay, *Bd);
+    out.target = held_target<D>(sys, Ts, held, delay, *Bd);
     return ::damp::detail::set_status(out, first_failure(out.mpc.status, out.target.status, in_output_order<NY>(held) ? DesignStatus::ok : DesignStatus::bad_weights));
 }
 
@@ -1885,7 +1885,7 @@ template<
  *        channels after the estimated ones: [d̂; d], so d̂ estimates what d does not account for.
  */
 template<
-    bool Discrete, size_t NP, size_t NC, size_t NT_max, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NWN, size_t NVN, size_t NDN,
+    Domain D, size_t NP, size_t NC, size_t NT_max, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NWN, size_t NVN, size_t NDN,
     typename Spec, typename Held, size_t NYC, size_t NXC, size_t NDU, size_t NM, typename Delay = NoDelay>
 [[nodiscard]] constexpr auto mpc_estimated_design(
     const StateSpace<NX, NU, NY, T, NW, NV>&      sys,
@@ -1903,21 +1903,21 @@ template<
     constexpr size_t ND = disturbance_traits<Spec, NU, NY, NW>::states; // the noise's NDN, sized by noise_of
     constexpr size_t NXL = NX + (input_delay_states<Delay> * NU);       // the QP's: the plant, then the input's delay states (the filter's has the late readings' after them)
     const auto&      in = input_delay_of(delay);
-    const auto       Bm = measured_channel<Discrete>(sys, Ts, measured, delay); // on the filter's model
-    const auto       kf = with_measured_inputs(kalman_design<Discrete>(sys, Ts, noise, spec, delay), Bm);
+    const auto       Bm = measured_channel<D>(sys, Ts, measured, delay); // on the filter's model
+    const auto       kf = with_measured_inputs(kalman_design<D>(sys, Ts, noise, spec, delay), Bm);
     const auto       aim = target_spec_of(spec, held);
     using Aim = damp::remove_cvref_t<decltype(aim)>;
     using Target = held_target_t<Aim, NX, NU, NY, NW, Delay, NM, T>;
     using Law = MPCArtifacts<NXL, NU, NY, NP, NC, ND + NM, T, NT_max, NXC, NYC, NDU>;
     using Result = MPCResult<Law, damp::remove_cvref_t<decltype(kf)>, Target, input_delay_states<Delay>, reference_outputs<Aim, NY>>; // the filter carries the delay states
     Result     out{.kalman = kf};
-    const auto m = sampled_model(sys, Ts, Discrete, in);
+    const auto m = sampled_model(sys, Ts, D, in);
     if (m.status != DesignStatus::ok || !Bm) {
         return ::damp::detail::set_status(out, first_failure(kf.status, m.status, Bm ? DesignStatus::ok : DesignStatus::bad_weights)); // a delay refused, a non-finite B_d
     }
     //! The QP predicts, weighs and bounds every output of the law's model, the estimate riding B_d and C_d, then the measured d riding its channel
     const auto         channels = disturbance_channels(spec, sys, m.law, Ts);
-    const auto         cost = mpc_continuous_cost<Discrete>(sys, side_by_side(channels.Bd_c, measured.Bd), Ts, input_delays_of<NU>(in, Ts));
+    const auto         cost = mpc_continuous_cost<D>(sys, side_by_side(channels.Bd_c, measured.Bd), Ts, input_delays_of<NU>(in, Ts));
     Matrix<NXL, ND, T> Bd{};
     if constexpr (ND > 0) {
         Bd = channels.Bd.template block<NXL, ND>(0, 0);
@@ -1929,19 +1929,19 @@ template<
         out.mpc = mpc_impl<NP, NC, ND + NM, NT_max>(m.law, side_by_side(Bd, Bm_law), side_by_side(channels.Cd, Matrix<NY, NM, T>{}), weights, constraints, terminal, budget, cost);
     }
     //! On the filter's model: under d̂ with a disturbance spec, and d; a late reading's delay states hold the steady output
-    out.target = held_target<Discrete>(sys, Ts, aim, delay, *Bm);
+    out.target = held_target<D>(sys, Ts, aim, delay, *Bm);
     return ::damp::detail::set_status(out, first_failure(kf.status, out.target.status, out.mpc.status, in_output_order<NY>(aim) ? DesignStatus::ok : DesignStatus::bad_weights));
 }
 
 /**
- * @brief design::mpc in the plant's time domain (@p Discrete) or sampled at @p Ts, once the options
+ * @brief design::mpc in the plant's time domain (@p D plant) or sampled at @p Ts, once the options
  *        pass check_mpc_options: the options sorted by kind, the QP's room for terminal rows the
  *        InvariantSet's (none without one).
  */
-template<bool Discrete, size_t NP, size_t NC, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename... Opts>
+template<Domain D, size_t NP, size_t NC, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename... Opts>
 [[nodiscard]] constexpr auto mpc_design(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T Ts, const MPCWeights<NU, NY, T>& weights, const Opts&... opts) {
     constexpr bool   kEstimated = mpc_estimated<Opts...>;
-    constexpr bool   kModelFits = check_delays<!Discrete, Opts...>() && check_filtered<kEstimated, Opts...>() && check_disturbance<NX, NY, T, Opts...>();
+    constexpr bool   kModelFits = check_delays<D, Opts...>() && check_filtered<kEstimated, Opts...>() && check_disturbance<NX, NY, T, Opts...>();
     constexpr size_t NT_max = terminal_rows<::damp::detail::option_t<kind::Terminal, void, Opts...>>;
     const auto       constraints = constraint_set<NU, T>(opts...);
     const auto       terminal = terminal_choice<T>(opts...);
@@ -1949,14 +1949,14 @@ template<bool Discrete, size_t NP, size_t NC, size_t NX, size_t NU, size_t NY, t
     const auto       held = ::damp::detail::option<kind::TrackedOutputs>(NoDisturbance{}, opts...); // none: a regulator
     const auto       measured = measured_of<NX, T>(opts...);
     if constexpr (!kModelFits) {
-        return mpc_measured<Discrete, NP, NC, NT_max>(sys, Ts, weights, constraints, terminal, budget, measured, held); // the message says why: nothing further
+        return mpc_measured<D, NP, NC, NT_max>(sys, Ts, weights, constraints, terminal, budget, measured, held); // the message says why: nothing further
     } else if constexpr (kEstimated) {
-        return mpc_estimated_design<Discrete, NP, NC, NT_max>(
+        return mpc_estimated_design<D, NP, NC, NT_max>(
             noise_model(sys), Ts, weights, constraints, terminal, budget, noise_of<NX, NU, NY, T, NW, NV>(opts...), ::damp::detail::option<kind::Disturbance>(NoDisturbance{}, opts...),
             held, measured, delays_of(opts...)
         );
     } else {
-        return mpc_measured<Discrete, NP, NC, NT_max>(sys, Ts, weights, constraints, terminal, budget, measured, held, ::damp::detail::option<kind::InputDelay>(NoDelay{}, opts...));
+        return mpc_measured<D, NP, NC, NT_max>(sys, Ts, weights, constraints, terminal, budget, measured, held, ::damp::detail::option<kind::InputDelay>(NoDelay{}, opts...));
     }
 }
 
@@ -2148,7 +2148,7 @@ template<bool Discrete, size_t NP, size_t NC, size_t NX, size_t NU, size_t NY, t
 template<size_t NP, size_t NC, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename... Opts>
 [[nodiscard]] constexpr auto mpc(const StateSpace<NX, NU, NY, T, NW, NV>& sys, const damp::type_identity_t<MPCWeights<NU, NY, T>>& weights, const Opts&... opts) {
     detail::check_mpc_options<NP, NC, NU, NY, Opts...>();
-    return detail::mpc_design<true, NP, NC>(sys, T{0}, weights, opts...);
+    return detail::mpc_design<detail::Domain::plant, NP, NC>(sys, T{0}, weights, opts...);
 }
 
 /**
@@ -2191,7 +2191,7 @@ template<size_t NP, size_t NC, size_t NX, size_t NU, size_t NY, typename T, size
     const Opts&... opts
 ) {
     detail::check_mpc_options<NP, NC, NU, NY, Opts...>();
-    return detail::mpc_design<false, NP, NC>(plant, Ts, weights, opts...);
+    return detail::mpc_design<detail::Domain::sampled, NP, NC>(plant, Ts, weights, opts...);
 }
 
 /**

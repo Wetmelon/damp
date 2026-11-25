@@ -421,7 +421,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size
 ) {
     constexpr size_t NXE = NX + (N * NU);
     using Result = KalmanResult<NXE, NU, NY, T, NX, NV>;
-    const auto m = design::detail::sampled_model(sys, Ts, false, delay);
+    const auto m = design::detail::sampled_model(sys, Ts, Domain::sampled, delay);
     if (m.status != DesignStatus::ok) {
         return damp::detail::refused<Result>(m.status);
     }
@@ -535,7 +535,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
 ) {
     constexpr size_t NXE = NX + delay_states<PlantDelays<In, OutputDelay<N, S>>, NU, NY>;
     using Result = KalmanResult<NXE, NU, NY, T, NXE, NV>;
-    const auto m = design::detail::sampled_model(sys, Ts, false, delays);
+    const auto m = design::detail::sampled_model(sys, Ts, Domain::sampled, delays);
     const auto outputs = ::damp::detail::channel_delay_splits<NY>(delays.output.seconds, Ts, N);
     if (m.status != DesignStatus::ok || !outputs) {
         return damp::detail::refused<Result>((m.status != DesignStatus::ok) ? m.status : DesignStatus::invalid_parameter);
@@ -610,9 +610,9 @@ template<size_t NXE, size_t NM, size_t NX, size_t NU, size_t NY, typename T, siz
 /**
  * @brief The Kalman design, plain or on [x; d]: the filter's model (the plant, its input delay states
  *        when @p delay is an InputDelay, then the disturbance), in the plant's own time domain
- *        (@p Discrete) or sampled at @p Ts.
+ *        (@p D plant) or sampled at @p Ts.
  */
-template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t ND, typename Spec, typename Delay = NoDelay>
+template<Domain D, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t ND, typename Spec, typename Delay = NoDelay>
 [[nodiscard]] constexpr auto kalman_design(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     T                                        Ts,
@@ -624,7 +624,7 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
     constexpr size_t NXK = NXE + ND;
     if constexpr (ND == 0) {
         static_cast<void>(spec);
-        if constexpr (Discrete) {
+        if constexpr (D == Domain::plant) {
             static_cast<void>(Ts);
             return kalman_plain(sys, noise);
         } else {
@@ -632,9 +632,9 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
         }
     } else {
         static_assert(ND <= NY, "Estimating ND disturbances needs at least ND independent readings (ND <= NY).");
-        constexpr size_t NWK = Discrete ? (NW + ND) : NXK;
+        constexpr size_t NWK = (D == Domain::plant) ? (NW + ND) : NXK;
         using Result = KalmanResult<NXK, NU, NY, T, NWK, NV, ND>;
-        const auto m = sampled_model(sys, Ts, Discrete, delay);
+        const auto m = sampled_model(sys, Ts, D, delay);
         if (m.status != DesignStatus::ok) {
             return ::damp::detail::refused<Result>(m.status);
         }
@@ -646,9 +646,9 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
         if (!augment_detectable(m.law.A, m.law.C, ch.Bd, ch.Cd)) {
             return ::damp::detail::refused<Result>(DesignStatus::not_detectable);
         }
-        auto                aug = disturbance_augment<NWK>(m.law, ch.Bd, ch.Cd, Discrete ? sys.Ts : Ts);
+        auto                aug = disturbance_augment<NWK>(m.law, ch.Bd, ch.Cd, (D == Domain::plant) ? sys.Ts : Ts);
         Matrix<NWK, NWK, T> Q{};
-        if constexpr (Discrete) {
+        if constexpr (D == Domain::plant) {
             //! The process noise through G, the disturbance's random walk on d
             aug.G.template block<NXE, NW>(0, 0) = m.law.G;
             aug.G.template block<ND, ND>(NXE, NW) = Matrix<ND, ND, T>::identity();
@@ -708,7 +708,7 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
 using kalman_options = ::damp::detail::option_set<kind::InputDelay, kind::OutputDelay, kind::Disturbance, kind::MeasuredDisturbance, kind::KalmanNoise>;
 
 /** @brief A filter design @p kf on @p sys with the measured disturbance @p measured as known inputs after u (with_measured_inputs); itself without one (NM = 0). */
-template<bool Discrete, size_t NXK, size_t NU, size_t NY, typename T, size_t NWK, size_t NVK, size_t ND, size_t NX, size_t NYP, size_t NW, size_t NV, size_t NM, typename Delay>
+template<Domain D, size_t NXK, size_t NU, size_t NY, typename T, size_t NWK, size_t NVK, size_t ND, size_t NX, size_t NYP, size_t NW, size_t NV, size_t NM, typename Delay>
 [[nodiscard]] constexpr auto measured_filter(
     const KalmanResult<NXK, NU, NY, T, NWK, NVK, ND>& kf,
     const StateSpace<NX, NU, NYP, T, NW, NV>&         sys,
@@ -716,7 +716,7 @@ template<bool Discrete, size_t NXK, size_t NU, size_t NY, typename T, size_t NWK
     const MeasuredDisturbance<NX, NM, T>&             measured,
     const Delay&                                      delay
 ) {
-    return with_measured_inputs(kf, measured_channel<Discrete>(sys, Ts, measured, delay));
+    return with_measured_inputs(kf, measured_channel<D>(sys, Ts, measured, delay));
 }
 
 /** @brief The disturbance states of the disturbance spec among @p Opts (0 without one). */
@@ -745,12 +745,12 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
     }
 }
 
-/** @brief design::kalman with its trailing options, in the plant's own domain (@p Discrete) or at @p Ts. */
-template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename... Opts>
+/** @brief design::kalman with its trailing options, in the plant's own domain (@p D plant) or at @p Ts. */
+template<Domain D, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename... Opts>
 [[nodiscard]] constexpr auto kalman_with(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T Ts, const Opts&... opts) {
     kalman_options::check<Opts...>();
     static_assert(::damp::detail::option_count<kind::KalmanNoise, Opts...> == 1, "kalman needs its noise among the options: kalman(plant, Ts, KalmanNoise{.process = ..., .measurement = ...}).");
-    constexpr bool kModelFits = check_delays<!Discrete, Opts...>() && check_disturbance<NX, NY, T, Opts...>();
+    constexpr bool kModelFits = check_delays<D, Opts...>() && check_disturbance<NX, NY, T, Opts...>();
     const auto     noise = noise_of<NX, NU, NY, T, NW, NV>(opts...);
     const auto     delay = delays_of(opts...);
     const auto     measured = measured_of<NX, T>(opts...);
@@ -761,10 +761,10 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
         static_cast<void>(measured);
         return KalmanResult<NX, NU, NY, T>{}; // the message says why: nothing further
     } else if constexpr (is_disturbance_model<Disturbance>) {
-        const auto kf = kalman_design<Discrete>(noise_model(sys), Ts, noise, ::damp::detail::the<kind::Disturbance>(opts...), delay);
-        return measured_filter<Discrete>(kf, sys, Ts, measured, delay);
+        const auto kf = kalman_design<D>(noise_model(sys), Ts, noise, ::damp::detail::the<kind::Disturbance>(opts...), delay);
+        return measured_filter<D>(kf, sys, Ts, measured, delay);
     } else {
-        return measured_filter<Discrete>(kalman_design<Discrete>(noise_model(sys), Ts, noise, NoDisturbance{}, delay), sys, Ts, measured, delay);
+        return measured_filter<D>(kalman_design<D>(noise_model(sys), Ts, noise, NoDisturbance{}, delay), sys, Ts, measured, delay);
     }
 }
 
@@ -841,7 +841,7 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
  */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename... Opts>
 [[nodiscard]] constexpr auto kalman(const StateSpace<NX, NU, NY, T, NW, NV>& sys, const Opts&... opts) {
-    return detail::kalman_with<true>(sys, T{0}, opts...);
+    return detail::kalman_with<detail::Domain::plant>(sys, T{0}, opts...);
 }
 
 /**
@@ -919,7 +919,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
  */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename... Opts>
 [[nodiscard]] constexpr auto kalman(const StateSpace<NX, NU, NY, T, NW, NV>& sys, damp::type_identity_t<T> Ts, const Opts&... opts) {
-    return detail::kalman_with<false>(sys, Ts, opts...);
+    return detail::kalman_with<detail::Domain::sampled>(sys, Ts, opts...);
 }
 
 } // namespace design
