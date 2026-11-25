@@ -107,7 +107,8 @@ struct [[nodiscard]] QPResult {
  *
  * `QPIterations{40}` caps each tick's active-set solve at 40 iterations, which bounds the tick's
  * worst-case time. Left out, the budget is 10·(NZ + 1 + NI + 1) for the MPC (NZ the moves, NI the
- * constraint rows) and 10·(NV + NIB) for the MHE (MHEResult's window states and box rows). A solve that runs out reports MaxIterations through last_status(), and the
+ * constraint rows) and 10·(NZ + NI) for the MHE (MHEResult's QP variables and rows: the window
+ * states, its StateLimits' rows and their slack). A solve that runs out reports MaxIterations through last_status(), and the
  * runtime applies or holds as damp::MPC and damp::MHE describe. Both designs refuse a budget of 0
  * (invalid_parameter): not one active-set step.
  */
@@ -149,6 +150,27 @@ template<typename U, size_t N, typename T>
         }
     }
     return out;
+}
+
+/** @brief Scale factor from a constraint range: (max − min) when both finite, else 1 (design::mpc's and design::mhe's QP scaling). */
+template<typename T>
+[[nodiscard]] constexpr T scale_from_range(T lo, T hi) {
+    constexpr T thresh = damp::numeric_limits<T>::max() / T{4};
+    if (lo <= -thresh || lo >= thresh || hi >= thresh || hi <= -thresh) {
+        return T{1};
+    }
+    const T span = hi - lo;
+    return (span > T{0}) ? span : T{1};
+}
+
+/** @brief Divide a bound by a scale factor, leaving unbounded sentinels untouched. */
+template<typename T>
+[[nodiscard]] constexpr T scaled_bound(T bound, T scale) {
+    constexpr T thresh = damp::numeric_limits<T>::max() / T{4};
+    if (bound >= thresh || bound <= -thresh) {
+        return bound;
+    }
+    return bound / scale;
 }
 
 /**

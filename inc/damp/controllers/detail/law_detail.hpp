@@ -371,6 +371,21 @@ template<typename Ts>
     return true;
 }
 
+/**
+ * @brief Whether the Law of the design @p Res runs, for a runtime that keeps the design's data in
+ *        members (MPC, MHE): a `constexpr` design only when it succeeded (a failed one does not
+ *        compile, and the error names its status), one initialized at start-up always (valid()
+ *        reports it).
+ */
+template<const auto& Res>
+[[nodiscard]] consteval bool member_law_runs() {
+    if constexpr (constant_design<Res>) {
+        return constant_design_runs(Res.success, Res.status);
+    } else {
+        return true;
+    }
+}
+
 } // namespace detail
 
 } // namespace damp
