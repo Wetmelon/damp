@@ -40,9 +40,9 @@ inline constexpr double Ts = 0.01;    // 100 Hz control
     const double a21 = g / L;
     const double a22 = -b_damp / (m * L * L);
 
-    Matrix<2, 2> A{{0.0, 1.0}, {a21, a22}};
-    Matrix<2, 1> B{{0.0}, {1.0 / (m * L * L)}};
-    Matrix<1, 2> C{{1.0, 0.0}};
+    Matrix A{{0.0, 1.0}, {a21, a22}};
+    Matrix B{{0.0}, {1.0 / (m * L * L)}};
+    Matrix C{{1.0, 0.0}};
 
     return StateSpace{.A = A, .B = B, .C = C};
 }

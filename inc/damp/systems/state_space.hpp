@@ -46,9 +46,9 @@
  * @code
  * using namespace damp;
  * constexpr StateSpace<2, 1, 1> sys{
- *     .A = Matrix<2,2>{{0.0, 1.0}, {0.0, -0.1}},
- *     .B = Matrix<2,1>{{0.0}, {1.0}},
- *     .C = Matrix<1,2>{{1.0, 0.0}},
+ *     .A = Matrix{{0.0, 1.0}, {0.0, -0.1}},
+ *     .B = Matrix{{0.0}, {1.0}},
+ *     .C = Matrix{{1.0, 0.0}},
  *     .Ts = 0.0, // continuous
  * };
  * static_assert(sys.is_continuous());

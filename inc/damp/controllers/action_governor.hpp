@@ -31,12 +31,12 @@
  *
  * // Box: clamp a 2-input command into [-1, 1] × [-2, 2]
  * constexpr Bounds<2, float> box{.lower = {-1.f, -2.f}, .upper = {1.f, 2.f},};
- * auto u = project_box(ColVec<2, float>{1.5f, -3.f}, box); // → {1, -2}
+ * auto u = project_box(ColVec{1.5f, -3.f}, box); // → {1, -2}
  *
  * // Affine half-space: u₀ + u₁ ≤ 1
- * constexpr Matrix<1, 2> A{{1.0, 1.0}};
- * constexpr ColVec<1>    b{1.0};
- * constexpr auto res = design::project_affine(ColVec<2>{2.0, 2.0}, A, b);
+ * constexpr Matrix A{{1.0, 1.0}};
+ * constexpr ColVec b{1.0};
+ * constexpr auto res = design::project_affine(ColVec{2.0, 2.0}, A, b);
  * static_assert(res.success);
  * // res.u ≈ {0.5, 0.5}
  * @endcode

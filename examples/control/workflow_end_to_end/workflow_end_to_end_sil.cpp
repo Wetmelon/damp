@@ -47,11 +47,11 @@ int main() {
     const double zeta_os = design::damping_ratio_from_overshoot_percent(10.0);
     const auto   pid_seed = design::pidtune(sys_c, {.wc = 20.0, .phase_margin_deg = design::phase_margin_from_damping_ratio(zeta_os)});
 
-    const auto         Q = Matrix<2, 2>::diagonal({20.0, 2.0});
-    const double       Q_integral = 80.0;
-    const double       R = 0.25;
-    const Matrix<2, 2> Q_kf{{1e-3, 0.0}, {0.0, 1e-2}};
-    const double       R_kf = 5e-3;
+    const auto   Q = Matrix<2, 2>::diagonal({20.0, 2.0});
+    const double Q_integral = 80.0;
+    const double R = 0.25;
+    const Matrix Q_kf{{1e-3, 0.0}, {0.0, 1e-2}};
+    const double R_kf = 5e-3;
 
     const auto lqgi_design = design::state_feedback(sys_d, {.Q = Q, .R = R}, design::KalmanNoise{.process = Q_kf, .measurement = R_kf}, design::IntegralAction{.Q = Q_integral});
     if (!lqgi_design.success) {
@@ -83,14 +83,14 @@ int main() {
         const auto  y_f = static_cast<float>(y(0, 0));
         const float u_lqgi = runtime.step(reference, y_f)(0, 0);
         const float u_pr = pr_runtime.control(reference - y_f);
-        return ColVec<1>{static_cast<double>(u_lqgi + u_pr)};
+        return ColVec{static_cast<double>(u_lqgi + u_pr)};
     };
 
     // The plant is the same Dynamics object linearize took; simulate's output map is y(x), and
     // plant_output has no feedthrough.
-    const auto      sensor = [](const ColVec<2>& x) { return plant_output(x, ColVec<1>{}); };
-    const ColVec<2> x0{0.25, 0.0};
-    const auto      sim = simulate(plant_nonlinear, sensor, controller, solver, x0, {0.0, 20.0}); // the PR's 1 Hz mode settles in about 15 s
+    const auto   sensor = [](const ColVec<2>& x) { return plant_output(x, ColVec<1>{}); };
+    const ColVec x0{0.25, 0.0};
+    const auto   sim = simulate(plant_nonlinear, sensor, controller, solver, x0, {0.0, 20.0}); // the PR's 1 Hz mode settles in about 15 s
 
     fmt::print("Workflow end-to-end summary\n");
     fmt::print("  Linearized A(1,0): {:.6f}\n", lin.A(1, 0));

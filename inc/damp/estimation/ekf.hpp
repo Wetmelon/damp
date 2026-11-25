@@ -105,9 +105,9 @@ struct ExtendedKalmanFilterConfig {
  * @code
  * // Damped pendulum, θ from the upright: θ̈ = (g/l)·sin θ − c·θ̇ + u
  * constexpr auto pendulum = [](const ColVec<2, float>& x, const ColVec<1, float>& u) {
- *     return ColVec<2, float>{x[1], (9.81F * damp::sin(x[0])) - (0.5F * x[1]) + u[0]};
+ *     return ColVec{x[1], (9.81F * damp::sin(x[0])) - (0.5F * x[1]) + u[0]};
  * };
- * constexpr auto angle = [](const ColVec<2, float>& x, const ColVec<1, float>&) { return ColVec<1, float>{x[0]}; };
+ * constexpr auto angle = [](const ColVec<2, float>& x, const ColVec<1, float>&) { return ColVec{x[0]}; };
  * static constinit ExtendedKalmanFilter ekf{pendulum, {.Ts = 0.01F, .Q = Q, .P0 = P0}};
  * // each tick:
  * (void)ekf.update(angle, y, 1e-6F); // y[k], with the input the plant holds

@@ -27,8 +27,8 @@
  * ‖A‖/(ε‖B‖) or more, as with LAPACK's xGGEV.
  *
  * @code
- * constexpr Matrix<3, 3> A{{1.0, 2.0, 0.0}, {0.0, 3.0, 1.0}, {1.0, 0.0, 2.0}};
- * constexpr Matrix<3, 3> B{{1.0, 0.0, 0.0}, {0.0, 1.0, 0.0}, {0.0, 0.0, 0.0}};
+ * constexpr Matrix A{{1.0, 2.0, 0.0}, {0.0, 3.0, 1.0}, {1.0, 0.0, 2.0}};
+ * constexpr Matrix B{{1.0, 0.0, 0.0}, {0.0, 1.0, 0.0}, {0.0, 0.0, 0.0}};
  * constexpr auto         ev = mat::generalized_eigenvalues(A, B);
  * static_assert(ev.success && ev.n_finite == 2); // B has rank 2: one eigenvalue at infinity
  * @endcode

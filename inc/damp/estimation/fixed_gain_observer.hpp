@@ -51,9 +51,9 @@
  * using namespace damp;
  *
  * constexpr StateSpace sys{
- *     .A = Matrix<2,2>{{1.0, 0.1}, {0.0, 1.0}},   // 10 Hz discrete double integrator
- *     .B = Matrix<2,1>{{0.005}, {0.1}},
- *     .C = Matrix<1,2>{{1.0, 0.0}},               // measure position only
+ *     .A = Matrix{{1.0, 0.1}, {0.0, 1.0}},   // 10 Hz discrete double integrator
+ *     .B = Matrix{{0.005}, {0.1}},
+ *     .C = Matrix{{1.0, 0.0}},               // measure position only
  *     .Ts = 0.1
  * };
  *

@@ -30,7 +30,7 @@
  *   auto result = adaptive_solve\<DP45\>(f, x0, {0.0, 10.0});
  *   auto tight  = adaptive_solve\<DP45\>(f, x0, {0.0, 10.0}, {.atol=1e-8, .rtol=1e-6});
  *   // or: AdaptiveStepSolver solver(DP45<2>{}, {.first_step=0.01}); ...
- *   // per-component: AdaptiveOptions<2>{.atol = ColVec<2>{1e-12, 1e-3}, ...}
+ *   // per-component: AdaptiveOptions<2>{.atol = ColVec{1e-12, 1e-3}, ...}
  * @endcode
  */
 
@@ -814,7 +814,7 @@ AdaptiveStepSolver(Int<NX, T>) -> AdaptiveStepSolver<NX, T, Int<NX, T>>;
  *   auto y = adaptive_solve\<DP45\>(f, x0, {0.0, 1.0});                         // SciPy defaults
  *   auto z = adaptive_solve\<TRBDF2\>(f, x0, {0.0, 1.0}, {.atol=1e-8, .rtol=1e-6});
  *   auto w = adaptive_solve\<DP45\>(f, x0, {0.0, 1.0},
- *       AdaptiveOptions<2>{.atol = ColVec<2>{1e-12, 1e-3}, .rtol = 1e-6});
+ *       AdaptiveOptions<2>{.atol = ColVec{1e-12, 1e-3}, .rtol = 1e-6});
  * @endcode
  *
  * @tparam Method Integrator template (DP45, RK23, or TRBDF2)

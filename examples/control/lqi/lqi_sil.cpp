@@ -38,8 +38,8 @@ int main() {
         naive.back_calculate(u_req); // unsaturated request
         naive.predict();
 
-        x_a = kModel.A * x_a + kModel.B * ColVec<1>{static_cast<double>(ua)};
-        x_n = kModel.A * x_n + kModel.B * ColVec<1>{static_cast<double>(un)};
+        x_a = kModel.A * x_a + kModel.B * ColVec{static_cast<double>(ua)};
+        x_n = kModel.A * x_n + kModel.B * ColVec{static_cast<double>(un)};
         peak_a = damp::max(peak_a, x_a[0]);
         peak_n = damp::max(peak_n, x_n[0]);
     }

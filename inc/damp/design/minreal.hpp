@@ -42,9 +42,9 @@
  *
  * // A = diag(-1, -2), only the first state is driven; both appear in C
  * constexpr StateSpace<2, 1, 1> sys{
- *     .A = Matrix<2, 2>{{-1.0, 0.0}, {0.0, -2.0}},
- *     .B = Matrix<2, 1>{{1.0}, {0.0}},
- *     .C = Matrix<1, 2>{{1.0, 1.0}},
+ *     .A = Matrix{{-1.0, 0.0}, {0.0, -2.0}},
+ *     .B = Matrix{{1.0}, {0.0}},
+ *     .C = Matrix{{1.0, 1.0}},
  * };
  * constexpr auto mr = design::minreal(sys);
  * static_assert(mr.success);

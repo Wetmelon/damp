@@ -22,7 +22,7 @@
  *   StateSpace sys{.A = ..., .B = ..., .C = ..., .Ts = 0};
  *   auto zoh = CachedZoh<2, 1>::from(sys, 1e-4);  // expm once
  *   ColVec<2> x = x0;
- *   ColVec<1> u{1.0};  // held
+ *   ColVec u{1.0};  // held
  *   for (int k = 0; k < 1000; ++k) {
  *       // sample (t, x, C*x + D*u) for plotting
  *       x = zoh.step(x, u);

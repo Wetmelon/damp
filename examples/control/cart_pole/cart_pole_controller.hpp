@@ -48,14 +48,14 @@ inline constexpr double Ts = 0.01;    // 100 Hz control
     const double b2 = 1.0 / denom;
     const double b4 = -b2 / L; // = −1/(M ℓ)
 
-    Matrix<4, 4> A{
+    Matrix A{
         {0.0, 1.0, 0.0, 0.0},
         {0.0, a22, a23, 0.0},
         {0.0, 0.0, 0.0, 1.0},
         {0.0, a42, a43, 0.0}
     };
-    ColVec<4>    B{0.0, b2, 0.0, b4};
-    Matrix<2, 4> C{
+    ColVec B{0.0, b2, 0.0, b4};
+    Matrix C{
         {1.0, 0.0, 0.0, 0.0},
         {0.0, 0.0, 1.0, 0.0}
     };

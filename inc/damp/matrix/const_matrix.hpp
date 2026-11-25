@@ -76,7 +76,7 @@ template<const auto& M, size_t R, typename T, size_t N>
  * MatrixLike operands cannot pick this up: a product is this one or it does not compile.
  *
  * @code
- * static constexpr Matrix<2, 3, float> kA{{1.0f, 0.5f, 0.0f}, {0.0f, 0.0f, 1.0f}};
+ * static constexpr Matrix kA{{1.0f, 0.5f, 0.0f}, {0.0f, 0.0f, 1.0f}};
  * ConstMatrix<kA> A;
  * ColVec<2, float> y = A * x; // y₀ = 1·x₀ + 0.5·x₁, y₁ = x₂
  * @endcode

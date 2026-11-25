@@ -21,9 +21,9 @@
  * using namespace damp;
  *
  * constexpr StateSpace<2, 1, 1> sys{
- *     .A = Matrix<2, 2>{{-1.0, 0.0}, {0.0, -10.0}},
- *     .B = Matrix<2, 1>{{1.0}, {1.0}},
- *     .C = Matrix<1, 2>{{1.0, 0.1}},
+ *     .A = Matrix{{-1.0, 0.0}, {0.0, -10.0}},
+ *     .B = Matrix{{1.0}, {1.0}},
+ *     .C = Matrix{{1.0, 0.1}},
  * };
  * constexpr auto bal = design::balanced_realization(sys);
  * static_assert(bal.success);

@@ -64,7 +64,7 @@ int main() {
     float theta = std::numbers::pi_v<float> / 4.0f; // 45° rotor angle
 
     // Simulate three-phase motor currents
-    damp::ColVec<3, float> iabc = {1.0f, -0.5f, -0.5f};
+    damp::ColVec iabc = {1.0f, -0.5f, -0.5f};
 
     // ABC → αβ (Clarke) → dq (Park)
     auto [alpha, beta] = clarke_transform(iabc);

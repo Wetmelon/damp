@@ -112,9 +112,9 @@ struct UnscentedKalmanFilterConfig {
  * @code
  * // Pendulum: state [θ, ω], measure sin θ (nonlinear).
  * constexpr auto pendulum = [](const ColVec<2, float>& x, const ColVec<1, float>& u) {
- *     return ColVec<2, float>{x[1], (-9.81F * damp::sin(x[0])) + u[0]};
+ *     return ColVec{x[1], (-9.81F * damp::sin(x[0])) + u[0]};
  * };
- * constexpr auto sin_theta = [](const ColVec<2, float>& x, const ColVec<1, float>&) { return ColVec<1, float>{damp::sin(x[0])}; };
+ * constexpr auto sin_theta = [](const ColVec<2, float>& x, const ColVec<1, float>&) { return ColVec{damp::sin(x[0])}; };
  * static constinit UnscentedKalmanFilter ukf{pendulum, {.Ts = 0.01F, .Q = Q, .x0 = x0, .P0 = P0}};
  * (void)ukf.update(sin_theta, y_meas, 1e-4F);
  * (void)ukf.predict(u);

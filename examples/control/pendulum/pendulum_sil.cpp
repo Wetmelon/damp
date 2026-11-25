@@ -39,7 +39,7 @@ static ColVec<2, double> pendulum_f(double /*t*/, const ColVec<2, double>& x, co
     const double theta_ddot = ((g / L) * damp::sin(theta)) - ((b_damp / (m * L * L)) * theta_dot)
                             + ((1.0 / (m * L * L)) * torque);
 
-    return ColVec<2, double>{theta_dot, theta_ddot};
+    return ColVec{theta_dot, theta_ddot};
 }
 
 int main() {
@@ -49,7 +49,7 @@ int main() {
 
     // One-tick smoke (same float deploy path as sketch / former lqr print)
     {
-        ColVec<2, float>  x_smoke{0.1f, 0.0f};
+        ColVec            x_smoke{0.1f, 0.0f};
         Law<lqr_d, float> ctrl_f;
         const float       u_smoke = control_period(ctrl_f, x_smoke)(0);
         fmt::print("u at θ=0.1 rad (float): {:.4f}\n\n", u_smoke);
@@ -63,7 +63,7 @@ int main() {
     RK4<2>          rk4;
     FixedStepSolver solver(rk4, 0.001);
 
-    ColVec<2, double> x0{0.5236, 0.0}; // ~30° tip
+    ColVec x0{0.5236, 0.0}; // ~30° tip
 
     auto sim = simulate_state_feedback(pendulum_f, output, ctrl, solver, x0, {0.0, 5.0});
 
@@ -138,7 +138,7 @@ int main() {
     const double a21 = (g / L) * damp::cos(theta_op);
     const double a22 = -b_damp / (m * L * L);
     auto         sys_op = sys;
-    sys_op.A = Matrix<2, 2>{{0.0, 1.0}, {a21, a22}};
+    sys_op.A = Matrix{{0.0, 1.0}, {a21, a22}};
     const auto res_op = design::state_feedback(sys_op, Ts, {.Q = Q, .R = R});
     if (res_op.success) {
         fmt::print("  K_op = [{:.4f}, {:.4f}]\n", res_op.K(0, 0), res_op.K(0, 1));
