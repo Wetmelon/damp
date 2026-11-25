@@ -126,28 +126,6 @@ template<typename Spec>
     }
 }
 
-/** @brief The disturbance channels of NoDisturbance: none. */
-template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NXE, size_t NWE, size_t NVE>
-[[nodiscard]] constexpr DisturbanceChannels<NX, NXE, NY, 0, T> disturbance_channels(
-    const NoDisturbance&,
-    const StateSpace<NX, NU, NY, T, NW, NV>&,
-    const StateSpace<NXE, NU, NY, T, NWE, NVE>&,
-    T
-) {
-    return {};
-}
-
-/** @brief The disturbance channels of TrackedOutputs: none. */
-template<size_t NZ, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size_t NXE, size_t NWE, size_t NVE>
-[[nodiscard]] constexpr DisturbanceChannels<NX, NXE, NY, 0, T> disturbance_channels(
-    const TrackedOutputs<NZ>&,
-    const StateSpace<NX, NU, NY, T, NW, NV>&,
-    const StateSpace<NXE, NU, NY, T, NWE, NVE>&,
-    T
-) {
-    return {};
-}
-
 /** @brief Not TrackedOutputs. */
 template<typename>
 inline constexpr bool is_tracked_outputs = false;
