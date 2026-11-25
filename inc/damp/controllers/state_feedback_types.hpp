@@ -426,13 +426,14 @@ struct [[nodiscard]] StateFeedbackResult {
     using Filter = ::damp::detail::estimator_traits<::damp::detail::runtime_estimator_t<Kalman, T>>;
     static constexpr bool   kEstimated = Filter::present;         ///< A Kalman filter estimates the state
     static constexpr bool   kIntegral = NI > 0;                   ///< The law has integral action
+    static constexpr bool   kTarget = (NZ > 0) || (NM > 0);       ///< The law has a steady-state target: held outputs, or a measured disturbance
     static constexpr bool   kHandover = HO;                       ///< The law fades the mismatch after a track (Handover)
     static constexpr size_t NXL = NX + (NRU * NU);                ///< The law's model: the plant, then its delay states
     static constexpr size_t NK = NXL + NI;                        ///< The gain's state: the law's model and the integrators
     static constexpr size_t ND = Filter::ND;                      ///< Disturbance states of the filter
     static constexpr size_t NXF = kEstimated ? Filter::NXE : NXL; ///< The filter's model before d: the law's, then the delay states of late readings
     using Integral = ::damp::detail::maybe<(NI > 0), IntegralDesign<NI, NXL, NU, NY, T>, ::damp::detail::OffSlot::design_integral>;
-    using Target = ::damp::detail::maybe<(NZ > 0 || NM > 0), SteadyStateTargetResult<NXF, NU, ND + NM, NZ, T>, ::damp::detail::OffSlot::design_target>;
+    using Target = ::damp::detail::maybe<kTarget, SteadyStateTargetResult<NXF, NU, ND + NM, NZ, T>, ::damp::detail::OffSlot::design_target>;
     using TrackingTime = ::damp::detail::maybe<(NI > 0), T, ::damp::detail::OffSlot::design_tracking_time>;
     using FadeTime = ::damp::detail::maybe<HO, T, ::damp::detail::OffSlot::design_fade_time>;
 
@@ -481,7 +482,7 @@ struct [[nodiscard]] StateFeedbackResult {
             out.integral = integral.template as<U>();
             out.tracking_time = static_cast<U>(tracking_time);
         }
-        if constexpr (NZ > 0 || NM > 0) {
+        if constexpr (kTarget) {
             out.target = target.template as<U>();
         }
         if constexpr (HO) {
