@@ -19,6 +19,7 @@
 
 #include "damp/backend.hpp"
 #include "damp/design/options.hpp"
+#include "damp/math/math.hpp"
 #include "damp/matrix/colvec.hpp"
 #include "damp/matrix/core.hpp"
 #include "damp/toolbox/bounds.hpp"
@@ -32,11 +33,11 @@ namespace damp::design {
  *
  * Not part of the cost: the weights are the same with or without them, so they are an option,
  * and left out the inputs are unbounded. An end left out is unbounded too, as a Bounds' is. The
- * ends are vectors, written flat: `InputLimits{.lower = {-12.0}, .upper = {12.0}}` for one input.
- * Braces deduce no size, so a braced end is one input's in double: for more, one end is typed,
- * `InputLimits{.lower = ColVec{0.0, -1.0}, .upper = {40.0, 1.0}}`, or the type is named,
- * `InputLimits<2>{.lower = {0.0, -1.0}, .upper = {40.0, 1.0}}`, the spelling inside a template on
- * clang, where a typed end deduces nothing (llvm/llvm-project#114870).
+ * ends are written flat, one entry per input, and the braces give the count and the scalar:
+ * `InputLimits{.lower = {-12.0}, .upper = {12.0}}` for one input, `InputLimits{.lower = {0.0,
+ * -1.0}, .upper = {40.0, 1.0}}` for two, `InputLimits{.upper = {40.0, 1.0}}` for two bounded above
+ * alone, inside a template on clang too. Entries of mixed types (`{0, 1.5}`) name the type,
+ * `InputLimits<2>{…}`, as a Matrix literal's do.
  *
  * | Design | What the limits are |
  * | --- | --- |
@@ -55,10 +56,10 @@ namespace damp::design {
  */
 template<size_t NU = 1, typename T = double>
 struct InputLimits {
-    static constexpr size_t inputs = NU;                                               ///< The inputs it bounds
-    using option_kind = kind::InputLimits;                                             ///< Its kind of design option
-    ColVec<NU, T> lower = Matrix<NU, 1, T>::constant(-damp::numeric_limits<T>::max()); ///< The lowest command per input (default unbounded)
-    ColVec<NU, T> upper = Matrix<NU, 1, T>::constant(damp::numeric_limits<T>::max());  ///< The highest command per input (default unbounded)
+    static constexpr size_t inputs = NU;             ///< The inputs it bounds
+    using option_kind = kind::InputLimits;           ///< Its kind of design option
+    T lower[NU] = {damp::numeric_limits<T>::max()};  ///< The lowest command per input (left out: unbounded, detail::end_left_out)
+    T upper[NU] = {-damp::numeric_limits<T>::max()}; ///< The highest command per input (left out: unbounded, detail::end_left_out)
 };
 
 /**
@@ -91,10 +92,10 @@ struct InputLimits {
  */
 template<size_t NU = 1, typename T = double>
 struct InputRateLimits {
-    static constexpr size_t inputs = NU;                                               ///< The inputs whose move it bounds
-    using option_kind = kind::InputRateLimits;                                         ///< Its kind of design option
-    ColVec<NU, T> lower = Matrix<NU, 1, T>::constant(-damp::numeric_limits<T>::max()); ///< The lowest move per period, per input (default unbounded)
-    ColVec<NU, T> upper = Matrix<NU, 1, T>::constant(damp::numeric_limits<T>::max());  ///< The highest move per period, per input (default unbounded)
+    static constexpr size_t inputs = NU;             ///< The inputs whose move it bounds
+    using option_kind = kind::InputRateLimits;       ///< Its kind of design option
+    T lower[NU] = {damp::numeric_limits<T>::max()};  ///< The lowest move per period, per input (left out: unbounded, detail::end_left_out)
+    T upper[NU] = {-damp::numeric_limits<T>::max()}; ///< The highest move per period, per input (left out: unbounded, detail::end_left_out)
 };
 
 /**
@@ -130,10 +131,47 @@ struct StateFeedbackLimits {
 
 namespace detail {
 
-/** @brief The box of a limit option's @p lower and @p upper ends, in the scalar @p T: Bounds::as, so an unbounded end stays one. */
+/**
+ * @brief Whether a limit option's end was left out: its first entry still holds its default, the
+ *        other end's unbounded value (+max() on a lower end, −max() on an upper one), which no
+ *        end of its own takes.
+ *
+ * The ends are C arrays, so that braces give their count, and a C array left out cannot start at
+ * ∓max() for every count: its first entry carries the mark and the rest are zeros. A NaN entry is
+ * not the mark, so the design still refuses it.
+ */
+template<typename U>
+[[nodiscard]] constexpr bool end_left_out(U first, U mark) {
+    if constexpr (damp::floating_point<U>) {
+        if (!damp::isfinite(first)) {
+            return false; // a NaN end is given: the design refuses it
+        }
+    }
+    return first == mark;
+}
+
+/** @brief The box of a limit option's @p lower and @p upper vector ends (OutputLimits, StateLimits), in the scalar @p T: Bounds::as, so an unbounded end stays one. */
 template<typename T, size_t N, typename U>
 [[nodiscard]] constexpr Bounds<N, T> box_of(const ColVec<N, U>& lower, const ColVec<N, U>& upper) {
     return Bounds<N, U>{.lower = lower, .upper = upper}.template as<T>();
+}
+
+/** @brief The box of an input limit's @p lower and @p upper ends, in the scalar @p T: an end left out is unbounded, and Bounds::as keeps an unbounded end one. */
+template<typename T, size_t N, typename U>
+[[nodiscard]] constexpr Bounds<N, T> box_of(const U (&lower)[N], const U (&upper)[N]) {
+    using S = damp::conditional_t<damp::floating_point<U>, U, T>; // integer ends read as T
+    const bool   has_lower = !end_left_out(lower[0], damp::numeric_limits<U>::max());
+    const bool   has_upper = !end_left_out(upper[0], -damp::numeric_limits<U>::max());
+    Bounds<N, S> box{}; // unbounded
+    for (size_t i = 0; i < N; ++i) {
+        if (has_lower) {
+            box.lower(i) = static_cast<S>(lower[i]);
+        }
+        if (has_upper) {
+            box.upper(i) = static_cast<S>(upper[i]);
+        }
+    }
+    return box.template as<T>();
 }
 
 /** @brief The box of the option of the kind @p Kind among @p opts, on the plant's NU inputs in its scalar @p T (none: unbounded). */
@@ -143,8 +181,7 @@ template<typename Kind, size_t NU, typename T, typename Fallback, typename... Op
     if constexpr (Given::inputs != NU) {
         static_assert(
             Given::inputs == NU,
-            "InputLimits and InputRateLimits bound each input of the plant: type one end, .lower = ColVec{...}, or name the type, InputLimits<NU>{...}. "
-            "Given in a template? There clang deduces nothing from a field set to a ColVec literal or to a constant declared outside it (llvm/llvm-project#114870): name the type."
+            "InputLimits and InputRateLimits bound each input of the plant: one entry per input in each end given, .upper = {a, b} for two."
         );
         return Bounds<NU, T>{};
     } else {

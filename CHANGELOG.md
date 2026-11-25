@@ -41,6 +41,7 @@ and [known limitations](docs/known_limitations.md)).
 - Breaking: `design::linearize(f, h, x_op, u_op)` and `matlab::linmod` read the outputs off what h returns, so `linearize<NX, NU, NY>(…)` becomes `linearize(…)`, or `linearize<NX, NU>(…)` for an operating point in braces.
 - Breaking: `sim::simulate`, `simulate_sampled`, `simulate_state_feedback` and `simulate_discrete_nonlinear` read the outputs off what the output map returns and the inputs off what the controller returns, so `simulate<NX, NU, NY>(…)` becomes `simulate(…)`.
 - Breaking: a `Matrix`, `ColVec` or `RowVec` literal gives every entry, its shape checked at compile time, so a short one no longer zero-fills and a long one no longer drops its extra entries at run time: neither compiles. `Quaternion{w, x, y, z}` takes all four components, and `DCM` and `Transform4` take their rows the same way.
+- Breaking: `InputLimits` and `InputRateLimits` take their inputs from their braces, `InputLimits{.upper = {40.0, 1.0}}` for two inputs bounded above, inside a template on clang too; an end is a braced list, so one set from a `ColVec` is written entry by entry.
 
 - An MPC's weights and output limits are on every output of the plant, `MPCWeights<NU, NY>` sized from it and `OutputLimits` indexing the rows of C, and a disturbance spec's `.outputs` names the outputs r holds, as in the OFLQG, no longer the only outputs the QP sees. A design that listed outputs and weighed only those gives them their weights and the others zeros, the same design.
 - Ru weighs the input's deviation from the steady-state target's input, the steady input that holds r, so an Ru weight no longer leaves an offset and an offset-free MPC runs as one `step(r, y)`. `set_input_target` replaces that anchor with an operating point, and `clear_input_target()` returns to it; before, Ru pulled toward zero until an input target was set.
@@ -73,6 +74,7 @@ and [known limitations](docs/known_limitations.md)).
 
 ### Fixed
 
+- `Bounds::as` keeps a NaN or ±Inf end one, so `valid()` refuses it after the conversion every design and `set_limits` make: before, +Inf read as unbounded, and under `-ffast-math` a NaN could too.
 - `Law<kRes, T>` of a failed `constexpr` MPC design on the measured state no longer compiles, as an LQ design's and a filtered MPC's do, and the error names the status; it compiled before, `valid()` false at run time, and only `constinit` refused it.
 - A `DemandLimit` whose box has an infinite or NaN end is refused (`invalid_parameter`), by the design and by `set_limits()`: its conversion to the law's scalar read an infinite end as unbounded before the box was tested.
 - A `constexpr` design refused for its sample time now says why plain braces cause it. `fn(plant, {}, {…})` is the sampled form with Ts = 0, for a discrete plant as for a continuous one; the compile error's note at `design_refused::invalid_sample_time` names both right spellings, `fn(plant, weights, …)` for a discrete plant and `fn(plant, Ts, weights, …)` for a continuous one.

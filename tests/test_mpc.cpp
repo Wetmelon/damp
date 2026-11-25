@@ -3,8 +3,10 @@
 // Distributed under the Boost Software License, Version 1.0.
 // (See accompanying file LICENSE or copy at http://www.boost.org/LICENSE_1_0.txt)
 
+#include <bit>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <limits>
 #include <type_traits>
 
@@ -174,17 +176,20 @@ constexpr bool deduces_to(const Got& got) {
     return std::is_same_v<Want, Got>;
 }
 
-/// The limit options deduce inside a function template as at namespace scope: a braced end deduces
-/// nothing (one input, double), a typed end and an index list do. On clang a ColVec literal set as the
-/// end itself deduces nothing in a template (llvm/llvm-project#114870), so the typed ends are locals.
+/// Ends declared outside the template: llvm/llvm-project#114870 is a field set to such a constant.
+constexpr double kCeiling = 2.0;
+constexpr float  kFloor = -1.0f;
+
+/// The limit options deduce inside a function template as at namespace scope, on g++ and clang:
+/// braces give an input limit its inputs and scalar, an index list an output or state limit its count.
 template<size_t N>
 constexpr bool deduced_in_template() {
-    const ColVec lower{-1.0, -2.0};
-    const ColVec upper{1.0f, 2.0f};
     return deduces_to<design::InputLimits<1>>(design::InputLimits{.upper = {1.0}})
-        && deduces_to<design::InputLimits<2>>(design::InputLimits{.lower = lower, .upper = {1.0, 2.0}})
+        && deduces_to<design::InputLimits<2>>(design::InputLimits{.lower = {-1.0, -2.0}, .upper = {1.0, 2.0}})
+        && deduces_to<design::InputLimits<2>>(design::InputLimits{.upper = {kCeiling, kCeiling}})
         && deduces_to<design::InputRateLimits<1>>(design::InputRateLimits{.lower = {-0.2}, .upper = {0.2}})
-        && deduces_to<design::InputRateLimits<2, float>>(design::InputRateLimits{.upper = upper})
+        && deduces_to<design::InputRateLimits<2, float>>(design::InputRateLimits{.upper = {1.0f, 2.0f}})
+        && deduces_to<design::InputRateLimits<1, float>>(design::InputRateLimits{.lower = {kFloor}})
         && deduces_to<design::OutputLimits<2>>(design::OutputLimits{.outputs = {1, 2}, .lower = {-0.4, -0.26}, .upper = {0.4, 0.26}})
         && deduces_to<design::StateLimits<1>>(design::StateLimits{.states = {2}, .lower = {-0.26}, .upper = {0.26}})
         && deduces_to<DemandLimit<3>>(DemandLimit{.state = 2, .outer = {0, 1, 4}, .lower = -0.26, .upper = 0.26}) && N == 0;
@@ -1680,7 +1685,8 @@ TEST_CASE("design::mpc refuses NaN or inverted limits, negative softness and ind
     design::InputLimits<1> inverted{.lower = {1.0}, .upper = {-1.0}};
     CHECK(design::mpc<6, 2>(double_integrator, move_weight(1.0), inverted, design::TrackedOutputs{}).status == design::DesignStatus::invalid_parameter);
     design::InputRateLimits<1> nan_du{};
-    nan_du.upper(0) = std::numeric_limits<double>::quiet_NaN();
+    volatile std::uint64_t     nan_bits = 0x7ff8000000000000ull; // a NaN from its bits at run time: -ffast-math folds a constant one
+    nan_du.upper[0] = std::bit_cast<double>(static_cast<std::uint64_t>(nan_bits));
     CHECK(design::mpc<6, 2>(double_integrator, move_weight(1.0), nan_du, design::TrackedOutputs{}).status == design::DesignStatus::invalid_parameter);
     CHECK(design::mpc<6, 2>(double_integrator, move_weight(1.0), design::InputRateLimits{.lower = {0.2}, .upper = {-0.2}}, design::TrackedOutputs{}).status == design::DesignStatus::invalid_parameter);
     CHECK(design::mpc<6, 2>(double_integrator, move_weight(1.0), design::OutputLimits{.outputs = {0}, .upper_ecr = {-1.0}}, design::TrackedOutputs{}).status == design::DesignStatus::bad_weights);
@@ -2002,24 +2008,33 @@ TEST_CASE("MPCWeights, InputLimits and the limits options take their sizes from 
     static_assert(damp::is_same_v<decltype(two_inputs), const MPCWeights<2, 1>>);
 
     constexpr InputLimits limits{.lower = {0.0}, .upper = {40.0}};
-    static_assert(damp::is_same_v<decltype(limits), const InputLimits<1>> && limits.upper(0) == 40.0);
-    constexpr InputLimits two_input_limits{.lower = ColVec{0.0, -1.0}, .upper = {40.0, 1.0}};
+    static_assert(damp::is_same_v<decltype(limits), const InputLimits<1>> && limits.upper[0] == 40.0);
+    //! The braces give the inputs and the scalar.
+    constexpr InputLimits two_input_limits{.lower = {0.0, -1.0}, .upper = {40.0, 1.0}};
     static_assert(damp::is_same_v<decltype(two_input_limits), const InputLimits<2>>);
-    //! An end left out is unbounded, as a Bounds' is; braces deduce nothing, a typed end gives the inputs and the scalar.
+    constexpr double kMax = damp::numeric_limits<double>::max();
+    constexpr auto   box = [](const auto& option) { return design::detail::input_limits_of<std::remove_cvref_t<decltype(option)>::inputs, double>(option); };
+    static_assert(box(two_input_limits).lower(1) == -1.0 && box(two_input_limits).upper(0) == 40.0);
+    //! An end left out is unbounded, as a Bounds' is, whatever the count the other end gives.
     constexpr InputLimits ceiling{.upper = {1.0}};
-    static_assert(damp::is_same_v<decltype(ceiling), const InputLimits<1>> && ceiling.lower(0) == -damp::numeric_limits<double>::max());
-    static_assert(damp::is_same_v<decltype(InputLimits{.lower = {-2.0}, .upper = {2.0}}), InputLimits<1>>);
+    static_assert(damp::is_same_v<decltype(ceiling), const InputLimits<1>> && box(ceiling).lower(0) == -kMax && box(ceiling).upper(0) == 1.0);
+    constexpr InputLimits floors{.lower = {0.0, -1.0, -2.0}};
+    static_assert(damp::is_same_v<decltype(floors), const InputLimits<3>> && box(floors).lower(2) == -2.0 && box(floors).upper(1) == kMax);
+    static_assert(box(InputLimits{}).lower(0) == -kMax && box(InputLimits{}).upper(0) == kMax);
+    //! Integer entries are the limits they say; mixed entries name the type, as a Matrix literal's do.
+    static_assert(damp::is_same_v<decltype(InputLimits{.upper = {40}}), InputLimits<1, int>> && box(InputLimits{.upper = {40}}).upper(0) == 40.0);
+    static_assert(box(InputLimits<2>{.lower = {0, -1.5}}).lower(1) == -1.5);
     //! The move limit deduces the same way.
     constexpr design::InputRateLimits moves{.lower = {-0.2}, .upper = {0.2}};
-    static_assert(damp::is_same_v<decltype(moves), const design::InputRateLimits<1>> && moves.upper(0) == 0.2);
+    static_assert(damp::is_same_v<decltype(moves), const design::InputRateLimits<1>> && moves.upper[0] == 0.2);
     constexpr design::InputRateLimits up{.upper = {0.5}};
-    static_assert(up.lower(0) == -damp::numeric_limits<double>::max() && up.upper(0) == 0.5);
-    constexpr design::InputRateLimits two_moves{.lower = ColVec{-1.0f, -2.0f}, .upper = {1.0f, 2.0f}};
+    static_assert(design::detail::input_rate_limits_of<1, double>(up).lower(0) == -kMax && design::detail::input_rate_limits_of<1, double>(up).upper(0) == 0.5);
+    constexpr design::InputRateLimits two_moves{.lower = {-1.0f, -2.0f}, .upper = {1.0f, 2.0f}};
     static_assert(damp::is_same_v<decltype(two_moves), const design::InputRateLimits<2, float>>);
     constexpr design::InputRateLimits<2> spelled{.lower = {-1.0, -1.0}, .upper = {1.0, 1.0}};
-    static_assert(spelled.upper(1) == 1.0);
-    //! Inside a function template too, on g++ and clang, the spellings above (llvm/llvm-project#114870 is
-    //! a field set to a constant declared outside the template: docs/known_limitations.md).
+    static_assert(spelled.upper[1] == 1.0);
+    //! Inside a function template too, on g++ and clang, the spellings above, and an end set to a
+    //! constant declared outside the template, which llvm/llvm-project#114870 leaves undeduced in a ColVec field.
     static_assert(deduced_in_template<0>());
 
     //! The bounded outputs' count from the list; a side made hard with braces, which deduce nothing.
