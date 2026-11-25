@@ -108,12 +108,12 @@ template<size_t NX, size_t NU, size_t NY, size_t NI, typename T>
     };
 }
 
-/** @brief The weights on [x; xi]: Q and Q_integral on the diagonal, N on the plant's rows. */
+/** @brief The weights on [x; xi]: @p w's Q and the integrators' @p Qi on the diagonal, N on the plant's rows. */
 template<size_t NX, size_t NU, typename T, size_t NI>
-[[nodiscard]] constexpr LQRCost<NX + NI, NU, T> stacked_weights(const LQIConfig<NX, NU, NI, T>& w) {
+[[nodiscard]] constexpr LQRCost<NX + NI, NU, T> stacked_weights(const LQRWeights<NX, NU, T>& w, const Matrix<NI, NI, T>& Qi) {
     LQRCost<NX + NI, NU, T> out{.R = w.R};
     out.Q.template block<NX, NX>(0, 0) = w.Q;
-    out.Q.template block<NI, NI>(NX, NX) = w.Q_integral;
+    out.Q.template block<NI, NI>(NX, NX) = Qi;
     out.N.template block<NX, NU>(0, 0) = w.N;
     return out;
 }
@@ -148,7 +148,8 @@ template<size_t NX, size_t NU, size_t NY, size_t NI, typename T, size_t NW, size
     const StateSpace<NZ, NU, NY, T, NW, NV>&              model, // discretize(sys, Ts, InputDelay<N>{θ})
     const damp::array<::damp::detail::DelaySplit<T>, NU>& inputs,
     const Matrix<NI, NY, T>&                              Ci,
-    const lq_config<NX, NU, NI, T>&                       w,
+    const LQRWeights<NX, NU, T>&                          w,
+    const Matrix<NI, NI, T>&                              Qi, // the integrators' cost
     T                                                     Ts
 ) {
     constexpr size_t NL = NZ + NI;      // the law's state [z; ξ]
@@ -156,7 +157,7 @@ template<size_t NX, size_t NU, size_t NY, size_t NI, typename T, size_t NW, size
     constexpr size_t NE = NX + NI;      // what runs over the period: [x; ξ]
     constexpr size_t NA = NE + NU + NI; // and what a stretch holds: [v; e]
 
-    //! d/dt [x; ξ; v; e] = [A·x + B·v; −e; 0; 0], weighted by [Q 0 N 0; 0 Q_integral 0 0; Nᵀ 0 0 0; 0 0 0 0]
+    //! d/dt [x; ξ; v; e] = [A·x + B·v; −e; 0; 0], weighted by [Q 0 N 0; 0 Qi 0 0; Nᵀ 0 0 0; 0 0 0 0]
     Matrix<NA, NA, T> A_aug{};
     Matrix<NA, NA, T> S{};
     A_aug.template block<NX, NX>(0, 0) = sys.A;
@@ -164,11 +165,11 @@ template<size_t NX, size_t NU, size_t NY, size_t NI, typename T, size_t NW, size
     S.template block<NX, NX>(0, 0) = w.Q;
     S.template block<NX, NU>(0, NE) = w.N;
     S.template block<NU, NX>(NE, 0) = w.N.t();
-    if constexpr (NI > 0) { // a regulator's cost has no Q_integral
+    if constexpr (NI > 0) { // a regulator's cost has no Qi
         for (size_t i = 0; i < NI; ++i) {
             A_aug(NX + i, NE + NU + i) = T{-1};
             for (size_t c = 0; c < NI; ++c) {
-                S(NX + i, NX + c) = w.Q_integral(i, c);
+                S(NX + i, NX + c) = Qi(i, c);
             }
         }
     }

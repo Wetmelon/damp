@@ -791,65 +791,52 @@ template<size_t NX, typename T>
     return poles;
 }
 
-/**
- * @brief MATLAB®'s Q on [x; xi] as the design's Q and Q_integral; nullopt when its x–xi blocks
- *        are not zero (design::state_feedback with an IntegralAction weights the two blocks apart).
- */
-template<size_t NX, size_t NI, size_t NU, typename T>
-[[nodiscard]] constexpr damp::optional<design::detail::LQIConfig<NX, NU, NI, T>> split_integral_weight(const Matrix<NX + NI, NX + NI, T>& Q_aug, const Matrix<NU, NU, T>& R) {
+/** @brief Whether MATLAB®'s Q on [x; xi] splits into the plant's and the integrators' blocks: its x–xi blocks are zero (design::state_feedback weighs the two apart). */
+template<size_t NX, size_t NI, typename T>
+[[nodiscard]] constexpr bool integral_weight_splits(const Matrix<NX + NI, NX + NI, T>& Q_aug) {
     for (size_t i = 0; i < NX; ++i) {
         for (size_t j = 0; j < NI; ++j) {
             if (Q_aug(i, NX + j) != T{0} || Q_aug(NX + j, i) != T{0}) {
-                return damp::nullopt;
+                return false;
             }
         }
     }
-    return design::detail::LQIConfig<NX, NU, NI, T>{.Q = Q_aug.template block<NX, NX>(0, 0), .R = R, .Q_integral = Q_aug.template block<NI, NI>(NX, NX)};
+    return true;
 }
 
 /**
  * @brief The LQ design with integral action on a discrete plant, the integrated outputs @p Ci·y,
  *        with MATLAB®'s Q on [x; xi] and a Kalman filter of @p noise (Unset: none): bad_weights
- *        for x–xi cross weights.
+ *        for x–xi cross weights, or without a @p Ci (an output list refused).
  */
 template<size_t NI, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Noise = design::detail::Unset>
 [[nodiscard]] constexpr auto integral_design(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
     const Matrix<NX + NI, NX + NI, T>&       Q_aug,
     const Matrix<NU, NU, T>&                 R,
-    const Matrix<NI, NY, T>&                 Ci,
+    const damp::optional<Matrix<NI, NY, T>>& Ci,
     const Noise&                             noise = Noise{}
 ) {
-    const auto w = split_integral_weight<NX, NI>(Q_aug, R);
-    auto       res = design::detail::designed<true>(
-        sys, T{0}, w ? *w : design::detail::LQIConfig<NX, NU, NI, T>{}, Ci, Bounds<0, T>{}, noise, design::NoDisturbance{}, design::NoDisturbance{},
-        design::MeasuredDisturbance<NX, 0, T>{}, design::detail::NoDelay{}, design::detail::LQGain{}, design::detail::Unset{}
+    const design::LQRWeights<NX, NU, T>          w{.Q = Q_aug.template block<NX, NX>(0, 0), .R = R};
+    const design::detail::Integrators<NI, NY, T> integ{.Ci = Ci ? *Ci : Matrix<NI, NY, T>{}, .Q = Q_aug.template block<NI, NI>(NX, NX)};
+    auto                                         res = design::detail::designed<true>(
+        sys, T{0}, w, integ, design::StateFeedbackLimits<NX, NU, T, NI>{}, noise, design::NoDisturbance{}, design::NoDisturbance{}, design::MeasuredDisturbance<NX, 0, T>{},
+        design::detail::NoDelay{}, design::detail::LQGain{}, design::detail::Unset{}
     );
-    if (!w) {
-        res = ::damp::detail::refused<decltype(res)>(design::DesignStatus::bad_weights); // x–xi cross weights
+    if (!Ci || !integral_weight_splits<NX, NI>(Q_aug)) {
+        res = ::damp::detail::refused<decltype(res)>(design::DesignStatus::bad_weights);
     }
     return res;
 }
 
-/** @brief integral_design on the listed outputs: bad_weights for one out of range or listed twice. */
-template<size_t NI, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Noise = design::detail::Unset>
-[[nodiscard]] constexpr auto listed_integral_design(
-    const StateSpace<NX, NU, NY, T, NW, NV>& sys,
-    const Matrix<NX + NI, NX + NI, T>&       Q_aug,
-    const Matrix<NU, NU, T>&                 R,
-    const size_t (&outputs)[NI],
-    const Noise& noise = Noise{}
-) {
-    design::detail::IntegralAction<NI> sel{};
+/** @brief Ci of the listed outputs: nullopt for one out of range or listed twice. */
+template<size_t NY, typename T, size_t NI>
+[[nodiscard]] constexpr damp::optional<Matrix<NI, NY, T>> listed_outputs_selector(const size_t (&outputs)[NI]) {
+    damp::array<size_t, NI> list{};
     for (size_t i = 0; i < NI; ++i) {
-        sel.outputs[i] = outputs[i];
+        list[i] = outputs[i];
     }
-    const auto Ci = design::detail::integrated_selector<NI, NY, T>(sel);
-    auto       res = integral_design<NI>(sys, Q_aug, R, Ci ? *Ci : Matrix<NI, NY, T>{}, noise);
-    if (!Ci) {
-        res = ::damp::detail::refused<decltype(res)>(design::DesignStatus::bad_weights); // an output out of range or listed twice
-    }
-    return res;
+    return design::detail::output_selector<NI, NY, T>(list);
 }
 
 } // namespace detail
@@ -1084,7 +1071,7 @@ template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, si
     const Matrix<NX + NY, NX + NY, T>&       Q,
     const Matrix<NU, NU, T>&                 R
 ) {
-    return detail::integral_design<NY>(sys, Q, R, Matrix<NY, NY, T>::identity());
+    return detail::integral_design<NY>(sys, Q, R, damp::optional<Matrix<NY, NY, T>>{Matrix<NY, NY, T>::identity()});
 }
 
 /** @brief LQI integrating the outputs @p Ci selects (NI×NY). Discrete plants only. */
@@ -1095,7 +1082,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size
     const Matrix<NU, NU, T>&                 R,
     const Matrix<NI, NY, T>&                 Ci
 ) {
-    return detail::integral_design<NI>(sys, Q, R, Ci);
+    return detail::integral_design<NI>(sys, Q, R, damp::optional<Matrix<NI, NY, T>>{Ci});
 }
 
 /** @brief LQI integrating the listed outputs, e.g. `lqi(sys, Q, R, {0, 3})`. Discrete plants only. */
@@ -1106,7 +1093,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size
     const Matrix<NU, NU, T>&                 R,
     const size_t (&outputs)[NI]
 ) {
-    return detail::listed_integral_design(sys, Q, R, outputs);
+    return detail::integral_design<NI>(sys, Q, R, detail::listed_outputs_selector<NY, T>(outputs));
 }
 
 /**
@@ -1162,7 +1149,7 @@ template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, si
     const Matrix<NW, NW, T>&                 Q_kf,
     const Matrix<NV, NV, T>&                 R_kf
 ) {
-    return detail::integral_design<NY>(sys, Q_aug, R, Matrix<NY, NY, T>::identity(), design::KalmanNoise{Q_kf, R_kf});
+    return detail::integral_design<NY>(sys, Q_aug, R, damp::optional<Matrix<NY, NY, T>>{Matrix<NY, NY, T>::identity()}, design::KalmanNoise{Q_kf, R_kf});
 }
 
 /** @brief LQG servo integrating the outputs @p Ci selects (NI×NY). Discrete plants only. */
@@ -1175,7 +1162,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size
     const Matrix<NV, NV, T>&                 R_kf,
     const Matrix<NI, NY, T>&                 Ci
 ) {
-    return detail::integral_design<NI>(sys, Q_aug, R, Ci, design::KalmanNoise{Q_kf, R_kf});
+    return detail::integral_design<NI>(sys, Q_aug, R, damp::optional<Matrix<NI, NY, T>>{Ci}, design::KalmanNoise{Q_kf, R_kf});
 }
 
 /**
@@ -1191,7 +1178,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size
     const Matrix<NV, NV, T>&                 R_kf,
     const size_t (&outputs)[NI]
 ) {
-    return detail::listed_integral_design(sys, Q_aug, R, outputs, design::KalmanNoise{Q_kf, R_kf});
+    return detail::integral_design<NI>(sys, Q_aug, R, detail::listed_outputs_selector<NY, T>(outputs), design::KalmanNoise{Q_kf, R_kf});
 }
 
 /**
