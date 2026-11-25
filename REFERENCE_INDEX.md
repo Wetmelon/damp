@@ -10,12 +10,12 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`ActionGovernor`](inc/damp/controllers/action_governor.hpp#L235) | block | Runtime controllers | Runtime action governor — QP projection of u_des onto A u ≤ b |
 | [`ActiveSetSolver`](inc/damp/design/qp.hpp#L966) | block | Design-time synthesis (not PWM-rate) | Default QP solver policy: the Goldfarb–Idnani active-set solve_qp() |
 | [`AdaptationGate`](inc/damp/estimation/parameter_estimation.hpp#L338) | block | Observers & estimators | Gated-adaptation policy: decide whether a parameter update is safe to apply |
-| [`adaptive_solve`](inc/damp/simulation/solver.hpp#L828) | function | Simulation / SIL harness (host) | Adaptive-step solve in one call |
+| [`adaptive_solve`](inc/damp/simulation/solver.hpp#L834) | function | Simulation / SIL harness (host) | Adaptive-step solve in one call |
 | [`AdaptiveLut1D`](inc/damp/toolbox/lookup.hpp#L427) | block | Embedded helpers (controls-adjacent utilities) | Adaptive 1-D lookup: fixed breakpoints, online-updated cell values |
 | [`AdaptiveLut2D`](inc/damp/toolbox/lookup.hpp#L500) | block | Embedded helpers (controls-adjacent utilities) | Adaptive 2-D lookup: fixed grid, online-updated cells (nearest grid node) |
-| [`AdaptiveOptions`](inc/damp/simulation/solver.hpp#L349) | block | Simulation / SIL harness (host) | Options for adaptive-step ODE integration |
+| [`AdaptiveOptions`](inc/damp/simulation/solver.hpp#L355) | block | Simulation / SIL harness (host) | Options for adaptive-step ODE integration |
 | [`AdaptiveStepIntegrator`](inc/damp/simulation/integrator.hpp#L133) | concept | Simulation / SIL harness (host) | Integrator that reports a genuine embedded local-error estimate |
-| [`AdaptiveStepSolver`](inc/damp/simulation/solver.hpp#L404) | block | Simulation / SIL harness (host) | Adaptive-step ODE solver (+1 more overload) |
+| [`AdaptiveStepSolver`](inc/damp/simulation/solver.hpp#L410) | block | Simulation / SIL harness (host) | Adaptive-step ODE solver (+1 more overload) |
 | [`AdaptOutOfRange`](inc/damp/toolbox/lookup.hpp#L47) | enum | Embedded helpers (controls-adjacent utilities) | How AdaptiveLut1D / AdaptiveLut2D treat samples outside the breakpoint span |
 | [`AdmmSettings`](inc/damp/design/qp.hpp#L1067) | block | Design-time synthesis (not PWM-rate) | Tuning parameters for the ADMM QP solver |
 | [`AdmmSolver`](inc/damp/design/qp.hpp#L1148) | block | Design-time synthesis (not PWM-rate) | ADMM (OSQP-style) QP solver policy — warm-started, fixed-cost iterations |
@@ -24,7 +24,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`ADRCController`](inc/damp/controllers/adrc.hpp#L258) | block | Runtime controllers | Active Disturbance Rejection Control (ADRC) |
 | [`ADRCResult`](inc/damp/controllers/adrc.hpp#L50) | block | Design-time synthesis (not PWM-rate) | Active Disturbance Rejection Control design result |
 | [`AffineCal`](inc/damp/toolbox/scaling.hpp#L81) | block | Embedded helpers (controls-adjacent utilities) | Affine sensor calibration `y = gain·x + offset` |
-| [`all_of`](inc/damp/matrix/core.hpp#L1551) | function | Linear algebra | Whether p holds for every entry of A: the matrix counterpart of std::all_of |
+| [`all_of`](inc/damp/matrix/core.hpp#L1565) | function | Linear algebra | Whether p holds for every entry of A: the matrix counterpart of std::all_of |
 | [`allmargin`](inc/damp/matlab.hpp#L1326) | function | MATLAB®-style aliases (host) | Gain, phase, and delay margins of a SISO loop over a frequency grid |
 | [`AllMarginResult`](inc/damp/matlab.hpp#L1305) | block | MATLAB®-style aliases (host) | All classical margins including delay margin (superset of margin) |
 | [`allpass`](inc/damp/filters/iir_design.hpp#L723) | function | Filters & signal conditioning | Second-order all-pass filter design (continuous-time) (+1 more overload) |
@@ -36,7 +36,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`AnalogInput`](inc/damp/toolbox/io.hpp#L47) | block | Embedded helpers (controls-adjacent utilities) | A single analog input: range/fault check on the raw reading, then affine calibration to engineering units |
 | [`AnalyticDynamics`](inc/damp/concepts.hpp#L238) | concept | Core, configuration & backend vocabulary | Dynamics that provide their own Jacobians: f.jacobian(x, u) → DynamicsJacobian |
 | [`AnalyticMeasurement`](inc/damp/concepts.hpp#L264) | concept | Core, configuration & backend vocabulary | A Measurement that provides its own Jacobians: h.jacobian(x, u) → MeasurementJacobian |
-| [`any_of`](inc/damp/matrix/core.hpp#L1575) | function | Linear algebra | Whether p holds for some entry of A: the matrix counterpart of std::any_of |
+| [`any_of`](inc/damp/matrix/core.hpp#L1589) | function | Linear algebra | Whether p holds for some entry of A: the matrix counterpart of std::any_of |
 | [`apply_wet_plotly_shell`](inc/damp/simulation/plot_plotly.hpp#L66) | function | Simulation / SIL harness (host) | Apply damp's full-window HTML shell to plotlypp-generated markup |
 | [`arange`](inc/damp/analysis/linspace.hpp#L115) | function | Frequency-domain analysis (host) | Half-open arithmetic range [start, stop) with step step (+2 more overloads) |
 | [`arg`](inc/damp/math/complex.hpp#L373) | function | Scalar math, complex & frames | Compute argument (phase angle) of a complex number |
@@ -220,7 +220,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`ESO`](inc/damp/estimation/eso.hpp#L311) | block | Observers & estimators | Extended-state observer (ESO) (+1 more overload) |
 | [`ESOResult`](inc/damp/estimation/eso.hpp#L53) | block | Observers & estimators | Extended-state observer design: continuous β and, for Ts > 0, the discrete ESO |
 | [`estim`](inc/damp/matlab.hpp#L732) | function | MATLAB®-style aliases (host) | Form the state estimator from a plant and an estimator gain |
-| [`Euler`](inc/damp/math/geometry.hpp#L223) | block | Scalar math, complex & frames | Intrinsic Euler angles for sequence Order (default ZYX aerospace YPR) |
+| [`Euler`](inc/damp/math/geometry.hpp#L224) | block | Scalar math, complex & frames | Intrinsic Euler angles for sequence Order (default ZYX aerospace YPR) |
 | [`EulerOrder`](inc/damp/math/geometry.hpp#L52) | enum | Scalar math, complex & frames | Intrinsic Euler angle sequence (axis order of successive principal rotations) |
 | [`eval_frf`](inc/damp/systems/state_space.hpp#L286) | function | LTI systems (SS / TF / ZPK / discretize) | Evaluate frequency response of a state-space system |
 | [`EventSimConfig`](inc/damp/simulation/hybrid.hpp#L67) | block | Simulation / SIL harness (host) | Configuration for event-driven hybrid / multi-rate style runs |
@@ -336,8 +336,8 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`initial`](inc/damp/analysis/time_response.hpp#L246) | function | Frequency-domain analysis (host) | Initial-condition (free) response of a (MIMO) state-space system |
 | [`InputDelay`](inc/damp/systems/discretization.hpp#L560) | block | LTI systems (SS / TF / ZPK / discretize) | An input delay of θ = seconds, in up to N delay states (0 ≤ θ ≤ N·Ts): each delay state state holds the inputs already sent, v(k−1) … v(k−N). `discretize(sys, Ts, InputDelay<N>{θ})` returns that model; design on it like any other. `InputDelay{θ}` is N = 1 (+1 more overload) |
 | [`InputDisturbance`](inc/damp/design/disturbance.hpp#L54) | block | Design-time synthesis (not PWM-rate) | An input disturbance: d adds to u, B_d = B and C_d = D, one disturbance per input (+1 more overload) |
-| [`InputLimits`](inc/damp/design/input_limits.hpp#L56) | block | Design-time synthesis (not PWM-rate) | The limits on a law's command u, per input: among design::state_feedback's and design::mpc's options |
-| [`InputRateLimits`](inc/damp/design/input_limits.hpp#L92) | block | Design-time synthesis (not PWM-rate) | The limits on a law's move Δu = u_k − u_{k−1} per period, per input: among design::state_feedback's and design::mpc's options |
+| [`InputLimits`](inc/damp/design/input_limits.hpp#L57) | block | Design-time synthesis (not PWM-rate) | The limits on a law's command u, per input: among design::state_feedback's and design::mpc's options |
+| [`InputRateLimits`](inc/damp/design/input_limits.hpp#L93) | block | Design-time synthesis (not PWM-rate) | The limits on a law's move Δu = u_k − u_{k−1} per period, per input: among design::state_feedback's and design::mpc's options |
 | [`ins_aid_position`](inc/damp/estimation/ins_eskf.hpp#L386) | function | Observers & estimators | Predicted antenna / marker position with body lever-arm |
 | [`ins_apply_correction`](inc/damp/estimation/ins_eskf.hpp#L372) | function | Observers & estimators | Inject filter correction into x and reset the error state |
 | [`ins_error_jacobian`](inc/damp/estimation/ins_eskf.hpp#L280) | function | Observers & estimators | Discrete error-state transition for one IMU step, on its sparsity pattern |
@@ -419,8 +419,8 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`LIMIT`](inc/damp/toolbox/iec61131.hpp#L590) | function | Embedded helpers (controls-adjacent utilities) | LIMIT (IEC 61131-3 selection function): clamp in to [mn, mx] |
 | [`linear_modulation_voltage`](inc/damp/motor/modulation.hpp#L125) | function | Motor control pack (if present) | Peak phase voltage at the linear SVPWM hexagon limit |
 | [`linear_screw`](inc/damp/toolbox/actuator.hpp#L168) | function | Embedded helpers (controls-adjacent utilities) | Build a ServoAxis for a linear axis driven by a leadscrew/belt |
-| [`LinearizationResult`](inc/damp/design/linearization.hpp#L45) | block | Design-time synthesis (not PWM-rate) | Result of nonlinear operating-point linearization |
-| [`linearize`](inc/damp/design/linearization.hpp#L117) | function | Design-time synthesis (not PWM-rate) | Linearize a Dynamics / Measurement model about an operating point (+1 more overload) |
+| [`LinearizationResult`](inc/damp/design/linearization.hpp#L61) | block | Design-time synthesis (not PWM-rate) | Result of nonlinear operating-point linearization |
+| [`linearize`](inc/damp/design/linearization.hpp#L137) | function | Design-time synthesis (not PWM-rate) | Linearize a Dynamics / Measurement model about an operating point (+1 more overload) |
 | [`linmod`](inc/damp/matlab.hpp#L589) | function | MATLAB®-style aliases (host) | MATLAB®-style nonlinear linearization about an operating point |
 | [`linspace`](inc/damp/analysis/linspace.hpp#L36) | function | Frequency-domain analysis (host) | num evenly spaced values from start to end inclusive (+1 more overload) |
 | [`locate_zero_crossing_exact`](inc/damp/simulation/hybrid.hpp#L334) | function | Simulation / SIL harness (host) | Locate a state zero-crossing of g(x) on an Exact LTI segment |
@@ -479,7 +479,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`margin`](inc/damp/matlab.hpp#L1278) | function | MATLAB®-style aliases (host) | Gain and phase margins of a SISO loop over a frequency grid |
 | [`MarginResult`](inc/damp/matlab.hpp#L1257) | block | MATLAB®-style aliases (host) | Gain/phase margins and their crossover frequencies |
 | [`margins_from_frf`](inc/damp/estimation/frequency_response.hpp#L840) | function | Observers & estimators | Gain / phase margins from a fixed on-target FRF table |
-| [`Matrix`](inc/damp/matrix/core.hpp#L296) | block | Linear algebra | Fixed-size, stack-allocated matrix for linear algebra operations |
+| [`Matrix`](inc/damp/matrix/core.hpp#L296) | block | Linear algebra | Fixed-size, stack-allocated matrix for linear algebra operations (+1 more overload) |
 | [`MatrixLike`](inc/damp/matrix/matrix_traits.hpp#L95) | concept | Linear algebra | Concept for any type that provides 2D matrix-like element access |
 | [`MatrixLikeOf`](inc/damp/matrix/matrix_traits.hpp#L105) | concept | Linear algebra | Concept for a MatrixLike type with specific dimensions |
 | [`max`](inc/damp/backend.hpp#L339) | function | Core, configuration & backend vocabulary | The larger of a and b, by value; a tie returns a, and so does a NaN without -ffast-math (+1 more overload) |
@@ -666,11 +666,11 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`QRDecomposition`](inc/damp/matrix/decomposition.hpp#L679) | block | Linear algebra | Thin QR factorization A = QR (Householder) |
 | [`QuadMode`](inc/damp/encoder/quadrature.hpp#L45) | enum | Embedded helpers (controls-adjacent utilities) | Quadrature decode resolution (edges counted per A/B cycle) |
 | [`quadprog`](inc/damp/matlab.hpp#L1465) | function | MATLAB®-style aliases (host) | MATLAB® alias for the dense inequality-constrained QP solve (+1 more overload) |
-| [`quadratic_form`](inc/damp/matrix/core.hpp#L1380) | function | Linear algebra | Symmetric congruence (quadratic) form  S = M X Mᵀ (+1 more overload) |
+| [`quadratic_form`](inc/damp/matrix/core.hpp#L1394) | function | Linear algebra | Symmetric congruence (quadratic) form  S = M X Mᵀ (+1 more overload) |
 | [`quadratic_form_in_place`](inc/damp/matrix/pattern_matrix.hpp#L352) | function | Linear algebra | S ← F S Fᵀ in place, for a symmetric S: every multiply the pattern can skip, skipped |
 | [`QuadratureDecoder`](inc/damp/encoder/quadrature.hpp#L73) | block | Embedded helpers (controls-adjacent utilities) | Software A/B quadrature decoder with optional index |
 | [`quantize`](inc/damp/simulation/quantize.hpp#L66) | function | Simulation / SIL harness (host) | ADC reading of x: x rounded to the nearest multiple of lsb, then clamped to [lo, hi] |
-| [`Quaternion`](inc/damp/math/geometry.hpp#L359) | block | Scalar math, complex & frames | Unit quaternion rotation (w, x, y, z) (Hamilton product) |
+| [`Quaternion`](inc/damp/math/geometry.hpp#L360) | block | Scalar math, complex & frames | Unit quaternion rotation (w, x, y, z) (Hamilton product) |
 | [`R_TRIG`](inc/damp/toolbox/iec61131.hpp#L116) | block | Embedded helpers (controls-adjacent utilities) | R_TRIG (Rising Edge Trigger) |
 | [`rad2deg`](inc/damp/math/math.hpp#L560) | function | Scalar math, complex & frames | Radians to degrees, rad·180/π |
 | [`ramp`](inc/damp/estimation/excitation/ramp.hpp#L99) | function | Observers & estimators | Build a ramp design payload from a configuration |
@@ -747,20 +747,20 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`SignalStatus`](inc/damp/toolbox/conditioning.hpp#L318) | enum | Embedded helpers (controls-adjacent utilities) | Classification of an analog input against its valid/fault bands |
 | [`simc`](inc/damp/design/pid_design.hpp#L372) | function | Design-time synthesis (not PWM-rate) | SIMC (Skogestad Internal Model Control) tuning for FOPDT models |
 | [`similarity_transform`](inc/damp/systems/realization.hpp#L372) | function | LTI systems (SS / TF / ZPK / discretize) | Change the state basis to z = T·x: (T·A·T⁻¹, T·B, C·T⁻¹, D), and T·G for the noise input |
-| [`simulate`](inc/damp/simulation/simulate.hpp#L159) | function | Simulation / SIL harness (host) | Simulate a nonlinear plant with a controller in closed loop |
+| [`simulate`](inc/damp/simulation/simulate.hpp#L174) | function | Simulation / SIL harness (host) | Simulate a nonlinear plant with a controller in closed loop |
 | [`simulate_cached_zoh`](inc/damp/simulation/cached_zoh.hpp#L157) | function | Simulation / SIL harness (host) | Simulate a continuous LTI plant with fixed ZOH step and held input (+1 more overload) |
 | [`simulate_cached_zoh_multirate`](inc/damp/simulation/cached_zoh.hpp#L236) | function | Simulation / SIL harness (host) | Multi-rate ZOH: held control samples, dense plant samples for plotting |
-| [`simulate_discrete`](inc/damp/simulation/simulate.hpp#L529) | function | Simulation / SIL harness (host) | Simulate a discrete-time system with a controller |
-| [`simulate_discrete_nonlinear`](inc/damp/simulation/simulate.hpp#L478) | function | Simulation / SIL harness (host) | Simulate a discrete-time nonlinear plant with a controller |
-| [`simulate_lti`](inc/damp/simulation/simulate.hpp#L359) | function | Simulation / SIL harness (host) | Simulate a continuous LTI system with a controller |
-| [`simulate_lti_siso`](inc/damp/simulation/simulate.hpp#L421) | function | Simulation / SIL harness (host) | SIL: continuous SISO LTI plant under a sampled SISO controller with constant reference |
+| [`simulate_discrete`](inc/damp/simulation/simulate.hpp#L554) | function | Simulation / SIL harness (host) | Simulate a discrete-time system with a controller |
+| [`simulate_discrete_nonlinear`](inc/damp/simulation/simulate.hpp#L503) | function | Simulation / SIL harness (host) | Simulate a discrete-time nonlinear plant with a controller |
+| [`simulate_lti`](inc/damp/simulation/simulate.hpp#L382) | function | Simulation / SIL harness (host) | Simulate a continuous LTI system with a controller |
+| [`simulate_lti_siso`](inc/damp/simulation/simulate.hpp#L444) | function | Simulation / SIL harness (host) | SIL: continuous SISO LTI plant under a sampled SISO controller with constant reference |
 | [`simulate_multirate`](inc/damp/simulation/multirate.hpp#L142) | function | Simulation / SIL harness (host) | Multi-rate closed-loop simulation with MultiRateConfig (+1 more overload) |
 | [`simulate_piecewise_lti`](inc/damp/simulation/hybrid.hpp#L185) | function | Simulation / SIL harness (host) | Simulate a piecewise-LTI plant with Exact integration between events |
-| [`simulate_sampled`](inc/damp/simulation/simulate.hpp#L232) | function | Simulation / SIL harness (host) | Simulate a continuous plant under a discrete (sampled) controller — multi-rate |
-| [`simulate_state_feedback`](inc/damp/simulation/simulate.hpp#L303) | function | Simulation / SIL harness (host) | Simulate a nonlinear plant with state-feedback controller |
+| [`simulate_sampled`](inc/damp/simulation/simulate.hpp#L251) | function | Simulation / SIL harness (host) | Simulate a continuous plant under a discrete (sampled) controller — multi-rate |
+| [`simulate_state_feedback`](inc/damp/simulation/simulate.hpp#L326) | function | Simulation / SIL harness (host) | Simulate a nonlinear plant with state-feedback controller |
 | [`simulate_two_rate`](inc/damp/simulation/multirate.hpp#L266) | function | Simulation / SIL harness (host) | Two-rate cascade with MultiRateConfig (+1 more overload) |
 | [`simulate_two_rate_lti`](inc/damp/simulation/multirate.hpp#L415) | function | Simulation / SIL harness (host) | Two-rate cascade on a continuous LTI plant (A, B, C, D) |
-| [`SimulationResult`](inc/damp/simulation/simulate.hpp#L128) | block | Simulation / SIL harness (host) | Result of a closed-loop simulation |
+| [`SimulationResult`](inc/damp/simulation/simulate.hpp#L139) | block | Simulation / SIL harness (host) | Result of a closed-loop simulation |
 | [`sin`](inc/damp/matrix/functions.hpp#L1335) | function | Linear algebra | Matrix sine via scaling and double-angle reconstruction |
 | [`sin`](inc/damp/math/math.hpp#L181) | function | Scalar math, complex & frames | Sine |
 | [`sincos`](inc/damp/matrix/functions.hpp#L1319) | function | Linear algebra | Compute sin(A) and cos(A) together via scaling and double-angle reconstruction |
@@ -769,9 +769,9 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`SinCosSample`](inc/damp/encoder/sincos.hpp#L77) | block | Embedded helpers (controls-adjacent utilities) | One decoded sin/cos sample: the fine phase and the signal amplitude |
 | [`SinglePhasePLL`](inc/damp/filters/pll.hpp#L67) | block | Filters & signal conditioning | Single-Phase PLL |
 | [`sinh`](inc/damp/matrix/functions.hpp#L1370) | function | Linear algebra | Matrix hyperbolic sine sinh(A) = (exp(A) − exp(−A))/2 |
-| [`siso_ref`](inc/damp/simulation/simulate.hpp#L115) | function | Simulation / SIL harness (host) | Build a SisoReferenceAdapter for a SISO `control(r,y)` controller |
+| [`siso_ref`](inc/damp/simulation/simulate.hpp#L126) | function | Simulation / SIL harness (host) | Build a SisoReferenceAdapter for a SISO `control(r,y)` controller |
 | [`SisoController`](inc/damp/concepts.hpp#L89) | concept | Core, configuration & backend vocabulary | Scalar output-feedback controller: u = control(r, y), fixed rate |
-| [`SisoReferenceAdapter`](inc/damp/simulation/simulate.hpp#L96) | block | Simulation / SIL harness (host) | Adapt a SISO `control(r, y)` controller for callables that want `u = f(y)` or `u = f(t, y)` (the older simulate contracts) |
+| [`SisoReferenceAdapter`](inc/damp/simulation/simulate.hpp#L107) | block | Simulation / SIL harness (host) | Adapt a SISO `control(r, y)` controller for callables that want `u = f(y)` or `u = f(t, y)` (the older simulate contracts) |
 | [`six_step_duty_cycles`](inc/damp/motor/modulation.hpp#L467) | function | Motor control pack (if present) | Classical six-step (full-wave) duty pattern from the αβ angle |
 | [`six_step_fundamental_voltage`](inc/damp/motor/modulation.hpp#L144) | function | Motor control pack (if present) | Six-step (square-wave) fundamental peak phase voltage |
 | [`SlewLimiter`](inc/damp/toolbox/conditioning.hpp#L218) | block | Embedded helpers (controls-adjacent utilities) | Slew-rate limiter: bound how fast the output may follow the target |
@@ -821,7 +821,7 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`StateEstimator`](inc/damp/concepts.hpp#L136) | concept | Core, configuration & backend vocabulary | State estimator: x̂ = step(y, u) — the fused per-tick form |
 | [`StateFeedback`](inc/damp/controllers/state_feedback_runtime.hpp#L345) | function | Design-time synthesis (not PWM-rate) | StateFeedback law{res}: the sizes, scalar, filter and target of design::state_feedback's result (+1 more overload) |
 | [`StateFeedback`](inc/damp/controllers/state_feedback_runtime.hpp#L131) | block | Runtime controllers | The runtime of every LQ design, u = u − K·(x̂ − x ) on the measured state or a filter's estimate: LQR, LQI, LQG, LQGI and OFLQG name its kinds |
-| [`StateFeedbackLimits`](inc/damp/design/input_limits.hpp#L116) | block | Design-time synthesis (not PWM-rate) | The limits an LQ law takes at run time: u, its move, the integrators ξ, what the outer terms ask of a state and the disturbance estimate d̂, in physical units. A field left out is unbounded (the demand limit off), and one the law does not have is empty |
+| [`StateFeedbackLimits`](inc/damp/design/input_limits.hpp#L117) | block | Design-time synthesis (not PWM-rate) | The limits an LQ law takes at run time: u, its move, the integrators ξ, what the outer terms ask of a state and the disturbance estimate d̂, in physical units. A field left out is unbounded (the demand limit off), and one the law does not have is empty |
 | [`StateFeedbackResult`](inc/damp/controllers/state_feedback_types.hpp#L427) | block | Design-time synthesis (not PWM-rate) | A state-feedback design: the gain, and the parts the law's options add |
 | [`StateFeedforward`](inc/damp/design/model_inverse.hpp#L818) | block | Design-time synthesis (not PWM-rate) | The plant-inversion feedforward at run time: u = B⁺·(x ₖ₊₁ − x ₖ) − B⁺(A − I)·x ₖ, two matrix–vector products (+1 more overload) |
 | [`StateFeedforwardResult`](inc/damp/design/model_inverse.hpp#L60) | block | Design-time synthesis (not PWM-rate) | The plant-inversion feedforward of a discrete model: u ₖ = B⁺·(x ₖ₊₁ − x ₖ) − B⁺(A − I)·x ₖ |
@@ -912,8 +912,8 @@ Auto-generated from `@brief` doc comments in `inc/damp/`. Regenerate with `pytho
 | [`TrajectoryState`](inc/damp/trajectory/trajectory_types.hpp#L78) | block | Trajectory value types | A point on a motion profile: commanded position, velocity, acceleration |
 | [`TransferFunction`](inc/damp/systems/transfer_function.hpp#L115) | block | LTI systems (SS / TF / ZPK / discretize) | SISO polynomial transfer function G(s) = num(s)/den(s) |
 | [`TransferFunctionResult`](inc/damp/design/model_result.hpp#L34) | block | Design-time synthesis (not PWM-rate) | A designed transfer function with its success / status |
-| [`transform`](inc/damp/matrix/core.hpp#L1527) | function | Linear algebra | Apply f to every entry, B(i, j) = f(A(i, j)): the matrix counterpart of std::transform |
-| [`Transform4`](inc/damp/math/geometry.hpp#L782) | block | Scalar math, complex & frames | 4×4 homogeneous transform (SE(3) interop / DH export) |
+| [`transform`](inc/damp/matrix/core.hpp#L1541) | function | Linear algebra | Apply f to every entry, B(i, j) = f(A(i, j)): the matrix counterpart of std::transform |
+| [`Transform4`](inc/damp/math/geometry.hpp#L772) | block | Scalar math, complex & frames | 4×4 homogeneous transform (SE(3) interop / DH export) |
 | [`Translation3`](inc/damp/kinematics/pose.hpp#L38) | block | Kinematics / pose | A 3-D translation — a thin Vec3 with domain-named conveniences |
 | [`transmission_zeros`](inc/damp/systems/zeros.hpp#L406) | function | LTI systems (SS / TF / ZPK / discretize) | The finite invariant zeros of a state-space model with any number of inputs and outputs |
 | [`TransmissionZerosResult`](inc/damp/systems/zeros.hpp#L56) | block | LTI systems (SS / TF / ZPK / discretize) | The finite invariant zeros of a state-space model and their count |
