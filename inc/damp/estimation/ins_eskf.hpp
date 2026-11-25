@@ -642,7 +642,7 @@ public:
           frame_(frame),
           g_(g) {
         if (!design.success && damp::is_constant_evaluated()) {
-            ::damp::detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed design does not compile
+            detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
         x_.q = Quaternion<T>::identity();
     }

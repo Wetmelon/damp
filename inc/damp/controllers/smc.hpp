@@ -91,10 +91,10 @@ template<typename T = double>
 [[nodiscard]] constexpr SMCResult<T> smc(T lambda, T k, T b0, T Ts = T{0}, T phi = T{0}) {
     // reject λ/k ≤ 0 or b0 ≤ 0 rather than producing a divide-by-zero controller
     if (!(damp::finite_positive(lambda) && damp::finite_positive(k) && damp::finite_positive(b0) && damp::finite_non_negative(phi))) {
-        return ::damp::detail::refused<SMCResult<T>>(DesignStatus::invalid_parameter);
+        return detail::refused<SMCResult<T>>(DesignStatus::invalid_parameter);
     }
     if (!damp::finite_non_negative(Ts)) {
-        return ::damp::detail::refused<SMCResult<T>>(DesignStatus::invalid_sample_time);
+        return detail::refused<SMCResult<T>>(DesignStatus::invalid_sample_time);
     }
     return SMCResult<T>{
         .lambda = lambda,
@@ -214,10 +214,10 @@ public:
     constexpr SMCController(const design::SMCResult<T>& result) // NOLINT(google-explicit-constructor): assign-from-design
         : lambda(result.lambda), k(result.k), b0(result.b0), Ts_(result.Ts), phi_(result.phi), valid_(result.success && damp::finite_positive(result.Ts) && result.u_lim.valid()), u_lim(result.u_lim) {
         if (result.success && !result.u_lim.valid() && damp::is_constant_evaluated()) {
-            ::damp::detail::refuse_failed_design(design::DesignStatus::invalid_parameter); // a limit that is not finite, or lower above upper
+            detail::refuse_failed_design(design::DesignStatus::invalid_parameter); // a limit that is not finite, or lower above upper
         }
         if ((!result.success || !(result.Ts > T{0})) && damp::is_constant_evaluated()) {
-            ::damp::detail::refuse_failed_design(result.success ? design::DesignStatus::invalid_sample_time : result.status); // constant-evaluated (constinit / constexpr): a failed or continuous design does not compile
+            detail::refuse_failed_design(result.success ? design::DesignStatus::invalid_sample_time : result.status); // constant-evaluated (constinit / constexpr): a failed or continuous design does not compile
         }
     }
 

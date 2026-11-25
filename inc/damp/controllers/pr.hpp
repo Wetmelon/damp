@@ -217,13 +217,13 @@ struct [[nodiscard]] PRResult {
 template<typename T = double>
 [[nodiscard]] constexpr PRResult<T> pr(const PRSpec<T>& spec, T Ts) {
     if (!damp::finite_non_negative(Ts)) {
-        return ::damp::detail::refused<PRResult<T>>(DesignStatus::invalid_sample_time);
+        return detail::refused<PRResult<T>>(DesignStatus::invalid_sample_time);
     }
     const bool ok = damp::isfinite(spec.Kp) && damp::isfinite(spec.Ki) && damp::finite_positive(spec.w0)
                  && damp::finite_non_negative(spec.wc) && damp::finite_non_negative(spec.tracking_time);
     // At or above Nyquist the bilinear map folds the resonance onto another frequency.
     if (!ok || ((Ts > T{0}) && !(spec.w0 * Ts < damp::numbers::pi_v<T>))) {
-        return ::damp::detail::refused<PRResult<T>>(DesignStatus::invalid_parameter);
+        return detail::refused<PRResult<T>>(DesignStatus::invalid_parameter);
     }
     return PRResult<T>{
         .Kp = spec.Kp,
@@ -465,10 +465,10 @@ struct PRController {
           u_lim(result.u_lim),
           valid_(result.success && damp::finite_positive(result.Ts) && result.u_lim.valid()) {
         if (result.success && !result.u_lim.valid() && damp::is_constant_evaluated()) {
-            ::damp::detail::refuse_failed_design(design::DesignStatus::invalid_parameter); // a limit that is not finite, or lower above upper
+            detail::refuse_failed_design(design::DesignStatus::invalid_parameter); // a limit that is not finite, or lower above upper
         }
         if ((!result.success || !(result.Ts > T{0})) && damp::is_constant_evaluated()) {
-            ::damp::detail::refuse_failed_design(result.success ? design::DesignStatus::invalid_sample_time : result.status); // constant-evaluated (constinit / constexpr): a failed or continuous design does not compile
+            detail::refuse_failed_design(result.success ? design::DesignStatus::invalid_sample_time : result.status); // constant-evaluated (constinit / constexpr): a failed or continuous design does not compile
         }
         if (valid_) {
             compute_coefficients();

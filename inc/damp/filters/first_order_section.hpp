@@ -54,7 +54,7 @@ public:
     constexpr FirstOrderSection(const design::FirstOrderCoeffs<T>& c) // NOLINT(google-explicit-constructor): assign-from-design
         : b0_(c.b0), b1_(c.b1), a1_(c.a1) {
         if (!c.success && damp::is_constant_evaluated()) {
-            ::damp::detail::refuse_failed_design(c.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
+            detail::refuse_failed_design(c.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
     }
 

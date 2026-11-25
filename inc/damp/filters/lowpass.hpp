@@ -98,13 +98,13 @@ template<size_t NC, typename T>
     constexpr size_t N = NC - 1;
     using Result = LowPassResult<N, T>;
     if (!(Ts > T{0}) || !damp::isfinite(Ts)) {
-        return ::damp::detail::refused<Result>(DesignStatus::invalid_sample_time);
+        return detail::refused<Result>(DesignStatus::invalid_sample_time);
     }
     Result out{};
     if constexpr (N == 1 || N == 2) {
         const auto c = to_coeffs(tf, Ts);
         if (!c.success) {
-            return ::damp::detail::refused<Result>(c.status);
+            return detail::refused<Result>(c.status);
         }
         if constexpr (N == 1) {
             out.b = {c.b0, c.b1};
@@ -116,11 +116,11 @@ template<size_t NC, typename T>
     } else {
         const auto sys_c_opt = tf.to_state_space();
         if (!sys_c_opt) {
-            return ::damp::detail::refused<Result>(DesignStatus::singular);
+            return detail::refused<Result>(DesignStatus::singular);
         }
         const auto sys_d_opt = discretize(*sys_c_opt, Ts, DiscretizationMethod::Tustin);
         if (!sys_d_opt) {
-            return ::damp::detail::refused<Result>(sys_d_opt.status);
+            return detail::refused<Result>(sys_d_opt.status);
         }
         // Certified SS → TF (expanded factors, numerator checked against the Markov parameters).
         const auto tf_d = ::damp::to_transfer_function(*sys_d_opt);
@@ -138,10 +138,10 @@ template<size_t NC, typename T>
     for (size_t k = 0; k < N; ++k) {
         den[k + 1] = out.a[k];
     }
-    if (!tf_detail::schur_stable(den)) {
-        return ::damp::detail::refused<Result>(DesignStatus::invalid_parameter);
+    if (!::damp::detail::schur_stable(den)) {
+        return detail::refused<Result>(DesignStatus::invalid_parameter);
     }
-    return ::damp::detail::set_status(out, DesignStatus::ok);
+    return detail::set_status(out, DesignStatus::ok);
 }
 
 /**
@@ -166,16 +166,16 @@ template<size_t N, typename T = double>
 [[nodiscard]] constexpr LowPassResult<N, T> lowpass(T fc, T Ts) {
     using Result = LowPassResult<N, T>;
     if (!detail::valid_cutoff(fc, Ts)) {
-        return ::damp::detail::refused<Result>(detail::cutoff_status(Ts));
+        return detail::refused<Result>(detail::cutoff_status(Ts));
     }
     if constexpr (N == 1) {
         const auto c = lowpass_1st(fc, Ts);
         Result     out{.b = {c.b0, c.b1}, .a = {c.a1}};
-        return ::damp::detail::set_status(out, c.status);
+        return detail::set_status(out, c.status);
     } else if constexpr (N == 2) {
         const auto c = lowpass_2nd(fc, damp::numbers::inv_sqrt2_v<T>, Ts);
         Result     out{.b = {c.b0, c.b1, c.b2}, .a = {c.a1, c.a2}};
-        return ::damp::detail::set_status(out, c.status);
+        return detail::set_status(out, c.status);
     } else {
         const T fa = detail::prewarped_frequency(fc, Ts);
         const T pi = damp::numbers::pi_v<T>;
@@ -239,7 +239,7 @@ public:
     template<typename U>
     constexpr LowPass(const design::LowPassResult<N, U>& result) { // NOLINT(google-explicit-constructor): assign-from-design
         if (!result.success && damp::is_constant_evaluated()) {
-            ::damp::detail::refuse_failed_design(result.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
+            detail::refuse_failed_design(result.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
         if (result.success) {
             for (size_t i = 0; i <= N; ++i) {

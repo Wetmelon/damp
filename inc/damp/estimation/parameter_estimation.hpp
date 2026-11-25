@@ -263,7 +263,7 @@ public:
     constexpr ParameterDriftMonitor(T fast_alpha, T slow_alpha, T threshold)
         : fast_alpha_(fast_alpha), slow_alpha_(slow_alpha), threshold_(threshold), valid_(T{0} < slow_alpha && slow_alpha < fast_alpha && fast_alpha <= T{1} && damp::finite_positive(threshold)), warmup_(valid_ ? warmup_samples(slow_alpha) : 0) {
         if (!valid_ && damp::is_constant_evaluated()) {
-            ::damp::detail::refuse_failed_design(); // constant-evaluated: an invalid configuration does not compile
+            detail::refuse_failed_design(); // constant-evaluated: an invalid configuration does not compile
         }
     }
 

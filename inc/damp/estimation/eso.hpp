@@ -119,7 +119,7 @@ constexpr void discrete_eso(ESOResult<NX, T>& r) {
     eso.C(0, 0) = T{1};
     const auto d_opt = ::damp::detail::discretize_zoh_impl(eso, r.Ts); // exact: A is nilpotent
     if (!d_opt) {
-        ::damp::detail::set_status(r, DesignStatus::invalid_parameter); // b0 and Ts are checked finite first
+        set_status(r, DesignStatus::invalid_parameter); // b0 and Ts are checked finite first
         return;
     }
     const auto& d = *d_opt;
@@ -129,7 +129,7 @@ constexpr void discrete_eso(ESOResult<NX, T>& r) {
     // Decided on ω_o T_s itself: under -ffast-math GCC 15 folds 1 − e^{−x} > 0 into x > 0, so a
     // test on m would pass while m rounds to 0.
     if (!(wo_h >= eps<T>())) {
-        ::damp::detail::set_status(r, DesignStatus::invalid_parameter);
+        set_status(r, DesignStatus::invalid_parameter);
         return;
     }
     const T lambda = damp::exp(-wo_h);
@@ -151,7 +151,7 @@ constexpr void discrete_eso(ESOResult<NX, T>& r) {
             finite = finite && damp::isfinite(r.Phi(i, j));
         }
         if (!finite) {
-            ::damp::detail::set_status(r, DesignStatus::invalid_parameter);
+            set_status(r, DesignStatus::invalid_parameter);
             return;
         }
     }
@@ -210,10 +210,10 @@ template<size_t NX, typename T = double>
 
     const bool ok = damp::isfinite(wo) && damp::isfinite(b0) && (wo > T{0});
     if (!ok) {
-        return ::damp::detail::refused<ESOResult<NX, T>>(DesignStatus::invalid_parameter);
+        return detail::refused<ESOResult<NX, T>>(DesignStatus::invalid_parameter);
     }
     if (!(Ts >= T{0}) || !damp::isfinite(Ts)) {
-        return ::damp::detail::refused<ESOResult<NX, T>>(DesignStatus::invalid_sample_time);
+        return detail::refused<ESOResult<NX, T>>(DesignStatus::invalid_sample_time);
     }
 
     ColVec<NX + 1, T> beta{};
@@ -226,7 +226,7 @@ template<size_t NX, typename T = double>
         }
         const T power = damp::pow(wo, static_cast<int>(i)); // saturates at max()
         if (!(power < (damp::numeric_limits<T>::max() / binom))) {
-            return ::damp::detail::refused<ESOResult<NX, T>>(DesignStatus::invalid_parameter);
+            return detail::refused<ESOResult<NX, T>>(DesignStatus::invalid_parameter);
         }
         beta[i - 1] = binom * power;
     }
@@ -242,7 +242,7 @@ template<size_t NX, typename T = double>
     if (Ts > T{0}) {
         detail::discrete_eso(out);
         if (!out.success) {
-            return ::damp::detail::refused<ESOResult<NX, T>>(out.status);
+            return detail::refused<ESOResult<NX, T>>(out.status);
         }
     }
     return out;
@@ -343,7 +343,7 @@ public:
           L_(result.L),
           valid_(result.success && damp::finite_positive(result.Ts)) {
         if ((!result.success || !(result.Ts > T{0})) && damp::is_constant_evaluated()) {
-            ::damp::detail::refuse_failed_design(result.success ? design::DesignStatus::invalid_sample_time : result.status); // constant-evaluated (constinit / constexpr): a failed or continuous design does not compile
+            detail::refuse_failed_design(result.success ? design::DesignStatus::invalid_sample_time : result.status); // constant-evaluated (constinit / constexpr): a failed or continuous design does not compile
         }
     }
 

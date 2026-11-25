@@ -197,12 +197,12 @@ inline constexpr size_t measured_inputs<MeasuredDisturbance<NX, NM, T>> = NM;
 /** @brief The measured disturbance among a call's options, on a plant of NX states in T: none (NM = 0) without one. */
 template<size_t NX, typename T, typename... Opts>
 [[nodiscard]] constexpr auto measured_of(const Opts&... opts) {
-    using M = ::damp::detail::option_t<kind::MeasuredDisturbance, MeasuredDisturbance<NX, 0, T>, Opts...>;
+    using M = option_t<kind::MeasuredDisturbance, MeasuredDisturbance<NX, 0, T>, Opts...>;
     static_assert(
         damp::is_same_v<M, MeasuredDisturbance<NX, measured_inputs<M>, T>>,
         "The measured disturbance enters the plant's states: MeasuredDisturbance{.Bd = Matrix<NX, NM>{...}}, a row per plant state, in the plant's scalar."
     );
-    return ::damp::detail::option<kind::MeasuredDisturbance>(MeasuredDisturbance<NX, 0, T>{}, opts...);
+    return option<kind::MeasuredDisturbance>(MeasuredDisturbance<NX, 0, T>{}, opts...);
 }
 
 /**
@@ -349,7 +349,7 @@ struct disturbance_traits;
  */
 template<size_t NX, size_t NY, typename T, typename... Opts>
 consteval bool check_disturbance() {
-    using Spec = ::damp::detail::option_t<kind::Disturbance, NoDisturbance, Opts...>;
+    using Spec = option_t<kind::Disturbance, NoDisturbance, Opts...>;
     constexpr bool fits = !DisturbanceSpec<Spec> || DisturbanceModelFor<Spec, NX, NY, T>;
     static_assert(fits, "The DisturbanceModel is on the plant's states and outputs (or leaves C_d out), in the plant's scalar.");
     return fits;

@@ -226,12 +226,12 @@ template<typename T = double>
 relay_autotune(const RelayAutotuneConfig<T>& config, T Ts) {
     RelayAutotuneResult<T> out{.config = config, .Ts = Ts};
     if (!config.valid()) {
-        return ::damp::detail::set_status(out, DesignStatus::invalid_parameter);
+        return detail::set_status(out, DesignStatus::invalid_parameter);
     }
     if (!(Ts > T{0}) || !damp::isfinite(Ts)) {
-        return ::damp::detail::set_status(out, DesignStatus::invalid_sample_time);
+        return detail::set_status(out, DesignStatus::invalid_sample_time);
     }
-    return ::damp::detail::set_status(out, DesignStatus::ok);
+    return detail::set_status(out, DesignStatus::ok);
 }
 
 } // namespace design
@@ -292,7 +292,7 @@ public:
     constexpr RelayAutotuner(const design::RelayAutotuneResult<T>& design) // NOLINT(google-explicit-constructor): assign-from-design
         : config_(design.config), Ts_(design.Ts), valid_design_(design.success && damp::finite_positive(design.Ts)), status_(valid_design_ ? RelayAutotuneStatus::Idle : RelayAutotuneStatus::Failed) {
         if (!design.success && damp::is_constant_evaluated()) {
-            ::damp::detail::refuse_failed_design(design.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
+            detail::refuse_failed_design(design.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
     }
 

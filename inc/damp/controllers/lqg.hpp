@@ -71,7 +71,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
         out.limits.input = reg.limits.input;
         out.limits.demand = reg.limits.demand;
     }
-    return ::damp::detail::set_status(out, status);
+    return detail::set_status(out, status);
 }
 
 } // namespace design

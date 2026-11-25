@@ -108,10 +108,10 @@ template<typename T = double>
 ) {
     if (!(damp::finite_positive(disturbance_bound) && damp::isfinite(gain_margin) && gain_margin >= T{1}
           && damp::finite_non_negative(k_lin) && damp::finite_non_negative(phi) && damp::finite_non_negative(lambda))) {
-        return ::damp::detail::refused<STSMCResult<T>>(DesignStatus::invalid_parameter);
+        return detail::refused<STSMCResult<T>>(DesignStatus::invalid_parameter);
     }
     if (!damp::finite_non_negative(Ts)) {
-        return ::damp::detail::refused<STSMCResult<T>>(DesignStatus::invalid_sample_time);
+        return detail::refused<STSMCResult<T>>(DesignStatus::invalid_sample_time);
     }
     const T L = disturbance_bound;
     return STSMCResult<T>{
@@ -145,10 +145,10 @@ template<typename T = double>
 stsmc_gains(T k1, T k2, T Ts = T{0}, T lambda = T{0}, T k_lin = T{0}, T phi = T{0}) {
     if (!(damp::finite_positive(k1) && damp::finite_positive(k2) && damp::finite_non_negative(k_lin)
           && damp::finite_non_negative(phi) && damp::finite_non_negative(lambda))) {
-        return ::damp::detail::refused<STSMCResult<T>>(DesignStatus::invalid_parameter);
+        return detail::refused<STSMCResult<T>>(DesignStatus::invalid_parameter);
     }
     if (!damp::finite_non_negative(Ts)) {
-        return ::damp::detail::refused<STSMCResult<T>>(DesignStatus::invalid_sample_time);
+        return detail::refused<STSMCResult<T>>(DesignStatus::invalid_sample_time);
     }
     return STSMCResult<T>{
         .k1 = k1,
@@ -233,10 +233,10 @@ public:
           Ts_(result.Ts),
           valid_(result.success && damp::finite_positive(result.Ts) && result.u_lim.valid()) {
         if (result.success && !result.u_lim.valid() && damp::is_constant_evaluated()) {
-            ::damp::detail::refuse_failed_design(design::DesignStatus::invalid_parameter); // a limit that is not finite, or lower above upper
+            detail::refuse_failed_design(design::DesignStatus::invalid_parameter); // a limit that is not finite, or lower above upper
         }
         if ((!result.success || !(result.Ts > T{0})) && damp::is_constant_evaluated()) {
-            ::damp::detail::refuse_failed_design(result.success ? design::DesignStatus::invalid_sample_time : result.status); // constant-evaluated (constinit / constexpr): a failed or continuous design does not compile
+            detail::refuse_failed_design(result.success ? design::DesignStatus::invalid_sample_time : result.status); // constant-evaluated (constinit / constexpr): a failed or continuous design does not compile
         }
     }
 

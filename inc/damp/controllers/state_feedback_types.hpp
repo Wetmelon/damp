@@ -261,10 +261,10 @@ struct LQGain {};
 /** @brief The demand limit among @p opts on the gain's terms (@p Terms, a DemandTerms), or off without one. */
 template<typename Terms, typename... Opts>
 [[nodiscard]] constexpr Terms demand_terms_of(const Opts&... opts) {
-    if constexpr (::damp::detail::option_count<kind::DemandLimit, Opts...> == 0) {
+    if constexpr (option_count<kind::DemandLimit, Opts...> == 0) {
         return Terms{};
     } else {
-        return Terms(::damp::detail::the<kind::DemandLimit>(opts...));
+        return Terms(the<kind::DemandLimit>(opts...));
     }
 }
 

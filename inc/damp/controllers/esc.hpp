@@ -155,14 +155,14 @@ template<typename T>
 template<typename T = double>
 [[nodiscard]] constexpr ESCResult<T> esc(const ESCSpec<T>& spec, T Ts) {
     if (!damp::finite_positive(Ts)) {
-        return ::damp::detail::refused<ESCResult<T>>(DesignStatus::invalid_sample_time);
+        return detail::refused<ESCResult<T>>(DesignStatus::invalid_sample_time);
     }
     const bool in_domain = damp::finite_positive(spec.dither_amplitude) && damp::finite_positive(spec.dither_freq_hz)
                         && damp::finite_positive(spec.gain) && damp::finite_non_negative(spec.hp_cutoff_hz)
                         && damp::finite_non_negative(spec.lp_cutoff_hz) && damp::isfinite(spec.u_init)
                         && damp::isfinite(spec.demod_phase) && spec.u_lim.valid();
     if (!in_domain) {
-        return ::damp::detail::refused<ESCResult<T>>(DesignStatus::invalid_parameter);
+        return detail::refused<ESCResult<T>>(DesignStatus::invalid_parameter);
     }
     const T      two_pi = T{2} * damp::numbers::pi_v<T>;
     const T      omega = two_pi * spec.dither_freq_hz;
@@ -181,7 +181,7 @@ template<typename T = double>
     };
     const bool resolved = (omega * Ts <= damp::numbers::pi_v<T> / T{4}) && damp::isfinite(out.hp_alpha)
                        && damp::isfinite(out.lp_alpha);
-    ::damp::detail::set_status(out, resolved ? DesignStatus::ok : DesignStatus::invalid_parameter);
+    detail::set_status(out, resolved ? DesignStatus::ok : DesignStatus::invalid_parameter);
     return out;
 }
 
@@ -248,7 +248,7 @@ public:
     constexpr ExtremumSeekingController(const design::ESCResult<T>& result) // NOLINT(google-explicit-constructor): assign-from-design
         : u_lim(result.u_lim), config_(result), uhat_(result.u_lim.saturate(result.u_init)), valid_(result.success) {
         if (!result.success && damp::is_constant_evaluated()) {
-            ::damp::detail::refuse_failed_design(result.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
+            detail::refuse_failed_design(result.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
         init_phasors();
     }

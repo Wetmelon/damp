@@ -203,16 +203,16 @@ struct [[nodiscard]] PIDGains {
      */
     [[nodiscard]] constexpr DiscretePIDGains<T> discretize(T ts) const {
         if (!success) {
-            return ::damp::detail::refused<DiscretePIDGains<T>>(status);
+            return detail::refused<DiscretePIDGains<T>>(status);
         }
         if (!(ts > T{0}) || !damp::isfinite(ts)) {
-            return ::damp::detail::refused<DiscretePIDGains<T>>(DesignStatus::invalid_sample_time);
+            return detail::refused<DiscretePIDGains<T>>(DesignStatus::invalid_sample_time);
         }
         if (!::damp::detail::pid_gains_in_domain(Kp, Ki, Kd, Tf, Kbc, b, c) || ::damp::detail::pid_kbc_winds_up(Ki, Kbc)) {
-            return ::damp::detail::refused<DiscretePIDGains<T>>(DesignStatus::invalid_parameter);
+            return detail::refused<DiscretePIDGains<T>>(DesignStatus::invalid_parameter);
         }
         if (!u_lim.valid() || !integral_lim.valid()) {
-            return ::damp::detail::refused<DiscretePIDGains<T>>(DesignStatus::invalid_parameter); // as the LQ and MPC designs
+            return detail::refused<DiscretePIDGains<T>>(DesignStatus::invalid_parameter); // as the LQ and MPC designs
         }
         DiscretePIDGains<T> d{};
         d.Kp = Kp;

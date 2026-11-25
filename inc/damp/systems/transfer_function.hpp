@@ -29,7 +29,7 @@
 
 namespace damp {
 
-namespace tf_detail {
+namespace detail {
 
 /** @brief dst += scale·src, aligned on the constant term (the last entry: coefficients are highest power first). */
 template<size_t Nres, size_t Nsrc, typename T>
@@ -91,7 +91,7 @@ template<size_t N, typename T>
     return true;
 }
 
-} // namespace tf_detail
+} // namespace detail
 
 template<typename TNum, typename TDen>
 using transfer_function_scalar_t = damp::conditional_t<
@@ -246,8 +246,8 @@ template<size_t Nnum1, size_t Nden1, size_t Nnum2, size_t Nden2, typename T>
     constexpr size_t Nden_res = Nden1 + Nden2 - 1;
 
     return TransferFunction<Nnum_res, Nden_res, T>{
-        tf_detail::convolve_poly(tf1.num, tf2.num),
-        tf_detail::convolve_poly(tf1.den, tf2.den),
+        detail::convolve_poly(tf1.num, tf2.num),
+        detail::convolve_poly(tf1.den, tf2.den),
     };
 }
 
@@ -261,13 +261,13 @@ template<size_t Nnum1, size_t Nden1, size_t Nnum2, size_t Nden2, typename T>
     constexpr size_t Nnum_res = (Nnum_l > Nnum_r) ? Nnum_l : Nnum_r;
     constexpr size_t Nden_res = Nden1 + Nden2 - 1;
 
-    const auto left_num = tf_detail::convolve_poly(tf1.num, tf2.den);
-    const auto right_num = tf_detail::convolve_poly(tf2.num, tf1.den);
-    const auto den = tf_detail::convolve_poly(tf1.den, tf2.den);
+    const auto left_num = detail::convolve_poly(tf1.num, tf2.den);
+    const auto right_num = detail::convolve_poly(tf2.num, tf1.den);
+    const auto den = detail::convolve_poly(tf1.den, tf2.den);
 
     damp::array<T, Nnum_res> num{};
-    tf_detail::accumulate_poly(num, left_num);
-    tf_detail::accumulate_poly(num, right_num);
+    detail::accumulate_poly(num, left_num);
+    detail::accumulate_poly(num, right_num);
 
     return TransferFunction<Nnum_res, Nden_res, T>{num, den};
 }
@@ -282,13 +282,13 @@ template<size_t Nnum1, size_t Nden1, size_t Nnum2, size_t Nden2, typename T>
     constexpr size_t Nnum_res = (Nnum_l > Nnum_r) ? Nnum_l : Nnum_r;
     constexpr size_t Nden_res = Nden1 + Nden2 - 1;
 
-    const auto left_num = tf_detail::convolve_poly(tf1.num, tf2.den);
-    const auto right_num = tf_detail::convolve_poly(tf2.num, tf1.den);
-    const auto den = tf_detail::convolve_poly(tf1.den, tf2.den);
+    const auto left_num = detail::convolve_poly(tf1.num, tf2.den);
+    const auto right_num = detail::convolve_poly(tf2.num, tf1.den);
+    const auto den = detail::convolve_poly(tf1.den, tf2.den);
 
     damp::array<T, Nnum_res> num{};
-    tf_detail::accumulate_poly(num, left_num);
-    tf_detail::accumulate_poly(num, right_num, T{-1});
+    detail::accumulate_poly(num, left_num);
+    detail::accumulate_poly(num, right_num, T{-1});
 
     return TransferFunction<Nnum_res, Nden_res, T>{num, den};
 }
@@ -336,13 +336,13 @@ template<size_t Nnum1, size_t Nden1, size_t Nnum2, size_t Nden2, typename T>
     constexpr size_t Nden_r = Nnum1 + Nnum2 - 1;
     constexpr size_t Nden_res = (Nden_l > Nden_r) ? Nden_l : Nden_r;
 
-    const auto num = tf_detail::convolve_poly(sys1.num, sys2.den);
-    const auto den_l = tf_detail::convolve_poly(sys1.den, sys2.den);
-    const auto den_r = tf_detail::convolve_poly(sys1.num, sys2.num);
+    const auto num = detail::convolve_poly(sys1.num, sys2.den);
+    const auto den_l = detail::convolve_poly(sys1.den, sys2.den);
+    const auto den_r = detail::convolve_poly(sys1.num, sys2.num);
 
     damp::array<T, Nden_res> den{};
-    tf_detail::accumulate_poly(den, den_l);
-    tf_detail::accumulate_poly(den, den_r);
+    detail::accumulate_poly(den, den_l);
+    detail::accumulate_poly(den, den_r);
 
     return TransferFunction<Nnum_res, Nden_res, T>{num, den};
 }

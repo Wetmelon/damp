@@ -55,7 +55,7 @@ namespace detail {
 /** @brief Gains refused because a tuning input is outside its domain (K = 0, L ≤ 0, Tu ≤ 0, …). */
 template<typename T>
 [[nodiscard]] constexpr PIDGains<T> pid_invalid() {
-    return ::damp::detail::refused<PIDGains<T>>(DesignStatus::invalid_parameter);
+    return refused<PIDGains<T>>(DesignStatus::invalid_parameter);
 }
 
 /** @brief x finite and > 0. The finiteness test is bit-pattern based, so it holds under -ffast-math. */
@@ -459,7 +459,7 @@ struct PIDTuneSpec {
     T       c = T{1};                 ///< D setpoint weight (0 = PI-D, 1 = on error)
 };
 
-namespace pidtune_detail {
+namespace detail {
 
 template<typename T>
 [[nodiscard]] constexpr bool weights_move_tracking(const PIDGains<T>& r) {
@@ -554,7 +554,7 @@ template<typename T>
     constexpr T pi = damp::numbers::pi_v<T>;
     const T     mag_P = damp::abs(P);
     if (!detail::positive_finite(mag_P)) {
-        return ::damp::detail::refused<PIDGains<T>>(DesignStatus::singular);
+        return refused<PIDGains<T>>(DesignStatus::singular);
     }
     const T want = -pi + (spec.phase_margin_deg * pi / T{180}) - damp::arg(P);
     const auto [s, c] = damp::sincos(want);
@@ -588,7 +588,7 @@ template<typename T>
         } break;
     }
     if (!detail::positive_finite(res.Kp) || !damp::finite_non_negative(res.Ki) || !damp::finite_non_negative(res.Kd) || ((spec.mode == PIDMode::PID) && !(res.Kd > T{0}))) {
-        return ::damp::detail::refused<PIDGains<T>>(DesignStatus::not_placeable);
+        return refused<PIDGains<T>>(DesignStatus::not_placeable);
     }
     res.Kbc = res.Ki / w; // tracking time T_t = Kbc/Ki = 1/ω_c
     res.Tf = spec.Tf;
@@ -607,7 +607,7 @@ template<size_t NX, typename T, size_t NW, size_t NV>
 fit_at_crossover(const damp::StateSpace<NX, 1, 1, T, NW, NV>& sys, const PIDTuneSpec<T>& spec, T sigma) noexcept {
     const auto Gopt = damp::eval_frf(sys, damp::complex<T>{T{0}, spec.wc});
     if (!Gopt) {
-        return ::damp::detail::refused<PIDGains<T>>(DesignStatus::singular);
+        return refused<PIDGains<T>>(DesignStatus::singular);
     }
     auto g = fit_to_response((*Gopt)(0, 0) * sigma, spec);
     if (g.success && (sigma < T{0})) {
@@ -775,7 +775,7 @@ template<size_t NX, typename T, size_t NW, size_t NV>
     return best;
 }
 
-} // namespace pidtune_detail
+} // namespace detail
 
 /**
  * @brief Plant-aware PID tune at a crossover
@@ -809,11 +809,11 @@ template<size_t NX, typename T, size_t NW, size_t NV>
 template<size_t NX, typename T = double, size_t NW = 0, size_t NV = 0>
 [[nodiscard]] constexpr PIDGains<T>
 pidtune(const damp::StateSpace<NX, 1, 1, T, NW, NV>& sys, const PIDTuneSpec<T>& spec) noexcept {
-    if (!pidtune_detail::valid_spec(spec)) {
+    if (!detail::valid_spec(spec)) {
         return detail::pid_invalid<T>();
     }
     if (!damp::isfinite(sys.Ts) || sys.Ts != T{0}) {
-        return ::damp::detail::refused<PIDGains<T>>(DesignStatus::invalid_sample_time);
+        return detail::refused<PIDGains<T>>(DesignStatus::invalid_sample_time);
     }
     const auto              plant = ::damp::ss2tf(sys);
     const T                 first = (plant.num[NX] < T{0}) ? T{-1} : T{1}; // sign of num(0), den monic
@@ -821,9 +821,9 @@ pidtune(const damp::StateSpace<NX, 1, 1, T, NW, NV>& sys, const PIDTuneSpec<T>& 
     PIDGains<T>             fitted{};
     T                       sigma = first;
     for (const T s : signs) {
-        auto g = pidtune_detail::fit_at_crossover(sys, spec, s);
-        if (g.success && !pidtune_detail::closed_loop_stable(plant, g)) {
-            g = ::damp::detail::refused<PIDGains<T>>(DesignStatus::not_stabilizable);
+        auto g = detail::fit_at_crossover(sys, spec, s);
+        if (g.success && !detail::closed_loop_stable(plant, g)) {
+            g = detail::refused<PIDGains<T>>(DesignStatus::not_stabilizable);
         }
         if (g.success || (s == first)) { // on a double failure, report the plant sign's status
             fitted = g;
@@ -833,17 +833,17 @@ pidtune(const damp::StateSpace<NX, 1, 1, T, NW, NV>& sys, const PIDTuneSpec<T>& 
             break;
         }
     }
-    if (!fitted.success || !pidtune_detail::weights_move_tracking(fitted)) {
+    if (!fitted.success || !detail::weights_move_tracking(fitted)) {
         return fitted;
     }
     PIDTuneSpec<T> spec1 = spec;
     spec1.b = T{1};
     spec1.c = T{1};
-    auto target = pidtune_detail::tracking_bandwidth(sys, pidtune_detail::fit_at_crossover(sys, spec1, sigma), spec.wc);
+    auto target = detail::tracking_bandwidth(sys, detail::fit_at_crossover(sys, spec1, sigma), spec.wc);
     if (!target) {
         target = spec.wc;
     }
-    return pidtune_detail::raise_loop_for_tracking(sys, plant, spec, fitted, *target, sigma);
+    return detail::raise_loop_for_tracking(sys, plant, spec, fitted, *target, sigma);
 }
 
 /**
@@ -973,7 +973,7 @@ template<typename T = double>
     }
     const T Kp = (T{2} * spec.zeta * spec.omega * a1) - a0;
     if (!detail::positive_finite(Kp)) {
-        return ::damp::detail::refused<PIDGains<T>>(DesignStatus::not_placeable);
+        return detail::refused<PIDGains<T>>(DesignStatus::not_placeable);
     }
     // Parallel form: T_t = Kbc/Ki. Kbc = |Kp| ⇒ T_t = T_i (Åström default).
     const T Ki = a1 * spec.omega * spec.omega;
@@ -1039,14 +1039,14 @@ template<typename T = double>
     const T c3 = w * w * wi;
     const T inv_Tf = (c1 + wf) - (a1 / a2);
     if (!detail::positive_finite(inv_Tf)) {
-        return ::damp::detail::refused<PIDGains<T>>(DesignStatus::not_placeable);
+        return detail::refused<PIDGains<T>>(DesignStatus::not_placeable);
     }
     const T Tf = T{1} / inv_Tf;
     const T Ki = a2 * Tf * (c3 * wf);
     const T Kp = (a2 * Tf * (c3 + (c2 * wf))) - a0 - (Ki * Tf);
     const T Kd = (a2 * Tf * (c2 + (c1 * wf))) - a1 - ((a0 + Kp) * Tf);
     if (!detail::positive_finite(Kp) || !damp::finite_non_negative(Kd)) {
-        return ::damp::detail::refused<PIDGains<T>>(DesignStatus::not_placeable);
+        return detail::refused<PIDGains<T>>(DesignStatus::not_placeable);
     }
     PIDGains<T> r{};
     r.Kp = Kp;
@@ -1118,7 +1118,7 @@ template<size_t NP, typename T = double>
 ) {
     using Cplx = damp::complex<T>;
     if (!detail::positive_finite(Ts)) {
-        return ::damp::detail::refused<PIDGains<T>>(DesignStatus::invalid_sample_time);
+        return detail::refused<PIDGains<T>>(DesignStatus::invalid_sample_time);
     }
     const T b0 = plant.num[0];
     const T a1 = plant.den[0];
@@ -1159,7 +1159,7 @@ template<size_t NP, typename T = double>
     const T a = damp::exp(-x);
     const T b = (b0 * Ts / a1) * detail::one_minus_exp_neg_over_x(x);
     if (b == T{0}) {
-        return ::damp::detail::refused<PIDGains<T>>(DesignStatus::singular);
+        return detail::refused<PIDGains<T>>(DesignStatus::singular);
     }
     if constexpr (NP == 2) {
         // Deploy is PIDGains::discretize + PIDController: I ← I + (Ki Ts) e[k],
@@ -1209,7 +1209,7 @@ template<size_t NX, typename T, size_t NW, size_t NV>
         return {.status = DesignStatus::invalid_parameter};
     }
     const auto tf = ::damp::ss2tf(plant);
-    const auto scale = ::damp::zpk_detail::leverrier_num_scale(plant);
+    const auto scale = ::damp::detail::leverrier_num_scale(plant);
     const T    tol = damp::sqrt(eps<T>());
     for (size_t j = 1; j < NX; ++j) {
         if (damp::abs(tf.num[j]) > (tol * scale[j])) {
@@ -1243,7 +1243,7 @@ template<size_t NX, typename T = double, size_t NW = 0, size_t NV = 0>
 [[nodiscard]] constexpr PIDGains<T> pid_pole_placement(const StateSpace<NX, 1, 1, T, NW, NV>& plant, const PIDPolePlacementSpec<T>& spec) {
     const auto all_pole = detail::all_pole_tf(plant);
     if (all_pole.status != DesignStatus::ok) {
-        return ::damp::detail::refused<PIDGains<T>>(all_pole.status);
+        return detail::refused<PIDGains<T>>(all_pole.status);
     }
     return pid_pole_placement(all_pole.tf, spec);
 }
@@ -1270,7 +1270,7 @@ template<size_t NP, typename T = double, size_t NW = 0, size_t NV = 0>
 ) {
     const auto all_pole = detail::all_pole_tf(plant);
     if (all_pole.status != DesignStatus::ok) {
-        return ::damp::detail::refused<PIDGains<T>>(all_pole.status);
+        return detail::refused<PIDGains<T>>(all_pole.status);
     }
     return pid_pole_placement(all_pole.tf, poles, Ts);
 }

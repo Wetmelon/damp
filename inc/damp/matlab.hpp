@@ -48,6 +48,7 @@
 #include "damp/controllers/lqr.hpp"
 #include "damp/controllers/pid.hpp"
 #include "damp/controllers/state_feedback.hpp"
+#include "damp/design/detail/config.hpp"
 #include "damp/design/linearization.hpp"
 #include "damp/design/minreal.hpp"
 #include "damp/design/model_reduction.hpp"

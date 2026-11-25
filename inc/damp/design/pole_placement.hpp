@@ -1116,13 +1116,13 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
     PlaceResult<NX, NU, T> out{};
     out.Ts = sys.Ts;
     if (!sys.is_discrete() && !sys.is_continuous()) {
-        return ::damp::detail::set_status(out, DesignStatus::invalid_sample_time); // no time domain
+        return set_status(out, DesignStatus::invalid_sample_time); // no time domain
     }
     const DesignStatus status = place_gain(sys.A, sys.B, poles, out.K);
     if (status == DesignStatus::ok) {
         out.e = stability::closed_loop_poles(sys.A, sys.B, out.K);
     }
-    ::damp::detail::set_status(out, status);
+    set_status(out, status);
     return out;
 }
 
@@ -1189,7 +1189,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
     StateSpace<NX, NU, NY, T, NW, NV> sampled{};
     const DesignStatus                status = detail::sample_plant(sys, Ts, sampled);
     if (status != DesignStatus::ok) {
-        return ::damp::detail::refused<PlaceResult<NX, NU, T>>(status);
+        return detail::refused<PlaceResult<NX, NU, T>>(status);
     }
     return detail::place_on(sampled, detail::poles_s_to_z(poles, Ts));
 }
@@ -1602,27 +1602,27 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size
 ) {
     using Result = JordanPlaceResult<NX, NU, T>;
     if (!sys.is_discrete() && !sys.is_continuous()) {
-        return ::damp::detail::refused<Result>(DesignStatus::invalid_sample_time); // no time domain
+        return refused<Result>(DesignStatus::invalid_sample_time); // no time domain
     }
     if (!damp::finite_non_negative(opts.alpha) || !(opts.alpha <= T{1})) {
-        return ::damp::detail::refused<Result>(DesignStatus::bad_weights);
+        return refused<Result>(DesignStatus::bad_weights);
     }
     for (size_t b = 0; b < NB; ++b) {
         if (!damp::isfinite(blocks[b].eigenvalue.real()) || !damp::isfinite(blocks[b].eigenvalue.imag())) {
-            return ::damp::detail::refused<Result>(DesignStatus::invalid_parameter);
+            return refused<Result>(DesignStatus::invalid_parameter);
         }
     }
     if (mat::rank(sys.B) < NU) {
-        return ::damp::detail::refused<Result>(DesignStatus::singular);
+        return refused<Result>(DesignStatus::singular);
     }
     const auto placed = jordan_place(sys.A, sys.B, blocks, opts);
     if (!placed || !placement_matches(sys.A, sys.B, placed->K, block_spectrum<NX>(blocks))) {
-        return ::damp::detail::refused<Result>(DesignStatus::not_placeable);
+        return refused<Result>(DesignStatus::not_placeable);
     }
     Result out = *placed;
     out.Ts = sys.Ts;
     out.e = stability::closed_loop_poles(sys.A, sys.B, out.K);
-    ::damp::detail::set_status(out, DesignStatus::ok);
+    set_status(out, DesignStatus::ok);
     return out;
 }
 
@@ -1709,7 +1709,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size
     StateSpace<NX, NU, NY, T, NW, NV> sampled{};
     const DesignStatus                status = detail::sample_plant(sys, Ts, sampled);
     if (status != DesignStatus::ok) {
-        return ::damp::detail::refused<JordanPlaceResult<NX, NU, T>>(status);
+        return detail::refused<JordanPlaceResult<NX, NU, T>>(status);
     }
     damp::array<JordanBlock<T>, NB> mapped = blocks;
     for (size_t b = 0; b < NB; ++b) {

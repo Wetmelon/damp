@@ -250,17 +250,17 @@ template<size_t MaxTaps, typename T = double>
     using Result = FirDesignResult<MaxTaps, T>;
     Result result{};
     if (n_taps < 1 || n_taps > MaxTaps || !detail::valid_fc(fc)) {
-        return ::damp::detail::refused<Result>(DesignStatus::invalid_parameter);
+        return detail::refused<Result>(DesignStatus::invalid_parameter);
     }
     if (type == FirType::Bandpass || type == FirType::Bandstop) {
-        return ::damp::detail::refused<Result>(DesignStatus::invalid_parameter); // need two cutoffs
+        return detail::refused<Result>(DesignStatus::invalid_parameter); // need two cutoffs
     }
 
     size_t N = n_taps;
     if (type == FirType::Highpass) {
         N = detail::force_odd_length(n_taps, MaxTaps);
         if ((N % 2) == 0) {
-            return ::damp::detail::refused<Result>(DesignStatus::invalid_parameter);
+            return detail::refused<Result>(DesignStatus::invalid_parameter);
         }
     }
 
@@ -277,7 +277,7 @@ template<size_t MaxTaps, typename T = double>
         dc_sum += result.b[n];
     }
     if (!detail::scale_to_unit_gain(result.b, N, dc_sum)) {
-        return ::damp::detail::refused<Result>(DesignStatus::singular);
+        return detail::refused<Result>(DesignStatus::singular);
     }
 
     if (type == FirType::Highpass) {
@@ -291,12 +291,12 @@ template<size_t MaxTaps, typename T = double>
         // Unit gain at Nyquist (preserves the DC null)
         const T g = detail::fir_passband_gain<MaxTaps, T>(result.b, N, static_cast<T>(0.5));
         if (!detail::scale_to_unit_gain(result.b, N, g)) {
-            return ::damp::detail::refused<Result>(DesignStatus::singular);
+            return detail::refused<Result>(DesignStatus::singular);
         }
     }
 
     result.n_taps = N;
-    return ::damp::detail::set_status(result, DesignStatus::ok);
+    return detail::set_status(result, DesignStatus::ok);
 }
 
 /**
@@ -327,17 +327,17 @@ template<size_t MaxTaps, typename T = double>
     using Result = FirDesignResult<MaxTaps, T>;
     Result result{};
     if (n_taps < 1 || n_taps > MaxTaps || !detail::valid_band(f_lo, f_hi)) {
-        return ::damp::detail::refused<Result>(DesignStatus::invalid_parameter);
+        return detail::refused<Result>(DesignStatus::invalid_parameter);
     }
     if (type != FirType::Bandpass && type != FirType::Bandstop) {
-        return ::damp::detail::refused<Result>(DesignStatus::invalid_parameter); // one-cutoff types
+        return detail::refused<Result>(DesignStatus::invalid_parameter); // one-cutoff types
     }
 
     size_t N = n_taps;
     if (type == FirType::Bandstop) {
         N = detail::force_odd_length(n_taps, MaxTaps);
         if ((N % 2) == 0) {
-            return ::damp::detail::refused<Result>(DesignStatus::invalid_parameter);
+            return detail::refused<Result>(DesignStatus::invalid_parameter);
         }
     }
 
@@ -362,11 +362,11 @@ template<size_t MaxTaps, typename T = double>
     const T f_pb = (type == FirType::Bandpass) ? ((f_lo + f_hi) / T{2}) : T{0};
     const T g = detail::fir_passband_gain<MaxTaps, T>(result.b, N, f_pb);
     if (!detail::scale_to_unit_gain(result.b, N, g)) {
-        return ::damp::detail::refused<Result>(DesignStatus::singular);
+        return detail::refused<Result>(DesignStatus::singular);
     }
 
     result.n_taps = N;
-    return ::damp::detail::set_status(result, DesignStatus::ok);
+    return detail::set_status(result, DesignStatus::ok);
 }
 
 /**
@@ -390,7 +390,7 @@ template<size_t MaxTaps, typename T = double>
     FirWindow window = FirWindow::Hamming
 ) {
     if (!(Ts > T{0}) || !damp::isfinite(Ts)) {
-        return ::damp::detail::refused<FirDesignResult<MaxTaps, T>>(DesignStatus::invalid_sample_time);
+        return detail::refused<FirDesignResult<MaxTaps, T>>(DesignStatus::invalid_sample_time);
     }
     return fir1<MaxTaps, T>(n_taps, fc_hz * Ts, type, window);
 }
@@ -408,7 +408,7 @@ template<size_t MaxTaps, typename T = double>
     FirWindow window = FirWindow::Hamming
 ) {
     if (!(Ts > T{0}) || !damp::isfinite(Ts)) {
-        return ::damp::detail::refused<FirDesignResult<MaxTaps, T>>(DesignStatus::invalid_sample_time);
+        return detail::refused<FirDesignResult<MaxTaps, T>>(DesignStatus::invalid_sample_time);
     }
     return fir1<MaxTaps, T>(n_taps, f_lo_hz * Ts, f_hi_hz * Ts, type, window);
 }
@@ -476,7 +476,7 @@ public:
     /** @brief Construct from a design result (at run time a failed design leaves zero taps, zero output; constant-evaluated, it does not compile) */
     constexpr FirFilter(const design::FirDesignResult<MaxTaps, T>& des) : FirFilter() { // NOLINT(google-explicit-constructor): assign-from-design
         if (!des.success && damp::is_constant_evaluated()) {
-            ::damp::detail::refuse_failed_design(des.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
+            detail::refuse_failed_design(des.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
         (void)init(des);
     }

@@ -9,13 +9,13 @@
 // MPC's held input u. A Handover fades the mismatch of a law with nothing to preload.
 
 #include <cmath>
-#include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <limits>
 #include <type_traits>
 
 #include "damp/backend.hpp"
+#include "damp/controllers/detail/state_feedback_core.hpp"
 #include "damp/controllers/law.hpp"
 #include "damp/controllers/lqg.hpp"
 #include "damp/controllers/lqgi.hpp"
@@ -34,7 +34,6 @@
 #include "damp/matrix/matrix.hpp"
 #include "damp/systems/discretization.hpp"
 #include "damp/systems/state_space.hpp"
-#include "damp/toolbox/bounds.hpp"
 #include "doctest.h"
 
 using namespace damp;

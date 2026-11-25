@@ -311,12 +311,12 @@ minreal(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T tol = damp::sqrt(eps<T>(
     using Result = MinimalRealizationResult<NX, NU, NY, T, NW, NV>;
     if constexpr (NX == 0) {
         Result out{.system = sys};
-        return ::damp::detail::set_status(out, DesignStatus::ok);
+        return detail::set_status(out, DesignStatus::ok);
     }
     const auto finite = [](T v) { return damp::isfinite(v); };
     if (!mat::all_of(sys.A, finite) || !mat::all_of(sys.B, finite) || !mat::all_of(sys.C, finite) || !mat::all_of(sys.D, finite)
         || !mat::all_of(sys.G, finite) || !mat::all_of(sys.H, finite)) {
-        return ::damp::detail::refused<Result>(DesignStatus::bad_weights);
+        return detail::refused<Result>(DesignStatus::bad_weights);
     }
 
     // --- Balance the states: the staircases and the projection run on D⁻¹AD, D⁻¹B, CD, D⁻¹G --
@@ -325,7 +325,7 @@ minreal(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T tol = damp::sqrt(eps<T>(
     // --- Controllable subspace (staircase) of (A, [B G]) ------------------------
     const auto cs = stability::detail::controllable_subspace(bal.A, detail::input_blocks(bal), tol);
     if (!cs.converged) {
-        return ::damp::detail::refused<Result>(DesignStatus::not_converged);
+        return detail::refused<Result>(DesignStatus::not_converged);
     }
     const size_t             nc = cs.dim;
     const Matrix<NX, NX, T>& Uc = cs.basis; // leading nc columns: orthonormal basis
@@ -333,7 +333,7 @@ minreal(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T tol = damp::sqrt(eps<T>(
     if (nc == 0) {
         // No controllable dynamics: I/O is pure feedthrough.
         Result out{.system = StateSpace<NX, NU, NY, T, NW, NV>{.D = sys.D, .H = sys.H, .Ts = sys.Ts}, .eliminated = NX};
-        return ::damp::detail::set_status(out, DesignStatus::ok);
+        return detail::set_status(out, DesignStatus::ok);
     }
 
     // --- Observable subspace of the controllable subsystem ------------------
@@ -345,20 +345,20 @@ minreal(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T tol = damp::sqrt(eps<T>(
         Matrix<NX, NX, T>(Ac_pad.transpose()), Matrix<NX, NY, T>(Cc_pad.transpose()), tol
     );
     if (!os.converged) {
-        return ::damp::detail::refused<Result>(DesignStatus::not_converged);
+        return detail::refused<Result>(DesignStatus::not_converged);
     }
     const size_t             no = os.dim;
     const Matrix<NX, NX, T>& Vo = os.basis;
 
     if (no == 0) {
         Result out{.system = StateSpace<NX, NU, NY, T, NW, NV>{.D = sys.D, .H = sys.H, .Ts = sys.Ts}, .eliminated = NX};
-        return ::damp::detail::set_status(out, DesignStatus::ok);
+        return detail::set_status(out, DesignStatus::ok);
     }
 
     // Already minimal: return the original realization unchanged (identity basis).
     if (nc == NX && no == NX) {
         Result out{.system = sys, .order = NX};
-        return ::damp::detail::set_status(out, DesignStatus::ok);
+        return detail::set_status(out, DesignStatus::ok);
     }
 
     // CO basis in original coordinates: T = Uc * Vo(:, 0:no)
@@ -390,7 +390,7 @@ minreal(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T tol = damp::sqrt(eps<T>(
     if constexpr (NW > 0) {
         out.system.G = detail::mul_basis_cols_t(Tbasis, no, bal.G);
     }
-    return ::damp::detail::set_status(out, DesignStatus::ok);
+    return detail::set_status(out, DesignStatus::ok);
 }
 
 } // namespace design

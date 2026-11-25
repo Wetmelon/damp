@@ -282,11 +282,11 @@ template<typename In, typename Out>
 /** @brief The delays among a design's options: NoDelay, the InputDelay, or PlantDelays when an OutputDelay is there. */
 template<typename... Opts>
 [[nodiscard]] constexpr auto delays_of(const Opts&... opts) {
-    const auto input = ::damp::detail::option<kind::InputDelay>(NoDelay{}, opts...);
-    if constexpr (::damp::detail::option_count<kind::OutputDelay, Opts...> == 0) {
+    const auto input = option<kind::InputDelay>(NoDelay{}, opts...);
+    if constexpr (option_count<kind::OutputDelay, Opts...> == 0) {
         return input;
     } else {
-        return PlantDelays<::damp::detail::option_t<kind::InputDelay, NoDelay, Opts...>, ::damp::detail::option_t<kind::OutputDelay, NoDelay, Opts...>>{input, ::damp::detail::the<kind::OutputDelay>(opts...)};
+        return PlantDelays<option_t<kind::InputDelay, NoDelay, Opts...>, option_t<kind::OutputDelay, NoDelay, Opts...>>{input, the<kind::OutputDelay>(opts...)};
     }
 }
 
@@ -298,7 +298,7 @@ template<typename... Opts>
  */
 template<Domain D, typename... Opts>
 consteval bool check_delays() {
-    constexpr bool ok = (D == Domain::sampled) || (::damp::detail::option_count<kind::InputDelay, Opts...> + ::damp::detail::option_count<kind::OutputDelay, Opts...> == 0);
+    constexpr bool ok = (D == Domain::sampled) || (option_count<kind::InputDelay, Opts...> + option_count<kind::OutputDelay, Opts...> == 0);
     static_assert(ok, "A delay is sampled with the plant: give the continuous plant and Ts, fn(plant, Ts, ..., InputDelay<N>{theta}, OutputDelay<M>{theta}).");
     return ok;
 }
@@ -310,8 +310,8 @@ consteval bool check_delays() {
  */
 template<bool Filtered, typename... Opts>
 consteval bool check_filtered() {
-    constexpr bool spec = Filtered || ::damp::detail::option_count<kind::Disturbance, Opts...> == 0;
-    constexpr bool late = Filtered || ::damp::detail::option_count<kind::OutputDelay, Opts...> == 0;
+    constexpr bool spec = Filtered || option_count<kind::Disturbance, Opts...> == 0;
+    constexpr bool late = Filtered || option_count<kind::OutputDelay, Opts...> == 0;
     static_assert(spec, "A disturbance spec is estimated by the law's filter: give a KalmanNoise among the options (or ObserverPoles, on an LQ law).");
     static_assert(late, "An OutputDelay is a late reading: it needs a filter to carry it, a KalmanNoise (or ObserverPoles, on an LQ law).");
     return spec && late;

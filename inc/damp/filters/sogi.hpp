@@ -36,14 +36,14 @@ template<typename T>
 template<size_t NX, typename T>
 [[nodiscard]] constexpr StateSpaceResult<NX, 1, 2, T> sampled(const StateSpaceResult<NX, 1, 2, T>& continuous, T Ts) {
     if (!(Ts > T{0}) || !damp::isfinite(Ts)) {
-        return ::damp::detail::refused<StateSpaceResult<NX, 1, 2, T>>(DesignStatus::invalid_sample_time);
+        return refused<StateSpaceResult<NX, 1, 2, T>>(DesignStatus::invalid_sample_time);
     }
     if (!continuous.success) {
         return continuous;
     }
     const auto sys_d = discretize(continuous.sys, Ts, DiscretizationMethod::ZOH);
     if (!sys_d) {
-        return ::damp::detail::refused<StateSpaceResult<NX, 1, 2, T>>(DesignStatus::singular);
+        return refused<StateSpaceResult<NX, 1, 2, T>>(DesignStatus::singular);
     }
     return designed(*sys_d);
 }
@@ -68,7 +68,7 @@ template<size_t NX, typename T>
 template<typename T = double>
 [[nodiscard]] constexpr StateSpaceResult<2, 1, 2, T> sogi(T f0, T alpha = damp::numbers::sqrt2_v<T>) {
     if (!detail::valid_resonator(f0, alpha)) {
-        return ::damp::detail::refused<StateSpaceResult<2, 1, 2, T>>(DesignStatus::invalid_parameter);
+        return detail::refused<StateSpaceResult<2, 1, 2, T>>(DesignStatus::invalid_parameter);
     }
     const T w0 = T{2} * damp::numbers::pi_v<T> * f0;
     return detail::designed(StateSpace{
@@ -152,7 +152,7 @@ template<typename T = float>
 template<typename T = double>
 [[nodiscard]] constexpr StateSpaceResult<3, 1, 2, T> mstogi(T f0, T alpha = damp::numbers::sqrt2_v<T>) {
     if (!detail::valid_resonator(f0, alpha)) {
-        return ::damp::detail::refused<StateSpaceResult<3, 1, 2, T>>(DesignStatus::invalid_parameter);
+        return detail::refused<StateSpaceResult<3, 1, 2, T>>(DesignStatus::invalid_parameter);
     }
     const T w0 = T{2} * damp::numbers::pi_v<T> * f0;
     const T alpha_omega = alpha * w0;

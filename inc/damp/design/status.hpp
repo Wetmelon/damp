@@ -68,6 +68,23 @@ template<typename Result>
     return status == design::DesignStatus::not_stabilizable ? design::DesignStatus::not_detectable : status;
 }
 
+} // namespace detail
+
+/**
+ * @brief The status helpers under the designs' own detail, which their code calls: refused,
+ *        set_status and dual_status read `detail::refused<R>(status)` in design and
+ *        `refused<R>(status)` in design::detail, as in damp::detail.
+ */
+namespace design::detail {
+
+using ::damp::detail::dual_status;
+using ::damp::detail::refused;
+using ::damp::detail::set_status;
+
+} // namespace design::detail
+
+namespace detail {
+
 /**
  * @brief One refusal per DesignStatus, so a refused constant-evaluated law names its cause
  *

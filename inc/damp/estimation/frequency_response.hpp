@@ -574,7 +574,7 @@ struct FrfMargins {
 };
 
 namespace design {
-namespace detail_frf {
+namespace detail {
 
 template<size_t NFreq, typename T>
 [[nodiscard]] constexpr bool point_ok(
@@ -770,7 +770,7 @@ template<size_t NFreq, size_t MaxModes, typename T>
     return result;
 }
 
-} // namespace detail_frf
+} // namespace detail
 
 /**
  * @brief Extract resonant peaks (local |G| maxima) from an FRF table.
@@ -784,7 +784,7 @@ template<size_t NFreq, size_t MaxModes, typename T = float>
     const damp::array<FrfPoint<T>, NFreq>& table,
     const ModeExtractorConfig<T>&          cfg = {}
 ) {
-    return detail_frf::extract_extrema<NFreq, MaxModes, T>(table, cfg, FrfFeatureKind::Peak);
+    return detail::extract_extrema<NFreq, MaxModes, T>(table, cfg, FrfFeatureKind::Peak);
 }
 
 /**
@@ -798,7 +798,7 @@ template<size_t NFreq, size_t MaxModes, typename T = float>
     const damp::array<FrfPoint<T>, NFreq>& table,
     const ModeExtractorConfig<T>&          cfg = {}
 ) {
-    return detail_frf::extract_extrema<NFreq, MaxModes, T>(table, cfg, FrfFeatureKind::Valley);
+    return detail::extract_extrema<NFreq, MaxModes, T>(table, cfg, FrfFeatureKind::Valley);
 }
 
 /**

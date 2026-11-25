@@ -286,11 +286,11 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
     // Filter DARE is discrete-time only (same gate as design::mhe).
     // Continuous plants would produce a wrong gain with success=true if we proceeded.
     if (!damp::finite_positive(sys.Ts)) {
-        return damp::detail::set_status(result, DesignStatus::invalid_sample_time);
+        return set_status(result, DesignStatus::invalid_sample_time);
     }
     // The DARE never reads B or D, so a non-finite one would ship in result.sys with success.
     if (!finite_filter_model(sys, Q, R)) {
-        return damp::detail::set_status(result, DesignStatus::bad_weights);
+        return set_status(result, DesignStatus::bad_weights);
     }
 
     // Compute effective noise covariances accounting for G and H. The result
@@ -306,7 +306,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
         Matrix<NX, NX, T>(sys.A.transpose()), Matrix<NX, NY, T>(sys.C.transpose()), Matrix<NX, NX, T>(Q_eff), Matrix<NY, NY, T>(R_eff), Matrix<NX, NY, T>{}, DareMethod::Auto
     );
     if (sol.status != DesignStatus::ok) {
-        return damp::detail::set_status(result, damp::detail::dual_status(sol.status));
+        return set_status(result, dual_status(sol.status));
     }
     // Scrub DARE round-off asymmetry before gain solve (S = CPCᵀ + R must stay SPD).
     result.P = static_cast<T>(0.5) * (sol.X + sol.X.transpose());
@@ -315,11 +315,11 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
     const Matrix<NY, NY, T> S = sys.C * result.P * sys.C.t() + R_eff;
     const auto              M_opt = mat::solve(S, Matrix<NY, NX, T>(sys.C * result.P));
     if (!M_opt) {
-        return damp::detail::set_status(result, DesignStatus::singular); // singular innovation covariance S
+        return set_status(result, DesignStatus::singular); // singular innovation covariance S
     }
     result.M = M_opt.value().transpose();
     result.L = sys.A * result.M; // the predictor gain: x̂[k+1|k] = A x̂[k|k]
-    return damp::detail::set_status(result, DesignStatus::ok);
+    return set_status(result, DesignStatus::ok);
 }
 
 } // namespace detail
@@ -381,15 +381,15 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
 ) {
     using Result = KalmanResult<NX, NU, NY, T, NX, NV>;
     if (!damp::isfinite(sys.Ts) || sys.Ts != T{0} || !damp::finite_positive(Ts)) {
-        return damp::detail::refused<Result>(DesignStatus::invalid_sample_time); // one discretization, at a valid Ts
+        return refused<Result>(DesignStatus::invalid_sample_time); // one discretization, at a valid Ts
     }
     const auto plant_d = ::damp::discretize(StateSpace{.A = sys.A, .B = sys.B, .C = sys.C, .D = sys.D}, Ts);
     if (!plant_d) {
-        return damp::detail::refused<Result>(plant_d.status); // a non-finite A or B, or an overflow
+        return refused<Result>(plant_d.status); // a non-finite A or B, or an overflow
     }
     const auto Qd = discretize_process_noise(sys.A, sys.G, noise.process, Ts);
     if (!Qd) {
-        return damp::detail::refused<Result>(DesignStatus::bad_weights); // a non-finite G or noise entry
+        return refused<Result>(DesignStatus::bad_weights); // a non-finite G or noise entry
     }
     const StateSpace sys_d{
         .A = plant_d->A,
@@ -423,11 +423,11 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size
     using Result = KalmanResult<NXE, NU, NY, T, NX, NV>;
     const auto m = design::detail::sampled_model(sys, Ts, Domain::sampled, delay);
     if (m.status != DesignStatus::ok) {
-        return damp::detail::refused<Result>(m.status);
+        return refused<Result>(m.status);
     }
     const auto Qd = discretize_process_noise(sys.A, sys.G, noise.process, Ts);
     if (!Qd) {
-        return damp::detail::refused<Result>(DesignStatus::bad_weights); // a non-finite noise entry
+        return refused<Result>(DesignStatus::bad_weights); // a non-finite noise entry
     }
     StateSpace<NXE, NU, NY, T, NX, NV> model{.A = m.law.A, .B = m.law.B, .C = m.law.C, .D = m.law.D, .H = sys.H, .Ts = Ts};
     model.G = Matrix<NXE, NX, T>{};
@@ -538,7 +538,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
     const auto m = design::detail::sampled_model(sys, Ts, Domain::sampled, delays);
     const auto outputs = ::damp::detail::channel_delay_splits<NY>(delays.output.seconds, Ts, N);
     if (m.status != DesignStatus::ok || !outputs) {
-        return damp::detail::refused<Result>((m.status != DesignStatus::ok) ? m.status : DesignStatus::invalid_parameter);
+        return refused<Result>((m.status != DesignStatus::ok) ? m.status : DesignStatus::invalid_parameter);
     }
     damp::array<size_t, NX> row{};
     for (size_t i = 0; i < NX; ++i) {
@@ -546,7 +546,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
     }
     const auto Q = late_reading_noise<NXE>(sys.A, sys.G, noise.process, sys.C, *outputs, Ts, row, NX + (input_delay_states<In> * NU));
     if (!Q) {
-        return damp::detail::refused<Result>(DesignStatus::bad_weights); // a non-finite noise entry
+        return refused<Result>(DesignStatus::bad_weights); // a non-finite noise entry
     }
     StateSpace<NXE, NU, NY, T, NXE, NV> model{.A = m.law.A, .B = m.law.B, .C = m.law.C, .D = m.law.D, .G = Matrix<NXE, NXE, T>::identity(), .H = sys.H, .Ts = Ts};
     return kalman_plain(model, KalmanNoise<NXE, NV, T>{.process = *Q, .measurement = noise.measurement});
@@ -579,7 +579,7 @@ template<size_t NXE, size_t NM, size_t NX, size_t NU, size_t NY, typename T, siz
     if (Bm) {
         out.sys.B.template block<NXE, NM>(0, NU) = *Bm;
     } else if (out.success) {
-        out = ::damp::detail::refused<decltype(out)>(DesignStatus::bad_weights); // a non-finite B_d
+        out = refused<decltype(out)>(DesignStatus::bad_weights); // a non-finite B_d
     }
     return out;
 }
@@ -636,15 +636,15 @@ template<Domain D, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_
         using Result = KalmanResult<NXK, NU, NY, T, NWK, NV, ND>;
         const auto m = sampled_model(sys, Ts, D, delay);
         if (m.status != DesignStatus::ok) {
-            return ::damp::detail::refused<Result>(m.status);
+            return refused<Result>(m.status);
         }
         if (!finite_filter_model(m.law, noise.process, noise.measurement)) {
-            return ::damp::detail::refused<Result>(DesignStatus::bad_weights); // before the detectability test reads C
+            return refused<Result>(DesignStatus::bad_weights); // before the detectability test reads C
         }
         const auto given = disturbance_channels(spec, sys, m.law, Ts);
         const auto ch = on_late_readings(spec, given, sys, Ts, delay); // d on a late reading as it was when taken
         if (!augment_detectable(m.law.A, m.law.C, ch.Bd, ch.Cd)) {
-            return ::damp::detail::refused<Result>(DesignStatus::not_detectable);
+            return refused<Result>(DesignStatus::not_detectable);
         }
         auto                aug = disturbance_augment<NWK>(m.law, ch.Bd, ch.Cd, (D == Domain::plant) ? sys.Ts : Ts);
         Matrix<NWK, NWK, T> Q{};
@@ -669,7 +669,7 @@ template<Domain D, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_
             Qc.template block<ND, ND>(NW, NW) = noise.disturbance;
             const auto Qd = discretize_process_noise(Ac, Gc, Qc, Ts);
             if (!Qd) {
-                return ::damp::detail::refused<Result>(DesignStatus::bad_weights); // a non-finite noise or channel entry
+                return refused<Result>(DesignStatus::bad_weights); // a non-finite noise or channel entry
             }
             aug.G = Matrix<NXK, NXK, T>::identity();
             for (size_t i = 0; i < NA; ++i) {
@@ -682,7 +682,7 @@ template<Domain D, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_
                 //! readings on x, and on d through C_d where d is held (an InputDisturbance's rides u).
                 const auto outputs = ::damp::detail::channel_delay_splits<NY>(delay.output.seconds, Ts, output_delay_states<Delay>);
                 if (!outputs) {
-                    return ::damp::detail::refused<Result>(DesignStatus::invalid_parameter);
+                    return refused<Result>(DesignStatus::invalid_parameter);
                 }
                 Matrix<NY, NA, T> R{};
                 R.template block<NY, NX>(0, 0) = sys.C;
@@ -695,7 +695,7 @@ template<Domain D, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_
                 }
                 const auto Ql = late_reading_noise<NXK>(Ac, Gc, Qc, R, *outputs, Ts, row, NX + (input_delay_states<Delay> * NU));
                 if (!Ql) {
-                    return ::damp::detail::refused<Result>(DesignStatus::bad_weights);
+                    return refused<Result>(DesignStatus::bad_weights);
                 }
                 Q = *Ql;
             }
@@ -705,7 +705,7 @@ template<Domain D, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_
 }
 
 /** @brief The options kalman takes: its noise (required), a disturbance spec, a MeasuredDisturbance, an InputDelay, an OutputDelay. */
-using kalman_options = ::damp::detail::option_set<kind::InputDelay, kind::OutputDelay, kind::Disturbance, kind::MeasuredDisturbance, kind::KalmanNoise>;
+using kalman_options = option_set<kind::InputDelay, kind::OutputDelay, kind::Disturbance, kind::MeasuredDisturbance, kind::KalmanNoise>;
 
 /** @brief A filter design @p kf on @p sys with the measured disturbance @p measured as known inputs after u (with_measured_inputs); itself without one (NM = 0). */
 template<Domain D, size_t NXK, size_t NU, size_t NY, typename T, size_t NWK, size_t NVK, size_t ND, size_t NX, size_t NYP, size_t NW, size_t NV, size_t NM, typename Delay>
@@ -721,7 +721,7 @@ template<Domain D, size_t NXK, size_t NU, size_t NY, typename T, size_t NWK, siz
 
 /** @brief The disturbance states of the disturbance spec among @p Opts (0 without one). */
 template<size_t NX, size_t NU, size_t NY, size_t NW, typename... Opts>
-inline constexpr size_t disturbance_states_in = disturbance_traits<::damp::detail::option_t<kind::Disturbance, NoDisturbance, Opts...>, NU, NY, noise_inputs<NX, NW>>::states;
+inline constexpr size_t disturbance_states_in = disturbance_traits<option_t<kind::Disturbance, NoDisturbance, Opts...>, NU, NY, noise_inputs<NX, NW>>::states;
 
 /** @brief The KalmanNoise a filter on this plant with the options @p Opts takes. */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename... Opts>
@@ -730,7 +730,7 @@ using noise_for = plant_noise<NX, NY, T, NW, NV, disturbance_states_in<NX, NU, N
 /** @brief The KalmanNoise among @p Opts, checked against the size the plant needs. */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename... Opts>
 [[nodiscard]] constexpr noise_for<NX, NU, NY, T, NW, NV, Opts...> noise_of(const Opts&... opts) {
-    using Noise = ::damp::detail::option_t<kind::KalmanNoise, noise_for<NX, NU, NY, T, NW, NV, Opts...>, Opts...>;
+    using Noise = option_t<kind::KalmanNoise, noise_for<NX, NU, NY, T, NW, NV, Opts...>, Opts...>;
     constexpr bool sized = damp::is_same_v<Noise, noise_for<NX, NU, NY, T, NW, NV, Opts...>>;
     static_assert(
         sized,
@@ -738,7 +738,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
         "and with a disturbance spec .disturbance ND x ND (its states), in the plant's scalar."
     );
     if constexpr (sized) {
-        return ::damp::detail::option<kind::KalmanNoise>(noise_for<NX, NU, NY, T, NW, NV, Opts...>{}, opts...);
+        return option<kind::KalmanNoise>(noise_for<NX, NU, NY, T, NW, NV, Opts...>{}, opts...);
     } else {
         (static_cast<void>(opts), ...);
         return noise_for<NX, NU, NY, T, NW, NV, Opts...>{}; // the message says why: nothing further
@@ -749,19 +749,19 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
 template<Domain D, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename... Opts>
 [[nodiscard]] constexpr auto kalman_with(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T Ts, const Opts&... opts) {
     kalman_options::check<Opts...>();
-    static_assert(::damp::detail::option_count<kind::KalmanNoise, Opts...> == 1, "kalman needs its noise among the options: kalman(plant, Ts, KalmanNoise{.process = ..., .measurement = ...}).");
+    static_assert(option_count<kind::KalmanNoise, Opts...> == 1, "kalman needs its noise among the options: kalman(plant, Ts, KalmanNoise{.process = ..., .measurement = ...}).");
     constexpr bool kModelFits = check_delays<D, Opts...>() && check_disturbance<NX, NY, T, Opts...>();
     const auto     noise = noise_of<NX, NU, NY, T, NW, NV>(opts...);
     const auto     delay = delays_of(opts...);
     const auto     measured = measured_of<NX, T>(opts...);
-    using Disturbance = ::damp::detail::option_t<kind::Disturbance, NoDisturbance, Opts...>;
+    using Disturbance = option_t<kind::Disturbance, NoDisturbance, Opts...>;
     if constexpr (!kModelFits) {
         static_cast<void>(noise);
         static_cast<void>(delay);
         static_cast<void>(measured);
         return KalmanResult<NX, NU, NY, T>{}; // the message says why: nothing further
     } else if constexpr (DisturbanceSpec<Disturbance>) {
-        const auto kf = kalman_design<D>(noise_model(sys), Ts, noise, ::damp::detail::the<kind::Disturbance>(opts...), delay);
+        const auto kf = kalman_design<D>(noise_model(sys), Ts, noise, the<kind::Disturbance>(opts...), delay);
         return measured_filter<D>(kf, sys, Ts, measured, delay);
     } else {
         return measured_filter<D>(kalman_design<D>(noise_model(sys), Ts, noise, NoDisturbance{}, delay), sys, Ts, measured, delay);
@@ -1106,7 +1106,7 @@ struct KalmanFilter {
           Gamma_(detail::process_noise_factor(model.G, config.Q)),
           Lr_(detail::reading_noise_factor(quadratic_form(model.H, config.R))) {
         if (!damp::finite_positive(model.Ts) && damp::is_constant_evaluated()) {
-            ::damp::detail::refuse_failed_design(design::DesignStatus::invalid_sample_time); // constant-evaluated: A is not a transition matrix
+            detail::refuse_failed_design(design::DesignStatus::invalid_sample_time); // constant-evaluated: A is not a transition matrix
         }
     }
 
@@ -1291,7 +1291,7 @@ private:
     template<typename Result>
     [[nodiscard]] static constexpr StateSpace<NX, NU, NY, T, NW, NV> model_of(const Result& result) {
         if (!result.success && damp::is_constant_evaluated()) {
-            ::damp::detail::refuse_failed_design(result.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
+            detail::refuse_failed_design(result.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
         return result.sys.template as<T>();
     }

@@ -21,8 +21,8 @@
  * @code
  * template<typename... Opts>
  * constexpr auto fn(const Sys& sys, const Opts&... opts) {
- *     damp::detail::option_set<design::kind::KalmanNoise>::check<Opts...>();
- *     const auto noise = damp::detail::option<design::kind::KalmanNoise>(design::KalmanNoise<NX, NY>{}, opts...);
+ *     design::detail::option_set<design::kind::KalmanNoise>::check<Opts...>();
+ *     const auto noise = design::detail::option<design::kind::KalmanNoise>(design::KalmanNoise<NX, NY>{}, opts...);
  *     // noise is the KalmanNoise given, or the fallback without one
  * }
  * @endcode
@@ -59,13 +59,11 @@ struct QPIterations {};        ///< QPIterations: a QP's iteration budget
 template<typename O, typename Kind>
 concept OptionOf = requires { typename damp::remove_cvref_t<O>::option_kind; } && damp::is_same_v<typename damp::remove_cvref_t<O>::option_kind, Kind>;
 
-} // namespace damp::design
-
-namespace damp::detail {
+namespace detail {
 
 /** @brief How many of @p Opts are of the kind @p Kind. */
 template<typename Kind, typename... Opts>
-inline constexpr size_t option_count = (size_t{0} + ... + (design::OptionOf<Opts, Kind> ? size_t{1} : size_t{0}));
+inline constexpr size_t option_count = (size_t{0} + ... + (OptionOf<Opts, Kind> ? size_t{1} : size_t{0}));
 
 /** @brief A type carried as a value, so that a fold over a call's options can pick one (option_t). */
 template<typename Kind, typename T>
@@ -76,7 +74,7 @@ struct OptionPick {
 /** @brief The left side when it is of the kind @p Kind, else the right: folded over the options onto a default, the first option of the kind. */
 template<typename Kind, typename L, typename R>
 [[nodiscard]] constexpr auto operator|(OptionPick<Kind, L> left, OptionPick<Kind, R> right) {
-    if constexpr (design::OptionOf<L, Kind>) {
+    if constexpr (OptionOf<L, Kind>) {
         return left;
     } else {
         return right;
@@ -97,7 +95,7 @@ template<typename Kind, typename... Opts>
     static_assert(option_count<Kind, Opts...> > 0, "the<Kind>(opts...) reads an option the call holds: test option_count<Kind, Opts...> first.");
     const option_t<Kind, void, Opts...>* found = nullptr;
     ([&] {
-        if constexpr (design::OptionOf<Opts, Kind>) {
+        if constexpr (OptionOf<Opts, Kind>) {
             found = (found == nullptr) ? &opts : found;
         }
     }(), ...);
@@ -125,7 +123,6 @@ template<typename Kind, typename Default, typename... Opts>
  */
 template<typename Kind, size_t N>
 consteval void at_most_one() {
-    namespace kind = design::kind;
     if constexpr (damp::is_same_v<Kind, kind::InputLimits>) {
         static_assert(N <= 1, "One InputLimits bounds every input: InputLimits{.lower = {...}, .upper = {...}}.");
     } else if constexpr (damp::is_same_v<Kind, kind::InputRateLimits>) {
@@ -155,7 +152,7 @@ template<typename... Kinds>
 struct option_set {
     /** @brief @p Opt is of a listed kind. */
     template<typename Opt>
-    static constexpr bool listed = (design::OptionOf<Opt, Kinds> || ...);
+    static constexpr bool listed = (OptionOf<Opt, Kinds> || ...);
 
     /** @brief Every option is of a listed kind. */
     template<typename... Opts>
@@ -175,4 +172,6 @@ struct option_set {
     }
 };
 
-} // namespace damp::detail
+} // namespace detail
+
+} // namespace damp::design

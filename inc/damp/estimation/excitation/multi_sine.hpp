@@ -225,7 +225,7 @@ public:
     constexpr MultiSine(const design::MultiSineResult<NTones, T>& design) // NOLINT(google-explicit-constructor): assign-from-design
         : config_(design.config), valid_(design.success) {
         if (!design.success && damp::is_constant_evaluated()) {
-            ::damp::detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed design does not compile
+            detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
         for (size_t i = 0; i < NTones; ++i) {
             step_[i] = damp::wrap_pi(T{2} * damp::numbers::pi_v<T> * config_.tones[i].freq_hz * design.Ts);

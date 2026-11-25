@@ -416,7 +416,7 @@ public:
     constexpr ESKFOrientationFilter(const design::ESKFResult<kNdx, kNy, U>& design) // NOLINT(google-explicit-constructor): assign-from-design
         : eskf_(design), R_(design.R.template as<T>()), q_nom_(Quaternion<T>::identity()), b_g_nom_{} {
         if (!design.success && damp::is_constant_evaluated()) {
-            ::damp::detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed design does not compile
+            detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
     }
 

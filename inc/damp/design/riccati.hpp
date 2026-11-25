@@ -1620,20 +1620,20 @@ template<size_t NX, size_t NU, typename T = double>
 ) {
     LQRResult<NX, NU, T> out{.discrete = true};
     if (!mat::cholesky(R).has_value()) {
-        return damp::detail::set_status(out, DesignStatus::bad_weights); // R not positive definite, as continuous_lqr
+        return detail::set_status(out, DesignStatus::bad_weights); // R not positive definite, as continuous_lqr
     }
     const auto sol = damp::detail::solve_dare(A, B, Q, R, N, DareMethod::Auto);
     if (sol.status != DesignStatus::ok) {
-        return damp::detail::set_status(out, sol.status);
+        return detail::set_status(out, sol.status);
     }
     const auto K = lqr_gain(A, B, sol.X, R, N);
     if (!K) {
-        return damp::detail::set_status(out, DesignStatus::singular); // R + BᵀSB not positive definite
+        return detail::set_status(out, DesignStatus::singular); // R + BᵀSB not positive definite
     }
     out.K = K.value();
     out.S = sol.X;
     out.e = stability::closed_loop_poles(A, B, out.K);
-    return damp::detail::set_status(out, DesignStatus::ok);
+    return detail::set_status(out, DesignStatus::ok);
 }
 
 /** @brief discrete_lqr on a cost: the DARE with @p cost's Q, R and N. */
@@ -1755,17 +1755,17 @@ template<size_t NX, size_t NU, typename T = double>
     LQRResult<NX, NU, T> out{};
     const auto           sol = damp::detail::solve_care(A, B, Q, R, N);
     if (sol.status != DesignStatus::ok) {
-        return damp::detail::set_status(out, sol.status);
+        return detail::set_status(out, sol.status);
     }
     // K = R⁻¹(BᵀS + Nᵀ) as the solve R·K = BᵀS + Nᵀ, not an explicit R⁻¹
     const auto K = mat::lu_solve(R, (B.transpose() * sol.X) + N.transpose());
     if (!K) {
-        return damp::detail::set_status(out, DesignStatus::bad_weights); // R singular
+        return detail::set_status(out, DesignStatus::bad_weights); // R singular
     }
     out.K = K.value();
     out.S = sol.X;
     out.e = stability::closed_loop_poles(A, B, out.K);
-    return damp::detail::set_status(out, DesignStatus::ok);
+    return detail::set_status(out, DesignStatus::ok);
 }
 
 } // namespace design

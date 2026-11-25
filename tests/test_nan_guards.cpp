@@ -33,7 +33,6 @@
 #include "damp/controllers/state_feedback.hpp"
 #include "damp/controllers/stsmc.hpp"
 #include "damp/design/model_reduction.hpp"
-#include "damp/design/options.hpp"
 #include "damp/design/pid_design.hpp"
 #include "damp/design/pole_placement.hpp"
 #include "damp/design/qp.hpp"
@@ -359,7 +358,7 @@ TEST_SUITE("NaN guards") {
             CHECK_FALSE(estimation::classical_dob(damp::array<T, 2>{bad, static_cast<T>(0.5)}, An, Qn, Qd).success);
             CHECK_FALSE(estimation::classical_dob(Bn, damp::array<T, 2>{bad, static_cast<T>(-0.9)}, Qn, Qd).success);
             CHECK_FALSE(estimation::classical_dob(Bn, An, Qn, damp::array<T, 2>{T{1}, bad}).success);
-            CHECK_FALSE(tf_detail::schur_stable(damp::array<T, 3>{T{1}, bad, static_cast<T>(0.25)}));
+            CHECK_FALSE(::damp::detail::schur_stable(damp::array<T, 3>{T{1}, bad, static_cast<T>(0.25)}));
         }
     }
 
@@ -479,8 +478,8 @@ TEST_SUITE("NaN guards") {
         CHECK_FALSE(detail::same_sample_time(nan, static_cast<T>(0.1)));
         CHECK_FALSE(detail::same_sample_time(runtime_inf<T>(), runtime_inf<T>()));
         CHECK(detail::same_sample_time(static_cast<T>(0.1), static_cast<T>(0.1)));
-        CHECK_FALSE(tf_detail::schur_stable(damp::array<T, 2>{nan, static_cast<T>(0.5)}));
-        CHECK(tf_detail::schur_stable(damp::array<T, 2>{T{1}, static_cast<T>(0.5)}));
+        CHECK_FALSE(::damp::detail::schur_stable(damp::array<T, 2>{nan, static_cast<T>(0.5)}));
+        CHECK(::damp::detail::schur_stable(damp::array<T, 2>{T{1}, static_cast<T>(0.5)}));
     }
 
     TEST_CASE_TEMPLATE("designs for a continuous plant refuse a plant whose Ts is NaN", T, float, double) {

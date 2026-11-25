@@ -81,7 +81,7 @@ struct [[nodiscard]] DiscretizationResult {
     /** @brief The model; a failed result does not compile when constant-evaluated, and is the zero model at run time. */
     [[nodiscard]] constexpr const value_type& value() const {
         if (!success) {
-            ::damp::detail::refuse_failed_design(status); // constant-evaluated: does not compile, naming the status
+            detail::refuse_failed_design(status); // constant-evaluated: does not compile, naming the status
         }
         return sys;
     }
@@ -89,7 +89,7 @@ struct [[nodiscard]] DiscretizationResult {
     /** @brief The model; a failed result does not compile when constant-evaluated, and is the zero model at run time. */
     [[nodiscard]] constexpr value_type& value() {
         if (!success) {
-            ::damp::detail::refuse_failed_design(status); // constant-evaluated: does not compile, naming the status
+            detail::refuse_failed_design(status); // constant-evaluated: does not compile, naming the status
         }
         return sys;
     }

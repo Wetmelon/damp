@@ -235,6 +235,12 @@ Plant builders and host sim are not this ladder.
   on `damp::tuple`; use `damp::get`.
 - No virtuals, heap, exceptions, or global mutable state in core.
 - No backwards-compat burden: clarity over API stability.
+- **`detail` namespaces:** an internal lives in the `detail` of the namespace whose code calls it:
+  `damp::detail` for the runtimes and systems, `design::detail` for the designs, `mat::detail`,
+  `sim::detail` and so on. Inside `damp::design`, `detail::` means `design::detail`, so
+  `::damp::detail::` spelled there says a name is on the wrong side. A helper both sides call
+  stays in `damp::detail`, and `design::detail` names it with a using-declaration, as
+  `status.hpp` does `refused` and `set_status`. No one-off `foo_detail` namespaces.
 - **Headers:** a name users spell is in a public header; `detail/` holds `detail::`
   only. A public header exports (`// IWYU pragma: export`) what its users name to
   call and deploy it: `Law` (`controllers/law.hpp`, through the header that

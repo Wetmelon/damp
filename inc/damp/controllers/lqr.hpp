@@ -27,7 +27,6 @@
 #include "damp/controllers/law.hpp"                    // IWYU pragma: export
 #include "damp/controllers/state_feedback_runtime.hpp" // IWYU pragma: export
 #include "damp/controllers/state_feedback_types.hpp"   // IWYU pragma: export
-#include "damp/design/riccati.hpp"
 
 namespace damp {
 

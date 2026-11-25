@@ -362,7 +362,7 @@ struct ErrorStateKalmanFilter {
           Q(result.Q.template as<T>()),
           q_is_diagonal(is_diagonal(Q)) {
         if (!result.success && damp::is_constant_evaluated()) {
-            ::damp::detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed design does not compile
+            detail::refuse_failed_design(); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
     }
 

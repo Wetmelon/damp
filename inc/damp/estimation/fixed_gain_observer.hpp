@@ -213,13 +213,13 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
         if (status != DesignStatus::ok) {
             out.L = Matrix<NX, NY, T>{}; // a failed design ships no gain
             out.e = damp::array<damp::complex<T>, NX>{};
-            return ::damp::detail::set_status(out, status);
+            return set_status(out, status);
         }
         out.M = Mt.transpose();
         out.L = out.sys.A * out.M;
     }
     out.e = stability::closed_loop_poles(At, CAt, Matrix<NY, NX, T>(out.M.transpose())); // the runtime's error poles
-    return ::damp::detail::set_status(out, DesignStatus::ok);
+    return set_status(out, DesignStatus::ok);
 }
 
 /** @brief Observer gains on a plant whose domain is already the observer's: L = place(Aᵀ, Cᵀ, p)ᵀ, and M with A M = L when discrete. */
@@ -232,23 +232,23 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
     PlaceObserverResult<NX, NU, NY, T, NW, NV> out{};
     out.sys = sys;
     if (!sys.is_discrete() && !sys.is_continuous()) {
-        return ::damp::detail::set_status(out, DesignStatus::invalid_sample_time); // no time domain
+        return set_status(out, DesignStatus::invalid_sample_time); // no time domain
     }
     if (!finite_model(sys)) {
-        return ::damp::detail::set_status(out, DesignStatus::bad_weights); // placement reads only A and C; the runtime runs B and D
+        return set_status(out, DesignStatus::bad_weights); // placement reads only A and C; the runtime runs B and D
     }
     // eig(A − LC) = eig(Aᵀ − Cᵀ Lᵀ), so Lᵀ is a state-feedback gain for (Aᵀ, Cᵀ).
     Matrix<NY, NX, T>  Lt{};
     const DesignStatus status = place_gain(Matrix<NX, NX, T>(sys.A.transpose()), Matrix<NX, NY, T>(sys.C.transpose()), poles, Lt);
     if (status != DesignStatus::ok) {
-        return ::damp::detail::set_status(out, status);
+        return set_status(out, status);
     }
     out.L = Lt.transpose();
     if (sys.is_discrete()) {
         return with_innovation_gain(out, poles);
     }
     out.e = stability::closed_loop_poles(Matrix<NX, NX, T>(sys.A.transpose()), Matrix<NX, NY, T>(sys.C.transpose()), Lt);
-    return ::damp::detail::set_status(out, DesignStatus::ok); // continuous: no current form, M = 0
+    return set_status(out, DesignStatus::ok); // continuous: no current form, M = 0
 }
 
 } // namespace detail
@@ -332,7 +332,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
     StateSpace<NX, NU, NY, T, NW, NV> sampled{};
     const DesignStatus                status = detail::sample_plant(sys, Ts, sampled);
     if (status != DesignStatus::ok) {
-        return ::damp::detail::refused<PlaceObserverResult<NX, NU, NY, T, NW, NV>>(status);
+        return detail::refused<PlaceObserverResult<NX, NU, NY, T, NW, NV>>(status);
     }
     return detail::place_observer_on(sampled, detail::poles_s_to_z(poles, Ts));
 }
@@ -420,13 +420,13 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
     Result result{};
     result.Ts = sys.Ts;
     if (!sys.is_discrete() && !sys.is_continuous()) {
-        return ::damp::detail::set_status(result, DesignStatus::invalid_sample_time); // no time domain
+        return set_status(result, DesignStatus::invalid_sample_time); // no time domain
     }
     if (!finite_model(sys)) {
-        return ::damp::detail::set_status(result, DesignStatus::bad_weights); // placement does not read B; Gu does
+        return set_status(result, DesignStatus::bad_weights); // placement does not read B; Gu does
     }
     if (!mat::all_of(sys.D, [](T v) { return v == T{0}; })) {
-        return ::damp::detail::set_status(result, DesignStatus::bad_weights); // the measured state is read as y: no feedthrough
+        return set_status(result, DesignStatus::bad_weights); // the measured state is read as y: no feedthrough
     }
 
     // Pick the measured-state pivot (largest |C| entry) and build the transform
@@ -458,7 +458,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
     // Tf · Tinv = I rather than an unguarded inverse (fail closed if singular).
     const auto Tf_inv_opt = mat::lu_solve(Tf, Matrix<NX, NX, T>::identity());
     if (!Tf_inv_opt) {
-        return ::damp::detail::set_status(result, DesignStatus::singular); // C not full rank / Tf singular
+        return set_status(result, DesignStatus::singular); // C not full rank / Tf singular
     }
     const Matrix<NX, NX, T> Tf_inv = *Tf_inv_opt;
 
@@ -479,7 +479,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
     Matrix<1, NM, T>        Lt{};
     const DesignStatus      status = place_gain(A_bb_t, A_ab_t, poles, Lt);
     if (status != DesignStatus::ok) {
-        return ::damp::detail::set_status(result, status); // unobservable reduced subsystem
+        return set_status(result, status); // unobservable reduced subsystem
     }
     const Matrix<NM, 1, T> L = Lt.transpose();
 
@@ -490,7 +490,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
     result.Gu = Matrix<NM, NU, T>(B_b - L * B_a);
     result.Tinv = Tf_inv;
     result.e = stability::closed_loop_poles(A_bb_t, A_ab_t, Lt); // eig(F)
-    return ::damp::detail::set_status(result, DesignStatus::ok);
+    return set_status(result, DesignStatus::ok);
 }
 
 } // namespace detail
@@ -537,7 +537,7 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
     StateSpace<NX, NU, NY, T, NW, NV> sampled{};
     const DesignStatus                status = detail::sample_plant(sys, Ts, sampled);
     if (status != DesignStatus::ok) {
-        return ::damp::detail::refused<ReducedOrderObserverResult<NX, NU, T>>(status);
+        return detail::refused<ReducedOrderObserverResult<NX, NU, T>>(status);
     }
     return detail::reduced_order_observer_on(sampled, detail::poles_s_to_z(poles, Ts));
 }
@@ -888,7 +888,7 @@ private:
     [[nodiscard]] static constexpr bool usable(bool success, design::DesignStatus status, U Ts) {
         const bool ok = success && damp::finite_positive(Ts);
         if (!ok && damp::is_constant_evaluated()) {
-            ::damp::detail::refuse_failed_design(success ? design::DesignStatus::invalid_sample_time : status); // constant-evaluated (constinit / constexpr): a failed or continuous design does not compile
+            detail::refuse_failed_design(success ? design::DesignStatus::invalid_sample_time : status); // constant-evaluated (constinit / constexpr): a failed or continuous design does not compile
         }
         return ok;
     }
@@ -1031,7 +1031,7 @@ private:
     [[nodiscard]] static consteval bool usable() {
         const bool ok = Res.success && Res.sys.Ts > decltype(Res.sys.Ts){0};
         if (!ok) {
-            ::damp::detail::refuse_failed_design(Res.success ? design::DesignStatus::invalid_sample_time : Res.status);
+            detail::refuse_failed_design(Res.success ? design::DesignStatus::invalid_sample_time : Res.status);
         }
         return ok;
     }
@@ -1101,7 +1101,7 @@ public:
     constexpr ReducedOrderObserver(const design::ReducedOrderObserverResult<NX, NU, U>& result) // NOLINT(google-explicit-constructor): assign-from-design
         : valid_(result.success && damp::finite_positive(result.Ts)) {
         if (!valid_ && damp::is_constant_evaluated()) {
-            ::damp::detail::refuse_failed_design(result.success ? design::DesignStatus::invalid_sample_time : result.status); // constant-evaluated (constinit / constexpr): a failed or continuous design does not compile
+            detail::refuse_failed_design(result.success ? design::DesignStatus::invalid_sample_time : result.status); // constant-evaluated (constinit / constexpr): a failed or continuous design does not compile
         }
         if (valid_) {
             F_ = result.F.template as<T>();

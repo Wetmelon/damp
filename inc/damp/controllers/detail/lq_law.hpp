@@ -15,7 +15,6 @@
  */
 
 #include "damp/backend.hpp"
-#include "damp/controllers/detail/state_feedback_core.hpp"
 #include "damp/controllers/law.hpp"
 #include "damp/controllers/state_feedback_types.hpp"
 #include "damp/design/status.hpp"
@@ -23,7 +22,6 @@
 #include "damp/math/math.hpp"
 #include "damp/matrix/const_matrix.hpp"
 #include "damp/matrix/matrix.hpp"
-#include "damp/toolbox/bounds.hpp"
 
 namespace damp {
 

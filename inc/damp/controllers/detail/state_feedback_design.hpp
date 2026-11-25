@@ -28,7 +28,6 @@
 #include "damp/matrix/matrix.hpp"
 #include "damp/systems/discretization.hpp"
 #include "damp/systems/state_space.hpp"
-#include "damp/toolbox/bounds.hpp"
 
 namespace damp {
 namespace design {
@@ -55,7 +54,7 @@ template<typename Result, size_t NK, size_t NU, typename T>
     out.K = lq.K;
     out.S = lq.S;
     out.e = lq.e;
-    return ::damp::detail::set_status(out, lq.status);
+    return set_status(out, lq.status);
 }
 
 /**
@@ -67,7 +66,7 @@ template<typename Result, Domain D, size_t NX, size_t NU, size_t NY, typename T,
 [[nodiscard]] constexpr Result law_design(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T Ts, const LQRWeights<NX, NU, T>& w, const Integrators<NI, NY, T>& integ) {
     const auto& Ci = integ.Ci;
     if (!mat::cholesky(w.R).has_value()) {
-        return ::damp::detail::refused<Result>(DesignStatus::bad_weights); // R not positive definite, on every route
+        return refused<Result>(DesignStatus::bad_weights); // R not positive definite, on every route
     }
     if constexpr ((D == Domain::plant) && NI == 0) {
         if (sys.is_continuous()) {
@@ -77,7 +76,7 @@ template<typename Result, Domain D, size_t NX, size_t NU, size_t NY, typename T,
     }
     const auto m = sampled_model(sys, Ts, D);
     if (m.status != DesignStatus::ok) {
-        return ::damp::detail::refused<Result>(m.status);
+        return refused<Result>(m.status);
     }
     const T h = (D == Domain::plant) ? sys.Ts : Ts;
     if constexpr (NI == 0) {
@@ -85,14 +84,14 @@ template<typename Result, Domain D, size_t NX, size_t NU, size_t NY, typename T,
         if constexpr (D == Domain::sampled) {
             const auto c = discretize_lqr_cost(sys.A, sys.B, w.Q, w.R, Ts, w.N);
             if (!c) {
-                return ::damp::detail::refused<Result>(DesignStatus::bad_weights); // the plant was sampled: a non-finite weight
+                return refused<Result>(DesignStatus::bad_weights); // the plant was sampled: a non-finite weight
             }
             cd = *c;
         }
         return with_gain(Result{.Ts = h}, discrete_lqr(m.law.A, m.law.B, cd));
     } else {
         if (!mat::cholesky(integ.Q).has_value()) {
-            return ::damp::detail::refused<Result>(DesignStatus::bad_weights); // an unweighted integrator: a mode at z = 1 the cost does not see
+            return refused<Result>(DesignStatus::bad_weights); // an unweighted integrator: a mode at z = 1 the cost does not see
         }
         // Forward-Euler integrator xi += h·e (MATLAB®'s discrete lqi): xi ≈ ∫e dt, so its cost
         // means the same on either route. The runtime integrates e = r − Ci·(C·x + D·u), u the
@@ -102,7 +101,7 @@ template<typename Result, Domain D, size_t NX, size_t NU, size_t NY, typename T,
         if constexpr (D == Domain::sampled) {
             const auto c = sampled_integral_cost(sys.A, sys.B, sys.C, sys.D, Ci, cd, Ts);
             if (!c) {
-                return ::damp::detail::refused<Result>(DesignStatus::bad_weights); // the plant was sampled: a non-finite weight
+                return refused<Result>(DesignStatus::bad_weights); // the plant was sampled: a non-finite weight
             }
             cd = *c;
         }
@@ -127,22 +126,22 @@ template<typename Result, size_t NX, size_t NU, size_t NY, typename T, size_t NW
 ) {
     const auto& Ci = integ.Ci;
     if (!mat::cholesky(w.R).has_value()) {
-        return ::damp::detail::refused<Result>(DesignStatus::bad_weights); // R not positive definite
+        return refused<Result>(DesignStatus::bad_weights); // R not positive definite
     }
     if constexpr (NI > 0) {
         if (!mat::cholesky(integ.Q).has_value()) {
-            return ::damp::detail::refused<Result>(DesignStatus::bad_weights); // an unweighted integrator
+            return refused<Result>(DesignStatus::bad_weights); // an unweighted integrator
         }
     }
     const auto m = sampled_model(sys, Ts, Domain::sampled, delay); // a continuous plant, a usable Ts, finite entries, a delay discretize takes
     if (m.status != DesignStatus::ok) {
-        return ::damp::detail::refused<Result>(m.status);
+        return refused<Result>(m.status);
     }
     const auto& model = m.law;
     const auto  inputs = ::damp::detail::channel_delay_splits<NU>(delay.seconds, Ts, N); // as discretize accepted them
     const auto  cost = inputs ? delayed_cost(sys, model, *inputs, Ci, w, integ.Q, Ts) : damp::nullopt;
     if (!cost) {
-        return ::damp::detail::refused<Result>(DesignStatus::bad_weights); // a non-finite weight on the sampled plant
+        return refused<Result>(DesignStatus::bad_weights); // a non-finite weight on the sampled plant
     }
     Result out{.Ts = Ts};
     if constexpr (NI == 0) {
@@ -222,13 +221,13 @@ template<bool Held, Domain D, size_t NX, size_t NU, size_t NY, typename T, size_
         static_cast<void>(Ci);
         using Result = SteadyStateTargetResult<NXE, NU, disturbance_traits<Spec, NU, NY, NW>::states + NM, target_outputs<Spec, NU, NY, NW>, T>;
         if (!Bm) {
-            return ::damp::detail::refused<Result>(DesignStatus::bad_weights); // a non-finite B_d
+            return refused<Result>(DesignStatus::bad_weights); // a non-finite B_d
         }
         return target_design<D>(sys, Ts, spec, delay, *Bm);
     } else {
         static_cast<void>(spec);
         if (!Bm) {
-            return ::damp::detail::refused<SteadyStateTargetResult<NXE, NU, NM, 0, T>>(DesignStatus::bad_weights); // a non-finite B_d
+            return refused<SteadyStateTargetResult<NXE, NU, NM, 0, T>>(DesignStatus::bad_weights); // a non-finite B_d
         }
         if constexpr (NI > 0) {
             return held_at_zero<D>(sys, Ts, Ci, delay, *Bm);
@@ -274,7 +273,7 @@ template<typename Result, size_t NX, size_t NU, typename T, size_t NI, size_t ND
         static_cast<void>(handover);
     }
     if (!usable) {
-        return ::damp::detail::refused<Result>(DesignStatus::invalid_parameter);
+        return refused<Result>(DesignStatus::invalid_parameter);
     }
     law.limits.input = limits.input;
     law.limits.input_rate = limits.input_rate;
@@ -285,7 +284,7 @@ template<typename Result, size_t NX, size_t NU, typename T, size_t NI, size_t ND
         if (const auto unwind = integrator_unwind<NI>(law.K)) {
             law.integral.unwind = *unwind; // formed for any tracking time: the runtime's may be set later
         } else if (tracking_time > T{0}) {
-            return ::damp::detail::refused<Result>(DesignStatus::not_converged); // back-calculation asked for, and no SVD of the gain
+            return refused<Result>(DesignStatus::not_converged); // back-calculation asked for, and no SVD of the gain
         }
     }
     return law;
@@ -352,7 +351,7 @@ template<
     if constexpr (kTarget) {
         status = (status == DesignStatus::ok) ? out.target.status : status;
     }
-    return ::damp::detail::set_status(out, status);
+    return set_status(out, status);
 }
 
 } // namespace detail

@@ -418,7 +418,7 @@ template<size_t NBn, size_t NAn, size_t NQn, size_t NQd, typename T = double>
         || detail::leading_coefficient_negligible(Qd)) {
         return ClassicalDobResult<NBn, NAn, NQn, NQd, T>{}; // not causally realizable
     }
-    if (!tf_detail::schur_stable(Bn) || !tf_detail::schur_stable(Qd)) {
+    if (!::damp::detail::schur_stable(Bn) || !::damp::detail::schur_stable(Qd)) {
         return ClassicalDobResult<NBn, NAn, NQn, NQd, T>{}; // Fy or Fu unstable
     }
     return ClassicalDobResult<NBn, NAn, NQn, NQd, T>{
