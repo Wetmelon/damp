@@ -438,7 +438,7 @@ ESO(const design::ESOResult<NX, T>&) -> ESO<NX, T>;
 namespace detail {
 
 /** @brief The runtime an ESO design runs as: none for anything else. */
-template<const auto& Res, typename T, typename R = damp::remove_cvref_t<decltype(Res)>>
+template<const auto& Res, typename T, typename R = detail::design_t<Res>>
 struct eso_runtime {};
 
 /** @brief design::eso: with members, or on its constants. */

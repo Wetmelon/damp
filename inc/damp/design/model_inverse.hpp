@@ -940,16 +940,16 @@ struct inverse_runtime<design::OutputInverseResult<NX, NU, NP, U>, T> {
 
 /** @brief A model-inverse design. */
 template<const auto& Res, typename T>
-concept inverse_design = requires { typename inverse_runtime<damp::remove_cvref_t<decltype(Res)>, T>::type; };
+concept inverse_design = requires { typename inverse_runtime<detail::design_t<Res>, T>::type; };
 
 } // namespace detail
 
 /** @brief Law<kRes, T> of a `constexpr` model inverse: the same runtime on the design's matrices as constants of the type. */
 template<const auto& Res, typename T>
     requires(detail::inverse_design<Res, T> && detail::constant_design<Res>)
-struct Law<Res, T> : detail::inverse_runtime<damp::remove_cvref_t<decltype(Res)>, T>::template on_constants<Res> {
-    using Runtime = detail::inverse_runtime<damp::remove_cvref_t<decltype(Res)>, T>::type; ///< The runtime with members: the type of a member a redesign assigns
-    static_assert(detail::constant_design_runs(Res.success, Res.status));                  // a failed design does not compile: the error names its status
+struct Law<Res, T> : detail::inverse_runtime<detail::design_t<Res>, T>::template on_constants<Res> {
+    using Runtime = detail::inverse_runtime<detail::design_t<Res>, T>::type; ///< The runtime with members: the type of a member a redesign assigns
+    static_assert(detail::constant_design_runs(Res.success, Res.status));    // a failed design does not compile: the error names its status
 
     /** @brief The design's runtime. */
     constexpr Law() = default;
@@ -958,8 +958,8 @@ struct Law<Res, T> : detail::inverse_runtime<damp::remove_cvref_t<decltype(Res)>
 /** @brief Law<kRes, T> of a model inverse initialized at start-up: StateFeedforward or OutputInverse, default-constructed from the design. */
 template<const auto& Res, typename T>
     requires detail::inverse_design<Res, T>
-struct Law<Res, T> : detail::inverse_runtime<damp::remove_cvref_t<decltype(Res)>, T>::type {
-    using Runtime = detail::inverse_runtime<damp::remove_cvref_t<decltype(Res)>, T>::type; ///< The runtime the design runs as
+struct Law<Res, T> : detail::inverse_runtime<detail::design_t<Res>, T>::type {
+    using Runtime = detail::inverse_runtime<detail::design_t<Res>, T>::type; ///< The runtime the design runs as
 
     /** @brief The design's runtime. */
     constexpr Law() : Runtime{Res.template as<T>()} {}

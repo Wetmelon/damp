@@ -225,6 +225,10 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
  */
 template<size_t NX, size_t NU, size_t NY, typename T = double, size_t NW = 0, size_t NV = 0, size_t ND = 0>
 struct [[nodiscard]] KalmanResult {
+    /** @brief The design in another scalar: as<U>()'s type. */
+    template<typename U>
+    using as_t = KalmanResult<NX, NU, NY, U, NW, NV, ND>;
+
     StateSpace<NX, NU, NY, T, NW, NV> sys{};                               ///< System model
     Matrix<NW, NW, T>                 Q{};                                 ///< Process noise covariance
     Matrix<NV, NV, T>                 R{};                                 ///< Measurement noise covariance
