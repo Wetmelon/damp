@@ -51,6 +51,21 @@ TEST_CASE("Matrix initializer list constructor") {
     CHECK(mat(1, 1) == 4);
 }
 
+TEST_CASE("Matrix{{…}, {…}} deduces its size and scalar from its rows") {
+    constexpr Matrix a{{1.0, 2.0}, {3.0, 4.0}};
+    constexpr Matrix b{{1.0f, 2.0f, 3.0f}};
+    constexpr Matrix c{{1}, {2}, {3}}; // integer entries: a double matrix, as ColVec{1, 2}
+    constexpr Matrix d{{5.0}};
+    constexpr Matrix e{a}; // a copy, not a matrix of matrices
+    static_assert(std::is_same_v<decltype(a), const Matrix<2, 2, double>>);
+    static_assert(std::is_same_v<decltype(b), const Matrix<1, 3, float>>);
+    static_assert(std::is_same_v<decltype(c), const Matrix<3, 1, double>>);
+    static_assert(std::is_same_v<decltype(d), const Matrix<1, 1, double>>);
+    static_assert(std::is_same_v<decltype(e), const Matrix<2, 2, double>>);
+    static_assert(a(1, 0) == 3.0 && b(0, 2) == 3.0f && c(2, 0) == 3.0 && d(0, 0) == 5.0);
+    CHECK(a == Matrix<2, 2>{{1.0, 2.0}, {3.0, 4.0}});
+}
+
 TEST_CASE("an initializer past the matrix drops the extra entries at run time: no fault") {
     //! A constant-evaluated one does not compile; at run time it trapped.
     volatile double    five = 5.0; // a run-time value

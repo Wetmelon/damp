@@ -100,8 +100,8 @@ TEST_SUITE("Dynamics model") {
         const ColVec<2> points[] = {{0.0, 0.0}, {0.3, -0.5}, {2.0, 1.5}, {-3.0, 4.0}};
         for (const ColVec<2>& x : points) {
             const ColVec<1> u{0.4};
-            const auto      exact = design::linearize<2, 1, 1>(pendulum, sensor, x, u);
-            const auto      fd = design::linearize<2, 1, 1>(f_fd, h_fd, x, u);
+            const auto      exact = design::linearize(pendulum, sensor, x, u);
+            const auto      fd = design::linearize(f_fd, h_fd, x, u);
 
             // A central difference with the default step ∛eps carries a relative
             // error of order ∛eps² against the Jacobian's own scale.
@@ -121,7 +121,7 @@ TEST_SUITE("Dynamics model") {
         const double      Ts = 0.01;
 
         // Design: linearize at the upright (sin θ ≈ θ), then a digital LQR.
-        const auto lin = design::linearize<2, 1, 1>(pendulum, sensor, ColVec<2>{}, ColVec<1>{});
+        const auto lin = design::linearize(pendulum, sensor, ColVec<2>{}, ColVec<1>{});
         CHECK(lin.A(1, 0) == doctest::Approx(pendulum.g_over_l));
         CHECK(lin.C(0, 0) == doctest::Approx(sensor.length));
         const auto res = design::state_feedback(lin.to_state_space(), Ts, {.Q = Matrix<2, 2>::diagonal({10.0, 1.0}), .R = Matrix<1, 1>{{0.1}}});

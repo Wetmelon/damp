@@ -24,6 +24,7 @@ and [known limitations](docs/known_limitations.md)).
 - `state_gain()`, `delay_gain()` and `integral_gain()` on a state-feedback design's result, `state_gain()` on an `LQRResult`: K's columns on the plant's states, on the delay states of a plant whose input arrives late (the commands still on their way) and on the integrators, so a law that reads its gain needs no index into [x; v; ξ].
 - The `StateSpace` operators `*`, `+` and `-` take the optional an earlier one returned, on either side, so a chain composes and is checked once: `const auto L = P * C * F; if (L) { … }`, `nullopt` when any link refuses. Before, `a * b * c` did not compile.
 - `design::DisturbanceSpec`, `DisturbanceModelFor`, `FilterSpec` and `GainSpec` name what the designs check an option against, so a test can ask whether a spec fits a plant.
+- `Matrix{{1.0, 0.0}, {0.0, 1.0}}` deduces its size and scalar from its rows, as `ColVec{a, b}` and `StateSpace` do, so a matrix literal no longer names `Matrix<R, C>`.
 
 ### Changed
 
@@ -37,6 +38,7 @@ and [known limitations](docs/known_limitations.md)).
 - An offset-free MPC with an `InputDelay` carries the delay states per input in its type, `OFMPC<…, NXC, NYC, NRU, NH>` as `MPC`'s, so its `x_ref` is on the plant's states as the LQ laws' is; `OFMPC law{res}` and `Law<kRes, T>` deduce it.
 - Each trailing design option names its kind, `using option_kind = design::kind::InputLimits;`, and `design::OptionOf<O, Kind>` tests it; every design refuses a kind given twice with that kind's hint (`One InputLimits bounds every input: …`), and `state_feedback` a `KalmanNoise` beside `ObserverPoles`.
 - Breaking: `MPCLimits` takes the bounded states before the bounded outputs, `MPCLimits<NU, NXC, NYC, T, ND, NDU>`, as `MPC` and `MPCArtifacts` do, and an MPC runtime is 16 bytes smaller in float: its QP data no longer repeats the terminal ingredient and the QP budget.
+- Breaking: `design::linearize(f, h, x_op, u_op)` and `matlab::linmod` read the outputs off what h returns, so `linearize<NX, NU, NY>(…)` becomes `linearize(…)`, or `linearize<NX, NU>(…)` for an operating point in braces.
 
 - An MPC's weights and output limits are on every output of the plant, `MPCWeights<NU, NY>` sized from it and `OutputLimits` indexing the rows of C, and a disturbance spec's `.outputs` names the outputs r holds, as in the OFLQG, no longer the only outputs the QP sees. A design that listed outputs and weighed only those gives them their weights and the others zeros, the same design.
 - Ru weighs the input's deviation from the steady-state target's input, the steady input that holds r, so an Ru weight no longer leaves an offset and an offset-free MPC runs as one `step(r, y)`. `set_input_target` replaces that anchor with an operating point, and `clear_input_target()` returns to it; before, Ru pulled toward zero until an input target was set.

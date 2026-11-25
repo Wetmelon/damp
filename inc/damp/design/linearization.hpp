@@ -36,6 +36,22 @@
 #include "damp/systems/state_space.hpp"
 
 namespace damp {
+
+namespace detail {
+
+/** @brief The outputs y = h(x, u) a Measurement returns at x ∈ ℝᴺˣ, u ∈ ℝᴺᵘ in T: the rows of its column, 1 for a scalar. */
+template<typename H, size_t NX, size_t NU, typename T>
+consteval size_t measurement_outputs() {
+    using Y = damp::remove_cvref_t<decltype(damp::declval<const H&>()(damp::declval<const ColVec<NX, T>&>(), damp::declval<const ColVec<NU, T>&>()))>;
+    if constexpr (MatrixLike<Y>) {
+        return Y::rows();
+    } else {
+        return 1;
+    }
+}
+
+} // namespace detail
+
 namespace design {
 
 /**
@@ -103,16 +119,20 @@ struct [[nodiscard]] LinearizationResult {
  * in float, where ∛eps ≈ 4.9e-3. State such coordinates in units where they are of order one,
  * or give the model an analytic jacobian(x, u), which no step affects.
  *
+ * The sizes come from the operating point and from what h returns there, `linearize(f, h, x_op,
+ * u_op)`; `linearize<NX, NU>(…)` names them for an operating point written in braces.
+ *
  * @param dynamics Continuous dynamics ẋ = f(x, u) (Dynamics)
  * @param output   Measurement y = h(x, u) (Measurement)
  * @param x_op     State operating point
  * @param u_op     Input operating point
  * @param epsilon  Relative central-difference step: hᵢ = ε·max(|pᵢ|, 1) per coordinate (default ∛eps; ≤ 0 → default)
+ * @tparam NY Outputs: the rows of h(x, u)
  * @return LinearizationResult with A, B, C, D Jacobians; refused with DesignStatus::invalid_parameter
  *         for a non-finite @p epsilon and DesignStatus::bad_weights when the operating point, the
  *         output there or a Jacobian entry is not finite
  */
-template<size_t NX, size_t NU, size_t NY, typename T = double, typename F, typename H>
+template<size_t NX, size_t NU, typename T = double, typename F, typename H, size_t NY = ::damp::detail::measurement_outputs<H, NX, NU, T>()>
     requires Dynamics<F, NX, NU, T> && Measurement<H, NX, NU, NY, T>
 [[nodiscard]] constexpr LinearizationResult<NX, NU, NY, T> linearize(
     const F&             dynamics,
@@ -166,7 +186,7 @@ template<size_t NX, size_t NU, typename T = double, typename F>
         return x;
     };
 
-    return linearize<NX, NU, NX, T>(dynamics, output, x_op, u_op, epsilon);
+    return linearize<NX, NU, T>(dynamics, output, x_op, u_op, epsilon);
 }
 
 } // namespace design

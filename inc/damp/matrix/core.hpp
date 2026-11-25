@@ -1228,6 +1228,15 @@ public:
     }
 };
 
+/**
+ * @brief Matrix{{a, b}, {c, d}} deduces Matrix<R, C, T> from its rows: R rows of C entries of one
+ *        type T each, integer entries a double matrix as ColVec{1, 2}'s. Rows of different
+ *        lengths, or entries of mixed types, deduce nothing: name the size, Matrix<R, C>{{…}}.
+ */
+template<typename T, size_t C, size_t... Cs>
+    requires((Cs == C) && ...)
+Matrix(const T (&)[C], const T (&... rows)[Cs]) -> Matrix<1 + sizeof...(Cs), C, damp::conditional_t<damp::is_integral_v<T>, double, T>>;
+
 // Common small-matrix aliases
 template<typename T>
 using Mat2 = Matrix<2, 2, T>;
