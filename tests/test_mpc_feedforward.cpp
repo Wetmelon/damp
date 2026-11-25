@@ -141,7 +141,7 @@ TEST_SUITE("MPC feedforward") {
         //! are u = u_t + u_ref − K·(x − x_t − x_ref), the target for r the same.
         constexpr StateSpace<2, 1, 2> di{.A = {{1.0, kTs}, {0.0, 1.0}}, .B = {{0.5 * kTs * kTs}, {kTs}}, .C = Matrix<2, 2>::identity(), .Ts = kTs};
         const Matrix<2, 2>            Q = diag(1.0, 0.1);
-        const Matrix<1, 1>            R{{0.5}};
+        const Matrix                  R{{0.5}};
         const auto                    lq = design::state_feedback(di, {.Q = Q, .R = R}, design::TrackedOutputs{{0}});
         REQUIRE(lq.success);
         design::MPCWeights<1, 2> w{.Qy = Q, .Rdu = Matrix<1, 1>{}, .Ru = R};
@@ -149,13 +149,13 @@ TEST_SUITE("MPC feedforward") {
         const auto art = design::mpc<8, 8>(di, w, design::TrackedOutputs{{0}});
         REQUIRE(art.success);
 
-        LQR       lqr{lq};
-        MPC       mpc{art};
-        ColVec<2> x{1.0, -0.5};
+        LQR    lqr{lq};
+        MPC    mpc{art};
+        ColVec x{1.0, -0.5};
         for (size_t k = 0; k < 40; ++k) {
             const double    r = (k < 20) ? 0.0 : 0.3;
             const ColVec<2> x_ref{0.2 * std::sin(0.2 * static_cast<double>(k)), 0.1};
-            const ColVec<1> u_ref{0.05};
+            const ColVec    u_ref{0.05};
             lqr.update(x);
             const double u_lqr = lqr.control(r, x_ref, u_ref)(0);
             const double u_mpc = mpc.step(r, x_ref, u_ref, x)(0);
@@ -174,7 +174,7 @@ TEST_SUITE("MPC feedforward") {
         constexpr double              v_ref = 0.5;
         constexpr StateSpace<2, 1, 1> cart{.A = {{0.0, 1.0}, {0.0, -c}}, .B = {{0.0}, {b}}, .C = {{1.0, 0.0}}};
         const auto                    truth = discretize(cart, kTs).value();
-        const design::KalmanNoise     noise{.process = diag(1e-4, 1e-2), .measurement = Matrix<1, 1>{{1e-6}}, .disturbance = Matrix<1, 1>{{1e-1}}};
+        const design::KalmanNoise     noise{.process = diag(1e-4, 1e-2), .measurement = Matrix{{1e-6}}, .disturbance = Matrix{{1e-1}}};
         design::MPCWeights<1, 1>      w{.Qy = 100.0, .Rdu = 0.01, .Ru = 0.1};
         w.Qy_terminal = w.Qy;
         const auto ofmpc = design::mpc<20, 5>(cart, kTs, w, noise, design::InputDisturbance{});
@@ -256,8 +256,8 @@ TEST_SUITE("MPC feedforward") {
         //! reads the input's delay states; the late readings' are the filter's alone, at 0 in the
         //! point as the LQ laws leave them, the anchor's motion carrying the reading of x_ref.
         constexpr StateSpace<2, 1, 2, double, 2, 2> noisy{.A = kLagsC.A, .B = kLagsC.B, .C = kLagsC.C};
-        const design::KalmanNoise                   noise{.process = diag(1e-3, 1e-3), .measurement = diag(1e-6, 1e-6), .disturbance = Matrix<1, 1>{{1e-1}}};
-        const design::DisturbanceModel              load{.Bd = Matrix<2, 1>{{0.0}, {1.0}}, .outputs = {1}};
+        const design::KalmanNoise                   noise{.process = diag(1e-3, 1e-3), .measurement = diag(1e-6, 1e-6), .disturbance = Matrix{{1e-1}}};
+        const design::DisturbanceModel              load{.Bd = Matrix{{0.0}, {1.0}}, .outputs = {1}};
         const InputDelay                            in{0.4 * kTs};
         const OutputDelay<2>                        out{1.4 * kTs};
         const auto                                  art = design::mpc<20, 5>(noisy, kTs, both_weighed(), kMoveLim, noise, load, in, out);
@@ -331,7 +331,7 @@ TEST_SUITE("MPC feedforward") {
             ColVec<2> x{};
             double    peak = 0.0;
             for (size_t k = 0; k < 300; ++k) {
-                x = lags_step(x, law.step(0.0, ColVec<2>{1.0, 1.0}, ColVec<1>{1.0}, x)(0));
+                x = lags_step(x, law.step(0.0, ColVec{1.0, 1.0}, ColVec{1.0}, x)(0));
                 peak = std::max(peak, x(1));
             }
             return ColVec<2>{x(1), peak};

@@ -46,9 +46,9 @@ constexpr double kFade = 0.2; // [s] the Handover's fade time
 /// A mass on a spring and a damper: position, speed; force in; position out. At rest under a force u it sits at x = [u; 0].
 constexpr StateSpace<2, 1, 1, double, 2, 1> plant() {
     return {
-        .A = Matrix<2, 2>{{0.0, 1.0}, {-1.0, -0.5}},
-        .B = Matrix<2, 1>{{0.0}, {1.0}},
-        .C = Matrix<1, 2>{{1.0, 0.0}},
+        .A = Matrix{{0.0, 1.0}, {-1.0, -0.5}},
+        .B = Matrix{{0.0}, {1.0}},
+        .C = Matrix{{1.0, 0.0}},
         .G = Matrix<2, 2>::identity(),
         .H = Matrix<1, 1>::identity(),
     };
@@ -57,18 +57,18 @@ constexpr StateSpace<2, 1, 1, double, 2, 1> plant() {
 /// The same mass pushed by two forces, the second at half the leverage: fewer integrators (one, on the position) than inputs.
 constexpr StateSpace<2, 2, 1, double, 2, 1> two_forces() {
     return {
-        .A = Matrix<2, 2>{{0.0, 1.0}, {-1.0, -0.5}},
-        .B = Matrix<2, 2>{{0.0, 0.0}, {1.0, 0.5}},
-        .C = Matrix<1, 2>{{1.0, 0.0}},
+        .A = Matrix{{0.0, 1.0}, {-1.0, -0.5}},
+        .B = Matrix{{0.0, 0.0}, {1.0, 0.5}},
+        .C = Matrix{{1.0, 0.0}},
         .G = Matrix<2, 2>::identity(),
         .H = Matrix<1, 1>::identity(),
     };
 }
 
-constexpr Matrix<2, 2>                         kQ{{10.0, 0.0}, {0.0, 1.0}};
+constexpr Matrix                               kQ{{10.0, 0.0}, {0.0, 1.0}};
 constexpr design::LQRWeights<2, 1>             kWeights{.Q = kQ, .R = 1.0};
-constexpr design::KalmanNoise<2, 1>            kNoise{.process = Matrix<2, 2>{{0.01, 0.0}, {0.0, 0.1}}, .measurement = Matrix<1, 1>{{1e-4}}};
-constexpr design::KalmanNoise<2, 1, double, 1> kWalk{.process = kNoise.process, .measurement = kNoise.measurement, .disturbance = Matrix<1, 1>{{1.0}}};
+constexpr design::KalmanNoise<2, 1>            kNoise{.process = Matrix{{0.01, 0.0}, {0.0, 0.1}}, .measurement = Matrix{{1e-4}}};
+constexpr design::KalmanNoise<2, 1, double, 1> kWalk{.process = kNoise.process, .measurement = kNoise.measurement, .disturbance = Matrix{{1.0}}};
 constexpr design::IntegralAction               kIntegral{.Q = 80.0};
 constexpr design::Handover                     kHandover{.fade_time = kFade};
 
@@ -145,10 +145,10 @@ TEST_SUITE("Handover") {
         const auto lqgi_res = design::state_feedback(plant(), kTs, kWeights, kNoise, kIntegral);
         REQUIRE(lqi_res.success);
         REQUIRE(lqgi_res.success);
-        LQI             lqi{lqi_res};
-        LQGI            lqgi{lqgi_res};
-        ColVec<2>       x{};
-        const ColVec<1> r{1.0};
+        LQI          lqi{lqi_res};
+        LQGI         lqgi{lqgi_res};
+        ColVec<2>    x{};
+        const ColVec r{1.0};
         for (int k = 0; k < 300; ++k) {
             const double    u = 0.5 + (0.3 * damp::sin(0.05 * static_cast<double>(k))); // an operator's hand, the plant moving under it
             const ColVec<1> y = kSampled.C * x;
@@ -172,18 +172,18 @@ TEST_SUITE("Handover") {
     }
 
     TEST_CASE("with fewer integrators than inputs the preload is the least-squares one, and a Handover fades what it leaves without the integrators reading it as saturation") {
-        constexpr design::LQRWeights<2, 2> weights{.Q = kQ, .R = Matrix<2, 2>{{1.0, 0.0}, {0.0, 2.0}}};
+        constexpr design::LQRWeights<2, 2> weights{.Q = kQ, .R = Matrix{{1.0, 0.0}, {0.0, 2.0}}};
         constexpr design::IntegralAction   unwinding{.Q = 80.0, .tracking_time = 0.05}; // back-calculation: an excess would move ξ at once
         const auto                         plain = design::state_feedback(two_forces(), kTs, weights, unwinding);
         const auto                         faded = design::state_feedback(two_forces(), kTs, weights, unwinding, kHandover);
         REQUIRE(plain.success);
         REQUIRE(faded.success);
-        const auto      sampled = discretize(two_forces(), kTs).value();
-        const ColVec<2> u{0.9, -0.4}; // not a command the law's one integrator reaches
-        const ColVec<1> r{0.5};
-        ColVec<2>       x{0.7, 0.0};
-        LQI             ls{plain};
-        LQI             fade{faded};
+        const auto   sampled = discretize(two_forces(), kTs).value();
+        const ColVec u{0.9, -0.4}; // not a command the law's one integrator reaches
+        const ColVec r{0.5};
+        ColVec       x{0.7, 0.0};
+        LQI          ls{plain};
+        LQI          fade{faded};
         for (int k = 0; k < 20; ++k) {
             ls.track(u, r, x);
             fade.track(u, r, x);
@@ -245,15 +245,15 @@ TEST_SUITE("Handover") {
         }
 
         //! Never tracked, the Handover adds nothing; after reset() the next track starts over.
-        LQR       idle{faded};
-        LQR       own{res};
-        ColVec<2> z{0.3, -0.1};
+        LQR    idle{faded};
+        LQR    own{res};
+        ColVec z{0.3, -0.1};
         for (int k = 0; k < 20; ++k) {
             const ColVec<1> a = idle.step(z);
             CHECK(a(0) == doctest::Approx(own.step(z)(0)).epsilon(1e-14));
             z = advance(z, a(0));
         }
-        idle.track(ColVec<1>{2.0}, z);
+        idle.track(ColVec{2.0}, z);
         idle.reset();
         CHECK(idle.step(z)(0) == doctest::Approx(own.step(z)(0)).epsilon(1e-14));
     }
@@ -313,8 +313,8 @@ TEST_SUITE("Handover") {
     TEST_CASE("an MPC holds the tracked input as u_prev: Rdu and the move box shape its first move away from it") {
         design::MPCWeights<1, 1> light{};
         design::MPCWeights<1, 1> heavy{};
-        light.Rdu = Matrix<1, 1>{{1e-3}};
-        heavy.Rdu = Matrix<1, 1>{{1.0}};
+        light.Rdu = Matrix{{1e-3}};
+        heavy.Rdu = Matrix{{1.0}};
         constexpr design::InputRateLimits move{.lower = {-0.02}, .upper = {0.02}};
         const auto                        a = design::mpc<10, 3>(plant(), kTs, light, design::TrackedOutputs{});
         const auto                        b = design::mpc<10, 3>(plant(), kTs, heavy, design::TrackedOutputs{});
@@ -329,18 +329,18 @@ TEST_SUITE("Handover") {
         constexpr double u = 0.5; // the operator pushes the mass off r = 0
         ColVec<2>        x{};
         for (int k = 0; k < 30; ++k) {
-            fast.track(ColVec<1>{u}, ColVec<1>{0.0}, x);
-            slow.track(ColVec<1>{u}, ColVec<1>{0.0}, x);
-            boxed.track(ColVec<1>{u}, ColVec<1>{0.0}, x);
+            fast.track(ColVec<1>{u}, ColVec{0.0}, x);
+            slow.track(ColVec<1>{u}, ColVec{0.0}, x);
+            boxed.track(ColVec<1>{u}, ColVec{0.0}, x);
             x = advance(x, u);
         }
-        const double first_fast = fast.step(ColVec<1>{0.0}, x)(0);
-        const double first_slow = slow.step(ColVec<1>{0.0}, x)(0);
-        const double first_boxed = boxed.step(ColVec<1>{0.0}, x)(0);
+        const double first_fast = fast.step(ColVec{0.0}, x)(0);
+        const double first_slow = slow.step(ColVec{0.0}, x)(0);
+        const double first_boxed = boxed.step(ColVec{0.0}, x)(0);
         CHECK(fast.applied()(0) == u); // the base of the first move
         CHECK(damp::abs(first_slow - u) < damp::abs(first_fast - u));
         CHECK(damp::abs(first_boxed - u) <= 0.02 + 1e-12);
-        CHECK(damp::abs(untracked.step(ColVec<1>{0.0}, x)(0) - first_fast) > 0.1); // from u_prev = 0 instead
+        CHECK(damp::abs(untracked.step(ColVec{0.0}, x)(0) - first_fast) > 0.1); // from u_prev = 0 instead
     }
 
     TEST_CASE("with an InputRateLimits the first command after a track moves at most the rate from the tracked u, on an LQ law as on an MPC") {
@@ -353,7 +353,7 @@ TEST_SUITE("Handover") {
         constexpr design::InputRateLimits<1> moves{.lower = {-rate}, .upper = {rate}};
         constexpr design::InputRateLimits<1> slow_moves{.lower = {-slow}, .upper = {slow}};
         design::MPCWeights<1, 1>             light{};
-        light.Rdu = Matrix<1, 1>{{1e-3}};
+        light.Rdu = Matrix{{1e-3}};
         const auto lqr = design::state_feedback(plant(), kTs, kWeights, moves);
         const auto lqg = design::state_feedback(plant(), kTs, kWeights, kNoise, moves);
         const auto mpc = design::mpc<10, 3>(plant(), kTs, light, slow_moves, design::TrackedOutputs{});
@@ -369,31 +369,31 @@ TEST_SUITE("Handover") {
         for (int k = 0; k < 400; ++k) {
             a.track(ColVec<1>{u}, x);
             b.track(ColVec<1>{u}, kSampled.C * x);
-            c.track(ColVec<1>{u}, ColVec<1>{0.0}, x);
+            c.track(ColVec<1>{u}, ColVec{0.0}, x);
             x = advance(x, u);
         }
         REQUIRE(-(lqr.K * x)(0, 0) < u - (2.0 * rate)); // the law's own command is far below u: the clamp binds
         CHECK(a.step(x)(0) == doctest::Approx(u - rate).epsilon(1e-12));
         CHECK(b.step(kSampled.C * x)(0) == doctest::Approx(u - rate).epsilon(1e-12));
-        CHECK(c.step(ColVec<1>{0.0}, x)(0) == doctest::Approx(u - slow).epsilon(1e-12));
+        CHECK(c.step(ColVec{0.0}, x)(0) == doctest::Approx(u - slow).epsilon(1e-12));
         CHECK(a_fresh.step(x)(0) == doctest::Approx(-rate).epsilon(1e-12));
-        CHECK(c_fresh.step(ColVec<1>{0.0}, x)(0) == doctest::Approx(-slow).epsilon(1e-12));
+        CHECK(c_fresh.step(ColVec{0.0}, x)(0) == doctest::Approx(-slow).epsilon(1e-12));
 
         //! An LQI with fewer integrators than inputs: the preload leaves the command short of u, and
         //! the move is still from u, not from that command.
-        constexpr design::LQRWeights<2, 2>   weights{.Q = kQ, .R = Matrix<2, 2>{{1.0, 0.0}, {0.0, 2.0}}};
+        constexpr design::LQRWeights<2, 2>   weights{.Q = kQ, .R = Matrix{{1.0, 0.0}, {0.0, 2.0}}};
         constexpr double                     tight = 1e-3;
         constexpr design::InputRateLimits<2> creep{.lower = {-tight, -tight}, .upper = {tight, tight}};
         const auto                           lqi = design::state_feedback(two_forces(), kTs, weights, kIntegral, creep);
         const auto                           free = design::state_feedback(two_forces(), kTs, weights, kIntegral); // the same preload, no clamp on the move
         REQUIRE(lqi.success);
         REQUIRE(free.success);
-        const auto      sampled = discretize(two_forces(), kTs).value();
-        const ColVec<2> v{0.9, -0.4}; // not a command the law's one integrator reaches
-        const ColVec<1> r{0.5};
-        ColVec<2>       z{0.7, 0.0};
-        LQI             d{lqi};
-        LQI             e{free};
+        const auto   sampled = discretize(two_forces(), kTs).value();
+        const ColVec v{0.9, -0.4}; // not a command the law's one integrator reaches
+        const ColVec r{0.5};
+        ColVec       z{0.7, 0.0};
+        LQI          d{lqi};
+        LQI          e{free};
         for (int k = 0; k < 20; ++k) {
             d.track(v, r, z);
             e.track(v, r, z);
@@ -419,14 +419,14 @@ TEST_SUITE("Handover") {
         static_assert(tracks<Every, ColVec<1>, ColVec<1>, ColVec<2>>);
 
         design::MPCWeights<1, 1> light{};
-        light.Rdu = Matrix<1, 1>{{1e-3}};
+        light.Rdu = Matrix{{1e-3}};
         constexpr double                  u = 0.4;
         constexpr double                  w = 0.2;
         const design::MeasuredDisturbance load{.Bd = plant().B};
-        const ColVec<1>                   r0{0.0};
+        const ColVec                      r0{0.0};
         const ColVec<1>                   d{w};
-        const ColVec<2>                   x_ref{0.3, 0.0};
-        const ColVec<1>                   u_ref{0.3};
+        const ColVec                      x_ref{0.3, 0.0};
+        const ColVec                      u_ref{0.3};
         const auto                        same = [](const ColVec<1>& a, const ColVec<1>& b) { CHECK(a(0) == doctest::Approx(b(0)).epsilon(1e-12)); };
         SUBCASE("track(u, x), and the feedforward form track(u, x_ref, u_ref, x)") {
             const auto reg = design::mpc<10, 3>(plant(), kTs, light);
@@ -518,24 +518,24 @@ TEST_SUITE("Handover") {
             CHECK(b.step(r, d, kSampled.C * x)(0) == doctest::Approx(u).epsilon(1e-12)); // the filter predicted with [u; d]
         }
         SUBCASE("an LQI, an LQR with a Handover and an MPC about a planned point") {
-            const auto      lqi = design::state_feedback(plant(), kTs, kWeights, kIntegral);
-            const auto      lqr = design::state_feedback(plant(), kTs, kWeights, kHandover);
-            const auto      mpc = design::mpc<10, 3>(plant(), kTs, design::MPCWeights<1, 1>{}, design::TrackedOutputs{});
-            LQI             a{lqi};
-            LQR             b{lqr};
-            MPC             c{mpc};
-            const ColVec<2> x_ref{0.3, 0.0};
-            const ColVec<1> u_ref{0.3};
-            ColVec<2>       x{0.1, 0.0};
+            const auto   lqi = design::state_feedback(plant(), kTs, kWeights, kIntegral);
+            const auto   lqr = design::state_feedback(plant(), kTs, kWeights, kHandover);
+            const auto   mpc = design::mpc<10, 3>(plant(), kTs, design::MPCWeights<1, 1>{}, design::TrackedOutputs{});
+            LQI          a{lqi};
+            LQR          b{lqr};
+            MPC          c{mpc};
+            const ColVec x_ref{0.3, 0.0};
+            const ColVec u_ref{0.3};
+            ColVec       x{0.1, 0.0};
             for (int k = 0; k < 20; ++k) {
-                a.track(ColVec<1>{u}, ColVec<1>{0.0}, x_ref, u_ref, x);
+                a.track(ColVec<1>{u}, ColVec{0.0}, x_ref, u_ref, x);
                 b.track(ColVec<1>{u}, x_ref, u_ref, x);
-                c.track(ColVec<1>{u}, ColVec<1>{0.0}, x_ref, u_ref, x);
-                CHECK(probe(a, ColVec<1>{0.0}, x_ref, u_ref)(0) == doctest::Approx(u).epsilon(1e-12));
+                c.track(ColVec<1>{u}, ColVec{0.0}, x_ref, u_ref, x);
+                CHECK(probe(a, ColVec{0.0}, x_ref, u_ref)(0) == doctest::Approx(u).epsilon(1e-12));
                 x = advance(x, u);
             }
             CHECK(b.step(x_ref, u_ref, x)(0) == doctest::Approx(u).epsilon(1e-12));
-            static_cast<void>(c.step(ColVec<1>{0.0}, x_ref, u_ref, x));
+            static_cast<void>(c.step(ColVec{0.0}, x_ref, u_ref, x));
             CHECK(c.applied()(0) == u);
         }
     }
@@ -557,7 +557,7 @@ TEST_SUITE("Handover") {
         LQR                    lqr_held{kLqrFaded.as<float>()};
         constexpr float        u = 0.4f;
         const ColVec<1, float> r{u};
-        ColVec<2>              x{0.4, 0.0};
+        ColVec                 x{0.4, 0.0};
         for (int k = 0; k < 400; ++k) {
             const ColVec<2, float> xf = x.as<float>();
             const ColVec<1, float> y{xf(0)};

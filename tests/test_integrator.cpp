@@ -38,11 +38,11 @@ TEST_SUITE("integrator") {
 
     TEST_CASE("implicit LTI one-step matches the closed form (dx/dt = -x)") {
         // Scalar decay: A = -1, B = 0. Exact one-step factors are known.
-        const Matrix<1, 1, double> A{{-1.0}};
-        const Matrix<1, 1, double> B{{0.0}};
-        const ColVec<1, double>    x0{1.0};
-        const ColVec<1, double>    u{0.0};
-        const double               h = 0.1;
+        const Matrix A{{-1.0}};
+        const Matrix B{{0.0}};
+        const ColVec x0{1.0};
+        const ColVec u{0.0};
+        const double h = 0.1;
 
         sim::BackwardEuler<1, double> be;
         // (1 + h)·x_next = x  ->  x_next = 1 / (1 + h).
@@ -68,16 +68,16 @@ TEST_SUITE("integrator") {
     }
 
     TEST_CASE("implicit LTI integrators converge to e^{-t}") {
-        const Matrix<1, 1, double> A{{-1.0}};
-        const Matrix<1, 1, double> B{{0.0}};
-        const ColVec<1, double>    u{0.0};
-        const double               h = 0.001;
-        const int                  N = 1000; // integrate to t = 1
-        const double               exact = std::exp(-1.0);
+        const Matrix A{{-1.0}};
+        const Matrix B{{0.0}};
+        const ColVec u{0.0};
+        const double h = 0.001;
+        const int    N = 1000; // integrate to t = 1
+        const double exact = std::exp(-1.0);
 
         SUBCASE("Backward Euler (1st order)") {
             sim::BackwardEuler<1, double> be;
-            ColVec<1, double>             x{1.0};
+            ColVec                        x{1.0};
             for (int k = 0; k < N; ++k) {
                 x = be.evolve(A, B, x, u, h).x;
             }
@@ -85,7 +85,7 @@ TEST_SUITE("integrator") {
         }
         SUBCASE("Trapezoidal (2nd order)") {
             sim::Trapezoidal<1, double> tr;
-            ColVec<1, double>           x{1.0};
+            ColVec                      x{1.0};
             for (int k = 0; k < N; ++k) {
                 x = tr.evolve(A, B, x, u, h).x;
             }
@@ -93,7 +93,7 @@ TEST_SUITE("integrator") {
         }
         SUBCASE("BDF2 (2nd order, multistep)") {
             sim::BDF2<1, double> bdf;
-            ColVec<1, double>    x{1.0};
+            ColVec               x{1.0};
             for (int k = 0; k < N; ++k) {
                 x = bdf.evolve(A, B, x, u, h).x;
             }
@@ -101,7 +101,7 @@ TEST_SUITE("integrator") {
         }
         SUBCASE("TR-BDF2 (2nd order, one-step L-stable)") {
             sim::TRBDF2<1, double> trbdf2;
-            ColVec<1, double>      x{1.0};
+            ColVec                 x{1.0};
             for (int k = 0; k < N; ++k) {
                 x = trbdf2.evolve(A, B, x, u, h).x;
             }
@@ -112,11 +112,11 @@ TEST_SUITE("integrator") {
     TEST_CASE("TR-BDF2 damps a stiff mode without trapezoidal ringing") {
         // dx/dt = -1000 x, h = 0.1 ⇒ |λh| = 100. Trapezoidal |R| ≈ 1 (rings);
         // TR-BDF2 is L-stable so |x| shrinks well below 1 after one step.
-        const Matrix<1, 1, double> A{{-1000.0}};
-        const Matrix<1, 1, double> B{{0.0}};
-        const ColVec<1, double>    x0{1.0};
-        const ColVec<1, double>    u{0.0};
-        const double               h = 0.1;
+        const Matrix A{{-1000.0}};
+        const Matrix B{{0.0}};
+        const ColVec x0{1.0};
+        const ColVec u{0.0};
+        const double h = 0.1;
 
         sim::Trapezoidal<1, double> tr;
         const double                x_tr = tr.evolve(A, B, x0, u, h).x[0];
@@ -129,10 +129,10 @@ TEST_SUITE("integrator") {
     }
 
     TEST_CASE("TR-BDF2 embedded error estimate scales as O(h^3)") {
-        const Matrix<1, 1, double> A{{-1.0}};
-        const Matrix<1, 1, double> B{{0.0}};
-        const ColVec<1, double>    x{1.0};
-        const ColVec<1, double>    u{0.0};
+        const Matrix A{{-1.0}};
+        const Matrix B{{0.0}};
+        const ColVec x{1.0};
+        const ColVec u{0.0};
 
         sim::TRBDF2<1, double> trbdf2;
         const double           e1 = trbdf2.evolve(A, B, x, u, 0.1).error.norm();
@@ -148,13 +148,13 @@ TEST_SUITE("integrator") {
 
     TEST_CASE("implicit LTI integrators track a forced steady state (x_ss = u)") {
         // dx/dt = -x + u  ->  steady state x = u.
-        const Matrix<1, 1, double> A{{-1.0}};
-        const Matrix<1, 1, double> B{{1.0}};
-        const ColVec<1, double>    u{2.0};
-        const double               h = 0.01;
+        const Matrix A{{-1.0}};
+        const Matrix B{{1.0}};
+        const ColVec u{2.0};
+        const double h = 0.01;
 
         sim::BackwardEuler<1, double> be;
-        ColVec<1, double>             x{0.0};
+        ColVec                        x{0.0};
         for (int k = 0; k < 3000; ++k) {
             x = be.evolve(A, B, x, u, h).x;
         }
@@ -163,12 +163,12 @@ TEST_SUITE("integrator") {
 
     TEST_CASE("implicit 2-state solve agrees with the exact (matrix-exponential) integrator") {
         // Damped oscillator: stable, non-diagonal A exercises the 2x2 linear solve.
-        const Matrix<2, 2, double> A{{0.0, 1.0}, {-4.0, -0.5}};
-        const Matrix<2, 1, double> B{{0.0}, {0.0}};
-        const ColVec<1, double>    u{0.0};
-        const ColVec<2, double>    x0{1.0, 0.0};
-        const double               h = 0.0005;
-        const int                  N = 2000; // t = 1
+        const Matrix A{{0.0, 1.0}, {-4.0, -0.5}};
+        const Matrix B{{0.0}, {0.0}};
+        const ColVec u{0.0};
+        const ColVec x0{1.0, 0.0};
+        const double h = 0.0005;
+        const int    N = 2000; // t = 1
 
         // Reference: exact discrete update via the matrix exponential.
         sim::Exact<2, double> ex;
@@ -196,10 +196,10 @@ TEST_SUITE("integrator") {
 
     TEST_CASE("implicit LTI integrator is constexpr-evaluable") {
         constexpr double y = []() consteval {
-            Matrix<1, 1, double>          A{{-1.0}};
-            Matrix<1, 1, double>          B{{0.0}};
-            ColVec<1, double>             x{1.0};
-            ColVec<1, double>             u{0.0};
+            Matrix                        A{{-1.0}};
+            Matrix                        B{{0.0}};
+            ColVec                        x{1.0};
+            ColVec                        u{0.0};
             sim::BackwardEuler<1, double> be;
             for (int k = 0; k < 10; ++k) {
                 x = be.evolve(A, B, x, u, 0.1).x;
@@ -217,15 +217,15 @@ TEST_SUITE("integrator") {
     // -----------------------------------------------------------------------
 
     TEST_CASE("ForwardEuler LTI converges to e^{-1}") {
-        const Matrix<1, 1, double> A{{-1.0}};
-        const Matrix<1, 1, double> B{{0.0}};
-        const ColVec<1, double>    u{0.0};
-        const double               h = 0.001;
-        const int                  N = 1000;
-        const double               exact = std::exp(-1.0);
+        const Matrix A{{-1.0}};
+        const Matrix B{{0.0}};
+        const ColVec u{0.0};
+        const double h = 0.001;
+        const int    N = 1000;
+        const double exact = std::exp(-1.0);
 
         sim::ForwardEuler<1, double> fe;
-        ColVec<1, double>            x{1.0};
+        ColVec                       x{1.0};
         for (int k = 0; k < N; ++k) {
             x = fe.evolve(A, B, x, u, h).x;
         }
@@ -243,7 +243,7 @@ TEST_SUITE("integrator") {
         const double exact = std::exp(-1.0);
 
         sim::ForwardEuler<1, double> fe;
-        ColVec<1, double>            x{1.0};
+        ColVec                       x{1.0};
         for (int k = 0; k < N; ++k) {
             x = fe.evolve(f, x, k * h, h).x;
         }
@@ -251,15 +251,15 @@ TEST_SUITE("integrator") {
     }
 
     TEST_CASE("Heun LTI converges to e^{-1}") {
-        const Matrix<1, 1, double> A{{-1.0}};
-        const Matrix<1, 1, double> B{{0.0}};
-        const ColVec<1, double>    u{0.0};
-        const double               h = 0.01;
-        const int                  N = 100;
-        const double               exact = std::exp(-1.0);
+        const Matrix A{{-1.0}};
+        const Matrix B{{0.0}};
+        const ColVec u{0.0};
+        const double h = 0.01;
+        const int    N = 100;
+        const double exact = std::exp(-1.0);
 
         sim::Heun<1, double> heun;
-        ColVec<1, double>    x{1.0};
+        ColVec               x{1.0};
         for (int k = 0; k < N; ++k) {
             x = heun.evolve(A, B, x, u, h).x;
         }
@@ -276,7 +276,7 @@ TEST_SUITE("integrator") {
         const int    N = 1000;
 
         sim::Heun<1, double> heun;
-        ColVec<1, double>    x{0.0};
+        ColVec               x{0.0};
         for (int k = 0; k < N; ++k) {
             x = heun.evolve(f, x, k * h, h).x;
         }
@@ -284,15 +284,15 @@ TEST_SUITE("integrator") {
     }
 
     TEST_CASE("RK3 LTI converges to e^{-1}") {
-        const Matrix<1, 1, double> A{{-1.0}};
-        const Matrix<1, 1, double> B{{0.0}};
-        const ColVec<1, double>    u{0.0};
-        const double               h = 0.01;
-        const int                  N = 100;
-        const double               exact = std::exp(-1.0);
+        const Matrix A{{-1.0}};
+        const Matrix B{{0.0}};
+        const ColVec u{0.0};
+        const double h = 0.01;
+        const int    N = 100;
+        const double exact = std::exp(-1.0);
 
         sim::RK3<1, double> rk3;
-        ColVec<1, double>   x{1.0};
+        ColVec              x{1.0};
         for (int k = 0; k < N; ++k) {
             x = rk3.evolve(A, B, x, u, h).x;
         }
@@ -309,7 +309,7 @@ TEST_SUITE("integrator") {
         const double exact = std::exp(-1.0);
 
         sim::RK3<1, double> rk3;
-        ColVec<1, double>   x{1.0};
+        ColVec              x{1.0};
         for (int k = 0; k < N; ++k) {
             x = rk3.evolve(f, x, k * h, h).x;
         }
@@ -317,15 +317,15 @@ TEST_SUITE("integrator") {
     }
 
     TEST_CASE("RK23 LTI converges to e^{-1} and populates error estimate") {
-        const Matrix<1, 1, double> A{{-1.0}};
-        const Matrix<1, 1, double> B{{0.0}};
-        const ColVec<1, double>    u{0.0};
-        const double               h = 0.01;
-        const int                  N = 100;
-        const double               exact = std::exp(-1.0);
+        const Matrix A{{-1.0}};
+        const Matrix B{{0.0}};
+        const ColVec u{0.0};
+        const double h = 0.01;
+        const int    N = 100;
+        const double exact = std::exp(-1.0);
 
         sim::RK23<1, double> rk23;
-        ColVec<1, double>    x{1.0};
+        ColVec               x{1.0};
         double               last_error = 0.0;
         for (int k = 0; k < N; ++k) {
             auto res = rk23.evolve(A, B, x, u, h);
@@ -347,7 +347,7 @@ TEST_SUITE("integrator") {
         const double exact = std::exp(-1.0);
 
         sim::RK23<1, double> rk23;
-        ColVec<1, double>    x{1.0};
+        ColVec               x{1.0};
         for (int k = 0; k < N; ++k) {
             x = rk23.evolve(f, x, k * h, h).x;
         }
@@ -355,15 +355,15 @@ TEST_SUITE("integrator") {
     }
 
     TEST_CASE("DP45 LTI converges to e^{-1} with high accuracy") {
-        const Matrix<1, 1, double> A{{-1.0}};
-        const Matrix<1, 1, double> B{{0.0}};
-        const ColVec<1, double>    u{0.0};
-        const double               h = 0.1;
-        const int                  N = 10;
-        const double               exact = std::exp(-1.0);
+        const Matrix A{{-1.0}};
+        const Matrix B{{0.0}};
+        const ColVec u{0.0};
+        const double h = 0.1;
+        const int    N = 10;
+        const double exact = std::exp(-1.0);
 
         sim::DP45<1, double> dp45;
-        ColVec<1, double>    x{1.0};
+        ColVec               x{1.0};
         for (int k = 0; k < N; ++k) {
             x = dp45.evolve(A, B, x, u, h).x;
         }
@@ -379,7 +379,7 @@ TEST_SUITE("integrator") {
         const int    N = 10;
 
         sim::DP45<1, double> dp45;
-        ColVec<1, double>    x{0.0};
+        ColVec               x{0.0};
         for (int k = 0; k < N; ++k) {
             x = dp45.evolve(f, x, k * h, h).x;
         }
@@ -391,12 +391,12 @@ TEST_SUITE("integrator") {
         // one step is ~h⁶/6! ~ 1e-9 at h = 0.1; the embedded 4(5) difference estimates
         // the 4th-order member's error (~h⁵), so it must be small, positive, and within
         // a couple of orders of magnitude of that scale — and shrink ~32x when h halves.
-        const Matrix<1, 1, double> A{{-1.0}};
-        const Matrix<1, 1, double> B{{0.0}};
-        const ColVec<1, double>    u{0.0};
+        const Matrix A{{-1.0}};
+        const Matrix B{{0.0}};
+        const ColVec u{0.0};
 
-        sim::DP45<1, double>    dp45;
-        const ColVec<1, double> x{1.0};
+        sim::DP45<1, double> dp45;
+        const ColVec         x{1.0};
 
         const double e1 = dp45.evolve(A, B, x, u, 0.1).error.norm();
         const double e2 = dp45.evolve(A, B, x, u, 0.05).error.norm();
@@ -411,18 +411,18 @@ TEST_SUITE("integrator") {
     TEST_CASE("SymplecticEuler advances a harmonic oscillator without secular energy growth") {
         // ÿ + y = 0 as first-order system x = [q, v], A = [[0,1],[-1,0]].
         // Forward Euler energy grows; symplectic Euler keeps it O(1) bounded.
-        const Matrix<2, 2, double> A{{0.0, 1.0}, {-1.0, 0.0}};
-        const Matrix<2, 1, double> B{{0.0}, {0.0}};
-        const ColVec<1, double>    u{0.0};
-        const double               h = 0.01;
-        const int                  N = 10000; // t = 100 (many periods)
+        const Matrix A{{0.0, 1.0}, {-1.0, 0.0}};
+        const Matrix B{{0.0}, {0.0}};
+        const ColVec u{0.0};
+        const double h = 0.01;
+        const int    N = 10000; // t = 100 (many periods)
 
         auto energy = [](const ColVec<2, double>& x) {
             return 0.5 * (x[0] * x[0] + x[1] * x[1]);
         };
 
         sim::SymplecticEuler<2, double> se;
-        ColVec<2, double>               xse{1.0, 0.0};
+        ColVec                          xse{1.0, 0.0};
         const double                    E0 = energy(xse);
         double                          E_max_se = E0;
         double                          E_min_se = E0;
@@ -437,7 +437,7 @@ TEST_SUITE("integrator") {
         CHECK(E_min_se > E0 * 0.95);
 
         sim::ForwardEuler<2, double> fe;
-        ColVec<2, double>            xfe{1.0, 0.0};
+        ColVec                       xfe{1.0, 0.0};
         for (int k = 0; k < N; ++k) {
             xfe = fe.evolve(A, B, xfe, u, h).x;
         }
@@ -447,10 +447,10 @@ TEST_SUITE("integrator") {
 
     TEST_CASE("explicit integrators are constexpr-evaluable (ForwardEuler)") {
         constexpr double y = []() consteval {
-            Matrix<1, 1, double>         A{{-1.0}};
-            Matrix<1, 1, double>         B{{0.0}};
-            ColVec<1, double>            x{1.0};
-            ColVec<1, double>            u{0.0};
+            Matrix                       A{{-1.0}};
+            Matrix                       B{{0.0}};
+            ColVec                       x{1.0};
+            ColVec                       u{0.0};
             sim::ForwardEuler<1, double> fe;
             for (int k = 0; k < 10; ++k) {
                 x = fe.evolve(A, B, x, u, 0.1).x;
@@ -473,12 +473,12 @@ TEST_SUITE("integrator") {
     }
 
     TEST_CASE("Trapezoidal nonlinear overload agrees with the LTI overload") {
-        const auto         f = [](double, const ColVec<1>& x) { return ColVec<1>{-x(0)}; };
-        Trapezoidal<1>     tr;
-        const auto         nl = tr.evolve(f, ColVec<1>{1.0}, 0.0, 0.5);
-        const Matrix<1, 1> A{{-1.0}};
-        const Matrix<1, 1> B{{0.0}};
-        const auto         lti = tr.evolve(A, B, ColVec<1>{1.0}, ColVec<1>{0.0}, 0.5);
+        const auto     f = [](double, const ColVec<1>& x) { return ColVec<1>{-x(0)}; };
+        Trapezoidal<1> tr;
+        const auto     nl = tr.evolve(f, ColVec{1.0}, 0.0, 0.5);
+        const Matrix   A{{-1.0}};
+        const Matrix   B{{0.0}};
+        const auto     lti = tr.evolve(A, B, ColVec{1.0}, ColVec{0.0}, 0.5);
         CHECK(lti.x(0) == doctest::Approx(0.75 / 1.25));
         CHECK(nl.x(0) == doctest::Approx(lti.x(0)).epsilon(1e-12));
     }
@@ -486,20 +486,20 @@ TEST_SUITE("integrator") {
     TEST_CASE("implicit steps report a failed solve instead of returning garbage") {
         // f = −1000x at h = 0.01: the fixed-point stages diverge (h·Lip = 10); they once returned
         // NaN or unconverged iterates with success.
-        const auto      stiff = [](double, const ColVec<1>& x) { return ColVec<1>{-1000.0 * x(0)}; };
-        const ColVec<1> x0{1.0};
+        const auto   stiff = [](double, const ColVec<1>& x) { return ColVec<1>{-1000.0 * x(0)}; };
+        const ColVec x0{1.0};
         CHECK_FALSE(BackwardEuler<1>{}.evolve(stiff, x0, 0.0, 0.01).success);
         CHECK_FALSE(Trapezoidal<1>{}.evolve(stiff, x0, 0.0, 0.01).success);
         CHECK_FALSE(TRBDF2<1>{}.evolve(stiff, x0, 0.0, 0.01).success);
         CHECK_FALSE(BDF2<1>{}.evolve(stiff, x0, 0.0, 0.01).success);
         CHECK(BackwardEuler<1>{}.evolve(stiff, x0, 0.0, 0.01).x(0) == doctest::Approx(1.0)); // the start state
         // I − hA singular: A = 10, h = 0.1 for Backward Euler (the optional was dereferenced).
-        const Matrix<1, 1> A{{10.0}};
-        const Matrix<1, 1> B{{0.0}};
-        CHECK_FALSE(BackwardEuler<1>{}.evolve(A, B, x0, ColVec<1>{0.0}, 0.1).success);
-        CHECK_FALSE(Trapezoidal<1>{}.evolve(A, B, x0, ColVec<1>{0.0}, 0.2).success);
+        const Matrix A{{10.0}};
+        const Matrix B{{0.0}};
+        CHECK_FALSE(BackwardEuler<1>{}.evolve(A, B, x0, ColVec{0.0}, 0.1).success);
+        CHECK_FALSE(Trapezoidal<1>{}.evolve(A, B, x0, ColVec{0.0}, 0.2).success);
         // A non-finite A: the exponential fails, success false (no NaN sentinel).
         const Matrix<1, 1> A_nan{{std::numeric_limits<double>::quiet_NaN()}};
-        CHECK_FALSE(Exact<1>{}.evolve(A_nan, B, x0, ColVec<1>{0.0}, 0.1).success);
+        CHECK_FALSE(Exact<1>{}.evolve(A_nan, B, x0, ColVec{0.0}, 0.1).success);
     }
 }

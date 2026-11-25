@@ -275,7 +275,7 @@ constexpr StateSpace<2, 1, 1, double, 2, 1> mass_spring() {
 }
 
 /// The Kalman design on that plant with its input 2.2 samples late: [x; v(k−1); v(k−2); v(k−3)].
-inline constexpr auto kDelayedDesign = design::kalman(mass_spring(), 0.01, design::KalmanNoise{.process = Matrix<2, 2>{{1e-4, 0.0}, {0.0, 1e-2}}, .measurement = 1e-4}, InputDelay<3>{0.022});
+inline constexpr auto kDelayedDesign = design::kalman(mass_spring(), 0.01, design::KalmanNoise{.process = Matrix{{1e-4, 0.0}, {0.0, 1e-2}}, .measurement = 1e-4}, InputDelay<3>{0.022});
 
 inline constexpr auto kSecondSensorPattern = SparsityPattern<2, 3>{}.unit_diagonal(0, 0, 1).values(1, 1, 1, 2); // [1 0 0; 0 · ·]
 
@@ -624,7 +624,7 @@ TEST_SUITE("KalmanFilter on the factor: singular covariances and refused reading
         for (int k = 0; k < 50; ++k) {
             const T y = static_cast<T>(0.1 * std::cos(0.3 * k));
             kf.predict(ColVec<1, T>{static_cast<T>(0.5)});
-            ref.predict(ColVec<1>{0.5});
+            ref.predict(ColVec{0.5});
             REQUIRE(kf.update(ColVec<1, T>{y}));
             REQUIRE(ref.update(ColVec<1>{static_cast<double>(y)}, sys.C.template as<double>(), Matrix<1, 1>{static_cast<double>(r)}));
             worst = std::fmax(worst, gap(kf.covariance(), ref.P) / (static_cast<double>(eps<T>()) * largest(ref.P)));
@@ -841,15 +841,15 @@ TEST_SUITE("KalmanFilter on the factor: singular covariances and refused reading
     TEST_CASE("the filter in another scalar carries the factor over, and reset takes a singular P₀") {
         const auto                          sys = chain_model<double>();
         KalmanFilter<3, 1, 1, double, 3, 1> kf{sys, {.Q = chain_process_noise<double>(), .R = 0.04, .P0 = Matrix<3, 3>::diagonal({1.0, 2.0, 0.5})}};
-        kf.predict(ColVec<1>{0.3});
-        REQUIRE(kf.update(ColVec<1>{0.2}));
+        kf.predict(ColVec{0.3});
+        REQUIRE(kf.update(ColVec{0.2}));
         KalmanFilter<3, 1, 1, float, 3, 1> kf_f{kf};
         CHECK(gap(kf_f.covariance_factor(), kf.covariance_factor()) <= static_cast<double>(eps<float>()) * largest(kf.covariance_factor()));
         CHECK(gap(kf_f.state(), kf.state()) <= static_cast<double>(eps<float>()) * largest(kf.state()));
-        kf_f.predict(ColVec<1, float>{0.3F});
-        kf.predict(ColVec<1>{0.3});
-        REQUIRE(kf_f.update(ColVec<1, float>{0.25F}));
-        REQUIRE(kf.update(ColVec<1>{0.25}));
+        kf_f.predict(ColVec{0.3F});
+        kf.predict(ColVec{0.3});
+        REQUIRE(kf_f.update(ColVec{0.25F}));
+        REQUIRE(kf.update(ColVec{0.25}));
         CHECK(gap(kf_f.covariance(), kf.covariance()) <= 64.0 * static_cast<double>(eps<float>()) * largest(kf.covariance()));
 
         Matrix<3, 3> rank_one{}; // x₁ = 2 x₀ exactly, x₂ known
@@ -857,7 +857,7 @@ TEST_SUITE("KalmanFilter on the factor: singular covariances and refused reading
         rank_one(0, 1) = 2.0;
         rank_one(1, 0) = 2.0;
         rank_one(1, 1) = 4.0;
-        kf.reset(ColVec<3>{1.0, 2.0, 3.0}, rank_one);
+        kf.reset(ColVec{1.0, 2.0, 3.0}, rank_one);
         CHECK(gap(kf.covariance(), rank_one) <= 4.0 * eps<double>());
         CHECK(kf.covariance_factor()(1, 1) == 0.0);
         CHECK(kf.covariance_factor()(2, 2) == 0.0);
@@ -874,8 +874,8 @@ TEST_SUITE("KalmanFilter on the factor: singular covariances and refused reading
             sys.H = Matrix<1, 1>::identity();
             sys.Ts = 0.1;
             KalmanFilter kf{sys, {.Q = Matrix<2, 2>::identity() * 0.01, .R = 0.1}};
-            kf.predict(ColVec<1>{0.0});
-            const bool ok = kf.update(ColVec<1>{1.0});
+            kf.predict(ColVec{0.0});
+            const bool ok = kf.update(ColVec{1.0});
             return damp::make_tuple(ok, kf.covariance(), kf.covariance_factor());
         }();
         static_assert(damp::get<0>(kTicked));
@@ -1065,15 +1065,15 @@ TEST_SUITE("ExtendedKalmanFilter on the factor of its covariance") {
     TEST_CASE("reset takes a singular P₀, and a P₀ that is not a covariance becomes the identity") {
         ExtendedKalmanFilter<DecayAndBias<double>, double> ekf{DecayAndBias<double>{}, {.Ts = 0.01, .Q = Matrix<2, 2>::zeros(), .P0 = Matrix<2, 2>::zeros()}};
         CHECK(largest(ekf.covariance()) == 0.0);
-        ekf.predict(ColVec<1>{1.0});
+        ekf.predict(ColVec{1.0});
         CHECK(largest(ekf.covariance()) == 0.0);
-        REQUIRE(ekf.update(BiasedReading<double>{}, ColVec<1>{2.0}, 0.5)); // certain: the reading moves nothing
+        REQUIRE(ekf.update(BiasedReading<double>{}, ColVec{2.0}, 0.5)); // certain: the reading moves nothing
         CHECK(ekf.state()[1] == 0.0);
-        ekf.reset(ColVec<2>{}, Matrix<2, 2>{{1.0, 2.0}, {2.0, 1.0}});
+        ekf.reset(ColVec<2>{}, Matrix{{1.0, 2.0}, {2.0, 1.0}});
         CHECK(gap(ekf.covariance(), Matrix<2, 2>::identity()) == 0.0);
-        CHECK_FALSE(ekf.update(BiasedReading<double>{}, ColVec<1>{2.0}, -0.5)); // R is not a covariance
+        CHECK_FALSE(ekf.update(BiasedReading<double>{}, ColVec{2.0}, -0.5)); // R is not a covariance
         CHECK(gap(ekf.covariance(), Matrix<2, 2>::identity()) == 0.0);
-        REQUIRE(ekf.update(BiasedReading<double>{}, ColVec<1>{2.0}, 0.0)); // a perfect reading of x₀ + x₁
+        REQUIRE(ekf.update(BiasedReading<double>{}, ColVec{2.0}, 0.0)); // a perfect reading of x₀ + x₁
         CHECK(ekf.state()[0] + ekf.state()[1] == doctest::Approx(2.0).epsilon(1e-14));
         CHECK(ekf.state()[0] == doctest::Approx(1.0).epsilon(1e-14));
     }

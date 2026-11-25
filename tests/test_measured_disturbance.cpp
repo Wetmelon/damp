@@ -85,7 +85,7 @@ bool same_map(const Matrix<R, C>& a, const Matrix<R, C>& b, double tol = 1e-12) 
 }
 
 /// A load on x₂, continuous: x₂' gains w.
-constexpr Matrix<2, 1> kLoadOnX2C{{0.0}, {1.0}};
+constexpr Matrix kLoadOnX2C{{0.0}, {1.0}};
 
 /// A quiet NaN from its bits, read through a volatile so the compiler cannot fold it.
 double runtime_nan() {
@@ -143,16 +143,16 @@ TEST_SUITE("MeasuredDisturbance") {
         ColVec<2> x{};
         ColVec<2> xb{};
         for (size_t k = 0; k < 400; ++k) {
-            x = lags_step(x, law.step(ColVec<1>{0.4}, x)(0), 0.4);
+            x = lags_step(x, law.step(ColVec{0.4}, x)(0), 0.4);
             xb = lags_step(xb, blind.step(xb)(0), 0.4);
         }
         CHECK(std::abs(x(1)) < 1e-9);
         CHECK(std::abs(xb(1)) > 0.05);
 
         //! About a planned point: u = u_ref + u_t − K·(x − x_ref − x_t).
-        const ColVec<2> x_ref{0.1, -0.2};
-        const ColVec<1> u_ref{0.3};
-        const ColVec<1> d{0.25};
+        const ColVec x_ref{0.1, -0.2};
+        const ColVec u_ref{0.3};
+        const ColVec d{0.25};
         law.update(x);
         const ColVec<3> t = md.target.target_d * d;
         const ColVec<2> dev{x(0) - x_ref(0) - t(0), x(1) - x_ref(1) - t(1)};
@@ -163,8 +163,8 @@ TEST_SUITE("MeasuredDisturbance") {
         //! At rest x₂ = x₁ + d: no steady state holds both readings at 0. Holding both took the
         //! least squares, x = (−0.5·d, 0.5·d), which held neither, and no longer compiles.
         //! Listed, x₂ is held at r = 0, and x₁ sits at −d.
-        constexpr Matrix<2, 1> load_c{{0.0}, {1.0}};
-        const auto             one = design::state_feedback(kLagsC, kTs, kWeights, design::TrackedOutputs{{1}}, design::MeasuredDisturbance{load_c});
+        constexpr Matrix load_c{{0.0}, {1.0}};
+        const auto       one = design::state_feedback(kLagsC, kTs, kWeights, design::TrackedOutputs{{1}}, design::MeasuredDisturbance{load_c});
         REQUIRE(one.success);
         CHECK(one.target.target_d(0, 0) == doctest::Approx(-1.0).epsilon(1e-9));
         CHECK(std::abs(one.target.target_d(1, 0)) < 1e-9);
@@ -172,7 +172,7 @@ TEST_SUITE("MeasuredDisturbance") {
         LQR        law{one};
         ColVec<2>  x{};
         for (size_t k = 0; k < 400; ++k) {
-            x = (kLags->A * x) + (kLags->B * law.step(0.0, ColVec<1>{0.4}, x)) + (load.B * ColVec<1>{0.4});
+            x = (kLags->A * x) + (kLags->B * law.step(0.0, ColVec{0.4}, x)) + (load.B * ColVec{0.4});
         }
         CHECK(std::abs(x(1)) < 1e-9);                       // the listed reading at 0
         CHECK(x(0) == doctest::Approx(-0.4).epsilon(1e-9)); // the other where the steady state puts it
@@ -295,7 +295,7 @@ TEST_SUITE("MeasuredDisturbance") {
         OFMPC     partial{of};
         ColVec<2> xp{};
         for (size_t k = 0; k < 600; ++k) {
-            xp = lags_step(xp, partial.step(0.7, ColVec<1>{0.4}, xp)(0), 0.55);
+            xp = lags_step(xp, partial.step(0.7, ColVec{0.4}, xp)(0), 0.55);
         }
         CHECK(xp(1) == doctest::Approx(0.7).epsilon(1e-9));
         CHECK(partial.disturbance_estimate()(0) == doctest::Approx(0.15).epsilon(1e-7));
@@ -306,7 +306,7 @@ TEST_SUITE("MeasuredDisturbance") {
         //! held constant the target alone is the LQ-optimal feedforward.
         constexpr StateSpace<2, 1, 2>     di{.A = {{1.0, kTs}, {0.0, 1.0}}, .B = {{0.5 * kTs * kTs}, {kTs}}, .C = Matrix<2, 2>::identity(), .Ts = kTs};
         const Matrix<2, 2>                Q = diag(1.0, 0.1);
-        const Matrix<1, 1>                R{{0.5}};
+        const Matrix                      R{{0.5}};
         const design::MeasuredDisturbance load{.Bd = di.B};
         const auto                        lq = design::state_feedback(di, {.Q = Q, .R = R}, design::TrackedOutputs{{0}}, load);
         REQUIRE(lq.success);
@@ -314,14 +314,14 @@ TEST_SUITE("MeasuredDisturbance") {
         w.Qy_terminal = design::discrete_lqr(di.A, di.B, Q, R).S;
         const auto art = design::mpc<8, 8>(di, w, design::TrackedOutputs{{0}}, load);
         REQUIRE(art.success);
-        LQR       lqr{lq};
-        MPC       mpc{art};
-        ColVec<2> x{1.0, -0.5};
+        LQR    lqr{lq};
+        MPC    mpc{art};
+        ColVec x{1.0, -0.5};
         for (size_t k = 0; k < 40; ++k) {
             const double    r = (k < 20) ? 0.0 : 0.3;
             const ColVec<1> d{(k < 10) ? 0.0 : 0.2};
             const ColVec<2> x_ref{0.05 * std::sin(0.2 * static_cast<double>(k)), 0.0};
-            const ColVec<1> u_ref{0.02};
+            const ColVec    u_ref{0.02};
             lqr.update(x);
             const double u_lqr = lqr.control(r, x_ref, u_ref, d)(0);
             const double u_mpc = mpc.step(r, x_ref, u_ref, d, x)(0);
@@ -336,7 +336,7 @@ TEST_SUITE("MeasuredDisturbance") {
         LQG                                law{md};
         LQG                                split{md};
         FixedGainObserver<2, 2, 2, double> obs{md.kalman};
-        ColVec<2>                          x{0.2, -0.1};
+        ColVec                             x{0.2, -0.1};
         double                             u_prev = 0.0;
         double                             d_prev = 0.0;
         for (size_t k = 0; k < 30; ++k) {
@@ -371,7 +371,7 @@ TEST_SUITE("MeasuredDisturbance") {
         for (size_t k = 0; k < 30; ++k) {
             const ColVec<1> d{0.2 + (0.01 * static_cast<double>(k))};
             const ColVec<2> x_ref{0.0, 0.01 * static_cast<double>(k)};
-            const ColVec<1> u_ref{0.01};
+            const ColVec    u_ref{0.01};
             const double    u = a.step(0.6, x_ref, u_ref, d, z)(0);
             b.predict();
             b.update(z);
@@ -406,9 +406,9 @@ TEST_SUITE("MeasuredDisturbance") {
     }
 
     TEST_CASE("with an InputDelay d enters the plant, not the delay states, and a late reading as the plant moved under it") {
-        constexpr Matrix<2, 1> load_c{{0.0}, {1.0}}; // continuous: x₂' gains w
-        const auto             d = discretize(StateSpace<2, 1, 1>{.A = kLagsC.A, .B = load_c}, kTs).value();
-        const auto             lqg = design::state_feedback(kLagsC, kTs, kWeights, kNoise, design::TrackedOutputs{{1}}, design::MeasuredDisturbance{load_c}, InputDelay<2>{0.15});
+        constexpr Matrix load_c{{0.0}, {1.0}}; // continuous: x₂' gains w
+        const auto       d = discretize(StateSpace<2, 1, 1>{.A = kLagsC.A, .B = load_c}, kTs).value();
+        const auto       lqg = design::state_feedback(kLagsC, kTs, kWeights, kNoise, design::TrackedOutputs{{1}}, design::MeasuredDisturbance{load_c}, InputDelay<2>{0.15});
         REQUIRE(lqg.success);
         static_assert(std::is_same_v<decltype(lqg.kalman.sys.B), Matrix<4, 2>>); // [x; v(k−1); v(k−2)], then [u, d]
         CHECK(lqg.kalman.sys.B(0, 1) == doctest::Approx(d.B(0, 0)).epsilon(1e-14));
@@ -426,7 +426,7 @@ TEST_SUITE("MeasuredDisturbance") {
         LQR        law{lqr};
         ColVec<4>  s{};
         for (size_t k = 0; k < 600; ++k) {
-            const double u = law.step(0.7, ColVec<1>{0.3}, ColVec<2>{s(0), s(1)})(0);
+            const double u = law.step(0.7, ColVec{0.3}, ColVec<2>{s(0), s(1)})(0);
             ColVec<4>    load{};
             load(0) = d.B(0, 0) * 0.3;
             load(1) = d.B(1, 0) * 0.3;
@@ -482,8 +482,8 @@ TEST_SUITE("MeasuredDisturbance") {
         LQR                e{kLqr.as<float>()};
         ColVec<2, float>   x{};
         for (size_t k = 0; k < 50; ++k) {
-            const ColVec<1, float> d{0.3f};
-            const float            u = a.step(0.5f, d, x)(0);
+            const ColVec d{0.3f};
+            const float  u = a.step(0.5f, d, x)(0);
             CHECK(static_cast<double>(u) == doctest::Approx(static_cast<double>(b.step(0.5f, d, x)(0))).epsilon(1e-5));
             CHECK(static_cast<double>(c.step(d, x)(0)) == doctest::Approx(static_cast<double>(e.step(d, x)(0))).epsilon(1e-5));
             CHECK(static_cast<double>(f.step(0.5f, d, x)(0)) == doctest::Approx(static_cast<double>(g.step(0.5f, d, x)(0))).epsilon(1e-4));
@@ -611,9 +611,9 @@ TEST_SUITE("MeasuredDisturbance") {
         OFLQG                   law{of};
         ColVec<2>               x{};
         for (size_t k = 0; k < 800; ++k) {
-            x = lags_step(x, law.step(0.7, ColVec<1>{0.4}, x)(0), 0.55);
+            x = lags_step(x, law.step(0.7, ColVec{0.4}, x)(0), 0.55);
         }
-        const auto p = target.equilibrium(ColVec<1>{0.7}, ColVec<2>{law.disturbance_estimate()(0), 0.4});
+        const auto p = target.equilibrium(ColVec{0.7}, ColVec<2>{law.disturbance_estimate()(0), 0.4});
         CHECK(Matrix<2, 1>(x - p.x).norm() < 1e-9);
         CHECK(law.last_command()(0) == doctest::Approx(p.u(0)).epsilon(1e-9));
     }

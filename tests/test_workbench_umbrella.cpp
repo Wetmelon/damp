@@ -22,16 +22,16 @@ TEST_SUITE("Workbench Umbrella") {
         CHECK(omega.back() == doctest::Approx(100.0));
 
         StateSpace sys{
-            .A = Matrix<1, 1>{{-1.0}},
-            .B = Matrix<1, 1>{{1.0}},
-            .C = Matrix<1, 1>{{1.0}},
+            .A = Matrix{{-1.0}},
+            .B = Matrix{{1.0}},
+            .C = Matrix{{1.0}},
         };
         const auto disc = *discretize(sys, 0.01, DiscretizationMethod::ZOH);
         CHECK(disc.Ts == doctest::Approx(0.01));
 
         // MATLAB®-style alias reachable through workbench
         const auto K = matlab::dlqr(
-            disc.A, disc.B, Matrix<1, 1>{{1.0}}, Matrix<1, 1>{{1.0}}
+            disc.A, disc.B, Matrix{{1.0}}, Matrix{{1.0}}
         );
         CHECK(K.success);
         CHECK(K.K(0, 0) != 0.0);

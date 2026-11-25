@@ -47,8 +47,8 @@ double disc_residual(const Matrix<N, N>& A, const Matrix<N, N>& X, const Matrix<
 } // namespace
 
 TEST_CASE("lyap solves the continuous Lyapunov equation") {
-    const Matrix<2, 2> A{{-2.0, 1.0}, {0.0, -3.0}};
-    const Matrix<2, 2> Q{{3.0, 1.0}, {1.0, 2.0}};
+    const Matrix A{{-2.0, 1.0}, {0.0, -3.0}};
+    const Matrix Q{{3.0, 1.0}, {1.0, 2.0}};
 
     const auto X = lyap(A, Q);
     REQUIRE(X.has_value());
@@ -56,8 +56,8 @@ TEST_CASE("lyap solves the continuous Lyapunov equation") {
 }
 
 TEST_CASE("dlyap solves the discrete Lyapunov equation") {
-    const Matrix<2, 2> A{{0.5, 0.1}, {0.0, 0.3}};
-    const Matrix<2, 2> Q{{3.0, 1.0}, {1.0, 2.0}};
+    const Matrix A{{0.5, 0.1}, {0.0, 0.3}};
+    const Matrix Q{{3.0, 1.0}, {1.0, 2.0}};
 
     const auto X = dlyap(A, Q);
     REQUIRE(X.has_value());
@@ -66,7 +66,7 @@ TEST_CASE("dlyap solves the discrete Lyapunov equation") {
 
 TEST_CASE("lyap reports no unique solution when A and -A share an eigenvalue") {
     // Eigenvalues {+1, -1}: λ_i + λ_j = 0, so the operator is singular.
-    const Matrix<2, 2> A{{1.0, 0.0}, {0.0, -1.0}};
+    const Matrix       A{{1.0, 0.0}, {0.0, -1.0}};
     const Matrix<2, 2> Q = Matrix<2, 2>::identity();
     CHECK_FALSE(lyap(A, Q).has_value());
 }
@@ -74,8 +74,8 @@ TEST_CASE("lyap reports no unique solution when A and -A share an eigenvalue") {
 TEST_CASE("gram gives the controllability/observability Gramians") {
     // Stable continuous SISO plant.
     StateSpace<2, 1, 1> sys;
-    sys.A = Matrix<2, 2>{{-2.0, 1.0}, {0.0, -3.0}};
-    sys.B = ColVec<2>{1.0, 1.0};
+    sys.A = Matrix{{-2.0, 1.0}, {0.0, -3.0}};
+    sys.B = ColVec{1.0, 1.0};
     sys.C = RowVec<2>{1.0, 0.0};
     sys.Ts = 0.0;
 
@@ -98,9 +98,9 @@ TEST_CASE("H2 and Hinf norms of a first-order lag") {
     // G(s) = 1/(s+1): A=-1, B=1, C=1, D=0.
     // ‖G‖₂ = sqrt(1/2) ≈ 0.70711 ; ‖G‖∞ = |G(0)| = 1.
     StateSpace<1, 1, 1> sys;
-    sys.A = Matrix<1, 1>{{-1.0}};
-    sys.B = Matrix<1, 1>{{1.0}};
-    sys.C = Matrix<1, 1>{{1.0}};
+    sys.A = Matrix{{-1.0}};
+    sys.B = Matrix{{1.0}};
+    sys.C = Matrix{{1.0}};
     sys.Ts = 0.0;
 
     const auto h2 = matlab::norm(sys);
@@ -119,7 +119,7 @@ TEST_CASE("Hinf norm captures a lightly-damped resonant peak") {
     const double        zeta = 0.05;
     StateSpace<2, 1, 1> sys; // controllable canonical form
     sys.A = Matrix<2, 2>{{0.0, 1.0}, {-wn * wn, -2.0 * zeta * wn}};
-    sys.B = ColVec<2>{0.0, 1.0};
+    sys.B = ColVec{0.0, 1.0};
     sys.C = RowVec<2>{wn * wn, 0.0};
     sys.Ts = 0.0;
 
@@ -132,10 +132,10 @@ TEST_CASE("Hinf norm captures a lightly-damped resonant peak") {
 
 TEST_CASE("H2 norm of a continuous system with feedthrough is infinite (nullopt)") {
     StateSpace<1, 1, 1> sys;
-    sys.A = Matrix<1, 1>{{-1.0}};
-    sys.B = Matrix<1, 1>{{1.0}};
-    sys.C = Matrix<1, 1>{{1.0}};
-    sys.D = Matrix<1, 1>{{0.5}}; // D ≠ 0 ⇒ ‖G‖₂ = ∞
+    sys.A = Matrix{{-1.0}};
+    sys.B = Matrix{{1.0}};
+    sys.C = Matrix{{1.0}};
+    sys.D = Matrix{{0.5}}; // D ≠ 0 ⇒ ‖G‖₂ = ∞
     sys.Ts = 0.0;
     CHECK_FALSE(matlab::norm(sys).has_value());
 }
@@ -250,7 +250,7 @@ TEST_SUITE("Lyapunov on the Schur form") {
     }
 
     TEST_CASE("Hammarling takes a B wider than A and refuses an unstable A") {
-        Matrix<3, 3> A{{-0.1, 1.0, 0.0}, {0.0, -1.0, 0.0}, {0.0, 0.0, -2.0}};
+        Matrix       A{{-0.1, 1.0, 0.0}, {0.0, -1.0, 0.0}, {0.0, 0.0, -2.0}};
         Matrix<3, 5> B{};
         for (size_t i = 0; i < 3; ++i) {
             for (size_t j = 0; j < 5; ++j) {
@@ -265,7 +265,7 @@ TEST_SUITE("Lyapunov on the Schur form") {
         A(0, 0) = 0.1;
         CHECK_FALSE(lyapunov_cholesky(A, B).has_value());
         CHECK_FALSE(discrete_lyapunov_cholesky(A * 10.0, B).has_value());
-        CHECK(matlab::lyapchol(Matrix<3, 3>{{-1.0, 0.0, 0.0}, {0.0, -2.0, 0.0}, {0.0, 0.0, -3.0}}, B).has_value());
+        CHECK(matlab::lyapchol(Matrix{{-1.0, 0.0, 0.0}, {0.0, -2.0, 0.0}, {0.0, 0.0, -3.0}}, B).has_value());
     }
 
     // A = −diag(1, …, N), B = 1: the Gramian Wᵢⱼ = 1/(i + j) is a Cauchy matrix with Cholesky

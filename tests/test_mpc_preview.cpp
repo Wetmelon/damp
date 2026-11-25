@@ -117,23 +117,23 @@ TEST_SUITE("MPC reference preview") {
         MPC<1, 1, 1, NP, NC, 0, double> one{art};
         MPC<1, 1, 1, NP, NC, 0, double> same{art};
         MPC<1, 1, 1, NP, NC, 0, double> ramp{art};
-        one.set_input_target(ColVec<1>{10.0});
+        one.set_input_target(ColVec{10.0});
         MPC<1, 1, 1, NP, NC, 0, double>::InputPreview flat{};
         MPC<1, 1, 1, NP, NC, 0, double>::InputPreview rising{};
         for (std::size_t j = 0; j < NC; ++j) {
-            flat[j] = ColVec<1>{10.0};
+            flat[j] = ColVec{10.0};
             rising[j] = ColVec<1>{10.0 + (5.0 * static_cast<double>(j))};
         }
         same.set_input_target(flat);
         ramp.set_input_target(rising);
         CHECK(same.input_target()(0) == 10.0);
-        const ColVec<1> x{50.0};
+        const ColVec x{50.0};
         one.update(x);
         same.update(x);
         ramp.update(x);
-        const double u_one = one.control(ColVec<1>{60.0})[0];
-        const double u_same = same.control(ColVec<1>{60.0})[0];
-        const double u_ramp = ramp.control(ColVec<1>{60.0})[0];
+        const double u_one = one.control(ColVec{60.0})[0];
+        const double u_same = same.control(ColVec{60.0})[0];
+        const double u_ramp = ramp.control(ColVec{60.0})[0];
         CHECK(u_one == u_same);
         CHECK(u_ramp != u_one); // the later targets reach the first move through the shared Δu
         // The map itself: move i's column collects 2·Ru from every move j ≥ i.
@@ -152,7 +152,7 @@ TEST_SUITE("MPC reference preview") {
         constexpr double                  u_max = 40.0;
         design::InputLimits<1>            c{.lower = {0.0}, .upper = {u_max}};
         StateSpace<1, 1, 1, double, 1, 1> plant{.A = kModel->A, .B = kModel->B, .C = kModel->C, .Ts = kModel->Ts}; // process noise on the state
-        const auto                        art = design::mpc<NP, NC>(plant, w, c, design::KalmanNoise{Matrix<1, 1>{{0.01}}, Matrix<1, 1>{{0.01}}, Matrix<1, 1>{{0.05}}}, design::InputDisturbance{});
+        const auto                        art = design::mpc<NP, NC>(plant, w, c, design::KalmanNoise{Matrix{{0.01}}, Matrix{{0.01}}, Matrix{{0.05}}}, design::InputDisturbance{});
         REQUIRE(art.success);
         OFMPC  a{art};
         OFMPC  b{art};

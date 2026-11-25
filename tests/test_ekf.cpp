@@ -66,7 +66,7 @@ struct BothStates {
 
 // A constant h: its central-difference Jacobian is C = 0.
 struct Blind {
-    [[nodiscard]] ColVec<1> operator()(const ColVec<2>& /*x*/, const ColVec<1>& /*u*/) const { return ColVec<1>{0.0}; }
+    [[nodiscard]] ColVec<1> operator()(const ColVec<2>& /*x*/, const ColVec<1>& /*u*/) const { return ColVec{0.0}; }
 };
 
 // Range to the origin r = √(x² + y²), with its Jacobian [x/r, y/r].
@@ -168,13 +168,13 @@ TEST_SUITE("Extended Kalman Filter") {
         // degenerate EKF — it should behave like a KF.
         const double       Ts = 0.1;
         const Matrix<2, 2> A{{1.0, Ts}, {0.0, 1.0}};
-        const Matrix<2, 2> Q{{1e-4, 0.0}, {0.0, 1e-4}};
+        const Matrix       Q{{1e-4, 0.0}, {0.0, 1e-4}};
         const Matrix<1, 1> R{1e-2};
 
         ExtendedKalmanFilter<ConstantVelocity, double> ekf{ConstantVelocity{}, {.Ts = Ts, .Q = Q}};
 
         // Truth propagates with the same A; feed noiseless position measurements.
-        ColVec<2> x_true{0.0, 1.0}; // moving at 1 m/s
+        ColVec x_true{0.0, 1.0}; // moving at 1 m/s
         for (int k = 0; k < 100; ++k) {
             x_true = A * x_true;
             ekf.predict(kNoInput);
@@ -196,9 +196,9 @@ TEST_SUITE("Extended Kalman Filter") {
         const Oscillator   osc{};
         const double       Ts = 0.05;
         const Matrix<2, 2> Q = Matrix<2, 2>::identity() * 1e-3;
-        const Matrix<2, 2> P0{{0.5, 0.1}, {0.1, 0.2}};
-        const ColVec<2>    x0{0.3, -0.2};
-        const ColVec<1>    u{0.7};
+        const Matrix       P0{{0.5, 0.1}, {0.1, 0.2}};
+        const ColVec       x0{0.3, -0.2};
+        const ColVec       u{0.7};
 
         const Matrix<2, 2> I = Matrix<2, 2>::identity();
         const Matrix<2, 2> M = osc.A * Ts;
@@ -227,7 +227,7 @@ TEST_SUITE("Extended Kalman Filter") {
         const float        gap = 0.005F;
         const float        current = gap * damp::sqrt(9.81F / 5e-4F);
         const double       Ts = 1e-4;
-        const Matrix<2, 2> P0{{1e-6, 0.0}, {0.0, 1e-4}};
+        const Matrix       P0{{1e-6, 0.0}, {0.0, 1e-4}};
         const Matrix<2, 2> P_expected = rk4_covariance(Matrix<2, 2>{{0.0, 1.0}, {2.0 * 9.81 / static_cast<double>(gap), 0.0}}, Ts, P0);
         const auto         p10 = [&]<typename Model>(const Model& model) {
             const float                        unit = model.per_metre;
@@ -245,16 +245,16 @@ TEST_SUITE("Extended Kalman Filter") {
         //! sin θ far from 0, and a step of a few 1e-8 would fall below the roundoff of f.
         SUBCASE("documented pendulum, P₀ = 1e6·I at θ = 0") {
             const Matrix<2, 2>                     P0 = Matrix<2, 2>::identity() * 1e6;
-            const Matrix<2, 2>                     P_expected = rk4_covariance(Matrix<2, 2>{{0.0, 1.0}, {9.81, -0.5}}, 0.01, P0);
+            const Matrix<2, 2>                     P_expected = rk4_covariance(Matrix{{0.0, 1.0}, {9.81, -0.5}}, 0.01, P0);
             ExtendedKalmanFilter<PendulumF, float> ekf{PendulumF{}, {.Ts = 0.01F, .Q = Matrix<2, 2, float>{}, .P0 = P0.as<float>()}};
             ekf.predict(ColVec<1, float>{});
             CHECK(static_cast<double>(ekf.covariance()(1, 0)) / P_expected(1, 0) == doctest::Approx(1.0).epsilon(1e-2));
         }
         SUBCASE("gyro bias with std(b) = 1e-5 rad/s at b = 0, ω = 3 rad/s") {
-            const Matrix<2, 2>                        P0{{1e-4, 0.0}, {0.0, 1e-10}};
-            const Matrix<2, 2>                        P_expected = rk4_covariance(Matrix<2, 2>{{0.0, -1.0}, {0.0, 0.0}}, 0.01, P0);
+            const Matrix                              P0{{1e-4, 0.0}, {0.0, 1e-10}};
+            const Matrix<2, 2>                        P_expected = rk4_covariance(Matrix{{0.0, -1.0}, {0.0, 0.0}}, 0.01, P0);
             ExtendedKalmanFilter<HeadingBiasF, float> ekf{HeadingBiasF{}, {.Ts = 0.01F, .Q = Matrix<2, 2, float>{}, .P0 = P0.as<float>()}};
-            ekf.predict(ColVec<1, float>{3.0F});
+            ekf.predict(ColVec{3.0F});
             CHECK(static_cast<double>(ekf.covariance()(0, 1)) / P_expected(0, 1) == doctest::Approx(1.0).epsilon(1e-2)); // −Ts·P₁₁: the ∂θ̇/∂b column
         }
     }
@@ -264,13 +264,13 @@ TEST_SUITE("Extended Kalman Filter") {
         // a nonlinear h whose Jacobian is [x/r, y/r]. The EKF must localize the
         // point from range alone given a decent prior, with the analytic
         // Jacobian and with central differences alike.
-        const ExtendedKalmanFilterConfig<Stationary, double> config{.Ts = 0.01, .Q = Matrix<2, 2>::identity() * 1e-6, .x0 = ColVec<2>{2.5, 4.5}};
+        const ExtendedKalmanFilterConfig<Stationary, double> config{.Ts = 0.01, .Q = Matrix<2, 2>::identity() * 1e-6, .x0 = ColVec{2.5, 4.5}};
         const Matrix<1, 1>                                   R{1e-4};
 
         ExtendedKalmanFilter<Stationary, double> analytic{Stationary{}, config};
         ExtendedKalmanFilter<Stationary, double> numeric{Stationary{}, config};
 
-        const ColVec<1> y{5.0}; // true point (3, 4)
+        const ColVec y{5.0}; // true point (3, 4)
         for (int k = 0; k < 50; ++k) {
             analytic.predict(kNoInput);
             numeric.predict(kNoInput);
@@ -297,12 +297,12 @@ TEST_SUITE("Extended Kalman Filter") {
         // leaves P = diag(1/3, 1/2).
         ExtendedKalmanFilter<Stationary, double> ekf{Stationary{}, {.Ts = 0.1, .Q = Matrix<2, 2>::zeros()}};
 
-        REQUIRE(ekf.update(Component<0>{}, ColVec<1>{2.0}, 1.0));
+        REQUIRE(ekf.update(Component<0>{}, ColVec{2.0}, 1.0));
         CHECK(ekf.state()[0] == doctest::Approx(1.0).epsilon(1e-12));
         CHECK(ekf.state()[1] == doctest::Approx(0.0));
         CHECK(ekf.covariance()(0, 0) == doctest::Approx(0.5).epsilon(1e-12));
 
-        REQUIRE(ekf.update(BothStates{}, ColVec<2>{4.0, 2.0}, Matrix<2, 2>::identity()));
+        REQUIRE(ekf.update(BothStates{}, ColVec{4.0, 2.0}, Matrix<2, 2>::identity()));
         CHECK(ekf.state()[0] == doctest::Approx(2.0).epsilon(1e-12));
         CHECK(ekf.state()[1] == doctest::Approx(1.0).epsilon(1e-12));
         CHECK(ekf.covariance()(0, 0) == doctest::Approx(1.0 / 3.0).epsilon(1e-12));
@@ -317,7 +317,7 @@ TEST_SUITE("Extended Kalman Filter") {
         const double p_after_predict = ekf.covariance()(0, 0);
         CHECK(p_after_predict > p0); // prediction adds uncertainty
 
-        REQUIRE(ekf.update(Component<0>{}, ColVec<1>{0.0}, 1e-2));
+        REQUIRE(ekf.update(Component<0>{}, ColVec{0.0}, 1e-2));
         const double p_after_update = ekf.covariance()(0, 0);
         CHECK(p_after_update < p_after_predict); // measurement removes uncertainty
     }
@@ -327,7 +327,7 @@ TEST_SUITE("Extended Kalman Filter") {
         // not positive definite; the update must fail gracefully (false), not crash.
         ExtendedKalmanFilter<Stationary, double> ekf{Stationary{}, {.Ts = 0.1, .Q = Matrix<2, 2>::zeros(), .P0 = Matrix<2, 2>::zeros()}};
         ekf.predict(kNoInput);
-        CHECK_FALSE(ekf.update(Blind{}, ColVec<1>{1.0}, 0.0));
+        CHECK_FALSE(ekf.update(Blind{}, ColVec{1.0}, 0.0));
         CHECK(ekf.last_status() == UpdateStatus::refused);
         CHECK(ekf.state()[0] == 0.0); // the estimate is unchanged
         ekf.reset(ColVec<2>{}, Matrix<2, 2>::identity());
@@ -341,7 +341,7 @@ TEST_SUITE("Extended Kalman Filter") {
         // clamping between scalar updates can. Here state[0] is physically bounded to
         // [0, 1] (e.g. a duty cycle / SoC) and must never leave that box even
         // though a noisy measurement pushes the raw estimate past 1.
-        ExtendedKalmanFilter<Stationary, double> ekf{Stationary{}, {.Ts = 0.01, .Q = Matrix<2, 2>::identity() * 1e-3, .x0 = ColVec<2>{0.5, 0.5}}};
+        ExtendedKalmanFilter<Stationary, double> ekf{Stationary{}, {.Ts = 0.01, .Q = Matrix<2, 2>::identity() * 1e-3, .x0 = ColVec{0.5, 0.5}}};
         const Matrix<1, 1>                       R{1e-2};
 
         for (int k = 0; k < 200; ++k) {
@@ -349,14 +349,14 @@ TEST_SUITE("Extended Kalman Filter") {
 
             // Scalar update #1: measurement of state[0] sits above its physical
             // bound (1.2 > 1.0). Fuse it, then clamp before the next update.
-            REQUIRE(ekf.update(Component<0>{}, ColVec<1>{1.2}, R));
+            REQUIRE(ekf.update(Component<0>{}, ColVec{1.2}, R));
             ColVec<2> x = ekf.state();
             x[0] = damp::clamp(x[0], 0.0, 1.0);
             ekf.set_state(x);
 
             // The clamped estimate is what the second scalar update sees.
             CHECK(ekf.state()[0] <= 1.0 + 1e-12);
-            REQUIRE(ekf.update(Component<1>{}, ColVec<1>{0.3}, R));
+            REQUIRE(ekf.update(Component<1>{}, ColVec{0.3}, R));
         }
 
         CHECK(ekf.state()[0] == doctest::Approx(1.0)); // pinned at the bound
@@ -365,11 +365,11 @@ TEST_SUITE("Extended Kalman Filter") {
 
     TEST_CASE("set_state / reset") {
         ExtendedKalmanFilter<Stationary, double> ekf{};
-        ekf.set_state(ColVec<2>{1.5, -2.0});
+        ekf.set_state(ColVec{1.5, -2.0});
         CHECK(ekf.state()[0] == doctest::Approx(1.5));
         CHECK(ekf.state()[1] == doctest::Approx(-2.0));
 
-        ekf.reset(ColVec<2>{0.5, 7.0}, Matrix<2, 2>::identity() * 3.0);
+        ekf.reset(ColVec{0.5, 7.0}, Matrix<2, 2>::identity() * 3.0);
         CHECK(ekf.state()[1] == doctest::Approx(7.0));
         CHECK(ekf.covariance()(0, 0) == doctest::Approx(3.0));
         CHECK(ekf.covariance()(1, 1) == doctest::Approx(3.0));
@@ -377,7 +377,7 @@ TEST_SUITE("Extended Kalman Filter") {
 
     TEST_CASE("a non-positive Ts holds the state in predict") {
         const Matrix<2, 2> Q = Matrix<2, 2>::identity() * 1e-3;
-        const ColVec<2>    x0{1.0, 2.0};
+        const ColVec       x0{1.0, 2.0};
         for (const double Ts : {0.0, -0.1}) {
             ExtendedKalmanFilter<ConstantVelocity, double> ekf{ConstantVelocity{}, {.Ts = Ts, .Q = Q, .x0 = x0}};
             CHECK(ekf.sample_time() == 0.0);
@@ -394,9 +394,9 @@ TEST_SUITE("Extended Kalman Filter") {
         HoldsFilter    holder{};
         constexpr auto position = [](const ColVec<2, float>& x, const ColVec<1, float>& /*u*/) { return ColVec<1, float>{x[0]}; };
         auto           ekf = kLambdaEKF;
-        REQUIRE(ekf.update(position, ColVec<1, float>{0.5F}, 1.0F));
+        REQUIRE(ekf.update(position, ColVec{0.5F}, 1.0F));
         CHECK(ekf.state()[0] == doctest::Approx(0.25).epsilon(1e-5));
-        REQUIRE(holder.ekf_.update(PositionF{}, ColVec<1, float>{0.5F}, 1.0F));
+        REQUIRE(holder.ekf_.update(PositionF{}, ColVec{0.5F}, 1.0F));
         CHECK(holder.ekf_.state()[0] == doctest::Approx(0.25).epsilon(1e-6));
         CHECK(kStructEKF.sample_time() == doctest::Approx(0.1));
     }
@@ -406,7 +406,7 @@ TEST_SUITE("Extended Kalman Filter") {
         static_assert(std::is_same_v<ExtendedKalmanFilter<ConstantVelocity>, ExtendedKalmanFilter<ConstantVelocity, double>>);
         ExtendedKalmanFilter<ConstantVelocityF> ekf{ConstantVelocityF{}, {.Ts = 0.1F, .Q = Matrix<2, 2, float>::identity() * 1e-3F}};
         ekf.predict({});
-        CHECK(ekf.update(PositionF{}, ColVec<1, float>{0.5F}, 1e-2F));
+        CHECK(ekf.update(PositionF{}, ColVec{0.5F}, 1e-2F));
         CHECK(ekf.sample_time() == doctest::Approx(0.1));
     }
 }

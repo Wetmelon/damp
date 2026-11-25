@@ -193,9 +193,9 @@ TEST_CASE("drift monitor with an invalid configuration is inert") {
 }
 
 TEST_CASE("adaptation gate blocks invalid, unconfident, and wild updates") {
-    AdaptationGate<2, double> gate{0.5, ColVec<2>{0.5, 0.1}};
+    AdaptationGate<2, double> gate{0.5, ColVec{0.5, 0.1}};
 
-    const ColVec<2> nominal{2.0, 0.5};
+    const ColVec nominal{2.0, 0.5};
 
     CHECK(!gate.evaluate(false, 0.9, nominal).allow_update); // estimator does not vouch
     CHECK(!gate.evaluate(true, 0.3, nominal).allow_update);  // confidence below the floor
@@ -205,10 +205,10 @@ TEST_CASE("adaptation gate blocks invalid, unconfident, and wild updates") {
     CHECK(first.allow_update);
     CHECK(gate.accepted_parameters()(0) == doctest::Approx(2.0));
 
-    CHECK(!gate.evaluate(true, 0.9, ColVec<2>{3.0, 0.5}).allow_update); // parameter 0 jumps by 1.0 > 0.5
-    CHECK(gate.accepted_parameters()(0) == doctest::Approx(2.0));       // baseline unchanged on a block
+    CHECK(!gate.evaluate(true, 0.9, ColVec{3.0, 0.5}).allow_update); // parameter 0 jumps by 1.0 > 0.5
+    CHECK(gate.accepted_parameters()(0) == doctest::Approx(2.0));    // baseline unchanged on a block
 
-    const auto small_step = gate.evaluate(true, 0.9, ColVec<2>{2.3, 0.45});
+    const auto small_step = gate.evaluate(true, 0.9, ColVec{2.3, 0.45});
     CHECK(small_step.allow_update);
     CHECK(gate.accepted_parameters()(0) == doctest::Approx(2.3));
 }

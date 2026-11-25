@@ -244,10 +244,10 @@ TEST_CASE("solve_qp returns the unconstrained minimum when nothing binds") {
 
 TEST_CASE("solve_qp clamps against simple box constraints") {
     // min 1/2||x - (2,2)||^2 s.t. x <= (1,1): solution x = (1,1), lambda = (1,1).
-    const auto         H = Matrix<2, 2>::identity();
-    const ColVec<2>    f{-2.0, -2.0};
-    const Matrix<2, 2> A{{1.0, 0.0}, {0.0, 1.0}};
-    const ColVec<2>    b{1.0, 1.0};
+    const auto   H = Matrix<2, 2>::identity();
+    const ColVec f{-2.0, -2.0};
+    const Matrix A{{1.0, 0.0}, {0.0, 1.0}};
+    const ColVec b{1.0, 1.0};
 
     const auto res = design::solve_qp(H, f, A, b);
     REQUIRE(res.success);
@@ -260,10 +260,10 @@ TEST_CASE("solve_qp clamps against simple box constraints") {
 
 TEST_CASE("solve_qp detects infeasibility") {
     // x <= -1 and -x <= -1 (i.e. x >= 1) cannot both hold.
-    const Matrix<1, 1> H{{1.0}};
-    const ColVec<1>    f{0.0};
-    const Matrix<2, 1> A{{1.0}, {-1.0}};
-    const ColVec<2>    b{-1.0, -1.0};
+    const Matrix H{{1.0}};
+    const ColVec f{0.0};
+    const Matrix A{{1.0}, {-1.0}};
+    const ColVec b{-1.0, -1.0};
 
     const auto res = design::solve_qp(H, f, A, b);
     CHECK(!res.success);
@@ -271,10 +271,10 @@ TEST_CASE("solve_qp detects infeasibility") {
 }
 
 TEST_CASE("solve_qp rejects an indefinite Hessian") {
-    const Matrix<1, 1> H{{-1.0}};
-    const ColVec<1>    f{1.0};
-    const Matrix<1, 1> A{{1.0}};
-    const ColVec<1>    b{1.0};
+    const Matrix H{{-1.0}};
+    const ColVec f{1.0};
+    const Matrix A{{1.0}};
+    const ColVec b{1.0};
 
     const auto res = design::solve_qp(H, f, A, b);
     CHECK(!res.success);
@@ -296,8 +296,8 @@ TEST_CASE("float solve_qp holds a row on a small variable beside a large one") {
     // min ½‖x‖² − [1000, 0.02]·x s.t. x₂ ≤ 0.01. A slack tolerance of 64·(NV+1)·ε·‖x‖∞ (0.02 in
     // float) accepted the unconstrained x₂ = 0.02 as feasible and returned Success at twice the limit.
     const auto res = design::solve_qp(
-        Matrix<2, 2, float>::identity(), ColVec<2, float>{-1000.0F, -0.02F},
-        Matrix<1, 2, float>{{0.0F, 1.0F}}, ColVec<1, float>{0.01F}
+        Matrix<2, 2, float>::identity(), ColVec{-1000.0F, -0.02F},
+        Matrix{{0.0F, 1.0F}}, ColVec{0.01F}
     );
     REQUIRE(res.success);
     CHECK(res.x(0) == doctest::Approx(1000.0F).epsilon(1e-6));
@@ -576,12 +576,12 @@ TEST_CASE_TEMPLATE("solve_qp with exactly dependent rows agrees with an enumerat
 TEST_CASE("equality-constrained solve_qp finds the minimum-norm allocation") {
     // min 1/2||x||^2 s.t. x1 + x2 + x3 = 1: x = (1/3, 1/3, 1/3), equality
     // multiplier -1/3 (exercises the negative-multiplier lower twin).
-    const auto         H = Matrix<3, 3>::identity();
-    const ColVec<3>    f{};
-    const Matrix<1, 3> A{{1.0, 0.0, 0.0}};
-    const ColVec<1>    b{design::unbounded_bound<double>()}; // no inequality binds
-    const Matrix<1, 3> Aeq{{1.0, 1.0, 1.0}};
-    const ColVec<1>    beq{1.0};
+    const auto      H = Matrix<3, 3>::identity();
+    const ColVec<3> f{};
+    const Matrix    A{{1.0, 0.0, 0.0}};
+    const ColVec<1> b{design::unbounded_bound<double>()}; // no inequality binds
+    const Matrix    Aeq{{1.0, 1.0, 1.0}};
+    const ColVec    beq{1.0};
 
     const auto res = design::solve_qp(H, f, A, b, Aeq, beq);
     REQUIRE(res.success);
@@ -597,8 +597,8 @@ TEST_CASE("equality constraint composes with active inequalities") {
     // The quadprog example restricted to the line x1 = x2: along the line the
     // cost decreases until inequality rows 1 and 3 clamp it at x = (1, 1).
     const QuadprogExample qp;
-    const Matrix<1, 2>    Aeq{{1.0, -1.0}};
-    const ColVec<1>       beq{0.0};
+    const Matrix          Aeq{{1.0, -1.0}};
+    const ColVec          beq{0.0};
 
     const auto res = design::solve_qp(qp.H, qp.f, qp.A, qp.b, Aeq, beq);
     REQUIRE(res.success);
@@ -607,12 +607,12 @@ TEST_CASE("equality constraint composes with active inequalities") {
 }
 
 TEST_CASE("inconsistent equalities are reported infeasible") {
-    const Matrix<2, 2> H{{1.0, 0.0}, {0.0, 1.0}};
-    const ColVec<2>    f{};
-    const Matrix<1, 2> A{{1.0, 0.0}};
-    const ColVec<1>    b{design::unbounded_bound<double>()};
-    const Matrix<2, 2> Aeq{{1.0, 1.0}, {1.0, 1.0}};
-    const ColVec<2>    beq{1.0, 2.0}; // x1+x2 = 1 and = 2
+    const Matrix    H{{1.0, 0.0}, {0.0, 1.0}};
+    const ColVec<2> f{};
+    const Matrix    A{{1.0, 0.0}};
+    const ColVec<1> b{design::unbounded_bound<double>()};
+    const Matrix    Aeq{{1.0, 1.0}, {1.0, 1.0}};
+    const ColVec    beq{1.0, 2.0}; // x1+x2 = 1 and = 2
 
     const auto res = design::solve_qp(H, f, A, b, Aeq, beq);
     CHECK(!res.success);
@@ -621,12 +621,12 @@ TEST_CASE("inconsistent equalities are reported infeasible") {
 
 TEST_CASE("equality-constrained solve_qp is constexpr") {
     constexpr auto res = [] {
-        constexpr auto         H = Matrix<2, 2>::identity();
-        constexpr ColVec<2>    f{-1.0, 0.0};
-        constexpr Matrix<1, 2> A{{1.0, 0.0}};
-        constexpr ColVec<1>    b{design::unbounded_bound<double>()};
-        constexpr Matrix<1, 2> Aeq{{1.0, 1.0}};
-        constexpr ColVec<1>    beq{1.0};
+        constexpr auto      H = Matrix<2, 2>::identity();
+        constexpr ColVec    f{-1.0, 0.0};
+        constexpr Matrix    A{{1.0, 0.0}};
+        constexpr ColVec<1> b{design::unbounded_bound<double>()};
+        constexpr Matrix    Aeq{{1.0, 1.0}};
+        constexpr ColVec    beq{1.0};
         return design::solve_qp(H, f, A, b, Aeq, beq);
     }();
     static_assert(res.success);
@@ -636,12 +636,12 @@ TEST_CASE("equality-constrained solve_qp is constexpr") {
 }
 
 TEST_CASE("matlab::quadprog equality overload returns the same minimizer") {
-    const auto         H = Matrix<3, 3>::identity();
-    const ColVec<3>    f{};
-    const Matrix<1, 3> A{{1.0, 0.0, 0.0}};
-    const ColVec<1>    b{design::unbounded_bound<double>()};
-    const Matrix<1, 3> Aeq{{1.0, 1.0, 1.0}};
-    const ColVec<1>    beq{1.0};
+    const auto      H = Matrix<3, 3>::identity();
+    const ColVec<3> f{};
+    const Matrix    A{{1.0, 0.0, 0.0}};
+    const ColVec<1> b{design::unbounded_bound<double>()};
+    const Matrix    Aeq{{1.0, 1.0, 1.0}};
+    const ColVec    beq{1.0};
 
     const auto x = *matlab::quadprog(H, f, A, b, Aeq, beq);
     for (size_t v = 0; v < 3; ++v) {
@@ -662,8 +662,8 @@ TEST_CASE("solve_qp is invariant to scaling the cost") {
     for (const double s : {1e-14, 1.0, 1e14}) {
         const Matrix<2, 2> H{{s, -s}, {-s, 2.0 * s}};
         const ColVec<2>    f{-2.0 * s, -6.0 * s};
-        const Matrix<3, 2> A{{1.0, 1.0}, {-1.0, 2.0}, {2.0, 1.0}};
-        const ColVec<3>    b{2.0, 2.0, 3.0};
+        const Matrix       A{{1.0, 1.0}, {-1.0, 2.0}, {2.0, 1.0}};
+        const ColVec       b{2.0, 2.0, 3.0};
         const auto         res = design::solve_qp(H, f, A, b);
         CAPTURE(s);
         REQUIRE(res.success);
@@ -673,8 +673,8 @@ TEST_CASE("solve_qp is invariant to scaling the cost") {
 }
 
 TEST_CASE("solve_qp is invariant to scaling the constraint rows") {
-    const Matrix<2, 2> H{{1.0, -1.0}, {-1.0, 2.0}};
-    const ColVec<2>    f{-2.0, -6.0};
+    const Matrix H{{1.0, -1.0}, {-1.0, 2.0}};
+    const ColVec f{-2.0, -6.0};
     for (const double s : {1e-9, 1.0, 1e9}) {
         const Matrix<3, 2> A{{s, s}, {-s, 2.0 * s}, {2.0 * s, s}};
         const ColVec<3>    b{2.0 * s, 2.0 * s, 3.0 * s};
@@ -735,14 +735,14 @@ TEST_CASE("solve_qp and the interior point refuse non-finite data instead of ret
     //! A NaN f gave x = NaN with Success, and a NaN bᵢ dropped its row silently (x = [3, 3]).
     const double       nan = std::numeric_limits<double>::quiet_NaN();
     const Matrix<2, 2> H = Matrix<2, 2>::identity();
-    const ColVec<2>    f{-3.0, -3.0};
-    const Matrix<1, 2> A{{1.0, 1.0}};
-    CHECK(design::solve_qp(H, ColVec<2>{nan, -3.0}, A, ColVec<1>{2.0}).status == design::QPStatus::NonFinite);
+    const ColVec       f{-3.0, -3.0};
+    const Matrix       A{{1.0, 1.0}};
+    CHECK(design::solve_qp(H, ColVec<2>{nan, -3.0}, A, ColVec{2.0}).status == design::QPStatus::NonFinite);
     CHECK(design::solve_qp(H, f, A, ColVec<1>{nan}).status == design::QPStatus::NonFinite);
-    CHECK(design::solve_qp(H, f, Matrix<1, 2>{{nan, 1.0}}, ColVec<1>{2.0}).status == design::QPStatus::NonFinite);
+    CHECK(design::solve_qp(H, f, Matrix<1, 2>{{nan, 1.0}}, ColVec{2.0}).status == design::QPStatus::NonFinite);
     CHECK(design::solve_qp_interior_point(H, f, A, ColVec<1>{nan}).status == design::QPStatus::NonFinite);
-    CHECK(design::solve_qp_interior_point(H, ColVec<2>{nan, -3.0}, A, ColVec<1>{2.0}).status == design::QPStatus::NonFinite);
-    const auto ok = design::solve_qp(H, f, A, ColVec<1>{2.0});
+    CHECK(design::solve_qp_interior_point(H, ColVec<2>{nan, -3.0}, A, ColVec{2.0}).status == design::QPStatus::NonFinite);
+    const auto ok = design::solve_qp(H, f, A, ColVec{2.0});
     REQUIRE(ok.success);
     CHECK(ok.x(0) == doctest::Approx(1.0));
 }

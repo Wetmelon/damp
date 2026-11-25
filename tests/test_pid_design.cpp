@@ -343,10 +343,10 @@ TEST_SUITE("PID Design - Margin helpers") {
 TEST_SUITE("PID Design - Plant pidtune") {
     TEST_CASE("PI at ωc on 1/(s+1)") {
         constexpr StateSpace sys{
-            .A = Matrix<1, 1>{{-1.0}},
-            .B = Matrix<1, 1>{{1.0}},
-            .C = Matrix<1, 1>{{1.0}},
-            .D = Matrix<1, 1>{{0.0}},
+            .A = Matrix{{-1.0}},
+            .B = Matrix{{1.0}},
+            .C = Matrix{{1.0}},
+            .D = Matrix{{0.0}},
         };
         const auto pi = design::pidtune(sys, {.wc = 2.0, .phase_margin_deg = 60.0, .mode = PIDMode::PI});
         REQUIRE(pi.success);
@@ -359,10 +359,10 @@ TEST_SUITE("PID Design - Plant pidtune") {
 
     TEST_CASE("PIDTuneSpec copies Tf and 2-DOF weights") {
         constexpr StateSpace sys{
-            .A = Matrix<1, 1>{{-1.0}},
-            .B = Matrix<1, 1>{{1.0}},
-            .C = Matrix<1, 1>{{1.0}},
-            .D = Matrix<1, 1>{{0.0}},
+            .A = Matrix{{-1.0}},
+            .B = Matrix{{1.0}},
+            .C = Matrix{{1.0}},
+            .D = Matrix{{0.0}},
         };
         design::PIDTuneSpec<double> spec{};
         spec.wc = 2.0;
@@ -381,10 +381,10 @@ TEST_SUITE("PID Design - Plant pidtune") {
 
     TEST_CASE("1-DOF pidtune is unchanged when b=c=1") {
         constexpr StateSpace sys{
-            .A = Matrix<1, 1>{{-1.0}},
-            .B = Matrix<1, 1>{{1.0}},
-            .C = Matrix<1, 1>{{1.0}},
-            .D = Matrix<1, 1>{{0.0}},
+            .A = Matrix{{-1.0}},
+            .B = Matrix{{1.0}},
+            .C = Matrix{{1.0}},
+            .D = Matrix{{0.0}},
         };
         const auto                  a = design::pidtune(sys, {.wc = 2.0, .phase_margin_deg = 60.0, .mode = PIDMode::PI});
         design::PIDTuneSpec<double> spec{};
@@ -403,10 +403,10 @@ TEST_SUITE("PID Design - Plant pidtune") {
 
     TEST_CASE("I-P pidtune matches 1-DOF T −3 dB") {
         constexpr StateSpace sys{
-            .A = Matrix<1, 1>{{-1.0}},
-            .B = Matrix<1, 1>{{1.0}},
-            .C = Matrix<1, 1>{{1.0}},
-            .D = Matrix<1, 1>{{0.0}},
+            .A = Matrix{{-1.0}},
+            .B = Matrix{{1.0}},
+            .C = Matrix{{1.0}},
+            .D = Matrix{{0.0}},
         };
         constexpr double            wc = 2.0;
         design::PIDTuneSpec<double> one{};
@@ -461,8 +461,8 @@ TEST_SUITE("PID Design - Plant pidtune") {
         const StateSpace sys{
             .A = Matrix<2, 2>{{0.0, -1.0 / L}, {1.0 / C, -1.0 / (R * C)}},
             .B = Matrix<2, 1>{{1.0 / L}, {0.0}},
-            .C = Matrix<1, 2>{{0.0, 1.0}},
-            .D = Matrix<1, 1>{{0.0}},
+            .C = Matrix{{0.0, 1.0}},
+            .D = Matrix{{0.0}},
         };
         constexpr double            wc = 27650.638614364343;
         design::PIDTuneSpec<double> spec{};
@@ -638,10 +638,10 @@ TEST_SUITE("PID Design - Plant pidtune") {
 
     TEST_CASE("matlab::pidtune(sys, wc) is 60° PID") {
         constexpr StateSpace sys{
-            .A = Matrix<2, 2>{{0.0, 1.0}, {-1.0, -0.5}},
-            .B = Matrix<2, 1>{{0.0}, {1.0}},
-            .C = Matrix<1, 2>{{1.0, 0.0}},
-            .D = Matrix<1, 1>{{0.0}},
+            .A = Matrix{{0.0, 1.0}, {-1.0, -0.5}},
+            .B = Matrix{{0.0}, {1.0}},
+            .C = Matrix{{1.0, 0.0}},
+            .D = Matrix{{0.0}},
         };
         const auto a = matlab::pidtune(sys, 1.0);
         const auto b = design::pidtune(sys, {.wc = 1.0, .phase_margin_deg = 60.0, .mode = PIDMode::PID});
@@ -1162,7 +1162,7 @@ TEST_SUITE("PID Design - PI Pole Placement (first-order plant)") {
         CHECK(pid_ss.Tf == doctest::Approx(pid_tf.Tf).epsilon(1e-12));
 
         // The same plant in mixed coordinates is still all-pole: C·B cancels to rounding residue.
-        const auto mixed = similarity_transform(msd, Matrix<2, 2>{{1000.0, 0.2}, {0.3, 1.7}});
+        const auto mixed = similarity_transform(msd, Matrix{{1000.0, 0.2}, {0.3, 1.7}});
         REQUIRE(mixed.success);
         const auto pid_mixed = design::pid_pole_placement(mixed.sys, {.omega = w, .omega_i = w / 8.0});
         REQUIRE(pid_mixed.success);

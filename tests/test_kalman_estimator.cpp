@@ -76,13 +76,13 @@ StateSpace<2, 1, 1, double, 2, 1> plant_d() {
     return p;
 }
 
-const auto         kPlantD = plant_d();
-const Matrix<2, 2> kQp{{1e-6, 0.0}, {0.0, 1e-4}};
-const Matrix<1, 1> kRn{{1e-6}};
-const Matrix<1, 1> kQd{{1e-3}};
-const Matrix<2, 2> kQ{{1e3, 0.0}, {0.0, 1.0}};
-const Matrix<3, 3> kQ3{{1e3, 0.0, 0.0}, {0.0, 1.0, 0.0}, {0.0, 0.0, 0.0}}; // kQ on [x; v(k−1)], the delay state unweighted
-const Matrix<1, 1> kR{{1e-2}};
+const auto   kPlantD = plant_d();
+const Matrix kQp{{1e-6, 0.0}, {0.0, 1e-4}};
+const Matrix kRn{{1e-6}};
+const Matrix kQd{{1e-3}};
+const Matrix kQ{{1e3, 0.0}, {0.0, 1.0}};
+const Matrix kQ3{{1e3, 0.0, 0.0}, {0.0, 1.0, 0.0}, {0.0, 0.0, 0.0}}; // kQ on [x; v(k−1)], the delay state unweighted
+const Matrix kR{{1e-2}};
 
 template<typename A, typename B>
 double gap(const A& a, const B& b) {
@@ -214,9 +214,9 @@ TEST_SUITE("Disturbance specs") {
     }
 
     TEST_CASE("KalmanNoise carries the disturbance's random walk only with a disturbance model") {
-        constexpr design::KalmanNoise plain{Matrix<2, 2>::identity(), Matrix<1, 1>{{0.1}}};
+        constexpr design::KalmanNoise plain{Matrix<2, 2>::identity(), Matrix{{0.1}}};
         static_assert(std::is_same_v<std::remove_cvref_t<decltype(plain)>, design::KalmanNoise<2, 1, double, 0>>);
-        constexpr design::KalmanNoise with_d{Matrix<2, 2>::identity(), Matrix<1, 1>{{0.1}}, Matrix<1, 1>{{0.5}}};
+        constexpr design::KalmanNoise with_d{Matrix<2, 2>::identity(), Matrix{{0.1}}, Matrix{{0.5}}};
         static_assert(std::is_same_v<std::remove_cvref_t<decltype(with_d)>, design::KalmanNoise<2, 1, double, 1>>);
         static_assert(with_d.disturbance(0, 0) == 0.5);
     }
@@ -271,9 +271,9 @@ TEST_SUITE("design::kalman with a disturbance spec") {
         CHECK(gap(filt.M, old.kalman.M) < 1e-12);
         CHECK(gap(tg.target_d, old.target.target_d) < 1e-12);
         CHECK(gap(tg.target_r, old.target.target_r) < 1e-12);
-        CHECK(std::abs(filt.M(2, 0)) < 1e-12 * filt.M.norm());                       // a command already sent: no gain on the delay state
-        CHECK(gap(tg.target_r, Matrix<4, 1>{{1.0}, {0.0}, {4.0}, {4.0}}) < 1e-12);   // [x_t; v_t; u_t] per unit r
-        CHECK(gap(tg.target_d, Matrix<4, 1>{{0.0}, {0.0}, {-1.0}, {-1.0}}) < 1e-12); // u_t = −d, and the delay state holds it
+        CHECK(std::abs(filt.M(2, 0)) < 1e-12 * filt.M.norm());                 // a command already sent: no gain on the delay state
+        CHECK(gap(tg.target_r, Matrix{{1.0}, {0.0}, {4.0}, {4.0}}) < 1e-12);   // [x_t; v_t; u_t] per unit r
+        CHECK(gap(tg.target_d, Matrix{{0.0}, {0.0}, {-1.0}, {-1.0}}) < 1e-12); // u_t = −d, and the delay state holds it
 
         //! a fraction of a period from the continuous plant; d adds to the command, so it enters the delay state too: B_d = B = [Γ₀; I]
         auto part = discretize(mass_spring(), kTs, InputDelay{0.4 * kTs}).value();
@@ -287,8 +287,8 @@ TEST_SUITE("design::kalman with a disturbance spec") {
         CHECK(gap(filt_c.M, old_c.kalman.M) < 1e-12);
         CHECK(gap(tg_c.target_d, old_c.target.target_d) < 1e-12);
         CHECK(gap(tg_c.target_r, old_c.target.target_r) < 1e-12);
-        CHECK(gap(tg_c.target_r, Matrix<4, 1>{{1.0}, {0.0}, {4.0}, {4.0}}) < 1e-12);
-        CHECK(gap(tg_c.target_d, Matrix<4, 1>{{0.0}, {0.0}, {0.0}, {-1.0}}) < 1e-12); // the delay state holds u_t + d = 4r
+        CHECK(gap(tg_c.target_r, Matrix{{1.0}, {0.0}, {4.0}, {4.0}}) < 1e-12);
+        CHECK(gap(tg_c.target_d, Matrix{{0.0}, {0.0}, {0.0}, {-1.0}}) < 1e-12); // the delay state holds u_t + d = 4r
     }
 
     TEST_CASE("a non-finite DisturbanceModel::Bd is refused, on a continuous plant and on a discrete one") {
@@ -325,7 +325,7 @@ TEST_SUITE("design::kalman with a disturbance spec") {
         const StateSpace chain{.A = {{-1.0, 1.0}, {0.0, -1.0}}, .B = {{0.0}, {1.0}}, .C = {{1.0, 0.0}, {0.0, 1.0}}};
         for (const auto& tg : {design::steady_state_target(chain, 0.1, design::TrackedOutputs{{0}}), design::steady_state_target(chain, 0.1, design::TrackedOutputs{{1}})}) {
             REQUIRE(tg.success);
-            const auto s = tg.target_r * ColVec<1>{2.0};
+            const auto s = tg.target_r * ColVec{2.0};
             CHECK(s(0) == doctest::Approx(2.0).epsilon(1e-12)); // x₁ = x₂ = u at every steady state
             CHECK(s(1) == doctest::Approx(2.0).epsilon(1e-12));
             CHECK(s(2) == doctest::Approx(2.0).epsilon(1e-12));
@@ -335,10 +335,10 @@ TEST_SUITE("design::kalman with a disturbance spec") {
     TEST_CASE("an explicit model and the listed outputs") {
         auto sys = discretize(two_sensors(), kTs).value();
         sys.G = Matrix<2, 2>::identity(); // the process noise on the states
-        const auto old = design::state_feedback(sys, {.Q = kQ, .R = kR}, design::KalmanNoise{kQp, Matrix<2, 2>{{1e-6, 0.0}, {0.0, 1e-4}}, kQd}, design::DisturbanceModel{.Bd = sys.B, .outputs = {0}});
+        const auto old = design::state_feedback(sys, {.Q = kQ, .R = kR}, design::KalmanNoise{kQp, Matrix{{1e-6, 0.0}, {0.0, 1e-4}}, kQd}, design::DisturbanceModel{.Bd = sys.B, .outputs = {0}});
         REQUIRE(old.success);
         const design::DisturbanceModel spec{.Bd = sys.B, .outputs = {0}};
-        const auto                     filt = design::kalman(sys, design::KalmanNoise{.process = kQp, .measurement = Matrix<2, 2>{{1e-6, 0.0}, {0.0, 1e-4}}, .disturbance = kQd}, spec);
+        const auto                     filt = design::kalman(sys, design::KalmanNoise{.process = kQp, .measurement = Matrix{{1e-6, 0.0}, {0.0, 1e-4}}, .disturbance = kQd}, spec);
         const auto                     tg = design::steady_state_target(sys, spec);
         REQUIRE(filt.success);
         REQUIRE(tg.success);
@@ -349,9 +349,9 @@ TEST_SUITE("design::kalman with a disturbance spec") {
         //! a force through the plant's G that the sensor also reads through H: B_d = G, C_d = H
         StateSpace<2, 1, 1, double, 1, 1> g{.A = mass_spring().A, .B = mass_spring().B, .C = mass_spring().C};
         g.G = mass_spring().B;
-        g.H = Matrix<1, 1>{{0.5}};
+        g.H = Matrix{{0.5}};
         const auto gd = discretize(g, kTs).value();
-        const auto filt_g = design::kalman(gd, design::KalmanNoise{.process = Matrix<1, 1>{{1e-4}}, .measurement = Matrix<1, 1>{{1e-6}}, .disturbance = kQd}, design::PlantDisturbance{});
+        const auto filt_g = design::kalman(gd, design::KalmanNoise{.process = Matrix{{1e-4}}, .measurement = Matrix{{1e-6}}, .disturbance = kQd}, design::PlantDisturbance{});
         REQUIRE(filt_g.success);
         CHECK(gap(filt_g.sys.A.block<2, 1>(0, 2).to_matrix(), gd.G) == 0.0);
         CHECK(gap(filt_g.sys.C.block<1, 1>(0, 2).to_matrix(), gd.H) == 0.0);
@@ -359,10 +359,10 @@ TEST_SUITE("design::kalman with a disturbance spec") {
 
     TEST_CASE("refusals: an undetectable augment, an output out of range, a continuous plant") {
         //! an output bias on an integrator: rank [A − I, 0; C, I] < NX + ND
-        const StateSpace<1, 1, 1, double, 1, 1> integrator{.A = Matrix<1, 1>{{1.0}}, .B = Matrix<1, 1>{{kTs}}, .C = Matrix<1, 1>{{1.0}}, .Ts = kTs};
-        const auto                              undetectable = design::kalman(integrator, design::KalmanNoise{.process = Matrix<1, 1>{{1e-4}}, .measurement = Matrix<1, 1>{{1e-6}}, .disturbance = kQd}, design::OutputDisturbance{});
+        const StateSpace<1, 1, 1, double, 1, 1> integrator{.A = Matrix{{1.0}}, .B = Matrix<1, 1>{{kTs}}, .C = Matrix{{1.0}}, .Ts = kTs};
+        const auto                              undetectable = design::kalman(integrator, design::KalmanNoise{.process = Matrix{{1e-4}}, .measurement = Matrix{{1e-6}}, .disturbance = kQd}, design::OutputDisturbance{});
         CHECK(undetectable.status == design::DesignStatus::not_detectable);
-        CHECK(design::kalman(integrator, design::KalmanNoise{.process = Matrix<1, 1>{{1e-4}}, .measurement = Matrix<1, 1>{{1e-6}}, .disturbance = kQd}, design::InputDisturbance{}).success);
+        CHECK(design::kalman(integrator, design::KalmanNoise{.process = Matrix{{1e-4}}, .measurement = Matrix{{1e-6}}, .disturbance = kQd}, design::InputDisturbance{}).success);
 
         CHECK(design::steady_state_target(kPlantD, design::InputDisturbance{{1}}).status == design::DesignStatus::bad_weights);
         CHECK(design::kalman(mass_spring(), design::KalmanNoise{.process = kQp, .measurement = kRn, .disturbance = kQd}, design::InputDisturbance{}).status == design::DesignStatus::invalid_sample_time);
@@ -381,7 +381,7 @@ TEST_SUITE("FixedGainObserver and SteadyStateTarget") {
         const auto        res = design::kalman(kPlantD, design::KalmanNoise{.process = kQp, .measurement = kRn});
         FixedGainObserver est{res};
         static_assert(sizeof(KalmanFilter<2, 1, 1, double, 2, 1>) > sizeof(est)); // no P, Q, R, G or H
-        ColVec<2> x{0.1, 0.0};
+        ColVec    x{0.1, 0.0};
         ColVec<2> ref{};
         ColVec<1> u_held{};
         for (int k = 0; k < 100; ++k) {
@@ -408,8 +408,8 @@ TEST_SUITE("FixedGainObserver and SteadyStateTarget") {
         FixedGainObserver<3, 1, 1, double, 1> dev{res};
         FixedGainObserver<3, 1, 1, double>    absf{res}; // the design on [x; d] as an absolute observer
         static_assert(std::is_same_v<decltype(FixedGainObserver{res}), decltype(dev)>);
-        ColVec<2> x{0.05, 0.0};
-        ColVec<1> u{0.1};
+        ColVec x{0.05, 0.0};
+        ColVec u{0.1};
         for (int k = 0; k < 40; ++k) {
             const ColVec<1> y{(kPlantD.C * x)(0, 0)};
             dev.predict(u);
@@ -429,7 +429,7 @@ TEST_SUITE("FixedGainObserver and SteadyStateTarget") {
             if (k == 15) {
                 const auto xhat = dev.state_estimate();
                 const auto dhat = dev.disturbance_estimate();
-                const auto p = target.equilibrium(ColVec<1>{0.2}, dhat);
+                const auto p = target.equilibrium(ColVec{0.2}, dhat);
                 dev.anchor(p.x, p.u);
                 CHECK((dev.state_estimate() - xhat).norm() < 1e-12);
                 CHECK((dev.disturbance_estimate() - dhat).norm() < 1e-12);
@@ -485,13 +485,13 @@ TEST_SUITE("FixedGainObserver and SteadyStateTarget") {
 
     TEST_CASE("the target from r alone, and with a disturbance about a reference point") {
         const SteadyStateTarget target{design::steady_state_target(kPlantD, design::TrackedOutputs{})};
-        const auto              p = target.equilibrium(ColVec<1>{0.3});
+        const auto              p = target.equilibrium(ColVec{0.3});
         CHECK(std::abs((kPlantD.C * p.x)(0, 0) - 0.3) < 1e-12);
         CHECK((kPlantD.A * p.x + kPlantD.B * p.u - p.x).norm() < 1e-12); // a steady state
 
         const SteadyStateTarget with_d{design::steady_state_target(kPlantD, design::InputDisturbance{})};
-        const auto              q = with_d.equilibrium(ColVec<1>{0.3}, ColVec<1>{0.1});
-        CHECK((kPlantD.A * q.x + kPlantD.B * (q.u + ColVec<1>{0.1}) - q.x).norm() < 1e-12); // the input cancels the load
+        const auto              q = with_d.equilibrium(ColVec{0.3}, ColVec{0.1});
+        CHECK((kPlantD.A * q.x + kPlantD.B * (q.u + ColVec{0.1}) - q.x).norm() < 1e-12); // the input cancels the load
         CHECK(std::abs((kPlantD.C * q.x)(0, 0) - 0.3) < 1e-12);
     }
 }
@@ -586,9 +586,9 @@ struct Truth {
 };
 
 const Matrix<4, 4> kQn4 = Matrix<4, 4>::identity() * 1e-4;
-const Matrix<4, 4> kRn4{{1e-6, 0.0, 0.0, 0.0}, {0.0, 1e-6, 0.0, 0.0}, {0.0, 0.0, 1e-5, 0.0}, {0.0, 0.0, 0.0, 1e-5}};
+const Matrix       kRn4{{1e-6, 0.0, 0.0, 0.0}, {0.0, 1e-6, 0.0, 0.0}, {0.0, 0.0, 1e-5, 0.0}, {0.0, 0.0, 0.0, 1e-5}};
 const Matrix<2, 2> kQd2 = Matrix<2, 2>::identity() * 1e-2;
-const Matrix<4, 4> kQ4{{1e3, 0.0, 0.0, 0.0}, {0.0, 0.0, 0.0, 0.0}, {0.0, 0.0, 1e3, 0.0}, {0.0, 0.0, 0.0, 0.0}};
+const Matrix       kQ4{{1e3, 0.0, 0.0, 0.0}, {0.0, 0.0, 0.0, 0.0}, {0.0, 0.0, 1e3, 0.0}, {0.0, 0.0, 0.0, 0.0}};
 const Matrix<6, 6> kQ6 = [] {
     Matrix<6, 6> q{}; // kQ4 on [x; v(k−1)], the delay states unweighted
     q.block<4, 4>(0, 0) = kQ4;
@@ -612,13 +612,13 @@ TEST_SUITE("FixedGainObserver: the anchored law against the textbook form") {
         auto oracle = textbook_law(art);
 
         //! the truth: the delay-state form, built apart from discretize; the load enters with the command
-        Truth<6>        t{test::delay_state_form<1>(four_readings(), kTs, kTs)};
-        const ColVec<2> load{0.3, -0.2};
-        ColVec<2>       u{};
-        Gap             du;
-        Gap             dx;
-        Gap             dd;
-        constexpr int   n = 600;
+        Truth<6>      t{test::delay_state_form<1>(four_readings(), kTs, kTs)};
+        const ColVec  load{0.3, -0.2};
+        ColVec<2>     u{};
+        Gap           du;
+        Gap           dx;
+        Gap           dd;
+        constexpr int n = 600;
         for (int k = 0; k < n; ++k) {
             const ColVec<2> r{((k / 150) % 2 == 0) ? 0.2 : -0.1, 0.05 * std::sin(0.02 * k)};
             const ColVec<4> y = t.y(u);
@@ -668,7 +668,7 @@ TEST_SUITE("FixedGainObserver: the anchored law against the textbook form") {
             du.add(u_law, u_book);
             dx.add(law.state_estimate(), oracle.state_estimate());
             u = u_law;
-            t.step(u, (k > n / 3) ? ColVec<2>{0.2, 0.1} : ColVec<2>{});
+            t.step(u, (k > n / 3) ? ColVec{0.2, 0.1} : ColVec<2>{});
         }
         MESSAGE("commands ", du.relative(), ", estimate ", dx.relative());
         CHECK(du.relative() < 1e-12);

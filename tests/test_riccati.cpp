@@ -42,10 +42,10 @@ TEST_SUITE("Riccati Solvers") {
 
     TEST_CASE("CARE scalar has known solution P = 1") {
         // a = 0, b = 1, q = 1, r = 1  ⇒  −P² + 1 = 0  ⇒  P = 1.
-        constexpr Matrix<1, 1> A{{0.0}};
-        constexpr Matrix<1, 1> B{{1.0}};
-        constexpr Matrix<1, 1> Q{{1.0}};
-        constexpr Matrix<1, 1> R{{1.0}};
+        constexpr Matrix A{{0.0}};
+        constexpr Matrix B{{1.0}};
+        constexpr Matrix Q{{1.0}};
+        constexpr Matrix R{{1.0}};
 
         const auto P = care(A, B, Q, R);
         REQUIRE(P.has_value());
@@ -54,10 +54,10 @@ TEST_SUITE("Riccati Solvers") {
 
     TEST_CASE("CARE residual is ~0 for a double integrator") {
         // Double integrator: position/velocity, acceleration input.
-        constexpr Matrix<2, 2> A{{0.0, 1.0}, {0.0, 0.0}};
-        constexpr Matrix<2, 1> B{{0.0}, {1.0}};
-        constexpr auto         Q = Matrix<2, 2>::identity();
-        constexpr auto         R = Matrix<1, 1>::identity(); // R = I ⇒ R⁻¹ = I, no inverse needed
+        constexpr Matrix A{{0.0, 1.0}, {0.0, 0.0}};
+        constexpr Matrix B{{0.0}, {1.0}};
+        constexpr auto   Q = Matrix<2, 2>::identity();
+        constexpr auto   R = Matrix<1, 1>::identity(); // R = I ⇒ R⁻¹ = I, no inverse needed
 
         const auto P_opt = care(A, B, Q, R);
         REQUIRE(P_opt.has_value());
@@ -73,23 +73,23 @@ TEST_SUITE("Riccati Solvers") {
     }
 
     TEST_CASE("CARE is usable at compile time (constexpr)") {
-        constexpr Matrix<1, 1> A{{0.0}};
-        constexpr Matrix<1, 1> B{{1.0}};
-        constexpr Matrix<1, 1> Q{{1.0}};
-        constexpr Matrix<1, 1> R{{1.0}};
-        constexpr auto         P = care(A, B, Q, R);
+        constexpr Matrix A{{0.0}};
+        constexpr Matrix B{{1.0}};
+        constexpr Matrix Q{{1.0}};
+        constexpr Matrix R{{1.0}};
+        constexpr auto   P = care(A, B, Q, R);
         static_assert(P.has_value(), "scalar CARE must converge at compile time");
     }
 
     TEST_CASE("CARE scalar cross-term has the stabilizing root") {
         // (X + N)² = Q with N = 1/2, Q = R = 1 ⇒ X = 1/2 (closed loop pole −1).
         // X = −3/2 also has a zero residual and an unstable closed loop.
-        constexpr Matrix<1, 1> A{{0.0}};
-        constexpr Matrix<1, 1> B{{1.0}};
-        constexpr Matrix<1, 1> Q{{1.0}};
-        constexpr Matrix<1, 1> R{{1.0}};
-        constexpr Matrix<1, 1> N{{0.5}};
-        const auto             P = care(A, B, Q, R, N);
+        constexpr Matrix A{{0.0}};
+        constexpr Matrix B{{1.0}};
+        constexpr Matrix Q{{1.0}};
+        constexpr Matrix R{{1.0}};
+        constexpr Matrix N{{0.5}};
+        const auto       P = care(A, B, Q, R, N);
         REQUIRE(P.has_value());
         CHECK(P.value()(0, 0) == doctest::Approx(0.5));
     }
@@ -97,8 +97,8 @@ TEST_SUITE("Riccati Solvers") {
     TEST_CASE("CARE tiny input weight matches the analytic double integrator") {
         // q1 = q2 = 1, r = 1e−8. Stabilizing root:
         //   p12 = √(q1 r),  p22 = √(r (q2 + 2 p12)),  p11 = p12 p22 / r.
-        constexpr Matrix<2, 2> A{{0.0, 1.0}, {0.0, 0.0}};
-        constexpr Matrix<2, 1> B{{0.0}, {1.0}};
+        constexpr Matrix       A{{0.0, 1.0}, {0.0, 0.0}};
+        constexpr Matrix       B{{0.0}, {1.0}};
         constexpr auto         Q = Matrix<2, 2>::identity();
         constexpr double       r = 1e-8;
         constexpr Matrix<1, 1> R{{r}};
@@ -119,11 +119,11 @@ TEST_SUITE("Riccati Solvers") {
     // balanced residual sits near 3×10⁻⁴, above the certificate.
 
     TEST_CASE("CARE CAREX 7 matches the balanced reference") {
-        constexpr Matrix<2, 2> A{{1.0, 0.0}, {0.0, -2.0}};
-        constexpr Matrix<2, 1> B{{1e-6}, {0.0}};
-        constexpr Matrix<2, 2> Q{{1.0, 1.0}, {1.0, 1.0}};
-        constexpr Matrix<1, 1> R{{1.0}};
-        const auto             P = care(A, B, Q, R);
+        constexpr Matrix A{{1.0, 0.0}, {0.0, -2.0}};
+        constexpr Matrix B{{1e-6}, {0.0}};
+        constexpr Matrix Q{{1.0, 1.0}, {1.0, 1.0}};
+        constexpr Matrix R{{1.0}};
+        const auto       P = care(A, B, Q, R);
         REQUIRE(P.has_value());
         CHECK(P.value()(0, 0) == doctest::Approx(2e12).epsilon(1e-8));
         CHECK(P.value()(0, 1) == doctest::Approx(1.0 / 3.0).epsilon(1e-6));
@@ -131,11 +131,11 @@ TEST_SUITE("Riccati Solvers") {
     }
 
     TEST_CASE("CARE CAREX 9 matches the balanced reference") {
-        constexpr Matrix<2, 2> A{{0.0, 1e6}, {0.0, 0.0}};
-        constexpr Matrix<2, 1> B{{0.0}, {1.0}};
-        constexpr auto         Q = Matrix<2, 2>::identity();
-        constexpr Matrix<1, 1> R{{1.0}};
-        const auto             P = care(A, B, Q, R);
+        constexpr Matrix A{{0.0, 1e6}, {0.0, 0.0}};
+        constexpr Matrix B{{0.0}, {1.0}};
+        constexpr auto   Q = Matrix<2, 2>::identity();
+        constexpr Matrix R{{1.0}};
+        const auto       P = care(A, B, Q, R);
         REQUIRE(P.has_value());
         const double s = damp::sqrt(2.0);
         CHECK(P.value()(0, 0) == doctest::Approx(s * 1e-3).epsilon(1e-6));
@@ -144,15 +144,15 @@ TEST_SUITE("Riccati Solvers") {
     }
 
     TEST_CASE("CARE CAREX 13 matches the balanced reference") {
-        constexpr Matrix<4, 4> A{{0.0, 0.4, 0.0, 0.0}, {0.0, 0.0, 0.345, 0.0}, {0.0, -5.24e5, -4.65e5, 2.62e5}, {0.0, 0.0, 0.0, -1e6}};
-        constexpr Matrix<4, 1> B{{0.0}, {0.0}, {0.0}, {1e6}};
-        Matrix<4, 4>           Q = Matrix<4, 4>::zeros();
+        constexpr Matrix A{{0.0, 0.4, 0.0, 0.0}, {0.0, 0.0, 0.345, 0.0}, {0.0, -5.24e5, -4.65e5, 2.62e5}, {0.0, 0.0, 0.0, -1e6}};
+        constexpr Matrix B{{0.0}, {0.0}, {0.0}, {1e6}};
+        Matrix<4, 4>     Q = Matrix<4, 4>::zeros();
         Q(0, 0) = 1.0;
         Q(2, 2) = 1.0;
-        constexpr Matrix<1, 1> R{{1.0}};
-        const auto             P = care(A, B, Q, R);
+        constexpr Matrix R{{1.0}};
+        const auto       P = care(A, B, Q, R);
         REQUIRE(P.has_value());
-        constexpr Matrix<4, 4> Xref{{7.38402467, 5.90476206, 3.99308234e-6, 1.00000000e-6}, {5.90476206, 7.15160630, 3.79969886e-6, 8.61234718e-7}, {3.99308234e-6, 3.79969886e-6, 1.04029358e-6, 1.80359619e-7}, {1.00000000e-6, 8.61234718e-7, 1.80359619e-7, 4.61875742e-8}};
+        constexpr Matrix Xref{{7.38402467, 5.90476206, 3.99308234e-6, 1.00000000e-6}, {5.90476206, 7.15160630, 3.79969886e-6, 8.61234718e-7}, {3.99308234e-6, 3.79969886e-6, 1.04029358e-6, 1.80359619e-7}, {1.00000000e-6, 8.61234718e-7, 1.80359619e-7, 4.61875742e-8}};
         CHECK((P.value() - Xref).norm() / Xref.norm() < 1e-7);
     }
 
@@ -160,11 +160,11 @@ TEST_SUITE("Riccati Solvers") {
         // Eigenvalues sit on the imaginary axis. The residual is flat, so X
         // agrees with SciPy to about 3×10⁻⁴; a false subspace used to return
         // a residual of 0.46.
-        constexpr Matrix<4, 4> A{{-1e-6, 1.0, 0.0, 0.0}, {-1.0, -1e-6, 0.0, 0.0}, {0.0, 0.0, 1e-6, 1.0}, {0.0, 0.0, -1.0, 1e-6}};
-        constexpr Matrix<4, 1> B{{1.0}, {1.0}, {1.0}, {1.0}};
-        constexpr Matrix<4, 4> Q{{1, 1, 1, 1}, {1, 1, 1, 1}, {1, 1, 1, 1}, {1, 1, 1, 1}};
-        constexpr Matrix<1, 1> R{{1.0}};
-        const auto             P = care(A, B, Q, R);
+        constexpr Matrix A{{-1e-6, 1.0, 0.0, 0.0}, {-1.0, -1e-6, 0.0, 0.0}, {0.0, 0.0, 1e-6, 1.0}, {0.0, 0.0, -1.0, 1e-6}};
+        constexpr Matrix B{{1.0}, {1.0}, {1.0}, {1.0}};
+        constexpr Matrix Q{{1, 1, 1, 1}, {1, 1, 1, 1}, {1, 1, 1, 1}, {1, 1, 1, 1}};
+        constexpr Matrix R{{1.0}};
+        const auto       P = care(A, B, Q, R);
         REQUIRE(P.has_value());
         const Matrix<4, 4> G = B * B.transpose();
         const auto         AtX = A.transpose() * P.value();
@@ -184,11 +184,11 @@ TEST_SUITE("Riccati Solvers") {
     }
 
     TEST_CASE("float CARE succeeds on a double integrator") {
-        constexpr Matrix<2, 2, float> A{{0.0f, 1.0f}, {0.0f, 0.0f}};
-        constexpr Matrix<2, 1, float> B{{0.0f}, {1.0f}};
-        constexpr auto                Q = Matrix<2, 2, float>::identity();
-        constexpr auto                R = Matrix<1, 1, float>::identity();
-        const auto                    P = care(A, B, Q, R);
+        constexpr Matrix A{{0.0f, 1.0f}, {0.0f, 0.0f}};
+        constexpr Matrix B{{0.0f}, {1.0f}};
+        constexpr auto   Q = Matrix<2, 2, float>::identity();
+        constexpr auto   R = Matrix<1, 1, float>::identity();
+        const auto       P = care(A, B, Q, R);
         REQUIRE(P.has_value());
         CHECK(P.value()(0, 0) == doctest::Approx(damp::sqrt(3.0f)).epsilon(1e-4));
         CHECK(P.value()(0, 1) == doctest::Approx(1.0f).epsilon(1e-4));
@@ -202,7 +202,7 @@ TEST_SUITE("Riccati Solvers") {
     TEST_CASE("CARE CAREX 12 matches its closed form") {
         constexpr Matrix<3, 3> A{{7000000.0 / 3.0, 2000000.0 / 3.0, 0.0}, {2000000.0 / 3.0, 6000000.0 / 3.0, -2000000.0 / 3.0}, {0.0, -2000000.0 / 3.0, 5000000.0 / 3.0}};
         constexpr auto         B = Matrix<3, 3>::identity();
-        constexpr Matrix<3, 3> M{{1.0, -2.0, -2.0}, {-2.0, 1.0, -2.0}, {-2.0, -2.0, 1.0}};
+        constexpr Matrix       M{{1.0, -2.0, -2.0}, {-2.0, 1.0, -2.0}, {-2.0, -2.0, 1.0}};
         Matrix<3, 3>           D = Matrix<3, 3>::zeros();
         D(0, 0) = 1e-6;
         D(1, 1) = 1.0;
@@ -230,10 +230,10 @@ TEST_SUITE("Riccati Solvers") {
     // AᵀPA − P − AᵀPB(R + BᵀPB)⁻¹BᵀPA + Q = 0
 
     TEST_CASE("DARE residual is ~0 for a scalar system") {
-        constexpr Matrix<1, 1> A{{1.0}};
-        constexpr Matrix<1, 1> B{{1.0}};
-        constexpr Matrix<1, 1> Q{{1.0}};
-        constexpr Matrix<1, 1> R{{1.0}};
+        constexpr Matrix A{{1.0}};
+        constexpr Matrix B{{1.0}};
+        constexpr Matrix Q{{1.0}};
+        constexpr Matrix R{{1.0}};
 
         const auto P_opt = dare(A, B, Q, R);
         REQUIRE(P_opt.has_value());
@@ -248,10 +248,10 @@ TEST_SUITE("Riccati Solvers") {
 
     TEST_CASE("DARE residual is ~0 for a discretized double integrator") {
         // x[k+1] = A x[k] + B u[k], Ts = 0.1 s.
-        constexpr Matrix<2, 2> A{{1.0, 0.1}, {0.0, 1.0}};
-        constexpr Matrix<2, 1> B{{0.005}, {0.1}};
-        constexpr auto         Q = Matrix<2, 2>::identity();
-        constexpr auto         R = Matrix<1, 1>::identity();
+        constexpr Matrix A{{1.0, 0.1}, {0.0, 1.0}};
+        constexpr Matrix B{{0.005}, {0.1}};
+        constexpr auto   Q = Matrix<2, 2>::identity();
+        constexpr auto   R = Matrix<1, 1>::identity();
 
         const auto P_opt = dare(A, B, Q, R);
         REQUIRE(P_opt.has_value());
@@ -270,10 +270,10 @@ TEST_SUITE("Riccati Solvers") {
     TEST_CASE("DARE solution matches discrete_lqr's Riccati solution S") {
         // discrete_lqr solves the same DARE internally; its S field must agree
         // with calling design::dare directly on the same (A, B, Q, R).
-        constexpr Matrix<2, 2> A{{1.0, 0.1}, {0.0, 1.0}};
-        constexpr Matrix<2, 1> B{{0.005}, {0.1}};
-        constexpr auto         Q = Matrix<2, 2>::identity();
-        constexpr auto         R = Matrix<1, 1>::identity();
+        constexpr Matrix A{{1.0, 0.1}, {0.0, 1.0}};
+        constexpr Matrix B{{0.005}, {0.1}};
+        constexpr auto   Q = Matrix<2, 2>::identity();
+        constexpr auto   R = Matrix<1, 1>::identity();
 
         const auto P_opt = dare(A, B, Q, R);
         REQUIRE(P_opt.has_value());
@@ -286,20 +286,20 @@ TEST_SUITE("Riccati Solvers") {
     }
 
     TEST_CASE("DARE is usable at compile time (constexpr)") {
-        constexpr Matrix<1, 1> A{{1.0}};
-        constexpr Matrix<1, 1> B{{1.0}};
-        constexpr Matrix<1, 1> Q{{1.0}};
-        constexpr Matrix<1, 1> R{{1.0}};
-        constexpr auto         P = damp::dare(A, B, Q, R);
+        constexpr Matrix A{{1.0}};
+        constexpr Matrix B{{1.0}};
+        constexpr Matrix Q{{1.0}};
+        constexpr Matrix R{{1.0}};
+        constexpr auto   P = damp::dare(A, B, Q, R);
         static_assert(P.has_value(), "scalar DARE must converge at compile time");
     }
 
     TEST_CASE("float DARE succeeds on a simple discrete plant") {
         // Hard-coded 1e-12 tol fails float DARE; default_tol<float>() = 1e-6.
-        constexpr Matrix<1, 1, float> A{{1.0f}};
-        constexpr Matrix<1, 1, float> B{{1.0f}};
-        constexpr Matrix<1, 1, float> Q{{1.0f}};
-        constexpr Matrix<1, 1, float> R{{1.0f}};
+        constexpr Matrix A{{1.0f}};
+        constexpr Matrix B{{1.0f}};
+        constexpr Matrix Q{{1.0f}};
+        constexpr Matrix R{{1.0f}};
 
         const auto P_opt = dare(A, B, Q, R);
         REQUIRE(P_opt.has_value());
@@ -308,10 +308,10 @@ TEST_SUITE("Riccati Solvers") {
     }
 
     TEST_CASE("float DARE succeeds on discretized double integrator") {
-        constexpr Matrix<2, 2, float> A{{1.0f, 0.1f}, {0.0f, 1.0f}};
-        constexpr Matrix<2, 1, float> B{{0.005f}, {0.1f}};
-        constexpr auto                Q = Matrix<2, 2, float>::identity();
-        constexpr auto                R = Matrix<1, 1, float>::identity();
+        constexpr Matrix A{{1.0f, 0.1f}, {0.0f, 1.0f}};
+        constexpr Matrix B{{0.005f}, {0.1f}};
+        constexpr auto   Q = Matrix<2, 2, float>::identity();
+        constexpr auto   R = Matrix<1, 1, float>::identity();
 
         const auto P_opt = dare(A, B, Q, R);
         REQUIRE(P_opt.has_value());
@@ -324,10 +324,10 @@ TEST_SUITE("Riccati Solvers") {
 TEST_SUITE("DARE: Cross-Term N Support") {
     TEST_CASE("dare with zero cross-term N matches no-N variant") {
         // Verify that dare(A, B, Q, R, N={0}) produces same result as dare(A, B, Q, R)
-        Matrix<2, 2> A{{0.95, 0.1}, {0.0, 0.9}};
-        Matrix<2, 1> B{{0.1}, {0.1}};
+        Matrix       A{{0.95, 0.1}, {0.0, 0.9}};
+        Matrix       B{{0.1}, {0.1}};
         Matrix<2, 2> Q = Matrix<2, 2>::identity();
-        Matrix<1, 1> R = {{1.0}};
+        Matrix       R = {{1.0}};
         Matrix<2, 1> N{};
 
         auto P_no_N = dare(A, B, Q, R);
@@ -344,11 +344,11 @@ TEST_SUITE("DARE: Cross-Term N Support") {
     }
 
     TEST_CASE("dare with non-zero cross-term N produces valid result") {
-        Matrix<1, 1> A = {{1.0}};
-        Matrix<1, 1> B = {{1.0}};
-        Matrix<1, 1> Q = {{1.0}};
-        Matrix<1, 1> R = {{1.0}};
-        Matrix<1, 1> N = {{0.1}};
+        Matrix A = {{1.0}};
+        Matrix B = {{1.0}};
+        Matrix Q = {{1.0}};
+        Matrix R = {{1.0}};
+        Matrix N = {{0.1}};
 
         auto P_opt = dare(A, B, Q, R, N);
         auto P0 = dare(A, B, Q, R);
@@ -380,18 +380,18 @@ TEST_SUITE("DARE: stabilizing certificate") {
 
     TEST_CASE("a uniformly tiny Q is judged like a unit one") {
         const Matrix<1, 1> A{{0.9}}, B{{1.0}}, R{{1.0}};
-        CHECK(dare(A, B, Matrix<1, 1>{{1e-14}}, R).has_value());
-        CHECK_FALSE(dare(A, B, Matrix<1, 1>{{-1e-14}}, R).has_value());
+        CHECK(dare(A, B, Matrix{{1e-14}}, R).has_value());
+        CHECK_FALSE(dare(A, B, Matrix{{-1e-14}}, R).has_value());
     }
 }
 
 TEST_SUITE("DARE: R=0 (Positive Semidefinite R)") {
     TEST_CASE("dare with R=0, scalar system (deadbeat)") {
         // A=1, B=1, Q=1, R=0 → X = A'XA + Q - A'XB(B'XB)⁻¹B'XA = X - X + 1 = 1
-        Matrix<1, 1> A{{1.0}};
-        Matrix<1, 1> B{{1.0}};
-        Matrix<1, 1> Q{{1.0}};
-        Matrix<1, 1> R{{0.0}};
+        Matrix A{{1.0}};
+        Matrix B{{1.0}};
+        Matrix Q{{1.0}};
+        Matrix R{{0.0}};
 
         auto P = dare(A, B, Q, R);
         REQUIRE(P.has_value());
@@ -401,10 +401,10 @@ TEST_SUITE("DARE: R=0 (Positive Semidefinite R)") {
     TEST_CASE("dare with R=0, 2x2 system") {
         // scipy: solve_discrete_are(A.T, B.T, Q, zeros(1,1))
         // A = [[0.9, 0.1],[0, 0.8]], B = [[0.1],[0.2]], Q = I, R = 0
-        Matrix<2, 2> A{{0.9, 0.1}, {0.0, 0.8}};
-        Matrix<2, 1> B{{0.1}, {0.2}};
+        Matrix       A{{0.9, 0.1}, {0.0, 0.8}};
+        Matrix       B{{0.1}, {0.2}};
         Matrix<2, 2> Q = Matrix<2, 2>::identity();
-        Matrix<1, 1> R{{0.0}};
+        Matrix       R{{0.0}};
 
         auto P = dare(A, B, Q, R);
         REQUIRE(P.has_value());
@@ -419,10 +419,10 @@ TEST_SUITE("DARE: R=0 (Positive Semidefinite R)") {
     }
 
     TEST_CASE("dare with diagonal PSD R (partially singular)") {
-        Matrix<2, 2> A{{0.9, 0.1}, {0.0, 0.8}};
-        Matrix<2, 2> B{{1.0, 0.0}, {0.0, 1.0}};
+        Matrix       A{{0.9, 0.1}, {0.0, 0.8}};
+        Matrix       B{{1.0, 0.0}, {0.0, 1.0}};
         Matrix<2, 2> Q = Matrix<2, 2>::identity();
-        Matrix<2, 2> R{{1.0, 0.0}, {0.0, 0.0}};
+        Matrix       R{{1.0, 0.0}, {0.0, 0.0}};
 
         auto P = dare(A, B, Q, R);
         REQUIRE(P.has_value());
@@ -434,30 +434,30 @@ TEST_SUITE("DARE: R=0 (Positive Semidefinite R)") {
     }
 
     TEST_CASE("DareMethod::SDA rejects R=0") {
-        Matrix<2, 2> A{{0.9, 0.1}, {0.0, 0.8}};
-        Matrix<2, 1> B{{0.1}, {0.2}};
+        Matrix       A{{0.9, 0.1}, {0.0, 0.8}};
+        Matrix       B{{0.1}, {0.2}};
         Matrix<2, 2> Q = Matrix<2, 2>::identity();
-        Matrix<1, 1> R{{0.0}};
+        Matrix       R{{0.0}};
 
         auto P = dare(A, B, Q, R, Matrix<2, 1>{}, DareMethod::SDA);
         CHECK_FALSE(P.has_value());
     }
 
     TEST_CASE("DareMethod::RDE succeeds for R=0") {
-        Matrix<2, 2> A{{0.9, 0.1}, {0.0, 0.8}};
-        Matrix<2, 1> B{{0.1}, {0.2}};
+        Matrix       A{{0.9, 0.1}, {0.0, 0.8}};
+        Matrix       B{{0.1}, {0.2}};
         Matrix<2, 2> Q = Matrix<2, 2>::identity();
-        Matrix<1, 1> R{{0.0}};
+        Matrix       R{{0.0}};
 
         auto P = dare(A, B, Q, R, Matrix<2, 1>{}, DareMethod::RDE);
         REQUIRE(P.has_value());
     }
 
     TEST_CASE("SDA and RDE agree for R>0") {
-        Matrix<2, 2> A{{0.9, 0.1}, {0.0, 0.8}};
-        Matrix<2, 1> B{{0.1}, {0.2}};
+        Matrix       A{{0.9, 0.1}, {0.0, 0.8}};
+        Matrix       B{{0.1}, {0.2}};
         Matrix<2, 2> Q = Matrix<2, 2>::identity();
-        Matrix<1, 1> R{{1.0}};
+        Matrix       R{{1.0}};
 
         auto P_sda = dare(A, B, Q, R, Matrix<2, 1>{}, DareMethod::SDA);
         auto P_rde = dare(A, B, Q, R, Matrix<2, 1>{}, DareMethod::RDE);
@@ -473,10 +473,10 @@ TEST_SUITE("DARE: R=0 (Positive Semidefinite R)") {
     }
 
     TEST_CASE("dare with R>0 regression (SDA path unchanged)") {
-        constexpr Matrix<2, 2> A{{0.9, 0.1}, {0.0, 0.8}};
-        constexpr Matrix<2, 1> B{{0.1}, {0.2}};
-        constexpr Matrix<2, 2> Q{{1.0, 0.0}, {0.0, 1.0}};
-        constexpr Matrix<1, 1> R{{1.0}};
+        constexpr Matrix A{{0.9, 0.1}, {0.0, 0.8}};
+        constexpr Matrix B{{0.1}, {0.2}};
+        constexpr Matrix Q{{1.0, 0.0}, {0.0, 1.0}};
+        constexpr Matrix R{{1.0}};
 
         constexpr auto P = dare(A, B, Q, R);
         static_assert(P.has_value());
@@ -593,12 +593,12 @@ TEST_SUITE("is_stabilizable") {
         // A stable uncontrollable mode at s = −2 is stabilizable; an unstable one at s = +0.5 is not.
         // Read against the unit circle, both verdicts would flip.
         StateSpace<2, 1, 1> sys{};
-        sys.B = Matrix<2, 1>{{0.0}, {1.0}};
-        sys.A = Matrix<2, 2>{{-2.0, 0.0}, {0.0, -1.0}};
+        sys.B = Matrix{{0.0}, {1.0}};
+        sys.A = Matrix{{-2.0, 0.0}, {0.0, -1.0}};
         CHECK(stability::is_stabilizable(sys));
-        sys.A = Matrix<2, 2>{{0.5, 0.0}, {0.0, -1.0}};
+        sys.A = Matrix{{0.5, 0.0}, {0.0, -1.0}};
         CHECK_FALSE(stability::is_stabilizable(sys));
-        sys.A = Matrix<2, 2>{{0.0, 0.0}, {0.0, -0.5}}; // an uncontrollable integrator: on the axis
+        sys.A = Matrix{{0.0, 0.0}, {0.0, -0.5}}; // an uncontrollable integrator: on the axis
         CHECK_FALSE(stability::is_stabilizable(sys));
         sys.Ts = 0.1; // the same matrices as a discrete model: |λ| < 1 for all, stabilizable
         CHECK(stability::is_stabilizable(sys));
@@ -656,14 +656,14 @@ TEST_SUITE("DARE stabilizability certificate") {
         Matrix<4, 4> Q{};
         Q(0, 0) = 1.0;
         Q(1, 1) = 1.0;
-        CHECK_FALSE(dare(A, B, Q, Matrix<1, 1>{{1.0}}).has_value());
-        CHECK_FALSE(dare(A, B, Matrix<4, 4>::identity(), Matrix<1, 1>{{1.0}}).has_value());
+        CHECK_FALSE(dare(A, B, Q, Matrix{{1.0}}).has_value());
+        CHECK_FALSE(dare(A, B, Matrix<4, 4>::identity(), Matrix{{1.0}}).has_value());
 
         // An uncontrollable but stable mode is fine.
         Matrix<4, 4> A_stable = A;
         A_stable(2, 2) = 0.5;
         A_stable(3, 3) = 0.5;
-        CHECK(dare(A_stable, B, Matrix<4, 4>::identity(), Matrix<1, 1>{{1.0}}).has_value());
+        CHECK(dare(A_stable, B, Matrix<4, 4>::identity(), Matrix{{1.0}}).has_value());
     }
 }
 
@@ -753,7 +753,7 @@ TEST_SUITE("DARE scale invariance") {
             const Matrix<2, 2, float> A{{1.0F, s * Ts}, {0.0F, 1.0F}};
             const Matrix<2, 1, float> B{{s * Ts * Ts / 2.0F}, {Ts}};
             const Matrix<2, 2, float> Q{{1.0F / (s * s), 0.0F}, {0.0F, 0.01F}};
-            return design::discrete_lqr(A, B, Q, Matrix<1, 1, float>{{1.0F}});
+            return design::discrete_lqr(A, B, Q, Matrix{{1.0F}});
         };
         const auto ref = design_at(1.0F);
         REQUIRE(ref.success);
@@ -907,55 +907,55 @@ TEST_SUITE("real Schur block swap") {
 TEST_SUITE("Riccati refusals") {
     TEST_CASE("a controllable unit-circle mode that Q does not see is refused, not deployed") {
         // A = 1, B = 1, Q = 0: the maximal DARE solution X = 0 leaves the pole at z = 1.
-        const auto scalar = design::discrete_lqr(Matrix<1, 1>{{1.0}}, Matrix<1, 1>{{1.0}}, Matrix<1, 1>{{0.0}}, Matrix<1, 1>{{1.0}});
+        const auto scalar = design::discrete_lqr(Matrix{{1.0}}, Matrix{{1.0}}, Matrix{{0.0}}, Matrix{{1.0}});
         CHECK_FALSE(scalar.success);
         CHECK(scalar.status == design::DesignStatus::bad_weights);
         // A position loop that weights only velocity: position is never regulated.
-        const Matrix<2, 2> A{{1.0, 0.1}, {0.0, 1.0}};
-        const Matrix<2, 1> B{{0.005}, {0.1}};
-        const Matrix<2, 2> Q_vel{{0.0, 0.0}, {0.0, 1.0}};
-        const auto         vel = design::discrete_lqr(A, B, Q_vel, Matrix<1, 1>{{1.0}});
+        const Matrix A{{1.0, 0.1}, {0.0, 1.0}};
+        const Matrix B{{0.005}, {0.1}};
+        const Matrix Q_vel{{0.0, 0.0}, {0.0, 1.0}};
+        const auto   vel = design::discrete_lqr(A, B, Q_vel, Matrix{{1.0}});
         CHECK_FALSE(vel.success);
         CHECK(vel.status == design::DesignStatus::bad_weights);
         CHECK_FALSE(vel.is_stable());
         // The continuous analogue gets the same status.
-        const auto cont = design::continuous_lqr(Matrix<2, 2>{{0.0, 1.0}, {0.0, 0.0}}, Matrix<2, 1>{{0.0}, {1.0}}, Q_vel, Matrix<1, 1>{{1.0}});
+        const auto cont = design::continuous_lqr(Matrix{{0.0, 1.0}, {0.0, 0.0}}, Matrix{{0.0}, {1.0}}, Q_vel, Matrix{{1.0}});
         CHECK_FALSE(cont.success);
         CHECK(cont.status == design::DesignStatus::bad_weights);
         // Weighting position as well designs normally.
-        CHECK(design::discrete_lqr(A, B, Matrix<2, 2>::identity(), Matrix<1, 1>{{1.0}}).success);
+        CHECK(design::discrete_lqr(A, B, Matrix<2, 2>::identity(), Matrix{{1.0}}).success);
     }
 
     TEST_CASE("the velocity-only loop is refused in any coordinates, not only where its pole lands on the boundary") {
         // The same problem in z = T·x: the maximal solution's pole at z = 1 is computed 2.4e-15 inside
         // the circle (s = −5e-8 for the CARE), beyond the n·ε band. The cost's dual PBH test refuses it.
-        const double       h = 0.01;
-        const Matrix<2, 2> T{{1.0, 2.0}, {0.4, 1.0}};
-        const auto         Ti = mat::solve(T, Matrix<2, 2>::identity());
+        const double h = 0.01;
+        const Matrix T{{1.0, 2.0}, {0.4, 1.0}};
+        const auto   Ti = mat::solve(T, Matrix<2, 2>::identity());
         REQUIRE(Ti.has_value());
-        const Matrix<2, 2> Q0{{0.0, 0.0}, {0.0, 1.0}};
+        const Matrix       Q0{{0.0, 0.0}, {0.0, 1.0}};
         const Matrix<2, 2> Q = (Ti->t() * Q0) * (*Ti);
         const Matrix<2, 2> Qs = (Q + Q.t()) * 0.5;
         const Matrix<2, 2> Ad = (T * Matrix<2, 2>{{1.0, h}, {0.0, 1.0}}) * (*Ti);
         const Matrix<2, 1> Bd = T * Matrix<2, 1>{{h * h / 2.0}, {h}};
-        const auto         disc = design::discrete_lqr(Ad, Bd, Qs, Matrix<1, 1>{{1.0}});
+        const auto         disc = design::discrete_lqr(Ad, Bd, Qs, Matrix{{1.0}});
         CHECK_FALSE(disc.success);
         CHECK(disc.status == design::DesignStatus::bad_weights);
-        const Matrix<2, 2> Ac = (T * Matrix<2, 2>{{0.0, 1.0}, {0.0, 0.0}}) * (*Ti);
-        const Matrix<2, 1> Bc = T * Matrix<2, 1>{{0.0}, {1.0}};
-        const auto         cont = design::continuous_lqr(Ac, Bc, Qs, Matrix<1, 1>{{1.0}});
+        const Matrix<2, 2> Ac = (T * Matrix{{0.0, 1.0}, {0.0, 0.0}}) * (*Ti);
+        const Matrix<2, 1> Bc = T * Matrix{{0.0}, {1.0}};
+        const auto         cont = design::continuous_lqr(Ac, Bc, Qs, Matrix{{1.0}});
         CHECK_FALSE(cont.success);
         CHECK(cont.status == design::DesignStatus::bad_weights);
 
         // The CARE's boundary pole is a defective double root of the Hamiltonian: in these
         // coordinates it lands at s = −2.05e-8, 1.3× outside √ε·‖D⁻¹(A − BK)D‖_F, and the position
         // gain comes out 2e-8. The continuous PBH band is 4√ε·‖·‖, so the dual PBH test still runs.
-        const Matrix<2, 2> T2{{0.79911688464871933, 0.4482679214500308}, {0.4648456983561382, 0.53133651872453869}};
-        const auto         T2i = mat::solve(T2, Matrix<2, 2>::identity());
+        const Matrix T2{{0.79911688464871933, 0.4482679214500308}, {0.4648456983561382, 0.53133651872453869}};
+        const auto   T2i = mat::solve(T2, Matrix<2, 2>::identity());
         REQUIRE(T2i.has_value());
         const Matrix<2, 2> Q2 = (T2i->t() * Q0) * (*T2i);
         const auto         rotated = design::continuous_lqr(
-            (T2 * Matrix<2, 2>{{0.0, 1.0}, {0.0, 0.0}}) * (*T2i), T2 * Matrix<2, 1>{{0.0}, {1.0}}, (Q2 + Q2.t()) * 0.5, Matrix<1, 1>{{1.0}}
+            (T2 * Matrix{{0.0, 1.0}, {0.0, 0.0}}) * (*T2i), T2 * Matrix{{0.0}, {1.0}}, (Q2 + Q2.t()) * 0.5, Matrix{{1.0}}
         );
         CHECK_FALSE(rotated.success);
         CHECK(rotated.status == design::DesignStatus::bad_weights);
@@ -1026,11 +1026,11 @@ TEST_SUITE("Riccati refusals") {
 
     TEST_CASE("an unweighted integrator gets the same status in either domain, A = 0 included") {
         // Continuous A = 0 makes the boundary band √ε·‖A‖ zero, with the eigenvalue exactly on it.
-        const auto cont = design::continuous_lqr(Matrix<1, 1>{{0.0}}, Matrix<1, 1>{{1.0}}, Matrix<1, 1>{{0.0}}, Matrix<1, 1>{{1.0}});
-        const auto disc = design::discrete_lqr(Matrix<1, 1>{{1.0}}, Matrix<1, 1>{{1.0}}, Matrix<1, 1>{{0.0}}, Matrix<1, 1>{{1.0}});
+        const auto cont = design::continuous_lqr(Matrix{{0.0}}, Matrix{{1.0}}, Matrix{{0.0}}, Matrix{{1.0}});
+        const auto disc = design::discrete_lqr(Matrix{{1.0}}, Matrix{{1.0}}, Matrix{{0.0}}, Matrix{{1.0}});
         CHECK(cont.status == design::DesignStatus::bad_weights);
         CHECK(disc.status == design::DesignStatus::bad_weights);
-        const auto cont2 = design::continuous_lqr(Matrix<2, 2>{}, Matrix<2, 2>::identity(), Matrix<2, 2>{{1.0, 0.0}, {0.0, 0.0}}, Matrix<2, 2>::identity());
+        const auto cont2 = design::continuous_lqr(Matrix<2, 2>{}, Matrix<2, 2>::identity(), Matrix{{1.0, 0.0}, {0.0, 0.0}}, Matrix<2, 2>::identity());
         CHECK(cont2.status == design::DesignStatus::bad_weights);
     }
 
@@ -1044,54 +1044,54 @@ TEST_SUITE("Riccati refusals") {
             seed = (seed * 1664525U) + 1013904223U;
             return (static_cast<double>(seed >> 8U) / 16777216.0) - 0.5;
         };
-        const Matrix<3, 3> Q{{0.0, 0.0, 0.0}, {0.0, 1.0, 0.0}, {0.0, 0.0, 1.0}};
+        const Matrix Q{{0.0, 0.0, 0.0}, {0.0, 1.0, 0.0}, {0.0, 0.0, 1.0}};
         for (int k = 0; k < 100; ++k) {
             Matrix<3, 3>       A{{1.0, draw(), draw()}, {0.0, draw(), draw()}, {0.0, draw(), draw()}};
             const Matrix<3, 1> B{{draw()}, {draw()}, {draw()}};
-            CHECK(design::discrete_lqr(A, B, Q, Matrix<1, 1>{{1.0}}).status == design::DesignStatus::bad_weights);
+            CHECK(design::discrete_lqr(A, B, Q, Matrix{{1.0}}).status == design::DesignStatus::bad_weights);
             A(0, 0) = 0.0;
-            CHECK(design::continuous_lqr(A, B, Q, Matrix<1, 1>{{1.0}}).status == design::DesignStatus::bad_weights);
+            CHECK(design::continuous_lqr(A, B, Q, Matrix{{1.0}}).status == design::DesignStatus::bad_weights);
         }
     }
 
     TEST_CASE("discrete_lqr and design::state_feedback refuse an R that is not positive definite, as continuous_lqr does") {
-        const auto disc = design::discrete_lqr(Matrix<1, 1>{{0.95}}, Matrix<1, 1>{{1.0}}, Matrix<1, 1>{{1.0}}, Matrix<1, 1>{{0.0}});
+        const auto disc = design::discrete_lqr(Matrix{{0.95}}, Matrix{{1.0}}, Matrix{{1.0}}, Matrix{{0.0}});
         CHECK(disc.status == design::DesignStatus::bad_weights);
-        const auto cont = design::continuous_lqr(Matrix<1, 1>{{0.95}}, Matrix<1, 1>{{1.0}}, Matrix<1, 1>{{1.0}}, Matrix<1, 1>{{0.0}});
+        const auto cont = design::continuous_lqr(Matrix{{0.95}}, Matrix{{1.0}}, Matrix{{1.0}}, Matrix{{0.0}});
         CHECK(cont.status == design::DesignStatus::bad_weights);
-        const StateSpace plant{.A = Matrix<1, 1>{{0.95}}, .B = Matrix<1, 1>{{1.0}}, .C = Matrix<1, 1>{{1.0}}, .Ts = 0.1};
+        const StateSpace plant{.A = Matrix{{0.95}}, .B = Matrix{{1.0}}, .C = Matrix{{1.0}}, .Ts = 0.1};
         CHECK(design::state_feedback(plant, {.Q = 1.0, .R = 0.0}).status == design::DesignStatus::bad_weights);
-        const StateSpace plant_c{.A = Matrix<1, 1>{{-1.0}}, .B = Matrix<1, 1>{{1.0}}, .C = Matrix<1, 1>{{1.0}}};
+        const StateSpace plant_c{.A = Matrix{{-1.0}}, .B = Matrix{{1.0}}, .C = Matrix{{1.0}}};
         CHECK(design::state_feedback(plant_c, 0.1, {.Q = 1.0, .R = 0.0}).status == design::DesignStatus::bad_weights);
         // dare() itself keeps R ≥ 0 for the estimator dual.
-        CHECK(dare(Matrix<1, 1>{{0.95}}, Matrix<1, 1>{{1.0}}, Matrix<1, 1>{{1.0}}, Matrix<1, 1>{{0.0}}).has_value());
+        CHECK(dare(Matrix{{0.95}}, Matrix{{1.0}}, Matrix{{1.0}}, Matrix{{0.0}}).has_value());
     }
 
     TEST_CASE("CARE refuses an indefinite joint cost, as the DARE does") {
         // Q − N R⁻¹ Nᵀ = 1 − 4 = −3.
-        const auto stable = design::continuous_lqr(Matrix<1, 1>{{-1.0}}, Matrix<1, 1>{{1.0}}, Matrix<1, 1>{{1.0}}, Matrix<1, 1>{{1.0}}, Matrix<1, 1>{{2.0}});
+        const auto stable = design::continuous_lqr(Matrix{{-1.0}}, Matrix{{1.0}}, Matrix{{1.0}}, Matrix{{1.0}}, Matrix{{2.0}});
         CHECK(stable.status == design::DesignStatus::bad_weights);
-        const auto unstable = design::continuous_lqr(Matrix<1, 1>{{0.5}}, Matrix<1, 1>{{1.0}}, Matrix<1, 1>{{1.0}}, Matrix<1, 1>{{1.0}}, Matrix<1, 1>{{2.0}});
+        const auto unstable = design::continuous_lqr(Matrix{{0.5}}, Matrix{{1.0}}, Matrix{{1.0}}, Matrix{{1.0}}, Matrix{{2.0}});
         CHECK(unstable.status == design::DesignStatus::bad_weights);
-        const auto disc = design::discrete_lqr(Matrix<1, 1>{{0.5}}, Matrix<1, 1>{{1.0}}, Matrix<1, 1>{{1.0}}, Matrix<1, 1>{{1.0}}, Matrix<1, 1>{{2.0}});
+        const auto disc = design::discrete_lqr(Matrix{{0.5}}, Matrix{{1.0}}, Matrix{{1.0}}, Matrix{{1.0}}, Matrix{{2.0}});
         CHECK(disc.status == design::DesignStatus::bad_weights);
     }
 
     TEST_CASE("CARE and DARE give the same status for an uncontrollable marginal mode") {
-        const auto cont = design::continuous_lqr(Matrix<1, 1>{{0.0}}, Matrix<1, 1>{{0.0}}, Matrix<1, 1>{{1.0}}, Matrix<1, 1>{{1.0}});
-        const auto disc = design::discrete_lqr(Matrix<1, 1>{{1.0}}, Matrix<1, 1>{{0.0}}, Matrix<1, 1>{{1.0}}, Matrix<1, 1>{{1.0}});
+        const auto cont = design::continuous_lqr(Matrix{{0.0}}, Matrix{{0.0}}, Matrix{{1.0}}, Matrix{{1.0}});
+        const auto disc = design::discrete_lqr(Matrix{{1.0}}, Matrix{{0.0}}, Matrix{{1.0}}, Matrix{{1.0}});
         CHECK(cont.status == design::DesignStatus::not_stabilizable);
         CHECK(disc.status == design::DesignStatus::not_stabilizable);
     }
 
     TEST_CASE("a singular R with a cross term is refused as bad weights") {
-        const auto sol = damp::detail::solve_dare(Matrix<1, 1>{{0.5}}, Matrix<1, 1>{{1.0}}, Matrix<1, 1>{{1.0}}, Matrix<1, 1>{{0.0}}, Matrix<1, 1>{{0.5}}, DareMethod::Auto);
+        const auto sol = damp::detail::solve_dare(Matrix{{0.5}}, Matrix{{1.0}}, Matrix{{1.0}}, Matrix{{0.0}}, Matrix{{0.5}}, DareMethod::Auto);
         CHECK(sol.status == design::DesignStatus::bad_weights);
     }
 
     TEST_CASE("a failed LQR design is not reported stable") {
         // The unstable mode z = 1.2 has no input.
-        const auto res = design::discrete_lqr(Matrix<2, 2>{{1.2, 0.0}, {0.0, 0.5}}, Matrix<2, 1>{{0.0}, {1.0}}, Matrix<2, 2>::identity(), Matrix<1, 1>{{1.0}});
+        const auto res = design::discrete_lqr(Matrix{{1.2, 0.0}, {0.0, 0.5}}, Matrix{{0.0}, {1.0}}, Matrix<2, 2>::identity(), Matrix{{1.0}});
         CHECK(res.status == design::DesignStatus::not_stabilizable);
         CHECK_FALSE(res.is_stable());
     }
@@ -1121,14 +1121,14 @@ TEST_SUITE("DARE: RDE with a slow closed loop") {
         // R_eff = H R Hᵀ is singular, so the filter DARE takes the RDE path.
         for (const double q : {1e-4, 1e-6}) {
             const StateSpace sys{
-                .A = Matrix<2, 2>{{1.0, 0.0}, {0.0, 0.5}},
-                .B = Matrix<2, 1>{{1.0}, {0.0}},
+                .A = Matrix{{1.0, 0.0}, {0.0, 0.5}},
+                .B = Matrix{{1.0}, {0.0}},
                 .C = Matrix<2, 2>::identity(),
                 .G = Matrix<2, 2>::identity(),
-                .H = Matrix<2, 1>{{1.0}, {0.0}},
+                .H = Matrix{{1.0}, {0.0}},
                 .Ts = 1.0,
             };
-            const auto kf = design::kalman(sys, design::KalmanNoise{.process = Matrix<2, 2>{{q, 0.0}, {0.0, 1.0}}, .measurement = Matrix<1, 1>{{1.0}}});
+            const auto kf = design::kalman(sys, design::KalmanNoise{.process = Matrix<2, 2>{{q, 0.0}, {0.0, 1.0}}, .measurement = Matrix{{1.0}}});
             CHECK(kf.success);
         }
     }

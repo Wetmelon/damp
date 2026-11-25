@@ -45,10 +45,10 @@ TEST_CASE("simulate_state_feedback - pendulum converges under LQR") {
     Matrix<2, 1> B{{0.0}, {1.0 / (m_pend * L_pend * L_pend)}};
 
     auto Q = Matrix<2, 2>::identity() * 10.0;
-    auto R = Matrix<1, 1>{{1.0}};
+    auto R = Matrix{{1.0}};
     auto Ts = 0.01;
 
-    auto lqr_result = design::state_feedback(StateSpace{.A = A, .B = B, .C = Matrix<1, 2>{{1.0, 0.0}}}, Ts, {.Q = Q, .R = R});
+    auto lqr_result = design::state_feedback(StateSpace{.A = A, .B = B, .C = Matrix{{1.0, 0.0}}}, Ts, {.Q = Q, .R = R});
     CHECK(lqr_result.success);
     auto controller = LQR{lqr_result};
 
@@ -72,8 +72,8 @@ TEST_CASE("simulate_state_feedback - pendulum converges under LQR") {
     FixedStepSolver solver(rk4, 0.001);
 
     // Start at 15 degrees
-    ColVec<2> x0{0.2618, 0.0};
-    auto      sim = simulate_state_feedback(plant, output, ctrl, solver, x0, {0.0, 5.0});
+    ColVec x0{0.2618, 0.0};
+    auto   sim = simulate_state_feedback(plant, output, ctrl, solver, x0, {0.0, 5.0});
 
     // Should converge to near zero by 5 seconds
     CHECK(sim.x.back()(0, 0) == doctest::Approx(0.0).epsilon(0.01));
@@ -87,21 +87,21 @@ TEST_CASE("simulate_state_feedback - pendulum converges under LQR") {
 
 TEST_CASE("simulate_lti - matches step_response for zero-input") {
     // Simple 1st-order system: dx/dt = -x, y = x
-    Matrix<1, 1> A{{-1.0}};
-    Matrix<1, 1> B{{1.0}};
-    Matrix<1, 1> C{{1.0}};
-    StateSpace   sys{.A = A, .B = B, .C = C, .Ts = 0.0};
+    Matrix     A{{-1.0}};
+    Matrix     B{{1.0}};
+    Matrix     C{{1.0}};
+    StateSpace sys{.A = A, .B = B, .C = C, .Ts = 0.0};
 
     // Zero control (free response)
     auto controller = [](const ColVec<1>& /*y*/) -> ColVec<1> {
-        return ColVec<1>{0.0};
+        return ColVec{0.0};
     };
 
     RK4<1>          rk4;
     FixedStepSolver solver(rk4, 0.01);
 
-    ColVec<1> x0{1.0};
-    auto      sim = simulate_lti(sys, controller, solver, x0, {0.0, 3.0});
+    ColVec x0{1.0};
+    auto   sim = simulate_lti(sys, controller, solver, x0, {0.0, 3.0});
 
     // x(t) = exp(-t), so x(3) ≈ 0.0498
     CHECK(sim.x.back()(0, 0) == doctest::Approx(std::exp(-3.0)).epsilon(1e-6));
@@ -111,9 +111,9 @@ TEST_CASE("SIL: PIDController tracks a step on a first-order plant (simulate_lti
     // Plant G(s) = 1/(s+1):  ẋ = -x + u, y = x.  PI designed for ~unit DC gain tracking.
     constexpr double Ts = 0.01;
     StateSpace       sys{
-        .A = Matrix<1, 1>{{-1.0}},
-        .B = Matrix<1, 1>{{1.0}},
-        .C = Matrix<1, 1>{{1.0}},
+        .A = Matrix{{-1.0}},
+        .B = Matrix{{1.0}},
+        .C = Matrix{{1.0}},
         .Ts = 0.0,
     };
 
@@ -123,7 +123,7 @@ TEST_CASE("SIL: PIDController tracks a step on a first-order plant (simulate_lti
     RK4<1>          rk4;
     FixedStepSolver fine{rk4, Ts / 10.0}; // 10× plant substeps per control tick
 
-    ColVec<1>    x0{0.0};
+    ColVec       x0{0.0};
     const double r = 1.0;
     auto         sil = simulate_lti_siso(sys, pid, r, fine, Ts, x0, {0.0, 3.0});
 
@@ -135,9 +135,9 @@ TEST_CASE("SIL: PIDController tracks a step on a first-order plant (simulate_lti
 TEST_CASE("simulate_discrete - basic feedback") {
     // Discrete integrator: x_{k+1} = x_k + Ts * u_k
     double       Ts = 0.1;
-    Matrix<1, 1> A_d{{1.0}};
+    Matrix       A_d{{1.0}};
     Matrix<1, 1> B_d{{Ts}};
-    Matrix<1, 1> C_d{{1.0}};
+    Matrix       C_d{{1.0}};
     StateSpace   sys{.A = A_d, .B = B_d, .C = C_d, .Ts = Ts};
 
     // Simple proportional controller: u = -10 * y (drives x to 0)
@@ -145,8 +145,8 @@ TEST_CASE("simulate_discrete - basic feedback") {
         return ColVec<1>{-10.0 * y(0, 0)};
     };
 
-    ColVec<1> x0{1.0};
-    auto      sim = simulate_discrete(sys, controller, x0, 100);
+    ColVec x0{1.0};
+    auto   sim = simulate_discrete(sys, controller, x0, 100);
 
     CHECK(sim.t.size() == 101);
     CHECK(sim.t.front() == 0.0);
@@ -162,13 +162,13 @@ TEST_CASE("simulate - output feedback with D matrix") {
         return ColVec<1>{(-2.0 * x(0, 0)) + u(0, 0)};
     };
     auto output = [](const ColVec<1>& x) -> ColVec<1> { return x; };
-    auto ctrl = [](const ColVec<1>& /*y*/) -> ColVec<1> { return ColVec<1>{1.0}; }; // Constant input
+    auto ctrl = [](const ColVec<1>& /*y*/) -> ColVec<1> { return ColVec{1.0}; }; // Constant input
 
     RK4<1>          rk4;
     FixedStepSolver solver(rk4, 0.01);
 
-    ColVec<1> x0{0.0};
-    auto      sim = simulate(plant, output, ctrl, solver, x0, {0.0, 5.0});
+    ColVec x0{0.0};
+    auto   sim = simulate(plant, output, ctrl, solver, x0, {0.0, 5.0});
 
     // Steady state: dx/dt=0 => x = u/2 = 0.5
     CHECK(sim.x.back()(0, 0) == doctest::Approx(0.5).epsilon(0.01));
@@ -187,9 +187,9 @@ TEST_CASE("simulate_discrete_nonlinear - logistic-style nonlinear map") {
     };
     auto output = [](const ColVec<1>& x) -> ColVec<1> { return x; };
     // Constant input u = 8 → equilibrium where x^3 = 8 → x = 2.
-    auto ctrl = [](const ColVec<1>& /*y*/) -> ColVec<1> { return ColVec<1>{8.0}; };
+    auto ctrl = [](const ColVec<1>& /*y*/) -> ColVec<1> { return ColVec{8.0}; };
 
-    auto sim = simulate_discrete_nonlinear(plant, output, ctrl, ColVec<1>{0.0}, Ts, 5000);
+    auto sim = simulate_discrete_nonlinear(plant, output, ctrl, ColVec{0.0}, Ts, 5000);
 
     CHECK(sim.t.size() == 5001);
     CHECK(sim.t.front() == 0.0);
@@ -200,20 +200,20 @@ TEST_CASE("simulate_discrete_nonlinear - logistic-style nonlinear map") {
 TEST_CASE("simulate_discrete_nonlinear - matches simulate_discrete on a linear plant") {
     // When f(k,x,u) = Ax + Bu, the nonlinear path must reproduce the linear one.
     const double Ts = 0.1;
-    Matrix<1, 1> A{{1.0}};
+    Matrix       A{{1.0}};
     Matrix<1, 1> B{{Ts}};
-    Matrix<1, 1> C{{1.0}};
+    Matrix       C{{1.0}};
     StateSpace   sys{.A = A, .B = B, .C = C, .Ts = Ts};
 
     auto ctrl = [](const ColVec<1>& y) -> ColVec<1> { return ColVec<1>{-10.0 * y(0, 0)}; };
 
-    auto lin = simulate_discrete(sys, ctrl, ColVec<1>{1.0}, 100);
+    auto lin = simulate_discrete(sys, ctrl, ColVec{1.0}, 100);
 
     auto plant = [&](std::size_t, const ColVec<1>& x, const ColVec<1>& u) -> ColVec<1> {
         return A * x + B * u;
     };
     auto output = [&](const ColVec<1>& x) -> ColVec<1> { return C * x; };
-    auto nl = simulate_discrete_nonlinear(plant, output, ctrl, ColVec<1>{1.0}, Ts, 100);
+    auto nl = simulate_discrete_nonlinear(plant, output, ctrl, ColVec{1.0}, Ts, 100);
 
     REQUIRE(lin.x.size() == nl.x.size());
     for (std::size_t k = 0; k < lin.x.size(); ++k) {
@@ -225,12 +225,12 @@ TEST_CASE("simulate_discrete_nonlinear - matches simulate_discrete on a linear p
 TEST_CASE("SimulationResult has consistent sizes") {
     auto plant = [](double, const ColVec<1>& x, const ColVec<1>& u) -> ColVec<1> { return -x + u; };
     auto output = [](const ColVec<1>& x) -> ColVec<1> { return x; };
-    auto ctrl = [](const ColVec<1>&) -> ColVec<1> { return ColVec<1>{0.0}; };
+    auto ctrl = [](const ColVec<1>&) -> ColVec<1> { return ColVec{0.0}; };
 
     RK4<1>          rk4;
     FixedStepSolver solver(rk4, 0.1);
 
-    auto sim = simulate(plant, output, ctrl, solver, ColVec<1>{1.0}, {0.0, 1.0});
+    auto sim = simulate(plant, output, ctrl, solver, ColVec{1.0}, {0.0, 1.0});
 
     CHECK(sim.t.size() == sim.x.size());
     CHECK(sim.t.size() == sim.y.size());
@@ -243,15 +243,15 @@ TEST_CASE("simulate_discrete - biproper plant includes D*u in y") {
     // Pure feedthrough biproper: A=B=C=0, D=2 → y = 2u for every sample.
     const double Ts = 0.1;
     StateSpace   sys{
-        .A = Matrix<1, 1>{{0.0}},
-        .B = Matrix<1, 1>{{0.0}},
-        .C = Matrix<1, 1>{{0.0}},
-        .D = Matrix<1, 1>{{2.0}},
+        .A = Matrix{{0.0}},
+        .B = Matrix{{0.0}},
+        .C = Matrix{{0.0}},
+        .D = Matrix{{2.0}},
         .Ts = Ts,
     };
-    auto ctrl = [](const ColVec<1>& /*y*/) -> ColVec<1> { return ColVec<1>{1.5}; };
+    auto ctrl = [](const ColVec<1>& /*y*/) -> ColVec<1> { return ColVec{1.5}; };
 
-    auto sim = simulate_discrete(sys, ctrl, ColVec<1>{0.0}, 5);
+    auto sim = simulate_discrete(sys, ctrl, ColVec{0.0}, 5);
     REQUIRE(sim.y.size() == 6);
     for (const auto& y : sim.y) {
         CHECK(y(0, 0) == doctest::Approx(3.0)); // 2 * 1.5
@@ -262,17 +262,17 @@ TEST_CASE("simulate_discrete - biproper plant includes D*u in y") {
 TEST_CASE("simulate_lti - biproper plant includes D*u in y") {
     // Continuous biproper: ẋ = -x + u, y = x + 0.5·u (D ≠ 0).
     StateSpace sys{
-        .A = Matrix<1, 1>{{-1.0}},
-        .B = Matrix<1, 1>{{1.0}},
-        .C = Matrix<1, 1>{{1.0}},
-        .D = Matrix<1, 1>{{0.5}},
+        .A = Matrix{{-1.0}},
+        .B = Matrix{{1.0}},
+        .C = Matrix{{1.0}},
+        .D = Matrix{{0.5}},
         .Ts = 0.0,
     };
-    auto ctrl = [](const ColVec<1>& /*y*/) -> ColVec<1> { return ColVec<1>{2.0}; };
+    auto ctrl = [](const ColVec<1>& /*y*/) -> ColVec<1> { return ColVec{2.0}; };
 
     RK4<1>          rk4;
     FixedStepSolver solver(rk4, 0.01);
-    auto            sim = simulate_lti(sys, ctrl, solver, ColVec<1>{0.0}, {0.0, 5.0});
+    auto            sim = simulate_lti(sys, ctrl, solver, ColVec{0.0}, {0.0, 5.0});
 
     // Steady state: x_ss = u = 2, y_ss = x + 0.5·u = 3
     CHECK(sim.x.back()(0, 0) == doctest::Approx(2.0).epsilon(0.01));
@@ -283,15 +283,15 @@ TEST_CASE("simulate_lti - biproper plant includes D*u in y") {
 
 TEST_CASE("simulate_lti_siso records y = Cx + Du") {
     const StateSpace sys{
-        .A = Matrix<1, 1>{{-1.0}},
-        .B = Matrix<1, 1>{{1.0}},
-        .C = Matrix<1, 1>{{0.0}},
-        .D = Matrix<1, 1>{{1.0}},
+        .A = Matrix{{-1.0}},
+        .B = Matrix{{1.0}},
+        .C = Matrix{{0.0}},
+        .D = Matrix{{1.0}},
         .Ts = 0.0,
     };
     ConstController c;
     FixedStepSolver solver(RK4<1>{}, 0.01);
-    const auto      sim = simulate_lti_siso(sys, c, 1.0, solver, 0.1, ColVec<1>{0.0}, {0.0, 0.5});
+    const auto      sim = simulate_lti_siso(sys, c, 1.0, solver, 0.1, ColVec{0.0}, {0.0, 0.5});
     for (std::size_t j = 0; j < sim.t.size(); ++j) { // the initial sample too: y after u₀ is applied
         CHECK(sim.y[j](0) == doctest::Approx(sim.u[j](0)));
     }

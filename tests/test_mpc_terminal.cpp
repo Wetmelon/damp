@@ -130,9 +130,9 @@ TEST_CASE("default mpc: no terminal rows, NI is the box formula") {
 }
 
 TEST_CASE("unconstrained DARE terminal reproduces the LQR law") {
-    const Matrix<2, 2> Q{{1.0, 0.0}, {0.0, 0.1}};
-    const Matrix<1, 1> R{{0.5}};
-    const auto         lqr = design::discrete_lqr(double_integrator_full.A, double_integrator_full.B, Q, R);
+    const Matrix Q{{1.0, 0.0}, {0.0, 0.1}};
+    const Matrix R{{0.5}};
+    const auto   lqr = design::discrete_lqr(double_integrator_full.A, double_integrator_full.B, Q, R);
     REQUIRE(lqr.success);
 
     design::MPCWeights<1, 2> weights{};
@@ -156,10 +156,10 @@ TEST_CASE("unconstrained DARE terminal reproduces the LQR law") {
     CHECK(art.mpc.P(2, 2) == doctest::Approx(0.0).scale(1.0).epsilon(1e-8));
     CHECK(art.mpc.K_terminal(0, 2) == doctest::Approx(1.0).epsilon(1e-8));
 
-    MPC       controller{art};
-    LQR       regulator{design::state_feedback(double_integrator_full, {.Q = Q, .R = R})}; // the LQR regulator: the same ticks, step(x)
-    ColVec<2> x{1.0, -0.5};
-    double    V_prev = -1.0;
+    MPC    controller{art};
+    LQR    regulator{design::state_feedback(double_integrator_full, {.Q = Q, .R = R})}; // the LQR regulator: the same ticks, step(x)
+    ColVec x{1.0, -0.5};
+    double V_prev = -1.0;
     for (size_t k = 0; k < 30; ++k) {
         const auto   u_mpc = controller.step(x);
         const double u_lqr = -((lqr.K(0, 0) * x(0)) + (lqr.K(0, 1) * x(1)));
@@ -180,10 +180,10 @@ TEST_CASE("short-horizon SIL is infeasible without the set and recursively feasi
     const auto weights = move_weight(0.01);
     const auto position = position_box(true);
 
-    const ColVec<1> r{0.9}; // the target (x_t, u_t) = ([0.9, 0], 0)
+    const ColVec r{0.9}; // the target (x_t, u_t) = ([0.9, 0], 0)
     // Fast approach to a near-limit setpoint: 4-step reachable to the MPI set,
     // but a terminal-free short horizon over-commits on speed and later QP-fails.
-    const ColVec<2> x0{0.5, 0.8};
+    const ColVec x0{0.5, 0.8};
 
     bool saw_infeasible = false;
     {
@@ -236,10 +236,10 @@ TEST_CASE("DareCost and InvariantSet are the terminal ingredients MPCConstraints
     CHECK(dare.mpc.K_terminal(0, 2) == doctest::Approx(0.6047587512477568).epsilon(1e-10));
     CHECK(dare.mpc.H(0, 0) == doctest::Approx(5.1646379276333167).epsilon(1e-10));
     {
-        MPC       law{dare};
-        ColVec<2> x{0.5, 0.8};
+        MPC    law{dare};
+        ColVec x{0.5, 0.8};
         for (size_t k = 0; k <= 20; ++k) {
-            const auto u = law.step(ColVec<1>{0.9}, x);
+            const auto u = law.step(ColVec{0.9}, x);
             if (k == 0) {
                 CHECK(u(0) == doctest::Approx(-0.017088475124310592).epsilon(1e-8));
             }
@@ -267,10 +267,10 @@ TEST_CASE("DareCost and InvariantSet are the terminal ingredients MPCConstraints
         CHECK(set.mpc.h_terminal(0) == doctest::Approx(1.0));
         CHECK(set.mpc.G_terminal(0, 0) == doctest::Approx(1.0));
         CHECK(set.mpc.G_terminal_target(0, 0) == doctest::Approx(1.0));
-        MPC       law{set};
-        ColVec<2> x{0.5, 0.8};
+        MPC    law{set};
+        ColVec x{0.5, 0.8};
         for (size_t k = 0; k <= 10; ++k) {
-            const auto u = law.step(ColVec<1>{0.9}, x);
+            const auto u = law.step(ColVec{0.9}, x);
             REQUIRE(law.last_status() == design::QPStatus::Success);
             if (k == 0) {
                 CHECK(u(0) == doctest::Approx(-0.2058527959246389).epsilon(1e-8));
@@ -290,10 +290,10 @@ TEST_CASE("DareCost and InvariantSet are the terminal ingredients MPCConstraints
 }
 
 TEST_CASE("maximal_invariant_set matches a hand-derived 2-state MPI polytope") {
-    const Matrix<2, 2> A{{0.5, 0.0}, {0.0, 0.5}};
-    const Matrix<4, 2> G0{{1.0, 0.0}, {-1.0, 0.0}, {0.0, 1.0}, {0.0, -1.0}};
-    const ColVec<4>    h0{1.0, 1.0, 1.0, 1.0};
-    const auto         set = design::maximal_invariant_set<64>(A, G0, h0);
+    const Matrix A{{0.5, 0.0}, {0.0, 0.5}};
+    const Matrix G0{{1.0, 0.0}, {-1.0, 0.0}, {0.0, 1.0}, {0.0, -1.0}};
+    const ColVec h0{1.0, 1.0, 1.0, 1.0};
+    const auto   set = design::maximal_invariant_set<64>(A, G0, h0);
     REQUIRE(set.success);
     CHECK(set.status == design::DesignStatus::ok);
     CHECK(set.n_rows >= 4);
@@ -304,10 +304,10 @@ TEST_CASE("maximal_invariant_set matches a hand-derived 2-state MPI polytope") {
 }
 
 TEST_CASE("maximal_invariant_set adds the first propagated cut of a shear map") {
-    const Matrix<2, 2> A{{0.8, 0.5}, {0.0, 0.8}};
-    const Matrix<4, 2> G0{{1.0, 0.0}, {-1.0, 0.0}, {0.0, 1.0}, {0.0, -1.0}};
-    const ColVec<4>    h0{1.0, 1.0, 1.0, 1.0};
-    const auto         set = design::maximal_invariant_set<64>(A, G0, h0);
+    const Matrix A{{0.8, 0.5}, {0.0, 0.8}};
+    const Matrix G0{{1.0, 0.0}, {-1.0, 0.0}, {0.0, 1.0}, {0.0, -1.0}};
+    const ColVec h0{1.0, 1.0, 1.0, 1.0};
+    const auto   set = design::maximal_invariant_set<64>(A, G0, h0);
     REQUIRE(set.success);
     CHECK(set.n_rows > 4);
     CHECK(has_facet(set.G, set.h, set.n_rows, 0.8, 0.5, 1.0));
@@ -315,10 +315,10 @@ TEST_CASE("maximal_invariant_set adds the first propagated cut of a shear map") 
 }
 
 TEST_CASE("maximal_invariant_set reports empty on inconsistent G0 h0") {
-    const Matrix<1, 1> A{{0.5}};
-    const Matrix<2, 1> G0{{1.0}, {-1.0}};
-    const ColVec<2>    h0{-1.0, -1.0};
-    const auto         set = design::maximal_invariant_set<8>(A, G0, h0);
+    const Matrix A{{0.5}};
+    const Matrix G0{{1.0}, {-1.0}};
+    const ColVec h0{-1.0, -1.0};
+    const auto   set = design::maximal_invariant_set<8>(A, G0, h0);
     CHECK_FALSE(set.success);
     CHECK(set.status == design::DesignStatus::not_converged);
 }
@@ -338,9 +338,9 @@ TEST_CASE("float conversion keeps terminal rows and the float tick stays in budg
     CHECK(art_f.mpc.G_terminal(0, 0) == doctest::Approx(art.mpc.G_terminal(0, 0)).epsilon(1e-5));
     CHECK(art_f.mpc.h_terminal(0) == doctest::Approx(art.mpc.h_terminal(0)).epsilon(1e-5));
 
-    MPC                    controller{art_f};
-    ColVec<2, float>       x{0.5F, 0.8F};
-    const ColVec<1, float> r{0.9F};
+    MPC          controller{art_f};
+    ColVec       x{0.5F, 0.8F};
+    const ColVec r{0.9F};
     for (size_t k = 0; k < 40; ++k) {
         const auto u = controller.step(r, x);
         CHECK(controller.last_status() == design::QPStatus::Success);
@@ -380,7 +380,7 @@ TEST_CASE("terminal set moves with the target: every admissible target is inside
         CHECK(excess(ColVec<3>{}, y_t) <= 1e-12);
     }
     //! y = y_t + 0.11 = 1.01 is past the bound: excluded whatever the input.
-    CHECK(excess(ColVec<3>{0.11, 0.0, 0.0}, 0.9) > 0.0);
+    CHECK(excess(ColVec{0.11, 0.0, 0.0}, 0.9) > 0.0);
 }
 
 TEST_CASE("4-state NP=10 dare_cost design is constexpr under default ops") {
@@ -412,9 +412,9 @@ TEST_CASE("maximal_invariant_set does not depend on the units of h") {
     //! The ridge LP stood in for max aᵀe with an absolute weight: past h ≈ 1e7 (1e3 in float) a
     //! direction where the set was still unbounded read as bounded, propagated facets were
     //! dropped and a non-invariant set came back ok (2 facets at 1e8 against 26).
-    const Matrix<2, 2> A{{0.9, 0.5}, {0.0, 0.9}};
-    const Matrix<2, 2> G0{{1.0, 0.0}, {-1.0, 0.0}};
-    const auto         unit = design::maximal_invariant_set<64>(A, G0, ColVec<2>{1.0, 1.0});
+    const Matrix A{{0.9, 0.5}, {0.0, 0.9}};
+    const Matrix G0{{1.0, 0.0}, {-1.0, 0.0}};
+    const auto   unit = design::maximal_invariant_set<64>(A, G0, ColVec{1.0, 1.0});
     REQUIRE(unit.success);
     for (const double scale : {1e5, 1e8}) {
         const auto big = design::maximal_invariant_set<64>(A, G0, ColVec<2>{scale, scale});
@@ -424,17 +424,17 @@ TEST_CASE("maximal_invariant_set does not depend on the units of h") {
             CHECK(big.h(r) == doctest::Approx(scale * unit.h(r)).epsilon(1e-9));
         }
     }
-    const auto unit_f = design::maximal_invariant_set<64>(A.as<float>(), G0.as<float>(), ColVec<2, float>{1.0F, 1.0F});
-    const auto big_f = design::maximal_invariant_set<64>(A.as<float>(), G0.as<float>(), ColVec<2, float>{1000.0F, 1000.0F});
+    const auto unit_f = design::maximal_invariant_set<64>(A.as<float>(), G0.as<float>(), ColVec{1.0F, 1.0F});
+    const auto big_f = design::maximal_invariant_set<64>(A.as<float>(), G0.as<float>(), ColVec{1000.0F, 1000.0F});
     REQUIRE(unit_f.success);
     REQUIRE(big_f.success);
     CHECK(big_f.n_rows == unit_f.n_rows);
 }
 
 TEST_CASE("MaxIterations with an invariant_set holds unless the iterate is primal feasible") {
-    const auto      position = position_box(true);
-    const ColVec<1> r{0.9};
-    const ColVec<2> x0{0.5, 0.8};
+    const auto   position = position_box(true);
+    const ColVec r{0.9};
+    const ColVec x0{0.5, 0.8};
 
     const auto art_ok = design::mpc<4, 4>(double_integrator, move_weight(0.01), kUnitInput, position, design::InvariantSet<64>{}, design::TrackedOutputs{});
     REQUIRE(art_ok.success);
@@ -468,10 +468,10 @@ TEST_CASE("with an InvariantSet set_limits refuses a change of the QP's limits: 
     const auto art = design::mpc<4, 4>(double_integrator, move_weight(0.01), kUnitInput, position_box(true), design::InvariantSet<64>{}, design::TrackedOutputs{});
     REQUIRE(art.success);
     REQUIRE(art.mpc.n_terminal > 0);
-    MPC             law{art};
-    MPC             twin{art};   // never asked
-    ColVec<2>       x{0.5, 0.8}; // a fast approach the set keeps feasible
-    const ColVec<1> r{0.9};
+    MPC          law{art};
+    MPC          twin{art};   // never asked
+    ColVec       x{0.5, 0.8}; // a fast approach the set keeps feasible
+    const ColVec r{0.9};
 
     auto lim = law.limits();
     lim.input = {.lower = -0.8, .upper = 0.8};

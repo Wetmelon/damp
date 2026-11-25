@@ -192,10 +192,10 @@ TEST_SUITE("Extended State Observer (ESO)") {
             p.step(a, h);
         }
         for (int k = 0; k < 50; ++k) { // 50 ms with no reading: the model carries on
-            obs.predict(ColVec<1>{0.0});
+            obs.predict(ColVec{0.0});
             p.step(a, h);
         }
-        obs.predict(ColVec<1>{0.0});
+        obs.predict(ColVec{0.0});
         obs.update(ColVec<1>{p.y});
         CHECK(obs.output() == doctest::Approx(p.y).epsilon(1e-6));
         CHECK(obs.state()[1] == doctest::Approx(p.v).epsilon(1e-6));
@@ -204,8 +204,8 @@ TEST_SUITE("Extended State Observer (ESO)") {
 
     TEST_CASE("update corrects without advancing time") {
         ESO<2, double> obs{design::eso<2>(100.0, 1.0, 1e-3)};
-        obs.reset(ColVec<3>{1.0, 5.0, 2.0});
-        obs.update(ColVec<1>{1.0}); // zero innovation: nothing to correct, and no time passes
+        obs.reset(ColVec{1.0, 5.0, 2.0});
+        obs.update(ColVec{1.0}); // zero innovation: nothing to correct, and no time passes
         CHECK(obs.state()[0] == 1.0);
         CHECK(obs.state()[1] == 5.0);
         CHECK(obs.state()[2] == 2.0);
@@ -257,7 +257,7 @@ TEST_SUITE("Extended State Observer (ESO)") {
         ESO<2, double> manual{res};
         for (int k = 0; k < 40; ++k) {
             const ColVec<1> y{0.05 * k};
-            const ColVec<1> u{0.2};
+            const ColVec    u{0.2};
             const auto&     zf = fused.step(y, u);
             manual.predict(u);
             manual.update(y);
@@ -388,7 +388,7 @@ TEST_SUITE("Extended State Observer (ESO)") {
         const auto     res = design::eso<2>(50.0, 1.0, 1e-3);
         ESO<2, double> cold{res};
         ESO<2, double> warm{res};
-        warm.reset(ColVec<3>{1.0, 0.0, 0.0});
+        warm.reset(ColVec{1.0, 0.0, 0.0});
         double cold_peak = 0.0, warm_peak = 0.0;
         for (int k = 0; k < 2000; ++k) {
             cold_peak = damp::max(cold_peak, damp::abs(cold.step(1.0, 0.0)[2]));

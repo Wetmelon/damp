@@ -120,8 +120,8 @@ TEST_SUITE("place_jordan") {
     TEST_CASE("SISO distinct poles match the unique Ackermann gain") {
         // SISO pole placement has a unique solution, so place_jordan must agree
         // with the independent Ackermann formula to machine precision.
-        const Matrix<3, 3, double>          A = {{0, 1, 0}, {0, 0, 1}, {-6, -11, -6}};
-        const Matrix<3, 1, double>          B = {{0}, {0}, {1}};
+        const Matrix                        A = {{0, 1, 0}, {0, 0, 1}, {-6, -11, -6}};
+        const Matrix                        B = {{0}, {0}, {1}};
         const damp::array<JordanBlock<>, 3> blocks = {{{{-1, 0}, 1}, {{-2, 0}, 1}, {{-3, 0}, 1}}};
 
         const auto K = place_jordan(plant(A, B), blocks);
@@ -136,8 +136,8 @@ TEST_SUITE("place_jordan") {
     }
 
     TEST_CASE("MIMO distinct poles") {
-        const Matrix<4, 4, double>          A = {{0, 1, 0, 0}, {0, 0, 1, 0}, {0, 0, 0, 1}, {1, 2, 3, 4}};
-        const Matrix<4, 2, double>          B = {{0, 0}, {1, 0}, {0, 0}, {0, 1}};
+        const Matrix                        A = {{0, 1, 0, 0}, {0, 0, 1, 0}, {0, 0, 0, 1}, {1, 2, 3, 4}};
+        const Matrix                        B = {{0, 0}, {1, 0}, {0, 0}, {0, 1}};
         const damp::array<JordanBlock<>, 4> blocks = {{{{-1, 0}, 1}, {{-2, 0}, 1}, {{-3, 0}, 1}, {{-4, 0}, 1}}};
 
         const auto K = place_jordan(plant(A, B), blocks);
@@ -147,7 +147,7 @@ TEST_SUITE("place_jordan") {
 
     TEST_CASE("Repeated semisimple eigenvalue (two 1×1 blocks)") {
         // -2 with two independent eigenvectors: A − B·K must be exactly −2·I.
-        const Matrix<2, 2, double>          A = {{0, 1}, {0, 0}};
+        const Matrix                        A = {{0, 1}, {0, 0}};
         const Matrix<2, 2, double>          B = Matrix<2, 2, double>::identity();
         const damp::array<JordanBlock<>, 2> blocks = {{{{-2, 0}, 1}, {{-2, 0}, 1}}};
 
@@ -161,8 +161,8 @@ TEST_SUITE("place_jordan") {
 
     TEST_CASE("Defective real block: deadbeat with a single 3×3 Jordan block") {
         // All poles at 0 in one chain ⇒ nilpotent of index exactly 3.
-        const Matrix<3, 3, double>          A = {{0, 1, 0}, {0, 0, 1}, {-6, -11, -6}};
-        const Matrix<3, 1, double>          B = {{0}, {0}, {1}};
+        const Matrix                        A = {{0, 1, 0}, {0, 0, 1}, {-6, -11, -6}};
+        const Matrix                        B = {{0}, {0}, {1}};
         const damp::array<JordanBlock<>, 1> blocks = {{{{0, 0}, 3}}};
 
         const auto K = place_jordan(plant(A, B), blocks);
@@ -178,8 +178,8 @@ TEST_SUITE("place_jordan") {
     TEST_CASE("single-input place() assigns a repeated pole as the place_jordan chain") {
         // With one input a double pole has one eigenvector: place() assigns it as one
         // 2×2 Jordan block, the same gain place_jordan gives for that structure.
-        const Matrix<2, 2, double>          A = {{0, 1}, {0, 0}};
-        const Matrix<2, 1, double>          B = {{0}, {1}};
+        const Matrix                        A = {{0, 1}, {0, 0}};
+        const Matrix                        B = {{0}, {1}};
         const damp::array<JordanBlock<>, 1> blocks = {{{{-3, 0}, 2}}};
 
         const auto Kj = place_jordan(plant(A, B), blocks);
@@ -193,8 +193,8 @@ TEST_SUITE("place_jordan") {
     }
 
     TEST_CASE("Complex conjugate pair yields a real gain") {
-        const Matrix<2, 2, double>          A = {{0, 1}, {0, 0}};
-        const Matrix<2, 1, double>          B = {{0}, {1}};
+        const Matrix                        A = {{0, 1}, {0, 0}};
+        const Matrix                        B = {{0}, {1}};
         const damp::array<JordanBlock<>, 2> blocks = {{{{-1, 2}, 1}, {{-1, -2}, 1}}};
 
         const auto K = place_jordan(plant(A, B), blocks);
@@ -205,8 +205,8 @@ TEST_SUITE("place_jordan") {
 
     TEST_CASE("Defective complex pair: two 2×2 Jordan blocks at -1±1j") {
         // Four-integrator chain, controllability indices {2,2}.
-        const Matrix<4, 4, double>          A = {{0, 1, 0, 0}, {0, 0, 1, 0}, {0, 0, 0, 1}, {0, 0, 0, 0}};
-        const Matrix<4, 2, double>          B = {{0, 0}, {1, 0}, {0, 0}, {0, 1}};
+        const Matrix                        A = {{0, 1, 0, 0}, {0, 0, 1, 0}, {0, 0, 0, 1}, {0, 0, 0, 0}};
+        const Matrix                        B = {{0, 0}, {1, 0}, {0, 0}, {0, 1}};
         const damp::array<JordanBlock<>, 2> blocks = {{{{-1, 1}, 2}, {{-1, -1}, 2}}};
 
         const auto K = place_jordan(plant(A, B), blocks);
@@ -226,14 +226,14 @@ TEST_SUITE("place_jordan") {
 
     TEST_CASE("Mixed structure: a defective real block, a simple pole, a complex pair") {
         // n = 5: a 2×2 Jordan block at -2, a 1×1 at -5, and a simple pair ±j.
-        const Matrix<5, 5, double> A = {
+        const Matrix A = {
             {0, 1, 0, 0, 0},
             {0, 0, 1, 0, 0},
             {0, 0, 0, 1, 0},
             {0, 0, 0, 0, 1},
             {0, 0, 0, 0, 0},
         };
-        const Matrix<5, 2, double>          B = {{0, 0}, {1, 0}, {0, 0}, {0, 0}, {0, 1}};
+        const Matrix                        B = {{0, 0}, {1, 0}, {0, 0}, {0, 0}, {0, 1}};
         const damp::array<JordanBlock<>, 4> blocks = {{{{-2, 0}, 2}, {{-5, 0}, 1}, {{0, 1}, 1}, {{0, -1}, 1}}};
 
         const auto K = place_jordan(plant(A, B), blocks);
@@ -242,8 +242,8 @@ TEST_SUITE("place_jordan") {
     }
 
     TEST_CASE("Inadmissible requests are refused") {
-        const Matrix<3, 3, double> A = {{0, 1, 0}, {0, 0, 1}, {-6, -11, -6}};
-        const Matrix<3, 1, double> B = {{0}, {0}, {1}};
+        const Matrix A = {{0, 1, 0}, {0, 0, 1}, {-6, -11, -6}};
+        const Matrix B = {{0}, {0}, {1}};
 
         // Block sizes do not sum to NX (2 ≠ 3).
         const damp::array<JordanBlock<>, 1> too_few = {{{{-1, 0}, 2}}};
@@ -256,8 +256,8 @@ TEST_SUITE("place_jordan") {
     }
 
     TEST_CASE("Conjugate blocks with different orders are refused (a real gain mirrors λ onto λ̄)") {
-        const Matrix<4, 4, double>          A = {{0, 1, 0, 0}, {0, 0, 1, 0}, {0, 0, 0, 1}, {1, 2, 3, 4}};
-        const Matrix<4, 2, double>          B = {{0, 0}, {1, 0}, {0, 0}, {0, 1}};
+        const Matrix                        A = {{0, 1, 0, 0}, {0, 0, 1, 0}, {0, 0, 0, 1}, {1, 2, 3, 4}};
+        const Matrix                        B = {{0, 0}, {1, 0}, {0, 0}, {0, 1}};
         const damp::array<JordanBlock<>, 3> mismatched = {{{{-1, 1}, 2}, {{-1, -1}, 1}, {{-1, -1}, 1}}};
         const auto                          r = place_jordan(plant(A, B), mismatched);
         CHECK_FALSE(r.success);
@@ -267,8 +267,8 @@ TEST_SUITE("place_jordan") {
     }
 
     TEST_CASE("Slow distinct eigenvalues are not merged, and a non-finite one is refused") {
-        const Matrix<2, 2, double>          A = {{0, 1}, {0, 0}};
-        const Matrix<2, 1, double>          B = {{0}, {1}};
+        const Matrix                        A = {{0, 1}, {0, 0}};
+        const Matrix                        B = {{0}, {1}};
         const damp::array<JordanBlock<>, 2> slow = {{{{-1e-8, 0}, 1}, {{-2e-8, 0}, 1}}};
         CHECK(place_jordan(plant(A, B), slow).success);
         const damp::array<JordanBlock<>, 2> bad = {{{{std::nan(""), 0}, 1}, {{-2, 0}, 1}}};
@@ -279,8 +279,8 @@ TEST_SUITE("place_jordan") {
 TEST_SUITE("place_jordan optimization") {
     // A 4-state, 2-input system where the canonical parameter is far from optimal
     // (its gain is ~49), leaving plenty of room for the optimizer to improve.
-    const Matrix<4, 4, double>          A = {{0, 1, 0, 0}, {0, 0, 1, 0}, {0, 0, 0, 1}, {1, 2, 3, 4}};
-    const Matrix<4, 2, double>          B = {{0, 0}, {1, 0}, {0, 0}, {0, 1}};
+    const Matrix                        A = {{0, 1, 0, 0}, {0, 0, 1, 0}, {0, 0, 0, 1}, {1, 2, 3, 4}};
+    const Matrix                        B = {{0, 0}, {1, 0}, {0, 0}, {0, 1}};
     const damp::array<JordanBlock<>, 4> poles = {{{{-1, 0}, 1}, {{-2, 0}, 1}, {{-3, 0}, 1}, {{-4, 0}, 1}}};
 
     TEST_CASE("Robust (Method 1) preserves the spectrum and improves conditioning/gain") {
@@ -319,8 +319,8 @@ TEST_SUITE("place_jordan optimization") {
 
     TEST_CASE("Optimization preserves a defective Jordan structure") {
         // Two 2×2 Jordan blocks at -1±1j on the integrator chain.
-        const Matrix<4, 4, double>          Achain = {{0, 1, 0, 0}, {0, 0, 1, 0}, {0, 0, 0, 1}, {0, 0, 0, 0}};
-        const Matrix<4, 2, double>          Bchain = {{0, 0}, {1, 0}, {0, 0}, {0, 1}};
+        const Matrix                        Achain = {{0, 1, 0, 0}, {0, 0, 1, 0}, {0, 0, 0, 1}, {0, 0, 0, 0}};
+        const Matrix                        Bchain = {{0, 0}, {1, 0}, {0, 0}, {0, 1}};
         const damp::array<JordanBlock<>, 2> defective = {{{{-1, 1}, 2}, {{-1, -1}, 2}}};
 
         const auto r = place_jordan(plant(Achain, Bchain), defective, {.objective = JordanObjective::ConditionNumber, .alpha = 0.5});
@@ -336,8 +336,8 @@ TEST_SUITE("place_jordan optimization") {
     TEST_CASE("Runs at compile time (constexpr)") {
         // The analytic-gradient BFGS fits the constexpr op budget for small
         // systems, so a robust gain can be baked in at compile time.
-        constexpr Matrix<2, 2, double>          Ac = {{0, 1}, {0, 0}};
-        constexpr Matrix<2, 1, double>          Bc = {{0}, {1}};
+        constexpr Matrix                        Ac = {{0, 1}, {0, 0}};
+        constexpr Matrix                        Bc = {{0}, {1}};
         constexpr damp::array<JordanBlock<>, 2> pc = {{{{-1, 0}, 1}, {{-2, 0}, 1}}};
         constexpr auto                          r = place_jordan(plant(Ac, Bc), pc, {.objective = JordanObjective::ConditionNumber});
         static_assert(r.success);

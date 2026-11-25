@@ -85,7 +85,7 @@ TEST_SUITE("Recursive Least Squares") {
 
         RlsVector<2, double> rls(rls_vector(cfg));
 
-        const ColVec<2, double> theta_true{2.0, -1.0};
+        const ColVec theta_true{2.0, -1.0};
         // Persistently exciting regressors.
         for (int k = 0; k < 100; ++k) {
             const double      a = damp::sin(0.3 * k);
@@ -110,10 +110,10 @@ TEST_SUITE("Recursive Least Squares") {
 
         RlsVector<2, double> rls(rls_vector(cfg));
 
-        ColVec<2, double> theta{1.0, 1.0};
+        ColVec theta{1.0, 1.0};
         for (int k = 0; k < 400; ++k) {
             if (k == 200) {
-                theta = ColVec<2, double>{-2.0, 3.0}; // parameters jump
+                theta = ColVec{-2.0, 3.0}; // parameters jump
             }
             ColVec<2, double> phi{damp::sin(0.3 * k), damp::cos(0.11 * k)};
             REQUIRE(rls.update(phi, dot(phi, theta)));
@@ -128,7 +128,7 @@ TEST_SUITE("Recursive Least Squares") {
         RlsConfig<double> cfg{};
         cfg.lambda = 0.98;
         cfg.p0 = 50.0;
-        const auto design = rls_vector(cfg, ColVec<1, double>{1.25});
+        const auto design = rls_vector(cfg, ColVec{1.25});
         REQUIRE(design.success);
 
         const auto          design_f = design.as<float>();
@@ -155,9 +155,9 @@ TEST_SUITE("Recursive Least Squares") {
         cfg.lambda = 1.0;
         cfg.p0 = 10.0;
         RlsVector<2, double> rls(rls_vector(cfg));
-        REQUIRE(rls.update(ColVec<2, double>{1.0, 0.0}, 1.0));
+        REQUIRE(rls.update(ColVec{1.0, 0.0}, 1.0));
         const auto theta0 = rls.state().theta;
-        REQUIRE(rls.update(ColVec<2, double>{0.0, 0.0}, 99.0)); // no PE this sample
+        REQUIRE(rls.update(ColVec{0.0, 0.0}, 99.0)); // no PE this sample
         CHECK(rls.state().theta[0] == doctest::Approx(theta0[0]));
         CHECK(rls.state().theta[1] == doctest::Approx(theta0[1]));
     }
@@ -172,7 +172,7 @@ TEST_SUITE("Recursive Least Squares") {
         estimation::RlsVector<2, float> rlsv(rls_vector(RlsConfig<float, 2>{.lambda = cfg.lambda, .p0 = cfg.p0}));
         for (int k = 0; k < 1000; ++k) {
             REQUIRE(rls.update(0.0f, 1.0f));
-            REQUIRE(rlsv.update(ColVec<2, float>{0.0f, 0.0f}, 1.0f));
+            REQUIRE(rlsv.update(ColVec{0.0f, 0.0f}, 1.0f));
         }
         CHECK(rls.state().covariance(0, 0) <= cfg.p0 * (1.0f + 1e-6f));
         CHECK(rlsv.state().covariance.trace() <= 2.0f * cfg.p0 * (1.0f + 1e-6f));

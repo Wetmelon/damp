@@ -75,45 +75,45 @@ double placement_error(const Matrix<NX, NX>& A, const Matrix<NX, NU>& B, const s
 TEST_SUITE("pole_placement") {
     TEST_CASE("single-input placement assigns the spectrum exactly") {
         SUBCASE("double integrator, poles {-1, -2}") {
-            Matrix<2, 2> A = {{0.0, 1.0}, {0.0, 0.0}};
-            Matrix<2, 1> B = {{0.0}, {1.0}};
+            Matrix A = {{0.0, 1.0}, {0.0, 0.0}};
+            Matrix B = {{0.0}, {1.0}};
             CHECK(placement_error(A, B, {-1.0, -2.0}) < 1e-9);
         }
         SUBCASE("3x3 companion, poles {-2, -3, -4}") {
-            Matrix<3, 3> A = {{0.0, 1.0, 0.0}, {0.0, 0.0, 1.0}, {-1.0, -2.0, -3.0}};
-            Matrix<3, 1> B = {{0.0}, {0.0}, {1.0}};
+            Matrix A = {{0.0, 1.0, 0.0}, {0.0, 0.0, 1.0}, {-1.0, -2.0, -3.0}};
+            Matrix B = {{0.0}, {0.0}, {1.0}};
             CHECK(placement_error(A, B, {-2.0, -3.0, -4.0}) < 1e-9);
         }
     }
 
     TEST_CASE("multi-input placement assigns the spectrum exactly") {
         SUBCASE("3x2") {
-            Matrix<3, 3> A = {{1.0, 2.0, 0.0}, {0.0, 1.0, 1.0}, {0.0, 0.0, 1.0}};
-            Matrix<3, 2> B = {{1.0, 0.0}, {0.0, 1.0}, {1.0, 1.0}};
+            Matrix A = {{1.0, 2.0, 0.0}, {0.0, 1.0, 1.0}, {0.0, 0.0, 1.0}};
+            Matrix B = {{1.0, 0.0}, {0.0, 1.0}, {1.0, 1.0}};
             CHECK(placement_error(A, B, {-1.0, -2.0, -3.0}) < 1e-8);
         }
         SUBCASE("4x2") {
-            Matrix<4, 4> A = {{0.0, 1.0, 0.0, 0.0}, {0.0, 0.0, 1.0, 0.0}, {0.0, 0.0, 0.0, 1.0}, {1.0, 2.0, 3.0, 4.0}};
-            Matrix<4, 2> B = {{0.0, 0.0}, {1.0, 0.0}, {0.0, 0.0}, {0.0, 1.0}};
+            Matrix A = {{0.0, 1.0, 0.0, 0.0}, {0.0, 0.0, 1.0, 0.0}, {0.0, 0.0, 0.0, 1.0}, {1.0, 2.0, 3.0, 4.0}};
+            Matrix B = {{0.0, 0.0}, {1.0, 0.0}, {0.0, 0.0}, {0.0, 1.0}};
             CHECK(placement_error(A, B, {-1.0, -2.0, -3.0, -4.0}) < 1e-8);
         }
         SUBCASE("repeated pole with multiplicity == NU is assignable") {
-            Matrix<4, 4> A = {{0.0, 1.0, 0.0, 0.0}, {0.0, 0.0, 1.0, 0.0}, {0.0, 0.0, 0.0, 1.0}, {1.0, 2.0, 3.0, 4.0}};
-            Matrix<4, 2> B = {{0.0, 0.0}, {1.0, 0.0}, {0.0, 0.0}, {0.0, 1.0}};
+            Matrix A = {{0.0, 1.0, 0.0, 0.0}, {0.0, 0.0, 1.0, 0.0}, {0.0, 0.0, 0.0, 1.0}, {1.0, 2.0, 3.0, 4.0}};
+            Matrix B = {{0.0, 0.0}, {1.0, 0.0}, {0.0, 0.0}, {0.0, 1.0}};
             CHECK(placement_error(A, B, {-2.0, -2.0, -3.0, -3.0}) < 1e-7);
         }
     }
 
     TEST_CASE("square B (NU == NX) places via mat::solve on B") {
-        Matrix<2, 2> A = {{1.0, 2.0}, {3.0, 4.0}};
+        Matrix       A = {{1.0, 2.0}, {3.0, 4.0}};
         Matrix<2, 2> B = Matrix<2, 2>::identity();
         CHECK(placement_error(A, B, {-1.0, -5.0}) < 1e-10);
     }
 
     TEST_CASE("single-input place matches Ackermann (unique SI gain)") {
-        Matrix<3, 3> A = {{0.0, 1.0, 0.0}, {0.0, 0.0, 1.0}, {-1.0, -2.0, -3.0}};
-        Matrix<3, 1> B = {{0.0}, {0.0}, {1.0}};
-        const auto   Kp = design::place(plant(A, B), {-2.0, -3.0, -4.0});
+        Matrix     A = {{0.0, 1.0, 0.0}, {0.0, 0.0, 1.0}, {-1.0, -2.0, -3.0}};
+        Matrix     B = {{0.0}, {0.0}, {1.0}};
+        const auto Kp = design::place(plant(A, B), {-2.0, -3.0, -4.0});
         REQUIRE(Kp.success);
 
         // Ackermann by hand: s³ + 9s² + 26s + 24 on the companion form with a = (1, 2, 3).
@@ -124,17 +124,17 @@ TEST_SUITE("pole_placement") {
     }
 
     TEST_CASE("place rejects non-assignable problems") {
-        Matrix<3, 3> A = {{0.0, 1.0, 0.0}, {0.0, 0.0, 1.0}, {-1.0, -2.0, -3.0}};
+        Matrix A = {{0.0, 1.0, 0.0}, {0.0, 0.0, 1.0}, {-1.0, -2.0, -3.0}};
 
         SUBCASE("multiplicity exceeding the input count (two inputs, triple pole)") {
-            Matrix<3, 2> B = {{0.0, 0.0}, {1.0, 0.0}, {0.0, 1.0}};
-            const auto   res = design::place(plant(A, B), {-2.0, -2.0, -2.0});
+            Matrix     B = {{0.0, 0.0}, {1.0, 0.0}, {0.0, 1.0}};
+            const auto res = design::place(plant(A, B), {-2.0, -2.0, -2.0});
             CHECK_FALSE(res.success);
             CHECK(res.status == design::DesignStatus::not_placeable);
         }
         SUBCASE("rank-deficient B") {
-            Matrix<3, 2> B = {{1.0, 2.0}, {1.0, 2.0}, {1.0, 2.0}}; // rank 1
-            const auto   res = design::place(plant(A, B), {-1.0, -2.0, -3.0});
+            Matrix     B = {{1.0, 2.0}, {1.0, 2.0}, {1.0, 2.0}}; // rank 1
+            const auto res = design::place(plant(A, B), {-1.0, -2.0, -3.0});
             CHECK_FALSE(res.success);
             CHECK(res.status == design::DesignStatus::singular);
         }
@@ -170,43 +170,43 @@ TEST_SUITE("pole_placement") {
 
     TEST_CASE("complex-conjugate placement assigns the spectrum exactly") {
         SUBCASE("3x2: one complex pair + one real") {
-            Matrix<3, 3> A = {{1.0, 2.0, 0.0}, {0.0, 1.0, 1.0}, {0.0, 0.0, 1.0}};
-            Matrix<3, 2> B = {{1.0, 0.0}, {0.0, 1.0}, {1.0, 1.0}};
+            Matrix A = {{1.0, 2.0, 0.0}, {0.0, 1.0, 1.0}, {0.0, 0.0, 1.0}};
+            Matrix B = {{1.0, 0.0}, {0.0, 1.0}, {1.0, 1.0}};
             CHECK(placement_error_cplx(A, B, std::array<Cplx, 3>{Cplx(-1, 2), Cplx(-1, -2), Cplx(-3, 0)}) < 1e-6);
         }
         SUBCASE("4x2: two complex pairs") {
-            Matrix<4, 4> A = {{0.0, 1.0, 0.0, 0.0}, {0.0, 0.0, 1.0, 0.0}, {0.0, 0.0, 0.0, 1.0}, {1.0, 2.0, 3.0, 4.0}};
-            Matrix<4, 2> B = {{0.0, 0.0}, {1.0, 0.0}, {0.0, 0.0}, {0.0, 1.0}};
+            Matrix A = {{0.0, 1.0, 0.0, 0.0}, {0.0, 0.0, 1.0, 0.0}, {0.0, 0.0, 0.0, 1.0}, {1.0, 2.0, 3.0, 4.0}};
+            Matrix B = {{0.0, 0.0}, {1.0, 0.0}, {0.0, 0.0}, {0.0, 1.0}};
             CHECK(placement_error_cplx(A, B, std::array<Cplx, 4>{Cplx(-1, 1), Cplx(-1, -1), Cplx(-2, 3), Cplx(-2, -3)}) < 1e-6);
         }
         SUBCASE("4x2: mixed real + complex pair") {
-            Matrix<4, 4> A = {{0.0, 1.0, 0.0, 0.0}, {0.0, 0.0, 1.0, 0.0}, {0.0, 0.0, 0.0, 1.0}, {1.0, 2.0, 3.0, 4.0}};
-            Matrix<4, 2> B = {{0.0, 0.0}, {1.0, 0.0}, {0.0, 0.0}, {0.0, 1.0}};
+            Matrix A = {{0.0, 1.0, 0.0, 0.0}, {0.0, 0.0, 1.0, 0.0}, {0.0, 0.0, 0.0, 1.0}, {1.0, 2.0, 3.0, 4.0}};
+            Matrix B = {{0.0, 0.0}, {1.0, 0.0}, {0.0, 0.0}, {0.0, 1.0}};
             CHECK(placement_error_cplx(A, B, std::array<Cplx, 4>{Cplx(-1, 2), Cplx(-1, -2), Cplx(-3, 0), Cplx(-4, 0)}) < 1e-6);
         }
         SUBCASE("square 2x2 complex pair") {
-            Matrix<2, 2> A = {{1.0, 2.0}, {3.0, 4.0}};
+            Matrix       A = {{1.0, 2.0}, {3.0, 4.0}};
             Matrix<2, 2> B = Matrix<2, 2>::identity();
             CHECK(placement_error_cplx(A, B, std::array<Cplx, 2>{Cplx(-1, 2), Cplx(-1, -2)}) < 1e-9);
         }
         SUBCASE("all-real array forwards to the real (conditioned) path") {
             // Exercise the complex overload with an all-real spectrum.
-            Matrix<3, 3> A3 = {{1.0, 2.0, 0.0}, {0.0, 1.0, 1.0}, {0.0, 0.0, 1.0}};
-            Matrix<3, 2> B = {{1.0, 0.0}, {0.0, 1.0}, {1.0, 1.0}};
+            Matrix A3 = {{1.0, 2.0, 0.0}, {0.0, 1.0, 1.0}, {0.0, 0.0, 1.0}};
+            Matrix B = {{1.0, 0.0}, {0.0, 1.0}, {1.0, 1.0}};
             CHECK(placement_error_cplx(A3, B, std::array<Cplx, 3>{Cplx(-1, 0), Cplx(-2, 0), Cplx(-3, 0)}) < 1e-8);
         }
     }
 
     TEST_CASE("place rejects a dangling (unpaired) complex pole") {
-        Matrix<3, 3> A = {{1.0, 2.0, 0.0}, {0.0, 1.0, 1.0}, {0.0, 0.0, 1.0}};
-        Matrix<3, 2> B = {{1.0, 0.0}, {0.0, 1.0}, {1.0, 1.0}};
+        Matrix A = {{1.0, 2.0, 0.0}, {0.0, 1.0, 1.0}, {0.0, 0.0, 1.0}};
+        Matrix B = {{1.0, 0.0}, {0.0, 1.0}, {1.0, 1.0}};
         // -1+2j without its conjugate is not a real closed-loop spectrum.
         CHECK_FALSE(design::place(plant(A, B), {Cplx(-1, 2), Cplx(-3, 0), Cplx(-4, 0)}).success);
     }
 
     TEST_CASE("matlab::place forwards to design::place") {
-        Matrix<3, 3>        A = {{1.0, 2.0, 0.0}, {0.0, 1.0, 1.0}, {0.0, 0.0, 1.0}};
-        Matrix<3, 2>        B = {{1.0, 0.0}, {0.0, 1.0}, {1.0, 1.0}};
+        Matrix              A = {{1.0, 2.0, 0.0}, {0.0, 1.0, 1.0}, {0.0, 0.0, 1.0}};
+        Matrix              B = {{1.0, 0.0}, {0.0, 1.0}, {1.0, 1.0}};
         std::array<Cplx, 3> poles = {Cplx(-1, 2), Cplx(-1, -2), Cplx(-3, 0)};
 
         const design::PlaceResult<3, 2> Km = matlab::place(A, B, poles); // the design:: result type
@@ -222,9 +222,9 @@ TEST_SUITE("pole_placement") {
 
     TEST_CASE("place is constexpr-evaluable") {
         constexpr bool ok = []() consteval {
-            Matrix<2, 2> A = {{0.0, 1.0}, {0.0, 0.0}};
-            Matrix<2, 1> B = {{0.0}, {1.0}};
-            const auto   res = design::place(plant(A, B), {-1.0, -2.0});
+            Matrix     A = {{0.0, 1.0}, {0.0, 0.0}};
+            Matrix     B = {{0.0}, {1.0}};
+            const auto res = design::place(plant(A, B), {-1.0, -2.0});
             if (!res.success) {
                 return false;
             }
@@ -236,8 +236,8 @@ TEST_SUITE("pole_placement") {
     }
 
     TEST_CASE("place(sys, poles, Ts) matches ZOH + z-map + place on the discrete plant") {
-        Matrix<2, 2>        A = {{0.0, 1.0}, {0.0, 0.0}};
-        Matrix<2, 1>        B = {{0.0}, {1.0}};
+        Matrix              A = {{0.0, 1.0}, {0.0, 0.0}};
+        Matrix              B = {{0.0}, {1.0}};
         const double        Ts = 0.01;
         std::array<Cplx, 2> poles_s{-4.0, -6.0};
         const auto          sys_c = plant(A, B);
@@ -269,8 +269,8 @@ TEST_SUITE("pole_placement") {
     TEST_CASE("a discrete plant with a trailing Ts is refused, not discretized twice") {
         // The trap this API closes: the same (plant, poles, Ts) call on a model that is
         // already discrete must not ZOH it a second time.
-        Matrix<2, 2> A = {{0.0, 1.0}, {0.0, 0.0}};
-        Matrix<2, 1> B = {{0.0}, {1.0}};
+        Matrix       A = {{0.0, 1.0}, {0.0, 0.0}};
+        Matrix       B = {{0.0}, {1.0}};
         const double Ts = 0.01;
         const auto   sys_d = *discretize(plant(A, B), Ts, DiscretizationMethod::ZOH);
         REQUIRE(sys_d.Ts == doctest::Approx(Ts));
@@ -290,15 +290,15 @@ TEST_SUITE("pole_placement") {
 
     TEST_CASE("single-input repeated poles form one Jordan chain (the Ackermann gain)") {
         // Double integrator, double pole at -3: s² + 6s + 9 ⇒ K = [9, 6].
-        Matrix<2, 2> A = {{0.0, 1.0}, {0.0, 0.0}};
-        Matrix<2, 1> B = {{0.0}, {1.0}};
-        const auto   res = design::place(plant(A, B), {-3.0, -3.0});
+        Matrix     A = {{0.0, 1.0}, {0.0, 0.0}};
+        Matrix     B = {{0.0}, {1.0}};
+        const auto res = design::place(plant(A, B), {-3.0, -3.0});
         REQUIRE(res.success);
         CHECK(res.K(0, 0) == doctest::Approx(9.0).epsilon(1e-9));
         CHECK(res.K(0, 1) == doctest::Approx(6.0).epsilon(1e-9));
 
         // Deadbeat on a discrete triple integrator: all three z-poles at 0.
-        Matrix<3, 3> Ad = {{1.0, 1.0, 0.5}, {0.0, 1.0, 1.0}, {0.0, 0.0, 1.0}};
+        Matrix       Ad = {{1.0, 1.0, 0.5}, {0.0, 1.0, 1.0}, {0.0, 0.0, 1.0}};
         Matrix<3, 1> Bd = {{1.0 / 6.0}, {0.5}, {1.0}};
         const auto   db = design::place(plant(Ad, Bd, 1.0), {0.0, 0.0, 0.0});
         REQUIRE(db.success);
@@ -307,9 +307,9 @@ TEST_SUITE("pole_placement") {
     }
 
     TEST_CASE("a placed law deploys through LQR: state_feedback with Poles, design::place's gain") {
-        Matrix<2, 2>         A = {{1.0, 0.01}, {0.0, 1.0}};
-        Matrix<2, 1>         B = {{0.00005}, {0.01}};
-        constexpr StateSpace sys{.A = Matrix<2, 2>{{1.0, 0.01}, {0.0, 1.0}}, .B = Matrix<2, 1>{{0.00005}, {0.01}}, .C = Matrix<2, 2>::identity(), .Ts = 0.01};
+        Matrix               A = {{1.0, 0.01}, {0.0, 1.0}};
+        Matrix               B = {{0.00005}, {0.01}};
+        constexpr StateSpace sys{.A = Matrix{{1.0, 0.01}, {0.0, 1.0}}, .B = Matrix{{0.00005}, {0.01}}, .C = Matrix<2, 2>::identity(), .Ts = 0.01};
         constexpr auto       res = design::state_feedback(sys, design::Poles{0.9, 0.95});
         constexpr auto       gain = design::place(sys, {0.9, 0.95}); // the bare gain
         static_assert(res.success && gain.success);
@@ -326,8 +326,8 @@ TEST_SUITE("pole_placement") {
     }
 
     TEST_CASE("a repeated pole within NU is placed when the spectrum also has a complex pair") {
-        const Matrix<4, 4> A = {{0.0, 1.0, 0.0, 0.0}, {0.0, 0.0, 1.0, 0.0}, {0.0, 0.0, 0.0, 1.0}, {1.0, 2.0, 3.0, 4.0}};
-        const Matrix<4, 2> B = {{0.0, 0.0}, {1.0, 0.0}, {0.0, 0.0}, {0.0, 1.0}};
+        const Matrix A = {{0.0, 1.0, 0.0, 0.0}, {0.0, 0.0, 1.0, 0.0}, {0.0, 0.0, 0.0, 1.0}, {1.0, 2.0, 3.0, 4.0}};
+        const Matrix B = {{0.0, 0.0}, {1.0, 0.0}, {0.0, 0.0}, {0.0, 1.0}};
         for (const auto& poles : {std::array<Cplx, 4>{Cplx{-2.0, 0.0}, Cplx{-2.0, 0.0}, Cplx{-1.0, 1.0}, Cplx{-1.0, -1.0}}, std::array<Cplx, 4>{Cplx{-1.0, 1.0}, Cplx{-1.0, -1.0}, Cplx{-1.0, 1.0}, Cplx{-1.0, -1.0}}}) {
             const auto res = design::place(plant(A, B), poles);
             REQUIRE(res.success);
@@ -354,7 +354,7 @@ TEST_SUITE("pole_placement") {
         CHECK(std::max(s0, s1) == doctest::Approx(-1e-3).epsilon(1e-4));
 
         // Slow s-plane poles on a double integrator are distinct, not a repeated pole.
-        const auto slow = design::place(plant(Matrix<2, 2>{{0.0, 1.0}, {0.0, 0.0}}, Matrix<2, 1>{{0.0}, {1.0}}), {-1e-8, -2e-8});
+        const auto slow = design::place(plant(Matrix{{0.0, 1.0}, {0.0, 0.0}}, Matrix{{0.0}, {1.0}}), {-1e-8, -2e-8});
         REQUIRE(slow.success);
         CHECK(slow.K(0, 0) == doctest::Approx(2e-16).epsilon(1e-6));
         CHECK(slow.K(0, 1) == doctest::Approx(3e-8).epsilon(1e-6));
@@ -363,9 +363,9 @@ TEST_SUITE("pole_placement") {
     TEST_CASE("single-input nearly repeated poles take the unique gain") {
         // A cluster just past the 64·ε equality is not a repeat, and KNV's eigenvectors for it are
         // nearly parallel; with one input the gain is unique and Ackermann's formula gives it.
-        const Matrix<3, 3> A3 = {{0.0, 1.0, 0.0}, {0.0, 0.0, 1.0}, {0.0, 0.0, 0.0}};
-        const Matrix<3, 1> B3 = {{0.0}, {0.0}, {1.0}};
-        const auto         tri = design::place(plant(A3, B3), {-1.0, -1.0 - 1e-9, -1.0 - 2e-9});
+        const Matrix A3 = {{0.0, 1.0, 0.0}, {0.0, 0.0, 1.0}, {0.0, 0.0, 0.0}};
+        const Matrix B3 = {{0.0}, {0.0}, {1.0}};
+        const auto   tri = design::place(plant(A3, B3), {-1.0, -1.0 - 1e-9, -1.0 - 2e-9});
         REQUIRE(tri.success);
         CHECK(tri.K(0, 0) == doctest::Approx(1.0).epsilon(1e-6));
         CHECK(tri.K(0, 1) == doctest::Approx(3.0).epsilon(1e-6));
@@ -373,9 +373,9 @@ TEST_SUITE("pole_placement") {
 
         // Four integrators, poles −1 − k·1e-12: the computed eig(A − BK) spread by ε^{1/4} like a
         // chain's, so the certificate counts the cluster's multiplicity, not the 64·ε repeats.
-        const Matrix<4, 4> A4 = {{0.0, 1.0, 0.0, 0.0}, {0.0, 0.0, 1.0, 0.0}, {0.0, 0.0, 0.0, 1.0}, {0.0, 0.0, 0.0, 0.0}};
-        const Matrix<4, 1> B4 = {{0.0}, {0.0}, {0.0}, {1.0}};
-        const auto         quad = design::place(plant(A4, B4), {-1.0, -1.0 - 1e-12, -1.0 - 2e-12, -1.0 - 3e-12});
+        const Matrix A4 = {{0.0, 1.0, 0.0, 0.0}, {0.0, 0.0, 1.0, 0.0}, {0.0, 0.0, 0.0, 1.0}, {0.0, 0.0, 0.0, 0.0}};
+        const Matrix B4 = {{0.0}, {0.0}, {0.0}, {1.0}};
+        const auto   quad = design::place(plant(A4, B4), {-1.0, -1.0 - 1e-12, -1.0 - 2e-12, -1.0 - 3e-12});
         REQUIRE(quad.success);
         CHECK(quad.K(0, 0) == doctest::Approx(1.0).epsilon(1e-9)); // (s + 1)⁴
         CHECK(quad.K(0, 1) == doctest::Approx(4.0).epsilon(1e-9));
@@ -383,7 +383,7 @@ TEST_SUITE("pole_placement") {
         CHECK(quad.K(0, 3) == doctest::Approx(4.0).epsilon(1e-9));
 
         // A double root as an eigensolver returns it, −2 ± 1e-12j: K = [4, 4].
-        const auto pair = design::place(plant(Matrix<2, 2>{{0.0, 1.0}, {0.0, 0.0}}, Matrix<2, 1>{{0.0}, {1.0}}), {Cplx{-2.0, 1e-12}, Cplx{-2.0, -1e-12}});
+        const auto pair = design::place(plant(Matrix{{0.0, 1.0}, {0.0, 0.0}}, Matrix{{0.0}, {1.0}}), {Cplx{-2.0, 1e-12}, Cplx{-2.0, -1e-12}});
         REQUIRE(pair.success);
         CHECK(pair.K(0, 0) == doctest::Approx(4.0).epsilon(1e-9));
         CHECK(pair.K(0, 1) == doctest::Approx(4.0).epsilon(1e-9));
@@ -399,16 +399,16 @@ TEST_SUITE("pole_placement") {
     }
 
     TEST_CASE("a non-finite pole is refused") {
-        const Matrix<4, 4> A = {{0.0, 1.0, 0.0, 0.0}, {0.0, 0.0, 1.0, 0.0}, {0.0, 0.0, 0.0, 1.0}, {1.0, 2.0, 3.0, 4.0}};
-        const Matrix<4, 2> B = {{0.0, 0.0}, {1.0, 0.0}, {0.0, 0.0}, {0.0, 1.0}};
-        const auto         res = design::place(plant(A, B), {std::nan(""), -2.0, -3.0, -4.0});
+        const Matrix A = {{0.0, 1.0, 0.0, 0.0}, {0.0, 0.0, 1.0, 0.0}, {0.0, 0.0, 0.0, 1.0}, {1.0, 2.0, 3.0, 4.0}};
+        const Matrix B = {{0.0, 0.0}, {1.0, 0.0}, {0.0, 0.0}, {0.0, 1.0}};
+        const auto   res = design::place(plant(A, B), {std::nan(""), -2.0, -3.0, -4.0});
         CHECK_FALSE(res.success);
         CHECK(res.status == design::DesignStatus::invalid_parameter);
         CHECK(res.K(0, 0) == 0.0);
     }
 
     TEST_CASE("a failed design is not stable") {
-        const auto res = design::place(plant(Matrix<2, 2>{{0.0, 1.0}, {0.0, 0.0}}, Matrix<2, 1>{{0.0}, {0.0}}, 0.01), {0.5, 0.6});
+        const auto res = design::place(plant(Matrix{{0.0, 1.0}, {0.0, 0.0}}, Matrix{{0.0}, {0.0}}, 0.01), {0.5, 0.6});
         REQUIRE_FALSE(res.success);
         CHECK_FALSE(res.is_stable()); // e is all zeros, inside the unit circle
     }

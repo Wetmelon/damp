@@ -62,7 +62,7 @@ TEST_SUITE("Multi-rate harness") {
 
         RK4<1>          rk4;
         FixedStepSolver fine(rk4, 0.001);
-        ColVec<1>       x0{0.0};
+        ColVec          x0{0.0};
 
         auto a = simulate_sampled(plant, output, ctrl, fine, Ts, x0, {0.0, 0.5});
         auto b = simulate_multirate<1, 1, 1, double>(plant, output, step, fine, Ts, x0, {0.0, 0.5});
@@ -91,7 +91,7 @@ TEST_SUITE("Multi-rate harness") {
 
         auto outer = [&](double, const ColVec<1>&) -> ColVec<1> {
             ++outer_fires;
-            return ColVec<1>{1.0};
+            return ColVec{1.0};
         };
         auto inner = [](double, const ColVec<1>& r, const ColVec<1>& y) -> ColVec<1> {
             return ColVec<1>{r[0] - y[0]};
@@ -99,7 +99,7 @@ TEST_SUITE("Multi-rate harness") {
 
         RK4<1>          rk4;
         FixedStepSolver fine(rk4, 0.001);
-        ColVec<1>       x0{0.0};
+        ColVec          x0{0.0};
 
         auto tr = simulate_two_rate<1, 1, 1, 1, double>(
             plant, output, outer, outer_div, inner, 1, fine, Ts_base, x0, {0.0, 3.0}
@@ -129,12 +129,12 @@ TEST_SUITE("Multi-rate harness") {
 
         auto outer = [](double, const ColVec<1>& y) -> ColVec<1> { return y; };
         auto inner = [](double, const ColVec<1>&, const ColVec<1>&) -> ColVec<1> {
-            return ColVec<1>{0.0};
+            return ColVec{0.0};
         };
 
         RK4<1>          rk4;
         FixedStepSolver fine(rk4, 0.005);
-        ColVec<1>       x0{1.0};
+        ColVec          x0{1.0};
 
         MultiRateConfig<double> cfg{.Ts_base = Ts_base, .log_stride = 1, .max_base_ticks = 12};
         auto                    tr = simulate_two_rate<1, 1, 1, 1, double>(
@@ -189,9 +189,9 @@ TEST_SUITE("Multi-rate harness") {
         constexpr double      r_cmd = 1.0;
 
         StateSpace sys{
-            .A = Matrix<1, 1>{{-1.0}},
-            .B = Matrix<1, 1>{{1.0}},
-            .C = Matrix<1, 1>{{1.0}},
+            .A = Matrix{{-1.0}},
+            .B = Matrix{{1.0}},
+            .C = Matrix{{1.0}},
             .Ts = 0.0,
         };
 
@@ -205,7 +205,7 @@ TEST_SUITE("Multi-rate harness") {
 
         RK4<1>          rk4;
         FixedStepSolver fine(rk4, 0.0002);
-        ColVec<1>       x0{0.0};
+        ColVec          x0{0.0};
 
         auto tr = simulate_two_rate_lti<1, 1, 1, 1>(
             sys, outer, outer_div, inner, 1, fine, Ts_base, x0, {0.0, 1.5}
@@ -246,7 +246,7 @@ TEST_SUITE("Multi-rate harness") {
 
         RK4<2>          rk4;
         FixedStepSolver fine(rk4, 0.0002);
-        ColVec<2>       x0{0.0, 0.0};
+        ColVec          x0{0.0, 0.0};
 
         auto tr = simulate_two_rate<2, 1, 2, 1, double>(
             plant, output, outer, outer_div, inner, 1, fine, Ts_base, x0, {0.0, 3.0}
@@ -260,13 +260,13 @@ TEST_SUITE("Multi-rate harness") {
     TEST_CASE("max_base_ticks truncates") {
         auto plant = [](double, const ColVec<1>& x, const ColVec<1>&) -> ColVec<1> { return -x; };
         auto output = [](const ColVec<1>& x) -> ColVec<1> { return x; };
-        auto step = [](std::size_t, double, const ColVec<1>&) -> ColVec<1> { return ColVec<1>{0.0}; };
+        auto step = [](std::size_t, double, const ColVec<1>&) -> ColVec<1> { return ColVec{0.0}; };
 
         RK4<1>                  rk4;
         FixedStepSolver         fine(rk4, 0.01);
         MultiRateConfig<double> cfg{.Ts_base = 0.1, .max_base_ticks = 3};
         auto                    tr = simulate_multirate<1, 1, 1, double>(
-            plant, output, step, fine, ColVec<1>{1.0}, {0.0, 10.0}, cfg
+            plant, output, step, fine, ColVec{1.0}, {0.0, 10.0}, cfg
         );
         // 3 base periods of 0.1 → last time ≈ 0.3
         CHECK(tr.t.back() == doctest::Approx(0.3).epsilon(1e-9));
@@ -275,12 +275,12 @@ TEST_SUITE("Multi-rate harness") {
 
     TEST_CASE("simulate_two_rate_lti records y = Cx + Du, so a biproper plant logs its feedthrough") {
         // ẋ = −x + u, y = x + 0.5u, u held at 2: every logged sample has y = x + 1.
-        const StateSpace sys{.A = Matrix<1, 1>{{-1.0}}, .B = Matrix<1, 1>{{1.0}}, .C = Matrix<1, 1>{{1.0}}, .D = Matrix<1, 1>{{0.5}}};
-        auto             outer = [](double, const ColVec<1>&) { return ColVec<1>{0.0}; };
-        auto             inner = [](double, const ColVec<1>&, const ColVec<1>&) { return ColVec<1>{2.0}; };
+        const StateSpace sys{.A = Matrix{{-1.0}}, .B = Matrix{{1.0}}, .C = Matrix{{1.0}}, .D = Matrix{{0.5}}};
+        auto             outer = [](double, const ColVec<1>&) { return ColVec{0.0}; };
+        auto             inner = [](double, const ColVec<1>&, const ColVec<1>&) { return ColVec{2.0}; };
         RK4<1>           rk4;
         FixedStepSolver  fine(rk4, 0.01);
-        const auto       tr = simulate_two_rate_lti<1, 1, 1, 1>(sys, outer, 1, inner, 1, fine, 0.1, ColVec<1>{0.0}, {0.0, 1.0});
+        const auto       tr = simulate_two_rate_lti<1, 1, 1, 1>(sys, outer, 1, inner, 1, fine, 0.1, ColVec{0.0}, {0.0, 1.0});
         REQUIRE(tr.success);
         REQUIRE(tr.t.size() > 2);
         for (size_t j = 0; j < tr.t.size(); ++j) {
@@ -291,13 +291,13 @@ TEST_SUITE("Multi-rate harness") {
     TEST_CASE("an invalid divisor or period is reported, not an empty success") {
         auto            plant = [](double, const ColVec<1>& x, const ColVec<1>& u) -> ColVec<1> { return u - x; };
         auto            output = [](const ColVec<1>& x) -> ColVec<1> { return x; };
-        auto            outer = [](double, const ColVec<1>&) { return ColVec<1>{0.0}; };
-        auto            inner = [](double, const ColVec<1>&, const ColVec<1>&) { return ColVec<1>{1.0}; };
+        auto            outer = [](double, const ColVec<1>&) { return ColVec{0.0}; };
+        auto            inner = [](double, const ColVec<1>&, const ColVec<1>&) { return ColVec{1.0}; };
         RK4<1>          rk4;
         FixedStepSolver fine(rk4, 0.01);
-        CHECK_FALSE(simulate_two_rate<1, 1, 1, 1, double>(plant, output, outer, 0, inner, 1, fine, 0.1, ColVec<1>{0.0}, {0.0, 1.0}).success);
-        auto law = [](double, const ColVec<1>&) { return ColVec<1>{1.0}; };
-        CHECK_FALSE(simulate_sampled(plant, output, law, fine, 0.0, ColVec<1>{0.0}, {0.0, 1.0}).success);
+        CHECK_FALSE(simulate_two_rate<1, 1, 1, 1, double>(plant, output, outer, 0, inner, 1, fine, 0.1, ColVec{0.0}, {0.0, 1.0}).success);
+        auto law = [](double, const ColVec<1>&) { return ColVec{1.0}; };
+        CHECK_FALSE(simulate_sampled(plant, output, law, fine, 0.0, ColVec{0.0}, {0.0, 1.0}).success);
     }
 
     TEST_CASE("simulate_sampled ticks the controller once per period, no drift sliver") {
@@ -306,10 +306,10 @@ TEST_SUITE("Multi-rate harness") {
         const auto output = [](const ColVec<1>& x) { return x; };
         const auto ctrl = [&](double, const ColVec<1>&) {
             ++calls;
-            return ColVec<1>{1.0};
+            return ColVec{1.0};
         };
         FixedStepSolver solver(RK4<1>{}, 0.05);
-        const auto      sim = simulate_sampled(plant, output, ctrl, solver, 0.1, ColVec<1>{0.0}, {0.0, 100.0});
+        const auto      sim = simulate_sampled(plant, output, ctrl, solver, 0.1, ColVec{0.0}, {0.0, 100.0});
         CHECK(calls == 1000);
         CHECK(sim.t.back() == 100.0);
     }
@@ -320,10 +320,10 @@ TEST_SUITE("Multi-rate harness") {
         const auto  output = [](const ColVec<1>& x) { return x; };
         const auto  step = [&](std::size_t, double, const ColVec<1>&) {
             ++calls;
-            return ColVec<1>{1.0};
+            return ColVec{1.0};
         };
         FixedStepSolver solver(RK4<1>{}, 0.05);
-        const auto      sim = simulate_multirate<1, 1, 1, double>(plant, output, step, solver, 0.1, ColVec<1>{0.0}, {0.0, 100.0});
+        const auto      sim = simulate_multirate<1, 1, 1, double>(plant, output, step, solver, 0.1, ColVec{0.0}, {0.0, 100.0});
         CHECK(calls == 1000);
         CHECK(sim.t.back() == 100.0);
     }

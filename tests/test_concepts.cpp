@@ -220,7 +220,7 @@ TEST_CASE("fused step(y, u) equals the manual predict/update sequence") {
     StateSpace<2, 1, 1, double, 2, 1> sys{};
     sys.A = Matrix<2, 2>{{1.0, Ts}, {0.0, 1.0}};
     sys.B = Matrix<2, 1>{{0.5 * Ts * Ts}, {Ts}};
-    sys.C = Matrix<1, 2>{{1.0, 0.0}};
+    sys.C = Matrix{{1.0, 0.0}};
     sys.Ts = Ts;
 
     SUBCASE("KalmanFilter") {
@@ -231,7 +231,7 @@ TEST_CASE("fused step(y, u) equals the manual predict/update sequence") {
         KalmanFilter<2, 1, 1, double, 2, 1> manual{kd};
         for (int k = 0; k < 30; ++k) {
             const ColVec<1> y{0.1 * k};
-            const ColVec<1> u{0.5};
+            const ColVec    u{0.5};
             const auto      xf = fused.step(y, u);
             manual.predict(u);
             (void)manual.update(y);
@@ -247,7 +247,7 @@ TEST_CASE("fused step(y, u) equals the manual predict/update sequence") {
         FixedGainObserver<2, 1, 1, double> manual{ld};
         for (int k = 0; k < 30; ++k) {
             const ColVec<1> y{0.1 * k};
-            const ColVec<1> u{0.5};
+            const ColVec    u{0.5};
             const auto      xf = fused.step(y, u);
             manual.predict(u);
             manual.update(y, u);
@@ -264,7 +264,7 @@ TEST_CASE("fused step(y, u) equals the manual predict/update sequence") {
         ESO<2, double> manual{ed};
         for (int k = 0; k < 30; ++k) {
             const ColVec<1> y{0.1 * k};
-            const ColVec<1> u{0.5};
+            const ColVec    u{0.5};
             const auto      xf = fused.step(y, u);
             manual.predict(u);
             manual.update(y);
@@ -277,9 +277,9 @@ TEST_CASE("fused step(y, u) equals the manual predict/update sequence") {
 
     SUBCASE("MHE") {
         StateSpace<1, 1, 1, double, 1, 1> tank{};
-        tank.A = Matrix<1, 1>{{0.9}};
-        tank.B = Matrix<1, 1>{{0.1}};
-        tank.C = Matrix<1, 1>{{1.0}};
+        tank.A = Matrix{{0.9}};
+        tank.B = Matrix{{0.1}};
+        tank.C = Matrix{{1.0}};
         tank.Ts = Ts;
         const auto art = design::mhe<4>(tank, {.process = 1e-4, .measurement = 1e-3});
         REQUIRE(art.success);
@@ -287,7 +287,7 @@ TEST_CASE("fused step(y, u) equals the manual predict/update sequence") {
         MHE est{art};
         for (int k = 0; k < 20; ++k) {
             const ColVec<1> y{0.3 + (0.01 * k)};
-            const ColVec<1> u{0.1};
+            const ColVec    u{0.1};
             const auto      xf = est.step(y, u); // no predict/update split: step returns the window's last state
             CHECK(est.state()(0) == doctest::Approx(xf(0)));
         }
@@ -301,10 +301,10 @@ namespace {
 /// under -ffast-math the folded zeros of the basic call may reassociate the sums).
 template<typename Law, typename Plant, typename Measure, typename Basic, typename Full>
 void check_basic_equals_full(const Law& law, const Plant& sys, Measure measure, Basic basic, Full full) {
-    Law       a = law;
-    Law       b = law;
-    ColVec<2> xa{1.0, 0.0};
-    ColVec<2> xb{1.0, 0.0};
+    Law    a = law;
+    Law    b = law;
+    ColVec xa{1.0, 0.0};
+    ColVec xb{1.0, 0.0};
     for (int k = 0; k < 40; ++k) {
         const bool      split = (k % 2) == 1;
         const ColVec<1> ua = basic(a, measure(xa), split);
@@ -323,18 +323,18 @@ TEST_CASE("each LQ law's basic step(r, m) and control(r) equal the feedforward f
     StateSpace<2, 1, 1, double, 2, 1> sys{};
     sys.A = Matrix<2, 2>{{1.0, Ts}, {0.0, 1.0}};
     sys.B = Matrix<2, 1>{{0.5 * Ts * Ts}, {Ts}};
-    sys.C = Matrix<1, 2>{{1.0, 0.0}};
+    sys.C = Matrix{{1.0, 0.0}};
     sys.Ts = Ts;
 
     const Matrix<2, 2>        Q = Matrix<2, 2>::identity();
-    const Matrix<1, 1>        R{{0.1}};
-    const Matrix<1, 1>        Qi{{10.0}};
-    const design::KalmanNoise noise{.process = Matrix<2, 2>{{0.01, 0.0}, {0.0, 0.01}}, .measurement = Matrix<1, 1>{{0.1}}};
-    const design::KalmanNoise load_noise{Matrix<2, 2>{{0.01, 0.0}, {0.0, 0.01}}, Matrix<1, 1>{{0.1}}, Matrix<1, 1>{{1.0}}};
+    const Matrix              R{{0.1}};
+    const Matrix              Qi{{10.0}};
+    const design::KalmanNoise noise{.process = Matrix{{0.01, 0.0}, {0.0, 0.01}}, .measurement = Matrix{{0.1}}};
+    const design::KalmanNoise load_noise{Matrix{{0.01, 0.0}, {0.0, 0.01}}, Matrix{{0.1}}, Matrix{{1.0}}};
 
     const auto      state = [](const ColVec<2>& x) { return x; };
     const auto      output = [&](const ColVec<2>& x) { return ColVec<1>{(sys.C * x)(0, 0)}; };
-    const ColVec<1> r{0.5}; // the controlled outputs' reference
+    const ColVec    r{0.5}; // the controlled outputs' reference
     const ColVec<2> x0{};
     const ColVec<1> u0{};
 

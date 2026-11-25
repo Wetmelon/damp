@@ -93,8 +93,8 @@ TEST_SUITE("Lookup tables") {
     }
 
     TEST_CASE("catmull_1d reduces to linear for two breakpoints") {
-        constexpr ColVec<2, double> xs{0.0, 2.0};
-        auto                        y = [](size_t i) { return i == 0 ? 1.0 : 5.0; };
+        constexpr ColVec xs{0.0, 2.0};
+        auto             y = [](size_t i) { return i == 0 ? 1.0 : 5.0; };
         CHECK(catmull_1d(xs, y, 0.0) == doctest::Approx(1.0));
         CHECK(catmull_1d(xs, y, 2.0) == doctest::Approx(5.0));
         CHECK(catmull_1d(xs, y, 1.0) == doctest::Approx(3.0)); // midpoint = linear

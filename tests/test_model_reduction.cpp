@@ -61,26 +61,26 @@ StateSpace<2, 1, 1> two_scale_plant() {
     // ẋ = [−1 0; 0 −20] x + [1; 0.05] u,  y = [1 0.05] x
     // Dominant input-output path is the slow pole; fast mode is weakly coupled.
     return StateSpace{
-        .A = Matrix<2, 2>{{-1.0, 0.0}, {0.0, -20.0}},
-        .B = Matrix<2, 1>{{1.0}, {0.05}},
-        .C = Matrix<1, 2>{{1.0, 0.05}},
-        .D = Matrix<1, 1>{{0.0}},
+        .A = Matrix{{-1.0, 0.0}, {0.0, -20.0}},
+        .B = Matrix{{1.0}, {0.05}},
+        .C = Matrix{{1.0, 0.05}},
+        .D = Matrix{{0.0}},
         .Ts = 0.0
     };
 }
 
 /// DC motor, x = [i, ω], u = V, y = [i, ω]: R = 1 Ω, L = 1 mH, Kt = Ke = 0.1, J = 1e-3, b = 1e-4.
 constexpr StateSpace dc_motor{
-    .A = Matrix<2, 2>{{-1000.0, -100.0}, {100.0, -0.1}},
-    .B = Matrix<2, 1>{{1000.0}, {0.0}},
-    .C = Matrix<2, 2>{{1.0, 0.0}, {0.0, 1.0}},
+    .A = Matrix{{-1000.0, -100.0}, {100.0, -0.1}},
+    .B = Matrix{{1000.0}, {0.0}},
+    .C = Matrix{{1.0, 0.0}, {0.0, 1.0}},
 };
 
 /// Diagonal plant with poles −1, −100, −2 and unit B, C.
 constexpr StateSpace three_poles{
-    .A = Matrix<3, 3>{{-1.0, 0.0, 0.0}, {0.0, -100.0, 0.0}, {0.0, 0.0, -2.0}},
-    .B = Matrix<3, 1>{{1.0}, {1.0}, {1.0}},
-    .C = Matrix<1, 3>{{1.0, 1.0, 1.0}},
+    .A = Matrix{{-1.0, 0.0, 0.0}, {0.0, -100.0, 0.0}, {0.0, 0.0, -2.0}},
+    .B = Matrix{{1.0}, {1.0}, {1.0}},
+    .C = Matrix{{1.0, 1.0, 1.0}},
 };
 
 /// True when eliminate_states accepts the index list for an NX-state model.
@@ -97,10 +97,10 @@ static_assert(!can_eliminate<3, 1, 1>); // duplicate index
 /// Stable fully coupled 2nd-order plant (both modes well excited).
 StateSpace<2, 1, 1> coupled_2nd_order() {
     return StateSpace{
-        .A = Matrix<2, 2>{{-2.0, 1.0}, {0.0, -3.0}},
-        .B = Matrix<2, 1>{{1.0}, {1.0}},
-        .C = Matrix<1, 2>{{1.0, 0.0}},
-        .D = Matrix<1, 1>{{0.0}},
+        .A = Matrix{{-2.0, 1.0}, {0.0, -3.0}},
+        .B = Matrix{{1.0}, {1.0}},
+        .C = Matrix{{1.0, 0.0}},
+        .D = Matrix{{0.0}},
         .Ts = 0.0
     };
 }
@@ -219,15 +219,15 @@ TEST_SUITE("model reduction") {
     TEST_CASE("balanced_reduction of a 4th-order cascade keeps dominant dynamics") {
         // Four real poles: −1, −2, −50, −80 with decaying input/output coupling
         StateSpace sys{
-            .A = Matrix<4, 4>{
+            .A = Matrix{
                 {-1.0, 0.0, 0.0, 0.0},
                 {0.0, -2.0, 0.0, 0.0},
                 {0.0, 0.0, -50.0, 0.0},
                 {0.0, 0.0, 0.0, -80.0}
             },
-            .B = Matrix<4, 1>{{1.0}, {0.8}, {0.02}, {0.01}},
-            .C = Matrix<1, 4>{{1.0, 0.8, 0.02, 0.01}},
-            .D = Matrix<1, 1>{{0.0}},
+            .B = Matrix{{1.0}, {0.8}, {0.02}, {0.01}},
+            .C = Matrix{{1.0, 0.8, 0.02, 0.01}},
+            .D = Matrix{{0.0}},
             .Ts = 0.0
         };
 
@@ -259,10 +259,10 @@ TEST_SUITE("model reduction") {
     TEST_CASE("discrete balanced_realization succeeds on a Schur-stable plant") {
         // Discrete double-integrator-ish stable plant
         StateSpace sys{
-            .A = Matrix<2, 2>{{0.9, 0.1}, {0.0, 0.8}},
-            .B = Matrix<2, 1>{{0.05}, {0.1}},
-            .C = Matrix<1, 2>{{1.0, 0.0}},
-            .D = Matrix<1, 1>{{0.0}},
+            .A = Matrix{{0.9, 0.1}, {0.0, 0.8}},
+            .B = Matrix{{0.05}, {0.1}},
+            .C = Matrix{{1.0, 0.0}},
+            .D = Matrix{{0.0}},
             .Ts = 0.01
         };
 
@@ -279,9 +279,9 @@ TEST_SUITE("model reduction") {
 
     TEST_CASE("balanced_realization fails cleanly on an unstable plant") {
         StateSpace<1, 1, 1> sys{
-            .A = Matrix<1, 1>{{1.0}}, // unstable continuous pole
-            .B = Matrix<1, 1>{{1.0}},
-            .C = Matrix<1, 1>{{1.0}},
+            .A = Matrix{{1.0}}, // unstable continuous pole
+            .B = Matrix{{1.0}},
+            .C = Matrix{{1.0}},
             .Ts = 0.0
         };
         const auto bal = balanced_realization(sys);
@@ -293,11 +293,11 @@ TEST_SUITE("model reduction") {
     TEST_CASE("controllability_gramian rejects an unstable A") {
         // A X + X Aᵀ + B Bᵀ = 0 has the unique solution X = −0.5 for A = 1, which
         // is not a Gramian (the integral diverges). It must not be reported.
-        const Matrix<1, 1> A{{1.0}};
-        const Matrix<1, 1> B{{1.0}};
+        const Matrix A{{1.0}};
+        const Matrix B{{1.0}};
         CHECK_FALSE(stability::controllability_gramian(A, B).has_value());
         CHECK_FALSE(stability::observability_gramian(A, B).has_value());
-        const Matrix<1, 1> Ad{{2.0}};
+        const Matrix Ad{{2.0}};
         CHECK_FALSE(stability::controllability_gramian(Ad, B, true).has_value());
     }
 } // TEST_SUITE
@@ -344,9 +344,9 @@ TEST_SUITE("eliminate_states") {
     TEST_CASE("discrete residualization holds the eliminated state at steady state") {
         // x₀⁺ = x₀ ⇒ x₀ = (1 − 0.5)⁻¹ u: full DC 1/0.5 + 1/0.1 = 12
         const StateSpace sys{
-            .A = Matrix<2, 2>{{0.5, 0.0}, {0.0, 0.9}},
-            .B = Matrix<2, 1>{{1.0}, {1.0}},
-            .C = Matrix<1, 2>{{1.0, 1.0}},
+            .A = Matrix{{0.5, 0.0}, {0.0, 0.9}},
+            .B = Matrix{{1.0}, {1.0}},
+            .C = Matrix{{1.0, 1.0}},
             .Ts = 0.1,
         };
         const auto red = eliminate_states<0>(sys);
@@ -359,9 +359,9 @@ TEST_SUITE("eliminate_states") {
 
     TEST_CASE("an integrator among the eliminated states cannot be residualized") {
         const StateSpace sys{
-            .A = Matrix<2, 2>{{-1.0, 1.0}, {0.0, 0.0}},
-            .B = Matrix<2, 1>{{0.0}, {1.0}},
-            .C = Matrix<1, 2>{{1.0, 0.0}},
+            .A = Matrix{{-1.0, 1.0}, {0.0, 0.0}},
+            .B = Matrix{{0.0}, {1.0}},
+            .C = Matrix{{1.0, 0.0}},
         };
         CHECK_FALSE(eliminate_states<1>(sys).has_value());
         CHECK(eliminate_states<1>(sys, ModelReductionMethod::Truncate).has_value());
@@ -374,9 +374,9 @@ TEST_SUITE("balanced reduction of a model with negligible Hankel singular values
         // trailing σ sit below NX·64·ε·σ₁, which once refused hankel_singular_values and every
         // balanced_reduction.
         const StateSpace<4, 1, 1, T> sys = StateSpace{
-            .A = Matrix<4, 4>{{-1.0, 0.0, 0.0, 0.0}, {0.0, -2.0, 0.0, 0.0}, {0.0, 0.0, -50.0, 0.0}, {0.0, 0.0, 0.0, -80.0}},
-            .B = Matrix<4, 1>{{1.0}, {0.8}, {0.02}, {0.01}},
-            .C = Matrix<1, 4>{{1.0, 0.8, 0.02, 0.01}},
+            .A = Matrix{{-1.0, 0.0, 0.0, 0.0}, {0.0, -2.0, 0.0, 0.0}, {0.0, 0.0, -50.0, 0.0}, {0.0, 0.0, 0.0, -80.0}},
+            .B = Matrix{{1.0}, {0.8}, {0.02}, {0.01}},
+            .C = Matrix{{1.0, 0.8, 0.02, 0.01}},
         }
                                                .template as<T>();
         const auto hsv = hankel_singular_values(sys);
@@ -401,8 +401,8 @@ TEST_SUITE("balanced reduction of a model with negligible Hankel singular values
 
     TEST_CASE("a non-finite model is refused with bad_weights") {
         StateSpace sys{
-            .A = Matrix<2, 2>{{-1.0, 0.0}, {0.0, -2.0}},
-            .B = Matrix<2, 1>{{1.0}, {1.0}},
+            .A = Matrix{{-1.0, 0.0}, {0.0, -2.0}},
+            .B = Matrix{{1.0}, {1.0}},
             .C = Matrix<1, 2>{{1.0, std::numeric_limits<double>::quiet_NaN()}},
         };
         CHECK(balanced_realization(sys).status == DesignStatus::bad_weights);

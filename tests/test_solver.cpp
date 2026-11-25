@@ -43,7 +43,7 @@ static auto exp_decay = [](double /*t*/, const ColVec<1>& x) -> ColVec<1> {
 TEST_CASE("SolveResult iterator") {
     SolveResult<1> result;
     result.t = {0.0, 0.5, 1.0};
-    result.x = {ColVec<1>{1.0}, ColVec<1>{0.6}, ColVec<1>{0.3}};
+    result.x = {ColVec{1.0}, ColVec{0.6}, ColVec{0.3}};
 
     size_t count = 0;
     for (const auto& [t, x] : result) {
@@ -59,8 +59,8 @@ TEST_CASE("FixedStepSolver - RK4 exponential decay") {
     RK4<1>          rk4;
     FixedStepSolver solver(rk4, 0.01);
 
-    ColVec<1> x0{1.0};
-    auto      result = solver.solve(exp_decay, x0, {0.0, 1.0});
+    ColVec x0{1.0};
+    auto   result = solver.solve(exp_decay, x0, {0.0, 1.0});
 
     CHECK(result.success);
     CHECK(result.t.size() > 1);
@@ -72,10 +72,10 @@ TEST_CASE("FixedStepSolver - RK4 exponential decay") {
 
 TEST_CASE("FixedStepSolver - matches manual RK4 loop") {
     // Manually integrate with RK4 and compare
-    RK4<1>    rk4;
-    double    h = 0.1;
-    double    t = 0.0;
-    ColVec<1> x{1.0};
+    RK4<1> rk4;
+    double h = 0.1;
+    double t = 0.0;
+    ColVec x{1.0};
 
     for (int i = 0; i < 10; ++i) {
         auto r = rk4.evolve(exp_decay, x, t, h);
@@ -85,7 +85,7 @@ TEST_CASE("FixedStepSolver - matches manual RK4 loop") {
     double manual_result = x(0, 0);
 
     FixedStepSolver solver(rk4, 0.1);
-    auto            result = solver.solve(exp_decay, ColVec<1>{1.0}, {0.0, 1.0});
+    auto            result = solver.solve(exp_decay, ColVec{1.0}, {0.0, 1.0});
 
     CHECK(result.x.back()(0, 0) == doctest::Approx(manual_result).epsilon(1e-14));
 }
@@ -99,8 +99,8 @@ TEST_CASE("FixedStepSolver - stop condition") {
         return x(0, 0) < 0.5;
     });
 
-    ColVec<1> x0{1.0};
-    auto      result = solver.solve(exp_decay, x0, {0.0, 5.0});
+    ColVec x0{1.0};
+    auto   result = solver.solve(exp_decay, x0, {0.0, 5.0});
 
     // Should have stopped well before t=5
     CHECK(result.t.back() < 1.0);
@@ -116,8 +116,8 @@ TEST_CASE("FixedStepSolver - 2D harmonic oscillator") {
     RK4<2>          rk4;
     FixedStepSolver solver(rk4, 0.001);
 
-    ColVec<2> x0{1.0, 0.0};
-    auto      result = solver.solve(harmonic, x0, {0.0, 6.283185307});
+    ColVec x0{1.0, 0.0};
+    auto   result = solver.solve(harmonic, x0, {0.0, 6.283185307});
 
     // After one full period, should return near initial condition
     CHECK(result.x.back()(0, 0) == doctest::Approx(1.0).epsilon(1e-6));
@@ -140,8 +140,8 @@ TEST_CASE("AdaptiveStepSolver - DP45 exponential decay") {
     DP45<1>            dp45;
     AdaptiveStepSolver solver(dp45, {.atol = 1e-8, .rtol = 1e-8, .first_step = 0.1});
 
-    ColVec<1> x0{1.0};
-    auto      result = solver.solve(exp_decay, x0, {0.0, 1.0});
+    ColVec x0{1.0};
+    auto   result = solver.solve(exp_decay, x0, {0.0, 1.0});
 
     CHECK(result.success);
     CHECK(result.n_accepted > 0);
@@ -149,15 +149,15 @@ TEST_CASE("AdaptiveStepSolver - DP45 exponential decay") {
 }
 
 TEST_CASE("adaptive_solve<DP45> one-liner matches AdaptiveStepSolver") {
-    ColVec<1> x0{1.0};
-    auto      one = adaptive_solve<DP45>(exp_decay, x0, {0.0, 1.0}, {.atol = 1e-8, .rtol = 1e-8, .first_step = 0.1});
+    ColVec x0{1.0};
+    auto   one = adaptive_solve<DP45>(exp_decay, x0, {0.0, 1.0}, {.atol = 1e-8, .rtol = 1e-8, .first_step = 0.1});
     CHECK(one.success);
     CHECK(one.x.back()(0, 0) == doctest::Approx(0.36787944117).epsilon(1e-6));
 }
 
 TEST_CASE("adaptive_solve defaults match SciPy atol/rtol") {
-    ColVec<1> x0{1.0};
-    auto      result = adaptive_solve<DP45>(exp_decay, x0, {0.0, 1.0});
+    ColVec x0{1.0};
+    auto   result = adaptive_solve<DP45>(exp_decay, x0, {0.0, 1.0});
     CHECK(result.success);
     // SciPy defaults (rtol=1e-3, atol=1e-6) are looser than 1e-8 absolute.
     CHECK(result.x.back()(0, 0) == doctest::Approx(0.36787944117).epsilon(1e-3));
@@ -169,8 +169,8 @@ TEST_CASE("adaptive_solve multi-scale states use weighted error") {
     auto multi = [](double /*t*/, const ColVec<2>& x) -> ColVec<2> {
         return ColVec<2>{-x(0, 0), -x(1, 0)};
     };
-    ColVec<2> x0{1e-6, 1e3};
-    auto      result = adaptive_solve<DP45>(multi, x0, {0.0, 1.0}, {.atol = 1e-9, .rtol = 1e-6, .first_step = 0.01});
+    ColVec x0{1e-6, 1e3};
+    auto   result = adaptive_solve<DP45>(multi, x0, {0.0, 1.0}, {.atol = 1e-9, .rtol = 1e-6, .first_step = 0.01});
     CHECK(result.success);
     CHECK(result.x.back()(0, 0) == doctest::Approx(1e-6 * std::exp(-1.0)).epsilon(1e-3));
     CHECK(result.x.back()(1, 0) == doctest::Approx(1e3 * std::exp(-1.0)).epsilon(1e-3));
@@ -178,8 +178,8 @@ TEST_CASE("adaptive_solve multi-scale states use weighted error") {
 
 TEST_CASE("adaptive_solve Hairer first_step when first_step is zero") {
     // No explicit first_step → select_initial_step from f(t0, x0).
-    ColVec<1> x0{1.0};
-    auto      result = adaptive_solve<DP45>(exp_decay, x0, {0.0, 1.0}, {.atol = 1e-8, .rtol = 1e-8});
+    ColVec x0{1.0};
+    auto   result = adaptive_solve<DP45>(exp_decay, x0, {0.0, 1.0}, {.atol = 1e-8, .rtol = 1e-8});
     CHECK(result.success);
     CHECK(result.n_accepted > 0);
     CHECK(result.x.back()(0, 0) == doctest::Approx(0.36787944117).epsilon(1e-6));
@@ -190,10 +190,10 @@ TEST_CASE("adaptive_solve per-component atol/rtol") {
     auto multi = [](double /*t*/, const ColVec<2>& x) -> ColVec<2> {
         return ColVec<2>{-x(0, 0), -x(1, 0)};
     };
-    ColVec<2>          x0{1e-6, 1e3};
+    ColVec             x0{1e-6, 1e3};
     AdaptiveOptions<2> opts{
-        .atol = ColVec<2>{1e-12, 1e0},
-        .rtol = ColVec<2>{1e-6, 1e-3},
+        .atol = ColVec{1e-12, 1e0},
+        .rtol = ColVec{1e-6, 1e-3},
         .first_step = 0.01,
     };
     auto result = adaptive_solve<DP45>(multi, x0, {0.0, 1.0}, opts);
@@ -204,8 +204,8 @@ TEST_CASE("adaptive_solve per-component atol/rtol") {
 
 TEST_CASE("adaptive_solve Gustafsson PI stays accurate on smooth problem") {
     // PI controller is the default after the first accept; check accuracy + efficiency.
-    ColVec<1> x0{1.0};
-    auto      result = adaptive_solve<DP45>(exp_decay, x0, {0.0, 2.0}, {.atol = 1e-8, .rtol = 1e-8});
+    ColVec x0{1.0};
+    auto   result = adaptive_solve<DP45>(exp_decay, x0, {0.0, 2.0}, {.atol = 1e-8, .rtol = 1e-8});
     CHECK(result.success);
     CHECK(result.x.back()(0, 0) == doctest::Approx(std::exp(-2.0)).epsilon(1e-6));
     // Should not thrash: rejections << accepts on a smooth linear problem.
@@ -226,7 +226,7 @@ TEST_CASE("AdaptiveStepSolver fails at min_step when error stays large") {
                                         .max_step = 0.1,
                                         .fail_on_min_step = true,
                                     });
-    auto               result = solver.solve(stiff, ColVec<1>{1.0}, {0.0, 1.0});
+    auto               result = solver.solve(stiff, ColVec{1.0}, {0.0, 1.0});
     CHECK_FALSE(result.success);
 }
 
@@ -236,15 +236,15 @@ TEST_CASE("adaptive_solve<TRBDF2> handles stiff decay") {
     auto stiff = [](double /*t*/, const ColVec<1>& x) -> ColVec<1> {
         return ColVec<1>{-1000.0 * x(0, 0)};
     };
-    ColVec<1> x0{1.0};
-    auto      result = adaptive_solve<TRBDF2>(stiff, x0, {0.0, 0.01}, {.atol = 1e-6, .rtol = 1e-6, .first_step = 1e-4});
+    ColVec x0{1.0};
+    auto   result = adaptive_solve<TRBDF2>(stiff, x0, {0.0, 0.01}, {.atol = 1e-6, .rtol = 1e-6, .first_step = 1e-4});
     CHECK(result.success);
     CHECK(result.x.back()(0, 0) == doctest::Approx(std::exp(-10.0)).epsilon(1e-3));
 }
 
 TEST_CASE("fixed_solve<RK4> one-liner matches FixedStepSolver") {
-    ColVec<1> x0{1.0};
-    auto      one = fixed_solve<RK4>(exp_decay, x0, {0.0, 1.0}, 0.01);
+    ColVec x0{1.0};
+    auto   one = fixed_solve<RK4>(exp_decay, x0, {0.0, 1.0}, 0.01);
     CHECK(one.success);
     CHECK(one.x.back()(0, 0) == doctest::Approx(0.36787944117).epsilon(1e-8));
 }
@@ -256,9 +256,9 @@ TEST_CASE("AdaptiveStepSolver - fewer steps than fixed for smooth problem") {
     RK4<1>          rk4;
     FixedStepSolver fixed_solver(rk4, 0.001);
 
-    ColVec<1> x0{1.0};
-    auto      result_adaptive = adaptive.solve(exp_decay, x0, {0.0, 2.0});
-    auto      result_fixed = fixed_solver.solve(exp_decay, x0, {0.0, 2.0});
+    ColVec x0{1.0};
+    auto   result_adaptive = adaptive.solve(exp_decay, x0, {0.0, 2.0});
+    auto   result_fixed = fixed_solver.solve(exp_decay, x0, {0.0, 2.0});
 
     // Adaptive should use fewer evolve calls for same accuracy
     CHECK(result_adaptive.nfev < result_fixed.nfev);
@@ -271,7 +271,7 @@ TEST_CASE("AdaptiveStepSolver - fewer steps than fixed for smooth problem") {
 TEST_CASE("AdaptiveStepSolver - zero-crossing detection") {
     // dx/dt = 1 (linear ramp: x(t) = t - 0.5, crosses zero at t=0.5)
     auto ramp = [](double /*t*/, const ColVec<1>& /*x*/) -> ColVec<1> {
-        return ColVec<1>{1.0};
+        return ColVec{1.0};
     };
 
     DP45<1>            dp45;
@@ -282,8 +282,8 @@ TEST_CASE("AdaptiveStepSolver - zero-crossing detection") {
         return x(0, 0);
     });
 
-    ColVec<1> x0{-0.5};
-    auto      result = solver.solve(ramp, x0, {0.0, 1.0});
+    ColVec x0{-0.5};
+    auto   result = solver.solve(ramp, x0, {0.0, 1.0});
 
     // Should have a point very close to t=0.5, x=0
     bool found_crossing = false;
@@ -307,8 +307,8 @@ TEST_CASE("FixedStepSolver - Van der Pol oscillator") {
     RK4<2>          rk4;
     FixedStepSolver solver(rk4, 0.001);
 
-    ColVec<2> x0{2.0, 0.0};
-    auto      result = solver.solve(vdp, x0, {0.0, 30.0});
+    ColVec x0{2.0, 0.0};
+    auto   result = solver.solve(vdp, x0, {0.0, 30.0});
 
     CHECK(result.success);
 
@@ -379,25 +379,25 @@ TEST_CASE("MATLAB®-style plot wrappers instantiate and render") {
 }
 
 TEST_CASE("FixedStepSolver reaches tf on a femtosecond time scale") {
-    const auto r = fixed_solve<RK4>(decay, ColVec<1>{1.0}, {0.0, 1e-14}, 1e-15);
+    const auto r = fixed_solve<RK4>(decay, ColVec{1.0}, {0.0, 1e-14}, 1e-15);
     CHECK(r.size() == 11);
     CHECK(r.t.back() == 1e-14);
 }
 
 TEST_CASE("FixedStepSolver takes no sliver step from accumulated time drift") {
-    const auto r = fixed_solve<RK4>(decay, ColVec<1>{1.0}, {0.0, 100.0}, 0.1);
+    const auto r = fixed_solve<RK4>(decay, ColVec{1.0}, {0.0, 100.0}, 0.1);
     CHECK(r.size() == 1001);
     CHECK(r.t.back() == 100.0);
     CHECK(r.t[3] == 0.1 * 3);
 }
 
 TEST_CASE("FixedStepSolver rejects a non-positive step instead of hanging") {
-    const auto r = fixed_solve<RK4>(decay, ColVec<1>{1.0}, {0.0, 1.0}, 0.0);
+    const auto r = fixed_solve<RK4>(decay, ColVec{1.0}, {0.0, 1.0}, 0.0);
     CHECK_FALSE(r.success);
 }
 
 TEST_CASE("Adaptive initial step uses Hairer/SciPy exponent 1/error_order") {
-    const auto r = adaptive_solve<DP45>(decay, ColVec<1>{1.0}, {0.0, 1.0});
+    const auto r = adaptive_solve<DP45>(decay, ColVec{1.0}, {0.0, 1.0});
     // SciPy select_initial_step for y' = −y, y0 = 1, atol = 1e-6, rtol = 1e-3, order 4.
     const double scale = 1e-6 + 1e-3;
     const double d1 = 1.0 / scale;
@@ -413,7 +413,7 @@ TEST_CASE("Adaptive solver shrinks h after a non-finite error estimate") {
     const auto f = [](double, const ColVec<1>& x) {
         return ColVec<1>{x(0) >= 3.0 ? std::numeric_limits<double>::quiet_NaN() : x(0) * x(0)};
     };
-    const auto r = adaptive_solve<DP45>(f, ColVec<1>{1.0}, {0.0, 0.6}, {.first_step = 0.6});
+    const auto r = adaptive_solve<DP45>(f, ColVec{1.0}, {0.0, 0.6}, {.first_step = 0.6});
     CHECK(r.success);
     CHECK(r.x.back()(0) == doctest::Approx(1.0 / (1.0 - 0.6)).epsilon(1e-3));
 }
@@ -425,18 +425,18 @@ TEST_CASE("Zero crossing is located on the integrated trajectory, not a chord") 
     AdaptiveStepSolver solver(dp, AdaptiveOptions<2>{.first_step = 0.6});
     solver.add_zero_crossing([](double, const ColVec<2>& x) { return x(0); });
     solver.set_stop_condition([](double, const ColVec<2>& x) { return x(0) <= 0.0; });
-    const auto r = solver.solve(fall, ColVec<2>{1.0, 0.0}, {0.0, 2.0});
+    const auto r = solver.solve(fall, ColVec{1.0, 0.0}, {0.0, 2.0});
     CHECK(r.t.back() == doctest::Approx(std::sqrt(2.0 / 9.81)).epsilon(1e-9));
     CHECK(std::abs(r.x.back()(0)) < 1e-9);
 }
 
 TEST_CASE("Earliest of several zero crossings in one step is the one recorded") {
-    const auto         ramp = [](double, const ColVec<1>&) { return ColVec<1>{1.0}; };
+    const auto         ramp = [](double, const ColVec<1>&) { return ColVec{1.0}; };
     DP45<1>            dp;
     AdaptiveStepSolver solver(dp, AdaptiveOptions<1>{.first_step = 1.0});
     solver.add_zero_crossing([](double, const ColVec<1>& x) { return x(0) - 0.8; });
     solver.add_zero_crossing([](double, const ColVec<1>& x) { return x(0) - 0.3; });
-    const auto r = solver.solve(ramp, ColVec<1>{0.0}, {0.0, 1.0});
+    const auto r = solver.solve(ramp, ColVec{0.0}, {0.0, 1.0});
     bool       hit = false;
     for (double t : r.t) {
         hit = hit || std::abs(t - 0.3) < 1e-9;
@@ -446,11 +446,11 @@ TEST_CASE("Earliest of several zero crossings in one step is the one recorded") 
 
 TEST_CASE("Zero-crossing location is scale-invariant in z") {
     // z in tiny units (1e-15): the old absolute |z| < 1e-12 stop quit after one bisection.
-    const auto         ramp = [](double, const ColVec<1>&) { return ColVec<1>{1.0}; };
+    const auto         ramp = [](double, const ColVec<1>&) { return ColVec{1.0}; };
     DP45<1>            dp;
     AdaptiveStepSolver solver(dp, AdaptiveOptions<1>{.first_step = 1.0});
     solver.add_zero_crossing([](double, const ColVec<1>& x) { return 1e-15 * (x(0) - 0.3); });
-    const auto r = solver.solve(ramp, ColVec<1>{0.0}, {0.0, 1.0});
+    const auto r = solver.solve(ramp, ColVec{0.0}, {0.0, 1.0});
     bool       hit = false;
     for (double t : r.t) {
         hit = hit || std::abs(t - 0.3) < 1e-9;
@@ -462,7 +462,7 @@ TEST_CASE("FixedStepSolver reports an implicit step that does not converge") {
     // f = −1000x at h = 0.01: Backward Euler's fixed-point stage diverges; the solve once
     // reported success with x = NaN.
     const auto stiff = [](double, const ColVec<1>& x) { return ColVec<1>{-1000.0 * x(0)}; };
-    const auto run = fixed_solve<BackwardEuler>(stiff, ColVec<1>{1.0}, {0.0, 0.1}, 0.01);
+    const auto run = fixed_solve<BackwardEuler>(stiff, ColVec{1.0}, {0.0, 0.1}, 0.01);
     CHECK_FALSE(run.success);
     CHECK(run.x.size() == 1); // stopped at the last good state
 }
@@ -472,15 +472,15 @@ TEST_CASE("FixedStepSolver restarts BDF2 after an event and before a shorter fin
     FixedStepSolver solver(BDF2<1>{}, 0.1);
     solver.set_event_detector([](double t, const ColVec<1>& x) {
         const bool at_reset = damp::abs(t - 0.5) < 1e-9;
-        return damp::tuple<bool, ColVec<1>, bool>{at_reset, at_reset ? ColVec<1>{1.0} : x, false};
+        return damp::tuple<bool, ColVec<1>, bool>{at_reset, at_reset ? ColVec{1.0} : x, false};
     });
-    const auto run = solver.solve(decay, ColVec<1>{1.0}, {0.0, 0.6});
+    const auto run = solver.solve(decay, ColVec{1.0}, {0.0, 0.6});
     REQUIRE(run.success);
     CHECK(run.x.back()(0) == doctest::Approx(1.0 / 1.1).epsilon(1e-9)); // Backward Euler restart
     // tf = 1.05: the last step is 0.05, where the constant-step coefficients added an O(h) error.
     FixedStepSolver plain(BDF2<1>{}, 0.1);
-    const auto      grid = plain.solve(decay, ColVec<1>{1.0}, {0.0, 1.0});
-    const auto      partial = plain.solve(decay, ColVec<1>{1.0}, {0.0, 1.05});
+    const auto      grid = plain.solve(decay, ColVec{1.0}, {0.0, 1.0});
+    const auto      partial = plain.solve(decay, ColVec{1.0}, {0.0, 1.05});
     const double    err_grid = damp::abs(grid.x.back()(0) - damp::exp(-1.0));
     const double    err_partial = damp::abs(partial.x.back()(0) - damp::exp(-1.05));
     CHECK(err_partial < 1.5 * err_grid);

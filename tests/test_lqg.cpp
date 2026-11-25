@@ -35,24 +35,24 @@ namespace {
 // Discrete double integrator at Ts = 0.1 s: x = [position, velocity].
 constexpr StateSpace<2, 1, 1, double, 2, 1> make_plant() {
     return StateSpace<2, 1, 1, double, 2, 1>{
-        Matrix<2, 2>{{1.0, 0.1}, {0.0, 1.0}}, // A
-        Matrix<2, 1>{{0.005}, {0.1}},         // B
-        Matrix<1, 2>{{1.0, 0.0}},             // C: measure position only
-        Matrix<1, 1>::zeros(),                // D
-        Matrix<2, 2>::identity(),             // G: process noise on both states
-        Matrix<1, 1>::identity(),             // H
-        0.1                                   // Ts
+        Matrix{{1.0, 0.1}, {0.0, 1.0}}, // A
+        Matrix{{0.005}, {0.1}},         // B
+        Matrix{{1.0, 0.0}},             // C: measure position only
+        Matrix<1, 1>::zeros(),          // D
+        Matrix<2, 2>::identity(),       // G: process noise on both states
+        Matrix<1, 1>::identity(),       // H
+        0.1                             // Ts
     };
 }
 } // namespace
 
 TEST_SUITE("LQG") {
     TEST_CASE("design succeeds and reports stable closed loop") {
-        constexpr auto         sys = make_plant();
-        constexpr auto         Q_lqr = Matrix<2, 2>::identity();
-        constexpr Matrix<1, 1> R_lqr{{0.1}};
-        constexpr Matrix<2, 2> Q_kf{{0.01, 0.0}, {0.0, 0.01}};
-        constexpr Matrix<1, 1> R_kf{{0.1}};
+        constexpr auto   sys = make_plant();
+        constexpr auto   Q_lqr = Matrix<2, 2>::identity();
+        constexpr Matrix R_lqr{{0.1}};
+        constexpr Matrix Q_kf{{0.01, 0.0}, {0.0, 0.01}};
+        constexpr Matrix R_kf{{0.1}};
 
         constexpr auto result = design::state_feedback(sys, {.Q = Q_lqr, .R = R_lqr}, design::KalmanNoise{.process = Q_kf, .measurement = R_kf});
         static_assert(result.success, "LQG design must converge at compile time");
@@ -69,11 +69,11 @@ TEST_SUITE("LQG") {
         // The controller only sees the measured position y = x[0]; it must
         // reconstruct velocity through the Kalman filter and still drive the
         // full state to zero. This is the separation principle working end to end.
-        const auto         sys = make_plant();
-        const auto         Q_lqr = Matrix<2, 2>::identity();
-        const Matrix<1, 1> R_lqr{{0.1}};
-        const Matrix<2, 2> Q_kf{{0.01, 0.0}, {0.0, 0.01}};
-        const Matrix<1, 1> R_kf{{0.1}};
+        const auto   sys = make_plant();
+        const auto   Q_lqr = Matrix<2, 2>::identity();
+        const Matrix R_lqr{{0.1}};
+        const Matrix Q_kf{{0.01, 0.0}, {0.0, 0.01}};
+        const Matrix R_kf{{0.1}};
 
         const auto result = design::state_feedback(sys, {.Q = Q_lqr, .R = R_lqr}, design::KalmanNoise{.process = Q_kf, .measurement = R_kf});
         REQUIRE(result.success);
@@ -81,7 +81,7 @@ TEST_SUITE("LQG") {
         // Built straight from the result — exercises kf(result.kalman).
         auto controller = LQG{result};
 
-        ColVec<2> x{1.0, 0.0}; // start displaced by 1 m
+        ColVec x{1.0, 0.0}; // start displaced by 1 m
         for (int k = 0; k < 200; ++k) {
             const ColVec<1> y{x[0]}; // measure position
             controller.update(y);    // Kalman correct
@@ -100,12 +100,12 @@ TEST_SUITE("LQG") {
         const auto sys = make_plant();
         const auto result = design::state_feedback(
             sys, {.Q = Matrix<2, 2>::identity(), .R = 0.1},
-            design::KalmanNoise{.process = Matrix<2, 2>{{0.01, 0.0}, {0.0, 0.01}}, .measurement = 0.1}
+            design::KalmanNoise{.process = Matrix{{0.01, 0.0}, {0.0, 0.01}}, .measurement = 0.1}
         );
         REQUIRE(result.success);
 
         auto      controller = LQG{result};
-        ColVec<2> x{1.0, 0.0};
+        ColVec    x{1.0, 0.0};
         ColVec<1> last_u{};
         for (int k = 0; k < 200; ++k) {
             const ColVec<1> y{x[0]};
@@ -125,12 +125,12 @@ TEST_SUITE("LQG") {
         const auto sys = make_plant();
         const auto result = design::state_feedback(
             sys, {.Q = Matrix<2, 2>::identity(), .R = 0.1},
-            design::KalmanNoise{.process = Matrix<2, 2>{{0.01, 0.0}, {0.0, 0.01}}, .measurement = 0.1}
+            design::KalmanNoise{.process = Matrix{{0.01, 0.0}, {0.0, 0.01}}, .measurement = 0.1}
         );
         REQUIRE(result.success);
 
         auto         controller = LQG{result};
-        ColVec<2>    x{1.0, 0.0};
+        ColVec       x{1.0, 0.0};
         const double u_max = 0.05; // tight clamp forces saturation early on
         ColVec<1>    u_applied{};
         for (int k = 0; k < 50; ++k) {
@@ -155,16 +155,16 @@ TEST_SUITE("LQG") {
         const auto sys = make_plant();
         const auto result = design::state_feedback(
             sys, {.Q = Matrix<2, 2>::identity(), .R = 0.1},
-            design::KalmanNoise{.process = Matrix<2, 2>{{0.01, 0.0}, {0.0, 0.01}}, .measurement = 0.1}
+            design::KalmanNoise{.process = Matrix{{0.01, 0.0}, {0.0, 0.01}}, .measurement = 0.1}
         );
         REQUIRE(result.success);
 
         // A clamped loop: the step and the three building blocks agree to rounding (fast-math may contract either differently).
-        auto            fused = LQG{result};
-        auto            split = LQG{result};
-        ColVec<2>       x{1.0, 0.0};
-        ColVec<1>       u_applied{};
-        const ColVec<2> x_ref{0.2, 0.0};
+        auto         fused = LQG{result};
+        auto         split = LQG{result};
+        ColVec       x{1.0, 0.0};
+        ColVec<1>    u_applied{};
+        const ColVec x_ref{0.2, 0.0};
         for (int k = 0; k < 40; ++k) {
             const ColVec<1> y{x[0]};
             fused.back_calculate(u_applied);
@@ -181,10 +181,10 @@ TEST_SUITE("LQG") {
         }
 
         // Without an applied input the step predicts with the command it returned last.
-        auto      implicit = LQG{result};
-        auto      explicit_u = LQG{result};
-        ColVec<2> xi{1.0, 0.0};
-        ColVec<2> xe{1.0, 0.0};
+        auto   implicit = LQG{result};
+        auto   explicit_u = LQG{result};
+        ColVec xi{1.0, 0.0};
+        ColVec xe{1.0, 0.0};
         for (int k = 0; k < 40; ++k) {
             const ColVec<1> ui = implicit.step(ColVec<1>{xi[0]});
             explicit_u.back_calculate(explicit_u.last_command());
@@ -200,7 +200,7 @@ TEST_SUITE("LQG") {
         const auto sys = make_plant();
         const auto result = design::state_feedback(
             sys, {.Q = Matrix<2, 2>::identity(), .R = 0.1},
-            design::KalmanNoise{.process = Matrix<2, 2>{{0.01, 0.0}, {0.0, 0.01}}, .measurement = 0.1}
+            design::KalmanNoise{.process = Matrix{{0.01, 0.0}, {0.0, 0.01}}, .measurement = 0.1}
         );
         REQUIRE(result.success);
 
@@ -212,7 +212,7 @@ TEST_SUITE("LQG") {
 
     TEST_CASE("lqgreg combines independent Kalman and LQR designs") {
         const auto sys = make_plant();
-        const auto kf = design::kalman(sys, design::KalmanNoise{.process = Matrix<2, 2>{{0.01, 0.0}, {0.0, 0.01}}, .measurement = 0.1});
+        const auto kf = design::kalman(sys, design::KalmanNoise{.process = Matrix{{0.01, 0.0}, {0.0, 0.01}}, .measurement = 0.1});
         const auto lqr = design::state_feedback(sys, {.Q = Matrix<2, 2>::identity(), .R = 0.1});
         REQUIRE(kf.success);
         REQUIRE(lqr.success);
@@ -230,7 +230,7 @@ TEST_SUITE("LQG") {
         const auto sys = make_plant();
         const auto result = design::state_feedback(
             sys, {.Q = Matrix<2, 2>::identity(), .R = 0.1},
-            design::KalmanNoise{.process = Matrix<2, 2>{{0.01, 0.0}, {0.0, 0.01}}, .measurement = 0.1}
+            design::KalmanNoise{.process = Matrix{{0.01, 0.0}, {0.0, 0.01}}, .measurement = 0.1}
         );
         REQUIRE(result.success);
 
@@ -240,7 +240,7 @@ TEST_SUITE("LQG") {
         CHECK(controller.estimator.gain()(1, 0) == doctest::Approx(result.kalman.M(1, 0)));
 
         // One update applies that L: x̂⁺ = x̂ + L (y − C x̂) from zero state.
-        const ColVec<1> y{1.0};
+        const ColVec y{1.0};
         controller.update(y);
         const ColVec<2> xhat = controller.estimator.state();
         CHECK(xhat[0] == doctest::Approx(result.kalman.M(0, 0) * 1.0));
@@ -253,7 +253,7 @@ TEST_SUITE("LQG") {
         const auto sys = make_plant();
         const auto result = design::state_feedback(
             sys, {.Q = Matrix<2, 2>::identity(), .R = 0.1},
-            design::KalmanNoise{.process = Matrix<2, 2>{{0.01, 0.0}, {0.0, 0.01}}, .measurement = 0.1}
+            design::KalmanNoise{.process = Matrix{{0.01, 0.0}, {0.0, 0.01}}, .measurement = 0.1}
         );
         REQUIRE(result.success);
 
@@ -263,8 +263,8 @@ TEST_SUITE("LQG") {
         CHECK(ss.Ts == doctest::Approx(sys.Ts));
 
         auto      runtime = LQG{result};
-        ColVec<2> xc{0.0, 0.0};
-        ColVec<2> xp{1.0, 0.0};
+        ColVec    xc{0.0, 0.0};
+        ColVec    xp{1.0, 0.0};
         ColVec<2> xp_rt = xp;
         for (int k = 0; k < 8; ++k) {
             const ColVec<1> y{xp[0]};
@@ -287,13 +287,13 @@ TEST_SUITE("LQG") {
     }
 
     TEST_CASE("design::state_feedback with a KalmanNoise converges with nonzero gains (smoke)") {
-        constexpr Matrix<2, 2> A{{0.9, 0.1}, {0.0, 0.8}};
-        constexpr Matrix<2, 1> B{{0.1}, {0.2}};
-        constexpr Matrix<1, 2> C{{1.0, 0.0}};
-        constexpr Matrix<2, 2> Q_lqr{{1.0, 0.0}, {0.0, 1.0}};
-        constexpr Matrix<1, 1> R_lqr{{1.0}};
-        constexpr Matrix<2, 2> Q_kf{{0.1, 0.0}, {0.0, 0.1}};
-        constexpr Matrix<1, 1> R_kf{{0.5}};
+        constexpr Matrix A{{0.9, 0.1}, {0.0, 0.8}};
+        constexpr Matrix B{{0.1}, {0.2}};
+        constexpr Matrix C{{1.0, 0.0}};
+        constexpr Matrix Q_lqr{{1.0, 0.0}, {0.0, 1.0}};
+        constexpr Matrix R_lqr{{1.0}};
+        constexpr Matrix Q_kf{{0.1, 0.0}, {0.0, 0.1}};
+        constexpr Matrix R_kf{{0.5}};
 
         constexpr auto result = design::state_feedback(
             StateSpace<2, 1, 1, double, 2, 1>{
@@ -312,9 +312,9 @@ TEST_SUITE("LQG") {
     TEST_CASE("LQGResult::as<U>() conversion") {
         constexpr auto lqg_d = design::state_feedback(
             StateSpace<1, 1, 1, double, 1, 1>{
-                Matrix<1, 1>{{1.0}},
-                Matrix<1, 1>{{1.0}},
-                Matrix<1, 1>{{1.0}},
+                Matrix{{1.0}},
+                Matrix{{1.0}},
+                Matrix{{1.0}},
                 Matrix<1, 1>::zeros(),
                 Matrix<1, 1>::identity(),
                 Matrix<1, 1>::identity(),
@@ -333,7 +333,7 @@ TEST_SUITE("LQG") {
     TEST_CASE("LQG deduces sizes and scalar from its design") {
         static constexpr auto res = design::state_feedback(
             make_plant(), {.Q = Matrix<2, 2>::identity(), .R = 0.1},
-            design::KalmanNoise{.process = Matrix<2, 2>{{0.01, 0.0}, {0.0, 0.01}}, .measurement = 0.1}
+            design::KalmanNoise{.process = Matrix{{0.01, 0.0}, {0.0, 0.01}}, .measurement = 0.1}
         );
         static constinit LQG law{res.as<float>()}; // sizes and scalar deduced from the result
         static_assert(std::is_same_v<decltype(law), LQG<2, 1, 1, float, FixedGainObserver<2, 1, 1, float>>>);
@@ -345,16 +345,16 @@ TEST_SUITE("LQG") {
     TEST_CASE("design::state_feedback with a KalmanNoise with TrackedOutputs holds the output at r") {
         // A damped plant (no integrator): position measured, held at r through the target.
         StateSpace<2, 1, 1, double, 2, 1> sys = make_plant();
-        sys.A = Matrix<2, 2>{{1.0, 0.1}, {-0.2, 0.95}};
+        sys.A = Matrix{{1.0, 0.1}, {-0.2, 0.95}};
         const auto res = design::state_feedback(
-            sys, {.Q = Matrix<2, 2>::identity(), .R = 0.1}, design::KalmanNoise{.process = Matrix<2, 2>{{0.01, 0.0}, {0.0, 0.01}}, .measurement = 0.1},
+            sys, {.Q = Matrix<2, 2>::identity(), .R = 0.1}, design::KalmanNoise{.process = Matrix{{0.01, 0.0}, {0.0, 0.01}}, .measurement = 0.1},
             design::TrackedOutputs{}
         );
         REQUIRE(res.success);
         LQG law{res};
         static_assert(std::is_same_v<decltype(law), LQG<2, 1, 1, double, FixedGainObserver<2, 1, 1, double>, 1>>);
-        ColVec<2>       x{};
-        const ColVec<1> r{0.5};
+        ColVec<2>    x{};
+        const ColVec r{0.5};
         for (int k = 0; k < 600; ++k) {
             const ColVec<1> u = law.step(r, ColVec<1>{x[0]});
             x = (sys.A * x) + (sys.B * u);
@@ -365,7 +365,7 @@ TEST_SUITE("LQG") {
     TEST_CASE("Law names a member's type by its design") {
         static constexpr auto res = design::state_feedback(
             make_plant(), {.Q = Matrix<2, 2>::identity(), .R = 0.1},
-            design::KalmanNoise{.process = Matrix<2, 2>{{0.01, 0.0}, {0.0, 0.01}}, .measurement = 0.1}
+            design::KalmanNoise{.process = Matrix{{0.01, 0.0}, {0.0, 0.01}}, .measurement = 0.1}
         );
         struct Axis {
             Law<res, float> law; // the design's law
@@ -381,7 +381,7 @@ TEST_SUITE("LQG") {
         Law<res, float>::Runtime replaceable{res.as<float>()};
         replaceable = LQG{design::state_feedback(
                               make_plant(), {.Q = Matrix<2, 2>::identity() * 10.0, .R = 0.1},
-                              design::KalmanNoise{.process = Matrix<2, 2>{{0.01, 0.0}, {0.0, 0.01}}, .measurement = 0.1}
+                              design::KalmanNoise{.process = Matrix{{0.01, 0.0}, {0.0, 0.01}}, .measurement = 0.1}
         )
                               .as<float>()};
         CHECK(replaceable.K(0, 0) > deduced.K(0, 0));
@@ -399,7 +399,7 @@ TEST_SUITE("LQG status") {
 
         //! Measuring velocity only leaves the position (a mode at z = 1) undetectable.
         auto blind = make_plant();
-        blind.C = Matrix<1, 2>{{0.0, 1.0}};
+        blind.C = Matrix{{0.0, 1.0}};
         const auto undetectable = design::state_feedback(blind, {.Q = Matrix<2, 2>::identity(), .R = 1.0}, design::KalmanNoise<2, 1>{});
         CHECK_FALSE(undetectable.is_stable()); // a failed design reports no stable closed loop, even when its gain half succeeded
         CHECK_FALSE(undetectable.success);
@@ -413,11 +413,11 @@ TEST_SUITE("LQG status") {
 
     TEST_CASE("lqg(sys, Ts, w, noise): a continuous plant with continuous cost and a noise density") {
         constexpr StateSpace continuous{
-            .A = Matrix<2, 2>{{0.0, 1.0}, {0.0, 0.0}},
-            .B = Matrix<2, 1>{{0.0}, {1.0}},
-            .C = Matrix<1, 2>{{1.0, 0.0}},
-            .G = Matrix<2, 1>{{0.0}, {1.0}},
-            .H = Matrix<1, 1>{{1.0}},
+            .A = Matrix{{0.0, 1.0}, {0.0, 0.0}},
+            .B = Matrix{{0.0}, {1.0}},
+            .C = Matrix{{1.0, 0.0}},
+            .G = Matrix{{0.0}, {1.0}},
+            .H = Matrix{{1.0}},
         };
         constexpr design::LQRWeights<2, 1>  w{.Q = Matrix<2, 2>::identity(), .R = 0.1};
         constexpr design::KalmanNoise<1, 1> noise{.process = 0.5, .measurement = 0.01};
@@ -437,8 +437,8 @@ TEST_SUITE("LQG status") {
         //! It deploys (float, constant-initialized), and regulates the discretized plant.
         static constinit auto law_f = LQG{res.as<float>()};
         CHECK(law_f.getK()(0, 0) == doctest::Approx(res.K(0, 0)).epsilon(1e-5));
-        auto      law = LQG{res};
-        ColVec<2> x{1.0, 0.0};
+        auto   law = LQG{res};
+        ColVec x{1.0, 0.0};
         for (int k = 0; k < 400; ++k) {
             const ColVec<1> u = law.step(ColVec<1>{x[0]});
             x = res.kalman.sys.A * x + res.kalman.sys.B * u;
@@ -457,7 +457,7 @@ TEST_SUITE("LQG status") {
 
     TEST_CASE("lqg_from_parts refuses a continuous LQR or a Ts mismatch") {
         const auto sys = make_plant();
-        const auto kf = design::kalman(sys, design::KalmanNoise{.process = Matrix<2, 2>{{0.01, 0.0}, {0.0, 0.01}}, .measurement = 0.1});
+        const auto kf = design::kalman(sys, design::KalmanNoise{.process = Matrix{{0.01, 0.0}, {0.0, 0.01}}, .measurement = 0.1});
         const auto lqr_d = design::state_feedback(sys, {.Q = Matrix<2, 2>::identity(), .R = 1.0});
         REQUIRE(kf.success);
         REQUIRE(lqr_d.success);
@@ -467,9 +467,9 @@ TEST_SUITE("LQG status") {
         CHECK(ok.status == design::DesignStatus::ok);
 
         constexpr StateSpace continuous{
-            .A = Matrix<2, 2>{{0.0, 1.0}, {0.0, 0.0}},
-            .B = Matrix<2, 1>{{0.0}, {1.0}},
-            .C = Matrix<1, 2>{{1.0, 0.0}},
+            .A = Matrix{{0.0, 1.0}, {0.0, 0.0}},
+            .B = Matrix{{0.0}, {1.0}},
+            .C = Matrix{{1.0, 0.0}},
         };
         const auto lqr_c = design::state_feedback(continuous, {.Q = Matrix<2, 2>::identity(), .R = 1.0});
         REQUIRE(lqr_c.success); // CARE can succeed; LQG still cannot take it

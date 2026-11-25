@@ -30,8 +30,8 @@ TEST_SUITE("Linearization") {
             return ColVec<1>{x(0, 0) + (3.0 * u(0, 0))};
         };
 
-        const ColVec<2> x_op{0.0, 0.0};
-        const ColVec<1> u_op{0.0};
+        const ColVec x_op{0.0, 0.0};
+        const ColVec u_op{0.0};
 
         const auto lin = design::linearize(dynamics, output, x_op, u_op, 1e-6);
 
@@ -60,8 +60,8 @@ TEST_SUITE("Linearization") {
             return ColVec<1>{x(0, 0)};
         };
 
-        const ColVec<2> x_op{0.3, 0.0};
-        const ColVec<1> u_op{0.0};
+        const ColVec x_op{0.3, 0.0};
+        const ColVec u_op{0.0};
 
         const auto lin = design::linearize(dynamics, output, x_op, u_op, 1e-6);
 
@@ -75,8 +75,8 @@ TEST_SUITE("Linearization") {
             return ColVec<2>{x(1, 0), x(0, 0) + u(0, 0)};
         };
 
-        const ColVec<2> x_op{0.0, 0.0};
-        const ColVec<1> u_op{0.0};
+        const ColVec x_op{0.0, 0.0};
+        const ColVec u_op{0.0};
 
         const auto lin = design::linearize<2, 1>(dynamics, x_op, u_op, 1e-6);
         const auto sys = lin.to_state_space();
@@ -100,8 +100,8 @@ TEST_SUITE("Linearization") {
             return ColVec<1>{x(0, 0) + u(0, 0)};
         };
 
-        const ColVec<2> x_op{0.0, 0.0};
-        const ColVec<1> u_op{0.0};
+        const ColVec x_op{0.0, 0.0};
+        const ColVec u_op{0.0};
 
         const auto sys = matlab::linmod(dynamics, output, x_op, u_op, 1e-6);
 
@@ -116,7 +116,7 @@ TEST_SUITE("Linearization") {
         const auto f = [](const ColVec<1>& x, const ColVec<1>& u) {
             return ColVec<1>{(x(0) * x(0)) + (u(0) * u(0))};
         };
-        const auto lin = design::linearize<1, 1>(f, ColVec<1>{1e10}, ColVec<1>{-3e10});
+        const auto lin = design::linearize<1, 1>(f, ColVec{1e10}, ColVec{-3e10});
         CHECK(lin.A(0, 0) == doctest::Approx(2e10).epsilon(1e-6));
         CHECK(lin.B(0, 0) == doctest::Approx(-6e10).epsilon(1e-6));
     }
@@ -124,11 +124,11 @@ TEST_SUITE("Linearization") {
     TEST_CASE("linearize reports its status; a non-finite model or step is refused") {
         const auto dynamics = [](const ColVec<1>& x, const ColVec<1>& u) { return ColVec<1>{-x(0) + u(0)}; };
         const auto output = [](const ColVec<1>& x, const ColVec<1>&) { return ColVec<1>{x(0)}; };
-        const auto ok = design::linearize(dynamics, output, ColVec<1>{1.0}, ColVec<1>{0.0});
+        const auto ok = design::linearize(dynamics, output, ColVec{1.0}, ColVec{0.0});
         CHECK(ok.success);
         CHECK(ok.status == design::DesignStatus::ok);
         const auto nan_model = [](const ColVec<1>& x, const ColVec<1>&) { return ColVec<1>{x(0) * std::numeric_limits<double>::quiet_NaN()}; };
-        CHECK(design::linearize(nan_model, output, ColVec<1>{1.0}, ColVec<1>{0.0}).status == design::DesignStatus::bad_weights);
-        CHECK(design::linearize(dynamics, output, ColVec<1>{1.0}, ColVec<1>{0.0}, std::numeric_limits<double>::quiet_NaN()).status == design::DesignStatus::invalid_parameter);
+        CHECK(design::linearize(nan_model, output, ColVec{1.0}, ColVec{0.0}).status == design::DesignStatus::bad_weights);
+        CHECK(design::linearize(dynamics, output, ColVec{1.0}, ColVec{0.0}, std::numeric_limits<double>::quiet_NaN()).status == design::DesignStatus::invalid_parameter);
     }
 }

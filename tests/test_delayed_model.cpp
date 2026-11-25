@@ -73,7 +73,7 @@ StateSpace<2, 1, 1> delayed_heater(double theta) {
     StateSpace<2, 1, 1> m{};
     m.A = Matrix<2, 2>{{std::exp(kA * kTs), tail * (std::exp(kA * theta) - 1.0) * kB / kA}, {0.0, 0.0}};
     m.B = Matrix<2, 1>{{(tail - 1.0) * kB / kA}, {1.0}};
-    m.C = Matrix<1, 2>{{1.0, 0.0}};
+    m.C = Matrix{{1.0, 0.0}};
     m.Ts = kTs;
     return m;
 }
@@ -149,11 +149,11 @@ constexpr StateSpace<2, 1, 1, double, 2, 1> mass_spring() {
 
 constexpr double   kTsSpring = 0.01; // the mass-spring's sampling time [s]
 const auto         kPlantD = discretize(mass_spring(), kTsSpring).value();
-const Matrix<2, 2> kQ{{100.0, 0.0}, {0.0, 1.0}};
-const Matrix<1, 1> kR{{0.01}};
+const Matrix       kQ{{100.0, 0.0}, {0.0, 1.0}};
+const Matrix       kR{{0.01}};
 const Matrix<1, 1> kQint{{50.0 / (kTsSpring * kTsSpring)}}; // on ∫e
-const Matrix<2, 2> kQn{{1e-4, 0.0}, {0.0, 1e-2}};
-const Matrix<1, 1> kRn{{1e-4}};
+const Matrix       kQn{{1e-4, 0.0}, {0.0, 1e-2}};
+const Matrix       kRn{{1e-4}};
 
 } // namespace
 
@@ -219,7 +219,7 @@ TEST_SUITE("Input delay: a model of the plant") {
         // the first period runs open loop on the input sent before (none), then the command meets
         // the state it was computed for and the temperature decays at the delay-free pole.
         LQR           law{res};
-        ModelPlant<2> plant{delayed_heater(kTs), ColVec<2>{10.0, 0.0}};
+        ModelPlant<2> plant{delayed_heater(kTs), ColVec{10.0, 0.0}};
         double        u_prev = 0.0;
         double        prev = plant.y();
         for (int k = 0; k < 20; ++k) {
@@ -242,7 +242,7 @@ TEST_SUITE("Input delay: a model of the plant") {
         const double  rho = std::sqrt(gam * k0);
         const double  turn = std::acos(phi / (2.0 * rho)); // the poles' angle per step
         LQR           blind_law{blind};
-        ModelPlant<2> blind_plant{delayed_heater(kTs), ColVec<2>{10.0, 0.0}};
+        ModelPlant<2> blind_plant{delayed_heater(kTs), ColVec{10.0, 0.0}};
         double        x_km1 = 0.0; // x(k−1): the input before the first is none
         double        x_k = blind_plant.y();
         int           sign_changes = 0;
@@ -286,8 +286,8 @@ TEST_SUITE("Input delay: a model of the plant") {
         for (const bool record : {true, false}) {
             CAPTURE(record);
             LQG           law{res};
-            ModelPlant<2> plant{delayed_heater(kFrac), ColVec<2>{-40.0, 0.0}}; // 40 °C under the setpoint
-            double        sent = 0.0;                                          // the input the plant received, or the command, at k − 1
+            ModelPlant<2> plant{delayed_heater(kFrac), ColVec{-40.0, 0.0}}; // 40 °C under the setpoint
+            double        sent = 0.0;                                       // the input the plant received, or the command, at k − 1
             int           clamped = 0;
             for (int k = 0; k < 30; ++k) {
                 const double u = law.step(ColVec<1>{plant.y()})[0]; // predict with k − 1's input, update, control

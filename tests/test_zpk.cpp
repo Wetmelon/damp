@@ -183,10 +183,10 @@ TEST_SUITE("ZPK first-class LTI") {
         // Double integrator-like: A = [0 1; 0 -1], B = [0;1], C = [1 0], D = 0
         // G(s) = 1 / (s(s+1)) = 1/(s²+s)
         constexpr StateSpace sys{
-            .A = Matrix<2, 2>{{0.0, 1.0}, {0.0, -1.0}},
-            .B = Matrix<2, 1>{{0.0}, {1.0}},
-            .C = Matrix<1, 2>{{1.0, 0.0}},
-            .D = Matrix<1, 1>{{0.0}},
+            .A = Matrix{{0.0, 1.0}, {0.0, -1.0}},
+            .B = Matrix{{0.0}, {1.0}},
+            .C = Matrix{{1.0, 0.0}},
+            .D = Matrix{{0.0}},
         };
         auto tf = ss2tf(sys);
         CHECK(tf.den[0] == doctest::Approx(1.0));
@@ -288,8 +288,8 @@ TEST_SUITE("ZPK first-class LTI") {
         const double       c = damp::cos(damp::numbers::pi_v<double> / 6.0);
         const double       s = damp::sin(damp::numbers::pi_v<double> / 6.0);
         const Matrix<2, 2> R{{c, -s}, {s, c}};
-        const Matrix<2, 2> J{{0.0, 0.0}, {0.0, -1.0}};
-        const StateSpace   sys{.A = R * J * R.transpose(), .B = R * Matrix<2, 1>{{1.0}, {1.0}}, .C = Matrix<1, 2>{{0.0, 1.0}} * R.transpose()};
+        const Matrix       J{{0.0, 0.0}, {0.0, -1.0}};
+        const StateSpace   sys{.A = R * J * R.transpose(), .B = R * Matrix{{1.0}, {1.0}}, .C = Matrix{{0.0, 1.0}} * R.transpose()};
         const auto         factors = to_zpk(sys).as_zpk<1>();
         REQUIRE(factors.has_value());
         const auto cancelled = factors->cancel_matching();

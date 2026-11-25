@@ -20,22 +20,22 @@ TEST_SUITE("Embedded Umbrella") {
     TEST_CASE("damp/control.hpp alone supports compile-time synthesis + runtime control") {
         constexpr auto res = [] {
             StateSpace sys{
-                .A = Matrix<2, 2>{{1.0, 0.1}, {0.0, 1.0}},
-                .B = Matrix<2, 1>{{0.005}, {0.1}},
-                .C = Matrix<1, 2>{{1.0, 0.0}},
+                .A = Matrix{{1.0, 0.1}, {0.0, 1.0}},
+                .B = Matrix{{0.005}, {0.1}},
+                .C = Matrix{{1.0, 0.0}},
                 .D = Matrix<1, 1>::zeros(),
                 .Ts = 0.1
             };
-            const Matrix<1, 1> R{{0.1}};
+            const Matrix R{{0.1}};
             return damp::design::state_feedback(sys, {.Q = Matrix<2, 2>::identity(), .R = R}, damp::design::IntegralAction{.Q = 10.0});
         }();
 
         static_assert(res.success, "synthesis must succeed at compile time via control.hpp alone");
 
-        auto                   runtime = LQI{res.as<float>()};
-        const ColVec<2, float> x{1.0f, 0.0f};
-        const ColVec<1, float> r{0.0f};
-        const auto             u = runtime.step(r, x);
+        auto         runtime = LQI{res.as<float>()};
+        const ColVec x{1.0f, 0.0f};
+        const ColVec r{0.0f};
+        const auto   u = runtime.step(r, x);
         CHECK(u(0, 0) != doctest::Approx(0.0f));
     }
 }

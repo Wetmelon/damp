@@ -64,7 +64,7 @@ TEST_SUITE("robustness") {
             CHECK_FALSE(Z.inverse().has_value());
         }
         SUBCASE("duplicate rows") {
-            Matrix<3, 3, double> A = {
+            Matrix A = {
                 {1.0, 2.0, 3.0},
                 {1.0, 2.0, 3.0}, // identical to row 0
                 {4.0, 5.0, 7.0},
@@ -72,7 +72,7 @@ TEST_SUITE("robustness") {
             CHECK_FALSE(A.inverse().has_value());
         }
         SUBCASE("duplicate columns") {
-            Matrix<3, 3, double> A = {
+            Matrix A = {
                 {1.0, 1.0, 3.0},
                 {4.0, 4.0, 6.0},
                 {7.0, 7.0, 9.0},
@@ -80,7 +80,7 @@ TEST_SUITE("robustness") {
             CHECK_FALSE(A.inverse().has_value());
         }
         SUBCASE("linearly dependent row (r2 = r0 + r1)") {
-            Matrix<3, 3, double> A = {
+            Matrix A = {
                 {1.0, 2.0, 3.0},
                 {4.0, 5.0, 6.0},
                 {5.0, 7.0, 9.0}, // = row0 + row1
@@ -95,7 +95,7 @@ TEST_SUITE("robustness") {
     }
 
     TEST_CASE("det and rank agree with singularity") {
-        Matrix<3, 3, double> singular = {
+        Matrix singular = {
             {1.0, 2.0, 3.0},
             {4.0, 5.0, 6.0},
             {7.0, 8.0, 9.0},
@@ -104,7 +104,7 @@ TEST_SUITE("robustness") {
         CHECK(mat::rank(singular) == 2);
         CHECK_FALSE(singular.inverse().has_value());
 
-        Matrix<4, 4, double> full = {
+        Matrix full = {
             {2.0, 0.0, 1.0, 0.0},
             {0.0, 3.0, 0.0, 1.0},
             {1.0, 0.0, 2.0, 0.0},
@@ -118,7 +118,7 @@ TEST_SUITE("robustness") {
     TEST_CASE("ill-conditioned but invertible matrices still round-trip") {
         // Scaled diagonal spanning ~12 orders of magnitude (condition ~1e12).
         SUBCASE("widely scaled diagonal") {
-            Matrix<3, 3, double> A = {
+            Matrix A = {
                 {1e6, 0.0, 0.0},
                 {0.0, 1.0, 0.0},
                 {0.0, 0.0, 1e-6},
@@ -162,12 +162,12 @@ TEST_SUITE("robustness") {
     }
 
     TEST_CASE("solve(A,B) is consistent with inverse(A)*B") {
-        Matrix<3, 3, double> A = {
+        Matrix A = {
             {4.0, 1.0, 2.0},
             {1.0, 5.0, 0.0},
             {2.0, 0.0, 6.0},
         };
-        Matrix<3, 2, double> B = {
+        Matrix B = {
             {1.0, 2.0},
             {3.0, 4.0},
             {5.0, 6.0},
@@ -195,8 +195,8 @@ TEST_SUITE("robustness") {
         static_assert(!Subtractable<ColVec<3, float>, RowVec<3, float>>);
 
         // The same row added to every row is written out.
-        Matrix<3, 3, double>       A = Matrix<3, 3, double>::constant(1.0);
-        const Matrix<1, 3, double> r = {{10.0, 20.0, 30.0}};
+        Matrix<3, 3, double> A = Matrix<3, 3, double>::constant(1.0);
+        const Matrix         r = {{10.0, 20.0, 30.0}};
         for (size_t i = 0; i < 3; ++i) {
             A.block<1, 3>(i, 0) += r;
         }
@@ -205,7 +205,7 @@ TEST_SUITE("robustness") {
     }
 
     TEST_CASE("view aliasing and consistency") {
-        Matrix<3, 3, double> A = {
+        Matrix A = {
             {1.0, 2.0, 3.0},
             {4.0, 5.0, 6.0},
             {7.0, 8.0, 9.0},

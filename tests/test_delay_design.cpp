@@ -84,7 +84,7 @@ const auto kUndelayedG = [] {
 }();
 const auto kDelayedG = [] {
     auto s = kDelayed;
-    s.G = Matrix<3, 2>{{1.0, 0.0}, {0.0, 1.0}, {0.0, 0.0}};
+    s.G = Matrix{{1.0, 0.0}, {0.0, 1.0}, {0.0, 0.0}};
     return s;
 }();
 
@@ -156,7 +156,7 @@ void check_measured_laws(double theta) {
     ColVec<NS>       x0{};
     x0[0] = 1.0;
 
-    const auto lqr = design::state_feedback(model, {.Q = position_weight_on<N>(1e4), .R = Matrix<1, 1>{{1e-4}}});
+    const auto lqr = design::state_feedback(model, {.Q = position_weight_on<N>(1e4), .R = Matrix{{1e-4}}});
     REQUIRE(lqr.success);
     CHECK(lqr.is_stable());
     LQR              regulator{lqr};
@@ -172,14 +172,14 @@ void check_measured_laws(double theta) {
     CHECK(ta.worst < 1e-6);
 
     // Named: in a template, clang deduces nothing from .Q = 1e6 (docs/known_limitations.md).
-    const auto lqi = design::state_feedback(model, {.Q = position_weight_on<N>(1e3), .R = Matrix<1, 1>{{1e-7}}}, design::IntegralAction<double>{.Q = 1e6});
+    const auto lqi = design::state_feedback(model, {.Q = position_weight_on<N>(1e3), .R = Matrix{{1e-7}}}, design::IntegralAction<double>{.Q = 1e6});
     REQUIRE(lqi.success);
     LQI              integrating{lqi};
     Truth<NS>        b{truth};
     AppliedInputs<N> applied_b;
     Tail             tb;
     for (int k = 0; k < 2000; ++k) {
-        const double u = integrating.step(ColVec<1>{0.3}, applied_b.after(b.plant()))[0];
+        const double u = integrating.step(ColVec{0.3}, applied_b.after(b.plant()))[0];
         b.step(u, 0.2);
         applied_b.push(u);
         tb.add(k, 2000, b.position() - 0.3);
@@ -196,7 +196,7 @@ void check_measured_laws(double theta) {
     AppliedInputs<N> applied_c;
     Tail             tc;
     for (int k = 0; k < 1500; ++k) {
-        const double u = planner.step(ColVec<1>{0.2}, applied_c.after(c.plant()))[0];
+        const double u = planner.step(ColVec{0.2}, applied_c.after(c.plant()))[0];
         c.step(u);
         applied_c.push(u);
         tc.add(k, 1500, c.position() - 0.2);
@@ -211,26 +211,26 @@ void check_output_laws(double theta) {
     const auto       model = discretize(mass_spring(), kTs, InputDelay<N>{theta}).value();
     const auto       truth = test::delay_state_form<N>(mass_spring(), kTs, theta);
 
-    const design::KalmanNoise lqgi_noise{.process = Matrix<2, 2>::identity(), .measurement = Matrix<1, 1>{{1e-6}}};
-    const auto                lqgi = design::state_feedback(model, {.Q = position_weight_on<N>(1e3), .R = Matrix<1, 1>{{1e-7}}}, lqgi_noise, design::IntegralAction<double>{.Q = 1e6});
+    const design::KalmanNoise lqgi_noise{.process = Matrix<2, 2>::identity(), .measurement = Matrix{{1e-6}}};
+    const auto                lqgi = design::state_feedback(model, {.Q = position_weight_on<N>(1e3), .R = Matrix{{1e-7}}}, lqgi_noise, design::IntegralAction<double>{.Q = 1e6});
     REQUIRE(lqgi.success);
     LQGI      integrating{lqgi};
     Truth<NS> a{truth};
     Tail      ta;
     for (int k = 0; k < 2000; ++k) {
-        a.step(integrating.step(ColVec<1>{0.3}, a.y())[0], 0.2);
+        a.step(integrating.step(ColVec{0.3}, a.y())[0], 0.2);
         ta.add(k, 2000, a.position() - 0.3);
     }
     CHECK(ta.worst < 1e-4);
 
-    const design::KalmanNoise noise{Matrix<2, 2>{{1e-4, 0.0}, {0.0, 1e-2}}, Matrix<1, 1>{{1e-6}}, Matrix<1, 1>{{1e-2}}};
-    const auto                oflqg = design::state_feedback(model, {.Q = position_weight_on<N>(1e3), .R = Matrix<1, 1>{{1e-4}}}, noise, design::InputDisturbance{});
+    const design::KalmanNoise noise{Matrix{{1e-4, 0.0}, {0.0, 1e-2}}, Matrix{{1e-6}}, Matrix{{1e-2}}};
+    const auto                oflqg = design::state_feedback(model, {.Q = position_weight_on<N>(1e3), .R = Matrix{{1e-4}}}, noise, design::InputDisturbance{});
     REQUIRE(oflqg.success);
     OFLQG     holding{oflqg};
     Truth<NS> b{truth};
     Tail      tb;
     for (int k = 0; k < 2000; ++k) {
-        b.step(holding.step(ColVec<1>{0.3}, b.y())[0], (k > 500) ? 0.5 : 0.0);
+        b.step(holding.step(ColVec{0.3}, b.y())[0], (k > 500) ? 0.5 : 0.0);
         tb.add(k, 2000, b.position() - 0.3);
     }
     CHECK(tb.worst < 1e-4);
@@ -244,7 +244,7 @@ void check_output_laws(double theta) {
     Truth<NS> c{truth};
     Tail      tc;
     for (int k = 0; k < 2000; ++k) {
-        c.step(planner.step(ColVec<1>{0.2}, c.y())[0], (k > 500) ? 0.5 : 0.0);
+        c.step(planner.step(ColVec{0.2}, c.y())[0], (k > 500) ? 0.5 : 0.0);
         tc.add(k, 2000, c.position() - 0.2);
     }
     CHECK(tc.worst < 1e-4);
@@ -255,7 +255,7 @@ void check_output_laws(double theta) {
     Tail      td;
     for (int k = 0; k < 2000; ++k) {
         const ColVec<1, float> y{static_cast<float>(d.y()[0])};
-        d.step(static_cast<double>(single.step(ColVec<1, float>{0.3F}, y)[0]), (k > 500) ? 0.5 : 0.0);
+        d.step(static_cast<double>(single.step(ColVec{0.3F}, y)[0]), (k > 500) ? 0.5 : 0.0);
         td.add(k, 2000, d.position() - 0.3);
     }
     CHECK(td.worst < 1e-3);
@@ -290,12 +290,12 @@ void check_placed_observer(double Ts) {
 /// Every estimator, from a wrong initial state: the delay states known, the plant's estimate the undelayed filter's.
 template<size_t N>
 void check_estimators(double theta) {
-    constexpr size_t   NS = 2 + N;
-    constexpr int      n = 3000;
-    const auto         model = discretize(mass_spring(), kTs, InputDelay<N>{theta}).value();
-    const auto         truth = test::delay_state_form<N>(mass_spring(), kTs, theta);
-    const Matrix<2, 2> Qn{{1e-6, 0.0}, {0.0, 1e-4}};
-    ColVec<NS>         x0{};
+    constexpr size_t NS = 2 + N;
+    constexpr int    n = 3000;
+    const auto       model = discretize(mass_spring(), kTs, InputDelay<N>{theta}).value();
+    const auto       truth = test::delay_state_form<N>(mass_spring(), kTs, theta);
+    const Matrix     Qn{{1e-6, 0.0}, {0.0, 1e-4}};
+    ColVec<NS>       x0{};
     x0[0] = 1.0;
 
     const design::KalmanNoise<2, 1> noise{.process = Qn, .measurement = 1e-6};
@@ -373,9 +373,9 @@ double held_model_gap(const StateSpace<N, 1, 1, double, NW, NV>& filter, const S
 }
 
 /// A force on the mass that the reading also sees, and the noise of a filter estimating it.
-const Matrix<2, 1>                         kForce{{0.0}, {1.0}};
-const Matrix<1, 1>                         kBias{{0.5}};
-const design::KalmanNoise<2, 1, double, 1> kHeldNoise{Matrix<2, 2>{{1e-4, 0.0}, {0.0, 1e-2}}, Matrix<1, 1>{{1e-6}}, Matrix<1, 1>{{1e-2}}};
+const Matrix                               kForce{{0.0}, {1.0}};
+const Matrix                               kBias{{0.5}};
+const design::KalmanNoise<2, 1, double, 1> kHeldNoise{Matrix{{1e-4, 0.0}, {0.0, 1e-2}}, Matrix{{1e-6}}, Matrix{{1e-2}}};
 
 } // namespace
 
@@ -385,16 +385,16 @@ TEST_SUITE("Design on the delayed model") {
         // (|z| ≈ 0.5, ω·Ts ≈ 1); one whole sample of delay moves two of them outside the unit
         // circle (|z| ≈ 1.22). The design on the delayed model plans with the command landing a
         // period late; it measures the last applied input as its third state.
-        const Matrix<1, 1> R{{1e-4}};
-        const auto         naive = design::state_feedback(kUndelayed, {.Q = Matrix<2, 2>{{1e4, 0.0}, {0.0, 0.0}}, .R = R});
-        const auto         aware = design::state_feedback(kDelayed, {.Q = position_weight(1e4), .R = R});
+        const Matrix R{{1e-4}};
+        const auto   naive = design::state_feedback(kUndelayed, {.Q = Matrix{{1e4, 0.0}, {0.0, 0.0}}, .R = R});
+        const auto   aware = design::state_feedback(kDelayed, {.Q = position_weight(1e4), .R = R});
         REQUIRE(naive.success);
-        CHECK((naive.K - design::discrete_lqr(kUndelayed.A, kUndelayed.B, Matrix<2, 2>{{1e4, 0.0}, {0.0, 0.0}}, R).K).norm() == 0.0); // the bare gain's
+        CHECK((naive.K - design::discrete_lqr(kUndelayed.A, kUndelayed.B, Matrix{{1e4, 0.0}, {0.0, 0.0}}, R).K).norm() == 0.0); // the bare gain's
         REQUIRE(aware.success);
         CHECK(aware.is_stable());
 
         constexpr int     n = 600;
-        Truth<3>          a{kTrue1, ColVec<3>{1.0, 0.0, 0.0}};
+        Truth<3>          a{kTrue1, ColVec{1.0, 0.0, 0.0}};
         Truth<3>          b = a;
         LQR               ka{aware};
         LQR<2, 1, double> kb{naive};
@@ -418,13 +418,13 @@ TEST_SUITE("Design on the delayed model") {
         // sent and carries it until the plant receives it. The delay-blind filter takes the
         // command to act at once. A fraction of a period and a whole one; the plant starts away
         // from the estimate.
-        const Matrix<2, 2> Qn{{1e-6, 0.0}, {0.0, 1e-4}};
-        const Matrix<1, 1> Rn{{1e-6}};
+        const Matrix Qn{{1e-6, 0.0}, {0.0, 1e-4}};
+        const Matrix Rn{{1e-6}};
         for (const double theta : {0.4 * kTs, kTs}) {
             const auto                         model = discretize(mass_spring(), kTs, InputDelay{theta}).value();
             FixedGainObserver<3, 1, 1, double> aware{design::kalman(model, design::KalmanNoise{.process = Qn, .measurement = Rn})};
             FixedGainObserver<2, 1, 1, double> naive{design::kalman(kUndelayed, design::KalmanNoise{.process = Qn, .measurement = Rn})};
-            Truth<3>                           t{test::delay_state_form<1>(mass_spring(), kTs, theta), ColVec<3>{0.5, -0.2, 0.0}};
+            Truth<3>                           t{test::delay_state_form<1>(mass_spring(), kTs, theta), ColVec{0.5, -0.2, 0.0}};
             Tail                               ea;
             Tail                               eb;
             constexpr int                      n = 2000;
@@ -448,11 +448,11 @@ TEST_SUITE("Design on the delayed model") {
         // One sample of input delay. The reference point is on the model's states: the plant at
         // rest at 0.3 and, in the delay state, the input that holds it there, u* = 4·0.3 (the
         // spring), which is also the input reference. The integrator takes up the load.
-        const Matrix<1, 1>        Qi{{1e6}}; // on ∫e
-        const Matrix<1, 1>        R{{1e-7}};
-        const design::KalmanNoise noise{.process = Matrix<2, 2>::identity(), .measurement = Matrix<1, 1>{{1e-6}}};
+        const Matrix              Qi{{1e6}}; // on ∫e
+        const Matrix              R{{1e-7}};
+        const design::KalmanNoise noise{.process = Matrix<2, 2>::identity(), .measurement = Matrix{{1e-6}}};
         const auto                aware = design::state_feedback(kDelayed, {.Q = position_weight(1e3), .R = R}, noise, design::IntegralAction{.Q = Qi});
-        const auto                naive = design::state_feedback(kUndelayed, {.Q = Matrix<2, 2>{{1e3, 0.0}, {0.0, 0.0}}, .R = R}, noise, design::IntegralAction{.Q = Qi});
+        const auto                naive = design::state_feedback(kUndelayed, {.Q = Matrix{{1e3, 0.0}, {0.0, 0.0}}, .R = R}, noise, design::IntegralAction{.Q = Qi});
         REQUIRE(aware.success);
         REQUIRE(naive.success);
         LQGI            ca{aware};
@@ -460,14 +460,14 @@ TEST_SUITE("Design on the delayed model") {
         Truth<3>        a{kTrue1};
         Truth<3>        b{kTrue1};
         const double    u_star = 4.0 * 0.3;
-        const ColVec<1> r{0.3};
+        const ColVec    r{0.3};
         const ColVec<1> u_ref{u_star};
         Tail            ta;
         Tail            tb;
         constexpr int   n = 2000;
         for (int k = 0; k < n; ++k) {
             a.step(ca.step(r, ColVec<3>{0.3, 0.0, u_star}, u_ref, a.y())[0], 0.2);
-            b.step(std::clamp(cb.step(r, ColVec<2>{0.3, 0.0}, u_ref, b.y())[0], -1e6, 1e6), 0.2);
+            b.step(std::clamp(cb.step(r, ColVec{0.3, 0.0}, u_ref, b.y())[0], -1e6, 1e6), 0.2);
             ta.add(k, n, a.position() - 0.3);
             tb.add(k, n, b.position() - 0.3);
         }
@@ -478,24 +478,24 @@ TEST_SUITE("Design on the delayed model") {
     TEST_CASE("LQI on [x; u(k−1)] and LQGI on the reading, a fraction of a period and a whole one, offset-free under a load") {
         // The delayed model of each delay; the true plant is the delay-state form of each. The LQI
         // reads the plant state and the input it applied last period; the LQGI the position alone.
-        const Matrix<1, 1> Qi{{1e3}}; // on ∫e dt
-        const Matrix<1, 1> R{{1e-4}};
+        const Matrix Qi{{1e3}}; // on ∫e dt
+        const Matrix R{{1e-4}};
         for (const double theta : {0.4 * kTs, kTs}) {
             const auto model = discretize(mass_spring(), kTs, InputDelay{theta}).value();
             const auto lqi = design::state_feedback(model, {.Q = position_weight(1e3), .R = R}, design::IntegralAction{.Q = Qi});
             const auto lqgi = design::state_feedback(model, {.Q = position_weight(1e3), .R = R}, design::KalmanNoise{.process = Matrix<2, 2>::identity(), .measurement = 1e-6}, design::IntegralAction{.Q = Qi});
             REQUIRE(lqi.success);
             REQUIRE(lqgi.success);
-            LQI             li{lqi};
-            LQGI            lg{lqgi};
-            const auto      truth = test::delay_state_form<1>(mass_spring(), kTs, theta);
-            Truth<3>        a{truth};
-            Truth<3>        b{truth};
-            const ColVec<1> r{0.3};
-            double          u_last = 0.0;
-            Tail            ta;
-            Tail            tb;
-            constexpr int   n = 3000;
+            LQI           li{lqi};
+            LQGI          lg{lqgi};
+            const auto    truth = test::delay_state_form<1>(mass_spring(), kTs, theta);
+            Truth<3>      a{truth};
+            Truth<3>      b{truth};
+            const ColVec  r{0.3};
+            double        u_last = 0.0;
+            Tail          ta;
+            Tail          tb;
+            constexpr int n = 3000;
             for (int k = 0; k < n; ++k) {
                 const double u = li.step(r, with_last_input(a.plant(), u_last))[0];
                 a.step(u, 0.2);
@@ -521,16 +521,16 @@ TEST_SUITE("Design on the delayed model") {
         for (const double theta : {0.4 * kTs, kTs}) {
             const auto aware = design::mpc<40, 10>(discretize(mass_spring(), kTs, InputDelay{theta}).value(), w, design::TrackedOutputs{});
             REQUIRE(aware.success);
-            MPC             ca{aware};
-            MPC             cb{naive};
-            const auto      truth = test::delay_state_form<1>(mass_spring(), kTs, theta);
-            Truth<3>        a{truth};
-            Truth<3>        b{truth};
-            const ColVec<1> r{0.2};
-            double          u_last = 0.0;
-            Tail            ta;
-            Tail            tb;
-            constexpr int   n = 800;
+            MPC           ca{aware};
+            MPC           cb{naive};
+            const auto    truth = test::delay_state_form<1>(mass_spring(), kTs, theta);
+            Truth<3>      a{truth};
+            Truth<3>      b{truth};
+            const ColVec  r{0.2};
+            double        u_last = 0.0;
+            Tail          ta;
+            Tail          tb;
+            constexpr int n = 800;
             for (int k = 0; k < n; ++k) {
                 const double u = ca.step(r, with_last_input(a.plant(), u_last))[0];
                 a.step(u);
@@ -554,19 +554,19 @@ TEST_SUITE("Design on the delayed model") {
         design::MPCWeights<1, 1> w{};
         w.Qy = 1e3;
         w.Rdu = 1e-8;
-        const design::KalmanNoise noise{Matrix<2, 2>{{1e-4, 0.0}, {0.0, 1e-2}}, Matrix<1, 1>{{1e-6}}, Matrix<1, 1>{{1e-2}}};
+        const design::KalmanNoise noise{Matrix{{1e-4, 0.0}, {0.0, 1e-2}}, Matrix{{1e-6}}, Matrix{{1e-2}}};
         const auto                naive = design::mpc<40, 10>(kUndelayedG, w, noise, design::DisturbanceModel{.Bd = kUndelayedG.B});
         REQUIRE(naive.success);
         const auto run = [&](const auto& aware) {
             REQUIRE(aware.success);
-            OFMPC           ca{aware};
-            OFMPC           cb{naive};
-            Truth<3>        a{kTrue1};
-            Truth<3>        b{kTrue1};
-            const ColVec<1> r{0.2};
-            Tail            ta;
-            Tail            tb;
-            constexpr int   n = 2000;
+            OFMPC         ca{aware};
+            OFMPC         cb{naive};
+            Truth<3>      a{kTrue1};
+            Truth<3>      b{kTrue1};
+            const ColVec  r{0.2};
+            Tail          ta;
+            Tail          tb;
+            constexpr int n = 2000;
             for (int k = 0; k < n; ++k) {
                 const double load = (k > n / 4) ? 0.5 : 0.0;
                 a.step(ca.step(r, a.y())[0], load);
@@ -597,9 +597,9 @@ TEST_SUITE("Design on the delayed model") {
             const auto       split = ::damp::detail::channel_delay_splits<1>(theta, kTs, N);
             REQUIRE(split.has_value());
             const design::detail::MpcContinuousCost<2, 1, 1, 0, double> plant{.A = p.A, .B = p.B, .C = p.C, .Ts = kTs, .on = true, .inputs = *split};
-            const Matrix<1, 1>                                          Qy{{3.0}};
-            const ColVec<1>                                             su{2.0};
-            const ColVec<1>                                             sy{0.5};
+            const Matrix                                                Qy{{3.0}};
+            const ColVec                                                su{2.0};
+            const ColVec                                                sy{0.5};
             const auto                                                  W = design::detail::mpc_delayed_period_cost<NX>(plant, Qy, su, sy);
             REQUIRE(W.has_value());
             ColVec<NX + 2> sv{};
@@ -648,15 +648,15 @@ TEST_SUITE("Design on the delayed model") {
         REQUIRE(naive.success);
         const auto run = [&](const auto& aware, double theta, bool blind_rings) {
             REQUIRE(aware.success);
-            MPC             ca{aware};
-            MPC             cb{naive};
-            const auto      truth = test::delay_state_form<1>(mass_spring(), kTs, theta);
-            Truth<3>        a{truth};
-            Truth<3>        b{truth};
-            const ColVec<1> r{0.2};
-            Tail            ta;
-            Tail            tb;
-            constexpr int   n = 800;
+            MPC           ca{aware};
+            MPC           cb{naive};
+            const auto    truth = test::delay_state_form<1>(mass_spring(), kTs, theta);
+            Truth<3>      a{truth};
+            Truth<3>      b{truth};
+            const ColVec  r{0.2};
+            Tail          ta;
+            Tail          tb;
+            constexpr int n = 800;
             for (int k = 0; k < n; ++k) {
                 a.step(ca.step(r, a.plant())[0]); // the plant's state only
                 b.step(std::clamp(cb.step(r, b.plant())[0], -1e6, 1e6));
@@ -676,16 +676,16 @@ TEST_SUITE("Design on the delayed model") {
         // The noise as densities of the continuous plant; the filter and the target are the ones
         // design::kalman and design::steady_state_target give with the same options.
         const design::MPCWeights<1, 1> w{.Qy = {1e5}, .Rdu = {1e-10}};
-        const design::KalmanNoise      noise{Matrix<2, 2>{{1e-2, 0.0}, {0.0, 1.0}}, Matrix<1, 1>{{1e-6}}, Matrix<1, 1>{{1.0}}};
+        const design::KalmanNoise      noise{Matrix{{1e-2, 0.0}, {0.0, 1.0}}, Matrix{{1e-6}}, Matrix{{1.0}}};
         const auto                     aware = design::mpc<40, 10>(mass_spring(), kTs, w, noise, design::InputDisturbance{}, InputDelay{kTs});
         REQUIRE(aware.success);
         CHECK(aware.kalman.M == design::kalman(mass_spring(), kTs, noise, design::InputDisturbance{}, InputDelay{kTs}).M);
         CHECK(aware.target.target_d == design::steady_state_target(mass_spring(), kTs, design::InputDisturbance{}, InputDelay{kTs}).target_d);
-        OFMPC           ca{aware};
-        Truth<3>        a{kTrue1};
-        const ColVec<1> r{0.2};
-        Tail            ta;
-        constexpr int   n = 2000;
+        OFMPC         ca{aware};
+        Truth<3>      a{kTrue1};
+        const ColVec  r{0.2};
+        Tail          ta;
+        constexpr int n = 2000;
         for (int k = 0; k < n; ++k) {
             const double load = (k > n / 4) ? 0.5 : 0.0;
             a.step(ca.step(r, a.y())[0], load);
@@ -699,7 +699,7 @@ TEST_SUITE("Design on the delayed model") {
         // The QP is on the input-delayed plant as without the late reading; the filter carries the
         // readings' delay states after it. The true plants are the late models themselves.
         const design::MPCWeights<1, 1> w{.Qy = {1e5}, .Rdu = {1e-10}};
-        const design::KalmanNoise      dnoise{Matrix<2, 2>{{1e-2, 0.0}, {0.0, 1.0}}, Matrix<1, 1>{{1e-6}}, Matrix<1, 1>{{1.0}}};
+        const design::KalmanNoise      dnoise{Matrix{{1e-2, 0.0}, {0.0, 1.0}}, Matrix{{1e-6}}, Matrix{{1.0}}};
         const InputDelay               in{0.4 * kTs};
         const OutputDelay<2>           out{1.4 * kTs};
         const auto                     both = design::mpc<40, 10>(mass_spring(), kTs, w, dnoise, design::InputDisturbance{}, in, out);
@@ -710,11 +710,11 @@ TEST_SUITE("Design on the delayed model") {
             CHECK(both.kalman.M(i, 0) == kf.M(i, 0));
         }
         CHECK(both.target.target_d == design::steady_state_target(mass_spring(), kTs, design::InputDisturbance{}, in, out).target_d);
-        OFMPC           cb{both};
-        Truth<5>        b{discretize(mass_spring(), kTs, in, out).value()};
-        const ColVec<1> r{0.2};
-        Tail            tb;
-        constexpr int   n = 2000;
+        OFMPC         cb{both};
+        Truth<5>      b{discretize(mass_spring(), kTs, in, out).value()};
+        const ColVec  r{0.2};
+        Tail          tb;
+        constexpr int n = 2000;
         for (int k = 0; k < n; ++k) {
             b.step(cb.step(r, b.y())[0], (k > n / 4) ? 0.5 : 0.0);
             tb.add(k, n, b.position() - 0.2);
@@ -723,7 +723,7 @@ TEST_SUITE("Design on the delayed model") {
         CHECK(cb.disturbance_estimate()(0) == doctest::Approx(0.5).epsilon(1e-3));
 
         //! Without a disturbance the target is the nominal one, on the filter's model: the readings' delay states at the steady output
-        const design::KalmanNoise noise{.process = Matrix<2, 2>{{1e-2, 0.0}, {0.0, 1.0}}, .measurement = Matrix<1, 1>{{1e-6}}};
+        const design::KalmanNoise noise{.process = Matrix{{1e-2, 0.0}, {0.0, 1.0}}, .measurement = Matrix{{1e-6}}};
         const auto                late = design::mpc<40, 10>(mass_spring(), kTs, w, noise, design::TrackedOutputs{}, out);
         REQUIRE(late.success);
         CHECK(late.target.target_r(0, 0) == doctest::Approx(1.0).epsilon(1e-9)); // per unit r: the position
@@ -739,10 +739,10 @@ TEST_SUITE("Design on the delayed model") {
         // x* = 0.2·sin(ωt); the plant holds each sample of it for a period, the residual the
         // stiff loop leaves of that is below a micrometre. At R = 1e-7 the delay-blind law is
         // fast enough that the delay destabilizes it.
-        const Matrix<1, 1>        R{{1e-7}};
-        const design::KalmanNoise noise{Matrix<2, 2>{{1e-4, 0.0}, {0.0, 1e-2}}, Matrix<1, 1>{{1e-6}}, Matrix<1, 1>{{1e-2}}};
+        const Matrix              R{{1e-7}};
+        const design::KalmanNoise noise{Matrix{{1e-4, 0.0}, {0.0, 1e-2}}, Matrix{{1e-6}}, Matrix{{1e-2}}};
         const auto                aware = design::state_feedback(kDelayedG, {.Q = position_weight(1e4), .R = R}, noise, design::DisturbanceModel{.Bd = kLoadOnPlant});
-        const auto                naive = design::state_feedback(kUndelayedG, {.Q = Matrix<2, 2>{{1e4, 0.0}, {0.0, 0.0}}, .R = R}, noise, design::DisturbanceModel{.Bd = kUndelayedG.B});
+        const auto                naive = design::state_feedback(kUndelayedG, {.Q = Matrix{{1e4, 0.0}, {0.0, 0.0}}, .R = R}, noise, design::DisturbanceModel{.Bd = kUndelayedG.B});
         REQUIRE(aware.success);
         REQUIRE(naive.success);
 
@@ -777,8 +777,8 @@ TEST_SUITE("Design on the delayed model") {
     }
 
     TEST_CASE("MHE on a hand-built delay-augmented model, Q sized to the plant, tracks the true state") {
-        const Matrix<2, 2> Qn{{1e-6, 0.0}, {0.0, 1e-4}};
-        const auto         art = design::mhe<10>(kTrue2, {.process = Qn, .measurement = 1e-6}); // G leaves the delay states noise-free
+        const Matrix Qn{{1e-6, 0.0}, {0.0, 1e-4}};
+        const auto   art = design::mhe<10>(kTrue2, {.process = Qn, .measurement = 1e-6}); // G leaves the delay states noise-free
         REQUIRE(art.success);
         MHE<4, 1, 1, 10, double> mhe{art};
         Truth<4>                 t{kTrue2};
@@ -818,8 +818,8 @@ TEST_SUITE("Design on the delayed model") {
         // longest to travel, so x(k+N) = Aᴺx + Σⱼ Aʲ⁻¹·B·v(k−j).
         constexpr size_t N = 5;
         const auto       model = discretize(mass_spring(), kTs, InputDelay<N>{N * kTs}).value();
-        const auto       free = design::state_feedback(kUndelayed, {.Q = Matrix<2, 2>{{1e4, 0.0}, {0.0, 0.0}}, .R = Matrix<1, 1>{{1e-4}}});
-        const auto       held = design::state_feedback(model, {.Q = position_weight_on<N>(1e4), .R = Matrix<1, 1>{{1e-4}}});
+        const auto       free = design::state_feedback(kUndelayed, {.Q = Matrix{{1e4, 0.0}, {0.0, 0.0}}, .R = Matrix{{1e-4}}});
+        const auto       held = design::state_feedback(model, {.Q = position_weight_on<N>(1e4), .R = Matrix{{1e-4}}});
         REQUIRE(free.success);
         REQUIRE(held.success);
         Matrix<1, 2 + N> expected{};
@@ -839,7 +839,7 @@ TEST_SUITE("Design on the delayed model") {
         constexpr size_t NS = 2 + N;
         const auto       model = discretize(mass_spring(), kTs, InputDelay<N>{N * kTs}).value();
         const auto       truth = test::delay_state_form<N>(mass_spring(), kTs, N * kTs);
-        const auto       res = design::state_feedback(model, {.Q = position_weight_on<N>(1e4), .R = Matrix<1, 1>{{1e-4}}}, design::KalmanNoise<2, 1>{.process = Matrix<2, 2>::identity(), .measurement = 1e-6});
+        const auto       res = design::state_feedback(model, {.Q = position_weight_on<N>(1e4), .R = Matrix{{1e-4}}}, design::KalmanNoise<2, 1>{.process = Matrix<2, 2>::identity(), .measurement = 1e-6});
         REQUIRE(res.success);
         LQG        law{res};
         ColVec<NS> x0{};
@@ -913,8 +913,8 @@ TEST_SUITE("Design on the delayed model") {
         const auto                              truth = test::delay_state_form<2>(plant, kTs, theta);
         static_assert(std::is_same_v<std::remove_cvref_t<decltype(model)>, StateSpace<6, 2, 2, double, 2, 2>>);
         const design::KalmanNoise noise{Matrix<2, 2>::identity() * 1e-4, Matrix<2, 2>::identity() * 1e-6, Matrix<2, 2>::identity() * 1e-2};
-        const ColVec<2>           r{0.3, -0.2};
-        const ColVec<2>           load{0.4, 0.1};
+        const ColVec              r{0.3, -0.2};
+        const ColVec              load{0.4, 0.1};
 
         const auto run = [&](auto& law) {
             ColVec<6> x{};
@@ -946,15 +946,15 @@ TEST_SUITE("Design on the delayed model") {
     TEST_CASE("a law on N delay states is designed at compile time and deployed in float") {
         static constexpr StateSpace<1, 1, 1, double, 1, 1> lag{.A = {{-1.0}}, .B = {{1.0}}, .C = {{1.0}}};
         static constexpr auto                              model = *discretize(lag, 0.05, InputDelay<2>{0.075});
-        static constexpr auto                              res = design::state_feedback(model, {.Q = blkdiag(Matrix<1, 1>{{1.0}}, Matrix<2, 2>{}), .R = 0.1}, design::KalmanNoise{.process = 0.05, .measurement = 0.001});
+        static constexpr auto                              res = design::state_feedback(model, {.Q = blkdiag(Matrix{{1.0}}, Matrix<2, 2>{}), .R = 0.1}, design::KalmanNoise{.process = 0.05, .measurement = 0.001});
         static_assert(res.success);
         static constinit LQG law{res.as<float>()};
-        CHECK(std::isfinite(law.step(ColVec<1, float>{1.0F})[0]));
+        CHECK(std::isfinite(law.step(ColVec{1.0F})[0]));
     }
 
     TEST_CASE("a disturbance in G is discretized with the plant and kept off the delay state") {
         auto plant = mass_spring();
-        plant.G = Matrix<2, 2>{{0.0, 0.0}, {0.0, 1.0}}; // a force on the mass, the second column
+        plant.G = Matrix{{0.0, 0.0}, {0.0, 1.0}}; // a force on the mass, the second column
         const auto plain = discretize(plant, kTs).value();
         const auto delayed = discretize(plant, kTs, InputDelay{0.4 * kTs}).value();
         for (size_t i = 0; i < 3; ++i) {
@@ -970,12 +970,12 @@ TEST_SUITE("Design on the delayed model") {
         // Whole samples: the reading's delay states load the state at a sample instant, so they
         // take no noise, and the filter is design::kalman on discretize(plant, Ts, OutputDelay)
         // with G = [I; 0] and the plant's noise over the period.
-        const Matrix<2, 2> Qc{{1e-4, 0.0}, {0.0, 1e-2}};
-        const Matrix<1, 1> Rn{{1e-6}};
-        const auto         late = design::kalman(mass_spring(), kTs, design::KalmanNoise{.process = Qc, .measurement = Rn}, OutputDelay<2>{2.0 * kTs});
+        const Matrix Qc{{1e-4, 0.0}, {0.0, 1e-2}};
+        const Matrix Rn{{1e-6}};
+        const auto   late = design::kalman(mass_spring(), kTs, design::KalmanNoise{.process = Qc, .measurement = Rn}, OutputDelay<2>{2.0 * kTs});
         REQUIRE(late.success);
         auto hand = discretize(mass_spring(), kTs, OutputDelay<2>{2.0 * kTs}).value();
-        hand.G = Matrix<4, 2>{{1.0, 0.0}, {0.0, 1.0}, {0.0, 0.0}, {0.0, 0.0}};
+        hand.G = Matrix{{1.0, 0.0}, {0.0, 1.0}, {0.0, 0.0}, {0.0, 0.0}};
         const auto Qd = design::discretize_process_noise(mass_spring().A, mass_spring().G, Qc, kTs);
         REQUIRE(Qd);
         const auto by_hand = design::kalman(hand, design::KalmanNoise{.process = *Qd, .measurement = Rn});
@@ -1003,11 +1003,11 @@ TEST_SUITE("Design on the delayed model") {
     TEST_CASE("a filter told the reading is late converges on the true state and its LQG regulates; the ones that take it as current lag") {
         // The true plant is the late-reading model itself (discretize is exact under ZOH): the
         // reading that arrives now was taken 1.4 periods ago.
-        const Matrix<2, 2>                 Qc{{1e-4, 0.0}, {0.0, 1e-2}};
-        const Matrix<1, 1>                 Rn{{1e-6}};
+        const Matrix                       Qc{{1e-4, 0.0}, {0.0, 1e-2}};
+        const Matrix                       Rn{{1e-6}};
         FixedGainObserver<4, 1, 1, double> aware{design::kalman(mass_spring(), kTs, design::KalmanNoise{.process = Qc, .measurement = Rn}, OutputDelay<2>{1.4 * kTs})};
         FixedGainObserver<2, 1, 1, double> naive{design::kalman(mass_spring(), kTs, design::KalmanNoise{.process = Qc, .measurement = Rn})};
-        Truth<4>                           t{discretize(mass_spring(), kTs, OutputDelay<2>{1.4 * kTs}).value(), ColVec<4>{0.5, -0.2, 0.0, 0.0}};
+        Truth<4>                           t{discretize(mass_spring(), kTs, OutputDelay<2>{1.4 * kTs}).value(), ColVec{0.5, -0.2, 0.0, 0.0}};
         Tail                               ea;
         Tail                               eb;
         constexpr int                      n = 2000;
@@ -1027,12 +1027,12 @@ TEST_SUITE("Design on the delayed model") {
 
         // An LQG on it regulates a released spring with a twelfth of the delay-blind LQG's
         // squared error: the blind filter feeds the gain a state 1.4 periods old.
-        const Matrix<2, 2>        Q{{1e6, 0.0}, {0.0, 0.0}};
-        const Matrix<1, 1>        R{{1e-4}};
+        const Matrix              Q{{1e6, 0.0}, {0.0, 0.0}};
+        const Matrix              R{{1e-4}};
         const design::KalmanNoise noise{.process = Qc, .measurement = Rn};
         LQG                       la{design::state_feedback(mass_spring(), kTs, {.Q = Q, .R = R}, noise, OutputDelay<2>{1.4 * kTs})};
         LQG                       lb{design::state_feedback(mass_spring(), kTs, {.Q = Q, .R = R}, noise)};
-        Truth<4>                  a{t.m, ColVec<4>{1.0, 0.0, 1.0, 1.0}};
+        Truth<4>                  a{t.m, ColVec{1.0, 0.0, 1.0, 1.0}};
         Truth<4>                  b = a;
         double                    ja = 0.0;
         double                    jb = 0.0;
@@ -1048,17 +1048,17 @@ TEST_SUITE("Design on the delayed model") {
     TEST_CASE("an offset-free LQG on a late reading, and an LQGI with the input late too, hold a step under a load") {
         // The gain is the plant's (and the input-delayed plant's): a late reading only adds
         // delay states to the filter, none to the gain. The true plants are the late models.
-        const Matrix<2, 2>                         Q{{1e3, 0.0}, {0.0, 0.0}};
-        const Matrix<1, 1>                         R{{1e-3}};
-        const design::KalmanNoise<2, 1, double, 1> dnoise{Matrix<2, 2>{{1e-4, 0.0}, {0.0, 1e-2}}, Matrix<1, 1>{{1e-6}}, Matrix<1, 1>{{1e-2}}};
+        const Matrix                               Q{{1e3, 0.0}, {0.0, 0.0}};
+        const Matrix                               R{{1e-3}};
+        const design::KalmanNoise<2, 1, double, 1> dnoise{Matrix{{1e-4, 0.0}, {0.0, 1e-2}}, Matrix{{1e-6}}, Matrix{{1e-2}}};
         const auto                                 of = design::state_feedback(mass_spring(), kTs, {.Q = Q, .R = R}, dnoise, design::InputDisturbance{}, OutputDelay<2>{1.4 * kTs});
         REQUIRE(of.success);
         static_assert(decltype(of)::NK == 2); // the gain reads the plant's state alone
-        OFLQG           cof{of};
-        Truth<4>        a{discretize(mass_spring(), kTs, OutputDelay<2>{1.4 * kTs}).value()};
-        const ColVec<1> r{0.3};
-        Tail            ta;
-        constexpr int   n = 3000;
+        OFLQG         cof{of};
+        Truth<4>      a{discretize(mass_spring(), kTs, OutputDelay<2>{1.4 * kTs}).value()};
+        const ColVec  r{0.3};
+        Tail          ta;
+        constexpr int n = 3000;
         for (int k = 0; k < n; ++k) {
             a.step(cof.step(r, a.y())[0], 0.2);
             ta.add(k, n, a.position() - 0.3);
@@ -1066,7 +1066,7 @@ TEST_SUITE("Design on the delayed model") {
         CHECK(ta.worst < 1e-4);
         CHECK(cof.disturbance_estimate()(0) == doctest::Approx(0.2).epsilon(1e-3));
 
-        const design::KalmanNoise noise{.process = Matrix<2, 2>{{1e-4, 0.0}, {0.0, 1e-2}}, .measurement = Matrix<1, 1>{{1e-6}}};
+        const design::KalmanNoise noise{.process = Matrix{{1e-4, 0.0}, {0.0, 1e-2}}, .measurement = Matrix{{1e-6}}};
         const auto                lqgi = design::state_feedback(mass_spring(), kTs, {.Q = Q, .R = R}, noise, design::IntegralAction{.Q = 1e2}, InputDelay{0.4 * kTs}, OutputDelay<2>{1.4 * kTs});
         REQUIRE(lqgi.success);
         static_assert(decltype(lqgi)::NK == 4); // the plant, the input's delay state, the integrator
@@ -1088,7 +1088,7 @@ TEST_SUITE("Design on the delayed model") {
         const InputDelay<1>            in{0.4 * kTs};
         const design::DisturbanceModel dm{.Bd = kForce, .Cd = kBias};
         const auto                     held = held_disturbance(kForce, kBias);
-        const auto                     offset = held_disturbance(Matrix<2, 1>{}, Matrix<1, 1>{{1.0}});
+        const auto                     offset = held_disturbance(Matrix<2, 1>{}, Matrix{{1.0}});
         const auto                     a = design::kalman(mass_spring(), kTs, kHeldNoise, dm, late);
         const auto                     b = design::kalman(mass_spring(), kTs, kHeldNoise, dm, in, late);
         const auto                     c = design::kalman(mass_spring(), kTs, kHeldNoise, design::OutputDisturbance{}, late);
@@ -1105,7 +1105,7 @@ TEST_SUITE("Design on the delayed model") {
         CHECK(held_model_gap(e.sys, discretize(offset, kTs, in, late).value()) < 1e-12);
         //! A PlantDisturbance is B_d = G, C_d = H: the same force and bias named on the plant.
         const StateSpace<2, 1, 1, double, 1, 1>    gh{.A = mass_spring().A, .B = mass_spring().B, .C = mass_spring().C, .G = kForce, .H = kBias};
-        const design::KalmanNoise<1, 1, double, 1> gh_noise{Matrix<1, 1>{{1e-2}}, Matrix<1, 1>{{1e-6}}, Matrix<1, 1>{{1e-2}}};
+        const design::KalmanNoise<1, 1, double, 1> gh_noise{Matrix{{1e-2}}, Matrix{{1e-6}}, Matrix{{1e-2}}};
         const auto                                 p = design::kalman(gh, kTs, gh_noise, design::PlantDisturbance{}, in, late);
         REQUIRE(p.success);
         CHECK(held_model_gap(p.sys, held_both) < 1e-12);
@@ -1118,7 +1118,7 @@ TEST_SUITE("Design on the delayed model") {
 
         //! The OFLQG's and the OFMPC's filter is that one.
         const design::MPCWeights<1, 1> w{.Qy = {1e3}, .Rdu = {1e-3}};
-        const auto                     of = design::state_feedback(mass_spring(), kTs, {.Q = Matrix<2, 2>{{1e3, 0.0}, {0.0, 0.0}}, .R = {1e-3}}, kHeldNoise, dm, in, late);
+        const auto                     of = design::state_feedback(mass_spring(), kTs, {.Q = Matrix{{1e3, 0.0}, {0.0, 0.0}}, .R = {1e-3}}, kHeldNoise, dm, in, late);
         const auto                     ofm = design::mpc<20, 5>(mass_spring(), kTs, w, kHeldNoise, dm, in, late);
         REQUIRE(of.success);
         REQUIRE(ofm.success);
@@ -1151,19 +1151,19 @@ TEST_SUITE("Design on the delayed model") {
         // plant moved under the new one until then, and d̂ stays at d. Not told, d̂ settles at d
         // and the output at r.
         const OutputDelay<2> late{1.4 * kTs};
-        const auto           of = design::state_feedback(mass_spring(), kTs, {.Q = Matrix<2, 2>{{1e3, 0.0}, {0.0, 0.0}}, .R = {1e-3}}, kHeldNoise, design::DisturbanceModel{.Bd = kForce, .Cd = kBias}, late);
+        const auto           of = design::state_feedback(mass_spring(), kTs, {.Q = Matrix{{1e3, 0.0}, {0.0, 0.0}}, .R = {1e-3}}, kHeldNoise, design::DisturbanceModel{.Bd = kForce, .Cd = kBias}, late);
         REQUIRE(of.success);
         const auto truth = discretize(held_disturbance(kForce, kBias), kTs, late).value(); // [x; d; z(k−1); z(k−2)]
         for (const bool told : {true, false}) {
             CAPTURE(told);
-            OFLQG           law{of};
-            ColVec<5>       s{};
-            const ColVec<1> r{0.3};
-            constexpr int   k0 = 1500;
-            constexpr int   n = 4000;
-            double          before = 0.0; // the largest prediction error on the reading, before the step and after it
-            double          after = 0.0;
-            double          drift = 0.0; // the largest |d̂ − d| after the step
+            OFLQG         law{of};
+            ColVec<5>     s{};
+            const ColVec  r{0.3};
+            constexpr int k0 = 1500;
+            constexpr int n = 4000;
+            double        before = 0.0; // the largest prediction error on the reading, before the step and after it
+            double        after = 0.0;
+            double        drift = 0.0; // the largest |d̂ − d| after the step
             for (int k = 0; k < n; ++k) {
                 const double u = law.step(r, truth.C * s)[0];
                 double&      worst = (k <= k0) ? before : after;
@@ -1174,7 +1174,7 @@ TEST_SUITE("Design on the delayed model") {
                 if (k == k0) {
                     s(2) = 0.2; // held from this period on
                     if (told) {
-                        law.estimator.reset(ColVec<4>{s(0), s(1), s(3), s(4)}, ColVec<1>{0.2});
+                        law.estimator.reset(ColVec<4>{s(0), s(1), s(3), s(4)}, ColVec{0.2});
                     }
                 }
                 s = (truth.A * s) + (truth.B * ColVec<1>{u});

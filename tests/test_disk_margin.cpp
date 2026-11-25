@@ -64,7 +64,7 @@ TEST_SUITE("Disk margin") {
 
     TEST_CASE("an integrator loop tolerates any gain increase and 90° of phase; an unstable loop has no margin") {
         //! L = 2/s: S − T = (s − 2)/(s + 2), all-pass, so α = 2 exactly.
-        const StateSpace integrator{.A = Matrix<1, 1>{{0.0}}, .B = Matrix<1, 1>{{1.0}}, .C = Matrix<1, 1>{{2.0}}};
+        const StateSpace integrator{.A = Matrix{{0.0}}, .B = Matrix{{1.0}}, .C = Matrix{{2.0}}};
         const auto       dm = analysis::disk_margin(integrator);
         REQUIRE(dm.success);
         CHECK(dm.alpha == doctest::Approx(2.0));
@@ -133,9 +133,9 @@ TEST_SUITE("Disk margin") {
     TEST_CASE("loop-at-a-time: a diagonal loop gives each channel's SISO disk margin") {
         const auto       loop1 = make_loop();
         const StateSpace loop{
-            .A = blkdiag(loop1.A, Matrix<1, 1>{{0.0}}),
-            .B = blkdiag(loop1.B, Matrix<1, 1>{{1.0}}),
-            .C = blkdiag(loop1.C, Matrix<1, 1>{{2.0}}),
+            .A = blkdiag(loop1.A, Matrix{{0.0}}),
+            .B = blkdiag(loop1.B, Matrix{{1.0}}),
+            .C = blkdiag(loop1.C, Matrix{{2.0}}),
         };
         const auto lat = analysis::loop_at_a_time_disk_margin(loop);
         REQUIRE(lat.stable);
@@ -153,9 +153,9 @@ TEST_SUITE("Disk margin") {
         //! S₂₂ = s/(s + 2) gives α₂ = 2.
         const auto satellite = [](double k2) {
             return StateSpace{
-                .A = Matrix<2, 2>{{0.0, 10.0}, {-10.0, 0.0}},
+                .A = Matrix{{0.0, 10.0}, {-10.0, 0.0}},
                 .B = Matrix<2, 2>{{1.0, 0.0}, {0.0, k2}},
-                .C = Matrix<2, 2>{{1.0, 10.0}, {-10.0, 1.0}},
+                .C = Matrix{{1.0, 10.0}, {-10.0, 1.0}},
             };
         };
         const auto lat = analysis::loop_at_a_time_disk_margin(satellite(1.0));
@@ -176,9 +176,9 @@ TEST_SUITE("Disk margin") {
     TEST_CASE("loop-at-a-time: an unstable MIMO closed loop has no margins") {
         //! Positive feedback on the satellite: A + C has eigenvalues 1 ± 20j.
         const StateSpace loop{
-            .A = Matrix<2, 2>{{0.0, 10.0}, {-10.0, 0.0}},
-            .B = Matrix<2, 2>{{-1.0, 0.0}, {0.0, -1.0}},
-            .C = Matrix<2, 2>{{1.0, 10.0}, {-10.0, 1.0}},
+            .A = Matrix{{0.0, 10.0}, {-10.0, 0.0}},
+            .B = Matrix{{-1.0, 0.0}, {0.0, -1.0}},
+            .C = Matrix{{1.0, 10.0}, {-10.0, 1.0}},
         };
         const auto lat = analysis::loop_at_a_time_disk_margin(loop);
         CHECK_FALSE(lat.stable);

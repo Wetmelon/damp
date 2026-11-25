@@ -59,9 +59,9 @@ using namespace damp;
 namespace {
 
 constexpr auto sys = StateSpace{
-    .A = Matrix<2, 2>{{0.0, 1.0}, {9.81, -0.1}},
-    .B = Matrix<2, 1>{{0.0}, {1.0}},
-    .C = Matrix<1, 2>{{1.0, 0.0}},
+    .A = Matrix{{0.0, 1.0}, {9.81, -0.1}},
+    .B = Matrix{{0.0}, {1.0}},
+    .C = Matrix{{1.0, 0.0}},
 };
 constexpr auto res = design::state_feedback(sys, 0.01, {.Q = Matrix<2, 2>::identity() * 10.0, .R = 1.0});
 
@@ -69,7 +69,7 @@ constexpr auto res = design::state_feedback(sys, 0.01, {.Q = Matrix<2, 2>::ident
 
 TEST_CASE("Damp after Arduino's macros: an LQR and a PI design and tick") {
     Law<res, float> law{};
-    const float     u = law.step(ColVec<2, float>{0.1f, 0.0f})(0);
+    const float     u = law.step(ColVec{0.1f, 0.0f})(0);
     CHECK(u < 0.0f);
     CHECK(damp::abs(u) > 0.0f);
 

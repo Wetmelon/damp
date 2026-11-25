@@ -313,12 +313,12 @@ TEST_SUITE("Error-State Kalman Filter (ESKF)") {
         // propagate it with F, or the next update stacks on a stale correction.
         ErrorStateKalmanFilter<2, double> eskf{{.Q = Matrix<2, 2>::identity() * 1e-3, .P0 = Matrix<2, 2>::identity()}};
 
-        const Matrix<1, 2> H{{0.0, 1.0}};
-        REQUIRE(eskf.update_innovation(ColVec<1>{0.5}, H, Matrix<1, 1>{0.1}));
+        const Matrix H{{0.0, 1.0}};
+        REQUIRE(eskf.update_innovation(ColVec{0.5}, H, Matrix<1, 1>{0.1}));
         const ColVec<2> dx = eskf.error_state();
         REQUIRE(dx[1] != 0.0);
 
-        const Matrix<2, 2> F{{1.0, 0.1}, {0.0, 1.0}};
+        const Matrix F{{1.0, 0.1}, {0.0, 1.0}};
         eskf.predict([&](double) { return ErrorStateJacobian<double, 2>{F, Matrix<2, 2>::identity()}; }, 0.1);
         const ColVec<2> expected = F * dx;
         CHECK(eskf.error_state()[0] == doctest::Approx(expected[0]));
@@ -326,7 +326,7 @@ TEST_SUITE("Error-State Kalman Filter (ESKF)") {
     }
 
     TEST_CASE("ESKF reset_error_state keeps P exactly symmetric") {
-        const Matrix<3, 3>                P{{2.3, 0.37, -0.19}, {0.37, 1.7, 0.29}, {-0.19, 0.29, 0.93}};
+        const Matrix                      P{{2.3, 0.37, -0.19}, {0.37, 1.7, 0.29}, {-0.19, 0.29, 0.93}};
         ErrorStateKalmanFilter<3, double> eskf{{.Q = Matrix<3, 3>::identity(), .P0 = P}};
         const Vec3<double>                dth{0.031, -0.017, 0.043};
         Matrix<3, 3>                      G = detail::attitude_reset_jacobian(dth);

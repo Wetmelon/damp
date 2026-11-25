@@ -40,10 +40,10 @@ constexpr double kDt = kTs / kGrid;
 /// Three states, two inputs, two outputs, a feedthrough on the second output and noise on every state.
 constexpr StateSpace<3, 2, 2, double, 3, 2> two_by_two() {
     StateSpace<3, 2, 2, double, 3, 2> s{};
-    s.A = Matrix<3, 3>{{-1.0, 1.0, 0.0}, {0.0, -2.0, 1.0}, {0.0, 0.0, -0.5}};
-    s.B = Matrix<3, 2>{{1.0, 0.0}, {0.0, 0.5}, {0.3, 1.0}};
-    s.C = Matrix<2, 3>{{1.0, 0.0, 0.0}, {0.0, 1.0, 1.0}};
-    s.D = Matrix<2, 2>{{0.0, 0.0}, {0.2, -0.1}};
+    s.A = Matrix{{-1.0, 1.0, 0.0}, {0.0, -2.0, 1.0}, {0.0, 0.0, -0.5}};
+    s.B = Matrix{{1.0, 0.0}, {0.0, 0.5}, {0.3, 1.0}};
+    s.C = Matrix{{1.0, 0.0, 0.0}, {0.0, 1.0, 1.0}};
+    s.D = Matrix{{0.0, 0.0}, {0.2, -0.1}};
     return s; // G = I, H = I
 }
 
@@ -215,10 +215,10 @@ double u_at(int k) {
     return (k < 0) ? 0.0 : std::sin(0.037 * k) + ((k / 150) % 2 == 0 ? 0.5 : -0.5);
 }
 
-constexpr double              kTsSpring = 0.01;
-inline constexpr auto         kLate = *discretize(mass_spring(), kTsSpring, OutputDelay<2>{1.5 * kTsSpring}); // [x; z(k−1); z(k−2)]
-inline constexpr Matrix<2, 2> kQn{{1e-6, 0.0}, {0.0, 1e-4}};
-inline constexpr auto         kLateKalman = design::kalman(kLate, design::KalmanNoise{.process = kQn, .measurement = 1e-6});
+constexpr double        kTsSpring = 0.01;
+inline constexpr auto   kLate = *discretize(mass_spring(), kTsSpring, OutputDelay<2>{1.5 * kTsSpring}); // [x; z(k−1); z(k−2)]
+inline constexpr Matrix kQn{{1e-6, 0.0}, {0.0, 1e-4}};
+inline constexpr auto   kLateKalman = design::kalman(kLate, design::KalmanNoise{.process = kQn, .measurement = 1e-6});
 
 } // namespace
 
@@ -226,7 +226,7 @@ TEST_SUITE("Delay per channel and on the measurement") {
     TEST_CASE("the delay's type: a scalar for every channel, a ColVec for one per channel") {
         static_assert(damp::is_same_v<decltype(InputDelay{0.4}), InputDelay<1, double>>);
         static_assert(damp::is_same_v<decltype(OutputDelay{0.4}), OutputDelay<1, double>>);
-        static_assert(damp::is_same_v<decltype(OutputDelay{ColVec<2>{0.1, 0.2}}), OutputDelay<1, ColVec<2>>>);
+        static_assert(damp::is_same_v<decltype(OutputDelay{ColVec{0.1, 0.2}}), OutputDelay<1, ColVec<2>>>);
         using Both = decltype(discretize(two_by_two(), kTs, InputDelay<2>{0.1}, OutputDelay<3>{0.1}));
         static_assert(damp::is_same_v<Both, DiscretizationResult<3 + (2 * 2) + (3 * 2), 2, 2, double, 3, 2>>);
         using Late = decltype(discretize(two_by_two(), kTs, OutputDelay<2>{0.1}));
@@ -320,7 +320,7 @@ TEST_SUITE("Delay per channel and on the measurement") {
         REQUIRE(kLateKalman.success);
         REQUIRE(undelayed.success);
         const auto run = [&](auto& est) {
-            Truth<4> t{kLate, ColVec<4>{1.0, 0.0, 0.0, 0.0}};
+            Truth<4> t{kLate, ColVec{1.0, 0.0, 0.0, 0.0}};
             Tail     e;
             for (int k = 0; k < n; ++k) {
                 static_cast<void>(est.update(t.y()));
@@ -347,11 +347,11 @@ TEST_SUITE("Delay per channel and on the measurement") {
 
     TEST_CASE("LQG, offset-free LQG and MPC on the late reading hold the position, under a load for the offset-free ones") {
         constexpr size_t     NS = 4;
-        const Matrix<NS, NS> Q = blkdiag(Matrix<2, 2>{{1e3, 0.0}, {0.0, 0.0}}, Matrix<2, 2>{});
-        const auto           lqg = design::state_feedback(kLate, {.Q = Q, .R = Matrix<1, 1>{{1e-4}}}, design::KalmanNoise<2, 1>{.process = kQn, .measurement = 1e-6});
+        const Matrix<NS, NS> Q = blkdiag(Matrix{{1e3, 0.0}, {0.0, 0.0}}, Matrix<2, 2>{});
+        const auto           lqg = design::state_feedback(kLate, {.Q = Q, .R = Matrix{{1e-4}}}, design::KalmanNoise<2, 1>{.process = kQn, .measurement = 1e-6});
         REQUIRE(lqg.success);
         LQG      regulating{lqg};
-        Truth<4> r{kLate, ColVec<4>{1.0, 0.0, 0.0, 0.0}};
+        Truth<4> r{kLate, ColVec{1.0, 0.0, 0.0, 0.0}};
         Tail     tr;
         for (int k = 0; k < 2000; ++k) {
             r.step(regulating.step(r.y())[0]);
@@ -359,14 +359,14 @@ TEST_SUITE("Delay per channel and on the measurement") {
         }
         CHECK(tr.worst < 1e-6);
 
-        const design::KalmanNoise noise{Matrix<2, 2>{{1e-4, 0.0}, {0.0, 1e-2}}, Matrix<1, 1>{{1e-6}}, Matrix<1, 1>{{1e-2}}};
-        const auto                oflqg = design::state_feedback(kLate, {.Q = Q, .R = Matrix<1, 1>{{1e-4}}}, noise, design::InputDisturbance{});
+        const design::KalmanNoise noise{Matrix{{1e-4, 0.0}, {0.0, 1e-2}}, Matrix{{1e-6}}, Matrix{{1e-2}}};
+        const auto                oflqg = design::state_feedback(kLate, {.Q = Q, .R = Matrix{{1e-4}}}, noise, design::InputDisturbance{});
         REQUIRE(oflqg.success);
         OFLQG    holding{oflqg};
         Truth<4> a{kLate};
         Tail     ta;
         for (int k = 0; k < 2000; ++k) {
-            a.step(holding.step(ColVec<1>{0.3}, a.y())[0], (k > 500) ? 0.5 : 0.0);
+            a.step(holding.step(ColVec{0.3}, a.y())[0], (k > 500) ? 0.5 : 0.0);
             ta.add(k, 2000, a.x[0] - 0.3);
         }
         CHECK(ta.worst < 1e-4);
@@ -380,7 +380,7 @@ TEST_SUITE("Delay per channel and on the measurement") {
         Truth<4> b{kLate};
         Tail     tb;
         for (int k = 0; k < 2000; ++k) {
-            b.step(planner.step(ColVec<1>{0.2}, b.y())[0], (k > 500) ? 0.5 : 0.0);
+            b.step(planner.step(ColVec{0.2}, b.y())[0], (k > 500) ? 0.5 : 0.0);
             tb.add(k, 2000, b.x[0] - 0.2);
         }
         CHECK(tb.worst < 1e-4);
@@ -406,7 +406,7 @@ TEST_SUITE("Delay per channel and on the measurement") {
         REQUIRE(placed.success);
         CHECK(placed.is_stable());
         FixedGainObserver observer{placed};
-        Truth<4>          t{model, ColVec<4>{1.0, 0.0, 0.0, 0.0}};
+        Truth<4>          t{model, ColVec{1.0, 0.0, 0.0, 0.0}};
         Tail              e;
         for (int k = 0; k < 600; ++k) {
             observer.update(t.y());
@@ -422,7 +422,7 @@ TEST_SUITE("Delay per channel and on the measurement") {
         FixedGainObserver                        held{kLateKalman.as<float>()};
         double                                   gap = 0.0;
         double                                   scale = 0.0;
-        Truth<4>                                 t{kLate, ColVec<4>{0.5, 0.0, 0.0, 0.0}};
+        Truth<4>                                 t{kLate, ColVec{0.5, 0.0, 0.0, 0.0}};
         for (int k = 0; k < 400; ++k) {
             const ColVec<1, float> y{static_cast<float>(t.y()[0])};
             deployed.update(y);

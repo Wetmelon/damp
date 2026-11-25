@@ -31,12 +31,12 @@ TEST_SUITE("Cached ZOH") {
         const double h = 0.1;
         StateSpace   sys{
             .A = Matrix<1, 1>{{-a}},
-            .B = Matrix<1, 1>{{0.0}},
-            .C = Matrix<1, 1>{{1.0}},
+            .B = Matrix{{0.0}},
+            .C = Matrix{{1.0}},
             .Ts = 0.0,
         };
-        ColVec<1> x0{1.0};
-        ColVec<1> u{0.0};
+        ColVec x0{1.0};
+        ColVec u{0.0};
 
         const auto zoh = CachedZoh<1, 1>::from(sys, h);
         const auto x_cache = zoh.step(x0, u);
@@ -48,14 +48,14 @@ TEST_SUITE("Cached ZOH") {
 
     TEST_CASE("CachedZoh integrator plant ẋ = u matches ramp") {
         StateSpace sys{
-            .A = Matrix<1, 1>{{0.0}},
-            .B = Matrix<1, 1>{{1.0}},
-            .C = Matrix<1, 1>{{1.0}},
+            .A = Matrix{{0.0}},
+            .B = Matrix{{1.0}},
+            .C = Matrix{{1.0}},
             .Ts = 0.0,
         };
         const double h = 0.05;
-        ColVec<1>    x{2.0};
-        ColVec<1>    u{3.0};
+        ColVec       x{2.0};
+        ColVec       u{3.0};
         const auto   zoh = CachedZoh<1, 1>::from(sys.A, sys.B, h);
 
         x = zoh.step(x, u);
@@ -67,15 +67,15 @@ TEST_SUITE("Cached ZOH") {
     TEST_CASE("simulate_cached_zoh held step input on first-order lag") {
         // ẋ = -x + u, u = 1, x0 = 0 → x(t) = 1 - e^{-t}
         StateSpace sys{
-            .A = Matrix<1, 1>{{-1.0}},
-            .B = Matrix<1, 1>{{1.0}},
-            .C = Matrix<1, 1>{{1.0}},
+            .A = Matrix{{-1.0}},
+            .B = Matrix{{1.0}},
+            .C = Matrix{{1.0}},
             .Ts = 0.0,
         };
         const double h = 0.01;
         const size_t n = 100;
-        ColVec<1>    x0{0.0};
-        ColVec<1>    u{1.0};
+        ColVec       x0{0.0};
+        ColVec       u{1.0};
 
         auto sim = simulate_cached_zoh(sys, x0, u, h, n);
         CHECK(sim.t.size() == n + 1);
@@ -87,14 +87,14 @@ TEST_SUITE("Cached ZOH") {
 
     TEST_CASE("simulate_cached_zoh_multirate holds u across fine steps") {
         StateSpace sys{
-            .A = Matrix<1, 1>{{0.0}},
-            .B = Matrix<1, 1>{{1.0}},
-            .C = Matrix<1, 1>{{1.0}},
+            .A = Matrix{{0.0}},
+            .B = Matrix{{1.0}},
+            .C = Matrix{{1.0}},
             .Ts = 0.0,
         };
         // Two control holds: u=1 for 3 fine steps, then u=2 for 3 fine steps; h=0.1
-        std::vector<ColVec<1>> u_ctrl{ColVec<1>{1.0}, ColVec<1>{2.0}};
-        auto                   sim = simulate_cached_zoh_multirate(sys, ColVec<1>{0.0}, u_ctrl, 0.1, 3);
+        std::vector<ColVec<1>> u_ctrl{ColVec{1.0}, ColVec{2.0}};
+        auto                   sim = simulate_cached_zoh_multirate(sys, ColVec{0.0}, u_ctrl, 0.1, 3);
 
         // 1 + 2*3 samples
         CHECK(sim.t.size() == 7);
@@ -106,27 +106,27 @@ TEST_SUITE("Cached ZOH") {
 
     TEST_CASE("as_discrete_ss Ts and one-step map match cache") {
         StateSpace cont{
-            .A = Matrix<1, 1>{{-1.0}},
-            .B = Matrix<1, 1>{{1.0}},
-            .C = Matrix<1, 1>{{1.0}},
-            .D = Matrix<1, 1>{{0.0}},
+            .A = Matrix{{-1.0}},
+            .B = Matrix{{1.0}},
+            .C = Matrix{{1.0}},
+            .D = Matrix{{0.0}},
             .Ts = 0.0,
         };
         const double h = 0.02;
         const auto   zoh = CachedZoh<1, 1>::from(cont, h);
         const auto   dsys = zoh.as_discrete_ss(cont.C, cont.D);
         CHECK(dsys.Ts == doctest::Approx(h));
-        ColVec<1> x{1.0};
-        ColVec<1> u{0.5};
+        ColVec x{1.0};
+        ColVec u{0.5};
         CHECK(zoh.step(x, u)(0) == doctest::Approx((dsys.A * x + dsys.B * u)(0)).epsilon(1e-14));
     }
 
     TEST_CASE("simulate_cached_zoh over a span never steps past tf") {
-        const StateSpace sys{.A = Matrix<1, 1>{{-1.0}}, .B = Matrix<1, 1>{{1.0}}, .C = Matrix<1, 1>{{1.0}}, .Ts = 0.0};
-        const auto       sim = simulate_cached_zoh(sys, ColVec<1>{0.0}, ColVec<1>{1.0}, {0.0, 1.0}, 0.4);
+        const StateSpace sys{.A = Matrix{{-1.0}}, .B = Matrix{{1.0}}, .C = Matrix{{1.0}}, .Ts = 0.0};
+        const auto       sim = simulate_cached_zoh(sys, ColVec{0.0}, ColVec{1.0}, {0.0, 1.0}, 0.4);
         CHECK(sim.t.back() <= 1.0);
         CHECK(sim.t.size() == 3); // 0, 0.4, 0.8
-        const auto exact = simulate_cached_zoh(sys, ColVec<1>{0.0}, ColVec<1>{1.0}, {0.0, 0.3}, 0.1);
+        const auto exact = simulate_cached_zoh(sys, ColVec{0.0}, ColVec{1.0}, {0.0, 0.3}, 0.1);
         CHECK(exact.t.size() == 4); // 0.3/0.1 = 2.9999999999999996 still counts three steps
     }
 }

@@ -28,7 +28,7 @@ using namespace damp::motor;
 TEST_SUITE("Transforms & Modulation") {
     TEST_CASE("Clarke transform") {
         // Test balanced three-phase
-        const ColVec<3, float> abc = {1.0f, -0.5f, -0.5f};
+        const ColVec abc = {1.0f, -0.5f, -0.5f};
 
         const auto [alpha, beta] = clarke_transform(abc);
 
@@ -39,7 +39,7 @@ TEST_SUITE("Transforms & Modulation") {
 
     TEST_CASE("Inverse Clarke transform") {
         // Test round-trip
-        const ColVec<3, float> abc_orig = {1.0f, -0.5f, -0.5f};
+        const ColVec abc_orig = {1.0f, -0.5f, -0.5f};
 
         const auto ab = clarke_transform(abc_orig);
         const auto abc = inverse_clarke_transform(ab);
@@ -421,10 +421,10 @@ TEST_SUITE("Transforms & Modulation") {
     }
 
     TEST_CASE("Clarke round-trip abc → αβ + zero → abc") {
-        const ColVec<3, float> abc = {1.3f, -0.4f, 0.2f};
-        const auto             ab = clarke_transform<float>(abc);
-        const auto             z = zero_sequence<float>(abc);
-        const auto             rt = inverse_clarke_transform(ab, z);
+        const ColVec abc = {1.3f, -0.4f, 0.2f};
+        const auto   ab = clarke_transform<float>(abc);
+        const auto   z = zero_sequence<float>(abc);
+        const auto   rt = inverse_clarke_transform(ab, z);
 
         for (size_t i = 0; i < 3; ++i) {
             CHECK(rt[i] == doctest::Approx(abc[i]).epsilon(1e-6f));
@@ -461,7 +461,7 @@ TEST_SUITE("Transforms & Modulation") {
 
     TEST_CASE("Power-invariant Clarke: magnitude scaling and round-trip") {
         using damp::Convention;
-        const ColVec<3, float> abc = {1.0f, -0.4f, 0.3f};
+        const ColVec abc = {1.0f, -0.4f, 0.3f};
 
         const auto amp = clarke_transform<float>(abc); // amplitude-invariant (default)
         const auto pwr = clarke_transform<float, Convention::PowerInvariant>(abc);
@@ -480,8 +480,8 @@ TEST_SUITE("Transforms & Modulation") {
     }
 
     TEST_CASE("Fused Park-Clarke round-trip with scalar zero passthrough") {
-        const ColVec<3, float> abc = {1.3f, -0.4f, 0.2f};
-        const float            theta = 0.9f;
+        const ColVec abc = {1.3f, -0.4f, 0.2f};
+        const float  theta = 0.9f;
 
         const auto dq = clarke_park_transform<float>(abc, theta);
         const auto z = zero_sequence<float>(abc);
@@ -518,8 +518,8 @@ TEST_SUITE("Transforms & Modulation") {
 
     TEST_CASE("Instantaneous power: convention scaling differs by 3/2") {
         using damp::Convention;
-        const ColVec<3, float> v = {1.0f, -0.5f, -0.5f};
-        const ColVec<3, float> i = {0.8f, -0.2f, -0.6f};
+        const ColVec v = {1.0f, -0.5f, -0.5f};
+        const ColVec i = {0.8f, -0.2f, -0.6f};
 
         const auto p_amp = instantaneous_power<float>(clarke_transform<float>(v), clarke_transform<float>(i));
         const auto vp = clarke_transform<float, Convention::PowerInvariant>(v);

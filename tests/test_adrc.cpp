@@ -664,7 +664,7 @@ TEST_SUITE("Active Disturbance Rejection Control (ADRC)") {
         const auto                res = design::adrc<2>(10.0, 50.0, 1.0, 1e-3);
         ADRCController<2, double> cold{res};
         ADRCController<2, double> warm{res};
-        warm.reset(ColVec<3>{1.0, 0.0, 0.0});
+        warm.reset(ColVec{1.0, 0.0, 0.0});
         CHECK(damp::abs(cold.control(1.0, 1.0)) > 100.0);
         CHECK(warm.control(1.0, 1.0) == doctest::Approx(0.0).scale(1.0));
     }

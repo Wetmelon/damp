@@ -41,8 +41,8 @@ TEST_SUITE("Matrix Functions") {
     }
 
     TEST_CASE("Matrix exponential - diagonal") {
-        Matrix<2, 2> A{{-1.0, 0.0}, {0.0, -2.0}};
-        auto         exp_A = mat::expm(A).value();
+        Matrix A{{-1.0, 0.0}, {0.0, -2.0}};
+        auto   exp_A = mat::expm(A).value();
 
         // exp(diag(-1,-2)) = diag(exp(-1), exp(-2))
         // Relaxed tolerance for Padé approximation
@@ -67,8 +67,8 @@ TEST_SUITE("Matrix Functions") {
 
     TEST_CASE("Matrix exponential - wide nilpotent") {
         // exp([[0, 1e16], [0, 0]]) = I + A. Scaling must not drop the off-diagonal.
-        Matrix<2, 2> A{{0.0, 1.0e16}, {0.0, 0.0}};
-        auto         E = mat::expm(A).value();
+        Matrix A{{0.0, 1.0e16}, {0.0, 0.0}};
+        auto   E = mat::expm(A).value();
         CHECK(E(0, 0) == doctest::Approx(1.0).epsilon(1e-12));
         CHECK(E(0, 1) == doctest::Approx(1.0e16).epsilon(1e-12));
         CHECK(E(1, 0) == doctest::Approx(0.0).epsilon(1e-12));
@@ -82,15 +82,15 @@ TEST_SUITE("Matrix Functions") {
         const double e2 = std::exp(-2.0);
         const double off = 1.0e16 * (e1 - e2);
 
-        Matrix<2, 2> upper{{-1.0, 1.0e16}, {0.0, -2.0}};
-        auto         Eu = mat::expm(upper).value();
+        Matrix upper{{-1.0, 1.0e16}, {0.0, -2.0}};
+        auto   Eu = mat::expm(upper).value();
         CHECK(Eu(0, 0) == doctest::Approx(e1).epsilon(1e-8));
         CHECK(Eu(0, 1) == doctest::Approx(off).epsilon(1e-8));
         CHECK(Eu(1, 0) == doctest::Approx(0.0).epsilon(1e-12));
         CHECK(Eu(1, 1) == doctest::Approx(e2).epsilon(1e-8));
 
-        Matrix<2, 2> lower{{-1.0, 0.0}, {1.0e16, -2.0}};
-        auto         El = mat::expm(lower).value();
+        Matrix lower{{-1.0, 0.0}, {1.0e16, -2.0}};
+        auto   El = mat::expm(lower).value();
         CHECK(El(0, 0) == doctest::Approx(e1).epsilon(1e-8));
         CHECK(El(0, 1) == doctest::Approx(0.0).epsilon(1e-12));
         CHECK(El(1, 0) == doctest::Approx(off).epsilon(1e-8));
@@ -100,7 +100,7 @@ TEST_SUITE("Matrix Functions") {
     TEST_CASE("Matrix exponential - diagonal similarity with wide entries") {
         // A = D M D^{-1}, D = diag(1e16, 1). Digits from scipy.linalg.expm.
         constexpr double d = 1.0e16;
-        Matrix<2, 2>     M{{-0.5, 0.2}, {0.1, -0.3}};
+        Matrix           M{{-0.5, 0.2}, {0.1, -0.3}};
         Matrix<2, 2>     A{{M(0, 0), M(0, 1) * d}, {M(1, 0) / d, M(1, 1)}};
         auto             E = mat::expm(A).value();
 
@@ -115,11 +115,11 @@ TEST_SUITE("Matrix Functions") {
     }
 
     TEST_CASE("Matrix exponential - wide triangular entries, float") {
-        Matrix<2, 2, float> A{{-1.0f, 1.0e8f}, {0.0f, -2.0f}};
-        auto                E = mat::expm(A).value();
-        const float         e1 = std::exp(-1.0f);
-        const float         e2 = std::exp(-2.0f);
-        const float         off = 1.0e8f * (e1 - e2);
+        Matrix      A{{-1.0f, 1.0e8f}, {0.0f, -2.0f}};
+        auto        E = mat::expm(A).value();
+        const float e1 = std::exp(-1.0f);
+        const float e2 = std::exp(-2.0f);
+        const float off = 1.0e8f * (e1 - e2);
         CHECK(E(0, 0) == doctest::Approx(e1).epsilon(1e-5));
         CHECK(E(0, 1) == doctest::Approx(off).epsilon(1e-5));
         CHECK(E(1, 0) == doctest::Approx(0.0f).epsilon(1e-6));
@@ -141,7 +141,7 @@ TEST_SUITE("Matrix Functions") {
     }
 
     TEST_CASE("Matrix trig identity: sin^2 + cos^2 = I") {
-        Matrix<2, 2> A{{0.3, 0.1}, {-0.1, 0.4}};
+        Matrix A{{0.3, 0.1}, {-0.1, 0.4}};
 
         auto sinA = mat::sin(A);
         auto cosA = mat::cos(A);
@@ -158,7 +158,7 @@ TEST_SUITE("Matrix Functions") {
     TEST_CASE("Matrix sin/cos - diagonal, large norm") {
         // sin/cos of a diagonal matrix = diagonal of sin/cos of eigenvalues
         // Norm ≈ 10, exercises the scaling-and-doubling path
-        Matrix<2, 2> A{{5.0, 0.0}, {0.0, 10.0}};
+        Matrix A{{5.0, 0.0}, {0.0, 10.0}};
 
         auto sinA = mat::sin(A);
         auto cosA = mat::cos(A);
@@ -175,7 +175,7 @@ TEST_SUITE("Matrix Functions") {
     }
 
     TEST_CASE("Matrix trig identity: large norm sin^2 + cos^2 = I") {
-        Matrix<2, 2> A{{3.0, 1.5}, {-1.0, 4.0}};
+        Matrix A{{3.0, 1.5}, {-1.0, 4.0}};
 
         auto sinA = mat::sin(A);
         auto cosA = mat::cos(A);
@@ -199,7 +199,7 @@ TEST_SUITE("Matrix Functions") {
     }
 
     TEST_CASE("Matrix power - integer") {
-        Matrix<2, 2> A{{1.0, 1.0}, {0.0, 1.0}};
+        Matrix A{{1.0, 1.0}, {0.0, 1.0}};
 
         auto A2_opt = mat::pow(A, 2);
         REQUIRE(A2_opt.has_value());
@@ -212,12 +212,12 @@ TEST_SUITE("Matrix Functions") {
         CHECK(doctest::Approx(A2(1, 1)).epsilon(1e-10) == A_sq(1, 1));
 
         // Negative power of a singular matrix must fail closed (no fake I).
-        Matrix<2, 2> singular{{1.0, 2.0}, {2.0, 4.0}};
+        Matrix singular{{1.0, 2.0}, {2.0, 4.0}};
         CHECK_FALSE(mat::pow(singular, -1).has_value());
     }
 
     TEST_CASE("Matrix hyperbolic identity: cosh^2 - sinh^2 = I") {
-        Matrix<2, 2> A{{0.2, 0.1}, {0.1, 0.3}};
+        Matrix A{{0.2, 0.1}, {0.1, 0.3}};
 
         auto sinhA = mat::sinh(A);
         auto coshA = mat::cosh(A);
@@ -233,7 +233,7 @@ TEST_SUITE("Matrix Functions") {
     }
 
     TEST_CASE("Matrix norms") {
-        Matrix<2, 2> A{{1.0, 2.0}, {3.0, 4.0}};
+        Matrix A{{1.0, 2.0}, {3.0, 4.0}};
 
         // One norm: max column sum = max(|1|+|3|, |2|+|4|) = max(4, 6) = 6
         CHECK(doctest::Approx(mat::one_norm(A)).epsilon(1e-10) == 6.0);
@@ -291,15 +291,15 @@ TEST_SUITE("Matrix Functions") {
 
     TEST_CASE("Matrix determinant") {
         // 1x1 matrix
-        Matrix<1, 1> A1{{5.0}};
+        Matrix A1{{5.0}};
         CHECK(doctest::Approx(mat::det(A1)).epsilon(1e-10) == 5.0);
 
         // 2x2 matrix: det([1 2; 3 4]) = 1*4 - 2*3 = -2
-        Matrix<2, 2> A2{{1.0, 2.0}, {3.0, 4.0}};
+        Matrix A2{{1.0, 2.0}, {3.0, 4.0}};
         CHECK(doctest::Approx(mat::det(A2)).epsilon(1e-10) == -2.0);
 
         // 3x3 matrix: det([1 2 3; 4 5 6; 7 8 9]) = 0 (singular)
-        Matrix<3, 3> A3{{1.0, 2.0, 3.0}, {4.0, 5.0, 6.0}, {7.0, 8.0, 9.0}};
+        Matrix A3{{1.0, 2.0, 3.0}, {4.0, 5.0, 6.0}, {7.0, 8.0, 9.0}};
         CHECK(doctest::Approx(mat::det(A3)).epsilon(1e-10) == 0.0);
 
         // Identity matrix
@@ -315,14 +315,14 @@ TEST_SUITE("Matrix Functions") {
         auto I2 = Matrix<2, 2>::identity();
         CHECK(mat::rank(I2) == 2);
 
-        Matrix<2, 2> A2{{1.0, 2.0}, {3.0, 4.0}};
+        Matrix A2{{1.0, 2.0}, {3.0, 4.0}};
         CHECK(mat::rank(A2) == 2);
 
         // Rank deficient matrices
-        Matrix<2, 2> singular{{1.0, 2.0}, {2.0, 4.0}}; // Second row is 2*first row
+        Matrix singular{{1.0, 2.0}, {2.0, 4.0}}; // Second row is 2*first row
         CHECK(mat::rank(singular) == 1);
 
-        Matrix<3, 3> rank1{{1.0, 2.0, 3.0}, {2.0, 4.0, 6.0}, {3.0, 6.0, 9.0}};
+        Matrix rank1{{1.0, 2.0, 3.0}, {2.0, 4.0, 6.0}, {3.0, 6.0, 9.0}};
         CHECK(mat::rank(rank1) == 1);
 
         // Zero matrix
@@ -343,7 +343,7 @@ TEST_SUITE("Matrix Functions") {
 
     TEST_CASE("Matrix logarithm is the inverse of expm") {
         // log(exp(A)) == A for a non-trivial, well-conditioned A.
-        Matrix<3, 3> A = {
+        Matrix A = {
             {0.1, 0.2, 0.0},
             {-0.1, 0.3, 0.1},
             {0.0, -0.2, 0.2},
@@ -353,7 +353,7 @@ TEST_SUITE("Matrix Functions") {
         CHECK(max_abs_diff(log_exp.value(), A) < 1e-9);
 
         // exp(log(B)) == B for an SPD matrix B (log well-defined).
-        Matrix<2, 2> B = {
+        Matrix B = {
             {4.0, 1.0},
             {1.0, 3.0},
         };
@@ -368,8 +368,8 @@ TEST_SUITE("Matrix Functions") {
         CHECK(max_abs_diff(logI.value(), Matrix<3, 3>::zeros()) < 1e-12);
 
         // log(diagonal) == diagonal of logs
-        Matrix<2, 2> D = {{2.0, 0.0}, {0.0, 5.0}};
-        auto         logD_opt = mat::log(D);
+        Matrix D = {{2.0, 0.0}, {0.0, 5.0}};
+        auto   logD_opt = mat::log(D);
         REQUIRE(logD_opt.has_value());
         Matrix<2, 2> logD = logD_opt.value();
         // logm uses inverse scaling-and-squaring; accuracy degrades for
@@ -378,9 +378,9 @@ TEST_SUITE("Matrix Functions") {
         CHECK(logD(1, 1) == doctest::Approx(std::log(5.0)).epsilon(1e-6));
 
         // Singular / non-principal-branch matrices fail closed.
-        Matrix<2, 2> singular{{1.0, 2.0}, {2.0, 4.0}};
+        Matrix singular{{1.0, 2.0}, {2.0, 4.0}};
         CHECK_FALSE(mat::log(singular).has_value());
-        Matrix<2, 2> neg_eig{{-1.0, 0.0}, {0.0, 2.0}};
+        Matrix neg_eig{{-1.0, 0.0}, {0.0, 2.0}};
         CHECK_FALSE(mat::log(neg_eig).has_value());
 
         // MATLAB-style aliases share the fail-closed contract.
@@ -389,7 +389,7 @@ TEST_SUITE("Matrix Functions") {
     }
 
     TEST_CASE("Matrix square root: sqrt(A)^2 == A") {
-        Matrix<2, 2> A = {
+        Matrix A = {
             {5.0, 4.0},
             {1.0, 2.0},
         };
@@ -399,7 +399,7 @@ TEST_SUITE("Matrix Functions") {
         CHECK(max_abs_diff(squared, A) < 1e-8);
 
         // SPD 3x3
-        Matrix<3, 3> B = {
+        Matrix B = {
             {4.0, 1.0, 0.0},
             {1.0, 3.0, 1.0},
             {0.0, 1.0, 2.0},
@@ -415,7 +415,7 @@ TEST_SUITE("Matrix Functions") {
     }
 
     TEST_CASE("Matrix real-exponent power") {
-        Matrix<2, 2> A = {
+        Matrix A = {
             {5.0, 4.0},
             {1.0, 2.0},
         };
@@ -437,15 +437,15 @@ TEST_SUITE("Matrix Functions") {
         CHECK(max_abs_diff(mat::pow(A, 0.0).value(), Matrix<2, 2>::identity()) < 1e-9);
 
         // Non-integer power of a matrix with a real negative eigenvalue fails.
-        Matrix<2, 2> neg{{-1.0, 0.0}, {0.0, 4.0}};
+        Matrix neg{{-1.0, 0.0}, {0.0, 4.0}};
         CHECK_FALSE(mat::pow(neg, 0.5).has_value());
     }
 
     TEST_CASE("Matrix real-exponent power: a double exponent on a float or complex matrix is not truncated to an int") {
         // Regression: pow(A, T p) deduced T from both arguments, so pow(Matrix<float>, 0.5)
         // took the integer overload as pow(A, 0) and returned the identity.
-        const Matrix<2, 2, float> Af{{4.0F, 0.0F}, {0.0F, 9.0F}};
-        const auto                hf = mat::pow(Af, 0.5);
+        const Matrix Af{{4.0F, 0.0F}, {0.0F, 9.0F}};
+        const auto   hf = mat::pow(Af, 0.5);
         REQUIRE(hf.has_value());
         CHECK((*hf)(0, 0) == doctest::Approx(2.0F));
         CHECK((*hf)(1, 1) == doctest::Approx(3.0F));
@@ -463,7 +463,7 @@ TEST_SUITE("Matrix Functions") {
     }
 
     TEST_CASE("sincos / sin / cos consistency") {
-        Matrix<3, 3> A = {
+        Matrix A = {
             {0.3, 0.1, 0.0},
             {-0.2, 0.4, 0.1},
             {0.0, -0.1, 0.5},
@@ -480,7 +480,7 @@ TEST_SUITE("Matrix Functions") {
         CHECK(max_abs_diff(id, Matrix<3, 3>::identity()) < 1e-9);
 
         // Larger norm exercises the scaling/doubling path
-        Matrix<2, 2> B = {{2.0, 1.0}, {0.5, 3.0}};
+        Matrix B = {{2.0, 1.0}, {0.5, 3.0}};
         auto [SB, CB] = mat::sincos(B);
         CHECK(max_abs_diff(mat::cos(B), CB) < 1e-10);
         CHECK(max_abs_diff(mat::sin(B), SB) < 1e-10);
@@ -491,7 +491,7 @@ TEST_SUITE("Matrix Functions") {
         const double nan = std::numeric_limits<double>::quiet_NaN();
         CHECK_FALSE(mat::expm(Matrix<2, 2>{{nan, 0.0}, {1.0, -1.0}}).has_value());
         CHECK_FALSE(mat::expm(Matrix<2, 2>{{0.0, std::numeric_limits<double>::infinity()}, {0.0, 0.0}}).has_value());
-        CHECK(mat::expm(Matrix<2, 2>{{0.0, 1.0}, {-1.0, 0.0}}).has_value());
+        CHECK(mat::expm(Matrix{{0.0, 1.0}, {-1.0, 0.0}}).has_value());
     }
 
     TEST_CASE("det of a nearly singular 5×5 and 6×6 keeps its small value") {
@@ -534,7 +534,7 @@ TEST_SUITE("Matrix Functions") {
 
     TEST_CASE("pow rounds a near-integer exponent from either side to the integer path") {
         // diag(−1, 4) has no real logarithm, so only the integer path succeeds.
-        const Matrix<2, 2> A{{-1.0, 0.0}, {0.0, 4.0}};
+        const Matrix A{{-1.0, 0.0}, {0.0, 4.0}};
         for (const double p : {std::nextafter(3.0, 0.0), std::nextafter(3.0, 4.0)}) {
             const auto got = mat::pow(A, p);
             REQUIRE(got.has_value());
@@ -570,7 +570,7 @@ TEST_SUITE("Matrix Functions") {
         // in float. The bound sits between that and the recovery's 2.2.
         const auto tol = static_cast<double>(eps<T>());
         // Q = H/2 (H the 4×4 Hadamard matrix) is orthogonal with entries ±1/2, so A = Q·D·Qᵀ is exact.
-        const Matrix<4, 4> Q = Matrix<4, 4>{{1.0, 1.0, 1.0, 1.0}, {1.0, -1.0, 1.0, -1.0}, {1.0, 1.0, -1.0, -1.0}, {1.0, -1.0, -1.0, 1.0}} * 0.5;
+        const Matrix<4, 4> Q = Matrix{{1.0, 1.0, 1.0, 1.0}, {1.0, -1.0, 1.0, -1.0}, {1.0, 1.0, -1.0, -1.0}, {1.0, -1.0, -1.0, 1.0}} * 0.5;
         for (const double m : {1.0, 4.0}) {
             const double lambda = 10.0 * m; // spectrum λ·(1, −0.8, 0.3, 0.1)
             const double ev[4] = {lambda, -8.0 * m, 3.0 * m, m};
@@ -590,10 +590,10 @@ TEST_SUITE("Matrix Functions") {
         }
         // Non-normal, ‖A‖_F = 43: A = S·U·S⁻¹ with S = [[1,0,0],[1,1,0],[−1,2,1]] and U upper
         // triangular; the reference is S·f(U)·S⁻¹, f(U) by Parlett's recurrence.
-        const Matrix<3, 3> U{{1.5, 4.0, -2.0}, {0.0, -2.0, 3.0}, {0.0, 0.0, 0.5}};
-        const Matrix<3, 3> S{{1.0, 0.0, 0.0}, {1.0, 1.0, 0.0}, {-1.0, 2.0, 1.0}};
-        const Matrix<3, 3> S_inv{{1.0, 0.0, 0.0}, {-1.0, 1.0, 0.0}, {3.0, -2.0, 1.0}};
-        const auto         parlett = [&](double f0, double f1, double f2) {
+        const Matrix U{{1.5, 4.0, -2.0}, {0.0, -2.0, 3.0}, {0.0, 0.0, 0.5}};
+        const Matrix S{{1.0, 0.0, 0.0}, {1.0, 1.0, 0.0}, {-1.0, 2.0, 1.0}};
+        const Matrix S_inv{{1.0, 0.0, 0.0}, {-1.0, 1.0, 0.0}, {3.0, -2.0, 1.0}};
+        const auto   parlett = [&](double f0, double f1, double f2) {
             Matrix<3, 3> F{{f0, 0.0, 0.0}, {0.0, f1, 0.0}, {0.0, 0.0, f2}};
             F(0, 1) = U(0, 1) * (f0 - f1) / (U(0, 0) - U(1, 1));
             F(1, 2) = U(1, 2) * (f1 - f2) / (U(1, 1) - U(2, 2));
@@ -613,12 +613,12 @@ TEST_SUITE("Matrix Functions") {
         const Matrix<2, 2> A{{inf, 0.0}, {0.0, 1.0}};
         static_cast<void>(mat::cos(A));
         static_cast<void>(mat::sin(A));
-        const Matrix<2, 2> big{{1e308, 1e308}, {0.0, 0.0}};
+        const Matrix big{{1e308, 1e308}, {0.0, 0.0}};
         static_cast<void>(mat::sincos(big));
         static_cast<void>(mat::cosh(big));
         CHECK(mat::detail::trig_scale_exponent(A) == 0);
         CHECK(mat::detail::trig_scale_exponent(big) == 0);
-        CHECK(mat::detail::trig_scale_exponent(Matrix<2, 2>{{1e300, 0.0}, {0.0, 0.0}}) == 998);
+        CHECK(mat::detail::trig_scale_exponent(Matrix{{1e300, 0.0}, {0.0, 0.0}}) == 998);
     }
 
     TEST_CASE_TEMPLATE("sqrtm on well-posed matrices with κ(A) up to 1e9: residual at roundoff, float included", T, float, double) {

@@ -44,21 +44,21 @@ constexpr double kTs = 0.01;
 /// A mass on a spring and a damper: position, speed; force in; position out. Noise on both states and the reading.
 constexpr StateSpace<2, 1, 1, double, 2, 1> plant() {
     return {
-        .A = Matrix<2, 2>{{0.0, 1.0}, {-1.0, -0.5}},
-        .B = Matrix<2, 1>{{0.0}, {1.0}},
-        .C = Matrix<1, 2>{{1.0, 0.0}},
+        .A = Matrix{{0.0, 1.0}, {-1.0, -0.5}},
+        .B = Matrix{{0.0}, {1.0}},
+        .C = Matrix{{1.0, 0.0}},
         .G = Matrix<2, 2>::identity(),
         .H = Matrix<1, 1>::identity(),
     };
 }
 
-constexpr design::LQRWeights<2, 1>             kW{.Q = Matrix<2, 2>{{10.0, 0.0}, {0.0, 1.0}}, .R = 1.0};
-constexpr design::KalmanNoise<2, 1>            kNoise{.process = Matrix<2, 2>{{0.01, 0.0}, {0.0, 0.1}}, .measurement = Matrix<1, 1>{{1e-4}}};
-constexpr design::KalmanNoise<2, 1, double, 1> kWalk{.process = kNoise.process, .measurement = kNoise.measurement, .disturbance = Matrix<1, 1>{{1.0}}};
+constexpr design::LQRWeights<2, 1>             kW{.Q = Matrix{{10.0, 0.0}, {0.0, 1.0}}, .R = 1.0};
+constexpr design::KalmanNoise<2, 1>            kNoise{.process = Matrix{{0.01, 0.0}, {0.0, 0.1}}, .measurement = Matrix{{1e-4}}};
+constexpr design::KalmanNoise<2, 1, double, 1> kWalk{.process = kNoise.process, .measurement = kNoise.measurement, .disturbance = Matrix{{1.0}}};
 constexpr design::IntegralAction               kInt{.Q = 80.0};
 constexpr design::InputRateLimits              kRate{.lower = {-0.002}, .upper = {0.002}};
 constexpr design::Handover                     kFade{.fade_time = 0.1};
-constexpr Matrix<2, 1>                         kLoad{{0.0}, {1.0}};
+constexpr Matrix                               kLoad{{0.0}, {1.0}};
 
 // One design of each kind, with each option that changes the law's type: tracked outputs, a
 // delayed input, a late reading, a measured disturbance, a move limit, a handover's fade, a gain

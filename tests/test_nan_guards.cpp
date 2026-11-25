@@ -650,7 +650,7 @@ TEST_SUITE("NaN guards") {
     TEST_CASE("the adaptive ODE solver refuses options that are not finite") {
         const auto   decay = [](double /*t*/, const ColVec<1>& x) { return ColVec<1>{-x(0, 0)}; };
         sim::DP45<1> dp;
-        REQUIRE(sim::AdaptiveStepSolver(dp, sim::AdaptiveOptions<1>{}).solve(decay, ColVec<1>{1.0}, {0.0, 1.0}).success);
+        REQUIRE(sim::AdaptiveStepSolver(dp, sim::AdaptiveOptions<1>{}).solve(decay, ColVec{1.0}, {0.0, 1.0}).success);
         const double nan = runtime_nan<double>();
         const double inf = runtime_inf<double>();
         for (int field = 0; field < 8; ++field) {
@@ -666,7 +666,7 @@ TEST_SUITE("NaN guards") {
                 default: o.max_factor = nan; break;
             }
             INFO("field ", field);
-            CHECK_FALSE(sim::AdaptiveStepSolver(dp, o).solve(decay, ColVec<1>{1.0}, {0.0, 1.0}).success);
+            CHECK_FALSE(sim::AdaptiveStepSolver(dp, o).solve(decay, ColVec{1.0}, {0.0, 1.0}).success);
         }
     }
 
@@ -711,7 +711,7 @@ TEST_SUITE("NaN guards") {
             CHECK_FALSE(run.success);
         }
         // A NaN fine-log step logs the events only; with no finite step the run still ends.
-        const StateSpace              integ{.A = Matrix<1, 1, double>{{0.0}}, .B = Matrix<1, 1, double>{{1.0}}, .C = Matrix<1, 1, double>{{1.0}}};
+        const StateSpace              integ{.A = Matrix{{0.0}}, .B = Matrix{{1.0}}, .C = Matrix{{1.0}}};
         sim::PiecewiseLTI<1, 1, 1, 1> plant{.modes = {integ}};
         const auto                    schedule = [](double, std::size_t, const auto&, const auto&) { return 1.0; };
         const auto                    on_event = [](double, std::size_t m, const auto& x, const auto&, const auto& u) {
@@ -719,8 +719,8 @@ TEST_SUITE("NaN guards") {
         };
         const sim::EventSimConfig<> events{.log = sim::LogPolicy::EventsOnly};
         const sim::EventSimConfig<> nan_stride{.log = sim::LogPolicy::FixedStride, .h_fine = runtime_nan<double>()};
-        const auto                  a = sim::simulate_piecewise_lti(plant, 0, ColVec<1>{0.0}, ColVec<1>{1.0}, {0.0, 1.0}, schedule, on_event, events);
-        const auto                  b = sim::simulate_piecewise_lti(plant, 0, ColVec<1>{0.0}, ColVec<1>{1.0}, {0.0, 1.0}, schedule, on_event, nan_stride);
+        const auto                  a = sim::simulate_piecewise_lti(plant, 0, ColVec{0.0}, ColVec{1.0}, {0.0, 1.0}, schedule, on_event, events);
+        const auto                  b = sim::simulate_piecewise_lti(plant, 0, ColVec{0.0}, ColVec{1.0}, {0.0, 1.0}, schedule, on_event, nan_stride);
         CHECK(b.t.size() == a.t.size());
     }
 
@@ -799,7 +799,7 @@ TEST_SUITE("NaN guards") {
     TEST_CASE_TEMPLATE("set_limits on the LQ laws and the MPC refuses a non-finite limit and changes nothing", T, float, double) {
         constexpr StateSpace     plant{.A = {{1.0, 0.1}, {0.0, 1.0}}, .B = {{0.005}, {0.1}}, .C = {{1.0, 0.0}}, .Ts = 0.1};
         const auto               weights = design::LQRWeights<2, 1>{.Q = Matrix<2, 2>::identity(), .R = 0.01};
-        const auto               noise = design::KalmanNoise<2, 1, double, 1>{.process = Matrix<2, 2>::identity() * 1e-3, .measurement = Matrix<1, 1>{{1e-4}}, .disturbance = Matrix<1, 1>{{1.0}}};
+        const auto               noise = design::KalmanNoise<2, 1, double, 1>{.process = Matrix<2, 2>::identity() * 1e-3, .measurement = Matrix{{1e-4}}, .disturbance = Matrix{{1.0}}};
         const auto               lqi = design::state_feedback(plant, weights, design::IntegralAction<double>{.Q = 1.0}, design::InputRateLimits<1>{.lower = {-0.5}, .upper = {0.5}});
         const auto               oflqg = design::state_feedback(StateSpace<2, 1, 1, double, 2, 1>{.A = plant.A, .B = plant.B, .C = plant.C, .Ts = plant.Ts}, weights, noise, design::InputDisturbance{});
         design::MPCWeights<1, 1> mpc_weights{};

@@ -45,7 +45,7 @@ struct CtmsPendulum {
 TEST_CASE("discrete_lqr scalar gain matches hand solution") {
     //! A=1,B=1,Q=1,R=1: DARE gives S²−S−1=0 → S=φ=1.618…, K=S/(1+S)=0.618…
     const auto res = design::discrete_lqr(
-        Matrix<1, 1>{{1.0}}, Matrix<1, 1>{{1.0}}, Matrix<1, 1>{{1.0}}, Matrix<1, 1>{{1.0}}
+        Matrix{{1.0}}, Matrix{{1.0}}, Matrix{{1.0}}, Matrix{{1.0}}
     );
 
     REQUIRE(res.success);
@@ -58,14 +58,14 @@ TEST_CASE("discrete_lqr scalar gain matches hand solution") {
 
 TEST_CASE("LQR runtime regulation and tracking laws") {
     const auto res = design::state_feedback(
-        StateSpace{.A = Matrix<2, 2>{{1.0, 0.1}, {0.0, 1.0}}, .B = Matrix<2, 1>{{0.0}, {0.1}}, .C = Matrix<2, 2>::identity(), .Ts = 0.1},
-        {.Q = Matrix<2, 2>{{1.0, 0.0}, {0.0, 1.0}}, .R = Matrix<1, 1>{{1.0}}}
+        StateSpace{.A = Matrix{{1.0, 0.1}, {0.0, 1.0}}, .B = Matrix{{0.0}, {0.1}}, .C = Matrix<2, 2>::identity(), .Ts = 0.1},
+        {.Q = Matrix{{1.0, 0.0}, {0.0, 1.0}}, .R = Matrix{{1.0}}}
     );
     REQUIRE(res.success);
     //! The bare gain of the same weights: the law's K, so its commands are the ones an LQR of an LQRResult gave.
     const design::LQRResult<2, 1> gain = design::discrete_lqr(
-        Matrix<2, 2>{{1.0, 0.1}, {0.0, 1.0}}, Matrix<2, 1>{{0.0}, {0.1}},
-        Matrix<2, 2>{{1.0, 0.0}, {0.0, 1.0}}, Matrix<1, 1>{{1.0}}
+        Matrix{{1.0, 0.1}, {0.0, 1.0}}, Matrix{{0.0}, {0.1}},
+        Matrix{{1.0, 0.0}, {0.0, 1.0}}, Matrix{{1.0}}
     );
     CHECK((res.K - gain.K).norm() == 0.0);
     static_assert(!std::is_constructible_v<LQR<2, 1, double>, design::LQRResult<2, 1>>); // no runtime takes the bare gain
@@ -73,14 +73,14 @@ TEST_CASE("LQR runtime regulation and tracking laws") {
     auto ctrl = LQR{res}; // from the design
 
     SUBCASE("u = -K x") {
-        const ColVec<2> x{1.0, 2.0};
+        const ColVec x{1.0, 2.0};
         ctrl.update(x);
         const auto u = ctrl.control();
         CHECK(u[0] == doctest::Approx(-(res.K(0, 0) * 1.0 + res.K(0, 1) * 2.0)));
     }
 
     SUBCASE("tracking error is zero at the reference") {
-        const ColVec<2> x{3.0, -1.0};
+        const ColVec x{3.0, -1.0};
         ctrl.update(x);
         const auto u = ctrl.control(x, {}); // x_ref == x
         CHECK(u[0] == doctest::Approx(0.0));
@@ -89,8 +89,8 @@ TEST_CASE("LQR runtime regulation and tracking laws") {
 
 namespace {
 constexpr auto ctad_res = design::state_feedback(
-    StateSpace{.A = Matrix<2, 2>{{1.0, 0.1}, {0.0, 1.0}}, .B = Matrix<2, 1>{{0.0}, {0.1}}, .C = Matrix<2, 2>::identity(), .Ts = 0.1},
-    {.Q = Matrix<2, 2>{{1.0, 0.0}, {0.0, 1.0}}, .R = Matrix<1, 1>{{1.0}}}
+    StateSpace{.A = Matrix{{1.0, 0.1}, {0.0, 1.0}}, .B = Matrix{{0.0}, {0.1}}, .C = Matrix<2, 2>::identity(), .Ts = 0.1},
+    {.Q = Matrix{{1.0, 0.0}, {0.0, 1.0}}, .R = Matrix{{1.0}}}
 );
 constinit auto ctad_law = LQR{ctad_res.as<float>()}; // sizes and scalar deduced from the result
 
@@ -137,13 +137,13 @@ TEST_CASE("design::state_feedback with TrackedOutputs holds the tracked output a
     CHECK(res.target.target_r(1, 0) == doctest::Approx(0.0).epsilon(1e-12));
     CHECK(res.target.target_r(2, 0) == doctest::Approx(4.0));
 
-    auto            sys = spring_plant();
-    LQR             tracking{res};
-    LQR             regulator{design::state_feedback(sys, {.Q = Matrix<2, 2>::identity(), .R = 0.1})};
-    ColVec<2>       xt{};
-    ColVec<2>       xr{};
-    const ColVec<1> r{0.3};
-    ColVec<1>       u{};
+    auto         sys = spring_plant();
+    LQR          tracking{res};
+    LQR          regulator{design::state_feedback(sys, {.Q = Matrix<2, 2>::identity(), .R = 0.1})};
+    ColVec<2>    xt{};
+    ColVec<2>    xr{};
+    const ColVec r{0.3};
+    ColVec<1>    u{};
     for (int k = 0; k < 400; ++k) {
         u = tracking.step(r, xt);
         xt = (sys.A * xt) + (sys.B * u);
@@ -169,8 +169,8 @@ TEST_CASE("design::state_feedback with TrackedOutputs refuses an output no stead
     // Two parallel input columns on a double integrator: the velocity has no steady state at r ≠ 0
     // with either input, so two redundant inputs are refused like one.
     const StateSpace sys{
-        .A = Matrix<2, 2>{{1.0, 0.1}, {0.0, 1.0}},
-        .B = Matrix<2, 2>{{0.005, 0.01}, {0.1, 0.2}},
+        .A = Matrix{{1.0, 0.1}, {0.0, 1.0}},
+        .B = Matrix{{0.005, 0.01}, {0.1, 0.2}},
         .C = Matrix<2, 2>::identity(),
         .Ts = 0.1,
     };
@@ -185,7 +185,7 @@ TEST_CASE("design::state_feedback with TrackedOutputs refuses an output no stead
     auto      law = LQR{pos};
     ColVec<2> x{};
     for (int k = 0; k < 2000; ++k) {
-        x = (sys.A * x) + (sys.B * law.step(ColVec<1>{1.0}, x));
+        x = (sys.A * x) + (sys.B * law.step(ColVec{1.0}, x));
     }
     CHECK(x[0] == doctest::Approx(1.0).epsilon(1e-9));
 }
@@ -193,8 +193,8 @@ TEST_CASE("design::state_feedback with TrackedOutputs refuses an output no stead
 TEST_CASE("LQRResult::to_ss closed around the plant has the design's poles") {
     // The plant reports its state, the law's input; unity positive feedback closes u = −Kx.
     const StateSpace sys{
-        .A = Matrix<2, 2>{{1.0, 0.1}, {0.0, 1.0}},
-        .B = Matrix<2, 1>{{0.005}, {0.1}},
+        .A = Matrix{{1.0, 0.1}, {0.0, 1.0}},
+        .B = Matrix{{0.005}, {0.1}},
         .C = Matrix<2, 2>::identity(),
         .Ts = 0.1,
     };
@@ -224,7 +224,7 @@ TEST_CASE("LQRResult::to_ss closed around the plant has the design's poles") {
 
 TEST_CASE("LQRResult::as<float>() round-trips every field") {
     const auto res_d = design::discrete_lqr(
-        Matrix<1, 1>{{1.0}}, Matrix<1, 1>{{1.0}}, Matrix<1, 1>{{1.0}}, Matrix<1, 1>{{1.0}}
+        Matrix{{1.0}}, Matrix{{1.0}}, Matrix{{1.0}}, Matrix{{1.0}}
     );
     const auto res_f = res_d.as<float>();
 
@@ -239,7 +239,7 @@ TEST_CASE("discretize_lqr_cost matches closed-form for A=0 integrator") {
     //!   Qd = h,  Nd = h²/2,  Rd = h + h³/3
     const double h = 0.1;
     const auto   cost = design::discretize_lqr_cost(
-                            Matrix<1, 1>{{0.0}}, Matrix<1, 1>{{1.0}}, Matrix<1, 1>{{1.0}}, Matrix<1, 1>{{1.0}}, h
+                            Matrix{{0.0}}, Matrix{{1.0}}, Matrix{{1.0}}, Matrix{{1.0}}, h
     )
                             .value();
 
@@ -279,13 +279,13 @@ TEST_CASE_TEMPLATE("discretize_lqr_cost and lqr(sys, Ts, w) keep a fast stable m
 }
 
 TEST_CASE("design::state_feedback on a continuous plant with Ts discretizes the cost (differs from naive)") {
-    const Matrix<2, 2> A{{0.0, 1.0}, {0.0, 0.0}}; // double integrator
-    const Matrix<2, 1> B{{0.0}, {1.0}};
-    const Matrix<2, 2> Q{{1.0, 0.0}, {0.0, 1.0}};
-    const Matrix<1, 1> R{{1.0}};
-    const double       Ts = 0.2;
+    const Matrix A{{0.0, 1.0}, {0.0, 0.0}}; // double integrator
+    const Matrix B{{0.0}, {1.0}};
+    const Matrix Q{{1.0, 0.0}, {0.0, 1.0}};
+    const Matrix R{{1.0}};
+    const double Ts = 0.2;
 
-    const auto proper = design::state_feedback(StateSpace{.A = A, .B = B, .C = Matrix<1, 2>{{1.0, 0.0}}}, Ts, {.Q = Q, .R = R});
+    const auto proper = design::state_feedback(StateSpace{.A = A, .B = B, .C = Matrix{{1.0, 0.0}}}, Ts, {.Q = Q, .R = R});
     REQUIRE(proper.success);
     CHECK(proper.Ts == Ts);
     CHECK(proper.is_stable());
@@ -309,13 +309,13 @@ TEST_CASE("continuous_lqr reproduces the CTMS inverted-pendulum gain") {
 
     // CTMS weighting: Q = C'C with the cart-position and pendulum-angle weights
     // bumped to 5000 and 100; R = 1.
-    const Matrix<4, 4> Q{
+    const Matrix Q{
         {5000.0, 0.0, 0.0, 0.0},
         {0.0, 0.0, 0.0, 0.0},
         {0.0, 0.0, 100.0, 0.0},
         {0.0, 0.0, 0.0, 0.0},
     };
-    const Matrix<1, 1> R{{1.0}};
+    const Matrix R{{1.0}};
 
     const auto res = design::continuous_lqr(sys.A, sys.B, Q, R);
     REQUIRE(res.success);
@@ -336,13 +336,13 @@ TEST_CASE("continuous_lqr reproduces the CTMS inverted-pendulum gain") {
 
 TEST_CASE("matlab::lqr alias returns the same gain as continuous_lqr") {
     const CtmsPendulum sys;
-    const Matrix<4, 4> Q{
+    const Matrix       Q{
         {5000.0, 0.0, 0.0, 0.0},
         {0.0, 0.0, 0.0, 0.0},
         {0.0, 0.0, 100.0, 0.0},
         {0.0, 0.0, 0.0, 0.0},
     };
-    const Matrix<1, 1> R{{1.0}};
+    const Matrix R{{1.0}};
 
     const auto via_matlab = matlab::lqr(sys.A, sys.B, Q, R);
     const auto via_design = design::continuous_lqr(sys.A, sys.B, Q, R);
@@ -354,10 +354,10 @@ TEST_CASE("matlab::lqr alias returns the same gain as continuous_lqr") {
 }
 
 TEST_CASE("matlab::dlqr and matlab::lqrd forward to the core names") {
-    const Matrix<1, 1> A{{1.0}};
-    const Matrix<1, 1> B{{1.0}};
-    const Matrix<1, 1> Q{{1.0}};
-    const Matrix<1, 1> R{{1.0}};
+    const Matrix A{{1.0}};
+    const Matrix B{{1.0}};
+    const Matrix Q{{1.0}};
+    const Matrix R{{1.0}};
 
     const auto via_long = design::discrete_lqr(A, B, Q, R);
     const auto via_dlqr = matlab::dlqr(A, B, Q, R);
@@ -366,11 +366,11 @@ TEST_CASE("matlab::dlqr and matlab::lqrd forward to the core names") {
     CHECK(via_dlqr.K(0, 0) == doctest::Approx(via_long.K(0, 0)));
     CHECK(via_dlqr.S(0, 0) == doctest::Approx(via_long.S(0, 0)));
 
-    const Matrix<2, 2> Ac{{0.0, 1.0}, {0.0, 0.0}};
-    const Matrix<2, 1> Bc{{0.0}, {1.0}};
-    const Matrix<2, 2> Qc{{1.0, 0.0}, {0.0, 1.0}};
-    const Matrix<1, 1> Rc{{1.0}};
-    const double       Ts = 0.2;
+    const Matrix Ac{{0.0, 1.0}, {0.0, 0.0}};
+    const Matrix Bc{{0.0}, {1.0}};
+    const Matrix Qc{{1.0, 0.0}, {0.0, 1.0}};
+    const Matrix Rc{{1.0}};
+    const double Ts = 0.2;
 
     StateSpace sys{.A = Ac, .B = Bc, .C = Matrix<2, 2>::identity()};
     const auto from_cont = design::state_feedback(sys, Ts, {.Q = Qc, .R = Rc});
@@ -391,18 +391,18 @@ TEST_SUITE("Design: Compile-Time LQR with Cross-Term N") {
     TEST_CASE("design::discrete_lqr with cross-term N at compile time") {
         // Use constexpr to ensure compile-time evaluation
         constexpr auto result_no_N = design::discrete_lqr(
-            Matrix<1, 1>{{1.0}},
-            Matrix<1, 1>{{1.0}},
-            Matrix<1, 1>{{1.0}},
-            Matrix<1, 1>{{1.0}}
+            Matrix{{1.0}},
+            Matrix{{1.0}},
+            Matrix{{1.0}},
+            Matrix{{1.0}}
         );
 
         constexpr auto result_with_N = design::discrete_lqr(
-            Matrix<1, 1>{{1.0}},
-            Matrix<1, 1>{{1.0}},
-            Matrix<1, 1>{{1.0}},
-            Matrix<1, 1>{{1.0}},
-            Matrix<1, 1>{{0.5}}
+            Matrix{{1.0}},
+            Matrix{{1.0}},
+            Matrix{{1.0}},
+            Matrix{{1.0}},
+            Matrix{{0.5}}
         );
 
         static_assert(result_no_N.success);
@@ -420,10 +420,10 @@ TEST_SUITE("Design: Compile-Time LQR with Cross-Term N") {
 
 TEST_CASE("LQRResult::as compile-time float round-trip") {
     constexpr auto lqr_d = design::discrete_lqr(
-        Matrix<1, 1>{{1.0}},
-        Matrix<1, 1>{{1.0}},
-        Matrix<1, 1>{{1.0}},
-        Matrix<1, 1>{{1.0}}
+        Matrix{{1.0}},
+        Matrix{{1.0}},
+        Matrix{{1.0}},
+        Matrix{{1.0}}
     );
     constexpr auto lqr_f = lqr_d.as<float>();
     static_assert(lqr_f.success);
@@ -432,10 +432,10 @@ TEST_CASE("LQRResult::as compile-time float round-trip") {
 }
 
 TEST_CASE("design::discrete_lqr matches scipy/control golden data") {
-    constexpr Matrix<2, 2> A{{0.9, 0.1}, {0.0, 0.8}};
-    constexpr Matrix<2, 1> B{{0.1}, {0.2}};
-    constexpr Matrix<2, 2> Q{{1.0, 0.0}, {0.0, 1.0}};
-    constexpr Matrix<1, 1> R{{1.0}};
+    constexpr Matrix A{{0.9, 0.1}, {0.0, 0.8}};
+    constexpr Matrix B{{0.1}, {0.2}};
+    constexpr Matrix Q{{1.0, 0.0}, {0.0, 1.0}};
+    constexpr Matrix R{{1.0}};
 
     constexpr auto result = design::discrete_lqr(A, B, Q, R);
     static_assert(result.success);
@@ -451,13 +451,13 @@ TEST_CASE("design::discrete_lqr matches scipy/control golden data") {
 }
 
 TEST_CASE("design::state_feedback sampled-data design converges with expected gain scale") {
-    constexpr Matrix<2, 2> A_c{{-1.0, 1.0}, {0.0, -2.0}};
-    constexpr Matrix<2, 1> B_c{{1.0}, {0.5}};
-    constexpr Matrix<2, 2> Q{{1.0, 0.0}, {0.0, 1.0}};
-    constexpr Matrix<1, 1> R{{1.0}};
-    constexpr double       Ts = 0.1;
+    constexpr Matrix A_c{{-1.0, 1.0}, {0.0, -2.0}};
+    constexpr Matrix B_c{{1.0}, {0.5}};
+    constexpr Matrix Q{{1.0, 0.0}, {0.0, 1.0}};
+    constexpr Matrix R{{1.0}};
+    constexpr double Ts = 0.1;
 
-    constexpr auto result = design::state_feedback(StateSpace{.A = A_c, .B = B_c, .C = Matrix<1, 2>{{1.0, 0.0}}}, Ts, {.Q = Q, .R = R});
+    constexpr auto result = design::state_feedback(StateSpace{.A = A_c, .B = B_c, .C = Matrix{{1.0, 0.0}}}, Ts, {.Q = Q, .R = R});
     static_assert(result.success);
     CHECK(doctest::Approx(result.K(0, 0)).epsilon(1e-3) == 0.414);
     CHECK(doctest::Approx(result.K(0, 1)).epsilon(1e-3) == 0.231);
@@ -470,11 +470,11 @@ TEST_CASE("design::state_feedback sampled-data design converges with expected ga
 // ---------------------------------------------------------------------------
 
 namespace {
-constexpr Matrix<2, 2> kDiA{{0.0, 1.0}, {0.0, 0.0}}; // double integrator
-constexpr Matrix<2, 1> kDiB{{0.0}, {1.0}};
-constexpr Matrix<1, 2> kDiC{{1.0, 0.0}};
-constexpr StateSpace   kDiPlant{.A = kDiA, .B = kDiB, .C = kDiC};
-constexpr auto         kDiDiscrete = *discretize(kDiPlant, 0.1);
+constexpr Matrix     kDiA{{0.0, 1.0}, {0.0, 0.0}}; // double integrator
+constexpr Matrix     kDiB{{0.0}, {1.0}};
+constexpr Matrix     kDiC{{1.0, 0.0}};
+constexpr StateSpace kDiPlant{.A = kDiA, .B = kDiB, .C = kDiC};
+constexpr auto       kDiDiscrete = *discretize(kDiPlant, 0.1);
 
 constexpr design::LQRWeights<2, 1> kDiW{.Q = Matrix<2, 2>::identity(), .R = 1.0};
 
@@ -557,16 +557,16 @@ TEST_SUITE("design::state_feedback dispatch table") {
         auto bad_plant = kDiPlant;
         bad_plant.A(0, 1) = std::numeric_limits<double>::quiet_NaN();
         CHECK(design::state_feedback(bad_plant, 0.1, kDiW).status == design::DesignStatus::bad_weights);
-        bad_plant.A = Matrix<2, 2>{{1000.0, 1.0}, {0.0, 1000.0}}; // e^(1000·Ts) past the range of double
+        bad_plant.A = Matrix{{1000.0, 1.0}, {0.0, 1000.0}}; // e^(1000·Ts) past the range of double
         CHECK(design::state_feedback(bad_plant, 10.0, kDiW).status == design::DesignStatus::not_converged);
         CHECK(design::state_feedback(bad_plant, 1e-3, kDiW).success); // the same plant at a rate it fits
     }
 
     TEST_CASE("an unstabilizable (A, B) DARE says not_stabilizable") {
         //! The mode at 1.5 is unstable and B cannot reach it.
-        const Matrix<2, 2> A{{1.5, 0.0}, {0.0, 0.5}};
-        const Matrix<2, 1> B{{0.0}, {1.0}};
-        const auto         res = design::discrete_lqr(A, B, Matrix<2, 2>::identity(), Matrix<1, 1>{{1.0}});
+        const Matrix A{{1.5, 0.0}, {0.0, 0.5}};
+        const Matrix B{{0.0}, {1.0}};
+        const auto   res = design::discrete_lqr(A, B, Matrix<2, 2>::identity(), Matrix{{1.0}});
         CHECK_FALSE(res.success);
         CHECK(res.status == design::DesignStatus::not_stabilizable);
     }
@@ -580,7 +580,7 @@ TEST_SUITE("design::state_feedback dispatch table") {
     }
 
     TEST_CASE("Q not PSD says bad_weights, CARE and DARE") {
-        const Matrix<2, 2> Q{{1.0, 0.0}, {0.0, -1.0}};
+        const Matrix Q{{1.0, 0.0}, {0.0, -1.0}};
         CHECK(design::state_feedback(kDiPlant, {.Q = Q, .R = kDiW.R}).status == design::DesignStatus::bad_weights);
         CHECK(design::state_feedback(kDiDiscrete, {.Q = Q, .R = kDiW.R}).status == design::DesignStatus::bad_weights);
     }

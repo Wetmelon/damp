@@ -66,9 +66,9 @@ TEST_CASE("step/impulse/initial response of 1/(s+1)") {
     }
 
     // initial response from x0=2: y(t) = 2 e^{-t}
-    auto      ss = tf.to_state_space().value();
-    ColVec<1> x0{2.0};
-    auto      in = analysis::initial(ss, x0, t);
+    auto   ss = tf.to_state_space().value();
+    ColVec x0{2.0};
+    auto   in = analysis::initial(ss, x0, t);
     for (size_t k = 0; k < t.size(); ++k) {
         CHECK(in.y[k][0] == doctest::Approx(2.0 * std::exp(-t[k])).epsilon(1e-3));
     }
@@ -77,10 +77,10 @@ TEST_CASE("step/impulse/initial response of 1/(s+1)") {
 TEST_CASE("step response of a 2x2 MIMO system separates input channels") {
     // Two decoupled first-order plants: A=diag(-1,-2), B=C=I, D=0.
     // Step on input j must drive only output j: y[k](i,j)=0 for i!=j.
-    Matrix<2, 2, double> A{{-1.0, 0.0}, {0.0, -2.0}};
-    Matrix<2, 2, double> B{{1.0, 0.0}, {0.0, 1.0}};
-    Matrix<2, 2, double> C{{1.0, 0.0}, {0.0, 1.0}};
-    const auto           sys = StateSpace{A, B, C};
+    Matrix     A{{-1.0, 0.0}, {0.0, -2.0}};
+    Matrix     B{{1.0, 0.0}, {0.0, 1.0}};
+    Matrix     C{{1.0, 0.0}, {0.0, 1.0}};
+    const auto sys = StateSpace{A, B, C};
 
     const auto s = analysis::step(sys, analysis::linspace(0.0, 5.0, 501));
     for (size_t k = 0; k < s.t.size(); ++k) {
@@ -94,10 +94,10 @@ TEST_CASE("step response of a 2x2 MIMO system separates input channels") {
 TEST_CASE("lsim drives a system with an arbitrary input (MIMO output)") {
     // 1/(s+1): step input via lsim should match the closed-form 1 - e^{-t}.
     // Two-output C = [1; 2] checks the MIMO result shape (y[k] is a ColVec).
-    Matrix<1, 1, double> A{{-1.0}};
-    Matrix<1, 1, double> B{{1.0}};
-    Matrix<2, 1, double> C{{1.0}, {2.0}};
-    const auto           sys = StateSpace{A, B, C};
+    Matrix     A{{-1.0}};
+    Matrix     B{{1.0}};
+    Matrix     C{{1.0}, {2.0}};
+    const auto sys = StateSpace{A, B, C};
 
     const auto                t = analysis::linspace(0.0, 5.0, 501);
     const std::vector<double> u(t.size(), 1.0); // unit step
@@ -112,10 +112,10 @@ TEST_CASE("lsim drives a system with an arbitrary input (MIMO output)") {
 }
 
 TEST_CASE("lsim returns empty result when u and time lengths disagree") {
-    Matrix<1, 1, double> A{{-1.0}};
-    Matrix<1, 1, double> B{{1.0}};
-    Matrix<1, 1, double> C{{1.0}};
-    const auto           sys = StateSpace{A, B, C};
+    Matrix     A{{-1.0}};
+    Matrix     B{{1.0}};
+    Matrix     C{{1.0}};
+    const auto sys = StateSpace{A, B, C};
 
     const auto                t = analysis::linspace(0.0, 1.0, 11);
     const std::vector<double> u_too_short(5, 1.0);
@@ -128,10 +128,10 @@ TEST_CASE("lsim returns empty result when u and time lengths disagree") {
 TEST_CASE("discrete step/lsim empty when host grid Ts disagrees with sys.Ts") {
     // Discrete plant at 100 Hz; grid at 50 Hz must not silently re-label steps.
     StateSpace sys{
-        .A = Matrix<1, 1>{{0.9}},
-        .B = Matrix<1, 1>{{0.1}},
-        .C = Matrix<1, 1>{{1.0}},
-        .D = Matrix<1, 1>{{0.0}},
+        .A = Matrix{{0.9}},
+        .B = Matrix{{0.1}},
+        .C = Matrix{{1.0}},
+        .D = Matrix{{0.0}},
         .Ts = 0.01,
     };
     const auto t_bad = analysis::linspace(0.0, 0.1, 6); // dt = 0.02 ≠ 0.01
@@ -216,8 +216,8 @@ TEST_CASE("pzmap of a transfer function finds poles and zeros") {
 }
 
 TEST_CASE("pzmap of a state matrix returns eigenvalue poles") {
-    Matrix<2, 2, double> A{{0.0, 1.0}, {-2.0, -3.0}}; // char poly s^2+3s+2 → -1,-2
-    const auto           pz = analysis::pzmap(A);
+    Matrix     A{{0.0, 1.0}, {-2.0, -3.0}}; // char poly s^2+3s+2 → -1,-2
+    const auto pz = analysis::pzmap(A);
 
     REQUIRE(pz.poles.size() == 2);
     CHECK(pz.zeros.empty()); // a matrix alone has no zeros
@@ -230,9 +230,9 @@ TEST_CASE("pzmap of a state matrix returns eigenvalue poles") {
 TEST_CASE("pzmap of a state-space system adds the transmission zeros") {
     // (s + 4)/((s + 1)(s + 2)) in companion form
     const StateSpace sys{
-        .A = Matrix<2, 2>{{0.0, 1.0}, {-2.0, -3.0}},
-        .B = Matrix<2, 1>{{0.0}, {1.0}},
-        .C = Matrix<1, 2>{{4.0, 1.0}},
+        .A = Matrix{{0.0, 1.0}, {-2.0, -3.0}},
+        .B = Matrix{{0.0}, {1.0}},
+        .C = Matrix{{4.0, 1.0}},
     };
     const auto pz = analysis::pzmap(sys);
     REQUIRE(pz.poles.size() == 2);
@@ -293,7 +293,7 @@ TEST_CASE("arange is half-open like NumPy") {
 TEST_SUITE("Stability Analysis") {
     TEST_CASE("Discrete stability check - stable system") {
         // Stable discrete system: eigenvalues inside unit circle
-        Matrix<2, 2>              A{{0.5, 0.0}, {0.0, 0.8}};
+        Matrix                    A{{0.5, 0.0}, {0.0, 0.8}};
         const StateSpace<2, 1, 1> sys{.A = A, .Ts = 1.0};
         CHECK(stability::is_stable(sys) == true);
         CHECK(stability::stability_margin(sys) > 0.0);
@@ -301,7 +301,7 @@ TEST_SUITE("Stability Analysis") {
 
     TEST_CASE("Discrete stability check - unstable system") {
         // Unstable: eigenvalue outside unit circle
-        Matrix<2, 2>              A{{1.5, 0.0}, {0.0, 0.5}};
+        Matrix                    A{{1.5, 0.0}, {0.0, 0.5}};
         const StateSpace<2, 1, 1> sys{.A = A, .Ts = 1.0};
         CHECK(stability::is_stable(sys) == false);
         CHECK(stability::stability_margin(sys) < 0.0);
@@ -318,9 +318,9 @@ TEST_SUITE("Stability Analysis") {
     TEST_CASE("closed_loop_poles returns finite poles when eigen converges") {
         // Diagonal A, zero K ⇒ poles are the open-loop eigenvalues (well-conditioned).
         // On non-convergence the API zeros the vector — here we assert the happy path.
-        Matrix<2, 2> A{{0.5, 0.0}, {0.0, 0.8}};
-        Matrix<2, 1> B{{1.0}, {0.0}};
-        Matrix<1, 2> K{{0.0, 0.0}};
+        Matrix A{{0.5, 0.0}, {0.0, 0.8}};
+        Matrix B{{1.0}, {0.0}};
+        Matrix K{{0.0, 0.0}};
 
         const auto poles = stability::closed_loop_poles(A, B, K);
         CHECK(std::isfinite(poles[0].real()));
@@ -351,10 +351,10 @@ TEST_CASE("pzmap ignores leading-zero padding of a TF numerator") {
 
 TEST_CASE("Discrete impulse is the unit-pulse response") {
     StateSpace s{
-        .A = Matrix<1, 1>{{0.5}},
-        .B = Matrix<1, 1>{{1.0}},
-        .C = Matrix<1, 1>{{1.0}},
-        .D = Matrix<1, 1>{{0.25}},
+        .A = Matrix{{0.5}},
+        .B = Matrix{{1.0}},
+        .C = Matrix{{1.0}},
+        .D = Matrix{{0.25}},
         .Ts = 1.0,
     };
     const auto r = analysis::impulse(s, analysis::linspace(0.0, 3.0, 4));

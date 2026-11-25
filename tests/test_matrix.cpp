@@ -43,7 +43,7 @@ TEST_CASE("Matrix basic construction and access") {
 }
 
 TEST_CASE("Matrix initializer list constructor") {
-    Matrix<2, 2> mat = {{1, 2}, {3, 4}};
+    Matrix mat = {{1, 2}, {3, 4}};
 
     CHECK(mat(0, 0) == 1);
     CHECK(mat(0, 1) == 2);
@@ -63,14 +63,14 @@ TEST_CASE("Matrix{{…}, {…}} deduces its size and scalar from its rows") {
     static_assert(std::is_same_v<decltype(d), const Matrix<1, 1, double>>);
     static_assert(std::is_same_v<decltype(e), const Matrix<2, 2, double>>);
     static_assert(a(1, 0) == 3.0 && b(0, 2) == 3.0f && c(2, 0) == 3.0 && d(0, 0) == 5.0);
-    CHECK(a == Matrix<2, 2>{{1.0, 2.0}, {3.0, 4.0}});
+    CHECK(a == Matrix{{1.0, 2.0}, {3.0, 4.0}});
 }
 
 TEST_CASE("an initializer past the matrix drops the extra entries at run time: no fault") {
     //! A constant-evaluated one does not compile; at run time it trapped.
     volatile double    five = 5.0; // a run-time value
     const Matrix<2, 2> mat = {{1.0, 2.0, five}, {3.0, 4.0}, {five, five}};
-    CHECK(mat == Matrix<2, 2>{{1.0, 2.0}, {3.0, 4.0}});
+    CHECK(mat == Matrix{{1.0, 2.0}, {3.0, 4.0}});
     const ColVec<2> v = {1.0, 2.0, five};
     CHECK(v(1) == 2.0);
 }
@@ -79,7 +79,7 @@ TEST_CASE("A 1×1 matrix converts from its scalar") {
     constexpr Matrix<1, 1> from_scalar = 0.25;
     static_assert(from_scalar(0, 0) == 0.25);
     static_assert(Matrix<1, 1, float>{2.0f}(0, 0) == 2.0f);
-    static_assert(Matrix<1, 1>{{3.0}}(0, 0) == 3.0); // the nested list still reads as rows
+    static_assert(Matrix{{3.0}}(0, 0) == 3.0); // the nested list still reads as rows
     static_assert(std::is_convertible_v<double, Matrix<1, 1>>);
     static_assert(!std::is_constructible_v<Matrix<2, 2>, double>);
     static_assert(!std::is_constructible_v<Matrix<1, 2>, double>);
@@ -97,7 +97,7 @@ TEST_CASE("A 1×1 matrix converts from its scalar") {
 }
 
 TEST_CASE("Matrix copy and assignment") {
-    Matrix<2, 2, float> mat1 = {{1.0f, 2.0f}, {3.0f, 4.0f}};
+    Matrix mat1 = {{1.0f, 2.0f}, {3.0f, 4.0f}};
 
     Matrix mat2 = mat1;
     CHECK(mat2(0, 0) == 1.0f);
@@ -109,7 +109,7 @@ TEST_CASE("Matrix copy and assignment") {
 }
 
 TEST_CASE("Matrix type conversion") {
-    Matrix<2, 2> mat_int = {{1, 2}, {3, 4}};
+    Matrix mat_int = {{1, 2}, {3, 4}};
 
     Matrix<2, 2, float> mat_float(mat_int);
     CHECK(mat_float(0, 0) == 1.0f);
@@ -121,9 +121,9 @@ TEST_CASE("Matrix type conversion") {
 }
 
 TEST_CASE("Matrix addition and subtraction") {
-    Matrix<2, 2> mat1 = {{1, 2}, {3, 4}};
+    Matrix mat1 = {{1, 2}, {3, 4}};
 
-    Matrix<2, 2> mat2 = {{5, 6}, {7, 8}};
+    Matrix mat2 = {{5, 6}, {7, 8}};
 
     auto sum = mat1 + mat2;
     CHECK(sum(0, 0) == 6);
@@ -141,7 +141,7 @@ TEST_CASE("Matrix addition and subtraction") {
 }
 
 TEST_CASE("Matrix scalar operations") {
-    Matrix<2, 2> mat = {{1, 2}, {3, 4}};
+    Matrix mat = {{1, 2}, {3, 4}};
 
     Matrix<2, 2> scaled = mat * 2;
     CHECK(scaled(0, 0) == 2);
@@ -162,18 +162,18 @@ TEST_CASE("Matrix scalar operations") {
 }
 
 TEST_CASE("Matrix equality") {
-    Matrix<2, 2> mat1 = {{1, 2}, {3, 4}};
+    Matrix mat1 = {{1, 2}, {3, 4}};
 
-    Matrix<2, 2> mat2 = {{1, 2}, {3, 4}};
+    Matrix mat2 = {{1, 2}, {3, 4}};
 
-    Matrix<2, 2> mat3 = {{1, 2}, {3, 5}};
+    Matrix mat3 = {{1, 2}, {3, 5}};
 
     CHECK(mat1 == mat2);
     CHECK(mat1 != mat3);
 }
 
 TEST_CASE("Matrix unary negation") {
-    Matrix<2, 2> mat = {{1, -2}, {3, 4}};
+    Matrix mat = {{1, -2}, {3, 4}};
 
     auto neg = -mat;
     CHECK(neg(0, 0) == -1);
@@ -183,7 +183,7 @@ TEST_CASE("Matrix unary negation") {
 }
 
 TEST_CASE("Matrix transpose") {
-    Matrix<2, 3> mat = {{1, 2, 3}, {4, 5, 6}};
+    Matrix mat = {{1, 2, 3}, {4, 5, 6}};
 
     auto trans = mat.transpose();
     CHECK(trans(0, 0) == 1);
@@ -195,9 +195,9 @@ TEST_CASE("Matrix transpose") {
 }
 
 TEST_CASE("Matrix multiplication") {
-    Matrix<2, 2> mat1 = {{1, 2}, {3, 4}};
+    Matrix mat1 = {{1, 2}, {3, 4}};
 
-    Matrix<2, 2> mat2 = {{5, 6}, {7, 8}};
+    Matrix mat2 = {{5, 6}, {7, 8}};
 
     auto prod = mat1 * mat2;
     CHECK(prod(0, 0) == 19); // 1*5 + 2*7
@@ -207,7 +207,7 @@ TEST_CASE("Matrix multiplication") {
 }
 
 TEST_CASE("Matrix constexpr") {
-    constexpr Matrix<2, 2> mat = {{1, 2}, {3, 4}};
+    constexpr Matrix mat = {{1, 2}, {3, 4}};
 
     CHECK(mat(0, 0) == 1);
     CHECK(mat(1, 1) == 4);
@@ -215,9 +215,9 @@ TEST_CASE("Matrix constexpr") {
 
 TEST_CASE("Matrix vector operations") {
     // Using Matrix<N, 1, T> as column vectors
-    Matrix<3, 1> vec1 = {{1}, {2}, {3}};
+    Matrix vec1 = {{1}, {2}, {3}};
 
-    Matrix<3, 1> vec2 = {{4}, {5}, {6}};
+    Matrix vec2 = {{4}, {5}, {6}};
 
     // Vector addition
     auto vec_sum = vec1 + vec2;
@@ -328,8 +328,8 @@ TEST_CASE("Matrix fill, data, dims") {
 }
 
 TEST_CASE("Matrix inverse() - 1x1 matrix") {
-    Matrix<1, 1, float> mat = {{2.0f}};
-    auto                inv = mat.inverse();
+    Matrix mat = {{2.0f}};
+    auto   inv = mat.inverse();
     REQUIRE(inv.has_value());
     CHECK(inv->operator()(0, 0) == doctest::Approx(0.5f)); // through √2, so not exact in general
 
@@ -339,8 +339,8 @@ TEST_CASE("Matrix inverse() - 1x1 matrix") {
 }
 
 TEST_CASE("Matrix inverse() - 2x2 matrix") {
-    Matrix<2, 2, float> mat = {{4.0f, 2.0f}, {7.0f, 6.0f}};
-    auto                inv = mat.inverse();
+    Matrix mat = {{4.0f, 2.0f}, {7.0f, 6.0f}};
+    auto   inv = mat.inverse();
     REQUIRE(inv.has_value());
 
     // Expected inverse of [[4, 2], [7, 6]] is [[0.6, -0.2], [-0.7, 0.4]]
@@ -358,7 +358,7 @@ TEST_CASE("Matrix inverse() - 2x2 matrix") {
 }
 
 TEST_CASE("Matrix inverse() - singular matrix returns nullopt") {
-    Matrix<2, 2, float> singular = {
+    Matrix singular = {
         {1.0f, 2.0f},
         {2.0f, 4.0f} // determinant = 0
     };
@@ -368,18 +368,18 @@ TEST_CASE("Matrix inverse() - singular matrix returns nullopt") {
 
 TEST_CASE("Matrix-matrix multiplication - various dimensions") {
     // 2x3 * 3x2 = 2x2
-    Matrix<2, 3> mat1 = {{1, 2, 3}, {4, 5, 6}};
-    Matrix<3, 2> mat2 = {{7, 8}, {9, 10}, {11, 12}};
-    auto         result = mat1 * mat2;
+    Matrix mat1 = {{1, 2, 3}, {4, 5, 6}};
+    Matrix mat2 = {{7, 8}, {9, 10}, {11, 12}};
+    auto   result = mat1 * mat2;
     CHECK(result(0, 0) == 58);  // 1*7 + 2*9 + 3*11
     CHECK(result(0, 1) == 64);  // 1*8 + 2*10 + 3*12
     CHECK(result(1, 0) == 139); // 4*7 + 5*9 + 6*11
     CHECK(result(1, 1) == 154); // 4*8 + 5*10 + 6*12
 
     // 3x1 * 1x3 = 3x3 (outer product)
-    Matrix<3, 1> vec1 = {{1}, {2}, {3}};
-    Matrix<1, 3> vec2 = {{4, 5, 6}};
-    auto         outer = vec1 * vec2;
+    Matrix vec1 = {{1}, {2}, {3}};
+    Matrix vec2 = {{4, 5, 6}};
+    auto   outer = vec1 * vec2;
     CHECK(outer(0, 0) == 4);
     CHECK(outer(0, 1) == 5);
     CHECK(outer(0, 2) == 6);
@@ -393,8 +393,8 @@ TEST_CASE("Matrix-matrix multiplication - various dimensions") {
 
 TEST_CASE("Matrix operations with floating point precision") {
     // Test inverse with floating point precision
-    Matrix<2, 2> mat = {{1.0, 0.5}, {0.5, 1.0}};
-    auto         inv = mat.inverse();
+    Matrix mat = {{1.0, 0.5}, {0.5, 1.0}};
+    auto   inv = mat.inverse();
     CHECK(inv.has_value());
 
     // Expected inverse of [[1, 0.5], [0.5, 1]] is [[1.333..., -0.666...], [-0.666..., 1.333...]]
@@ -412,13 +412,13 @@ TEST_CASE("Matrix operations with floating point precision") {
 }
 
 TEST_CASE("Matrix trace") {
-    Matrix<2, 2> mat = {{3, 1}, {2, 5}};
+    Matrix mat = {{3, 1}, {2, 5}};
     CHECK(mat.trace() == 8);
 }
 
 TEST_CASE("Block Assignment") {
     Matrix<4, 4> mat = Matrix<4, 4>::zeros();
-    Matrix<2, 2> block = {{1, 2}, {3, 4}};
+    Matrix       block = {{1, 2}, {3, 4}};
 
     mat.block<2, 2>(0, 0) = block;
 
@@ -429,7 +429,7 @@ TEST_CASE("Block Assignment") {
 }
 
 TEST_CASE("Block view operations") {
-    Matrix<4, 4, double> mat = {{1, 2, 3, 4}, {5, 6, 7, 8}, {9, 10, 11, 12}, {13, 14, 15, 16}};
+    Matrix mat = {{1, 2, 3, 4}, {5, 6, 7, 8}, {9, 10, 11, 12}, {13, 14, 15, 16}};
 
     // Create a 2x2 block starting at (1,1)
     auto block = mat.block<2, 2>(1, 1);
@@ -445,7 +445,7 @@ TEST_CASE("Block view operations") {
     CHECK(mat(1, 1) == 99);
 
     // Assign a matrix to block
-    Matrix<2, 2, double> sub = {{100, 101}, {102, 103}};
+    Matrix sub = {{100, 101}, {102, 103}};
     block = sub;
     CHECK(mat(1, 1) == 100);
     CHECK(mat(1, 2) == 101);
@@ -458,8 +458,8 @@ TEST_CASE("Block view operations") {
     CHECK(mat(1, 1) == 200);
 
     // Test copy assignment
-    Matrix<4, 4, double> mat2 = {{21, 22, 23, 24}, {25, 26, 27, 28}, {29, 30, 31, 32}, {33, 34, 35, 36}};
-    auto                 block3 = mat2.block<2, 2>(1, 1);
+    Matrix mat2 = {{21, 22, 23, 24}, {25, 26, 27, 28}, {29, 30, 31, 32}, {33, 34, 35, 36}};
+    auto   block3 = mat2.block<2, 2>(1, 1);
     block3 = block; // Assign block to block3
     CHECK(mat2(1, 1) == 200);
     CHECK(mat2(1, 2) == 101);
@@ -536,12 +536,12 @@ TEST_SUITE("Matrix Inversion Tests") {
 }
 
 TEST_CASE("Matrix sum and mean") {
-    Matrix<2, 3> mat = {{1, 2, 3}, {4, 5, 6}};
+    Matrix mat = {{1, 2, 3}, {4, 5, 6}};
 
     CHECK(mat.sum() == 21);
     CHECK(mat.mean() == doctest::Approx(3.5));
 
-    Matrix<1, 1> scalar_mat = {{5.0}};
+    Matrix scalar_mat = {{5.0}};
     CHECK(scalar_mat.sum() == 5.0);
     CHECK(scalar_mat.mean() == 5.0);
 }
@@ -574,15 +574,15 @@ TEST_CASE("Addition and subtraction need equal shapes") {
     static_assert(Addable<ColVec<3>, decltype(RowVec<3>{}.t())>);
     static_assert(Addable<Matrix<2, 3>, Matrix<2, 3>> && Subtractable<Matrix<2, 3>, Matrix<2, 3>>);
 
-    const Matrix<2, 3> a = {{1, 2, 3}, {4, 5, 6}};
-    const Matrix<2, 3> b = {{6, 5, 4}, {3, 2, 1}};
+    const Matrix a = {{1, 2, 3}, {4, 5, 6}};
+    const Matrix b = {{6, 5, 4}, {3, 2, 1}};
     CHECK((a + b) == Matrix<2, 3>::constant(7.0));
     CHECK((a - a) == Matrix<2, 3>{});
     CHECK((a + 1.0)(1, 2) == 7.0); // an offset on every entry is the scalar overload
 }
 
 TEST_CASE("Matrix reshape") {
-    Matrix<2, 3> mat = {{1, 2, 3}, {4, 5, 6}};
+    Matrix mat = {{1, 2, 3}, {4, 5, 6}};
 
     auto reshaped = mat.reshape<3, 2>();
 
@@ -597,7 +597,7 @@ TEST_CASE("Matrix reshape") {
 }
 
 TEST_CASE("Transpose assignment does not drop the lower triangle") {
-    Matrix<2, 2> A{{1.0, 2.0}, {3.0, 4.0}};
+    Matrix A{{1.0, 2.0}, {3.0, 4.0}};
     A.t() = A;
     CHECK(A(0, 0) == doctest::Approx(1.0));
     CHECK(A(0, 1) == doctest::Approx(3.0));
@@ -606,7 +606,7 @@ TEST_CASE("Transpose assignment does not drop the lower triangle") {
 }
 
 TEST_CASE("Overlapping block assignment copies through a temporary") {
-    Matrix<3, 3> A{{1.0, 2.0, 3.0}, {4.0, 5.0, 6.0}, {7.0, 8.0, 9.0}};
+    Matrix A{{1.0, 2.0, 3.0}, {4.0, 5.0, 6.0}, {7.0, 8.0, 9.0}};
     A.block<2, 2>(0, 0) = A.block<2, 2>(1, 0);
     CHECK(A(0, 0) == doctest::Approx(4.0));
     CHECK(A(0, 1) == doctest::Approx(5.0));
@@ -615,7 +615,7 @@ TEST_CASE("Overlapping block assignment copies through a temporary") {
 }
 
 TEST_CASE("Disjoint blocks of one matrix assign in place") {
-    Matrix<2, 4> A{{1.0, 2.0, 3.0, 4.0}, {5.0, 6.0, 7.0, 8.0}};
+    Matrix A{{1.0, 2.0, 3.0, 4.0}, {5.0, 6.0, 7.0, 8.0}};
     A.block<2, 2>(0, 0) = A.block<2, 2>(0, 2);
     CHECK(A(0, 0) == doctest::Approx(3.0));
     CHECK(A(0, 1) == doctest::Approx(4.0));
@@ -626,9 +626,9 @@ TEST_CASE("Disjoint blocks of one matrix assign in place") {
 }
 
 TEST_CASE("View of a temporary owns its elements") {
-    Matrix<2, 2> A{{1.0, 2.0}, {3.0, 4.0}};
-    Matrix<2, 2> B{{5.0, 6.0}, {7.0, 8.0}};
-    const auto   block = (A + B).block<2, 2>(0, 0);
+    Matrix     A{{1.0, 2.0}, {3.0, 4.0}};
+    Matrix     B{{5.0, 6.0}, {7.0, 8.0}};
+    const auto block = (A + B).block<2, 2>(0, 0);
     CHECK(block(0, 0) == doctest::Approx(6.0));
     CHECK(block(1, 1) == doctest::Approx(12.0));
     const auto row = (A + B).row(1);
@@ -637,7 +637,7 @@ TEST_CASE("View of a temporary owns its elements") {
 }
 
 TEST_CASE("Block span-like methods") {
-    Matrix<3, 3> mat = {{1, 2, 3}, {4, 5, 6}, {7, 8, 9}};
+    Matrix mat = {{1, 2, 3}, {4, 5, 6}, {7, 8, 9}};
 
     auto block = mat.block<2, 2>(1, 1);
 
@@ -648,8 +648,8 @@ TEST_CASE("Block span-like methods") {
 }
 
 TEST_CASE("Block arithmetic operators") {
-    Matrix<3, 3> mat1 = {{1, 2, 3}, {4, 5, 6}, {7, 8, 9}};
-    Matrix<3, 3> mat2 = {{9, 8, 7}, {6, 5, 4}, {3, 2, 1}};
+    Matrix mat1 = {{1, 2, 3}, {4, 5, 6}, {7, 8, 9}};
+    Matrix mat2 = {{9, 8, 7}, {6, 5, 4}, {3, 2, 1}};
 
     auto block1 = mat1.block<2, 2>(0, 0);
     auto block2 = mat2.block<2, 2>(0, 0);
@@ -680,7 +680,7 @@ TEST_CASE("Block arithmetic operators") {
 }
 
 TEST_CASE("Block from block") {
-    Matrix<4, 4> mat = {{1, 2, 3, 4}, {5, 6, 7, 8}, {9, 10, 11, 12}, {13, 14, 15, 16}};
+    Matrix mat = {{1, 2, 3, 4}, {5, 6, 7, 8}, {9, 10, 11, 12}, {13, 14, 15, 16}};
 
     auto outer_block = mat.block<3, 3>(0, 0);
     auto inner_block = outer_block.block<2, 2>(1, 1);
@@ -699,8 +699,8 @@ TEST_CASE("Block from block") {
 }
 
 TEST_CASE("Block compound assignments") {
-    Matrix<3, 3> mat1 = {{1, 2, 3}, {4, 5, 6}, {7, 8, 9}};
-    Matrix<3, 3> mat2 = {{1, 1, 1}, {2, 2, 2}, {3, 3, 3}};
+    Matrix mat1 = {{1, 2, 3}, {4, 5, 6}, {7, 8, 9}};
+    Matrix mat2 = {{1, 1, 1}, {2, 2, 2}, {3, 3, 3}};
 
     auto block1 = mat1.block<2, 2>(0, 0);
     auto block2 = mat2.block<2, 2>(0, 0);
@@ -730,7 +730,7 @@ TEST_CASE("Block compound assignments") {
 
 TEST_CASE("Matrix inverse") {
     // Test with a simple 2x2 matrix
-    Matrix<2, 2, double> A = {
+    Matrix A = {
         {2.0, 1.0},
         {1.0, 1.0},
     };
@@ -750,7 +750,7 @@ TEST_CASE("Matrix inverse") {
     }
 
     // Test with singular matrix (should return nullopt)
-    Matrix<2, 2, double> singular = {
+    Matrix singular = {
         {1.0, 2.0},
         {2.0, 4.0} // rank deficient
     };
@@ -1050,11 +1050,11 @@ struct MatrixBundle {
 };
 
 constexpr double bundle_checksum() {
-    const Matrix<2, 2, double> A{{1.0, 2.0}, {3.0, 4.0}};
-    const Matrix<2, 3, double> wide{{5.0, 6.0, 7.0}, {8.0, 9.0, 10.0}};
-    const ColVec<3, double>    v{11.0, 12.0, 13.0};
-    const Matrix<2, 2, float>  Af{{1.0f, 0.0f}, {0.0f, 1.0f}};
-    const MatrixBundle         b{
+    const Matrix       A{{1.0, 2.0}, {3.0, 4.0}};
+    const Matrix       wide{{5.0, 6.0, 7.0}, {8.0, 9.0, 10.0}};
+    const ColVec       v{11.0, 12.0, 13.0};
+    const Matrix       Af{{1.0f, 0.0f}, {0.0f, 1.0f}};
+    const MatrixBundle b{
         .A = A,
         .B = wide.block<2, 1>(0, 2),
         .x = v.block<2, 1>(1, 0),
@@ -1066,29 +1066,29 @@ constexpr double bundle_checksum() {
 }
 static_assert(bundle_checksum() == 36.5);
 
-constexpr MatrixBundle kBundle{.A = Matrix<2, 2, double>::identity(), .x = ColVec<2, double>{1.0, 2.0}};
+constexpr MatrixBundle kBundle{.A = Matrix<2, 2, double>::identity(), .x = ColVec{1.0, 2.0}};
 static_assert(kBundle.A(1, 1) == 1.0 && kBundle.x(1) == 2.0 && kBundle.B(0, 0) == 0.0);
 } // namespace
 
 TEST_CASE("ColVec / RowVec copy-initialize from a same-precision view") {
-    const ColVec<10, float> v{1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f, 9.0f, 10.0f};
-    const ColVec<8, float>  head = v.template block<8, 1>(0, 0);
-    const ColVec<3, float>  tail = v.template block<3, 1>(7, 0);
+    const ColVec           v{1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f, 9.0f, 10.0f};
+    const ColVec<8, float> head = v.template block<8, 1>(0, 0);
+    const ColVec<3, float> tail = v.template block<3, 1>(7, 0);
     CHECK(head(7) == 8.0f);
     CHECK(tail(0) == 8.0f);
     CHECK(tail(2) == 10.0f);
 
-    const Matrix<2, 3, double> M{{1.0, 2.0, 3.0}, {4.0, 5.0, 6.0}};
-    const ColVec<2, double>    c = M.col(1);
-    const RowVec<3, double>    r = M.row(1);
-    const RowVec<2, double>    rb = M.block<1, 2>(0, 1);
+    const Matrix            M{{1.0, 2.0, 3.0}, {4.0, 5.0, 6.0}};
+    const ColVec<2, double> c = M.col(1);
+    const RowVec<3, double> r = M.row(1);
+    const RowVec<2, double> rb = M.block<1, 2>(0, 1);
     CHECK(c(1) == 5.0);
     CHECK(r(2) == 6.0);
     CHECK(rb(0) == 2.0);
 
     // Mutable-parent views and a result passed straight into a ColVec parameter.
-    ColVec<4, double> w{1.0, 2.0, 3.0, 4.0};
-    const auto        sum2 = [](const ColVec<2, double>& p) { return p(0) + p(1); };
+    ColVec     w{1.0, 2.0, 3.0, 4.0};
+    const auto sum2 = [](const ColVec<2, double>& p) { return p(0) + p(1); };
     CHECK(sum2(w.block<2, 1>(2, 0)) == 7.0);
 
     // Cross-precision stays explicit.
@@ -1166,7 +1166,7 @@ static_assert(std::is_same_v<decltype(Mf{} * 2.0), Mf>);
 } // namespace precision
 
 TEST_CASE("Matrix precision: real into complex mixes exactly, scalars convert to the element type") {
-    const Matrix<2, 2, double>          A{{1.0, 2.0}, {3.0, 4.0}};
+    const Matrix                        A{{1.0, 2.0}, {3.0, 4.0}};
     Matrix<2, 2, damp::complex<double>> Z = A;
     Z(0, 1) = damp::complex<double>{0.0, 1.0};
     const auto S = A + Z; // complex result: the real operand widens exactly
@@ -1194,8 +1194,8 @@ TEST_CASE("Matrix precision: real into complex mixes exactly, scalars convert to
 }
 
 TEST_CASE("mat::transform applies a callable to every entry, its return type the result's") {
-    constexpr Matrix<2, 3> A{{-1.0, 2.0, -0.5}, {0.0, -3.0, 4.0}};
-    constexpr auto         absA = mat::transform(A, [](double v) { return damp::abs(v); });
+    constexpr Matrix A{{-1.0, 2.0, -0.5}, {0.0, -3.0, 4.0}};
+    constexpr auto   absA = mat::transform(A, [](double v) { return damp::abs(v); });
     static_assert(absA(0, 0) == 1.0 && absA(0, 2) == 0.5 && absA(1, 0) == 0.0 && absA(1, 1) == 3.0);
     Matrix<1, 1, damp::complex<double>> Z{};
     Z(0, 0) = damp::complex<double>{3.0, -4.0};
@@ -1205,15 +1205,15 @@ TEST_CASE("mat::transform applies a callable to every entry, its return type the
 }
 
 TEST_CASE("mat::all_of / mat::any_of test a predicate on every entry") {
-    constexpr Matrix<2, 3> A{{-1.0, 2.0, -0.5}, {0.0, -3.0, 4.0}};
-    constexpr auto         finite = [](double v) { return damp::isfinite(v); };
+    constexpr Matrix A{{-1.0, 2.0, -0.5}, {0.0, -3.0, 4.0}};
+    constexpr auto   finite = [](double v) { return damp::isfinite(v); };
     static_assert(mat::all_of(A, finite));
     static_assert(mat::all_of(A, [](double v) { return v < 5.0; }));
     static_assert(!mat::all_of(A, [](double v) { return v < 4.0; })); // the last entry fails
     static_assert(mat::any_of(A, [](double v) { return v == 4.0; })); // the last entry passes
     static_assert(!mat::any_of(A, [](double v) { return v > 4.0; }));
 
-    ColVec<3, float> x{1.0f, 2.0f, 3.0f};
+    ColVec x{1.0f, 2.0f, 3.0f};
     CHECK(mat::all_of(x, [](float v) { return damp::isfinite(v); })); // a ColVec is a Matrix
     x(1) = std::numeric_limits<float>::quiet_NaN();
     CHECK_FALSE(mat::all_of(x, [](float v) { return damp::isfinite(v); }));
@@ -1228,21 +1228,21 @@ TEST_CASE("mat::all_of / mat::any_of test a predicate on every entry") {
 }
 
 TEST_CASE("norm neither overflows nor underflows") {
-    CHECK(ColVec<2, double>{3e200, 4e200}.norm() == doctest::Approx(5e200));
-    CHECK(ColVec<2, double>{3e-200, 4e-200}.norm() == doctest::Approx(5e-200));
-    CHECK(Matrix<1, 2, double>{{3e200, 4e200}}.norm() == doctest::Approx(5e200));
+    CHECK(ColVec{3e200, 4e200}.norm() == doctest::Approx(5e200));
+    CHECK(ColVec{3e-200, 4e-200}.norm() == doctest::Approx(5e-200));
+    CHECK(Matrix{{3e200, 4e200}}.norm() == doctest::Approx(5e200));
     CHECK(RowVec<2, double>{3e-200, 4e-200}.normalized()[1] == doctest::Approx(0.8));
 }
 
 TEST_CASE("norm and normalized stay finite on subnormal and near-max entries") {
     // Constant-evaluated, so -ffast-math (flush-to-zero) does not apply.
-    static_assert(ColVec<2, double>{3e-310, 0.0}.norm() == 3e-310);
-    static_assert(ColVec<2, double>{3e-310, 0.0}.normalized()[0] == 1.0);
-    static_assert(ColVec<2, float>{3e-39f, 0.0f}.norm() == 3e-39f);
-    static_assert(ColVec<2, float>{2e38f, 1.0f}.norm() == 2e38f);
-    static_assert(Matrix<2, 2, double>{{1e-308, 0.0}, {0.0, 0.0}}.norm() == 1e-308);
-    CHECK(ColVec<2, float>{2e38f, 1.0f}.norm() == doctest::Approx(2e38f));
-    CHECK(ColVec<2, float>{3e30f, 4e30f}.norm() == doctest::Approx(5e30f));
+    static_assert(ColVec{3e-310, 0.0}.norm() == 3e-310);
+    static_assert(ColVec{3e-310, 0.0}.normalized()[0] == 1.0);
+    static_assert(ColVec{3e-39f, 0.0f}.norm() == 3e-39f);
+    static_assert(ColVec{2e38f, 1.0f}.norm() == 2e38f);
+    static_assert(Matrix{{1e-308, 0.0}, {0.0, 0.0}}.norm() == 1e-308);
+    CHECK(ColVec{2e38f, 1.0f}.norm() == doctest::Approx(2e38f));
+    CHECK(ColVec{3e30f, 4e30f}.norm() == doctest::Approx(5e30f));
 }
 
 TEST_CASE("norm of a lone large entry and of near-max entries at run time") {
@@ -1270,11 +1270,11 @@ TEST_CASE("norm of a lone large entry and of near-max entries at run time") {
 }
 
 TEST_CASE("brace assignment zero-fills missing entries like the constructor") {
-    Matrix<2, 2, double> A{{9.0, 9.0}, {9.0, 9.0}};
+    Matrix A{{9.0, 9.0}, {9.0, 9.0}};
     A = {{1.0, 2.0}, {3.0}};
-    CHECK(A == Matrix<2, 2, double>{{1.0, 2.0}, {3.0, 0.0}});
+    CHECK(A == Matrix{{1.0, 2.0}, {3.0, 0.0}});
     A = {{5.0}};
-    CHECK(A == Matrix<2, 2, double>{{5.0, 0.0}, {0.0, 0.0}});
+    CHECK(A == Matrix{{5.0, 0.0}, {0.0, 0.0}});
 }
 
 TEST_CASE("an array converts to a matrix only explicitly") {
@@ -1282,5 +1282,5 @@ TEST_CASE("an array converts to a matrix only explicitly") {
     static_assert(!std::is_convertible_v<damp::array<double, 4>, Matrix<4, 1, double>>);
     const damp::array<double, 4> a{1.0, 2.0, 3.0, 4.0};
     const Matrix<2, 2, double>   M{a};
-    CHECK(M == Matrix<2, 2, double>{{1.0, 2.0}, {3.0, 4.0}});
+    CHECK(M == Matrix{{1.0, 2.0}, {3.0, 4.0}});
 }

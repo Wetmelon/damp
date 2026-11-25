@@ -99,9 +99,9 @@ TEST_SUITE("Dynamics model") {
 
         const ColVec<2> points[] = {{0.0, 0.0}, {0.3, -0.5}, {2.0, 1.5}, {-3.0, 4.0}};
         for (const ColVec<2>& x : points) {
-            const ColVec<1> u{0.4};
-            const auto      exact = design::linearize(pendulum, sensor, x, u);
-            const auto      fd = design::linearize(f_fd, h_fd, x, u);
+            const ColVec u{0.4};
+            const auto   exact = design::linearize(pendulum, sensor, x, u);
+            const auto   fd = design::linearize(f_fd, h_fd, x, u);
 
             // A central difference with the default step ∛eps carries a relative
             // error of order ∛eps² against the Jacobian's own scale.
@@ -124,7 +124,7 @@ TEST_SUITE("Dynamics model") {
         const auto lin = design::linearize(pendulum, sensor, ColVec<2>{}, ColVec<1>{});
         CHECK(lin.A(1, 0) == doctest::Approx(pendulum.g_over_l));
         CHECK(lin.C(0, 0) == doctest::Approx(sensor.length));
-        const auto res = design::state_feedback(lin.to_state_space(), Ts, {.Q = Matrix<2, 2>::diagonal({10.0, 1.0}), .R = Matrix<1, 1>{{0.1}}});
+        const auto res = design::state_feedback(lin.to_state_space(), Ts, {.Q = Matrix<2, 2>::diagonal({10.0, 1.0}), .R = Matrix{{0.1}}});
         REQUIRE(res.success);
         LQR law{res};
 
@@ -172,7 +172,7 @@ TEST_SUITE("Dynamics model") {
         const auto           full_state = [](const ColVec<2>& x) { return x; };
         sim::RK4<2>          rk4;
         sim::FixedStepSolver solver(rk4, Ts / 10.0);
-        const auto           run = sim::simulate_sampled(pendulum, full_state, controller, solver, Ts, ColVec<2>{0.3, 0.0}, {0.0, 5.0}, 10);
+        const auto           run = sim::simulate_sampled(pendulum, full_state, controller, solver, Ts, ColVec{0.3, 0.0}, {0.0, 5.0}, 10);
 
         // The LQR, fed the EKF estimate, brings the pendulum from 0.3 rad to the upright.
         CHECK(damp::abs(run.x.back()[0]) < 0.01);
