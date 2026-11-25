@@ -110,10 +110,14 @@ struct [[nodiscard]] SteadyStateTargetResult {
 
 namespace detail {
 
+/** @brief A spec that lists outputs: a disturbance spec or TrackedOutputs with an .outputs list (none: every output). */
+template<typename S>
+concept ListsOutputs = requires(const S& spec) { spec.outputs; };
+
 /** @brief The outputs a disturbance spec or TrackedOutputs lists, as an array: none when it lists none (every output). */
 template<typename Spec>
 [[nodiscard]] constexpr auto listed_outputs(const Spec& spec) {
-    if constexpr (requires { spec.outputs; }) {
+    if constexpr (ListsOutputs<Spec>) {
         constexpr size_t        NZ = sizeof(spec.outputs) / sizeof(size_t);
         damp::array<size_t, NZ> out{};
         for (size_t i = 0; i < NZ; ++i) {
@@ -165,7 +169,7 @@ inline constexpr bool is_tracked_outputs<TrackedOutputs<NZ>> = true;
 
 /** @brief Whether a design's options name its held outputs in one place: no TrackedOutputs beside a disturbance spec, whose .outputs are the held ones. */
 template<typename... Opts>
-inline constexpr bool held_in_one_place = (::damp::detail::option_count<kind::TrackedOutputs, Opts...> == 0) || !(is_disturbance_model<damp::remove_cvref_t<Opts>> || ...);
+inline constexpr bool held_in_one_place = (::damp::detail::option_count<kind::TrackedOutputs, Opts...> == 0) || !(DisturbanceSpec<Opts> || ...);
 
 /** @brief The controlled outputs of a target under @p Spec: those it lists, else every output. */
 template<typename Spec, size_t NU, size_t NY, size_t NW>
@@ -190,7 +194,7 @@ template<size_t NU, size_t NY, size_t NI, typename... Opts>
 consteval size_t held_count() {
     using Spec = ::damp::detail::option_t<kind::Disturbance, NoDisturbance, Opts...>;
     using Held = ::damp::detail::option_t<kind::TrackedOutputs, NoDisturbance, Opts...>;
-    if constexpr (is_disturbance_model<Spec>) {
+    if constexpr (DisturbanceSpec<Spec>) {
         return target_outputs<Spec, NU, NY, 0>;
     } else if constexpr (is_tracked_outputs<Held>) {
         return target_outputs<Held, NU, NY, 0>;
@@ -239,7 +243,7 @@ template<typename Spec, typename Held>
 [[nodiscard]] constexpr auto target_spec_of(const Spec& spec, const Held& held) {
     static_cast<void>(spec);
     static_cast<void>(held);
-    if constexpr (is_disturbance_model<Spec>) {
+    if constexpr (DisturbanceSpec<Spec>) {
         return spec;
     } else if constexpr (is_tracked_outputs<Held>) {
         return held;

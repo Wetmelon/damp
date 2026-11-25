@@ -221,6 +221,10 @@ struct ObserverPoles {
 template<typename P, typename... Rest>
 ObserverPoles(P, Rest...) -> ObserverPoles<1 + sizeof...(Rest), typename detail::pole_scalar<P>::type>;
 
+/** @brief The spec of a law's gain: LQRWeights for the LQ gain, or Poles for a placed one. The weights are an argument, never an option. */
+template<typename W>
+concept GainSpec = OptionOf<W, kind::Weights>;
+
 /** @brief The spec of a law's filter: a KalmanNoise for the Kalman gain, or ObserverPoles for a placed one. */
 template<typename F>
 concept FilterSpec = OptionOf<F, kind::KalmanNoise> || OptionOf<F, kind::ObserverPoles>;
@@ -330,8 +334,8 @@ template<typename Terms, typename... Opts>
  */
 template<typename TQ = detail::Unset, typename T = detail::scalar_of_t<TQ>>
 struct IntegralAction {
-    using option_kind = kind::IntegralAction;         ///< Its kind of design option
-    static constexpr size_t NI = detail::size_of<TQ>; ///< Integrators
+    using option_kind = kind::IntegralAction;               ///< Its kind of design option
+    static constexpr size_t NI = detail::weight_size<TQ>(); ///< Integrators
 
     TQ                                             Q{};                                  ///< On ξ ≈ ∫(r − y) dt (NI × NI, positive definite)
     damp::type_identity_t<damp::array<size_t, NI>> outputs = detail::every_output<NI>(); ///< The integrated outputs, in order (left out: every one)

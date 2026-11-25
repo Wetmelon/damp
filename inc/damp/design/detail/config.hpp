@@ -9,6 +9,7 @@
 /**
  * @file config.hpp
  * @brief A field left out, and the size and matrix of a field whose type is its value's
+ *        (weight_size, SquareWeight, square_matrix)
  *
  * An option whose weight sizes it (IntegralAction) takes that weight's type as a template
  * parameter, so class template argument deduction reads it from its value: a scalar or a Matrix,
@@ -46,25 +47,17 @@ struct Unset {
 template<typename V>
 inline constexpr bool is_unset = damp::is_same_v<V, Unset>;
 
-/** @brief Whether a field's value is a Matrix. */
+/** @brief The size a weight's value gives: its rows for a Matrix, 1 for a scalar, 0 left out. */
 template<typename V>
-inline constexpr bool is_matrix_value = false;
-
-/** @brief A Matrix. */
-template<size_t R, size_t C, typename T>
-inline constexpr bool is_matrix_value<Matrix<R, C, T>> = true;
-
-/** @brief The size a weight's value gives: R for an R × C Matrix, 1 for a scalar, 0 left out. */
-template<typename V>
-inline constexpr size_t size_of = 1;
-
-/** @brief Left out. */
-template<>
-inline constexpr size_t size_of<Unset> = 0;
-
-/** @brief A Matrix: its rows. */
-template<size_t R, size_t C, typename T>
-inline constexpr size_t size_of<Matrix<R, C, T>> = R;
+[[nodiscard]] consteval size_t weight_size() {
+    if constexpr (is_unset<V>) {
+        return 0;
+    } else if constexpr (MatrixLike<V>) {
+        return V::rows();
+    } else {
+        return 1;
+    }
+}
 
 /** @brief The scalar of a weight's value; double left out. */
 template<typename V>
@@ -88,20 +81,16 @@ struct scalar_of<Matrix<R, C, T>> {
 template<typename V>
 using scalar_of_t = typename scalar_of<V>::type;
 
-/** @brief Whether a weight's value is an N × N matrix: a square Matrix of that size, a floating-point scalar for N = 1, or left out. */
+/** @brief A weight's value that is an N × N matrix: a square Matrix of that size, or a floating-point scalar for N = 1. */
 template<typename V, size_t N>
-inline constexpr bool square_value = is_unset<V> || (is_matrix_value<V> ? false : (N == 1 && damp::is_floating_point_v<V>));
-
-/** @brief A square Matrix of size N. */
-template<size_t R, size_t C, typename T, size_t N>
-inline constexpr bool square_value<Matrix<R, C, T>, N> = (R == N) && (C == N);
+concept SquareWeight = MatrixLikeOf<V, N, N> || (N == 1 && damp::is_floating_point_v<V>);
 
 /** @brief A weight's value as an N × N Matrix in T (its size checked by the caller), or @p fallback when it was left out. */
 template<size_t N, typename T, typename V>
 [[nodiscard]] constexpr Matrix<N, N, T> square_matrix(const V& value, const Matrix<N, N, T>& fallback) {
     if constexpr (is_unset<V>) {
         return fallback;
-    } else if constexpr (is_matrix_value<V>) {
+    } else if constexpr (MatrixLike<V>) {
         return value.template as<T>();
     } else if constexpr (N == 1) {
         return Matrix<N, N, T>{static_cast<T>(value)};
