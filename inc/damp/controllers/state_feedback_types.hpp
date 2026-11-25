@@ -543,7 +543,7 @@ struct [[nodiscard]] StateFeedbackResult {
     Matrix<NK, NK, T>                           S{};                                 ///< Riccati solution (positive semidefinite; zero for a gain placed at Poles)
     damp::array<damp::complex<T>, NK>           e{};                                 ///< Closed-loop poles of the law's model
     bool                                        success{false};                      ///< status == DesignStatus::ok
-    DesignStatus                                status{DesignStatus::not_converged}; ///< ok, or the first failure: the gain's, the filter's, the target's
+    DesignStatus                                status{DesignStatus::not_converged}; ///< ok, or the first failure: the gain's, the limits', the filter's, the target's
     T                                           Ts{0};                               ///< Sample time of the law: 0 continuous (e in the s-plane), > 0 discrete
     [[no_unique_address]] Kalman                kalman{};                            ///< The Kalman filter (state_feedback with a KalmanNoise: LQG, LQGI, OFLQG)
     [[no_unique_address]] Integral              integral{};                          ///< The integral action (NI > 0)
@@ -591,28 +591,6 @@ struct [[nodiscard]] StateFeedbackResult {
             out.fade_time = static_cast<U>(fade_time);
         }
         out.limits = limits.template as<U>();
-        return out;
-    }
-
-    /**
-     * @brief The same design with the move limit @p rate: an InputRateLimits among the options
-     *        (NDU = NU). A refused design ships none, as it ships no other limit.
-     */
-    [[nodiscard]] constexpr StateFeedbackResult<NX, NU, T, NI, NY, Kalman, NZ, NRU, NM, NU, HO> with_input_rate(const Bounds<NU, T>& rate) const
-        requires(NDU == 0)
-    {
-        StateFeedbackResult<NX, NU, T, NI, NY, Kalman, NZ, NRU, NM, NU, HO> out{K, S, e, success, status, Ts, kalman, integral, target};
-        out.limits.input = limits.input;
-        out.limits.integral = limits.integral;
-        out.limits.demand = limits.demand;
-        out.limits.disturbance = limits.disturbance;
-        if (success) {
-            out.limits.input_rate = rate;
-        }
-        out.tracking_time = tracking_time;
-        if constexpr (HO) {
-            out.fade_time = fade_time;
-        }
         return out;
     }
 
