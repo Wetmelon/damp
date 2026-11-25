@@ -36,7 +36,7 @@ inline constexpr double wo = 40.0;      // [rad/s] ESO (5× wc)
 /// High-frequency gain the ADRC is told about: θ̈ ≈ b0·u + f.
 inline constexpr double b0 = 1.0 / J_nom;
 
-[[nodiscard]] constexpr design::ADRCResult<2, double> make_adrc() {
+[[nodiscard]] constexpr auto make_adrc() {
     return design::adrc<2>(wc, wo, b0, Ts);
 }
 

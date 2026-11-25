@@ -16,8 +16,8 @@
 using namespace damp;
 using namespace damp::examples_lpf;
 
-static constinit LowPass<1, float> lpf{coeffs1};
-static constinit LowPass<2, float> lpf2{coeffs2};
+static constinit LowPass           lpf{coeffs1};
+static constinit LowPass           lpf2{coeffs2};
 static constinit LowPass<1, float> lpf1{fc, Ts}; // convenience ctor
 
 int main() {

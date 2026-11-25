@@ -32,8 +32,8 @@ inline constexpr double kTs = 5.0;       // [s] control period: the dead time, s
 // Plant: first order in degrees above ambient. The dead time is one period: the power decided now
 // reaches the block over the next period, so the model sampled at Ts carries the last period's
 // power as one delay state.
-inline constexpr StateSpace kPlant{.A = {{-1.0 / kTau}}, .B = {{kGain / kTau}}, .C = {{1.0}}, .G = Matrix<1, 1>::identity(), .H = Matrix<1, 1>::identity()}; // the model error on the block, the noise on the reading
-inline constexpr auto       kModel = *discretize(kPlant, kTs, InputDelay{kDeadTime});                                                                        // [T; P(k−1)], per period
+inline constexpr StateSpace kPlant{.A = {{-1.0 / kTau}}, .B = {{kGain / kTau}}, .C = {{1.0}}, .G = Matrix{{1.0}}, .H = Matrix{{1.0}}}; // the model error on the block, the noise on the reading
+inline constexpr auto       kModel = *discretize(kPlant, kTs, InputDelay{kDeadTime});                                                  // [T; P(k−1)], per period
 
 // Design on the model, per period: weight on the temperature and on the power itself (the
 // delay state unweighted); model error on the block, thermistor noise, and how fast the unknown heat
