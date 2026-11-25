@@ -214,7 +214,9 @@ BiasRun run_bias_filter(double ratio) {
     const auto                     sys = bias_model<T>();
     KalmanFilter<2, 1, 1, T, 2, 1> kf{
         sys,
-        {.Q = bias_process_noise<T>(), .R = static_cast<T>(kReadingVariance), .P0 = Matrix<2, 2, T>::identity() * static_cast<T>(ratio * kReadingVariance)},
+        {.process = bias_process_noise<T>(), .measurement = static_cast<T>(kReadingVariance)},
+        {},
+        Matrix<2, 2, T>::identity() * static_cast<T>(ratio * kReadingVariance),
     };
     Normal       noise{20261114ULL};
     double       x = 0.3;
@@ -304,7 +306,7 @@ Agreement run_against_joseph(Reading reading) {
     const ColVec<3, T>             x0{static_cast<T>(0.2), static_cast<T>(-0.1), T{0}};
     const T                        r_own = static_cast<T>(0.04);
     const T                        r_row = static_cast<T>(0.09);
-    KalmanFilter<3, 1, 1, T, 3, 1> kf{sys, {.Q = Q, .R = r_own, .x0 = x0, .P0 = P0}};
+    KalmanFilter<3, 1, 1, T, 3, 1> kf{sys, {.process = Q, .measurement = r_own}, x0, P0};
     auto                           ref = reference_of(sys, Q, x0, P0);
 
     const Matrix<2, 3, T>                  C2{{T{1}, static_cast<T>(0.5), T{0}}, {T{0}, T{1}, static_cast<T>(-0.3)}};
@@ -443,7 +445,7 @@ EkfRun run_ekf(double ratio) {
 /// A chain filter five ticks in: a full factor, every state uncertain.
 template<typename T>
 KalmanFilter<3, 1, 1, T, 3, 1> settled_chain_filter() {
-    KalmanFilter<3, 1, 1, T, 3, 1> kf{chain_model<T>(), {.Q = chain_process_noise<T>(), .R = static_cast<T>(0.04), .P0 = Matrix<3, 3, T>::identity()}};
+    KalmanFilter<3, 1, 1, T, 3, 1> kf{chain_model<T>(), {.process = chain_process_noise<T>(), .measurement = static_cast<T>(0.04)}, {}, Matrix<3, 3, T>::identity()};
     for (int k = 0; k < 5; ++k) {
         kf.predict(ColVec<1, T>{static_cast<T>(0.3)});
         REQUIRE(kf.update(ColVec<1, T>{static_cast<T>(0.1 * k)}));
@@ -544,7 +546,9 @@ TEST_SUITE("KalmanFilter on the factor: the model's statistics") {
         REQUIRE(design.success);
         KalmanFilter<3, 1, 1, T, 3, 1> kf{
             sys.template as<T>(),
-            {.Q = chain_process_noise<double>().template as<T>(), .R = static_cast<T>(0.04), .P0 = Matrix<3, 3>(design.P * 100.0).template as<T>()},
+            {.process = chain_process_noise<double>().template as<T>(), .measurement = static_cast<T>(0.04)},
+            {},
+            Matrix<3, 3>(design.P * 100.0).template as<T>(),
         };
         CHECK(gap(kf.covariance(), design.P * 100.0) <= 64.0 * static_cast<double>(eps<T>()) * largest(design.P) * 100.0);
         // P does not depend on the readings: P∞ is the a priori covariance, the one after predict.
@@ -580,7 +584,7 @@ TEST_SUITE("KalmanFilter on the factor: the model's statistics") {
         const int  runs = 200;
         double     sum = 0.0;
         for (int run = 0; run < runs; ++run) {
-            KalmanFilter<3, 1, 1, T, 3, 1> kf{sys, {.Q = Q, .R = r, .x0 = x0, .P0 = P0}};
+            KalmanFilter<3, 1, 1, T, 3, 1> kf{sys, {.process = Q, .measurement = r}, x0, P0};
             const ColVec<3>                n0 = draw();
             ColVec<3>                      truth = x0.template as<double>() + ColVec<3>{n0[0], std::numbers::sqrt2 * n0[1], (1.0 / std::numbers::sqrt2) * n0[2]};
             for (int k = 0; k < 60; ++k) {
@@ -613,7 +617,7 @@ TEST_SUITE("KalmanFilter on the factor: singular covariances and refused reading
         const auto                     sys = chain_model<T>();
         const Matrix<3, 3, T>          Q = chain_process_noise<T>();
         const T                        r = static_cast<T>(0.04);
-        KalmanFilter<3, 1, 1, T, 3, 1> kf{sys, {.Q = Q, .R = r, .P0 = Matrix<3, 3, T>::zeros()}};
+        KalmanFilter<3, 1, 1, T, 3, 1> kf{sys, {.process = Q, .measurement = r}, {}, Matrix<3, 3, T>::zeros()};
         auto                           ref = reference_of(sys, Q, ColVec<3, T>{}, Matrix<3, 3, T>::zeros());
         CHECK(largest(kf.covariance_factor()) == 0.0);
         // Certain of x̂ = 0: a reading moves nothing, and is not refused (R is positive definite).
@@ -641,7 +645,7 @@ TEST_SUITE("KalmanFilter on the factor: singular covariances and refused reading
         const Matrix<2, 2, T>          P0 = Matrix<2, 2, T>::diagonal({static_cast<T>(1e-2), T{0}});
         const ColVec<2, T>             x0{T{0}, static_cast<T>(0.05)};
         const T                        r = static_cast<T>(kReadingVariance);
-        KalmanFilter<2, 1, 1, T, 2, 1> kf{sys, {.Q = Q, .R = r, .x0 = x0, .P0 = P0}};
+        KalmanFilter<2, 1, 1, T, 2, 1> kf{sys, {.process = Q, .measurement = r}, x0, P0};
         auto                           ref = reference_of(sys, Q, x0, P0);
         Normal                         noise{9ULL};
         double                         worst = 0.0;
@@ -673,7 +677,7 @@ TEST_SUITE("KalmanFilter on the factor: singular covariances and refused reading
         P0(0, 0) = static_cast<T>(1e-2);
         P0(1, 1) = static_cast<T>(1e-1);
         const T                        r = static_cast<T>(1e-4);
-        KalmanFilter<4, 1, 1, T, 2, 1> kf{sys, {.Q = Q, .R = r, .P0 = P0}};
+        KalmanFilter<4, 1, 1, T, 2, 1> kf{sys, {.process = Q, .measurement = r}, {}, P0};
         auto                           ref = reference_of(sys, Q, ColVec<4, T>{}, P0);
         Normal                         noise{31ULL};
         double                         worst = 0.0;
@@ -742,7 +746,7 @@ TEST_SUITE("KalmanFilter on the factor: singular covariances and refused reading
 
     TEST_CASE_TEMPLATE("a reading that cannot be used returns false and leaves the estimate and the factor bit for bit", T, float, double) {
         const auto                     sys = chain_model<T>();
-        KalmanFilter<3, 1, 1, T, 3, 1> kf{sys, {.Q = chain_process_noise<T>(), .R = static_cast<T>(0.04), .P0 = Matrix<3, 3, T>::identity()}};
+        KalmanFilter<3, 1, 1, T, 3, 1> kf{sys, {.process = chain_process_noise<T>(), .measurement = static_cast<T>(0.04)}, {}, Matrix<3, 3, T>::identity()};
         for (int k = 0; k < 5; ++k) {
             kf.predict(ColVec<1, T>{static_cast<T>(0.3)});
             REQUIRE(kf.update(ColVec<1, T>{static_cast<T>(0.1 * k)}));
@@ -802,7 +806,8 @@ TEST_SUITE("KalmanFilter on the factor: singular covariances and refused reading
             CHECK(untouched());
         }
         SUBCASE("the model's own reading with an R that is not a covariance") {
-            KalmanFilter<3, 1, 1, T, 3, 1> blind{sys, {.Q = chain_process_noise<T>(), .R = static_cast<T>(-0.04), .P0 = Matrix<3, 3, T>::identity()}};
+            KalmanFilter<3, 1, 1, T, 3, 1> blind{sys, {.process = chain_process_noise<T>(), .measurement = static_cast<T>(-0.04)}, {}, Matrix<3, 3, T>::identity()};
+            CHECK_FALSE(blind.valid()); // the noise does not factor
             blind.predict(ColVec<1, T>{static_cast<T>(0.3)});
             const ColVec<3, T>    x = blind.state();
             const Matrix<3, 3, T> S = blind.covariance_factor();
@@ -817,30 +822,36 @@ TEST_SUITE("KalmanFilter on the factor: singular covariances and refused reading
         CHECK_FALSE(untouched());
     }
 
-    TEST_CASE_TEMPLATE("a P₀ or a Q that is not a covariance: the identity and no process noise at run time", T, float, double) {
+    TEST_CASE_TEMPLATE("a P₀ or a Q that is not a covariance: the identity, and a filter that is not valid, at run time", T, float, double) {
         const auto            sys = chain_model<T>();
         const Matrix<3, 3, T> indefinite{{T{1}, T{2}, T{0}}, {T{2}, T{1}, T{0}}, {T{0}, T{0}, T{1}}};
         Matrix<3, 3, T>       not_finite = Matrix<3, 3, T>::identity();
         not_finite(2, 1) = runtime_nan<T>();
         not_finite(1, 2) = runtime_nan<T>();
         for (const auto& bad : {indefinite, not_finite}) {
-            KalmanFilter<3, 1, 1, T, 3, 1> kf{sys, {.Q = chain_process_noise<T>(), .R = static_cast<T>(0.04), .P0 = bad}};
+            KalmanFilter<3, 1, 1, T, 3, 1> kf{sys, {.process = chain_process_noise<T>(), .measurement = static_cast<T>(0.04)}, {}, bad};
             CHECK(gap(kf.covariance_factor(), Matrix<3, 3, T>::identity()) == 0.0);
+            CHECK_FALSE(kf.valid());
             kf.reset(ColVec<3, T>{}, Matrix<3, 3, T>::identity() * T{4});
             CHECK(gap(kf.covariance_factor(), Matrix<3, 3, T>::identity() * T{2}) == 0.0);
+            CHECK(kf.valid()); // a P₀ that factors: the model and the noise run
             kf.reset(ColVec<3, T>{}, bad);
             CHECK(gap(kf.covariance_factor(), Matrix<3, 3, T>::identity()) == 0.0);
+            CHECK_FALSE(kf.valid());
 
-            KalmanFilter<3, 1, 1, T, 3, 1> quiet{sys, {.Q = bad, .R = static_cast<T>(0.04), .P0 = Matrix<3, 3, T>::zeros()}};
+            KalmanFilter<3, 1, 1, T, 3, 1> quiet{sys, {.process = bad, .measurement = static_cast<T>(0.04)}, {}, Matrix<3, 3, T>::zeros()};
+            CHECK_FALSE(quiet.valid());
             quiet.predict(ColVec<1, T>{T{1}});
             CHECK(largest(quiet.covariance_factor()) == 0.0); // nothing added
             CHECK(all_finite(quiet.state()));
+            quiet.reset(ColVec<3, T>{}, Matrix<3, 3, T>::identity());
+            CHECK_FALSE(quiet.valid()); // the noise is what failed: a reset does not mend it
         }
     }
 
     TEST_CASE("the filter in another scalar carries the factor over, and reset takes a singular P₀") {
         const auto                          sys = chain_model<double>();
-        KalmanFilter<3, 1, 1, double, 3, 1> kf{sys, {.Q = chain_process_noise<double>(), .R = 0.04, .P0 = Matrix<3, 3>::diagonal({1.0, 2.0, 0.5})}};
+        KalmanFilter<3, 1, 1, double, 3, 1> kf{sys, {.process = chain_process_noise<double>(), .measurement = 0.04}, {}, Matrix<3, 3>::diagonal({1.0, 2.0, 0.5})};
         kf.predict(ColVec{0.3});
         REQUIRE(kf.update(ColVec{0.2}));
         KalmanFilter<3, 1, 1, float, 3, 1> kf_f{kf};
@@ -873,7 +884,7 @@ TEST_SUITE("KalmanFilter on the factor: singular covariances and refused reading
             sys.G = Matrix<2, 2>::identity();
             sys.H = Matrix<1, 1>::identity();
             sys.Ts = 0.1;
-            KalmanFilter kf{sys, {.Q = Matrix<2, 2>::identity() * 0.01, .R = 0.1}};
+            KalmanFilter kf{sys, {.process = Matrix<2, 2>::identity() * 0.01, .measurement = 0.1}};
             kf.predict(ColVec{0.0});
             const bool ok = kf.update(ColVec{1.0});
             return damp::make_tuple(ok, kf.covariance(), kf.covariance_factor());
@@ -885,6 +896,108 @@ TEST_SUITE("KalmanFilter on the factor: singular covariances and refused reading
         CHECK(P(0, 0) == doctest::Approx(1.02 - ((1.02 * 1.02) / 1.12)).epsilon(1e-13));
         CHECK(P(1, 0) == doctest::Approx(0.1 - ((0.1 * 1.02) / 1.12)).epsilon(1e-13));
         CHECK(P(1, 1) == doctest::Approx(1.01 - ((0.1 * 0.1) / 1.12)).epsilon(1e-13));
+    }
+}
+
+TEST_SUITE("KalmanFilter from a model and its noise, and valid()") {
+    /// A filter that is not valid changes nothing: predict holds the estimate and the factor, every update is refused, step returns the estimate.
+    template<typename T>
+    void check_holds(KalmanFilter<3, 1, 1, T, 3, 1> & kf) {
+        const ColVec<3, T>    x = kf.state();
+        const Matrix<3, 3, T> S = kf.covariance_factor();
+        const ColVec<1, T>    u{static_cast<T>(0.3)};
+        const ColVec<1, T>    y{T{1}};
+        const Matrix<1, 3, T> C{{T{1}, T{0}, T{0}}};
+        const auto            untouched = [&] { return same_bits(kf.state(), x) && same_bits(kf.covariance_factor(), S); };
+        kf.predict(u);
+        CHECK(untouched());
+        CHECK_FALSE(kf.update(y));
+        CHECK(kf.last_status() == UpdateStatus::refused);
+        kf.reset();
+        CHECK_FALSE(kf.update(y, C, T{1}));
+        CHECK(kf.last_status() == UpdateStatus::refused);
+        kf.reset();
+        CHECK_FALSE(kf.update(y, C, Matrix<1, 1, T>{{T{1}}}, T{1}));
+        CHECK(kf.last_status() == UpdateStatus::refused);
+        CHECK(same_bits(kf.step(y, u), x));
+        CHECK(untouched());
+    }
+
+    TEST_CASE_TEMPLATE("the noise in bare braces, x̂₀ and P₀ positional: zero and the identity by default", T, float, double) {
+        const auto            sys = chain_model<T>();
+        const Matrix<3, 3, T> Q = chain_process_noise<T>();
+        const T               r = static_cast<T>(0.04);
+        const ColVec<3, T>    x0{static_cast<T>(0.2), static_cast<T>(-0.1), T{0}};
+        const Matrix<3, 3, T> P0 = Matrix<3, 3, T>::diagonal({T{1}, T{2}, static_cast<T>(0.5)});
+        KalmanFilter          plain{sys, {.process = Q, .measurement = r}};
+        KalmanFilter          started{sys, {.process = Q, .measurement = r}, x0, P0};
+        static_assert(std::is_same_v<decltype(plain), KalmanFilter<3, 1, 1, T, 3, 1>>);
+        static_assert(std::is_same_v<decltype(started), KalmanFilter<3, 1, 1, T, 3, 1>>);
+        CHECK(plain.valid());
+        CHECK(started.valid());
+        CHECK(same_bits(plain.state(), ColVec<3, T>{}));
+        CHECK(same_bits(plain.covariance_factor(), Matrix<3, 3, T>::identity()));
+        CHECK(same_bits(started.state(), x0));
+        CHECK(same_bits(plain.process_noise_covariance(), Q));
+        CHECK(plain.measurement_noise_covariance()(0, 0) == r);
+        // The defaults are reset(x0, P0)'s: from there the two are one filter, to the rounding of
+        // two inlined copies of the same ticks.
+        plain.reset(x0, P0);
+        const auto close = [](const auto& a, const auto& b) { return gap(a, b) <= 64.0 * static_cast<double>(eps<T>()) * std::fmax(largest(a), largest(b)); };
+        CHECK(close(plain.covariance_factor(), started.covariance_factor()));
+        for (int k = 0; k < 20; ++k) {
+            const double       t = static_cast<double>(k);
+            const ColVec<1, T> u{static_cast<T>(std::sin(0.3 * t))};
+            const ColVec<1, T> y{static_cast<T>(std::cos(0.2 * t))};
+            const ColVec<3, T> x_plain = plain.step(y, u);
+            REQUIRE(close(x_plain, started.step(y, u)));
+            REQUIRE(close(plain.covariance_factor(), started.covariance_factor()));
+        }
+    }
+
+    TEST_CASE_TEMPLATE("KalmanFilter{sys, noise, x0, P∞} is KalmanFilter{design::kalman(sys, noise)} after reset(x0, P∞)", T, float, double) {
+        const auto                              sys = chain_model<double>();
+        const design::KalmanNoise<3, 1, double> noise{.process = chain_process_noise<double>(), .measurement = 0.04};
+        const auto                              res = design::kalman(sys, noise).template as<T>();
+        REQUIRE(res.success);
+        const ColVec<3, T> x0{static_cast<T>(0.2), static_cast<T>(-0.1), static_cast<T>(0.05)};
+        KalmanFilter       from_design{res};
+        from_design.reset(x0, res.P);
+        KalmanFilter from_model{sys.template as<T>(), design::KalmanNoise<3, 1, T>{.process = res.Q, .measurement = res.R}, x0, res.P};
+        static_assert(std::is_same_v<decltype(from_model), decltype(from_design)>);
+        CHECK(from_design.valid());
+        CHECK(from_model.valid());
+        const auto close = [](const auto& a, const auto& b) { return gap(a, b) <= 64.0 * static_cast<double>(eps<T>()) * std::fmax(largest(a), largest(b)); };
+        CHECK(close(from_model.covariance_factor(), from_design.covariance_factor()));
+        CHECK(same_bits(from_model.process_noise_covariance(), from_design.process_noise_covariance()));
+        for (int k = 0; k < 20; ++k) {
+            const double       t = static_cast<double>(k);
+            const ColVec<1, T> u{static_cast<T>(std::sin(0.3 * t))};
+            const ColVec<1, T> y{static_cast<T>(std::cos(0.2 * t))};
+            const ColVec<3, T> x_model = from_model.step(y, u);
+            REQUIRE(close(x_model, from_design.step(y, u)));
+            REQUIRE(close(from_model.covariance_factor(), from_design.covariance_factor()));
+        }
+    }
+
+    TEST_CASE_TEMPLATE("valid() is false from a failed design or a model with no sample time, and the filter holds its estimate", T, float, double) {
+        const design::KalmanNoise<3, 1, T> noise{.process = chain_process_noise<T>(), .measurement = static_cast<T>(0.04)};
+        KalmanFilter                       good{chain_model<T>(), noise};
+        CHECK(good.valid());
+
+        auto continuous = chain_model<T>();
+        continuous.Ts = T{0};
+        const auto failed = design::kalman(continuous, noise); // the filter DARE takes a discrete plant
+        REQUIRE(failed.status == design::DesignStatus::invalid_sample_time);
+        KalmanFilter from_failed{failed};
+        CHECK_FALSE(from_failed.valid());
+        check_holds(from_failed);
+
+        const ColVec<3, T> x0{T{1}, T{2}, T{3}};
+        KalmanFilter       from_continuous{continuous, noise, x0};
+        CHECK_FALSE(from_continuous.valid());
+        CHECK(same_bits(from_continuous.state(), x0));
+        check_holds(from_continuous);
     }
 }
 
@@ -1000,7 +1113,7 @@ TEST_SUITE("KalmanFilter on the factor: perfect measurements") {
         // The bias known exactly: P₀ = diag(p, 0).
         const auto                     sys = bias_model<T>();
         const Matrix<2, 2, T>          P0 = Matrix<2, 2, T>::diagonal({static_cast<T>(1e-2), T{0}});
-        KalmanFilter<2, 1, 1, T, 2, 1> kf{sys, {.Q = bias_process_noise<T>(), .R = static_cast<T>(kReadingVariance), .x0 = ColVec<2, T>{T{0}, static_cast<T>(0.05)}, .P0 = P0}};
+        KalmanFilter<2, 1, 1, T, 2, 1> kf{sys, {.process = bias_process_noise<T>(), .measurement = static_cast<T>(kReadingVariance)}, ColVec<2, T>{T{0}, static_cast<T>(0.05)}, P0};
         const ColVec<2, T>             x_before = kf.state();
         const Matrix<2, 2, T>          S_before = kf.covariance_factor();
         const auto                     untouched = [&] { return same_bits(kf.state(), x_before) && same_bits(kf.covariance_factor(), S_before); };
@@ -1021,7 +1134,9 @@ TEST_SUITE("KalmanFilter on the factor: perfect measurements") {
         // variance to divide by. The test for that is relative to the terms of C S.
         KalmanFilter<2, 1, 1, T, 2, 1> kf{
             bias_model<T>(),
-            {.Q = bias_process_noise<T>(), .R = static_cast<T>(kReadingVariance), .P0 = Matrix<2, 2, T>::diagonal({static_cast<T>(1e-2), static_cast<T>(4e-2)})},
+            {.process = bias_process_noise<T>(), .measurement = static_cast<T>(kReadingVariance)},
+            {},
+            Matrix<2, 2, T>::diagonal({static_cast<T>(1e-2), static_cast<T>(4e-2)}),
         };
         const Matrix<1, 2, T> C{{T{1}, T{1}}};
         const ColVec<1, T>    y{static_cast<T>(0.35)};

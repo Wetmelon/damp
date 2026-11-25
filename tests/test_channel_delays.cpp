@@ -339,7 +339,7 @@ TEST_SUITE("Delay per channel and on the measurement") {
         };
         FixedGainObserver fixed{kLateKalman};
         CHECK(run(fixed) < 1e-6);
-        KalmanFilter recursive{kLate, {.Q = kQn, .R = 1e-6}};
+        KalmanFilter recursive{kLate, {.process = kQn, .measurement = 1e-6}};
         CHECK(run(recursive) < 1e-6);
         FixedGainObserver blind{undelayed};
         CHECK(run(blind) > 1e-3);

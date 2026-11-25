@@ -176,6 +176,13 @@ template<size_t N, typename T>
     return Matrix<N, N, T>::identity();
 }
 
+/** @brief Whether @p P is a covariance a filter can factor: positive semidefinite and finite, as semidefinite_factor() takes it. */
+template<size_t N, typename T>
+[[nodiscard]] constexpr bool factorable_covariance(const Matrix<N, N, T>& P) {
+    Matrix<N, N, T> S{};
+    return semidefinite_factor(P, S);
+}
+
 /**
  * @brief Apply row @p i's reflection of triangularize() to the rows below it: row k ← row k − s·v,
  *        with column i's sign turned when @p flip

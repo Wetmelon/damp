@@ -327,7 +327,7 @@ void check_estimators(double theta) {
     };
     FixedGainObserver fixed{filter};
     run(fixed, "Kalman gain");
-    KalmanFilter recursive{model, {.Q = Qn, .R = 1e-6}};
+    KalmanFilter recursive{model, {.process = Qn, .measurement = 1e-6}};
     run(recursive, "recursive Kalman");
 
     const auto art = design::mhe<6>(model, {.process = Qn, .measurement = 1e-6});
