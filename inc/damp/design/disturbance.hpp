@@ -127,17 +127,19 @@ struct PlantDisturbance<0> {
 template<size_t NX, size_t NY = 0, size_t ND = 1, size_t NZ = 0, typename T = double>
 struct DisturbanceModel {
     using option_kind = kind::Disturbance; ///< Its kind of design option
-    Matrix<NX, ND, T> Bd{};                ///< How d enters the state update
-    Matrix<NY, ND, T> Cd{};                ///< How d enters the readings directly
-    size_t            outputs[NZ]{};       ///< Indices of the measured outputs held offset-free, each once (an array, so bare braces give NZ)
+    static constexpr size_t nd = ND;       ///< Disturbance states
+    Matrix<NX, ND, T>       Bd{};          ///< How d enters the state update
+    Matrix<NY, ND, T>       Cd{};          ///< How d enters the readings directly
+    size_t                  outputs[NZ]{}; ///< Indices of the measured outputs held offset-free, each once (an array, so bare braces give NZ)
 };
 
 /** @brief An explicit disturbance model holding every measured output offset-free: no list. */
 template<size_t NX, size_t NY, size_t ND, typename T>
 struct DisturbanceModel<NX, NY, ND, 0, T> {
     using option_kind = kind::Disturbance; ///< Its kind of design option
-    Matrix<NX, ND, T> Bd{};                ///< How d enters the state update
-    Matrix<NY, ND, T> Cd{};                ///< How d enters the readings directly
+    static constexpr size_t nd = ND;       ///< Disturbance states
+    Matrix<NX, ND, T>       Bd{};          ///< How d enters the state update
+    Matrix<NY, ND, T>       Cd{};          ///< How d enters the readings directly
 };
 
 /**
@@ -335,12 +337,48 @@ concept DisturbanceModelFor = DisturbanceSpec<S> && detail::disturbance_fits<dam
 
 namespace detail {
 
+/** @brief Whether @p S is the template @p Tmpl of some size: InputDisturbance<NZ>, OutputDisturbance<NZ>, PlantDisturbance<NZ>, TrackedOutputs<NZ>. */
+template<typename S, template<size_t> class Tmpl>
+inline constexpr bool instance_of = false;
+
+/** @brief @p Tmpl<N>. */
+template<size_t N, template<size_t> class Tmpl>
+inline constexpr bool instance_of<Tmpl<N>, Tmpl> = true;
+
+/** @brief A spec that lists outputs: a disturbance spec or TrackedOutputs with an .outputs list (none: every output). */
+template<typename S>
+concept ListsOutputs = requires(const S& spec) { spec.outputs; };
+
+/** @brief How many outputs @p Spec lists in its .outputs: 0 when it lists none (every output). */
+template<typename Spec>
+inline constexpr size_t outputs_listed = [] {
+    if constexpr (ListsOutputs<Spec>) {
+        return sizeof(Spec::outputs) / sizeof(size_t);
+    } else {
+        return size_t{0};
+    }
+}();
+
 /**
- * @brief The sizes of a disturbance spec on a plant with NU inputs, NY outputs and NW columns of
- *        G: @c states (ND) and @c listed (the NZ of its outputs list, 0 for all).
+ * @brief The disturbance states of @p Spec on a plant with NU inputs, NY outputs and NW columns of
+ *        G: one per input (InputDisturbance), per output (OutputDisturbance), per column of G
+ *        (PlantDisturbance) or the model's own (DisturbanceModel); none for NoDisturbance and
+ *        TrackedOutputs.
  */
 template<typename Spec, size_t NU, size_t NY, size_t NW>
-struct disturbance_traits;
+inline constexpr size_t disturbance_states = [] {
+    if constexpr (instance_of<Spec, InputDisturbance>) {
+        return NU;
+    } else if constexpr (instance_of<Spec, OutputDisturbance>) {
+        return NY;
+    } else if constexpr (instance_of<Spec, PlantDisturbance>) {
+        return NW;
+    } else if constexpr (DisturbanceSpec<Spec>) {
+        return Spec::nd;
+    } else {
+        return size_t{0};
+    }
+}();
 
 /**
  * @brief The compile-time check of the disturbance spec among @p Opts, the same in every design:
@@ -354,41 +392,6 @@ consteval bool check_disturbance() {
     static_assert(fits, "The DisturbanceModel is on the plant's states and outputs (or leaves C_d out), in the plant's scalar.");
     return fits;
 }
-
-/** @brief No disturbance: no states. */
-template<size_t NU, size_t NY, size_t NW>
-struct disturbance_traits<NoDisturbance, NU, NY, NW> {
-    static constexpr size_t states = 0; ///< ND
-    static constexpr size_t listed = 0; ///< NZ listed
-};
-
-/** @brief One disturbance per input. */
-template<size_t NZ, size_t NU, size_t NY, size_t NW>
-struct disturbance_traits<InputDisturbance<NZ>, NU, NY, NW> {
-    static constexpr size_t states = NU; ///< ND
-    static constexpr size_t listed = NZ; ///< NZ listed
-};
-
-/** @brief One disturbance per output. */
-template<size_t NZ, size_t NU, size_t NY, size_t NW>
-struct disturbance_traits<OutputDisturbance<NZ>, NU, NY, NW> {
-    static constexpr size_t states = NY; ///< ND
-    static constexpr size_t listed = NZ; ///< NZ listed
-};
-
-/** @brief One disturbance per column of G. */
-template<size_t NZ, size_t NU, size_t NY, size_t NW>
-struct disturbance_traits<PlantDisturbance<NZ>, NU, NY, NW> {
-    static constexpr size_t states = NW; ///< ND
-    static constexpr size_t listed = NZ; ///< NZ listed
-};
-
-/** @brief The model's own count. */
-template<size_t NXD, size_t NYD, size_t ND, size_t NZ, typename T, size_t NU, size_t NY, size_t NW>
-struct disturbance_traits<DisturbanceModel<NXD, NYD, ND, NZ, T>, NU, NY, NW> {
-    static constexpr size_t states = ND; ///< ND
-    static constexpr size_t listed = NZ; ///< NZ listed
-};
 
 /**
  * @brief The listed measured outputs, checked (in range, each once), or every output when none
@@ -483,21 +486,13 @@ template<size_t NYD, size_t ND, size_t NZ, size_t NX, size_t NU, size_t NY, type
     return out;
 }
 
-/** @brief Not an InputDisturbance. */
-template<typename>
-inline constexpr bool is_input_disturbance = false;
-
-/** @brief InputDisturbance: d adds to u. */
-template<size_t NZ>
-inline constexpr bool is_input_disturbance<InputDisturbance<NZ>> = true;
-
 /**
  * @brief Whether a spec's d reaches a late reading as it was when the reading was taken, a state of
  *        the plant held over the period (held_channel): with an OutputDelay in @p Delay, every spec
  *        with states but InputDisturbance, whose d adds to u and so rides the model's own B and D.
  */
 template<typename Spec, typename Delay>
-inline constexpr bool held_on_late_readings = DisturbanceSpec<Spec> && !is_input_disturbance<Spec> && (output_delay_states<Delay> > 0);
+inline constexpr bool held_on_late_readings = DisturbanceSpec<Spec> && !instance_of<Spec, InputDisturbance> && (output_delay_states<Delay> > 0);
 
 /**
  * @brief A disturbance's channels @p ch (disturbance_channels) on the filter's model with the

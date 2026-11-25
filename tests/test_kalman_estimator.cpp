@@ -192,13 +192,14 @@ TEST_SUITE("Design options by type") {
 
 TEST_SUITE("Disturbance specs") {
     TEST_CASE("sizes: one per input, per output, per column of G, or the model's") {
-        using design::detail::disturbance_traits;
-        static_assert(disturbance_traits<design::NoDisturbance, 2, 3, 4>::states == 0);
-        static_assert(disturbance_traits<design::InputDisturbance<>, 2, 3, 4>::states == 2);
-        static_assert(disturbance_traits<design::OutputDisturbance<2>, 2, 3, 4>::states == 3);
-        static_assert(disturbance_traits<design::OutputDisturbance<2>, 2, 3, 4>::listed == 2);
-        static_assert(disturbance_traits<design::PlantDisturbance<>, 2, 3, 4>::states == 4);
-        static_assert(disturbance_traits<design::DisturbanceModel<5, 3, 1>, 2, 3, 4>::states == 1);
+        using design::detail::disturbance_states;
+        using design::detail::outputs_listed;
+        static_assert(disturbance_states<design::NoDisturbance, 2, 3, 4> == 0);
+        static_assert(disturbance_states<design::InputDisturbance<>, 2, 3, 4> == 2);
+        static_assert(disturbance_states<design::OutputDisturbance<2>, 2, 3, 4> == 3);
+        static_assert(outputs_listed<design::OutputDisturbance<2>> == 2);
+        static_assert(disturbance_states<design::PlantDisturbance<>, 2, 3, 4> == 4);
+        static_assert(disturbance_states<design::DisturbanceModel<5, 3, 1>, 2, 3, 4> == 1);
         static_assert(design::detail::disturbance_states_in<5, 2, 3, 4, design::KalmanNoise<4, 3, double, 3>, design::OutputDisturbance<>> == 3);
         static_assert(design::detail::disturbance_states_in<5, 2, 3, 4, design::KalmanNoise<4, 3>> == 0);
     }
