@@ -287,8 +287,8 @@ template<bool Filtered, typename... Opts>
 consteval bool check_filtered() {
     constexpr bool spec = Filtered || option_count<kind::Disturbance, Opts...> == 0;
     constexpr bool late = Filtered || option_count<kind::OutputDelay, Opts...> == 0;
-    static_assert(spec, "A disturbance spec is estimated by the law's filter: give a KalmanNoise among the options (or ObserverPoles, on an LQ law).");
-    static_assert(late, "An OutputDelay is a late reading: it needs a filter to carry it, a KalmanNoise (or ObserverPoles, on an LQ law).");
+    static_assert(spec, "A disturbance spec is estimated by the law's filter: give a KalmanNoise among the options (or ObserverPoles, on an LQ law or an MPC).");
+    static_assert(late, "An OutputDelay is a late reading: it needs a filter to carry it, a KalmanNoise (or ObserverPoles, on an LQ law or an MPC).");
     return spec && late;
 }
 
