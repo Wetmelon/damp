@@ -186,7 +186,25 @@ TEST_SUITE("Design options by type") {
         //! The sampled target and kalman take the delay and the disturbance among their options, as every sampled design does.
         static_assert(TargetSet::known<InputDelay<>, design::InputDisturbance<>> && !TargetSet::unique<InputDelay<>, InputDelay<2>>);
         using KalmanSet = design::detail::kalman_options;
-        static_assert(KalmanSet::known<Noise, design::InputDisturbance<>, InputDelay<>> && !KalmanSet::unique<Noise, Noise>); // its noise is one of them
+        static_assert(KalmanSet::known<design::InputDisturbance<>, InputDelay<>> && !KalmanSet::known<Noise>); // its noise is the argument after the plant, not an option
+    }
+
+    TEST_CASE("kalman's noise is the argument after the plant: bare braces take it, sized from the plant and the options") {
+        const auto spelled = design::kalman(mass_spring(), kTs, design::KalmanNoise{.process = Matrix<2, 2>::identity(), .measurement = 0.01});
+        const auto braced = design::kalman(mass_spring(), kTs, {.process = Matrix<2, 2>::identity(), .measurement = 0.01});
+        static_assert(std::is_same_v<decltype(spelled), decltype(braced)>);
+        REQUIRE(braced.success);
+        CHECK((spelled.M - braced.M).norm() == 0.0);
+        //! A disturbance spec sizes .disturbance, and a delay the model; the discrete form the same way.
+        const auto offset_free = design::kalman(mass_spring(), kTs, {.process = Matrix<2, 2>::identity(), .measurement = 0.01, .disturbance = 1.0}, design::InputDisturbance{});
+        CHECK(offset_free.success);
+        CHECK(design::kalman(mass_spring(), kTs, {.process = Matrix<2, 2>::identity(), .measurement = 0.01}, InputDelay<2>{0.015}).success);
+        CHECK(design::kalman(*discretize(mass_spring(), kTs), {.process = Matrix<2, 2>::identity(), .measurement = 0.01}).success);
+        //! At compile time (each a static_assert, refuse_kalman_noise or kalman_with):
+        //!   design::kalman(mass_spring(), kTs, InputDelay<2>{0.015}, KalmanNoise{...});             // the noise after the plant and Ts
+        //!   design::kalman(mass_spring(), kTs, KalmanNoise{.process = Matrix<3, 3>::identity(), …}); // sized to the plant
+        //!   design::kalman(mass_spring(), kTs);                                                     // no noise
+        //!   design::kalman(mass_spring(), kTs, {…}, KalmanNoise{…});                                // the noise once
     }
 }
 

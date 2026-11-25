@@ -63,7 +63,7 @@
  * // In the loop: auto xhat = observer.step(y, u);  // or observer.predict(u); observer.update(y);
  *
  * // The steady-state Kalman gain instead (a plant with noise inputs G, H):
- * // static constinit FixedGainObserver kf{design::kalman(noisy_sys, design::KalmanNoise{.process = Qn, .measurement = Rn}).as<float>()};
+ * // static constinit FixedGainObserver kf{design::kalman(noisy_sys, {.process = Qn, .measurement = Rn}).as<float>()};
  * @endcode
  *
  * @see "An Introduction to Observers" (Luenberger, 1971), IEEE TAC
