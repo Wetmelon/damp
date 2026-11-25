@@ -19,6 +19,7 @@
 #include "damp/controllers/state_feedback_types.hpp"
 #include "damp/design/disturbance.hpp"
 #include "damp/design/input_limits.hpp"
+#include "damp/design/options.hpp"
 #include "damp/design/riccati.hpp"
 #include "damp/design/status.hpp"
 #include "damp/design/steady_state_target.hpp"
@@ -169,8 +170,8 @@ template<typename Result, Domain D, size_t NX, size_t NU, size_t NY, typename T,
     const Gain&                              gain
 ) {
     using In = damp::remove_cvref_t<decltype(input_delay_of(delay))>;
-    if constexpr (is_placed<Gain>) {
-        static_cast<void>(w); // the LQ gain's
+    if constexpr (!damp::is_same_v<Gain, LQGain>) {
+        static_cast<void>(w); // placed at its poles: the weights are the LQ gain's
         return placed_law_design<Result, D, NI>(sys, Ts, gain, integ.Ci, input_delay_of(delay));
     } else if constexpr (damp::is_same_v<In, NoDelay>) {
         static_cast<void>(gain);
@@ -188,10 +189,10 @@ template<typename Result, Domain D, size_t NX, size_t NU, size_t NY, typename T,
  */
 template<Domain D, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Filter, typename Spec, typename Delay>
 [[nodiscard]] constexpr auto filter_design(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T Ts, const Filter& filter, const Spec& spec, const Delay& delay) {
-    if constexpr (is_placed<Filter>) {
-        return placed_filter_design<D>(sys, Ts, filter, spec, delay);
-    } else {
+    if constexpr (OptionOf<Filter, kind::KalmanNoise>) {
         return kalman_design<D>(sys, Ts, filter, spec, delay);
+    } else {
+        return placed_filter_design<D>(sys, Ts, filter, spec, delay);
     }
 }
 
@@ -319,8 +320,8 @@ template<
     const Fade&                                       handover
 ) {
     constexpr bool kEstimated = !is_unset<Filter>;
-    constexpr bool kHeld = DisturbanceSpec<OffsetFree> || is_tracked_outputs<Track>; // r is the target's
-    constexpr bool kTarget = kHeld || (NM > 0);                                      // a measured d moves every law's target
+    constexpr bool kHeld = DisturbanceSpec<OffsetFree> || OptionOf<Track, kind::TrackedOutputs>; // r is the target's
+    constexpr bool kTarget = kHeld || (NM > 0);                                                  // a measured d moves every law's target
     const auto     spec = target_spec_of(offset_free, track);
     const auto     Bm = measured_channel<D>(sys, Ts, measured, delay); // d on the model, none on the input's delay states
     const auto     estimator = [&] {

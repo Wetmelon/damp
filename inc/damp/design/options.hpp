@@ -102,6 +102,16 @@ template<typename Kind, typename... Opts>
     return *found;
 }
 
+/** @brief How many entries the option of the kind @p Kind among @p Opts lists (its `listed`): none without one. */
+template<typename Kind, typename... Opts>
+inline constexpr size_t listed_by = [] {
+    if constexpr (option_count<Kind, Opts...> == 0) {
+        return size_t{0};
+    } else {
+        return option_t<Kind, void, Opts...>::listed;
+    }
+}();
+
 /**
  * @brief The option of the kind @p Kind among @p opts, or @p fallback when none is.
  * @return A copy of the option, with its own type (option_t), so its sizes are known
