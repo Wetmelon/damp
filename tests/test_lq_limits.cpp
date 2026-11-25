@@ -53,10 +53,9 @@ constexpr StateSpace<2, 1, 1, double, 2, 1> plant() {
 }
 
 constexpr Matrix                    Q{{10.0, 0.0}, {0.0, 1.0}};
-constexpr Bounds<1>                 kBox{.lower = -kLimit, .upper = kLimit};
 constexpr design::KalmanNoise<2, 1> kNoise{.process = Matrix{{0.01, 0.0}, {0.0, 0.1}}, .measurement = Matrix{{1e-4}}};
 constexpr design::LQRWeights<2, 1>  kFree{.Q = Q, .R = 1.0};
-constexpr design::InputLimits       kBound{.lower = kBox.lower, .upper = kBox.upper};
+constexpr design::InputLimits       kBound{.lower = {-kLimit}, .upper = {kLimit}};
 constexpr design::IntegralAction    kIntegral{.Q = 80.0}; // on kFree, with kBound or without, the LQI of each
 constexpr double                    kStep = 0.002;        // a move limit that binds on a step of r: 0.2 a second
 constexpr design::InputRateLimits   kRate{.lower = {-kStep}, .upper = {kStep}};
@@ -452,13 +451,13 @@ TEST_SUITE("LQ limits") {
 
     TEST_CASE("refusals: a lower limit above its upper one") {
         const Bounds<1> inverted{.lower = 1.0, .upper = -1.0};
-        CHECK(design::state_feedback(plant(), kTs, {.Q = Q, .R = 1.0}, design::InputLimits{.lower = inverted.lower, .upper = inverted.upper}).status == design::DesignStatus::invalid_parameter);
+        CHECK(design::state_feedback(plant(), kTs, {.Q = Q, .R = 1.0}, design::InputLimits{.lower = {1.0}, .upper = {-1.0}}).status == design::DesignStatus::invalid_parameter);
         CHECK(design::state_feedback(plant(), kTs, {.Q = Q, .R = 1.0}, design::IntegralAction{.Q = 80.0, .limits = inverted}).status == design::DesignStatus::invalid_parameter);
-        CHECK(design::state_feedback(plant(), kTs, {.Q = Q, .R = 1.0}, design::InputLimits{.lower = inverted.lower, .upper = inverted.upper}, kNoise).status == design::DesignStatus::invalid_parameter);
+        CHECK(design::state_feedback(plant(), kTs, {.Q = Q, .R = 1.0}, design::InputLimits{.lower = {1.0}, .upper = {-1.0}}, kNoise).status == design::DesignStatus::invalid_parameter);
     }
 
     TEST_CASE("InputLimits is the LQ design and law LQRLimits gave, through the config too") {
-        //! Recorded with LQRLimits{.u_lim = kBox} before InputLimits replaced it: the gains, and the
+        //! Recorded with LQRLimits{.u_lim = {-kLimit, kLimit}} before InputLimits replaced it: the gains, and the
         //! LQI's commands on a step that drives it onto the limit.
         const auto lqr = design::state_feedback(plant(), kTs, kFree, kBound);
         REQUIRE(lqr.success);
@@ -678,9 +677,8 @@ TEST_SUITE("LQ limits") {
     TEST_CASE("a refused design ships no limits") {
         //! The refused result kept the inverted box, and a runtime built from it at run time took
         //! it with K = 0: control() returned a limit, not 0.
-        const double    nan = std::numeric_limits<double>::quiet_NaN();
-        const Bounds<1> inverted{.lower = 1.0, .upper = -1.0};
-        const auto      lqr = design::state_feedback(plant(), kTs, {.Q = Q, .R = 1.0}, design::InputLimits{.lower = inverted.lower, .upper = inverted.upper});
+        const double nan = std::numeric_limits<double>::quiet_NaN();
+        const auto   lqr = design::state_feedback(plant(), kTs, {.Q = Q, .R = 1.0}, design::InputLimits{.lower = {1.0}, .upper = {-1.0}});
         REQUIRE_FALSE(lqr.success);
         CHECK(lqr.limits.input.lower(0) == -damp::numeric_limits<double>::max());
         CHECK(lqr.limits.input.upper(0) == damp::numeric_limits<double>::max());
@@ -698,7 +696,7 @@ TEST_SUITE("LQ limits") {
         //! An LQG assembled from a regulator whose box was edited by hand is refused as the design is.
         auto reg = design::state_feedback(plant(), kTs, kFree, kBound);
         REQUIRE(reg.success);
-        reg.limits.input = inverted;
+        reg.limits.input = Bounds<1>{.lower = 1.0, .upper = -1.0};
         const auto parts = design::lqg_from_parts(design::kalman(plant(), kTs, kNoise), reg);
         CHECK(parts.status == design::DesignStatus::invalid_parameter);
         CHECK(parts.limits.input.upper(0) == damp::numeric_limits<double>::max());

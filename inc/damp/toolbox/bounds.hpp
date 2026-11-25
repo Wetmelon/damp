@@ -111,9 +111,9 @@ struct Bounds {
     }
 
     /**
-     * @brief The same box in scalar type U. An end at or beyond max()/4 in T is unbounded and
+     * @brief The same box in scalar type U. A finite end at or beyond max()/4 in T is unbounded and
      * becomes ±max() of U, and so does a finite end past the range of a narrower U: a plain cast
-     * of either to float would overflow.
+     * of either to float would overflow. A NaN or ±Inf end stays one, for valid() to refuse.
      */
     template<typename U>
     [[nodiscard]] constexpr Bounds<N, U> as() const {
@@ -128,6 +128,9 @@ struct Bounds {
 private:
     template<typename U>
     [[nodiscard]] static constexpr U convert_end(T v) {
+        if (!damp::isfinite(v)) {
+            return static_cast<U>(v); // a NaN or ±Inf end stays one, for valid() to refuse, read before a comparison -ffast-math may fold
+        }
         constexpr T unbounded = damp::numeric_limits<T>::max() / T{4};
         if (v >= unbounded) {
             return damp::numeric_limits<U>::max();
@@ -136,9 +139,6 @@ private:
             return -damp::numeric_limits<U>::max();
         }
         if constexpr (damp::numeric_limits<U>::max_exponent < damp::numeric_limits<T>::max_exponent) {
-            if (!damp::isfinite(v)) {
-                return static_cast<U>(v); // a NaN end stays one, for valid() to refuse: clamp would make it a number
-            }
             constexpr T widest = static_cast<T>(damp::numeric_limits<U>::max()); // U is narrower: its range fits in T
             return static_cast<U>(damp::clamp(v, -widest, widest));
         }

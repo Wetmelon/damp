@@ -157,7 +157,8 @@ the repo root.
   `Bounds`' are (vectors written flat, `{-0.5}` for one channel; a `DemandLimit`'s scalars); a box inside an option
   that is not a limit is `.limits` (`IntegralAction`). A list of indices is a C array (`DemandLimit::outer`,
   `TrackedOutputs::outputs`, `OutputLimits::outputs`, `StateLimits::states`, the disturbance specs' `outputs`), so its length
-  is deduced from bare braces, which no class member's is; the type with none
+  is deduced from bare braces, which no class member's is, and so are `InputLimits`' and `InputRateLimits`' ends,
+  one entry per input (an end left out starts at the other end's unbounded value, `detail::end_left_out`); the type with none
   listed (NZ = 0) is a specialization without the array. Two overloads per design, `fn(sys, …, opts...)` and
   `fn(plant, Ts, …, opts...)`. The pack is the one spelling: no options or
   config struct. A named option in a pack is left out, combined, forwarded and

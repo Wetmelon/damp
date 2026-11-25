@@ -540,10 +540,10 @@ TEST_CASE("LQRWeights, InputLimits, DemandLimit, TrackedOutputs, the disturbance
     constexpr LQRWeights lq_float{.Q = diag(1.0f, 0.1f), .R = {0.5f}};
     static_assert(damp::is_same_v<decltype(lq_float), const LQRWeights<2, 1, float>>);
 
-    //! The limits: one input unless an end's type says otherwise. A DemandLimit and TrackedOutputs take their lengths from their lists.
+    //! The limits: the braces give an InputLimits its inputs, and a DemandLimit and TrackedOutputs their lengths, from their lists.
     constexpr design::InputLimits clamped{.lower = {-12.0}, .upper = {12.0}};
     static_assert(damp::is_same_v<decltype(clamped), const design::InputLimits<1>>);
-    constexpr design::InputLimits two{.lower = ColVec{-1.0, -2.0}, .upper = ColVec{1.0, 2.0}};
+    constexpr design::InputLimits two{.lower = {-1.0, -2.0}, .upper = {1.0, 2.0}};
     static_assert(damp::is_same_v<decltype(two), const design::InputLimits<2>>);
     constexpr DemandLimit limited{.state = 1, .outer = {0, 2}, .lower = -0.2, .upper = 0.2};
     static_assert(damp::is_same_v<decltype(limited), const DemandLimit<2>> && limited.state == 1 && limited.outer[1] == 2);
