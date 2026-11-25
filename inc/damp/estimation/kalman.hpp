@@ -88,6 +88,7 @@ namespace design {
  */
 template<size_t NW, size_t NV, typename T = double, size_t ND = 0>
 struct KalmanNoise {
+    using option_kind = kind::KalmanNoise; ///< Its kind of design option
     /**
      * @brief Process noise on the NW inputs of G (NW × NW, positive semidefinite)
      *
@@ -753,7 +754,7 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
 namespace detail {
 
 /** @brief The options kalman takes: its noise (required), a disturbance spec, a MeasuredDisturbance, an InputDelay, an OutputDelay. */
-using kalman_options = ::damp::detail::option_set<is_input_delay, is_output_delay, is_disturbance, is_measured_disturbance, is_kalman_noise>;
+using kalman_options = ::damp::detail::option_set<kind::InputDelay, kind::OutputDelay, kind::Disturbance, kind::MeasuredDisturbance, kind::KalmanNoise>;
 
 /** @brief A filter design @p kf on @p sys with the measured disturbance @p measured as known inputs after u (with_measured_inputs); itself without one (NM = 0). */
 template<bool Discrete, size_t NXK, size_t NU, size_t NY, typename T, size_t NWK, size_t NVK, size_t ND, size_t NX, size_t NYP, size_t NW, size_t NV, size_t NM, typename Delay>
@@ -769,7 +770,7 @@ template<bool Discrete, size_t NXK, size_t NU, size_t NY, typename T, size_t NWK
 
 /** @brief The disturbance states of the disturbance spec among @p Opts (0 without one). */
 template<size_t NX, size_t NU, size_t NY, size_t NW, typename... Opts>
-inline constexpr size_t disturbance_states_in = disturbance_traits<::damp::detail::option_t<is_disturbance, NoDisturbance, Opts...>, NU, NY, noise_inputs<NX, NW>>::states;
+inline constexpr size_t disturbance_states_in = disturbance_traits<::damp::detail::option_t<kind::Disturbance, NoDisturbance, Opts...>, NU, NY, noise_inputs<NX, NW>>::states;
 
 /** @brief The KalmanNoise a filter on this plant with the options @p Opts takes. */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename... Opts>
@@ -778,26 +779,26 @@ using noise_for = plant_noise<NX, NY, T, NW, NV, disturbance_states_in<NX, NU, N
 /** @brief The KalmanNoise among @p Opts, checked against the size the plant needs. */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename... Opts>
 [[nodiscard]] constexpr noise_for<NX, NU, NY, T, NW, NV, Opts...> noise_of(const Opts&... opts) {
-    using Noise = ::damp::detail::option_t<is_kalman_noise, noise_for<NX, NU, NY, T, NW, NV, Opts...>, Opts...>;
+    using Noise = ::damp::detail::option_t<kind::KalmanNoise, noise_for<NX, NU, NY, T, NW, NV, Opts...>, Opts...>;
     static_assert(
         damp::is_same_v<Noise, noise_for<NX, NU, NY, T, NW, NV, Opts...>>,
         "The KalmanNoise is sized to the plant: .process NX x NX (or the columns of G when the plant names them), .measurement NY x NY, "
         "and with a disturbance spec .disturbance ND x ND (its states), in the plant's scalar."
     );
-    return ::damp::detail::option<is_kalman_noise>(noise_for<NX, NU, NY, T, NW, NV, Opts...>{}, opts...);
+    return ::damp::detail::option<kind::KalmanNoise>(noise_for<NX, NU, NY, T, NW, NV, Opts...>{}, opts...);
 }
 
 /** @brief design::kalman with its trailing options, in the plant's own domain (@p Discrete) or at @p Ts. */
 template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename... Opts>
 [[nodiscard]] constexpr auto kalman_with(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T Ts, const Opts&... opts) {
     kalman_options::check<Opts...>();
-    static_assert(::damp::detail::option_count<is_kalman_noise, Opts...> == 1, "kalman needs its noise among the options: kalman(plant, Ts, KalmanNoise{.process = ..., .measurement = ...}).");
+    static_assert(::damp::detail::option_count<kind::KalmanNoise, Opts...> == 1, "kalman needs its noise among the options: kalman(plant, Ts, KalmanNoise{.process = ..., .measurement = ...}).");
     const auto noise = noise_of<NX, NU, NY, T, NW, NV>(opts...);
     const auto delay = delays_of(opts...);
     const auto measured = measured_of<NX, T>(opts...);
-    using Disturbance = ::damp::detail::option_t<is_disturbance, NoDisturbance, Opts...>;
+    using Disturbance = ::damp::detail::option_t<kind::Disturbance, NoDisturbance, Opts...>;
     if constexpr (is_disturbance_model<Disturbance>) {
-        const auto kf = kalman_with_disturbance<Discrete>(noise_model(sys), Ts, noise, ::damp::detail::option<is_disturbance>(NoDisturbance{}, opts...), delay);
+        const auto kf = kalman_with_disturbance<Discrete>(noise_model(sys), Ts, noise, ::damp::detail::option<kind::Disturbance>(NoDisturbance{}, opts...), delay);
         return measured_filter<Discrete>(kf, sys, Ts, measured, delay);
     } else {
         return measured_filter<Discrete>(kalman_design<Discrete>(noise_model(sys), Ts, noise, NoDisturbance{}, delay), sys, Ts, measured, delay);

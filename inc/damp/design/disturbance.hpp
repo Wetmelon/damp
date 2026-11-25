@@ -37,7 +37,9 @@ namespace design {
 /**
  * @brief No disturbance model (the default): the plain filter on x.
  */
-struct NoDisturbance {};
+struct NoDisturbance {
+    using option_kind = kind::Disturbance; ///< Its kind of design option
+};
 
 /**
  * @brief An input disturbance: d adds to u, B_d = B and C_d = D, one disturbance per input.
@@ -50,12 +52,15 @@ struct NoDisturbance {};
  */
 template<size_t NZ = 0>
 struct InputDisturbance {
-    size_t outputs[NZ]{}; ///< Indices of the measured outputs held offset-free, each once (an array, so bare braces give NZ)
+    using option_kind = kind::Disturbance; ///< Its kind of design option
+    size_t outputs[NZ]{};                  ///< Indices of the measured outputs held offset-free, each once (an array, so bare braces give NZ)
 };
 
 /** @brief An input disturbance, every measured output held offset-free: no list. */
 template<>
-struct InputDisturbance<0> {};
+struct InputDisturbance<0> {
+    using option_kind = kind::Disturbance; ///< Its kind of design option
+};
 
 /**
  * @brief An output disturbance: a bias on each reading, B_d = 0 and C_d = I, one per output.
@@ -68,12 +73,15 @@ struct InputDisturbance<0> {};
  */
 template<size_t NZ = 0>
 struct OutputDisturbance {
-    size_t outputs[NZ]{}; ///< Indices of the measured outputs held offset-free, each once (an array, so bare braces give NZ)
+    using option_kind = kind::Disturbance; ///< Its kind of design option
+    size_t outputs[NZ]{};                  ///< Indices of the measured outputs held offset-free, each once (an array, so bare braces give NZ)
 };
 
 /** @brief An output disturbance, every measured output held offset-free: no list. */
 template<>
-struct OutputDisturbance<0> {};
+struct OutputDisturbance<0> {
+    using option_kind = kind::Disturbance; ///< Its kind of design option
+};
 
 /**
  * @brief The plant's own disturbance channel: B_d = G and C_d = H, one disturbance per column of
@@ -89,12 +97,15 @@ struct OutputDisturbance<0> {};
  */
 template<size_t NZ = 0>
 struct PlantDisturbance {
-    size_t outputs[NZ]{}; ///< Indices of the measured outputs held offset-free, each once (an array, so bare braces give NZ)
+    using option_kind = kind::Disturbance; ///< Its kind of design option
+    size_t outputs[NZ]{};                  ///< Indices of the measured outputs held offset-free, each once (an array, so bare braces give NZ)
 };
 
 /** @brief The plant's own disturbance channel, every measured output held offset-free: no list. */
 template<>
-struct PlantDisturbance<0> {};
+struct PlantDisturbance<0> {
+    using option_kind = kind::Disturbance; ///< Its kind of design option
+};
 
 /**
  * @brief An explicit disturbance model: d enters the plant's state through B_d and the readings
@@ -115,16 +126,18 @@ struct PlantDisturbance<0> {};
  */
 template<size_t NX, size_t NY = 0, size_t ND = 1, size_t NZ = 0, typename T = double>
 struct DisturbanceModel {
-    Matrix<NX, ND, T> Bd{};          ///< How d enters the state update
-    Matrix<NY, ND, T> Cd{};          ///< How d enters the readings directly
-    size_t            outputs[NZ]{}; ///< Indices of the measured outputs held offset-free, each once (an array, so bare braces give NZ)
+    using option_kind = kind::Disturbance; ///< Its kind of design option
+    Matrix<NX, ND, T> Bd{};                ///< How d enters the state update
+    Matrix<NY, ND, T> Cd{};                ///< How d enters the readings directly
+    size_t            outputs[NZ]{};       ///< Indices of the measured outputs held offset-free, each once (an array, so bare braces give NZ)
 };
 
 /** @brief An explicit disturbance model holding every measured output offset-free: no list. */
 template<size_t NX, size_t NY, size_t ND, typename T>
 struct DisturbanceModel<NX, NY, ND, 0, T> {
-    Matrix<NX, ND, T> Bd{}; ///< How d enters the state update
-    Matrix<NY, ND, T> Cd{}; ///< How d enters the readings directly
+    using option_kind = kind::Disturbance; ///< Its kind of design option
+    Matrix<NX, ND, T> Bd{};                ///< How d enters the state update
+    Matrix<NY, ND, T> Cd{};                ///< How d enters the readings directly
 };
 
 /**
@@ -163,7 +176,8 @@ struct DisturbanceModel<NX, NY, ND, 0, T> {
  */
 template<size_t NX, size_t NM, typename T = double>
 struct MeasuredDisturbance {
-    Matrix<NX, NM, T> Bd{}; ///< How the measured disturbance enters the plant's state update
+    using option_kind = kind::MeasuredDisturbance; ///< Its kind of design option
+    Matrix<NX, NM, T> Bd{};                        ///< How the measured disturbance enters the plant's state update
 };
 
 /** @brief Sizes from the matrix: `MeasuredDisturbance{Bd}`. */
@@ -171,14 +185,6 @@ template<size_t NX, size_t NM, typename T>
 MeasuredDisturbance(Matrix<NX, NM, T>) -> MeasuredDisturbance<NX, NM, T>;
 
 namespace detail {
-
-/** @brief Not a measured disturbance. */
-template<typename>
-struct is_measured_disturbance : damp::false_type {};
-
-/** @brief MeasuredDisturbance, as a kind of trailing option (options.hpp). */
-template<size_t NX, size_t NM, typename T>
-struct is_measured_disturbance<MeasuredDisturbance<NX, NM, T>> : damp::true_type {};
 
 /** @brief The inputs a measured disturbance carries: NM, none for anything else (Unset, a call without one). */
 template<typename M>
@@ -191,16 +197,12 @@ inline constexpr size_t measured_inputs<MeasuredDisturbance<NX, NM, T>> = NM;
 /** @brief The measured disturbance among a call's options, on a plant of NX states in T: none (NM = 0) without one. */
 template<size_t NX, typename T, typename... Opts>
 [[nodiscard]] constexpr auto measured_of(const Opts&... opts) {
-    static_assert(
-        ::damp::detail::option_count<is_measured_disturbance, Opts...> <= 1,
-        "One MeasuredDisturbance carries every measured input: MeasuredDisturbance{.Bd = Bd}, a column of Bd per input."
-    );
-    using M = ::damp::detail::option_t<is_measured_disturbance, MeasuredDisturbance<NX, 0, T>, Opts...>;
+    using M = ::damp::detail::option_t<kind::MeasuredDisturbance, MeasuredDisturbance<NX, 0, T>, Opts...>;
     static_assert(
         damp::is_same_v<M, MeasuredDisturbance<NX, measured_inputs<M>, T>>,
         "The measured disturbance enters the plant's states: MeasuredDisturbance{.Bd = Matrix<NX, NM>{...}}, a row per plant state, in the plant's scalar."
     );
-    return ::damp::detail::option<is_measured_disturbance>(MeasuredDisturbance<NX, 0, T>{}, opts...);
+    return ::damp::detail::option<kind::MeasuredDisturbance>(MeasuredDisturbance<NX, 0, T>{}, opts...);
 }
 
 /**
@@ -313,33 +315,9 @@ template<size_t R, size_t CL, size_t CR, typename T>
 
 namespace detail {
 
-/** @brief Not a disturbance spec. */
-template<typename>
-struct is_disturbance : damp::false_type {};
-
-/** @brief NoDisturbance. */
-template<>
-struct is_disturbance<NoDisturbance> : damp::true_type {};
-
-/** @brief InputDisturbance. */
-template<size_t NZ>
-struct is_disturbance<InputDisturbance<NZ>> : damp::true_type {};
-
-/** @brief OutputDisturbance. */
-template<size_t NZ>
-struct is_disturbance<OutputDisturbance<NZ>> : damp::true_type {};
-
-/** @brief PlantDisturbance. */
-template<size_t NZ>
-struct is_disturbance<PlantDisturbance<NZ>> : damp::true_type {};
-
-/** @brief DisturbanceModel. */
-template<size_t NX, size_t NY, size_t ND, size_t NZ, typename T>
-struct is_disturbance<DisturbanceModel<NX, NY, ND, NZ, T>> : damp::true_type {};
-
 /** @brief A disturbance model with states: every disturbance spec but NoDisturbance. */
 template<typename Spec>
-inline constexpr bool is_disturbance_model = is_disturbance<Spec>::value && !damp::is_same_v<Spec, NoDisturbance>;
+inline constexpr bool is_disturbance_model = OptionOf<Spec, kind::Disturbance> && !damp::is_same_v<Spec, NoDisturbance>;
 
 /**
  * @brief The sizes of a disturbance spec on a plant with NU inputs, NY outputs and NW columns of
@@ -385,7 +363,7 @@ struct disturbance_traits<DisturbanceModel<NXD, NYD, ND, NZ, T>, NU, NY, NW> {
 
 /** @brief The disturbance spec among a call's options (NoDisturbance when none is given). */
 template<typename... Opts>
-using disturbance_option_t = ::damp::detail::option_t<is_disturbance, NoDisturbance, Opts...>;
+using disturbance_option_t = ::damp::detail::option_t<kind::Disturbance, NoDisturbance, Opts...>;
 
 /** @brief ND of the disturbance spec among a call's options. */
 template<size_t NU, size_t NY, size_t NW, typename... Opts>

@@ -28,7 +28,8 @@
  */
 
 
-#include "damp/backend.hpp" // clamp, numeric_limits
+#include "damp/backend.hpp"
+#include "damp/design/options.hpp" // clamp, numeric_limits
 #include "damp/math/math.hpp"
 #include "damp/matrix/colvec.hpp"
 #include "damp/matrix/core.hpp"
@@ -216,6 +217,7 @@ private:
 template<size_t M, typename T = double>
 struct DemandLimit {
     static_assert(M > 0, "DemandLimit lists the terms that ask by index: .outer = {i, ...}, at least one.");
+    using option_kind = design::kind::DemandLimit; ///< Its kind of design option
 
     size_t state{static_cast<size_t>(-1)};         ///< s: the state asked for, an index of the plant state x (required)
     size_t outer[M]{};                             ///< The terms that ask, by index: plant states 0 … NX − 1, then the integrators (an array, so M is its list's length)

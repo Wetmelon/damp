@@ -145,21 +145,23 @@ void check_delay_states_known(
 TEST_SUITE("Design options by type") {
     using damp::detail::option_count;
     using damp::detail::option_t;
-    using design::detail::is_disturbance;
-    using design::detail::is_kalman_noise;
+    using Disturbance = design::kind::Disturbance;
+    using KalmanNoise = design::kind::KalmanNoise;
     using Noise = design::KalmanNoise<2, 1, double, 1>;
 
     TEST_CASE("each kind found in any order, its default when absent, its sizes in its type") {
-        static_assert(option_count<is_disturbance, Noise, design::OutputDisturbance<2>> == 1);
-        static_assert(option_count<is_kalman_noise, design::OutputDisturbance<2>, Noise> == 1);
-        static_assert(option_count<is_disturbance, Noise> == 0);
-        static_assert(std::is_same_v<option_t<is_disturbance, design::NoDisturbance, Noise, design::OutputDisturbance<2>>, design::OutputDisturbance<2>>);
-        static_assert(std::is_same_v<option_t<is_disturbance, design::NoDisturbance, Noise>, design::NoDisturbance>);
+        static_assert(design::OptionOf<design::OutputDisturbance<2>, Disturbance> && design::OptionOf<const Noise&, KalmanNoise>);
+        static_assert(!design::OptionOf<Noise, Disturbance> && !design::OptionOf<double, Disturbance>);
+        static_assert(option_count<Disturbance, Noise, design::OutputDisturbance<2>> == 1);
+        static_assert(option_count<KalmanNoise, design::OutputDisturbance<2>, Noise> == 1);
+        static_assert(option_count<Disturbance, Noise> == 0);
+        static_assert(std::is_same_v<option_t<Disturbance, design::NoDisturbance, Noise, design::OutputDisturbance<2>>, design::OutputDisturbance<2>>);
+        static_assert(std::is_same_v<option_t<Disturbance, design::NoDisturbance, Noise>, design::NoDisturbance>);
 
-        constexpr auto spec = damp::detail::option<is_disturbance>(design::NoDisturbance{}, Noise{}, design::OutputDisturbance{{0, 3}});
+        constexpr auto spec = damp::detail::option<Disturbance>(design::NoDisturbance{}, Noise{}, design::OutputDisturbance{{0, 3}});
         static_assert(std::is_same_v<std::remove_cvref_t<decltype(spec)>, design::OutputDisturbance<2>>);
         static_assert(spec.outputs[1] == 3);
-        constexpr auto none = damp::detail::option<is_disturbance>(design::NoDisturbance{}, Noise{});
+        constexpr auto none = damp::detail::option<Disturbance>(design::NoDisturbance{}, Noise{});
         static_assert(std::is_same_v<std::remove_cvref_t<decltype(none)>, design::NoDisturbance>);
     }
 

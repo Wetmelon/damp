@@ -34,6 +34,7 @@
 
 
 #include "damp/backend.hpp"
+#include "damp/design/options.hpp"
 #include "damp/math/math.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "damp/matrix/solve.hpp"
@@ -111,18 +112,11 @@ struct [[nodiscard]] QPResult {
  * (invalid_parameter): not one active-set step.
  */
 struct QPIterations {
-    size_t budget{0}; ///< Active-set iterations per tick, ≥ 1
+    using option_kind = kind::QPIterations; ///< Its kind of design option
+    size_t budget{0};                       ///< Active-set iterations per tick, ≥ 1
 };
 
 namespace detail {
-
-/** @brief A QPIterations: a kind of design::mpc and design::mhe option. */
-template<typename O>
-struct is_qp_iterations : damp::false_type {};
-
-/** @brief QPIterations. */
-template<>
-struct is_qp_iterations<QPIterations> : damp::true_type {};
 
 /** @brief A ColVec with every entry set to value (bound-vector construction helper) */
 template<size_t N, typename T>

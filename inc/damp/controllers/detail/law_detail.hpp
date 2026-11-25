@@ -234,22 +234,6 @@ inline constexpr size_t input_delay_states = 0;
 template<size_t N, typename S>
 inline constexpr size_t input_delay_states<InputDelay<N, S>> = N;
 
-/** @brief Not an InputDelay: a kind of trailing design option (options.hpp). */
-template<typename>
-struct is_input_delay : damp::false_type {};
-
-/** @brief InputDelay<N>: the delay a sampled design is on, given among its trailing options. */
-template<size_t N, typename S>
-struct is_input_delay<InputDelay<N, S>> : damp::true_type {};
-
-/** @brief Not an OutputDelay: a kind of trailing design option (options.hpp). */
-template<typename>
-struct is_output_delay : damp::false_type {};
-
-/** @brief OutputDelay<N>: the late reading a sampled filter design is on, given among its trailing options. */
-template<size_t N, typename S>
-struct is_output_delay<OutputDelay<N, S>> : damp::true_type {};
-
 /** @brief A design's delays when its reading arrives late: the input's (NoDelay or an InputDelay), then the OutputDelay. */
 template<typename In, typename Out>
 struct PlantDelays {
@@ -288,11 +272,11 @@ template<typename In, typename Out>
 /** @brief The delays among a design's options: NoDelay, the InputDelay, or PlantDelays when an OutputDelay is there. */
 template<typename... Opts>
 [[nodiscard]] constexpr auto delays_of(const Opts&... opts) {
-    const auto input = ::damp::detail::option<is_input_delay>(NoDelay{}, opts...);
-    if constexpr (::damp::detail::option_count<is_output_delay, Opts...> == 0) {
+    const auto input = ::damp::detail::option<kind::InputDelay>(NoDelay{}, opts...);
+    if constexpr (::damp::detail::option_count<kind::OutputDelay, Opts...> == 0) {
         return input;
     } else {
-        const auto output = ::damp::detail::option<is_output_delay>(NoDelay{}, opts...);
+        const auto output = ::damp::detail::the<kind::OutputDelay>(opts...);
         return PlantDelays<damp::remove_cvref_t<decltype(input)>, damp::remove_cvref_t<decltype(output)>>{input, output};
     }
 }
