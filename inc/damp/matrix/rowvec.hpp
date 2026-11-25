@@ -24,14 +24,16 @@ namespace damp {
  * @tparam T Element type
  */
 template<size_t N, typename T = double>
-struct RowVec : public Matrix<1, N, T> {
+struct RowVec : public detail::VectorEntries<Matrix<1, N, T>, T, damp::make_index_sequence<N>> {
+    using Base = detail::VectorEntries<Matrix<1, N, T>, T, damp::make_index_sequence<N>>; ///< Its Matrix, with the constructor from every entry
+    using Base::Base;
     /**
      * @brief Default constructor
      */
     constexpr RowVec() = default;
 
     /** @brief No zero-fill at run time. Not API: see detail::Unfilled. */
-    constexpr explicit RowVec(const detail::Unfilled& tag) : Matrix<1, N, T>(tag) {}
+    constexpr explicit RowVec(const detail::Unfilled& tag) : Base(detail::Passthrough{}, tag) {}
     /**
      * @brief Copy constructor and assignment
      */
@@ -48,27 +50,24 @@ struct RowVec : public Matrix<1, N, T> {
      */
     constexpr ~RowVec() = default;
 
-    /**
-     * @brief Constructor from initializer list
-     */
-    constexpr RowVec(std::initializer_list<T> values) : Matrix<1, N, T>(Matrix<1, N, T>::flat_elements_of(values)) {}
+    // RowVec<N>{a, b, …} is VectorEntries': exactly N entries.
 
     // Same-precision wrap of a 1×N matrix is a no-op (identical shape and
     // storage), so it is implicit. Cross-precision conversions stay explicit
     // below, matching the library's "no silent float↔double" rule (use .as\<U\>()).
-    constexpr RowVec(const Matrix<1, N, T>& other) : Matrix<1, N, T>(other) {}
+    constexpr RowVec(const Matrix<1, N, T>& other) : Base(detail::Passthrough{}, other) {}
 
     // Same-precision 1×N view (block, row view, …) copies implicitly too; any
     // other element type converts explicitly.
     template<MatrixLike V>
         requires(V::rows() == 1 && V::cols() == N && !damp::is_base_of_v<Matrix<1, N, T>, V>)
-    explicit(!damp::is_same_v<typename V::value_type, T>) constexpr RowVec(const V& view) : Matrix<1, N, T>(view) {}
+    explicit(!damp::is_same_v<typename V::value_type, T>) constexpr RowVec(const V& view) : Base(detail::Passthrough{}, view) {}
 
     template<typename U>
-    explicit constexpr RowVec(const RowVec<N, U>& other) : Matrix<1, N, T>(other) {}
+    explicit constexpr RowVec(const RowVec<N, U>& other) : Base(detail::Passthrough{}, other) {}
 
     template<typename U>
-    explicit constexpr RowVec(const Matrix<1, N, U>& other) : Matrix<1, N, T>(other) {}
+    explicit constexpr RowVec(const Matrix<1, N, U>& other) : Base(detail::Passthrough{}, other) {}
 
     template<typename U>
         requires ConvertsExactly<U, T>

@@ -340,57 +340,21 @@ protected:
         return out;
     }
 
-    /**
-     * @brief Elements of a nested initializer list; missing entries are zero. More rows or columns
-     * than the matrix has do not compile when constant-evaluated; at run time the extra entries
-     * are dropped.
-     */
-    [[nodiscard]] static constexpr damp::array<T, Rows * Cols> elements_of(
-        std::initializer_list<std::initializer_list<T>> init
-    ) {
+    /** @brief A value as an element: the implicit conversion, so -Wconversion still sees a lossy one. */
+    [[nodiscard]] static constexpr T element(T value) { return value; }
+
+    /** @brief Elements of a literal's rows: Rows rows of Cols entries each, the shape in their types. */
+    template<size_t... Ns>
+    [[nodiscard]] static constexpr damp::array<T, Rows * Cols> rows_elements(const T (&... rows)[Ns]) {
         damp::array<T, Rows * Cols> out{};
-        if (init.size() > Rows) {
-            ::damp::detail::refuse_initializer_overflow();
-        }
-        size_t r = 0;
-        for (const auto& row : init) {
-            if (r == Rows) {
-                break;
-            }
-            if (row.size() > Cols) {
-                ::damp::detail::refuse_initializer_overflow();
-            }
-            size_t c = 0;
-            for (const auto& val : row) {
-                if (c == Cols) {
-                    break;
-                }
-                out[(r * Cols) + c] = val;
-                ++c;
+        size_t                      r = 0;
+        const auto                  put = [&](const T(&row)[Cols]) {
+            for (size_t c = 0; c < Cols; ++c) {
+                out[(r * Cols) + c] = row[c];
             }
             ++r;
-        }
-        return out;
-    }
-
-    /**
-     * @brief Elements of a flat row-major list (vectors); missing entries are zero. More elements
-     * than the vector has do not compile when constant-evaluated; at run time the extra ones are
-     * dropped.
-     */
-    [[nodiscard]] static constexpr damp::array<T, Rows * Cols> flat_elements_of(std::initializer_list<T> init) {
-        damp::array<T, Rows * Cols> out{};
-        if (init.size() > Rows * Cols) {
-            ::damp::detail::refuse_initializer_overflow();
-        }
-        size_t i = 0;
-        for (const auto& val : init) {
-            if (i == Rows * Cols) {
-                break;
-            }
-            out[i] = val;
-            ++i;
-        }
+        };
+        (put(rows), ...);
         return out;
     }
 
@@ -528,10 +492,14 @@ public:
     explicit constexpr Matrix(const Matrix<Rows, Cols, U>& other) : data_(elements_of(other)) {}
 
     /**
-     * @brief Constructor from nested initializer list; missing entries are zero. `A = {{…}}` assigns
-     * through this constructor, so it zero-fills and refuses overflow the same way.
+     * @brief A matrix from its rows, `Matrix<2, 2>{{a, b}, {c, d}}`: Rows rows of Cols entries each,
+     * the shape checked at compile time, so a short or a long literal does not compile (nothing is
+     * filled in; to set a few entries, start from Matrix<R, C>{}, zeros). `A = {{…}}` assigns
+     * through it.
      */
-    constexpr Matrix(std::initializer_list<std::initializer_list<T>> init) : data_(elements_of(init)) {}
+    template<size_t... Ns>
+        requires(sizeof...(Ns) == Rows && ((Ns == Cols) && ...))
+    constexpr Matrix(const T (&... rows)[Ns]) : data_(rows_elements(rows...)) {}
 
     /**
      * @brief Constructor from damp::array, filled in row-major order
@@ -540,11 +508,13 @@ public:
 
     /**
      * @brief A 1×1 matrix from its one element. Implicit, since a 1×1 matrix is its scalar: a SISO
-     * weight or noise reads `.R = 1.0`.
+     * weight or noise reads `.R = 1.0`. A template, so braces never reach it: `Matrix<1, 1>{{x}}`
+     * is the literal of its one row, as any matrix's.
      */
-    constexpr Matrix(T value) // NOLINT(google-explicit-constructor): a 1×1 matrix is its scalar
-        requires(Rows == 1 && Cols == 1)
-        : data_{value} {}
+    template<typename U>
+        requires(Rows == 1 && Cols == 1 && damp::convertible_to<const U&, T>)
+    constexpr Matrix(const U& value) // NOLINT(google-explicit-constructor): a 1×1 matrix is its scalar
+        : data_{element(value)} {}
 
     /**
      * @brief Returns a view over a sub-block of the matrix
@@ -1236,6 +1206,41 @@ public:
 template<typename T, size_t C, size_t... Cs>
     requires((Cs == C) && ...)
 Matrix(const T (&)[C], const T (&... rows)[Cs]) -> Matrix<1 + sizeof...(Cs), C, damp::conditional_t<damp::is_integral_v<T>, double, T>>;
+
+namespace detail {
+
+/** @brief Constructs a vector's Matrix base from what follows it (ColVec, RowVec): their constructors' way past VectorEntries. */
+struct Passthrough {};
+
+/** @brief T, once per index: the parameter list of N entries. */
+template<size_t, typename T>
+using entry_t = T;
+
+/**
+ * @brief The Matrix of a vector (@p M, N × 1 or 1 × N) with its constructor from every entry,
+ *        `ColVec<3>{a, b, c}`: N parameters of T, so a literal gives all N entries, checked at
+ *        compile time, and list-initialization's narrowing rules hold for each (a double constant
+ *        into a float vector, as an initializer list's did).
+ */
+template<typename M, typename T, typename Is>
+struct VectorEntries;
+
+template<typename M, typename T, size_t... Is>
+struct VectorEntries<M, T, damp::index_sequence<Is...>> : M {
+    constexpr VectorEntries() = default;
+
+    /** @brief The vector from each entry; one entry reads as its scalar, implicitly, as Matrix<1, 1>'s. */
+    constexpr VectorEntries(entry_t<Is, T>... entries) // NOLINT(google-explicit-constructor)
+        requires(sizeof...(Is) > 0)
+        : M(damp::array<T, sizeof...(Is)>{entries...}) {}
+
+protected:
+    /** @brief The Matrix from @p args, for the vector's own constructors. */
+    template<typename... A>
+    constexpr explicit VectorEntries(Passthrough /*tag*/, A&&... args) : M(damp::forward<A>(args)...) {}
+};
+
+} // namespace detail
 
 // Common small-matrix aliases
 template<typename T>

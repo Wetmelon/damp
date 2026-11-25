@@ -25,14 +25,16 @@ namespace damp {
  * @tparam T Element type
  */
 template<size_t N, typename T = double>
-struct ColVec : public Matrix<N, 1, T> {
+struct ColVec : public detail::VectorEntries<Matrix<N, 1, T>, T, damp::make_index_sequence<N>> {
+    using Base = detail::VectorEntries<Matrix<N, 1, T>, T, damp::make_index_sequence<N>>; ///< Its Matrix, with the constructor from every entry
+    using Base::Base;
     /**
      * @brief Default constructor
      */
     constexpr ColVec() = default;
 
     /** @brief No zero-fill at run time. Not API: see detail::Unfilled. */
-    constexpr explicit ColVec(const detail::Unfilled& tag) : Matrix<N, 1, T>(tag) {}
+    constexpr explicit ColVec(const detail::Unfilled& tag) : Base(detail::Passthrough{}, tag) {}
     /**
      * @brief Copy constructor and assignment
      */
@@ -49,18 +51,11 @@ struct ColVec : public Matrix<N, 1, T> {
      */
     constexpr ~ColVec() = default;
 
-    /**
-     * @brief Constructor from initializer list
-     */
-    constexpr ColVec(std::initializer_list<T> values) : Matrix<N, 1, T>(Matrix<N, 1, T>::flat_elements_of(values)) {}
+    // ColVec<N>{a, b, …} is VectorEntries': exactly N entries. A one-element vector reads its
+    // scalar, implicitly, as Matrix<1, 1>'s: a SISO bound reads `.lower = -12.0`.
 
     // Constructor from damp::array<T, N> - enables CTAD
-    constexpr ColVec(const damp::array<T, N>& arr) : Matrix<N, 1, T>(arr) {}
-
-    /** @brief A one-element vector from its scalar (implicit, as Matrix<1, 1>'s): a SISO bound reads `.lower = -12.0`. */
-    constexpr ColVec(T value) // NOLINT(google-explicit-constructor)
-        requires(N == 1)
-        : Matrix<N, 1, T>(value) {}
+    constexpr ColVec(const damp::array<T, N>& arr) : Base(detail::Passthrough{}, arr) {}
 
     /**
      * @brief Construct from a sized C array (reference keeps @p N in the type).
@@ -73,26 +68,26 @@ struct ColVec : public Matrix<N, 1, T> {
     // the ill-formed zero-length array type T[0] (ISO C++ / -Wpedantic).
     template<size_t M>
         requires(M == N && M > 0)
-    constexpr ColVec(const T (&arr)[M]) : Matrix<N, 1, T>(Matrix<N, 1, T>::flat_elements_of(arr)) {}
+    constexpr ColVec(const T (&arr)[M]) : Base(detail::Passthrough{}, Matrix<N, 1, T>::flat_elements_of(arr)) {}
 
     // Same-precision wrap of an N×1 matrix is a no-op (identical shape and
     // storage), so it is implicit — matrix expressions like A*x + B*u flow back
     // into a ColVec naturally. Cross-precision conversions stay explicit below,
     // matching the library's "no silent float↔double" rule (use .as\<U\>()).
-    constexpr ColVec(const Matrix<N, 1, T>& other) : Matrix<N, 1, T>(other) {}
+    constexpr ColVec(const Matrix<N, 1, T>& other) : Base(detail::Passthrough{}, other) {}
 
     // Same-precision N×1 view (block, column view, …) copies implicitly too, so
     // `ColVec<3> p = x.block<3, 1>(0, 0);` reads like the matrix expression; any
     // other element type converts explicitly.
     template<MatrixLike V>
         requires(V::rows() == N && V::cols() == 1 && !damp::is_base_of_v<Matrix<N, 1, T>, V>)
-    explicit(!damp::is_same_v<typename V::value_type, T>) constexpr ColVec(const V& view) : Matrix<N, 1, T>(view) {}
+    explicit(!damp::is_same_v<typename V::value_type, T>) constexpr ColVec(const V& view) : Base(detail::Passthrough{}, view) {}
 
     template<typename U>
-    explicit constexpr ColVec(const ColVec<N, U>& other) : Matrix<N, 1, T>(other) {}
+    explicit constexpr ColVec(const ColVec<N, U>& other) : Base(detail::Passthrough{}, other) {}
 
     template<typename U>
-    explicit constexpr ColVec(const Matrix<N, 1, U>& other) : Matrix<N, 1, T>(other) {}
+    explicit constexpr ColVec(const Matrix<N, 1, U>& other) : Base(detail::Passthrough{}, other) {}
 
     template<typename U>
         requires ConvertsExactly<U, T>

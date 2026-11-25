@@ -320,7 +320,13 @@ struct ErrorTolerance {
                 v[i] = s;
             }
         } else {
-            v = ColVec<NX, T>(il);
+            size_t i = 0;
+            for (const T& c : il) {
+                if (i < NX) {
+                    v[i] = c;
+                }
+                ++i;
+            }
         }
     }
 
