@@ -183,7 +183,7 @@ inline constexpr auto pattern_read_columns = [] {
  */
 template<const auto& P>
 inline constexpr auto pattern_sandwich_reads = [] {
-    constexpr size_t         N = damp::remove_cvref_t<decltype(P)>::rows();
+    constexpr size_t         N = P.rows();
     constexpr auto&          unit = pattern_unit_rows<P>;
     damp::array<bool, N * N> reads{};
     for (size_t i = 0; i < N; ++i) {

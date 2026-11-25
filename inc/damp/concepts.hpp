@@ -239,6 +239,14 @@ concept AnalyticDynamics = Dynamics<F, NX, NU, T> && requires(const F& f, const 
     { f.jacobian(x, u) } -> damp::convertible_to<DynamicsJacobian<NX, NU, T>>;
 };
 
+namespace detail {
+
+/** @brief An R × C PatternMatrix of scalar T: what PatternMeasurement's jacobian(x, u) returns. */
+template<typename M, size_t R, size_t C, typename T>
+concept pattern_matrix_of = is_pattern_matrix<M> && damp::is_same_v<typename M::Scalar, T> && (M::NR == R) && (M::NC == C);
+
+} // namespace detail
+
 /**
  * @brief A Measurement whose jacobian(x, u) returns C = ∂h/∂x as an NY × NX PatternMatrix: zeros
  *        and ones known at compile time, the other entries computed at (x, u)
@@ -248,9 +256,7 @@ concept AnalyticDynamics = Dynamics<F, NX, NU, T> && requires(const F& f, const 
  */
 template<typename H, size_t NX, size_t NU, size_t NY, typename T>
 concept PatternMeasurement = Measurement<H, NX, NU, NY, T> && requires(const H& h, const ColVec<NX, T>& x, const ColVec<NU, T>& u) {
-    requires detail::is_pattern_matrix<damp::remove_cvref_t<decltype(h.jacobian(x, u))>>;
-    requires damp::is_same_v<typename damp::remove_cvref_t<decltype(h.jacobian(x, u))>::Scalar, T>;
-    requires damp::remove_cvref_t<decltype(h.jacobian(x, u))>::NR == NY&& damp::remove_cvref_t<decltype(h.jacobian(x, u))>::NC == NX;
+    requires detail::pattern_matrix_of<damp::remove_cvref_t<decltype(h.jacobian(x, u))>, NY, NX, T>;
 };
 
 /** @brief A Measurement that provides its own Jacobians: h.jacobian(x, u) → MeasurementJacobian. */
