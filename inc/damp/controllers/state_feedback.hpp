@@ -35,7 +35,6 @@
 
 #include "damp/backend.hpp"
 #include "damp/controllers/detail/state_feedback_design.hpp"
-#include "damp/controllers/detail/state_feedback_options.hpp"
 #include "damp/controllers/law.hpp"
 #include "damp/controllers/lqg.hpp"                    // IWYU pragma: export
 #include "damp/controllers/lqgi.hpp"                   // IWYU pragma: export
@@ -208,7 +207,10 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
     }
 }
 
-/** @brief state_feedback_design_of once the poles' counts are the plant's: the design, its gain the LQ one or placed (@p gain). */
+/**
+ * @brief state_feedback_design_of once the options pass their checks: the options read by kind
+ *        and the design on them (designed), its gain the LQ one or placed (@p gain).
+ */
 template<bool Sampled, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Gain, typename... Opts>
 [[nodiscard]] constexpr auto state_feedback_counted(
     const StateSpace<NX, NU, NY, T, NW, NV>& sys,
@@ -219,25 +221,37 @@ template<bool Sampled, size_t NX, size_t NU, size_t NY, typename T, size_t NW, s
 ) {
     constexpr bool kFilter = ::damp::detail::option_count<is_filter_spec, Opts...> > 0;
     constexpr bool kIntegral = ::damp::detail::option_count<is_integral_option, Opts...> > 0;
-    const auto     track = ::damp::detail::option<is_tracked_option>(Unset{}, opts...);
-    static_cast<void>(measured_of<NX, T>(opts...)); // its checks: one, on the plant's states
-    const auto measured = ::damp::detail::option<is_measured_disturbance>(Unset{}, opts...);
-    const auto run = [&](const auto& cost, const auto& offset_free) {
+    const auto     filter = [&] {
         if constexpr (kFilter) {
-            const StateFeedbackOptions options{.noise = filter_spec_of<NX, NU, NY, T, NW, NV>(opts...), .offset_free = offset_free, .track = track, .measured = measured};
-            return state_feedback_with<Sampled>(noise_model(sys), Ts, cost, options, gain, opts...);
+            return filter_spec_of<NX, NU, NY, T, NW, NV>(opts...);
         } else {
-            const StateFeedbackOptions options{.offset_free = offset_free, .track = track, .measured = measured};
-            return state_feedback_with<Sampled>(sys, Ts, cost, options, gain, opts...);
+            return Unset{};
+        }
+    }();
+    const auto offset_free = ::damp::detail::option<is_disturbance>(NoDisturbance{}, opts...);
+    const auto track = ::damp::detail::option<is_tracked_option>(NoDisturbance{}, opts...);
+    const auto measured = measured_of<NX, T>(opts...);
+    const auto delay = delays_of(opts...);
+    const auto design = [&](const auto& cost, const auto& Ci) {
+        if constexpr (kFilter) {
+            return designed<!Sampled>(noise_model(sys), Ts, cost, Ci, filter, offset_free, track, measured, delay, gain);
+        } else {
+            return designed<!Sampled>(sys, Ts, cost, Ci, filter, offset_free, track, measured, delay, gain);
         }
     };
     const auto law = [&] {
         if constexpr (kIntegral) {
-            auto integral = integral_cost<NY>(config, ::damp::detail::option<is_integral_option>(Unset{}, opts...));
+            constexpr size_t NI = integrators_of<Opts...>();
+            auto             integral = integral_cost<NY>(config, ::damp::detail::option<is_integral_option>(Unset{}, opts...));
             integral.cost.demand_lim = demand_terms_of<decltype(integral.cost.demand_lim)>(opts...); // its outer terms may be the integrators
-            return with_rate_limits<NU, T>(run(integral.cost, integral.integral), opts...);
+            const auto Ci = integrated_selector<NI, NY, T>(integral.integral);
+            auto       out = design(integral.cost, Ci ? *Ci : Matrix<NI, NY, T>{});
+            if (!Ci) {
+                out = ::damp::detail::refused<decltype(out)>(DesignStatus::bad_weights); // an integrated output out of range or listed twice
+            }
+            return with_rate_limits<NU, T>(out, opts...);
         } else {
-            return with_rate_limits<NU, T>(run(config, ::damp::detail::option<is_disturbance>(Unset{}, opts...)), opts...);
+            return with_rate_limits<NU, T>(design(config, Matrix<0, NY, T>{}), opts...);
         }
     }();
     if constexpr (::damp::detail::option_count<is_handover, Opts...> == 0) {
@@ -246,6 +260,14 @@ template<bool Sampled, size_t NX, size_t NU, size_t NY, typename T, size_t NW, s
         return with_handover(law, ::damp::detail::option<is_handover>(Handover{}, opts...));
     }
 }
+
+/** @brief Whether a disturbance spec fits the plant: a DisturbanceModel on its states and outputs, in its scalar. */
+template<typename Spec, size_t NX, size_t NY, typename T>
+inline constexpr bool disturbance_fits = true;
+
+/** @brief A DisturbanceModel fits a plant of its sizes and scalar (NY 0: C_d left out). */
+template<size_t NXD, size_t NYD, size_t ND, size_t NZ, typename U, size_t NX, size_t NY, typename T>
+inline constexpr bool disturbance_fits<DisturbanceModel<NXD, NYD, ND, NZ, U>, NX, NY, T> = (NXD == NX) && (NYD == NY || NYD == 0) && damp::is_same_v<U, T>;
 
 /**
  * @brief design::state_feedback in the plant's own domain (@p Sampled false) or at @p Ts: the LQ
@@ -269,17 +291,26 @@ template<bool Sampled, size_t NX, size_t NU, size_t NY, typename T, size_t NW, s
     constexpr bool kFilter = ::damp::detail::option_count<is_filter_spec, Opts...> > 0;
     constexpr bool kIntegral = ::damp::detail::option_count<is_integral_option, Opts...> > 0;
     constexpr bool kDisturbance = ::damp::detail::option_count<is_disturbance, Opts...> > 0;
+    constexpr bool kDelay = ::damp::detail::option_count<is_input_delay, Opts...> + ::damp::detail::option_count<is_output_delay, Opts...> > 0;
+    constexpr bool kLate = ::damp::detail::option_count<is_output_delay, Opts...> > 0;
+    constexpr bool kFits = disturbance_fits<::damp::detail::option_t<is_disturbance, NoDisturbance, Opts...>, NX, NY, T>;
+    constexpr bool kTracked = ::damp::detail::option_count<is_tracked_option, Opts...> > 0;
     static_assert(kFilter || !kDisturbance, "A disturbance spec is estimated by the law's filter: give a KalmanNoise or ObserverPoles among the options.");
     static_assert(!(kIntegral && kDisturbance), "Integral action and a disturbance model are two offset-free choices: give an IntegralAction or a disturbance spec, not both.");
+    static_assert(!(kIntegral && kTracked), "Integral action already holds r: TrackedOutputs is for a law without it (LQR, LQG).");
+    static_assert(kFits, "The DisturbanceModel is on the plant's states and outputs, in the plant's scalar.");
+    static_assert(Sampled || !kDelay, "A delay is sampled with the plant: give the continuous plant and Ts, fn(plant, Ts, config, ..., InputDelay<N>{theta}, OutputDelay<M>{theta}).");
+    static_assert(!kLate || kFilter, "An OutputDelay is a late reading: it needs a filter to carry it, a KalmanNoise or ObserverPoles.");
+    constexpr bool   kOptionsFit = (kFilter || !kDisturbance) && !(kIntegral && (kDisturbance || kTracked)) && kFits && (Sampled || !kDelay) && (!kLate || kFilter);
     constexpr size_t NK = NX + integrators_of<Opts...>();                       // the poles Poles lists
     constexpr size_t NKF = NX + disturbance_states_in<NX, NU, NY, NW, Opts...>; // and ObserverPoles
     constexpr size_t NF = listed_poles<::damp::detail::option_t<is_observer_poles, Unset, Opts...>>;
     constexpr bool   kGainCount = damp::is_same_v<Gain, LQGain> || (listed_poles<Gain> == NK);
     constexpr bool   kFilterCount = (::damp::detail::option_count<is_observer_poles, Opts...> == 0) || (NF == NKF);
-    if constexpr (!kGainCount || !kFilterCount) {
+    if constexpr (!kGainCount || !kFilterCount || !kOptionsFit) {
         if constexpr (!kGainCount) {
             static_cast<void>(controller_pole_count<NK, listed_poles<Gain>>());
-        } else {
+        } else if constexpr (!kFilterCount) {
             static_cast<void>(observer_pole_count<NKF, NF>());
         }
         static_cast<void>(weights);
@@ -287,7 +318,7 @@ template<bool Sampled, size_t NX, size_t NU, size_t NY, typename T, size_t NW, s
         static_cast<void>(Ts);
         static_cast<void>(config);
         (static_cast<void>(opts), ...);
-        return StateFeedbackResult<NX, NU, T>{}; // the count says which: nothing further
+        return StateFeedbackResult<NX, NU, T>{}; // the message says which: nothing further
     } else {
         return state_feedback_counted<Sampled>(sys, Ts, config, gain_spec_of<T>(weights), opts...);
     }

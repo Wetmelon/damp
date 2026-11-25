@@ -441,6 +441,14 @@ struct Handover {
 
 namespace detail {
 
+/** @brief Not the public IntegralAction, as a kind of trailing option (options.hpp). */
+template<typename O>
+struct is_integral_option : damp::false_type {};
+
+/** @brief design::IntegralAction{.Q, …}. */
+template<typename TQ, typename T>
+struct is_integral_option<::damp::design::IntegralAction<TQ, T>> : damp::true_type {};
+
 /** @brief A Handover: a kind of state_feedback option. */
 template<typename O>
 struct is_handover : damp::false_type {};
