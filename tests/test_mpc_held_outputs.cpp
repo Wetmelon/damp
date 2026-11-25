@@ -411,8 +411,8 @@ TEST_SUITE("MPC regulator") {
 
         //! It stores no map of r, and no target: the (x + u) × y entries of TrackedOutputs{}'s go.
         if constexpr (sizeof(size_t) == 8) {
-            CHECK(sizeof(a) == 9616);
-            CHECK(sizeof(b) == 9688);
+            CHECK(sizeof(a) == 9592);
+            CHECK(sizeof(b) == 9664);
         }
     }
 
@@ -449,8 +449,8 @@ TEST_SUITE("MPC regulator") {
         CHECK(a.control(ColVec<1>{w})(0) == doctest::Approx(b.control(ColVec<2>{}, ColVec<1>{w})(0)).epsilon(1e-12));
         CHECK(a.control(ColVec<2>{}, ColVec<2>{}, ColVec<1>{w})(1) == doctest::Approx(b.control(ColVec<2>{}, ColVec<2>{}, ColVec<2>{}, ColVec<1>{w})(1)).epsilon(1e-12));
         if constexpr (sizeof(size_t) == 8) {
-            CHECK(sizeof(a) == 9904);
-            CHECK(sizeof(b) == 9968);
+            CHECK(sizeof(a) == 9880);
+            CHECK(sizeof(b) == 9944);
         }
     }
 

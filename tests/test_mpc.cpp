@@ -338,8 +338,8 @@ TEST_CASE("InputLimits and InputRateLimits are the QP and the commands MPCConstr
     //! Left out, u is unbounded, sentinel rows, and Δu has no rows: the cost of the bounded design (its scale is 1 too).
     const auto free = design::mpc<10, 4>(double_integrator, w, design::TrackedOutputs{});
     REQUIRE(free.success);
-    static_assert(std::is_same_v<decltype(free.mpc.constraints.input_rate), Bounds<0>> && decltype(free.mpc)::NI == 2 * 4);
-    CHECK(free.mpc.constraints.input.upper(0) == damp::numeric_limits<double>::max());
+    static_assert(std::is_same_v<decltype(free.mpc.constraints.limits.input_rate), Bounds<0>> && decltype(free.mpc)::NI == 2 * 4);
+    CHECK(free.mpc.constraints.limits.input.upper(0) == damp::numeric_limits<double>::max());
     for (size_t i = 0; i < 8; ++i) {
         CHECK(free.mpc.b_bound(i) >= design::unbounded_bound<double>() / 4.0);
     }
@@ -1071,31 +1071,31 @@ TEST_CASE("an MPC with an InputRateLimits is the size every MPC was with Δu row
     static_assert(std::is_same_v<decltype(MPC{kMpc}.limits().disturbance), Bounds<0>>);
     static_assert(std::is_same_v<decltype(OFMPC{kOf}.limits().disturbance), Bounds<1>>);
     if constexpr (sizeof(void*) == 8) {
-        CHECK(sizeof(MPC{kMpc.as<float>()}) == 1376);
-        CHECK(sizeof(MPC{kCapped.as<float>()}) == 2856);
-        CHECK(sizeof(OFMPC{kOf.as<float>()}) == 1608);
-        CHECK(sizeof(OFMPC{kOfCapped.as<float>()}) == 2432);
-        CHECK(sizeof(MPC{kMpc}) == 2624);
-        CHECK(sizeof(MPC{kCapped}) == 5576);
-        CHECK(sizeof(OFMPC{kOf}) == 3072);
-        CHECK(sizeof(OFMPC{kOfCapped}) == 4704);
-        CHECK(sizeof(Law<kMpc, float>) == 1376);
-        CHECK(sizeof(Law<kCapped, float>) == 2856);
-        CHECK(sizeof(Law<kOf, float>) == 1520);
-        CHECK(sizeof(Law<kOfCapped, float>) == 2344);
+        CHECK(sizeof(MPC{kMpc.as<float>()}) == 1360);
+        CHECK(sizeof(MPC{kCapped.as<float>()}) == 2840);
+        CHECK(sizeof(OFMPC{kOf.as<float>()}) == 1592);
+        CHECK(sizeof(OFMPC{kOfCapped.as<float>()}) == 2416);
+        CHECK(sizeof(MPC{kMpc}) == 2600);
+        CHECK(sizeof(MPC{kCapped}) == 5552);
+        CHECK(sizeof(OFMPC{kOf}) == 3048);
+        CHECK(sizeof(OFMPC{kOfCapped}) == 4688);
+        CHECK(sizeof(Law<kMpc, float>) == 1360);
+        CHECK(sizeof(Law<kCapped, float>) == 2840);
+        CHECK(sizeof(Law<kOf, float>) == 1504);
+        CHECK(sizeof(Law<kOfCapped, float>) == 2328);
 
-        CHECK(sizeof(MPC{kFree.as<float>()}) == 1088);
-        CHECK(sizeof(MPC{kFreeCapped.as<float>()}) == 2568);
-        CHECK(sizeof(OFMPC{kFreeOf.as<float>()}) == 1288);
-        CHECK(sizeof(OFMPC{kFreeOfCapped.as<float>()}) == 2112);
-        CHECK(sizeof(MPC{kFree}) == 2032);
-        CHECK(sizeof(MPC{kFreeCapped}) == 4992);
-        CHECK(sizeof(OFMPC{kFreeOf}) == 2416);
-        CHECK(sizeof(OFMPC{kFreeOfCapped}) == 4056);
-        CHECK(sizeof(Law<kFree, float>) == 1088);
-        CHECK(sizeof(Law<kFreeCapped, float>) == 2568);
-        CHECK(sizeof(Law<kFreeOf, float>) == 1200);
-        CHECK(sizeof(Law<kFreeOfCapped, float>) == 2024);
+        CHECK(sizeof(MPC{kFree.as<float>()}) == 1064);
+        CHECK(sizeof(MPC{kFreeCapped.as<float>()}) == 2544);
+        CHECK(sizeof(OFMPC{kFreeOf.as<float>()}) == 1264);
+        CHECK(sizeof(OFMPC{kFreeOfCapped.as<float>()}) == 2088);
+        CHECK(sizeof(MPC{kFree}) == 2008);
+        CHECK(sizeof(MPC{kFreeCapped}) == 4968);
+        CHECK(sizeof(OFMPC{kFreeOf}) == 2392);
+        CHECK(sizeof(OFMPC{kFreeOfCapped}) == 4040);
+        CHECK(sizeof(Law<kFree, float>) == 1064);
+        CHECK(sizeof(Law<kFreeCapped, float>) == 2544);
+        CHECK(sizeof(Law<kFreeOf, float>) == 1176);
+        CHECK(sizeof(Law<kFreeOfCapped, float>) == 2000);
     }
     static_assert(sizeof(MPC{kFree}) < sizeof(MPC{kMpc}) && sizeof(OFMPC{kFreeOfCapped.as<float>()}) < sizeof(OFMPC{kOfCapped.as<float>()}));
 }
@@ -1211,8 +1211,8 @@ TEST_CASE("artifact float conversion maps the unbounded sentinels safely") {
 
     // Default constraints are unbounded: the double sentinel must arrive as
     // the float sentinel, not as an overflowed cast.
-    static_assert(art_f.mpc.constraints.input.upper(0) == std::numeric_limits<float>::max());
-    static_assert(art_f.mpc.constraints.input.lower(0) == -std::numeric_limits<float>::max());
+    static_assert(art_f.mpc.constraints.limits.input.upper(0) == std::numeric_limits<float>::max());
+    static_assert(art_f.mpc.constraints.limits.input.lower(0) == -std::numeric_limits<float>::max());
     static_assert(art_f.mpc.b_bound(0) == std::numeric_limits<float>::max());
 }
 
