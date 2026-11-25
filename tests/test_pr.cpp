@@ -210,6 +210,7 @@ TEST_SUITE("PR Controller") {
         double avg_error = error_sum / 5000.0;
         // Should have very small tracking error at steady state
         CHECK(avg_error < 0.05);
+        CHECK(ctrl.last_command() == y); // the last command, the plant's output
     }
 
     TEST_CASE("PR controller type conversion") {
