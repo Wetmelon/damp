@@ -175,13 +175,16 @@ constexpr bool deduces_to(const Got& got) {
 }
 
 /// The limit options deduce inside a function template as at namespace scope: a braced end deduces
-/// nothing (one input, double), a typed end and an index list do.
+/// nothing (one input, double), a typed end and an index list do. On clang a ColVec literal set as the
+/// end itself deduces nothing in a template (llvm/llvm-project#114870), so the typed ends are locals.
 template<size_t N>
 constexpr bool deduced_in_template() {
+    const ColVec lower{-1.0, -2.0};
+    const ColVec upper{1.0f, 2.0f};
     return deduces_to<design::InputLimits<1>>(design::InputLimits{.upper = {1.0}})
-        && deduces_to<design::InputLimits<2>>(design::InputLimits{.lower = ColVec{-1.0, -2.0}, .upper = {1.0, 2.0}})
+        && deduces_to<design::InputLimits<2>>(design::InputLimits{.lower = lower, .upper = {1.0, 2.0}})
         && deduces_to<design::InputRateLimits<1>>(design::InputRateLimits{.lower = {-0.2}, .upper = {0.2}})
-        && deduces_to<design::InputRateLimits<2, float>>(design::InputRateLimits{.upper = ColVec{1.0f, 2.0f}})
+        && deduces_to<design::InputRateLimits<2, float>>(design::InputRateLimits{.upper = upper})
         && deduces_to<design::OutputLimits<2>>(design::OutputLimits{.outputs = {1, 2}, .lower = {-0.4, -0.26}, .upper = {0.4, 0.26}})
         && deduces_to<design::StateLimits<1>>(design::StateLimits{.states = {2}, .lower = {-0.26}, .upper = {0.26}})
         && deduces_to<DemandLimit<3>>(DemandLimit{.state = 2, .outer = {0, 1, 4}, .lower = -0.26, .upper = 0.26}) && N == 0;

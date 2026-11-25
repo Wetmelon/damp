@@ -66,13 +66,25 @@ TEST_CASE("Matrix{{…}, {…}} deduces its size and scalar from its rows") {
     CHECK(a == Matrix{{1.0, 2.0}, {3.0, 4.0}});
 }
 
-TEST_CASE("an initializer past the matrix drops the extra entries at run time: no fault") {
-    //! A constant-evaluated one does not compile; at run time it trapped.
-    volatile double    five = 5.0; // a run-time value
-    const Matrix<2, 2> mat = {{1.0, 2.0, five}, {3.0, 4.0}, {five, five}};
-    CHECK(mat == Matrix{{1.0, 2.0}, {3.0, 4.0}});
-    const ColVec<2> v = {1.0, 2.0, five};
-    CHECK(v(1) == 2.0);
+TEST_CASE("a literal gives every entry: its shape is checked at compile time, nothing filled in") {
+    //! Rows rows of Cols entries, or N entries: a short or a long literal is not a constructor call.
+    using Row2 = const double (&)[2];
+    using Row3 = const double (&)[3];
+    using Row1 = const double (&)[1];
+    static_assert(std::is_constructible_v<Matrix<2, 2>, Row2, Row2>);
+    static_assert(!std::is_constructible_v<Matrix<2, 2>, Row2, Row1>);
+    static_assert(!std::is_constructible_v<Matrix<2, 2>, Row2>);
+    static_assert(!std::is_constructible_v<Matrix<2, 2>, Row3, Row2>);
+    static_assert(!std::is_constructible_v<Matrix<2, 2>, Row2, Row2, Row2>);
+    static_assert(std::is_constructible_v<ColVec<3>, double, double, double>);
+    static_assert(!std::is_constructible_v<ColVec<3>, double, double>);
+    static_assert(!std::is_constructible_v<ColVec<2>, double, double, double>);
+    static_assert(std::is_constructible_v<RowVec<2>, double, double> && !std::is_constructible_v<RowVec<2>, double>);
+    volatile double    five = 5.0; // a run-time value: the shape is checked all the same
+    const Matrix<2, 2> mat = {{1.0, 2.0}, {3.0, five}};
+    CHECK(mat == Matrix{{1.0, 2.0}, {3.0, 5.0}});
+    const ColVec<2> v = {1.0, five};
+    CHECK(v(1) == 5.0);
 }
 
 TEST_CASE("A 1×1 matrix converts from its scalar") {
@@ -995,7 +1007,7 @@ TEST_CASE("Matrix inverse 8x8") {
 // 9x9 matrix test
 TEST_CASE("Matrix inverse 9x9") {
     using T = double;
-    Matrix<9, 9, T> A{{
+    Matrix<9, 9, T> A{
         {-1.429702978306231e-01, 3.577873603482833e-01, 5.607845263682344e-01, 1.083051243175277e+00, 1.053802052034903e+00, -1.377669367957091e+00, -9.378250399151228e-01, 5.150352672086598e-01, 5.137859509122088e-01},
         {5.150476863060479e-01, 4.852731490654721e+00, 5.708905106931670e-01, 1.135565640180599e+00, 9.540017634932023e-01, 6.513912513057980e-01, -3.152692446403456e-01, 7.589692204932674e-01, -7.728252145375718e-01},
         {-2.368186067400089e-01, -4.853635478291035e-01, 1.081874139386322e+00, 2.314658566673509e+00, -1.867265192591748e+00, 6.862601903745135e-01, -1.612715871189652e+00, -4.719318657894335e-01, 1.088950596967366e+00},
@@ -1005,8 +1017,8 @@ TEST_CASE("Matrix inverse 9x9") {
         {1.032465260551147e+00, -1.519369965954013e+00, -4.842340728662514e-01, 1.266911149186623e+00, -7.076694656187807e-01, 4.438194281462284e-01, 1.774634053429337e+00, -9.269304715780829e-01, -5.952535606180008e-02},
         {-3.241267340069073e+00, -1.024387641334290e+00, -2.525681513931603e-01, -1.247783181964849e+00, 1.632411303931635e+00, -1.430141377960633e+00, -4.400444866969838e-01, 1.130740577286091e+00, 1.441273289066116e+00},
         {-1.435862151179439e+00, 1.163163752154960e+00, 1.023306101958705e-02, -9.815086510479509e-01, 4.621034742632708e-01, 1.990596955734700e-01, -6.002168771587947e-01, 6.980208499001891e-02, 6.146864031382397e-01},
-    }};
-    Matrix<9, 9, T> expected_inv{{
+    };
+    Matrix<9, 9, T> expected_inv{
         {-3.279775389485940e-01, 1.421681342010094e-01, -4.870437916932439e-02, 3.263446906053169e-01, 3.838478043616686e-01, -1.700305930954809e-01, -4.208776327749045e-01, -1.404173327423720e-01, -2.642105468546092e-01},
         {-1.635200269324444e-01, 2.013946169135109e-01, -4.321188902424791e-02, 2.163199244507130e-01, 9.193598783775307e-02, -1.777386409953094e-01, -1.593776986493337e-01, 8.581131294870656e-03, 1.605294160060367e-01},
         {-8.671620357996345e-01, 5.184209675126222e-01, 7.014208288052837e-01, -1.764594540709505e-01, 1.063020802536212e+00, -5.745135214647223e-01, 1.726318266551771e-01, 3.436161232004729e-01, 4.467545042941501e-01},
@@ -1016,7 +1028,7 @@ TEST_CASE("Matrix inverse 9x9") {
         {-9.304330238029551e-01, 5.437917734732418e-01, 2.096158910802638e-01, 2.142563163349185e-01, 6.314663587661783e-01, -4.696384145712628e-01, 1.555847115594764e-01, 5.018686185376598e-01, -8.692775688583117e-02},
         {-1.288271269098638e+00, 6.497627032451500e-01, 2.335893054324069e-01, 4.102100439628416e-01, 4.168132801779376e-01, -2.275395365868569e-01, -8.589862222447939e-01, 7.636957351330317e-01, -1.626187723528615e+00},
         {-8.857319326276011e-01, 4.384454293852911e-01, 2.115174119645866e-01, 6.525741674084081e-01, 7.757671890040314e-01, -4.528915057168739e-01, -3.946981929263851e-01, 2.664245051373069e-01, 7.564952431955441e-02},
-    }};
+    };
 
     auto actual_inv_opt = A.inverse();
     REQUIRE(actual_inv_opt.has_value());
@@ -1269,12 +1281,11 @@ TEST_CASE("norm of a lone large entry and of near-max entries at run time") {
     CHECK(ColVec<2, double>{d_max, d_max}.norm() == doctest::Approx(1.4142135623730951e308));
 }
 
-TEST_CASE("brace assignment zero-fills missing entries like the constructor") {
+TEST_CASE("brace assignment takes every entry, as the constructor does") {
     Matrix A{{9.0, 9.0}, {9.0, 9.0}};
-    A = {{1.0, 2.0}, {3.0}};
-    CHECK(A == Matrix{{1.0, 2.0}, {3.0, 0.0}});
-    A = {{5.0}};
-    CHECK(A == Matrix{{5.0, 0.0}, {0.0, 0.0}});
+    A = {{1.0, 2.0}, {3.0, 4.0}};
+    CHECK(A == Matrix{{1.0, 2.0}, {3.0, 4.0}});
+    static_assert(!std::is_assignable_v<Matrix<2, 2>&, Matrix<1, 1>>); // A = {{5.0}} is a 1×1: it does not compile
 }
 
 TEST_CASE("an array converts to a matrix only explicitly") {

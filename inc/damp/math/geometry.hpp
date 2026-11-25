@@ -94,8 +94,9 @@ struct DCM : public Mat3<T> {
     /** @brief Construct from a raw @ref Mat3 (entries used as-is). */
     constexpr explicit DCM(const Mat3<T>& m) : Mat3<T>(m) {}
 
-    /** @brief Row-nested initializer list (prvalue / RVO-friendly). */
-    constexpr DCM(std::initializer_list<std::initializer_list<T>> init) : Mat3<T>(init) {}
+    /** @brief From its rows, every entry given (prvalue / RVO-friendly). */
+    template<size_t... Ns>
+    constexpr DCM(const T (&... rows)[Ns]) : Mat3<T>(rows...) {}
 
     /** @brief Identity rotation. */
     [[nodiscard]] static constexpr DCM identity() { return DCM{}; }
@@ -391,17 +392,6 @@ struct Quaternion : public Matrix<4, 1, T> {
         x() = x_;
         y() = y_;
         z() = z_;
-    }
-
-    /** @brief Construct from up to four elements in (w, x, y, z) order. */
-    constexpr Quaternion(std::initializer_list<T> values) : Matrix<4, 1, T>() {
-        size_t i = 0;
-        for (const auto& val : values) {
-            if (i < 4) {
-                this->data_[i] = val;
-            }
-            ++i;
-        }
     }
 
     /** @brief Convert from another scalar precision. */
@@ -793,8 +783,9 @@ struct Transform4 : public Mat4<T> {
     /** @brief Construct from a raw @ref Mat4. */
     constexpr explicit Transform4(const Mat4<T>& m) : Mat4<T>(m) {}
 
-    /** @brief Row-nested initializer list (prvalue / RVO-friendly). */
-    constexpr Transform4(std::initializer_list<std::initializer_list<T>> init) : Mat4<T>(init) {}
+    /** @brief From its rows, every entry given (prvalue / RVO-friendly). */
+    template<size_t... Ns>
+    constexpr Transform4(const T (&... rows)[Ns]) : Mat4<T>(rows...) {}
 
     /** @brief Identity transform. */
     [[nodiscard]] static constexpr Transform4 identity() { return Transform4{}; }

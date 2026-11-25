@@ -694,7 +694,7 @@ TEST_SUITE("FixedGainObserver: the anchored law against the textbook form") {
         const Matrix<4, 2> gamma0 = truth.B.block<4, 2>(0, 0);
         const Matrix<4, 2> gamma1 = truth.A.block<4, 2>(0, 4);
 
-        Truth<6>      t{truth, ColVec<6>{0.1, 0.0, -0.1}};
+        Truth<6>      t{truth, ColVec{0.1, 0.0, -0.1, 0.0, 0.0, 0.0}};
         ColVec<4>     x_book{};
         ColVec<2>     u{};        // u(k−1)
         ColVec<2>     u_before{}; // u(k−2)
