@@ -27,7 +27,7 @@ static constexpr int OUTPUT = 1;
 #define loop loop_
 #endif
 
-static constinit LowPass<1, float> lpf{coeffs1};
+static constinit LowPass lpf{coeffs1};
 
 static float read_sample() {
     return 0.0f;

@@ -47,7 +47,7 @@ int main() {
     const double zeta_os = design::damping_ratio_from_overshoot_percent(10.0);
     const auto   pid_seed = design::pidtune(sys_c, {.wc = 20.0, .phase_margin_deg = design::phase_margin_from_damping_ratio(zeta_os)});
 
-    const auto   Q = Matrix<2, 2>::diagonal({20.0, 2.0});
+    const auto   Q = diag(20.0, 2.0);
     const double Q_integral = 80.0;
     const double R = 0.25;
     const Matrix Q_kf{{1e-3, 0.0}, {0.0, 1e-2}};
