@@ -73,7 +73,7 @@ TEST_CASE("simulate_state_feedback - pendulum converges under LQR") {
 
     // Start at 15 degrees
     ColVec<2> x0{0.2618, 0.0};
-    auto      sim = simulate_state_feedback<2, 1, 2>(plant, output, ctrl, solver, x0, {0.0, 5.0});
+    auto      sim = simulate_state_feedback(plant, output, ctrl, solver, x0, {0.0, 5.0});
 
     // Should converge to near zero by 5 seconds
     CHECK(sim.x.back()(0, 0) == doctest::Approx(0.0).epsilon(0.01));
@@ -168,7 +168,7 @@ TEST_CASE("simulate - output feedback with D matrix") {
     FixedStepSolver solver(rk4, 0.01);
 
     ColVec<1> x0{0.0};
-    auto      sim = simulate<1, 1, 1>(plant, output, ctrl, solver, x0, {0.0, 5.0});
+    auto      sim = simulate(plant, output, ctrl, solver, x0, {0.0, 5.0});
 
     // Steady state: dx/dt=0 => x = u/2 = 0.5
     CHECK(sim.x.back()(0, 0) == doctest::Approx(0.5).epsilon(0.01));
@@ -189,7 +189,7 @@ TEST_CASE("simulate_discrete_nonlinear - logistic-style nonlinear map") {
     // Constant input u = 8 → equilibrium where x^3 = 8 → x = 2.
     auto ctrl = [](const ColVec<1>& /*y*/) -> ColVec<1> { return ColVec<1>{8.0}; };
 
-    auto sim = simulate_discrete_nonlinear<1, 1, 1>(plant, output, ctrl, ColVec<1>{0.0}, Ts, 5000);
+    auto sim = simulate_discrete_nonlinear(plant, output, ctrl, ColVec<1>{0.0}, Ts, 5000);
 
     CHECK(sim.t.size() == 5001);
     CHECK(sim.t.front() == 0.0);
@@ -213,7 +213,7 @@ TEST_CASE("simulate_discrete_nonlinear - matches simulate_discrete on a linear p
         return A * x + B * u;
     };
     auto output = [&](const ColVec<1>& x) -> ColVec<1> { return C * x; };
-    auto nl = simulate_discrete_nonlinear<1, 1, 1>(plant, output, ctrl, ColVec<1>{1.0}, Ts, 100);
+    auto nl = simulate_discrete_nonlinear(plant, output, ctrl, ColVec<1>{1.0}, Ts, 100);
 
     REQUIRE(lin.x.size() == nl.x.size());
     for (std::size_t k = 0; k < lin.x.size(); ++k) {
@@ -230,7 +230,7 @@ TEST_CASE("SimulationResult has consistent sizes") {
     RK4<1>          rk4;
     FixedStepSolver solver(rk4, 0.1);
 
-    auto sim = simulate<1, 1, 1>(plant, output, ctrl, solver, ColVec<1>{1.0}, {0.0, 1.0});
+    auto sim = simulate(plant, output, ctrl, solver, ColVec<1>{1.0}, {0.0, 1.0});
 
     CHECK(sim.t.size() == sim.x.size());
     CHECK(sim.t.size() == sim.y.size());

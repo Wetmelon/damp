@@ -67,7 +67,7 @@ int main() {
     // Small tip: 5 cm cart offset + ~3° pole
     ColVec<4, double> x0{0.05, 0.0, 0.05, 0.0};
 
-    auto sim = simulate_state_feedback<4, 1, 4>(cart_pole_f, output, ctrl, solver, x0, {0.0, 8.0});
+    auto sim = simulate_state_feedback(cart_pole_f, output, ctrl, solver, x0, {0.0, 8.0});
 
     fmt::print("Simulated {} samples\n", sim.t.size());
     fmt::print(

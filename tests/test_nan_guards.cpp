@@ -700,7 +700,7 @@ TEST_SUITE("NaN guards") {
 
     TEST_CASE_TEMPLATE("discrete and event-driven simulations refuse a non-finite step", T, float, double) {
         for (const T bad : non_finite<T>()) {
-            const auto run = sim::simulate_discrete_nonlinear<1, 1, 1>(
+            const auto run = sim::simulate_discrete_nonlinear(
                 [](size_t /*k*/, const ColVec<1, T>& x, const ColVec<1, T>& u) { return ColVec<1, T>{x[0] + u[0]}; },
                 [](const ColVec<1, T>& x) { return x; },
                 [](const ColVec<1, T>& /*y*/) { return ColVec<1, T>{T{1}}; },
