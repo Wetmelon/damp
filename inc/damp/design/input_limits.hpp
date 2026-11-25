@@ -32,10 +32,11 @@ namespace damp::design {
  *
  * Not part of the cost: the weights are the same with or without them, so they are an option,
  * and left out the inputs are unbounded. An end left out is unbounded too, as a Bounds' is. The
- * ends are vectors, written flat: `InputLimits{.lower = {-12.0}, .upper = {12.0}}` for one input,
- * `{.lower = {0.0, -1.0}, .upper = {40.0, 1.0}}` for two. Named, it takes its sizes from a field
- * whose type gives them (`.lower = ColVec<2>{…}`, or `InputLimits<2>{…}`), one input in double
- * otherwise: braces deduce nothing, so a braced end is one input's.
+ * ends are vectors, written flat: `InputLimits{.lower = {-12.0}, .upper = {12.0}}` for one input.
+ * Braces deduce no size, so a braced end is one input's in double: for more, one end is typed,
+ * `InputLimits{.lower = ColVec{0.0, -1.0}, .upper = {40.0, 1.0}}`, or the type is named,
+ * `InputLimits<2>{.lower = {0.0, -1.0}, .upper = {40.0, 1.0}}`, the spelling inside a template on
+ * clang, where a typed end deduces nothing (llvm/llvm-project#114870).
  *
  * | Design | What the limits are |
  * | --- | --- |
@@ -142,8 +143,8 @@ template<typename Kind, size_t NU, typename T, typename Fallback, typename... Op
     if constexpr (Given::inputs != NU) {
         static_assert(
             Given::inputs == NU,
-            "InputLimits and InputRateLimits bound each input of the plant: InputLimits<NU>{...}, or .lower = ColVec<NU>{...}. "
-            "Given in a template? There clang deduces nothing from a field set to a constant declared outside it (llvm/llvm-project#114870): name the size."
+            "InputLimits and InputRateLimits bound each input of the plant: type one end, .lower = ColVec{...}, or name the type, InputLimits<NU>{...}. "
+            "Given in a template? There clang deduces nothing from a field set to a ColVec literal or to a constant declared outside it (llvm/llvm-project#114870): name the type."
         );
         return Bounds<NU, T>{};
     } else {
