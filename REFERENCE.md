@@ -74,13 +74,13 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`Convention`](inc/damp/math/transforms.hpp#L68) | Scaling convention for the Clarke/Park family |
 | [`DCM`](inc/damp/math/geometry.hpp#L83) | Rotation matrix, active body→parent (SO(3) wrapper over Mat3) |
 | [`DirectQuadrature`](inc/damp/math/transforms.hpp#L83) | Direct-quadrature (rotor-frame) component pair |
-| [`Euler`](inc/damp/math/geometry.hpp#L223) | Intrinsic Euler angles for sequence Order (default ZYX aerospace YPR) |
+| [`Euler`](inc/damp/math/geometry.hpp#L224) | Intrinsic Euler angles for sequence Order (default ZYX aerospace YPR) |
 | [`EulerOrder`](inc/damp/math/geometry.hpp#L52) | Intrinsic Euler angle sequence (axis order of successive principal rotations) |
 | [`InstantaneousPower`](inc/damp/math/transforms.hpp#L456) | Instantaneous active and reactive power |
-| [`Quaternion`](inc/damp/math/geometry.hpp#L359) | Unit quaternion rotation (w, x, y, z) (Hamilton product) |
+| [`Quaternion`](inc/damp/math/geometry.hpp#L360) | Unit quaternion rotation (w, x, y, z) (Hamilton product) |
 | [`SequenceComponents`](inc/damp/math/transforms.hpp#L513) | Symmetrical (sequence) components of a three-phase phasor set |
 | [`SplitReal`](inc/damp/math/split_real.hpp#L47) | A real number split into an exact integer part and a floating-point remainder |
-| [`Transform4`](inc/damp/math/geometry.hpp#L782) | 4×4 homogeneous transform (SE(3) interop / DH export) |
+| [`Transform4`](inc/damp/math/geometry.hpp#L772) | 4×4 homogeneous transform (SE(3) interop / DH export) |
 
 **Functions**
 
@@ -149,7 +149,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`is_matrix_element`](inc/damp/matrix/matrix_traits.hpp#L39) | True if T may be a Matrix element type |
 | [`LDLT`](inc/damp/matrix/decomposition.hpp#L176) | LDLᴴ factors with symmetric pivoting: P·A·Pᵀ = L·D·Lᴴ, D block diagonal with 1×1 and 2×2 blocks |
 | [`LowerTriangle`](inc/damp/matrix/views.hpp#L164) | Lower triangular view of a square matrix |
-| [`Matrix`](inc/damp/matrix/core.hpp#L296) | Fixed-size, stack-allocated matrix for linear algebra operations |
+| [`Matrix`](inc/damp/matrix/core.hpp#L296) | Fixed-size, stack-allocated matrix for linear algebra operations (+1 more overload) |
 | [`MatrixLike`](inc/damp/matrix/matrix_traits.hpp#L95) | Concept for any type that provides 2D matrix-like element access |
 | [`MatrixLikeOf`](inc/damp/matrix/matrix_traits.hpp#L105) | Concept for a MatrixLike type with specific dimensions |
 | [`NullSpace`](inc/damp/matrix/svd.hpp#L458) | Orthonormal basis for the null space (kernel) of a matrix |
@@ -168,8 +168,8 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 
 | Name | Description |
 | ---- | ----------- |
-| [`all_of`](inc/damp/matrix/core.hpp#L1551) | Whether p holds for every entry of A: the matrix counterpart of std::all_of |
-| [`any_of`](inc/damp/matrix/core.hpp#L1575) | Whether p holds for some entry of A: the matrix counterpart of std::any_of |
+| [`all_of`](inc/damp/matrix/core.hpp#L1565) | Whether p holds for every entry of A: the matrix counterpart of std::all_of |
+| [`any_of`](inc/damp/matrix/core.hpp#L1589) | Whether p holds for some entry of A: the matrix counterpart of std::any_of |
 | [`backward_substitute_transpose`](inc/damp/matrix/solve.hpp#L77) | Backward substitution for Lᴴx = b (Lᵀx = b for real T) |
 | [`blkdiag`](inc/damp/matrix/concat.hpp#L133) | Block-diagonal assembly of MatrixLike arguments |
 | [`cholesky`](inc/damp/matrix/decomposition.hpp#L129) | Cholesky decomposition for positive-definite matrices |
@@ -199,7 +199,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`pow`](inc/damp/matrix/functions.hpp#L1132) | Integer matrix power via binary exponentiation (+1 more overload) |
 | [`pseudo_inverse`](inc/damp/matrix/svd.hpp#L427) | Moore–Penrose pseudoinverse A⁺ via SVD |
 | [`qr_decompose`](inc/damp/matrix/decomposition.hpp#L719) | Thin QR via Householder reflections |
-| [`quadratic_form`](inc/damp/matrix/core.hpp#L1380) | Symmetric congruence (quadratic) form  S = M X Mᵀ (+1 more overload) |
+| [`quadratic_form`](inc/damp/matrix/core.hpp#L1394) | Symmetric congruence (quadratic) form  S = M X Mᵀ (+1 more overload) |
 | [`quadratic_form_in_place`](inc/damp/matrix/pattern_matrix.hpp#L352) | S ← F S Fᵀ in place, for a symmetric S: every multiply the pattern can skip, skipped |
 | [`rank`](inc/damp/matrix/functions.hpp#L236) | Numerical rank: the number of singular values above rel_tol·σₘₐₓ |
 | [`rank_from_svd`](inc/damp/matrix/svd.hpp#L391) | Numerical rank from a precomputed SVD result |
@@ -210,7 +210,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`sqrt`](inc/damp/matrix/functions.hpp#L983) | Principal matrix square root by the real Schur method |
 | [`svd`](inc/damp/matrix/svd.hpp#L357) | Full singular value decomposition A = U·Σ·Vᴴ (one-sided Jacobi) |
 | [`times_transpose`](inc/damp/matrix/pattern_matrix.hpp#L328) | A dense matrix times Hᵀ for a sparse H: A Hᵀ |
-| [`transform`](inc/damp/matrix/core.hpp#L1527) | Apply f to every entry, B(i, j) = f(A(i, j)): the matrix counterpart of std::transform |
+| [`transform`](inc/damp/matrix/core.hpp#L1541) | Apply f to every entry, B(i, j) = f(A(i, j)): the matrix counterpart of std::transform |
 | [`two_norm`](inc/damp/matrix/functions.hpp#L106) | Spectral norm ‖A‖₂ = σₘₐₓ(A) |
 | [`vcat`](inc/damp/matrix/concat.hpp#L180) | Vertical concatenation (same column count) |
 
@@ -293,8 +293,8 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`ESCResult`](inc/damp/controllers/esc.hpp#L90) | Extremum-seeking design result: the discrete realization the runtime runs |
 | [`HarmonicSuppressorResult`](inc/damp/controllers/harmonic_suppression.hpp#L49) | Design result for a multi-resonant harmonic suppressor |
 | [`InputDisturbance`](inc/damp/design/disturbance.hpp#L54) | An input disturbance: d adds to u, B_d = B and C_d = D, one disturbance per input (+1 more overload) |
-| [`InputLimits`](inc/damp/design/input_limits.hpp#L56) | The limits on a law's command u, per input: among design::state_feedback's and design::mpc's options |
-| [`InputRateLimits`](inc/damp/design/input_limits.hpp#L92) | The limits on a law's move Δu = u_k − u_{k−1} per period, per input: among design::state_feedback's and design::mpc's options |
+| [`InputLimits`](inc/damp/design/input_limits.hpp#L57) | The limits on a law's command u, per input: among design::state_feedback's and design::mpc's options |
+| [`InputRateLimits`](inc/damp/design/input_limits.hpp#L93) | The limits on a law's move Δu = u_k − u_{k−1} per period, per input: among design::state_feedback's and design::mpc's options |
 | [`InteriorPointSolver`](inc/damp/design/qp.hpp#L1709) | Interior-point QP solver policy for damp::MPC |
 | [`InvariantSetResult`](inc/damp/design/invariant_set.hpp#L39) | Maximal positively invariant polytope G e ≤ h of x⁺ = A x |
 | [`JordanBlock`](inc/damp/design/pole_placement.hpp#L488) | One Jordan mini-block of a desired closed-loop spectrum |
@@ -304,7 +304,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`Law`](inc/damp/design/model_inverse.hpp#L950) | Law<kRes, T> of a `constexpr` model inverse: the same runtime on the design's matrices as constants of the type (+1 more overload) |
 | [`LeadLagResult`](inc/damp/controllers/lead_lag.hpp#L64) | Lead-lag compensator design result |
 | [`LeadLagSeriesResult`](inc/damp/controllers/lead_lag.hpp#L225) | Cascaded lead+lag design result (2nd-order StateSpace + success) |
-| [`LinearizationResult`](inc/damp/design/linearization.hpp#L45) | Result of nonlinear operating-point linearization |
+| [`LinearizationResult`](inc/damp/design/linearization.hpp#L61) | Result of nonlinear operating-point linearization |
 | [`LQRCost`](inc/damp/design/riccati.hpp#L1581) | A quadratic cost on (x, u): state cost Q, input cost R, cross term N |
 | [`LQRResult`](inc/damp/design/riccati.hpp#L1518) | The LQR gain: design::state_feedback on a plant, discrete_lqr and continuous_lqr on given matrices |
 | [`MeasuredDisturbance`](inc/damp/design/disturbance.hpp#L182) | A measured disturbance: a known input the controller does not command, entering the plant's state through Bd (a load torque, a feed rate, the ambient temperature), read each tick (+1 more overload) |
@@ -329,7 +329,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`SMCResult`](inc/damp/controllers/smc.hpp#L37) | Tuning parameters for a first-order sliding-mode controller |
 | [`SmithPredictorResult`](inc/damp/controllers/smith_predictor.hpp#L97) | Smith predictor design result (discrete PID + FO model + delay samples) |
 | [`SquareWeight`](inc/damp/design/detail/config.hpp#L86) | A weight's value that is an N × N matrix: a square Matrix of that size, or a floating-point scalar for N = 1 |
-| [`StateFeedbackLimits`](inc/damp/design/input_limits.hpp#L116) | The limits an LQ law takes at run time: u, its move, the integrators ξ, what the outer terms ask of a state and the disturbance estimate d̂, in physical units. A field left out is unbounded (the demand limit off), and one the law does not have is empty |
+| [`StateFeedbackLimits`](inc/damp/design/input_limits.hpp#L117) | The limits an LQ law takes at run time: u, its move, the integrators ξ, what the outer terms ask of a state and the disturbance estimate d̂, in physical units. A field left out is unbounded (the demand limit off), and one the law does not have is empty |
 | [`StateFeedbackResult`](inc/damp/controllers/state_feedback_types.hpp#L427) | A state-feedback design: the gain, and the parts the law's options add |
 | [`StateFeedforward`](inc/damp/design/model_inverse.hpp#L818) | The plant-inversion feedforward at run time: u = B⁺·(x ₖ₊₁ − x ₖ) − B⁺(A − I)·x ₖ, two matrix–vector products (+1 more overload) |
 | [`StateFeedforwardResult`](inc/damp/design/model_inverse.hpp#L60) | The plant-inversion feedforward of a discrete model: u ₖ = B⁺·(x ₖ₊₁ − x ₖ) − B⁺(A − I)·x ₖ |
@@ -385,7 +385,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`lead_lag`](inc/damp/controllers/lead_lag.hpp#L259) | Design a lead-lag compensator (cascade of lead + lag sections) |
 | [`lead_lag_direct`](inc/damp/controllers/lead_lag.hpp#L294) | Direct lead-lag specification from zero/pole locations |
 | [`LeadLagController`](inc/damp/controllers/lead_lag.hpp#L464) | Deduce the runtime from its design, keeping the result's scalar |
-| [`linearize`](inc/damp/design/linearization.hpp#L117) | Linearize a Dynamics / Measurement model about an operating point (+1 more overload) |
+| [`linearize`](inc/damp/design/linearization.hpp#L137) | Linearize a Dynamics / Measurement model about an operating point (+1 more overload) |
 | [`lqg_from_parts`](inc/damp/controllers/lqg.hpp#L56) | Assemble an LQG design from separately computed Kalman and LQR designs |
 | [`lqr_gain`](inc/damp/design/riccati.hpp#L1358) | Optimal LQR state-feedback gain from a Riccati solution |
 | [`lyap`](inc/damp/design/lyapunov.hpp#L452) | Solve the continuous-time Lyapunov equation A X + X Aᵀ + Q = 0 |
@@ -993,9 +993,9 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 
 | Name | Description |
 | ---- | ----------- |
-| [`AdaptiveOptions`](inc/damp/simulation/solver.hpp#L349) | Options for adaptive-step ODE integration |
+| [`AdaptiveOptions`](inc/damp/simulation/solver.hpp#L355) | Options for adaptive-step ODE integration |
 | [`AdaptiveStepIntegrator`](inc/damp/simulation/integrator.hpp#L133) | Integrator that reports a genuine embedded local-error estimate |
-| [`AdaptiveStepSolver`](inc/damp/simulation/solver.hpp#L404) | Adaptive-step ODE solver (+1 more overload) |
+| [`AdaptiveStepSolver`](inc/damp/simulation/solver.hpp#L410) | Adaptive-step ODE solver (+1 more overload) |
 | [`BackwardEuler`](inc/damp/simulation/integrator.hpp#L361) | Backward Euler integrator |
 | [`BDF2`](inc/damp/simulation/integrator.hpp#L420) | Backward Differentiation Formula 2 (BDF2) integrator |
 | [`CachedZoh`](inc/damp/simulation/cached_zoh.hpp#L63) | Cached discrete ZOH maps Ad, Bd for step size h |
@@ -1016,8 +1016,8 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`RK23`](inc/damp/simulation/integrator.hpp#L933) | Bogacki-Shampine 2(3) adaptive integrator |
 | [`RK3`](inc/damp/simulation/integrator.hpp#L1000) | Classical 3rd-order Runge-Kutta (RK3) integrator |
 | [`RK4`](inc/damp/simulation/integrator.hpp#L725) | Classical 4th-order Runge-Kutta (RK4) integrator |
-| [`SimulationResult`](inc/damp/simulation/simulate.hpp#L128) | Result of a closed-loop simulation |
-| [`SisoReferenceAdapter`](inc/damp/simulation/simulate.hpp#L96) | Adapt a SISO `control(r, y)` controller for callables that want `u = f(y)` or `u = f(t, y)` (the older simulate contracts) |
+| [`SimulationResult`](inc/damp/simulation/simulate.hpp#L139) | Result of a closed-loop simulation |
+| [`SisoReferenceAdapter`](inc/damp/simulation/simulate.hpp#L107) | Adapt a SISO `control(r, y)` controller for callables that want `u = f(y)` or `u = f(t, y)` (the older simulate contracts) |
 | [`SolveResult`](inc/damp/simulation/solver.hpp#L86) | Result of an ODE solve operation |
 | [`SymplecticEuler`](inc/damp/simulation/integrator.hpp#L296) | Semi-implicit (symplectic) Euler for mechanical systems |
 | [`Trapezoidal`](inc/damp/simulation/integrator.hpp#L667) | Trapezoidal (Tustin) integrator |
@@ -1030,7 +1030,7 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 
 | Name | Description |
 | ---- | ----------- |
-| [`adaptive_solve`](inc/damp/simulation/solver.hpp#L828) | Adaptive-step solve in one call |
+| [`adaptive_solve`](inc/damp/simulation/solver.hpp#L834) | Adaptive-step solve in one call |
 | [`apply_wet_plotly_shell`](inc/damp/simulation/plot_plotly.hpp#L66) | Apply damp's full-window HTML shell to plotlypp-generated markup |
 | [`bodemag`](inc/damp/simulation/plot_plotly.hpp#L798) | Plot a magnitude-only Bode diagram (log frequency, dB magnitude) |
 | [`bodeplot`](inc/damp/simulation/plot_plotly.hpp#L784) | Plot magnitude and phase Bode subplots |
@@ -1057,20 +1057,20 @@ Compile-time (or init-time) control design in the firmware tree (variant gains a
 | [`quantize`](inc/damp/simulation/quantize.hpp#L66) | ADC reading of x: x rounded to the nearest multiple of lsb, then clamped to [lo, hi] |
 | [`rlocusplot`](inc/damp/simulation/plot_plotly.hpp#L1042) | Plot a root locus (closed-loop poles vs gain) on the complex plane |
 | [`sigmaplot`](inc/damp/simulation/plot_plotly.hpp#L999) | Plot singular-value frequency response (log frequency, dB) |
-| [`simulate`](inc/damp/simulation/simulate.hpp#L159) | Simulate a nonlinear plant with a controller in closed loop |
+| [`simulate`](inc/damp/simulation/simulate.hpp#L174) | Simulate a nonlinear plant with a controller in closed loop |
 | [`simulate_cached_zoh`](inc/damp/simulation/cached_zoh.hpp#L157) | Simulate a continuous LTI plant with fixed ZOH step and held input (+1 more overload) |
 | [`simulate_cached_zoh_multirate`](inc/damp/simulation/cached_zoh.hpp#L236) | Multi-rate ZOH: held control samples, dense plant samples for plotting |
-| [`simulate_discrete`](inc/damp/simulation/simulate.hpp#L529) | Simulate a discrete-time system with a controller |
-| [`simulate_discrete_nonlinear`](inc/damp/simulation/simulate.hpp#L478) | Simulate a discrete-time nonlinear plant with a controller |
-| [`simulate_lti`](inc/damp/simulation/simulate.hpp#L359) | Simulate a continuous LTI system with a controller |
-| [`simulate_lti_siso`](inc/damp/simulation/simulate.hpp#L421) | SIL: continuous SISO LTI plant under a sampled SISO controller with constant reference |
+| [`simulate_discrete`](inc/damp/simulation/simulate.hpp#L554) | Simulate a discrete-time system with a controller |
+| [`simulate_discrete_nonlinear`](inc/damp/simulation/simulate.hpp#L503) | Simulate a discrete-time nonlinear plant with a controller |
+| [`simulate_lti`](inc/damp/simulation/simulate.hpp#L382) | Simulate a continuous LTI system with a controller |
+| [`simulate_lti_siso`](inc/damp/simulation/simulate.hpp#L444) | SIL: continuous SISO LTI plant under a sampled SISO controller with constant reference |
 | [`simulate_multirate`](inc/damp/simulation/multirate.hpp#L142) | Multi-rate closed-loop simulation with MultiRateConfig (+1 more overload) |
 | [`simulate_piecewise_lti`](inc/damp/simulation/hybrid.hpp#L185) | Simulate a piecewise-LTI plant with Exact integration between events |
-| [`simulate_sampled`](inc/damp/simulation/simulate.hpp#L232) | Simulate a continuous plant under a discrete (sampled) controller — multi-rate |
-| [`simulate_state_feedback`](inc/damp/simulation/simulate.hpp#L303) | Simulate a nonlinear plant with state-feedback controller |
+| [`simulate_sampled`](inc/damp/simulation/simulate.hpp#L251) | Simulate a continuous plant under a discrete (sampled) controller — multi-rate |
+| [`simulate_state_feedback`](inc/damp/simulation/simulate.hpp#L326) | Simulate a nonlinear plant with state-feedback controller |
 | [`simulate_two_rate`](inc/damp/simulation/multirate.hpp#L266) | Two-rate cascade with MultiRateConfig (+1 more overload) |
 | [`simulate_two_rate_lti`](inc/damp/simulation/multirate.hpp#L415) | Two-rate cascade on a continuous LTI plant (A, B, C, D) |
-| [`siso_ref`](inc/damp/simulation/simulate.hpp#L115) | Build a SisoReferenceAdapter for a SISO `control(r,y)` controller |
+| [`siso_ref`](inc/damp/simulation/simulate.hpp#L126) | Build a SisoReferenceAdapter for a SISO `control(r,y)` controller |
 | [`stepplot`](inc/damp/simulation/plot_plotly.hpp#L719) | Plot a step response, one trace per input/output pair |
 | [`to_double_vector`](inc/damp/simulation/plot_plotly.hpp#L238) | Convert std::vector\<T\> to std::vector<double> |
 | [`to_std_vector`](inc/damp/simulation/plot_plotly.hpp#L213) | Convert a ColVec<N,T> to std::vector<double> for plotlypp |
