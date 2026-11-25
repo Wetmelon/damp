@@ -18,6 +18,7 @@
 #include "damp/controllers/detail/lq_cost.hpp"
 #include "damp/controllers/state_feedback_types.hpp"
 #include "damp/design/disturbance.hpp"
+#include "damp/design/options.hpp"
 #include "damp/design/pole_placement.hpp"
 #include "damp/design/status.hpp"
 #include "damp/estimation/fixed_gain_observer.hpp"
@@ -280,6 +281,35 @@ template<Domain D, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_
     }
     out.L = A * out.M;
     return set_status(out, DesignStatus::ok);
+}
+
+/** @brief ObserverPoles: the filter's gain placed there, in the plant's scalar. */
+template<typename T, size_t N, typename U>
+[[nodiscard]] constexpr PlacedPoles<N, T> observer_spec_of(const ObserverPoles<N, U>& poles) {
+    return {pole_list<T>(poles.poles)};
+}
+
+/** @brief The filter spec among @p opts, for state_feedback and mpc alike: the KalmanNoise sized to the plant, or ObserverPoles (observer_spec_of). */
+template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename... Opts>
+[[nodiscard]] constexpr auto filter_spec_of(const Opts&... opts) {
+    if constexpr (option_count<kind::ObserverPoles, Opts...> > 0) {
+        return observer_spec_of<T>(the<kind::ObserverPoles>(opts...));
+    } else {
+        return noise_of<NX, NU, NY, T, NW, NV>(opts...);
+    }
+}
+
+/**
+ * @brief The filter of a design: the Kalman filter of a KalmanNoise (kalman_design), or the filter
+ *        placed at ObserverPoles' PlacedPoles (placed_filter_design), the Kalman design's type.
+ */
+template<Domain D, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Filter, typename Spec, typename Delay>
+[[nodiscard]] constexpr auto filter_design(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T Ts, const Filter& filter, const Spec& spec, const Delay& delay) {
+    if constexpr (OptionOf<Filter, kind::KalmanNoise>) {
+        return kalman_design<D>(sys, Ts, filter, spec, delay);
+    } else {
+        return placed_filter_design<D>(sys, Ts, filter, spec, delay);
+    }
 }
 
 } // namespace detail

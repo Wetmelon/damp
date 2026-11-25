@@ -19,6 +19,7 @@
 #include "damp/controllers/lqg.hpp"
 #include "damp/controllers/lqi.hpp"
 #include "damp/controllers/lqr.hpp"
+#include "damp/controllers/mpc.hpp"
 #include "damp/controllers/oflqg.hpp"
 #include "damp/controllers/state_feedback.hpp"
 #include "damp/controllers/state_feedback_types.hpp"
@@ -468,6 +469,44 @@ TEST_SUITE("State feedback placed: Poles and ObserverPoles") {
         static_assert(same_type<decltype(kPlacedDiscrete), decltype(lq)>);
         static_assert(same_type<decltype(kPlacedObserver), decltype(lq_of)>);
         static_assert(std::is_same_v<Law<kPlacedObserver, float>::Runtime, decltype(OFLQG{lq_of.as<float>()})>);
+    }
+
+    TEST_CASE("design::mpc takes ObserverPoles as state_feedback does: the same placed filter, the same runtime") {
+        constexpr design::MPCWeights w{.Qy = {{10.0}}, .Rdu = {0.1}};
+        //! Without a disturbance spec: the LQG-shaped filter of the same poles.
+        const auto regulator = design::mpc<50, 10>(kCart, kTs, w, design::ObserverPoles{-30.0, -35.0}, design::DareCost{});
+        REQUIRE(regulator.success);
+        const auto lq_placed = design::state_feedback(kCart, kTs, kWeights, design::ObserverPoles{-30.0, -35.0});
+        CHECK((regulator.kalman.M - lq_placed.kalman.M).norm() <= 1e-12 * lq_placed.kalman.M.norm());
+
+        //! Offset-free: the filter on [x; d] at the plant's and the disturbance's poles, the OFLQG's. M
+        //! reaches 250, so the placement's rounding is relative to its conditioning, not to eps.
+        const auto of = design::mpc<50, 10>(kCart, kTs, w, design::ObserverPoles{-30.0, -35.0, -40.0}, design::InputDisturbance{}, design::DareCost{});
+        REQUIRE(of.success);
+        const auto oflqg = design::state_feedback(kCart, kTs, design::Poles{-8.0, -12.0}, design::ObserverPoles{-30.0, -35.0, -40.0}, design::InputDisturbance{});
+        CHECK((of.kalman.M - oflqg.kalman.M).norm() <= 1e-10 * oflqg.kalman.M.norm());
+        CHECK((of.kalman.L - oflqg.kalman.L).norm() <= 1e-10 * oflqg.kalman.L.norm());
+        CHECK(has_spectrum(error_dynamics(of.kalman), to_z(std::array<Cplx, 3>{Cplx{-30.0, 0.0}, Cplx{-35.0, 0.0}, Cplx{-40.0, 0.0}}, kTs), 1e-10));
+        //! The Kalman design's type, so the same runtime.
+        const auto of_kalman = design::mpc<50, 10>(
+            kCart, kTs, w, design::KalmanNoise{.process = Matrix<2, 2>::identity(), .measurement = 0.01, .disturbance = 1.0}, design::InputDisturbance{}, design::DareCost{}
+        );
+        static_assert(same_type<decltype(of), decltype(of_kalman)>);
+
+        //! In closed loop it holds r under a load at the input it is not told of, and estimates the load.
+        OFMPC            law{of};
+        ColVec           x{0.0, 0.0};
+        constexpr double load = 0.5;
+        for (size_t k = 0; k < 3000; ++k) { // 30 s: the move weight makes the loop slow
+            const double u = law.step(ColVec{1.0}, ColVec{x(0)})(0);
+            x = (kCartD.A * x) + (kCartD.B * ColVec{u + load});
+        }
+        CHECK(x(0) == doctest::Approx(1.0).epsilon(1e-6));
+        CHECK(law.estimator.disturbance_estimate()(0) == doctest::Approx(load).epsilon(1e-6));
+
+        //! At compile time (each one a static_assert):
+        //!   design::mpc<50, 10>(kCart, kTs, w, design::ObserverPoles{-30.0, -35.0}, design::InputDisturbance{}); // observer_pole_count<3, 2>
+        //!   design::mpc<50, 10>(kCart, kTs, w, design::ObserverPoles{-30.0, -35.0}, design::KalmanNoise{...});  // one filter
     }
 
     TEST_CASE("refusals: an unreachable mode, a repeat placement does not take, a pole that is not finite") {
