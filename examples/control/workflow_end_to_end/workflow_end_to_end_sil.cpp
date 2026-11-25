@@ -90,7 +90,7 @@ int main() {
     // plant_output has no feedthrough.
     const auto      sensor = [](const ColVec<2>& x) { return plant_output(x, ColVec<1>{}); };
     const ColVec<2> x0{0.25, 0.0};
-    const auto      sim = simulate<2, 1, 1>(plant_nonlinear, sensor, controller, solver, x0, {0.0, 20.0}); // the PR's 1 Hz mode settles in about 15 s
+    const auto      sim = simulate(plant_nonlinear, sensor, controller, solver, x0, {0.0, 20.0}); // the PR's 1 Hz mode settles in about 15 s
 
     fmt::print("Workflow end-to-end summary\n");
     fmt::print("  Linearized A(1,0): {:.6f}\n", lin.A(1, 0));

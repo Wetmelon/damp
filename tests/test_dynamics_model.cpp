@@ -172,7 +172,7 @@ TEST_SUITE("Dynamics model") {
         const auto           full_state = [](const ColVec<2>& x) { return x; };
         sim::RK4<2>          rk4;
         sim::FixedStepSolver solver(rk4, Ts / 10.0);
-        const auto           run = sim::simulate_sampled<2, 1, 2>(pendulum, full_state, controller, solver, Ts, ColVec<2>{0.3, 0.0}, {0.0, 5.0}, 10);
+        const auto           run = sim::simulate_sampled(pendulum, full_state, controller, solver, Ts, ColVec<2>{0.3, 0.0}, {0.0, 5.0}, 10);
 
         // The LQR, fed the EKF estimate, brings the pendulum from 0.3 rad to the upright.
         CHECK(damp::abs(run.x.back()[0]) < 0.01);

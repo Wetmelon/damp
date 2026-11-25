@@ -65,7 +65,7 @@ int main() {
 
     ColVec<2, double> x0{0.5236, 0.0}; // ~30° tip
 
-    auto sim = simulate_state_feedback<2, 1, 2>(pendulum_f, output, ctrl, solver, x0, {0.0, 5.0});
+    auto sim = simulate_state_feedback(pendulum_f, output, ctrl, solver, x0, {0.0, 5.0});
 
     fmt::print("Simulated {} time steps\n", sim.t.size());
     fmt::print(
@@ -93,7 +93,7 @@ int main() {
         return controller2.step(x);
     };
 
-    auto sim2 = simulate_state_feedback<2, 1, 2>(pendulum_f, output, ctrl2, solver, x0, {0.0, 5.0});
+    auto sim2 = simulate_state_feedback(pendulum_f, output, ctrl2, solver, x0, {0.0, 5.0});
     fmt::print(
         "Final state: theta = {:.4f} rad, theta_dot = {:.4f} rad/s\n",
         sim2.x.back()(0),

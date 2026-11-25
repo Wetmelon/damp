@@ -64,7 +64,7 @@ TEST_SUITE("Multi-rate harness") {
         FixedStepSolver fine(rk4, 0.001);
         ColVec<1>       x0{0.0};
 
-        auto a = simulate_sampled<1, 1, 1, double>(plant, output, ctrl, fine, Ts, x0, {0.0, 0.5});
+        auto a = simulate_sampled(plant, output, ctrl, fine, Ts, x0, {0.0, 0.5});
         auto b = simulate_multirate<1, 1, 1, double>(plant, output, step, fine, Ts, x0, {0.0, 0.5});
 
         REQUIRE(a.t.size() == b.t.size());
@@ -297,7 +297,7 @@ TEST_SUITE("Multi-rate harness") {
         FixedStepSolver fine(rk4, 0.01);
         CHECK_FALSE(simulate_two_rate<1, 1, 1, 1, double>(plant, output, outer, 0, inner, 1, fine, 0.1, ColVec<1>{0.0}, {0.0, 1.0}).success);
         auto law = [](double, const ColVec<1>&) { return ColVec<1>{1.0}; };
-        CHECK_FALSE(simulate_sampled<1, 1, 1, double>(plant, output, law, fine, 0.0, ColVec<1>{0.0}, {0.0, 1.0}).success);
+        CHECK_FALSE(simulate_sampled(plant, output, law, fine, 0.0, ColVec<1>{0.0}, {0.0, 1.0}).success);
     }
 
     TEST_CASE("simulate_sampled ticks the controller once per period, no drift sliver") {
@@ -309,7 +309,7 @@ TEST_SUITE("Multi-rate harness") {
             return ColVec<1>{1.0};
         };
         FixedStepSolver solver(RK4<1>{}, 0.05);
-        const auto      sim = simulate_sampled<1, 1, 1, double>(plant, output, ctrl, solver, 0.1, ColVec<1>{0.0}, {0.0, 100.0});
+        const auto      sim = simulate_sampled(plant, output, ctrl, solver, 0.1, ColVec<1>{0.0}, {0.0, 100.0});
         CHECK(calls == 1000);
         CHECK(sim.t.back() == 100.0);
     }

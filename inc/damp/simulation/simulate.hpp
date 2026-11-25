@@ -37,8 +37,8 @@
  *   auto output = [](auto x) { return ...; };
  *   auto controller = [&](auto y) { return -K * y; };
  *
- *   // NU and NY appear only in the callables' results, so the sizes are spelled out
- *   auto result = simulate<2, 1, 2>(plant, output, controller, solver, x0, {0.0, 10.0});
+ *   // NX comes from x0, NY from what output returns and NU from what controller returns
+ *   auto result = simulate(plant, output, controller, solver, x0, {0.0, 10.0});
  *
  *   // SISO PID (or any control(r,y) SisoController) with a constant reference:
  *   auto pid = PIController<double>{design::pid(2.0, 5.0, 0.0).discretize(Ts)};
@@ -76,6 +76,17 @@ template<size_t NX, size_t NU, typename T, typename Plant>
             return plant(t, x, u);
         }
     };
+}
+
+/** @brief The entries of what @p F returns when called with @p Args: the rows of its column, 1 for a scalar. The simulate functions read NY off the output map and NU off the controller this way. */
+template<typename F, typename... Args>
+consteval size_t result_rows() {
+    using Y = std::remove_cvref_t<std::invoke_result_t<F&, const Args&...>>;
+    if constexpr (MatrixLike<Y>) {
+        return Y::rows();
+    } else {
+        return 1;
+    }
 }
 
 } // namespace detail
@@ -153,9 +164,13 @@ struct [[nodiscard]] SimulationResult {
  * @param solver     ODE solver instance
  * @param x0         Initial state
  * @param t_span     Simulation time span {t0, tf}
+ * @tparam NY Outputs: the rows of output(x0)
+ * @tparam NU Inputs: the rows of controller(y)
  * @return SimulationResult with time, state, output, and input history
  */
-template<size_t NX, size_t NU, size_t NY, typename T, typename Plant, typename Output, typename Controller, typename Solver>
+template<
+    size_t NX, typename T, typename Plant, typename Output, typename Controller, typename Solver, size_t NY = detail::result_rows<Output, ColVec<NX, T>>(),
+    size_t NU = detail::result_rows<Controller, ColVec<NY, T>>()>
 SimulationResult<NX, NU, NY, T> simulate(
     Plant&&                 plant,
     Output&&                output,
@@ -227,8 +242,12 @@ SimulationResult<NX, NU, NY, T> simulate(
  * @param x0           Initial plant state
  * @param t_span       Integration interval {t0, tf}
  * @param log_stride   Record every N-th fine sample within a control period (default 1)
+ * @tparam NY Outputs: the rows of output(x0)
+ * @tparam NU Inputs: the rows of controller(t, y)
  */
-template<size_t NX, size_t NU, size_t NY, typename T, typename Plant, typename Output, typename Controller, typename Solver>
+template<
+    size_t NX, typename T, typename Plant, typename Output, typename Controller, typename Solver, size_t NY = detail::result_rows<Output, ColVec<NX, T>>(),
+    size_t NU = detail::result_rows<Controller, T, ColVec<NY, T>>()>
 SimulationResult<NX, NU, NY, T> simulate_sampled(
     Plant&&                 plant,
     Output&&                output,
@@ -298,8 +317,12 @@ SimulationResult<NX, NU, NY, T> simulate_sampled(
  * @param solver     ODE solver instance
  * @param x0         Initial state
  * @param t_span     {t0, tf}
+ * @tparam NY Outputs: the rows of output(x0)
+ * @tparam NU Inputs: the rows of controller(x0)
  */
-template<size_t NX, size_t NU, size_t NY, typename T, typename Plant, typename Output, typename Controller, typename Solver>
+template<
+    size_t NX, typename T, typename Plant, typename Output, typename Controller, typename Solver, size_t NY = detail::result_rows<Output, ColVec<NX, T>>(),
+    size_t NU = detail::result_rows<Controller, ColVec<NX, T>>()>
 SimulationResult<NX, NU, NY, T> simulate_state_feedback(
     Plant&&                 plant,
     Output&&                output,
@@ -443,7 +466,7 @@ template<size_t NX, size_t NW, size_t NV, typename T, typename Controller, typen
         u_held = adapted(t, y);
         return u_held;
     };
-    return simulate_sampled<NX, 1, 1, T>(plant, output, held, fine_solver, Ts, x0, t_span);
+    return simulate_sampled(plant, output, held, fine_solver, Ts, x0, t_span);
 }
 
 /**
@@ -459,9 +482,9 @@ template<size_t NX, size_t NW, size_t NV, typename T, typename Controller, typen
  * the current state, the controller produces u from that output, then the plant
  * map advances the state (zero-order hold on u across the step).
  *
- * @tparam NX Number of plant states
- * @tparam NU Number of control inputs
- * @tparam NY Number of plant outputs
+ * @tparam NX Number of plant states (from x0)
+ * @tparam NY Number of plant outputs: the rows of output(x0)
+ * @tparam NU Number of control inputs: the rows of controller(y)
  * @tparam Plant      Callable: (size_t k, ColVec<NX,T> x, ColVec<NU,T> u) -> ColVec<NX,T>  (returns x[k+1])
  * @tparam Output     Callable: (ColVec<NX,T> x) -> ColVec<NY,T>
  * @tparam Controller Callable: (ColVec<NY,T> y) -> ColVec<NU,T>
@@ -474,7 +497,9 @@ template<size_t NX, size_t NW, size_t NV, typename T, typename Controller, typen
  * @param n_steps    Number of steps to simulate
  * @return SimulationResult with time, state, output, and input history (n_steps + 1 samples)
  */
-template<size_t NX, size_t NU, size_t NY, typename T, typename Plant, typename Output, typename Controller>
+template<
+    size_t NX, typename T, typename Plant, typename Output, typename Controller, size_t NY = detail::result_rows<Output, ColVec<NX, T>>(),
+    size_t NU = detail::result_rows<Controller, ColVec<NY, T>>()>
 SimulationResult<NX, NU, NY, T> simulate_discrete_nonlinear(
     Plant&&              plant,
     Output&&             output,
