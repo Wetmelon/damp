@@ -165,7 +165,10 @@ static_assert(ControlsWith<MpcMdRegulator, X2, V1, V1> && StepsWith<MpcMdRegulat
 static_assert(!ControlsWith<MpcMdRegulator> && !ControlsWith<MpcMdRegulator, V1, V1>);                // d always passed, and no r
 
 // --- StateEstimator: step(y, u) + state() ------------------------------------
-static_assert(StateEstimator<KalmanFilter<2, 1, 1, double, 2, 1>, 2, 1, 1, double>);   // recursive
+static_assert(StateEstimator<KalmanFilter<2, 1, 1, double, 2, 1>, 2, 1, 1, double>); // recursive
+static_assert(requires(const KalmanFilter<2, 1, 1, double, 2, 1>& f) {
+    { f.valid() } -> damp::convertible_to<bool>; // and reports whether it runs, as every runtime does
+});
 static_assert(StateEstimator<FixedGainObserver<2, 1, 1, double>, 2, 1, 1, double>);    // fixed gain
 static_assert(StateEstimator<FixedGainObserver<3, 1, 1, double, 1>, 3, 1, 1, double>); // fixed gain, anchored
 static_assert(StateEstimator<MHE<1, 1, 1, 4, double>, 1, 1, 1, double>);
@@ -229,6 +232,7 @@ TEST_CASE("fused step(y, u) equals the manual predict/update sequence") {
 
         KalmanFilter<2, 1, 1, double, 2, 1> fused{kd};
         KalmanFilter<2, 1, 1, double, 2, 1> manual{kd};
+        CHECK(fused.valid());
         for (int k = 0; k < 30; ++k) {
             const ColVec<1> y{0.1 * k};
             const ColVec    u{0.5};

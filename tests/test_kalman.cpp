@@ -34,7 +34,7 @@ TEST_CASE("Kalman predict/update 1D") {
     sys.H(0, 0) = 1.0;
     sys.Ts = 1.0; // discrete system
 
-    KalmanFilter kf{sys, {.Q = 0.1, .R = 0.25}};
+    KalmanFilter kf{sys, {.process = 0.1, .measurement = 0.25}};
 
     ColVec u = {0.0};
     kf.predict(u);
@@ -452,7 +452,7 @@ TEST_CASE("Kalman set_state clamps the estimate to a physical bound") {
     sys.H(0, 0) = 1.0;
     sys.Ts = 1.0;
 
-    KalmanFilter kf{sys, {.Q = 0.1, .R = 0.25}};
+    KalmanFilter kf{sys, {.process = 0.1, .measurement = 0.25}};
 
     kf.predict({});
     REQUIRE(kf.update(ColVec{-5.0})); // measurement drives estimate negative
@@ -489,7 +489,7 @@ TEST_CASE("Kalman Joseph update keeps P symmetric; singular S fails closed") {
     sys.H = Matrix<1, 1, double>::identity();
     sys.Ts = 0.1;
 
-    KalmanFilter kf{sys, {.Q = Matrix<2, 2, double>::identity() * 0.01, .R = 0.1}};
+    KalmanFilter kf{sys, {.process = Matrix<2, 2, double>::identity() * 0.01, .measurement = 0.1}};
 
     kf.predict(ColVec{0.0});
     REQUIRE(kf.update(ColVec{1.0}));
@@ -499,7 +499,7 @@ TEST_CASE("Kalman Joseph update keeps P symmetric; singular S fails closed") {
     CHECK(P(1, 1) > 0.0);
 
     // Zero R and zero prior on the measured channel → S singular → update rejects.
-    KalmanFilter kf_sing{sys, {.Q = Matrix<2, 2, double>::zeros(), .R = 0.0, .P0 = Matrix<2, 2, double>::zeros()}};
+    KalmanFilter kf_sing{sys, {.process = Matrix<2, 2, double>::zeros(), .measurement = 0.0}, {}, Matrix<2, 2, double>::zeros()};
     kf_sing.predict(ColVec{0.0});
     CHECK(kf_sing.last_status() == UpdateStatus::ok); // no update yet
     CHECK_FALSE(kf_sing.update(ColVec{1.0}));
@@ -523,7 +523,7 @@ TEST_CASE("KalmanFilter fuses a second sensor of another size: update(y, C, R) a
     sys.H = Matrix<1, 1, double>::identity();
     sys.Ts = 1.0;
 
-    KalmanFilter kf{sys, {.Q = Matrix<2, 2, double>::zeros(), .R = 1.0}};
+    KalmanFilter kf{sys, {.process = Matrix<2, 2, double>::zeros(), .measurement = 1.0}};
     static_assert(std::is_same_v<decltype(kf), KalmanFilter<2, 1, 1, double, 2, 1>>);
     kf.predict(ColVec{0.0});
 

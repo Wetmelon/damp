@@ -338,6 +338,19 @@ TEST_SUITE("NaN guards") {
             CHECK(FixedGainObserver<2, 1, 1, T>{placed}.valid());
             placed.sys.Ts = bad;
             CHECK_FALSE(FixedGainObserver<2, 1, 1, T>{placed}.valid());
+
+            auto filtered = design::kalman(sys, design::KalmanNoise{.process = Matrix<2, 2, T>::identity(), .measurement = static_cast<T>(0.01)});
+            REQUIRE(filtered.success);
+            CHECK(KalmanFilter{filtered}.valid());
+            filtered.sys.Ts = bad;
+            CHECK_FALSE(KalmanFilter{filtered}.valid());
+            // The model route: the same model and noise, the estimate held where it starts.
+            KalmanFilter recursive{filtered.sys, {.process = filtered.Q, .measurement = filtered.R}, ColVec<2, T>{T{1}, T{2}}};
+            CHECK_FALSE(recursive.valid());
+            recursive.predict(ColVec<1, T>{T{1}});
+            CHECK_FALSE(recursive.update(ColVec<1, T>{T{0}}));
+            CHECK(recursive.state()[0] == T{1});
+            CHECK(recursive.state()[1] == T{2});
         }
     }
 

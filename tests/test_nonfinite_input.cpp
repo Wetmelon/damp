@@ -220,7 +220,7 @@ TEST_SUITE("KalmanFilter refuses a non-finite reading covariance") {
                 const size_t i = at.first;
                 const size_t j = at.second;
                 INFO("value ", k, " at (", i, ", ", j, ")");
-                KalmanFilter kf{sys, {.Q = Matrix<2, 2, T>::identity() * T(0.25), .R = T(1)}};
+                KalmanFilter kf{sys, {.process = Matrix<2, 2, T>::identity() * T(0.25), .measurement = T(1)}};
                 kf.predict(ColVec<1, T>{T(0.5)});
                 REQUIRE(kf.update(ColVec<1, T>{T(0.75)})); // a finite x and a full P to keep
                 const ColVec<2, T>    x0 = kf.state();

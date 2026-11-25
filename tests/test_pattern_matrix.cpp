@@ -320,7 +320,7 @@ TEST_SUITE("Kalman and EKF readings on sparse matrices") {
     /// The same run with C on its pattern and dense, comparing the whole filter after every reading.
     template<const auto& CPattern, bool WithFeedthrough>
     void check_kalman_run() {
-        KalmanFilter       sparse{wiggled_plant(), {.Q = Matrix<NK, NK>::identity() * 1e-3, .R = Matrix<3, 3>::identity(), .P0 = spd<NK>(0.4)}};
+        KalmanFilter       sparse{wiggled_plant(), {.process = Matrix<NK, NK>::identity() * 1e-3, .measurement = Matrix<3, 3>::identity()}, {}, spd<NK>(0.4)};
         auto               dense = sparse;
         const Matrix       D{{0.2}, {-0.1}, {0.4}};
         const Matrix<3, 3> R = Matrix<3, 3>::identity() * 0.5;
@@ -362,9 +362,26 @@ TEST_SUITE("Kalman and EKF readings on sparse matrices") {
     }
 
     TEST_CASE("KalmanFilter: a reading on its pattern that cannot be solved leaves the filter as it was") {
-        KalmanFilter         f{wiggled_plant(), {.Q = Matrix<NK, NK>{}, .R = Matrix<3, 3>::identity(), .P0 = Matrix<NK, NK>{}}};
+        KalmanFilter         f{wiggled_plant(), {.process = Matrix<NK, NK>{}, .measurement = Matrix<3, 3>::identity()}, {}, Matrix<NK, NK>{}};
         const Matrix<NK, NK> before = f.covariance();
         CHECK_FALSE(f.update(ColVec{1.0, 1.0, 1.0}, PatternMatrix<kSelector, double>{}, Matrix<3, 3>{})); // S = 0
+        CHECK(gap(f.covariance(), before) == 0.0);
+        CHECK(gap(Matrix<NK, 1>(f.state()), Matrix<NK, 1>{}) == 0.0);
+    }
+
+    TEST_CASE("KalmanFilter: a filter that is not valid refuses a reading on its pattern too") {
+        auto continuous = wiggled_plant();
+        continuous.Ts = 0.0;
+        KalmanFilter f{continuous, {.process = Matrix<NK, NK>::identity() * 1e-3, .measurement = Matrix<3, 3>::identity()}};
+        REQUIRE_FALSE(f.valid());
+        PatternMatrix<kLever, double> C{};
+        fill(C, 0.4);
+        const Matrix<NK, NK> before = f.covariance();
+        CHECK_FALSE(f.update(ColVec{1.0, 1.0, 1.0}, C, Matrix<3, 3>::identity()));
+        CHECK(f.last_status() == UpdateStatus::refused);
+        f.reset();
+        CHECK_FALSE(f.update(ColVec{1.0, 1.0, 1.0}, C, Matrix{{0.2}, {-0.1}, {0.4}}, Matrix<3, 3>::identity()));
+        CHECK(f.last_status() == UpdateStatus::refused);
         CHECK(gap(f.covariance(), before) == 0.0);
         CHECK(gap(Matrix<NK, 1>(f.state()), Matrix<NK, 1>{}) == 0.0);
     }
