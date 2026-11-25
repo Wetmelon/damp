@@ -585,7 +585,7 @@ template<size_t N, typename T>
  * @note Compare with MATLAB®'s [A,B,C,D] = linmod(model, x, u). MATLAB®'s several
  *       outputs are one design::LinearizationResult here.
  */
-template<size_t NX, size_t NU, size_t NY, typename T = double, typename F, typename H>
+template<size_t NX, size_t NU, typename T = double, typename F, typename H, size_t NY = ::damp::detail::measurement_outputs<H, NX, NU, T>()>
 [[nodiscard]] constexpr design::LinearizationResult<NX, NU, NY, T> linmod(
     const F&             dynamics,
     const H&             output,
@@ -593,7 +593,7 @@ template<size_t NX, size_t NU, size_t NY, typename T = double, typename F, typen
     const ColVec<NU, T>& u_op,
     T                    epsilon = T{0}
 ) {
-    return design::linearize<NX, NU, NY, T>(dynamics, output, x_op, u_op, epsilon);
+    return design::linearize<NX, NU, T>(dynamics, output, x_op, u_op, epsilon);
 }
 
 /** @brief MATLAB® spellings of core size-deducing vocabulary (see matrix/concat.hpp). */
