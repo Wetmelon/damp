@@ -232,7 +232,8 @@ public:
         }
     }
 
-    [[nodiscard]] constexpr T last_u() const { return last_u_; }
+    /** @brief The command the last control() returned, or the one inject() set, as Cascade's and each law's. */
+    [[nodiscard]] constexpr T last_command() const { return last_u_; }
 
     constexpr void reset() {
         normal_.reset();

@@ -64,10 +64,10 @@ TEST_SUITE("Cascade and SwitchedController") {
         sw.set_mode(SwitchMode::Backup);
         CHECK(sw.control(1.0f, 0.0f) == doctest::Approx(0.1f));
         sw.inject(99.0f); // ignored outside Experiment
-        CHECK(sw.last_u() == doctest::Approx(0.1f));
+        CHECK(sw.last_command() == doctest::Approx(0.1f));
         sw.set_mode(SwitchMode::Experiment);
         sw.inject(7.0f);
-        CHECK(sw.last_u() == doctest::Approx(7.0f));
+        CHECK(sw.last_command() == doctest::Approx(7.0f));
     }
 
     TEST_CASE("SwitchedController set_mode resets newly selected path") {

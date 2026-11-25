@@ -523,6 +523,9 @@ struct PRController {
 
     [[nodiscard]] constexpr bool valid() const { return valid_; }
 
+    /** @brief The command the last control() returned, inside u_lim. */
+    [[nodiscard]] constexpr T last_command() const { return u_cmd; }
+
     /**
      * @brief Anti-windup after a downstream clamp: the resonant section holds (tracking_time = 0), or
      *        ΔR = min(Ts/T_t, 1)·(u_sat − (u + u_ff))
