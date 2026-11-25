@@ -18,12 +18,12 @@
  * @code
  * using namespace damp;
  * // discrete plant: per-step process covariance, per-reading measurement variance
- * constexpr auto res = design::kalman(sys, design::KalmanNoise{.process = Qd, .measurement = sigma2});
+ * constexpr auto res = design::kalman(sys, {.process = Qd, .measurement = sigma2});
  * // continuous plant: process-noise density (Van Loan'd), the same per-reading variance
- * constexpr auto res_c = design::kalman(sys_c, Ts, design::KalmanNoise{.process = Qc, .measurement = sigma2});
+ * constexpr auto res_c = design::kalman(sys_c, Ts, {.process = Qc, .measurement = sigma2});
  * // a filter on [x; d]: noise.disturbance is the random walk of d
  * // (the disturbance spec sets the count, so the noise is a plain braced list)
- * constexpr auto res_d = design::kalman(sys, design::KalmanNoise{.process = Qd, .measurement = sigma2, .disturbance = Qdd}, design::InputDisturbance{});
+ * constexpr auto res_d = design::kalman(sys, {.process = Qd, .measurement = sigma2, .disturbance = Qdd}, design::InputDisturbance{});
  * static constinit FixedGainObserver obs{res};     // the fixed gain M (fixed_gain_observer.hpp); a failed design does not compile
  * static constinit KalmanFilter filt{res};  // the recursive filter, P∞ its initial P
  * // each tick: auto xhat = obs.step(y, u);  // or obs.predict(u); obs.update(y, u); for a split tick
@@ -65,13 +65,16 @@ namespace design {
  * converts a density with R/Ts, which assumes an integrate-and-dump sampler whose noise
  * bandwidth tracks Ts; damp does not (matlab::kalmd keeps that convention).
  *
- * A design takes the noise among its trailing options, and the noise deduces its sizes from its
- * fields: a matrix gives its own, a scalar is 1 × 1 (`KalmanNoise{.process = diag(1e-6, 1e-2),
- * .measurement = 0.01}` is KalmanNoise<2, 1>). The design refuses one not sized to its plant.
+ * design::kalman takes the noise as the argument after the plant (and Ts), sized from the plant
+ * and its options, so bare braces take it: `design::kalman(plant, Ts, {.process = Qc,
+ * .measurement = 0.01})`. design::state_feedback and design::mpc take it among their trailing
+ * options, where it picks the law, and there the noise deduces its sizes from its fields: a
+ * matrix gives its own, a scalar is 1 × 1 (`KalmanNoise{.process = diag(1e-6, 1e-2),
+ * .measurement = 0.01}` is KalmanNoise<2, 1>). A design refuses one not sized to its plant.
  *
  * @code
- * design::kalman(continuous_sys, Ts, design::KalmanNoise{.process = Qc, .measurement = sigma2});
- * design::kalman(discrete_sys, design::KalmanNoise{.process = Qd, .measurement = sigma2});
+ * design::kalman(continuous_sys, Ts, {.process = Qc, .measurement = sigma2});
+ * design::kalman(discrete_sys, {.process = Qd, .measurement = sigma2});
  * @endcode
  *
  * With a disturbance model (a filter on [x; d]), @c disturbance is the random walk of d: how
@@ -661,8 +664,8 @@ template<Domain D, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_
     }
 }
 
-/** @brief The options kalman takes: its noise (required), a disturbance spec, a MeasuredDisturbance, an InputDelay, an OutputDelay. */
-using kalman_options = option_set<kind::InputDelay, kind::OutputDelay, kind::Disturbance, kind::MeasuredDisturbance, kind::KalmanNoise>;
+/** @brief The options kalman takes after its noise: a disturbance spec, a MeasuredDisturbance, an InputDelay, an OutputDelay. */
+using kalman_options = option_set<kind::InputDelay, kind::OutputDelay, kind::Disturbance, kind::MeasuredDisturbance>;
 
 /** @brief A filter design @p kf on @p sys with the measured disturbance @p measured as known inputs after u (with_measured_inputs); itself without one (NM = 0). */
 template<Domain D, size_t NXK, size_t NU, size_t NY, typename T, size_t NWK, size_t NVK, size_t ND, size_t NX, size_t NYP, size_t NW, size_t NV, size_t NM, typename Delay>
@@ -702,13 +705,38 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
     }
 }
 
-/** @brief design::kalman with its trailing options, in the plant's own domain (@p D plant) or at @p Ts. */
+/**
+ * @brief The compile error of a design::kalman call whose argument after the plant (and Ts) is not
+ *        the noise the plant takes: a KalmanNoise of another size, or something else where the
+ *        noise goes (an option, or nothing).
+ */
+template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Noise, typename... Opts>
+consteval void refuse_kalman_noise() {
+    if constexpr (OptionOf<Noise, kind::KalmanNoise>) {
+        static_assert(
+            damp::is_same_v<Noise, noise_for<NX, NU, NY, T, NW, NV, Opts...>>,
+            "The KalmanNoise is sized to the plant: .process NX x NX (or the columns of G when the plant names them), .measurement NY x NY, "
+            "and with a disturbance spec .disturbance ND x ND (its states), in the plant's scalar. Bare braces take that size: kalman(plant, Ts, {.process = ..., .measurement = ...})."
+        );
+    } else {
+        static_assert(
+            OptionOf<Noise, kind::KalmanNoise>,
+            "kalman takes its noise as the argument after the plant (and Ts), sized from the plant: kalman(plant, Ts, {.process = ..., .measurement = ...}, opts...)."
+        );
+    }
+}
+
+/** @brief design::kalman with its @p noise and its trailing options, in the plant's own domain (@p D plant) or at @p Ts. */
 template<Domain D, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename... Opts>
-[[nodiscard]] constexpr auto kalman_with(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T Ts, const Opts&... opts) {
-    kalman_options::check<Opts...>();
-    static_assert(option_count<kind::KalmanNoise, Opts...> == 1, "kalman needs its noise among the options: kalman(plant, Ts, KalmanNoise{.process = ..., .measurement = ...}).");
+[[nodiscard]] constexpr auto kalman_with(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T Ts, const noise_for<NX, NU, NY, T, NW, NV, Opts...>& noise, const Opts&... opts) {
+    static_assert(
+        option_count<kind::KalmanNoise, Opts...> == 0,
+        "kalman takes its noise once, as the argument after the plant (and Ts): kalman(plant, Ts, {.process = ..., .measurement = ...}, opts...)."
+    );
+    if constexpr (option_count<kind::KalmanNoise, Opts...> == 0) {
+        kalman_options::check<Opts...>();
+    }
     constexpr bool kModelFits = check_delays<D, Opts...>() && check_disturbance<NX, NY, T, Opts...>();
-    const auto     noise = noise_of<NX, NU, NY, T, NW, NV>(opts...);
     const auto     delay = delays_of(opts...);
     const auto     measured = measured_of<NX, T>(opts...);
     using Disturbance = option_t<kind::Disturbance, NoDisturbance, Opts...>;
@@ -790,15 +818,30 @@ template<Domain D, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_
  *      2003), AIChE Journal 49(2)
  * @see "Disturbance modeling for offset-free linear model predictive control" (Muske &
  *      Badgwell, 2002), Journal of Process Control 12(5)
- * @param opts   The KalmanNoise{.process, .measurement[, .disturbance]}, required: per-step process
- *               covariance (NW × NW, positive semidefinite), per-reading measurement variance
- *               (NV × NV, positive definite) and, with a disturbance spec, the random walk of d
- *               (positive definite); and a disturbance spec, or none
+ * @param noise  KalmanNoise{.process, .measurement[, .disturbance]}, sized from the plant and the
+ *               options, so bare braces take it: per-step process covariance (NW × NW, positive
+ *               semidefinite), per-reading measurement variance (NV × NV, positive definite) and,
+ *               with a disturbance spec, the random walk of d (positive definite)
+ * @param opts   A disturbance spec and a MeasuredDisturbance, each or none
  * @return KalmanResult, on [x; d] with a disturbance spec: the gains L and M, error covariance P and status
  */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename... Opts>
-[[nodiscard]] constexpr auto kalman(const StateSpace<NX, NU, NY, T, NW, NV>& sys, const Opts&... opts) {
-    return detail::kalman_with<detail::Domain::plant>(sys, T{0}, opts...);
+[[nodiscard]] constexpr auto kalman(const StateSpace<NX, NU, NY, T, NW, NV>& sys, const detail::noise_for<NX, NU, NY, T, NW, NV, Opts...>& noise, const Opts&... opts) {
+    return detail::kalman_with<detail::Domain::plant>(sys, T{0}, noise, opts...);
+}
+
+/**
+ * @brief Refuses a design::kalman call whose argument after the plant is not the plant's noise: a
+ *        KalmanNoise of another size, or an option where the noise goes. Does not compile.
+ */
+template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Noise, typename... Opts>
+    requires(!damp::is_arithmetic_v<Noise> && !damp::is_same_v<Noise, detail::noise_for<NX, NU, NY, T, NW, NV, Opts...>>)
+constexpr auto kalman(const StateSpace<NX, NU, NY, T, NW, NV>& sys, const Noise& noise, const Opts&... opts) {
+    detail::refuse_kalman_noise<NX, NU, NY, T, NW, NV, Noise, Opts...>();
+    static_cast<void>(sys);
+    static_cast<void>(noise);
+    (static_cast<void>(opts), ...);
+    return KalmanResult<NX, NU, NY, T>{}; // the message says why: nothing further
 }
 
 /**
@@ -864,19 +907,46 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, type
  *   discretization of [A, B_d; 0, 0] read through [C, C_d], d last.
  *
  * @code
- * constexpr auto kf = design::kalman(plant, 0.01, design::KalmanNoise{.process = Qc, .measurement = sigma2}, InputDelay<3>{0.022});
- * constexpr auto camera = design::kalman(plant, 0.01, design::KalmanNoise{.process = Qc, .measurement = sigma2}, OutputDelay<2>{0.015});
+ * constexpr auto kf = design::kalman(plant, 0.01, {.process = Qc, .measurement = sigma2}, InputDelay<3>{0.022});
+ * constexpr auto camera = design::kalman(plant, 0.01, {.process = Qc, .measurement = sigma2}, OutputDelay<2>{0.015});
  * @endcode
- * @param opts   The KalmanNoise{.process, .measurement[, .disturbance]}, required: process-noise
- *               density on the NW inputs of G (positive semidefinite), per-reading measurement
- *               variance on the NV inputs of H (positive definite, no Ts scaling) and, with a
- *               disturbance spec, the density of d's random walk; a disturbance spec, an
- *               InputDelay and an OutputDelay, each or none
+ * @param noise  KalmanNoise{.process, .measurement[, .disturbance]}, sized from the plant and the
+ *               options, so bare braces take it: process-noise density on the NW inputs of G
+ *               (positive semidefinite), per-reading measurement variance on the NV inputs of H
+ *               (positive definite, no Ts scaling) and, with a disturbance spec, the density of
+ *               d's random walk
+ * @param opts   A disturbance spec, a MeasuredDisturbance, an InputDelay and an OutputDelay, each or none
  * @return KalmanResult on the discretized plant, its delay states and d (G = I, or [I; 0] with an InputDelay alone), with L, M, P and status
  */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename... Opts>
-[[nodiscard]] constexpr auto kalman(const StateSpace<NX, NU, NY, T, NW, NV>& sys, damp::type_identity_t<T> Ts, const Opts&... opts) {
-    return detail::kalman_with<detail::Domain::sampled>(sys, Ts, opts...);
+[[nodiscard]] constexpr auto kalman(
+    const StateSpace<NX, NU, NY, T, NW, NV>& sys, damp::type_identity_t<T> Ts, const detail::noise_for<NX, NU, NY, T, NW, NV, Opts...>& noise, const Opts&... opts
+) {
+    return detail::kalman_with<detail::Domain::sampled>(sys, Ts, noise, opts...);
+}
+
+/**
+ * @brief Refuses a sampled design::kalman call whose argument after Ts is not the plant's noise: a
+ *        KalmanNoise of another size, or an option where the noise goes. Does not compile.
+ */
+template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Noise, typename... Opts>
+    requires(!damp::is_same_v<Noise, detail::noise_for<NX, NU, NY, T, NW, NV, Opts...>>)
+constexpr auto kalman(const StateSpace<NX, NU, NY, T, NW, NV>& sys, damp::type_identity_t<T> Ts, const Noise& noise, const Opts&... opts) {
+    detail::refuse_kalman_noise<NX, NU, NY, T, NW, NV, Noise, Opts...>();
+    static_cast<void>(sys);
+    static_cast<void>(Ts);
+    static_cast<void>(noise);
+    (static_cast<void>(opts), ...);
+    return KalmanResult<NX, NU, NY, T>{}; // the message says why: nothing further
+}
+
+/** @brief Refuses design::kalman(plant, Ts) with no noise. Does not compile. */
+template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
+constexpr auto kalman(const StateSpace<NX, NU, NY, T, NW, NV>& sys, damp::type_identity_t<T> Ts) {
+    detail::refuse_kalman_noise<NX, NU, NY, T, NW, NV, NoDisturbance>(); // no noise where the noise goes
+    static_cast<void>(sys);
+    static_cast<void>(Ts);
+    return KalmanResult<NX, NU, NY, T>{};
 }
 
 } // namespace design

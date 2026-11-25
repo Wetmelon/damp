@@ -121,7 +121,7 @@ the repo root.
   `SmithPredictor`.
 - **Design calls:** what every call needs is positional (the plant, `Ts` for a
   continuous one, the weights: `state_feedback`'s `LQRWeights`, or `Poles{…}` for the
-  gain placed there), so braces size it from the plant; the rest is a
+  gain placed there, a filter design's noise, `kalman(plant, Ts, {.process, .measurement})` and `mhe`'s), so braces size it from the plant; the rest is a
   trailing pack recognized by type (`design/options.hpp`: `KalmanNoise`, `ObserverPoles`,
   `InputDelay`, `OutputDelay`, `IntegralAction`, `TrackedOutputs`, `InputLimits`, `InputRateLimits`, `DemandLimit`,
   `OutputLimits`, `StateLimits`, `DareCost`, `InvariantSet`, `QPIterations`, a disturbance spec, `MeasuredDisturbance`, `Handover`, …),
