@@ -44,9 +44,9 @@ TEST_CASE("Middlebrook: impedance - pure resistance") {
     // This gives G(s) = 0*1/(s+1) + R = R for all s.
 
     constexpr double R = 10.0;
-    constexpr auto   A = Matrix<1, 1, double>{{-1.0}};
-    constexpr auto   B = Matrix<1, 1, double>{{0.0}};
-    constexpr auto   C = Matrix<1, 1, double>{{0.0}};
+    constexpr auto   A = Matrix{{-1.0}};
+    constexpr auto   B = Matrix{{0.0}};
+    constexpr auto   C = Matrix{{0.0}};
     constexpr auto   D = Matrix<1, 1, double>{{R}};
     constexpr auto   sys = StateSpace<1, 1, 1>{A, B, C, D};
 
@@ -85,9 +85,9 @@ TEST_CASE("Middlebrook: impedance - RL impedance") {
     constexpr double pole = R / L; // 5000
 
     constexpr auto A = Matrix<1, 1, double>{{-pole}};
-    constexpr auto B = Matrix<1, 1, double>{{1.0}};
+    constexpr auto B = Matrix{{1.0}};
     constexpr auto C = Matrix<1, 1, double>{{R * pole}};
-    constexpr auto D = Matrix<1, 1, double>{{0.0}};
+    constexpr auto D = Matrix{{0.0}};
     constexpr auto sys = StateSpace<1, 1, 1>{A, B, C, D};
 
     auto omega = geomspace(1.0, 1000000.0, 200);
@@ -116,10 +116,10 @@ TEST_CASE("Middlebrook: stable system - Zs << ZL") {
     //   A_s = [-1000], B_s = [1], C_s = [100], D_s = [0]
     //   G(s) = 100/(s+1000) = 0.1/(1+s/1000) ✓
 
-    constexpr auto A_s = Matrix<1, 1, double>{{-1000.0}};
-    constexpr auto B_s = Matrix<1, 1, double>{{1.0}};
-    constexpr auto C_s = Matrix<1, 1, double>{{100.0}};
-    constexpr auto D_s = Matrix<1, 1, double>{{0.0}};
+    constexpr auto A_s = Matrix{{-1000.0}};
+    constexpr auto B_s = Matrix{{1.0}};
+    constexpr auto C_s = Matrix{{100.0}};
+    constexpr auto D_s = Matrix{{0.0}};
     constexpr auto Zs_sys = StateSpace<1, 1, 1>{A_s, B_s, C_s, D_s};
 
     // Load: high impedance, Z_L(s) = 100 / (s/500 + 1)
@@ -127,10 +127,10 @@ TEST_CASE("Middlebrook: stable system - Zs << ZL") {
     //   A_L = [-500], B_L = [1], C_L = [50000], D_L = [0]
     //   G(s) = 50000/(s+500) = 100/(1+s/500) ✓
 
-    constexpr auto A_L = Matrix<1, 1, double>{{-500.0}};
-    constexpr auto B_L = Matrix<1, 1, double>{{1.0}};
-    constexpr auto C_L = Matrix<1, 1, double>{{50000.0}};
-    constexpr auto D_L = Matrix<1, 1, double>{{0.0}};
+    constexpr auto A_L = Matrix{{-500.0}};
+    constexpr auto B_L = Matrix{{1.0}};
+    constexpr auto C_L = Matrix{{50000.0}};
+    constexpr auto D_L = Matrix{{0.0}};
     constexpr auto ZL_sys = StateSpace<1, 1, 1>{A_L, B_L, C_L, D_L};
 
     auto omega = geomspace(0.1, 100000.0, 200);
@@ -154,18 +154,18 @@ TEST_CASE("Middlebrook: stable system - Zs << ZL") {
 TEST_CASE("Middlebrook: unstable system - Zs > ZL at some frequencies") {
     // Source: high impedance at mid frequencies
     // Z_s = 100 / (s/1000 + 1)  => DC = 100 Ω, drops above 1 krad/s
-    constexpr auto A_s = Matrix<1, 1, double>{{-1000.0}};
-    constexpr auto B_s = Matrix<1, 1, double>{{1.0}};
-    constexpr auto C_s = Matrix<1, 1, double>{{100000.0}};
-    constexpr auto D_s = Matrix<1, 1, double>{{0.0}};
+    constexpr auto A_s = Matrix{{-1000.0}};
+    constexpr auto B_s = Matrix{{1.0}};
+    constexpr auto C_s = Matrix{{100000.0}};
+    constexpr auto D_s = Matrix{{0.0}};
     constexpr auto Zs_sys = StateSpace<1, 1, 1>{A_s, B_s, C_s, D_s};
 
     // Load: low impedance at low frequencies
     // Z_L = 1 / (s/10000 + 1)  => DC = 1 Ω
-    constexpr auto A_L = Matrix<1, 1, double>{{-10000.0}};
-    constexpr auto B_L = Matrix<1, 1, double>{{1.0}};
-    constexpr auto C_L = Matrix<1, 1, double>{{10000.0}};
-    constexpr auto D_L = Matrix<1, 1, double>{{0.0}};
+    constexpr auto A_L = Matrix{{-10000.0}};
+    constexpr auto B_L = Matrix{{1.0}};
+    constexpr auto C_L = Matrix{{10000.0}};
+    constexpr auto D_L = Matrix{{0.0}};
     constexpr auto ZL_sys = StateSpace<1, 1, 1>{A_L, B_L, C_L, D_L};
 
     auto omega = geomspace(0.1, 100000.0, 200);
@@ -205,9 +205,9 @@ TEST_CASE("Middlebrook: admittance models through impedance_from_admittance") {
     constexpr double R_s = 10.0; // DC impedance
     constexpr double p_s = 1000.0;
     constexpr auto   A_ys = Matrix<1, 1, double>{{-p_s}};
-    constexpr auto   B_ys = Matrix<1, 1, double>{{1.0}};
+    constexpr auto   B_ys = Matrix{{1.0}};
     constexpr auto   C_ys = Matrix<1, 1, double>{{p_s / R_s}}; // = 100
-    constexpr auto   D_ys = Matrix<1, 1, double>{{0.0}};
+    constexpr auto   D_ys = Matrix{{0.0}};
     constexpr auto   Ys_sys = StateSpace<1, 1, 1>{A_ys, B_ys, C_ys, D_ys};
 
     // Load admittance: Y_L = 1/(s*tau_L + 1) / R_L, R_L = 1000
@@ -215,9 +215,9 @@ TEST_CASE("Middlebrook: admittance models through impedance_from_admittance") {
     constexpr double R_L = 1000.0;
     constexpr double p_L = 500.0;
     constexpr auto   A_yL = Matrix<1, 1, double>{{-p_L}};
-    constexpr auto   B_yL = Matrix<1, 1, double>{{1.0}};
+    constexpr auto   B_yL = Matrix{{1.0}};
     constexpr auto   C_yL = Matrix<1, 1, double>{{p_L / R_L}}; // = 0.5
-    constexpr auto   D_yL = Matrix<1, 1, double>{{0.0}};
+    constexpr auto   D_yL = Matrix{{0.0}};
     constexpr auto   YL_sys = StateSpace<1, 1, 1>{A_yL, B_yL, C_yL, D_yL};
 
     auto omega = geomspace(0.1, 100000.0, 100);
@@ -243,9 +243,9 @@ TEST_CASE("impedance: discrete plant evaluates on unit circle z=e^{jωTs}") {
     // D-only path; using jω on a discrete A would not be the intended evaluation.
     constexpr double R = 7.0;
     constexpr double Ts = 0.001;
-    constexpr auto   A = Matrix<1, 1, double>{{-0.5}};
-    constexpr auto   B = Matrix<1, 1, double>{{0.0}};
-    constexpr auto   C = Matrix<1, 1, double>{{0.0}};
+    constexpr auto   A = Matrix{{-0.5}};
+    constexpr auto   B = Matrix{{0.0}};
+    constexpr auto   C = Matrix{{0.0}};
     constexpr auto   D = Matrix<1, 1, double>{{R}};
     auto             sys = StateSpace<1, 1, 1>{A, B, C, D};
     sys.Ts = Ts;
@@ -263,17 +263,17 @@ TEST_CASE("impedance: discrete plant evaluates on unit circle z=e^{jωTs}") {
 TEST_CASE("Middlebrook: gain and phase margin delegation") {
     // Create a system where we can compute known margins
     // Source: Z_s = 1 (unit resistance, constant)
-    constexpr auto A_s = Matrix<1, 1, double>{{-1.0}};
-    constexpr auto B_s = Matrix<1, 1, double>{{0.0}};
-    constexpr auto C_s = Matrix<1, 1, double>{{0.0}};
-    constexpr auto D_s = Matrix<1, 1, double>{{1.0}};
+    constexpr auto A_s = Matrix{{-1.0}};
+    constexpr auto B_s = Matrix{{0.0}};
+    constexpr auto C_s = Matrix{{0.0}};
+    constexpr auto D_s = Matrix{{1.0}};
     constexpr auto Zs_sys = StateSpace<1, 1, 1>{A_s, B_s, C_s, D_s};
 
     // Load: Z_L = 10 (constant, 10x bigger)
-    constexpr auto A_L = Matrix<1, 1, double>{{-1.0}};
-    constexpr auto B_L = Matrix<1, 1, double>{{0.0}};
-    constexpr auto C_L = Matrix<1, 1, double>{{0.0}};
-    constexpr auto D_L = Matrix<1, 1, double>{{10.0}};
+    constexpr auto A_L = Matrix{{-1.0}};
+    constexpr auto B_L = Matrix{{0.0}};
+    constexpr auto C_L = Matrix{{0.0}};
+    constexpr auto D_L = Matrix{{10.0}};
     constexpr auto ZL_sys = StateSpace<1, 1, 1>{A_L, B_L, C_L, D_L};
 
     auto omega = geomspace(0.1, 100000.0, 100);

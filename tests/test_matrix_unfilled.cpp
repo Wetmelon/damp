@@ -183,8 +183,8 @@ TEST_SUITE("Matrix without a zero-fill") {
 #endif
 
     TEST_CASE("a product summing to -0 is +0, as a zero-filled sum gives" * doctest::skip(kDropsSignedZeros)) {
-        const Matrix<1, 2> a{{-0.0, 0.0}};
-        const Matrix<2, 1> b{{1.0}, {-1.0}};
+        const Matrix a{{-0.0, 0.0}};
+        const Matrix b{{1.0}, {-1.0}};
         CHECK_FALSE(std::signbit((a * b)(0, 0)));
     }
 
@@ -249,7 +249,7 @@ TEST_SUITE("Matrix without a zero-fill") {
     TEST_CASE("a triangular solve refuses a zero anywhere on the diagonal") {
         Matrix<3, 3> factor = Matrix<3, 3>::identity();
         factor(1, 1) = 0.0;
-        const Matrix<3, 2> rhs{{1.0, 2.0}, {3.0, 4.0}, {5.0, 6.0}};
+        const Matrix rhs{{1.0, 2.0}, {3.0, 4.0}, {5.0, 6.0}};
         CHECK_FALSE(mat::solve(factor.lower_triangle(), rhs).has_value());
         CHECK_FALSE(mat::solve(factor.upper_triangle(), rhs).has_value());
     }
@@ -277,9 +277,9 @@ TEST_SUITE("Matrix without a zero-fill") {
 
     TEST_CASE("constant evaluation still starts from zeros") {
         static_assert(Matrix<2, 2>{detail::unfilled}(1, 1) == 0.0);
-        static constexpr Matrix<2, 2> a{{1.0, 0.0}, {0.0, 0.0}};
-        static constexpr Matrix<2, 2> b{{5.0, 6.0}, {7.0, 8.0}};
-        static constexpr auto         p = a * b;
+        static constexpr Matrix a{{1.0, 0.0}, {0.0, 0.0}};
+        static constexpr Matrix b{{5.0, 6.0}, {7.0, 8.0}};
+        static constexpr auto   p = a * b;
         static_assert(p(0, 0) == 5.0 && p(0, 1) == 6.0 && p(1, 0) == 0.0 && p(1, 1) == 0.0);
         static constexpr auto q = a * b.t();
         static_assert(q(0, 0) == 5.0 && q(0, 1) == 7.0 && q(1, 0) == 0.0 && q(1, 1) == 0.0);
@@ -288,7 +288,7 @@ TEST_SUITE("Matrix without a zero-fill") {
             return c;
         }();
         static_assert(copy == b);
-        static constexpr auto solved = mat::cholesky_solve(Matrix<2, 2>{{4.0, 0.0}, {0.0, 9.0}}, Matrix<2, 1>{{8.0}, {27.0}});
+        static constexpr auto solved = mat::cholesky_solve(Matrix{{4.0, 0.0}, {0.0, 9.0}}, Matrix{{8.0}, {27.0}});
         static_assert(solved.has_value() && (*solved)(0, 0) == 2.0 && (*solved)(1, 0) == 3.0);
         CHECK(p(0, 0) == 5.0);
     }

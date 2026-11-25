@@ -35,7 +35,7 @@ static constexpr int OUTPUT = 1;
 static constinit Law<lqi_result, float> controller; // the design's LQI in float, its gains constants of the type
 
 static ColVec<2, float> read_state() {
-    return ColVec<2, float>{0.0f, 0.0f};
+    return ColVec{0.0f, 0.0f};
 }
 
 static void write_force(float /*u*/) {}

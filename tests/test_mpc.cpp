@@ -179,9 +179,9 @@ constexpr bool deduces_to(const Got& got) {
 template<size_t N>
 constexpr bool deduced_in_template() {
     return deduces_to<design::InputLimits<1>>(design::InputLimits{.upper = {1.0}})
-        && deduces_to<design::InputLimits<2>>(design::InputLimits{.lower = ColVec<2>{-1.0, -2.0}, .upper = {1.0, 2.0}})
+        && deduces_to<design::InputLimits<2>>(design::InputLimits{.lower = ColVec{-1.0, -2.0}, .upper = {1.0, 2.0}})
         && deduces_to<design::InputRateLimits<1>>(design::InputRateLimits{.lower = {-0.2}, .upper = {0.2}})
-        && deduces_to<design::InputRateLimits<2, float>>(design::InputRateLimits{.upper = ColVec<2, float>{1.0f, 2.0f}})
+        && deduces_to<design::InputRateLimits<2, float>>(design::InputRateLimits{.upper = ColVec{1.0f, 2.0f}})
         && deduces_to<design::OutputLimits<2>>(design::OutputLimits{.outputs = {1, 2}, .lower = {-0.4, -0.26}, .upper = {0.4, 0.26}})
         && deduces_to<design::StateLimits<1>>(design::StateLimits{.states = {2}, .lower = {-0.26}, .upper = {0.26}})
         && deduces_to<DemandLimit<3>>(DemandLimit{.state = 2, .outer = {0, 1, 4}, .lower = -0.26, .upper = 0.26}) && N == 0;
@@ -192,8 +192,8 @@ constexpr bool deduced_in_template() {
 TEST_CASE("unconstrained MPC with a DARE terminal weight reproduces the LQR law") {
     // Finite-horizon LQ with terminal cost S (the DARE solution) gives
     // u0 = -K x for any horizon; the MPC must match move for move.
-    const Matrix<2, 2> Q{{1.0, 0.0}, {0.0, 0.1}};
-    const Matrix<1, 1> R{{0.5}};
+    const Matrix Q{{1.0, 0.0}, {0.0, 0.1}};
+    const Matrix R{{0.5}};
 
     const auto lqr = design::discrete_lqr(double_integrator_full.A, double_integrator_full.B, Q, R);
     REQUIRE(lqr.success);
@@ -207,8 +207,8 @@ TEST_CASE("unconstrained MPC with a DARE terminal weight reproduces the LQR law"
     const auto art = design::mpc<8, 8>(double_integrator_full, weights); // a free move every step: equals LQR; no TrackedOutputs, a regulator
     REQUIRE(art.success);
 
-    MPC       controller{art};
-    ColVec<2> x{1.0, -0.5};
+    MPC    controller{art};
+    ColVec x{1.0, -0.5};
 
     for (size_t k = 0; k < 30; ++k) {
         const auto   u_mpc = controller.step(x);
@@ -229,9 +229,9 @@ TEST_CASE("constrained MPC tracks a step within u and du limits") {
     const auto art = design::mpc<20, 8>(double_integrator, weights, limits, moves, design::TrackedOutputs{});
     REQUIRE(art.success);
 
-    MPC             controller{art};
-    ColVec<2>       x{};
-    const ColVec<1> r{1.0};
+    MPC          controller{art};
+    ColVec<2>    x{};
+    const ColVec r{1.0};
 
     double u_last = 0.0;
     double u_peak = 0.0;
@@ -290,7 +290,7 @@ TEST_CASE("InputLimits and InputRateLimits are the QP and the commands MPCConstr
         damp::array<double, 9> out{};
         size_t                 next = 0;
         for (int k = 0; k < 40; ++k) {
-            const auto u = law.step(ColVec<1>{1.0}, x);
+            const auto u = law.step(ColVec{1.0}, x);
             if (k == 0 || k == 1 || k == 2 || k == 5 || k == 10 || k == 20 || k == 39) {
                 out[next++] = u(0);
             }
@@ -355,13 +355,13 @@ TEST_CASE("an OFMPC on the sampled form with InputLimits is the QP and the comma
     //! Recorded with MPCConstraints<1>{.u_lim = ±1.05, .du_lim = ±0.1} before InputLimits replaced it: a
     //! mass on a spring sampled at 0.05 s, its reading filtered, offset-free under a load at the input.
     constexpr StateSpace<2, 1, 1, double, 2, 1> spring{
-        .A = Matrix<2, 2>{{0.0, 1.0}, {-1.0, -0.5}},
-        .B = Matrix<2, 1>{{0.0}, {1.0}},
-        .C = Matrix<1, 2>{{1.0, 0.0}},
+        .A = Matrix{{0.0, 1.0}, {-1.0, -0.5}},
+        .B = Matrix{{0.0}, {1.0}},
+        .C = Matrix{{1.0, 0.0}},
         .G = Matrix<2, 2>::identity(),
         .H = Matrix<1, 1>::identity(),
     };
-    const design::KalmanNoise<2, 1, double, 1> noise{.process = Matrix<2, 2>{{0.01, 0.0}, {0.0, 0.1}}, .measurement = Matrix<1, 1>{{1e-4}}, .disturbance = Matrix<1, 1>{{1.0}}};
+    const design::KalmanNoise<2, 1, double, 1> noise{.process = Matrix{{0.01, 0.0}, {0.0, 0.1}}, .measurement = Matrix{{1e-4}}, .disturbance = Matrix{{1.0}}};
     const design::InputLimits                  limits{.lower = {-1.05}, .upper = {1.05}};
     const design::InputRateLimits              moves{.lower = {-0.1}, .upper = {0.1}};
     const auto                                 of = design::mpc<20, 5>(spring, 0.05, move_weight(0.1), limits, moves, noise, design::InputDisturbance{});
@@ -373,7 +373,7 @@ TEST_CASE("an OFMPC on the sampled form with InputLimits is the QP and the comma
     OFMPC      law{of};
     ColVec<2>  z{};
     for (int k = 0; k < 120; ++k) {
-        const auto u = law.step(ColVec<1>{1.0}, ColVec<1>{z(0)});
+        const auto u = law.step(ColVec{1.0}, ColVec<1>{z(0)});
         if (k == 0) {
             CHECK(u(0) == doctest::Approx(0.1).epsilon(1e-12));
         }
@@ -389,7 +389,7 @@ TEST_CASE("an OFMPC on the sampled form with InputLimits is the QP and the comma
         if (k == 119) {
             CHECK(u(0) == doctest::Approx(0.39438686032214743).epsilon(1e-8));
         }
-        z = (d.A * z) + (d.B * (u + ColVec<1>{0.3}));
+        z = (d.A * z) + (d.B * (u + ColVec{0.3}));
     }
     CHECK(z(0) == doctest::Approx(1.0915662238798631).epsilon(1e-8));
 }
@@ -408,9 +408,9 @@ TEST_CASE("set_limits changes the input limit at run time; a bad limit is refuse
     REQUIRE(controller.set_limits(lim));
     CHECK(controller.limits().input.upper(0) == 0.2);
 
-    ColVec<2>       x{};
-    const ColVec<1> r{1.0};
-    double          u_peak = 0.0;
+    ColVec<2>    x{};
+    const ColVec r{1.0};
+    double       u_peak = 0.0;
     for (size_t k = 0; k < 400; ++k) {
         const auto u = controller.step(r, x);
         REQUIRE(controller.last_status() == design::QPStatus::Success);
@@ -437,9 +437,9 @@ TEST_CASE("hard output constraint caps the predicted response") {
     const auto art = design::mpc<20, 8>(double_integrator, weights, limits, cap, design::TrackedOutputs{});
     REQUIRE(art.success);
 
-    MPC             controller{art};
-    ColVec<2>       x{};
-    const ColVec<1> r{1.0};
+    MPC          controller{art};
+    ColVec<2>    x{};
+    const ColVec r{1.0};
 
     for (size_t k = 0; k < 300; ++k) {
         const auto u = controller.step(r, x);
@@ -493,8 +493,8 @@ TEST_CASE_TEMPLATE("StateLimits bound a state the MPC does not track, hard or so
     // Soft (the default): started past the bound, every tick solves and the speed comes back inside.
     const auto soft_art = design::mpc<20, 8>(double_integrator, move_weight(0.01), limits, design::StateLimits{.states = {1}, .lower = {-0.3}, .upper = {0.3}}, design::TrackedOutputs{});
     REQUIRE(soft_art.success);
-    MPC       recovering{soft_art.template as<T>()};
-    ColVec<2> xs{0.0, 0.8};
+    MPC    recovering{soft_art.template as<T>()};
+    ColVec xs{0.0, 0.8};
     for (size_t k = 0; k < 100; ++k) {
         const auto u = recovering.step(ColVec<1, T>{T{0}}, xs.template as<T>());
         CHECK(recovering.last_status() == design::QPStatus::Success);
@@ -508,7 +508,7 @@ TEST_CASE("StateLimits refusals: a state past the model's, one listed twice, a b
     CHECK(design::mpc<10, 4>(double_integrator, move_weight(0.05), design::StateLimits{.states = {2}}, design::TrackedOutputs{}).status == design::DesignStatus::invalid_parameter);
     CHECK(design::mpc<10, 4>(double_integrator, move_weight(0.05), design::StateLimits{.states = {1, 1}}, design::TrackedOutputs{}).status == design::DesignStatus::invalid_parameter);
     CHECK(design::mpc<10, 4>(double_integrator, move_weight(0.05), design::StateLimits{.states = {1}, .lower = {1.0}, .upper = {-1.0}}, design::TrackedOutputs{}).status == design::DesignStatus::invalid_parameter);
-    CHECK(design::mpc<10, 4>(double_integrator, move_weight(0.05), design::StateLimits{.states = {1}, .lower_ecr = ColVec<1>{-1.0}}, design::TrackedOutputs{}).status == design::DesignStatus::bad_weights);
+    CHECK(design::mpc<10, 4>(double_integrator, move_weight(0.05), design::StateLimits{.states = {1}, .lower_ecr = ColVec{-1.0}}, design::TrackedOutputs{}).status == design::DesignStatus::bad_weights);
 }
 
 TEST_CASE("OutputLimits on two of four outputs is the QP of every output listed, the others at ±max, in fewer rows") {
@@ -562,12 +562,12 @@ TEST_CASE("OutputLimits on two of four outputs is the QP of every output listed,
     }
 
     //! The same commands, and the ones y_lim gave before the option.
-    MPC             la{a};
-    MPC             lb{b};
-    ColVec<4>       x{};
-    const ColVec<2> r{1.0, 0.5}; // the speeds at the target's 0
-    double          v_peak = 0.0;
-    double          p_peak = 0.0;
+    MPC          la{a};
+    MPC          lb{b};
+    ColVec<4>    x{};
+    const ColVec r{1.0, 0.5}; // the speeds at the target's 0
+    double       v_peak = 0.0;
+    double       p_peak = 0.0;
     for (size_t k = 0; k < 60; ++k) {
         const auto ua = la.step(r, x);
         const auto ub = lb.step(r, x);
@@ -636,8 +636,8 @@ TEST_CASE("soft output constraint recovers from an infeasible start") {
     design::InputLimits<1> limits{.lower = {-1.0}, .upper = {1.0}};
     design::OutputLimits   ceiling{.outputs = {0}, .upper = {1.0}};
 
-    const ColVec<2> x0{2.0, 0.0}; // x₀ = 2 > y.upper
-    const ColVec<1> r{0.5};
+    const ColVec x0{2.0, 0.0}; // x₀ = 2 > y.upper
+    const ColVec r{0.5};
 
     // Hard variant: first solve is infeasible and the fallback holds the input.
     {
@@ -678,10 +678,10 @@ TEST_CASE("an infeasible tick holds the last applied input inside the u box") {
     design::InputLimits<1> hard{.lower = {-1.0}, .upper = {1.0}};
     const auto             art = design::mpc<20, 8>(double_integrator, move_weight(0.01), hard, design::OutputLimits{.outputs = {0}, .upper = {1.0}, .upper_ecr = {0.0}}, design::TrackedOutputs{});
     REQUIRE(art.success);
-    MPC             controller{art};
-    ColVec<2>       x{};
-    const ColVec<1> r{0.5};
-    double          prev = 0.0;
+    MPC          controller{art};
+    ColVec<2>    x{};
+    const ColVec r{0.5};
+    double       prev = 0.0;
     for (size_t k = 0; k < 20; ++k) {
         const auto u = controller.step(r, x);
         CHECK(u(0) >= -1.0);
@@ -690,7 +690,7 @@ TEST_CASE("an infeasible tick holds the last applied input inside the u box") {
         prev = u(0);
         x = plant_step(x, u(0));
     }
-    x = ColVec<2>{2.0, 0.0};
+    x = ColVec{2.0, 0.0};
     const auto held = controller.step(r, x);
     CHECK(controller.last_status() == design::QPStatus::Infeasible);
     CHECK(held(0) == doctest::Approx(prev));
@@ -703,10 +703,10 @@ TEST_CASE("MaxIterations with hard output rows holds unless the iterate is prima
     const design::OutputLimits cap{.outputs = {0}, .upper = {1.02}, .upper_ecr = {0.0}};
     const auto                 art = design::mpc<30, 10>(double_integrator, move_weight(0.01), limits, cap, design::QPIterations{1}, design::TrackedOutputs{});
     REQUIRE(art.success);
-    MPC             controller{art};
-    ColVec<2>       x{};
-    const ColVec<1> r{1.0};
-    const auto      u0 = controller.step(r, x);
+    MPC          controller{art};
+    ColVec<2>    x{};
+    const ColVec r{1.0};
+    const auto   u0 = controller.step(r, x);
     CHECK(u0(0) >= -1.0);
     CHECK(u0(0) <= 1.0);
     const auto st0 = controller.last_status();
@@ -727,9 +727,9 @@ TEST_CASE("hard output rows with ill-scaled u and y boxes stay inside both") {
     design::InputLimits<1> limits{.lower = {-1.0e6}, .upper = {1.0e6}};
     const auto             art = design::mpc<20, 8>(double_integrator, move_weight(0.01), limits, design::OutputLimits{.outputs = {0}, .upper = {1.02}, .upper_ecr = {0.0}}, design::TrackedOutputs{});
     REQUIRE(art.success);
-    MPC             controller{art};
-    ColVec<2>       x{};
-    const ColVec<1> r{1.0};
+    MPC          controller{art};
+    ColVec<2>    x{};
+    const ColVec r{1.0};
     for (size_t k = 0; k < 80; ++k) {
         const auto u = controller.step(r, x);
         CHECK(u(0) >= -1.0e6);
@@ -749,8 +749,8 @@ TEST_CASE("measured-disturbance feedforward cancels a known load") {
 
     design::InputLimits<1> limits{.lower = {-2.0}, .upper = {2.0}};
 
-    const ColVec<1> r{0.5};
-    const double    d_load = 0.4;
+    const ColVec r{0.5};
+    const double d_load = 0.4;
 
     // With MD feedforward:
     const auto art_md = design::mpc<15, 5>(double_integrator, weights, limits, design::MeasuredDisturbance{Bd}, design::TrackedOutputs{});
@@ -805,7 +805,7 @@ TEST_CASE("input target pulls the input when tracking is indifferent") {
     CHECK(u(0) == doctest::Approx(0.3).epsilon(1e-6));
 
     // A new target takes effect without re-synthesis.
-    controller.set_input_target(ColVec<1>{-0.2});
+    controller.set_input_target(ColVec{-0.2});
     for (size_t k = 0; k < 100; ++k) {
         u = controller.step(r, x);
         x = plant_step(x, u(0));
@@ -832,11 +832,11 @@ TEST_CASE("automatic scaling is consistent with the unscaled problem") {
     CHECK(art_scaled.mpc.scale_u(0) == doctest::Approx(20.0));
     CHECK(art_scaled.mpc.scale_y(0) == doctest::Approx(20.0));
 
-    MPC             scaled{art_scaled};
-    MPC             unit{art_unit};
-    ColVec<2>       xs{};
-    ColVec<2>       xu{};
-    const ColVec<1> r{1.0};
+    MPC          scaled{art_scaled};
+    MPC          unit{art_unit};
+    ColVec<2>    xs{};
+    ColVec<2>    xu{};
+    const ColVec r{1.0};
 
     for (size_t k = 0; k < 100; ++k) {
         const auto us = scaled.step(r, xs);
@@ -862,9 +862,9 @@ TEST_CASE("scaling handles badly-conditioned mixed units") {
     const auto art = design::mpc<10, 4>(plant, design::MPCWeights<1, 1>{}, limits, range, design::TrackedOutputs{});
     REQUIRE(art.success);
 
-    MPC             controller{art};
-    ColVec<1>       x{};
-    const ColVec<1> r{500.0};
+    MPC          controller{art};
+    ColVec<1>    x{};
+    const ColVec r{500.0};
 
     for (size_t k = 0; k < 200; ++k) {
         const auto u = controller.step(r, x);
@@ -928,10 +928,10 @@ TEST_CASE("Law names an MPC member's type by its design") {
     struct Loop {
         Law<art, double> mpc; // the design's law
     };
-    Loop            loop{};
-    MPC             plain{art};
-    const ColVec<1> r{1.0};
-    const ColVec<2> x{0.0, 0.0};
+    Loop         loop{};
+    MPC          plain{art};
+    const ColVec r{1.0};
+    const ColVec x{0.0, 0.0};
     CHECK(loop.mpc.step(r, x)(0) == plain.step(r, x)(0));
     static_assert(!estimates_state<decltype(plain)> && !estimates_disturbance<decltype(plain)>); // no filter: the state is measured
     static_assert(std::is_same_v<decltype(plain.estimator), NoEstimator> && std::is_empty_v<NoEstimator>);
@@ -947,7 +947,7 @@ TEST_CASE("Law names an MPC member's type by its design") {
     static constexpr auto                              of = design::mpc<3, 3>(measured, {}, design::KalmanNoise<2, 1, double, 1>{}, design::InputDisturbance{}, cap);
     Law<of, double>                                    of_law{};
     OFMPC                                              of_plain{of};
-    CHECK(of_law.step(r, ColVec<1>{0.0})(0) == doctest::Approx(of_plain.step(r, ColVec<1>{0.0})(0)).epsilon(1e-12));
+    CHECK(of_law.step(r, ColVec{0.0})(0) == doctest::Approx(of_plain.step(r, ColVec{0.0})(0)).epsilon(1e-12));
 }
 
 TEST_CASE("MPC through a filter without a disturbance: update(y) on the outputs, and Law runs it on constants") {
@@ -966,12 +966,12 @@ TEST_CASE("MPC through a filter without a disturbance: update(y) on the outputs,
     static_assert(sizeof(Law<kRes, float>) < sizeof(Law<kRes, float>::Runtime)); // the filter's matrices are constants of the type
 
     Law<kRes, double> fixed;
-    ColVec<2>         x{0.4, 0.0};
+    ColVec            x{0.4, 0.0};
     double            worst = 0.0;
     for (int k = 0; k < 300; ++k) {
         const ColVec<1> y{x(0)};
-        const ColVec<1> u = law.step(ColVec<1>{1.0}, y);
-        worst = std::fmax(worst, std::fabs(u(0) - fixed.step(ColVec<1>{1.0}, y)(0)));
+        const ColVec<1> u = law.step(ColVec{1.0}, y);
+        worst = std::fmax(worst, std::fabs(u(0) - fixed.step(ColVec{1.0}, y)(0)));
         x = plant_step(x, u(0));
     }
     CHECK(x(0) == doctest::Approx(1.0).epsilon(1e-6));
@@ -994,7 +994,7 @@ TEST_CASE("MPC through a filter with neither a TrackedOutputs nor a disturbance 
     static_assert(std::is_same_v<Law<kRes, double>::Runtime, Regulator>);
 
     Law<kRes, double> fixed;
-    ColVec<2>         x{0.4, 0.0};
+    ColVec            x{0.4, 0.0};
     double            worst = 0.0;
     for (int k = 0; k < 300; ++k) {
         const V1 y{x(0)};
@@ -1012,11 +1012,11 @@ TEST_CASE("Law of a failed MPC design: a constexpr one does not compile, one mad
     //! the measured state as through a filter (checked by hand: a requires expression cannot see a
     //! static_assert). A design initialized at start-up is not known at compile time: its Law
     //! forms, valid() is false, and it holds its input, as an MPC built from it does.
-    static const auto kStartUp = design::mpc<10, 4>(double_integrator, design::MPCWeights<1, 1>{.Qy = Matrix<1, 1>{{-1.0}}}, design::TrackedOutputs{});
+    static const auto kStartUp = design::mpc<10, 4>(double_integrator, design::MPCWeights<1, 1>{.Qy = Matrix{{-1.0}}}, design::TrackedOutputs{});
     REQUIRE(kStartUp.status == design::DesignStatus::bad_weights);
     Law<kStartUp, double> law;
     CHECK_FALSE(law.valid());
-    CHECK(law.step(ColVec<1>{1.0}, ColVec<2>{0.5, 0.0})(0) == 0.0);
+    CHECK(law.step(ColVec{1.0}, ColVec{0.5, 0.0})(0) == 0.0);
 }
 
 TEST_CASE("Law<kRes, T> of an OFMPC on the design's constants takes set_limits as OFMPC does") {
@@ -1035,9 +1035,9 @@ TEST_CASE("Law<kRes, T> of an OFMPC on the design's constants takes set_limits a
 
     ColVec<2> x{};
     for (size_t k = 0; k < 50; ++k) {
-        const auto u = law.step(ColVec<1>{0.6}, ColVec<1>{x(0)});
+        const auto u = law.step(ColVec{0.6}, ColVec<1>{x(0)});
         REQUIRE(law.last_status() == design::QPStatus::Success);
-        CHECK(plain.step(ColVec<1>{0.6}, ColVec<1>{x(0)})(0) == doctest::Approx(u(0)).epsilon(1e-12));
+        CHECK(plain.step(ColVec{0.6}, ColVec<1>{x(0)})(0) == doctest::Approx(u(0)).epsilon(1e-12));
         CHECK(std::fabs(u(0)) <= 0.4 + 1e-12);
         if (k == 10) {
             CHECK(u(0) == doctest::Approx(0.4).epsilon(1e-12)); // on the new limit, the design's being unbounded
@@ -1122,8 +1122,8 @@ TEST_CASE("InputRateLimits: the QP has its 2·NC·NU rows on Δu only with one, 
         ColVec<2> x{};
         double    worst = 0.0;
         for (int k = 0; k < 80; ++k) {
-            const auto ua = la.step(ColVec<1>{1.0}, measure(x));
-            const auto ub = lb.step(ColVec<1>{1.0}, measure(x));
+            const auto ua = la.step(ColVec{1.0}, measure(x));
+            const auto ub = lb.step(ColVec{1.0}, measure(x));
             CHECK(la.last_status() == lb.last_status());
             worst = damp::max(worst, damp::abs(ua(0) - ub(0)));
             x = plant_step(x, ua(0) + 0.05); // a load at the input
@@ -1141,7 +1141,7 @@ TEST_CASE("InputRateLimits: the QP has its 2·NC·NU rows on Δu only with one, 
     constexpr design::OutputLimits kBox{.outputs = {0}, .lower = {-1.5}, .upper = {1.5}};
     same(design::mpc<8, 8>(double_integrator, w, kUnit, kBox, design::InvariantSet<128>{}, design::TrackedOutputs{}), design::mpc<8, 8>(double_integrator, w, kUnit, kBox, design::InvariantSet<128>{}, kUnbounded, design::TrackedOutputs{}), mpc, state);
     constexpr StateSpace<2, 1, 1, double, 2, 1>    measured{.A = double_integrator.A, .B = double_integrator.B, .C = double_integrator.C, .Ts = Ts};
-    constexpr design::KalmanNoise<2, 1, double, 1> noise{.process = Matrix<2, 2>::identity() * 1e-3, .measurement = Matrix<1, 1>{{1e-4}}, .disturbance = Matrix<1, 1>{{1e-2}}};
+    constexpr design::KalmanNoise<2, 1, double, 1> noise{.process = Matrix<2, 2>::identity() * 1e-3, .measurement = Matrix{{1e-4}}, .disturbance = Matrix{{1e-2}}};
     same(design::mpc<10, 4>(measured, w, kUnit, noise, design::InputDisturbance{}), design::mpc<10, 4>(measured, w, kUnit, noise, design::InputDisturbance{}, kUnbounded), ofmpc, position);
 }
 
@@ -1160,7 +1160,7 @@ TEST_CASE("an MPC's move limit is in its limits() only with an InputRateLimits, 
     ColVec<2> x{};
     double    prev = 0.0;
     for (int k = 0; k < 40; ++k) {
-        const double u = rated.step(ColVec<1>{1.0}, x)(0);
+        const double u = rated.step(ColVec{1.0}, x)(0);
         REQUIRE(rated.last_status() == design::QPStatus::Success);
         CHECK(damp::abs(u - prev) <= 0.05 + 1e-12); // the new move limit, not the design's 0.2
         prev = u;
@@ -1196,8 +1196,8 @@ TEST_CASE("Law<kRes, float> of a constexpr MPC with an InputRateLimits is the ru
     ColVec<2, float> x{};
     float            prev = 0.0f;
     for (int k = 0; k < 40; ++k) {
-        const auto u = law.step(ColVec<1, float>{1.0f}, x);
-        CHECK(u == held.step(ColVec<1, float>{1.0f}, x));
+        const auto u = law.step(ColVec{1.0f}, x);
+        CHECK(u == held.step(ColVec{1.0f}, x));
         CHECK(damp::abs(u(0) - prev) <= 0.1f + 1e-6f);
         prev = u(0);
         x = ColVec<2, float>{plant_step(x.as<double>(), static_cast<double>(u(0))).as<float>()};
@@ -1224,9 +1224,9 @@ TEST_CASE("MPC runtime runs in float") {
     const auto art = design::mpc<10, 4>(double_integrator, weights, limits, design::TrackedOutputs{});
     REQUIRE(art.success);
 
-    MPC                    controller{art.as<float>()};
-    ColVec<2, float>       x{};
-    const ColVec<1, float> r{1.0F};
+    MPC              controller{art.as<float>()};
+    ColVec<2, float> x{};
+    const ColVec     r{1.0F};
 
     for (size_t k = 0; k < 150; ++k) {
         const auto u = controller.step(r, x);
@@ -1271,9 +1271,9 @@ TEST_CASE("MPC accepts a custom QP solver policy") {
     MPC reference{art};
     MPC custom{art, CountingSolver{}};
 
-    ColVec<2>       xr{0.5, 0.0};
-    ColVec<2>       xc{0.5, 0.0};
-    const ColVec<1> r{1.0};
+    ColVec       xr{0.5, 0.0};
+    ColVec       xc{0.5, 0.0};
+    const ColVec r{1.0};
 
     for (size_t k = 0; k < 20; ++k) {
         const auto ur = reference.step(r, xr);
@@ -1325,9 +1325,9 @@ TEST_CASE("horizon advisor falls back to the settling-time overload on integrati
 }
 
 TEST_CASE("to_ss of the LQR-equivalent design is the LQR gain on x and no memory of u_prev") {
-    const Matrix<2, 2> Q{{1.0, 0.0}, {0.0, 0.1}};
-    const Matrix<1, 1> R{{0.5}};
-    const auto         lqr = design::discrete_lqr(double_integrator_full.A, double_integrator_full.B, Q, R);
+    const Matrix Q{{1.0, 0.0}, {0.0, 0.1}};
+    const Matrix R{{0.5}};
+    const auto   lqr = design::discrete_lqr(double_integrator_full.A, double_integrator_full.B, Q, R);
     REQUIRE(lqr.success);
 
     design::MPCWeights<1, 2> weights{};
@@ -1356,7 +1356,7 @@ TEST_CASE("to_ss realizes the unconstrained runtime, and closed around the plant
 
     MPC       runtime{art};
     ColVec<1> xc{};
-    ColVec<2> xp{0.3, -0.1};
+    ColVec    xp{0.3, -0.1};
     for (int k = 0; k < 12; ++k) {
         const ColVec<1> r{(k < 6) ? 1.0 : -0.5};
         const ColVec<3> in{r[0], xp[0], xp[1]};
@@ -1370,7 +1370,7 @@ TEST_CASE("to_ss realizes the unconstrained runtime, and closed around the plant
     const StateSpace plant_out{
         .A = double_integrator.A,
         .B = double_integrator.B,
-        .C = Matrix<3, 2>{{0.0, 0.0}, {1.0, 0.0}, {0.0, 1.0}},
+        .C = Matrix{{0.0, 0.0}, {1.0, 0.0}, {0.0, 1.0}},
         .Ts = Ts,
     };
     StateSpace<0, 3, 3> positive{.Ts = Ts};
@@ -1399,7 +1399,7 @@ TEST_CASE("to_ss takes a measured disturbance between r and x, in the tick's ord
     ColVec<1>  xc{};
     ColVec<2>  xp{};
     for (int k = 0; k < 12; ++k) {
-        const ColVec<1> r{0.5};
+        const ColVec    r{0.5};
         const ColVec<1> d{(k < 4) ? 0.0 : 0.4};
         const ColVec<4> in{r[0], d[0], xp[0], xp[1]};
         const ColVec<1> u = ss.C * xc + ss.D * in;
@@ -1414,7 +1414,7 @@ TEST_CASE("MPC reset and bumpless seeding") {
     REQUIRE(art.success);
 
     MPC controller{art};
-    controller.back_calculate(ColVec<1>{0.3}); // the input another controller applied
+    controller.back_calculate(ColVec{0.3}); // the input another controller applied
     controller.predict();
     CHECK(controller.applied()(0) == doctest::Approx(0.3));
 
@@ -1431,11 +1431,11 @@ TEST_CASE("MPC step is predict, update, then control; the no-input step holds th
     REQUIRE(art.success);
 
     // A downstream clamp tighter than the MPC's: the applied input is the base of the next move.
-    MPC             fused{art};
-    MPC             split{art};
-    ColVec<2>       x{};
-    ColVec<1>       u_applied{};
-    const ColVec<1> r{0.5};
+    MPC          fused{art};
+    MPC          split{art};
+    ColVec<2>    x{};
+    ColVec<1>    u_applied{};
+    const ColVec r{0.5};
     for (int k = 0; k < 40; ++k) {
         fused.back_calculate(u_applied);
         const ColVec<1> u_fused = fused.step(r, x);
@@ -1481,7 +1481,7 @@ damp::array<double, 30> step_response(const Result& art, double h, size_t every)
         if (k % every == 0) {
             y[k / every] = x[0];
         }
-        x = sampled.A * x + sampled.B * law.step(ColVec<1>{1.0}, x);
+        x = sampled.A * x + sampled.B * law.step(ColVec{1.0}, x);
     }
     return y;
 }
@@ -1498,15 +1498,15 @@ TEST_CASE("the continuous-plant design's QP is the Van Loan integral of its cont
     REQUIRE(art.success);
 
     // Hand-built: the reference a constant state, the period's cost one Van Loan exponential.
-    const Matrix<3, 3> A_aug{{0.0, 1.0, 0.0}, {-2.0, -0.6, 0.0}, {0.0, 0.0, 0.0}};
-    const Matrix<3, 1> B_aug{{0.0}, {1.5}, {0.0}};
-    const Matrix<1, 3> E{{1.0, 0.0, -1.0}}; // y − r on [x; r]
-    const auto         period = design::discretize_lqr_cost(A_aug, B_aug, E.transpose() * (w.Qy * E), Matrix<1, 1>{}, h).value();
-    const auto         sampled = discretize(kDampedMass, h).value();
-    const ColVec<2>    x0{0.4, -0.2};
-    const double       u_prev = 0.3;
-    const double       r = 1.0;
-    const auto         J = [&](const ColVec<NC>& moves) {
+    const Matrix A_aug{{0.0, 1.0, 0.0}, {-2.0, -0.6, 0.0}, {0.0, 0.0, 0.0}};
+    const Matrix B_aug{{0.0}, {1.5}, {0.0}};
+    const Matrix E{{1.0, 0.0, -1.0}}; // y − r on [x; r]
+    const auto   period = design::discretize_lqr_cost(A_aug, B_aug, E.transpose() * (w.Qy * E), Matrix<1, 1>{}, h).value();
+    const auto   sampled = discretize(kDampedMass, h).value();
+    const ColVec x0{0.4, -0.2};
+    const double u_prev = 0.3;
+    const double r = 1.0;
+    const auto   J = [&](const ColVec<NC>& moves) {
         double    cost = 0.0;
         ColVec<2> x = x0;
         double    u = u_prev;
@@ -1597,18 +1597,18 @@ TEST_CASE("mpc rejects any nonzero feedthrough, whatever its units") {
 TEST_CASE("suggest_mpc_horizon does not read a defective integrator as a slow pole") {
     // Double integrator in a non-orthogonal basis with a large off-diagonal:
     // the computed eigenvalues sit O(√eps) off 1.
-    const Matrix<2, 2> J{{1.0, 100.0}, {0.0, 1.0}};
-    const Matrix<2, 2> Tm{{1.0, 0.3}, {0.7, 1.9}};
-    const auto         Ti = Tm.inverse();
+    const Matrix J{{1.0, 100.0}, {0.0, 1.0}};
+    const Matrix Tm{{1.0, 0.3}, {0.7, 1.9}};
+    const auto   Ti = Tm.inverse();
     REQUIRE(Ti.has_value());
     const StateSpace<2, 1, 1> sys{.A = Tm * J * *Ti, .B = {{0.0}, {1.0}}, .C = {{1.0, 0.0}}, .Ts = 0.1};
     CHECK_FALSE(design::suggest_mpc_horizon(sys).success);
 
     // A triple integrator's poles land O(eps^(1/3)) = 1e-6 off 1, outside a √eps band: it
     // suggested NP = 8686359.
-    const Matrix<3, 3> J3{{1.0, 0.1, 0.005}, {0.0, 1.0, 0.1}, {0.0, 0.0, 1.0}};
-    const Matrix<3, 3> T3{{1.0, 0.3, -0.2}, {0.7, 1.9, 0.4}, {0.1, -0.5, 1.3}};
-    const auto         T3i = T3.inverse();
+    const Matrix J3{{1.0, 0.1, 0.005}, {0.0, 1.0, 0.1}, {0.0, 0.0, 1.0}};
+    const Matrix T3{{1.0, 0.3, -0.2}, {0.7, 1.9, 0.4}, {0.1, -0.5, 1.3}};
+    const auto   T3i = T3.inverse();
     REQUIRE(T3i.has_value());
     const StateSpace<3, 1, 1> triple{.A = T3 * J3 * *T3i, .B = {{0.0}, {0.0}, {1.0}}, .C = {{1.0, 0.0, 0.0}}, .Ts = 0.1};
     CHECK_FALSE(design::suggest_mpc_horizon(triple).success);
@@ -1624,13 +1624,13 @@ TEST_CASE("suggest_mpc_horizon does not read a defective integrator as a slow po
 TEST_CASE("a measured disturbance with a terminal cost settles on r: the target is the steady state under d") {
     //! The target ignored d, so V_f pulled the plan toward the d = 0 steady state: y = 0.969 for r = 1.
     const StateSpace plant{.A = {{0.9}}, .B = {{0.1}}, .C = {{1.0}}, .Ts = 0.1};
-    const auto       art = design::mpc<10, 10>(plant, move_weight(0.1), design::DareCost{}, design::MeasuredDisturbance{Matrix<1, 1>{{0.1}}}, design::TrackedOutputs{});
+    const auto       art = design::mpc<10, 10>(plant, move_weight(0.1), design::DareCost{}, design::MeasuredDisturbance{Matrix{{0.1}}}, design::TrackedOutputs{});
     REQUIRE(art.success);
     MPC       law{art};
     double    x = 0.0;
     ColVec<1> u{};
     for (size_t k = 0; k < 400; ++k) {
-        u = law.step(ColVec<1>{1.0}, ColVec<1>{2.0}, ColVec<1>{x});
+        u = law.step(ColVec{1.0}, ColVec{2.0}, ColVec<1>{x});
         x = (0.9 * x) + (0.1 * u(0)) + (0.1 * 2.0);
     }
     CHECK(x == doctest::Approx(1.0).epsilon(1e-6));
@@ -1661,7 +1661,7 @@ TEST_CASE("one hard output side by designated initializer leaves the other side 
     const auto art = design::mpc<10, 3>(double_integrator, move_weight(0.1), limits, band, design::TrackedOutputs{});
     REQUIRE(art.success);
     MPC        controller{art};
-    const auto u = controller.step(ColVec<1>{0.5}, ColVec<2>{}); // y = 0 starts below the soft lower bound
+    const auto u = controller.step(ColVec{0.5}, ColVec<2>{}); // y = 0 starts below the soft lower bound
     CHECK(controller.last_status() == design::QPStatus::Success);
     CHECK(u(0) > 0.0);
     constexpr size_t r_y_hi = 4 * 3;             // after the Δu and u rows of NC = 3 moves
@@ -1687,7 +1687,7 @@ TEST_CASE("design::mpc refuses NaN or inverted limits, negative softness and ind
     negative.Qy_terminal = -0.05;
     CHECK(design::mpc<6, 2>(double_integrator, negative, design::TrackedOutputs{}).status == design::DesignStatus::bad_weights);
     design::MPCWeights<1, 2> asymmetric{};
-    asymmetric.Qy = Matrix<2, 2>{{1.0, 5.0}, {0.0, 1.0}};
+    asymmetric.Qy = Matrix{{1.0, 5.0}, {0.0, 1.0}};
     CHECK(design::mpc<6, 2>(double_integrator_full, asymmetric, design::TrackedOutputs{{0}}).status == design::DesignStatus::bad_weights);
     CHECK(design::mpc<6, 2>(double_integrator, move_weight(1.0), design::TrackedOutputs{}).success);
 }
@@ -1703,13 +1703,13 @@ TEST_CASE("a horizon no output sees an input's first move in is refused") {
     const auto sees = design::mpc<2, 1>(delayed, move_weight(0.05), design::TrackedOutputs{});
     REQUIRE(sees.success);
     MPC law{sees};
-    CHECK(law.step(ColVec<1>{1.0}, ColVec<3>{})(0) > 0.0);
+    CHECK(law.step(ColVec{1.0}, ColVec<3>{})(0) > 0.0);
 
     SUBCASE("a terminal cost weights the delay state, so it sees past the horizon") {
         const auto res = design::mpc<1, 1>(delayed, move_weight(0.05), design::DareCost{}, design::TrackedOutputs{});
         REQUIRE(res.success);
         MPC with_terminal{res};
-        CHECK(with_terminal.step(ColVec<1>{1.0}, ColVec<3>{})(0) > 0.0);
+        CHECK(with_terminal.step(ColVec{1.0}, ColVec<3>{})(0) > 0.0);
     }
 
     SUBCASE("the plant's relative degree, with no delay at all") {
@@ -1773,12 +1773,12 @@ TEST_CASE("a horizon no output sees an input's first move in is refused") {
         //! u₁ reaches y only a step later; at NP = 1 its Ru weight holds it at its target.
         const StateSpace         two{.A = {{0.9, 0.1}, {0.0, 0.0}}, .B = {{0.1, 0.0}, {0.0, 1.0}}, .C = {{1.0, 0.0}}, .Ts = Ts};
         design::MPCWeights<2, 1> w{};
-        w.Ru = Matrix<2, 2>{{0.0, 0.0}, {0.0, 1.0}};
+        w.Ru = Matrix{{0.0, 0.0}, {0.0, 1.0}};
         const auto res = design::mpc<1, 1>(two, w, design::TrackedOutputs{});
         REQUIRE(res.success);
         MPC steered{res};
         steered.set_input_target({0.0, 5.0});
-        CHECK(steered.step(ColVec<1>{1.0}, ColVec<2>{})(1) > 0.0);
+        CHECK(steered.step(ColVec{1.0}, ColVec<2>{})(1) > 0.0);
 
         auto only_ru = move_weight(0.05); // no input reaches the output: refused, Ru or not
         only_ru.Ru = 1.0;
@@ -1828,7 +1828,7 @@ TEST_CASE_TEMPLATE("MPC with soft output bounds, started outside them, solves ev
         const ColVec<2, T> x_read{x.template as<T>()}; // the state as the controller reads it
         const auto         u = controller.step(ColVec<1, T>{T{0}}, x_read);
         unsolved += (controller.last_status() != design::QPStatus::Success) ? 1U : 0U;
-        const auto u_ref = reference.step(ColVec<1>{0.0}, ColVec<2>{x_read.template as<double>()});
+        const auto u_ref = reference.step(ColVec{0.0}, ColVec<2>{x_read.template as<double>()});
         reference_unsolved += (reference.last_status() != design::QPStatus::Success) ? 1U : 0U;
         worst_move = damp::max(worst_move, damp::abs(static_cast<double>(u(0)) - u_ref(0)));
         reference.back_calculate(ColVec<1>{static_cast<double>(u(0))});
@@ -1868,7 +1868,7 @@ TEST_CASE("float MPC solves with a slack weight 10 times the default") {
         ColVec<2> x{x0, 0.0};
         size_t    unsolved = 0;
         for (size_t k = 0; k < 300; ++k) {
-            const auto u = controller.step(ColVec<1, float>{0.0F}, x.as<float>());
+            const auto u = controller.step(ColVec{0.0F}, x.as<float>());
             unsolved += (controller.last_status() != design::QPStatus::Success) ? 1U : 0U;
             x = plant_step(x, static_cast<double>(u(0)));
         }
@@ -1895,7 +1895,7 @@ TEST_CASE_TEMPLATE("MPC rests on a soft output bound the reference lies beyond",
         const ColVec<2, T> x_read{x.template as<T>()};
         const auto         u = controller.step(ColVec<1, T>{T{1}}, x_read);
         unsolved += (controller.last_status() != design::QPStatus::Success) ? 1U : 0U;
-        const auto u_ref = reference.step(ColVec<1>{1.0}, ColVec<2>{x_read.template as<double>()});
+        const auto u_ref = reference.step(ColVec{1.0}, ColVec<2>{x_read.template as<double>()});
         worst_move = damp::max(worst_move, damp::abs(static_cast<double>(u(0)) - u_ref(0)));
         reference.back_calculate(ColVec<1>{static_cast<double>(u(0))});
         x = plant_step(x, static_cast<double>(u(0)));
@@ -1977,9 +1977,9 @@ TEST_CASE("back_calculate with a feedforward: the command is the law's share, an
     double x = 0.0;
     double total = 0.0;
     for (size_t k = 0; k < 400; ++k) {
-        const auto command = law.step(ColVec<1>{1.0}, ColVec<1>{x});
+        const auto command = law.step(ColVec{1.0}, ColVec<1>{x});
         total = command(0) + 0.2;
-        law.back_calculate(ColVec<1>{total}, ColVec<1>{0.2});
+        law.back_calculate(ColVec<1>{total}, ColVec{0.2});
         x = (0.9 * x) + (0.1 * total);
     }
     CHECK(x == doctest::Approx(1.0).epsilon(1e-6));
@@ -2000,7 +2000,7 @@ TEST_CASE("MPCWeights, InputLimits and the limits options take their sizes from 
 
     constexpr InputLimits limits{.lower = {0.0}, .upper = {40.0}};
     static_assert(damp::is_same_v<decltype(limits), const InputLimits<1>> && limits.upper(0) == 40.0);
-    constexpr InputLimits two_input_limits{.lower = ColVec<2>{0.0, -1.0}, .upper = {40.0, 1.0}};
+    constexpr InputLimits two_input_limits{.lower = ColVec{0.0, -1.0}, .upper = {40.0, 1.0}};
     static_assert(damp::is_same_v<decltype(two_input_limits), const InputLimits<2>>);
     //! An end left out is unbounded, as a Bounds' is; braces deduce nothing, a typed end gives the inputs and the scalar.
     constexpr InputLimits ceiling{.upper = {1.0}};
@@ -2011,7 +2011,7 @@ TEST_CASE("MPCWeights, InputLimits and the limits options take their sizes from 
     static_assert(damp::is_same_v<decltype(moves), const design::InputRateLimits<1>> && moves.upper(0) == 0.2);
     constexpr design::InputRateLimits up{.upper = {0.5}};
     static_assert(up.lower(0) == -damp::numeric_limits<double>::max() && up.upper(0) == 0.5);
-    constexpr design::InputRateLimits two_moves{.lower = ColVec<2, float>{-1.0f, -2.0f}, .upper = {1.0f, 2.0f}};
+    constexpr design::InputRateLimits two_moves{.lower = ColVec{-1.0f, -2.0f}, .upper = {1.0f, 2.0f}};
     static_assert(damp::is_same_v<decltype(two_moves), const design::InputRateLimits<2, float>>);
     constexpr design::InputRateLimits<2> spelled{.lower = {-1.0, -1.0}, .upper = {1.0, 1.0}};
     static_assert(spelled.upper(1) == 1.0);
@@ -2035,22 +2035,22 @@ TEST_CASE("an MPC takes its reference and input target braced, one value per cha
     weights.Ru = Matrix<1, 1>{0.1};
     const auto art = design::mpc<8, 4>(double_integrator_full, weights, design::TrackedOutputs{{0}});
     REQUIRE(art.success);
-    const ColVec<2> x{1.0, -0.5};
+    const ColVec x{1.0, -0.5};
 
     //! One input: the target as its scalar or braced, as the ColVec it holds.
     MPC by_vector{art};
     MPC by_braces{art};
     MPC by_scalar{art};
-    by_vector.set_input_target(ColVec<1>{-0.2});
+    by_vector.set_input_target(ColVec{-0.2});
     by_braces.set_input_target({-0.2});
     by_scalar.set_input_target(-0.2);
     for (size_t k = 0; k < 4; ++k) {
-        CHECK(by_braces.input_target_preview()[k] == ColVec<1>{-0.2});
-        CHECK(by_scalar.input_target_preview()[k] == ColVec<1>{-0.2});
+        CHECK(by_braces.input_target_preview()[k] == ColVec{-0.2});
+        CHECK(by_scalar.input_target_preview()[k] == ColVec{-0.2});
     }
 
     //! One held output: the reference as its scalar, or the ColVec it is.
-    const double u_vector = by_vector.step(ColVec<1>{0.3}, x)(0);
+    const double u_vector = by_vector.step(ColVec{0.3}, x)(0);
     CHECK(by_scalar.step(0.3, x)(0) == doctest::Approx(u_vector).epsilon(1e-12));
 
     //! Two inputs, both outputs held: the target and the reference braced, one value per channel.
@@ -2064,9 +2064,9 @@ TEST_CASE("an MPC takes its reference and input target braced, one value per cha
     MPC two_mixed{art2};
     MPC two_converted{art2};
     two_inputs.set_input_target({0.1, 0.2});
-    CHECK(two_inputs.input_target_preview()[0] == ColVec<2>{0.1, 0.2});
-    const ColVec<2> x2{0.4, -0.1};
-    const double    u_two = two_braced.step(ColVec<2>{0.3, 0.0}, x2)(0);
+    CHECK(two_inputs.input_target_preview()[0] == ColVec{0.1, 0.2});
+    const ColVec x2{0.4, -0.1};
+    const double u_two = two_braced.step(ColVec{0.3, 0.0}, x2)(0);
     CHECK(two_mixed.step({0.3, 0.0}, x2)(0) == doctest::Approx(u_two).epsilon(1e-12));
     CHECK(two_converted.step({0.3, 0}, x2)(0) == doctest::Approx(u_two).epsilon(1e-12)); // any value that converts
 }

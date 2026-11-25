@@ -78,13 +78,13 @@ TEST_CASE("offset-free MPC rejects an unknown input disturbance from output feed
     // unmodeled load d. The disturbance estimate must converge to d and the
     // output must settle on the reference with no offset — the case the bare
     // velocity-form MPC cannot handle.
-    const auto art = offset_free<15, 5>(move_weight(0.05), {}, design::KalmanNoise{Matrix<2, 2>::identity(), Matrix<1, 1>{{0.01}}, Matrix<1, 1>{{1.0}}});
+    const auto art = offset_free<15, 5>(move_weight(0.05), {}, design::KalmanNoise{Matrix<2, 2>::identity(), Matrix{{0.01}}, Matrix{{1.0}}});
     REQUIRE(art.success);
 
-    OFMPC           controller{art};
-    ColVec<2>       x{};
-    const ColVec<1> r{0.5};
-    const double    d_load = 0.3;
+    OFMPC        controller{art};
+    ColVec<2>    x{};
+    const ColVec r{0.5};
+    const double d_load = 0.3;
 
     for (size_t k = 0; k < 600; ++k) {
         const auto u = controller.step(r, ColVec<1>{x(0)});
@@ -99,7 +99,7 @@ TEST_CASE("offset-free MPC rejects an unknown input disturbance from output feed
 }
 
 TEST_CASE("the disturbance limit clamps OFMPC's disturbance estimate, and moves at run time") {
-    const auto art = offset_free<15, 5>(move_weight(0.05), {}, design::KalmanNoise{Matrix<2, 2>::identity(), Matrix<1, 1>{{0.01}}, Matrix<1, 1>{{1.0}}});
+    const auto art = offset_free<15, 5>(move_weight(0.05), {}, design::KalmanNoise{Matrix<2, 2>::identity(), Matrix{{0.01}}, Matrix{{1.0}}});
     REQUIRE(art.success);
     OFMPC        controller{art};
     ColVec<2>    x{};
@@ -107,7 +107,7 @@ TEST_CASE("the disturbance limit clamps OFMPC's disturbance estimate, and moves 
     const auto   hold = [&] {
         double worst = 0.0;
         for (size_t k = 0; k < 600; ++k) {
-            const auto u = controller.step(ColVec<1>{0.5}, ColVec<1>{x(0)});
+            const auto u = controller.step(ColVec{0.5}, ColVec<1>{x(0)});
             x = plant_step(x, u(0) + d_load);
             worst = std::fmax(worst, std::fabs(controller.disturbance_estimate()(0)));
         }
@@ -127,7 +127,7 @@ TEST_CASE("the disturbance limit clamps OFMPC's disturbance estimate, and moves 
 
     // The filter is the law's to restart, as the LQ laws' is, from an absolute estimate: the anchor stays.
     REQUIRE(controller.estimator.anchor_disturbance()(0) != 0.0);
-    controller.estimator.reset(ColVec<2>{0.2, 0.0}, ColVec<1>{0.05});
+    controller.estimator.reset(ColVec{0.2, 0.0}, ColVec{0.05});
     CHECK(controller.estimator.state_estimate()(0) == doctest::Approx(0.2).epsilon(1e-12));
     CHECK(controller.estimator.state_estimate()(1) == doctest::Approx(0.0).epsilon(1e-12));
     CHECK(controller.estimator.disturbance_estimate()(0) == doctest::Approx(0.05).epsilon(1e-12));
@@ -161,15 +161,15 @@ TEST_CASE("OutputLimits index the plant's outputs; a disturbance spec's list is 
     static_assert(std::remove_cvref_t<decltype(a.mpc)>::NI == (2 * 8) + (2 * 12) && std::remove_cvref_t<decltype(b.mpc)>::NI == (2 * 8) + (2 * 12 * 2));
     CHECK(design::mpc<12, 4>(two_axes, w, limits, noise, design::InputDisturbance{{0, 2}}, design::OutputLimits{.outputs = {3}}).status == design::DesignStatus::invalid_parameter); // three readings
 
-    OFMPC           la{a};
-    OFMPC           lb{b};
-    ColVec<4>       x{};
-    const ColVec<2> load{0.1, -0.1};
-    double          peak = 0.0;
+    OFMPC        la{a};
+    OFMPC        lb{b};
+    ColVec<4>    x{};
+    const ColVec load{0.1, -0.1};
+    double       peak = 0.0;
     for (size_t k = 0; k < 60; ++k) {
         const ColVec<3> y = two_axes.C * x;
-        const auto      ua = la.step(ColVec<2>{1.0, 0.5}, y);
-        const auto      ub = lb.step(ColVec<2>{1.0, 0.5}, y);
+        const auto      ua = la.step(ColVec{1.0, 0.5}, y);
+        const auto      ub = lb.step(ColVec{1.0, 0.5}, y);
         CHECK(ua(0) == doctest::Approx(ub(0)).epsilon(1e-12));
         CHECK(ua(1) == doctest::Approx(ub(1)).epsilon(1e-12));
         //! What y_lim = {.lower = {−max, −max}, .upper = {max, 0.4}} gave.
@@ -193,14 +193,14 @@ TEST_CASE("StateLimits bound an estimated state of an offset-free MPC: on the es
     // Only the position is measured; the speed is the filter's, bounded at 0.3 (2 without the bound).
     const design::InputLimits<1> limits{.lower = {-2.0}, .upper = {2.0}};
     const design::StateLimits    speed{.states = {1}, .lower = {-0.3}, .upper = {0.3}};
-    const auto                   art = design::mpc<15, 5>(double_integrator, move_weight(0.01), limits, speed, design::KalmanNoise{Matrix<2, 2>::identity(), Matrix<1, 1>{{0.01}}, Matrix<1, 1>{{1.0}}}, design::InputDisturbance{});
+    const auto                   art = design::mpc<15, 5>(double_integrator, move_weight(0.01), limits, speed, design::KalmanNoise{Matrix<2, 2>::identity(), Matrix{{0.01}}, Matrix{{1.0}}}, design::InputDisturbance{});
     REQUIRE(art.success);
     const auto run = [&](double load) {
         OFMPC     controller{art};
         ColVec<2> x{};
         double    peak = 0.0;
         for (size_t k = 0; k < 600; ++k) {
-            const auto u = controller.step(ColVec<1>{2.0}, ColVec<1>{x(0)});
+            const auto u = controller.step(ColVec{2.0}, ColVec<1>{x(0)});
             x = plant_step(x, u(0) + load);
             peak = std::fmax(peak, x(1));
         }
@@ -219,9 +219,9 @@ TEST_CASE("offset-free MPC removes steady-state error under plant gain mismatch"
     const auto art = offset_free<15, 5>(move_weight(0.05));
     REQUIRE(art.success);
 
-    OFMPC           controller{art};
-    ColVec<2>       x{};
-    const ColVec<1> r{1.0};
+    OFMPC        controller{art};
+    ColVec<2>    x{};
+    const ColVec r{1.0};
 
     for (size_t k = 0; k < 800; ++k) {
         const auto u = controller.step(r, ColVec<1>{x(0)});
@@ -246,7 +246,7 @@ TEST_CASE("offset-free MPC removes a sensor bias (OutputDisturbance, C_d = I)") 
     double       y = 0.0;
     for (int k = 0; k < 6000; ++k) {
         y = (plant.C * x)(0) + bias;
-        const auto u = controller.step(ColVec<1>{1.0}, ColVec<1>{y});
+        const auto u = controller.step(ColVec{1.0}, ColVec<1>{y});
         x = (plant.A * x) + (plant.B * u);
     }
     CHECK(y == doctest::Approx(1.0).epsilon(1e-6));
@@ -278,9 +278,9 @@ TEST_CASE("offset-free MPC respects input limits while rejecting a load") {
     const auto art = offset_free<15, 5>(move_weight(0.05), limits);
     REQUIRE(art.success);
 
-    OFMPC           controller{art};
-    ColVec<2>       x{};
-    const ColVec<1> r{0.5};
+    OFMPC        controller{art};
+    ColVec<2>    x{};
+    const ColVec r{0.5};
 
     for (size_t k = 0; k < 800; ++k) {
         const auto u = controller.step(r, ColVec<1>{x(0)});
@@ -298,9 +298,9 @@ TEST_CASE("caller-sequenced predict/update/control matches the fused tick") {
     OFMPC fused{art};
     OFMPC sequenced{art};
 
-    ColVec<2>       xf{0.2, -0.1};
-    ColVec<2>       xs{0.2, -0.1};
-    const ColVec<1> r{0.4};
+    ColVec       xf{0.2, -0.1};
+    ColVec       xs{0.2, -0.1};
+    const ColVec r{0.4};
 
     for (size_t k = 0; k < 50; ++k) {
         const auto uf = fused.step(r, ColVec<1>{xf(0)});
@@ -320,9 +320,9 @@ TEST_CASE("ofmpc rejects undetectable disturbance models") {
     // B = 0: the input disturbance never reaches the output — the
     // Pannocchia–Rawlings rank condition fails.
     StateSpace<1, 1, 1, double, 1, 1> plant{};
-    plant.A = Matrix<1, 1>{{0.9}};
-    plant.B = Matrix<1, 1>{{0.0}};
-    plant.C = Matrix<1, 1>{{1.0}};
+    plant.A = Matrix{{0.9}};
+    plant.B = Matrix{{0.0}};
+    plant.C = Matrix{{1.0}};
     plant.Ts = 0.1;
 
     const auto art = design::mpc<5, 5>(plant, {}, design::KalmanNoise<1, 1, double, 1>{}, design::InputDisturbance{});
@@ -348,7 +348,7 @@ TEST_CASE("a continuous plant is refused by the discrete form; continuous plant 
     CHECK(refused_model.status == design::DesignStatus::invalid_sample_time);
 
     //! The sample-time form takes the continuous plant only: a discrete one would be discretized twice.
-    constexpr StateSpace<2, 1, 1, double, 2, 1> di{.A = Matrix<2, 2>{{0.0, 1.0}, {0.0, 0.0}}, .B = Matrix<2, 1>{{0.0}, {1.0}}, .C = Matrix<1, 2>{{1.0, 0.0}}};
+    constexpr StateSpace<2, 1, 1, double, 2, 1> di{.A = Matrix{{0.0, 1.0}, {0.0, 0.0}}, .B = Matrix{{0.0}, {1.0}}, .C = Matrix{{1.0, 0.0}}};
     const auto                                  sampled = design::mpc<10, 4>(di, 0.1, {}, kUnitNoise, design::InputDisturbance{});
     CHECK(sampled.success);
     CHECK(sampled.status == design::DesignStatus::ok);
@@ -366,9 +366,9 @@ TEST_CASE("offset-free MPC deploys in float") {
     const auto art = offset_free<10, 4>(move_weight(0.05));
     REQUIRE(art.success);
 
-    OFMPC                  controller{art.as<float>()};
-    ColVec<2, float>       x{};
-    const ColVec<1, float> r{0.5F};
+    OFMPC            controller{art.as<float>()};
+    ColVec<2, float> x{};
+    const ColVec     r{0.5F};
 
     for (size_t k = 0; k < 600; ++k) {
         const auto u = controller.step(r, ColVec<1, float>{x(0)});
@@ -406,13 +406,13 @@ TEST_CASE_TEMPLATE("offset-free MPC with soft output bounds, started outside the
 }
 
 TEST_CASE("step with the applied input: a downstream clamp reaches the held input and the estimator") {
-    const auto art = offset_free<15, 5>(move_weight(0.05), {}, design::KalmanNoise{Matrix<2, 2>::identity(), Matrix<1, 1>{{0.01}}, Matrix<1, 1>{{1.0}}});
+    const auto art = offset_free<15, 5>(move_weight(0.05), {}, design::KalmanNoise{Matrix<2, 2>::identity(), Matrix{{0.01}}, Matrix{{1.0}}});
     REQUIRE(art.success);
 
-    OFMPC           fused{art};
-    OFMPC           split{art};
-    const ColVec<1> r{0.5};
-    ColVec<2>       x{};
+    OFMPC        fused{art};
+    OFMPC        split{art};
+    const ColVec r{0.5};
+    ColVec<2>    x{};
     for (size_t k = 0; k < 5; ++k) {
         const ColVec<1> y{x(0)};
         const auto      u_fused = fused.step(r, y);
@@ -425,8 +425,8 @@ TEST_CASE("step with the applied input: a downstream clamp reaches the held inpu
 
     // A tighter downstream clamp: the next step predicts with the applied input, and its move starts from it.
     const ColVec<1> y{x(0)};
-    split.back_calculate(ColVec<1>{0.01});
-    (void)split.step(ColVec<1>{5.0}, y);
+    split.back_calculate(ColVec{0.01});
+    (void)split.step(ColVec{5.0}, y);
     CHECK(split.applied()(0) == 0.01);
 }
 
@@ -500,7 +500,7 @@ design::DisturbanceModel<4, 3, 1, 1> load_force_model(const CompliantDrive& plan
 design::KalmanNoise<4, 3, double, 1> drive_noise() {
     return design::KalmanNoise<4, 3, double, 1>{
         .process = Matrix<4, 4>::identity() * 1.0e-8,
-        .measurement = Matrix<3, 3>{{1.0e-8, 0.0, 0.0}, {0.0, 1.0e-2, 0.0}, {0.0, 0.0, 1.0e4}},
+        .measurement = Matrix{{1.0e-8, 0.0, 0.0}, {0.0, 1.0e-2, 0.0}, {0.0, 0.0, 1.0e4}},
         .disturbance = 1.0,
     };
 }
@@ -520,12 +520,12 @@ TEST_CASE("offset-free MPC: a load force sensed by an accelerometer, the load he
     static_assert(decltype(OFMPC{art_load})::NDE == 1);
     static_assert(decltype(OFMPC{art_load})::NYM == 3);
 
-    OFMPC           c_load{art_load};
-    OFMPC           c_input{art_input};
-    ColVec<4>       x_load{};
-    ColVec<4>       x_input{};
-    const ColVec<1> r{0.01};
-    const double    force = -0.8;
+    OFMPC        c_load{art_load};
+    OFMPC        c_input{art_input};
+    ColVec<4>    x_load{};
+    ColVec<4>    x_input{};
+    const ColVec r{0.01};
+    const double force = -0.8;
     for (int i = 0; i < 1500; ++i) {
         x_load = plant.step(x_load, c_load.step(r, plant.measure(x_load, force))(0), force);
         x_input = plant.step(x_input, c_input.step(r, plant.measure(x_input, force))(0), force);
@@ -544,13 +544,13 @@ TEST_CASE("offset-free MPC with a general disturbance model honours the input an
     const auto                 art = design::mpc<40, 8>(plant.sys, load_weights(), limits, moves, drive_noise(), load_force_model(plant));
     REQUIRE(art.success);
 
-    OFMPC           ctrl{art};
-    ColVec<4>       x{};
-    const ColVec<1> r{0.01};
-    const double    force = -0.8; // holding it takes u = 0.8 of the ±1 authority
-    double          u_prev = 0.0;
-    double          worst_u = 0.0;
-    double          worst_du = 0.0;
+    OFMPC        ctrl{art};
+    ColVec<4>    x{};
+    const ColVec r{0.01};
+    const double force = -0.8; // holding it takes u = 0.8 of the ±1 authority
+    double       u_prev = 0.0;
+    double       worst_u = 0.0;
+    double       worst_du = 0.0;
     for (int i = 0; i < 2000; ++i) {
         const double u = ctrl.step(r, plant.measure(x, force))(0);
         worst_u = std::max(worst_u, std::abs(u));
@@ -572,13 +572,13 @@ TEST_CASE("offset-free MPC on the ADMM policy reports an infeasible tick like th
     REQUIRE(art.success);
 
     using Ctl = decltype(OFMPC{art});
-    OFMPC           exact{art};
-    OFMPC           admm{art, design::AdmmSolver<Ctl::NZ1, Ctl::NI1, double>{}};
-    const ColVec<1> r{1.0};
-    const ColVec<1> y{0.0};
+    OFMPC        exact{art};
+    OFMPC        admm{art, design::AdmmSolver<Ctl::NZ1, Ctl::NI1, double>{}};
+    const ColVec r{1.0};
+    const ColVec y{0.0};
 
-    exact.back_calculate(ColVec<1>{2.0});
-    admm.back_calculate(ColVec<1>{2.0});
+    exact.back_calculate(ColVec{2.0});
+    admm.back_calculate(ColVec{2.0});
     const auto ue = exact.step(r, y);
     const auto ua = admm.step(r, y);
     CHECK(exact.last_status() == design::QPStatus::Infeasible);
@@ -587,8 +587,8 @@ TEST_CASE("offset-free MPC on the ADMM policy reports an infeasible tick like th
     CHECK(ue(0) == doctest::Approx(0.5));
     CHECK(ua(0) == doctest::Approx(0.5));
 
-    exact.back_calculate(ColVec<1>{0.3});
-    admm.back_calculate(ColVec<1>{0.3});
+    exact.back_calculate(ColVec{0.3});
+    admm.back_calculate(ColVec{0.3});
     const auto ue2 = exact.step(r, y);
     const auto ua2 = admm.step(r, y);
     CHECK(exact.last_status() == design::QPStatus::Success);
@@ -626,7 +626,7 @@ TEST_CASE("offset-free MPC rejects an undetectable or unsupported general distur
 
     // A failed design still deploys: zero estimate, finite (zero) move.
     OFMPC      idle{refused};
-    const auto u = idle.step(ColVec<1>{0.01}, ColVec<3>{});
+    const auto u = idle.step(ColVec{0.01}, ColVec<3>{});
     CHECK(damp::isfinite(u(0)));
 
     // A controlled output out of range is refused.
@@ -641,7 +641,7 @@ constexpr StateSpace<1, 1, 1, double, 1, 1> kBlock{.A = {{-1.0 / 30.0}}, .B = {{
 
 constexpr StateSpace<4, 1, 1, double, 1, 1> heater_model() {
     auto m = test::delay_state_form<3>(kBlock, 2.0, 5.0);
-    m.G = Matrix<4, 1>{{1.0}, {0.0}, {0.0}, {0.0}};
+    m.G = Matrix{{1.0}, {0.0}, {0.0}, {0.0}};
     return m;
 }
 
@@ -657,7 +657,7 @@ auto heater_design(double u_max, bool terminal_weight = true) {
         w.Qy_terminal = w.Qy;
     }
     design::InputLimits<1> c{.lower = {0.0}, .upper = {u_max}};
-    const auto             art = design::mpc<30, NC>(kHeater, w, c, design::KalmanNoise{Matrix<1, 1>{{0.01}}, Matrix<1, 1>{{0.01}}, Matrix<1, 1>{{0.05}}}, design::InputDisturbance{});
+    const auto             art = design::mpc<30, NC>(kHeater, w, c, design::KalmanNoise{Matrix{{0.01}}, Matrix{{0.01}}, Matrix{{0.05}}}, design::InputDisturbance{});
     REQUIRE(art.success);
     return art;
 }
@@ -705,7 +705,7 @@ TEST_SUITE("offset-free MPC float runtime") {
         int       failed_solves = 0;
         for (int k = 0; k < 300; ++k) {
             const float y = static_cast<float>((kHeater.C * x)(0, 0));
-            u = mpc.step(ColVec<1, float>{185.0f}, ColVec<1, float>{y})[0];
+            u = mpc.step(ColVec{185.0f}, ColVec<1, float>{y})[0];
             failed_solves += (mpc.last_status() != design::QPStatus::Success) ? 1 : 0;
             u_peak = std::max(u_peak, u);
             x = kHeater.A * x + kHeater.B * ColVec<1>{static_cast<double>(u)};
@@ -760,7 +760,7 @@ TEST_SUITE("offset-free MPC error-state estimator") {
         double                  worst = 0.0;
         for (int k = 0; k < 400; ++k) {
             const double w = (k >= 200) ? -0.8 : 0.0; // an unmeasured heat loss
-            const double ua = esk.step(ColVec<1>{185.0}, ColVec<1>{(kHeater.C * xa)(0, 0)})[0];
+            const double ua = esk.step(ColVec{185.0}, ColVec<1>{(kHeater.C * xa)(0, 0)})[0];
             const double ub = abs.tick(185.0, (kHeater.C * xb)(0, 0));
             worst = std::max(worst, std::abs(ua - ub));
             xa = kHeater.A * xa + kHeater.B * ColVec<1>{ua + w};
@@ -783,7 +783,7 @@ TEST_SUITE("offset-free MPC error-state estimator") {
         float     lo_e = 1e30f;
         float     hi_e = -1e30f;
         for (int k = 0; k < 600; ++k) {
-            const float ua = esk.step(ColVec<1, float>{1.0e5f}, ColVec<1, float>{static_cast<float>((kHeater.C * xa)(0, 0))})[0];
+            const float ua = esk.step(ColVec{1.0e5f}, ColVec<1, float>{static_cast<float>((kHeater.C * xa)(0, 0))})[0];
             xa = kHeater.A * xa + kHeater.B * ColVec<1>{static_cast<double>(ua)};
             if (k >= 500) {
                 lo_e = std::min(lo_e, ua);
@@ -829,8 +829,8 @@ TEST_SUITE("offset-free MPC terminal") {
 
         // Regulation from the reading under an unmeasured load: the terminal set sits about the
         // target the load estimate moves (u_t = −d̂), so every solve stays feasible.
-        const ColVec<1> r{0.0};
-        ColVec<2>       x{0.02, 0.0};
+        const ColVec r{0.0};
+        ColVec       x{0.02, 0.0};
         for (size_t k = 0; k < 300; ++k) {
             const auto u = law.step(r, ColVec<1>{x(0)});
             CHECK(law.last_status() == design::QPStatus::Success);
@@ -906,7 +906,7 @@ TEST_CASE("back_calculate: a clamp is the applied input, the next move starts fr
     ColVec<2> x{};
     double    last = 0.0;
     for (int k = 0; k < 80; ++k) {
-        const auto   u = ctrl.step(ColVec<1>{5.0}, ColVec<1>{x[0]});
+        const auto   u = ctrl.step(ColVec{5.0}, ColVec<1>{x[0]});
         const double applied = damp::clamp(u[0], -0.3, 0.3);
         ctrl.back_calculate(ColVec<1>{applied});
         CHECK(applied >= -0.3);
@@ -965,8 +965,8 @@ TEST_CASE("OFMPC is the MPC of an offset-free design, and refuses a design witho
     ColVec<2> x{};
     for (int k = 0; k < 50; ++k) {
         const ColVec<1> y{x(0)};
-        const ColVec<1> u = law.step(ColVec<1>{1.0}, y);
-        CHECK(offset_free_law.step(ColVec<1>{1.0}, y)(0) == u(0));
+        const ColVec<1> u = law.step(ColVec{1.0}, y);
+        CHECK(offset_free_law.step(ColVec{1.0}, y)(0) == u(0));
         x = plant_step(x, u(0) + 0.2);
     }
     CHECK(law.disturbance_estimate()(0) == offset_free_law.disturbance_estimate()(0));

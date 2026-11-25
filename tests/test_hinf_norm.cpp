@@ -31,16 +31,16 @@ constexpr double kZeta[] = {1e-1, 1e-2, 1e-3, 1e-4, 1e-5};
 StateSpace<2, 1, 1> resonance(double zeta, double d = 0.0) {
     return StateSpace{
         .A = Matrix<2, 2>{{0.0, 1.0}, {-100.0, -20.0 * zeta}},
-        .B = Matrix<2, 1>{{0.0}, {1.0}},
-        .C = Matrix<1, 2>{{100.0, 0.0}},
+        .B = Matrix{{0.0}, {1.0}},
+        .C = Matrix{{100.0, 0.0}},
         .D = Matrix<1, 1>{{d}},
     };
 }
 
 constexpr StateSpace kResonance{
-    .A = Matrix<2, 2>{{0.0, 1.0}, {-100.0, -0.2}},
-    .B = Matrix<2, 1>{{0.0}, {1.0}},
-    .C = Matrix<1, 2>{{100.0, 0.0}},
+    .A = Matrix{{0.0, 1.0}, {-100.0, -0.2}},
+    .B = Matrix{{0.0}, {1.0}},
+    .C = Matrix{{100.0, 0.0}},
 };
 constexpr auto kResonancePeak = analysis::norm_hinf(kResonance);
 static_assert(kResonancePeak.success);
@@ -65,7 +65,7 @@ TEST_SUITE("H-infinity norm") {
             const double     wd = 10.0 * std::sqrt(1.0 - (zeta * zeta));
             const StateSpace modal{
                 .A = Matrix<2, 2>{{-10.0 * zeta, wd}, {-wd, -10.0 * zeta}},
-                .B = Matrix<2, 1>{{0.0}, {1.0}},
+                .B = Matrix{{0.0}, {1.0}},
                 .C = Matrix<1, 2>{{100.0 / wd, 0.0}},
             };
             const auto m = analysis::norm_hinf(modal);
@@ -112,8 +112,8 @@ TEST_SUITE("H-infinity norm") {
             CAPTURE(kZeta[k]);
             const StateSpace sys{
                 .A = Matrix<2, 2>{{a[k][0], -a[k][1]}, {a[k][1], a[k][0]}},
-                .B = Matrix<2, 1>{{0.0}, {1.0}},
-                .C = Matrix<1, 2>{{1.0, 0.0}},
+                .B = Matrix{{0.0}, {1.0}},
+                .C = Matrix{{1.0, 0.0}},
                 .Ts = 1e-3,
             };
             const auto r = analysis::norm_hinf(sys);
@@ -124,8 +124,8 @@ TEST_SUITE("H-infinity norm") {
         //! ζ = 0.1 peaks at Nyquist: θ = π exactly, π/Ts.
         CHECK(analysis::norm_hinf(StateSpace{
                                       .A = Matrix<2, 2>{{a[0][0], -a[0][1]}, {a[0][1], a[0][0]}},
-                                      .B = Matrix<2, 1>{{0.0}, {1.0}},
-                                      .C = Matrix<1, 2>{{1.0, 0.0}},
+                                      .B = Matrix{{0.0}, {1.0}},
+                                      .C = Matrix{{1.0, 0.0}},
                                       .Ts = 1e-3,
                                   })
                   .frequency
@@ -134,15 +134,15 @@ TEST_SUITE("H-infinity norm") {
 
     TEST_CASE("MIMO 3×2 with D ≠ 0: two lightly damped modes (ζ = 10⁻³ at 3 rad/s, 10⁻⁴ at 8 rad/s)") {
         const StateSpace sys{
-            .A = Matrix<4, 4>{
+            .A = Matrix{
                 {-0.003, 2.999998499999625, 0.0, 0.0},
                 {-2.999998499999625, -0.003, 0.0, 0.0},
                 {0.0, 0.0, -0.0008, 7.999999959999999},
                 {0.0, 0.0, -7.999999959999999, -0.0008},
             },
-            .B = Matrix<4, 2>{{1.0, 0.0}, {0.5, 1.0}, {0.0, 1.0}, {1.0, -0.5}},
-            .C = Matrix<3, 4>{{1.0, 0.0, 0.2, 0.0}, {0.0, 1.0, 1.0, 0.0}, {0.3, 0.0, 0.0, 1.0}},
-            .D = Matrix<3, 2>{{0.1, 0.0}, {0.0, -0.2}, {0.05, 0.05}},
+            .B = Matrix{{1.0, 0.0}, {0.5, 1.0}, {0.0, 1.0}, {1.0, -0.5}},
+            .C = Matrix{{1.0, 0.0, 0.2, 0.0}, {0.0, 1.0, 1.0, 0.0}, {0.3, 0.0, 0.0, 1.0}},
+            .D = Matrix{{0.1, 0.0}, {0.0, -0.2}, {0.05, 0.05}},
         };
         const auto r = analysis::norm_hinf(sys);
         REQUIRE(r.success);
@@ -159,7 +159,7 @@ TEST_SUITE("H-infinity norm") {
         CHECK(r.frequency == doctest::Approx(9.999980000068012).epsilon(1e-8));
 
         //! (s + 0.1)/(s + 1): |G(jω)| < 1 at every finite ω, → 1 = |D| as ω → ∞.
-        const StateSpace high_pass{.A = Matrix<1, 1>{{-1.0}}, .B = Matrix<1, 1>{{1.0}}, .C = Matrix<1, 1>{{-0.9}}, .D = Matrix<1, 1>{{1.0}}};
+        const StateSpace high_pass{.A = Matrix{{-1.0}}, .B = Matrix{{1.0}}, .C = Matrix{{-0.9}}, .D = Matrix{{1.0}}};
         const auto       hp = analysis::norm_hinf(high_pass);
         REQUIRE(hp.success);
         CHECK(hp.gain == 1.0);
@@ -167,10 +167,10 @@ TEST_SUITE("H-infinity norm") {
     }
 
     TEST_CASE("an unstable or marginally stable G is refused, as norm_h2 refuses it") {
-        const StateSpace unstable{.A = Matrix<1, 1>{{0.5}}, .B = Matrix<1, 1>{{1.0}}, .C = Matrix<1, 1>{{1.0}}};
-        const StateSpace integrator{.A = Matrix<1, 1>{{0.0}}, .B = Matrix<1, 1>{{1.0}}, .C = Matrix<1, 1>{{1.0}}};
-        const StateSpace discrete{.A = Matrix<1, 1>{{1.02}}, .B = Matrix<1, 1>{{1.0}}, .C = Matrix<1, 1>{{1.0}}, .Ts = 0.1};
-        const StateSpace on_circle{.A = Matrix<1, 1>{{-1.0}}, .B = Matrix<1, 1>{{1.0}}, .C = Matrix<1, 1>{{1.0}}, .Ts = 0.1};
+        const StateSpace unstable{.A = Matrix{{0.5}}, .B = Matrix{{1.0}}, .C = Matrix{{1.0}}};
+        const StateSpace integrator{.A = Matrix{{0.0}}, .B = Matrix{{1.0}}, .C = Matrix{{1.0}}};
+        const StateSpace discrete{.A = Matrix{{1.02}}, .B = Matrix{{1.0}}, .C = Matrix{{1.0}}, .Ts = 0.1};
+        const StateSpace on_circle{.A = Matrix{{-1.0}}, .B = Matrix{{1.0}}, .C = Matrix{{1.0}}, .Ts = 0.1};
         CHECK_FALSE(analysis::norm_hinf(unstable).success);
         CHECK_FALSE(analysis::norm_hinf(integrator).success);
         CHECK_FALSE(analysis::norm_hinf(discrete).success);
@@ -183,9 +183,9 @@ TEST_SUITE("H-infinity norm") {
     TEST_CASE("a transfer function that is identically zero has norm 0") {
         //! The driven mode is not observed and the observed mode is not driven.
         const StateSpace hidden{
-            .A = Matrix<2, 2>{{-1.0, 0.0}, {0.0, -2.0}},
-            .B = Matrix<2, 1>{{1.0}, {0.0}},
-            .C = Matrix<1, 2>{{0.0, 1.0}},
+            .A = Matrix{{-1.0, 0.0}, {0.0, -2.0}},
+            .B = Matrix{{1.0}, {0.0}},
+            .C = Matrix{{0.0, 1.0}},
         };
         const auto r = analysis::norm_hinf(hidden);
         CHECK(r.success);

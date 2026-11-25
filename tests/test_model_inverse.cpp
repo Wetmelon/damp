@@ -29,24 +29,24 @@ namespace {
  * nonsingular M, and the second channel reads the first one's state.
  */
 constexpr StateSpace<5, 2, 2> mimo_minimum_phase() {
-    const Matrix<5, 5> A{
+    const Matrix A{
         {0.0, 1.0, 0.0, 0.0, 0.0},
         {-0.48, 1.4, 0.0, 0.0, 0.0},
         {0.0, 0.0, 0.0, 1.0, 0.0},
         {0.0, 0.0, 0.0, 0.0, 1.0},
         {0.1, 0.0, 0.126, -0.95, 1.8},
     };
-    const Matrix<5, 2> B{{0.0, 0.0}, {1.0, 0.5}, {0.0, 0.0}, {0.0, 0.0}, {-0.3, 1.0}};
-    const Matrix<2, 5> C{{-0.5, 1.0, 0.0, 0.0, 0.0}, {0.0, 0.0, 0.3, 1.0, 0.0}};
+    const Matrix B{{0.0, 0.0}, {1.0, 0.5}, {0.0, 0.0}, {0.0, 0.0}, {-0.3, 1.0}};
+    const Matrix C{{-0.5, 1.0, 0.0, 0.0, 0.0}, {0.0, 0.0, 0.3, 1.0, 0.0}};
     return StateSpace{.A = A, .B = B, .C = C, .Ts = 0.1};
 }
 
 /** (z − 2)/((z − 0.5)(z − 0.6)(z + 0.2)): relative degree 2, one zero outside the unit circle. */
 constexpr StateSpace<3, 1, 1> siso_nonminimum_phase() {
     return StateSpace{
-        .A = Matrix<3, 3>{{0.0, 1.0, 0.0}, {0.0, 0.0, 1.0}, {-0.06, -0.08, 0.9}},
-        .B = Matrix<3, 1>{{0.0}, {0.0}, {1.0}},
-        .C = Matrix<1, 3>{{-2.0, 1.0, 0.0}},
+        .A = Matrix{{0.0, 1.0, 0.0}, {0.0, 0.0, 1.0}, {-0.06, -0.08, 0.9}},
+        .B = Matrix{{0.0}, {0.0}, {1.0}},
+        .C = Matrix{{-2.0, 1.0, 0.0}},
         .Ts = 0.1,
     };
 }
@@ -57,9 +57,9 @@ constexpr StateSpace<3, 1, 1> siso_nonminimum_phase() {
  */
 constexpr StateSpace<4, 1, 1> siso_complex_zeros() {
     return StateSpace{
-        .A = Matrix<4, 4>{{0.0, 1.0, 0.0, 0.0}, {0.0, 0.0, 1.0, 0.0}, {0.0, 0.0, 0.0, 1.0}, {0.018, -0.036, -0.35, 1.2}},
-        .B = Matrix<4, 1>{{0.0}, {0.0}, {0.0}, {1.0}},
-        .C = Matrix<1, 4>{{2.5, -2.0, 1.0, 0.0}},
+        .A = Matrix{{0.0, 1.0, 0.0, 0.0}, {0.0, 0.0, 1.0, 0.0}, {0.0, 0.0, 0.0, 1.0}, {0.018, -0.036, -0.35, 1.2}},
+        .B = Matrix{{0.0}, {0.0}, {0.0}, {1.0}},
+        .C = Matrix{{2.5, -2.0, 1.0, 0.0}},
         .Ts = 0.1,
     };
 }
@@ -67,9 +67,9 @@ constexpr StateSpace<4, 1, 1> siso_complex_zeros() {
 /** 1/(s(s + 1)(s + 2)) under ZOH at 0.1 s: relative degree 1, sampling zeros at −3.47 and −0.25. */
 StateSpace<3, 1, 1> sampled_third_order() {
     const StateSpace plant{
-        .A = Matrix<3, 3>{{0.0, 1.0, 0.0}, {0.0, 0.0, 1.0}, {0.0, -2.0, -3.0}},
-        .B = Matrix<3, 1>{{0.0}, {0.0}, {1.0}},
-        .C = Matrix<1, 3>{{1.0, 0.0, 0.0}},
+        .A = Matrix{{0.0, 1.0, 0.0}, {0.0, 0.0, 1.0}, {0.0, -2.0, -3.0}},
+        .B = Matrix{{0.0}, {0.0}, {1.0}},
+        .C = Matrix{{1.0, 0.0, 0.0}},
     };
     return *discretize(plant, 0.1);
 }
@@ -212,9 +212,9 @@ TEST_SUITE("Model inverse: plant-inversion feedforward and the stable output inv
         // x*ₖ₊₁ − A·x*ₖ = B·u + w with w orthogonal to range(B): u is recovered, w ignored.
         const auto             sys = mimo_minimum_phase();
         const StateFeedforward ff{design::state_feedforward(sys)};
-        const ColVec<5>        x{0.2, -0.1, 0.4, 0.3, -0.2};
-        const ColVec<2>        u{0.7, -1.1};
-        const ColVec<5>        w{1.0, 0.0, 0.5, -0.25, 0.0}; // Bᵀw = 0: B's nonzero rows are 1 and 4
+        const ColVec           x{0.2, -0.1, 0.4, 0.3, -0.2};
+        const ColVec           u{0.7, -1.1};
+        const ColVec           w{1.0, 0.0, 0.5, -0.25, 0.0}; // Bᵀw = 0: B's nonzero rows are 1 and 4
         const ColVec<5>        x_next = (sys.A * x) + (sys.B * u) + w;
         const ColVec<2>        got = ff.control(x, x_next);
         CHECK(max_abs(got - u) <= 64.0 * kEps * 4.0);
@@ -223,8 +223,8 @@ TEST_SUITE("Model inverse: plant-inversion feedforward and the stable output inv
     TEST_CASE("state_feedforward refuses a rank-deficient B and a continuous model") {
         const StateSpace alike{
             .A = Matrix<3, 3>::identity() * 0.9,
-            .B = Matrix<3, 2>{{1.0, 2.0}, {2.0, 4.0}, {0.0, 0.0}},
-            .C = Matrix<1, 3>{{1.0, 0.0, 0.0}},
+            .B = Matrix{{1.0, 2.0}, {2.0, 4.0}, {0.0, 0.0}},
+            .C = Matrix{{1.0, 0.0, 0.0}},
             .Ts = 0.1,
         };
         CHECK(design::state_feedforward(alike).status == design::DesignStatus::singular);
@@ -362,7 +362,7 @@ TEST_SUITE("Model inverse: plant-inversion feedforward and the stable output inv
         OutputInverse<3, 1, 30, float>    inv{res};
         damp::array<ColVec<1, float>, 30> held{};
         for (auto& v : held) {
-            v = ColVec<1, float>{0.25f};
+            v = ColVec{0.25f};
         }
         for (int k = 0; k < 5; ++k) {
             const auto p = inv.step(held);
@@ -376,7 +376,7 @@ TEST_SUITE("Model inverse: plant-inversion feedforward and the stable output inv
         Law<kMimoInverse, float>         law{};
         damp::array<ColVec<2, float>, 3> held{};
         for (auto& v : held) {
-            v = ColVec<2, float>{0.5f, -0.25f};
+            v = ColVec{0.5f, -0.25f};
         }
         const auto p = law.step(held);
         const auto y = mimo_minimum_phase().C.template as<float>() * p.x;
@@ -387,26 +387,26 @@ TEST_SUITE("Model inverse: plant-inversion feedforward and the stable output inv
     TEST_CASE("output_inverse refuses what it cannot invert") {
         // The zero at −1 of a sampled double integrator: no bounded inverse.
         const StateSpace double_integrator{
-            .A = Matrix<2, 2>{{0.0, 1.0}, {0.0, 0.0}},
-            .B = Matrix<2, 1>{{0.0}, {1.0}},
-            .C = Matrix<1, 2>{{1.0, 0.0}},
+            .A = Matrix{{0.0, 1.0}, {0.0, 0.0}},
+            .B = Matrix{{0.0}, {1.0}},
+            .C = Matrix{{1.0, 0.0}},
         };
         CHECK(design::output_inverse<8>(*discretize(double_integrator, 0.01)).status == design::DesignStatus::singular);
 
         // Two outputs that read the same combination: the decoupling matrix is singular.
         const StateSpace twin{
-            .A = Matrix<2, 2>{{0.5, 0.0}, {0.0, 0.6}},
+            .A = Matrix{{0.5, 0.0}, {0.0, 0.6}},
             .B = Matrix<2, 2>::identity(),
-            .C = Matrix<2, 2>{{1.0, 1.0}, {2.0, 2.0}},
+            .C = Matrix{{1.0, 1.0}, {2.0, 2.0}},
             .Ts = 0.1,
         };
         CHECK(design::output_inverse<3>(twin).status == design::DesignStatus::singular);
 
         // An output no input reaches.
         const StateSpace unreached{
-            .A = Matrix<2, 2>{{0.5, 0.0}, {0.0, 0.6}},
-            .B = Matrix<2, 1>{{1.0}, {0.0}},
-            .C = Matrix<1, 2>{{0.0, 1.0}},
+            .A = Matrix{{0.5, 0.0}, {0.0, 0.6}},
+            .B = Matrix{{1.0}, {0.0}},
+            .C = Matrix{{0.0, 1.0}},
             .Ts = 0.1,
         };
         CHECK(design::output_inverse<3>(unreached).status == design::DesignStatus::singular);

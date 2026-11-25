@@ -29,9 +29,9 @@ using namespace damp;
 namespace {
 constexpr StateSpace<2, 1, 1, double, 2, 1> make_plant() {
     return StateSpace<2, 1, 1, double, 2, 1>{
-        Matrix<2, 2>{{1.0, 0.1}, {0.0, 1.0}},
-        Matrix<2, 1>{{0.005}, {0.1}},
-        Matrix<1, 2>{{1.0, 0.0}},
+        Matrix{{1.0, 0.1}, {0.0, 1.0}},
+        Matrix{{0.005}, {0.1}},
+        Matrix{{1.0, 0.0}},
         Matrix<1, 1>::zeros(),
         Matrix<2, 2>::identity(),
         Matrix<1, 1>::identity(),
@@ -43,7 +43,7 @@ constexpr StateSpace<2, 1, 1, double, 2, 1> make_plant() {
 TEST_SUITE("Offset-free LQG: oflqg with a disturbance model") {
     TEST_CASE("design succeeds") {
         constexpr auto sys = make_plant();
-        constexpr auto result = design::state_feedback(sys, {.Q = Matrix<2, 2>::identity(), .R = 0.1}, design::KalmanNoise{Matrix<2, 2>{{0.01, 0.0}, {0.0, 0.01}}, Matrix<1, 1>{{0.1}}, Matrix<1, 1>{{1.0}}}, design::InputDisturbance{});
+        constexpr auto result = design::state_feedback(sys, {.Q = Matrix<2, 2>::identity(), .R = 0.1}, design::KalmanNoise{Matrix{{0.01, 0.0}, {0.0, 0.01}}, Matrix{{0.1}}, Matrix{{1.0}}}, design::InputDisturbance{});
         static_assert(result.success);
         static_assert(result.status == design::DesignStatus::ok);
         static_assert(result.Ts == 0.1 && result.kalman.sys.Ts == 0.1); // the plant's, both halves
@@ -54,7 +54,7 @@ TEST_SUITE("Offset-free LQG: oflqg with a disturbance model") {
 
         //! A velocity held at r: [A−I, B; C, D] is singular (the first column is zero), so there is no unique target.
         auto velocity = sys;
-        velocity.C = Matrix<1, 2>{{0.0, 1.0}};
+        velocity.C = Matrix{{0.0, 1.0}};
         CHECK(design::steady_state_target(velocity, design::TrackedOutputs{}).status == design::DesignStatus::singular);
     }
 
@@ -69,7 +69,7 @@ TEST_SUITE("Offset-free LQG: oflqg with a disturbance model") {
         CHECK(refused_model.status == design::DesignStatus::invalid_sample_time);
 
         //! The sample-time form takes the continuous plant only: a discrete one would be discretized twice.
-        constexpr StateSpace<2, 1, 1> di{.A = Matrix<2, 2>{{0.0, 1.0}, {0.0, 0.0}}, .B = Matrix<2, 1>{{0.0}, {1.0}}, .C = Matrix<1, 2>{{1.0, 0.0}}};
+        constexpr StateSpace<2, 1, 1> di{.A = Matrix{{0.0, 1.0}, {0.0, 0.0}}, .B = Matrix{{0.0}, {1.0}}, .C = Matrix{{1.0, 0.0}}};
         constexpr auto                sampled = design::state_feedback(di, 0.1, w, design::KalmanNoise<2, 1, double, 1>{}, design::InputDisturbance{});
         static_assert(sampled.success && sampled.Ts == 0.1);
         CHECK(design::state_feedback(*discretize(di, 0.1), 0.1, w, design::KalmanNoise<2, 1, double, 1>{}, design::InputDisturbance{}).status == design::DesignStatus::invalid_sample_time);
@@ -78,13 +78,13 @@ TEST_SUITE("Offset-free LQG: oflqg with a disturbance model") {
 
     TEST_CASE("tracks a setpoint under a constant input load") {
         const auto sys = make_plant();
-        const auto result = design::state_feedback(sys, {.Q = Matrix<2, 2>::identity(), .R = 0.1}, design::KalmanNoise{Matrix<2, 2>{{0.05, 0.0}, {0.0, 0.05}}, Matrix<1, 1>{{0.05}}, Matrix<1, 1>{{1.0}}}, design::InputDisturbance{});
+        const auto result = design::state_feedback(sys, {.Q = Matrix<2, 2>::identity(), .R = 0.1}, design::KalmanNoise{Matrix{{0.05, 0.0}, {0.0, 0.05}}, Matrix{{0.05}}, Matrix{{1.0}}}, design::InputDisturbance{});
         REQUIRE(result.success);
 
-        auto            ctrl = OFLQG{result};
-        ColVec<2>       x{0.0, 0.0};
-        const ColVec<1> r{1.0};
-        const double    w_true = 0.4;
+        auto         ctrl = OFLQG{result};
+        ColVec       x{0.0, 0.0};
+        const ColVec r{1.0};
+        const double w_true = 0.4;
         for (int k = 0; k < 400; ++k) {
             const ColVec<1> y{x[0]};
             const ColVec<1> u = ctrl.step(r, y);
@@ -95,7 +95,7 @@ TEST_SUITE("Offset-free LQG: oflqg with a disturbance model") {
     }
 
     TEST_CASE("as<float> preserves success") {
-        constexpr auto result = design::state_feedback(make_plant(), {.Q = Matrix<2, 2>::identity(), .R = 0.1}, design::KalmanNoise{Matrix<2, 2>{{0.01, 0.0}, {0.0, 0.01}}, Matrix<1, 1>{{0.1}}, Matrix<1, 1>{{1.0}}}, design::InputDisturbance{});
+        constexpr auto result = design::state_feedback(make_plant(), {.Q = Matrix<2, 2>::identity(), .R = 0.1}, design::KalmanNoise{Matrix{{0.01, 0.0}, {0.0, 0.01}}, Matrix{{0.1}}, Matrix{{1.0}}}, design::InputDisturbance{});
         constexpr auto f = result.as<float>();
         static_assert(f.success);
         CHECK(f.success);
@@ -137,13 +137,13 @@ TEST_SUITE("Offset-free LQG: oflqg with a disturbance model") {
 
         Matrix<4, 4> Q = Matrix<4, 4>::identity();
         Q(2, 2) = 1.0e4;
-        const auto res = design::state_feedback(sys, {.Q = Q, .R = 1.0e-4}, design::KalmanNoise{Matrix<4, 4>::identity() * 1.0e-8, Matrix<3, 3>{{1.0e-8, 0.0, 0.0}, {0.0, 1.0e-8, 0.0}, {0.0, 0.0, 1.0e-2}}, Matrix<1, 1>{{1.0}}}, model);
+        const auto res = design::state_feedback(sys, {.Q = Q, .R = 1.0e-4}, design::KalmanNoise{Matrix<4, 4>::identity() * 1.0e-8, Matrix{{1.0e-8, 0.0, 0.0}, {0.0, 1.0e-8, 0.0}, {0.0, 0.0, 1.0e-2}}, Matrix{{1.0}}}, model);
         REQUIRE(res.success);
 
-        OFLQG           ctrl{res};
-        ColVec<4>       x{};
-        const ColVec<1> r{0.01};
-        const double    load_force = -0.8;
+        OFLQG        ctrl{res};
+        ColVec<4>    x{};
+        const ColVec r{0.01};
+        const double load_force = -0.8;
         for (int i = 0; i < 4000; ++i) {
             const ColVec<3> y = (sys.C * x) + (model.Cd * ColVec<1>{load_force});
             const ColVec<1> u = ctrl.step(r, y);
@@ -157,7 +157,7 @@ TEST_SUITE("Offset-free LQG: oflqg with a disturbance model") {
         // Same design, same plant and load: step({}, x*, u*, y) with x* = [1, 0], u* = 0 must
         // produce exactly the inputs step(r = 1, {}, {}, y) does (re-anchoring makes the two filters equal).
         const auto sys = make_plant();
-        const auto result = design::state_feedback(sys, {.Q = Matrix<2, 2>::identity(), .R = 0.1}, design::KalmanNoise{Matrix<2, 2>{{0.05, 0.0}, {0.0, 0.05}}, Matrix<1, 1>{{0.05}}, Matrix<1, 1>{{1.0}}}, design::InputDisturbance{});
+        const auto result = design::state_feedback(sys, {.Q = Matrix<2, 2>::identity(), .R = 0.1}, design::KalmanNoise{Matrix{{0.05, 0.0}, {0.0, 0.05}}, Matrix{{0.05}}, Matrix{{1.0}}}, design::InputDisturbance{});
         REQUIRE(result.success);
         OFLQG     setpoint{result};
         OFLQG     tracking{result};
@@ -165,18 +165,18 @@ TEST_SUITE("Offset-free LQG: oflqg with a disturbance model") {
         ColVec<2> xt{};
         double    worst = 0.0;
         for (int k = 0; k < 300; ++k) {
-            const ColVec<1> us = setpoint.step(ColVec<1>{1.0}, ColVec<1>{xs[0]});
-            const ColVec<1> ut = tracking.step({}, ColVec<2>{1.0, 0.0}, ColVec<1>{}, ColVec<1>{xt[0]});
+            const ColVec<1> us = setpoint.step(ColVec{1.0}, ColVec<1>{xs[0]});
+            const ColVec<1> ut = tracking.step({}, ColVec{1.0, 0.0}, ColVec<1>{}, ColVec<1>{xt[0]});
             worst = std::max(worst, std::abs(us[0] - ut[0]));
-            xs = sys.A * xs + sys.B * (us + ColVec<1>{0.4});
-            xt = sys.A * xt + sys.B * (ut + ColVec<1>{0.4});
+            xs = sys.A * xs + sys.B * (us + ColVec{0.4});
+            xt = sys.A * xt + sys.B * (ut + ColVec{0.4});
         }
         CHECK(worst < 1e-9);
     }
 
     TEST_CASE("tracks a moving reference under a constant load") {
         const auto sys = make_plant();
-        const auto result = design::state_feedback(sys, {.Q = Matrix<2, 2>{{100.0, 0.0}, {0.0, 1.0}}, .R = 0.01}, design::KalmanNoise{Matrix<2, 2>{{0.05, 0.0}, {0.0, 0.05}}, Matrix<1, 1>{{0.01}}, Matrix<1, 1>{{1.0}}}, design::InputDisturbance{});
+        const auto result = design::state_feedback(sys, {.Q = Matrix{{100.0, 0.0}, {0.0, 1.0}}, .R = 0.01}, design::KalmanNoise{Matrix{{0.05, 0.0}, {0.0, 0.05}}, Matrix{{0.01}}, Matrix{{1.0}}}, design::InputDisturbance{});
         REQUIRE(result.success);
         OFLQG        ctrl{result};
         ColVec<2>    x{};
@@ -188,7 +188,7 @@ TEST_SUITE("Offset-free LQG: oflqg with a disturbance model") {
             const ColVec<2> x_ref{std::sin(w * t), w * std::cos(w * t)};
             const ColVec<1> u_ref{-w * w * std::sin(w * t)}; // the reference's own acceleration
             const ColVec<1> u = ctrl.step({}, x_ref, u_ref, ColVec<1>{x[0]});
-            x = sys.A * x + sys.B * (u + ColVec<1>{0.4});
+            x = sys.A * x + sys.B * (u + ColVec{0.4});
             if (t > 100.0) {
                 worst = std::max(worst, std::abs(x[0] - std::sin(w * (t + Ts))));
             }
@@ -199,31 +199,31 @@ TEST_SUITE("Offset-free LQG: oflqg with a disturbance model") {
 
     TEST_CASE("the offset-free LQG is offset-free with feedthrough D != 0") {
         const StateSpace<2, 1, 1, double, 2, 1> sys{
-            Matrix<2, 2>{{1.0, 0.1}, {0.0, 1.0}},
-            Matrix<2, 1>{{0.005}, {0.1}},
-            Matrix<1, 2>{{1.0, 0.0}},
-            Matrix<1, 1>{{0.5}},
+            Matrix{{1.0, 0.1}, {0.0, 1.0}},
+            Matrix{{0.005}, {0.1}},
+            Matrix{{1.0, 0.0}},
+            Matrix{{0.5}},
             Matrix<2, 2>::identity(),
             Matrix<1, 1>::identity(),
             0.1
         };
         const auto result = design::state_feedback(
             sys, {.Q = Matrix<2, 2>::identity(), .R = 0.1},
-            design::KalmanNoise{Matrix<2, 2>{{0.05, 0.0}, {0.0, 0.05}}, Matrix<1, 1>{{0.05}}, Matrix<1, 1>{{1.0}}},
+            design::KalmanNoise{Matrix{{0.05, 0.0}, {0.0, 0.05}}, Matrix{{0.05}}, Matrix{{1.0}}},
             design::DisturbanceModel{.Bd = sys.B} // the load at the input; the sensor reads the command alone
         );
         REQUIRE(result.success);
 
-        OFLQG           ctrl{result};
-        ColVec<2>       x{0.0, 0.0};
-        ColVec<1>       u_held{};
-        const ColVec<1> r{1.0};
-        double          y = 0.0;
+        OFLQG        ctrl{result};
+        ColVec       x{0.0, 0.0};
+        ColVec<1>    u_held{};
+        const ColVec r{1.0};
+        double       y = 0.0;
         for (int k = 0; k < 600; ++k) {
             // Sampled before this tick's update: the held input is still u[k-1].
             y = x[0] + (0.5 * u_held(0));
             u_held = ctrl.step(r, ColVec<1>{y});
-            x = sys.A * x + sys.B * (u_held + ColVec<1>{0.4});
+            x = sys.A * x + sys.B * (u_held + ColVec{0.4});
         }
         CHECK(y == doctest::Approx(1.0).epsilon(1e-3));
     }
@@ -233,7 +233,7 @@ TEST_SUITE("Offset-free LQG: oflqg with a disturbance model") {
         // target holds C_z·x + D_z·u + C_{d,z}·d̂ at r; without the C_d term y settled at r + C_d·d.
         const auto run = [](double D, const auto& spec, bool output_bias) {
             const StateSpace<2, 1, 1, double, 2, 1> sys{
-                Matrix<2, 2>{{0.9, 0.1}, {0.0, 0.8}}, Matrix<2, 1>{{0.0}, {0.2}}, Matrix<1, 2>{{1.0, 0.0}}, Matrix<1, 1>{{D}}, Matrix<2, 2>::identity(), Matrix<1, 1>::identity(), 0.01
+                Matrix{{0.9, 0.1}, {0.0, 0.8}}, Matrix{{0.0}, {0.2}}, Matrix{{1.0, 0.0}}, Matrix<1, 1>{{D}}, Matrix<2, 2>::identity(), Matrix<1, 1>::identity(), 0.01
             };
             const design::KalmanNoise<2, 1, double, 1> noise{.process = Matrix<2, 2>::identity() * 0.01, .measurement = 0.01, .disturbance = 0.01};
             const design::LQRWeights<2, 1>             w{.Q = Matrix<2, 2>::identity(), .R = 1.0};
@@ -247,7 +247,7 @@ TEST_SUITE("Offset-free LQG: oflqg with a disturbance model") {
             for (int k = 0; k < 6000; ++k) {
                 const double d_in = output_bias ? 0.0 : d;
                 y = (sys.C * x)(0) + (D * (u + d_in)) + (output_bias ? d : 0.0); // the held input is u[k−1]
-                u = law.step(ColVec<1>{1.0}, ColVec<1>{y})(0);
+                u = law.step(ColVec{1.0}, ColVec<1>{y})(0);
                 x = (sys.A * x) + (sys.B * ColVec<1>{u + d_in});
             }
             CHECK(law.disturbance_estimate()(0) == doctest::Approx(d).epsilon(1e-4));

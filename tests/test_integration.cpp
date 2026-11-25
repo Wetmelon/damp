@@ -63,12 +63,12 @@ TEST_SUITE("Integration: Motor + Flexible Coupling + Mass System") {
                     {k / J_l, 0.0, -f_l / J_l}
                 },
                 Matrix<3, 1>{{1.0 / J_m}, {0.0}, {0.0}},
-                Matrix<3, 3>{{1.0, 0.0, 0.0}, {0.0, 1.0, 0.0}, {0.0, 0.0, 1.0}}
+                Matrix{{1.0, 0.0, 0.0}, {0.0, 1.0, 0.0}, {0.0, 0.0, 1.0}}
             };
 
             // Cost: penalize motor and load velocities, not coupling deflection
-            Matrix<3, 3, double> Q{{1.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 1.0}};
-            Matrix<1, 1, double> R{{0.01}};
+            Matrix Q{{1.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 1.0}};
+            Matrix R{{0.01}};
 
             return design::state_feedback(sys_c, Ts, {.Q = Q, .R = R});
         }();
@@ -85,7 +85,7 @@ TEST_SUITE("Integration: Motor + Flexible Coupling + Mass System") {
                     {k / J_l, 0.0, -f_l / J_l}
                 },
                 Matrix<3, 1>{{1.0 / J_m}, {0.0}, {0.0}},
-                Matrix<3, 3>{{1.0, 0.0, 0.0}, {0.0, 1.0, 0.0}, {0.0, 0.0, 1.0}}
+                Matrix{{1.0, 0.0, 0.0}, {0.0, 1.0, 0.0}, {0.0, 0.0, 1.0}}
             };
             return *discretize(sys_c, Ts, DiscretizationMethod::ZOH);
         }();

@@ -15,8 +15,8 @@ using namespace damp;
 TEST_CASE("Bounds: default is unbounded (not a zero box)") {
     constexpr Bounds<2> b{};
     // The trap this guards: a zero-initialised box would clamp everything to 0.
-    CHECK(b.saturate(ColVec<2>{1e9, -1e9}) == ColVec<2>{1e9, -1e9});
-    CHECK(b.contains(ColVec<2>{1e9, -1e9}));
+    CHECK(b.saturate(ColVec{1e9, -1e9}) == ColVec{1e9, -1e9});
+    CHECK(b.contains(ColVec{1e9, -1e9}));
 }
 
 TEST_CASE("Bounds: per-channel saturate and contains") {
@@ -24,16 +24,16 @@ TEST_CASE("Bounds: per-channel saturate and contains") {
         .lower = {-1.0, 0.0, -5.0},
         .upper = {1.0, 2.0, 5.0},
     };
-    CHECK(b.saturate(ColVec<3>{-2.0, 3.0, 0.0}) == ColVec<3>{-1.0, 2.0, 0.0});
-    CHECK(b.contains(ColVec<3>{0.0, 1.0, 4.9}));
-    CHECK_FALSE(b.contains(ColVec<3>{0.0, 1.0, 5.1}));
+    CHECK(b.saturate(ColVec{-2.0, 3.0, 0.0}) == ColVec{-1.0, 2.0, 0.0});
+    CHECK(b.contains(ColVec{0.0, 1.0, 4.9}));
+    CHECK_FALSE(b.contains(ColVec{0.0, 1.0, 5.1}));
 }
 
 TEST_CASE("Bounds::symmetric is the |x|<=mag convention") {
     const auto b = Bounds<2>::symmetric({3.0, 4.0});
-    CHECK(b.lower == ColVec<2>{-3.0, -4.0});
-    CHECK(b.upper == ColVec<2>{3.0, 4.0});
-    CHECK(b.saturate(ColVec<2>{-9.0, 9.0}) == ColVec<2>{-3.0, 4.0});
+    CHECK(b.lower == ColVec{-3.0, -4.0});
+    CHECK(b.upper == ColVec{3.0, 4.0});
+    CHECK(b.saturate(ColVec{-9.0, 9.0}) == ColVec{-3.0, 4.0});
 }
 
 TEST_CASE("Bounds<1>: SISO scalar conveniences") {
@@ -81,7 +81,7 @@ TEST_CASE("Bounds::saturate has one result for an inverted interval") {
     CHECK(inverted.saturate(0.0) == -1.0);
     CHECK(inverted.saturate(5.0) == -1.0);
     const Bounds<2> box{.lower = {1.0, -2.0}, .upper = {-1.0, 2.0}};
-    const auto      s = box.saturate(ColVec<2>{0.0, 5.0});
+    const auto      s = box.saturate(ColVec{0.0, 5.0});
     CHECK(s(0) == -1.0);
     CHECK(s(1) == 2.0);
 }

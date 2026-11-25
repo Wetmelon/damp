@@ -15,7 +15,7 @@
 using namespace damp;
 
 TEST_CASE("Block view basic functionality") {
-    Matrix<3, 4, double> mat = {
+    Matrix mat = {
         {1, 2, 3, 4},
         {5, 6, 7, 8},
         {9, 10, 11, 12}
@@ -34,7 +34,7 @@ TEST_CASE("Block view basic functionality") {
     CHECK(block(0, 0) == 99);
 
     // Test block arithmetic
-    Matrix<3, 4, double> other_mat = {
+    Matrix other_mat = {
         {100, 101, 102, 103},
         {104, 105, 106, 107},
         {108, 109, 110, 111}
@@ -48,7 +48,7 @@ TEST_CASE("Block view basic functionality") {
 }
 
 TEST_CASE("Block view const correctness") {
-    const Matrix<3, 4, double> mat = {
+    const Matrix mat = {
         {1, 2, 3, 4},
         {5, 6, 7, 8},
         {9, 10, 11, 12}
@@ -62,7 +62,7 @@ TEST_CASE("Block view const correctness") {
 }
 
 TEST_CASE("Diagonal view basic functionality") {
-    Matrix<3, 3, double> mat = {
+    Matrix mat = {
         {1, 2, 3},
         {4, 5, 6},
         {7, 8, 9}
@@ -86,7 +86,7 @@ TEST_CASE("Diagonal view basic functionality") {
     CHECK(vec(2) == 9);
 
     // Test assignment from vector
-    ColVec<3, double> new_vec = {10, 20, 30};
+    ColVec new_vec = {10, 20, 30};
     diag = new_vec;
     CHECK(mat(0, 0) == 10);
     CHECK(mat(1, 1) == 20);
@@ -97,7 +97,7 @@ TEST_CASE("Diagonal view basic functionality") {
 }
 
 TEST_CASE("Diagonal view const correctness") {
-    const Matrix<3, 3, double> mat = {
+    const Matrix mat = {
         {1, 2, 3},
         {4, 5, 6},
         {7, 8, 9}
@@ -116,7 +116,7 @@ TEST_CASE("Diagonal view const correctness") {
 }
 
 TEST_CASE("Upper triangle view basic functionality") {
-    Matrix<3, 3, double> mat = {
+    Matrix mat = {
         {1, 2, 3},
         {4, 5, 6},
         {7, 8, 9}
@@ -139,7 +139,7 @@ TEST_CASE("Upper triangle view basic functionality") {
 }
 
 TEST_CASE("Lower triangle view basic functionality") {
-    Matrix<3, 3, double> mat = {
+    Matrix mat = {
         {1, 2, 3},
         {4, 5, 6},
         {7, 8, 9}
@@ -162,7 +162,7 @@ TEST_CASE("Lower triangle view basic functionality") {
 }
 
 TEST_CASE("Lower triangle view const correctness") {
-    const Matrix<3, 3, double> mat = {
+    const Matrix mat = {
         {1, 2, 3},
         {4, 5, 6},
         {7, 8, 9}
@@ -178,7 +178,7 @@ TEST_CASE("Lower triangle view const correctness") {
 }
 
 TEST_CASE("RowView basic functionality") {
-    Matrix<3, 4, double> mat = {
+    Matrix mat = {
         {1, 2, 3, 4},
         {5, 6, 7, 8},
         {9, 10, 11, 12}
@@ -213,7 +213,7 @@ TEST_CASE("RowView basic functionality") {
 }
 
 TEST_CASE("RowView const correctness") {
-    const Matrix<3, 4, double> mat = {
+    const Matrix mat = {
         {1, 2, 3, 4},
         {5, 6, 7, 8},
         {9, 10, 11, 12}
@@ -230,7 +230,7 @@ TEST_CASE("RowView const correctness") {
 }
 
 TEST_CASE("ColView basic functionality") {
-    Matrix<3, 4, double> mat = {
+    Matrix mat = {
         {1, 2, 3, 4},
         {5, 6, 7, 8},
         {9, 10, 11, 12}
@@ -255,7 +255,7 @@ TEST_CASE("ColView basic functionality") {
     CHECK(vec(2) == 11);
 
     // Test assignment from ColVec
-    ColVec<3, double> new_col{100, 101, 102};
+    ColVec new_col{100, 101, 102};
     col2 = new_col;
     CHECK(mat(0, 2) == 100);
     CHECK(mat(1, 2) == 101);
@@ -263,7 +263,7 @@ TEST_CASE("ColView basic functionality") {
 }
 
 TEST_CASE("ColView / RowView write-back without pack loops") {
-    Matrix<3, 3, double> A = {
+    Matrix A = {
         {1, 2, 3},
         {4, 5, 6},
         {7, 8, 9}
@@ -279,7 +279,7 @@ TEST_CASE("ColView / RowView write-back without pack loops") {
     CHECK(B(0, 0) == doctest::Approx(0.0));
 
     // Row view assign from column-shaped result (layout transfer)
-    B.row(0) = ColVec<3, double>{10.0, 20.0, 30.0};
+    B.row(0) = ColVec{10.0, 20.0, 30.0};
     CHECK(B(0, 0) == doctest::Approx(10.0));
     CHECK(B(0, 1) == doctest::Approx(20.0));
     CHECK(B(0, 2) == doctest::Approx(30.0));
@@ -298,7 +298,7 @@ TEST_CASE("ColView / RowView write-back without pack loops") {
 }
 
 TEST_CASE("ColView const correctness") {
-    const Matrix<3, 4, double> mat = {
+    const Matrix mat = {
         {1, 2, 3, 4},
         {5, 6, 7, 8},
         {9, 10, 11, 12}
@@ -352,7 +352,7 @@ TEST_CASE("Views with complex numbers") {
 }
 
 TEST_CASE("Views constexpr compatibility") {
-    static constexpr Matrix<2, 2, double> mat = {
+    static constexpr Matrix mat = {
         {1, 2},
         {3, 4}
     };
@@ -381,7 +381,7 @@ TEST_CASE("Views constexpr compatibility") {
 }
 
 TEST_CASE("RowView arithmetic operations") {
-    Matrix<3, 4, double> mat = {
+    Matrix mat = {
         {1, 2, 3, 4},
         {5, 6, 7, 8},
         {9, 10, 11, 12}
@@ -413,8 +413,8 @@ TEST_CASE("RowView arithmetic operations") {
     CHECK(row_times_scalar(0, 1) == 6 * 2);
 
     // RowView + Matrix<1, 4>
-    Matrix<1, 4, double> row_mat{{1, 2, 3, 4}};
-    auto                 row_plus_mat = row1 + row_mat;
+    Matrix row_mat{{1, 2, 3, 4}};
+    auto   row_plus_mat = row1 + row_mat;
     CHECK(row_plus_mat(0, 0) == 5 + 1);
     CHECK(row_plus_mat(0, 1) == 6 + 2);
 
@@ -426,7 +426,7 @@ TEST_CASE("RowView arithmetic operations") {
 }
 
 TEST_CASE("ColView arithmetic operations") {
-    Matrix<3, 4, double> mat = {
+    Matrix mat = {
         {1, 2, 3, 4},
         {5, 6, 7, 8},
         {9, 10, 11, 12}
@@ -457,14 +457,14 @@ TEST_CASE("ColView arithmetic operations") {
     CHECK(col_times_scalar(1, 0) == 6 * 2);
 
     // ColView + Matrix<3, 1>
-    Matrix<3, 1, double> col_mat{{1}, {2}, {3}};
-    auto                 col_plus_mat = col1 + col_mat;
+    Matrix col_mat{{1}, {2}, {3}};
+    auto   col_plus_mat = col1 + col_mat;
     CHECK(col_plus_mat(0, 0) == 2 + 1);
     CHECK(col_plus_mat(1, 0) == 6 + 2);
 
     // ColView + ColVec
-    ColVec<3, double> col_vec{1, 2, 3};
-    auto              col_plus_vec = col1 + col_vec;
+    ColVec col_vec{1, 2, 3};
+    auto   col_plus_vec = col1 + col_vec;
     CHECK(col_plus_vec(0, 0) == 2 + 1);
     CHECK(col_plus_vec(1, 0) == 6 + 2);
 }
@@ -475,7 +475,7 @@ template<typename A, typename B>
 concept ViewsAddable = requires(const A& a, const B& b) { a + b; };
 
 TEST_CASE("Cross-type view arithmetic operations") {
-    Matrix<3, 4, double> mat = {
+    Matrix mat = {
         {1, 2, 3, 4},
         {5, 6, 7, 8},
         {9, 10, 11, 12}
@@ -513,7 +513,7 @@ TEST_CASE("Cross-type view arithmetic operations") {
 }
 
 TEST_CASE("TransposeView basic functionality") {
-    Matrix<2, 3, double> mat = {
+    Matrix mat = {
         {1, 2, 3},
         {4, 5, 6}
     };
@@ -548,7 +548,7 @@ TEST_CASE("TransposeView basic functionality") {
 }
 
 TEST_CASE("TransposeView modification through view") {
-    Matrix<2, 3, double> mat = {
+    Matrix mat = {
         {1, 2, 3},
         {4, 5, 6}
     };
@@ -564,7 +564,7 @@ TEST_CASE("TransposeView modification through view") {
 }
 
 TEST_CASE("TransposeView const correctness") {
-    const Matrix<2, 3, double> mat = {
+    const Matrix mat = {
         {1, 2, 3},
         {4, 5, 6}
     };
@@ -580,12 +580,12 @@ TEST_CASE("TransposeView const correctness") {
 }
 
 TEST_CASE("TransposeView arithmetic via MatrixLike") {
-    Matrix<2, 3, double> A = {
+    Matrix A = {
         {1, 2, 3},
         {4, 5, 6}
     };
 
-    Matrix<3, 2, double> B = {
+    Matrix B = {
         {10, 20},
         {30, 40},
         {50, 60}
@@ -621,7 +621,7 @@ TEST_CASE("TransposeView arithmetic via MatrixLike") {
 
 TEST_CASE("TransposeView square matrix (A.t() * P * A pattern)") {
     // Classic Kalman-style pattern: A^T * P * A
-    Matrix<3, 3, double> A = {
+    Matrix A = {
         {1, 2, 0},
         {0, 1, 3},
         {4, 0, 1}
@@ -647,7 +647,7 @@ TEST_CASE("TransposeView square matrix (A.t() * P * A pattern)") {
 }
 
 TEST_CASE("TransposeView constexpr compatibility") {
-    static constexpr Matrix<2, 3, double> mat = {
+    static constexpr Matrix mat = {
         {1, 2, 3},
         {4, 5, 6}
     };
@@ -667,12 +667,12 @@ TEST_CASE("TransposeView constexpr compatibility") {
 }
 
 TEST_CASE("TransposeView assignment") {
-    Matrix<2, 3, double> mat = {
+    Matrix mat = {
         {1, 2, 3},
         {4, 5, 6}
     };
 
-    Matrix<3, 2, double> replacement = {
+    Matrix replacement = {
         {10, 40},
         {20, 50},
         {30, 60}
@@ -691,41 +691,41 @@ TEST_CASE("TransposeView assignment") {
 }
 
 TEST_CASE("compound assignment from a view of itself") {
-    Matrix<2, 2, double> A{{1.0, 2.0}, {3.0, 4.0}};
+    Matrix A{{1.0, 2.0}, {3.0, 4.0}};
     A += A.t();
-    CHECK(A == Matrix<2, 2, double>{{2.0, 5.0}, {5.0, 8.0}});
+    CHECK(A == Matrix{{2.0, 5.0}, {5.0, 8.0}});
     A -= A.t();
-    CHECK(A == Matrix<2, 2, double>{{0.0, 0.0}, {0.0, 0.0}});
+    CHECK(A == Matrix{{0.0, 0.0}, {0.0, 0.0}});
 }
 
 TEST_CASE("block assigned from an overlapping block temporary") {
-    Matrix<3, 1, double> v{{1.0}, {2.0}, {3.0}};
+    Matrix v{{1.0}, {2.0}, {3.0}};
     v.block<2, 1>(1, 0) = v.block<2, 1>(0, 0);
-    CHECK(v == Matrix<3, 1, double>{{1.0}, {1.0}, {2.0}});
-    Matrix<3, 1, double> w{{1.0}, {2.0}, {3.0}};
-    auto                 dst = w.block<2, 1>(1, 0);
+    CHECK(v == Matrix{{1.0}, {1.0}, {2.0}});
+    Matrix w{{1.0}, {2.0}, {3.0}};
+    auto   dst = w.block<2, 1>(1, 0);
     dst += w.block<2, 1>(0, 0);
-    CHECK(w == Matrix<3, 1, double>{{1.0}, {3.0}, {5.0}});
+    CHECK(w == Matrix{{1.0}, {3.0}, {5.0}});
 }
 
 TEST_CASE("row/column view assigned from an overlapping view") {
-    Matrix<3, 3, double> A{{1.0, 2.0, 3.0}, {4.0, 5.0, 6.0}, {7.0, 8.0, 9.0}};
+    Matrix A{{1.0, 2.0, 3.0}, {4.0, 5.0, 6.0}, {7.0, 8.0, 9.0}};
     A.row(2) = A.col(0);
-    CHECK(A.row_vector(2) == Matrix<1, 3, double>{{1.0, 4.0, 7.0}});
-    Matrix<3, 3, double> B{{1.0, 2.0, 3.0}, {4.0, 5.0, 6.0}, {7.0, 8.0, 9.0}};
+    CHECK(A.row_vector(2) == Matrix{{1.0, 4.0, 7.0}});
+    Matrix B{{1.0, 2.0, 3.0}, {4.0, 5.0, 6.0}, {7.0, 8.0, 9.0}};
     B.col(2) = B.row(0);
-    CHECK(B.col_vector(2) == Matrix<3, 1, double>{{1.0}, {2.0}, {3.0}});
+    CHECK(B.col_vector(2) == Matrix{{1.0}, {2.0}, {3.0}});
 }
 
 TEST_CASE("arithmetic on a square transpose, diagonal or triangle view returns an owning Matrix") {
-    const Matrix<2, 2, double> C{{1.0, 2.0}, {3.0, 4.0}};
-    const Matrix<2, 2, double> Ct{{1.0, 3.0}, {2.0, 4.0}};
-    const auto                 neg = -C.t();
-    const auto                 scaled = C.t() * 2.0;
-    const auto                 sum = C.t() + C.t();
-    const auto                 diff = C.t() - C.t();
-    const auto                 diag3 = C.diagonal() * 3.0;
-    const auto                 upper = C.upper_triangle() / 1.0;
+    const Matrix C{{1.0, 2.0}, {3.0, 4.0}};
+    const Matrix Ct{{1.0, 3.0}, {2.0, 4.0}};
+    const auto   neg = -C.t();
+    const auto   scaled = C.t() * 2.0;
+    const auto   sum = C.t() + C.t();
+    const auto   diff = C.t() - C.t();
+    const auto   diag3 = C.diagonal() * 3.0;
+    const auto   upper = C.upper_triangle() / 1.0;
     static_assert(std::is_same_v<std::remove_cv_t<decltype(neg)>, Matrix<2, 2, double>>);
     static_assert(std::is_same_v<std::remove_cv_t<decltype(scaled)>, Matrix<2, 2, double>>);
     static_assert(std::is_same_v<std::remove_cv_t<decltype(sum)>, Matrix<2, 2, double>>);
@@ -739,36 +739,36 @@ TEST_CASE("arithmetic on a square transpose, diagonal or triangle view returns a
     CHECK(1.0 - C.t() == 1.0 - Ct);
     CHECK(sum == Ct * 2.0);
     CHECK(diff == Matrix<2, 2, double>{});
-    CHECK(diag3 == Matrix<2, 2, double>{{3.0, 0.0}, {0.0, 12.0}});
-    CHECK(upper == Matrix<2, 2, double>{{1.0, 2.0}, {0.0, 4.0}});
+    CHECK(diag3 == Matrix{{3.0, 0.0}, {0.0, 12.0}});
+    CHECK(upper == Matrix{{1.0, 2.0}, {0.0, 4.0}});
     const Matrix<2, 2, double> P = C.t() * 2.0 + C;
-    CHECK(P == Matrix<2, 2, double>{{3.0, 8.0}, {7.0, 12.0}});
+    CHECK(P == Matrix{{3.0, 8.0}, {7.0, 12.0}});
 }
 
 TEST_CASE("assigning a view to a view of the same type writes through") {
-    Matrix<2, 2, double>       A{{1.0, 2.0}, {3.0, 4.0}};
-    const Matrix<2, 2, double> B{{5.0, 6.0}, {7.0, 8.0}};
-    Matrix<2, 2, double>       Bm = B;
+    Matrix               A{{1.0, 2.0}, {3.0, 4.0}};
+    const Matrix         B{{5.0, 6.0}, {7.0, 8.0}};
+    Matrix<2, 2, double> Bm = B;
     A.t() = Bm.t();
     CHECK(A == B);
 
-    Matrix<2, 2, double> D{{1.0, 2.0}, {3.0, 4.0}};
+    Matrix D{{1.0, 2.0}, {3.0, 4.0}};
     D.diagonal() = Bm.diagonal();
-    CHECK(D == Matrix<2, 2, double>{{5.0, 2.0}, {3.0, 8.0}});
+    CHECK(D == Matrix{{5.0, 2.0}, {3.0, 8.0}});
 
-    Matrix<3, 3, double> E{{1.0, 2.0, 3.0}, {4.0, 5.0, 6.0}, {7.0, 8.0, 9.0}};
+    Matrix E{{1.0, 2.0, 3.0}, {4.0, 5.0, 6.0}, {7.0, 8.0, 9.0}};
     E.row(0) = E.row(1);
-    CHECK(E.row_vector(0) == Matrix<1, 3, double>{{4.0, 5.0, 6.0}});
+    CHECK(E.row_vector(0) == Matrix{{4.0, 5.0, 6.0}});
     E.col(0) = E.col(2);
-    CHECK(E.col_vector(0) == Matrix<3, 1, double>{{6.0}, {6.0}, {9.0}});
+    CHECK(E.col_vector(0) == Matrix{{6.0}, {6.0}, {9.0}});
 
     // A named view keeps its parent: assignment never rebinds it.
-    Matrix<2, 2, double> F{{1.0, 2.0}, {3.0, 4.0}};
+    Matrix               F{{1.0, 2.0}, {3.0, 4.0}};
     Matrix<2, 2, double> G = B;
     auto                 tv = F.t();
     tv = G.t();
     tv(0, 1) = 99.0;
-    CHECK(F == Matrix<2, 2, double>{{5.0, 6.0}, {99.0, 8.0}});
+    CHECK(F == Matrix{{5.0, 6.0}, {99.0, 8.0}});
     CHECK(G == B);
 
     static_assert(!std::is_copy_assignable_v<UpperTriangle<2, double>>);
@@ -777,7 +777,7 @@ TEST_CASE("assigning a view to a view of the same type writes through") {
 
 namespace {
 Matrix<2, 2, double> make_square() {
-    return Matrix<2, 2, double>{{1.0, 2.0}, {3.0, 4.0}};
+    return Matrix{{1.0, 2.0}, {3.0, 4.0}};
 }
 } // namespace
 
@@ -788,7 +788,7 @@ TEST_CASE("diagonal and triangle views of an rvalue are owning copies") {
     static_assert(std::is_same_v<std::remove_cv_t<decltype(d)>, Matrix<2, 2, double>>);
     static_assert(std::is_same_v<std::remove_cv_t<decltype(u)>, Matrix<2, 2, double>>);
     static_assert(std::is_same_v<std::remove_cv_t<decltype(l)>, Matrix<2, 2, double>>);
-    CHECK(d == Matrix<2, 2, double>{{1.0, 0.0}, {0.0, 4.0}});
-    CHECK(u == Matrix<2, 2, double>{{1.0, 2.0}, {0.0, 4.0}});
-    CHECK(l == Matrix<2, 2, double>{{1.0, 0.0}, {3.0, 4.0}});
+    CHECK(d == Matrix{{1.0, 0.0}, {0.0, 4.0}});
+    CHECK(u == Matrix{{1.0, 2.0}, {0.0, 4.0}});
+    CHECK(l == Matrix{{1.0, 0.0}, {3.0, 4.0}});
 }

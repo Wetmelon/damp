@@ -42,7 +42,7 @@ static ColVec<4, double> cart_pole_f(double /*t*/, const ColVec<4, double>& x, c
     // θ̈ = (g sin(θ) − ẍ cos(θ)) / L
     const double theta_ddot = ((g * s) - (x_ddot * c)) / L;
 
-    return ColVec<4, double>{x_dot, x_ddot, theta_dot, theta_ddot};
+    return ColVec{x_dot, x_ddot, theta_dot, theta_ddot};
 }
 
 int main() {
@@ -65,7 +65,7 @@ int main() {
     FixedStepSolver solver(rk4, 0.001); // 1 ms integration; control re-evaluated each step
 
     // Small tip: 5 cm cart offset + ~3° pole
-    ColVec<4, double> x0{0.05, 0.0, 0.05, 0.0};
+    ColVec x0{0.05, 0.0, 0.05, 0.0};
 
     auto sim = simulate_state_feedback(cart_pole_f, output, ctrl, solver, x0, {0.0, 8.0});
 

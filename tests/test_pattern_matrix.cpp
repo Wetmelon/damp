@@ -146,7 +146,7 @@ TEST_SUITE("PatternMatrix") {
     TEST_CASE("set_block writes only the runtime values") {
         static constexpr auto    p = SparsityPattern<3, 3>::identity().values_off_diagonal(0, 0, 3);
         PatternMatrix<p, double> m{};
-        m.set_block<0, 0>(Matrix<3, 3>{{9.0, 1.0, 2.0}, {3.0, 9.0, 4.0}, {5.0, 6.0, 9.0}});
+        m.set_block<0, 0>(Matrix{{9.0, 1.0, 2.0}, {3.0, 9.0, 4.0}, {5.0, 6.0, 9.0}});
         CHECK(m(0, 0) == 1.0); // the pattern's one, not the block's 9
         CHECK(m(0, 1) == 1.0);
         CHECK(m(2, 1) == 6.0);
@@ -156,7 +156,7 @@ TEST_SUITE("PatternMatrix") {
         PatternMatrix<kLever, double> h{};
         fill(h, 0.3);
         const Matrix<3, 7> d = h.to_matrix();
-        const ColVec<7>    x{1.0, -2.0, 3.0, 0.5, -0.25, 7.0, 0.1};
+        const ColVec       x{1.0, -2.0, 3.0, 0.5, -0.25, 7.0, 0.1};
         CHECK(gap(Matrix<3, 1>(h * x), Matrix<3, 1>(d * x)) <= 1e-13);
         const Matrix<7, 7> s = spd<7>(0.4);
         CHECK(gap(h * s, d * s) <= 1e-13);
@@ -167,7 +167,7 @@ TEST_SUITE("PatternMatrix") {
     TEST_CASE("an all-zero row of the pattern gives zero, in a product and a sandwich") {
         PatternMatrix<kZeroRow, double> f{};
         fill(f, 0.2);
-        const ColVec<4> y = f * ColVec<4>{1.0, 2.0, 3.0, 4.0};
+        const ColVec<4> y = f * ColVec{1.0, 2.0, 3.0, 4.0};
         CHECK(y[2] == 0.0);
         const Matrix<4, 4> out = quadratic_form(f, spd<4>(0.1));
         for (size_t j = 0; j < 4; ++j) {
@@ -194,7 +194,7 @@ TEST_SUITE("PatternMatrix") {
         static constexpr auto out = [] {
             PatternMatrix<kP, double> f{};
             f.at<0, 1>() = 2.0;
-            return quadratic_form(f, Matrix<2, 2>{{1.0, 0.5}, {0.5, 3.0}});
+            return quadratic_form(f, Matrix{{1.0, 0.5}, {0.5, 3.0}});
         }();
         static_assert(out(0, 0) == 1.0 + 2.0 + 12.0); // 1 + 2·2·0.5 + 4·3
         static_assert(out(0, 1) == 0.5 + 6.0 && out(1, 0) == 0.5 + 6.0);
@@ -283,7 +283,7 @@ TEST_SUITE("ESKF on sparse Jacobians") {
         ErrorStateKalmanFilter<N, double>       f{config};
         const ColVec<N>                         dx0{};
         const Matrix<N, N>                      before = f.covariance();
-        CHECK_FALSE(f.update_innovation(ColVec<1>{1.0}, PatternMatrix<kP, double>{}, Matrix<1, 1>{})); // S = 0
+        CHECK_FALSE(f.update_innovation(ColVec{1.0}, PatternMatrix<kP, double>{}, Matrix<1, 1>{})); // S = 0
         CHECK(gap(f.covariance(), before) == 0.0);
         CHECK(gap(Matrix<N, 1>(f.error_state()), Matrix<N, 1>(dx0)) == 0.0);
     }
@@ -322,7 +322,7 @@ TEST_SUITE("Kalman and EKF readings on sparse matrices") {
     void check_kalman_run() {
         KalmanFilter       sparse{wiggled_plant(), {.Q = Matrix<NK, NK>::identity() * 1e-3, .R = Matrix<3, 3>::identity(), .P0 = spd<NK>(0.4)}};
         auto               dense = sparse;
-        const Matrix<3, 1> D{{0.2}, {-0.1}, {0.4}};
+        const Matrix       D{{0.2}, {-0.1}, {0.4}};
         const Matrix<3, 3> R = Matrix<3, 3>::identity() * 0.5;
         double             worst = 0.0;
         double             scale = 1.0;
@@ -364,7 +364,7 @@ TEST_SUITE("Kalman and EKF readings on sparse matrices") {
     TEST_CASE("KalmanFilter: a reading on its pattern that cannot be solved leaves the filter as it was") {
         KalmanFilter         f{wiggled_plant(), {.Q = Matrix<NK, NK>{}, .R = Matrix<3, 3>::identity(), .P0 = Matrix<NK, NK>{}}};
         const Matrix<NK, NK> before = f.covariance();
-        CHECK_FALSE(f.update(ColVec<3>{1.0, 1.0, 1.0}, PatternMatrix<kSelector, double>{}, Matrix<3, 3>{})); // S = 0
+        CHECK_FALSE(f.update(ColVec{1.0, 1.0, 1.0}, PatternMatrix<kSelector, double>{}, Matrix<3, 3>{})); // S = 0
         CHECK(gap(f.covariance(), before) == 0.0);
         CHECK(gap(Matrix<NK, 1>(f.state()), Matrix<NK, 1>{}) == 0.0);
     }
@@ -397,10 +397,10 @@ TEST_SUITE("Kalman and EKF readings on sparse matrices") {
     static_assert(!PatternMeasurement<ReadingOnPattern, 4, 1, 2, float>); // its C is double
 
     TEST_CASE("EKF: a measurement whose Jacobian is on its pattern is the dense filter's") {
-        const ExtendedKalmanFilterConfig<PendulumCart> config{.Ts = 0.01, .Q = Matrix<4, 4>::identity() * 1e-4, .x0 = ColVec<4>{0.3, 0.0, 1.0, 0.2}, .P0 = spd<4>(0.9)};
+        const ExtendedKalmanFilterConfig<PendulumCart> config{.Ts = 0.01, .Q = Matrix<4, 4>::identity() * 1e-4, .x0 = ColVec{0.3, 0.0, 1.0, 0.2}, .P0 = spd<4>(0.9)};
         ExtendedKalmanFilter                           sparse{PendulumCart{}, config};
         ExtendedKalmanFilter                           dense{PendulumCart{}, config};
-        const Matrix<2, 2>                             R{{1e-2, 0.0}, {0.0, 4e-2}};
+        const Matrix                                   R{{1e-2, 0.0}, {0.0, 4e-2}};
         double                                         worst = 0.0;
         for (int k = 0; k < 50; ++k) {
             const double    seed = 0.1 * static_cast<double>(k);
@@ -418,9 +418,9 @@ TEST_SUITE("Kalman and EKF readings on sparse matrices") {
     }
 
     TEST_CASE("a measurement on its pattern still gives dense Jacobians to the consumers that need them") {
-        const ColVec<4> x{0.4, -0.1, 2.0, 0.3};
-        const ColVec<1> u{0.5};
-        const auto      J = detail::measurement_jacobian<4, 1, 2, double>(ReadingOnPattern{}, x, u, 1e-6);
+        const ColVec x{0.4, -0.1, 2.0, 0.3};
+        const ColVec u{0.5};
+        const auto   J = detail::measurement_jacobian<4, 1, 2, double>(ReadingOnPattern{}, x, u, 1e-6);
         CHECK(gap(J.C, ReadingOnPattern{}.jacobian(x, u).to_matrix()) == 0.0);
         CHECK(gap(J.D, Matrix<2, 1>{}) == 0.0); // h does not read u
     }

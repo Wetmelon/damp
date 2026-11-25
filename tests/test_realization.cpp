@@ -25,16 +25,16 @@ namespace {
 // (x_bad = S·x, S = diag(1e6, 1e-3, 1)).
 constexpr StateSpace<3, 1, 1> make_nice() {
     return StateSpace{
-        .A = Matrix<3, 3>{{-1.0, 2.0, 0.0}, {-3.0, -4.0, 1.0}, {0.5, 0.0, -2.0}},
-        .B = Matrix<3, 1>{{1.0}, {0.5}, {0.0}},
-        .C = Matrix<1, 3>{{1.0, 0.0, 2.0}},
-        .D = Matrix<1, 1>{{0.25}},
+        .A = Matrix{{-1.0, 2.0, 0.0}, {-3.0, -4.0, 1.0}, {0.5, 0.0, -2.0}},
+        .B = Matrix{{1.0}, {0.5}, {0.0}},
+        .C = Matrix{{1.0, 0.0, 2.0}},
+        .D = Matrix{{0.25}},
     };
 }
 
 constexpr StateSpace<3, 1, 1> make_badly_scaled() {
     const auto          nice = make_nice();
-    const ColVec<3>     s{1e6, 1e-3, 1.0};
+    const ColVec        s{1e6, 1e-3, 1.0};
     StateSpace<3, 1, 1> bad = nice;
     for (size_t i = 0; i < 3; ++i) {
         for (size_t j = 0; j < 3; ++j) {
@@ -113,9 +113,9 @@ TEST_SUITE("State balancing (prescale / ssbal)") {
         CHECK(bal.as<float>().sys.A(0, 1) == doctest::Approx(bal_f.sys.A(0, 1)));
 
         constexpr StateSpace even{
-            .A = Matrix<2, 2>{{-1.0, 1.0}, {-1.0, -1.0}},
-            .B = Matrix<2, 1>{{1.0}, {1.0}},
-            .C = Matrix<1, 2>{{1.0, 1.0}}
+            .A = Matrix{{-1.0, 1.0}, {-1.0, -1.0}},
+            .B = Matrix{{1.0}, {1.0}},
+            .C = Matrix{{1.0, 1.0}}
         };
         constexpr auto same = balance_states(even);
         static_assert(same.exponent[0] == 0 && same.exponent[1] == 0 && same.sys.A == even.A);
@@ -133,9 +133,9 @@ TEST_SUITE("State balancing (prescale / ssbal)") {
         //! exponents +2 and −2 (κ(D) = 16) for a norm a fraction of a percent smaller, which
         //! does not pay, so the states stay as they are.
         constexpr StateSpace stiff{
-            .A = Matrix<2, 2>{{-1000.0, 100.0}, {0.01, -1000.0}},
-            .B = Matrix<2, 1>{{1.0}, {1.0}},
-            .C = Matrix<1, 2>{{1.0, 1.0}}
+            .A = Matrix{{-1000.0, 100.0}, {0.01, -1000.0}},
+            .B = Matrix{{1.0}, {1.0}},
+            .C = Matrix{{1.0, 1.0}}
         };
         constexpr auto same = balance_states(stiff);
         static_assert(same.exponent[0] == 0 && same.exponent[1] == 0 && same.sys.A == stiff.A);
@@ -152,12 +152,12 @@ namespace {
 // Non-normal 4-state model: one complex pair and two real modes, badly scaled on purpose.
 constexpr StateSpace<4, 1, 2, double, 1, 1> make_modal_plant() {
     return StateSpace{
-        .A = Matrix<4, 4>{{-1.0, 2.0, 0.5, 0.0}, {-3.0, -1.0, 1.0, 0.2}, {0.3, 0.0, -4.0, 10.0}, {0.0, 0.1, 0.0, -0.5}},
-        .B = Matrix<4, 1>{{1.0}, {0.0}, {2.0}, {-1.0}},
-        .C = Matrix<2, 4>{{1.0, 0.0, 0.0, 1.0}, {0.0, 1.0, 0.5, 0.0}},
-        .D = Matrix<2, 1>{{0.0}, {0.1}},
-        .G = Matrix<4, 1>{{0.0}, {1.0}, {0.0}, {0.0}},
-        .H = Matrix<2, 1>{{1.0}, {1.0}},
+        .A = Matrix{{-1.0, 2.0, 0.5, 0.0}, {-3.0, -1.0, 1.0, 0.2}, {0.3, 0.0, -4.0, 10.0}, {0.0, 0.1, 0.0, -0.5}},
+        .B = Matrix{{1.0}, {0.0}, {2.0}, {-1.0}},
+        .C = Matrix{{1.0, 0.0, 0.0, 1.0}, {0.0, 1.0, 0.5, 0.0}},
+        .D = Matrix{{0.0}, {0.1}},
+        .G = Matrix{{0.0}, {1.0}, {0.0}, {0.0}},
+        .H = Matrix{{1.0}, {1.0}},
     };
 }
 } // namespace
@@ -233,17 +233,17 @@ TEST_SUITE("Modal canonical form (canon)") {
         CHECK(mat::det(res_f.sys.A) == doctest::Approx(mat::det(res_d.sys.A)).epsilon(1e-4));
 
         //! A repeated eigenvalue with a full set of eigenvectors is already modal.
-        constexpr StateSpace repeated{.A = Matrix<2, 2>{{-2.0, 0.0}, {0.0, -2.0}}, .B = Matrix<2, 1>{{1.0}, {1.0}}, .C = Matrix<1, 2>{{1.0, 0.0}}};
+        constexpr StateSpace repeated{.A = Matrix{{-2.0, 0.0}, {0.0, -2.0}}, .B = Matrix{{1.0}, {1.0}}, .C = Matrix{{1.0, 0.0}}};
         constexpr auto       rep = modal_form(repeated);
         static_assert(rep.success && rep.sys.A(0, 1) == 0.0 && rep.sys.A(1, 0) == 0.0);
 
         //! A double integrator is a Jordan block: no modal form.
-        constexpr StateSpace jordan{.A = Matrix<2, 2>{{0.0, 1.0}, {0.0, 0.0}}, .B = Matrix<2, 1>{{0.0}, {1.0}}, .C = Matrix<1, 2>{{1.0, 0.0}}};
+        constexpr StateSpace jordan{.A = Matrix{{0.0, 1.0}, {0.0, 0.0}}, .B = Matrix{{0.0}, {1.0}}, .C = Matrix{{1.0, 0.0}}};
         constexpr auto       defective = modal_form(jordan);
         static_assert(!defective.success && defective.status == design::DesignStatus::singular);
 
         //! One state: the model itself.
-        constexpr StateSpace one{.A = Matrix<1, 1>{{-3.0}}, .B = Matrix<1, 1>{{2.0}}, .C = Matrix<1, 1>{{1.0}}};
+        constexpr StateSpace one{.A = Matrix{{-3.0}}, .B = Matrix{{2.0}}, .C = Matrix{{1.0}}};
         static_assert(modal_form(one).success && modal_form(one).sys.A(0, 0) == -3.0);
     }
 
@@ -259,7 +259,7 @@ namespace {
 constexpr TransferFunction<3, 4, double> kTf{.num = {2.0, 2.0, 0.5}, .den = {1.0, 6.0, 11.0, 6.0}};
 
 // An invertible, non-orthogonal change of basis that scrambles any canonical structure.
-constexpr Matrix<3, 3> kScramble{{2.0, 1.0, 0.0}, {0.0, 1.0, -1.0}, {1.0, 0.0, 3.0}}; // det = 5
+constexpr Matrix kScramble{{2.0, 1.0, 0.0}, {0.0, 1.0, -1.0}, {1.0, 0.0, 3.0}}; // det = 5
 
 // The TF's controllable canonical realization in scrambled coordinates.
 constexpr StateSpace<3, 1, 1> make_scrambled() {
@@ -269,10 +269,10 @@ constexpr StateSpace<3, 1, 1> make_scrambled() {
 // x₃ is decoupled from the input: (A, b) has a 2-state controllable part.
 constexpr StateSpace<3, 1, 1> make_uncontrollable() {
     const StateSpace plain{
-        .A = Matrix<3, 3>{{-1.0, 0.0, 0.0}, {1.0, -2.0, 0.0}, {0.0, 0.0, -3.0}},
-        .B = Matrix<3, 1>{{1.0}, {0.0}, {0.0}},
-        .C = Matrix<1, 3>{{1.0, 1.0, 1.0}},
-        .D = Matrix<1, 1>{{0.5}},
+        .A = Matrix{{-1.0, 0.0, 0.0}, {1.0, -2.0, 0.0}, {0.0, 0.0, -3.0}},
+        .B = Matrix{{1.0}, {0.0}, {0.0}},
+        .C = Matrix{{1.0, 1.0, 1.0}},
+        .D = Matrix{{0.5}},
     };
     return similarity_transform(plain, kScramble).sys;
 }
@@ -309,7 +309,7 @@ TEST_SUITE("Similarity, canonical and staircase forms (ss2ss, canon companion, c
         REQUIRE(back.success);
         check_close(back.sys.A, sys.A, 1e-12);
 
-        constexpr Matrix<3, 3> rank_two{{1.0, 2.0, 3.0}, {2.0, 4.0, 6.0}, {0.0, 0.0, 1.0}};
+        constexpr Matrix rank_two{{1.0, 2.0, 3.0}, {2.0, 4.0, 6.0}, {0.0, 0.0, 1.0}};
         static_assert(similarity_transform(sys, rank_two).status == design::DesignStatus::singular);
         static_assert(matlab::ss2ss(sys, kScramble).sys.A == z.sys.A);
     }
@@ -340,7 +340,7 @@ TEST_SUITE("Similarity, canonical and staircase forms (ss2ss, canon companion, c
         constexpr auto scrambled = make_scrambled();
         constexpr auto comp = companion_form(scrambled);
         static_assert(comp.success);
-        CHECK(comp.sys.B == Matrix<3, 1>{{1.0}, {0.0}, {0.0}});
+        CHECK(comp.sys.B == Matrix{{1.0}, {0.0}, {0.0}});
         CHECK(comp.sys.A(1, 0) == 1.0);
         CHECK(comp.sys.A(2, 1) == 1.0);
         CHECK(comp.sys.A(0, 0) == 0.0);
@@ -412,7 +412,7 @@ TEST_SUITE("Similarity, canonical and staircase forms (ss2ss, canon companion, c
                     J(i, i + 1) = 0.5 * p[i + 1];
                 }
             }
-            const ColVec<5>    v{1.0, 2.0, 3.0, 4.0, 5.0};
+            const ColVec       v{1.0, 2.0, 3.0, 4.0, 5.0};
             const Matrix<5, 5> Q = Matrix<5, 5>::identity() - ((v * v.transpose()) * (2.0 / 55.0)); // a reflection
             return StateSpace<5, 1, 1>{.A = Q * J * Q, .B = {{1.0}, {2.0}, {3.0}, {1.0}, {2.0}}, .C = {{1.0, 0.75, 0.5, 0.25, 0.0}}};
         };

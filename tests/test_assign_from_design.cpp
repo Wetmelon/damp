@@ -58,9 +58,9 @@ constexpr auto kHighPass = design::highpass_1st(5.0, kTs);
 constexpr auto kChirp = design::chirp(design::ChirpConfig<double>{.amplitude = 1.0, .f_start_hz = 1.0, .f_end_hz = 10.0, .duration_s = 1.0}, kTs);
 constexpr auto kObserver = design::place_observer(
     StateSpace{
-        .A = Matrix<2, 2>{{1.0, 0.1}, {0.0, 1.0}},
-        .B = Matrix<2, 1>{{0.005}, {0.1}},
-        .C = Matrix<1, 2>{{1.0, 0.0}},
+        .A = Matrix{{1.0, 0.1}, {0.0, 1.0}},
+        .B = Matrix{{0.005}, {0.1}},
+        .C = Matrix{{1.0, 0.0}},
         .Ts = 0.1,
     },
     {0.3, 0.4}
@@ -137,22 +137,22 @@ TEST_SUITE("assign from design") {
 
     TEST_CASE("if (result) reads a design result's success") {
         constexpr StateSpace plant{
-            .A = Matrix<1, 1>{{0.95}},
-            .B = Matrix<1, 1>{{1.0}},
-            .C = Matrix<1, 1>{{1.0}},
-            .G = Matrix<1, 1>{{1.0}},
-            .H = Matrix<1, 1>{{1.0}},
+            .A = Matrix{{0.95}},
+            .B = Matrix{{1.0}},
+            .C = Matrix{{1.0}},
+            .G = Matrix{{1.0}},
+            .H = Matrix{{1.0}},
             .Ts = 1.0,
         };
 
-        const auto lqr = design::state_feedback(plant, {.Q = Matrix<1, 1>{{1.0}}, .R = Matrix<1, 1>{{0.1}}});
-        const auto lqr_bad = design::state_feedback(plant, {.Q = Matrix<1, 1>{{-1.0}}, .R = Matrix<1, 1>{{0.1}}}); // Q not PSD
+        const auto lqr = design::state_feedback(plant, {.Q = Matrix{{1.0}}, .R = Matrix{{0.1}}});
+        const auto lqr_bad = design::state_feedback(plant, {.Q = Matrix{{-1.0}}, .R = Matrix{{0.1}}}); // Q not PSD
         REQUIRE(lqr.success);
         REQUIRE_FALSE(lqr_bad.success);
         CHECK(static_cast<bool>(lqr));
         CHECK_FALSE(static_cast<bool>(lqr_bad));
 
-        const auto kalman = design::kalman(plant, design::KalmanNoise{.process = Matrix<1, 1>{{0.1}}, .measurement = Matrix<1, 1>{{0.25}}});
+        const auto kalman = design::kalman(plant, design::KalmanNoise{.process = Matrix{{0.1}}, .measurement = Matrix{{0.25}}});
         REQUIRE(kalman.success);
         CHECK(static_cast<bool>(kalman));
         CHECK_FALSE(static_cast<bool>(decltype(kalman){}));

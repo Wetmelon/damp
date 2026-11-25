@@ -49,9 +49,9 @@ bool contains_roots(const damp::array<damp::complex<double>, N>& got, size_t n_g
 
 /// G(s) = [1/(s+1) 2/(s+2); 1/(s+3) 1/(s+4)]: det G·∏(s + k) = −(s² + 5s + 2), zeros (−5 ± √17)/2.
 constexpr StateSpace kSquare{
-    .A = Matrix<4, 4>{{-1.0, 0.0, 0.0, 0.0}, {0.0, -2.0, 0.0, 0.0}, {0.0, 0.0, -3.0, 0.0}, {0.0, 0.0, 0.0, -4.0}},
-    .B = Matrix<4, 2>{{1.0, 0.0}, {0.0, 1.0}, {1.0, 0.0}, {0.0, 1.0}},
-    .C = Matrix<2, 4>{{1.0, 2.0, 0.0, 0.0}, {0.0, 0.0, 1.0, 1.0}},
+    .A = Matrix{{-1.0, 0.0, 0.0, 0.0}, {0.0, -2.0, 0.0, 0.0}, {0.0, 0.0, -3.0, 0.0}, {0.0, 0.0, 0.0, -4.0}},
+    .B = Matrix{{1.0, 0.0}, {0.0, 1.0}, {1.0, 0.0}, {0.0, 1.0}},
+    .C = Matrix{{1.0, 2.0, 0.0, 0.0}, {0.0, 0.0, 1.0, 1.0}},
 };
 
 const damp::array<damp::complex<double>, 2> kSquareZeros{
@@ -95,9 +95,9 @@ TEST_SUITE("Transmission zeros") {
     TEST_CASE("SISO zeros agree with to_zpk") {
         // (s − 2)(s + 3)/((s + 1)(s + 2)(s + 4)), controllable companion form
         const StateSpace sys{
-            .A = Matrix<3, 3>{{0.0, 1.0, 0.0}, {0.0, 0.0, 1.0}, {-8.0, -14.0, -7.0}},
-            .B = Matrix<3, 1>{{0.0}, {0.0}, {1.0}},
-            .C = Matrix<1, 3>{{-6.0, 1.0, 1.0}},
+            .A = Matrix{{0.0, 1.0, 0.0}, {0.0, 0.0, 1.0}, {-8.0, -14.0, -7.0}},
+            .B = Matrix{{0.0}, {0.0}, {1.0}},
+            .C = Matrix{{-6.0, 1.0, 1.0}},
         };
         const auto tz = transmission_zeros(sys);
         const auto zp = to_zpk(sys);
@@ -112,9 +112,9 @@ TEST_SUITE("Transmission zeros") {
 
     TEST_CASE("a strictly proper chain has its zeros at infinity") {
         const StateSpace chain{
-            .A = Matrix<3, 3>{{0.0, 1.0, 0.0}, {0.0, 0.0, 1.0}, {-6.0, -11.0, -6.0}},
-            .B = Matrix<3, 1>{{0.0}, {0.0}, {1.0}},
-            .C = Matrix<1, 3>{{1.0, 0.0, 0.0}},
+            .A = Matrix{{0.0, 1.0, 0.0}, {0.0, 0.0, 1.0}, {-6.0, -11.0, -6.0}},
+            .B = Matrix{{0.0}, {0.0}, {1.0}},
+            .C = Matrix{{1.0, 0.0, 0.0}},
         };
         const auto z = transmission_zeros(chain);
         CHECK(z.success);
@@ -124,9 +124,9 @@ TEST_SUITE("Transmission zeros") {
     TEST_CASE("a small D gives the large zeros it implies; a D at roundoff level gives none") {
         // (s + 1)/((s + 1)(s + 2)(s + 3)) + D: zeros −1 and the roots of D(s² + 5s + 6) + 1.
         StateSpace sys{
-            .A = Matrix<3, 3>{{0.0, 1.0, 0.0}, {0.0, 0.0, 1.0}, {-6.0, -11.0, -6.0}},
-            .B = Matrix<3, 1>{{0.0}, {0.0}, {1.0}},
-            .C = Matrix<1, 3>{{1.0, 1.0, 0.0}},
+            .A = Matrix{{0.0, 1.0, 0.0}, {0.0, 0.0, 1.0}, {-6.0, -11.0, -6.0}},
+            .B = Matrix{{0.0}, {0.0}, {1.0}},
+            .C = Matrix{{1.0, 1.0, 0.0}},
         };
         sys.D(0, 0) = 1e-6;
         const auto big = transmission_zeros(sys);
@@ -147,9 +147,9 @@ TEST_SUITE("Transmission zeros") {
 
     TEST_CASE("a sampled double integrator has its sampling zero at −1") {
         const StateSpace sys{
-            .A = Matrix<2, 2>{{1.0, 0.1}, {0.0, 1.0}},
-            .B = Matrix<2, 1>{{0.005}, {0.1}},
-            .C = Matrix<1, 2>{{1.0, 0.0}},
+            .A = Matrix{{1.0, 0.1}, {0.0, 1.0}},
+            .B = Matrix{{0.005}, {0.1}},
+            .C = Matrix{{1.0, 0.0}},
             .Ts = 0.1,
         };
         const auto                                  z = transmission_zeros(sys);
@@ -161,9 +161,9 @@ TEST_SUITE("Transmission zeros") {
     TEST_CASE("a non-square model: a common zero of both outputs, and its dual") {
         // f = (s − 2)/(s + 1) drives two first-order outputs: y = [1/(s+2); 1/(s+2) + 1/(s+5)]·f.
         const StateSpace tall{
-            .A = Matrix<3, 3>{{-1.0, 0.0, 0.0}, {-3.0, -2.0, 0.0}, {-3.0, 0.0, -5.0}},
-            .B = Matrix<3, 1>{{1.0}, {1.0}, {1.0}},
-            .C = Matrix<2, 3>{{0.0, 1.0, 0.0}, {0.0, 1.0, 1.0}},
+            .A = Matrix{{-1.0, 0.0, 0.0}, {-3.0, -2.0, 0.0}, {-3.0, 0.0, -5.0}},
+            .B = Matrix{{1.0}, {1.0}, {1.0}},
+            .C = Matrix{{0.0, 1.0, 0.0}, {0.0, 1.0, 1.0}},
         };
         const damp::array<damp::complex<double>, 1> want{damp::complex<double>{2.0, 0.0}};
         const auto                                  zt = transmission_zeros(tall);
@@ -176,11 +176,11 @@ TEST_SUITE("Transmission zeros") {
     }
 
     TEST_CASE("an unobservable mode is a zero of a tall model; an uncontrollable one is not") {
-        const Matrix<3, 3> A{{-1.0, 1.0, 0.0}, {0.0, -2.0, 1.0}, {0.0, 0.0, -3.0}}; // x₁ is not seen by C
-        const StateSpace   unobservable{
+        const Matrix     A{{-1.0, 1.0, 0.0}, {0.0, -2.0, 1.0}, {0.0, 0.0, -3.0}}; // x₁ is not seen by C
+        const StateSpace unobservable{
             .A = A,
-            .B = Matrix<3, 1>{{0.0}, {0.0}, {1.0}},
-            .C = Matrix<2, 3>{{0.0, 1.0, 0.0}, {0.0, 1.0, 1.0}},
+            .B = Matrix{{0.0}, {0.0}, {1.0}},
+            .C = Matrix{{0.0, 1.0, 0.0}, {0.0, 1.0, 1.0}},
         };
         const damp::array<damp::complex<double>, 1> want{damp::complex<double>{-1.0, 0.0}};
         const auto                                  z = transmission_zeros(unobservable);
@@ -188,9 +188,9 @@ TEST_SUITE("Transmission zeros") {
         CHECK(contains_roots(z.zeros, z.n_zeros, want, 1e-13));
         // x₁ = −x₁ alone: uncontrollable, so [A − λI, B] loses a row at −1, but P(−1) keeps full column rank.
         const StateSpace uncontrollable{
-            .A = Matrix<3, 3>{{-1.0, 0.0, 0.0}, {0.0, -2.0, 1.0}, {0.0, 0.0, -3.0}},
-            .B = Matrix<3, 1>{{0.0}, {0.0}, {1.0}},
-            .C = Matrix<2, 3>{{1.0, 1.0, 0.0}, {0.0, 1.0, 1.0}},
+            .A = Matrix{{-1.0, 0.0, 0.0}, {0.0, -2.0, 1.0}, {0.0, 0.0, -3.0}},
+            .B = Matrix{{0.0}, {0.0}, {1.0}},
+            .C = Matrix{{1.0, 1.0, 0.0}, {0.0, 1.0, 1.0}},
         };
         const auto none = transmission_zeros(uncontrollable);
         REQUIRE(none.success);
@@ -198,7 +198,7 @@ TEST_SUITE("Transmission zeros") {
     }
 
     TEST_CASE("a zero model output has no zeros") {
-        const StateSpace<2, 1, 1> sys{.A = Matrix<2, 2>{{0.0, 1.0}, {-2.0, -3.0}}, .B = Matrix<2, 1>{{0.0}, {1.0}}};
+        const StateSpace<2, 1, 1> sys{.A = Matrix{{0.0, 1.0}, {-2.0, -3.0}}, .B = Matrix{{0.0}, {1.0}}};
         const auto                z = transmission_zeros(sys);
         CHECK(z.success);
         CHECK(z.n_zeros == 0);

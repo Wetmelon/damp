@@ -27,7 +27,7 @@ using namespace damp::mat;
 
 TEST_SUITE("4x4 Eigenvalue Computation") {
     TEST_CASE("4x4 diagonal matrix - exact eigenvalues") {
-        Matrix<4, 4> D = {
+        Matrix D = {
             {1.0, 0.0, 0.0, 0.0},
             {0.0, 2.0, 0.0, 0.0},
             {0.0, 0.0, 3.0, 0.0},
@@ -65,7 +65,7 @@ TEST_SUITE("4x4 Eigenvalue Computation") {
 
     TEST_CASE("4x4 symmetric positive definite matrix") {
         // SPD matrix with known eigenvalues
-        Matrix<4, 4> A = {
+        Matrix A = {
             {4.0, 1.0, 0.5, 0.2},
             {1.0, 3.0, 0.5, 0.3},
             {0.5, 0.5, 2.0, 0.1},
@@ -92,7 +92,7 @@ TEST_SUITE("4x4 Eigenvalue Computation") {
 
     TEST_CASE("4x4 matrix with complex eigenvalues") {
         // Rotation-like matrix with complex eigenvalues
-        Matrix<4, 4> A = {
+        Matrix A = {
             {0.0, -1.0, 0.0, 0.0},
             {1.0, 0.0, 0.0, 0.0},
             {0.0, 0.0, 0.0, -2.0},
@@ -149,7 +149,7 @@ TEST_SUITE("4x4 Eigenvalue Computation") {
     }
 
     TEST_CASE("4x4 consteval eigenvalue computation") {
-        constexpr Matrix<4, 4> D = {
+        constexpr Matrix D = {
             {1.0, 0.0, 0.0, 0.0},
             {0.0, 2.0, 0.0, 0.0},
             {0.0, 0.0, 3.0, 0.0},
@@ -168,13 +168,13 @@ TEST_SUITE("4x4 Eigenvalue Computation") {
 TEST_SUITE("4x4 DARE and LQR") {
     TEST_CASE("4-state discrete LQR (stable test system)") {
         // A well-conditioned stable 4-state system
-        Matrix<4, 4> A_d = {
+        Matrix A_d = {
             {0.9, 0.05, 0.0, 0.0},
             {0.0, 0.9, 0.05, 0.0},
             {0.0, 0.0, 0.9, 0.05},
             {0.0, 0.0, 0.0, 0.9}
         };
-        Matrix<4, 1> B_d = {
+        Matrix B_d = {
             {0.1},
             {0.05},
             {0.02},
@@ -182,7 +182,7 @@ TEST_SUITE("4x4 DARE and LQR") {
         };
 
         Matrix<4, 4> Q = Matrix<4, 4>::identity();
-        Matrix<1, 1> R = {{1.0}};
+        Matrix       R = {{1.0}};
 
         auto result = design::discrete_lqr(A_d, B_d, Q, R);
         CHECK(result.success);
@@ -196,13 +196,13 @@ TEST_SUITE("4x4 DARE and LQR") {
 
     TEST_CASE("4-state unstable system stabilized by LQR") {
         // An open-loop unstable 4-state system (one eigenvalue > 1)
-        Matrix<4, 4> A_d = {
+        Matrix A_d = {
             {1.05, 0.05, 0.0, 0.0}, // Marginally unstable mode
             {0.0, 0.9, 0.05, 0.0},
             {0.0, 0.0, 0.9, 0.05},
             {0.0, 0.0, 0.0, 0.9}
         };
-        Matrix<4, 1> B_d = {
+        Matrix B_d = {
             {0.2}, // Strong control authority on first state
             {0.05},
             {0.02},
@@ -210,7 +210,7 @@ TEST_SUITE("4x4 DARE and LQR") {
         };
 
         Matrix<4, 4> Q = Matrix<4, 4>::identity();
-        Matrix<1, 1> R = {{0.1}}; // Lower control cost to enable stabilization
+        Matrix       R = {{0.1}}; // Lower control cost to enable stabilization
 
         auto result = design::discrete_lqr(A_d, B_d, Q, R);
         CHECK(result.success);
@@ -224,20 +224,20 @@ TEST_SUITE("4x4 DARE and LQR") {
 
     TEST_CASE("4-state DARE solution quality") {
         // Well-conditioned 4x4 system
-        Matrix<4, 4> A = {
+        Matrix A = {
             {0.9, 0.1, 0.0, 0.0},
             {0.0, 0.9, 0.1, 0.0},
             {0.0, 0.0, 0.9, 0.1},
             {0.0, 0.0, 0.0, 0.9}
         };
-        Matrix<4, 1> B = {
+        Matrix B = {
             {0.1},
             {0.0},
             {0.0},
             {0.0}
         };
         Matrix<4, 4> Q = Matrix<4, 4>::identity();
-        Matrix<1, 1> R = {{1.0}};
+        Matrix       R = {{1.0}};
 
         auto P_opt = dare(A, B, Q, R);
         REQUIRE(P_opt.has_value());
@@ -273,20 +273,20 @@ TEST_SUITE("4x4 DARE and LQR") {
     }
 
     TEST_CASE("4-state compile-time LQR design") {
-        constexpr Matrix<4, 4> A = {
+        constexpr Matrix A = {
             {0.9, 0.1, 0.0, 0.0},
             {0.0, 0.9, 0.1, 0.0},
             {0.0, 0.0, 0.9, 0.1},
             {0.0, 0.0, 0.0, 0.9}
         };
-        constexpr Matrix<4, 1> B = {
+        constexpr Matrix B = {
             {0.1},
             {0.0},
             {0.0},
             {0.0}
         };
         constexpr Matrix<4, 4> Q = Matrix<4, 4>::identity();
-        constexpr Matrix<1, 1> R = {{1.0}};
+        constexpr Matrix       R = {{1.0}};
 
         constexpr auto result = design::discrete_lqr(A, B, Q, R);
 
@@ -300,13 +300,13 @@ TEST_SUITE("4x4 DARE and LQR") {
 
     TEST_CASE("4-state 2-input LQR") {
         // 4 states, 2 inputs
-        Matrix<4, 4> A = {
+        Matrix A = {
             {0.95, 0.05, 0.0, 0.0},
             {0.0, 0.95, 0.0, 0.0},
             {0.0, 0.0, 0.95, 0.05},
             {0.0, 0.0, 0.0, 0.95}
         };
-        Matrix<4, 2> B = {
+        Matrix B = {
             {0.1, 0.0},
             {0.05, 0.0},
             {0.0, 0.1},
@@ -381,7 +381,7 @@ TEST_SUITE("4x4 Matrix Inverse") {
     }
 
     TEST_CASE("4x4 diagonal inverse") {
-        Matrix<4, 4> D = {
+        Matrix D = {
             {2.0, 0.0, 0.0, 0.0},
             {0.0, 3.0, 0.0, 0.0},
             {0.0, 0.0, 4.0, 0.0},
@@ -399,7 +399,7 @@ TEST_SUITE("4x4 Matrix Inverse") {
     }
 
     TEST_CASE("4x4 general inverse verification") {
-        Matrix<4, 4> A = {
+        Matrix A = {
             {1.0, 2.0, 3.0, 4.0},
             {5.0, 6.0, 7.0, 8.0},
             {9.0, 10.0, 12.0, 12.0},
@@ -422,7 +422,7 @@ TEST_SUITE("4x4 Matrix Inverse") {
 
     TEST_CASE("4x4 singular matrix detection") {
         // Matrix with linearly dependent rows
-        Matrix<4, 4> S = {
+        Matrix S = {
             {1.0, 2.0, 3.0, 4.0},
             {2.0, 4.0, 6.0, 8.0}, // 2x row 0
             {5.0, 6.0, 7.0, 8.0},
@@ -448,7 +448,7 @@ TEST_SUITE("4x4 Matrix Exponential") {
     }
 
     TEST_CASE("4x4 diagonal matrix exponential") {
-        Matrix<4, 4> D = {
+        Matrix D = {
             {1.0, 0.0, 0.0, 0.0},
             {0.0, 2.0, 0.0, 0.0},
             {0.0, 0.0, -1.0, 0.0},
@@ -466,7 +466,7 @@ TEST_SUITE("4x4 Matrix Exponential") {
 
     TEST_CASE("4x4 nilpotent matrix exponential") {
         // Upper triangular nilpotent (only superdiagonals)
-        Matrix<4, 4> N = {
+        Matrix N = {
             {0.0, 1.0, 0.0, 0.0},
             {0.0, 0.0, 1.0, 0.0},
             {0.0, 0.0, 0.0, 1.0},
@@ -504,7 +504,7 @@ TEST_CASE("Matrix exponential (exp) - compile-time and runtime verification") {
 
     // Test 3: Runtime test with 4x4 matrix (golden reference from scipy.linalg.expm)
     // Example matrix: [[0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1], [1, 0, 0, 0]] (cyclic permutation)
-    Matrix<4, 4, double> A_4x4 = {
+    Matrix A_4x4 = {
         {0.0, 1.0, 0.0, 0.0},
         {0.0, 0.0, 1.0, 0.0},
         {0.0, 0.0, 0.0, 1.0},
@@ -514,7 +514,7 @@ TEST_CASE("Matrix exponential (exp) - compile-time and runtime verification") {
     auto exp_A_4x4 = expm(A_4x4).value();
 
     // Golden reference (computed via scipy.linalg.expm in Python)
-    Matrix<4, 4, double> expected_exp_A_4x4 = {
+    Matrix expected_exp_A_4x4 = {
         {1.04169147, 1.00833609, 0.50138916, 0.1668651},
         {0.1668651, 1.04169147, 1.00833609, 0.50138916},
         {0.50138916, 0.1668651, 1.04169147, 1.00833609},
@@ -528,7 +528,7 @@ TEST_CASE("Matrix exponential (exp) - compile-time and runtime verification") {
     }
 
     // Test 4: Verify exp(A) * exp(-A) ≈ I for small A
-    Matrix<2, 2, double> A_small = {
+    Matrix A_small = {
         {0.1, 0.05},
         {-0.05, 0.1}
     };
@@ -547,7 +547,7 @@ TEST_CASE("Matrix exponential (exp) - compile-time and runtime verification") {
 TEST_SUITE("4x4 Stability Analysis") {
     TEST_CASE("4x4 discrete stability check - stable system") {
         // All eigenvalues inside unit circle
-        Matrix<4, 4> A = {
+        Matrix A = {
             {0.5, 0.1, 0.0, 0.0},
             {0.0, 0.6, 0.1, 0.0},
             {0.0, 0.0, 0.7, 0.1},
@@ -559,7 +559,7 @@ TEST_SUITE("4x4 Stability Analysis") {
 
     TEST_CASE("4x4 discrete stability check - unstable system") {
         // At least one eigenvalue outside unit circle
-        Matrix<4, 4> A = {
+        Matrix A = {
             {1.1, 0.0, 0.0, 0.0}, // eigenvalue 1.1 > 1
             {0.0, 0.5, 0.0, 0.0},
             {0.0, 0.0, 0.5, 0.0},
@@ -570,7 +570,7 @@ TEST_SUITE("4x4 Stability Analysis") {
     }
 
     TEST_CASE("4x4 stability margin") {
-        Matrix<4, 4> A = {
+        Matrix A = {
             {0.5, 0.0, 0.0, 0.0},
             {0.0, 0.6, 0.0, 0.0},
             {0.0, 0.0, 0.7, 0.0},
@@ -586,16 +586,16 @@ TEST_SUITE("4x4 Stability Analysis") {
 TEST_SUITE("Larger Systems (5x5+)") {
     TEST_CASE("5x5 DARE solution works via QR iteration") {
         // 5-state system - DARE should work because it uses QR iteration
-        Matrix<5, 5> A = {
+        Matrix A = {
             {0.9, 0.05, 0.0, 0.0, 0.0},
             {0.0, 0.9, 0.05, 0.0, 0.0},
             {0.0, 0.0, 0.9, 0.05, 0.0},
             {0.0, 0.0, 0.0, 0.9, 0.05},
             {0.0, 0.0, 0.0, 0.0, 0.9},
         };
-        Matrix<5, 1> B = {{0.1}, {0.05}, {0.02}, {0.01}, {0.005}};
+        Matrix       B = {{0.1}, {0.05}, {0.02}, {0.01}, {0.005}};
         Matrix<5, 5> Q = Matrix<5, 5>::identity();
-        Matrix<1, 1> R = {{1.0}};
+        Matrix       R = {{1.0}};
 
         auto P_opt = dare(A, B, Q, R);
         CHECK(P_opt.has_value());

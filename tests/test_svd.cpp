@@ -94,8 +94,8 @@ double unitary_error(const Matrix<N, N, T>& Q) {
 TEST_SUITE("svd") {
     TEST_CASE("Tall real matrix: known singular values and factor properties") {
         // [[1,2],[3,4],[5,6]] has σ = {9.5255180..., 0.5143006...} (MATLAB® svd).
-        const Matrix<3, 2, double> A = {{1.0, 2.0}, {3.0, 4.0}, {5.0, 6.0}};
-        const auto                 s = svd(A);
+        const Matrix A = {{1.0, 2.0}, {3.0, 4.0}, {5.0, 6.0}};
+        const auto   s = svd(A);
 
         CHECK(s.success);
         CHECK(s.singular_values[0] == doctest::Approx(9.52551809));
@@ -107,8 +107,8 @@ TEST_SUITE("svd") {
     }
 
     TEST_CASE("Wide real matrix decomposes via the transpose path") {
-        const Matrix<2, 3, double> A = {{1.0, 2.0, 3.0}, {4.0, 5.0, 6.0}};
-        const auto                 s = svd(A);
+        const Matrix A = {{1.0, 2.0, 3.0}, {4.0, 5.0, 6.0}};
+        const auto   s = svd(A);
 
         CHECK(s.success);
         CHECK(reconstruction_error(A, s) < 1e-12);
@@ -117,8 +117,8 @@ TEST_SUITE("svd") {
     }
 
     TEST_CASE("Diagonal matrix: singular values are |diagonal|, sorted") {
-        const Matrix<3, 3, double> A = {{3.0, 0.0, 0.0}, {0.0, -5.0, 0.0}, {0.0, 0.0, 2.0}};
-        const auto                 s = svd(A);
+        const Matrix A = {{3.0, 0.0, 0.0}, {0.0, -5.0, 0.0}, {0.0, 0.0, 2.0}};
+        const auto   s = svd(A);
 
         CHECK(s.singular_values[0] == doctest::Approx(5.0));
         CHECK(s.singular_values[1] == doctest::Approx(3.0));
@@ -128,8 +128,8 @@ TEST_SUITE("svd") {
 
     TEST_CASE("Rank-deficient matrix: zero singular value and correct rank") {
         // Row 2 = 2·row 1 ⇒ rank 2.
-        const Matrix<3, 3, double> A = {{1.0, 2.0, 3.0}, {2.0, 4.0, 6.0}, {1.0, 0.0, 1.0}};
-        const auto                 s = svd(A);
+        const Matrix A = {{1.0, 2.0, 3.0}, {2.0, 4.0, 6.0}, {1.0, 0.0, 1.0}};
+        const auto   s = svd(A);
 
         CHECK(reconstruction_error(A, s) < 1e-12);
         CHECK(unitary_error(s.singular_U) < 1e-12);
@@ -162,8 +162,8 @@ TEST_SUITE("svd") {
     }
 
     TEST_CASE("constexpr evaluation") {
-        constexpr Matrix<2, 2, double> A = {{2.0, 0.0}, {0.0, 3.0}};
-        constexpr auto                 s = svd(A);
+        constexpr Matrix A = {{2.0, 0.0}, {0.0, 3.0}};
+        constexpr auto   s = svd(A);
         static_assert(s.success);
         // Largest singular value of diag(2,3) is 3.
         static_assert(s.singular_values[0] > 2.9 && s.singular_values[0] < 3.1);
@@ -171,7 +171,7 @@ TEST_SUITE("svd") {
 
     TEST_CASE("SVD reconstructs to machine precision with tiny singular values") {
         // A = U diag(1, 1e-13, 1e-14) Vᵀ with dense orthogonal factors.
-        const auto           Q = mat::svd(Matrix<3, 3, double>{{2.0, -1.0, 0.5}, {1.0, 3.0, -1.0}, {0.5, 1.0, 4.0}});
+        const auto           Q = mat::svd(Matrix{{2.0, -1.0, 0.5}, {1.0, 3.0, -1.0}, {0.5, 1.0, 4.0}});
         Matrix<3, 3, double> S{};
         S(0, 0) = 1.0;
         S(1, 1) = 1e-13;
@@ -190,8 +190,8 @@ TEST_SUITE("svd") {
         CHECK(max_abs_diff<3, 3>(z.singular_U * z.singular_U.transpose(), Matrix<3, 3, double>::identity()) <= 8 * kEps);
 
         // Rank 2 (third row = first + second), wide 3×4.
-        const Matrix<3, 4, double> W{{1.0, 2.0, 3.0, 4.0}, {-1.0, 0.5, 2.0, 1.0}, {0.0, 2.5, 5.0, 5.0}};
-        const auto                 sw = mat::svd(W);
+        const Matrix W{{1.0, 2.0, 3.0, 4.0}, {-1.0, 0.5, 2.0, 1.0}, {0.0, 2.5, 5.0, 5.0}};
+        const auto   sw = mat::svd(W);
         CHECK(sw.success);
         CHECK(mat::rank_from_svd(sw) == 2);
         CHECK(max_abs_diff<3, 4>(svd_reconstruct<3, 4>(sw), W) <= 64 * kEps * 10.0);
@@ -199,8 +199,8 @@ TEST_SUITE("svd") {
         CHECK(max_abs_diff<3, 3>(sw.singular_U.transpose() * sw.singular_U, Matrix<3, 3, double>::identity()) <= 64 * kEps);
 
         // Columns graded over 30 decades: each singular value keeps relative accuracy.
-        const Matrix<3, 3, double> G{{1.0, 1e-15, 1e-30}, {0.5, -1e-15, 2e-30}, {0.25, 3e-15, -1e-30}};
-        const auto                 sg = mat::svd(G);
+        const Matrix G{{1.0, 1e-15, 1e-30}, {0.5, -1e-15, 2e-30}, {0.25, 3e-15, -1e-30}};
+        const auto   sg = mat::svd(G);
         CHECK(mat::rank_from_svd(sg, 0.0) == 3);
         for (size_t j = 0; j < 3; ++j) {
             double colmax = 0.0;
@@ -257,7 +257,7 @@ TEST_SUITE("svd") {
     TEST_CASE("Column norms whose ratio underflows: the small column is still orthogonalized") {
         // The norm ratio ρ underflows to 0, and the pair was skipped and reported converged with
         // UᵀU − I at 0.707 and σ_min off by √2. The small column takes the limiting Gram–Schmidt step.
-        constexpr Matrix<2, 2, double> A{{1e200, 1e-120}, {0.0, 1e-120}};
+        constexpr Matrix A{{1e200, 1e-120}, {0.0, 1e-120}};
         static_assert(mat::svd(A).success);
         const auto s = mat::svd(A);
         REQUIRE(s.success);
@@ -266,8 +266,8 @@ TEST_SUITE("svd") {
         CHECK(unitary_error(s.singular_U) <= 8 * kEps);
         CHECK(unitary_error(s.singular_V) <= 8 * kEps);
 
-        const Matrix<2, 2, float> Af{{1e30f, 1e-10f}, {0.0f, 1e-10f}};
-        const auto                sf = mat::svd(Af);
+        const Matrix Af{{1e30f, 1e-10f}, {0.0f, 1e-10f}};
+        const auto   sf = mat::svd(Af);
         REQUIRE(sf.success);
         CHECK(std::fabs(sf.singular_values[1] - 1e-10f) <= 1e-5f * 1e-10f);
         CHECK(unitary_error(sf.singular_U) <= 8 * static_cast<double>(eps<float>()));
@@ -276,8 +276,8 @@ TEST_SUITE("svd") {
 
 TEST_SUITE("pseudo_inverse") {
     TEST_CASE("Overdetermined: Moore–Penrose conditions hold") {
-        const Matrix<4, 2, double> A = {{1.0, 0.0}, {1.0, 1.0}, {1.0, 2.0}, {1.0, 3.0}};
-        const auto                 P = pseudo_inverse(A).value();
+        const Matrix A = {{1.0, 0.0}, {1.0, 1.0}, {1.0, 2.0}, {1.0, 3.0}};
+        const auto   P = pseudo_inverse(A).value();
 
         // A·A⁺·A = A and A⁺·A·A⁺ = A⁺.
         const Matrix<4, 2, double> APA = A * P * A;
@@ -302,8 +302,8 @@ TEST_SUITE("pseudo_inverse") {
 
     TEST_CASE("Least-squares solution matches normal equations") {
         // Fit y = a + b·x to (0,1),(1,3),(2,2),(3,5): A⁺·b is the LS fit.
-        const Matrix<4, 2, double> A = {{1.0, 0.0}, {1.0, 1.0}, {1.0, 2.0}, {1.0, 3.0}};
-        const Matrix<4, 1, double> b = {{1.0}, {3.0}, {2.0}, {5.0}};
+        const Matrix               A = {{1.0, 0.0}, {1.0, 1.0}, {1.0, 2.0}, {1.0, 3.0}};
+        const Matrix               b = {{1.0}, {3.0}, {2.0}, {5.0}};
         const auto                 P = pseudo_inverse(A).value();
         const Matrix<2, 1, double> x = P * b;
 
@@ -313,10 +313,10 @@ TEST_SUITE("pseudo_inverse") {
     }
 
     TEST_CASE("Square nonsingular: pseudoinverse equals inverse") {
-        const Matrix<3, 3, double> A = {{2.0, 0.0, 1.0}, {1.0, 3.0, 2.0}, {1.0, 0.0, 4.0}};
-        const auto                 P = pseudo_inverse(A).value();
-        const auto                 Inv = A.inverse().value();
-        double                     e = 0.0;
+        const Matrix A = {{2.0, 0.0, 1.0}, {1.0, 3.0, 2.0}, {1.0, 0.0, 4.0}};
+        const auto   P = pseudo_inverse(A).value();
+        const auto   Inv = A.inverse().value();
+        double       e = 0.0;
         for (size_t i = 0; i < 3; ++i) {
             for (size_t j = 0; j < 3; ++j) {
                 e = std::max(e, std::abs(P(i, j) - Inv(i, j)));
@@ -345,8 +345,8 @@ TEST_SUITE("pseudo_inverse") {
 
 TEST_SUITE("null_space") {
     TEST_CASE("Wide full-rank matrix: 1-D kernel orthogonal to the rows") {
-        const Matrix<2, 3, double> A = {{1.0, 2.0, 3.0}, {4.0, 5.0, 6.0}};
-        const auto                 ns = null_space(A).value();
+        const Matrix A = {{1.0, 2.0, 3.0}, {4.0, 5.0, 6.0}};
+        const auto   ns = null_space(A).value();
         REQUIRE(ns.dim == 1);
 
         // Kernel basis is the trailing column of ns.vectors.
@@ -360,15 +360,15 @@ TEST_SUITE("null_space") {
     }
 
     TEST_CASE("Full-rank square matrix has trivial kernel") {
-        const Matrix<3, 3, double> A = {{2.0, 0.0, 1.0}, {1.0, 3.0, 2.0}, {1.0, 0.0, 4.0}};
-        const auto                 ns = null_space(A).value();
+        const Matrix A = {{2.0, 0.0, 1.0}, {1.0, 3.0, 2.0}, {1.0, 0.0, 4.0}};
+        const auto   ns = null_space(A).value();
         CHECK(ns.dim == 0);
     }
 
     TEST_CASE("Rank-deficient matrix: kernel dimension matches the defect") {
         // Column 3 = column 1 + column 2 ⇒ 1-D kernel [1, 1, −1].
-        const Matrix<3, 3, double> A = {{1.0, 0.0, 1.0}, {0.0, 1.0, 1.0}, {2.0, 1.0, 3.0}};
-        const auto                 ns = null_space(A).value();
+        const Matrix A = {{1.0, 0.0, 1.0}, {0.0, 1.0, 1.0}, {2.0, 1.0, 3.0}};
+        const auto   ns = null_space(A).value();
         REQUIRE(ns.dim == 1);
         Matrix<3, 1, double> n;
         for (size_t i = 0; i < 3; ++i) {
@@ -413,10 +413,10 @@ TEST_SUITE("svd scaling") {
     // matrix to relative precision (Demmel–Veselić); the double SVD of the same entries is the
     // reference.
     TEST_CASE("a float column-graded matrix keeps its small singular values") {
-        const Matrix<3, 3, double> B{{1.0, 0.3, -0.2}, {0.4, 1.1, 0.5}, {-0.1, 0.2, 0.9}};
-        const double               d[3] = {1e19, 1.0, 0.1};
-        Matrix<3, 3, float>        Af{};
-        Matrix<3, 3, double>       Ad{};
+        const Matrix         B{{1.0, 0.3, -0.2}, {0.4, 1.1, 0.5}, {-0.1, 0.2, 0.9}};
+        const double         d[3] = {1e19, 1.0, 0.1};
+        Matrix<3, 3, float>  Af{};
+        Matrix<3, 3, double> Ad{};
         for (size_t i = 0; i < 3; ++i) {
             for (size_t j = 0; j < 3; ++j) {
                 Af(i, j) = static_cast<float>(B(i, j) * d[j]);
@@ -434,8 +434,8 @@ TEST_SUITE("svd scaling") {
     }
 
     TEST_CASE("SVD is invariant to scaling the input") {
-        const Matrix<3, 2, double> A{{1.0, 2.0}, {3.0, 4.0}, {5.0, 6.0}};
-        const auto                 ref = mat::svd(A);
+        const Matrix A{{1.0, 2.0}, {3.0, 4.0}, {5.0, 6.0}};
+        const auto   ref = mat::svd(A);
         for (const double scale : {1e-160, 1e160}) {
             const auto s = mat::svd(A * scale);
             CHECK(s.success);
@@ -508,9 +508,9 @@ TEST_SUITE("svd scaling") {
 
     TEST_CASE("subnormal singular values come back exactly, constant-evaluated") {
         // Constant evaluation keeps subnormals (no flush-to-zero); 1/max|a| overflowed there.
-        constexpr auto sd = svd(Matrix<2, 2, double>{{3e-310, 0.0}, {0.0, 1e-310}});
+        constexpr auto sd = svd(Matrix{{3e-310, 0.0}, {0.0, 1e-310}});
         static_assert(sd.success && sd.singular_values[0] == 3e-310 && sd.singular_values[1] == 1e-310);
-        constexpr auto sf = svd(Matrix<2, 2, float>{{3e-40f, 0.0f}, {0.0f, 1e-40f}});
+        constexpr auto sf = svd(Matrix{{3e-40f, 0.0f}, {0.0f, 1e-40f}});
         static_assert(sf.success && sf.singular_values[0] == 3e-40f && sf.singular_values[1] == 1e-40f);
         CHECK(sd.success);
     }
@@ -536,7 +536,7 @@ TEST_SUITE("svd scaling") {
         CHECK_FALSE(mat::null_space(A).has_value());
         const Matrix<2, 2, complex<double>> C{{complex<double>{1.0, nan}, complex<double>{0.0}}, {complex<double>{0.0}, complex<double>{1.0}}};
         CHECK_FALSE(mat::svd(C).success);
-        CHECK(mat::svd(Matrix<3, 3, double>{{1.0, 2.0, 3.0}, {4.0, 5.0, 6.0}, {7.0, 8.0, 10.0}}).success);
+        CHECK(mat::svd(Matrix{{1.0, 2.0, 3.0}, {4.0, 5.0, 6.0}, {7.0, 8.0, 10.0}}).success);
         CHECK_FALSE(mat::SVDResult<2, 2, double>{}.success);
     }
 }

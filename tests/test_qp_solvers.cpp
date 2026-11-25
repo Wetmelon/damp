@@ -129,11 +129,11 @@ TEST_CASE("warm-start default MPC matches the stateless policy tick for tick") {
     MPC warm{art}; // WarmStartActiveSetSolver is the default policy
     MPC cold{art, design::ActiveSetSolver{}};
 
-    ColVec<2>       xw{};
-    ColVec<2>       xc{};
-    const ColVec<1> r{1.0};
-    size_t          warm_settled = 0;
-    size_t          cold_settled = 0;
+    ColVec<2>    xw{};
+    ColVec<2>    xc{};
+    const ColVec r{1.0};
+    size_t       warm_settled = 0;
+    size_t       cold_settled = 0;
     for (size_t k = 0; k < 200; ++k) {
         const auto uw = warm.step(r, xw);
         const auto uc = cold.step(r, xc);
@@ -188,9 +188,9 @@ TEST_CASE("ADMM solver policy drives the MPC like the active-set default") {
     MPC exact{art};
     MPC admm{art, design::AdmmSolver<Ctl::NZ1, Ctl::NI1, double>{}};
 
-    ColVec<2>       xe{};
-    ColVec<2>       xa{};
-    const ColVec<1> r{1.0};
+    ColVec<2>    xe{};
+    ColVec<2>    xa{};
+    const ColVec r{1.0};
     for (size_t k = 0; k < 120; ++k) {
         const auto ue = exact.step(r, xe);
         const auto ua = admm.step(r, xa);
@@ -204,8 +204,8 @@ TEST_CASE("ADMM solver policy drives the MPC like the active-set default") {
 TEST_CASE("ADMM certifies a primal-infeasible QP from its dual iterate difference") {
     // The quadprog example plus x1 + x2 >= 3, against row 0's x1 + x2 <= 2.
     const QuadprogExample qp;
-    const Matrix<4, 2>    A{{1.0, 1.0}, {-1.0, 2.0}, {2.0, 1.0}, {-1.0, -1.0}};
-    const ColVec<4>       b{2.0, 2.0, 3.0, -3.0};
+    const Matrix          A{{1.0, 1.0}, {-1.0, 2.0}, {2.0, 1.0}, {-1.0, -1.0}};
+    const ColVec          b{2.0, 2.0, 3.0, -3.0};
 
     design::AdmmSolver<2, 4> solver{};
     const auto               res = solver(qp.H, qp.f, A, b, 4000);
@@ -230,26 +230,26 @@ TEST_CASE("ADMM certifies a primal-infeasible QP from its dual iterate differenc
 }
 
 TEST_CASE("ADMM primal certificate: contradictory bounds, and one infeasible variable beside an active one") {
-    const Matrix<1, 1> H1{{1.0}};
-    const ColVec<1>    f1{0.0};
-    const Matrix<2, 1> A1{{1.0}, {-1.0}};
-    const ColVec<2>    b1{-1.0, -1.0}; // x <= -1 and x >= 1
-    const auto         one = design::solve_qp_admm(H1, f1, A1, b1);
+    const Matrix H1{{1.0}};
+    const ColVec f1{0.0};
+    const Matrix A1{{1.0}, {-1.0}};
+    const ColVec b1{-1.0, -1.0}; // x <= -1 and x >= 1
+    const auto   one = design::solve_qp_admm(H1, f1, A1, b1);
     CHECK(one.status == design::QPStatus::Infeasible);
     CHECK(one.iterations < 10);
 
     // x1 infeasible as above; x2 pushed onto its bound x2 <= 1, whose multiplier settles.
-    const auto         H2 = Matrix<2, 2>::identity();
-    const ColVec<2>    f2{0.0, -5.0};
-    const Matrix<3, 2> A2{{1.0, 0.0}, {-1.0, 0.0}, {0.0, 1.0}};
-    const ColVec<3>    b2{-1.0, -1.0, 1.0};
-    const auto         two = design::solve_qp_admm(H2, f2, A2, b2);
+    const auto   H2 = Matrix<2, 2>::identity();
+    const ColVec f2{0.0, -5.0};
+    const Matrix A2{{1.0, 0.0}, {-1.0, 0.0}, {0.0, 1.0}};
+    const ColVec b2{-1.0, -1.0, 1.0};
+    const auto   two = design::solve_qp_admm(H2, f2, A2, b2);
     CHECK(two.status == design::QPStatus::Infeasible);
     CHECK(two.iterations < 400);
 
     // Scaling a row (aᵢ, bᵢ) or the whole problem leaves the certificate in place.
-    const Matrix<2, 1> A1s{{1.0e3}, {-1.0}};
-    const ColVec<2>    b1s{-1.0e3, -1.0};
+    const Matrix A1s{{1.0e3}, {-1.0}};
+    const ColVec b1s{-1.0e3, -1.0};
     CHECK(design::solve_qp_admm(H1, f1, A1s, b1s).status == design::QPStatus::Infeasible);
     CHECK(design::solve_qp_admm(H2, f2, A2 * 1.0e4, b2 * 1.0e4).status == design::QPStatus::Infeasible);
 }
@@ -257,20 +257,20 @@ TEST_CASE("ADMM primal certificate: contradictory bounds, and one infeasible var
 TEST_CASE("ADMM certifies a dual-infeasible (unbounded) QP from its primal iterate difference") {
     // LP min −x1 with only x2 <= 1: x1 → +∞.
     const Matrix<2, 2> H0{};
-    const ColVec<2>    f_lp{-1.0, 0.0};
-    const Matrix<1, 2> A_lp{{0.0, 1.0}};
-    const ColVec<1>    b_lp{1.0};
+    const ColVec       f_lp{-1.0, 0.0};
+    const Matrix       A_lp{{0.0, 1.0}};
+    const ColVec       b_lp{1.0};
     const auto         lp = design::solve_qp_admm(H0, f_lp, A_lp, b_lp);
     CHECK(!lp.success);
     CHECK(lp.status == design::QPStatus::Unbounded);
 
     // Semidefinite H with a coupled null direction: ½(x1 − x2)² − x1 − 2x2 with
     // x1 − x2 <= 1 and x1 >= 0 decreases without bound along (1, 1).
-    const Matrix<2, 2> H{{1.0, -1.0}, {-1.0, 1.0}};
-    const ColVec<2>    f{-1.0, -2.0};
-    const Matrix<2, 2> A{{1.0, -1.0}, {-1.0, 0.0}};
-    const ColVec<2>    b{1.0, 0.0};
-    const auto         res = design::solve_qp_admm(H, f, A, b);
+    const Matrix H{{1.0, -1.0}, {-1.0, 1.0}};
+    const ColVec f{-1.0, -2.0};
+    const Matrix A{{1.0, -1.0}, {-1.0, 0.0}};
+    const ColVec b{1.0, 0.0};
+    const auto   res = design::solve_qp_admm(H, f, A, b);
     CHECK(res.status == design::QPStatus::Unbounded);
     CHECK(res.iterations < 200);
     // The factoring solvers cannot factor this H.
@@ -295,9 +295,9 @@ TEST_CASE("ADMM feasible results do not depend on the certificate tolerance") {
 
     // A bounded LP (H = 0, which the factoring solvers refuse) still solves: min −x on [0, 2].
     const Matrix<1, 1> H0{};
-    const ColVec<1>    f{-1.0};
-    const Matrix<2, 1> A{{1.0}, {-1.0}};
-    const ColVec<2>    b{2.0, 0.0};
+    const ColVec       f{-1.0};
+    const Matrix       A{{1.0}, {-1.0}};
+    const ColVec       b{2.0, 0.0};
     const auto         lp = design::solve_qp_admm(H0, f, A, b);
     const auto         lp_loose = design::solve_qp_admm(H0, f, A, b, 4000, loose);
     REQUIRE(lp.success);
@@ -324,9 +324,9 @@ TEST_CASE("ADMM reports an MPC's infeasible constraint set like the active-set d
     MPC admm{art, design::AdmmSolver<Ctl::NZ1, Ctl::NI1, double>{}};
 
     const ColVec<2> x{};
-    const ColVec<1> r{1.0};
-    exact.back_calculate(ColVec<1>{2.0});
-    admm.back_calculate(ColVec<1>{2.0});
+    const ColVec    r{1.0};
+    exact.back_calculate(ColVec{2.0});
+    admm.back_calculate(ColVec{2.0});
     const auto ue = exact.step(r, x);
     const auto ua = admm.step(r, x);
     CHECK(exact.last_status() == design::QPStatus::Infeasible);
@@ -335,8 +335,8 @@ TEST_CASE("ADMM reports an MPC's infeasible constraint set like the active-set d
     CHECK(ue(0) == doctest::Approx(0.5));
     CHECK(ua(0) == doctest::Approx(0.5));
 
-    exact.back_calculate(ColVec<1>{0.3});
-    admm.back_calculate(ColVec<1>{0.3});
+    exact.back_calculate(ColVec{0.3});
+    admm.back_calculate(ColVec{0.3});
     const auto ue2 = exact.step(r, x);
     const auto ua2 = admm.step(r, x);
     CHECK(exact.last_status() == design::QPStatus::Success);
@@ -370,10 +370,10 @@ TEST_CASE("interior point returns the unconstrained minimum on sentinel rows") {
 }
 
 TEST_CASE("interior point flags an infeasible constraint set") {
-    const Matrix<1, 1> H{{1.0}};
-    const ColVec<1>    f{0.0};
-    const Matrix<2, 1> A{{1.0}, {-1.0}};
-    const ColVec<2>    b{-1.0, -1.0}; // x <= -1 and x >= 1
+    const Matrix H{{1.0}};
+    const ColVec f{0.0};
+    const Matrix A{{1.0}, {-1.0}};
+    const ColVec b{-1.0, -1.0}; // x <= -1 and x >= 1
 
     const auto res = design::solve_qp_interior_point(H, f, A, b, 100);
     CHECK(!res.success);
@@ -391,9 +391,9 @@ TEST_CASE("interior-point solver policy drives the MPC like the active-set defau
     MPC exact{art};
     MPC ip{art, design::InteriorPointSolver{}};
 
-    ColVec<2>       xe{};
-    ColVec<2>       xi{};
-    const ColVec<1> r{1.0};
+    ColVec<2>    xe{};
+    ColVec<2>    xi{};
+    const ColVec r{1.0};
     for (size_t k = 0; k < 120; ++k) {
         const auto ue = exact.step(r, xe);
         const auto ui = ip.step(r, xi);
@@ -408,10 +408,10 @@ TEST_CASE("interior-point solver policy drives the MPC like the active-set defau
 
 TEST_CASE("MIQP matches the continuous solve when the relaxation is integral") {
     // Unconstrained minimum at exactly (3, -2): already integral, zero branching.
-    const auto      H = Matrix<2, 2>::identity();
-    const ColVec<2> f{-3.0, 2.0};
-    Matrix<1, 2>    A{{1.0, 0.0}};
-    ColVec<1>       b{design::unbounded_bound<double>()};
+    const auto   H = Matrix<2, 2>::identity();
+    const ColVec f{-3.0, 2.0};
+    Matrix       A{{1.0, 0.0}};
+    ColVec<1>    b{design::unbounded_bound<double>()};
 
     damp::array<bool, 2> all_int{};
     all_int[0] = true;
@@ -428,10 +428,10 @@ TEST_CASE("MIQP matches the continuous solve when the relaxation is integral") {
 TEST_CASE("MIQP branches to the best lattice point under a coupling constraint") {
     // min ||x - (2.4, 1.6)||^2 with x integer and x1 + x2 <= 3.
     // Relaxed optimum (1.9, 1.1) is fractional; best integer point is (2, 1).
-    const auto         H = Matrix<2, 2>::identity();
-    const ColVec<2>    f{-2.4, -1.6};
-    const Matrix<1, 2> A{{1.0, 1.0}};
-    const ColVec<1>    b{3.0};
+    const auto   H = Matrix<2, 2>::identity();
+    const ColVec f{-2.4, -1.6};
+    const Matrix A{{1.0, 1.0}};
+    const ColVec b{3.0};
 
     damp::array<bool, 2> all_int{};
     all_int[0] = true;
@@ -447,10 +447,10 @@ TEST_CASE("MIQP branches to the best lattice point under a coupling constraint")
 
 TEST_CASE("MIQP handles mixed integer and continuous variables") {
     // x0 integer, x1 continuous: min (x0-0.6)^2 + (x1-0.7)^2 -> (1, 0.7).
-    const auto      H = Matrix<2, 2>::identity();
-    const ColVec<2> f{-0.6, -0.7};
-    Matrix<1, 2>    A{{1.0, 0.0}};
-    ColVec<1>       b{design::unbounded_bound<double>()};
+    const auto   H = Matrix<2, 2>::identity();
+    const ColVec f{-0.6, -0.7};
+    Matrix       A{{1.0, 0.0}};
+    ColVec<1>    b{design::unbounded_bound<double>()};
 
     damp::array<bool, 2> mask{};
     mask[0] = true;
@@ -463,10 +463,10 @@ TEST_CASE("MIQP handles mixed integer and continuous variables") {
 
 TEST_CASE("MIQP proves infeasibility when no lattice point fits") {
     // 0.2 <= x <= 0.8 contains no integer.
-    const Matrix<1, 1> H{{1.0}};
-    const ColVec<1>    f{0.0};
-    const Matrix<2, 1> A{{1.0}, {-1.0}};
-    const ColVec<2>    b{0.8, -0.2};
+    const Matrix H{{1.0}};
+    const ColVec f{0.0};
+    const Matrix A{{1.0}, {-1.0}};
+    const ColVec b{0.8, -0.2};
 
     damp::array<bool, 1> mask{};
     mask[0] = true;
@@ -487,15 +487,15 @@ TEST_CASE("alternative solvers are constexpr") {
 
     constexpr auto admm = design::solve_qp_admm(qp.H, qp.f, qp.A, qp.b);
     static_assert(admm.success);
-    constexpr auto admm_infeasible = design::solve_qp_admm(Matrix<1, 1>{{1.0}}, ColVec<1>{0.0}, Matrix<2, 1>{{1.0}, {-1.0}}, ColVec<2>{-1.0, -1.0});
+    constexpr auto admm_infeasible = design::solve_qp_admm(Matrix{{1.0}}, ColVec{0.0}, Matrix{{1.0}, {-1.0}}, ColVec{-1.0, -1.0});
     static_assert(admm_infeasible.status == design::QPStatus::Infeasible);
 
     constexpr auto mi = [] {
-        constexpr auto         H = Matrix<1, 1>{{1.0}};
-        constexpr ColVec<1>    f{-1.4};
-        constexpr Matrix<1, 1> A{{1.0}};
-        constexpr ColVec<1>    b{design::unbounded_bound<double>()};
-        damp::array<bool, 1>   mask{};
+        constexpr auto       H = Matrix{{1.0}};
+        constexpr ColVec     f{-1.4};
+        constexpr Matrix     A{{1.0}};
+        constexpr ColVec<1>  b{design::unbounded_bound<double>()};
+        damp::array<bool, 1> mask{};
         mask[0] = true;
         return design::solve_miqp(H, f, A, b, mask);
     }();
@@ -507,8 +507,8 @@ TEST_CASE("interior-point QP is invariant to scaling the cost") {
     for (const double s : {1e-6, 1.0, 1e9}) {
         const Matrix<2, 2> H{{s, -s}, {-s, 2.0 * s}};
         const ColVec<2>    f{-2.0 * s, -6.0 * s};
-        const Matrix<3, 2> A{{1.0, 1.0}, {-1.0, 2.0}, {2.0, 1.0}};
-        const ColVec<3>    b{2.0, 2.0, 3.0};
+        const Matrix       A{{1.0, 1.0}, {-1.0, 2.0}, {2.0, 1.0}};
+        const ColVec       b{2.0, 2.0, 3.0};
         const auto         res = design::solve_qp_interior_point(H, f, A, b);
         CAPTURE(s);
         REQUIRE(res.success);
@@ -534,10 +534,10 @@ TEST_CASE("ADMM reports a NaN input as NonFinite and its warm start recovers on 
 
 TEST_CASE("float ADMM reaches its default tolerances") {
     //! eps_abs = eps_rel = 1e-8 sat below float's ε: every float solve ran the budget out.
-    const Matrix<2, 2, float>       H{{1.0F, -1.0F}, {-1.0F, 2.0F}};
-    const ColVec<2, float>          f{-2.0F, -6.0F};
-    const Matrix<3, 2, float>       A{{1.0F, 1.0F}, {-1.0F, 2.0F}, {2.0F, 1.0F}};
-    const ColVec<3, float>          b{2.0F, 2.0F, 3.0F};
+    const Matrix                    H{{1.0F, -1.0F}, {-1.0F, 2.0F}};
+    const ColVec                    f{-2.0F, -6.0F};
+    const Matrix                    A{{1.0F, 1.0F}, {-1.0F, 2.0F}, {2.0F, 1.0F}};
+    const ColVec                    b{2.0F, 2.0F, 3.0F};
     design::AdmmSolver<2, 3, float> solver;
     const auto                      res = solver(H, f, A, b, 1000);
     REQUIRE(res.success);
@@ -552,7 +552,7 @@ TEST_CASE("float MIQP solves at 1e4, where a bound sits inside the relaxation's 
     const float               t = 9999.6F;
     const Matrix<2, 2, float> H = Matrix<2, 2, float>::identity();
     const ColVec<2, float>    f{-t, -(t + 0.3F)};
-    const Matrix<1, 2, float> A{{1.0F, 1.0F}};
+    const Matrix              A{{1.0F, 1.0F}};
     const ColVec<1, float>    b{(2.0F * t) + 0.1F};
     const auto                mi = design::solve_miqp(H, f, A, b, damp::array<bool, 2>{true, true});
     REQUIRE(mi.success);
@@ -565,7 +565,7 @@ TEST_CASE("float MIQP does not take a half-integer at 1.5e5 as integral") {
     //! The relative integrality term 8·(NV+1)·ε·|x| exceeded 0.5 past 1.05e5 for NV = 4, so the
     //! root relaxation x₀ = 150000.5 returned as Success.
     const Matrix<4, 4, float> H = Matrix<4, 4, float>::identity();
-    const ColVec<4, float>    f{-150000.5F, 0.0F, 0.0F, 0.0F};
+    const ColVec              f{-150000.5F, 0.0F, 0.0F, 0.0F};
     const Matrix<1, 4, float> A{};
     const ColVec<1, float>    b{design::unbounded_bound<float>()};
     const auto                mi = design::solve_miqp(H, f, A, b, damp::array<bool, 4>{true, true, true, true});
@@ -577,8 +577,8 @@ TEST_CASE("MIQP refuses non-finite data") {
     //! A NaN relaxation reached floor_scalar's long long cast (undefined behavior).
     const Matrix<2, 2> H = Matrix<2, 2>::identity();
     const ColVec<2>    f{std::numeric_limits<double>::quiet_NaN(), -1.0};
-    const Matrix<1, 2> A{{1.0, 1.0}};
-    const auto         mi = design::solve_miqp(H, f, A, ColVec<1>{2.0}, damp::array<bool, 2>{true, true});
+    const Matrix       A{{1.0, 1.0}};
+    const auto         mi = design::solve_miqp(H, f, A, ColVec{2.0}, damp::array<bool, 2>{true, true});
     CHECK(mi.status == design::QPStatus::NonFinite);
     CHECK_FALSE(mi.success);
 }

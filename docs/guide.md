@@ -39,7 +39,7 @@ constexpr auto sys = StateSpace{
 
 // Configure tuning parameters (control weights) for an LQI
 constexpr auto weights = design::LQRWeights{
-    .Q = Matrix<2, 2>{
+    .Q = Matrix{
         {10.0, 0.0},
         {0.0, 1.0},
     },

@@ -132,9 +132,9 @@ TEST_SUITE("freestanding math") {
 
     TEST_CASE("a constexpr design and its tick build and run on ETL + freestanding math") {
         constexpr auto sys = damp::StateSpace{
-            .A = damp::Matrix<2, 2>{{0.0, 1.0}, {9.81, -0.1}},
-            .B = damp::Matrix<2, 1>{{0.0}, {1.0}},
-            .C = damp::Matrix<1, 2>{{1.0, 0.0}},
+            .A = damp::Matrix{{0.0, 1.0}, {9.81, -0.1}},
+            .B = damp::Matrix{{0.0}, {1.0}},
+            .C = damp::Matrix{{1.0, 0.0}},
         };
         constexpr auto res = damp::design::state_feedback(sys, 0.01, {.Q = damp::Matrix<2, 2>::identity() * 10.0, .R = 1.0});
         static_assert(res.success);

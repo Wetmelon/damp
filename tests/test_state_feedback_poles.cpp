@@ -46,19 +46,19 @@ using Cplx = damp::complex<double>;
 constexpr double kTs = 0.01;
 
 /// A double integrator: position read, the input a force.
-constexpr StateSpace kCart{.A = Matrix<2, 2>{{0.0, 1.0}, {0.0, 0.0}}, .B = Matrix<2, 1>{{0.0}, {1.0}}, .C = Matrix<1, 2>{{1.0, 0.0}}};
+constexpr StateSpace kCart{.A = Matrix{{0.0, 1.0}, {0.0, 0.0}}, .B = Matrix{{0.0}, {1.0}}, .C = Matrix{{1.0, 0.0}}};
 
 /// The same plant sampled at kTs.
 constexpr auto kCartD = *discretize(kCart, kTs);
 
 /// A three-state, two-input plant: the multi-input (KNV) path.
 constexpr StateSpace kTwoInput{
-    .A = Matrix<3, 3>{{0.0, 1.0, 0.0}, {0.0, -0.5, 1.0}, {0.0, 0.0, -2.0}},
-    .B = Matrix<3, 2>{{0.0, 0.0}, {1.0, 0.0}, {0.0, 1.0}},
-    .C = Matrix<2, 3>{{1.0, 0.0, 0.0}, {0.0, 0.0, 1.0}},
+    .A = Matrix{{0.0, 1.0, 0.0}, {0.0, -0.5, 1.0}, {0.0, 0.0, -2.0}},
+    .B = Matrix{{0.0, 0.0}, {1.0, 0.0}, {0.0, 1.0}},
+    .C = Matrix{{1.0, 0.0, 0.0}, {0.0, 0.0, 1.0}},
 };
 
-constexpr design::LQRWeights<2, 1> kWeights{.Q = Matrix<2, 2>{{10.0, 0.0}, {0.0, 1.0}}, .R = {0.1}};
+constexpr design::LQRWeights<2, 1> kWeights{.Q = Matrix{{10.0, 0.0}, {0.0, 1.0}}, .R = {0.1}};
 
 /// Two designs of the same result type, cv aside.
 template<typename A, typename B>
@@ -209,8 +209,8 @@ TEST_SUITE("State feedback placed: Poles and ObserverPoles") {
 
         //! The law holds r: at the target the command is the target's input.
         LQR law{placed};
-        law.update(ColVec<2>{0.5, 0.0});
-        CHECK(law.control(ColVec<1>{0.5})[0] == doctest::Approx(0.0).epsilon(1e-12));
+        law.update(ColVec{0.5, 0.0});
+        CHECK(law.control(ColVec{0.5})[0] == doctest::Approx(0.0).epsilon(1e-12));
     }
 
     TEST_CASE("with an IntegralAction the poles cover the integrators: eig of the integral model at them") {
@@ -218,7 +218,7 @@ TEST_SUITE("State feedback placed: Poles and ObserverPoles") {
         const auto res = design::state_feedback(kCart, kTs, design::Poles{-8.0, -12.0, -4.0}, design::IntegralAction{.Q = 80.0});
         REQUIRE(res.success);
         static_assert(same_type<decltype(res), decltype(design::state_feedback(kCart, kTs, kWeights, design::IntegralAction{.Q = 80.0}))>);
-        const auto im = design::detail::integral_model(kCartD.A, kCartD.B, kCartD.C, kCartD.D, Matrix<1, 1>{{1.0}}, kTs);
+        const auto im = design::detail::integral_model(kCartD.A, kCartD.B, kCartD.C, kCartD.D, Matrix{{1.0}}, kTs);
         const auto Acl = (im.A - (im.B * res.K));
         const auto z = to_z(std::array<Cplx, 3>{Cplx{-8.0, 0.0}, Cplx{-12.0, 0.0}, Cplx{-4.0, 0.0}}, kTs);
         CHECK(has_spectrum(Acl, z, 1e-12));
@@ -231,8 +231,8 @@ TEST_SUITE("State feedback placed: Poles and ObserverPoles") {
         StateSpace plant = kCartD;
         ColVec<2>  x{};
         for (int k = 0; k < 2000; ++k) {
-            const auto u = law.step(ColVec<1>{1.0}, x);
-            x = (plant.A * x) + (plant.B * (u + ColVec<1>{0.3})); // a load the integrator takes up
+            const auto u = law.step(ColVec{1.0}, x);
+            x = (plant.A * x) + (plant.B * (u + ColVec{0.3})); // a load the integrator takes up
         }
         CHECK(x[0] == doctest::Approx(1.0).epsilon(1e-9));
     }
@@ -254,7 +254,7 @@ TEST_SUITE("State feedback placed: Poles and ObserverPoles") {
         const auto lqi = design::state_feedback(kCart, kTs, design::Poles{-8.0, -12.0, -4.0}, design::IntegralAction{.Q = 1.0}, InputDelay{0.004});
         REQUIRE(lqi.success);
         const auto delayed = *discretize(kCart, kTs, InputDelay{0.004});
-        const auto im = design::detail::integral_model(delayed.A, delayed.B, delayed.C, delayed.D, Matrix<1, 1>{{1.0}}, kTs);
+        const auto im = design::detail::integral_model(delayed.A, delayed.B, delayed.C, delayed.D, Matrix{{1.0}}, kTs);
         const auto zi = to_z(std::array<Cplx, 3>{Cplx{-8.0, 0.0}, Cplx{-12.0, 0.0}, Cplx{-4.0, 0.0}}, kTs);
         CHECK(characteristic_residual((im.A - (im.B * lqi.K)), {zi[0], zi[1], zi[2], Cplx{}}) <= 1e-12);
     }
@@ -288,7 +288,7 @@ TEST_SUITE("State feedback placed: Poles and ObserverPoles") {
 
         //! A bias on the reading of a discrete plant: z-plane poles. (On the double integrator a bias and
         //! the position are one mode at z = 1, which no filter tells apart.)
-        constexpr StateSpace lag{.A = Matrix<2, 2>{{0.9, 0.05}, {0.0, 0.8}}, .B = Matrix<2, 1>{{0.0}, {0.1}}, .C = Matrix<1, 2>{{1.0, 0.0}}, .Ts = kTs};
+        constexpr StateSpace lag{.A = Matrix{{0.9, 0.05}, {0.0, 0.8}}, .B = Matrix{{0.0}, {0.1}}, .C = Matrix{{1.0, 0.0}}, .Ts = kTs};
         const auto           biased = design::state_feedback(lag, kWeights, design::ObserverPoles{0.6, 0.65, 0.7}, design::OutputDisturbance{});
         REQUIRE(biased.success);
         CHECK(has_spectrum(error_dynamics(biased.kalman), {Cplx{0.6, 0.0}, Cplx{0.65, 0.0}, Cplx{0.7, 0.0}}, 1e-12));
@@ -368,7 +368,7 @@ TEST_SUITE("State feedback placed: Poles and ObserverPoles") {
 
         //! NX = 1
         {
-            constexpr StateSpace chain{.A = Matrix<1, 1>{{0.0}}, .B = Matrix<1, 1>{{b0}}, .C = Matrix<1, 1>{{1.0}}};
+            constexpr StateSpace chain{.A = Matrix{{0.0}}, .B = Matrix<1, 1>{{b0}}, .C = Matrix{{1.0}}};
             const auto           adrc_res = design::adrc<1>(wc, wo, b0, Ts);
             REQUIRE(adrc_res.success);
             const auto sampled = design::state_feedback(chain, Ts, design::Poles{-wc}, design::ObserverPoles{-wo, -wo}, design::InputDisturbance{});
@@ -408,7 +408,7 @@ TEST_SUITE("State feedback placed: Poles and ObserverPoles") {
 
         //! NX = 2
         {
-            constexpr StateSpace chain{.A = Matrix<2, 2>{{0.0, 1.0}, {0.0, 0.0}}, .B = Matrix<2, 1>{{0.0}, {b0}}, .C = Matrix<1, 2>{{1.0, 0.0}}};
+            constexpr StateSpace chain{.A = Matrix{{0.0, 1.0}, {0.0, 0.0}}, .B = Matrix<2, 1>{{0.0}, {b0}}, .C = Matrix{{1.0, 0.0}}};
             const auto           adrc_res = design::adrc<2>(wc, wo, b0, Ts);
             REQUIRE(adrc_res.success);
             const auto sampled = design::state_feedback(chain, Ts, design::Poles{-wc, -wc}, design::ObserverPoles{-wo, -wo, -wo}, design::InputDisturbance{});
@@ -452,14 +452,14 @@ TEST_SUITE("State feedback placed: Poles and ObserverPoles") {
     TEST_CASE("Law<kRes, float> of a constexpr placed design: the LQ runtime's commands, sizes unchanged") {
         static constinit Law<kPlacedDiscrete, float> law;
         LQR<2, 1, float>                             held{kPlacedDiscrete.as<float>()};
-        const ColVec<2, float>                       x{0.3f, -0.1f};
+        const ColVec                                 x{0.3f, -0.1f};
         CHECK(law.step(x)[0] == doctest::Approx(held.step(x)[0]).epsilon(1e-6));
         static_assert(std::is_same_v<Law<kPlacedDiscrete, float>::Runtime, LQR<2, 1, float>>);
 
         static constinit Law<kPlacedObserver, float> of;
         Law<kPlacedObserver, float>::Runtime         of_held{kPlacedObserver.as<float>()};
-        const ColVec<1, float>                       r{1.0f};
-        const ColVec<1, float>                       y{0.2f};
+        const ColVec                                 r{1.0f};
+        const ColVec                                 y{0.2f};
         CHECK(of.step(r, y)[0] == doctest::Approx(of_held.step(r, y)[0]).epsilon(1e-5));
 
         //! The same types as the LQ designs of the same shape, so the same runtimes and sizes.
@@ -472,7 +472,7 @@ TEST_SUITE("State feedback placed: Poles and ObserverPoles") {
 
     TEST_CASE("refusals: an unreachable mode, a repeat placement does not take, a pole that is not finite") {
         //! A mode the input does not reach, and one the reading does not see: not_placeable.
-        constexpr StateSpace split{.A = Matrix<2, 2>{{-1.0, 0.0}, {0.0, -2.0}}, .B = Matrix<2, 1>{{1.0}, {0.0}}, .C = Matrix<1, 2>{{1.0, 0.0}}};
+        constexpr StateSpace split{.A = Matrix{{-1.0, 0.0}, {0.0, -2.0}}, .B = Matrix{{1.0}, {0.0}}, .C = Matrix{{1.0, 0.0}}};
         CHECK(design::state_feedback(split, kTs, design::Poles{-3.0, -4.0}).status == design::DesignStatus::not_placeable);
         CHECK(design::state_feedback(kCart, kTs, kWeights, design::ObserverPoles{-30.0, -35.0}).success);
         CHECK(design::state_feedback(split, kTs, design::Poles{-3.0, -2.0}, design::ObserverPoles{-30.0, -35.0}).status == design::DesignStatus::not_placeable);

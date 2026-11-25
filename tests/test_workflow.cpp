@@ -60,7 +60,7 @@ constexpr StateSpace<2, 1, 1, double, 2, 1> make_plant(double Ts) {
     return StateSpace{
         .A = Matrix<2, 2>{{1.0, Ts}, {0.0, 1.0}},
         .B = Matrix<2, 1>{{0.5 * Ts * Ts}, {Ts}},
-        .C = Matrix<1, 2>{{1.0, 0.0}},
+        .C = Matrix{{1.0, 0.0}},
         .D = Matrix<1, 1>::zeros(),
         .G = Matrix<2, 2>::identity(),
         .H = Matrix<1, 1>::identity(),
@@ -69,10 +69,10 @@ constexpr StateSpace<2, 1, 1, double, 2, 1> make_plant(double Ts) {
 }
 
 constexpr Matrix<2, 2> kQx = Matrix<2, 2>::identity(); // on [x]
-constexpr Matrix<1, 1> kQInt{{10.0}};                  // on ∫e
-constexpr Matrix<1, 1> kR{{0.1}};
-constexpr Matrix<2, 2> kQKf{{0.01, 0.0}, {0.0, 0.01}};
-constexpr Matrix<1, 1> kRKf{{0.1}};
+constexpr Matrix       kQInt{{10.0}};                  // on ∫e
+constexpr Matrix       kR{{0.1}};
+constexpr Matrix       kQKf{{0.01, 0.0}, {0.0, 0.01}};
+constexpr Matrix       kRKf{{0.1}};
 
 } // namespace
 
@@ -83,7 +83,7 @@ TEST_SUITE("Workflow: design, result, runtime") {
         REQUIRE(res.success);
 
         LQG runtime{res.as<float>()};
-        CHECK(runtime.step(ColVec<1, float>{1.0f})(0, 0) != doctest::Approx(0.0f));
+        CHECK(runtime.step(ColVec{1.0f})(0, 0) != doctest::Approx(0.0f));
 
         // Separation: the loop's poles are those of A − BK and of the estimator error A(I − LC).
         const auto loop = series(res.to_ss(), sys); // y → u → y
@@ -107,10 +107,10 @@ TEST_SUITE("Workflow: design, result, runtime") {
         REQUIRE(pr.success);
         CHECK(pr.as<float>().Ki == doctest::Approx(10.0f));
 
-        LQG                    regulator{lqg.as<float>()};
-        PRController<float>    internal_model{pr.as<float>()};
-        const float            r = 1.0f;
-        const ColVec<1, float> y{0.0f};
+        LQG                 regulator{lqg.as<float>()};
+        PRController<float> internal_model{pr.as<float>()};
+        const float         r = 1.0f;
+        const ColVec        y{0.0f};
         regulator.update(y);
         ColVec<1, float> u = regulator.control();
         u(0, 0) += internal_model.control(r - y(0, 0));
@@ -121,18 +121,18 @@ TEST_SUITE("Workflow: design, result, runtime") {
 
     TEST_CASE("lqi: the runtime from the result ticks") {
         StateSpace sys{
-            .A = Matrix<2, 2>{{1.0, 0.1}, {0.0, 1.0}},
-            .B = Matrix<2, 1>{{0.005}, {0.1}},
-            .C = Matrix<1, 2>{{1.0, 0.0}},
+            .A = Matrix{{1.0, 0.1}, {0.0, 1.0}},
+            .B = Matrix{{0.005}, {0.1}},
+            .C = Matrix{{1.0, 0.0}},
             .D = Matrix<1, 1>::zeros(),
             .Ts = 0.1
         };
         const auto res = design::state_feedback(sys, {.Q = kQx, .R = kR}, design::IntegralAction{.Q = kQInt});
         REQUIRE(res.success);
 
-        auto                   runtime = LQI{res.as<float>()};
-        const ColVec<2, float> x{1.0f, 0.0f};
-        const ColVec<1, float> r{0.0f};
+        auto         runtime = LQI{res.as<float>()};
+        const ColVec x{1.0f, 0.0f};
+        const ColVec r{0.0f};
         CHECK(runtime.step(r, x)(0, 0) != doctest::Approx(0.0f));
     }
 
@@ -141,9 +141,9 @@ TEST_SUITE("Workflow: design, result, runtime") {
         const auto res = design::state_feedback(sys, {.Q = kQx, .R = kR}, design::KalmanNoise{.process = kQKf, .measurement = kRKf}, design::IntegralAction{.Q = kQInt});
         REQUIRE(res.success);
 
-        LQGI                   runtime{res.as<float>()};
-        const ColVec<1, float> y{0.0f};
-        const ColVec<1, float> r{1.0f};
+        LQGI         runtime{res.as<float>()};
+        const ColVec y{0.0f};
+        const ColVec r{1.0f};
 
         // u[k] = -K·[x̂[k]; xi[k]] uses the *current* integral state (the DARE augmentation
         // convention), so the first tick from a zero estimate and zero xi commands nothing;
@@ -155,7 +155,7 @@ TEST_SUITE("Workflow: design, result, runtime") {
         const StateSpace plant_out{
             .A = sys.A,
             .B = sys.B,
-            .C = Matrix<2, 2>{{0.0, 0.0}, {1.0, 0.0}},
+            .C = Matrix{{0.0, 0.0}, {1.0, 0.0}},
             .Ts = sys.Ts,
         };
         const auto loop = series(res.to_ss(), plant_out);
@@ -175,9 +175,9 @@ TEST_SUITE("Workflow: design, result, runtime") {
 
     TEST_CASE("lqi: the runtime drives the steady-state tracking error to zero") {
         StateSpace sys{
-            .A = Matrix<2, 2>{{1.0, 0.1}, {0.0, 1.0}},
-            .B = Matrix<2, 1>{{0.005}, {0.1}},
-            .C = Matrix<1, 2>{{1.0, 0.0}},
+            .A = Matrix{{1.0, 0.1}, {0.0, 1.0}},
+            .B = Matrix{{0.005}, {0.1}},
+            .C = Matrix{{1.0, 0.0}},
             .D = Matrix<1, 1>::zeros(),
             .Ts = 0.1
         };
@@ -191,10 +191,10 @@ TEST_SUITE("Workflow: design, result, runtime") {
         const auto Bf = sys.B.as<float>();
         const auto Cf = sys.C.as<float>();
 
-        auto             runtime = LQI{res.as<float>()};
-        ColVec<2, float> x{0.0f, 0.0f};
-        const float      r = 1.0f;
-        float            y = 0.0f;
+        auto        runtime = LQI{res.as<float>()};
+        ColVec      x{0.0f, 0.0f};
+        const float r = 1.0f;
+        float       y = 0.0f;
 
         for (int k = 0; k < 5000; ++k) {
             y = (Cf * x)(0, 0);
@@ -208,9 +208,9 @@ TEST_SUITE("Workflow: design, result, runtime") {
     TEST_CASE("lqi: design at compile time, constinit runtime") {
         static constexpr auto res = [] {
             StateSpace sys{
-                .A = Matrix<2, 2>{{1.0, 0.1}, {0.0, 1.0}},
-                .B = Matrix<2, 1>{{0.005}, {0.1}},
-                .C = Matrix<1, 2>{{1.0, 0.0}},
+                .A = Matrix{{1.0, 0.1}, {0.0, 1.0}},
+                .B = Matrix{{0.005}, {0.1}},
+                .C = Matrix{{1.0, 0.0}},
                 .D = Matrix<1, 1>::zeros(),
                 .Ts = 0.1
             };
@@ -225,8 +225,8 @@ TEST_SUITE("Workflow: design, result, runtime") {
     TEST_CASE("lqi / lqgi integrate a subset of the outputs: the output list reaches to_ss and the runtime") {
         // Position and velocity sensors on a double integrator; integrate the position only.
         constexpr StateSpace sys{
-            .A = Matrix<2, 2>{{1.0, 0.1}, {0.0, 1.0}},
-            .B = Matrix<2, 1>{{0.005}, {0.1}},
+            .A = Matrix{{1.0, 0.1}, {0.0, 1.0}},
+            .B = Matrix{{0.005}, {0.1}},
             .C = Matrix<2, 2>::identity(),
             .G = Matrix<2, 2>::identity(),
             .H = Matrix<2, 2>::identity(),
@@ -245,14 +245,14 @@ TEST_SUITE("Workflow: design, result, runtime") {
         auto             lqi = LQI{by_index.as<float>()};
         ColVec<2, float> x{};
         for (int k = 0; k < 600; ++k) {
-            const auto u = lqi.step(ColVec<1, float>{1.0F}, x);
+            const auto u = lqi.step(ColVec{1.0F}, x);
             x = sys.A.as<float>() * x + sys.B.as<float>() * u;
         }
         CHECK(x(0) == doctest::Approx(1.0F).epsilon(1e-3));
 
         // LQGI: the same argument, an estimator underneath.
-        const Matrix<2, 2> R_kf{{0.1, 0.0}, {0.0, 0.1}};
-        const auto         lqgi_index = design::state_feedback(sys, {.Q = kQx, .R = kR}, design::KalmanNoise{.process = kQKf, .measurement = R_kf}, design::IntegralAction{.Q = kQInt, .outputs = {0}});
+        const Matrix R_kf{{0.1, 0.0}, {0.0, 0.1}};
+        const auto   lqgi_index = design::state_feedback(sys, {.Q = kQx, .R = kR}, design::KalmanNoise{.process = kQKf, .measurement = R_kf}, design::IntegralAction{.Q = kQInt, .outputs = {0}});
         REQUIRE(lqgi_index.success);
         CHECK(lqgi_index.K(0, 2) == doctest::Approx(by_index.K(0, 2)));
         // In [r; y], the integrator row (state NX) reads −Ts·y₀ only.
@@ -262,7 +262,7 @@ TEST_SUITE("Workflow: design, result, runtime") {
         LQGI      lqgi{lqgi_index.as<float>()};
         ColVec<2> xp{};
         for (int k = 0; k < 600; ++k) {
-            const auto u = lqgi.step(ColVec<1, float>{1.0F}, (sys.C * xp).as<float>());
+            const auto u = lqgi.step(ColVec{1.0F}, (sys.C * xp).as<float>());
             xp = sys.A * xp + sys.B * u.as<double>();
         }
         CHECK(xp(0) == doctest::Approx(1.0).epsilon(0.02));

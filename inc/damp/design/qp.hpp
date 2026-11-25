@@ -853,10 +853,10 @@ template<size_t NV, size_t NI, typename T>
  *
  * @code
  * // MATLAB® quadprog documentation example: minimum at x = [2/3, 4/3]
- * constexpr Matrix<2, 2> H{{1.0, -1.0}, {-1.0, 2.0}};
- * constexpr ColVec<2>    f{-2.0, -6.0};
- * constexpr Matrix<3, 2> A{{1.0, 1.0}, {-1.0, 2.0}, {2.0, 1.0}};
- * constexpr ColVec<3>    b{2.0, 2.0, 3.0};
+ * constexpr Matrix H{{1.0, -1.0}, {-1.0, 2.0}};
+ * constexpr ColVec f{-2.0, -6.0};
+ * constexpr Matrix A{{1.0, 1.0}, {-1.0, 2.0}, {2.0, 1.0}};
+ * constexpr ColVec b{2.0, 2.0, 3.0};
  * constexpr auto res = design::solve_qp(H, f, A, b);
  * static_assert(res.success);
  * @endcode

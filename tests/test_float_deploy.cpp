@@ -132,15 +132,15 @@ static_assert(dare_residual_ok(pend_Ad_f, pend_Bd_f, pend_Qd_f, pend_Rd_f, pend_
 
 constexpr auto kf_d = design::kalman(
     StateSpace<2, 1, 1, double, 2, 1>{
-        Matrix<2, 2>{{0.9, 0.1}, {0.0, 0.8}},
-        Matrix<2, 1>{{0.1}, {0.2}},
-        Matrix<1, 2>{{1.0, 0.0}},
+        Matrix{{0.9, 0.1}, {0.0, 0.8}},
+        Matrix{{0.1}, {0.2}},
+        Matrix{{1.0, 0.0}},
         Matrix<1, 1>::zeros(),
         Matrix<2, 2>::identity(),
         Matrix<1, 1>::identity(),
         1.0
     },
-    design::KalmanNoise{.process = Matrix<2, 2>{{0.1, 0.0}, {0.0, 0.1}}, .measurement = 0.5}
+    design::KalmanNoise{.process = Matrix{{0.1, 0.0}, {0.0, 0.1}}, .measurement = 0.5}
 );
 static_assert(kf_d.success);
 constexpr auto kf_f = kf_d.as<float>();

@@ -23,7 +23,7 @@ using namespace damp;
 
 TEST_SUITE("Transforms") {
     TEST_CASE("Clarke transform") {
-        const ColVec<3, float> abc = {1.0f, -0.5f, -0.5f};
+        const ColVec abc = {1.0f, -0.5f, -0.5f};
         const auto [alpha, beta] = clarke_transform(abc);
 
         CHECK(alpha == doctest::Approx(1.0f));
@@ -31,9 +31,9 @@ TEST_SUITE("Transforms") {
     }
 
     TEST_CASE("Inverse Clarke transform (three-wire)") {
-        const ColVec<3, float> abc_orig = {1.0f, -0.5f, -0.5f};
-        const auto             ab = clarke_transform(abc_orig);
-        const auto             abc = inverse_clarke_transform(ab);
+        const ColVec abc_orig = {1.0f, -0.5f, -0.5f};
+        const auto   ab = clarke_transform(abc_orig);
+        const auto   abc = inverse_clarke_transform(ab);
 
         CHECK(abc[0] == doctest::Approx(abc_orig[0]).epsilon(1e-6f));
         CHECK(abc[1] == doctest::Approx(abc_orig[1]).epsilon(1e-6f));
@@ -91,10 +91,10 @@ TEST_SUITE("Transforms") {
     }
 
     TEST_CASE("Clarke round-trip with scalar zero") {
-        const ColVec<3, float> abc = {1.3f, -0.4f, 0.2f};
-        const auto             ab = clarke_transform<float>(abc);
-        const auto             z = zero_sequence<float>(abc);
-        const auto             rt = inverse_clarke_transform(ab, z);
+        const ColVec abc = {1.3f, -0.4f, 0.2f};
+        const auto   ab = clarke_transform<float>(abc);
+        const auto   z = zero_sequence<float>(abc);
+        const auto   rt = inverse_clarke_transform(ab, z);
 
         for (size_t i = 0; i < 3; ++i) {
             CHECK(rt[i] == doctest::Approx(abc[i]).epsilon(1e-6f));
@@ -102,11 +102,11 @@ TEST_SUITE("Transforms") {
     }
 
     TEST_CASE("Fused Park-Clarke round-trip with scalar zero passthrough") {
-        const ColVec<3, float> abc = {1.3f, -0.4f, 0.2f};
-        const float            theta = 0.9f;
-        const auto             dq = clarke_park_transform<float>(abc, theta);
-        const auto             z = zero_sequence<float>(abc);
-        const auto             rt = inverse_park_clarke_transform(dq, theta, z);
+        const ColVec abc = {1.3f, -0.4f, 0.2f};
+        const float  theta = 0.9f;
+        const auto   dq = clarke_park_transform<float>(abc, theta);
+        const auto   z = zero_sequence<float>(abc);
+        const auto   rt = inverse_park_clarke_transform(dq, theta, z);
 
         for (size_t i = 0; i < 3; ++i) {
             CHECK(rt[i] == doctest::Approx(abc[i]).epsilon(1e-5f));
@@ -116,10 +116,10 @@ TEST_SUITE("Transforms") {
 
     TEST_CASE("Power-invariant Clarke scaling and round-trip") {
         using damp::Convention;
-        const ColVec<3, float> abc = {1.0f, -0.4f, 0.3f};
-        const auto             amp = clarke_transform<float>(abc);
-        const auto             pwr = clarke_transform<float, Convention::PowerInvariant>(abc);
-        const float            ratio = std::sqrt(1.5f);
+        const ColVec abc = {1.0f, -0.4f, 0.3f};
+        const auto   amp = clarke_transform<float>(abc);
+        const auto   pwr = clarke_transform<float, Convention::PowerInvariant>(abc);
+        const float  ratio = std::sqrt(1.5f);
 
         CHECK(pwr.alpha == doctest::Approx(amp.alpha * ratio).epsilon(1e-6f));
         CHECK(pwr.beta == doctest::Approx(amp.beta * ratio).epsilon(1e-6f));

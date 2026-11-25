@@ -53,9 +53,9 @@ constexpr StateSpace<2, 1, 1, double, 2, 1> mass_spring() {
 inline constexpr auto kPlant = *discretize(mass_spring(), kTs);
 inline constexpr auto kDelayed = *discretize(mass_spring(), kTs, InputDelay{kTs}); // [x; u(k−1)]
 
-inline constexpr Matrix<2, 2> kQ2{{1e3, 0.0}, {0.0, 1.0}};
-inline constexpr Matrix<3, 3> kQ3{{1e3, 0.0, 0.0}, {0.0, 1.0, 0.0}, {0.0, 0.0, 0.0}};
-inline constexpr Matrix<2, 2> kQn{{1e-4, 0.0}, {0.0, 1e-2}};
+inline constexpr Matrix kQ2{{1e3, 0.0}, {0.0, 1.0}};
+inline constexpr Matrix kQ3{{1e3, 0.0, 0.0}, {0.0, 1.0, 0.0}, {0.0, 0.0, 0.0}};
+inline constexpr Matrix kQn{{1e-4, 0.0}, {0.0, 1e-2}};
 
 // Every family, with and without the delay state.
 inline constexpr auto kLqr = design::state_feedback(kPlant, {.Q = kQ2, .R = 1e-2});
@@ -125,8 +125,8 @@ template<typename T, typename Law, typename Control>
 } // namespace
 
 TEST_SUITE("ConstMatrix") {
-    static constexpr Matrix<3, 4, double> kSparse{{1.0, 0.0, 0.5, 0.0}, {0.0, 0.0, 0.0, 0.0}, {-1.0, 2.0, 0.0, 3.0}};
-    static constexpr Matrix<2, 2, float>  kDense{{1.0F, 2.0F}, {3.0F, 4.0F}};
+    static constexpr Matrix kSparse{{1.0, 0.0, 0.5, 0.0}, {0.0, 0.0, 0.0, 0.0}, {-1.0, 2.0, 0.0, 3.0}};
+    static constexpr Matrix kDense{{1.0F, 2.0F}, {3.0F, 4.0F}};
 
     TEST_CASE("it takes no storage and has no term for an exact zero") {
         static_assert(std::is_empty_v<ConstMatrix<kSparse>>);
@@ -138,12 +138,12 @@ TEST_SUITE("ConstMatrix") {
     }
 
     TEST_CASE("its product is the matrix's, an all-zero row included") {
-        const ColVec<4> x{1.0, -2.0, 3.0, 0.5};
+        const ColVec    x{1.0, -2.0, 3.0, 0.5};
         const ColVec<3> y = ConstMatrix<kSparse>{} * x;
         const ColVec<3> dense = kSparse * x;
         CHECK((y - dense).norm() == 0.0);
         CHECK(y[1] == 0.0);
-        constexpr ColVec<2, float> folded = ConstMatrix<kDense>{} * ColVec<2, float>{1.0F, 1.0F}; // constant-evaluated too
+        constexpr ColVec<2, float> folded = ConstMatrix<kDense>{} * ColVec{1.0F, 1.0F}; // constant-evaluated too
         static_assert(folded[0] == 3.0F && folded[1] == 7.0F);
     }
 
@@ -193,11 +193,11 @@ TEST_SUITE("Constant indices past the unroll limit") {
     }
 
     TEST_CASE("an aliased += reads before it writes, and constant evaluation still works") {
-        Matrix<2, 2> a{{1.0, 2.0}, {3.0, 4.0}};
+        Matrix a{{1.0, 2.0}, {3.0, 4.0}};
         a += a.transpose();
         CHECK(a(0, 1) == 5.0);
         CHECK(a(1, 0) == 5.0);
-        static constexpr Matrix<2, 2> folded = Matrix<2, 2>{{1.0, 2.0}, {3.0, 4.0}} + Matrix<2, 2>{{1.0, 1.0}, {1.0, 1.0}};
+        static constexpr Matrix<2, 2> folded = Matrix{{1.0, 2.0}, {3.0, 4.0}} + Matrix{{1.0, 1.0}, {1.0, 1.0}};
         static_assert(folded(1, 1) == 5.0);
     }
 }
@@ -236,7 +236,7 @@ TEST_SUITE("Law of a constexpr design") {
 
         static const auto         kKalmanAtInit = design::kalman(kPlant, design::KalmanNoise{.process = kQn, .measurement = 1e-4});
         Law<kKalmanAtInit, float> observer;
-        observer.update(ColVec<1, float>{0.5F});
+        observer.update(ColVec{0.5F});
         CHECK(observer.valid());
     }
 
@@ -244,9 +244,9 @@ TEST_SUITE("Law of a constexpr design") {
         static constinit Law<kLqgDelayed, float>   lqg;
         static constinit Law<kLqr, float>          lqr;
         static constinit Law<kOflqgDelayed, float> oflqg;
-        CHECK(std::isfinite(lqg.step(ColVec<1, float>{0.5F})[0]));
-        CHECK(std::isfinite(lqr.step(ColVec<2, float>{0.5F, 0.0F})[0]));
-        CHECK(std::isfinite(oflqg.step(ColVec<1, float>{0.5F}, ColVec<1, float>{0.1F})[0]));
+        CHECK(std::isfinite(lqg.step(ColVec{0.5F})[0]));
+        CHECK(std::isfinite(lqr.step(ColVec{0.5F, 0.0F})[0]));
+        CHECK(std::isfinite(oflqg.step(ColVec{0.5F}, ColVec{0.1F})[0]));
     }
 
     TEST_CASE("what a law exposes reads the design's numbers") {
@@ -291,7 +291,7 @@ TEST_SUITE("Law of a constexpr design") {
             return isr_tick<double>(law, k, ColVec<1, double>{reading(k)}, [](L& l) { return l.control(); });
         };
         check_same_commands<double>(held<kLqgDelayed, double>(), Law<kLqgDelayed, double>{}, isr);
-        const auto feedforward = [](auto& law, int k) { return law.step(ColVec<3, double>{second(k), 0.0, second(k - 1)}, ColVec<1, double>{0.2}, ColVec<1, double>{reading(k)})[0]; };
+        const auto feedforward = [](auto& law, int k) { return law.step(ColVec<3, double>{second(k), 0.0, second(k - 1)}, ColVec{0.2}, ColVec<1, double>{reading(k)})[0]; };
         check_same_commands<double>(held<kLqgDelayed, double>(), Law<kLqgDelayed, double>{}, feedforward);
         const auto tracked = [](auto& law, int k) { return law.step(ColVec<1, double>{second(k)}, ColVec<1, double>{reading(k)})[0]; };
         check_same_commands<double>(held<kLqgTrack, double>(), Law<kLqgTrack, double>{}, tracked);
@@ -314,15 +314,15 @@ TEST_SUITE("Law of a constexpr design") {
         check_same_commands<double>(held<kOflqg, double>(), Law<kOflqg, double>{}, isr);
         check_same_commands<double>(held<kOflqgDelayed, double>(), Law<kOflqgDelayed, double>{}, isr);
         const auto point = [](auto& law, int k) {
-            return law.step(ColVec<1, double>{second(k)}, ColVec<3, double>{0.1 * second(k), 0.0, 0.05}, ColVec<1, double>{0.05}, ColVec<1, double>{reading(k)})[0];
+            return law.step(ColVec<1, double>{second(k)}, ColVec<3, double>{0.1 * second(k), 0.0, 0.05}, ColVec{0.05}, ColVec<1, double>{reading(k)})[0];
         };
         check_same_commands<double>(held<kOflqgDelayed, double>(), Law<kOflqgDelayed, double>{}, point);
 
         auto                       held = ::held<kOflqgDelayed, double>();
         Law<kOflqgDelayed, double> fixed;
         for (int k = 0; k < 500; ++k) {
-            static_cast<void>(held.step(ColVec<1, double>{0.2}, ColVec<1, double>{reading(k)}));
-            static_cast<void>(fixed.step(ColVec<1, double>{0.2}, ColVec<1, double>{reading(k)}));
+            static_cast<void>(held.step(ColVec{0.2}, ColVec<1, double>{reading(k)}));
+            static_cast<void>(fixed.step(ColVec{0.2}, ColVec<1, double>{reading(k)}));
         }
         CHECK(std::abs(held.disturbance_estimate()[0] - fixed.disturbance_estimate()[0]) < 1e-10);
         CHECK(std::abs(held.state_estimate()[0] - fixed.state_estimate()[0]) < 1e-10);
@@ -357,9 +357,9 @@ TEST_SUITE("Law of a constexpr design") {
         double                 worst = 0.0;
         for (int k = 0; k < 1000; ++k) {
             const ColVec<3> x_t{0.1 * second(k), 0.0, 0.2};
-            const ColVec<1> u_t{0.2};
+            const ColVec    u_t{0.2};
             const ColVec<3> x_ref{0.0, 0.05 * second(k), 0.0};
-            const ColVec<1> u_ref{0.01};
+            const ColVec    u_ref{0.01};
             held.anchor(x_t, u_t, x_ref, u_ref);
             fixed.anchor(x_t, u_t, x_ref, u_ref);
             held.predict(ColVec<1>{second(k)});
@@ -371,8 +371,8 @@ TEST_SUITE("Law of a constexpr design") {
         }
         CHECK(worst < 1e-10);
         static constinit Law<kKalman, float> deployed;
-        deployed.predict(ColVec<1, float>{0.1F});
-        deployed.update(ColVec<1, float>{0.5F});
+        deployed.predict(ColVec{0.1F});
+        deployed.update(ColVec{0.5F});
         CHECK(deployed.valid());
         CHECK(deployed.model().A(0, 1) == static_cast<float>(kKalman.sys.A(0, 1)));
     }
@@ -423,8 +423,8 @@ TEST_SUITE("Law of a constexpr design") {
             CHECK(on_constants.measurement_noise_covariance()(0, 0) == kKalman.R(0, 0));
 
             // A reading of another C and R runs dense, the same on both.
-            const Matrix<1, 3> C2{{0.0, 1.0, 0.0}};
-            REQUIRE(on_constants.update(ColVec<1>{0.2}, C2, 1e-3) == held.update(ColVec<1>{0.2}, C2, 1e-3));
+            const Matrix C2{{0.0, 1.0, 0.0}};
+            REQUIRE(on_constants.update(ColVec{0.2}, C2, 1e-3) == held.update(ColVec{0.2}, C2, 1e-3));
             CHECK(gap(on_constants.state(), held.state()) <= 1e-12);
             CHECK(gap(on_constants.covariance(), held.covariance()) <= 1e-12);
         }
@@ -460,7 +460,7 @@ TEST_SUITE("Law of a constexpr design") {
     TEST_CASE("deployed in float: the same commands to float's precision") {
         const auto lqg = [](auto& law, int k) { return law.step(ColVec<1, float>{static_cast<float>(reading(k))})[0]; };
         check_same_commands<float>(held<kLqgDelayed, float>(), Law<kLqgDelayed, float>{}, lqg);
-        const auto oflqg = [](auto& law, int k) { return law.step(ColVec<1, float>{0.2F}, ColVec<1, float>{static_cast<float>(reading(k))})[0]; };
+        const auto oflqg = [](auto& law, int k) { return law.step(ColVec{0.2F}, ColVec<1, float>{static_cast<float>(reading(k))})[0]; };
         check_same_commands<float>(held<kOflqgDelayed, float>(), Law<kOflqgDelayed, float>{}, oflqg);
     }
 }
@@ -483,7 +483,7 @@ TEST_SUITE("The other runtimes on a constexpr design") {
         CHECK(worst < 1e-9);
         CHECK(fixed.valid());
         static constinit Law<kEso, float> deployed;
-        CHECK(std::isfinite(deployed.step(ColVec<1, float>{0.5F}, ColVec<1, float>{0.1F})[0]));
+        CHECK(std::isfinite(deployed.step(ColVec{0.5F}, ColVec{0.1F})[0]));
     }
 
     TEST_CASE("ADRC: the same commands, its ESO on constants") {
@@ -524,8 +524,8 @@ TEST_SUITE("The other runtimes on a constexpr design") {
         static_assert(sizeof(Law<kFeedforward, float>) < sizeof(Law<kFeedforward, float>::Runtime));
         Law<kFeedforward, double>::Runtime held_ff{kFeedforward};
         Law<kFeedforward, double>          fixed_ff;
-        const ColVec<2>                    x0{0.3, -0.2};
-        const ColVec<2>                    x1{0.35, -0.1};
+        const ColVec                       x0{0.3, -0.2};
+        const ColVec                       x1{0.35, -0.1};
         CHECK((held_ff.control(x0, x1) - fixed_ff.control(x0, x1)).norm() < 1e-12);
 
         static constexpr auto kInverse = design::output_inverse<3>(kSquare);

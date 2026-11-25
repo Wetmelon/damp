@@ -35,7 +35,7 @@ static constinit Law<lqr_d, float> controller;
 
 // Mock full state (replace with sensors on hardware)
 static ColVec<2, float> read_state() {
-    return ColVec<2, float>{0.0f, 0.0f};
+    return ColVec{0.0f, 0.0f};
 }
 
 static void write_torque(float /*u_nm*/) {

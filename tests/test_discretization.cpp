@@ -39,9 +39,9 @@ TEST_SUITE("Control Design: Discretization") {
     TEST_CASE("ZOH Discretization: 1st-order system") {
         double     Ts = 0.1; // 100ms sampling time
         StateSpace sys{
-            Matrix<1, 1>{{-1.0}}, // A: dx/dt = -x
-            Matrix<1, 1>{{1.0}},  // B: input gain
-            Matrix<1, 1>{{1.0}}   // C: output is state
+            Matrix{{-1.0}}, // A: dx/dt = -x
+            Matrix{{1.0}},  // B: input gain
+            Matrix{{1.0}}   // C: output is state
         };
 
         // Use new unified discretize() function
@@ -62,9 +62,9 @@ TEST_SUITE("Control Design: Discretization") {
     TEST_CASE("Tustin Discretization: 1st-order system") {
         double     Ts = 0.1;
         StateSpace sys{
-            Matrix<1, 1>{{-1.0}},
-            Matrix<1, 1>{{1.0}},
-            Matrix<1, 1>{{1.0}}
+            Matrix{{-1.0}},
+            Matrix{{1.0}},
+            Matrix{{1.0}}
         };
 
         // Use new unified discretize() function
@@ -94,9 +94,9 @@ TEST_SUITE("Control Design: Discretization") {
     TEST_CASE("ZOH and Tustin produce different discretizations") {
         double     Ts = 0.5;
         StateSpace sys{
-            Matrix<1, 1>{{-2.0}},
-            Matrix<1, 1>{{1.0}},
-            Matrix<1, 1>{{1.0}}
+            Matrix{{-2.0}},
+            Matrix{{1.0}},
+            Matrix{{1.0}}
         };
 
         StateSpace sys_d_zoh = *discretize(sys, Ts, DiscretizationMethod::ZOH);
@@ -118,9 +118,9 @@ TEST_SUITE("Control Design: Discretization") {
     TEST_CASE("Default discretization method is ZOH") {
         double     Ts = 0.1;
         StateSpace sys{
-            Matrix<1, 1>{{-1.0}},
-            Matrix<1, 1>{{1.0}},
-            Matrix<1, 1>{{1.0}}
+            Matrix{{-1.0}},
+            Matrix{{1.0}},
+            Matrix{{1.0}}
         };
 
         StateSpace sys_d_default = *discretize(sys, Ts);
@@ -152,9 +152,9 @@ TEST_SUITE("Control Design: Discretization") {
     TEST_CASE("ForwardEuler: Ad = I + A Ts, Bd = B Ts") {
         const double Ts = 0.1;
         StateSpace   sys{
-            .A = Matrix<1, 1>{{-1.0}},
-            .B = Matrix<1, 1>{{1.0}},
-            .C = Matrix<1, 1>{{1.0}},
+            .A = Matrix{{-1.0}},
+            .B = Matrix{{1.0}},
+            .C = Matrix{{1.0}},
         };
         const auto sys_d = *discretize(sys, Ts, DiscretizationMethod::ForwardEuler);
         CHECK(sys_d.A(0, 0) == doctest::Approx(1.0 - Ts)); // 0.9
@@ -220,9 +220,9 @@ TEST_SUITE("Control Design: Discretization") {
         // Ad = [1, Ts; 0, 1], Bd = [Ts²/2; Ts].
         const double Ts = 0.1;
         StateSpace   sys{
-            .A = Matrix<2, 2>{{0.0, 1.0}, {0.0, 0.0}},
-            .B = Matrix<2, 1>{{0.0}, {1.0}},
-            .C = Matrix<1, 2>{{1.0, 0.0}},
+            .A = Matrix{{0.0, 1.0}, {0.0, 0.0}},
+            .B = Matrix{{0.0}, {1.0}},
+            .C = Matrix{{1.0, 0.0}},
         };
         const auto sys_d = discretize(sys, Ts, DiscretizationMethod::ZOH);
         REQUIRE(sys_d);
@@ -249,12 +249,12 @@ TEST_SUITE("DiscretizationResult") {
     // A lag with a noise input on each side, so G and H ride through every path.
     constexpr StateSpace<2, 1, 1, double, 1, 1> make_lag() {
         return StateSpace{
-            .A = Matrix<2, 2>{{-1.0, 0.5}, {0.0, -3.0}},
-            .B = Matrix<2, 1>{{0.0}, {2.0}},
-            .C = Matrix<1, 2>{{1.0, 0.0}},
-            .D = Matrix<1, 1>{{0.25}},
-            .G = Matrix<2, 1>{{1.0}, {0.5}},
-            .H = Matrix<1, 1>{{0.1}},
+            .A = Matrix{{-1.0, 0.5}, {0.0, -3.0}},
+            .B = Matrix{{0.0}, {2.0}},
+            .C = Matrix{{1.0, 0.0}},
+            .D = Matrix{{0.25}},
+            .G = Matrix{{1.0}, {0.5}},
+            .H = Matrix{{0.1}},
         };
     }
 
@@ -441,12 +441,12 @@ namespace {
 // Damped oscillator (complex poles) with a process-noise input, continuous.
 constexpr StateSpace<2, 1, 1, double, 1, 1> make_resample_plant() {
     return StateSpace{
-        .A = Matrix<2, 2>{{0.0, 1.0}, {-4.0, -0.8}},
-        .B = Matrix<2, 1>{{0.0}, {2.0}},
-        .C = Matrix<1, 2>{{1.0, 0.5}},
-        .D = Matrix<1, 1>{{0.1}},
-        .G = Matrix<2, 1>{{1.0}, {0.0}},
-        .H = Matrix<1, 1>{{1.0}},
+        .A = Matrix{{0.0, 1.0}, {-4.0, -0.8}},
+        .B = Matrix{{0.0}, {2.0}},
+        .C = Matrix{{1.0, 0.5}},
+        .D = Matrix{{0.1}},
+        .G = Matrix{{1.0}, {0.0}},
+        .H = Matrix{{1.0}},
     };
 }
 
@@ -542,9 +542,9 @@ TEST_SUITE("Resampling (d2d / upsample)") {
         //! A pole at z = −0.5 alternates sign every sample: no real logarithm, so no fractional
         //! resample; an integer ratio is still a plain power.
         const StateSpace alternating{
-            .A = Matrix<1, 1>{{-0.5}},
-            .B = Matrix<1, 1>{{1.0}},
-            .C = Matrix<1, 1>{{1.0}},
+            .A = Matrix{{-0.5}},
+            .B = Matrix{{1.0}},
+            .C = Matrix{{1.0}},
             .Ts = 0.1
         };
         CHECK_FALSE(resample(alternating, 0.15).has_value());

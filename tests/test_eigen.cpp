@@ -165,7 +165,7 @@ TEST_CASE("Eigen Decomposition") {
 }
 
 TEST_CASE("compute_eigenvalues - 1x1 matrix") {
-    Matrix<1, 1> A = {{5.0}};
+    Matrix A = {{5.0}};
 
     auto result = compute_eigenvalues(A);
 
@@ -174,7 +174,7 @@ TEST_CASE("compute_eigenvalues - 1x1 matrix") {
 }
 
 TEST_CASE("compute_eigenvalues - 2x2 diagonal matrix") {
-    Matrix<2, 2> A = {
+    Matrix A = {
         {3.0, 0.0},
         {0.0, 7.0}
     };
@@ -189,7 +189,7 @@ TEST_CASE("compute_eigenvalues - 2x2 diagonal matrix") {
 
 TEST_CASE("compute_eigenvalues - 2x2 symmetric matrix") {
     // Symmetric matrix with known eigenvalues
-    Matrix<2, 2> A = {
+    Matrix A = {
         {4.0, 1.0},
         {1.0, 4.0}
     };
@@ -221,7 +221,7 @@ TEST_CASE("compute_eigenvalues - 2x2 identity matrix") {
 
 TEST_CASE("compute_eigenvalues - 3x3 symmetric matrix") {
     // Symmetric matrix
-    Matrix<3, 3> A = {
+    Matrix A = {
         {6.0, 2.0, 1.0},
         {2.0, 3.0, 1.0},
         {1.0, 1.0, 1.0}
@@ -239,7 +239,7 @@ TEST_CASE("compute_eigenvalues - 3x3 symmetric matrix") {
 
 TEST_CASE("compute_eigenvalues - positive definite matrix") {
     // Positive definite matrix (all eigenvalues should be positive)
-    Matrix<2, 2> A = {
+    Matrix A = {
         {2.0, 0.5},
         {0.5, 2.0}
     };
@@ -253,7 +253,7 @@ TEST_CASE("compute_eigenvalues - positive definite matrix") {
 
 TEST_CASE("compute_eigenvalues - negative eigenvalues") {
     // Matrix with negative eigenvalues
-    Matrix<2, 2> A = {
+    Matrix A = {
         {-3.0, 0.0},
         {0.0, -5.0}
     };
@@ -267,7 +267,7 @@ TEST_CASE("compute_eigenvalues - negative eigenvalues") {
 
 TEST_CASE("compute_eigenvalues - check for positive definiteness") {
     SUBCASE("positive definite matrix") {
-        Matrix<3, 3> Q = {
+        Matrix Q = {
             {2.0, 0.1, 0.1},
             {0.1, 2.0, 0.1},
             {0.1, 0.1, 2.0}
@@ -288,7 +288,7 @@ TEST_CASE("compute_eigenvalues - check for positive definiteness") {
     }
 
     SUBCASE("non-positive definite matrix") {
-        Matrix<2, 2> Q = {
+        Matrix Q = {
             {1.0, 2.0},
             {2.0, 1.0}
         };
@@ -348,7 +348,7 @@ std::array<damp::pair<double, double>, N> eig_pairs(const EigenResult<N, double>
 
 TEST_CASE("qr_decompose reconstructs A and Q is orthonormal") {
     SUBCASE("square 3x3") {
-        Matrix<3, 3> A = {
+        Matrix A = {
             {12.0, -51.0, 4.0},
             {6.0, 167.0, -68.0},
             {-4.0, 24.0, -41.0},
@@ -372,7 +372,7 @@ TEST_CASE("qr_decompose reconstructs A and Q is orthonormal") {
     }
 
     SUBCASE("tall 4x2") {
-        Matrix<4, 2> A = {
+        Matrix A = {
             {1.0, 2.0},
             {3.0, 4.0},
             {5.0, 6.0},
@@ -399,7 +399,7 @@ TEST_CASE("the real eigen solvers refuse a complex matrix at the signature, and 
     static_assert(!has_real_eigensolver<Matrix<2, 2, damp::complex<double>>>);
     static_assert(!mat::EigenResult<2, double>{}.success);
     static_assert(!mat::EigenResult<2, double>{});
-    CHECK(static_cast<bool>(compute_eigenvalues(Matrix<2, 2>{{1.0, 0.0}, {0.0, 2.0}})));
+    CHECK(static_cast<bool>(compute_eigenvalues(Matrix{{1.0, 0.0}, {0.0, 2.0}})));
 }
 
 TEST_CASE("eigenvalues come back as a list, like the pole lists") {
@@ -410,7 +410,7 @@ TEST_CASE("eigenvalues come back as a list, like the pole lists") {
 
 TEST_CASE("compute_eigenvalues resolves complex conjugate eigenvalues") {
     SUBCASE("2x2 pure rotation has eigenvalues ±i") {
-        Matrix<2, 2> A = {
+        Matrix A = {
             {0.0, -1.0},
             {1.0, 0.0},
         };
@@ -424,7 +424,7 @@ TEST_CASE("compute_eigenvalues resolves complex conjugate eigenvalues") {
 
     SUBCASE("2x2 damped oscillator: λ = -1 ± 2i") {
         // [[-1, -2], [2, -1]] has eigenvalues -1 ± 2i.
-        Matrix<2, 2> A = {
+        Matrix A = {
             {-1.0, -2.0},
             {2.0, -1.0},
         };
@@ -438,7 +438,7 @@ TEST_CASE("compute_eigenvalues resolves complex conjugate eigenvalues") {
     SUBCASE("compute_eigenvalues now resolves complex pairs (Francis double-shift)") {
         // Previously the QR path returned only real parts. With the Francis
         // double-shift it resolves the 2x2 block into a true conjugate pair.
-        Matrix<2, 2> A = {
+        Matrix A = {
             {0.0, -1.0},
             {1.0, 0.0},
         };
@@ -452,7 +452,7 @@ TEST_CASE("compute_eigenvalues resolves complex conjugate eigenvalues") {
 
     SUBCASE("compute_eigenvalues - 6x6 mixed real and two complex pairs") {
         // Block diagonal: rotation(4±3i), real 2 and -1, rotation(±5i).
-        Matrix<6, 6> A = {
+        Matrix A = {
             {4.0, -3.0, 0.0, 0.0, 0.0, 0.0},
             {3.0, 4.0, 0.0, 0.0, 0.0, 0.0},
             {0.0, 0.0, 2.0, 0.0, 0.0, 0.0},
@@ -480,7 +480,7 @@ TEST_CASE("compute_eigenvalues resolves complex conjugate eigenvalues") {
 
     SUBCASE("companion matrix recovers polynomial roots 1..5") {
         // Companion of (x-1)(x-2)(x-3)(x-4)(x-5): eigenvalues 1,2,3,4,5.
-        Matrix<5, 5> A = {
+        Matrix A = {
             {15.0, -85.0, 225.0, -274.0, 120.0},
             {1.0, 0.0, 0.0, 0.0, 0.0},
             {0.0, 1.0, 0.0, 0.0, 0.0},
@@ -501,7 +501,7 @@ TEST_CASE("compute_eigenvalues is constexpr-evaluable") {
     // Locks that the Hessenberg + Francis path contains no construct that
     // breaks constant evaluation (design-time eigenvalue computation).
     constexpr auto spectrum_ok = []() consteval {
-        Matrix<3, 3> A = {
+        Matrix A = {
             {2.0, -1.0, 0.0},
             {-1.0, 2.0, -1.0},
             {0.0, -1.0, 2.0},
@@ -521,7 +521,7 @@ TEST_CASE("compute_eigenvalues is constexpr-evaluable") {
 TEST_CASE("compute_eigenvalues - 4x4 symmetric matches known spectrum") {
     // Tridiagonal [2 on diag, -1 off-diag] has eigenvalues
     // 2 - 2cos(k·π/5), k=1..4.
-    Matrix<4, 4> A = {
+    Matrix A = {
         {2.0, -1.0, 0.0, 0.0},
         {-1.0, 2.0, -1.0, 0.0},
         {0.0, -1.0, 2.0, -1.0},
@@ -549,9 +549,9 @@ TEST_SUITE("compute_eigenvalues balancing") {
     // eps·‖A‖ ≈ 2e-4 lands on eigenvalues of size 1; with it the eigenvalues come back to
     // relative precision, and the first Schur vector is still an eigenvector.
     TEST_CASE("a badly scaled similarity keeps the eigenvalues and the leading eigenvector") {
-        const Matrix<3, 3> A0{{2.0, 1.0, 0.0}, {0.0, 3.0, 1.0}, {0.5, 0.0, 5.0}}; // real spectrum
-        const double       s[3] = {1.0, 1.0e6, 1.0e-6};
-        Matrix<3, 3>       A{};
+        const Matrix A0{{2.0, 1.0, 0.0}, {0.0, 3.0, 1.0}, {0.5, 0.0, 5.0}}; // real spectrum
+        const double s[3] = {1.0, 1.0e6, 1.0e-6};
+        Matrix<3, 3> A{};
         for (size_t i = 0; i < 3; ++i) {
             for (size_t j = 0; j < 3; ++j) {
                 A(i, j) = s[i] * A0(i, j) / s[j];
@@ -608,7 +608,7 @@ TEST_SUITE("Francis QR on the Hessenberg form") {
     // ≈ −9e-20: the product h₂₃h₃₂ = 1e-19 is what moves it, and Ahues–Tisseur compares that
     // product, not h₃₂ alone, against ε|h₃₃||h₂₂ − h₃₃|.
     TEST_CASE("a graded Hessenberg matrix keeps its tiny eigenvalue (Ahues–Tisseur)") {
-        const Matrix<3, 3>     H{{2.0, 1.0, 1.0}, {0.0, 1.0, 1e-3}, {0.0, 1e-16, 1e-20}};
+        const Matrix           H{{2.0, 1.0, 1.0}, {0.0, 1.0, 1e-3}, {0.0, 1e-16, 1e-20}};
         auto                   T = H;
         auto                   Z = Matrix<3, 3>::identity();
         damp::array<double, 3> wr{};
@@ -693,9 +693,9 @@ TEST_SUITE("compute_eigenvalues balancing in float") {
     // saw infinite row norms and left the matrix unbalanced: the QR iteration then carried a
     // backward error of ε‖A‖ ≈ 1e14 onto eigenvalues of size 1. Scaled norms balance it.
     TEST_CASE("entries whose squares overflow float are still balanced") {
-        const Matrix<3, 3, float> A0{{2.0f, 1.0f, 0.0f}, {0.0f, 3.0f, 1.0f}, {0.5f, 0.0f, 5.0f}};
-        const float               s[3] = {1.0f, 1.0e10f, 1.0e-10f};
-        Matrix<3, 3, float>       A{};
+        const Matrix        A0{{2.0f, 1.0f, 0.0f}, {0.0f, 3.0f, 1.0f}, {0.5f, 0.0f, 5.0f}};
+        const float         s[3] = {1.0f, 1.0e10f, 1.0e-10f};
+        Matrix<3, 3, float> A{};
         for (size_t i = 0; i < 3; ++i) {
             for (size_t j = 0; j < 3; ++j) {
                 A(i, j) = s[i] * A0(i, j) / s[j];
@@ -715,7 +715,7 @@ TEST_SUITE("compute_eigenvalues balancing in float") {
     }
 
     TEST_CASE("a non-finite entry leaves the matrix unbalanced") {
-        Matrix<2, 2> A{{1.0, 2.0}, {3.0, 4.0}};
+        Matrix A{{1.0, 2.0}, {3.0, 4.0}};
         A(0, 1) = std::numeric_limits<double>::quiet_NaN();
         damp::array<int, 2> e{};
         CHECK_FALSE(mat::detail::gebal_log2_scale(A, e));
@@ -725,7 +725,7 @@ TEST_SUITE("compute_eigenvalues balancing in float") {
 }
 
 TEST_CASE("2x2 eigenvalues: small eigenvalue keeps relative accuracy") {
-    const auto   r = mat::compute_eigenvalues(Matrix<2, 2, double>{{1e8, 1.0}, {0.0, 1e-8}});
+    const auto   r = mat::compute_eigenvalues(Matrix{{1e8, 1.0}, {0.0, 1e-8}});
     const double lo = std::fmin(r.values[0].real(), r.values[1].real());
     CHECK(lo == doctest::Approx(1e-8).epsilon(1e-12));
 }
@@ -737,16 +737,16 @@ TEST_CASE("a non-finite entry reports converged = false at every size") {
     CHECK_FALSE(mat::compute_eigenvalues(Matrix<2, 2>{{nan, 0.0}, {1.0, 2.0}}).success);
     CHECK_FALSE(mat::compute_eigenvalues(Matrix<3, 3>{{inf, 1.0, 0.0}, {1.0, 2.0, 0.0}, {0.0, 0.0, 3.0}}).success);
     CHECK_FALSE(mat::compute_eigenvalues(Matrix<3, 3>{{nan, 0.0, 0.0}, {0.0, 2.0, 0.0}, {0.0, 0.0, 3.0}}).success);
-    CHECK(mat::compute_eigenvalues(Matrix<3, 3>{{1.0, 0.0, 0.0}, {0.0, 2.0, 0.0}, {0.0, 0.0, 3.0}}).success);
+    CHECK(mat::compute_eigenvalues(Matrix{{1.0, 0.0, 0.0}, {0.0, 2.0, 0.0}, {0.0, 0.0, 3.0}}).success);
 }
 
 TEST_CASE("Schur vectors are eigenvectors of symmetric matrices") {
-    const Matrix<2, 2, double> A2{{2.0, 1.0}, {1.0, 2.0}};
-    const auto                 r2 = mat::compute_eigenvalues(A2);
+    const Matrix A2{{2.0, 1.0}, {1.0, 2.0}};
+    const auto   r2 = mat::compute_eigenvalues(A2);
     for (size_t i = 0; i < 2; ++i) {
         CHECK(eigen_residual<2>(A2, r2, i) <= 64 * kEps * 3.0);
     }
-    const Matrix<4, 4, double> A4{
+    const Matrix A4{
         {4.0, 1.0, -2.0, 2.0},
         {1.0, 2.0, 0.0, 1.0},
         {-2.0, 0.0, 3.0, -2.0},

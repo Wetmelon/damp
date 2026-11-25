@@ -30,7 +30,7 @@
  * constexpr auto svf = estimation::state_variable_filter(2.0 * pi * 20.0, Ts); // 20 Hz corner
  * StateVariableFilter<2, float> f{svf};
  * f.step({delta_um, force});                       // δ in µm: see the note on scaling
- * (void)rls.update(ColVec<2, float>{f[0].x, f[0].dx}, f[1].x);
+ * (void)rls.update(ColVec{f[0].x, f[0].dx}, f[1].x);
  * @endcode
  *
  * Choose ω above the dynamics being identified and below where the sensor noise lives.

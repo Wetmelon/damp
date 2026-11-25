@@ -49,7 +49,7 @@ TEST_SUITE("ColVec") {
     }
 
     TEST_CASE("ColVec initializer list constructor") {
-        ColVec<3> vec = {1, 2, 3};
+        ColVec vec = {1, 2, 3};
 
         CHECK(vec[0] == 1);
         CHECK(vec[1] == 2);
@@ -90,7 +90,7 @@ TEST_SUITE("ColVec") {
     }
 
     TEST_CASE("ColVec scalar operations") {
-        ColVec<3> vec = {1, 2, 3};
+        ColVec vec = {1, 2, 3};
 
         auto vec_scaled = vec * 2;
         CHECK(vec_scaled[0] == 2);
@@ -115,16 +115,16 @@ TEST_SUITE("ColVec") {
     }
 
     TEST_CASE("ColVec equality") {
-        ColVec<3> vec1 = {1, 2, 3};
-        ColVec<3> vec2 = {1, 2, 3};
-        ColVec<3> vec3 = {1, 2, 4};
+        ColVec vec1 = {1, 2, 3};
+        ColVec vec2 = {1, 2, 3};
+        ColVec vec3 = {1, 2, 4};
 
         CHECK(vec1 == vec2);
         CHECK(vec1 != vec3);
     }
 
     TEST_CASE("ColVec unary negation") {
-        ColVec<3> vec = {1, -2, 3};
+        ColVec vec = {1, -2, 3};
 
         auto vec_neg = -vec;
         CHECK(vec_neg[0] == -1);
@@ -133,8 +133,8 @@ TEST_SUITE("ColVec") {
     }
 
     TEST_CASE("ColVec dot product") {
-        ColVec<3> vec1 = {1, 2, 3};
-        ColVec<3> vec2 = {4, 5, 6};
+        ColVec vec1 = {1, 2, 3};
+        ColVec vec2 = {4, 5, 6};
 
         auto dot_prod = dot(vec1, vec2);
         CHECK(dot_prod == 32); // 1*4 + 2*5 + 3*6
@@ -174,14 +174,14 @@ TEST_SUITE("ColVec") {
     }
 
     TEST_CASE("ColVec constexpr") {
-        constexpr ColVec<3> vec = {1, 2, 3};
+        constexpr ColVec vec = {1, 2, 3};
 
         static_assert(vec[0] == 1);
         static_assert(vec[2] == 3);
     }
 
     TEST_CASE("ColVec segment view") {
-        ColVec<6> x = {0.0, 1.0, 2.0, 3.0, 4.0, 5.0};
+        ColVec x = {0.0, 1.0, 2.0, 3.0, 4.0, 5.0};
 
         // Read middle triad
         auto mid = x.template segment<3>(2);
@@ -190,7 +190,7 @@ TEST_SUITE("ColVec") {
         CHECK(mid(2, 0) == doctest::Approx(4.0));
 
         // Write-back into parent
-        mid = ColVec<3>{10.0, 20.0, 30.0};
+        mid = ColVec{10.0, 20.0, 30.0};
         CHECK(x[2] == doctest::Approx(10.0));
         CHECK(x[3] == doctest::Approx(20.0));
         CHECK(x[4] == doctest::Approx(30.0));
@@ -198,7 +198,7 @@ TEST_SUITE("ColVec") {
         CHECK(x[5] == doctest::Approx(5.0));
 
         // Owning copy via to_vector
-        const ColVec<6> y = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
+        const ColVec    y = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
         const ColVec<3> head3 = y.template segment<3>(0).to_vector();
         CHECK(head3[0] == doctest::Approx(1.0));
         CHECK(head3[1] == doctest::Approx(2.0));
@@ -214,7 +214,7 @@ TEST_SUITE("ColVec") {
         // segment itself is constexpr-callable (Block is a pointer view, so the
         // returned object is not a usable constant-expression value).
         constexpr auto sum_mid = []() {
-            ColVec<5>  z = {1.0, 2.0, 3.0, 4.0, 5.0};
+            ColVec     z = {1.0, 2.0, 3.0, 4.0, 5.0};
             const auto s = z.template segment<2>(1);
             return s(0, 0) + s(1, 0);
         }();
@@ -222,10 +222,10 @@ TEST_SUITE("ColVec") {
     }
 
     TEST_CASE("ColVec segment of an rvalue is an owning copy") {
-        const auto make = [] { return ColVec<4>{1.0, 2.0, 3.0, 4.0}; };
+        const auto make = [] { return ColVec{1.0, 2.0, 3.0, 4.0}; };
         const auto pos = make().template segment<2>(1);
         static_assert(std::is_same_v<std::remove_cv_t<decltype(pos)>, ColVec<2>>);
-        CHECK(pos == ColVec<2>{2.0, 3.0});
+        CHECK(pos == ColVec{2.0, 3.0});
     }
 }
 

@@ -52,8 +52,8 @@ bool real_pair_is(const damp::array<damp::complex<double>, 2>& ev, double p, dou
 
 TEST_SUITE("FixedGainObserver") {
     TEST_CASE("place_observer places error poles at requested (real) locations") {
-        constexpr Matrix<2, 2> A{{1.0, 0.1}, {0.0, 1.0}};
-        constexpr Matrix<1, 2> C{{1.0, 0.0}};
+        constexpr Matrix A{{1.0, 0.1}, {0.0, 1.0}};
+        constexpr Matrix C{{1.0, 0.0}};
 
         const auto result = design::place_observer(observer_plant<2, 1>(A, C), {0.3, 0.4});
         REQUIRE(result.success);
@@ -78,8 +78,8 @@ TEST_SUITE("FixedGainObserver") {
     }
 
     TEST_CASE("place_observer handles complex-conjugate pole pairs") {
-        constexpr Matrix<2, 2> A{{1.0, 0.1}, {0.0, 1.0}};
-        constexpr Matrix<1, 2> C{{1.0, 0.0}};
+        constexpr Matrix A{{1.0, 0.1}, {0.0, 1.0}};
+        constexpr Matrix C{{1.0, 0.0}};
 
         const damp::array<damp::complex<double>, 2> poles{damp::complex{0.5, 0.2}, damp::complex{0.5, -0.2}};
         const auto                                  result = design::place_observer(observer_plant<2, 1>(A, C), poles);
@@ -101,8 +101,8 @@ TEST_SUITE("FixedGainObserver") {
 
     TEST_CASE("multi-output observer places error poles (NY > 1)") {
         // 3 states, 2 measured outputs — the dual place() path that Ackermann could not do.
-        constexpr Matrix<3, 3> A{{1.0, 0.1, 0.0}, {0.0, 1.0, 0.1}, {0.0, 0.0, 1.0}};
-        constexpr Matrix<2, 3> C{{1.0, 0.0, 0.0}, {0.0, 0.0, 1.0}};
+        constexpr Matrix A{{1.0, 0.1, 0.0}, {0.0, 1.0, 0.1}, {0.0, 0.0, 1.0}};
+        constexpr Matrix C{{1.0, 0.0, 0.0}, {0.0, 0.0, 1.0}};
 
         const auto result = design::place_observer(observer_plant<3, 2>(A, C), {0.2, 0.3, 0.4});
         REQUIRE(result.success);
@@ -136,8 +136,8 @@ TEST_SUITE("FixedGainObserver") {
 
     TEST_CASE("multi-output observer places a repeated pole beside a complex pair") {
         // Dual of a 4-state, 2-input placement: the complex KNV path refused the repeat at −2.
-        constexpr Matrix<4, 4>    A{{0.0, 0.0, 0.0, 1.0}, {1.0, 0.0, 0.0, 2.0}, {0.0, 1.0, 0.0, 3.0}, {0.0, 0.0, 1.0, 4.0}};
-        constexpr Matrix<2, 4>    C{{0.0, 1.0, 0.0, 0.0}, {0.0, 0.0, 0.0, 1.0}};
+        constexpr Matrix          A{{0.0, 0.0, 0.0, 1.0}, {1.0, 0.0, 0.0, 2.0}, {0.0, 1.0, 0.0, 3.0}, {0.0, 0.0, 1.0, 4.0}};
+        constexpr Matrix          C{{0.0, 1.0, 0.0, 0.0}, {0.0, 0.0, 0.0, 1.0}};
         const StateSpace<4, 1, 2> sys{.A = A, .C = C};
         const auto                result = design::place_observer(sys, {damp::complex<double>{-2.0, 0.0}, damp::complex<double>{-2.0, 0.0}, damp::complex<double>{-1.0, 1.0}, damp::complex<double>{-1.0, -1.0}});
         REQUIRE(result.success);
@@ -153,9 +153,9 @@ TEST_SUITE("FixedGainObserver") {
 
     TEST_CASE("single-output observer places nearly repeated poles") {
         // The dual of a single-input cluster: the gain is unique, so the cluster at 0.5 is placed.
-        constexpr Matrix<3, 3> A{{1.0, 0.1, 0.0}, {0.0, 1.0, 0.1}, {0.0, 0.0, 1.0}};
-        constexpr Matrix<1, 3> C{{1.0, 0.0, 0.0}};
-        const auto             result = design::place_observer(observer_plant<3, 1>(A, C), {0.5, 0.5 * (1.0 + 1e-9), 0.5 * (1.0 + 2e-9)});
+        constexpr Matrix A{{1.0, 0.1, 0.0}, {0.0, 1.0, 0.1}, {0.0, 0.0, 1.0}};
+        constexpr Matrix C{{1.0, 0.0, 0.0}};
+        const auto       result = design::place_observer(observer_plant<3, 1>(A, C), {0.5, 0.5 * (1.0 + 1e-9), 0.5 * (1.0 + 2e-9)});
         REQUIRE(result.success);
         const Matrix<3, 3> A_err = A - (result.L * C);
         CHECK(A_err.trace() == doctest::Approx(1.5).epsilon(1e-8)); // (z − 0.5)³
@@ -164,8 +164,8 @@ TEST_SUITE("FixedGainObserver") {
 
     TEST_CASE("unobservable system reports failure") {
         // C sees only state 0; state 1 is decoupled and unobservable.
-        constexpr Matrix<2, 2> A{{1.0, 0.0}, {0.0, 1.0}};
-        constexpr Matrix<1, 2> C{{1.0, 0.0}};
+        constexpr Matrix A{{1.0, 0.0}, {0.0, 1.0}};
+        constexpr Matrix C{{1.0, 0.0}};
 
         const auto result = design::place_observer(observer_plant<2, 1>(A, C), {0.3, 0.4});
         CHECK_FALSE(result.success);
@@ -174,9 +174,9 @@ TEST_SUITE("FixedGainObserver") {
 
     TEST_CASE("result carries the plant and the achieved poles; the runtime deduces from it") {
         constexpr StateSpace sys{
-            .A = Matrix<2, 2>{{1.0, 0.1}, {0.0, 1.0}},
-            .B = Matrix<2, 1>{{0.005}, {0.1}},
-            .C = Matrix<1, 2>{{1.0, 0.0}},
+            .A = Matrix{{1.0, 0.1}, {0.0, 1.0}},
+            .B = Matrix{{0.005}, {0.1}},
+            .C = Matrix{{1.0, 0.0}},
             .Ts = 0.1,
         };
         constexpr auto result = design::place_observer(sys, {0.3, 0.4});
@@ -198,9 +198,9 @@ TEST_SUITE("FixedGainObserver") {
 
     TEST_CASE("continuous plant with a trailing Ts: ZOH model, z = e^{s Ts} poles") {
         constexpr StateSpace plant{
-            .A = Matrix<2, 2>{{0.0, 1.0}, {0.0, 0.0}},
-            .B = Matrix<2, 1>{{0.0}, {1.0}},
-            .C = Matrix<1, 2>{{1.0, 0.0}},
+            .A = Matrix{{0.0, 1.0}, {0.0, 0.0}},
+            .B = Matrix{{0.0}, {1.0}},
+            .C = Matrix{{1.0, 0.0}},
         };
         constexpr double Ts = 0.01;
         const auto       sampled = design::place_observer(plant, {-20.0, -30.0}, Ts);
@@ -228,10 +228,10 @@ TEST_SUITE("FixedGainObserver") {
     }
 
     TEST_CASE("observer estimate converges to the true state") {
-        constexpr Matrix<2, 2> A{{1.0, 0.1}, {0.0, 1.0}};
-        constexpr Matrix<2, 1> B{{0.005}, {0.1}};
-        constexpr Matrix<1, 2> C{{1.0, 0.0}};
-        const StateSpace       sys{
+        constexpr Matrix A{{1.0, 0.1}, {0.0, 1.0}};
+        constexpr Matrix B{{0.005}, {0.1}};
+        constexpr Matrix C{{1.0, 0.0}};
+        const StateSpace sys{
             .A = A,
             .B = B,
             .C = C,
@@ -243,10 +243,10 @@ TEST_SUITE("FixedGainObserver") {
         REQUIRE(result.success);
 
         FixedGainObserver<2, 1, 1, double> observer(result);
-        observer.reset(ColVec<2>{0.0, 0.0});
+        observer.reset(ColVec{0.0, 0.0});
 
-        ColVec<2>       x{1.0, -0.5}; // unknown true state
-        const ColVec<1> u{0.1};
+        ColVec       x{1.0, -0.5}; // unknown true state
+        const ColVec u{0.1};
 
         for (int k = 0; k < 60; ++k) {
             x = A * x + B * u; // the input over the last period moved the plant
@@ -261,10 +261,10 @@ TEST_SUITE("FixedGainObserver") {
 
     TEST_CASE("a singular A (a delay state): M placed on (A, C A), the delay state's mode pinned at z = 0") {
         // x⁺ = 0.9 x + 0.1 v, v⁺ = u: v is the command sent last period, so A has a zero row.
-        constexpr Matrix<2, 2> A{{0.9, 0.1}, {0.0, 0.0}};
-        constexpr Matrix<2, 1> B{{0.0}, {1.0}};
-        constexpr Matrix<1, 2> C{{1.0, 0.0}};
-        const StateSpace       sys{.A = A, .B = B, .C = C, .Ts = 0.1};
+        constexpr Matrix A{{0.9, 0.1}, {0.0, 0.0}};
+        constexpr Matrix B{{0.0}, {1.0}};
+        constexpr Matrix C{{1.0, 0.0}};
+        const StateSpace sys{.A = A, .B = B, .C = C, .Ts = 0.1};
 
         const auto result = design::place_observer(sys, {0.0, 0.3});
         REQUIRE(result.success);
@@ -277,7 +277,7 @@ TEST_SUITE("FixedGainObserver") {
 
         // The estimate converges.
         FixedGainObserver observer{result};
-        ColVec<2>         x{0.4, -0.2};
+        ColVec            x{0.4, -0.2};
         for (int k = 0; k < 40; ++k) {
             const ColVec<1> u{0.2 * damp::sin(0.3 * k)};
             x = A * x + B * u;
@@ -294,8 +294,8 @@ TEST_SUITE("FixedGainObserver") {
     }
 
     TEST_CASE("a well-conditioned A takes the solve A M = L: e, the runtime's poles, at the placed ones") {
-        constexpr Matrix<2, 2> A{{1.0, 0.1}, {0.0, 1.0}};
-        constexpr Matrix<1, 2> C{{1.0, 0.0}};
+        constexpr Matrix A{{1.0, 0.1}, {0.0, 1.0}};
+        constexpr Matrix C{{1.0, 0.0}};
         CHECK(design::detail::solvable_for_innovation_gain(A));
 
         const auto result = design::place_observer(observer_plant<2, 1>(A, C), {0.3, 0.4});
@@ -314,10 +314,10 @@ TEST_SUITE("FixedGainObserver") {
     TEST_CASE("an ill-conditioned A (a mode much faster than the sample): M placed on (A, C A), never solved") {
         // κ₁(A) = 0.9 / 1e-12 = 9e11 > 1/√ε ≈ 6.7e7: A M = L would lose M's digits along the fast
         // mode, so M is placed directly on (A, C A).
-        constexpr Matrix<2, 2> A{{0.9, 0.0}, {0.0, 1e-12}};
-        constexpr Matrix<2, 1> B{{1.0}, {1.0}};
-        constexpr Matrix<1, 2> C{{1.0, 1.0}}; // sees both states
-        const StateSpace       sys{.A = A, .B = B, .C = C, .Ts = 0.1};
+        constexpr Matrix A{{0.9, 0.0}, {0.0, 1e-12}};
+        constexpr Matrix B{{1.0}, {1.0}};
+        constexpr Matrix C{{1.0, 1.0}}; // sees both states
+        const StateSpace sys{.A = A, .B = B, .C = C, .Ts = 0.1};
         CHECK_FALSE(design::detail::solvable_for_innovation_gain(A));
 
         //! a pole near 0 for the fast mode: M bounded, e at the request
@@ -335,7 +335,7 @@ TEST_SUITE("FixedGainObserver") {
 
         // The float runtime: the estimate converges with no amplified rounding along the fast mode.
         FixedGainObserver observer{fast.as<float>()};
-        ColVec<2>         x{0.4, -0.2};
+        ColVec            x{0.4, -0.2};
         double            scale = x.norm();
         for (int k = 0; k < 40; ++k) {
             const ColVec<1> u{0.2 * damp::sin(0.3 * k)};
@@ -352,11 +352,11 @@ TEST_SUITE("FixedGainObserver") {
         // The KNV placement on (A, C A) starts refusing between λ = 1e-12 and 1e-13 (its rank test
         // on the eigenvectors is 64·NX·ε relative); λ = 1e-12 sits at that edge, so the two cases
         // below are taken clear of it on either side.
-        constexpr Matrix<1, 2> C{{1.0, 1.0}};
+        constexpr Matrix C{{1.0, 1.0}};
 
         //! λ = 1e-10 (κ₁(A) = 9e9: the direct placement): the pair (A, C A) is still observable in
         //! double, so the request is honoured with a gain of order 1/λ.
-        constexpr Matrix<2, 2> A{{0.9, 0.0}, {0.0, 1e-10}};
+        constexpr Matrix A{{0.9, 0.0}, {0.0, 1e-10}};
         CHECK_FALSE(design::detail::solvable_for_innovation_gain(A));
         const auto slow = design::place_observer(observer_plant<2, 1>(A, C), {0.5, 0.4});
         REQUIRE(slow.success);
@@ -398,9 +398,9 @@ TEST_SUITE("FixedGainObserver") {
         CHECK(ev[0].abs() < 1.0);
         CHECK(ev[1].abs() < 1.0);
 
-        ColVec<2> x{1.0, -0.5};
+        ColVec x{1.0, -0.5};
         for (int k = 0; k < 400; ++k) {
-            const ColVec<1> u{0.1};
+            const ColVec u{0.1};
             x = sys.A * x + sys.B * u;
             obs.step(sys.C * x, u);
         }
@@ -409,9 +409,9 @@ TEST_SUITE("FixedGainObserver") {
 
     TEST_CASE("from the model and an innovation gain; a continuous design is inert at run time") {
         constexpr StateSpace sys{
-            .A = Matrix<2, 2>{{1.0, 0.1}, {0.0, 1.0}},
-            .B = Matrix<2, 1>{{0.005}, {0.1}},
-            .C = Matrix<1, 2>{{1.0, 0.0}},
+            .A = Matrix{{1.0, 0.1}, {0.0, 1.0}},
+            .B = Matrix{{0.005}, {0.1}},
+            .C = Matrix{{1.0, 0.0}},
             .Ts = 0.1,
         };
         constexpr auto result = design::place_observer(sys, {0.3, 0.4});
@@ -424,7 +424,7 @@ TEST_SUITE("FixedGainObserver") {
         CHECK(from_matrices.valid());
         for (int k = 0; k < 10; ++k) {
             const ColVec<1> y{0.1 * k};
-            const ColVec<1> u{0.5};
+            const ColVec    u{0.5};
             CHECK((from_design.step(y, u) - from_matrices.step(y, u)).norm() == 0.0);
         }
 
@@ -444,8 +444,8 @@ TEST_SUITE("FixedGainObserver") {
 
     TEST_CASE("design is constexpr-evaluable") {
         constexpr auto result = [] {
-            constexpr Matrix<2, 2> A{{1.0, 0.1}, {0.0, 1.0}};
-            constexpr Matrix<1, 2> C{{1.0, 0.0}};
+            constexpr Matrix A{{1.0, 0.1}, {0.0, 1.0}};
+            constexpr Matrix C{{1.0, 0.0}};
             return design::place_observer(observer_plant<2, 1>(A, C), {0.3, 0.4});
         }();
         static_assert(result.success, "observer design must evaluate at compile time");
@@ -456,19 +456,19 @@ TEST_SUITE("FixedGainObserver") {
     }
 
     TEST_CASE("set_state clamps the estimate between steps") {
-        constexpr Matrix<2, 2> A{{1.0, 0.1}, {0.0, 1.0}};
-        constexpr Matrix<2, 1> B{{0.0}, {0.1}};
-        constexpr Matrix<1, 2> C{{1.0, 0.0}};
-        constexpr Matrix<1, 1> D{{0.0}};
-        const StateSpace       sys{.A = A, .B = B, .C = C, .D = D, .Ts = 0.1};
-        const auto             result = design::place_observer(sys, {0.3, 0.4});
+        constexpr Matrix A{{1.0, 0.1}, {0.0, 1.0}};
+        constexpr Matrix B{{0.0}, {0.1}};
+        constexpr Matrix C{{1.0, 0.0}};
+        constexpr Matrix D{{0.0}};
+        const StateSpace sys{.A = A, .B = B, .C = C, .D = D, .Ts = 0.1};
+        const auto       result = design::place_observer(sys, {0.3, 0.4});
         REQUIRE(result.success);
 
         FixedGainObserver<2, 1, 1, double> obs(result);
 
-        obs.step(ColVec<1>{1.0}, {});
+        obs.step(ColVec{1.0}, {});
         // Force a non-physical estimate, then clamp it.
-        obs.set_state(ColVec<2>{99.0, -99.0});
+        obs.set_state(ColVec{99.0, -99.0});
         CHECK(obs.state()(0, 0) == doctest::Approx(99.0));
 
         obs.set_state(1, 0.0); // clamp the velocity component
@@ -481,7 +481,7 @@ TEST_SUITE("Reduced-Order FixedGainObserver") {
         constexpr double       Ts = 0.01;
         constexpr Matrix<2, 2> A{{1.0, Ts}, {0.0, 1.0}}; // [position; velocity]
         constexpr Matrix<2, 1> B{{0.0}, {Ts}};           // acceleration input
-        constexpr Matrix<1, 2> C{{1.0, 0.0}};            // measure position (encoder)
+        constexpr Matrix       C{{1.0, 0.0}};            // measure position (encoder)
         const StateSpace       sys{
             .A = A,
             .B = B,
@@ -504,12 +504,12 @@ TEST_SUITE("Reduced-Order FixedGainObserver") {
         REQUIRE(continuous.success);
         ReducedOrderObserver<2, 1, double> inert(continuous);
         CHECK_FALSE(inert.valid());
-        (void)inert.step(ColVec<1>{1.0}, ColVec<1>{0.5});
+        (void)inert.step(ColVec{1.0}, ColVec{0.5});
         CHECK(inert.state()(0, 0) == 0.0);
         CHECK(inert.internal_state()(0, 0) == 0.0);
 
-        ColVec<2>       x{1.0, 2.0}; // true: position 1, velocity 2 (velocity unknown)
-        const ColVec<1> u{0.1};
+        ColVec       x{1.0, 2.0}; // true: position 1, velocity 2 (velocity unknown)
+        const ColVec u{0.1};
         for (int k = 0; k < 50; ++k) {
             x = A * x + B * u;
             (void)observer.step(C * x, u); // u: the input applied over the period that just ended
@@ -524,7 +524,7 @@ TEST_SUITE("Reduced-Order FixedGainObserver") {
         constexpr double       Ts = 0.01;
         constexpr Matrix<3, 3> A{{1.0, Ts, 0.0}, {0.0, 1.0, Ts}, {0.0, 0.0, 1.0}};
         constexpr Matrix<3, 1> B{{0.0}, {0.0}, {Ts}};
-        constexpr Matrix<1, 3> C{{1.0, 0.0, 0.0}};
+        constexpr Matrix       C{{1.0, 0.0, 0.0}};
         const StateSpace       sys{
             .A = A,
             .B = B,
@@ -547,8 +547,8 @@ TEST_SUITE("Reduced-Order FixedGainObserver") {
         ReducedOrderObserver<3, 1, double> observer(result);
         observer.reset();
 
-        ColVec<3>       x{0.5, -1.0, 2.0};
-        const ColVec<1> u{0.2};
+        ColVec       x{0.5, -1.0, 2.0};
+        const ColVec u{0.2};
         for (int k = 0; k < 80; ++k) {
             x = A * x + B * u;
             (void)observer.step(C * x, u);
@@ -566,13 +566,13 @@ TEST_SUITE("Reduced-Order FixedGainObserver") {
         constexpr double                   Ts = 0.01;
         constexpr Matrix<2, 2>             A{{1.0, Ts}, {0.0, 1.0}};
         constexpr Matrix<2, 1>             B{{0.5 * Ts * Ts}, {Ts}};
-        constexpr Matrix<1, 2>             C{{1.0, 0.0}};
+        constexpr Matrix                   C{{1.0, 0.0}};
         const StateSpace                   sys{.A = A, .B = B, .C = C, .Ts = Ts};
         ReducedOrderObserver<2, 1, double> observer(design::reduced_order_observer(sys, {0.5}));
         REQUIRE(observer.valid());
 
-        ColVec<2> x{1.0, 2.0};
-        double    worst = 0.0;
+        ColVec x{1.0, 2.0};
+        double worst = 0.0;
         for (int k = 0; k < 400; ++k) {
             const ColVec<1> u{10.0 * damp::sin(0.05 * static_cast<double>(k))};
             x = A * x + B * u;
@@ -586,10 +586,10 @@ TEST_SUITE("Reduced-Order FixedGainObserver") {
 
     TEST_CASE("refused: a feedthrough, a non-finite model entry") {
         //! The measured state is read as y: with D ≠ 0 the estimate would be off by D u.
-        constexpr Matrix<2, 2> A{{1.0, 0.1}, {0.0, 1.0}};
-        constexpr Matrix<2, 1> B{{0.005}, {0.1}};
-        constexpr Matrix<1, 2> C{{1.0, 0.0}};
-        const auto             with_d = design::reduced_order_observer(StateSpace{.A = A, .B = B, .C = C, .D = {{0.5}}, .Ts = 0.1}, {0.5});
+        constexpr Matrix A{{1.0, 0.1}, {0.0, 1.0}};
+        constexpr Matrix B{{0.005}, {0.1}};
+        constexpr Matrix C{{1.0, 0.0}};
+        const auto       with_d = design::reduced_order_observer(StateSpace{.A = A, .B = B, .C = C, .D = {{0.5}}, .Ts = 0.1}, {0.5});
         CHECK_FALSE(with_d.success);
         CHECK(with_d.status == design::DesignStatus::bad_weights);
 
@@ -603,19 +603,19 @@ TEST_SUITE("Reduced-Order FixedGainObserver") {
         CHECK(design::place_observer(nan_d, {0.3, 0.4}).status == design::DesignStatus::bad_weights);
 
         //! A refused design's poles are zero-filled, inside the unit circle: not stable.
-        const auto unobservable = design::place_observer(observer_plant<2, 1>(Matrix<2, 2>{{0.5, 0.0}, {0.0, 1.5}}, C), {0.1, 0.2});
+        const auto unobservable = design::place_observer(observer_plant<2, 1>(Matrix{{0.5, 0.0}, {0.0, 1.5}}, C), {0.1, 0.2});
         REQUIRE_FALSE(unobservable.success);
         CHECK_FALSE(unobservable.is_stable());
-        const auto unobservable_reduced = design::reduced_order_observer(observer_plant<2, 1>(Matrix<2, 2>{{0.5, 0.0}, {0.0, 1.5}}, C), {0.1});
+        const auto unobservable_reduced = design::reduced_order_observer(observer_plant<2, 1>(Matrix{{0.5, 0.0}, {0.0, 1.5}}, C), {0.1});
         REQUIRE_FALSE(unobservable_reduced.success);
         CHECK_FALSE(unobservable_reduced.is_stable());
     }
 
     TEST_CASE("reduced-order design is constexpr-evaluable") {
         constexpr auto result = [] {
-            constexpr Matrix<2, 2> A{{1.0, 0.01}, {0.0, 1.0}};
-            constexpr Matrix<2, 1> B{{0.0}, {0.01}};
-            constexpr Matrix<1, 2> C{{1.0, 0.0}};
+            constexpr Matrix A{{1.0, 0.01}, {0.0, 1.0}};
+            constexpr Matrix B{{0.0}, {0.01}};
+            constexpr Matrix C{{1.0, 0.0}};
             return design::reduced_order_observer(StateSpace{.A = A, .B = B, .C = C, .Ts = 0.1}, {0.5});
         }();
         static_assert(result.success, "reduced-order observer must evaluate at compile time");
@@ -629,19 +629,19 @@ TEST_SUITE("Reduced-Order FixedGainObserver") {
         constexpr double       Ts = 0.01;
         constexpr Matrix<2, 2> A{{1.0, Ts}, {0.0, 1.0}};
         constexpr Matrix<2, 1> B{{0.0}, {Ts}};
-        constexpr Matrix<1, 2> C{{1.0, 0.0}};
+        constexpr Matrix       C{{1.0, 0.0}};
         const StateSpace       sys{.A = A, .B = B, .C = C, .D = Matrix<1, 1>::zeros(), .Ts = Ts};
 
         const auto result = design::reduced_order_observer(sys, {0.5});
         REQUIRE(result.success);
 
         ReducedOrderObserver<2, 1, double> obs(result);
-        (void)obs.step(ColVec<1>{1.0}, {});
+        (void)obs.step(ColVec{1.0}, {});
 
         // The persistent state is z (NX-1 = 1 element here), not the
         // reconstructed full state. Writing z and stepping with a steady
         // measurement reconstructs x = Tinv*[y; z + L*y].
-        obs.set_internal_state(ColVec<1>{0.0});
+        obs.set_internal_state(ColVec{0.0});
         CHECK(obs.internal_state()(0, 0) == doctest::Approx(0.0));
 
         obs.set_internal_state(0, 3.0);

@@ -49,9 +49,9 @@ bool contains_roots(const damp::array<damp::complex<double>, N>& got, size_t n_g
 
 TEST_SUITE("Generalized eigenvalues") {
     TEST_CASE("B = I gives the eigenvalues of A") {
-        const Matrix<4, 4> A{{1.0, 2.0, 0.0, -1.0}, {0.5, -3.0, 1.0, 0.0}, {1.0, 0.0, 2.0, 1.5}, {0.0, 1.0, -1.0, 0.5}};
-        const auto         ge = mat::generalized_eigenvalues(A, Matrix<4, 4>::identity());
-        const auto         ev = mat::compute_eigenvalues(A);
+        const Matrix A{{1.0, 2.0, 0.0, -1.0}, {0.5, -3.0, 1.0, 0.0}, {1.0, 0.0, 2.0, 1.5}, {0.0, 1.0, -1.0, 0.5}};
+        const auto   ge = mat::generalized_eigenvalues(A, Matrix<4, 4>::identity());
+        const auto   ev = mat::compute_eigenvalues(A);
         REQUIRE(ge.success);
         REQUIRE(ge.n_finite == 4);
         CHECK(contains_roots(ge.values, ge.n_finite, ev.values, 1e-12));
@@ -59,9 +59,9 @@ TEST_SUITE("Generalized eigenvalues") {
 
     TEST_CASE("a singular B gives an infinite eigenvalue, constant-evaluated") {
         // det(A − λ·diag(1, 1, 0)) = 2(λ − 2)²
-        constexpr Matrix<3, 3> A{{1.0, 2.0, 0.0}, {0.0, 3.0, 1.0}, {1.0, 0.0, 2.0}};
-        constexpr Matrix<3, 3> B{{1.0, 0.0, 0.0}, {0.0, 1.0, 0.0}, {0.0, 0.0, 0.0}};
-        constexpr auto         ev = mat::generalized_eigenvalues(A, B);
+        constexpr Matrix A{{1.0, 2.0, 0.0}, {0.0, 3.0, 1.0}, {1.0, 0.0, 2.0}};
+        constexpr Matrix B{{1.0, 0.0, 0.0}, {0.0, 1.0, 0.0}, {0.0, 0.0, 0.0}};
+        constexpr auto   ev = mat::generalized_eigenvalues(A, B);
         static_assert(ev.success && ev.n_finite == 2);
         CHECK(ev.values[0].real() == doctest::Approx(2.0).epsilon(1e-7)); // a double root: √ε
         CHECK(ev.values[1].real() == doctest::Approx(2.0).epsilon(1e-7));
@@ -69,9 +69,9 @@ TEST_SUITE("Generalized eigenvalues") {
 
     TEST_CASE("a zero leading diagonal entry of B is chased down and deflated") {
         // det(A − λ·diag(0, 1, 1)) = λ² − 5λ + 8: 5/2 ± i√7/2
-        const Matrix<3, 3> A{{1.0, 2.0, 0.0}, {0.0, 3.0, 1.0}, {1.0, 0.0, 2.0}};
-        const Matrix<3, 3> B{{0.0, 0.0, 0.0}, {0.0, 1.0, 0.0}, {0.0, 0.0, 1.0}};
-        const auto         ev = mat::generalized_eigenvalues(A, B);
+        const Matrix A{{1.0, 2.0, 0.0}, {0.0, 3.0, 1.0}, {1.0, 0.0, 2.0}};
+        const Matrix B{{0.0, 0.0, 0.0}, {0.0, 1.0, 0.0}, {0.0, 0.0, 1.0}};
+        const auto   ev = mat::generalized_eigenvalues(A, B);
         REQUIRE(ev.success);
         REQUIRE(ev.n_finite == 2);
         CHECK(ev.values[0].real() == doctest::Approx(2.5));
@@ -80,8 +80,8 @@ TEST_SUITE("Generalized eigenvalues") {
     }
 
     TEST_CASE("B = 0 has every eigenvalue at infinity") {
-        const Matrix<3, 3> A{{1.0, 2.0, 0.0}, {0.0, 3.0, 1.0}, {1.0, 0.0, 2.0}};
-        const auto         ev = mat::generalized_eigenvalues(A, Matrix<3, 3>{});
+        const Matrix A{{1.0, 2.0, 0.0}, {0.0, 3.0, 1.0}, {1.0, 0.0, 2.0}};
+        const auto   ev = mat::generalized_eigenvalues(A, Matrix<3, 3>{});
         CHECK(ev.success);
         CHECK(ev.n_finite == 0);
     }
@@ -93,9 +93,9 @@ TEST_SUITE("Generalized eigenvalues") {
     }
 
     TEST_CASE("float") {
-        const Matrix<3, 3, float> A{{1.0f, 2.0f, 0.0f}, {0.0f, 3.0f, 1.0f}, {1.0f, 0.0f, 2.0f}};
-        const Matrix<3, 3, float> B{{0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f, 1.0f}};
-        const auto                ev = mat::generalized_eigenvalues(A, B);
+        const Matrix A{{1.0f, 2.0f, 0.0f}, {0.0f, 3.0f, 1.0f}, {1.0f, 0.0f, 2.0f}};
+        const Matrix B{{0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f, 1.0f}};
+        const auto   ev = mat::generalized_eigenvalues(A, B);
         REQUIRE(ev.success);
         REQUIRE(ev.n_finite == 2);
         CHECK(ev.values[0].real() == doctest::Approx(2.5f).epsilon(1e-5));

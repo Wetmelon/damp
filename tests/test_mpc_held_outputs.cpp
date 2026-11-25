@@ -309,7 +309,7 @@ TEST_SUITE("MPC held outputs") {
         static_assert(std::is_same_v<decltype(tg), const design::SteadyStateTargetResult<2, 2, 0, 2, double>>);
         CHECK(same_map(tg.target_r, mpc.target.target_r));
         CHECK(same_map(tg.target_r, lqr.target.target_r));
-        const ColVec<2> r{0.7, -0.2};
+        const ColVec    r{0.7, -0.2};
         const ColVec<4> s = tg.target_r * r;
         CHECK(s(0) == doctest::Approx(0.7).epsilon(1e-12)); // both readings at their r
         CHECK(s(1) == doctest::Approx(-0.2).epsilon(1e-12));
@@ -330,9 +330,9 @@ TEST_SUITE("MPC held outputs") {
         const auto second = design::mpc<20, 5>(*kLags, both_weighed(), design::TrackedOutputs{{1}});
         REQUIRE(first.success);
         REQUIRE(second.success);
-        MPC       a{first};
-        MPC       b{second};
-        ColVec<2> x{1.0, -0.5};
+        MPC    a{first};
+        MPC    b{second};
+        ColVec x{1.0, -0.5};
         for (size_t k = 0; k < 30; ++k) {
             const double u = a.step(0.0, x)(0);
             CHECK(b.step(0.0, x)(0) == doctest::Approx(u).epsilon(1e-12)); // the same QP: r = 0 holds every output at 0
@@ -383,12 +383,12 @@ TEST_SUITE("MPC regulator") {
         REQUIRE(reg.success);
         REQUIRE(every.success);
         static_assert(std::is_same_v<decltype(reg.target), design::SteadyStateTargetResult<2, 2, 0, 0, double>>); // no map at all
-        MPC       a{reg};
-        MPC       b{every};
-        MPC       fed_a{reg};
-        MPC       fed_b{every};
-        ColVec<2> x{1.0, -0.5};
-        ColVec<2> xf{1.0, -0.5};
+        MPC    a{reg};
+        MPC    b{every};
+        MPC    fed_a{reg};
+        MPC    fed_b{every};
+        ColVec x{1.0, -0.5};
+        ColVec xf{1.0, -0.5};
         for (size_t k = 0; k < 40; ++k) {
             const ColVec<2> u = a.step(x);
             const ColVec<2> v = b.step(ColVec<2>{}, x);
@@ -396,8 +396,8 @@ TEST_SUITE("MPC regulator") {
             CHECK(u(1) == doctest::Approx(v(1)).epsilon(1e-12));
             x = two_step(x, u);
             //! About a planned point, the feedforward form without r.
-            const ColVec<2> x_ref{0.2, 0.1};
-            const ColVec<2> u_ref{0.2, -0.1};
+            const ColVec    x_ref{0.2, 0.1};
+            const ColVec    u_ref{0.2, -0.1};
             const ColVec<2> uf = fed_a.step(x_ref, u_ref, xf);
             const ColVec<2> vf = fed_b.step(ColVec<2>{}, x_ref, u_ref, xf);
             CHECK(uf(0) == doctest::Approx(vf(0)).epsilon(1e-12));
@@ -434,7 +434,7 @@ TEST_SUITE("MPC regulator") {
 
         MPC          a{reg};
         MPC          b{every};
-        ColVec<2>    x{0.4, -0.3};
+        ColVec       x{0.4, -0.3};
         const double w = 0.5;
         for (size_t k = 0; k < 400; ++k) {
             const ColVec<2> u = a.step(ColVec<1>{w}, x);
@@ -459,8 +459,8 @@ TEST_SUITE("MPC regulator") {
         //! measured d it would hold both at 0 and does not compile: TrackedOutputs{{i}} with r = 0.
         const auto reg = design::mpc<20, 5>(*kLags, both_weighed());
         REQUIRE(reg.success);
-        MPC       law{reg};
-        ColVec<2> x{1.0, -0.5};
+        MPC    law{reg};
+        ColVec x{1.0, -0.5};
         for (size_t k = 0; k < 300; ++k) {
             x = lags_step(x, law.step(x)(0));
         }

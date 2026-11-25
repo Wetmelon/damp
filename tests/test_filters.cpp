@@ -736,7 +736,7 @@ TEST_SUITE("Discrete designer guards") {
         LowPass<3, double> lpf{res};
         const auto         sd = *discretize(tf.to_state_space().value(), Ts, DiscretizationMethod::Tustin);
         ColVec<3>          x{};
-        const ColVec<1>    u{1.0};
+        const ColVec       u{1.0};
         for (int k = 0; k < 30; ++k) {
             const double y_lpf = lpf(1.0);
             const double y_ss = (sd.C * x + sd.D * u)(0, 0);

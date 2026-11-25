@@ -351,7 +351,7 @@ TEST_SUITE("Lead-Lag Compensator") {
         LeadLagController<double> ctrl(r);
 
         Matrix<1, 1, double> x = Matrix<1, 1, double>::zeros();
-        Matrix<1, 1, double> u{{1.0}};
+        Matrix               u{{1.0}};
 
         for (int i = 0; i < 5; ++i) {
             auto   y_ss = dss.C * x + dss.D * u;

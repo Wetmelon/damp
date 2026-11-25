@@ -178,9 +178,9 @@ TEST_SUITE("NaN/Inf policy") {
         struct First {
             [[nodiscard]] ColVec<1, float> operator()(const ColVec<2, float>& x, const ColVec<1, float>& /*u*/) const { return ColVec<1, float>{x[0]}; }
         };
-        UnscentedKalmanFilter<Still> ukf{Still{}, {.Ts = 0.01f, .Q = Matrix<2, 2, float>::identity() * 0.01f, .x0 = ColVec<2, float>{1.0f, 2.0f}, .unscented = p}};
+        UnscentedKalmanFilter<Still> ukf{Still{}, {.Ts = 0.01f, .Q = Matrix<2, 2, float>::identity() * 0.01f, .x0 = ColVec{1.0f, 2.0f}, .unscented = p}};
         CHECK(ukf.predict({}));
-        CHECK(ukf.update(First{}, ColVec<1, float>{1.5f}, 0.1f));
+        CHECK(ukf.update(First{}, ColVec{1.5f}, 0.1f));
         CHECK(all_finite(ukf.state()));
         CHECK(ukf.state()[0] == doctest::Approx(1.45f).epsilon(0.05));
     }
@@ -199,7 +199,7 @@ TEST_SUITE("NaN/Inf policy") {
         const auto failed = design::mpc<10, 3>(StateSpace<2, 1, 1, float, 2, 1>{}, {}, design::KalmanNoise<2, 1, float, 1>{}, design::InputDisturbance{}); // a continuous plant: refused
         REQUIRE_FALSE(failed.success);
         OffsetFree ofmpc{failed};
-        CHECK(all_finite(ofmpc.step(ColVec<1, float>{1.0f}, ColVec<1, float>{0.5f})));
+        CHECK(all_finite(ofmpc.step(ColVec{1.0f}, ColVec{0.5f})));
     }
 
     TEST_CASE("controllers from failed designs emit finite output on edge inputs") {

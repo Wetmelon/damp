@@ -93,7 +93,7 @@ double continuous_cost(L& law, const design::LQRWeights<2, 1>& w, double q_integ
     for (int k = 0; k < periods; ++k) {
         law.update(ColVec<2>{s(0), s(1)});
         if constexpr (NI > 0) {
-            sent.push_back(law.control(ColVec<1>{0.0})(0));
+            sent.push_back(law.control(ColVec{0.0})(0));
         } else {
             sent.push_back(law.control()(0));
         }
@@ -118,34 +118,34 @@ double continuous_cost(L& law, const design::LQRWeights<2, 1>& w, double q_integ
 
 TEST_SUITE("Delayed laws") {
     TEST_CASE("LQR with an InputDelay: the closed loop's continuous cost is the one the design predicts") {
-        const design::LQRWeights<2, 1> w{.Q = Matrix<2, 2>{{10.0, 0.0}, {0.0, 1.0}}, .R = Matrix<1, 1>{{0.1}}};
+        const design::LQRWeights<2, 1> w{.Q = Matrix{{10.0, 0.0}, {0.0, 1.0}}, .R = Matrix{{0.1}}};
         const auto                     res = design::state_feedback(plant(), kTs, w, InputDelay<2>{kTheta});
         REQUIRE(res.success);
         REQUIRE(res.is_stable());
-        LQR             law{res};
-        const ColVec<2> x0{0.3, -0.2};
-        const double    J = continuous_cost<0>(law, w, 0.0, x0, 0.0, 600);
-        const ColVec<4> z0{0.3, -0.2, 0.0, 0.0}; // the delay states empty
-        const double    predicted = (z0.t() * res.S * z0)(0, 0);
+        LQR          law{res};
+        const ColVec x0{0.3, -0.2};
+        const double J = continuous_cost<0>(law, w, 0.0, x0, 0.0, 600);
+        const ColVec z0{0.3, -0.2, 0.0, 0.0}; // the delay states empty
+        const double predicted = (z0.t() * res.S * z0)(0, 0);
         CHECK(J == doctest::Approx(predicted).epsilon(1e-8));
     }
 
     TEST_CASE("LQI with an InputDelay: the closed loop's continuous cost, integrator included, is the one the design predicts") {
-        const design::LQRWeights<2, 1> w{.Q = Matrix<2, 2>{{10.0, 0.0}, {0.0, 1.0}}, .R = Matrix<1, 1>{{0.1}}};
+        const design::LQRWeights<2, 1> w{.Q = Matrix{{10.0, 0.0}, {0.0, 1.0}}, .R = Matrix{{0.1}}};
         const design::IntegralAction   ia{.Q = 5.0};
         const auto                     res = design::state_feedback(plant(), kTs, w, InputDelay<2>{kTheta}, ia);
         REQUIRE(res.success);
         REQUIRE(res.is_stable());
-        LQI             law{res};
-        const ColVec<2> x0{0.3, -0.2};
-        const double    J = continuous_cost<1>(law, w, ia.Q, x0, 0.1, 600);
-        const ColVec<5> q0{0.3, -0.2, 0.0, 0.0, 0.1}; // [x; delay states empty; ξ]
-        const double    predicted = (q0.t() * res.S * q0)(0, 0);
+        LQI          law{res};
+        const ColVec x0{0.3, -0.2};
+        const double J = continuous_cost<1>(law, w, ia.Q, x0, 0.1, 600);
+        const ColVec q0{0.3, -0.2, 0.0, 0.0, 0.1}; // [x; delay states empty; ξ]
+        const double predicted = (q0.t() * res.S * q0)(0, 0);
         CHECK(J == doctest::Approx(predicted).epsilon(1e-8));
     }
 
     TEST_CASE("an InputDelay of zero is the design without one, the delay states unread") {
-        const design::LQRWeights<2, 1> w{.Q = Matrix<2, 2>{{10.0, 0.0}, {0.0, 1.0}}, .R = Matrix<1, 1>{{0.1}}};
+        const design::LQRWeights<2, 1> w{.Q = Matrix{{10.0, 0.0}, {0.0, 1.0}}, .R = Matrix{{0.1}}};
         const auto                     late = design::state_feedback(plant(), kTs, w, InputDelay<2>{0.0}, design::IntegralAction{.Q = 5.0});
         const auto                     now = design::state_feedback(plant(), kTs, w, design::IntegralAction{.Q = 5.0});
         REQUIRE(late.success);
@@ -164,43 +164,43 @@ TEST_SUITE("Delayed laws") {
     }
 
     TEST_CASE("the law holds what back_calculate recorded, newest first, and a reference point holds u* in them") {
-        const design::LQRWeights<2, 1> w{.Q = Matrix<2, 2>{{10.0, 0.0}, {0.0, 1.0}}, .R = Matrix<1, 1>{{0.1}}};
+        const design::LQRWeights<2, 1> w{.Q = Matrix{{10.0, 0.0}, {0.0, 1.0}}, .R = Matrix{{0.1}}};
         const auto                     res = design::state_feedback(plant(), kTs, w, InputDelay<3>{0.25}, design::IntegralAction{.Q = 5.0});
         REQUIRE(res.success);
-        LQI             law{res};
-        const auto&     K = law.getK();
-        const ColVec<2> x{0.1, 0.0};
+        LQI          law{res};
+        const auto&  K = law.getK();
+        const ColVec x{0.1, 0.0};
         // Three ticks, each command clamped to a value of its own: the delay states hold those.
         const double held[3] = {0.5, -0.25, 0.125};
         for (const double v : held) {
             law.update(x);
-            static_cast<void>(law.control(ColVec<1>{0.0}));
+            static_cast<void>(law.control(ColVec{0.0}));
             law.back_calculate(ColVec<1>{v});
             law.predict();
         }
         law.update(x);
         const double xi = law.integral.xi(0);
-        const double u = law.control(ColVec<1>{0.0})(0);
+        const double u = law.control(ColVec{0.0})(0);
         const double expected = -((K(0, 0) * 0.1) + (K(0, 2) * held[2]) + (K(0, 3) * held[1]) + (K(0, 4) * held[0]) + (K(0, 5) * xi));
         CHECK(u == doctest::Approx(expected).epsilon(1e-12));
 
         // About a reference point (x*, u*), delay states that hold u* are at the reference.
-        LQI             fresh{res};
-        const ColVec<2> x_ref{0.2, 0.0};
-        const ColVec<1> u_ref{0.7};
+        LQI          fresh{res};
+        const ColVec x_ref{0.2, 0.0};
+        const ColVec u_ref{0.7};
         for (int k = 0; k < 3; ++k) {
             fresh.update(x_ref);
-            static_cast<void>(fresh.control(ColVec<1>{0.2}, x_ref, u_ref));
+            static_cast<void>(fresh.control(ColVec{0.2}, x_ref, u_ref));
             fresh.back_calculate(u_ref);
             fresh.predict();
         }
         fresh.integral.xi(0) = 0.0;
         fresh.update(x_ref);
-        CHECK(fresh.control(ColVec<1>{0.2}, x_ref, u_ref)(0) == doctest::Approx(0.7).epsilon(1e-12));
+        CHECK(fresh.control(ColVec{0.2}, x_ref, u_ref)(0) == doctest::Approx(0.7).epsilon(1e-12));
     }
 
     TEST_CASE("a constexpr design with an InputDelay deploys in float on constants") {
-        static constexpr auto kRes = design::state_feedback(plant(), 0.01, {.Q = Matrix<2, 2>{{10.0, 0.0}, {0.0, 1.0}}, .R = Matrix<1, 1>{{0.1}}}, InputDelay<3>{0.022}, design::IntegralAction{.Q = 5.0});
+        static constexpr auto kRes = design::state_feedback(plant(), 0.01, {.Q = Matrix{{10.0, 0.0}, {0.0, 1.0}}, .R = Matrix{{0.1}}}, InputDelay<3>{0.022}, design::IntegralAction{.Q = 5.0});
         static_assert(kRes.success);
         Law<kRes, float> fast;
         LQI              ref{kRes};
@@ -208,8 +208,8 @@ TEST_SUITE("Delayed laws") {
             const double p = 0.1 * std::cos(0.3 * k);
             fast.update(ColVec<2, float>{static_cast<float>(p), 0.0f});
             ref.update(ColVec<2>{p, 0.0});
-            const float  uf = fast.control(ColVec<1, float>{0.0f})(0);
-            const double ud = ref.control(ColVec<1>{0.0})(0);
+            const float  uf = fast.control(ColVec{0.0f})(0);
+            const double ud = ref.control(ColVec{0.0})(0);
             CHECK(static_cast<double>(uf) == doctest::Approx(ud).epsilon(1e-4));
             fast.back_calculate(ColVec<1, float>{uf});
             ref.back_calculate(ColVec<1>{ud});
@@ -219,18 +219,18 @@ TEST_SUITE("Delayed laws") {
     }
 
     TEST_CASE("refusals: a discrete plant, a delay past the delay states, an input cost that is not positive definite") {
-        const design::LQRWeights<2, 1> w{.Q = Matrix<2, 2>::identity(), .R = Matrix<1, 1>{{0.1}}};
+        const design::LQRWeights<2, 1> w{.Q = Matrix<2, 2>::identity(), .R = Matrix{{0.1}}};
         const auto                     discrete = discretize(plant(), kTs).value();
         CHECK(design::state_feedback(discrete, kTs, w, InputDelay<2>{kTheta}).status == design::DesignStatus::invalid_sample_time);
         CHECK(design::state_feedback(plant(), kTs, w, InputDelay<1>{kTheta}).status == design::DesignStatus::invalid_parameter);
-        CHECK(design::state_feedback(plant(), kTs, {.Q = w.Q, .R = Matrix<1, 1>{{0.0}}}, InputDelay<2>{kTheta}).status == design::DesignStatus::bad_weights);
+        CHECK(design::state_feedback(plant(), kTs, {.Q = w.Q, .R = Matrix{{0.0}}}, InputDelay<2>{kTheta}).status == design::DesignStatus::bad_weights);
     }
 }
 
 namespace {
 
-const design::KalmanNoise<2, 1> kNoise{.process = Matrix<2, 2>{{0.01, 0.0}, {0.0, 0.1}}, .measurement = Matrix<1, 1>{{1e-4}}};
-const design::LQRWeights<2, 1>  kW{.Q = Matrix<2, 2>{{10.0, 0.0}, {0.0, 1.0}}, .R = Matrix<1, 1>{{0.1}}};
+const design::KalmanNoise<2, 1> kNoise{.process = Matrix{{0.01, 0.0}, {0.0, 0.1}}, .measurement = Matrix{{1e-4}}};
+const design::LQRWeights<2, 1>  kW{.Q = Matrix{{10.0, 0.0}, {0.0, 1.0}}, .R = Matrix{{0.1}}};
 const design::IntegralAction    kIntegral{.Q = 5.0};
 
 /// The plant with its noise channels: process noise on both states (G = I), one on the reading.
@@ -304,7 +304,7 @@ TEST_SUITE("Delayed laws with a filter") {
         static_assert(damp::remove_cvref_t<decltype(ctrl.A)>::rows() == 4);
         const auto model = delayed_model();
         LQG        law{res};
-        ColVec<4>  z{0.1, 0.0, 0.0, 0.0};
+        ColVec     z{0.1, 0.0, 0.0, 0.0};
         ColVec<4>  zc = z;
         ColVec<4>  xc{};
         double     worst = 0.0;
@@ -327,14 +327,14 @@ TEST_SUITE("Delayed laws with a filter") {
     }
 
     TEST_CASE("to_ss of an OFLQG with an InputDelay is the runtime's tick at r = 0, d̂ in the gain") {
-        const design::KalmanNoise<2, 1, double, 1> noise{.process = kNoise.process, .measurement = kNoise.measurement, .disturbance = Matrix<1, 1>{{1.0}}};
+        const design::KalmanNoise<2, 1, double, 1> noise{.process = kNoise.process, .measurement = kNoise.measurement, .disturbance = Matrix{{1.0}}};
         const auto                                 res = design::state_feedback(noisy(), kTs, kW, noise, design::InputDisturbance{}, InputDelay<2>{kTheta});
         REQUIRE(res.success);
         const auto ctrl = res.to_ss();
         static_assert(damp::remove_cvref_t<decltype(ctrl.A)>::rows() == 5); // [x; v(k−1); v(k−2); d]
         const auto model = delayed_model();
         OFLQG      law{res};
-        ColVec<4>  z{0.1, 0.0, 0.0, 0.0};
+        ColVec     z{0.1, 0.0, 0.0, 0.0};
         ColVec<4>  zc = z;
         ColVec<5>  xc{};
         double     worst = 0.0;
@@ -357,7 +357,7 @@ TEST_SUITE("Delayed laws with a filter") {
         // Closed on a plant a period later than the design's: the loop the block makes is the runtime's there too.
         const auto later = discretize(noisy(), kTs, InputDelay<3>{kTheta + kTs}).value();
         OFLQG      late_law{res};
-        ColVec<5>  w{0.1, 0.0, 0.0, 0.0, 0.0};
+        ColVec     w{0.1, 0.0, 0.0, 0.0, 0.0};
         ColVec<5>  wc = w;
         xc = ColVec<5>{};
         worst = 0.0;
@@ -383,7 +383,7 @@ TEST_SUITE("Delayed laws with a filter") {
         LQR       measured{lqr};
         LQG       filtered{lqg};
         ColVec<1> y{};
-        CHECK(gap(measured, filtered, [](auto& law) { return law.control(ColVec<1>{0.5}); }, y) <= 1e-9);
+        CHECK(gap(measured, filtered, [](auto& law) { return law.control(ColVec{0.5}); }, y) <= 1e-9);
         CHECK(y(0) == doctest::Approx(0.5).epsilon(1e-6));
 
         const auto target = design::steady_state_target(noisy(), kTs, design::TrackedOutputs{}, InputDelay<2>{kTheta});
@@ -401,19 +401,19 @@ TEST_SUITE("Delayed laws with a filter") {
         LQI       measured{lqi};
         LQGI      filtered{lqgi};
         ColVec<1> y{};
-        CHECK(gap(measured, filtered, [](auto& law) { return law.control(ColVec<1>{0.3}); }, y) <= 1e-9);
+        CHECK(gap(measured, filtered, [](auto& law) { return law.control(ColVec{0.3}); }, y) <= 1e-9);
         CHECK(y(0) == doctest::Approx(0.3).epsilon(1e-6));
     }
 
     TEST_CASE("OFLQG with an InputDelay holds r against a constant disturbance, through the delay or on the plant at once") {
-        const design::KalmanNoise<2, 1, double, 1> noise{.process = kNoise.process, .measurement = kNoise.measurement, .disturbance = Matrix<1, 1>{{1.0}}};
+        const design::KalmanNoise<2, 1, double, 1> noise{.process = kNoise.process, .measurement = kNoise.measurement, .disturbance = Matrix{{1.0}}};
         const auto                                 model = delayed_model();
         const auto                                 run = [&](const auto& res, const ColVec<4>& on_plant, double at_input) {
             OFLQG     law{res};
             ColVec<4> z{};
             for (int k = 0; k < 600; ++k) {
                 law.update(ColVec<1>(model.C * z));
-                const ColVec<1> u = law.control(ColVec<1>{0.2});
+                const ColVec<1> u = law.control(ColVec{0.2});
                 law.back_calculate(u);
                 law.predict();
                 z = ColVec<4>((model.A * z) + (model.B * ColVec<1>{u(0) + at_input}) + (on_plant * 0.4));
@@ -435,8 +435,8 @@ TEST_SUITE("Delayed laws with a filter") {
 
     TEST_CASE("a constexpr LQG with an InputDelay deploys in float on constants") {
         static constexpr auto kRes = design::state_feedback(
-            noisy(), 0.01, {.Q = Matrix<2, 2>{{10.0, 0.0}, {0.0, 1.0}}, .R = Matrix<1, 1>{{0.1}}},
-            design::KalmanNoise{.process = Matrix<2, 2>{{0.01, 0.0}, {0.0, 0.1}}, .measurement = Matrix<1, 1>{{1e-4}}},
+            noisy(), 0.01, {.Q = Matrix{{10.0, 0.0}, {0.0, 1.0}}, .R = Matrix{{0.1}}},
+            design::KalmanNoise{.process = Matrix{{0.01, 0.0}, {0.0, 0.1}}, .measurement = Matrix{{1e-4}}},
             InputDelay<3>{0.022}
         );
         static_assert(kRes.success);
@@ -472,7 +472,7 @@ concept has_delay_gain = requires(const R& r) { r.delay_gain(); };
 } // namespace
 
 TEST_CASE("state_gain, delay_gain and integral_gain are K's columns on x, the delay states and xi") {
-    constexpr design::LQRWeights     w{.Q = Matrix<2, 2>{{10.0, 0.0}, {0.0, 1.0}}, .R = {0.1}};
+    constexpr design::LQRWeights     w{.Q = Matrix{{10.0, 0.0}, {0.0, 1.0}}, .R = {0.1}};
     constexpr design::IntegralAction ia{.Q = 5.0};
     constexpr auto                   res = design::state_feedback(plant(), kTs, w, InputDelay<2>{kTheta}, ia); // K on [x(2); v(k-1), v(k-2); xi]
     static_assert(res.success);
@@ -481,7 +481,7 @@ TEST_CASE("state_gain, delay_gain and integral_gain are K's columns on x, the de
     static_assert(res.integral_gain()(0, 0) == res.K(0, 4));
 
     //! A part the law does not have is not there: no delay states without a delay, no integrators on an LQR.
-    constexpr auto lqr = design::state_feedback(plant(), kTs, design::LQRWeights{.Q = Matrix<2, 2>{{10.0, 0.0}, {0.0, 1.0}}, .R = {0.1}});
+    constexpr auto lqr = design::state_feedback(plant(), kTs, design::LQRWeights{.Q = Matrix{{10.0, 0.0}, {0.0, 1.0}}, .R = {0.1}});
     static_assert(lqr.success && lqr.state_gain() == lqr.K);
     static_assert(!has_integral_gain<decltype(lqr)> && !has_delay_gain<decltype(lqr)>);
     constexpr auto undelayed = design::state_feedback(plant(), kTs, w, ia);
@@ -490,7 +490,7 @@ TEST_CASE("state_gain, delay_gain and integral_gain are K's columns on x, the de
 }
 
 TEST_CASE("the designs take their features as trailing options, in any order") {
-    constexpr design::LQRWeights lq{.Q = Matrix<2, 2>{{10.0, 0.0}, {0.0, 1.0}}, .R = {0.1}};
+    constexpr design::LQRWeights lq{.Q = Matrix{{10.0, 0.0}, {0.0, 1.0}}, .R = {0.1}};
     constexpr InputDelay<2>      late{kTheta};
 
     //! The integrators listed and the delay, either way round, are the same design.
@@ -498,7 +498,7 @@ TEST_CASE("the designs take their features as trailing options, in any order") {
     static_assert(design::state_feedback(plant(), kTs, lq, late, design::IntegralAction{.Q = 5.0}).K == design::state_feedback(plant(), kTs, lq, late, design::IntegralAction{.Q = 5.0, .outputs = {0}}).K); // every output, by default
 
     //! The disturbance and the delay, of the filter, its target and the offset-free law.
-    constexpr design::KalmanNoise<2, 1, double, 1> noise{.process = Matrix<2, 2>{{1e-3, 0.0}, {0.0, 1e-2}}, .measurement = 1e-3, .disturbance = 1e-2};
+    constexpr design::KalmanNoise<2, 1, double, 1> noise{.process = Matrix{{1e-3, 0.0}, {0.0, 1e-2}}, .measurement = 1e-3, .disturbance = 1e-2};
     static_assert(design::kalman(plant(), kTs, noise, design::InputDisturbance{}, late).M == design::kalman(plant(), kTs, noise, late, design::InputDisturbance{}).M);
     static_assert(design::steady_state_target(plant(), kTs, design::InputDisturbance{}, late).target_d == design::steady_state_target(plant(), kTs, design::InputDisturbance{}, late).target_d);
     constexpr auto ab = design::state_feedback(plant(), kTs, lq, noise, design::InputDisturbance{}, late);

@@ -23,22 +23,22 @@ using Cplx = damp::complex<double>;
 
 // P(s) = 1/(s + 1).
 constexpr StateSpace kLag{
-    .A = Matrix<1, 1>{{-1.0}},
-    .B = Matrix<1, 1>{{1.0}},
-    .C = Matrix<1, 1>{{1.0}},
-    .D = Matrix<1, 1>{{0.0}},
+    .A = Matrix{{-1.0}},
+    .B = Matrix{{1.0}},
+    .C = Matrix{{1.0}},
+    .D = Matrix{{0.0}},
 };
 
 constexpr design::PIDGains<double> kPI{.Kp = 2.0, .Ki = 3.0};
 
 // A coupled 2×2 plant and a static 2×2 controller.
 constexpr StateSpace kPlant2{
-    .A = Matrix<2, 2>{{-1.0, 0.4}, {0.0, -2.0}},
-    .B = Matrix<2, 2>{{1.0, 0.0}, {0.3, 1.0}},
-    .C = Matrix<2, 2>{{1.0, 0.5}, {0.2, 1.0}},
-    .D = Matrix<2, 2>{{0.0, 0.1}, {0.0, 0.0}},
+    .A = Matrix{{-1.0, 0.4}, {0.0, -2.0}},
+    .B = Matrix{{1.0, 0.0}, {0.3, 1.0}},
+    .C = Matrix{{1.0, 0.5}, {0.2, 1.0}},
+    .D = Matrix{{0.0, 0.1}, {0.0, 0.0}},
 };
-constexpr StateSpace<0, 2, 2> kGain2{.D = Matrix<2, 2>{{2.0, 0.3}, {0.1, 1.5}}};
+constexpr StateSpace<0, 2, 2> kGain2{.D = Matrix{{2.0, 0.3}, {0.1, 1.5}}};
 
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
 Matrix<NY, NU, Cplx> frf(const StateSpace<NX, NU, NY, T, NW, NV>& sys, Cplx s) {
@@ -110,10 +110,10 @@ TEST_SUITE("Gang of four") {
     TEST_CASE("Peak sensitivity from norm_hinf bounds a dense grid from above") {
         // P = 1/(s + 1)², C = 20: closed-loop ζ = 1/√21, so |S| peaks above 1 at a finite frequency.
         constexpr StateSpace lag2{
-            .A = Matrix<2, 2>{{-1.0, 1.0}, {0.0, -1.0}},
-            .B = Matrix<2, 1>{{0.0}, {1.0}},
-            .C = Matrix<1, 2>{{1.0, 0.0}},
-            .D = Matrix<1, 1>{{0.0}},
+            .A = Matrix{{-1.0, 1.0}, {0.0, -1.0}},
+            .B = Matrix{{0.0}, {1.0}},
+            .C = Matrix{{1.0, 0.0}},
+            .D = Matrix{{0.0}},
         };
         const auto g = analysis::gang_of_four(lag2, ss_gain(20.0));
         const auto Ms = analysis::norm_hinf(g.sensitivity);
@@ -130,10 +130,10 @@ TEST_SUITE("Gang of four") {
 
     TEST_CASE("Unstable closed loop: success, not stable, and norm_hinf refuses") {
         constexpr StateSpace unstable{
-            .A = Matrix<1, 1>{{1.0}},
-            .B = Matrix<1, 1>{{1.0}},
-            .C = Matrix<1, 1>{{1.0}},
-            .D = Matrix<1, 1>{{0.0}},
+            .A = Matrix{{1.0}},
+            .B = Matrix{{1.0}},
+            .C = Matrix{{1.0}},
+            .D = Matrix{{0.0}},
         };
         const auto g = analysis::gang_of_four(unstable, ss_gain(0.5)); // closed-loop pole at +0.5
         CHECK(g.success);
@@ -146,7 +146,7 @@ TEST_SUITE("Gang of four") {
         Cd.Ts = 0.1;
         CHECK_FALSE(analysis::gang_of_four(kLag, Cd).success);
 
-        const StateSpace<0, 1, 1> unit{.D = Matrix<1, 1>{{1.0}}};
+        const StateSpace<0, 1, 1> unit{.D = Matrix{{1.0}}};
         const auto                ill_posed = analysis::gang_of_four(unit, ss_gain(-1.0)); // 1 + PC = 0
         CHECK_FALSE(ill_posed.success);
         CHECK_FALSE(ill_posed.stable);

@@ -38,9 +38,9 @@ using namespace damp;
 TEST_SUITE("matlab") {
 
     TEST_CASE("Blkdiag") {
-        Matrix<2, 2> mat1 = {{1, 2}, {3, 4}};
-        Matrix<3, 3> mat2 = {{5, 6, 7}, {8, 9, 10}, {11, 12, 13}};
-        Matrix<1, 1> mat3 = {{14}};
+        Matrix mat1 = {{1, 2}, {3, 4}};
+        Matrix mat2 = {{5, 6, 7}, {8, 9, 10}, {11, 12, 13}};
+        Matrix mat3 = {{14}};
 
         auto block_diag = matlab::blkdiag(mat1, mat2, mat3);
 
@@ -80,8 +80,8 @@ TEST_SUITE("matlab") {
 
     TEST_CASE("Place - Pole placement for single input") {
         // Simple 2x2 system
-        Matrix<2, 2> A = {{0, 1}, {-1, -2}};
-        Matrix<2, 1> B = {{0}, {1}};
+        Matrix A = {{0, 1}, {-1, -2}};
+        Matrix B = {{0}, {1}};
 
         auto poles = std::array<damp::complex<double>, 2>{
             damp::complex<double>{-3.0, 0.0},
@@ -113,8 +113,8 @@ TEST_SUITE("matlab") {
 
     TEST_CASE("Place - Pole placement with std::complex poles") {
         // Simple 2x2 system
-        Matrix<2, 2> A = {{0, 1}, {-1, -2}};
-        Matrix<2, 1> B = {{0}, {1}};
+        Matrix A = {{0, 1}, {-1, -2}};
+        Matrix B = {{0}, {1}};
 
         auto poles = std::array{std::complex<double>(-3, 0), std::complex<double>(-4, 0)}; // Desired closed-loop poles
 
@@ -135,8 +135,8 @@ TEST_SUITE("matlab") {
 
     TEST_CASE("Place - Pole placement with damp::complex poles") {
         // Simple 2x2 system
-        Matrix<2, 2> A = {{0, 1}, {-1, -2}};
-        Matrix<2, 1> B = {{0}, {1}};
+        Matrix A = {{0, 1}, {-1, -2}};
+        Matrix B = {{0}, {1}};
 
         auto poles = std::array{damp::complex<double>(-3, 0), damp::complex<double>(-4, 0)}; // Desired closed-loop poles
 
@@ -157,10 +157,10 @@ TEST_SUITE("matlab") {
 
     TEST_CASE("PID Tune") {
         // Simple second-order plant: G(s) = 1/(s^2 + 0.5s + 1)
-        Matrix<2, 2, double> A = {{0, 1}, {-1, -0.5}};
-        Matrix<2, 1, double> B = {{0}, {1}};
-        Matrix<1, 2, double> C = {{1, 0}};
-        Matrix<1, 1, double> D = {{0}};
+        Matrix A = {{0.0, 1.0}, {-1.0, -0.5}};
+        Matrix B = {{0}, {1}};
+        Matrix C = {{1, 0}};
+        Matrix D = {{0}};
 
         StateSpace<2, 1, 1> sys{A, B, C, D};
 
@@ -193,9 +193,9 @@ TEST_SUITE("matlab") {
     }
 
     TEST_CASE("MATLAB® structural analysis aliases") {
-        Matrix<2, 2> A{{0.0, 1.0}, {-2.0, -3.0}};
-        Matrix<2, 1> B{{0.0}, {1.0}};
-        Matrix<1, 2> C{{1.0, 0.0}};
+        Matrix A{{0.0, 1.0}, {-2.0, -3.0}};
+        Matrix B{{0.0}, {1.0}};
+        Matrix C{{1.0, 0.0}};
 
         auto Co_short = matlab::ctrb(A, B);
         auto Ob_short = matlab::obsv(A, C);
@@ -208,8 +208,8 @@ TEST_SUITE("matlab") {
 
     TEST_CASE("MATLAB® eig alias") {
         // A = [0 1; -2 -3] has eigenvalues -1 and -2.
-        Matrix<2, 2> A{{0.0, 1.0}, {-2.0, -3.0}};
-        const auto   e = matlab::eig(A);
+        Matrix     A{{0.0, 1.0}, {-2.0, -3.0}};
+        const auto e = matlab::eig(A);
         REQUIRE(e.has_value());
         // the 2x2 closed form returns (trace+sqrt)/2 first → -1, then -2
         CHECK((*e)[0].real() == doctest::Approx(-1.0));
@@ -221,10 +221,10 @@ TEST_SUITE("matlab") {
 
     TEST_CASE("MATLAB® expm, sqrtm and logm aliases") {
         // A = diag(1, 4): expm = diag(e, e⁴), sqrtm = diag(1, 2), logm = diag(0, ln 4).
-        const Matrix<2, 2> A{{1.0, 0.0}, {0.0, 4.0}};
-        const auto         E = matlab::expm(A);
-        const auto         S = matlab::sqrtm(A);
-        const auto         L = matlab::logm(A);
+        const Matrix A{{1.0, 0.0}, {0.0, 4.0}};
+        const auto   E = matlab::expm(A);
+        const auto   S = matlab::sqrtm(A);
+        const auto   L = matlab::logm(A);
         REQUIRE(E);
         REQUIRE(S);
         REQUIRE(L);
@@ -233,7 +233,7 @@ TEST_SUITE("matlab") {
         CHECK(*L == *mat::log(A));
         CHECK((*S)(1, 1) == doctest::Approx(2.0));
         CHECK((*L)(1, 1) == doctest::Approx(std::log(4.0)));
-        CHECK_FALSE(matlab::sqrtm(Matrix<2, 2>{{-1.0, 0.0}, {0.0, 1.0}}));
+        CHECK_FALSE(matlab::sqrtm(Matrix{{-1.0, 0.0}, {0.0, 1.0}}));
     }
 
     TEST_CASE("MATLAB® tf helper") {
@@ -358,9 +358,9 @@ TEST_SUITE("matlab") {
         // A mode coupled at 1e-10 on both B and C (1e-10 after balancing too) sits between √ε and
         // 1e-12: the alias once kept it while design::minreal removed it.
         const StateSpace weak{
-            .A = Matrix<2, 2>{{-1.0, 0.0}, {0.0, -2.0}},
-            .B = Matrix<2, 1>{{1.0}, {1e-10}},
-            .C = Matrix<1, 2>{{1.0, 1e-10}},
+            .A = Matrix{{-1.0, 0.0}, {0.0, -2.0}},
+            .B = Matrix{{1.0}, {1e-10}},
+            .C = Matrix{{1.0, 1e-10}},
         };
         CHECK(matlab::minreal(weak).order == design::minreal(weak).order);
         CHECK(matlab::minreal(weak).order == 1);
@@ -368,13 +368,13 @@ TEST_SUITE("matlab") {
 
     TEST_CASE("MATLAB® estim carries Ts and places the estimator poles at eig(A − LC)") {
         const StateSpace plant{
-            .A = Matrix<2, 2>{{1.0, 0.1}, {0.0, 1.0}},
-            .B = Matrix<2, 1>{{0.005}, {0.1}},
-            .C = Matrix<1, 2>{{1.0, 0.0}},
+            .A = Matrix{{1.0, 0.1}, {0.0, 1.0}},
+            .B = Matrix{{0.005}, {0.1}},
+            .C = Matrix{{1.0, 0.0}},
             .Ts = 0.1,
         };
-        const Matrix<2, 1> L{{0.9}, {2.0}};
-        const auto         est = matlab::estim(plant, L);
+        const Matrix L{{0.9}, {2.0}};
+        const auto   est = matlab::estim(plant, L);
         CHECK(est.Ts == doctest::Approx(0.1));
         CHECK(est.is_discrete());
         const Matrix<2, 2> Acl = plant.A - (L * plant.C);
@@ -385,12 +385,12 @@ TEST_SUITE("matlab") {
 
     TEST_CASE("MATLAB® lqry matches dlqr with Q = C' Qy C") {
         // Double integrator (continuous), then discretize for discrete_lqr path
-        Matrix<2, 2> A{{0.0, 1.0}, {0.0, 0.0}};
-        Matrix<2, 1> B{{0.0}, {1.0}};
-        Matrix<1, 2> C{{1.0, 0.0}};
-        Matrix<1, 1> D{{0.0}};
-        Matrix<1, 1> Qy{{4.0}};
-        Matrix<1, 1> R{{1.0}};
+        Matrix A{{0.0, 1.0}, {0.0, 0.0}};
+        Matrix B{{0.0}, {1.0}};
+        Matrix C{{1.0, 0.0}};
+        Matrix D{{0.0}};
+        Matrix Qy{{4.0}};
+        Matrix R{{1.0}};
 
         // Continuous output-weighted LQR
         auto cont = matlab::lqry(A, B, C, D, Qy, R);
@@ -435,35 +435,35 @@ TEST_SUITE("matlab") {
 
     TEST_CASE("MATLAB® isstable continuous and discrete") {
         // Stable continuous: poles at -1, -2
-        Matrix<2, 2> A_stable{{0.0, 1.0}, {-2.0, -3.0}};
+        Matrix A_stable{{0.0, 1.0}, {-2.0, -3.0}};
         CHECK(matlab::isstable(StateSpace<2, 1, 1>{.A = A_stable}));
 
         // Unstable continuous: pole at +1
-        Matrix<2, 2> A_unstable{{0.0, 1.0}, {1.0, 0.0}};
+        Matrix A_unstable{{0.0, 1.0}, {1.0, 0.0}};
         CHECK_FALSE(matlab::isstable(StateSpace<2, 1, 1>{.A = A_unstable}));
 
         StateSpace sys_c{
             .A = A_stable,
-            .B = Matrix<2, 1>{{0.0}, {1.0}},
-            .C = Matrix<1, 2>{{1.0, 0.0}},
-            .D = Matrix<1, 1>{{0.0}},
+            .B = Matrix{{0.0}, {1.0}},
+            .C = Matrix{{1.0, 0.0}},
+            .D = Matrix{{0.0}},
             .Ts = 0.0
         };
         CHECK(matlab::isstable(sys_c));
 
         // Discrete stable: |λ| < 1
-        Matrix<2, 2> Ad{{0.5, 0.1}, {0.0, 0.8}};
-        StateSpace   sys_d{
+        Matrix     Ad{{0.5, 0.1}, {0.0, 0.8}};
+        StateSpace sys_d{
             .A = Ad,
-            .B = Matrix<2, 1>{{0.0}, {1.0}},
-            .C = Matrix<1, 2>{{1.0, 0.0}},
-            .D = Matrix<1, 1>{{0.0}},
+            .B = Matrix{{0.0}, {1.0}},
+            .C = Matrix{{1.0, 0.0}},
+            .D = Matrix{{0.0}},
             .Ts = 0.01
         };
         CHECK(matlab::isstable(sys_d));
 
         // Discrete unstable
-        sys_d.A = Matrix<2, 2>{{1.2, 0.0}, {0.0, 0.5}};
+        sys_d.A = Matrix{{1.2, 0.0}, {0.0, 0.5}};
         CHECK_FALSE(matlab::isstable(sys_d));
     }
 
@@ -499,14 +499,14 @@ TEST_SUITE("matlab") {
 
 
     TEST_CASE("matlab::reg builds the y→u compensator (separation principle)") {
-        const Matrix<2, 2> A{{0.0, 1.0}, {2.0, -1.0}};
-        const Matrix<2, 1> B{{0.0}, {1.0}};
-        const Matrix<1, 2> C{{1.0, 0.0}};
-        const Matrix<1, 1> D{{0.5}};
-        const auto         sys = matlab::ss(A, B, C, D);
-        const Matrix<1, 2> K{{8.0, 4.0}};    // eig(A − BK) = {−2, −3}
-        const Matrix<2, 1> L{{9.0}, {17.0}}; // eig(A − LC) = {−4, −6}
-        const auto         rsys = matlab::reg(sys, K, L);
+        const Matrix A{{0.0, 1.0}, {2.0, -1.0}};
+        const Matrix B{{0.0}, {1.0}};
+        const Matrix C{{1.0, 0.0}};
+        const Matrix D{{0.5}};
+        const auto   sys = matlab::ss(A, B, C, D);
+        const Matrix K{{8.0, 4.0}};    // eig(A − BK) = {−2, −3}
+        const Matrix L{{9.0}, {17.0}}; // eig(A − LC) = {−4, −6}
+        const auto   rsys = matlab::reg(sys, K, L);
         // Close the loop: plant u = C_r ξ + D_r y, compensator input y.
         Matrix<4, 4> Acl{};
         Acl.template block<2, 2>(0, 0) = A;
@@ -527,8 +527,8 @@ TEST_SUITE("matlab") {
     }
 
     TEST_CASE("matlab::lqi / lqg refuse a continuous plant") {
-        const auto sys = matlab::ss(Matrix<1, 1>{{-1.0}}, Matrix<1, 1>{{1.0}}, Matrix<1, 1>{{1.0}});
-        CHECK_FALSE(matlab::lqi(sys, Matrix<2, 2>::identity(), Matrix<1, 1>{{1.0}}).success);
+        const auto sys = matlab::ss(Matrix{{-1.0}}, Matrix{{1.0}}, Matrix{{1.0}});
+        CHECK_FALSE(matlab::lqi(sys, Matrix<2, 2>::identity(), Matrix{{1.0}}).success);
     }
 
     TEST_CASE("matlab::pidstd default N is MATLAB's (no derivative filter)") {
@@ -538,18 +538,18 @@ TEST_SUITE("matlab") {
 
     TEST_CASE("matlab::lqr is fail-closed") {
         // Unstable, uncontrollable mode: no stabilizing gain exists.
-        const Matrix<2, 2> A{{1.0, 0.0}, {0.0, -1.0}};
-        const Matrix<2, 1> B{{0.0}, {1.0}};
-        CHECK_FALSE(matlab::lqr(A, B, Matrix<2, 2>::identity(), Matrix<1, 1>{{1.0}}).success);
+        const Matrix A{{1.0, 0.0}, {0.0, -1.0}};
+        const Matrix B{{0.0}, {1.0}};
+        CHECK_FALSE(matlab::lqr(A, B, Matrix<2, 2>::identity(), Matrix{{1.0}}).success);
     }
 } // TEST_SUITE("matlab")
 
 TEST_SUITE("MATLAB®-Style Control Design API") {
     TEST_CASE("lqr returns the continuous_lqr result") {
-        const Matrix<2, 2> A{{0.0, 1.0}, {0.0, 0.0}};
-        const Matrix<2, 1> B{{0.0}, {1.0}};
+        const Matrix       A{{0.0, 1.0}, {0.0, 0.0}};
+        const Matrix       B{{0.0}, {1.0}};
         const Matrix<2, 2> Q = Matrix<2, 2>::identity();
-        const Matrix<1, 1> R{{1.0}};
+        const Matrix       R{{1.0}};
 
         const auto result = matlab::lqr(A, B, Q, R);
         const auto ref = design::continuous_lqr(A, B, Q, R);
@@ -562,10 +562,10 @@ TEST_SUITE("MATLAB®-Style Control Design API") {
         CHECK(result.S(1, 1) == doctest::Approx(ref.S(1, 1)));
 
         // Uncontrollable unstable mode: no stabilizing gain. The Result fails closed.
-        const Matrix<2, 2> Au{{1.0, 0.0}, {0.0, -1.0}};
-        const Matrix<2, 1> Bu{{0.0}, {1.0}};
-        const auto         bad = matlab::lqr(Au, Bu, Matrix<2, 2>::identity(), Matrix<1, 1>{{1.0}});
-        const auto         bad_ref = design::continuous_lqr(Au, Bu, Matrix<2, 2>::identity(), Matrix<1, 1>{{1.0}});
+        const Matrix Au{{1.0, 0.0}, {0.0, -1.0}};
+        const Matrix Bu{{0.0}, {1.0}};
+        const auto   bad = matlab::lqr(Au, Bu, Matrix<2, 2>::identity(), Matrix{{1.0}});
+        const auto   bad_ref = design::continuous_lqr(Au, Bu, Matrix<2, 2>::identity(), Matrix{{1.0}});
         CHECK_FALSE(bad.success);
         CHECK(bad.status == bad_ref.status);
         CHECK(bad.status != design::DesignStatus::ok);
@@ -577,8 +577,8 @@ TEST_SUITE("MATLAB®-Style Control Design API") {
         constexpr double Ts = 0.1;
         Matrix<2, 2>     Ad{{1.0, Ts}, {0.0, 1.0}};
         Matrix<2, 1>     Bd{{Ts * Ts / 2}, {Ts}};
-        Matrix<2, 2>     Q{{1.0, 0.0}, {0.0, 1.0}};
-        Matrix<1, 1>     R{{0.1}};
+        Matrix           Q{{1.0, 0.0}, {0.0, 1.0}};
+        Matrix           R{{0.1}};
 
         auto result = matlab::dlqr(Ad, Bd, Q, R);
 
@@ -593,10 +593,10 @@ TEST_SUITE("MATLAB®-Style Control Design API") {
 
     // Test lqrd: discrete LQR from a continuous-time system
     TEST_CASE("lqrd: discrete LQR from continuous design") {
-        Matrix<2, 2> A{{0.0, 1.0}, {0.0, 0.0}}; // continuous double integrator
-        Matrix<2, 1> B{{0.0}, {1.0}};
+        Matrix       A{{0.0, 1.0}, {0.0, 0.0}}; // continuous double integrator
+        Matrix       B{{0.0}, {1.0}};
         Matrix<2, 2> Q = Matrix<2, 2>::identity();
-        Matrix<1, 1> R{{1.0}};
+        Matrix       R{{1.0}};
 
         auto result = matlab::lqrd(A, B, Q, R, 0.1);
 
@@ -606,13 +606,13 @@ TEST_SUITE("MATLAB®-Style Control Design API") {
     }
 
     TEST_CASE("dlqe: matrix form forwards to design::kalman with G and H = I") {
-        const Matrix<2, 2> A{{0.9, 0.1}, {0.0, 0.8}};
+        const Matrix       A{{0.9, 0.1}, {0.0, 0.8}};
         const Matrix<2, 2> G = Matrix<2, 2>::identity();
-        const Matrix<1, 2> C{{1.0, 0.0}};
+        const Matrix       C{{1.0, 0.0}};
         const Matrix<2, 2> Q = Matrix<2, 2>::diagonal({0.1, 0.1});
-        const Matrix<1, 1> R{{0.5}};
+        const Matrix       R{{0.5}};
 
-        const StateSpace<2, 1, 1, double, 2, 1> sys{.A = A, .C = C, .G = G, .H = Matrix<1, 1>{{1.0}}, .Ts = 0.01};
+        const StateSpace<2, 1, 1, double, 2, 1> sys{.A = A, .C = C, .G = G, .H = Matrix{{1.0}}, .Ts = 0.01};
         const auto                              via_kalman = design::kalman(sys, design::KalmanNoise{.process = Q, .measurement = R});
         const auto                              via_dlqe = matlab::dlqe(A, G, C, Q, R);
         REQUIRE(via_kalman.success);
@@ -624,7 +624,7 @@ TEST_SUITE("MATLAB®-Style Control Design API") {
     }
 
     TEST_CASE("d2d / upsample: forward to resample / upsample") {
-        constexpr StateSpace sys{.A = Matrix<1, 1>{{0.9}}, .B = Matrix<1, 1>{{0.1}}, .C = Matrix<1, 1>{{1.0}}, .Ts = 0.1};
+        constexpr StateSpace sys{.A = Matrix{{0.9}}, .B = Matrix{{0.1}}, .C = Matrix{{1.0}}, .Ts = 0.1};
         constexpr auto       slow = matlab::d2d(sys, 0.2);
         static_assert(slow.has_value() && slow->Ts == 0.2);
         CHECK(slow->A(0, 0) == doctest::Approx(0.81));
@@ -636,13 +636,13 @@ TEST_SUITE("MATLAB®-Style Control Design API") {
 
     TEST_CASE("kalmd: MATLAB's Rn/Ts, then forwards to design::kalman(sys, Ts, noise)") {
         constexpr StateSpace sys{
-            .A = Matrix<2, 2>{{0.0, 1.0}, {-2.0, -0.5}},
-            .B = Matrix<2, 1>{{0.0}, {1.0}},
-            .C = Matrix<1, 2>{{1.0, 0.0}},
-            .G = Matrix<2, 1>{{0.0}, {1.0}},
-            .H = Matrix<1, 1>{{1.0}},
+            .A = Matrix{{0.0, 1.0}, {-2.0, -0.5}},
+            .B = Matrix{{0.0}, {1.0}},
+            .C = Matrix{{1.0, 0.0}},
+            .G = Matrix{{0.0}, {1.0}},
+            .H = Matrix{{1.0}},
         };
-        constexpr auto kest = matlab::kalmd(sys, Matrix<1, 1>{{0.3}}, Matrix<1, 1>{{0.02}}, 0.1);
+        constexpr auto kest = matlab::kalmd(sys, Matrix{{0.3}}, Matrix{{0.02}}, 0.1);
         static_assert(kest.success);
         CHECK(kest.R(0, 0) == doctest::Approx(0.2).epsilon(1e-14));                // Rd = Rn/Ts, as kalmd
         CHECK(kest.M(0, 0) == doctest::Approx(0.15876599438771183).epsilon(1e-9)); // SciPy, see test_kalman.cpp
@@ -657,7 +657,7 @@ TEST_SUITE("MATLAB®-Style Control Design API") {
         CHECK(unscaled.M(0, 0) > kest.M(0, 0));
 
         //! A bad Ts is refused, not divided by.
-        constexpr auto bad = matlab::kalmd(sys, Matrix<1, 1>{{0.3}}, Matrix<1, 1>{{0.02}}, 0.0);
+        constexpr auto bad = matlab::kalmd(sys, Matrix{{0.3}}, Matrix{{0.02}}, 0.0);
         static_assert(bad.status == design::DesignStatus::invalid_sample_time);
     }
 
@@ -665,9 +665,9 @@ TEST_SUITE("MATLAB®-Style Control Design API") {
     TEST_CASE("lqi: LQI controller design") {
         // lqi is a discrete design: ZOH double integrator at Ts = 0.1.
         StateSpace<2, 1, 1, double, 2, 1> sys{
-            .A = Matrix<2, 2>{{1.0, 0.1}, {0.0, 1.0}},
-            .B = Matrix<2, 1>{{0.005}, {0.1}},
-            .C = Matrix<1, 2>{{1.0, 0.0}}, // position output
+            .A = Matrix{{1.0, 0.1}, {0.0, 1.0}},
+            .B = Matrix{{0.005}, {0.1}},
+            .C = Matrix{{1.0, 0.0}}, // position output
             .Ts = 0.1,
         };
 
@@ -676,7 +676,7 @@ TEST_SUITE("MATLAB®-Style Control Design API") {
         Q_aug(0, 0) = 1.0;  // position
         Q_aug(1, 1) = 1.0;  // velocity
         Q_aug(2, 2) = 10.0; // integral (high weight for tracking)
-        Matrix<1, 1> R{{0.1}};
+        Matrix R{{0.1}};
 
         auto lqi_result = matlab::lqi(sys, Q_aug, R);
 
@@ -689,9 +689,9 @@ TEST_SUITE("MATLAB®-Style Control Design API") {
     // Test lqg: LQG regulator design
     TEST_CASE("lqg: LQG regulator design") {
         StateSpace sys{
-            .A = Matrix<2, 2>{{1.0, 0.1}, {0.0, 1.0}}, // discrete double integrator
-            .B = Matrix<2, 1>{{0.005}, {0.1}},
-            .C = Matrix<1, 2>{{1.0, 0.0}},
+            .A = Matrix{{1.0, 0.1}, {0.0, 1.0}}, // discrete double integrator
+            .B = Matrix{{0.005}, {0.1}},
+            .C = Matrix{{1.0, 0.0}},
             .D = Matrix<1, 1>::zeros(),
             .G = Matrix<2, 2>::identity(),
             .H = Matrix<1, 1>::identity(),
@@ -699,9 +699,9 @@ TEST_SUITE("MATLAB®-Style Control Design API") {
         };
 
         Matrix<2, 2> Q_lqr = Matrix<2, 2>::identity();
-        Matrix<1, 1> R_lqr{{0.1}};
-        Matrix<2, 2> Q_kf{{0.01, 0.0}, {0.0, 0.01}};
-        Matrix<1, 1> R_kf{{0.1}};
+        Matrix       R_lqr{{0.1}};
+        Matrix       Q_kf{{0.01, 0.0}, {0.0, 0.01}};
+        Matrix       R_kf{{0.1}};
 
         auto lqg_result = matlab::lqg(sys, Q_lqr, R_lqr, Q_kf, R_kf);
 
@@ -713,9 +713,9 @@ TEST_SUITE("MATLAB®-Style Control Design API") {
     // Test lqgtrack: LQG servo controller
     TEST_CASE("lqgtrack: LQG servo design") {
         StateSpace sys{
-            Matrix<2, 2>{{1.0, 0.1}, {0.0, 1.0}},
-            Matrix<2, 1>{{0.005}, {0.1}},
-            Matrix<1, 2>{{1.0, 0.0}},
+            Matrix{{1.0, 0.1}, {0.0, 1.0}},
+            Matrix{{0.005}, {0.1}},
+            Matrix{{1.0, 0.0}},
             Matrix<1, 1>::zeros(),
             Matrix<2, 2>::identity(),
             Matrix<1, 1>::identity(),
@@ -726,9 +726,9 @@ TEST_SUITE("MATLAB®-Style Control Design API") {
         Q_aug(0, 0) = 1.0;
         Q_aug(1, 1) = 1.0;
         Q_aug(2, 2) = 10.0;
-        Matrix<1, 1> R{{0.1}};
-        Matrix<2, 2> Q_kf{{0.01, 0.0}, {0.0, 0.01}};
-        Matrix<1, 1> R_kf{{0.1}};
+        Matrix R{{0.1}};
+        Matrix Q_kf{{0.01, 0.0}, {0.0, 0.01}};
+        Matrix R_kf{{0.1}};
 
         auto servo_result = matlab::lqgtrack(sys, Q_aug, R, Q_kf, R_kf);
 
@@ -741,18 +741,18 @@ TEST_SUITE("MATLAB®-Style Control Design API") {
     TEST_CASE("lqi / lqgtrack integrate a subset of the outputs, same argument as the design calls") {
         // Position and velocity sensors; integrate the position only.
         const StateSpace sys{
-            .A = Matrix<2, 2>{{1.0, 0.1}, {0.0, 1.0}},
-            .B = Matrix<2, 1>{{0.005}, {0.1}},
+            .A = Matrix{{1.0, 0.1}, {0.0, 1.0}},
+            .B = Matrix{{0.005}, {0.1}},
             .C = Matrix<2, 2>::identity(),
             .G = Matrix<2, 2>::identity(),
             .H = Matrix<2, 2>::identity(),
             .Ts = 0.1,
         };
-        const Matrix<3, 3> Q_aug{{1.0, 0.0, 0.0}, {0.0, 1.0, 0.0}, {0.0, 0.0, 10.0}};
-        const Matrix<1, 1> R{{0.1}};
-        const Matrix<2, 2> Q_kf{{0.01, 0.0}, {0.0, 0.01}};
-        const Matrix<2, 2> R_kf{{0.1, 0.0}, {0.0, 0.1}};
-        const Matrix<1, 2> pick_position{{1.0, 0.0}};
+        const Matrix Q_aug{{1.0, 0.0, 0.0}, {0.0, 1.0, 0.0}, {0.0, 0.0, 10.0}};
+        const Matrix R{{0.1}};
+        const Matrix Q_kf{{0.01, 0.0}, {0.0, 0.01}};
+        const Matrix R_kf{{0.1, 0.0}, {0.0, 0.1}};
+        const Matrix pick_position{{1.0, 0.0}};
 
         const auto direct = design::state_feedback(sys, {.Q = Matrix<2, 2>::identity(), .R = R}, design::IntegralAction{.Q = 10.0, .outputs = {0}});
         const auto by_index = matlab::lqi(sys, Q_aug, R, {0});
@@ -785,9 +785,9 @@ TEST_SUITE("MATLAB®-Style Control Design API") {
     // Test lqgreg: Form LQG from Kalman and LQR results
     TEST_CASE("lqgreg: combine Kalman result and LQR result") {
         StateSpace sys{
-            .A = Matrix<2, 2>{{1.0, 0.1}, {0.0, 1.0}},
-            .B = Matrix<2, 1>{{0.005}, {0.1}},
-            .C = Matrix<1, 2>{{1.0, 0.0}},
+            .A = Matrix{{1.0, 0.1}, {0.0, 1.0}},
+            .B = Matrix{{0.005}, {0.1}},
+            .C = Matrix{{1.0, 0.0}},
             .D = Matrix<1, 1>::zeros(),
             .G = Matrix<2, 2>::identity(),
             .H = Matrix<1, 1>::identity(),
@@ -795,13 +795,13 @@ TEST_SUITE("MATLAB®-Style Control Design API") {
         };
 
         // Create Kalman result
-        Matrix<2, 2> Q_kf{{0.01, 0.0}, {0.0, 0.01}};
-        Matrix<1, 1> R_kf{{0.1}};
-        auto         kf_result = design::kalman(sys, design::KalmanNoise{.process = Q_kf, .measurement = R_kf});
+        Matrix Q_kf{{0.01, 0.0}, {0.0, 0.01}};
+        Matrix R_kf{{0.1}};
+        auto   kf_result = design::kalman(sys, design::KalmanNoise{.process = Q_kf, .measurement = R_kf});
 
         // The regulator on the same discrete plant
         Matrix<2, 2> Q_lqr = Matrix<2, 2>::identity();
-        Matrix<1, 1> R_lqr{{0.1}};
+        Matrix       R_lqr{{0.1}};
         auto         lqr_result = design::state_feedback(sys, {.Q = Q_lqr, .R = R_lqr});
 
         auto lqg_result = matlab::lqgreg(kf_result, lqr_result);
@@ -824,10 +824,10 @@ TEST_SUITE("MATLAB®-Style Control Design API") {
     // Test compile-time design (consteval)
     TEST_CASE("design:: consteval functions compile") {
         // This test verifies that design:: functions can be evaluated at compile time
-        constexpr Matrix<2, 2> Ad{{1.0, 0.1}, {0.0, 1.0}};
-        constexpr Matrix<2, 1> Bd{{0.005}, {0.1}};
-        constexpr Matrix<2, 2> Q{{1.0, 0.0}, {0.0, 1.0}};
-        constexpr Matrix<1, 1> R{{0.1}};
+        constexpr Matrix Ad{{1.0, 0.1}, {0.0, 1.0}};
+        constexpr Matrix Bd{{0.005}, {0.1}};
+        constexpr Matrix Q{{1.0, 0.0}, {0.0, 1.0}};
+        constexpr Matrix R{{0.1}};
 
         // Note: We can't use consteval directly in runtime CHECK, but we can
         // verify the design functions work at compile time by using constexpr

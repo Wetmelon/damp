@@ -35,8 +35,8 @@ TEST_SUITE("Analysis - Controllability and Observability") {
     TEST_CASE("Controllable 2x2 system") {
         // A = [0 1; -2 -3], B = [0; 1]
         // Controllability matrix [B, AB] = [0 1; 1 -3] — rank 2
-        Matrix<2, 2> A{{0.0, 1.0}, {-2.0, -3.0}};
-        Matrix<2, 1> B{{0.0}, {1.0}};
+        Matrix A{{0.0, 1.0}, {-2.0, -3.0}};
+        Matrix B{{0.0}, {1.0}};
 
         auto Co = stability::controllability_matrix(A, B);
         CHECK(stability::rank(Co) == 2);
@@ -44,22 +44,22 @@ TEST_SUITE("Analysis - Controllability and Observability") {
 
         // Compile-time check
         static_assert(stability::is_controllable(
-            Matrix<2, 2>{{0.0, 1.0}, {-2.0, -3.0}},
-            Matrix<2, 1>{{0.0}, {1.0}}
+            Matrix{{0.0, 1.0}, {-2.0, -3.0}},
+            Matrix{{0.0}, {1.0}}
         ));
     }
 
     TEST_CASE("Uncontrollable 2x2 system") {
         // A = [1 0; 0 2], B = [0; 0] — zero input, uncontrollable
-        Matrix<2, 2> A{{1.0, 0.0}, {0.0, 2.0}};
-        Matrix<2, 1> B{{0.0}, {0.0}};
+        Matrix A{{1.0, 0.0}, {0.0, 2.0}};
+        Matrix B{{0.0}, {0.0}};
 
         CHECK_FALSE(stability::is_controllable(A, B));
     }
 
     TEST_CASE("Observable 2x2 system") {
-        Matrix<2, 2> A{{0.0, 1.0}, {-2.0, -3.0}};
-        Matrix<1, 2> C{{1.0, 0.0}};
+        Matrix A{{0.0, 1.0}, {-2.0, -3.0}};
+        Matrix C{{1.0, 0.0}};
 
         auto Ob = stability::observability_matrix(A, C);
         CHECK(stability::rank(Ob) == 2);
@@ -68,8 +68,8 @@ TEST_SUITE("Analysis - Controllability and Observability") {
 
     TEST_CASE("Unobservable 2x2 system") {
         // A diagonal, C only sees first state, second state unobservable
-        Matrix<2, 2> A{{1.0, 0.0}, {0.0, 2.0}};
-        Matrix<1, 2> C{{1.0, 0.0}};
+        Matrix A{{1.0, 0.0}, {0.0, 2.0}};
+        Matrix C{{1.0, 0.0}};
 
         auto Ob = stability::observability_matrix(A, C);
         // Ob = [1 0; 1 0] — rank 1, not rank 2
@@ -79,15 +79,15 @@ TEST_SUITE("Analysis - Controllability and Observability") {
 
     TEST_CASE("Controllable 3x3 system") {
         // Companion form: always controllable
-        Matrix<3, 3> A{{0.0, 1.0, 0.0}, {0.0, 0.0, 1.0}, {-6.0, -11.0, -6.0}};
-        Matrix<3, 1> B{{0.0}, {0.0}, {1.0}};
+        Matrix A{{0.0, 1.0, 0.0}, {0.0, 0.0, 1.0}, {-6.0, -11.0, -6.0}};
+        Matrix B{{0.0}, {0.0}, {1.0}};
 
         CHECK(stability::is_controllable(A, B));
     }
 
     TEST_CASE("MIMO controllability") {
-        Matrix<2, 2> A{{0.0, 1.0}, {-2.0, -3.0}};
-        Matrix<2, 2> B{{1.0, 0.0}, {0.0, 1.0}};
+        Matrix A{{0.0, 1.0}, {-2.0, -3.0}};
+        Matrix B{{1.0, 0.0}, {0.0, 1.0}};
 
         auto Co = stability::controllability_matrix(A, B);
         // Controllability matrix is 2x4, should have rank 2
@@ -97,15 +97,15 @@ TEST_SUITE("Analysis - Controllability and Observability") {
 
     TEST_CASE("Matrix rank computation") {
         // Full rank 3x3
-        Matrix<3, 3> M1{{1.0, 0.0, 0.0}, {0.0, 1.0, 0.0}, {0.0, 0.0, 1.0}};
+        Matrix M1{{1.0, 0.0, 0.0}, {0.0, 1.0, 0.0}, {0.0, 0.0, 1.0}};
         CHECK(stability::rank(M1) == 3);
 
         // Rank 2 (third row = first + second)
-        Matrix<3, 3> M2{{1.0, 0.0, 0.0}, {0.0, 1.0, 0.0}, {1.0, 1.0, 0.0}};
+        Matrix M2{{1.0, 0.0, 0.0}, {0.0, 1.0, 0.0}, {1.0, 1.0, 0.0}};
         CHECK(stability::rank(M2) == 2);
 
         // Rank 1
-        Matrix<3, 3> M3{{1.0, 2.0, 3.0}, {2.0, 4.0, 6.0}, {3.0, 6.0, 9.0}};
+        Matrix M3{{1.0, 2.0, 3.0}, {2.0, 4.0, 6.0}, {3.0, 6.0, 9.0}};
         CHECK(stability::rank(M3) == 1);
     }
 }
@@ -114,10 +114,10 @@ TEST_SUITE("Analysis - Bode Response") {
     TEST_CASE("First-order lowpass Bode data") {
         // G(s) = 1/(s+1), DC gain = 0 dB, -3dB at ω=1 rad/s
         StateSpace sys{
-            .A = Matrix<1, 1>{{-1.0}},
-            .B = Matrix<1, 1>{{1.0}},
-            .C = Matrix<1, 1>{{1.0}},
-            .D = Matrix<1, 1>{{0.0}}
+            .A = Matrix{{-1.0}},
+            .B = Matrix{{1.0}},
+            .C = Matrix{{1.0}},
+            .D = Matrix{{0.0}}
         };
 
         auto omega = analysis::geomspace(0.01, 100.0, 200);
@@ -144,8 +144,8 @@ TEST_SUITE("Analysis - Bode Response") {
         StateSpace sys{
             .A = Matrix<2, 2>{{0.0, 1.0}, {-wn * wn, -2 * zeta * wn}},
             .B = Matrix<2, 1>{{0.0}, {wn * wn}},
-            .C = Matrix<1, 2>{{1.0, 0.0}},
-            .D = Matrix<1, 1>{{0.0}}
+            .C = Matrix{{1.0, 0.0}},
+            .D = Matrix{{0.0}}
         };
 
         auto omega = analysis::geomspace(0.1, 1000.0, 500);
@@ -187,10 +187,10 @@ TEST_SUITE("Analysis - Stability Margins") {
         // G(s) = 10/(s+1) — gain margin infinite (phase never crosses -180°)
         // Phase margin: at crossover |G(jω)| = 1, find phase
         StateSpace sys{
-            .A = Matrix<1, 1>{{-1.0}},
-            .B = Matrix<1, 1>{{10.0}},
-            .C = Matrix<1, 1>{{1.0}},
-            .D = Matrix<1, 1>{{0.0}}
+            .A = Matrix{{-1.0}},
+            .B = Matrix{{10.0}},
+            .C = Matrix{{1.0}},
+            .D = Matrix{{0.0}}
         };
 
         auto omega = analysis::geomspace(0.01, 1000.0, 1000);
@@ -212,10 +212,10 @@ TEST_SUITE("Analysis - Stability Margins") {
         // Use state-space: A=0, B=K, C=1, D=0
         double     K = 5.0;
         StateSpace sys{
-            .A = Matrix<1, 1>{{0.0}},
+            .A = Matrix{{0.0}},
             .B = Matrix<1, 1>{{K}},
-            .C = Matrix<1, 1>{{1.0}},
-            .D = Matrix<1, 1>{{0.0}}
+            .C = Matrix{{1.0}},
+            .D = Matrix{{0.0}}
         };
 
         auto omega = analysis::geomspace(0.01, 1000.0, 2000);
@@ -257,10 +257,10 @@ TEST_SUITE("Analysis - DC Gain") {
     TEST_CASE("DC gain of first-order system") {
         // G(s) = 5/(s+2) — DC gain = 5/2 = 2.5
         StateSpace sys{
-            .A = Matrix<1, 1>{{-2.0}},
-            .B = Matrix<1, 1>{{5.0}},
-            .C = Matrix<1, 1>{{1.0}},
-            .D = Matrix<1, 1>{{0.0}}
+            .A = Matrix{{-2.0}},
+            .B = Matrix{{5.0}},
+            .C = Matrix{{1.0}},
+            .D = Matrix{{0.0}}
         };
 
         auto dc = analysis::dcgain(sys);
@@ -272,10 +272,10 @@ TEST_SUITE("Analysis - DC Gain") {
         // Discrete first-order: A=0.9, B=0.1, C=1, D=0
         // DC gain = C*(I-A)^{-1}*B = 1*(1-0.9)^{-1}*0.1 = 10*0.1 = 1.0
         StateSpace sys{
-            .A = Matrix<1, 1>{{0.9}},
-            .B = Matrix<1, 1>{{0.1}},
-            .C = Matrix<1, 1>{{1.0}},
-            .D = Matrix<1, 1>{{0.0}},
+            .A = Matrix{{0.9}},
+            .B = Matrix{{0.1}},
+            .C = Matrix{{1.0}},
+            .D = Matrix{{0.0}},
             .Ts = 0.01
         };
 
@@ -305,17 +305,17 @@ TEST_SUITE("Analysis - Pole Analysis") {
 
     TEST_CASE("Continuous stability check") {
         // Stable: eigenvalues in LHP
-        Matrix<2, 2> A_stable{{0.0, 1.0}, {-2.0, -3.0}};
+        Matrix A_stable{{0.0, 1.0}, {-2.0, -3.0}};
         CHECK(stability::is_stable(StateSpace<2, 1, 1>{.A = A_stable}));
 
         // Unstable: positive real eigenvalue
-        Matrix<2, 2> A_unstable{{0.0, 1.0}, {2.0, -1.0}};
+        Matrix A_unstable{{0.0, 1.0}, {2.0, -1.0}};
         CHECK_FALSE(stability::is_stable(StateSpace<2, 1, 1>{.A = A_unstable}));
     }
 
     TEST_CASE("Pole computation") {
-        Matrix<2, 2> A{{0.0, 1.0}, {-6.0, -5.0}};
-        const auto   p = analysis::poles(A);
+        Matrix     A{{0.0, 1.0}, {-6.0, -5.0}};
+        const auto p = analysis::poles(A);
         REQUIRE(p.has_value());
         // Poles at s = -2, -3
         // Sort by real part
@@ -363,10 +363,10 @@ TEST_SUITE("Analysis - Unwrapped Margins and Discrete Bode") {
 
     TEST_CASE("Discrete bode evaluates frequency response on unit circle") {
         StateSpace sys{
-            .A = Matrix<1, 1>{{0.9}},
-            .B = Matrix<1, 1>{{0.1}},
-            .C = Matrix<1, 1>{{1.0}},
-            .D = Matrix<1, 1>{{0.0}},
+            .A = Matrix{{0.9}},
+            .B = Matrix{{0.1}},
+            .C = Matrix{{1.0}},
+            .D = Matrix{{0.0}},
             .Ts = 0.01,
         };
 
@@ -389,10 +389,10 @@ TEST_SUITE("Analysis - Loop and Nyquist Utilities") {
     TEST_CASE("Continuous-time loop response returns L, S, T and Nyquist data") {
         // L(s) = 10/(s+1)
         StateSpace loop{
-            .A = Matrix<1, 1>{{-1.0}},
-            .B = Matrix<1, 1>{{10.0}},
-            .C = Matrix<1, 1>{{1.0}},
-            .D = Matrix<1, 1>{{0.0}},
+            .A = Matrix{{-1.0}},
+            .B = Matrix{{10.0}},
+            .C = Matrix{{1.0}},
+            .D = Matrix{{0.0}},
         };
 
         auto omega = analysis::geomspace(0.01, 1000.0, 200);
@@ -421,10 +421,10 @@ TEST_SUITE("Analysis - Loop and Nyquist Utilities") {
 
     TEST_CASE("Discrete-time nyquist utility matches direct FRF") {
         StateSpace sys{
-            .A = Matrix<1, 1>{{0.9}},
-            .B = Matrix<1, 1>{{0.1}},
-            .C = Matrix<1, 1>{{1.0}},
-            .D = Matrix<1, 1>{{0.0}},
+            .A = Matrix{{0.9}},
+            .B = Matrix{{0.1}},
+            .C = Matrix{{1.0}},
+            .D = Matrix{{0.0}},
             .Ts = 0.01,
         };
 
@@ -445,10 +445,10 @@ TEST_SUITE("Analysis - Loop Summary Convenience") {
     TEST_CASE("loop_metrics condenses common robustness metrics in one call") {
         // L(s) = 10/(s+1)
         StateSpace loop{
-            .A = Matrix<1, 1>{{-1.0}},
-            .B = Matrix<1, 1>{{10.0}},
-            .C = Matrix<1, 1>{{1.0}},
-            .D = Matrix<1, 1>{{0.0}},
+            .A = Matrix{{-1.0}},
+            .B = Matrix{{10.0}},
+            .C = Matrix{{1.0}},
+            .D = Matrix{{0.0}},
         };
 
         const auto omega = analysis::geomspace(0.01, 1000.0, 200);
@@ -475,10 +475,10 @@ TEST_SUITE("Analysis - Loop Summary Convenience") {
 
     TEST_CASE("summarize_loop_response matches explicit loop_response post-processing") {
         StateSpace loop{
-            .A = Matrix<1, 1>{{-2.0}},
-            .B = Matrix<1, 1>{{6.0}},
-            .C = Matrix<1, 1>{{1.0}},
-            .D = Matrix<1, 1>{{0.0}},
+            .A = Matrix{{-2.0}},
+            .B = Matrix{{6.0}},
+            .C = Matrix{{1.0}},
+            .D = Matrix{{0.0}},
         };
 
         const auto omega = analysis::geomspace(0.05, 800.0, 180);
@@ -524,10 +524,10 @@ TEST_SUITE("Analysis - Nichols") {
     TEST_CASE("Nichols from Bode matches phase and magnitude") {
         // G(s) = 1/(s+1)
         StateSpace sys{
-            .A = Matrix<1, 1>{{-1.0}},
-            .B = Matrix<1, 1>{{1.0}},
-            .C = Matrix<1, 1>{{1.0}},
-            .D = Matrix<1, 1>{{0.0}},
+            .A = Matrix{{-1.0}},
+            .B = Matrix{{1.0}},
+            .C = Matrix{{1.0}},
+            .D = Matrix{{0.0}},
         };
         const auto omega = analysis::geomspace(0.01, 100.0, 100);
         const auto bd = analysis::bode(sys, omega);
@@ -574,10 +574,10 @@ TEST_SUITE("Analysis - Sigma") {
     TEST_CASE("SISO sigma matches Bode magnitude") {
         // G(s) = 1/(s+1) → σ₁ = |G|
         StateSpace sys{
-            .A = Matrix<1, 1>{{-1.0}},
-            .B = Matrix<1, 1>{{1.0}},
-            .C = Matrix<1, 1>{{1.0}},
-            .D = Matrix<1, 1>{{0.0}},
+            .A = Matrix{{-1.0}},
+            .B = Matrix{{1.0}},
+            .C = Matrix{{1.0}},
+            .D = Matrix{{0.0}},
         };
         const auto omega = analysis::geomspace(0.01, 100.0, 80);
         const auto bd = analysis::bode(sys, omega);
@@ -601,10 +601,10 @@ TEST_SUITE("Analysis - Sigma") {
         // At s=0: G = diag(1, 1) → σ = {1, 1}
         // Realized as block-diagonal SS:
         StateSpace sys{
-            .A = Matrix<2, 2>{{-1.0, 0.0}, {0.0, -2.0}},
-            .B = Matrix<2, 2>{{1.0, 0.0}, {0.0, 2.0}},
-            .C = Matrix<2, 2>{{1.0, 0.0}, {0.0, 1.0}},
-            .D = Matrix<2, 2>{{0.0, 0.0}, {0.0, 0.0}},
+            .A = Matrix{{-1.0, 0.0}, {0.0, -2.0}},
+            .B = Matrix{{1.0, 0.0}, {0.0, 2.0}},
+            .C = Matrix{{1.0, 0.0}, {0.0, 1.0}},
+            .D = Matrix{{0.0, 0.0}, {0.0, 0.0}},
         };
         const auto omega = analysis::geomspace(0.001, 0.01, 5); // near DC
         const auto sg = analysis::sigma(sys, omega);
@@ -627,10 +627,10 @@ TEST_SUITE("Analysis - Sigma") {
 
     TEST_CASE("Discrete H-infinity norm includes DC") {
         StateSpace s{
-            .A = Matrix<1, 1>{{0.999}},
-            .B = Matrix<1, 1>{{0.001}},
-            .C = Matrix<1, 1>{{1.0}},
-            .D = Matrix<1, 1>{{0.0}},
+            .A = Matrix{{0.999}},
+            .B = Matrix{{0.001}},
+            .C = Matrix{{1.0}},
+            .D = Matrix{{0.0}},
             .Ts = 0.01,
         };
         const auto hinf = analysis::norm_hinf(s);
@@ -644,10 +644,10 @@ TEST_SUITE("Analysis - Root Locus") {
     TEST_CASE("rlocus at k=0 recovers open-loop poles") {
         // G(s) = 1/(s+1) → open-loop pole at -1
         StateSpace sys{
-            .A = Matrix<1, 1>{{-1.0}},
-            .B = Matrix<1, 1>{{1.0}},
-            .C = Matrix<1, 1>{{1.0}},
-            .D = Matrix<1, 1>{{0.0}},
+            .A = Matrix{{-1.0}},
+            .B = Matrix{{1.0}},
+            .C = Matrix{{1.0}},
+            .D = Matrix{{0.0}},
         };
         const auto gains = analysis::linspace(0.0, 10.0, 21);
         const auto rl = analysis::rlocus(sys, gains);
@@ -665,10 +665,10 @@ TEST_SUITE("Analysis - Root Locus") {
     TEST_CASE("rlocus first-order closed-loop pole is -(1+k)") {
         // A_cl = -1 - k → pole = -(1+k)
         StateSpace sys{
-            .A = Matrix<1, 1>{{-1.0}},
-            .B = Matrix<1, 1>{{1.0}},
-            .C = Matrix<1, 1>{{1.0}},
-            .D = Matrix<1, 1>{{0.0}},
+            .A = Matrix{{-1.0}},
+            .B = Matrix{{1.0}},
+            .C = Matrix{{1.0}},
+            .D = Matrix{{0.0}},
         };
         const std::vector<double> gains{0.0, 1.0, 4.0, 9.0};
         const auto                rl = analysis::rlocus(sys, gains);
@@ -725,10 +725,10 @@ TEST_SUITE("Analysis - Contour pole skip (optional FRF)") {
     TEST_CASE("bode/nyquist/sigma omit jω-axis poles without Inf/NaN") {
         // Pure integrator G(s)=1/s — pole at s=0. Evaluating at ω=0 is singular.
         StateSpace sys{
-            .A = Matrix<1, 1>{{0.0}},
-            .B = Matrix<1, 1>{{1.0}},
-            .C = Matrix<1, 1>{{1.0}},
-            .D = Matrix<1, 1>{{0.0}},
+            .A = Matrix{{0.0}},
+            .B = Matrix{{1.0}},
+            .C = Matrix{{1.0}},
+            .D = Matrix{{0.0}},
         };
         std::vector<double> omega{0.0, 1.0, 10.0};
 

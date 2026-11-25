@@ -31,21 +31,21 @@ namespace {
 // Discrete double integrator at Ts = 0.1 s, position measured. NX=2, NU=1, NY=1.
 constexpr StateSpace<2, 1, 1, double, 1, 1> make_plant() {
     return StateSpace<2, 1, 1, double, 1, 1>{
-        .A = Matrix<2, 2>{{1.0, 0.1}, {0.0, 1.0}},
-        .B = Matrix<2, 1>{{0.005}, {0.1}},
-        .C = Matrix<1, 2>{{1.0, 0.0}}, // measure position
+        .A = Matrix{{1.0, 0.1}, {0.0, 1.0}},
+        .B = Matrix{{0.005}, {0.1}},
+        .C = Matrix{{1.0, 0.0}}, // measure position
         .Ts = 0.1,
     };
 }
 
 constexpr auto design_lqi() {
-    return design::state_feedback(make_plant(), {.Q = Matrix<2, 2>{{10.0, 0.0}, {0.0, 1.0}}, .R = 1.0}, design::IntegralAction{.Q = 500.0});
+    return design::state_feedback(make_plant(), {.Q = Matrix{{10.0, 0.0}, {0.0, 1.0}}, .R = 1.0}, design::IntegralAction{.Q = 500.0});
 }
 } // namespace
 
 TEST_SUITE("LQI") {
     TEST_CASE("LQIResult::as<U>() conversion") {
-        constexpr auto lqi_d = design::state_feedback(StateSpace<1, 1, 1, double, 1, 1>{.A = Matrix<1, 1>{{1.0}}, .B = Matrix<1, 1>{{1.0}}, .C = Matrix<1, 1>{{1.0}}, .Ts = 1.0}, {.Q = 1.0, .R = 1.0}, design::IntegralAction{.Q = 1.0});
+        constexpr auto lqi_d = design::state_feedback(StateSpace<1, 1, 1, double, 1, 1>{.A = Matrix{{1.0}}, .B = Matrix{{1.0}}, .C = Matrix{{1.0}}, .Ts = 1.0}, {.Q = 1.0, .R = 1.0}, design::IntegralAction{.Q = 1.0});
 
         constexpr auto lqi_f = lqi_d.as<float>();
 
@@ -60,7 +60,7 @@ TEST_SUITE("LQI") {
         auto           a = LQI{r}; // uses internal integrator
         auto           b = LQI{r}; // fed a manual augmented vector
 
-        ColVec<1>       xi{0.0};
+        ColVec          xi{0.0};
         const ColVec<2> states[] = {{0.5, 0.0}, {0.4, -0.1}, {0.2, 0.05}};
         const double    refs[] = {1.0, 1.0, 1.0};
         for (int k = 0; k < 3; ++k) {
@@ -82,9 +82,9 @@ TEST_SUITE("LQI") {
         const auto r = design_lqi();
         REQUIRE(r.success);
 
-        auto            ctrl = LQI{r};
-        ColVec<2>       x{0.0, 0.0};
-        const ColVec<1> ref{1.0};
+        auto         ctrl = LQI{r};
+        ColVec       x{0.0, 0.0};
+        const ColVec ref{1.0};
         for (int k = 0; k < 500; ++k) {
             const ColVec<1> y{x[0]};
             const ColVec<1> u = ctrl.step(ref, x);
@@ -106,9 +106,9 @@ TEST_SUITE("LQI") {
         CHECK(ss.Ts == doctest::Approx(sys.Ts));
         auto      runtime = LQI{res};
         ColVec<1> xc{};
-        ColVec<2> xp{0.3, -0.1};
+        ColVec    xp{0.3, -0.1};
         for (int k = 0; k < 8; ++k) {
-            const ColVec<1> r{1.0};
+            const ColVec    r{1.0};
             const ColVec<3> in{r[0], xp[0], xp[1]};
             const ColVec<1> u = ss.C * xc + ss.D * in;
             CHECK(u[0] == doctest::Approx(runtime.step(r, xp)[0]).epsilon(1e-12));
@@ -120,7 +120,7 @@ TEST_SUITE("LQI") {
         const StateSpace plant_out{
             .A = sys.A,
             .B = sys.B,
-            .C = Matrix<3, 2>{{0.0, 0.0}, {1.0, 0.0}, {0.0, 1.0}},
+            .C = Matrix{{0.0, 0.0}, {1.0, 0.0}, {0.0, 1.0}},
             .Ts = sys.Ts,
         };
         StateSpace<0, 3, 3> positive{.Ts = sys.Ts};
@@ -149,12 +149,12 @@ TEST_SUITE("LQI") {
     TEST_CASE("integrating a subset of outputs matches a hand-built single-output model") {
         // Same double integrator, two sensors (position, velocity); integrate position only.
         constexpr StateSpace sys2{
-            .A = Matrix<2, 2>{{1.0, 0.1}, {0.0, 1.0}},
-            .B = Matrix<2, 1>{{0.005}, {0.1}},
+            .A = Matrix{{1.0, 0.1}, {0.0, 1.0}},
+            .B = Matrix{{0.005}, {0.1}},
             .C = Matrix<2, 2>::identity(),
             .Ts = 0.1
         };
-        constexpr design::LQRWeights w{.Q = Matrix<2, 2>{{10.0, 0.0}, {0.0, 1.0}}, .R = {1.0}}; // design_lqi's
+        constexpr design::LQRWeights w{.Q = Matrix{{10.0, 0.0}, {0.0, 1.0}}, .R = {1.0}}; // design_lqi's
         constexpr auto               picked = design::state_feedback(sys2, w, design::IntegralAction{.Q = 500.0, .outputs = {0}});
         constexpr auto               by_hand = design_lqi(); // C = [1 0]
         static_assert(picked.success);
@@ -165,9 +165,9 @@ TEST_SUITE("LQI") {
         CHECK(picked.integral.Ci(0, 1) == 0.0);
 
         // The selector form takes the reference for the integrated output and the measured state (y = x here, C = I).
-        auto            ctrl = LQI{picked.as<float>()};
-        ColVec<2>       x{};
-        const ColVec<1> r{1.0};
+        auto         ctrl = LQI{picked.as<float>()};
+        ColVec<2>    x{};
+        const ColVec r{1.0};
         for (int k = 0; k < 500; ++k) {
             const ColVec<2, float> y{static_cast<float>(x[0]), static_cast<float>(x[1])};
             const ColVec<1, float> u = ctrl.step(r.as<float>(), y);
@@ -187,7 +187,7 @@ TEST_SUITE("LQI") {
         CHECK_FALSE(both.success);
         auto idle = LQI{both};
         idle.update(ColVec<2>{});
-        CHECK(idle.control(ColVec<2>{1.0, 1.0})[0] == 0.0); // failed design: zero output
+        CHECK(idle.control(ColVec{1.0, 1.0})[0] == 0.0); // failed design: zero output
     }
 
     TEST_CASE("control / predict hold the integrator while the actuator is clamped") {
@@ -205,7 +205,7 @@ TEST_SUITE("LQI") {
             for (int k = 0; k < 2000; ++k) {
                 const ColVec<1> y{x[0]};
                 ctrl.update(x);
-                const ColVec<1> u_req = ctrl.control(ColVec<1>{1.0});
+                const ColVec<1> u_req = ctrl.control(ColVec{1.0});
                 const ColVec<1> u = clamp_u(u_req);
                 ctrl.back_calculate(aware ? u : u_req);
                 ctrl.predict(); // the unaware loop reports the unclamped command
@@ -222,16 +222,16 @@ TEST_SUITE("LQI") {
         CHECK(aware[2] == doctest::Approx(1.0).epsilon(1e-3)); // still offset-free
 
         // Feedforward before the clamp is not mistaken for saturation.
-        auto            a = LQI{r};
-        auto            b = LQI{r};
-        const ColVec<2> x{0.1, 0.0};
-        const ColVec<1> u_ff{0.05};
+        auto         a = LQI{r};
+        auto         b = LQI{r};
+        const ColVec x{0.1, 0.0};
+        const ColVec u_ff{0.05};
         a.update(x);
-        const ColVec<1> ua = a.control(ColVec<1>{0.2});
+        const ColVec<1> ua = a.control(ColVec{0.2});
         a.back_calculate(ua);
         a.predict();
         b.update(x);
-        const ColVec<1> ub = b.control(ColVec<1>{0.2});
+        const ColVec<1> ub = b.control(ColVec{0.2});
         b.back_calculate(ub + u_ff, u_ff);
         b.predict();
         CHECK(a.integral.xi[0] != 0.0);
@@ -249,7 +249,7 @@ TEST_SUITE("LQI") {
         bool       hit_lo = false;
         for (int k = 0; k < 400; ++k) {
             ctrl.update(x);
-            const double u = clamp_u(ctrl.control(ColVec<1>{3.0})[0]);
+            const double u = clamp_u(ctrl.control(ColVec{3.0})[0]);
             hit_hi = hit_hi || (u == 0.4);
             ctrl.back_calculate(ColVec<1>{u});
             ctrl.predict();
@@ -259,7 +259,7 @@ TEST_SUITE("LQI") {
         const double xi_hi = damp::abs(ctrl.integral.xi[0]);
         for (int k = 0; k < 400; ++k) {
             ctrl.update(x);
-            const double u = clamp_u(ctrl.control(ColVec<1>{-3.0})[0]);
+            const double u = clamp_u(ctrl.control(ColVec{-3.0})[0]);
             hit_lo = hit_lo || (u == -0.15);
             ctrl.back_calculate(ColVec<1>{u});
             ctrl.predict();
@@ -267,7 +267,7 @@ TEST_SUITE("LQI") {
         }
         CHECK(hit_lo);
         for (int k = 0; k < 2500; ++k) {
-            const double u = ctrl.step(ColVec<1>{1.0}, x)[0];
+            const double u = ctrl.step(ColVec{1.0}, x)[0];
             x = sys.A * x + sys.B * ColVec<1>{u};
         }
         CHECK(x[0] == doctest::Approx(1.0).epsilon(1e-3));
@@ -285,12 +285,12 @@ TEST_SUITE("LQI") {
 }
 
 TEST_CASE("LQI weights: the cross term N reaches the augmented DARE") {
-    const auto         sys = make_plant();
-    const Matrix<2, 2> Qx{{10.0, 0.0}, {0.0, 1.0}};
-    const Matrix<1, 1> Qi{{5.0}};
-    const Matrix<1, 1> R{{1.0}};
-    const Matrix<2, 1> N{{0.1}, {0.2}};
-    Matrix<3, 3>       Q{}; // on [x; xi]: Q and the IntegralAction's Q on the diagonal
+    const auto   sys = make_plant();
+    const Matrix Qx{{10.0, 0.0}, {0.0, 1.0}};
+    const Matrix Qi{{5.0}};
+    const Matrix R{{1.0}};
+    const Matrix N{{0.1}, {0.2}};
+    Matrix<3, 3> Q{}; // on [x; xi]: Q and the IntegralAction's Q on the diagonal
     Q.block<2, 2>(0, 0) = Qx;
     Q(2, 2) = Qi(0, 0);
     Matrix<3, 1> N_aug{};
@@ -332,9 +332,9 @@ namespace {
 // Continuous double integrator, position measured: the plant of the sampled-data LQI tests.
 constexpr StateSpace<2, 1, 1> make_continuous_plant() {
     return StateSpace{
-        .A = Matrix<2, 2>{{0.0, 1.0}, {0.0, 0.0}},
-        .B = Matrix<2, 1>{{0.0}, {1.0}},
-        .C = Matrix<1, 2>{{1.0, 0.0}},
+        .A = Matrix{{0.0, 1.0}, {0.0, 0.0}},
+        .B = Matrix{{0.0}, {1.0}},
+        .C = Matrix{{1.0, 0.0}},
     };
 }
 
@@ -377,9 +377,9 @@ TEST_SUITE("LQI sampled-data (continuous plant, Ts)") {
     TEST_CASE("the discrete weights are the cost integral over one sample of the runtime's loop") {
         //! Between samples: the plant on the held u, xi ramping on the held error −y_k (r = 0).
         constexpr auto plant = make_continuous_plant();
-        const auto     w = design::LQRCost<3, 1>{.Q = Matrix<3, 3>{{10.0, 0.5, 0.2}, {0.5, 1.0, 0.0}, {0.2, 0.0, 100.0}}, .R = 2.0, .N = Matrix<3, 1>{{0.3}, {0.1}, {0.4}}};
+        const auto     w = design::LQRCost<3, 1>{.Q = Matrix{{10.0, 0.5, 0.2}, {0.5, 1.0, 0.0}, {0.2, 0.0, 100.0}}, .R = 2.0, .N = Matrix{{0.3}, {0.1}, {0.4}}};
         const double   Ts = 0.05;
-        const auto     cost = design::detail::sampled_integral_cost(plant.A, plant.B, plant.C, plant.D, Matrix<1, 1>{{1.0}}, w, Ts).value(); // with x–∫e cross terms
+        const auto     cost = design::detail::sampled_integral_cost(plant.A, plant.B, plant.C, plant.D, Matrix{{1.0}}, w, Ts).value(); // with x–∫e cross terms
 
         const double p0 = 0.7, v0 = -1.3, xi0 = 0.4, u = 0.9;
         const auto   integrand = [&](double t) {
@@ -439,12 +439,12 @@ TEST_SUITE("LQI sampled-data (continuous plant, Ts)") {
         CHECK(law.integral.step == 1e-3f);
 
         //! SIL: the plant itself, sampled exactly (ZOH), with a constant input disturbance.
-        const auto      plant_d = *discretize(make_continuous_plant(), 1e-3, DiscretizationMethod::ZOH);
-        const ColVec<1> r{1.0};
-        ColVec<2>       x{};
+        const auto   plant_d = *discretize(make_continuous_plant(), 1e-3, DiscretizationMethod::ZOH);
+        const ColVec r{1.0};
+        ColVec<2>    x{};
         for (int k = 0; k < 20000; ++k) {
             const ColVec<1> u = law.step(r.as<float>(), x.as<float>()).as<double>();
-            x = plant_d.A * x + plant_d.B * (u + ColVec<1>{0.5});
+            x = plant_d.A * x + plant_d.B * (u + ColVec{0.5});
         }
         CHECK(x[0] == doctest::Approx(1.0).epsilon(1e-4));
         CHECK(damp::abs(x[1]) < 1e-4);
@@ -479,7 +479,7 @@ namespace {
 constexpr StateSpace<1, 1, 1, double, 1, 1> feedthrough_plant(double D, double Ts) {
     const double a = (Ts > 0.0) ? damp::exp(-Ts) : -1.0;
     const double b = (Ts > 0.0) ? 1.0 - a : 1.0;
-    return {.A = Matrix<1, 1>{{a}}, .B = Matrix<1, 1>{{b}}, .C = Matrix<1, 1>{{1.0}}, .D = Matrix<1, 1>{{D}}, .Ts = Ts};
+    return {.A = Matrix<1, 1>{{a}}, .B = Matrix<1, 1>{{b}}, .C = Matrix{{1.0}}, .D = Matrix<1, 1>{{D}}, .Ts = Ts};
 }
 } // namespace
 
@@ -511,7 +511,7 @@ TEST_SUITE("LQI on a plant with feedthrough") {
                 double x = 0.0;
                 double y = 0.0;
                 for (int k = 0; k < 2000; ++k) {
-                    const double u = law.step(ColVec<1>{1.0}, ColVec<1>{x})[0];
+                    const double u = law.step(ColVec{1.0}, ColVec<1>{x})[0];
                     y = x + (D * u);
                     x = (plant.A(0, 0) * x) + (plant.B(0, 0) * u);
                 }
@@ -522,7 +522,7 @@ TEST_SUITE("LQI on a plant with feedthrough") {
 
     TEST_CASE("a failed design is not reported stable") {
         // C = I on a double integrator, integrating the velocity: no stabilizing gain holds it.
-        const StateSpace plant{.A = Matrix<2, 2>{{1.0, 0.1}, {0.0, 1.0}}, .B = Matrix<2, 1>{{0.005}, {0.1}}, .C = Matrix<2, 2>::identity(), .Ts = 0.1};
+        const StateSpace plant{.A = Matrix{{1.0, 0.1}, {0.0, 1.0}}, .B = Matrix{{0.005}, {0.1}}, .C = Matrix<2, 2>::identity(), .Ts = 0.1};
         const auto       res = design::state_feedback(plant, {.Q = Matrix<2, 2>::identity(), .R = 1.0}, design::IntegralAction{.Q = 1.0, .outputs = {1}});
         CHECK_FALSE(res.success);
         CHECK_FALSE(res.is_stable());
@@ -543,17 +543,17 @@ TEST_CASE("LQRWeights, InputLimits, DemandLimit, TrackedOutputs, the disturbance
     //! The limits: one input unless an end's type says otherwise. A DemandLimit and TrackedOutputs take their lengths from their lists.
     constexpr design::InputLimits clamped{.lower = {-12.0}, .upper = {12.0}};
     static_assert(damp::is_same_v<decltype(clamped), const design::InputLimits<1>>);
-    constexpr design::InputLimits two{.lower = ColVec<2>{-1.0, -2.0}, .upper = ColVec<2>{1.0, 2.0}};
+    constexpr design::InputLimits two{.lower = ColVec{-1.0, -2.0}, .upper = ColVec{1.0, 2.0}};
     static_assert(damp::is_same_v<decltype(two), const design::InputLimits<2>>);
     constexpr DemandLimit limited{.state = 1, .outer = {0, 2}, .lower = -0.2, .upper = 0.2};
     static_assert(damp::is_same_v<decltype(limited), const DemandLimit<2>> && limited.state == 1 && limited.outer[1] == 2);
     static_assert(damp::is_same_v<decltype(design::TrackedOutputs{{0, 2}}), design::TrackedOutputs<2>> && damp::is_same_v<decltype(design::TrackedOutputs{}), design::TrackedOutputs<0>>);
     static_assert(damp::is_same_v<decltype(design::InputDisturbance{{0, 2}}), design::InputDisturbance<2>> && damp::is_same_v<decltype(design::OutputDisturbance{}), design::OutputDisturbance<0>>);
     static_assert(damp::is_same_v<decltype(design::PlantDisturbance{{1}}), design::PlantDisturbance<1>>);
-    constexpr design::DisturbanceModel load{.Bd = Matrix<2, 1>{{0.0}, {1.0}}, .Cd = Matrix<1, 1>{{0.0}}, .outputs = {0}};
+    constexpr design::DisturbanceModel load{.Bd = Matrix{{0.0}, {1.0}}, .Cd = Matrix{{0.0}}, .outputs = {0}};
     static_assert(damp::is_same_v<decltype(load), const design::DisturbanceModel<2, 1, 1, 1>> && load.outputs[0] == 0);
-    static_assert(damp::is_same_v<decltype(design::DisturbanceModel{.Bd = Matrix<2, 1>{{0.0}, {1.0}}, .Cd = Matrix<1, 1>{{0.0}}}), design::DisturbanceModel<2, 1, 1>>);
-    static_assert(damp::is_same_v<decltype(design::DisturbanceModel{.Bd = Matrix<2, 1>{{0.0}, {1.0}}, .outputs = {0}}), design::DisturbanceModel<2, 0, 1, 1>>); // C_d left out
+    static_assert(damp::is_same_v<decltype(design::DisturbanceModel{.Bd = Matrix{{0.0}, {1.0}}, .Cd = Matrix{{0.0}}}), design::DisturbanceModel<2, 1, 1>>);
+    static_assert(damp::is_same_v<decltype(design::DisturbanceModel{.Bd = Matrix{{0.0}, {1.0}}, .outputs = {0}}), design::DisturbanceModel<2, 0, 1, 1>>); // C_d left out
     constexpr LQRWeights positional{diag(1.0, 0.1), Matrix<1, 1>{0.5}};
     static_assert(damp::is_same_v<decltype(positional), const LQRWeights<2, 1>>);
 

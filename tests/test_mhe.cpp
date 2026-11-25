@@ -51,8 +51,8 @@ TEST_CASE("example: tank-level estimator that cannot report a negative level") {
     // 2. Pick the noise covariances - the SAME numbers a Kalman design uses.
     //    Small Q: the drain model is trusted. R matches the sensor noise
     //    (std ~0.05 -> R = 0.0025).
-    const Matrix<1, 1> Q{{1.0e-4}};
-    const Matrix<1, 1> R{{2.5e-3}};
+    const Matrix Q{{1.0e-4}};
+    const Matrix R{{2.5e-3}};
 
     // 3. State the physics the estimate must respect: a level is never
     //    negative. (Defaults are unbounded - this is the only extra input
@@ -64,7 +64,7 @@ TEST_CASE("example: tank-level estimator that cannot report a negative level") {
     const auto art = design::mhe<8>(tank, {.process = Q, .measurement = R}, limits);
     REQUIRE(art.success);
     MHE estimator{art};
-    estimator.set_initial_state(ColVec<1>{0.5}); // prior for the first window
+    estimator.set_initial_state(ColVec{0.5}); // prior for the first window
 
     // Reference: the equivalent (unconstrained) steady-state Kalman filter.
     StateSpace<1, 1, 1, double, 1, 1> tank_noise{};
@@ -75,7 +75,7 @@ TEST_CASE("example: tank-level estimator that cannot report a negative level") {
     const auto kf_design = design::kalman(tank_noise, design::KalmanNoise{.process = Q, .measurement = R});
     REQUIRE(kf_design.success);
     KalmanFilter<1, 1, 1, double, 1, 1> kf{kf_design};
-    kf.set_state(ColVec<1>{0.5});
+    kf.set_state(ColVec{0.5});
 
     // 5. Run: truth drains from 0.5 toward empty; each tick both estimators
     //    receive the same noisy level reading and the same (zero) inflow.
@@ -115,11 +115,11 @@ TEST_CASE("unconstrained MHE matches the steady-state Kalman filter") {
     StateSpace<2, 1, 1, double, 2, 1> plant{};
     plant.A = Matrix<2, 2>{{1.0, Ts}, {0.0, 1.0}};
     plant.B = Matrix<2, 1>{{0.5 * Ts * Ts}, {Ts}};
-    plant.C = Matrix<1, 2>{{1.0, 0.0}};
+    plant.C = Matrix{{1.0, 0.0}};
     plant.Ts = Ts;
 
-    const Matrix<2, 2> Q{{1.0e-4, 0.0}, {0.0, 1.0e-3}};
-    const Matrix<1, 1> R{{2.5e-3}};
+    const Matrix Q{{1.0e-4, 0.0}, {0.0, 1.0e-3}};
+    const Matrix R{{2.5e-3}};
 
     const auto art = design::mhe<8>(plant, {.process = Q, .measurement = R});
     REQUIRE(art.success);
@@ -129,7 +129,7 @@ TEST_CASE("unconstrained MHE matches the steady-state Kalman filter") {
     REQUIRE(kf_design.success);
     KalmanFilter<2, 1, 1, double, 2, 1> kf{kf_design};
 
-    ColVec<2> x_true{0.2, -0.1};
+    ColVec x_true{0.2, -0.1};
     for (size_t k = 0; k < 60; ++k) {
         const double u = 0.3 * noise(k + 3); // wiggle the input deterministically
         x_true = ColVec<2>{
@@ -174,16 +174,16 @@ TEST_CASE("MHE warm start settles to a few iterations per tick") {
 
 TEST_CASE("mhe rejects invalid inputs") {
     StateSpace<1, 1, 1, double, 1, 1> continuous{};
-    continuous.A = Matrix<1, 1>{{0.9}};
-    continuous.B = Matrix<1, 1>{{0.1}};
-    continuous.C = Matrix<1, 1>{{1.0}};
+    continuous.A = Matrix{{0.9}};
+    continuous.B = Matrix{{0.1}};
+    continuous.C = Matrix{{1.0}};
     continuous.Ts = 0.0; // not discrete
     const design::KalmanNoise<1, 1> noise{.process = 1e-4, .measurement = 1e-3};
     CHECK(design::mhe<4>(continuous, noise).status == design::DesignStatus::invalid_sample_time);
 
     StateSpace<1, 1, 1, double, 1, 1> feedthrough = continuous;
     feedthrough.Ts = 0.1;
-    feedthrough.D = Matrix<1, 1>{{1.0}};
+    feedthrough.D = Matrix{{1.0}};
     CHECK(design::mhe<4>(feedthrough, noise).status == design::DesignStatus::bad_weights);
 
     StateSpace<1, 1, 1, double, 1, 1> ok = feedthrough;
@@ -211,8 +211,8 @@ TEST_CASE("MHE takes the noise through the plant's G and H, as design::kalman") 
     StateSpace<2, 1, 1, double, 1, 1> plant{};
     plant.A = Matrix<2, 2>{{1.0, Ts}, {0.0, 1.0}};
     plant.B = Matrix<2, 1>{{0.5 * Ts * Ts}, {Ts}};
-    plant.C = Matrix<1, 2>{{1.0, 0.0}};
-    plant.G = Matrix<2, 1>{{0.0}, {1.0}};
+    plant.C = Matrix{{1.0, 0.0}};
+    plant.G = Matrix{{0.0}, {1.0}};
     plant.Ts = Ts;
     const design::KalmanNoise<1, 1> noise{.process = 1e-3, .measurement = 2.5e-3};
 
@@ -223,8 +223,8 @@ TEST_CASE("MHE takes the noise through the plant's G and H, as design::kalman") 
     REQUIRE(kf_design.success);
     KalmanFilter<2, 1, 1, double, 1, 1> kf{kf_design};
 
-    ColVec<2> x_true{0.2, -0.1};
-    double    max_err = 0.0;
+    ColVec x_true{0.2, -0.1};
+    double max_err = 0.0;
     for (size_t k = 0; k < 120; ++k) {
         const double u = 0.3 * damp::sin(0.7 * static_cast<double>(k));
         x_true = plant.A * x_true + plant.B * ColVec<1>{u};
@@ -292,12 +292,12 @@ TEST_CASE("MHE with a state pinned at zero by equal limits solves every tick") {
     StateSpace<2, 1, 1, double, 2, 1> plant{};
     plant.A = Matrix<2, 2>{{1.0, Ts}, {0.0, 1.0}};
     plant.B = Matrix<2, 1>{{0.5 * Ts * Ts}, {Ts}};
-    plant.C = Matrix<1, 2>{{1.0, 0.0}};
+    plant.C = Matrix{{1.0, 0.0}};
     plant.Ts = Ts;
     design::MHEConstraints<2> limits{};
     limits.x_lim.lower(1) = 0.0;
     limits.x_lim.upper(1) = 0.0;
-    const auto art = design::mhe<4>(plant, {.process = Matrix<2, 2>{{1e-4, 0.0}, {0.0, 1e-3}}, .measurement = 2.5e-3}, limits);
+    const auto art = design::mhe<4>(plant, {.process = Matrix{{1e-4, 0.0}, {0.0, 1e-3}}, .measurement = 2.5e-3}, limits);
     REQUIRE(art.success);
     MHE estimator{art};
 
@@ -358,8 +358,8 @@ TEST_CASE("MHE refuses a float deployment whose window Hessian does not factor i
     StateSpace<2, 1, 1, double, 1, 1> plant{};
     plant.A = Matrix<2, 2>{{1.0, Ts}, {0.0, 1.0}};
     plant.B = Matrix<2, 1>{{0.5 * Ts * Ts}, {Ts}};
-    plant.C = Matrix<1, 2>{{1.0, 0.0}};
-    plant.G = Matrix<2, 1>{{0.0}, {1.0}};
+    plant.C = Matrix{{1.0, 0.0}};
+    plant.G = Matrix{{0.0}, {1.0}};
     plant.Ts = Ts;
     const auto art = design::mhe<8>(plant, {.process = 1e-3, .measurement = 2.5e-3});
     REQUIRE(art.success);
@@ -379,10 +379,10 @@ TEST_CASE("Unconstrained MHE endpoint equals the steady-state Kalman filter") {
     StateSpace<2, 1, 1, double, 2, 1> plant{};
     plant.A = Matrix<2, 2>{{1.0, Ts}, {0.0, 1.0}};
     plant.B = Matrix<2, 1>{{0.5 * Ts * Ts}, {Ts}};
-    plant.C = Matrix<1, 2>{{1.0, 0.0}};
+    plant.C = Matrix{{1.0, 0.0}};
     plant.Ts = Ts;
-    const Matrix<2, 2> Q{{1.0e-4, 0.0}, {0.0, 1.0e-3}};
-    const Matrix<1, 1> R{{2.5e-3}};
+    const Matrix Q{{1.0e-4, 0.0}, {0.0, 1.0e-3}};
+    const Matrix R{{2.5e-3}};
 
     const auto art = design::mhe<8>(plant, {.process = Q, .measurement = R});
     REQUIRE(art.success);
@@ -391,8 +391,8 @@ TEST_CASE("Unconstrained MHE endpoint equals the steady-state Kalman filter") {
     REQUIRE(kf_design.success);
     KalmanFilter<2, 1, 1, double, 2, 1> kf{kf_design};
 
-    ColVec<2> x_true{0.2, -0.1};
-    double    max_err = 0.0;
+    ColVec x_true{0.2, -0.1};
+    double max_err = 0.0;
     for (size_t k = 0; k < 120; ++k) {
         const double u = 0.3 * damp::sin(0.7 * static_cast<double>(k));
         x_true = plant.A * x_true + plant.B * ColVec<1>{u};
@@ -411,8 +411,8 @@ TEST_CASE("mhe reads a plant with no noise inputs as noise on every state and re
     constexpr double                            Ts = 0.1;
     constexpr StateSpace                        bare{.A = {{1.0, Ts}, {0.0, 1.0}}, .B = {{0.5 * Ts * Ts}, {Ts}}, .C = {{1.0, 0.0}}, .Ts = Ts};
     constexpr StateSpace<2, 1, 1, double, 2, 1> full{.A = bare.A, .B = bare.B, .C = bare.C, .Ts = Ts};
-    const Matrix<2, 2>                          Q{{1.0e-4, 0.0}, {0.0, 1.0e-3}};
-    const Matrix<1, 1>                          R{{2.5e-3}};
+    const Matrix                                Q{{1.0e-4, 0.0}, {0.0, 1.0e-3}};
+    const Matrix                                R{{2.5e-3}};
 
     const auto by_bare = design::mhe<4>(bare, {.process = Q, .measurement = R});
     const auto by_full = design::mhe<4>(full, {.process = Q, .measurement = R});

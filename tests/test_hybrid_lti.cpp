@@ -25,7 +25,7 @@ using namespace damp;
 using namespace damp::sim;
 
 namespace {
-const StateSpace integ{.A = Matrix<1, 1>{{0.0}}, .B = Matrix<1, 1>{{1.0}}, .C = Matrix<1, 1>{{1.0}}, .Ts = 0.0};
+const StateSpace integ{.A = Matrix{{0.0}}, .B = Matrix{{1.0}}, .C = Matrix{{1.0}}, .Ts = 0.0};
 
 } // namespace
 
@@ -33,13 +33,13 @@ TEST_SUITE("Hybrid piecewise LTI") {
 
     TEST_CASE("Exact LTI step matches ZOH for scalar integrator ẋ = u") {
         StateSpace sys{
-            .A = Matrix<1, 1>{{0.0}},
-            .B = Matrix<1, 1>{{1.0}},
-            .C = Matrix<1, 1>{{1.0}},
+            .A = Matrix{{0.0}},
+            .B = Matrix{{1.0}},
+            .C = Matrix{{1.0}},
             .Ts = 0.0,
         };
-        ColVec<1>    x0{2.0};
-        ColVec<1>    u{3.0};
+        ColVec       x0{2.0};
+        ColVec       u{3.0};
         const double h = 0.05;
         const auto   x1 = exact_lti_step(sys, x0, u, h);
         CHECK(x1(0) == doctest::Approx(2.0 + 3.0 * h).epsilon(1e-12));
@@ -49,12 +49,12 @@ TEST_SUITE("Hybrid piecewise LTI") {
         const double a = 2.0;
         StateSpace   sys{
             .A = Matrix<1, 1>{{-a}},
-            .B = Matrix<1, 1>{{0.0}},
-            .C = Matrix<1, 1>{{1.0}},
+            .B = Matrix{{0.0}},
+            .C = Matrix{{1.0}},
             .Ts = 0.0,
         };
-        ColVec<1>    x0{1.0};
-        ColVec<1>    u{0.0};
+        ColVec       x0{1.0};
+        ColVec       u{0.0};
         const double h = 0.1;
         const auto   x1 = exact_lti_step(sys, x0, u, h);
         CHECK(x1(0) == doctest::Approx(std::exp(-a * h)).epsilon(1e-10));
@@ -71,7 +71,7 @@ TEST_SUITE("Hybrid piecewise LTI") {
         StateSpace on{
             .A = Matrix<1, 1>{{-R / L}},
             .B = Matrix<1, 1>{{1.0 / L}},
-            .C = Matrix<1, 1>{{1.0}},
+            .C = Matrix{{1.0}},
             .Ts = 0.0,
         };
         StateSpace off = on;
@@ -93,7 +93,7 @@ TEST_SUITE("Hybrid piecewise LTI") {
                 // falling edge → OFF
                 high = false;
                 act.mode = 1;
-                act.u = ColVec<1>{0.0};
+                act.u = ColVec{0.0};
                 // next rising at ceil to next period
                 const double k = std::floor((next_edge + 1e-18) / Tp);
                 next_edge = (k + 1.0) * Tp;
@@ -107,7 +107,7 @@ TEST_SUITE("Hybrid piecewise LTI") {
             return act;
         };
 
-        ColVec<1>        x0{0.0};
+        ColVec           x0{0.0};
         ColVec<1>        u0{Vin};
         constexpr double t_end = 50 * Tp;
 
@@ -144,7 +144,7 @@ TEST_SUITE("Hybrid piecewise LTI") {
         StateSpace on{
             .A = Matrix<1, 1>{{-R / L}},
             .B = Matrix<1, 1>{{1.0 / L}},
-            .C = Matrix<1, 1>{{1.0}},
+            .C = Matrix{{1.0}},
             .Ts = 0.0,
         };
         PiecewiseLTI<2, 1, 1, 1> plant{.modes = {on, on}};
@@ -160,7 +160,7 @@ TEST_SUITE("Hybrid piecewise LTI") {
             if (high) {
                 high = false;
                 act.mode = 1;
-                act.u = ColVec<1>{0.0};
+                act.u = ColVec{0.0};
                 const double k = std::floor((next_edge + 1e-18) / Tp);
                 next_edge = (k + 1.0) * Tp;
             } else {
@@ -175,7 +175,7 @@ TEST_SUITE("Hybrid piecewise LTI") {
         EventSimConfig<> cfg_ev{.log = LogPolicy::EventsOnly};
         EventSimConfig<> cfg_dense{.log = LogPolicy::FixedStride, .h_fine = Tp / 20.0};
 
-        ColVec<1>        x0{0.0};
+        ColVec           x0{0.0};
         ColVec<1>        u0{Vin};
         constexpr double t_end = 5 * Tp;
 
@@ -193,13 +193,13 @@ TEST_SUITE("Hybrid piecewise LTI") {
         // OFF: di/dt = -v/L with v fixed via algebraic trick: use 1-state  di/dt = -a
         // Simple: ẋ = -1, x(0)=0.1 → zero at t=0.1
         StateSpace sys{
-            .A = Matrix<1, 1>{{0.0}},
-            .B = Matrix<1, 1>{{-1.0}},
-            .C = Matrix<1, 1>{{1.0}},
+            .A = Matrix{{0.0}},
+            .B = Matrix{{-1.0}},
+            .C = Matrix{{1.0}},
             .Ts = 0.0,
         };
-        ColVec<1>    x0{0.1};
-        ColVec<1>    u{1.0}; // ẋ = -u
+        ColVec       x0{0.1};
+        ColVec       u{1.0}; // ẋ = -u
         auto         g = [](const ColVec<1>& x) { return x(0); };
         const double t_zc = locate_zero_crossing_exact(sys, x0, u, 0.0, 1.0, g, 1e-14);
         CHECK(t_zc == doctest::Approx(0.1).epsilon(1e-9));
@@ -211,7 +211,7 @@ TEST_SUITE("Hybrid piecewise LTI") {
         const auto               on_event = [](double, std::size_t m, const auto& x, const auto&, const auto& u) {
             return HybridEventAction<1, 1>{.mode = m, .u = u, .x = x};
         };
-        const auto tr = simulate_piecewise_lti(plant, 0, ColVec<1>{0.0}, ColVec<1>{1.0}, {0.0, 1.0}, schedule, on_event);
+        const auto tr = simulate_piecewise_lti(plant, 0, ColVec{0.0}, ColVec{1.0}, {0.0, 1.0}, schedule, on_event);
         CHECK_FALSE(tr.success);
     }
 
@@ -222,16 +222,16 @@ TEST_SUITE("Hybrid piecewise LTI") {
             return HybridEventAction<1, 1>{.mode = m, .u = u, .x = x};
         };
         EventSimConfig<> cfg{.log = LogPolicy::FixedStride, .h_fine = 0.1};
-        const auto       tr = simulate_piecewise_lti(plant, 0, ColVec<1>{0.0}, ColVec<1>{1.0}, {0.0, 1.0}, schedule, on_event, cfg);
+        const auto       tr = simulate_piecewise_lti(plant, 0, ColVec{0.0}, ColVec{1.0}, {0.0, 1.0}, schedule, on_event, cfg);
         CHECK(tr.t.size() == 11);
         CHECK(tr.x.back()(0) == doctest::Approx(1.0));
     }
 
     TEST_CASE("locate_zero_crossing_exact default tolerance is relative to the segment") {
         // ẋ = u = 1e12: x = 1e12 t crosses 3 at t = 3e-12, on a picosecond segment.
-        const ColVec<1> x0{0.0};
-        const ColVec<1> u{1e12};
-        const double    t = locate_zero_crossing_exact(integ, x0, u, 0.0, 1e-11, [](const ColVec<1>& x) { return x(0) - 3.0; });
+        const ColVec x0{0.0};
+        const ColVec u{1e12};
+        const double t = locate_zero_crossing_exact(integ, x0, u, 0.0, 1e-11, [](const ColVec<1>& x) { return x(0) - 3.0; });
         CHECK(std::abs(t - 3e-12) <= 1e-9 * 3e-12);
     }
 }

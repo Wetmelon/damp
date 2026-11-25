@@ -222,9 +222,7 @@ Plant builders and host sim are not this ladder.
 - Braces always on `if`/`for`/`while`. ~One-screen functions (~50 lines).
 - Templated literals: `T{1}` / `T{0.5}`; non-dyadic decimals
   `static_cast<T>(0.98)`.
-- A `ColVec` is written flat, `ColVec<2>{a, b}` and `ColVec<1>{x}`; a `Matrix` by
-  rows, `Matrix<2, 1>{{a}, {b}}`. Braces around each entry of a `ColVec` build the
-  same vector and draw clang's `-Wbraced-scalar-init`.
+- A literal names no size: a `ColVec` is written flat, `ColVec{a, b}` and `ColVec{x}`, a `Matrix` by rows, `Matrix{{a}, {b}}`, and both deduce their size and scalar from the entries (integers give double). The size stays for entries of mixed types, a scalar other than the entries' (`Matrix<2, 2, float>{{1.0, 0.0}, {0.0, 1.0}}`), a literal that leaves entries to the zero fill (`Matrix<3, 3>{{1.0}}`), and where CTAD does not reach: a non-static member, a parameter, a return type, a template argument. Braces around each entry of a `ColVec` build the same vector and draw clang's `-Wbraced-scalar-init`.
 - Tolerances: scale `eps<T>()` to the data (size and magnitude) so results don't
   depend on units; `default_tol<T>()` only for convergence of an
   already-relative quantity. Always `damp::` math and backed aliases in

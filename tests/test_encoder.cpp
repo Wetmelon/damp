@@ -114,8 +114,8 @@ TEST_SUITE("Quadrature encoder & speed") {
 
 TEST_SUITE("EncoderTracker") {
     TEST_CASE("ctor seeds omega from x0 like reset") {
-        const ColVec<2, double> x0{0.25, 12.5}; // [counts, counts/s]
-        EncoderTracker<double>  obs{2000.0, x0};
+        const ColVec           x0{0.25, 12.5}; // [counts, counts/s]
+        EncoderTracker<double> obs{2000.0, x0};
         CHECK(obs.position().value() == doctest::Approx(0.25));
         CHECK(obs.omega() == doctest::Approx(12.5));
 
@@ -124,7 +124,7 @@ TEST_SUITE("EncoderTracker") {
         CHECK(zeroed.omega() == doctest::Approx(0.0));
 
         // Config path and reset() agree with ctor seed
-        EncoderTrackerConfig<double> cfg{.bandwidth = 1500.0, .x0 = ColVec<2, double>{-0.1, -3.0}};
+        EncoderTrackerConfig<double> cfg{.bandwidth = 1500.0, .x0 = ColVec{-0.1, -3.0}};
         EncoderTracker<double>       from_cfg{cfg};
         CHECK(from_cfg.position().value() == doctest::Approx(-0.1));
         CHECK(from_cfg.omega() == doctest::Approx(-3.0));
@@ -135,8 +135,8 @@ TEST_SUITE("EncoderTracker") {
     }
 
     TEST_CASE("predict advances the position with seeded omega") {
-        EncoderTracker<double> obs{2000.0, ColVec<2, double>{0.0, 10.0}}; // 10 counts/s
-        obs.predict(0.01);                                                // 0.1 counts
+        EncoderTracker<double> obs{2000.0, ColVec{0.0, 10.0}}; // 10 counts/s
+        obs.predict(0.01);                                     // 0.1 counts
         CHECK(obs.position().value() == doctest::Approx(0.1));
         CHECK(obs.omega() == doctest::Approx(10.0));
     }
@@ -173,7 +173,7 @@ TEST_SUITE("EncoderTracker") {
     }
 
     TEST_CASE("extrapolates the last reading by ω between readings") {
-        EncoderTracker<double> obs{2000.0, ColVec<2, double>{0.0, 10.0}};
+        EncoderTracker<double> obs{2000.0, ColVec{0.0, 10.0}};
         obs.update(SplitReal<double>(0.25), 1e-4);
         const double w = obs.omega();
         for (int k = 0; k < 4; ++k) { // a 40 kHz current loop between 10 kHz readings
@@ -310,7 +310,7 @@ TEST_SUITE("EncoderTracker") {
 
     TEST_CASE("EncoderTrackerConfig keeps the initial state across as<U>()") {
         EncoderTrackerConfig<double> tc{};
-        tc.x0 = ColVec<2, double>{0.25, 3.0};
+        tc.x0 = ColVec{0.25, 3.0};
         CHECK(tc.as<float>().x0[0] == doctest::Approx(0.25F));
         CHECK(tc.as<float>().x0[1] == doctest::Approx(3.0F));
     }

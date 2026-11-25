@@ -24,7 +24,7 @@ using damp::complex;
 TEST_SUITE("cholesky") {
     TEST_CASE("Cholesky decomposition - basic 2x2 SPD matrix") {
         // Test matrix: [[4, 2], [2, 3]] - known to be SPD
-        Matrix<2, 2, double> A = {{4.0, 2.0}, {2.0, 3.0}};
+        Matrix A = {{4.0, 2.0}, {2.0, 3.0}};
 
         auto L_opt = cholesky(A);
         REQUIRE(L_opt.has_value());
@@ -44,7 +44,7 @@ TEST_SUITE("cholesky") {
 
     TEST_CASE("Cholesky decomposition - 3x3 SPD matrix") {
         // Test matrix: [[4, 2, 1], [2, 5, 3], [1, 3, 6]]
-        Matrix<3, 3, double> A = {
+        Matrix A = {
             {4.0, 2.0, 1.0},
             {2.0, 5.0, 3.0},
             {1.0, 3.0, 6.0},
@@ -88,7 +88,7 @@ TEST_SUITE("cholesky") {
 
     TEST_CASE("Cholesky decomposition - non-SPD matrix (negative eigenvalue)") {
         // Matrix with negative eigenvalue: [[1, 2], [2, 1]]
-        Matrix<2, 2, double> A = {{1.0, 2.0}, {2.0, 1.0}};
+        Matrix A = {{1.0, 2.0}, {2.0, 1.0}};
 
         auto L_opt = cholesky(A);
         CHECK(!L_opt.has_value());
@@ -96,7 +96,7 @@ TEST_SUITE("cholesky") {
 
     TEST_CASE("Cholesky decomposition - non-SPD matrix (not positive definite)") {
         // Matrix that's not SPD: [[0, 0], [0, 0]]
-        Matrix<2, 2, double> A = {{0.0, 0.0}, {0.0, 0.0}};
+        Matrix A = {{0.0, 0.0}, {0.0, 0.0}};
 
         auto L_opt = cholesky(A);
         CHECK(!L_opt.has_value());
@@ -105,7 +105,7 @@ TEST_SUITE("cholesky") {
     TEST_CASE("Cholesky decomposition - non-symmetric matrix") {
         // Non-symmetric matrix: [[4, 1], [2, 3]]
         // Cholesky doesn't check symmetry, so it may succeed or fail
-        Matrix<2, 2, double> A = {{4.0, 1.0}, {2.0, 3.0}};
+        Matrix A = {{4.0, 1.0}, {2.0, 3.0}};
 
         auto L_opt = cholesky(A);
         // The algorithm doesn't enforce symmetry, so result is implementation-dependent
@@ -115,10 +115,10 @@ TEST_SUITE("cholesky") {
 
     TEST_CASE("Forward substitution - basic test") {
         // Lower triangular matrix L
-        Matrix<3, 3, double> L = {{2.0, 0.0, 0.0}, {1.0, 3.0, 0.0}, {0.5, 0.5, 4.0}};
+        Matrix L = {{2.0, 0.0, 0.0}, {1.0, 3.0, 0.0}, {0.5, 0.5, 4.0}};
 
         // Right-hand side b
-        ColVec<3, double> b = {6.0, 8.0, 9.0};
+        ColVec b = {6.0, 8.0, 9.0};
 
         // Expected solution: L * x = b
         // x(0) = 6/2 = 3
@@ -133,10 +133,10 @@ TEST_SUITE("cholesky") {
 
     TEST_CASE("Backward substitution - basic test") {
         // Upper triangular matrix U (L^T)
-        Matrix<3, 3, double> U = {{2.0, 1.0, 0.5}, {0.0, 3.0, 0.5}, {0.0, 0.0, 4.0}};
+        Matrix U = {{2.0, 1.0, 0.5}, {0.0, 3.0, 0.5}, {0.0, 0.0, 4.0}};
 
         // Right-hand side b
-        ColVec<3, double> b = {7.0, 5.5, 4.0};
+        ColVec b = {7.0, 5.5, 4.0};
 
         // Expected solution: U * x = b (treating U as L in backward_substitute)
         // x(2) = 4/4 = 1
@@ -151,10 +151,10 @@ TEST_SUITE("cholesky") {
 
     TEST_CASE("Cholesky solve - single RHS") {
         // SPD matrix A
-        Matrix<2, 2, double> A = {{4.0, 2.0}, {2.0, 3.0}};
+        Matrix A = {{4.0, 2.0}, {2.0, 3.0}};
 
         // Right-hand side B (single column)
-        Matrix<2, 1, double> B = {{8.0}, {7.0}};
+        Matrix B = {{8.0}, {7.0}};
 
         // Expected solution: A * x = B
         // x should be approximately [1.25, 1.5]
@@ -168,10 +168,10 @@ TEST_SUITE("cholesky") {
 
     TEST_CASE("Cholesky solve - multiple RHS") {
         // SPD matrix A
-        Matrix<3, 3, double> A = {{4.0, 2.0, 1.0}, {2.0, 5.0, 3.0}, {1.0, 3.0, 6.0}};
+        Matrix A = {{4.0, 2.0, 1.0}, {2.0, 5.0, 3.0}, {1.0, 3.0, 6.0}};
 
         // Right-hand side B (two columns)
-        Matrix<3, 2, double> B = {{7.0, 10.0}, {9.0, 13.0}, {11.0, 15.0}};
+        Matrix B = {{7.0, 10.0}, {9.0, 13.0}, {11.0, 15.0}};
 
         auto X_opt = cholesky_solve(A, B);
         REQUIRE(X_opt.has_value());
@@ -190,9 +190,9 @@ TEST_SUITE("cholesky") {
 
     TEST_CASE("Cholesky solve - non-SPD matrix") {
         // Non-SPD matrix
-        Matrix<2, 2, double> A = {{1.0, 2.0}, {2.0, 1.0}};
+        Matrix A = {{1.0, 2.0}, {2.0, 1.0}};
 
-        Matrix<2, 1, double> B = {{3.0}, {4.0}};
+        Matrix B = {{3.0}, {4.0}};
 
         auto X_opt = cholesky_solve(A, B);
         CHECK(!X_opt.has_value());
@@ -200,7 +200,7 @@ TEST_SUITE("cholesky") {
 
     TEST_CASE("Cholesky decomposition - constexpr") {
         // Test that Cholesky works at compile time
-        constexpr Matrix<2, 2, double> A = {{4.0, 2.0}, {2.0, 3.0}};
+        constexpr Matrix A = {{4.0, 2.0}, {2.0, 3.0}};
 
         constexpr auto L_opt = cholesky(A);
         static_assert(L_opt.has_value(), "Cholesky should succeed at compile time");
@@ -210,8 +210,8 @@ TEST_SUITE("cholesky") {
     }
 
     TEST_CASE("Forward substitution - constexpr") {
-        constexpr Matrix<2, 2, double> L = {{2.0, 0.0}, {1.0, 1.0}};
-        constexpr ColVec<2, double>    b = {4.0, 1.0};
+        constexpr Matrix L = {{2.0, 0.0}, {1.0, 1.0}};
+        constexpr ColVec b = {4.0, 1.0};
 
         constexpr auto x = forward_substitute(L, b);
 
@@ -220,8 +220,8 @@ TEST_SUITE("cholesky") {
     }
 
     TEST_CASE("Cholesky solve - float precision") {
-        Matrix<2, 2, float> A = {{4.0f, 2.0f}, {2.0f, 3.0f}};
-        Matrix<2, 1, float> B = {{8.0f}, {7.0f}};
+        Matrix A = {{4.0f, 2.0f}, {2.0f, 3.0f}};
+        Matrix B = {{8.0f}, {7.0f}};
 
         auto X_opt = cholesky_solve(A, B);
         REQUIRE(X_opt.has_value());
@@ -232,7 +232,7 @@ TEST_SUITE("cholesky") {
     }
 
     TEST_CASE("LU decomposition - basic 2x2 matrix") {
-        Matrix<2, 2, double> A = {{4.0, 2.0}, {2.0, 3.0}};
+        Matrix A = {{4.0, 2.0}, {2.0, 3.0}};
 
         auto lu_opt = lu_decomposition(A);
         REQUIRE(lu_opt.has_value());
@@ -260,7 +260,7 @@ TEST_SUITE("cholesky") {
     }
 
     TEST_CASE("LU decomposition - 3x3 matrix") {
-        Matrix<3, 3, double> A = {
+        Matrix A = {
             {4.0, 1.0, 1.0},
             {2.0, 3.0, 3.0},
             {2.0, 1.0, 9.0}
@@ -304,14 +304,14 @@ TEST_SUITE("cholesky") {
 
     TEST_CASE("LU decomposition - singular matrix") {
         // Singular matrix: [[1, 2], [2, 4]] - second row is 2*first row
-        Matrix<2, 2, double> A = {{1.0, 2.0}, {2.0, 4.0}};
+        Matrix A = {{1.0, 2.0}, {2.0, 4.0}};
 
         auto lu_opt = lu_decomposition(A);
         CHECK(!lu_opt.has_value());
     }
 
     TEST_CASE("LU decomposition - float precision") {
-        Matrix<2, 2, float> A = {{4.0f, 2.0f}, {2.0f, 3.0f}};
+        Matrix A = {{4.0f, 2.0f}, {2.0f, 3.0f}};
 
         auto lu_opt = lu_decomposition(A);
         REQUIRE(lu_opt.has_value());
@@ -363,8 +363,8 @@ TEST_SUITE("cholesky") {
     }
 
     TEST_CASE("Solve function - SPD matrix (uses Cholesky)") {
-        Matrix<2, 2, double> A = {{4.0, 2.0}, {2.0, 3.0}};
-        Matrix<2, 1, double> B = {{8.0}, {7.0}};
+        Matrix A = {{4.0, 2.0}, {2.0, 3.0}};
+        Matrix B = {{8.0}, {7.0}};
 
         auto X_opt = solve(A, B);
         REQUIRE(X_opt.has_value());
@@ -380,8 +380,8 @@ TEST_SUITE("cholesky") {
     }
 
     TEST_CASE("Solve function - non-SPD matrix (uses LU)") {
-        Matrix<2, 2, double> A = {{1.0, 2.0}, {3.0, 4.0}}; // Not SPD
-        Matrix<2, 1, double> B = {{5.0}, {11.0}};
+        Matrix A = {{1.0, 2.0}, {3.0, 4.0}}; // Not SPD
+        Matrix B = {{5.0}, {11.0}};
 
         auto X_opt = solve(A, B);
         REQUIRE(X_opt.has_value());
@@ -397,16 +397,16 @@ TEST_SUITE("cholesky") {
     }
 
     TEST_CASE("Solve function - singular matrix") {
-        Matrix<2, 2, double> A = {{1.0, 2.0}, {2.0, 4.0}}; // Singular
-        Matrix<2, 1, double> B = {{3.0}, {6.0}};
+        Matrix A = {{1.0, 2.0}, {2.0, 4.0}}; // Singular
+        Matrix B = {{3.0}, {6.0}};
 
         auto X_opt = solve(A, B);
         CHECK(!X_opt.has_value());
     }
 
     TEST_CASE("Solve function - float precision") {
-        Matrix<2, 2, float> A = {{4.0f, 2.0f}, {2.0f, 3.0f}};
-        Matrix<2, 1, float> B = {{8.0f}, {7.0f}};
+        Matrix A = {{4.0f, 2.0f}, {2.0f, 3.0f}};
+        Matrix B = {{8.0f}, {7.0f}};
 
         auto X_opt = solve(A, B);
         REQUIRE(X_opt.has_value());
@@ -441,15 +441,15 @@ TEST_SUITE("cholesky") {
     }
 
     TEST_CASE("LU decomposition - constexpr") {
-        constexpr Matrix<2, 2, double> A = {{4.0, 2.0}, {2.0, 3.0}};
+        constexpr Matrix A = {{4.0, 2.0}, {2.0, 3.0}};
 
         constexpr auto lu_opt = lu_decomposition(A);
         static_assert(lu_opt.has_value(), "LU decomposition should succeed at compile time");
     }
 
     TEST_CASE("Solve function - constexpr") {
-        constexpr Matrix<2, 2, double> A = {{4.0, 2.0}, {2.0, 3.0}};
-        constexpr Matrix<2, 1, double> B = {{8.0}, {7.0}};
+        constexpr Matrix A = {{4.0, 2.0}, {2.0, 3.0}};
+        constexpr Matrix B = {{8.0}, {7.0}};
 
         constexpr auto X_opt = solve(A, B);
         static_assert(X_opt.has_value(), "Solve should succeed at compile time");
@@ -461,8 +461,8 @@ TEST_SUITE("cholesky") {
     TEST_CASE("Triangular solve - lower triangular 3x3") {
         // L * x = b  →  x = [1, 2, 3]
         // L = [[2,0,0],[1,3,0],[4,2,5]], b = L * [1,2,3]
-        Matrix<3, 3, double> A = {{2.0, 0.0, 0.0}, {1.0, 3.0, 0.0}, {4.0, 2.0, 5.0}};
-        Matrix<3, 1, double> B = {{2.0}, {7.0}, {23.0}};
+        Matrix A = {{2.0, 0.0, 0.0}, {1.0, 3.0, 0.0}, {4.0, 2.0, 5.0}};
+        Matrix B = {{2.0}, {7.0}, {23.0}};
 
         auto L = A.lower_triangle();
         auto X_opt = solve(L, B);
@@ -483,8 +483,8 @@ TEST_SUITE("cholesky") {
     TEST_CASE("Triangular solve - upper triangular 3x3") {
         // U * x = b  →  x = [1, 2, 3]
         // U = [[2,1,4],[0,3,2],[0,0,5]], b = U * [1,2,3]
-        Matrix<3, 3, double> A = {{2.0, 1.0, 4.0}, {0.0, 3.0, 2.0}, {0.0, 0.0, 5.0}};
-        Matrix<3, 1, double> B = {{16.0}, {12.0}, {15.0}};
+        Matrix A = {{2.0, 1.0, 4.0}, {0.0, 3.0, 2.0}, {0.0, 0.0, 5.0}};
+        Matrix B = {{16.0}, {12.0}, {15.0}};
 
         auto U = A.upper_triangle();
         auto X_opt = solve(U, B);
@@ -503,8 +503,8 @@ TEST_SUITE("cholesky") {
     }
 
     TEST_CASE("Triangular solve - singular lower triangular") {
-        Matrix<2, 2, double> A = {{0.0, 0.0}, {1.0, 2.0}}; // zero on diagonal
-        Matrix<2, 1, double> B = {{1.0}, {3.0}};
+        Matrix A = {{0.0, 0.0}, {1.0, 2.0}}; // zero on diagonal
+        Matrix B = {{1.0}, {3.0}};
 
         auto L = A.lower_triangle();
         auto X_opt = solve(L, B);
@@ -512,8 +512,8 @@ TEST_SUITE("cholesky") {
     }
 
     TEST_CASE("Triangular solve - singular upper triangular") {
-        Matrix<2, 2, double> A = {{1.0, 2.0}, {0.0, 0.0}}; // zero on diagonal
-        Matrix<2, 1, double> B = {{3.0}, {0.0}};
+        Matrix A = {{1.0, 2.0}, {0.0, 0.0}}; // zero on diagonal
+        Matrix B = {{3.0}, {0.0}};
 
         auto U = A.upper_triangle();
         auto X_opt = solve(U, B);
@@ -521,8 +521,8 @@ TEST_SUITE("cholesky") {
     }
 
     TEST_CASE("Triangular solve - constexpr lower triangular") {
-        static constexpr Matrix<2, 2, double> A = {{2.0, 0.0}, {1.0, 3.0}};
-        static constexpr Matrix<2, 1, double> B = {{4.0}, {7.0}};
+        static constexpr Matrix A = {{2.0, 0.0}, {1.0, 3.0}};
+        static constexpr Matrix B = {{4.0}, {7.0}};
 
         constexpr auto L = A.lower_triangle();
         constexpr auto X_opt = solve(L, B);
@@ -530,8 +530,8 @@ TEST_SUITE("cholesky") {
     }
 
     TEST_CASE("Triangular solve - constexpr upper triangular") {
-        static constexpr Matrix<2, 2, double> A = {{2.0, 1.0}, {0.0, 3.0}};
-        static constexpr Matrix<2, 1, double> B = {{5.0}, {6.0}};
+        static constexpr Matrix A = {{2.0, 1.0}, {0.0, 3.0}};
+        static constexpr Matrix B = {{5.0}, {6.0}};
 
         constexpr auto U = A.upper_triangle();
         constexpr auto X_opt = solve(U, B);
@@ -624,7 +624,7 @@ TEST_SUITE("full_qr") {
 
     TEST_CASE("full_qr reconstructs A with an orthogonal full Q") {
         SUBCASE("square 3x3") {
-            Matrix<3, 3> A = {
+            Matrix A = {
                 {12.0, -51.0, 4.0},
                 {6.0, 167.0, -68.0},
                 {-4.0, 24.0, -41.0},
@@ -641,7 +641,7 @@ TEST_SUITE("full_qr") {
         }
 
         SUBCASE("tall 4x2 — trailing Q columns span the orthogonal complement") {
-            Matrix<4, 2> B = {
+            Matrix B = {
                 {1.0, 2.0},
                 {3.0, 4.0},
                 {5.0, 6.0},
@@ -667,8 +667,8 @@ TEST_SUITE("full_qr") {
 
     TEST_CASE("full_qr is constexpr-evaluable") {
         constexpr auto ortho_ok = []() consteval {
-            Matrix<3, 2> B = {{1.0, 0.0}, {1.0, 1.0}, {0.0, 1.0}};
-            auto         qr = mat::full_qr(B);
+            Matrix B = {{1.0, 0.0}, {1.0, 1.0}, {0.0, 1.0}};
+            auto   qr = mat::full_qr(B);
             // U₁ (column 2) ⟂ range(B)
             double d0 = 0.0;
             double d1 = 0.0;
@@ -751,8 +751,8 @@ TEST_SUITE("scale-invariant singularity and symmetry") {
     TEST_CASE("solve does not mistake a tiny non-symmetric matrix for symmetric") {
         // An absolute 1e-12 symmetry tolerance sent this to Cholesky, which reads
         // only the lower triangle and returned a residual of 0.5.
-        const Matrix<2, 2> A{{2e-13, 1e-13}, {0.0, 2e-13}};
-        const Matrix<2, 1> b{{1.0}, {1.0}};
+        const Matrix A{{2e-13, 1e-13}, {0.0, 2e-13}};
+        const Matrix b{{1.0}, {1.0}};
         CHECK_FALSE(is_symmetric_or_hermitian(A));
         const auto x = solve(A, b);
         REQUIRE(x.has_value());
@@ -774,7 +774,7 @@ TEST_SUITE("scale-invariant singularity and symmetry") {
 
     TEST_CASE("lu_decomposition rejects roundoff-singular input at any scale") {
         for (const double s : {1e-20, 1.0, 1e20}) {
-            const Matrix<3, 3> A = Matrix<3, 3>{{1.0, 2.0, 3.0}, {4.0, 5.0, 6.0}, {7.0, 8.0, 9.0}} * s;
+            const Matrix<3, 3> A = Matrix{{1.0, 2.0, 3.0}, {4.0, 5.0, 6.0}, {7.0, 8.0, 9.0}} * s;
             CHECK_FALSE(lu_decomposition(A).has_value());
         }
     }
@@ -782,10 +782,10 @@ TEST_SUITE("scale-invariant singularity and symmetry") {
     TEST_CASE("a float upper-triangular matrix with a 1e19–1e20 diagonal is not taken as symmetric") {
         // √(|a₀₀||a₁₁|) formed as a product overflowed float, so every pair passed and solve()
         // ran Cholesky on the lower triangle only.
-        const Matrix<2, 2, float> A{{2e19f, 1e19f}, {0.0f, 3e19f}};
-        const Matrix<2, 1, float> b{{1e19f}, {1e19f}};
+        const Matrix A{{2e19f, 1e19f}, {0.0f, 3e19f}};
+        const Matrix b{{1e19f}, {1e19f}};
         CHECK_FALSE(is_symmetric_or_hermitian(A));
-        const Matrix<2, 2, float> big{{1e20f, 1e19f}, {-1e19f, 1e20f}};
+        const Matrix big{{1e20f, 1e19f}, {-1e19f, 1e20f}};
         CHECK_FALSE(is_symmetric_or_hermitian(big));
         const auto x = solve(A, b);
         REQUIRE(x.has_value());
@@ -799,12 +799,12 @@ TEST_SUITE("scale-invariant singularity and symmetry") {
     TEST_CASE("solve takes LU for a nearly symmetric matrix, so its residual stays at roundoff") {
         // An asymmetry of 1e-13 relative passes is_symmetric_or_hermitian (N·64·eps), but
         // Cholesky reads only the lower triangle and would solve a different matrix.
-        Matrix<3, 3> A{{4.0, 1.0, 0.5}, {1.0, 3.0, 0.2}, {0.5, 0.2, 2.0}};
+        Matrix A{{4.0, 1.0, 0.5}, {1.0, 3.0, 0.2}, {0.5, 0.2, 2.0}};
         A(0, 1) *= 1.0 + 1e-13;
         A(1, 2) *= 1.0 - 1e-13;
         REQUIRE(is_symmetric_or_hermitian(A));
-        const Matrix<3, 1> b{{1.0}, {-2.0}, {0.5}};
-        const auto         x = solve(A, b);
+        const Matrix b{{1.0}, {-2.0}, {0.5}};
+        const auto   x = solve(A, b);
         REQUIRE(x.has_value());
         const Matrix<3, 1> r = (A * x.value()) - b;
         CHECK(r.norm() <= 16.0 * eps<double>() * A.norm() * x.value().norm());
@@ -814,7 +814,7 @@ TEST_SUITE("scale-invariant singularity and symmetry") {
         // diag(1, 1e-3, 1e-22)·B with κ₂(B) ≈ 6: the largest entry of column 1 after the first
         // step is cancellation roundoff in row 1, while row 2 holds the genuine pivot.
         const Matrix<3, 3> B{{3.0, 1.1, 0.0}, {1.0, 1.1 / 3.0, 1.0}, {0.0, 1.0, 1.0}};
-        const Matrix<3, 3> D{{1.0, 0.0, 0.0}, {0.0, 1e-3, 0.0}, {0.0, 0.0, 1e-22}};
+        const Matrix       D{{1.0, 0.0, 0.0}, {0.0, 1e-3, 0.0}, {0.0, 0.0, 1e-22}};
         const Matrix<3, 3> A = D * B;
         const auto         lu = lu_decomposition(A);
         REQUIRE(lu.has_value());
@@ -825,10 +825,10 @@ TEST_SUITE("scale-invariant singularity and symmetry") {
                 CHECK(damp::abs(L(i, j)) <= 1.0);
             }
         }
-        const Matrix<3, 1> b = D * Matrix<3, 1>{{1.0}, {2.0}, {3.0}};
+        const Matrix<3, 1> b = D * Matrix{{1.0}, {2.0}, {3.0}};
         const auto         x = solve(A, b);
         REQUIRE(x.has_value());
-        const auto xb = solve(B, Matrix<3, 1>{{1.0}, {2.0}, {3.0}});
+        const auto xb = solve(B, Matrix{{1.0}, {2.0}, {3.0}});
         REQUIRE(xb.has_value());
         CHECK((x.value() - xb.value()).norm() <= 1e-12 * xb.value().norm());
     }
@@ -936,7 +936,7 @@ bool no_column_dropped(const QRDecomposition<T, N, M>& qr) {
 TEST_SUITE("rank, two_norm and QR are scale-invariant") {
     TEST_CASE("rank uses relative SVD threshold at any scale") {
         for (const double s : {1e-20, 1.0, 1e20}) {
-            const Matrix<3, 3> A = Matrix<3, 3>{{1.0, 2.0, 3.0}, {4.0, 5.0, 6.0}, {7.0, 8.0, 9.0}} * s;
+            const Matrix<3, 3> A = Matrix{{1.0, 2.0, 3.0}, {4.0, 5.0, 6.0}, {7.0, 8.0, 9.0}} * s;
             CHECK(rank(A) == 2);
             CHECK(rank(Matrix<3, 3>::identity() * s) == 3);
         }
@@ -944,7 +944,7 @@ TEST_SUITE("rank, two_norm and QR are scale-invariant") {
     }
 
     TEST_CASE("two_norm when the all-ones vector is a null vector") {
-        CHECK(two_norm(Matrix<2, 2>{{1.0, -1.0}, {0.0, 0.0}}).value() == doctest::Approx(std::sqrt(2.0)));
+        CHECK(two_norm(Matrix{{1.0, -1.0}, {0.0, 0.0}}).value() == doctest::Approx(std::sqrt(2.0)));
         CHECK(two_norm(Matrix<2, 2>::identity() * 1e-9).value() == doctest::Approx(1e-9));
     }
 
@@ -969,9 +969,9 @@ TEST_SUITE("rank, two_norm and QR are scale-invariant") {
     }
 
     TEST_CASE("qr_decompose drops a column as roundoff relative to its own norm") {
-        const Matrix<3, 2> tiny{{1e-14, 2e-14}, {0.0, 1e-14}, {0.0, 0.0}};
+        const Matrix tiny{{1e-14, 2e-14}, {0.0, 1e-14}, {0.0, 0.0}};
         CHECK(no_column_dropped(qr_decompose(tiny)));
-        const Matrix<3, 2> dep{{1.0, 2.0}, {1.0, 2.0}, {1.0, 2.0}};
+        const Matrix dep{{1.0, 2.0}, {1.0, 2.0}, {1.0, 2.0}};
         CHECK(qr_decompose(dep).R(1, 1) == 0.0);
     }
 }
@@ -1044,8 +1044,8 @@ TEST_SUITE("qr_decompose orthogonality") {
     // On rank loss R(j, j) is stored as zero and Q keeps an orthonormal column, so QR still
     // reconstructs A and QᴴQ = I.
     TEST_CASE("rank-deficient input keeps Q orthonormal") {
-        const Matrix<3, 2> dep{{1.0, 2.0}, {1.0, 2.0}, {1.0, 2.0}};
-        const auto         qr = qr_decompose(dep);
+        const Matrix dep{{1.0, 2.0}, {1.0, 2.0}, {1.0, 2.0}};
+        const auto   qr = qr_decompose(dep);
         CHECK(qr.R(1, 1) == 0.0);
         CHECK(orthogonality_loss(qr.Q) <= 16.0 * damp::eps<double>());
         check_factors(dep, qr);
@@ -1053,8 +1053,8 @@ TEST_SUITE("qr_decompose orthogonality") {
 
     // More columns than rows: the trailing R diagonal is zero and its Q column is zero.
     TEST_CASE("a wide matrix factors with zero trailing columns of Q") {
-        const Matrix<2, 3> W{{3.0, 1.0, 2.0}, {4.0, -1.0, 5.0}};
-        const auto         qr = qr_decompose(W);
+        const Matrix W{{3.0, 1.0, 2.0}, {4.0, -1.0, 5.0}};
+        const auto   qr = qr_decompose(W);
         CHECK(qr.R(0, 0) == doctest::Approx(5.0));
         CHECK(qr.R(2, 2) == 0.0);
         CHECK(qr.Q(0, 2) == 0.0);
@@ -1257,7 +1257,7 @@ Matrix<4, 4, T> graded_corner_4(T delta) {
 TEST_SUITE("ldlt") {
     TEST_CASE("a KKT saddle-point matrix factors and solves where Cholesky cannot") {
         // [[H, Aᵀ], [A, 0]] with H = diag(2, 3), A = [1, 1]: indefinite, and no pivot is needed
-        const Matrix<3, 3> K{{2.0, 0.0, 1.0}, {0.0, 3.0, 1.0}, {1.0, 1.0, 0.0}};
+        const Matrix K{{2.0, 0.0, 1.0}, {0.0, 3.0, 1.0}, {1.0, 1.0, 0.0}};
         CHECK_FALSE(cholesky(K).has_value());
         const auto f = ldlt(K);
         REQUIRE(f.has_value());
@@ -1269,9 +1269,9 @@ TEST_SUITE("ldlt") {
         CHECK(f->d[1] == doctest::Approx(3.0));
         CHECK(f->d[2] == doctest::Approx(-(1.0 / 2.0 + 1.0 / 3.0))); // Schur complement −A H⁻¹ Aᵀ
         CHECK(ldlt_error(K, *f).backward <= 8.0 * 3.0 * eps<double>() * K.norm());
-        const Matrix<3, 1> b{{1.0}, {2.0}, {0.5}};
-        const auto         x = ldlt_solve(K, b);
-        const auto         x_lu = lu_solve(K, b);
+        const Matrix b{{1.0}, {2.0}, {0.5}};
+        const auto   x = ldlt_solve(K, b);
+        const auto   x_lu = lu_solve(K, b);
         REQUIRE(x.has_value());
         REQUIRE(x_lu.has_value());
         for (size_t i = 0; i < 3; ++i) {
@@ -1348,7 +1348,7 @@ TEST_SUITE("ldlt") {
         // scaled by |w|, as LU (which never squares an entry) does.
         for (const float s : {1e-25f, 1e25f}) {
             const Matrix<2, 2, float> A{{s * 1e-3f, s}, {s, s * 2e-3f}};
-            const Matrix<2, 1, float> b{{0.3f}, {0.7f}};
+            const Matrix              b{{0.3f}, {0.7f}};
             const auto                x = ldlt_solve(A, b);
             const auto                ref = lu_solve(Matrix<2, 2>(A), Matrix<2, 1>(b));
             REQUIRE(x.has_value());
@@ -1410,22 +1410,22 @@ TEST_SUITE("ldlt") {
 
     TEST_CASE("constexpr: a permuted factorization, a 2×2 block, and a solve") {
         // [[0, 1, 0], [1, 2, 1], [0, 1, 4]]: a₀₀ = 0 fails α·ω₀, a₁₁ = 2 pivots first
-        static constexpr Matrix<3, 3> A{{0.0, 1.0, 0.0}, {1.0, 2.0, 1.0}, {0.0, 1.0, 4.0}};
-        static constexpr auto         f = ldlt(A);
+        static constexpr Matrix A{{0.0, 1.0, 0.0}, {1.0, 2.0, 1.0}, {0.0, 1.0, 4.0}};
+        static constexpr auto   f = ldlt(A);
         static_assert(f.has_value());
         static_assert(f->perm[0] == 1 && f->perm[1] == 0 && f->perm[2] == 2);
         static_assert(f->d[0] == 2.0 && f->d[1] == -0.5 && f->d[2] == 4.0);
         static_assert(f->L(1, 0) == 0.5 && f->L(2, 0) == 0.5 && f->L(2, 1) == 1.0);
         static_assert(f->e[0] == 0.0 && f->e[1] == 0.0);
-        static constexpr auto x = ldlt_solve(A, Matrix<3, 1>{{2.0}, {8.0}, {14.0}});
+        static constexpr auto x = ldlt_solve(A, Matrix{{2.0}, {8.0}, {14.0}});
         static_assert(x.has_value() && (*x)(0, 0) == 1.0 && (*x)(1, 0) == 2.0 && (*x)(2, 0) == 3.0);
         // [[4, 2, 2], [2, 1, 3], [2, 3, 1]]: a 1×1 pivot leaves [[0, 2], [2, 0]], a 2×2 block
-        static constexpr auto g = ldlt(Matrix<3, 3>{{4.0, 2.0, 2.0}, {2.0, 1.0, 3.0}, {2.0, 3.0, 1.0}});
+        static constexpr auto g = ldlt(Matrix{{4.0, 2.0, 2.0}, {2.0, 1.0, 3.0}, {2.0, 3.0, 1.0}});
         static_assert(g.has_value());
         static_assert(g->d[0] == 4.0 && g->d[1] == 0.0 && g->d[2] == 0.0 && g->e[0] == 0.0 && g->e[1] == 2.0);
         static_assert(g->L(1, 0) == 0.5 && g->L(2, 0) == 0.5 && g->L(2, 1) == 0.0);
-        static_assert(!ldlt(Matrix<2, 2>{{1.0, 2.0}, {2.0, 4.0}}).has_value());
-        static_assert(ldlt(Matrix<1, 1>{{-3.0}})->d[0] == -3.0 && !ldlt(Matrix<1, 1>{{0.0}}).has_value());
+        static_assert(!ldlt(Matrix{{1.0, 2.0}, {2.0, 4.0}}).has_value());
+        static_assert(ldlt(Matrix{{-3.0}})->d[0] == -3.0 && !ldlt(Matrix{{0.0}}).has_value());
     }
 
     TEST_CASE("Hermitian: complex off-diagonal, real pivots") {

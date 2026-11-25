@@ -20,8 +20,8 @@ TEST_SUITE("quadratic_form") {
 
     TEST_CASE("matches M*X*Mᵀ on the lower triangle (non-square M)") {
         // M is 3×2, X is 2×2 symmetric → S is 3×3.
-        const Matrix<3, 2, double> M = {{1.0, 2.0}, {3.0, 4.0}, {5.0, 6.0}};
-        const Matrix<2, 2, double> X = {{2.0, 1.0}, {1.0, 3.0}};
+        const Matrix M = {{1.0, 2.0}, {3.0, 4.0}, {5.0, 6.0}};
+        const Matrix X = {{2.0, 1.0}, {1.0, 3.0}};
 
         const auto S = quadratic_form(M, X);
         const auto ref = M * X * M.t();
@@ -35,8 +35,8 @@ TEST_SUITE("quadratic_form") {
     }
 
     TEST_CASE("result is exactly symmetric") {
-        const Matrix<3, 3, double> M = {{1.0, -2.0, 0.5}, {0.0, 3.0, -1.0}, {4.0, 1.0, 2.0}};
-        const Matrix<3, 3, double> X = {{5.0, 2.0, 1.0}, {2.0, 4.0, 3.0}, {1.0, 3.0, 6.0}};
+        const Matrix M = {{1.0, -2.0, 0.5}, {0.0, 3.0, -1.0}, {4.0, 1.0, 2.0}};
+        const Matrix X = {{5.0, 2.0, 1.0}, {2.0, 4.0, 3.0}, {1.0, 3.0, 6.0}};
 
         const auto S = quadratic_form(M, X);
 
@@ -48,8 +48,8 @@ TEST_SUITE("quadratic_form") {
     }
 
     TEST_CASE("identity congruence returns X") {
-        const Matrix<3, 3, double> X = {{5.0, 2.0, 1.0}, {2.0, 4.0, 3.0}, {1.0, 3.0, 6.0}};
-        const auto                 I = Matrix<3, 3, double>::identity();
+        const Matrix X = {{5.0, 2.0, 1.0}, {2.0, 4.0, 3.0}, {1.0, 3.0, 6.0}};
+        const auto   I = Matrix<3, 3, double>::identity();
 
         const auto S = quadratic_form(I, X);
 
@@ -62,8 +62,8 @@ TEST_SUITE("quadratic_form") {
 
     TEST_CASE("row-vector M yields the scalar form mᵀ X m") {
         // M is 1×3 → S is 1×1 equal to m X mᵀ with m = [2, -1, 3].
-        const Matrix<1, 3, double> m = {{2.0, -1.0, 3.0}};
-        const Matrix<3, 3, double> X = {{5.0, 2.0, 1.0}, {2.0, 4.0, 3.0}, {1.0, 3.0, 6.0}};
+        const Matrix m = {{2.0, -1.0, 3.0}};
+        const Matrix X = {{5.0, 2.0, 1.0}, {2.0, 4.0, 3.0}, {1.0, 3.0, 6.0}};
 
         const auto S = quadratic_form(m, X);
 
@@ -92,8 +92,8 @@ TEST_SUITE("quadratic_form") {
     }
 
     TEST_CASE("works for float element type") {
-        const Matrix<2, 2, float> M = {{1.0F, 2.0F}, {3.0F, 4.0F}};
-        const Matrix<2, 2, float> X = {{2.0F, 1.0F}, {1.0F, 3.0F}};
+        const Matrix M = {{1.0F, 2.0F}, {3.0F, 4.0F}};
+        const Matrix X = {{2.0F, 1.0F}, {1.0F, 3.0F}};
 
         const auto S = quadratic_form(M, X);
         const auto ref = M * X * M.t();
@@ -105,9 +105,9 @@ TEST_SUITE("quadratic_form") {
     }
 
     TEST_CASE("evaluates at compile time") {
-        constexpr Matrix<2, 2, double> M = {{1.0, 2.0}, {0.0, 3.0}};
-        constexpr Matrix<2, 2, double> X = {{4.0, 1.0}, {1.0, 5.0}};
-        constexpr auto                 S = quadratic_form(M, X);
+        constexpr Matrix M = {{1.0, 2.0}, {0.0, 3.0}};
+        constexpr Matrix X = {{4.0, 1.0}, {1.0, 5.0}};
+        constexpr auto   S = quadratic_form(M, X);
 
         // S(0,0) = [1 2] X [1 2]ᵀ = 4 + 2(1)(2)... compute: row0 M = [1,2]
         // (M X)_0 = [1*4+2*1, 1*1+2*5] = [6, 11]; S00 = 6*1 + 11*2 = 28.

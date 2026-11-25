@@ -46,7 +46,7 @@ struct Range {
 };
 
 struct Blind {
-    [[nodiscard]] ColVec<1> operator()(const ColVec<2>& /*x*/, const ColVec<1>& /*u*/) const { return ColVec<1>{0.0}; }
+    [[nodiscard]] ColVec<1> operator()(const ColVec<2>& /*x*/, const ColVec<1>& /*u*/) const { return ColVec{0.0}; }
 };
 
 struct ConstantVelocityF {
@@ -74,10 +74,10 @@ TEST_SUITE("Unscented Kalman Filter") {
         const double       Ts = 0.1;
         const Matrix<2, 2> A{{1.0, Ts}, {0.0, 1.0}};
 
-        UnscentedKalmanFilter<ConstantVelocity, double> ukf{ConstantVelocity{}, {.Ts = Ts, .Q = Matrix<2, 2>{{1e-4, 0.0}, {0.0, 1e-4}}}};
+        UnscentedKalmanFilter<ConstantVelocity, double> ukf{ConstantVelocity{}, {.Ts = Ts, .Q = Matrix{{1e-4, 0.0}, {0.0, 1e-4}}}};
         const Matrix<1, 1>                              R{1e-2};
 
-        ColVec<2> x_true{0.0, 1.0}; // 1 m/s
+        ColVec x_true{0.0, 1.0}; // 1 m/s
         for (int k = 0; k < 100; ++k) {
             x_true = A * x_true;
             REQUIRE(ukf.predict(kNoInput));
@@ -92,8 +92,8 @@ TEST_SUITE("Unscented Kalman Filter") {
         // Static 2D point observed through range-to-origin r = sqrt(x²+y²).
         // The UKF (no Jacobian) must land on the same measurement manifold as
         // the EKF does from the same prior (range ≈ 5).
-        const ColVec<1>                           y{5.0};
-        UnscentedKalmanFilter<Stationary, double> ukf{Stationary{}, {.Ts = 0.01, .Q = Matrix<2, 2>::identity() * 1e-6, .x0 = ColVec<2>{2.5, 4.5}}};
+        const ColVec                              y{5.0};
+        UnscentedKalmanFilter<Stationary, double> ukf{Stationary{}, {.Ts = 0.01, .Q = Matrix<2, 2>::identity() * 1e-6, .x0 = ColVec{2.5, 4.5}}};
         for (int k = 0; k < 50; ++k) {
             REQUIRE(ukf.predict(kNoInput));
             REQUIRE(ukf.update(Range{}, y, 1e-4));
@@ -113,7 +113,7 @@ TEST_SUITE("Unscented Kalman Filter") {
         const double p_after_predict = ukf.covariance()(0, 0);
         CHECK(p_after_predict > p0);
 
-        REQUIRE(ukf.update(Position{}, ColVec<1>{0.0}, 1e-2));
+        REQUIRE(ukf.update(Position{}, ColVec{0.0}, 1e-2));
         CHECK(ukf.covariance()(0, 0) < p_after_predict);
     }
 
@@ -123,7 +123,7 @@ TEST_SUITE("Unscented Kalman Filter") {
         UnscentedKalmanFilter<Stationary, double> ukf{Stationary{}, {.Ts = 0.1, .Q = Matrix<2, 2>::zeros()}};
         REQUIRE(ukf.predict(kNoInput));
         const auto x_before = ukf.state();
-        CHECK_FALSE(ukf.update(Blind{}, ColVec<1>{1.0}, 0.0));
+        CHECK_FALSE(ukf.update(Blind{}, ColVec{1.0}, 0.0));
         CHECK(ukf.state()[0] == doctest::Approx(x_before[0]));                    // state unchanged on fail
         CHECK(ukf.covariance()(0, 1) == doctest::Approx(ukf.covariance()(1, 0))); // P stays symmetric
     }
@@ -131,17 +131,17 @@ TEST_SUITE("Unscented Kalman Filter") {
     TEST_CASE("a semidefinite P (a state known exactly) draws sigma points; an indefinite one does not") {
         //! P0 = diag(0, 1): Cholesky refused it, predict returned before adding Q, and the filter
         //! stayed frozen at x0.
-        UnscentedKalmanFilter<ConstantVelocity, double> ukf{ConstantVelocity{}, {.Ts = 0.1, .Q = Matrix<2, 2>::identity() * 1e-3, .P0 = Matrix<2, 2>{{0.0, 0.0}, {0.0, 1.0}}}};
+        UnscentedKalmanFilter<ConstantVelocity, double> ukf{ConstantVelocity{}, {.Ts = 0.1, .Q = Matrix<2, 2>::identity() * 1e-3, .P0 = Matrix{{0.0, 0.0}, {0.0, 1.0}}}};
         for (int k = 0; k < 20; ++k) {
             REQUIRE(ukf.predict(kNoInput));
-            REQUIRE(ukf.update(Position{}, ColVec<1>{0.5}, 1e-2));
+            REQUIRE(ukf.update(Position{}, ColVec{0.5}, 1e-2));
         }
         CHECK(ukf.covariance()(0, 0) > 0.0);
         CHECK(ukf.state()[0] == doctest::Approx(0.5).epsilon(0.05));
 
-        UnscentedKalmanFilter<ConstantVelocity, double> indefinite{ConstantVelocity{}, {.Ts = 0.1, .Q = Matrix<2, 2>::identity() * 1e-3, .P0 = Matrix<2, 2>{{-1.0, 0.0}, {0.0, 1.0}}}};
+        UnscentedKalmanFilter<ConstantVelocity, double> indefinite{ConstantVelocity{}, {.Ts = 0.1, .Q = Matrix<2, 2>::identity() * 1e-3, .P0 = Matrix{{-1.0, 0.0}, {0.0, 1.0}}}};
         CHECK_FALSE(indefinite.predict(kNoInput));
-        UnscentedKalmanFilter<ConstantVelocity, double> coupled{ConstantVelocity{}, {.Ts = 0.1, .Q = Matrix<2, 2>::identity() * 1e-3, .P0 = Matrix<2, 2>{{0.0, 1.0}, {1.0, 1.0}}}};
+        UnscentedKalmanFilter<ConstantVelocity, double> coupled{ConstantVelocity{}, {.Ts = 0.1, .Q = Matrix<2, 2>::identity() * 1e-3, .P0 = Matrix{{0.0, 1.0}, {1.0, 1.0}}}};
         CHECK_FALSE(coupled.predict(kNoInput)); // a zero variance with a nonzero covariance
     }
 
@@ -153,11 +153,11 @@ TEST_SUITE("Unscented Kalman Filter") {
 
     TEST_CASE("set_state / reset") {
         UnscentedKalmanFilter<Stationary, double> ukf{};
-        ukf.set_state(ColVec<2>{1.5, -2.0});
+        ukf.set_state(ColVec{1.5, -2.0});
         CHECK(ukf.state()[0] == doctest::Approx(1.5));
         CHECK(ukf.state()[1] == doctest::Approx(-2.0));
 
-        ukf.reset(ColVec<2>{0.5, 7.0}, Matrix<2, 2>::identity() * 3.0);
+        ukf.reset(ColVec{0.5, 7.0}, Matrix<2, 2>::identity() * 3.0);
         CHECK(ukf.state()[1] == doctest::Approx(7.0));
         CHECK(ukf.covariance()(0, 0) == doctest::Approx(3.0));
     }
@@ -167,8 +167,8 @@ TEST_SUITE("Unscented Kalman Filter") {
         // P = I, R = 1: a position reading 0.5 moves p by 0.5/2 = 0.25 whichever form h takes.
         auto a = kLambdaUKF;
         auto b = kLambdaUKF;
-        REQUIRE(a.update(by_lambda, ColVec<1, float>{0.5F}, 1.0F));
-        REQUIRE(b.update(PositionF{}, ColVec<1, float>{0.5F}, 1.0F));
+        REQUIRE(a.update(by_lambda, ColVec{0.5F}, 1.0F));
+        REQUIRE(b.update(PositionF{}, ColVec{0.5F}, 1.0F));
         CHECK(a.state()[0] == doctest::Approx(0.25).epsilon(1e-5));
         CHECK(b.state()[0] == doctest::Approx(0.25).epsilon(1e-5));
     }
@@ -178,7 +178,7 @@ TEST_SUITE("Unscented Kalman Filter") {
         static_assert(std::is_same_v<UnscentedKalmanFilter<ConstantVelocity>, UnscentedKalmanFilter<ConstantVelocity, double>>);
         UnscentedKalmanFilter<ConstantVelocityF> ukf{ConstantVelocityF{}, {.Ts = 0.1F, .Q = Matrix<2, 2, float>::identity() * 1e-3F}};
         REQUIRE(ukf.predict({}));
-        CHECK(ukf.update(PositionF{}, ColVec<1, float>{0.5F}, 1e-2F));
+        CHECK(ukf.update(PositionF{}, ColVec{0.5F}, 1e-2F));
         CHECK(ukf.sample_time() == doctest::Approx(0.1));
     }
 
