@@ -326,6 +326,26 @@ inline constexpr bool is_disturbance_model = OptionOf<Spec, kind::Disturbance> &
 template<typename Spec, size_t NU, size_t NY, size_t NW>
 struct disturbance_traits;
 
+/** @brief Whether a disturbance spec fits a plant of NX states and NY outputs in T: a DisturbanceModel of those sizes (C_d left out or NY rows) and scalar; every other spec. */
+template<typename Spec, size_t NX, size_t NY, typename T>
+inline constexpr bool disturbance_fits = true;
+
+/** @brief A DisturbanceModel fits a plant of its sizes and scalar (NYD 0: C_d left out). */
+template<size_t NXD, size_t NYD, size_t ND, size_t NZ, typename U, size_t NX, size_t NY, typename T>
+inline constexpr bool disturbance_fits<DisturbanceModel<NXD, NYD, ND, NZ, U>, NX, NY, T> = (NXD == NX) && (NYD == NY || NYD == 0) && damp::is_same_v<U, T>;
+
+/**
+ * @brief The compile-time check of the disturbance spec among @p Opts, the same in every design:
+ *        it fits the plant of NX states and NY outputs in T (disturbance_fits).
+ * @return It does
+ */
+template<size_t NX, size_t NY, typename T, typename... Opts>
+consteval bool check_disturbance() {
+    constexpr bool fits = disturbance_fits<::damp::detail::option_t<kind::Disturbance, NoDisturbance, Opts...>, NX, NY, T>;
+    static_assert(fits, "The DisturbanceModel is on the plant's states and outputs (or leaves C_d out), in the plant's scalar.");
+    return fits;
+}
+
 /** @brief No disturbance: no states. */
 template<size_t NU, size_t NY, size_t NW>
 struct disturbance_traits<NoDisturbance, NU, NY, NW> {

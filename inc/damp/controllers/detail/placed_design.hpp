@@ -209,7 +209,6 @@ template<bool Discrete, size_t NX, size_t NU, size_t NY, typename T, size_t NW, 
     const Spec&                              spec,
     const Delay&                             delay = Delay{}
 ) {
-    static_assert(!Discrete || damp::is_same_v<Delay, NoDelay>, "A delay is sampled with the plant: a continuous plant and Ts.");
     constexpr size_t ND = disturbance_traits<Spec, NU, NY, NW>::states;
     static_assert(ND <= NY, "Estimating ND disturbances needs at least ND independent readings (ND <= NY).");
     constexpr size_t NVS = input_delay_states<Delay> * NU;  // the input's delay states, after the plant's

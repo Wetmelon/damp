@@ -74,6 +74,7 @@ and [known limitations](docs/known_limitations.md)).
 - An MPC or OFMPC built at run time from a design whose filter or target was refused reports `valid()` false and holds its input, as one with a refused QP does; it ran on the refused target before.
 - The FOC SIL reported a 98% rise time one tick short (0 ms for the PI), and the LPF SIL called its first-order filter second-order Butterworth. The workflow SIL ran 2 s, before its 1 Hz PR mode settled; it runs 20 s and ends at r.
 - The docs listed `/` as `StateSpace` feedback, which no operator defines (`a / b` did not compile). `feedback()` is the one spelling: in MATLAB®, ControlSystems.jl and python-control `/` is right division, a·inv(b).
+- `design::mpc` and `design::steady_state_target` refuse a `DisturbanceModel` off the plant's sizes with its message, as `kalman` and `state_feedback` do, where they failed on a missing overload; every design says a number is not an option.
 
 ## [0.3.1] — 2026-11-17
 

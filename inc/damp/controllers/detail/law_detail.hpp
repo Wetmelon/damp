@@ -281,6 +281,33 @@ template<typename... Opts>
     }
 }
 
+/**
+ * @brief The compile-time check of a design's delays, the same in every design: an InputDelay or
+ *        an OutputDelay among @p Opts only on its sampled form (@p Sampled), fn(plant, Ts, …), whose
+ *        continuous plant the delay is sampled with.
+ * @return They are
+ */
+template<bool Sampled, typename... Opts>
+consteval bool check_delays() {
+    constexpr bool ok = Sampled || (::damp::detail::option_count<kind::InputDelay, Opts...> + ::damp::detail::option_count<kind::OutputDelay, Opts...> == 0);
+    static_assert(ok, "A delay is sampled with the plant: give the continuous plant and Ts, fn(plant, Ts, ..., InputDelay<N>{theta}, OutputDelay<M>{theta}).");
+    return ok;
+}
+
+/**
+ * @brief The compile-time check of what a filter estimates or carries, the same in every design:
+ *        a disturbance spec and an OutputDelay among @p Opts only with a filter (@p Filtered).
+ * @return They are
+ */
+template<bool Filtered, typename... Opts>
+consteval bool check_filtered() {
+    constexpr bool spec = Filtered || ::damp::detail::option_count<kind::Disturbance, Opts...> == 0;
+    constexpr bool late = Filtered || ::damp::detail::option_count<kind::OutputDelay, Opts...> == 0;
+    static_assert(spec, "A disturbance spec is estimated by the law's filter: give a KalmanNoise among the options (or ObserverPoles, on an LQ law).");
+    static_assert(late, "An OutputDelay is a late reading: it needs a filter to carry it, a KalmanNoise (or ObserverPoles, on an LQ law).");
+    return spec && late;
+}
+
 /** @brief sampled_model(sys, Ts, discrete), the model of a design without a delay. */
 template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV>
 [[nodiscard]] constexpr SampledModel<NX, NU, NY, T, NW, NV> sampled_model(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T Ts, bool discrete, NoDelay) {

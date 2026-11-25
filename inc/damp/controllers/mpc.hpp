@@ -1712,7 +1712,6 @@ using mpc_options = ::damp::detail::option_set<
  */
 template<size_t NP, size_t NC, size_t NU, size_t NY, typename... Opts>
 constexpr void check_mpc_options() {
-    static_assert(!(damp::is_integral_v<damp::remove_cvref_t<Opts>> || ...), "The QP's iteration budget is QPIterations{n}; the terminal set's room is InvariantSet<N>{...}.");
     static_assert(
         ::damp::detail::option_count<kind::Handover, Opts...> == 0,
         "Handover is an LQ law's: an offset added outside the QP would break its constraints. An MPC hands over from the input track() holds, the base of its first move."
@@ -1859,11 +1858,9 @@ template<
     const MeasuredDisturbance<NX, NM, T>&         measured,
     const Delay&                                  delay = Delay{}
 ) {
-    constexpr size_t ND = disturbance_traits<Spec, NU, NY, NW>::states;
-    static_assert(NWN == NW && NVN == NV, "KalmanNoise is sized to the plant's noise inputs: KalmanNoise<NW, NV> for the columns of G and H.");
-    static_assert(NDN == ND, "KalmanNoise carries the random walk of the spec's ND disturbances: KalmanNoise<NW, NV, T, ND>.");
-    constexpr size_t NXL = NX + (input_delay_states<Delay> * NU); // the QP's: the plant, then the input's delay states
-    constexpr size_t NXE = NX + delay_states<Delay, NU, NY>;      // the filter's: then the late readings' delay states
+    constexpr size_t ND = disturbance_traits<Spec, NU, NY, NW>::states; // the noise's NDN, sized by noise_of
+    constexpr size_t NXL = NX + (input_delay_states<Delay> * NU);       // the QP's: the plant, then the input's delay states
+    constexpr size_t NXE = NX + delay_states<Delay, NU, NY>;            // the filter's: then the late readings' delay states
     const auto&      in = input_delay_of(delay);
     const auto       Bm = measured_channel<Discrete>(sys, Ts, measured, delay); // on the filter's model
     const auto       kf = with_measured_inputs(kalman_design<Discrete>(sys, Ts, noise, spec, delay), Bm);
@@ -1902,23 +1899,20 @@ template<
  */
 template<bool Discrete, size_t NP, size_t NC, size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename... Opts>
 [[nodiscard]] constexpr auto mpc_design(const StateSpace<NX, NU, NY, T, NW, NV>& sys, T Ts, const MPCWeights<NU, NY, T>& weights, const Opts&... opts) {
+    constexpr bool   kEstimated = mpc_estimated<Opts...>;
+    constexpr bool   kModelFits = check_delays<!Discrete, Opts...>() && check_filtered<kEstimated, Opts...>() && check_disturbance<NX, NY, T, Opts...>();
     constexpr size_t NT_max = terminal_rows<::damp::detail::option_t<kind::Terminal, void, Opts...>>;
     const auto       constraints = constraint_set<NU, T>(opts...);
     const auto       held = ::damp::detail::option<kind::TrackedOutputs>(NoDisturbance{}, opts...); // none: a regulator
-    static_assert(
-        !Discrete || ::damp::detail::option_count<kind::InputDelay, Opts...> + ::damp::detail::option_count<kind::OutputDelay, Opts...> == 0,
-        "A delay is sampled with the plant: give the continuous plant and Ts, mpc<NP, NC>(plant, Ts, weights, ..., InputDelay<N>{theta}, OutputDelay<M>{theta})."
-    );
-    const auto measured = measured_of<NX, T>(opts...);
-    if constexpr (mpc_estimated<Opts...>) {
+    const auto       measured = measured_of<NX, T>(opts...);
+    if constexpr (!kModelFits) {
+        return mpc_measured<Discrete, NP, NC, NT_max>(sys, Ts, weights, constraints, measured, held); // the message says why: nothing further
+    } else if constexpr (kEstimated) {
         return mpc_estimated_design<Discrete, NP, NC, NT_max>(
-            noise_model(sys), Ts, weights, constraints,
-            ::damp::detail::the<kind::KalmanNoise>(opts...),
-            ::damp::detail::option<kind::Disturbance>(NoDisturbance{}, opts...), held, measured, delays_of(opts...)
+            noise_model(sys), Ts, weights, constraints, noise_of<NX, NU, NY, T, NW, NV>(opts...), ::damp::detail::option<kind::Disturbance>(NoDisturbance{}, opts...), held,
+            measured, delays_of(opts...)
         );
     } else {
-        static_assert(::damp::detail::option_count<kind::Disturbance, Opts...> == 0, "A disturbance spec needs KalmanNoise: the disturbance is estimated.");
-        static_assert(::damp::detail::option_count<kind::OutputDelay, Opts...> == 0, "An OutputDelay is a late reading: it needs a KalmanNoise, a filter to carry it.");
         return mpc_measured<Discrete, NP, NC, NT_max>(sys, Ts, weights, constraints, measured, held, ::damp::detail::option<kind::InputDelay>(NoDelay{}, opts...));
     }
 }
