@@ -26,7 +26,7 @@ and [known limitations](docs/known_limitations.md)).
 - The `StateSpace` operators `*`, `+` and `-` take the optional an earlier one returned, on either side, so a chain composes and is checked once: `const auto L = P * C * F; if (L) { … }`, `nullopt` when any link refuses. Before, `a * b * c` did not compile.
 - `design::DisturbanceSpec`, `DisturbanceModelFor`, `FilterSpec` and `GainSpec` name what the designs check an option against, so a test can ask whether a spec fits a plant.
 - `Matrix{{1.0, 0.0}, {0.0, 1.0}}` deduces its size and scalar from its rows, as `ColVec{a, b}` and `StateSpace` do, so a matrix literal no longer names `Matrix<R, C>`.
-- `Law<kRes, T>` deploys a PID design as it does the LQ ones: on a `constexpr` design it is the `PIDController` of the narrowest mode its gains need (a PI when Kd = 0), and a failed design does not compile wherever the Law is declared.
+- `Law<kRes, T>` deploys a PID design as it does the LQ ones: on a `constexpr` design it runs in the narrowest mode its gains need (a PI when Kd = 0) with the gains as constants of the type, in flash and folded into the tick (a float PID's Law is 44 bytes of RAM), its limits still settable and no `set_gains` (`Law<kRes, T>::Runtime` is the retunable one). A failed design does not compile wherever the Law is declared.
 
 ### Changed
 

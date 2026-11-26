@@ -108,29 +108,57 @@ template<typename T>
     return k;
 }
 
-/** @brief A PIDController's integral term: its gain, tracking time, coefficients, limits and memory (absent on a P or a PD). */
+/** @brief A PIDController's integral memory: its limits and I (absent on a P or a PD). */
 template<typename T>
 struct PIDIntegral {
-    T            Ki{T{0}};     ///< Continuous integral gain
-    T            tt{T{0}};     ///< [s] Tracking time T_t (0: conditional integration)
-    T            ki_ts{T{0}};  ///< Kᵢ·T_s: the increment per unit error at the fixed rate
-    T            inv_tt{T{0}}; ///< 1/T_t, 0 for T_t = 0
-    Bounds<1, T> lim{};        ///< The limits on I (u's units)
-    T            value{T{0}};  ///< The integral term I (u's units)
-    T            step{T{0}};   ///< What the last tick added to I: what a clamp takes back when T_t = 0
+    Bounds<1, T> lim{};       ///< The limits on I (u's units)
+    T            value{T{0}}; ///< The integral term I (u's units)
+    T            step{T{0}};  ///< What the last tick added to I: what a clamp takes back when T_t = 0
 };
 
-/** @brief A PIDController's derivative term: its gain, filter, setpoint weight, coefficients and memory (absent on a P or a PI). */
+/** @brief A PIDController's derivative memory (absent on a P or a PI). */
 template<typename T>
 struct PIDDerivative {
-    T    Kd{T{0}};     ///< Derivative gain
-    T    Tf{T{0}};     ///< [s] Filter time constant
-    T    c{T{1}};      ///< Derivative setpoint weight
-    T    a{T{0}};      ///< T_f/(T_s + T_f): the filter's pole at the fixed rate
-    T    b{T{0}};      ///< K_d/(T_s + T_f): its gain on Δ(c·r − y) at the fixed rate
     T    prev_x{T{0}}; ///< Previous c·r − y
     T    value{T{0}};  ///< The filtered derivative term D
     bool first{true};  ///< The next tick seeds prev_x (no derivative kick)
+};
+
+/**
+ * @brief A PIDController's gains, its fixed sample period and the coefficients at it: the members
+ *        a PIDController holds, or the constants of a `constexpr` design's Law
+ *
+ * Only the terms @p Mode computes have storage.
+ */
+template<typename T, PIDMode Mode>
+struct PIDGainSet {
+    static constexpr bool constant = false; ///< Members of the runtime, settable
+
+    /** @brief The integral term's gain, tracking time and their coefficients. */
+    struct Integral {
+        T Ki{T{0}};     ///< Continuous integral gain
+        T tt{T{0}};     ///< [s] Tracking time T_t (0: conditional integration)
+        T ki_ts{T{0}};  ///< Kᵢ·T_s: the increment per unit error at the fixed rate
+        T inv_tt{T{0}}; ///< 1/T_t, 0 for T_t = 0
+    };
+
+    /** @brief The derivative term's gain, filter, setpoint weight and coefficients. */
+    struct Derivative {
+        T Kd{T{0}}; ///< Derivative gain
+        T Tf{T{0}}; ///< [s] Filter time constant
+        T c{T{1}};  ///< Derivative setpoint weight
+        T a{T{0}};  ///< T_f/(T_s + T_f): the filter's pole at the fixed rate
+        T b{T{0}};  ///< K_d/(T_s + T_f): its gain on Δ(c·r − y) at the fixed rate
+    };
+
+    static constexpr bool kI = (Mode == PIDMode::PI) || (Mode == PIDMode::PID); ///< The mode integrates
+    static constexpr bool kD = (Mode == PIDMode::PD) || (Mode == PIDMode::PID); ///< The mode differentiates
+
+    T                                                                          Kp{T{0}}; ///< Proportional gain
+    T                                                                          b{T{1}};  ///< Proportional setpoint weight
+    T                                                                          Ts{T{0}}; ///< [s] The fixed-rate tick's period (0: none)
+    [[no_unique_address]] maybe<kI, Integral, OffSlot::pid_integral_gains>     i{};      ///< The integral's gains: none on a P or a PD
+    [[no_unique_address]] maybe<kD, Derivative, OffSlot::pid_derivative_gains> d{};      ///< The derivative's gains: none on a P or a PI
 };
 
 } // namespace detail
@@ -443,6 +471,37 @@ template<typename T = double>
 
 } // namespace design
 
+namespace detail {
+
+/**
+ * @brief The gain set of @p g at the fixed period @p Ts for @p Mode, or nullopt when a gain is out
+ *        of its domain, the mode does not compute it (K_d ≠ 0 on a PI, Kᵢ ≠ 0 on a P or a PD), or
+ *        a coefficient overflows
+ */
+template<PIDMode Mode, typename T>
+[[nodiscard]] constexpr damp::optional<PIDGainSet<T, Mode>> pid_gain_set(const design::PIDGains<T>& g, T Ts) {
+    if (!pid_gains_in_domain(g.Kp, g.Ki, g.Kd, g.Tf, g.tracking_time, g.b, g.c) || !pid_mode_realizes<Mode>(g.Ki, g.Kd)) {
+        return damp::nullopt;
+    }
+    const auto k = pid_coefficients(g.Ki, g.Kd, g.Tf, g.tracking_time, Ts);
+    if (!k.finite()) {
+        return damp::nullopt;
+    }
+    PIDGainSet<T, Mode> set{};
+    set.Kp = g.Kp;
+    set.b = g.b;
+    set.Ts = Ts;
+    if constexpr (PIDGainSet<T, Mode>::kI) {
+        set.i = {.Ki = g.Ki, .tt = g.tracking_time, .ki_ts = k.ki_ts, .inv_tt = k.inv_tt};
+    }
+    if constexpr (PIDGainSet<T, Mode>::kD) {
+        set.d = {.Kd = g.Kd, .Tf = g.Tf, .c = g.c, .a = k.d_a, .b = k.d_b};
+    }
+    return set;
+}
+
+} // namespace detail
+
 /**
  * @ingroup discrete_controllers
  * @brief 2-DOF PID runtime: fixed-rate step(r, y), measured-period step(r, y, dt), gains and limits settable at run time
@@ -525,15 +584,20 @@ template<typename T = double>
  *       Gains from the sampled design::pid_pole_placement(plant, poles, Ts) already
  *       embed that Ts in continuous form — discretize with the same Ts.
  *
- * @tparam T    Scalar
- * @tparam Mode The terms the tick computes
+ * @tparam T     Scalar
+ * @tparam Mode  The terms the tick computes
+ * @tparam Gains Where the gains live: void, the default, for members (detail::PIDGainSet, settable), or the
+ *               constants of a `constexpr` design's Law (detail::ConstantPIDGains)
  */
-template<typename T = float, PIDMode Mode = PIDMode::PID>
+// The default is void, not detail::PIDGainSet<T, Mode>: a default that names T and Mode crashes clang 23 deducing through the PIController alias.
+template<typename T = float, PIDMode Mode = PIDMode::PID, typename Gains = void>
 class PIDController {
-    static constexpr bool kI = (Mode == PIDMode::PI) || (Mode == PIDMode::PID); ///< The tick integrates
-    static constexpr bool kD = (Mode == PIDMode::PD) || (Mode == PIDMode::PID); ///< The tick differentiates
+    static constexpr bool kI = (Mode == PIDMode::PI) || (Mode == PIDMode::PID);                            ///< The tick integrates
+    static constexpr bool kD = (Mode == PIDMode::PD) || (Mode == PIDMode::PID);                            ///< The tick differentiates
+    using GainSet = damp::conditional_t<damp::is_same_v<Gains, void>, detail::PIDGainSet<T, Mode>, Gains>; ///< The gains' storage
+    static constexpr bool kHeld = !GainSet::constant;                                                      ///< The gains are members: set_gains changes them
 
-    template<typename, PIDMode>
+    template<typename, PIDMode, typename>
     friend class PIDController;
 
 public:
@@ -550,7 +614,7 @@ public:
      * `PIController c = design::pid(...).discretize(Ts).as<float>();`
      */
     constexpr PIDController(const design::PIDResult<T>& r) // NOLINT(google-explicit-constructor): assign-from-design
-        : u_lim_(r.limits.input), Ts_(r.Ts), i_(integral_within(r.limits.integral)) {
+        : u_lim_(r.limits.input), i_(integral_within(r.limits.integral)) {
         if (!r.success && damp::is_constant_evaluated()) {
             detail::refuse_failed_design(r.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
@@ -560,21 +624,21 @@ public:
         if (!damp::finite_positive(r.Ts) && damp::is_constant_evaluated()) {
             detail::refuse_failed_design(design::DesignStatus::invalid_sample_time);
         }
-        valid_ = r.success && damp::finite_positive(r.Ts) && r.limits.input.valid() && r.limits.integral.valid() && take(r.gains);
+        valid_ = r.success && damp::finite_positive(r.Ts) && r.limits.input.valid() && r.limits.integral.valid() && take(r.gains, r.Ts);
         if (!valid_ && damp::is_constant_evaluated()) {
             detail::refuse_failed_design(design::DesignStatus::invalid_parameter); // a non-finite gain, Tf or tracking_time below 0, or a limit that is not a box
         }
     }
 
-    /** @brief The same law, with its live state, in another scalar. */
-    template<typename U>
-    constexpr explicit PIDController(const PIDController<U, Mode>& o)
+    /** @brief The same law, with its live state, in another scalar (or off a Law's constant gains, onto members). */
+    template<typename U, typename G>
+        requires kHeld
+    constexpr explicit PIDController(const PIDController<U, Mode, G>& o)
         : u_lim_(o.u_lim_.template as<T>()),
-          Ts_(static_cast<T>(o.Ts_)),
           u_cmd_(static_cast<T>(o.u_cmd_)),
           h_(static_cast<T>(o.h_)),
           i_(integral_within(o.limits().integral.template as<T>())) {
-        valid_ = o.valid_ && take(o.gains().template as<T>());
+        valid_ = o.valid_ && take(o.gains().template as<T>(), static_cast<T>(o.sample_time()));
         if constexpr (kI) {
             i_.value = static_cast<T>(o.i_.value);
             i_.step = static_cast<T>(o.i_.step);
@@ -594,7 +658,7 @@ public:
         if (!valid_) {
             return T{0};
         }
-        return tick(r, y, ki_per(Ts_, true), fixed_derivative(), Ts_);
+        return tick(r, y, ki_per(k_.Ts, true), fixed_derivative(), k_.Ts);
     }
 
     /**
@@ -630,7 +694,7 @@ public:
         if (!valid_) {
             return;
         }
-        follow(u, r, y, ki_per(Ts_, true), fixed_derivative(), Ts_);
+        follow(u, r, y, ki_per(k_.Ts, true), fixed_derivative(), k_.Ts);
     }
 
     /**
@@ -698,16 +762,16 @@ public:
      */
     [[nodiscard]] constexpr design::PIDGains<T> gains() const {
         design::PIDGains<T> g{};
-        g.Kp = Kp_;
-        g.b = b_;
+        g.Kp = k_.Kp;
+        g.b = k_.b;
         if constexpr (kI) {
-            g.Ki = i_.Ki;
-            g.tracking_time = i_.tt;
+            g.Ki = k_.i.Ki;
+            g.tracking_time = k_.i.tt;
         }
         if constexpr (kD) {
-            g.Kd = d_.Kd;
-            g.Tf = d_.Tf;
-            g.c = d_.c;
+            g.Kd = k_.d.Kd;
+            g.Tf = k_.d.Tf;
+            g.c = k_.d.c;
         }
         return g;
     }
@@ -727,7 +791,11 @@ public:
      * if (!pid.set_gains(g)) { } // refused: nothing changed
      * @endcode
      */
-    [[nodiscard]] constexpr bool set_gains(const design::PIDGains<T>& g) { return g.success && take(g); }
+    [[nodiscard]] constexpr bool set_gains(const design::PIDGains<T>& g)
+        requires kHeld
+    {
+        return g.success && take(g, k_.Ts);
+    }
 
     /** @brief The limits in force: the design's, or the last set_limits (integral unbounded on a P or a PD). */
     [[nodiscard]] constexpr design::PIDLimits<T> limits() const {
@@ -789,32 +857,20 @@ public:
     }
 
     /** @brief [s] The fixed-rate tick's sample period T_s (0 for a law with no fixed period). */
-    [[nodiscard]] constexpr T sample_time() const { return Ts_; }
+    [[nodiscard]] constexpr T sample_time() const { return k_.Ts; }
 
 private:
-    /** @brief Store @p g and its coefficients at T_s when they are in the domain, the mode computes them and none overflows. */
-    [[nodiscard]] constexpr bool take(const design::PIDGains<T>& g) {
-        if (!detail::pid_gains_in_domain(g.Kp, g.Ki, g.Kd, g.Tf, g.tracking_time, g.b, g.c) || !detail::pid_mode_realizes<Mode>(g.Ki, g.Kd)) {
+    /**
+     * @brief Store @p g at the period @p Ts when it is in the domain, the mode computes it and no
+     *        coefficient overflows; on a constexpr design's Law, whose gains are the type's, only check it
+     */
+    [[nodiscard]] constexpr bool take(const design::PIDGains<T>& g, T Ts) {
+        const auto set = detail::pid_gain_set<Mode>(g, Ts);
+        if (!set) {
             return false;
         }
-        const auto k = detail::pid_coefficients(g.Ki, g.Kd, g.Tf, g.tracking_time, Ts_);
-        if (!k.finite()) {
-            return false;
-        }
-        Kp_ = g.Kp;
-        b_ = g.b;
-        if constexpr (kI) {
-            i_.Ki = g.Ki;
-            i_.tt = g.tracking_time;
-            i_.ki_ts = k.ki_ts;
-            i_.inv_tt = k.inv_tt;
-        }
-        if constexpr (kD) {
-            d_.Kd = g.Kd;
-            d_.Tf = g.Tf;
-            d_.c = g.c;
-            d_.a = k.d_a;
-            d_.b = k.d_b;
+        if constexpr (kHeld) {
+            k_ = *set;
         }
         return true;
     }
@@ -838,7 +894,7 @@ private:
     /** @brief The integral's increment per unit error over @p h: the stored Kᵢ·T_s at the fixed rate, Kᵢ·h at a measured one, 0 without an integral. */
     [[nodiscard]] constexpr T ki_per(T h, bool fixed) const {
         if constexpr (kI) {
-            return fixed ? i_.ki_ts : i_.Ki * h;
+            return fixed ? k_.i.ki_ts : k_.i.Ki * h;
         } else {
             static_cast<void>(h);
             static_cast<void>(fixed);
@@ -849,7 +905,7 @@ private:
     /** @brief The derivative's pole and gain at the fixed rate, computed when the gains were set. */
     [[nodiscard]] constexpr Derivative fixed_derivative() const {
         if constexpr (kD) {
-            return Derivative{d_.a, d_.b};
+            return Derivative{k_.d.a, k_.d.b};
         } else {
             return Derivative{};
         }
@@ -858,9 +914,9 @@ private:
     /** @brief The derivative's pole and gain over @p dt: one reciprocal shared by both, none without a derivative. */
     [[nodiscard]] constexpr Derivative derivative_at(T dt) const {
         if constexpr (kD) {
-            if (d_.Kd != T{0}) {
-                const T inv = T{1} / (dt + d_.Tf);
-                return Derivative{d_.Tf * inv, d_.Kd * inv};
+            if (k_.d.Kd != T{0}) {
+                const T inv = T{1} / (dt + k_.d.Tf);
+                return Derivative{k_.d.Tf * inv, k_.d.Kd * inv};
             }
         }
         static_cast<void>(dt);
@@ -871,7 +927,7 @@ private:
     constexpr void differentiate(T r, T y, const Derivative& k)
         requires kD
     {
-        const T x = (d_.c * r) - y;
+        const T x = (k_.d.c * r) - y;
         if (d_.first) {
             d_.prev_x = x;
             d_.first = false;
@@ -882,7 +938,7 @@ private:
 
     /** @brief One tick over a period @p h: integral increment @p ki_h per unit error, derivative coefficients @p k. */
     [[nodiscard]] constexpr T tick(T r, T y, T ki_h, const Derivative& k, T h) {
-        T u_unsat = Kp_ * ((b_ * r) - y);
+        T u_unsat = k_.Kp * ((k_.b * r) - y);
         if constexpr (kD) {
             differentiate(r, y, k);
             u_unsat = u_unsat + d_.value;
@@ -906,7 +962,7 @@ private:
 
     /** @brief track's memory: the tick's derivative, then I for a next tick at (r, y) of the same period that returns u clamped. */
     constexpr void follow(T u, T r, T y, T ki_h, const Derivative& k, T h) {
-        T next = Kp_ * ((b_ * r) - y); // the next tick's P + D at this (r, y)
+        T next = k_.Kp * ((k_.b * r) - y); // the next tick's P + D at this (r, y)
         if constexpr (kD) {
             differentiate(r, y, k);
             next = next + (k.a * d_.value); // Δ(c·r − y) = 0 at the next tick: D only decays
@@ -925,24 +981,22 @@ private:
     constexpr void wind_back(T u_sat, T u_unsat)
         requires kI
     {
-        if (i_.Ki == T{0} || h_ == T{0} || u_sat == u_unsat) {
+        if (k_.i.Ki == T{0} || h_ == T{0} || u_sat == u_unsat) {
             return;
         }
-        if (i_.inv_tt == T{0}) {
+        if (k_.i.inv_tt == T{0}) {
             detail::hold_against_clamp(i_.value, i_.step, u_sat - u_unsat);
             return;
         }
         // The whole excess at most: past it an overshoot of the unsaturated value, past twice divergence.
-        i_.value = i_.lim.saturate(i_.value + (damp::min(h_ * i_.inv_tt, T{1}) * (u_sat - u_unsat)));
+        i_.value = i_.lim.saturate(i_.value + (damp::min(h_ * k_.i.inv_tt, T{1}) * (u_sat - u_unsat)));
     }
 
     using Integral = detail::maybe<kI, detail::PIDIntegral<T>, detail::OffSlot::pid_integral>;
     using Deriv = detail::maybe<kD, detail::PIDDerivative<T>, detail::OffSlot::pid_derivative>;
 
-    T                              Kp_{T{0}};    ///< Proportional gain
-    T                              b_{T{1}};     ///< Proportional setpoint weight
+    [[no_unique_address]] GainSet  k_{};         ///< The gains, T_s and the coefficients at it: members, or no storage on a constexpr design's Law
     Bounds<1, T>                   u_lim_{};     ///< The command's limits
-    T                              Ts_{T{0}};    ///< [s] The fixed-rate tick's period (0: none)
     T                              u_cmd_{T{0}}; ///< Last command step() returned, or the input track() recorded
     T                              h_{T{0}};     ///< [s] The last tick's period, which back_calculate charges (0: none)
     [[no_unique_address]] Integral i_{};         ///< The integral term: no storage on a P or a PD
@@ -1007,29 +1061,68 @@ struct Law<Res, T> : PIDController<T> {
     using Runtime::operator=;
 };
 
+namespace detail {
+
 /**
- * @brief Law<kRes, T> of a `constexpr` PID design: the PIDController of the narrowest mode its gains need
+ * @brief A `constexpr` PID design's gains as constants of the type: what a PIDController reads in
+ *        place of its gain members, in the runtime's scalar, at the mode the gains need
  *
- * K_d = 0 is a PI, Kᵢ = 0 a PD, both a P, so the tick computes no term the design has not. A
- * failed design or one with no positive T_s does not compile wherever the Law is declared. The
- * gains and the limits stay settable at run time, set_gains within that mode: a law retuned to a
- * term its design did not have is a PIDController declared with that mode.
+ * Each member is static, so the Law stores none of them: the gains sit in flash and fold into
+ * the tick (a zero or unit gain is no code). A result whose gains its mode refuses has no set,
+ * which the Law's static_assert reports.
+ */
+template<const auto& Res, typename T, PIDMode Mode>
+struct ConstantPIDGains {
+    static constexpr bool constant = true; ///< The gains are the type's: set_gains is absent
+
+    static constexpr auto set = [] {
+        const auto s = pid_gain_set<Mode>(Res.gains.template as<T>(), static_cast<T>(Res.Ts));
+        return s ? *s : PIDGainSet<T, Mode>{};
+    }(); ///< The gains at the design's T_s
+
+    static constexpr bool ok = pid_gain_set<Mode>(Res.gains.template as<T>(), static_cast<T>(Res.Ts)).has_value(); ///< The gains are in the mode's domain at T_s
+
+    static constexpr T    Kp = set.Kp; ///< Proportional gain
+    static constexpr T    b = set.b;   ///< Proportional setpoint weight
+    static constexpr T    Ts = set.Ts; ///< [s] The fixed-rate tick's period
+    static constexpr auto i = set.i;   ///< The integral's gains (empty on a P or a PD)
+    static constexpr auto d = set.d;   ///< The derivative's gains (empty on a P or a PI)
+};
+
+} // namespace detail
+
+/**
+ * @brief Law<kRes, T> of a `constexpr` PID design: the PIDController of the narrowest mode its
+ *        gains need, with those gains constants of the type
+ *
+ * K_d = 0 is a PI, Kᵢ = 0 a PD, both a P, so the tick computes no term the design has not and
+ * stores none of its memory. The gains, T_s and the coefficients at it are the type's
+ * (detail::ConstantPIDGains): in flash, folded into the tick, no RAM. The limits stay members,
+ * settable at run time; there is no set_gains. A law retuned at run time is a PIDController,
+ * `Law<kRes, T>::Runtime law{kRes.as<T>()};`. A failed design, one with no positive T_s or with a
+ * gain its mode refuses does not compile wherever the Law is declared.
  */
 template<const auto& Res, typename T>
     requires(detail::pid_design<Res> && detail::constant_design<Res>)
-struct Law<Res, T> : PIDController<T, detail::narrowest_pid_mode(Res.gains)> {
-    using Runtime = PIDController<T, detail::narrowest_pid_mode(Res.gains)>; ///< The runtime the design runs as: the type of a member a redesign assigns
+struct Law<Res, T> : PIDController<T, detail::narrowest_pid_mode(Res.gains), detail::ConstantPIDGains<Res, T, detail::narrowest_pid_mode(Res.gains)>> {
+    static constexpr PIDMode kMode = detail::narrowest_pid_mode(Res.gains); ///< The terms the tick computes
+    using Runtime = PIDController<T, kMode>;                                ///< The runtime with members: the type of a member a redesign assigns
+    using Base = PIDController<T, kMode, detail::ConstantPIDGains<Res, T, kMode>>;
 
     static_assert(detail::constant_design_runs(Res.success, Res.status, Res.Ts));
+    static_assert(detail::ConstantPIDGains<Res, T, kMode>::ok, "Law<kRes, T>: a gain of the PID design is not finite, a Tf or tracking_time is below 0, or a coefficient overflows at its Ts");
 
-    // ponytail: the gains are members, as a PIDController's, so set_gains works; folding them into
-    // constants of the type, as the LQ Law does with its matrices, would move them to flash. The
-    // mode narrowing above already drops the terms that are off, and their storage with them.
+    /** @brief The design's law: its gains the type's, its limits members. */
+    constexpr Law() : Base{Res} {}
 
-    /** @brief The design's law. */
-    constexpr Law() : Runtime{Res} {}
-
-    using Runtime::operator=;
+    /** @brief There is nothing to replace: the gains are in the type. */
+    template<typename Other>
+        requires(!damp::is_same_v<damp::remove_cvref_t<Other>, Law>)
+    constexpr Law& operator=(const Other& other) {
+        static_assert(sizeof(Other) == 0, "This Law is a constexpr PID design's: its gains are constants of the type, so there is nothing to replace. A member a redesign assigns, or a law retuned with set_gains, is Law<kRes, T>::Runtime law{kRes.as<T>()};");
+        static_cast<void>(other);
+        return *this;
+    }
 };
 
 } // namespace damp

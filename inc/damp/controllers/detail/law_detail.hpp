@@ -97,6 +97,8 @@ enum class OffSlot : uint8_t {
     fade_decay,           ///< The handover fade's factor (a constant of the type on a `constexpr` design's Law)
     pid_integral,         ///< PIDController's integral term (a P or a PD)
     pid_derivative,       ///< PIDController's derivative term (a P or a PI)
+    pid_integral_gains,   ///< PIDGainSet's integral gains (a P or a PD)
+    pid_derivative_gains, ///< PIDGainSet's derivative gains (a P or a PI)
 };
 
 /**

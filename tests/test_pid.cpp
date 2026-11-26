@@ -748,6 +748,10 @@ inline constexpr auto kP = design::pid(2.0, 0.0, 0.0).discretize(0.01);
 inline constexpr auto kFailed = design::pid(2.0, 5.0, 0.0).discretize(-1.0);
 const auto            kAtStart = design::pid(2.0, 5.0, 0.0).discretize(0.01); // initialized at start-up
 
+/** @brief A law whose gains set_gains changes at run time. */
+template<typename L>
+concept Retunable = requires(L& l, const design::PIDGains<float>& g) { l.set_gains(g); };
+
 struct Axis {
     Law<kPI, float> law; // a struct member's type, named by its design
     float           offset{0.0f};
@@ -755,13 +759,19 @@ struct Axis {
 } // namespace
 
 TEST_SUITE("PID Law") {
-    TEST_CASE("Law<kRes, float> deploys a constexpr design in the narrowest mode its gains need") {
+    TEST_CASE("Law<kRes, float> deploys a constexpr design in the narrowest mode its gains need, its gains in flash") {
         static_assert(std::is_same_v<Law<kPI, float>::Runtime, PIController<float>>);
         static_assert(std::is_same_v<Law<kPID, float>::Runtime, PIDController<float>>);
         static_assert(std::is_same_v<Law<kPD, float>::Runtime, PDController<float>>);
         static_assert(std::is_same_v<Law<kP, float>::Runtime, PController<float>>);
-        static_assert(std::is_base_of_v<PIController<float>, Law<kPI, float>>);
         static_assert(std::is_same_v<Law<kAtStart, float>::Runtime, PIDController<float>>); // not constexpr: the full law
+        //! The gains are constants of the type: the Law stores none of them, so it is smaller than the
+        //! runtime of its mode, and it has no set_gains.
+        static_assert(sizeof(Law<kPI, float>) < sizeof(PIController<float>));
+        static_assert(sizeof(Law<kPID, float>) < sizeof(PIDController<float>));
+        static_assert(sizeof(Law<kP, float>) < sizeof(PController<float>));
+        static_assert(!Retunable<Law<kPI, float>>);
+        static_assert(Retunable<PIController<float>>);
         //! A failed design does not compile wherever its Law is declared: the static_assert in the
         //! Law is constant_design_runs, which refuses it.
         static_assert(!detail::constant_design<kAtStart>);
@@ -771,15 +781,28 @@ TEST_SUITE("PID Law") {
         static constinit Axis axis;
         PIController<float>   ref{kPI.as<float>()};
         for (int k = 0; k < 20; ++k) {
-            CHECK(axis.law.step(1.0f, 0.1f) == ref.step(1.0f, 0.1f));
+            const float u = axis.law.step(1.0f, 0.1f);
+            CHECK(u == doctest::Approx(ref.step(1.0f, 0.1f)).epsilon(1e-6)); // folded constants may round differently from loaded gains: a few ulps
         }
+        CHECK(axis.law.gains().Kp == 2.0f);
+        CHECK(axis.law.gains().Ki == 5.0f);
+        CHECK(axis.law.sample_time() == 0.01f);
+        //! Its limits stay settable at run time.
         CHECK(axis.law.limits().input.upper(0) == 1.0f);
-        //! Its gains and limits stay settable within its mode.
-        auto g = axis.law.gains();
+        auto lim = axis.law.limits();
+        lim.input.upper(0) = 0.5f;
+        CHECK(axis.law.set_limits(lim));
+        CHECK(axis.law.step(10.0f, 0.0f) == 0.5f);
+        //! A law retuned at run time is the Runtime, built from the same design.
+        Law<kPI, float>::Runtime retuned{kPI.as<float>()};
+        auto                     g = retuned.gains();
         g.Kp = 3.0f;
-        CHECK(axis.law.set_gains(g));
+        CHECK(retuned.set_gains(g));
         g.Kd = 0.1f;
-        CHECK_FALSE(axis.law.set_gains(g)); // a PI's Law has no D term
+        CHECK_FALSE(retuned.set_gains(g)); // a PI has no D term
+        //! The Law's state carries over to a Runtime.
+        const PIController<float> copied{axis.law};
+        CHECK(copied.integral() == axis.law.integral());
         Law<kAtStart, float> held;
         CHECK(held.valid());
         CHECK(held.step(1.0f, 0.0f) == doctest::Approx(2.0f + 0.05f));
