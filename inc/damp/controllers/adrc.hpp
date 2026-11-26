@@ -19,6 +19,7 @@
  */
 
 #include "damp/backend.hpp"
+#include "damp/controllers/detail/adrc_gains.hpp"
 #include "damp/controllers/law.hpp" // IWYU pragma: export
 #include "damp/design/detail/siso_input_limits.hpp"
 #include "damp/design/input_limits.hpp" // IWYU pragma: export
@@ -316,14 +317,18 @@ template<size_t NX, typename T, typename... Opts>
  *
  * @see "Discrete implementation and generalization of the extended state observer"
  *      (Miklosovic, Radke & Gao, 2006), ACC
- * @tparam NX       Plant order: 1 (1st-order) or 2 (2nd-order) only
- * @tparam T        Scalar type (default: float)
- * @tparam EsoStore Where the ESO's maps live: members (detail::HeldEso), or the constants of a
- *                  `constexpr` design's Law (detail::ConstantEso)
+ * @tparam NX    Plant order: 1 (1st-order) or 2 (2nd-order) only
+ * @tparam T     Scalar type (default: float)
+ * @tparam Gains Where the gains and the ESO's maps live: void, the default, for members (detail::ADRCGainSet,
+ *               settable), or the constants of a `constexpr` design's Law (detail::ConstantADRCGains)
  */
-template<size_t NX, typename T = float, typename EsoStore = detail::HeldEso<NX, T>>
+// The default is void, not detail::ADRCGainSet<NX, T>: a default that names the parameters crashed clang 23 deducing through an alias (pid.hpp).
+template<size_t NX, typename T = float, typename Gains = void>
 class ADRCController {
     static_assert(NX == 1 || NX == 2, "ADRC supports 1st- and 2nd-order plants only");
+    using GainSet = damp::conditional_t<damp::is_same_v<Gains, void>, detail::ADRCGainSet<NX, T>, Gains>; ///< The gains' storage
+    using EsoStore = typename GainSet::Eso;                                                               ///< Where the ESO's maps live
+    static constexpr bool kHeld = !GainSet::constant;                                                     ///< The gains are members: set_gains changes them
 
     template<size_t, typename, typename>
     friend class ADRCController; // cross-precision converting ctor
@@ -335,6 +340,16 @@ class ADRCController {
             return ESO<NX, T, EsoStore>{};
         } else {
             return ESO<NX, T, EsoStore>{result.as_eso()};
+        }
+    }
+
+    /** @brief The gains' storage for @p result: its gains, PD gains and T_s, or nothing on a constexpr design's Law. */
+    [[nodiscard]] static constexpr GainSet gains_of(const design::ADRCResult<NX, T>& result) {
+        if constexpr (kHeld) {
+            return GainSet{.wc = result.gains.wc, .wo = result.gains.wo, .b0 = result.gains.b0, .Kp = result.Kp, .Kd = result.Kd, .Ts = result.Ts};
+        } else {
+            static_cast<void>(result);
+            return GainSet{};
         }
     }
 
@@ -355,10 +370,7 @@ public:
      * (valid() false, output 0).
      */
     constexpr ADRCController(const design::ADRCResult<NX, T>& result) // NOLINT(google-explicit-constructor): assign-from-design
-        : g_(result.gains),
-          Kp_(result.Kp),
-          Kd_(result.Kd),
-          Ts_(result.Ts),
+        : k_(gains_of(result)),
           u_lim_(result.limits.input),
           eso_(observer_of(result)),
           valid_(result.success && damp::finite_positive(result.Ts) && damp::finite_positive(result.gains.b0) && result.limits.input.valid()) {
@@ -370,14 +382,16 @@ public:
         }
     }
 
-    /** @brief The same law, with its live state, in another scalar. */
-    template<typename U>
-        requires(!EsoStore::constant)
-    constexpr explicit ADRCController(const ADRCController<NX, U>& other)
-        : g_(other.g_.template as<T>()),
-          Kp_(static_cast<T>(other.Kp_)),
-          Kd_(static_cast<T>(other.Kd_)),
-          Ts_(static_cast<T>(other.Ts_)),
+    /** @brief The same law, with its live state, in another scalar (or off a Law's constant gains and ESO maps, onto members). */
+    template<typename U, typename G>
+        requires kHeld
+    constexpr explicit ADRCController(const ADRCController<NX, U, G>& other)
+        : k_{.wc = static_cast<T>(other.k_.wc),
+             .wo = static_cast<T>(other.k_.wo),
+             .b0 = static_cast<T>(other.k_.b0),
+             .Kp = static_cast<T>(other.k_.Kp),
+             .Kd = static_cast<T>(other.k_.Kd),
+             .Ts = static_cast<T>(other.k_.Ts)},
           u_lim_(other.u_lim_.template as<T>()),
           eso_(other.eso_),
           u_cmd_(static_cast<T>(other.u_cmd_)),
@@ -417,8 +431,8 @@ public:
         const auto& z = eso_.step(y); // current estimator on the last applied command
 
         // --- Control law: PD on the estimated state, minus the disturbance.
-        const T u0 = (Kp_ * (r - z[0])) - (Kd_ * z[1]);    // Kd == 0 for NX == 1
-        const T u = u_lim_.saturate((u0 - z[NX]) / g_.b0); // cancel f̂ = z_{NX+1}
+        const T u0 = (k_.Kp * (r - z[0])) - (k_.Kd * z[1]); // Kd == 0 for NX == 1
+        const T u = u_lim_.saturate((u0 - z[NX]) / k_.b0);  // cancel f̂ = z_{NX+1}
 
         eso_.back_calculate(u);
         u_cmd_ = u;
@@ -474,7 +488,7 @@ public:
     [[nodiscard]] constexpr T applied() const { return eso_.last_command(); }
 
     /** @brief The gains in force: the design's, or the last set_gains. */
-    [[nodiscard]] constexpr design::ADRCGains<T> gains() const { return g_; }
+    [[nodiscard]] constexpr design::ADRCGains<T> gains() const { return design::ADRCGains<T>{.wc = k_.wc, .wo = k_.wo, .b0 = k_.b0}; }
 
     /**
      * @brief Change the gains at run time; the next tick uses them
@@ -483,26 +497,24 @@ public:
      * estimate: a new b₀ moves f̂ by −Δb₀·u, u the input the ESO holds as applied, so the estimate
      * of y⁽ⁿ⁾ = f + b₀u and the next command at the same estimate do not jump. Refused (false,
      * nothing changed) for ω_c, ω_o or b₀ not finite and positive, or an observer design::eso
-     * refuses at sample_time(). A `constexpr` design's Law, whose ESO maps are the type's, has no
-     * set_gains.
+     * refuses at sample_time(). A `constexpr` design's Law, whose gains and ESO maps are the
+     * type's, has no set_gains.
      */
     [[nodiscard]] constexpr bool set_gains(const design::ADRCGains<T>& g)
-        requires(!EsoStore::constant)
+        requires kHeld
     {
-        const auto res = design::adrc<NX>(g, Ts_);
+        const auto res = design::adrc<NX>(g, k_.Ts);
         if (!res.success) {
             return false;
         }
         const T u = eso_.last_command();
         auto    z = eso_.state();
-        z[NX] = z[NX] - ((res.gains.b0 - g_.b0) * u); // f = y⁽ⁿ⁾ − b₀u: the same y⁽ⁿ⁾ under the new b₀
+        z[NX] = z[NX] - ((res.gains.b0 - k_.b0) * u); // f = y⁽ⁿ⁾ − b₀u: the same y⁽ⁿ⁾ under the new b₀
         ESO<NX, T, EsoStore> retuned{res.as_eso()};
         retuned.reset(z);
         retuned.back_calculate(u);
         eso_ = retuned;
-        g_ = res.gains;
-        Kp_ = res.Kp;
-        Kd_ = res.Kd;
+        k_ = gains_of(res);
         return true;
     }
 
@@ -519,7 +531,7 @@ public:
     }
 
     /** @brief [s] The tick's sample period T_s. */
-    [[nodiscard]] constexpr T sample_time() const { return Ts_; }
+    [[nodiscard]] constexpr T sample_time() const { return k_.Ts; }
 
     /** @brief Zero the ESO state and the held input. */
     constexpr void reset() {
@@ -534,14 +546,11 @@ public:
     }
 
 private:
-    design::ADRCGains<T> g_{};          ///< ω_c, ω_o, b₀ (the tick divides by b₀)
-    T                    Kp_{T{0}};     ///< Proportional gain
-    T                    Kd_{T{0}};     ///< Derivative gain
-    T                    Ts_{T{0}};     ///< [s] The tick's period, which set_gains designs at
-    Bounds<1, T>         u_lim_{};      ///< The command's limits
-    ESO<NX, T, EsoStore> eso_{};        ///< Discrete ESO (Miklosovic–Radke–Gao current estimator)
-    T                    u_cmd_{};      ///< The command the last step() returned, or the input track() recorded
-    bool                 valid_{false}; ///< Built from a design it runs
+    [[no_unique_address]] GainSet k_{};          ///< ω_c, ω_o, b₀ (the tick divides by b₀), K_p, K_d and T_s: members, or no storage on a constexpr design's Law
+    Bounds<1, T>                  u_lim_{};      ///< The command's limits
+    ESO<NX, T, EsoStore>          eso_{};        ///< Discrete ESO (Miklosovic–Radke–Gao current estimator)
+    T                             u_cmd_{};      ///< The command the last step() returned, or the input track() recorded
+    bool                          valid_{false}; ///< Built from a design it runs
 };
 
 /** @brief Deduce the runtime from its design, keeping the result's scalar. */
@@ -554,11 +563,11 @@ namespace detail {
 template<const auto& Res, typename T, typename R = detail::design_t<Res>>
 struct adrc_runtime {};
 
-/** @brief design::adrc: with members, or its ESO on the design's constants. */
+/** @brief design::adrc: with members, or its gains and ESO on the design's constants. */
 template<const auto& Res, typename T, size_t NX, typename U>
 struct adrc_runtime<Res, T, design::ADRCResult<NX, U>> {
-    using type = ADRCController<NX, T>;                              ///< With members
-    using on_constants = ADRCController<NX, T, ConstantEso<Res, T>>; ///< Its ESO on the design's constants
+    using type = ADRCController<NX, T>;                                    ///< With members
+    using on_constants = ADRCController<NX, T, ConstantADRCGains<Res, T>>; ///< Its gains and ESO on the design's constants
 };
 
 /** @brief An ADRC design. */
@@ -580,20 +589,34 @@ struct Law<Res, T> : detail::adrc_runtime<Res, T>::type {
 };
 
 /**
- * @brief Law<kRes, T> of a `constexpr` design::adrc: the same law, its ESO on the design's
- *        matrices as constants of the type, its gains and limits members (no set_gains: the
- *        ESO's maps are the type's)
+ * @brief Law<kRes, T> of a `constexpr` design::adrc: the same law with its gains and its ESO's
+ *        maps constants of the type (detail::ConstantADRCGains, detail::ConstantEso)
+ *
+ * K_p, K_d, b₀, T_s and the ESO's Φ, Γ and L are in flash and fold into the tick; the ESO's
+ * estimate and the limits stay members, the limits settable at run time; there is no set_gains.
+ * A law retuned at run time is `Law<kRes, T>::Runtime law{kRes.as<T>()};`. A failed design does
+ * not compile wherever the Law is declared.
  */
-// ponytail: the PD gains and b₀ could be constants of the type too, as a PID Law's gains are; they stay members beside the ESO's constant maps.
 template<const auto& Res, typename T>
     requires(detail::adrc_design<Res, T> && detail::constant_design<Res>)
 struct Law<Res, T> : detail::adrc_runtime<Res, T>::on_constants {
     using Runtime = detail::adrc_runtime<Res, T>::type; ///< The runtime with members: the type of a member a redesign assigns
+    using Base = detail::adrc_runtime<Res, T>::on_constants;
 
     static_assert(detail::constant_design_runs(Res.success, Res.status, Res.Ts));
     static_assert(Res.limits.input.valid(), "The design's limits are not a box: an end is not finite, or the lower one is above the upper one.");
+    static_assert(detail::ConstantADRCGains<Res, T>::ok, "Law<kRes, T>: the ADRC design's b0 is not finite and positive, or a PD gain is not finite, in the runtime's scalar");
 
-    /** @brief The design's law: its ESO's maps are the type's, its gains and limits members. */
-    constexpr Law() : detail::adrc_runtime<Res, T>::on_constants(Res.template as<T>()) {}
+    /** @brief The design's law: its gains and ESO maps the type's, its limits members. */
+    constexpr Law() : Base(Res.template as<T>()) {}
+
+    /** @brief There is nothing to replace: the gains are in the type. */
+    template<typename Other>
+        requires(!damp::is_same_v<damp::remove_cvref_t<Other>, Law>)
+    constexpr Law& operator=(const Other& other) {
+        static_assert(sizeof(Other) == 0, "This Law is a constexpr ADRC design's: its gains and its ESO's maps are constants of the type, so there is nothing to replace. A member a redesign assigns, or a law retuned with set_gains, is Law<kRes, T>::Runtime law{kRes.as<T>()};");
+        static_cast<void>(other);
+        return *this;
+    }
 };
 } // namespace damp

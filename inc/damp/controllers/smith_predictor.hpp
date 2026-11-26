@@ -307,45 +307,55 @@ template<typename T, size_t N, typename S>
  * @tparam Primary  Primary controller (SisoLaw). Default:
  *                  PIController for the FOPDT/SIMC process path. Use
  *                  PIDController (full PID), ADRC, SMC, etc. when needed.
+ * @tparam Gains    Where the model lives: void, the default, for members (detail::SmithGainSet), or the
+ *                  constants of a `constexpr` design's Law (detail::ConstantSmithGains)
  *
  * @see design::smith_predictor
  * @see SisoLaw
  * @see O.J.M. Smith (1957); Åström & Hägglund (2006), §7.5
  */
-template<size_t N, typename T = float, typename Primary = PIController<T>>
+template<size_t N, typename T = float, typename Primary = PIController<T>, typename Gains = void>
     requires SisoLaw<Primary, T>
 class SmithPredictor {
     static_assert(N >= 1, "SmithPredictor holds at least one delay state, as InputDelay<N> does.");
+    using GainSet = damp::conditional_t<damp::is_same_v<Gains, void>, detail::SmithGainSet<T>, Gains>; ///< The model's storage
+    static constexpr bool kHeld = !GainSet::constant;                                                  ///< The model is members
 
-    Primary               primary_{};
-    damp::array<T, N + 1> ring_{};           ///< The last N + 1 commands, the newest at head_
-    size_t                head_{0};          ///< Slot of the newest command
-    T                     a_{T{0}};          ///< Discrete FO pole
-    T                     b_{T{0}};          ///< The delay-free model's gain
-    T                     b_fresh_{T{0}};    ///< The delayed model's gain on u_{k−d}
-    T                     b_stale_{T{0}};    ///< Its gain on u_{k−d−1}
-    T                     y_hat_{T{0}};      ///< ŷ: the delay-free model's output
-    T                     y_delayed_{T{0}};  ///< ŷ_d: the delayed model's output, what the measurement matches when the model is exact
-    T                     u_cmd_{T{0}};      ///< The command the last step() returned, or the input track() recorded
-    size_t                delay_samples_{0}; ///< d, the delay's whole periods
-    bool                  valid_{false};     ///< Design succeeded, d ≤ N, the model finite and b ≠ 0
+    Primary                       primary_{};
+    damp::array<T, N + 1>         ring_{};          ///< The last N + 1 commands, the newest at head_
+    size_t                        head_{0};         ///< Slot of the newest command
+    [[no_unique_address]] GainSet k_{};             ///< The model's pole, gains and whole samples of delay: members, or no storage on a constexpr design's Law
+    T                             y_hat_{T{0}};     ///< ŷ: the delay-free model's output
+    T                             y_delayed_{T{0}}; ///< ŷ_d: the delayed model's output, what the measurement matches when the model is exact
+    T                             u_cmd_{T{0}};     ///< The command the last step() returned, or the input track() recorded
+    bool                          valid_{false};    ///< Design succeeded, d ≤ N, the model finite and b ≠ 0
 
     /** @brief Push @p u as the newest command and step both models on it. */
     constexpr void advance(T u) {
         head_ = ::damp::detail::ring_next(head_, N);
         ring_[head_] = u;
-        y_hat_ = (a_ * y_hat_) + (b_ * u);
-        T delayed = (a_ * y_delayed_) + (b_fresh_ * ring_[::damp::detail::ring_back(head_, delay_samples_, N)]);
-        if (delay_samples_ < N) {
-            delayed += b_stale_ * ring_[::damp::detail::ring_back(head_, delay_samples_ + 1, N)];
+        y_hat_ = (k_.a * y_hat_) + (k_.b * u);
+        T delayed = (k_.a * y_delayed_) + (k_.b_fresh * ring_[::damp::detail::ring_back(head_, k_.delay_samples, N)]);
+        if (k_.delay_samples < N) {
+            delayed += k_.b_stale * ring_[::damp::detail::ring_back(head_, k_.delay_samples + 1, N)];
         }
         y_delayed_ = delayed;
     }
 
-    /** @brief Whether a model of pole @p a, gains @p b, @p b_fresh, @p b_stale and @p d whole periods runs in N delay states. */
-    [[nodiscard]] static constexpr bool runs(T a, T b, T b_fresh, T b_stale, size_t d) {
-        const bool finite = damp::isfinite(a) && damp::isfinite(b) && damp::isfinite(b_fresh) && damp::isfinite(b_stale);
-        return finite && (b != T{0}) && (d <= N) && (d < N || b_stale == T{0});
+    /**
+     * @brief Store the model of pole @p a, gains @p b, @p b_fresh, @p b_stale and @p d whole
+     *        periods when it runs in N delay states; on a `constexpr` design's Law, whose model is
+     *        the type's, whether it does
+     */
+    [[nodiscard]] constexpr bool take(T a, T b, T b_fresh, T b_stale, size_t d) {
+        const auto set = detail::smith_gain_set<N>(a, b, b_fresh, b_stale, d);
+        if (!set) {
+            return false;
+        }
+        if constexpr (kHeld) {
+            k_ = *set;
+        }
+        return true;
     }
 
 public:
@@ -380,13 +390,7 @@ public:
     template<size_t M>
         requires(M <= N)
     constexpr SmithPredictor(const Primary& primary, const design::SmithPredictorResult<T, M>& model)
-        : primary_(primary),
-          a_(model.a),
-          b_(model.b),
-          b_fresh_(model.b_fresh),
-          b_stale_(model.b_stale),
-          delay_samples_(model.delay_samples),
-          valid_(model.success && runs(model.a, model.b, model.b_fresh, model.b_stale, model.delay_samples)) {
+        : primary_(primary), valid_(model.success && take(model.a, model.b, model.b_fresh, model.b_stale, model.delay_samples)) {
         if (!model.success && damp::is_constant_evaluated()) {
             detail::refuse_failed_design(model.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
@@ -404,24 +408,22 @@ public:
      *
      * @tparam U         Source scalar type
      * @tparam PrimaryU  Source primary type (must convert into @p Primary)
+     * @tparam G         Source model storage: members, or a Law's constants
      */
-    template<typename U, typename PrimaryU>
-    constexpr explicit SmithPredictor(const SmithPredictor<N, U, PrimaryU>& other)
-        requires damp::constructible_from<Primary, const PrimaryU&>
+    template<typename U, typename PrimaryU, typename G>
+    constexpr explicit SmithPredictor(const SmithPredictor<N, U, PrimaryU, G>& other)
+        requires(damp::constructible_from<Primary, const PrimaryU&> && kHeld)
         : primary_(other.primary()),
           head_(other.ring_head()),
-          a_(static_cast<T>(other.model_pole())),
-          b_(static_cast<T>(other.model_gain())),
-          b_fresh_(static_cast<T>(other.model_gains().fresh)),
-          b_stale_(static_cast<T>(other.model_gains().stale)),
           y_hat_(static_cast<T>(other.model_output())),
           y_delayed_(static_cast<T>(other.delayed_model_output())),
-          u_cmd_(static_cast<T>(other.last_command())),
-          delay_samples_(other.delay_samples()),
-          valid_(other.valid()) {
+          u_cmd_(static_cast<T>(other.last_command())) {
         for (size_t i = 0; i < N + 1; ++i) {
             ring_[i] = static_cast<T>(other.commands_in_flight()[i]);
         }
+        const auto held = other.model_gains();
+        valid_ = other.valid()
+              && take(static_cast<T>(other.model_pole()), static_cast<T>(other.model_gain()), static_cast<T>(held.fresh), static_cast<T>(held.stale), other.delay_samples());
     }
 
     /**
@@ -479,9 +481,9 @@ public:
             return;
         }
         const T excess = u_sat - ring_[head_];
-        y_hat_ += b_ * excess;
-        if (delay_samples_ == 0) {
-            y_delayed_ += b_fresh_ * excess; // no whole sample of delay: the delayed model has already stepped on this command
+        y_hat_ += k_.b * excess;
+        if (k_.delay_samples == 0) {
+            y_delayed_ += k_.b_fresh * excess; // no whole sample of delay: the delayed model has already stepped on this command
         }
         ring_[head_] = u_sat;
         primary_.back_calculate(u_sat, u_ff);
@@ -519,9 +521,9 @@ public:
     /** @brief ŷ_d: the delayed model's output, what the measurement matches when the model is exact. */
     [[nodiscard]] constexpr T delayed_model_output() const { return y_delayed_; }
     /** @brief Discrete FO pole a. */
-    [[nodiscard]] constexpr T model_pole() const { return a_; }
+    [[nodiscard]] constexpr T model_pole() const { return k_.a; }
     /** @brief The delay-free model's gain b = K(1 − a). */
-    [[nodiscard]] constexpr T model_gain() const { return b_; }
+    [[nodiscard]] constexpr T model_gain() const { return k_.b; }
 
     /** @brief The delayed model's gains: on u_{k−d} and on u_{k−d−1}. */
     struct DelayedGains {
@@ -530,9 +532,9 @@ public:
     };
 
     /** @brief The delayed model's gains on u_{k−d} and u_{k−d−1}. */
-    [[nodiscard]] constexpr DelayedGains model_gains() const { return {b_fresh_, b_stale_}; }
+    [[nodiscard]] constexpr DelayedGains model_gains() const { return {k_.b_fresh, k_.b_stale}; }
     /** @brief Delay d in whole samples. */
-    [[nodiscard]] constexpr size_t delay_samples() const { return delay_samples_; }
+    [[nodiscard]] constexpr size_t delay_samples() const { return k_.delay_samples; }
     /** @brief The commands in flight: the last N + 1, the newest at ring_head(). */
     [[nodiscard]] constexpr const damp::array<T, N + 1>& commands_in_flight() const { return ring_; }
     /** @brief The slot of the newest command in flight. */
@@ -587,22 +589,59 @@ struct Law<Res, T> : SmithPredictor<detail::smith_delay_states<detail::design_t<
     using Runtime::operator=;
 };
 
+namespace detail {
+
 /**
- * @brief Law<kRes, T> of a `constexpr` Smith predictor design: the same runtime, a failed design
- *        refused wherever the Law is declared
+ * @brief What a `constexpr` Smith predictor design's Law runs: its PID in the narrowest mode its
+ *        gains need on those gains as constants (ConstantPIDGains of the result's `pid`), and its
+ *        model as constants (ConstantSmithGains)
  */
-// ponytail: a constexpr design's model and its PID's gains could be constants of the type, as a PID Law's are; they stay members here.
+template<const auto& Res, typename T>
+struct constant_smith {
+    static constexpr size_t  N = smith_delay_states<design_t<Res>>;                      ///< The delay states
+    static constexpr PIDMode mode = narrowest_pid_mode(Res.pid.gains);                   ///< The terms the primary computes
+    using PrimaryGains = ConstantPIDGains<Res.pid, T, mode>;                             ///< The primary's gains, the type's
+    using ModelGains = ConstantSmithGains<Res, T, N>;                                    ///< The model, the type's
+    using type = SmithPredictor<N, T, PIDController<T, mode, PrimaryGains>, ModelGains>; ///< On constants
+    using runtime = SmithPredictor<N, T, PIDController<T, mode>>;                        ///< With members
+};
+
+} // namespace detail
+
+/**
+ * @brief Law<kRes, T> of a `constexpr` Smith predictor design: the SmithPredictor with its model and
+ *        its primary's gains constants of the type
+ *
+ * The primary is the design's PID as its own `constexpr` Law runs it, in the narrowest mode its
+ * gains need with those gains constants of the type (detail::ConstantPIDGains, on the result's
+ * `pid`); the model's pole, gains and whole samples of delay are constants too
+ * (detail::ConstantSmithGains), so the tick reads the ring at a constant offset. The commands in
+ * flight, both models' outputs, the primary's memory and its limits stay members, the limits
+ * settable at run time. A law retuned at run time is `Law<kRes, T>::Runtime law{kRes.as<T>()};`.
+ * A failed design, or one whose model or PID its runtime refuses, does not compile wherever the
+ * Law is declared.
+ */
 template<const auto& Res, typename T>
     requires(detail::smith_design<Res> && detail::constant_design<Res>)
-struct Law<Res, T> : SmithPredictor<detail::smith_delay_states<detail::design_t<Res>>, T> {
-    using Runtime = SmithPredictor<detail::smith_delay_states<detail::design_t<Res>>, T>; ///< The runtime the design runs as
+struct Law<Res, T> : detail::constant_smith<Res, T>::type {
+    using Runtime = detail::constant_smith<Res, T>::runtime; ///< The runtime with members: the type of a member a redesign assigns
+    using Base = detail::constant_smith<Res, T>::type;
 
     static_assert(detail::constant_design_runs(Res.success, Res.status, Res.Ts));
+    static_assert(detail::constant_smith<Res, T>::PrimaryGains::ok, "Law<kRes, T>: a gain of the Smith predictor's PID is not finite, a Tf or tracking_time is below 0, or a coefficient overflows at its Ts");
+    static_assert(detail::constant_smith<Res, T>::ModelGains::ok, "Law<kRes, T>: the Smith predictor's model is not finite, has b = 0, or does not fit its delay states");
 
-    /** @brief The design's law. */
-    constexpr Law() : Runtime{Res} {}
+    /** @brief The design's law: its model and its primary's gains the type's, its limits members. */
+    constexpr Law() : Base{Res} {}
 
-    using Runtime::operator=;
+    /** @brief There is nothing to replace: the model and the primary's gains are in the type. */
+    template<typename Other>
+        requires(!damp::is_same_v<damp::remove_cvref_t<Other>, Law>)
+    constexpr Law& operator=(const Other& other) {
+        static_assert(sizeof(Other) == 0, "This Law is a constexpr Smith predictor design's: its model and its primary's gains are constants of the type, so there is nothing to replace. A member a redesign assigns is Law<kRes, T>::Runtime law{kRes.as<T>()};");
+        static_cast<void>(other);
+        return *this;
+    }
 };
 
 } // namespace damp

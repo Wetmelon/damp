@@ -334,6 +334,16 @@ class ESO {
     T                                           u_prev_{T{0}};           ///< Last applied command (post-saturation)
     bool                                        valid_{Store::constant}; ///< A successful discrete (Ts > 0) design
 
+    /** @brief The matrix a map holds: itself, or the one a ConstMatrix names. */
+    template<typename M>
+    [[nodiscard]] static constexpr const auto& held_map(const M& m) {
+        if constexpr (requires { typename M::Stored; }) {
+            return static_cast<const typename M::Stored&>(m);
+        } else {
+            return m;
+        }
+    }
+
 public:
     constexpr ESO() = default;
 
@@ -360,12 +370,13 @@ public:
         }
     }
 
-    template<typename U>
+    /** @brief The same observer, with its state, in another scalar (or off a Law's constant maps, onto members). */
+    template<typename U, typename S>
         requires(!Store::constant)
-    constexpr ESO(const ESO<NX, U>& other)
-        : Phi_(other.Phi_.template as<T>()),
-          Gamma_(other.Gamma_.template as<T>()),
-          L_(other.L_.template as<T>()),
+    constexpr ESO(const ESO<NX, U, S>& other)
+        : Phi_(held_map(other.Phi_).template as<T>()),
+          Gamma_(held_map(other.Gamma_).template as<T>()),
+          L_(held_map(other.L_).template as<T>()),
           z_(other.z_.template as<T>()),
           u_prev_(static_cast<T>(other.u_prev_)),
           valid_(other.valid_) {}

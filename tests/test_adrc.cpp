@@ -3,10 +3,12 @@
 // Distributed under the Boost Software License, Version 1.0.
 // (See accompanying file LICENSE or copy at http://www.boost.org/LICENSE_1_0.txt)
 
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <cstdlib>
 #include <limits>
+#include <type_traits>
 
 #include "damp/backend.hpp"
 #include "damp/controllers/adrc.hpp"
@@ -766,5 +768,89 @@ TEST_SUITE("Active Disturbance Rejection Control (ADRC)") {
         CHECK_FALSE(law.set_gains(bad));
         CHECK(law.gains().wo == 120.0);
         CHECK(law.sample_time() == Ts);
+    }
+}
+
+namespace {
+inline constexpr auto kAxis = design::adrc<2>({.wc = 10.0, .wo = 50.0, .b0 = 2.0}, 1e-3, design::InputLimits{.lower = {-1.0}, .upper = {1.0}});
+
+/** @brief A law whose gains set_gains changes at run time. */
+template<typename L>
+concept Retunable = requires(L& l) { l.set_gains(l.gains()); };
+
+/** @brief @p law on the double integrator ÿ = 2u − 0.3 for @p steps ticks of 1 ms, its references a square wave: the commands it returns. */
+template<typename T, typename L>
+void run_axis(L& law, DoubleIntegrator& plant, int steps, double* commands) {
+    for (int k = 0; k < steps; ++k) {
+        const T r = ((k / 1000) % 2 == 0) ? static_cast<T>(0.5) : static_cast<T>(-0.2);
+        const T u = law.step(r, static_cast<T>(plant.y));
+        commands[k] = static_cast<double>(u);
+        plant.step(static_cast<double>(u), 1e-3);
+    }
+}
+} // namespace
+
+TEST_SUITE("ADRC Law") {
+    TEST_CASE("Law<kRes, T> of a constexpr design::adrc: its PD gains and b₀ constants of the type, beside its ESO's maps") {
+        static_assert(std::is_same_v<Law<kAxis, float>::Runtime, ADRCController<2, float>>);
+        //! K_p, K_d, b₀ and T_s are the type's, as the ESO's Φ, Γ and L are: the Law stores the ESO's
+        //! estimate, the input it holds as applied, the limits and the last command, and it has no set_gains.
+        static_assert(sizeof(Law<kAxis, float>) < sizeof(ADRCController<2, float>));
+        static_assert(!Retunable<Law<kAxis, float>>);
+        static_assert(Retunable<ADRCController<2, float>>);
+
+        //! In double the same commands to a few ulps of the operands, closed loop.
+        static constinit Law<kAxis, double>          law;
+        static constinit Law<kAxis, double>::Runtime same{kAxis};
+        DoubleIntegrator                             plant_a{.b = 2.0, .d = -0.3};
+        DoubleIntegrator                             plant_b{.b = 2.0, .d = -0.3};
+        static double                                ua[5000];
+        static double                                ub[5000];
+        run_axis<double>(law, plant_a, 5000, ua);
+        run_axis<double>(same, plant_b, 5000, ub);
+        double worst = 0.0;
+        for (int k = 0; k < 5000; ++k) {
+            worst = std::max(worst, std::abs(ua[k] - ub[k]));
+        }
+        CAPTURE(worst);
+        CHECK(worst < 1e-10);
+        CHECK(plant_a.y == doctest::Approx(0.5).epsilon(0.02)); // the loop holds the last reference against the load
+        CHECK(law.gains().b0 == 2.0);
+        CHECK(law.sample_time() == 1e-3);
+
+        //! In float the commands agree as far as the float ESO at 1 kHz resolves them: its third state
+        //! is ÿ, ∝ 1/T_s² of the readings' rounding, and the constant maps sum in another order. The
+        //! same holds of the ESO's constant maps before the PD gains moved, so it is not this change.
+        static constinit Law<kAxis, float>          law_f;
+        static constinit Law<kAxis, float>::Runtime same_f{kAxis};
+        DoubleIntegrator                            plant_f{.b = 2.0, .d = -0.3};
+        DoubleIntegrator                            plant_g{.b = 2.0, .d = -0.3};
+        run_axis<float>(law_f, plant_f, 5000, ua);
+        run_axis<float>(same_f, plant_g, 5000, ub);
+        double worst_f = 0.0;
+        for (int k = 0; k < 5000; ++k) {
+            worst_f = std::max(worst_f, std::abs(ua[k] - ub[k]));
+        }
+        CAPTURE(worst_f);
+        CHECK(worst_f < 2e-3);
+
+        //! Its limits stay settable at run time.
+        auto lim = law_f.limits();
+        lim.input.upper(0) = 0.25f;
+        REQUIRE(law_f.set_limits(lim));
+        CHECK(law_f.step(10.0f, 0.0f) == 0.25f);
+        // law_f = ADRCController<2, float>{kAxis}; // ill-formed: nothing replaces the type's gains (Law::operator=)
+        //! The Law's state carries over to a Runtime, which retunes.
+        Law<kAxis, float>::Runtime copied{law_f};
+        CHECK(copied.valid());
+        CHECK(copied.applied() == law_f.applied());
+        CHECK(copied.observer()[2] == law_f.observer()[2]);
+        CHECK(copied.limits().input.upper(0) == 0.25f);
+        for (int k = 0; k < 50; ++k) {
+            CHECK(copied.step(0.1f, 0.05f) == doctest::Approx(law_f.step(0.1f, 0.05f)).epsilon(1e-5));
+        }
+        auto g = copied.gains();
+        g.wc = 12.0f;
+        CHECK(copied.set_gains(g));
     }
 }

@@ -51,7 +51,8 @@
  */
 
 
-#include "damp/backend.hpp"         // damp::array
+#include "damp/backend.hpp" // damp::array
+#include "damp/controllers/detail/repetitive_gains.hpp"
 #include "damp/controllers/law.hpp" // IWYU pragma: export
 #include "damp/design/detail/repetitive_rules.hpp"
 #include "damp/design/status.hpp"
@@ -273,9 +274,24 @@ template<size_t M, typename T = double>
  * @tparam MaxPeriod Buffer capacity (largest supported N + Q half-width)
  * @tparam T         Scalar type (float or double)
  * @tparam MaxQHalf  Maximum FIR Q half-width (0 = scalar Q only)
+ * @tparam Gains     Where the tuning lives: void, the default, for a member (detail::RepetitiveGainSet), or the
+ *                   constants of a `constexpr` design's Law (detail::ConstantRepetitiveGains)
  */
-template<size_t MaxPeriod, typename T = float, size_t MaxQHalf = 0>
+template<size_t MaxPeriod, typename T = float, size_t MaxQHalf = 0, typename Gains = void>
 class RepetitiveController {
+    using GainSet = damp::conditional_t<damp::is_same_v<Gains, void>, detail::RepetitiveGainSet<design::RepetitiveConfig<T, MaxQHalf>>, Gains>; ///< The tuning's storage
+    static constexpr bool kHeld = !GainSet::constant;                                                                                           ///< The tuning is a member
+
+    /** @brief The tuning's storage for @p config: the member, or nothing on a constexpr design's Law. */
+    [[nodiscard]] static constexpr GainSet stored(const design::RepetitiveConfig<T, MaxQHalf>& config) {
+        if constexpr (kHeld) {
+            return GainSet{config};
+        } else {
+            static_cast<void>(config);
+            return GainSet{};
+        }
+    }
+
 public:
     using scalar = scalar_type_t<T>;
     static_assert(MaxPeriod >= 2, "RepetitiveController needs MaxPeriod >= 2");
@@ -289,16 +305,17 @@ public:
         : RepetitiveController(result.template as<T>()) {}
 
     constexpr RepetitiveController(const design::RepetitiveResult<T, MaxQHalf>& result) // NOLINT(google-explicit-constructor): assign-from-design
-        : config_(result.config), valid_(result.success && result.config.period + result.config.q_half <= MaxPeriod) {
+        : k_(stored(result.config)), valid_(result.success && result.config.period + result.config.q_half <= MaxPeriod) {
         if (!valid_ && damp::is_constant_evaluated()) {
             detail::refuse_failed_design(result.success ? design::DesignStatus::invalid_parameter : result.status); // constant-evaluated (constinit / constexpr): a failed design, or one MaxPeriod cannot hold, does not compile
         }
     }
 
-    /** @brief Convert across scalar precision, preserving the learned internal model. */
-    template<typename U>
-    constexpr explicit RepetitiveController(const RepetitiveController<MaxPeriod, U, MaxQHalf>& other)
-        : config_(other.config_.template as<T>()),
+    /** @brief Convert across scalar precision, preserving the learned internal model (or off a Law's constant tuning, onto a member). */
+    template<typename U, typename G>
+        requires kHeld
+    constexpr explicit RepetitiveController(const RepetitiveController<MaxPeriod, U, MaxQHalf, G>& other)
+        : k_{other.config().template as<T>()},
           clamp_(other.clamp_),
           write_idx_(other.write_idx_),
           e_last_(static_cast<T>(other.e_last_)),
@@ -317,16 +334,16 @@ public:
         if (!valid_) {
             return T{0};
         }
-        const size_t n = config_.period;
+        const size_t n = k_.config.period;
 
         // Phase-advanced output through the same zero-phase FIR: u_rc = k_rc·Q·w[k-N+lead].
-        const T u_rc = static_cast<T>(config_.gain) * filtered(n - config_.lead);
+        const T u_rc = static_cast<T>(k_.config.gain) * filtered(n - k_.config.lead);
 
         //! w[k] = Q·w[k-N] + e[k], unless the command that read w[k-N] (m ticks ago, the lead) was
         //! cut off by a clamp and this error would push the next period's further past it. With no
         //! lead that command is this tick's, and back_calculate takes the error back: the slot here
         //! still holds the flag of the tick a ring ago.
-        e_last_ = (config_.lead > 0 && winds_up(e, clamp_[(write_idx_ + MaxPeriod - config_.lead) % MaxPeriod])) ? T{0} : e;
+        e_last_ = (k_.config.lead > 0 && winds_up(e, clamp_[(write_idx_ + MaxPeriod - k_.config.lead) % MaxPeriod])) ? T{0} : e;
         mem_[write_idx_] = filtered(n) + e_last_;
         clamp_[write_idx_] = 0;
         write_idx_ = (write_idx_ + 1) % MaxPeriod;
@@ -359,7 +376,7 @@ public:
         const T      tol = T{4} * eps<T>() * (damp::abs(u_sat) + damp::abs(asked));
         const size_t last = (write_idx_ + MaxPeriod - 1) % MaxPeriod; // this tick's slot
         clamp_[last] = (damp::abs(diff) > tol) ? ((diff < T{0}) ? static_cast<signed char>(-1) : static_cast<signed char>(1)) : static_cast<signed char>(0);
-        if (config_.lead == 0 && winds_up(e_last_, clamp_[last])) {
+        if (k_.config.lead == 0 && winds_up(e_last_, clamp_[last])) {
             mem_[last] -= e_last_; // no lead: this tick's own command is the one the error answers
             e_last_ = T{0};
         }
@@ -381,7 +398,7 @@ public:
         if (!valid_) {
             return;
         }
-        mem_[write_idx_] = filtered(config_.period);
+        mem_[write_idx_] = filtered(k_.config.period);
         clamp_[write_idx_] = 0;
         write_idx_ = (write_idx_ + 1) % MaxPeriod;
         e_last_ = T{0};
@@ -401,12 +418,12 @@ public:
     }
 
     /** @brief The active configuration (period, gain, Q taps, phase lead). */
-    [[nodiscard]] constexpr const auto& config() const { return config_; }
+    [[nodiscard]] constexpr const auto& config() const { return k_.config; }
     /** @brief True if the design is valid and fit the buffer (period + q_half ≤ MaxPeriod). */
     [[nodiscard]] constexpr bool valid() const { return valid_; }
 
 private:
-    template<size_t, typename, size_t>
+    template<size_t, typename, size_t, typename>
     friend class RepetitiveController; // cross-precision converting ctor
 
     /**
@@ -416,11 +433,11 @@ private:
      * still buffered), which valid() and the constructor's capacity check guarantee for d = N − m and d = N.
      */
     [[nodiscard]] constexpr T filtered(size_t d) const {
-        T qw = static_cast<T>(config_.q_filter) * mem_[(write_idx_ + MaxPeriod - d) % MaxPeriod];
-        for (size_t i = 1; i <= config_.q_half; ++i) {
+        T qw = static_cast<T>(k_.config.q_filter) * mem_[(write_idx_ + MaxPeriod - d) % MaxPeriod];
+        for (size_t i = 1; i <= k_.config.q_half; ++i) {
             const T older = mem_[(write_idx_ + MaxPeriod - d - i) % MaxPeriod]; // w[k-d-i]
             const T newer = mem_[(write_idx_ + MaxPeriod - d + i) % MaxPeriod]; // w[k-d+i]
-            qw += static_cast<T>(config_.q_side[i - 1]) * (older + newer);
+            qw += static_cast<T>(k_.config.q_side[i - 1]) * (older + newer);
         }
         return qw;
     }
@@ -428,13 +445,13 @@ private:
     /** @brief Whether learning the error @p e would push a command cut off towards @p cut (−1 from above, +1 from below, 0 not cut) further past the limit. The learning gain is positive. */
     [[nodiscard]] static constexpr bool winds_up(T e, signed char cut) { return (cut < 0 && e > T{0}) || (cut > 0 && e < T{0}); }
 
-    design::RepetitiveConfig<T, MaxQHalf> config_{};
-    damp::array<T, MaxPeriod>             mem_{};
-    damp::array<signed char, MaxPeriod>   clamp_{}; ///< Per tick, which way a clamp cut the command off (back_calculate): −1, 0, +1
-    size_t                                write_idx_{0};
-    T                                     e_last_{}; ///< The error the last step() stored
-    T                                     u_cmd_{};  ///< The correction the last step() returned
-    bool                                  valid_{false};
+    [[no_unique_address]] GainSet       k_{};     ///< The tuning: a member, or no storage on a constexpr design's Law
+    damp::array<T, MaxPeriod>           mem_{};   ///< The internal model w, a ring of MaxPeriod samples
+    damp::array<signed char, MaxPeriod> clamp_{}; ///< Per tick, which way a clamp cut the command off (back_calculate): −1, 0, +1
+    size_t                              write_idx_{0};
+    T                                   e_last_{}; ///< The error the last step() stored
+    T                                   u_cmd_{};  ///< The correction the last step() returned
+    bool                                valid_{false};
 };
 
 namespace detail {
@@ -469,23 +486,32 @@ template<const auto& Res>
 
 /**
  * @brief Law<kRes, T> of a `constexpr` repetitive design: the RepetitiveController whose buffer is
- *        the design's period plus its filter's half-width, no larger
+ *        the design's period plus its filter's half-width, no larger, its tuning constants of the
+ *        type (detail::ConstantRepetitiveGains)
  *
- * A failed design does not compile wherever the Law is declared.
+ * The period N, the gain k_rc, the taps of Q and the lead m are in flash and fold into the tick;
+ * the internal model stays a member. A failed design does not compile wherever the Law is
+ * declared. A law built at start-up is `Law<kRes, T>::Runtime rc{kRes.as<T>()};`.
  */
-// ponytail: the period, gain and taps of a constexpr design could be constants of the type, as PID's
-// ConstantPIDGains are; the runtime would read config_ from a gain source in place of a member.
 template<const auto& Res, typename T>
     requires detail::repetitive_design<Res>
-struct Law<Res, T> : RepetitiveController<detail::repetitive_capacity<Res>(), T, detail::design_t<Res>::q_half_max> {
-    using Runtime = RepetitiveController<detail::repetitive_capacity<Res>(), T, detail::design_t<Res>::q_half_max>; ///< The runtime the design runs as
+struct Law<Res, T> : RepetitiveController<detail::repetitive_capacity<Res>(), T, detail::design_t<Res>::q_half_max, detail::ConstantRepetitiveGains<Res, T>> {
+    using Runtime = RepetitiveController<detail::repetitive_capacity<Res>(), T, detail::design_t<Res>::q_half_max>; ///< The runtime with a member: the type of a member a redesign assigns
+    using Base = RepetitiveController<detail::repetitive_capacity<Res>(), T, detail::design_t<Res>::q_half_max, detail::ConstantRepetitiveGains<Res, T>>;
 
     static_assert(detail::constant_design_checked<Res>());
 
-    /** @brief The design's law. */
-    constexpr Law() : Runtime{Res} {}
+    /** @brief The design's law: its tuning the type's, its internal model a member. */
+    constexpr Law() : Base{Res} {}
 
-    using Runtime::operator=;
+    /** @brief There is nothing to replace: the tuning is in the type. */
+    template<typename Other>
+        requires(!damp::is_same_v<damp::remove_cvref_t<Other>, Law>)
+    constexpr Law& operator=(const Other& other) {
+        static_assert(sizeof(Other) == 0, "This Law is a constexpr repetitive design's: its tuning is constants of the type, so there is nothing to replace. A member a redesign assigns is Law<kRes, T>::Runtime rc{kRes.as<T>()};");
+        static_cast<void>(other);
+        return *this;
+    }
 };
 
 } // namespace damp

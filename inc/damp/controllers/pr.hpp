@@ -76,41 +76,6 @@
 
 namespace damp {
 
-namespace detail {
-
-/**
- * @brief The coefficients of every resonator of a PR bank: the h-th harmonic's resonant term,
- *        Kᵢ/h at h·ω₀, for each order h of @p orders, at the period @p Ts
- * @return The coefficients, or nullopt when Kp or Kᵢ is not finite, ω_c or the tracking time is
- *         below 0 or not finite, ω₀ or Ts is not finite and positive, an order is 0, a resonance
- *         is at or above Nyquist, or a coefficient overflows
- */
-template<typename T, size_t NH>
-[[nodiscard]] constexpr damp::optional<damp::array<PRCoefficients<T>, NH>>
-pr_bank_coefficients(T Kp, T Ki, T w0, T wc, T tracking_time, T Ts, const damp::array<size_t, NH>& orders) {
-    if (!damp::isfinite(Kp) || !damp::isfinite(Ki) || !damp::finite_positive(w0) || !damp::finite_non_negative(wc)
-        || !damp::finite_non_negative(tracking_time) || !damp::finite_positive(Ts)) {
-        return damp::nullopt;
-    }
-    damp::array<PRCoefficients<T>, NH> out{};
-    for (size_t i = 0; i < NH; ++i) {
-        if (orders[i] == 0) {
-            return damp::nullopt; // the 0th harmonic (DC) is not a resonant target
-        }
-        const T order = static_cast<T>(orders[i]);
-        if (!pr_resonance_ok(order * w0, Ts)) {
-            return damp::nullopt;
-        }
-        out[i] = pr_coefficients(Ki / order, order * w0, wc, Ts);
-        if (!out[i].finite()) {
-            return damp::nullopt;
-        }
-    }
-    return out;
-}
-
-} // namespace detail
-
 namespace design {
 
 namespace detail {
@@ -460,14 +425,18 @@ template<typename T = double, typename... Opts>
  * float u = pr.step(i_ref, i_meas); // (r, y) form
  * @endcode
  *
- * @tparam T  Scalar type (default: float)
- * @tparam NH Resonators (1: the PR law at ω₀)
+ * @tparam T     Scalar type (default: float)
+ * @tparam NH    Resonators (1: the PR law at ω₀)
+ * @tparam Gains Where the gains live: void, the default, for members (detail::PRGainSet, settable), or the
+ *               constants of a `constexpr` design's Law (detail::ConstantPRGains)
  */
-template<typename T = float, size_t NH = 1>
+template<typename T = float, size_t NH = 1, typename Gains = void>
 class PRController {
     static_assert(NH >= 1, "A PR law has at least one resonator.");
+    using GainSet = damp::conditional_t<damp::is_same_v<Gains, void>, detail::PRGainSet<T, NH>, Gains>; ///< The gains' storage
+    static constexpr bool kHeld = !GainSet::constant;                                                   ///< The gains are members: set_gains changes them
 
-    template<typename, size_t>
+    template<typename, size_t, typename>
     friend class PRController;
 
 public:
@@ -481,32 +450,27 @@ public:
 
     /** @brief From a design result. Non-explicit for assign-from-design: `PRController<float> pr = design::pr(gains, Ts).as<float>();` */
     constexpr PRController(const design::PRResult<T, NH>& result) // NOLINT(google-explicit-constructor): assign-from-design
-        : gains_(result.gains), orders_(result.harmonics), u_lim_(result.limits.input), Ts_(result.Ts) {
+        : u_lim_(result.limits.input) {
         if (!result.success && damp::is_constant_evaluated()) {
             detail::refuse_failed_design(result.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
         if (!damp::finite_positive(result.Ts) && damp::is_constant_evaluated()) {
             detail::refuse_failed_design(design::DesignStatus::invalid_sample_time);
         }
-        valid_ = result.success && damp::finite_positive(result.Ts) && result.limits.input.valid() && retune(result.gains);
+        valid_ = result.success && damp::finite_positive(result.Ts) && result.limits.input.valid() && take(result.gains, result.Ts, result.harmonics);
         if (!valid_ && damp::is_constant_evaluated()) {
             detail::refuse_failed_design(design::DesignStatus::invalid_parameter); // a gain out of its domain, or a limit that is not a box
         }
     }
 
-    /** @brief The same law, with its live state, in another scalar. */
-    template<typename U>
-    constexpr explicit PRController(const PRController<U, NH>& o)
-        : gains_(o.gains_.template as<T>()),
-          orders_(o.orders_),
-          u_lim_(o.u_lim_.template as<T>()),
-          Ts_(static_cast<T>(o.Ts_)),
-          unwind_(static_cast<T>(o.unwind_)),
-          u_cmd_(static_cast<T>(o.u_cmd_)),
-          valid_(o.valid_) {
+    /** @brief The same law, with its live state, in another scalar (or off a Law's constant gains, onto members). */
+    template<typename U, typename G>
+        requires kHeld
+    constexpr explicit PRController(const PRController<U, NH, G>& o) : u_lim_(o.u_lim_.template as<T>()), u_cmd_(static_cast<T>(o.u_cmd_)) {
         for (size_t i = 0; i < NH; ++i) {
             res_[i] = detail::PRResonator<T>(o.res_[i]);
         }
+        valid_ = o.valid_ && take(o.gains().template as<T>(), static_cast<T>(o.sample_time()), o.harmonics());
     }
 
     /** @brief False when built from a design it refuses: step() returns 0. */
@@ -517,9 +481,9 @@ public:
         if (!valid_) {
             return T{0};
         }
-        T u = gains_.Kp * e;
+        T u = k_.Kp * e;
         for (size_t i = 0; i < NH; ++i) {
-            u += res_[i](e);
+            u += res_[i](e, k_.res[i]);
         }
         u_cmd_ = u_lim_.saturate(u);
         wind_back(u_cmd_ - u);
@@ -547,11 +511,11 @@ public:
         if (!valid_) {
             return;
         }
-        T v = gains_.Kp * e;
+        T v = k_.Kp * e;
         for (size_t i = 0; i < NH; ++i) {
-            v += res_[i](e);
+            v += res_[i](e, k_.res[i]);
         }
-        if (gains_.Ki != T{0}) {
+        if (k_.Ki != T{0}) {
             res_[0].shift_last_output(u_lim_.saturate(u) - v);
         }
         u_cmd_ = u;
@@ -595,7 +559,9 @@ public:
     }
 
     /** @brief The gains in force: the design's, or the last set_gains or set_frequency. */
-    [[nodiscard]] constexpr design::PRGains<T> gains() const { return gains_; }
+    [[nodiscard]] constexpr design::PRGains<T> gains() const {
+        return design::PRGains<T>{.Kp = k_.Kp, .Ki = k_.Ki, .w0 = k_.w0, .wc = k_.wc, .tracking_time = k_.tracking_time};
+    }
 
     /**
      * @brief Change the gains at run time; the next tick uses them
@@ -603,9 +569,14 @@ public:
      * Recomputes every resonator's coefficients at sample_time() and keeps its output and
      * increment, so the command does not jump. Refused (false, nothing changed) for a Kp or Kᵢ that
      * is not finite, an ω_c or a tracking time below 0 or not finite, an ω₀ that is not finite and
-     * positive or that puts a resonance at or above Nyquist, or a coefficient that overflows.
+     * positive or that puts a resonance at or above Nyquist, or a coefficient that overflows. A
+     * `constexpr` design's Law, whose gains are the type's, has none.
      */
-    [[nodiscard]] constexpr bool set_gains(const design::PRGains<T>& g) { return retune(g); }
+    [[nodiscard]] constexpr bool set_gains(const design::PRGains<T>& g)
+        requires kHeld
+    {
+        return take(g, k_.Ts, k_.orders);
+    }
 
     /**
      * @brief Move the resonance (in a bank, the fundamental and every harmonic with it) to @p w0
@@ -615,10 +586,12 @@ public:
      * finite and positive, or one that would put a resonance at or above Nyquist: the bank is
      * retuned whole or not at all.
      */
-    [[nodiscard]] constexpr bool set_frequency(T w0) {
-        design::PRGains<T> g = gains_;
+    [[nodiscard]] constexpr bool set_frequency(T w0)
+        requires kHeld
+    {
+        design::PRGains<T> g = gains();
         g.w0 = w0;
-        return retune(g);
+        return take(g, k_.Ts, k_.orders);
     }
 
     /** @brief The limits in force: the design's, or the last set_limits. */
@@ -647,45 +620,49 @@ public:
     }
 
     /** @brief The harmonic order of each resonator, Kᵢ/h at h·ω₀. */
-    [[nodiscard]] constexpr const damp::array<size_t, NH>& harmonics() const { return orders_; }
+    [[nodiscard]] constexpr const damp::array<size_t, NH>& harmonics() const { return k_.orders; }
 
     /** @brief [s] The tick's sample period T_s. */
-    [[nodiscard]] constexpr T sample_time() const { return Ts_; }
+    [[nodiscard]] constexpr T sample_time() const { return k_.Ts; }
 
 private:
-    /** @brief Take @p g at sample_time() when every resonator's coefficients are in their domain, keeping each resonator's state; nothing changed otherwise. */
-    [[nodiscard]] constexpr bool retune(const design::PRGains<T>& g) {
-        const auto k = detail::pr_bank_coefficients(g.Kp, g.Ki, g.w0, g.wc, g.tracking_time, Ts_, orders_);
-        if (!k) {
-            return false;
+    /**
+     * @brief Store @p g at the period @p Ts for the harmonics @p orders when every resonator's
+     *        coefficients are in their domain, keeping each resonator's state; nothing changed
+     *        otherwise. On a `constexpr` design's Law, whose gains are the type's, whether they are.
+     */
+    [[nodiscard]] constexpr bool take(const design::PRGains<T>& g, T Ts, const damp::array<size_t, NH>& orders) {
+        if constexpr (kHeld) {
+            const auto set = detail::pr_gain_set(g.Kp, g.Ki, g.w0, g.wc, g.tracking_time, Ts, orders);
+            if (!set) {
+                return false;
+            }
+            k_ = *set;
+            return true;
+        } else {
+            static_cast<void>(g);
+            static_cast<void>(Ts);
+            static_cast<void>(orders);
+            return GainSet::ok; // checked once, when the type was formed: no trigonometry at start-up
         }
-        for (size_t i = 0; i < NH; ++i) {
-            res_[i].set_coefficients((*k)[i]);
-        }
-        gains_ = g;
-        unwind_ = (g.tracking_time > T{0}) ? damp::min(Ts_ / g.tracking_time, T{1}) : T{0};
-        return true;
     }
 
     /** @brief Take a clamp's @p excess (u_sat − u_asked) back from the resonators in turn, each from what is left: hold (tracking_time = 0) or a share min(T_s/T_t, 1). */
     constexpr void wind_back(T excess) {
         for (size_t i = 0; i < NH; ++i) {
-            if (gains_.tracking_time == T{0}) {
+            if (k_.tracking_time == T{0}) {
                 excess -= res_[i].hold_against_clamp(excess);
             } else {
-                const T shift = unwind_ * excess;
+                const T shift = k_.unwind * excess;
                 res_[i].shift_last_output(shift);
                 excess -= shift;
             }
         }
     }
 
-    damp::array<detail::PRResonator<T>, NH> res_{};        ///< One resonant section per harmonic (inert until designed)
-    design::PRGains<T>                      gains_{};      ///< The gains in force
-    damp::array<size_t, NH>                 orders_{};     ///< The harmonic order of each resonator
+    damp::array<detail::PRResonator<T>, NH> res_{};        ///< One resonant section's memory per harmonic
+    [[no_unique_address]] GainSet           k_{};          ///< The gains, harmonics, T_s and the coefficients at it: members, or no storage on a constexpr design's Law
     Bounds<1, T>                            u_lim_{};      ///< The command's limits
-    T                                       Ts_{T{0}};     ///< [s] The tick's period
-    T                                       unwind_{T{0}}; ///< min(T_s/T_t, 1), 0 for T_t = 0 (hold)
     T                                       u_cmd_{T{0}};  ///< Last command step() returned, or the input track() recorded
     bool                                    valid_{false}; ///< False when built from a design it refuses: step() returns 0
 };
@@ -710,25 +687,49 @@ concept pr_design = is_pr_result<design_t<Res>>;
 
 } // namespace detail
 
-/**
- * @brief Law<kRes, T> of a PR design: the PRController it runs as, with the design's resonators
- *
- * A `constexpr` design that failed, or has no positive T_s, does not compile wherever the Law is
- * declared. The gains stay members, settable at run time.
- */
-// ponytail: a constexpr design's coefficients could be constants of the type, as PID's
-// ConstantPIDGains are; PRResonator would read them from a gain source in place of members.
+/** @brief Law<kRes, T> of a PR design initialized at start-up: the PRController it runs as, with the design's resonators. A runtime of the same shape assigned replaces it. */
 template<const auto& Res, typename T>
     requires detail::pr_design<Res>
 struct Law<Res, T> : PRController<T, detail::design_t<Res>::resonators> {
     using Runtime = PRController<T, detail::design_t<Res>::resonators>; ///< The runtime the design runs as
 
-    static_assert(detail::constant_design_checked<Res>());
-
     /** @brief The design's law. */
     constexpr Law() : Runtime{Res} {}
 
     using Runtime::operator=;
+};
+
+/**
+ * @brief Law<kRes, T> of a `constexpr` PR design: the PRController of its resonators with its
+ *        gains constants of the type (detail::ConstantPRGains)
+ *
+ * Kp, Kᵢ, the tracking time's share min(T_s/T_t, 1), T_s, the harmonics and every resonator's
+ * b̄₀, c₂ and κ are in flash and fold into the tick; the resonators' memory and the limits stay
+ * members, the limits settable at run time; there is no set_gains or set_frequency. A law
+ * retuned at run time (a grid-frequency estimate) is `Law<kRes, T>::Runtime law{kRes.as<T>()};`.
+ * A failed design, or one whose gains its runtime refuses at T_s, does not compile wherever the
+ * Law is declared.
+ */
+template<const auto& Res, typename T>
+    requires(detail::pr_design<Res> && detail::constant_design<Res>)
+struct Law<Res, T> : PRController<T, detail::design_t<Res>::resonators, detail::ConstantPRGains<Res, T>> {
+    using Runtime = PRController<T, detail::design_t<Res>::resonators>; ///< The runtime with members: the type of a member a redesign assigns
+    using Base = PRController<T, detail::design_t<Res>::resonators, detail::ConstantPRGains<Res, T>>;
+
+    static_assert(detail::constant_design_runs(Res.success, Res.status, Res.Ts));
+    static_assert(detail::ConstantPRGains<Res, T>::ok, "Law<kRes, T>: a gain of the PR design is outside its domain, or a resonance is at or above Nyquist or a coefficient overflows at its Ts");
+
+    /** @brief The design's law: its gains the type's, its limits members. */
+    constexpr Law() : Base{Res} {}
+
+    /** @brief There is nothing to replace: the gains are in the type. */
+    template<typename Other>
+        requires(!damp::is_same_v<damp::remove_cvref_t<Other>, Law>)
+    constexpr Law& operator=(const Other& other) {
+        static_assert(sizeof(Other) == 0, "This Law is a constexpr PR design's: its gains are constants of the type, so there is nothing to replace. A member a redesign assigns, or a law retuned with set_gains or set_frequency, is Law<kRes, T>::Runtime law{kRes.as<T>()};");
+        static_cast<void>(other);
+        return *this;
+    }
 };
 
 } // namespace damp
