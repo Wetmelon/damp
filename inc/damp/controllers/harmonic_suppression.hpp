@@ -211,13 +211,13 @@ public:
     }
 
     /** @brief Suppression command from the loop error (Kp once + sum of resonators), clamped into u_lim. */
-    [[nodiscard]] constexpr T control(T error) {
+    [[nodiscard]] constexpr T step(T error) {
         if (!valid_) {
             return T{0};
         }
         T u = Kp_ * error;
         for (size_t i = 0; i < N; ++i) {
-            u += resonators_[i].control(error);
+            u += resonators_[i].step(error);
         }
         u_cmd_ = u_lim.saturate(u);
         wind_back(u_cmd_ - u);
@@ -237,11 +237,11 @@ public:
         }
     }
 
-    /** @brief The command the last control() returned. */
+    /** @brief The command the last step() returned. */
     [[nodiscard]] constexpr T last_command() const { return u_cmd_; }
 
     /** @brief Reference-tracking overload (computes the error internally). */
-    [[nodiscard]] constexpr T control(T r, T y) { return control(r - y); }
+    [[nodiscard]] constexpr T step(T r, T y) { return step(r - y); }
 
     constexpr void reset() {
         for (size_t i = 0; i < N; ++i) {
@@ -305,7 +305,7 @@ private:
     damp::array<PRController<T>, N> resonators_{};
     T                               Kp_{T{0}};
     T                               w_fund_{T{0}};
-    T                               u_cmd_{T{0}}; ///< The command the last control() returned
+    T                               u_cmd_{T{0}}; ///< The command the last step() returned
     bool                            valid_{true};
 };
 

@@ -82,7 +82,7 @@ int main() {
     auto        controller = [&](const ColVec<1>& y) -> ColVec<1> {
         const auto  y_f = static_cast<float>(y(0, 0));
         const float u_lqgi = runtime.step(reference, y_f)(0, 0);
-        const float u_pr = pr_runtime.control(reference - y_f);
+        const float u_pr = pr_runtime.step(reference - y_f);
         return ColVec{static_cast<double>(u_lqgi + u_pr)};
     };
 

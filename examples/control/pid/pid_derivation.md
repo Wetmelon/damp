@@ -3,7 +3,7 @@
 Teaching notes for [`pid_controller.hpp`](pid_controller.hpp).
 
 This file is a firmware-shaped Design Is Deploy sketch: design a PI once,
-`discretize` + `.as<float>()`, then call `controller.control(r, y)` in `loop()`.
+`discretize` + `.as<float>()`, then call `controller.step(r, y)` in `loop()`.
 There is no ODE plant inside the example — the process variable is whatever
 `read_process_variable()` returns (mock `0` on host; ADC on target).
 
@@ -34,7 +34,7 @@ I/O contract:
 
 - Reference $`r`$ — `reference` (demo starts at $`1.0`$).
 - Measurement $`y`$ — process variable (same units as $`r`$).
-- Command $`u =`$ `controller.control(r, y)` — actuator units (duty, volts, …).
+- Command $`u =`$ `controller.step(r, y)` — actuator units (duty, volts, …).
 
 On hardware: replace mocks with ADC/PWM; keep the same controller object and
 period (timer ISR or `delay` approximating $`T_s`$).
@@ -93,7 +93,7 @@ deploy path with minimal includes.
 1. Design in `double` on the host (`design::pid` / placement maps).
 2. `.discretize(Ts)` then `.as<float>()` into `static constinit PIController<float>`.
 3. `setup()`: `controller.reset()`.
-4. `loop()` / ISR: $`y \leftarrow`$ sensor, $`u \leftarrow control(r,y)`$, write actuator.
+4. `loop()` / ISR: $`y \leftarrow`$ sensor, $`u \leftarrow step(r,y)`$, write actuator.
 5. Do not pull `damp/control.hpp` on a small MCU for this demo — lean includes only.
 
 ---

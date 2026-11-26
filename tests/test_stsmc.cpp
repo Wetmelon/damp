@@ -32,7 +32,7 @@ damp::pair<double, double> run(Ctrl& c, Dist d, double Ts, int steps, double s0,
     double    worst_du = 0.0;
     const int tail_start = static_cast<int>(steps * (1.0 - tail));
     for (int k = 0; k < steps; ++k) {
-        const double u = c.control_sliding(s);
+        const double u = c.step_sliding(s);
         if (k >= tail_start) {
             worst_s = std::max(worst_s, std::abs(s));
             worst_du = std::max(worst_du, std::abs(u - u_prev));
@@ -99,7 +99,7 @@ TEST_SUITE("stsmc") {
         // A bare sign()-based controller of comparable authority: u = -k*sign(s).
         struct SignSMC {
             double k;
-            double control_sliding(double s) { return -k * static_cast<double>(damp::sgn(s)); }
+            double step_sliding(double s) { return -k * static_cast<double>(damp::sgn(s)); }
         } sign_smc{3.0};
         const auto [sg_s, sg_du] = run(sign_smc, d, Ts, 8000, 1.0);
 
@@ -147,31 +147,31 @@ TEST_SUITE("stsmc") {
 
         const double e1 = 1.0;         // r=1, y=0
         const double s1 = lambda * e1; // first call: e_dot = 0 (seeded)
-        CHECK(via_ry.control(1.0, 0.0) == doctest::Approx(via_s.control_sliding(-s1)));
+        CHECK(via_ry.step(1.0, 0.0) == doctest::Approx(via_s.step_sliding(-s1)));
 
         const double e2 = 1.5 - 0.2;                        // r=1.5, y=0.2
         const double s2 = (lambda * e2) + ((e2 - e1) / Ts); // e_dot from backward difference
-        CHECK(via_ry.control(1.5, 0.2) == doctest::Approx(via_s.control_sliding(-s2)));
+        CHECK(via_ry.step(1.5, 0.2) == doctest::Approx(via_s.step_sliding(-s2)));
     }
 
     TEST_CASE("cross-precision converting ctor preserves gains and integral state") {
         STSMCController<double> d(design::stsmc(2.0, 1e-3, 5.0));
-        (void)d.control_sliding(1.0);
-        (void)d.control_sliding(0.8); // advance the integral state v
-        STSMCController<float> f(d);  // converting ctor (private members via friend)
+        (void)d.step_sliding(1.0);
+        (void)d.step_sliding(0.8);   // advance the integral state v
+        STSMCController<float> f(d); // converting ctor (private members via friend)
         CHECK(f.valid());
         CHECK(f.integral_state() == doctest::Approx(static_cast<float>(d.integral_state())));
         // Continues from the copied state: next command matches within float precision.
-        CHECK(f.control_sliding(0.6f) == doctest::Approx(static_cast<float>(d.control_sliding(0.6))).epsilon(1e-4));
+        CHECK(f.step_sliding(0.6f) == doctest::Approx(static_cast<float>(d.step_sliding(0.6))).epsilon(1e-4));
     }
 
     TEST_CASE("a continuous design (Ts = 0) leaves the runtime invalid: both entry points emit 0") {
-        // control_sliding used to return −k₁·φ₁(s) with the integral frozen, while control(r, y)
+        // step_sliding used to return −k₁·φ₁(s) with the integral frozen, while control(r, y)
         // returned 0, and valid() was true.
         STSMCController<double> c(design::stsmc(2.0, 0.0, 5.0)); // Ts = 0
         CHECK_FALSE(c.valid());
-        CHECK(c.control(1.0, 0.0) == 0.0);
-        CHECK(c.control_sliding(-5.0) == 0.0);
+        CHECK(c.step(1.0, 0.0) == 0.0);
+        CHECK(c.step_sliding(-5.0) == 0.0);
         CHECK(c.integral_state() == 0.0);
         CHECK(design::stsmc(2.0, -1e-3, 5.0).status == design::DesignStatus::invalid_sample_time);
         CHECK(design::stsmc_gains(2.0, 2.2, -1e-3).status == design::DesignStatus::invalid_sample_time);
@@ -180,11 +180,11 @@ TEST_SUITE("stsmc") {
     TEST_CASE("invalid design is inert; reset clears state") {
         STSMCController<double> bad(design::stsmc(-1.0, 1e-3));
         CHECK_FALSE(bad.valid());
-        CHECK(bad.control_sliding(5.0) == doctest::Approx(0.0));
+        CHECK(bad.step_sliding(5.0) == doctest::Approx(0.0));
 
         STSMCController<double> c(design::stsmc(2.0, 1e-3));
-        (void)c.control_sliding(1.0);
-        (void)c.control_sliding(1.0);
+        (void)c.step_sliding(1.0);
+        (void)c.step_sliding(1.0);
         CHECK(c.integral_state() != 0.0);
         c.reset();
         CHECK(c.integral_state() == doctest::Approx(0.0));
@@ -193,7 +193,7 @@ TEST_SUITE("stsmc") {
     TEST_CASE("float deployment via as<float>()") {
         const auto             art = design::stsmc(2.0, 1e-3);
         STSMCController<float> c(art.as<float>());
-        const float            u = c.control_sliding(1.0f);
+        const float            u = c.step_sliding(1.0f);
         CHECK(std::isfinite(u));
         CHECK(u < 0.0f); // s > 0 -> u pushes negative
     }
@@ -204,7 +204,7 @@ TEST_SUITE("stsmc") {
             STSMCController<double> c(art);
             double                  s = 1.0;
             for (int k = 0; k < 4000; ++k) {
-                const double u = c.control_sliding(s);
+                const double u = c.step_sliding(s);
                 s += 1e-3 * (u + 0.5 * damp::sin(2.0 * k * 1e-3));
             }
             return s;
@@ -219,7 +219,7 @@ TEST_SUITE("stsmc") {
         double                  y = 0.0;
         double                  v = 0.0;
         for (int k = 0; k < 10000; ++k) {
-            const double u = ctrl.control(1.0, y);
+            const double u = ctrl.step(1.0, y);
             v += Ts * (u + (0.5 * std::sin(k * Ts)));
             y += Ts * v;
         }
@@ -238,7 +238,7 @@ TEST_SUITE("stsmc") {
         double                  worst = 0.0;
         for (int k = 0; k < 200000; ++k) {
             const double t = static_cast<double>(k) * Ts;
-            s += Ts * (c.control_sliding(s) + (2.0 * t));
+            s += Ts * (c.step_sliding(s) + (2.0 * t));
             if (k >= 150000) {
                 worst = std::max(worst, std::abs(s));
             }
@@ -268,8 +268,8 @@ TEST_SUITE("stsmc") {
         T                  v_on_rail{0};
         for (int k = 0; k < 14000; ++k) {
             const T d = (k < 2000) ? T{3} : T{0.5}; // ṡ = u + d: a load past the ±1 authority, then within it
-            const T ua = bounded.control_sliding(sa);
-            const T ub = damp::clamp(outside.control_sliding(sb), T{-1}, T{1});
+            const T ua = bounded.step_sliding(sa);
+            const T ub = damp::clamp(outside.step_sliding(sb), T{-1}, T{1});
             outside.back_calculate(ub);
             CHECK(damp::abs(ua) <= T{1});
             CHECK(damp::abs(ua - ub) <= T{64} * eps<T>()); // one tick, whichever stage clamps
@@ -290,7 +290,7 @@ TEST_SUITE("stsmc") {
         res.u_lim = {.lower = 1.0, .upper = -1.0};
         STSMCController<double> inert{res};
         CHECK_FALSE(inert.valid());
-        CHECK(inert.control_sliding(1.0) == 0.0);
+        CHECK(inert.step_sliding(1.0) == 0.0);
         CHECK(res.as<float>().u_lim.lower(0) == 1.0F); // the box travels with the result
     }
 }

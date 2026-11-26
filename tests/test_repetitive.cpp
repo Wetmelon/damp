@@ -64,7 +64,7 @@ TEST_SUITE("repetitive") {
         for (size_t k = 0; k < periods * N; ++k) {
             const double y = u_prev;           // y[k] = u[k-1]
             const double e = reference(k) - y; // tracking error
-            const double u = rc.control(e);
+            const double u = rc.step(e);
             u_prev = u;
 
             if (k < N) {
@@ -98,7 +98,7 @@ TEST_SUITE("repetitive") {
         for (size_t k = 0; k < periods * N; ++k) {
             const double y = u_prev + disturbance(k);
             const double e = 0.0 - y;
-            const double u = rc.control(e);
+            const double u = rc.step(e);
             u_prev = u;
             if (k >= (periods - 1) * N) {
                 worst_last_period = std::max(worst_last_period, std::abs(y));
@@ -111,22 +111,22 @@ TEST_SUITE("repetitive") {
         const auto                       design = design::repetitive(1000.0, 50.0, 1.0, 0.9, 1);
         RepetitiveController<64, double> rc(design);
         // Feed a unit-impulse error; with Q<1 the internal model decays, output bounded.
-        double maxout = std::abs(rc.control(1.0));
+        double maxout = std::abs(rc.step(1.0));
         for (int k = 0; k < 2000; ++k) {
-            maxout = std::max(maxout, std::abs(rc.control(0.0)));
+            maxout = std::max(maxout, std::abs(rc.step(0.0)));
         }
         CHECK(maxout < 2.0); // bounded (no marginal-stability blow-up)
         CHECK(maxout > 0.0); // and it actually produced corrections
 
         rc.reset();
         // After reset, a zero error gives zero output (empty internal model).
-        CHECK(rc.control(0.0) == doctest::Approx(0.0));
+        CHECK(rc.step(0.0) == doctest::Approx(0.0));
     }
 
     TEST_CASE("invalid design yields a pass-through (zero correction)") {
         RepetitiveController<64, double> rc(design::repetitive(1000.0, 1000.0)); // invalid
         CHECK_FALSE(rc.valid());
-        CHECK(rc.control(1.0) == doctest::Approx(0.0));
+        CHECK(rc.step(1.0) == doctest::Approx(0.0));
     }
 
     TEST_CASE("repetitive controller is constexpr-evaluable") {
@@ -138,7 +138,7 @@ TEST_SUITE("repetitive") {
             // ago surfaces, so the correction at step N (the 11th) equals 1.
             double last = 0.0;
             for (size_t k = 0; k < 11; ++k) {
-                last = rc.control(1.0);
+                last = rc.step(1.0);
             }
             return d.success && d.config.period == 10 && damp::abs(last - 1.0) < 1e-9;
         }();
@@ -152,7 +152,7 @@ TEST_SUITE("repetitive") {
 
         // Learn from a periodic error for several periods.
         for (size_t k = 0; k < 100; ++k) {
-            (void)rc.control(std::sin(2.0 * pi * static_cast<double>(k) / 20.0));
+            (void)rc.step(std::sin(2.0 * pi * static_cast<double>(k) / 20.0));
         }
 
         RepetitiveController<64, float> rf(rc); // double -> float converting ctor
@@ -163,8 +163,8 @@ TEST_SUITE("repetitive") {
         // The learned buffer carried over: the next correction matches within
         // float precision (a freshly-built rf would instead emit a stale value).
         const double e_next = std::sin(2.0 * pi * 100.0 / 20.0);
-        const double u_d = rc.control(e_next);
-        const float  u_f = rf.control(static_cast<float>(e_next));
+        const double u_d = rc.step(e_next);
+        const float  u_f = rf.step(static_cast<float>(e_next));
         CHECK(static_cast<double>(u_f) == doctest::Approx(u_d).epsilon(1e-4));
     }
 
@@ -194,7 +194,7 @@ double closed_loop_peak(Rc& rc, int delay, double g, int steps) {
     for (int k = 0; k < steps; ++k) {
         const double d = (k == 0) ? 1.0 : 0.0; // impulse kick to excite the loop
         const double e = -y;
-        const double u = rc.control(e);
+        const double u = rc.step(e);
         ud[head] = u;
         const double u_delayed = ud[(head + ud.size() - static_cast<size_t>(delay)) % ud.size()];
         head = (head + 1) % ud.size();
@@ -246,7 +246,7 @@ TEST_SUITE("repetitive FIR Q") {
         const size_t periods = 40;
         for (size_t k = 0; k < periods * N; ++k) {
             const double y = u_prev + disturbance(k);
-            const double u = rc.control(0.0 - y);
+            const double u = rc.step(0.0 - y);
             u_prev = u;
             if (k >= (periods - 1) * N) {
                 worst_last = std::max(worst_last, std::abs(y));
@@ -294,7 +294,7 @@ TEST_SUITE("repetitive FIR Q") {
             RepetitiveController<32, double, 1> rc(art);
             double                              last = 0.0;
             for (int k = 0; k < 40; ++k) {
-                last = rc.control(1.0);
+                last = rc.step(1.0);
             }
             return art.success && rc.valid() && damp::abs(last) < 1e6; // bounded
         }();
@@ -317,7 +317,7 @@ TEST_SUITE("repetitive FIR Q") {
         for (int k = 0; k < 40000; ++k) {
             const double y = (-0.36 * y2) + (1.36 * u2);
             const double e = std::sin(2.0 * std::numbers::pi * 50.0 * static_cast<double>(k) / 10000.0) - y;
-            const double u = rc.control(e);
+            const double u = rc.step(e);
             y2 = y1;
             y1 = y;
             u2 = u1;
@@ -363,10 +363,10 @@ TEST_SUITE("repetitive FIR Q") {
             const double r = amplitude * std::sin(2.0 * pi * static_cast<double>(k) / static_cast<double>(N));
             const double e_t = r - u_t;
             const double e_u = r - u_u;
-            const double c_t = told.control(e_t);
+            const double c_t = told.step(e_t);
             u_t = damp::clamp(c_t, -rail, rail);
             told.back_calculate(u_t);
-            const double c_u = untold.control(e_u);
+            const double c_u = untold.step(e_u);
             u_u = damp::clamp(c_u, -rail, rail);
             if (k >= 49 * N && k < 50 * N) {
                 told_peak = damp::max(told_peak, damp::abs(c_t));
@@ -389,15 +389,15 @@ TEST_SUITE("repetitive FIR Q") {
         REQUIRE(design.success);
         REQUIRE(design.config.period == 4);
         RepetitiveController<4, double> rc(design);
-        static_cast<void>(rc.control(1.0));
+        static_cast<void>(rc.step(1.0));
         rc.back_calculate(-1.0); // cut off from above: tick 0's error is not learned
         for (int k = 1; k < 4; ++k) {
-            static_cast<void>(rc.control(0.0));
+            static_cast<void>(rc.step(0.0));
         }
-        static_cast<void>(rc.control(1.0)); // tick 4, sent as asked: learned
+        static_cast<void>(rc.step(1.0)); // tick 4, sent as asked: learned
         for (int k = 5; k < 8; ++k) {
-            static_cast<void>(rc.control(0.0));
+            static_cast<void>(rc.step(0.0));
         }
-        CHECK(rc.control(0.0) == doctest::Approx(1.0)); // was 0: tick 4 read tick 0's flag
+        CHECK(rc.step(0.0) == doctest::Approx(1.0)); // was 0: tick 4 read tick 0's flag
     }
 }

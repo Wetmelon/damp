@@ -210,26 +210,26 @@ Every law in this table reads its run-time limits with `limits()` and sets them 
 
 | Runtime | Tick | Reference | Limits | Clamp after the law |
 |---|---|---|---|---|
-| `PIDController` (PID, PI) | `control(r, y)` | `r`, with setpoint weights `b`, `c` | `u_lim`, `integral_lim` | `back_calculate` (`Kbc`; 0 means I holds), `track(u, y)`, `disable(u)` / `enable()` |
-| `PDController` | `control(r, y)` | `r`, with setpoint weights `b`, `c` | `u_lim` | `back_calculate` (no-op); `disable(u)` / `enable()` |
-| `PController` | `control(r, y)` | `r`, with setpoint weight `b` | `u_lim` | `back_calculate` (no-op); `disable(u)` / `enable()` |
-| `ContinuousPID` | `control(r, y, Ts)` | `r`, with setpoint weights `b`, `c` | `u_lim`, `integral_lim` | `back_calculate`, `track(u, y, Ts)`, `disable(u)` / `enable()` |
-| `LeadLagController` | `control(e)` or `control(r, y)` | error | `u_lim` | `back_calculate` |
-| `PRController` | `control(e)` or `control(r, y)` | error | `u_lim` | resonant section holds (`tracking_time` = 0) or unwinds over `tracking_time`; `back_calculate`; `set_frequency` |
-| `HarmonicSuppressor` | `control(e)` or `control(r, y)` | error | `u_lim` | resonators hold, fundamental first; `back_calculate`; `set_fundamental` |
-| `RepetitiveController` | `control(e)` | error | none (an add-on: the clamp is on the sum) | `back_calculate` |
-| `SmithPredictor` | `control(r, y)` | `r` | the primary law's `u_lim` | `back_calculate` (the model and the primary law) |
-| `ADRCController` | `control(r, y)` | `r` | `u_lim` | the observer runs on the clamped command; `back_calculate` |
-| `SMCController` | `control(r, y)` | `r` | `u_lim` (output also within ±k/b₀) | `back_calculate` (no-op) |
-| `STSMCController` | `control(r, y)` or `control_sliding(s)` | `r`, or the sliding variable s | `u_lim` | v holds against the clamp; `back_calculate` |
-| `ExtremumSeekingController` | `control(J, valid)` | none | `u_lim` on û and on û + dither | `back_calculate` |
+| `PIDController` (PID, PI) | `step(r, y)` | `r`, with setpoint weights `b`, `c` | `u_lim`, `integral_lim` | `back_calculate` (`Kbc`; 0 means I holds), `track(u, y)`, `disable(u)` / `enable()` |
+| `PDController` | `step(r, y)` | `r`, with setpoint weights `b`, `c` | `u_lim` | `back_calculate` (no-op); `disable(u)` / `enable()` |
+| `PController` | `step(r, y)` | `r`, with setpoint weight `b` | `u_lim` | `back_calculate` (no-op); `disable(u)` / `enable()` |
+| `ContinuousPID` | `step(r, y, Ts)` | `r`, with setpoint weights `b`, `c` | `u_lim`, `integral_lim` | `back_calculate`, `track(u, y, Ts)`, `disable(u)` / `enable()` |
+| `LeadLagController` | `step(e)` or `step(r, y)` | error | `u_lim` | `back_calculate` |
+| `PRController` | `step(e)` or `step(r, y)` | error | `u_lim` | resonant section holds (`tracking_time` = 0) or unwinds over `tracking_time`; `back_calculate`; `set_frequency` |
+| `HarmonicSuppressor` | `step(e)` or `step(r, y)` | error | `u_lim` | resonators hold, fundamental first; `back_calculate`; `set_fundamental` |
+| `RepetitiveController` | `step(e)` | error | none (an add-on: the clamp is on the sum) | `back_calculate` |
+| `SmithPredictor` | `step(r, y)` | `r` | the primary law's `u_lim` | `back_calculate` (the model and the primary law) |
+| `ADRCController` | `step(r, y)` | `r` | `u_lim` | the observer runs on the clamped command; `back_calculate` |
+| `SMCController` | `step(r, y)` | `r` | `u_lim` (output also within ±k/b₀) | `back_calculate` (no-op) |
+| `STSMCController` | `step(r, y)` or `step_sliding(s)` | `r`, or the sliding variable s | `u_lim` | v holds against the clamp; `back_calculate` |
+| `ExtremumSeekingController` | `step(J, valid)` | none | `u_lim` on û and on û + dither | `back_calculate` |
 
 ### Composition and safety filter
 
 | Runtime | Tick | Limits | Clamp after the law |
 |---|---|---|---|
-| `Cascade` | `control(r, y_outer, y_inner)` | each loop's own `u_lim` | `back_calculate`; the outer law holds while the inner command is clamped |
-| `SwitchedController` | `set_mode`, `control(r, y)`, `inject(u)` | each law's own `u_lim` | `back_calculate` goes to the active law; a PID switched in starts from the last applied command, others from reset |
+| `Cascade` | `step(r, y_outer, y_inner)` | each loop's own `u_lim` | `back_calculate`; the outer law holds while the inner command is clamped |
+| `SwitchedController` | `set_mode`, `step(r, y)`, `inject(u)` | each law's own `u_lim` | `back_calculate` goes to the active law; a PID switched in starts from the last applied command, others from reset |
 | `ActionGovernor` | `filter(u_des)` | A·u ≤ b (box, affine or CBF rows); `set_bounds(b)` each tick | if the projection fails it sends the last safe u |
 
 ## Limits and anti-windup

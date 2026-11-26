@@ -206,8 +206,8 @@ struct FOController {
             }
         }
 
-        const T ud = dctrl.control(Idq_ref.d, Idq.d, Ts);
-        const T uq = qctrl.control(Idq_ref.q, Idq.q, Ts);
+        const T ud = dctrl.step(Idq_ref.d, Idq.d, Ts);
+        const T uq = qctrl.step(Idq_ref.q, Idq.q, Ts);
         DQ      Vdq{Vff.d + ud, Vff.q + uq};
 
         DqCommand<T> cmd;

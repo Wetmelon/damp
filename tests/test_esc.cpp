@@ -24,7 +24,7 @@ double seek(const design::ESCResult<double>& art, Obj J, int steps) {
     ExtremumSeekingController<double> esc(art);
     double                            u = esc.input();
     for (int k = 0; k < steps; ++k) {
-        u = esc.control(J(u));
+        u = esc.step(J(u));
     }
     return esc.operating_point();
 }
@@ -75,7 +75,7 @@ TEST_SUITE("esc") {
         double                            u_star = 0.0;
         for (int k = 0; k < 30000; ++k) {
             u_star = 1.0 + 0.5 * (k * 1e-3); // drifts from 1.0 upward
-            u = esc.control(-(u - u_star) * (u - u_star));
+            u = esc.step(-(u - u_star) * (u - u_star));
         }
         CHECK(esc.operating_point() == doctest::Approx(u_star).epsilon(0.05)); // tracking, not lagging far
     }
@@ -86,12 +86,12 @@ TEST_SUITE("esc") {
         // Converge near the peak first.
         double u = esc.input();
         for (int k = 0; k < 8000; ++k) {
-            u = esc.control(5.0 - 0.5 * (u - 2.0) * (u - 2.0));
+            u = esc.step(5.0 - 0.5 * (u - 2.0) * (u - 2.0));
         }
         const double held = esc.operating_point();
         // Now feed garbage with measurement_valid=false: û must not move.
         for (int k = 0; k < 2000; ++k) {
-            u = esc.control(1e6 * std::sin(0.01 * k), false);
+            u = esc.step(1e6 * std::sin(0.01 * k), false);
         }
         CHECK(esc.operating_point() == doctest::Approx(held)); // frozen exactly
     }
@@ -107,7 +107,7 @@ TEST_SUITE("esc") {
         ExtremumSeekingController<double> esc(art);
         double                            u = esc.input();
         for (int k = 0; k < 20000; ++k) {
-            u = esc.control(-(u - 1.5) * (u - 1.5)); // optimum at 1.5, above the 0.8 cap
+            u = esc.step(-(u - 1.5) * (u - 1.5)); // optimum at 1.5, above the 0.8 cap
         }
         CHECK(esc.operating_point() <= 0.8 + 1e-6); // pinned at the upper limit
         CHECK(esc.operating_point() > 0.7);         // and pushed up against it
@@ -116,11 +116,11 @@ TEST_SUITE("esc") {
     TEST_CASE("invalid design is inert; reset restores the initial point") {
         ExtremumSeekingController<double> bad(design::esc({.dither_amplitude = 0.0, .dither_freq_hz = 50.0, .gain = 1.0}, 1e-3)); // invalid
         CHECK_FALSE(bad.valid());
-        CHECK(bad.control(1.0) == doctest::Approx(0.0));
+        CHECK(bad.step(1.0) == doctest::Approx(0.0));
 
         ExtremumSeekingController<double> esc(design::esc({.dither_amplitude = 0.05, .dither_freq_hz = 40.0, .gain = 60.0, .type = ExtremumType::Maximize, .lp_cutoff_hz = 8.0, .u_init = 1.0}, 1e-3));
         for (int k = 0; k < 1000; ++k) {
-            (void)esc.control(5.0 - 0.5 * (esc.input() - 2.0) * (esc.input() - 2.0));
+            (void)esc.step(5.0 - 0.5 * (esc.input() - 2.0) * (esc.input() - 2.0));
         }
         esc.reset();
         CHECK(esc.operating_point() == doctest::Approx(1.0)); // back to u_init
@@ -131,7 +131,7 @@ TEST_SUITE("esc") {
         ExtremumSeekingController<float> esc(art.as<float>());
         float                            u = esc.input();
         for (int k = 0; k < 12000; ++k) {
-            u = esc.control(5.0f - 0.5f * (u - 1.7f) * (u - 1.7f));
+            u = esc.step(5.0f - 0.5f * (u - 1.7f) * (u - 1.7f));
         }
         CHECK(esc.operating_point() == doctest::Approx(1.7f).epsilon(0.05));
     }
@@ -142,7 +142,7 @@ TEST_SUITE("esc") {
             ExtremumSeekingController<double> esc(art);
             double                            u = esc.input();
             for (int k = 0; k < 8000; ++k) {
-                u = esc.control(5.0 - 0.5 * (u - 1.0) * (u - 1.0));
+                u = esc.step(5.0 - 0.5 * (u - 1.0) * (u - 1.0));
             }
             return esc.operating_point();
         }();
@@ -157,7 +157,7 @@ TEST_SUITE("esc") {
         ExtremumSeekingController<double> esc(art);
         constexpr int                     N = 1000000;
         for (int k = 1; k <= N; ++k) {
-            (void)esc.control(0.0, false);
+            (void)esc.step(0.0, false);
         }
         const double phase = std::fmod(2.0 * std::numbers::pi * 50.0 * 1e-3 * N, 2.0 * std::numbers::pi);
         CHECK(esc.input() - esc.operating_point() == doctest::Approx(a * std::sin(phase)).epsilon(1e-9).scale(a));
@@ -165,7 +165,7 @@ TEST_SUITE("esc") {
         ExtremumSeekingController<float> escf(art.as<float>());
         float                            peak = 0.0f;
         for (int k = 1; k <= N; ++k) {
-            (void)escf.control(0.0f, false);
+            (void)escf.step(0.0f, false);
             if (k > N - 100) { // last few cycles
                 peak = std::max(peak, std::abs(escf.input() - escf.operating_point()));
             }
@@ -183,8 +183,8 @@ TEST_SUITE("esc") {
         double                            ub = b.input();
         for (int k = 0; k < 2000; ++k) {
             const bool fault = (k >= 500 && k < 510);
-            ua = a.control(fault ? 1e6 : J(ua), !fault); // sensor spike, flagged
-            ub = b.control(J(ub), !fault);               // same flag, sane value
+            ua = a.step(fault ? 1e6 : J(ua), !fault); // sensor spike, flagged
+            ub = b.step(J(ub), !fault);               // same flag, sane value
         }
         CHECK(a.operating_point() == doctest::Approx(b.operating_point()).epsilon(1e-12));
     }
@@ -219,7 +219,7 @@ TEST_SUITE("esc") {
         esc.u_lim.upper(0) = 0.5;            // a rail that moves
         double u = esc.input();
         for (int k = 0; k < 2000; ++k) {
-            u = esc.control(-(u - 1.5) * (u - 1.5));
+            u = esc.step(-(u - 1.5) * (u - 1.5));
             CHECK(u <= 0.5);
         }
         CHECK(esc.operating_point() == 0.5);
@@ -239,9 +239,9 @@ TEST_SUITE("esc") {
         double                            ua = told.input();
         double                            ub = untold.input();
         for (int k = 0; k < 20000; ++k) {
-            ua = damp::min(told.control(objective(ua)), rail);
+            ua = damp::min(told.step(objective(ua)), rail);
             told.back_calculate(ua);
-            ub = damp::min(untold.control(objective(ub)), rail);
+            ub = damp::min(untold.step(objective(ub)), rail);
         }
         CHECK(untold.operating_point() > rail);
         CHECK(told.operating_point() <= rail);
@@ -253,8 +253,8 @@ TEST_SUITE("esc") {
         double                            up = plain.input();
         double                            ue = echoed.input();
         for (int k = 0; k < 2000; ++k) {
-            up = plain.control(-(up - 0.6) * (up - 0.6));
-            ue = echoed.control(-(ue - 0.6) * (ue - 0.6));
+            up = plain.step(-(up - 0.6) * (up - 0.6));
+            ue = echoed.step(-(ue - 0.6) * (ue - 0.6));
             echoed.back_calculate(ue);
         }
         CHECK(echoed.operating_point() == plain.operating_point());

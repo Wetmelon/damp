@@ -218,16 +218,16 @@ TEST_SUITE("NaN/Inf policy") {
         auto                               lqg = LQG{design::LQGResult<2, 1, 1, float, 2, 1>{}};
         for (const float r : kEdges) {
             for (const float y : kEdges) {
-                CHECK(damp::isfinite(pid.control(r, y)));
-                CHECK(damp::isfinite(pr.control(r, y)));
-                CHECK(damp::isfinite(lead.control(r, y)));
-                CHECK(damp::isfinite(adrc.control(r, y)));
-                CHECK(damp::isfinite(smc.control(r, y)));
-                CHECK(damp::isfinite(stsmc.control(r, y)));
-                CHECK(damp::isfinite(esc.control(y)));
-                CHECK(damp::isfinite(rep.control(r - y)));
-                CHECK(damp::isfinite(smith.control(r, y)));
-                CHECK(damp::isfinite(harm.control(r, y)));
+                CHECK(damp::isfinite(pid.step(r, y)));
+                CHECK(damp::isfinite(pr.step(r, y)));
+                CHECK(damp::isfinite(lead.step(r, y)));
+                CHECK(damp::isfinite(adrc.step(r, y)));
+                CHECK(damp::isfinite(smc.step(r, y)));
+                CHECK(damp::isfinite(stsmc.step(r, y)));
+                CHECK(damp::isfinite(esc.step(y)));
+                CHECK(damp::isfinite(rep.step(r - y)));
+                CHECK(damp::isfinite(smith.step(r, y)));
+                CHECK(damp::isfinite(harm.step(r, y)));
                 const ColVec<1, float> rv{r};
                 const ColVec<1, float> yv{y};
                 CHECK(all_finite(lqi.step(rv, ColVec<2, float>{y, y})));

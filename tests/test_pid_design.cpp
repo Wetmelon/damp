@@ -835,8 +835,8 @@ TEST_SUITE("PID Design - Back-calculation seed") {
         double       at_limit = 0.0; // the held law's integral on the tick its output first met the limit
         bool         met = false;
         for (int k = 0; k < 400; ++k) {
-            y = (a * y) + (b * law.control(10.0, y));
-            const double u_held = holding.control(10.0, y_held);
+            y = (a * y) + (b * law.step(10.0, y));
+            const double u_held = holding.step(10.0, y_held);
             if (!met && u_held >= 1.0) {
                 met = true;
                 at_limit = holding.integral;
@@ -861,7 +861,7 @@ TEST_SUITE("PID Design - Back-calculation seed") {
         int  ticks = 0;
         bool left = false;
         for (; ticks < 50 && !left; ++ticks) {
-            const double u = law.control(0.5, y);
+            const double u = law.step(0.5, y);
             left = u < 1.0;
             y = (a * y) + (b * u);
         }
@@ -962,7 +962,7 @@ TEST_SUITE("PID Design - Type Conversion") {
         constexpr double Ts = 0.01;
         auto             result = design::simc(1.0, 0.5, 2.0, 1.0);
         PIDController    controller(result.discretize(Ts));
-        double           u = controller.control(1.0, 0.0);
+        double           u = controller.step(1.0, 0.0);
         CHECK(u != 0.0); // Non-zero output for non-zero error
     }
 

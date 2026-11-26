@@ -265,7 +265,7 @@ class ADRCController {
     T                    Kp{1.0f}; ///< proportional gain
     T                    Kd{1.0f}; ///< derivative gain
     ESO<NX, T, EsoStore> eso_{};   ///< Discrete ESO (Miklosovic–Radke–Gao current estimator)
-    T                    u_cmd_{}; ///< The command the last control() returned
+    T                    u_cmd_{}; ///< The command the last step() returned
 
     /** @brief The observer of a design, refused with the design when its u_lim is not a box. */
     [[nodiscard]] static constexpr design::ESOResult<NX, T> observer_of(const design::ADRCResult<NX, T>& result) {
@@ -349,7 +349,7 @@ public:
      * @param y  Measurement (plant output).
      * @return Control command `u`.
      */
-    [[nodiscard]] constexpr T control(T r, T y) {
+    [[nodiscard]] constexpr T step(T r, T y) {
         if (!valid()) {
             return T{0};
         }
@@ -383,13 +383,13 @@ public:
      */
     constexpr void back_calculate(T u_sat, [[maybe_unused]] T u_ff = T{0}) { eso_.back_calculate(u_sat, u_ff); }
 
-    /** @brief A successful discrete (Ts > 0) design with b0 > 0; gates control(). */
+    /** @brief A successful discrete (Ts > 0) design with b0 > 0; gates step(). */
     [[nodiscard]] constexpr bool valid() const { return eso_.valid() && damp::finite_positive(b0); }
 
     /** @brief ESO state [ŷ, (ŷ̇,) f̂] — plot these when commissioning. */
     [[nodiscard]] constexpr const ColVec<NX + 1, T>& observer() const { return eso_.state(); }
 
-    /** @brief The command the last control() returned, as on the other laws. */
+    /** @brief The command the last step() returned, as on the other laws. */
     [[nodiscard]] constexpr T last_command() const { return u_cmd_; }
 
     /** @brief The input the next ESO tick takes as applied: the last command, or what back_calculate recorded since. */

@@ -167,7 +167,9 @@ the repo root.
   (llvm #114870). A new option is a new type in the pack, which names its kind,
   `using option_kind = design::kind::…;` (a new kind is a tag in `design/options.hpp`).
 - **Ticks:** estimators `predict` / `update`; controllers `control`; `step` is
-  predict then update then control (m_k in, u_k out). Low-latency ISR: update →
+  predict then update then control (m_k in, u_k out). A SISO law (PID, PR,
+  lead-lag, SMC, ADRC, …) has no split: `step(r, y)` is its whole tick, and
+  `SisoController` asks for it. Low-latency ISR: update →
   control → write → `back_calculate` → predict. `back_calculate(u_sat, u_ff = {})`
   records the applied input. While another source drives the plant, every LQ law
   and MPC takes `track(u, …)` in place of `step(…)`, a twin of each overload with

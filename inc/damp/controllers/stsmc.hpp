@@ -181,8 +181,8 @@ stsmc_gains(T k1, T k2, T Ts = T{0}, T lambda = T{0}, T k_lin = T{0}, T phi = T{
  * generalized form adds linear damping for noisy / higher-order plants.
  *
  * Two entry points per step:
- *  - `control_sliding(s)` — canonical: you form the sliding variable s yourself.
- *  - `control(r, y)`      — convenience: builds σ = −(λ·e + ė) on e = r − y (ė by
+ *  - `step_sliding(s)` — canonical: you form the sliding variable s yourself.
+ *  - `step(r, y)`      — convenience: builds σ = −(λ·e + ė) on e = r − y (ė by
  *                          backward difference) — `SMCController`'s surface,
  *                          signed so that σ̇ = u + d for ÿ = u + d.
  *
@@ -196,7 +196,7 @@ stsmc_gains(T k1, T k2, T Ts = T{0}, T lambda = T{0}, T k_lin = T{0}, T phi = T{
  * // |ḋ| ≤ 2, 1 kHz loop; supply s directly.
  * constexpr auto art = design::stsmc(2.0, 1e-3);
  * static constinit STSMCController u_st{art.as<float>()}; // a failed or continuous design does not compile
- * // In the loop: float u = u_st.control_sliding(s);  // s = your sliding variable
+ * // In the loop: float u = u_st.step_sliding(s);  // s = your sliding variable
  * @endcode
  *
  * @tparam T Scalar type (default: float)
@@ -258,7 +258,7 @@ public:
 
     /**
      * @brief Super-twisting control from the sliding variable @p s (canonical form).
-     * Named distinctly from control(r, y) because both would otherwise be
+     * Named distinctly from step(r, y) because both would otherwise be
      * two-scalar overloads.
      * The integral state advances by one explicit-Euler step of the design's Ts. The command
      * is clamped into u_lim, and a step of the integral state that pushes the command further
@@ -267,7 +267,7 @@ public:
      * most one step, k₂·Ts, past the limit, as it does for a clamp reported with back_calculate.
      * @param s  Sliding variable
      */
-    [[nodiscard]] constexpr T control_sliding(T s) {
+    [[nodiscard]] constexpr T step_sliding(T s) {
         if (!valid_) {
             return T{0};
         }
@@ -308,12 +308,12 @@ public:
      * @brief Convenience: build σ = −(λ·e + ė), e = r − y (ė via backward difference),
      * then apply STA to σ.
      * @note For a unit-gain plant ÿ = u + d the surface on the output error
-     *       y − r obeys σ̇ = u + (d − λė − r̈), the canonical sign control_sliding
+     *       y − r obeys σ̇ = u + (d − λė − r̈), the canonical sign step_sliding
      *       assumes — so positive tracking error gives a positive command, as
      *       for PID / SMC. Scale u for a non-unit input gain, or use
-     *       `control_sliding(s)` with a surface you sign yourself.
+     *       `step_sliding(s)` with a surface you sign yourself.
      */
-    [[nodiscard]] constexpr T control(T r, T y) {
+    [[nodiscard]] constexpr T step(T r, T y) {
         if (!valid_) {
             return T{0};
         }
@@ -324,7 +324,7 @@ public:
         }
         const T de = (e - e_prev_) / Ts_;
         e_prev_ = e;
-        return control_sliding(-((lambda_ * e) + de));
+        return step_sliding(-((lambda_ * e) + de));
     }
 
     /** @brief Current value of the integral state v (the disturbance estimate, −d̂). */

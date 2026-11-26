@@ -145,8 +145,8 @@ inline constexpr auto mpc_art = design::mpc<10, 4>(
     float                theta,
     float                omega
 ) {
-    const float omega_cmd = angle_pi.control(theta_ref, theta);
-    return rate_pi.control(omega_cmd, omega);
+    const float omega_cmd = angle_pi.step(theta_ref, theta);
+    return rate_pi.step(omega_cmd, omega);
 }
 
 } // namespace damp::examples_reaction_wheel

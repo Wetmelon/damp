@@ -124,7 +124,7 @@ TEST_SUITE("Extended State Observer (ESO)") {
         double                    y = 0.0, v = 0.0;
         const double              r = 1.0, Ts = 1e-3, b = 2.0, d = 0.3;
         for (int k = 0; k < 400; ++k) {
-            const double u_law = law.control(r, y);
+            const double u_law = law.step(r, y);
             const auto&  z = obs.step(y);
             const double u_obs = ((res.Kp * (r - z[0])) - (res.Kd * z[1]) - z[2]) / res.b0;
             obs.back_calculate(u_obs);

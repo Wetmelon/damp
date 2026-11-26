@@ -74,7 +74,7 @@ SineResponse sine_response(PRController<T>& ctrl, double w, double Ts, double am
     double       us = 0.0;
     double       uc = 0.0;
     for (size_t k = 0; k < settle + fit; ++k) {
-        const T u = ctrl.control(static_cast<T>(amp * src.s));
+        const T u = ctrl.step(static_cast<T>(amp * src.s));
         out.finite = out.finite && damp::isfinite(u);
         out.peak = damp::max(out.peak, damp::abs(static_cast<double>(u)));
         if (k >= settle) {
@@ -151,7 +151,7 @@ TEST_SUITE("PR Controller") {
 
         PRController<double> bad(design::pr({.Kp = 1.0, .Ki = 100.0, .w0 = 0.0, .wc = 10.0}, 1e-4));
         CHECK_FALSE(bad.valid());
-        CHECK(bad.control(1.0) == 0.0);
+        CHECK(bad.step(1.0) == 0.0);
     }
 
     TEST_CASE("Ideal PR (wc=0) has non-zero resonant term") {
@@ -174,7 +174,7 @@ TEST_SUITE("PR Controller") {
         // Runtime: first sample of ideal resonator is non-zero (not pure-P).
         PRController<double> ctrl(r);
         CHECK(ctrl.valid());
-        double u = ctrl.control(1.0);
+        double u = ctrl.step(1.0);
         // Pure-P would give u = Kp * 1 = 1; ideal resonator adds a b0 contribution.
         CHECK(damp::abs(u - 1.0) > 1e-6);
         CHECK(damp::isfinite(u));
@@ -198,7 +198,7 @@ TEST_SUITE("PR Controller") {
             double t = static_cast<double>(k) * Ts;
             double ref = std::sin(w0 * t);
             double error = ref - y;
-            double u = ctrl.control(error);
+            double u = ctrl.step(error);
             y = u; // Unit gain plant
 
             // Track error in last 0.5 seconds (settled)
@@ -225,13 +225,13 @@ TEST_SUITE("PR Controller") {
         PRController<double> ctrl(result);
 
         // Run some steps
-        (void)ctrl.control(1.0);
-        (void)ctrl.control(0.5);
-        (void)ctrl.control(0.3);
+        (void)ctrl.step(1.0);
+        (void)ctrl.step(0.5);
+        (void)ctrl.step(0.3);
 
         ctrl.reset();
         // After reset, output should be just Kp * error (no resonant history)
-        double u = ctrl.control(1.0);
+        double u = ctrl.step(1.0);
         // First sample after reset: resonant contribution is b0_r * 1.0
         // The Kp contribution is 1.0
         CHECK(u != 0.0);
@@ -254,26 +254,26 @@ TEST_SUITE("PR Controller") {
         for (int k = 0; k < 50; ++k) {
             double r = std::sin(0.1 * k);
             double y = 0.3 * r;
-            CHECK(a.control(r, y) == doctest::Approx(b.control(r - y)));
+            CHECK(a.step(r, y) == doctest::Approx(b.step(r - y)));
         }
     }
 
     TEST_CASE("PR converting ctor preserves tracking_time and state") {
         PRController<double> d(design::pr({.Kp = 1.0, .Ki = 100.0, .w0 = 314.0, .wc = 10.0, .tracking_time = 5.0}, 0.0001));
-        (void)d.control(0.7);
-        (void)d.control(-0.2);
+        (void)d.step(0.7);
+        (void)d.step(-0.2);
 
         PRController<float> f(d); // U -> T converting ctor
         CHECK(f.tracking_time == doctest::Approx(5.0f));
         // Resonant delay line carried over.
         CHECK(f.resonant.last_output() == doctest::Approx(static_cast<float>(d.resonant.last_output())));
         // Coefficients carried over too: the next step matches within float precision.
-        CHECK(static_cast<double>(f.control(0.1f)) == doctest::Approx(d.control(0.1)).epsilon(0.01));
+        CHECK(static_cast<double>(f.step(0.1f)) == doctest::Approx(d.step(0.1)).epsilon(0.01));
     }
 
     TEST_CASE("PR back_calculate unwinds resonant state") {
         PRController<double> ctrl(design::pr({.Kp = 1.0, .Ki = 100.0, .w0 = 314.0, .wc = 10.0, .tracking_time = 2.0}, 0.0001));
-        const double         u = ctrl.control(1.0);
+        const double         u = ctrl.step(1.0);
         double               y_before = ctrl.resonant.last_output();
 
         // No clamp: the applied command is the law's own plus the feedforward -> unchanged.
@@ -287,7 +287,7 @@ TEST_SUITE("PR Controller") {
         // tracking_time == 0: the resonant section holds. It gives back what the tick added (from rest, its
         // whole output), up to the excess, and a second report of the clamp takes nothing more.
         PRController<double> nctrl(design::pr({.Kp = 1.0, .Ki = 100.0, .w0 = 314.0, .wc = 10.0}, 0.0001));
-        const double         un = nctrl.control(1.0);
+        const double         un = nctrl.step(1.0);
         REQUIRE(nctrl.resonant.last_output() > 0.0);
         nctrl.back_calculate(un - 2.0);
         CHECK(nctrl.resonant.last_output() == 0.0); // was unchanged: no back-calculation configured
@@ -308,8 +308,8 @@ TEST_SUITE("PR Controller") {
         T               peak{0};
         for (int k = 0; k < 4000; ++k) { // 20 periods of an error at ω₀, whose gain there is Ki = 200
             const T e = static_cast<T>(std::sin(w0 * Ts * k));
-            const T u = inside.control(e);
-            const T sent = std::clamp(outside.control(e), -lim, lim);
+            const T u = inside.step(e);
+            const T sent = std::clamp(outside.step(e), -lim, lim);
             outside.back_calculate(sent);
             CHECK(damp::abs(u - sent) <= T{64} * eps<T>() * lim);
             peak = damp::max(peak, damp::abs(inside.resonant.last_output()));
@@ -324,7 +324,7 @@ TEST_SUITE("PR Controller") {
         PRController<double> pr{design::pr({.Kp = 0.0, .Ki = 200.0, .w0 = w0, .wc = 5.0, .tracking_time = Ts / 4.0}, Ts)};
         double               peak = 0.0;
         for (int k = 0; k < 4000; ++k) {
-            const double u = pr.control(std::sin(w0 * Ts * k));
+            const double u = pr.step(std::sin(w0 * Ts * k));
             pr.back_calculate(std::clamp(u, -0.1, 0.1));
             peak = std::max(peak, std::abs(pr.resonant.last_output()));
         }
@@ -337,15 +337,15 @@ TEST_SUITE("PR Controller") {
         res.u_lim = {.lower = 1.0, .upper = -1.0};
         PRController<double> pr{res};
         CHECK_FALSE(pr.valid());
-        CHECK(pr.control(1.0) == 0.0);
+        CHECK(pr.step(1.0) == 0.0);
     }
 
     TEST_CASE("A continuous (Ts = 0) design leaves PRController invalid") {
         // There is no Tustin map at Ts = 0: the runtime used to drop the resonator and emit Kp·e.
         PRController<double> ctrl(design::pr({.Kp = 2.0, .Ki = 100.0, .w0 = 314.0, .wc = 10.0}, 0.0));
         CHECK_FALSE(ctrl.valid());
-        CHECK(ctrl.control(1.0) == 0.0);
-        CHECK(ctrl.control(-3.0) == 0.0);
+        CHECK(ctrl.step(1.0) == 0.0);
+        CHECK(ctrl.step(-3.0) == 0.0);
     }
 
     TEST_CASE("PR refuses a resonance at or above Nyquist; set_frequency ignores one") {
@@ -447,7 +447,7 @@ TEST_SUITE("PR Controller") {
                 for (int k = 0; k < 200; ++k) {
                     const double e = (impulse && k > 0) ? 0.0 : 1.0;
                     const double u_model = (dss.C * x)(0, 0) + (dss.D(0, 0) * e);
-                    const double u_runtime = ctrl.control(e);
+                    const double u_runtime = ctrl.step(e);
                     CHECK(u_model == doctest::Approx(u_runtime).epsilon(1e-9).scale(r.Ki));
                     x = (dss.A * x) + (dss.B * Matrix<1, 1, double>{{e}});
                 }
@@ -553,8 +553,8 @@ TEST_SUITE("PR Controller") {
             double     worst = 0.0; // largest |u − u_ref| / peak
             for (size_t k = 0; k < c.ticks; ++k) {
                 const float  e = static_cast<float>(0.01 * src.s);
-                const float  u = ctrl.control(e);
-                const double u_ref = ref.control(static_cast<double>(e));
+                const float  u = ctrl.step(e);
+                const double u_ref = ref.step(static_cast<double>(e));
                 finite = finite && damp::isfinite(u);
                 peak = damp::max(peak, damp::abs(u_ref));
                 if (peak > 0.0) {
@@ -611,7 +611,7 @@ TEST_SUITE("PR Controller") {
             double          sum = 0.0;
             for (size_t k = 0; k < settle + ticks; ++k) {
                 const T error = static_cast<T>(ref.s) - y;
-                y = ctrl.control(error);
+                y = ctrl.step(error);
                 if (k >= settle) {
                     sum += damp::abs(static_cast<double>(error));
                 }

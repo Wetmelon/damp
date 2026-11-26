@@ -78,10 +78,10 @@ int main() {
     };
 
     const float u_cascade = cascade_period(angle_pi, rate_pi, r0, theta0, omega0); // clamps internally
-    const float u_adrc = clamp_u(adrc.control(r0, theta0));
+    const float u_adrc = clamp_u(adrc.step(r0, theta0));
     adrc.back_calculate(u_adrc);
-    const float u_smc = clamp_u(smc.control(r0, theta0));
-    const float u_st = clamp_u(stsmc.control(r0, theta0));
+    const float u_smc = clamp_u(smc.step(r0, theta0));
+    const float u_st = clamp_u(stsmc.step(r0, theta0));
     const float u_place = applied(place_ctrl, place_ctrl.step(x0));
     const float u_lqr = applied(lqr, lqr.step(x0));
     const float u_lqi = applied(lqi, lqi.step(r0, x0));

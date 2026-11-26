@@ -67,7 +67,7 @@ namespace design {
  *
  * Produced by PIDGains::discretize. Sample time is baked into the
  * integral gain and derivative filter coeffs so the runtime controller is a
- * pure `control(r, y)` tick with no per-call `Ts`.
+ * pure `step(r, y)` tick with no per-call `Ts`.
  *
  * Discretization (backward Euler integrator, filtered derivative):
  * - Integral term: @f$K_{i,d} = K_i T_s@f$, @f$I \leftarrow I + K_{i,d}\,e@f$,
@@ -503,7 +503,7 @@ struct PIDController;
  * @brief Fixed-rate discrete 2-DOF PID (canonical runtime)
  *
  * Sample time is baked into the gains at design time via
- * @ref design::PIDGains::discretize. One tick is `control(r, y)` — no `Ts`
+ * @ref design::PIDGains::discretize. One tick is `step(r, y)` — no `Ts`
  * argument. Matches the library-wide pre-discretized controller model
  * (LQR, Kalman, PR, lead-lag).
  *
@@ -524,13 +524,13 @@ struct PIDController;
  * @code
  * constinit auto c = PIDController{
  *     design::pid(2.0, 5.0, 0.1).discretize(0.01).as<float>()};
- * float u = c.control(r, y);
+ * float u = c.step(r, y);
  * @endcode
  *
  * For continuous gains with a measured period each tick, use @ref ContinuousPID.
  *
  * Angle input: pass r′ = y + wrap_pi(r − y), the reference nearest the measurement,
- * `pid.control(y + wrap_pi(r - y), y)`, so P and I see the short-way error. With c ≠ 1
+ * `pid.step(y + wrap_pi(r - y), y)`, so P and I see the short-way error. With c ≠ 1
  * (derivative on measurement) D also reads y, so unwrap y first with @ref PhaseUnwrapper.
  * Keep b = 1 on an angle axis: with b ≠ 1, P carries −Kₚ(1 − b)·y, which depends on the
  * absolute angle and the turn count rather than on the error.
@@ -560,15 +560,15 @@ struct PIDController<T, PIDMode::PID> {
     T            Ts = T{0};      ///< Sample period from discretize (documentation)
 
     T    integral = T{0};      ///< Integral term I (same units as u)
-    T    integral_step = T{0}; ///< What the last control() added to I: what a clamp takes back when Kbc = 0
+    T    integral_step = T{0}; ///< What the last step() added to I: what a clamp takes back when Kbc = 0
     T    prev_x = T{0};        ///< Previous c·r − y
     T    deriv = T{0};         ///< Filtered derivative term D
     bool first = true;         ///< Next tick seeds prev_x (no derivative kick)
 
     PIDRuntimeMode runtime_mode{PIDRuntimeMode::Auto};
     T              u_track{T{0}};
-    T              u_cmd{T{0}};  ///< Last command control() returned: the u in back_calculate's u_sat − (u + u_ff)
-    bool           valid_{true}; ///< False when built from a design it refuses: control() returns 0
+    T              u_cmd{T{0}};  ///< Last command step() returned: the u in back_calculate's u_sat − (u + u_ff)
+    bool           valid_{true}; ///< False when built from a design it refuses: step() returns 0
 
     constexpr PIDController() noexcept = default;
 
@@ -626,7 +626,7 @@ struct PIDController<T, PIDMode::PID> {
           u_cmd(static_cast<T>(o.u_cmd)),
           valid_(o.valid_) {}
 
-    /** @brief False when built from a design it refuses: control() returns 0. */
+    /** @brief False when built from a design it refuses: step() returns 0. */
     [[nodiscard]] constexpr bool valid() const { return valid_; }
 
     /**
@@ -637,7 +637,7 @@ struct PIDController<T, PIDMode::PID> {
      * In Tracking mode the output is `u_track` clamped into the output limits `u` and the
      * integrator is pre-loaded for bumpless re-enable.
      */
-    [[nodiscard]] constexpr T control(T r, T y) {
+    [[nodiscard]] constexpr T step(T r, T y) {
         if (!valid_) {
             return T{0};
         }
@@ -653,7 +653,7 @@ struct PIDController<T, PIDMode::PID> {
      */
     constexpr void track(T u_track_, T y) {
         disable(u_track_);
-        (void)control(y, y);
+        (void)step(y, y);
     }
 
     /**
@@ -662,11 +662,11 @@ struct PIDController<T, PIDMode::PID> {
      *
      * Call after the stage that clamps the summed command. @p u_sat is what the plant
      * received, @p u_ff whatever was added to this law's command before the clamp; u is
-     * the command control() returned (@ref last_command).
+     * the command step() returned (@ref last_command).
      */
     constexpr void back_calculate(T u_sat, T u_ff = T{0}) { detail::pid_wind_back(*this, Ki, u_sat, u_cmd + u_ff); }
 
-    /** @brief The command the last control() returned. */
+    /** @brief The command the last step() returned. */
     [[nodiscard]] constexpr T last_command() const { return u_cmd; }
 
     /** @brief Clear integral and derivative state; keeps gains and runtime mode. */
@@ -707,12 +707,12 @@ struct PIDController<T, PIDMode::PI> {
     T            Ts = T{0};      ///< Sample period from discretize (documentation)
 
     T integral = T{0};      ///< Integral term I (same units as u)
-    T integral_step = T{0}; ///< What the last control() added to I: what a clamp takes back when Kbc = 0
+    T integral_step = T{0}; ///< What the last step() added to I: what a clamp takes back when Kbc = 0
 
     PIDRuntimeMode runtime_mode{PIDRuntimeMode::Auto};
     T              u_track{T{0}};
-    T              u_cmd{T{0}};  ///< Last command control() returned: the u in back_calculate's u_sat − (u + u_ff)
-    bool           valid_{true}; ///< False when built from a design it refuses: control() returns 0
+    T              u_cmd{T{0}};  ///< Last command step() returned: the u in back_calculate's u_sat − (u + u_ff)
+    bool           valid_{true}; ///< False when built from a design it refuses: step() returns 0
 
     constexpr PIDController() noexcept = default;
 
@@ -758,10 +758,10 @@ struct PIDController<T, PIDMode::PI> {
           u_cmd(static_cast<T>(o.u_cmd)),
           valid_(o.valid_) {}
 
-    /** @brief False when built from a design it refuses: control() returns 0. */
+    /** @brief False when built from a design it refuses: step() returns 0. */
     [[nodiscard]] constexpr bool valid() const { return valid_; }
 
-    [[nodiscard]] constexpr T control(T r, T y) {
+    [[nodiscard]] constexpr T step(T r, T y) {
         if (!valid_) {
             return T{0};
         }
@@ -776,7 +776,7 @@ struct PIDController<T, PIDMode::PI> {
      */
     constexpr void track(T u_track_, T y) {
         disable(u_track_);
-        (void)control(y, y);
+        (void)step(y, y);
     }
 
     /**
@@ -785,11 +785,11 @@ struct PIDController<T, PIDMode::PI> {
      *
      * Call after the stage that clamps the summed command. @p u_sat is what the plant
      * received, @p u_ff whatever was added to this law's command before the clamp; u is
-     * the command control() returned (@ref last_command).
+     * the command step() returned (@ref last_command).
      */
     constexpr void back_calculate(T u_sat, T u_ff = T{0}) { detail::pid_wind_back(*this, Ki, u_sat, u_cmd + u_ff); }
 
-    /** @brief The command the last control() returned. */
+    /** @brief The command the last step() returned. */
     [[nodiscard]] constexpr T last_command() const { return u_cmd; }
 
     /** @brief Clear the integral; keeps gains and runtime mode. */
@@ -834,7 +834,7 @@ struct PIDController<T, PIDMode::PD> {
 
     PIDRuntimeMode runtime_mode{PIDRuntimeMode::Auto};
     T              u_track{T{0}};
-    bool           valid_{true}; ///< False when built from a design it refuses: control() returns 0
+    bool           valid_{true}; ///< False when built from a design it refuses: step() returns 0
 
     constexpr PIDController() noexcept = default;
 
@@ -882,10 +882,10 @@ struct PIDController<T, PIDMode::PD> {
           u_track(static_cast<T>(o.u_track)),
           valid_(o.valid_) {}
 
-    /** @brief False when built from a design it refuses: control() returns 0. */
+    /** @brief False when built from a design it refuses: step() returns 0. */
     [[nodiscard]] constexpr bool valid() const { return valid_; }
 
-    [[nodiscard]] constexpr T control(T r, T y) {
+    [[nodiscard]] constexpr T step(T r, T y) {
         if (!valid_) {
             return T{0};
         }
@@ -932,7 +932,7 @@ struct PIDController<T, PIDMode::P> {
 
     PIDRuntimeMode runtime_mode{PIDRuntimeMode::Auto};
     T              u_track{T{0}};
-    bool           valid_{true}; ///< False when built from a design it refuses: control() returns 0
+    bool           valid_{true}; ///< False when built from a design it refuses: step() returns 0
 
     constexpr PIDController() noexcept = default;
 
@@ -967,10 +967,10 @@ struct PIDController<T, PIDMode::P> {
           u_track(static_cast<T>(o.u_track)),
           valid_(o.valid_) {}
 
-    /** @brief False when built from a design it refuses: control() returns 0. */
+    /** @brief False when built from a design it refuses: step() returns 0. */
     [[nodiscard]] constexpr bool valid() const { return valid_; }
 
-    [[nodiscard]] constexpr T control(T r, T y) {
+    [[nodiscard]] constexpr T step(T r, T y) {
         if (!valid_) {
             return T{0};
         }
@@ -1017,7 +1017,7 @@ using PDController = PIDController<T, PIDMode::PD>;
  *
  * Stores continuous-time @f$K_p, K_i, K_d@f$ and applies backward-Euler
  * integration / filtered differentiation using the measured @p Ts each call:
- * `control(r, y, Ts)`. Use this when the loop period is not fixed at design
+ * `step(r, y, Ts)`. Use this when the loop period is not fixed at design
  * time (jitter, multi-rate motor loops, PLL step periods).
  *
  * Integral term @f$I@f$ with @f$\dot I = K_i e@f$ and @f$u_I = I@f$, matching
@@ -1032,7 +1032,7 @@ using PDController = PIDController<T, PIDMode::PD>;
  *
  * @code
  * ContinuousPID<float> c{design::pid(2.0f, 5.0f, 0.1f)};
- * float u = c.control(r, y, measured_dt);
+ * float u = c.step(r, y, measured_dt);
  * @endcode
  *
  * @see PIDController for the canonical fixed-rate path
@@ -1051,16 +1051,16 @@ struct ContinuousPID {
     T            c = T{1};       ///< Derivative setpoint weight
 
     T    integral = T{0};      ///< Integral term I (same units as u)
-    T    integral_step = T{0}; ///< What the last control() added to I: what a clamp takes back when Kbc = 0
+    T    integral_step = T{0}; ///< What the last step() added to I: what a clamp takes back when Kbc = 0
     T    prev_x = T{0};        ///< Previous c·r − y
     T    deriv = T{0};         ///< Filtered derivative term D
     bool first = true;         ///< Next tick seeds prev_x (no derivative kick)
 
     PIDRuntimeMode runtime_mode{PIDRuntimeMode::Auto};
     T              u_track{T{0}};
-    T              u_cmd{T{0}};   ///< Last command control() returned: the u in back_calculate's u_sat − (u + u_ff)
-    T              Ts_last{T{0}}; ///< [s] Period of the last control() tick, which back_calculate charges
-    bool           valid_{true};  ///< False when built from a design it refuses: control() returns 0
+    T              u_cmd{T{0}};   ///< Last command step() returned: the u in back_calculate's u_sat − (u + u_ff)
+    T              Ts_last{T{0}}; ///< [s] Period of the last step() tick, which back_calculate charges
+    bool           valid_{true};  ///< False when built from a design it refuses: step() returns 0
 
     constexpr ContinuousPID() noexcept = default;
 
@@ -1111,7 +1111,7 @@ struct ContinuousPID {
           Ts_last(static_cast<T>(o.Ts_last)),
           valid_(o.valid_) {}
 
-    /** @brief False when built from a design it refuses: control() returns 0. */
+    /** @brief False when built from a design it refuses: step() returns 0. */
     [[nodiscard]] constexpr bool valid() const { return valid_; }
 
     /**
@@ -1120,7 +1120,7 @@ struct ContinuousPID {
      * A @p Ts that is not positive and finite holds state and emits the current command (no
      * division by zero on the derivative path); a back_calculate after such a tick is a no-op.
      */
-    [[nodiscard]] constexpr T control(T r, T y, T Ts) {
+    [[nodiscard]] constexpr T step(T r, T y, T Ts) {
         if (!valid_) {
             return T{0};
         }
@@ -1145,20 +1145,20 @@ struct ContinuousPID {
      */
     constexpr void track(T u_track_, T y, T Ts) {
         disable(u_track_);
-        (void)control(y, y, Ts);
+        (void)step(y, y, Ts);
     }
 
     /**
      * @brief Anti-windup after a downstream clamp: ΔI = Ki·Ts·(u_sat − (u + u_ff))/Kbc, or with
      *        Kbc = 0 the integral gives back what the last tick added, up to that excess
      *
-     * Call after the stage that clamps the summed command, in the same tick as control():
+     * Call after the stage that clamps the summed command, in the same tick as step():
      * Ts is that tick's period and u the command it returned (@ref last_command).
      * @p u_ff is whatever was added to this law's command before the clamp.
      */
     constexpr void back_calculate(T u_sat, T u_ff = T{0}) { detail::pid_wind_back(*this, Ki * Ts_last, u_sat, u_cmd + u_ff); }
 
-    /** @brief The command the last control() returned. */
+    /** @brief The command the last step() returned. */
     [[nodiscard]] constexpr T last_command() const { return u_cmd; }
 
     /** @brief Clear integral and derivative state; keeps gains and runtime mode. */

@@ -21,12 +21,12 @@ TEST_SUITE("Sliding Mode Control (SMC)") {
         auto res = design::smc(20.0, 5.0, 1.0, 1e-3);
         res.u_lim = {.lower = -1.0, .upper = 1.0};
         SMCController<double> law{res};
-        CHECK(law.control(1.0, 0.0) == 1.0); // k/b₀ = 5 past the limit
-        CHECK(law.control(-1.0, 0.0) == -1.0);
+        CHECK(law.step(1.0, 0.0) == 1.0); // k/b₀ = 5 past the limit
+        CHECK(law.step(-1.0, 0.0) == -1.0);
         res.u_lim = {.lower = 1.0, .upper = -1.0};
         SMCController<double> bad{res};
         CHECK_FALSE(bad.valid());
-        CHECK(bad.control(1.0, 0.0) == 0.0);
+        CHECK(bad.step(1.0, 0.0) == 0.0);
     }
 
     TEST_CASE("SMC gain computation") {
@@ -53,19 +53,19 @@ TEST_SUITE("Sliding Mode Control (SMC)") {
         // Test control with zero error
         float r = 0.0f;
         float y = 0.0f;
-        float u = controller.control(r, y);
+        float u = controller.step(r, y);
         CHECK(u == 0.0f); // s = 0, sign(0) = 0, u = 0
 
         // Test control with positive error
         r = 1.0f;
         y = 0.0f;
-        u = controller.control(r, y);
+        u = controller.step(r, y);
         CHECK(u == doctest::Approx(k / b0).epsilon(1e-6)); // s > 0, u = +k/b0
 
         // Test control with negative error
         r = 0.0f;
         y = 1.0f;
-        u = controller.control(r, y);
+        u = controller.step(r, y);
         CHECK(u == doctest::Approx(-k / b0).epsilon(1e-6)); // s < 0, u = -k/b0
     }
 
@@ -75,39 +75,39 @@ TEST_SUITE("Sliding Mode Control (SMC)") {
         const auto           g = design::smc(10.0f, 5.0f, 1.0f, Ts, phi);
         SMCController<float> ctrl(g);
 
-        (void)ctrl.control(0.0f, 0.0f); // first tick seeds (error 0)
+        (void)ctrl.step(0.0f, 0.0f); // first tick seeds (error 0)
 
         // Large surface -> sat() clamps to the full relay magnitude k/b0.
-        const float u_big = ctrl.control(100.0f, 0.0f);
+        const float u_big = ctrl.step(100.0f, 0.0f);
         CHECK(u_big == doctest::Approx(5.0f).epsilon(1e-4));
 
         // Small surface -> proportional region, |u| strictly below the relay, but nonzero.
         SMCController<float> c2(g);
-        (void)c2.control(0.0f, 0.0f);
-        const float u_small = c2.control(1e-4f, 0.0f);
+        (void)c2.step(0.0f, 0.0f);
+        const float u_small = c2.step(1e-4f, 0.0f);
         CHECK(damp::abs(u_small) < 5.0f);
         CHECK(u_small != 0.0f);
     }
 
     TEST_CASE("SMC reset clears the rate history and re-seeds the first tick") {
         SMCController<double> ctrl(design::smc(10.0, 5.0, 1.0, 0.01));
-        (void)ctrl.control(1.0, 0.0);
-        (void)ctrl.control(0.5, 0.0);
+        (void)ctrl.step(1.0, 0.0);
+        (void)ctrl.step(0.5, 0.0);
         ctrl.reset();
         // First post-reset tick re-seeds: e_dot = 0, s = lambda*error = 10 > 0, so
         // the relay gives exactly +k/b0 with no derivative kick carried from history.
-        CHECK(ctrl.control(1.0, 0.0) == doctest::Approx(5.0));
+        CHECK(ctrl.step(1.0, 0.0) == doctest::Approx(5.0));
     }
 
     TEST_CASE("SMC: a continuous or invalid design is inert (no divide-by-zero)") {
         SMCController<double> continuous(design::smc(10.0, 5.0, 1.0)); // Ts = 0
         CHECK_FALSE(continuous.valid());                               // used to report valid() and emit nothing
-        CHECK(continuous.control(1.0, 0.0) == doctest::Approx(0.0));   // no sampled rate: hold
+        CHECK(continuous.step(1.0, 0.0) == doctest::Approx(0.0));      // no sampled rate: hold
         CHECK_FALSE(design::smc(std::numeric_limits<double>::quiet_NaN(), 5.0, 1.0, 0.01).success);
 
         SMCController<double> bad(design::smc(10.0, 5.0, 0.0, 0.01)); // b0 = 0 -> invalid
         CHECK_FALSE(bad.valid());
-        CHECK(bad.control(1.0, 0.0) == doctest::Approx(0.0)); // no k/b0 divide-by-zero
+        CHECK(bad.step(1.0, 0.0) == doctest::Approx(0.0)); // no k/b0 divide-by-zero
 
         CHECK(design::smc(10.0, 5.0, 1.0, -0.01).status == design::DesignStatus::invalid_sample_time);
         CHECK(design::smc(10.0, 5.0, 1.0, 0.01, -0.1).status == design::DesignStatus::invalid_parameter);
@@ -115,14 +115,14 @@ TEST_SUITE("Sliding Mode Control (SMC)") {
 
     TEST_CASE("SMC converting ctor preserves gains and rate state") {
         SMCController<double> d(design::smc(10.0, 5.0, 1.0, 0.01, 100.0));
-        (void)d.control(1.0, 0.0); // error_prev now 1, first_ cleared
+        (void)d.step(1.0, 0.0);    // error_prev now 1, first_ cleared
         SMCController<float> f(d); // converting ctor (exercises friend access)
         CHECK(f.valid());
 
         // In the boundary layer the output depends on s (hence error_prev); the
         // copied state reproduces the double's next command within float precision.
-        const double u_d = d.control(1.2, 0.0);
-        const float  u_f = f.control(1.2f, 0.0f);
+        const double u_d = d.step(1.2, 0.0);
+        const float  u_f = f.step(1.2f, 0.0f);
         CHECK(static_cast<double>(u_f) == doctest::Approx(u_d).epsilon(1e-3));
         CHECK(u_d != doctest::Approx(0.0));
     }
@@ -157,7 +157,7 @@ TEST_SUITE("Sliding Mode Control (SMC)") {
         double                y = 0.0;
         double                v = 0.0;
         for (int k = 0; k < 6000; ++k) {
-            const double u = ctrl.control(1.0, y);
+            const double u = ctrl.step(1.0, y);
             v += Ts * b * u;
             y += Ts * v;
         }

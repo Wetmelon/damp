@@ -382,7 +382,7 @@ struct LeadLagController {
      * @param e Compensator input (typically the tracking error)
      * @return Compensated output, clamped into u_lim (zero if the design was invalid)
      */
-    [[nodiscard]] constexpr T control(T e) {
+    [[nodiscard]] constexpr T step(T e) {
         if (!valid_) {
             return T{0};
         }
@@ -413,11 +413,11 @@ struct LeadLagController {
      * can drop into `Cascade<Outer, LeadLagController>` and any other
      * SISOController-shaped consumer.
      *
-     * The single-argument `control(T e)` form is still available for use as
+     * The single-argument `step(T e)` form is still available for use as
      * a standalone filter inside a larger composite controller.
      */
-    [[nodiscard]] constexpr T control(T r, T y) {
-        return control(r - y);
+    [[nodiscard]] constexpr T step(T r, T y) {
+        return step(r - y);
     }
 
     constexpr void reset() {

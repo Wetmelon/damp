@@ -396,7 +396,7 @@ TEST_SUITE("State feedback placed: Poles and ObserverPoles") {
             for (int k = 0; k < 3000; ++k) {
                 const double y = x;
                 const double r = (k < 1500) ? 1.0 : -0.5;
-                const double u_adrc = adrc.control(r, y);
+                const double u_adrc = adrc.step(r, y);
                 const double u_law = law.step(ColVec<1>{r}, ColVec<1>{y})[0];
                 const double u_zoh = zoh.step(ColVec<1>{r}, ColVec<1>{y})[0];
                 worst = std::max(worst, std::abs(u_law - u_adrc) / (1.0 + std::abs(u_adrc)));
@@ -438,7 +438,7 @@ TEST_SUITE("State feedback placed: Poles and ObserverPoles") {
             for (int k = 0; k < 3000; ++k) {
                 const double y = x[0];
                 const double r = (k < 1500) ? 1.0 : -0.5;
-                const double u_adrc = adrc.control(r, y);
+                const double u_adrc = adrc.step(r, y);
                 const double u_law = law.step(ColVec<1>{r}, ColVec<1>{y})[0];
                 const double u_zoh = zoh.step(ColVec<1>{r}, ColVec<1>{y})[0];
                 worst = std::max(worst, std::abs(u_law - u_adrc) / (1.0 + std::abs(u_adrc)));

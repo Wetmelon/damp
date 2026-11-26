@@ -49,7 +49,7 @@
  * constexpr auto sp = design::smith_predictor_from_fopdt(
  *     1.0, 5.0, 2.0, 0.1, 2.0); // K, tau, L, Ts, tau_c
  * static constinit SmithPredictor<64, float> ctrl{sp.as<float>()}; // a failed design does not compile
- * // In loop: float u = ctrl.control(r, y);
+ * // In loop: float u = ctrl.step(r, y);
  * @endcode
  *
  * Example: custom primary (any SisoController)
@@ -311,7 +311,7 @@ template<typename T = double>
  * gives the delay-free output ŷ = x_{k+d}.
  *
  * Matches the Cascade composition style: the Smith residual feeds
- * @c primary.control(r, y_pred); the primary type is a template parameter.
+ * @c primary.step(r, y_pred); the primary type is a template parameter.
  *
  * @tparam MaxDelay Capacity in whole samples (must be ≥ 1): the realizable delay is
  *                  0 … MaxDelay samples.
@@ -363,7 +363,7 @@ public:
      *
      * If @p result.success is false or @p delay_samples exceeds @p MaxDelay, the design does not
      * compile under constant evaluation; at run time the controller is left invalid and
-     * @ref control returns zero.
+     * @ref step returns zero.
      */
     constexpr SmithPredictor(const design::SmithPredictorResult<T>& result) // NOLINT(google-explicit-constructor): assign-from-design
         requires damp::constructible_from<Primary, const design::DiscretePIDGains<T>&>
@@ -448,7 +448,7 @@ public:
      * @param y Plant measurement (includes true dead time)
      * @return Control command u (zero if the design was invalid)
      */
-    [[nodiscard]] constexpr T control(T r, T y) {
+    [[nodiscard]] constexpr T step(T r, T y) {
         if (!valid_) {
             return T{0};
         }
@@ -457,7 +457,7 @@ public:
         const T y_hat = model_output(); // ŷ = x_{k+d}: the same model past the commands in flight
         const T y_pred = y + y_hat - y_delayed;
 
-        const T u = primary_.control(r, y_pred);
+        const T u = primary_.step(r, y_pred);
 
         ring_[head_] = u; // the oldest slot takes u_k; the oldest is now u_{k−d}
         head_ = next(head_);

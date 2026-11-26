@@ -40,7 +40,7 @@ void setup() {
 }
 
 void loop() {
-    const float u = pr.control(reference - y);
+    const float u = pr.step(reference - y);
     y += 0.01f * u; // mock
     delay(static_cast<int>(kTs * 1000.0));
 }

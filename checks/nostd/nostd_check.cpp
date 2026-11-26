@@ -58,7 +58,7 @@ int main() {
     const float u = lqr.step(ColVec<2, float>{0.1F, 0.0F})(0, 0);
     const float uc = lqr_on_constants.step(ColVec<2, float>{0.1F, 0.0F})(0, 0);
     (void)eso.step(0.1F, u);
-    const float v = pid.control(1.0F, 0.0F);
+    const float v = pid.step(1.0F, 0.0F);
     const float w = lqg.step(ColVec<1, float>{0.1F})(0, 0);
     const bool  ok = damp::isfinite(u) && (u < 0.0F) && damp::isfinite(eso.disturbance()) && damp::isfinite(v) && (v > 0.0F) && damp::isfinite(w) && (damp::abs(uc - u) <= 1e-5F * (1.0F + damp::abs(u)));
     return ok ? 0 : 1;

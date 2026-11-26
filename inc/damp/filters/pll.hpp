@@ -112,7 +112,7 @@ struct SinglePhasePLL {
 
         // PI loop filter (with anti-windup) on the phase error → frequency offset.
         // r = phase_error, y = 0 ⇒ output = Kp·phase_error + Ki·∫phase_error.
-        frequency_estimate = nominal_frequency + loop_filter.control(phase_error, T{0}, Ts);
+        frequency_estimate = nominal_frequency + loop_filter.step(phase_error, T{0}, Ts);
 
         // Wrapping integrator: integrate frequency [Hz] to phase [rad] in [0, 2π).
         const T pi = damp::numbers::pi_v<T>;
@@ -196,7 +196,7 @@ struct ThreePhasePLL {
         const T phase_error = detail::normalized_phase_error(clarke_park_transform(abc, phase_estimate));
 
         // PI loop filter (with anti-windup) → frequency estimate [Hz].
-        frequency_estimate = nominal_frequency + loop_filter.control(phase_error, T{0}, Ts);
+        frequency_estimate = nominal_frequency + loop_filter.step(phase_error, T{0}, Ts);
 
         // Wrapping integrator: frequency [Hz] → phase [rad] in [0, 2π).
         const T pi = damp::numbers::pi_v<T>;
@@ -353,7 +353,7 @@ public:
         const T phase_error = detail::normalized_phase_error(positive_dq_);
 
         // PI loop filter (with anti-windup) → frequency estimate [Hz].
-        frequency_estimate = nominal_frequency + loop_filter.control(phase_error, T{0}, Ts);
+        frequency_estimate = nominal_frequency + loop_filter.step(phase_error, T{0}, Ts);
 
         // Wrapping integrator: frequency [Hz] → phase [rad] in [0, 2π).
         const T pi = damp::numbers::pi_v<T>;

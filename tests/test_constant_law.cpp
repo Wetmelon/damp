@@ -494,7 +494,7 @@ TEST_SUITE("The other runtimes on a constexpr design") {
         Law<kAdrc, double>          fixed;
         double                      worst = 0.0;
         for (int k = 0; k < 2000; ++k) {
-            worst = std::max(worst, std::abs(held.control(second(k), reading(k)) - fixed.control(second(k), reading(k))));
+            worst = std::max(worst, std::abs(held.step(second(k), reading(k)) - fixed.step(second(k), reading(k))));
         }
         CHECK(worst < 1e-8);
         CHECK(fixed.valid());

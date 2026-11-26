@@ -113,7 +113,7 @@ TEST_SUITE("Workflow: design, result, runtime") {
         const ColVec        y{0.0f};
         regulator.update(y);
         ColVec<1, float> u = regulator.control();
-        u(0, 0) += internal_model.control(r - y(0, 0));
+        u(0, 0) += internal_model.step(r - y(0, 0));
         regulator.back_calculate(u);
         regulator.predict();
         CHECK(u(0, 0) != doctest::Approx(0.0f));

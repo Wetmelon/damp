@@ -36,7 +36,7 @@ inline constexpr auto pi_design = design::pid(4.0, 8.0, 0.0);
  */
 template<typename T>
 [[nodiscard]] T control_period(PIController<T>& controller, T r, T y) {
-    return controller.control(r, y);
+    return controller.step(r, y);
 }
 
 } // namespace damp::examples_pid
