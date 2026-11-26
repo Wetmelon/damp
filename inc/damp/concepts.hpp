@@ -16,6 +16,7 @@
  * | Role                     | Per-tick shape                    | Examples                          |
  * |--------------------------|-----------------------------------|-----------------------------------|
  * | SisoController           | `u = step(r, y)`, `back_calculate(u_sat, u_ff)` | PID, ADRC, SMC, lead-lag, PR      |
+ * | SisoLaw                  | SisoController + `limits()`/`set_limits()`, `track(u, r, y)`, `last_command()`, `valid()` | PID (tests/test_contract.cpp lists the others' gaps) |
  * | FeedbackRuntime          | `update(m)`, `predict()`, `back_calculate(u)` | LQR, LQI, LQG, LQGI, OFLQG, MPC, OFMPC (lifecycle) |
  * | FeedbackLaw              | FeedbackRuntime + `control(r)`, `step(r, m)`, `track(u, r, m)` | LQI, LQGI, OFLQG, OFMPC, LQR/LQG/MPC with TrackedOutputs |
  * | StateEstimator           | `x̂ = step(y, u)`, `state()`       | FixedGainObserver (fixed gain), KalmanFilter (recursive), MHE, ESO |
@@ -92,6 +93,50 @@ concept SisoController = damp::is_floating_point_v<T> && requires(C c, T r, T y,
     c.back_calculate(u_sat, u_ff);
     c.reset();
 };
+
+/**
+ * @brief A law whose run-time limits are read with limits() and set with set_limits(lim)
+ *
+ * set_limits refuses limits that are not a box (an end NaN or ±Inf, a lower end above its upper
+ * one): it returns false and changes nothing. A public limit member can't refuse, which is why every
+ * law holds its limits behind the pair.
+ */
+template<typename C>
+concept HoldsLimits = requires(C c, const C& held) {
+    held.limits();
+    { c.set_limits(held.limits()) } -> damp::convertible_to<bool>;
+};
+
+/**
+ * @brief A SISO law that hands over without a bump: track(u, r, y) in place of step(r, y) while
+ *        another source drives the plant, u the input it applies
+ *
+ * No mode flag: the law tracks for as long as the caller calls track, and the next step(r, y) at
+ * that r and y starts from u. A law with nothing to preload keeps its memory current.
+ */
+template<typename C, typename T>
+concept SisoTracking = requires(C c, T u, T r, T y) { c.track(u, r, y); };
+
+/** @brief A law that reports the command its last tick returned: last_command(). */
+template<typename C, typename T>
+concept ReportsCommand = requires(const C& c) {
+    { c.last_command() } -> damp::convertible_to<T>;
+};
+
+/** @brief A law that says whether it runs: valid() is false when it was built from a design it refuses. */
+template<typename C>
+concept ReportsValidity = requires(const C& c) {
+    { c.valid() } -> damp::convertible_to<bool>;
+};
+
+/**
+ * @brief The whole SISO runtime contract: a SisoController that holds its limits, tracks, reports
+ *        its command and says whether it runs
+ *
+ * tests/test_contract.cpp checks every SISO runtime against it, and lists each gap a law still has.
+ */
+template<typename C, typename T>
+concept SisoLaw = SisoController<C, T> && HoldsLimits<C> && SisoTracking<C, T> && ReportsCommand<C, T> && ReportsValidity<C>;
 
 /**
  * @brief Shared lifecycle of an LQ or MPC runtime: measurement, time update, applied input.

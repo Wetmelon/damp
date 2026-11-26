@@ -201,7 +201,8 @@ the repo root.
   `back_calculate`, to the same effect. A move limit is an `InputRateLimits`
   (clamped on an LQ law, rows of an MPC's QP); state and output limits are
   `design::mpc` (`OutputLimits`, `StateLimits`), `design::mhe` (`x_lim`) or an
-  `ActionGovernor` around any law. A new law with memory gets all of it.
+  `ActionGovernor` around any law. A new law with memory gets all of it: `tests/test_contract.cpp`
+  checks every SISO runtime against `SisoLaw` (`concepts.hpp`) and lists the gaps each still has.
 - **Errors:** `optional` / `bool success` / `DesignStatus` / `valid()` /
   compile-time constraints. No exceptions, and no run-time faults anywhere: a
   refusal is a compile error only under constant evaluation; at run time it is
