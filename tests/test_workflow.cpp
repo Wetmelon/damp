@@ -105,7 +105,7 @@ TEST_SUITE("Workflow: design, result, runtime") {
         const auto pr = design::pr({.Kp = 0.0, .Ki = 10.0, .w0 = 2.0 * std::numbers::pi, .wc = 5.0}, 0.001);
         REQUIRE(lqg.success);
         REQUIRE(pr.success);
-        CHECK(pr.as<float>().Ki == doctest::Approx(10.0f));
+        CHECK(pr.as<float>().gains.Ki == doctest::Approx(10.0f));
 
         LQG                 regulator{lqg.as<float>()};
         PRController<float> internal_model{pr.as<float>()};

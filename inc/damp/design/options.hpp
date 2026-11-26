@@ -56,6 +56,7 @@ struct Rule {};                ///< SIMC, AMIGO, LoopShape or PolePlacement: a P
 struct DerivativeFilter {};    ///< DerivativeFilter: a PID's derivative filter
 struct SetpointWeights {};     ///< SetpointWeights: a PID's setpoint weights
 struct AntiWindup {};          ///< AntiWindup: a PID's tracking time and integral clamp
+struct Harmonics {};           ///< Harmonics: a PR law's resonances, at harmonics of its fundamental
 
 } // namespace kind
 
@@ -159,6 +160,8 @@ consteval void at_most_one() {
         static_assert(N <= 1, "One SetpointWeights carries both weights: SetpointWeights{.b = ..., .c = ...}.");
     } else if constexpr (damp::is_same_v<Kind, kind::AntiWindup>) {
         static_assert(N <= 1, "One AntiWindup carries the tracking time and the integral's clamp: AntiWindup{.tracking_time = ..., .limits = {...}}.");
+    } else if constexpr (damp::is_same_v<Kind, kind::Harmonics>) {
+        static_assert(N <= 1, "One Harmonics lists every resonance: Harmonics{{1, 5, 7}}.");
     } else {
         static_assert(N <= 1, "An option given twice: each kind of option is given at most once.");
     }

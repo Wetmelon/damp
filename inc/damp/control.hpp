@@ -83,7 +83,6 @@
 #include "damp/controllers/adrc.hpp"                   // IWYU pragma: export
 #include "damp/controllers/composition.hpp"            // IWYU pragma: export
 #include "damp/controllers/esc.hpp"                    // IWYU pragma: export
-#include "damp/controllers/harmonic_suppression.hpp"   // IWYU pragma: export
 #include "damp/controllers/law.hpp"                    // IWYU pragma: export
 #include "damp/controllers/lead_lag.hpp"               // IWYU pragma: export
 #include "damp/controllers/lqg.hpp"                    // IWYU pragma: export
