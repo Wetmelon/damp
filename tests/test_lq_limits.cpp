@@ -725,7 +725,7 @@ TEST_SUITE("LQ limits") {
     }
 
     TEST_CASE_TEMPLATE("tracking_time: back-calculation takes min(Ts/T_t, 1) of the excess back through (du/dxi)+", T, float, double) {
-        //! The integrators could only hold against a clamp; a tracking time unwinds them, as Kbc does on a PID.
+        //! The integrators could only hold against a clamp; a tracking time unwinds them, as it does on a PID.
         for (const double tt : {4.0 * kTs, kTs, 0.5 * kTs}) { // a share of 1/4, the whole excess, and one capped at it
             auto ia = kIntegral;
             ia.tracking_time = tt;
@@ -803,7 +803,7 @@ TEST_SUITE("LQ limits") {
     }
 
     TEST_CASE("tracking_time: refused when negative or not finite, carried by LQGI and by a constexpr design's Law") {
-        CHECK(design::state_feedback(plant(), kTs, kFree, kBound, kIntegral).tracking_time == 0.0); // the default: the integrators hold, as Kbc = 0 on a PID
+        CHECK(design::state_feedback(plant(), kTs, kFree, kBound, kIntegral).tracking_time == 0.0); // the default: the integrators hold, as tracking_time = 0 on a PID
         auto ia = kIntegral;
         ia.tracking_time = -0.1;
         CHECK(design::state_feedback(plant(), kTs, kFree, kBound, ia).status == design::DesignStatus::invalid_parameter);

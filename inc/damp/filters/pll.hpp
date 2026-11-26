@@ -34,6 +34,12 @@ template<typename T>
     return (amplitude >= damp::numeric_limits<T>::min()) ? (dq.q / amplitude) : T{0};
 }
 
+/** @brief The PLLs' loop-filter PI: Kp = 10, Kᵢ = 100 per unit phase error, tracking time T_t = T_i = Kp/Kᵢ. */
+template<typename T>
+[[nodiscard]] constexpr design::PIDGains<T> pll_loop_gains() {
+    return design::PIDGains<T>{.Kp = T{10}, .Ki = T{100}, .tracking_time = T{10} / T{100}};
+}
+
 } // namespace detail
 
 /**
@@ -47,8 +53,8 @@ template<typename T>
  * amplitude, @f$ \sin(\theta - \hat\theta) @f$, so the loop gains are per unit and
  * the lock dynamics do not depend on the input level.
  *
- * The loop filter is a @ref ContinuousPID acting on the phase error and
- * producing a frequency *offset* about nominal; the inverter-style output clamp
+ * The loop filter is a @ref PIController ticked at the measured Ts, acting on the phase error
+ * and producing a frequency *offset* about nominal; the inverter-style output clamp
  * plus back-calculation give proper anti-windup (the integrator is bled back out
  * of saturation rather than merely clipped). The phase is a wrapping integrator —
  * @ref damp::wrap_two_pi keeps it in @f$[0,2\pi)@f$ each step so the seam is a full
@@ -67,10 +73,11 @@ template<typename T>
 struct SinglePhasePLL {
     /**
      * @brief PI loop filter (continuous gains; `step` supplies measured Ts). Output is
-     * the frequency offset [Hz] about nominal; the output limits `u` bound that
-     * offset and `Kbc` back-calculates the integrator out of saturation.
+     * the frequency offset [Hz] about nominal; its limits().input bound that offset and its
+     * tracking_time back-calculates the integrator out of saturation. Retune with
+     * gains() / set_gains().
      */
-    ContinuousPID<T> loop_filter{};
+    PIController<T> loop_filter{};
 
     /**
      * @brief [1/s] Integrator bleed rate (0 = pure integrator). The leak pulls the
@@ -86,15 +93,10 @@ struct SinglePhasePLL {
         const T max_freq_deviation = Fnom * static_cast<T>(0.5);
 
         // Sample-rate-independent loop-filter gains: step() applies Ts, so the
-        // gains themselves carry no Ts. Kbc = Kp is the standard PI tracking
-        // constant (T_t = T_i) for back-calculation anti-windup.
-        loop_filter.Kp = T{10};
-        loop_filter.Ki = T{100};
-        loop_filter.Kbc = loop_filter.Kp;
-        loop_filter.u_lim = {
-            .lower = -max_freq_deviation,
-            .upper = max_freq_deviation,
-        };
+        // gains themselves carry no Ts. T_t = T_i = Kp/Ki is the standard PI tracking
+        // time for back-calculation anti-windup.
+        static_cast<void>(loop_filter.set_gains(detail::pll_loop_gains<T>()));
+        static_cast<void>(loop_filter.set_limits({.input = {.lower = -max_freq_deviation, .upper = max_freq_deviation}}));
     }
 
     constexpr void step(T input, const T Ts) {
@@ -107,7 +109,7 @@ struct SinglePhasePLL {
         // Optional leaky integrator: bleed any parked offset toward zero (skip on a
         // non-positive Ts, which would bleed with the wrong sign).
         if (integrator_leak != T{0} && Ts > T{0}) {
-            loop_filter.integral -= integrator_leak * loop_filter.integral * Ts;
+            loop_filter.set_integral(loop_filter.integral() - (integrator_leak * loop_filter.integral() * Ts));
         }
 
         // PI loop filter (with anti-windup) on the phase error → frequency offset.
@@ -152,7 +154,7 @@ private:
  * At lock @f$ v_q = |v|\sin(\varphi - \hat\theta) \to 0 @f$ and @f$ v_d \to +|v| @f$.
  * The phase error is @f$ v_q / |v| @f$, so the loop gains are per unit.
  *
- * The loop filter is a @ref ContinuousPID (same proper-anti-windup and
+ * The loop filter is a @ref PIController ticked at the measured Ts (same proper-anti-windup and
  * wrapping-integrator treatment as @ref SinglePhasePLL).
  *
  * Assumes a balanced set (no negative- or zero-sequence). For unbalanced or
@@ -169,20 +171,15 @@ struct ThreePhasePLL {
      * @brief PI loop filter; output is the frequency offset [Hz] about nominal. See
      * SinglePhasePLL::loop_filter.
      */
-    ContinuousPID<T> loop_filter{};
+    PIController<T> loop_filter{};
 
     /**
      * @param f_nom Nominal frequency [Hz]
      */
     constexpr explicit ThreePhasePLL(T f_nom) : nominal_frequency(f_nom), frequency_estimate(f_nom) {
         const T max_freq_deviation = f_nom * static_cast<T>(0.5);
-        loop_filter.Kp = T{10};
-        loop_filter.Ki = T{100};
-        loop_filter.Kbc = loop_filter.Kp;
-        loop_filter.u_lim = {
-            .lower = -max_freq_deviation,
-            .upper = max_freq_deviation,
-        };
+        static_cast<void>(loop_filter.set_gains(detail::pll_loop_gains<T>()));
+        static_cast<void>(loop_filter.set_limits({.input = {.lower = -max_freq_deviation, .upper = max_freq_deviation}}));
     }
 
     /**
@@ -290,7 +287,7 @@ template<typename T = float>
  *   3. Park to dq on the current phase estimate; the q-axis is the phase error.
  *   4. PI loop filter → frequency, integrated to phase.
  *
- * The loop filter is a @ref ContinuousPID and the phase a wrapping
+ * The loop filter is a @ref PIController ticked at the measured Ts and the phase a wrapping
  * integrator — the same treatment as @ref SinglePhasePLL. The phase error is
  * @f$ v_q^+ / |v^+| @f$, so the loop gains are per unit.
  *
@@ -316,7 +313,7 @@ public:
      * @brief PI loop filter; output is the frequency offset [Hz] about nominal. See
      * SinglePhasePLL::loop_filter.
      */
-    ContinuousPID<T> loop_filter{};
+    PIController<T> loop_filter{};
 
     /** @brief SOGI damping gain (√2 ≈ unity-Q). */
     T sogi_gain{damp::numbers::sqrt2_v<T>};
@@ -327,13 +324,8 @@ public:
     constexpr explicit DsogiPll(T f_nom)
         : nominal_frequency(f_nom), frequency_estimate(f_nom) {
         const T max_freq_deviation = f_nom * static_cast<T>(0.5);
-        loop_filter.Kp = T{10};
-        loop_filter.Ki = T{100};
-        loop_filter.Kbc = loop_filter.Kp;
-        loop_filter.u_lim = {
-            .lower = -max_freq_deviation,
-            .upper = max_freq_deviation,
-        };
+        static_cast<void>(loop_filter.set_gains(detail::pll_loop_gains<T>()));
+        static_cast<void>(loop_filter.set_limits({.input = {.lower = -max_freq_deviation, .upper = max_freq_deviation}}));
     }
 
     /** @brief One synchronization step from the stationary-frame αβ grid vector. */

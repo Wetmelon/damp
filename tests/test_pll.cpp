@@ -43,14 +43,14 @@ TEST_SUITE("Single-Phase PLL") {
         constexpr SinglePhasePLL<float> pll(Fnom);
 
         // Loop-filter output (frequency offset about nominal) is clamped to ±50%.
-        static_assert(pll.loop_filter.u_lim.upper(0) == Fnom * 0.5f);
-        static_assert(pll.loop_filter.u_lim.lower(0) == -Fnom * 0.5f);
-        static_assert(pll.loop_filter.Kbc == 10.0f); // Kbc = Kp anti-windup constant
+        static_assert(pll.loop_filter.limits().input.upper(0) == Fnom * 0.5f);
+        static_assert(pll.loop_filter.limits().input.lower(0) == -Fnom * 0.5f);
+        static_assert(pll.loop_filter.gains().tracking_time == 10.0f / 100.0f); // T_t = T_i = Kp/Ki anti-windup
         static_assert(pll.frequency() == Fnom);
         static_assert(pll.phase() == 0.0f);
 
-        CHECK(pll.loop_filter.Kp == doctest::Approx(10.0f));
-        CHECK(pll.loop_filter.Ki == doctest::Approx(100.0f));
+        CHECK(pll.loop_filter.gains().Kp == doctest::Approx(10.0f));
+        CHECK(pll.loop_filter.gains().Ki == doctest::Approx(100.0f));
         CHECK(pll.frequency() == doctest::Approx(Fnom));
         CHECK(pll.phase() == doctest::Approx(0.0f));
     }
@@ -213,8 +213,11 @@ TEST_SUITE("Three-Phase PLL") {
         constexpr float Fin = 55.0f; // off-nominal, within ±50% lock range
 
         ThreePhasePLL<float> pll(Fnom);
-        pll.loop_filter.Kp = 40.0f;   // PI loop tuned for ~5 Hz natural frequency,
-        pll.loop_filter.Ki = 1000.0f; // ζ≈0.6 (defaults are too slow to pull 5 Hz)
+        auto                 g = pll.loop_filter.gains();
+        g.Kp = 40.0f;            // PI loop tuned for ~5 Hz natural frequency,
+        g.Ki = 1000.0f;          // ζ≈0.6 (defaults are too slow to pull 5 Hz)
+        g.tracking_time = 0.01f; // what the old Kbc = 10 gave at this Ki: T_t = Kbc/Ki
+        REQUIRE(pll.loop_filter.set_gains(g));
 
         float phase = 0.7f; // arbitrary input phase offset
         for (int i = 0; i < 20000; ++i) {

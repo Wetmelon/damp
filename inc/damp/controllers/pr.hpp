@@ -535,8 +535,8 @@ struct PRController {
      * the excess of the applied command over this law's last command u (plus any feedforward
      * @p u_ff added downstream), times Ts / T_t, is added to the most recent resonant output, so
      * the next tick's resonant contribution is pulled back toward the realizable command. No Ki
-     * factor: the resonant output is already in command units, so T_t is a time [s] (the
-     * PID laws' Kbc is a gain ratio instead). It takes at most the whole excess per tick: past
+     * factor: the resonant output is already in command units, so T_t is a time [s], as the
+     * PID laws' tracking_time is. It takes at most the whole excess per tick: past
      * that it would overshoot, and past twice it diverges.
      *
      * @param u_sat Command actually applied after downstream clamping.

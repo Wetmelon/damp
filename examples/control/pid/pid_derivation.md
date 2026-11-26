@@ -23,7 +23,7 @@ For a host SIL of a linear plant against the same PI API, use
 | $`b`$ | default | $`1.0`$ | Setpoint weight on $`K_p`$ (library default) |
 | $`u_{\min},u_{\max}`$ | default | unbounded | Actuator limits (`.u` field, a `Bounds<1>`) |
 
-Call site — `design::pid(Kp, Ki, Kd)` is the unbounded teaching PI ($`b = c = 1`$, no filter). Limits, setpoint weights and the derivative filter are named fields of the aggregate, e.g. `design::PIDGains{.Kp = 4.0, .Ki = 8.0, .u_lim = {.lower = -12.0, .upper = 12.0}}`.
+Call site — `design::pid(Kp, Ki, Kd)` is the unbounded teaching PI ($`b = c = 1`$, no filter). Setpoint weights, the derivative filter and the tracking time are named fields of the aggregate, e.g. `design::PIDGains{.Kp = 4.0, .Ki = 8.0, .b = 0.5}`; the limits go to `discretize`, `.discretize(Ts, {.input = {.lower = -12.0, .upper = 12.0}})`. At run time the law takes new ones: `auto g = pi.gains(); g.Kp = 5.0f; if (!pi.set_gains(g)) { … }`, and the same with `limits()` / `set_limits()`.
 
 ```text
 design::pid(4.0, 8.0, 0.0).discretize(Ts).as<float>()

@@ -538,7 +538,7 @@ TEST_SUITE("PID Design - Plant pidtune") {
 
     TEST_CASE("pidtune on a reverse-acting plant returns the negated gains") {
         using design::DesignStatus;
-        // −P needs −C for the same loop C·P: Kp, Ki, Kd ≤ 0, and Kbc keeps Ki's sign.
+        // −P needs −C for the same loop C·P: Kp, Ki, Kd ≤ 0, and the same tracking time.
         constexpr StateSpace<1, 1, 1> lag1{.A = {{-1.0}}, .B = {{1.0}}, .C = {{1.0}}};
         constexpr StateSpace<1, 1, 1> rev1{.A = lag1.A, .B = lag1.B, .C = {{-1.0}}};
         constexpr StateSpace<2, 1, 1> osc{.A = {{0.0, 1.0}, {-1.0, -0.5}}, .B = {{0.0}, {1.0}}, .C = {{1.0, 0.0}}};
@@ -551,7 +551,7 @@ TEST_SUITE("PID Design - Plant pidtune") {
             CHECK(r.Kp == doctest::Approx(-g.Kp).epsilon(1e-12));
             CHECK(r.Ki == doctest::Approx(-g.Ki).epsilon(1e-12));
             CHECK(r.Kd == doctest::Approx(-g.Kd).epsilon(1e-12));
-            CHECK(r.Kbc == doctest::Approx(-g.Kbc).epsilon(1e-12));
+            CHECK(r.tracking_time == doctest::Approx(g.tracking_time).epsilon(1e-12));
             CHECK(r.Kp < 0.0);
             CHECK(r.discretize(0.01).success);
         };
@@ -807,24 +807,23 @@ TEST_SUITE("PID Design - Back-calculation seed") {
     constexpr double kTs = 0.1;
     constexpr auto   kPlant = TransferFunction<1, 2>{.num = {1.0}, .den = {1.0, 1.0}};
 
-    TEST_CASE("a placement with Kp < 0 seeds Kbc > 0, the sign that opposes windup") {
+    TEST_CASE("a placement with Kp < 0 seeds a positive tracking time, the sign that opposes windup") {
         constexpr auto g = design::pid_pole_placement(kPlant, damp::array<damp::complex<double>, 2>{s_pole(0.95, kTs), s_pole(0.96, kTs)}, kTs);
         static_assert(g.success);
         static_assert(g.Kp < 0.0 && g.Ki > 0.0);
-        CHECK(g.Kbc > 0.0);
-        CHECK(g.Kbc == doctest::Approx(-g.Kp)); // |Kp| ≥ Ki·Ts here: T_t = |T_i|
-        CHECK(g.Kbc / g.Ki > 0.0);              // tracking time T_t = Kbc/Ki
+        CHECK(g.tracking_time > 0.0);
+        CHECK(g.tracking_time == doctest::Approx(-g.Kp / g.Ki)); // |Kp| ≥ Ki·Ts here: T_t = |T_i|
         static_assert(g.discretize(kTs).success);
     }
 
     TEST_CASE("the Kp < 0 placement's integrator does not wind up under a clamp") {
-        auto gains = design::pid_pole_placement(kPlant, damp::array<damp::complex<double>, 2>{s_pole(0.95, kTs), s_pole(0.96, kTs)}, kTs);
-        gains.u_lim = {.lower = -1.0, .upper = 1.0};
-        PIController<double> law{gains.discretize(kTs)};
-        PIController<double> holding{[&] {
+        auto                            gains = design::pid_pole_placement(kPlant, damp::array<damp::complex<double>, 2>{s_pole(0.95, kTs), s_pole(0.96, kTs)}, kTs);
+        const design::PIDLimits<double> lim{.input = {.lower = -1.0, .upper = 1.0}};
+        PIController<double>            law{gains.discretize(kTs, lim)};
+        PIController<double>            holding{[&] {
             auto g = gains;
-            g.Kbc = 0.0; // no back-calculation: the integral holds against the clamp
-            return g.discretize(kTs);
+            g.tracking_time = 0.0; // no back-calculation: the integral holds against the clamp
+            return g.discretize(kTs, lim);
         }()};
 
         // r = 10 needs u = 10 on a unit-gain plant; the clamp holds u at 1 and y settles at 1.
@@ -839,22 +838,22 @@ TEST_SUITE("PID Design - Back-calculation seed") {
             const double u_held = holding.step(10.0, y_held);
             if (!met && u_held >= 1.0) {
                 met = true;
-                at_limit = holding.integral;
+                at_limit = holding.integral();
             }
             y_held = (a * y_held) + (b * u_held);
         }
-        // Saturated equilibrium: ΔI = Kᵢ·Ts·e + Kᵢ·Ts·(u_sat − u_unsat)/Kbc = 0 gives
-        // u_unsat − u_sat = Kbc·e; the stored I (after the tick's correction) is then
-        // u_sat + (Kbc − Kp − Kᵢ·Ts)·e.
+        // Saturated equilibrium: ΔI = Kᵢ·Ts·e + (Ts/T_t)·(u_sat − u_unsat) = 0 gives
+        // u_unsat − u_sat = Kᵢ·T_t·e; the stored I (after the tick's correction) is then
+        // u_sat + (Kᵢ·T_t − Kp − Kᵢ·Ts)·e.
         const double e = 10.0 - y;
         CHECK(y == doctest::Approx(1.0).epsilon(1e-6));
-        CHECK(law.integral == doctest::Approx(1.0 + ((gains.Kbc - gains.Kp - (gains.Ki * kTs)) * e)).epsilon(1e-6));
-        // With Kbc = 0 the integral stops where the output met the limit and holds there: the
+        CHECK(law.integral() == doctest::Approx(1.0 + (((gains.Ki * gains.tracking_time) - gains.Kp - (gains.Ki * kTs)) * e)).epsilon(1e-6));
+        // With T_t = 0 the integral stops where the output met the limit and holds there: the
         // ticks of positive error that follow add nothing.
         REQUIRE(met);
         CHECK(y_held == doctest::Approx(1.0).epsilon(1e-6));
-        CHECK(holding.integral == doctest::Approx(at_limit).epsilon(1e-12));
-        CHECK(holding.integral < 1.0 - (gains.Kp * 10.0)); // under u_sat − Kp·e at the first error
+        CHECK(holding.integral() == doctest::Approx(at_limit).epsilon(1e-12));
+        CHECK(holding.integral() < 1.0 - (gains.Kp * 10.0)); // under u_sat − Kp·e at the first error
 
         // Back to an attainable reference: the back-calculating law leaves saturation within a
         // few T_t.
@@ -869,43 +868,41 @@ TEST_SUITE("PID Design - Back-calculation seed") {
         CHECK(ticks < 20);
     }
 
-    TEST_CASE("an I-only placement (Kp = 0) seeds Kbc = Ki·Ts, a one-sample tracking time") {
+    TEST_CASE("an I-only placement (Kp = 0) seeds a one-sample tracking time") {
         // s = −½ twice: z₁z₂ = e^(−kTs) = a ⇒ Kp = 0
         const auto g = design::pid_pole_placement(kPlant, damp::array<damp::complex<double>, 2>{-0.5, -0.5}, kTs);
         REQUIRE(g.success);
         CHECK(g.Kp == doctest::Approx(0.0));
         CHECK(g.Ki > 0.0);
-        CHECK(g.Kbc == doctest::Approx(g.Ki * kTs));
-        CHECK(g.Kbc / g.Ki == doctest::Approx(kTs));
+        CHECK(g.tracking_time == doctest::Approx(kTs));
     }
 
-    TEST_CASE("a negative-gain plant seeds Kbc with Ki's sign") {
+    TEST_CASE("a negative-gain plant seeds a positive tracking time") {
         constexpr auto g = design::pid_pole_placement(TransferFunction<1, 2>{.num = {-1.0}, .den = {1.0, 1.0}}, damp::array<damp::complex<double>, 2>{s_pole(0.5, kTs), s_pole(0.3, kTs)}, kTs);
         static_assert(g.Ki < 0.0);
-        CHECK(g.Kbc < 0.0);
-        CHECK(g.Kbc == doctest::Approx(g.Kp)); // Kp < 0 too: Kbc = −|Kp|
+        CHECK(g.tracking_time > 0.0);
+        CHECK(g.tracking_time == doctest::Approx(g.Kp / g.Ki)); // Kp < 0 too: T_t = |T_i|
         static_assert(g.discretize(kTs).success);
     }
 
-    TEST_CASE("pidtune seeds Kbc for a tracking time of 1/ωc") {
+    TEST_CASE("pidtune seeds a tracking time of 1/ωc") {
         constexpr StateSpace sys{.A = {{-1.0}}, .B = {{1.0}}, .C = {{1.0}}};
         for (const double wc : {1.5, 2.0, 8.0}) { // below ωc = tan 30° the plant lags too little: C would need Kp < 0
             for (const auto mode : {PIDMode::PI, PIDMode::PID}) {
                 const auto g = design::pidtune(sys, {.wc = wc, .mode = mode});
                 REQUIRE(g.success);
                 REQUIRE(g.Ki > 0.0);
-                CHECK(g.Kbc == doctest::Approx(g.Ki / wc));
-                CHECK(g.Kbc / g.Ki == doctest::Approx(1.0 / wc));
+                CHECK(g.tracking_time == doctest::Approx(1.0 / wc));
             }
         }
     }
 
-    TEST_CASE("the continuous placements keep Kbc = |Kp|") {
+    TEST_CASE("the continuous placements seed T_t = T_i") {
         constexpr auto pi = design::pid_pole_placement(TransferFunction<1, 2>{.num = {1.0}, .den = {1.2e-3, 4.0e-4}}, {.omega = 1000.0});
-        CHECK(pi.Kbc == doctest::Approx(pi.Kp));
+        CHECK(pi.tracking_time == doctest::Approx(pi.Kp / pi.Ki));
         constexpr auto slow = design::current_loop_pi(200e-6, 0.5, {.omega = 10.0}); // R/L above ω: Kp = ωL
-        CHECK(slow.Kbc == doctest::Approx(10.0 * 200e-6));
-        CHECK(slow.Kbc / slow.Ki == doctest::Approx(200e-6 / 0.5)); // T_t = T_i = L/R
+        CHECK(slow.Kp == doctest::Approx(10.0 * 200e-6));
+        CHECK(slow.tracking_time == doctest::Approx(200e-6 / 0.5)); // T_t = T_i = L/R
     }
 }
 
@@ -921,7 +918,7 @@ TEST_SUITE("PID Design - Double-integrator pole placement") {
         CHECK(r.Kp == doctest::Approx(J * r.Tf * 10.0 * w * w * w));
         CHECK(r.Ki == doctest::Approx(0.0));
         CHECK(r.c == doctest::Approx(0.0));
-        CHECK(r.Kbc == doctest::Approx(r.Kp));
+        CHECK(r.tracking_time == 0.0); // a PD has no integral to unwind (the old seed, Kbc = |Kp|, was inert)
         check_placed(plant, r, w, 1.0, 0.0);
     }
 
@@ -952,10 +949,12 @@ TEST_SUITE("PID Design - Type Conversion") {
         constexpr double Ts = 0.01;
         constexpr auto   result = design::ziegler_nichols(10.0, 2.0);
         PIDController    controller(result.discretize(Ts).as<float>());
-        CHECK(controller.Kp == doctest::Approx(6.0f).epsilon(1e-4));
-        // Discrete Ki = continuous Ki * Ts
-        CHECK(controller.Ki == doctest::Approx(static_cast<float>(6.0 * Ts)).epsilon(1e-4));
-        CHECK(controller.Kd == doctest::Approx(1.5f).epsilon(1e-4));
+        CHECK(controller.gains().Kp == doctest::Approx(6.0f).epsilon(1e-4));
+        CHECK(controller.gains().Ki == doctest::Approx(6.0f).epsilon(1e-4));
+        CHECK(controller.gains().Kd == doctest::Approx(1.5f).epsilon(1e-4));
+        // The tick's integral increment is Ki·Ts per unit error
+        (void)controller.step(1.0f, 0.0f);
+        CHECK(controller.integral() == doctest::Approx(static_cast<float>(6.0 * Ts)).epsilon(1e-4));
     }
 
     TEST_CASE("Runtime design feeds into PIDController via discretize") {
@@ -1013,7 +1012,7 @@ TEST_SUITE("PID Design - PI Pole Placement (first-order plant)") {
 
         CHECK(g.Kp == doctest::Approx((2.0 * omega * a1) - a0));
         CHECK(g.Ki == doctest::Approx(a1 * omega * omega));
-        CHECK(g.Kbc == doctest::Approx(g.Kp)); // anti-windup tracking = Kp
+        CHECK(g.tracking_time == doctest::Approx(g.Kp / g.Ki)); // anti-windup tracking time T_t = T_i
 
         const double omega_n = std::sqrt(g.Ki / a1);
         const double zeta = (a0 + g.Kp) / (2.0 * a1 * omega_n);
@@ -1135,7 +1134,7 @@ TEST_SUITE("PID Design - PI Pole Placement (first-order plant)") {
         const auto pi_tf = design::pid_pole_placement(first_tf, {.omega = omega});
         CHECK(pi_ss.Kp == doctest::Approx(pi_tf.Kp).epsilon(1e-12));
         CHECK(pi_ss.Ki == doctest::Approx(pi_tf.Ki).epsilon(1e-12));
-        CHECK(pi_ss.Kbc == doctest::Approx(pi_tf.Kbc).epsilon(1e-12));
+        CHECK(pi_ss.tracking_time == doctest::Approx(pi_tf.tracking_time).epsilon(1e-12));
 
         // Discrete counterpart on the same continuous plant.
         constexpr double Ts = 1.0e-4;
@@ -1258,11 +1257,11 @@ TEST_SUITE("PID Design - success / status") {
         CHECK(r.status == design::DesignStatus::invalid_parameter);
     }
 
-    TEST_CASE("current_loop_pi returns the discrete gains with their status") {
-        constexpr design::DiscretePIDGains<double> des = design::current_loop_pi(250e-6, 0.0, {.omega = 2e4}).discretize(1e-5);
+    TEST_CASE("current_loop_pi deploys at Ts with its status") {
+        constexpr design::PIDResult<double> des = design::current_loop_pi(250e-6, 0.0, {.omega = 2e4}).discretize(1e-5);
         static_assert(des.success);
         static constinit PIController<float> pi = des.as<float>();
-        CHECK(pi.Kp > 0.0f);
+        CHECK(pi.gains().Kp > 0.0f);
         CHECK(design::current_loop_pi(250e-6, 0.0, {.omega = 2e4}).discretize(0.0).status == design::DesignStatus::invalid_sample_time);
     }
 }

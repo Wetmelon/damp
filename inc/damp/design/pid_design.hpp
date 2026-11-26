@@ -15,7 +15,8 @@
  * The tuning rules use experimentally determined parameters (ultimate gain and
  * period, or a first-order-plus-dead-time step response); pidtune and
  * pid_pole_placement use a plant model. All functions return continuous PIDGains;
- * deploy via `.discretize(Ts)` → PIDController, or ContinuousPID for variable-rate.
+ * deploy via `.discretize(Ts, limits)` → PIDController, which also ticks at a measured period
+ * with step(r, y, dt).
  *
  * Every function reports failure through PIDGains::success / status: non-finite or
  * non-physical inputs (K = 0, L ≤ 0, tau ≤ 0, Ku ≤ 0, Tu ≤ 0, ωc ≤ 0, …) and modes the
@@ -77,16 +78,18 @@ template<typename T>
 }
 
 /**
- * @brief Back-calculation seed for a placed PI / PID: Kbc = sgn(Kᵢ)·max(|Kp|, |Kᵢ|·T_min)
+ * @brief Back-calculation seed for a placed PI / PID: the tracking time T_t = max(|T_i|, T_min), T_i = Kp/Kᵢ
  *
- * The tracking time T_t = Kbc/Kᵢ = max(|T_i|, T_min) is positive, so the correction opposes
- * windup even for a placement with Kp < 0, and T_min > 0 keeps Kbc nonzero as Kp → 0.
- * Ki = 0 (no integrator, back-calculation inert) gives |Kp|.
+ * T_t is positive whatever the signs of the gains, so the correction opposes windup even for a
+ * placement with Kp < 0, and T_min > 0 keeps it from 0 (conditional integration) as Kp → 0.
+ * Kᵢ = 0 (no integrator, back-calculation inert) gives 0.
  */
 template<typename T>
-[[nodiscard]] constexpr T placed_kbc(T Kp, T Ki, T T_min = T{0}) {
-    const T mag = damp::max(damp::abs(Kp), damp::abs(Ki) * T_min);
-    return (Ki < T{0}) ? -mag : mag;
+[[nodiscard]] constexpr T placed_tracking_time(T Kp, T Ki, T T_min = T{0}) {
+    if (Ki == T{0}) {
+        return T{0};
+    }
+    return damp::max(damp::abs(Kp / Ki), T_min);
 }
 
 } // namespace detail
@@ -590,7 +593,7 @@ template<typename T>
     if (!detail::positive_finite(res.Kp) || !damp::finite_non_negative(res.Ki) || !damp::finite_non_negative(res.Kd) || ((spec.mode == PIDMode::PID) && !(res.Kd > T{0}))) {
         return refused<PIDGains<T>>(DesignStatus::not_placeable);
     }
-    res.Kbc = res.Ki / w; // tracking time T_t = Kbc/Ki = 1/ω_c
+    res.tracking_time = (res.Ki != T{0}) ? (T{1} / w) : T{0}; // T_t = 1/ω_c, with an integrator to unwind
     res.Tf = spec.Tf;
     res.b = spec.b;
     res.c = spec.c;
@@ -600,7 +603,7 @@ template<typename T>
 /**
  * @brief fit_to_response at spec.wc with every gain of sign σ = ±1
  *
- * σ = −1 fits σ·P and negates the gains: the loop C·P is the same, and Kbc keeps Kᵢ's sign.
+ * σ = −1 fits σ·P and negates the gains: the loop C·P is the same, and so is the tracking time.
  */
 template<size_t NX, typename T, size_t NW, size_t NV>
 [[nodiscard]] constexpr PIDGains<T>
@@ -614,7 +617,6 @@ fit_at_crossover(const damp::StateSpace<NX, 1, 1, T, NW, NV>& sys, const PIDTune
         g.Kp = -g.Kp;
         g.Ki = -g.Ki;
         g.Kd = -g.Kd;
-        g.Kbc = -g.Kbc;
     }
     return g;
 }
@@ -787,8 +789,8 @@ template<size_t NX, typename T, size_t NW, size_t NV>
  * spec.wc. When b or c is not 1, the loop crossover is raised so the tracking
  * map T_yr = C_ff P / (1 + C_fb P) has the same −3 dB bandwidth as the 1-DOF
  * design at spec.wc. The search keeps the closest match and steps by at most 2x.
- * Back-calculation is seeded to Kbc = Kᵢ/ω, ω the loop crossover of the result (spec.wc
- * for 1-DOF): tracking time T_t = 1/ω.
+ * Back-calculation is seeded to the tracking time T_t = 1/ω, ω the loop crossover of the result
+ * (spec.wc for 1-DOF).
  *
  * The gains share one sign. The sign of the plant's low-frequency gain num(0) is tried
  * first, so a reverse-acting plant gets Kp, Kᵢ, Kd ≤ 0 (pidtune(−P) is −pidtune(P)), and the
@@ -942,10 +944,10 @@ template<typename T>
  *   K_p = 2\zeta\omega a_1' - a_0', \qquad K_i = a_1'\,\omega^2 .
  * @f]
  * This is the kernel every loop in a motion cascade shares: (a₁, a₀) = (L, R) for a dq
- * current axis, (J, b_visc) for a velocity loop. The back-calculation gain is seeded to
- * Kbc = |Kp| (tracking time constant T_t = Kp/Ki = T_i; Kp > 0 here, since a pair that
- * needs Kp ≤ 0 is refused); the setpoint weight b leaves the poles fixed and only moves
- * the reference→output zero (b = 1 PI on error, b = 0 I-P).
+ * current axis, (J, b_visc) for a velocity loop. Back-calculation is seeded to the tracking
+ * time T_t = Kp/Ki = T_i (Kp > 0 here, since a pair that needs Kp ≤ 0 is refused); the setpoint
+ * weight b leaves the poles fixed and only moves the reference→output zero (b = 1 PI on error,
+ * b = 0 I-P).
  *
  * Status: invalid_parameter if b₀ = 0, a₁/b₀ ≤ 0, ω ≤ 0, ζ ≤ 0 or ωᵢ ≠ 0 (a PI has no third
  * pole); not_placeable if the placement needs Kp ≤ 0 (2ζω a₁′ ≤ a₀′: the plant pole is
@@ -956,7 +958,7 @@ template<typename T>
  *
  * @param plant First-order plant, `{.num = {b₀}, .den = {a₁, a₀}}`
  * @param spec  ω, ζ and the setpoint weight b
- * @return PIDGains with Kp, Ki, Kbc = |Kp| and b
+ * @return PIDGains with Kp, Ki, tracking_time = T_i and b
  *
  * @see "Advanced PID Control" (Åström & Hägglund, 2006), §4.4 (setpoint weighting)
  */
@@ -975,12 +977,12 @@ template<typename T = double>
     if (!detail::positive_finite(Kp)) {
         return detail::refused<PIDGains<T>>(DesignStatus::not_placeable);
     }
-    // Parallel form: T_t = Kbc/Ki. Kbc = |Kp| ⇒ T_t = T_i (Åström default).
+    // T_t = T_i (Åström default).
     const T Ki = a1 * spec.omega * spec.omega;
     return PIDGains<T>{
         .Kp = Kp,
         .Ki = Ki,
-        .Kbc = detail::placed_kbc(Kp, Ki),
+        .tracking_time = detail::placed_tracking_time(Kp, Ki),
         .b = spec.b,
     };
 }
@@ -1003,7 +1005,7 @@ template<typename T = double>
  * 1/(J s²) is `{.num = {1}, .den = {J, 0, 0}}`; a common load-holding choice is ωᵢ = ω/8.
  *
  * Derivative is on the measurement (c = 0, no D kick on a reference step). Back-calculation
- * is seeded to Kbc = |Kp| (T_t = T_i).
+ * is seeded to the tracking time T_t = T_i (0 for the PD, which has no integral).
  *
  * Status: invalid_parameter if b₀ = 0, a₂/b₀ ≤ 0, ω ≤ 0, ζ ≤ 0, ωᵢ < 0 or a coefficient is
  * non-finite; not_placeable if the placement needs Kp ≤ 0, Kd < 0 or Tf ≤ 0 (the plant is
@@ -1013,7 +1015,7 @@ template<typename T = double>
  *
  * @param plant Second-order plant, `{.num = {b₀}, .den = {a₂, a₁, a₀}}`
  * @param spec  ω, ζ, ωᵢ and the setpoint weight b
- * @return PIDGains with Kp, Ki, Kd, Kbc, b, c = 0 and Tf (0 when Kd = 0)
+ * @return PIDGains with Kp, Ki, Kd, tracking_time, b, c = 0 and Tf (0 when Kd = 0)
  *
  * @see "Feedback Control of Dynamic Systems" (Franklin, Powell, Emami-Naeini), PD on 1/s²
  */
@@ -1052,7 +1054,7 @@ template<typename T = double>
     r.Kp = Kp;
     r.Ki = Ki;
     r.Kd = Kd;
-    r.Kbc = detail::placed_kbc(Kp, Ki);
+    r.tracking_time = detail::placed_tracking_time(Kp, Ki);
     r.b = spec.b;
     r.c = T{0};                     // PI-D / PD on measurement
     r.Tf = (Kd > T{0}) ? Tf : T{0}; // Kd = 0: the filter factor cancels from the loop
@@ -1094,10 +1096,10 @@ template<typename T>
  *
  * A pole product above the sampled plant pole (z₁z₂ > a for the PI) needs Kp < 0, and
  * z₁z₂ = a gives Kp = 0, an I-only law. The PID's derivative gain is Kd = −z₁z₂z₃·Ts/b, which
- * is negative for every s-plane set on a plant with b > 0. Back-calculation is seeded to
- * Kbc = sgn(Kᵢ)·max(|Kp|, |Kᵢ|·Ts): tracking time T_t = Kbc/Kᵢ = max(|T_i|, Ts), positive
- * whatever the sign of Kp, and never shorter than one sample (the tick's correction
- * Kᵢ·Ts/Kbc stays at most 1, so it cannot overshoot the saturation).
+ * is negative for every s-plane set on a plant with b > 0. Back-calculation is seeded to the
+ * tracking time T_t = max(|T_i|, Ts), positive whatever the sign of Kp, and never shorter than
+ * one sample (the tick's correction Ts/T_t stays at most 1, so it cannot overshoot the
+ * saturation).
  *
  * Status: invalid_sample_time if Ts ≤ 0; invalid_parameter if b₀ = 0, a₁ = 0, a coefficient or
  * pole is non-finite, a pole has Re(s) ≥ 0 (as a z-plane value in [0, 1] read as s does), or a
@@ -1107,7 +1109,7 @@ template<typename T>
  * @param plant  First-order plant, `{.num = {b₀}, .den = {a₁, a₀}}`
  * @param poles  Desired closed-loop poles (s-plane, Re(s) < 0), real or in conjugate pairs
  * @param Ts     [s] Sample period
- * @return PIDGains (Tf = 0) with the Kbc seed above
+ * @return PIDGains (Tf = 0) with the tracking-time seed above
  */
 template<size_t NP, typename T = double>
     requires(NP == 2 || NP == 3)
@@ -1169,7 +1171,7 @@ template<size_t NP, typename T = double>
         //   b Kp + b Ki Ts = 1+a − σ     => Ki from the leftover.
         const T Kp = (a - prod.real()) / b;
         const T Ki = ((T{1} + a) - sigma.real() - (b * Kp)) / (b * Ts);
-        return PIDGains<T>{.Kp = Kp, .Ki = Ki, .Kbc = detail::placed_kbc(Kp, Ki, Ts)};
+        return PIDGains<T>{.Kp = Kp, .Ki = Ki, .tracking_time = detail::placed_tracking_time(Kp, Ki, Ts)};
     } else {
         // Deploy (Tf = 0): C(z) = Kp + Ki Ts z/(z−1) + (Kd/Ts)(z−1)/z. Closed loop:
         //   z³ + (−(1+a) + b Kp + b Ki Ts + b Kd/Ts) z² + (a − b Kp − 2 b Kd/Ts) z + b Kd/Ts
@@ -1177,7 +1179,7 @@ template<size_t NP, typename T = double>
         const T Kd = -(prod.real() * Ts) / b;                                           // b Kd/Ts = −π
         const T Kp = (a - rho.real() - (T{2} * b * Kd / Ts)) / b;                       // b Kp + 2 b Kd/Ts = a − ρ
         const T Ki = ((T{1} + a - sigma.real()) - (b * Kp) - (b * Kd / Ts)) / (b * Ts); // b Kp + b Ki Ts + b Kd/Ts = 1 + a − σ
-        return PIDGains<T>{.Kp = Kp, .Ki = Ki, .Kd = Kd, .Kbc = detail::placed_kbc(Kp, Ki, Ts)};
+        return PIDGains<T>{.Kp = Kp, .Ki = Ki, .Kd = Kd, .tracking_time = detail::placed_tracking_time(Kp, Ki, Ts)};
     }
 }
 
@@ -1293,7 +1295,7 @@ template<size_t NP, typename T = double, size_t NW = 0, size_t NV = 0>
  * @param L    [H] inductance (> 0)
  * @param R    [Ω] resistance
  * @param spec ω, ζ and the setpoint weight b
- * @return PIDGains with Kp, Ki, Kbc = |Kp| and b
+ * @return PIDGains with Kp, Ki, tracking_time = T_i and b
  *
  * @see pid_pole_placement
  * @see "When Is a Linear Control System Optimal?" (Kalman, 1964), the return-difference condition
@@ -1311,7 +1313,7 @@ template<typename T = double>
     return PIDGains<T>{
         .Kp = Kp,
         .Ki = Ki,
-        .Kbc = detail::placed_kbc(Kp, Ki),
+        .tracking_time = detail::placed_tracking_time(Kp, Ki),
         .b = spec.b,
     };
 }

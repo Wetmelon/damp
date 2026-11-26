@@ -105,8 +105,8 @@ struct FOController {
     /** @brief Optional R·i + L·Δi/Ts feedforward; retune PI if enabled (off by default). */
     bool plant_inversion_ff = false;
 
-    ContinuousPID<T> dctrl = {};
-    ContinuousPID<T> qctrl = {};
+    PIController<T> dctrl = {}; ///< d-axis current PI, ticked at the measured Ts (gains from @ref tune; set_gains / set_limits to change them)
+    PIController<T> qctrl = {}; ///< q-axis current PI, the same
 
     constexpr FOController() noexcept = default;
 
@@ -127,8 +127,9 @@ struct FOController {
      * @brief Place both dq PI loops on the R–L plant.
      *
      * Below the plant pole R/L the PI cancels it instead of placing the pair
-     * (::damp::design::current_loop_pi). A refused placement (an out-of-range input) keeps
-     * the previous gains and returns false; under constant evaluation it does not compile.
+     * (::damp::design::current_loop_pi). Each loop takes the placement with set_gains, its
+     * integral and limits kept. A refused placement (an out-of-range input) keeps the previous
+     * gains and returns false; under constant evaluation it does not compile.
      *
      * @param omega_bw [rad/s] closed-loop bandwidth
      * @param zeta     [-] damping (default 1)
@@ -145,28 +146,30 @@ struct FOController {
             return false;
         }
 
-        dctrl.Kp = d.Kp;
-        dctrl.Ki = d.Ki;
-        dctrl.Kbc = d.Kbc;
-        dctrl.b = d.b;
-
-        qctrl.Kp = q.Kp;
-        qctrl.Ki = q.Ki;
-        qctrl.Kbc = q.Kbc;
-        qctrl.b = q.b;
+        PIController<T> dn = dctrl; // both or neither
+        PIController<T> qn = qctrl;
+        if (!dn.set_gains(d) || !qn.set_gains(q)) {
+            if (damp::is_constant_evaluated()) {
+                ::damp::detail::refuse_failed_design(::damp::design::DesignStatus::invalid_parameter); // a coefficient overflows
+            }
+            return false;
+        }
+        dctrl = damp::move(dn);
+        qctrl = damp::move(qn);
         return true;
     }
 
-    /** @brief Bumpless disable: integrators track @p Vdq_track. */
-    constexpr void disable(const DQ& Vdq_track = {}) {
-        dctrl.disable(Vdq_track.d);
-        qctrl.disable(Vdq_track.q);
-    }
-
-    /** @brief Resume Auto on both dq loops. */
-    constexpr void enable() {
-        dctrl.enable();
-        qctrl.enable();
+    /**
+     * @brief In place of @ref current_controller while another source drives the bridge
+     *
+     * Each PI tracks its share of the applied @p Vdq, the voltage less the feedforward the
+     * current controller would add, so the next current_controller at these currents, speed and
+     * Ts starts from @p Vdq (PIController::track).
+     */
+    constexpr void track(const DQ& Vdq, const DQ& Idq_ref, const DQ& Idq, const T omega_e, const T Ts) {
+        const DQ Vff = feedforward(Idq_ref, Idq, omega_e, Ts);
+        dctrl.track(Vdq.d - Vff.d, Idq_ref.d, Idq.d, Ts);
+        qctrl.track(Vdq.q - Vff.q, Idq_ref.q, Idq.q, Ts);
     }
 
     /** @brief Clear both dq integrators. */
@@ -195,16 +198,7 @@ struct FOController {
         const T   Ts,
         const T   Vmax = damp::numeric_limits<T>::max()
     ) {
-        DQ Vff = decoupling_feedforward(omega_e, Ldq, lambda, Idq_ref);
-
-        if (plant_inversion_ff) {
-            Vff.d += R * Idq.d;
-            Vff.q += R * Idq.q;
-            if (Ts > T{0}) {
-                Vff.d += Ldq.d * (Idq_ref.d - Idq.d) / Ts;
-                Vff.q += Ldq.q * (Idq_ref.q - Idq.q) / Ts;
-            }
-        }
+        const DQ Vff = feedforward(Idq_ref, Idq, omega_e, Ts);
 
         const T ud = dctrl.step(Idq_ref.d, Idq.d, Ts);
         const T uq = qctrl.step(Idq_ref.q, Idq.q, Ts);
@@ -239,6 +233,21 @@ struct FOController {
 
         cmd.Vdq = Vdq;
         return cmd;
+    }
+
+private:
+    /** @brief The decoupling feedforward, and with plant_inversion_ff R·i + L·Δi/Ts. */
+    [[nodiscard]] constexpr DQ feedforward(const DQ& Idq_ref, const DQ& Idq, const T omega_e, const T Ts) const {
+        DQ Vff = decoupling_feedforward(omega_e, Ldq, lambda, Idq_ref);
+        if (plant_inversion_ff) {
+            Vff.d += R * Idq.d;
+            Vff.q += R * Idq.q;
+            if (Ts > T{0}) {
+                Vff.d += Ldq.d * (Idq_ref.d - Idq.d) / Ts;
+                Vff.q += Ldq.q * (Idq_ref.q - Idq.q) / Ts;
+            }
+        }
+        return Vff;
     }
 };
 

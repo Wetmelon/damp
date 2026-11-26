@@ -72,13 +72,13 @@ namespace damp {
  * runtime was built from, never a constructor or step() argument; this is the
  * common denominator that dt-baked laws can satisfy, so it is the concept contract.
  *
- * A 3-arg variable-rate step(r, y, Ts) overload stays *outside* the concept
- * and is allowed only where the sample time enters the law linearly at runtime
- * (ContinuousPID: `I += Ki*e*Ts` with I the integral term, `deriv = Δ/Ts`), so
- * a measured dt is exact and free. Canonical fixed-rate controllers bake Ts at
- * design time (PIDController via discretize, Kalman F/Q, LQG, PR) and must NOT
- * expose a runtime Ts: that would be a lie unless the coeffs are re-discretized
- * every tick. Multirate = several blocks each storing their own fixed Ts, not
+ * A 3-arg variable-rate step(r, y, dt) overload stays *outside* the concept
+ * and is allowed only where the sample time enters the law in closed form at runtime
+ * (PIDController::step(r, y, dt): `I += Ki*e*dt` with I the integral term, the filtered
+ * derivative's coefficients from one reciprocal 1/(dt + Tf)), so a measured dt is exact and
+ * cheap. Fixed-rate controllers bake Ts at design time (PIDController's step(r, y) via
+ * discretize, Kalman F/Q, LQG, PR) and must NOT expose a runtime Ts: that would be a lie
+ * unless the coeffs are re-discretized every tick. Multirate = several blocks each storing their own fixed Ts, not
  * one block driven at two rates.
  *
  * `back_calculate(u_sat, u_ff)` reports the input the plant received after a clamp

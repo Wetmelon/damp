@@ -203,7 +203,7 @@ TEST_SUITE("NaN/Inf policy") {
     }
 
     TEST_CASE("controllers from failed designs emit finite output on edge inputs") {
-        PIDController<float, PIDMode::PID> pid{design::DiscretePIDGains<float>{}};
+        PIDController<float, PIDMode::PID> pid{design::PIDResult<float>{}};
         PRController<float>                pr{design::PRResult<float>{}};
         LeadLagController<float>           lead{design::LeadLagResult<float>{}};
         ADRCController<2, float>           adrc{design::ADRCResult<2, float>{}};

@@ -175,9 +175,10 @@ the repo root.
   and MPC takes `track(u, …)` in place of `step(…)`, a twin of each overload with
   the applied input first (void, no mode flag): predict, update, then the memory
   that makes control here return u (u recorded as applied, an LQI's ξ preloaded
-  through `unwind`, an MPC's u_prev = u, no QP solved). A law with nothing to
-  preload takes `design::Handover{.fade_time}`, which fades the first command's
-  mismatch; `track` and a law without it cost `step` nothing.
+  through `unwind`, an MPC's u_prev = u, no QP solved); the PID laws take
+  `track(u, r, y)`, their integral preloaded so that `step(r, y)` returns u. A law
+  with nothing to preload takes `design::Handover{.fade_time}`, which fades the
+  first command's mismatch; `track` and a law without it cost `step` nothing.
 - **Limits:** a law's output limit is a `Bounds`, unbounded by default: an
   `InputLimits` among an LQ or MPC design's options, `u_lim` in the design input
   or on the result of the others, refused when it is not a box. The LQ laws and
@@ -185,7 +186,10 @@ the repo root.
   `set_limits(lim)`, which refuses one that is not a box (false, nothing
   changed): `StateFeedbackLimits` and `MPCLimits`, which start with `input` (then
   `input_rate`) and end with `disturbance`, and a design result holds the same
-  struct as `limits`. The other runtimes hold `u_lim` as a public member. The
+  struct as `limits`. The PID laws do the same with `design::PIDLimits` (`input`,
+  `integral`, the latter on the I term in u's units), which `discretize(Ts, limits)`
+  gives them, and take new gains with `gains()` / `set_gains(g)`. The other
+  runtimes hold `u_lim` as a public member. The
   tick returns a command inside its limits, and with nothing else set the law's
   memory holds against that clamp (conditional integration, an observer or
   internal model on the clamped command). A clamp after the law is reported with

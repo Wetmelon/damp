@@ -46,7 +46,6 @@ struct RunLog {
 // Run the full scenario with proportional setpoint weight b (1 = PI, 0 = I-P).
 RunLog run(T b) {
     FOController<T> foc = {Ldq, Rs, lambda_pm, bw, b};
-    foc.enable();
 
     DirectQuadrature<T> Idq{0.0, 0.0};
     RunLog              log;
