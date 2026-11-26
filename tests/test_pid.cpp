@@ -20,6 +20,10 @@
 
 using namespace damp;
 
+// A mode stores only its own terms: the integral's and the derivative's members take no space where the tick does not compute them.
+static_assert(sizeof(PController<float>) < sizeof(PIController<float>) && sizeof(PController<float>) < sizeof(PDController<float>));
+static_assert(sizeof(PIController<float>) < sizeof(PIDController<float>) && sizeof(PDController<float>) < sizeof(PIDController<float>));
+
 /**
  * @file test_pid.cpp
  * @brief Runtime tests for PIDController: the tick at T_s and at a measured dt, track(u, r, y)

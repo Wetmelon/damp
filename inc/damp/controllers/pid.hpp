@@ -108,6 +108,31 @@ template<typename T>
     return k;
 }
 
+/** @brief A PIDController's integral term: its gain, tracking time, coefficients, limits and memory (absent on a P or a PD). */
+template<typename T>
+struct PIDIntegral {
+    T            Ki{T{0}};     ///< Continuous integral gain
+    T            tt{T{0}};     ///< [s] Tracking time T_t (0: conditional integration)
+    T            ki_ts{T{0}};  ///< Kᵢ·T_s: the increment per unit error at the fixed rate
+    T            inv_tt{T{0}}; ///< 1/T_t, 0 for T_t = 0
+    Bounds<1, T> lim{};        ///< The limits on I (u's units)
+    T            value{T{0}};  ///< The integral term I (u's units)
+    T            step{T{0}};   ///< What the last tick added to I: what a clamp takes back when T_t = 0
+};
+
+/** @brief A PIDController's derivative term: its gain, filter, setpoint weight, coefficients and memory (absent on a P or a PI). */
+template<typename T>
+struct PIDDerivative {
+    T    Kd{T{0}};     ///< Derivative gain
+    T    Tf{T{0}};     ///< [s] Filter time constant
+    T    c{T{1}};      ///< Derivative setpoint weight
+    T    a{T{0}};      ///< T_f/(T_s + T_f): the filter's pole at the fixed rate
+    T    b{T{0}};      ///< K_d/(T_s + T_f): its gain on Δ(c·r − y) at the fixed rate
+    T    prev_x{T{0}}; ///< Previous c·r − y
+    T    value{T{0}};  ///< The filtered derivative term D
+    bool first{true};  ///< The next tick seeds prev_x (no derivative kick)
+};
+
 } // namespace detail
 
 namespace design {
@@ -525,7 +550,7 @@ public:
      * `PIController c = design::pid(...).discretize(Ts).as<float>();`
      */
     constexpr PIDController(const design::PIDResult<T>& r) // NOLINT(google-explicit-constructor): assign-from-design
-        : u_lim_(r.limits.input), i_lim_(r.limits.integral), Ts_(r.Ts) {
+        : u_lim_(r.limits.input), Ts_(r.Ts), i_(integral_within(r.limits.integral)) {
         if (!r.success && damp::is_constant_evaluated()) {
             detail::refuse_failed_design(r.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
@@ -545,16 +570,20 @@ public:
     template<typename U>
     constexpr explicit PIDController(const PIDController<U, Mode>& o)
         : u_lim_(o.u_lim_.template as<T>()),
-          i_lim_(o.i_lim_.template as<T>()),
           Ts_(static_cast<T>(o.Ts_)),
-          integral_(static_cast<T>(o.integral_)),
-          integral_step_(static_cast<T>(o.integral_step_)),
-          prev_x_(static_cast<T>(o.prev_x_)),
-          deriv_(static_cast<T>(o.deriv_)),
           u_cmd_(static_cast<T>(o.u_cmd_)),
           h_(static_cast<T>(o.h_)),
-          first_(o.first_) {
+          i_(integral_within(o.limits().integral.template as<T>())) {
         valid_ = o.valid_ && take(o.gains().template as<T>());
+        if constexpr (kI) {
+            i_.value = static_cast<T>(o.i_.value);
+            i_.step = static_cast<T>(o.i_.step);
+        }
+        if constexpr (kD) {
+            d_.prev_x = static_cast<T>(o.d_.prev_x);
+            d_.value = static_cast<T>(o.d_.value);
+            d_.first = o.d_.first;
+        }
     }
 
     /** @brief False when built from a design it refuses: step() returns 0. */
@@ -565,7 +594,7 @@ public:
         if (!valid_) {
             return T{0};
         }
-        return tick(r, y, k_.ki_ts, k_.d_a, k_.d_b, Ts_);
+        return tick(r, y, ki_per(Ts_, true), fixed_derivative(), Ts_);
     }
 
     /**
@@ -584,8 +613,7 @@ public:
             h_ = T{0};
             return u_cmd_;
         }
-        const Derivative d = derivative_at(dt);
-        return tick(r, y, Ki_ * dt, d.a, d.b, dt);
+        return tick(r, y, ki_per(dt, false), derivative_at(dt), dt);
     }
 
     /**
@@ -602,7 +630,7 @@ public:
         if (!valid_) {
             return;
         }
-        follow(u, r, y, k_.ki_ts, k_.d_a, k_.d_b, Ts_);
+        follow(u, r, y, ki_per(Ts_, true), fixed_derivative(), Ts_);
     }
 
     /**
@@ -620,8 +648,7 @@ public:
             u_cmd_ = u;
             return;
         }
-        const Derivative d = derivative_at(dt);
-        follow(u, r, y, Ki_ * dt, d.a, d.b, dt);
+        follow(u, r, y, ki_per(dt, false), derivative_at(dt), dt);
     }
 
     /**
@@ -650,18 +677,39 @@ public:
 
     /** @brief Clear the integral, the derivative and the last command; keeps the gains and the limits. */
     constexpr void reset() {
-        integral_ = T{0};
-        integral_step_ = T{0};
-        prev_x_ = T{0};
-        deriv_ = T{0};
-        first_ = true;
+        if constexpr (kI) {
+            i_.value = T{0};
+            i_.step = T{0};
+        }
+        if constexpr (kD) {
+            d_.prev_x = T{0};
+            d_.value = T{0};
+            d_.first = true;
+        }
         u_cmd_ = T{0};
         h_ = T{0};
     }
 
-    /** @brief The continuous gains in force: the design's, or the last set_gains. */
+    /**
+     * @brief The continuous gains in force: the design's, or the last set_gains
+     *
+     * A term the mode does not compute reads at its default: Kᵢ = 0 and T_t = 0 on a P or a PD,
+     * K_d = 0, T_f = 0 and c = 1 on a P or a PI.
+     */
     [[nodiscard]] constexpr design::PIDGains<T> gains() const {
-        return design::PIDGains<T>{.Kp = Kp_, .Ki = Ki_, .Kd = Kd_, .tracking_time = tt_, .b = b_, .c = c_, .Tf = Tf_};
+        design::PIDGains<T> g{};
+        g.Kp = Kp_;
+        g.b = b_;
+        if constexpr (kI) {
+            g.Ki = i_.Ki;
+            g.tracking_time = i_.tt;
+        }
+        if constexpr (kD) {
+            g.Kd = d_.Kd;
+            g.Tf = d_.Tf;
+            g.c = d_.c;
+        }
+        return g;
     }
 
     /**
@@ -681,42 +729,64 @@ public:
      */
     [[nodiscard]] constexpr bool set_gains(const design::PIDGains<T>& g) { return g.success && take(g); }
 
-    /** @brief The limits in force: the design's, or the last set_limits. */
-    [[nodiscard]] constexpr design::PIDLimits<T> limits() const { return design::PIDLimits<T>{u_lim_, i_lim_}; }
+    /** @brief The limits in force: the design's, or the last set_limits (integral unbounded on a P or a PD). */
+    [[nodiscard]] constexpr design::PIDLimits<T> limits() const {
+        design::PIDLimits<T> lim{};
+        lim.input = u_lim_;
+        if constexpr (kI) {
+            lim.integral = i_.lim;
+        }
+        return lim;
+    }
 
     /**
      * @brief Change the limits at run time; the next tick clamps into them
      *
      * The integral is clamped into the new integral limits at once. Refused (false, nothing
-     * changed) when an end is NaN or ±Inf, or a lower end is above its upper one.
+     * changed) when an end is NaN or ±Inf, or a lower end is above its upper one. A P or a PD
+     * has no integral: its integral limits are checked and not kept.
      */
     [[nodiscard]] constexpr bool set_limits(const design::PIDLimits<T>& lim) {
         if (!lim.input.valid() || !lim.integral.valid()) {
             return false;
         }
         u_lim_ = Bounds<1, T>(lim.input);
-        i_lim_ = Bounds<1, T>(lim.integral);
-        const T held = integral_;
-        integral_ = i_lim_.saturate(integral_);
-        if (integral_ != held) {
-            integral_step_ = T{0}; // the clamp took it: nothing of the last step left to give back
+        if constexpr (kI) {
+            i_.lim = Bounds<1, T>(lim.integral);
+            const T held = i_.value;
+            i_.value = i_.lim.saturate(i_.value);
+            if (i_.value != held) {
+                i_.step = T{0}; // the clamp took it: nothing of the last step left to give back
+            }
         }
         return true;
     }
 
-    /** @brief The integral term I (u's units). */
-    [[nodiscard]] constexpr T integral() const { return integral_; }
+    /** @brief The integral term I (u's units; 0 on a P or a PD). */
+    [[nodiscard]] constexpr T integral() const {
+        if constexpr (kI) {
+            return i_.value;
+        } else {
+            return T{0};
+        }
+    }
 
     /** @brief I ← @p value clamped into the integral limits: a preload, or a leak an outer loop applies. */
     constexpr void set_integral(T value)
         requires kI
     {
-        integral_ = i_lim_.saturate(value);
-        integral_step_ = T{0};
+        i_.value = i_.lim.saturate(value);
+        i_.step = T{0};
     }
 
-    /** @brief The filtered derivative term D (u's units). */
-    [[nodiscard]] constexpr T derivative() const { return deriv_; }
+    /** @brief The filtered derivative term D (u's units; 0 on a P or a PI). */
+    [[nodiscard]] constexpr T derivative() const {
+        if constexpr (kD) {
+            return d_.value;
+        } else {
+            return T{0};
+        }
+    }
 
     /** @brief [s] The fixed-rate tick's sample period T_s (0 for a law with no fixed period). */
     [[nodiscard]] constexpr T sample_time() const { return Ts_; }
@@ -732,14 +802,31 @@ private:
             return false;
         }
         Kp_ = g.Kp;
-        Ki_ = g.Ki;
-        Kd_ = g.Kd;
-        Tf_ = g.Tf;
-        tt_ = g.tracking_time;
         b_ = g.b;
-        c_ = g.c;
-        k_ = k;
+        if constexpr (kI) {
+            i_.Ki = g.Ki;
+            i_.tt = g.tracking_time;
+            i_.ki_ts = k.ki_ts;
+            i_.inv_tt = k.inv_tt;
+        }
+        if constexpr (kD) {
+            d_.Kd = g.Kd;
+            d_.Tf = g.Tf;
+            d_.c = g.c;
+            d_.a = k.d_a;
+            d_.b = k.d_b;
+        }
         return true;
+    }
+
+    /** @brief The integral term at rest within the limits @p lim (nothing on a P or a PD): built, not assigned, so a constant initializer can copy the design's limits. */
+    [[nodiscard]] static constexpr auto integral_within(const Bounds<1, T>& lim) {
+        if constexpr (kI) {
+            return detail::PIDIntegral<T>{.lim = lim};
+        } else {
+            static_cast<void>(lim);
+            return detail::maybe<false, detail::PIDIntegral<T>, detail::OffSlot::pid_integral>{};
+        }
     }
 
     /** @brief The filtered derivative's coefficients over one period. */
@@ -748,46 +835,66 @@ private:
         T b{T{0}}; ///< K_d/(dt + T_f): the gain on Δ(c·r − y)
     };
 
+    /** @brief The integral's increment per unit error over @p h: the stored Kᵢ·T_s at the fixed rate, Kᵢ·h at a measured one, 0 without an integral. */
+    [[nodiscard]] constexpr T ki_per(T h, bool fixed) const {
+        if constexpr (kI) {
+            return fixed ? i_.ki_ts : i_.Ki * h;
+        } else {
+            static_cast<void>(h);
+            static_cast<void>(fixed);
+            return T{0};
+        }
+    }
+
+    /** @brief The derivative's pole and gain at the fixed rate, computed when the gains were set. */
+    [[nodiscard]] constexpr Derivative fixed_derivative() const {
+        if constexpr (kD) {
+            return Derivative{d_.a, d_.b};
+        } else {
+            return Derivative{};
+        }
+    }
+
     /** @brief The derivative's pole and gain over @p dt: one reciprocal shared by both, none without a derivative. */
     [[nodiscard]] constexpr Derivative derivative_at(T dt) const {
         if constexpr (kD) {
-            if (Kd_ != T{0}) {
-                const T inv = T{1} / (dt + Tf_);
-                return Derivative{Tf_ * inv, Kd_ * inv};
+            if (d_.Kd != T{0}) {
+                const T inv = T{1} / (dt + d_.Tf);
+                return Derivative{d_.Tf * inv, d_.Kd * inv};
             }
         }
         static_cast<void>(dt);
         return Derivative{};
     }
 
-    /** @brief Δ(c·r − y) since the last tick; zero on the first (no derivative kick). */
-    [[nodiscard]] constexpr T delta(T x) {
-        if (first_) {
-            prev_x_ = x;
-            first_ = false;
+    /** @brief The derivative term over one period: D ← a·D + b·Δ(c·r − y), Δ zero on the first tick (no derivative kick). */
+    constexpr void differentiate(T r, T y, const Derivative& k)
+        requires kD
+    {
+        const T x = (d_.c * r) - y;
+        if (d_.first) {
+            d_.prev_x = x;
+            d_.first = false;
         }
-        const T dx = x - prev_x_;
-        prev_x_ = x;
-        return dx;
+        d_.value = (k.a * d_.value) + (k.b * (x - d_.prev_x));
+        d_.prev_x = x;
     }
 
-    /** @brief One tick over a period @p h: integral increment @p ki_h per unit error, derivative pole @p a and gain @p bd. */
-    [[nodiscard]] constexpr T tick(T r, T y, T ki_h, T a, T bd, T h) {
-        const T p = Kp_ * ((b_ * r) - y);
-        T       u_unsat = p;
+    /** @brief One tick over a period @p h: integral increment @p ki_h per unit error, derivative coefficients @p k. */
+    [[nodiscard]] constexpr T tick(T r, T y, T ki_h, const Derivative& k, T h) {
+        T u_unsat = Kp_ * ((b_ * r) - y);
         if constexpr (kD) {
-            deriv_ = (a * deriv_) + (bd * delta((c_ * r) - y));
-            u_unsat = p + deriv_;
+            differentiate(r, y, k);
+            u_unsat = u_unsat + d_.value;
         }
         if constexpr (kI) {
-            const T held = integral_;
-            integral_ = i_lim_.saturate(integral_ + (ki_h * (r - y)));
-            integral_step_ = integral_ - held;
-            u_unsat = u_unsat + integral_;
+            const T held = i_.value;
+            i_.value = i_.lim.saturate(i_.value + (ki_h * (r - y)));
+            i_.step = i_.value - held;
+            u_unsat = u_unsat + i_.value;
         }
         static_cast<void>(ki_h);
-        static_cast<void>(a);
-        static_cast<void>(bd);
+        static_cast<void>(k);
         const T u = u_lim_.saturate(u_unsat);
         h_ = h;
         u_cmd_ = u;
@@ -798,59 +905,49 @@ private:
     }
 
     /** @brief track's memory: the tick's derivative, then I for a next tick at (r, y) of the same period that returns u clamped. */
-    constexpr void follow(T u, T r, T y, T ki_h, T a, T bd, T h) {
+    constexpr void follow(T u, T r, T y, T ki_h, const Derivative& k, T h) {
         T next = Kp_ * ((b_ * r) - y); // the next tick's P + D at this (r, y)
         if constexpr (kD) {
-            deriv_ = (a * deriv_) + (bd * delta((c_ * r) - y));
-            next = next + (a * deriv_); // Δ(c·r − y) = 0 at the next tick: D only decays
+            differentiate(r, y, k);
+            next = next + (k.a * d_.value); // Δ(c·r − y) = 0 at the next tick: D only decays
         }
         if constexpr (kI) {
-            integral_ = i_lim_.saturate(u_lim_.saturate(u) - next - (ki_h * (r - y)));
-            integral_step_ = T{0};
+            i_.value = i_.lim.saturate(u_lim_.saturate(u) - next - (ki_h * (r - y)));
+            i_.step = T{0};
         }
         static_cast<void>(ki_h);
-        static_cast<void>(a);
-        static_cast<void>(bd);
+        static_cast<void>(k);
         h_ = h;
         u_cmd_ = u;
     }
 
     /** @brief Hold I against @p u_sat − @p u_unsat (conditional integration), or with T_t > 0 unwind min(h/T_t, 1) of it. */
-    constexpr void wind_back(T u_sat, T u_unsat) {
-        if (Ki_ == T{0} || h_ == T{0} || u_sat == u_unsat) {
+    constexpr void wind_back(T u_sat, T u_unsat)
+        requires kI
+    {
+        if (i_.Ki == T{0} || h_ == T{0} || u_sat == u_unsat) {
             return;
         }
-        if (k_.inv_tt == T{0}) {
-            detail::hold_against_clamp(integral_, integral_step_, u_sat - u_unsat);
+        if (i_.inv_tt == T{0}) {
+            detail::hold_against_clamp(i_.value, i_.step, u_sat - u_unsat);
             return;
         }
         // The whole excess at most: past it an overshoot of the unsaturated value, past twice divergence.
-        integral_ = i_lim_.saturate(integral_ + (damp::min(h_ * k_.inv_tt, T{1}) * (u_sat - u_unsat)));
+        i_.value = i_.lim.saturate(i_.value + (damp::min(h_ * i_.inv_tt, T{1}) * (u_sat - u_unsat)));
     }
 
-    // ponytail: every mode carries every member, one template written once: a P holds the I and D
-    // terms, their gains and coefficients it never reads (16 scalars, 64 bytes in float), a PI the
-    // derivative's (7 scalars and a flag, 32 bytes). Split the storage by mode if a fleet of P or
-    // PI loops runs out of RAM.
-    T                          Kp_{T{0}};        ///< Proportional gain
-    T                          Ki_{T{0}};        ///< Continuous integral gain
-    T                          Kd_{T{0}};        ///< Derivative gain
-    T                          Tf_{T{0}};        ///< [s] Derivative filter time constant
-    T                          tt_{T{0}};        ///< [s] Tracking time T_t (0: conditional integration)
-    T                          b_{T{1}};         ///< Proportional setpoint weight
-    T                          c_{T{1}};         ///< Derivative setpoint weight
-    detail::PIDCoefficients<T> k_{};             ///< The fixed-rate coefficients at Ts_, and 1/T_t
-    Bounds<1, T>               u_lim_{};         ///< The command's limits
-    Bounds<1, T>               i_lim_{};         ///< The integral term's limits (u's units)
-    T                          Ts_{T{0}};        ///< [s] The fixed-rate tick's period (0: none)
-    T                          integral_{T{0}};  ///< Integral term I (u's units)
-    T                          integral_step_{}; ///< What the last tick added to I: what a clamp takes back when T_t = 0
-    T                          prev_x_{T{0}};    ///< Previous c·r − y
-    T                          deriv_{T{0}};     ///< Filtered derivative term D
-    T                          u_cmd_{T{0}};     ///< Last command step() returned, or the input track() recorded
-    T                          h_{T{0}};         ///< [s] The last tick's period, which back_calculate charges (0: none)
-    bool                       first_{true};     ///< Next tick seeds prev_x_ (no derivative kick)
-    bool                       valid_{true};     ///< False when built from a design it refuses: step() returns 0
+    using Integral = detail::maybe<kI, detail::PIDIntegral<T>, detail::OffSlot::pid_integral>;
+    using Deriv = detail::maybe<kD, detail::PIDDerivative<T>, detail::OffSlot::pid_derivative>;
+
+    T                              Kp_{T{0}};    ///< Proportional gain
+    T                              b_{T{1}};     ///< Proportional setpoint weight
+    Bounds<1, T>                   u_lim_{};     ///< The command's limits
+    T                              Ts_{T{0}};    ///< [s] The fixed-rate tick's period (0: none)
+    T                              u_cmd_{T{0}}; ///< Last command step() returned, or the input track() recorded
+    T                              h_{T{0}};     ///< [s] The last tick's period, which back_calculate charges (0: none)
+    [[no_unique_address]] Integral i_{};         ///< The integral term: no storage on a P or a PD
+    [[no_unique_address]] Deriv    d_{};         ///< The derivative term: no storage on a P or a PI
+    bool                           valid_{true}; ///< False when built from a design it refuses: step() returns 0
 };
 
 /**
@@ -926,8 +1023,8 @@ struct Law<Res, T> : PIDController<T, detail::narrowest_pid_mode(Res.gains)> {
     static_assert(detail::constant_design_runs(Res.success, Res.status, Res.Ts));
 
     // ponytail: the gains are members, as a PIDController's, so set_gains works; folding them into
-    // constants of the type, as the LQ Law does with its matrices, would make a zero gain no code
-    // and move the gains to flash. The mode narrowing above already drops the terms that are off.
+    // constants of the type, as the LQ Law does with its matrices, would move them to flash. The
+    // mode narrowing above already drops the terms that are off, and their storage with them.
 
     /** @brief The design's law. */
     constexpr Law() : Runtime{Res} {}
