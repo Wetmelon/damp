@@ -3,12 +3,13 @@
 // Distributed under the Boost Software License, Version 1.0.
 // (See accompanying file LICENSE or copy at http://www.boost.org/LICENSE_1_0.txt)
 
-#include <array>
 #include <cmath>
 #include <complex>
 #include <cstddef>
 #include <limits>
 #include <numbers>
+#include <type_traits>
+#include <utility>
 
 #include "damp/backend.hpp"
 #include "damp/controllers/pr.hpp"
@@ -136,10 +137,10 @@ TEST_SUITE("PR Controller") {
 
         constexpr auto result = design::pr({.Kp = 1.0, .Ki = 100.0, .w0 = w0, .wc = wc}, Ts);
         static_assert(result.success);
-        static_assert(result.Kp == 1.0);
-        static_assert(result.Ki == 100.0);
-        CHECK(result.w0 == doctest::Approx(w0));
-        CHECK(result.wc == doctest::Approx(wc));
+        static_assert(result.gains.Kp == 1.0);
+        static_assert(result.gains.Ki == 100.0);
+        CHECK(result.gains.w0 == doctest::Approx(w0));
+        CHECK(result.gains.wc == doctest::Approx(wc));
     }
 
     TEST_CASE("PR rejects invalid parameters") {
@@ -147,7 +148,8 @@ TEST_SUITE("PR Controller") {
         static_assert(!design::pr({.Kp = 1.0, .Ki = 100.0, .w0 = 314.0, .wc = -1.0}, 1e-4).success);  // wc < 0
         static_assert(!design::pr({.Kp = 1.0, .Ki = 100.0, .w0 = 314.0, .wc = 10.0}, -1e-4).success); // Ts < 0
         static_assert(design::pr({.Kp = 1.0, .Ki = 100.0, .w0 = 314.0, .wc = 0.0}, 1e-4).success);    // ideal PR
-        static_assert(design::pr({.Kp = 1.0, .Ki = 100.0, .w0 = 314.0, .wc = 10.0}, 0.0).success);    // continuous
+        // Ts = 0 was a continuous design for analysis; now the design is deployed at a Ts, and to_ss()/to_tf() are the continuous law.
+        static_assert(design::pr({.Kp = 1.0, .Ki = 100.0, .w0 = 314.0, .wc = 10.0}, 0.0).status == design::DesignStatus::invalid_sample_time);
 
         PRController<double> bad(design::pr({.Kp = 1.0, .Ki = 100.0, .w0 = 0.0, .wc = 10.0}, 1e-4));
         CHECK_FALSE(bad.valid());
@@ -216,8 +218,8 @@ TEST_SUITE("PR Controller") {
     TEST_CASE("PR controller type conversion") {
         constexpr auto      result = design::pr({.Kp = 1.0, .Ki = 100.0, .w0 = 314.0, .wc = 10.0}, 0.0001);
         PRController<float> ctrl(result.as<float>());
-        CHECK(ctrl.Kp == doctest::Approx(1.0f));
-        CHECK(ctrl.w0 == doctest::Approx(314.0f).epsilon(0.1));
+        CHECK(ctrl.gains().Kp == doctest::Approx(1.0f));
+        CHECK(ctrl.gains().w0 == doctest::Approx(314.0f).epsilon(0.1));
     }
 
     TEST_CASE("PR controller reset") {
@@ -243,8 +245,8 @@ TEST_SUITE("PR Controller") {
 
         // Change to 60 Hz
         double w0_60 = 2.0 * std::numbers::pi * 60.0;
-        ctrl.set_frequency(w0_60);
-        CHECK(ctrl.w0 == doctest::Approx(w0_60));
+        CHECK(ctrl.set_frequency(w0_60));
+        CHECK(ctrl.gains().w0 == doctest::Approx(w0_60));
     }
 
     TEST_CASE("PR control(r,y) matches control(error)") {
@@ -264,9 +266,9 @@ TEST_SUITE("PR Controller") {
         (void)d.step(-0.2);
 
         PRController<float> f(d); // U -> T converting ctor
-        CHECK(f.tracking_time == doctest::Approx(5.0f));
+        CHECK(f.gains().tracking_time == doctest::Approx(5.0f));
         // Resonant delay line carried over.
-        CHECK(f.resonant.last_output() == doctest::Approx(static_cast<float>(d.resonant.last_output())));
+        CHECK(f.resonant() == doctest::Approx(static_cast<float>(d.resonant())));
         // Coefficients carried over too: the next step matches within float precision.
         CHECK(static_cast<double>(f.step(0.1f)) == doctest::Approx(d.step(0.1)).epsilon(0.01));
     }
@@ -274,35 +276,35 @@ TEST_SUITE("PR Controller") {
     TEST_CASE("PR back_calculate unwinds resonant state") {
         PRController<double> ctrl(design::pr({.Kp = 1.0, .Ki = 100.0, .w0 = 314.0, .wc = 10.0, .tracking_time = 2.0}, 0.0001));
         const double         u = ctrl.step(1.0);
-        double               y_before = ctrl.resonant.last_output();
+        double               y_before = ctrl.resonant();
 
         // No clamp: the applied command is the law's own plus the feedforward -> unchanged.
         ctrl.back_calculate(u + 0.5, 0.5);
-        CHECK(ctrl.resonant.last_output() == y_before);
+        CHECK(ctrl.resonant() == y_before);
 
         // Saturation: realizable command 2 below the requested one -> pull output down by Ts·2/tracking_time.
         ctrl.back_calculate(u - 2.0);
-        CHECK(ctrl.resonant.last_output() == doctest::Approx(y_before - (0.0001 * 2.0 / 2.0)));
+        CHECK(ctrl.resonant() == doctest::Approx(y_before - (0.0001 * 2.0 / 2.0)));
 
         // tracking_time == 0: the resonant section holds. It gives back what the tick added (from rest, its
         // whole output), up to the excess, and a second report of the clamp takes nothing more.
         PRController<double> nctrl(design::pr({.Kp = 1.0, .Ki = 100.0, .w0 = 314.0, .wc = 10.0}, 0.0001));
         const double         un = nctrl.step(1.0);
-        REQUIRE(nctrl.resonant.last_output() > 0.0);
+        REQUIRE(nctrl.resonant() > 0.0);
         nctrl.back_calculate(un - 2.0);
-        CHECK(nctrl.resonant.last_output() == 0.0); // was unchanged: no back-calculation configured
+        CHECK(nctrl.resonant() == 0.0); // was unchanged: no back-calculation configured
         nctrl.back_calculate(un - 2.0);
-        CHECK(nctrl.resonant.last_output() == 0.0);
+        CHECK(nctrl.resonant() == 0.0);
     }
 
-    TEST_CASE_TEMPLATE("u_lim: the resonant section holds against the clamp, as against one reported", T, float, double) {
+    TEST_CASE_TEMPLATE("InputLimits: the resonant section holds against the clamp, as against one reported", T, float, double) {
         const double Ts = 1e-4;
         const double w0 = 2.0 * std::numbers::pi * 50.0;
-        auto         res = design::pr({.Kp = 0.0, .Ki = 200.0, .w0 = w0, .wc = 5.0}, Ts);
-        res.u_lim = {.lower = -0.1, .upper = 0.1};
+        const auto   res = design::pr({.Kp = 0.0, .Ki = 200.0, .w0 = w0, .wc = 5.0}, Ts, design::InputLimits{.lower = {-0.1}, .upper = {0.1}});
+        REQUIRE(res.success);
+        CHECK(res.limits.input.upper(0) == 0.1);
         PRController<T> inside{res.template as<T>()};
-        auto            open = res;
-        open.u_lim = {};
+        const auto      open = design::pr({.Kp = 0.0, .Ki = 200.0, .w0 = w0, .wc = 5.0}, Ts);
         PRController<T> outside{open.template as<T>()};
         const T         lim = static_cast<T>(0.1);
         T               peak{0};
@@ -312,7 +314,7 @@ TEST_SUITE("PR Controller") {
             const T sent = std::clamp(outside.step(e), -lim, lim);
             outside.back_calculate(sent);
             CHECK(damp::abs(u - sent) <= T{64} * eps<T>() * lim);
-            peak = damp::max(peak, damp::abs(inside.resonant.last_output()));
+            peak = damp::max(peak, damp::abs(inside.resonant()));
         }
         CHECK(peak <= lim * static_cast<T>(1.001)); // was 200: the resonance wound up behind the clamp
     }
@@ -326,29 +328,40 @@ TEST_SUITE("PR Controller") {
         for (int k = 0; k < 4000; ++k) {
             const double u = pr.step(std::sin(w0 * Ts * k));
             pr.back_calculate(std::clamp(u, -0.1, 0.1));
-            peak = std::max(peak, std::abs(pr.resonant.last_output()));
+            peak = std::max(peak, std::abs(pr.resonant()));
         }
         CHECK(std::isfinite(peak));
         CHECK(peak < 1.0);
     }
 
-    TEST_CASE("a u_lim that is not a box leaves PRController invalid") {
+    TEST_CASE("a limit that is not a box is refused: by the design, and by a runtime built from an edited result") {
+        const auto refused = design::pr({.Kp = 1.0, .Ki = 100.0, .w0 = 314.0, .wc = 10.0}, 0.0001, design::InputLimits{.lower = {1.0}, .upper = {-1.0}});
+        CHECK(refused.status == design::DesignStatus::invalid_parameter);
         auto res = design::pr({.Kp = 1.0, .Ki = 100.0, .w0 = 314.0, .wc = 10.0}, 0.0001);
-        res.u_lim = {.lower = 1.0, .upper = -1.0};
+        res.limits.input = {.lower = 1.0, .upper = -1.0};
         PRController<double> pr{res};
         CHECK_FALSE(pr.valid());
         CHECK(pr.step(1.0) == 0.0);
     }
 
-    TEST_CASE("A continuous (Ts = 0) design leaves PRController invalid") {
-        // There is no Tustin map at Ts = 0: the runtime used to drop the resonator and emit Kp·e.
-        PRController<double> ctrl(design::pr({.Kp = 2.0, .Ki = 100.0, .w0 = 314.0, .wc = 10.0}, 0.0));
-        CHECK_FALSE(ctrl.valid());
-        CHECK(ctrl.step(1.0) == 0.0);
-        CHECK(ctrl.step(-3.0) == 0.0);
+    TEST_CASE("Ts is refused unless finite and positive, by the design and by a runtime built from an edited result") {
+        // Ts = 0 was a continuous design, which the runtime refused: there is no Tustin map at Ts = 0.
+        const double inf = std::numeric_limits<double>::infinity();
+        for (const double Ts : {0.0, -1e-4, inf, std::numeric_limits<double>::quiet_NaN()}) {
+            CAPTURE(Ts);
+            const auto res = design::pr({.Kp = 2.0, .Ki = 100.0, .w0 = 314.0, .wc = 10.0}, Ts);
+            CHECK(res.status == design::DesignStatus::invalid_sample_time);
+            CHECK(res.gains.Kp == 0.0); // a refused design holds zero gains
+            PRController<double> ctrl(res);
+            CHECK_FALSE(ctrl.valid());
+            CHECK(ctrl.step(1.0) == 0.0);
+        }
+        auto edited = design::pr({.Kp = 2.0, .Ki = 100.0, .w0 = 314.0, .wc = 10.0}, 1e-4);
+        edited.Ts = 0.0;
+        CHECK_FALSE(PRController<double>{edited}.valid());
     }
 
-    TEST_CASE("PR refuses a resonance at or above Nyquist; set_frequency ignores one") {
+    TEST_CASE("PR refuses a resonance at or above Nyquist; set_frequency refuses one") {
         constexpr double Ts = 1e-4; // fs = 10 kHz, Nyquist 5 kHz
         const auto       above = design::pr({.Kp = 1.0, .Ki = 100.0, .w0 = 2.0 * std::numbers::pi * 6000.0, .wc = 10.0}, Ts);
         CHECK_FALSE(above.success);
@@ -357,8 +370,8 @@ TEST_SUITE("PR Controller") {
         CHECK(design::pr({.Kp = 1.0, .Ki = 100.0, .w0 = 2.0 * std::numbers::pi * 4000.0, .wc = 10.0}, Ts).success);
 
         PRController<double> ctrl(design::pr({.Kp = 1.0, .Ki = 100.0, .w0 = 314.0, .wc = 10.0}, Ts));
-        ctrl.set_frequency(2.0 * std::numbers::pi * 6000.0);
-        CHECK(ctrl.w0 == 314.0);
+        CHECK_FALSE(ctrl.set_frequency(2.0 * std::numbers::pi * 6000.0));
+        CHECK(ctrl.gains().w0 == 314.0);
 
         const double nan = std::numeric_limits<double>::quiet_NaN();
         CHECK(design::pr({.Kp = 1.0, .Ki = 100.0, .w0 = 314.0, .wc = 10.0}, nan).status == design::DesignStatus::invalid_sample_time);
@@ -370,8 +383,8 @@ TEST_SUITE("PR Controller") {
         constexpr double wc = 10.0;
         constexpr double Kp = 2.0;
         constexpr double Ki = 100.0;
-        auto             tf = design::pr({.Kp = Kp, .Ki = Ki, .w0 = w0, .wc = wc}, 0.0).to_tf();
-        auto             ss = design::pr({.Kp = Kp, .Ki = Ki, .w0 = w0, .wc = wc}, 0.0).to_ss();
+        auto             tf = design::pr({.Kp = Kp, .Ki = Ki, .w0 = w0, .wc = wc}, 1e-4).to_tf(); // the continuous law, whatever Ts
+        auto             ss = design::pr({.Kp = Kp, .Ki = Ki, .w0 = w0, .wc = wc}, 1e-4).to_ss();
 
         // DC gain (s=0): num[2]/den[2] = Kp*w0²/w0² = Kp
         CHECK(tf.num[2] / tf.den[2] == doctest::Approx(Kp));
@@ -400,21 +413,23 @@ TEST_SUITE("PR Controller") {
             return (ss.C(0, 0) * x0) + (ss.C(0, 1) * x1) + ss.D(0, 0);
         };
 
-        constexpr double                w_fund = 2.0 * std::numbers::pi * 50.0;
-        constexpr double                Ts = 1.0 / 5000.0;
-        constexpr std::array<size_t, 3> harmonics = {1, 11, 13};
-        constexpr auto                  results = design::pr_harmonics({.Kp = 1.0, .Ki = 100.0, .w0 = w_fund, .wc = 10.0}, Ts, harmonics);
+        constexpr double w_fund = 2.0 * std::numbers::pi * 50.0;
+        constexpr double Ts = 1.0 / 5000.0;
+        // One resonator at each harmonic, Kp = 0: the resonator alone, Ki/h at h·ω₀.
+        constexpr auto eleventh = design::pr({.Kp = 0.0, .Ki = 100.0, .w0 = w_fund, .wc = 10.0}, Ts, design::Harmonics{{11}});
+        constexpr auto thirteenth = design::pr({.Kp = 0.0, .Ki = 100.0, .w0 = w_fund, .wc = 10.0}, Ts, design::Harmonics{{13}});
+        static_assert(eleventh.success && thirteenth.success);
 
-        for (size_t i = 1; i < 3; ++i) {
-            const auto   dss = results[i].to_discrete_ss();
-            const double f0 = 50.0 * static_cast<double>(harmonics[i]); // 550 Hz, 650 Hz
+        for (const auto& [order, dss] : {std::pair{11.0, eleventh.to_discrete_ss()}, std::pair{13.0, thirteenth.to_discrete_ss()}}) {
+            const double f0 = 50.0 * order; // 550 Hz, 650 Hz
+            const double Ki = 100.0 / order;
             CAPTURE(f0);
             CHECK(dss.Ts == Ts);
 
-            // Kp = 0 on the harmonics: the resonator alone, real and equal to Ki on ω₀.
+            // Real and equal to the harmonic's Ki on its ω₀.
             const std::complex<double> h0 = response(dss, f0);
-            CHECK(h0.real() == doctest::Approx(results[i].Ki).epsilon(1e-9));
-            CHECK(std::abs(h0.imag()) < 1e-9 * results[i].Ki);
+            CHECK(h0.real() == doctest::Approx(Ki).epsilon(1e-9));
+            CHECK(std::abs(h0.imag()) < 1e-9 * Ki);
 
             // Peak of |H| over f0 ± 30 Hz on a 0.01 Hz grid sits on f0 (plain Tustin: 529.6 / 617 Hz).
             double f_peak = 0.0;
@@ -448,7 +463,7 @@ TEST_SUITE("PR Controller") {
                     const double e = (impulse && k > 0) ? 0.0 : 1.0;
                     const double u_model = (dss.C * x)(0, 0) + (dss.D(0, 0) * e);
                     const double u_runtime = ctrl.step(e);
-                    CHECK(u_model == doctest::Approx(u_runtime).epsilon(1e-9).scale(r.Ki));
+                    CHECK(u_model == doctest::Approx(u_runtime).epsilon(1e-9).scale(r.gains.Ki));
                     x = (dss.A * x) + (dss.B * Matrix<1, 1, double>{{e}});
                 }
             }
@@ -456,25 +471,25 @@ TEST_SUITE("PR Controller") {
     }
 
     TEST_CASE("Multi-harmonic PR design") {
-        constexpr double                w_fund = 2.0 * std::numbers::pi * 50.0;
-        constexpr double                wc = 10.0;
-        constexpr double                Ts = 1.0 / 10000.0;
-        constexpr std::array<size_t, 4> harmonics = {1, 3, 5, 7};
-
-        constexpr auto results = design::pr_harmonics({.Kp = 1.0, .Ki = 100.0, .w0 = w_fund, .wc = wc}, Ts, harmonics);
+        constexpr double w_fund = 2.0 * std::numbers::pi * 50.0;
+        constexpr double wc = 10.0;
+        constexpr double Ts = 1.0 / 10000.0;
+        constexpr auto   bank = design::pr({.Kp = 1.0, .Ki = 100.0, .w0 = w_fund, .wc = wc}, Ts, design::Harmonics{{1, 3, 5, 7}});
+        static_assert(bank.success && decltype(bank)::resonators == 4);
+        CHECK(bank.harmonics[3] == 7);
 
         // First harmonic should have Kp and Ki_fund
-        CHECK(results[0].Kp == doctest::Approx(1.0));
-        CHECK(results[0].Ki == doctest::Approx(100.0));
-        CHECK(results[0].w0 == doctest::Approx(w_fund));
+        CHECK(bank.resonator(0).Kp == doctest::Approx(1.0));
+        CHECK(bank.resonator(0).Ki == doctest::Approx(100.0));
+        CHECK(bank.resonator(0).w0 == doctest::Approx(w_fund));
 
         // Third harmonic: Ki/3, w0*3
-        CHECK(results[1].Kp == doctest::Approx(0.0));
-        CHECK(results[1].Ki == doctest::Approx(100.0 / 3.0));
-        CHECK(results[1].w0 == doctest::Approx(3.0 * w_fund));
+        CHECK(bank.resonator(1).Kp == doctest::Approx(0.0));
+        CHECK(bank.resonator(1).Ki == doctest::Approx(100.0 / 3.0));
+        CHECK(bank.resonator(1).w0 == doctest::Approx(3.0 * w_fund));
 
         // 7th harmonic
-        CHECK(results[3].w0 == doctest::Approx(7.0 * w_fund));
+        CHECK(bank.resonator(3).w0 == doctest::Approx(7.0 * w_fund));
     }
 
     TEST_CASE("PRController<float> holds the design's gain and phase from f0/fs = 5e-5 to 0.1") {
@@ -499,8 +514,8 @@ TEST_SUITE("PR Controller") {
             );
             REQUIRE(res.success);
             // The design is the float numbers it holds: the oracle takes them as they are.
-            const double w0 = static_cast<double>(res.w0);
-            const double wc = static_cast<double>(res.wc);
+            const double w0 = static_cast<double>(res.gains.w0);
+            const double wc = static_cast<double>(res.gains.wc);
             const double Ts = static_cast<double>(res.Ts);
             const double tol = resonator_tol<float>(w0, wc, Ts);
 
@@ -543,9 +558,9 @@ TEST_SUITE("PR Controller") {
             REQUIRE(res.success);
             PRController<float>  ctrl(res);
             PRController<double> ref(res.as<double>()); // the same design: the float numbers, in double
-            const double         w0 = static_cast<double>(res.w0);
+            const double         w0 = static_cast<double>(res.gains.w0);
             const double         Ts = static_cast<double>(res.Ts);
-            const double         tol = resonator_tol<float>(w0, static_cast<double>(res.wc), Ts);
+            const double         tol = resonator_tol<float>(w0, static_cast<double>(res.gains.wc), Ts);
 
             SineSource src(w0, Ts);
             bool       finite = true;
@@ -585,8 +600,8 @@ TEST_SUITE("PR Controller") {
         const SineResponse before = sine_response(ctrl, w50, Tsd, 1.0, settle_ticks<T>(wc, Tsd), 800U);
         CHECK(damp::abs(before.gain - 101.0) <= resonator_tol<T>(w50, wc, Tsd) * 101.0);
 
-        ctrl.set_frequency(w_new);
-        CHECK(ctrl.w0 == w_new);
+        REQUIRE(ctrl.set_frequency(w_new));
+        CHECK(ctrl.gains().w0 == w_new);
 
         // A million ticks at 1 Hz, the last two periods fitted: past the tick that reached Inf, and
         // long after the retune has died out (settle_ticks is 180000 in double).
@@ -632,5 +647,115 @@ TEST_SUITE("PR Controller") {
         const double Tsd = static_cast<double>(Ts);
         const double left = mean_error(static_cast<T>(0.5), T{15}, w1, T{0}, Ts, settle_ticks<T>(rate, Tsd), 20000U);
         CHECK(left <= resonator_tol<T>(static_cast<double>(w1), rate, Tsd));
+    }
+}
+
+namespace {
+constexpr auto kGrid = design::pr({.Kp = 1.0, .Ki = 200.0, .w0 = 2.0 * std::numbers::pi * 50.0, .wc = 10.0}, 1e-4, design::Harmonics{{1, 5, 7}});
+} // namespace
+
+TEST_SUITE("PR Controller: the runtime contract") {
+    TEST_CASE_TEMPLATE("set_limits and set_gains take effect at the next tick; a value out of its domain is refused and changes nothing", T, float, double) {
+        const T         Ts = static_cast<T>(1e-4);
+        const T         w0 = static_cast<T>(2.0 * std::numbers::pi * 50.0);
+        PRController<T> pr{design::pr<T>({.Kp = T{1}, .Ki = T{100}, .w0 = w0, .wc = T{10}}, Ts)};
+        REQUIRE(pr.valid());
+
+        auto lim = pr.limits();
+        lim.input = {.lower = static_cast<T>(-0.5), .upper = static_cast<T>(0.5)};
+        REQUIRE(pr.set_limits(lim));
+        CHECK(pr.step(T{10}) == static_cast<T>(0.5));
+        CHECK_FALSE(pr.set_limits({.input = {.lower = T{1}, .upper = T{-1}}}));
+        CHECK(pr.limits().input.upper(0) == static_cast<T>(0.5));
+
+        // A retune keeps each resonator's output, so the command does not jump.
+        const T held = pr.resonant();
+        auto    g = pr.gains();
+        g.Kp = T{2};
+        g.wc = T{5};
+        REQUIRE(pr.set_gains(g));
+        CHECK(pr.gains().Kp == T{2});
+        CHECK(pr.resonant() == held);
+        for (const auto& bad : {
+                 design::PRGains<T>{.Kp = T{2}, .Ki = T{100}, .w0 = w0, .wc = T{-1}},
+                 design::PRGains<T>{.Kp = T{2}, .Ki = T{100}, .w0 = w0, .wc = T{5}, .tracking_time = T{-1}},
+                 design::PRGains<T>{.Kp = T{2}, .Ki = T{100}, .w0 = damp::numbers::pi_v<T> / Ts, .wc = T{5}}, // at Nyquist
+                 design::PRGains<T>{.Kp = T{2}, .Ki = T{100}, .w0 = T{0}, .wc = T{5}},
+             }) {
+            CHECK_FALSE(pr.set_gains(bad));
+        }
+        CHECK(pr.gains().wc == T{5});
+        CHECK(pr.gains().w0 == w0);
+        CHECK_FALSE(pr.set_frequency(T{-1}));
+        CHECK(pr.gains().w0 == w0);
+    }
+
+    TEST_CASE_TEMPLATE("track: the resonant memory holds the input applied, so a handover at the resonance continues it", T, float, double) {
+        // An ideal resonator holds an oscillation at ω₀ without input: what it was preloaded with.
+        const double Ts = 1e-4;
+        const double w0 = 2.0 * std::numbers::pi * 50.0;
+        const double Kp = 0.5;
+        const auto   res = design::pr({.Kp = Kp, .Ki = 200.0, .w0 = w0, .wc = 0.0}, Ts, design::InputLimits{.lower = {-2.0}, .upper = {2.0}});
+        REQUIRE(res.success);
+        const T tol = T{64} * eps<T>();
+
+        // The tracked tick's command is u, clamped into the limits; u is recorded as the command.
+        PRController<T> pr{res.template as<T>()};
+        pr.track(static_cast<T>(1.5), static_cast<T>(0.2));
+        CHECK(pr.last_command() == static_cast<T>(1.5));
+        CHECK(damp::abs((static_cast<T>(Kp) * static_cast<T>(0.2)) + pr.resonant() - static_cast<T>(1.5)) <= tol * T{2});
+        pr.track(T{5}, static_cast<T>(0.2));
+        CHECK(pr.last_command() == T{5});
+        CHECK(damp::abs((static_cast<T>(Kp) * static_cast<T>(0.2)) + pr.resonant() - T{2}) <= tol * T{2});
+        const T before = pr.resonant();
+        pr.back_calculate(T{5}); // the input track recorded: no clamp to report
+        CHECK(pr.resonant() == before);
+
+        // Another source drives a sine at ω₀ while the error is 0: the first step is its next sample.
+        PRController<T> handed{res.template as<T>()};
+        PRController<T> fresh{res.template as<T>()};
+        int             k = 0;
+        for (; k < 400; ++k) {
+            handed.track(static_cast<T>(std::sin(w0 * Ts * k)), T{0});
+        }
+        for (; k < 600; ++k) {
+            const T u = handed.step(T{0});
+            CHECK(damp::abs(static_cast<double>(u) - std::sin(w0 * Ts * k)) <= 4.0 * static_cast<double>(tol));
+        }
+        CHECK(fresh.step(T{0}) == T{0}); // a law that did not track starts from rest
+
+        // A constant u: the first step is u short by κ·u, κ = 4·sin²(ω₀Ts/2), as a resonator holds no constant.
+        PRController<T> held{res.template as<T>()};
+        for (int i = 0; i < 3; ++i) {
+            held.track(T{1}, T{0});
+        }
+        const double kappa = 4.0 * std::sin(w0 * Ts / 2.0) * std::sin(w0 * Ts / 2.0);
+        CHECK(damp::abs(static_cast<double>(held.step(T{0})) - (1.0 - kappa)) <= static_cast<double>(tol));
+    }
+
+    TEST_CASE("track: a bank's tracked command is u; a law with Ki = 0 has nothing to preload") {
+        PRController<double, 3> bank{kGrid};
+        bank.track(0.7, 0.1);
+        CHECK(bank.last_command() == 0.7);
+        CHECK((1.0 * 0.1) + bank.resonant() == doctest::Approx(0.7).epsilon(1e-14));
+
+        PRController<double> p{design::pr({.Kp = 2.0, .Ki = 0.0, .w0 = 314.0, .wc = 10.0}, 1e-4)};
+        p.track(3.0, 0.5);
+        CHECK(p.last_command() == 3.0);
+        CHECK(p.resonant() == 0.0);
+        CHECK(p.step(0.5) == 1.0); // the P law's own command
+    }
+
+    TEST_CASE("Law<kRes, T> of a PR design runs as its PRController, the design's resonators and limits") {
+        static constinit Law<kGrid, float> law;
+        static_assert(std::is_base_of_v<PRController<float, 3>, Law<kGrid, float>>);
+        PRController<float, 3> same{kGrid};
+        CHECK(law.valid());
+        CHECK(law.harmonics()[2] == 7);
+        for (int k = 0; k < 50; ++k) {
+            const float e = static_cast<float>(std::sin(0.1 * k));
+            CHECK(law.step(e) == doctest::Approx(same.step(e)).epsilon(1e-6)); // the same law: a few ulps of float
+        }
+        CHECK(law.set_frequency(static_cast<float>(2.0 * std::numbers::pi * 60.0))); // the gains stay members
     }
 }

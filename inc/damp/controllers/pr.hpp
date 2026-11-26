@@ -7,34 +7,43 @@
 
 /**
  * @file pr.hpp
- * @brief Proportional-resonant controller
+ * @brief The proportional-resonant law: design::pr(gains, Ts, opts...) → design::PRResult →
+ *        PRController, one resonance or a bank of them at harmonics of a fundamental
  *
  * @defgroup pr_controller Proportional-Resonant Controller
- * @brief Proportional-resonant controller for AC tracking (multi-harmonic: HarmonicSuppressor)
+ * @brief Proportional-resonant control of AC references and disturbances, at one frequency or at
+ *        a sparse set of harmonics (design::Harmonics)
  *
- * PR controllers provide infinite gain at a specific resonant frequency,
- * achieving zero steady-state error for sinusoidal references. They are
- * the AC equivalent of PI controllers for DC references.
+ * PR controllers provide infinite gain at a specific resonant frequency, achieving zero
+ * steady-state error for sinusoidal references. They are the AC equivalent of PI controllers for
+ * DC references.
  *
  * Common applications:
  * - Grid-tied inverter current control
- * - Active power filter harmonic compensation
+ * - Active power filter harmonic compensation (a bank: Harmonics{{1, 5, 7, 11, 13}})
  * - Rotating reference frame alternatives (no Park transform needed)
+ * - Motor torque-ripple cancellation
  *
  * Transfer function (non-ideal PR, @f$\omega_c > 0@f$):
  * @f[
  *   C(s) = K_p + \frac{2 K_i \omega_c\, s}{s^2 + 2 \omega_c s + \omega_0^2}
  * @f]
- * where @f$K_p@f$ is the proportional gain, @f$K_i@f$ the resonant (integral)
- * gain, @f$\omega_0@f$ the resonant frequency (e.g. @f$2\pi\cdot 50@f$ for a
- * 50 Hz grid) and @f$\omega_c@f$ the resonant-term bandwidth.
+ * where @f$K_p@f$ is the proportional gain, @f$K_i@f$ the resonant (integral) gain,
+ * @f$\omega_0@f$ the resonant frequency (e.g. @f$2\pi\cdot 50@f$ for a 50 Hz grid) and
+ * @f$\omega_c@f$ the resonant-term bandwidth.
  *
  * Ideal PR (@f$\omega_c = 0@f$):
  * @f[
  *   C(s) = K_p + \frac{K_i s}{s^2 + \omega_0^2}
  * @f]
- * Infinite gain exactly at @f$\omega_0@f$; fragile to grid-frequency drift, so
- * non-ideal PR with a few rad/s of @f$\omega_c@f$ is preferred in practice.
+ * Infinite gain exactly at @f$\omega_0@f$; fragile to grid-frequency drift, so non-ideal PR with
+ * a few rad/s of @f$\omega_c@f$ is preferred in practice.
+ *
+ * A bank, `design::pr(gains, Ts, design::Harmonics{{1, 5, 7}})`, adds one resonant term per
+ * harmonic h, of gain @f$K_i/h@f$ at @f$h\omega_0@f$, with the proportional term once:
+ * @f$C(s) = K_p + \sum_h R_h(s)@f$. It targets a specific, sparse set of harmonics with
+ * independent resonators. Repetitive control (controllers/repetitive.hpp) rejects every harmonic
+ * of a period with one delay loop instead.
  *
  * MATLAB® equivalent (non-ideal):
  * @code{.m}
@@ -48,112 +57,104 @@
  * @see D. N. Zmood and D. G. Holmes, "Stationary frame current regulation of PWM
  *      inverters with zero steady-state error," IEEE Trans. Power Electron.,
  *      2003. DOI: 10.1109/TPEL.2003.810852
+ * @see filters/spectral.hpp (Goertzel, HarmonicAnalyzer) for detecting which harmonics to target
  */
 
 
 #include "damp/backend.hpp"
-#include "damp/controllers/detail/anti_windup.hpp"
+#include "damp/controllers/detail/pr_resonator.hpp"
+#include "damp/controllers/law.hpp"     // IWYU pragma: export
+#include "damp/design/input_limits.hpp" // IWYU pragma: export
+#include "damp/design/options.hpp"
 #include "damp/design/status.hpp"
 #include "damp/math/math.hpp"
-#include "damp/matrix/core.hpp"
 #include "damp/systems/discretization.hpp"
 #include "damp/systems/state_space.hpp"
 #include "damp/systems/transfer_function.hpp"
+#include "damp/systems/zpk.hpp"
 #include "damp/toolbox/bounds.hpp"
 
 namespace damp {
 
-namespace design {
-
 namespace detail {
 
 /**
- * @brief Pre-warped resonant frequency (2/Ts)·tan(ω₀Ts/2) that PRController discretizes at
- *
- * The bilinear map s → (2/Ts)(z−1)/(z+1) of a resonator rebuilt at this frequency places the
- * digital peak exactly on ω₀. Returns ω₀ unchanged when Ts ≤ 0 (continuous) or when ω₀ is at or
- * above Nyquist (tan has no finite value there).
+ * @brief The coefficients of every resonator of a PR bank: the h-th harmonic's resonant term,
+ *        Kᵢ/h at h·ω₀, for each order h of @p orders, at the period @p Ts
+ * @return The coefficients, or nullopt when Kp or Kᵢ is not finite, ω_c or the tracking time is
+ *         below 0 or not finite, ω₀ or Ts is not finite and positive, an order is 0, a resonance
+ *         is at or above Nyquist, or a coefficient overflows
  */
-template<typename T>
-[[nodiscard]] constexpr T pr_prewarped_w0(T w0, T Ts) {
-    const T half = w0 * Ts / T{2};
-    if (!(Ts > T{0}) || !(half < damp::numbers::pi_v<T> / T{2})) {
-        return w0;
+template<typename T, size_t NH>
+[[nodiscard]] constexpr damp::optional<damp::array<PRCoefficients<T>, NH>>
+pr_bank_coefficients(T Kp, T Ki, T w0, T wc, T tracking_time, T Ts, const damp::array<size_t, NH>& orders) {
+    if (!damp::isfinite(Kp) || !damp::isfinite(Ki) || !damp::finite_positive(w0) || !damp::finite_non_negative(wc)
+        || !damp::finite_non_negative(tracking_time) || !damp::finite_positive(Ts)) {
+        return damp::nullopt;
     }
-    return (T{2} / Ts) * damp::tan(half);
-}
-
-/**
- * @brief β = tan(ω₀Ts/2): the pre-warped resonant frequency of pr_prewarped_w0 over the Tustin factor 2/Ts
- *
- * What PRController builds its coefficients from: the frequency of @ref pr_prewarped_w0 without
- * the factor 2/Ts, whose square would swamp it in single precision. At or above Nyquist it is
- * ω₀Ts/2 itself, the frequency left unwarped there.
- */
-template<typename T>
-[[nodiscard]] constexpr T pr_tan_half_angle(T w0, T Ts) {
-    const T half = (w0 * Ts) / T{2};
-    return (half < (damp::numbers::pi_v<T> / T{2})) ? damp::tan(half) : half;
+    damp::array<PRCoefficients<T>, NH> out{};
+    for (size_t i = 0; i < NH; ++i) {
+        if (orders[i] == 0) {
+            return damp::nullopt; // the 0th harmonic (DC) is not a resonant target
+        }
+        const T order = static_cast<T>(orders[i]);
+        if (!pr_resonance_ok(order * w0, Ts)) {
+            return damp::nullopt;
+        }
+        out[i] = pr_coefficients(Ki / order, order * w0, wc, Ts);
+        if (!out[i].finite()) {
+            return damp::nullopt;
+        }
+    }
+    return out;
 }
 
 } // namespace detail
 
+namespace design {
+
+namespace detail {
+using ::damp::detail::pr_bank_coefficients;
+using ::damp::detail::pr_prewarped_w0;
+} // namespace detail
+
 /**
- * @struct PRSpec
- * @brief The gains and frequencies of a proportional-resonant design; Ts is passed beside it
+ * @struct PRGains
+ * @brief The gains and frequency of a proportional-resonant law: what design::pr takes, the result
+ *        holds and the runtime retunes (PRController::gains, PRController::set_gains)
  *
  * The caller names every number: `design::pr({.Kp = 1.0, .Ki = 200.0, .w0 = w, .wc = 10.0}, Ts)`.
- * For @ref pr_harmonics and @ref harmonic_suppressor it describes the fundamental: Ki and w0 are
- * the fundamental's, and each harmonic h gets Ki/h at h·w0.
+ * With design::Harmonics among the options they describe the fundamental: each harmonic h gets
+ * Kᵢ/h at h·ω₀ (@ref harmonic), and Kp is applied once.
  */
 template<typename T = double>
-struct PRSpec {
+struct PRGains {
     T Kp{};            ///< Proportional gain (finite)
-    T Ki{};            ///< Resonant (integral) gain (finite)
-    T w0{};            ///< Resonant frequency [rad/s], e.g. 2π·50 for a 50 Hz grid (> 0)
-    T wc{};            ///< Resonant-term bandwidth [rad/s] (≥ 0); 0 = ideal PR, 5–15 rad/s typical non-ideal
-    T tracking_time{}; ///< Back-calculation tracking time T_t [s] (≥ 0): ΔR = min(Ts/T_t, 1)(u_sat − (u + u_ff)); 0: the resonant section holds against a clamp
-};
+    T Ki{};            ///< Resonant (integral) gain (finite): the resonant term's gain at ω₀
+    T w0{};            ///< [rad/s] Resonant frequency, the fundamental's in a bank, e.g. 2π·50 for a 50 Hz grid (> 0)
+    T wc{};            ///< [rad/s] Resonant-term bandwidth (≥ 0); 0 = ideal PR, 5–15 rad/s typical non-ideal
+    T tracking_time{}; ///< [s] Back-calculation tracking time T_t (≥ 0): ΔR = min(Ts/T_t, 1)(u_sat − (u + u_ff)); 0: the resonant terms hold against a clamp
 
-/**
- * @struct PRResult
- * @brief Proportional-Resonant controller design result
- */
-template<typename T = double>
-struct [[nodiscard]] PRResult {
-    T            Kp{};                                ///< Proportional gain
-    T            Ki{};                                ///< Resonant (integral) gain
-    T            w0{};                                ///< Resonant frequency (rad/s)
-    T            wc{};                                ///< Cutoff bandwidth of resonant term (rad/s); 0 = ideal PR
-    T            Ts{};                                ///< Sampling time (seconds); 0 = continuous-time design
-    T            tracking_time{};                     ///< Back-calculation tracking time T_t [s]; 0: the resonant section holds against a clamp
-    bool         success{false};                      ///< status == DesignStatus::ok
-    DesignStatus status{DesignStatus::not_converged}; ///< ok, or why the design failed
-    Bounds<1, T> u_lim{};                             ///< Limits on the command (default unbounded): set here, or on the runtime
-
-    /** @brief True when the design succeeded (success). */
-    [[nodiscard]] constexpr explicit operator bool() const { return success; }
-
+    /** @brief The same gains in another scalar. */
     template<typename U>
-    [[nodiscard]] constexpr auto as() const {
-        return PRResult<U>{
-            static_cast<U>(Kp), static_cast<U>(Ki), static_cast<U>(w0), static_cast<U>(wc),
-            static_cast<U>(Ts), static_cast<U>(tracking_time), success, status, u_lim.template as<U>()
-        };
+    [[nodiscard]] constexpr PRGains<U> as() const {
+        return PRGains<U>{static_cast<U>(Kp), static_cast<U>(Ki), static_cast<U>(w0), static_cast<U>(wc), static_cast<U>(tracking_time)};
+    }
+
+    /** @brief The resonant term at the harmonic @p h of ω₀: Kᵢ/h at h·ω₀, no proportional term (the zero law for h = 0). */
+    [[nodiscard]] constexpr PRGains harmonic(size_t h) const {
+        if (h == 0) {
+            return PRGains{};
+        }
+        const T order = static_cast<T>(h);
+        return PRGains{.Kp = T{0}, .Ki = Ki / order, .w0 = w0 * order, .wc = wc, .tracking_time = tracking_time};
     }
 
     /**
-     * @brief Convert to continuous-time transfer function
+     * @brief Continuous-time transfer function C(s) = Kp + R(s), highest power of s first
      *
-     * Non-ideal (@f$\omega_c > 0@f$):
-     *   C(s) = Kp + 2*Ki*wc*s / (s² + 2*wc*s + w0²)
-     *   num = {Kp, 2*wc*(Kp+Ki), Kp*w0²}, den = {1, 2*wc, w0²}
-     *
-     * Ideal (@f$\omega_c = 0@f$):
-     *   C(s) = Kp + Ki*s / (s² + w0²)
-     *   num = {Kp, Ki, Kp*w0²}, den = {1, 0, w0²}
-     *
-     * Numerator and denominator highest power of s first.
+     * Non-ideal (ω_c > 0): num = {Kp, 2ω_c(Kp + Kᵢ), Kp·ω₀²}, den = {1, 2ω_c, ω₀²}.
+     * Ideal (ω_c = 0): num = {Kp, Kᵢ, Kp·ω₀²}, den = {1, 0, ω₀²}.
      */
     [[nodiscard]] constexpr TransferFunction<3, 3, T> to_tf() const {
         if (wc > T{0}) {
@@ -162,7 +163,6 @@ struct [[nodiscard]] PRResult {
                 .den = {T{1}, T{2} * wc, w0 * w0},
             };
         }
-        // Ideal PR: C(s) = Kp + Ki*s/(s² + w0²)
         return TransferFunction<3, 3, T>{
             .num = {Kp, Ki, Kp * w0 * w0},
             .den = {T{1}, T{0}, w0 * w0},
@@ -170,10 +170,10 @@ struct [[nodiscard]] PRResult {
     }
 
     /**
-     * @brief Convert to continuous-time state-space (2nd order SISO)
+     * @brief Continuous-time state-space of C(s) (2nd order SISO)
      *
-     * Controllable canonical form of C(s); D = Kp carries the proportional
-     * feedthrough. Resonant C row is [0, 2*Ki*wc] (non-ideal) or [0, Ki] (ideal).
+     * Controllable canonical form; D = Kp carries the proportional feedthrough. The resonant C
+     * row is [0, 2Kᵢω_c] (non-ideal) or [0, Kᵢ] (ideal).
      */
     [[nodiscard]] constexpr StateSpace<2, 1, 1, T> to_ss() const {
         const T c_res = (wc > T{0}) ? (T{2} * Ki * wc) : Ki;
@@ -184,440 +184,551 @@ struct [[nodiscard]] PRResult {
             .D = Matrix<1, 1, T>{{Kp}},
         };
     }
+};
 
-    /**
-     * @brief Discrete-time state-space of the PRController runtime (Tustin, ω₀ pre-warped)
-     *
-     * Discretizes the way @ref PRController does: the resonator is rebuilt at the pre-warped
-     * frequency @f$\omega_0' = (2/T_s)\tan(\omega_0 T_s/2)@f$ and mapped with
-     * @f$s = (2/T_s)(z-1)/(z+1)@f$, so the digital resonance sits exactly on @f$\omega_0@f$
-     * and the model's response equals the runtime's tick for tick. A resonance at or above
-     * Nyquist is not pre-warped (as in the runtime). Ts = 0 (continuous design) returns
-     * @ref to_ss. For another discretization use `discretize(to_ss(), Ts, method)`.
-     */
-    [[nodiscard]] constexpr StateSpace<2, 1, 1, T> to_discrete_ss() const {
-        PRResult warped = *this;
-        warped.w0 = detail::pr_prewarped_w0(w0, Ts);
-        return (Ts > T{0}) ? *discretize(warped.to_ss(), Ts, DiscretizationMethod::Tustin) : to_ss();
+/**
+ * @struct Harmonics
+ * @brief The harmonics of ω₀ a PR law resonates at, among design::pr's options: `Harmonics{{1, 5, 7}}`
+ *
+ * One resonant term per order h listed, of gain Kᵢ/h at h·ω₀, run in the order listed; the law's
+ * proportional term is applied once. Left out, the law has one resonance, at ω₀. An order of 0 (DC
+ * is not a resonant target) or a resonance at or above Nyquist is refused with
+ * DesignStatus::invalid_parameter. The list is an array, so its length is deduced from the braces.
+ *
+ * @tparam N The resonators: the orders listed (≥ 1)
+ */
+template<size_t N>
+struct Harmonics {
+    static_assert(N >= 1, "Harmonics lists at least one order: Harmonics{{1, 5, 7}}.");
+    static constexpr size_t listed = N;  ///< The orders listed: the law's resonators
+    using option_kind = kind::Harmonics; ///< Its kind of design option
+    size_t orders[N]{};                  ///< The harmonic orders h ≥ 1, the fundamental 1
+};
+
+/**
+ * @struct PRLimits
+ * @brief The limits of a PR law: on its command
+ *
+ * Unbounded by default. design::pr sets the ones a law starts with from its options (InputLimits),
+ * and the law reads and changes them at run time with PRController::limits and
+ * PRController::set_limits.
+ */
+template<typename T = double>
+struct PRLimits {
+    Bounds<1, T> input{}; ///< The command u [lower, upper]
+
+    /** @brief The same limits in another scalar. */
+    template<typename U>
+    [[nodiscard]] constexpr PRLimits<U> as() const {
+        return PRLimits<U>{input.template as<U>()};
     }
 };
 
 /**
- * @brief Design a Proportional-Resonant controller
+ * @struct PRResult
+ * @brief A proportional-resonant design deployed at a sample period: the gains, the harmonics it
+ *        resonates at, the limits the law starts with, and T_s
  *
- * The scalar type follows @p Ts, so a braced spec needs no template argument:
- * `design::pr({.Kp = 1.0, .Ki = 200.0, .w0 = w, .wc = 10.0}, 1e-4)`.
+ * Produced by design::pr. The runtime, PRController, discretizes each resonant term by Tustin at
+ * its pre-warped frequency (@ref to_discrete_ss is the same model).
  *
- * @param spec Kp and Ki finite, w0 > 0 (below Nyquist π/Ts when Ts > 0), wc ≥ 0 (0 = ideal PR),
- *             tracking_time ≥ 0 (0 = no back-calculation)
- * @param Ts   Sampling time [s]; 0 = continuous-time design (analysis only: the runtime refuses it). Must be ≥ 0.
- * @return PRResult with design parameters; refused with invalid_sample_time for a negative or
- *         non-finite Ts, and with invalid_parameter for any other input outside its domain
+ * @tparam T  Scalar
+ * @tparam NH Resonators (1 without design::Harmonics)
  */
-template<typename T = double>
-[[nodiscard]] constexpr PRResult<T> pr(const PRSpec<T>& spec, T Ts) {
-    if (!damp::finite_non_negative(Ts)) {
-        return detail::refused<PRResult<T>>(DesignStatus::invalid_sample_time);
+template<typename T = double, size_t NH = 1>
+struct [[nodiscard]] PRResult {
+    static_assert(NH >= 1, "A PR law has at least one resonator.");
+    static constexpr size_t resonators = NH; ///< The resonant terms
+
+    PRGains<T>              gains{};                             ///< The gains, the fundamental's in a bank
+    damp::array<size_t, NH> harmonics{};                         ///< The order h of each resonator, Kᵢ/h at h·ω₀ ({1} without Harmonics)
+    PRLimits<T>             limits{};                            ///< The limits the law starts with
+    T                       Ts{};                                ///< [s] Sample period of the fixed-rate tick
+    bool                    success{false};                      ///< status == DesignStatus::ok
+    DesignStatus            status{DesignStatus::not_converged}; ///< ok, or why the design failed
+
+    /** @brief True when the design succeeded (success). */
+    [[nodiscard]] constexpr explicit operator bool() const { return success; }
+
+    /** @brief The same design in another scalar. */
+    template<typename U>
+    [[nodiscard]] constexpr PRResult<U, NH> as() const {
+        return PRResult<U, NH>{gains.template as<U>(), harmonics, limits.template as<U>(), static_cast<U>(Ts), success, status};
     }
-    const bool ok = damp::isfinite(spec.Kp) && damp::isfinite(spec.Ki) && damp::finite_positive(spec.w0)
-                 && damp::finite_non_negative(spec.wc) && damp::finite_non_negative(spec.tracking_time);
-    // At or above Nyquist the bilinear map folds the resonance onto another frequency.
-    if (!ok || ((Ts > T{0}) && !(spec.w0 * Ts < damp::numbers::pi_v<T>))) {
-        return detail::refused<PRResult<T>>(DesignStatus::invalid_parameter);
+
+    /** @brief The continuous law of resonator @p i: its harmonic's resonant term, and Kp on the first. */
+    [[nodiscard]] constexpr PRGains<T> resonator(size_t i) const {
+        PRGains<T> g = gains.harmonic(harmonics[i]);
+        g.Kp = (i == 0) ? gains.Kp : T{0};
+        return g;
     }
-    return PRResult<T>{
-        .Kp = spec.Kp,
-        .Ki = spec.Ki,
-        .w0 = spec.w0,
-        .wc = spec.wc,
-        .Ts = Ts,
-        .tracking_time = spec.tracking_time,
-        .success = true,
-        .status = DesignStatus::ok,
-    };
+
+    /**
+     * @brief Continuous-time state-space of the law, Kp + Σ R_h(s): the resonators in parallel
+     *
+     * State dimension 2·NH, resonator i in states 2i and 2i + 1. A failed design is the zero system.
+     */
+    [[nodiscard]] constexpr StateSpace<2 * NH, 1, 1, T> to_ss() const {
+        if (!success) {
+            return {};
+        }
+        return bank<NH - 1>([this](size_t i) { return resonator(i).to_ss(); });
+    }
+
+    /** @brief Continuous-time transfer function of the law: closed form for one resonator, of @ref to_ss for a bank. */
+    [[nodiscard]] constexpr TransferFunction<(2 * NH) + 1, (2 * NH) + 1, T> to_tf() const {
+        if constexpr (NH == 1) {
+            return success ? resonator(0).to_tf() : TransferFunction<3, 3, T>{};
+        } else {
+            return ::damp::to_transfer_function(to_ss());
+        }
+    }
+
+    /**
+     * @brief Discrete-time state-space of the PRController runtime (Tustin, each ω pre-warped)
+     *
+     * Discretizes the way @ref PRController does: each resonator is rebuilt at its pre-warped
+     * frequency @f$\omega' = (2/T_s)\tan(\omega T_s/2)@f$ and mapped with
+     * @f$s = (2/T_s)(z-1)/(z+1)@f$, so each digital resonance sits exactly on its ω and the
+     * model's response equals the runtime's tick for tick. For another discretization use
+     * `discretize(to_ss(), Ts, method)`. A failed design is the zero system.
+     */
+    [[nodiscard]] constexpr StateSpace<2 * NH, 1, 1, T> to_discrete_ss() const {
+        if (!success) {
+            return {};
+        }
+        return bank<NH - 1>([this](size_t i) {
+            PRGains<T> warped = resonator(i);
+            warped.w0 = detail::pr_prewarped_w0(warped.w0, Ts);
+            return *discretize(warped.to_ss(), Ts, DiscretizationMethod::Tustin);
+        });
+    }
+
+private:
+    /** @brief The resonators 0 … I of @p section in parallel. */
+    template<size_t I, typename Section>
+    [[nodiscard]] static constexpr StateSpace<2 * (I + 1), 1, 1, T> bank(const Section& section) {
+        if constexpr (I == 0) {
+            return section(0);
+        } else {
+            return *::damp::parallel(bank<I - 1>(section), section(I));
+        }
+    }
+};
+
+namespace detail {
+
+/** @brief The options design::pr takes. */
+using pr_options = option_set<kind::InputLimits, kind::Harmonics>;
+
+/** @brief The resonators a PR design's options give: as many as a Harmonics lists, else 1. */
+template<typename... Opts>
+inline constexpr size_t pr_resonators = (option_count<kind::Harmonics, Opts...> > 0) ? listed_by<kind::Harmonics, Opts...> : size_t{1};
+
+/** @brief The compile-time check of design::pr's options: their kinds, one of each, and one input. */
+template<typename... Opts>
+consteval void check_pr_options() {
+    pr_options::check<Opts...>();
+    if constexpr (option_count<kind::InputLimits, Opts...> > 0) {
+        static_assert(option_t<kind::InputLimits, void, Opts...>::inputs == 1, "A PR law has one input: InputLimits{.lower = {lo}, .upper = {hi}}, one entry at each end.");
+    }
 }
 
-/**
- * @brief Design multiple-harmonic PR controller gains
- *
- * For harmonic compensation, returns an array of PRResult for harmonics
- * 1, 3, 5, 7, ... (or user-specified harmonic numbers), each refused on its own (e.g. a harmonic
- * at or above Nyquist). @ref design::harmonic_suppressor builds the deployable bank from the
- * same spec.
- *
- * @param fundamental The fundamental's resonator: Kp (carried on the first entry only), Ki and w0
- *                    of the fundamental, wc and tracking_time shared by every harmonic
- * @param Ts          Sampling time [s]
- * @param harmonics   Array of harmonic numbers (e.g. {1, 3, 5, 7}); harmonic h gets Ki/h at h·w0
- * @return Array of PRResult, one per harmonic
- */
-template<size_t N, typename T = double>
-[[nodiscard]] constexpr damp::array<PRResult<T>, N>
-pr_harmonics(const PRSpec<T>& fundamental, T Ts, const damp::array<size_t, N>& harmonics) {
-    damp::array<PRResult<T>, N> results{};
-    for (size_t i = 0; i < N; ++i) {
-        const T order = static_cast<T>(harmonics[i]);
-        // Typically reduce Ki for higher harmonics
-        results[i] = pr(
-            PRSpec<T>{
-                .Kp = (i == 0) ? fundamental.Kp : T{0},
-                .Ki = fundamental.Ki / order,
-                .w0 = fundamental.w0 * order,
-                .wc = fundamental.wc,
-                .tracking_time = fundamental.tracking_time,
-            },
-            Ts
-        );
+/** @brief The harmonic orders among @p opts: a Harmonics' list, else the fundamental alone. */
+template<size_t NH, typename... Opts>
+[[nodiscard]] constexpr damp::array<size_t, NH> pr_harmonics_of(const Opts&... opts) {
+    damp::array<size_t, NH> out{};
+    if constexpr (option_count<kind::Harmonics, Opts...> > 0) {
+        const auto given = the<kind::Harmonics>(opts...);
+        for (size_t i = 0; i < NH; ++i) {
+            out[i] = given.orders[i];
+        }
+    } else {
+        (static_cast<void>(opts), ...);
+        out[0] = 1;
     }
-    return results;
+    return out;
+}
+
+/** @brief The InputLimits among @p opts in the scalar @p T (none, or one of more inputs, which check_pr_options refuses: unbounded, with no second message). */
+template<typename T, typename... Opts>
+[[nodiscard]] constexpr Bounds<1, T> pr_input_limits(const Opts&... opts) {
+    if constexpr (option_t<kind::InputLimits, InputLimits<1, T>, Opts...>::inputs == 1) {
+        return input_limits_of<1, T>(opts...); // unbounded without one
+    } else {
+        (static_cast<void>(opts), ...);
+        return Bounds<1, T>{};
+    }
+}
+
+} // namespace detail
+
+/**
+ * @brief A proportional-resonant law from its gains, deployed at @p Ts
+ *
+ * The scalar follows @p Ts, so a braced spec needs no template argument:
+ * `design::pr({.Kp = 1.0, .Ki = 200.0, .w0 = w, .wc = 10.0}, 1e-4)`. The options trail in any
+ * order, at most one of each kind: InputLimits{.lower, .upper} (the command, one input) and
+ * Harmonics{{h, …}} (a bank at harmonics of ω₀).
+ *
+ * @code
+ * // 50 Hz grid current regulator at 10 kHz, clamped to the bus
+ * constexpr auto kCurrent = design::pr({.Kp = 1.0, .Ki = 200.0, .w0 = 2.0 * pi * 50.0, .wc = 10.0}, 1e-4,
+ *                                      design::InputLimits{.lower = {-400.0}, .upper = {400.0}});
+ * // The fundamental and the 5th and 7th line harmonics, Kᵢ/h at h·ω₀
+ * constexpr auto kBank = design::pr({.Kp = 0.5, .Ki = 200.0, .w0 = 2.0 * pi * 50.0, .wc = 5.0}, 1e-4,
+ *                                   design::Harmonics{{1, 5, 7}});
+ * @endcode
+ *
+ * @param gains Kp and Kᵢ finite, ω₀ > 0, ω_c ≥ 0 (0 = ideal PR), tracking_time ≥ 0 (0 = the
+ *              resonant terms hold against a clamp)
+ * @param Ts    [s] The law's sample period (finite and positive)
+ * @param opts  InputLimits, Harmonics
+ * @return The design, for PRController or Law; refused, with zero gains, with invalid_sample_time
+ *         for a Ts that is not finite and positive, and with invalid_parameter for a gain out of
+ *         its domain, an order of 0, a resonance at or above Nyquist π/Ts, or a limit that is not a box
+ */
+template<typename T = double, typename... Opts>
+[[nodiscard]] constexpr PRResult<T, detail::pr_resonators<Opts...>> pr(const PRGains<T>& gains, T Ts, const Opts&... opts) {
+    detail::check_pr_options<Opts...>();
+    using Result = PRResult<T, detail::pr_resonators<Opts...>>;
+    if (!damp::finite_positive(Ts)) {
+        return detail::refused<Result>(DesignStatus::invalid_sample_time);
+    }
+    Result out{
+        .gains = gains,
+        .harmonics = detail::pr_harmonics_of<Result::resonators>(opts...),
+        .limits = {.input = detail::pr_input_limits<T>(opts...)},
+        .Ts = Ts,
+    };
+    if (!out.limits.input.valid() || !detail::pr_bank_coefficients(gains.Kp, gains.Ki, gains.w0, gains.wc, gains.tracking_time, Ts, out.harmonics)) {
+        return detail::refused<Result>(DesignStatus::invalid_parameter);
+    }
+    detail::set_status(out, DesignStatus::ok);
+    return out;
 }
 
 } // namespace design
 
 /**
  * @ingroup discrete_controllers
- * @brief Resonant section of PRController, run on its output y and the output's increment d
+ * @brief Proportional-resonant runtime: Kp·e plus NH resonant terms, its gains, frequency and
+ *        limits settable at run time
  *
- * The Tustin map of the resonant term is a second-order section with zeros at z = ±1,
- * @f[
- *   \frac{Y(z)}{X(z)} = \frac{\bar b_0\,(1 - z^{-2})}{1 + \bar a_1 z^{-1} + \bar a_2 z^{-2}},
- *   \qquad \bar a_1 = \kappa + c_2 - 2, \quad \bar a_2 = 1 - c_2 .
- * @f]
- * It is held by κ = 1 + ā₁ + ā₂ and c₂ = 1 − ā₂ and run on the output and its increment
- * @f$d[n] = y[n] - y[n-1]@f$:
- * @f[
- *   d[n] = d[n-1] + \bigl(\bar b_0\,(x[n] - x[n-2]) - c_2\, d[n-1] - \kappa\, y[n-1]\bigr),
- *   \qquad y[n] = y[n-1] + d[n] .
- * @f]
- * Substituting d gives the direct form
- * @f$y[n] = -\bar a_1 y[n-1] - \bar a_2 y[n-2] + \bar b_0 (x[n] - x[n-2])@f$ term for term, so
- * the transfer function and the meaning of the state (the last output, and through d the one
- * before it) are those of a Direct Form I section; only the rounding differs. It is the
- * section written around z = 1, an accumulator in place of each delay.
- *
- * What it guards against. With θ = ω₀Ts and a narrow resonance, the poles sit next to z = 1:
- * ā₁ ≈ −2 + θ² + 2ω_cTs and ā₂ ≈ 1 − 2ω_cTs. Single precision stores ā₁ to 1.2e-7, and θ² is
- * 9.9e-8 at 1 Hz and 20 kHz, so the direct form cannot hold the resonance: a float Direct Form I
- * section at 1 Hz and 20 kHz with ω_c = 5 rad/s ran to Inf in 36 s of a 0.01 sine at ω₀, and at
- * 50 Hz and 100 kHz with ω_c = 1 rad/s its gain at ω₀ was 0.78 of the design's. Here κ ≈ θ² and
- * c₂ ≈ 2ω_cTs are stored with their own relative precision, and each product in the recursion
- * is small next to the state it corrects, so its rounding is too.
- *
- * Limits. The resonance is placed to a few ulps of ω₀ and its peak is ω_c/(1 + tan²(θ/2)) wide
- * (the bilinear map narrows it toward Nyquist), so the gain and phase at ω₀ are the design's to
- * a few ε·Q, Q = ω₀(1 + tan²(θ/2))/(2ω_c): a float resonance with Q above about 1e6 is not
- * resolved. Roundoff in the recursion is about ε/√c₂ of the output, and the ideal form
- * (c₂ = 0), which is marginally stable by design, accumulates it. Next to Nyquist the poles
- * approach z = −1, where this form has the direct form's cancellation: the stability margin
- * 4 − κ − 2c₂ is 4/(1 + ω_cTs + tan²(θ/2)) and falls below rounding within about fs·√ε/(2π)
- * of Nyquist (5.5e-5·fs in float).
- *
- * @see "New Recursive Digital Filter Structures Having Very Low Sensitivity and Roundoff Noise"
- *      (Agarwal & Burrus, 1975), IEEE Trans. Circuits and Systems 22(12): second-order sections
- *      for poles near z = 1, whose coefficient sensitivity and roundoff noise do not grow with
- *      the sampling rate
- * @see "Improved Finite Word Length Characteristics in Digital Control Using Delta Operators"
- *      (Middleton & Goodwin, 1986), IEEE TAC 31(11): the delta operator, the increment in place
- *      of the shift, for better coefficient representation and less roundoff noise
- *
- * @tparam T Scalar type (default: float)
- */
-template<typename T = float>
-class PRResonator {
-public:
-    constexpr PRResonator() = default;
-
-    /** @brief Convert across scalar precision, preserving coefficients and state. */
-    template<typename U>
-    constexpr explicit PRResonator(const PRResonator<U>& o)
-        : b0_(static_cast<T>(o.b0_)),
-          c2_(static_cast<T>(o.c2_)),
-          kappa_(static_cast<T>(o.kappa_)),
-          x1_(static_cast<T>(o.x1_)),
-          x2_(static_cast<T>(o.x2_)),
-          y_(static_cast<T>(o.y_)),
-          d_(static_cast<T>(o.d_)) {}
-
-    /** @brief Process one sample: d += b̄₀·(x[n] − x[n−2]) − c₂·d − κ·y, then y += d. */
-    constexpr T operator()(T x) {
-        // The three small terms are summed first, so d takes one rounding at its own scale. Behind
-        // a barrier: -ffast-math regroups d − c₂·d into (1 − c₂)·d, the direct form's ā₂ again
-        // (GCC 14 with FMA: 1.3e-3 off the gain at ω₀ at 5 Hz and 100 kHz, ω_c = 1 rad/s).
-        d_ += detail::assoc_barrier(((b0_ * (x - x2_)) - (c2_ * d_)) - (kappa_ * y_));
-        y_ += d_;
-        x2_ = x1_;
-        x1_ = x;
-        return y_;
-    }
-
-    /** @brief Clear the inputs, the output and its increment; the coefficients are kept. */
-    constexpr void reset() {
-        x1_ = x2_ = y_ = d_ = T{0};
-    }
-
-    /**
-     * @brief Replace the coefficients in place, keeping the state, so a retune keeps the output and its increment
-     *
-     * @param b0    b̄₀, the gain on x[n] − x[n−2]
-     * @param c2    c₂ = 1 − ā₂ (≥ 0; 0 = undamped)
-     * @param kappa κ = 1 + ā₁ + ā₂ (> 0)
-     */
-    constexpr void set_coefficients(T b0, T c2, T kappa) {
-        b0_ = b0;
-        c2_ = c2;
-        kappa_ = kappa;
-    }
-
-    /** @brief Most recent output y[n−1]. */
-    [[nodiscard]] constexpr T last_output() const { return y_; }
-
-    /** @brief Add @p dy to the most recent output y[n−1] and leave y[n−2] in place: the increment moves with it. */
-    constexpr void shift_last_output(T dy) {
-        y_ += dy;
-        d_ += dy;
-    }
-
-    /**
-     * @brief Take back what the last sample added to the output, d[n−1], as far as a clamp cut the
-     *        command off (@p excess = u_sat − u_asked), and no further (detail::hold_against_clamp)
-     * @return How far the output moved
-     */
-    [[nodiscard]] constexpr T hold_against_clamp(T excess) {
-        const T held = y_;
-        detail::hold_against_clamp(y_, d_, excess);
-        return y_ - held;
-    }
-
-private:
-    template<typename>
-    friend class PRResonator;
-
-    T b0_{0};    ///< b̄₀; with c₂ = κ = 1 the section is inert (y = 0) until designed
-    T c2_{1};    ///< c₂ = 1 − ā₂
-    T kappa_{1}; ///< κ = 1 + ā₁ + ā₂
-    T x1_{0};    ///< x[n−1]
-    T x2_{0};    ///< x[n−2]
-    T y_{0};     ///< y[n−1]
-    T d_{0};     ///< d[n−1] = y[n−1] − y[n−2]
-};
-
-/**
- * @ingroup discrete_controllers
- * @brief Discrete Proportional-Resonant Controller
- *
- * PR controller realized as a proportional path plus a Tustin-discretized
- * resonant section, @ref PRResonator. The resonant frequency is pre-warped so the bilinear
- * map lands the digital peak exactly on w0, preserving zero steady-state error
- * at the target frequency (the unwarped map places the peak at the
- * bilinear-warped frequency, worst for high harmonics / low fs).
+ * A proportional path plus a Tustin-discretized resonant section per resonance (detail::PRResonator),
+ * each at its pre-warped frequency so the bilinear map lands the digital peak exactly on it,
+ * preserving zero steady-state error there (the unwarped map places the peak at the
+ * bilinear-warped frequency, worst for high harmonics / low fs). NH = 1 is the PR law at ω₀; a bank
+ * (design::Harmonics) runs one resonator per harmonic h, of gain Kᵢ/h at h·ω₀.
  *
  * Non-ideal (@f$\omega_c > 0@f$): @f$R(s) = 2 K_i \omega_c s/(s^2 + 2\omega_c s + \omega_0^2)@f$.
  * Ideal (@f$\omega_c = 0@f$): @f$R(s) = K_i s/(s^2 + \omega_0^2)@f$.
  * Both use @f$s = (2/T_s)(z-1)/(z+1)@f$.
  *
- * A failed or continuous (Ts = 0) design does not compile under constant evaluation; at run time
- * it leaves the controller invalid (valid() false, output 0). So does a u_lim that is not a box.
+ * | Member | What it is |
+ * | --- | --- |
+ * | step(e), step(r, y) | one tick at the design's T_s on the error e = r − y |
+ * | track(u, e), track(u, r, y) | in place of each step while another source drives the plant |
+ * | back_calculate(u_sat, u_ff) | a clamp after the law: the input the plant received |
+ * | gains(), set_gains(g), set_frequency(w0) | the gains in force (design::PRGains); change them, or ω₀ alone, at run time |
+ * | limits(), set_limits(lim) | the command's limits (design::PRLimits); change them at run time |
+ * | resonant(), harmonics(), sample_time() | the resonant terms' sum in the last command; the orders; T_s |
+ * | last_command(), valid(), reset() | the last command; whether the design ran; clear the resonators |
  *
- * The command is clamped into u_lim. Against that clamp, and one reported with back_calculate, the
- * resonant section gives back what the tick added to its output, as far as the clamp cut the
- * command off (conditional integration, tracking_time = 0), or unwinds by back-calculation with the tracking
- * time T_t, tracking_time.
+ * A failed design, a T_s that is not positive, a gain out of its domain or a limit that is not a
+ * box is refused at construction: ill-formed under constant evaluation (`constinit` deploy); at
+ * run time it leaves the controller invalid (valid() false, output 0).
  *
+ * The command is clamped into limits().input. Against that clamp, and one reported with
+ * back_calculate, the resonators give back what the tick added to their outputs, in the order
+ * listed, until the command meets the clamp (conditional integration, tracking_time = 0), or unwind
+ * by back-calculation with the tracking time T_t, a share min(T_s/T_t, 1) of the excess: never more
+ * in all than the clamp cut off.
+ *
+ * Gains, ω₀ and limits are tunable at run time and take effect at the next tick; each setter
+ * refuses a value out of its domain and changes nothing. A retune keeps each resonator's output
+ * and its increment, so the command does not jump:
  * @code
- * // 50 Hz grid current regulator at 10 kHz
- * auto                d = design::pr({.Kp = 1.0, .Ki = 200.0, .w0 = 2 * std::numbers::pi * 50, .wc = 10.0}, 1e-4);
- * PRController<double> pr(d);
- * double              u = pr.step(i_ref, i_meas); // (r, y) form
+ * if (!pr.set_frequency(w_grid)) { } // a PLL's estimate: refused at or above Nyquist, nothing changed
+ * auto lim = pr.limits();
+ * lim.input = {.lower = -v_bus, .upper = v_bus};
+ * if (!pr.set_limits(lim)) { }
  * @endcode
  *
- * @tparam T Scalar type (default: float)
+ * @code
+ * static constinit PRController<float> pr{design::pr({.Kp = 1.0, .Ki = 200.0, .w0 = 2.0 * pi * 50.0, .wc = 10.0}, 1e-4)};
+ * float u = pr.step(i_ref, i_meas); // (r, y) form
+ * @endcode
+ *
+ * @tparam T  Scalar type (default: float)
+ * @tparam NH Resonators (1: the PR law at ω₀)
  */
-template<typename T = float>
-struct PRController {
-    T            Kp{};
-    T            Ki{};
-    T            w0{};
-    T            wc{};
-    T            Ts{};
-    T            tracking_time{T{0}}; ///< Back-calculation tracking time T_t [s]: ΔR = min(Ts/T_t, 1)(u_sat − (u + u_ff)); 0: the resonant section holds
-    Bounds<1, T> u_lim{};             ///< Limits on the command (the result's; default unbounded)
-    T            u_cmd{T{0}};         ///< Last command step() returned: the u in back_calculate's u_sat − (u + u_ff)
-    bool         valid_{false};       ///< From the design's success flag; gates step()
+template<typename T = float, size_t NH = 1>
+class PRController {
+    static_assert(NH >= 1, "A PR law has at least one resonator.");
 
-    //! Discretized resonant term (inert until designed).
-    PRResonator<T> resonant{};
+    template<typename, size_t>
+    friend class PRController;
 
+public:
     constexpr PRController() = default;
 
     /** @brief From a design result in another scalar: converts it with .as\<T\>() and builds from that. */
     template<typename U>
         requires(!damp::is_same_v<U, T>)
-    constexpr PRController(const design::PRResult<U>& result) // NOLINT(google-explicit-constructor): assign-from-design
+    constexpr PRController(const design::PRResult<U, NH>& result) // NOLINT(google-explicit-constructor): assign-from-design
         : PRController(result.template as<T>()) {}
 
-    constexpr PRController(const design::PRResult<T>& result) // NOLINT(google-explicit-constructor): assign-from-design
-        : Kp(result.Kp),
-          Ki(result.Ki),
-          w0(result.w0),
-          wc(result.wc),
-          Ts(result.Ts),
-          tracking_time(result.tracking_time),
-          u_lim(result.u_lim),
-          valid_(result.success && damp::finite_positive(result.Ts) && result.u_lim.valid()) {
-        if (result.success && !result.u_lim.valid() && damp::is_constant_evaluated()) {
-            detail::refuse_failed_design(design::DesignStatus::invalid_parameter); // a limit that is not finite, or lower above upper
+    /** @brief From a design result. Non-explicit for assign-from-design: `PRController<float> pr = design::pr(gains, Ts).as<float>();` */
+    constexpr PRController(const design::PRResult<T, NH>& result) // NOLINT(google-explicit-constructor): assign-from-design
+        : gains_(result.gains), orders_(result.harmonics), u_lim_(result.limits.input), Ts_(result.Ts) {
+        if (!result.success && damp::is_constant_evaluated()) {
+            detail::refuse_failed_design(result.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
-        if ((!result.success || !(result.Ts > T{0})) && damp::is_constant_evaluated()) {
-            detail::refuse_failed_design(result.success ? design::DesignStatus::invalid_sample_time : result.status); // constant-evaluated (constinit / constexpr): a failed or continuous design does not compile
+        if (!damp::finite_positive(result.Ts) && damp::is_constant_evaluated()) {
+            detail::refuse_failed_design(design::DesignStatus::invalid_sample_time);
         }
-        if (valid_) {
-            compute_coefficients();
+        valid_ = result.success && damp::finite_positive(result.Ts) && result.limits.input.valid() && retune(result.gains);
+        if (!valid_ && damp::is_constant_evaluated()) {
+            detail::refuse_failed_design(design::DesignStatus::invalid_parameter); // a gain out of its domain, or a limit that is not a box
         }
     }
 
+    /** @brief The same law, with its live state, in another scalar. */
     template<typename U>
-    constexpr explicit PRController(const PRController<U>& other)
-        : Kp(static_cast<T>(other.Kp)),
-          Ki(static_cast<T>(other.Ki)),
-          w0(static_cast<T>(other.w0)),
-          wc(static_cast<T>(other.wc)),
-          Ts(static_cast<T>(other.Ts)),
-          tracking_time(static_cast<T>(other.tracking_time)),
-          u_lim(other.u_lim.template as<T>()),
-          u_cmd(static_cast<T>(other.u_cmd)),
-          valid_(other.valid_),
-          resonant(other.resonant) {}
+    constexpr explicit PRController(const PRController<U, NH>& o)
+        : gains_(o.gains_.template as<T>()),
+          orders_(o.orders_),
+          u_lim_(o.u_lim_.template as<T>()),
+          Ts_(static_cast<T>(o.Ts_)),
+          unwind_(static_cast<T>(o.unwind_)),
+          u_cmd_(static_cast<T>(o.u_cmd_)),
+          valid_(o.valid_) {
+        for (size_t i = 0; i < NH; ++i) {
+            res_[i] = detail::PRResonator<T>(o.res_[i]);
+        }
+    }
 
-    /**
-     * @brief Compute control output
-     *
-     * @param error Current error (reference - measurement)
-     * @return Control output u, clamped into u_lim (zero if the design was invalid)
-     */
-    [[nodiscard]] constexpr T step(T error) {
+    /** @brief False when built from a design it refuses: step() returns 0. */
+    [[nodiscard]] constexpr bool valid() const { return valid_; }
+
+    /** @brief One tick on the error @p e = r − y: Kp·e plus the resonant terms, clamped into limits().input (0 if invalid). */
+    [[nodiscard]] constexpr T step(T e) {
         if (!valid_) {
             return T{0};
         }
-        const T u = (Kp * error) + resonant(error);
-        u_cmd = u_lim.saturate(u);
-        static_cast<void>(wind_back(u_cmd - u));
-        return u_cmd;
+        T u = gains_.Kp * e;
+        for (size_t i = 0; i < NH; ++i) {
+            u += res_[i](e);
+        }
+        u_cmd_ = u_lim_.saturate(u);
+        wind_back(u_cmd_ - u);
+        return u_cmd_;
     }
 
+    /** @brief One tick on the reference @p r and the measurement @p y: step(r − y). */
+    [[nodiscard]] constexpr T step(T r, T y) { return step(r - y); }
+
     /**
-     * @brief Reference-tracking overload satisfying SISOController.
+     * @brief In place of step(@p e) while another source drives the plant: the memory that holds @p u, the input applied
      *
-     * Computes the error internally and forwards to the error-form `step()`.
-     * Lets this controller be used directly in `Cascade<Outer, PRController>`
-     * and in tuning harnesses that speak the (r, y) protocol.
+     * The resonators run on e, so their input memory is current, then the first one's output is
+     * shifted so that this tick's command, Kp·e plus the resonant terms, is u clamped into the input
+     * limits: the resonant memory is the applied input's history less the proportional term. @p u
+     * is recorded as the command applied, so a back_calculate of it finds no excess.
+     *
+     * A resonator holds no constant (it has zeros at z = ±1), so this is not a preload of the next
+     * command: the step after a track continues from that memory. For a u at the resonance, the
+     * resonator's own oscillation, it is the input's next sample; for a constant u it is u short
+     * by κ·(u − Kp·e) on the first step, κ = 4β²/(1 + 2α + β²) ≈ (ω₀T_s)², then the resonance rings
+     * down at ω_c. With Kᵢ = 0 the law is a P and there is nothing to preload.
      */
-    [[nodiscard]] constexpr T step(T r, T y) {
-        return step(r - y);
+    constexpr void track(T u, T e) {
+        if (!valid_) {
+            return;
+        }
+        T v = gains_.Kp * e;
+        for (size_t i = 0; i < NH; ++i) {
+            v += res_[i](e);
+        }
+        if (gains_.Ki != T{0}) {
+            res_[0].shift_last_output(u_lim_.saturate(u) - v);
+        }
+        u_cmd_ = u;
     }
 
-    /** @brief Clear the resonant filter's delay line and the last command; gains and config are preserved. */
-    constexpr void reset() {
-        resonant.reset();
-        u_cmd = T{0};
-    }
-
-    [[nodiscard]] constexpr bool valid() const { return valid_; }
-
-    /** @brief The command the last step() returned, inside u_lim. */
-    [[nodiscard]] constexpr T last_command() const { return u_cmd; }
+    /** @brief In place of step(@p r, @p y): track(@p u, @p r − @p y). */
+    constexpr void track(T u, T r, T y) { track(u, r - y); }
 
     /**
-     * @brief Anti-windup after a downstream clamp: the resonant section holds (tracking_time = 0), or
-     *        ΔR = min(Ts/T_t, 1)·(u_sat − (u + u_ff))
+     * @brief Anti-windup after a downstream clamp: the resonant terms hold against the excess
+     *        u_sat − (u + u_ff), or with a tracking time unwind by min(T_s/T_t, 1) of it
      *
-     * With tracking_time = 0 the resonant output gives back what the last tick added to it, as far as the
-     * clamp cut the command off, and no further, as against u_lim. With tracking_time > 0, a damped unwind:
-     * the excess of the applied command over this law's last command u (plus any feedforward
-     * @p u_ff added downstream), times Ts / T_t, is added to the most recent resonant output, so
-     * the next tick's resonant contribution is pulled back toward the realizable command. No Ki
-     * factor: the resonant output is already in command units, so T_t is a time [s], as the
-     * PID laws' tracking_time is. It takes at most the whole excess per tick: past
-     * that it would overshoot, and past twice it diverges.
+     * Call after the stage that clamps the summed command, in the same tick as step(): @p u_sat is
+     * what the plant received, @p u_ff whatever was added to this law's command before the clamp, u
+     * the command step() returned (@ref last_command). With tracking_time = 0 each resonator gives
+     * back what the last tick added to its output, as far as the clamp cut the command off, and no
+     * further, as against limits().input. With tracking_time > 0, a damped unwind: the excess times
+     * min(T_s/T_t, 1) is added to the most recent resonant output, so the next tick's resonant
+     * contribution is pulled back toward the realizable command. No Kᵢ factor: the resonant output
+     * is already in command units, so T_t is a time [s], as the PID laws' tracking_time is. It takes
+     * at most the whole excess per tick: past that it would overshoot, and past twice it diverges.
      *
      * @param u_sat Command actually applied after downstream clamping.
      * @param u_ff  Feedforward added to this law's command before the clamp (default 0).
      */
     constexpr void back_calculate(T u_sat, T u_ff = T{0}) {
         if (valid_) {
-            static_cast<void>(wind_back(u_sat - (u_cmd + u_ff)));
+            wind_back(u_sat - (u_cmd_ + u_ff));
         }
     }
 
-    /**
-     * @brief Take a clamp's @p excess (u_sat − u_asked) back from the resonant section: hold
-     *        (tracking_time = 0) or a share min(Ts/T_t, 1) of it
-     * @return How far the resonant output moved
-     */
-    [[nodiscard]] constexpr T wind_back(T excess) {
-        if (tracking_time == T{0}) {
-            return resonant.hold_against_clamp(excess);
+    /** @brief The command the last step() returned, or the input the last track() recorded. */
+    [[nodiscard]] constexpr T last_command() const { return u_cmd_; }
+
+    /** @brief Clear the resonators' memory and the last command; keeps the gains and the limits. */
+    constexpr void reset() {
+        for (size_t i = 0; i < NH; ++i) {
+            res_[i].reset();
         }
-        const T shift = damp::min(Ts / tracking_time, T{1}) * excess;
-        resonant.shift_last_output(shift);
-        return shift;
+        u_cmd_ = T{0};
     }
 
+    /** @brief The gains in force: the design's, or the last set_gains or set_frequency. */
+    [[nodiscard]] constexpr design::PRGains<T> gains() const { return gains_; }
+
     /**
-     * @brief Update resonant frequency (for grid frequency adaptation)
+     * @brief Change the gains at run time; the next tick uses them
      *
-     * Ignores a non-finite @p new_w0 or one outside (0, π/Ts), which the bilinear map cannot place.
-     *
-     * @param new_w0 New resonant frequency (rad/s)
+     * Recomputes every resonator's coefficients at sample_time() and keeps its output and
+     * increment, so the command does not jump. Refused (false, nothing changed) for a Kp or Kᵢ that
+     * is not finite, an ω_c or a tracking time below 0 or not finite, an ω₀ that is not finite and
+     * positive or that puts a resonance at or above Nyquist, or a coefficient that overflows.
      */
-    constexpr void set_frequency(T new_w0) {
-        if (!damp::finite_positive(new_w0) || !(new_w0 * Ts < damp::numbers::pi_v<T>)) {
-            return;
-        }
-        w0 = new_w0;
-        if (valid_) {
-            compute_coefficients();
-        }
+    [[nodiscard]] constexpr bool set_gains(const design::PRGains<T>& g) { return retune(g); }
+
+    /**
+     * @brief Move the resonance (in a bank, the fundamental and every harmonic with it) to @p w0
+     *        [rad/s]: grid-frequency adaptation
+     *
+     * set_gains with ω₀ alone changed. Refused (false, nothing changed) for an @p w0 that is not
+     * finite and positive, or one that would put a resonance at or above Nyquist: the bank is
+     * retuned whole or not at all.
+     */
+    [[nodiscard]] constexpr bool set_frequency(T w0) {
+        design::PRGains<T> g = gains_;
+        g.w0 = w0;
+        return retune(g);
     }
+
+    /** @brief The limits in force: the design's, or the last set_limits. */
+    [[nodiscard]] constexpr design::PRLimits<T> limits() const { return design::PRLimits<T>{u_lim_}; }
+
+    /**
+     * @brief Change the limits at run time; the next tick clamps into them
+     *
+     * Refused (false, nothing changed) when an end is NaN or ±Inf, or the lower end is above the upper one.
+     */
+    [[nodiscard]] constexpr bool set_limits(const design::PRLimits<T>& lim) {
+        if (!lim.input.valid()) {
+            return false;
+        }
+        u_lim_ = Bounds<1, T>(lim.input);
+        return true;
+    }
+
+    /** @brief The resonant terms' sum in the last command (u's units): the resonators' most recent outputs. */
+    [[nodiscard]] constexpr T resonant() const {
+        T sum{0};
+        for (size_t i = 0; i < NH; ++i) {
+            sum += res_[i].last_output();
+        }
+        return sum;
+    }
+
+    /** @brief The harmonic order of each resonator, Kᵢ/h at h·ω₀. */
+    [[nodiscard]] constexpr const damp::array<size_t, NH>& harmonics() const { return orders_; }
+
+    /** @brief [s] The tick's sample period T_s. */
+    [[nodiscard]] constexpr T sample_time() const { return Ts_; }
 
 private:
-    /**
-     * @brief Coefficients of the resonant section, each a ratio of positive terms
-     *
-     * Tustin of R(s), s = k(z−1)/(z+1) with k = 2/Ts, at the pre-warped frequency
-     * @f$\omega_0' = k\beta@f$, @f$\beta = \tan(\omega_0 T_s/2)@f$, so that the digital peak sits
-     * exactly on ω₀ (@ref design::PRResult::to_discrete_ss uses the same frequency). Divided
-     * through by k², with @f$\alpha = \omega_c T_s/2@f$, the denominator is
-     * @f$(z-1)^2 + 2\alpha(z^2-1) + \beta^2(z+1)^2@f$, and normalizing by
-     * @f$\mathrm{den} = 1 + 2\alpha + \beta^2@f$ gives the coefficients of @ref PRResonator:
-     * @f[
-     *   \kappa = \frac{4\beta^2}{\mathrm{den}}, \qquad c_2 = \frac{4\alpha}{\mathrm{den}}, \qquad
-     *   \bar b_0 = \frac{2 K_i \alpha}{\mathrm{den}} = \frac{K_i c_2}{2}
-     *   \quad\Bigl(\text{ideal, } \alpha = 0:\ \bar b_0 = \frac{K_i T_s}{2\,\mathrm{den}}\Bigr).
-     * @f]
-     * No k² is formed and nothing cancels: in float the sum k² + 2ω_c·k + ω₀'² drops ω₀'² once
-     * it is below the ulp of k² (39 against 128 at 1 Hz and 20 kHz), and −2 + κ + c₂ cannot be
-     * stored either (see @ref PRResonator). κ and c₂ are within a few ulps of their values. The
-     * poles have |z|² = 1 − c₂ and are inside the unit circle while κ + 2c₂ < 4, which holds by
-     * 4/den. A den that is not positive and finite (a hand-built result) leaves the section inert.
-     */
-    constexpr void compute_coefficients() {
-        const T alpha = (wc * Ts) / T{2};
-        const T beta = design::detail::pr_tan_half_angle(w0, Ts);
-        const T beta2 = beta * beta;
-        const T den = T{1} + (T{2} * alpha) + beta2;
-        if (!damp::finite_positive(den)) {
-            resonant.set_coefficients(T{0}, T{1}, T{1});
-            return;
+    /** @brief Take @p g at sample_time() when every resonator's coefficients are in their domain, keeping each resonator's state; nothing changed otherwise. */
+    [[nodiscard]] constexpr bool retune(const design::PRGains<T>& g) {
+        const auto k = detail::pr_bank_coefficients(g.Kp, g.Ki, g.w0, g.wc, g.tracking_time, Ts_, orders_);
+        if (!k) {
+            return false;
         }
-        const T c2 = T{4} * (alpha / den);
-        const T kappa = T{4} * (beta2 / den);
-        const T b0 = (wc > T{0}) ? (Ki * (c2 / T{2})) : (Ki * (Ts / (T{2} * den)));
-        resonant.set_coefficients(b0, c2, kappa);
+        for (size_t i = 0; i < NH; ++i) {
+            res_[i].set_coefficients((*k)[i]);
+        }
+        gains_ = g;
+        unwind_ = (g.tracking_time > T{0}) ? damp::min(Ts_ / g.tracking_time, T{1}) : T{0};
+        return true;
     }
+
+    /** @brief Take a clamp's @p excess (u_sat − u_asked) back from the resonators in turn, each from what is left: hold (tracking_time = 0) or a share min(T_s/T_t, 1). */
+    constexpr void wind_back(T excess) {
+        for (size_t i = 0; i < NH; ++i) {
+            if (gains_.tracking_time == T{0}) {
+                excess -= res_[i].hold_against_clamp(excess);
+            } else {
+                const T shift = unwind_ * excess;
+                res_[i].shift_last_output(shift);
+                excess -= shift;
+            }
+        }
+    }
+
+    damp::array<detail::PRResonator<T>, NH> res_{};        ///< One resonant section per harmonic (inert until designed)
+    design::PRGains<T>                      gains_{};      ///< The gains in force
+    damp::array<size_t, NH>                 orders_{};     ///< The harmonic order of each resonator
+    Bounds<1, T>                            u_lim_{};      ///< The command's limits
+    T                                       Ts_{T{0}};     ///< [s] The tick's period
+    T                                       unwind_{T{0}}; ///< min(T_s/T_t, 1), 0 for T_t = 0 (hold)
+    T                                       u_cmd_{T{0}};  ///< Last command step() returned, or the input track() recorded
+    bool                                    valid_{false}; ///< False when built from a design it refuses: step() returns 0
 };
 
-/** @brief Deduce the runtime from its design, keeping the result's scalar. */
-template<typename T>
-PRController(const design::PRResult<T>&) -> PRController<T>;
+/** @brief Deduce the runtime from its design, keeping the result's scalar and resonators. */
+template<typename T, size_t NH>
+PRController(const design::PRResult<T, NH>&) -> PRController<T, NH>;
+
+namespace detail {
+
+/** @brief Whether @p R is a PR design result. */
+template<typename R>
+inline constexpr bool is_pr_result = false;
+
+/** @brief design::pr's result. */
+template<typename U, size_t NH>
+inline constexpr bool is_pr_result<design::PRResult<U, NH>> = true;
+
+/** @brief A PR design (design::pr). */
+template<const auto& Res>
+concept pr_design = is_pr_result<design_t<Res>>;
+
+} // namespace detail
+
+/**
+ * @brief Law<kRes, T> of a PR design: the PRController it runs as, with the design's resonators
+ *
+ * A `constexpr` design that failed, or has no positive T_s, does not compile wherever the Law is
+ * declared. The gains stay members, settable at run time.
+ */
+// ponytail: a constexpr design's coefficients could be constants of the type, as PID's
+// ConstantPIDGains are; PRResonator would read them from a gain source in place of members.
+template<const auto& Res, typename T>
+    requires detail::pr_design<Res>
+struct Law<Res, T> : PRController<T, detail::design_t<Res>::resonators> {
+    using Runtime = PRController<T, detail::design_t<Res>::resonators>; ///< The runtime the design runs as
+
+    static_assert(detail::constant_design_checked<Res>());
+
+    /** @brief The design's law. */
+    constexpr Law() : Runtime{Res} {}
+
+    using Runtime::operator=;
+};
 
 } // namespace damp

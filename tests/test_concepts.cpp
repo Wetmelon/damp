@@ -7,7 +7,6 @@
 #include "damp/concepts.hpp"
 #include "damp/controllers/adrc.hpp"
 #include "damp/controllers/esc.hpp"
-#include "damp/controllers/harmonic_suppression.hpp"
 #include "damp/controllers/lead_lag.hpp"
 #include "damp/controllers/lqg.hpp"
 #include "damp/controllers/lqgi.hpp"
@@ -56,7 +55,7 @@ static_assert(SisoController<SMCController<double>, double>);
 static_assert(SisoController<STSMCController<float>, float>);
 static_assert(SisoController<LeadLagController<double>, double>);
 static_assert(SisoController<PRController<double>, double>);
-static_assert(SisoController<HarmonicSuppressor<3, double>, double>);
+static_assert(SisoController<PRController<double, 3>, double>);    // a PR bank, design::Harmonics
 static_assert(SisoController<SmithPredictor<16, double>, double>); // default PI primary
 static_assert(SisoController<SmithPredictor<16, float, PIController<float>>, float>);
 

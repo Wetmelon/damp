@@ -29,7 +29,7 @@
  * @defgroup controllers Controllers (general)
  * @brief Runtime control blocks beyond simple discrete state-feedback wrappers.
  *
- * Includes composition helpers, governors, ESC, harmonic suppression, repetitive
+ * Includes composition helpers, governors, ESC, repetitive
  * control, and other tick-rate objects that are not pure LQR/PID shells.
  */
 

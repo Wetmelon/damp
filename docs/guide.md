@@ -215,17 +215,16 @@ Every law in this table reads its run-time limits with `limits()` and sets them 
 | `PIDController` (PID), `PIController` | `step(r, y)` at the design's Ts, or `step(r, y, dt)` at a measured period | `r`, with setpoint weights `b`, `c` | `input`, `integral` | I holds (`tracking_time` = 0) or unwinds over `tracking_time`; `back_calculate`; `track(u, r, y)` |
 | `PDController` | `step(r, y)` or `step(r, y, dt)` | `r`, with setpoint weights `b`, `c` | `input` | `back_calculate` (no-op); `track(u, r, y)` |
 | `PController` | `step(r, y)` or `step(r, y, dt)` | `r`, with setpoint weight `b` | `input` | `back_calculate` (no-op); `track(u, r, y)` |
-| `LeadLagController` | `step(e)` or `step(r, y)` | error | `u_lim` | `back_calculate` |
-| `PRController` | `step(e)` or `step(r, y)` | error | `u_lim` | resonant section holds (`tracking_time` = 0) or unwinds over `tracking_time`; `back_calculate`; `set_frequency` |
-| `HarmonicSuppressor` | `step(e)` or `step(r, y)` | error | `u_lim` | resonators hold, fundamental first; `back_calculate`; `set_fundamental` |
-| `RepetitiveController` | `step(e)` | error | none (an add-on: the clamp is on the sum) | `back_calculate` |
+| `LeadLagController` (a lead or a lag), `LeadLagController<T, 2>` (`lead_lag`'s lead, then lag) | `step(e)` or `step(r, y)` | error | `input` | the last section's recursion runs on the clamped output; `back_calculate`; `track(u, r, y)`, `track(u, e)` |
+| `PRController` (one resonance), `PRController<T, NH>` (a bank: `Harmonics{{1, 5, 7}}`) | `step(e)` or `step(r, y)` | error | `input` | resonant terms hold (`tracking_time` = 0), in the order listed, or unwind over `tracking_time`; `back_calculate`; `track(u, r, y)`, `track(u, e)`; `set_frequency` |
+| `RepetitiveController` | `step(e)` | error | none (an add-on: the clamp is on the sum) | `back_calculate`; `track(u, e)` |
 | `SmithPredictor` | `step(r, y)` | `r` | the primary law's (`limits().input` on a PID primary) | `back_calculate` (the model and the primary law) |
 | `ADRCController` | `step(r, y)` | `r` | `u_lim` | the observer runs on the clamped command; `back_calculate` |
 | `SMCController` | `step(r, y)` | `r` | `u_lim` (output also within ±k/b₀) | `back_calculate` (no-op) |
 | `STSMCController` | `step(r, y)` or `step_sliding(s)` | `r`, or the sliding variable s | `u_lim` | v holds against the clamp; `back_calculate` |
 | `ExtremumSeekingController` | `step(J, valid)` | none | `u_lim` on û and on û + dither | `back_calculate` |
 
-The PID rows are one runtime, `PIDController<T, Mode>`, and the aliases name its narrower modes: `PIDController pid{res}` deduces a PID from a design, `Law<kRes, T>` of a `constexpr` one the narrowest mode its gains need. They read their run-time limits with `limits()` and set them with `set_limits()`, as the LQ laws and the MPCs do, `design::PIDLimits` (`input`, `integral`), which `design::pid`'s `InputLimits` and `AntiWindup{.limits}` give the law to start with; and their gains with `gains()` and `set_gains()`, the continuous `design::PIDGains` (`Kp`, `Ki`, `Kd`, `Tf`, `b`, `c`, `tracking_time`). Both refuse a value that is not finite or not in range and change nothing; the integral is the I term, in u's units, so a new `Ki` does not bump the command. The other SISO laws hold `u_lim` as a public member.
+The PID rows are one runtime, `PIDController<T, Mode>`, and the aliases name its narrower modes: `PIDController pid{res}` deduces a PID from a design, `Law<kRes, T>` of a `constexpr` one the narrowest mode its gains need. They read their run-time limits with `limits()` and set them with `set_limits()`, as the LQ laws and the MPCs do, `design::PIDLimits` (`input`, `integral`), which `design::pid`'s `InputLimits` and `AntiWindup{.limits}` give the law to start with; and their gains with `gains()` and `set_gains()`, the continuous `design::PIDGains` (`Kp`, `Ki`, `Kd`, `Tf`, `b`, `c`, `tracking_time`). Both refuse a value that is not finite or not in range and change nothing; the integral is the I term, in u's units, so a new `Ki` does not bump the command. `PRController` and `LeadLagController` read and set theirs the same way, `design::PRLimits` and `design::LeadLagLimits` (`input`), which an `InputLimits` among their designs' options gives them to start with, and their gains with `gains()` and `set_gains()` (`design::PRGains`; each section's `design::LeadLagGains`), a PR law's ω₀ alone with `set_frequency()`. The other SISO laws hold `u_lim` as a public member.
 
 ### Composition and safety filter
 
@@ -239,7 +238,7 @@ The PID rows are one runtime, `PIDController<T, Mode>`, and the aliases name its
 
 One contract for every law:
 
-- **The output limit** is a `Bounds` (`{.lower = -12.0, .upper = 12.0}`), unbounded by default: an `InputLimits{.lower = {-12.0}, .upper = {12.0}}` among an LQ or MPC design's options, and `u_lim`, a field of the design input where the design takes a struct, or of the result, on the others. A limit that is not a box (an end not finite, or lower above upper) is refused. A rail that moves is set per tick: the LQ laws, the MPCs and the PID laws read their run-time limits with `limits()` and set them with `set_limits(lim)`, which refuses one that is not a box and changes nothing (`auto l = law.limits(); l.input = {…}; law.set_limits(l);`); the other laws hold `u_lim` as a public member.
+- **The output limit** is a `Bounds` (`{.lower = -12.0, .upper = 12.0}`), unbounded by default: an `InputLimits{.lower = {-12.0}, .upper = {12.0}}` among an LQ or MPC design's options, and `u_lim`, a field of the design input where the design takes a struct, or of the result, on the others. A limit that is not a box (an end not finite, or lower above upper) is refused. A rail that moves is set per tick: the LQ laws, the MPCs, the PID, PR and lead-lag laws read their run-time limits with `limits()` and set them with `set_limits(lim)`, which refuses one that is not a box and changes nothing (`auto l = law.limits(); l.input = {…}; law.set_limits(l);`); the other laws hold `u_lim` as a public member.
 - **The tick returns a command inside its limits**, and the law's memory holds against that clamp with nothing else to set: an integral does not run on behind it, and an observer or internal model takes the clamped command as the input applied.
 - **`back_calculate(u_sat, u_ff = {})`** reports a clamp after the law: `u_sat` is what the plant received, `u_ff` what was added to the law's command before the clamp. The law's memory holds against it the same way.
 
@@ -250,9 +249,8 @@ One contract for every law:
 | `MPC`, `OFMPC` | An `InputLimits`, an `InputRateLimits`, an `OutputLimits` and a `StateLimits`; at run time `set_limits()` | By construction: the limits are constraints of the QP; `OFMPC`'s d̂ stays in `disturbance` |
 | `ADRCController` | `u_lim` on `ADRCResult` | The ESO runs on the clamped command |
 | `STSMCController` | `u_lim` on `STSMCResult` | The integral state |
-| `LeadLagController` | `u_lim` on `LeadLagResult` | The recursion runs on the clamped output |
-| `PRController` | `u_lim` on `PRResult` | The resonant section gives back what the tick added (`tracking_time` = 0), or unwinds over `tracking_time` |
-| `HarmonicSuppressor` | `u_lim` on `HarmonicSuppressorResult` | The resonators, fundamental first, never more in all than the clamp cut |
+| `LeadLagController` | An `InputLimits` among the design's options; at run time `set_limits()` | The last section's recursion runs on the clamped output |
+| `PRController` | An `InputLimits` among `design::pr`'s options; at run time `set_limits()` | The resonant terms give back what the tick added (`tracking_time` = 0), in the order listed and never more in all than the clamp cut, or unwind over `tracking_time` |
 | `SMCController` | `u_lim` on `SMCResult` | Nothing to hold: it keeps only the last error |
 | `ExtremumSeekingController` | `u_lim` in `ESCSpec` | The operating point stays inside, and follows a clamp reported to it |
 | `SmithPredictor` | its primary's | The primary's memory; the internal model runs on the input reported |
@@ -287,6 +285,9 @@ u = law.step(r, y);         // handover: the first command starts from u_applied
 | `LQR`, `LQG`, an `OFLQG` away from a steady state | nothing to preload: the first step is the law's own command. With `design::Handover{.fade_time}` among the design's options it is u, and the mismatch e = u − u_law decays by exp(−Ts/fade_time) each tick, within the input limits; the integrators take e as a feedforward |
 | `PIDController`, `PIController` | `track(u, r, y)` (or `track(u, r, y, dt)`): the integral preloaded so that `step(r, y)` at this r and y returns u clamped into the input limits, the setpoint weight b included, then clamped into the integral limits; the derivative memory follows the measurement |
 | `PDController`, `PController` | nothing to preload: the derivative memory follows the measurement, so the first step is the law's own command without a kick |
+| `LeadLagController` | `track(u, r, y)` or `track(u, e)`: the last section's memory preloaded so that `step` at this error returns u clamped into the input limits; the sections before it run on the error |
+| `PRController` | `track(u, r, y)` or `track(u, e)`: the resonators run on the error, then the first one's output is shifted so that the tracked tick's command is u clamped into the input limits, so the resonant memory is the applied input's history. A resonator holds no constant: a u at the resonance continues on the first step, a constant u comes back short by κ·u, κ ≈ (ω₀Ts)² |
+| `RepetitiveController` | `track(u, e)`: the internal model held and kept in phase with the period, the error not learned |
 
 A u outside the input limits is one the law cannot emit: an LQ law hands over from u clamped into them, while the filter and the delay states take the u the plant received. `track` adds nothing to `step`, and a law without a `Handover` is the type and size it was. A law on the low-latency tick calls `predict()` once after the last `track`, as `step` does at its start.
 
