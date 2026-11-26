@@ -273,6 +273,14 @@ struct SetpointWeights {
  * it is in u's units too (PIDLimits::integral). A tracking time below 0 or not finite, or limits
  * that are not a box, are refused with DesignStatus::invalid_parameter.
  *
+ * The same T_t governs the law's own clamp and a clamp after it, reported with back_calculate(u_sat,
+ * u_ff), and holding suits both: a clamp is a clamp wherever it sits. An input from another source
+ * (an operator, another law) is not a clamp; that is what track(u, r, y) is for.
+ *
+ * @note Compare with MATLAB®'s PID Controller block, whose back-calculation coefficient Kb (its own
+ *       saturation) and tracking coefficient Kt (the TR input, which back_calculate takes here) are
+ *       both ≈ 1/T_t. Damp has one T_t for the two, and its 0 is the block's clamping method.
+ *
  * @see "Advanced PID Control" (Åström & Hägglund, 2006), §3.5: back-calculation and conditional
  *      integration
  * @tparam T The scalar (converted to the design's)
