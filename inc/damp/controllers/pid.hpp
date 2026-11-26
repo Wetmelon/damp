@@ -842,7 +842,7 @@ private:
     }
 
     /** @brief The derivative term over one period: D ← a·D + b·Δ(c·r − y), Δ zero on the first tick (no derivative kick). */
-    constexpr void differentiate(T r, T y, const Derivative& k)
+    constexpr void differentiate(T r, T y, Derivative k)
         requires kD
     {
         const T x = (k_.d.c * r) - y;
@@ -855,7 +855,7 @@ private:
     }
 
     /** @brief One tick over a period @p h: integral increment @p ki_h per unit error, derivative coefficients @p k. */
-    [[nodiscard]] constexpr T tick(T r, T y, T ki_h, const Derivative& k, T h) {
+    [[nodiscard]] constexpr T tick(T r, T y, T ki_h, Derivative k, T h) {
         T u_unsat = k_.Kp * ((k_.b * r) - y);
         if constexpr (kD) {
             differentiate(r, y, k);
@@ -879,7 +879,7 @@ private:
     }
 
     /** @brief track's memory: the tick's derivative, then I for a next tick at (r, y) of the same period that returns u clamped. */
-    constexpr void follow(T u, T r, T y, T ki_h, const Derivative& k, T h) {
+    constexpr void follow(T u, T r, T y, T ki_h, Derivative k, T h) {
         T next = k_.Kp * ((k_.b * r) - y); // the next tick's P + D at this (r, y)
         if constexpr (kD) {
             differentiate(r, y, k);
