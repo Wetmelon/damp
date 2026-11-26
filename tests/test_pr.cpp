@@ -652,6 +652,14 @@ TEST_SUITE("PR Controller") {
 
 namespace {
 constexpr auto kGrid = design::pr({.Kp = 1.0, .Ki = 200.0, .w0 = 2.0 * std::numbers::pi * 50.0, .wc = 10.0}, 1e-4, design::Harmonics{{1, 5, 7}});
+
+/** @brief A law whose gains set_gains changes at run time. */
+template<typename L>
+concept Retunable = requires(L& l) { l.set_gains(l.gains()); };
+
+/** @brief A law whose resonance set_frequency moves at run time. */
+template<typename L>
+concept Retuned = requires(L& l, float w) { l.set_frequency(w); };
 } // namespace
 
 TEST_SUITE("PR Controller: the runtime contract") {
@@ -745,17 +753,47 @@ TEST_SUITE("PR Controller: the runtime contract") {
         CHECK(p.resonant() == 0.0);
         CHECK(p.step(0.5) == 1.0); // the P law's own command
     }
+}
 
-    TEST_CASE("Law<kRes, T> of a PR design runs as its PRController, the design's resonators and limits") {
-        static constinit Law<kGrid, float> law;
-        static_assert(std::is_base_of_v<PRController<float, 3>, Law<kGrid, float>>);
-        PRController<float, 3> same{kGrid};
+TEST_SUITE("PR Law") {
+    TEST_CASE("Law<kRes, T> of a constexpr PR design: the bank's gains and every resonator's coefficients constants of the type") {
+        static_assert(std::is_same_v<Law<kGrid, float>::Runtime, PRController<float, 3>>);
+        //! Kp, the tracking time's share, T_s, the harmonics and each resonator's b̄₀, c₂ and κ are the
+        //! type's: the Law stores only the resonators' memory, the limits and the last command, and it
+        //! has no set_gains or set_frequency.
+        static_assert(sizeof(Law<kGrid, float>) < sizeof(PRController<float, 3>));
+        static_assert(!Retunable<Law<kGrid, float>> && !Retuned<Law<kGrid, float>>);
+        static_assert(Retunable<PRController<float, 3>> && Retuned<PRController<float, 3>>);
+
+        static constinit Law<kGrid, float>      law;
+        static constinit PRController<float, 3> same{kGrid}; // the coefficients computed at compile time, as the Law's are
         CHECK(law.valid());
         CHECK(law.harmonics()[2] == 7);
+        CHECK(law.gains().Ki == 200.0f);
+        CHECK(law.sample_time() == 1e-4f);
+        for (int k = 0; k < 2000; ++k) {
+            const float e = static_cast<float>(std::sin(0.1 * k));
+            const auto  a = law.step(e);
+            const auto  b = same.step(e);
+            CHECK(a == doctest::Approx(b).epsilon(1e-5)); // two inlined copies of the tick may round differently under -ffast-math, and the law's memory carries it on
+        }
+        //! Its limits stay settable at run time.
+        auto lim = law.limits();
+        lim.input.upper(0) = 0.5f;
+        REQUIRE(law.set_limits(lim));
+        CHECK(law.step(10.0f) == 0.5f);
+        // law = PRController<float, 3>{kGrid}; // ill-formed: nothing replaces the type's gains (Law::operator=)
+        //! The Law's state carries over to a Runtime, which retunes.
+        Law<kGrid, float>::Runtime copied{law};
+        CHECK(copied.valid());
+        CHECK(copied.resonant() == law.resonant());
+        CHECK(copied.limits().input.upper(0) == 0.5f);
         for (int k = 0; k < 50; ++k) {
             const float e = static_cast<float>(std::sin(0.1 * k));
-            CHECK(law.step(e) == doctest::Approx(same.step(e)).epsilon(1e-6)); // the same law: a few ulps of float
+            const auto  a = copied.step(e);
+            const auto  b = law.step(e);
+            CHECK(a == doctest::Approx(b).epsilon(1e-5)); // two inlined copies of the tick may round differently under -ffast-math, and the law's memory carries it on
         }
-        CHECK(law.set_frequency(static_cast<float>(2.0 * std::numbers::pi * 60.0))); // the gains stay members
+        CHECK(copied.set_frequency(static_cast<float>(2.0 * std::numbers::pi * 60.0)));
     }
 }

@@ -380,14 +380,18 @@ template<typename T = double, typename... Opts>
  * @see "Computer-Controlled Systems" (Åström & Wittenmark, 1997): the controller's recursion
  *      driven by the saturated output
  *
- * @tparam T  Scalar type (default: float)
- * @tparam NS Sections in series (1: a lead or a lag; 2: design::lead_lag's)
+ * @tparam T     Scalar type (default: float)
+ * @tparam NS    Sections in series (1: a lead or a lag; 2: design::lead_lag's)
+ * @tparam Gains Where the sections live: void, the default, for members (detail::LeadLagGainSet, settable), or
+ *               the constants of a `constexpr` design's Law (detail::ConstantLeadLagGains)
  */
-template<typename T = float, size_t NS = 1>
+template<typename T = float, size_t NS = 1, typename Gains = void>
 class LeadLagController {
     static_assert(NS >= 1, "A lead-lag law has at least one section.");
+    using GainSet = damp::conditional_t<damp::is_same_v<Gains, void>, detail::LeadLagGainSet<T, NS>, Gains>; ///< The sections' storage
+    static constexpr bool kHeld = !GainSet::constant;                                                        ///< The sections are members: set_gains changes them
 
-    template<typename, size_t>
+    template<typename, size_t, typename>
     friend class LeadLagController;
 
 public:
@@ -401,27 +405,29 @@ public:
 
     /** @brief From a design result. Non-explicit for assign-from-design: `LeadLagController<float> c = design::lead(spec, Ts).as<float>();` */
     constexpr LeadLagController(const design::LeadLagResult<T, NS>& result) // NOLINT(google-explicit-constructor): assign-from-design
-        : gains_(result.gains), u_lim_(result.limits.input), Ts_(result.Ts) {
+        : u_lim_(result.limits.input) {
         if (!result.success && damp::is_constant_evaluated()) {
             detail::refuse_failed_design(result.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
         if (!damp::finite_positive(result.Ts) && damp::is_constant_evaluated()) {
             detail::refuse_failed_design(design::DesignStatus::invalid_sample_time);
         }
-        valid_ = result.success && damp::finite_positive(result.Ts) && result.limits.input.valid() && retune(result.gains);
+        valid_ = result.success && damp::finite_positive(result.Ts) && result.limits.input.valid() && take(result.gains, result.Ts);
         if (!valid_ && damp::is_constant_evaluated()) {
             detail::refuse_failed_design(design::DesignStatus::invalid_parameter); // a section out of its domain, or a limit that is not a box
         }
     }
 
-    /** @brief The same law, with its live memory, in another scalar. */
-    template<typename U>
-    constexpr explicit LeadLagController(const LeadLagController<U, NS>& o)
-        : u_lim_(o.u_lim_.template as<T>()), Ts_(static_cast<T>(o.Ts_)), u_cmd_(static_cast<T>(o.u_cmd_)), valid_(o.valid_) {
+    /** @brief The same law, with its live memory, in another scalar (or off a Law's constant sections, onto members). */
+    template<typename U, typename G>
+        requires kHeld
+    constexpr explicit LeadLagController(const LeadLagController<U, NS, G>& o) : u_lim_(o.u_lim_.template as<T>()), u_cmd_(static_cast<T>(o.u_cmd_)) {
+        damp::array<design::LeadLagGains<T>, NS> g{};
         for (size_t i = 0; i < NS; ++i) {
             stages_[i] = detail::LeadLagStage<T>(o.stages_[i]);
-            gains_[i] = o.gains_[i].template as<T>();
+            g[i] = o.gains()[i].template as<T>();
         }
+        valid_ = o.valid_ && take(g, static_cast<T>(o.sample_time()));
     }
 
     /** @brief False when built from a design it refuses: step() returns 0. */
@@ -437,7 +443,7 @@ public:
         }
         const T v = into_last(e);
         auto&   last = stages_[NS - 1];
-        const T u = u_lim_.saturate(last.raw(v));
+        const T u = u_lim_.saturate(last.raw(v, k_.sections[NS - 1].k));
         last.e_prev = v;
         last.u_prev = u;
         u_cmd_ = u;
@@ -464,10 +470,10 @@ public:
         T v = e;     // the last section's input on this tick
         T ahead = e; // and on the next one, at the same e
         for (size_t i = 0; i + 1 < NS; ++i) {
-            v = stages_[i](v);
-            ahead = stages_[i].raw(ahead);
+            v = stages_[i](v, k_.sections[i].k);
+            ahead = stages_[i].raw(ahead, k_.sections[i].k);
         }
-        stages_[NS - 1].preload(v, ahead, u_lim_.saturate(u));
+        stages_[NS - 1].preload(v, ahead, u_lim_.saturate(u), k_.sections[NS - 1].k);
         u_cmd_ = u;
     }
 
@@ -504,16 +510,27 @@ public:
     }
 
     /** @brief Each section's K, z, p in force: the design's, or the last set_gains. */
-    [[nodiscard]] constexpr damp::array<design::LeadLagGains<T>, NS> gains() const { return gains_; }
+    [[nodiscard]] constexpr damp::array<design::LeadLagGains<T>, NS> gains() const {
+        damp::array<design::LeadLagGains<T>, NS> g{};
+        for (size_t i = 0; i < NS; ++i) {
+            g[i] = design::LeadLagGains<T>{.K = k_.sections[i].K, .z = k_.sections[i].z, .p = k_.sections[i].p};
+        }
+        return g;
+    }
 
     /**
      * @brief Change the sections at run time; the next tick uses them
      *
      * Recomputes the Tustin coefficients at sample_time() and keeps each section's memory.
      * Refused (false, nothing changed) for a K that is not finite, a z or p that is not finite and
-     * positive, or a coefficient that overflows.
+     * positive, or a coefficient that overflows. A `constexpr` design's Law, whose sections are the
+     * type's, has none.
      */
-    [[nodiscard]] constexpr bool set_gains(const damp::array<design::LeadLagGains<T>, NS>& g) { return retune(g); }
+    [[nodiscard]] constexpr bool set_gains(const damp::array<design::LeadLagGains<T>, NS>& g)
+        requires kHeld
+    {
+        return take(g, k_.Ts);
+    }
 
     /** @brief The limits in force: the design's, or the last set_limits. */
     [[nodiscard]] constexpr design::LeadLagLimits<T> limits() const { return design::LeadLagLimits<T>{u_lim_}; }
@@ -532,44 +549,41 @@ public:
     }
 
     /** @brief [s] The tick's sample period T_s. */
-    [[nodiscard]] constexpr T sample_time() const { return Ts_; }
+    [[nodiscard]] constexpr T sample_time() const { return k_.Ts; }
 
 private:
     /** @brief The sections before the last, one tick on @p e: the last section's input. */
     [[nodiscard]] constexpr T into_last(T e) {
         T v = e;
         for (size_t i = 0; i + 1 < NS; ++i) {
-            v = stages_[i](v);
+            v = stages_[i](v, k_.sections[i].k);
         }
         return v;
     }
 
-    /** @brief Take @p g at sample_time() when every section is in its domain, keeping each section's memory; nothing changed otherwise. */
-    [[nodiscard]] constexpr bool retune(const damp::array<design::LeadLagGains<T>, NS>& g) {
-        if (!damp::finite_positive(Ts_)) {
-            return false;
-        }
-        damp::array<detail::LeadLagCoefficients<T>, NS> k{};
-        for (size_t i = 0; i < NS; ++i) {
-            if (!detail::lead_lag_section_ok(g[i].K, g[i].z, g[i].p)) {
+    /**
+     * @brief Store @p g at the period @p Ts when every section is in its domain, keeping each
+     *        section's memory; nothing changed otherwise. On a `constexpr` design's Law, whose
+     *        sections are the type's, whether they are.
+     */
+    [[nodiscard]] constexpr bool take(const damp::array<design::LeadLagGains<T>, NS>& g, T Ts) {
+        if constexpr (kHeld) {
+            const auto set = detail::lead_lag_gain_set(g, Ts);
+            if (!set) {
                 return false;
             }
-            k[i] = detail::lead_lag_coefficients(g[i].K, g[i].z, g[i].p, Ts_);
-            if (!k[i].finite()) {
-                return false;
-            }
+            k_ = *set;
+            return true;
+        } else {
+            static_cast<void>(g);
+            static_cast<void>(Ts);
+            return GainSet::ok; // checked once, when the type was formed
         }
-        for (size_t i = 0; i < NS; ++i) {
-            stages_[i].k = k[i];
-        }
-        gains_ = g;
-        return true;
     }
 
-    damp::array<detail::LeadLagStage<T>, NS> stages_{};     ///< Each section's coefficients and memory, in series
-    damp::array<design::LeadLagGains<T>, NS> gains_{};      ///< Each section's K, z, p
+    damp::array<detail::LeadLagStage<T>, NS> stages_{};     ///< Each section's memory, in series
+    [[no_unique_address]] GainSet            k_{};          ///< Each section's K, z, p, T_s and the coefficients at it: members, or no storage on a constexpr design's Law
     Bounds<1, T>                             u_lim_{};      ///< The output's limits
-    T                                        Ts_{T{0}};     ///< [s] The tick's period
     T                                        u_cmd_{T{0}};  ///< The output step() returned, or the one track() recorded
     bool                                     valid_{false}; ///< False when built from a design it refuses: step() returns 0
 };
@@ -594,25 +608,48 @@ concept lead_lag_design = is_lead_lag_result<design_t<Res>>;
 
 } // namespace detail
 
-/**
- * @brief Law<kRes, T> of a lead-lag design: the LeadLagController it runs as, with the design's sections
- *
- * A `constexpr` design that failed, or has no positive T_s, does not compile wherever the Law is
- * declared. The gains stay members, settable at run time.
- */
-// ponytail: a constexpr design's Tustin coefficients could be constants of the type, as PID's
-// ConstantPIDGains are; LeadLagStage would read them from a gain source in place of members.
+/** @brief Law<kRes, T> of a lead-lag design initialized at start-up: the LeadLagController it runs as, with the design's sections. A runtime of the same shape assigned replaces it. */
 template<const auto& Res, typename T>
     requires detail::lead_lag_design<Res>
 struct Law<Res, T> : LeadLagController<T, detail::design_t<Res>::sections> {
     using Runtime = LeadLagController<T, detail::design_t<Res>::sections>; ///< The runtime the design runs as
 
-    static_assert(detail::constant_design_checked<Res>());
-
     /** @brief The design's law. */
     constexpr Law() : Runtime{Res} {}
 
     using Runtime::operator=;
+};
+
+/**
+ * @brief Law<kRes, T> of a `constexpr` lead-lag design: the LeadLagController of its sections with
+ *        their gains constants of the type (detail::ConstantLeadLagGains)
+ *
+ * Each section's K, z, p, T_s and its Tustin coefficients b₀, b₁, a₁ are in flash and fold into
+ * the tick; the sections' memory and the limits stay members, the limits settable at run time;
+ * there is no set_gains. A law retuned at run time is `Law<kRes, T>::Runtime law{kRes.as<T>()};`.
+ * A failed design, or one whose sections its runtime refuses at T_s, does not compile wherever the
+ * Law is declared.
+ */
+template<const auto& Res, typename T>
+    requires(detail::lead_lag_design<Res> && detail::constant_design<Res>)
+struct Law<Res, T> : LeadLagController<T, detail::design_t<Res>::sections, detail::ConstantLeadLagGains<Res, T>> {
+    using Runtime = LeadLagController<T, detail::design_t<Res>::sections>; ///< The runtime with members: the type of a member a redesign assigns
+    using Base = LeadLagController<T, detail::design_t<Res>::sections, detail::ConstantLeadLagGains<Res, T>>;
+
+    static_assert(detail::constant_design_runs(Res.success, Res.status, Res.Ts));
+    static_assert(detail::ConstantLeadLagGains<Res, T>::ok, "Law<kRes, T>: a section of the lead-lag design is outside its domain, or a coefficient overflows at its Ts");
+
+    /** @brief The design's law: its sections the type's, its limits members. */
+    constexpr Law() : Base{Res} {}
+
+    /** @brief There is nothing to replace: the sections are in the type. */
+    template<typename Other>
+        requires(!damp::is_same_v<damp::remove_cvref_t<Other>, Law>)
+    constexpr Law& operator=(const Other& other) {
+        static_assert(sizeof(Other) == 0, "This Law is a constexpr lead-lag design's: its sections are constants of the type, so there is nothing to replace. A member a redesign assigns, or a law retuned with set_gains, is Law<kRes, T>::Runtime law{kRes.as<T>()};");
+        static_cast<void>(other);
+        return *this;
+    }
 };
 
 } // namespace damp

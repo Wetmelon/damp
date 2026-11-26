@@ -46,16 +46,21 @@ namespace damp {
  * The runtime's header defines it for the results that runtime is built from: StateFeedback, the
  * LQ runtime (controllers/state_feedback_runtime.hpp, which lqr.hpp, lqi.hpp, lqg.hpp, lqgi.hpp and
  * oflqg.hpp include), and the observers
- * (estimation/fixed_gain_observer.hpp: FixedGainObserver, ReducedOrderObserver), design::eso (estimation/eso.hpp),
- * design::adrc (controllers/adrc.hpp) and the model inverses (design/model_inverse.hpp:
- * StateFeedforward, OutputInverse), which all run on constants when kRes is `constexpr`, MPC
- * (controllers/mpc.hpp), whose QP data stays in members and whose filter, when it has one, is on
- * constants, and PIDController (controllers/pid.hpp: design::pid), whose gains
- * stay members, settable at run time, in the narrowest mode a `constexpr` design's gains need.
- * SMCController and STSMCController (controllers/smc.hpp, controllers/stsmc.hpp: design::smc,
- * design::stsmc) run on their gains as constants of the type when kRes is `constexpr`, and
- * ExtremumSeekingController and SmithPredictor (controllers/esc.hpp, controllers/smith_predictor.hpp:
- * design::esc, design::smith_predictor) on members either way.
+ * (estimation/fixed_gain_observer.hpp: FixedGainObserver, ReducedOrderObserver), design::eso (estimation/eso.hpp)
+ * and the model inverses (design/model_inverse.hpp: StateFeedforward, OutputInverse), which all
+ * run on constants when kRes is `constexpr`, and MPC (controllers/mpc.hpp), whose QP data stays in
+ * members and whose filter, when it has one, is on constants.
+ *
+ * Every SISO law runs on its gains as constants of the type when kRes is `constexpr`, with its
+ * limits members and no set_gains: PIDController (controllers/pid.hpp: design::pid, in the
+ * narrowest mode its gains need), PRController (controllers/pr.hpp: design::pr, every
+ * resonator's coefficients), LeadLagController (controllers/lead_lag.hpp: each section's Tustin
+ * coefficients), RepetitiveController (controllers/repetitive.hpp: the period, gain, taps and
+ * lead; its buffer the design's period), SMCController and STSMCController (controllers/smc.hpp,
+ * controllers/stsmc.hpp), ADRCController (controllers/adrc.hpp: the PD gains, b₀ and the ESO's
+ * maps), ExtremumSeekingController (controllers/esc.hpp: the dither's rotation, the filters'
+ * coefficients and k·T_s) and SmithPredictor (controllers/smith_predictor.hpp: the model and the
+ * delay, its primary the PID's constant-gains runtime).
  * design::kalman's Law also names its recursive filter, `Law<kRes, float>::Recursive`: the KalmanFilter
  * of the same model and noise, on the same constants when kRes is `constexpr`.
  *
@@ -64,7 +69,7 @@ namespace damp {
  */
 template<const auto& Res, typename T>
 struct Law {
-    static_assert(sizeof(T) == 0, "Law<res, T>: res is not a design result a law is built from; include its runtime's header (controllers/state_feedback_runtime.hpp or lqr.hpp, lqi.hpp, lqg.hpp, lqgi.hpp, oflqg.hpp, mpc.hpp, adrc.hpp, pid.hpp, smc.hpp, stsmc.hpp, esc.hpp, smith_predictor.hpp, estimation/fixed_gain_observer.hpp, estimation/eso.hpp, design/model_inverse.hpp)");
+    static_assert(sizeof(T) == 0, "Law<res, T>: res is not a design result a law is built from; include its runtime's header (controllers/state_feedback_runtime.hpp or lqr.hpp, lqi.hpp, lqg.hpp, lqgi.hpp, oflqg.hpp, mpc.hpp, adrc.hpp, pid.hpp, pr.hpp, lead_lag.hpp, repetitive.hpp, smc.hpp, stsmc.hpp, esc.hpp, smith_predictor.hpp, estimation/fixed_gain_observer.hpp, estimation/eso.hpp, design/model_inverse.hpp)");
 };
 
 } // namespace damp

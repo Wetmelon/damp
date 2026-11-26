@@ -456,8 +456,8 @@ TEST_SUITE("repetitive: the runtime contract") {
     TEST_CASE("Law<kRes, T> of a repetitive design sizes the buffer to the design's period") {
         static constinit Law<kRep, float>      rep;
         static constinit Law<kBinomial, float> binomial;
-        static_assert(std::is_base_of_v<RepetitiveController<20, float>, Law<kRep, float>>);          // N + 0
-        static_assert(std::is_base_of_v<RepetitiveController<202, float, 2>, Law<kBinomial, float>>); // N + M
+        static_assert(std::is_same_v<Law<kRep, float>::Runtime, RepetitiveController<20, float>>);          // N + 0
+        static_assert(std::is_same_v<Law<kBinomial, float>::Runtime, RepetitiveController<202, float, 2>>); // N + M
         static_assert(sizeof(Law<kRep, float>) < sizeof(RepetitiveController<64, float>));
         RepetitiveController<64, float> wide{kRep};
         CHECK(rep.valid());
@@ -465,6 +465,45 @@ TEST_SUITE("repetitive: the runtime contract") {
         for (size_t k = 0; k < 200; ++k) {
             const float e = static_cast<float>(std::sin(2.0 * pi * static_cast<double>(k) / 20.0));
             CHECK(rep.step(e) == doctest::Approx(wide.step(e)).epsilon(1e-6));
+        }
+    }
+}
+
+TEST_SUITE("Repetitive Law") {
+    TEST_CASE("Law<kRes, T> of a constexpr repetitive design: the period, gain, taps and lead constants of the type") {
+        //! The tuning is the type's: the Law stores only the internal model, its clamp flags, the ring's
+        //! index and the last error and command, so it is smaller than its runtime of the same buffer.
+        //! Neither has a set_gains: a new period is a new buffer.
+        static_assert(sizeof(Law<kBinomial, float>) < sizeof(Law<kBinomial, float>::Runtime));
+        static_assert(sizeof(Law<kRep, float>) < sizeof(Law<kRep, float>::Runtime));
+
+        static constinit Law<kBinomial, float>          law;
+        static constinit Law<kBinomial, float>::Runtime same{kBinomial};
+        CHECK(law.config().period == 200);
+        CHECK(law.config().q_half == 2);
+        CHECK(law.config().gain == 0.5f);
+        const auto e_at = [](size_t k) { return static_cast<float>(std::sin(2.0 * pi * static_cast<double>(k) / 200.0) + (0.3 * std::sin(2.0 * pi * static_cast<double>(k) / 40.0))); };
+        for (size_t k = 0; k < 2000; ++k) {
+            const float e = e_at(k);
+            const float u = law.step(e);
+            const float v = same.step(e);
+            CHECK(u == doctest::Approx(v).epsilon(1e-5)); // two inlined copies of the tick may round differently under -ffast-math, and the model carries it a period on
+            if (k % 97 == 0) {
+                law.back_calculate(0.5f * u); // a clamp after it, as the law it adds to reports
+                same.back_calculate(0.5f * u);
+            }
+        }
+        //! It has no limits of its own: a clamp is the law's it adds to, reported with back_calculate (above).
+        // law = Law<kBinomial, float>::Runtime{kBinomial}; // ill-formed: nothing replaces the type's tuning (Law::operator=)
+        //! The Law's learned model carries over to a Runtime.
+        Law<kBinomial, float>::Runtime copied{law};
+        CHECK(copied.valid());
+        CHECK(copied.config().period == 200);
+        for (size_t k = 2000; k < 2400; ++k) {
+            const float e = e_at(k);
+            const auto  a = copied.step(e);
+            const auto  b = law.step(e);
+            CHECK(a == doctest::Approx(b).epsilon(1e-5)); // two inlined copies of the tick may round differently under -ffast-math, and the law's memory carries it on
         }
     }
 }

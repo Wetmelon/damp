@@ -9,7 +9,8 @@
 /**
  * @file smith_model.hpp
  * @brief What the Smith predictor runs on: its first-order model sampled with the input delay
- *        (design::smith_predictor), and the ring of the commands in flight (SmithPredictor)
+ *        (design::smith_predictor), as members or as the constants of a `constexpr` design's Law,
+ *        and the ring of the commands in flight (SmithPredictor)
  */
 
 #include "damp/backend.hpp"
@@ -28,6 +29,62 @@ namespace detail {
 [[nodiscard]] constexpr size_t ring_back(size_t newest, size_t j, size_t last) {
     return (newest >= j) ? (newest - j) : (newest + last + 1 - j);
 }
+
+/**
+ * @brief A SmithPredictor's model: its pole, its gains and the delay's whole samples, the members
+ *        a SmithPredictor holds or the constants of a `constexpr` design's Law (ConstantSmithGains)
+ */
+template<typename T>
+struct SmithGainSet {
+    static constexpr bool constant = false; ///< Members of the runtime
+
+    T      a{T{0}};          ///< e^{−T_s/τ}
+    T      b{T{0}};          ///< The delay-free model's gain on u_k
+    T      b_fresh{T{0}};    ///< The delayed model's gain on u_{k−d}
+    T      b_stale{T{0}};    ///< Its gain on u_{k−d−1} (0 for a delay of whole samples)
+    size_t delay_samples{0}; ///< d, the delay's whole periods
+};
+
+/**
+ * @brief The model of pole @p a, gains @p b, @p b_fresh, @p b_stale and @p d whole periods, or
+ *        nullopt when it does not run in N delay states: an entry not finite, b = 0, d > N, or
+ *        d = N with a gain on the command before the oldest held
+ */
+template<size_t N, typename T>
+[[nodiscard]] constexpr damp::optional<SmithGainSet<T>> smith_gain_set(T a, T b, T b_fresh, T b_stale, size_t d) {
+    const bool finite = damp::isfinite(a) && damp::isfinite(b) && damp::isfinite(b_fresh) && damp::isfinite(b_stale);
+    if (!finite || (b == T{0}) || (d > N) || (d == N && b_stale != T{0})) {
+        return damp::nullopt;
+    }
+    return SmithGainSet<T>{.a = a, .b = b, .b_fresh = b_fresh, .b_stale = b_stale, .delay_samples = d};
+}
+
+/**
+ * @brief A `constexpr` Smith predictor design's model as constants of the type: what a
+ *        SmithPredictor reads in place of its model members, in the runtime's scalar
+ *
+ * Each member is static, so the Law stores none of them: the pole, the gains and the delay's
+ * whole samples sit in flash and fold into the tick, which reads the ring at a constant offset.
+ *
+ * @tparam Res design::smith_predictor's result, `constexpr`
+ * @tparam T   The runtime's scalar
+ * @tparam N   The runtime's delay states
+ */
+template<const auto& Res, typename T, size_t N>
+struct ConstantSmithGains {
+    static constexpr bool constant = true; ///< The model is the type's
+
+    static constexpr auto design = Res.template as<T>();                                                                     ///< The design, in the runtime's scalar
+    static constexpr auto opt = smith_gain_set<N>(design.a, design.b, design.b_fresh, design.b_stale, design.delay_samples); ///< The model, if it runs in N delay states
+    static constexpr bool ok = opt.has_value();                                                                              ///< The model runs
+    static constexpr auto set = ok ? *opt : SmithGainSet<T>{};                                                               ///< The model
+
+    static constexpr T      a = set.a;                         ///< e^{−T_s/τ}
+    static constexpr T      b = set.b;                         ///< The delay-free model's gain on u_k
+    static constexpr T      b_fresh = set.b_fresh;             ///< The delayed model's gain on u_{k−d}
+    static constexpr T      b_stale = set.b_stale;             ///< Its gain on u_{k−d−1}
+    static constexpr size_t delay_samples = set.delay_samples; ///< d, the delay's whole periods
+};
 
 } // namespace detail
 

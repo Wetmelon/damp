@@ -8,7 +8,8 @@
 
 /**
  * @file pr_resonator.hpp
- * @brief The resonant section PRController runs, and its coefficients at a fixed sample period
+ * @brief The resonant section PRController runs, and its coefficients at a fixed sample period, as
+ *        members or as the constants of a `constexpr` design's Law
  */
 
 #include "damp/backend.hpp"
@@ -152,39 +153,34 @@ class PRResonator {
 public:
     constexpr PRResonator() = default;
 
-    /** @brief Convert across scalar precision, preserving coefficients and state. */
+    /** @brief Convert across scalar precision, preserving the state. */
     template<typename U>
     constexpr explicit PRResonator(const PRResonator<U>& o)
-        : b0_(static_cast<T>(o.b0_)),
-          c2_(static_cast<T>(o.c2_)),
-          kappa_(static_cast<T>(o.kappa_)),
-          x1_(static_cast<T>(o.x1_)),
+        : x1_(static_cast<T>(o.x1_)),
           x2_(static_cast<T>(o.x2_)),
           y_(static_cast<T>(o.y_)),
           d_(static_cast<T>(o.d_)) {}
 
-    /** @brief Process one sample: d += b̄₀·(x[n] − x[n−2]) − c₂·d − κ·y, then y += d. */
-    constexpr T operator()(T x) {
+    /**
+     * @brief Process one sample on the coefficients @p k: d += b̄₀·(x[n] − x[n−2]) − c₂·d − κ·y, then y += d
+     *
+     * The coefficients are the law's (a PRController's members, or the constants of a `constexpr`
+     * design's Law), so a retune keeps the output and its increment.
+     */
+    constexpr T operator()(T x, const PRCoefficients<T>& k) {
         // The three small terms are summed first, so d takes one rounding at its own scale. Behind
         // a barrier: -ffast-math regroups d − c₂·d into (1 − c₂)·d, the direct form's ā₂ again
         // (GCC 14 with FMA: 1.3e-3 off the gain at ω₀ at 5 Hz and 100 kHz, ω_c = 1 rad/s).
-        d_ += assoc_barrier(((b0_ * (x - x2_)) - (c2_ * d_)) - (kappa_ * y_));
+        d_ += assoc_barrier(((k.b0 * (x - x2_)) - (k.c2 * d_)) - (k.kappa * y_));
         y_ += d_;
         x2_ = x1_;
         x1_ = x;
         return y_;
     }
 
-    /** @brief Clear the inputs, the output and its increment; the coefficients are kept. */
+    /** @brief Clear the inputs, the output and its increment. */
     constexpr void reset() {
         x1_ = x2_ = y_ = d_ = T{0};
-    }
-
-    /** @brief Replace the coefficients in place, keeping the state, so a retune keeps the output and its increment. */
-    constexpr void set_coefficients(const PRCoefficients<T>& k) {
-        b0_ = k.b0;
-        c2_ = k.c2;
-        kappa_ = k.kappa;
     }
 
     /** @brief Most recent output y[n−1]. */
@@ -211,13 +207,116 @@ private:
     template<typename>
     friend class PRResonator;
 
-    T b0_{0};    ///< b̄₀; with c₂ = κ = 1 the section is inert (y = 0) until designed
-    T c2_{1};    ///< c₂ = 1 − ā₂
-    T kappa_{1}; ///< κ = 1 + ā₁ + ā₂
-    T x1_{0};    ///< x[n−1]
-    T x2_{0};    ///< x[n−2]
-    T y_{0};     ///< y[n−1]
-    T d_{0};     ///< d[n−1] = y[n−1] − y[n−2]
+    T x1_{0}; ///< x[n−1]
+    T x2_{0}; ///< x[n−2]
+    T y_{0};  ///< y[n−1]
+    T d_{0};  ///< d[n−1] = y[n−1] − y[n−2]
+};
+
+/**
+ * @brief The coefficients of every resonator of a PR bank: the h-th harmonic's resonant term,
+ *        Kᵢ/h at h·ω₀, for each order h of @p orders, at the period @p Ts
+ * @return The coefficients, or nullopt when Kp or Kᵢ is not finite, ω_c or the tracking time is
+ *         below 0 or not finite, ω₀ or Ts is not finite and positive, an order is 0, a resonance
+ *         is at or above Nyquist, or a coefficient overflows
+ */
+template<typename T, size_t NH>
+[[nodiscard]] constexpr damp::optional<damp::array<PRCoefficients<T>, NH>>
+pr_bank_coefficients(T Kp, T Ki, T w0, T wc, T tracking_time, T Ts, const damp::array<size_t, NH>& orders) {
+    if (!damp::isfinite(Kp) || !damp::isfinite(Ki) || !damp::finite_positive(w0) || !damp::finite_non_negative(wc)
+        || !damp::finite_non_negative(tracking_time) || !damp::finite_positive(Ts)) {
+        return damp::nullopt;
+    }
+    damp::array<PRCoefficients<T>, NH> out{};
+    for (size_t i = 0; i < NH; ++i) {
+        if (orders[i] == 0) {
+            return damp::nullopt; // the 0th harmonic (DC) is not a resonant target
+        }
+        const T order = static_cast<T>(orders[i]);
+        if (!pr_resonance_ok(order * w0, Ts)) {
+            return damp::nullopt;
+        }
+        out[i] = pr_coefficients(Ki / order, order * w0, wc, Ts);
+        if (!out[i].finite()) {
+            return damp::nullopt;
+        }
+    }
+    return out;
+}
+
+/**
+ * @brief A PRController's gains, harmonics, fixed sample period and the coefficients at it: the
+ *        members a PRController holds, or the constants of a `constexpr` design's Law
+ *        (ConstantPRGains)
+ */
+template<typename T, size_t NH>
+struct PRGainSet {
+    static constexpr bool constant = false; ///< Members of the runtime, settable
+
+    T                                  Kp{T{0}};            ///< Proportional gain
+    T                                  Ki{T{0}};            ///< Resonant gain at ω₀
+    T                                  w0{T{0}};            ///< [rad/s] Resonant frequency, the fundamental's in a bank
+    T                                  wc{T{0}};            ///< [rad/s] Resonant-term bandwidth
+    T                                  tracking_time{T{0}}; ///< [s] Back-calculation tracking time (0: hold against a clamp)
+    T                                  Ts{T{0}};            ///< [s] The tick's period
+    T                                  unwind{T{0}};        ///< min(T_s/T_t, 1), 0 for T_t = 0 (hold)
+    damp::array<size_t, NH>            orders{};            ///< The harmonic order of each resonator
+    damp::array<PRCoefficients<T>, NH> res{};               ///< Each resonator's coefficients at T_s (inert until designed)
+};
+
+/**
+ * @brief The gain set of Kp, Kᵢ, ω₀, ω_c and the tracking time at the period @p Ts for the
+ *        harmonics @p orders, or nullopt as pr_bank_coefficients refuses them
+ */
+template<typename T, size_t NH>
+[[nodiscard]] constexpr damp::optional<PRGainSet<T, NH>> pr_gain_set(T Kp, T Ki, T w0, T wc, T tracking_time, T Ts, const damp::array<size_t, NH>& orders) {
+    const auto k = pr_bank_coefficients(Kp, Ki, w0, wc, tracking_time, Ts, orders);
+    if (!k) {
+        return damp::nullopt;
+    }
+    return PRGainSet<T, NH>{
+        .Kp = Kp,
+        .Ki = Ki,
+        .w0 = w0,
+        .wc = wc,
+        .tracking_time = tracking_time,
+        .Ts = Ts,
+        .unwind = (tracking_time > T{0}) ? damp::min(Ts / tracking_time, T{1}) : T{0},
+        .orders = orders,
+        .res = *k,
+    };
+}
+
+/**
+ * @brief A `constexpr` PR design's gains as constants of the type: what a PRController reads in
+ *        place of its gain members, in the runtime's scalar
+ *
+ * Each member is static, so the Law stores none of them: Kp, the tracking time's reciprocal,
+ * T_s and every resonator's b̄₀, c₂ and κ sit in flash and fold into the tick. A result whose
+ * gains are refused has no set, which the Law's static_assert reports.
+ *
+ * @tparam Res design::pr's result, `constexpr`
+ * @tparam T   The runtime's scalar
+ */
+template<const auto& Res, typename T>
+struct ConstantPRGains {
+    static constexpr bool   constant = true;                                       ///< The gains are the type's: set_gains is absent
+    static constexpr size_t kNH = damp::remove_cvref_t<decltype(Res)>::resonators; ///< The resonators
+
+    static constexpr auto design = Res.template as<T>();                                                                                                                  ///< The design, in the runtime's scalar
+    static constexpr auto opt = pr_gain_set(design.gains.Kp, design.gains.Ki, design.gains.w0, design.gains.wc, design.gains.tracking_time, design.Ts, design.harmonics); ///< The gains at T_s, if they are in their domain
+    static constexpr bool ok = opt.has_value();                                                                                                                           ///< The gains are in their domain at T_s
+    static constexpr auto set = ok ? *opt : PRGainSet<T, kNH>{};                                                                                                          ///< The gains at T_s
+
+    static constexpr T    Kp = set.Kp;                       ///< Proportional gain
+    static constexpr T    Ki = set.Ki;                       ///< Resonant gain at ω₀
+    static constexpr T    w0 = set.w0;                       ///< [rad/s] Resonant frequency
+    static constexpr T    wc = set.wc;                       ///< [rad/s] Resonant-term bandwidth
+    static constexpr T    tracking_time = set.tracking_time; ///< [s] Back-calculation tracking time
+    static constexpr T    Ts = set.Ts;                       ///< [s] The tick's period
+    static constexpr T    unwind = set.unwind;               ///< min(T_s/T_t, 1), 0 for T_t = 0
+    static constexpr auto orders = set.orders;               ///< The harmonic order of each resonator
+    static constexpr auto res = set.res;                     ///< Each resonator's coefficients
 };
 
 } // namespace damp::detail

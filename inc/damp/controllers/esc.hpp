@@ -38,6 +38,7 @@
 
 
 #include "damp/backend.hpp"
+#include "damp/controllers/detail/esc_gains.hpp"
 #include "damp/controllers/law.hpp" // IWYU pragma: export
 #include "damp/design/detail/siso_input_limits.hpp"
 #include "damp/design/input_limits.hpp" // IWYU pragma: export
@@ -61,8 +62,8 @@ namespace design {
  * The design input of @ref esc and @ref esc_mppt, its frequencies in rad/s as every design's
  * are. The caller names every number:
  * `design::esc({.dither_amplitude = 0.05, .dither_omega = 2π·40, .gain = 60.0, .lp_omega = 2π·8}, Ts)`.
- * The design turns it into an @ref ESCResult (filter coefficients), the runtime realization; the
- * two are distinct types. The limits are an InputLimits among the design's options.
+ * The design turns it into an @ref ESCResult, whose @ref ESCGains are the ones the runtime
+ * retunes; the two are distinct types. The limits are an InputLimits among the design's options.
  *
  * dither_amplitude, dither_omega and gain have no usable default: left at 0 the design is
  * refused.
@@ -108,19 +109,43 @@ struct ESCLimits {
 };
 
 /**
- * @brief Extremum-seeking design result: the discrete realization the runtime runs
+ * @struct ESCGains
+ * @brief The gains of an extremum-seeking law: its dither, its adaptation gain and its filter
+ *        corners, what the result holds and the runtime retunes (ExtremumSeekingController::gains,
+ *        ExtremumSeekingController::set_gains)
  *
- * Built by @ref esc from an @ref ESCSpec (Hz → rad/s, filter corners → coefficients).
+ * The high-pass corner is the one in force: design::esc resolves a spec's 0 to dither_omega/5,
+ * and set_gains does the same.
+ *
+ * @tparam T Scalar type
+ */
+template<typename T = double>
+struct ESCGains {
+    T dither_amplitude{}; ///< a, the dither's amplitude in input units (> 0)
+    T dither_omega{};     ///< [rad/s] ω, the dither's frequency (> 0, at least 8 samples per period: ω·Ts ≤ π/4)
+    T gain{};             ///< k, the adaptation (integrator) gain (> 0)
+    T hp_omega{};         ///< [rad/s] The high-pass corner, below the dither (≥ 0; 0 = dither_omega/5)
+    T lp_omega{};         ///< [rad/s] The gradient low-pass corner (≥ 0; 0 = no low-pass)
+
+    /** @brief The same gains in another scalar. */
+    template<typename U>
+    [[nodiscard]] constexpr ESCGains<U> as() const {
+        return ESCGains<U>{static_cast<U>(dither_amplitude), static_cast<U>(dither_omega), static_cast<U>(gain), static_cast<U>(hp_omega), static_cast<U>(lp_omega)};
+    }
+};
+
+/**
+ * @brief Extremum-seeking design result: the gains, the direction and demodulation phase, the
+ *        initial operating point, the limits and T_s the runtime starts from
+ *
+ * Built by @ref esc from an @ref ESCSpec. The runtime computes the dither's rotation and the
+ * filters' coefficients at T_s from the gains (detail::esc_gain_set).
  *
  * @tparam T Scalar type
  */
 template<typename T = double>
 struct [[nodiscard]] ESCResult {
-    T            dither_amplitude{};                  ///< a, perturbation amplitude (input units)
-    T            dither_omega{};                      ///< ω, perturbation frequency [rad/s]
-    T            gain{};                              ///< k, integrator (adaptation) gain
-    T            hp_alpha{};                          ///< High-pass coefficient (objective DC removal)
-    T            lp_alpha{T{1}};                      ///< Gradient low-pass coefficient (1 = no LPF)
+    ESCGains<T>  gains{};                             ///< a, ω, k and the filter corners, the high-pass one resolved
     T            demod_phase{};                       ///< φ, demodulation phase offset [rad] (plant lag)
     T            direction{T{1}};                     ///< +1 maximize, −1 minimize
     T            u_init{};                            ///< Initial operating point û₀
@@ -132,15 +157,12 @@ struct [[nodiscard]] ESCResult {
     /** @brief True when the design succeeded (success). */
     [[nodiscard]] constexpr explicit operator bool() const { return success; }
 
+    /** @brief The same design in another scalar. */
     template<typename U>
     [[nodiscard]] constexpr ESCResult<damp::remove_const_t<U>> as() const {
         using out_t = damp::remove_const_t<U>;
         return ESCResult<out_t>{
-            .dither_amplitude = static_cast<out_t>(dither_amplitude),
-            .dither_omega = static_cast<out_t>(dither_omega),
-            .gain = static_cast<out_t>(gain),
-            .hp_alpha = static_cast<out_t>(hp_alpha),
-            .lp_alpha = static_cast<out_t>(lp_alpha),
+            .gains = gains.template as<out_t>(),
             .demod_phase = static_cast<out_t>(demod_phase),
             .direction = static_cast<out_t>(direction),
             .u_init = static_cast<out_t>(u_init),
@@ -153,15 +175,7 @@ struct [[nodiscard]] ESCResult {
 };
 
 namespace detail {
-
-/** @brief First-order discrete low-pass coefficient for corner @p wc [rad/s] at @p Ts; 1 (pass-through) for wc = 0. */
-template<typename T>
-[[nodiscard]] constexpr T esc_lpf_alpha(T wc, T Ts) {
-    if (!(wc > T{0})) {
-        return T{1};
-    }
-    return (wc * Ts) / (T{1} + (wc * Ts));
-}
+using ::damp::detail::esc_gain_set;
 } // namespace detail
 
 /**
@@ -204,21 +218,22 @@ template<typename T, typename... Opts>
         return detail::refused<ESCResult<T>>(DesignStatus::invalid_parameter);
     }
     const T      omega = spec.dither_omega;
-    const T      hp = (spec.hp_omega > T{0}) ? spec.hp_omega : omega / T{5};
     ESCResult<T> out{
-        .dither_amplitude = spec.dither_amplitude,
-        .dither_omega = omega,
-        .gain = spec.gain,
-        .hp_alpha = detail::esc_lpf_alpha(hp, Ts),
-        .lp_alpha = detail::esc_lpf_alpha(spec.lp_omega, Ts),
+        .gains = {
+            .dither_amplitude = spec.dither_amplitude,
+            .dither_omega = omega,
+            .gain = spec.gain,
+            .hp_omega = (spec.hp_omega > T{0}) ? spec.hp_omega : omega / T{5},
+            .lp_omega = spec.lp_omega,
+        },
         .demod_phase = spec.demod_phase,
         .direction = (spec.type == ExtremumType::Maximize) ? T{1} : T{-1},
         .u_init = spec.u_init,
         .limits = limits,
         .Ts = Ts,
     };
-    const bool resolved = (omega * Ts <= damp::numbers::pi_v<T> / T{4}) && damp::isfinite(out.hp_alpha)
-                       && damp::isfinite(out.lp_alpha);
+    // The runtime's own check: a dither of 8 samples per period at least, and coefficients that do not overflow.
+    const bool resolved = detail::esc_gain_set(out.gains, out.direction, out.demod_phase, out.u_init, Ts).has_value();
     detail::set_status(out, resolved ? DesignStatus::ok : DesignStatus::invalid_parameter);
     return out;
 }
@@ -274,9 +289,10 @@ template<typename T, typename... Opts>
  * | step(J, valid) | one tick: the objective J measured at the last input, the next input returned |
  * | track(u) | in place of step while another source drives the plant: û starts from u |
  * | back_calculate(u_sat, u_ff) | a clamp after the law: û follows the input applied |
+ * | gains(), set_gains(g) | the dither, the adaptation gain and the filter corners (design::ESCGains); change them at run time |
  * | limits(), set_limits(lim) | the applied input's and û's limits (design::ESCLimits); change them at run time |
  * | input(), operating_point(), gradient() | the input to apply; û; the filtered gradient estimate |
- * | last_command(), valid(), reset() | the last input; whether the design ran; back to û₀ |
+ * | last_command(), sample_time(), valid(), reset() | the last input; T_s; whether the design ran; back to û₀ |
  *
  * It is an optimizer, not a SISO law: it has no reference, and its tick takes the objective, so
  * its handover is track(u). While an operator or another law drives the plant at u, track(u)
@@ -285,10 +301,25 @@ template<typename T, typename... Opts>
  * it resumes. The dither holds its phase. The step after it returns u plus the dither, and seeks
  * from there.
  *
- * @tparam T Scalar type (float or double)
+ * The gains are tunable at run time, get-modify-set, and take effect at the next tick:
+ * @code
+ * auto g = esc.gains();
+ * g.dither_amplitude = 0.01f; // a smaller ripple once converged
+ * if (!esc.set_gains(g)) { }  // refused: nothing changed
+ * @endcode
+ *
+ * @tparam T     Scalar type (float or double)
+ * @tparam Gains Where the gains live: void, the default, for members (detail::ESCGainSet, settable), or the
+ *               constants of a `constexpr` design's Law (detail::ConstantESCGains)
  */
-template<typename T = float>
+template<typename T = float, typename Gains = void>
 class ExtremumSeekingController {
+    using GainSet = damp::conditional_t<damp::is_same_v<Gains, void>, detail::ESCGainSet<T>, Gains>; ///< The gains' storage
+    static constexpr bool kHeld = !GainSet::constant;                                                ///< The gains are members: set_gains changes them
+
+    template<typename, typename>
+    friend class ExtremumSeekingController; // cross-precision converting ctor
+
 public:
     constexpr ExtremumSeekingController() = default;
 
@@ -299,24 +330,39 @@ public:
         : ExtremumSeekingController(result.template as<T>()) {}
 
     /**
-     * @brief From the design result, which carries the dither, the filters, the limits and T_s.
+     * @brief From the design result, which carries the gains, the direction, the limits and T_s.
      *
-     * A failed design, or one whose limits are not boxes, is ill-formed under constant
-     * evaluation; at run time it leaves the controller invalid (valid() false, û held).
+     * A failed design, gains its runtime refuses at T_s, or limits that are not boxes are
+     * ill-formed under constant evaluation; at run time they leave the controller invalid
+     * (valid() false, û held).
      */
     constexpr ExtremumSeekingController(const design::ESCResult<T>& result) // NOLINT(google-explicit-constructor): assign-from-design
-        : config_(result),
-          lim_(result.limits),
-          uhat_(within(result.limits, result.u_init)),
-          valid_(result.success && result.limits.valid()) {
+        : lim_(result.limits), uhat_(within(result.limits, result.u_init)) {
         if (!result.success && damp::is_constant_evaluated()) {
             detail::refuse_failed_design(result.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
+        valid_ = result.success && result.limits.valid() && take(result.gains, result.direction, result.demod_phase, result.u_init, result.Ts);
         if (!valid_ && damp::is_constant_evaluated()) {
-            detail::refuse_failed_design(design::DesignStatus::invalid_parameter); // a limit that is not a box
+            detail::refuse_failed_design(design::DesignStatus::invalid_parameter); // gains out of their domain, or a limit that is not a box
         }
-        init_phasors();
         u_cmd_ = input();
+    }
+
+    /** @brief The same law, with its live state, in another scalar (or off a Law's constant gains, onto members). */
+    template<typename U, typename G>
+        requires kHeld
+    constexpr explicit ExtremumSeekingController(const ExtremumSeekingController<U, G>& o)
+        : lim_(o.lim_.template as<T>()),
+          uhat_(static_cast<T>(o.uhat_)),
+          u_cmd_(static_cast<T>(o.u_cmd_)),
+          dither_s_(static_cast<T>(o.dither_s_)),
+          dither_c_(static_cast<T>(o.dither_c_)),
+          hp_state_(static_cast<T>(o.hp_state_)),
+          grad_state_(static_cast<T>(o.grad_state_)),
+          gradient_(static_cast<T>(o.gradient_)),
+          primed_(o.primed_) {
+        valid_ = o.valid_
+              && take(o.gains().template as<T>(), static_cast<T>(o.k_.direction), static_cast<T>(o.k_.demod_phase), static_cast<T>(o.k_.u_init), static_cast<T>(o.k_.Ts));
     }
 
     /**
@@ -328,7 +374,7 @@ public:
      * exchange for never commanding past the limit; limits().operating_point can keep û a dither
      * amplitude inside.
      */
-    [[nodiscard]] constexpr T input() const { return lim_.input.saturate(uhat_ + (config_.dither_amplitude * dither_s_)); }
+    [[nodiscard]] constexpr T input() const { return lim_.input.saturate(uhat_ + (k_.dither_amplitude * dither_s_)); }
 
     /**
      * @brief Feed back the measured objective; returns the next input to apply.
@@ -356,17 +402,17 @@ public:
         }
         // High-pass the objective: hp = J − LPF(J), removing the operating-point DC.
         const T hp = objective - hp_state_;
-        hp_state_ += config_.hp_alpha * (objective - hp_state_);
+        hp_state_ += k_.hp_alpha * (objective - hp_state_);
 
         // Demodulate with the dither that produced this objective:
         // sin(φ − d) = sin φ cos d − cos φ sin d.
-        const T demod = (dither_s_ * demod_c_) - (dither_c_ * demod_s_);
+        const T demod = (dither_s_ * k_.demod_c) - (dither_c_ * k_.demod_s);
         const T raw_grad = hp * demod;
-        grad_state_ += config_.lp_alpha * (raw_grad - grad_state_);
+        grad_state_ += k_.lp_alpha * (raw_grad - grad_state_);
         gradient_ = grad_state_;
 
-        // Integrate the gradient toward the extremum.
-        uhat_ = within(lim_, uhat_ + (config_.direction * config_.gain * gradient_ * config_.Ts));
+        // Integrate the gradient toward the extremum: ±k·T_s per unit gradient.
+        uhat_ = within(lim_, uhat_ + (k_.k_ts * gradient_));
 
         // Advance the dither phase and form the next perturbed input.
         advance_dither();
@@ -416,6 +462,41 @@ public:
     /** @brief The input the last step() returned, or the one track() recorded; before the first step, input(). */
     [[nodiscard]] constexpr T last_command() const { return u_cmd_; }
 
+    /** @brief The gains in force: the design's, the high-pass corner resolved, or the last set_gains. */
+    [[nodiscard]] constexpr design::ESCGains<T> gains() const {
+        return design::ESCGains<T>{
+            .dither_amplitude = k_.dither_amplitude,
+            .dither_omega = k_.dither_omega,
+            .gain = k_.gain,
+            .hp_omega = k_.hp_omega,
+            .lp_omega = k_.lp_omega,
+        };
+    }
+
+    /**
+     * @brief Change the gains at run time; the next tick uses them
+     *
+     * Recomputes the dither's rotation and the filters' coefficients at sample_time(), and keeps
+     * the state: the operating point û, the dither's phase, and the filters' memory. û does not
+     * move, so there is no jump in û. The dither continues from the phase it has, at the new
+     * frequency from the next tick, and its term in the input, a·sin φ, takes the new amplitude at
+     * once: the input applied steps by Δa·sin φ, at most |Δa|. The high-pass keeps its estimate of
+     * the objective's level and the low-pass its gradient, which was demodulated at the old
+     * amplitude and settles to the new one at the new corner; a new k scales the next step of û.
+     * A high-pass corner of 0 is ω/5, as design::esc takes it. The direction, the demodulation
+     * phase and û₀ are the design's.
+     *
+     * Refused (false, nothing changed) for an a, ω or k that is not finite and positive, a corner
+     * below 0 or not finite, a dither with fewer than 8 samples per period at sample_time()
+     * (ω·T_s > π/4), or a coefficient that overflows. A `constexpr` design's Law, whose gains are
+     * the type's, has none.
+     */
+    [[nodiscard]] constexpr bool set_gains(const design::ESCGains<T>& g)
+        requires kHeld
+    {
+        return take(g, k_.direction, k_.demod_phase, k_.u_init, k_.Ts);
+    }
+
     /** @brief The limits in force: the design's, or the last set_limits. */
     [[nodiscard]] constexpr design::ESCLimits<T> limits() const { return lim_; }
 
@@ -440,12 +521,15 @@ public:
     /** @brief The filtered gradient estimate the last step integrated. */
     [[nodiscard]] constexpr T gradient() const { return gradient_; }
 
+    /** @brief [s] The tick's sample period T_s. */
+    [[nodiscard]] constexpr T sample_time() const { return k_.Ts; }
+
     /** @brief False when built from a design it refuses: step() holds û. */
     [[nodiscard]] constexpr bool valid() const { return valid_; }
 
     /** @brief Back to û₀ (inside the limits as they stand), the dither at phase 0 and the filters cleared. */
     constexpr void reset() {
-        uhat_ = within(lim_, config_.u_init);
+        uhat_ = within(lim_, k_.u_init);
         dither_s_ = T{0};
         dither_c_ = T{1};
         hp_state_ = T{0};
@@ -459,43 +543,53 @@ private:
     /** @brief @p x inside the operating point's limits and the input's: the input's win where the two do not meet. */
     [[nodiscard]] static constexpr T within(const design::ESCLimits<T>& lim, T x) { return lim.input.saturate(lim.operating_point.saturate(x)); }
 
-    // The dither phase φ advances by a fixed ωTs each tick, so it is carried as a
-    // unit phasor (sin φ, cos φ) rotated by precomputed cos/sin(ωTs): the tick
-    // path needs no trig and no fmod. Trig runs once, at construction.
-    constexpr void init_phasors() {
-        const T step = config_.dither_omega * config_.Ts;
-        rot_c_ = damp::cos(step);
-        rot_s_ = damp::sin(step);
-        demod_c_ = damp::cos(config_.demod_phase);
-        demod_s_ = damp::sin(config_.demod_phase);
+    /**
+     * @brief Store the gains @p g with the design's @p direction, @p demod_phase and @p u_init at
+     *        the period @p Ts when they are in their domain; nothing changed otherwise. On a
+     *        `constexpr` design's Law, whose gains are the type's, whether they are.
+     */
+    [[nodiscard]] constexpr bool take(const design::ESCGains<T>& g, T direction, T demod_phase, T u_init, T Ts) {
+        if constexpr (kHeld) {
+            const auto set = detail::esc_gain_set(g, direction, demod_phase, u_init, Ts);
+            if (!set) {
+                return false;
+            }
+            k_ = *set;
+            return true;
+        } else {
+            static_cast<void>(g);
+            static_cast<void>(direction);
+            static_cast<void>(demod_phase);
+            static_cast<void>(u_init);
+            static_cast<void>(Ts);
+            return GainSet::ok; // checked once, when the type was formed: no trigonometry at start-up
+        }
     }
 
-    // φ ← φ + ωTs, then pull |phasor| back to 1 with one Newton step of
+    // The dither phase φ advances by a fixed ωTs each tick, so it is carried as a unit phasor
+    // (sin φ, cos φ) rotated by cos/sin(ωTs), computed when the gains are set: the tick path needs
+    // no trig and no fmod. φ ← φ + ωTs, then |phasor| is pulled back to 1 with one Newton step of
     // 1/√(s² + c²) (no sqrt; holds the norm at 1 to roundoff indefinitely).
     constexpr void advance_dither() {
-        const T s = (dither_s_ * rot_c_) + (dither_c_ * rot_s_);
-        const T c = (dither_c_ * rot_c_) - (dither_s_ * rot_s_);
+        const T s = (dither_s_ * k_.rot_c) + (dither_c_ * k_.rot_s);
+        const T c = (dither_c_ * k_.rot_c) - (dither_s_ * k_.rot_s);
         const T k = (T{3} - ((s * s) + (c * c))) * static_cast<T>(0.5);
         dither_s_ = s * k;
         dither_c_ = c * k;
     }
 
-    design::ESCResult<T> config_{}; ///< The design's realization
-    design::ESCLimits<T> lim_{};    ///< The limits in force
+    [[no_unique_address]] GainSet k_{};   ///< The gains, T_s and the rotation, filter coefficients and ±k·T_s at it: members, or no storage on a constexpr design's Law
+    design::ESCLimits<T>          lim_{}; ///< The limits in force
 
-    T    uhat_{T{0}};     // Converged operating point estimate û (the optimizer's answer).
-    T    u_cmd_{T{0}};    // The input the last step() returned, or the one track() recorded.
-    T    dither_s_{T{0}}; // sin φ of the current dither phase
-    T    dither_c_{T{1}}; // cos φ
-    T    rot_c_{T{1}};    // cos(ωTs), sin(ωTs): one-tick phase rotation
-    T    rot_s_{T{0}};
-    T    demod_c_{T{1}}; // cos d, sin d of the demodulation phase offset
-    T    demod_s_{T{0}};
-    T    hp_state_{T{0}};
-    T    grad_state_{T{0}};
-    T    gradient_{T{0}}; // Most recent (filtered) gradient estimate.
-    bool valid_{false};
-    bool primed_{false}; // Whether hp_state_ has been seeded to the first objective.
+    T    uhat_{T{0}};       ///< Converged operating point estimate û (the optimizer's answer)
+    T    u_cmd_{T{0}};      ///< The input the last step() returned, or the one track() recorded
+    T    dither_s_{T{0}};   ///< sin φ of the current dither phase
+    T    dither_c_{T{1}};   ///< cos φ
+    T    hp_state_{T{0}};   ///< The high-pass's estimate of the objective's level
+    T    grad_state_{T{0}}; ///< The low-pass's state
+    T    gradient_{T{0}};   ///< Most recent (filtered) gradient estimate
+    bool valid_{false};     ///< False when built from a design it refuses: step() holds û
+    bool primed_{false};    ///< Whether hp_state_ has been seeded to the first objective
 };
 
 /** @brief Deduce the runtime from its design, keeping the result's scalar. */
@@ -531,21 +625,36 @@ struct Law<Res, T> : ExtremumSeekingController<T> {
 };
 
 /**
- * @brief Law<kRes, T> of a `constexpr` extremum-seeking design: the same runtime, a failed design
- *        refused wherever the Law is declared
+ * @brief Law<kRes, T> of a `constexpr` extremum-seeking design: the ExtremumSeekingController with
+ *        its gains constants of the type (detail::ConstantESCGains)
+ *
+ * The dither's amplitude and rotation (cos ωT_s, sin ωT_s), the demodulation's (cos φ, sin φ),
+ * the filters' coefficients, ±k·T_s, û₀ and T_s are in flash and fold into the tick; the
+ * operating point, the dither's phasor, the filters' memory and the limits stay members, the
+ * limits settable at run time; there is no set_gains. A law retuned at run time is
+ * `Law<kRes, T>::Runtime law{kRes.as<T>()};`. A failed design, or one whose gains its runtime
+ * refuses at T_s, does not compile wherever the Law is declared.
  */
-// ponytail: a constexpr design's coefficients (the rotation, the filters, k·T_s) could be constants of the type, as a PID Law's gains are; they stay members here.
 template<const auto& Res, typename T>
     requires(detail::esc_design<Res> && detail::constant_design<Res>)
-struct Law<Res, T> : ExtremumSeekingController<T> {
-    using Runtime = ExtremumSeekingController<T>; ///< The runtime the design runs as
+struct Law<Res, T> : ExtremumSeekingController<T, detail::ConstantESCGains<Res, T>> {
+    using Runtime = ExtremumSeekingController<T>; ///< The runtime with members: the type of a member a redesign assigns
+    using Base = ExtremumSeekingController<T, detail::ConstantESCGains<Res, T>>;
 
     static_assert(detail::constant_design_runs(Res.success, Res.status, Res.Ts));
+    static_assert(detail::ConstantESCGains<Res, T>::ok, "Law<kRes, T>: a gain of the extremum-seeking design is outside its domain, or the dither is not resolved at its Ts");
 
-    /** @brief The design's law. */
-    constexpr Law() : Runtime{Res} {}
+    /** @brief The design's law: its gains the type's, its limits members. */
+    constexpr Law() : Base{Res} {}
 
-    using Runtime::operator=;
+    /** @brief There is nothing to replace: the gains are in the type. */
+    template<typename Other>
+        requires(!damp::is_same_v<damp::remove_cvref_t<Other>, Law>)
+    constexpr Law& operator=(const Other& other) {
+        static_assert(sizeof(Other) == 0, "This Law is a constexpr extremum-seeking design's: its gains are constants of the type, so there is nothing to replace. A member a redesign assigns, or a law retuned with set_gains, is Law<kRes, T>::Runtime law{kRes.as<T>()};");
+        static_cast<void>(other);
+        return *this;
+    }
 };
 
 } // namespace damp

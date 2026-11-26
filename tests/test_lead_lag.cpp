@@ -449,6 +449,10 @@ TEST_SUITE("Lead-Lag Compensator") {
 
 namespace {
 constexpr auto kLeadLag = design::lead_lag({.phase_max = 0.6, .wc = 20.0, .dc_gain_boost = 10.0}, 1e-3, design::InputLimits{.lower = {-2.0}, .upper = {2.0}});
+
+/** @brief A law whose sections set_gains changes at run time. */
+template<typename L>
+concept Retunable = requires(L& l) { l.set_gains(l.gains()); };
 } // namespace
 
 TEST_SUITE("Lead-Lag Compensator: the runtime contract") {
@@ -544,16 +548,45 @@ TEST_SUITE("Lead-Lag Compensator: the runtime contract") {
         CHECK(ll.gains()[1].z == T{4});
         CHECK(ll.gains()[0].p == static_cast<T>(kLeadLag.gains[0].p));
     }
+}
 
-    TEST_CASE("Law<kRes, T> of a lead-lag design runs as its LeadLagController") {
-        static constinit Law<kLeadLag, float> law;
-        static_assert(std::is_base_of_v<LeadLagController<float, 2>, Law<kLeadLag, float>>);
-        LeadLagController<float, 2> same{kLeadLag};
+TEST_SUITE("Lead-Lag Law") {
+    TEST_CASE("Law<kRes, T> of a constexpr lead-lag design: each section's Tustin coefficients constants of the type") {
+        static_assert(std::is_same_v<Law<kLeadLag, float>::Runtime, LeadLagController<float, 2>>);
+        //! Each section's K, z, p and its b₀, b₁, a₁ are the type's: the Law stores only the sections'
+        //! memory, the limits and the last output, and it has no set_gains.
+        static_assert(sizeof(Law<kLeadLag, float>) < sizeof(LeadLagController<float, 2>));
+        static_assert(!Retunable<Law<kLeadLag, float>>);
+        static_assert(Retunable<LeadLagController<float, 2>>);
+
+        static constinit Law<kLeadLag, float>        law;
+        static constinit LeadLagController<float, 2> same{kLeadLag}; // the coefficients computed at compile time, as the Law's are
         CHECK(law.valid());
+        CHECK(law.gains()[1].z == static_cast<float>(kLeadLag.gains[1].z));
+        CHECK(law.sample_time() == 1e-3f);
         CHECK(law.limits().input.upper(0) == 2.0f);
-        for (int k = 0; k < 50; ++k) {
-            const float e = static_cast<float>(std::sin(0.1 * k));
-            CHECK(law.step(e) == doctest::Approx(same.step(e)).epsilon(1e-6)); // the same law: a few ulps of float
+        for (int k = 0; k < 2000; ++k) {
+            const float e = static_cast<float>(std::sin(0.01 * k));
+            const auto  a = law.step(e);
+            const auto  b = same.step(e);
+            CHECK(a == doctest::Approx(b).epsilon(1e-5)); // two inlined copies of the tick may round differently under -ffast-math, and the law's memory carries it on
         }
+        //! Its limits stay settable at run time.
+        auto lim = law.limits();
+        lim.input.upper(0) = 0.25f;
+        REQUIRE(law.set_limits(lim));
+        CHECK(law.step(10.0f) == 0.25f);
+        // law = LeadLagController<float, 2>{kLeadLag}; // ill-formed: nothing replaces the type's sections (Law::operator=)
+        //! The Law's state carries over to a Runtime, which retunes.
+        Law<kLeadLag, float>::Runtime copied{law};
+        CHECK(copied.valid());
+        CHECK(copied.last_command() == law.last_command());
+        for (int k = 0; k < 50; ++k) {
+            const float e = static_cast<float>(std::sin(0.01 * k));
+            const auto  a = copied.step(e);
+            const auto  b = law.step(e);
+            CHECK(a == doctest::Approx(b).epsilon(1e-5)); // two inlined copies of the tick may round differently under -ffast-math, and the law's memory carries it on
+        }
+        CHECK(copied.set_gains(copied.gains()));
     }
 }

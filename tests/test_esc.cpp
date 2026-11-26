@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <limits>
 #include <numbers>
+#include <type_traits>
 
 #include "damp/backend.hpp"
 #include "damp/controllers/esc.hpp"
@@ -49,9 +50,11 @@ TEST_SUITE("esc") {
         const auto r = design::esc({.dither_amplitude = 0.1, .dither_omega = w(50.0), .gain = 20.0, .type = ExtremumType::Maximize}, 1e-3);
         REQUIRE(r.success);
         CHECK(r.direction == doctest::Approx(1.0));
-        CHECK(r.dither_omega == doctest::Approx(2.0 * std::numbers::pi * 50.0));
-        CHECK(r.hp_alpha > 0.0);
-        CHECK(r.hp_alpha <= 1.0);
+        CHECK(r.gains.dither_omega == doctest::Approx(2.0 * std::numbers::pi * 50.0));
+        CHECK(r.gains.hp_omega == doctest::Approx(r.gains.dither_omega / 5.0)); // a spec's 0 resolved: the corner in force
+        const double hp_alpha = damp::detail::esc_lpf_alpha(r.gains.hp_omega, r.Ts);
+        CHECK(hp_alpha > 0.0);
+        CHECK(hp_alpha <= 1.0);
 
         // Minimize flips the integration direction.
         CHECK(design::esc({.dither_amplitude = 0.1, .dither_omega = w(50.0), .gain = 20.0, .type = ExtremumType::Minimize}, 1e-3).direction == doctest::Approx(-1.0));
@@ -348,7 +351,165 @@ TEST_SUITE("esc") {
             ul = law.step(-(ul - 0.6) * (ul - 0.6));
             uh = held.step(-(uh - 0.6) * (uh - 0.6));
         }
-        CHECK(ul == uh);
+        CHECK(ul == doctest::Approx(uh).epsilon(1e-12)); // the gains folded into the Law's tick may round differently: a few ulps
         CHECK(law.limits().input.upper(0) == 0.8);
+    }
+}
+
+namespace {
+inline constexpr auto kSeek = design::esc({.dither_amplitude = 0.05, .dither_omega = w(40.0), .gain = 60.0, .type = ExtremumType::Maximize, .lp_omega = w(8.0), .u_init = 1.0}, 1e-3);
+
+/** @brief A law whose gains set_gains changes at run time. */
+template<typename L>
+concept Retunable = requires(L& l) { l.set_gains(l.gains()); };
+
+/** @brief J(u) = 5 − 0.5(u − 2.3)², its peak at u* = 2.3. */
+double peaked(double u) {
+    return 5.0 - (0.5 * (u - 2.3) * (u - 2.3));
+}
+} // namespace
+
+TEST_SUITE("esc: set_gains") {
+    TEST_CASE("gains() reads the design's, the high-pass corner resolved; set_gains of the same gains changes nothing") {
+        ExtremumSeekingController<double> esc{kSeek};
+        const auto                        g = esc.gains();
+        CHECK(g.dither_amplitude == 0.05);
+        CHECK(g.dither_omega == doctest::Approx(w(40.0)));
+        CHECK(g.gain == 60.0);
+        CHECK(g.hp_omega == doctest::Approx(w(40.0) / 5.0)); // the spec's 0: ω/5
+        CHECK(g.lp_omega == doctest::Approx(w(8.0)));
+        CHECK(esc.sample_time() == 1e-3);
+
+        ExtremumSeekingController<double> same{kSeek};
+        double                            ua = esc.input();
+        double                            ub = same.input();
+        for (int k = 0; k < 3000; ++k) {
+            if (k == 1500) {
+                REQUIRE(esc.set_gains(esc.gains())); // nothing to change: the state is kept, the run goes on as it was
+            }
+            ua = esc.step(peaked(ua));
+            ub = same.step(peaked(ub));
+        }
+        CHECK(esc.operating_point() == doctest::Approx(same.operating_point()).epsilon(1e-12));
+    }
+
+    TEST_CASE("a new dither amplitude keeps û and the dither's phase: the input steps by Δa·sin φ") {
+        ExtremumSeekingController<double> esc{kSeek};
+        double                            u = esc.input();
+        for (int k = 0; k < 37; ++k) { // partway into a dither period: sin φ away from 0
+            u = esc.step(peaked(u));
+        }
+        const double uhat = esc.operating_point();
+        const double ripple = esc.input() - uhat; // a·sin φ
+        REQUIRE(std::abs(ripple) > 1e-3);
+        auto g = esc.gains();
+        g.dither_amplitude = 0.01;
+        REQUIRE(esc.set_gains(g));
+        CHECK(esc.operating_point() == uhat);                                                // no jump in û
+        CHECK(esc.input() - uhat == doctest::Approx(ripple * (0.01 / 0.05)).epsilon(1e-12)); // the same phase, the new amplitude
+        CHECK(esc.gains().dither_amplitude == 0.01);
+    }
+
+    TEST_CASE("a new dither frequency, gain and corners: û is kept and the law still finds the peak") {
+        ExtremumSeekingController<double> esc{kSeek};
+        double                            u = esc.input();
+        for (int k = 0; k < 4000; ++k) {
+            u = esc.step(peaked(u));
+        }
+        const double uhat = esc.operating_point();
+        const auto   g = design::ESCGains<double>{.dither_amplitude = 0.04, .dither_omega = w(25.0), .gain = 80.0, .hp_omega = 0.0, .lp_omega = w(5.0)};
+        REQUIRE(esc.set_gains(g));
+        CHECK(esc.operating_point() == uhat);
+        CHECK(esc.gains().hp_omega == doctest::Approx(w(25.0) / 5.0)); // 0 is ω/5, as design::esc takes it
+        CHECK(esc.gains().dither_omega == doctest::Approx(w(25.0)));
+        for (int k = 0; k < 30000; ++k) {
+            u = esc.step(peaked(u));
+        }
+        CHECK(esc.operating_point() == doctest::Approx(2.3).epsilon(0.03)); // within ~3%, as from the design's gains
+    }
+
+    TEST_CASE("set_gains refuses a gain out of its domain and changes nothing") {
+        ExtremumSeekingController<double> esc{kSeek};
+        double                            u = esc.input();
+        for (int k = 0; k < 100; ++k) {
+            u = esc.step(peaked(u));
+        }
+        const auto   held = esc.gains();
+        const double uhat = esc.operating_point();
+        const double input = esc.input();
+        const double nan = runtime_nan();
+        auto         bad = held;
+        bad.dither_amplitude = 0.0;
+        CHECK_FALSE(esc.set_gains(bad));
+        bad = held;
+        bad.dither_omega = w(200.0); // 5 samples per period at 1 kHz: fewer than 8
+        CHECK_FALSE(esc.set_gains(bad));
+        bad = held;
+        bad.gain = -1.0;
+        CHECK_FALSE(esc.set_gains(bad));
+        bad = held;
+        bad.hp_omega = -1.0;
+        CHECK_FALSE(esc.set_gains(bad));
+        bad = held;
+        bad.lp_omega = nan;
+        CHECK_FALSE(esc.set_gains(bad));
+        bad = held;
+        bad.gain = nan;
+        CHECK_FALSE(esc.set_gains(bad));
+        CHECK(esc.gains().dither_amplitude == held.dither_amplitude);
+        CHECK(esc.gains().dither_omega == held.dither_omega);
+        CHECK(esc.gains().gain == held.gain);
+        CHECK(esc.gains().lp_omega == held.lp_omega);
+        CHECK(esc.operating_point() == uhat);
+        CHECK(esc.input() == input);
+
+        ExtremumSeekingController<double> inert; // no design: no T_s to compute the coefficients at
+        CHECK_FALSE(inert.set_gains(held));
+    }
+}
+
+TEST_SUITE("ESC Law") {
+    TEST_CASE("Law<kRes, T> of a constexpr extremum-seeking design: the rotation, the filters' coefficients and k·Ts constants of the type") {
+        static_assert(std::is_same_v<Law<kSeek, float>::Runtime, ExtremumSeekingController<float>>);
+        //! The dither's amplitude and rotation, the demodulation's, the filters' coefficients, ±k·T_s,
+        //! û₀ and T_s are the type's: the Law stores only the operating point, the dither's phasor, the
+        //! filters' memory and the limits, and it has no set_gains.
+        static_assert(sizeof(Law<kSeek, float>) < sizeof(ExtremumSeekingController<float>));
+        static_assert(!Retunable<Law<kSeek, float>>);
+        static_assert(Retunable<ExtremumSeekingController<float>>);
+
+        static constinit Law<kSeek, float>                law;
+        static constinit ExtremumSeekingController<float> same{kSeek}; // the rotation computed at compile time, as the Law's is
+        CHECK(law.valid());
+        CHECK(law.gains().gain == 60.0f);
+        CHECK(law.sample_time() == 1e-3f);
+        float ul = law.input();
+        float us = same.input();
+        for (int k = 0; k < 4000; ++k) {
+            ul = law.step(static_cast<float>(peaked(ul)));
+            us = same.step(static_cast<float>(peaked(us)));
+            CHECK(ul == doctest::Approx(us).epsilon(1e-5)); // two inlined copies of the tick may round differently under -ffast-math, and û integrates it
+        }
+        //! Its limits stay settable at run time.
+        auto lim = law.limits();
+        lim.input.upper(0) = 1.5f;
+        REQUIRE(law.set_limits(lim));
+        CHECK(law.operating_point() <= 1.5f);
+        CHECK(law.input() <= 1.5f);
+        // law = ExtremumSeekingController<float>{kSeek}; // ill-formed: nothing replaces the type's gains (Law::operator=)
+        //! The Law's state carries over to a Runtime, which retunes.
+        Law<kSeek, float>::Runtime copied{law};
+        CHECK(copied.valid());
+        CHECK(copied.operating_point() == law.operating_point());
+        CHECK(copied.input() == law.input());
+        for (int k = 0; k < 100; ++k) {
+            const float J = static_cast<float>(peaked(law.input()));
+            const auto  a = copied.step(J);
+            const auto  b = law.step(J);
+            CHECK(a == doctest::Approx(b).epsilon(1e-5)); // two inlined copies of the tick may round differently under -ffast-math, and the law's memory carries it on
+        }
+        auto g = copied.gains();
+        g.dither_amplitude = 0.02f;
+        CHECK(copied.set_gains(g));
     }
 }

@@ -601,7 +601,71 @@ TEST_SUITE("Smith Predictor") {
         static_assert(std::is_same_v<Law<kSmith, float>::Runtime, SmithPredictor<12, float>>);
         SmithPredictor<12, float> held{kSmith};
         for (int k = 0; k < 30; ++k) {
-            CHECK(law.step(1.0f, 0.0f) == held.step(1.0f, 0.0f));
+            const float a = law.step(1.0f, 0.0f);
+            const float b = held.step(1.0f, 0.0f);
+            CHECK(a == doctest::Approx(b).epsilon(1e-6)); // the gains folded into the Law's tick: a few ulps
         }
+    }
+}
+
+namespace {
+/** @brief A law whose gains set_gains changes at run time. */
+template<typename L>
+concept Retunable = requires(L& l) { l.set_gains(l.gains()); };
+
+// K/(τs + 1) with 1.05 s of delay at 0.1 s: 10 whole samples and half of one, so the delayed model has a stale gain.
+inline constexpr auto kLate = design::smith_predictor(design::FOPDT{.K = 1.5, .tau = 2.0}, 0.1, InputDelay<12>{1.05}, design::SIMC{.tau_c = 1.0}, design::InputLimits{.lower = {-2.0}, .upper = {2.0}});
+} // namespace
+
+TEST_SUITE("Smith Law") {
+    TEST_CASE("Law<kRes, T> of a constexpr Smith design: its model and its PID's gains constants of the type") {
+        using Smith = Law<kLate, float>;
+        static_assert(std::is_same_v<Smith::Runtime, SmithPredictor<12, float>>); // SIMC's PI: the narrowest mode is the runtime's own
+        //! The model's pole, gains and whole samples of delay are the type's, and the primary is the
+        //! PID's constant-gains runtime, its gains, T_s and coefficients the type's too: the Law stores
+        //! the commands in flight, both models' outputs, the PI's integral and the limits.
+        static_assert(sizeof(Smith) < sizeof(Smith::Runtime));
+        using Primary = damp::remove_cvref_t<decltype(damp::declval<Smith&>().primary())>;
+        static_assert(sizeof(Primary) < sizeof(PIController<float>));
+        static_assert(!Retunable<Primary>);
+        static_assert(Retunable<PIController<float>>);
+        static_assert(kLate.success && kLate.b_stale != 0.0);
+
+        static constinit Smith          law;
+        static constinit Smith::Runtime same{kLate}; // the PI's coefficients computed at compile time, as the Law's are
+        const StateSpace<1, 1, 1>       plant{.A = {{-1.0 / 2.0}}, .B = {{1.5 / 2.0}}, .C = {{1.0}}};
+        const auto                      delayed = discretize(plant, 0.1, InputDelay<12>{1.05});
+        REQUIRE(delayed.success);
+        ColVec<13, double> xa{};
+        ColVec<13, double> xb{};
+        for (int k = 0; k < 600; ++k) {
+            const float r = ((k / 150) % 2 == 0) ? 1.0f : 0.3f;
+            const float ua = law.step(r, static_cast<float>((delayed->C * xa)(0, 0)));
+            const float ub = same.step(r, static_cast<float>((delayed->C * xb)(0, 0)));
+            CHECK(ua == doctest::Approx(ub).epsilon(1e-5)); // two inlined copies of the tick may round differently under -ffast-math, and the PI integrates it
+            xa = (delayed->A * xa) + (delayed->B * ColVec<1, double>{static_cast<double>(ua)});
+            xb = (delayed->A * xb) + (delayed->B * ColVec<1, double>{static_cast<double>(ub)});
+        }
+        CHECK((delayed->C * xa)(0, 0) == doctest::Approx(0.3).epsilon(0.02)); // the loop holds the reference
+        //! Its limits, the primary's, stay settable at run time.
+        auto lim = law.limits();
+        CHECK(lim.input.upper(0) == 2.0f);
+        lim.input.upper(0) = 0.5f;
+        REQUIRE(law.set_limits(lim));
+        CHECK(law.step(10.0f, 0.0f) == 0.5f);
+        // law = Smith::Runtime{kLate}; // ill-formed: nothing replaces the type's model and gains (Law::operator=)
+        //! The Law's state carries over to a Runtime: the commands in flight, both models and the PI's integral.
+        Smith::Runtime copied{law};
+        CHECK(copied.valid());
+        CHECK(copied.model_output() == law.model_output());
+        CHECK(copied.delayed_model_output() == law.delayed_model_output());
+        CHECK(copied.primary().integral() == law.primary().integral());
+        CHECK(copied.delay_samples() == law.delay_samples());
+        for (int k = 0; k < 50; ++k) {
+            const auto a = copied.step(0.3f, 0.2f);
+            const auto b = law.step(0.3f, 0.2f);
+            CHECK(a == doctest::Approx(b).epsilon(1e-5)); // two inlined copies of the tick may round differently under -ffast-math, and the law's memory carries it on
+        }
+        CHECK(copied.primary().set_gains(copied.primary().gains()));
     }
 }
