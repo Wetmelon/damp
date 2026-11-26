@@ -25,13 +25,13 @@ namespace damp::examples_pid {
 
 inline constexpr float Ts = 0.01f; // 100 Hz
 
-// Prefer: design → discretize → as<float> → assign into the runtime type.
-// discretize in double so static constinit is a constant expression under GCC.
-// For setpoint weights / filter / tracking time, name them:
-// design::PIDGains{.Kp = 4.0, .Ki = 8.0, .b = 0.5}; limits go to discretize,
-// .discretize(Ts, {.input = {.lower = -12.0, .upper = 12.0}}), and the law takes new gains and
+// Prefer: design at Ts → as<float> → assign into the runtime type.
+// Design in double so static constinit is a constant expression under GCC.
+// Setpoint weights, a filter, a tracking time and the limits are options of the same call:
+// design::pid(design::Parallel{...}, Ts, design::SetpointWeights{.b = 0.5},
+// design::InputLimits{.lower = {-12.0}, .upper = {12.0}}), and the law takes new gains and
 // limits at run time with set_gains / set_limits.
-inline constexpr auto pi_design = design::pid(4.0, 8.0, 0.0);
+inline constexpr auto pi_design = design::pid(design::Parallel{.Kp = 4.0, .Ki = 8.0}, static_cast<double>(Ts));
 
 /**
  * @brief One control period: u = PI(r, y)

@@ -161,9 +161,10 @@ TEST_SUITE("Smith Predictor") {
 
         // SIMC on delay-free plant: Kp = tau / (K * tau_c). The packed PIDResult carries the
         // continuous gains and Ts (the discrete Ki·Ts is the runtime's).
-        const auto cont = design::simc(K, 0.0, tau, tau_c, PIDMode::PI);
+        const auto cont = design::pid(design::FOPDT{.K = K, .L = 0.0, .tau = tau}, Ts, design::SIMC{.tau_c = tau_c}).gains;
         CHECK(sp.pid.gains.Kp == doctest::Approx(cont.Kp));
         CHECK(sp.pid.gains.Ki == doctest::Approx(cont.Ki));
+        CHECK(sp.pid.gains.Kp == doctest::Approx(tau / (K * tau_c)));
     }
 
     TEST_CASE("design rejects non-physical FOPDT") {
@@ -182,9 +183,9 @@ TEST_SUITE("Smith Predictor") {
         CHECK(static_cast<double>(spf.a) == doctest::Approx(sp.a).epsilon(1e-6));
     }
 
-    TEST_CASE("smith_predictor_from_pid matches manual discretize path") {
-        constexpr auto pid = design::pid(2.0, 0.4, 0.0);
-        constexpr auto sp = design::smith_predictor_from_pid(pid, 1.0, 4.0, 1.0, 0.1);
+    TEST_CASE("smith_predictor_from_pid packs a PID design at its Ts") {
+        constexpr auto pid = design::pid(design::Parallel{.Kp = 2.0, .Ki = 0.4}, 0.1);
+        constexpr auto sp = design::smith_predictor_from_pid(pid, 1.0, 4.0, 1.0);
         static_assert(sp.success);
         CHECK(sp.pid.gains.Kp == doctest::Approx(2.0));
         CHECK(sp.pid.gains.Ki == doctest::Approx(0.4)); // continuous, at sp.pid.Ts = 0.1
@@ -334,7 +335,7 @@ TEST_SUITE("Smith Predictor") {
         // commands in flight instead of a stored delay-free model, so the two agree to the
         // rounding of d multiply-adds on commands of order 1–10: 1e-12 absolute.
         const auto pi = [](double K, double tau, double tau_c, double Ts) {
-            return PIController<double>(design::simc(K, 0.0, tau, tau_c, PIDMode::PI).discretize(Ts));
+            return PIController<double>(design::pid(design::FOPDT{.K = K, .L = 0.0, .tau = tau}, Ts, design::SIMC{.tau_c = tau_c}));
         };
         const double gap_l0 = max_command_gap<8>(pi(1.0, 2.0, 1.0, 0.05), 1.0, 2.0, 0.0, 0.05, 400);
         const double gap_l3 = max_command_gap<128>(pi(1.0, 1.0, 0.5, 0.05), 1.0, 1.0, 3.0, 0.05, 800);
@@ -420,7 +421,7 @@ TEST_SUITE("Smith Predictor") {
     TEST_CASE("to_tf recovers SIMC primary; plant_tf is K/(τs+1)") {
         constexpr auto sp = design::smith_predictor_from_fopdt(2.0, 5.0, 1.0, 0.1, 2.0);
         REQUIRE(sp.success);
-        const auto C = design::simc(2.0, 0.0, 5.0, 2.0, PIDMode::PI);
+        const auto C = design::pid(design::FOPDT{.K = 2.0, .L = 0.0, .tau = 5.0}, 0.1, design::SIMC{.tau_c = 2.0}).gains;
         const auto tf = sp.to_tf();
         const auto cref = C.to_tf();
         CHECK(tf.num[1] == doctest::Approx(cref.num[1])); // Kp
@@ -435,25 +436,24 @@ TEST_SUITE("Smith Predictor") {
     }
 
     TEST_CASE("smith designs carry a failed primary's status and refuse an unrepresentable delay") {
-        // A negative tracking time is refused by discretize; the Smith design used to report success.
-        auto wrong_tt = design::pid(2.0, 0.4, 0.0);
-        wrong_tt.tracking_time = -1.0;
-        const auto from_bad_tt = design::smith_predictor_from_pid(wrong_tt, 1.0, 4.0, 1.0, 0.1);
+        // A negative tracking time is refused by the PID design; the Smith design used to report success.
+        const auto wrong_tt = design::pid(design::Parallel{.Kp = 2.0, .Ki = 0.4}, 0.1, design::AntiWindup{.tracking_time = -1.0});
+        const auto from_bad_tt = design::smith_predictor_from_pid(wrong_tt, 1.0, 4.0, 1.0);
         CHECK_FALSE(from_bad_tt.success);
         CHECK(from_bad_tt.status == design::DesignStatus::invalid_parameter);
         SmithPredictor<16, double> runtime(from_bad_tt);
         CHECK_FALSE(runtime.valid());
 
-        const auto failed_tuning = design::simc(0.0, 0.0, 4.0, 1.0); // K = 0: refused
+        const auto failed_tuning = design::pid(design::FOPDT{.K = 0.0, .L = 0.0, .tau = 4.0}, 0.1, design::SIMC{.tau_c = 1.0}); // K = 0: refused
         REQUIRE_FALSE(failed_tuning.success);
-        CHECK(design::smith_predictor_from_pid(failed_tuning, 1.0, 4.0, 1.0, 0.1).status == failed_tuning.status);
+        CHECK(design::smith_predictor_from_pid(failed_tuning, 1.0, 4.0, 1.0).status == failed_tuning.status);
 
         // round(L/Ts) has no size_t value for an infinite or huge L.
         const double inf = std::numeric_limits<double>::infinity();
         const double nan = std::numeric_limits<double>::quiet_NaN();
-        const auto   pid = design::pid(2.0, 0.4, 0.0);
-        CHECK(design::smith_predictor_from_pid(pid, 1.0, 4.0, inf, 0.1).status == design::DesignStatus::invalid_parameter);
-        CHECK(design::smith_predictor_from_pid(pid, 1.0, 4.0, 1e300, 0.1).status == design::DesignStatus::invalid_parameter);
+        const auto   pid = design::pid(design::Parallel{.Kp = 2.0, .Ki = 0.4}, 0.1);
+        CHECK(design::smith_predictor_from_pid(pid, 1.0, 4.0, inf).status == design::DesignStatus::invalid_parameter);
+        CHECK(design::smith_predictor_from_pid(pid, 1.0, 4.0, 1e300).status == design::DesignStatus::invalid_parameter);
         CHECK(design::smith_predictor_from_fopdt(1.0, 4.0, inf, 0.1).status == design::DesignStatus::invalid_parameter);
         CHECK(design::smith_predictor_from_fopdt(1.0, nan, 1.0, 0.1).status == design::DesignStatus::invalid_parameter);
         CHECK(design::smith_predictor_from_fopdt(1.0, 4.0, 1.0, nan).status == design::DesignStatus::invalid_sample_time);

@@ -11,8 +11,9 @@
  *
  * Drives a plant with a hysteresis-relay element to induce a sustained limit
  * cycle, then estimates the ultimate gain Kᵤ and ultimate period Tᵤ from the
- * limit-cycle amplitude and period. The (Kᵤ, Tᵤ) pair feeds a tuning rule
- * (Ziegler-Nichols, Tyreus-Luyben, AMIGO, ...) to compute PID gains.
+ * limit-cycle amplitude and period. The (Kᵤ, Tᵤ) pair is a design::Ultimate, the model
+ * design::pid tunes with LoopShape (the phase-margin design at that point) or, with the
+ * static gain Kₛ, with AMIGO.
  *
  * Relay law (with hysteresis ε around the setpoint r):
  *
@@ -30,7 +31,7 @@
  * where `a` is half the peak-to-peak excursion of y about the setpoint. With
  * ε = 0 the expression reduces to Kᵤ = 4d / (π · a).
  *
- * Example: relay autotune for a discrete plant, then apply Ziegler-Nichols.
+ * Example: relay autotune for a discrete plant, then the phase-margin PID at the point it found.
  * @code
  * #include "damp/backend.hpp"
  * #include "damp/estimation/relay_autotune.hpp"
@@ -58,12 +59,10 @@
  * float u = out.u;
  *
  * if (out.status == RelayAutotuneStatus::Done) {
- *     // Tyreus-Luyben (1992) is the recommended modern drop-in over the original
- *     // Ziegler-Nichols formulas: same (Kᵤ, Tᵤ) input, gentler gains, ~6 dB
- *     // gain margin, no quarter-decay oscillation. Use design::ziegler_nichols
- *     // only when matching a textbook or legacy controller.
- *     auto pid = design::tyreus_luyben(out.Ku, out.Tu);
- *     // hand pid off to a PIDController and resume normal control
+ *     // The ultimate point moved onto the unit circle at −180° + 45°: a PID, Ti = 4 Td.
+ *     const auto res = design::pid(design::Ultimate{.Ku = out.Ku, .Tu = out.Tu}, Ts, design::LoopShape{.phase_margin = 45.0f});
+ *     if (res && pid.set_gains(res.gains)) { } // pid: the loop's PIDController<float>, which resumes normal control
+ *     // With a biased relay's static gain: design::Ultimate{.Ku = out.Ku, .Tu = out.Tu, .K = out.Ks}, design::AMIGO{}
  * }
  * @endcode
  *
@@ -74,7 +73,7 @@
  * plants (higher harmonics not fully filtered); Tᵤ is accurate to a few percent
  * (just a zero-crossing measurement). Set RelayAutotuneConfig::amplitude_neg
  * different from @c amplitude (positive) for an asymmetric/biased relay that
- * also estimates static gain Kₛ for design::amigo_kappa_tau.
+ * also estimates static gain Kₛ, which design::AMIGO needs: `Ultimate{.Ku, .Tu, .K = out.Ks}`.
  *
  * @see "Automatic tuning of simple regulators with specifications on phase and
  *      amplitude margins" (Åström & Hägglund, 1984), Automatica 20(5).
@@ -83,8 +82,7 @@
  * @see "Tuning PI Controllers for Integrator/Dead Time Processes"
  *      (Tyreus & Luyben, 1992), Ind. Eng. Chem. Res. 31(11).
  *      https://doi.org/10.1021/ie00011a019
- * @see pid_design.hpp for tuning rules that consume (Kᵤ, Tᵤ) / (Kᵤ, Tᵤ, Kₛ) —
- *      prefer `tyreus_luyben` or `amigo_kappa_tau` over `ziegler_nichols`.
+ * @see pid_design.hpp: design::pid on a design::Ultimate (Kᵤ, Tᵤ, and Kₛ for AMIGO).
  *
  * @note The relay autotuner is a closed-loop *experiment driver*, not a
  *       tracking controller, and intentionally does not satisfy

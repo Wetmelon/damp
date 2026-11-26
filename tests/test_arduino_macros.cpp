@@ -73,6 +73,6 @@ TEST_CASE("Damp after Arduino's macros: an LQR and a PI design and tick") {
     CHECK(u < 0.0f);
     CHECK(damp::abs(u) > 0.0f);
 
-    PIController<float> pi{design::pid(2.0f, 5.0f, 0.0f).discretize(0.01f)};
+    PIController<float> pi{design::pid(design::Parallel{.Kp = 2.0f, .Ki = 5.0f}, 0.01f)};
     CHECK(pi.step(1.0f, 0.0f) > 0.0f);
 }

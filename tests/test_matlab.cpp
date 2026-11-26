@@ -167,12 +167,12 @@ TEST_SUITE("matlab") {
         double wc = 1.0; // Desired crossover frequency
 
         auto pid_result = matlab::pidtune(sys, wc);
-        REQUIRE(pid_result.success);
+        REQUIRE(pid_result.has_value());
 
-        CHECK(pid_result.Kp > 0);
-        CHECK(pid_result.Ki > 0);
-        CHECK(pid_result.Kd > 0);
-        CHECK(pid_result.tracking_time > 0); // Back-calculation tracking time
+        CHECK(pid_result->Kp > 0);
+        CHECK(pid_result->Ki > 0);
+        CHECK(pid_result->Kd > 0);
+        CHECK(pid_result->tracking_time == 0); // no seed: conditional integration, as every PID design
     }
 
     TEST_CASE("c2d returns a DiscretizationResult and fails closed on bad TF") {
@@ -338,15 +338,22 @@ TEST_SUITE("matlab") {
         CHECK(matlab::pidstd2(2.0, 1.0, 0.1).c == doctest::Approx(1.0));
     }
 
-    TEST_CASE("MATLAB® pid is a design result, so make2DOF and discretize take it") {
+    TEST_CASE("MATLAB® pid is continuous gains, which make2DOF and c2d take") {
         const auto c = matlab::pid(1.0, 2.0, 0.1, 0.01);
         static_assert(std::is_same_v<std::remove_cvref_t<decltype(c)>, design::PIDGains<double>>);
         CHECK(c.Tf == doctest::Approx(0.01));
         const auto two = matlab::make2DOF(c, 1.0, 0.0);
         CHECK(two.Kd == doctest::Approx(0.1));
         CHECK(two.c == doctest::Approx(0.0));
-        const PIDController<double> runtime{c.discretize(1e-3)};
+        const PIDController<double> runtime{matlab::c2d(c, 1e-3)};
         CHECK(runtime.gains().Kp == doctest::Approx(1.0));
+        CHECK(runtime.gains().Tf == doctest::Approx(0.01));
+        CHECK(runtime.sample_time() == 1e-3);
+        const auto deployed = matlab::c2d(two, 1e-3);
+        CHECK(deployed.success);
+        CHECK(deployed.gains.c == 0.0);
+        CHECK(matlab::c2d(c, 0.0).status == design::DesignStatus::invalid_sample_time);
+        CHECK(matlab::c2d(matlab::pid(1.0, 2.0, 0.1, -0.01), 1e-3).status == design::DesignStatus::invalid_parameter);
     }
 
     TEST_CASE("MATLAB® ones, eye and minreal's default tolerance") {

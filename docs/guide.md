@@ -96,9 +96,10 @@ The design functions are the same in every case; the line that deploys the law d
 
 `matlab::` is MATLAB-inspired spelling, not a drop-in Control System Toolbox.
 Argument order, defaults, and return types follow the Damp primary. Design and
-conversion aliases (`lqr`, `c2d`, `pidtune`, `place`, …) return that primary's
-Result (`success`, `status`, `.as<float>()`). `ss` / `tf` / `zpk` return system
-types. Bode and friends return analysis grids. New code uses `design::` and
+conversion aliases (`lqr`, `c2d`, `place`, …) return that primary's
+Result (`success`, `status`, `.as<float>()`); `pidtune` returns an optional of the
+continuous `design::PIDGains`, as `pid` and `pidstd` return them, and `c2d(gains, Ts)`
+deploys them. `ss` / `tf` / `zpk` return system types. Bode and friends return analysis grids. New code uses `design::` and
 `discretize`.
 
 ## I searched for…
@@ -115,7 +116,8 @@ types. Bode and friends return analysis grids. New code uses `design::` and
 | `lqi`, `lqg`, `lqgtrack`              | `design::state_feedback` with an `IntegralAction`, a `KalmanNoise`, or both                                      |
 | `place`, `acker`                      | `design::place` for a gain (`matlab::place` / `acker`); `design::state_feedback(sys, [Ts,] design::Poles{…}, …)` for a law, the gain placed and every option of the LQ design (a target, limits, integrators, a filter, delays), on `StateFeedback`, the LQ runtime |
 | `estim`, `reg` with placed gains      | `design::ObserverPoles{…}` in place of a `KalmanNoise` among `state_feedback`'s options: the law's filter placed, its error poles eig((I − MC)A) of the current form it runs; with `Poles` too for the regulator. `matlab::estim` / `reg` build the block from gains you hold |
-| `pidtune`, Ziegler–Nichols            | `design::pidtune`, `design::ziegler_nichols_*`; then `.discretize(Ts)` → `PIDController`                         |
+| `pidtune`, `pid`, `pidstd`, `c2d` of a pid | `design::pid(plant, Ts, design::LoopShape{.wc, .phase_margin})` → `PIDController`, the loop certified; gains you have: `design::pid(design::Parallel{…}, Ts)` or `design::Standard{…}`; `matlab::pidtune` / `pid` / `pidstd` return continuous `PIDGains`, `matlab::c2d(gains, Ts)` deploys them |
+| SIMC, AMIGO, IMC, relay autotune, pole placement for a PI | One call, the rule positional after `Ts`: `design::pid(design::FOPDT{.K, .L, .tau}, Ts, design::SIMC{.tau_c})` or `design::AMIGO{}`; a relay test's `design::Ultimate{.Ku, .Tu}` with `design::LoopShape{.phase_margin}` (or `AMIGO` with `.K`); a first- or second-order plant with `design::PolePlacement{.omega, .zeta, .omega_i}`, or `design::Poles{…}` exact at Ts on a first-order one. The options set the rest: `InputLimits`, `DerivativeFilter{.Tf}`, `SetpointWeights{.b, .c}`, `AntiWindup{.tracking_time, .limits}` |
 | `kalman`, `lqe`, `dlqe`, `kalmd`      | `design::kalman` → `FixedGainObserver` (fixed gain on the law) or `KalmanFilter` (P each tick)                          |
 | observer, FixedGainObserver                  | `FixedGainObserver{design::kalman(...)}`                                                                                |
 | ESO, ADRC                             | `design::eso` → `ESO` (observer only); `design::adrc` → `ADRCController` (ESO + PD)                              |
@@ -154,7 +156,7 @@ auto u = law.step(r, x);           // or update / control / back_calculate / pre
 write_pwm(u[0]);
 ```
 
-PID: `design::pidtune` or `design::pid(Kp, Ki, Kd)` → `.discretize(Ts, {.input = {.lower = -12.0, .upper = 12.0}})` → `PIDController`. The limits go to `discretize`, not as extra ISR code, unless a downstream stage clamps — then `back_calculate`. The output limit is all the anti-windup a PID needs: the integral holds against it, or unwinds over the gains' `tracking_time`. Gains and limits change at run time, get-modify-set: `auto g = pid.gains(); g.Kp = 2.5f; if (!pid.set_gains(g)) { … }`.
+PID: `design::pid(model, Ts, rule, opts...)` → `PIDController`, the model an `FOPDT`, a relay test's `Ultimate` or a continuous plant, the rule `SIMC`, `AMIGO`, `LoopShape`, `PolePlacement` or `Poles{…}`; gains you have are `design::pid(design::Parallel{.Kp = 4.0, .Ki = 8.0}, Ts, opts...)`. The limits are an option of the call, `design::InputLimits{.lower = {-12.0}, .upper = {12.0}}`, not extra ISR code, unless a downstream stage clamps — then `back_calculate`. The output limit is all the anti-windup a PID needs: the integral holds against it, or unwinds over an `AntiWindup{.tracking_time}`. Gains and limits change at run time, get-modify-set: `auto g = pid.gains(); g.Kp = 2.5f; if (!pid.set_gains(g)) { … }`.
 
 ## Coming from Python Control / SciPy
 
@@ -172,7 +174,7 @@ PID: `design::pidtune` or `design::pid(Kp, Ki, Kd)` → `.discretize(Ts, {.input
 | Estimate a lumped disturbance from y, u      | `design::eso` → `ESO` (no plant A, B, C)                          | [`inc/damp/estimation/eso.hpp`](../inc/damp/estimation/eso.hpp)                                       |
 | A SISO loop with ADRC (ESO + PD)             | `design::adrc` → `ADRCController`                                 | [`examples/control/adrc/`](../examples/control/adrc/)                                                 |
 | Enforce input or output limits               | `design::mpc`, `back_calculate` after a clamp                     | [`examples/control/heater_ofmpc/`](../examples/control/heater_ofmpc/)                                 |
-| A SISO loop with a PID                       | `design::pidtune` → `PIDController`                               | [`examples/control/pid/`](../examples/control/pid/)                                                   |
+| A SISO loop with a PID                       | `design::pid(model, Ts, rule)` → `PIDController`                  | [`examples/control/pid/`](../examples/control/pid/)                                                   |
 | A nonlinear plant                            | `Dynamics` / `Measurement`, `design::linearize`, EKF/UKF          | [`examples/control/cart_pole/`](../examples/control/cart_pole/) SIL                                   |
 | Frequency response, Bode, margins            | `workbench.hpp`                                                   | [`examples/control/workflow_end_to_end/`](../examples/control/workflow_end_to_end/)                   |
 
@@ -223,7 +225,7 @@ Every law in this table reads its run-time limits with `limits()` and sets them 
 | `STSMCController` | `step(r, y)` or `step_sliding(s)` | `r`, or the sliding variable s | `u_lim` | v holds against the clamp; `back_calculate` |
 | `ExtremumSeekingController` | `step(J, valid)` | none | `u_lim` on û and on û + dither | `back_calculate` |
 
-The PID rows are one runtime, `PIDController<T, Mode>`, and the aliases name its narrower modes: `PIDController pid{res}` deduces a PID from a design, `Law<kRes, T>` of a `constexpr` one the narrowest mode its gains need. They read their run-time limits with `limits()` and set them with `set_limits()`, as the LQ laws and the MPCs do, `design::PIDLimits` (`input`, `integral`), which `discretize(Ts, limits)` gives the law to start with; and their gains with `gains()` and `set_gains()`, the continuous `design::PIDGains` (`Kp`, `Ki`, `Kd`, `Tf`, `b`, `c`, `tracking_time`). Both refuse a value that is not finite or not in range and change nothing; the integral is the I term, in u's units, so a new `Ki` does not bump the command. The other SISO laws hold `u_lim` as a public member.
+The PID rows are one runtime, `PIDController<T, Mode>`, and the aliases name its narrower modes: `PIDController pid{res}` deduces a PID from a design, `Law<kRes, T>` of a `constexpr` one the narrowest mode its gains need. They read their run-time limits with `limits()` and set them with `set_limits()`, as the LQ laws and the MPCs do, `design::PIDLimits` (`input`, `integral`), which `design::pid`'s `InputLimits` and `AntiWindup{.limits}` give the law to start with; and their gains with `gains()` and `set_gains()`, the continuous `design::PIDGains` (`Kp`, `Ki`, `Kd`, `Tf`, `b`, `c`, `tracking_time`). Both refuse a value that is not finite or not in range and change nothing; the integral is the I term, in u's units, so a new `Ki` does not bump the command. The other SISO laws hold `u_lim` as a public member.
 
 ### Composition and safety filter
 
@@ -243,7 +245,7 @@ One contract for every law:
 
 | Law | Output limit | What holds against the clamp |
 | --- | --- | --- |
-| `PIDController`, `PIController` | `input` in the `PIDLimits` `discretize` takes; at run time `set_limits()` | The integral: it gives back what the tick added, up to what the clamp cut off. With a `tracking_time` it unwinds by back-calculation instead |
+| `PIDController`, `PIController` | An `InputLimits` among `design::pid`'s options; at run time `set_limits()` | The integral: it gives back what the tick added, up to what the clamp cut off. With an `AntiWindup{.tracking_time}` it unwinds by back-calculation instead |
 | `LQR`, `LQI`, `LQG`, `LQGI`, `OFLQG` | An `InputLimits` and an `InputRateLimits`, `limits` in the `IntegralAction` and a `DemandLimit`; at run time `set_limits()` | The integrators: they hold (conditional integration), or with a `tracking_time` in the `IntegralAction` unwind by back-calculation; the filter and the delay states move on the clamped command; `OFLQG`'s d̂ stays in `disturbance_lim` |
 | `MPC`, `OFMPC` | An `InputLimits`, an `InputRateLimits`, an `OutputLimits` and a `StateLimits`; at run time `set_limits()` | By construction: the limits are constraints of the QP; `OFMPC`'s d̂ stays in `disturbance` |
 | `ADRCController` | `u_lim` on `ADRCResult` | The ESO runs on the clamped command |

@@ -102,7 +102,7 @@ Tick in code: `control_period_adrc`.
 ### PID (honest datasheet tune)
 
 This is **not** a deliberately bad PID. It is
-`design::pid_pole_placement(TransferFunction<1, 3>{.num = {1.0}, .den = {J, 0.0, 0.0}}, {.omega = wc, .zeta = 1, .omega_i = wc/8})`:
+`design::pid(TransferFunction<1, 3>{.num = {1.0}, .den = {J, 0.0, 0.0}}, Ts, design::PolePlacement{.omega = wc, .zeta = 1, .omega_i = wc/8})`:
 place a critically-damped PD pair at $`-\omega_c`$ on
 $`G(s)=1/(J s^2)`$, plus a slower integrator pole at $`-\omega_c/8`$
 so a constant load does not leave a standing error, and the derivative
@@ -118,8 +118,9 @@ filter pole at $`-10\omega_c`$.
 - $`K_i`$ — slowly wind until a constant load is cancelled
 - $`T_f`$ — the filter on the D term, set by the $`-10\omega_c`$ pole
 
-Then `.discretize(Ts)` and `control_period_pid`. Same torque limit and
-the same “tell the integrator what torque actually went out” hook.
+The same call takes the torque limit and the integral clamp as options
+(`InputLimits`, `AntiWindup{.limits}`), and the tick is `control_period_pid`,
+with the same “tell the integrator what torque actually went out” hook.
 
 ### After the payload
 

@@ -188,7 +188,7 @@ template<size_t NXP, size_t NU, size_t NY, size_t NWP, size_t NVP, size_t NXK, s
  * on the NXP + NXC states [x_P; x_C].
  *
  * @code
- * const auto g = analysis::gang_of_four(plant, *design::pid(2.0, 3.0, 0.0).to_ss());
+ * const auto g = analysis::gang_of_four(plant, *design::PIDGains{.Kp = 2.0, .Ki = 3.0}.to_ss());
  * const auto Ms = analysis::norm_hinf(g.sensitivity);      // peak sensitivity and its frequency
  * const auto Mn = analysis::norm_hinf(g.noise_sensitivity); // noise → actuator gain
  * @endcode

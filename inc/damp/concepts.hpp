@@ -76,8 +76,8 @@ namespace damp {
  * and is allowed only where the sample time enters the law in closed form at runtime
  * (PIDController::step(r, y, dt): `I += Ki*e*dt` with I the integral term, the filtered
  * derivative's coefficients from one reciprocal 1/(dt + Tf)), so a measured dt is exact and
- * cheap. Fixed-rate controllers bake Ts at design time (PIDController's step(r, y) via
- * discretize, Kalman F/Q, LQG, PR) and must NOT expose a runtime Ts: that would be a lie
+ * cheap. Fixed-rate controllers bake Ts at design time (PIDController's step(r, y) at
+ * design::pid's Ts, Kalman F/Q, LQG, PR) and must NOT expose a runtime Ts: that would be a lie
  * unless the coeffs are re-discretized every tick. Multirate = several blocks each storing their own fixed Ts, not
  * one block driven at two rates.
  *

@@ -18,8 +18,8 @@
 using namespace damp;
 using namespace damp::examples_reaction_wheel;
 
-static constinit PIController          rate_pi = rate_pi_design.discretize(Ts, rate_pi_limits).as<float>();
-static constinit PIController          angle_pi = angle_pi_design.discretize(Ts, angle_pi_limits).as<float>();
+static constinit PIController          rate_pi = rate_pi_design.as<float>();
+static constinit PIController          angle_pi = angle_pi_design.as<float>();
 static constinit Law<adrc_res, float>  adrc;
 static constinit SMCController         smc{smc_res.as<float>()};
 static constinit STSMCController       stsmc{stsmc_res.as<float>()};
@@ -40,10 +40,10 @@ int main() {
 
     fmt::print(
         "cascade PI:  angle Kp={:.4g} Ki={:.4g}  |  rate Kp={:.4g} Ki={:.4g}\n",
-        angle_pi_design.Kp,
-        angle_pi_design.Ki,
-        rate_pi_design.Kp,
-        rate_pi_design.Ki
+        angle_pi_design.gains.Kp,
+        angle_pi_design.gains.Ki,
+        rate_pi_design.gains.Kp,
+        rate_pi_design.gains.Ki
     );
     fmt::print("ADRC (NX=2):  wc={:.3g}  wo={:.3g}  b0={:.3g}\n", wc_adrc, wo_adrc, b_u);
     fmt::print("SMC:  λ={:.3g}  k={:.3g}  b0={:.3g}\n", smc_res.lambda, smc_res.k, smc_res.b0);

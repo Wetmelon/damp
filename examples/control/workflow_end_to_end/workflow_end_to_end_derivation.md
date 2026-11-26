@@ -109,7 +109,7 @@ Discrete plant: `discretize(sys_c, Ts, ZOH)`.
 
 ## Design artifacts (deploy path)
 
-1. PID seed (optional side path): `design::pidtune(sys_c, {.wc = 20.0, .phase_margin_deg = PM})`,
+1. PID seed (optional side path): `design::pid(sys_c, Ts, design::LoopShape{.wc = 20.0, .phase_margin = PM})`,
    PID, with PM from `phase_margin_from_damping_ratio` at the damping of a 10% overshoot.
 2. LQGI: `design::state_feedback(sys_d, {.Q = Q, .R = R}, design::KalmanNoise{.process = Q_kf, .measurement = R_kf}, design::IntegralAction{.Q = Q_integral})` with
 

@@ -7,845 +7,810 @@
 
 /**
  * @file pid_design.hpp
- * @brief PID design: pidtune, Ziegler–Nichols, pole placement → PIDGains
+ * @brief design::pid: a PID from a tuning rule on a model, or from gains you have, deployed at Ts
  *
  * @defgroup pid_design PID Design
- * @brief PID tuning rules, plant-aware loop shaping (pidtune) and PID pole placement
+ * @brief One design call: design::pid(model, Ts, rule, opts...) → PIDResult → PIDController
  *
- * The tuning rules use experimentally determined parameters (ultimate gain and
- * period, or a first-order-plus-dead-time step response); pidtune and
- * pid_pole_placement use a plant model. All functions return continuous PIDGains;
- * deploy via `.discretize(Ts, limits)` → PIDController, which also ticks at a measured period
- * with step(r, y, dt).
+ * The model is what you know of the plant: a first-order-plus-dead-time fit (FOPDT), a relay
+ * test's ultimate point (Ultimate), or a continuous StateSpace or TransferFunction. The rule turns
+ * it into gains, and Ts deploys them. In place of the model and the rule, gains you already have:
+ * Parallel{.Kp, .Ki, .Kd} or Standard{.Kp, .Ti, .Td}.
  *
- * Every function reports failure through PIDGains::success / status: non-finite or
- * non-physical inputs (K = 0, L ≤ 0, tau ≤ 0, Ku ≤ 0, Tu ≤ 0, ωc ≤ 0, …) and modes the
- * cited rule does not define are refused with DesignStatus::invalid_parameter, and the
- * refused gains are zero, so no Inf/NaN reaches a runtime.
+ * | Rule | Models | What it does |
+ * | --- | --- | --- |
+ * | SIMC{.tau_c, .mode} | FOPDT | Skogestad's IMC rule, one number: the closed-loop time constant |
+ * | AMIGO{} | FOPDT; Ultimate with .K | Åström and Hägglund's robust PI (M_s ≈ 1.4) |
+ * | LoopShape{.wc, .phase_margin, .mode} | StateSpace, TransferFunction; Ultimate | a crossover and a phase margin, the closed loop certified on a plant; the relay autotuner's phase-margin design at the ultimate point |
+ * | PolePlacement{.omega, .zeta, .omega_i} | first- or second-order StateSpace / TransferFunction | a PI on the first, a PD or PID with its filter on the second, in closed form |
+ * | Poles{p…} | first-order StateSpace / TransferFunction | the s-plane poles of the law sampled at Ts, exact: two for a PI, three for a PID |
  *
- * Includes:
- * - Ziegler-Nichols (ultimate gain method and step response method)
- * - Tyreus-Luyben (conservative Ziegler-Nichols variant)
- * - AMIGO PI from the ultimate point and the static gain
- * - Cohen-Coon (first-order plus dead-time models)
- * - SIMC (Skogestad IMC) rules for FOPDT models
- * - Lambda tuning (setpoint tracking, robustness-focused)
- * - pidtune: crossover and phase margin on a state-space plant, with a closed-loop stability certificate
- * - Pole placement on a first- or second-order plant (continuous ω, ζ, ωᵢ, or s-plane poles sampled at Ts)
+ * The options trail in any order, at most one of each kind (design/options.hpp), and set what the
+ * rule does not: InputLimits{.lower, .upper} (the command), DerivativeFilter{.Tf},
+ * SetpointWeights{.b, .c} and AntiWindup{.tracking_time, .limits}. A rule that cannot use a model,
+ * an option twice or of another design, and a rule among the options do not compile.
+ *
+ * @code
+ * constexpr auto kTemp = design::pid(design::FOPDT{.K = 2.5, .L = 4.0, .tau = 30.0}, 0.5, design::SIMC{.tau_c = 4.0},
+ *                                    design::InputLimits{.lower = {0.0}, .upper = {100.0}});
+ * static constinit Law<kTemp, float> heater; // each tick: u = heater.step(r, y);
+ * @endcode
+ *
+ * Every design reports through PIDResult::success and status, with zero gains when it fails:
+ * invalid_sample_time for a Ts that is not finite and positive or a discrete StateSpace, and
+ * invalid_parameter for a model, rule or option number outside its domain; LoopShape and the
+ * placements add singular, not_placeable and not_stabilizable.
  */
 
 #include "damp/backend.hpp"
-#include "damp/controllers/pid.hpp"
+#include "damp/controllers/pid.hpp" // IWYU pragma: export
+#include "damp/design/detail/pid_rules.hpp"
+#include "damp/design/input_limits.hpp" // IWYU pragma: export
+#include "damp/design/options.hpp"
+#include "damp/design/poles.hpp" // IWYU pragma: export
 #include "damp/design/status.hpp"
 #include "damp/math/complex.hpp"
 #include "damp/math/math.hpp"
 #include "damp/systems/state_space.hpp"
 #include "damp/systems/transfer_function.hpp"
-#include "damp/systems/zpk.hpp"
+#include "damp/toolbox/bounds.hpp"
 
 // Arduino.h defines PI as a macro, which would rewrite PIDMode::PI: set aside for this header.
 #pragma push_macro("PI")
 #undef PI
 
 namespace damp {
-
 namespace design {
 
-namespace detail {
-
-/** @brief Gains refused because a tuning input is outside its domain (K = 0, L ≤ 0, Tu ≤ 0, …). */
-template<typename T>
-[[nodiscard]] constexpr PIDGains<T> pid_invalid() {
-    return refused<PIDGains<T>>(DesignStatus::invalid_parameter);
-}
-
-/** @brief x finite and > 0. The finiteness test is bit-pattern based, so it holds under -ffast-math. */
-template<typename T>
-[[nodiscard]] constexpr bool positive_finite(T x) {
-    return damp::isfinite(x) && (x > T{0});
-}
-
-/** @brief A static gain K that is finite and nonzero (either sign). */
-template<typename T>
-[[nodiscard]] constexpr bool valid_static_gain(T K) {
-    return damp::isfinite(K) && (K != T{0});
-}
-
-/** @brief A first-order-plus-dead-time model with K finite and nonzero, L > 0 and tau > 0. */
-template<typename T>
-[[nodiscard]] constexpr bool valid_fopdt(T K, T L, T tau) {
-    return valid_static_gain(K) && positive_finite(L) && positive_finite(tau);
-}
-
-/**
- * @brief Back-calculation seed for a placed PI / PID: the tracking time T_t = max(|T_i|, T_min), T_i = Kp/Kᵢ
- *
- * T_t is positive whatever the signs of the gains, so the correction opposes windup even for a
- * placement with Kp < 0, and T_min > 0 keeps it from 0 (conditional integration) as Kp → 0.
- * Kᵢ = 0 (no integrator, back-calculation inert) gives 0.
- */
-template<typename T>
-[[nodiscard]] constexpr T placed_tracking_time(T Kp, T Ki, T T_min = T{0}) {
-    if (Ki == T{0}) {
-        return T{0};
-    }
-    return damp::max(damp::abs(Kp / Ki), T_min);
-}
-
-} // namespace detail
-
 // ============================================================================
-// Ziegler-Nichols Ultimate Gain Method
+// Models
 // ============================================================================
 
 /**
- * @brief Ziegler-Nichols tuning from ultimate gain and ultimate period
+ * @struct FOPDT
+ * @brief A first-order-plus-dead-time model K·e^{−Ls}/(τs + 1): what a step test fits, and what SIMC and AMIGO tune
  *
- * The user experimentally determines:
- * - Ku: ultimate (critical) gain where system oscillates continuously
- * - Tu: ultimate period of those oscillations
+ * `FOPDT{.K = 2.5, .L = 4.0, .tau = 30.0}`: the scalar is K's (the others convert to it). A plant
+ * of higher order reduces to one by Skogestad's half rule, or by a fit to its step response.
  *
- * Classic formulas from Ziegler & Nichols (1942).
- *
- * @param Ku   Ultimate gain (gain at which system marginally oscillates)
- * @param Tu   Ultimate period of oscillation (seconds)
- * @param mode Control law (P, PI, PD, or PID)
- * @return PIDGains with tuned gains; refused (invalid_parameter) if Ku ≤ 0, Tu ≤ 0 (PI/PD/PID) or an input is non-finite
+ * @tparam T The scalar (deduced from K)
  */
 template<typename T = double>
-[[nodiscard]] constexpr PIDGains<T>
-ziegler_nichols(T Ku, T Tu, PIDMode mode = PIDMode::PID) {
-    // PI/PD/PID divide by Tu; P-only uses Ku alone.
-    if (!detail::positive_finite(Ku) || (mode != PIDMode::P && !detail::positive_finite(Tu))) {
-        return detail::pid_invalid<T>();
-    }
-
-    T Kp{};
-    T Ki{};
-    T Kd{};
-
-    switch (mode) {
-        case PIDMode::P:
-            Kp = static_cast<T>(0.5) * Ku;
-            break;
-        case PIDMode::PI:
-            Kp = static_cast<T>(0.45) * Ku;
-            Ki = Kp / (Tu / static_cast<T>(1.2));
-            break;
-        case PIDMode::PD:
-            Kp = static_cast<T>(0.8) * Ku;
-            Kd = Kp * Tu / T{8};
-            break;
-        case PIDMode::PID:
-            Kp = static_cast<T>(0.6) * Ku;
-            Ki = Kp / (Tu / T{2});
-            Kd = Kp * Tu / T{8};
-            break;
-    }
-    return PIDGains<T>{Kp, Ki, Kd};
-}
+struct FOPDT {
+    static_assert(damp::is_floating_point_v<T>, "FOPDT's numbers are floating-point: FOPDT{.K = 2.0, .L = 0.5, .tau = 3.0}.");
+    T                        K{};   ///< Static gain (finite and nonzero; < 0 for a reverse-acting plant)
+    damp::type_identity_t<T> L{};   ///< [s] Dead time (≥ 0; AMIGO needs > 0)
+    damp::type_identity_t<T> tau{}; ///< [s] Time constant (> 0)
+};
 
 /**
- * @brief Ziegler-Nichols step response method (reaction curve)
+ * @struct Ultimate
+ * @brief A relay test's ultimate point: the gain K_u and period T_u at which the loop oscillates, and the static gain K
  *
- * Uses first-order-plus-dead-time (FOPDT) model parameters obtained
- * from a step response:
- * - K: static gain (output change / input change)
- * - L: apparent dead time (seconds)
- * - tau: time constant (seconds)
+ * What design::RelayAutotuner measures, `Ultimate{.Ku = out.Ku, .Tu = out.Tu}`: the plant's
+ * response at ω_u = 2π/T_u is P(jω_u) = −1/K_u. LoopShape fits the law there; AMIGO also needs
+ * the static gain (a biased relay's Ks, or a step test's), `.K = out.Ks`, and refuses K = 0, not
+ * known.
  *
- * @param K    Static gain
- * @param L    Apparent dead time (delay, seconds)
- * @param tau  Time constant (seconds)
- * @param mode Control law (P, PI, or PID; the reaction-curve table has no PD row)
- * @return PIDGains with tuned gains; refused (invalid_parameter) if K = 0, L ≤ 0, tau ≤ 0, an input
- *         is non-finite, or mode is PD
- *
- * @see "Optimum settings for automatic controllers" (Ziegler & Nichols, 1942)
+ * @tparam T The scalar (deduced from Ku)
  */
 template<typename T = double>
-[[nodiscard]] constexpr PIDGains<T>
-ziegler_nichols_step(T K, T L, T tau, PIDMode mode = PIDMode::PID) {
-    // a = tau/(K·L); Ki/Kd formulas also divide by L. tau ≤ 0 would flip the gain sign.
-    if (!detail::valid_fopdt(K, L, tau) || mode == PIDMode::PD) {
-        return detail::pid_invalid<T>();
-    }
+struct Ultimate {
+    static_assert(damp::is_floating_point_v<T>, "Ultimate's numbers are floating-point: Ultimate{.Ku = 4.0, .Tu = 2.0}.");
+    T                        Ku{}; ///< Ultimate gain (> 0)
+    damp::type_identity_t<T> Tu{}; ///< [s] Ultimate period (> 0)
+    damp::type_identity_t<T> K{};  ///< Static gain, which only AMIGO reads (0: not known)
+};
 
-    T Kp{};
-    T Ki{};
-    T Kd{};
+/**
+ * @struct Parallel
+ * @brief Gains you already have, in the parallel form Kp + Kᵢ/s + K_d s: design::pid's model and rule in one
+ *
+ * `design::pid(Parallel{.Kp = 4.0, .Ki = 8.0}, Ts, opts...)`: the scalar is Kp's. The options add
+ * the derivative filter, the setpoint weights, the anti-windup and the limits.
+ *
+ * @tparam T The scalar (deduced from Kp)
+ */
+template<typename T = double>
+struct Parallel {
+    static_assert(damp::is_floating_point_v<T>, "Parallel's gains are floating-point: Parallel{.Kp = 4.0, .Ki = 8.0}.");
+    T                        Kp{}; ///< Proportional gain
+    damp::type_identity_t<T> Ki{}; ///< Integral gain [1/s]
+    damp::type_identity_t<T> Kd{}; ///< Derivative gain [s]
+};
 
-    T a = tau / (K * L); // normalized gain
-    switch (mode) {
-        case PIDMode::P:
-        case PIDMode::PD: // refused above
-            Kp = a;
-            break;
-        case PIDMode::PI:
-            Kp = static_cast<T>(0.9) * a;
-            Ki = Kp / (L * static_cast<T>(3.33));
-            break;
-        case PIDMode::PID:
-            Kp = static_cast<T>(1.2) * a;
-            Ki = Kp / (T{2} * L);
-            Kd = Kp * static_cast<T>(0.5) * L;
-            break;
-    }
-    return PIDGains<T>{Kp, Ki, Kd};
-}
+/**
+ * @struct Standard
+ * @brief Gains you already have, in the standard (ISA) form Kp(1 + 1/(Tᵢ s) + T_d s): Kᵢ = Kp/Tᵢ, K_d = Kp·T_d
+ *
+ * `design::pid(Standard{.Kp = 4.0, .Ti = 0.5, .Td = 0.0025}, Ts, opts...)`: Tᵢ = 0 means no
+ * integral, and a Tᵢ or T_d below 0 is refused with DesignStatus::invalid_parameter.
+ *
+ * @note Compare with MATLAB®'s pidstd(Kp, Ti, Td) (matlab::pidstd), whose filter N is a
+ *       DerivativeFilter{.Tf = Td/N} here.
+ * @tparam T The scalar (deduced from Kp)
+ */
+template<typename T = double>
+struct Standard {
+    static_assert(damp::is_floating_point_v<T>, "Standard's gains are floating-point: Standard{.Kp = 4.0, .Ti = 0.5}.");
+    T                        Kp{}; ///< Proportional gain
+    damp::type_identity_t<T> Ti{}; ///< [s] Integral time (0: no integral)
+    damp::type_identity_t<T> Td{}; ///< [s] Derivative time (0: no derivative)
+};
 
 // ============================================================================
-// Tyreus-Luyben (conservative Ziegler-Nichols variant)
+// Rules
 // ============================================================================
 
 /**
- * @brief Tyreus-Luyben tuning from ultimate gain and ultimate period
+ * @struct SIMC
+ * @brief Skogestad's SIMC rule on an FOPDT: Kp = τ/(K(τ_c + L)), Tᵢ = min(τ, 4(τ_c + L))
  *
- * A more conservative variant of Ziegler-Nichols that produces less aggressive
- * controllers with better robustness. Recommended for processes where
- * Ziegler-Nichols is too aggressive.
+ * One number, τ_c, the closed-loop time constant: τ_c = L is the rule's own choice, tight
+ * control with good robustness, and a larger τ_c is slower and more robust. The mode picks the
+ * law, a PI by default; P drops the integral, and the derivative of a PD or PID, K_d = Kp·L/2, is
+ * a dead-time heuristic, not SIMC's (design::detail::simc_gains).
  *
- * @param Ku   Ultimate gain
- * @param Tu   Ultimate period (seconds)
- * @param mode Control law (PI or PID; the rule defines no P or PD setting)
- * @return PIDGains with tuned gains; refused (invalid_parameter) if Ku ≤ 0, Tu ≤ 0, an input is
- *         non-finite, or mode is P or PD
- *
- * @see "Tuning PI controllers for integrator/dead time processes" (Tyreus & Luyben, 1992),
- *      Ind. Eng. Chem. Res. 31(11)
+ * @tparam T The scalar of τ_c (converted to the model's)
  */
 template<typename T = double>
-[[nodiscard]] constexpr PIDGains<T>
-tyreus_luyben(T Ku, T Tu, PIDMode mode = PIDMode::PID) {
-    if (!detail::positive_finite(Ku) || !detail::positive_finite(Tu) || (mode != PIDMode::PI && mode != PIDMode::PID)) {
-        return detail::pid_invalid<T>();
-    }
-    const T Kp = Ku / ((mode == PIDMode::PI) ? static_cast<T>(3.2) : static_cast<T>(2.2));
-    const T Ki = Kp / (static_cast<T>(2.2) * Tu);
-    const T Kd = (mode == PIDMode::PID) ? (Kp * Tu / static_cast<T>(6.3)) : T{0};
-    return PIDGains<T>{Kp, Ki, Kd};
-}
+struct SIMC {
+    using option_kind = kind::Rule; ///< A rule: the argument after the model and Ts, never an option
+    T       tau_c{};                ///< [s] Closed-loop time constant τ_c (τ_c + L > 0)
+    PIDMode mode{PIDMode::PI};      ///< P, PI, PD or PID
+};
+
+/**
+ * @brief Åström and Hägglund's AMIGO PI: the robust PI (M_s ≈ 1.4) on an FOPDT, or on a relay test's ultimate point and static gain
+ *
+ * On an Ultimate it first recovers the FOPDT with that ultimate point and static gain, so it needs
+ * `.K`. A PI only: it takes no DerivativeFilter (design::detail::amigo_pi,
+ * design::detail::amigo_from_ultimate).
+ */
+struct AMIGO {
+    using option_kind = kind::Rule; ///< A rule: the argument after the model and Ts, never an option
+};
+
+/**
+ * @struct LoopShape
+ * @brief A crossover ωc and a phase margin: the loop C·P crosses the unit circle at ωc with that margin
+ *
+ * On a continuous StateSpace or TransferFunction the law is fitted to the plant's response at
+ * .wc, the filter of a DerivativeFilter inside the fit, and the closed loop certified (every pole
+ * in the open left half plane, else not_stabilizable). With SetpointWeights other than 1 the
+ * crossover is raised so the reference response keeps the 1-DOF design's bandwidth. A PID has
+ * Tᵢ = 4T_d. On a relay test's Ultimate the crossover is the ultimate frequency, so .wc stays 0
+ * (another is refused with invalid_parameter): the design moves the measured point onto the unit
+ * circle, the weights do not move it, and with one point of the plant the loop is not certified.
+ * There a PD or a PID; a PI cannot add the lead the point needs, and a P is K_u itself
+ * (design::detail::loop_shape, design::detail::loop_shape_ultimate).
+ *
+ * @note Compare with MATLAB®'s pidtune(sys, type, wc, pidtuneOptions('PhaseMargin', pm)).
+ * @tparam T The scalar of ωc (converted to the model's)
+ */
+template<typename T = double>
+struct LoopShape {
+    using option_kind = kind::Rule;               ///< A rule: the argument after the model and Ts, never an option
+    T                        wc{};                ///< [rad/s] Loop crossover ωc (> 0; 0 on an Ultimate: its ultimate frequency)
+    damp::type_identity_t<T> phase_margin{T{60}}; ///< [deg] Phase margin at the crossover, in (0, 180)
+    PIDMode                  mode{PIDMode::PID};  ///< P, PI, PD or PID
+};
+
+/**
+ * @struct PolePlacement
+ * @brief The closed-loop poles of a first- or second-order plant in closed form: the pair s² + 2ζω s + ω², and the integrator's at −ωᵢ
+ *
+ * On a first-order plant b₀/(a₁ s + a₀) a PI places the pair (ωᵢ = 0). On a second-order plant
+ * b₀/(a₂ s² + a₁ s + a₀) a PD places the pair and its derivative filter's pole at −10ω, and a PID
+ * with ωᵢ > 0 the integrator's pole too; the derivative is on the measurement (c = 0), unless a
+ * SetpointWeights sets both weights. The rule sets the filter, so it takes no DerivativeFilter.
+ * Keep ω about a tenth of the sample rate or below for the continuous placement to hold at Ts
+ * (design::detail::pole_pair_pi, design::detail::pole_placement_pid).
+ *
+ * @tparam T The scalar of ω (converted to the model's)
+ */
+template<typename T = double>
+struct PolePlacement {
+    using option_kind = kind::Rule;         ///< A rule: the argument after the model and Ts, never an option
+    T                        omega{};       ///< [rad/s] Frequency ω of the placed pair (> 0)
+    damp::type_identity_t<T> zeta{T{1}};    ///< Damping ratio ζ of the pair (> 0); 1 = critically damped
+    damp::type_identity_t<T> omega_i{T{0}}; ///< [rad/s] Integrator pole at −ωᵢ, second-order plant only (0: a PD)
+};
 
 // ============================================================================
-// AMIGO (from ultimate point + static gain)
+// Options
 // ============================================================================
 
 /**
- * @brief AMIGO PI from ultimate gain/period and static gain Kₛ.
+ * @struct DerivativeFilter
+ * @brief The derivative's filter K_d s/(1 + T_f s), among design::pid's options
  *
- * Recovers an approximate FOPDT model from (Kₛ, Kᵤ, Tᵤ), then applies the
- * AMIGO PI rules (Åström & Hägglund, robust Ms ≈ 1.4 design). Prefer this over
- * Ziegler–Nichols when a biased/asymmetric relay has measured Kₛ.
+ * With gains given (Parallel, Standard) and with SIMC it is the law's filter; LoopShape fits the
+ * law with it, so the delivered loop meets the crossover and the phase margin. AMIGO (a PI),
+ * PolePlacement (which places its own) and Poles (exact for an unfiltered derivative) refuse it at
+ * compile time. A T_f below 0 or not finite is refused with DesignStatus::invalid_parameter.
  *
- * FOPDT recovery at ωᵤ = 2π/Tᵤ:
- *
- *     T = √((Kₛ Kᵤ)² − 1) / ωᵤ
- *     L = (π − atan(ωᵤ T)) / ωᵤ
- *
- * AMIGO PI (Advanced PID Control, §7.6):
- *
- *     Kp = 0.15/Kₛ + (0.35 − L T/(L + T)²) · T/(Kₛ L)
- *     Ti = 0.35 L + 13 L T²/(T² + 12 L T + 7 L²)
- *     Ki = Kp / Ti
- *
- * @param Ks Static process gain (from biased relay or step)
- * @param Ku Ultimate gain
- * @param Tu Ultimate period [s]
- * @return PIDGains PI gains (Kd = 0); refused (invalid_parameter) if inputs are non-physical
- *
- * @see "Advanced PID Control" (Åström & Hägglund, 2006), §7.6 (AMIGO PI)
+ * @tparam T The scalar (converted to the design's)
  */
 template<typename T = double>
-[[nodiscard]] constexpr PIDGains<T>
-amigo_kappa_tau(T Ks, T Ku, T Tu) {
-    if (!detail::positive_finite(Ks) || !detail::positive_finite(Ku) || !detail::positive_finite(Tu)) {
-        return detail::pid_invalid<T>();
-    }
-    const T wu = (T{2} * damp::numbers::pi_v<T>) / Tu;
-    const T prod = Ks * Ku;
-    if (prod <= T{1}) {
-        // No real FOPDT consistent with this ultimate point.
-        return detail::pid_invalid<T>();
-    }
-    const T tau = damp::sqrt((prod * prod) - T{1}) / wu;
-    const T L = (damp::numbers::pi_v<T> - damp::atan(wu * tau)) / wu;
-    if (!detail::positive_finite(L) || !detail::positive_finite(tau)) {
-        return detail::pid_invalid<T>();
-    }
-    const T LpT = L + tau;
-    const T Kp = (static_cast<T>(0.15) / Ks) + ((static_cast<T>(0.35) - (L * tau / (LpT * LpT))) * tau / (Ks * L));
-    const T Ti = (static_cast<T>(0.35) * L)
-               + (T{13} * L * tau * tau / ((tau * tau) + (T{12} * L * tau) + (T{7} * L * L)));
-    if (!detail::positive_finite(Ti) || !detail::positive_finite(Kp)) {
-        return detail::pid_invalid<T>();
-    }
-    const T Ki = Kp / Ti;
-    return PIDGains<T>{Kp, Ki, T{0}};
-}
-
-// ============================================================================
-// Cohen-Coon (FOPDT model)
-// ============================================================================
+struct DerivativeFilter {
+    using option_kind = kind::DerivativeFilter; ///< Its kind of design option
+    T Tf{};                                     ///< [s] Filter time constant T_f (≥ 0; 0: unfiltered)
+};
 
 /**
- * @brief Cohen-Coon tuning from first-order-plus-dead-time model
+ * @struct SetpointWeights
+ * @brief The setpoint weights of a 2-DOF PID, u = Kp(b·r − y) + I + K_d d/dt(c·r − y), among design::pid's options
  *
- * Better than Ziegler-Nichols for processes with large dead time relative
- * to the time constant (L/tau > 0.25). Uses FOPDT model parameters.
+ * The weights shape the response to r and leave the loop as it is: b = 0 is an I-P (no
+ * proportional kick), c = 0 a PI-D (no derivative kick). Given, both are the law's, so PolePlacement's
+ * c = 0 becomes this c. LoopShape raises the crossover on a plant so that the reference response
+ * keeps the 1-DOF design's bandwidth. A weight that is not finite is refused with
+ * DesignStatus::invalid_parameter.
  *
- * @param K    Static gain
- * @param L    Dead time (seconds)
- * @param tau  Time constant (seconds)
- * @param mode Control law (P, PI, PD, or PID)
- * @return PIDGains with tuned gains; refused (invalid_parameter) if K = 0, L ≤ 0, tau ≤ 0, an input
- *         is non-finite, or mode is PD with L/tau ≥ 3 (where the PD table's Td is not positive)
- *
- * @see "Theoretical consideration of retarded control" (Cohen & Coon, 1953)
+ * @see "Advanced PID Control" (Åström & Hägglund, 2006), §4.4 (setpoint weighting)
+ * @tparam T The scalar (converted to the design's)
  */
 template<typename T = double>
-[[nodiscard]] constexpr PIDGains<T>
-cohen_coon(T K, T L, T tau, PIDMode mode = PIDMode::PID) {
-    // r = L/tau and a = tau/(K·L) both require physical FOPDT parameters.
-    if (!detail::valid_fopdt(K, L, tau)) {
-        return detail::pid_invalid<T>();
-    }
-
-    T Kp{};
-    T Ki{};
-    T Kd{};
-
-    T r = L / tau; // dead-time ratio
-    T a = tau / (K * L);
-    if (mode == PIDMode::PD && !(r < T{3})) {
-        return detail::pid_invalid<T>(); // Td = L(6 − 2r)/(22 + 3r) ≤ 0
-    }
-
-    switch (mode) {
-        case PIDMode::P:
-            Kp = a * (T{1} + (r / T{3}));
-            break;
-        case PIDMode::PI: {
-            Kp = a * (static_cast<T>(0.9) + (r / T{12}));
-            T Ti = L * (T{30} + (T{3} * r)) / (T{9} + (T{20} * r));
-            Ki = Kp / Ti;
-        } break;
-        case PIDMode::PD: {
-            Kp = a * (static_cast<T>(1.25) + (r / T{6}));
-            T Td = L * (T{6} - (T{2} * r)) / (T{22} + (T{3} * r));
-            Kd = Kp * Td;
-        } break;
-        case PIDMode::PID: {
-            Kp = a * ((T{4} / T{3}) + (r / T{4}));
-            T Ti = L * (T{32} + (T{6} * r)) / (T{13} + (T{8} * r));
-            T Td = L * T{4} / (T{11} + (T{2} * r));
-            Ki = Kp / Ti;
-            Kd = Kp * Td;
-        } break;
-    }
-    return PIDGains<T>{Kp, Ki, Kd};
-}
-
-// ============================================================================
-// SIMC (Skogestad IMC) Tuning Rules
-// ============================================================================
+struct SetpointWeights {
+    using option_kind = kind::SetpointWeights; ///< Its kind of design option
+    T                        b{T{1}};          ///< Proportional setpoint weight (1: on the error, 0: I-P)
+    damp::type_identity_t<T> c{T{1}};          ///< Derivative setpoint weight (1: on the error, 0: on the measurement)
+};
 
 /**
- * @brief SIMC (Skogestad Internal Model Control) tuning for FOPDT models
+ * @struct AntiWindup
+ * @brief How the integral meets a clamp: the tracking time, and the integral term's own limits, among design::pid's options
  *
- * The SIMC PI rule from Skogestad (2003): Kp = tau/(K·(tau_c + L)), Ti = min(tau, 4(tau_c + L)).
- * The user specifies a single tuning parameter tau_c (desired closed-loop time constant);
- * the SIMC default tau_c = L gives tight control with good robustness, and a larger tau_c is
- * slower and more robust. P mode is the PI gain without the integrator. The derivative of the
- * PD and PID modes, Kd = Kp·L/2, is not part of SIMC (which adds τ_D = τ₂ only for a
- * second-order plant); it is a dead-time heuristic and gives Kd = 0 at L = 0.
+ * Without it, as with a tracking time of 0, the integral holds where integrating would push a
+ * clamped command further (conditional integration): it keeps what it carries, which is why that
+ * is the default, as on the LQ laws (IntegralAction). A tracking time T_t > 0 unwinds it by
+ * back-calculation instead, min(T_s/T_t, 1) of the clamp's excess each tick. `.limits` clamps the
+ * integral term I itself.
  *
- * @param K     Static gain
- * @param L     Dead time (seconds, ≥ 0)
- * @param tau   Time constant (seconds)
- * @param tau_c Desired closed-loop time constant (seconds). Larger = more robust.
- * @param mode  Control law (P, PI, PD or PID)
- * @return PIDGains with tuned gains; refused (invalid_parameter) if K = 0, L < 0, tau ≤ 0,
- *         (tau_c + L) ≤ 0, or an input is non-finite
+ * Not IntegralAction, which an LQ design takes: its `.limits` bound ξ ≈ ∫e dt, which a gain row
+ * turns into u, while a PID holds its integral as the I term, already in u's units, so a clamp on
+ * it is in u's units too (PIDLimits::integral). A tracking time below 0 or not finite, or limits
+ * that are not a box, are refused with DesignStatus::invalid_parameter.
  *
- * @see "Simple analytic rules for model reduction and PID controller tuning" (Skogestad, 2003),
- *      J. Process Control 13(4)
+ * @see "Advanced PID Control" (Åström & Hägglund, 2006), §3.5: back-calculation and conditional
+ *      integration
+ * @tparam T The scalar (converted to the design's)
  */
 template<typename T = double>
-[[nodiscard]] constexpr PIDGains<T>
-simc(T K, T L, T tau, T tau_c, PIDMode mode = PIDMode::PI) {
-    // Kp = tau / (K·(tau_c+L)); PI/PID also need Ti > 0 for Ki = Kp/Ti.
-    const T den = tau_c + L;
-    if (!detail::valid_static_gain(K) || !damp::isfinite(L) || !(L >= T{0}) || !detail::positive_finite(tau)
-        || !damp::isfinite(tau_c) || !(den > T{0})) {
-        return detail::pid_invalid<T>();
-    }
-
-    T Kp{};
-    T Ki{};
-    T Kd{};
-
-    switch (mode) {
-        case PIDMode::P:
-            Kp = tau / (K * den);
-            break;
-        case PIDMode::PI: {
-            Kp = tau / (K * den);
-            T Ti = (tau < T{4} * den) ? tau : T{4} * den;
-            if (!(Ti > T{0})) {
-                return detail::pid_invalid<T>();
-            }
-            Ki = Kp / Ti;
-        } break;
-        case PIDMode::PD: {
-            Kp = tau / (K * den);
-            Kd = Kp * L / T{2};
-        } break;
-        case PIDMode::PID: {
-            Kp = tau / (K * den);
-            T Ti = (tau < T{4} * den) ? tau : T{4} * den;
-            if (!(Ti > T{0})) {
-                return detail::pid_invalid<T>();
-            }
-            Ki = Kp / Ti;
-            Kd = Kp * L / T{2};
-        } break;
-    }
-    return PIDGains<T>{Kp, Ki, Kd};
-}
-
-// ============================================================================
-// Lambda Tuning (IMC-based)
-// ============================================================================
-
-/**
- * @brief Lambda tuning for FOPDT model
- *
- * IMC-based approach where the user directly specifies the desired
- * closed-loop time constant (lambda). Produces non-oscillatory
- * setpoint tracking. Very robust, commonly used in process control.
- *
- * @param K      Static gain
- * @param L      Dead time (seconds)
- * @param tau    Time constant (seconds)
- * @param lambda Desired closed-loop time constant (seconds, > 0); λ ≥ L is the usual robust choice
- * @return PIDGains (PI controller gains); refused (invalid_parameter) if K = 0, L < 0, tau ≤ 0,
- *         λ ≤ 0, or an input is non-finite
- */
-template<typename T = double>
-[[nodiscard]] constexpr PIDGains<T>
-lambda_tuning(T K, T L, T tau, T lambda) {
-    const T den = lambda + L;
-    if (!detail::valid_static_gain(K) || !damp::isfinite(L) || !(L >= T{0}) || !detail::positive_finite(tau)
-        || !detail::positive_finite(lambda)) {
-        return detail::pid_invalid<T>();
-    }
-    T Kp = tau / (K * den);
-    T Ki = Kp / tau;
-    return PIDGains<T>{Kp, Ki, T{0}};
-}
-
-/**
- * @brief Knobs for plant-aware @ref pidtune
- *
- * Crossover, phase margin, law, derivative filter Tf, and 2-DOF weights
- * b / c. Defaults match a 1-DOF PID at 60°.
- * When b or c is not 1, the loop crossover is raised so T (r→y) −3 dB matches
- * the 1-DOF design at wc.
- */
-template<typename T = double>
-struct PIDTuneSpec {
-    T       wc{};                     ///< 1-DOF loop crossover ωc [rad/s]; 2-DOF matches T r→y −3 dB to this 1-DOF design
-    T       phase_margin_deg = T{60}; ///< Phase margin at the loop crossover [deg], in (0, 180)
-    PIDMode mode = PIDMode::PID;      ///< P / PI / PD / PID
-    T       Tf = T{0};                ///< Derivative filter Tf [s]; 0 = off
-    T       b = T{1};                 ///< P setpoint weight (0 = I-PD, 1 = on error)
-    T       c = T{1};                 ///< D setpoint weight (0 = PI-D, 1 = on error)
+struct AntiWindup {
+    using option_kind = kind::AntiWindup;                ///< Its kind of design option
+    T                                   tracking_time{}; ///< [s] Back-calculation tracking time T_t (0: conditional integration)
+    damp::type_identity_t<Bounds<1, T>> limits{};        ///< The integral term I's limits, in u's units (default unbounded)
 };
 
 namespace detail {
 
+/** @brief The options design::pid takes. A rule or Poles among them is the rule given twice. */
+using pid_options = option_set<kind::InputLimits, kind::DerivativeFilter, kind::SetpointWeights, kind::AntiWindup, kind::Rule, kind::Weights>;
+
+/** @brief A PID design's options as it reads them, in its scalar @p T: left out, their defaults. */
 template<typename T>
-[[nodiscard]] constexpr bool weights_move_tracking(const PIDGains<T>& r) {
-    const T    tol = T{64} * eps<T>(); // b, c are dimensionless weights
-    const bool p_w = (damp::abs(r.b - T{1}) > tol) && (damp::abs(r.Kp) > T{0});
-    const bool d_w = (damp::abs(r.c - T{1}) > tol) && (damp::abs(r.Kd) > T{0});
-    if (!p_w && !d_w) {
+struct PIDOptions {
+    PIDLimits<T> limits{};        ///< InputLimits and AntiWindup::limits
+    T            Tf{T{0}};        ///< DerivativeFilter::Tf
+    bool         filtered{false}; ///< A DerivativeFilter is given
+    T            b{T{1}};         ///< SetpointWeights::b
+    T            c{T{1}};         ///< SetpointWeights::c
+    bool         weighted{false}; ///< A SetpointWeights is given
+    T            tracking_time{}; ///< AntiWindup::tracking_time
+
+    /** @brief Every number in its domain: Tf and the tracking time finite and ≥ 0, the weights finite, the limits boxes. */
+    [[nodiscard]] constexpr bool valid() const {
+        return damp::finite_non_negative(Tf) && damp::isfinite(b) && damp::isfinite(c) && damp::finite_non_negative(tracking_time)
+            && limits.input.valid() && limits.integral.valid();
+    }
+};
+
+/** @brief The options among @p opts, read by kind into the design's scalar @p T. */
+template<typename T, typename... Opts>
+[[nodiscard]] constexpr PIDOptions<T> pid_options_of(const Opts&... opts) {
+    PIDOptions<T> o{};
+    if constexpr (option_count<kind::InputLimits, Opts...> > 0) {
+        if constexpr (option_t<kind::InputLimits, void, Opts...>::inputs == 1) { // more is refused at compile time
+            o.limits.input = input_limits_of<1, T>(opts...);
+        }
+    }
+    if constexpr (option_count<kind::DerivativeFilter, Opts...> > 0) {
+        o.Tf = static_cast<T>(the<kind::DerivativeFilter>(opts...).Tf);
+        o.filtered = true;
+    }
+    if constexpr (option_count<kind::SetpointWeights, Opts...> > 0) {
+        const auto w = the<kind::SetpointWeights>(opts...);
+        o.b = static_cast<T>(w.b);
+        o.c = static_cast<T>(w.c);
+        o.weighted = true;
+    }
+    if constexpr (option_count<kind::AntiWindup, Opts...> > 0) {
+        const auto aw = the<kind::AntiWindup>(opts...);
+        o.tracking_time = static_cast<T>(aw.tracking_time);
+        o.limits.integral = aw.limits.template as<T>();
+    }
+    (static_cast<void>(opts), ...);
+    return o;
+}
+
+/**
+ * @brief The compile-time check of design::pid's options: their kinds, one of each, one input, and
+ *        no rule among them (@p kGains: the call took gains, Parallel or Standard, which take none)
+ */
+template<bool kGains, typename... Opts>
+consteval void check_pid_options() {
+    static_assert(
+        option_count<kind::IntegralAction, Opts...> == 0,
+        "A PID's integral is its I term, in u's units: AntiWindup{.tracking_time = ..., .limits = {...}} sets how it meets a clamp. IntegralAction is an LQ design's."
+    );
+    pid_options::check<Opts...>();
+    constexpr bool kRule = ((OptionOf<Opts, kind::Rule> || OptionOf<Opts, kind::Weights>) || ...);
+    if constexpr (kGains) {
+        static_assert(
+            !kRule,
+            "Gains take no rule: Parallel{...} and Standard{...} are the gains, pid(gains, Ts, opts...); a rule tunes a model, pid(model, Ts, rule, opts...)."
+        );
+    } else {
+        static_assert(
+            !kRule,
+            "The rule given twice: SIMC{...}, AMIGO{}, LoopShape{...}, PolePlacement{...} or Poles{...} is the one argument after the model and Ts, pid(model, Ts, rule, opts...)."
+        );
+    }
+    if constexpr (option_count<kind::InputLimits, Opts...> > 0) {
+        static_assert(option_t<kind::InputLimits, void, Opts...>::inputs == 1, "A PID has one input: InputLimits{.lower = {lo}, .upper = {hi}}, one entry at each end.");
+    }
+}
+
+/** @brief Whether @p R is SIMC. */
+template<typename R>
+inline constexpr bool is_simc = false;
+
+/** @brief SIMC is. */
+template<typename U>
+inline constexpr bool is_simc<SIMC<U>> = true;
+
+/** @brief Whether @p R is LoopShape. */
+template<typename R>
+inline constexpr bool is_loop_shape = false;
+
+/** @brief LoopShape is. */
+template<typename U>
+inline constexpr bool is_loop_shape<LoopShape<U>> = true;
+
+/** @brief Whether @p R is PolePlacement. */
+template<typename R>
+inline constexpr bool is_pole_placement = false;
+
+/** @brief PolePlacement is. */
+template<typename U>
+inline constexpr bool is_pole_placement<PolePlacement<U>> = true;
+
+/** @brief Whether @p R is Poles. */
+template<typename R>
+inline constexpr bool is_poles = false;
+
+/** @brief Poles is. */
+template<size_t N, typename U>
+inline constexpr bool is_poles<Poles<N, U>> = true;
+
+/** @brief What a model is, as a rule reads it: none of design::pid's. */
+template<typename M>
+struct pid_model {
+    static constexpr bool   fopdt = false;    ///< An FOPDT
+    static constexpr bool   ultimate = false; ///< An Ultimate
+    static constexpr bool   plant = false;    ///< A continuous StateSpace or TransferFunction
+    static constexpr size_t order = 0;        ///< A plant's order (its states, its denominator's degree)
+    static constexpr bool   all_pole = false; ///< A plant whose form has no zero (a StateSpace's is checked at run time)
+};
+
+/** @brief An FOPDT. */
+template<typename U>
+struct pid_model<FOPDT<U>> : pid_model<void> {
+    static constexpr bool fopdt = true; ///< An FOPDT
+};
+
+/** @brief An Ultimate. */
+template<typename U>
+struct pid_model<Ultimate<U>> : pid_model<void> {
+    static constexpr bool ultimate = true; ///< An Ultimate
+};
+
+/** @brief A SISO StateSpace of NX states. */
+template<size_t NX, typename U, size_t NW, size_t NV>
+struct pid_model<StateSpace<NX, 1, 1, U, NW, NV>> : pid_model<void> {
+    static constexpr bool   plant = true;    ///< A plant
+    static constexpr size_t order = NX;      ///< Its states
+    static constexpr bool   all_pole = true; ///< Checked at run time (all_pole_tf)
+};
+
+/** @brief A TransferFunction of denominator degree ND − 1, all-pole when its numerator is a constant. */
+template<size_t NN, size_t ND, typename U>
+struct pid_model<TransferFunction<NN, ND, U>> : pid_model<void> {
+    static constexpr bool   plant = true;       ///< A plant
+    static constexpr size_t order = ND - 1;     ///< Its denominator's degree
+    static constexpr bool   all_pole = NN == 1; ///< num = {b₀}
+};
+
+/** @brief Whether the rule @p Rule takes the model @p Model; refused at compile time, with the models it takes, when it does not. */
+template<typename Rule, typename Model>
+consteval bool pid_rule_fits() {
+    using M = pid_model<Model>;
+    if constexpr (is_simc<Rule>) {
+        static_assert(M::fopdt, "SIMC tunes an FOPDT model: pid(FOPDT{.K = ..., .L = ..., .tau = ...}, Ts, SIMC{.tau_c = ...}).");
+        return M::fopdt;
+    } else if constexpr (damp::is_same_v<Rule, AMIGO>) {
+        static_assert(M::fopdt || M::ultimate, "AMIGO tunes an FOPDT model, FOPDT{.K, .L, .tau}, or a relay test's Ultimate{.Ku, .Tu, .K} with its static gain.");
+        return M::fopdt || M::ultimate;
+    } else if constexpr (is_loop_shape<Rule>) {
+        constexpr bool ok = (M::plant && M::order >= 1) || M::ultimate;
+        static_assert(ok, "LoopShape fits the frequency response of a continuous StateSpace or TransferFunction with a pole, or a relay test's Ultimate{.Ku, .Tu}.");
+        return ok;
+    } else if constexpr (is_pole_placement<Rule>) {
+        constexpr bool ok = M::plant && M::all_pole && (M::order == 1 || M::order == 2);
+        static_assert(
+            ok,
+            "PolePlacement places the poles of a first- or second-order all-pole plant: a StateSpace of one or two states, or TransferFunction{.num = {b0}, .den = {a1, a0}} or {.num = {b0}, .den = {a2, a1, a0}}."
+        );
+        return ok;
+    } else if constexpr (is_poles<Rule>) {
+        constexpr bool ok = M::plant && M::all_pole && (M::order == 1);
+        constexpr bool count = (listed_by<kind::Weights, Rule> == 2) || (listed_by<kind::Weights, Rule> == 3);
+        static_assert(ok, "Poles places a first-order plant sampled at Ts: a StateSpace of one state, or TransferFunction{.num = {b0}, .den = {a1, a0}}.");
+        static_assert(!ok || count, "Poles on a first-order plant: two for a PI, three for a PID.");
+        return ok && count;
+    } else {
+        static_assert(
+            !damp::is_same_v<Rule, Rule>,
+            "The rule after the model and Ts: SIMC{...}, AMIGO{}, LoopShape{...}, PolePlacement{...} or Poles{...}, pid(model, Ts, rule, opts...)."
+        );
         return false;
     }
-    // I-P / I-PD with no integrator cannot hold a setpoint.
-    if (!(damp::abs(r.Ki) > T{0}) && p_w && !(damp::abs(r.b) > tol)) {
-        return false;
-    }
-    return true;
 }
 
-/** @brief The spec's scalar domain: ωc > 0, 0 < PM < 180°, Tf ≥ 0, all finite. */
+/** @brief Whether the options @p Opts fit the rule @p Rule: refused at compile time with why when they do not. */
+template<typename Rule, typename... Opts>
+consteval bool pid_options_fit() {
+    constexpr bool kFilter = option_count<kind::DerivativeFilter, Opts...> > 0;
+    if constexpr (damp::is_same_v<Rule, AMIGO>) {
+        static_assert(!kFilter, "AMIGO is a PI rule: there is no derivative for a DerivativeFilter to filter.");
+    } else if constexpr (is_pole_placement<Rule>) {
+        static_assert(!kFilter, "PolePlacement places the derivative filter's pole itself, at 10 omega, and a first-order plant's PI has no derivative: no DerivativeFilter.");
+    } else if constexpr (is_poles<Rule>) {
+        static_assert(!kFilter, "Poles places the sampled law with an unfiltered derivative, exact at Ts: no DerivativeFilter.");
+    }
+    return !kFilter || !(damp::is_same_v<Rule, AMIGO> || is_pole_placement<Rule> || is_poles<Rule>);
+}
+
+/** @brief LoopShape's spec with the filter and the weights among the options. */
+template<typename T, typename U>
+[[nodiscard]] constexpr LoopSpec<T> loop_spec_of(const LoopShape<U>& rule, const PIDOptions<T>& o) {
+    return LoopSpec<T>{
+        .wc = static_cast<T>(rule.wc),
+        .phase_margin_deg = static_cast<T>(rule.phase_margin),
+        .mode = rule.mode,
+        .Tf = o.Tf,
+        .b = o.b,
+        .c = o.c,
+    };
+}
+
+/** @brief SIMC on an FOPDT. */
+template<typename T, typename U>
+[[nodiscard]] constexpr PIDTuning<T> tune(const FOPDT<T>& m, const SIMC<U>& rule, T /*Ts*/, const PIDOptions<T>& /*o*/) {
+    return simc_gains(m.K, m.L, m.tau, static_cast<T>(rule.tau_c), rule.mode);
+}
+
+/** @brief AMIGO on an FOPDT. */
 template<typename T>
-[[nodiscard]] constexpr bool valid_spec(const PIDTuneSpec<T>& spec) {
-    return detail::positive_finite(spec.wc) && detail::positive_finite(spec.phase_margin_deg)
-        && (spec.phase_margin_deg < T{180}) && damp::isfinite(spec.Tf) && (spec.Tf >= T{0}) && damp::isfinite(spec.b)
-        && damp::isfinite(spec.c);
+[[nodiscard]] constexpr PIDTuning<T> tune(const FOPDT<T>& m, const AMIGO& /*rule*/, T /*Ts*/, const PIDOptions<T>& /*o*/) {
+    return amigo_pi(m.K, m.L, m.tau);
 }
 
-template<size_t NX, typename T, size_t NW, size_t NV>
-[[nodiscard]] constexpr damp::optional<T>
-tracking_mag(const damp::StateSpace<NX, 1, 1, T, NW, NV>& sys, const PIDGains<T>& pid, T w) {
-    using Cplx = damp::complex<T>;
-    if (!(w > T{0})) {
-        return damp::nullopt;
-    }
-    const auto Gopt = damp::eval_frf(sys, Cplx{T{0}, w});
-    if (!Gopt) {
-        return damp::nullopt;
-    }
-    const Cplx P = (*Gopt)(0, 0);
-    const Cplx L = pid.eval_fb(w) * P;
-    const Cplx den = Cplx{T{1}, T{0}} + L;
-    if (!(den.norm() > T{0})) { // closed-loop pole exactly on jω
-        return damp::nullopt;
-    }
-    return damp::abs((pid.eval_ff(w) * P) / den);
+/** @brief AMIGO on an ultimate point and its static gain. */
+template<typename T>
+[[nodiscard]] constexpr PIDTuning<T> tune(const Ultimate<T>& m, const AMIGO& /*rule*/, T /*Ts*/, const PIDOptions<T>& /*o*/) {
+    return amigo_from_ultimate(m.K, m.Ku, m.Tu);
 }
 
-template<size_t NX, typename T, size_t NW, size_t NV>
-[[nodiscard]] constexpr damp::optional<T>
-tracking_bandwidth(const damp::StateSpace<NX, 1, 1, T, NW, NV>& sys, const PIDGains<T>& pid, T w_hint) {
-    const T    w_ref = (w_hint > T{0}) ? w_hint : T{1};
-    const auto mag_dc = tracking_mag(sys, pid, w_ref * static_cast<T>(1e-3));
-    if (!mag_dc || !(*mag_dc > T{0})) {
-        return damp::nullopt;
+/** @brief LoopShape at an ultimate point. */
+template<typename T, typename U>
+[[nodiscard]] constexpr PIDTuning<T> tune(const Ultimate<T>& m, const LoopShape<U>& rule, T /*Ts*/, const PIDOptions<T>& o) {
+    if (!damp::isfinite(m.K)) {
+        return pid_invalid<T>();
     }
-    const T thresh = *mag_dc / damp::sqrt(T{2});
-    T       lo = w_ref * static_cast<T>(1e-3);
-    T       hi = w_ref * static_cast<T>(1e3);
-    auto    mag_hi = tracking_mag(sys, pid, hi);
-    for (int k = 0; k < 8 && mag_hi && (*mag_hi >= thresh); ++k) {
-        hi *= T{4};
-        mag_hi = tracking_mag(sys, pid, hi);
-        if (hi > (w_ref * static_cast<T>(1e6))) {
-            return damp::nullopt;
-        }
+    return loop_shape_ultimate(m.Ku, m.Tu, loop_spec_of(rule, o));
+}
+
+/** @brief LoopShape on a StateSpace. */
+template<size_t NX, typename T, size_t NW, size_t NV, typename U>
+[[nodiscard]] constexpr PIDTuning<T> tune(const StateSpace<NX, 1, 1, T, NW, NV>& sys, const LoopShape<U>& rule, T /*Ts*/, const PIDOptions<T>& o) {
+    return loop_shape(sys, loop_spec_of(rule, o));
+}
+
+/** @brief LoopShape on a TransferFunction: its controllable realization. */
+template<size_t NN, size_t ND, typename T, typename U>
+[[nodiscard]] constexpr PIDTuning<T> tune(const TransferFunction<NN, ND, T>& tf, const LoopShape<U>& rule, T /*Ts*/, const PIDOptions<T>& o) {
+    const auto sys = tf.to_state_space();
+    if (!sys) {
+        return pid_invalid<T>(); // den[0] = 0
     }
-    if (!mag_hi || (*mag_hi >= thresh)) {
-        return damp::nullopt;
+    return loop_shape(*sys, loop_spec_of(rule, o));
+}
+
+/** @brief PolePlacement on a first-order transfer function: the PI. */
+template<typename T, typename U>
+[[nodiscard]] constexpr PIDTuning<T> tune(const TransferFunction<1, 2, T>& tf, const PolePlacement<U>& rule, T /*Ts*/, const PIDOptions<T>& /*o*/) {
+    return pole_pair_pi(tf, static_cast<T>(rule.omega), static_cast<T>(rule.zeta), static_cast<T>(rule.omega_i));
+}
+
+/** @brief PolePlacement on a second-order transfer function: the PD or PID. */
+template<typename T, typename U>
+[[nodiscard]] constexpr PIDTuning<T> tune(const TransferFunction<1, 3, T>& tf, const PolePlacement<U>& rule, T /*Ts*/, const PIDOptions<T>& /*o*/) {
+    return pole_placement_pid(tf, static_cast<T>(rule.omega), static_cast<T>(rule.zeta), static_cast<T>(rule.omega_i));
+}
+
+/** @brief PolePlacement on a StateSpace: its all-pole transfer function. */
+template<size_t NX, typename T, size_t NW, size_t NV, typename U>
+[[nodiscard]] constexpr PIDTuning<T> tune(const StateSpace<NX, 1, 1, T, NW, NV>& sys, const PolePlacement<U>& rule, T Ts, const PIDOptions<T>& o) {
+    const auto all_pole = all_pole_tf(sys);
+    if (all_pole.status != DesignStatus::ok) {
+        return refused<PIDTuning<T>>(all_pole.status);
     }
-    for (int k = 0; k < 16; ++k) {
-        const T    mid = damp::sqrt(lo * hi);
-        const auto m = tracking_mag(sys, pid, mid);
-        if (!m || (*m >= thresh)) {
-            lo = mid;
-        } else {
-            hi = mid;
-        }
+    return tune(all_pole.tf, rule, Ts, o);
+}
+
+/** @brief Poles on a first-order transfer function, sampled at Ts. */
+template<typename T, size_t N, typename U>
+[[nodiscard]] constexpr PIDTuning<T> tune(const TransferFunction<1, 2, T>& tf, const Poles<N, U>& rule, T Ts, const PIDOptions<T>& /*o*/) {
+    return sampled_placement<N>(tf, pole_list<T>(rule.poles), Ts);
+}
+
+/** @brief Poles on a first-order StateSpace: its all-pole transfer function. */
+template<typename T, size_t NW, size_t NV, size_t N, typename U>
+[[nodiscard]] constexpr PIDTuning<T> tune(const StateSpace<1, 1, 1, T, NW, NV>& sys, const Poles<N, U>& rule, T Ts, const PIDOptions<T>& o) {
+    const auto all_pole = all_pole_tf(sys);
+    if (all_pole.status != DesignStatus::ok) {
+        return refused<PIDTuning<T>>(all_pole.status);
     }
-    return damp::sqrt(lo * hi);
+    return tune(all_pole.tf, rule, Ts, o);
 }
 
 /**
- * @brief The requested law with C(jω) = e^{j(−π + PM)}/P(jω), from the plant response P at ω = spec.wc
+ * @brief A rule's gains deployed at @p Ts with the options @p o: the filter and weights they give,
+ *        their tracking time and limits; the rule's status when it failed
  *
- * The filtered derivative Kd·g, g = jω/(1 + jωTf), enters the fit, so the delivered C_fb meets
- * the crossover and the phase margin for any Tf. With g = g_r + j g_i:
- * PI: Kp = C_r, Kᵢ = −C_i ω. PD: Kd = C_i/g_i, Kp = C_r − Kd g_r. PID (Tᵢ = 4T_d, Kᵢ = Kp²/(4Kd)):
- * (4ω g_i − g_r²)Kd² + (2C_r g_r − 4ω C_i)Kd − C_r² = 0, Kp = C_r − Kd g_r. P meets the crossover
- * alone: Kp = 1/|P|. Refused with singular if P is zero or non-finite, and with not_placeable if
- * the law cannot realize C with positive gains (a PI cannot lead, a PD cannot lag, no law gives
- * Kp ≤ 0).
+ * Refused with invalid_parameter for a gain that is not finite, or one whose per-tick coefficient
+ * (Kᵢ·Ts, K_d/(Ts + T_f), 1/T_t) overflows, which the runtime would refuse.
  */
 template<typename T>
-[[nodiscard]] constexpr PIDGains<T> fit_to_response(damp::complex<T> P, const PIDTuneSpec<T>& spec) noexcept {
-    constexpr T pi = damp::numbers::pi_v<T>;
-    const T     mag_P = damp::abs(P);
-    if (!detail::positive_finite(mag_P)) {
-        return refused<PIDGains<T>>(DesignStatus::singular);
+[[nodiscard]] constexpr PIDResult<T> pid_deployed(const PIDTuning<T>& tuning, T Ts, const PIDOptions<T>& o) {
+    if (!tuning.success) {
+        return refused<PIDResult<T>>(tuning.status);
     }
-    const T want = -pi + (spec.phase_margin_deg * pi / T{180}) - damp::arg(P);
-    const auto [s, c] = damp::sincos(want);
-    const T     Cr = c / mag_P;
-    const T     Ci = s / mag_P;
-    const T     w = spec.wc;
-    const T     wTf = w * spec.Tf;
-    const T     gr = w * wTf / (T{1} + (wTf * wTf)); // Re g
-    const T     gi = w / (T{1} + (wTf * wTf));       // Im g
-    PIDGains<T> res{};
-    switch (spec.mode) {
-        case PIDMode::P:
-            res.Kp = T{1} / mag_P;
-            break;
-        case PIDMode::PI:
-            res.Kp = Cr;
-            res.Ki = -Ci * w;
-            break;
-        case PIDMode::PD:
-            res.Kd = Ci / gi;
-            res.Kp = Cr - (res.Kd * gr);
-            break;
-        case PIDMode::PID: {
-            const T a = (T{4} * w * gi) - (gr * gr); // = ω²(4 + 3ω²Tf²)/(1 + ω²Tf²)² > 0
-            const T bb = (T{2} * Cr * gr) - (T{4} * w * Ci);
-            const T sq = damp::sqrt((bb * bb) + (T{4} * a * Cr * Cr));
-            // Positive root of a Kd² + bb Kd − C_r² = 0, without cancellation for either sign of bb.
-            res.Kd = (bb >= T{0}) ? ((T{2} * Cr * Cr) / (bb + sq)) : ((sq - bb) / (T{2} * a));
-            res.Kp = Cr - (res.Kd * gr);
-            res.Ki = (res.Kd > T{0}) ? ((res.Kp * res.Kp) / (T{4} * res.Kd)) : T{0};
-        } break;
+    PIDGains<T> g = tuning.gains;
+    if (o.filtered) {
+        g.Tf = o.Tf;
     }
-    if (!detail::positive_finite(res.Kp) || !damp::finite_non_negative(res.Ki) || !damp::finite_non_negative(res.Kd) || ((spec.mode == PIDMode::PID) && !(res.Kd > T{0}))) {
-        return refused<PIDGains<T>>(DesignStatus::not_placeable);
+    if (o.weighted) {
+        g.b = o.b;
+        g.c = o.c;
     }
-    res.tracking_time = (res.Ki != T{0}) ? (T{1} / w) : T{0}; // T_t = 1/ω_c, with an integrator to unwind
-    res.Tf = spec.Tf;
-    res.b = spec.b;
-    res.c = spec.c;
-    return res;
+    g.tracking_time = o.tracking_time;
+    if (!pid_gain_set<PIDMode::PID>(g, Ts)) { // the runtime's own check: every gain in its domain, every coefficient finite
+        return refused<PIDResult<T>>(DesignStatus::invalid_parameter);
+    }
+    PIDResult<T> out{.gains = g, .limits = o.limits, .Ts = Ts};
+    set_status(out, DesignStatus::ok);
+    return out;
 }
 
-/**
- * @brief fit_to_response at spec.wc with every gain of sign σ = ±1
- *
- * σ = −1 fits σ·P and negates the gains: the loop C·P is the same, and so is the tracking time.
- */
-template<size_t NX, typename T, size_t NW, size_t NV>
-[[nodiscard]] constexpr PIDGains<T>
-fit_at_crossover(const damp::StateSpace<NX, 1, 1, T, NW, NV>& sys, const PIDTuneSpec<T>& spec, T sigma) noexcept {
-    const auto Gopt = damp::eval_frf(sys, damp::complex<T>{T{0}, spec.wc});
-    if (!Gopt) {
-        return refused<PIDGains<T>>(DesignStatus::singular);
+/** @brief design::pid once its call compiles: Ts, the options, then the gains @p tune_at gives (from the options) deployed at Ts. */
+template<typename T, typename Tune, typename... Opts>
+[[nodiscard]] constexpr PIDResult<T> pid_with(T Ts, const Tune& tune_at, const Opts&... opts) {
+    const PIDOptions<T> o = pid_options_of<T>(opts...);
+    if (!damp::finite_positive(Ts)) {
+        return refused<PIDResult<T>>(DesignStatus::invalid_sample_time);
     }
-    auto g = fit_to_response((*Gopt)(0, 0) * sigma, spec);
-    if (g.success && (sigma < T{0})) {
-        g.Kp = -g.Kp;
-        g.Ki = -g.Ki;
-        g.Kd = -g.Kd;
+    if (!o.valid()) {
+        return refused<PIDResult<T>>(DesignStatus::invalid_parameter);
     }
-    return g;
+    return pid_deployed(tune_at(o), Ts, o);
 }
 
-/**
- * @brief Routh–Hurwitz: every root of c[0] sⁿ + … + c[n] in the open left half plane
- *
- * Leading exact zeros are skipped. The polynomial is first rescaled in frequency, s = ω₀ s'
- * with ω₀ = |c[n]/c[0]|^{1/n} (cₖ → cₖ/ω₀ᵏ), so its roots have unit geometric mean magnitude
- * and the verdict does not depend on the time unit. A first-column entry must then exceed
- * N·64·ε times the largest entry of the two rows that form it, so a root on (or within
- * roundoff of) the imaginary axis fails, and so does a root at s = 0 (c[n] = 0).
- */
-template<size_t N, typename T>
-[[nodiscard]] constexpr bool hurwitz(const damp::array<T, N>& coeffs) {
-    size_t lead = 0;
-    while (lead < N && coeffs[lead] == T{0}) {
-        ++lead;
+/** @brief design::pid of a rule on a model: the rule and the options checked at compile time, then designed. */
+template<typename T, typename Model, typename Rule, typename... Opts>
+[[nodiscard]] constexpr PIDResult<T> pid_of(const Model& model, T Ts, const Rule& rule, const Opts&... opts) {
+    check_pid_options<false, Opts...>();
+    constexpr bool kFits = pid_rule_fits<Rule, Model>() && pid_options_fit<Rule, Opts...>();
+    if constexpr (!kFits) {
+        static_cast<void>(model);
+        static_cast<void>(rule);
+        static_cast<void>(Ts);
+        (static_cast<void>(opts), ...);
+        return PIDResult<T>{}; // the message says which: nothing further
+    } else {
+        return pid_with(Ts, [&](const PIDOptions<T>& o) { return tune(model, rule, Ts, o); }, opts...);
     }
-    if (lead >= N) {
-        return false;
-    }
-    const size_t n = N - 1 - lead; // degree
-    const T      sgn = (coeffs[lead] > T{0}) ? T{1} : T{-1};
-    const T      tol = static_cast<T>(N) * T{64} * eps<T>();
-    const T      ratio = damp::abs(coeffs[N - 1] / coeffs[lead]);
-    if (!(ratio > T{0}) || !damp::isfinite(ratio)) {
-        return false; // a root at s = 0, or a coefficient out of range
-    }
-    const T           inv_w0 = (n > 0) ? (T{1} / damp::pow(ratio, T{1} / static_cast<T>(n))) : T{1};
-    T                 wk = T{1}; // ω₀⁻ⁱ
-    damp::array<T, N> r1{};      // sⁿ row: c[0], c[2], …
-    damp::array<T, N> r2{};      // sⁿ⁻¹ row: c[1], c[3], …
-    for (size_t i = 0; i <= n; ++i) {
-        const T ci = sgn * coeffs[lead + i] * wk;
-        wk *= inv_w0;
-        if (!damp::isfinite(ci)) {
-            return false;
-        }
-        if ((i % 2) == 0) {
-            r1[i / 2] = ci;
-        } else {
-            r2[i / 2] = ci;
-        }
-    }
-    for (size_t row = 0; row < n; ++row) {
-        T scale = T{0};
-        for (size_t k = 0; k < N; ++k) {
-            scale = damp::max(scale, damp::max(damp::abs(r1[k]), damp::abs(r2[k])));
-        }
-        if (!(r1[0] > tol * scale) || !(r2[0] > tol * scale)) {
-            return false;
-        }
-        damp::array<T, N> next{};
-        for (size_t k = 0; (k + 1) < N; ++k) {
-            next[k] = r1[k + 1] - ((r1[0] / r2[0]) * r2[k + 1]);
-        }
-        r1 = r2;
-        r2 = next;
-    }
-    return true;
-}
-
-/**
- * @brief Closed-loop certificate: den_P·den_C + num_P·num_C is Hurwitz for C_fb = Kp + Kᵢ/s + Kd s/(1 + Tf s)
- *
- * The integrator and the filter factors enter only when Kᵢ ≠ 0 and Kd·Tf ≠ 0, so the
- * polynomial has no root that a pole-zero cancellation inside C would put on the axis.
- */
-template<size_t NP, typename T>
-[[nodiscard]] constexpr bool closed_loop_stable(const TransferFunction<NP, NP, T>& plant, const PIDGains<T>& g) {
-    const bool        has_i = g.Ki != T{0};
-    const bool        has_f = (g.Kd != T{0}) && (g.Tf > T{0});
-    const T           Tf = has_f ? g.Tf : T{0};
-    damp::array<T, 3> num{(g.Kp * Tf) + g.Kd, g.Kp + (g.Ki * Tf), g.Ki}; // (Kp Tf + Kd) s² + (Kp + Ki Tf) s + Ki
-    damp::array<T, 3> den{Tf, T{1}, T{0}};                               // Tf s² + s
-    if (!has_i) {                                                        // no integrator: divide both by s
-        num = {T{0}, num[0], num[1]};
-        den = {T{0}, Tf, T{1}};
-    }
-    damp::array<T, NP + 2> cl{};
-    for (size_t i = 0; i < NP; ++i) {
-        for (size_t j = 0; j < 3; ++j) {
-            cl[i + j] += (plant.den[i] * den[j]) + (plant.num[i] * num[j]);
-        }
-    }
-    return hurwitz(cl);
-}
-
-/**
- * @brief Raise the loop crossover so T −3 dB matches the 1-DOF target
- *
- * Keeps the sample whose bandwidth is closest to @p target. Each step is
- * clamped to [½, 2] so one update cannot jump the ridge where the gains change
- * sign. Every sample is fitted with gains of sign @p sigma, the sign of @p fitted.
- * The search stops at a crossover the law cannot realize or whose closed loop
- * fails the certificate.
- */
-template<size_t NX, typename T, size_t NW, size_t NV>
-[[nodiscard]] constexpr PIDGains<T> raise_loop_for_tracking(
-    const damp::StateSpace<NX, 1, 1, T, NW, NV>& sys,
-    const TransferFunction<NX + 1, NX + 1, T>&   plant,
-    const PIDTuneSpec<T>&                        spec,
-    PIDGains<T>                                  fitted,
-    T                                            target,
-    T                                            sigma
-) noexcept {
-    T           w = spec.wc;
-    PIDGains<T> best = fitted;
-    bool        scored = false;
-    T           best_rel = T{0};
-    const auto  bw0 = tracking_bandwidth(sys, fitted, spec.wc);
-    if (bw0 && (target > T{0})) {
-        best_rel = damp::abs(*bw0 - target) / target;
-        scored = true;
-    }
-    const T wmin = spec.wc / T{4};
-    const T wmax = spec.wc * T{64};
-    for (int i = 0; i < 8; ++i) {
-        PIDTuneSpec<T> s = spec;
-        s.wc = w;
-        const auto r = fit_at_crossover(sys, s, sigma);
-        if (!r.success || !closed_loop_stable(plant, r)) {
-            break;
-        }
-        const auto bw = tracking_bandwidth(sys, r, spec.wc);
-        if (!bw || !(target > T{0})) {
-            break;
-        }
-        const T rel = damp::abs(*bw - target) / target;
-        if (!scored || (rel < best_rel)) {
-            best = r;
-            best_rel = rel;
-            scored = true;
-        }
-        if (rel < static_cast<T>(0.03)) {
-            break;
-        }
-        T step = target / *bw;
-        if (step > T{2}) {
-            step = T{2};
-        }
-        if (step < T{0.5}) {
-            step = T{0.5};
-        }
-        T next = w * step;
-        if (next < wmin) {
-            next = wmin;
-        }
-        if (next > wmax) {
-            next = wmax;
-        }
-        if (!(damp::abs(next - w) > (w * static_cast<T>(1e-4)))) {
-            break;
-        }
-        w = next;
-    }
-    return best;
 }
 
 } // namespace detail
 
 /**
- * @brief Plant-aware PID tune at a crossover
+ * @brief A PID from a rule on an FOPDT model, deployed at @p Ts: SIMC or AMIGO
  *
- * Chooses C_fb(jω) so |C_fb P|=1 and arg(C_fb P)= −π + PM, then maps onto the
- * requested law (Ti = 4 Td for PID). The derivative filter Tf is part of the fit, so the
- * delivered C_fb meets both at any Tf. P mode meets the crossover only (Kp = 1/|P(jωc)|);
- * its phase margin is the plant's. For 1-DOF (b = c = 1) that frequency is
- * spec.wc. When b or c is not 1, the loop crossover is raised so the tracking
- * map T_yr = C_ff P / (1 + C_fb P) has the same −3 dB bandwidth as the 1-DOF
- * design at spec.wc. The search keeps the closest match and steps by at most 2x.
- * Back-calculation is seeded to the tracking time T_t = 1/ω, ω the loop crossover of the result
- * (spec.wc for 1-DOF).
+ * @code
+ * constexpr auto kTemp = design::pid(design::FOPDT{.K = 2.5, .L = 4.0, .tau = 30.0}, 0.5, design::SIMC{.tau_c = 4.0},
+ *                                    design::InputLimits{.lower = {0.0}, .upper = {100.0}});
+ * constexpr auto kAmigo = design::pid(design::FOPDT{.K = 2.5, .L = 4.0, .tau = 30.0}, 0.5, design::AMIGO{});
+ * @endcode
  *
- * The gains share one sign. The sign of the plant's low-frequency gain num(0) is tried
- * first, so a reverse-acting plant gets Kp, Kᵢ, Kd ≤ 0 (pidtune(−P) is −pidtune(P)), and the
- * other sign is taken only when it alone gives a stable loop.
+ * Refused with invalid_sample_time for a Ts that is not finite and positive, and with
+ * invalid_parameter for K = 0, L < 0 (AMIGO: L ≤ 0), τ ≤ 0, a rule's number outside its domain, or
+ * an option's.
  *
- * The result is certified: every pole of the closed loop 1 + C_fb P lies in the open left
- * half plane (Routh–Hurwitz on the characteristic polynomial from ss2tf).
- *
- * Status: invalid_parameter if ωc ≤ 0, PM ∉ (0°, 180°), Tf < 0, or an input is non-finite;
- * invalid_sample_time on a discrete plant; singular if P(jωc) is missing or 0; not_placeable if
- * the law cannot realize the crossover with gains of one sign (a PI cannot add phase, a PD
- * cannot remove it); not_stabilizable if the fitted loop is unstable. When neither sign gives
- * a stable loop, the status is that of the plant's sign.
- *
- * @note Compare with MATLAB®'s pidtune(sys, wc) (that call is 60° 1-DOF PID).
- * @see PIDTuneSpec
+ * @param model The plant K·e^{−Ls}/(τs + 1)
+ * @param Ts    [s] The law's sample period
+ * @param rule  SIMC{.tau_c, .mode} or AMIGO{}
+ * @param opts  InputLimits, DerivativeFilter (SIMC), SetpointWeights, AntiWindup
+ * @return The design: the gains, the limits and Ts, for PIDController or Law
  */
-template<size_t NX, typename T = double, size_t NW = 0, size_t NV = 0>
-[[nodiscard]] constexpr PIDGains<T>
-pidtune(const damp::StateSpace<NX, 1, 1, T, NW, NV>& sys, const PIDTuneSpec<T>& spec) noexcept {
-    if (!detail::valid_spec(spec)) {
-        return detail::pid_invalid<T>();
+template<typename T, typename Rule, typename... Opts>
+[[nodiscard]] constexpr PIDResult<T> pid(const FOPDT<T>& model, damp::type_identity_t<T> Ts, const Rule& rule, const Opts&... opts) {
+    return detail::pid_of(model, Ts, rule, opts...);
+}
+
+/**
+ * @brief A PID from a relay test's ultimate point, deployed at @p Ts: LoopShape (Åström and Hägglund's phase-margin design) or AMIGO
+ *
+ * @code
+ * const auto out = tuner.step(y); // design::RelayAutotuner, Done
+ * const auto res = design::pid(design::Ultimate{.Ku = out.Ku, .Tu = out.Tu}, Ts, design::LoopShape{.phase_margin = 45.0});
+ * @endcode
+ *
+ * LoopShape moves the measured point P(jω_u) = −1/K_u onto the unit circle at −180° + PM, the
+ * crossover at the ultimate frequency (.wc stays 0), with a PD or a PID. The loop is not certified:
+ * one point is all of the plant the design has. AMIGO recovers the FOPDT with that point and the
+ * static gain `.K` (> 0) and applies its PI.
+ *
+ * Refused with invalid_sample_time for a Ts that is not finite and positive; invalid_parameter for
+ * K_u or T_u not finite and positive, a LoopShape .wc other than 0, AMIGO without K or with
+ * K·K_u ≤ 1, or an option out of its domain; not_placeable for a PI under LoopShape, and
+ * not_stabilizable for a P (K_u itself).
+ *
+ * @param model The ultimate point (and the static gain for AMIGO)
+ * @param Ts    [s] The law's sample period
+ * @param rule  LoopShape{.phase_margin, .mode} or AMIGO{}
+ * @param opts  InputLimits, DerivativeFilter (LoopShape), SetpointWeights, AntiWindup
+ * @return The design: the gains, the limits and Ts, for PIDController or Law
+ */
+template<typename T, typename Rule, typename... Opts>
+[[nodiscard]] constexpr PIDResult<T> pid(const Ultimate<T>& model, damp::type_identity_t<T> Ts, const Rule& rule, const Opts&... opts) {
+    return detail::pid_of(model, Ts, rule, opts...);
+}
+
+/**
+ * @brief A PID from a rule on a continuous SISO state-space plant, deployed at @p Ts: LoopShape, PolePlacement or Poles
+ *
+ * @code
+ * constexpr auto kLoop = design::pid(plant, 1e-3, design::LoopShape{.wc = 200.0});                 // certified closed loop
+ * constexpr auto kPair = design::pid(plant, 1e-3, design::PolePlacement{.omega = 200.0});          // one or two states
+ * constexpr auto kZ = design::pid(plant, 1e-3, design::Poles{-200.0, -200.0});                     // one state, exact at Ts
+ * @endcode
+ *
+ * LoopShape fits the plant's frequency response and certifies the closed loop. PolePlacement and
+ * Poles take a plant of the order they place and with no finite zero and D = 0, refused with
+ * invalid_parameter otherwise; noise channels (G, H) do not enter. A discrete plant is refused
+ * with invalid_sample_time, and so is a Ts that is not finite and positive.
+ *
+ * @note Compare with MATLAB®'s pidtune(sys, type, wc) for LoopShape (matlab::pidtune).
+ * @param plant The continuous plant (one input, one output)
+ * @param Ts    [s] The law's sample period
+ * @param rule  LoopShape{.wc, .phase_margin, .mode}, PolePlacement{.omega, .zeta, .omega_i} or Poles{p…}
+ * @param opts  InputLimits, DerivativeFilter (LoopShape), SetpointWeights, AntiWindup
+ * @return The design: the gains, the limits and Ts, for PIDController or Law
+ */
+template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, typename Rule, typename... Opts>
+[[nodiscard]] constexpr PIDResult<T>
+pid(const StateSpace<NX, NU, NY, T, NW, NV>& plant, damp::type_identity_t<T> Ts, const Rule& rule, const Opts&... opts) {
+    static_assert(NU == 1 && NY == 1, "A PID has one input and one output: a StateSpace<NX, 1, 1>.");
+    if constexpr (NU != 1 || NY != 1) {
+        static_cast<void>(plant);
+        static_cast<void>(Ts);
+        static_cast<void>(rule);
+        (static_cast<void>(opts), ...);
+        return PIDResult<T>{};
+    } else {
+        return detail::pid_of(plant, Ts, rule, opts...);
     }
-    if (!damp::isfinite(sys.Ts) || sys.Ts != T{0}) {
-        return detail::refused<PIDGains<T>>(DesignStatus::invalid_sample_time);
-    }
-    const auto              plant = ::damp::ss2tf(sys);
-    const T                 first = (plant.num[NX] < T{0}) ? T{-1} : T{1}; // sign of num(0), den monic
-    const damp::array<T, 2> signs{first, -first};
-    PIDGains<T>             fitted{};
-    T                       sigma = first;
-    for (const T s : signs) {
-        auto g = detail::fit_at_crossover(sys, spec, s);
-        if (g.success && !detail::closed_loop_stable(plant, g)) {
-            g = detail::refused<PIDGains<T>>(DesignStatus::not_stabilizable);
+}
+
+/**
+ * @brief A PID from a rule on a transfer function, deployed at @p Ts: LoopShape, PolePlacement or Poles
+ *
+ * As the state-space form: LoopShape on any proper transfer function with a pole (its
+ * controllable realization), PolePlacement on `{.num = {b₀}, .den = {a₁, a₀}}` or
+ * `{.num = {b₀}, .den = {a₂, a₁, a₀}}`, Poles on the first. A transfer function has no sample time:
+ * it is read as continuous.
+ *
+ * @code
+ * constexpr auto kInertia = design::pid(TransferFunction{.num = {1.0}, .den = {0.05, 0.0, 0.0}}, 1e-3,
+ *                                       design::PolePlacement{.omega = 8.0, .omega_i = 1.0});
+ * @endcode
+ *
+ * @param plant The continuous plant num(s)/den(s)
+ * @param Ts    [s] The law's sample period
+ * @param rule  LoopShape{.wc, .phase_margin, .mode}, PolePlacement{.omega, .zeta, .omega_i} or Poles{p…}
+ * @param opts  InputLimits, DerivativeFilter (LoopShape), SetpointWeights, AntiWindup
+ * @return The design: the gains, the limits and Ts, for PIDController or Law
+ */
+template<size_t NN, size_t ND, typename T, typename Rule, typename... Opts>
+[[nodiscard]] constexpr PIDResult<T> pid(const TransferFunction<NN, ND, T>& plant, damp::type_identity_t<T> Ts, const Rule& rule, const Opts&... opts) {
+    return detail::pid_of(plant, Ts, rule, opts...);
+}
+
+/**
+ * @brief A PID from gains you already have, in the parallel form Kp + Kᵢ/s + K_d s, deployed at @p Ts
+ *
+ * @code
+ * constexpr auto kSpeed = design::pid(design::Parallel{.Kp = 4.0, .Ki = 8.0, .Kd = 0.02}, 1e-3,
+ *                                     design::DerivativeFilter{.Tf = 1e-3}, design::InputLimits{.lower = {-12.0}, .upper = {12.0}});
+ * static constinit Law<kSpeed, float> speed;
+ * @endcode
+ *
+ * Refused with invalid_sample_time for a Ts that is not finite and positive, and with
+ * invalid_parameter for a gain that is not finite or an option out of its domain.
+ *
+ * @note Compare with MATLAB®'s c2d(pid(Kp, Ki, Kd, Tf), Ts) (matlab::pid, matlab::c2d).
+ * @param gains The gains
+ * @param Ts    [s] The law's sample period
+ * @param opts  InputLimits, DerivativeFilter, SetpointWeights, AntiWindup
+ * @return The design: the gains, the limits and Ts, for PIDController or Law
+ */
+template<typename T, typename... Opts>
+[[nodiscard]] constexpr PIDResult<T> pid(const Parallel<T>& gains, damp::type_identity_t<T> Ts, const Opts&... opts) {
+    detail::check_pid_options<true, Opts...>();
+    return detail::pid_with(
+        Ts,
+        [&](const detail::PIDOptions<T>& /*o*/) { return detail::tuned(PIDGains<T>{.Kp = gains.Kp, .Ki = gains.Ki, .Kd = gains.Kd}); },
+        opts...
+    );
+}
+
+/**
+ * @brief A PID from gains you already have, in the standard (ISA) form Kp(1 + 1/(Tᵢ s) + T_d s), deployed at @p Ts
+ *
+ * Kᵢ = Kp/Tᵢ (none at Tᵢ = 0) and K_d = Kp·T_d, then as the parallel form.
+ *
+ * @code
+ * constexpr auto kSpeed = design::pid(design::Standard{.Kp = 4.0, .Ti = 0.5, .Td = 0.0025}, 1e-3);
+ * @endcode
+ *
+ * Refused with invalid_sample_time for a Ts that is not finite and positive, and with
+ * invalid_parameter for Tᵢ or T_d below 0, a number that is not finite, or an option out of its
+ * domain.
+ *
+ * @note Compare with MATLAB®'s c2d(pidstd(Kp, Ti, Td), Ts) (matlab::pidstd, matlab::c2d).
+ * @param gains The gains
+ * @param Ts    [s] The law's sample period
+ * @param opts  InputLimits, DerivativeFilter, SetpointWeights, AntiWindup
+ * @return The design: the gains, the limits and Ts, for PIDController or Law
+ */
+template<typename T, typename... Opts>
+[[nodiscard]] constexpr PIDResult<T> pid(const Standard<T>& gains, damp::type_identity_t<T> Ts, const Opts&... opts) {
+    detail::check_pid_options<true, Opts...>();
+    return detail::pid_with(
+        Ts,
+        [&](const detail::PIDOptions<T>& /*o*/) {
+        if (!damp::finite_non_negative(gains.Ti) || !damp::finite_non_negative(gains.Td) || !damp::isfinite(gains.Kp)) {
+            return detail::pid_invalid<T>();
         }
-        if (g.success || (s == first)) { // on a double failure, report the plant sign's status
-            fitted = g;
-            sigma = s;
-        }
-        if (g.success) {
-            break;
-        }
-    }
-    if (!fitted.success || !detail::weights_move_tracking(fitted)) {
-        return fitted;
-    }
-    PIDTuneSpec<T> spec1 = spec;
-    spec1.b = T{1};
-    spec1.c = T{1};
-    auto target = detail::tracking_bandwidth(sys, detail::fit_at_crossover(sys, spec1, sigma), spec.wc);
-    if (!target) {
-        target = spec.wc;
-    }
-    return detail::raise_loop_for_tracking(sys, plant, spec, fitted, *target, sigma);
+        const T Ki = (gains.Ti > T{0}) ? (gains.Kp / gains.Ti) : T{0};
+        return detail::tuned(PIDGains<T>{.Kp = gains.Kp, .Ki = Ki, .Kd = gains.Kp * gains.Td});
+    },
+        opts...
+    );
 }
 
 /**
@@ -894,7 +859,7 @@ template<typename T = double>
 [[nodiscard]] constexpr T phase_margin_from_damping_ratio(T zeta) {
     constexpr T pi = damp::numbers::pi_v<T>;
 
-    if (!detail::positive_finite(zeta)) {
+    if (!damp::finite_positive(zeta)) {
         return T{30};
     }
 
@@ -903,419 +868,6 @@ template<typename T = double>
     const T inner = T{1} / (damp::sqrt(T{1} + (T{4} * z2 * z2)) + (T{2} * z2));
     const T pm_rad = damp::atan2(T{2} * zeta, damp::sqrt(inner));
     return pm_rad * T{180} / pi;
-}
-
-// ============================================================================
-// PID pole placement
-// ============================================================================
-
-/**
- * @brief Closed-loop targets for the continuous pid_pole_placement forms
- *
- * The pole pair s² + 2ζω s + ω² and, on a second-order plant, the integrator pole at −ωᵢ.
- */
-template<typename T = double>
-struct PIDPolePlacementSpec {
-    T omega{};       ///< [rad/s] Frequency ω of the placed pole pair (> 0)
-    T zeta{T{1}};    ///< Damping ratio ζ of the pair (> 0); 1 = critically damped
-    T omega_i{T{0}}; ///< [rad/s] Integrator pole at −ωᵢ, second-order plant only; 0 = PD
-    T b{T{1}};       ///< Proportional setpoint weight: 1 = P on error, 0 = P on measurement
-};
-
-namespace detail {
-
-/** @brief The spec's scalar domain: ω > 0, ζ > 0, ωᵢ ≥ 0, all finite. */
-template<typename T>
-[[nodiscard]] constexpr bool valid_placement_spec(const PIDPolePlacementSpec<T>& spec) {
-    return (spec.omega > T{0}) && (spec.zeta > T{0}) && (spec.omega_i >= T{0}) && damp::isfinite(spec.omega)
-        && damp::isfinite(spec.zeta) && damp::isfinite(spec.omega_i) && damp::isfinite(spec.b);
-}
-
-} // namespace detail
-
-/**
- * @brief PI gains that place the closed-loop poles of a first-order plant b₀/(a₁ s + a₀)
- *
- * A PI has two free gains, so it places exactly the two closed-loop poles of a
- * first-order plant. With the plant made monic by its gain, a₁′ = a₁/b₀, a₀′ = a₀/b₀,
- * matching @f$ s^2 + \frac{a_0'+K_p}{a_1'}s + \frac{K_i}{a_1'} @f$ to
- * @f$ s^2 + 2\zeta\omega s + \omega^2 @f$ gives
- * @f[
- *   K_p = 2\zeta\omega a_1' - a_0', \qquad K_i = a_1'\,\omega^2 .
- * @f]
- * This is the kernel every loop in a motion cascade shares: (a₁, a₀) = (L, R) for a dq
- * current axis, (J, b_visc) for a velocity loop. Back-calculation is seeded to the tracking
- * time T_t = Kp/Ki = T_i (Kp > 0 here, since a pair that needs Kp ≤ 0 is refused); the setpoint
- * weight b leaves the poles fixed and only moves the reference→output zero (b = 1 PI on error,
- * b = 0 I-P).
- *
- * Status: invalid_parameter if b₀ = 0, a₁/b₀ ≤ 0, ω ≤ 0, ζ ≤ 0 or ωᵢ ≠ 0 (a PI has no third
- * pole); not_placeable if the placement needs Kp ≤ 0 (2ζω a₁′ ≤ a₀′: the plant pole is
- * already faster than the requested pair).
- *
- * @note ω is bounded by the eventual sample rate: keep it roughly an order of magnitude
- *       below the control frequency for the continuous placement to hold.
- *
- * @param plant First-order plant, `{.num = {b₀}, .den = {a₁, a₀}}`
- * @param spec  ω, ζ and the setpoint weight b
- * @return PIDGains with Kp, Ki, tracking_time = T_i and b
- *
- * @see "Advanced PID Control" (Åström & Hägglund, 2006), §4.4 (setpoint weighting)
- */
-template<typename T = double>
-[[nodiscard]] constexpr PIDGains<T> pid_pole_placement(const TransferFunction<1, 2, T>& plant, const PIDPolePlacementSpec<T>& spec) {
-    const T b0 = plant.num[0];
-    if (!detail::valid_static_gain(b0) || !detail::valid_placement_spec(spec) || spec.omega_i != T{0}) {
-        return detail::pid_invalid<T>();
-    }
-    const T a1 = plant.den[0] / b0;
-    const T a0 = plant.den[1] / b0;
-    if (!detail::positive_finite(a1) || !damp::isfinite(a0)) {
-        return detail::pid_invalid<T>();
-    }
-    const T Kp = (T{2} * spec.zeta * spec.omega * a1) - a0;
-    if (!detail::positive_finite(Kp)) {
-        return detail::refused<PIDGains<T>>(DesignStatus::not_placeable);
-    }
-    // T_t = T_i (Åström default).
-    const T Ki = a1 * spec.omega * spec.omega;
-    return PIDGains<T>{
-        .Kp = Kp,
-        .Ki = Ki,
-        .tracking_time = detail::placed_tracking_time(Kp, Ki),
-        .b = spec.b,
-    };
-}
-
-/**
- * @brief PD or PID gains that place the closed-loop poles of a second-order plant b₀/(a₂ s² + a₁ s + a₀)
- *
- * The derivative is filtered, Kd s/(1 + Tf s), and the filter pole is placed with the others:
- * with the plant made monic by its gain (a₂′, a₁′, a₀′ = a₂/b₀, a₁/b₀, a₀/b₀), a PID closes to
- * a₂′Tf s⁴ + (a₂′ + a₁′Tf) s³ + (a₁′ + a₀′Tf + Kp Tf + Kd) s² + (a₀′ + Kp + Kᵢ Tf) s + Kᵢ.
- * Matching a₂′Tf (s² + 2ζω s + ω²)(s + ωᵢ)(s + ω_f) = a₂′Tf (s⁴ + d₃ s³ + d₂ s² + d₁ s + d₀),
- * with the filter pole at ω_f = 10ω, gives
- * @f[
- *   \frac{1}{T_f} = d_3 - \frac{a_1'}{a_2'},\quad
- *   K_i = a_2' T_f d_0,\quad
- *   K_p = a_2' T_f d_1 - a_0' - K_i T_f,\quad
- *   K_d = a_2' T_f d_2 - a_1' - (a_0' + K_p) T_f ,
- * @f]
- * and ωᵢ = 0 is the PD that places the pair and the filter pole alone. A rigid inertia
- * 1/(J s²) is `{.num = {1}, .den = {J, 0, 0}}`; a common load-holding choice is ωᵢ = ω/8.
- *
- * Derivative is on the measurement (c = 0, no D kick on a reference step). Back-calculation
- * is seeded to the tracking time T_t = T_i (0 for the PD, which has no integral).
- *
- * Status: invalid_parameter if b₀ = 0, a₂/b₀ ≤ 0, ω ≤ 0, ζ ≤ 0, ωᵢ < 0 or a coefficient is
- * non-finite; not_placeable if the placement needs Kp ≤ 0, Kd < 0 or Tf ≤ 0 (the plant is
- * already faster or more damped).
- *
- * @note Compare with MATLAB®'s pidtune on tf(1, [J 0 0]) for the PD part.
- *
- * @param plant Second-order plant, `{.num = {b₀}, .den = {a₂, a₁, a₀}}`
- * @param spec  ω, ζ, ωᵢ and the setpoint weight b
- * @return PIDGains with Kp, Ki, Kd, tracking_time, b, c = 0 and Tf (0 when Kd = 0)
- *
- * @see "Feedback Control of Dynamic Systems" (Franklin, Powell, Emami-Naeini), PD on 1/s²
- */
-template<typename T = double>
-[[nodiscard]] constexpr PIDGains<T> pid_pole_placement(const TransferFunction<1, 3, T>& plant, const PIDPolePlacementSpec<T>& spec) {
-    const T b0 = plant.num[0];
-    if (!detail::valid_static_gain(b0) || !detail::valid_placement_spec(spec)) {
-        return detail::pid_invalid<T>();
-    }
-    const T a2 = plant.den[0] / b0;
-    const T a1 = plant.den[1] / b0;
-    const T a0 = plant.den[2] / b0;
-    if (!detail::positive_finite(a2) || !damp::isfinite(a1) || !damp::isfinite(a0)) {
-        return detail::pid_invalid<T>();
-    }
-    const T w = spec.omega;
-    const T wi = spec.omega_i;
-    const T wf = T{10} * w;
-    const T two_zw = T{2} * spec.zeta * w;
-    // (s² + 2ζω s + ω²)(s + ωᵢ) = s³ + c₁ s² + c₂ s + c₃, then × (s + ω_f).
-    const T c1 = two_zw + wi;
-    const T c2 = (w * w) + (two_zw * wi);
-    const T c3 = w * w * wi;
-    const T inv_Tf = (c1 + wf) - (a1 / a2);
-    if (!detail::positive_finite(inv_Tf)) {
-        return detail::refused<PIDGains<T>>(DesignStatus::not_placeable);
-    }
-    const T Tf = T{1} / inv_Tf;
-    const T Ki = a2 * Tf * (c3 * wf);
-    const T Kp = (a2 * Tf * (c3 + (c2 * wf))) - a0 - (Ki * Tf);
-    const T Kd = (a2 * Tf * (c2 + (c1 * wf))) - a1 - ((a0 + Kp) * Tf);
-    if (!detail::positive_finite(Kp) || !damp::finite_non_negative(Kd)) {
-        return detail::refused<PIDGains<T>>(DesignStatus::not_placeable);
-    }
-    PIDGains<T> r{};
-    r.Kp = Kp;
-    r.Ki = Ki;
-    r.Kd = Kd;
-    r.tracking_time = detail::placed_tracking_time(Kp, Ki);
-    r.b = spec.b;
-    r.c = T{0};                     // PI-D / PD on measurement
-    r.Tf = (Kd > T{0}) ? Tf : T{0}; // Kd = 0: the filter factor cancels from the loop
-    return r;
-}
-
-namespace detail {
-
-/** @brief 1 − e^{−x} over x, without the cancellation of 1 − e^{−x} at small |x|. */
-template<typename T>
-[[nodiscard]] constexpr T one_minus_exp_neg_over_x(T x) {
-    // Below |x| = 1/16 the series through x⁷/8! is accurate to about 3ε in double, and the
-    // direct form loses at most ε/|x| = 16ε above it.
-    if (damp::abs(x) < static_cast<T>(0.0625)) {
-        // Σ (−x)ᵏ/(k + 1)!, k = 0 … 7.
-        T term = T{1};
-        T sum = T{1};
-        for (int k = 1; k <= 7; ++k) {
-            term *= -x / static_cast<T>(k + 1);
-            sum += term;
-        }
-        return sum;
-    }
-    return (T{1} - damp::exp(-x)) / x;
-}
-
-} // namespace detail
-
-/**
- * @brief Discrete PI or PID gains that place the closed-loop poles of a first-order plant sampled at Ts
- *
- * The poles are s-plane poles, mapped to z = e^{s·Ts} as place(sys, poles, Ts) maps them. The
- * plant b₀/(a₁ s + a₀) is ZOH-discretized to G(z) = b/(z − a), a = e^{−x}, x = a₀Ts/a₁,
- * b = (b₀Ts/a₁)(1 − e^{−x})/x (evaluated without cancellation at small x, and b = b₀Ts/a₁ for
- * an integrator). Two poles give a PI (the integrator at z = 1 makes the closed loop second
- * order); three give a PID whose backward-difference derivative adds the third pole. The gains
- * are in the continuous form that PIDGains::discretize(Ts) maps back exactly, so discretize
- * with the same Ts.
- *
- * A pole product above the sampled plant pole (z₁z₂ > a for the PI) needs Kp < 0, and
- * z₁z₂ = a gives Kp = 0, an I-only law. The PID's derivative gain is Kd = −z₁z₂z₃·Ts/b, which
- * is negative for every s-plane set on a plant with b > 0. Back-calculation is seeded to the
- * tracking time T_t = max(|T_i|, Ts), positive whatever the sign of Kp, and never shorter than
- * one sample (the tick's correction Ts/T_t stays at most 1, so it cannot overshoot the
- * saturation).
- *
- * Status: invalid_sample_time if Ts ≤ 0; invalid_parameter if b₀ = 0, a₁ = 0, a coefficient or
- * pole is non-finite, a pole has Re(s) ≥ 0 (as a z-plane value in [0, 1] read as s does), or a
- * complex pole has no conjugate; singular if the sampled gain b is zero.
- *
- * @tparam NP Number of placed poles: 2 (PI) or 3 (PID)
- * @param plant  First-order plant, `{.num = {b₀}, .den = {a₁, a₀}}`
- * @param poles  Desired closed-loop poles (s-plane, Re(s) < 0), real or in conjugate pairs
- * @param Ts     [s] Sample period
- * @return PIDGains (Tf = 0) with the tracking-time seed above
- */
-template<size_t NP, typename T = double>
-    requires(NP == 2 || NP == 3)
-[[nodiscard]] constexpr PIDGains<T> pid_pole_placement(
-    const TransferFunction<1, 2, T>&         plant,
-    const damp::array<damp::complex<T>, NP>& poles,
-    T                                        Ts
-) {
-    using Cplx = damp::complex<T>;
-    if (!detail::positive_finite(Ts)) {
-        return detail::refused<PIDGains<T>>(DesignStatus::invalid_sample_time);
-    }
-    const T b0 = plant.num[0];
-    const T a1 = plant.den[0];
-    const T a0 = plant.den[1];
-    if (!detail::valid_static_gain(b0) || !detail::valid_static_gain(a1) || !damp::isfinite(a0)) {
-        return detail::pid_invalid<T>();
-    }
-    // z = e^{s·Ts}; the elementary symmetric functions σ = Σz, ρ = Σzᵢzⱼ, π = Πz are real for a
-    // conjugate-closed set.
-    damp::array<Cplx, NP> z{};
-    T                     zmag = T{0};
-    for (size_t i = 0; i < NP; ++i) {
-        // Re(s) < 0: the loop is stable, and a z-plane value in [0, 1] read as s is refused.
-        if (!damp::isfinite(poles[i].real()) || !damp::isfinite(poles[i].imag()) || !(poles[i].real() < T{0})) {
-            return detail::pid_invalid<T>();
-        }
-        const T er = damp::exp(poles[i].real() * Ts);
-        const auto [sn, cs] = damp::sincos(poles[i].imag() * Ts);
-        z[i] = Cplx{er * cs, er * sn};
-        zmag += er;
-    }
-    Cplx sigma{};
-    Cplx rho{};
-    Cplx prod{T{1}};
-    for (size_t i = 0; i < NP; ++i) {
-        sigma += z[i];
-        prod *= z[i];
-        for (size_t j = i + 1; j < NP; ++j) {
-            rho += z[i] * z[j];
-        }
-    }
-    const T scale = damp::max(T{1}, zmag);
-    const T tol = T{64} * static_cast<T>(NP) * eps<T>() * scale * scale * scale;
-    if (damp::abs(sigma.imag()) > tol || damp::abs(rho.imag()) > tol || damp::abs(prod.imag()) > tol) {
-        return detail::pid_invalid<T>(); // a complex pole without its conjugate
-    }
-    const T x = a0 * Ts / a1;
-    const T a = damp::exp(-x);
-    const T b = (b0 * Ts / a1) * detail::one_minus_exp_neg_over_x(x);
-    if (b == T{0}) {
-        return detail::refused<PIDGains<T>>(DesignStatus::singular);
-    }
-    if constexpr (NP == 2) {
-        // Deploy is PIDGains::discretize + PIDController: I ← I + (Ki Ts) e[k],
-        // so C(z) = Kp + Ki Ts · z/(z−1) (backward Euler). Match
-        //   (z−a)(z−1) + b (Kp (z−1) + Ki Ts z) = z² − σ z + π:
-        //   a − b Kp = π                 => Kp = (a − π) / b
-        //   b Kp + b Ki Ts = 1+a − σ     => Ki from the leftover.
-        const T Kp = (a - prod.real()) / b;
-        const T Ki = ((T{1} + a) - sigma.real() - (b * Kp)) / (b * Ts);
-        return PIDGains<T>{.Kp = Kp, .Ki = Ki, .tracking_time = detail::placed_tracking_time(Kp, Ki, Ts)};
-    } else {
-        // Deploy (Tf = 0): C(z) = Kp + Ki Ts z/(z−1) + (Kd/Ts)(z−1)/z. Closed loop:
-        //   z³ + (−(1+a) + b Kp + b Ki Ts + b Kd/Ts) z² + (a − b Kp − 2 b Kd/Ts) z + b Kd/Ts
-        // against z³ − σ z² + ρ z − π.
-        const T Kd = -(prod.real() * Ts) / b;                                           // b Kd/Ts = −π
-        const T Kp = (a - rho.real() - (T{2} * b * Kd / Ts)) / b;                       // b Kp + 2 b Kd/Ts = a − ρ
-        const T Ki = ((T{1} + a - sigma.real()) - (b * Kp) - (b * Kd / Ts)) / (b * Ts); // b Kp + b Ki Ts + b Kd/Ts = 1 + a − σ
-        return PIDGains<T>{.Kp = Kp, .Ki = Ki, .Kd = Kd, .tracking_time = detail::placed_tracking_time(Kp, Ki, Ts)};
-    }
-}
-
-namespace detail {
-
-/** @brief A SISO plant as the all-pole transfer function b₀/den(s), or why it is not one. */
-template<size_t NX, typename T>
-struct AllPoleTF {
-    TransferFunction<1, NX + 1, T> tf{};                                    ///< b₀/den(s), den monic
-    DesignStatus                   status{DesignStatus::invalid_parameter}; ///< ok, or why the plant is refused
-};
-
-/**
- * @brief The all-pole transfer function b₀/den(s) of a SISO state-space plant
- *
- * ss2tf gives the monic denominator. A numerator coefficient above the constant one is a finite
- * zero unless it is cancellation residue, below √ε times the size of the terms that formed it,
- * so the verdict does not depend on the units of the states. Noise channels (G, H) do not enter.
- * invalid_sample_time on a discrete plant; invalid_parameter if D ≠ 0, the plant has a finite
- * zero, or there is no gain from u to y.
- */
-template<size_t NX, typename T, size_t NW, size_t NV>
-[[nodiscard]] constexpr AllPoleTF<NX, T> all_pole_tf(const StateSpace<NX, 1, 1, T, NW, NV>& sys) {
-    const StateSpace plant{.A = sys.A, .B = sys.B, .C = sys.C, .D = sys.D, .Ts = sys.Ts};
-    if (!damp::isfinite(plant.Ts) || plant.Ts != T{0}) {
-        return {.status = DesignStatus::invalid_sample_time};
-    }
-    if (plant.D(0, 0) != T{0}) {
-        return {.status = DesignStatus::invalid_parameter};
-    }
-    const auto tf = ::damp::ss2tf(plant);
-    const auto scale = ::damp::detail::leverrier_num_scale(plant);
-    const T    tol = damp::sqrt(eps<T>());
-    for (size_t j = 1; j < NX; ++j) {
-        if (damp::abs(tf.num[j]) > (tol * scale[j])) {
-            return {.status = DesignStatus::invalid_parameter}; // a finite zero
-        }
-    }
-    if (!(damp::abs(tf.num[NX]) > (tol * scale[NX]))) {
-        return {.status = DesignStatus::invalid_parameter}; // no path from u to y
-    }
-    return {.tf = {.num = {tf.num[NX]}, .den = tf.den}, .status = DesignStatus::ok};
-}
-
-} // namespace detail
-
-/**
- * @brief PI (first-order) or PD / PID (second-order) gains that place the closed-loop poles of a state-space plant
- *
- * Converts the plant with ss2tf and forwards to the transfer-function form of the same order,
- * so one model feeds pid_pole_placement, pidtune and place. The plant must be continuous and
- * all-pole: D = 0 and no finite zero. Noise channels (G, H) are ignored.
- *
- * Status: invalid_sample_time on a discrete plant; invalid_parameter if D ≠ 0, the plant has a
- * finite zero, or it has no gain from u to y; otherwise as the transfer-function form.
- *
- * @param plant Continuous SISO plant with one or two states
- * @param spec  ω, ζ, ωᵢ and the setpoint weight b
- * @return PIDGains as the transfer-function form returns them
- */
-template<size_t NX, typename T = double, size_t NW = 0, size_t NV = 0>
-    requires(NX == 1 || NX == 2)
-[[nodiscard]] constexpr PIDGains<T> pid_pole_placement(const StateSpace<NX, 1, 1, T, NW, NV>& plant, const PIDPolePlacementSpec<T>& spec) {
-    const auto all_pole = detail::all_pole_tf(plant);
-    if (all_pole.status != DesignStatus::ok) {
-        return detail::refused<PIDGains<T>>(all_pole.status);
-    }
-    return pid_pole_placement(all_pole.tf, spec);
-}
-
-/**
- * @brief Discrete PI or PID gains that place the s-plane poles of a first-order state-space plant sampled at Ts
- *
- * Converts the continuous plant with ss2tf and forwards to the transfer-function form. Status:
- * invalid_sample_time on a discrete plant or Ts ≤ 0; invalid_parameter if D ≠ 0 or there is no
- * gain from u to y; otherwise as the transfer-function form.
- *
- * @tparam NP Number of placed poles: 2 (PI) or 3 (PID)
- * @param plant Continuous SISO plant with one state
- * @param poles Desired closed-loop poles (s-plane, Re(s) < 0), real or in conjugate pairs
- * @param Ts    [s] Sample period
- * @return PIDGains (Tf = 0)
- */
-template<size_t NP, typename T = double, size_t NW = 0, size_t NV = 0>
-    requires(NP == 2 || NP == 3)
-[[nodiscard]] constexpr PIDGains<T> pid_pole_placement(
-    const StateSpace<1, 1, 1, T, NW, NV>&    plant,
-    const damp::array<damp::complex<T>, NP>& poles,
-    T                                        Ts
-) {
-    const auto all_pole = detail::all_pole_tf(plant);
-    if (all_pole.status != DesignStatus::ok) {
-        return detail::refused<PIDGains<T>>(all_pole.status);
-    }
-    return pid_pole_placement(all_pole.tf, poles, Ts);
-}
-
-/**
- * @brief PI gains for an R–L current loop 1/(L s + R) at any bandwidth ω
- *
- * At or above the plant pole R/L, the pid_pole_placement pair: Kp = 2ζωL − R, Ki = Lω².
- * Below it, or where the pair would need Kp ≤ 0 (ζ ≤ ½), the PI zero cancels the plant
- * pole and the loop closes on one pole at −ω:
- * @f[
- *   K_p = \omega L, \qquad K_i = \omega R ,
- * @f]
- * the pair's gains at ω = R/L, ζ = 1. With b = 1 the reference response is then ω/(s + ω);
- * ζ has no effect. At ζ ≥ 1 both rules are LQ-optimal for some weights (|1 + L(jν)| ≥ 1 at
- * every ν).
- *
- * Status: as pid_pole_placement, without not_placeable.
- *
- * @param L    [H] inductance (> 0)
- * @param R    [Ω] resistance
- * @param spec ω, ζ and the setpoint weight b
- * @return PIDGains with Kp, Ki, tracking_time = T_i and b
- *
- * @see pid_pole_placement
- * @see "When Is a Linear Control System Optimal?" (Kalman, 1964), the return-difference condition
- */
-template<typename T = double>
-[[nodiscard]] constexpr PIDGains<T> current_loop_pi(T L, T R, const PIDPolePlacementSpec<T>& spec) {
-    const auto pair = pid_pole_placement(TransferFunction<1, 2, T>{.num = {T{1}}, .den = {L, R}}, spec);
-    const bool slow = (pair.status == DesignStatus::not_placeable) || (pair.success && (spec.omega * L < R));
-    if (!slow) {
-        return pair;
-    }
-    // The R/L pole is faster than ω: the PI zero cancels it, one closed-loop pole at −ω.
-    const T Kp = spec.omega * L;
-    const T Ki = spec.omega * R;
-    return PIDGains<T>{
-        .Kp = Kp,
-        .Ki = Ki,
-        .tracking_time = detail::placed_tracking_time(Kp, Ki),
-        .b = spec.b,
-    };
 }
 
 } // namespace design

@@ -17,11 +17,44 @@
 
 #include "damp/backend.hpp"
 #include "damp/controllers/pid.hpp"
-#include "damp/design/pid_design.hpp" // ::damp::design::current_loop_pi
 #include "damp/design/status.hpp"
+#include "damp/math/math.hpp"
 #include "damp/math/transforms.hpp"
 
 namespace damp::motor {
+
+namespace detail {
+
+/**
+ * @brief The PI of an R–L current loop 1/(L s + R) at the bandwidth ω: Kp = ω·L, Kᵢ = ω·R
+ *
+ * The PI's zero at −Kᵢ/Kp = −R/L cancels the plant's pole, so the loop is ω/s and the closed loop
+ * from the reference, with b = 1, is ω/(s + ω): one pole at −ω, whatever ω is against R/L. It is
+ * the internal-model current controller of Harnefors and Nee, and the formula ODrive tunes its
+ * current loop with. The cancelled pole stays in the response to a voltage disturbance, which
+ * decays at R/L; a law that places it with the pair is design::pid(plant, Ts,
+ * PolePlacement{.omega, .zeta}). With b = 0 (I-P) the reference sees the pole too: ω·(R/L)/((s +
+ * R/L)(s + ω)).
+ *
+ * @param L     [H] inductance (finite, > 0)
+ * @param R     [Ω] resistance (finite, ≥ 0; 0 gives Kᵢ = 0, the loop ω/s on a pure inductance)
+ * @param omega [rad/s] closed-loop bandwidth ω (finite, > 0)
+ * @param b     [-] proportional setpoint weight (1 = PI, 0 = I-P)
+ * @return The gains (tracking time 0: the integral holds against a clamp), or nullopt for a number
+ *         outside its domain
+ *
+ * @see "Model-based current control of AC machines using the internal model control method"
+ *      (Harnefors & Nee, 1998), IEEE Trans. Ind. Appl. 34(1)
+ */
+template<typename T>
+[[nodiscard]] constexpr damp::optional<design::PIDGains<T>> current_loop_pi(T L, T R, T omega, T b) {
+    if (!damp::finite_positive(L) || !damp::finite_non_negative(R) || !damp::finite_positive(omega) || !damp::isfinite(b)) {
+        return damp::nullopt;
+    }
+    return design::PIDGains<T>{.Kp = omega * L, .Ki = omega * R, .b = b};
+}
+
+} // namespace detail
 
 /**
  * @defgroup foc_design Field-Oriented Control Design
@@ -89,8 +122,8 @@ struct DqCommand {
 /**
  * @brief dq current regulator: PI + decoupling FF → clamped Vdq.
  *
- * Park / inv-Park and modulation stay on the machine adapter. Tune with
- * @ref ::damp::design::current_loop_pi via @ref tune.
+ * Park / inv-Park and modulation stay on the machine adapter. @ref tune sets both PIs to the
+ * bandwidth ω: Kp = ω·L, Kᵢ = ω·R, the closed loop ω/(s + ω) (detail::current_loop_pi).
  *
  * @tparam T Scalar type (embedded default float)
  */
@@ -120,35 +153,34 @@ struct FOController {
      */
     constexpr FOController(DQ Ldq_in, T R_in, T lambda_in, T current_bw = T{1000}, T b = T{1}) noexcept
         : Ldq(Ldq_in), R(R_in), lambda(lambda_in) {
-        tune(current_bw, T{1}, b);
+        tune(current_bw, b);
     }
 
     /**
-     * @brief Place both dq PI loops on the R–L plant.
+     * @brief Set both dq PI loops to the bandwidth ω on the R–L plant: Kp = ω·L, Kᵢ = ω·R
      *
-     * Below the plant pole R/L the PI cancels it instead of placing the pair
-     * (::damp::design::current_loop_pi). Each loop takes the placement with set_gains, its
-     * integral and limits kept. A refused placement (an out-of-range input) keeps the previous
-     * gains and returns false; under constant evaluation it does not compile.
+     * Each PI's zero cancels its axis's R/L pole, so each closed loop is ω/(s + ω) at any ω
+     * (detail::current_loop_pi). Each loop takes the gains with set_gains, its integral and limits
+     * kept. A refused input (L ≤ 0, R < 0, ω ≤ 0 or a number not finite) keeps the previous gains
+     * and returns false; under constant evaluation it does not compile.
      *
-     * @param omega_bw [rad/s] closed-loop bandwidth
-     * @param zeta     [-] damping (default 1)
+     * @param omega_bw [rad/s] closed-loop bandwidth ω
      * @param b        [-] setpoint weight: 1 = PI, 0 = I-P
-     * @return true if both loops were placed
+     * @return true if both loops were set
      */
-    constexpr bool tune(T omega_bw, T zeta = T{1}, T b = T{1}) noexcept {
-        const auto d = ::damp::design::current_loop_pi(Ldq.d, R, {.omega = omega_bw, .zeta = zeta, .b = b});
-        const auto q = ::damp::design::current_loop_pi(Ldq.q, R, {.omega = omega_bw, .zeta = zeta, .b = b});
-        if (!d.success || !q.success) {
+    constexpr bool tune(T omega_bw, T b = T{1}) noexcept {
+        const auto d = detail::current_loop_pi(Ldq.d, R, omega_bw, b);
+        const auto q = detail::current_loop_pi(Ldq.q, R, omega_bw, b);
+        if (!d || !q) {
             if (damp::is_constant_evaluated()) {
-                ::damp::detail::refuse_failed_design(d.success ? q.status : d.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
+                ::damp::detail::refuse_failed_design(::damp::design::DesignStatus::invalid_parameter); // constant-evaluated (constinit / constexpr): a refused input does not compile
             }
             return false;
         }
 
         PIController<T> dn = dctrl; // both or neither
         PIController<T> qn = qctrl;
-        if (!dn.set_gains(d) || !qn.set_gains(q)) {
+        if (!dn.set_gains(*d) || !qn.set_gains(*q)) {
             if (damp::is_constant_evaluated()) {
                 ::damp::detail::refuse_failed_design(::damp::design::DesignStatus::invalid_parameter); // a coefficient overflows
             }

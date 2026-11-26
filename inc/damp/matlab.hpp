@@ -16,20 +16,22 @@
  * | MATLAB® | Damp |
  * | ------- | ---- |
  * | `ss`, `tf`, `zpk` | `matlab::ss` / `tf` / `zpk` → `StateSpace`, `TransferFunction`, `ZPK` |
- * | `c2d`, `d2d` | `matlab::c2d` / `d2d` → `discretize` |
+ * | `c2d`, `d2d` | `matlab::c2d` / `d2d` → `discretize`; `c2d` of a PID's gains → `design::pid` |
  * | `lqr`, `dlqr`, `lqrd`, `lqi`, `lqg` | `matlab::lqr` … → `design::state_feedback` |
  * | `place`, `acker` | `matlab::place` / `acker` → `design::place` |
- * | `pidtune` | `matlab::pidtune` → `design::pidtune` |
+ * | `pid`, `pidstd`, `pidtune` | `matlab::pid` / `pidstd` / `pidtune` → continuous `design::PIDGains`, deployed by `c2d` |
  * | `kalmd`, `dlqe` | `matlab::kalmd` / `dlqe` → `design::kalman` |
  * | `bode`, `nyquist`, `margin` | `matlab::bode` … → `analysis::` |
  *
  * Include via `damp/workbench.hpp`. Each alias returns what its primary returns.
  * Constructors (`ss`, `tf`, `zpk`) return system types. The design and conversion aliases
- * (@c c2d, @c place, @c acker, @c pidtune, @c lqr / @c dlqr / @c lqrd / @c lqi / @c lqg /
+ * (@c c2d, @c place, @c acker, @c lqr / @c dlqr / @c lqrd / @c lqi / @c lqg /
  * @c kalmd, @c canon, @c minreal, @c balreal, @c balred) return the primary's Result,
- * whose @c success and @c status say whether and why it failed; @c gram, @c lyap,
+ * whose @c success and @c status say whether and why it failed; @c pidtune, @c gram, @c lyap,
  * @c dlyap, @c lyapchol, @c norm, @c expm / @c sqrtm / @c logm, @c eig, @c pole,
- * @c hankelsv, @c modred and @c thiran return @c damp::optional. Frequency aliases
+ * @c hankelsv, @c modred and @c thiran return @c damp::optional. The PID constructors
+ * (@c pid, @c pidstd, @c pidstd2, @c make1DOF, @c make2DOF) return continuous
+ * design::PIDGains, as MATLAB®'s pid object is continuous, and @c c2d deploys them. Frequency aliases
  * (@c bode, @c nyquist, @c sigma, @c rlocus, …) skip contour poles honestly (shorter
  * grids) via @c analysis::.
  */
@@ -240,8 +242,9 @@ using damp::ss2tf;
  *
  * Returns the continuous design::PIDGains, as the rest of the PID family (pidstd,
  * pidstd2, make1DOF, make2DOF, pidtune) does; @p Tf is the derivative filter time
- * constant (0 = unfiltered). Deploy with `PIDController{matlab::pid(...).discretize(Ts)}`, which
- * ticks at Ts with step(r, y), or at a period measured each tick with step(r, y, dt).
+ * constant (0 = unfiltered). Deploy with `PIDController{matlab::c2d(matlab::pid(...), Ts)}`, which
+ * ticks at Ts with step(r, y), or at a period measured each tick with step(r, y, dt). The
+ * design's own spelling is design::pid(design::Parallel{…}, Ts, opts...).
  *
  * @note Compare with MATLAB®'s C = pid(Kp, Ki, Kd, Tf). MATLAB®'s filter
  *       coefficient N maps to Tf = 1/N.
@@ -263,10 +266,10 @@ template<typename T = double>
  * (else unfiltered). @p N = 0 (the default) means no derivative filter, matching
  * MATLAB®'s default N = ∞. @p Ti <= 0 yields @f$K_i = 0@f$ (P/PD).
  *
- * Deploy with `.discretize(Ts)` → PIDController, same as other PID designs.
+ * Deploy with matlab::c2d(gains, Ts) → PIDController, as the other PID constructors.
  *
  * @note Compare with MATLAB®'s C = pidstd(Kp, Ti, Td, N) (default N = ∞, spelled 0 here).
- * @see design::pid for the parallel-form constructor
+ * @see design::Standard, the design's own standard form
  * @see pidstd2 for the 2-DOF standard-form variant
  */
 template<typename T = double>
@@ -1183,16 +1186,47 @@ template<size_t NX, size_t NU, size_t NY, typename T, size_t NW, size_t NV, size
 }
 
 /**
- * @brief Plant-aware PID tune at crossover ωc (MATLAB® pidtune spelling): 60° PID
+ * @brief Plant-aware PID tune at crossover ωc (MATLAB® pidtune spelling): a 60° PID, the continuous gains
  *
- * Forwards to @ref design::pidtune with `{.wc = wc}`; pass a design::PIDTuneSpec to
- * design::pidtune for the phase margin, law, Tf and 2-DOF weights.
+ * The fit of design::LoopShape{.wc = wc} on @p sys (design::detail::loop_shape), its closed loop
+ * certified; nullopt where that design refuses (its status says why: design::pid(sys, Ts,
+ * design::LoopShape{.wc = wc})). Deploy with matlab::c2d(*gains, Ts). The design's own spelling,
+ * at Ts with the phase margin, the law, a filter and the setpoint weights, is design::pid with
+ * LoopShape.
  *
  * @note Compare with MATLAB®'s pidtune(sys, 'PID', wc).
  */
 template<size_t NX, typename T = double>
-[[nodiscard]] constexpr design::PIDGains<T> pidtune(const StateSpace<NX, 1, 1, T>& sys, T wc) noexcept {
-    return design::pidtune(sys, design::PIDTuneSpec<T>{.wc = wc});
+[[nodiscard]] constexpr damp::optional<design::PIDGains<T>> pidtune(const StateSpace<NX, 1, 1, T>& sys, T wc) noexcept {
+    const auto tuned = design::detail::loop_shape(sys, design::detail::LoopSpec<T>{.wc = wc});
+    if (!tuned.success) {
+        return damp::nullopt;
+    }
+    return tuned.gains;
+}
+
+/**
+ * @brief MATLAB®-style c2d of a continuous PID: the design at @p Ts that PIDController runs
+ *
+ * The gains of @p gains, their filter, setpoint weights and tracking time, at the sample period
+ * @p Ts with unbounded limits (a result's `limits`, or the runtime's set_limits, bounds them):
+ * design::pid(design::Parallel{…}, Ts, DerivativeFilter, SetpointWeights, AntiWindup). The
+ * runtime's integral and derivative are backward Euler. Refused as that design refuses: Ts not
+ * finite and positive (invalid_sample_time), a gain, a Tf or a tracking time out of its domain
+ * (invalid_parameter).
+ *
+ * @note Compare with MATLAB®'s c2d(C, Ts) on a pid object, with IFormula and DFormula
+ *       'BackwardEuler'.
+ */
+template<typename T>
+[[nodiscard]] constexpr design::PIDResult<T> c2d(const design::PIDGains<T>& gains, damp::type_identity_t<T> Ts) noexcept {
+    return design::pid(
+        design::Parallel<T>{.Kp = gains.Kp, .Ki = gains.Ki, .Kd = gains.Kd},
+        Ts,
+        design::DerivativeFilter<T>{.Tf = gains.Tf},
+        design::SetpointWeights<T>{.b = gains.b, .c = gains.c},
+        design::AntiWindup<T>{.tracking_time = gains.tracking_time}
+    );
 }
 
 // ===========================================================================

@@ -168,7 +168,7 @@ All designs share the plant above. Weights for model-based linear laws:
 
 | Family | Library path | Notes |
 | ------ | ------------ | ----- |
-| Cascade PI | `pid_pole_placement` on $`b_u/s`$ then $`1/s`$ | Industry default on rate-capable axis |
+| Cascade PI | `design::pid(…, PolePlacement{.omega})` on $`b_u/s`$ then $`1/s`$ | Industry default on rate-capable axis |
 | ADRC | `design::adrc<2>(wc=8, wo=40, b0=b_u, Ts)` | Treats $`\ddot\theta = f + b_0 u`$ |
 | SMC / STSMC | `design::smc` / `design::stsmc` | Sliding on $`e,\dot e`$ (ST continuous $`u`$) |
 | Placed | `design::state_feedback(plant, Ts, design::Poles{-8.0, -12.0})` | An LQR placed at s-plane poles on the continuous plant: the discrete gain on its ZOH model |

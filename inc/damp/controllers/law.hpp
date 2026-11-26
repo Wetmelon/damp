@@ -50,7 +50,7 @@ namespace damp {
  * design::adrc (controllers/adrc.hpp) and the model inverses (design/model_inverse.hpp:
  * StateFeedforward, OutputInverse), which all run on constants when kRes is `constexpr`, MPC
  * (controllers/mpc.hpp), whose QP data stays in members and whose filter, when it has one, is on
- * constants, and PIDController (controllers/pid.hpp: design::PIDGains::discretize), whose gains
+ * constants, and PIDController (controllers/pid.hpp: design::pid), whose gains
  * stay members, settable at run time, in the narrowest mode a `constexpr` design's gains need.
  * design::kalman's Law also names its recursive filter, `Law<kRes, float>::Recursive`: the KalmanFilter
  * of the same model and noise, on the same constants when kRes is `constexpr`.

@@ -42,18 +42,13 @@ inline constexpr double b0 = 1.0 / J_nom;
 
 inline constexpr auto adrc_d = make_adrc();
 
-/// Critically-damped PD at wc plus an I pole at wc/8 (load hold).
-[[nodiscard]] constexpr design::PIDGains<double> make_pid() {
-    return design::pid_pole_placement(TransferFunction{.num = {1.0}, .den = {J_nom, 0.0, 0.0}}, {.omega = wc, .zeta = 1.0, .omega_i = wc / 8.0});
+/// Critically-damped PD at wc plus an I pole at wc/8 (load hold), its torque limit and its
+/// integral term clamped to the same ±u_max.
+[[nodiscard]] constexpr auto make_pid() {
+    return design::pid(TransferFunction{.num = {1.0}, .den = {J_nom, 0.0, 0.0}}, Ts, design::PolePlacement{.omega = wc, .zeta = 1.0, .omega_i = wc / 8.0}, design::InputLimits{.lower = {-u_max}, .upper = {u_max}}, design::AntiWindup{.limits = {.lower = -u_max, .upper = u_max}});
 }
 
 inline constexpr auto pid_d = make_pid();
-
-/// The PI-D's limits: the torque, and its integral term to the same ±u_max.
-inline constexpr design::PIDLimits<double> pid_limits{
-    .input = {.lower = -u_max, .upper = u_max},
-    .integral = {.lower = -u_max, .upper = u_max},
-};
 
 template<typename T>
 [[nodiscard]] T control_period_adrc(Law<adrc_d, T>& ctrl, T r, T y) {

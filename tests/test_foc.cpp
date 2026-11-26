@@ -20,28 +20,28 @@
 TEST_SUITE("FOC Controller") {
     constexpr float Ts = 1.0f / 8000.0f;
 
-    TEST_CASE("Pole-placement tuning") {
+    TEST_CASE("Bandwidth tuning: Kp = ωL, Ki = ωR at every bandwidth") {
         const float Ld = 200e-6f;
         const float Lq = 350e-6f; // salient: Lq != Ld -> distinct gains
         const float R = 0.5f;
-        const float omega_bw = 2.0f * std::numbers::pi_v<float> * 1000.0f; // 1 kHz
+        const float omega_bw = 2.0f * std::numbers::pi_v<float> * 1000.0f; // 1 kHz, above R/Ld = 2500 rad/s
 
         damp::motor::FOController<float> foc({.d = Ld, .q = Lq}, R, 0.0f);
-        foc.tune(omega_bw); // default zeta = 1 (critically damped)
+        CHECK(foc.tune(omega_bw));
 
-        // Kp = 2*zeta*wn*L - R, Ki = L*wn^2, per axis
-        CHECK(foc.dctrl.gains().Kp == doctest::Approx((2.0f * omega_bw * Ld) - R));
-        CHECK(foc.dctrl.gains().Ki == doctest::Approx(Ld * omega_bw * omega_bw));
-        CHECK(foc.dctrl.gains().tracking_time == doctest::Approx(foc.dctrl.gains().Kp / foc.dctrl.gains().Ki)); // T_t = T_i
+        // Kp = ω·L, Ki = ω·R per axis: the PI zero at −Ki/Kp = −R/L cancels the plant pole.
+        CHECK(foc.dctrl.gains().Kp == doctest::Approx(omega_bw * Ld));
+        CHECK(foc.dctrl.gains().Ki == doctest::Approx(omega_bw * R));
+        CHECK(foc.dctrl.gains().tracking_time == 0.0f); // the integral holds against the voltage circle
+        CHECK(foc.qctrl.gains().Kp == doctest::Approx(omega_bw * Lq));
+        CHECK(foc.qctrl.gains().Ki == doctest::Approx(omega_bw * R));
+        CHECK(foc.dctrl.gains().Ki / foc.dctrl.gains().Kp == doctest::Approx(R / Ld));
+        CHECK(foc.qctrl.gains().Ki / foc.qctrl.gains().Kp == doctest::Approx(R / Lq));
 
-        CHECK(foc.qctrl.gains().Kp == doctest::Approx((2.0f * omega_bw * Lq) - R));
-        CHECK(foc.qctrl.gains().Ki == doctest::Approx(Lq * omega_bw * omega_bw));
-        CHECK(foc.qctrl.gains().tracking_time == doctest::Approx(foc.qctrl.gains().Kp / foc.qctrl.gains().Ki));
-
-        // q-axis has larger inductance -> larger gains
+        // q-axis has larger inductance -> larger Kp, the same Ki
         CHECK(foc.qctrl.gains().Kp > foc.dctrl.gains().Kp);
 
-        // 10 rad/s is slower than the R/L pole: the PI cancels it, Kp = ωL, Ki = ωR.
+        // Below the R/L pole the formula is the same.
         CHECK(foc.tune(10.0f));
         CHECK(foc.dctrl.gains().Kp == doctest::Approx(10.0f * Ld));
         CHECK(foc.qctrl.gains().Ki == doctest::Approx(10.0f * R));
@@ -52,20 +52,34 @@ TEST_SUITE("FOC Controller") {
         CHECK(foc.dctrl.gains().Kp == Kp_d);
     }
 
-    TEST_CASE("FOC tuning uses pid_pole_placement") {
-        // Verify the motor controller uses the generic SISO PI pole-placement kernel.
-        // with (a1,a0)=(L,R) — verify the delegation rather than a re-derivation.
-        constexpr float                  L = 200e-6f;
-        constexpr float                  R = 0.5f;
-        constexpr float                  omega = 6000.0f;
-        constexpr float                  zeta = 1.0f;
-        constexpr float                  b = 0.0f;
-        constexpr auto                   via_kernel = damp::design::pid_pole_placement(damp::TransferFunction<1, 2, float>{.num = {1.0F}, .den = {L, R}}, {.omega = omega, .zeta = zeta, .b = b});
+    TEST_CASE("the tuned current loop is ω/(s + ω): a step reaches 1 − e^(−1) at t = 1/ω") {
+        // L di/dt = v − R i under the PI on the measured period, sub-stepped: the closed loop is first order.
+        constexpr double                  L = 200e-6;
+        constexpr double                  R = 0.5;
+        constexpr double                  omega = 6000.0; // above R/L = 2500 rad/s: the old placement put a pair here
+        constexpr double                  dt = 1e-7;
+        damp::motor::FOController<double> foc({.d = L, .q = L}, R, 0.0, omega);
+        double                            iq = 0.0;
+        const int                         n = static_cast<int>(std::lround(1.0 / (omega * dt)));
+        for (int k = 0; k < n; ++k) {
+            const auto cmd = foc.current_controller({.d = 0.0, .q = 1.0}, {.d = 0.0, .q = iq}, 0.0, dt);
+            iq += dt * (cmd.Vdq.q - (R * iq)) / L;
+        }
+        CHECK(iq == doctest::Approx(1.0 - std::exp(-1.0)).epsilon(2e-3));
+    }
+
+    TEST_CASE("the damped pair of the old tuning is design::pid's PolePlacement on 1/(L s + R)") {
+        constexpr float L = 200e-6f;
+        constexpr float R = 0.5f;
+        constexpr float omega = 6000.0f;
+        constexpr auto  pair = damp::design::pid(damp::TransferFunction<1, 2, float>{.num = {1.0F}, .den = {L, R}}, Ts, damp::design::PolePlacement{.omega = omega, .zeta = 0.8f}, damp::design::SetpointWeights{.b = 0.0f});
+        static_assert(pair.success);
+        CHECK(pair.gains.Kp == doctest::Approx((2.0f * 0.8f * omega * L) - R));
+        CHECK(pair.gains.Ki == doctest::Approx(L * omega * omega));
+        CHECK(pair.gains.b == 0.0f);
         damp::motor::FOController<float> foc({.d = L, .q = L}, R, 0.0f);
-        foc.tune(omega, zeta, b);
-        CHECK(foc.dctrl.gains().Kp == doctest::Approx(via_kernel.Kp));
-        CHECK(foc.dctrl.gains().Ki == doctest::Approx(via_kernel.Ki));
-        CHECK(foc.dctrl.gains().b == doctest::Approx(via_kernel.b));
+        CHECK(foc.dctrl.set_gains(pair.gains)); // a placed pair runs on the FOC's PIs
+        CHECK(foc.dctrl.gains().Kp == pair.gains.Kp);
     }
 
     TEST_CASE("Voltage-circle limit and anti-windup") {
@@ -159,31 +173,32 @@ TEST_SUITE("FOC Controller") {
         CHECK(foc.current_controller(Idq_ref, Idq, 0.0f, 0.0f).Vdq.q == doctest::Approx(0.5f));
     }
 
-    TEST_CASE("pid_pole_placement returns a clean 2-DOF PIDGains") {
+    TEST_CASE("PolePlacement on an R–L axis returns a clean 2-DOF design") {
         const double L = 250e-6;
         const double R = 0.35;
         const double wbw = 1500.0;
-        const auto   res = damp::design::pid_pole_placement(damp::TransferFunction<1, 2>{.num = {1.0}, .den = {L, R}}, {.omega = wbw}); // zeta=1, b=1 defaults
+        const auto   placed = damp::design::pid(damp::TransferFunction<1, 2>{.num = {1.0}, .den = {L, R}}, 1e-4, damp::design::PolePlacement{.omega = wbw}); // zeta=1, b=1 defaults
+        REQUIRE(placed.success);
+        const auto& res = placed.gains;
 
         CHECK(res.Kp == doctest::Approx((2.0 * wbw * L) - R));
         CHECK(res.Ki == doctest::Approx(L * wbw * wbw));
         CHECK(res.Kd == doctest::Approx(0.0));
-        CHECK(res.tracking_time == doctest::Approx(res.Kp / res.Ki)); // T_t = T_i anti-windup seed
+        CHECK(res.tracking_time == 0.0); // no seed: the integral holds against a clamp
         CHECK(res.b == doctest::Approx(1.0));
 
         // Regression: output/integrator limits must stay unbounded. A positional
         // brace-init slip {Kp, Ki, Kd, Ts} once landed Ts in the output-limit slot, which
         // would silently clamp any PIDController built straight from the result. The limits
-        // are discretize's now, unbounded unless given.
+        // are the options', unbounded unless given.
         constexpr double inf = std::numeric_limits<double>::max();
-        const auto       deployed = res.discretize(1e-4);
-        CHECK(deployed.limits.input.lower(0) == -inf);
-        CHECK(deployed.limits.input.upper(0) == inf);
-        CHECK(deployed.limits.integral.lower(0) == -inf);
-        CHECK(deployed.limits.integral.upper(0) == inf);
+        CHECK(placed.limits.input.lower(0) == -inf);
+        CHECK(placed.limits.input.upper(0) == inf);
+        CHECK(placed.limits.integral.lower(0) == -inf);
+        CHECK(placed.limits.integral.upper(0) == inf);
 
         // The setpoint weight propagates for the I-P structure.
-        CHECK(damp::design::pid_pole_placement(damp::TransferFunction<1, 2>{.num = {1.0}, .den = {L, R}}, {.omega = wbw, .zeta = 1.0, .b = 0.0}).b == doctest::Approx(0.0));
+        CHECK(damp::design::pid(damp::TransferFunction<1, 2>{.num = {1.0}, .den = {L, R}}, 1e-4, damp::design::PolePlacement{.omega = wbw}, damp::design::SetpointWeights{.b = 0.0}).gains.b == doctest::Approx(0.0));
     }
 
     TEST_CASE("tune() setpoint weight selects PI vs I-P") {
@@ -194,7 +209,7 @@ TEST_SUITE("FOC Controller") {
         CHECK(foc.dctrl.gains().b == doctest::Approx(1.0f));
         CHECK(foc.qctrl.gains().b == doctest::Approx(1.0f));
 
-        foc.tune(wbw, 1.0f, 0.0f); // b = 0 -> I-P
+        foc.tune(wbw, 0.0f); // b = 0 -> I-P
         CHECK(foc.dctrl.gains().b == doctest::Approx(0.0f));
         CHECK(foc.qctrl.gains().b == doctest::Approx(0.0f));
     }
@@ -205,7 +220,7 @@ TEST_SUITE("FOC Controller") {
 
         auto make_foc = [&](float b) {
             damp::motor::FOController<float> foc({.d = 200e-6f, .q = 200e-6f}, 0.5f, 0.0f);
-            foc.tune(wbw, 1.0f, b);
+            foc.tune(wbw, b);
             return foc;
         };
 

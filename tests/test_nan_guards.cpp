@@ -281,9 +281,49 @@ TEST_SUITE("NaN guards") {
     TEST_CASE("AMIGO refuses a relay point whose finite inputs overflow its model") {
         // Ks·Ku overflows to +Inf, so τ is +Inf and the gains NaN: they were returned as a success.
         volatile double big = 1e200;
-        const auto      gains = design::amigo_kappa_tau(static_cast<double>(big), static_cast<double>(big), 1.0);
+        const auto      gains = design::pid(design::Ultimate{.Ku = static_cast<double>(big), .Tu = 1.0, .K = static_cast<double>(big)}, 0.01, design::AMIGO{});
         CHECK(gains.status == DesignStatus::invalid_parameter);
-        CHECK(design::amigo_kappa_tau(0.5, 4.0, 1.0).success);
+        CHECK(design::pid(design::Ultimate{.Ku = 4.0, .Tu = 1.0, .K = 0.5}, 0.01, design::AMIGO{}).success);
+    }
+
+    TEST_CASE_TEMPLATE("design::pid refuses a non-finite model, rule, option or Ts number", T, float, double) {
+        const T ts = static_cast<T>(0.01);
+        REQUIRE(design::pid(design::FOPDT<T>{.K = T{2}, .L = T{1}, .tau = T{5}}, ts, design::SIMC<T>{.tau_c = T{1}}).success);
+        REQUIRE(design::pid(design::FOPDT<T>{.K = T{2}, .L = T{1}, .tau = T{5}}, ts, design::AMIGO{}).success);
+        REQUIRE(design::pid(design::Ultimate<T>{.Ku = T{4}, .Tu = T{2}}, ts, design::LoopShape<T>{}).success);
+        REQUIRE(design::pid(design::Parallel<T>{.Kp = T{1}, .Ki = T{1}}, ts).success);
+        REQUIRE(design::pid(design::Standard<T>{.Kp = T{1}, .Ti = T{1}}, ts).success);
+        for (const T bad : non_finite<T>()) {
+            const auto simc = [&](T K, T L, T tau, T tau_c) { return design::pid(design::FOPDT<T>{.K = K, .L = L, .tau = tau}, ts, design::SIMC<T>{.tau_c = tau_c}).status; };
+            CHECK(simc(bad, T{1}, T{5}, T{1}) == DesignStatus::invalid_parameter);
+            CHECK(simc(T{2}, bad, T{5}, T{1}) == DesignStatus::invalid_parameter);
+            CHECK(simc(T{2}, T{1}, bad, T{1}) == DesignStatus::invalid_parameter);
+            CHECK(simc(T{2}, T{1}, T{5}, bad) == DesignStatus::invalid_parameter);
+            CHECK(design::pid(design::FOPDT<T>{.K = T{2}, .L = bad, .tau = T{5}}, ts, design::AMIGO{}).status == DesignStatus::invalid_parameter);
+            CHECK(design::pid(design::FOPDT<T>{.K = T{2}, .L = T{1}, .tau = bad}, ts, design::AMIGO{}).status == DesignStatus::invalid_parameter);
+            CHECK(design::pid(design::Ultimate<T>{.Ku = bad, .Tu = T{2}}, ts, design::LoopShape<T>{}).status == DesignStatus::invalid_parameter);
+            CHECK(design::pid(design::Ultimate<T>{.Ku = T{4}, .Tu = bad}, ts, design::LoopShape<T>{}).status == DesignStatus::invalid_parameter);
+            CHECK(design::pid(design::Ultimate<T>{.Ku = T{4}, .Tu = T{2}}, ts, design::LoopShape<T>{.phase_margin = bad}).status == DesignStatus::invalid_parameter);
+            CHECK(design::pid(design::Ultimate<T>{.Ku = T{4}, .Tu = T{2}, .K = bad}, ts, design::AMIGO{}).status == DesignStatus::invalid_parameter);
+            CHECK(design::pid(design::Parallel<T>{.Kp = bad}, ts).status == DesignStatus::invalid_parameter);
+            CHECK(design::pid(design::Parallel<T>{.Kp = T{1}, .Ki = bad}, ts).status == DesignStatus::invalid_parameter);
+            CHECK(design::pid(design::Parallel<T>{.Kp = T{1}, .Kd = bad}, ts).status == DesignStatus::invalid_parameter);
+            CHECK(design::pid(design::Standard<T>{.Kp = T{1}, .Ti = bad}, ts).status == DesignStatus::invalid_parameter);
+            CHECK(design::pid(design::Standard<T>{.Kp = T{1}, .Ti = T{1}, .Td = bad}, ts).status == DesignStatus::invalid_parameter);
+            CHECK(design::pid(design::Parallel<T>{.Kp = T{1}}, bad).status == DesignStatus::invalid_sample_time);
+            const auto opt = [&](const auto& option) { return design::pid(design::Parallel<T>{.Kp = T{1}, .Ki = T{1}, .Kd = T{1}}, ts, option).status; };
+            CHECK(opt(design::DerivativeFilter<T>{.Tf = bad}) == DesignStatus::invalid_parameter);
+            CHECK(opt(design::SetpointWeights<T>{.b = bad}) == DesignStatus::invalid_parameter);
+            CHECK(opt(design::SetpointWeights<T>{.c = bad}) == DesignStatus::invalid_parameter);
+            CHECK(opt(design::AntiWindup<T>{.tracking_time = bad}) == DesignStatus::invalid_parameter);
+            CHECK(opt(design::AntiWindup<T>{.limits = {.lower = bad, .upper = T{1}}}) == DesignStatus::invalid_parameter);
+            CHECK(opt(design::InputLimits<1, T>{.lower = {T{-1}}, .upper = {bad}}) == DesignStatus::invalid_parameter);
+            const StateSpace<1, 1, 1, T> lag{.A = {{T{-1}}}, .B = {{T{1}}}, .C = {{T{1}}}};
+            CHECK(design::pid(lag, ts, design::LoopShape<T>{.wc = bad}).status == DesignStatus::invalid_parameter);
+            CHECK(design::pid(lag, ts, design::PolePlacement<T>{.omega = bad}).status == DesignStatus::invalid_parameter);
+            CHECK(design::pid(lag, ts, design::PolePlacement<T>{.omega = T{2}, .zeta = bad}).status == DesignStatus::invalid_parameter);
+            CHECK(design::pid(lag, ts, design::Poles{bad, T{-5}}).status == DesignStatus::invalid_parameter);
+        }
     }
 
     TEST_CASE_TEMPLATE("MPC horizon suggestions refuse a non-finite settling time or sample time", T, float, double) {
@@ -486,11 +526,12 @@ TEST_SUITE("NaN guards") {
         // x86 under -ffast-math reads NaN == 0 as true: a test sys.Ts != 0 took a NaN for continuous.
         StateSpace<2, 1, 1, T> plant{.A = {{T{0}, T{1}}, {T{-2}, T{-3}}}, .B = {{T{0}}, {T{1}}}, .C = {{T{1}, T{0}}}};
         const T                ts{static_cast<T>(0.01)};
-        REQUIRE(design::pidtune(plant, design::PIDTuneSpec<T>{.wc = T{2}}).success);
+        REQUIRE(design::pid(plant, ts, design::LoopShape<T>{.wc = T{2}}).success);
         REQUIRE(design::kalman(plant, ts, design::KalmanNoise{.process = Matrix<2, 2, T>::identity(), .measurement = static_cast<T>(0.01)}).success);
         REQUIRE(design::state_feedback(plant, ts, design::LQRWeights{.Q = Matrix<2, 2, T>::identity(), .R = {T{1}}}).success);
         plant.Ts = runtime_nan<T>();
-        CHECK(design::pidtune(plant, design::PIDTuneSpec<T>{.wc = T{2}}).status == DesignStatus::invalid_sample_time);
+        CHECK(design::pid(plant, ts, design::LoopShape<T>{.wc = T{2}}).status == DesignStatus::invalid_sample_time);
+        CHECK(design::pid(plant, ts, design::PolePlacement<T>{.omega = T{2}}).status == DesignStatus::invalid_sample_time);
         CHECK(design::kalman(plant, ts, design::KalmanNoise{.process = Matrix<2, 2, T>::identity(), .measurement = static_cast<T>(0.01)}).status == DesignStatus::invalid_sample_time);
         CHECK(design::state_feedback(plant, ts, design::LQRWeights{.Q = Matrix<2, 2, T>::identity(), .R = {T{1}}}).status == DesignStatus::invalid_sample_time);
         CHECK_FALSE(discretize(plant, ts, InputDelay{static_cast<T>(0.005)}).success);
@@ -614,7 +655,7 @@ TEST_SUITE("NaN guards") {
             rls.theta_lim.upper[0] = bad;
             CHECK_FALSE(rls.valid());
 
-            // Every gain a PID runtime reads, in a result built by hand past discretize's check; a
+            // Every gain a PID runtime reads, in a result built by hand past design::pid's check; a
             // NaN Kd must not read as no derivative.
             design::PIDResult<T> g{.Ts = ts};
             design::detail::set_status(g, DesignStatus::ok);
@@ -648,8 +689,8 @@ TEST_SUITE("NaN guards") {
     TEST_CASE_TEMPLATE("PID set_gains and set_limits refuse a bad value at run time and change nothing", T, float, double) {
         //! A gain or a limit that arrives at run time, from a tuning link or a config file.
         const T          Ts = static_cast<T>(0.01);
-        PIDController<T> pid{design::PIDGains<T>{.Kp = T{2}, .Ki = T{4}, .Kd = static_cast<T>(0.1), .tracking_time = static_cast<T>(0.5), .Tf = static_cast<T>(0.02)}.discretize(Ts, {.input = {.lower = T{-1}, .upper = T{1}}})};
-        PIController<T>  pi{design::PIDGains<T>{.Kp = T{2}, .Ki = T{4}}.discretize(Ts)};
+        PIDController<T> pid{design::pid(design::Parallel<T>{.Kp = T{2}, .Ki = T{4}, .Kd = static_cast<T>(0.1)}, Ts, design::AntiWindup<T>{.tracking_time = static_cast<T>(0.5)}, design::DerivativeFilter<T>{.Tf = static_cast<T>(0.02)}, design::InputLimits<1, T>{.lower = {T{-1}}, .upper = {T{1}}})};
+        PIController<T>  pi{design::pid(design::Parallel<T>{.Kp = T{2}, .Ki = T{4}}, Ts)};
         const auto       settle = [&] {
             for (int k = 0; k < 20; ++k) {
                 (void)pid.step(T{1}, static_cast<T>(0.01) * static_cast<T>(k));

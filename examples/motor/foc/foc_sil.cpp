@@ -112,6 +112,11 @@ int main() {
     fmt::print("  I-P (b=0) | {:14.3f} | {:13.1f} | {:14.3f} | {:11.3f}\n", ip.rise_ms, ip.overshoot_pct, ip.peak_vmag, ip.final_iq);
     fmt::print("\n  Vmax = {:.2f} V — PI peaks higher into the voltage circle; both reject the\n", Vmax);
     fmt::print("  {:.0f} V disturbance to the same steady iq (identical poles / rejection).\n", vq_dist);
+    // tune's PI zero cancels the R/L pole: the PI's step is ω/(s + ω), the I-P's ω·a/((s + a)(s + ω)), a = R/L.
+    const T a = Rs / Ls;
+    const T rise_pi = std::log(50.0) / bw;                 // 98% of a first-order step at ω
+    const T rise_ip = -std::log(0.02 * (bw - a) / bw) / a; // 98% of the two-pole step, its slow pole a dominant
+    fmt::print("  Continuous loop: PI 98% rise {:.3f} ms (first order at w_bw), I-P {:.3f} ms (the R/L pole)\n", rise_pi * 1e3, rise_ip * 1e3);
 
     // ----- Plot: PI vs I-P overlay, currents + |Vdq| ------------------------
     using namespace plotlypp;
@@ -201,8 +206,10 @@ int main() {
     };
     const auto at_ref = [](const RunLog& r) { return std::abs(r.final_iq - Iq_ref) < 0.01 * Iq_ref; };
     check(at_ref(pi) && at_ref(ip), "both structures reject the disturbance to the same iq");
-    check(ip.overshoot_pct < 1.0 && pi.overshoot_pct > ip.overshoot_pct + 1.0, "the I-P step does not overshoot, the PI's does");
+    check(ip.overshoot_pct < 1.0 && pi.overshoot_pct < 1.0, "neither step overshoots: the PI's loop is first order, the I-P's the plant pole after it");
     check(pi.rise_ms < ip.rise_ms, "the PI rises first");
+    check(std::abs((pi.rise_ms * 1e-3) - rise_pi) < 0.25 * rise_pi, "the PI's 98% rise is the first-order loop's at w_bw, within 25%");
+    check(std::abs((ip.rise_ms * 1e-3) - rise_ip) < 0.25 * rise_ip, "the I-P's 98% rise is set by the R/L pole, within 25%");
     check(pi.peak_vmag > ip.peak_vmag && pi.peak_vmag <= 1.0001 * Vmax, "the PI peaks higher into the voltage circle, and stays inside it");
     return ok ? 0 : 1;
 }

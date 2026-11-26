@@ -219,12 +219,14 @@ TEST_SUITE("Relay Autotune Runtime") {
         CHECK(out.Tu == doctest::Approx(Tu_expected).epsilon(0.10));
         CHECK(out.Ku == doctest::Approx(Ku_expected).epsilon(0.25));
 
-        // Feed (Ku, Tu) into Tyreus-Luyben (the modern drop-in over the
-        // original Ziegler-Nichols formulas) and sanity-check the gains.
-        const auto pid = design::tyreus_luyben(out.Ku, out.Tu);
-        CHECK(pid.Kp > 0.0);
-        CHECK(pid.Ki > 0.0);
-        CHECK(pid.Kd > 0.0);
+        // Feed (Ku, Tu) into the phase-margin design at the measured point and check the loop it
+        // closes on the true plant, which the design itself cannot certify from one point.
+        const auto pid = design::pid(design::Ultimate{.Ku = out.Ku, .Tu = out.Tu}, Ts, design::LoopShape{.phase_margin = 45.0});
+        REQUIRE(pid.success);
+        CHECK(pid.gains.Kp > 0.0);
+        CHECK(pid.gains.Ki > 0.0);
+        CHECK(pid.gains.Kd > 0.0);
+        CHECK(design::detail::closed_loop_stable(ss2tf(plant), pid.gains));
     }
 
     TEST_CASE("reset returns a finished tuner to Idle") {
